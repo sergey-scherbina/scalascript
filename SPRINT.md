@@ -432,9 +432,15 @@ Slices, impact-ordered (biggest clean lever first):
       (subsumed old isEnumCase/isCC branches; kept None/Nil ctor + topval/topvar cell.get). G1b: new
       isUidGlobal/methodRecv rewrite an UPPERCASE `(global X)` receiver → `(ctor X)` in emitMethodCall only
       (lowercase `(global foo)` stays a var recv). Fixed dataset-*/spark-*/sql-*/scljet-typedsql-*/etc.
-- [ ] **G2 — map-var (16):** lex `->` (prec1 infix, ssc1-front :1477), bare `a -> b`→`(ctor Pair a b)`
-      (ssc1-lower :2572), `Map(k->v,..)`→buildMapExpr IIFE (:1362/2110), mapVars registry (:2324/3897) →
-      `.updated`/`.getOrElse`→`_sel_mapUpdated`/`_sel_mapGetOrElse` (:1495).
+- [x] **G2/M1+M2 — DONE. arrow `->` + `Map(..)` construction. Corpus 219 → 230 (+11), 0 regressions.
+      fixpoint 159,992→164,022 B.** M1: lex `->` (code 57, after `-=`), prec-1 infix (binPrecK), emitBin
+      `->`→`(ctor Pair l r)` (ssc1-lower inf :2572). M2: parseCtorArgs intercepts `Map(..)`→parseMapLit,
+      emits buildMapExpr IIFE `(app (lam 1 <let-chain of (prim map.put (local d) k v)> (local n)) (prim
+      map.new))` (ssc1-lower :1362); k/v parsed at env deepened by (d+1) anon slots; bare entry→(a,a),
+      `a->b`→(a,b). Fixed content-slot/http-client/oauth-*/mcp-*/std-i18n/maps/scljet-write-*/etc.
+      NOTE: top-level `val m = Map(..)` is NOT registered as a mapVar by the oracle, so `m.getOrElse`/
+      `.updated` stay `__method__` (maps.code matched with NO M3). M3 (`_sel_mapUpdated`/`_sel_mapGetOrElse`)
+      only needed for BLOCK-LOCAL map vars — deferred (needs name-registry threading, same as isListVar S3).
 - [ ] **G3 — cc/tc-method-def (16) + related:** case-class/typeclass body methods → `Tag_method(self,..)`
       globals + `__regmethod__` regs (ssc1-lower :5088-5165, classBodyFields :3710). Big; slice further.
 - [ ] **derived-codec (20), for-comprehension (6), string-escape/multiline (12): later.**
