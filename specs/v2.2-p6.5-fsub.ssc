@@ -366,7 +366,12 @@ def rightMin(p) = if p == 5 then p else p + 1
 // `{ val x = e  BODY }` -> `(let (e) BODY)`, nesting one let per val (measured). The bound name is
 // pushed onto the env for the REST of the block, so later vals see it at the right depth.
 def parseBlock(ts, env, cx) = parseBlock0(skipSemisF(ts), env, cx)
-def parseBlock0(ts, env, cx) = if isTok(hd(ts), 2, 7) then parseBlockVal(tl(ts), env, cx) else parseBlockExpr(ts, env, cx)
+// A block that STARTS with `case` is a partial-function / case-lambda: `{ case Pat => b .. }` ->
+// `(lam 1 (match (local 0) (arms)))` (measured: `pairs.foreach { case (a,b) => .. }` -> the block is a
+// lam-1 whose body matches its single param). The lambda param occupies (local 0), so the arms are
+// parsed against a one-slot env exactly like a match scrutinee — reuse parseArms (ctor/tuple/cons arms).
+def parseBlock0(ts, env, cx) = if isTok(hd(ts), 2, 6) then parseCaseLambda(ts, env, cx) else (if isTok(hd(ts), 2, 7) then parseBlockVal(tl(ts), env, cx) else parseBlockExpr(ts, env, cx))
+def parseCaseLambda(ts, env, cx) = parseArms(ts, "" :: env, cx) match { case (arms, r) => ("(lam 1 (match (local 0) (" ++ fst(arms) ++ ")" ++ snd(arms) ++ "))", r) }
 def parseBlockVal(ts, env, cx) = parseBlockVal1(snd(hd(ts)), skipToEq(tl(ts)), env, cx)
 def parseBlockVal1(nm, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => parseBlockRest(nm, e, r, env, cx) }
 def parseBlockRest(nm, e, ts, env, cx) = parseBlock(ts, nm :: env, cx) match { case (b, r) => ("(let (" ++ e ++ ") " ++ b ++ ")", r) }
