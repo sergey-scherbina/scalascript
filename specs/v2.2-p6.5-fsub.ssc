@@ -889,7 +889,7 @@ def collectEnumCaseNames(ts) = if isEmpty(ts) then Nil else (if isEnumHead(ts) t
 def collectECN1(ts) = enumCasesFrom(ts) match { case (cases, r) => appEnv(caseNamesL(cases), collectEnumCaseNames(r)) }
 def caseNamesL(cases) = cases match { case Nil => Nil case h :: t => Cons(fst(h), caseNamesL(t)) }
 def defTopItem(ts, cx) = emitDef(ts, cx) match { case (d, rest) => ((d, ""), rest) }
-def ccTopItem(ts, cx) = emitCCDecl(ts, cx) match { case (d, rest) => ((d, ""), rest) }
+def ccTopItem(ts, cx) = emitCCDecl(ts, cx) match { case (d, rest) => ((d, ccDerivedInit(ccNameAt(ts), derivesAt(tl(tl(ts))))), rest) }
 def valItem(ts, cx) = valItem1(snd(hd(tl(ts))), skipToEq(tl(ts)), cx)
 def valItem1(nm, ts, cx) = parseExpr(ts, 0, Nil, cx) match { case (init, rest) => (("", "(prim cell.set (global " ++ nm ++ "__cell) " ++ init ++ ")"), rest) }
 def exprItem(ts, cx) = parseExpr(ts, 0, Nil, cx) match { case (e, rest) => (("", e), rest) }
@@ -905,13 +905,22 @@ def emitCCDecl(ts, cx) = collectCC1(tl(tl(ts))) match { case c :: r => (emitCC(c
 // — carrying method defs (T3). skipCCHead must CONSUME that body (an optional `:` then a `{..}` block) so
 // it does not cascade into the entry as garbage; the methods themselves are collected by collectCaseMethods.
 def skipCCHead(ts) = collectFields(tl(tl(ts)), Nil) match { case (fs, r) => skipCCBody(skipExtends(r)) }
-def skipCCBody(ts) = skipCCBrace(skipCCColon(ts))
+def skipCCBody(ts) = skipCCBrace(skipCCColon(skipDerives(ts)))
+// `derives TC1, TC2` clause (ssc1-front findCaseDerives :2228) — skip in the head walk (comes after
+// params/extends, before any body). Each TC name may carry erased type args (skipGen).
+def skipDerives(ts) = if isWord(hd(ts), "derives") then skipDvNames(tl(ts)) else ts
+def skipDvNames(ts) = skipDvAfter(skipGen(tl(ts)))
+def skipDvAfter(ts) = if isTok(hd(ts), 2, 27) then skipDvNames(tl(ts)) else ts
 def skipCCColon(ts) = if isTok(hd(ts), 2, 34) then tl(ts) else ts
 def skipCCBrace(ts) = if isTok(hd(ts), 2, 28) then skipBrace(tl(ts), 1) else ts
 // pre-pass: top-level `val` names in source order. Same item advancement as walkTop; `rest` does not
 // depend on the (not-yet-known) val names, so a base cx (empty valNames) gives the right boundaries.
 def collectTopVals(ts, cx) = collectTopVals0(skipSemisF(ts), cx)
-def collectTopVals0(ts, cx) = if isEmpty(ts) then Nil else (if isTok(hd(ts), 2, 7) then collectValName(ts, cx) else collectTopVals(sndRest(parseTopItem(ts, cx)), cx))
+def collectTopVals0(ts, cx) = if isEmpty(ts) then Nil else (if isTok(hd(ts), 2, 7) then collectValName(ts, cx) else (if isCCHead(ts) then collectCCVals(ts, cx) else collectTopVals(sndRest(parseTopItem(ts, cx)), cx)))
+// A `case class X(..) derives TC1,..` contributes a `__derived_TC_X` top-val NAME per derived TC (in
+// derives order, at the class's source position) — ssc1-lower collectTopVals appends derivedValueNames
+// :4976. valCells then emits `(def __derived_TC_X__cell (prim cell.new (lit unit)))` in that slot.
+def collectCCVals(ts, cx) = appEnv(derivedNames(ccNameAt(ts), derivesAt(tl(tl(ts)))), collectTopVals(sndRest(parseTopItem(ts, cx)), cx))
 def sndRest(pr) = pr match { case (parts, rest) => rest }
 def collectValName(ts, cx) = valItem(ts, cx) match { case (parts, rest) => Cons(snd(hd(tl(ts))), collectTopVals(rest, cx)) }
 // one empty global cell per top-level val, placed between the prelude and the sels (ssc1-lower def
@@ -978,6 +987,22 @@ def ctorArgs(ar, i) = if i >= ar then "" else " (local " ++ (ar - 1 - i) ++ ")" 
 def emitMirror(c, dq) = "(def __mirror_" ++ ccName(c) ++ " (ctor Mirror (lit (str " ++ dq ++ ccName(c) ++ dq ++ ")) " ++ strList(fieldNamesOf(ccFields(c)), dq) ++ " " ++ strList(fieldTypesOf(ccFields(c)), dq) ++ "))"
 def fieldTypesOf(fs) = fs match { case Nil => Nil case h :: t => Cons(fldType(h), fieldTypesOf(t)) }
 def strList(xs, dq) = xs match { case Nil => "(ctor Nil)" case h :: t => "(ctor Cons (lit (str " ++ dq ++ h ++ dq ++ ")) " ++ strList(t, dq) ++ ")" }
+
+// -- derives TC (derived typeclass instances) ------------------------------------------------------
+// `case class X(..) derives TC1, TC2` (ssc1-lower derivedInitIrs :3803 / derivedValueNames :3787):
+//   • cell `(def __derived_TC_X__cell (prim cell.new (lit unit)))` via collectTopVals/valCells (above);
+//   • entry init `(prim cell.set (global __derived_TC_X__cell) (app (global TC_derived) (global __mirror_X)))`
+//     as the class's doc-order entry item (after all regfields). Mirror + regfields already emit for
+//     EVERY case class (F matches plain cc). `TC_derived` is an imported/object global (unbound => runtime
+//     supplies it). summon-based access + `object TC { def derived }` are separate (deeper) levers.
+def ccNameAt(ts) = snd(hd(tl(tl(ts))))
+def derivesAt(tsName) = collectFields(tl(tl(tsName)), Nil) match { case (fs, r) => derivesClause(skipExtends(r)) }
+def derivesClause(ts) = if isWord(hd(ts), "derives") then parseDvList(tl(ts)) else Nil
+def parseDvList(ts) = Cons(snd(hd(ts)), parseDvListMore(skipGen(tl(ts))))
+def parseDvListMore(ts) = if isTok(hd(ts), 2, 27) then parseDvList(tl(ts)) else Nil
+def derivedNames(tn, tcs) = tcs match { case Nil => Nil case h :: t => Cons("__derived_" ++ h ++ "_" ++ tn, derivedNames(tn, t)) }
+def ccDerivedInit(tn, tcs) = tcs match { case Nil => "" case h :: t => join2(derivedInit1(tn, h), ccDerivedInit(tn, t)) }
+def derivedInit1(tn, tc) = "(prim cell.set (global __derived_" ++ tc ++ "_" ++ tn ++ "__cell) (app (global " ++ tc ++ "_derived) (global __mirror_" ++ tn ++ ")))"
 
 // -- T3: case-class BODY methods ------------------------------------------------------------------
 // `case class C(f1..fn): def m(p1..pk): T = body` -> a hoisted `(def C_m (lam k+1 <field-lets> body))`
