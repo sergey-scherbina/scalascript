@@ -756,6 +756,11 @@ Claim `v2-p65-layout` on origin/main covers this lane. Work dir /tmp/p65ccm (ker
       (mirror parseNeg) `parseBang` -> `(if <atom> (lit false) (lit true))`. No MATCH file can have a
       boolean-not `!` today (F drops it => would DIFF), so lexing it cannot regress. F's own source has no
       bare `!`. Re-freeze fixpoint.
+- [x] **G3 — DONE (`b555048b5`). `???` notImplemented.** F DROPS `?` (opCode 0), so `else ???` loses the `???` and the parser
+      eats the next statement as the else-branch. Oracle: `???` -> `(prim __notImplemented__)` (VERIFIED
+      predef-notimplemented `if b then 42 else ???`). Fix: lex `???` (three `?`) as token code 60; parseAtom1
+      -> `(prim __notImplemented__)`; add 60 to canEndLineP (a value ends the line). F source has 0 `?`; single
+      `?` still drops (unchanged). 2 corpus files (predef-notimplemented flips; x402-cardano-scalus has more).
       (ssc1-lower resolveMatch, VERIFIED byte-exact on data-types `classify` + pattern-matching `describe`)
       lowers a scalar match to a NESTED let/if chain, NOT F's int-chain or `(match ..)`: outer
       `(let (<scrut>) <chain>)`; VAR arm `case x [if g]` -> `(let (<scrut-ref>) [(if g body rest) | body])`

@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-07-19 — v2-p65-guard G3: `???` notImplemented desugar
+
+`v2-p65-guard` (v2-finish breadth). F dropped `?` (opCode 0), so `else ???` lost the placeholder and the
+parser ate the next statement. Now `???` lexes to token code 60 and lowers to `(prim __notImplemented__)`
+(oracle-exact); code 60 added to canEndLineP so the value ends its line. Corpus MATCH 308->309/508
+(predef-notimplemented), ZERO drops; X1 fixpoint stage1==stage2 byte-identical 199,800->200,787 B; --self
+153 ok/0 FAIL; kernel +0 (`b555048b5`).
+
 ## 2026-07-19 — v2-p65-guard G2: `!expr` boolean-not desugar
 
 `v2-p65-guard` (v2-finish breadth). F's `lexBang` dropped a bare `!` (only `!=` was handled), so `!x`
