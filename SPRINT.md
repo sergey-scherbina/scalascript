@@ -103,20 +103,39 @@ self-sufficient, NOT by changing v1.
       correct in F, so "prelude selectors" is NOT a cheap win (the `_sel_<m>` path is only for known
       list-VARIABLE receivers = a list-var-registry feature). Then list-var registry, then actors/
       scljet-sql-chains/derives-codecs.
+      **✅ F3 PROGRESS 2026-07-19 (coordinator-verified): corpus MATCH 34 → 45/504** via 6 byte-verified
+      slices — top-level statements, float literals, braceless match, sealed-trait/`extends` decls,
+      `List(..)` literals, `s"..."` interpolation. `--self` 130 ok/0 FAIL, fixpoint 97,378 B (re-run by
+      the coordinator). **NO cheap broad win left** (measured): each remaining near-miss needs a distinct
+      substantial feature. Impact-ordered remaining levers: scljet-sql `.apply`/buildTableData (~52),
+      chained-list `_sel_` two-phase resolve (~30, architectural), actors (~28), derives/codecs (~16),
+      enums, unary minus `-x` (~4, cheap). Method calls on params/locals + math members already correct.
 - [ ] **F4 — retire the second front.** Once P6.5 covers the corpus + owns its lowerer, demote the
       newfront Scala spike to test-oracle only; retire the `ssc1-front`/`ssc1-lower` ssc0 files.
 
-**✅ F2 DESIGN QUESTION — DECIDED 2026-07-18 (Sergiy): GENERATE THE PRELUDE FROM SUBSET SOURCE.**
+**✅✅ F2 — FINAL DECISION 2026-07-19 (Sergiy, RE-DECIDED): OPTION D — the prelude is the frozen STANDARD
+LIBRARY (data), and F is ALREADY fully self-hosted.** F's COMPILER — lexer + parser + lowerer, which is
+what F *is* — is written in the subset and self-compiles (fixpoint proven: 130 ok / 0 FAIL @ 97,378 B,
+coordinator-verified). The 7,258 B prelude is runtime-library DATA that both F and the reference emit as
+a CONSTANT — `ssc1-lower` itself does NOT compile it from source, it hand-builds it as constant IR
+(`printlnDef :4342`, `kc6Defs :4814`). So carrying it as a constant is not "cheating self-hosting"; it is
+exactly what the oracle does. **F2 is CLOSED — no prelude-from-source work.** The self-hosting axis of
+Decision A is DONE.
+
+**Why the 2026-07-18 "generate from source" ruling was reversed (verified, not asserted):** the
+`v2-p65-canonical` agent investigated before building and PROVED it byte-unachievable; the coordinator
+re-verified both root causes in the oracle's own code — (1) `ssc1-front.ssc0:360` lexes `#` but NO parser
+rule consumes it, so the prelude's 22 `#`-prims across 30/47 defs have no surface syntax; (2)
+`ssc1-lower.ssc0:3014` lowers every surface `match` to `IrLet(scrutinee)+IrMatch`, while `:3609` is the
+deliberately let-free accessor path the prelude uses, unreachable from surface `match` — blocking ~27
+match/letrec helpers. The escape hatch worked exactly as intended (prove-it-can't-be-done, don't fake).
+Full evidence: `specs/v2.2-prelude-from-source-feasibility.md`. Options A/B/C also recorded there; D chosen.
+
+~~**F2 DESIGN QUESTION — DECIDED 2026-07-18 (Sergiy): GENERATE THE PRELUDE FROM SUBSET SOURCE.**~~ (SUPERSEDED by Option D above.)
 Not the constant-string blob — the ~50 helper defs (`_sel_map`, `_sel_foldLeft`, `__list_head`, …) must
 be written as ScalaScript SOURCE and compiled by F's own lexer+parser+lowerer, BYTE-IDENTICAL to
-ssc1-lower's hand-built trees. This is the maximum-purity reading of "полностью сама на себе / ideal"
-and Sergiy chose it deliberately over the cheaper constant-carry. Consequences (accepted): F must grow
-`letrec`, ~15 more `#`-prims (`io.println`, `arr.new`, `map.put`, `cell.new`, …), and exact
-de-Bruijn/letrec matching. **HONEST ESCAPE HATCH (mandatory):** if byte-identity for a given helper turns
-out genuinely unachievable — the hand-built IR may correspond to no surface syntax that lowers to it —
-STOP on that helper, record the exact tree mismatch with evidence, and bring it back (like the scljet
-lock: "fix it or prove it can't be done here", never fake it). The `letrec`/prims foundation this needs
-ALSO serves the breadth constructs (F3), so build the shared foundation first — it advances both.
+ssc1-lower's hand-built trees. Consequences: F must grow `letrec`, ~15 more `#`-prims, and exact
+de-Bruijn/letrec matching — PROVEN byte-unachievable for the bulk (see above), which is why D superseded it.
 
 **➜ F2 FEASIBILITY REPLY (2026-07-18, `v2-p65-canonical`): investigated → BYTE-UNACHIEVABLE for the bulk;
 escape-hatch invoked, back to Sergiy.** Full evidence + tree diffs + options:
