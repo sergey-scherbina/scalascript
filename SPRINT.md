@@ -420,6 +420,28 @@ FRESH FIRST-DIVERGENCE HISTOGRAM over the 303 DIFFs (next levers, biggest first)
   stay DIFF. Matching them needs the oracle's bottom-up tree recursion (exprHasPh/countPh non-descent into
   already-wrapped inner args), which F's string-emitting single pass can't cheaply mirror. Low corpus impact.
 
+## v2-p65-codec (`v2-p65-codec`, 2026-07-19) — breadth continued (baseline 201/504)
+Re-measured first-divergence histogram over the 303 DIFFs (ref+code cached in /tmp/p65codec_work):
+global-vs-ctor 26 · derived-codec 20 · cc/tc-method-def 16 · map-var 16 · string-escape/multiline 12 ·
+for-comprehension 6 · Array-ctor 2 · arrow-pair 1 · plus a long OTHER tail (203, individually diverse).
+Slices, impact-ordered (biggest clean lever first):
+- [x] **G1+G1b — DONE. bare-uid lowering. Corpus 201 → 219 (+18), 0 regressions. fixpoint 159,579→159,992 B.**
+      TWO oracle paths, NOT uniform: (a) bare uid VALUE + bare `.field` SELECTION receiver → `(global X)`
+      (lowerE uid :2537 / selOrMethod), except None/Nil/topval/topvar; (b) `.method(args)` CALL receiver →
+      `(ctor X)` (resolveMethodCall uid :1444-1467 wraps as `ctorap`). G1: bareCtor → `(global nm)`
+      (subsumed old isEnumCase/isCC branches; kept None/Nil ctor + topval/topvar cell.get). G1b: new
+      isUidGlobal/methodRecv rewrite an UPPERCASE `(global X)` receiver → `(ctor X)` in emitMethodCall only
+      (lowercase `(global foo)` stays a var recv). Fixed dataset-*/spark-*/sql-*/scljet-typedsql-*/etc.
+- [ ] **G2 — map-var (16):** lex `->` (prec1 infix, ssc1-front :1477), bare `a -> b`→`(ctor Pair a b)`
+      (ssc1-lower :2572), `Map(k->v,..)`→buildMapExpr IIFE (:1362/2110), mapVars registry (:2324/3897) →
+      `.updated`/`.getOrElse`→`_sel_mapUpdated`/`_sel_mapGetOrElse` (:1495).
+- [ ] **G3 — cc/tc-method-def (16) + related:** case-class/typeclass body methods → `Tag_method(self,..)`
+      globals + `__regmethod__` regs (ssc1-lower :5088-5165, classBodyFields :3710). Big; slice further.
+- [ ] **derived-codec (20), for-comprehension (6), string-escape/multiline (12): later.**
+Each slice: byte-verify vs oracle on the cached corpus, keep `--self` GREEN (re-freeze fixpoint), re-run
+`v2.2-p6.5-corpus.sh`, CONFIRM no MATCH dropped. Build: `scala-cli --power package v2/src --assembly -o
+/tmp/ssc-codec.jar --force`; gate: `SSC_JAR=/tmp/ssc-codec.jar V2_DIR=<wt>/v2 NEWFRONT_WORK=/tmp/p65codec_work`.
+
 **F3 BREADTH LOG (superseded intermediate) — corpus MATCH 1 → 43/504:**
 - top-level statements (loop fix + val cells + exprs): 1 → 34 (`07522696f`, `253f68231`)
 - float literals: 34 (correct prereq, `2d63fc63e`)
