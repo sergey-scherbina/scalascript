@@ -389,7 +389,12 @@ def parseParenOrLam(ts, env, cx) = if isLamParen(ts) then parseLamParen(ts, env,
 // An enum TYPE name in select position (`EnumName.Case` / `EnumName.values`) is a companion access, not a
 // ctor: `E.Case` (nullary) -> `(ctor Case)` (drops the qualifier, ssc1-lower :1703), `E.values` -> the
 // nullary-case ctor cons-list. Intercepted BEFORE the ordinary ctor/apply path (measured against oracle).
-def parseCtor(nm, ts, env, cx) = if isEnumTypeDot(nm, ts, cx) then parseEnumCompanion(nm, tl(ts), env, cx) else (if isTok(hd(ts), 2, 21) then parseCtorArgs(nm, tl(ts), env, cx) else (bareCtor(nm, cx), ts))
+// A constructor/companion call may carry an explicit type argument list `Name[T, ..]` before its `(args)`
+// (`List[Int]()`, `Right[String, BigInt](cents)`, `Map[String, Int]()`). Type args are ERASED by the
+// reference lowerer, so skip the `[..]` group (skipGen) and dispatch on the following `(` exactly as if
+// it were absent — `List[Int]()` -> `(ctor Nil)`, `Right[A,B](x)` -> `(ctor Right x)`.
+def parseCtor(nm, ts, env, cx) = if isEnumTypeDot(nm, ts, cx) then parseEnumCompanion(nm, tl(ts), env, cx) else parseCtorG(nm, skipGen(ts), env, cx)
+def parseCtorG(nm, ts, env, cx) = if isTok(hd(ts), 2, 21) then parseCtorArgs(nm, tl(ts), env, cx) else (bareCtor(nm, cx), ts)
 def isEnumTypeDot(nm, ts, cx) = if isTok(hd(ts), 2, 31) then isEnumType(nm, cx) else false
 def parseEnumCompanion(ename, ts, env, cx) = parseEnumComp1(ename, snd(hd(ts)), tl(ts), cx)
 def parseEnumComp1(ename, field, ts, cx) = if field == "values" then (enumValuesStr(enumCasesOfName(ename, enumRegOf(cx))), ts) else ("(ctor " ++ field ++ ")", ts)
