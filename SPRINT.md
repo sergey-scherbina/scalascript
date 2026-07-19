@@ -278,9 +278,30 @@ F's ported layout already emits those `;`.
 - [x] **recv.method { block } DONE (`3ac5d92dc`).** `recv.m { block }` → `(prim __method__ "m" recv block)`
       (block folded in, not `(app (__method__ "m" recv) block)`). General; unblocks enum `list.foreach{..}`.
       Corpus 157→158; fixpoint 132,015 B; --self 136 ok/0 FAIL.
-- [ ] **E3-blocker: case-lambda `{ case Pat => body }`** → `(lam 1 (match (local 0) (arms)))` (partial
-      function block). Blocks enums.ssc (`pairs.foreach { case (a,b) => .. }`) + many others; overlaps the
-      effect-handler-dispatch cluster. Next high-value general slice.
+- [x] **case-lambda `{ case Pat => body }` DONE (`88ca6044e`).** → `(lam 1 (match (local 0) (arms)))`
+      (reuses parseArms with a one-slot env). Completes enums.ssc. Corpus 158→159; fixpoint 132,908 B;
+      --self 136 ok/0 FAIL; no regression.
+
+**➜ IMPACT HISTOGRAM (measured 2026-07-19 by `v2-p65-enums` over all 345 DIFFs at first divergence — the
+next agent picks by impact).** Enum CORE cluster is DONE (E1+E2+case-lambda+block-method: corpus
+156→159, fixpoint 121,353→132,908 B, all --self 136 ok/0 FAIL, no regression). Remaining enum-USING
+programs (data-types, typed-data, prisms, lenses, mcp-types, default-params, …) are blocked NOT on enums
+but on the clusters below (each verified via the histogram). Buckets:
+- **local `var` in blocks (~80, BIGGEST):** `var x = e` in a block/lambda body → `(let ((prim cell.new
+  <init>)) ..)`, refs → `cell.get`, `x = e` → `cell.set` (mostly the actors-cluster-* / async family;
+  F currently emits `(global var)` for the keyword). Oracle: lowerBlock var-case + isTopVar. Substantial.
+- **`_sel_` list-var registry (~45 = 36 map/filter + 9 head/tail):** list-CONSTRUCTION receiver
+  (`List(..).map(f)`, detectable from the emitted `(ctor Cons ..)`/`(ctor Nil)` prefix) AND list-VARIABLE
+  receiver (val/var whose init is a list) route `.map/.filter/.length/.head/…` to `_sel_<m>`/`__list_*`
+  instead of `__method__`. Oracle: selMethodOr :1545-1575 (NOTE the exceptions: `take`/`sum`/`foldLeft`/
+  `foldRight`→`__method__`, `map` with a multi-param lambda→`__method__`, `mkString` arity-gated),
+  isKnownSelMethod, isListVar :314, isListConstruction :320, listVarsCell reg :2308. Architectural.
+- **`for` comprehension / `for..do` (part of ~29):** F emits `(global for)` — unhandled. Substantial.
+- **case-class body methods (~28):** `case class C(..) { def m(..) = .. }` → `C_m` mangled defs +
+  `__self`. F stops at the class header. Substantial.
+- **`__derived_*` codecs/derives (~16):** `derives Csv` → `__derived_Csv_T__cell` + mirror cells + init.
+- **type-ascription pattern `case _: T =>` (~2):** → `(prim __isTag__ recv (lit (str "T")) ..)`.
+- **~145 "other"** (multi-feature near-misses). Cheap broad wins are exhausted; each lever is a real feature.
 - [ ] **E3 — mixed & remaining enum near-misses** (data-types, typed-data, lenses, prisms, mcp-types,
       optic-polish, default-params, scala-js-demo, fn-typed-field, v2-type-ascription-pattern).
 

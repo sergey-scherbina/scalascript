@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-07-19 — v2-p65-enums: case-lambda { case Pat => body } in P6.5 F (byte-identical)
+
+`v2-p65-enums`. A block that STARTS with `case` is a partial-function / case-lambda: `{ case Pat => b .. }`
+→ `(lam 1 (match (local 0) (arms)))` (measured: `pairs.foreach { case (a,b) => .. }` → a lam-1 whose body
+matches its single param at `(local 0)`). The lambda param occupies `(local 0)`, so the arms parse against
+a one-slot env exactly like a match scrutinee — reuses parseArms (ctor/tuple/cons arms). General feature
+(partial functions everywhere); completes **enums.ssc** (Shape/Tree param enums + `list.foreach { .. }` +
+safeDivide Option). Corpus MATCH **158 → 159** (enums); X1 fixpoint stage1==stage2 byte-identical
+**132,015 → 132,908 B**; `--self` 136 ok / 0 FAIL; no regression; no kernel or `v2/lib` oracle edits.
+
+Enum CORE cluster now complete (E1 nullary + E2 param + case-lambda + recv.method{block}): corpus
+**156 → 159**, fixpoint **121,353 → 132,908 B**. Remaining enum-USING corpus programs (data-types,
+typed-data, prisms, mcp-types, default-params, …) are blocked on OTHER clusters (measured impact histogram
+in SPRINT §v2-p65-enums): local `var` (~80), `_sel_` list-var registry (~45), `for` (~part of 29),
+case-class body methods (~28), `__derived_*` (~16), type-ascription pattern (~2).
+
 ## 2026-07-19 — v2-p65-enums E2 + recv.method{block} in P6.5 F (byte-identical)
 
 `v2-p65-enums`. Corpus MATCH **157 → 158**; X1 fixpoint stage1==stage2 byte-identical **131,016 →
