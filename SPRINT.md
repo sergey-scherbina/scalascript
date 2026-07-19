@@ -39,11 +39,21 @@ baseline MATCH set `/tmp/baseline_match.txt` for `comm -23` drop-checks. --self 
       :1484; RHS = single postfix expr, consumed unconditionally). MATCH 354→357 (+lang-split, streams,
       wasm-fibonacci). 0 drops. Added isInfixWord/infixWord to climb, checked before the precedence gate.
 
+- [x] **O7 (`98cf5b540`) `throw e` → `(prim __throw__ e)` + `new X(a)` → `X(a)` (drop `new`)** (ssc1-front :1071/:1114;
+      both are plain id tokens in F). MATCH 357→360 (+distributed-dataset-codec, oauth-mcp-full-stack,
+      spark-streaming-file-parquet). 0 drops. In parseIdent before the for/lambda checks.
+
 **ORACLE-DEGRADATION TALLY (remaining DIFFs that are the ORACLE being WRONG, not F-gaps — do NOT reproduce):**
 - `@`-annotated case-class fields (10: graph-codecs, graph-fullstack, graph-fullstack-rdf, graph-rdf4j-storage,
   graph-storage, object-store-jdbc, object-store-sync-routes, spark-schema-mapping, spark-shared-schema-reader,
   typed-object-codec) — oracle collapses `case class C(@key id, @fieldName(..) label, ..)` to a SINGLE field `_`
   (arity 1, `_sel__`); F parses all fields correctly. Escape-hatch per handoff.
+- `@`-annotated val/def (3: spark-catalog-hive @TempView, spark-hive-demo @TempView, spark-udf-demo @SqlFn) —
+  oracle emits a stray `(global _err)` statement for the annotation; F skips it. Escape-hatch.
+- type-ascription `(expr: Type)` in expr position (type-ascription) — oracle emits `_err`/`(global Int)` cascade;
+  F emits `(lit (int 0))`. BOTH wrong (mutual-fail), not cleanly matchable.
+- `@main def run` cascade (wasm-collections, wasm-http, wasm-scalascript — to be confirmed) — oracle `_err`, F
+  `(lit (int 0))`; both wrong.
 
 ## v2-finish — make v2 ideal, small, powerful, fully self-hosted (2026-07-18, Sergiy)
 
