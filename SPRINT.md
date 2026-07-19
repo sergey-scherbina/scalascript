@@ -53,17 +53,51 @@ baseline MATCH set `/tmp/baseline_match.txt` for `comm -23` drop-checks. --self 
       money-portable-v2, traditional-payments, x402-cardano/client/cardano-scalus) but ALL have deeper blockers
       (codecs / user-ctor match patterns / double-let def body). 0 drops, --self 153 ok/0 FAIL, fixpoint 232,332 B.
 
-**ORACLE-DEGRADATION TALLY (remaining DIFFs that are the ORACLE being WRONG, not F-gaps — do NOT reproduce):**
-- `@`-annotated case-class fields (10: graph-codecs, graph-fullstack, graph-fullstack-rdf, graph-rdf4j-storage,
-  graph-storage, object-store-jdbc, object-store-sync-routes, spark-schema-mapping, spark-shared-schema-reader,
-  typed-object-codec) — oracle collapses `case class C(@key id, @fieldName(..) label, ..)` to a SINGLE field `_`
-  (arity 1, `_sel__`); F parses all fields correctly. Escape-hatch per handoff.
-- `@`-annotated val/def (3: spark-catalog-hive @TempView, spark-hive-demo @TempView, spark-udf-demo @SqlFn) —
-  oracle emits a stray `(global _err)` statement for the annotation; F skips it. Escape-hatch.
-- type-ascription `(expr: Type)` in expr position (type-ascription) — oracle emits `_err`/`(global Int)` cascade;
-  F emits `(lit (int 0))`. BOTH wrong (mutual-fail), not cleanly matchable.
-- `@main def run` cascade (wasm-collections, wasm-http, wasm-scalascript — to be confirmed) — oracle `_err`, F
-  `(lit (int 0))`; both wrong.
+**ORACLE-DEGRADATION / ESCAPE-HATCH TALLY — ~23 of the 146 remaining DIFFs are the ORACLE being WRONG (or BOTH
+wrong), NOT F-gaps. Do NOT reproduce them. This is the real clean-ceiling number for the F4 cutover decision:
+the achievable clean MATCH ceiling is ≈ 508 − 23 = 485, of which ~123 remaining are genuine (mostly DEEP) F-gaps.**
+- **`@`-annotated case classes → oracle collapses fields to a SINGLE `_` (arity 1, `_sel__`) (12):** graph-codecs,
+  graph-fullstack, graph-fullstack-rdf, graph-rdf4j-storage, graph-storage, graph-janusgraph-gremlin,
+  graph-neo4j-storage, object-store-jdbc, object-store-sync-routes, spark-schema-mapping, spark-shared-schema-reader,
+  typed-object-codec. (`@key`/`@fieldName`/`@aliases`/`@graphFrom`/`@graphTo`/`@rdf*`.) F parses all fields — F correct.
+- **`@`-annotated val/def → oracle stray `(global _err)` (3):** spark-catalog-hive (@TempView), spark-hive-demo
+  (@TempView), spark-udf-demo (@SqlFn). F skips the annotation — F correct.
+- **custom interpolator `id"""..."""` → oracle leaks raw triple + `_err` cascade (4):** uploads, ws-chat, rest-api,
+  rest-api-fm (`html"""..."""`). Escape-hatch per handoff; F would need to replicate the mis-parse.
+- **mutual-fail, BOTH wrong (4):** type-ascription `(expr: Type)` (oracle `_err`/`(global Int)`, F `(lit (int 0))`);
+  `@main def run` cascade wasm-collections/wasm-http/wasm-scalascript (oracle `_err`, F `(lit (int 0))`).
+
+**➜ HANDOFF (`v2-p65-optics`, 2026-07-19): 9 slices landed = corpus MATCH 334→362/508 (+28, 71%), ALL 0 regressions
+(every slice `comm -23` drop-check EMPTY, 0 EMPTY/0 TIMEOUT), X1 fixpoint stage1==stage2 byte-identical
+222,668→232,332 B, --self 153 ok/0 FAIL each, kernel +0, no v2/lib oracle edits. Jar `/tmp/ssc-optics.jar`;
+corpus `SSC_JAR=/tmp/ssc-optics.jar V2_DIR=<wt>/v2 NEWFRONT_WORK=/tmp/p65optics bash specs/v2.2-p6.5-corpus.sh`;
+single-prog byte-check `/tmp/oc.sh <p.ssc>` (needs SSC_JAR/V2_DIR/FSUB env); histogram `/tmp/hist_optics.py
+/tmp/p65optics`; first-div `/tmp/fdiv.py /tmp/p65optics <name> [W]`; baseline set `/tmp/baseline_match.txt`.
+METHOD unchanged: read the oracle's exact lowering on a tiny program FIRST, reproduce byte-exact, oc.sh, corpus +
+drop-check. GOTCHA that bit once: grep any NEW top-level def name against the file first — a duplicate `tokStr`
+silently overrode the real one and dropped [/]/,/( from field-type strings (caught by drop-check).
+**REMAINING IMPACT MAP over the 146 DIFFs (biggest/deepest first — ALL remaining clean wins are exhausted; what's
+left is DEEP or oracle-degradation):**
+- **`direct { }` monad desugar (3-4: direct-control-flow, direct-syntax, tagless-direct-syntax, +direct-syntax-demo)**
+  — `direct[M] { x = rhs; ...; result }` → flatMap chain `rhs.flatMap(x => rest)` (ssc1-lower directStmts :1979).
+  DEEP: bind (`x=rhs`, x non-var) → `(app (global _sel_flatMap) rhs (lam 1 rest))`; `val`/`var`/mutation stay as
+  block let/cell (directThen); last expr = result. De Bruijn threading is the hard part; r5 uses `var`.
+- **try/catch/finally (7: dataset-agg, dataset-error, bureau-demo, graphql-client, mcp-search-server, mcp-types,
+  webauthn-demo)** — `try BODY catch { case e: T => .. }` → `(prim __tryCatch__ (lam 0 BODY) <pf>)` (ssc1-front
+  :1076). DEEP: needs TYPED catch patterns `case e: T =>` (`__isTag__`/`__handler_dispatch_selected__`) which F does
+  NOT yet lower (verified: F emits an `(arm Cons ..)` mis-parse for `case e: T =>`). Build typed-pattern match first.
+- **actors receive `let((local 0))(match)` vs F `match(local 0)` (4+: actors-bounded-mailbox/pingpong/process-info,
+  graphql-typed-resolvers, + scljet-hello/jdbc, distributed-dataset-typed-helpers/wire-*, scljet-jvm-vfs/readonly,
+  dep-cps-basic, litdoc, v2-type-ascription-pattern)** — the scrutinee-let vs direct-match difference; a `def body =
+  <expr> match ..` / receive gets an extra `(let ..)` wrap in F. DO NOT TOUCH per handoff (shared deep match strategy).
+- **for-comprehensions flatMap (2: for-comprehensions, typed-sql-crud)** — `for x<-xs; y<-ys yield ..` → `_sel_flatMap`
+  chain; F emits `foreach`. Multi-generator/guard/yield lowering. Deep.
+- **derived-codecs remaining (distributed-dataset-*, custom-derives-mirror, rozum-agent-schema-derived)** — need
+  `summon[TC[T]]`/`object TC{def derived}`/given-table. DEEP.
+- **NICHE 1-file:** money-portable-v2/traditional-payments/x402-* (Decimal/BigInt prereq DONE, deeper codec/ctor-match
+  blockers remain); actors-phi-accrual/control-center-live float-exponent normalization (escape-hatch, exact
+  Double.toString); `$_sqlBlock_N` un-expanded (sql-sqlite-file); Long.MinValue overflow (int-literal); auth-demo/
+  oauth-demo & auth-full/bank-rails-fednow (extra-let/lam-wrap, deep).
 
 ## v2-finish — make v2 ideal, small, powerful, fully self-hosted (2026-07-18, Sergiy)
 
