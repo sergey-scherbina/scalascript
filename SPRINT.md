@@ -189,13 +189,24 @@ yields a big jump. Buckets by first-divergence construct:**
   no whole program alone (its cluster = spark-*, still needs sealed traits + math.Pi + braceless match).
 - **var/while, string interpolation, given/summon** — still out; measure after the above.
 
-**F3 BREADTH LOG (`v2-p65-canonical`, 2026-07-18) — corpus MATCH 1 → 45/504 this session:**
-- `List(..)` → Cons-chain: 37 → 43 (`0059cdf3e`); `s"..."` interpolation → `++`-chain: 43 → 45 (`2d14da86e`).
-- Fixpoint bytes: 79,667 → 97,378, all stage1==stage2 byte-identical. `--self` 130 ok / 0 FAIL.
-- **NEXT LEVERS (measured, MATCH 45):** the remaining near-misses each need a DIFFERENT feature, no single
-  broad cheap win: chained-list `_sel_` inference (~30, needs two-phase list-type resolve — architectural),
-  actors/runActors (~28), scljet-sql `.apply`/buildTableData (~52), derives/codecs (~16), enums, unary
-  minus `-x` (~4). math members (`math.Pi/round/sqrt`) + method calls on params/locals are ALREADY correct.
+**F3 BREADTH LOG (`v2-p65-canonical`, 2026-07-19) — corpus MATCH 1 → 48/504 this session (7 clean slices):**
+top-level statements (1→34), floats, braceless match (→37), sealed trait/extends, `List(..)` (→43),
+`s"..."` interpolation (→45), unary minus `-x` (→48, `11c3990b1`). Fixpoint 79,667 → 97,985 B, all
+stage1==stage2 byte-identical; `--self` 136 ok / 0 FAIL. No kernel / no `v2/lib` oracle edits.
+
+**➜ NEXT MAJOR LEVER IDENTIFIED (2026-07-19): SIGNIFICANT-WHITESPACE / INDENTATION LAYOUT.** The clean
+breadth wins are now exhausted; EVERY remaining high-impact cluster gates behind this one big feature:
+- **enums** — corpus enums are ALL `enum Color:` (COLON + indented `case`s), not braced (10 files, all colon).
+- **scljet-sql cluster (~26)** — braceless, INDENTED multi-statement `match`-arm bodies (scljet-crud etc.).
+- most Scala-3-style programs (indented `def`/`if`/`for` bodies without braces).
+F's lexer DROPS newlines; the oracle instead emits `NL <indent>` tokens (`ssc1-front.ssc0:52-54,283-289`)
+and runs a large stateful `layout` pass (`:3069-3163`, ~100 lines: L/E/P/S/X/B frame stack, declHead vs
+type-annotation colon disambiguation, extension receivers, continuation lines, virtual `{`/`}`/`;`
+synthesis) + ~10 helpers. It is byte-ACHIEVABLE (the oracle does it) — NOT an escape-hatch case — but it is
+a MAJOR multi-slice lexer+pass port, high byte-exactness risk, best given a dedicated fresh push (not
+started at a long session's tail, to avoid a broken intermediate). **Decision for the coordinator: commit a
+focused layout-subsystem push, or take a different direction (chained-list `_sel_` two-phase resolve ~30
+architectural; actors ~28; derives ~16 — all also large).** Cheap/clean wins are done; what remains is big.
 - superseded intermediate tally below.
 
 **F3 BREADTH LOG (superseded intermediate) — corpus MATCH 1 → 43/504:**
