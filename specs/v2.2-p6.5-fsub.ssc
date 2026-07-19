@@ -289,11 +289,13 @@ def binPrecK(k) = if k == 57 then 1 else (if k == 47 then 1 else (if k == 46 the
 // The deepest slot carries `(bs, pless)`: pless = top-level PARENLESS def names (`def n [:T] = e`), a
 // reference to which FORCES the (lam 0 ..) thunk -> `(app (global n))` (ssc1-lower parenless method).
 // DA1: deepest cx slot carries `(bs, (pless, sub))`; sub = `(ccSubReg, enumAllReg)` for typed patterns.
-def mkCx(dq, ccNames, fldNames, valNames, ecn, ereg, varNames, bs, pless, sub) = (dq, (ccNames, (fldNames, (valNames, (ecn, (ereg, (varNames, (bs, (pless, sub)))))))))
+// DA10: innermost is now `(sub, objReg)`; objReg = [Pair(objName, [memberNames])] for `object O { .. }`.
+def mkCx(dq, ccNames, fldNames, valNames, ecn, ereg, varNames, bs, pless, sub, objReg) = (dq, (ccNames, (fldNames, (valNames, (ecn, (ereg, (varNames, (bs, (pless, (sub, objReg))))))))))
 def dqOf(cx) = fst(cx)
 def bsOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(cx))))))))
 def plessOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(cx)))))))))
-def subInfoOf(cx) = snd(snd(snd(snd(snd(snd(snd(snd(snd(cx)))))))))
+def subInfoOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx))))))))))
+def objRegOf(cx) = snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx))))))))))
 def ccNamesOf(cx) = fst(snd(cx))
 def fldNamesOf(cx) = fst(snd(snd(cx)))
 def valNamesOf(cx) = fst(snd(snd(snd(cx))))
@@ -475,7 +477,10 @@ def isSelRecvCode(c) = if isVarRecvCode(c) then false else (if startsW(c, "(ctor
 // emitMethod with the ctor receiver form, skipping emitCallMethod's __method0__ branch.
 def isUidGlobal(c) = if startsW(c, "(global ") then isUp(c.charAt(8)) else false
 def methodRecv(c) = if isUidGlobal(c) then "(ctor " ++ c.substring(8, c.length - 1) ++ ")" else c
-def emitMethodCall(nm, c, es, cx) = if isUidGlobal(c) then emitMethod(nm, methodRecv(c), joinArgs(es), dqOf(cx)) else emitMethodCall1(nm, c, es, cx)
+// DA10: a call whose receiver is a known `object O` and method a member of O resolves to the flattened
+// top-level def `(app (global O_m) args)` (ssc1-lower prefixDefs static dispatch), BEFORE the uid __method__
+// path. globalNameOf recovers O from the emitted `(global O)` receiver (works for uid AND lowercase names).
+def emitMethodCall(nm, c, es, cx) = if isObjMember(globalNameOf(c), nm, cx) then "(app (global " ++ globalNameOf(c) ++ "_" ++ nm ++ ")" ++ joinArgs(es) ++ ")" else (if isUidGlobal(c) then emitMethod(nm, methodRecv(c), joinArgs(es), dqOf(cx)) else emitMethodCall1(nm, c, es, cx))
 def emitMethodCall1(nm, c, es, cx) = if isSelRecvCode(c) then selMethodOr(nm, c, es, dqOf(cx)) else emitCallMethod(nm, c, joinArgs(es), dqOf(cx))
 // isKnownSelMethod = ssc1-lower :1509 set MINUS the forms selMethodOr handles explicitly first
 // (map/mkString/take/sum/foldLeft/foldRight). _1.._4 route to _sel__N via isTupField.
@@ -965,7 +970,27 @@ def importItem(ts) = (("", ""), skipImport(ts))
 // import as the wildcard terminator, so stop right after it (consuming a trailing `;` if layout made one).
 def skipImport(ts) = if isEmpty(ts) then ts else (if isTok(hd(ts), 2, 52) then tl(ts) else (if isTok(hd(ts), 2, 25) then skipImportStar(tl(ts)) else skipImport(tl(ts))))
 def skipImportStar(ts) = if isTok(hd(ts), 2, 52) then tl(ts) else ts
-def parseTopItem(ts, cx) = if isImportHead(ts) then importItem(ts) else (if isEnumHead(ts) then enumItem(ts, cx) else (if isCCHead(ts) then ccTopItem(ts, cx) else (if isTraitHead(ts) then traitItem(ts) else (if isTok(hd(ts), 2, 1) then defTopItem(ts, cx) else (if isTok(hd(ts), 2, 7) then valItem(ts, cx) else (if isVarHead(ts) then varTopItem(ts, cx) else (if isWhileHead(ts) then whileTopItem(ts, cx) else (if isAssignHead(ts) then assignTopItem(ts, cx) else exprItem(ts, cx)))))))))
+def parseTopItem(ts, cx) = if isImportHead(ts) then importItem(ts) else (if isEnumHead(ts) then enumItem(ts, cx) else (if isCCHead(ts) then ccTopItem(ts, cx) else (if isTraitHead(ts) then traitItem(ts) else (if isObjectHead(ts) then objectItem(ts, cx) else (if isTok(hd(ts), 2, 1) then defTopItem(ts, cx) else (if isTok(hd(ts), 2, 7) then valItem(ts, cx) else (if isVarHead(ts) then varTopItem(ts, cx) else (if isWhileHead(ts) then whileTopItem(ts, cx) else (if isAssignHead(ts) then assignTopItem(ts, cx) else exprItem(ts, cx))))))))))
+// -- objects (DA10) -----------------------------------------------------------------------------
+// `object O [extends ..]: <defs>` / `object O { <defs> }` flattens each method to a top-level
+// prefixed def `(def O_m (lam N body))`, emitted INLINE at O's source position (userDefs, doc order) —
+// ssc1-front `("object",(name,[stmts]))` :2731, ssc1-lower prefixDefs :4146. A call `O.m(args)` resolves
+// to `(app (global O_m) args)` via the objReg cx slot (collectObjReg pre-pass + emitMethodCall branch).
+// Scope: DEF members (param'd `def m(p)` and empty-parens `def m()` both → `(lam N body)`); reuse emitDef1
+// with the prefixed name. Parameterless-def/val/var/nested-type members are a FOLLOW-UP.
+def isObjectHead(ts) = isWord(hd(ts), "object")
+def objBodyToks(ts) = if isEmpty(ts) then ts else (if isTok(hd(ts), 2, 28) then ts else objBodyToks(tl(ts)))
+def objectItem(ts, cx) = objectItem1(snd(hd(tl(ts))), objBodyToks(tl(tl(ts))), cx)
+def objectItem1(name, ts, cx) = if isTok(hd(ts), 2, 28) then ((objDefsStr(name, collectMethodDefs(tl(ts)), cx), ""), skipBrace(tl(ts), 1)) else (("", ""), ts)
+def objDefsStr(name, ms, cx) = ms match { case Nil => "" case h :: t => join2(objDef1(name, h, cx), objDefsStr(name, t, cx)) }
+def objDef1(name, m, cx) = m match { case (mname, toks) => fst(emitDef1(name ++ "_" ++ mname, toks, cx)) }
+// pre-pass: objReg = [Pair(objName, [memberNames])], scanned directly off the token stream (base-cx-free).
+def collectObjReg(ts) = if isEmpty(ts) then Nil else (if isObjectHead(ts) then collectOR1(ts) else collectObjReg(tl(ts)))
+def collectOR1(ts) = collectOR2(snd(hd(tl(ts))), objBodyToks(tl(tl(ts))))
+def collectOR2(name, ts) = if isTok(hd(ts), 2, 28) then Cons((name, memberNamesOf(collectMethodDefs(tl(ts)))), collectObjReg(skipBrace(tl(ts), 1))) else collectObjReg(ts)
+def memberNamesOf(ms) = ms match { case Nil => Nil case h :: t => Cons(fst(h), memberNamesOf(t)) }
+def objMemsOf(name, reg) = reg match { case Nil => Nil case h :: t => if fst(h) == name then snd(h) else objMemsOf(name, t) }
+def isObjMember(name, m, cx) = if name == "" then false else memL(m, objMemsOf(name, objRegOf(cx)))
 // A top-level `var name [: T] = init` runs its initializer in the entry as `cell.set(global name__cell)`
 // — IDENTICAL to a top val (ssc1-lower topExprs var/val cases :5593-5609) — so it reuses valItem1. The
 // empty cell def is emitted in the topVar slot (compile4). A top-level `while`/assignment becomes an
@@ -1341,7 +1366,7 @@ def compile1(ts, dq, bs) = compile2(ts, collectCC(ts), collectTypeCases(ts), dq,
 // The pre-pass results become the parse CONTEXT: case-class names (cs, cc-only, for isCC) + the UNIFIED
 // type-case field names (tcs, cc + enum cases) + top-level val names + the enum registries. Top-level vals
 // are collected with a base cx first (their `rest` boundaries do not depend on val-name resolution).
-def mkCxE(cs, tcs, ts, dq, vals, vars, bs, pless) = mkCx(dq, ccNamesL(cs), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts), vars, bs, pless, (collectSubReg(ts), collectEnumAllReg(ts)))
+def mkCxE(cs, tcs, ts, dq, vals, vars, bs, pless) = mkCx(dq, ccNamesL(cs), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts), vars, bs, pless, (collectSubReg(ts), collectEnumAllReg(ts)), collectObjReg(ts))
 def compile2(ts, cs, tcs, dq, bs) = compile2b(ts, cs, tcs, dq, bs, mkCxE(cs, tcs, ts, dq, Nil, Nil, bs, Nil))
 def compile2b(ts, cs, tcs, dq, bs, base) = compile3(ts, cs, tcs, dq, mkCxE(cs, tcs, ts, dq, collectTopVals(ts, base), collectTopVars(ts, base), bs, collectPlessDefs(ts, base)))
 def compile3(ts, cs, tcs, dq, cx) = walkTop(ts, cx) match { case (strs, nDoc) => compile4(strs, nDoc, ts, tcs, dq, cx) }
