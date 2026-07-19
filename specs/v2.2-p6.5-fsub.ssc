@@ -493,7 +493,7 @@ def goCaseCons(these, r) = goCasesF(r) match { case (rest, r2) => (appEnv(these,
 // the case-class ctor + mirror (lowerCaseCls, ssc1-lower :3827). Emitted in userDefs in document order.
 def enumItem(ts, cx) = enumCasesFrom(ts) match { case (cases, rest) => ((emitEnumDefs(cases, dqOf(cx)), ""), rest) }
 def emitEnumDefs(cases, dq) = cases match { case Nil => "" case h :: t => join2(emitEnumDef(h, dq), emitEnumDefs(t, dq)) }
-def emitEnumDef(c, dq) = c match { case (nm, fs) => if isEmpty(fs) then "(def " ++ nm ++ " (ctor " ++ nm ++ "))" else emitCC((nm, fs), dq) }
+def emitEnumDef(c, dq) = c match { case (nm, fs) => if isEmpty(fs) then "(def " ++ nm ++ " (ctor " ++ nm ++ "))" else emitCtorFn((nm, fs)) }
 // pre-pass: unified ordered type-case list (case classes AND enum cases interleaved in declaration order)
 // -> drives emitSels + regFields + fldNames, so enum-case fields/regfields land in oracle order
 // (ssc1-lower collectCaseFields/collectCaseClassOrder descend into enums, :4918/4936).
@@ -584,7 +584,11 @@ def selArm1(n, c) = "(arm " ++ ccName(c) ++ " " ++ dlen(ccFields(c)) ++ " (local
 def idxOf(n, fs, i) = fs match { case Nil => 0 case h :: t => if fldName(h) == n then i else idxOf(n, t, i + 1) }
 
 // -- ctor + mirror, emitted AT the declaration site ------------------------------------------------
-def emitCC(c, dq) = "(def " ++ ccName(c) ++ " (lam " ++ dlen(ccFields(c)) ++ " (ctor " ++ ccName(c) ++ ctorArgs(dlen(ccFields(c)), 0) ++ "))) " ++ emitMirror(c, dq)
+// The bare constructor def `(def C (lam N (ctor C (local ..))))`. A case class pairs it with a mirror
+// (emitCC); a PARAMETRIZED ENUM CASE emits ONLY this (ssc1-lower lowerCaseCls :3770 emits no mirror —
+// the mirror path lowerProductMetadata runs for `casecls`, not `enum`).
+def emitCtorFn(c) = "(def " ++ ccName(c) ++ " (lam " ++ dlen(ccFields(c)) ++ " (ctor " ++ ccName(c) ++ ctorArgs(dlen(ccFields(c)), 0) ++ ")))"
+def emitCC(c, dq) = emitCtorFn(c) ++ " " ++ emitMirror(c, dq)
 def ctorArgs(ar, i) = if i >= ar then "" else " (local " ++ (ar - 1 - i) ++ ")" ++ ctorArgs(ar, i + 1)
 def emitMirror(c, dq) = "(def __mirror_" ++ ccName(c) ++ " (ctor Mirror (lit (str " ++ dq ++ ccName(c) ++ dq ++ ")) " ++ strList(fieldNamesOf(ccFields(c)), dq) ++ " " ++ strList(fieldTypesOf(ccFields(c)), dq) ++ "))"
 def fieldTypesOf(fs) = fs match { case Nil => Nil case h :: t => Cons(fldType(h), fieldTypesOf(t)) }
