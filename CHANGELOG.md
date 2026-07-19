@@ -5,8 +5,8 @@
 `v2-p65-layout`. The dominant breadth gate (~50% of the corpus uses indented / colon-block style).
 Byte-faithful port of the oracle's `NL`-token lexing + stateful `layout` pass into the self-hosting
 subset compiler F (`specs/v2.2-p6.5-fsub.ssc`), then the breadth it unblocks. Corpus MATCH
-**48 → 143/504 (+95)**; X1 fixpoint held byte-identical at every slice (`--self` 136 ok / 0 FAIL,
-97,985 → 120,920 B); no regression; no kernel (`v2/src/*`) or `v2/lib` oracle edits.
+**48 → 146/504 (+98)**; X1 fixpoint held byte-identical at every slice (`--self` 136 ok / 0 FAIL,
+97,985 → 121,014 B); no regression; no kernel (`v2/src/*`) or `v2/lib` oracle edits.
 
 - **L1** — F's lexer emits `NL <indent>` tokens; `layout` = the L/B/P/S frame-stack pass + declHead
   vs type-annotation colon disambiguation + all helpers, reproducing `ssc1-front.ssc0:3069-3163`. The
@@ -21,6 +21,12 @@ subset compiler F (`specs/v2.2-p6.5-fsub.ssc`), then the breadth it unblocks. Co
   dispatch — `X(args)` → `(ctor X)` only for builtins {Cons,Some,Left,Right,Signal,ComputedSignal},
   every other uid (local case class OR imported like SqlInteger/AchConfig) → `(app (global X) args)`.
   Together these unblocked the entire scljet-sql cluster + scljet-write/mutate/wal (76→**143**).
+- **L2h** markdown link-import `[names](path)` skipped (module directive, no IR) — 143→**146**.
+
+Remaining (not layout; each a substantial dedicated slice): `_sel_` list-var registry (mutable
+list-type tracking, ~21), string escapes `\"`/`\n` (scan-skip + unescape + CoreIR re-escape, ~17),
+`__derived_*` codecs/derives (~13), effect-handler-dispatch blocks `f { case … }` (actors `receive`),
+bare case-object/enum-case ctor-vs-global dispatch (~36), enums + declHead class/object member bodies.
 
 ## 2026-07-18 — v2-finish F1/F2/F3: trustworthy acceptance gates + first P6.5 breadth slice
 

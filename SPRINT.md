@@ -236,7 +236,13 @@ SELF-HOSTS (the layout code is in F's own source and compiles byte-identically t
       {Cons,Some,Left,Right,Signal,ComputedSignal}; every other uid (local case class OR imported/unknown
       like SqlInteger/AchConfig) → `(app (global X) args)` (ssc1-lower :2078-2134). **Corpus 76 → 143**
       (unblocked the WHOLE scljet-sql cluster + scljet-write/mutate/wal + effect-imported-handler).
-      **Session total: corpus MATCH 48 → 143/504 (+95); fixpoint 97,985 → 120,920 B byte-identical.**
+- [x] **L2h (`58b21ce9e`): markdown link-import `[names](path)` skipped** (module directive, no IR).
+      Corpus 143 → 146.
+      **Session total (`v2-p65-layout`, 2026-07-19): corpus MATCH 48 → 146/504 (+98); fixpoint
+      97,985 → 121,014 B, all `stage1==stage2` byte-identical, 136 ok/0 FAIL every slice; no regression;
+      no kernel / no `v2/lib` oracle edits. The layout PASS itself is fully ported (L/B/P/S + declHead)
+      except the E/EB/X extension frames (deferred — F has no `extension`); the rest of the session was
+      breadth the live layout unblocked.**
 - [ ] **L3+ — remaining (measured, impact-ordered from the DIFF near-misses):** `_sel_` list-var registry
       (~architectural, mutable listVarsCell + list-type tracking); string escapes `\"`/`\n` (3 coordinated
       changes: scan-skip + unescape + re-escape matching the CoreIR encoder, ~16 progs); `__derived_*`
