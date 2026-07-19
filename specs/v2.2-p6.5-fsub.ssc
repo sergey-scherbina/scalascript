@@ -45,7 +45,7 @@ def lexNL2(ind, pos, s, n) = if atEnd(pos, n) then Nil else Cons((7, ind), lex(s
 //   46 `&&`  47 `||`  48 `++`  49 `::`  50 `[`  51 `]`
 def kwCode(w) = if w == "def" then 1 else (if w == "if" then 2 else (if w == "then" then 3 else (if w == "else" then 4 else (if w == "match" then 5 else (if w == "case" then 6 else (if w == "val" then 7 else (if w == "true" then 8 else (if w == "false" then 9 else (if w == "class" then 10 else 0)))))))))
 def lex(s, i, n) = if atEnd(i, n) then Nil else lexDispatch(s, i, n, s.charAt(i))
-def lexDispatch(s, i, n, c) = if c == 32 then lex(s, i + 1, n) else (if c == 10 then lexNL(s, i, n) else (if c == 9 then lex(s, i + 1, n) else (if c == 13 then lexNL(s, i, n) else (if isLet(c) then lexWord(s, i, n, scanId(s, i, n)) else (if isDig(c) then lexNum(s, i, n) else (if c == 34 then lexStrOrTriple(s, i, n) else (if c == 47 then lexSlash(s, i, n) else (if c == 43 then lexPlus(s, i, n) else (if c == 45 then lexMinus(s, i, n) else (if c == 42 then lexStar(s, i, n) else (if c == 58 then lexColon(s, i, n) else (if c == 61 then lexEq(s, i, n) else (if c == 60 then lexLt(s, i, n) else (if c == 62 then lexGt(s, i, n) else (if c == 33 then lexBang(s, i, n) else (if c == 38 then lexAmp(s, i, n) else (if c == 124 then lexPipe(s, i, n) else lexOp1(s, i, n, c))))))))))))))))))
+def lexDispatch(s, i, n, c) = if c == 32 then lex(s, i + 1, n) else (if c == 10 then lexNL(s, i, n) else (if c == 9 then lex(s, i + 1, n) else (if c == 13 then lexNL(s, i, n) else (if isLet(c) then lexWord(s, i, n, scanId(s, i, n)) else (if isDig(c) then lexNum(s, i, n) else (if c == 34 then lexStrOrTriple(s, i, n) else (if c == 47 then lexSlash(s, i, n) else (if c == 43 then lexPlus(s, i, n) else (if c == 45 then lexMinus(s, i, n) else (if c == 42 then lexStar(s, i, n) else (if c == 58 then lexColon(s, i, n) else (if c == 61 then lexEq(s, i, n) else (if c == 60 then lexLt(s, i, n) else (if c == 62 then lexGt(s, i, n) else (if c == 33 then lexBang(s, i, n) else (if c == 38 then lexAmp(s, i, n) else (if c == 124 then lexPipe(s, i, n) else (if c == 64 then lexAt(s, i, n) else lexOp1(s, i, n, c)))))))))))))))))))
 def lexStr(s, i, n, j) = Cons((4, s.substring(i + 1, j)), lex(s, j + 1, n))
 // Triple-quoted `"""..."""` (ssc1-front :341-344): captured RAW (verbatim newlines/quotes/backslashes)
 // as token kind 8; parseAtom1 escapes the raw content on emit so it byte-matches `#coreir.encode`.strLit.
@@ -77,6 +77,14 @@ def lexGt(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 43), lex(s, i + 2, n
 def lexBang(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 45), lex(s, i + 2, n)) else lex(s, i + 1, n)
 def lexAmp(s, i, n) = if s.charAt(i + 1) == 38 then Cons((2, 46), lex(s, i + 2, n)) else lex(s, i + 1, n)
 def lexPipe(s, i, n) = if s.charAt(i + 1) == 124 then Cons((2, 47), lex(s, i + 2, n)) else lex(s, i + 1, n)
+// `@Name` / `@Name(args)` annotation (ssc1-front skipAnn :2517): NO runtime effect in the native path, so
+// the lexer DROPS the whole annotation — the `@`, its Name, and an optional balanced `(...)` — leaving just
+// the annotated `def`/`class`/`val`. (A leftover bare `main` word from `@main def run` used to become a
+// stray top-level expr, and `@Name(..)` args cascaded.) Chained `@a @b` skip independently (the next `@`
+// re-enters here). A `@` inside a string never reaches the lexer (scanStr consumes it) — emails/regexes safe.
+def lexAt(s, i, n) = lexAtArgs(s, scanId(s, i + 1, n), n)
+def lexAtArgs(s, j, n) = if atEnd(j, n) then lex(s, j, n) else (if s.charAt(j) == 40 then lex(s, skipParenAt(s, j + 1, n, 1), n) else lex(s, j, n))
+def skipParenAt(s, i, n, d) = if atEnd(i, n) then i else (if s.charAt(i) == 40 then skipParenAt(s, i + 1, n, d + 1) else (if s.charAt(i) == 41 then (if d == 1 then i + 1 else skipParenAt(s, i + 1, n, d - 1)) else skipParenAt(s, i + 1, n, d)))
 def lexWord(s, i, n, j) = lexWord2(s, i, n, j, s.substring(i, j))
 // `s"..."` string interpolation: the word `s` immediately followed by `"` opens an interp token (kind 6)
 // carrying the RAW content between the quotes; parseInterp splits it into a `++` chain at parse time.
