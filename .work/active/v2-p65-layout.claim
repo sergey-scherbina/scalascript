@@ -1,10 +1,10 @@
 claim: v2-p65-layout
-branch: feature/v2-p65-enums
-agent: opus (orchestrator session — fresh agent, handoff from context-heavy predecessor)
-heartbeat: 2026-07-19T04:45:45Z
+branch: feature/v2-p65-var
+agent: opus (orchestrator session — fresh agent, handoff chain)
+heartbeat: 2026-07-19T05:32:11Z
 status: in-progress (spawned agent)
-what: P6.5 breadth lane, continued. Layout DONE (corpus MATCH 48→156/504, 30%, fixpoint 121,353 B all
-      stage1==stage2 — coordinator-verified). Next clusters (impact-ordered, oracle refs in SPRINT/CHANGELOG):
-      enums + bare case-object ctor-vs-global dispatch (~36, biggest), _sel_ list-var registry (~21),
-      string escapes done, derived codecs (~13), effect-handler-dispatch blocks. Keep --self green each
-      slice; never push a broken intermediate. Self-hosting axis is CLOSED (Option D); this is pure breadth.
+what: P6.5 breadth lane. DONE so far (coordinator-verified): layout + enums, corpus MATCH 1→159/504
+      (32%), fixpoint 132,908 B all stage1==stage2. NEXT (impact-ordered, first-divergence histogram):
+      local var in blocks (~80, BIGGEST — actors/async), _sel_ list-var registry (~45), for-comp,
+      case-class body methods (~28), derived codecs (~16). Keep --self green each slice; never push a
+      broken intermediate. Self-hosting CLOSED (Option D); pure breadth. Oracle refs in SPRINT §v2-p65-enums.
