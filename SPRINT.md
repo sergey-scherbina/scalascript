@@ -133,6 +133,32 @@ baseline set `/tmp/baseline_deep.txt` for `comm -23` drop-checks. --self via cap
   `SSC_JAR=/tmp/ssc-deep.jar V2_DIR=<wt>/v2 NEWFRONT_WORK=/tmp/p65deep bash specs/v2.2-p6.5-corpus.sh`.
   GOTCHA: F-source defs must avoid `match {case Nil => .. case cs => ..}` (bare-var arm after ctor arm
   mis-parses as cons in F's OWN parseCtorMatch — broke self-compile once; use isEmpty/helper).
+**ORACLE-DEGRADATION TALLY = 23 (re-verified this session, UNCHANGED — all 7 flips were genuine F-gaps).
+  Clean ceiling = 508 − 23 = 485; of the 139 remaining DIFFs, 23 oracle-bug + 116 genuine (deep) F-gaps.**
+  12 `@`-annotated case classes → oracle collapses fields to `_` (graph-codecs/fullstack/fullstack-rdf/
+  rdf4j-storage/storage/janusgraph-gremlin/neo4j-storage, object-store-jdbc/sync-routes, spark-schema-mapping/
+  shared-schema-reader, typed-object-codec); 3 `@`-annotated val/def → oracle `_err` (spark-catalog-hive/
+  hive-demo/udf-demo); 4 custom-interpolator `id"""..."""` → oracle raw-triple leak (uploads, ws-chat,
+  rest-api, rest-api-fm); 4 mutual-fail (type-ascription `(e:T)`, wasm-collections/http/scalascript `@main`).
+**REMAINING GENUINE F-GAPS (impact-ordered, all DEEP; measured first-divergence, NOT-my-targets noted):**
+  - **actors-receive `let((local 0))(match)` cluster (~10: actors-bounded-mailbox/pingpong/process-info,
+    graphql-typed-resolvers, distributed-dataset-typed-helpers/wire-*, dep-cps-basic, scljet-readonly, …) —
+    DO NOT TOUCH (shared deep match strategy, per handoff).**
+  - **`_sel_` list-var registry / multi-line for-BLOCK (architectural): for-comprehensions (multi-gen for
+    layout), typed-sql-crud (Db.queryTyped). F's selMethodOr already routes ctor/method receivers; the gap is
+    the list-VARIABLE registry + the `for\n gens\nyield` block-layout parse.**
+  - **ctor-pattern guards `case Ctor(f) if g` (direct-syntax-demo direct; auth-full/distributed-streams gated
+    earlier) — gpat+cpat guard-failure fallthrough (IrMatch + Some fallback), moderate; extends DA1.**
+  - **call-site default synthesis: default-params (`def f(x=..)`/`C()`/`shift(10)` fill defaults; funcDefaults
+    registry K62.17) — deep; the "Int10" type-string pollution is only the first symptom.**
+  - **extension methods (`extension (n) def m`): extensions, script (`(lam 1 …(local 0))` vs F `(lam 0 …(global
+    n))`) — the layout E/EB/X frames were DEFERRED (F has no `extension`); big.**
+  - **derived-codecs / given-summon: custom-derives-mirror, distributed-dataset-*, rozum-agent-schema-derived —
+    `__derived_*Codec` + given table, deep.** Plus assorted 1-off deep gaps (auth-demo/oauth-demo extra-let,
+    actors-*, dsl-*, parsing-error-node/recover-until tuple-arity, content @meta, control-center-live float-exp).
+  METHOD (kept exactly, took the lane 1→369): read the oracle's lowering on a tiny program FIRST, reproduce
+  byte-exact via /tmp/oc.sh, then corpus + `comm -23` drop-check + `--self` fixpoint. Each remaining lever is a
+  substantial dedicated feature — no cheap broad wins remain.
 
 ## v2-finish — make v2 ideal, small, powerful, fully self-hosted (2026-07-18, Sergiy)
 
