@@ -509,7 +509,19 @@ def isPrismApp(nm, ts) = if nm == "Prism" then isTok(hd(ts), 2, 50) else false
 def prismSeg(ts, cur, d) = if isEmpty(ts) then (cur, ts) else prismSeg1(hd(ts), tl(ts), cur, d)
 def prismSeg1(t, rest, cur, d) = if isTok(t, 2, 51) then (if d <= 1 then (cur, rest) else prismSeg(rest, cur ++ "]", d - 1)) else (if isTok(t, 2, 50) then prismSeg(rest, cur ++ "[", d + 1) else (if isTok(t, 2, 27) then (if d == 1 then prismSeg(rest, "", d) else prismSeg(rest, cur, d)) else prismSeg(rest, cur ++ tokStr(t), d)))
 def parsePrism(ts, env, cx) = prismSeg(tl(ts), "", 1) match { case (variant, r) => ("(prim optics.prism " ++ emitStr(variant, dqOf(cx)) ++ ")", r) }
-def parseCtor(nm, ts, env, cx) = if isPrismApp(nm, ts) then parsePrism(ts, env, cx) else (if isEnumTypeDot(nm, ts, cx) then parseEnumCompanion(nm, tl(ts), env, cx) else parseCtorG(nm, skipGen(ts), env, cx))
+// `Focus[T](_.a.b.some.each.index(i).at(k))` -> `(prim optics.focus <Cons-chain of O-steps>)` (ssc1-lower
+// focusPathSteps :1157 + resolveFocusArgs :1199). The selector-lambda body is walked into a step list:
+//   .field -> (ctor OField (lit (str "field"))) ; .some -> (ctor OSome) ; .each -> (ctor OEach)
+//   .index(i) -> (ctor OIndex <resolved i>)     ; .at(k)  -> (ctor OAt <resolved k>)
+// ts is AFTER `Focus`; skipGen drops [T]; tl skips `(`; tl skips the `_` param; walk starts at the first `.`.
+def isFocusApp(nm, ts) = if nm == "Focus" then isTok(hd(ts), 2, 50) else false
+def parseFocus(ts, env, cx) = focusPath(tl(tl(skipGen(ts))), Nil, env, cx) match { case (steps, r) => ("(prim optics.focus " ++ consChain(revL(steps)) ++ ")", r) }
+def focusPath(ts, acc, env, cx) = if isTok(hd(ts), 2, 31) then focusPathTok(snd(hd(tl(ts))), tl(tl(ts)), acc, env, cx) else (acc, tl(ts))
+def focusPathTok(nm, ts, acc, env, cx) = if isTok(hd(ts), 2, 21) then focusMeth(nm, tl(ts), acc, env, cx) else focusPath(ts, Cons(focusFld(nm, cx), acc), env, cx)
+def focusFld(nm, cx) = if nm == "some" then "(ctor OSome)" else (if nm == "each" then "(ctor OEach)" else "(ctor OField " ++ emitStr(nm, dqOf(cx)) ++ ")")
+def focusMeth(nm, ts, acc, env, cx) = parseArgExpr(ts, env, cx) match { case (arg, r) => focusPath(tl(r), Cons(focusMethStep(nm, arg), acc), env, cx) }
+def focusMethStep(nm, arg) = if nm == "index" then "(ctor OIndex " ++ arg ++ ")" else "(ctor OAt " ++ arg ++ ")"
+def parseCtor(nm, ts, env, cx) = if isPrismApp(nm, ts) then parsePrism(ts, env, cx) else (if isFocusApp(nm, ts) then parseFocus(ts, env, cx) else (if isEnumTypeDot(nm, ts, cx) then parseEnumCompanion(nm, tl(ts), env, cx) else parseCtorG(nm, skipGen(ts), env, cx)))
 def parseCtorG(nm, ts, env, cx) = if isTok(hd(ts), 2, 21) then parseCtorArgs(nm, tl(ts), env, cx) else (bareCtor(nm, cx), ts)
 def isEnumTypeDot(nm, ts, cx) = if isTok(hd(ts), 2, 31) then isEnumType(nm, cx) else false
 def parseEnumCompanion(ename, ts, env, cx) = parseEnumComp1(ename, snd(hd(ts)), tl(ts), cx)
