@@ -829,6 +829,18 @@ against the oracle IR before coding, then drop-checked via a baseline stash re-r
   `differ` grep as a false positive). (4) int tokens carry the numeric VALUE (fst==0, snd=int), not a lexeme
   string — so G4 hex computes the decimal value directly and emitInt renders it.
 
+## v2-p65-codecs2 (`v2-p65-codecs2`, 2026-07-19) — baseline MATCH 311/508, fixpoint 203,415 B
+Claim `v2-p65-layout` on origin/main covers this lane. Kernel jar `/tmp/ssc-codecs2.jar`
+(`scala-cli --power package v2/src --assembly`); corpus `SSC_JAR=... V2_DIR=<wt>/v2
+NEWFRONT_WORK=/tmp/p65codecs2 bash specs/v2.2-p6.5-corpus.sh`; --self via captured file + `grep -cE '^ok '`.
+Histogram `/tmp/hist.py <work>`; baseline MATCH set `/tmp/baseline_match.txt` for `comm -23` drop-checks.
+- [x] **C1 — DONE (`ccd1f1b80`). `.copy(f=v)` named-copy desugar.** MATCH 311→312 (+1 user-request-shadow),
+      0 drops, X1 fixpoint stage1==stage2 210,567 B, --self 153 ok/0 FAIL, kernel +0. `recv.copy(f=v,..)` with
+      any named arg → receiver-first let-chain feeding the alternating name-lit/value-ref runtime ABI
+      (ssc1-lower desugarCopy :1124). Only fires with a named arg; positional-only `.copy(x)` keeps the normal
+      method path. Other 4 named-copy corpus files (lenses/optic-polish/scljet-readonly-pager-btree/
+      spark-catalog-hive) carry FURTHER divergences (Focus/other), so stay DIFF.
+
 **➜ HANDOFF (`v2-p65-tail`, 2026-07-19): 5 slices landed (T1 triple-quote +7, T2 null +1, T4 collection-
 curry +1, T5 nested-interp +4, T6 bracket-list +11) = corpus MATCH 249→274/505 (fresh full 507-corpus
 250→274, 54%), ALL 0 regressions, X1 fixpoint stage1==stage2 byte-identical 169,133→179,087 B, --self all
