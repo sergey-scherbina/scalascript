@@ -813,7 +813,11 @@ def parseArm(ts, menv, cx) = if isWild(hd(ts)) then parseWildArm(tl(ts), menv, c
 def armBodyExpr(ts, aenv, cx) = if isAssignHead(ts) then parseAssign(ts, aenv, cx) else parseExpr(ts, 0, aenv, cx)
 def parseWildArm(ts, menv, cx) = armBodyExpr(tl(ts), menv, cx) match { case (b, r) => (("", " (default " ++ b ++ ")"), armsRest(r)) }
 def parsePatVars(ts, vs) = if isEmpty(ts) then (vs, ts) else (if isTok(hd(ts), 2, 22) then (vs, tl(ts)) else (if isTok(hd(ts), 2, 27) then parsePatVars(tl(ts), vs) else parsePatVars(tl(ts), snd(hd(ts)) :: vs)))
-def parseCtorArm(ts, menv, cx) = parseCtorArm1(snd(hd(ts)), tl(ts), menv, cx)
+// A QUALIFIED ctor pattern `case Enum.Case(..)` drops the enum qualifier and matches on the CASE tag
+// (ssc1-front parsePatAtom uid+`.` :1932-1938): ctorTag reads the name AFTER the `.` when the uid is
+// followed by one. A plain `case Ctor(..)` (no `.`) is unchanged.
+def ctorTag(ts) = if isTok(hd(tl(ts)), 2, 31) then (snd(hd(tl(tl(ts)))), tl(tl(tl(ts)))) else (snd(hd(ts)), tl(ts))
+def parseCtorArm(ts, menv, cx) = ctorTag(ts) match { case (nm, r) => parseCtorArm1(nm, r, menv, cx) }
 def parseCtorArm1(nm, ts, menv, cx) = if isTok(hd(ts), 2, 21) then parseCtorArm2(nm, tl(ts), menv, cx) else parseArmBody(nm, 0, Nil, ts, menv, cx)
 def parseCtorArm2(nm, ts, menv, cx) = parsePatVars(ts, Nil) match { case (vs, r) => parseArmBody(nm, dlen(vs), vs, r, menv, cx) }
 def parseArmBody(nm, ar, vs, ts, menv, cx) = armBodyExpr(tl(ts), appEnv(vs, menv), cx) match { case (body, r) => parseArmsMore("(arm " ++ nm ++ " " ++ ar ++ " " ++ body ++ ")", r, menv, cx) }
@@ -868,7 +872,7 @@ def dummyBinders(k) = if k <= 0 then Nil else Cons("__gf__", dummyBinders(k - 1)
 def genPairArm(ar, body) = if ar == 2 then "(arm Pair 2 " ++ body ++ ") (arm Tuple2 2 " ++ body ++ ")" else "(arm Pair " ++ ar ++ " " ++ body ++ ")"
 def genArmStr(nm, ar, body) = if nm == "Pair" then genPairArm(ar, body) else "(arm " ++ nm ++ " " ++ ar ++ " " ++ body ++ ")"
 def genCtorMatch(nm, ar, armBody, deflt, menv) = "(match " ++ genScrut(menv) ++ " (" ++ genArmStr(nm, ar, armBody) ++ ") (default " ++ deflt ++ "))"
-def parseGenCtor(ts, menv, cx) = parseGenCtor1(snd(hd(ts)), tl(ts), menv, cx)
+def parseGenCtor(ts, menv, cx) = ctorTag(ts) match { case (nm, r) => parseGenCtor1(nm, r, menv, cx) }
 def parseGenCtor1(nm, ts, menv, cx) = if isTok(hd(ts), 2, 21) then parseGenCtorVars(nm, tl(ts), menv, cx) else parseGenCtorArm(nm, 0, Nil, ts, menv, cx)
 def parseGenCtorVars(nm, ts, menv, cx) = parsePatVars(ts, Nil) match { case (vs, r) => parseGenCtorArm(nm, dlen(vs), vs, r, menv, cx) }
 def parseGenCtorArm(nm, ar, vs, ts, menv, cx) = if isTok(hd(ts), 2, 2) then parseGenCtorGuard(nm, ar, vs, splitArrow(tl(ts)), menv, cx) else parseGenCtorPlain(nm, ar, vs, tl(ts), menv, cx)
