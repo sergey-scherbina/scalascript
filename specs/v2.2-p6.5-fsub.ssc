@@ -374,7 +374,10 @@ def isListField(nm) = if nm == "head" then true else (if nm == "tail" then true 
 // `shapes.foreach { s => .. }` -> `(prim __method__ "foreach" recv (lam 1 ..))`, the block folded IN as
 // the arg, NOT `(app (__method__ "foreach" recv) ..)`). A block that is a lambda is passed directly; a
 // plain block becomes a by-name `(lam 0 ..)` thunk — same rule as postBlockArg's blockArgApp.
-def postDot1(c, nm, ts, env, cx) = if nm == "length" then (emitLen(c, cx), ts) else (if isTok(hd(ts), 2, 21) then postMeth(c, nm, ts, env, cx) else (if isTok(hd(ts), 2, 28) then postMethBlock(c, nm, ts, env, cx) else (postSel(c, nm, cx), ts)))
+// A method type-application `recv.m[T](args)` / `recv.m[T]` discards the `[T]` (ssc1-front buildPostfix
+// :1406: a non-Db `sel` with a `[` returns e unchanged, type args dropped), then dispatches on what
+// follows: `(` -> method call, else a bare selection. So skip `[T]` and re-dispatch.
+def postDot1(c, nm, ts, env, cx) = if nm == "length" then (emitLen(c, cx), ts) else (if isTok(hd(ts), 2, 50) then postDot1(c, nm, skipGen(ts), env, cx) else (if isTok(hd(ts), 2, 21) then postMeth(c, nm, ts, env, cx) else (if isTok(hd(ts), 2, 28) then postMethBlock(c, nm, ts, env, cx) else (postSel(c, nm, cx), ts))))
 def postMethBlock(c, nm, ts, env, cx) = parseBlock(tl(ts), env, cx) match { case (b, r) => (emitMethodCall(nm, c, Cons(blockArgOf(b), Nil), cx), r) }
 def blockArgOf(b) = if startsW(b, "(lam ") then b else "(lam 0 " ++ b ++ ")"
 def postSel(c, nm, cx) = if isListField(nm) then "(app (global __list_" ++ nm ++ ") " ++ c ++ ")" else (if isFld(nm, cx) then "(app (global _sel_" ++ nm ++ ") " ++ c ++ ")" else (if isTupField(nm) then "(app (global _sel_" ++ nm ++ ") " ++ c ++ ")" else emitMethod(nm, c, "", dqOf(cx))))
