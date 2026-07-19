@@ -596,15 +596,30 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
       B@ace60efc3, 168,895 B@38e673ddc — it climbs every p65 push). Any kernel relocation must keep this
       byte-identical *to origin/main at the same commit* — build `origin/main`'s `v2/src` AND yours, diff
       the count (do NOT compare to a stale absolute number).
+      **⚠ VERIFICATION GAP LESSON (found in slice 2, cost a slice-1 runtime regression):** the 3 kernel
+      gates + `cli/compile` do NOT exercise `bin/ssc`. A relocated module's classes must ALSO be staged
+      into the STANDARD tier (`bin/lib/standard/jars/`), gated by `standardJarPrefixes` in the `installBin`
+      task (build.sbt ~line 1850) — NOT the same as `lib/jars/` (that's the ssc-tools tier). Adding a module
+      to `cli`'s `.dependsOn` + root aggregate is necessary but NOT sufficient. **Every kernel-relocation
+      slice MUST end with `sbt cli/installBin` then `SSC_NO_CDS=1 bin/ssc run FILE` AND
+      `... run --bytecode FILE` on a program exercising the moved surface** (else you ship a
+      `ClassNotFoundException` in the staged binary that all gates pass through green).
       - [x] **Slice 1 — `NativeUiSites` (127) relocated.** Moved `v2/src/NativeUiSites.scala` →
         new sbt module `v2/nativeui` (`scalascript-v2-nativeui`, `.dependsOn(v2Core)`, package still `ssc`);
         consumers (`v2SwiftBackend`, `v2NativeUiPlugin`, `cli`) + root aggregate wired to it. Kernel
-        6355→**6228** lines (−127); kernel jar drops NativeUiSites (7 classes→0); fixpoint byte-identical
-        (168,895 B, proven vs origin/main); conformance no new FAILs (post ⊂ base); all 4 consumers compile.
-      - [ ] Slice 2 — `Emit` (292, JVM-backend surface). Kernel refs it in COMMENTS only; real consumers
-        `v2/backend-jvm-bytecode/JvmByteGen.scala` + `v2/backend/jvm/JvmBackend.scala`. Verify byte-neutral.
-      - [ ] Slice 3 — `PortableDecimal` (171), `PortableEffects` (221, effect driver — may be a δ-prim, i.e.
-        irreducible; STOP+report if so).
+        6355→**6228** lines (−127); kernel jar drops NativeUiSites (7 classes→0); fixpoint byte-identical;
+        conformance no new FAILs. **NOTE: the initial push (9dbb7fdc0) missed `standardJarPrefixes` → bin/ssc
+        native runs threw CNFE; FIXED in slice 2's commit (both prefixes added).**
+      - [x] **Slice 2 — `Emit` (292) relocated.** Moved `v2/src/Emit.scala` → new lean module `v2/jvm-runtime`
+        (`scalascript-v2-jvm-runtime`, `.dependsOn(v2Core)`, no ASM, package still `ssc`). Consumers
+        `v2JvmBytecode` (`ssc.Emit.unroll`), `v2NativePluginSpi` (`Emit.globalsRef`), `cli` + root aggregate
+        wired. Kernel 6228→**5936** (−292; cumulative **−419**). Kernel jar drops `ssc/Emit`; fixpoint
+        byte-identical (169,133 B @31cde7db6, proven vs origin/main); conformance 3 FAIL (⊂ baseline);
+        **bin/ssc VM + `--bytecode` both print `total=24`** (the staging fix above is what makes this pass).
+      - [ ] Slice 3 — `PortableDecimal` (171), `PortableEffects` (221, effect driver — may back a kernel δ-prim
+        `effect.*`, i.e. irreducible; check `Prims`/`Runtime` for compile-time use; STOP+report if so).
+        NOTE: `NativeArtifactRuntime` imports BOTH `Emit` + `PortableEffects` — if PortableEffects moves it
+        can share the `v2/jvm-runtime` module (or a peer); mind cross-module `private[ssc]` access.
       - [ ] Slice 4 — `FastCode`/`SelfRec*` (962, perf) — relocate only if byte-neutral; else report irreducible.
 - [ ] **F6 (parallel) — "powerful": backend gaps.** v2-JS `foldLeft`/`Map`/effects; Rust/WASM BigInt.
 - [ ] **F7 — green the v2 internal gate.** `v2/conformance/check.sh`: the K62.3 unbounded-compile-depth

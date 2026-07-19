@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-07-19 — v2-f5-kernel-small (slice 2): relocate `Emit` out of the kernel + fix standard-tier staging
+
+`v2-f5-kernel-small`, F5 "small" axis. Moved `ssc.Emit` (292 lines — the static call surface that
+GENERATED JVM bytecode invokestatic-links) out of the kernel `v2/src` into a dedicated lean module
+`v2/jvm-runtime` (`scalascript-v2-jvm-runtime`, `.dependsOn(v2Core)`, no ASM, package unchanged `ssc`).
+Per §R4 it is a JVM backend's runtime support baked into the kernel jar (violates "no target backend
+baked in"); the kernel's own pipeline never uses it (comments only; no bytecode command; conformance
+never exercises it). Consumers wired to `v2JvmRuntime`: `v2JvmBytecode` (`ssc.Emit.unroll`),
+`v2NativePluginSpi` (`Emit.globalsRef`), `cli` (`ssc.Emit.globalsRef`); added to root aggregate.
+**Also fixes a slice-1 runtime regression:** the `standardJarPrefixes` allowlist in `installBin` did not
+include the relocated modules, so a bin/ssc built after slice 1 threw `ClassNotFoundException
+ssc.NativeUiSites$` on every native run (the 3 kernel gates + `cli/compile` don't exercise bin/ssc).
+Added both `scalascript-v2-nativeui_` and `scalascript-v2-jvm-runtime_`. **Measured:** kernel `v2/src`
+6228→**5936** lines (−292; cumulative 6355→5936, **−419** across both slices); kernel jar drops `ssc/Emit`;
+X1 `--self` fixpoint byte-identical to origin/main at the same commit (169,133 B @31cde7db6; 136 ok /
+0 FAIL); conformance no new FAILs (3 FAIL, subset of baseline); all consumers compile; **bin/ssc VM and
+`--bytecode` lanes both print `total=24`** on a sample exercising the Emit shim surface.
+
 ## 2026-07-19 — v2-f5-kernel-small (slice 1): relocate `NativeUiSites` out of the kernel
 
 `v2-f5-kernel-small`, F5 "small" axis. Moved `ssc.NativeUiSites` (127 lines, the std/ui ABI annotation
