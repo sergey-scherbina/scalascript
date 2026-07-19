@@ -611,10 +611,27 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
   top-level `var` are follow-ons after plain `val`.
 - Each slice: byte-verify vs oracle on micros AND measure real-corpus MATCH via `v2.2-p6.5-corpus.sh`;
   keep `--self` green, re-freeze fixpoint bytes; push separately. BUGS `p65-fsub-toplevel-val-infinite-loop`.
-- [ ] **F5 (parallel, lower priority) — "small": kernel/tower boundary.** Relocate the accreted
-      candidates above to the tower per R4; target ~2,400–2,800 kernel lines. Analysis in
-      `specs/v2-state-2026-07-18.md` §R4. **Mechanical-relocation phase DONE (`v2-f5-kernel-small`): 2
-      candidates relocated (−419 lines), 2 proven irreducible — see per-slice notes below.**
+- [x] **F5 — "small": kernel/tower boundary — MECHANICAL PHASE DONE 2026-07-19 (coordinator-verified).**
+      **Kernel 6355 → 5936 lines (−419, −6.6%), 9 → 7 files.** Relocated `NativeUiSites` (127 → `v2/nativeui`)
+      + `Emit` (292 → `v2/jvm-runtime`); both leaf/one-directional deps. **Proven IRREDUCIBLE within F5's
+      byte-identical scope** (measured, not assumed): `PortableDecimal`+`PortableEffects` (bidirectionally
+      coupled + back live `dec.*`/`effect.*` δ-prims), `FastCode`/`SelfRec` (962; the kernel `Value` ADT
+      carries `var fcEntry` + ~12 hot-path call sites). **The moveability rule: leaf/one-directional deps
+      move; bidirectionally-coupled code + live δ-table entries do not.**
+      **VERDICT: the §R4 ~2,400–2,800 target is NOT reachable mechanically.** The remaining reduction is
+      δ-changing work OUT of F5 scope, and it is COUPLED: (a) retire the ~1,200 FrontendBridge/method-dispatch
+      prims → **only after the P6.5 canonical front reaches high corpus coverage (F4)**; (b) effects-as-tower-
+      library = a K3 redesign; (c) FastCode perf-layer removal = risky hot-path surgery. So "small" is now
+      blocked on breadth (F3→F4), not on more mechanical moves.
+      **Verified by coordinator: kernel 5936/7 files; `bin/ssc run` + `--bytecode` both print `Int: 24`
+      (the relocation regression is healed); X1 fixpoint byte-identical (172,969 B, moves with breadth),
+      136 ok/0 FAIL.**
+      ⚠️ **LESSON (recorded — a gates-green-runtime-broken miss):** F5 slice-1 shipped a runtime regression
+      (`ClassNotFoundException: ssc.NativeUiSites$` on EVERY native run) that passed all 3 gates AND
+      `cli/compile` green — the `installBin` `standardJarPrefixes` allowlist didn't include the relocated
+      module, so the staged `bin/ssc` couldn't load it. **Every kernel-relocation slice MUST end with
+      `sbt cli/installBin` + `bin/ssc run FILE` + `bin/ssc run --bytecode FILE` (real staged-launcher smoke)**
+      — compile/fixpoint/conformance do not exercise the installBin staging path.
       **Live fixpoint invariant (measure, don't assume — the byte count MOVES as the p65 breadth lane
       grows F): as of origin/main@31cde7db6 it is 169,133 B, 136 ok / 0 FAIL** (`--self`; it was 164,022
       B@ace60efc3, 168,895 B@38e673ddc — it climbs every p65 push). Any kernel relocation must keep this
