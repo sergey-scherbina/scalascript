@@ -540,10 +540,16 @@ def enumValuesStr(names) = names match { case Nil => "(ctor Nil)" case h :: t =>
 // `List(a, b, c)` is NOT a ctor call — it desugars to a right-nested Cons chain ending in Nil (measured:
 // List() -> (ctor Nil); List(a,b) -> (ctor Cons a (ctor Cons b (ctor Nil)))). Needs the args as a LIST
 // (to nest), so parseArgL collects them; every other ctor keeps the flat parseArgs string.
-def parseCtorArgs(nm, ts, env, cx) = if nm == "List" then parseListLit(ts, env, cx) else (if nm == "Vector" then parseListLit(ts, env, cx) else (if nm == "Seq" then parseListLit(ts, env, cx) else (if nm == "Array" then parseArrLit(ts, env, cx) else (if nm == "Map" then parseMapLit(ts, env, cx) else parseArgs(ts, env, cx) match { case (args, r) => (ctorApp(nm, args, cx), r) }))))
+def parseCtorArgs(nm, ts, env, cx) = if nm == "List" then parseListLit(ts, env, cx) else (if nm == "Vector" then parseListLit(ts, env, cx) else (if nm == "Seq" then parseListLit(ts, env, cx) else (if nm == "Array" then parseArrLit(ts, env, cx) else (if nm == "Map" then parseMapLit(ts, env, cx) else (if nm == "Decimal" then parseDecimalC(ts, env, cx) else (if nm == "BigInt" then parseBigIntC(ts, env, cx) else parseArgs(ts, env, cx) match { case (args, r) => (ctorApp(nm, args, cx), r) }))))))
 def parseListLit(ts, env, cx) = parseArgL(ts, env, cx) match { case (es, r) => (consChain(es), r) }
 // `Array(a, b, ..)` is a MUTABLE ArrayBuffer (ssc1-lower :2098): (app (global _arr_fill) <Cons-chain>).
 def parseArrLit(ts, env, cx) = parseArgL(ts, env, cx) match { case (es, r) => ("(app (global _arr_fill) " ++ consChain(es) ++ ")", r) }
+// `Decimal(x)` -> (prim dec.parse x); `Decimal(v, scale)` -> (prim dec.from-unscaled v scale);
+// `BigInt(x)` -> (prim i->big x). (ssc1-lower :2112/:2120.) Other arities fall back to a plain app.
+def parseDecimalC(ts, env, cx) = parseArgL(ts, env, cx) match { case (es, r) => (decimalP(es), r) }
+def decimalP(es) = es match { case h :: t => (t match { case Nil => "(prim dec.parse " ++ h ++ ")" case s :: u => (u match { case Nil => "(prim dec.from-unscaled " ++ h ++ " " ++ s ++ ")" case _ => "(app (global Decimal)" ++ joinArgs(es) ++ ")" }) }) case Nil => "(app (global Decimal))" }
+def parseBigIntC(ts, env, cx) = parseArgL(ts, env, cx) match { case (es, r) => (bigIntP(es), r) }
+def bigIntP(es) = es match { case h :: t => (t match { case Nil => "(prim i->big " ++ h ++ ")" case _ => "(app (global BigInt)" ++ joinArgs(es) ++ ")" }) case Nil => "(app (global BigInt))" }
 def consChain(es) = es match { case Nil => "(ctor Nil)" case h :: t => "(ctor Cons " ++ h ++ " " ++ consChain(t) ++ ")" }
 // `Map(k -> v, ..)` desugars to a mutate-and-return IIFE (ssc1-lower buildMapExpr :1362): `(lam 1 ..)`
 // applied to `(prim map.new)`, its body a let-chain of `(prim map.put (local d) k v)` where d = entry index
