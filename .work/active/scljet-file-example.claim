@@ -1,0 +1,10 @@
+claim: scljet-file-example
+owner: opus
+agent: opus
+started: 2026-07-19
+heartbeat: 2026-07-19T10:00:00Z
+status: starting
+scope: add examples/scljet-file.ssc — a JVM-only interop showcase: SclJet writes a real .db file to
+  disk (via jvm-vfs), then the program shells out to the reference `sqlite3` (std.process.exec) to
+  read it back and run integrity_check — two engines on one file, in one program. backend: jvm.
+  Docs: README examples table. Additive; no engine change.
