@@ -290,12 +290,15 @@ def binPrecK(k) = if k == 57 then 1 else (if k == 47 then 1 else (if k == 46 the
 // reference to which FORCES the (lam 0 ..) thunk -> `(app (global n))` (ssc1-lower parenless method).
 // DA1: deepest cx slot carries `(bs, (pless, sub))`; sub = `(ccSubReg, enumAllReg)` for typed patterns.
 // DA10: innermost is now `(sub, objReg)`; objReg = [Pair(objName, [memberNames])] for `object O { .. }`.
-def mkCx(dq, ccNames, fldNames, valNames, ecn, ereg, varNames, bs, pless, sub, objReg) = (dq, (ccNames, (fldNames, (valNames, (ecn, (ereg, (varNames, (bs, (pless, (sub, objReg))))))))))
+// E2: innermost is now `(sub, (objReg, funcDflts))`; funcDflts = [(name, [(paramName, dfltToks)])] for
+// call-site default-parameter synthesis. objRegOf now takes `fst` of the last pair; funcDfltsOf its `snd`.
+def mkCx(dq, ccNames, fldNames, valNames, ecn, ereg, varNames, bs, pless, sub, objReg, funcDflts) = (dq, (ccNames, (fldNames, (valNames, (ecn, (ereg, (varNames, (bs, (pless, (sub, (objReg, funcDflts)))))))))))
 def dqOf(cx) = fst(cx)
 def bsOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(cx))))))))
 def plessOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(cx)))))))))
 def subInfoOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx))))))))))
-def objRegOf(cx) = snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx))))))))))
+def objRegOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx)))))))))))
+def funcDfltsOf(cx) = snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx)))))))))))
 def ccNamesOf(cx) = fst(snd(cx))
 def fldNamesOf(cx) = fst(snd(snd(cx)))
 def valNamesOf(cx) = fst(snd(snd(snd(cx))))
@@ -587,7 +590,13 @@ def enumValuesStr(names) = names match { case Nil => "(ctor Nil)" case h :: t =>
 // `List(a, b, c)` is NOT a ctor call — it desugars to a right-nested Cons chain ending in Nil (measured:
 // List() -> (ctor Nil); List(a,b) -> (ctor Cons a (ctor Cons b (ctor Nil)))). Needs the args as a LIST
 // (to nest), so parseArgL collects them; every other ctor keeps the flat parseArgs string.
-def parseCtorArgs(nm, ts, env, cx) = if nm == "List" then parseListLit(ts, env, cx) else (if nm == "Vector" then parseListLit(ts, env, cx) else (if nm == "Seq" then parseListLit(ts, env, cx) else (if nm == "Array" then parseArrLit(ts, env, cx) else (if nm == "Map" then parseMapLit(ts, env, cx) else (if nm == "Decimal" then parseDecimalC(ts, env, cx) else (if nm == "BigInt" then parseBigIntC(ts, env, cx) else parseArgs(ts, env, cx) match { case (args, r) => (ctorApp(nm, args, cx), r) }))))))
+def parseCtorArgs(nm, ts, env, cx) = if nm == "List" then parseListLit(ts, env, cx) else (if nm == "Vector" then parseListLit(ts, env, cx) else (if nm == "Seq" then parseListLit(ts, env, cx) else (if nm == "Array" then parseArrLit(ts, env, cx) else (if nm == "Map" then parseMapLit(ts, env, cx) else (if nm == "Decimal" then parseDecimalC(ts, env, cx) else (if nm == "BigInt" then parseBigIntC(ts, env, cx) else parseCtorGen(nm, ts, env, cx)))))))
+// E2: a case-class / enum-case ctor call `Name(args)` (lowered as `app(uid Name, args)`) shares the SAME
+// call-site default synthesis as a def call — the innermost fullCall `(app (global Name) ..)` is exactly
+// ctorApp's non-builtin form. Under-applied + defaults → nested lambdas; else the plain ctorApp path.
+def parseCtorGen(nm, ts, env, cx) = parseCtorGenS(nm, scanArgs(ts), ts, env, cx)
+def parseCtorGenS(nm, scan, ts, env, cx) = scan match { case (slices, rest) => if dfltGo(nm, slices, env, cx) then (synthCall(nm, dfltEntryPd(nm, cx), slices, env, cx), rest) else parseCtorPlain(nm, ts, env, cx) }
+def parseCtorPlain(nm, ts, env, cx) = parseArgs(ts, env, cx) match { case (args, r) => (ctorApp(nm, args, cx), r) }
 def parseListLit(ts, env, cx) = parseArgL(ts, env, cx) match { case (es, r) => (consChain(es), r) }
 // `Array(a, b, ..)` is a MUTABLE ArrayBuffer (ssc1-lower :2098): (app (global _arr_fill) <Cons-chain>).
 def parseArrLit(ts, env, cx) = parseArgL(ts, env, cx) match { case (es, r) => ("(app (global _arr_fill) " ++ consChain(es) ++ ")", r) }
@@ -666,8 +675,43 @@ def calleeOf(nm, env, cx) = if lookup(nm, env) >= 0 then "(local " ++ lookup(nm,
 // `null` var-atom lowers to `(ctor None)`; not in env, so no local shadows it (it is a reserved word).
 def parseVarOrCall(nm, ts, env, cx) = if nm == "null" then ("(ctor None)", ts) else parseVarOrCallG(nm, skipGen(ts), env, cx)
 def parseVarOrCallG(nm, ts, env, cx) = if isTok(hd(ts), 2, 21) then parseCall(nm, tl(ts), env, cx) else (calleeOf(nm, env, cx), ts)
-def parseCall(nm, ts, env, cx) = parseArgs(ts, env, cx) match { case (args, r) => (emitCallR(nm, calleeOf(nm, env, cx), args, cx), r) }
+// E2: call-site default-parameter synthesis. When `nm` is a registered def/ctor with defaults and the call
+// under-applies it (with every omitted trailing param having a real default, no named args, nm not shadowed
+// by a local), expand it into nested one-arg lambdas so args/defaults evaluate once, left-to-right, later
+// defaults seeing earlier params (oracle ssc1-lower expandDefaultCall :1883 → resolveE). `greet()` →
+// `(app (lam 1 (app (lam 1 (app (global greet) (local 1) (local 0))) <d1>)) <d0>)`. Otherwise the plain path.
+def parseCall(nm, ts, env, cx) = parseCallS(nm, scanArgs(ts), ts, env, cx)
+def parseCallS(nm, scan, ts, env, cx) = scan match { case (slices, rest) => if dfltGo(nm, slices, env, cx) then (synthCall(nm, dfltEntryPd(nm, cx), slices, env, cx), rest) else parseCallPlain(nm, ts, env, cx) }
+def parseCallPlain(nm, ts, env, cx) = parseArgs(ts, env, cx) match { case (args, r) => (emitCallR(nm, calleeOf(nm, env, cx), args, cx), r) }
 def emitApp(callee, args) = "(app " ++ callee ++ args ++ ")"
+// ── default-synthesis decision + scanner ──
+def dfltEntryOf(nm, cx) = dfltLookupF(nm, funcDfltsOf(cx))
+def dfltLookupF(nm, reg) = reg match { case Nil => ("__none__", Nil) case h :: t => if fst(h) == nm then ("__some__", snd(h)) else dfltLookupF(nm, t) }
+def dfltEntryPd(nm, cx) = dfltEntryOf(nm, cx) match { case (f, pd) => pd }
+def dfltGo(nm, slices, env, cx) = if lookup(nm, env) >= 0 then false else dfltGoR(dfltEntryOf(nm, cx), slices)
+def dfltGoR(entry, slices) = entry match { case (found, pd) => if found == "__some__" then dfltGo2(pd, slices) else false }
+def dfltGo2(pd, slices) = if anyNamedSlice(slices) then false else (if dlen(slices) >= dlen(pd) then false else allOmR(dropL(dlen(slices), pd)))
+def allOmR(pd) = pd match { case Nil => true case h :: t => if isEmpty(snd(h)) then false else allOmR(t) }
+def dropL(n, xs) = if n <= 0 then xs else (xs match { case Nil => Nil case h :: t => dropL(n - 1, t) })
+def anyNamedSlice(slices) = slices match { case Nil => false case h :: t => if isNamedSlice(h) then true else anyNamedSlice(t) }
+def isNamedSlice(s) = if isEmpty(s) then false else (if fst(hd(s)) == 1 then (if isEmpty(tl(s)) then false else isTok(hd(tl(s)), 2, 20)) else false)
+// scanArgs (ts AFTER the `(`): -> ([argTokenSlice..], restAfterClose). Non-emitting; each slice is captured
+// to its top-level `,`/`)`. Byte-equivalent boundaries to parseArgs so the plain-path fallback is unchanged.
+def scanArgs(ts) = if isTok(hd(ts), 2, 22) then (Nil, tl(ts)) else scanArgsGo(ts)
+def scanArgsGo(ts) = scanOneArg(ts, 0, Nil) match { case (slice, r) => scanArgsCont(slice, r) }
+def scanArgsCont(slice, r) = if isTok(hd(r), 2, 27) then scanArgsMore(slice, tl(r)) else (Cons(slice, Nil), tl(r))
+def scanArgsMore(slice, ts) = scanArgs(ts) match { case (rest, r2) => (Cons(slice, rest), r2) }
+def scanOneArg(ts, d, acc) = if isEmpty(ts) then (revL(acc), ts) else (if isArgEnd(hd(ts), d) then (revL(acc), ts) else scanOneArg(tl(ts), argDepth(hd(ts), d), Cons(hd(ts), acc)))
+def argDepth(t, d) = if isTok(t, 2, 21) then d + 1 else (if isTok(t, 2, 50) then d + 1 else (if isTok(t, 2, 28) then d + 1 else (if isTok(t, 2, 22) then d - 1 else (if isTok(t, 2, 51) then d - 1 else (if isTok(t, 2, 29) then d - 1 else d)))))
+// ── nested-lambda emission ──
+def synthCall(nm, pd, slices, env, cx) = synthWrap(nm, pdParams(pd), pdDflts(pd), slices, env, cx, fullCallStr(nm, dlen(pd)))
+def pdParams(pd) = pd match { case Nil => Nil case h :: t => Cons(fst(h), pdParams(t)) }
+def pdDflts(pd) = pd match { case Nil => Nil case h :: t => Cons(snd(h), pdDflts(t)) }
+def fullCallStr(nm, k) = "(app (global " ++ nm ++ ")" ++ localsDown(k - 1) ++ ")"
+def localsDown(i) = if i < 0 then "" else " (local " ++ i ++ ")" ++ localsDown(i - 1)
+def synthWrap(nm, params, dflts, args, env, cx, full) = params match { case Nil => full case p :: prest => dflts match { case d :: drest => synthW1(nm, p, prest, d, drest, args, env, cx, full) } }
+def synthW1(nm, p, prest, d, drest, args, env, cx, full) = args match { case a :: arest => synthWE(nm, fst(parseArgExpr(a, env, cx)), p, prest, drest, arest, env, cx, full) case Nil => synthWE(nm, fst(parseExpr(d, 0, env, cx)), p, prest, drest, Nil, env, cx, full) }
+def synthWE(nm, vx, p, prest, drest, args, env, cx, full) = "(app (lam 1 " ++ synthWrap(nm, prest, drest, args, p :: env, cx, full) ++ ") " ++ vx ++ ")"
 // A bare `println()` (no args) special-cases to `(prim io.println (lit (str "")))` (ssc1-lower :2659-2662),
 // NOT `(app (global println))`. Any-arg println and every other nullary call keep the plain app form.
 def emitCallR(nm, callee, args, cx) = if args == "" then emitNullaryC(nm, callee, cx) else emitApp(callee, args)
@@ -1124,6 +1168,47 @@ def collectSRext(child, r, acc) = if isWord(hd(r), "extends") then Cons((snd(hd(
 def collectEnumAllReg(ts) = if isEmpty(ts) then Nil else (if isEnumHead(ts) then collectEAR1(ts) else collectEnumAllReg(tl(ts)))
 def collectEAR1(ts) = collectEAR2(snd(hd(tl(ts))), enumCasesFrom(ts))
 def collectEAR2(ename, pr) = pr match { case (cases, r) => Cons((ename, caseNamesL(cases)), collectEnumAllReg(r)) }
+
+// -- E2: call-site default-parameter registry -----------------------------------------------------
+// funcDflts = [(name, [(paramName, dfltToks)])], mirroring the oracle's funcDefaultsCell (populated by
+// ssc1-front registerParamDflts :653 at every `def`/`case class`/enum-case whose param list has a `= expr`).
+// The default is stored as its RAW TOKEN SLICE so the call site can re-parse+emit it in the right scoped
+// env (a later default sees earlier params). Linear top-level scan (like collectCC): react ONLY to a `def`/
+// `case class` HEAD or the `enum` keyword, then ALWAYS advance ONE token — the construct's params get
+// re-walked but nothing re-triggers (a match-arm `case Name(..)` is never a trigger, so patterns are safe).
+def collectFuncDflts(ts) = if isEmpty(ts) then Nil else collectFD1(ts)
+def collectFD1(ts) = if isDefHead(ts) then appEnv(defDfltEntry(ts), collectFuncDflts(tl(ts))) else (if isCCHead(ts) then appEnv(ccDfltEntry(ts), collectFuncDflts(tl(ts))) else (if isEnumHead(ts) then appEnv(enumDfltEntries(ts), collectFuncDflts(tl(ts))) else collectFuncDflts(tl(ts))))
+def isDefHead(ts) = if isTok(hd(ts), 2, 1) then isNameTok(hd(tl(ts))) else false
+def isNameTok(t) = if fst(t) == 1 then true else fst(t) == 3
+// A `def NAME [gen] (params)` — register only when the param list actually holds a default.
+def defDfltEntry(ts) = defDfltE1(snd(hd(tl(ts))), skipGen(tl(tl(ts))))
+def defDfltE1(nm, afterName) = if isTok(hd(afterName), 2, 21) then dfltReg(nm, collectPD(tl(afterName), Nil)) else Nil
+// A `case class NAME [gen] (fields)` — skipNameGenParen skips NAME+[gen]+`(`.
+def ccDfltEntry(ts) = dfltReg(snd(hd(tl(tl(ts)))), collectPD(skipNameGenParen(tl(tl(ts))), Nil))
+def dfltReg(nm, pr) = pr match { case (pd, r) => if pdAnyDflt(pd) then Cons((nm, pd), Nil) else Nil }
+def pdAnyDflt(pd) = pd match { case Nil => false case h :: t => if isEmpty(snd(h)) then pdAnyDflt(t) else true }
+// enum cases: mirror goCasesF's walker but capture defaults; emit a registry entry per parametrized case.
+def enumDfltEntries(ts) = goCaseDf(enumSkipToBody(tl(ts)))
+def goCaseDf(ts) = goCaseDf1(skipSemisF(ts))
+def goCaseDf1(ts) = if isTok(hd(ts), 2, 6) then goCaseDf2(ts) else Nil
+def goCaseDf2(ts) = if isTok(hd(tl(ts)), 2, 10) then Nil else goCaseDfName(tl(ts))
+def goCaseDfName(ts) = if isTok(hd(ts), 2, 10) then Nil else goCaseDfName2(snd(hd(ts)), tl(ts))
+def goCaseDfName2(cname, ts) = if isTok(hd(ts), 2, 21) then goCaseDfParam(cname, tl(ts)) else goCaseDfNullary(ts)
+def goCaseDfParam(cname, ts) = collectPD(ts, Nil) match { case (pd, r) => goCaseDfPCons(cname, pd, r) }
+def goCaseDfPCons(cname, pd, r) = if pdAnyDflt(pd) then Cons((cname, pd), goCaseDf(r)) else goCaseDf(r)
+def goCaseDfNullary(ts) = goCaseDf(skipNullComma(ts))
+def skipNullComma(ts) = if isTok(hd(ts), 2, 27) then skipNullComma(tl(tl(ts))) else ts
+// collectPD walks a param list (ts AFTER the `(`) -> ([(paramName, dfltToks)], restAfterClose). dfltToks
+// is Nil when the param has no default. Mirrors collectField but captures the default token slice.
+def collectPD(ts, acc) = if isEmpty(ts) then (revL(acc), ts) else (if isTok(hd(ts), 2, 22) then (revL(acc), tl(ts)) else collectPD1(ts, acc))
+def collectPD1(ts, acc) = collectPDafterName(snd(hd(ts)), tl(ts), acc)
+def collectPDafterName(nm, ts, acc) = if isTok(hd(ts), 2, 34) then collectPDdflt(nm, skipParamType(tl(ts)), acc) else collectPDdflt(nm, ts, acc)
+def skipParamType(ts) = typeText(ts, 0, "") match { case (ty, r) => r }
+def collectPDdflt(nm, ts, acc) = if isTok(hd(ts), 2, 20) then collectPDcap(nm, captureDflt(tl(ts), 0, Nil), acc) else collectPDend(nm, Nil, ts, acc)
+def collectPDcap(nm, pr, acc) = pr match { case (dtoks, r) => collectPDend(nm, dtoks, r, acc) }
+def collectPDend(nm, dtoks, ts, acc) = if isTok(hd(ts), 2, 27) then collectPD(tl(ts), Cons((nm, dtoks), acc)) else (revL(Cons((nm, dtoks), acc)), tl(ts))
+// capture the default expr's tokens up to (not including) the next `,`/`)` at depth 0.
+def captureDflt(ts, d, acc) = if isEmpty(ts) then (revL(acc), ts) else (if isSep0(hd(ts), d) then (revL(acc), ts) else captureDflt(tl(ts), typeDepth(hd(ts), d), Cons(hd(ts), acc)))
 // subtypeChildren(T) = case-class children of T ++ enum cases of T; Nil => leaf (exact test). typedTagTest:
 // leaf -> `(prim __isTag__ s (lit (str T)) (lit (int -1)))`; supertype -> OR-chain (ssc1-lower :3270-3316).
 def subRegChildren(parent, reg) = reg match { case Nil => Nil case h :: t => if fst(h) == parent then Cons(snd(h), subRegChildren(parent, t)) else subRegChildren(parent, t) }
@@ -1428,7 +1513,7 @@ def compile1(ts, dq, bs) = compile2(ts, collectCC(ts), collectTypeCases(ts), dq,
 // The pre-pass results become the parse CONTEXT: case-class names (cs, cc-only, for isCC) + the UNIFIED
 // type-case field names (tcs, cc + enum cases) + top-level val names + the enum registries. Top-level vals
 // are collected with a base cx first (their `rest` boundaries do not depend on val-name resolution).
-def mkCxE(cs, tcs, ts, dq, vals, vars, bs, pless) = mkCx(dq, ccNamesL(cs), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts), vars, bs, pless, (collectSubReg(ts), collectEnumAllReg(ts)), collectObjReg(ts))
+def mkCxE(cs, tcs, ts, dq, vals, vars, bs, pless) = mkCx(dq, ccNamesL(cs), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts), vars, bs, pless, (collectSubReg(ts), collectEnumAllReg(ts)), collectObjReg(ts), collectFuncDflts(ts))
 def compile2(ts, cs, tcs, dq, bs) = compile2b(ts, cs, tcs, dq, bs, mkCxE(cs, tcs, ts, dq, Nil, Nil, bs, Nil))
 def compile2b(ts, cs, tcs, dq, bs, base) = compile3(ts, cs, tcs, dq, mkCxE(cs, tcs, ts, dq, collectTopVals(ts, base), collectTopVars(ts, base), bs, collectPlessDefs(ts, base)))
 def compile3(ts, cs, tcs, dq, cx) = walkTop(ts, cx) match { case (strs, nDoc) => compile4(strs, nDoc, ts, tcs, dq, cx) }
