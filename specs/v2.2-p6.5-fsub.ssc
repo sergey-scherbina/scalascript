@@ -322,7 +322,15 @@ def emitCallMethod(nm, c, args, dq) = if args == "" then "(prim __method0__ (lit
 def isVarRecvCode(c) = startsW(c, "(local ") || startsW(c, "(global ") || startsW(c, "(prim cell.get ") || startsW(c, "(prim lcell.get ")
 def isCollCtorCode(c) = startsW(c, "(ctor Cons ") || startsW(c, "(ctor Nil)") || startsW(c, "(ctor Some ") || startsW(c, "(ctor None)") || startsW(c, "(ctor Left ") || startsW(c, "(ctor Right ")
 def isSelRecvCode(c) = if isVarRecvCode(c) then false else (if startsW(c, "(ctor ") then isCollCtorCode(c) else true)
-def emitMethodCall(nm, c, es, cx) = if isSelRecvCode(c) then selMethodOr(nm, c, es, dqOf(cx)) else emitCallMethod(nm, c, joinArgs(es), dqOf(cx))
+// A bare-uid receiver of a method CALL (`Dataset.of(x)`, `Db.sql(..)`) lowers with the receiver WRAPPED
+// as a ctor `(ctor X)` (ssc1-lower resolveMethodCall uid :1444-1467 → `(ctorap rname Nil)`) — even though
+// the SAME bare uid as a value or a bare `.field` SELECTION is `(global X)` (lowerE uid :2537 / selOrMethod).
+// bareCtor emits the value form `(global X)`; the CALL path restores the ctor form. Only an UPPERCASE
+// `(global X)` is a uid receiver; a lowercase `(global foo)` is a def/var receiver and stays a var recv.
+def isUidGlobal(c) = if startsW(c, "(global ") then isUp(c.charAt(8)) else false
+def methodRecv(c) = if isUidGlobal(c) then "(ctor " ++ c.substring(8, c.length - 1) ++ ")" else c
+def emitMethodCall(nm, c, es, cx) = emitMethodCall1(nm, methodRecv(c), es, cx)
+def emitMethodCall1(nm, c, es, cx) = if isSelRecvCode(c) then selMethodOr(nm, c, es, dqOf(cx)) else emitCallMethod(nm, c, joinArgs(es), dqOf(cx))
 // isKnownSelMethod = ssc1-lower :1509 set MINUS the forms selMethodOr handles explicitly first
 // (map/mkString/take/sum/foldLeft/foldRight). _1.._4 route to _sel__N via isTupField.
 def isKnownSelMethod(m) = if m == "filter" then true else (if m == "flatMap" then true else (if m == "fold" then true else (if m == "foreach" then true else (if m == "getOrElse" then true else (if m == "length" then true else (if m == "split" then true else (if m == "trim" then true else (if m == "to" then true else (if m == "until" then true else (if m == "toList" then true else (if m == "runToList" then true else (if m == "mapUpdated" then true else (if m == "mapGetOrElse" then true else isTupField(m))))))))))))))
@@ -376,7 +384,12 @@ def parseArgLMore(e, ts, env, cx) = if isTok(hd(ts), 2, 27) then parseArgL(tl(ts
 // A bare ENUM CASE reference (`North`) lowers to `(global North)` — the case's hoisted ctor DEF — not to
 // `(ctor North)` (measured: ssc1-lower resolveE uid :2049-2054 keeps a non-None/Nil uid as IrGlobal). The
 // enum ctor def `(def North (ctor North))` supplies the value. Checked before isCC (an enum case is not a cc).
-def bareCtor(nm, cx) = if isTopVal(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else (if isTopVar(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else (if isEnumCase(nm, cx) then "(global " ++ nm ++ ")" else (if isCC(nm, cx) then "(app (global " ++ nm ++ "))" else "(ctor " ++ nm ++ ")")))
+// A bare uid reference (Upper name, NOT applied) lowers UNIFORMLY (ssc1-lower resolveE uid :2049-2054):
+// top-val/top-var -> its cell read; `None`/`Nil` -> the builtin nullary ctor; EVERY other uid (unknown
+// import, case-object, case-class name used as an object `C.method`, enum case) -> `(global nm)` — the
+// name's hoisted def as a VALUE, NOT `(ctor nm)` and NOT `(app (global nm))`. Measured: `SqlNull`,
+// `ByteSlice.empty`, `Transport.Stdio`, `IntType` -> `(global X)`. Subsumes the old isEnumCase branch.
+def bareCtor(nm, cx) = if isTopVal(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else (if isTopVar(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else (if nm == "None" then "(ctor None)" else (if nm == "Nil" then "(ctor Nil)" else "(global " ++ nm ++ ")")))
 // An applied Upper-name `X(args)` lowers to `(ctor X args)` ONLY for the builtin ctors
 // {Cons, Some, Left, Right, Signal, ComputedSignal} (ssc1-lower :2078-2134); EVERY other uid — a local
 // case class OR an imported/unknown name (e.g. AchConfig) — lowers to `(app (global X) args)`, the same
