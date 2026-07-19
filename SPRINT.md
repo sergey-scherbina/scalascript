@@ -202,6 +202,12 @@ baseline set `/tmp/baseline_deep.txt` for `comm -23` drop-checks. --self via cap
       Wired into emitDefBody, parseLamBodyG, forDo, parseIf. Flips if-then-no-else-after-while,
       js-stream-complete-stops, json-deep-import, rozum-agent-streaming, scljet-cell-inplace,
       var-topdef-shared (+6). Corpus 383→389, 0 drops, X1 277,752 B, --self 153 ok/0 FAIL.
+- [x] **DA13 — object val/var/parameterless-def members DONE (deep3).** Generalizes DA10: object members
+      now cover `val v = e` → `(def O_v body)`, `var v = e` → `(def O_v__cell (prim cell.new e))`,
+      parameterless `def m` → `(def O_m body)` (eager), alongside param'd/empty-parens def, in SOURCE order
+      (collectObjMembers → [(kind,(name,toks))]). Reproduces ssc1-lower prefixDefs val/var/parameterless.
+      Flips wc-card. Corpus 389→390, 0 drops, X1 281,162 B, --self 153 ok/0 FAIL. (Nested-type object
+      members + bare `O.v` postSel resolution still FOLLOW-UP; no corpus file needs them.)
 **➜ v2-p65-deep SESSION: corpus MATCH 362→381/508 (+19, DA1 typed-patterns +2, DA2 try/catch +2, DA3
   direct{} +3, DA4 println()/.yaml +1, DA5 min64-literal +1, DA6 ctor-guards +1, DA7 numeric-underscore +3,
   DA8 qualified-enum-case-patterns +3, DA9 source-`;`+arm-sequences +3), ALL 0 drops, X1 fixpoint stage1==stage2 byte-identical each slice (232,332→271,756 B),
