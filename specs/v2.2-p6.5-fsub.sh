@@ -347,6 +347,18 @@ d si_nest_str 'val xs = List(1, 2, 3)
 println(s"Squares: ${xs.mkString(", ")}")'
 d si_nest_arg 'def f(o: Option[String]): String = s"v=${o.getOrElse("none")}"
 def main(): String = f(None)'
+d brk_lit    'def main(): List[Int] = [1, 2, 3]'
+d brk_empty  'def main(): List[Int] = []'
+d brk_str    'val rows = ["a", "b"]
+println(rows)'
+d brk_ml     'val cols = [
+  1,
+  2,
+  3
+]
+println(cols)'
+d brk_arg    'def f(xs: List[Int]): Int = xs.length
+def main(): Int = f([10, 20])'
 
 if [ "${1:-}" = "--self" ]; then
   echo "--- X1: F compiles its OWN source ---"

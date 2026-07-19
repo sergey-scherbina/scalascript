@@ -272,7 +272,15 @@ def enumCasesOfName(ename, reg) = reg match { case Nil => Nil case h :: t => if 
 def parseAtom(ts, env, cx) = if isEmpty(ts) then (emitInt(0), Nil) else (if isTok(hd(ts), 2, 24) then parseNeg(tl(ts), env, cx) else postfix(parseAtom0(ts, env, cx), env, cx))
 def parseNeg(ts, env, cx) = parseAtom(ts, env, cx) match { case (a, r) => ("(prim i.sub (lit (int 0)) " ++ a ++ ")", r) }
 def parseAtom0(ts, env, cx) = parseAtom1(hd(ts), tl(ts), env, cx)
-def parseAtom1(t, rest, env, cx) = if fst(t) == 0 then (emitInt(snd(t)), rest) else (if fst(t) == 5 then (emitFloat(snd(t)), rest) else (if fst(t) == 6 then (parseInterp(snd(t), env, cx), rest) else (if fst(t) == 4 then (emitStr(snd(t), dqOf(cx)), rest) else (if fst(t) == 8 then (emitStr(escTriple(snd(t), 0, (snd(t)).length, dqOf(cx), bsOf(cx)), dqOf(cx)), rest) else (if fst(t) == 3 then parseCtor(snd(t), rest, env, cx) else (if fst(t) == 1 then parseIdent(t, rest, env, cx) else (if isTok(t, 2, 21) then parseParenOrLam(rest, env, cx) else (if isTok(t, 2, 28) then parseBlock(rest, env, cx) else (if isTok(t, 2, 2) then parseIf(rest, env, cx) else (if isTok(t, 2, 8) then ("(lit true)", rest) else (if isTok(t, 2, 9) then ("(lit false)", rest) else (emitInt(0), rest))))))))))))
+def parseAtom1(t, rest, env, cx) = if fst(t) == 0 then (emitInt(snd(t)), rest) else (if fst(t) == 5 then (emitFloat(snd(t)), rest) else (if fst(t) == 6 then (parseInterp(snd(t), env, cx), rest) else (if fst(t) == 4 then (emitStr(snd(t), dqOf(cx)), rest) else (if fst(t) == 8 then (emitStr(escTriple(snd(t), 0, (snd(t)).length, dqOf(cx), bsOf(cx)), dqOf(cx)), rest) else (if fst(t) == 3 then parseCtor(snd(t), rest, env, cx) else (if fst(t) == 1 then parseIdent(t, rest, env, cx) else (if isTok(t, 2, 21) then parseParenOrLam(rest, env, cx) else (if isTok(t, 2, 50) then parseBrkLit(rest, env, cx) else (if isTok(t, 2, 28) then parseBlock(rest, env, cx) else (if isTok(t, 2, 2) then parseIf(rest, env, cx) else (if isTok(t, 2, 8) then ("(lit true)", rest) else (if isTok(t, 2, 9) then ("(lit false)", rest) else (emitInt(0), rest)))))))))))))
+// Bracket list literal `[e1, .., en]` in EXPRESSION position == `List(e1,..,en)` (ssc bracket sugar,
+// ssc1-front :1140-1154) -> the same Cons-chain. Empty `[]` -> `(ctor Nil)`. (Statement-position `[..]`
+// is a markdown link-import, already consumed by isImportHead; type-args `x[T]` are postfix skipGen'd,
+// so a `[` reaching parseAtom is always a list literal.) parseBrkL mirrors parseArgL but closes on `]`.
+def parseBrkLit(ts, env, cx) = parseBrkL(ts, env, cx) match { case (es, r) => (consChain(es), r) }
+def parseBrkL(ts, env, cx) = if isTok(hd(ts), 2, 51) then (Nil, tl(ts)) else parseBrkL1(ts, env, cx)
+def parseBrkL1(ts, env, cx) = parseArgExpr(ts, env, cx) match { case (e, r) => parseBrkLMore(e, r, env, cx) }
+def parseBrkLMore(e, ts, env, cx) = if isTok(hd(ts), 2, 27) then parseBrkL(tl(ts), env, cx) match { case (rest, r2) => (Cons(e, rest), r2) } else (Cons(e, Nil), tl(ts))
 // -- string interpolation desugar --------------------------------------------------------------
 // `s"lit $id lit ${expr} .."` -> a right-nested `++` chain of pieces (measured: empty literal chunks are
 // DROPPED; `$id` scans a bare identifier and stops at `.`; `${..}` is a full expr; single piece has no
