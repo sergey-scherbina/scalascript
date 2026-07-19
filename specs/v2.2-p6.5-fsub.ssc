@@ -486,7 +486,7 @@ def parseLamBody(ar, env2, ts, cx) = parseExpr(ts, 0, env2, cx) match { case (b,
 // `throw e` -> `(prim __throw__ e)` (ssc1-front :1071, e a full parseExpr). `new X(a)` == `X(a)` -- drop
 // `new`, parse the following atom (ssc1-front :1114). Neither is a keyword in F's lexer (plain id tokens).
 def parseThrow(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => ("(prim __throw__ " ++ e ++ ")", r) }
-def parseIdent(t, rest, env, cx) = if snd(t) == "throw" then parseThrow(rest, env, cx) else (if snd(t) == "new" then parseAtom(rest, env, cx) else (if snd(t) == "try" then parseTry(rest, env, cx) else (if snd(t) == "for" then parseForExpr(rest, env, cx) else (if isTok(hd(rest), 2, 30) then parseLamBody(1, snd(t) :: env, tl(rest), cx) else parseVarOrCall(snd(t), rest, env, cx)))))
+def parseIdent(t, rest, env, cx) = if snd(t) == "throw" then parseThrow(rest, env, cx) else (if snd(t) == "new" then parseAtom(rest, env, cx) else (if snd(t) == "try" then parseTry(rest, env, cx) else (if snd(t) == "direct" then (if isDirectHead(rest) then parseDirect(rest, env, cx) else parseVarOrCall(snd(t), rest, env, cx)) else (if snd(t) == "for" then parseForExpr(rest, env, cx) else (if isTok(hd(rest), 2, 30) then parseLamBody(1, snd(t) :: env, tl(rest), cx) else parseVarOrCall(snd(t), rest, env, cx))))))
 // `for <pat> <- gen [if g] (yield e | [do] body)` desugars to method-call chains (ssc1-front parseForFrom
 // :1000): `yield e` -> `gen.map(x=>e)`; `if g` -> `gen.filter(x=>g).map(..)`; `do`/braceless body ->
 // `gen.foreach(x=>body)`; a second generator (`;`-separated, layout-inserted) -> `gen.flatMap(x=><rest>)`.
@@ -1024,6 +1024,36 @@ def parseHWild(th, ts, menv, cx) = parseExpr(ts, 0, "__hsel__" :: menv, cx) matc
 def parseHWildRest(th, body, ts, menv, cx) = parseHArms(ts, menv, cx) match { case (rest, r) => (emitIf(typedTagTest(genScrut(menv), th, cx), "(let (" ++ hSelected(menv) ++ ") " ++ body ++ ")", rest), r) }
 def parseHBind(binder, th, ts, menv, cx) = parseExpr(ts, 0, "__hsel__" :: binder :: menv, cx) match { case (body, r) => parseHBindRest(binder, th, body, r, menv, cx) }
 def parseHBindRest(binder, th, body, ts, menv, cx) = parseHArms(ts, "__typed_scrut__" :: menv, cx) match { case (rest, r) => ("(let (" ++ genScrut(menv) ++ ") " ++ emitIf(typedTagTest("(local 0)", th, cx), "(let (" ++ hSelected(binder :: menv) ++ ") " ++ body ++ ")", rest) ++ ")", r) }
+// -- direct{} monad desugar (DA3) ------------------------------------------------------------------
+// `direct[M] { x = rhs; ...; result }` desugars to a flatMap chain (ssc1-lower directStmts :1979):
+// a bare bind `x = rhs` (x not a declared var) -> `rhs.flatMap(x => rest)` (dispatch via emitMethodCall,
+// so Some/List ctor -> _sel_flatMap, var recv -> __method__); `val`/`var`/mutation/expr stay as ordinary
+// block let/lcell/seq statements (directThen). Reuses F's block machinery so de-Bruijn threading matches.
+// Intercepted only for `direct[M] {` (marker form, ssc1-front :1400/:1414). M is validated-only (not emitted).
+def isDirectHead(ts) = if isTok(hd(ts), 2, 50) then isTok(hd(skipGen(ts)), 2, 28) else false
+def parseDirect(ts, env, cx) = parseDirectBlock(hOpen(skipGen(ts)), env, cx)
+def parseDirectBlock(ts, env, cx) = parseDBlock0(skipSemisF(ts), env, cx)
+def parseDBlock0(ts, env, cx) = if isTok(hd(ts), 2, 7) then parseDBlockVal(tl(ts), env, cx) else (if isVarHead(ts) then parseDBlockVar(tl(ts), env, cx) else (if isDirectBind(ts, env) then parseDBind(ts, env, cx) else (if isAssignHead(ts) then parseDBlockAssign(ts, env, cx) else parseDBlockExpr(ts, env, cx))))
+def notEnvVar(nm, env) = if lookup("@@" ++ nm, env) >= 0 then false else (if lookup("@" ++ nm, env) >= 0 then false else true)
+def isDirectBind(ts, env) = if isAssignHead(ts) then (if isTok(hd(tl(ts)), 2, 20) then notEnvVar(snd(hd(ts)), env) else false) else false
+def parseDBind(ts, env, cx) = parseDBind1(snd(hd(ts)), tl(tl(ts)), env, cx)
+def parseDBind1(nm, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (rhs, r) => parseDBindRest(nm, rhs, r, env, cx) }
+def parseDBindRest(nm, rhs, ts, env, cx) = parseDirectBlock(ts, nm :: env, cx) match { case (rest, r) => (emitMethodCall("flatMap", rhs, Cons(forLam(rest), Nil), cx), r) }
+def parseDBlockVal(ts, env, cx) = parseDBlockVal1(snd(hd(ts)), skipToEq(tl(ts)), env, cx)
+def parseDBlockVal1(nm, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => parseDBlockValRest(nm, e, r, env, cx) }
+def parseDBlockValRest(nm, e, ts, env, cx) = parseDirectBlock(ts, nm :: env, cx) match { case (b, r) => ("(let (" ++ e ++ ") " ++ b ++ ")", r) }
+def parseDBlockVar(ts, env, cx) = parseDBlockVarN(snd(hd(ts)), skipToEq(ts), env, cx)
+def parseDBlockVarN(nm, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (init, r) => parseDBlockVarBind(nm, init, r, env, cx) }
+def parseDBlockVarBind(nm, init, r, env, cx) = if isIntLitCode(init) then parseDBlockVarLc(nm, init, r, env, cx) else parseDBlockVarC(nm, init, r, env, cx)
+def parseDBlockVarLc(nm, init, r, env, cx) = parseDirectBlock(r, ("@@" ++ nm) :: env, cx) match { case (b, rr) => ("(let ((prim lcell.new " ++ init ++ ")) " ++ b ++ ")", rr) }
+def parseDBlockVarC(nm, init, r, env, cx) = parseDirectBlock(r, ("@" ++ nm) :: env, cx) match { case (b, rr) => ("(let ((prim cell.new " ++ init ++ ")) " ++ b ++ ")", rr) }
+def parseDBlockAssign(ts, env, cx) = parseAssign(ts, env, cx) match { case (a, r) => parseDBlockAssignC(a, isTok(hd(tl(ts)), 2, 20), skipSemisF(r), env, cx) }
+def parseDBlockAssignC(a, simple, ts, env, cx) = if simple then parseDBlockSeq(a, ts, env, cx) else parseDBlockCont(a, ts, env, cx)
+def parseDBlockSeq(a, ts, env, cx) = if isEmpty(ts) then (a, ts) else (if isTok(hd(ts), 2, 29) then (a, tl(ts)) else parseDBlockSeqMore(a, ts, env, cx))
+def parseDBlockSeqMore(a, ts, env, cx) = parseDBlock0(ts, env, cx) match { case (b, r) => ("(seq " ++ a ++ " " ++ b ++ ")", r) }
+def parseDBlockExpr(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => parseDBlockCont(e, skipSemisF(r), env, cx) }
+def parseDBlockCont(e, ts, env, cx) = if isEmpty(ts) then (e, ts) else (if isTok(hd(ts), 2, 29) then (e, tl(ts)) else parseDBlockBare(e, ts, env, cx))
+def parseDBlockBare(e, ts, env, cx) = parseDBlock0(ts, "" :: env, cx) match { case (b, r) => ("(let (" ++ e ++ ") " ++ b ++ ")", r) }
 def defTopItem(ts, cx) = emitDef(ts, cx) match { case (d, rest) => ((d, ""), rest) }
 def ccTopItem(ts, cx) = emitCCDecl(ts, cx) match { case (d, rest) => ((d, ccDerivedInit(ccNameAt(ts), derivesAt(tl(tl(ts))))), rest) }
 // `val (a, b, ..) = e` tuple-destructuring (ssc1-lower :2522-style): bind the init to a `let`, then set
