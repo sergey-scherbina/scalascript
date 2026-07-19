@@ -441,8 +441,14 @@ Slices, impact-ordered (biggest clean lever first):
       NOTE: top-level `val m = Map(..)` is NOT registered as a mapVar by the oracle, so `m.getOrElse`/
       `.updated` stay `__method__` (maps.code matched with NO M3). M3 (`_sel_mapUpdated`/`_sel_mapGetOrElse`)
       only needed for BLOCK-LOCAL map vars — deferred (needs name-registry threading, same as isListVar S3).
-- [ ] **G3 — cc/tc-method-def (16) + related:** case-class/typeclass body methods → `Tag_method(self,..)`
-      globals + `__regmethod__` regs (ssc1-lower :5088-5165, classBodyFields :3710). Big; slice further.
+- [x] **G3 — uid zero-arg method call → `__method__` (not `__method0__`). Corpus 230 → 234 (+4), 0 regr.
+      fixpoint 164,022→164,174 B.** A uid receiver ALWAYS uses polymorphic `__method__` (ssc1-lower :1466
+      hardcodes it) even for empty parens `X.m()` (WorkerProtocol.handleMessages(), Storage.keys(),
+      System.currentTimeMillis()); only a VAR receiver `v.m()` uses `__method0__`. emitMethodCall now routes
+      a uid `(global X)` receiver straight to emitMethod (always __method__), skipping the __method0__ branch.
+- [ ] **G4 — cc/tc-method-def (16) + `.copy` (3):** case-class/typeclass body methods → `Tag_method(self,..)`
+      globals + `__regmethod__` regs (ssc1-lower :5088-5165, classBodyFields :3710). Case-class `.copy(...)`
+      is related (user-request-shadow/optic-polish/lenses). Big; slice further.
 - [ ] **derived-codec (20), for-comprehension (6), string-escape/multiline (12): later.**
 Each slice: byte-verify vs oracle on the cached corpus, keep `--self` GREEN (re-freeze fixpoint), re-run
 `v2.2-p6.5-corpus.sh`, CONFIRM no MATCH dropped. Build: `scala-cli --power package v2/src --assembly -o
