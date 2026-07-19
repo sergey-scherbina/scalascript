@@ -426,7 +426,10 @@ def emitDefBody(nm, ar, env, ts, cx) = parseExpr(ts, 0, env, cx) match { case (b
 // returns ((userDefs, docEntryItems), nDocItems); parseTopItem returns ((defPart, entryPart), rest).
 // A top-level `import a.b.{x, y}` is a module directive that lowers to NOTHING (measured: the oracle
 // emits no IR for it). F skips the whole statement to the layout-inserted `;` (imports have no inner `;`).
-def isImportHead(ts) = isWord(hd(ts), "import")
+// Both import forms are module directives that lower to NOTHING: the `import a.b.{x,y}` keyword form
+// AND the markdown link-import `[name, name](path)` (a top-level statement starting with `[`). F skips
+// the whole statement to the layout-inserted `;` (neither form contains an inner `;`).
+def isImportHead(ts) = if isWord(hd(ts), "import") then true else isTok(hd(ts), 2, 50)
 def importItem(ts) = (("", ""), skipImport(ts))
 def skipImport(ts) = if isEmpty(ts) then ts else (if isTok(hd(ts), 2, 52) then tl(ts) else skipImport(tl(ts)))
 def parseTopItem(ts, cx) = if isImportHead(ts) then importItem(ts) else (if isCCHead(ts) then ccTopItem(ts, cx) else (if isTraitHead(ts) then traitItem(ts) else (if isTok(hd(ts), 2, 1) then defTopItem(ts, cx) else (if isTok(hd(ts), 2, 7) then valItem(ts, cx) else exprItem(ts, cx)))))
