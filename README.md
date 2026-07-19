@@ -590,6 +590,7 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 | [mount-demo/](examples/mount-demo/) | `mount()` intrinsic — file-based handlers, typed (`CaseClass => CaseClass` auto-deser/ser), 1-arg, 2-arg with ctx, static response |
 | [sql-sqlite-file.ssc](examples/sql-sqlite-file.ssc) | SQLite file database — `databases:` front-matter, `sql` DDL/DML blocks, `Db.query/execute` |
 | [scljet-hello.ssc](examples/scljet-hello.ssc) | First taste of SclJet — create a books database and work with it through the JDBC façade: CRUD, an `ORDER BY` query, and a bound `?` parameter (runs on interpreter, JS, and the default `ssc run`) |
+| [scljet-file.ssc](examples/scljet-file.ssc) | Two engines, one file — SclJet writes a real `.db` to disk, then the same program shells out to the reference `sqlite3` (via `std.process`) to read it, run `integrity_check`, and write into it (JVM host; degrades cleanly if `sqlite3` is absent) |
 | [scljet-readonly-codecs.ssc](examples/scljet-readonly-codecs.ssc) | Pure low-level SQLite 3.53.3 header, B-tree cell, and record decoding without JDBC/sql.js |
 | [scljet-readonly.ssc](examples/scljet-readonly.ssc) | Write a pinned SQLite image through the JVM VFS plugin, then open its schema and stream a table row through SclJet's pure immutable pager |
 | [typed-sql-crud.ssc](examples/typed-sql-crud.ssc) | Typed SQL CRUD — `derives RowCodec`, `Db.insert/update/query[A]` on interpreter and JVM codegen paths |
