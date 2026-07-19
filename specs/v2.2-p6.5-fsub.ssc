@@ -45,10 +45,14 @@ def lexNL2(ind, pos, s, n) = if atEnd(pos, n) then Nil else Cons((7, ind), lex(s
 //   46 `&&`  47 `||`  48 `++`  49 `::`  50 `[`  51 `]`
 def kwCode(w) = if w == "def" then 1 else (if w == "if" then 2 else (if w == "then" then 3 else (if w == "else" then 4 else (if w == "match" then 5 else (if w == "case" then 6 else (if w == "val" then 7 else (if w == "true" then 8 else (if w == "false" then 9 else (if w == "class" then 10 else 0)))))))))
 def lex(s, i, n) = if atEnd(i, n) then Nil else lexDispatch(s, i, n, s.charAt(i))
-def lexDispatch(s, i, n, c) = if c == 32 then lex(s, i + 1, n) else (if c == 10 then lexNL(s, i, n) else (if c == 9 then lex(s, i + 1, n) else (if c == 13 then lexNL(s, i, n) else (if isLet(c) then lexWord(s, i, n, scanId(s, i, n)) else (if isDig(c) then lexNum(s, i, n) else (if c == 34 then lexStr(s, i, n, scanStr(s, i + 1, n)) else (if c == 47 then lexSlash(s, i, n) else (if c == 43 then lexPlus(s, i, n) else (if c == 58 then lexColon(s, i, n) else (if c == 61 then lexEq(s, i, n) else (if c == 60 then lexLt(s, i, n) else (if c == 62 then lexGt(s, i, n) else (if c == 33 then lexBang(s, i, n) else (if c == 38 then lexAmp(s, i, n) else (if c == 124 then lexPipe(s, i, n) else lexOp1(s, i, n, c))))))))))))))))
+def lexDispatch(s, i, n, c) = if c == 32 then lex(s, i + 1, n) else (if c == 10 then lexNL(s, i, n) else (if c == 9 then lex(s, i + 1, n) else (if c == 13 then lexNL(s, i, n) else (if isLet(c) then lexWord(s, i, n, scanId(s, i, n)) else (if isDig(c) then lexNum(s, i, n) else (if c == 34 then lexStr(s, i, n, scanStr(s, i + 1, n)) else (if c == 47 then lexSlash(s, i, n) else (if c == 43 then lexPlus(s, i, n) else (if c == 45 then lexMinus(s, i, n) else (if c == 42 then lexStar(s, i, n) else (if c == 58 then lexColon(s, i, n) else (if c == 61 then lexEq(s, i, n) else (if c == 60 then lexLt(s, i, n) else (if c == 62 then lexGt(s, i, n) else (if c == 33 then lexBang(s, i, n) else (if c == 38 then lexAmp(s, i, n) else (if c == 124 then lexPipe(s, i, n) else lexOp1(s, i, n, c))))))))))))))))))
 def lexStr(s, i, n, j) = Cons((4, s.substring(i + 1, j)), lex(s, j + 1, n))
 def lexColon(s, i, n) = if s.charAt(i + 1) == 58 then Cons((2, 49), lex(s, i + 2, n)) else Cons((2, 34), lex(s, i + 1, n))
-def lexPlus(s, i, n) = if s.charAt(i + 1) == 43 then Cons((2, 48), lex(s, i + 2, n)) else Cons((2, 23), lex(s, i + 1, n))
+// compound-assignment tokens: `+=`=53 `-=`=54 `*=`=55 (`x += e` desugars to `x = x + e`, ssc1-front
+// compoundBaseOp :1512). `+=` is checked after `++`; `-`/`*` get their own dispatch (else they lexOp1).
+def lexPlus(s, i, n) = if s.charAt(i + 1) == 43 then Cons((2, 48), lex(s, i + 2, n)) else (if s.charAt(i + 1) == 61 then Cons((2, 53), lex(s, i + 2, n)) else Cons((2, 23), lex(s, i + 1, n)))
+def lexMinus(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 54), lex(s, i + 2, n)) else Cons((2, 24), lex(s, i + 1, n))
+def lexStar(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 55), lex(s, i + 2, n)) else Cons((2, 25), lex(s, i + 1, n))
 def lexSlash(s, i, n) = if s.charAt(i + 1) == 47 then lex(s, scanLineEnd(s, i + 2, n), n) else Cons((2, 26), lex(s, i + 1, n))
 def lexEq(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 44), lex(s, i + 2, n)) else (if s.charAt(i + 1) == 62 then Cons((2, 30), lex(s, i + 2, n)) else Cons((2, 20), lex(s, i + 1, n)))
 def lexLt(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 42), lex(s, i + 2, n)) else Cons((2, 40), lex(s, i + 1, n))
@@ -73,7 +77,8 @@ def lexNum(s, i, n) = lexNum1(s, i, n, scanNumE(s, i, n))
 def longEnd(s, e, n) = if atEnd(e, n) then e else (if s.charAt(e) == 76 then e + 1 else (if s.charAt(e) == 108 then e + 1 else e))
 def lexNum1(s, i, n, e) = if isFloatDot(s, e, n) then lexFloat(s, i, n, scanNumE(s, e + 1, n)) else Cons((0, scanNumV(s, i, n, 0)), lex(s, longEnd(s, e, n), n))
 def lexFloat(s, i, n, fe) = Cons((5, s.substring(i, fe)), lex(s, fe, n))
-def opCode(c) = if c == 40 then 21 else (if c == 41 then 22 else (if c == 45 then 24 else (if c == 42 then 25 else (if c == 44 then 27 else (if c == 46 then 31 else (if c == 123 then 28 else (if c == 125 then 29 else (if c == 91 then 50 else (if c == 93 then 51 else 0)))))))))
+// `%` (modulo, code 56) — same precedence class as `*`/`/` (ssc1-front opPrec :1439), symbol "%".
+def opCode(c) = if c == 40 then 21 else (if c == 41 then 22 else (if c == 45 then 24 else (if c == 42 then 25 else (if c == 44 then 27 else (if c == 46 then 31 else (if c == 123 then 28 else (if c == 125 then 29 else (if c == 91 then 50 else (if c == 93 then 51 else (if c == 37 then 56 else 0))))))))))
 def lexOp1(s, i, n, c) = if opCode(c) == 0 then lex(s, i + 1, n) else Cons((2, opCode(c)), lex(s, i + 1, n))
 
 // -- K62.6c-indent: layout (offside -> virtual braces) ----------------------------------------
@@ -188,7 +193,7 @@ def isStrExprCode(c, dq) = if isConcatCode(c, dq) then true else isStrLitish(c)
 // -- emission ---------------------------------------------------------------------------------
 // Arithmetic AND comparison both go through `(prim __arith__ (lit (str "OP")) L R)` -- a QUOTED
 // operator symbol, not a bare prim. `&&`/`||` desugar to `if`; `!=` negates `__eq__`. All measured.
-def arithSym(k) = if k == 23 then "+" else (if k == 24 then "-" else (if k == 25 then "*" else (if k == 26 then "/" else (if k == 40 then "<" else (if k == 41 then ">" else (if k == 42 then "<=" else ">="))))))
+def arithSym(k) = if k == 23 then "+" else (if k == 24 then "-" else (if k == 25 then "*" else (if k == 26 then "/" else (if k == 56 then "%" else (if k == 40 then "<" else (if k == 41 then ">" else (if k == 42 then "<=" else ">=")))))))
 def emitInt(v) = "(lit (int " ++ v ++ "))"
 def emitFloat(t) = "(lit (float " ++ t ++ "))"
 def emitStr(v, dq) = "(lit (str " ++ dq ++ v ++ dq ++ "))"
@@ -201,7 +206,7 @@ def emitIf(c, t, e) = "(if " ++ c ++ " " ++ t ++ " " ++ e ++ ")"
 def emitBin(k, l, r, dq) = if k == 49 then "(ctor Cons " ++ l ++ " " ++ r ++ ")" else (if k == 48 then emitArithS("++", l, r, dq) else (if k == 44 then emitEq(l, r) else (if k == 45 then emitIf(emitEq(l, r), "(lit false)", "(lit true)") else (if k == 46 then emitIf(l, r, "(lit false)") else (if k == 47 then emitIf(l, "(lit true)", r) else emitArith(k, l, r, dq))))))
 // Scala's precedence-by-first-character, restricted to the operators the subset uses.
 def binPrec(t) = if fst(t) == 2 then binPrecK(snd(t)) else 0
-def binPrecK(k) = if k == 47 then 1 else (if k == 46 then 2 else (if k == 44 then 3 else (if k == 45 then 3 else (if k == 40 then 4 else (if k == 41 then 4 else (if k == 42 then 4 else (if k == 43 then 4 else (if k == 49 then 5 else (if k == 23 then 6 else (if k == 24 then 6 else (if k == 48 then 6 else (if k == 25 then 7 else (if k == 26 then 7 else 0)))))))))))))
+def binPrecK(k) = if k == 47 then 1 else (if k == 46 then 2 else (if k == 44 then 3 else (if k == 45 then 3 else (if k == 40 then 4 else (if k == 41 then 4 else (if k == 42 then 4 else (if k == 43 then 4 else (if k == 49 then 5 else (if k == 23 then 6 else (if k == 24 then 6 else (if k == 48 then 6 else (if k == 25 then 7 else (if k == 26 then 7 else (if k == 56 then 7 else 0))))))))))))))
 
 // -- the parse context ---------------------------------------------------------------------------
 // cx = (dq, (ccNames, fieldNames)). Case classes made the parser context-dependent: a ctor call and
@@ -359,9 +364,10 @@ def parseTupRest(e, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e2, r
 // `(app (local i) ..)`, not `(app (global nm) ..)` (measured on `def ap(f, x) = f(x)`). F's own source
 // never calls a local, so the corpus only reached this once lambdas arrived.
 // A local binding shadows a top-level `val`; a top-level `val` reference lowers to its cell read.
-// A top-level `var` reads EXACTLY like a top-level `val`: `(prim cell.get (global name__cell))`
-// (ssc1-lower lowerE isTopVar/isTopVal :2480-2483, same emission).
-def calleeOf(nm, env, cx) = if lookup(nm, env) >= 0 then "(local " ++ lookup(nm, env) ++ ")" else (if isTopVar(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else (if isTopVal(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else "(global " ++ nm ++ ")"))
+// Read resolution mirrors lowerE :2464-2483: plain name in scope -> `(local i)`; else a block-local var
+// bound `@@name`(long cell) -> `(prim lcell.get (local i))` or `@name`(cell) -> `(prim cell.get (local i))`;
+// else a top-level var/val -> `(prim cell.get (global name__cell))`; else a bare global.
+def calleeOf(nm, env, cx) = if lookup(nm, env) >= 0 then "(local " ++ lookup(nm, env) ++ ")" else (if lookup("@@" ++ nm, env) >= 0 then "(prim lcell.get (local " ++ lookup("@@" ++ nm, env) ++ "))" else (if lookup("@" ++ nm, env) >= 0 then "(prim cell.get (local " ++ lookup("@" ++ nm, env) ++ "))" else (if isTopVar(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else (if isTopVal(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else "(global " ++ nm ++ ")"))))
 def parseVarOrCall(nm, ts, env, cx) = if isTok(hd(ts), 2, 21) then parseCall(nm, tl(ts), env, cx) else (calleeOf(nm, env, cx), ts)
 def parseCall(nm, ts, env, cx) = parseArgs(ts, env, cx) match { case (args, r) => (emitApp(calleeOf(nm, env, cx), args), r) }
 def emitApp(callee, args) = "(app " ++ callee ++ args ++ ")"
@@ -384,7 +390,7 @@ def parseBlock(ts, env, cx) = parseBlock0(skipSemisF(ts), env, cx)
 // `(lam 1 (match (local 0) (arms)))` (measured: `pairs.foreach { case (a,b) => .. }` -> the block is a
 // lam-1 whose body matches its single param). The lambda param occupies (local 0), so the arms are
 // parsed against a one-slot env exactly like a match scrutinee — reuse parseArms (ctor/tuple/cons arms).
-def parseBlock0(ts, env, cx) = if isTok(hd(ts), 2, 6) then parseCaseLambda(ts, env, cx) else (if isTok(hd(ts), 2, 7) then parseBlockVal(tl(ts), env, cx) else (if isWhileHead(ts) then parseBlockWhile(tl(ts), env, cx) else (if isAssignHead(ts) then parseBlockAssign(ts, env, cx) else parseBlockExpr(ts, env, cx))))
+def parseBlock0(ts, env, cx) = if isTok(hd(ts), 2, 6) then parseCaseLambda(ts, env, cx) else (if isTok(hd(ts), 2, 7) then parseBlockVal(tl(ts), env, cx) else (if isVarHead(ts) then parseBlockVar(tl(ts), env, cx) else (if isWhileHead(ts) then parseBlockWhile(tl(ts), env, cx) else (if isAssignHead(ts) then parseBlockAssign(ts, env, cx) else parseBlockExpr(ts, env, cx)))))
 def parseCaseLambda(ts, env, cx) = parseArms(ts, "" :: env, cx) match { case (arms, r) => ("(lam 1 (match (local 0) (" ++ fst(arms) ++ ")" ++ snd(arms) ++ "))", r) }
 def parseBlockVal(ts, env, cx) = parseBlockVal1(snd(hd(ts)), skipToEq(tl(ts)), env, cx)
 def parseBlockVal1(nm, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => parseBlockRest(nm, e, r, env, cx) }
@@ -403,8 +409,9 @@ def parseBlockBare(e, ts, env, cx) = parseBlock0(ts, "" :: env, cx) match { case
 // keyword is skipped; then a `{` (explicit or layout-synthesised after `do`) opens the body block.
 def isVarHead(ts) = isWord(hd(ts), "var")
 def isWhileHead(ts) = isWord(hd(ts), "while")
-// statement-position `id =` is an assignment (`id ==` is code 44, not 20, so it is NOT matched).
-def isAssignHead(ts) = if fst(hd(ts)) == 1 then isTok(hd(tl(ts)), 2, 20) else false
+// statement-position `id =` (or `id +=`/`-=`/`*=`) is an assignment (`id ==` is code 44, not 20).
+def isAssignOp(t) = if isTok(t, 2, 20) then true else (if isTok(t, 2, 53) then true else (if isTok(t, 2, 54) then true else isTok(t, 2, 55)))
+def isAssignHead(ts) = if fst(hd(ts)) == 1 then isAssignOp(hd(tl(ts))) else false
 def skipDoKw(ts) = if isWord(hd(ts), "do") then tl(ts) else ts
 def parseWhile(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (cond, r) => parseWhileBody(cond, skipDoKw(r), env, cx) }
 def parseWhileBody(cond, ts, env, cx) = if isTok(hd(ts), 2, 28) then parseWhileBlk(cond, tl(ts), env, cx) else parseWhileExpr(cond, ts, env, cx)
@@ -412,14 +419,34 @@ def parseWhileBlk(cond, ts, env, cx) = parseBlock(ts, env, cx) match { case (b, 
 def parseWhileExpr(cond, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (b, r) => ("(while " ++ cond ++ " " ++ b ++ ")", r) }
 // Assignment: `@@x`(long cell) -> lcell.set, `@x`(cell) -> cell.set, else a top-level var -> the global
 // cell (ssc1-lower assign :3944-3961). The block-var `@@`/`@` scope branches fire once V2 pushes them.
-def parseAssign(ts, env, cx) = parseAssignN(snd(hd(ts)), tl(tl(ts)), env, cx)
-def parseAssignN(nm, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (rhs, r) => (emitAssign(nm, rhs, env, cx), r) }
+// A compound `x += e` sets `x` to `x <op> e`: the RHS becomes an arith over the var's CURRENT value
+// (calleeOf reads it) — through emitArith so `+` still upgrades to `++` for a string var (ssc1-front
+// mkInf(baseOp, mkVar, rhs) :1541, lowered by the normal arith path).
+def parseAssign(ts, env, cx) = parseAssign2(snd(hd(ts)), snd(hd(tl(ts))), tl(tl(ts)), env, cx)
+def parseAssign2(nm, op, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (rhs, r) => (emitAssign(nm, assignRhs(nm, op, rhs, env, cx), env, cx), r) }
+def compoundK(op) = if op == 53 then 23 else (if op == 54 then 24 else 25)
+def assignRhs(nm, op, rhs, env, cx) = if op == 20 then rhs else emitArith(compoundK(op), calleeOf(nm, env, cx), rhs, dqOf(cx))
 def emitAssign(nm, rhs, env, cx) = if lookup("@@" ++ nm, env) >= 0 then "(prim lcell.set (local " ++ lookup("@@" ++ nm, env) ++ ") " ++ rhs ++ ")" else (if lookup("@" ++ nm, env) >= 0 then "(prim cell.set (local " ++ lookup("@" ++ nm, env) ++ ") " ++ rhs ++ ")" else "(prim cell.set (global " ++ nm ++ "__cell) " ++ rhs ++ ")")
 // In a block: a `while` (or an expr) that is not last pushes an anon slot and wraps in `(let ..)` — so it
 // reuses parseBlockCont. An `assign` (or idx_assign) does NOT bind: non-last -> `(seq set rest)` with the
 // scope UNCHANGED (ssc1-lower :3966); last -> the set bare.
+// A block-local `var name [: T] = init` (ssc1-lower lowerBlock var-case :3888-3906): an INTEGER-LITERAL
+// init uses a LONG cell `(let ((prim lcell.new init)) body)` bound as `@@name`; anything else uses a
+// boxed cell `(let ((prim cell.new init)) body)` bound as `@name`. Reads/assigns of the name then route
+// through the `@@`/`@` scope entries (calleeOf / emitAssign). `body` is the REST of the block.
+def isIntLitCode(s) = startsW(s, "(lit (int ")
+def parseBlockVar(ts, env, cx) = parseBlockVarN(snd(hd(ts)), skipToEq(ts), env, cx)
+def parseBlockVarN(nm, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (init, r) => parseBlockVarBind(nm, init, r, env, cx) }
+def parseBlockVarBind(nm, init, r, env, cx) = if isIntLitCode(init) then parseBlockVarLc(nm, init, r, env, cx) else parseBlockVarC(nm, init, r, env, cx)
+def parseBlockVarLc(nm, init, r, env, cx) = parseBlock(r, ("@@" ++ nm) :: env, cx) match { case (b, rr) => ("(let ((prim lcell.new " ++ init ++ ")) " ++ b ++ ")", rr) }
+def parseBlockVarC(nm, init, r, env, cx) = parseBlock(r, ("@" ++ nm) :: env, cx) match { case (b, rr) => ("(let ((prim cell.new " ++ init ++ ")) " ++ b ++ ")", rr) }
 def parseBlockWhile(ts, env, cx) = parseWhile(ts, env, cx) match { case (w, r) => parseBlockCont(w, skipSemisF(r), env, cx) }
-def parseBlockAssign(ts, env, cx) = parseAssign(ts, env, cx) match { case (a, r) => parseBlockSeq(a, skipSemisF(r), env, cx) }
+// A SIMPLE `x = e` is a statement-position assign (ssc1-front block go :1237): non-last -> `(seq set rest)`
+// scope UNCHANGED. A COMPOUND `x += e` is NOT matched there — it falls through to parseExpr, where
+// finishAssignment (:1536) makes it an assign EXPRESSION, which the block wraps as an "expr" statement:
+// non-last -> `(let (set) rest)` pushing an anon slot (parseBlockCont, exactly like any bare expr).
+def parseBlockAssign(ts, env, cx) = parseAssign(ts, env, cx) match { case (a, r) => parseBlockAssignC(a, isTok(hd(tl(ts)), 2, 20), skipSemisF(r), env, cx) }
+def parseBlockAssignC(a, simple, ts, env, cx) = if simple then parseBlockSeq(a, ts, env, cx) else parseBlockCont(a, ts, env, cx)
 def parseBlockSeq(a, ts, env, cx) = if isEmpty(ts) then (a, ts) else (if isTok(hd(ts), 2, 29) then (a, tl(ts)) else parseBlockSeqMore(a, ts, env, cx))
 def parseBlockSeqMore(a, ts, env, cx) = parseBlock0(ts, env, cx) match { case (b, r) => ("(seq " ++ a ++ " " ++ b ++ ")", r) }
 
