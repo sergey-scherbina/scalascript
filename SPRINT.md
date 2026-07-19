@@ -767,6 +767,13 @@ Claim `v2-p65-layout` on origin/main covers this lane. Work dir /tmp/p65ccm (ker
       gives decimal); trailing L/l stripped. F source has 0 `0x`. 7 corpus files use `0x`; bitwise-operators &
       the byte-codec ones ALSO need bitwise `&`/`|`/`^`/`<<`/`>>` (separate; F drops single `&`/`|`), so hex
       alone flips ~wallet-ledger-js + maybe a couple. Re-freeze fixpoint.
+- [x] **G5 — DONE (`9639a87d8`). tuple-3+ patterns (CORRECT PREREQ, +0 corpus).** F's parseTupArm hardcoded
+      `(arm Pair 2 ..) (arm Tuple2 2 ..)` for EVERY tuple pattern; a k-tuple (k>=3) lowers to a single
+      `(arm Tuplek k body)` (VERIFIED dsl-ast-builder `case (name,value,tags)` -> `(arm Tuple3 3 ..)`, body
+      env already correct since parsePatVars is arity-agnostic). Fix: tupArmStr(k, body) — k==2 keeps the
+      Pair+Tuple2 dual, else `(arm Tuple<k> <k> body)`. +0 corpus (all 4 tuple-3 files —
+      dsl-ast-builder/distributed-join/parsing-error-node/parsing-recover-until — carry FURTHER divergences)
+      but byte-VERIFIED correct: dsl-ast-builder prefix advanced 11794->11996. 0 drops; fixpoint 203,141->203,415 B.
       lowers a scalar match to a NESTED let/if chain, NOT F's int-chain or `(match ..)`: outer
       `(let (<scrut>) <chain>)`; VAR arm `case x [if g]` -> `(let (<scrut-ref>) [(if g body rest) | body])`
       binding x (its `(local i)` rises as var-lets accumulate); INT arm `case N` (unguarded) ->
@@ -779,6 +786,48 @@ Claim `v2-p65-layout` on origin/main covers this lane. Work dir /tmp/p65ccm (ker
       ctor-guard (`case Some(m) if ..`, auth-full/bank-rails-fednow/distributed-streams/direct-syntax-demo).
       Targets: data-types, pattern-matching, mcp-client-invoke. ⚠️ MUST re-run corpus + confirm ZERO drops
       among already-MATCHing match programs (shared match lowering). Re-freeze X1 fixpoint.
+
+**➜ HANDOFF (`v2-p65-guard`, 2026-07-19): 5 slices landed = corpus MATCH 300→311/508 (61%), 0 regressions
+(every slice: `comm -23` drop-check EMPTY, 0 EMPTY/0 TIMEOUT), X1 fixpoint stage1==stage2 byte-identical
+192,045→203,415 B, --self 153 ok/0 FAIL each, kernel +0, no v2/lib oracle edits.** G1 general-scalar-match
+(+3), G2 `!expr` boolean-not (+5), G3 `???` notImplemented (+1), G4 `0x` hex literals (+2), G5 tuple-3+ arm
+(+0 correct prereq). AUTHORITATIVE work dir `/tmp/p65ccm` (kernel unchanged from ccm; jar `/tmp/ssc-guard.jar`
+= `scala-cli --power package v2/src --assembly -o /tmp/ssc-guard.jar --force`). Corpus:
+`SSC_JAR=/tmp/ssc-guard.jar V2_DIR=<wt>/v2 NEWFRONT_WORK=/tmp/p65ccm bash specs/v2.2-p6.5-corpus.sh`. --self:
+`... bash specs/v2.2-p6.5-fsub.sh --self` (grep, don't `| tail`). Histogram `/tmp/ccm_hist.py`; cheapest-flip
+ranker inlined in my session (common-prefix fraction over DIFFs).
+**METHOD that worked: rank DIFFs by common-prefix fraction (cheapest flips first), read the exact
+first-divergence window per file, reproduce byte-exact. Every slice was a small lexer/parser addition proven
+against the oracle IR before coding, then drop-checked via a baseline stash re-run.**
+**FRESH FIRST-DIVERGENCE IMPACT MAP over the 197 remaining DIFFs (measured post-G5, biggest lever first):**
+- **derived codecs / `derives` (~20, BIGGEST, HARD)** — `(def __derived_XCodec_Y ..)` + codec init. Untouched.
+- **`:+`/`+:` list-append operators (list-combinators, rest-api, rest-api-fm, +more)** — F lexes `:+` as
+  `:`(34)+`+`(23); oracle emits `(prim __arith__ (lit (str ":+")) L R)`. NEEDS the oracle's opPrec for `:+`
+  (research ssc1-front opPrec — likely the `::` prec class). Clean-ish lexer+prec add. Companion: bitwise
+  `&`/`|`/`^`/`<<`/`>>` (F drops single `&`/`|`) unblocks bitwise-operators + the hex byte-codec files.
+- **tuple-3+ files now advanced past the tuple arm (G5)** — dsl-ast-builder (next div @11996: a `println`
+  string-concat detail), distributed-join (@7816 early: a `sorted__cell` val-ordering), parsing-error-node/
+  parsing-recover-until (@8022/@8168: nested `(arm Some 1 (match ..))` — ctor-in-tuple / Option match).
+- **`direct { .. }` monad desugar (~3: direct-syntax/direct-control-flow/tagless-direct-syntax)** — full
+  do-notation (flatMap/map/pure/var/nested), ssc1-lower desugarDirect :2011. Deep multi-construct files.
+- **optics: `.copy(f=v)` (user-request-shadow @8269 is a CLEAN +1) + `Focus[T](_.p)` + prisms** — `.copy`
+  desugar VERIFIED: `recv.copy(f=v)` -> `(let (<recv>) (let (<v>) (prim __method__ (lit (str "copy")) <recv@d>
+  (lit (str "f")) <v@d>)))` (receiver bound first/deepest, each named value bound in source order, then
+  `__method__ "copy"` with alternating name-lit/value-ref pairs; runtime does the field rebuild via mirror —
+  F needs NO field order). lenses/optic-polish/optics-index-at/optional/traversal ALSO need Focus (deep).
+- **actors receive match (DO NOT TOUCH)** — actors-*/`let ((local N)) (let ((l..` deep shared strategy.
+- **ctor-guard match (`case Some(m) if ..`, auth-full/bank-rails-fednow/distributed-streams/direct-syntax-demo)**
+  — extends G1 but needs guard-fail FALLTHROUGH = the general resolver (much harder). These also carry
+  independent divergences (auth-full/bank-rails first-diverge at a scrutinee-let `__method__` detail).
+- **NICHE (escape-hatch, low yield): `-9223372036854775808` Long.MinValue (int-literal, overflows scanNumV);
+  sql-block `$_sqlBlock_N` un-expanded interp (sql-sqlite-file); `Array.empty[Int].length` type-arg-in-chain
+  (array-companion-statics); dataset method-dispatch `__method0__`/`_sel_` (dataset-*, deep).**
+- GOTCHAS: (1) each slice touching shared match/lex lowering — ALWAYS drop-check via `comm -23` of a baseline
+  MATCH set (revert fsub via `git stash push <file>`, re-run corpus, restore). (2) `/tmp/p65ccm/p65/` is
+  OVERWRITTEN by every corpus run — regenerate before byte-checking a specific file. (3) run --self via a
+  captured file + `grep -cE '^ok '` (153 expected) — NOT `| tail` (hides d() FAILs; "differential" matches a
+  `differ` grep as a false positive). (4) int tokens carry the numeric VALUE (fst==0, snd=int), not a lexeme
+  string — so G4 hex computes the decimal value directly and emitInt renders it.
 
 **➜ HANDOFF (`v2-p65-tail`, 2026-07-19): 5 slices landed (T1 triple-quote +7, T2 null +1, T4 collection-
 curry +1, T5 nested-interp +4, T6 bracket-list +11) = corpus MATCH 249→274/505 (fresh full 507-corpus

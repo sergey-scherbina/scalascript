@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-07-19 — v2-p65-guard G5: tuple-3+ patterns (correct prereq)
+
+`v2-p65-guard` (v2-finish breadth). F's parseTupArm hardcoded `(arm Pair 2)(arm Tuple2 2)` for every tuple
+pattern; a k-tuple (k>=3) now lowers to `(arm Tuplek k body)` (oracle-exact). +0 corpus (the 4 tuple-3
+files carry further divergences) but byte-verified correct (advances dsl-ast-builder 11794->11996), a prereq
+unblocking those files. ZERO drops; X1 fixpoint stage1==stage2 byte-identical 203,141->203,415 B; --self
+153 ok/0 FAIL; kernel +0 (`9639a87d8`).
+
 ## 2026-07-19 — v2-p65-guard G4: `0x` hex integer literals
 
 `v2-p65-guard` (v2-finish breadth). F lexed `0x2c97` as `0` + ident `x2c97`; now lexNum detects `0x`/`0X`
