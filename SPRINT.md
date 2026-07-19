@@ -144,8 +144,19 @@ baseline set `/tmp/baseline_deep.txt` for `comm -23` drop-checks. --self via cap
       i.sub. Flips int-literal (its sole divergence). Corpus 370→371, 0 drops, X1 stage1==stage2 260,799 B,
       --self 153 ok/0 FAIL. (Separate from the `int-literal-failopen` claim = runtime VALUE bugs in the
       kernel/interpreter; this is F's lowering IR matching the oracle. No file overlap — fsub.ssc only.)
-**➜ v2-p65-deep SESSION: corpus MATCH 362→371/508 (+9, DA1 typed-patterns +2, DA2 try/catch +2, DA3
-  direct{} +3, DA4 println()/.yaml +1, DA5 min64-literal +1), ALL 0 drops, X1 fixpoint stage1==stage2 byte-identical each slice (232,332→260,799 B),
+- [x] **DA6 — ctor-pattern guards `case Ctor(x) if g =>` DONE (deep2 session).** A guard anywhere routes the
+      match to the ORDERED resolver (parseGenMatch), which now has a ctor-arm branch (parseGenCtor*) mirroring
+      ssc1-lower lowerOrderedGuardArms cpat/gpat (:3378-3391) + dischargeObsOrGuard Nil (:3163-3166): a ctor
+      arm → one-arm `(match scrut ((arm C ar armBody)) (default ordered(rest)))`; guarded armBody =
+      `(if g body <fallback>)` where fallback = ordered(rest) on a FAILED scope (`ar` dummy binders shift the
+      scrutinee) — rest parsed TWICE (menv for default, dummies++menv for fallback; token-consumption is
+      env-independent). Routing via firstArmHasGuard (scanArmGuard: `if` at pattern depth 0 before `=>`).
+      KEY BUG FIXED: the guard must be a SLICED token list ending before the arm `=>` (splitArrow) — else
+      parseExpr eats a trailing `id =>` as a bare lambda (parseIdent :502) and desyncs the whole match.
+      Pair/2→Pair+Tuple2 arms. Flips direct-syntax-demo. Corpus 371→372, 0 drops, X1 stage1==stage2 268,939 B,
+      --self 153 ok/0 FAIL. F's own source has no pattern guards, so routing is self-compile-neutral.
+**➜ v2-p65-deep SESSION: corpus MATCH 362→372/508 (+10, DA1 typed-patterns +2, DA2 try/catch +2, DA3
+  direct{} +3, DA4 println()/.yaml +1, DA5 min64-literal +1, DA6 ctor-guards +1), ALL 0 drops, X1 fixpoint stage1==stage2 byte-identical each slice (232,332→268,939 B),
   --self 153 ok/0 FAIL each, kernel +0, no v2/lib oracle edits. Jar /tmp/ssc-deep.jar; gate
   `SSC_JAR=/tmp/ssc-deep.jar V2_DIR=<wt>/v2 NEWFRONT_WORK=/tmp/p65deep bash specs/v2.2-p6.5-corpus.sh`.
   GOTCHA: F-source defs must avoid `match {case Nil => .. case cs => ..}` (bare-var arm after ctor arm
