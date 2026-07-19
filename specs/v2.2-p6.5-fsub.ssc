@@ -117,7 +117,12 @@ def isCont(ts) = if isEmpty(ts) then false else isCont1(hd(ts))
 def isCont1(t) = if fst(t) == 2 then isContP(t) else (if fst(t) == 1 then isContId(snd(t)) else false)
 def isContP(t) = if snd(t) == 4 then true else (if snd(t) == 5 then true else (if snd(t) == 31 then true else (if snd(t) == 49 then true else binPrec(t) > 0)))
 def isContId(w) = if w == "catch" then true else (if w == "finally" then true else (if w == "derives" then true else (if w == "extends" then true else (if w == "with" then true else false))))
-def isLayoutOpener(t) = if isTok(t, 2, 20) then true else (if isTok(t, 2, 30) then true else (if isTok(t, 2, 3) then true else (if isTok(t, 2, 4) then true else isTok(t, 2, 5))))
+// `=`(20) `=>`(30) `then`(3) `else`(4) `match`(5) all open a layout block; so does the KEYWORD `do`
+// (ssc1-front isLayoutOpener :2866-2879), which F lexes as an ident (kind 1, not in kwCode) — so
+// `while cond do` ⏎ <indented body> opens a virtual `{ .. }`. (yield/with also open there — deferred to
+// the for/given clusters; those programs are DIFF regardless.)
+def isDoOpener(t) = if fst(t) == 1 then snd(t) == "do" else false
+def isLayoutOpener(t) = if isTok(t, 2, 20) then true else (if isTok(t, 2, 30) then true else (if isTok(t, 2, 3) then true else (if isTok(t, 2, 4) then true else (if isTok(t, 2, 5) then true else isDoOpener(t)))))
 def nlSemi(cont) = if cont then Nil else Cons((2, 52), Nil)
 def nlStep(v, stack, cont) = stack match { case Nil => (nlSemi(cont), stack) case top :: srest => nlStep1(v, top, stack, cont) }
 def nlStep1(v, top, stack, cont) = top match { case (tag, ind) => nlStep2(v, tag, ind, stack, cont) }
@@ -208,16 +213,20 @@ def binPrecK(k) = if k == 47 then 1 else (if k == 46 then 2 else (if k == 44 the
 // enum registries (P6.5 E1): enumCaseNames = every enum case name (bare ref -> `(global N)`, not a ctor);
 // enumReg = [Pair(enumName, [nullaryCaseName..])] so `E.Case` (nullary) -> `(ctor Case)` and `E.values`
 // -> the nullary-case ctor cons-list (measured: ssc1-lower enumCasesCell/enumValuesList :140/349-390).
-def mkCx(dq, ccNames, fldNames, valNames, ecn, ereg) = (dq, (ccNames, (fldNames, (valNames, (ecn, ereg)))))
+// varNames = top-level `var` names: read like a top val (`(prim cell.get (global name__cell))`, IDENTICAL
+// to isTopVal), but its cell is emitted in the topVar slot (BEFORE val cells) and it is assignable.
+def mkCx(dq, ccNames, fldNames, valNames, ecn, ereg, varNames) = (dq, (ccNames, (fldNames, (valNames, (ecn, (ereg, varNames))))))
 def dqOf(cx) = fst(cx)
 def ccNamesOf(cx) = fst(snd(cx))
 def fldNamesOf(cx) = fst(snd(snd(cx)))
 def valNamesOf(cx) = fst(snd(snd(snd(cx))))
 def enumCaseNamesOf(cx) = fst(snd(snd(snd(snd(cx)))))
-def enumRegOf(cx) = snd(snd(snd(snd(snd(cx)))))
+def enumRegOf(cx) = fst(snd(snd(snd(snd(snd(cx))))))
+def varNamesOf(cx) = snd(snd(snd(snd(snd(snd(cx))))))
 def isCC(nm, cx) = memL(nm, ccNamesOf(cx))
 def isFld(nm, cx) = memL(nm, fldNamesOf(cx))
 def isTopVal(nm, cx) = memL(nm, valNamesOf(cx))
+def isTopVar(nm, cx) = memL(nm, varNamesOf(cx))
 def isEnumCase(nm, cx) = memL(nm, enumCaseNamesOf(cx))
 def enumTypeMem(nm, reg) = reg match { case Nil => false case h :: t => if fst(h) == nm then true else enumTypeMem(nm, t) }
 def isEnumType(nm, cx) = enumTypeMem(nm, enumRegOf(cx))
@@ -331,15 +340,18 @@ def parseArgLMore(e, ts, env, cx) = if isTok(hd(ts), 2, 27) then parseArgL(tl(ts
 // A bare ENUM CASE reference (`North`) lowers to `(global North)` — the case's hoisted ctor DEF — not to
 // `(ctor North)` (measured: ssc1-lower resolveE uid :2049-2054 keeps a non-None/Nil uid as IrGlobal). The
 // enum ctor def `(def North (ctor North))` supplies the value. Checked before isCC (an enum case is not a cc).
-def bareCtor(nm, cx) = if isTopVal(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else (if isEnumCase(nm, cx) then "(global " ++ nm ++ ")" else (if isCC(nm, cx) then "(app (global " ++ nm ++ "))" else "(ctor " ++ nm ++ ")"))
+def bareCtor(nm, cx) = if isTopVal(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else (if isTopVar(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else (if isEnumCase(nm, cx) then "(global " ++ nm ++ ")" else (if isCC(nm, cx) then "(app (global " ++ nm ++ "))" else "(ctor " ++ nm ++ ")")))
 // An applied Upper-name `X(args)` lowers to `(ctor X args)` ONLY for the builtin ctors
 // {Cons, Some, Left, Right, Signal, ComputedSignal} (ssc1-lower :2078-2134); EVERY other uid — a local
 // case class OR an imported/unknown name (e.g. AchConfig) — lowers to `(app (global X) args)`, the same
 // as a user-ctor call. (List is intercepted upstream by parseListLit.)
 def isBuiltinCtor(nm) = if nm == "Cons" then true else (if nm == "Some" then true else (if nm == "Left" then true else (if nm == "Right" then true else (if nm == "Signal" then true else nm == "ComputedSignal"))))
 def ctorApp(nm, args, cx) = if isBuiltinCtor(nm) then "(ctor " ++ nm ++ args ++ ")" else "(app (global " ++ nm ++ ")" ++ args ++ ")"
-// `(e)` is a group; `(a, b)` is a Tuple2 construction.
-def parseParen(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => parseParenEnd(e, r, env, cx) }
+// `()` is the unit literal `(lit unit)` (measured: `Some(())` -> `(ctor Some (lit unit))`); `(e)` is a
+// group; `(a, b)` is a Tuple2 construction. (`() =>` is a zero-arg lambda, intercepted upstream by
+// isLamParen, so parseParen only sees a `()` in value position.)
+def parseParen(ts, env, cx) = if isTok(hd(ts), 2, 22) then ("(lit unit)", tl(ts)) else parseParen1(ts, env, cx)
+def parseParen1(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => parseParenEnd(e, r, env, cx) }
 def parseParenEnd(e, ts, env, cx) = if isTok(hd(ts), 2, 27) then parseTupRest(e, tl(ts), env, cx) else (e, tl(ts))
 def parseTupRest(e, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e2, r) => ("(ctor Tuple2 " ++ e ++ " " ++ e2 ++ ")", tl(r)) }
 // A bare name resolves to (local i) when bound, else to a global call. `f(a, b)` -> (app (global f) a b).
@@ -347,7 +359,9 @@ def parseTupRest(e, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e2, r
 // `(app (local i) ..)`, not `(app (global nm) ..)` (measured on `def ap(f, x) = f(x)`). F's own source
 // never calls a local, so the corpus only reached this once lambdas arrived.
 // A local binding shadows a top-level `val`; a top-level `val` reference lowers to its cell read.
-def calleeOf(nm, env, cx) = if lookup(nm, env) >= 0 then "(local " ++ lookup(nm, env) ++ ")" else (if isTopVal(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else "(global " ++ nm ++ ")")
+// A top-level `var` reads EXACTLY like a top-level `val`: `(prim cell.get (global name__cell))`
+// (ssc1-lower lowerE isTopVar/isTopVal :2480-2483, same emission).
+def calleeOf(nm, env, cx) = if lookup(nm, env) >= 0 then "(local " ++ lookup(nm, env) ++ ")" else (if isTopVar(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else (if isTopVal(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else "(global " ++ nm ++ ")"))
 def parseVarOrCall(nm, ts, env, cx) = if isTok(hd(ts), 2, 21) then parseCall(nm, tl(ts), env, cx) else (calleeOf(nm, env, cx), ts)
 def parseCall(nm, ts, env, cx) = parseArgs(ts, env, cx) match { case (args, r) => (emitApp(calleeOf(nm, env, cx), args), r) }
 def emitApp(callee, args) = "(app " ++ callee ++ args ++ ")"
@@ -370,7 +384,7 @@ def parseBlock(ts, env, cx) = parseBlock0(skipSemisF(ts), env, cx)
 // `(lam 1 (match (local 0) (arms)))` (measured: `pairs.foreach { case (a,b) => .. }` -> the block is a
 // lam-1 whose body matches its single param). The lambda param occupies (local 0), so the arms are
 // parsed against a one-slot env exactly like a match scrutinee — reuse parseArms (ctor/tuple/cons arms).
-def parseBlock0(ts, env, cx) = if isTok(hd(ts), 2, 6) then parseCaseLambda(ts, env, cx) else (if isTok(hd(ts), 2, 7) then parseBlockVal(tl(ts), env, cx) else parseBlockExpr(ts, env, cx))
+def parseBlock0(ts, env, cx) = if isTok(hd(ts), 2, 6) then parseCaseLambda(ts, env, cx) else (if isTok(hd(ts), 2, 7) then parseBlockVal(tl(ts), env, cx) else (if isWhileHead(ts) then parseBlockWhile(tl(ts), env, cx) else (if isAssignHead(ts) then parseBlockAssign(ts, env, cx) else parseBlockExpr(ts, env, cx))))
 def parseCaseLambda(ts, env, cx) = parseArms(ts, "" :: env, cx) match { case (arms, r) => ("(lam 1 (match (local 0) (" ++ fst(arms) ++ ")" ++ snd(arms) ++ "))", r) }
 def parseBlockVal(ts, env, cx) = parseBlockVal1(snd(hd(ts)), skipToEq(tl(ts)), env, cx)
 def parseBlockVal1(nm, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => parseBlockRest(nm, e, r, env, cx) }
@@ -382,6 +396,32 @@ def parseBlockRest(nm, e, ts, env, cx) = parseBlock(ts, nm :: env, cx) match { c
 def parseBlockExpr(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => parseBlockCont(e, skipSemisF(r), env, cx) }
 def parseBlockCont(e, ts, env, cx) = if isEmpty(ts) then (e, ts) else (if isTok(hd(ts), 2, 29) then (e, tl(ts)) else parseBlockBare(e, ts, env, cx))
 def parseBlockBare(e, ts, env, cx) = parseBlock0(ts, "" :: env, cx) match { case (b, r) => ("(let (" ++ e ++ ") " ++ b ++ ")", r) }
+
+// -- var / while / assignment (ssc1-lower lowerBlock :3865-3981; ssc1-front block go :1197-1273) -----
+// `while cond [do] { body }` -> `(while <cond> <body>)`. cond stops before `do`/`{` (do is an ident,
+// never a postfix opener; a bare match/paren-block after cond does not occur in the subset). The `do`
+// keyword is skipped; then a `{` (explicit or layout-synthesised after `do`) opens the body block.
+def isVarHead(ts) = isWord(hd(ts), "var")
+def isWhileHead(ts) = isWord(hd(ts), "while")
+// statement-position `id =` is an assignment (`id ==` is code 44, not 20, so it is NOT matched).
+def isAssignHead(ts) = if fst(hd(ts)) == 1 then isTok(hd(tl(ts)), 2, 20) else false
+def skipDoKw(ts) = if isWord(hd(ts), "do") then tl(ts) else ts
+def parseWhile(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (cond, r) => parseWhileBody(cond, skipDoKw(r), env, cx) }
+def parseWhileBody(cond, ts, env, cx) = if isTok(hd(ts), 2, 28) then parseWhileBlk(cond, tl(ts), env, cx) else parseWhileExpr(cond, ts, env, cx)
+def parseWhileBlk(cond, ts, env, cx) = parseBlock(ts, env, cx) match { case (b, r) => ("(while " ++ cond ++ " " ++ b ++ ")", r) }
+def parseWhileExpr(cond, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (b, r) => ("(while " ++ cond ++ " " ++ b ++ ")", r) }
+// Assignment: `@@x`(long cell) -> lcell.set, `@x`(cell) -> cell.set, else a top-level var -> the global
+// cell (ssc1-lower assign :3944-3961). The block-var `@@`/`@` scope branches fire once V2 pushes them.
+def parseAssign(ts, env, cx) = parseAssignN(snd(hd(ts)), tl(tl(ts)), env, cx)
+def parseAssignN(nm, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (rhs, r) => (emitAssign(nm, rhs, env, cx), r) }
+def emitAssign(nm, rhs, env, cx) = if lookup("@@" ++ nm, env) >= 0 then "(prim lcell.set (local " ++ lookup("@@" ++ nm, env) ++ ") " ++ rhs ++ ")" else (if lookup("@" ++ nm, env) >= 0 then "(prim cell.set (local " ++ lookup("@" ++ nm, env) ++ ") " ++ rhs ++ ")" else "(prim cell.set (global " ++ nm ++ "__cell) " ++ rhs ++ ")")
+// In a block: a `while` (or an expr) that is not last pushes an anon slot and wraps in `(let ..)` — so it
+// reuses parseBlockCont. An `assign` (or idx_assign) does NOT bind: non-last -> `(seq set rest)` with the
+// scope UNCHANGED (ssc1-lower :3966); last -> the set bare.
+def parseBlockWhile(ts, env, cx) = parseWhile(ts, env, cx) match { case (w, r) => parseBlockCont(w, skipSemisF(r), env, cx) }
+def parseBlockAssign(ts, env, cx) = parseAssign(ts, env, cx) match { case (a, r) => parseBlockSeq(a, skipSemisF(r), env, cx) }
+def parseBlockSeq(a, ts, env, cx) = if isEmpty(ts) then (a, ts) else (if isTok(hd(ts), 2, 29) then (a, tl(ts)) else parseBlockSeqMore(a, ts, env, cx))
+def parseBlockSeqMore(a, ts, env, cx) = parseBlock0(ts, env, cx) match { case (b, r) => ("(seq " ++ a ++ " " ++ b ++ ")", r) }
 
 // -- match --------------------------------------------------------------------------------------
 // MEASURED: `match` LET-BINDS its scrutinee -- `(let ((scrut)) (match (local 0) (arms)))` -- so every
@@ -465,7 +505,19 @@ def emitDefBody(nm, ar, env, ts, cx) = parseExpr(ts, 0, env, cx) match { case (b
 def isImportHead(ts) = if isWord(hd(ts), "import") then true else isTok(hd(ts), 2, 50)
 def importItem(ts) = (("", ""), skipImport(ts))
 def skipImport(ts) = if isEmpty(ts) then ts else (if isTok(hd(ts), 2, 52) then tl(ts) else skipImport(tl(ts)))
-def parseTopItem(ts, cx) = if isImportHead(ts) then importItem(ts) else (if isEnumHead(ts) then enumItem(ts, cx) else (if isCCHead(ts) then ccTopItem(ts, cx) else (if isTraitHead(ts) then traitItem(ts) else (if isTok(hd(ts), 2, 1) then defTopItem(ts, cx) else (if isTok(hd(ts), 2, 7) then valItem(ts, cx) else exprItem(ts, cx))))))
+def parseTopItem(ts, cx) = if isImportHead(ts) then importItem(ts) else (if isEnumHead(ts) then enumItem(ts, cx) else (if isCCHead(ts) then ccTopItem(ts, cx) else (if isTraitHead(ts) then traitItem(ts) else (if isTok(hd(ts), 2, 1) then defTopItem(ts, cx) else (if isTok(hd(ts), 2, 7) then valItem(ts, cx) else (if isVarHead(ts) then varTopItem(ts, cx) else (if isWhileHead(ts) then whileTopItem(ts, cx) else (if isAssignHead(ts) then assignTopItem(ts, cx) else exprItem(ts, cx)))))))))
+// A top-level `var name [: T] = init` runs its initializer in the entry as `cell.set(global name__cell)`
+// — IDENTICAL to a top val (ssc1-lower topExprs var/val cases :5593-5609) — so it reuses valItem1. The
+// empty cell def is emitted in the topVar slot (compile4). A top-level `while`/assignment becomes an
+// entry item (topExprs :5586-5592); an assign to a name not in a block scope is a top var → global cell.
+def varTopItem(ts, cx) = valItem1(snd(hd(tl(ts))), skipToEq(tl(ts)), cx)
+def whileTopItem(ts, cx) = parseWhile(tl(ts), Nil, cx) match { case (w, rest) => (("", w), rest) }
+def assignTopItem(ts, cx) = parseAssign(ts, Nil, cx) match { case (a, rest) => (("", a), rest) }
+// pre-pass: top-level `var` names in source order (mirrors collectTopVals; base cx so `rest` boundaries
+// do not depend on var-name resolution). Drives varCells + the isTopVar read registry.
+def collectTopVars(ts, cx) = collectTopVars0(skipSemisF(ts), cx)
+def collectTopVars0(ts, cx) = if isEmpty(ts) then Nil else (if isVarHead(ts) then collectVarName(ts, cx) else collectTopVars(sndRest(parseTopItem(ts, cx)), cx))
+def collectVarName(ts, cx) = varTopItem(ts, cx) match { case (parts, rest) => Cons(snd(hd(tl(ts))), collectTopVars(rest, cx)) }
 // `[sealed] trait X [extends ..] [{ .. }]` is a pure TYPE marker: the oracle emits NOTHING for it (a
 // sealed trait has no runtime rep). traitItem emits nothing and advances past the whole decl.
 def isWord(t, w) = if fst(t) == 1 then snd(t) == w else false
@@ -629,15 +681,18 @@ def compile1(ts, dq) = compile2(ts, collectCC(ts), collectTypeCases(ts), dq)
 // The pre-pass results become the parse CONTEXT: case-class names (cs, cc-only, for isCC) + the UNIFIED
 // type-case field names (tcs, cc + enum cases) + top-level val names + the enum registries. Top-level vals
 // are collected with a base cx first (their `rest` boundaries do not depend on val-name resolution).
-def mkCxE(cs, tcs, ts, dq, vals) = mkCx(dq, ccNamesL(cs), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts))
-def compile2(ts, cs, tcs, dq) = compile3(ts, cs, tcs, dq, mkCxE(cs, tcs, ts, dq, collectTopVals(ts, mkCxE(cs, tcs, ts, dq, Nil))))
+def mkCxE(cs, tcs, ts, dq, vals, vars) = mkCx(dq, ccNamesL(cs), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts), vars)
+def compile2(ts, cs, tcs, dq) = compile2b(ts, cs, tcs, dq, mkCxE(cs, tcs, ts, dq, Nil, Nil))
+def compile2b(ts, cs, tcs, dq, base) = compile3(ts, cs, tcs, dq, mkCxE(cs, tcs, ts, dq, collectTopVals(ts, base), collectTopVars(ts, base)))
 def compile3(ts, cs, tcs, dq, cx) = walkTop(ts, cx) match { case (strs, nDoc) => compile4(strs, nDoc, ts, tcs, dq, cx) }
 // def order: prelude, topValCells, sels(accessors), userDefs; then the entry. prelude/valCells/sels
 // each carry a trailing space as their separator; when userDefs is empty that space would sit right
 // before the defs-closing `)` (spurious). rtrim1 drops exactly one trailing space -- a no-op when
 // userDefs is non-empty (it ends with `)`), so every def-bearing program stays byte-identical.
 def rtrim1(s) = if s.length > 0 then (if s.charAt(s.length - 1) == 32 then s.substring(0, s.length - 1) else s) else s
-def compile4(strs, nDoc, ts, tcs, dq, cx) = strs match { case (userDefs, docEntry) => rtrim1(prelude(dq) ++ valCells(valNamesOf(cx), dq) ++ emitSels(tcs, dq) ++ userDefs) ++ entryOf2(ts, tcs, docEntry, nDoc, dq) }
+// def order (ssc1-lower :5570-5573): prelude, topVarCells, topValCells, sels(accessors), userDefs. varCells
+// reuses valCells (identical `(def n__cell (prim cell.new (lit unit)))` render); "" when there are no vars.
+def compile4(strs, nDoc, ts, tcs, dq, cx) = strs match { case (userDefs, docEntry) => rtrim1(prelude(dq) ++ valCells(varNamesOf(cx), dq) ++ valCells(valNamesOf(cx), dq) ++ emitSels(tcs, dq) ++ userDefs) ++ entryOf2(ts, tcs, docEntry, nDoc, dq) }
 def ccNamesL(cs) = cs match { case Nil => Nil case h :: t => Cons(ccName(h), ccNamesL(t)) }
 // The CONSTANT 7258-byte prelude `ssc1-lower` emits (measured identical across programs).
 // It is fixed OUTPUT, so F carries it as a string constant; byte-identity stays the oracle.
