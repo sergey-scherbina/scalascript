@@ -325,11 +325,17 @@ def rightMin(p) = if p == 5 then p else p + 1
 // `{ val x = e  BODY }` -> `(let (e) BODY)`, nesting one let per val (measured). The bound name is
 // pushed onto the env for the REST of the block, so later vals see it at the right depth.
 def parseBlock(ts, env, cx) = parseBlock0(skipSemisF(ts), env, cx)
-def parseBlock0(ts, env, cx) = if isTok(hd(ts), 2, 7) then parseBlockVal(tl(ts), env, cx) else parseBlockEnd(ts, env, cx)
+def parseBlock0(ts, env, cx) = if isTok(hd(ts), 2, 7) then parseBlockVal(tl(ts), env, cx) else parseBlockExpr(ts, env, cx)
 def parseBlockVal(ts, env, cx) = parseBlockVal1(snd(hd(ts)), skipToEq(tl(ts)), env, cx)
 def parseBlockVal1(nm, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => parseBlockRest(nm, e, r, env, cx) }
 def parseBlockRest(nm, e, ts, env, cx) = parseBlock(ts, nm :: env, cx) match { case (b, r) => ("(let (" ++ e ++ ") " ++ b ++ ")", r) }
-def parseBlockEnd(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => (e, tl(r)) }
+// A block is a sequence of statements; every non-final statement (a `val x = e` OR a bare expr e)
+// lowers to `(let (<e>) <rest>)`, and a BARE statement pushes an ANONYMOUS env slot (name "" — never
+// looked up) so later real-var indices shift by one, exactly like the oracle (measured). The final
+// statement is the block's value. Layout supplies the virtual `;` between statements and the closing `}`.
+def parseBlockExpr(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => parseBlockCont(e, skipSemisF(r), env, cx) }
+def parseBlockCont(e, ts, env, cx) = if isEmpty(ts) then (e, ts) else (if isTok(hd(ts), 2, 29) then (e, tl(ts)) else parseBlockBare(e, ts, env, cx))
+def parseBlockBare(e, ts, env, cx) = parseBlock0(ts, "" :: env, cx) match { case (b, r) => ("(let (" ++ e ++ ") " ++ b ++ ")", r) }
 
 // -- match --------------------------------------------------------------------------------------
 // MEASURED: `match` LET-BINDS its scrutinee -- `(let ((scrut)) (match (local 0) (arms)))` -- so every
