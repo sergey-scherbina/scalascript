@@ -643,6 +643,60 @@ Slices, impact-ordered:
         no `()`), zero explicit params. Realistic yield ~2-5 fully-flip (case-class-body-methods is "pure";
         lang-split/tagless-*/typeclass-extension/effects carry MORE constructs). Large; slice + byte-verify
         per example, re-freeze fixpoint.
+- [x] **T5 — DONE (`d0b36ecc9`). nested strings in `s"..."` interpolation. Corpus 259->263 (+4), 0 regr;
+      fixpoint 175,061->177,790 B.** F's interp lexer used plain scanStr, stopping at the first `"` INSIDE
+      a `${..}` (`s"x: ${xs.mkString(", ")}"`) → truncated token → `${..}` re-parsed to `(lit (int 0))`.
+      New scanInterp scans to the closing outer quote, skipping balanced `${..}` (scanIBrace/scanINest),
+      mirroring ssc1-front scanInterpEnd/scanNestedStr :146-154. F's own source has no `s"..."` so fixpoint
+      unaffected. Fixed dataset-stats, imports, index, uuid-v7 (bureau-demo/graphql-client have MORE).
+- [x] **T6 — DONE (`0c5703fb4`). `[..]` bracket-list literals. Corpus 263->274 (+11!), 0 regr; fixpoint
+      177,790->179,087 B.** `[e1,..,en]` in EXPRESSION position == `List(e1,..,en)` (ssc1-front :1140-1154)
+      → same Cons-chain; empty `[]`→`(ctor Nil)`. Added `[`-in-atom branch to parseAtom1 + parseBrkL (mirrors
+      parseArgL, closes on `]`). Statement-position `[..]`=link-import (isImportHead, unchanged); type-args
+      `x[T]` are postfix-skipGen'd, so a `[` reaching parseAtom is ALWAYS a list. Multi-line brackets work
+      (layout S-frame suppresses NL). Fixed content-data-source/-form-submit/-live-rows, pg-listen-notify,
+      tkv2-keyed-for, ui-fetch-json/-remote-table/-typed-json, v2-db-url-scheme-not-jdbc, v2-http-sql-demo,
+      v2-multiline-list-literal.
+
+**➜ HANDOFF (`v2-p65-tail`, 2026-07-19): 5 slices landed (T1 triple-quote +7, T2 null +1, T4 collection-
+curry +1, T5 nested-interp +4, T6 bracket-list +11) = corpus MATCH 249→274/505 (fresh full 507-corpus
+250→274, 54%), ALL 0 regressions, X1 fixpoint stage1==stage2 byte-identical 169,133→179,087 B, --self all
+green, kernel +0 (rebased across F5 Emit-relocation + F6 complete), no v2/lib oracle edits. AUTHORITATIVE
+work dir = `/tmp/p65tail_fresh` (code+ref regenerated with THIS kernel; the old 505 cache /tmp/p65codec_final
+was a prior agent's jar). Build `scala-cli --power package v2/src --assembly -o /tmp/ssc-tail.jar --force`;
+--self `SSC_JAR=/tmp/ssc-tail.jar V2_DIR=<wt>/v2 bash specs/v2.2-p6.5-fsub.sh --self`; corpus `... NEWFRONT_WORK=/tmp/p65tail_fresh bash specs/v2.2-p6.5-corpus.sh`. Histogram tools in /tmp/p65tail_fresh:
+other.py (signature clustering), firstdiv.py, vtriple.py. FRESH POST-T6 FIRST-DIVERGENCE HISTOGRAM over the
+233 DIFFs — next levers biggest first:**
+- **cc/tc body methods = T3 above (16, biggest clean lever, FULLY SPEC'D here — build it).** Point/ByteSlice
+  cluster `REF[Point_distanceTo (lam..)] MINE[_sel_x..]` (js-scala-fenced-block, lang-split, wasm-scalascript)
+  is the pure sub-case; also case-class-body-methods.
+- **actors receive `match`-vs-`let` (8)** — DO NOT TOUCH (shared match lowering; deep separate strategy).
+- **named arguments in a NON-ctor call (4: tkv2-forms, tkv2-select, tkv2-select-reactive, tkv2-busi-home)**
+  — `field("name", label = "Name", required = true, ..)`: oracle STRIPS labels, uses values positionally
+  (stripNargs); F emits `(global label)`. ENTANGLED with default-param synthesis (expandDefaultCall) when
+  args omit/reorder — verify field/ctor arity before implementing; ctor named-args REORDER to field order.
+- **general curried method `X.m(a)(b)` flatten (4: bureau-demo, sse-typed-client, traditional-payments,
+  ws-typed-client)** — `Events.subscribe(a)(b)`/`fiscal.verifyVat(a)(b)` → single `(prim __method__ "m"
+  recv a b)`, on uid AND var receivers (NOT just collection companions — my T4 was the collection subset).
+  ⚠️ STATIC TRACE of the oracle predicts UNflattened here (resolveE ftag==app → app(methodcall,b)); the
+  ref IS flattened, so there's a path I could not find by reading — NEEDS EMPIRICAL INSTRUMENTATION of
+  ssc1-lower (run on a minimal `Events.subscribe(a)(b)` and trace), don't reason from source alone.
+- **`REF[STR ) ) (] MINE[STR ) ) (]` (6: array-companion-statics, default-params, distributed-map,
+  graphql-typed-resolvers, html-dsl, streams)** — same token shape, string CONTENT differs; inspect the
+  exact string diff per file (likely another escaping/interp edge).
+- **optics/lenses (9)**: `prim optics.focus` (optics-index-at/optional/traversal — `Focus[T](_.field)`),
+  `.copy` on a case class (lenses/optic-polish/user-request-shadow — ref does a cell-based field-copy),
+  `optics.prism`. Deep/optics-specific.
+- **direct-syntax (3: direct-control-flow/direct-syntax/tagless-direct-syntax)** — `direct { .. }` monad
+  desugar (`REF[_sel_flatMap] MINE[direct]`); F emits a raw `direct` marker. ssc1-lower desugarDirect :2011.
+- DEFERRED (escape-hatch): float-exponent (`1.0e100`→`1.0E100`, needs exact Double.toString; NORMALIZES
+  e.g. `100.0e5`→`1.0E7`) — 3 files actors-phi-accrual/control-center-live/spark-lakehouse-hudi.
+- GOTCHAS confirmed this session: (1) F is escape-free (no `"`/`\` literals) → the `"` char is threaded as
+  `dq`; T1 added a threaded BACKSLASH `bs` the same way (cx deepest slot, bsOf). Any future escaping needs
+  bs. (2) triple-quote content escapes via `#coreir.encode`.strLit set (`"`→`\"`,`\`→`\\`,nl→`\n`,cr→`\r`,
+  tab→`\t`,ctrl→`\uXXXX`); validated no corpus `"""` has ctrl beyond \n\r\t. (3) `[..]` at STATEMENT start
+  is a link-import, at EXPRESSION start a list literal — F already splits these correctly. (4) the fresh
+  corpus is 507 files (2 added since the 249/505 handoff).
 
 **F3 BREADTH LOG (superseded intermediate) — corpus MATCH 1 → 43/504:**
 - top-level statements (loop fix + val cells + exprs): 1 → 34 (`07522696f`, `253f68231`)
