@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-07-19 — v2-p65-var V2+V3: block-local var + compound assign + modulo in P6.5 F (byte-identical)
+
+`v2-p65-var`. Corpus MATCH **161 → 172**; X1 fixpoint stage1==stage2 byte-identical **142,004 → 147,851
+B**; `--self` 136 ok / 0 FAIL; no regression; no kernel (`v2/src/*`) or `v2/lib` oracle edits.
+
+- **V2 block-local `var x = e`** (ssc1-lower lowerBlock :3888-3906): an INT-LITERAL init → a LONG cell
+  `(let ((prim lcell.new e)) body)` bound `@@x`; anything else → a boxed cell `(let ((prim cell.new e))
+  body)` bound `@x`. `calleeOf` gains the `@@`/`@` read branches → `(prim lcell.get/cell.get (local i))`
+  (lowerE :2464-2483). Verified against coroutine-basic's real oracle IR (env de-Bruijn shift included).
+- **V3 compound assign `x += e` / `-=` / `*=`** (lex codes 53/54/55): desugars to `x = x <op> e`, the RHS
+  an arith over the var's CURRENT value (via `emitArith`, so `+` still upgrades to `++` for a string var;
+  ssc1-front mkInf :1541). Key oracle subtlety: a compound assign is NOT a statement-position assign — it
+  falls through to parseExpr/finishAssignment and is wrapped as an **"expr" statement** → `(let (set)
+  rest)` (anon slot), whereas a SIMPLE `x = e` stays a statement → `(seq set rest)` (scope unchanged).
+- **modulo `%`** (code 56, precedence of `*`/`/`) → `(prim __arith__ (lit (str "%")) ..)`; F previously
+  **DROPPED** `%` in the lexer (opCode returned 0). Needed by scljet btree hashing (`x = (x + a) % N`).
+- Newly byte-identical (13 vs the 159 baseline): variables, arithmetic, deep-tail-recursion, fenceless-
+  bare-code, scljet-jdbc-basic, scljet-mutate-delete/update, scljet-sql-index-descent/range-descent,
+  scljet-sql-rowid-seek-overflow, scljet-write-btree-overflow/keyed/overflow.
+
 ## 2026-07-19 — v2-p65-var V1: top-level var + while + assignment + `do` layout in P6.5 F (byte-identical)
 
 `v2-p65-var`. First slice of the var/while/assignment cluster (the biggest remaining lever). Byte-identical

@@ -322,12 +322,22 @@ direct-control-flow (var cells THEN val cells, source order).
       stage2; --self 136 ok/0 FAIL. NOTE: def-body single-line assignment (`def f = x = e`, oracle
       finishAssignment :1520 at EXPR level) DEFERRED — risky (named-arg guard needed); blocks only
       var-topdef-shared so far. direct-control-flow now advances far (next = `direct[Option]{}` for-comp).
-- [ ] **V2 — block-local `var`.** parseBlock0 `var`→`(let ((prim lcell.new e)) ..)`+`@@x` (int lit) or
-      `(let ((prim cell.new e)) ..)`+`@x`; calleeOf/emitAssign gain `@@`/`@` lcell/cell get/set branches.
-      Target: coroutine-basic (verified), generators, streams (needs V3 compound), etc.
-- [ ] **V3 — compound assign `x += e`** → `("assign",(x, mkInf("+",x,e)))` (ssc1-front :1539). Lex `+=`
-      etc. Target: streams, mcp-server-tool, wasm-primes (also needs idx_assign + unary-not + Array.fill).
-- [ ] **V4 — idx_assign `a(i)=rhs`→`(prim arr.set a i rhs)`; nested while; map-var registry.** Deeper.
+- [x] **V2+V3 — DONE (`7adad6ad4`).** Block-local `var` (int-lit→lcell/@@x, else cell/@x; calleeOf @@/@
+      read branches) + compound assign `+=`/`-=`/`*=` (codes 53/54/55; desugar via emitArith; compound is
+      an EXPR-wrapped assign→`(let (set) rest)` anon-slot, SIMPLE `=` stays a statement→`(seq set rest)`)
+      + modulo `%` (code 56, was silently DROPPED). Corpus 161→172; fixpoint 142,004→147,851 B; --self 136
+      ok/0 FAIL; 0 regressions. Newly matched: variables, arithmetic, deep-tail-recursion, fenceless-bare-
+      code, scljet-jdbc-basic, scljet-mutate-delete/update, scljet-sql-index-descent/range-descent,
+      scljet-sql-rowid-seek-overflow, scljet-write-btree-overflow/keyed/overflow.
+- [ ] **V4 — remaining var-cluster near-misses (measured 2026-07-19 at first divergence):**
+      (a) **list-var `_sel_` registry** (task item 2, ~biggest now) — a var/val holding a LIST routes
+      `.nonEmpty`/`.head`/`.map`/... to `__list_*`/`_sel_<m>` not `__method__` (if-then-no-else-after-while,
+      scljet-cell-inplace, scljet-balance-insert). Oracle listVarsCell/selMethodOr :246/314/1545.
+      (b) **def-body single-line assignment** `def f = x = e` (finishAssignment at EXPR level, :1520) —
+      var-topdef-shared. Risky (named-arg guard). (c) **`[T,..]` type-args in call position** — leaks
+      block-local `val` to top vals (coroutine-basic `val c` inside `coroutineCreate[T,T,T]{..}`).
+      (d) idx_assign `a(i)=rhs`→`(prim arr.set a i rhs)`, Array.fill, unary `!` (wasm-primes).
+      (e) for-comprehension (`direct[Option]{}`, json-deep-import `for`). (f) map-var registry (`var m=Map`).
 
 **F3 BREADTH LOG (superseded intermediate) — corpus MATCH 1 → 43/504:**
 - top-level statements (loop fix + val cells + exprs): 1 → 34 (`07522696f`, `253f68231`)
