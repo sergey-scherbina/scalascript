@@ -312,10 +312,55 @@ baseline set `/tmp/baseline_deep4.txt` for `comm -23` drop-checks. Impact map + 
       synthesis now correct, but blocked EARLIER by generic-DEF type params `def map[A,B]` → E-next). Deeper
       part-b sub-cases (curried first-clause padFirstClauseDflts, object-method aliasFuncDefault, named-arg
       narg reorder) are SEPARATE features — no corpus file needs them to flip; safely deferred via fallback.
-- [ ] **E3 — nested tuple patterns (4 files).** parsing-error-node/recover-until, distributed-word-count/log-aggregation.
-- [ ] **E4 — extension methods (`extension (n) def m` → `X_method`).**
-- [ ] **E5 — symbolic operators `~>`/`<~` (lexer change; oracle → `(app (global op) l r)`).**
-- [ ] **WALL — given/summon (~10 files). Attempt only after above; STOP+report if kernel δ needed.**
+- [x] **E3a — generic top-level def type params DONE (`8ca57609b`).** `def map[A, B](box, f) = ..` — emitDef1 +
+      isPlessAfterName now `skipGen` the optional `[typeparams]` before the `(params)` (was: hd `[`≠`(` → 0 params,
+      real params leaked as globals `(def map (lam 0 ..))`). Corpus 394/509 (+0; typed-data advances past `def map`
+      to its nested-ctor-pattern layer @10253), 0 drops, X1 297,589 B, --self 153 ok/0 FAIL. F self-neutral (no generic defs).
+- [x] **E3b — RoundingMode.X → string literal DONE (`f2a772c1e`).** Bare field access on the builtin `RoundingMode`
+      → `(lit (str "X"))` (oracle resolveField roundingOwner :1600, hardcoded; not a user enum). postSel checks
+      receiver `== "(global RoundingMode)"`. Corpus 394→395 (+money-portable-v2), 0 drops, X1 297,902 B, --self 153 ok/0 FAIL.
+**➜ v2-p65-deep4 SESSION HANDOFF (2026-07-19): corpus MATCH 393→395/509 (+2: default-params via E1+E2,
+  money-portable-v2 via E3b). ALL 0 drops, X1 fixpoint stage1==stage2 byte-identical each slice (282,747→297,902 B),
+  --self 153 ok/0 FAIL each, kernel +0, no v2/lib oracle edits. ORACLE-DEGRADATION TALLY UNCHANGED = 24 (no oracle
+  bug reproduced; all flips genuine F-gaps). Jar /tmp/ssc-deep4.jar; baseline set /tmp/baseline_deep4.txt (395).
+  NEW INFRA now in F: 12th cx slot funcDflts (innermost `(sub, (objReg, funcDflts))`; objRegOf +fst, funcDfltsOf
+  its snd — DON'T mis-count the accessor parens, a stray `)` leaked a top-level `expr:_err`); collectFuncDflts
+  pre-pass (linear top-level scan; react to def/cc HEAD + `enum` kw, else advance one token — patterns never
+  trigger); collectPD/captureDflt (param-list defaults as raw token slices); scanArgs (non-emitting arg-slicer);
+  synthCall/synthWrap (nested-lambda default synthesis, re-parse each default in scoped env); emitDef1 skipGen.
+  GOTCHA: `val`/other keywords are NEVER valid param names in F's own source (oracle mis-lexes → `_err`).**
+**REMAINING GENUINE F-GAPS (impact-ordered; measured by /tmp/hist_optics.py this session). ALL are DEEP
+  multi-slice features — NO cheap wins left. Of ~114 DIFFs: ~24 oracle-bugs (do-not-reproduce), ~10 actors
+  (do-not-touch), ~2 float-E-notation (kernel δ, escalated). The rest (~78) are tractable-IN-SUBSET but each is
+  a substantial arc — no kernel δ needed for any except float-E:**
+  - **NESTED patterns (~5): typed-data (`case Person(name,age,Some(email))`/`None` — TWO arms need ordered-resolver
+    FALL-THROUGH), parsing-error-node/recover-until (`case (Some(ParseOk(v,rest,_)), errs)` — nested tuple+ctor,
+    deep), distributed-word-count/log-aggregation (`case ((word:String,left:Int),(_:String,right:Int))` — nested
+    TYPED tuples). DEEP: F's parseCtorArm/parsePatVars FLATTEN nested patterns (treat `Some`/`(` as vars → `arm
+    Person 5`). Need: route nested-pattern arms to the ordered resolver (parseGenCtor, DA6) + recursive
+    decomposition — a nested ctor field becomes an outer arm binding the field as a fresh local + an INNER match
+    on it, with `(default ..)` = fall-through to the rest-of-arms on the ORIGINAL scrutinee (re-parse rest on
+    dummies++menv, exactly the parseGenCtorGuard pattern). Oracle: lowerOrderedGuardArms npat :3378+. Ref shape
+    for typed-data: `(arm Person 3 (match (local 0) ((arm Some 1 <b>)) (default (match (local 3) ((arm Person 3
+    (match (local 0) ((arm None 0 <b2>))..`. F self-safe (F's own source has NO nested patterns → additive).
+    RISK: touches the match core F self-compiles with — keep flat patterns byte-identical (drop-check + --self).
+  - **EXTENSION methods (~2-5): extensions, script, (js-symbolic-infix-operator entangled w/ symbolic ops).
+    `extension (s: String)\n  def shout: String = s.toUpperCase+"!"` → `(def shout (lam 1 <body, s=local 0>))`
+    (receiver prepended as FIRST param), call `x.shout` → `(app (global shout) x)` (resolveField isExtensionMethod
+    :1598). BIG: needs the E/EB/X LAYOUT frames (F comment :151 says DEFERRED — F's layout lexer has no extension
+    frame) + an extension-method registry (cx slot) + postSel/postMeth dispatch. F self-safe (no `extension`).
+    Multi-part: layout lexer + parser + registry + dispatch. A whole arc.
+  - **given/summon (~10, the WALL): tagless-*, typeclass*, effects*, algebraic-effects, custom-derives-mirror,
+    rozum-agent-schema-derived. `X_method` naming (Logger_log etc.) flips first but `using`/summon is the wall —
+    needs given-table + `__mk_method_obj__` dictionary synthesis. Very deep; likely tractable-in-subset but the
+    largest remaining arc. STOP+report if it needs a kernel δ.**
+  - **symbolic operators `<~`/`~>` (~3, entangled w/ extensions): lexer doesn't tokenize arbitrary symbolic ops.
+    js-symbolic-infix uses BOTH extension + custom operators (and the oracle ALSO `_err`s on it — partly oracle-bug).**
+  - **for-comprehensions / typed-sql-crud (~2): multi-line for-BLOCK layout + list-VARIABLE registry. Architectural.**
+  - **auth-full/bank-rails-fednow, content, uploads/ws-chat/rest-api*: custom interpolators (`html"..."`/`md"..."`/
+    `id"""..."""`) — the oracle leaks the raw `${..}` string (RAW-triple leak); mostly ORACLE-BUG class, do-not-reproduce.**
+  METHOD (kept exactly): read the oracle's lowering on a tiny program FIRST (oc.sh on the extracted `.code`),
+  reproduce byte-exact, then corpus + `comm -23` drop-check + `--self` fixpoint. Land each slice separately.
 
 ## v2-finish — make v2 ideal, small, powerful, fully self-hosted (2026-07-18, Sergiy)
 
