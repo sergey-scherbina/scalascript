@@ -504,7 +504,25 @@ def skipClose2(ts, d) = if d == 0 then tl(ts) else skipToClose(tl(ts), d - 1)
 def isLamParen(ts) = isTok(hd(skipToClose(ts, 0)), 2, 30)
 def parseLamParen(ts, env, cx) = parseLamP(parseParams(ts, env), env, cx)
 def parseLamP(pr, env, cx) = pr match { case (env2, r) => parseLamBody(dlen(env2) - dlen(env), env2, tl(r), cx) }
-def parseLamBody(ar, env2, ts, cx) = parseExpr(ts, 0, env2, cx) match { case (b, r) => ("(lam " ++ ar ++ " " ++ b ++ ")", r) }
+// DA11: an ANONYMOUS 1-param lambda whose ENTIRE body is a self-match on its param — `p => p match {ctor
+// arms}` — lowers to a DIRECT `(lam 1 (match (local 0) arms))` with NO `(let ((local 0)) ..)` wrapper: the
+// param already IS local 0 (oracle ssc1-lower KC11 :2707-2718 → lowerDirectHandlerMatch :3613). Only
+// SIMPLE ctor arms (the parseCtorMatch path); guard/var/typed arms use the ordered/handler path — leave
+// them (F's let-wrap there is a separate residual). NB this is LAMBDA-only: a `def f(x)=x match` body is
+// parsed via parseExpr (not parseLamBody) so it KEEPS the let, exactly as the oracle does. Arms parse with
+// env2 (NO phantom scrutinee slot) so a param ref in an arm body is local(nFields), not nFields+1. Fall
+// back to the let-wrapped form unless the match consumes the whole body (isLamBodyEnd) — a trailing
+// postfix/binop (`p match {..} + 1`) must stay a normal expr.
+def parseLamBody(ar, env2, ts, cx) = if isLamSelfMatch(ar, env2, ts) then tryLamDirect(env2, ts, cx) else parseLamBodyG(ar, env2, ts, cx)
+def parseLamBodyG(ar, env2, ts, cx) = parseExpr(ts, 0, env2, cx) match { case (b, r) => ("(lam " ++ ar ++ " " ++ b ++ ")", r) }
+def isLamSelfMatch(ar, env2, ts) = if ar == 1 then isLSM2(env2, ts) else false
+def isLSM2(env2, ts) = if isSelfScrutId(env2, ts) then isLSM3(tl(ts)) else false
+def isSelfScrutId(env2, ts) = if fst(hd(ts)) == 1 then lookup(snd(hd(ts)), env2) == 0 else false
+def isLSM3(ts) = if isTok(hd(ts), 2, 5) then isCtorMatchArms(matchBody(tl(ts))) else false
+def isCtorMatchArms(ats) = if firstArmHasGuard(ats) then false else (if fst(hd(tl(ats))) == 0 then false else (if isGenVarHead(tl(ats)) then false else (if isTypedArm(tl(ats)) then false else true)))
+def tryLamDirect(env2, ts, cx) = parseArms(matchBody(tl(tl(ts))), env2, cx) match { case (arms, r) => tryLamDirect2(env2, ts, arms, r, cx) }
+def tryLamDirect2(env2, ts, arms, r, cx) = if isLamBodyEnd(r) then ("(lam 1 (match (local 0) (" ++ fst(arms) ++ ")" ++ snd(arms) ++ "))", r) else parseLamBodyG(1, env2, ts, cx)
+def isLamBodyEnd(ts) = if isEmpty(ts) then true else (if isTok(hd(ts), 2, 22) then true else (if isTok(hd(ts), 2, 27) then true else (if isTok(hd(ts), 2, 52) then true else isTok(hd(ts), 2, 29))))
 
 // An Upper name is a constructor: `Cons(a, b)` -> (ctor Cons a b), bare `Nil` -> (ctor Nil).
 // `throw e` -> `(prim __throw__ e)` (ssc1-front :1071, e a full parseExpr). `new X(a)` == `X(a)` -- drop
