@@ -1180,6 +1180,11 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
             (2866 bytes) and self-hosted `ssc0c` does not (2865); `$(...)` in `check.sh` strips both
             endings and can report false equality. Fix the comparison apparatus to compare files first,
             then align the output contract; do not preserve the command-substitution normalization.
+            **Comparator-found sub-bug:** using `"\n"` for that contract exposed that self-hosted
+            `scanStr` preserves escapes while the Scala seed decodes them: exact fixpoints now report
+            21050/21051 and 25875/25876 bytes. Decode the seed's valid escape set in both compiler copies
+            and keep an escaped LF in the persistent two-file differential; tracked as
+            `BUGS.md#ssc0c-string-escape-divergence`.
       - [ ] **F7.3 — close compiler-depth fail-open.** Reproduce the current smallest well-formed Core IR
             depth that overflows at `-Xss1m` and the legitimate tower program that needs the same path.
             Make traversal iterative or fail closed at a documented compiler bound with a stable

@@ -34,6 +34,31 @@ mismatch is caught with paths/sizes/diff. Done requires exact bytes for `uselib`
 complete v2 gate; command-substitution normalization, weakening the comparison, or refreshing an expected
 blob is forbidden.
 
+## ssc0c-string-escape-divergence — self-hosted lexer preserves escapes that the Scala seed decodes
+
+**Status:** REPRODUCED / claimed 2026-07-19 by `v2-f7-internal-gate`. Found while aligning the exact
+compiler-output line terminator on the working tree based on `a985605e2`.
+
+**Real-harness repro:** append an LF with the source literal `"\n"` in both self-hosted compiler drivers,
+then build and execute the compiler with the assembled v2 jar:
+
+```bash
+java -jar "$JAR" compile examples/ssc0c-self.ssc0 > /tmp/ssc0c-gen1.coreir
+java -Xss512m -jar "$JAR" run-ir /tmp/ssc0c-gen1.coreir examples/ssc0c-self.ssc0 \
+  > /tmp/ssc0c-gen2.coreir
+cmp -l /tmp/ssc0c-gen1.coreir /tmp/ssc0c-gen2.coreir
+```
+
+The seed is 21050 bytes and lowers the literal as `(str "\n")` (one LF code unit); the self-hosted result
+is 21051 bytes and lowers it as `(str "\\n")` (backslash plus `n`). The multi-file compiler fixpoint has
+the same one-byte expansion, 25875 versus 25876. Root cause is `scanStr` in both
+`v2/lib/ssc0c.ssc0` and its self-contained copy: it copies every source code unit until `"`, whereas
+`v2/src/Ssc0.scala::lexString` decodes `\"`, `\\`, `\n`, `\r`, `\t`, and `\uXXXX`.
+
+**Plan / done-when:** make the self-hosted scanner decode the seed's valid escape set, cover an escaped LF
+inside the persistent two-file differential, and require both exact fixpoints. Silently constructing the
+CLI newline by another spelling would hide the frontend divergence and is not an acceptable closure.
+
 ## f5-buildjvm-artifact-missing-relocated-jars — `build-jvm` jars NoClassDefFoundError after F5 kernel-slimming
 
 **Status:** FIXED 2026-07-19 (`v2-f5-buildjvm-fix`, commit fixing `NativeJvmArtifact.scala`). Found by the

@@ -22,6 +22,8 @@ it does not change the Core IR node set, value domain, or canonical encoding.
 
 - [ ] The Scala bootstrap and self-hosted compiler emit byte-identical non-empty Core IR for
       `v2/examples/uselib.ssc0` and a minimized two-file regression fixture.
+- [ ] The self-hosted string scanner decodes the Scala seed's valid escape set (`\"`, `\\`, `\n`, `\r`,
+      `\t`, and `\uXXXX`); the two-file differential contains an escaped LF so lexical parity is measured.
 - [ ] The single-file `ssc0c` fixpoint and the multi-file `bin/ssc0c.ssc0` fixpoint remain byte-identical.
 - [ ] A mismatch prints the compared artifact paths, byte sizes, and a useful first canonical difference
       before the gate exits non-zero; it is never classified or skipped before the byte comparison runs.
@@ -50,6 +52,8 @@ outputs first. Persist both outputs, print a real diff, and only then locate the
 definition-order, name-resolution, or lowering decision. The regression must use at least two files because
 a single-file fixture cannot exercise the import boundary where this defect lives. Existing self-fixpoints
 are necessary but not sufficient: two copies of the same wrong compiler can reproduce the same wrong bytes.
+The minimized fixture also carries an escaped LF. This keeps exact lexical agreement observable after both
+compiler CLIs adopt one trailing-LF output contract instead of letting the driver spell around a lexer bug.
 
 ### Compiler-depth safety
 
@@ -98,4 +102,7 @@ the self-hosted side failed before comparison. At `-Xss512m` it succeeds and the
 agrees, but exact streams still differ by the seed's one trailing LF (2866 vs 2865 bytes). The existing
 gate's `$(...)` capture strips that evidence and is therefore not a valid byte comparator. Valid failing
 programs are structurally shallow (self compiler max S-expression depth 28; JS/Rust generators 51), so a
-reader-depth check alone cannot close compiler recursion.
+reader-depth check alone cannot close compiler recursion. Replacing command substitution with the exact-file
+comparator immediately exposed a second frontend discrepancy: `scanStr` preserves `\n` while the seed
+decodes it, making the single/multi fixpoints 21050/21051 and 25875/25876 bytes respectively. F7.2 therefore
+includes escape parity rather than hiding the discrepancy with a different newline spelling.
