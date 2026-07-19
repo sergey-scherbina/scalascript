@@ -209,6 +209,24 @@ focused layout-subsystem push, or take a different direction (chained-list `_sel
 architectural; actors ~28; derives ~16 — all also large).** Cheap/clean wins are done; what remains is big.
 - superseded intermediate tally below.
 
+**➜ LAYOUT PORT IN PROGRESS (`v2-p65-layout`, 2026-07-19).** Porting the oracle's `NL`-token lexing +
+`layout` pass into F (`specs/v2.2-p6.5-fsub.ssc`), byte-exactly. Sliced so the fixpoint stays green each
+step. Baseline: fixpoint 136 ok/0 FAIL @ 97,985 B, corpus MATCH 48/504.
+- [ ] **L1 — foundation: NL lexing + core layout pass + `;`/`}`-skipping in F's parser, ZERO regression.**
+      (a) F's lexer emits `NL <indent>` tokens (new token kind 7) instead of dropping `\n`/`\r`; port
+      `countIndent`/`skipToCode` (blank + `//`-comment-line skipping; trailing NL at EOF → none, like the
+      oracle). (b) Port `layout` = the L/B/P/S frame-stack pass (defer E/EB/X extension frames — F has no
+      `extension`; that path is never triggered) + helpers `canEndLine`/`canStartLine`/`isCont`/
+      `isLayoutOpener`/`nlStep`/`dedentL`/`closeToBrace`/`closeToDelim`/`closeAllL`/`sepAfter`/`declHead`
+      colon disambiguation. `compile1` runs `layout(lex(..))`. (c) F's statement-boundary parsers skip the
+      virtual `;`: `walkTop`, `parseBlock`, `parseArms`, `parseIntArms` (arms also consume the virtual `}`).
+      Verify: `--self` fixpoint stays byte-identical (F's own source has NO EOL layout-opener, so layout
+      only inserts `;` between top-level defs + 1 inside `climbStep` — must round-trip); all 130 `d`-tests
+      green (incl. the braceless-match `bl_*`); corpus MATCH ≥ 48 (no regression). Re-freeze fixpoint bytes.
+- [ ] **L2+ — breadth on top of L1.** Once layout is live: indented `if/then/else` bodies, indented `def`
+      bodies, braceless-indented match with single-expr arms; then multi-statement `{ }` / indented blocks
+      (`(seq ..)`), then declHead class/object bodies, then enums, then the scljet-sql cluster.
+
 **F3 BREADTH LOG (superseded intermediate) — corpus MATCH 1 → 43/504:**
 - top-level statements (loop fix + val cells + exprs): 1 → 34 (`07522696f`, `253f68231`)
 - float literals: 34 (correct prereq, `2d63fc63e`)
