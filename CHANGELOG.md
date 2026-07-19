@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-07-19 — v2-p65-guard G4: `0x` hex integer literals
+
+`v2-p65-guard` (v2-finish breadth). F lexed `0x2c97` as `0` + ident `x2c97`; now lexNum detects `0x`/`0X`
+and emits the decimal value token (oracle-exact: 0x2c97=11415, 0xF0=240). Corpus MATCH 309->311/508
+(scljet-bytes, wallet-ledger-js), ZERO drops; X1 fixpoint stage1==stage2 byte-identical 200,787->203,141 B;
+--self 153 ok/0 FAIL; kernel +0 (`c70b27052`).
+
 ## 2026-07-19 — v2-p65-guard G3: `???` notImplemented desugar
 
 `v2-p65-guard` (v2-finish breadth). F dropped `?` (opCode 0), so `else ???` lost the placeholder and the

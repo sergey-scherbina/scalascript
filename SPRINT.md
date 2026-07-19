@@ -511,7 +511,7 @@ Slices, impact-ordered (biggest clean lever first):
       hardcodes it) even for empty parens `X.m()` (WorkerProtocol.handleMessages(), Storage.keys(),
       System.currentTimeMillis()); only a VAR receiver `v.m()` uses `__method0__`. emitMethodCall now routes
       a uid `(global X)` receiver straight to emitMethod (always __method__), skipping the __method0__ branch.
-- [ ] **G4 — cc/tc-method-def (16) + `.copy` (3):** case-class/typeclass body methods → `Tag_method(self,..)`
+- [x] **G4 — DONE (`c70b27052`). cc/tc-method-def (16) + `.copy` (3):** case-class/typeclass body methods → `Tag_method(self,..)`
       globals + `__regmethod__` regs (ssc1-lower :5088-5165, classBodyFields :3710). Case-class `.copy(...)`
       is related (user-request-shadow/optic-polish/lenses). Big; slice further.
 - [x] **G5 — for-comprehension (single-generator). Corpus 234 → 238 (+4), 0 regr. fixpoint 164,174→168,736.**
@@ -761,7 +761,12 @@ Claim `v2-p65-layout` on origin/main covers this lane. Work dir /tmp/p65ccm (ker
       predef-notimplemented `if b then 42 else ???`). Fix: lex `???` (three `?`) as token code 60; parseAtom1
       -> `(prim __notImplemented__)`; add 60 to canEndLineP (a value ends the line). F source has 0 `?`; single
       `?` still drops (unchanged). 2 corpus files (predef-notimplemented flips; x402-cardano-scalus has more).
-      (ssc1-lower resolveMatch, VERIFIED byte-exact on data-types `classify` + pattern-matching `describe`)
+- [x] **G4 — DONE (`c70b27052`). `0x` hex integer literals.** F lexes `0x2c97` as `0` + ident `x2c97`; oracle emits the DECIMAL
+      value `(lit (int 11415))` (VERIFIED wallet-ledger-js 0x2c97=11415, bitwise-operators 0xF0=240/0x0F=15).
+      Fix: lexNum detects `0x`/`0X`, scanHexV accumulates acc*16+hexDig -> int token `(0, value)` (emitInt
+      gives decimal); trailing L/l stripped. F source has 0 `0x`. 7 corpus files use `0x`; bitwise-operators &
+      the byte-codec ones ALSO need bitwise `&`/`|`/`^`/`<<`/`>>` (separate; F drops single `&`/`|`), so hex
+      alone flips ~wallet-ledger-js + maybe a couple. Re-freeze fixpoint.
       lowers a scalar match to a NESTED let/if chain, NOT F's int-chain or `(match ..)`: outer
       `(let (<scrut>) <chain>)`; VAR arm `case x [if g]` -> `(let (<scrut-ref>) [(if g body rest) | body])`
       binding x (its `(local i)` rises as var-lets accumulate); INT arm `case N` (unguarded) ->
