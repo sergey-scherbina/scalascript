@@ -317,6 +317,16 @@ d si_dotlit  'def f(a: String): String = s"$a.b"
 def main(): String = f("q")'
 d si_tl      'val name = "World"
 println(s"Hi $name")'
+d neg_lit    'def main(): Int = -7'
+d neg_var    'def f(x: Int): Int = -x
+def main(): Int = f(3)'
+d neg_float  'def main(): Double = -7.5'
+d neg_inbin  'def main(): Int = 1 + -2'
+d neg_paren  'def f(a: Int, b: Int): Int = -(a + b)
+def main(): Int = f(1, 2)'
+d neg_call   'def g(x: Int): Int = x
+def f(x: Int): Int = -g(x)
+def main(): Int = f(3)'
 
 if [ "${1:-}" = "--self" ]; then
   echo "--- X1: F compiles its OWN source ---"
