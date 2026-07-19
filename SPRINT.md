@@ -29,6 +29,12 @@ baseline MATCH set `/tmp/baseline_match.txt` for `comm -23` drop-checks. --self 
       focusPathSteps :1157). MATCH 339→344 (+lenses, optic-polish, optics-index-at, optional, traversal). 0 drops.
       OPTICS CLUSTER FULLY CLEAN.
 
+- [x] **O5 (`964f16420`) method type-application `recv.m[T](args)`/`recv.m[T]` skip `[T]`** (ssc1-front :1406 discards
+      type args on non-Db sels). BIG clean win — MATCH 344→354 (+10: dataset-union-intersect, dataset-zip,
+      distributed-heterogeneous, distributed-map, distributed-shuffle, dsl-ast-builder, indexeddb-drafts,
+      indexeddb-sync-client, std-monaderror, sync-todo). Also fixes `X.method[T](..)` companion recv (`(ctor X)`
+      via existing methodRecv) + `.asInstanceOf[T]` (56 uses). 0 drops. postDot1: skip `[` then re-dispatch.
+
 **ORACLE-DEGRADATION TALLY (remaining DIFFs that are the ORACLE being WRONG, not F-gaps — do NOT reproduce):**
 - `@`-annotated case-class fields (10: graph-codecs, graph-fullstack, graph-fullstack-rdf, graph-rdf4j-storage,
   graph-storage, object-store-jdbc, object-store-sync-routes, spark-schema-mapping, spark-shared-schema-reader,
