@@ -895,7 +895,19 @@ def collectECN1(ts) = enumCasesFrom(ts) match { case (cases, r) => appEnv(caseNa
 def caseNamesL(cases) = cases match { case Nil => Nil case h :: t => Cons(fst(h), caseNamesL(t)) }
 def defTopItem(ts, cx) = emitDef(ts, cx) match { case (d, rest) => ((d, ""), rest) }
 def ccTopItem(ts, cx) = emitCCDecl(ts, cx) match { case (d, rest) => ((d, ccDerivedInit(ccNameAt(ts), derivesAt(tl(tl(ts))))), rest) }
-def valItem(ts, cx) = valItem1(snd(hd(tl(ts))), skipToEq(tl(ts)), cx)
+// `val (a, b, ..) = e` tuple-destructuring (ssc1-lower :2522-style): bind the init to a `let`, then set
+// one cell per element via its 1-based `_sel__N` tuple projection: `(let (<init>) (seq (cell.set a__cell
+// (_sel__1 (local 0))) (cell.set b__cell (_sel__2 (local 0))) ..))`. Every element is a NAME (incl `_` ->
+// `___cell`); flat name-tuples only (the corpus's shape). Plain `val name = e` unchanged.
+def valItem(ts, cx) = if isTupleVal(ts) then tupValItem(ts, cx) else valItem1(snd(hd(tl(ts))), skipToEq(tl(ts)), cx)
+def isTupleVal(ts) = isTok(hd(tl(ts)), 2, 21)
+def valPatNames(ts) = if isTupleVal(ts) then tupNames(tl(tl(ts))) else Cons(snd(hd(tl(ts))), Nil)
+def tupNames(ts) = Cons(snd(hd(ts)), tupNamesMore(tl(ts)))
+def tupNamesMore(ts) = if isTok(hd(ts), 2, 27) then tupNames(tl(ts)) else Nil
+def tupValItem(ts, cx) = tupValItem1(valPatNames(ts), skipToEq(tl(ts)), cx)
+def tupValItem1(names, ts, cx) = parseExpr(ts, 0, Nil, cx) match { case (init, rest) => (("", tupValEmit(names, init)), rest) }
+def tupValEmit(names, init) = "(let (" ++ init ++ ") (seq " ++ tupSets(names, 1) ++ "))"
+def tupSets(names, i) = names match { case Nil => "" case h :: t => join2("(prim cell.set (global " ++ h ++ "__cell) (app (global _sel__" ++ i ++ ") (local 0)))", tupSets(t, i + 1)) }
 def valItem1(nm, ts, cx) = parseExpr(ts, 0, Nil, cx) match { case (init, rest) => (("", "(prim cell.set (global " ++ nm ++ "__cell) " ++ init ++ ")"), rest) }
 def exprItem(ts, cx) = parseExpr(ts, 0, Nil, cx) match { case (e, rest) => (("", e), rest) }
 def walkTop(ts, cx) = walkTop0(skipSemisF(ts), cx)
@@ -927,7 +939,7 @@ def collectTopVals0(ts, cx) = if isEmpty(ts) then Nil else (if isTok(hd(ts), 2, 
 // :4976. valCells then emits `(def __derived_TC_X__cell (prim cell.new (lit unit)))` in that slot.
 def collectCCVals(ts, cx) = appEnv(derivedNames(ccNameAt(ts), derivesAt(tl(tl(ts)))), collectTopVals(sndRest(parseTopItem(ts, cx)), cx))
 def sndRest(pr) = pr match { case (parts, rest) => rest }
-def collectValName(ts, cx) = valItem(ts, cx) match { case (parts, rest) => Cons(snd(hd(tl(ts))), collectTopVals(rest, cx)) }
+def collectValName(ts, cx) = valItem(ts, cx) match { case (parts, rest) => appEnv(valPatNames(ts), collectTopVals(rest, cx)) }
 // one empty global cell per top-level val, placed between the prelude and the sels (ssc1-lower def
 // order: prelude, topVarCells, topValCells, caseMethodDefs, accDefs, userDefs). Trailing space like
 // emitSels; "" when there are no top-level vals -> a val-free program is byte-unchanged.
