@@ -834,12 +834,67 @@ Claim `v2-p65-layout` on origin/main covers this lane. Kernel jar `/tmp/ssc-code
 (`scala-cli --power package v2/src --assembly`); corpus `SSC_JAR=... V2_DIR=<wt>/v2
 NEWFRONT_WORK=/tmp/p65codecs2 bash specs/v2.2-p6.5-corpus.sh`; --self via captured file + `grep -cE '^ok '`.
 Histogram `/tmp/hist.py <work>`; baseline MATCH set `/tmp/baseline_match.txt` for `comm -23` drop-checks.
-- [x] **C1 — DONE (`ccd1f1b80`). `.copy(f=v)` named-copy desugar.** MATCH 311→312 (+1 user-request-shadow),
-      0 drops, X1 fixpoint stage1==stage2 210,567 B, --self 153 ok/0 FAIL, kernel +0. `recv.copy(f=v,..)` with
-      any named arg → receiver-first let-chain feeding the alternating name-lit/value-ref runtime ABI
-      (ssc1-lower desugarCopy :1124). Only fires with a named arg; positional-only `.copy(x)` keeps the normal
-      method path. Other 4 named-copy corpus files (lenses/optic-polish/scljet-readonly-pager-btree/
-      spark-catalog-hive) carry FURTHER divergences (Focus/other), so stay DIFF.
+- [x] **C1 (`ccd1f1b80`) `.copy(f=v)` named-copy** +1 user-request-shadow. recv-first let-chain -> alternating
+      name-lit/value-ref `__method__ "copy"` ABI (ssc1-lower desugarCopy :1124); only fires with a named arg.
+- [x] **C2 (`5a12612cc`) seq operators `:+`/`+:`/`:::`** +2 list-combinators,signals. `:+`(code 61,prec 6)->arith
+      `:+`; `+:` lexes as `::` (Cons); `:::` lexes as `++`.
+- [x] **C3 (`de7505f0f`) bitwise `& | ^ << >> >>> ~`** +2 bitwise-operators,js-parser-combinator-choice. infix
+      `(prim i.and/or/xor/shl/shr/ushr L R)`, prefix `~`->`(prim i.not x)`. Prec mirrors ssc1-front (left-assoc,
+      avoid F's right-assoc prec-5 slot). codes 62-68. GOTCHA: opCode had a stray `)` -> stray-paren cascade -> `_err`.
+- [x] **C4 (`e6cd22732`) derives TC (derived-codec cell+init)** +1 dataset-typed-mapping. `case class X derives TC`
+      -> `__derived_TC_X` top-val name (collectCCVals->valCells cell) + doc-order entry init `(cell.set
+      __derived_TC_X__cell (app TC_derived __mirror_X))`. Mirror/regfields already emit for every cc. Imported-codec/
+      method-access subset only (NO summon/object/given).
+- [x] **C5 (`c3ac39b4a`) import X.* over-skip FIX** +7 crypto-demo,crypto-encrypt-demo,crypto-verify-demo,invoice-pdf,
+      pdf-extract-demo,totp-shamir-demo,xslt-transform. skipImport scanned to `;` but `*` isn't a line-ender so
+      layout emits none -> the NEXT decl was swallowed. Stop skipImport right after `*`. (High-value; unblocked C4's
+      typed-helpers derived cell too, though those keep Vector/JsonValue diffs.)
+- [x] **C6 (`8aa3470ac`) `val (a,b)` tuple-destructuring** +4 dataset-shape,js-state-effect-runner,
+      js-wildcard-destructure,parsing-parse-all. `(let (<init>) (seq (cell.set a__cell (_sel__1 (local 0))) ..))`;
+      every element a NAME incl `_`. GOTCHA: helper MUST NOT be `valNamesOf` (already a cx accessor) -> shadow
+      gave `0__cell`; renamed valPatNames.
+- [x] **C7 (`b10fd2cad`) tuple-N literals `(a,b,c[,d])`** +5 invoice-email,rest-validate,spark-tuple-demo,
+      sql-h2-quickstart,tuples. parseTupRest collects ALL elems -> `(ctor Tuple<k> ..)`; k==2 byte-identical.
+- [x] **C8 (`c7986d4f2`) parenless def `def n [:T] = e`** +1 parenless-def-value. -> `(def n (lam 0 body))`; refs
+      FORCE via calleeOf -> `(app (global n))`, call `n(a)` -> `(app (app (global n)) a)`. New cx slot `pless`
+      (deepest, paired with `bs`) via collectPlessDefs pre-pass. F has no parenless def -> --self unaffected.
+
+**➜ HANDOFF (`v2-p65-codecs2`, 2026-07-19): 8 slices landed = corpus MATCH 311→334/508 (66%), ALL 0 regressions
+(every slice `comm -23` drop-check EMPTY, 0 EMPTY/0 TIMEOUT), X1 fixpoint stage1==stage2 byte-identical
+203,415→222,668 B, --self 153 ok/0 FAIL each, kernel +0, no v2/lib oracle edits. Jar `/tmp/ssc-codecs2.jar`;
+corpus `SSC_JAR=/tmp/ssc-codecs2.jar V2_DIR=<wt>/v2 NEWFRONT_WORK=/tmp/p65codecs2 bash specs/v2.2-p6.5-corpus.sh`;
+byte-check-one helper `/tmp/opcheck.sh <file-of-1-line-progs>` (bootstraps F0 from fsub, diffs vs oracle);
+histogram `/tmp/hist.py /tmp/p65codecs2` (clusters by ref-window sig + cheapest flips); baseline MATCH set
+`/tmp/baseline_match.txt`. METHOD unchanged: read the oracle's exact lowering on a tiny program FIRST
+(`java -jar $JAR run bin/ssc1-run.ssc0 x.ssc`), reproduce byte-exact, byte-check via opcheck, corpus + drop-check.
+GOTCHA that bit twice: paren-count every big nested-if edit (tr -cd) — a stray `)` bootstraps F0 fine but leaks
+`_err`. Name-collision check any new top-level def (valNamesOf shadow).
+**FRESH FIRST-DIVERGENCE IMPACT MAP over the 174 remaining DIFFs (measured post-C8, biggest/cheapest first):**
+- **optics `Focus[T](_.path)` + Prism (5: optic-polish 0.933, lenses, traversal, optional, optics-index-at)** —
+  ref `(prim optics.focus (ctor Cons (ctor OField (str "f")) ..))`; mine `(app (global Focus) (lam 1 ..))`.
+  `Focus[T]` is a `focus_marker` (ssc1-front :1403) then `(_.a.b.some.each)` -> a path list of OField/OSome/OEach
+  ctors; `Prism[S,C]` -> optics.prism. DEEP (path parsing) but self-contained + highest count.
+- **custom interpolator `id"""..."""` (4: uploads 0.954, rest-api, rest-api-fm, ws-chat)** — the oracle DEGRADES
+  (no interpolator support): def body=`(global id)`, the raw triple LEAKS as a separate top-level `(lit (str ..))`
+  statement, and inside a call `Response.html(html"""..""")` the arg-list closes at the arg WITHOUT consuming the
+  triple, then the stray `)` -> `(global _err)`. Byte-achievable ONLY by replicating that mis-parse cascade
+  (arg-close-without-consume + leaked triple + stray-`)`→`_err`) — ESCAPE-HATCH / low-confidence; the rest of each
+  file matches (0.90+), so if reproduced it flips 4.
+- **derived-codecs remaining (~17)** — split: (a) needs `summon[TC[T]]`/`object TC{def derived}`/given-table
+  (custom-derives-mirror, rozum-agent-schema-derived) — DEEP; (b) imported-codec files that ALSO carry `Vector(..)`
+  literal (distributed-dataset-codec/wire-*) or `JsonValue.Obj` enum-match diffs; (c) `@key/@fieldName/@aliases`
+  per-field-annotated case classes (typed-object-codec/object-store-* @0.77-0.87) where the ORACLE degenerates the
+  whole param list to a single `_` field + `_err` — replicating that annotation mis-parse is escape-hatch territory.
+- **`Vector(a,b,..)` literal -> Cons-chain (distributed-dataset-codec + more)** — like `List(..)` (parseListLit);
+  F emits `(app (global Vector) ..)`, oracle `(ctor Cons ..)`. Add Vector (and Seq?) to the List-literal path.
+- **direct { .. } monad desugar (3: tagless-direct-syntax, direct-syntax, direct-control-flow)** — `_sel_flatMap`
+  chain vs F's raw `direct` marker (ssc1-lower desugarDirect :2011). DEEP.
+- **parenless def in object/trait/extension BODIES (extensions, typeclass, tagless-program, scljet-*)** — C8 only
+  did TOP-LEVEL parenless defs; these need object/extension body handling (separate, deeper).
+- **actors `!` send + receive `match`-vs-let (actors-*)** — DO NOT TOUCH (shared receive strategy).
+- NICHE escape-hatch (1 file each): `-9223372036854775808` Long.MinValue (int-literal; F emits `(i.sub 0 …)`,
+  oracle a single `(lit (int -…))` — overflow); `$_sqlBlock_N` un-expanded (sql-sqlite-file); `Array.empty[Int]
+  .length` type-arg-in-chain (array-companion-statics); `if c then <assign>` no-else (if-then-no-else-after-while).
 
 **➜ HANDOFF (`v2-p65-tail`, 2026-07-19): 5 slices landed (T1 triple-quote +7, T2 null +1, T4 collection-
 curry +1, T5 nested-interp +4, T6 bracket-list +11) = corpus MATCH 249→274/505 (fresh full 507-corpus
