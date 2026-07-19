@@ -18,7 +18,7 @@ def scanNumV(s, i, n, acc) = if atEnd(i, n) then acc else (if isDig(s.charAt(i))
 def scanNumE(s, i, n) = if atEnd(i, n) then i else (if isDig(s.charAt(i)) then scanNumE(s, i + 1, n) else i)
 def scanLineEnd(s, i, n) = if atEnd(i, n) then i else (if s.charAt(i) == 10 then i else scanLineEnd(s, i + 1, n))
 // Escape-free by design (P6.6b): scan to the closing quote by CHAR CODE 34 -- never a `"` literal.
-def scanStr(s, i, n) = if atEnd(i, n) then i else (if s.charAt(i) == 34 then i else scanStr(s, i + 1, n))
+def scanStr(s, i, n) = if atEnd(i, n) then i else (if s.charAt(i) == 34 then i else (if s.charAt(i) == 92 then scanStr(s, i + 2, n) else scanStr(s, i + 1, n)))
 // -- K62.6c-indent: NL <indent> scanning (ports ssc1-front countIndent/skipToCode) ----------------
 // Newlines are NO LONGER whitespace: the lexer emits an NL token (kind 7, payload = the indent of the
 // NEXT code line) so the layout pass can reconstruct brace-less indented blocks. Blank lines and
