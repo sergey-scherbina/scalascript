@@ -329,9 +329,14 @@ def isSelRecvCode(c) = if isVarRecvCode(c) then false else (if startsW(c, "(ctor
 // the SAME bare uid as a value or a bare `.field` SELECTION is `(global X)` (lowerE uid :2537 / selOrMethod).
 // bareCtor emits the value form `(global X)`; the CALL path restores the ctor form. Only an UPPERCASE
 // `(global X)` is a uid receiver; a lowercase `(global foo)` is a def/var receiver and stays a var recv.
+// A uid receiver ALWAYS dispatches through the polymorphic `__method__` (ssc1-lower :1466 hardcodes it),
+// even for an APPLIED zero-arg call `X.m()` (`WorkerProtocol.handleMessages()`, `Storage.keys()`,
+// `System.currentTimeMillis()`) — the `__method0__` "dispatch-or-error, no eta" form is only for a VAR
+// receiver `v.m()` (methodPrim, emitCallMethod). So route a uid `(global X)` receiver straight to
+// emitMethod with the ctor receiver form, skipping emitCallMethod's __method0__ branch.
 def isUidGlobal(c) = if startsW(c, "(global ") then isUp(c.charAt(8)) else false
 def methodRecv(c) = if isUidGlobal(c) then "(ctor " ++ c.substring(8, c.length - 1) ++ ")" else c
-def emitMethodCall(nm, c, es, cx) = emitMethodCall1(nm, methodRecv(c), es, cx)
+def emitMethodCall(nm, c, es, cx) = if isUidGlobal(c) then emitMethod(nm, methodRecv(c), joinArgs(es), dqOf(cx)) else emitMethodCall1(nm, c, es, cx)
 def emitMethodCall1(nm, c, es, cx) = if isSelRecvCode(c) then selMethodOr(nm, c, es, dqOf(cx)) else emitCallMethod(nm, c, joinArgs(es), dqOf(cx))
 // isKnownSelMethod = ssc1-lower :1509 set MINUS the forms selMethodOr handles explicitly first
 // (map/mkString/take/sum/foldLeft/foldRight). _1.._4 route to _sel__N via isTupField.
