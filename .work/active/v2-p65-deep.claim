@@ -1,12 +1,15 @@
 claim: v2-p65-deep
-branch: feature/v2-p65-deep5
-agent: opus (orchestrator session — fresh agent, handoff chain)
-heartbeat: 2026-07-19T18:30:23Z
-status: in-progress (spawned agent)
-what: P6.5 breadth under DECISION C (v2 = ideal subset, NOT oracle-mimicry). corpus MATCH 1→395/509
-      (78%), fixpoint 297,902 B all stage1==stage2. Grind CLEAN/IDEAL arcs only (§v2-p65-deep4 map):
-      nested tuple patterns (~5), extension methods (~2-5, needs deferred E/EB/X layout frames — a whole
-      arc), given/summon (~10, the WALL — dictionary synthesis). These BELONG in ideal v2. OUT of v2's
-      surface (do NOT chase, NOT gaps): 24 oracle-bugs (F correct), 10 actors-receive quirks, 2 float-E
-      (kernel δ). Keep --self green; drop-check; report when clean arcs wind down → triggers F4 (surface
-      spec + bridge retirement + kernel shrink).
+branch: (idle — deep5 complete, cheap clean wins EXHAUSTED = F4 trigger)
+agent: opus (orchestrator session — handoff chain paused at natural endpoint)
+heartbeat: 2026-07-19T19:38:17Z
+status: MILESTONE — nested-patterns arc complete, corpus MATCH 408/509 (80%). Clean cheap wins done.
+what: deep5 landed 8 byte-verified slices (395->408, +13, 0 drops, fixpoint intact, kernel +0):
+      nested ctor patterns, tuple-outer nested patterns, char literals, type/opaque alias skip,
+      block-local val(a,b), multi-stmt lambda block, ordered-match terminal fix. Task-1 (nested
+      tuple patterns) COMPLETE+exceeded. REMAINING 101 DIFFs classified: ~29 OUT per Decision C
+      (oracle @-collapse, custom-interpolator raw leak, actors-receive let(match) ~10, float-E 2);
+      given/summon = THE WALL (~10-15, tractable in-subset NO kernel δ, but huge arc); extension
+      methods (~2 but BIG ARC, needs deferred layout E/EB/X frames); _sel_ list-var registry (~4
+      architectural) + misc 1-offs. Clean ceiling ~471. **This is the F4 trigger** — author
+      specs/v2-language-surface.md (IN/OUT contract) then cut F canonical + retire FrontendBridge
+      -> kernel shrink. See SPRINT §v2-p65-deep handoff.
