@@ -503,7 +503,13 @@ def parseParenOrLam(ts, env, cx) = if isLamParen(ts) then parseLamParen(ts, env,
 // (`List[Int]()`, `Right[String, BigInt](cents)`, `Map[String, Int]()`). Type args are ERASED by the
 // reference lowerer, so skip the `[..]` group (skipGen) and dispatch on the following `(` exactly as if
 // it were absent — `List[Int]()` -> `(ctor Nil)`, `Right[A,B](x)` -> `(ctor Right x)`.
-def parseCtor(nm, ts, env, cx) = if isEnumTypeDot(nm, ts, cx) then parseEnumCompanion(nm, tl(ts), env, cx) else parseCtorG(nm, skipGen(ts), env, cx)
+// `Prism[S, C]` -> `(prim optics.prism (lit (str <lastTypeArg>)))` (ssc1-lower prismVariant :1231: the
+// type-arg string after the LAST comma). Only fires when `Prism` is immediately type-applied.
+def isPrismApp(nm, ts) = if nm == "Prism" then isTok(hd(ts), 2, 50) else false
+def prismSeg(ts, cur, d) = if isEmpty(ts) then (cur, ts) else prismSeg1(hd(ts), tl(ts), cur, d)
+def prismSeg1(t, rest, cur, d) = if isTok(t, 2, 51) then (if d <= 1 then (cur, rest) else prismSeg(rest, cur ++ "]", d - 1)) else (if isTok(t, 2, 50) then prismSeg(rest, cur ++ "[", d + 1) else (if isTok(t, 2, 27) then (if d == 1 then prismSeg(rest, "", d) else prismSeg(rest, cur, d)) else prismSeg(rest, cur ++ tokStr(t), d)))
+def parsePrism(ts, env, cx) = prismSeg(tl(ts), "", 1) match { case (variant, r) => ("(prim optics.prism " ++ emitStr(variant, dqOf(cx)) ++ ")", r) }
+def parseCtor(nm, ts, env, cx) = if isPrismApp(nm, ts) then parsePrism(ts, env, cx) else (if isEnumTypeDot(nm, ts, cx) then parseEnumCompanion(nm, tl(ts), env, cx) else parseCtorG(nm, skipGen(ts), env, cx))
 def parseCtorG(nm, ts, env, cx) = if isTok(hd(ts), 2, 21) then parseCtorArgs(nm, tl(ts), env, cx) else (bareCtor(nm, cx), ts)
 def isEnumTypeDot(nm, ts, cx) = if isTok(hd(ts), 2, 31) then isEnumType(nm, cx) else false
 def parseEnumCompanion(ename, ts, env, cx) = parseEnumComp1(ename, snd(hd(ts)), tl(ts), cx)
