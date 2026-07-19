@@ -258,6 +258,25 @@ SELF-HOSTS (the layout code is in F's own source and compiles byte-identically t
       codecs/derives (~16); enums (`enum X:` + declHead class/object bodies — layout groups them but F
       lacks the member-def-in-type + enum-ctor lowering); param-less `def name = body` → `(lam 0 ..)`.
 
+## v2-p65-enums (`v2-p65-enums`, 2026-07-19) — enum cluster, impact-ordered slices
+
+Oracle map (all verified): parse `ssc1-front.ssc0`:2797-2837; registry `ssc1-lower.ssc0`:140/349-390;
+bare-uid→global :2049-2054; `E.Case`/`E.values` :1697-1703; enum decl→ctor defs :3815-3831 (nullary =
+`(def N (ctor N))`, param = lowerCaseCls); field/regfields interleave with case classes via
+collectCaseFields/collectCaseClassOrder :4894-4946; entry order :5648-5665 (caseFieldRegs FIRST). No
+layout declHead needed for enum — the oracle reads `;`-separated `case` lines directly (goCases+skipSemis);
+F's ported layout already emits those `;`.
+- [x] **E1 — nullary enums. DONE (`ba1eb56a6`).** enum parse (nullary cases + `case A, B` comma sugar),
+      ctor defs `(def N (ctor N))` in userDefs (doc order); regfields via unified ordered type-case list
+      `tcs` (case classes + enum cases interleaved); cx: enumCaseNames (bare `N`→`(global N)`) + enumReg
+      (`E.Case`→`(ctor Case)`, `E.values`→nullary ctor cons-list). Corpus 156→157 (enum-shared-casename);
+      X1 fixpoint 121,353→131,016 B byte-identical; --self 136 ok/0 FAIL; no regression, no kernel/oracle edits.
+- [ ] **E2 — parametrized enum cases** (`case Circle(r: Double)`): ctor+mirror+sels like case class,
+      applied bare `Circle(a)`→`(app (global Circle) a)`, `E.Case(a)`→`(ctor Case a)`, patterns. Target:
+      enums.ssc Shape/Tree (also needs math.Pi/round + interp already present).
+- [ ] **E3 — mixed & remaining enum near-misses** (data-types, typed-data, lenses, prisms, mcp-types,
+      optic-polish, default-params, scala-js-demo, fn-typed-field, v2-type-ascription-pattern).
+
 **F3 BREADTH LOG (superseded intermediate) — corpus MATCH 1 → 43/504:**
 - top-level statements (loop fix + val cells + exprs): 1 → 34 (`07522696f`, `253f68231`)
 - float literals: 34 (correct prereq, `2d63fc63e`)

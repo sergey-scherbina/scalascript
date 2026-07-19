@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-07-19 — v2-p65-enums E1: nullary enums in P6.5 F (byte-identical)
+
+`v2-p65-enums`. First slice of the enum cluster. P6.5 F now compiles `enum Name:` with nullary cases
+byte-identically to the oracle (ssc1-front+ssc1-lower). Corpus MATCH **156 → 157** (enum-shared-casename);
+X1 fixpoint stage1==stage2 byte-identical **121,353 → 131,016 B**; `--self` 136 ok / 0 FAIL; no regression;
+no kernel (`v2/src/*`) or `v2/lib` oracle edits.
+
+- **Parse.** enum decl is read as `;`-separated `case` lines — the oracle does NOT make enum a layout
+  declHead (ssc1-front goCases `:2810-2834`), and F's ported layout already emits those `;`. Handles
+  nullary cases + `case A, B` comma-sugar; parametrized cases reuse `collectFields` (wired for E2).
+- **Emit.** nullary case → `(def N (ctor N))` in userDefs, document order (ssc1-lower `:3826`). Regfields
+  via a UNIFIED ordered type-case list (case classes + enum cases interleaved, mirroring
+  collectCaseFields/collectCaseClassOrder `:4918/4936`), so entry order matches.
+- **Resolve.** bare enum case `N` → `(global N)` not `(ctor N)` (resolveE uid `:2049-2054`); `E.Case`
+  (nullary) → `(ctor Case)` (`:1703`); `E.values` → the nullary-case ctor cons-list (enumValuesList `:380`).
+  cx gains enumCaseNames + enumReg registries; non-enum programs are byte-unchanged (empty registries).
+
 ## 2026-07-19 — v2-p65-layout: significant-whitespace / indentation layout ported into P6.5 F
 
 `v2-p65-layout`. The dominant breadth gate (~50% of the corpus uses indented / colon-block style).
