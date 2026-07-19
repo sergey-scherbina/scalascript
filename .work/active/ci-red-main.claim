@@ -1,7 +1,0 @@
-claim: ci-red-main
-branch: feature/ci-red-main-final
-agent: codex
-heartbeat: 2026-07-17T05:42:02Z
-status: in-progress
-done-so-far: staged JVM/actor/CI/coord repairs landed; full local aggregate finished in 39m17s and confirms only tracked newfront/Swift/SclJet owner failures; blocker set persisted in d96fcdeac; correctly budgeted Linux sbt tails remain in progress
-next: await takeover direction for clean stale newfront/SclJet claims and dirty Swift worktrees while monitoring Linux tails; after fixes require all four jobs green on one exact SHA before release
