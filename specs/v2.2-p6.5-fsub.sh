@@ -338,6 +338,11 @@ println(page)'
 d null_lit   'def main(): String = { val x: String = null  x }'
 d null_ret   'def f(): String = null
 def main(): String = f()'
+d cc_fill    'def main(): Int = Array.fill(3)(7).sum'
+d cc_tab     'def main(): String = Array.tabulate(4)(i => i * i).mkString(",")'
+d cc_listfill 'val filled = List.fill(4)(0)
+println(filled)'
+d cc_range   'def main(): String = Array.range(0, 5).mkString("-")'
 
 if [ "${1:-}" = "--self" ]; then
   echo "--- X1: F compiles its OWN source ---"

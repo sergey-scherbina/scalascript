@@ -323,7 +323,19 @@ def emitMethod(nm, c, args, dq) = "(prim __method__ (lit (str " ++ dq ++ nm ++ d
 // parseArgL (not parseArgs) so the arg COUNT and the single-arg shape are recoverable — selMethodOr needs
 // them (mkString arity, map's multi-param-lambda guard). joinArgs rebuilds the identical space-joined
 // string, so charAt/substring/__method__ emission is byte-identical to the old parseArgs path.
-def postMeth(c, nm, ts, env, cx) = parseArgL(tl(ts), env, cx) match { case (es, r) => (emitPrimMeth(nm, c, es, cx), r) }
+def postMeth(c, nm, ts, env, cx) = parseArgL(tl(ts), env, cx) match { case (es, r) => postMeth2(c, nm, es, r, env, cx) }
+// Curried collection factory: `X.fill(n)(x)` / `X.tabulate(n)(f)` on a collection companion X
+// (List/Seq/Vector/Array/Map), each clause EXACTLY 1 arg, FLATTENS both arg-lists into one
+// `(prim __method__ "fill" (ctor X) n x)` rather than `(app (__method__ .. n) x)` (ssc1-lower
+// expandCollectionCurry :1915-1941, gated to fill/tabulate with len(innerArgs)==len(args)==1). A
+// 2-arg first clause (2D tabulate) or non-1 second clause is NOT flattened -> normal app path.
+def isCurriedFactory(nm) = if nm == "tabulate" then true else nm == "fill"
+def isCollComp(nm) = if nm == "List" then true else (if nm == "Seq" then true else (if nm == "Vector" then true else (if nm == "Array" then true else nm == "Map")))
+def isCollCompUid(c) = if isUidGlobal(c) then isCollComp(c.substring(8, c.length - 1)) else false
+def isCurryFlat(c, nm, es, r) = if isCurriedFactory(nm) then (if isCollCompUid(c) then (if isOneE(es) then isTok(hd(r), 2, 21) else false) else false) else false
+def postMeth2(c, nm, es, r, env, cx) = if isCurryFlat(c, nm, es, r) then collCurryFlat(c, nm, es, tl(r), env, cx) else (emitPrimMeth(nm, c, es, cx), r)
+def collCurryFlat(c, nm, es, ts, env, cx) = parseArgL(ts, env, cx) match { case (es2, r2) => collCurryEmit(c, nm, es, es2, r2, cx) }
+def collCurryEmit(c, nm, es, es2, r2, cx) = if isOneE(es2) then (emitMethod(nm, methodRecv(c), joinArgs(es) ++ joinArgs(es2), dqOf(cx)), r2) else (emitApp(emitMethodCall(nm, c, es, cx), joinArgs(es2)), r2)
 def joinArgs(es) = es match { case Nil => "" case h :: t => " " ++ h ++ joinArgs(t) }
 // An APPLIED zero-arg call `recv.m()` (empty parens) lowers to `__method0__`, not `__method__`
 // (ssc1-lower methodPrim :1410 — dispatch-or-error, never eta-expand). A BARE selection `recv.m` keeps
