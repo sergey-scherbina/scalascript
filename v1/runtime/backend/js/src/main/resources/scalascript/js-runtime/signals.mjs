@@ -476,6 +476,12 @@ function _ssc_ui_renderBody(view) {
       if (fg.tick) collectSig(fg.tick);
       if (fg.headers) collectSig(fg.headers);
     }
+    const fst = s._fetchStream;
+    if (fst) {
+      if (fst.body) collectSig(fst.body);
+      if (fst.tick) collectSig(fst.tick);
+      if (fst.headers) collectSig(fst.headers);
+    }
   }
 
   function walk(v) {
@@ -585,6 +591,24 @@ function _ssc_ui_renderBody(view) {
           if (fgTick) fgAttrs += ` data-ssc-fetch-get-tick="${_esc(fgTick)}"`;
           if (fgHdr)  fgAttrs += ` data-ssc-fetch-get-headers="${_esc(fgHdr)}"`;
           return `<span data-ssc-text="${id}"${fgAttrs}>${txt}</span>`;
+        }
+        const fst = v.sig && v.sig._fetchStream;
+        if (fst && fst.url) {
+          if (fst.body) collectSig(fst.body);
+          if (fst.tick) collectSig(fst.tick);
+          if (fst.headers) collectSig(fst.headers);
+          const fsBody = (fst.body && fst.body.id != null) ? String(fst.body.id) : '';
+          const fsTick = (fst.tick && fst.tick.id != null) ? String(fst.tick.id) : '';
+          const fsHdr  = (fst.headers && fst.headers.id != null) ? String(fst.headers.id) : '';
+          let fsAttrs = ` data-ssc-fetch-stream-url="${_esc(fst.url)}"`;
+          if (fsBody) fsAttrs += ` data-ssc-fetch-stream-body="${_esc(fsBody)}"`;
+          if (fsTick) fsAttrs += ` data-ssc-fetch-stream-tick="${_esc(fsTick)}"`;
+          if (fsHdr)  fsAttrs += ` data-ssc-fetch-stream-headers="${_esc(fsHdr)}"`;
+          return `<span data-ssc-text="${id}"${fsAttrs}>${txt}</span>`;
+        }
+        const iv = v.sig && v.sig._interval;
+        if (iv && iv.ms) {
+          return `<span data-ssc-text="${id}" data-ssc-interval-ms="${_esc(String(iv.ms))}">${txt}</span>`;
         }
         return `<span data-ssc-text="${id}">${txt}</span>`;
       }
@@ -790,6 +814,54 @@ function _ssc_ui_mount(sigs, keyedRoots) {
     else doGet();
     if (tickId) _sub(tickId, function(t) { if ((t | 0) > 0) doGet(); });
   }
+  var _fetchStreamMounted = {};
+  function _mountFetchStream(sigId, url, bodyId, tickId, headersId) {
+    if (!sigId || !url || _fetchStreamMounted[sigId]) return;
+    _fetchStreamMounted[sigId] = true;
+    function doStream() {
+      var body = bodyId ? String(_sv[bodyId] == null ? '' : _sv[bodyId]) : '';
+      var opts = { method: 'POST', body: body, headers: { 'Content-Type': 'application/json' } };
+      if (headersId) {
+        var hs = _sv[headersId];
+        if (hs) { try { var extra = JSON.parse(hs); for (var k in extra) opts.headers[k] = extra[k]; } catch(_e) {} }
+      }
+      // Each (re)stream starts a fresh accumulator so the signal grows token-by-token.
+      fetch(url, opts).then(function(r) {
+        if (!r || !r.body || typeof r.body.getReader !== 'function') {
+          // No streaming body (older runtimes / non-stream response): fall back to full text.
+          return r.text().then(function(t) { _set(sigId, t == null ? '' : String(t)); });
+        }
+        var reader  = r.body.getReader();
+        var decoder = (typeof TextDecoder !== 'undefined') ? new TextDecoder() : null;
+        var acc = '';
+        function pump() {
+          return reader.read().then(function(res) {
+            if (res.done) {
+              if (decoder) { var tail = decoder.decode(); if (tail) { acc += tail; _set(sigId, acc); } }
+              return;
+            }
+            acc += decoder ? decoder.decode(res.value, { stream: true }) : String(res.value);
+            _set(sigId, acc);
+            return pump();
+          });
+        }
+        return pump();
+      })
+      // Offline / mid-stream failure is a normal state for a managed binding: retain last-good.
+      .catch(function(_e) {});
+    }
+    doStream();
+    if (tickId) _sub(tickId, function(t) { if ((t | 0) > 0) doStream(); });
+  }
+  var _intervalMounted = {};
+  function _mountInterval(sigId, ms) {
+    if (!sigId || _intervalMounted[sigId]) return;
+    var period = parseInt(ms, 10);
+    if (!(period > 0)) return;
+    _intervalMounted[sigId] = true;
+    if (typeof setInterval !== 'function') return;
+    setInterval(function() { _set(sigId, ((_sv[sigId] || 0) | 0) + 1); }, period);
+  }
   function _qsa(scope, selector) {
     var root = scope || document;
     var out = [];
@@ -916,6 +988,21 @@ function _ssc_ui_mount(sigs, keyedRoots) {
       var headersId = el.getAttribute('data-ssc-fetch-get-headers');
       _mountFetchGet(sigId, url, tickId, headersId);
     });
+    _qsa(scope, '[data-ssc-fetch-stream-url]').forEach(function(el) {
+      if (_bound(el, 'fetch-stream')) return;
+      var sigId     = el.getAttribute('data-ssc-text');
+      var url       = el.getAttribute('data-ssc-fetch-stream-url');
+      var bodyId    = el.getAttribute('data-ssc-fetch-stream-body');
+      var tickId    = el.getAttribute('data-ssc-fetch-stream-tick');
+      var headersId = el.getAttribute('data-ssc-fetch-stream-headers');
+      _mountFetchStream(sigId, url, bodyId, tickId, headersId);
+    });
+    _qsa(scope, '[data-ssc-interval-ms]').forEach(function(el) {
+      if (_bound(el, 'interval')) return;
+      var sigId = el.getAttribute('data-ssc-text');
+      var ms    = el.getAttribute('data-ssc-interval-ms');
+      _mountInterval(sigId, ms);
+    });
     _mountKeyed(scope, rowKeyed || []);
   }
   function _mountKeyed(scope, keyedViews) {
@@ -1031,6 +1118,16 @@ function _ssc_ui_mount(sigs, keyedRoots) {
       var tickId = (fg.tick && fg.tick.id != null) ? String(fg.tick.id) : '';
       var headersId = (fg.headers && fg.headers.id != null) ? String(fg.headers.id) : '';
       _mountFetchGet(sigId, fg.url, tickId, headersId, fg.urlSig);
+    }
+    if (s._fetchStream) {
+      var fst = s._fetchStream;
+      var fsBodyId = (fst.body && fst.body.id != null) ? String(fst.body.id) : '';
+      var fsTickId = (fst.tick && fst.tick.id != null) ? String(fst.tick.id) : '';
+      var fsHdrId  = (fst.headers && fst.headers.id != null) ? String(fst.headers.id) : '';
+      _mountFetchStream(sigId, fst.url, fsBodyId, fsTickId, fsHdrId);
+    }
+    if (s._interval && s._interval.ms) {
+      _mountInterval(sigId, s._interval.ms);
     }
   });
   // show/hide branches
@@ -1410,6 +1507,21 @@ function _ssc_ui_mount(sigs, keyedRoots) {
     var headersId = el.getAttribute('data-ssc-fetch-get-headers');
     _mountFetchGet(sigId, url, tickId, headersId);
   });
+  // fetchStreamSignal — mount + tick-driven re-stream (accumulate chunks into the signal)
+  document.querySelectorAll('[data-ssc-fetch-stream-url]').forEach(function(el) {
+    var sigId     = el.getAttribute('data-ssc-text');
+    var url       = el.getAttribute('data-ssc-fetch-stream-url');
+    var bodyId    = el.getAttribute('data-ssc-fetch-stream-body');
+    var tickId    = el.getAttribute('data-ssc-fetch-stream-tick');
+    var headersId = el.getAttribute('data-ssc-fetch-stream-headers');
+    _mountFetchStream(sigId, url, bodyId, tickId, headersId);
+  });
+  // intervalTick — auto-increment the Int signal every N ms
+  document.querySelectorAll('[data-ssc-interval-ms]').forEach(function(el) {
+    var sigId = el.getAttribute('data-ssc-text');
+    var ms    = el.getAttribute('data-ssc-interval-ms');
+    _mountInterval(sigId, ms);
+  });
   _mountKeyed(document, keyedRoots || []);
 }
 
@@ -1481,6 +1593,24 @@ function _ssc_ui_fetchUrlSignalTo(name, urlSig, tick, headers) {
   if (urlSig) sig._fetchGet = { urlSig: urlSig, tick: tick || null, headers: headers || null };
   var state = _signals.get(sig.id);
   if (state) state._fetchGet = sig._fetchGet;
+  return sig;
+}
+// fetchStreamSignal — POST `url` with the `body` signal value on mount + on each tick,
+// then stream the response body into `sig`, setting the accumulated decoded text so far
+// on every chunk (OpenAI-style token streams). Mounted by _mountFetchStream.
+function _ssc_ui_fetchStreamSignal(name, url, body, tick, headers) {
+  var sig = Signal('');
+  if (url) sig._fetchStream = { url: url, body: body || null, tick: tick || null, headers: headers || null };
+  var state = _signals.get(sig.id);
+  if (state) state._fetchStream = sig._fetchStream;
+  return sig;
+}
+// intervalTick — an Int signal that auto-increments every `ms` ms (setInterval).
+function _ssc_ui_intervalTick(name, ms) {
+  var sig = Signal(0);
+  sig._interval = { ms: ms | 0 };
+  var state = _signals.get(sig.id);
+  if (state) state._interval = sig._interval;
   return sig;
 }
 function _ssc_ui_fetchAction(method, url, body, tick, headers) { return { _type: '_FetchAction', method, url, body, tick, headers: headers || null }; }

@@ -27,6 +27,8 @@ exports:
   - serve
   - fetchUrlSignal
   - fetchUrlSignalTo
+  - fetchStreamSignal
+  - intervalTick
   - fetchAction
   - fetchActionTo
   - incSignal
@@ -162,6 +164,21 @@ extern def fetchUrlSignal(name: String, url: String, refreshTick: Signal[Int],
 // String at render time, so a dependent signal change never re-fetches.)
 extern def fetchUrlSignalTo(name: String, urlSig: Signal[String], refreshTick: Signal[Int],
                             headers: Signal[String] = emptyHeaders): Signal[String]
+
+// fetchStreamSignal — POST `url` on mount + whenever `tick` increments, with the
+// current `body` signal value as the request body (Content-Type application/json),
+// then STREAM the response body (const reader = r.body.getReader()) into the signal,
+// setting the ACCUMULATED decoded text so far on EACH chunk — so a consumer bound to
+// the signal sees it grow token-by-token (OpenAI-style SSE token streams; the raw
+// decoded bytes are accumulated verbatim, NOT parsed as SSE). On stream end the final
+// accumulated value stays; on error the last-good value is retained (like fetchUrlSignal).
+extern def fetchStreamSignal(name: String, url: String, body: Signal[String], tick: Signal[Int],
+                             headers: Signal[String] = emptyHeaders): Signal[String]
+
+// intervalTick — an Int signal that auto-increments every `ms` milliseconds (via
+// setInterval in the JS runtime). Initial value 0. Use it to auto-poll a
+// fetchUrlSignal: `fetchUrlSignal(..., intervalTick("t", 5000))`.
+extern def intervalTick(name: String, ms: Int): Signal[Int]
 
 // fetchAction — on click: POST/PUT/DELETE url with body signal value,
 // then increment onSuccessTick so fetchUrlSignal consumers re-fetch.
