@@ -33,6 +33,11 @@ def bin = (args, ops) =>
   match args { case Cons(a, rest) => match rest { case Cons(b, t) => cats(Cons("(", Cons(a, Cons(ops, Cons(b, Cons(")", Nil)))))) case Nil => "0" } case Nil => "0" }
 def un = (args, pre, post) =>
   match args { case Cons(a, t) => cats(Cons(pre, Cons(a, Cons(post, Nil)))) case Nil => "0" }
+-- BigInt binary: (BigInt(a) op BigInt(b)) — JS has native arbitrary-precision
+-- BigInt, so coerce both operands (i->big results are already BigInt; this also
+-- lifts any plain-number operand). No silent value drop.
+def bbin = (args, ops) =>
+  match args { case Cons(a, rest) => match rest { case Cons(b, t) => cats(Cons("(BigInt(", Cons(a, Cons(") ", Cons(ops, Cons(" BigInt(", Cons(b, Cons("))", Nil)))))))) case Nil => "0" } case Nil => "0" }
 -- (s).charCodeAt(i)  — string code unit at an index
 def jat = (args) => match args { case Cons(a, r1) => match r1 { case Cons(b, t) => cats(Cons("(", Cons(a, Cons(").charCodeAt(", Cons(b, Cons(")", Nil)))))) case Nil => "0" } case Nil => "0" }
 -- (s).slice(from, to)  — substring
@@ -66,6 +71,22 @@ def genPrim = (op, args) =>
   else if #seq(op, "i.neg") then un(args, "(-", ")")
   else if #seq(op, "f.neg") then un(args, "(-", ")")
   else if #seq(op, "f.sqrt") then un(args, "Math.sqrt(", ")")
+  else if #seq(op, "big.add") then bbin(args, "+")
+  else if #seq(op, "big.sub") then bbin(args, "-")
+  else if #seq(op, "big.mul") then bbin(args, "*")
+  else if #seq(op, "big.div") then bbin(args, "/")
+  else if #seq(op, "big.mod") then bbin(args, "%")
+  else if #seq(op, "big.eq")  then bbin(args, "===")
+  else if #seq(op, "big.lt")  then bbin(args, "<")
+  else if #seq(op, "big.le")  then bbin(args, "<=")
+  else if #seq(op, "big.gt")  then bbin(args, ">")
+  else if #seq(op, "big.ge")  then bbin(args, ">=")
+  else if #seq(op, "big.neg") then un(args, "(-BigInt(", "))")
+  else if #seq(op, "i->big")  then un(args, "BigInt(", ")")
+  else if #seq(op, "big->i")  then un(args, "Number(", ")")
+  else if #seq(op, "big->f")  then un(args, "Number(", ")")
+  else if #seq(op, "big->str") then un(args, "String(", ")")
+  else if #seq(op, "f->big")  then un(args, "BigInt(Math.trunc(", "))")
   else "0"
 
 def mapGenE = (d, ts) => match ts { case Nil => Nil case Cons(h, t) => Cons(genE(d, h, false), mapGenE(d, t)) }

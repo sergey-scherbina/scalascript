@@ -43,6 +43,17 @@ def rfbin = (args, ops, wrap) =>
 def rseq = (args) => match args { case Cons(a, rest) => match rest { case Cons(b, t) => cats(Cons("V::B(ass(&(", Cons(a, Cons(")) == ass(&(", Cons(b, Cons(")))", Nil)))))) case Nil => "V::U" } case Nil => "V::U" }
 def rcat = (args) => match args { case Cons(a, rest) => match rest { case Cons(b, t) => cats(Cons("V::S(ass(&(", Cons(a, Cons(")) + &ass(&(", Cons(b, Cons(")))", Nil)))))) case Nil => "V::U" } case Nil => "V::U" }
 def run1 = (args, pre, post) => match args { case Cons(a, t) => cats(Cons(pre, Cons(a, Cons(post, Nil)))) case Nil => "V::U" }
+-- BigInt via i128 (faithful wide-int; single-file rustc has no num-bigint crate).
+-- Comparisons wrap in `wrap` over asbig; arithmetic uses CHECKED ops so an
+-- overflow past i128 PANICS LOUDLY (never a silent wrong value / Unit drop).
+def rbbin = (args, ops, wrap) =>
+  match args { case Cons(a, rest) => match rest { case Cons(b, t) =>
+    cats(Cons(wrap, Cons("(asbig(&(", Cons(a, Cons(")) ", Cons(ops, Cons(" asbig(&(", Cons(b, Cons(")))", Nil)))))))))
+    case Nil => "V::U" } case Nil => "V::U" }
+def rbchk = (args, method) =>
+  match args { case Cons(a, rest) => match rest { case Cons(b, t) =>
+    cats(Cons("V::Big(asbig(&(", Cons(a, Cons(")).", Cons(method, Cons("(asbig(&(", Cons(b, Cons("))).expect(\"BigInt exceeds i128 (arbitrary precision unavailable in single-file rustc)\"))", Nil))))))))
+    case Nil => "V::U" } case Nil => "V::U" }
 -- code unit at index: V::I(s.chars().nth(i).map(|c| c as i64).unwrap_or(0))
 def rat = (args) => match args { case Cons(a, r1) => match r1 { case Cons(b, t) => cats(Cons("V::I(ass(&(", Cons(a, Cons(")).chars().nth(asi(&(", Cons(b, Cons(")) as usize).map(|c| c as i64).unwrap_or(0))", Nil)))))) case Nil => "V::U" } case Nil => "V::U" }
 -- substring [from, to): V::S(s.chars().skip(from).take(to-from).collect::<String>())
@@ -76,6 +87,22 @@ def genRPrim = (op, args) =>
   else if #seq(op, "i.neg") then run1(args, "V::I(-asi(&(", ")))")
   else if #seq(op, "f.neg") then run1(args, "V::Fl(-asf(&(", ")))")
   else if #seq(op, "f.sqrt") then run1(args, "V::Fl(asf(&(", ")).sqrt())")
+  else if #seq(op, "big.add") then rbchk(args, "checked_add")
+  else if #seq(op, "big.sub") then rbchk(args, "checked_sub")
+  else if #seq(op, "big.mul") then rbchk(args, "checked_mul")
+  else if #seq(op, "big.div") then rbchk(args, "checked_div")
+  else if #seq(op, "big.mod") then rbchk(args, "checked_rem")
+  else if #seq(op, "big.eq") then rbbin(args, "==", "V::B")
+  else if #seq(op, "big.lt") then rbbin(args, "<", "V::B")
+  else if #seq(op, "big.le") then rbbin(args, "<=", "V::B")
+  else if #seq(op, "big.gt") then rbbin(args, ">", "V::B")
+  else if #seq(op, "big.ge") then rbbin(args, ">=", "V::B")
+  else if #seq(op, "big.neg") then run1(args, "V::Big(asbig(&(", ")).checked_neg().expect(\"BigInt exceeds i128\"))")
+  else if #seq(op, "i->big") then run1(args, "V::Big(asi(&(", ")) as i128)")
+  else if #seq(op, "big->i") then run1(args, "V::I(asbig(&(", ")) as i64)")
+  else if #seq(op, "big->f") then run1(args, "V::Fl(asbig(&(", ")) as f64)")
+  else if #seq(op, "big->str") then run1(args, "V::S(asbig(&(", ")).to_string())")
+  else if #seq(op, "f->big") then run1(args, "V::Big(asf(&(", ")) as i128)")
   else "V::U"
 def mapGenV = (d, ts) => match ts { case Nil => Nil case Cons(h, t) => Cons(genV(d, h), mapGenV(d, t)) }
 def rletbinds = (d, rhs) => match rhs { case Nil => "" case Cons(r, rest) => cats(Cons("let ", Cons(jName(d), Cons(" = ", Cons(genV(d, r), Cons("; ", Cons(rletbinds(#i.add(d, 1), rest), Nil))))))) }
@@ -136,7 +163,7 @@ def rArmsT = (d, arms, dflt) =>
     }
   }
 
-def rPrelude = "#![allow(unused, non_snake_case)]\nuse std::rc::Rc;\n#[derive(Clone)]\nenum V { I(i64), B(bool), S(String), Fl(f64), D(String, Vec<V>), F(Rc<dyn Fn(Vec<V>) -> Step>), U }\nenum Step { Val(V), Bounce(V, Vec<V>) }\nfn call(f: V, a: Vec<V>) -> Step { match f { V::F(g) => g(a), _ => panic!() } }\nfn app(f: V, a: Vec<V>) -> V { let mut s = call(f, a); loop { match s { Step::Val(v) => return v, Step::Bounce(g, na) => s = call(g, na) } } }\nfn fix(b: Rc<dyn Fn(V) -> V>) -> V { let cell = Rc::new(std::cell::RefCell::new(V::U)); let c2 = cell.clone(); let self_ref = V::F(Rc::new(move |a: Vec<V>| { let f = c2.borrow().clone(); call(f, a) })); let real = b(self_ref); *cell.borrow_mut() = real.clone(); real }\nfn asi(v: &V) -> i64 { if let V::I(n) = v { *n } else { panic!() } }\nfn asb(v: &V) -> bool { if let V::B(b) = v { *b } else { panic!() } }\nfn ass(v: &V) -> String { if let V::S(s) = v { s.clone() } else { panic!() } }\nfn asf(v: &V) -> f64 { if let V::Fl(x) = v { *x } else { panic!() } }\nfn show(v: &V) -> String { match v { V::I(n) => n.to_string(), V::B(b) => b.to_string(), V::Fl(x) => x.to_string(), V::S(s) => format!(\"{:?}\", s), V::D(t, f) => if t.as_str() == \"Cons\" || t.as_str() == \"Nil\" { let mut items: Vec<String> = Vec::new(); let mut cur = v.clone(); loop { match cur { V::D(ref t2, ref fs) if t2.as_str() == \"Cons\" => { items.push(show(&fs[0])); cur = fs[1].clone(); }, _ => break } } format!(\"List({})\", items.join(\", \")) } else if f.is_empty() { t.clone() } else { format!(\"{}({})\", t, f.iter().map(show).collect::<Vec<_>>().join(\", \")) }, V::F(_) => \"<closure>\".to_string(), V::U => \"()\".to_string() } }\nfn sfromcodes(v: &V) -> V { let mut s = String::new(); let mut cur = v; loop { match cur { V::D(t, f) => { if t.as_str() == \"Cons\" { s.push(char::from_u32(asi(&f[0]) as u32).unwrap_or(' ')); cur = &f[1]; } else { break } } _ => break } } V::S(s) }\n"
+def rPrelude = "#![allow(unused, non_snake_case)]\nuse std::rc::Rc;\n#[derive(Clone)]\nenum V { I(i64), B(bool), S(String), Fl(f64), Big(i128), D(String, Vec<V>), F(Rc<dyn Fn(Vec<V>) -> Step>), U }\nenum Step { Val(V), Bounce(V, Vec<V>) }\nfn call(f: V, a: Vec<V>) -> Step { match f { V::F(g) => g(a), _ => panic!() } }\nfn app(f: V, a: Vec<V>) -> V { let mut s = call(f, a); loop { match s { Step::Val(v) => return v, Step::Bounce(g, na) => s = call(g, na) } } }\nfn fix(b: Rc<dyn Fn(V) -> V>) -> V { let cell = Rc::new(std::cell::RefCell::new(V::U)); let c2 = cell.clone(); let self_ref = V::F(Rc::new(move |a: Vec<V>| { let f = c2.borrow().clone(); call(f, a) })); let real = b(self_ref); *cell.borrow_mut() = real.clone(); real }\nfn asi(v: &V) -> i64 { if let V::I(n) = v { *n } else { panic!() } }\nfn asb(v: &V) -> bool { if let V::B(b) = v { *b } else { panic!() } }\nfn ass(v: &V) -> String { if let V::S(s) = v { s.clone() } else { panic!() } }\nfn asf(v: &V) -> f64 { if let V::Fl(x) = v { *x } else { panic!() } }\nfn asbig(v: &V) -> i128 { match v { V::Big(n) => *n, V::I(n) => *n as i128, _ => panic!() } }\nfn show(v: &V) -> String { match v { V::I(n) => n.to_string(), V::B(b) => b.to_string(), V::Fl(x) => x.to_string(), V::Big(n) => n.to_string(), V::S(s) => format!(\"{:?}\", s), V::D(t, f) => if t.as_str() == \"Cons\" || t.as_str() == \"Nil\" { let mut items: Vec<String> = Vec::new(); let mut cur = v.clone(); loop { match cur { V::D(ref t2, ref fs) if t2.as_str() == \"Cons\" => { items.push(show(&fs[0])); cur = fs[1].clone(); }, _ => break } } format!(\"List({})\", items.join(\", \")) } else if f.is_empty() { t.clone() } else { format!(\"{}({})\", t, f.iter().map(show).collect::<Vec<_>>().join(\", \")) }, V::F(_) => \"<closure>\".to_string(), V::U => \"()\".to_string() } }\nfn sfromcodes(v: &V) -> V { let mut s = String::new(); let mut cur = v; loop { match cur { V::D(t, f) => { if t.as_str() == \"Cons\" { s.push(char::from_u32(asi(&f[0]) as u32).unwrap_or(' ')); cur = &f[1]; } else { break } } _ => break } } V::S(s) }\n"
 
 def genRDefs = (defs) => match defs { case Nil => "" case Cons(dd, t) => match dd { case IrDef(name, body) => cats(Cons("fn g_", Cons(name, Cons("() -> V { ", Cons(genV(0, body), Cons(" }\n", Cons(genRDefs(t), Nil))))))) } }
 def genRProg = (prog) => match prog { case IrProg(defs, entry) => cats(Cons(rPrelude, Cons(genRDefs(defs), Cons("fn main() { println!(\"{}\", show(&(", Cons(genV(0, entry), Cons("))); }\n", Nil)))))) }
