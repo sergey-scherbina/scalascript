@@ -1059,6 +1059,14 @@ def skipBrace(ts, d) = if d == 0 then ts else (if isEmpty(ts) then ts else (if i
 def skipGen(ts) = if isTok(hd(ts), 2, 50) then skipBrk(tl(ts), 1) else ts
 def skipBrk(ts, d) = if d == 0 then ts else (if isEmpty(ts) then ts else (if isTok(hd(ts), 2, 50) then skipBrk(tl(ts), d + 1) else (if isTok(hd(ts), 2, 51) then skipBrk(tl(ts), d - 1) else skipBrk(tl(ts), d))))
 def skipTypeRef(ts) = skipGen(tl(ts))
+// DA15: a case class may be GENERIC — `case class Box[A](value: A)` — so between the class NAME and its
+// `(fields)` sits an optional `[typeparams]`. Every field-collection pre-pass assumed `Name (` and read
+// the type params AS fields (`Box[A]` → a field `A`; `View[S]` → `_sel_S`). skipGenParen (ts already AFTER
+// the name) skips the optional `[gen]` then the `(`; skipNameGenParen (ts AT the name) also skips the name.
+// The type-param NAMES are erased by the reference (measured), so this is byte-faithful.
+def ccOpenSkip(ts) = if isTok(hd(ts), 2, 21) then tl(ts) else ts
+def skipGenParen(ts) = ccOpenSkip(skipGen(ts))
+def skipNameGenParen(ts) = skipGenParen(tl(ts))
 def skipExtends(ts) = if isWord(hd(ts), "extends") then skipWithChain(skipTypeRef(tl(ts))) else ts
 def skipWithChain(ts) = if isWord(hd(ts), "with") then skipWithChain(skipTypeRef(tl(ts))) else ts
 // -- enums (P6.5 E1) ----------------------------------------------------------------------------
@@ -1072,7 +1080,12 @@ def enumSkipToBody(ts) = if isEmpty(ts) then ts else enumSkipToBody1(hd(ts), ts)
 def enumSkipToBody1(t, ts) = if isTok(t, 2, 34) then tl(ts) else (if isTok(t, 2, 28) then tl(ts) else (if isTok(t, 2, 6) then ts else (if isTok(t, 2, 52) then ts else enumSkipToBody(tl(ts)))))
 def enumCasesFrom(ts) = goCasesF(enumSkipToBody(tl(ts)))
 def goCasesF(ts) = goCasesF1(skipSemisF(ts))
-def goCasesF1(ts) = if isTok(hd(ts), 2, 6) then goCaseName(tl(ts)) else (Nil, ts)
+// DA15: an enum's `;`-separated case scan must STOP at a following `case class` (which begins the NEXT
+// top-level decl, not an enum case) WITHOUT consuming its `case` — else the enum's `rest` starts at
+// `class X` and every downstream walk (walkTop ctor emission, collectTypeCases sels) fails to see it as a
+// case class. `case` immediately followed by `class` (code 10) ⇒ end the case list, keep ts at `case`.
+def goCasesF1(ts) = if isTok(hd(ts), 2, 6) then goCasesF2(ts) else (Nil, ts)
+def goCasesF2(ts) = if isTok(hd(tl(ts)), 2, 10) then (Nil, ts) else goCaseName(tl(ts))
 def goCaseName(ts) = if isTok(hd(ts), 2, 10) then (Nil, ts) else goCaseName2(snd(hd(ts)), tl(ts))
 def goCaseName2(cname, ts) = if isTok(hd(ts), 2, 21) then goCaseParam(cname, tl(ts)) else goCaseNullary(cname, ts)
 def goCaseParam(cname, ts) = collectFields(ts, Nil) match { case (fs, r) => goCaseCons(Cons((cname, fs), Nil), r) }
@@ -1090,7 +1103,7 @@ def emitEnumDef(c, dq) = c match { case (nm, fs) => if isEmpty(fs) then "(def " 
 // (ssc1-lower collectCaseFields/collectCaseClassOrder descend into enums, :4918/4936).
 def collectTypeCases(ts) = if isEmpty(ts) then Nil else collectTC1(ts)
 def collectTC1(ts) = if isCCHead(ts) then collectTCcc(tl(tl(ts))) else (if isEnumHead(ts) then collectTCenum(ts) else collectTypeCases(tl(ts)))
-def collectTCcc(ts) = collectFields(tl(tl(ts)), Nil) match { case (fs, r) => Cons((snd(hd(ts)), fs), collectTypeCases(r)) }
+def collectTCcc(ts) = collectFields(skipNameGenParen(ts), Nil) match { case (fs, r) => Cons((snd(hd(ts)), fs), collectTypeCases(r)) }
 def collectTCenum(ts) = enumCasesFrom(ts) match { case (cases, r) => appEnv(cases, collectTypeCases(r)) }
 // pre-pass: enum registries. enumReg = [Pair(enumName, [nullaryCaseName..])]; enumCaseNames = all case names.
 def collectEnumReg(ts) = if isEmpty(ts) then Nil else (if isEnumHead(ts) then collectER1(ts) else collectEnumReg(tl(ts)))
@@ -1106,7 +1119,7 @@ def caseNamesL(cases) = cases match { case Nil => Nil case h :: t => Cons(fst(h)
 // (declaration order, incl. parametrized cases) so `case _: Color` expands over every Color case.
 def collectSubReg(ts) = collectSubRegAcc(ts, Nil)
 def collectSubRegAcc(ts, acc) = if isEmpty(ts) then acc else (if isCCHead(ts) then collectSubRegAcc(tl(ts), collectSRadd(ts, acc)) else collectSubRegAcc(tl(ts), acc))
-def collectSRadd(ts, acc) = collectFields(tl(tl(tl(tl(ts)))), Nil) match { case (fs, r) => collectSRext(snd(hd(tl(tl(ts)))), r, acc) }
+def collectSRadd(ts, acc) = collectFields(skipNameGenParen(tl(tl(ts))), Nil) match { case (fs, r) => collectSRext(snd(hd(tl(tl(ts)))), r, acc) }
 def collectSRext(child, r, acc) = if isWord(hd(r), "extends") then Cons((snd(hd(tl(r))), child), acc) else acc
 def collectEnumAllReg(ts) = if isEmpty(ts) then Nil else (if isEnumHead(ts) then collectEAR1(ts) else collectEnumAllReg(tl(ts)))
 def collectEAR1(ts) = collectEAR2(snd(hd(tl(ts))), enumCasesFrom(ts))
@@ -1224,7 +1237,7 @@ def emitCCDecl(ts, cx) = collectCC1(tl(tl(ts))) match { case c :: r => (emitCC(c
 // It may ALSO carry a BODY — `case class C(x): <indented defs>` (layout `{..}`) or `case class C(x) { .. }`
 // — carrying method defs (T3). skipCCHead must CONSUME that body (an optional `:` then a `{..}` block) so
 // it does not cascade into the entry as garbage; the methods themselves are collected by collectCaseMethods.
-def skipCCHead(ts) = collectFields(tl(tl(ts)), Nil) match { case (fs, r) => skipCCBody(skipExtends(r)) }
+def skipCCHead(ts) = collectFields(skipNameGenParen(ts), Nil) match { case (fs, r) => skipCCBody(skipExtends(r)) }
 def skipCCBody(ts) = skipCCBrace(skipCCColon(skipDerives(ts)))
 // `derives TC1, TC2` clause (ssc1-front findCaseDerives :2228) — skip in the head walk (comes after
 // params/extends, before any body). Each TC name may carry erased type args (skipGen).
@@ -1264,7 +1277,7 @@ def fldType(f) = snd(f)
 // -- pre-pass: collect every `case class C(f: T, ..)` in declaration order -----------------------
 def collectCC(ts) = if isEmpty(ts) then Nil else (if isCCHead(ts) then collectCC1(tl(tl(ts))) else collectCC(tl(ts)))
 def isCCHead(ts) = if isTok(hd(ts), 2, 6) then isTok(hd(tl(ts)), 2, 10) else false
-def collectCC1(ts) = collectCC2(snd(hd(ts)), tl(tl(ts)))
+def collectCC1(ts) = collectCC2(snd(hd(ts)), skipNameGenParen(ts))
 def collectCC2(nm, ts) = collectFields(ts, Nil) match { case (fs, r) => Cons((nm, fs), collectCC(r)) }
 // fields accumulate REVERSED then flip, so declaration order is preserved.
 def collectFields(ts, acc) = if isTok(hd(ts), 2, 22) then (revL(acc), tl(ts)) else collectField(ts, acc)
@@ -1316,7 +1329,7 @@ def strList(xs, dq) = xs match { case Nil => "(ctor Nil)" case h :: t => "(ctor 
 //     EVERY case class (F matches plain cc). `TC_derived` is an imported/object global (unbound => runtime
 //     supplies it). summon-based access + `object TC { def derived }` are separate (deeper) levers.
 def ccNameAt(ts) = snd(hd(tl(tl(ts))))
-def derivesAt(tsName) = collectFields(tl(tl(tsName)), Nil) match { case (fs, r) => derivesClause(skipExtends(r)) }
+def derivesAt(tsName) = collectFields(skipNameGenParen(tsName), Nil) match { case (fs, r) => derivesClause(skipExtends(r)) }
 def derivesClause(ts) = if isWord(hd(ts), "derives") then parseDvList(tl(ts)) else Nil
 def parseDvList(ts) = Cons(snd(hd(ts)), parseDvListMore(skipGen(tl(ts))))
 def parseDvListMore(ts) = if isTok(hd(ts), 2, 27) then parseDvList(tl(ts)) else Nil
@@ -1339,7 +1352,7 @@ def derivedInit1(tn, tc) = "(prim cell.set (global __derived_" ++ tc ++ "_" ++ t
 def collectCaseMethods(ts) = revL(collectCM(ts))
 def collectCM(ts) = if isEmpty(ts) then Nil else (if isCCHead(ts) then collectCMcc(ts) else collectCM(tl(ts)))
 def collectCMcc(ts) = collectCMcc2(snd(hd(tl(tl(ts)))), tl(tl(tl(ts))), ts)
-def collectCMcc2(cname, afterName, ts) = collectFields(tl(afterName), Nil) match { case (fs, r) => collectCMcc3(cname, fieldNamesOf(fs), skipCCColon(skipExtends(r)), ts) }
+def collectCMcc2(cname, afterName, ts) = collectFields(skipGenParen(afterName), Nil) match { case (fs, r) => collectCMcc3(cname, fieldNamesOf(fs), skipCCColon(skipExtends(r)), ts) }
 def collectCMcc3(cname, flds, r, ts) = if isTok(hd(r), 2, 28) then collectCMcc4(cname, flds, tl(r), ts) else collectCM(tl(ts))
 def collectCMcc4(cname, flds, bodyTs, ts) = collectCMreg(cname, flds, collectMethodDefs(bodyTs), ts)
 def collectCMreg(cname, flds, ms, ts) = if isEmpty(ms) then collectCM(tl(ts)) else Cons((cname, (flds, ms)), collectCM(tl(ts)))
