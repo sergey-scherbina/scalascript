@@ -1,0 +1,12 @@
+claim: v2-p65-layout
+branch: feature/v2-p65-layout
+agent: opus (orchestrator session)
+heartbeat: 2026-07-19T03:13:57Z
+status: in-progress (spawned agent)
+what: F3 breadth — port the oracle's significant-whitespace / indentation layout pass into P6.5's F.
+      MEASURED the dominant gate: 259/515 corpus files use indented/colon-block style; unblocks enums
+      (11), scljet-sql (~26), most Scala-3-style programs. Byte-achievable (oracle does it, NOT an
+      escape-hatch case), but a MAJOR multi-slice port of a ~100-line stateful pass — high byte-exactness
+      risk. Fresh dedicated push (a58b deferred it deliberately, recorded refs in SPRINT §F3-breadth-log).
+      Oracle: ssc1-front.ssc0:52-54,283-289 (NL+indent tokens) + :3069-3163 (layout, L/E/P/S/X/B frames).
+      Keep X1 --self green every slice; corpus MATCH 48/504 baseline. Never push a broken intermediate.
