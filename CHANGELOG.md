@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-07-19 — v2-p65-enums E2 + recv.method{block} in P6.5 F (byte-identical)
+
+`v2-p65-enums`. Corpus MATCH **157 → 158**; X1 fixpoint stage1==stage2 byte-identical **131,016 →
+132,015 B**; `--self` 136 ok / 0 FAIL; no regression; no kernel (`v2/src/*`) or `v2/lib` oracle edits.
+
+- **E2 — parametrized enum cases** (`923d299b5`). `case Circle(radius: Double)` lowers to just the ctor
+  def `(def Circle (lam N (ctor Circle (local ..))))`, NOT a mirror — the oracle's lowerEnum routes
+  parametrized cases through lowerCaseCls (`:3827`), which emits ONLY the ctor (`:3770-3785`); the mirror
+  path lowerProductMetadata runs for `casecls`, not `enum`. `_sel_<field>` accessors + `__regfields__`
+  already flow via E1's unified type-case list; applied `Circle(a)` → `(app (global Circle) a)` and
+  patterns `case Circle(r)` already worked. (157 — correctness; param-enum programs also need other features.)
+- **recv.method { block }** (`3ac5d92dc`). A method call whose single argument is a trailing block:
+  `shapes.foreach { s => .. }` → `(prim __method__ "foreach" recv (lam 1 ..))` (block folded IN), not
+  `(app (prim __method__ "foreach" recv) ..)`. A lambda block is passed directly, a plain block becomes a
+  by-name `(lam 0 ..)` thunk. General fix; also a prerequisite for enum programs' `list.foreach { .. }`.
+  (157 → 158.)
+
 ## 2026-07-19 — v2-p65-enums E1: nullary enums in P6.5 F (byte-identical)
 
 `v2-p65-enums`. First slice of the enum cluster. P6.5 F now compiles `enum Name:` with nullary cases

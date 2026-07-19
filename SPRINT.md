@@ -271,9 +271,16 @@ F's ported layout already emits those `;`.
       `tcs` (case classes + enum cases interleaved); cx: enumCaseNames (bare `N`→`(global N)`) + enumReg
       (`E.Case`→`(ctor Case)`, `E.values`→nullary ctor cons-list). Corpus 156→157 (enum-shared-casename);
       X1 fixpoint 121,353→131,016 B byte-identical; --self 136 ok/0 FAIL; no regression, no kernel/oracle edits.
-- [ ] **E2 — parametrized enum cases** (`case Circle(r: Double)`): ctor+mirror+sels like case class,
-      applied bare `Circle(a)`→`(app (global Circle) a)`, `E.Case(a)`→`(ctor Case a)`, patterns. Target:
-      enums.ssc Shape/Tree (also needs math.Pi/round + interp already present).
+- [x] **E2 — parametrized enum cases. DONE (`923d299b5`).** `case Circle(r: Double)` → ctor def ONLY
+      (no mirror — lowerCaseCls :3770 emits no mirror for enum cases); sels + regfields via E1's unified
+      type-case list; applied bare `Circle(a)`→`(app (global Circle) a)` + patterns already worked. Corpus
+      157 (correctness; param-enum programs also need case-lambda + math members). fixpoint 131,114 B.
+- [x] **recv.method { block } DONE (`3ac5d92dc`).** `recv.m { block }` → `(prim __method__ "m" recv block)`
+      (block folded in, not `(app (__method__ "m" recv) block)`). General; unblocks enum `list.foreach{..}`.
+      Corpus 157→158; fixpoint 132,015 B; --self 136 ok/0 FAIL.
+- [ ] **E3-blocker: case-lambda `{ case Pat => body }`** → `(lam 1 (match (local 0) (arms)))` (partial
+      function block). Blocks enums.ssc (`pairs.foreach { case (a,b) => .. }`) + many others; overlaps the
+      effect-handler-dispatch cluster. Next high-value general slice.
 - [ ] **E3 — mixed & remaining enum near-misses** (data-types, typed-data, lenses, prisms, mcp-types,
       optic-polish, default-params, scala-js-demo, fn-typed-field, v2-type-ascription-pattern).
 
