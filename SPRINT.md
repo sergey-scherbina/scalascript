@@ -805,7 +805,19 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
       rest needs (i) F4 retiring the ~1200 FrontendBridge/method-dispatch δ prims once the breadth lane hits
       high coverage, (ii) a K3 effects-as-tower-library redesign, (iii) removing the FastCode perf layer.
       All three change the kernel δ / behavior and are out of F5's byte-identical scope.
-- [ ] **F6 (parallel) — "powerful": backend gaps.** v2-JS `foldLeft`/`Map`/effects; Rust/WASM BigInt.
+- [x] **F6 — "powerful": backend gaps — COMPLETE 2026-07-19 (coordinator-verified).** All 4 measured
+      §R2 gaps closed, fail-CLOSED (right answer or loud error, never silent-wrong), each reproduced then
+      verified DIFFERENTIALLY vs the interpreter/VM. **v2-JS** (`JsBackend.scala` + new `OpAnf.scala`):
+      J1 `List.foldLeft`/`reduce` (+ curried, tuple-spread map/flatMap), J2 `Map` access (fail-closed on
+      missing key), J3 algebraic effects (perform/handle/resume + multi-shot Choose), + anyStr rendering
+      alignment. **Rust/WASM/tower-JS BigInt** (`backend-rust-gen.ssc0`/`backend-js-gen.ssc0`): Rust
+      `V::Big(i128)` checked (panics past i128, never silent-drop), tower-JS native BigInt, WASM reuses Rust.
+      Regression tests added (`list-combinators`/`map-ops`/`effects-handler` on all 5 lanes; check.sh asserts
+      bigfact on Rust+tower-JS). **Verified by coordinator: v2-JS `run-js --v2` prints `10 | 3` on
+      foldLeft+Map, byte-identical to interpreter+native — the original empirically-caught gap is closed.**
+      Findings filed (out of scope): native effect-runner PLUGINS (runState/runLogger) not yet on JS;
+      kernel `Map.foldLeft`/`List.product` fail-opens matched for parity. Claim released — its work is done
+      and verified; the only thing "blocking" was the pre-existing unrelated `ci-red-main` sbt-job red.
 - [ ] **F7 — green the v2 internal gate.** `v2/conformance/check.sh`: the K62.3 unbounded-compile-depth
       (give the tower compiler an iterative path or a bounded-stack guard) + the `ssc0c uselib` IR
       divergence.

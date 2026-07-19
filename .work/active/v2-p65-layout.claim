@@ -1,12 +1,12 @@
 claim: v2-p65-layout
-branch: feature/v2-p65-tail
+branch: feature/v2-p65-ccm
 agent: opus (orchestrator session — fresh agent, handoff chain)
-heartbeat: 2026-07-19T08:21:55Z
+heartbeat: 2026-07-19T09:28:39Z
 status: in-progress (spawned agent)
-what: P6.5 breadth lane. DONE (coordinator-verified): layout+enums+var+_sel_+bare-uid+Map+for-comp,
-      corpus MATCH 1→249/505 (49%), fixpoint 169,133 B all stage1==stage2. NEXT (§v2-p65-codec HANDOFF
-      histogram): OTHER tail (~197, mine sub-clusters), derived-codec (20, hard), cc/tc body methods (16),
-      triple-quote """ + encoder-escape (13). DO NOT touch shared match lowering (actors receive→if __isTag__
-      = deep separate strategy). Keep --self green; never push broken; confirm no MATCH drops.
-coord: F5 (v2-f5-kernel-small) is now editing the kernel (v2/src) in parallel — rebase on origin/main
-      before each push; the fixpoint must still hold (F5 keeps it byte-identical). F6 edits v2/backend (no overlap).
+what: P6.5 breadth lane. DONE (coordinator-verified): +triple-quote/null/[..]-lists/nested-interp,
+      corpus MATCH 1→274/507 (54%), fixpoint 179,087 B all stage1==stage2. NEXT (§v2-p65-tail histogram):
+      cc/tc body methods (16, biggest clean, fully spec'd byte-exact in §v2-p65-tail), then named-args,
+      curried X.m(a)(b) flatten (needs empirical trace), optics/lenses, direct{} desugar. Keep --self green;
+      never push broken; no MATCH drops. GOTCHA: F uses tuple (a,b) not Pair ctor.
+coord: F5 (kernel) + F6 (backends) both COMPLETE/released — no more parallel kernel churn; you're the
+      main live lane now. Rebase on origin/main before push.
