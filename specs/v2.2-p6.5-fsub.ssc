@@ -273,7 +273,13 @@ def postDot(c, ts, env, cx) = postDot1(c, snd(hd(ts)), tl(ts), env, cx)
 // K62.19): the prelude already defines `_sel__1`.._4 (match Pair/Tuple2/Tuple3/Tuple4), and `__method__`
 // only resolves `._N` via a Long fast-path, so `_sel__N` is the correct emission in ALL contexts.
 def isTupField(nm) = if nm == "_1" then true else (if nm == "_2" then true else (if nm == "_3" then true else nm == "_4"))
-def postDot1(c, nm, ts, env, cx) = if nm == "length" then (emitLen(c, cx), ts) else (if isTok(hd(ts), 2, 21) then postMeth(c, nm, ts, env, cx) else (postSel(c, nm, cx), ts))
+// `recv.method { block }` is a method call whose SINGLE argument is the trailing block (measured:
+// `shapes.foreach { s => .. }` -> `(prim __method__ "foreach" recv (lam 1 ..))`, the block folded IN as
+// the arg, NOT `(app (__method__ "foreach" recv) ..)`). A block that is a lambda is passed directly; a
+// plain block becomes a by-name `(lam 0 ..)` thunk — same rule as postBlockArg's blockArgApp.
+def postDot1(c, nm, ts, env, cx) = if nm == "length" then (emitLen(c, cx), ts) else (if isTok(hd(ts), 2, 21) then postMeth(c, nm, ts, env, cx) else (if isTok(hd(ts), 2, 28) then postMethBlock(c, nm, ts, env, cx) else (postSel(c, nm, cx), ts)))
+def postMethBlock(c, nm, ts, env, cx) = parseBlock(tl(ts), env, cx) match { case (b, r) => (emitMethod(nm, c, " " ++ blockArgOf(b), dqOf(cx)), r) }
+def blockArgOf(b) = if startsW(b, "(lam ") then b else "(lam 0 " ++ b ++ ")"
 def postSel(c, nm, cx) = if isFld(nm, cx) then "(app (global _sel_" ++ nm ++ ") " ++ c ++ ")" else (if isTupField(nm) then "(app (global _sel_" ++ nm ++ ") " ++ c ++ ")" else emitMethod(nm, c, "", dqOf(cx)))
 def emitLen(c, cx) = if isConcatCode(c, dqOf(cx)) then emitMethod("length", c, "", dqOf(cx)) else (if isStrLitish(c) then "(prim slen " ++ c ++ ")" else emitMethod("length", c, "", dqOf(cx)))
 def emitMethod(nm, c, args, dq) = "(prim __method__ (lit (str " ++ dq ++ nm ++ dq ++ ")) " ++ c ++ args ++ ")"
