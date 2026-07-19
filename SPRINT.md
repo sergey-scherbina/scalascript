@@ -169,9 +169,19 @@ baseline set `/tmp/baseline_deep.txt` for `comm -23` drop-checks. --self via cap
       bank-rails-sepa, content-linked-namespaces, mcp-types (+3); 8 other qualified-pattern files
       (bank-rails-fednow, distributed-dataset-*, graph-rdf4j-storage, scala-js-demo, traditional-payments,
       typed-object-codec) have OTHER divergences. Corpus 375→378, 0 drops, X1 270,154 B, --self 153 ok/0 FAIL.
-**➜ v2-p65-deep SESSION: corpus MATCH 362→378/508 (+16, DA1 typed-patterns +2, DA2 try/catch +2, DA3
+- [x] **DA9 — source `;` separator + match-arm statement sequences DONE (deep2 session).** ROOT CAUSE: F's
+      lexer DROPPED a source `;` (char 59, opCode 0) — the oracle lexes it as a separator (ssc1-front :358).
+      So `case X => a; b` lost its boundary. FIX: (1) opCode `;`→52 (statement separator, same as a layout
+      `;`); (2) armBodyExpr now parses a STATEMENT SEQUENCE (armSeqExpr/armSeqCont/armSeqMore) → `(let (a) b)`,
+      terminated by the next `case` (2,6) or the layout-frame close `}` (2,29) — `match` IS a layout opener
+      so braceless arms close with `}` (that's why boundary detection is safe). A single-expr body is
+      byte-unchanged; a bare non-final stmt pushes an anon "" env slot (block semantics). Leading-assign path
+      kept single (its block form is `(seq ..)` not `(let ..)`). Flips scljet-address-write, scljet-hello,
+      scljet-jdbc (+3); actors-global-registry/litdoc/std-ui-jobpanel have OTHER divergences. F code has no
+      bare `;` → --self neutral. Corpus 378→381, 0 drops, X1 271,756 B, --self 153 ok/0 FAIL.
+**➜ v2-p65-deep SESSION: corpus MATCH 362→381/508 (+19, DA1 typed-patterns +2, DA2 try/catch +2, DA3
   direct{} +3, DA4 println()/.yaml +1, DA5 min64-literal +1, DA6 ctor-guards +1, DA7 numeric-underscore +3,
-  DA8 qualified-enum-case-patterns +3), ALL 0 drops, X1 fixpoint stage1==stage2 byte-identical each slice (232,332→270,154 B),
+  DA8 qualified-enum-case-patterns +3, DA9 source-`;`+arm-sequences +3), ALL 0 drops, X1 fixpoint stage1==stage2 byte-identical each slice (232,332→271,756 B),
   --self 153 ok/0 FAIL each, kernel +0, no v2/lib oracle edits. Jar /tmp/ssc-deep.jar; gate
   `SSC_JAR=/tmp/ssc-deep.jar V2_DIR=<wt>/v2 NEWFRONT_WORK=/tmp/p65deep bash specs/v2.2-p6.5-corpus.sh`.
   GOTCHA: F-source defs must avoid `match {case Nil => .. case cs => ..}` (bare-var arm after ctor arm
