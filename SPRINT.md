@@ -155,8 +155,15 @@ baseline set `/tmp/baseline_deep.txt` for `comm -23` drop-checks. --self via cap
       parseExpr eats a trailing `id =>` as a bare lambda (parseIdent :502) and desyncs the whole match.
       Pair/2→Pair+Tuple2 arms. Flips direct-syntax-demo. Corpus 371→372, 0 drops, X1 stage1==stage2 268,939 B,
       --self 153 ok/0 FAIL. F's own source has no pattern guards, so routing is self-compile-neutral.
-**➜ v2-p65-deep SESSION: corpus MATCH 362→372/508 (+10, DA1 typed-patterns +2, DA2 try/catch +2, DA3
-  direct{} +3, DA4 println()/.yaml +1, DA5 min64-literal +1, DA6 ctor-guards +1), ALL 0 drops, X1 fixpoint stage1==stage2 byte-identical each slice (232,332→268,939 B),
+- [x] **DA7 — numeric underscore separators `100_000` DONE (deep2 session).** A `_` between digits extends
+      the numeric token and is dropped from the value (ssc1-front scanDecEnd :96-103 + stripNumericSeparators
+      :125-131). numSep(s,i,n) = `_` at i with a digit at i+1; scanNumV skips it (acc unchanged), scanNumE
+      consumes it. Leading/trailing/doubled `_` stay outside (next-char-digit guard). Flips dataset-parallel-sum,
+      international-bank-rails, x402-server (+3). x402-cardano/cardano-scalus/client have OTHER divergences too.
+      Corpus 372→375, 0 drops, X1 stage1==stage2 269,575 B, --self 153 ok/0 FAIL. (Decimal ints only; float/hex
+      underscores would need emitFloat/lexHex stripping — no corpus file needs them.)
+**➜ v2-p65-deep SESSION: corpus MATCH 362→375/508 (+13, DA1 typed-patterns +2, DA2 try/catch +2, DA3
+  direct{} +3, DA4 println()/.yaml +1, DA5 min64-literal +1, DA6 ctor-guards +1, DA7 numeric-underscore +3), ALL 0 drops, X1 fixpoint stage1==stage2 byte-identical each slice (232,332→269,575 B),
   --self 153 ok/0 FAIL each, kernel +0, no v2/lib oracle edits. Jar /tmp/ssc-deep.jar; gate
   `SSC_JAR=/tmp/ssc-deep.jar V2_DIR=<wt>/v2 NEWFRONT_WORK=/tmp/p65deep bash specs/v2.2-p6.5-corpus.sh`.
   GOTCHA: F-source defs must avoid `match {case Nil => .. case cs => ..}` (bare-var arm after ctor arm
