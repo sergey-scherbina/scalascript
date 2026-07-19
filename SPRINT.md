@@ -136,8 +136,16 @@ baseline set `/tmp/baseline_deep.txt` for `comm -23` drop-checks. --self via cap
       flip yaml-parse (println alone was +0 — moved its div 9352→9907; the `.yaml` was the last div). Corpus
       369→370, 0 drops, X1 stage1==stage2 260,760 B, --self 153 ok/0 FAIL. NOTE oc.sh reads raw `.ssc`; for
       markdown/fenced files (yaml-parse) the REAL test is the corpus gate on the extracted `.code`.
-**➜ v2-p65-deep SESSION: corpus MATCH 362→370/508 (+8, DA1 typed-patterns +2, DA2 try/catch +2, DA3
-  direct{} +3, DA4 println()/.yaml +1), ALL 0 drops, X1 fixpoint stage1==stage2 byte-identical each slice (232,332→260,760 B),
+- [x] **DA5 — min64 negative-literal fold DONE (deep2 session).** `-9223372036854775808` (Long.MinValue):
+      its positive half 2^63 overflows Long, so the oracle parses the SIGNED string to a bare
+      `(lit (int -9223372036854775808))` instead of `(prim i.sub (lit (int 0)) ..)` (ssc1-lower pre "-"
+      :2615-2632). F's lexer already wraps 9223372036854775808 to Long.MinValue, so the negated atom string
+      IS exactly that literal — parseNeg/negEmit emits it bare for that one value; every other negative keeps
+      i.sub. Flips int-literal (its sole divergence). Corpus 370→371, 0 drops, X1 stage1==stage2 260,799 B,
+      --self 153 ok/0 FAIL. (Separate from the `int-literal-failopen` claim = runtime VALUE bugs in the
+      kernel/interpreter; this is F's lowering IR matching the oracle. No file overlap — fsub.ssc only.)
+**➜ v2-p65-deep SESSION: corpus MATCH 362→371/508 (+9, DA1 typed-patterns +2, DA2 try/catch +2, DA3
+  direct{} +3, DA4 println()/.yaml +1, DA5 min64-literal +1), ALL 0 drops, X1 fixpoint stage1==stage2 byte-identical each slice (232,332→260,799 B),
   --self 153 ok/0 FAIL each, kernel +0, no v2/lib oracle edits. Jar /tmp/ssc-deep.jar; gate
   `SSC_JAR=/tmp/ssc-deep.jar V2_DIR=<wt>/v2 NEWFRONT_WORK=/tmp/p65deep bash specs/v2.2-p6.5-corpus.sh`.
   GOTCHA: F-source defs must avoid `match {case Nil => .. case cs => ..}` (bare-var arm after ctor arm
