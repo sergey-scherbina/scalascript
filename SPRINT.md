@@ -286,11 +286,20 @@ Fast loop: `v2/ssc1c file.ssc > x.coreir; scala-cli run v2/backend/js -- x.corei
       errors on native (kernel has no 1-arg MapV foldLeft curry, unlike List) — v2-JS matches by erroring
       identically; (b) `List.product` returns a silent `Stub` on native (kernel fail-open on unknown
       method) — v2-JS matches by not supporting it. Both are kernel-side; out of the F6 backend lane.
-- [ ] **J3 — v2-JS effects (`effect.perform.oneshot`/`effect.handle`/`effect.pure`).** Deeper: needs
-      Op-threading through Let/Seq (JS currently force-evaluates, ignoring Op suspensions) + a JS port of
-      the PortableEffects handle driver (`v2/src/PortableEffects.scala`). Repro `/tmp/f6/r2_effects.ssc`,
-      native = `List(Hello, World!)`. Assess ANF-lift-then-thread (mirror bytecode `OpAnfNative.lift`) vs
-      thread-at-every-eval-point.
+- [x] **J3 — v2-JS effects. DONE (2026-07-19, `80f7b2b6d`).** Reproduced: crashed
+      `unimplemented primitive: effect.perform.oneshot`. Implemented the ANF-lift-then-thread approach:
+      `v2/backend/js/OpAnf.scala` (self-contained port of `OpAnfNative`, gated on `usesEffects` so
+      non-effect programs are byte-identical) + a JS port of PortableEffects (`$perform`/`$performOneShot`
+      one-shot-guarded, `$letThread`/`$seqThread`, the iterative `$runDriver` with deferredResume/frames/
+      foldDispatch, handler-miss via a tagged match-miss error) + Op-aware list HOFs
+      (`$mapThreadOp`/`$foldThreadOp`/`$foreachThreadOp`) for multi-shot. **KEY BUG fixed:** the driver's
+      resume closure must capture k/handler BY VALUE (factory) — else a deferred/multi-shot resume reads
+      reassigned loop vars (JS var capture), corrupting multi-shot. Verified byte-identical to native
+      end-to-end (`run-js --v2`): collect (`List(Hello, World!)`), State get/put, Console readLine/
+      writeLine, effect-in-arg-position, multi-shot Choose (`List(11,21,12,22,13,23)`), and the full
+      `examples/effects.ssc`. **KNOWN LIMITATION (not a regression, strict improvement):** native
+      effect-RUNNER PLUGINS (`runState`/`runLogger`/`runStream`, `examples/algebraic-effects.ssc`) are
+      not available on the JS backend (no plugin host) — a separate plugin-porting gap, out of F6 scope.
 - [x] **J4 — regression cases on the v2 lanes. DONE (2026-07-19, `5ceccbfe4`).** No pre-existing js-v2
       known-red covered these cells (the only `also-codegen: v2` cases were numeric), so nothing to
       un-flag. Instead ADDED `tests/conformance/list-combinators.ssc` + `map-ops.ssc` (`also-codegen: v2`)

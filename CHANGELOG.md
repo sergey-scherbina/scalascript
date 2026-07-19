@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-07-19 — v2-f6-backends J3: v2-JS algebraic effects (perform/handle/resume)
+
+`v2-f6-backends` (F6 "powerful"). Closed the third measured v2-JS gap: effects crashed with
+`unimplemented primitive: effect.perform.oneshot`; native + JVM-bytecode had parity. A faithful,
+self-contained port of the VM effect machinery, edits only in `v2/backend/js/`:
+- `OpAnf.scala` — Op-argument lifting (mirrors `OpAnfNative`, no ASM dependency), gated on
+  `usesEffects` so non-effect programs are byte-identical.
+- JS runtime: `$perform`/`$performOneShot` (one-shot guarded), `$letThread`/`$seqThread`, the iterative
+  `$runDriver` handle driver (deferredResume/frames/foldDispatch, tagged handler-miss), and Op-aware list
+  HOFs (`$mapThreadOp`/`$foldThreadOp`/`$foreachThreadOp`) for multi-shot.
+- Fixed a JS var-capture bug (driver resume must close over k/handler by value) that corrupted multi-shot.
+
+Verified byte-identical to native end-to-end (`run-js --v2`): collect (`List(Hello, World!)`), State
+get/put, Console readLine/writeLine, effect-in-arg-position, multi-shot Choose, full `examples/effects.ssc`.
+Regression: `tests/conformance/effects-handler.ssc` (`also-codegen: v2`), all 5 lanes PASS. Known
+limitation (separate plugin-porting gap): native effect-runner plugins (`runState`/`runLogger`) are not
+on the JS backend. Remaining F6: **R5** (tower Rust/WASM BigInt silent-drop).
+
 ## 2026-07-19 — v2-f5-kernel-small: mechanical-relocation phase complete + irreducibility findings
 
 `v2-f5-kernel-small`, F5 "small". Closes the mechanical-relocation phase: **kernel `v2/src` 6355→5936
