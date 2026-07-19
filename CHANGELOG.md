@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-07-19 — v2-p65-guard G1: general scalar match (var/int/wild + guards)
+
+`v2-p65-guard` (v2-finish breadth). A `match` whose arms are all scalar (bare var `case x`, int `case N`,
+wildcard `case _`) with a var arm or `if` guard now lowers to the oracle's general nested-let/if chain
+(byte-exact vs ssc1-lower resolveMatch on data-types `classify` + pattern-matching `describe`) instead of
+F's fast int-chain / ctor `(match ..)`. Strict superset of parseIntMatch, so int-first routes here too;
+ctor/cons/tuple-first and typed `x: T` (`__isTag__`) stay on parseCtorMatch. Guarded-int and ctor-guard
+(need guard-fail fallthrough = full resolver) deferred. Corpus MATCH 300->303/508 (data-types,
+mcp-client-invoke, pattern-matching), ZERO drops among 300 previously-matching programs; X1 fixpoint
+stage1==stage2 byte-identical 192,045->199,134 B; --self 153 ok/0 FAIL; kernel +0; no oracle edits.
+Edits `specs/v2.2-p6.5-fsub.ssc` only (`6e05ac602`).
+
 ## 2026-07-19 — v2-f6-backends R5: BigInt on the Rust/WASM/tower-JS backends (F6 COMPLETE)
 
 `v2-f6-backends` (F6 "powerful"), the final gap. The tower Rust backend emitted `V::U` (Unit) for every

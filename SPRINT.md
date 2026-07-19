@@ -737,6 +737,30 @@ Corpus: `SSC_JAR=/tmp/ssc-ccm.jar V2_DIR=<wt>/v2 NEWFRONT_WORK=/tmp/p65ccm bash 
   annotation. (3) cc-body method DEF order is prelude,varCells,valCells,caseMethodDefs,sels,userDefs and the
   cross-class reg/def order is REVERSED (ssc1-front prepends). (4) always run --self WITHOUT `| tail`.
 
+## v2-p65-guard (`v2-p65-guard`, 2026-07-19) — general scalar match (var/int/wild + guards), baseline 300/508
+Claim `v2-p65-layout` on origin/main covers this lane. Work dir /tmp/p65ccm (kernel +0 from ccm; jar
+/tmp/ssc-guard.jar). First-divergence re-measured over the 208 DIFFs: #1 clean cluster [4]
+`ref='let ((local N)) (if (pri'` vs `mine='match (local N)`.
+- [x] **G1 — DONE (`6e05ac602`). general scalar match (VAR / INT / WILDCARD arms + optional `if` guards).**
+      Corpus 300->303/508 (+3: data-types, mcp-client-invoke, pattern-matching), ZERO drops among the 300
+      previously-matching programs (`comm -23` empty — verified via baseline stash re-run), 0 EMPTY/0 TIMEOUT;
+      X1 fixpoint stage1==stage2 byte-identical 192,045->199,134 B; --self 153 ok/0 FAIL; kernel +0; no oracle
+      edits. Added parseGenMatch + isGenVarHead dispatch (int-first AND bare-var-first route to genMatch;
+      ctor/cons/tuple-first + typed `x:T` stay on parseCtorMatch). The oracle
+      (ssc1-lower resolveMatch, VERIFIED byte-exact on data-types `classify` + pattern-matching `describe`)
+      lowers a scalar match to a NESTED let/if chain, NOT F's int-chain or `(match ..)`: outer
+      `(let (<scrut>) <chain>)`; VAR arm `case x [if g]` -> `(let (<scrut-ref>) [(if g body rest) | body])`
+      binding x (its `(local i)` rises as var-lets accumulate); INT arm `case N` (unguarded) ->
+      `(if (__eq__ <scrut-ref> (lit N)) body rest)`; WILDCARD `case _` (unguarded) -> terminal body;
+      guarded wildcard `case _ if g` -> `(if g body rest)`. Scrut-ref recovered at every depth as
+      `(local <lookup "__m">)` (one synthetic scrut binding; each var-let shifts its index +1). This is a
+      STRICT SUPERSET of parseIntMatch (pure-int deepens no lets => scrut stays local 0 => byte-identical),
+      so int-first routes here too; ctor/cons/tuple-first + typed `x: T` (`__isTag__`, different lowering)
+      stay on parseCtorMatch. DEFERRED (need guard-fail FALLTHROUGH = full resolver): guarded-int, and
+      ctor-guard (`case Some(m) if ..`, auth-full/bank-rails-fednow/distributed-streams/direct-syntax-demo).
+      Targets: data-types, pattern-matching, mcp-client-invoke. ⚠️ MUST re-run corpus + confirm ZERO drops
+      among already-MATCHing match programs (shared match lowering). Re-freeze X1 fixpoint.
+
 **➜ HANDOFF (`v2-p65-tail`, 2026-07-19): 5 slices landed (T1 triple-quote +7, T2 null +1, T4 collection-
 curry +1, T5 nested-interp +4, T6 bracket-list +11) = corpus MATCH 249→274/505 (fresh full 507-corpus
 250→274, 54%), ALL 0 regressions, X1 fixpoint stage1==stage2 byte-identical 169,133→179,087 B, --self all
