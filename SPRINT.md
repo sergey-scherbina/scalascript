@@ -364,6 +364,30 @@ dir to cache the 504 ref IRs). FRESH FIRST-DIVERGENCE HISTOGRAM over the 332 DIF
   vals — coroutine-basic `val c` in `coroutineCreate[T,T,T]{..}`); (d) idx_assign `a(i)=rhs`→`(prim arr.set
   a i rhs)` + Array.fill + unary `!` (wasm-primes); (e) type-ascription pattern `case _:T=>` (2).
 
+## v2-p65-sel (`v2-p65-sel`, 2026-07-19) — list `_sel_`/`__list_*` dispatch cluster (baseline 172/504)
+Oracle map (all re-verified against `v2/lib/ssc1-lower.ssc0`): `resolveField` :1578 (no-args selection) —
+`.head`/`.tail`/`.isEmpty`/`.nonEmpty` UNCONDITIONAL → `_list_*` → lowered :2429-2440 → `(app (global
+__list_*) recv)` (measured: fires even on a `(prim cell.get ..)` var read); `.length`/`.size` → `_sel_length`
+IFF `isListVar(rname)` (:314 registry) OR `isListConstruction(robj)` (:320 = app to `_sel_runToList/filter/
+map/flatMap/take`), else `slen` for str-lit / `__method__`. `resolveMethodCall` :1413 (call WITH args)
+dispatches on RESOLVED robj TAG: `var`→`__method__`/`__method0__` (:1503; map-var→`_sel_mapUpdated/mapGetOrElse`
+:1495); `uid`→ctor/object/`__method__` (unknown obj → `(prim __method__ .. (ctor Foo) ..)`); else (app/ctor
+(Cons/Nil/Some/None/Left/Right resolve to `ctorap`!)/prim/if/match…) → `selMethodOr` :1545. selMethodOr:
+`map`→`_sel_map` UNLESS single arg is `(lam N)` N≥2→`__method__`; `mkString` arity-1→`_sel_mkString` else
+`__method__`; `take`/`sum`/`foldLeft`/`foldRight`→`__method__`; else isKnownSelMethod{filter flatMap fold
+foreach getOrElse length split trim to until toList runToList mapUpdated mapGetOrElse _1.._4}→`_sel_<m>`; else
+`__method__`. F CLASSIFIES the receiver by its EMITTED STRING PREFIX (var read = `(local `/`(global `/`(prim
+cell.get `/`(prim lcell.get `; coll ctor = `(ctor Cons `/`(ctor Nil)`/`(ctor Some `/`(ctor None)`/`(ctor
+Left `/`(ctor Right `; uid obj = other `(ctor Foo)`; else app/prim → selMethodOr).
+- [ ] **S1 — `.head`/`.tail`/`.isEmpty`/`.nonEmpty` → `__list_*` UNCONDITIONAL** (postSel intercept before
+      isFld). No registry. Safe: no MATCH file can have these call-sites (they'd already DIFF).
+- [ ] **S2 — selMethodOr for method-with-args on NON-var, NON-uid-object receiver** (refactor postMeth to
+      parseArgL for arity + multi-param-lambda detection; route postMeth + postMethBlock through it).
+- [ ] **S3 — `.length`/`.size` → `_sel_length` on isListConstruction receiver** (string-recoverable, no
+      registry). DEFER the isListVar registry (name lost after F emits recv; needs cx-threaded registry).
+- Each slice: build jar, byte-verify on the named corpus files, run corpus gate (confirm MATCH no DROP for
+  any prior-matching file), keep `--self` GREEN, record fixpoint bytes.
+
 **F3 BREADTH LOG (superseded intermediate) — corpus MATCH 1 → 43/504:**
 - top-level statements (loop fix + val cells + exprs): 1 → 34 (`07522696f`, `253f68231`)
 - float literals: 34 (correct prereq, `2d63fc63e`)
