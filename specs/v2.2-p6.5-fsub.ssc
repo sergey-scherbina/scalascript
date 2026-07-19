@@ -80,13 +80,16 @@ def lexStar(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 55), lex(s, i + 2,
 def lexSlash(s, i, n) = if s.charAt(i + 1) == 47 then lex(s, scanLineEnd(s, i + 2, n), n) else Cons((2, 26), lex(s, i + 1, n))
 def lexEq(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 44), lex(s, i + 2, n)) else (if s.charAt(i + 1) == 62 then Cons((2, 30), lex(s, i + 2, n)) else Cons((2, 20), lex(s, i + 1, n)))
 // `<-` (generator arrow, code 58) — the `for x <- xs ..` binder separator (ssc1-front lex :400).
-def lexLt(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 42), lex(s, i + 2, n)) else (if s.charAt(i + 1) == 45 then Cons((2, 58), lex(s, i + 2, n)) else Cons((2, 40), lex(s, i + 1, n)))
-def lexGt(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 43), lex(s, i + 2, n)) else Cons((2, 41), lex(s, i + 1, n))
+// `<<`=65 shift-left; `>>`=66 shift-right; `>>>`=67 unsigned shift-right (ssc1-front :402/:407).
+def lexLt(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 42), lex(s, i + 2, n)) else (if s.charAt(i + 1) == 45 then Cons((2, 58), lex(s, i + 2, n)) else (if s.charAt(i + 1) == 60 then Cons((2, 65), lex(s, i + 2, n)) else Cons((2, 40), lex(s, i + 1, n))))
+def lexGt(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 43), lex(s, i + 2, n)) else (if s.charAt(i + 1) == 62 then lexGtGt(s, i, n) else Cons((2, 41), lex(s, i + 1, n)))
+def lexGtGt(s, i, n) = if atEnd(i + 2, n) then Cons((2, 66), lex(s, i + 2, n)) else (if s.charAt(i + 2) == 62 then Cons((2, 67), lex(s, i + 3, n)) else Cons((2, 66), lex(s, i + 2, n)))
 // `!=`(45) is checked first; a BARE `!` is the boolean-NOT prefix (code 59), lexed like unary `-`. The
 // oracle desugars `!x` -> `(if x (lit false) (lit true))` (ssc1-lower unary `!`); F used to DROP the `!`.
 def lexBang(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 45), lex(s, i + 2, n)) else Cons((2, 59), lex(s, i + 1, n))
-def lexAmp(s, i, n) = if s.charAt(i + 1) == 38 then Cons((2, 46), lex(s, i + 2, n)) else lex(s, i + 1, n)
-def lexPipe(s, i, n) = if s.charAt(i + 1) == 124 then Cons((2, 47), lex(s, i + 2, n)) else lex(s, i + 1, n)
+// bare `&`=62 (bitwise and) / bare `|`=63 (bitwise or) — were DROPPED; `&&`=46/`||`=47 checked first.
+def lexAmp(s, i, n) = if s.charAt(i + 1) == 38 then Cons((2, 46), lex(s, i + 2, n)) else Cons((2, 62), lex(s, i + 1, n))
+def lexPipe(s, i, n) = if s.charAt(i + 1) == 124 then Cons((2, 47), lex(s, i + 2, n)) else Cons((2, 63), lex(s, i + 1, n))
 // `@Name` / `@Name(args)` annotation (ssc1-front skipAnn :2517): NO runtime effect in the native path, so
 // the lexer DROPS the whole annotation — the `@`, its Name, and an optional balanced `(...)` — leaving just
 // the annotated `def`/`class`/`val`. (A leftover bare `main` word from `@main def run` used to become a
@@ -131,7 +134,8 @@ def longEnd(s, e, n) = if atEnd(e, n) then e else (if s.charAt(e) == 76 then e +
 def lexNum1(s, i, n, e) = if isFloatDot(s, e, n) then lexFloat(s, i, n, scanNumE(s, e + 1, n)) else Cons((0, scanNumV(s, i, n, 0)), lex(s, longEnd(s, e, n), n))
 def lexFloat(s, i, n, fe) = Cons((5, s.substring(i, fe)), lex(s, fe, n))
 // `%` (modulo, code 56) — same precedence class as `*`/`/` (ssc1-front opPrec :1439), symbol "%".
-def opCode(c) = if c == 40 then 21 else (if c == 41 then 22 else (if c == 45 then 24 else (if c == 42 then 25 else (if c == 44 then 27 else (if c == 46 then 31 else (if c == 123 then 28 else (if c == 125 then 29 else (if c == 91 then 50 else (if c == 93 then 51 else (if c == 37 then 56 else 0))))))))))
+// `^`=64 (bitwise xor, infix) and `~`=68 (bitwise not, prefix) reach here via lexOp1; both were DROPPED.
+def opCode(c) = if c == 40 then 21 else (if c == 41 then 22 else (if c == 45 then 24 else (if c == 42 then 25 else (if c == 44 then 27 else (if c == 46 then 31 else (if c == 123 then 28 else (if c == 125 then 29 else (if c == 91 then 50 else (if c == 93 then 51 else (if c == 37 then 56 else (if c == 94 then 64 else (if c == 126 then 68 else 0))))))))))))
 def lexOp1(s, i, n, c) = if opCode(c) == 0 then lex(s, i + 1, n) else Cons((2, opCode(c)), lex(s, i + 1, n))
 
 // -- K62.6c-indent: layout (offside -> virtual braces) ----------------------------------------
@@ -256,10 +260,13 @@ def plusSym(l, r, dq) = if isStrExprCode(l, dq) then "++" else (if isStrExprCode
 def emitArith(k, l, r, dq) = if k == 23 then emitArithS(plusSym(l, r, dq), l, r, dq) else emitArithS(arithSym(k), l, r, dq)
 def emitEq(l, r) = "(prim __eq__ " ++ l ++ " " ++ r ++ ")"
 def emitIf(c, t, e) = "(if " ++ c ++ " " ++ t ++ " " ++ e ++ ")"
-def emitBin(k, l, r, dq) = if k == 57 then "(ctor Pair " ++ l ++ " " ++ r ++ ")" else (if k == 49 then "(ctor Cons " ++ l ++ " " ++ r ++ ")" else (if k == 48 then emitArithS("++", l, r, dq) else (if k == 44 then emitEq(l, r) else (if k == 45 then emitIf(emitEq(l, r), "(lit false)", "(lit true)") else (if k == 46 then emitIf(l, r, "(lit false)") else (if k == 47 then emitIf(l, "(lit true)", r) else (if k == 61 then emitArithS(":+", l, r, dq) else emitArith(k, l, r, dq))))))))
+def emitPrimBin(nm, l, r) = "(prim " ++ nm ++ " " ++ l ++ " " ++ r ++ ")"
+def emitBin(k, l, r, dq) = if k == 57 then "(ctor Pair " ++ l ++ " " ++ r ++ ")" else (if k == 49 then "(ctor Cons " ++ l ++ " " ++ r ++ ")" else (if k == 48 then emitArithS("++", l, r, dq) else (if k == 44 then emitEq(l, r) else (if k == 45 then emitIf(emitEq(l, r), "(lit false)", "(lit true)") else (if k == 46 then emitIf(l, r, "(lit false)") else (if k == 47 then emitIf(l, "(lit true)", r) else (if k == 61 then emitArithS(":+", l, r, dq) else (if k == 62 then emitPrimBin("i.and", l, r) else (if k == 63 then emitPrimBin("i.or", l, r) else (if k == 64 then emitPrimBin("i.xor", l, r) else (if k == 65 then emitPrimBin("i.shl", l, r) else (if k == 66 then emitPrimBin("i.shr", l, r) else (if k == 67 then emitPrimBin("i.ushr", l, r) else emitArith(k, l, r, dq))))))))))))))
 // Scala's precedence-by-first-character, restricted to the operators the subset uses.
 def binPrec(t) = if fst(t) == 2 then binPrecK(snd(t)) else 0
-def binPrecK(k) = if k == 57 then 1 else (if k == 47 then 1 else (if k == 46 then 2 else (if k == 44 then 3 else (if k == 45 then 3 else (if k == 40 then 4 else (if k == 41 then 4 else (if k == 42 then 4 else (if k == 43 then 4 else (if k == 49 then 5 else (if k == 23 then 6 else (if k == 24 then 6 else (if k == 48 then 6 else (if k == 61 then 6 else (if k == 25 then 7 else (if k == 26 then 7 else (if k == 56 then 7 else 0))))))))))))))))
+// bitwise prec (left-assoc; F prec 5 is the ONLY right-assoc slot so bitwise ops avoid it): `&`(62)=4,
+// `|`(63)/`^`(64)=2, shifts `<<`(65)/`>>`(66)/`>>>`(67)=6. Mirrors ssc1-front opPrec relative ordering.
+def binPrecK(k) = if k == 57 then 1 else (if k == 47 then 1 else (if k == 46 then 2 else (if k == 44 then 3 else (if k == 45 then 3 else (if k == 40 then 4 else (if k == 41 then 4 else (if k == 42 then 4 else (if k == 43 then 4 else (if k == 62 then 4 else (if k == 63 then 2 else (if k == 64 then 2 else (if k == 49 then 5 else (if k == 23 then 6 else (if k == 24 then 6 else (if k == 48 then 6 else (if k == 61 then 6 else (if k == 65 then 6 else (if k == 66 then 6 else (if k == 67 then 6 else (if k == 25 then 7 else (if k == 26 then 7 else (if k == 56 then 7 else 0))))))))))))))))))))))
 
 // -- the parse context ---------------------------------------------------------------------------
 // cx = (dq, (ccNames, fieldNames)). Case classes made the parser context-dependent: a ctor call and
@@ -295,8 +302,10 @@ def enumCasesOfName(ename, reg) = reg match { case Nil => Nil case h :: t => if 
 // A leading `-` in atom position is UNARY minus: `-<atom>` -> `(prim i.sub (lit (int 0)) <atom>)`, and it
 // includes the postfix atom (measured: `-g(x)` -> i.sub(0, (app g x))). Binary `-` is handled in climb, so
 // this only fires where an atom is expected. F's own source uses `0 - 1` (binary), never a leading `-`.
-def parseAtom(ts, env, cx) = if isEmpty(ts) then (emitInt(0), Nil) else (if isTok(hd(ts), 2, 24) then parseNeg(tl(ts), env, cx) else (if isTok(hd(ts), 2, 59) then parseBang(tl(ts), env, cx) else postfix(parseAtom0(ts, env, cx), env, cx)))
+def parseAtom(ts, env, cx) = if isEmpty(ts) then (emitInt(0), Nil) else (if isTok(hd(ts), 2, 24) then parseNeg(tl(ts), env, cx) else (if isTok(hd(ts), 2, 59) then parseBang(tl(ts), env, cx) else (if isTok(hd(ts), 2, 68) then parseTilde(tl(ts), env, cx) else postfix(parseAtom0(ts, env, cx), env, cx))))
 def parseNeg(ts, env, cx) = parseAtom(ts, env, cx) match { case (a, r) => ("(prim i.sub (lit (int 0)) " ++ a ++ ")", r) }
+// `~x` bitwise-not prefix -> (prim i.not x), binds to the atom like unary `-`/`!` (ssc1-lower :1168).
+def parseTilde(ts, env, cx) = parseAtom(ts, env, cx) match { case (a, r) => ("(prim i.not " ++ a ++ ")", r) }
 // `!x` (boolean not) desugars to `(if x (lit false) (lit true))` (oracle-measured). Binds to the atom
 // exactly like unary `-` (parseNeg): `!f(a)` -> `!(f(a))`, `!a && b` -> `(!a) && b` (climb sees `&&` after).
 def parseBang(ts, env, cx) = parseAtom(ts, env, cx) match { case (a, r) => ("(if " ++ a ++ " (lit false) (lit true))", r) }
