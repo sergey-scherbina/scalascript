@@ -43,10 +43,11 @@ object JsGen:
       emitDef(sb, d)
     sb.append("\n// ── Entry ───────────────────────────────────────────────────────────────────\n\n")
     // Like the VM's `out(run(prog))`: evaluate entry, print result unless Unit.
-    // The VM's out() is: case UnitV => ()  ; case v => println(Show.show(v))
+    // The VM's out() renders via anyStr (unquoted nested strings), NOT Show.show
+    // — $bridgeShow is the anyStr-equivalent (v2-js-anystr-parity).
     sb.append("(function(){\n  var $result=")
     sb.append(genE(prog.entry, Nil, tco = false))
-    sb.append(";\n  if($result!==null&&$result!==undefined){ console.log($show($result)); }\n})();\n")
+    sb.append(";\n  if($result!==null&&$result!==undefined){ console.log($bridgeShow($result)); }\n})();\n")
     sb.toString
 
   private def emitBridgePrelude(sb: StringBuilder, prog: Program): Unit =
@@ -475,6 +476,13 @@ function $c(fn,args){
 function $apply(fn,args){
   if($isList(fn) && args.length===1) return $listGet(fn, Number(args[0]));
   if(Array.isArray(fn) && args.length===1) return fn[Number(args[0])];
+  // Map.apply(key): return the value or fail CLOSED (Scala NoSuchElementException),
+  // never a silent wrong value. Mirrors Runtime.scala applyFallback MapV(entries).
+  if($isMapV(fn) && args.length===1){
+    var sk=$mapKey(args[0]);
+    if(fn.m.has(sk)) return fn.m.get(sk);
+    throw new Error('key not found: '+$bridgeShow(args[0]));
+  }
   throw new Error('not callable: '+$show(fn));
 }
 
@@ -510,8 +518,10 @@ function $bridgeShow(v){
   if(typeof v==='boolean') return String(v);
   if($isList(v)) return 'List('+$listToArray(v).map($bridgeShow).join(', ')+')';
   if(v instanceof Uint8Array) return $show(v);
+  if($isMapV(v)){ var ps=[]; v.k.forEach(function(ok,sk){ ps.push($bridgeShow(ok)+' -> '+$bridgeShow(v.m.get(sk))); }); return 'Map('+ps.join(', ')+')'; }
   if(Array.isArray(v)) return '<arr>';
   if(v&&v.t!==undefined){
+    if(v.t==='_Raw'&&v.f&&v.f.length) return $bridgeShow(v.f[0]);
     if(/^Tuple\d+$/.test(v.t)) return '('+v.f.map($bridgeShow).join(', ')+')';
     if(!v.f||v.f.length===0) return v.t;
     return v.t+'('+v.f.map($bridgeShow).join(', ')+')';
@@ -552,6 +562,27 @@ function $eq(a,b){
   return false;
 }
 function $isTag(v,tag,arity){ return !!(v&&v.t===tag&&v.f&&v.f.length===Number(arity)); }
+// Value ordering — mirrors Runtime.scala valueLessThan (scalars + tuples lexicographic).
+function $lt(x,y){
+  if(typeof x==='bigint'&&typeof y==='bigint') return x<y;
+  if($isNum(x)&&$isNum(y)) return $asNumber(x)<$asNumber(y);
+  if(typeof x==='string'&&typeof y==='string') return x<y;
+  if(x&&y&&x.t!==undefined&&y.t!==undefined&&/^Tuple\d+$/.test(x.t)&&x.t===y.t&&x.f&&y.f){
+    for(var i=0;i<x.f.length;i++){ if($lt(x.f[i],y.f[i])) return true; if($lt(y.f[i],x.f[i])) return false; }
+    return false;
+  }
+  return false;
+}
+function $cmp(x,y){ return $lt(x,y)?-1:($lt(y,x)?1:0); }
+// Tuple-spreading call: a multi-param lambda over a list of tuples gets the
+// tuple fields spread as separate args (mirrors Runtime.scala map/flatMap step).
+function $spreadCall(fn,x){
+  if(typeof fn==='function'&&fn.length>1&&x&&x.t!==undefined&&(x.t==='Pair'||/^Tuple/.test(x.t))&&x.f&&x.f.length===fn.length)
+    return $c(fn,x.f);
+  return $c(fn,[x]);
+}
+function $some(v){ return {t:'Some',f:[v]}; }
+var $none={t:'None',f:[]};
 function $unary(op,v){
   if(op==='-') return typeof v==='bigint'?BigInt.asIntN(64,-v):(-v);
   if(op==='~') return typeof v==='bigint'?BigInt.asIntN(64,~v):(~v);
@@ -560,6 +591,10 @@ function $unary(op,v){
 }
 function $arith(op,l,r){
   if(op==='->') return {t:'Tuple2',f:[l,r]};
+  // Map + pair → updated map (Runtime.scala applyBinOp MapV + Tuple2/Pair).
+  if(op==='+'&&$isMapV(l)&&l!==null&&r&&r.t!==undefined&&(r.t==='Tuple2'||r.t==='Pair')){
+    var $n=$mapClone(l); $mapPut($n,r.f[0],r.f[1]); return $n;
+  }
   if(op==='to'||op==='until'){
     var start=Number(l), end=Number(r), arr=[];
     for(var i=start; op==='to'?i<=end:i<end; i++) arr.push(typeof l==='bigint'||typeof r==='bigint'?BigInt(i):i);
@@ -657,17 +692,111 @@ function $method(name,recv){
   }
   if($isList(recv)){
     var xs=$listToArray(recv);
+    // Curried z-then-op forms: `xs.foldLeft(z)(op)` lowers to
+    // App(__method__(foldLeft,xs,z),[op]); with only `z` here (args.length===1)
+    // return a fn taking `op` — mirrors Runtime.scala:3255-3263.
+    if(args.length===1&&(name==='foldLeft'||name==='foldRight'||name==='scanLeft')){
+      var $z=args[0], $nm=name, $recv=recv;
+      return function(op){ return $method($nm,$recv,$z,op); };
+    }
     switch(name){
       case 'length': case 'size': return BigInt(xs.length);
       case 'isEmpty': return xs.length===0; case 'nonEmpty': return xs.length!==0;
       case 'head': if(xs.length===0) throw new Error('head on empty list'); return xs[0];
       case 'tail': if(xs.length===0) throw new Error('tail on empty list'); return $listOf(xs.slice(1));
-      case 'mkString': return xs.map($bridgeShow).join(args.length===0?'':String(args[0]));
+      case 'last': if(xs.length===0) throw new Error('last on empty list'); return xs[xs.length-1];
+      case 'init': if(xs.length===0) throw new Error('init on empty list'); return $listOf(xs.slice(0,xs.length-1));
+      case 'headOption': return xs.length===0?$none:$some(xs[0]);
+      case 'lastOption': return xs.length===0?$none:$some(xs[xs.length-1]);
+      case 'mkString':
+        if(args.length===0) return xs.map($bridgeShow).join('');
+        if(args.length===1) return xs.map($bridgeShow).join(String(args[0]));
+        return String(args[0])+xs.map($bridgeShow).join(String(args[1]))+String(args[2]);
       case 'reverse': return $listOf(xs.slice().reverse());
+      case 'distinct': { var seen=[],out=[]; xs.forEach(function(x){ if(!seen.some(function(s){return $eq(s,x);})){seen.push(x);out.push(x);} }); return $listOf(out); }
       case 'foreach': xs.forEach(function(x){ $c(args[0],[x]); }); return null;
-      case 'map': return $listOf(xs.map(function(x){ return $c(args[0],[x]); }));
+      case 'map': return $listOf(xs.map(function(x){ return $spreadCall(args[0],x); }));
+      case 'flatMap': { var o=[]; xs.forEach(function(x){ var r=$spreadCall(args[0],x); if($isList(r)) o=o.concat($listToArray(r)); else o.push(r); }); return $listOf(o); }
       case 'filter': return $listOf(xs.filter(function(x){ return $c(args[0],[x])===true; }));
+      case 'filterNot': return $listOf(xs.filter(function(x){ return $c(args[0],[x])!==true; }));
+      case 'foldLeft': return xs.reduce(function(a,x){ return $c(args[1],[a,x]); }, args[0]);
+      case 'foldRight': { var a=args[0]; for(var i=xs.length-1;i>=0;i--) a=$c(args[1],[xs[i],a]); return a; }
+      case 'scanLeft': { var acc=args[0], o=[acc]; xs.forEach(function(x){ acc=$c(args[1],[acc,x]); o.push(acc); }); return $listOf(o); }
+      case 'reduce': case 'reduceLeft':
+        if(xs.length===0) throw new Error('reduceLeft on empty list');
+        return xs.reduce(function(a,x){ return $c(args[0],[a,x]); });
+      case 'reduceRight':
+        if(xs.length===0) throw new Error('reduceRight on empty list');
+        { var a=xs[xs.length-1]; for(var i=xs.length-2;i>=0;i--) a=$c(args[0],[xs[i],a]); return a; }
+      case 'find': { for(var i=0;i<xs.length;i++) if($c(args[0],[xs[i]])===true) return $some(xs[i]); return $none; }
+      case 'exists': return xs.some(function(x){ return $c(args[0],[x])===true; });
+      case 'forall': return xs.every(function(x){ return $c(args[0],[x])===true; });
+      case 'count': { var n=0n; xs.forEach(function(x){ if($c(args[0],[x])===true) n++; }); return n; }
       case 'sum': return xs.reduce(function(a,b){ return $arith('+',a,b); }, 0n);
+      case 'min': if(xs.length===0) throw new Error('min on empty list'); return xs.reduce(function(a,b){ return $cmp(a,b)<=0?a:b; });
+      case 'max': if(xs.length===0) throw new Error('max on empty list'); return xs.reduce(function(a,b){ return $cmp(a,b)>=0?a:b; });
+      case 'minBy': if(xs.length===0) throw new Error('minBy on empty list'); return xs.reduce(function(a,b){ return $cmp($c(args[0],[a]),$c(args[0],[b]))<=0?a:b; });
+      case 'maxBy': if(xs.length===0) throw new Error('maxBy on empty list'); return xs.reduce(function(a,b){ return $cmp($c(args[0],[a]),$c(args[0],[b]))>=0?a:b; });
+      case 'sorted': return $listOf(xs.slice().sort($cmp));
+      case 'sortBy': { var f=args[0]; return $listOf(xs.slice().sort(function(a,b){ return $cmp($c(f,[a]),$c(f,[b])); })); }
+      case 'sortWith': { var f=args[0]; return $listOf(xs.slice().sort(function(a,b){ return $c(f,[a,b])===true?-1:($c(f,[b,a])===true?1:0); })); }
+      case 'groupBy': { var ks=[],grp=[]; xs.forEach(function(x){ var k=$c(args[0],[x]); var idx=-1; for(var i=0;i<ks.length;i++) if($eq(ks[i],k)){idx=i;break;} if(idx<0){ks.push(k);grp.push([x]);} else grp[idx].push(x); }); var pairs=ks.map(function(k,i){ return {t:'Tuple2',f:[k,$listOf(grp[i])]}; }); return $listOf(pairs); }
+      case 'partition': { var yes=[],no=[]; xs.forEach(function(x){ if($c(args[0],[x])===true) yes.push(x); else no.push(x); }); return {t:'Tuple2',f:[$listOf(yes),$listOf(no)]}; }
+      case 'span': { var i=0; while(i<xs.length&&$c(args[0],[xs[i]])===true) i++; return {t:'Tuple2',f:[$listOf(xs.slice(0,i)),$listOf(xs.slice(i))]}; }
+      case 'splitAt': { var n=Number(args[0]); return {t:'Tuple2',f:[$listOf(xs.slice(0,n)),$listOf(xs.slice(n))]}; }
+      case 'takeWhile': { var i=0; while(i<xs.length&&$c(args[0],[xs[i]])===true) i++; return $listOf(xs.slice(0,i)); }
+      case 'dropWhile': { var i=0; while(i<xs.length&&$c(args[0],[xs[i]])===true) i++; return $listOf(xs.slice(i)); }
+      case 'take': return $listOf(xs.slice(0,Number(args[0])));
+      case 'drop': return $listOf(xs.slice(Number(args[0])));
+      case 'takeRight': { var n=Number(args[0]); return $listOf(n<=0?[]:xs.slice(xs.length-n)); }
+      case 'dropRight': { var n=Number(args[0]); return $listOf(xs.slice(0,Math.max(0,xs.length-n))); }
+      case 'slice': return $listOf(xs.slice(Number(args[0]),Number(args[1])));
+      case 'indices': return $listOf(xs.map(function(_,i){ return BigInt(i); }));
+      case 'zipWithIndex': return $listOf(xs.map(function(x,i){ return {t:'Tuple2',f:[x,BigInt(i)]}; }));
+      case 'zip': { var ys=$listToArray(args[0]),o=[]; for(var i=0;i<Math.min(xs.length,ys.length);i++) o.push({t:'Tuple2',f:[xs[i],ys[i]]}); return $listOf(o); }
+      case 'indexWhere': { for(var i=0;i<xs.length;i++) if($c(args[0],[xs[i]])===true) return BigInt(i); return -1n; }
+      case 'indexOf': { for(var i=0;i<xs.length;i++) if($eq(xs[i],args[0])) return BigInt(i); return -1n; }
+      case 'contains': return xs.some(function(x){ return $eq(x,args[0]); });
+      case 'updated': { var o=xs.slice(); o[Number(args[0])]=args[1]; return $listOf(o); }
+      case 'patch': { var from=Number(args[0]),rep=Number(args[2]); return $listOf(xs.slice(0,from).concat($listToArray(args[1]),xs.slice(from+rep))); }
+      case 'grouped': { var n=Number(args[0]),o=[]; for(var i=0;i<xs.length;i+=n) o.push($listOf(xs.slice(i,i+n))); return $listOf(o); }
+      case 'sliding': { var n=Number(args[0]),o=[]; if(xs.length<n){ if(xs.length>0) o.push($listOf(xs.slice())); } else for(var i=0;i+n<=xs.length;i++) o.push($listOf(xs.slice(i,i+n))); return $listOf(o); }
+      case 'flatten': { var o=[]; xs.forEach(function(x){ o=o.concat($listToArray(x)); }); return $listOf(o); }
+      case '++': return $listOf(xs.concat($listToArray(args[0])));
+      case ':+': case 'appended': return $listOf(xs.concat([args[0]]));
+      case '+:': return $listOf([args[0]].concat(xs));
+      case 'toList': case 'toVector': case 'iterator': return recv;
+      case 'toSet': { var seen=[],out=[]; xs.forEach(function(x){ if(!seen.some(function(s){return $eq(s,x);})){seen.push(x);out.push(x);} }); return $listOf(out); }
+    }
+  }
+  if($isMapV(recv)){
+    switch(name){
+      case 'size': return BigInt(recv.m.size);
+      case 'isEmpty': return recv.m.size===0; case 'nonEmpty': return recv.m.size!==0;
+      case 'get': return $mapGet(recv,args[0]);
+      case 'getOrElse': { var sk=$mapKey(args[0]); return recv.m.has(sk)?recv.m.get(sk):args[1]; }
+      case 'apply': { var sk=$mapKey(args[0]); if(recv.m.has(sk)) return recv.m.get(sk); throw new Error('key not found: '+$bridgeShow(args[0])); }
+      case 'contains': return $mapHas(recv,args[0]);
+      case 'keys': case 'keySet': return $mapKeys(recv);
+      case 'values': return $mapValues(recv);
+      case 'toList': case 'toSeq': return $mapToList(recv);
+      case 'updated': { var n=$mapClone(recv); $mapPut(n,args[0],args[1]); return n; }
+      case 'removed': { var n=$mapClone(recv); $mapDel(n,args[0]); return n; }
+      case '+': { var n=$mapClone(recv); var p=args[0]; if(p&&(p.t==='Tuple2'||p.t==='Pair')) $mapPut(n,p.f[0],p.f[1]); else throw new Error('Map + expects a pair'); return n; }
+      // NB: MapV.foldLeft/foreach are intentionally ABSENT to match the native VM,
+      // which errors "no dispatch for .foldLeft on Map(...)" — the front lowers
+      // `m.foldLeft(z)(op)` curried and the kernel has no 1-arg MapV curry (unlike
+      // List). Kept at parity; the kernel gap is filed separately.
+    }
+    // Row-style field access: `row.col` on a string-keyed map (Db rows). Look up by
+    // key name, case-insensitive fallback (SQL column labels); fail CLOSED on miss.
+    var allStr=true; recv.k.forEach(function(ok){ if(typeof ok!=='string') allStr=false; });
+    if(allStr&&args.length===0){
+      var sk=$mapKey(name); if(recv.m.has(sk)) return recv.m.get(sk);
+      var hit; recv.k.forEach(function(ok,k2){ if(hit===undefined&&typeof ok==='string'&&ok.toLowerCase()===name.toLowerCase()) hit=recv.m.get(k2); });
+      if(hit!==undefined) return hit;
+      var cols=[]; recv.k.forEach(function(ok){ cols.push($bridgeShow(ok)); });
+      throw new Error("__method__: no column '"+name+"' in row ["+cols.join(',')+"]");
     }
   }
   if(Array.isArray(recv)){
@@ -714,12 +843,14 @@ function $show(v){
   }
   if(Array.isArray(v)) return '<arr>';
   if(v.$k!==undefined) return '<tco>';
-  if(v.m!==undefined) return '<map>';
+  if($isMapV(v)) return $mapShow(v);
   if(v.t!==undefined){
     if(v.t==='Cons'||v.t==='Nil'){
       var items=[]; for(var cur=v;cur.t==='Cons';cur=cur.f[1]) items.push($show(cur.f[0]));
       return 'List('+items.join(', ')+')';
     }
+    // Tuples render Scala-style: (a, b) not Tuple2(a, b) — matches VM Show.
+    if(/^Tuple\d+$/.test(v.t)) return '('+v.f.map($show).join(', ')+')';
     if(!v.f||v.f.length===0) return v.t;
     return v.t+'('+v.f.map($show).join(', ')+')';
   }
@@ -728,9 +859,11 @@ function $show(v){
 
 // ── IO ────────────────────────────────────────────────────────────────────────
 function $showIO(v){
-  // Strings are printed raw (no quotes); other values use $show
+  // io.* rendering mirrors the VM's out()/anyStr: strings raw, containers with
+  // UNQUOTED nested strings (List(a, b) / Map(k -> v) / Some(x)), NOT Show.show
+  // (which quotes). $bridgeShow is that anyStr-equivalent renderer.
   if(typeof v==='string') return v;
-  return $show(v);
+  return $bridgeShow(v);
 }
 function $println(v){ console.log($showIO(v)); return null; }
 function $print(v){ process.stdout.write($showIO(v)); return null; }
@@ -792,6 +925,11 @@ function $mapKey(v){
   return 'o:'+String(v);
 }
 function $mapNew(){ return {m:new Map(),k:new Map()}; }
+function $isMapV(v){ return v!==null&&typeof v==='object'&&v.m instanceof Map&&v.k instanceof Map; }
+function $mapClone(map){ var n=$mapNew(); map.k.forEach(function(ok,sk){ n.m.set(sk,map.m.get(sk)); n.k.set(sk,ok); }); return n; }
+function $mapValues(map){ var vs=[]; map.k.forEach(function(ok,sk){ vs.push(map.m.get(sk)); }); return $listOf(vs); }
+function $mapToList(map){ var ps=[]; map.k.forEach(function(ok,sk){ ps.push({t:'Tuple2',f:[ok,map.m.get(sk)]}); }); return $listOf(ps); }
+function $mapShow(map){ var ps=[]; map.k.forEach(function(ok,sk){ ps.push($show(ok)+' -> '+$show(map.m.get(sk))); }); return 'Map('+ps.join(', ')+')'; }
 function $mapGet(map,key){
   var sk=$mapKey(key);
   return map.m.has(sk)?{t:'Some',f:[map.m.get(sk)]}:{t:'None',f:[]};
