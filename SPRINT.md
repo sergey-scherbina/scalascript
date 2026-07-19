@@ -9,6 +9,29 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## v2-p65-optics (`v2-p65-optics`, 2026-07-19) — baseline MATCH 334/508, fixpoint 222,668 B
+Claim `v2-p65-layout` on origin/main covers this lane. Kernel jar `/tmp/ssc-optics.jar`
+(`scala-cli --power package v2/src --assembly`); corpus `SSC_JAR=/tmp/ssc-optics.jar V2_DIR=<wt>/v2
+NEWFRONT_WORK=/tmp/p65optics bash specs/v2.2-p6.5-corpus.sh`; single-prog byte-check `/tmp/oc.sh <p.ssc>`;
+histogram `/tmp/hist_optics.py /tmp/p65optics`; first-div `/tmp/fdiv.py /tmp/p65optics <name> [W]`;
+baseline MATCH set `/tmp/baseline_match.txt` for `comm -23` drop-checks. --self via captured file + `grep -cE '^ok '`.
+- [x] **O1 (`2eab18603`) `Vector(..)`/`Seq(..)` literals → Cons-chain** (like List; ssc1-lower :2100/:2108).
+      Routed both to parseListLit in parseCtorArgs. MATCH 334→335 (+x402-metamask; distributed-dataset-codec +
+      spark-collections-demo revealed next-layer diffs: `Seq.empty`/`List.empty` recv needs `(ctor Seq)`, codec
+      object recv). 0 regressions, --self 153 ok/0 FAIL, fixpoint 222,881 B.
+- [ ] **O2 `Array(..)` → `(app (var _arr_fill) <Cons-chain>)`** (ssc1-lower :2098). Targets spark-mllib-*, wallet-mpc.
+- [ ] **O3 `Prism[S,C]` → `(prim optics.prism (lit (str <lastTypeArg>)))`** (variant = string after last comma
+      of the type-arg list; ssc1-lower prismVariant :1231). Targets prisms.
+- [ ] **O4 `Focus[T](_.path)` → `(prim optics.focus (ctor Cons <steps> (ctor Nil)))`** (DEEP; path walk of the
+      selector lambda: `.f`→OField(f), `.some`→OSome, `.each`→OEach, `.index(i)`→OIndex, `.at(k)`→OAt; ssc1-lower
+      focusPathSteps :1157). Targets lenses, optic-polish, optics-index-at, optional, traversal.
+
+**ORACLE-DEGRADATION TALLY (remaining DIFFs that are the ORACLE being WRONG, not F-gaps — do NOT reproduce):**
+- `@`-annotated case-class fields (10: graph-codecs, graph-fullstack, graph-fullstack-rdf, graph-rdf4j-storage,
+  graph-storage, object-store-jdbc, object-store-sync-routes, spark-schema-mapping, spark-shared-schema-reader,
+  typed-object-codec) — oracle collapses `case class C(@key id, @fieldName(..) label, ..)` to a SINGLE field `_`
+  (arity 1, `_sel__`); F parses all fields correctly. Escape-hatch per handoff.
+
 ## v2-finish — make v2 ideal, small, powerful, fully self-hosted (2026-07-18, Sergiy)
 
 **Sergiy's vision (2026-07-18):** v1 and v2 are INDEPENDENT. v1 stays as-is — it stabilizes and
