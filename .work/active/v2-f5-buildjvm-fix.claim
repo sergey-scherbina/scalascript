@@ -1,0 +1,9 @@
+claim: v2-f5-buildjvm-fix
+branch: feature/v2-f5-buildjvm-fix
+agent: opus (orchestrator session — F5 agent resumed)
+heartbeat: 2026-07-19T10:55:46Z
+status: in-progress
+what: F5 Emit-relocation regression — build-jvm standalone artifact fails at runtime with
+      NoClassDefFoundError: ssc/Emit$ (ASM release gate red on main). installBin standardJarPrefixes
+      was fixed for bin/ssc run, but the build-jvm produced-artifact runtime classpath lacks the
+      relocated jvm-runtime jar. Fix + smoke the build-jvm path (build standalone jar, run sanitized-PATH).
