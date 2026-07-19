@@ -467,11 +467,44 @@ Slices, impact-ordered (biggest clean lever first):
       fixpoint 168,895→169,009.** Type args are erased; parseCtor now skipGen's the `[..]` before the `(`
       dispatch: `List[Int]()`→`(ctor Nil)`, `Right[A,B](x)`→`(ctor Right x)`. Fixed json-read/
       multi-link-imports/functional. (Lowercase `foo[T](x)` NOT yet handled — parseVarOrCall unchanged.)
-- [ ] **derived-codec (20), cc/tc-method-def+`.copy` (16+3), string `"""`+encoder-escape (13): later.**
-      OTHER-tail sub-clusters (measured): match-lowered-to-`if __isTag__` (actors receive, 4, DEEP — do NOT
-      touch core match); Array/Vector-ctor (2, `_arr_fill`); lowercase generic call `foo[T](x)`; infix
-      `1 to n`/`until` generator; assign in other expr positions (if-branch/lambda body — same
-      finishAssignment gap, only arm bodies done). See the §v2-p65-codec HANDOFF block below for the full map.
+- [x] **G8 — lowercase generic call `foo[T](..)` / `foo[T] { .. }`. Corpus 246 → 249 (+3), 0 regr.
+      fixpoint 169,009→169,133.** parseVarOrCall now skipGen's the `[..]` (same fix as G7 for the lowercase
+      path). Was fabricating spurious top-level cells (`coroutineCreate[Int,Unit,String]{..}` left
+      `[..]{..}` unconsumed → walk cascade). Fixed coroutine-basic/dataset-from-generator/
+      js-generator-next-option; also un-masks the NEXT divergence in ~18 more cell-cluster files.
+
+**➜ HANDOFF (`v2-p65-codec`, 2026-07-19): 7 slices, corpus MATCH 201 → 249/505 (+48), X1 fixpoint
+stage1==stage2 byte-identical 159,579 → 169,133 B, --self 120 ok/0 FAIL, ZERO regressions across all
+slices, kernel +0, no v2/lib oracle edits. Build `scala-cli --power package v2/src --assembly -o
+/tmp/ssc-codec.jar --force`; gate `SSC_JAR=/tmp/ssc-codec.jar V2_DIR=<wt>/v2 NEWFRONT_WORK=/tmp/dir bash
+specs/v2.2-p6.5-corpus.sh` (fresh cache = accurate; reuse cache = fast). FRESH FIRST-DIVERGENCE HISTOGRAM
+over the 256 DIFFs (505-corpus, G8 state), next levers biggest first:**
+- **OTHER long tail (~197)** — individually diverse; MINE the sub-clusters (that's how this session found
+  method0/lcell/generic-ctor/generic-call). Known live sub-clusters in it: (a) top-level cell cluster —
+  most of the ~21 `foo[T]`-cascade files now have their NEXT divergence exposed post-G8 (coroutine/
+  generator/effect state machines — probe individually); (b) companion-statics `Array.fill`/`List.x`
+  (array-companion-statics, list-companion, wasm-primes — mine `(app (prim __method__ ..))` vs ref `(prim
+  __method__ ..)`); (c) `.copy` on a case class (user-request-shadow, optic-polish, lenses — ref does a
+  cell-based field-copy); (d) tuple3/tuple4 patterns & `(arm Tuple3 ..)` (dsl-ast-builder, typed-data).
+- **derived-codec (20)** — `derives Csv/JsonCodec/ObjectCodec` → `__derived_*Codec` cells + Mirror + init
+  (ssc1-lower). HARD (per predecessors). graph-fullstack, custom-derives-mirror, distributed-dataset-*.
+- **cc/tc-method-def (16)** — case-class/typeclass/`given` body methods → `Tag_method(self,..)` globals +
+  `__regmethod__` (ssc1-lower :5088-5165, classBodyFields :3710, sibling-ctx caseSelfCtxCell). F parses
+  `case class C(..)`/`given`/`trait ..with` but DROPS the `{..}` body. Big; slice further. Watch the
+  param-less `def m = body` → `(lam 0)` gap. lang-split, typeclass-extension, tagless-*, effects.
+- **string `"""`triple-quote + encoder-escape (13)** — F must (a) lex `"""..."""` and (b) ESCAPE real
+  newline/quote/tab/backslash in the captured content to match `#coreir.encode`'s output (regular `"..."`
+  strings round-trip because source escapes already match; only `"""` has RAW specials). spa-demo,
+  graphql-client, ws-chat, json-value.
+- **match→`if __isTag__` (4)** — actors `receive { case .. }` lowers to an `if __isTag__` chain, NOT a
+  `(match ..)`. DEEP, different match strategy — do NOT touch the shared match lowering. distributed-word-count.
+- **global-vs-ctor-residual (4)**, **Array/Vector-ctor (2)**, **map-var-residual (1, graphql-hello:
+  Map with a `((_: T) => ..)` lambda value)**, **for-comp-residual (multi-line `for⏎`, tuple binder,
+  infix `1 to n` — needs `for` layout-opener + infix `to`/`until`)**.
+GOTCHAS this session confirmed: (1) bare uid is NOT uniform — VALUE/`.field`-selection → `(global X)`,
+`.method(args)` CALL receiver → `(ctor X)`, zero-arg `X.m()` → `__method__` not `__method0__`. (2) top-level
+`val m = Map(..)` is NOT a mapVar (stays `__method__`); only block-local map vars need `_sel_mapUpdated/
+GetOrElse`. (3) each `for` generator lambda body parses with the binder pushed; gen in outer env.
 Each slice: byte-verify vs oracle on the cached corpus, keep `--self` GREEN (re-freeze fixpoint), re-run
 `v2.2-p6.5-corpus.sh`, CONFIRM no MATCH dropped. Build: `scala-cli --power package v2/src --assembly -o
 /tmp/ssc-codec.jar --force`; gate: `SSC_JAR=/tmp/ssc-codec.jar V2_DIR=<wt>/v2 NEWFRONT_WORK=/tmp/p65codec_work`.
