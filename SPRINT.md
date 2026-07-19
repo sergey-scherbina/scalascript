@@ -305,6 +305,30 @@ but on the clusters below (each verified via the histogram). Buckets:
 - [ ] **E3 — mixed & remaining enum near-misses** (data-types, typed-data, lenses, prisms, mcp-types,
       optic-polish, default-params, scala-js-demo, fn-typed-field, v2-type-ascription-pattern).
 
+## v2-p65-var (`v2-p65-var`, 2026-07-19) — var / while / assignment cluster (BIGGEST remaining, ~48 DIFF use `var`)
+
+Oracle map (all verified): block lowering `ssc1-lower.ssc0` lowerBlock :3865-3968 — `var x=e` int-literal
+init → `(let ((prim lcell.new e)) body)` bound as `@@x`, else `(let ((prim cell.new e)) body)` bound as
+`@x`; read `@@x`/`@x` → `lcell.get`/`cell.get (local i)` (lowerE :2464-2483); assign `x=e` → `lcell.set`/
+`cell.set (local i)`, else top-var → `cell.set (global x__cell)` (:3929-3968). `while c body` → `(while c
+body)` (:3969-3981; non-last → let(_blk_), last → bare). assign non-last → `(seq set rest)` scope UNCHANGED
+(:3966); expr/while non-last → `(let (e) rest)` push anon slot. Top level: `topVarCellDefs` (var cells)
+BEFORE `topValCellDefs` (:5570-5573); entry topExprs var/assign/while :5586-5601 (var init = cell.set
+global, SAME as val). `collectTopVars` :4949. Layout: `do` is an `isLayoutOpener` (ssc1-front :2866-2879).
+Verified against real oracle IR: variables (top var+while+assign), coroutine-basic (block lcell var),
+direct-control-flow (var cells THEN val cells, source order).
+- [x] **V1 — DONE (`47dea8b19`).** Top-level var + while + assignment + `do`-layout-opener + `()`→`(lit
+      unit)` fix. Corpus 159→161 (variables, fenceless-bare-code); fixpoint 132,908→142,004 B stage1==
+      stage2; --self 136 ok/0 FAIL. NOTE: def-body single-line assignment (`def f = x = e`, oracle
+      finishAssignment :1520 at EXPR level) DEFERRED — risky (named-arg guard needed); blocks only
+      var-topdef-shared so far. direct-control-flow now advances far (next = `direct[Option]{}` for-comp).
+- [ ] **V2 — block-local `var`.** parseBlock0 `var`→`(let ((prim lcell.new e)) ..)`+`@@x` (int lit) or
+      `(let ((prim cell.new e)) ..)`+`@x`; calleeOf/emitAssign gain `@@`/`@` lcell/cell get/set branches.
+      Target: coroutine-basic (verified), generators, streams (needs V3 compound), etc.
+- [ ] **V3 — compound assign `x += e`** → `("assign",(x, mkInf("+",x,e)))` (ssc1-front :1539). Lex `+=`
+      etc. Target: streams, mcp-server-tool, wasm-primes (also needs idx_assign + unary-not + Array.fill).
+- [ ] **V4 — idx_assign `a(i)=rhs`→`(prim arr.set a i rhs)`; nested while; map-var registry.** Deeper.
+
 **F3 BREADTH LOG (superseded intermediate) — corpus MATCH 1 → 43/504:**
 - top-level statements (loop fix + val cells + exprs): 1 → 34 (`07522696f`, `253f68231`)
 - float literals: 34 (correct prereq, `2d63fc63e`)

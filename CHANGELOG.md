@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-07-19 — v2-p65-var V1: top-level var + while + assignment + `do` layout in P6.5 F (byte-identical)
+
+`v2-p65-var`. First slice of the var/while/assignment cluster (the biggest remaining lever). Byte-identical
+to the oracle (ssc1-front+ssc1-lower). Corpus MATCH **159 → 161** (variables, fenceless-bare-code); X1
+fixpoint stage1==stage2 byte-identical **132,908 → 142,004 B**; `--self` 136 ok / 0 FAIL; no regression;
+no kernel (`v2/src/*`) or `v2/lib` oracle edits.
+
+- **Top-level `var name = init`** → entry `(prim cell.set (global name__cell) init)`, IDENTICAL to a top
+  `val` (ssc1-lower topExprs :5593-5609); its empty `name__cell` def is emitted in the topVar slot BEFORE
+  val cells (def order :5570-5573); a `varNames` registry makes a bare `name` read as `(prim cell.get
+  (global name__cell))` (lowerE isTopVar :2480).
+- **`while cond do {body}`** → `(while <cond> <body>)`, at top level and in blocks (:3969-3981; block
+  non-last pushes an anon slot + `let`, last is bare).
+- **Assignment `name = e`** → top var: `(prim cell.set (global name__cell) e)`; in a block, non-last →
+  `(seq set rest)` with scope UNCHANGED, last → the set bare (:3929-3968). Block `@@`/`@` local-cell
+  branches wired (fire once V2 pushes block vars).
+- **Layout:** the keyword `do` is now an `isLayoutOpener` (ssc1-front :2866-2879; F lexes it as an ident),
+  so `while cond do` + an indented body opens a virtual `{ .. }`.
+- **Fix:** `()` in value position → `(lit unit)` (was `(lit (int 0))`, which mis-balanced parens and
+  cascaded past the enclosing `}`; measured `Some(())` → `(ctor Some (lit unit))`).
+
 ## 2026-07-19 — v2-p65-enums: case-lambda { case Pat => body } in P6.5 F (byte-identical)
 
 `v2-p65-enums`. A block that STARTS with `case` is a partial-function / case-lambda: `{ case Pat => b .. }`
