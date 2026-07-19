@@ -514,7 +514,7 @@ def parseLamP(pr, env, cx) = pr match { case (env2, r) => parseLamBody(dlen(env2
 // back to the let-wrapped form unless the match consumes the whole body (isLamBodyEnd) — a trailing
 // postfix/binop (`p match {..} + 1`) must stay a normal expr.
 def parseLamBody(ar, env2, ts, cx) = if isLamSelfMatch(ar, env2, ts) then tryLamDirect(env2, ts, cx) else parseLamBodyG(ar, env2, ts, cx)
-def parseLamBodyG(ar, env2, ts, cx) = parseExpr(ts, 0, env2, cx) match { case (b, r) => ("(lam " ++ ar ++ " " ++ b ++ ")", r) }
+def parseLamBodyG(ar, env2, ts, cx) = bodyExpr(ts, env2, cx) match { case (b, r) => ("(lam " ++ ar ++ " " ++ b ++ ")", r) }
 def isLamSelfMatch(ar, env2, ts) = if ar == 1 then isLSM2(env2, ts) else false
 def isLSM2(env2, ts) = if isSelfScrutId(env2, ts) then isLSM3(tl(ts)) else false
 def isSelfScrutId(env2, ts) = if fst(hd(ts)) == 1 then lookup(snd(hd(ts)), env2) == 0 else false
@@ -548,7 +548,7 @@ def forSkipClose(ts) = if isTok(hd(ts), 2, 22) then tl(ts) else (if isTok(hd(ts)
 def forFlatMap(nm, genE, ts, env, cx) = parseForFromF(ts, nm :: env, cx) match { case (rRest, r) => (emitMethodCall("flatMap", genE, Cons(forLam(rRest), Nil), cx), r) }
 def forEnd(nm, genE, ts, env, cx) = if isWord(hd(ts), "yield") then forYield(nm, genE, tl(ts), env, cx) else forDo(nm, genE, skipDoKw(ts), env, cx)
 def forYield(nm, genE, ts, env, cx) = parseExpr(ts, 0, nm :: env, cx) match { case (b, r) => (emitMethodCall("map", genE, Cons(forLam(b), Nil), cx), r) }
-def forDo(nm, genE, ts, env, cx) = parseExpr(ts, 0, nm :: env, cx) match { case (b, r) => (emitMethodCall("foreach", genE, Cons(forLam(b), Nil), cx), r) }
+def forDo(nm, genE, ts, env, cx) = bodyExpr(ts, nm :: env, cx) match { case (b, r) => (emitMethodCall("foreach", genE, Cons(forLam(b), Nil), cx), r) }
 def parseParenOrLam(ts, env, cx) = if isLamParen(ts) then parseLamParen(ts, env, cx) else parseParen(ts, env, cx)
 // An enum TYPE name in select position (`EnumName.Case` / `EnumName.values`) is a companion access, not a
 // ctor: `E.Case` (nullary) -> `(ctor Case)` (drops the qualifier, ssc1-lower :1703), `E.values` -> the
@@ -717,7 +717,17 @@ def isCloseB(t) = if isTok(t, 2, 22) then true else (if isTok(t, 2, 51) then tru
 def phScanArg(ts) = phScan(ts, 0, 0, 0, false)
 def phScan(ts, depth, c0, ct, binder) = if isEmpty(ts) then (c0, (ct, binder)) else phScanTok(hd(ts), tl(ts), depth, c0, ct, binder)
 def phScanTok(t, rest, depth, c0, ct, binder) = if isArgEnd(t, depth) then (c0, (ct, binder)) else (if isTok(t, 2, 28) then phScan(rest, depth + 1, c0, ct, true) else (if isTok(t, 2, 30) then phScan(rest, depth, c0, ct, true) else (if isTok(t, 2, 5) then phScan(rest, depth, c0, ct, true) else (if isOpenB(t) then phScan(rest, depth + 1, c0, ct, binder) else (if isCloseB(t) then phScan(rest, depth - 1, c0, ct, binder) else (if isWild(t) then phScan(rest, depth, (if depth == 0 then c0 + 1 else c0), ct + 1, binder) else phScan(rest, depth, c0, ct, binder)))))))
-def parseIf(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (c, r1) => parseExpr(tl(r1), 0, env, cx) match { case (t, r2) => parseExpr(tl(r2), 0, env, cx) match { case (e, r3) => (emitIf(c, t, e), r3) } } }
+// DA12: a body/branch that may be a bare ASSIGNMENT `id = rhs` (Scala 3: `if c then x = e`, `def f=x=e`,
+// `p => x=e`). The oracle parses these positions with parseStmtOrExpr (ssc1-front :1301/1306). parseExpr
+// alone stops at `=` (not a binop) and drops the RHS — so an assignment body silently became a bare read.
+def bodyExpr(ts, env, cx) = if isAssignHead(ts) then parseAssign(ts, env, cx) else parseExpr(ts, 0, env, cx)
+// `if cond then t [else e]`: the ELSE is OPTIONAL — a missing else emits `(lit unit)` (ssc1-front
+// parseIfExpr :1305-1309, mkTup(Nil) → Unit); both branches parse via bodyExpr (assignment-aware).
+// With-else + non-assign branches are byte-identical to the old unconditional-else path.
+def parseIf(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (c, r1) => parseIfThen(c, tl(r1), env, cx) }
+def parseIfThen(c, ts, env, cx) = bodyExpr(ts, env, cx) match { case (t, r2) => parseIfElse(c, t, r2, env, cx) }
+def parseIfElse(c, t, ts, env, cx) = if isTok(hd(ts), 2, 4) then parseIfElse2(c, t, tl(ts), env, cx) else (emitIf(c, t, "(lit unit)"), ts)
+def parseIfElse2(c, t, ts, env, cx) = bodyExpr(ts, env, cx) match { case (e, r3) => (emitIf(c, t, e), r3) }
 def parseExpr(ts, minPrec, env, cx) = parseAtom(ts, env, cx) match { case (l, r) => climb(l, r, minPrec, env, cx) }
 // Infix range words `a to b` / `a until b` -> `a.to(b)` / `a.until(b)` -> `(app (global _sel_<w>) a b)`
 // (ssc1-front parseInfix :1484-1492: consumed UNCONDITIONALLY when the head is the id `to`/`until`, RHS is a
@@ -968,7 +978,7 @@ def collectPlessDefs(ts, cx) = collectPless0(skipSemisF(ts), cx)
 def collectPless0(ts, cx) = if isEmpty(ts) then Nil else (if isPlessHead(ts) then Cons(snd(hd(tl(ts))), collectPlessDefs(sndRest(parseTopItem(ts, cx)), cx)) else collectPlessDefs(sndRest(parseTopItem(ts, cx)), cx))
 def isPlessHead(ts) = if isTok(hd(ts), 2, 1) then isPlessAfterName(tl(tl(ts))) else false
 def isPlessAfterName(ts) = if isTok(hd(ts), 2, 21) then false else true
-def emitDefBody(nm, ar, env, ts, cx) = parseExpr(ts, 0, env, cx) match { case (body, rest) => ("(def " ++ nm ++ " (lam " ++ ar ++ " " ++ body ++ "))", rest) }
+def emitDefBody(nm, ar, env, ts, cx) = bodyExpr(ts, env, cx) match { case (body, rest) => ("(def " ++ nm ++ " (lam " ++ ar ++ " " ++ body ++ "))", rest) }
 // -- top-level statement walk -------------------------------------------------------------------
 // Each top-level item is `def`, `case class`, `val`, or a bare expression. def/case-class land in the
 // hoisted user-defs; a `val` init and a bare expression land in the ENTRY in document order (measured
