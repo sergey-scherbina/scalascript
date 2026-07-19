@@ -681,6 +681,20 @@ Slices, impact-ordered:
       lexDispatch OUTSIDE a string (scanStr consumes string `@`s first → emails/regexes/markdown untouched);
       verified all 6 MATCH-file `@`s are in string literals; F's own `@`s are in comments/strings. 9 DIFF
       files use @main; the other 7 (wasm-*) diverge FIRST elsewhere so are still DIFF (no regr, no flip).
+- [x] **M2 — DONE (`v2-p65-ccm`, 2026-07-19). Named-argument `label = value` strip. Corpus 279->300/508
+      (+21!!, BIGGEST single lever this chain), 0 regr; X1 fixpoint 191,697->192,045 B stage1==stage2;
+      --self 153 ok/0 FAIL; kernel +0.** parseArgExpr: if an arg starts with `id =` (lowercase ident + `=`
+      code 20, NOT `==` 44 nor `=>` 30 so lambdas untouched) it is a NAMED ARG — STRIP the `label =` and
+      lower the VALUE positionally in source order (ssc1-front stripNargs; a method call can't reorder). F
+      used to emit the label as `(global label)` and cascade the `= value`. CTOR named-args that REORDER to
+      field order / synthesise omitted defaults are NOT handled (strip-only keeps source order) — those stay
+      DIFF, but NO MATCH file had a named-arg call so stripping can't regress one (verified 0 regr). Flipped
+      21: sse/ws-typed-client, tkv2-forms/select/select-reactive/busi-home/hstack-wrap/pwa/textfield-reactive-
+      label, content-action-onsuccess, content-toolkit-yaml-controls, datatable-static-spa, graphql-hello,
+      nfc-ndef, paginated-typed-client, rozum-agent/-pool, seed-signal, bank-rails-ach/-pix, actors-cluster-
+      coordinator. NOTE the handoff's "named args ENTANGLED with default synthesis" warning was PESSIMISTIC —
+      the strip-only path (no reorder, no default synth) alone flips 21; the entangled ctor-reorder cases are
+      a SEPARATE smaller residue.
 
 **➜ HANDOFF (`v2-p65-tail`, 2026-07-19): 5 slices landed (T1 triple-quote +7, T2 null +1, T4 collection-
 curry +1, T5 nested-interp +4, T6 bracket-list +11) = corpus MATCH 249→274/505 (fresh full 507-corpus
