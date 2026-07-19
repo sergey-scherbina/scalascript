@@ -365,7 +365,7 @@ def parseCtorArgs(nm, ts, env, cx) = if nm == "List" then parseListLit(ts, env, 
 def parseListLit(ts, env, cx) = parseArgL(ts, env, cx) match { case (es, r) => (consChain(es), r) }
 def consChain(es) = es match { case Nil => "(ctor Nil)" case h :: t => "(ctor Cons " ++ h ++ " " ++ consChain(t) ++ ")" }
 def parseArgL(ts, env, cx) = if isTok(hd(ts), 2, 22) then (Nil, tl(ts)) else parseArgL1(ts, env, cx)
-def parseArgL1(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => parseArgLMore(e, r, env, cx) }
+def parseArgL1(ts, env, cx) = parseArgExpr(ts, env, cx) match { case (e, r) => parseArgLMore(e, r, env, cx) }
 def parseArgLMore(e, ts, env, cx) = if isTok(hd(ts), 2, 27) then parseArgL(tl(ts), env, cx) match { case (rest, r2) => (Cons(e, rest), r2) } else (Cons(e, Nil), tl(ts))
 // MEASURED: a BUILTIN constructor is bare -- `Cons(a, b)` -> (ctor Cons a b), `Nil` -> (ctor Nil) --
 // but a USER case class CALLS its generated ctor def: `P(1, 2)` -> `(app (global P) ..)`, NOT
@@ -403,8 +403,28 @@ def parseVarOrCall(nm, ts, env, cx) = if isTok(hd(ts), 2, 21) then parseCall(nm,
 def parseCall(nm, ts, env, cx) = parseArgs(ts, env, cx) match { case (args, r) => (emitApp(calleeOf(nm, env, cx), args), r) }
 def emitApp(callee, args) = "(app " ++ callee ++ args ++ ")"
 def parseArgs(ts, env, cx) = if isTok(hd(ts), 2, 22) then ("", tl(ts)) else parseArg(ts, env, cx)
-def parseArg(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => parseArgsMore(e, r, env, cx) }
+def parseArg(ts, env, cx) = parseArgExpr(ts, env, cx) match { case (e, r) => parseArgsMore(e, r, env, cx) }
 def parseArgsMore(e, ts, env, cx) = if isTok(hd(ts), 2, 27) then parseArgs(tl(ts), env, cx) match { case (rest, r2) => (" " ++ e ++ rest, r2) } else (" " ++ e, tl(ts))
+// -- underscore-placeholder argument wrapping --------------------------------------------------------
+// ssc1-front wrapPhArg :970 wraps a CALL ARGUMENT that contains `_` (but isn't a bare `_`) into an
+// N-ary lambda, `_` → param, left-to-right (`filter(_ % 2 == 0)` → `filter(x => x % 2 == 0)`). Nested
+// call args are wrapped first (bottom-up), so an inner `_` is captured by its innermost enclosing call.
+// F handles the SINGLE-placeholder case exactly (push one param named "_" so calleeOf resolves it to the
+// right de Bruijn `(local i)`, then emit `(lam 1 body)`); a bare `_` arg stays unwrapped so it binds to an
+// OUTER wrap (`f(_)` → `x => f(x)`). Args with 0 or ≥2 placeholders, or containing a binder (`=>`/`{`/
+// `match`, where `_` is not a shallow placeholder), fall through to a plain parse — same output as before
+// (no MATCH file has a count-1 placeholder arg, so this cannot regress).
+def parseArgExpr(ts, env, cx) = phArgWrap(phScanArg(ts, 0, 0, false), ts, env, cx)
+def phArgWrap(sc, ts, env, cx) = sc match { case (cnt, binder) => if binder then parseExpr(ts, 0, env, cx) else (if cnt == 1 then (if isBarePhArg(ts) then parseExpr(ts, 0, env, cx) else wrapSinglePh(ts, env, cx)) else parseExpr(ts, 0, env, cx)) }
+def wrapSinglePh(ts, env, cx) = parseExpr(ts, 0, "_" :: env, cx) match { case (b, r) => ("(lam 1 " ++ b ++ ")", r) }
+def isArgEnd(t, depth) = if depth == 0 then (if isTok(t, 2, 27) then true else isTok(t, 2, 22)) else false
+def isBarePhArg(ts) = if isWild(hd(ts)) then isArgEnd(hd(tl(ts)), 0) else false
+def isOpenB(t) = if isTok(t, 2, 21) then true else isTok(t, 2, 50)
+def isCloseB(t) = if isTok(t, 2, 22) then true else (if isTok(t, 2, 51) then true else isTok(t, 2, 29))
+// Scan ONE argument's tokens to its top-level boundary (`,`/`)`), tallying placeholders and whether a
+// binder (`=>`/`{`/`match`) makes the `_` non-shallow. `{` both opens a bracket and marks a binder.
+def phScanArg(ts, depth, cnt, binder) = if isEmpty(ts) then (cnt, binder) else phScanTok(hd(ts), tl(ts), depth, cnt, binder)
+def phScanTok(t, rest, depth, cnt, binder) = if isArgEnd(t, depth) then (cnt, binder) else (if isTok(t, 2, 28) then phScanArg(rest, depth + 1, cnt, true) else (if isTok(t, 2, 30) then phScanArg(rest, depth, cnt, true) else (if isTok(t, 2, 5) then phScanArg(rest, depth, cnt, true) else (if isOpenB(t) then phScanArg(rest, depth + 1, cnt, binder) else (if isCloseB(t) then phScanArg(rest, depth - 1, cnt, binder) else (if isWild(t) then phScanArg(rest, depth, cnt + 1, binder) else phScanArg(rest, depth, cnt, binder)))))))
 def parseIf(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (c, r1) => parseExpr(tl(r1), 0, env, cx) match { case (t, r2) => parseExpr(tl(r2), 0, env, cx) match { case (e, r3) => (emitIf(c, t, e), r3) } } }
 def parseExpr(ts, minPrec, env, cx) = parseAtom(ts, env, cx) match { case (l, r) => climb(l, r, minPrec, env, cx) }
 def climb(left, ts, minPrec, env, cx) = if binPrec(hd(ts)) >= minPrec then climbStep(left, ts, minPrec, env, cx) else (left, ts)
