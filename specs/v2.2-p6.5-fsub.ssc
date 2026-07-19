@@ -245,7 +245,12 @@ def interpChain2(h, t, dq) = t match { case Nil => h case _ => emitArithS("++", 
 // dependent: slen for a string-literal-ish receiver, __method__ otherwise -- and a `++` receiver
 // takes the __method__ path even though it IS a string expression (isConcatInf is tested first).
 // All measured against the reference.
-def postfix(pr, env, cx) = pr match { case (c, ts) => if isTok(hd(ts), 2, 31) then postfix(postDot(c, tl(ts), env, cx), env, cx) else (if isTok(hd(ts), 2, 5) then postfix(parseMatch(c, tl(ts), env, cx), env, cx) else (if isTok(hd(ts), 2, 21) then postfix(postApp(c, tl(ts), env, cx), env, cx) else (c, ts))) }
+def postfix(pr, env, cx) = pr match { case (c, ts) => if isTok(hd(ts), 2, 31) then postfix(postDot(c, tl(ts), env, cx), env, cx) else (if isTok(hd(ts), 2, 5) then postfix(parseMatch(c, tl(ts), env, cx), env, cx) else (if isTok(hd(ts), 2, 21) then postfix(postApp(c, tl(ts), env, cx), env, cx) else (if isTok(hd(ts), 2, 28) then postfix(postBlockArg(c, tl(ts), env, cx), env, cx) else (c, ts)))) }
+// Trailing block-argument application: `f { block }` -> `(app f (lam 0 <block>))` and `f(args) { block }`
+// -> `(app (app f args) (lam 0 <block>))` (measured — actors runActors{..}, httpClient(url){..}). The
+// block is a by-name thunk (lam 0); its env is unchanged (arity 0 adds no binders). Reuses parseBlock,
+// so a multi-statement block body lowers via the L2c let-chain. `.match {..}` is handled BEFORE this.
+def postBlockArg(c, ts, env, cx) = parseBlock(ts, env, cx) match { case (b, r) => ("(app " ++ c ++ " (lam 0 " ++ b ++ "))", r) }
 // Chained application `f(a)(b)` -> (app (app (global f) a) b).
 def postApp(c, ts, env, cx) = parseArgs(ts, env, cx) match { case (args, r) => (emitApp(c, args), r) }
 def postDot(c, ts, env, cx) = postDot1(c, snd(hd(ts)), tl(ts), env, cx)
