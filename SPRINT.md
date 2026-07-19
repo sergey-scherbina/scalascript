@@ -266,23 +266,37 @@ v2 KERNEL (`v2/src/*`), or the `v2/lib` oracle fronts. Reproduced each gap first
 assembled `bin/ssc-tools run-js --v2` (native reference: `bin/ssc run`), differential.
 Fast loop: `v2/ssc1c file.ssc > x.coreir; scala-cli run v2/backend/js -- x.coreir > x.cjs; node x.cjs`.
 
-- [ ] **J1 — v2-JS `List.foldLeft`/`reduce` + full combinator set.** `$method` (JsBackend.scala) only
-      dispatches map/filter/mkString/reverse/foreach/sum/head/tail/etc. on lists; `foldLeft`/`reduce`
-      crash with `no dispatch for .foldLeft on List`. Add the whole set matching the VM
-      (`v2/src/Runtime.scala:3247-3450`), incl. the CURRIED `foldLeft(z)(op)`/`foldRight`/`scanLeft`
-      (front lowers as `App(__method__(foldLeft,xs,z),[op])` → `$method('foldLeft',recv,z)` must return
-      a fn when given 1 non-recv arg). Repro `/tmp/f6/r2_list.ssc`, native = `15 / 15 / [2,4,6,8,10] / 12`.
-- [ ] **J2 — v2-JS `Map` access + methods.** `m("a")` lowers to `$apply(map,[key])` → crash
-      `not callable: <map>`; `.get/.getOrElse/.size` → `$method` (no map arm). Add map-apply (Scala
-      `Map.apply` throws on missing key = fail-closed) + map method dispatch matching VM
-      (`Runtime.scala:3587-3611`). Repro `/tmp/f6/r2_map.ssc`, native = `1 / Some(2) / 3 / 99`.
+- [x] **J1 — v2-JS `List.foldLeft`/`reduce` + full combinator set. DONE (2026-07-19, `7ebb08a6c`).**
+      Reproduced: `foldLeft` crashed `no dispatch for .foldLeft on List(1, 2, 3, 4, 5)`. Added the full
+      combinator set matching the VM (`Runtime.scala:3247-3450`) incl. the CURRIED
+      `foldLeft(z)(op)`/`foldRight`/`scanLeft` (returns a fn on 1 non-recv arg), tuple-spreading
+      map/flatMap, `$lt`/`$cmp` value ordering for sorted/sortBy/min/max. `product`/`collect` deliberately
+      EXCLUDED — the VM returns `Stub` for them (parity over unilateral capability). Verified byte-identical
+      to native on a 50-op differential + end-to-end `run-js --v2`. Native ref `15 / 15 / [2,4,6,8,10] / 12`.
+- [x] **J2 — v2-JS `Map` access + methods. DONE (2026-07-19, `7ebb08a6c`).** Reproduced: `m("a")` threw
+      `not callable: <map>`. Added `Map.apply` in `$apply` (fail-CLOSED: throws on missing key like Scala),
+      map method set matching the VM (`Runtime.scala:3587-3611`), map `+` in `$arith`. `MapV.foldLeft`/
+      `foreach` intentionally ABSENT (the VM errors on them — front lowers curried, no 1-arg MapV curry in
+      the kernel; parity). Verified byte-identical to native. Native ref `1 / Some(2) / 3 / 99`.
+      **RENDERING FIX (both J1+J2):** `io.println`/entry now render via anyStr (unquoted nested strings —
+      `List(a, b)` / `Map(k -> v)` / `(a, b)`) matching the VM's `out()`, not `Show.show` (which quotes);
+      `$show`/`$bridgeShow` render `TupleN`→`(..)` and `MapV`→`Map(k -> v)`. Surfaced once the new methods
+      produce strings/tuples/maps. Broad rendering smoke byte-identical to native.
+      **Found (native/kernel gaps, NOT fixed here — file if not present):** (a) `Map(...).foldLeft(z)(op)`
+      errors on native (kernel has no 1-arg MapV foldLeft curry, unlike List) — v2-JS matches by erroring
+      identically; (b) `List.product` returns a silent `Stub` on native (kernel fail-open on unknown
+      method) — v2-JS matches by not supporting it. Both are kernel-side; out of the F6 backend lane.
 - [ ] **J3 — v2-JS effects (`effect.perform.oneshot`/`effect.handle`/`effect.pure`).** Deeper: needs
       Op-threading through Let/Seq (JS currently force-evaluates, ignoring Op suspensions) + a JS port of
       the PortableEffects handle driver (`v2/src/PortableEffects.scala`). Repro `/tmp/f6/r2_effects.ssc`,
       native = `List(Hello, World!)`. Assess ANF-lift-then-thread (mirror bytecode `OpAnfNative.lift`) vs
       thread-at-every-eval-point.
-- [ ] **J4 — un-flag any v2-JS conformance case that now passes** (opt-in `also-codegen: v2` lane,
-      known-red today). Move green honestly.
+- [x] **J4 — regression cases on the v2 lanes. DONE (2026-07-19, `5ceccbfe4`).** No pre-existing js-v2
+      known-red covered these cells (the only `also-codegen: v2` cases were numeric), so nothing to
+      un-flag. Instead ADDED `tests/conformance/list-combinators.ssc` + `map-ops.ssc` (`also-codegen: v2`)
+      that pin the fixed surface across INT+v1-JS+v1-JVM+v2-JS+v2-JVM (all 5 lanes PASS). NOTE: Map
+      keys/values/toList/whole-map-print and order-unstable ops are excluded from the shared cases (v1 maps
+      unordered; v1-JVM renders Set/Iterable) — v2-JS parity on those is proven in the dev differential.
 - [ ] **R5 — tower Rust/WASM BigInt silent-drop.** `backend-rust.ssc0` emits `V::U` (Unit) for every
       `big.*`/`i->big` prim → `bigfact` prints empty (fail-OPEN, the class we ban). Implement real
       wide-int (i128) or a faithful BigInt, or make it a LOUD error. Repro

@@ -14,6 +14,25 @@ entries→0); X1 `--self` fixpoint **byte-identical to `origin/main` at the same
 0 FAIL); conformance introduced **no new FAILs** (post-change fail-set ⊂ baseline);
 `v2NativeUi` + `v2SwiftBackend` + `v2NativeUiPlugin` + `cli` all compile clean.
 
+## 2026-07-19 — v2-f6-backends J1+J2: v2-JS List combinators + Map access (measured gaps closed)
+
+`v2-f6-backends` (F6 "powerful"). Closed two measured v2-JS (`run-js --v2`) crashes from
+`specs/v2-state-2026-07-18.md` §R2; native + JVM-bytecode already had full parity. Fail-CLOSED:
+every path gives the right answer or a loud error, verified byte-identical to native (differential).
+Edits only in `v2/backend/js/JsBackend.scala` — no kernel (`v2/src/*`), no `v1/`, no `v2/lib` oracle.
+
+- **J1** — `List.foldLeft`/`reduce` crashed `no dispatch for .foldLeft on List`. Added the full
+  combinator set matching the VM (`Runtime.scala:3247-3450`) incl. curried `foldLeft(z)(op)`/`foldRight`/
+  `scanLeft`, tuple-spreading map/flatMap, and `$lt`/`$cmp` value ordering. `product`/`collect` excluded
+  (the VM returns `Stub` — parity over unilateral capability).
+- **J2** — `Map` access `m("a")` threw `not callable: <map>`; `.get`/`.size` had no dispatch. Added
+  `Map.apply` (fail-closed on missing key), the map method set (`Runtime.scala:3587-3611`), and map `+`.
+- **Rendering** — `io.println`/entry now render via anyStr (unquoted nested strings, `TupleN`→`(..)`,
+  `MapV`→`Map(k -> v)`) matching the VM's `out()`, not `Show.show`.
+- **Tests** — `tests/conformance/{list-combinators,map-ops}.ssc` (`also-codegen: v2`) pin the surface
+  across INT+v1-JS+v1-JVM+v2-JS+v2-JVM (all 5 lanes PASS).
+- Remaining: **J3** (v2-JS effects) + **R5** (tower Rust/WASM BigInt silent-drop).
+
 ## 2026-07-19 — v2-p65-sel: list `_sel_`/`__list_*` dispatch + underscore-placeholder wrapping in P6.5 F
 
 `v2-p65-sel`. Corpus MATCH **172 → 201/504** (+29); X1 fixpoint stage1==stage2 byte-identical
