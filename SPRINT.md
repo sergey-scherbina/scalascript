@@ -329,15 +329,40 @@ direct-control-flow (var cells THEN val cells, source order).
       ok/0 FAIL; 0 regressions. Newly matched: variables, arithmetic, deep-tail-recursion, fenceless-bare-
       code, scljet-jdbc-basic, scljet-mutate-delete/update, scljet-sql-index-descent/range-descent,
       scljet-sql-rowid-seek-overflow, scljet-write-btree-overflow/keyed/overflow.
-- [ ] **V4 — remaining var-cluster near-misses (measured 2026-07-19 at first divergence):**
-      (a) **list-var `_sel_` registry** (task item 2, ~biggest now) — a var/val holding a LIST routes
-      `.nonEmpty`/`.head`/`.map`/... to `__list_*`/`_sel_<m>` not `__method__` (if-then-no-else-after-while,
-      scljet-cell-inplace, scljet-balance-insert). Oracle listVarsCell/selMethodOr :246/314/1545.
-      (b) **def-body single-line assignment** `def f = x = e` (finishAssignment at EXPR level, :1520) —
-      var-topdef-shared. Risky (named-arg guard). (c) **`[T,..]` type-args in call position** — leaks
-      block-local `val` to top vals (coroutine-basic `val c` inside `coroutineCreate[T,T,T]{..}`).
-      (d) idx_assign `a(i)=rhs`→`(prim arr.set a i rhs)`, Array.fill, unary `!` (wasm-primes).
-      (e) for-comprehension (`direct[Option]{}`, json-deep-import `for`). (f) map-var registry (`var m=Map`).
+**➜ HANDOFF (`v2-p65-var`, 2026-07-19): var cluster core DONE (V1+V2+V3). Corpus MATCH 159 → 172/504
+(+13), X1 fixpoint stage1==stage2 byte-identical 132,908 → 147,851 B, --self 136 ok/0 FAIL, 0 regressions,
+kernel +0, no v2/lib oracle edits. Build: `scala-cli --power package v2/src --assembly -o /tmp/ssc.jar`;
+gate `SSC_JAR=/tmp/ssc.jar V2_DIR=<repo>/v2 bash specs/v2.2-p6.5-corpus.sh` (set NEWFRONT_WORK to a persist
+dir to cache the 504 ref IRs). FRESH FIRST-DIVERGENCE HISTOGRAM over the 332 DIFFs (biggest levers next):**
+- **LIST `_sel_`/`__list_*` dispatch — ~46, BIGGEST (task item 2, architectural).** `_sel_mkString`(14),
+  `_sel_map`(9), `__list_head`(5), `_sel_filter`(4), `_sel_getOrElse`(4), `_sel_foreach`(4),
+  `__list_nonEmpty`(3), `__list_isEmpty`(3), `_sel_length`. TWO sub-features (VERIFIED in the oracle):
+  - **(A) method-call-with-args on a NON-var receiver → `selMethodOr`** (ssc1-lower resolveMethodCall
+    :1413 dispatches on the RESOLVED-not-lowered robj TAG: `var`/`uid` → `__method__`/object; else →
+    `selMethodOr` :1545). In F the receiver is a STRING: `(local `/`(global `/`(prim cell.get `/`(prim
+    lcell.get ` = a var read → keep `__method__`; `(ctor Cons`/`(ctor Nil)`/`(app `/`(prim __method__` =
+    non-var → route via a NEW `selMethodOr`. selMethodOr rules: `map`→`_sel_map` UNLESS the single arg is
+    a multi-param lambda (` (lam N ` with N≥2)→`__method__`; `mkString` arity-1→`_sel_mkString` else
+    `__method__`; `take`/`sum`/`foldLeft`/`foldRight`→`__method__`; else isKnownSelMethod {filter flatMap
+    fold foreach getOrElse length split trim to until toList runToList mapUpdated mapGetOrElse _1.._4}→
+    `_sel_<m>`; else `__method__`. RISK: uid receivers `(ctor Foo` (object dispatch — DON'T route those
+    to _sel_) and map-vars `.updated`/`.getOrElse`→`_sel_mapUpdated/mapGetOrElse` (:1495). Falls back to
+    `__method__` for unknown methods so mostly can-only-fix. eg async-demo, components-demo, case-classes.
+  - **(B) bare-selector on a list-VARIABLE → `__list_*`/`_sel_length`** needs the `isListVar` REGISTRY
+    (ssc1-lower :314/1601 resolveField `.length`/`.size`/`.head`/`.tail`/`.isEmpty`/`.nonEmpty`).
+    Registration (:2308): a val/var whose RESOLVED init `isListConstruction` (:320 = an app to
+    `_sel_runToList`/`_sel_filter`/`_sel_map`/`_sel_flatMap`/`_sel_take` — NOT a bare `List(..)` Cons-
+    chain!) registers the name. So list-ness PROPAGATES through _sel_ chains; needs a mutable registry
+    threaded like varNames/valNames. eg collections, if-then-no-else-after-while, scljet-cell-inplace.
+- **map-var `.updated`/Map construction → `_sel_mapUpdated`/`map.put`** (`lam N (let ((prim map.put`, 13).
+- **`__derived_*` codecs** (~6+, `derives Csv/JsonCodec/ObjectCodec` → `__derived_*Codec` cells+mirror+init).
+- **case-class body methods** (`Point_distanceTo`, `__self`, ~a few) — `case class C(..){ def m=.. }`→`C_m`.
+- **for-comprehension** (6: `(global for)` unhandled — `for..do`/`for..yield` → foreach/map/flatMap chains;
+  ssc1-front parseForFrom :1000; needs `yield` layout-opener too).
+- **var-cluster leftovers:** (b) def-body single-line assign `def f = x = e` (finishAssignment EXPR-level
+  :1520; risky — named-arg guard); (c) `[T,..]` type-args in CALL position (leaks block-local `val` to top
+  vals — coroutine-basic `val c` in `coroutineCreate[T,T,T]{..}`); (d) idx_assign `a(i)=rhs`→`(prim arr.set
+  a i rhs)` + Array.fill + unary `!` (wasm-primes); (e) type-ascription pattern `case _:T=>` (2).
 
 **F3 BREADTH LOG (superseded intermediate) — corpus MATCH 1 → 43/504:**
 - top-level statements (loop fix + val cells + exprs): 1 → 34 (`07522696f`, `253f68231`)
