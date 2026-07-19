@@ -410,7 +410,10 @@ def globalNameOf(c) = if startsW(c, "(global ") then c.substring(8, c.length - 1
 def isYamlSel(nm, c, cx) = if nm == "yaml" then isYamlSel1(globalNameOf(c), cx) else false
 def isYamlSel1(x, cx) = if x == "" then false else isTopVal("__yaml_" ++ x, cx)
 def emitYamlSel(c) = "(prim cell.get (global __yaml_" ++ globalNameOf(c) ++ "__cell))"
-def postSel(c, nm, cx) = if isListField(nm) then "(app (global __list_" ++ nm ++ ") " ++ c ++ ")" else (if isFld(nm, cx) then "(app (global _sel_" ++ nm ++ ") " ++ c ++ ")" else (if isTupField(nm) then "(app (global _sel_" ++ nm ++ ") " ++ c ++ ")" else (if isYamlSel(nm, c, cx) then emitYamlSel(c) else emitMethod(nm, selRecv(c), "", dqOf(cx)))))
+// A bare field access on `RoundingMode` — `RoundingMode.HALF_UP` — lowers to the field NAME as a string
+// literal `(lit (str "HALF_UP"))` (oracle ssc1-lower resolveField roundingOwner :1600, a hardcoded builtin;
+// RoundingMode is not a user enum). Only the bare-uid receiver `(global RoundingMode)` triggers it.
+def postSel(c, nm, cx) = if c == "(global RoundingMode)" then "(lit (str " ++ dqOf(cx) ++ nm ++ dqOf(cx) ++ "))" else (if isListField(nm) then "(app (global __list_" ++ nm ++ ") " ++ c ++ ")" else (if isFld(nm, cx) then "(app (global _sel_" ++ nm ++ ") " ++ c ++ ")" else (if isTupField(nm) then "(app (global _sel_" ++ nm ++ ") " ++ c ++ ")" else (if isYamlSel(nm, c, cx) then emitYamlSel(c) else emitMethod(nm, selRecv(c), "", dqOf(cx))))))
 def emitLen(c, cx) = if isConcatCode(c, dqOf(cx)) then emitMethod("length", c, "", dqOf(cx)) else (if isStrLitish(c) then "(prim slen " ++ c ++ ")" else emitMethod("length", c, "", dqOf(cx)))
 def emitMethod(nm, c, args, dq) = "(prim __method__ (lit (str " ++ dq ++ nm ++ dq ++ ")) " ++ c ++ args ++ ")"
 // parseArgL (not parseArgs) so the arg COUNT and the single-arg shape are recoverable — selMethodOr needs
