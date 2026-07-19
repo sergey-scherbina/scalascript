@@ -962,7 +962,7 @@ def parseGenArms(ts, menv, cx) = parseGenArms0(skipSemisF(ts), menv, cx)
 // IrLit(IrUnit)), NOT `(lit (int 0))`. Only reachable when a match ends in a ctor/int arm with no
 // catch-all (every currently-MATCHing ordered file ends in a var/wildcard, so this is a latent-bug fix).
 def parseGenArms0(ts, menv, cx) = if isTok(hd(ts), 2, 6) then parseGenArm(tl(ts), menv, cx) else ("(lit unit)", armsRest(ts))
-def parseGenArm(ts, menv, cx) = if isTypedArm(ts) then parseTypedArm(ts, menv, cx) else (if isWild(hd(ts)) then parseGenWild(tl(ts), menv, cx) else (if fst(hd(ts)) == 3 then parseGenCtorDisp(ts, menv, cx) else (if fst(hd(ts)) == 0 then parseGenInt(snd(hd(ts)), tl(ts), menv, cx) else parseGenVar(snd(hd(ts)), tl(ts), menv, cx))))
+def parseGenArm(ts, menv, cx) = if isTypedArm(ts) then parseTypedArm(ts, menv, cx) else (if isWild(hd(ts)) then parseGenWild(tl(ts), menv, cx) else (if fst(hd(ts)) == 3 then parseGenCtorDisp(ts, menv, cx) else (if isTok(hd(ts), 2, 21) then parseGenTupDisp(ts, menv, cx) else (if fst(hd(ts)) == 0 then parseGenInt(snd(hd(ts)), tl(ts), menv, cx) else parseGenVar(snd(hd(ts)), tl(ts), menv, cx)))))
 // -- ctor-pattern arms in the ordered resolver (`case Ctor(x) [if g] => ..`) ----------------------
 // A ctor arm lowers to a ONE-arm IrMatch whose default is the ordered lowering of the REST, and (when
 // guarded) whose arm body is `(if g body <fallback>)` where the fallback is the ordered lowering of the
@@ -1086,6 +1086,13 @@ def litPatF(ty, v, cx) = if ty == "int" then emitInt(v) else (if ty == "str" the
 def parseGenCtorDisp(ts, menv, cx) = parseGenCtorDisp1(parsePatF(ts), ts, menv, cx)
 def parseGenCtorDisp1(pr, ts, menv, cx) = pr match { case (p, r) => if patNested(p) then dispNested(p, r, ts, menv, cx) else parseGenCtor(ts, menv, cx) }
 def dispNested(p, r, ts, menv, cx) = if isTok(hd(r), 2, 2) then parseGenCtor(ts, menv, cx) else parseNestedArm(p, r, menv, cx)
+// A tuple-first arm in the ordered resolver (`case (a, Some(x)) => ..` / `case (w: String, _: Int) => ..`)
+// -> parse structurally (cpat Pair/TupleN) and route through the nested-arm machinery, which handles both
+// flat and nested tuples (dischargeObsOr with 0 obligations = a plain ctor arm). Only reached inside a
+// nested match (hasNestedArms). Non-cpat/guarded -> keep the old var fallback (no corpus need, no regression).
+def parseGenTupDisp(ts, menv, cx) = parseGenTupDisp1(parsePatF(ts), ts, menv, cx)
+def parseGenTupDisp1(pr, ts, menv, cx) = pr match { case (p, r) => if isTupArmOk(p, r) then parseNestedArm(p, r, menv, cx) else parseGenVar(snd(hd(ts)), tl(ts), menv, cx) }
+def isTupArmOk(p, r) = if fst(p) == "cpat" then isTok(hd(r), 2, 30) else false
 def parseNestedArm(p, ts, menv, cx) = parseNestedCtorArm(fst(snd(p)), snd(snd(p)), ts, menv, cx)
 def parseNestedCtorArm(nm, fields, ts, menv, cx) = nestA1(nm, fields, dlen(fields), menv, tl(ts), cx)
 def nestA1(nm, fields, arity, menv, bodyTs, cx) = nestA2(nm, fields, arity, appEnv(revL(fldBindersF(fields)), menv), refinedObligsF(fields, arity), menv, bodyTs, cx)
