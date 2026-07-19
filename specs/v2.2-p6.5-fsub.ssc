@@ -68,7 +68,10 @@ def lexWord2(s, i, n, j, w) = if kwCode(w) > 0 then Cons((2, kwCode(w)), lex(s, 
 // preserving `1.0`/`0.5`/`10.0` exactly. `5.toDouble` stays Int (the char after `.` is not a digit).
 def isFloatDot(s, e, n) = if atEnd(e, n) then false else (if s.charAt(e) == 46 then (if atEnd(e + 1, n) then false else isDig(s.charAt(e + 1))) else false)
 def lexNum(s, i, n) = lexNum1(s, i, n, scanNumE(s, i, n))
-def lexNum1(s, i, n, e) = if isFloatDot(s, e, n) then lexFloat(s, i, n, scanNumE(s, e + 1, n)) else Cons((0, scanNumV(s, i, n, 0)), lex(s, e, n))
+// A trailing `L`/`l` Long suffix is stripped (the oracle emits `(lit (int N))` for `5L`), so `1L` lexes
+// as the int 1, not int 1 + a stray uid `L` (which cascaded into a mis-parse across the scljet cluster).
+def longEnd(s, e, n) = if atEnd(e, n) then e else (if s.charAt(e) == 76 then e + 1 else (if s.charAt(e) == 108 then e + 1 else e))
+def lexNum1(s, i, n, e) = if isFloatDot(s, e, n) then lexFloat(s, i, n, scanNumE(s, e + 1, n)) else Cons((0, scanNumV(s, i, n, 0)), lex(s, longEnd(s, e, n), n))
 def lexFloat(s, i, n, fe) = Cons((5, s.substring(i, fe)), lex(s, fe, n))
 def opCode(c) = if c == 40 then 21 else (if c == 41 then 22 else (if c == 45 then 24 else (if c == 42 then 25 else (if c == 44 then 27 else (if c == 46 then 31 else (if c == 123 then 28 else (if c == 125 then 29 else (if c == 91 then 50 else (if c == 93 then 51 else 0)))))))))
 def lexOp1(s, i, n, c) = if opCode(c) == 0 then lex(s, i + 1, n) else Cons((2, opCode(c)), lex(s, i + 1, n))
