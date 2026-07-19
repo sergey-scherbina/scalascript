@@ -306,11 +306,22 @@ Fast loop: `v2/ssc1c file.ssc > x.coreir; scala-cli run v2/backend/js -- x.corei
       that pin the fixed surface across INT+v1-JS+v1-JVM+v2-JS+v2-JVM (all 5 lanes PASS). NOTE: Map
       keys/values/toList/whole-map-print and order-unstable ops are excluded from the shared cases (v1 maps
       unordered; v1-JVM renders Set/Iterable) — v2-JS parity on those is proven in the dev differential.
-- [ ] **R5 — tower Rust/WASM BigInt silent-drop.** `backend-rust.ssc0` emits `V::U` (Unit) for every
-      `big.*`/`i->big` prim → `bigfact` prints empty (fail-OPEN, the class we ban). Implement real
-      wide-int (i128) or a faithful BigInt, or make it a LOUD error. Repro
-      `v2/ssc0-rust v2/examples/bigfact.ssc0 | rustc -O - -o /tmp/bf && /tmp/bf`, VM ref =
-      `265252859812191058636308480000000`. WASM reuses the Rust backend (same fix).
+- [x] **R5 — tower Rust/WASM/tower-JS BigInt. DONE (2026-07-19, `23846a78e`).** Reproduced: Rust emitted
+      `V::U` for every `big.*` (bigfact panicked); tower-JS emitted `0`; both fail-OPEN. Fixed in the
+      tower backends (`v2/lib/backend-rust-gen.ssc0` + `backend-js-gen.ssc0`, NOT the front oracle):
+      Rust uses `V::Big(i128)` with CHECKED arithmetic (loud panic past i128 — a faithful wide-int, since
+      single-file rustc has no num-bigint crate); tower-JS uses native BigInt (true arbitrary precision).
+      Verified byte-identical to the VM (`265252859812191058636308480000000`) on Rust + WASM (reuses the
+      Rust backend) + tower-JS; fact/tco/calc/quicksort/map unchanged; 40! (past i128) panics LOUDLY (not
+      silent-wrong). Regression: `v2/conformance/check.sh` now asserts bigfact on the Rust + tower-JS lanes
+      (`chk_raw_targets`). **NOTE:** the audit named only Rust/WASM; tower-JS had the same silent drop and
+      was fixed too (same class).
+
+**➜ F6 COMPLETE (2026-07-19): all measured backend gaps closed.** v2-JS foldLeft/reduce/full-combinators
+(J1), Map access (J2), and algebraic effects (J3) — plus tower Rust/WASM/tower-JS BigInt (R5). Every fix
+is fail-CLOSED (right answer or loud error, never silent-wrong) and verified differentially against the
+interpreter/VM. Regression cases added on the relevant conformance lanes. Remaining v2-JS follow-up (out
+of F6 scope, filed): native effect-RUNNER PLUGINS (`runState`/`runLogger`) on the JS backend.
 
 ## v2-p65-enums (`v2-p65-enums`, 2026-07-19) — enum cluster, impact-ordered slices
 

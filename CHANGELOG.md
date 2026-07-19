@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-07-19 — v2-f6-backends R5: BigInt on the Rust/WASM/tower-JS backends (F6 COMPLETE)
+
+`v2-f6-backends` (F6 "powerful"), the final gap. The tower Rust backend emitted `V::U` (Unit) for every
+`big.*`/`i->big` prim (bigfact printed empty/panicked); the tower-JS backend emitted `0` — both fail-open,
+the class AGENTS.md bans. Fixed in the tower backends only (`v2/lib/backend-{rust,js}-gen.ssc0`, not the
+front oracle):
+- Rust: `V::Big(i128)` + CHECKED arithmetic — a faithful wide-int (single-file `rustc` has no num-bigint
+  crate); overflow past i128 PANICS LOUDLY, never a silent wrong value. WASM reuses the Rust backend.
+- tower-JS: native JS BigInt (true arbitrary precision).
+
+Verified byte-identical to the VM (`265252859812191058636308480000000`) on Rust + WASM + tower-JS;
+fact/tco/calc/quicksort/map unchanged; 40! (past i128) panics loudly. Regression: `v2/conformance/check.sh`
+now asserts bigfact on the Rust + tower-JS lanes.
+
+**F6 is COMPLETE:** v2-JS List combinators + Map + effects (J1-J3), and tower Rust/WASM/tower-JS BigInt
+(R5). Every fix fail-closed and differentially verified. Filed follow-up (out of scope): native
+effect-runner plugins (`runState`/`runLogger`) on the JS backend.
+
 ## 2026-07-19 — v2-f6-backends J3: v2-JS algebraic effects (perform/handle/resume)
 
 `v2-f6-backends` (F6 "powerful"). Closed the third measured v2-JS gap: effects crashed with
