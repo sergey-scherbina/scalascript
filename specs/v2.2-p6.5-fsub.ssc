@@ -1015,13 +1015,18 @@ def skipToEq(ts) = if isEmpty(ts) then Nil else (if isTok(hd(ts), 2, 20) then tl
 def emitDef(ts, cx) = emitDef1(snd(hd(tl(ts))), tl(tl(ts)), cx)
 // PARENLESS def `def n [: T] = body` (ts at the token after the name) has NO `(` -> a nullary thunk
 // `(def n (lam 0 <body>))` (ssc1-lower); a reference forces it (calleeOf). Normal `def n(ps) = body` unchanged.
-def emitDef1(nm, ts, cx) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (env, r) => emitDefBody(nm, dlen(env), env, skipToEq(r), cx) } else emitDefBody(nm, 0, Nil, skipToEq(ts), cx)
+// E3: a def may be GENERIC — `def map[A, B](box, f) = ..` — so an optional `[typeparams]` sits between the
+// name and its `(params)`. Without skipping it, hd was `[` (not `(`) → 0 params, and the real params leaked
+// as unbound globals (the `def map (lam 0 ..)` typed-data divergence). Type params are erased. Non-generic
+// defs are byte-unchanged (skipGen is a no-op when hd is not `[`).
+def emitDef1(nm, ts, cx) = emitDef1G(nm, skipGen(ts), cx)
+def emitDef1G(nm, ts, cx) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (env, r) => emitDefBody(nm, dlen(env), env, skipToEq(r), cx) } else emitDefBody(nm, 0, Nil, skipToEq(ts), cx)
 // pre-pass: top-level parenless-def names (same item advancement as collectTopVals; rest is
 // resolution-independent so a base cx gives the right boundaries).
 def collectPlessDefs(ts, cx) = collectPless0(skipSemisF(ts), cx)
 def collectPless0(ts, cx) = if isEmpty(ts) then Nil else (if isPlessHead(ts) then Cons(snd(hd(tl(ts))), collectPlessDefs(sndRest(parseTopItem(ts, cx)), cx)) else collectPlessDefs(sndRest(parseTopItem(ts, cx)), cx))
 def isPlessHead(ts) = if isTok(hd(ts), 2, 1) then isPlessAfterName(tl(tl(ts))) else false
-def isPlessAfterName(ts) = if isTok(hd(ts), 2, 21) then false else true
+def isPlessAfterName(ts) = if isTok(hd(skipGen(ts)), 2, 21) then false else true
 def emitDefBody(nm, ar, env, ts, cx) = bodyExpr(ts, env, cx) match { case (body, rest) => ("(def " ++ nm ++ " (lam " ++ ar ++ " " ++ body ++ "))", rest) }
 // -- top-level statement walk -------------------------------------------------------------------
 // Each top-level item is `def`, `case class`, `val`, or a bare expression. def/case-class land in the
