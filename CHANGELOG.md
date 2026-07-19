@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-07-19 — v2-f5-kernel-small (slice 1): relocate `NativeUiSites` out of the kernel
+
+`v2-f5-kernel-small`, F5 "small" axis. Moved `ssc.NativeUiSites` (127 lines, the std/ui ABI annotation
+pass) out of the minimal self-hosting kernel `v2/src` into a dedicated support module `v2/nativeui`
+(new sbt project `scalascript-v2-nativeui`, `.dependsOn(v2Core)`, package unchanged `ssc`). Per
+`specs/v2-state-2026-07-18.md` §R4 it is NOT used by the kernel's own pipeline (only comments reference
+it inside `v2/src`); its real consumers — the v2 Swift backend, the v2 std/ui native plugin, and the v1
+CLI native-v2 runner — now depend on `v2NativeUi` (wired into their `.dependsOn` + the root aggregate).
+**Measured:** kernel `v2/src` 6355→**6228** lines (−127); kernel jar drops NativeUiSites (7 class
+entries→0); X1 `--self` fixpoint **byte-identical to `origin/main` at the same commit** (169,133 B @
+31cde7db6 — a moving target the p65 lane grows; proven by building both jars and diffing; 136 ok /
+0 FAIL); conformance introduced **no new FAILs** (post-change fail-set ⊂ baseline);
+`v2NativeUi` + `v2SwiftBackend` + `v2NativeUiPlugin` + `cli` all compile clean.
+
 ## 2026-07-19 — v2-p65-sel: list `_sel_`/`__list_*` dispatch + underscore-placeholder wrapping in P6.5 F
 
 `v2-p65-sel`. Corpus MATCH **172 → 201/504** (+29); X1 fixpoint stage1==stage2 byte-identical

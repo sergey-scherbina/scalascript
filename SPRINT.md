@@ -545,7 +545,22 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
   keep `--self` green, re-freeze fixpoint bytes; push separately. BUGS `p65-fsub-toplevel-val-infinite-loop`.
 - [ ] **F5 (parallel, lower priority) — "small": kernel/tower boundary.** Relocate the accreted
       candidates above to the tower per R4; target ~2,400–2,800 kernel lines. Analysis in
-      `specs/v2-state-2026-07-18.md` §R4; no extraction started.
+      `specs/v2-state-2026-07-18.md` §R4. **In progress (`v2-f5-kernel-small`).**
+      **Live fixpoint invariant (measure, don't assume — the byte count MOVES as the p65 breadth lane
+      grows F): as of origin/main@31cde7db6 it is 169,133 B, 136 ok / 0 FAIL** (`--self`; it was 164,022
+      B@ace60efc3, 168,895 B@38e673ddc — it climbs every p65 push). Any kernel relocation must keep this
+      byte-identical *to origin/main at the same commit* — build `origin/main`'s `v2/src` AND yours, diff
+      the count (do NOT compare to a stale absolute number).
+      - [x] **Slice 1 — `NativeUiSites` (127) relocated.** Moved `v2/src/NativeUiSites.scala` →
+        new sbt module `v2/nativeui` (`scalascript-v2-nativeui`, `.dependsOn(v2Core)`, package still `ssc`);
+        consumers (`v2SwiftBackend`, `v2NativeUiPlugin`, `cli`) + root aggregate wired to it. Kernel
+        6355→**6228** lines (−127); kernel jar drops NativeUiSites (7 classes→0); fixpoint byte-identical
+        (168,895 B, proven vs origin/main); conformance no new FAILs (post ⊂ base); all 4 consumers compile.
+      - [ ] Slice 2 — `Emit` (292, JVM-backend surface). Kernel refs it in COMMENTS only; real consumers
+        `v2/backend-jvm-bytecode/JvmByteGen.scala` + `v2/backend/jvm/JvmBackend.scala`. Verify byte-neutral.
+      - [ ] Slice 3 — `PortableDecimal` (171), `PortableEffects` (221, effect driver — may be a δ-prim, i.e.
+        irreducible; STOP+report if so).
+      - [ ] Slice 4 — `FastCode`/`SelfRec*` (962, perf) — relocate only if byte-neutral; else report irreducible.
 - [ ] **F6 (parallel) — "powerful": backend gaps.** v2-JS `foldLeft`/`Map`/effects; Rust/WASM BigInt.
 - [ ] **F7 — green the v2 internal gate.** `v2/conformance/check.sh`: the K62.3 unbounded-compile-depth
       (give the tower compiler an iterative path or a bounded-stack guard) + the `ssc0c uselib` IR
