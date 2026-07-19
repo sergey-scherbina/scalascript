@@ -213,6 +213,14 @@ baseline set `/tmp/baseline_deep.txt` for `comm -23` drop-checks. --self via cap
       x)`. F now skips the whole statement (skipStmt) + emits nothing (previously `extern` cascaded as
       garbage exprs and stole the next def's body/param scope). Flips node-basic, node-fs-read. Corpus
       390→392, 0 drops, X1 281,456 B, --self 153 ok/0 FAIL.
+- [x] **DA15 — generic case classes + enum/case-class boundary DONE (deep3).** (1) `case class Box[A](..)`:
+      field-collection pre-passes read `[A]`/`[S]` type params AS fields; new skipGenParen/skipNameGenParen
+      skip `[typeparams]` before the `(fields)` — threaded through collectCC1/collectTCcc/skipCCHead/
+      collectSRadd/derivesAt/collectCMcc2. (2) BUG: the enum `;`-case scanner ate the `case` of a following
+      `case class` (walkTop then saw `class X` → no ctor/sel); goCasesF1 now stops at `case class`. Flips
+      fn-typed-field. Corpus 392→393, 0 drops, X1 281,960 B, --self 153 ok/0 FAIL. typed-data still DIFF
+      (needs field-default `= None` type erasure + CALL-SITE default synthesis `Person("Bob",25)`→3 args =
+      the default-params lever). No MATCH file used generics/enum-then-cc → regression-safe.
 **➜ v2-p65-deep SESSION: corpus MATCH 362→381/508 (+19, DA1 typed-patterns +2, DA2 try/catch +2, DA3
   direct{} +3, DA4 println()/.yaml +1, DA5 min64-literal +1, DA6 ctor-guards +1, DA7 numeric-underscore +3,
   DA8 qualified-enum-case-patterns +3, DA9 source-`;`+arm-sequences +3), ALL 0 drops, X1 fixpoint stage1==stage2 byte-identical each slice (232,332→271,756 B),
