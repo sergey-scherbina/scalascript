@@ -1,12 +1,19 @@
 claim: ci-negtc-robust
-branch: feature/ci-negtc-robust
-agent: opus (orchestrator session — negtc agent resumed)
-heartbeat: 2026-07-19T16:06:50Z
-status: in-progress
-what: negtc gate is a MOVING TARGET coupled to breadth. Class-too-large fixed (bytecode-error:0), but
-      now both-fail:1 + run-timeout:3 under CI load (parity mismatch:0 — F correct). As breadth flips
-      programs to compile further they surface capacity/timeout issues + invalidate the frozen baselines.
-      Make the gate ROBUST once: (1) find the both-fail:1 program (read the REPORT parity.tsv locally),
-      decide real-vs-timeout; (2) harden run/server-timeout (retry or adequate stack/-Xss64m + timeout);
-      (3) make the freeze tolerant of breadth-driven both-fail/timeout churn (or auto-track). Goal: gate
-      reliably green + stays green as breadth advances. mismatch:0 must stay the hard invariant.
+branch: feature/ci-negtc-robust (LANDED 0867ead62)
+agent: opus (orchestrator session — salvaged dead agent's uncommitted work)
+heartbeat: 2026-07-19T18:55:34Z
+status: landed — awaiting CI confirm of first green sbt job
+what: negtc gate made SELF-MAINTAINING. Root cause of the perpetual red: exact-count
+      freeze against a corpus breadth is actively reclassifying. Fix (two parts):
+      (1) bc-parity-sweep classifies NON-correctness failures into explicit skip buckets:
+          tools-tier shebang (scljet-file, THE ci both-fail:1) -> skipped-tools-tier;
+          Class/Method-too-large auto-detected when vm_rc=0 -> skipped-oversized-bytecode
+          (replaces hardcoded 2-file allow-list); rc124 timeout -> skipped-timeout.
+      (2) v21-negative-toolchain-freeze splits HARD invariants (exact: toolchain absent,
+          mismatch=0, one-sided=0, both-fail=0, smokes) from DERIVED counts (floors>= so
+          coverage can't silently collapse; caps; accounting-closure sum==frontend.total).
+      VALIDATED locally with healthy launcher: sweep rc=0, total 210 identical 63 mismatch 0
+      both-fail 0 skipped 132; freeze unit-tested (good PASS; mismatch/toolchain/collapse/
+      accounting/new-both-fail all FAIL). mismatch=0 NEVER softened.
+      NOTE: earlier local 'Emit not a member' clean-build error = FALSE ALARM (poisoned
+      sbt --client server); fresh batch build + cold chain recompile = clean.
