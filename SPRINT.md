@@ -288,6 +288,25 @@ baseline set `/tmp/baseline_deep.txt` for `comm -23` drop-checks. --self via cap
   byte-exact, then corpus + `comm -23` drop-check + `--self` fixpoint. GOTCHA: oc.sh reads raw `.ssc` — for
   markdown/fenced files use the corpus gate on the extracted `.code` (oc.sh gives false divergences there).
 
+## v2-p65-deep4 (`v2-p65-deep`, 2026-07-19) — DEEP tail, default-params arc + tractable tail. Baseline MATCH 393/509, F0 282,163 B
+Claim `v2-p65-deep` on origin/main. Jar `/tmp/ssc-deep4.jar`; corpus `SSC_JAR=/tmp/ssc-deep4.jar V2_DIR=<wt>/v2
+NEWFRONT_WORK=/tmp/p65deep4 bash specs/v2.2-p6.5-corpus.sh`; single-prog `FSUB=<wt>/specs/v2.2-p6.5-fsub.ssc
+SSC_JAR=/tmp/ssc-deep4.jar V2_DIR=<wt>/v2 /tmp/oc.sh <p.ssc>`; first-div `/tmp/fdiv.py /tmp/p65deep4 <name> [W]`;
+baseline set `/tmp/baseline_deep4.txt` for `comm -23` drop-checks. Impact map + tally=24 in deep3 handoff above.
+- [x] **E1 — field-default TYPE ERASURE DONE (`4fda22320`).** `case class C(x: Int = 10, e: Option[String] = None)`:
+      mirror field type now clean `Int`/`Option[String]` (was `Int10`/`Option[String]None`). typeText/isTypeEnd stop
+      at `=` (code 20) at depth 0; collectFieldEnd skips the default expr `= rhs` to next `,`/`)` (skipDefault + isSep0,
+      depth-aware). Localized to collectField machinery. Corpus 393/509 (+0, prereq for part b), 0 drops, X1
+      stage1==stage2 282,747 B, --self 153 ok/0 FAIL. First-div now: default-params @8760 = CALL-SITE synthesis (part b);
+      typed-data @10105 = generic-def type params (`def map[A,B](f,box)` → F emits `lam 0`+globals) — SEPARATE lever,
+      typed-data needs BOTH generic-def-typeparams AND part b to flip.
+- [ ] **E2 — call-site default synthesis (part b, DEEP).** `greet()`/`Box()`/`shift(10)`/`Person("Bob",25)` fill omitted
+      trailing args from funcDefaultsCell. Oracle ssc1-lower :1754-1900. SLICE carefully; do NOT ship half-done.
+- [ ] **E3 — nested tuple patterns (4 files).** parsing-error-node/recover-until, distributed-word-count/log-aggregation.
+- [ ] **E4 — extension methods (`extension (n) def m` → `X_method`).**
+- [ ] **E5 — symbolic operators `~>`/`<~` (lexer change; oracle → `(app (global op) l r)`).**
+- [ ] **WALL — given/summon (~10 files). Attempt only after above; STOP+report if kernel δ needed.**
+
 ## v2-finish — make v2 ideal, small, powerful, fully self-hosted (2026-07-18, Sergiy)
 
 **Sergiy's vision (2026-07-18):** v1 and v2 are INDEPENDENT. v1 stays as-is — it stabilizes and
