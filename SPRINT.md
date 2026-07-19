@@ -113,12 +113,13 @@ baseline set `/tmp/baseline_deep.txt` for `comm -23` drop-checks. --self via cap
       Corpus 362->364 (+v2-type-ascription-pattern, +scljet-jvm-vfs). 0 drops, X1 stage1==stage2
       241,478 B, --self 153 ok/0 FAIL. GOTCHA: typedTagTest must use isEmpty (NOT `case Nil/case cs`) —
       a bare-var arm after a ctor arm mis-parses as cons in F's OWN parseCtorMatch (broke self-compile).
-- [ ] **DA2 — try/catch/finally** `try B catch {case e:T=>..} [finally F]` → `(prim __tryCatch__ (lam 0 B)
-      <pf>)` / `__tryFinally__` / `__tryCatchFinally__` (ssc1-front :1076-1106). Braced catch `{case..}` →
-      handler case-lambda `(lam 1 (match (local 0) ..))` marked with `__handler_dispatch_selected__`/
-      `__handler_dispatch_miss__` + fallback arm (ssc1-lower lowerHandlerMatch :3636/handlerMarkedArms :3603).
-      Reuses DA1 typed patterns. Targets: dataset-agg, dataset-error (+2). Other try files
-      (bureau/graphql-client/mcp-*/webauthn) gated on OTHER first-divergences (measured).
+- [x] **DA2 — try/catch/finally DONE (`75fa70812`).** `try B catch {case e:T=>..} [finally F]` →
+      `(prim __tryCatch__ (lam 0 B) <pf>)` / `__tryFinally__` / `__tryCatchFinally__` (ssc1-front
+      :1076-1106). Braced catch → handler case-lambda `(lam 1 (let (<scrut>) <chain>))` over DA1 typed
+      patterns; each body prefixed `__handler_dispatch_selected__(pf)` + fallback arm
+      `__handler_dispatch_miss__(pf)` (ssc1-lower lowerHandlerMatch :3636/handlerMarkedArms :3603), exact
+      de-Bruijn. Flips dataset-agg + dataset-error. Corpus 364→366, 0 drops, X1 stage1==stage2 250,190 B,
+      --self 153 ok/0 FAIL. Other try files (bureau/graphql-client/mcp-*/webauthn) gated ELSEWHERE (measured).
 - [ ] **DA3 — direct{} / for-comp flatMap** (evaluate after DA1/DA2; direct-* ~4, for-comprehensions/
       typed-sql-crud 2). DEEP de-Bruijn flatMap threading.
 
