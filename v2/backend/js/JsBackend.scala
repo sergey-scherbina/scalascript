@@ -30,9 +30,17 @@ object JsGen:
   /** --ints=number fast mode (see main); default false = exact BigInt ints. */
   var numberInts: Boolean = false
 
-  def generate(prog: Program): String =
+  /** Set per program: does it use algebraic effects? When true, Let/Seq emit the
+   *  Op-threading helpers and the program is Op-ANF lifted; when false, codegen
+   *  is byte-identical to the pre-effects backend (zero risk for non-effect code). */
+  private var effectsEnabled: Boolean = false
+
+  def generate(prog0: Program): String =
+    effectsEnabled = OpAnf.usesEffects(prog0)
+    val prog = if effectsEnabled then OpAnf.lift(prog0) else prog0
     val sb = new StringBuilder
     sb.append(preamble)
+    if effectsEnabled then sb.append("$effectsOn=true;\n")
     emitBridgePrelude(sb, prog)
     sb.append("\n// ── Generated definitions ─────────────────────────────────────────────────\n\n")
     // Declare all def names first (allow forward/mutual references)
@@ -44,10 +52,16 @@ object JsGen:
     sb.append("\n// ── Entry ───────────────────────────────────────────────────────────────────\n\n")
     // Like the VM's `out(run(prog))`: evaluate entry, print result unless Unit.
     // The VM's out() renders via anyStr (unquoted nested strings), NOT Show.show
-    // — $bridgeShow is the anyStr-equivalent (v2-js-anystr-parity).
+    // — $bridgeShow is the anyStr-equivalent (v2-js-anystr-parity). With effects,
+    // resolve any escaped private-resume Op ($effComplete) and, like the VM's out()
+    // (Op => UnitV), do not print a lingering unhandled effect Op.
     sb.append("(function(){\n  var $result=")
     sb.append(genE(prog.entry, Nil, tco = false))
-    sb.append(";\n  if($result!==null&&$result!==undefined){ console.log($bridgeShow($result)); }\n})();\n")
+    if effectsEnabled then
+      sb.append(";\n  $result=$effComplete($result);")
+      sb.append("\n  if($result!==null&&$result!==undefined&&!$isOp($result)){ console.log($bridgeShow($result)); }\n})();\n")
+    else
+      sb.append(";\n  if($result!==null&&$result!==undefined){ console.log($bridgeShow($result)); }\n})();\n")
     sb.toString
 
   private def emitBridgePrelude(sb: StringBuilder, prog: Program): Unit =
@@ -184,6 +198,13 @@ object JsGen:
       terms match
         case Nil      => "null"
         case List(t)  => genE(t, scope, tco)
+        case ts if effectsEnabled =>
+          // Thread a raw effect Op through each statement (seqThreadOp): if a
+          // statement evaluates to an Op, the rest becomes its continuation.
+          def build(i: Int): String =
+            if i == ts.length - 1 then genE(ts(i), scope, tco)
+            else s"$$seqThread(${genE(ts(i), scope, tco = false)},function(){return ${build(i + 1)};})"
+          build(0)
         case ts =>
           val init = ts.init.map(t => genE(t, scope, tco = false)).mkString(",")
           val last = genE(ts.last, scope, tco)
@@ -196,6 +217,17 @@ object JsGen:
   private def genLet(rhs: List[Term], body: Term, scope: Scope, tco: Boolean): String =
     rhs match
       case Nil => genE(body, scope, tco)  // no bindings
+      case _ if effectsEnabled =>
+        // Thread a raw effect Op at each binding (letThreadOp): if a binding RHS
+        // evaluates to an Op, the continuation (the rest of the let) is deferred
+        // into it. Nested $letThread preserves the sequential-binding scope.
+        val vars = freshN(rhs.length)
+        def build(i: Int, cur: Scope): String =
+          if i == rhs.length then genE(body, cur, tco)
+          else
+            val v = vars(i)
+            s"$$letThread(${genE(rhs(i), cur, tco = false)},function($v){return ${build(i + 1, v :: cur)};})"
+        build(0, scope)
       case _ =>
         val vars = freshN(rhs.length)
         val sb   = new StringBuilder("(function(){")
@@ -239,6 +271,12 @@ object JsGen:
       s"case ${jsStr(arm.tag)}:{$fieldBinds return $bodyJs;}"
     }.mkString(" ")
     val defaultJs = default match
+      case None if effectsEnabled =>
+        // Tag the miss so the effect handle driver ($effDispatch) can treat an
+        // uncovered event tag as Unhandled (partial-function semantics) and
+        // re-emit the Op to an outer handler, instead of crashing.
+        val mv = fresh()
+        s"var $mv=new Error('match: no arm for '+$sv.t+' ('+$$show($sv)+')'); $mv.$$sscHandlerMiss=true; throw $mv;"
       case None    => s"throw new Error('match: no arm for '+$sv.t+' ('+$$show($sv)+')');"
       case Some(d) => s"return ${genE(d, scope, tco)};"
     s"(function(){ var $sv=$scrutJs; switch($sv.t){ $armCases default:{$defaultJs} } })()"
@@ -371,12 +409,24 @@ object JsGen:
       case "io.env"      => s"$$ioEnv(${a(0)})"
       case "io.readFile" => s"$$ioReadFile(${a(0)})"
       case "io.writeFile"=> s"(require('fs').writeFileSync(${a(0)},Buffer.from(${a(1)})),null)"
+      // Algebraic effects (PortableEffects). perform.oneshot(effectId, opName, args…);
+      // perform(label, args…); pure(v); handle(computation, handler).
+      case "effect.pure"    => s"$$effPure(${a(0)})"
+      case "effect.perform.oneshot" =>
+        val as = args.map(x => genE(x, scope, tco = false))
+        s"$$performOneShot(${as(0)},${as(1)},[${as.drop(2).mkString(",")}])"
+      case "effect.perform" =>
+        val as = args.map(x => genE(x, scope, tco = false))
+        s"$$perform(${as(0)},[${as.drop(1).mkString(",")}])"
+      case "effect.handle"  => s"$$effHandle(${a(0)},${a(1)})"
       // FrontendBridge dynamic/runtime primitives
       case "__autoPrint__" => s"$$autoPrint(${a(0)})"
       case "__match_fail_prim__" => "(function(){ throw new Error('match: no matching case'); })()"
       case HandlerDispatchShape.SelectedPrimitive => s"(${a(0)},null)"
       case HandlerDispatchShape.MissPrimitive =>
-        s"(${a(0)},(function(){ throw new Error('match: no matching case'); })())"
+        if effectsEnabled then
+          s"(${a(0)},(function(){var _m=new Error('match: no matching case');_m.$$sscHandlerMiss=true;throw _m;})())"
+        else s"(${a(0)},(function(){ throw new Error('match: no matching case'); })())"
       case "__math_obj__" => "$mathObj"
       case "__arith__" => s"$$arith(${a(0)},${a(1)},${a(2)})"
       case "__unary__" => s"$$unary(${a(0)},${a(1)})"
@@ -714,12 +764,24 @@ function $method(name,recv){
         return String(args[0])+xs.map($bridgeShow).join(String(args[1]))+String(args[2]);
       case 'reverse': return $listOf(xs.slice().reverse());
       case 'distinct': { var seen=[],out=[]; xs.forEach(function(x){ if(!seen.some(function(s){return $eq(s,x);})){seen.push(x);out.push(x);} }); return $listOf(out); }
-      case 'foreach': xs.forEach(function(x){ $c(args[0],[x]); }); return null;
-      case 'map': return $listOf(xs.map(function(x){ return $spreadCall(args[0],x); }));
-      case 'flatMap': { var o=[]; xs.forEach(function(x){ var r=$spreadCall(args[0],x); if($isList(r)) o=o.concat($listToArray(r)); else o.push(r); }); return $listOf(o); }
-      case 'filter': return $listOf(xs.filter(function(x){ return $c(args[0],[x])===true; }));
-      case 'filterNot': return $listOf(xs.filter(function(x){ return $c(args[0],[x])!==true; }));
-      case 'foldLeft': return xs.reduce(function(a,x){ return $c(args[1],[a,x]); }, args[0]);
+      case 'foreach':
+        if($effectsOn) return $foreachThreadOp(xs,function(x){ return $c(args[0],[x]); });
+        xs.forEach(function(x){ $c(args[0],[x]); }); return null;
+      case 'map':
+        if($effectsOn) return $mapThreadOp(xs,function(x){ return $spreadCall(args[0],x); },function(rs){ return $listOf(rs); });
+        return $listOf(xs.map(function(x){ return $spreadCall(args[0],x); }));
+      case 'flatMap':
+        if($effectsOn) return $mapThreadOp(xs,function(x){ return $spreadCall(args[0],x); },function(rs){ var o=[]; rs.forEach(function(r){ if($isList(r)) o=o.concat($listToArray(r)); else o.push(r); }); return $listOf(o); });
+        { var o=[]; xs.forEach(function(x){ var r=$spreadCall(args[0],x); if($isList(r)) o=o.concat($listToArray(r)); else o.push(r); }); return $listOf(o); }
+      case 'filter':
+        if($effectsOn) return $mapThreadOp(xs,function(x){ return $c(args[0],[x]); },function(rs){ var o=[]; for(var i=0;i<xs.length;i++) if(rs[i]===true) o.push(xs[i]); return $listOf(o); });
+        return $listOf(xs.filter(function(x){ return $c(args[0],[x])===true; }));
+      case 'filterNot':
+        if($effectsOn) return $mapThreadOp(xs,function(x){ return $c(args[0],[x]); },function(rs){ var o=[]; for(var i=0;i<xs.length;i++) if(rs[i]!==true) o.push(xs[i]); return $listOf(o); });
+        return $listOf(xs.filter(function(x){ return $c(args[0],[x])!==true; }));
+      case 'foldLeft':
+        if($effectsOn) return $foldThreadOp(xs,args[0],function(a,x){ return $c(args[1],[a,x]); });
+        return xs.reduce(function(a,x){ return $c(args[1],[a,x]); }, args[0]);
       case 'foldRight': { var a=args[0]; for(var i=xs.length-1;i>=0;i--) a=$c(args[1],[xs[i],a]); return a; }
       case 'scanLeft': { var acc=args[0], o=[acc]; xs.forEach(function(x){ acc=$c(args[1],[acc,x]); o.push(acc); }); return $listOf(o); }
       case 'reduce': case 'reduceLeft':
@@ -948,6 +1010,125 @@ function $mapKeys(map){
 function $bconcat(a,b){
   var r=new Uint8Array(a.length+b.length);
   r.set(a,0); r.set(b,a.length); return r;
+}
+
+// ── Algebraic effects (port of PortableEffects.scala) ─────────────────────────
+// Effects are ordinary values: Pure(v) or Op(label, argument, continuation).
+// A raw effect Op auto-threads through Let/Seq (and, after Op-ANF lifting, through
+// App/Ctor/Prim args) so the enclosing computation becomes the Op's continuation;
+// effect.handle then folds it through the user handler. Faithful to the VM.
+function $isOp(v){ return v!==null&&typeof v==='object'&&v.t==='Op'&&v.f&&v.f.length===3; }
+// Only bridge-style labels (containing '.') auto-thread — mirrors Runtime.isAutoThreadOp.
+function $isAutoThreadOp(v){ return $isOp(v)&&typeof v.f[0]==='string'&&v.f[0].indexOf('.')>=0; }
+function $effPure(v){ return {t:'Pure',f:[v]}; }
+function $packArgs(args){ if(args.length===0) return null; if(args.length===1) return args[0]; return {t:'__EffArgs__',f:args.slice()}; }
+function $perform(label,args){ return {t:'Op',f:[label,$packArgs(args),function(x){return x;}]}; }
+function $performOneShot(effectId,opName,args){
+  var label=effectId+'.'+opName, op=$perform(label,args), k=op.f[2], claimed=false;
+  var guarded=function(x){ if(claimed) throw new Error('effect: continuation of '+label+' already resumed (one-shot)'); claimed=true; return $c(k,[x]); };
+  return {t:'Op',f:[label,op.f[1],guarded]};
+}
+// letThreadOp / seqThreadOp: defer the continuation into an Op if the value is one.
+function $letThread(v,use){
+  if($isAutoThreadOp(v)){ var l=v.f[0],a=v.f[1],k=v.f[2];
+    return {t:'Op',f:[l,a,function(x){ return $letThread($c(k,[x]),use); }]}; }
+  return use(v);
+}
+function $seqThread(v,rest){
+  if($isAutoThreadOp(v)){ var l=v.f[0],a=v.f[1],k=v.f[2];
+    return {t:'Op',f:[l,a,function(x){ return $seqThread($c(k,[x]),rest); }]}; }
+  return rest();
+}
+// Private stack-safe resume hand-off (deferredResume/privateResume in PortableEffects).
+var $RESUME_LABEL='ssc.control.__resume__';
+var $resumeCap={};
+function $deferredResume(next,handler){ return {t:'Op',f:[$RESUME_LABEL,{$cap:$resumeCap,next:next,handler:handler},function(x){return x;}]}; }
+function $privateResume(v){
+  if($isOp(v)&&v.f[0]===$RESUME_LABEL&&v.f[1]&&v.f[1].$cap===$resumeCap) return {req:v.f[1],after:v.f[2]};
+  return null;
+}
+function $opName(label){ var d=label.lastIndexOf('.'); return d<0?label:label.substring(d+1); }
+// Dispatch an event to the user handler. Returns {matched:v} | {unhandled:true}.
+// A handler is a partial function: the top-level match throws a tagged miss when
+// no arm covers the event tag (see genMatch / __handler_dispatch_miss__).
+function $effDispatch(handler,event){
+  try { return {matched:$c(handler,[event])}; }
+  catch(e){ if(e&&e.$sscHandlerMiss) return {unhandled:true}; throw e; }
+}
+function $foldDispatch(step,onUnhandled){
+  if(step.unhandled) return onUnhandled();
+  return step.matched;
+}
+// The iterative handle driver (PortableEffects.runDriver).
+function $runDriver(computation,handler,handlingInitially){
+  var current=computation, currentHandler=handler, frames=[], handling=handlingInitially;
+  for(;;){
+    var pr=$privateResume(current);
+    if(pr!==null){
+      if(handling){ frames.push({rehandle:currentHandler}); frames.push({after:pr.after}); }
+      else frames.push({after:pr.after});
+      current=pr.req.next; currentHandler=pr.req.handler; handling=true;
+      continue;
+    }
+    if(handling){
+      if(current&&current.t==='Pure'&&current.f&&current.f.length===1){ current=current.f[0]; continue; }
+      if($isOp(current)){
+        var label=current.f[0], argument=current.f[1], k=current.f[2];
+        var ch=currentHandler;
+        // Capture k/ch BY VALUE — resume may be invoked in a later driver
+        // iteration (deferred / multi-shot), after the driver's var k/ch have
+        // been reassigned. A factory closes over its own params, immune to that.
+        var resume=(function(kk,chh){ return function(x){ return $deferredResume($c(kk,[x]),chh); }; })(k,ch);
+        var eventArgs;
+        if(argument===null||argument===undefined) eventArgs=[resume];
+        else if(argument&&argument.t==='__EffArgs__') eventArgs=argument.f.concat([resume]);
+        else eventArgs=[argument,resume];
+        var ev={t:$opName(label),f:eventArgs};
+        current=$foldDispatch($effDispatch(currentHandler,ev),
+          (function(l,a,r){ return function(){ return {t:'Op',f:[l,a,r]}; }; })(label,argument,resume));
+        handling=false; continue;
+      }
+      // plain value → dispatch Return, else the value itself
+      var val=current;
+      current=$foldDispatch($effDispatch(currentHandler,{t:'Return',f:[val]}),
+        (function(v){ return function(){ return v; }; })(val));
+      handling=false; continue;
+    } else {
+      if(frames.length===0) return current;
+      var fr=frames.pop();
+      if(fr.after!==undefined){ current=$c(fr.after,[current]); }
+      else { currentHandler=fr.rehandle; handling=true; }
+    }
+  }
+}
+function $effHandle(computation,handler){ return $runDriver(computation,handler,true); }
+function $effComplete(v){ var pr=$privateResume(v); return pr!==null?$runDriver(v,null,false):v; }
+// Set true (by generate) only for programs that use effects; gates the Op-aware
+// list HOFs below so non-effect programs keep the plain fast collection paths.
+var $effectsOn=false;
+// Effect-aware list traversals (mapThreadOp/foldThreadOp/foreachConsOp): if a
+// step returns a raw Op, the REST of the traversal is deferred into its
+// continuation (immutable acc so a multi-shot resume re-runs the tail cleanly).
+function $mapThreadOp(xs,step,rebuild){
+  function go(i,acc){ if(i>=xs.length) return rebuild(acc);
+    var r=step(xs[i]);
+    if($isAutoThreadOp(r)) return $letThread(r,function(v){ return go(i+1,acc.concat([v])); });
+    return go(i+1,acc.concat([r])); }
+  return go(0,[]);
+}
+function $foldThreadOp(xs,z,step){
+  function go(i,acc){ if(i>=xs.length) return acc;
+    var r=step(acc,xs[i]);
+    if($isAutoThreadOp(r)) return $letThread(r,function(v){ return go(i+1,v); });
+    return go(i+1,r); }
+  return go(0,z);
+}
+function $foreachThreadOp(xs,step){
+  function go(i){ if(i>=xs.length) return null;
+    var r=step(xs[i]);
+    if($isAutoThreadOp(r)) return $letThread(r,function(){ return go(i+1); });
+    return go(i+1); }
+  return go(0);
 }
 
 // ── Fallback ──────────────────────────────────────────────────────────────────
