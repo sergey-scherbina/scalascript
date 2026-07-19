@@ -1,0 +1,9 @@
+claim: v2-f6-backends
+branch: feature/v2-f6-backends
+agent: opus (orchestrator session)
+heartbeat: 2026-07-19T07:52:14Z
+status: in-progress (spawned agent)
+what: F6 — "powerful" axis. v2 backend completeness (measured gaps): v2-JS (run-js --v2) lacks List.foldLeft,
+      Map access, effect.perform.oneshot; tower Rust/WASM silently DROP BigInt (V::U/Unit for big.* prims).
+      Make the v2 backends complete on the feature matrix. Independent of the kernel/front lanes (edits
+      v2/backend/*, mira-rust, v2 runtime). Fail-closed, not silent-drop. Evidence in specs/v2-state-2026-07-18.md R2.
