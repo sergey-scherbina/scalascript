@@ -803,7 +803,23 @@ def parseBlock(ts, env, cx) = parseBlock0(skipSemisF(ts), env, cx)
 // `(lam 1 (match (local 0) (arms)))` (measured: `pairs.foreach { case (a,b) => .. }` -> the block is a
 // lam-1 whose body matches its single param). The lambda param occupies (local 0), so the arms are
 // parsed against a one-slot env exactly like a match scrutinee — reuse parseArms (ctor/tuple/cons arms).
-def parseBlock0(ts, env, cx) = if isTok(hd(ts), 2, 6) then parseCaseLambda(ts, env, cx) else (if isTok(hd(ts), 2, 7) then parseBlockVal(tl(ts), env, cx) else (if isVarHead(ts) then parseBlockVar(tl(ts), env, cx) else (if isWhileHead(ts) then parseBlockWhile(tl(ts), env, cx) else (if isAssignHead(ts) then parseBlockAssign(ts, env, cx) else parseBlockExpr(ts, env, cx)))))
+// A block whose head is a lambda `{ () => s1; s2; .. }` / `{ x => s1; s2 }` is ONE lambda whose body is
+// the WHOLE statement sequence, not a block whose first stmt is a single-expr lambda (which double-wrapped
+// s1 in a spurious (lam 0 ..)). Fires ONLY for a MULTI-statement body (a depth-0 `;` before the block's
+// `}`), so a single-statement lambda block keeps the existing path (preserving the DA11 self-match form).
+def isBlockLamHead(ts) = if isTok(hd(ts), 2, 21) then isLamParen(tl(ts)) else (if fst(hd(ts)) == 1 then isTok(hd(tl(ts)), 2, 30) else false)
+def skipToArrow(ts) = if isEmpty(ts) then ts else (if isTok(hd(ts), 2, 30) then tl(ts) else skipToArrow(tl(ts)))
+def blockLamMulti(ts) = blkMulti0(skipToArrow(ts), 0)
+def blkMulti0(ts, d) = if isEmpty(ts) then false else blkMulti1(hd(ts), tl(ts), d)
+def blkMulti1(t, r, d) = if isOpenTok(t) then blkMulti0(r, d + 1) else (if isCloseTok(t) then blkMultiClose(r, d) else (if d > 0 then blkMulti0(r, d) else (if isTok(t, 2, 52) then true else blkMulti0(r, d))))
+def blkMultiClose(r, d) = if d == 0 then false else blkMulti0(r, d - 1)
+def parseBlockLam(ts, env, cx) = if isTok(hd(ts), 2, 21) then parseBlockLamParen(ts, env, cx) else parseBlockLamId(ts, env, cx)
+def parseBlockLamParen(ts, env, cx) = parseBlockLamP(parseParams(tl(ts), env), env, cx)
+def parseBlockLamP(pr, env, cx) = pr match { case (env2, r) => parseBlockLamBody(dlen(env2) - dlen(env), env2, tl(r), cx) }
+def parseBlockLamId(ts, env, cx) = parseBlockLamBody(1, snd(hd(ts)) :: env, tl(tl(ts)), cx)
+def parseBlockLamBody(ar, env2, ts, cx) = parseBlock(ts, env2, cx) match { case (b, r) => ("(lam " ++ ar ++ " " ++ b ++ ")", r) }
+def parseBlock0(ts, env, cx) = if isTok(hd(ts), 2, 6) then parseCaseLambda(ts, env, cx) else (if isBlockLamHead(ts) then parseBlockLamDisp(ts, env, cx) else (if isTok(hd(ts), 2, 7) then parseBlockVal(tl(ts), env, cx) else (if isVarHead(ts) then parseBlockVar(tl(ts), env, cx) else (if isWhileHead(ts) then parseBlockWhile(tl(ts), env, cx) else (if isAssignHead(ts) then parseBlockAssign(ts, env, cx) else parseBlockExpr(ts, env, cx))))))
+def parseBlockLamDisp(ts, env, cx) = if blockLamMulti(ts) then parseBlockLam(ts, env, cx) else parseBlockExpr(ts, env, cx)
 def parseCaseLambda(ts, env, cx) = parseArms(ts, "" :: env, cx) match { case (arms, r) => ("(lam 1 (match (local 0) (" ++ fst(arms) ++ ")" ++ snd(arms) ++ "))", r) }
 def parseBlockVal(ts, env, cx) = parseBlockVal1(snd(hd(ts)), skipToEq(tl(ts)), env, cx)
 def parseBlockVal1(nm, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => parseBlockRest(nm, e, r, env, cx) }
