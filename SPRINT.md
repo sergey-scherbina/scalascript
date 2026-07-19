@@ -747,6 +747,15 @@ Claim `v2-p65-layout` on origin/main covers this lane. Work dir /tmp/p65ccm (ker
       X1 fixpoint stage1==stage2 byte-identical 192,045->199,134 B; --self 153 ok/0 FAIL; kernel +0; no oracle
       edits. Added parseGenMatch + isGenVarHead dispatch (int-first AND bare-var-first route to genMatch;
       ctor/cons/tuple-first + typed `x:T` stay on parseCtorMatch). The oracle
+- [x] **G2 — DONE (`47a0c023d`). `!expr` boolean-not.** Corpus 303->308/508 (+5: fs-roundtrip,
+      js-applyunary-effect-cps, scljet-typedsql-decode, std-ui-extended-d, ws-recv-demo), ZERO drops,
+      0 EMPTY/0 TIMEOUT; X1 fixpoint stage1==stage2 byte-identical 199,134->199,800 B; --self 153 ok/0 FAIL;
+      kernel +0. F's `lexBang` DROPS a bare `!` (only `!=`=45 handled); the oracle
+      desugars `!x` -> `(if x (lit false) (lit true))` (VERIFIED fs-roundtrip `!exists(p)`,
+      js-applyunary-effect-cps `!(total()==6)`). Fix: lex `!` as code 59; add a prefix branch in parseAtom
+      (mirror parseNeg) `parseBang` -> `(if <atom> (lit false) (lit true))`. No MATCH file can have a
+      boolean-not `!` today (F drops it => would DIFF), so lexing it cannot regress. F's own source has no
+      bare `!`. Re-freeze fixpoint.
       (ssc1-lower resolveMatch, VERIFIED byte-exact on data-types `classify` + pattern-matching `describe`)
       lowers a scalar match to a NESTED let/if chain, NOT F's int-chain or `(match ..)`: outer
       `(let (<scrut>) <chain>)`; VAR arm `case x [if g]` -> `(let (<scrut-ref>) [(if g body rest) | body])`

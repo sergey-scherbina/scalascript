@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-07-19 — v2-p65-guard G2: `!expr` boolean-not desugar
+
+`v2-p65-guard` (v2-finish breadth). F's `lexBang` dropped a bare `!` (only `!=` was handled), so `!x`
+lowered to just `x`. Now lexed as code 59 and desugared to `(if x (lit false) (lit true))` (oracle-exact;
+prefix, binds to the atom like unary `-`). Corpus MATCH 303->308/508 (fs-roundtrip, js-applyunary-effect-cps,
+scljet-typedsql-decode, std-ui-extended-d, ws-recv-demo), ZERO drops; X1 fixpoint stage1==stage2
+byte-identical 199,134->199,800 B; --self 153 ok/0 FAIL; kernel +0 (`47a0c023d`).
+
 ## 2026-07-19 — v2-p65-guard G1: general scalar match (var/int/wild + guards)
 
 `v2-p65-guard` (v2-finish breadth). A `match` whose arms are all scalar (bare var `case x`, int `case N`,
