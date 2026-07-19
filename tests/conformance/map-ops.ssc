@@ -1,0 +1,40 @@
+---
+name: map-ops
+also-codegen: v2
+---
+
+# `Map` access on every backend
+
+Pins the `Map` access surface across all codegen lanes. Until 2026-07-19 the
+**v2-JS** backend (`run-js --v2`) crashed on `Map` access: `m("a")` threw
+`not callable: <map>` (a map value applied as a function) and `.get`/`.size`
+had no dispatch — while native and JVM-bytecode had full parity
+(`specs/v2-state-2026-07-18.md` §R2). This case exercises `apply`/`get`/
+`getOrElse`/`size`/`contains`/`isEmpty` so a v2-JS regression fails the suite
+(`v2-f6-backends` J2).
+
+Only scalar-returning ops are pinned here: `keys`/`values`/`toList` and whole-map
+printing render differently across v1 vs v2 (v1 maps are unordered and v1-JVM
+renders keys as `Set`/values as `Iterable`), so they cannot share one expected
+file — the v2-JS parity on those is covered by the differential dev harness.
+
+```scalascript
+val m = Map("a" -> 1, "b" -> 2, "c" -> 3)
+println(m("a"))
+println(m("c"))
+println(m.get("b"))
+println(m.get("z"))
+println(m.getOrElse("c", 0))
+println(m.getOrElse("z", 99))
+println(m.size)
+println(m.isEmpty)
+println(m.nonEmpty)
+println(m.contains("a"))
+println(m.contains("z"))
+val n = Map(1 -> "x", 2 -> "y")
+println(n(1))
+println(n.get(2))
+println(n.get(3))
+println(n.size)
+println(n.contains(1))
+```

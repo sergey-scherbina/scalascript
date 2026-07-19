@@ -1,0 +1,50 @@
+---
+name: list-combinators
+also-codegen: v2
+---
+
+# `List` combinators on every backend
+
+Pins the `List` method surface across all codegen lanes. Until 2026-07-19 the
+**v2-JS** backend (`run-js --v2`) dispatched only `map`/`filter`/`mkString`/a
+handful more and CRASHED on `foldLeft` (`no dispatch for .foldLeft on List`),
+`reduce`, and the rest — while native and JVM-bytecode had full parity
+(`specs/v2-state-2026-07-18.md` §R2). This case exercises the common combinators
+so a v2-JS regression on any of them fails the suite (`v2-f6-backends` J1).
+
+Every value below is chosen so INT (v1 interp), v1-JS, v1-JVM, v2-JS and
+v2-JVM agree byte-for-byte (order-unstable ops like `groupBy`/`sortWith` and
+ops where v1 diverges like `zip`-length are deliberately excluded).
+
+```scalascript
+val xs = List(5, 3, 8, 1, 9, 2)
+println(xs.foldLeft(0)((a, b) => a + b))
+println(xs.foldRight(0)((a, b) => a - b))
+println(xs.reduce((a, b) => a + b))
+println(xs.scanLeft(0)((a, b) => a + b))
+println(xs.map(x => x * 2))
+println(xs.flatMap(x => List(x, x)))
+println(xs.filter(x => x > 3))
+println(xs.filterNot(x => x > 3))
+println(xs.find(x => x > 4))
+println(xs.exists(x => x > 8))
+println(xs.forall(x => x > 0))
+println(xs.count(x => x > 3))
+println(xs.sum)
+println(xs.sorted)
+println(xs.take(3))
+println(xs.drop(3))
+println(xs.takeWhile(x => x < 8))
+println(xs.dropWhile(x => x < 8))
+println(xs.reverse)
+println(xs.zipWithIndex)
+println(xs.contains(9))
+println(xs.indexOf(8))
+println(xs.head)
+println(xs.tail)
+println(xs.last)
+println(xs.mkString("[", ", ", "]"))
+println(xs ++ List(7))
+println(xs :+ 100)
+println(List("a", "b", "c").mkString(", "))
+```
