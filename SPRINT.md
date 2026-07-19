@@ -99,6 +99,29 @@ left is DEEP or oracle-degradation):**
   Double.toString); `$_sqlBlock_N` un-expanded (sql-sqlite-file); Long.MinValue overflow (int-literal); auth-demo/
   oauth-demo & auth-full/bank-rails-fednow (extra-let/lam-wrap, deep).
 
+## v2-p65-deep (`v2-p65-deep`, 2026-07-19) — DEEP tail F-gaps. Baseline MATCH 362/508, F0 232,535 B
+Claim `v2-p65-deep` on origin/main. Jar `/tmp/ssc-deep.jar` (`scala-cli --power package v2/src --assembly`);
+corpus `SSC_JAR=/tmp/ssc-deep.jar V2_DIR=<wt>/v2 NEWFRONT_WORK=/tmp/p65deep bash specs/v2.2-p6.5-corpus.sh`;
+single-prog `FSUB=<wt>/specs/v2.2-p6.5-fsub.ssc SSC_JAR=/tmp/ssc-deep.jar V2_DIR=<wt>/v2 /tmp/oc.sh <p.ssc>`;
+first-div `/tmp/fdiv.py /tmp/p65deep <name> [W]`; hist `/tmp/hist_optics.py /tmp/p65deep`;
+baseline set `/tmp/baseline_deep.txt` for `comm -23` drop-checks. --self via captured file + `grep -cE '^ok '`.
+- [x] **DA1 — typed patterns in a normal match DONE (`0ef25f884`).** `case _: T =>`/`case x: T =>` ->
+      __isTag__ if-chain (ssc1-lower lowerOrderedGuardArms tpat :3432-3446, typedTagTest/subtypeChildren
+      :3270-3316). Route to parseGenMatch when first arm is `<id|_> :` (34); parseGenArm typed handler.
+      Subtype registry = case-class `extends P` (reverse source order) + per-enum ALL-cases; new cx slot
+      `(bs,(pless,sub))`. ALSO fixed applied enum-companion case `E.Case(args)`->`(ctor Case args)`.
+      Corpus 362->364 (+v2-type-ascription-pattern, +scljet-jvm-vfs). 0 drops, X1 stage1==stage2
+      241,478 B, --self 153 ok/0 FAIL. GOTCHA: typedTagTest must use isEmpty (NOT `case Nil/case cs`) —
+      a bare-var arm after a ctor arm mis-parses as cons in F's OWN parseCtorMatch (broke self-compile).
+- [ ] **DA2 — try/catch/finally** `try B catch {case e:T=>..} [finally F]` → `(prim __tryCatch__ (lam 0 B)
+      <pf>)` / `__tryFinally__` / `__tryCatchFinally__` (ssc1-front :1076-1106). Braced catch `{case..}` →
+      handler case-lambda `(lam 1 (match (local 0) ..))` marked with `__handler_dispatch_selected__`/
+      `__handler_dispatch_miss__` + fallback arm (ssc1-lower lowerHandlerMatch :3636/handlerMarkedArms :3603).
+      Reuses DA1 typed patterns. Targets: dataset-agg, dataset-error (+2). Other try files
+      (bureau/graphql-client/mcp-*/webauthn) gated on OTHER first-divergences (measured).
+- [ ] **DA3 — direct{} / for-comp flatMap** (evaluate after DA1/DA2; direct-* ~4, for-comprehensions/
+      typed-sql-crud 2). DEEP de-Bruijn flatMap threading.
+
 ## v2-finish — make v2 ideal, small, powerful, fully self-hosted (2026-07-18, Sergiy)
 
 **Sergiy's vision (2026-07-18):** v1 and v2 are INDEPENDENT. v1 stays as-is — it stabilizes and
