@@ -47,6 +47,12 @@ baseline MATCH set `/tmp/baseline_match.txt` for `comm -23` drop-checks. --self 
       :648 isCollectionCompanion; List/Seq/Vector/Array/Map only). MATCH 360→362 (+array-companion-statics,
       spark-collections-demo). 0 drops. selRecv in postSel; non-companion uids stay `(global X)`.
 
+- [x] **O9 (`949b4def1`) `Decimal(x)`→`(prim dec.parse x)`, `Decimal(v,s)`→`(prim dec.from-unscaled v s)`,
+      `BigInt(x)`→`(prim i->big x)`** (ssc1-lower :2112/:2120). CORRECT byte-verified PREREQ, 0 flips alone (like
+      float literals `2d63fc63e`): fixes first-div in 8 files (distributed-dataset-typed-helpers/wire-*,
+      money-portable-v2, traditional-payments, x402-cardano/client/cardano-scalus) but ALL have deeper blockers
+      (codecs / user-ctor match patterns / double-let def body). 0 drops, --self 153 ok/0 FAIL, fixpoint 232,332 B.
+
 **ORACLE-DEGRADATION TALLY (remaining DIFFs that are the ORACLE being WRONG, not F-gaps — do NOT reproduce):**
 - `@`-annotated case-class fields (10: graph-codecs, graph-fullstack, graph-fullstack-rdf, graph-rdf4j-storage,
   graph-storage, object-store-jdbc, object-store-sync-routes, spark-schema-mapping, spark-shared-schema-reader,
