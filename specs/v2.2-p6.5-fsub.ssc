@@ -796,7 +796,13 @@ def walkTopJoin2(d, e, accStrs, n) = accStrs match { case (dA, eA) => ((join2(d,
 def emitCCDecl(ts, cx) = collectCC1(tl(tl(ts))) match { case c :: r => (emitCC(c, dqOf(cx)), skipCCHead(tl(tl(ts)))) case _ => ("", Nil) }
 // A case class may carry `extends Shape [with T]*` after its params (measured: the oracle IGNORES it —
 // `case class C(x) extends Shape` lowers identically to `case class C(x)`). Skip the clause in the walk.
-def skipCCHead(ts) = collectFields(tl(tl(ts)), Nil) match { case (fs, r) => skipExtends(r) }
+// It may ALSO carry a BODY — `case class C(x): <indented defs>` (layout `{..}`) or `case class C(x) { .. }`
+// — carrying method defs (T3). skipCCHead must CONSUME that body (an optional `:` then a `{..}` block) so
+// it does not cascade into the entry as garbage; the methods themselves are collected by collectCaseMethods.
+def skipCCHead(ts) = collectFields(tl(tl(ts)), Nil) match { case (fs, r) => skipCCBody(skipExtends(r)) }
+def skipCCBody(ts) = skipCCBrace(skipCCColon(ts))
+def skipCCColon(ts) = if isTok(hd(ts), 2, 34) then tl(ts) else ts
+def skipCCBrace(ts) = if isTok(hd(ts), 2, 28) then skipBrace(tl(ts), 1) else ts
 // pre-pass: top-level `val` names in source order. Same item advancement as walkTop; `rest` does not
 // depend on the (not-yet-known) val names, so a base cx (empty valNames) gives the right boundaries.
 def collectTopVals(ts, cx) = collectTopVals0(skipSemisF(ts), cx)
@@ -868,16 +874,77 @@ def emitMirror(c, dq) = "(def __mirror_" ++ ccName(c) ++ " (ctor Mirror (lit (st
 def fieldTypesOf(fs) = fs match { case Nil => Nil case h :: t => Cons(fldType(h), fieldTypesOf(t)) }
 def strList(xs, dq) = xs match { case Nil => "(ctor Nil)" case h :: t => "(ctor Cons (lit (str " ++ dq ++ h ++ dq ++ ")) " ++ strList(t, dq) ++ ")" }
 
+// -- T3: case-class BODY methods ------------------------------------------------------------------
+// `case class C(f1..fn): def m(p1..pk): T = body` -> a hoisted `(def C_m (lam k+1 <field-lets> body))`
+// PLUS a `(prim __regmethod__ "C" "m" (global C_m))` entry so `x.m(a)` (which F already emits as
+// `(prim __method__ "m" x a)`) dispatches. Measured byte-exact vs ssc1-lower caseMethodDefsFor :5110 /
+// lowerCaseMethodBody :5092 / caseMethodRegs :5162 on case-class-body-methods + js-scala-fenced-block.
+//
+// PRE-PASS: caseMethods = [ (className, (fieldNames, methodSlices)) ] in REVERSE class order — ssc1-front
+// registerCaseMethods :621 PREPENDS each class as parsed, so the cross-class def/reg order is reversed
+// (verified: scljet-readonly-pager-btree emits FixtureVfs's defs before FixtureFile's); methods WITHIN a
+// class stay source order. methodSlice = (methodName, defToks) where defToks = the token tail right AFTER
+// the method-name token (ccMParams+skipToEq re-derive params/body). A class body with NO `def` is omitted
+// (registerCaseMethods skips empty defs); `override` is stripped; body val/var fields are skipped.
+def collectCaseMethods(ts) = revL(collectCM(ts))
+def collectCM(ts) = if isEmpty(ts) then Nil else (if isCCHead(ts) then collectCMcc(ts) else collectCM(tl(ts)))
+def collectCMcc(ts) = collectCMcc2(snd(hd(tl(tl(ts)))), tl(tl(tl(ts))), ts)
+def collectCMcc2(cname, afterName, ts) = collectFields(tl(afterName), Nil) match { case (fs, r) => collectCMcc3(cname, fieldNamesOf(fs), skipCCColon(skipExtends(r)), ts) }
+def collectCMcc3(cname, flds, r, ts) = if isTok(hd(r), 2, 28) then collectCMcc4(cname, flds, tl(r), ts) else collectCM(tl(ts))
+def collectCMcc4(cname, flds, bodyTs, ts) = collectCMreg(cname, flds, collectMethodDefs(bodyTs), ts)
+def collectCMreg(cname, flds, ms, ts) = if isEmpty(ms) then collectCM(tl(ts)) else Cons((cname, (flds, ms)), collectCM(tl(ts)))
+def collectMethodDefs(ts) = collectMD(skipSemisF(ts))
+def collectMD(ts) = if isEmpty(ts) then Nil else (if isTok(hd(ts), 2, 29) then Nil else (if isWord(hd(ts), "override") then collectMD(tl(ts)) else (if isTok(hd(ts), 2, 1) then collectMDdef(ts) else collectMD(skipStmt(ts)))))
+def collectMDdef(ts) = Cons((snd(hd(tl(ts))), tl(tl(ts))), collectMD(skipSemisF(skipStmt(tl(tl(ts))))))
+// skip one statement to (and past) its top-level `;` (code 52); STOP before a top-level `}` (body close),
+// tracking paren/brace/bracket nesting so an inner `;`/`}` inside the method body is not the boundary.
+def skipStmt(ts) = skipStmtD(ts, 0)
+def skipStmtD(ts, d) = if isEmpty(ts) then ts else skipStmtTok(hd(ts), tl(ts), d)
+def skipStmtTok(t, rest, d) = if d == 0 then skipStmtZ(t, rest) else skipStmtN(t, rest, d)
+def skipStmtZ(t, rest) = if isTok(t, 2, 52) then rest else (if isTok(t, 2, 29) then Cons(t, rest) else (if isOpenNest(t) then skipStmtD(rest, 1) else skipStmtD(rest, 0)))
+def skipStmtN(t, rest, d) = if isOpenNest(t) then skipStmtD(rest, d + 1) else (if isCloseNest(t) then skipStmtD(rest, d - 1) else skipStmtD(rest, d))
+def isOpenNest(t) = if isTok(t, 2, 21) then true else (if isTok(t, 2, 28) then true else isTok(t, 2, 50))
+def isCloseNest(t) = if isTok(t, 2, 22) then true else (if isTok(t, 2, 29) then true else isTok(t, 2, 51))
+
+// DEF emission: `(def C_m (lam k+1 <n nested field-lets> <body>))`. Method env (F, head=local0) = the k
+// params (source order, pushed L->R) on top of __self — matching the oracle's revL(Cons("__self", params))
+// — so arity = 1 + #params and self starts at (local k). Each field emits `(let ((app (global _sel_f)
+// (local <selfIdx>))) ...)` with selfIdx = k + (# lets already emitted); the field NAME is then pushed so
+// a bare field ref in the body resolves to its let-local. The body parses with the full cx (so a field
+// SELECTION `o.f` still lowers to `(app (global _sel_f) <o>)`). ALL fields get a let (even unreferenced).
+def caseMethodDefsStr(cms, cx) = cms match { case Nil => "" case h :: t => ccMDefsCls(h, cx) ++ caseMethodDefsStr(t, cx) }
+def ccMDefsCls(reg, cx) = reg match { case (cname, fd) => fd match { case (flds, ms) => ccMDefsMs(cname, flds, ms, cx) } }
+def ccMDefsMs(cname, flds, ms, cx) = ms match { case Nil => "" case h :: t => ccMDef(cname, flds, h, cx) ++ " " ++ ccMDefsMs(cname, flds, t, cx) }
+def ccMDef(cname, flds, m, cx) = m match { case (mname, defToks) => ccMDefP(cname, mname, flds, ccMParams(defToks), cx) }
+// params: `(p1, ..)` after the name -> parseParams (pushed onto [__self]); param-less `def m: T =` -> just __self.
+def ccMParams(defToks) = if isTok(hd(defToks), 2, 21) then parseParams(tl(defToks), Cons("__self", Nil)) else (Cons("__self", Nil), defToks)
+def ccMDefP(cname, mname, flds, pr, cx) = pr match { case (env, rest) => ccMDefBody(cname, mname, flds, env, skipToEq(rest), cx) }
+def ccMDefBody(cname, mname, flds, env, bodyToks, cx) = "(def " ++ cname ++ "_" ++ mname ++ " (lam " ++ dlen(env) ++ " " ++ ccMLets(flds, env, bodyToks, cx) ++ "))"
+def ccMLets(flds, env, bodyToks, cx) = flds match { case Nil => ccMBodyE(bodyToks, env, cx) case h :: t => ccMLet(h, t, env, bodyToks, cx) }
+def ccMLet(h, t, env, bodyToks, cx) = "(let (" ++ ccMSelInit(h, lookup("__self", env)) ++ ") " ++ ccMLets(t, Cons(h, env), bodyToks, cx) ++ ")"
+def ccMSelInit(h, idx) = "(app (global _sel_" ++ h ++ ") (local " ++ idx ++ "))"
+def ccMBodyE(bodyToks, env, cx) = parseExpr(bodyToks, 0, env, cx) match { case (b, r) => b }
+
+// ENTRY: `(prim __regmethod__ (lit (str "C")) (lit (str "m")) (global C_m))` per method, emitted AFTER
+// all regfields and BEFORE the doc-order entry items (ssc1-lower :5648). join2 (space-joined, no trailing).
+def regMethods(cms, dq) = cms match { case Nil => "" case h :: t => join2(regMethodsCls(h, dq), regMethods(t, dq)) }
+def regMethodsCls(reg, dq) = reg match { case (cname, fd) => fd match { case (flds, ms) => regMethodsMs(cname, ms, dq) } }
+def regMethodsMs(cname, ms, dq) = ms match { case Nil => "" case h :: t => join2(regMethod1(cname, h, dq), regMethodsMs(cname, t, dq)) }
+def regMethod1(cname, m, dq) = m match { case (mname, defToks) => "(prim __regmethod__ (lit (str " ++ dq ++ cname ++ dq ++ ")) (lit (str " ++ dq ++ mname ++ dq ++ ")) (global " ++ cname ++ "_" ++ mname ++ "))" }
+def countMethods(cms) = cms match { case Nil => 0 case h :: t => countMethodsCls(h) + countMethods(t) }
+def countMethodsCls(reg) = reg match { case (cname, fd) => fd match { case (flds, ms) => dlen(ms) } }
+
 // -- the entry -------------------------------------------------------------------------------------
 // items = one __regfields__ per case class (declaration order), then the main call if there is one.
 // MEASURED: 0 items -> (lit unit); exactly 1 -> that item BARE (no seq); >1 -> (seq i1 i2 ..).
 def regFields(cs, dq) = cs match { case Nil => "" case h :: t => join2(regField(h, dq), regFields(t, dq)) }
 def regField(c, dq) = "(prim __regfields__ (lit (str " ++ dq ++ ccName(c) ++ dq ++ ")) " ++ strList(fieldNamesOf(ccFields(c)), dq) ++ ")"
-// entry = caseFieldRegs (ALL case classes first) ++ doc-order val-sets/exprs ++ main call (if any).
+// entry = caseFieldRegs (ALL case classes first) ++ caseMethodRegs ++ doc-order val-sets/exprs ++ main
+// call (if any). ssc1-lower :5648 order: regfields (all classes), THEN regmethods (all classes), THEN docExprs.
 def mainItem(ts) = if hasMain(ts) then "(app (global main))" else ""
-def entryItems2(ts, cs, docEntry, dq) = join2(regFields(cs, dq), join2(docEntry, mainItem(ts)))
-def nItems2(ts, cs, nDoc) = dlen(cs) + nDoc + (if hasMain(ts) then 1 else 0)
-def entryBody2(ts, cs, docEntry, nDoc, dq) = entryWrap(entryItems2(ts, cs, docEntry, dq), nItems2(ts, cs, nDoc))
+def entryItems3(ts, cs, docEntry, dq, cms) = join2(regFields(cs, dq), join2(regMethods(cms, dq), join2(docEntry, mainItem(ts))))
+def nItems3(ts, cs, nDoc, cms) = dlen(cs) + countMethods(cms) + nDoc + (if hasMain(ts) then 1 else 0)
+def entryBody3(ts, cs, docEntry, nDoc, dq, cms) = entryWrap(entryItems3(ts, cs, docEntry, dq, cms), nItems3(ts, cs, nDoc, cms))
 def entryWrap(items, n) = if n == 0 then "(lit unit)" else (if n == 1 then items else "(seq " ++ items ++ ")")
 
 // The entry clause depends on whether the program HAS a `main` (measured: a main-less program gets
@@ -886,7 +953,7 @@ def entryWrap(items, n) = if n == 0 then "(lit unit)" else (if n == 1 then items
 def hasMain(ts) = if isEmpty(ts) then false else (if isTok(hd(ts), 2, 1) then hasMain1(hd(tl(ts)), tl(ts)) else hasMain(tl(ts)))
 def hasMain1(t, ts) = if fst(t) == 1 then hasMainN(snd(t), ts) else hasMain(ts)
 def hasMainN(nm, ts) = if nm == "main" then true else hasMain(ts)
-def entryOf2(ts, cs, docEntry, nDoc, dq) = ") (entry " ++ entryBody2(ts, cs, docEntry, nDoc, dq) ++ "))"
+def entryOf3(ts, cs, docEntry, nDoc, dq, cms) = ") (entry " ++ entryBody3(ts, cs, docEntry, nDoc, dq, cms) ++ "))"
 def compile(src, dq, bs) = compile1(layout(lex(src, 0, src.length)), dq, bs)
 def compile1(ts, dq, bs) = compile2(ts, collectCC(ts), collectTypeCases(ts), dq, bs)
 // The pre-pass results become the parse CONTEXT: case-class names (cs, cc-only, for isCC) + the UNIFIED
@@ -903,7 +970,10 @@ def compile3(ts, cs, tcs, dq, cx) = walkTop(ts, cx) match { case (strs, nDoc) =>
 def rtrim1(s) = if s.length > 0 then (if s.charAt(s.length - 1) == 32 then s.substring(0, s.length - 1) else s) else s
 // def order (ssc1-lower :5570-5573): prelude, topVarCells, topValCells, sels(accessors), userDefs. varCells
 // reuses valCells (identical `(def n__cell (prim cell.new (lit unit)))` render); "" when there are no vars.
-def compile4(strs, nDoc, ts, tcs, dq, cx) = strs match { case (userDefs, docEntry) => rtrim1(prelude(dq) ++ valCells(varNamesOf(cx), dq) ++ valCells(valNamesOf(cx), dq) ++ emitSels(tcs, dq) ++ userDefs) ++ entryOf2(ts, tcs, docEntry, nDoc, dq) }
+// caseMethodDefs sit BETWEEN topValCells and sels (ssc1-lower :5570-5573); each carries a trailing space
+// like valCells/emitSels ("" when there are no body methods → a method-free program stays byte-identical).
+def compile4(strs, nDoc, ts, tcs, dq, cx) = compile4b(strs, nDoc, ts, tcs, dq, cx, collectCaseMethods(ts))
+def compile4b(strs, nDoc, ts, tcs, dq, cx, cms) = strs match { case (userDefs, docEntry) => rtrim1(prelude(dq) ++ valCells(varNamesOf(cx), dq) ++ valCells(valNamesOf(cx), dq) ++ caseMethodDefsStr(cms, cx) ++ emitSels(tcs, dq) ++ userDefs) ++ entryOf3(ts, tcs, docEntry, nDoc, dq, cms) }
 def ccNamesL(cs) = cs match { case Nil => Nil case h :: t => Cons(ccName(h), ccNamesL(t)) }
 // The CONSTANT 7258-byte prelude `ssc1-lower` emits (measured identical across programs).
 // It is fixed OUTPUT, so F carries it as a string constant; byte-identity stays the oracle.
