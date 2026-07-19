@@ -457,10 +457,16 @@ Slices, impact-ordered (biggest clean lever first):
       RESIDUAL (single-name binder only): tuple binders; multi-line `for⏎ gens⏎yield` (needs `for` as a
       LAYOUT OPENER — for-comprehensions.ssc pairs); infix `1 to n` generator (json-deep-import); do-body
       that is a bare assignment (parseExpr doesn't handle assign — json-deep-import).
-- [ ] **derived-codec (20), cc/tc-method-def+`.copy` (16+3), string-escape/multiline `"""`+encoder-escape
-      (12): later.** OTHER-tail sub-clusters (measured): scljet-write lcell arm-assignment (5, compound
-      assign in a single-line match-arm body); match-lowered-to-`if __isTag__` (actors receive, ~7, DEEP —
-      different match strategy, do NOT touch core match); companion-statics Array.fill/List.x (3).
+- [x] **G6 — assignment as a match-arm body. Corpus 238 → 243 (+5), 0 regr. fixpoint 168,736→168,895.**
+      A single-line arm body can be a statement-position assign (`case Left(e) => adA = adA`); the front's
+      finishAssignment (:1536) makes `id = e`/`id += e` an assign EXPRESSION = the arm value. New armBodyExpr
+      parses the assign when the body head is `id =` (isAssignHead), else parseExpr; used by parseArmBody +
+      parseWildArm + parseTupArmBody. Fires only on a genuine `id =` head, so non-assign arms byte-unchanged.
+      Fixed scljet-write-deep-btree/deep-overflow/index-deep/index-multileaf, scljet-wal-checkpoint.
+- [ ] **derived-codec (20), cc/tc-method-def+`.copy` (16+3), string `"""`+encoder-escape (12): later.**
+      OTHER-tail sub-clusters (measured): match-lowered-to-`if __isTag__` (actors receive, ~7, DEEP — do NOT
+      touch core match); companion-statics Array.fill/List.x (3); infix `1 to n`/`until` generator; assign in
+      other expr positions (if-branch/lambda body — same finishAssignment gap, only arm bodies done so far).
 Each slice: byte-verify vs oracle on the cached corpus, keep `--self` GREEN (re-freeze fixpoint), re-run
 `v2.2-p6.5-corpus.sh`, CONFIRM no MATCH dropped. Build: `scala-cli --power package v2/src --assembly -o
 /tmp/ssc-codec.jar --force`; gate: `SSC_JAR=/tmp/ssc-codec.jar V2_DIR=<wt>/v2 NEWFRONT_WORK=/tmp/p65codec_work`.
