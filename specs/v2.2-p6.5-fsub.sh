@@ -343,6 +343,10 @@ d cc_tab     'def main(): String = Array.tabulate(4)(i => i * i).mkString(",")'
 d cc_listfill 'val filled = List.fill(4)(0)
 println(filled)'
 d cc_range   'def main(): String = Array.range(0, 5).mkString("-")'
+d si_nest_str 'val xs = List(1, 2, 3)
+println(s"Squares: ${xs.mkString(", ")}")'
+d si_nest_arg 'def f(o: Option[String]): String = s"v=${o.getOrElse("none")}"
+def main(): String = f(None)'
 
 if [ "${1:-}" = "--self" ]; then
   echo "--- X1: F compiles its OWN source ---"

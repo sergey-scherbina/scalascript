@@ -81,7 +81,17 @@ def lexWord(s, i, n, j) = lexWord2(s, i, n, j, s.substring(i, j))
 // `s"..."` string interpolation: the word `s` immediately followed by `"` opens an interp token (kind 6)
 // carrying the RAW content between the quotes; parseInterp splits it into a `++` chain at parse time.
 def isInterpStart(s, j, n, w) = if w == "s" then (if atEnd(j, n) then false else s.charAt(j) == 34) else false
-def lexInterp(s, q, n) = lexInterp1(s, q, n, scanStr(s, q + 1, n))
+// The interp CONTENT scanner must NOT stop at a `"` that lives inside a `${..}` sub-expression
+// (`s"x ${f(", ")}"`): plain scanStr truncated the token there (ssc1-front scanInterpEnd/scanNestedStr
+// :146-154). scanInterp scans to the closing outer quote, skipping any balanced `${..}` (whose braces
+// and nested strings are balanced by scanIBrace/scanINest).
+def scanInterp(s, i, n) = if atEnd(i, n) then i else scanInterpC(s, i, n, s.charAt(i))
+def scanInterpC(s, i, n, c) = if c == 34 then i else (if c == 92 then scanInterp(s, i + 2, n) else (if c == 36 then scanInterpDol(s, i, n) else scanInterp(s, i + 1, n)))
+def scanInterpDol(s, i, n) = if atEnd(i + 1, n) then scanInterp(s, i + 1, n) else (if s.charAt(i + 1) == 123 then scanInterp(s, scanIBrace(s, i + 2, n, 1), n) else scanInterp(s, i + 1, n))
+def scanIBrace(s, i, n, d) = if atEnd(i, n) then i else scanIBraceC(s, i, n, d, s.charAt(i))
+def scanIBraceC(s, i, n, d, c) = if c == 34 then scanIBrace(s, scanINest(s, i + 1, n), n, d) else (if c == 123 then scanIBrace(s, i + 1, n, d + 1) else (if c == 125 then (if d == 1 then i + 1 else scanIBrace(s, i + 1, n, d - 1)) else scanIBrace(s, i + 1, n, d)))
+def scanINest(s, i, n) = if atEnd(i, n) then i else (if s.charAt(i) == 34 then i + 1 else (if s.charAt(i) == 92 then scanINest(s, i + 2, n) else scanINest(s, i + 1, n)))
+def lexInterp(s, q, n) = lexInterp1(s, q, n, scanInterp(s, q + 1, n))
 def lexInterp1(s, q, n, close) = Cons((6, s.substring(q + 1, close)), lex(s, close + 1, n))
 def lexWord2(s, i, n, j, w) = if kwCode(w) > 0 then Cons((2, kwCode(w)), lex(s, j, n)) else (if isUp(s.charAt(i)) then Cons((3, w), lex(s, j, n)) else (if isInterpStart(s, j, n, w) then lexInterp(s, j, n) else Cons((1, w), lex(s, j, n))))
 // A run of digits is an Int (kind 0) UNLESS a `.` followed by another digit follows -- then it is a
