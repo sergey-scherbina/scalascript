@@ -4,9 +4,9 @@
 
 `v2-p65-layout`. The dominant breadth gate (~50% of the corpus uses indented / colon-block style).
 Byte-faithful port of the oracle's `NL`-token lexing + stateful `layout` pass into the self-hosting
-subset compiler F (`specs/v2.2-p6.5-fsub.ssc`). Corpus MATCH **48 → 76/504 (+28)**; X1 fixpoint held
-byte-identical at every slice (`--self` 136 ok / 0 FAIL, 97,985 → 120,008 B); no regression; no kernel
-(`v2/src/*`) or `v2/lib` oracle edits.
+subset compiler F (`specs/v2.2-p6.5-fsub.ssc`), then the breadth it unblocks. Corpus MATCH
+**48 → 143/504 (+95)**; X1 fixpoint held byte-identical at every slice (`--self` 136 ok / 0 FAIL,
+97,985 → 120,920 B); no regression; no kernel (`v2/src/*`) or `v2/lib` oracle edits.
 
 - **L1** — F's lexer emits `NL <indent>` tokens; `layout` = the L/B/P/S frame-stack pass + declHead
   vs type-annotation colon disambiguation + all helpers, reproducing `ssc1-front.ssc0:3069-3163`. The
@@ -17,6 +17,10 @@ byte-identical at every slice (`--self` 136 ok / 0 FAIL, 97,985 → 120,008 B); 
   the layout-adjacent key for indented match-arm bodies (53→55); **L2d** strip Long-literal suffix
   `5L` (55→56); **L2e** trailing block-argument application `f { block }` / `f(args){ block }` →
   `(app … (lam 0 block))`, unblocking the whole actors cluster + async-parallel* + http-client (56→76).
+- **L2f** top-level `import` skipped (module directive, no IR; 50 files); **L2g** applied-uid ctor
+  dispatch — `X(args)` → `(ctor X)` only for builtins {Cons,Some,Left,Right,Signal,ComputedSignal},
+  every other uid (local case class OR imported like SqlInteger/AchConfig) → `(app (global X) args)`.
+  Together these unblocked the entire scljet-sql cluster + scljet-write/mutate/wal (76→**143**).
 
 ## 2026-07-18 — v2-finish F1/F2/F3: trustworthy acceptance gates + first P6.5 breadth slice
 

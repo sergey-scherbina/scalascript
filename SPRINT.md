@@ -230,6 +230,13 @@ SELF-HOSTS (the layout code is in F's own source and compiles byte-identically t
 - [x] **L2e (`f5ab2ef30`): trailing block-argument application `f { block }` → `(app f (lam 0 block))`,
       `f(args){block}` → `(app (app f args) (lam 0 block))`.** Unblocked the whole actors cluster +
       async-parallel* + http-client + signals. 56 → **76**.
+- [x] **L2f (`f2eba6543`): top-level `import a.b.{x,y}` → skipped** (oracle emits no IR; 50 files had it,
+      F mis-parsed `import` as a bare id). Correct prerequisite, 0 flips alone.
+- [x] **L2g (`f2eba6543`): applied-uid ctor dispatch** — `X(args)` → `(ctor X)` only for builtins
+      {Cons,Some,Left,Right,Signal,ComputedSignal}; every other uid (local case class OR imported/unknown
+      like SqlInteger/AchConfig) → `(app (global X) args)` (ssc1-lower :2078-2134). **Corpus 76 → 143**
+      (unblocked the WHOLE scljet-sql cluster + scljet-write/mutate/wal + effect-imported-handler).
+      **Session total: corpus MATCH 48 → 143/504 (+95); fixpoint 97,985 → 120,920 B byte-identical.**
 - [ ] **L3+ — remaining (measured, impact-ordered from the DIFF near-misses):** `_sel_` list-var registry
       (~architectural, mutable listVarsCell + list-type tracking); string escapes `\"`/`\n` (3 coordinated
       changes: scan-skip + unescape + re-escape matching the CoreIR encoder, ~16 progs); `__derived_*`
