@@ -655,7 +655,13 @@ def phScan(ts, depth, c0, ct, binder) = if isEmpty(ts) then (c0, (ct, binder)) e
 def phScanTok(t, rest, depth, c0, ct, binder) = if isArgEnd(t, depth) then (c0, (ct, binder)) else (if isTok(t, 2, 28) then phScan(rest, depth + 1, c0, ct, true) else (if isTok(t, 2, 30) then phScan(rest, depth, c0, ct, true) else (if isTok(t, 2, 5) then phScan(rest, depth, c0, ct, true) else (if isOpenB(t) then phScan(rest, depth + 1, c0, ct, binder) else (if isCloseB(t) then phScan(rest, depth - 1, c0, ct, binder) else (if isWild(t) then phScan(rest, depth, (if depth == 0 then c0 + 1 else c0), ct + 1, binder) else phScan(rest, depth, c0, ct, binder)))))))
 def parseIf(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (c, r1) => parseExpr(tl(r1), 0, env, cx) match { case (t, r2) => parseExpr(tl(r2), 0, env, cx) match { case (e, r3) => (emitIf(c, t, e), r3) } } }
 def parseExpr(ts, minPrec, env, cx) = parseAtom(ts, env, cx) match { case (l, r) => climb(l, r, minPrec, env, cx) }
-def climb(left, ts, minPrec, env, cx) = if binPrec(hd(ts)) >= minPrec then climbStep(left, ts, minPrec, env, cx) else (left, ts)
+// Infix range words `a to b` / `a until b` -> `a.to(b)` / `a.until(b)` -> `(app (global _sel_<w>) a b)`
+// (ssc1-front parseInfix :1484-1492: consumed UNCONDITIONALLY when the head is the id `to`/`until`, RHS is a
+// single postfix expr = parseAtom, then the infix loop continues at the SAME minPrec). Checked before the
+// precedence gate so it binds like the oracle regardless of minPrec.
+def isInfixWord(t) = if fst(t) == 1 then (if snd(t) == "to" then true else snd(t) == "until") else false
+def infixWord(left, ts, minPrec, env, cx) = parseAtom(tl(ts), env, cx) match { case (rhs, r) => climb("(app (global _sel_" ++ snd(hd(ts)) ++ ") " ++ left ++ " " ++ rhs ++ ")", r, minPrec, env, cx) }
+def climb(left, ts, minPrec, env, cx) = if isInfixWord(hd(ts)) then infixWord(left, ts, minPrec, env, cx) else (if binPrec(hd(ts)) >= minPrec then climbStep(left, ts, minPrec, env, cx) else (left, ts))
 def climbStep(left, ts, minPrec, env, cx) = { val p = binPrec(hd(ts))
   if p == 0 then (left, ts)
   else parseExpr(tl(ts), rightMin(p), env, cx) match { case (right, r2) => climb(emitBin(snd(hd(ts)), left, right, dqOf(cx)), r2, minPrec, env, cx) } }
