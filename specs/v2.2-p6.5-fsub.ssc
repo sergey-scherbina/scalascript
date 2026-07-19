@@ -415,21 +415,18 @@ def parseArgsMore(e, ts, env, cx) = if isTok(hd(ts), 2, 27) then parseArgs(tl(ts
 //   • all placeholders shallow (c0 == ct): rename the k-th `_` → `__u<k>` left-to-right, push __u0..__u(ct-1)
 //     BEFORE parsing so de Bruijn is right, emit `(lam ct body)` (`_ * 2`, `_.x`, `_ % 2 == 0`, `_ + _` →
 //     `(lam 2 … (local 1)(local 0))`, matching ssc1-lower).
-//   • a single DEEP placeholder (ct == 1, c0 == 0): a bare `f(_)` — push one param named "_" and let calleeOf
-//     propagate the inner bare `_` to it (`f(_)` → `x => f(x)`, ssc1-front :973).
-//   • otherwise (a binder `=>`/`{`/`match`; 0 placeholders; a bare `_` arg; or a MIXED deep+shallow multi like
-//     `xs.map(_+1).filter(_%2==0)` where the inner `_` belong to the inner calls): plain parse, unchanged
-//     (the inner call args get wrapped by their own parseArgExpr). No MATCH file has a placeholder arg → no regress.
+//   • any DEEP placeholder (c0 < ct — the `_` sits inside a nested call arg, e.g. `xs.map(_*2).mkString`,
+//     `xs.map(_+1).filter(_%2==0)`, or a bare `f(_)`): plain parse, unchanged. The nested call args get
+//     wrapped by their OWN parseArgExpr, so wrapping HERE would double-wrap. (The rare bare `f(_)` partial
+//     application is thus left as-is — acceptably a DIFF; no MATCH file has a placeholder arg → no regress.)
 def parseArgExpr(ts, env, cx) = phArgWrap(phScanArg(ts), ts, env, cx)
 def phArgWrap(sc, ts, env, cx) = sc match { case (c0, rest) => rest match { case (ct, binder) =>
   if binder then parseExpr(ts, 0, env, cx)
   else if ct == 0 then parseExpr(ts, 0, env, cx)
   else if isBarePhArg(ts) then parseExpr(ts, 0, env, cx)
   else if c0 == ct then wrapPh(ts, ct, env, cx)
-  else if ct == 1 then wrapSinglePh(ts, env, cx)
   else parseExpr(ts, 0, env, cx) } }
 def wrapPh(ts, n, env, cx) = parseExpr(renameArgPh(ts), 0, pushU(0, n, env), cx) match { case (b, r) => ("(lam " ++ n ++ " " ++ b ++ ")", r) }
-def wrapSinglePh(ts, env, cx) = parseExpr(ts, 0, "_" :: env, cx) match { case (b, r) => ("(lam 1 " ++ b ++ ")", r) }
 def pushU(i, n, env) = if i >= n then env else pushU(i + 1, n, ("__u" ++ i) :: env)
 def renameArgPh(ts) = renamePhD(ts, 0, 0)
 def renamePhD(ts, depth, k) = if isEmpty(ts) then ts else renamePhTok(hd(ts), tl(ts), depth, k)
