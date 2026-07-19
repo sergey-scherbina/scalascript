@@ -19,12 +19,15 @@ baseline MATCH set `/tmp/baseline_match.txt` for `comm -23` drop-checks. --self 
       Routed both to parseListLit in parseCtorArgs. MATCH 334→335 (+x402-metamask; distributed-dataset-codec +
       spark-collections-demo revealed next-layer diffs: `Seq.empty`/`List.empty` recv needs `(ctor Seq)`, codec
       object recv). 0 regressions, --self 153 ok/0 FAIL, fixpoint 222,881 B.
-- [ ] **O2 `Array(..)` → `(app (var _arr_fill) <Cons-chain>)`** (ssc1-lower :2098). Targets spark-mllib-*, wallet-mpc.
-- [ ] **O3 `Prism[S,C]` → `(prim optics.prism (lit (str <lastTypeArg>)))`** (variant = string after last comma
-      of the type-arg list; ssc1-lower prismVariant :1231). Targets prisms.
-- [ ] **O4 `Focus[T](_.path)` → `(prim optics.focus (ctor Cons <steps> (ctor Nil)))`** (DEEP; path walk of the
+- [x] **O2 (`14832e856`) `Array(..)` → `(app (global _arr_fill) <Cons-chain>)`** (ssc1-lower :2098). MATCH
+      335→338 (+spark-mllib-model-save-load, spark-mllib-pipeline, wallet-mpc-fireblocks). 0 drops.
+- [x] **O3 (`d36287e9c`) `Prism[S,C]` → `(prim optics.prism (lit (str <lastTypeArg>)))`** (variant = string
+      after last comma of the type-arg list; ssc1-lower prismVariant :1231). MATCH 338→339 (+prisms). 0 drops.
+      GOTCHA: reuse existing tokStr (line 239, used by typeText) — a dup def dropped [/]/,/( from field types.
+- [x] **O4 (`16985e45c`) `Focus[T](_.path)` → `(prim optics.focus (ctor Cons <steps> (ctor Nil)))`** (path walk of the
       selector lambda: `.f`→OField(f), `.some`→OSome, `.each`→OEach, `.index(i)`→OIndex, `.at(k)`→OAt; ssc1-lower
-      focusPathSteps :1157). Targets lenses, optic-polish, optics-index-at, optional, traversal.
+      focusPathSteps :1157). MATCH 339→344 (+lenses, optic-polish, optics-index-at, optional, traversal). 0 drops.
+      OPTICS CLUSTER FULLY CLEAN.
 
 **ORACLE-DEGRADATION TALLY (remaining DIFFs that are the ORACLE being WRONG, not F-gaps — do NOT reproduce):**
 - `@`-annotated case-class fields (10: graph-codecs, graph-fullstack, graph-fullstack-rdf, graph-rdf4j-storage,
