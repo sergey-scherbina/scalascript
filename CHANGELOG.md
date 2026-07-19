@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-07-19 — v2-p65-optics: P6.5 F breadth — corpus MATCH 334 → 362/508 (+28), fixpoint byte-identical
+
+`v2-p65-optics`. Nine byte-verified breadth slices on the self-hosting subset compiler F
+(`specs/v2.2-p6.5-fsub.ssc`), each reproducing the `ssc1-front`+`ssc1-lower` oracle byte-for-byte on the real
+corpus; ALL 0 regressions (`comm -23` drop-check EMPTY per slice), X1 fixpoint `stage1==stage2` byte-identical
+throughout (222,668 → 232,332 B), `--self` 153 ok/0 FAIL each, kernel +0, no `v2/lib` oracle edits.
+O1 `Vector(..)`/`Seq(..)`→Cons-chain; O2 `Array(..)`→`_arr_fill`; O3 `Prism[S,C]`→`optics.prism`; O4
+`Focus[T](_.path)`→`optics.focus` O-step chain (optics cluster fully clean); O5 method type-app `recv.m[T](args)`
+skip `[T]` (+10, biggest — companion recv + `.asInstanceOf`); O6 infix `a to b`/`a until b`→`_sel_to/until`; O7
+`throw e`→`__throw__`, `new X(a)`→`X(a)`; O8 bare collection-companion recv `Array.empty`→`(ctor X)`; O9
+`Decimal()/BigInt()`→`dec.parse`/`i->big` (correct prereq, 0 flips alone). Found the real clean ceiling: ~23 of
+the 146 remaining DIFFs are oracle-degradation/mutual-fail (`@`-annotated case classes collapse to a single `_`
+field, `@`-val/def `_err`, `id"""..."""` interpolator leak, type-ascription/@main mutual-fail) — NOT F-gaps, so
+the achievable clean ceiling is ≈485; the rest are DEEP F-gaps (direct{} monad, try/catch typed patterns,
+for-comp flatMap, actors receive-match, codecs). Full handoff + impact map in `SPRINT.md` §v2-p65-optics.
+
 ## 2026-07-19 — ci-negtc-gate: fix the last red `sbt — compile and test` step (oversized-bytecode parity skip)
 
 `ci-negtc-gate`. The `ScalaScript 2.1 standard-only negative toolchain release gate` was the only red
