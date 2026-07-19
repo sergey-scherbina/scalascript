@@ -13,11 +13,13 @@ scala-front:  ssc compile examples/uselib.ssc0
 self-hosted:  ssc run bin/ssc0c.ssc0 examples/uselib.ssc0
 ```
 
-At the audited SHA both commands returned non-empty canonical Core IR, but their bytes differed while
-the single-file and multi-file self-fixpoints still passed. On current source the semantic/canonical
-payload has converged: `/tmp/v2-f7-uselib-seed.ir` and `/tmp/v2-f7-uselib-self.ir` share all first 2865
-bytes. The remaining exact mismatch is one trailing LF: seed output is 2866 bytes and ends `29 0a`, while
-self-hosted output is 2865 bytes and ends `29`. SHA-256 values are respectively
+At the audited SHA the gate reported differing Core IR while the single-file and multi-file self-fixpoints
+still passed. Fresh full-gate evidence shows that label was secondary and misleading: its default-stack
+self-hosted command exits with `StackOverflowError`, retries, and never supplies a valid comparison side.
+Running the same self-hosted command on `-Xss512m` succeeds; then the semantic/canonical payload has
+converged. `/tmp/v2-f7-uselib-seed.ir` and `/tmp/v2-f7-uselib-self.ir` share all first 2865 bytes. The
+remaining exact mismatch is one trailing LF: seed output is 2866 bytes and ends `29 0a`, while self-hosted
+output is 2865 bytes and ends `29`. SHA-256 values are respectively
 `924205b198d594fdd9683a25dcce48b21f2207ea930d86f988f1ebf652f04975` and
 `d435633db63812dc39cf613d50b9cbeffc8dc9eaa080da10dbf748f6d5464a96`.
 
@@ -1422,8 +1424,9 @@ the contract change was announced in the rozum `scalascript` room before landing
 
 ## coreir-compiler-unbounded-depth — a deep-but-well-formed capsule overflows the COMPILER at ~depth 500 on a 1m stack
 
-**Status:** OPEN / claimed 2026-07-19 by `v2-f7-internal-gate` (found 2026-07-16 by `coreir-contract`
-while bounding the *reader*; the reader half is fixed, this half is not). Not a regression — pre-existing.
+**Status:** REPRODUCED / claimed 2026-07-19 by `v2-f7-internal-gate` (found 2026-07-16 by
+`coreir-contract` while bounding the *reader*; the reader half is fixed, this half is not). Not a
+regression — pre-existing.
 
 **Symptom.** `Compiler.valuePositionsNeedEffectThreading` / `FastCode.tryFC` recurse without a bound.
 A perfectly well-formed (nothing malformed — merely deeply nested) Core IR program overflows the JVM
@@ -1432,6 +1435,14 @@ macOS defaults to 2m, so this hides locally — the same asymmetry that kept CI 
 
 `StackOverflowError` is an `Error`, not a catchable failure: on an untrusted persisted capsule this is
 a denial of service, not a diagnostic.
+
+**Fresh gate baseline (2026-07-19, `5f39336a8`).** `v2/conformance/check.sh` naturally exits 1 with
+637 ok / 5 FAIL. All five labels (`ssc0c uselib`; JS and Rust `quicksort-lib`/`zipwith`) have the same
+default-stack compiler overflow, both initial run and retry, in
+`Compiler.compileEffectAwareApplication` / `evaluateRemainingAsStep`; complete diagnostics are in
+`$TMPDIR/ssc-conformance-logs-25835/failures.log`. The valid programs are structurally shallow (max
+canonical S-expression depth: self compiler 28, JS/Rust generators 51), proving that reader depth alone
+does not explain or guard this compiler recursion. The same `uselib` command succeeds at `-Xss512m`.
 
 **Reproduce:**
 

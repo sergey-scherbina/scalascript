@@ -90,8 +90,12 @@ and the direct process status separately so a successful `tail`, `grep`, or retr
 
 ## Results
 
-Fresh baseline is in progress at `a3b115623`. The prior audit at `358facd8e` reported 639 successful checks
-and three failures: one `ssc0c uselib.ssc0` byte mismatch and two compiler `StackOverflowError`s. Direct
-current-head artifacts show the 2865-byte Core IR payload now agrees, but exact streams still differ by the
-seed's one trailing LF (2866 vs 2865 bytes). The existing gate's `$(...)` capture strips that evidence and is
-therefore not a valid byte comparator; F7.2 must repair the apparatus before classifying the compiler result.
+Fresh baseline at `5f39336a8`: `v2/conformance/check.sh` reaches natural exit 1 with **637 ok / 5 FAIL**.
+The five labels are `ssc0c uselib.ssc0`, JS `quicksort-lib`/`zipwith`, and Rust
+`quicksort-lib`/`zipwith`; every initial command and retry fails with the same default-stack compiler
+`StackOverflowError`. The old `uselib ir differs` line is not an independent loader/lowering diagnosis:
+the self-hosted side failed before comparison. At `-Xss512m` it succeeds and the 2865-byte Core IR payload
+agrees, but exact streams still differ by the seed's one trailing LF (2866 vs 2865 bytes). The existing
+gate's `$(...)` capture strips that evidence and is therefore not a valid byte comparator. Valid failing
+programs are structurally shallow (self compiler max S-expression depth 28; JS/Rust generators 51), so a
+reader-depth check alone cannot close compiler recursion.

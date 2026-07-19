@@ -1163,10 +1163,15 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
       `origin/main` before accepting either diagnosis because the harness and runtime have moved.
       Spec: `specs/v2-f7-internal-gate.md`; ledger:
       `BUGS.md#ssc0c-multifile-uselib-ir-divergence` and `#coreir-compiler-unbounded-depth`.
-      - [ ] **F7.1 — establish current truth.** Run the full gate from this clean worktree with stdout,
+      - [x] **F7.1 — establish current truth.** Run the full gate from this clean worktree with stdout,
             stderr, and exit status captured separately; record exact SHA, ok/fail count, failing labels,
             and artifact paths. Never pipe through `tail`. Re-run each failure directly in the assembled
-            v2 jar and byte-compare before classifying it.
+            v2 jar and byte-compare before classifying it. **Result @ `5f39336a8`:** natural exit 1,
+            **637 ok / 5 FAIL**. Labels: `ssc0c uselib`, JS `quicksort-lib`/`zipwith`, Rust
+            `quicksort-lib`/`zipwith`. All five commands (and retries) are default-stack `ssc run`
+            failures with `StackOverflowError` in `Compiler.compileEffectAwareApplication`; there is no
+            independent current loader/lowering diff. Full streams: `/tmp/v2-f7-baseline.{out,err}`;
+            runtime diagnostics: `$TMPDIR/ssc-conformance-logs-25835/failures.log`.
       - [ ] **F7.2 — restore the multi-file compiler invariant.** Save Scala-front and self-hosted
             `uselib.ssc0` Core IR, print a canonical diff, minimize it across a real imported two-file
             fixture, fix the owning loader/compiler path, and preserve both single-file and multi-file
@@ -1179,7 +1184,9 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
             depth that overflows at `-Xss1m` and the legitimate tower program that needs the same path.
             Make traversal iterative or fail closed at a documented compiler bound with a stable
             diagnostic; merely raising a launcher stack is not a DoS fix. Preserve 1e6 tail-call runtime
-            behavior and all ordinary fixpoints.
+            behavior and all ordinary fixpoints. Fresh structural measurements: the valid self-hosted
+            compiler IR has max S-expression depth 28; JS/Rust generators are 51, so the five failures
+            are compiler-recursion amplification, not reader-depth violations.
       - [ ] **F7.4 — prove closure.** Add faithful multi-file and depth regressions, run their focused
             suites plus `bash v2/conformance/check.sh` to natural exit, then run affected shared
             conformance and exact-SHA GitHub CI before marking F7 complete.
