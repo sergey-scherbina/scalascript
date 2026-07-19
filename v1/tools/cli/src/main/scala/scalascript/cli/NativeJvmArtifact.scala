@@ -19,6 +19,14 @@ private[cli] object NativeJvmArtifact:
     "scala-library-",
     "scala3-library_3-",
     "scalascript-v2-core_",
+    // F5 kernel-slimming (2026-07-19): Emit and NativeUiSites were relocated OUT
+    // of scalascript-v2-core into their own modules. The produced standalone
+    // artifact links both by FQN at runtime — `NativeArtifactRuntime.initialize`
+    // touches `ssc.Emit.globalsRef`, and `UiNativePlugin.install` (run by
+    // NativePluginHost.loadAll) touches `ssc.NativeUiSites.internalName` — so both
+    // jars must be bundled or the artifact throws NoClassDefFoundError at runtime.
+    "scalascript-v2-jvm-runtime_",
+    "scalascript-v2-nativeui_",
     "scalascript-v2-native-plugin-spi_",
     "scalascript-v2-native-host-plugin_",
     "scalascript-v2-native-crypto-plugin_",
@@ -47,6 +55,10 @@ private[cli] object NativeJvmArtifact:
     "scala-library-",
     "scala3-library_3-",
     "scalascript-v2-core_",
+    // F5: fail the build fast (with a clear message) if these relocated runtime
+    // deps are not staged, instead of shipping an artifact that NoClassDefFounds.
+    "scalascript-v2-jvm-runtime_",
+    "scalascript-v2-nativeui_",
     "scalascript-v2-native-plugin-spi_",
     "scalascript-v2-native-host-plugin_",
     "scalascript-v2-native-dataset-plugin_",
