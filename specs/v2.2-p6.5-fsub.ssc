@@ -297,17 +297,43 @@ def isListField(nm) = if nm == "head" then true else (if nm == "tail" then true 
 // the arg, NOT `(app (__method__ "foreach" recv) ..)`). A block that is a lambda is passed directly; a
 // plain block becomes a by-name `(lam 0 ..)` thunk — same rule as postBlockArg's blockArgApp.
 def postDot1(c, nm, ts, env, cx) = if nm == "length" then (emitLen(c, cx), ts) else (if isTok(hd(ts), 2, 21) then postMeth(c, nm, ts, env, cx) else (if isTok(hd(ts), 2, 28) then postMethBlock(c, nm, ts, env, cx) else (postSel(c, nm, cx), ts)))
-def postMethBlock(c, nm, ts, env, cx) = parseBlock(tl(ts), env, cx) match { case (b, r) => (emitMethod(nm, c, " " ++ blockArgOf(b), dqOf(cx)), r) }
+def postMethBlock(c, nm, ts, env, cx) = parseBlock(tl(ts), env, cx) match { case (b, r) => (emitMethodCall(nm, c, Cons(blockArgOf(b), Nil), cx), r) }
 def blockArgOf(b) = if startsW(b, "(lam ") then b else "(lam 0 " ++ b ++ ")"
 def postSel(c, nm, cx) = if isListField(nm) then "(app (global __list_" ++ nm ++ ") " ++ c ++ ")" else (if isFld(nm, cx) then "(app (global _sel_" ++ nm ++ ") " ++ c ++ ")" else (if isTupField(nm) then "(app (global _sel_" ++ nm ++ ") " ++ c ++ ")" else emitMethod(nm, c, "", dqOf(cx))))
 def emitLen(c, cx) = if isConcatCode(c, dqOf(cx)) then emitMethod("length", c, "", dqOf(cx)) else (if isStrLitish(c) then "(prim slen " ++ c ++ ")" else emitMethod("length", c, "", dqOf(cx)))
 def emitMethod(nm, c, args, dq) = "(prim __method__ (lit (str " ++ dq ++ nm ++ dq ++ ")) " ++ c ++ args ++ ")"
-def postMeth(c, nm, ts, env, cx) = parseArgs(tl(ts), env, cx) match { case (args, r) => (emitPrimMeth(nm, c, args, cx), r) }
+// parseArgL (not parseArgs) so the arg COUNT and the single-arg shape are recoverable — selMethodOr needs
+// them (mkString arity, map's multi-param-lambda guard). joinArgs rebuilds the identical space-joined
+// string, so charAt/substring/__method__ emission is byte-identical to the old parseArgs path.
+def postMeth(c, nm, ts, env, cx) = parseArgL(tl(ts), env, cx) match { case (es, r) => (emitPrimMeth(nm, c, es, cx), r) }
+def joinArgs(es) = es match { case Nil => "" case h :: t => " " ++ h ++ joinArgs(t) }
 // An APPLIED zero-arg call `recv.m()` (empty parens) lowers to `__method0__`, not `__method__`
 // (ssc1-lower methodPrim :1410 — dispatch-or-error, never eta-expand). A BARE selection `recv.m` keeps
 // `__method__` (via postSel/emitMethod), so method refs still work. charAt/substring always have args.
-def emitPrimMeth(nm, c, args, cx) = if nm == "charAt" then "(prim scodeAt " ++ c ++ args ++ ")" else (if nm == "substring" then "(prim sslice " ++ c ++ args ++ ")" else emitCallMethod(nm, c, args, dqOf(cx)))
+def emitPrimMeth(nm, c, es, cx) = if nm == "charAt" then "(prim scodeAt " ++ c ++ joinArgs(es) ++ ")" else (if nm == "substring" then "(prim sslice " ++ c ++ joinArgs(es) ++ ")" else emitMethodCall(nm, c, es, cx))
 def emitCallMethod(nm, c, args, dq) = if args == "" then "(prim __method0__ (lit (str " ++ dq ++ nm ++ dq ++ ")) " ++ c ++ ")" else emitMethod(nm, c, args, dq)
+// -- selMethodOr: method-call-with-args dispatch by RECEIVER CLASS ------------------------------------
+// ssc1-lower resolveMethodCall :1413 branches on the RESOLVED robj TAG: `var`/`uid`/`summon_tc` keep the
+// polymorphic runtime `__method__`; everything else (app / ctor(Cons Nil Some None Left Right → ctorap) /
+// prim / if / match / …) routes through selMethodOr :1545. F has already EMITTED the receiver to a string,
+// so it recovers the tag from the emitted prefix. A var read is `(local `/`(global `/`(prim cell.get `/
+// `(prim lcell.get `; a bare uid object is `(ctor Foo)` (name ∉ {Nil,None}); the collection/option ctors
+// (Cons/Nil/Some/None/Left/Right) are the only `(ctor …)` shapes routed to selMethodOr.
+def isVarRecvCode(c) = startsW(c, "(local ") || startsW(c, "(global ") || startsW(c, "(prim cell.get ") || startsW(c, "(prim lcell.get ")
+def isCollCtorCode(c) = startsW(c, "(ctor Cons ") || startsW(c, "(ctor Nil)") || startsW(c, "(ctor Some ") || startsW(c, "(ctor None)") || startsW(c, "(ctor Left ") || startsW(c, "(ctor Right ")
+def isSelRecvCode(c) = if isVarRecvCode(c) then false else (if startsW(c, "(ctor ") then isCollCtorCode(c) else true)
+def emitMethodCall(nm, c, es, cx) = if isSelRecvCode(c) then selMethodOr(nm, c, es, dqOf(cx)) else emitCallMethod(nm, c, joinArgs(es), dqOf(cx))
+// isKnownSelMethod = ssc1-lower :1509 set MINUS the forms selMethodOr handles explicitly first
+// (map/mkString/take/sum/foldLeft/foldRight). _1.._4 route to _sel__N via isTupField.
+def isKnownSelMethod(m) = if m == "filter" then true else (if m == "flatMap" then true else (if m == "fold" then true else (if m == "foreach" then true else (if m == "getOrElse" then true else (if m == "length" then true else (if m == "split" then true else (if m == "trim" then true else (if m == "to" then true else (if m == "until" then true else (if m == "toList" then true else (if m == "runToList" then true else (if m == "mapUpdated" then true else (if m == "mapGetOrElse" then true else isTupField(m))))))))))))))
+def isOneE(es) = es match { case Nil => false case h :: t => t match { case Nil => true case _ => false } }
+// A parenthesized MULTI-param mapper (`xs.map((a,b) => …)`) parses as one arg `(lam N …)` with N≥2; the
+// generic _sel_map would hand it the whole tuple as one arg, so it stays on the polymorphic __method__
+// (ssc1-lower isSingleMultiParamLambda :1529). "(lam " is 5 chars; index 5 is the arity digit, ≥ '2' (50).
+def isMultiLam(h) = if startsW(h, "(lam ") then h.charAt(5) >= 50 else false
+def isSingleMultiParamLambdaE(es) = es match { case Nil => false case h :: t => t match { case Nil => isMultiLam(h) case _ => false } }
+def selApp(fn, c, es) = "(app (global " ++ fn ++ ") " ++ c ++ joinArgs(es) ++ ")"
+def selMethodOr(nm, c, es, dq) = if nm == "map" then (if isSingleMultiParamLambdaE(es) then emitMethod("map", c, joinArgs(es), dq) else selApp("_sel_map", c, es)) else (if nm == "mkString" then (if isOneE(es) then selApp("_sel_mkString", c, es) else emitCallMethod("mkString", c, joinArgs(es), dq)) else (if nm == "take" then emitCallMethod("take", c, joinArgs(es), dq) else (if nm == "sum" then emitCallMethod("sum", c, joinArgs(es), dq) else (if nm == "foldLeft" then emitCallMethod("foldLeft", c, joinArgs(es), dq) else (if nm == "foldRight" then emitCallMethod("foldRight", c, joinArgs(es), dq) else (if isKnownSelMethod(nm) then selApp("_sel_" ++ nm, c, es) else emitCallMethod(nm, c, joinArgs(es), dq)))))))
 
 // -- lambdas ------------------------------------------------------------------------------------
 // `(lam N body)`, params pushed onto the env exactly like def params (so the same reverse indexing
