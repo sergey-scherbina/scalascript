@@ -1,12 +1,14 @@
 claim: v2-p65-layout
 branch: feature/v2-p65-ccm
 agent: opus (orchestrator session — fresh agent, handoff chain)
-heartbeat: 2026-07-19T09:28:39Z
-status: in-progress (spawned agent)
-what: P6.5 breadth lane. DONE (coordinator-verified): +triple-quote/null/[..]-lists/nested-interp,
-      corpus MATCH 1→274/507 (54%), fixpoint 179,087 B all stage1==stage2. NEXT (§v2-p65-tail histogram):
-      cc/tc body methods (16, biggest clean, fully spec'd byte-exact in §v2-p65-tail), then named-args,
-      curried X.m(a)(b) flatten (needs empirical trace), optics/lenses, direct{} desugar. Keep --self green;
-      never push broken; no MATCH drops. GOTCHA: F uses tuple (a,b) not Pair ctor.
-coord: F5 (kernel) + F6 (backends) both COMPLETE/released — no more parallel kernel churn; you're the
-      main live lane now. Rebase on origin/main before push.
+heartbeat: 2026-07-19T12:20:00Z
+status: in-progress (handoff point — safe for next agent to pick up)
+what: P6.5 breadth lane. DONE THIS SESSION (v2-p65-ccm, coordinator-verified): T3 cc/tc body-methods (+3),
+      M1 @main annotation skip (+2), M2 named-arg strip (+21). Corpus MATCH 274->300/508 (59%), 0 regressions,
+      X1 fixpoint stage1==stage2 byte-identical 179,087->192,045 B, --self 153 ok/0 FAIL, kernel +0.
+      NEXT (fresh 208-DIFF impact map in SPRINT §v2-p65-ccm HANDOFF): derived-codecs/derives (~20, HARD);
+      guarded match `case pat if g =>` (9, needs a 3rd match path — oracle target shape DERIVED + recorded);
+      direct{} desugar (~4); optics/lenses/.copy (~8). DO NOT TOUCH actors-receive match. Keep --self green;
+      never push broken; no MATCH drops. GOTCHA: F uses tuple (a,b) not Pair ctor; run --self WITHOUT | tail.
+coord: F5 (kernel) + F6 (backends) both COMPLETE/released — no parallel kernel churn. Rebase on origin/main
+      before push. Authoritative work dir /tmp/p65ccm (code+ref = THIS kernel); histogram tool /tmp/ccm_hist.py.
