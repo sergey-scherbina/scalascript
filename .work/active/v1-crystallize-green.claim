@@ -1,0 +1,12 @@
+claim: v1-crystallize-green
+branch: feature/v1-crystallize-green
+agent: opus (orchestrator session)
+heartbeat: 2026-07-19T13:52:20Z
+status: in-progress (spawned agent)
+what: Sergiy AUTHORIZED crystallizing v1 in GREEN (one-time hygiene) — get the sbt job's last step
+      "Test via sbt" green. CONFIRMED blocker: StableSpiEnforcementTest fails (6 scljet-jdbc-plugin files
+      import scalascript.interpreter.Value). The test offers "migrate to plugin-api OR documented exemption";
+      frozen v1's SPI won't evolve, so documented exemption is the right hygiene. Run Test-via-sbt locally,
+      find ALL failures, crystallize each green (exempt frozen-v1 SPI violations w/ a comment; real fix only
+      if trivial; escape-hatch+report if a failure is a genuine v2-side regression, not frozen-v1). Goal:
+      first fully-green sbt job of the session.

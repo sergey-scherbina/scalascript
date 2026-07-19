@@ -1,0 +1,10 @@
+claim: v2-p65-deep
+branch: feature/v2-p65-deep
+agent: opus (orchestrator session — fresh agent, handoff chain)
+heartbeat: 2026-07-19T13:52:20Z
+status: in-progress (spawned agent)
+what: P6.5 breadth lane, DEEP tail. corpus MATCH 1→362/508 (71%), fixpoint 232,332 B all stage1==stage2.
+      CLEAN ceiling ~485/508 (~23 remaining DIFFs are ORACLE BUGS, not F — do NOT reproduce them).
+      Remaining F-gaps DEEP (§v2-p65-optics): try/catch typed patterns case e:T=> (~7, biggest), direct{}
+      monad flatMap (~4), for-comp flatMap (2), derived-codecs summon/given. DO NOT touch actors-receive.
+      Keep --self green; drop-check; escape-hatch on oracle-bug cases (record don't reproduce).
