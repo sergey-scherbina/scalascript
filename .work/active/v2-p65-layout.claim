@@ -1,10 +1,10 @@
 claim: v2-p65-layout
-branch: feature/v2-p65-sel
+branch: feature/v2-p65-codec
 agent: opus (orchestrator session — fresh agent, handoff chain)
-heartbeat: 2026-07-19T06:21:32Z
+heartbeat: 2026-07-19T07:18:56Z
 status: in-progress (spawned agent)
-what: P6.5 breadth lane. DONE (coordinator-verified): layout+enums+var/while/assign, corpus MATCH
-      1→172/504 (34%), fixpoint 147,851 B all stage1==stage2. NEXT: list _sel_/__list_* dispatch (~46,
-      dominant lever) — (A) method-on-non-var-receiver→selMethodOr, (B) isListVar registry for bare
-      selectors. Then map-var/map.put (13), derived codecs, case-class body methods, for-comp (6).
-      Refs+histogram in SPRINT §v2-p65-var. Keep --self green; never push broken. Self-host CLOSED.
+what: P6.5 breadth lane. DONE (coordinator-verified): layout+enums+var/while/assign+_sel_/list/placeholder,
+      corpus MATCH 1→201/504 (40%), fixpoint 159,579 B all stage1==stage2. NEXT (first-div histogram,
+      §v2-p65-sel): derived-codec (17), map-var/Map(k->v)+.updated (15), case-class body methods C{def m}->C_m
+      (13 + scljet ByteSlice cluster ~12), for-comprehension (6). Keep --self green; never push broken;
+      check no MATCH drops. Self-host CLOSED (Option D); pure breadth. GOTCHA: F uses tuple (a,b) not Pair ctor.
