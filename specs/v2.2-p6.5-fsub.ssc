@@ -820,7 +820,12 @@ def emitDefBody(nm, ar, env, ts, cx) = parseExpr(ts, 0, env, cx) match { case (b
 // the whole statement to the layout-inserted `;` (neither form contains an inner `;`).
 def isImportHead(ts) = if isWord(hd(ts), "import") then true else isTok(hd(ts), 2, 50)
 def importItem(ts) = (("", ""), skipImport(ts))
-def skipImport(ts) = if isEmpty(ts) then ts else (if isTok(hd(ts), 2, 52) then tl(ts) else skipImport(tl(ts)))
+// skip an import to its layout `;`. GOTCHA: `import x.y.*` ends in `*` (code 25), which is NOT a
+// line-ender (canEndLine), so layout inserts NO `;` and a bare scan-to-`;` would swallow the NEXT
+// declaration (a following case class lost its ctor/mirror/derived cell). `*` only ever appears in an
+// import as the wildcard terminator, so stop right after it (consuming a trailing `;` if layout made one).
+def skipImport(ts) = if isEmpty(ts) then ts else (if isTok(hd(ts), 2, 52) then tl(ts) else (if isTok(hd(ts), 2, 25) then skipImportStar(tl(ts)) else skipImport(tl(ts))))
+def skipImportStar(ts) = if isTok(hd(ts), 2, 52) then tl(ts) else ts
 def parseTopItem(ts, cx) = if isImportHead(ts) then importItem(ts) else (if isEnumHead(ts) then enumItem(ts, cx) else (if isCCHead(ts) then ccTopItem(ts, cx) else (if isTraitHead(ts) then traitItem(ts) else (if isTok(hd(ts), 2, 1) then defTopItem(ts, cx) else (if isTok(hd(ts), 2, 7) then valItem(ts, cx) else (if isVarHead(ts) then varTopItem(ts, cx) else (if isWhileHead(ts) then whileTopItem(ts, cx) else (if isAssignHead(ts) then assignTopItem(ts, cx) else exprItem(ts, cx)))))))))
 // A top-level `var name [: T] = init` runs its initializer in the entry as `cell.set(global name__cell)`
 // — IDENTICAL to a top val (ssc1-lower topExprs var/val cases :5593-5609) — so it reuses valItem1. The
