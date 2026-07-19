@@ -486,7 +486,7 @@ def parseLamBody(ar, env2, ts, cx) = parseExpr(ts, 0, env2, cx) match { case (b,
 // `throw e` -> `(prim __throw__ e)` (ssc1-front :1071, e a full parseExpr). `new X(a)` == `X(a)` -- drop
 // `new`, parse the following atom (ssc1-front :1114). Neither is a keyword in F's lexer (plain id tokens).
 def parseThrow(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => ("(prim __throw__ " ++ e ++ ")", r) }
-def parseIdent(t, rest, env, cx) = if snd(t) == "throw" then parseThrow(rest, env, cx) else (if snd(t) == "new" then parseAtom(rest, env, cx) else (if snd(t) == "for" then parseForExpr(rest, env, cx) else (if isTok(hd(rest), 2, 30) then parseLamBody(1, snd(t) :: env, tl(rest), cx) else parseVarOrCall(snd(t), rest, env, cx))))
+def parseIdent(t, rest, env, cx) = if snd(t) == "throw" then parseThrow(rest, env, cx) else (if snd(t) == "new" then parseAtom(rest, env, cx) else (if snd(t) == "try" then parseTry(rest, env, cx) else (if snd(t) == "for" then parseForExpr(rest, env, cx) else (if isTok(hd(rest), 2, 30) then parseLamBody(1, snd(t) :: env, tl(rest), cx) else parseVarOrCall(snd(t), rest, env, cx)))))
 // `for <pat> <- gen [if g] (yield e | [do] body)` desugars to method-call chains (ssc1-front parseForFrom
 // :1000): `yield e` -> `gen.map(x=>e)`; `if g` -> `gen.filter(x=>g).map(..)`; `do`/braceless body ->
 // `gen.foreach(x=>body)`; a second generator (`;`-separated, layout-inserted) -> `gen.flatMap(x=><rest>)`.
@@ -996,6 +996,34 @@ def parseTypedWild(th, ts, menv, cx) = parseExpr(ts, 0, menv, cx) match { case (
 def parseTypedWildRest(th, body, ts, menv, cx) = parseGenArms(ts, menv, cx) match { case (rest, r) => (emitIf(typedTagTest(genScrut(menv), th, cx), body, rest), r) }
 def parseTypedBind(binder, th, ts, menv, cx) = parseExpr(ts, 0, binder :: menv, cx) match { case (body, r) => parseTypedBindRest(th, body, r, menv, cx) }
 def parseTypedBindRest(th, body, ts, menv, cx) = parseGenArms(ts, "__typed_scrut__" :: menv, cx) match { case (rest, r) => ("(let (" ++ genScrut(menv) ++ ") " ++ emitIf(typedTagTest("(local 0)", th, cx), body, rest) ++ ")", r) }
+// -- try / catch / finally (DA2) ------------------------------------------------------------------
+// `try B catch {case e:T=>..} [finally F]` -> `(prim __tryCatch__ (lam 0 B) <pf>)`; `try B finally F` ->
+// `__tryFinally__`; both -> `__tryCatchFinally__` (ssc1-front :1076-1106). B/F are 0-arg thunks. The braced
+// catch handler is a case-lambda `(lam 1 (let (<scrut>) <chain>))` over TYPED patterns: each body is
+// prefixed with `__handler_dispatch_selected__(pf)` and a fallback arm emits `__handler_dispatch_miss__(pf)`
+// (ssc1-lower lowerHandlerMatch :3636 / handlerMarkedArms :3603). menv threads __m (scrut) + __pf (lam arg).
+def parseTry(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (body, r) => parseTryAfter(body, r, env, cx) }
+def parseTryAfter(body, ts, env, cx) = if isWord(hd(ts), "catch") then parseTryCatch(body, tl(ts), env, cx) else (if isWord(hd(ts), "finally") then parseTryFin(body, tl(ts), env, cx) else (body, ts))
+def parseTryCatch(body, ts, env, cx) = parseCatchPf(ts, env, cx) match { case (pf, r) => parseTryCF(body, pf, r, env, cx) }
+def parseTryCF(body, pf, ts, env, cx) = if isWord(hd(ts), "finally") then parseTryCFin(body, pf, tl(ts), env, cx) else ("(prim __tryCatch__ (lam 0 " ++ body ++ ") " ++ pf ++ ")", ts)
+def parseTryFin(body, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (fin, r) => ("(prim __tryFinally__ (lam 0 " ++ body ++ ") (lam 0 " ++ fin ++ "))", r) }
+def parseTryCFin(body, pf, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (fin, r) => ("(prim __tryCatchFinally__ (lam 0 " ++ body ++ ") " ++ pf ++ " (lam 0 " ++ fin ++ "))", r) }
+def parseCatchPf(ts, env, cx) = parseHArms(hOpen(ts), "__m" :: "__pf" :: env, cx) match { case (chain, r) => ("(lam 1 (let ((local 0)) " ++ chain ++ "))", r) }
+def hOpen(ts) = if isTok(hd(ts), 2, 28) then tl(ts) else ts
+def hClose(ts) = if isTok(hd(ts), 2, 29) then tl(ts) else ts
+def pfRef(menv) = "(local " ++ lookup("__pf", menv) ++ ")"
+def hSelected(menv) = "(prim __handler_dispatch_selected__ " ++ pfRef(menv) ++ ")"
+def hMiss(menv) = "(prim __handler_dispatch_miss__ " ++ pfRef(menv) ++ ")"
+// fallback arm: `(let (<scrut>) (miss(pf)))` — the fallback alias binder pushes one slot before miss.
+def hMissArm(menv) = "(let (" ++ genScrut(menv) ++ ") " ++ hMiss("__hfb__" :: menv) ++ ")"
+def parseHArms(ts, menv, cx) = parseHArms0(skipSemisF(ts), menv, cx)
+def parseHArms0(ts, menv, cx) = if isTok(hd(ts), 2, 6) then parseHArm(tl(ts), menv, cx) else (hMissArm(menv), hClose(ts))
+def parseHArm(ts, menv, cx) = parseHTyped(isWild(hd(ts)), snd(hd(ts)), snd(hd(tl(tl(ts)))), skipTypeToArrow(tl(tl(ts))), menv, cx)
+def parseHTyped(wild, binder, th, tsA, menv, cx) = if wild then parseHWild(th, tl(tsA), menv, cx) else parseHBind(binder, th, tl(tsA), menv, cx)
+def parseHWild(th, ts, menv, cx) = parseExpr(ts, 0, "__hsel__" :: menv, cx) match { case (body, r) => parseHWildRest(th, body, r, menv, cx) }
+def parseHWildRest(th, body, ts, menv, cx) = parseHArms(ts, menv, cx) match { case (rest, r) => (emitIf(typedTagTest(genScrut(menv), th, cx), "(let (" ++ hSelected(menv) ++ ") " ++ body ++ ")", rest), r) }
+def parseHBind(binder, th, ts, menv, cx) = parseExpr(ts, 0, "__hsel__" :: binder :: menv, cx) match { case (body, r) => parseHBindRest(binder, th, body, r, menv, cx) }
+def parseHBindRest(binder, th, body, ts, menv, cx) = parseHArms(ts, "__typed_scrut__" :: menv, cx) match { case (rest, r) => ("(let (" ++ genScrut(menv) ++ ") " ++ emitIf(typedTagTest("(local 0)", th, cx), "(let (" ++ hSelected(binder :: menv) ++ ") " ++ body ++ ")", rest) ++ ")", r) }
 def defTopItem(ts, cx) = emitDef(ts, cx) match { case (d, rest) => ((d, ""), rest) }
 def ccTopItem(ts, cx) = emitCCDecl(ts, cx) match { case (d, rest) => ((d, ccDerivedInit(ccNameAt(ts), derivesAt(tl(tl(ts))))), rest) }
 // `val (a, b, ..) = e` tuple-destructuring (ssc1-lower :2522-style): bind the init to a `let`, then set
