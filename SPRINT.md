@@ -162,8 +162,16 @@ baseline set `/tmp/baseline_deep.txt` for `comm -23` drop-checks. --self via cap
       international-bank-rails, x402-server (+3). x402-cardano/cardano-scalus/client have OTHER divergences too.
       Corpus 372→375, 0 drops, X1 stage1==stage2 269,575 B, --self 153 ok/0 FAIL. (Decimal ints only; float/hex
       underscores would need emitFloat/lexHex stripping — no corpus file needs them.)
-**➜ v2-p65-deep SESSION: corpus MATCH 362→375/508 (+13, DA1 typed-patterns +2, DA2 try/catch +2, DA3
-  direct{} +3, DA4 println()/.yaml +1, DA5 min64-literal +1, DA6 ctor-guards +1, DA7 numeric-underscore +3), ALL 0 drops, X1 fixpoint stage1==stage2 byte-identical each slice (232,332→269,575 B),
+- [x] **DA8 — qualified enum-case patterns `case Enum.Case(..)` DONE (deep2 session).** A ctor pattern whose
+      uid is followed by `.` drops the enum qualifier and matches on the CASE tag (ssc1-front parsePatAtom
+      uid+`.` :1932-1938). ctorTag(ts) = name AFTER the `.` when present, else the uid; wired into BOTH
+      parseCtorArm (fast path) and parseGenCtor (ordered resolver). Plain `case Ctor(..)` unchanged. Flips
+      bank-rails-sepa, content-linked-namespaces, mcp-types (+3); 8 other qualified-pattern files
+      (bank-rails-fednow, distributed-dataset-*, graph-rdf4j-storage, scala-js-demo, traditional-payments,
+      typed-object-codec) have OTHER divergences. Corpus 375→378, 0 drops, X1 270,154 B, --self 153 ok/0 FAIL.
+**➜ v2-p65-deep SESSION: corpus MATCH 362→378/508 (+16, DA1 typed-patterns +2, DA2 try/catch +2, DA3
+  direct{} +3, DA4 println()/.yaml +1, DA5 min64-literal +1, DA6 ctor-guards +1, DA7 numeric-underscore +3,
+  DA8 qualified-enum-case-patterns +3), ALL 0 drops, X1 fixpoint stage1==stage2 byte-identical each slice (232,332→270,154 B),
   --self 153 ok/0 FAIL each, kernel +0, no v2/lib oracle edits. Jar /tmp/ssc-deep.jar; gate
   `SSC_JAR=/tmp/ssc-deep.jar V2_DIR=<wt>/v2 NEWFRONT_WORK=/tmp/p65deep bash specs/v2.2-p6.5-corpus.sh`.
   GOTCHA: F-source defs must avoid `match {case Nil => .. case cs => ..}` (bare-var arm after ctor arm
