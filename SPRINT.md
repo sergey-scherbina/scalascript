@@ -238,11 +238,20 @@ SELF-HOSTS (the layout code is in F's own source and compiles byte-identically t
       (unblocked the WHOLE scljet-sql cluster + scljet-write/mutate/wal + effect-imported-handler).
 - [x] **L2h (`58b21ce9e`): markdown link-import `[names](path)` skipped** (module directive, no IR).
       Corpus 143 → 146.
-      **Session total (`v2-p65-layout`, 2026-07-19): corpus MATCH 48 → 146/504 (+98); fixpoint
-      97,985 → 121,014 B, all `stage1==stage2` byte-identical, 136 ok/0 FAIL every slice; no regression;
+- [x] **L3a (`d857733d8`): string-literal escapes** — `scanStr` skips `\X` (one line; F keeps the raw
+      substring, CoreIR encoder re-escapes identically). Corpus 146 → 154.
+- [x] **L3b (`62e711d2d`): block-arg lambda not double-wrapped** — `f { x => body }` uses the lambda
+      directly. Corpus 154 → 156.
+      **Session total (`v2-p65-layout`, 2026-07-19): corpus MATCH 48 → 156/504 (+108); fixpoint
+      97,985 → 121,353 B, all `stage1==stage2` byte-identical, 136 ok/0 FAIL every slice; no regression;
       no kernel / no `v2/lib` oracle edits. The layout PASS itself is fully ported (L/B/P/S + declHead)
       except the E/EB/X extension frames (deferred — F has no `extension`); the rest of the session was
       breadth the live layout unblocked.**
+      **NEXT (all substantial, non-layout; recommend a fresh agent — see CHANGELOG for the oracle map):**
+      enums + bare case-object/enum-case ctor-vs-global dispatch (~36, biggest); `_sel_` list-var
+      registry (~21); `__derived_*` codecs (~13); effect-handler-dispatch blocks (actors `receive`).
+      **Also flagged:** param-less `def name = body` → `(lam 0)` with auto-apply-on-reference is a real
+      feature (currently worked around by inlining F's 3 token constants); do it properly if a cluster needs it.
 - [ ] **L3+ — remaining (measured, impact-ordered from the DIFF near-misses):** `_sel_` list-var registry
       (~architectural, mutable listVarsCell + list-type tracking); string escapes `\"`/`\n` (3 coordinated
       changes: scan-skip + unescape + re-escape matching the CoreIR encoder, ~16 progs); `__derived_*`
