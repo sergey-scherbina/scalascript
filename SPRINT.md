@@ -187,7 +187,7 @@ baseline set `/tmp/baseline_deep.txt` for `comm -23` drop-checks. --self via cap
       object branch (globalNameOf recv ∈ objReg + nm ∈ members → app global O_nm). Flips
       companion-case-class-order. Scope: DEF members (param'd + empty-parens); parameterless-def/val/var/
       nested-type members are FOLLOW-UP (companion has none). F's own source has no `object` → --self neutral.
-- [ ] **DA11 — litdoc scrutinee-let elision (deep3).** A 1-param lambda `p => p match {simple-ctor arms}`
+- [x] **DA11 — litdoc scrutinee-let elision DONE (deep3).** A 1-param lambda `p => p match {simple-ctor arms}`
       lowers to a DIRECT `(match (local 0) arms)` — NO `(let ((local 0)) ..)` wrapper (oracle ssc1-lower
       KC11 :2707-2718 + lowerDirectHandlerMatch :3613: the lambda param already IS local 0). F's emitMatch
       always wraps in a let → 18-byte spurious `(let ((local 0)) ` in litdoc (sole divergence, 15752 vs 15734).
