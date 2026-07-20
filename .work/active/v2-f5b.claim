@@ -1,19 +1,13 @@
 claim: v2-f5b
-branch: feature/v2-f5b-stage0
-agent: opus (orchestrator — Stage 0 agent)
-heartbeat: 2026-07-20T15:30:00Z
-status: PAUSED — Stage 0 checkpoint delivered; awaiting Sergiy reassessment before Stage 1.
-what: F5b typed-IR arc, incremental. STAGE 0 (foundation, no observable change) — delivered so far:
-      (1) DONE (03539d610) K62.3 gate-stack: gate scripts pass -Dssc.stackSize; --self = 153 ok/0 FAIL
-          byte-identical on a STOCK jar, no manual env override.
-      (2) DONE (8c4400f24) golden-OUTPUT semantic gate specs/v2.2-p6.5-semantic.sh (leg a): 246 goldens
-          frozen from the oracle into specs/v2.2-p6.5-golden/; check 246/246 MATCH; verified it FAILS on
-          a corrupted golden. This is the immovable output-truth for the whole typed arc.
-      (3) BEGUN (de7d1a37d, 6fe0c65fd) F parse->AST refactor: tagged-tuple AST scaffold + erase
-          dispatcher; converted the case-class DECLARATION cluster (ctorfn/mirror/sel) BYTE-IDENTICAL.
-          Corpus 417/510, semantic 246/246, --self 153/0 green each slice. The EXPRESSION pipeline (the
-          real F5b lever) remains — precise handoff map in SPRINT.md §v2-f5b-stage0 (convert the
-          connected subgraph in one slice; boundary erase at ~40 parseExpr/bodyExpr sites; generalize
-          erase to take cx for bs + Stage-1 types).
-      NO typing landed (that is Stage 1). Reassess with Sergiy before continuing (Stage 1, or finish P3
-      expression pipeline). Plan: specs/v2-f5b-typed-ir-design.md.
+branch: feature/v2-f5b-stage0b
+agent: opus (orchestrator — Stage 0 continuation)
+heartbeat: 2026-07-20T13:18:20Z
+status: in-progress — F5b Stage 0 P3 (finish F parse→AST refactor, still no observable change)
+what: Stage 0 P1 (K62.3 gate-stack) + P2 (golden-output semantic gate, 246/246) DONE + shipped.
+      P3 AST refactor BEGUN (scaffold tagged-tuple nodes + ctorfn/mirror/sel cluster). CONTINUE P3
+      per SPRINT §v2-f5b-stage0 handoff: convert the EXPRESSION pipeline (emitInt…emitMatch) as ONE
+      connected slice (threaded as String through parseAtom/climb/bodyExpr/parseExpr ~40 sites,
+      boundary-erase there; generalize erase to take cx — Stage 1 reads inferred type there); plus
+      smaller safe slices (enum nullary, emitExtDispatchers, emitCCDecl, emitYamlSel, selArm). NO
+      typing yet (Stage 1). Every slice: corpus 417/510 byte-identical + semantic 246/246 + --self
+      153/0. When ALL emit* converted → Stage 0 DONE → Sergiy reassesses before Stage 1 (typing).
