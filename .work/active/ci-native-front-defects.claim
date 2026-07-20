@@ -1,6 +1,0 @@
-feature/ci-native-front-defects 2026-07-20T12:00:00Z
-agent: claude-opus
-heartbeat: 2026-07-20T12:00:00Z
-status: in-progress
-done-so-far: claiming the two native-front lowering defects (v2-native-import-wildcard-drops-ssc-case-classes + v2-native-receive-bare-var-catchall) surfaced by V2CaseClassMethodCliTest and V2ActorCliTest
-next: reproduce both in real harness (cli/assembly jar), verify filed hypotheses, fix, verify tests green
