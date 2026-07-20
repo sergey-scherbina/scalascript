@@ -366,26 +366,40 @@ class WebSocket(
     * `_proxyConnection` right after the upgrade. */
   def _startHeartbeat(): Unit =
     lastPongAt = java.lang.System.currentTimeMillis()
-    heartbeatTask = _heartbeats.scheduleAtFixedRate(() => {
-      try
-        if java.lang.System.currentTimeMillis() - lastPongAt > DeadAfterMs then
-          close(1001, "ping timeout")
-        else if !closing then
-          // Empty Ping — _wsEncodePing's payload is unused except
-          // for the wire byte.  Drop on full outQ (peer too slow).
-          outQ.offer(_wsEncodePing(Array.emptyByteArray))
-      catch case _: Throwable => ()
-    }, HeartbeatIntervalMs, HeartbeatIntervalMs, TimeUnit.MILLISECONDS)
+    // Guard the submit against a shutdown race: a server `stop()` can
+    // `shutdownNow()` this scheduler between the accept and here, so
+    // `scheduleAtFixedRate` throws RejectedExecutionException.  The
+    // connection is being torn down anyway (the read loop below hits the
+    // closed socket and runs its teardown), so skip the heartbeat silently
+    // rather than let the exception escape the per-connection thread and
+    // print as a spurious `##[error]` in CI logs.
+    try
+      heartbeatTask = _heartbeats.scheduleAtFixedRate(() => {
+        try
+          if java.lang.System.currentTimeMillis() - lastPongAt > DeadAfterMs then
+            close(1001, "ping timeout")
+          else if !closing then
+            // Empty Ping — _wsEncodePing's payload is unused except
+            // for the wire byte.  Drop on full outQ (peer too slow).
+            outQ.offer(_wsEncodePing(Array.emptyByteArray))
+        catch case _: Throwable => ()
+      }, HeartbeatIntervalMs, HeartbeatIntervalMs, TimeUnit.MILLISECONDS)
+    catch case _: java.util.concurrent.RejectedExecutionException => ()
 
   // Read-loop entry point: called from the per-connection thread
   // after the handshake completes.  Pulls bytes through the parser,
   // dispatches frames synchronously on the same thread.  Returns
   // when the peer closes or a protocol error occurs.
   def _runReadLoop(): Unit =
-    val in   = BufferedInputStream(socket.getInputStream)
     var buf  = new Array[Byte](4096)
     var len  = 0
     try
+      // `socket.getInputStream` can itself throw "Socket is closed" when a
+      // teardown races the accept (same shutdown race as the heartbeat
+      // above); keep it inside the try so the finally still runs the
+      // teardown and the exception never escapes the per-connection thread
+      // as a spurious CI `##[error]`.
+      val in   = BufferedInputStream(socket.getInputStream)
       while !closing && !socket.isClosed do
         if len == buf.length then
           val grown = new Array[Byte](buf.length * 2); System.arraycopy(buf, 0, grown, 0, len); buf = grown
