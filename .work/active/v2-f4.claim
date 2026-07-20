@@ -1,0 +1,14 @@
+claim: v2-f4
+branch: feature/v2-f4-stage
+agent: opus (orchestrator — F4 reversible steps, Sergiy: F4 first)
+heartbeat: 2026-07-20T16:54:46Z
+status: in-progress — F4 front swap, REVERSIBLE steps (flip held by Sergiy)
+what: Sergiy chose F4-first (kernel shrink is coupled to retiring untyped ssc1-front/ssc1-lower).
+      F now emits TYPED IR (Stage 1) + semantic gate 246/246 proves F output == oracle output.
+      F4 reversible plan (specs/v2-language-surface.md §7): (1) gate classification — extend
+      specs/v2.2-p6.5-corpus.sh to bucket MATCH/OUT/DEFERRED/genuine-FAIL per v2-language-surface.md
+      §5-6 (semantic gate from Stage 0 already gives output-equivalence); (2) stage F behind a flag
+      in RunNativeV2.nativeFrontLayout / installBin (default stays ssc1-front+ssc1-lower); (3) dual-run
+      corpus+conformance under both fronts in CI. HOLD step 4 (★ flip installBin default = the CLI-
+      switch Sergiy holds) + step 5 (retire ssc1-* ~8900 lines) for Sergiy. Handle F's ~12 real gaps
+      (effects/multi-file/wasm — F emits no IR) — delegate or document, don't regress. Then F5b resumes.
