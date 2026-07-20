@@ -41,11 +41,17 @@ until the domain is registered. `scalascript.dev` is currently NXDOMAIN.
 changing it breaks conformance. Same regression class as the shared-`Show`-for-tuple-parity
 incident. New capability goes in a **new module**.
 
-- [ ] **S1 — `runtime/std/markdown-html.ssc`** (new module, extern-free like markdown-core).
-      Own inline parser (`**bold**`, `*italic*`, `` `code` ``, `[text](url)`, autolinks) +
-      `escapeHtml` + block renderer `MarkdownDocument → String` covering heading, paragraph,
-      fence, bullet/ordered list, table, image. Imports `markdownParse` from markdown-core;
-      **does not modify it**. Conformance case + expected fixture.
+- [x] **S1 — `runtime/std/markdown-html.ssc`** ✓ Landed 2026-07-20. Inline scanner + HTML
+      renderer in pure `.ssc`; conformance `markdown-html` PASS [INT]. Verified on the real
+      `docs/` corpus: 28 pages, 776 KB HTML, 0 crashes, 0 fence leaks outside `<pre>`.
+      **Three findings the toy sample missed — read before extending:**
+      - Independent per-delimiter split passes do NOT compose (backtick split breaks a `**`
+        run in half → empty `<em></em>`). The inline pass must stay one left-to-right scan.
+      - `String.replace` has no dispatch on the v1 JS lane — escaping uses indexOf/substring.
+      - Rendering the corpus forced **two markdown-core fixes** (own commit): `markdownTrim`
+        crashed on an all-whitespace string (empty table cell `| | b |`), and the fence scanner
+        hardcoded exactly three backticks so a four-backtick block closed on its inner fence.
+      - New bug filed: `BUGS.md js-char-into-int-param` — pins this case to `backends: [int]`.
 - [ ] **S2 — recursive dir walk + docs generator** (`v1/tools/docs-site/generate.ssc` or
       similar `.ssc` entry). Walk `docs/**.md`, render each via S1 into a page that reuses the
       landing page's design tokens (the `:root` custom-property block in `site/index.html:17-64`),
