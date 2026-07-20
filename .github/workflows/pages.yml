@@ -169,6 +169,10 @@ jobs:
           test -f _site/favicon.svg
           grep -q "Markdown you can compile" _site/index.html
           test ! -f _site/DEPLOY.md
+          # Hand-authored companion pages published beside the landing
+          test -f _site/install.html
+          grep -q "Install" _site/install.html
+          test -f _site/scljet.html
           # Registry CLI contract preserved at the root
           test -f _site/packages.yaml
           test -f _site/search-index.json

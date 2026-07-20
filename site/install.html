@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Install — ScalaScript</title>
+<meta name="description" content="Install ScalaScript: build the ssc launcher from source (Java 21+), run any .ssc file as an executable, and target the JVM, JavaScript, WebAssembly, Rust, Swift, and native.">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#ECEDE8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#111310" media="(prefers-color-scheme: dark)">
+<style>
+  :root {
+    --ground: #ECEDE8; --surface: #F5F6F2; --ink: #191C18; --muted: #5C615A; --faint: #878C82;
+    --line: #D6D8D0; --accent: #D6402A; --accent-soft: #efd9d2; --pine: #2C6C5B;
+    --code-ground: #16181A; --code-ink: #D7DAD3; --code-dim: #7C8A82;
+    --serif: 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, serif;
+    --sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, sans-serif;
+    --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', 'Cascadia Code', Menlo, Consolas, monospace;
+    --maxw: 880px;
+    --shadow: 0 1px 2px rgba(20,22,18,.06), 0 12px 34px -18px rgba(20,22,18,.28);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #111310; --surface: #181B17; --ink: #E7E9E1; --muted: #9BA093; --faint: #757a6d;
+      --line: #262A23; --accent: #F05B3E; --accent-soft: #3a231c; --pine: #56AF93;
+      --code-ground: #0C0E0B; --code-ink: #DADDD3; --code-dim: #6E7B6F;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 18px 40px -20px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="light"] {
+    --ground: #ECEDE8; --surface: #F5F6F2; --ink: #191C18; --muted: #5C615A; --faint: #878C82;
+    --line: #D6D8D0; --accent: #D6402A; --accent-soft: #efd9d2; --pine: #2C6C5B;
+    --code-ground: #16181A; --code-ink: #D7DAD3; --code-dim: #7C8A82;
+  }
+  :root[data-theme="dark"] {
+    --ground: #111310; --surface: #181B17; --ink: #E7E9E1; --muted: #9BA093; --faint: #757a6d;
+    --line: #262A23; --accent: #F05B3E; --accent-soft: #3a231c; --pine: #56AF93;
+    --code-ground: #0C0E0B; --code-ink: #DADDD3; --code-dim: #6E7B6F;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font-family: var(--sans); font-size: 17px; line-height: 1.6;
+    -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  }
+  a { color: inherit; text-decoration: none; }
+
+  header.bar {
+    position: sticky; top: 0; z-index: 20;
+    background: color-mix(in srgb, var(--ground) 82%, transparent);
+    backdrop-filter: saturate(1.4) blur(10px);
+    border-bottom: 1px solid var(--line);
+  }
+  .bar .row { display: flex; align-items: center; justify-content: space-between; height: 60px;
+    max-width: 1120px; margin: 0 auto; padding: 0 clamp(20px, 5vw, 48px); }
+  .mark { display: flex; align-items: center; gap: 10px; font-family: var(--mono); font-weight: 600; font-size: 15px; }
+  .glyph { width: 22px; height: 22px; border-radius: 5px; display: grid; place-items: center;
+    background: var(--accent); color: #fff; font-weight: 700; font-size: 13px;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.12); }
+  .mark .ext { color: var(--accent); }
+  nav.top { display: flex; align-items: center; gap: 4px; }
+  nav.top a { font-family: var(--mono); font-size: 13px; color: var(--muted); padding: 8px 12px; border-radius: 7px; transition: color .15s, background .15s; }
+  nav.top a:hover { color: var(--ink); background: var(--surface); }
+  nav.top a.active { color: var(--accent); }
+  .tglt { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid var(--line);
+    border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer; margin-left: 6px; }
+  .tglt svg { width: 16px; height: 16px; }
+
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 clamp(20px, 5vw, 40px); }
+  .hero { padding: clamp(44px, 7vw, 76px) 0 clamp(24px, 4vw, 44px); }
+  .eyebrow { font-family: var(--mono); font-size: 12.5px; color: var(--pine); margin: 0 0 16px; }
+  .eyebrow::before { content: "// "; color: var(--faint); }
+  h1 { font-family: var(--serif); font-weight: 600; font-size: clamp(2.2rem, 5vw, 3.2rem);
+    line-height: 1.06; letter-spacing: -.018em; margin: 0 0 18px; }
+  h1 em { font-style: italic; color: var(--accent); }
+  .lead { font-family: var(--serif); font-size: clamp(1.08rem, 1.7vw, 1.28rem); color: var(--muted); max-width: 60ch; margin: 0; }
+  .lead b { color: var(--ink); font-weight: 600; }
+
+  section { padding: clamp(30px, 5vw, 48px) 0; border-top: 1px solid var(--line); }
+  h2 { font-family: var(--serif); font-weight: 600; font-size: clamp(1.5rem, 3vw, 2rem);
+    line-height: 1.1; margin: 0 0 6px; }
+  h2 .n { font-family: var(--mono); font-size: .62em; color: var(--accent); margin-right: 10px; font-weight: 500; }
+  .sub { color: var(--muted); margin: 0 0 22px; }
+  p { margin: .7em 0; }
+  ul { padding-left: 1.3em; } li { margin: .3em 0; }
+  code { font-family: var(--mono); font-size: .88em; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 5px; padding: .08em .38em; }
+  a.link { color: var(--accent); border-bottom: 1px solid transparent; }
+  a.link:hover { border-bottom-color: var(--accent); }
+
+  /* code block with copy */
+  .cmd { position: relative; background: var(--code-ground); border-radius: 11px; box-shadow: var(--shadow);
+    border: 1px solid rgba(255,255,255,.05); margin: 16px 0; overflow: hidden; }
+  .cmd pre { margin: 0; padding: 18px 20px; overflow-x: auto; font-family: var(--mono); font-size: 13.5px;
+    line-height: 1.7; color: var(--code-ink); }
+  .cmd .cp { position: absolute; top: 10px; right: 10px; font-family: var(--mono); font-size: 11.5px;
+    color: var(--code-dim); background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.08);
+    border-radius: 6px; padding: 4px 9px; cursor: pointer; transition: color .15s, background .15s; }
+  .cmd .cp:hover { color: var(--code-ink); background: rgba(255,255,255,.12); }
+  .t-p { color: var(--pine); } .t-c { color: var(--code-dim); font-style: italic; } .t-o { color: var(--code-dim); }
+
+  .note { display: flex; gap: 12px; align-items: flex-start; background: var(--accent-soft);
+    border: 1px solid color-mix(in srgb, var(--accent) 26%, transparent); border-radius: 11px;
+    padding: 14px 16px; margin: 18px 0; font-size: .95rem; color: var(--ink); }
+  .note b { color: var(--accent); }
+  .note .i { flex: none; font-weight: 700; color: var(--accent); font-family: var(--mono); }
+
+  table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: .95rem; display: block; overflow-x: auto; }
+  th, td { border: 1px solid var(--line); padding: 9px 13px; text-align: left; }
+  th { background: var(--surface); font-family: var(--mono); font-size: 12.5px; letter-spacing: .03em;
+    text-transform: uppercase; color: var(--faint); font-weight: 600; }
+  td code { background: none; border: 0; padding: 0; color: var(--pine); }
+  .soon { font-family: var(--mono); font-size: 11px; color: var(--faint); border: 1px solid var(--line);
+    border-radius: 20px; padding: 2px 9px; margin-left: 8px; white-space: nowrap; }
+
+  footer { border-top: 1px solid var(--line); padding: 40px 0 60px; margin-top: 20px; }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 20px; justify-content: space-between; align-items: center; }
+  footer .note-f { color: var(--faint); font-size: 13.5px; max-width: 44ch; line-height: 1.55; }
+  footer nav { display: flex; gap: 18px; flex-wrap: wrap; }
+  footer nav a { color: var(--muted); font-size: 14px; }
+  footer nav a:hover { color: var(--accent); }
+
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+  @media (max-width: 620px) { nav.top a.hideable { display: none; } }
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <div class="row">
+    <a class="mark" href="index.html" aria-label="ScalaScript home">
+      <span class="glyph">S</span><b>scalascript</b><span class="ext">.dev</span>
+    </a>
+    <nav class="top">
+      <a class="hideable" href="index.html#reads">Syntax</a>
+      <a class="hideable" href="index.html#targets">Targets</a>
+      <a href="docs/">Docs</a>
+      <a class="active" href="install.html">Install</a>
+      <a href="https://github.com/sergey-scherbina/scalascript">GitHub&nbsp;↗</a>
+      <button class="tglt" id="tgl" aria-label="Toggle theme" title="Toggle theme">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      </button>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="wrap">
+    <section class="hero" style="border-top:0">
+      <p class="eyebrow">get it running</p>
+      <h1>Install <em>ScalaScript</em>.</h1>
+      <p class="lead">One launcher, then every <code>.ssc</code> file is an executable. Today the
+        supported route is a <b>build from source</b> — one JDK, one command. Prebuilt binaries and a
+        Coursier channel are on the way.</p>
+    </section>
+
+    <section>
+      <h2><span class="n">01</span>Requirements</h2>
+      <p class="sub">The standard runtime is deliberately light.</p>
+      <ul>
+        <li><b>Java 21+</b> — the only hard requirement for the standard <code>ssc</code> runtime.
+          <code>scalac</code>/<code>javac</code> are <i>not</i> needed.</li>
+        <li><b>sbt</b> — needed only to build the launcher from source (the step below).
+          <a class="link" href="https://www.scala-sbt.org">scala-sbt.org</a></li>
+        <li><b>Node.js</b> <span class="soon">optional</span> — only for the JavaScript backend.
+          <a class="link" href="https://nodejs.org">nodejs.org</a></li>
+        <li><b>Scala CLI</b> <span class="soon">optional</span> — only for tools-tier
+          <code>ssc-tools</code> commands, never for plain <code>ssc</code>.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2><span class="n">02</span>Build from source</h2>
+      <p class="sub">The supported install today. Clone, build the launcher, and <code>bin/ssc</code> is ready.</p>
+      <div class="cmd">
+        <button class="cp" data-copy>copy</button>
+<pre><code><span class="t-c"># clone the repository</span>
+<span class="t-p">git</span> clone https://github.com/sergey-scherbina/scalascript
+<span class="t-p">cd</span> scalascript
+
+<span class="t-c"># build + stage the local bin/ launchers (uses sbt)</span>
+<span class="t-p">./install.sh</span> <span class="t-o">--dev</span></code></pre>
+      </div>
+      <p>This assembles the thin runtime jar and writes <code>bin/ssc</code> (plus
+        <code>ssc-tools</code>, <code>ssc-standard</code>, and friends). Put <code>bin/</code> on your
+        <code>PATH</code>, or call <code>bin/ssc</code> directly.</p>
+      <div class="note"><span class="i">i</span><div>First time on a fresh machine? Run
+        <code>./setup.sh</code> first — it installs Scala CLI and checks the JDK before
+        <code>./install.sh --dev</code> builds the launcher.</div></div>
+    </section>
+
+    <section>
+      <h2><span class="n">03</span>Run a document</h2>
+      <p class="sub">A <code>.ssc</code> file is Markdown you can compile. Run one straight to output.</p>
+      <div class="cmd">
+        <button class="cp" data-copy>copy</button>
+<pre><code><span class="t-p">$</span> ssc run examples/hello.ssc
+<span class="t-o">Hello, world!</span>
+
+<span class="t-c"># or package it for a target</span>
+<span class="t-p">$</span> ssc build-jvm greeter.ssc <span class="t-o">-o</span> greeter.jar
+<span class="t-p">$</span> ssc run <span class="t-o">--bytecode</span> ask.ssc   <span class="t-c"># native VM lane</span></code></pre>
+      </div>
+      <p>The same source lowers to the JVM, JavaScript, WebAssembly, Rust, Swift, and a self-hosted
+        native VM — you pick the backend at build time. See the
+        <a class="link" href="docs/getting-started-standalone.html">getting-started guide</a> and the
+        <a class="link" href="docs/user-guide.html">user guide</a>.</p>
+    </section>
+
+    <section>
+      <h2><span class="n">04</span>Prebuilt native binaries <span class="soon">coming soon</span></h2>
+      <p class="sub">CI already compiles GraalVM native images for three platforms. A standalone
+        release channel to download them is not published yet — build from source (step&nbsp;02) for now.</p>
+      <table>
+        <thead><tr><th>Platform</th><th>Artifact</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td>Linux · x86-64</td><td><code>ssc-linux-x86_64</code></td><td>built in CI</td></tr>
+          <tr><td>macOS · Apple Silicon</td><td><code>ssc-macos-arm64</code></td><td>built in CI</td></tr>
+          <tr><td>macOS · Intel</td><td><code>ssc-macos-x86_64</code></td><td>built in CI</td></tr>
+        </tbody>
+      </table>
+      <div class="note"><span class="i">!</span><div>The Coursier route
+        <code>cs install ssc --channel …</code> and a <code>releases.scalascript.io</code> download
+        server are <b>planned, not yet live</b>. When a release is published, this page is where the
+        one-line install will land.</div></div>
+    </section>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p class="note-f">ScalaScript — Markdown you can compile. One source, every target, no AI in the
+      compiler or at runtime. Apache-2.0.</p>
+    <nav>
+      <a href="index.html">Home</a>
+      <a href="docs/">Docs</a>
+      <a href="https://github.com/sergey-scherbina/scalascript">GitHub</a>
+      <a href="https://github.com/sergey-scherbina/scalascript/blob/main/README.md">Quick start</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+  (function () {
+    var root = document.documentElement, btn = document.getElementById('tgl');
+    function cur() {
+      var a = root.getAttribute('data-theme');
+      if (a) return a;
+      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+    btn && btn.addEventListener('click', function () {
+      root.setAttribute('data-theme', cur() === 'dark' ? 'light' : 'dark');
+    });
+    document.querySelectorAll('[data-copy]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var pre = b.parentElement.querySelector('pre');
+        if (!pre) return;
+        navigator.clipboard.writeText(pre.innerText).then(function () {
+          var t = b.textContent; b.textContent = 'copied'; setTimeout(function(){ b.textContent = t; }, 1400);
+        });
+      });
+    });
+  })();
+</script>
+
+</body>
+</html>
