@@ -128,5 +128,10 @@ fi
 [ "$fail" -eq 0 ] || { echo "DUAL-RUN: RED"; exit 1; }
 fpnote=$([ "${SSC_DUALRUN_SKIP_FIXPOINT:-0}" = 1 ] && echo "fixpoint SKIPPED" || echo "typed fixpoint byte-identical")
 echo "*** DUAL-RUN GREEN: SSC_FRONT=F is output-equivalent to the default front on all $equal programs;"
-echo "    $fpnote. F covers its subset directly; the F4a fallback re-lowers the rest through the default"
-echo "    front, so F is NEVER worse than default. ($diverge listed expected divergence(s).)"
+echo "    $fpnote. F covers its subset directly; the F4a fallback re-lowers unbound-global gaps through"
+if [ "$diverge" -eq 0 ]; then
+  echo "    the default front, so F is NEVER worse than default."
+else
+  echo "    the default front. F is never worse than default EXCEPT the $diverge documented runtime-"
+  echo "    correctness residual(s) above (multi-file; need F's lowering fixed — not fallback-catchable)."
+fi
