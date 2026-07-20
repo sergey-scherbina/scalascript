@@ -93,8 +93,12 @@ vs oracle) AND `--self` (fixpoint) AND the new semantic gate ALL stay green.
             NOTE: operators erase eagerly in climbStep for Stage 0 (result still `('e',str)`); Stage 1 makes
             climbStep build structured arith/eq nodes (localized change, plumbing already in place).
             `emitYamlSel` stays string-based (called from postSel, which erases its receiver) — fine.
-      - [ ] **0b-3 — remaining declaration tail: `emitExtDispatchers` → node.** The ONLY emit* still
-            returning a raw string at the declaration level (a recursive if-chain dispatcher). Lowest value.
+      - [x] **0b-3 DONE — `emitExtDispatchers` → `extdisp` node.** `emitOneED1` builds `('extdisp',
+            (m, (ar, chain)))` (dispatch if-chain stays a rendered sub-string); emitEDall erases+concats.
+            Last declaration-level emit* now node-based. **STAGE 0 COMPLETE**: F is parse→AST→erase, zero
+            typing, byte-identical everywhere (corpus 417/510, semantic 246/246, `--self` 153 ok/0 FAIL).
+            Remaining string helpers (emitInt/emitStr/emitArith/… + def/val/expr declaration wrappers) are
+            erase-time renderers / wrappers around erased expression nodes — correct by design.
 
 ---
 

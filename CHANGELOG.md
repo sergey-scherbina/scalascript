@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-07-20 — v2-f5b Stage 0 COMPLETE: F is parse→AST→erase, byte-identical, zero typing
+
+Finishes the Stage 0 refactor begun in the entry below. `F` (`specs/v2.2-p6.5-fsub.ssc`) no longer FUSES
+parse and emit — it parses to a tagged-tuple AST and renders via a single trivial `erase(node, cx)` that
+reproduces today's UNTYPED IR byte-for-byte. This is the seam where Stage 1 attaches typed rendering
+(`i.add`/`f.add`/… by inferred type) WITHOUT touching the parsers. Kernel Δ 0; zero observable change.
+- **`erase(n, dq)` → `erase(n, cx)`** (`04bd1f3a6`): expression string/triple nodes need `bs` too;
+  `dqOf(cx)==dq`/`bsOf(cx)==bs` by construction (cx is always `mkCx(dq,…,bs,…)`), so byte-identical.
+- **Declaration cluster fully node-based**: `ctorfn`/`mirror`/`sel`/`arm`/`enumnull`/`extdisp`
+  (`04bd1f3a6`, `055732fda`, this slice). `emitEnumDef` nullary → `enumnull`; `selArm1` → `arm`;
+  `emitOneED1` → `extdisp`.
+- **EXPRESSION pipeline converted — the big F5b lever** (`3ca4f6b06`). The spine (parseExpr/parseAtom*/
+  parseNeg·Bang·Tilde/postfix/climb/climbStep/infixWord/bodyExpr/parseArgExpr/parseAssign*/armBody*)
+  threads AST nodes; atoms are structured (`int`/`float`/`str`/`triple`); every other producer
+  (method/selection/app/ctor/match/block/lambda/for/try/direct/optics) stays string-based and is bridged
+  into the spine via `wrapE` / erased via `erase(_,cx)` at ~55 consumption sites. Helpers `eNode`/`wrapE`/
+  `eraseP`. Operators erase eagerly in `climbStep` for Stage 0; Stage 1 makes them structured arith/eq
+  nodes (localized — plumbing already in place).
+- Every slice byte-identical on all three legs: corpus **417/510** (0 drops/0 gains), semantic **246/246**,
+  `--self` **153 ok/0 FAIL** fixpoint stage1==stage2. → Stage 1 (arithmetic/comparison typing) is next.
+
 ## 2026-07-20 — v2-f5b Stage 0: trustworthy gate stack + golden-output gate + F parse→AST begun
 
 Foundation for making the self-hosting front `F` emit typed IR (`specs/v2-f5b-typed-ir-design.md`),
