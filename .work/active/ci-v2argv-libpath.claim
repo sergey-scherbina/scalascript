@@ -1,6 +1,0 @@
-feature/ci-v2argv-libpath 2026-07-20T14:00:52Z
-agent: claude-site-lane
-heartbeat: 2026-07-20T14:00:52Z
-status: in-progress
-done-so-far: CI still red on post-fix SHA 4473a5dde, but the shape CHANGED — deb5e6c90 stopped the fork-kill so 25 real failures are now VISIBLE (was: 0 FAILED + silent ForkMain exit 1). Reproduced V2RunArgvCliTest locally: it CANCELS without cli/assembly (fail-open), and with the jar it fails with 'native frontend requires a staged installation (ssc.lib.path is unset)' — the test runs java -jar directly while bin/ssc sets that property. CI DOES stage (ci.yml:293 installBin)
-next: make V2RunArgvCliTest pass ssc.lib.path from the staged root; verify locally; this covers 2 of the 25 — the other families (cluster/Bully ~7, Xcode/iOS ~8, v2 runner ~3, codegen cache, emitted-Scala) are separate
