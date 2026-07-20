@@ -1,6 +1,0 @@
-feature/ci-plutil-gate 2026-07-20T16:14:01Z
-agent: claude-site-lane
-heartbeat: 2026-07-20T16:14:01Z
-status: in-progress
-done-so-far: PROVED on Linux (CI run 29738651881 log) that SwiftV2DistributionTest fails because it hard-requires plutil (macOS-only, absent on ubuntu runner) with NO assume-gate. Subagent's "10 already pass" was macOS-only; ~9 of them are genuinely RED on Linux. Sibling SwiftUiRealFixtureBuild already gates via assume(swiftAvailable)
-next: add assume(plutilAvailable) to the 9 plutil-using tests in SwiftV2DistributionTest so they SKIP on Linux; keep the 2 pure-logic tests running. Verify locally (they PASS on this mac); the real check is Linux CI going less-red
