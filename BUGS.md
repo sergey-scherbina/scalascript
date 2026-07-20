@@ -73,9 +73,10 @@ generated-runtime regression performs bootstrap, a successful refresh, unchanged
 a failed refresh against a local HTTP server; it observes exactly three requests and preserves the
 successful second body. `frontendTui/test` passes 36/36, including all emitted-Cargo smokes.
 
-## ci-testtimeout — "Test via sbt" CI step times out at 90 min (cumulative runtime, NOT a WS hang)
+## ci-testtimeout — "Test via sbt" CI budget expires (cumulative runtime, NOT a WS hang)
 
-**Status:** FIXED 2026-07-20 by `ci-testtimeout`. Root cause diagnosed from the CI log itself.
+**Status:** FIXED 2026-07-20 by `ci-testtimeout`, with the final job/step budget correction in
+`e25faeb79`. Root cause diagnosed from the CI logs themselves.
 
 **Symptom:** on run 29700272865 the sbt job's final step `Test via sbt` (`sbt test`, ci.yml) hit the
 GitHub 90-min hard `timeout-minutes` and was killed (whole job 2h7m). Log stderr showed
@@ -93,10 +94,21 @@ alone took **44.7 min** (half the budget) — it compiles+runs generated program
 suites = 70.8 min; total measured suite time before the kill = 86.6 min and the phase was STILL running
 (all passing) when the 90-min cap fired. The full `sbt test` simply needs > 90 min.
 
+**150-minute follow-up evidence:** exact-SHA run `29713194883` for
+`frontend-tui-fetch-refresh` (`f8e688308`) completed lint, validation, and conformance successfully,
+then the sbt job was cancelled at its old 150-minute **job** cap while `Test via sbt` was still
+running. Every emitted test result before cancellation was passing. The last printed suite,
+`GeneratorNativePluginTest`, passes 5/5 in 0.7 seconds when run in isolation; it was only the last
+parallel reporter before the slow cross-backend differential tail. This independently confirms that
+the job cap, not a generator deadlock or the 150-minute step cap, was binding.
+
 **Fix:**
-1. Raise the `Test via sbt` step `timeout-minutes` 90 → 150 (ci.yml). No test coverage dropped, nothing
-   gated/disabled — the suites pass, they just needed wall clock.
-2. Guard the benign submit-after-shutdown race in the shared WS runtime
+1. The initial correction raised the `Test via sbt` step cap 90 → 150. Run `29713194883` then proved
+   the enclosing 150-minute job cap still bound before that step could finish.
+2. `e25faeb79` raises the sbt job cap 150 → 240 and the test-step cap 150 → 200. No test coverage is
+   dropped or gated out; both limits remain bounded and now include the measured release-gate plus
+   differential-test tail.
+3. Guard the benign submit-after-shutdown race in the shared WS runtime
    (`WebSocketRuntime.scala`): `_startHeartbeat` now catches `RejectedExecutionException` from
    `scheduleAtFixedRate` (scheduler `shutdownNow()` raced the accept), and `_runReadLoop` moves
    `socket.getInputStream` inside its existing try so a "Socket is closed" during a teardown race no

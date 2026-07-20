@@ -2616,6 +2616,14 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       + test maxima. Revalidate YAML and require a later Linux run to prove the suite completes.
       **REVISED `884832696`, awaiting Linux proof:** outer/test caps are now 150/90, the measured
       rationale is adjacent to the workflow values, YAML parses, and focused conformance stays green.
+      **Final measured correction (`e25faeb79`), awaiting an exact-SHA green run:**
+      `29713194883` (`f8e688308`) completed lint, validation, and conformance, then the sbt job hit
+      its 150-minute **job** cap while the 150-minute `Test via sbt` step was still running. All
+      printed tests were passing; the apparent tail at `GeneratorNativePluginTest` is not a hang
+      (the isolated suite is 5/5 in 0.7s). The workflow now uses bounded 240-minute job / 200-minute
+      test caps, covering the measured ~45-50-minute release gates plus the >105-minute differential
+      test phase. No suite is disabled; the optimization remains in BACKLOG
+      `ci-crossbackend-differential-runtime`.
 - [x] **5o. Make bytecode runtime-separation tests consume the staged compiler drivers instead of
       cancelling.** Linux run `29545769651`, job `87777659720`, runs `installBin` before `sbt test`,
       and its staging log lists `bin/lib/compiler/jars/ (6 JARs incl. compiler-driver)`. Nevertheless
