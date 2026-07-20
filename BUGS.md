@@ -45,6 +45,111 @@ reported failure.
 **Done-when:** command helpers reachable from tests no longer terminate the JVM, and a deliberately
 failing fixture produces a reported test failure rather than a silent fork exit.
 
+## v2-native-import-wildcard-drops-ssc-case-classes — `import std.x.*` misses pure-`.ssc` definitions
+
+**Status:** OPEN (found 2026-07-20, `ci-fork-failures` sweep). Surfaced by
+`V2CaseClassMethodCliTest` → "std mapreduce Cluster.close executes without a stub under default v2
+runner", one of the 23 failures that the `System.exit` fix (`deb5e6c90`) made visible.
+
+**Symptom.** `import std.mapreduce.*` then `Cluster(List())`:
+- default v2 (native front): `java.lang.RuntimeException: unbound global: Cluster`
+- `--v1` interpreter: `[ERROR] Undefined: Cluster`
+
+`std/mapreduce/index.ssc` DOES re-export `Cluster` (from `cluster.ssc`), yet the dotted-package
+wildcard import does not bring the pure-`.ssc` case class into scope on **either** lane. Symbols that
+are ALSO registered as plugin globals resolve fine (`Node` works, via `DistributedNativePlugin`),
+which is what masks the gap — only the `.ssc`-only definitions (`Cluster`, `ClusterError`, `Dataset`)
+are missing.
+
+**Reproduce (both lanes fail):**
+```scalascript
+import std.mapreduce.*
+val cluster = Cluster(List())    // unbound global: Cluster (native) / Undefined: Cluster (--v1)
+cluster.close()
+```
+**The markdown-link import form WORKS on --v1** — so the case class itself is fine; the defect is the
+dotted-wildcard resolver:
+```scalascript
+[Cluster, Node](std/mapreduce/cluster.ssc)
+val c = Cluster.connectList(List()); c.close()   // prints, works on --v1
+```
+
+**Root cause (hypothesis).** `import std.<pkg>.*` resolution pulls plugin-registered globals for the
+package but does not elaborate/load the package's `.ssc` module definitions (case classes, defs). The
+markdown-link import path (`[names](path.ssc)`) loads the module and works. On the native front there
+is the additional layer that only `DistributedNativePlugin` intrinsics exist — the `.ssc` `Cluster`
+is never loaded at all.
+
+**Not a harness gap.** The test's `ssc.lib.path` harness gap was fixed in the same sweep
+(`53a687f43`); the remaining failure is this real defect. Fixing it is a compiler import-resolution
+change affecting both lanes — out of scope for the CI sweep. **Done-when:** `import std.mapreduce.*`
+brings `Cluster`/`ClusterError`/`Dataset` into scope on the native front (and v1), and the test goes
+green without switching to the markdown-link form.
+
+## v2-native-receive-bare-var-catchall — `receive { case msg => … }` misses on the native front
+
+**Status:** OPEN (found 2026-07-20, `ci-fork-failures` sweep). Surfaced by `V2ActorCliTest` →
+"default and --v2 deliver sendAfter actor timers" after the `sendAfter` binding was fixed
+(`3964db7eb`).
+
+**Symptom.** A bare, untyped catch-all pattern in a `receive` handler block fails:
+```scalascript
+runActors { val me = spawn { () =>
+  val pid = self()
+  pid ! "hello"
+  receive { case msg => println("got: " + msg) }   // Actors scope failed: match: no matching case
+}}
+```
+The trace goes through `Runtime.handlerDispatchMiss` / `HandlerDispatchShape.MissPrimitive` /
+`__match_fail_prim__` — the `receive { … }` block is lowered as an effect-**handler** whose wildcard
+(bare-var) case is not registered, so a delivered message finds no matching handler.
+
+**Isolation (what works vs not) — the bug is specific to bare-var catch-alls in receive blocks:**
+- `receive { case "hello" => … }` (literal)          → WORKS
+- `receive { case msg: String => … }` (typed binder) → WORKS
+- `val r = x match { case msg => … }` (plain match)   → WORKS
+- `receive { case msg => … }` (bare untyped catch-all) → FAILS (dispatch miss)
+
+**Not the sendAfter bug.** `sendAfter` itself is fixed and verified: `sendAfter(10,pid,"hello")` +
+`receive { case "hello" => … }` prints `got hello`. This is a separate native-front lowering defect
+in how `{ case <bareVar> => … }` handler blocks register their wildcard case (cf. the historical
+"ssc0 match no bare-var binder" note). **Done-when:** a bare-var catch-all in a `receive` block
+delivers the message; `V2ActorCliTest` goes green.
+
+## v1-cluster-bully-no-convergence-over-ws — multi-node Bully election does not converge to lex-greatest
+
+**Status:** OPEN (found 2026-07-20, `ci-fork-failures` sweep). All 7 multi-node cluster tests fail;
+they run node fixtures via `java -jar ssc.jar --v1 …` (switched to `--v1` in `da63bb96a`, Jul 8 —
+the native front cannot run the cluster WS stack). Masked until `deb5e6c90` by the `System.exit` fork
+death.
+
+**Failing suites/tests:** `MultiNodeClusterTest` (two-node leader, spawnRemote, five-node, three-node
+re-elect), `ClusterBullyStatusConvergenceTest` (2-node status), `PartitionTest` (5-node static
+partition), `PartitionHealingTest` (partition heals).
+
+**Symptom (consistent, not random).** Nodes fail to converge on the lex-greatest node (Bully winner):
+- 2-node status: `node-bbb` correctly self-elects (`leader:"node-bbb"`), but `node-aaa` never adopts
+  it — its `leader` stays `""`. The coordinator announcement does not update the lower node.
+- 5-node print test: both surviving nodes report `leader=node-a` (lex-SMALLEST) though each node's
+  `members` gossip view lists all peers.
+- 3-node failover phase-1: each node self-elects itself → 3 distinct leaders, no convergence.
+- partition tests: each node's `members` shows only ONE peer, and election picks `node-c` not
+  `node-e`.
+- `spawnRemote`: remote behavior never runs (`REMOTE_SPAWN_TIMEOUT`).
+
+**Root cause (hypothesis).** `startElection` (ActorScheduler.scala) computes higher-id peers from the
+direct WS `peerChannels` map (`nid > localNodeId`), which diverges from the gossip `clusterMembers()`
+membership view a node prints just before electing. A node that knows a higher peer via gossip but
+lacks a direct channel to it sees `higher = ∅`, self-claims, and its (wrong) `broadcastCoordinator`
+propagates; lower nodes also never adopt the true coordinator's announcement. So membership (gossip)
+and the election's channel set are not the same thing.
+
+**Scope.** Real distributed-consensus defect in the v1 interpreter's cluster/Bully layer over the
+actor WS transport — not a harness gap, not env-specific (loopback WS works on the box; the elections
+are simply wrong). Substantial, dedicated debugging; out of scope for the CI sweep. **Done-when:**
+election defers to the lex-greatest reachable node and coordinator announcements update all peers;
+the 7 tests converge.
+
 ## js-char-into-int-param — a `Char` passed into an `Int` parameter stays boxed on the v1 JS backend
 
 **Status:** OPEN (found 2026-07-20 while building `std/markdown-html.ssc` for the docs site).
