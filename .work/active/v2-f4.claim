@@ -1,14 +1,21 @@
 claim: v2-f4
 branch: feature/v2-f4-stage
 agent: opus (orchestrator — F4 reversible steps, Sergiy: F4 first)
-heartbeat: 2026-07-20T16:54:46Z
-status: in-progress — F4 front swap, REVERSIBLE steps (flip held by Sergiy)
-what: Sergiy chose F4-first (kernel shrink is coupled to retiring untyped ssc1-front/ssc1-lower).
-      F now emits TYPED IR (Stage 1) + semantic gate 246/246 proves F output == oracle output.
-      F4 reversible plan (specs/v2-language-surface.md §7): (1) gate classification — extend
-      specs/v2.2-p6.5-corpus.sh to bucket MATCH/OUT/DEFERRED/genuine-FAIL per v2-language-surface.md
-      §5-6 (semantic gate from Stage 0 already gives output-equivalence); (2) stage F behind a flag
-      in RunNativeV2.nativeFrontLayout / installBin (default stays ssc1-front+ssc1-lower); (3) dual-run
-      corpus+conformance under both fronts in CI. HOLD step 4 (★ flip installBin default = the CLI-
-      switch Sergiy holds) + step 5 (retire ssc1-* ~8900 lines) for Sergiy. Handle F's ~12 real gaps
-      (effects/multi-file/wasm — F emits no IR) — delegate or document, don't regress. Then F5b resumes.
+heartbeat: 2026-07-20T20:15:00Z
+status: REVERSIBLE STEPS 1-3 DONE + CI-wired (landed 82d09d90f); flip (step 4/5) HELD by Sergiy
+what: F4 front swap, reversible steps only. LANDED on main:
+      (1) classify gate — specs/v2.2-p6.5-semantic.sh `classify` + manifest v2.2-p6.5-classify.expected.
+          Output-equivalence basis (byte-identity is DEAD post-typed-regime: corpus byte MATCH 225/510).
+          GREEN: 659 progs = MATCH 246 / oracle-excluded 401 / GAP 12 / OUT 0 / DEFERRED 0 / genuine-FAIL 0.
+      (2) SSC_FRONT=F flag — RunNativeV2.frontIsF + v2/bin/ssc1-run-fsub.ssc0 (reuses ssc1-run's
+          structural machinery, swaps only the lowering: #coreir.decode(#coreir.eval(F ++ compile(src)))).
+          installBin stages the runner + fsub.ssc. Default UNCHANGED. Checker kept beside F. PROVEN
+          end-to-end: SSC_FRONT=F bin/ssc run == default output.
+      (3) dual-run gate — specs/v2.2-p6.5-dualrun.sh + dualrun.expected + CI f4-front-swap.yml
+          (nightly/dispatch). GREEN: 29/31 EQUAL, fixpoint byte-identical (366123 B).
+      FINDING: F is NOT a drop-in front — TWO gap classes: (a) 12 single-file GAPs; (b) AMBIENT-PRELUDE/
+      PLUGIN class (json-read, generators, …) only visible on the real path. So classify's 246 is per-file
+      coverage, not drop-in coverage.
+      FLIP (Sergiy): one line in RunNativeV2.frontIsF (opt-IN -> opt-OUT), no re-stage. BLOCKED on handling
+      both gap classes — recommended: delegate-fallback in RunNativeV2 (Global-resolution pre-check ->
+      re-run failed files through the default runner = never-worse-than-default). See language-surface §7.
