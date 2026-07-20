@@ -186,13 +186,18 @@ final class TuiEmitterTest extends AnyFunSuite:
     assert(rs.contains("""Paragraph::new("home view")"""))
   }
 
-  test("fetch-bound SignalText emits a bootstrap GET + adds the ureq dep") {
+  test("fetch-bound SignalText emits bootstrap plus tick-driven refresh and adds the ureq dep") {
     val feed = new FetchUrlSignal("feed", "http://localhost:9/rooms", "tick")
     val (cargo, rs) = emitCrate(View.SignalText(feed))
     assert(cargo.contains("ureq = \"2\""))
     assert(rs.contains("fn fetch_text(url: &str) -> Option<String>"))
-    assert(rs.contains("""fetch_text("http://localhost:9/rooms")"""))
-    assert(rs.contains("""signals.insert("feed".to_string(), Value::S(b));"""))
+    assert(rs.contains("""load_fetch(signals, "feed", "http://localhost:9/rooms")"""))
+    assert(rs.contains("fn initial_fetch_ticks(signals: &HashMap<String, Value>)"))
+    assert(rs.contains("""observed.insert("feed".to_string(), sig_int(signals, "tick"));"""))
+    assert(rs.contains("fn refresh_fetches(signals: &mut HashMap<String, Value>"))
+    assert(rs.contains("""let current = sig_int(signals, "tick");"""))
+    assert(rs.contains("""observed.get("feed").copied() != Some(current)"""))
+    assert(rs.contains("refresh_fetches(&mut signals, &mut observed_fetch_ticks);"))
     assert(rs.contains("bootstrap(&mut signals);"))
   }
 
@@ -200,6 +205,7 @@ final class TuiEmitterTest extends AnyFunSuite:
     val (cargo, rs) = emitCrate(text("hi"))
     assert(!cargo.contains("ureq"))
     assert(rs.contains("fn bootstrap(_signals: &mut HashMap<String, Value>) {}"))
+    assert(rs.contains("fn refresh_fetches(_signals: &mut HashMap<String, Value>"))
   }
 
   test("focusable widget gets a REVERSED focus highlight") {

@@ -24,6 +24,10 @@ object TuiEmitter:
    *  generated reactivity self-test, which needs a text-rendering signal). */
   private final case class SigInfo(initExpr: String, isText: Boolean)
 
+  /** Managed GET metadata. `tickId` is part of the binding contract: a
+   *  changed tick schedules a new GET before the next terminal frame. */
+  private final case class FetchInfo(url: String, tickId: String)
+
   /** A declarative store mutation an `activate` arm performs. */
   private enum Mutation:
     case Set(id: String, valueExpr: String)
@@ -47,7 +51,7 @@ object TuiEmitter:
     val signals = mutable.LinkedHashMap.empty[String, SigInfo]
     collectSignals(root, signals)
 
-    val fetches = mutable.LinkedHashMap.empty[String, String]
+    val fetches = mutable.LinkedHashMap.empty[String, FetchInfo]
     collectFetches(root, fetches)
 
     val remoteTable = hasRemoteTable(root)
@@ -77,7 +81,7 @@ object TuiEmitter:
   private def mainRs(
       manifest:    AppManifest,
       signals:     mutable.LinkedHashMap[String, SigInfo],
-      fetches:     mutable.LinkedHashMap[String, String],
+      fetches:     mutable.LinkedHashMap[String, FetchInfo],
       remoteTable: Boolean,
       focusables:  mutable.ArrayBuffer[Focusable],
       body:        StringBuilder,
@@ -149,9 +153,11 @@ object TuiEmitter:
        |    let mut terminal = Terminal::new(CrosstermBackend::new(stdout))?;
        |    let mut signals = initial_signals();
        |    bootstrap(&mut signals);
+       |    let mut observed_fetch_ticks = initial_fetch_ticks(&signals);
        |    let mut focus: usize = 0;
        |    let result = (|| -> io::Result<()> {
        |        loop {
+       |            refresh_fetches(&mut signals, &mut observed_fetch_ticks);
        |            terminal.draw(|f| { let area = f.area(); render_root(f, area, &signals, focus); })?;
        |            if event::poll(Duration::from_millis(100))? {
        |                if let Event::Key(key) = event::read()? {
@@ -212,21 +218,46 @@ object TuiEmitter:
       |    else { v }
       |}""".stripMargin
 
-  /** `fetch_text` (blocking ureq GET) + `bootstrap` (populate fetch-bound
-   *  signals at startup). When there are no fetches, only an empty
-   *  `bootstrap` is emitted (and no `ureq` dependency). */
-  private def genFetchHelpers(fetches: mutable.LinkedHashMap[String, String]): String =
+  /** Blocking managed-GET runtime: bootstrap once, snapshot each binding's
+   *  refresh tick, then refetch only bindings whose tick changed. When there
+   *  are no fetches, no-op helpers are emitted (and no `ureq` dependency). */
+  private def genFetchHelpers(fetches: mutable.LinkedHashMap[String, FetchInfo]): String =
     if fetches.isEmpty then
-      "fn bootstrap(_signals: &mut HashMap<String, Value>) {}"
+      """fn bootstrap(_signals: &mut HashMap<String, Value>) {}
+        |fn initial_fetch_ticks(_signals: &HashMap<String, Value>) -> HashMap<String, i64> { HashMap::new() }
+        |fn refresh_fetches(_signals: &mut HashMap<String, Value>, _observed: &mut HashMap<String, i64>) {}""".stripMargin
     else
-      val inserts = fetches.map { case (id, url) =>
-        s"    if let Some(b) = fetch_text(${rustStr(url)}) { signals.insert(${rustStr(id)}.to_string(), Value::S(b)); }"
+      val inserts = fetches.map { case (id, info) =>
+        s"    load_fetch(signals, ${rustStr(id)}, ${rustStr(info.url)});"
+      }.mkString("\n")
+      val tickSeeds = fetches.map { case (id, info) =>
+        s"    observed.insert(${rustStr(id)}.to_string(), sig_int(signals, ${rustStr(info.tickId)}));"
+      }.mkString("\n")
+      val refreshes = fetches.map { case (id, info) =>
+        s"""    {
+           |        let current = sig_int(signals, ${rustStr(info.tickId)});
+           |        if observed.get(${rustStr(id)}).copied() != Some(current) {
+           |            load_fetch(signals, ${rustStr(id)}, ${rustStr(info.url)});
+           |            observed.insert(${rustStr(id)}.to_string(), current);
+           |        }
+           |    }""".stripMargin
       }.mkString("\n")
       s"""fn fetch_text(url: &str) -> Option<String> {
          |    match ureq::get(url).call() { Ok(resp) => resp.into_string().ok(), Err(_) => None }
          |}
+         |fn load_fetch(signals: &mut HashMap<String, Value>, id: &str, url: &str) {
+         |    if let Some(body) = fetch_text(url) { signals.insert(id.to_string(), Value::S(body)); }
+         |}
          |fn bootstrap(signals: &mut HashMap<String, Value>) {
          |$inserts
+         |}
+         |fn initial_fetch_ticks(signals: &HashMap<String, Value>) -> HashMap<String, i64> {
+         |    let mut observed = HashMap::new();
+         |$tickSeeds
+         |    observed
+         |}
+         |fn refresh_fetches(signals: &mut HashMap<String, Value>, observed: &mut HashMap<String, i64>) {
+         |$refreshes
          |}""".stripMargin
 
   /** `fetch_rows` (parse a JSON body → rows × columns) + `json_field` — for
@@ -481,13 +512,12 @@ object TuiEmitter:
   private def safeBool(s: ReactiveSignal[?]): Boolean =
     try s() match { case b: Boolean => b; case _ => false } catch case _: Throwable => false
 
-  /** Collect fetch-bound signals (`FetchUrlSignal`) → (id, url) so `bootstrap`
-   *  populates them at startup via a blocking GET. `SignalText` bound to a
-   *  fetch signal then renders the fetched body. */
-  private def collectFetches(v: View[?], fetches: mutable.LinkedHashMap[String, String]): Unit =
+  /** Collect fetch-bound signals (`FetchUrlSignal`) → managed GET metadata so
+   *  bootstrap can load them and the event loop can honor `tickId` changes. */
+  private def collectFetches(v: View[?], fetches: mutable.LinkedHashMap[String, FetchInfo]): Unit =
     def rec(c: View[?]): Unit = collectFetches(c, fetches)
     def record(s: ReactiveSignal[?]): Unit = s match
-      case f: FetchUrlSignal => if !fetches.contains(f.id) then fetches(f.id) = f.fetchUrl
+      case f: FetchUrlSignal => if !fetches.contains(f.id) then fetches(f.id) = FetchInfo(f.fetchUrl, f.tickId)
       case _                 => ()
     v match
       case View.SignalText(s, _)                                 => record(s)
@@ -569,7 +599,7 @@ object TuiEmitter:
             }.mkString(", ")
             sb ++= s"    { let __rows = vec![$rowExprs]; let __t = Table::new(__rows, [$widths]).header(Row::new(vec![$header])); frame.render_widget(__t, $area); }\n"
           case TableDataSource.Remote(fetchSig, rowsPath) =>
-            // Rows fetched at bootstrap into signals[id] (see collectFetches); parsed each frame.
+            // Managed GET body lives in signals[id] and is parsed each frame.
             val n = math.max(1, columns.size)
             val widths = (0 until n).map(_ => s"Constraint::Ratio(1, $n)").mkString(", ")
             val header = columns.map(c => rustStr(c.title)).mkString(", ")

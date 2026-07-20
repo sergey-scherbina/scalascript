@@ -143,6 +143,85 @@ final class TuiCargoSmokeTest extends AnyFunSuite:
     finally
       server.stop(0)
 
+  test("refresh tick refetches a remote table via cargo"):
+    assume(cargoAvailable, "cargo not on PATH — skipping ratatui smoke")
+    val requests = new java.util.concurrent.atomic.AtomicInteger(0)
+    val initialJson = """[{"ts":1,"author":"first-agent","content":"initial-message"}]"""
+    val refreshedJson = """[{"ts":2,"author":"second-agent","content":"refreshed-message"}]"""
+    val server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0)
+    server.createContext("/messages", (ex: com.sun.net.httpserver.HttpExchange) => {
+      val request = requests.getAndIncrement()
+      val (status, body) = request match
+        case 0 => (200, initialJson)
+        case 1 => (200, refreshedJson)
+        case _ => (500, "refresh-failed")
+      val bytes = body.getBytes("UTF-8")
+      ex.getResponseHeaders.add("Content-Type", "application/json")
+      ex.sendResponseHeaders(status, bytes.length.toLong)
+      val os = ex.getResponseBody; os.write(bytes); os.close()
+    })
+    server.start()
+    try
+      val port = server.getAddress.getPort
+      val tick = new ReactiveSignal[Int]("refreshTick", 0)
+      val feed = new FetchUrlSignal("messages", s"http://127.0.0.1:$port/messages", tick.id)
+      val view = View.Column(Seq(
+        View.DataTable(
+          TableDataSource.Remote(feed),
+          List(FieldColumnDef("Author", "author"), FieldColumnDef("Message", "content")),
+          rowKeyPath = "ts"
+        ),
+        View.Button(View.Text(() => "refresh"), EventHandler.IncrementSignal(tick))
+      ))
+      val module = FrontendModule(List(ComponentDef("App", Nil, _ => view)), "App", "/", targetPlatform = Platform.Terminal)
+      val app = new TuiFrameworkBackend().emitNative(module, Platform.Terminal).getOrElse(fail("emitNative returned None"))
+      val probe =
+        """
+          |#[cfg(test)]
+          |mod refresh_tick_regression {
+          |    use super::*;
+          |
+          |    #[test]
+          |    fn refresh_tick_refetches() {
+          |        let mut signals = initial_signals();
+          |        bootstrap(&mut signals);
+          |        let mut observed = initial_fetch_ticks(&signals);
+          |        let before = sig(&signals, "messages");
+          |        assert!(before.contains("initial-message"), "unexpected bootstrap body: {}", before);
+          |        refresh_fetches(&mut signals, &mut observed);
+          |        assert_eq!(sig(&signals, "messages"), before, "unchanged tick refetched");
+          |        activate(0, &mut signals);
+          |        assert_eq!(sig_int(&signals, "refreshTick"), 1);
+          |        refresh_fetches(&mut signals, &mut observed);
+          |        let after = sig(&signals, "messages");
+          |        assert!(after.contains("refreshed-message"), "refresh body was not installed: {}", after);
+          |        assert!(!after.contains("initial-message"), "stale body survived refresh: {}", after);
+          |        refresh_fetches(&mut signals, &mut observed);
+          |        assert_eq!(sig(&signals, "messages"), after, "stable tick refetched");
+          |        activate(0, &mut signals);
+          |        refresh_fetches(&mut signals, &mut observed);
+          |        assert_eq!(sig(&signals, "messages"), after, "failed refresh discarded last-good body");
+          |    }
+          |}
+          |""".stripMargin
+      val dir = Files.createTempDirectory("ssc-tui-refresh-")
+      try
+        app.sources.foreach { case (rel, content) =>
+          val p = dir.resolve(rel)
+          Files.createDirectories(p.getParent)
+          Files.writeString(p, if rel == "src/main.rs" then content + probe else content)
+        }
+        val out = new StringBuilder
+        val err = new StringBuilder
+        val log = ProcessLogger(l => out.append(l).append('\n'), l => err.append(l).append('\n'))
+        val code = Process(Seq("cargo", "test", "--quiet", "refresh_tick_refetches", "--", "--test-threads=1"), dir.toFile).!(log)
+        assert(code == 0, s"cargo refresh test failed (exit $code):\n${out.toString}\n${err.toString}")
+        assert(requests.get() == 3, s"expected bootstrap + success + failed refresh GET, saw ${requests.get()}")
+      finally
+        deleteRecursively(dir)
+    finally
+      server.stop(0)
+
   /** Emit `view`'s crate, `cargo run` it in `SSC_TUI_SNAPSHOT` mode (no TTY),
    *  return stdout. Cleans up the temp crate. */
   private def snapshotViaCargo(view: View[?], runTests: Boolean = false): String =
