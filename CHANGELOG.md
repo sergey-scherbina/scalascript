@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-07-20 — SwiftUI real-fixture failures are named and std/ui select lowering compiles
+
+The legacy SwiftUI JVM bridge now exports `selectFromView` and keeps the erased `Signal[T]()` read
+bridge local to `std.ui.lower`, avoiding interference with ordinary `String` and array indexing.
+The real `ios-hello.ssc` fixture runs through the staged `bin/ssc-tools package --v1 --target macos`
+subprocess instead of calling a `System.exit`-based helper inside ScalaTest. Its successful path still
+checks `Package.swift`, generated `ContentView.swift`, and the built `Ioshello` executable; a deliberate
+generated-Scala error now proves a non-zero exit and compiler diagnostics are captured without killing
+the test JVM. The real fixture passes 2/2, SwiftUI 118/118, TUI 36/36, and the reactive browser
+`selectFromView` regression 1/1.
+
 ## 2026-07-20 — v2-f7-internal-gate: truthful exact compiler differential and green full v2 gate
 
 The v2 internal gate now compares complete non-empty compiler outputs byte-for-byte instead of letting

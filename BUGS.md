@@ -832,22 +832,25 @@ runtime-separation plus facade regressions are 12/12, and `dataset-parallel-jvm`
 
 ## swiftui-real-fixture-system-exit-hides-failure — compiler error kills the forked test JVM
 
-**Status:** OPEN / waiting on active Swift owner (found by `ci-red-main` in Linux run `29545769651`,
-job `87777659720`). Under `SwiftUiRealFixtureBuildTest`, generated Scala fails on `selected()` and
-missing `selectFromView`, but ScalaTest prints no `*** FAILED ***` row for the fixture before another
-suite begins.
+**Status:** FIXED (2026-07-20, `frontend-tui-fetch-refresh`). Found by `ci-red-main` in Linux run
+`29545769651`, job `87777659720`, and reproduced again by exact run `29728630760`. Under
+`SwiftUiRealFixtureBuildTest`, generated Scala failed on `selected()` and missing `selectFromView`,
+but ScalaTest printed no `*** FAILED ***` row for the fixture before another suite began.
 
 **Root cause / real-harness evidence.** The test calls `buildSwiftUIPackage` in-process. Its own
 comment records that this production helper calls `System.exit(1)` when bytecode compilation fails,
 which terminates the forked test JVM before ScalaTest can attach exit/stdout/stderr to the test. The
 old guard only cancels when `scala-cli` is absent; it does not contain an actual compiler failure.
 
-**Expected/fix plan.** Once `v2-swift-nativeui-i18n-json` lands the underlying generated-code fix,
-invoke the supported staged Swift build command in a subprocess and assert its captured exit,
-stdout, and stderr before checking `Package.swift`, `ContentView.swift`, and the built executable.
-Add a failing-input assertion that proves non-zero compiler exit becomes a named test failure rather
-than killing the suite. Do not land a known-red harness change or overlap the active dirty Swift
-production worktrees.
+**Fix/result.** `JvmRuntimeUiPrimitives` now supplies the missing JVM snapshot implementation and the
+hoisted primitive import includes it. The erased `Signal[T]()` bridge is scoped only to
+`std.ui.lower`; the initially tested file-level extension was rejected because it shadowed ordinary
+`String.apply(Int)` calls. The test now invokes the supported staged
+`ssc-tools package --v1 --target macos` command, captures exit/stdout/stderr, and retains all
+generated-package and executable
+assertions. A deliberately invalid fixture returns non-zero with its compiler diagnostic and the
+second named test continues. Focused result: real harness 2/2, SwiftUI 118/118, TUI 36/36, browser
+select reconciliation 1/1.
 
 
 ## scljet-vfs-exclusive-lock-subprocess-exits-linux — official SQLite does not wait on host lock
