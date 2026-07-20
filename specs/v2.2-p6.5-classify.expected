@@ -1,0 +1,45 @@
+# F4 cutover classification manifest — expected NON-MATCH corpus/tower programs.
+#
+# Lens: OUTPUT-EQUIVALENCE (specs/v2.2-p6.5-semantic.sh classify), NOT byte-identity. Since F5b Stage 1,
+# F emits TYPED Core IR that diverges from the untyped oracle BYTE-for-byte BY DESIGN, so the byte-
+# identity corpus gate (specs/v2.2-p6.5-corpus.sh) can no longer be the cutover oracle. The trustworthy
+# cutover ratchet is: does `run-ir(F(P))` produce the SAME OBSERVABLE OUTPUT (stdout bytes + exit) as the
+# untyped oracle? Every program where it does NOT (freeze bucket EXCL_F_DISAGREE), or where F emits no IR
+# (EXCL_F_NOCOMPILE), MUST be listed here with a bucket — otherwise the classify gate fails LOUD as a
+# genuine-FAIL (an UNEXPECTED regression). This mirrors the negtc release gate's self-maintaining
+# classification (project_negtc_gate_self_maintaining_0719): the HARD invariant (no unexpected disagree)
+# is never softened; the DERIVED buckets below are documentation of WHY each known non-match is expected.
+#
+# Buckets:
+#   GAP      — F does NOT correctly lower this construct yet (emits invalid/dangling IR, or wrong output).
+#              The oracle is CORRECT; F is INCOMPLETE. This is an IN-language arc (v2-language-surface.md
+#              §4) not yet built, or a multi-file/multi-fence/backend case. **These BREAK if F is the
+#              front — each must be handled (fallback-delegate to ssc1-front, or documented) BEFORE the
+#              flip (step 4).** They are EXPECTED (not genuine-FAIL) so the gate stays green, but the
+#              flip-readiness report treats GAP>0 as a precondition.
+#   OUT      — v2 is deliberately RIGHT and the oracle is wrong (oracle bug) or it is a v1 lowering wart
+#              (v2-language-surface.md §5). Under the output lens these rarely appear (an oracle bug that
+#              does not change observable output stays a MATCH; one that does, or that the oracle cannot
+#              run in the bare kernel jar, is oracle-excluded at runtime). Listed here only if a real
+#              output disagreement is genuinely v2-correct. Expected FOREVER.
+#   DEFERRED — a legitimate feature needing a deliberate kernel δ (v2-language-surface.md §6, e.g. float
+#              E-notation via the shared Writer.floatStr seam). Expected until the δ is taken.
+#
+# format (TAB-separated):  <BUCKET>\t<program>\t<reason>
+# A program that starts MATCHing (F improved) is reported by the gate as a stale entry to REMOVE (a
+# self-maintaining reclassify hint) — it does NOT fail the gate.
+
+# ── the 12 measured GAPs (opus, 2026-07-20). All: oracle correct, F emits INVALID IR (dangling
+#    `(global …)` reference / arity mismatch) → runtime error → different output. ──
+GAP	effects	effects arc — F does not lower effect.perform/handle; F IR references unbound (global effect) (v2-language-surface.md §4, separate arc)
+GAP	effects-handler	effects arc — unbound global in F IR
+GAP	effect-deep-handler-state	effects arc — deep handler state; unbound global in F IR
+GAP	js-effect-multishot-long-fold	effects arc — multishot continuation; unbound global in F IR
+GAP	extensions	extension-methods arc — needs layout E/EB/X frames (§4.2); F drops the receiver, inner def `go` unbound
+GAP	for-comprehensions	for-comprehension desugaring incomplete — F IR references unbound (global x)
+GAP	tagless-multi-file	multi-file — F is single-file; second module's method under-applied (arity 2 expected 1 given)
+GAP	standard-scala-multifence	multi-fence — F compiles one fence only; cross-fence def `f` unbound
+GAP	scala-js-demo	scala-fence / multi-construct — cross-fence def `merge` unbound
+GAP	dsl-multi-pass	multi-pass DSL — cross-section def `check` unbound
+GAP	wasm-primes	wasm backend program — F IR references unbound (global _)
+GAP	wasm-sorting	wasm backend program — F emits invalid IR

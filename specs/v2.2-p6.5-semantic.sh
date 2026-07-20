@@ -31,9 +31,13 @@
 #     (check mode) no goldens present / 0 programs compared. A green that never ran the comparison is a lie.
 #
 # Modes:
-#   freeze  — regenerate specs/v2.2-p6.5-golden/ from the oracle (run once now; re-run only to
-#             intentionally extend/re-baseline the golden set, e.g. after a stage adds coverage).
-#   check   — (default) assert run-ir(F(P)) == frozen golden for every golden P. Exit 1 on any mismatch.
+#   freeze   — regenerate specs/v2.2-p6.5-golden/ from the oracle (run once now; re-run only to
+#              intentionally extend/re-baseline the golden set, e.g. after a stage adds coverage).
+#   check    — (default) assert run-ir(F(P)) == frozen golden for every golden P. Exit 1 on any mismatch.
+#   classify — F4 CUTOVER RATCHET (self-maintaining). Bucket EVERY corpus+tower program: MATCH /
+#              oracle-excluded (auto) / GAP·OUT·DEFERRED (committed manifest specs/v2.2-p6.5-classify.expected)
+#              / genuine-FAIL. Exit 1 iff an F disagreement is UNEXPECTED (not in the manifest). Green means
+#              "no unexpected diff"; GAP>0 is reported as the pre-flip precondition. Committed goldens untouched.
 #
 # Corpus = examples/*.ssc + tests/conformance/*.ssc (extracted exactly as specs/v2.2-p6.5-corpus.sh)
 #          PLUS the "tower examples" — the curated differential cases inlined in specs/v2.2-p6.5-fsub.sh
@@ -285,5 +289,87 @@ case "$MODE" in
     fi
     echo "  *** SEMANTIC GATE GREEN: F is output-equivalent to the untyped oracle on all $ng goldens ***"
     ;;
-  *) die "unknown mode '$MODE' (use: freeze | check)";;
+  classify)
+    # F4 CUTOVER CLASSIFICATION GATE (self-maintaining, output-equivalence lens). Buckets EVERY corpus+
+    # tower program, then requires every non-MATCH to be EXPECTED (listed in the committed manifest).
+    # An UNEXPECTED disagreement (F runs to a different output than the oracle, or emits no IR, and is NOT
+    # in the manifest) is a genuine-FAIL → exit 1. Mirrors the negtc release gate: the HARD invariant
+    # (no unexpected disagree) is exact and never softened; the manifest buckets are DERIVED documentation.
+    #
+    # Reuses the FREEZE compute (oracle×2 + F, per program) but writes throwaway goldens to $WORK so the
+    # committed specs/v2.2-p6.5-golden/ is untouched — this mode is a read-only classifier, never a
+    # re-baseline. Runs at freeze cost (~90s parallel); it is a pre-flip ratchet, not an every-commit gate.
+    MANIFEST="$ROOT/specs/v2.2-p6.5-classify.expected"
+    [ -f "$MANIFEST" ] || die "classification manifest not found: $MANIFEST" \
+      "(commit specs/v2.2-p6.5-classify.expected — the F4 cutover expected-non-match list.)"
+    GOLD="$WORK/classify-gold"; export GOLD; rm -rf "$GOLD"; mkdir -p "$GOLD"
+    echo "═══════ CLASSIFY — bucket every program (output-equivalence); require no UNEXPECTED disagree ═══════"
+    ls "$WORK/code"/*.code | xargs -P "$NPROC" -I{} bash "$WORK/freeze_worker.sh" {} > "$WORK/classify.txt"
+    rm -f "$V2/bin/_sem_refone.ssc0"
+    total=$(ls "$WORK/code"/*.code | wc -l | tr -d ' ')
+    matchN=$(grep -c '^FROZEN ' "$WORK/classify.txt")
+    # oracle-side exclusions (NOT F's concern — auto-classified at runtime, zero manifest churn)
+    oerr=$(grep -c '^EXCL_ORACLE_ERR '     "$WORK/classify.txt")
+    oto=$(grep -c  '^EXCL_ORACLE_TIMEOUT ' "$WORK/classify.txt")
+    onoir=$(grep -c '^EXCL_ORACLE_NOIR '   "$WORK/classify.txt")
+    ond=$(grep -c   '^EXCL_NONDET '        "$WORK/classify.txt")
+    olrg=$(grep -c  '^EXCL_TOO_LARGE '     "$WORK/classify.txt")
+    oracleExcl=$((oerr+oto+onoir+ond+olrg))
+    # the F-side non-matches that MUST be classified by the manifest
+    disagree=$(grep '^EXCL_F_DISAGREE ' "$WORK/classify.txt" | awk '{print $2}' | sort)
+    nocompile=$(grep '^EXCL_F_NOCOMPILE ' "$WORK/classify.txt" | awk '{print $2}' | sort)
+    nonmatch=$(printf '%s\n%s\n' "$disagree" "$nocompile" | grep -c .)
+    # manifest lookup: bucket for a name (GAP/OUT/DEFERRED), or empty if unlisted
+    bucketOf() { awk -F'\t' -v k="$1" '!/^#/ && NF>=2 && $2==k {print $1; exit}' "$MANIFEST"; }
+    gap=0; out=0; deferred=0; badbucket=0
+    unexpected=""
+    for n in $disagree $nocompile; do
+      b=$(bucketOf "$n")
+      case "$b" in
+        GAP) gap=$((gap+1));;
+        OUT) out=$((out+1));;
+        DEFERRED) deferred=$((deferred+1));;
+        "") unexpected="$unexpected $n";;
+        *) badbucket=$((badbucket+1)); unexpected="$unexpected $n(bad-bucket:$b)";;
+      esac
+    done
+    # self-maintaining reverse check: a manifest entry that now MATCHES (F improved) is STALE — warn, no fail
+    stale=""
+    while IFS=$'\t' read -r bkt nm _rest; do
+      case "$bkt" in \#*|"") continue;; esac
+      [ -n "$nm" ] || continue
+      if grep -q "^FROZEN $nm " "$WORK/classify.txt"; then stale="$stale $nm"; fi
+    done < "$MANIFEST"
+    echo "─────────────────────────────────────────────────────────────────"
+    printf "  total corpus+tower           : %d\n" "$total"
+    printf "  MATCH (F output == oracle)   : %d\n" "$matchN"
+    printf "  oracle-excluded (not F)      : %d  (err %d, timeout %d, no-IR %d, nondet %d, too-large %d)\n" \
+      "$oracleExcl" "$oerr" "$oto" "$onoir" "$ond" "$olrg"
+    printf "  F non-match (needs a bucket) : %d\n" "$nonmatch"
+    printf "    ├─ GAP (F incomplete; handle before flip) : %d\n" "$gap"
+    printf "    ├─ OUT (v2 correct / oracle bug; forever) : %d\n" "$out"
+    printf "    └─ DEFERRED (needs kernel δ)              : %d\n" "$deferred"
+    [ "$gap" -gt 0 ] && { echo "  ── GAP programs (must be delegated/documented before the flip) ──";
+      for n in $disagree $nocompile; do [ "$(bucketOf "$n")" = GAP ] && printf '     %s\n' "$n"; done; }
+    if [ -n "$stale" ]; then
+      echo "  ── ⓘ RECLASSIFY (F now MATCHes these — remove from the manifest) ──"
+      for n in $stale; do printf '     %s\n' "$n"; done
+    fi
+    if [ -n "$unexpected" ] || [ "$badbucket" -gt 0 ]; then
+      echo "─────────────────────────────────────────────────────────────────"
+      echo "  *** genuine-FAIL: UNEXPECTED output disagreement(s) not in $MANIFEST ***"
+      for n in $unexpected; do
+        echo "     $n"
+        d=$(grep -E "^EXCL_F_(DISAGREE|NOCOMPILE) ${n%%(*} " "$WORK/classify.txt" | head -1)
+        [ -n "$d" ] && echo "       $d"
+      done
+      echo "  → add each to the manifest with a bucket (GAP/OUT/DEFERRED) after confirming which it is,"
+      echo "    or FIX F if it is a real regression. green = 0 genuine-FAIL."
+      exit 1
+    fi
+    echo "─────────────────────────────────────────────────────────────────"
+    echo "  *** CLASSIFY GREEN: 0 unexpected disagreements — every non-match is expected."
+    echo "      Cutover note: $gap GAP program(s) still break under F and MUST be handled before step 4 (flip)."
+    ;;
+  *) die "unknown mode '$MODE' (use: freeze | check | classify)";;
 esac
