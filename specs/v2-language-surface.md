@@ -173,6 +173,61 @@ Reversible sequence (irreversible step isolated): (1) build the gate classificat
 behind a flag → (3) dual-run corpus+conformance in CI → **(4) ★ flip the `installBin` default front
 (one commit — the CLI-switch Sergiy holds)** → (5) delete the old ssc0 front (the ~8,900-line win).
 
+#### F4 staging — landed (steps 1-3, REVERSIBLE, default UNCHANGED). 2026-07-20, `v2-f4`.
+
+- **Step 1 — the cutover ratchet:** `specs/v2.2-p6.5-semantic.sh classify` + manifest
+  `specs/v2.2-p6.5-classify.expected` (see §8/§3). Green: 0 unexpected disagreement; 12 GAP reported.
+- **Step 2 — `SSC_FRONT=F` flag.** The native tier runs `F` when `SSC_FRONT=F` (or `fsub`), else the
+  default `ssc1-front`+`ssc1-lower`. Mechanism, all reversible/additive:
+  - `v2/bin/ssc1-run-fsub.ssc0` — a copy of `ssc1-run.ssc0` (fence extraction, multi-file source
+    closure, YAML front-matter, content projection, and the `NativeCompilation` structural ABI all
+    reused unchanged) whose ONLY change is the user program's IR: it is produced by `F`, not by
+    `lowerProg`, via `#coreir.decode(#coreir.eval(F_defs ++ expr:compile(userSrc, dq, bs)))` — validated
+    byte-identical to the F0.ir gate path. `F`'s source arrives as `--fsub-src`.
+  - `RunNativeV2.nativeFrontLayout` reads `SSC_FRONT`; F-mode picks the `-fsub` runner + the staged
+    `tower/bin/fsub.ssc` and threads `--fsub-src`. The **checker (`ssc1-check-run.ssc0`) is kept beside
+    `F` in both modes** — F is a parser+lowerer, not a checker.
+  - `build.sbt installBin` stages `ssc1-run-fsub.ssc0` + `specs/v2.2-p6.5-fsub.ssc`→`fsub.ssc` beside the
+    default runner (default lane never touches them).
+  - PROVEN: `SSC_FRONT=F bin/ssc run <prog>` produces byte-identical output to the default front
+    end-to-end (through the real structural path) on the corpus spread; a GAP program fails cleanly with
+    `unbound global`.
+- **Step 3 — dual-run gate:** `specs/v2.2-p6.5-dualrun.sh` — `bin/ssc run` vs `SSC_FRONT=F bin/ssc run`
+  (the FAITHFUL production path: same launcher, ambient std prelude, checker, plugin host for both
+  fronts) on a corpus slice + typed fixpoint byte-identity (`fsub.sh --self`). Expected divergences =
+  `specs/v2.2-p6.5-dualrun.expected` (a SEPARATE list — see below). Measured: **29/31 EQUAL** on the
+  default single-file slice; fixpoint byte-identical (366,123 B).
+- **★ LOAD-BEARING FINDING (step 3): F has an AMBIENT-PRELUDE / PLUGIN gap class BEYOND the 12.** The
+  classify gate feeds F per-file `.code` with NO ambient injection, so it OVERSTATES F's front-coverage.
+  The real path injects the ambient std prelude (`RunNativeV2.ambientPrelude`, e.g. std/json for
+  `jsonRead`) and runs the plugin host; F must then also compile the injected std-module SOURCE and
+  resolve plugin-backed globals, which it does NOT yet cover — measured F-worse-than-default on
+  `json-read` (unbound `__jsonCoreWrap`), `generators` (unbound `generator`), and similar. So the honest
+  "F output-equivalent on 246" is a per-file-coverage number, NOT a drop-in-front number. **F is NOT a
+  drop-in front today.**
+
+#### The flip (step 4, Sergiy) — exact one-liner + preconditions.
+
+- **The flip = one line in `RunNativeV2.frontIsF`:** invert the default from opt-IN to opt-OUT, e.g.
+  `sys.env.get("SSC_FRONT").exists(v => v == "F" || v.equalsIgnoreCase("fsub"))` →
+  `!sys.env.get("SSC_FRONT").exists(_.equalsIgnoreCase("legacy"))`. No re-stage (installBin already
+  stages both runners + F's source). Fully revertible by restoring the line.
+- **Preconditions — two gap classes must be handled first:**
+  1. the **12 single-file GAPs** (classify): `effects×4, extensions, for-comprehensions,
+     tagless-multi-file, standard-scala-multifence, scala-js-demo, dsl-multi-pass, wasm-primes/sorting`;
+  2. the **ambient-prelude / plugin GAP class** (dual-run, larger and only visible on the real path):
+     any program using an ambient std module F can't compile (json, …) or a plugin-backed global.
+  Recommended handling: a **delegate-fallback in `RunNativeV2`** — after F-mode produces the `Program`,
+  a Global-resolution pre-check (every `Term.Global(n)` resolves to a def / ctor / known runtime global)
+  catches the dangling-global cases; on failure, re-run the file through the default runner
+  (`fsubSrc=None`, `ssc1-run.ssc0`). This makes F **never-worse-than-default** and turns both gates fully
+  green (GAPs fall back to identical output). Cases that fail at RUN time rather than compile time
+  (tagless-multi-file's arity error) need a broader try/rerun fallback or the built-out arc.
+  Alternatively, ship the flip only once F actually covers these (build the arcs + ambient-module
+  compilation), retiring the fallback construct-by-construct. **Either way the flip is blocked on this
+  handling — the reversible staging (steps 1-3) is complete and correct, but F is not yet a drop-in
+  front.**
+
 ### F5 — kernel shrink (the "small" axis), SEPARATE and DEEP
 
 Kernel is **~6,035 lines** (`Runtime.scala` 4,818 + CoreIR 415 + Ssc0 311 + PortableEffects 221 +
