@@ -1,6 +1,6 @@
 feature/frontend-tui-fetch-refresh 2026-07-20T02:26:59Z
 agent: codex-clear-lynx
-heartbeat: 2026-07-20T11:00:16Z
+heartbeat: 2026-07-20T11:18:00Z
 status: in-progress
 done-so-far: spec 8a49ceba4 and refresh fix 6c6fcf21b landed; exact run 29719191208 exposed only a clean-run wire-core test-harness omission, fixed at 2e097848b; affected suites 4/4 + 35/35, frontendTui 36/36, and staged rozum dual-target smoke pass
-next: exact run 29728630760 for da7bd998d has lint/validate/conformance and every sbt release gate green; full Test via sbt is running; release only after its natural green verdict
+next: exact run 29728630760 isolated one deterministic SwiftUI fixture failure: the JVM bridge lacks selectFromView/opaque Signal invocation and its in-process harness masks the assertion with System.exit; fixing the bridge plus subprocess regression before a fresh exact-SHA run
