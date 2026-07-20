@@ -48,18 +48,18 @@ default (step 4, Sergiy) or delete ssc1-front/ssc1-lower (step 5). Edit gates (`
       fixpoint byte-identical (366,123 B). ★ REVEALED an AMBIENT-PRELUDE/PLUGIN gap class beyond the 12
       (json-read, generators): the classify gate's 246 is per-file coverage, NOT drop-in-front coverage.
       **F is NOT a drop-in front today.**
-- [ ] **F4a — delegate-fallback (Sergiy chose F4a 2026-07-20): make F never-worse-than-default.**
-      In `RunNativeV2.compile` (frontIsF path): after F's structural result, run `_root_.ssc.Reader.validate`
-      (unbound-global pre-check) inside a try; on ANY failure (validate throws, or lowerNative/decode threw)
-      re-run the file through the DEFAULT runner (`ssc1-run.ssc0`, fsubSrc=None) and use that. Add
-      `defaultRunner` to `NativeFrontLayout`. Net: F handles what it fully covers; the old front (kept, now
-      the fallback) covers the rest. Runtime-only gap (tagless-multi-file arity — passes global pre-check,
-      fails at run) = DOCUMENTED known-gap (no clean static pre-check on untyped IR; run-time rerun unsafe
-      due to side-effect duplication). Then: dualrun slice includes fallback cases (extensions/effects/
-      json-read/generators) → all EQUAL; dualrun.expected shrinks to the runtime-gap; classify stays green
-      (raw-F-coverage, 12 GAP documented); fixpoint (`--self`) unchanged (doesn't touch RunNativeV2).
-- **Step 4/5 — HELD by Sergiy.** FLIP-READINESS: after F4a, the flip = one line in
-      `RunNativeV2.frontIsF` (opt-IN → opt-OUT); no re-stage; old front stays as the safe fallback.
+- [x] **F4a — DONE (`a73fb0d2a`+`87d1706d8`). Delegate-fallback: F never-worse-than-default.**
+      `RunNativeV2.compile` (frontIsF path): F's decoded Program → `_root_.ssc.Reader.validate` (unbound-
+      global pre-check) in a try; on ANY failure re-lower via the DEFAULT runner (ssc1-run.ssc0,
+      fsubSrc=None). Added `defaultRunner` to `NativeFrontLayout`. The ONE pre-check catches BOTH gap
+      classes (the 12 + ambient/plugin) — all emit an unbound global. Runtime-only gap = documented
+      known-gap (chose static pre-check over unsafe run-time rerun); measured NONE survive (multi-file
+      arity folds into unbound-global on the real path → falls back). GATES GREEN: dualrun **43/43 EQUAL,
+      0 DIVERGE** (slice includes every gap class); dualrun.expected EMPTY; classify green (raw coverage,
+      note added); fixpoint byte-identical (unchanged). `SSC_FRONT_TRACE=1` logs delegations.
+- **Step 4/5 — HELD by Sergiy.** FLIP-READY (no blocker). The flip = one line in `RunNativeV2.frontIsF`
+      (opt-IN → opt-OUT); no re-stage; old front stays as the safe fallback (so the flip can't regress
+      anything). Step 5 (delete old front) must wait until F covers the fallback set on its own.
 
 ---
 
