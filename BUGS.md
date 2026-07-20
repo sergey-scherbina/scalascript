@@ -73,6 +73,37 @@ generated-runtime regression performs bootstrap, a successful refresh, unchanged
 a failed refresh against a local HTTP server; it observes exactly three requests and preserves the
 successful second body. `frontendTui/test` passes 36/36, including all emitted-Cargo smokes.
 
+## jvmgen-forked-e2e-wire-core-unpublished-snapshot — clean CI cannot resolve generated scripts
+
+**Status:** FIXED 2026-07-20 by `frontend-tui-fetch-refresh` (`2e097848b`). Found only after the
+extended exact-SHA run reached the complete `sbt test` tail.
+
+**Symptom/reproduce:** exact-SHA run `29719191208` completed lint, validation, conformance, every
+release gate, and most of the full test sweep, then failed two typed cases in
+`JvmGenSqlRuntimeTest` and the front-matter schema case in `JvmGenEffectsRuntimeTest`. All three
+generated scala-cli scripts contained this unresolved directive:
+
+```scala
+//> using dep "io.scalascript::scalascript-wire-core:0.1.0-SNAPSHOT"
+```
+
+The snapshot was absent from both the clean runner's Ivy local repository and Maven Central. A
+developer machine with a previous `wireCore/publishLocal` silently hid the failure.
+
+**Root cause:** the scala-cli e2e suites run in forked JVMs whose working directories are their SBT
+subprojects. `JvmGen.sscJarDirective` therefore cannot discover the sibling `backend/wire/target`
+JAR and correctly falls back to the publishable dependency form. The existing test-resource
+contract already packages SQL, typed-data, and graph runtimes and rewrites their unpublished
+directives to absolute `using jar` paths, but `wireCore` was omitted when typed-data began depending
+on it.
+
+**Fix/verification:** `backendInterpreter / Test / resourceGenerators` now packages `wireCore` and
+exports its exact path. The SQL and OpenAPI e2e harnesses replace only the generated unpublished
+wire directive with that fresh local JAR; production emission and Maven fallback semantics are
+unchanged. With `COURSIER_REPOSITORIES=central` (so the local Ivy snapshot cannot rescue the test),
+the three exact CI failures pass 3/3; the complete affected suites pass 4/4 and 35/35, and
+`frontendTui/test` remains 36/36.
+
 ## ci-testtimeout — "Test via sbt" CI budget expires (cumulative runtime, NOT a WS hang)
 
 **Status:** FIXED 2026-07-20 by `ci-testtimeout`, with the final job/step budget correction in

@@ -2624,6 +2624,14 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       test caps, covering the measured ~45-50-minute release gates plus the >105-minute differential
       test phase. No suite is disabled; the optimization remains in BACKLOG
       `ci-crossbackend-differential-runtime`.
+      **First complete-tail result (`29719191208`, `eb879b2c2`):** the raised budget worked: all
+      preceding jobs/gates completed and `sbt test` returned a natural verdict. Its only failures
+      were three generated scala-cli e2e cases unable to resolve the unpublished
+      `scalascript-wire-core` snapshot from a clean runner. This is the test-resource omission tracked
+      in BUGS `jvmgen-forked-e2e-wire-core-unpublished-snapshot`, not a frontend-TUI regression.
+      **FIXED `2e097848b`:** the established local-runtime-JAR harness now includes `wireCore`; the
+      exact failed slice is 3/3 and the complete affected suites are 4/4 + 35/35 with local-Ivy
+      resolution disabled. A new exact-SHA run remains required before the claim is released.
 - [x] **5o. Make bytecode runtime-separation tests consume the staged compiler drivers instead of
       cancelling.** Linux run `29545769651`, job `87777659720`, runs `installBin` before `sbt test`,
       and its staging log lists `bin/lib/compiler/jars/ (6 JARs incl. compiler-driver)`. Nevertheless
