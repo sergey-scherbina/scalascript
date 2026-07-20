@@ -1,0 +1,19 @@
+Point  : (3, 4)
+Person : Alice, age 30
+Red   = #ff0000
+Green = #00ff00
+Blue  = #0000ff
+area(Circle(r=5)) = 78.53975
+area(Rect(3x4)) = 12
+area(Triangle(b=6, h=8)) = 24
+classify(-3) = negative
+classify(0) = zero
+classify(7) = small
+classify(42) = large
+Alice's score : 95
+Dave present  : false
+Total students: 3
+10 / 2 = 5
+10 / 0 = undefined
+Passing (grade >= 75): Alice, Carol
+Class average        : 78

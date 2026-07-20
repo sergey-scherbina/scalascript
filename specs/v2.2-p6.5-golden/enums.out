@@ -1,0 +1,14 @@
+North -> South
+South -> North
+East -> West
+West -> East
+circle(r=5): area = 78.54
+rect(4x6): area = 24
+tri(b=3, h=8): area = 12
+10 / 2 = 5
+7 / 0 = undefined
+9 / 3 = 3
+5 / 0 = undefined
+8 / 4 = 2
+15
+4

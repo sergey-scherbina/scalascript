@@ -1,0 +1,1 @@
+Op("DateInput.render", __EffArgs__("dob", "Date of Birth", "2024-01-15", "2000-01-01", "2099-12-31", "YYYY-MM-DD", true), <closure>)

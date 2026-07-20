@@ -1,0 +1,18 @@
+Int    : Int(42)
+Bool   : yes
+String : 'hello'
+summon : Int(99)
+1 == 1  : true
+1 == 2  : false
+hi == hi: true
+hi == ho: false
+3 < 7   : true
+5 > 2   : true
+min(3,7): 3
+max(3,7): 7
+sorted  : 1, 2, 3, 5, 8, 9
+sum    : 15
+concat : hello, world!
+repeat : abababab
+doubled: 2, 4, 6, 8, 10
+squared: 1, 4, 9, 16, 25

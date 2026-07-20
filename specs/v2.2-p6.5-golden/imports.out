@@ -1,0 +1,13 @@
+sqrt(2)    = 1.4142135623730951
+Pi         = 3.141592653589793
+pow(2, 10) = 1024
+abs(-42)   = 42
+distance (0,0)-(3,4) = 5
+triangle perimeter   = 12
+square perimeter     = 8
+data   : 4, 7, 13, 2, 1, 8, 5, 10
+sum    : 50
+mean   : 6.25
+stddev : 3.799671038392666
+min    : 1
+max    : 13

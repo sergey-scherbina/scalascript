@@ -1,0 +1,4 @@
+Person
+name|age
+String|Int
+name,age

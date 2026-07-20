@@ -1,0 +1,1 @@
+Op("Graph.putRdf", __EffArgs__("kg", Book("book:moby-dick", "Moby Dick", "Herman Melville", 1851)), <closure>)
