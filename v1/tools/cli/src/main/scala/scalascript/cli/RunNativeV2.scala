@@ -64,7 +64,10 @@ object RunNativeV2:
     // distinctive exported names and doesn't already import it — the runner combines
     // all source files into one program scope, restoring parity with INT/JS.
     // (v2-native-ambient-prelude.)
-    val canonicalFiles = ambientPrelude(userFiles, layout.stdRoot) ++ userFiles
+    val canonicalFiles =
+      ambientPrelude(userFiles, layout.stdRoot) ++
+        dottedStdImportPrelude(userFiles, layout.stdRoot) ++
+        userFiles
     val sourceFiles = canonicalFiles.map(portablePath)
     val sourceUnits = NativeSourceClosure.resolve(canonicalFiles, layout.stdRoot, layout.installRoot)
 
@@ -463,6 +466,46 @@ object RunNativeV2:
     // the content plugin's "structural ABI root identity" check, and contentToolkitSection is
     // an extern the v2 content NativePlugin doesn't register yet. That's a native-plugin gap.
   )
+
+  /** Dotted-package std imports — `import std.mapreduce.*`, `import std.mapreduce.{Cluster}`,
+   *  `import std.mapreduce.cluster.Cluster` — inside a fenced block. The self-hosted front only
+   *  follows standalone Markdown-link imports (`[names](path.ssc)`); the dotted form was a silent
+   *  no-op, so pure-`.ssc` definitions (case classes, defs) in the package were never loaded and
+   *  hit "unbound global" at runtime. Bridge the gap on the JDK side (no tower change): for each
+   *  dotted `std.*` module referenced, synthesize a tiny prelude source that Markdown-link-imports
+   *  the package's `index.ssc` (a module file, or a directory's index), and prepend it as a leading
+   *  root — the runner combines all roots into one program scope, so the package's exported names
+   *  become available, exactly like the Markdown-link form already does.
+   *  (v2-native-import-wildcard-drops-ssc-case-classes.) */
+  private val dottedStdImportPat =
+    """(?m)^\s*import\s+(std(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\.(?:\*|\{[^}]*\}|[A-Za-z_][A-Za-z0-9_]*)\s*$""".r
+
+  private def dottedStdImportPrelude(userFiles: List[java.io.File], stdRoot: java.io.File): List[java.io.File] =
+    val text =
+      try userFiles.map(f =>
+            java.nio.file.Files.readString(f.toPath, java.nio.charset.StandardCharsets.UTF_8)).mkString("\n")
+      catch case _: Throwable => return Nil
+    // Distinct module reference paths (`std/mapreduce`, `std/mapreduce/cluster`, …).
+    val refs = dottedStdImportPat.findAllMatchIn(text).map(_.group(1).replace('.', '/')).toList.distinct
+    val linkPaths = refs.flatMap { rel =>
+      val asFile = new java.io.File(stdRoot, rel + ".ssc")
+      val asDir  = new java.io.File(stdRoot, rel + "/index.ssc")
+      if asFile.isFile then Some(rel + ".ssc")
+      else if asDir.isFile then Some(rel + "/index.ssc")
+      else None
+    }.distinct
+    if linkPaths.isEmpty then Nil
+    else
+      // One synthetic prelude carrying every Markdown-link import plus a trivial code block
+      // (a source with no scalascript block fails the per-file checker). `std/…` targets resolve
+      // against the std root regardless of the prelude file's own location.
+      val body = new StringBuilder
+      linkPaths.foreach(p => body.append(s"[stdImport]($p)\n\n"))
+      body.append("```scalascript\nval __ssc_dotted_import_prelude__ = 0\n```\n")
+      val tmp = java.nio.file.Files.createTempFile("ssc-dotted-std-import-", ".ssc")
+      java.nio.file.Files.writeString(tmp, body.toString, java.nio.charset.StandardCharsets.UTF_8)
+      tmp.toFile.deleteOnExit()
+      List(tmp.toFile.getCanonicalFile)
 
   private def ambientPrelude(userFiles: List[java.io.File], stdRoot: java.io.File): List[java.io.File] =
     val text =

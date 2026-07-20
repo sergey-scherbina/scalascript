@@ -616,7 +616,62 @@ private[interpreter] object StatRuntime:
           args => Pure(Value.InstanceV("Some", new IMap.Map1("value", args.headOption.getOrElse(Value.UnitV)))))
         env(typeName) = Value.InstanceV(typeName, new IMap.Map2("apply", applyFn, "unapply", unapplyFn))
 
-    case _ => () // type aliases, imports, exports, etc.
+    // Dotted-package module import inside a fenced block, e.g.
+    //   import std.mapreduce.*        (bring the package's whole export surface into scope)
+    //   import std.mapreduce.{Cluster, Node}
+    //   import std.mapreduce.cluster.Cluster
+    // The Markdown-link form `[Cluster](std/mapreduce/cluster.ssc)` already loads a
+    // pure-`.ssc` module; the dotted form was a silent no-op (only plugin globals
+    // resolved), so `.ssc`-only definitions (case classes, defs) were dropped.
+    // Resolve `std.a.b` → `std/a/b` and load it through the same `runImport` path.
+    // (v2-native-import-wildcard-drops-ssc-case-classes.)
+    case imp: Import =>
+      runDottedModuleImports(imp, interp)
+
+    case _ => () // type aliases, other imports, exports, etc.
+
+  /** Flatten a dotted `import` reference (`std.mapreduce.cluster`) to its segments. */
+  private def importRefSegments(ref: Term): List[String] = ref match
+    case Term.Select(qual, name) => importRefSegments(qual) :+ name.value
+    case Term.Name(v)            => List(v)
+    case _                       => Nil
+
+  /** Resolve dotted `import std.<pkg>[.<sub>].*` / `.{names}` / `.Name` statements to a
+   *  pure-`.ssc` module load. Scoped to the `std` root (the documented library surface);
+   *  a reference that does not resolve to an existing std module stays a no-op, so
+   *  ordinary Scala imports (`import scala.collection.*`) are unaffected. */
+  private[interpreter] def runDottedModuleImports(imp: Import, interp: Interpreter): Unit =
+    val base = interp.baseDir.getOrElse(os.pwd)
+    def resolves(p: String): Boolean =
+      try os.exists(scalascript.imports.ImportResolver.resolve(p, base, interp.moduleDeps, interp.lockPath))
+      catch case _: Throwable => false
+    imp.importers.foreach { importer =>
+      val segs = importRefSegments(importer.ref)
+      if segs.headOption.contains("std") && segs.length >= 2 then
+        val rel = segs.mkString("/")
+        // A dotted segment may name a package directory (→ its `index.ssc`) or a
+        // module file; prefer the file spelling, fall back to the directory.
+        val chosen =
+          if resolves(rel + ".ssc") then Some(rel + ".ssc")
+          else if resolves(rel) then Some(rel)
+          else None
+        chosen.foreach { path =>
+          val hasWildcard = importer.importees.exists {
+            case _: Importee.Wildcard => true
+            case _                    => false
+          }
+          // A wildcard binds the module's whole export surface — `runImport` already
+          // dumps every exported name into the caller's globals, so an empty binding
+          // list is exactly "import all". Named importees keep their alias/rename.
+          val bindings: List[scalascript.ast.ImportBinding] =
+            if hasWildcard then Nil
+            else importer.importees.collect {
+              case Importee.Name(nm)         => scalascript.ast.ImportBinding(nm.value)
+              case Importee.Rename(nm, alias) => scalascript.ast.ImportBinding(nm.value, alias = Some(alias.value))
+            }
+          SectionRuntime.runImport(scalascript.ast.Content.Import(path, bindings), interp)
+        }
+    }
 
   private def fieldSchema(typeName: String, param: Term.Param, env: Map[String, Value], interp: Interpreter): TypeFieldSchema =
     val fieldName = param.name.value

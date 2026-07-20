@@ -36,7 +36,9 @@ case class ClusterError(node: Node, reason: String)
 // ── Cluster handle ───────────────────────────────────────────────────
 // Holds the resolved Pid of the actor runtime on each remote node.
 // Obtained via Cluster.connect; closed via cluster.close().
-case class Cluster(nodes: List[Node], pids: List[Any]):
+// `pids` defaults to empty so a handle can be declared from just its node list
+// (`Cluster(nodes)`); `close()` on an unconnected handle is then a safe no-op.
+case class Cluster(nodes: List[Node], pids: List[Any] = Nil):
 
   // Health-check probe: send a "ping" to every registered worker runner
   // and wait for a "pong" back.  Returns a list of nodes that failed
