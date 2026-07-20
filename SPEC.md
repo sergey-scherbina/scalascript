@@ -1775,6 +1775,13 @@ must not produce an unhandled browser promise rejection. The detailed runtime
 contract is normative in
 [`specs/ui-fetch-get-offline-rejection.md`](specs/ui-fetch-get-offline-rejection.md).
 
+The static `frontend/tui` native emitter follows the same mount-and-refresh-tick
+contract for `FetchUrlSignal`: one blocking GET before the first frame, then one
+GET per binding when its integer tick changes before a later frame. Unchanged
+ticks do not fetch, and a failed refresh retains the last-good body. The emitted
+runtime contract is normative in
+[`specs/frontend-tui-fetch-refresh.md`](specs/frontend-tui-fetch-refresh.md).
+
 ### 8.7 Web Primitives (REST/HTTP)
 
 See §7.9–7.14 for the full HTTP/WS/auth surface. Static-rendering variants:

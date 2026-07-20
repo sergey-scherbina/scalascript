@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-07-20 — frontend-tui-fetch-refresh: terminal managed GETs honor refresh ticks
+
+The static `frontend/tui` ratatui emitter no longer freezes every `FetchUrlSignal` at its bootstrap
+response. Fetch collection now preserves `(id, url, tickId)`; emitted Rust snapshots observed ticks
+after the initial GET and re-fetches only changed bindings before the next frame. Transport/body
+failure retains the last-good value, shared ticks refresh every dependent binding once, and unchanged
+frames issue no request. Non-fetch crates remain free of `ureq` and fetch state. A local-HTTP generated
+Cargo regression proves initial `DataTable.Remote` JSON → button tick → refreshed JSON, stable-tick
+no-ops, and last-good retention after HTTP 500. `frontendTui/test` passes 36/36; `installBin` succeeds;
+rozum's `ucc-poc-msglist` dual-target smoke emits React and builds/renders a fetched-row ratatui crate
+from one `.ssc` using the staged CLI.
+
 ## 2026-07-20 — ci-testtimeout: unblock "Test via sbt" 90-min timeout (cumulative runtime, not a WS hang)
 
 `ci-testtimeout`. The sbt job's `Test via sbt` step hit its 90-min hard cap (run 29700272865). Diagnosed

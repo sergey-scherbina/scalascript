@@ -62,20 +62,6 @@ incident. New capability goes in a **new module**.
 Playground (in-browser `.ssc`) is **deliberately NOT in this sprint** — see BACKLOG entry
 `site-playground`; it is gated on `BUGS.md:1537 coreir-compiler-unbounded-depth`.
 
-## frontend-tui-fetch-refresh (`frontend-tui-fetch-refresh`, 2026-07-20)
-
-Restore the managed-fetch contract for the static `frontend/tui` emitter. A
-`FetchUrlSignal` currently loads once in `bootstrap`; changing its `tickId`
-through an `EventHandler` redraws stale data instead of issuing another GET.
-Normative contract: [`specs/frontend-tui-fetch-refresh.md`](specs/frontend-tui-fetch-refresh.md).
-
-- [ ] Preserve each fetch binding's `(id, url, tickId)` metadata and remember
-      the tick observed after bootstrap.
-- [ ] Re-fetch only bindings whose tick changed, retain last-good content on
-      failure, and run the check before the next interactive render.
-- [ ] Cover emitted Rust and a real local-HTTP `DataTable.Remote` refresh via
-      `cargo test`; retain the no-fetch/no-`ureq` invariant.
-
 ## v2-p65-optics (`v2-p65-optics`, 2026-07-19) — baseline MATCH 334/508, fixpoint 222,668 B
 Claim `v2-p65-layout` on origin/main covers this lane. Kernel jar `/tmp/ssc-optics.jar`
 (`scala-cli --power package v2/src --assembly`); corpus `SSC_JAR=/tmp/ssc-optics.jar V2_DIR=<wt>/v2

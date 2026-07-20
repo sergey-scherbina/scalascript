@@ -1,7 +1,7 @@
 # Terminal managed-fetch refresh
 
-Status: implementation-ready (2026-07-20)  
-Owner: `frontend-tui-fetch-refresh`  
+Status: complete (2026-07-20, `6c6fcf21b`)
+Owner: `frontend-tui-fetch-refresh`
 Affected backend: static `frontend/tui` (`TuiEmitter` → ratatui crate)
 
 ## Goal
@@ -85,6 +85,14 @@ HTTP request is absent.
 
 Required gate: `scripts/sbtc 'frontendTui/test'`, including the cargo smoke when
 `cargo` is available.
+
+## Result
+
+Implemented in `TuiEmitter` with ordered `FetchInfo(url, tickId)` metadata and
+generated `initial_fetch_ticks` / `refresh_fetches` helpers. The cargo regression
+also verifies unchanged-tick no-ops and last-good retention after HTTP 500.
+`frontendTui/test` passes 36/36; a staged CLI emits and runs rozum's one-source
+message-list as both React and ratatui.
 
 ## Non-goals
 

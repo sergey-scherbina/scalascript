@@ -2,7 +2,8 @@
 
 ## frontend-tui-fetch-refresh-static-after-bootstrap — refresh ticks redraw stale fetched content
 
-**Status:** OPEN (found 2026-07-20 while implementing rozum `ucc-poc-msglist`).
+**Status:** FIXED 2026-07-20 by `frontend-tui-fetch-refresh` (`6c6fcf21b`). Found while
+implementing rozum `ucc-poc-msglist`.
 
 **Symptom/reproduce:** emit a terminal app containing a `FetchUrlSignal("messages", url,
 tick.id)`, a `DataTable.Remote` bound to it, and a button whose handler is
@@ -21,6 +22,13 @@ bootstrap, and re-fetch a binding before the next frame when (and only when) its
 Transport failure must preserve the last-good body. A local-HTTP cargo regression must prove an
 initial JSON table row changes after the refresh action, while a non-fetch app still emits neither
 `ureq` nor fetch state. Contract: `specs/frontend-tui-fetch-refresh.md`.
+
+**Resolution:** `TuiEmitter` now retains `FetchInfo(url, tickId)`, captures each binding's
+post-bootstrap tick, and runs `refresh_fetches` before every interactive frame. Only changed ticks
+issue a GET; failed GET/body reads leave the destination signal's last-good value intact. The
+generated-runtime regression performs bootstrap, a successful refresh, unchanged-tick no-ops, and
+a failed refresh against a local HTTP server; it observes exactly three requests and preserves the
+successful second body. `frontendTui/test` passes 36/36, including all emitted-Cargo smokes.
 
 ## ci-testtimeout — "Test via sbt" CI step times out at 90 min (cumulative runtime, NOT a WS hang)
 
