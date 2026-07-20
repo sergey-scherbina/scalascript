@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-07-20 — ci-testtimeout: unblock "Test via sbt" 90-min timeout (cumulative runtime, not a WS hang)
+
+`ci-testtimeout`. The sbt job's `Test via sbt` step hit its 90-min hard cap (run 29700272865). Diagnosed
+from the CI log's per-suite timestamps: NOT a hanging WebSocket test (the `WebSocket$$Lambda` /
+`Socket is closed` stderr was benign shutdown-race noise; every WS suite finished in seconds). The step is
+dominated by slow cross-backend differential suites — `CrossBackendPropertyTest` alone = 44.7 min — and
+the full `sbt test` genuinely needs > 90 min. Fix: raised the step `timeout-minutes` 90 → 150 (no coverage
+dropped), and guarded the submit-after-shutdown race in `WebSocketRuntime.scala` (`_startHeartbeat` catches
+`RejectedExecutionException`; `_runReadLoop` moves `getInputStream` inside its try) so the misleading
+`##[error]` noise stops. BACKLOG follow-up `ci-crossbackend-differential-runtime` tracks the real speedup.
+
 ## 2026-07-19 — v2-p65-optics: P6.5 F breadth — corpus MATCH 334 → 362/508 (+28), fixpoint byte-identical
 
 `v2-p65-optics`. Nine byte-verified breadth slices on the self-hosting subset compiler F

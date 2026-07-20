@@ -22,6 +22,41 @@ Transport failure must preserve the last-good body. A local-HTTP cargo regressio
 initial JSON table row changes after the refresh action, while a non-fetch app still emits neither
 `ureq` nor fetch state. Contract: `specs/frontend-tui-fetch-refresh.md`.
 
+## ci-testtimeout — "Test via sbt" CI step times out at 90 min (cumulative runtime, NOT a WS hang)
+
+**Status:** FIXED 2026-07-20 by `ci-testtimeout`. Root cause diagnosed from the CI log itself.
+
+**Symptom:** on run 29700272865 the sbt job's final step `Test via sbt` (`sbt test`, ci.yml) hit the
+GitHub 90-min hard `timeout-minutes` and was killed (whole job 2h7m). Log stderr showed
+`RejectedExecutionException ... scalascript.server.jvm.WebSocket$$Lambda ... [Terminated]` and
+`java.net.SocketException: Socket is closed` on thread `ws-proxy-conn-N`, which pointed suspicion at a
+hanging WebSocket test.
+
+**Real root cause (measured, not prejudged):** the WS exceptions are a RED HERRING — benign
+shutdown-race stderr noise. Every WS/server suite completes in seconds both locally (whole
+`backendInterpreterServer` module 26s; all six `http-server` modules 21s) and in CI
+(`backendInterpreterServer` finished at 20:31:08). Parsing the CI log's per-suite timestamps shows NO
+infinite hang; the step is dominated by slow cross-backend differential suites. `CrossBackendPropertyTest`
+alone took **44.7 min** (half the budget) — it compiles+runs generated programs through
+`scala-cli run --server=false` (deliberate cold per-program compile for isolation) and `node`. Top-10
+suites = 70.8 min; total measured suite time before the kill = 86.6 min and the phase was STILL running
+(all passing) when the 90-min cap fired. The full `sbt test` simply needs > 90 min.
+
+**Fix:**
+1. Raise the `Test via sbt` step `timeout-minutes` 90 → 150 (ci.yml). No test coverage dropped, nothing
+   gated/disabled — the suites pass, they just needed wall clock.
+2. Guard the benign submit-after-shutdown race in the shared WS runtime
+   (`WebSocketRuntime.scala`): `_startHeartbeat` now catches `RejectedExecutionException` from
+   `scheduleAtFixedRate` (scheduler `shutdownNow()` raced the accept), and `_runReadLoop` moves
+   `socket.getInputStream` inside its existing try so a "Socket is closed" during a teardown race no
+   longer escapes the per-connection thread as a spurious `##[error]`. Covers JDK backend + interpreter
+   WsProxy + inlined codegen servers. Verified: `runtimeServerJvm`/`runtimeServerJvmFast`/
+   `backendInterpreterServer` green after the change, residual noise 0.
+
+**Follow-up (BACKLOG `ci-crossbackend-differential-runtime`):** the 2h+ CI is fragile. Optimize the
+cross-backend differential suites (warm/pooled scala-cli compile, or shard the step) to bring the test
+phase back under ~60 min without losing the interp==JVM==JS coverage.
+
 ## ssc0c-multifile-uselib-ir-divergence — self-hosted compiler disagrees with the Scala seed across an import
 
 **Status:** FIXED 2026-07-19 by `v2-f7-internal-gate` (`3056aa3b8`; awaiting full F7 exact-SHA CI).

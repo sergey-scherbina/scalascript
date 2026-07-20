@@ -15,6 +15,22 @@ Status hygiene (2026-06-23): open `[ ]` rows below are intentionally still open,
 explicitly `BLOCKED` or `DEFERRED` product/external-decision items. History-only / wontfix notes
 are plain bullets without checkboxes so agents do not claim them as build work.
 
+## `ci-crossbackend-differential-runtime` — full `sbt test` runs ~90+ min, cross-backend suites dominate (2026-07-20)
+
+Raised by `ci-testtimeout`. The `Test via sbt` CI step needed its `timeout-minutes` bumped 90 → 150
+because the full `sbt test` genuinely exceeds 90 min. From the run-29700272865 log, per-suite timing:
+`CrossBackendPropertyTest` alone = **44.7 min**, top-10 suites = 70.8 min, total measured (incomplete,
+killed at 90) = 86.6 min. The cost is subprocess compiles: the cross-backend differential suites
+(`CrossBackendPropertyTest` and siblings, in `v1/runtime/backend/interpreter`) run generated programs
+through `scala-cli run --server=false` (deliberate COLD per-program compile for concurrency isolation,
+see the comment at `CrossBackendPropertyTest.scala:559`) and `node`.
+
+- [ ] Bring the test phase back under ~60 min WITHOUT losing interp==JVM==JS coverage. Options to weigh:
+  a warm/pooled scala-cli compiler shared across the suite's programs (must not reintroduce the
+  concurrency collisions `--server=false` guards against); sharding `sbt test` into parallel CI steps;
+  or `ParallelTestExecution` scoped to the differential suites with a bounded subprocess pool. Do NOT
+  env-gate the suite out of CI (that would be a measurement-lies-green coverage regression).
+
 ## `scala` fences vs `scalascript` fences — a LATENT `Int`-width hole behind dead code (2026-07-17)
 
 Raised by `int-width-conformance` W5, which asked: a file may hold both ` ```scalascript ` blocks
