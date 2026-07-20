@@ -152,8 +152,17 @@ class JvmIncrementalCliTest extends AnyFunSuite:
       val scjvm = sandbox / ".ssc-artifacts" / "cache.scjvm"
       assert(os.exists(scjvm), s"expected run-jvm to write $scjvm")
       val original = JvmArtifactIO.readJvmFile(scjvm).fold(err => fail(err), identity)
-      assert(JvmArtifactIO.hasCurrentCodegenVersion(original),
-        s"initial run-jvm artifact should use current JVM codegen key, got '${original.codegenVersion}'")
+      // The subprocess `run-jvm` writes `codegenVersion` using the *jar's* build
+      // stamp (`compilerBuildStamp` = jar mtime-size). `hasCurrentCodegenVersion`
+      // computed in THIS test JVM cannot be used as the oracle: the test JVM loads
+      // `JvmArtifactIO` from the compiled classes dir (not the jar), so its
+      // "current" stamp is derived from the .class file, never matching the jar's.
+      // Use the fresh key the subprocess itself just wrote as the oracle instead —
+      // that is the jar's own notion of "current" and the value regeneration must
+      // restore.
+      val jarFreshVersion = original.codegenVersion
+      assert(jarFreshVersion.startsWith("jvm-codegen-") && jarFreshVersion != "jvm-codegen-old",
+        s"initial run-jvm artifact should carry a fresh JVM codegen key, got '$jarFreshVersion'")
 
       val stale = original.copy(codegenVersion = "jvm-codegen-old")
       JvmArtifactIO.writeJvmFile(stale, scjvm)
@@ -166,8 +175,10 @@ class JvmIncrementalCliTest extends AnyFunSuite:
         s"second run-jvm failed: exit=${second.exitCode}\nstdout=${second.out.text()}\nstderr=${second.err.text()}")
 
       val regenerated = JvmArtifactIO.readJvmFile(scjvm).fold(err => fail(err), identity)
-      assert(JvmArtifactIO.hasCurrentCodegenVersion(regenerated),
-        s"run-jvm reused a source-fresh but old-codegen .scjvm; got '${regenerated.codegenVersion}'")
+      // run-jvm saw a source-fresh but stale-codegen artifact and regenerated it:
+      // the key is back to the jar's fresh value, no longer the injected stale one.
+      assert(regenerated.codegenVersion == jarFreshVersion,
+        s"run-jvm reused a source-fresh but old-codegen .scjvm; got '${regenerated.codegenVersion}', expected '$jarFreshVersion'")
     finally os.remove.all(sandbox)
 
   // ── 2. compile-jvm a.ssc + b.ssc, then link --backend jvm -o out.jar ─────

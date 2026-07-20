@@ -88,7 +88,14 @@ class JvmTransitiveStdImportCliTest extends AnyFunSuite:
     os.write(dir / "helper.ssc", helperMod)
     os.write(dir / "main.ssc", mainMod)
 
-    val interp = os.proc("java", "-jar", jar.toString, "run", "main.ssc")
+    // The default `run` reaches the native frontend, which reads its staged layout
+    // from `ssc.lib.path` — the property `bin/ssc` sets and a bare `java -jar` does
+    // not. Derive the repo root from the jar (`<root>/v1/tools/cli/target/scala-3.8.3/
+    // ssc.jar`) so the subprocess finds the installBin-staged tree, exactly as CI
+    // does (`cli/assembly installBin`). Without it the native front exits 1 with
+    // "native frontend requires a staged installation".
+    val stagedRoot = jar / os.up / os.up / os.up / os.up / os.up / os.up
+    val interp = os.proc("java", s"-Dssc.lib.path=$stagedRoot", "-jar", jar.toString, "run", "main.ssc")
       .call(cwd = dir, check = false, stdin = os.Path("/dev/null"), stderr = os.Pipe, stdout = os.Pipe)
     assert(interp.exitCode == 0, s"interpreter run failed:\n${interp.err.text()}")
 
