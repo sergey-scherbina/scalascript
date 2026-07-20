@@ -1,0 +1,10 @@
+claim: ci-testtimeout
+branch: feature/ci-testtimeout
+agent: opus (orchestrator — fresh agent)
+heartbeat: 2026-07-20T02:16:19Z
+status: in-progress
+what: negtc fix (landed) unmasked it: CI "Test via sbt" (full sbt test) TIMES OUT after 90min
+      (run 29700272865, sbt job 2h7m). Errors: WebSocket$$Lambda rejected from Terminated
+      ScheduledThreadPoolExecutor; "Socket is closed". Find the hanging WS test, isolate, decide
+      real-hang vs CI-load-flake, fix (clean shutdown / per-test timeout / thread-pool lifecycle).
+      Last CI-red blocker for v1-crystallize-green. Touches v1 test infra / WebSocket — NOT v2.

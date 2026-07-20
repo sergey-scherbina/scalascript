@@ -1,15 +1,11 @@
 claim: v2-p65-deep
-branch: (idle — deep5 complete, cheap clean wins EXHAUSTED = F4 trigger)
-agent: opus (orchestrator session — handoff chain paused at natural endpoint)
-heartbeat: 2026-07-19T19:38:17Z
-status: MILESTONE — nested-patterns arc complete, corpus MATCH 408/509 (80%). Clean cheap wins done.
-what: deep5 landed 8 byte-verified slices (395->408, +13, 0 drops, fixpoint intact, kernel +0):
-      nested ctor patterns, tuple-outer nested patterns, char literals, type/opaque alias skip,
-      block-local val(a,b), multi-stmt lambda block, ordered-match terminal fix. Task-1 (nested
-      tuple patterns) COMPLETE+exceeded. REMAINING 101 DIFFs classified: ~29 OUT per Decision C
-      (oracle @-collapse, custom-interpolator raw leak, actors-receive let(match) ~10, float-E 2);
-      given/summon = THE WALL (~10-15, tractable in-subset NO kernel δ, but huge arc); extension
-      methods (~2 but BIG ARC, needs deferred layout E/EB/X frames); _sel_ list-var registry (~4
-      architectural) + misc 1-offs. Clean ceiling ~471. **This is the F4 trigger** — author
-      specs/v2-language-surface.md (IN/OUT contract) then cut F canonical + retire FrontendBridge
-      -> kernel shrink. See SPRINT §v2-p65-deep handoff.
+branch: feature/v2-p65-deep6
+agent: opus (orchestrator — fresh agent, given/summon arc)
+heartbeat: 2026-07-20T02:16:19Z
+status: in-progress (Sergiy: surface-first — build BOTH arcs before F4 cutover)
+what: ARC 1 = given/using/summon (~10-15 progs; given-table + __mk_method_obj__ dictionary
+      synthesis; NO kernel δ per deep5 assessment). Then ARC 2 = extension methods. Both IN per
+      specs/v2-language-surface.md. Corpus MATCH 408->target ~460+ (ceiling 471). Keep --self green,
+      byte-verify vs oracle, drop-check every slice. Do NOT chase the ~29 OUT (oracle bugs/actors
+      warts) or float-E (deferred). Same file (specs/v2.2-p6.5-fsub.ssc) => SEQUENTIAL with any
+      sibling touching it. F4 cutover comes AFTER both arcs.
