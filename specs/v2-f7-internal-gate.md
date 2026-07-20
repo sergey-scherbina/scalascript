@@ -116,4 +116,7 @@ helper. `bash -n v2/conformance/check.sh` passes, and the complete gate reaches 
 WASM, the exact compiler differentials/fixpoints, and the 1e6-tail-call check. Complete artifacts are
 `/tmp/v2-f7-full-final.{out,err,status}`. The affected shared conformance slice
 `tests/conformance/run.sh --only 'v2-*'` passes 11/11 (all memoized), 0 failed. Exact-SHA CI is the only
-remaining F7 closure gate.
+release gate after the final bookkeeping commit; the task claim remains present until
+`scripts/ci-status --sha <full-landed-sha>` returns 0. The final commit is based on current `origin/main`,
+which includes the measured 150-minute `Test via sbt` budget fix (`f1addc8f7`) rather than the obsolete
+90-minute workflow that could time out a still-progressing green suite.

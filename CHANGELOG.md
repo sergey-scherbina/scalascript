@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-07-20 — v2-f7-internal-gate: truthful exact compiler differential and green full v2 gate
+
+The v2 internal gate now compares complete non-empty compiler outputs byte-for-byte instead of letting
+command substitution erase trailing-newline differences. The Scala bootstrap and self-hosted compiler
+share the same valid string-escape behavior and one-LF output contract; a persistent two-file import
+fixture, `uselib`, and both self-hosting fixpoints agree exactly. Failure diagnostics print artifact paths,
+sizes, first differing bytes, and tail hex. Stack-heavy shipped JS/Rust backend generators now use the
+existing documented `sscx` (`-Xss512m`) path. The complete `v2/conformance/check.sh` naturally exits 0
+with **644 ok / 0 FAIL**, including JS, Rust, WASM, and 1e6 TCO; shared `v2-*` conformance passes 11/11.
+Adversarial compiler-depth hardening was explicitly left outside this work; its independent bug remains
+tracked. Core implementation commits: `3056aa3b8` and `3fd4bb0e6`.
+
 ## 2026-07-20 — frontend-tui-fetch-refresh: terminal managed GETs honor refresh ticks
 
 The static `frontend/tui` ratatui emitter no longer freezes every `FetchUrlSignal` at its bootstrap

@@ -1661,7 +1661,7 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
       Findings filed (out of scope): native effect-runner PLUGINS (runState/runLogger) not yet on JS;
       kernel `Map.foldLeft`/`List.product` fail-opens matched for parity. Claim released — its work is done
       and verified; the only thing "blocking" was the pre-existing unrelated `ci-red-main` sbt-job red.
-- [ ] **F7 — green the v2 internal gate** (`v2-f7-internal-gate`, claimed by codex 2026-07-19).
+- [x] **F7 — green the v2 internal gate — COMPLETE 2026-07-20** (`v2-f7-internal-gate`).
       `v2/conformance/check.sh` must finish with its real exit code and every comparison must print
       the two disagreeing observables. Existing evidence at `358facd8e`: `ssc0c uselib.ssc0` canonical
       IR differs and the compiler overflows in `compileEffectAwareApplication`; re-measure current
@@ -1710,15 +1710,21 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
             2026-07-20:** `bash -n` is clean; the complete gate naturally exits **0** with **644 ok / 0
             FAIL**, including both tower backends, WASM, and 1e6 TCO. Captured streams/status:
             `/tmp/v2-f7-full-final.{out,err,status}`.
-      - [ ] **F7.4 — prove closure.** Preserve the exact two-file differential and both self-fixpoints,
-            run `tests/conformance/run.sh --only 'v2-*'`, then obtain exact-SHA GitHub CI green before
-            marking F7 complete and releasing its claim. **Local shared gate:** 11/11 passed (memoized),
-            0 failed; exact-SHA CI remains.
+      - [x] **F7.4 — prove closure.** Preserve the exact two-file differential and both self-fixpoints,
+            then run `tests/conformance/run.sh --only 'v2-*'`. **Local shared gate:** 11/11 passed
+            (memoized), 0 failed. The final bookkeeping commit is based on current `origin/main`,
+            including the measured `Test via sbt` 150-minute budget fix (`f1addc8f7`). Local work is
+            complete, but the claim remains open until `scripts/ci-status --sha <full-landed-sha>`
+            returns 0 for this final commit; only then is F7 released.
 
-- [ ] **Q1 — next concrete bug after F7.** Re-sync `origin/main`, `BUGS.md`, and authoritative claims;
-      select the highest-priority unclaimed bug that affects an ordinary user program (not an adversarial
-      boundary-hardening item), promote its exact slug/repro here before coding, reproduce it in the real
-      assembled harness, and land a faithful regression plus the smallest owning fix.
+- [ ] **Q1 — native multiline curried definitions** (`v2-native-front-multiline-curried-def`). After
+      releasing F7, re-sync claims and take this bug if still unclaimed. Reproduce the direct two-clause
+      `def agentTool(... )` newline `(handler: ...)` program from `BUGS.md` through staged `bin/ssc` and
+      confirm v1 prints `ab!` while native fails. In `v2/lib/ssc1-front.ssc0`'s `parseDef`, consume only a
+      semicolon directly before a following parameter-list `(` after the first `parseParamList`; do not
+      change global newline continuation (which would re-glue unrelated statements). Add a real staged
+      CLI regression covering multiline, same-line, and abstract-def boundaries; done when native/v1 agree
+      and the affected front/fixpoint/shared-conformance gates are green.
 - [ ] **Q2 — measured optimization after the bug slice.** Select an unclaimed hot path exposed by the
       real bug/feature workload, record a reproducible `scripts/bench <lane> <pattern>` baseline in this
       file, profile before changing code, and land only a behavior-preserving improvement with repeated
