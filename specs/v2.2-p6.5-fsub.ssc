@@ -1371,9 +1371,11 @@ def extTypeTagsUser1(th, cs) = if isEmpty(cs) then Cons(th, Nil) else cs
 // One dispatcher `(def m (lam arity <chain>))` per distinct method; chain = if <recv is Ti> then gi_m(args) else ..; recv.
 def emitExtDispatchers(ts, cx) = emitEDwith(collectExtDisp(ts), cx)
 def emitEDwith(entries, cx) = emitEDall(edMethodNames(entries), entries, cx)
-def emitEDall(ms, entries, cx) = ms match { case Nil => "" case m :: r => emitOneED(m, edInstancesFor(m, entries), cx) ++ emitEDall(r, entries, cx) }
-def emitOneED(m, insts, cx) = insts match { case Nil => "" case first :: rest => emitOneED1(m, insts, first, cx) }
-def emitOneED1(m, insts, first, cx) = first match { case (th, ir) => ir match { case (impl, ar) => " (def " ++ m ++ " (lam " ++ ar ++ " " ++ edBuild(insts, ar, cx) ++ "))" } }
+// F5b: one extension-dispatcher def per method BUILDS an `extdisp` node (the dispatch if-chain stays a
+// pre-rendered string sub-part — edBuild is not spine-driven). emitEDall erases at the string boundary.
+def emitEDall(ms, entries, cx) = ms match { case Nil => "" case m :: r => erase(emitOneED(m, edInstancesFor(m, entries), cx), cx) ++ emitEDall(r, entries, cx) }
+def emitOneED(m, insts, cx) = insts match { case Nil => eNode("") case first :: rest => emitOneED1(m, insts, first, cx) }
+def emitOneED1(m, insts, first, cx) = first match { case (th, ir) => ir match { case (impl, ar) => ("extdisp", (m, (ar, edBuild(insts, ar, cx)))) } }
 def edBuild(insts, ar, cx) = insts match { case Nil => edRecvLocal(ar) case i :: r => edBuild1(i, r, ar, cx) }
 def edBuild1(i, r, ar, cx) = i match { case (th, ir) => ir match { case (impl, iar) => "(if " ++ orTagTests(edRecvLocal(ar), extTypeTags(th, cx), cx) ++ " (app (global " ++ impl ++ ")" ++ edArgs(ar) ++ ") " ++ edBuild(r, ar, cx) ++ ")" } }
 def edRecvLocal(ar) = "(local " ++ (ar - 1) ++ ")"
@@ -1724,8 +1726,12 @@ def idxOf(n, fs, i) = fs match { case Nil => 0 case h :: t => if fldName(h) == n
 // A node is a TAGGED TUPLE (tag, payload) — F's own idiom (a token is (kind,payload); parseAtom1
 // dispatches on fst). `erase(node, cx)` matches the tag and rebuilds the exact string the old emit*
 // concatenated. cx carries the `"` char (dqOf) and `\` char (bsOf), threaded because F is escape-free.
-// CONVERTED SO FAR (Stage 0): ctorfn, mirror, sel, arm, enumnull  (the case-class/enum DECLARATION cluster).
-// Every other emit* still returns a String; erase is called only where a converted node meets that text.
+// CONVERTED (Stage 0 COMPLETE): declaration cluster ctorfn/mirror/sel/arm/enumnull/extdisp, and the whole
+// EXPRESSION pipeline (spine leaves thread nodes; atoms int/float/str/triple are structured; every other
+// expression producer stays string-based and is bridged via wrapE / erased via erase(_,cx) at the ~55
+// consumption sites). `e` = a raw already-rendered IR string. The remaining string-returning helpers
+// (emitInt/emitStr/emitArith/emitBin/emitMethod/emitApp/… and the def/val/expr declaration WRAPPERS) are
+// erase-time RENDERERS or wrappers around erased expression nodes — correct by design, not un-converted.
 // F5b: erase takes the FULL cx (not just dq) — expression string/triple nodes need `bs` too and Stage 1
 // reads the inferred type off cx/the node. dqOf(cx)==dq and bsOf(cx)==bs by construction (cx is always
 // mkCx(dq,…,bs,…)), so deriving dq here is byte-identical to the old dq-threaded callers.
@@ -1734,7 +1740,8 @@ def erase(n, cx) = n match { case (tag, p) => eraseB(tag, p, cx) }
 // for the method/selection/app/ctor/match/block/lambda machinery, which inspects receiver strings); the
 // atom nodes int/float/str/triple defer their rendering here (triple needs bs from cx). Stage 1 attaches
 // typed rendering (i.add/f.add/… by inferred type) at THIS seam without touching the parsers.
-def eraseB(tag, p, cx) = if tag == "e" then p else (if tag == "int" then emitInt(p) else (if tag == "float" then emitFloat(p) else (if tag == "str" then emitStr(p, dqOf(cx)) else (if tag == "triple" then eraseTriple(p, cx) else (if tag == "ctorfn" then eraseCtorFn(p) else (if tag == "mirror" then eraseMirror(p, dqOf(cx)) else (if tag == "sel" then eraseSel(p, dqOf(cx)) else (if tag == "enumnull" then eraseEnumNull(p) else (if tag == "arm" then eraseArm(p) else "")))))))))
+def eraseB(tag, p, cx) = if tag == "e" then p else (if tag == "int" then emitInt(p) else (if tag == "float" then emitFloat(p) else (if tag == "str" then emitStr(p, dqOf(cx)) else (if tag == "triple" then eraseTriple(p, cx) else (if tag == "ctorfn" then eraseCtorFn(p) else (if tag == "mirror" then eraseMirror(p, dqOf(cx)) else (if tag == "sel" then eraseSel(p, dqOf(cx)) else (if tag == "enumnull" then eraseEnumNull(p) else (if tag == "arm" then eraseArm(p) else (if tag == "extdisp" then eraseExtDisp(p) else ""))))))))))
+def eraseExtDisp(p) = p match { case (m, rest) => rest match { case (ar, chain) => " (def " ++ m ++ " (lam " ++ ar ++ " " ++ chain ++ "))" } }
 def eNode(s) = ("e", s)
 // wrap a (string, rest) pair from a string-based producer into a (node, rest) pair for the spine.
 def wrapE(pr) = pr match { case (s, r) => (eNode(s), r) }
