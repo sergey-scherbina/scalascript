@@ -2,7 +2,7 @@ package ssc.plugin.httpfast
 
 import java.io.{ByteArrayOutputStream, EOFException, OutputStream}
 import java.net.{Socket, SocketException, SocketTimeoutException}
-import java.nio.charset.StandardCharsets.UTF_8
+import java.nio.charset.StandardCharsets.{UTF_8, ISO_8859_1}
 import java.util.concurrent.atomic.AtomicBoolean
 import WebSocketFrames.*
 
@@ -142,7 +142,16 @@ final class WsConnection(
       val s = new String(bytes, UTF_8)
       if recvActive then recvQueue.offer(java.util.Optional.of(s))
       safe(onText(s))
-    else safe(onBinary(bytes))
+    else
+      // Binary frames must also reach the blocking recv() queue, surfaced as a
+      // Latin-1 byte-view string — the same convention the WS client's recv()
+      // and the onBinary→onMessage bridge use. Without this, a server-inbound
+      // consumer that pulls via recv() (the v2 binary cluster protocol:
+      // ssc-actors-v2.cbor/msgpack) never sees post-handshake frames, so Bully
+      // coordinator/election replies delivered over a node's *server* socket are
+      // silently dropped and leader election cannot converge.
+      if recvActive then recvQueue.offer(java.util.Optional.of(new String(bytes, ISO_8859_1)))
+      safe(onBinary(bytes))
 
   private def notifyClose(code: Int, reason: String): Unit =
     if closeNotified.compareAndSet(false, true) then
