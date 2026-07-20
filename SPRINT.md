@@ -162,8 +162,10 @@ incident. New capability goes in a **new module**.
       heading survives into HTML, `expected=/got=` on mismatch). Cost: +cold ssc build → timeout
       15→45 min + class cache (`-v2-pages-` prefix, disjoint from ci.yml; save-on-success only).
       `site/docs` gitignored; triggers fire on `docs/**` + the generator. Landing footer/nav now
-      point at `/docs/`. **PENDING: exact-SHA Pages CI must go green before closing** — a cold ssc
-      build in the Pages job is unproven; watch the Pages run for the landed SHA.
+      point at `/docs/`. **VERIFIED LIVE (2026-07-20):** Pages run for `e101c6948` succeeded (cold
+      ssc build + generate + deploy), and `https://sergey-scherbina.github.io/scalascript/docs/`
+      now serves 200 incl. nested pages + `search-index.json`; `/scljet.html` + `/registry/` stay
+      200 (coexistence confirmed on the live site — nothing lost).
 - [ ] **S5 — landing polish.** Extra sections (examples gallery, benchmarks) once /docs exists
       to link into.
 
