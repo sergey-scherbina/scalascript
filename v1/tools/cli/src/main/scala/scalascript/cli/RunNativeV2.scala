@@ -77,7 +77,7 @@ object RunNativeV2:
           throw new IllegalArgumentException(detail)
       }
 
-      val structural = lowerNative(layout.runner, layout.stdRoot, layout.installRoot, sourceFiles, canonicalFiles, mutableFlag)
+      val structural = lowerNative(layout.runner, layout.stdRoot, layout.installRoot, sourceFiles, canonicalFiles, mutableFlag, layout.fsubSrc)
       if mutableFieldSentinel(structural.program) then
         throw new IllegalArgumentException(
           "mutable class fields (a `var` field in a class) are disabled by default; " +
@@ -150,10 +150,14 @@ object RunNativeV2:
       libRoot: java.io.File,
       sourceFiles: List[String],
       canonicalFiles: List[java.io.File],
-      mutableFlag: List[String]): NativeStructuralFrontend =
+      mutableFlag: List[String],
+      fsubSrc: Option[java.io.File]): NativeStructuralFrontend =
+    // SSC_FRONT=F: point the F runner at F's staged source; harmless flag order (the runner's arg
+    // parser accepts flags in any order before the file paths). Absent in the default lane.
+    val fsubFlag = fsubSrc.toList.flatMap(f => List("--fsub-src", portablePath(f.getCanonicalFile)))
     val result = runTower(
       runner,
-      mutableFlag ++ ("--structural" :: "--std-root" :: portablePath(stdRoot.getCanonicalFile) ::
+      mutableFlag ++ fsubFlag ++ ("--structural" :: "--std-root" :: portablePath(stdRoot.getCanonicalFile) ::
         "--lib-root" :: portablePath(libRoot.getCanonicalFile) :: sourceFiles),
       "ssc-native-frontend")
     if result.exitCode != 0 then
@@ -376,7 +380,18 @@ object RunNativeV2:
       runner: java.io.File,
       checker: java.io.File,
       stdRoot: java.io.File,
-      installRoot: java.io.File)
+      installRoot: java.io.File,
+      fsubSrc: Option[java.io.File])
+
+  /** F4 front swap (REVERSIBLE, default UNCHANGED). `SSC_FRONT=F` opts the native tier into the
+   *  self-hosting subset compiler F (specs/v2.2-p6.5-fsub.ssc, staged as tower/bin/fsub.ssc) as the
+   *  lowerer, via the tower/bin/ssc1-run-fsub.ssc0 runner. The default (unset / any other value) stays
+   *  the untyped ssc1-front+ssc1-lower runner ssc1-run.ssc0. The checker (ssc1-check-run.ssc0) is kept
+   *  beside F in BOTH modes — F is a parser+lowerer, not a checker. The irreversible default flip
+   *  (step 4) is a one-line change here (`ssc1-run.ssc0` → `ssc1-run-fsub.ssc0` + wire fsubSrc always)
+   *  held by Sergiy; this flag makes staging fully reversible. */
+  private def frontIsF: Boolean =
+    sys.env.get("SSC_FRONT").exists(v => v == "F" || v.equalsIgnoreCase("fsub"))
 
   private def nativeFrontLayout(): NativeFrontLayout =
     val installRoot = Option(System.getProperty("ssc.lib.path")).map(new java.io.File(_)).getOrElse {
@@ -386,13 +401,20 @@ object RunNativeV2:
     val standardBase = new java.io.File(installRoot, "bin/lib/standard/native-front")
     val legacyBase = new java.io.File(installRoot, "bin/lib/native-front")
     val base = if standardBase.isDirectory then standardBase else legacyBase
-    val runner  = new java.io.File(base, "tower/bin/ssc1-run.ssc0")
+    val useF = frontIsF
+    val runnerName = if useF then "ssc1-run-fsub.ssc0" else "ssc1-run.ssc0"
+    val runner  = new java.io.File(base, s"tower/bin/$runnerName")
     val checker = new java.io.File(base, "tower/bin/ssc1-check-run.ssc0")
     val stdRoot = new java.io.File(base, "runtime")
+    val fsubSrc = if useF then Some(new java.io.File(base, "tower/bin/fsub.ssc")) else None
     if !runner.isFile || !checker.isFile || !stdRoot.isDirectory then
       throw new IllegalStateException(
         s"native frontend resources are not staged under ${base.getPath}; run scripts/sbtc \"installBin\"")
-    NativeFrontLayout(runner, checker, stdRoot, installRoot)
+    fsubSrc.foreach { f =>
+      if !f.isFile then throw new IllegalStateException(
+        s"SSC_FRONT=F requested but F source is not staged at ${f.getPath}; run scripts/sbtc \"installBin\"")
+    }
+    NativeFrontLayout(runner, checker, stdRoot, installRoot, fsubSrc)
 
   /** The self-hosted resolver uses `/` as its target-independent separator;
    *  `java.nio.file.Path` accepts that spelling on Windows as well. */

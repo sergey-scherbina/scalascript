@@ -2040,6 +2040,11 @@ lazy val cli = project
       val nativeTowerFiles = Seq(
         root / "v2" / "bin" / "ssc1-run.ssc0"       -> nativeFrontDir / "tower" / "bin" / "ssc1-run.ssc0",
         root / "v2" / "bin" / "ssc1-check-run.ssc0" -> nativeFrontDir / "tower" / "bin" / "ssc1-check-run.ssc0",
+        // F4 front swap (REVERSIBLE, opt-in via SSC_FRONT=F): the F runner + F's own source. The
+        // DEFAULT lane never touches these; RunNativeV2 only resolves them when SSC_FRONT=F. Staged
+        // beside the default runner so the flip (step 4) is a one-line RunNativeV2 change, no re-stage.
+        root / "v2" / "bin" / "ssc1-run-fsub.ssc0"  -> nativeFrontDir / "tower" / "bin" / "ssc1-run-fsub.ssc0",
+        root / "specs" / "v2.2-p6.5-fsub.ssc"       -> nativeFrontDir / "tower" / "bin" / "fsub.ssc",
         root / "v2" / "lib" / "list.ssc0"           -> nativeFrontDir / "tower" / "lib" / "list.ssc0",
         root / "v2" / "lib" / "mira-md.ssc0"        -> nativeFrontDir / "tower" / "lib" / "mira-md.ssc0",
         root / "v2" / "lib" / "ssc1-front.ssc0"     -> nativeFrontDir / "tower" / "lib" / "ssc1-front.ssc0",

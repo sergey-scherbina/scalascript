@@ -1,0 +1,701 @@
+-- ssc1-run: end-to-end .ssc Markdown runner (KC13)
+-- Usage: ssc run bin/ssc1-run.ssc0 <file.ssc>
+-- Pipeline: extractFences → filter scalascript blocks → concat → lex/parse/lower → emit Core IR
+--           …plus [names](path.ssc) module loading (v2-native-front-ssc-module-loading).
+import "../lib/mira-md.ssc0"
+import "../lib/ssc1-lower.ssc0"
+
+-- Collect source of every "scalascript" fenced block into one string.
+def joinScalaScript = (blocks) =>
+  let rec go = (bs, acc) =>
+    match bs {
+      case Nil => acc
+      case Cons(b, rest) =>
+        match b {
+          case Pair(lang, src) =>
+            let isCode = if #seq(lang, "scalascript") then true else #seq(lang, "scala") in
+            if isCode then
+              let sep = if #i.eq(slen(acc), 0) then "" else "\n\n" in
+              go(rest, #sconcat(acc, #sconcat(sep, src)))
+            else
+              go(rest, acc)
+        }
+    } in
+  go(blocks, "")
+
+-- Collect executable source while retaining the heading-scoped YAML section
+-- contract.  The generic Markdown extractor deliberately returns only fences,
+-- so it cannot associate a yaml/yml fence with its nearest heading.
+def sscAsciiDigit = (c) => if #i.ge(c, 48) then #i.le(c, 57) else false
+def sscAsciiAlpha = (c) =>
+  let upper = if #i.ge(c, 65) then #i.le(c, 90) else false in
+  if upper then true else (if #i.ge(c, 97) then #i.le(c, 122) else false)
+def sscAsciiAlnum = (c) => if sscAsciiAlpha(c) then true else sscAsciiDigit(c)
+def sscUpperAscii = (s, i) =>
+  let c = #scodeAt(s, i) in
+  if #i.ge(c, 97) then
+    if #i.le(c, 122) then #sfromCodes(Cons(#i.sub(c, 32), Nil))
+    else #sslice(s, i, #i.add(i, 1))
+  else #sslice(s, i, #i.add(i, 1))
+def sscSkipHashes = (s, i) =>
+  if #i.ge(i, #slen(s)) then i
+  else if #i.eq(#scodeAt(s, i), 35) then sscSkipHashes(s, #i.add(i, 1)) else i
+def sscHeadingWords = (s, i, inWord, words, acc) =>
+  if #i.ge(i, #slen(s)) then acc
+  else
+    let c = #scodeAt(s, i) in
+    if sscAsciiAlnum(c) then
+      let piece =
+        if inWord then #sslice(s, i, #i.add(i, 1))
+        else if #i.gt(words, 0) then sscUpperAscii(s, i)
+        else #sslice(s, i, #i.add(i, 1)) in
+      sscHeadingWords(s, #i.add(i, 1), true, words, #sconcat(acc, piece))
+    else
+      sscHeadingWords(s, #i.add(i, 1), false,
+        if inWord then #i.add(words, 1) else words, acc)
+def sscHeadingId = (line) =>
+  let t = strip(line) in
+  if #i.eq(#slen(t), 0) then ""
+  else if #i.eq(#scodeAt(t, 0), 35) then
+    let body = strip(#sslice(t, sscSkipHashes(t, 0), #slen(t))) in
+    let raw = sscHeadingWords(body, 0, false, 0, "") in
+    if #i.eq(#slen(raw), 0) then ""
+    else if sscAsciiDigit(#scodeAt(raw, 0)) then #sconcat("_", raw)
+    else raw
+  else ""
+def sscAppendSource = (acc, chunk) =>
+  if #i.eq(#slen(chunk), 0) then acc
+  else if #i.eq(#slen(acc), 0) then chunk
+  else #sconcat(acc, #sconcat("\n\n", chunk))
+
+-- SQL fences stay opaque to the language parser, but their `${expr}` binds are
+-- a source-language safety boundary. Rewrite them here, while exact document
+-- order and the enclosing heading are still available.
+def sscFenceTokenEnd = (s, i) =>
+  if #i.ge(i, #slen(s)) then i
+  else
+    let c = #scodeAt(s, i) in
+    if #i.eq(c, 32) then i else (if #i.eq(c, 9) then i else sscFenceTokenEnd(s, #i.add(i, 1)))
+def sscFenceToken = (s) => #sslice(s, 0, sscFenceTokenEnd(s, 0))
+def sscFindText = (s, needle, i) =>
+  if #i.gt(#i.add(i, #slen(needle)), #slen(s)) then #i.neg(1)
+  else if #seq(#sslice(s, i, #i.add(i, #slen(needle))), needle) then i
+  else sscFindText(s, needle, #i.add(i, 1))
+def sscAttrEnd = (s, i) =>
+  if #i.ge(i, #slen(s)) then i
+  else
+    let c = #scodeAt(s, i) in
+    if #i.eq(c, 32) then i else (if #i.eq(c, 9) then i else sscAttrEnd(s, #i.add(i, 1)))
+def sscFenceAttr = (lang, name, fallback) =>
+  let prefix = #sconcat("@", #sconcat(name, "=")) in
+  let at = sscFindText(lang, prefix, 0) in
+  if #i.lt(at, 0) then fallback
+  else
+    let start = #i.add(at, #slen(prefix)) in
+    let value = #sslice(lang, start, sscAttrEnd(lang, start)) in
+    if #i.eq(#slen(value), 0) then fallback else value
+
+def sscSqlBindEnd = (s, i, depth, quote, escaped) =>
+  if #i.ge(i, #slen(s)) then #i.neg(1)
+  else
+    let c = #scodeAt(s, i) in
+    if #i.gt(quote, 0) then
+      if escaped then sscSqlBindEnd(s, #i.add(i, 1), depth, quote, false)
+      else if #i.eq(c, 92) then sscSqlBindEnd(s, #i.add(i, 1), depth, quote, true)
+      else if #i.eq(c, quote) then sscSqlBindEnd(s, #i.add(i, 1), depth, 0, false)
+      else sscSqlBindEnd(s, #i.add(i, 1), depth, quote, false)
+    else if #i.eq(c, 34) then sscSqlBindEnd(s, #i.add(i, 1), depth, 34, false)
+    else if #i.eq(c, 39) then sscSqlBindEnd(s, #i.add(i, 1), depth, 39, false)
+    else if #i.eq(c, 123) then sscSqlBindEnd(s, #i.add(i, 1), #i.add(depth, 1), 0, false)
+    else if #i.eq(c, 125) then
+      if #i.eq(depth, 0) then i
+      else sscSqlBindEnd(s, #i.add(i, 1), #i.sub(depth, 1), 0, false)
+    else sscSqlBindEnd(s, #i.add(i, 1), depth, 0, false)
+
+def sscSqlRewrite = (s, i, sql, binds) =>
+  if #i.ge(i, #slen(s)) then Pair("__ok__", Pair(sql, reverse(binds)))
+  else
+    let c = #scodeAt(s, i) in
+    if #i.eq(c, 36) then
+      if #i.lt(#i.add(i, 1), #slen(s)) then
+        let next = #scodeAt(s, #i.add(i, 1)) in
+        if #i.eq(next, 36) then
+          sscSqlRewrite(s, #i.add(i, 2), #sconcat(sql, "$"), binds)
+        else if #i.eq(next, 123) then
+          let end = sscSqlBindEnd(s, #i.add(i, 2), 0, 0, false) in
+          if #i.lt(end, 0) then Pair("__bad__", Pair(sql, reverse(binds)))
+          else
+            let expr = strip(#sslice(s, #i.add(i, 2), end)) in
+            if #i.eq(#slen(expr), 0) then Pair("__bad__", Pair(sql, reverse(binds)))
+            else sscSqlRewrite(s, #i.add(end, 1), #sconcat(sql, "?"), Cons(expr, binds))
+        else sscSqlRewrite(s, #i.add(i, 1), #sconcat(sql, "$"), binds)
+      else sscSqlRewrite(s, #i.add(i, 1), #sconcat(sql, "$"), binds)
+    else sscSqlRewrite(s, #i.add(i, 1),
+      #sconcat(sql, #sslice(s, i, #i.add(i, 1))), binds)
+
+def sscSqlBindArgs = (binds) =>
+  match binds {
+    case Nil => ""
+    case Cons(expr, rest) =>
+      match rest {
+        case Nil => expr
+        case _ => #sconcat(expr, #sconcat(", ", sscSqlBindArgs(rest)))
+      }
+  }
+def sscSqlValName = (index) => #sconcat("_sqlBlock_", #i->str(index))
+def sscSqlFenceSource = (lang, source, heading, index, firstInSection) =>
+  let side = sscFenceAttr(lang, "side", "server") in
+  if #seq(side, "client") then "__unsupported_client_sql_fence"
+  else
+    match sscSqlRewrite(source, 0, "", Nil) {
+      case Pair(status, data) =>
+        if #seq(status, "__bad__") then "__malformed_sql_bind"
+        else match data {
+          case Pair(sql, binds) =>
+            let name = sscSqlValName(index) in
+            let db = sscFenceAttr(lang, "db", "default") in
+            let call = #sconcat("val ", #sconcat(name,
+              #sconcat(" = Db.sql(", #sconcat(sscQuoteYamlString(db),
+                #sconcat(", ", #sconcat(sscQuoteYamlString(sql),
+                  #sconcat(", List(", #sconcat(sscSqlBindArgs(binds), "))")))))))) in
+            if firstInSection then
+              #sconcat(call, #sconcat("\nval ", #sconcat(heading,
+                #sconcat(" = sqlSection(", #sconcat(name, ")")))))
+            else call
+        }
+    }
+
+def sscFenceSource = (lang, source, heading, sqlIndex, firstSqlInSection) =>
+  let token = sscFenceToken(lang) in
+  let isCode = if #seq(lang, "scalascript") then true else #seq(lang, "scala") in
+  if isCode then source
+  else if #seq(lang, "yaml") then
+    #sconcat("val __yaml_", #sconcat(heading,
+      #sconcat(" = __yamlSection__(", #sconcat(sscQuoteYamlString(source), ")"))))
+  else if #seq(lang, "yml") then
+    #sconcat("val __yaml_", #sconcat(heading,
+      #sconcat(" = __yamlSection__(", #sconcat(sscQuoteYamlString(source), ")"))))
+  else if #seq(token, "sql") then
+    sscSqlFenceSource(lang, source, heading, sqlIndex, firstSqlInSection)
+  else ""
+def sscSourceLines = (lines, heading, inFence, lang, curLines, sqlIndex, sqlSections, acc) =>
+  match lines {
+    case Nil =>
+      if inFence then
+        let token = sscFenceToken(lang) in
+        let isSql = #seq(token, "sql") in
+        let first = if isSql then (if #seq(heading, "S0") then false else (if sscMem(sqlSections, heading) then false else true)) else false in
+        sscAppendSource(acc, sscFenceSource(lang, joinLines(reverse(curLines)), heading, sqlIndex, first))
+      else acc
+    case Cons(line, rest) =>
+      if inFence then
+        if isClosingFence(line) then
+          let source = joinLines(reverse(curLines)) in
+          let token = sscFenceToken(lang) in
+          let isSql = #seq(token, "sql") in
+          let first = if isSql then (if #seq(heading, "S0") then false else (if sscMem(sqlSections, heading) then false else true)) else false in
+          sscSourceLines(rest, heading, false, "", Nil,
+            if isSql then #i.add(sqlIndex, 1) else sqlIndex,
+            if first then Cons(heading, sqlSections) else sqlSections,
+            sscAppendSource(acc, sscFenceSource(lang, source, heading, sqlIndex, first)))
+        else sscSourceLines(rest, heading, true, lang, Cons(line, curLines), sqlIndex, sqlSections, acc)
+      else
+        let t = strip(line) in
+        if startsWith3bt(t) then
+          sscSourceLines(rest, heading, true, getFenceLang(t), Nil, sqlIndex, sqlSections, acc)
+        else
+          let nextHeading = sscHeadingId(t) in
+          sscSourceLines(rest,
+            if #i.eq(#slen(nextHeading), 0) then heading else nextHeading,
+            false, "", Nil, sqlIndex, sqlSections, acc)
+  }
+-- Whether any body line opens a ``` fence (distinguishes a literate .ssc from a
+-- fenceless BARE .ssc). Fences are OPTIONAL: a bare .ssc is code in its entirety.
+def sscHasFence = (lines) =>
+  match lines {
+    case Nil => false
+    case Cons(line, rest) => if startsWith3bt(strip(line)) then true else sscHasFence(rest)
+  }
+def sscProgramSource = (src) =>
+  let lines = splitLines(stripBom(src), 0, Nil) in
+  let body = skipYaml(frontmatterLines(lines)) in
+  if sscHasFence(body) then
+    sscSourceLines(body, "S0", false, "", Nil, 0, Nil, "")
+  else
+    -- Fenceless bare .ssc: the whole body (after front-matter) is ScalaScript code.
+    joinLines(body)
+
+-- ── .ssc module loading (v2-native-front-ssc-module-loading) ─────────────────
+-- The parser treats `[names](path.ssc)` markdown-link imports as a parse-only
+-- no-op ("sealed"), assuming imported names are plugin globals. That holds for
+-- plugin natives but NOT for ssc-DEFINED std helpers (jObj / lower /
+-- staticDataTable in std/*.ssc), which stay unbound. Resolve them here: DFS +
+-- load-once, extract each target .ssc's fences the same way, keep its DEFS
+-- (dropping the module's own entry/prose), and prepend them to the program.
+
+def sscApp = (xs, ys) => match xs { case Nil => ys case Cons(h, t) => Cons(h, sscApp(t, ys)) }
+def sscMem = (xs, x) => match xs { case Nil => false case Cons(h, t) => if #seq(h, x) then true else sscMem(t, x) }
+def sscLastSlash = (s, i, best) =>
+  if #i.ge(i, #slen(s)) then best
+  else (if #i.eq(#scodeAt(s, i), 47) then sscLastSlash(s, #i.add(i, 1), i) else sscLastSlash(s, #i.add(i, 1), best))
+def sscDir = (path) =>
+  let j = sscLastSlash(path, 0, #i.sub(0, 1)) in
+  if #i.lt(j, 0) then "" else #sslice(path, 0, #i.add(j, 1))
+
+-- keep only def/val/var statements (a module is imported for its definitions;
+-- its top-level entry expressions are dropped)
+-- a module is imported for its DECLARATIONS (def/val/var + case class ctors,
+-- given instances, objects) — its top-level entry EXPRESSIONS are dropped.
+-- Keeping casecls/given/object matters: e.g. std/dsl/pretty.ssc's `case class
+-- DocLine` ctor was lost, so importers hit `unbound global: DocLine`.
+def sscIsDecl = (tag) =>
+  if #seq(tag, "def") then true
+  else if #seq(tag, "extension_start") then true
+  else if #seq(tag, "extension_end") then true
+  else if #seq(tag, "val") then true
+  else if #seq(tag, "var") then true
+  else if #seq(tag, "casecls") then true
+  else if #seq(tag, "caseobj") then true
+  else if #seq(tag, "enum") then true
+  else if #seq(tag, "given") then true
+  else if #seq(tag, "given_obj") then true
+  else if #seq(tag, "object") then true
+  else if #seq(tag, "effect_decl") then true
+  else false
+def sscDefsOnly = (stmts) =>
+  match stmts {
+    case Nil => Nil
+    case Cons(h, t) =>
+      match h {
+        case Pair(tag, d) => if sscIsDecl(tag) then Cons(h, sscDefsOnly(t)) else sscDefsOnly(t)
+      }
+  }
+
+-- Markdown import scan. Only a standalone link line outside fenced code is an
+-- import; prose/inline-code examples such as `` `[Button](./button.ssc)` `` are
+-- documentation and MUST NOT enter the module graph.
+def sscFindChar = (s, i, c) =>
+  if #i.ge(i, #slen(s)) then i
+  else (if #i.eq(#scodeAt(s, i), c) then i else sscFindChar(s, #i.add(i, 1), c))
+def sscEndsSsc = (s) =>
+  let n = #slen(s) in
+  if #i.lt(n, 4) then false else #seq(#sslice(s, #i.sub(n, 4), n), ".ssc")
+-- A directory import target: a relative (`./`, `../`) or `std/` path whose LAST
+-- segment carries no extension (no `.`), e.g. `./import-dir`, `../examples/std-ui`.
+-- Loaded as `<dir>/index.ssc`. The last-segment `.` test excludes prose links like
+-- `./logo.png "Brand"` (has `.png` + a title), which must NOT be treated as imports.
+def sscSegHasDot = (s) => #i.lt(sscFindChar(s, 0, 46), #slen(s))
+def sscLastSeg = (segs) =>
+  match segs {
+    case Nil => ""
+    case Cons(h, t) => match t { case Nil => h case _ => sscLastSeg(t) }
+  }
+def sscDirImportPath = (p) =>
+  let rel = if #i.eq(#slen(p), 0) then false
+            else if #i.eq(#scodeAt(p, 0), 46) then true
+            else sscStartsStd(p) in
+  if rel then (if sscSegHasDot(sscLastSeg(#str.split(p, "/"))) then false else true)
+  else false
+def sscSkipImportSpace = (s, i) =>
+  if #i.ge(i, #slen(s)) then i
+  else
+    let c = #scodeAt(s, i) in
+    if #i.eq(c, 32) then sscSkipImportSpace(s, #i.add(i, 1))
+    else if #i.eq(c, 9) then sscSkipImportSpace(s, #i.add(i, 1))
+    else i
+def sscImportPathsFrom = (t, i, acc) =>
+  let start = sscSkipImportSpace(t, i) in
+  if #i.ge(start, #slen(t)) then reverse(acc)
+  else if #i.eq(#scodeAt(t, start), 91) then
+    let labelEnd = sscFindChar(t, #i.add(start, 1), 93) in
+    if #i.ge(labelEnd, #slen(t)) then Nil
+    else if #i.ge(#i.add(labelEnd, 1), #slen(t)) then Nil
+    else if #i.eq(#scodeAt(t, #i.add(labelEnd, 1)), 40) then
+      let close = sscFindChar(t, #i.add(labelEnd, 2), 41) in
+      if #i.ge(close, #slen(t)) then Nil
+      else
+        let p = #sslice(t, #i.add(labelEnd, 2), close) in
+        if sscEndsSsc(p) then
+          sscImportPathsFrom(t, #i.add(close, 1), Cons(p, acc))
+        else if sscDirImportPath(p) then
+          sscImportPathsFrom(t, #i.add(close, 1), Cons(p, acc))
+        else Nil
+    else Nil
+  else Nil
+def sscImportPaths = (line) =>
+  let t = strip(line) in
+  if #i.lt(#slen(t), 8) then Nil else sscImportPathsFrom(t, 0, Nil)
+def sscPushImports = (paths, acc) =>
+  match paths {
+    case Nil => acc
+    case Cons(path, rest) => sscPushImports(rest, Cons(path, acc))
+  }
+def sscStartsChar = (s, c) =>
+  if #i.eq(#slen(s), 0) then false else #i.eq(#scodeAt(s, 0), c)
+def sscWrappedImportStart = (t) =>
+  if sscStartsChar(t, 91) then #i.ge(sscFindChar(t, 1, 93), #slen(t))
+  else false
+def sscPendingBreak = (t) =>
+  if #i.eq(#slen(t), 0) then true
+  else if sscStartsChar(t, 35) then true
+  else startsWith3bt(t)
+def sscPendingJoin = (pending, t) =>
+  if #i.eq(#slen(pending), 0) then t else #sconcat(pending, #sconcat(" ", t))
+def sscScanLines = (lines, inFence, pending, acc) =>
+  match lines {
+    case Nil => acc
+    case Cons(line, rest) =>
+      if inFence then
+        if isClosingFence(line) then sscScanLines(rest, false, "", acc)
+        else sscScanLines(rest, true, "", acc)
+      else
+        let t = strip(line) in
+        if startsWith3bt(t) then sscScanLines(rest, true, "", acc)
+        else if #i.gt(#slen(pending), 0) then
+          if sscPendingBreak(t) then
+            if sscStartsChar(t, 91) then sscScanLines(Cons(line, rest), false, "", acc)
+            else sscScanLines(rest, false, "", acc)
+          else
+            let joined = sscPendingJoin(pending, t) in
+            let close = sscFindChar(joined, 1, 93) in
+            if #i.lt(close, #slen(joined)) then
+              let paths = sscImportPaths(joined) in
+              sscScanLines(rest, false, "", sscPushImports(paths, acc))
+            else sscScanLines(rest, false, joined, acc)
+        else
+          let paths = sscImportPaths(t) in
+          match paths {
+            case Nil =>
+              if sscWrappedImportStart(t) then sscScanLines(rest, false, t, acc)
+              else sscScanLines(rest, false, "", acc)
+            case _ => sscScanLines(rest, false, "", sscPushImports(paths, acc))
+          }
+  }
+def sscImports = (src) => reverse(sscScanLines(splitLines(src, 0, Nil), false, "", Nil))
+
+-- resolve an import target: `std/…` maps to the std root (SSC_STD env, else the
+-- in-tree v1/runtime); everything else is relative to the importing file.
+def sscStartsStd = (rel) =>
+  if #i.lt(#slen(rel), 4) then false else #seq(#sslice(rel, 0, 4), "std/")
+def sscStdRootCell = #cell.new("")
+def sscSlash = (s) =>
+  if #i.eq(#slen(s), 0) then ""
+  else (if #i.eq(#scodeAt(s, #i.sub(#slen(s), 1)), 47) then s else #sconcat(s, "/"))
+def sscStdRoot = () =>
+  let staged = #cell.get(sscStdRootCell) in
+  if #seq(staged, "") then
+    match #io.env("SSC_STD") {
+      case Some(e) => if #seq(e, "") then "v1/runtime/" else sscSlash(e)
+      case None    => "v1/runtime/"
+    }
+  else sscSlash(staged)
+
+-- Lib root for BARE import paths (no `./`, `../`, or `std/` prefix): the
+-- install root (ssc.lib.path), which for a dev checkout is the repo root. A
+-- case can then import a module by its repo-root-relative path. Unset → "" so
+-- the bare path resolves against the process cwd, matching prior behaviour.
+def sscLibRootCell = #cell.new("")
+def sscLibRoot = () =>
+  let staged = #cell.get(sscLibRootCell) in
+  if #seq(staged, "") then "" else sscSlash(staged)
+
+-- Lexical path normalization keeps DFS/load-once stable for `./` and `../`
+-- spellings without adding a platform filesystem primitive to the frozen kernel.
+def sscNormSegs = (segs, acc, absolute) =>
+  match segs {
+    case Nil => acc
+    case Cons(seg, rest) =>
+      if #seq(seg, "") then sscNormSegs(rest, acc, absolute)
+      else (if #seq(seg, ".") then sscNormSegs(rest, acc, absolute)
+      else (if #seq(seg, "..") then
+        match acc {
+          case Nil => if absolute then sscNormSegs(rest, Nil, absolute)
+                      else sscNormSegs(rest, Cons("..", Nil), absolute)
+          case Cons(h, t) => if #seq(h, "..") then sscNormSegs(rest, Cons("..", acc), absolute)
+                             else sscNormSegs(rest, t, absolute)
+        }
+      else sscNormSegs(rest, Cons(seg, acc), absolute)))
+  }
+def sscJoinSegs = (segs) =>
+  match segs {
+    case Nil => ""
+    case Cons(h, rest) =>
+      match rest { case Nil => h case _ => #sconcat(h, #sconcat("/", sscJoinSegs(rest))) }
+  }
+def sscNormalize = (path) =>
+  let absolute = if #i.eq(#slen(path), 0) then false else #i.eq(#scodeAt(path, 0), 47) in
+  let body = sscJoinSegs(reverse(sscNormSegs(#str.split(path, "/"), Nil, absolute))) in
+  if absolute then #sconcat("/", body) else body
+-- std/… → std root;  ./… or ../… (leading '.') → relative to the importing
+-- file.  A BARE path is ambiguous — it may be a sibling of the importer (e.g.
+-- std/http.ssc → `json.ssc`) OR a repo-root-relative path (a case importing
+-- `tests/conformance/lib/foo.ssc`). Match v1's ImportResolver: try the importer
+-- directory first, and only fall back to the lib root (repo root) when that
+-- file does not exist.
+def sscResolve = (dir, rel) =>
+  if sscStartsStd(rel) then sscNormalize(#sconcat(sscStdRoot(), rel))
+  else if sscStartsChar(rel, 46) then sscNormalize(#sconcat(dir, rel))
+  else
+    let srcRel = sscNormalize(#sconcat(dir, rel)) in
+    if #io.exists(srcRel) then srcRel
+    else sscNormalize(#sconcat(sscLibRoot(), rel))
+
+def sscLoadMod = (rawPath, seen) =>
+  let path0 = sscNormalize(rawPath) in
+  -- Directory import: `[names](./dir)` with no `.ssc` extension loads `dir/index.ssc`
+  -- (the directory's entry module), matching the bridge's package-import convention.
+  let path = if sscEndsSsc(path0) then path0 else #sconcat(path0, "/index.ssc") in
+  if sscMem(seen, path) then Pair(Nil, seen)
+  else
+    let fileStr = #utf8->str(#io.readFile(path)) in
+    let modSrc = sscProgramSource(fileStr) in
+    let defs = sscDefsOnly(parse(modSrc)) in
+    match sscLoadImps(sscImports(fileStr), sscDir(path), Cons(path, seen)) {
+      case Pair(impDefs, seen2) => Pair(sscApp(impDefs, defs), seen2)
+    }
+def sscLoadImps = (imps, dir, seen) =>
+  match imps {
+    case Nil => Pair(Nil, seen)
+    case Cons(rel, rest) =>
+      match sscLoadMod(sscResolve(dir, rel), seen) {
+        case Pair(d1, seen2) => match sscLoadImps(rest, dir, seen2) { case Pair(d2, seen3) => Pair(sscApp(d1, d2), seen3) }
+      }
+  }
+
+-- Explicit command-line roots keep their entry expressions; imported modules
+-- contribute definitions only. The seen set is shared across all roots.
+def sscLoadRoot = (rawPath, seen) =>
+  let path = sscNormalize(rawPath) in
+  let bytes = #io.readFile(path) in
+  let fileStr = #utf8->str(bytes) in
+  let src = sscProgramSource(fileStr) in
+  if #i.eq(slen(src), 0) then
+    let z = #io.eprint(#sconcat("ssc1-run: no scalascript blocks found: ", #sconcat(path, "\n"))) in
+    #io.exit(1)
+  else
+    let stmts = parse(src) in
+    match sscLoadImps(sscImports(fileStr), sscDir(path), Cons(path, seen)) {
+      case Pair(impDefs, seen2) => Pair(sscApp(impDefs, stmts), seen2)
+    }
+def sscLoadRoots = (paths, seen) =>
+  match paths {
+    case Nil => Pair(Nil, seen)
+    case Cons(path, rest) =>
+      match sscLoadRoot(path, seen) {
+        case Pair(stmts, seen2) =>
+          match sscLoadRoots(rest, seen2) {
+            case Pair(more, seen3) => Pair(sscApp(stmts, more), seen3)
+          }
+      }
+  }
+
+-- Build and evaluate a configuration-only CoreIR program from the canonical
+-- ScalaScript YAML module. The user program is never executed during compile;
+-- only yamlParse calls over front-matter strings run in this nested pure VM.
+def sscEscapeYamlString = (s, i) =>
+  if #i.ge(i, #slen(s)) then ""
+  else
+    let c = #scodeAt(s, i) in
+    let piece =
+      if #i.eq(c, 34) then "\\\""
+      else (if #i.eq(c, 92) then "\\\\"
+      else (if #i.eq(c, 10) then "\\n"
+      else (if #i.eq(c, 13) then "\\r"
+      else (if #i.eq(c, 9) then "\\t"
+      else #sslice(s, i, #i.add(i, 1)))))) in
+    #sconcat(piece, sscEscapeYamlString(s, #i.add(i, 1)))
+
+def sscQuoteYamlString = (s) => #sconcat("\"", #sconcat(sscEscapeYamlString(s, 0), "\""))
+
+def sscFrontmatterCall = (path) =>
+  let fileStr = #utf8->str(#io.readFile(path)) in
+  match extractFrontmatter(fileStr) {
+    case FrontmatterNone => "None"
+    case FrontmatterText(yaml) =>
+      #sconcat("Some(yamlParse(", #sconcat(sscQuoteYamlString(yaml), "))"))
+    case FrontmatterErr(message, line, column) =>
+      #sconcat("Some(YamlErr(",
+        #sconcat(sscQuoteYamlString(message),
+          #sconcat(", 0, ",
+            #sconcat(#i->str(line),
+              #sconcat(", ", #sconcat(#i->str(column), ")))"))))))
+  }
+
+def sscFrontmatterCalls = (paths) =>
+  match paths {
+    case Nil => ""
+    case Cons(path, rest) =>
+      match rest {
+        case Nil => sscFrontmatterCall(path)
+        case _ => #sconcat(sscFrontmatterCall(path), #sconcat(", ", sscFrontmatterCalls(rest)))
+      }
+  }
+
+def sscParseFrontmatters = (paths) =>
+  let yamlPath = sscResolve("", "std/yaml-core.ssc") in
+  match sscLoadMod(yamlPath, Nil) {
+    case Pair(yamlDefs, yamlSeen) =>
+      let callSource = #sconcat("List(", #sconcat(sscFrontmatterCalls(paths), ")")) in
+      let callStmts = parse(callSource) in
+      #coreir.eval(lowerProg(sscApp(yamlDefs, callStmts)))
+  }
+
+-- Evaluate the canonical pure Markdown Profile for every root source. The
+-- frozen ssc0 tower still bootstraps the module definitions with mira-md, but
+-- ordinary roots cross the Scala seed boundary only as structural
+-- MarkdownDocument/MarkdownError values — the host never reparses their text.
+def sscMarkdownCall = (path) =>
+  let fileStr = #utf8->str(#io.readFile(path)) in
+  #sconcat("markdownParse(", #sconcat(sscQuoteYamlString(fileStr), ")"))
+
+def sscMarkdownCalls = (paths) =>
+  match paths {
+    case Nil => ""
+    case Cons(path, rest) =>
+      match rest {
+        case Nil => sscMarkdownCall(path)
+        case _ => #sconcat(sscMarkdownCall(path), #sconcat(", ", sscMarkdownCalls(rest)))
+      }
+  }
+
+def sscParseMarkdowns = (paths) =>
+  let markdownPath = sscResolve("", "std/markdown-core.ssc") in
+  match sscLoadMod(markdownPath, Nil) {
+    case Pair(markdownDefs, markdownSeen) =>
+      let callSource = #sconcat("List(", #sconcat(sscMarkdownCalls(paths), ")")) in
+      let callStmts = parse(callSource) in
+      #coreir.eval(lowerProg(sscApp(markdownDefs, callStmts)))
+  }
+
+-- Build the complete immutable content-module closure in the self-hosted
+-- tower. Direct import edges, namespace selection, heading/fence attributes,
+-- section trees, and structured fence data are all projected by .ssc code;
+-- the Scala seed receives only validated structural values.
+def sscResolvedImports = (path) =>
+  let fileStr = #utf8->str(#io.readFile(path)) in
+  sscResolveImports(sscImports(fileStr), sscDir(path))
+def sscResolveImports = (imports, dir) =>
+  match imports {
+    case Nil => Nil
+    case Cons(rel, rest) => Cons(sscResolve(dir, rel), sscResolveImports(rest, dir))
+  }
+def sscQuotedStrings = (values) =>
+  match values {
+    case Nil => ""
+    case Cons(value, rest) =>
+      match rest {
+        case Nil => sscQuoteYamlString(value)
+        case _ => #sconcat(sscQuoteYamlString(value), #sconcat(", ", sscQuotedStrings(rest)))
+      }
+  }
+def sscContentModuleCall = (path, roots) =>
+  let explicitRoot = if sscMem(roots, path) then "true" else "false" in
+  let imports = #sconcat("List(", #sconcat(sscQuotedStrings(sscResolvedImports(path)), ")")) in
+  #sconcat("contentProjectModule(",
+    #sconcat(sscQuoteYamlString(path),
+      #sconcat(", ",
+        #sconcat(explicitRoot,
+          #sconcat(", ",
+            #sconcat(imports,
+              #sconcat(", ",
+                #sconcat(sscFrontmatterCall(path),
+                  #sconcat(", ", #sconcat(sscMarkdownCall(path), ")"))))))))))
+def sscContentModuleCalls = (paths, roots) =>
+  match paths {
+    case Nil => ""
+    case Cons(path, rest) =>
+      match rest {
+        case Nil => sscContentModuleCall(path, roots)
+        case _ => #sconcat(sscContentModuleCall(path, roots), #sconcat(", ", sscContentModuleCalls(rest, roots)))
+      }
+  }
+def sscParseContents = (modulePaths, roots) =>
+  let contentPath = sscResolve("", "std/content-core.ssc") in
+  match sscLoadMod(contentPath, Nil) {
+    case Pair(contentDefs, contentSeen) =>
+      let callSource = #sconcat("List(", #sconcat(sscContentModuleCalls(modulePaths, roots), ")")) in
+      let callStmts = parse(callSource) in
+      #coreir.eval(lowerProg(sscApp(contentDefs, callStmts)))
+  }
+
+def sscStructuralCell = #cell.new(false)
+def sscNativeArgs = (args) =>
+  match args {
+    case Cons(flag, rest) =>
+      if #seq(flag, "--std-root") then
+        match rest {
+          case Cons(root, paths) =>
+            let z = #cell.set(sscStdRootCell, sscNormalize(root)) in sscNativeArgs(paths)
+          case Nil => Nil
+        }
+      else if #seq(flag, "--lib-root") then
+        match rest {
+          case Cons(root, paths) =>
+            let z = #cell.set(sscLibRootCell, sscNormalize(root)) in sscNativeArgs(paths)
+          case Nil => Nil
+        }
+      else if #seq(flag, "--mutable") then
+        let z = #cell.set(mutableFlagCell, true) in sscNativeArgs(rest)
+      else (if #seq(flag, "--fsub-src") then
+        match rest {
+          case Cons(p, paths) =>
+            let z = #cell.set(sscFsubSrcCell, sscNormalize(p)) in sscNativeArgs(paths)
+          case Nil => Nil
+        }
+      else (if #seq(flag, "--structural") then
+        let z = #cell.set(sscStructuralCell, true) in sscNativeArgs(rest)
+      else args))
+    case Nil => Nil
+  }
+
+-- F4 front swap (SSC_FRONT=F, REVERSIBLE): this runner is a byte-for-byte copy of ssc1-run.ssc0 with
+-- ONE change to `main` — the user program's Core IR is produced by F (specs/v2.2-p6.5-fsub.ssc), the
+-- self-hosting subset compiler, INSTEAD of ssc1-lower's `lowerProg`. Everything else (fence extraction,
+-- multi-file source closure, YAML front-matter, content-module structural projection, the
+-- NativeCompilation structural ABI) is reused unchanged, so RunNativeV2 needs no structural-decode
+-- change. F's source path arrives via --fsub-src (staged beside this file by installBin).
+--
+-- The mechanic (validated byte-identical to the F0.ir gate path): compile F's own source with the
+-- current front (parse+lowerProg), append a top-level expression `compile(userSrc, dq, bs)`, and
+-- #coreir.eval it — F then lowers the user source to Core IR TEXT; #coreir.decode turns that text back
+-- into the IrProg Data tree the structural ABI carries. dq/bs are the `"`/`\` strings F splices into its
+-- output (P6.6b escape-free design), built via #sfromCodes so this driver has no `"`-in-a-string.
+def sscFsubSrcCell = #cell.new("")
+def sscConcatSources = (paths) =>
+  match paths {
+    case Nil => ""
+    case Cons(p, rest) =>
+      let src = sscProgramSource(#utf8->str(#io.readFile(p))) in
+      let more = sscConcatSources(rest) in
+      if #i.eq(slen(more), 0) then src
+      else (if #i.eq(slen(src), 0) then more
+      else #sconcat(src, #sconcat("\n\n", more)))
+  }
+def sscFsubIr = (userSrc) =>
+  let fSrc = #utf8->str(#io.readFile(#cell.get(sscFsubSrcCell))) in
+  let dq = #sfromCodes(Cons(34, Nil)) in
+  let bs = #sfromCodes(Cons(92, Nil)) in
+  let callExpr = mkApp(mkVar("compile"), Cons(mkStr(userSrc), Cons(mkStr(dq), Cons(mkStr(bs), Nil)))) in
+  let fProg = sscApp(parse(fSrc), Cons(Pair("expr", callExpr), Nil)) in
+  #coreir.decode(#coreir.eval(lowerProg(fProg)))
+
+def main = () =>
+  let paths = sscNativeArgs(#io.args()) in
+  match paths {
+    case Cons(path, rest) =>
+      if #i.eq(slen(#cell.get(sscFsubSrcCell)), 0) then
+        let z = #io.eprint("ssc1-run-fsub: --fsub-src <F.ssc> is required (SSC_FRONT=F staging)\n") in
+        #io.exit(2)
+      else
+      match sscLoadRoots(Cons(path, rest), Nil) {
+        case Pair(allStmts, seen) =>
+          let userSrc = sscConcatSources(reverse(seen)) in
+          let ir = sscFsubIr(userSrc) in
+          if #cell.get(sscStructuralCell) then
+            NativeCompilation(ir, sscParseFrontmatters(paths), sscParseContents(reverse(seen), paths), paths)
+          else #io.print(#coreir.encode(ir))
+      }
+    case Nil =>
+      let z = #io.eprint("usage: ssc1-run-fsub --fsub-src <F.ssc> [--std-root DIR] <file.ssc> [more.ssc ...]\n") in
+      #io.exit(1)
+  }
