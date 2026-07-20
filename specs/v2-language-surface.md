@@ -123,26 +123,51 @@ self-maintaining classification, `project_negtc_gate_self_maintaining_0719`).
 
 ---
 
-## 7. The F4 cutover contract
+## 7. F4 (front swap) and F5 (kernel shrink) — two SEPARATE efforts
 
-**F4 = declare `F` canonical for the surface above, retire the `FrontendBridge`, shrink the kernel.**
+> **★ RECORD CORRECTION (2026-07-20, from the F4 readiness assessment).** Earlier text here (and
+> in SPRINT/ROADMAP) conflated F4 with the kernel shrink. The code says otherwise, on evidence:
+> - **The Scala `FrontendBridge` is already gone** — `v2/frontend-bridge` + `v2/plugin-bridge`
+>   were deleted from the build and git (`build.sbt:506-509`); the `--v2` bridge lane is retired
+>   (`Main.scala:1590-1593`). There is nothing left to "retire" there.
+> - **The `__method__`/`__arith__`/`__eq__`/… δ-prims are emitted BY `F`** (F emits *untyped* Core
+>   IR, so dispatch is resolved at runtime) and live in `Runtime.scala:2996-3045+`. They are needed
+>   to *run F's own output* — declaring F canonical does **not** delete them.
+> - Therefore **F4 does not shrink the kernel.** F4 is a front-*library* swap; the kernel
+>   (~6,035 lines) is unchanged by it. The kernel shrink is **F5**, a separate deep effort.
 
-Preconditions to declare `F` canonical:
-1. `F` covers every construct marked IN §4.1 (met: the 408) — the two open arcs §4.2 may be
-   completed **before or after** cutover (they are additive to `F`, no kernel δ, no rework).
-2. The corpus gate distinguishes MATCH / classified-OUT (§5) / DEFERRED (§6) / genuine-FAIL, so a
-   real regression is loud while the OUT set stays green (self-maintaining, like negtc).
-3. `F` self-compiles (fixpoint holds) — standing invariant, currently green.
+### F4 — front swap (the "fully self-hosted" axis)
 
-On cutover:
-- `bin/ssc` (v2 native tier) uses `F` as the front for v2's surface.
-- The `FrontendBridge` (~1,200 δ-prims serving v1's full surface) is removed from the kernel.
-- Kernel target: **~2,400–2,800 lines** (from 5,936), realizing the "small" axis of the vision.
+Replace the current staged front — `v2/lib/ssc1-front.ssc0` + `ssc1-lower.ssc0` (**8,921 lines of
+ssc0**) — with `F` (`specs/v2.2-p6.5-fsub.ssc`, **1,847 lines**). `F` becomes the production front
+that `bin/ssc` runs (today it is exercised only by the gate scripts). Net: ~8,900 lines of
+redundant front library removed; self-hosting realized in the product, not just in the fixpoint gate.
+`bin/ssc`/`RunNativeV2` are unchanged — only what `installBin` stages as the tower front changes.
 
-**Sequencing is an open decision** (surfaced to Sergiy): *cutover-first* (declare canonical on the
-408 surface now → retire bridge → shrink kernel → add given/summon + extensions to `F` afterward)
-vs *surface-first* (build the two arcs to ~460+ first, then cut over). Both are valid; the arcs
-being additive-with-no-kernel-δ is what makes cutover-first safe.
+Preconditions:
+1. `F` covers every IN construct (§4.1–4.2). **Both arcs now complete (417/510).**
+2. The corpus gate distinguishes MATCH / classified-OUT (§5) / DEFERRED (§6) / genuine-FAIL
+   (self-maintaining, like the negtc gate) — **not yet met; must be built first.**
+3. The checker (`ssc1-check.ssc0`, a separate pre-pass in `RunNativeV2`) is kept beside `F` or
+   folded into it — **open item, F is a parser+lowerer, not a checker.**
+4. `F` self-compiles (fixpoint) + `v2/conformance/check.sh` green on the cutover SHA.
+
+Reversible sequence (irreversible step isolated): (1) build the gate classification → (2) stage `F`
+behind a flag → (3) dual-run corpus+conformance in CI → **(4) ★ flip the `installBin` default front
+(one commit — the CLI-switch Sergiy holds)** → (5) delete the old ssc0 front (the ~8,900-line win).
+
+### F5 — kernel shrink (the "small" axis), SEPARATE and DEEP
+
+Kernel is **~6,035 lines** (`Runtime.scala` 4,818 + CoreIR 415 + Ssc0 311 + PortableEffects 221 +
+PortableDecimal 171 + Main 97). Reaching ~2,800 is **not** a consequence of F4. It requires deep
+change — the two candidate levers:
+- **Retire the ~1,328-line δ-prim/method-dispatch table** — only possible if `F` emits
+  typed/monomorphized IR (direct dispatch). F is untyped today, so this is a large front change.
+- **Relocate the perf layers** (FastCode/SelfRec, ~962 lines) and `PortableEffects`/`PortableDecimal`
+  off-kernel as tower programs (a prior F5 pass reported these "irreducible" — under re-study).
+
+**Sergiy's decision (2026-07-20): pursue F5 directly.** A feasibility study is establishing the
+honest achievable target per-region (move-to-tower / delete / must-stay), fixpoint-verified.
 
 ---
 
