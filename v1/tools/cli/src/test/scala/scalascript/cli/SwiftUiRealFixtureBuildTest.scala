@@ -12,8 +12,8 @@ import org.scalatest.funsuite.AnyFunSuite
  *  hand-constructs `View` trees directly in Scala, bypassing `Parser.parse`/`JvmGen` entirely,
  *  so none of them ever exercised this path for real — or needed `std/ui` import resolution
  *  at all (`ExamplesSmokeTest` deliberately runs only dependency-free examples for the same
- *  reason). `-Dssc.lib.path` is normally set by the `bin/ssc` launcher script, not by `sbt
- *  test`, so this test sets it itself before compiling.
+ *  reason). The test invokes the staged `bin/ssc-tools` launcher in a subprocess, exactly where
+ *  `ssc.lib.path` and the installed compiler/runtime JAR layout are part of the supported contract.
  *
  *  Gated on a Swift toolchain (`assume(swiftAvailable)`) so a box without Xcode/swift skips
  *  cleanly — mirrors `RustGenCargoSmokeTest`'s `assume(cargoAvailable)` gate, which caught a
@@ -31,41 +31,65 @@ class SwiftUiRealFixtureBuildTest extends AnyFunSuite:
     try os.proc("swift", "--version").call(check = false).exitCode == 0
     catch case _: Throwable => false
 
+  private def requireLauncher(): os.Path =
+    StagedCliTestSupport.toolsLauncher.getOrElse:
+      cancel("bin/ssc-tools not found — run `sbt cli/assembly installBin` first")
+
+  private def packageMacos(launcher: os.Path, sscFile: os.Path, outDir: os.Path): os.CommandResult =
+    StagedCliTestSupport.runTools(
+      launcher,
+      repoRoot,
+      args = Seq(
+        "package", "--v1", "--target", "macos", "--out", outDir.toString,
+        sscFile.toString))
+
+  private def diagnostics(result: os.CommandResult): String =
+    s"exit=${result.exitCode}\nstdout:\n${result.out.text()}\nstderr:\n${result.err.text()}"
+
   test("examples/frontend/ios-hello/ios-hello.ssc builds a real Swift package via swift build") {
     assume(swiftAvailable, "swift not on PATH — skipping end-to-end SwiftUI native build")
-    // buildSwiftUIPackage compiles the .ssc to JVM bytecode via `scala-cli`, and
-    // when scala-cli is absent it calls `System.exit(1)` (SwiftUiCommands.scala) —
-    // which, run in-process here, kills the whole forked test JVM (a silent
-    // `sbt.ForkMain … exit code 1` with zero failed tests). The GitHub `sbt` job
-    // has swift but NOT scala-cli, so without this gate the test ran and nuked the
-    // fork. Gate on scala-cli too — same predicate buildSwiftUIPackage checks — so
-    // a box without it cancels cleanly instead of crashing (mirrors swiftAvailable).
     assume(JvmBytecode.scalaCliAvailable, "scala-cli not on PATH — needed for the --bytecode SwiftUI build")
-
-    // ssc.lib.path = repoRoot itself, matching bin/ssc's launcher (`-Dssc.lib.path="$_SSC_ROOT"`,
-    // _SSC_ROOT = dirname(bin/)) — ImportResolver falls back to <libPath>/runtime/<path> for
-    // std/* imports (repoRoot/runtime is a symlink to v1/runtime), AND buildSwiftUIPackage's own
-    // jarsDir lookup needs <libPath>/bin/lib/jars, which only exists at the true repo root.
-    val savedLibPath = sys.props.get("ssc.lib.path")
-    sys.props("ssc.lib.path") = repoRoot.toString
+    val launcher = requireLauncher()
     val sscFile = repoRoot / "examples" / "frontend" / "ios-hello" / "ios-hello.ssc"
     assert(os.exists(sscFile), s"fixture missing: $sscFile")
 
     val outDir = os.temp.dir(prefix = "ssc-swiftui-real-fixture-")
     try
-      buildSwiftUIPackage(sscFile, outDir, platform = "macos", runSwiftBuild = true)
+      val result = packageMacos(launcher, sscFile, outDir)
+      assert(result.exitCode == 0, s"staged SwiftUI package failed:\n${diagnostics(result)}")
 
-      val packageSwift = outDir / "Package.swift"
+      val packageDir = outDir / "macos"
+      val packageSwift = packageDir / "Package.swift"
       assert(os.exists(packageSwift), "Package.swift was not written")
-      val contentView = os.walk(outDir).find(_.last == "ContentView.swift")
+      val contentView = os.walk(packageDir).find(_.last == "ContentView.swift")
       assert(contentView.isDefined, "ContentView.swift was not written")
       assert(os.read(contentView.get).contains("struct ContentView"), "ContentView.swift is not valid generated Swift")
 
-      val built = os.walk(outDir / ".build").exists(p => os.isFile(p) && p.last == "Ioshello")
+      val built = os.walk(packageDir / ".build").exists(p => os.isFile(p) && p.last == "Ioshello")
       assert(built, "swift build did not produce the Ioshello executable")
     finally
       scala.util.Try(os.remove.all(outDir))
-      savedLibPath match
-        case Some(v) => sys.props("ssc.lib.path") = v
-        case None    => sys.props.remove("ssc.lib.path")
+  }
+
+  test("generated-Scala failure is captured by the staged SwiftUI subprocess") {
+    assume(JvmBytecode.scalaCliAvailable, "scala-cli not on PATH — needed for the --bytecode SwiftUI build")
+    val launcher = requireLauncher()
+    val fixture = repoRoot / "examples" / "frontend" / "ios-hello" / "ios-hello.ssc"
+    val brokenSource = os.read(fixture).replace(
+      "serve(lower(view(), defaultTheme), 0)",
+      "serve(thisSymbolMustNotCompile(), 0)")
+    assert(brokenSource != os.read(fixture), "failed to construct the deliberate compiler-error fixture")
+
+    val sandbox = os.temp.dir(prefix = "ssc-swiftui-failing-fixture-")
+    try
+      val brokenFile = sandbox / "broken-ios-hello.ssc"
+      os.write(brokenFile, brokenSource)
+      val result = packageMacos(launcher, brokenFile, sandbox / "out")
+      assert(result.exitCode != 0, s"deliberately invalid fixture unexpectedly packaged:\n${diagnostics(result)}")
+      val output = result.out.text() + "\n" + result.err.text()
+      assert(
+        output.contains("thisSymbolMustNotCompile") || output.contains("Compilation failed"),
+        s"compiler failure returned no actionable diagnostic:\n${diagnostics(result)}")
+    finally
+      scala.util.Try(os.remove.all(sandbox))
   }
