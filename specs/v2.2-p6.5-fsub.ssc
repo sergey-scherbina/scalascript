@@ -1443,9 +1443,9 @@ def goCommaF1(nm, ts) = goCommaF(ts) match { case (more, r) => (Cons((nm, Nil), 
 def goCaseCons(these, r) = goCasesF(r) match { case (rest, r2) => (appEnv(these, rest), r2) }
 // decl-site emission: nullary case -> `(def N (ctor N))` (a VALUE, ssc1-lower :3826); parametrized ->
 // the case-class ctor + mirror (lowerCaseCls, ssc1-lower :3827). Emitted in userDefs in document order.
-def enumItem(ts, cx) = enumCasesFrom(ts) match { case (cases, rest) => ((emitEnumDefs(cases, dqOf(cx)), ""), rest) }
-def emitEnumDefs(cases, dq) = cases match { case Nil => "" case h :: t => join2(emitEnumDef(h, dq), emitEnumDefs(t, dq)) }
-def emitEnumDef(c, dq) = c match { case (nm, fs) => if isEmpty(fs) then "(def " ++ nm ++ " (ctor " ++ nm ++ "))" else erase(emitCtorFn((nm, fs)), dq) }
+def enumItem(ts, cx) = enumCasesFrom(ts) match { case (cases, rest) => ((emitEnumDefs(cases, cx), ""), rest) }
+def emitEnumDefs(cases, cx) = cases match { case Nil => "" case h :: t => join2(erase(emitEnumDef(h), cx), emitEnumDefs(t, cx)) }
+def emitEnumDef(c) = c match { case (nm, fs) => if isEmpty(fs) then ("enumnull", nm) else emitCtorFn((nm, fs)) }
 // pre-pass: unified ordered type-case list (case classes AND enum cases interleaved in declaration order)
 // -> drives emitSels + regFields + fldNames, so enum-case fields/regfields land in oracle order
 // (ssc1-lower collectCaseFields/collectCaseClassOrder descend into enums, :4918/4936).
@@ -1620,7 +1620,7 @@ def walkTop0(ts, cx) = if isEmpty(ts) then (("", ""), 0) else walkTopStep(parseT
 def walkTopStep(pr, cx) = pr match { case (parts, rest) => walkTopJoin(parts, walkTop(rest, cx)) }
 def walkTopJoin(parts, acc) = parts match { case (d, e) => acc match { case (accStrs, n) => walkTopJoin2(d, e, accStrs, n) } }
 def walkTopJoin2(d, e, accStrs, n) = accStrs match { case (dA, eA) => ((join2(d, dA), join2(e, eA)), if e == "" then n else n + 1) }
-def emitCCDecl(ts, cx) = collectCC1(tl(tl(ts))) match { case c :: r => (emitCC(c, dqOf(cx)), skipCCHead(tl(tl(ts)))) case _ => ("", Nil) }
+def emitCCDecl(ts, cx) = collectCC1(tl(tl(ts))) match { case c :: r => (emitCC(c, cx), skipCCHead(tl(tl(ts)))) case _ => ("", Nil) }
 // A case class may carry `extends Shape [with T]*` after its params (measured: the oracle IGNORES it —
 // `case class C(x) extends Shape` lowers identically to `case class C(x)`). Skip the clause in the walk.
 // It may ALSO carry a BODY — `case class C(x): <indented defs>` (layout `{..}`) or `case class C(x) { .. }`
@@ -1693,13 +1693,13 @@ def collectNames(cs, acc) = cs match { case Nil => acc case h :: t => collectNam
 def addNames(fs, acc) = fs match { case Nil => acc case h :: t => addNames(t, addName(fldName(h), acc)) }
 def addName(n, acc) = if memL(n, acc) then acc else Cons(n, acc)
 def memL(n, xs) = xs match { case Nil => false case h :: t => if h == n then true else memL(n, t) }
-def emitSels(cs, dq) = emitSelList(allFieldNames(cs), cs, dq)
-def emitSelList(ns, cs, dq) = ns match { case Nil => "" case h :: t => erase(emitSel(h, cs, dq), dq) ++ " " ++ emitSelList(t, cs, dq) }
+def emitSels(cs, cx) = emitSelList(allFieldNames(cs), cs, cx)
+def emitSelList(ns, cs, cx) = ns match { case Nil => "" case h :: t => erase(emitSel(h, cs, cx), cx) ++ " " ++ emitSelList(t, cs, cx) }
 // NOTE: emitSels keeps a TRAILING space (prelude ++ sels ++ defs), and is "" when there are
 // no case classes -- so a case-class-free program is byte-unchanged.
 // F5b: builds a `sel` node; the arm-list stays a pre-rendered string sub-part (a Raw boundary — a
 // later slice can convert selArm/selArm1 too). eraseSel is in the scaffold's erase dispatcher.
-def emitSel(n, cs, dq) = ("sel", (n, selArms(n, cs)))
+def emitSel(n, cs, cx) = ("sel", (n, selArms(n, cs)))
 def selArms(n, cs) = cs match { case Nil => "" case h :: t => join2(selArm(n, h), selArms(n, t)) }
 def selArm(n, c) = if memL(n, fieldNamesOf(ccFields(c))) then selArm1(n, c) else ""
 def fieldNamesOf(fs) = fs match { case Nil => Nil case h :: t => Cons(fldName(h), fieldNamesOf(t)) }
@@ -1717,12 +1717,16 @@ def idxOf(n, fs, i) = fs match { case Nil => 0 case h :: t => if fldName(h) == n
 // specs/v2.2-p6.5-semantic.sh (output equivalence) and the `--self` fixpoint.
 //
 // A node is a TAGGED TUPLE (tag, payload) — F's own idiom (a token is (kind,payload); parseAtom1
-// dispatches on fst). `erase(node, dq)` matches the tag and rebuilds the exact string the old emit*
-// concatenated. dq (the `"` char, threaded because F is escape-free) is passed to erase, not embedded.
-// CONVERTED SO FAR (Stage 0): ctorfn, mirror, sel  (the case-class DECLARATION cluster). Every other
-// emit* still returns a String; erase is called only where a converted node meets that text.
-def erase(n, dq) = n match { case (tag, p) => eraseB(tag, p, dq) }
-def eraseB(tag, p, dq) = if tag == "ctorfn" then eraseCtorFn(p) else (if tag == "mirror" then eraseMirror(p, dq) else (if tag == "sel" then eraseSel(p, dq) else ""))
+// dispatches on fst). `erase(node, cx)` matches the tag and rebuilds the exact string the old emit*
+// concatenated. cx carries the `"` char (dqOf) and `\` char (bsOf), threaded because F is escape-free.
+// CONVERTED SO FAR (Stage 0): ctorfn, mirror, sel, enumnull  (the case-class/enum DECLARATION cluster).
+// Every other emit* still returns a String; erase is called only where a converted node meets that text.
+// F5b: erase takes the FULL cx (not just dq) — expression string/triple nodes need `bs` too and Stage 1
+// reads the inferred type off cx/the node. dqOf(cx)==dq and bsOf(cx)==bs by construction (cx is always
+// mkCx(dq,…,bs,…)), so deriving dq here is byte-identical to the old dq-threaded callers.
+def erase(n, cx) = n match { case (tag, p) => eraseB(tag, p, cx) }
+def eraseB(tag, p, cx) = if tag == "ctorfn" then eraseCtorFn(p) else (if tag == "mirror" then eraseMirror(p, dqOf(cx)) else (if tag == "sel" then eraseSel(p, dqOf(cx)) else (if tag == "enumnull" then eraseEnumNull(p) else "")))
+def eraseEnumNull(nm) = "(def " ++ nm ++ " (ctor " ++ nm ++ "))"
 def eraseCtorFn(p) = p match { case (name, ar) => "(def " ++ name ++ " (lam " ++ ar ++ " (ctor " ++ name ++ ctorArgs(ar, 0) ++ ")))" }
 def eraseSel(p, dq) = p match { case (n, arms) => "(def _sel_" ++ n ++ " (lam 1 (match (local 0) (" ++ arms ++ ") (default (prim __method__ (lit (str " ++ dq ++ n ++ dq ++ ")) (local 0))))))" }
 def eraseMirror(p, dq) = p match { case (name, rest) => rest match { case (fnames, ftypes) => "(def __mirror_" ++ name ++ " (ctor Mirror (lit (str " ++ dq ++ name ++ dq ++ ")) " ++ strList(fnames, dq) ++ " " ++ strList(ftypes, dq) ++ "))" } }
@@ -1733,9 +1737,9 @@ def eraseMirror(p, dq) = p match { case (name, rest) => rest match { case (fname
 // the mirror path lowerProductMetadata runs for `casecls`, not `enum`).
 // F5b: emitCtorFn/emitMirror now BUILD nodes; emitCC/emitEnumDef erase them at the string boundary.
 def emitCtorFn(c) = ("ctorfn", (ccName(c), dlen(ccFields(c))))
-def emitCC(c, dq) = erase(emitCtorFn(c), dq) ++ " " ++ erase(emitMirror(c, dq), dq)
+def emitCC(c, cx) = erase(emitCtorFn(c), cx) ++ " " ++ erase(emitMirror(c, cx), cx)
 def ctorArgs(ar, i) = if i >= ar then "" else " (local " ++ (ar - 1 - i) ++ ")" ++ ctorArgs(ar, i + 1)
-def emitMirror(c, dq) = ("mirror", (ccName(c), (fieldNamesOf(ccFields(c)), fieldTypesOf(ccFields(c)))))
+def emitMirror(c, cx) = ("mirror", (ccName(c), (fieldNamesOf(ccFields(c)), fieldTypesOf(ccFields(c)))))
 def fieldTypesOf(fs) = fs match { case Nil => Nil case h :: t => Cons(fldType(h), fieldTypesOf(t)) }
 def strList(xs, dq) = xs match { case Nil => "(ctor Nil)" case h :: t => "(ctor Cons (lit (str " ++ dq ++ h ++ dq ++ ")) " ++ strList(t, dq) ++ ")" }
 
@@ -1854,7 +1858,7 @@ def rtrim1(s) = if s.length > 0 then (if s.charAt(s.length - 1) == 32 then s.sub
 // caseMethodDefs sit BETWEEN topValCells and sels (ssc1-lower :5570-5573); each carries a trailing space
 // like valCells/emitSels ("" when there are no body methods → a method-free program stays byte-identical).
 def compile4(strs, nDoc, ts, tcs, dq, cx) = compile4b(strs, nDoc, ts, tcs, dq, cx, collectCaseMethods(ts))
-def compile4b(strs, nDoc, ts, tcs, dq, cx, cms) = strs match { case (userDefs, docEntry) => rtrim1(prelude(dq) ++ valCells(varNamesOf(cx), dq) ++ valCells(valNamesOf(cx), dq) ++ caseMethodDefsStr(cms, cx) ++ emitSels(tcs, dq) ++ userDefs ++ emitExtDispatchers(ts, cx)) ++ entryOf3(ts, tcs, docEntry, nDoc, dq, cms) }
+def compile4b(strs, nDoc, ts, tcs, dq, cx, cms) = strs match { case (userDefs, docEntry) => rtrim1(prelude(dq) ++ valCells(varNamesOf(cx), dq) ++ valCells(valNamesOf(cx), dq) ++ caseMethodDefsStr(cms, cx) ++ emitSels(tcs, cx) ++ userDefs ++ emitExtDispatchers(ts, cx)) ++ entryOf3(ts, tcs, docEntry, nDoc, dq, cms) }
 def ccNamesL(cs) = cs match { case Nil => Nil case h :: t => Cons(ccName(h), ccNamesL(t)) }
 // The CONSTANT 7258-byte prelude `ssc1-lower` emits (measured identical across programs).
 // It is fixed OUTPUT, so F carries it as a string constant; byte-identity stays the oracle.
