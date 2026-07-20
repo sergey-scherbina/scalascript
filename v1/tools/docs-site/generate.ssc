@@ -57,6 +57,120 @@ def htmlName(rel: String): String =
 def jsonEscape(s: String): String =
   s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ")
 
+// ---------------------------------------------------------------- link rewriting
+//
+// The source docs were written for GitHub, so they link to sibling repo content —
+// `../specs/x.md`, `../examples/y.ssc`, `../SPEC.md`, source `.scala` files. On a
+// docs-only publish those escape the site and 404. Any relative link whose resolved
+// repo path leaves `docs/` is rewritten to the file on GitHub, keeping the site
+// docs-only while every link still lands on a real file.
+
+val githubBase = "https://github.com/sergey-scherbina/scalascript"
+
+// Resolve one `..`/`.` path step against a reversed segment stack.
+def normStep(seg: String, stack: List[String]): List[String] =
+  if seg == ".." then (stack match { case Cons(_, t) => t case Nil => Nil })
+  else if seg == "." || seg == "" then stack
+  else seg :: stack
+
+def normFold(segs: List[String], stack: List[String]): List[String] = segs match
+  case Nil => stack
+  case Cons(h, t) => normFold(t, normStep(h, stack))
+
+// Repo-root-relative path of `href` as seen from a page living at repo dir `baseDir`
+// (e.g. "docs" or "docs/bench"). Returns the normalized "a/b/c" path.
+def resolveRepo(baseDir: String, href: String): String =
+  val base = if baseDir == "" then Nil else baseDir.split("/").toList
+  normFold(href.split("/").toList, base.reverse).reverse.mkString("/")
+
+def hasExtension(path: String): Boolean =
+  val slash = path.lastIndexOf("/")
+  path.substring(slash + 1).indexOf(".") >= 0
+
+// A URI scheme is a run of letters before a `:` that comes before any `/` —
+// `http:`, `mailto:`, and the ScalaScript DSL's own `toolkit:...` examples. Such a
+// link is non-navigational and left exactly as written.
+def hasScheme(href: String): Boolean =
+  val colon = href.indexOf(":")
+  val slash = href.indexOf("/")
+  colon > 0 && (slash < 0 || colon < slash)
+
+def isExternalHref(href: String): Boolean =
+  href == "" || href.startsWith("#") || hasScheme(href)
+
+// Map an escaped href to its GitHub URL. `.html` came from `.md`, so reverse it to
+// point at the real source; a path with no file extension is a directory (tree).
+def githubFor(baseDir: String, href: String): String =
+  val hash = href.indexOf("#")
+  val path0 = if hash < 0 then href else href.substring(0, hash)
+  val fragment = if hash < 0 then "" else href.substring(hash)
+  val repo0 = resolveRepo(baseDir, path0)
+  val repo = if repo0.endsWith(".html") then repo0.substring(0, repo0.length - 5) + ".md" else repo0
+  val kind = if path0.endsWith("/") || !hasExtension(repo) then "/tree/main/" else "/blob/main/"
+  githubBase + kind + repo + fragment
+
+// The path portion of an href, without any `#fragment`.
+def hrefPath(href: String): String =
+  val hash = href.indexOf("#")
+  if hash < 0 then href else href.substring(0, hash)
+
+// True when the href resolves to something still under docs/ — those keep their
+// local, already-retargeted form. Every base dir is under docs/, so a link that
+// does not climb out normalizes to a `docs/...` path.
+def staysLocal(baseDir: String, href: String): Boolean =
+  val repo = resolveRepo(baseDir, hrefPath(href))
+  repo == "docs" || repo.startsWith("docs/")
+
+def hrefFrag(href: String): String =
+  val hash = href.indexOf("#")
+  if hash < 0 then "" else href.substring(hash)
+
+// The generated page for a docs link exists iff its source `.md` is under docs/.
+def localSourceExists(repoHtml: String): Boolean =
+  repoHtml.endsWith(".html") && exists(repoHtml.substring(0, repoHtml.length - 5) + ".md")
+
+def baseName(path: String): String =
+  val slash = path.lastIndexOf("/")
+  if slash < 0 then path else path.substring(slash + 1)
+
+// A bare link to a doc that is not under docs/ almost always meant a file in
+// specs/ (the source author wrote `x.md` where `../specs/x.md` was intended — a
+// link that 404s on GitHub too). If specs/<basename>.md exists, point there;
+// otherwise leave it (a genuinely absent target, rare).
+def specsFallback(repoHtml: String, fragment: String): String =
+  if !repoHtml.endsWith(".html") then ""
+  else
+    val md = baseName(repoHtml.substring(0, repoHtml.length - 5) + ".md")
+    if exists("specs/" + md) then githubBase + "/blob/main/specs/" + md + fragment else ""
+
+def rewriteOne(baseDir: String, href: String): String =
+  if isExternalHref(href) then href
+  else if staysLocal(baseDir, href) then
+    val repo = resolveRepo(baseDir, hrefPath(href))
+    if localSourceExists(repo) then href                 // real generated page — keep
+    else
+      val fallback = specsFallback(repo, hrefFrag(href))
+      if fallback != "" then fallback else href          // truly absent — leave as-is
+  else githubFor(baseDir, href)                          // escaped docs/ — send to GitHub
+
+// Rewrite every `href="…"` in `body` that leaves docs/ to its GitHub URL. Scans
+// left to right by `href="` so it never touches text content.
+def rewriteFrom(body: String, baseDir: String, from: Int): String =
+  val at = body.indexOf("href=\"", from)
+  if at < 0 then body.substring(from)
+  else
+    val start = at + 6
+    val close = body.indexOf("\"", start)
+    if close < 0 then body.substring(from)
+    else
+      val newHref = rewriteOne(baseDir, body.substring(start, close))
+      body.substring(from, start) + newHref + rewriteFrom(body, baseDir, close)
+
+def rewriteLinks(body: String, outRel: String): String =
+  val slash = outRel.lastIndexOf("/")
+  val baseDir = if slash < 0 then "docs" else "docs/" + outRel.substring(0, slash)
+  rewriteFrom(body, baseDir, 0)
+
 // ---------------------------------------------------------------- directory walk
 
 case class Page(rel: String, outRel: String, title: String, body: String)
@@ -76,10 +190,11 @@ def collect(root: String, prefix: String, names: List[String]): List[String] = n
 
 def loadPage(root: String, rel: String): Page =
   val src = readFile(root + "/" + rel)
-  val body = markdownToHtml(src)
+  val outRel = htmlName(rel)
+  val body = rewriteLinks(markdownToHtml(src), outRel)
   val t = markdownTitle(src)
   val title = if t == "" then rel else t
-  Page(rel, htmlName(rel), title, body)
+  Page(rel, outRel, title, body)
 
 def loadPages(root: String, rels: List[String]): List[Page] = rels match
   case Nil => Nil
