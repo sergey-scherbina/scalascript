@@ -260,6 +260,23 @@ def startsW(s, p) = if s.length < p.length then false else s.substring(0, p.leng
 def isConcatCode(c, dq) = startsW(c, "(prim __arith__ (lit (str " ++ dq ++ "++" ++ dq)
 def isStrLitish(c) = if startsW(c, "(lit (str ") then true else (if startsW(c, "(prim sslice ") then true else startsW(c, "(prim i->str "))
 def isStrExprCode(c, dq) = if isConcatCode(c, dq) then true else isStrLitish(c)
+// -- F5b Stage 1: TYPE RECOVERY from the erased operand IR prefix (generalizes isStrExprCode, the oracle's
+// proven +-to-++ rule). A prefix is listed ONLY if the prim/lit PROVABLY yields that runtime type; a missing
+// prefix means "?" = stays on __arith__/__eq__ (SAFE dynamic dispatch); a WRONG prefix would miscompile, so
+// the semantic gate is the judge. The kernel prim i.* is FORGIVING (numBin/numCmp handle Int/Float/mix, and
+// liftArith the Op-lift), so ALL numerics route to i.*; only big.* (strict big()) and sconcat/seq (strict
+// str()) need exact typing. NOTE: unary neg emits (prim i.sub 0 x) even for a Float operand → isIntCode
+// tags it "I", but i.* handles the Int/Float mix at runtime, so the tag is safe for arith (only == on a
+// genuine NaN would diverge — accepted, not in corpus).
+def isStrCode(c, dq) = if isStrExprCode(c, dq) then true else (if startsW(c, "(prim sconcat ") then true else (if startsW(c, "(prim big->str ") then true else (if startsW(c, "(prim f->str ") then true else (if startsW(c, "(prim str.trim ") then true else (if startsW(c, "(prim str.replace ") then true else (if startsW(c, "(prim sfromCodes ") then true else startsW(c, "(prim utf8->str ")))))))
+// isIntCode is SPLIT in two: ssc1-front's expression parser bails (emits its `_err` sentinel) beyond
+// ~20 nested `if startsW(..) then .. else (if ..)` levels in one def (a per-def parse limit — `k==N`
+// conditions are cheaper, so binPrecK's 23 are fine). Two ~10-deep defs stay well under it.
+def isIntCode1(c) = if startsW(c, "(lit (int ") then true else (if startsW(c, "(prim i.add ") then true else (if startsW(c, "(prim i.sub ") then true else (if startsW(c, "(prim i.mul ") then true else (if startsW(c, "(prim i.div ") then true else (if startsW(c, "(prim i.mod ") then true else (if startsW(c, "(prim i.neg ") then true else (if startsW(c, "(prim i.and ") then true else (if startsW(c, "(prim i.or ") then true else startsW(c, "(prim i.xor ")))))))))
+def isIntCode(c) = if isIntCode1(c) then true else (if startsW(c, "(prim i.not ") then true else (if startsW(c, "(prim i.shl ") then true else (if startsW(c, "(prim i.shr ") then true else (if startsW(c, "(prim i.ushr ") then true else (if startsW(c, "(prim slen ") then true else (if startsW(c, "(prim scodeAt ") then true else (if startsW(c, "(prim scmp ") then true else (if startsW(c, "(prim sindexOf ") then true else (if startsW(c, "(prim big->i ") then true else startsW(c, "(prim f->i "))))))))))
+def isFloatCode(c) = if startsW(c, "(lit (float ") then true else (if startsW(c, "(prim f.add ") then true else (if startsW(c, "(prim f.sub ") then true else (if startsW(c, "(prim f.mul ") then true else (if startsW(c, "(prim f.div ") then true else (if startsW(c, "(prim f.neg ") then true else (if startsW(c, "(prim i->f ") then true else startsW(c, "(prim big->f ")))))))
+def isBigCode(c) = if startsW(c, "(prim big.add ") then true else (if startsW(c, "(prim big.sub ") then true else (if startsW(c, "(prim big.mul ") then true else (if startsW(c, "(prim big.div ") then true else (if startsW(c, "(prim big.mod ") then true else (if startsW(c, "(prim big.neg ") then true else startsW(c, "(prim i->big "))))))
+def isNumCode(c) = if isIntCode(c) then true else isFloatCode(c)
 
 // -- emission ---------------------------------------------------------------------------------
 // Arithmetic AND comparison both go through `(prim __arith__ (lit (str "OP")) L R)` -- a QUOTED
@@ -269,13 +286,27 @@ def emitInt(v) = "(lit (int " ++ v ++ "))"
 def emitFloat(t) = "(lit (float " ++ t ++ "))"
 def emitStr(v, dq) = "(lit (str " ++ dq ++ v ++ dq ++ "))"
 def emitArithS(sym, l, r, dq) = "(prim __arith__ (lit (str " ++ dq ++ sym ++ dq ++ ")) " ++ l ++ " " ++ r ++ ")"
-// KC5-micro (ssc1-lower:2214): `+` upgrades to `++` when either side is a string expression.
-def plusSym(l, r, dq) = if isStrExprCode(l, dq) then "++" else (if isStrExprCode(r, dq) then "++" else "+")
-def emitArith(k, l, r, dq) = if k == 23 then emitArithS(plusSym(l, r, dq), l, r, dq) else emitArithS(arithSym(k), l, r, dq)
+// -- F5b Stage 1 typed emission (was: everything through __arith__/__eq__). By inferred operand type,
+// emit i.*/big.*/sconcat/seq; fall back to __arith__/__eq__ when unresolved (hybrid IR is fine). The
+// overloaded operators (+ ++ - on lists/sets/maps/tuples/chars) stay DYNAMIC unless the operand type
+// PROVES the numeric/string branch — a LEFT-biased check for + and ++, because `list + strElem` /
+// `list ++ elem` APPEND (arithOp keys on isList(left)) while `str + x` CONCATENATES. An unknown left is
+// therefore never sconcat'd. KC5-micro (ssc1-lower:2214) `+`-to-`++` upgrade is now typed to sconcat.
+def emitSconcat(l, r) = "(prim sconcat " ++ l ++ " " ++ r ++ ")"
+def intPrimK(k) = if k == 24 then "i.sub" else (if k == 25 then "i.mul" else (if k == 26 then "i.div" else (if k == 56 then "i.mod" else (if k == 40 then "i.lt" else (if k == 41 then "i.gt" else (if k == 42 then "i.le" else "i.ge"))))))
+def bigPrimK(k) = if k == 24 then "big.sub" else (if k == 25 then "big.mul" else (if k == 26 then "big.div" else (if k == 56 then "big.mod" else (if k == 40 then "big.lt" else (if k == 41 then "big.gt" else (if k == 42 then "big.le" else "big.ge"))))))
+def emitPlus(l, r, dq) = if isStrCode(l, dq) then emitSconcat(l, r) else (if isNumCode(l) then (if isNumCode(r) then emitPrimBin("i.add", l, r) else (if isStrCode(r, dq) then emitSconcat(l, r) else emitArithS("+", l, r, dq))) else (if isBigCode(l) then (if isBigCode(r) then emitPrimBin("big.add", l, r) else emitArithS("+", l, r, dq)) else emitArithS("+", l, r, dq)))
+def emitArithT(k, l, r, dq) = if isNumCode(l) then (if isNumCode(r) then emitPrimBin(intPrimK(k), l, r) else emitArithS(arithSym(k), l, r, dq)) else (if isBigCode(l) then (if isBigCode(r) then emitPrimBin(bigPrimK(k), l, r) else emitArithS(arithSym(k), l, r, dq)) else emitArithS(arithSym(k), l, r, dq))
+def emitArith(k, l, r, dq) = if k == 23 then emitPlus(l, r, dq) else emitArithT(k, l, r, dq)
+// `==`/`!=`: both Int -> i.eq, both String -> seq, both BigInt -> big.eq; else structural __eq__ (correct
+// for Bool/Float/tuple/ADT/list — float== keeps __eq__ to preserve NaN==NaN=true). emitEq stays the untyped
+// structural form for the pattern-match callers (scrutinee is always an untyped (local N) -> "?" -> __eq__).
 def emitEq(l, r) = "(prim __eq__ " ++ l ++ " " ++ r ++ ")"
+def emitEqT(l, r, dq) = if isIntCode(l) then (if isIntCode(r) then emitPrimBin("i.eq", l, r) else emitEq(l, r)) else (if isStrCode(l, dq) then (if isStrCode(r, dq) then emitPrimBin("seq", l, r) else emitEq(l, r)) else (if isBigCode(l) then (if isBigCode(r) then emitPrimBin("big.eq", l, r) else emitEq(l, r)) else emitEq(l, r)))
+def emitPP(l, r, dq) = if isStrCode(l, dq) then emitSconcat(l, r) else emitArithS("++", l, r, dq)
 def emitIf(c, t, e) = "(if " ++ c ++ " " ++ t ++ " " ++ e ++ ")"
 def emitPrimBin(nm, l, r) = "(prim " ++ nm ++ " " ++ l ++ " " ++ r ++ ")"
-def emitBin(k, l, r, dq) = if k == 57 then "(ctor Pair " ++ l ++ " " ++ r ++ ")" else (if k == 49 then "(ctor Cons " ++ l ++ " " ++ r ++ ")" else (if k == 48 then emitArithS("++", l, r, dq) else (if k == 44 then emitEq(l, r) else (if k == 45 then emitIf(emitEq(l, r), "(lit false)", "(lit true)") else (if k == 46 then emitIf(l, r, "(lit false)") else (if k == 47 then emitIf(l, "(lit true)", r) else (if k == 61 then emitArithS(":+", l, r, dq) else (if k == 62 then emitPrimBin("i.and", l, r) else (if k == 63 then emitPrimBin("i.or", l, r) else (if k == 64 then emitPrimBin("i.xor", l, r) else (if k == 65 then emitPrimBin("i.shl", l, r) else (if k == 66 then emitPrimBin("i.shr", l, r) else (if k == 67 then emitPrimBin("i.ushr", l, r) else emitArith(k, l, r, dq))))))))))))))
+def emitBin(k, l, r, dq) = if k == 57 then "(ctor Pair " ++ l ++ " " ++ r ++ ")" else (if k == 49 then "(ctor Cons " ++ l ++ " " ++ r ++ ")" else (if k == 48 then emitPP(l, r, dq) else (if k == 44 then emitEqT(l, r, dq) else (if k == 45 then emitIf(emitEqT(l, r, dq), "(lit false)", "(lit true)") else (if k == 46 then emitIf(l, r, "(lit false)") else (if k == 47 then emitIf(l, "(lit true)", r) else (if k == 61 then emitArithS(":+", l, r, dq) else (if k == 62 then emitPrimBin("i.and", l, r) else (if k == 63 then emitPrimBin("i.or", l, r) else (if k == 64 then emitPrimBin("i.xor", l, r) else (if k == 65 then emitPrimBin("i.shl", l, r) else (if k == 66 then emitPrimBin("i.shr", l, r) else (if k == 67 then emitPrimBin("i.ushr", l, r) else emitArith(k, l, r, dq))))))))))))))
 // Scala's precedence-by-first-character, restricted to the operators the subset uses.
 def binPrec(t) = if fst(t) == 2 then binPrecK(snd(t)) else 0
 // bitwise prec (left-assoc; F prec 5 is the ONLY right-assoc slot so bitwise ops avoid it): `&`(62)=4,
