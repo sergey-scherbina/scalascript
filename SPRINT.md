@@ -145,16 +145,19 @@ incident. New capability goes in a **new module**.
         crashed on an all-whitespace string (empty table cell `| | b |`), and the fence scanner
         hardcoded exactly three backticks so a four-backtick block closed on its inner fence.
       - New bug filed: `BUGS.md js-char-into-int-param` — pins this case to `backends: [int]`.
-- [x] **S2 — DONE (`c5a56b070`).** `v1/tools/docs-site/generate.ssc` walks `docs/**.md`,
-      renders each via S1's `markdownToHtml`, reuses the landing design tokens, emits per-page
-      sidebar (grouped by dir, active state, live filter) + auto-index + `search-index.json`.
-      Verified on the real corpus: 37 pages (incl. `docs/bench/`), correct `../` prefixing at
-      depth, 0 fence leaks. GOTCHA baked in: entry runs at **module top level**, not `@main` —
-      `ssc run` does not invoke a `def main`/`@main`.
+- [x] **S2 — DONE (`c5a56b070`, guard `3e21efd26`).** `v1/tools/docs-site/generate.ssc` walks
+      `docs/**.md`, renders each via S1's `markdownToHtml`, reuses the landing design tokens, emits
+      per-page sidebar (grouped by dir, active state, live filter) + auto-index + `search-index.json`.
+      Verified on the real corpus: 37 pages (incl. `docs/bench/`), correct `../` prefixing at depth,
+      0 fence leaks. GOTCHA baked in: entry runs at **module top level**, not `@main` — `ssc run`
+      does not invoke a `def main`/`@main`. COEXISTENCE: writes only under `site/docs`, so committed
+      root pages (`site/index.html`, `site/scljet.html`) are untouched; `docs/scljet.md` →
+      `/docs/scljet.html` is a distinct URL from the curated `/scljet.html` (both kept). A GEN_MARK
+      sentinel + `assertSafeOutDir` make overwriting a hand-authored page impossible (exit 1).
 - [ ] **S3 — install page.** `/install` from `install.sh` + `native-release.yml` artifacts:
       one-line install command, platform table, links to releases. NOTE: `gh release list` is
       empty — no published binaries yet, so link to the source install for now.
-- [x] **S4 — DONE (`<pages-commit>`).** `pages.yml` builds ssc (`install.sh --dev`) and runs the
+- [x] **S4 — DONE (`66313e02a`).** `pages.yml` builds ssc (`install.sh --dev`) and runs the
       generator into `site/docs`; composed under `/docs/`. Gates COMPARE (page-count floor + known
       heading survives into HTML, `expected=/got=` on mismatch). Cost: +cold ssc build → timeout
       15→45 min + class cache (`-v2-pages-` prefix, disjoint from ci.yml; save-on-success only).
