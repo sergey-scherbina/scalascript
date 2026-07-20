@@ -596,15 +596,24 @@ recv)` :1598; INSTANCE DISPATCHER :5295-5445 (extTypeTags List→Cons/Nil Option
       `__mk_method_obj__`. (C) INSTANCE DISPATCHER: `(def m (lam ar <if recv-is-Ti then gi_m(args) else .. else
       recv>))` synthesised per distinct given-body ext method (collectExtDisp/emitExtDispatchers, extTypeTags,
       orTagTests reused), appended after userDefs in compile4b. GOTCHA: fsub subset has NO `appendL` — use `appEnv`.
+- [x] **E2 — derived/Mirror givens (custom-derives-mirror, rozum-agent-schema-derived) DONE. Corpus 415→417,
+      0 drops, fixpoint 368,086 B, --self 153 ok/0 FAIL.** F ALREADY emitted every def/cell (emitMirror,
+      derivedInit, collectCCVals) — the ONLY gap was summon RESOLUTION. Added: collectGivenTable now scans
+      `case class T .. derives TC` and synthesises given-table entries — `(Mirror.Of|Mirror.ProductOf|
+      deriving.Mirror.*, T) -> __mirror_T` and `(TC, T) -> __derived_TC_T` (caseGivenEntries/mirrorGivenEntries/
+      derivedGivenEntries, mirrors ssc1-lower caseGeneratedGivenEntries :683). parseSummon now uses parseTCTypeD
+      (dotted TC head: `Mirror.Of[Person]` -> ("Mirror.Of","Person")). summonEmit now emits bareCtor(gname, cx)
+      so a derived top-VAL reads via `(prim cell.get (global __derived_TC_T__cell))` while a mirror/given-obj DEF
+      reads as a bare `(global name)` — exactly the oracle's `(var gname)` resolution.
 - REMAINING (each deep, 1-2 files):
-  - **tagless-multi-file (extension-in-given, HARDER):** given body MIXES plain `def pure`/`def log` with a NESTED
-    extension group (map/ap/flatMap GLUED by deeper indent). collectOMExtMs stops at first non-def / `;`; the glued
-    multi-member group needs parse-based extent (bodyExpr returns rest) since skipStmt can't split glued defs.
-    Also uses for-comprehension `for {..} yield` in ext bodies + multi-file import. Likely needs more than E1.
+  - **tagless-multi-file (extension-in-given, HARDER, deferred):** given body MIXES plain `def pure`/`def log`
+    with a NESTED extension group (map/ap/flatMap GLUED by deeper indent). collectOMExtMs stops at first non-def
+    / `;`; the glued multi-member group needs parse-based extent (bodyExpr returns rest) since skipStmt can't
+    split glued defs. ALSO needs owner-prefix resolution inside given bodies (ref: `fa.map(f)` in listLogged_map
+    → trailing closure `(global listLogged_map)` NOT `(global map)` — kc7bOwnerPrefix). ALSO for-comprehension
+    `for {..} yield` in ext bodies + multi-file import. Multi-issue; more than a single slice.
   - **context bounds `[A: TC1: TC2]` (tagless-context-bounds):** desugar to using params; active-ctx summon +
     summon aliases. Oracle ITSELF degrades (`__missing_Monoid_combine`) → partly OUT per Decision C.
-  - **derived/Mirror givens (custom-derives-mirror, rozum-agent-schema-derived):** `summon[Mirror.Of[T]]` →
-    `__mirror_T` via case-class `derives` → caseGeneratedGivenEntries in the given table.
 
 ## v2-finish — make v2 ideal, small, powerful, fully self-hosted (2026-07-18, Sergiy)
 
