@@ -1587,10 +1587,55 @@ the contract change was announced in the rozum `scalascript` room before landing
 
 ## coreir-compiler-unbounded-depth — a deep-but-well-formed capsule overflows the COMPILER at ~depth 500 on a 1m stack
 
-**Status:** DEFERRED by Sergiy 2026-07-20; no longer claimed by or blocking
-`v2-f7-internal-gate` (found 2026-07-16 by `coreir-contract` while bounding the *reader*; the reader
-half is fixed, this half is not). Do not add boundary checks/protection in the current quality loop;
-revisit only when explicitly reprioritized. Not a regression — pre-existing.
+**Status:** FIXED 2026-07-20 by `coreir-compiler-depth` (reprioritized by Sergiy the same day, after
+being deferred earlier that day). Found 2026-07-16 by `coreir-contract` while bounding the *reader*.
+Two independent overflows hid behind one title; both are addressed, with one part deliberately left
+open and re-scoped (see "What is NOT fixed" below).
+
+**What the diagnosis actually separated.** The title says "the COMPILER", but reproducing both halves
+showed two unrelated recursions with different cures:
+
+| | Where | Frames/level | Driven by | Fix |
+|---|---|---|---|---|
+| **(A)** compile time | `tryFC` / `mayProduceAutoThreadOp` / `collectRegfields` | ~5 | Core IR nesting | depth bound → diagnostic |
+| **(B)** run time | `evaluateRemainingAsStep` → `Runtime.value` (Runtime.scala:1512) | ~3 | the *interpreted program's* own non-tail recursion | explicitly sized VM thread |
+
+(B) is not a bounded-input problem at all: `evaluateRemainingAsStep` recurses per *argument*
+(bounded by arity), but evaluating an argument that is itself a call re-enters `Runtime.run`. That is
+ordinary user recursion landing on the JVM stack, which no capsule bound can help.
+
+**(A) — fixed by bounding.** `Compiler.MaxDepth` (default **250**, `-Dssc.compiler.maxDepth=N`) is
+checked once at the top of `compileWithGlobals`, by an *iterative* worklist probe — a recursive probe
+would overflow on the very input it exists to reject. `Compiler.subterms` is exhaustive with no
+catch-all, so adding a `Term` case is a compile error rather than a silently under-reported depth
+(which would make the guard fail OPEN). Measured to pick the number: the `tryFC` cycle costs ~5 frames
+per level and a `(seq …)` chain compiles at depth 300 but overflows at 400 on `-Xss1m`, while
+compiling all 85 `v2/examples` yields a maximum `Term` depth of **72** on artifacts up to 165 KB —
+~3.5x headroom, below the cliff. The ladder is now: real programs run, 250–1000 hits the compiler
+bound, deeper hits the existing `Reader.MaxDepth`. No `StackOverflowError` at any depth.
+
+**(B) — fixed operationally, not architecturally.** The VM now runs on an explicitly sized thread
+(`Main.onSizedStack`, default 64 MB, `-Dssc.stackSize=<bytes>`, `0` keeps the caller's thread). This
+removes the dependence on an OS default that differs by platform — 1 MB Linux/CI vs 2 MB macOS, the
+asymmetry that kept CI red for 192 runs while everything passed locally. Measured: `ssc0c` compiling
+`examples/uselib.ssc0` overflows at 1m and 2m and needs **4m**, so the `-Xss512m` in the launchers was
+a 128x overshoot. After the change that command succeeds with a bare `java -jar` and even under a
+forced `-Xss1m`; user-level non-tail recursion at `-Xss1m` went from overflowing at 2 000 to running
+20 000.
+
+**What is NOT fixed — and why the playground still waits.** (B)'s cure is a bigger stack, and a
+browser grants ~1 MB with no way to ask for more. A client-side VM therefore still needs an explicit
+continuation stack (CEK-style) so non-tail calls live on the heap. That work is tracked in `BACKLOG`
+under `site-playground`, now with the real number attached: the gap is 1 MB available vs 4 MB needed
+for self-compilation — 4x, not the 512x the old launcher flag implied.
+
+**Verification.** `v2/conformance/check.sh` 644 ok / 0 FAIL, exit 0, with each fix and with both. All
+85 examples compile byte-identically before and after. Note this is a no-regression result, **not**
+evidence that these fixes turned the 5 previously-documented FAILs green: `chk_compiler_diff` had
+already been switched to the `sscx` 512m launcher before this work started, so those steps were
+passing via that workaround. The sized thread is what makes the workaround unnecessary.
+
+**Historical detail from the original report follows.**
 
 **Symptom.** `Compiler.valuePositionsNeedEffectThreading` / `FastCode.tryFC` recurse without a bound.
 A perfectly well-formed (nothing malformed — merely deeply nested) Core IR program overflows the JVM

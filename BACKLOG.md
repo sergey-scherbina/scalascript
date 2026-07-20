@@ -38,12 +38,23 @@ strings — which is what a playground wants anyway. `sbt-scalajs` is already in
 there is no workaround on that side.** Status DEFERRED, unowned. `BUGS.md:1578` notes real IR
 is shallow (depth 25), so a compiler-side depth bound has enormous headroom — but it is unwritten.
 
-**Ordering — do not start step 3 before 1 and 2:**
-- [ ] 1. Bound the compiler recursion in `Runtime.scala` so the VM survives a 1 MB stack
-      (closes `coreir-compiler-unbounded-depth`).
-- [ ] 2. Get `v2/conformance/check.sh` green — currently exits 1 on HEAD, and the failures are
-      the *same* default-stack overflows (`specs/v2-state-2026-07-18.md:20`, `BUGS.md:1551`).
-- [ ] 3. Scala.js cross-build of `v2/src` + virtual-FS shim + playground page.
+**Ordering — steps 1 and 2 are DONE (2026-07-20, `coreir-compiler-depth`):**
+- [x] 1. ✓ `coreir-compiler-unbounded-depth` closed. Compile-time recursion is bounded
+      (`Compiler.MaxDepth`, diagnostic instead of `StackOverflowError`) and the VM now runs on an
+      explicitly sized thread (`Main.onSizedStack`) instead of an OS default that differs by platform.
+- [x] 2. ✓ `v2/conformance/check.sh` is green: **644 ok / 0 FAIL, exit 0**.
+- [ ] 3. **The remaining blocker, now precisely sized.** The step-1 cure for the *runtime* half is a
+      bigger stack, and a browser grants ~1 MB with no way to raise it. Measured 2026-07-20: `ssc0c`
+      compiling `examples/uselib.ssc0` needs **4 MB** — so the real gap is **4x**, not the 512x the
+      old `-Xss512m` launcher flag implied, and not "unbounded". Two ways to close it:
+      - (a) **Explicit continuation stack (CEK-style)** in the evaluator, so non-tail calls live on
+        the heap. Fully browser-proof; the honest fix; a rewrite of the evaluator core.
+        `evaluateRemainingAsStep` → `Runtime.value` (`Runtime.scala:1512`) is the site — ~3 frames per
+        user-level call today.
+      - (b) **Cut frames per level.** Only a 4x reduction is needed. Cheaper than (a) and may suffice
+        for a playground compiling small snippets, where recursion tracks the *input's* nesting, not
+        the compiler's size. Worth measuring before committing to (a).
+- [ ] 4. Scala.js cross-build of `v2/src` + virtual-FS shim + playground page.
 
 **Two dead ends already ruled out — do not re-investigate.** (a) `./ssc0-js` self-hosting: the
 tower JS backend emits a whole program as one expression with **no `#io.*` prim support**
