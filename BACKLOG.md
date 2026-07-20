@@ -15,6 +15,47 @@ Status hygiene (2026-06-23): open `[ ]` rows below are intentionally still open,
 explicitly `BLOCKED` or `DEFERRED` product/external-decision items. History-only / wontfix notes
 are plain bullets without checkboxes so agents do not claim them as build work.
 
+## `site-playground` — in-browser `.ssc` playground — BLOCKED on compiler recursion (2026-07-20)
+
+A client-side playground on `scalascript.dev` (type `.ssc`, run it, no server). Wanted by
+Sergiy 2026-07-20; **deferred with a named blocker**, not dropped.
+
+**Why it is tractable in principle.** The whole `.ssc` pipeline is already "VM + text": the
+compiler ships as *data* (`v2/lib/ssc1-front.ssc0` 154 KB, `v2/lib/ssc1-lower.ssc0` 258 KB) run
+by the kernel VM (`v2/ssc1:8-9`). So porting **one** artifact — `v2/src` — puts the entire
+frontend in a browser. Across its 6,355 lines the JVM coupling is ~a dozen lines:
+`Runtime.scala:2913-2915` (three `java.nio.file` prims), `Ssc0.scala:252-258` (`java.io.File`
+import resolution), `Main.scala:29,35` (CLI only); `PortableDecimal`/`PortableEffects` use
+`java.math.BigDecimal`/`AtomicBoolean`, both in Scala.js's javalib. No reflection, no
+`ServiceLoader`, no threads. The file prims would be replaced by a virtual FS over bundled
+strings — which is what a playground wants anyway. `sbt-scalajs` is already in
+`project/plugins.sbt:26-28` (27 JS-enabled projects, all domain modules — no compiler module).
+
+**The blocker (this is what gates it).** `BUGS.md:1537` `coreir-compiler-unbounded-depth`:
+`Compiler.valuePositionsNeedEffectThreading` / `FastCode.tryFC` recurse unbounded and overflow
+**at ~depth 500 on a 1 MB stack**. Every launcher works around it with `-Xss512m`
+(`v2/ssc:9`, `v2/ssc0c:8`, `v2/ssc1:8`). **Browser JS stacks are ~1 MB and not configurable —
+there is no workaround on that side.** Status DEFERRED, unowned. `BUGS.md:1578` notes real IR
+is shallow (depth 25), so a compiler-side depth bound has enormous headroom — but it is unwritten.
+
+**Ordering — do not start step 3 before 1 and 2:**
+- [ ] 1. Bound the compiler recursion in `Runtime.scala` so the VM survives a 1 MB stack
+      (closes `coreir-compiler-unbounded-depth`).
+- [ ] 2. Get `v2/conformance/check.sh` green — currently exits 1 on HEAD, and the failures are
+      the *same* default-stack overflows (`specs/v2-state-2026-07-18.md:20`, `BUGS.md:1551`).
+- [ ] 3. Scala.js cross-build of `v2/src` + virtual-FS shim + playground page.
+
+**Two dead ends already ruled out — do not re-investigate.** (a) `./ssc0-js` self-hosting: the
+tower JS backend emits a whole program as one expression with **no `#io.*` prim support**
+(`v2/lib/backend-js-gen.ssc0:139-140`), while its own driver needs `#io.args()`/`#io.print`
+(`v2/bin/ssc0-js.ssc0:8-9`) — the backend cannot compile its own driver. (b) Cross-compiling the
+**v1** JVM compiler: 228 files under `v1/` use `java.io`/`java.nio`/`reflect`/`ServiceLoader`,
+and the plugin architecture is ServiceLoader-based with no Scala.js equivalent.
+
+Also note WASM does not shortcut this: tower WASM is WASI-via-Node (`v2/ssc0-wasm:20-25`,
+needs `rustc`), and v1 `backendWasm` shells out to `scala-cli --js-emit-wasm`
+(`specs/wasm-backend.md:3-5`) — i.e. it needs a server to produce browser output.
+
 ## `ci-crossbackend-differential-runtime` — full `sbt test` runs ~90+ min, cross-backend suites dominate (2026-07-20)
 
 Raised by `ci-testtimeout`. The `Test via sbt` CI step needed its `timeout-minutes` bumped 90 → 150
