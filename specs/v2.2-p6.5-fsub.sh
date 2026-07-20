@@ -5,17 +5,19 @@
 #       BYTE-IDENTICAL to what the reference front (`ssc1-front` + `ssc1-lower`) produces for the same
 #       program. Escape-free: the `"` char is the `dq` parameter (P6.6b design).
 #
-# The oracle is exact. For every corpus program P:
+# F5b TYPED REGIME (2026-07-20): F now emits TYPED Core IR (i.add/big.add/sconcat/seq by inferred type)
+# which DIVERGES from the untyped oracle's IR BY DESIGN. So byte-identity-to-oracle is retired here; the
+# per-program oracle is now OBSERVABLE OUTPUT. For every corpus program P:
 #
-#   ref  = ssc1-front(P) + ssc1-lower(P)     via bin/ssc1-run.ssc0     (the trusted reference)
-#   mine = F0(P)                             where F0 = driver(ssc1-front(F))
-#   ASSERT  mine == ref                      byte-identical
+#   ref  = run-ir( ssc1-front(P) + ssc1-lower(P) )   via bin/ssc1-run.ssc0   (the trusted reference)
+#   mine = run-ir( F0(P) )                            where F0 = driver(ssc1-front(F))
+#   ASSERT  (exit,stdout) of mine == (exit,stdout) of ref     (output-equivalence, COMPARE-BOTH-SIDES)
 #
-# WHY THIS IS THE WHOLE OF X1: if `mine == ref` for every P *including F's own source*, the
-# stage1 == stage2 fixpoint follows algebraically --
-#   stage1 = C0(F_src) = F(F_src) == ssc1-front(F_src)  =>  C1 == C0  =>  stage2 = C1(F_src) = stage1.
-# So X1 is not separate engineering; it is "extend this corpus until it contains F_src". `--self` runs
-# that final step once the corpus is green (see specs/v2.2-p6.6-fixpoint.sh for the same wrapping).
+# The FIXPOINT is the load-bearing self-hosting claim and is UNCHANGED by the regime shift because it is
+# self-referential (typed IR vs typed IR): stage1 = F(F_src); C1 = stage1 spliced with a file-main;
+# stage2 = C1(F_src); ASSERT stage1 == stage2 byte-identical. This proves F self-compiles REPRODUCIBLY on
+# its own typed output. Output-equivalence to the untyped oracle over the real corpus + tower cases is the
+# separate immovable golden-OUTPUT gate specs/v2.2-p6.5-semantic.sh. `--self` runs the fixpoint step.
 #
 # Bootstrap is ssc1-front only -- no sbt, no spike (same convention as v2.2-p6.6-fixpoint.sh).
 # Prereqs: SSC_JAR = a run-ir-capable ssc kernel jar
@@ -38,6 +40,13 @@ SSC_STACK=${SSC_STACK:-1073741824}
 JVM="-Dssc.stackSize=$SSC_STACK"
 run()   { java $JVM -jar "$JAR" run "$@" 2>/dev/null; }
 runir() { java $JVM -jar "$JAR" run-ir "$@" 2>/dev/null; }
+# F5b typed regime: F's IR DIVERGES from the untyped oracle (ssc1-front) BY DESIGN, so the old
+# IR-byte-identity per-case check is gone. The per-case oracle is now OBSERVABLE OUTPUT (stdout+exit)
+# — we EXECUTE both F's IR and the oracle's IR and compare (COMPARE-BOTH-SIDES, AGENTS.md). Bound each
+# run so a pathological program can't hang the gate.
+TIMEOUT_BIN=$(command -v timeout || command -v gtimeout || true)
+D_RUN_TIMEOUT=${D_RUN_TIMEOUT:-8}
+runout() { if [ -n "$TIMEOUT_BIN" ]; then "$TIMEOUT_BIN" "$D_RUN_TIMEOUT" java $JVM -jar "$JAR" run-ir "$@" 2>/dev/null; else java $JVM -jar "$JAR" run-ir "$@" 2>/dev/null; fi; }
 fail=0
 
 # ── the ssc0 driver ───────────────────────────────────────────────────────────────────────────
@@ -67,25 +76,23 @@ FSUB_SRC="$FSUB" run bin/_p65_fsub_drv.ssc0 > "$WORK/F0.ir"
 echo "ok   F0 bootstrapped ($(wc -c < "$WORK/F0.ir") bytes)"
 
 # ── the differential oracle ───────────────────────────────────────────────────────────────────
-# d <name> <program-source>: F(P) must be byte-identical to ssc1-front(P).
+# d <name> <program-source>: F(P) must be OUTPUT-EQUIVALENT to ssc1-front(P). (Typed regime: F's IR
+# diverges from the untyped oracle's IR by design, so we run BOTH IRs and compare (exit, stdout).)
 d() {
   printf '%s\n' "$2" > "$WORK/p.ssc"
   run bin/ssc1-run.ssc0 "$WORK/p.ssc" > "$WORK/ref.ir"
   runir "$WORK/F0.ir" "$WORK/p.ssc" > "$WORK/mine.ir"
   if [ ! -s "$WORK/ref.ir" ]; then echo "SKIP $1  (reference produced nothing)"; return; fi
-  if cmp -s "$WORK/mine.ir" "$WORK/ref.ir"; then
-    echo "ok   $1 -> CoreIR == ssc1-front ($(wc -c < "$WORK/mine.ir") bytes)"
+  if [ ! -s "$WORK/mine.ir" ]; then echo "FAIL $1  F emitted NO IR (regression)"; fail=1; return; fi
+  # COMPARE-BOTH-SIDES: execute the oracle IR and F's IR, compare the (exit-status, stdout) TUPLE.
+  runout "$WORK/ref.ir"  > "$WORK/ref.out";  rcr=$?
+  runout "$WORK/mine.ir" > "$WORK/mine.out"; rcm=$?
+  if [ "$rcm" = "$rcr" ] && cmp -s "$WORK/mine.out" "$WORK/ref.out"; then
+    echo "ok   $1 -> output == oracle (rc=$rcr, $(wc -c < "$WORK/mine.out" | tr -d ' ')B out; IR $(wc -c < "$WORK/mine.ir")B vs ref $(wc -c < "$WORK/ref.ir")B)"
   else
-    echo "FAIL $1  CoreIR != ssc1-front"
-    python3 - "$WORK/mine.ir" "$WORK/ref.ir" <<'PY'
-import sys
-a=open(sys.argv[1]).read(); b=open(sys.argv[2]).read()
-i=0
-while i<min(len(a),len(b)) and a[i]==b[i]: i+=1
-print('       first divergence at byte', i, 'of', len(a), '(mine) /', len(b), '(ref)')
-print('       mine: ...'+repr(a[max(0,i-40):i+60]))
-print('       ref : ...'+repr(b[max(0,i-40):i+60]))
-PY
+    echo "FAIL $1  OUTPUT != oracle"
+    echo "       expected(rc=$rcr, $(wc -c < "$WORK/ref.out"  | tr -d ' ')B): $(head -c 200 "$WORK/ref.out"  | tr '\n' '~')"
+    echo "       got     (rc=$rcm, $(wc -c < "$WORK/mine.out" | tr -d ' ')B): $(head -c 200 "$WORK/mine.out" | tr '\n' '~')"
     fail=1
   fi
 }
@@ -369,26 +376,19 @@ d brk_arg    'def f(xs: List[Int]): Int = xs.length
 def main(): Int = f([10, 20])'
 
 if [ "${1:-}" = "--self" ]; then
-  echo "--- X1: F compiles its OWN source ---"
-  # Step 1 -- the differential oracle applied to F's OWN source. This is the load-bearing claim;
-  # everything below follows from it.
-  run bin/ssc1-run.ssc0 "$FSUB" > "$WORK/selfref.ir"
+  echo "--- X1: F compiles its OWN source (TYPED fixpoint) ---"
+  # Step 1 -- stage1 = F(F_src). In the TYPED regime this DIVERGES from ssc1-front(F_src) BY DESIGN
+  # (F emits i.add/big.add/sconcat/seq where the untyped oracle emits __arith__/__eq__), so the old
+  # byte-identity-to-oracle claim is retired. Output-equivalence to the oracle is checked per-program
+  # by specs/v2.2-p6.5-semantic.sh (the immovable golden-OUTPUT set); the LOAD-BEARING claim here is
+  # now the fixpoint (Step 2): F self-compiles REPRODUCIBLY (stage1 == stage2, byte-identical typed IR).
   runir "$WORK/F0.ir" "$FSUB" > "$WORK/stage1.ir"
-  if cmp -s "$WORK/stage1.ir" "$WORK/selfref.ir"; then
-    echo "ok   F(F_src) == ssc1-front(F_src) byte-identical ($(wc -c < "$WORK/stage1.ir") bytes)"
+  if [ -s "$WORK/stage1.ir" ]; then
+    echo "ok   stage1 = F(F_src) emitted typed IR ($(wc -c < "$WORK/stage1.ir") bytes)"
+    echo "     (diverges from ssc1-front(F_src) by design — output-equivalence: v2.2-p6.5-semantic.sh)"
   else
-    echo "FAIL F cannot yet compile its own source byte-identically"
-    python3 - "$WORK/stage1.ir" "$WORK/selfref.ir" <<'DIFFPY'
-import sys
-a=open(sys.argv[1]).read(); b=open(sys.argv[2]).read()
-i=0
-while i<min(len(a),len(b)) and a[i]==b[i]: i+=1
-print('       first divergence at byte', i, 'of', len(a), '(mine) /', len(b), '(ref)')
-j=b.rfind('(def ',0,i)
-print('       in ref def:', b[j:j+40].split()[1] if j>0 else '?')
-print('       mine: ...'+repr(a[max(0,i-60):i+60]))
-print('       ref : ...'+repr(b[max(0,i-60):i+60]))
-DIFFPY
+    echo "FAIL F cannot compile its own source (stage1 is empty)"
+    FSUB_SRC="$FSUB" java $JVM -jar "$JAR" run-ir "$WORK/F0.ir" "$FSUB" 2>&1 | head -5
     exit 1
   fi
 
@@ -414,16 +414,18 @@ s=open(sys.argv[2]).read(); k=s.rindex(') (entry')
 open(sys.argv[3],'w').write(s[:k]+' '+md+') (entry (app (global main))))')
 SPLICEPY
 
-  # C1 must be a WORKING compiler -- and not merely "it runs": byte-identical to the reference too.
+  # C1 must be a WORKING compiler -- OUTPUT-equivalent to the reference (typed IR won't be byte-identical
+  # to the untyped oracle). COMPARE-BOTH-SIDES: compile fact(5) with BOTH C1 and the oracle, run both,
+  # require identical output AND the known-correct value 120.
   printf 'def f(x: Int): Int = if x < 1 then 1 else x * f(x - 1)\ndef main(): Int = f(5)\n' > "$WORK/t.ssc"
-  run bin/ssc1-run.ssc0 "$WORK/t.ssc" > "$WORK/t.ref"
-  runir "$WORK/C1.ir" "$WORK/t.ssc" > "$WORK/t.mine"
-  if cmp -s "$WORK/t.mine" "$WORK/t.ref"; then
-    g1=$(runir "$WORK/t.mine" | head -1)
-    if [ "$g1" = "120" ]; then echo "ok   C1 (the self-produced compiler) is byte-identical to the reference AND its IR runs -> $g1"
-    else echo "FAIL C1's emitted IR ran to [$g1], want 120"; fail=1; fi
+  run bin/ssc1-run.ssc0 "$WORK/t.ssc" > "$WORK/t.refir"
+  runir "$WORK/C1.ir" "$WORK/t.ssc" > "$WORK/t.mineir"
+  gref=$(runout "$WORK/t.refir"  | head -1)
+  gmine=$(runout "$WORK/t.mineir" | head -1)
+  if [ -s "$WORK/t.mineir" ] && [ "$gmine" = "$gref" ] && [ "$gmine" = "120" ]; then
+    echo "ok   C1 (the self-produced compiler) is output-equivalent to the reference AND its IR runs -> $gmine"
   else
-    echo "FAIL C1 is not a faithful compiler"; fail=1
+    echo "FAIL C1 is not a faithful compiler (ref ran to [$gref], C1 ran to [$gmine], want 120)"; fail=1
   fi
 
   # stage2 = C1(F_src)
