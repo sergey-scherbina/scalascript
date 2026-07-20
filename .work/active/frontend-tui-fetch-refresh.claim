@@ -1,6 +1,6 @@
 feature/frontend-tui-fetch-refresh 2026-07-20T02:26:59Z
 agent: codex-clear-lynx
-heartbeat: 2026-07-20T08:40:20Z
+heartbeat: 2026-07-20T09:00:09Z
 status: in-progress
 done-so-far: spec 8a49ceba4 and refresh fix 6c6fcf21b landed; exact run 29719191208 exposed only a clean-run wire-core test-harness omission, fixed at 2e097848b; affected suites 4/4 + 35/35, frontendTui 36/36, and staged rozum dual-target smoke pass
-next: await exact-SHA CI for final candidate da7bd998d, then release the claim and remove the worktree
+next: exact run 29728630760 for da7bd998d is live (lint/validate green; conformance on examples; sbt on negative-toolchain gate); release only after all four jobs are green
