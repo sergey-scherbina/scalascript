@@ -8,11 +8,14 @@
 #
 # For every raw .ssc program P in the slice:
 #   def = (exit, stdout) of   bin/ssc run P              -- DEFAULT front (ssc1-front + ssc1-lower)
-#   f   = (exit, stdout) of   SSC_FRONT=F bin/ssc run P  -- F, the self-hosting subset compiler
+#   f   = (exit, stdout) of   SSC_FRONT=F bin/ssc run P  -- F + the F4a delegate-fallback
 #   EQUAL iff def == f            (COMPARE BOTH SIDES; raw stdout bytes + exit code; NO normalization)
-# A DIVERGE (f != def) MUST be an expected GAP in specs/v2.2-p6.5-classify.expected, else genuine-FAIL
-# (exit 1). Both-fail-identically counts as EQUAL. AGENTS.md apparatus discipline: fail loud (exit 2) if
-# nothing ran; every DIVERGE prints def-vs-f.
+# Since the F4a delegate-fallback (RunNativeV2), F is NEVER worse than default: where F cannot lower a
+# program it emits an unbound global, Reader.validate catches it, and the file is re-lowered through the
+# default front — so every known gap is EQUAL. The expected-divergence list is therefore empty; ANY
+# DIVERGE (f != def) not in specs/v2.2-p6.5-dualrun.expected is a genuine-FAIL (exit 1) = a real F
+# correctness/regression. Both-fail-identically counts as EQUAL. AGENTS.md apparatus discipline: fail
+# loud (exit 2) if nothing ran; every DIVERGE prints def-vs-f.
 #
 # Also asserts the TYPED FIXPOINT is byte-identical (specs/v2.2-p6.5-fsub.sh --self) — F self-compiles
 # reproducibly on its own typed output — the load-bearing self-hosting claim.
@@ -58,10 +61,16 @@ isGap() { awk -F'\t' -v k="$1" '!/^#/ && NF>=2 && $2==k {print; exit}' "$MANIFES
 if [ "${SSC_DUALRUN_ALL:-0}" = 1 ]; then
   FILES=$(ls "$ROOT"/examples/*.ssc "$ROOT"/tests/conformance/*.ssc 2>/dev/null)
 else
+  # covered-by-F programs (F runs) + every KNOWN gap class (F delegates to the default front via the
+  # F4a fallback → must be EQUAL). Including the gaps here is the point: the slice proves F is never
+  # worse than default even where F cannot lower.
   SPREAD="hello arithmetic case-classes collections enums pattern-matching higher-order-functions
     recursion strings maps option tuples variables default-params sealed-traits typeclass lenses
-    word-count json-read optics-index-at list-combinators mutual-recursion tail-recursion generators
-    string-eq-locals int-literal bitwise-operators data-types"
+    optics-index-at list-combinators mutual-recursion tail-recursion string-eq-locals int-literal
+    bitwise-operators data-types
+    word-count json-read generators extensions effects for-comprehensions tagless-multi-file
+    standard-scala-multifence scala-js-demo dsl-multi-pass wasm-primes wasm-sorting
+    effect-deep-handler-state js-effect-multishot-long-fold"
   FILES=""
   for n in $SPREAD; do
     for cand in "$ROOT/examples/$n.ssc" "$ROOT/tests/conformance/$n.ssc"; do
@@ -117,5 +126,6 @@ fi
 
 [ "$fail" -eq 0 ] || { echo "DUAL-RUN: RED"; exit 1; }
 fpnote=$([ "${SSC_DUALRUN_SKIP_FIXPOINT:-0}" = 1 ] && echo "fixpoint SKIPPED" || echo "typed fixpoint byte-identical")
-echo "*** DUAL-RUN GREEN: F front is output-equivalent to the default front on all $equal non-GAP programs;"
-echo "    $fpnote. (GAP programs still diverge by design — handle before the flip.)"
+echo "*** DUAL-RUN GREEN: SSC_FRONT=F is output-equivalent to the default front on all $equal programs;"
+echo "    $fpnote. F covers its subset directly; the F4a fallback re-lowers the rest through the default"
+echo "    front, so F is NEVER worse than default. ($diverge listed expected divergence(s).)"

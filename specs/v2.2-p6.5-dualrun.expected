@@ -4,17 +4,22 @@
 # `SSC_FRONT=F bin/ssc run P` (F) — capturing (exit, stdout). It is GREEN when every divergence is
 # listed here; an UNEXPECTED divergence (F worse than the default front, not listed) is a genuine-FAIL.
 #
-# This is SEPARATE from specs/v2.2-p6.5-classify.expected on purpose: a program can be output-equivalent
-# under the classify gate (F0.ir on per-file .code, no ambient injection) yet diverge HERE, because the
-# real path injects the ambient std prelude (RunNativeV2.ambientPrelude) and runs the plugin host — and
-# F must then also COMPILE the injected std-module SOURCE and resolve plugin-backed globals, which it
-# does not yet fully cover. That is an ADDITIONAL F-gap class beyond the 12 single-file classify GAPs,
-# and it is the load-bearing finding of step 3: F is not a drop-in front until these are handled
-# (fallback-delegate, or built out). Note: a program that fails under BOTH fronts (rc!=0, empty stdout)
-# counts as EQUAL — F is not WORSE there — so only F-worse-than-default cases need listing.
+# ★ SINCE THE F4a DELEGATE-FALLBACK (RunNativeV2), THIS LIST IS EMPTY. F covers its subset; where it
+# cannot — the 12 single-file gaps AND the ambient-prelude/plugin class (json's `__jsonCoreWrap`,
+# generators' `generator`, the multi-file / multi-fence / wasm cases) — F emits an UNBOUND global, which
+# `Reader.validate` catches, and RunNativeV2 transparently re-lowers the file through the default front.
+# So `SSC_FRONT=F bin/ssc run` is NEVER worse than the default: every known gap now falls back and
+# produces byte-identical output. Measured EQUAL through the real path: extensions, effects,
+# for-comprehensions, tagless-multi-file, json-read, generators, standard-scala-multifence, scala-js-demo,
+# dsl-multi-pass, wasm-primes/sorting, effect-deep-handler-state, js-effect-multishot-long-fold.
 #
-# format (TAB-separated):  <BUCKET>\t<program>\t<reason>   (buckets: GAP / OUT / DEFERRED, as classify)
-
-# ── measured on the default slice (opus, 2026-07-20). default front SUCCEEDS, F FAILS: F worse. ──
-GAP	json-read	ambient-prelude: RunNativeV2 injects std/json.ssc; F cannot fully compile that source → F IR references unbound (global __jsonCoreWrap). (default front prints 42.)
-GAP	generators	plugin-backed global `generator`: F IR references unbound (global generator) that the plugin/ambient layer provides. (default front prints List(1, 2, 3)…)
+# Consequence: ANY divergence the gate now reports is a genuine problem — either F produces WRONG output
+# that still passes the global pre-check (a real F correctness bug), or a RUNTIME-only gap that survives
+# the pre-check (F lowers with all globals resolved but throws at run). None are currently known: on the
+# real path the multi-file "arity 2 expected 1 given" case folds into an unbound-global and falls back.
+# If such a case ever appears and cannot be caught by a clean static pre-check, add it here as a
+# documented GAP with the reason (a run-time rerun is unsafe — it would duplicate already-emitted side
+# effects; that is why the pre-check, not try/rerun, is the mechanism).
+#
+# format (TAB-separated):  <BUCKET>\t<program>\t<reason>   (buckets: GAP / OUT / DEFERRED)
+# (intentionally empty — the fallback makes every known gap EQUAL to the default front.)

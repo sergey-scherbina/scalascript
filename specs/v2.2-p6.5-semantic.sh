@@ -369,7 +369,10 @@ case "$MODE" in
     fi
     echo "─────────────────────────────────────────────────────────────────"
     echo "  *** CLASSIFY GREEN: 0 unexpected disagreements — every non-match is expected."
-    echo "      Cutover note: $gap GAP program(s) still break under F and MUST be handled before step 4 (flip)."
+    echo "      Note: this gate measures RAW F coverage (run-ir(F0(P)) on per-file .code). The $gap GAP"
+    echo "      program(s) are those F does not lower on its own. At the PRODUCT level the F4a delegate-"
+    echo "      fallback (RunNativeV2) re-lowers them through the default front, so SSC_FRONT=F is never"
+    echo "      worse than default — proven output-equivalent by specs/v2.2-p6.5-dualrun.sh."
     ;;
   *) die "unknown mode '$MODE' (use: freeze | check | classify)";;
 esac
