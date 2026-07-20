@@ -1,6 +1,6 @@
 feature/frontend-tui-fetch-refresh 2026-07-20T02:26:59Z
 agent: codex-clear-lynx
-heartbeat: 2026-07-20T02:26:59Z
-status: not-started
-done-so-far: reproduced static TUI fetch as bootstrap-only during rozum UCC dual-target baseline
-next: create external worktree; record BUGS/SPRINT/spec before implementation
+heartbeat: 2026-07-20T02:27:22Z
+status: in-progress
+done-so-far: external worktree created; bootstrap-only refresh gap reproduced
+next: record BUGS/SPRINT/spec before implementation
