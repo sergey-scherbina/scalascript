@@ -16,6 +16,7 @@ exports:
   - SignalTextNode
   - FragmentNode
   - KeyedForNode
+  - ForJsonNode
   - RawTextNode
   - RawHtmlNode
   - TextFieldNode
@@ -78,6 +79,10 @@ case class ShowWhenNode(signal: Any, whenTrue: TkNode, whenFalse: TkNode) extend
 case class SignalTextNode(signal: Any)                  extends TkNode
 case class FragmentNode(children: List[TkNode])         extends TkNode
 case class KeyedForNode[A](items: Any, key: A => String, render: A => TkNode) extends TkNode
+// ForJsonNode — a keyed list whose `items` is a Signal[String] holding a JSON array
+// string; `key` is the item FIELD name to key rows by; `render` maps a parsed item
+// (Any) to a row TkNode. Lowers to forJsonView. See std.ui.reactive.forJson.
+case class ForJsonNode(items: Any, key: String, render: Any => TkNode) extends TkNode
 case class RawTextNode(text: String)                    extends TkNode
 case class RawHtmlNode(html: String)                    extends TkNode
 

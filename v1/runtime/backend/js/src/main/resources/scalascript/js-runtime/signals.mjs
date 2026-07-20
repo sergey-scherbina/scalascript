@@ -364,6 +364,16 @@ function _ssc_ui_signalText(sig) { return { _type: '_SignalText', sig }; }
 function _ssc_ui_showSignal(cond, whenTrue, whenFalse) { return { _type: '_ShowSignal', cond, whenTrue, whenFalse }; }
 function _ssc_ui_fragment(children) { return { _type: '_Fragment', children: children || [] }; }
 function _ssc_ui_forKeyedView(items, key, render) { return { _type: '_ForKeyed', items, key, render }; }
+// forJsonView — like _ForKeyed, but `items` is a Signal[String] holding a JSON ARRAY
+// string. The runtime JSON.parses it (at SSR + on every change), keys rows by the item
+// FIELD named `key` (a string, not a fn), and calls `render` with the parsed item.
+function _ssc_ui_forJsonView(items, key, render) { return { _type: '_ForJson', items, key, render }; }
+// itemField — read a field of a parsed forJson item as a String ('' when absent/null).
+function _ssc_ui_itemField(item, name) {
+  if (item == null || typeof item !== 'object') return '';
+  var v = item[name];
+  return (v === null || v === undefined) ? '' : String(v);
+}
 // selectFromView — a <select> whose <option> children track `items`
 // reactively (specs/std-ui-select.md § "Reactive options (selectFrom)").
 // Unlike _ForKeyed, this owns the WHOLE <select> element: <select>'s HTML
@@ -447,6 +457,27 @@ function _ssc_ui_arrayValue(v) {
     return Array.isArray(got) ? got : [];
   }
   return [];
+}
+// _ssc_ui_jsonArray — forJson's array resolver. Unlike _ssc_ui_arrayValue (which
+// expects the signal to already hold a JS array), this parses a JSON-array STRING.
+// Accepts a Signal[String], a raw string, or an already-parsed array; returns [] on
+// anything else or a parse error (an empty/half-typed body is a normal transient state).
+function _ssc_ui_jsonArray(v) {
+  var raw = v;
+  if (v && typeof v.get === 'function') raw = v.get();
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    var s = raw.trim();
+    if (!s) return [];
+    try { var p = JSON.parse(s); return Array.isArray(p) ? p : []; }
+    catch (_e) { return []; }
+  }
+  return [];
+}
+// _ssc_ui_jsonKey — a forJson row's stable key: the item's `keyField` value, else index.
+function _ssc_ui_jsonKey(item, keyField, idx) {
+  if (item && typeof item === 'object' && keyField && item[keyField] != null) return String(item[keyField]);
+  return String(idx);
 }
 
 // Walk the View IR tree and produce a static HTML string + a Map of signal
@@ -634,6 +665,21 @@ function _ssc_ui_renderBody(view) {
         }).join('');
         const sigId = v.items && v.items.id != null ? ` data-ssc-forkeyed-sig="${_esc(String(v.items.id))}"` : '';
         return `<span data-ssc-forkeyed="${seq}"${sigId} style="display:contents">${rows}</span>`;
+      }
+      case '_ForJson': {
+        // Mirror _ForKeyed, but the items signal holds a JSON-array STRING: parse it,
+        // key each row by the item's `key` FIELD, render the parsed item. Shares the
+        // `keyed` seq registry so _mountKeyed dispatches this by index (see its _ForJson
+        // branch). Container marker is data-ssc-forjson to keep the mount selectors distinct.
+        collectSig(v.items);
+        const seq = keyed.length;
+        keyed.push(v);
+        const rows = _ssc_ui_jsonArray(v.items).map(function(item, idx) {
+          const key = _ssc_ui_jsonKey(item, v.key, idx);
+          return `<span data-ssc-key="${_esc(key)}" style="display:contents">${walk(_ssc_ui_renderKeyed(v.render, item))}</span>`;
+        }).join('');
+        const sigId = v.items && v.items.id != null ? ` data-ssc-forjson-sig="${_esc(String(v.items.id))}"` : '';
+        return `<span data-ssc-forjson="${seq}"${sigId} style="display:contents">${rows}</span>`;
       }
       case '_SelectFrom': {
         // Mirrors _ForKeyed's key-based reconcile, adapted for <select>:
@@ -1008,6 +1054,7 @@ function _ssc_ui_mount(sigs, keyedRoots) {
   function _mountKeyed(scope, keyedViews) {
     (keyedViews || []).forEach(function(kv, seq) {
       if (kv && kv._type === '_SelectFrom') { _mountSelectFrom(scope, kv, seq); return; }
+      if (kv && kv._type === '_ForJson')    { _mountForJson(scope, kv, seq); return; }
       _qsa(scope, '[data-ssc-forkeyed="' + seq + '"]').forEach(function(container) {
         if (_bound(container, 'forkeyed')) return;
         var sig = kv && kv.items;
@@ -1045,6 +1092,49 @@ function _ssc_ui_mount(sigs, keyedRoots) {
         }
         _sub(sigId, reconcile);
       });
+    });
+  }
+  // _mountForJson — the JSON-string sibling of _mountKeyed's forkeyed reconcile:
+  // same existing-by-key -> keep-or-create -> append -> drop-stale algorithm, but the
+  // backing signal holds a JSON-array STRING (parsed via _ssc_ui_jsonArray) and rows are
+  // keyed by the item's `key` field (via _ssc_ui_jsonKey). Surviving rows keep their DOM.
+  function _mountForJson(scope, kv, seq) {
+    _qsa(scope, '[data-ssc-forjson="' + seq + '"]').forEach(function(container) {
+      if (_bound(container, 'forjson')) return;
+      var sig = kv && kv.items;
+      if (!sig || sig.id == null) return;
+      var sigId = String(sig.id);
+      function makeRow(item, idx, key) {
+        var rowView = _ssc_ui_renderKeyed(kv.render, item);
+        var out = _ssc_ui_renderBody(rowView);
+        var wrap = document.createElement('span');
+        wrap.setAttribute('data-ssc-key', key);
+        wrap.style.display = 'contents';
+        wrap.innerHTML = out.body;
+        _bindScope(wrap, out.sigs, out.keyed);
+        return wrap;
+      }
+      function reconcile(rawVal) {
+        var rows = _ssc_ui_jsonArray(rawVal);
+        var existing = Object.create(null);
+        Array.prototype.forEach.call(container.children || [], function(child) {
+          var k = child.getAttribute && child.getAttribute('data-ssc-key');
+          if (k != null) existing[k] = child;
+        });
+        var keep = Object.create(null);
+        rows.forEach(function(item, idx) {
+          var key = _ssc_ui_jsonKey(item, kv.key, idx);
+          var node = existing[key];
+          if (!node) node = makeRow(item, idx, key);
+          keep[key] = true;
+          container.appendChild(node);
+        });
+        Array.prototype.slice.call(container.children || []).forEach(function(child) {
+          var k = child.getAttribute && child.getAttribute('data-ssc-key');
+          if (k != null && !keep[k]) child.remove();
+        });
+      }
+      _sub(sigId, reconcile);
     });
   }
   // _mountSelectFrom — the <select>-specific sibling of _mountKeyed's own

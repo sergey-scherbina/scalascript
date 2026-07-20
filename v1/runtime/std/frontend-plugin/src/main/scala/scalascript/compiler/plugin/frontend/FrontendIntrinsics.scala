@@ -145,6 +145,33 @@ object FrontendIntrinsics:
         case _ => PluginError.raise("forKeyedView(items, key, render)")
     },
 
+    // ── forJsonView(items, key, render): View ──────────────────────────────
+    // `items` is a Signal[String] holding a JSON-array string. The dynamic parse +
+    // keyed reconciliation lives in the JS emit-spa runtime (_ssc_ui_forJsonView /
+    // _mountForJson), where the render callback stays live in-browser; the
+    // interpreter/JVM fallback renders empty (the browser runtime is authoritative,
+    // same stance as the forKeyedView/selectFromView notes above).
+    QualifiedName("forJsonView") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case List(Foreign("ReactiveSignal", _: ReactiveSignal[?]), _: String, Fn(_)) =>
+          PluginValue.foreign("View", View.Fragment(Nil))
+        case _ => PluginError.raise("forJsonView(items, key, render)")
+    },
+
+    // ── itemField(item, name): String ──────────────────────────────────────
+    // Read a String field off a parsed forJson row (a Map here); "" when absent/null.
+    QualifiedName("itemField") -> PluginNative.evalLegacy { (_, args) =>
+      args match
+        case List(item, name: String) =>
+          item match
+            case m: scala.collection.Map[?, ?] =>
+              m.asInstanceOf[scala.collection.Map[String, Any]].get(name) match
+                case Some(v) if v != null => v.toString
+                case _                    => ""
+            case _ => ""
+        case _ => PluginError.raise("itemField(item, name)")
+    },
+
     // ── selectFromView[A](items, key, optionFn, selected, style, placeholder, disabled): View ──
     // Interpreter/JVM fallback: like forKeyedView above, render the current
     // signal list ONCE (no dynamic reconciliation here — that lives in the JS

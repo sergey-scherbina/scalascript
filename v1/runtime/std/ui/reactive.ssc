@@ -8,6 +8,7 @@ exports:
   - signalText_
   - fragment_
   - forKeyed
+  - forJson
   - rawText
   - rawHtml
 ---
@@ -15,7 +16,7 @@ exports:
 # `std.ui.reactive` — reactive constructors
 
 [Signal](primitives.ssc)
-[TkNode, ShowWhenNode, SignalTextNode, FragmentNode, KeyedForNode, RawTextNode, RawHtmlNode](nodes.ssc)
+[TkNode, ShowWhenNode, SignalTextNode, FragmentNode, KeyedForNode, ForJsonNode, RawTextNode, RawHtmlNode](nodes.ssc)
 
 ```scalascript
 def showWhen(signal: Any, whenTrue: TkNode, whenFalse: TkNode): TkNode =
@@ -27,6 +28,15 @@ def fragment_(children: TkNode*): TkNode = FragmentNode(children.toList)
 
 def forKeyed[A](items: Signal[List[A]], key: A => String)(render: A => TkNode): TkNode =
   KeyedForNode[A](items, key, render)
+
+// forJson — render a keyed reactive list from a Signal[String] holding a JSON ARRAY
+// string. `key` is the item field name used to key rows; `render` receives each parsed
+// item (Any) and returns its row TkNode. Read fields with `itemField(item, "name")` and
+// branch on them for per-item conditional styling (e.g. a chat bubble's side/class from
+// a "role" field). Closes the forKeyed gap: forKeyed needs a real Signal[List[A]], while
+// computedSignal / fetch signals only produce Signal[String] — forJson parses the JSON.
+def forJson(items: Signal[String], key: String)(render: Any => TkNode): TkNode =
+  ForJsonNode(items, key, render)
 
 def rawText(text: String): TkNode = RawTextNode(text)
 

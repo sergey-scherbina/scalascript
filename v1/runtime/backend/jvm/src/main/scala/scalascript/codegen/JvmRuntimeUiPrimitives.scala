@@ -53,6 +53,21 @@ object JvmRuntimeUiPrimitives:
        |        scalascript.frontend.View.Fragment(
        |          _rows.map(render(_).asInstanceOf[scalascript.frontend.View[?]]))
        |
+       |      // forJsonView — dynamic JSON-array rendering + keyed reconciliation lives in the
+       |      // JS emit-spa runtime (_ssc_ui_forJsonView / _mountForJson). The JVM/interpreter
+       |      // fallback renders empty (like the forKeyedView note, the browser is authoritative).
+       |      def forJsonView(items: Any, key: String, render: Any => View): View =
+       |        scalascript.frontend.View.Fragment(Seq.empty[scalascript.frontend.View[?]])
+       |
+       |      // itemField — read a String field off a parsed JSON row (a Map on the JVM).
+       |      def itemField(item: Any, name: String): String =
+       |        item match
+       |          case m: scala.collection.Map[?, ?] =>
+       |            m.asInstanceOf[scala.collection.Map[String, Any]].get(name) match
+       |              case Some(v) if v != null => v.toString
+       |              case _                    => ""
+       |          case _ => ""
+       |
        |      def setSignal(s: Any, v: Any): EventHandler =
        |        scalascript.frontend.EventHandler.SetSignalLiteral(
        |          s.asInstanceOf[scalascript.frontend.ReactiveSignal[Any]], v)

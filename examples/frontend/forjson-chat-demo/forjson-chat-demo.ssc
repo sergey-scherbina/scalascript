@@ -1,0 +1,55 @@
+---
+name: forjson-chat-demo
+version: 1.0.0
+description: forJson demo — a Signal[String] holding a JSON array of chat messages, rendered DECLARATIVELY as styled left/right bubbles keyed by id, with per-item conditional styling from the "role" field.
+frontend: react
+---
+
+# forjson-chat-demo — a JSON-array signal as a styled chat thread
+
+`messages` is a plain `Signal[String]` whose value is a JSON array of
+`{id, role, text}`. `forJson(messages, "id")` JSON-parses it, keys each row by
+`id`, and calls the render with the parsed item; `itemField(m, "role"/"text")`
+reads fields, and a per-item `if role == "user"` chooses the bubble side/colour.
+Clicking a button sets `messages` to a longer array — the new bubble is
+reconciled in reactively (surviving rows keep their DOM). Emit a self-contained
+file with
+`ssc emit-spa --frontend react examples/frontend/forjson-chat-demo/forjson-chat-demo.ssc > forjson-chat-demo.html`.
+
+[signal, serve, itemField](std/ui/primitives.ssc)
+[vstack, hstack](std/ui/layout.ssc)
+[heading, text](std/ui/typography.ssc)
+[signalButton](std/ui/input.ssc)
+[forJson, rawHtml](std/ui/reactive.ssc)
+[TkNode](std/ui/nodes.ssc)
+[lower](std/ui/lower.ssc)
+[defaultTheme](std/ui/theme.ssc)
+
+```scalascript
+val initial  = """[{"id":"1","role":"user","text":"hi"},{"id":"2","role":"bot","text":"hello there"}]"""
+val extended = """[{"id":"1","role":"user","text":"hi"},{"id":"2","role":"bot","text":"hello there"},{"id":"3","role":"user","text":"how are you?"}]"""
+
+val messages = signal("chatMessages", initial)
+
+// One chat bubble, rendered from a parsed JSON item.  Field reads + a conditional
+// on the "role" field drive the side (flex-end/flex-start) and colours — all
+// declarative, no hand-written JS.
+def bubble(m: Any): TkNode =
+  val role = itemField(m, "role")
+  val txt  = itemField(m, "text")
+  val side = if role == "user" then "flex-end" else "flex-start"
+  val bg   = if role == "user" then "#2563eb" else "#e5e7eb"
+  val fg   = if role == "user" then "#ffffff" else "#111827"
+  rawHtml(s"""<div class="row ${role}" style="display:flex;justify-content:${side};margin:4px 0"><div class="bubble ${role}" style="max-width:70%;padding:8px 12px;border-radius:12px;background:${bg};color:${fg}">${txt}</div></div>""")
+
+val tree = vstack(gap = 12)(
+  heading(1, "forJson chat"),
+  hstack(gap = 8)(
+    signalButton(messages, extended, "Append user msg"),
+    signalButton(messages, initial, "Reset")
+  ),
+  forJson(messages, "id")((m: Any) => bubble(m))
+)
+
+serve(lower(tree, defaultTheme), 8080)
+```
