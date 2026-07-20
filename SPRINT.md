@@ -536,8 +536,42 @@ reuses DA10 objReg + emitMethodCall :496 (already static-dispatches objReg membe
     declarations lowering to `Console_writeLine`/`effect.perform.oneshot`. A SEPARATE arc (effect_decl).
   - **extension-in-given (typeclass-extension, tagless-multi-file):** `extension` methods inside `given..with`
     bodies (`__methodOrExt__`) — blocked on Arc 2.
-- [ ] **ARC 2 (extensions) — `extension (r: T) def m` layout E-frame + receiver-param prepend + registry + dispatch.**
-      After Arc 1, or hand off. `script` flips with just extensions; `extensions.code` also needs multi-line for-blocks.
+- [x] **ARC 2 (extensions) — top-level `extension [T] (r: R)` DONE.** Each contiguous `def` member after the
+      header → a top-level def with the receiver prepended (ssc1-front allParams :1740); `x.m(a)`/bare `x.m` →
+      `(app (global m) x a..)` (extMethods registry, 14th value in the 13th cx slot). NO layout E-frame needed:
+      F's layout already `;`-separates the members as top-level items, so the group = the contiguous defs after
+      the header (a non-def ends it). Corpus 412→414 (+script, +markdown-html), 0 drops, X1 fixpoint 351,993 B,
+      --self 153 ok/0 FAIL.
+
+**➜ v2-p65-deep6 SESSION HANDOFF (2026-07-20): corpus MATCH 408 → 414/509 (81%, +6), ALL 0 drops every slice,
+  X1 fixpoint stage1==stage2 byte-identical each slice (326,331 → 351,993 B), --self 153 ok/0 FAIL each,
+  kernel +0, no v2/lib oracle edits. BOTH clean IN arcs' CORES landed (specs/v2-language-surface.md §4.2):**
+  - **ARC 1 given/using/summon (+4): typeclass, tagless-program, tagless-resolution, graph-rdf4j-http-storage.**
+    G1 `given n: T with` → prefixed member defs + `__mk_method_obj__` + objReg dispatch (with→layout opener;
+    skipTraitColon skips a trait's `:`-led layout body; objDefE skipGen for generic members). G3 `summon[TC[T]]`
+    → givenTab resolution (findGivenF). G4 `using`-param clauses → trailing params + call-site injection by
+    first-arg type (usingSig registry).
+  - **ARC 2 top-level extension methods (+2): script, markdown-html.**
+  - NEW INFRA in F (reusable): 13th cx slot is now `(givenTab, (usingSig, extMethods))` (givenTabOf/usingSigOf/
+    extMethodsOf); parseTCType (token→type key); collectGivenTable/collectUsingSig/collectExtMethods pre-passes;
+    givenItem/extensionItem/parseSummon; injection helpers (injectUsing/buildUsingArgs/typeOfArg).
+  **REMAINING given/summon+extension sub-features (each DEEP, 1-2 files — NOT done; assessed poor ratio):**
+  - **extension-in-given (typeclass-extension, tagless-multi-file):** `extension` members INSIDE `given..with`
+    → prefixed `given_fmap` + method obj; call site uses a DIFFERENT dispatch `(prim __methodOrExt__ "m" recv
+    args (global m))` (NOT the top-level `(app (global m) recv)`). Needs givenObjItem to descend into extension
+    members + a `__methodOrExt__` emit path. Oracle: collectExtensionMethods descends given_obj :584.
+  - **context bounds `[A: TC1: TC2]` (tagless-context-bounds):** active-ctx summon (`summon[Pretty[A]].m`, A
+    abstract → first-given), summon aliases (`val m = summon[Monoid[A]]`), ctx-param synth + prepend. Oracle
+    ITSELF degrades here (`__missing_Monoid_combine`) — partly OUT.
+  - **derived/Mirror givens (custom-derives-mirror, rozum-agent-schema-derived):** `summon[Mirror.Of[T]]` →
+    `__mirror_T` via case-class `derives` → caseGeneratedGivenEntries in the given table.
+  - **effect system (effects, effects-handler, algebraic-effects):** NOT given/summon — `effect` decls →
+    `Console_writeLine`/`effect.perform.oneshot`. Separate arc (effect_decl lowering).
+  **All other remaining DIFFs are OUT (Decision C: oracle `_err` on @main = wasm-*; actors-send `!`; float-E)
+  or deep 1-offs (for-comprehensions/`_sel_flatMap`, typed-sql-crud `Db.queryTyped`, list-var registry). No
+  cheap near-misses remain (verified: every dLen≤6 DIFF is an oracle `_err` bug or a deep feature). Clean
+  ceiling ~471; reaching it needs many dedicated deep pushes. Jar /tmp/ssc-deep6.jar; single-file harness
+  /tmp/oc6.sh (JAR/V2/FSUB/F0_STALE env); baseline /tmp/baseline_deep6.txt (408).**
 
 ## v2-finish — make v2 ideal, small, powerful, fully self-hosted (2026-07-18, Sergiy)
 
