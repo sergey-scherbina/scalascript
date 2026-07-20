@@ -3556,6 +3556,24 @@ def hasNamedCatchAll = (arms) =>
           else hasNamedCatchAll(rest) } }
   }
 
+-- An irrefutable catch-all arm — a bare variable (`case msg`) OR a wildcard
+-- (`case _`). Guarded arms are "gpat" (a guard can fail), so they are NOT
+-- irrefutable and are excluded here. When a handler's arms already end in such
+-- a catch-all, the whole surface is handled and the synthetic miss-fallback is
+-- both redundant and harmful: it appends a second vpat that lowerMatch's
+-- last-vpat-wins default lets overwrite the real catch-all's body, so the
+-- handler always missed. (v2-native-receive-bare-var-catchall.)
+def hasCatchAll = (arms) =>
+  match arms {
+    case Nil => false
+    case Cons(arm, rest) =>
+      match arm { case Pair(pat, body) =>
+        match pat { case Pair(ptag, pdata) =>
+          if #seq(ptag, "vpat") then true
+          else if #seq(ptag, "wpat") then true
+          else hasCatchAll(rest) } }
+  }
+
 def stringMember = (needle, values) =>
   match values {
     case Nil => false
@@ -3600,11 +3618,14 @@ def markHandlerBodies = (eventName, arms) =>
           markHandlerBodies(eventName, rest)) }
   }
 
-def handlerMarkedArms = (eventName, arms) =>
-  let fallback = Pair(
-    Pair("vpat", "__handler_dispatch_fallback__"),
-    handlerMissExpr(eventName)) in
-  appendL(markHandlerBodies(eventName, arms), Cons(fallback, Nil))
+def handlerMarkedArms = (eventName, arms, skipFallback) =>
+  let marked = markHandlerBodies(eventName, arms) in
+  if skipFallback then marked
+  else
+    let fallback = Pair(
+      Pair("vpat", "__handler_dispatch_fallback__"),
+      handlerMissExpr(eventName)) in
+    appendL(marked, Cons(fallback, Nil))
 
 -- Direct simple-constructor lowering deliberately omits lowerMatch's synthetic
 -- once-evaluated scrutinee Let: the lambda parameter already IS Local(0).
@@ -3645,7 +3666,8 @@ def lowerHandlerMatch = (scope, eventName, arms) =>
     else if hasNamedCatchAll(flatArms) then true
     else hasDuplicateCtorPat(flatArms) in
   if general then
-    lowerMatch(scope, Pair("var", eventName), handlerMarkedArms(eventName, arms))
+    lowerMatch(scope, Pair("var", eventName),
+      handlerMarkedArms(eventName, arms, hasCatchAll(flatArms)))
   else lowerDirectHandlerMatch(scope, flatArms)
 
 def lowerMatch = (scope, scrutinee, arms) =>
