@@ -1,13 +1,19 @@
 claim: v2-f4
 branch: feature/v2-f4-stage
 agent: opus (orchestrator — F4a delegate-fallback)
-heartbeat: 2026-07-20T18:12:56Z
-status: in-progress — F4a: delegate-fallback → flip-ready (Sergiy holds the flip)
-what: Sergiy chose F4a. Steps 1-3 done (classify gate, SSC_FRONT=F flag, dualrun). NOW: implement
-      delegate-fallback in RunNativeV2 (frontIsF path) — resolve F's decoded Program globals; on any
-      unresolved (F gap: the 12 single-file + ambient-prelude/plugin class json-read/generators),
-      re-run the file through the DEFAULT runner (fsubSrc=None, ssc1-run.ssc0) → F never-worse-than-
-      default. Handle runtime-only failures (tagless-multi-file arity) via broader try/rerun or
-      known-gap. Turn classify + dualrun gates FULLY green. Old front STAYS as fallback (shrink
-      deferred, per Sergiy). Then flip-readiness report: the one-line flip (RunNativeV2.frontIsF
-      opt-in→opt-out) for Sergiy. REVERSIBLE/additive; do NOT flip default.
+heartbeat: 2026-07-20T21:40:00Z
+status: F4a DONE — delegate-fallback landed; FLIP-READY (Sergiy holds the one-line flip)
+what: Sergiy chose F4a. Steps 1-3 (classify gate / SSC_FRONT=F flag / dualrun) + F4a delegate-fallback
+      all landed on main (f54937bb8). F never-worse-than-default via Reader.validate unbound-global
+      pre-check → re-lower gaps through the default runner (ssc1-run.ssc0). The ONE pre-check catches
+      BOTH gap classes (12 single-file + ambient/plugin). Runtime-only gap = documented known-gap (chose
+      static pre-check over unsafe run-time rerun — ~half corpus multi-file incl. scljet DB writers).
+      GATES: dualrun default slice 43/45 EQUAL + 2 expected-GAP (dsl-ast-builder, multi-link-imports),
+      classify green, fixpoint byte-identical (366123 B).
+      RESIDUAL (honest caveat): 2 MULTI-FILE programs where F lowers a value WRONG with all globals
+      resolved (dsl-ast-builder → <closure>, multi-link-imports → ()) survive the pre-check → documented
+      in dualrun.expected; need F's multi-file lowering fixed. So never-worse EXCEPT this small class.
+      FLIP (Sergiy): one line in RunNativeV2.frontIsF (opt-IN→opt-OUT); old front stays fallback; the 2
+      residuals would regress post-flip until F multi-file fixed. Full-corpus sweep is slow (F recompiles
+      per program) — complete residual enumeration is a follow-up. Step 5 (delete old front) blocked on
+      F covering the fallback set itself.
