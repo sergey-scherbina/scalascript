@@ -1,0 +1,6 @@
+feature/site-docs-lane 2026-07-20T02:42:38Z
+agent: claude-site-lane
+heartbeat: 2026-07-20T02:42:38Z
+status: in-progress
+done-so-far: recon complete — md parse exists in pure .ssc (std/markdown-core.ssc), NO md->HTML renderer, NO inline parsing (bold/italic/code/link); playground blocked on BUGS.md:1537 coreir-compiler-unbounded-depth (browser stack 1MB, not configurable)
+next: SPRINT plan, then std/markdown-html.ssc (new module - do NOT touch snapshot-tested markdown-core), then docs site generator, then wire into pages.yml
