@@ -15,6 +15,8 @@ exports:
   - showSignal
   - fragment
   - forKeyedView
+  - forJsonView
+  - itemField
   - selectFromView
   - setSignal
   - inputChange
@@ -94,6 +96,24 @@ extern def signalText[T](s: Signal[T]): View
 extern def showSignal(cond: Signal[Boolean], whenTrue: View, whenFalse: View): View
 extern def fragment(children: List[View]): View
 extern def forKeyedView[A](items: Signal[List[A]], key: A => String, render: A => View): View
+
+// forJsonView — like forKeyedView, but `items` is a Signal[String] holding a JSON
+// ARRAY string (e.g. `[{"role":"user","text":"hi"}, …]`). The runtime JSON.parses
+// the string at render + on every change, keys each row by the item's `key` FIELD
+// (a property name, not a function — falls back to the row index when absent), and
+// calls `render` with the parsed item object. This bridges the gap that forKeyedView
+// needs a real Signal[List[A]] while computedSignal/fetch signals only yield
+// Signal[String]; a JSON-array-in-a-string can now feed a keyed reactive list.
+// Read fields off the item with `itemField(item, "name")`. Reconciliation reuses
+// forKeyedView's own keyed diff (surviving rows keep their DOM nodes).
+extern def forJsonView(items: Signal[String], key: String, render: Any => View): View
+
+// itemField — read a field of a forJson row item as a String ("" when the item is
+// null or the field is missing/null). The item is the parsed JSON object handed to a
+// forJson `render`; use the result as text or to drive conditional styling (a bubble
+// class/side from a "role" field). Not reactive per-field — the whole list re-renders
+// when the backing Signal[String] changes, which is the right grain for a message thread.
+extern def itemField(item: Any, name: String): String
 
 // selectFromView — a <select> whose <option> children track `items`
 // reactively (specs/std-ui-select.md § "Reactive options (selectFrom)").

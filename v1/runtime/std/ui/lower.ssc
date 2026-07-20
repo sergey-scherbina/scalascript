@@ -14,11 +14,11 @@ Pure function, no DOM, no async — safe for SSR.
 Import this + a Theme, build your tree with widget constructors,
 then call `serve(lower(tree, defaultTheme), 8080)`.
 
-[TkNode, VStackNode, HStackNode, DividerNode, SpacerNode, HeadingNode, TextNode_, SignalHeadingNode, ShowWhenNode, SignalTextNode, FragmentNode, KeyedForNode, RawTextNode, RawHtmlNode, TextFieldNode, TextFieldRNode, CheckboxNode, SelectNode, SelectFromNode, SignalButtonNode, ActionButtonNode, SignalLabelButtonNode, SignalActionButtonNode, BadgeNode, SpinnerNode, SignalPreNode, CardNode, ModalNode, TableColumn, TableNode, RouteEntry, RouterNode, LinkNode, DataTableNode, StyledNode, TagNode, PillNode, KpiCardNode, Tab, TabBarNode, BoxNode, AnchorNode](nodes.ssc)
+[TkNode, VStackNode, HStackNode, DividerNode, SpacerNode, HeadingNode, TextNode_, SignalHeadingNode, ShowWhenNode, SignalTextNode, FragmentNode, KeyedForNode, ForJsonNode, RawTextNode, RawHtmlNode, TextFieldNode, TextFieldRNode, CheckboxNode, SelectNode, SelectFromNode, SignalButtonNode, ActionButtonNode, SignalLabelButtonNode, SignalActionButtonNode, BadgeNode, SpinnerNode, SignalPreNode, CardNode, ModalNode, TableColumn, TableNode, RouteEntry, RouterNode, LinkNode, DataTableNode, StyledNode, TagNode, PillNode, KpiCardNode, Tab, TabBarNode, BoxNode, AnchorNode](nodes.ssc)
 
 [Theme, TypographyItem](theme.ssc)
 
-[element, textNode, signalText, showSignal, fragment, forKeyedView, selectFromView, setSignal, inputChange, toggleSignal, eqSignal, dataTableView](primitives.ssc)
+[element, textNode, signalText, showSignal, fragment, forKeyedView, forJsonView, selectFromView, setSignal, inputChange, toggleSignal, eqSignal, dataTableView](primitives.ssc)
 
 ```scalascript
 // ── Token resolution (styled-TkNode, P2) ─────────────────────────────────
@@ -200,6 +200,13 @@ def lower(n: TkNode, theme: Theme): View = n match
     // the module-global `lower` name from that other context.
     val lowerFn = lower
     forKeyedView(items, key, (item) => lowerFn(render(item), theme))
+
+  case ForJsonNode(items, key, render) =>
+    // Same closure-capture note as KeyedForNode: bind the recursive `lower`
+    // locally so the deferred per-row callback does not re-resolve it from the
+    // runtime's callback context. `key` is a field name (String), not a fn.
+    val lowerFn = lower
+    forJsonView(items, key, (item) => lowerFn(render(item), theme))
 
   case RawTextNode(text) =>
     val fs = theme.typography.body.fontSize

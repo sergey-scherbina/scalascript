@@ -1421,7 +1421,7 @@ class JsGen(
       // names must appear here or import-only usage emits without signals.mjs.
       "validateField", "fieldError", "formErrors", "formValid", "formField",
       "submitGate", "component(", "componentScope", "ctxSignal", "ctxSeedSignal",
-      "textNode", "signalText", "showSignal", "fragment(", "forKeyed",
+      "textNode", "signalText", "showSignal", "fragment(", "forKeyed", "forJson", "itemField",
       "rawText", "rawHtml", "vstack", "hstack", "heading(", "lower(",
       "selectFrom"
     ).exists(allText.contains)
