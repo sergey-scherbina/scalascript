@@ -185,10 +185,15 @@ jobs:
   sbt:
     name: sbt — compile and test
     runs-on: ubuntu-latest
-    # Run 29544412767 spent 35m22s reaching `sbt test`; run 29545769651 then
-    # exhausted the full 60m test cap with 4/16 CrossBackendPropertyTest cases
-    # still pending. Keep both caps bounded, with measured tail + runner headroom.
-    timeout-minutes: 150
+    # JOB-level cap. This must exceed (prior gates ~45-50 min, incl. the negtc
+    # release gate ~30 min) + the full `sbt test` phase (>105 min observed: run
+    # 29712918894 hit the old 150-min JOB cap with the differential suites still
+    # running — the STEP cap alone was raised to 150 but the JOB cap, not the step,
+    # was the binding constraint). Raised generously to clear it in one shot rather
+    # than guess-and-refail a multi-hour run; TUNE DOWN once the true test-phase
+    # duration is observed. Real fix (make the cross-backend differential suites
+    # fast / nightly, since v1 is crystallized): BACKLOG ci-crossbackend-differential-runtime.
+    timeout-minutes: 240
 
     steps:
       - name: Checkout
@@ -312,11 +317,14 @@ jobs:
       # isolation) and `node`. On run 29700272865 a single suite
       # (CrossBackendPropertyTest) took 44.7 min of the 90-min budget and the
       # whole test phase was still running when the 90-min hard cap fired — all
-      # tests were passing, they just ran out of wall clock. 150 min gives
-      # comfortable margin over the observed ~90+ min. See BACKLOG
-      # (ci-crossbackend-differential-runtime) for the optimization follow-up.
+      # tests were passing, they just ran out of wall clock. The 150-min STEP cap
+      # was NOT the binding constraint on run 29712918894 — the 150-min JOB cap was
+      # (job = prior gates + this step). Both raised; STEP to 200 to cover the full
+      # test phase, JOB (above) to 240 to cover prior gates + this step. TUNE DOWN
+      # once the true duration is observed. See BACKLOG
+      # (ci-crossbackend-differential-runtime) for the real optimization follow-up.
       - name: Test via sbt
-        timeout-minutes: 150
+        timeout-minutes: 200
         run: sbt test
 
       # Save the classes/zinc cache ONLY when compile + assembly + tests all
