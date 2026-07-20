@@ -451,6 +451,32 @@ baseline set `/tmp/baseline_deep5.txt` for `comm -23` drop-checks. --self via ca
   fresh-agent pushes. This is the natural F4 trigger: author `specs/v2-language-surface.md` (IN/OUT contract —
   is given/summon IN? are extensions IN?), then cut F over as canonical + retire the bridge.**
 
+## v2-p65-deep6 (`v2-p65-deep`, 2026-07-20) — ARC 1 given/using/summon + ARC 2 extensions. Baseline MATCH 408/509
+Claim `v2-p65-deep` on origin/main. Jar `/tmp/ssc-deep6.jar` (`scala-cli --power package v2/src --assembly -o
+/tmp/ssc-deep6.jar`); corpus `SSC_JAR=/tmp/ssc-deep6.jar V2_DIR=<wt>/v2 NEWFRONT_WORK=/tmp/p65deep6 bash
+specs/v2.2-p6.5-corpus.sh`; single-file `JAR=/tmp/ssc-deep6.jar V2=<wt>/v2 FSUB=<wt>/specs/v2.2-p6.5-fsub.ssc
+F0_STALE=1 bash /tmp/oc6.sh <p.ssc>` (F0_STALE=1 rebootstraps F0 after editing fsub.ssc); baseline set
+`/tmp/baseline_deep6.txt` (408 names) for `comm -23` drop-checks; --self via captured file + `grep -cE '^ok '` (153).
+ORACLE REFS: front given parse ssc1-front :2656-2700 (`given_obj`=`given n: T with {defs}`, `given`=`n: T = body`);
+lower given_obj ssc1-lower :4235-4278 (prefixed member defs via prefixDefs + `(def n (prim __mk_method_obj__ <alt
+"m" (global n_m)>))` staticMemberObjectArgs :539); given table :720-745; summon dispatch :1468-1490/:1666-1680;
+using injection buildUsingGivenArgs :992-1005 + injectGivens :1010. DISPATCH `g.m(args)`→`(app (global g_m) args)`
+reuses DA10 objReg + emitMethodCall :496 (already static-dispatches objReg members).
+- [x] **G1 — `given n: T with <defs>` → prefixed defs + `__mk_method_obj__` + objReg static dispatch DONE.**
+      Added: `with`→layout opener (isWithOpener; only fires when `with` is followed by NL, so `extends A with B`
+      mid-line is untouched); skipTraitColon (trait `:` layout body `trait X:` ⏎ members now fully skipped —
+      was leaking abstract members into the entry); givenItem family (given_obj emits def members via objDefE +
+      `(def n (prim __mk_method_obj__ <alt "m" (global n_m)>))`, given-val `(def n body)`); collectGivenReg
+      extends collectObjReg; postSel + emitMethodCall objReg dispatch (bare `n.m`→`(global n_m)`, `n.m(a)`→`(app
+      (global n_m) a)`); objDefE now skipGen (generic given/object method `def m[A](p)`). Corpus 408→409
+      (+graph-rdf4j-http-storage), 0 drops, X1 stage1==stage2 335,060 B, --self 153 ok/0 FAIL. typeclass now
+      needs only summon (G3); tagless-* need using (G4); typeclass-extension needs extension-in-given (Arc 2).
+- [ ] **G2 — `given n: T = body` / `given n = body` (given-val forms).** Non-`with` givens; oracle `("given",..)`.
+- [ ] **G3 — `summon[TC[T]].m(args)` static dispatch** via given table (findGiven). ssc1-lower :1468/:1666.
+- [ ] **G4 — `using`/context-bound injection** at call sites (buildUsingGivenArgs/injectGivens). The deepest part.
+- [ ] **ARC 2 (extensions) — `extension (r: T) def m` layout E-frame + receiver-param prepend + registry + dispatch.**
+      After Arc 1, or hand off. `script` flips with just extensions; `extensions.code` also needs multi-line for-blocks.
+
 ## v2-finish — make v2 ideal, small, powerful, fully self-hosted (2026-07-18, Sergiy)
 
 **Sergiy's vision (2026-07-18):** v1 and v2 are INDEPENDENT. v1 stays as-is — it stabilizes and
