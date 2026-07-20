@@ -1,11 +1,13 @@
 claim: v2-f5b
-branch: (planning — awaiting Sergiy go on the multi-session arc)
-agent: opus (orchestrator)
-heartbeat: 2026-07-20T11:27:51Z
-status: DESIGN DONE (specs/v2-f5b-typed-ir-design.md, f06e7b206); awaiting go to start Stage 0
-what: F5b = teach F to emit typed IR (fold Mira HM) → retire kernel δ-dispatch. HONEST scope:
-      typed-IR alone ~17-27 sessions → kernel ~4700 (NOT ~2800; that needs +effects-to-tower
-      +decimal-to-tower +FastCode removal = 3 orthogonal efforts). 5-stage plan; NEW verification
-      = frozen golden-output semantic-equivalence + typed fixpoint (byte-identity to untyped oracle
-      dies by design). Stage 0 (safe): freeze golden gate + F parse→AST refactor verified as
-      no-change. CI-green tail owned by sibling codex-clear-lynx (SwiftUI fixture); do not duplicate.
+branch: feature/v2-f5b-stage0
+agent: opus (orchestrator — Stage 0 agent)
+heartbeat: 2026-07-20T12:23:01Z
+status: in-progress — F5b Stage 0 (Sergiy: start incrementally, reassess per stage)
+what: F5b typed-IR arc, incremental. STAGE 0 (foundation, no observable change):
+      (1) fix K62.3 gate-stack (fsub.sh lies red on stock jar — needs -Dssc.stackSize; make the
+          gate/onSizedStack size the worker so --self passes stock).
+      (2) freeze golden-OUTPUT gate (leg a): run-ir(oracle(P)) for corpus+tower → frozen goldens +
+          semantic-equivalence checker (compare OUTPUT not IR; print expected/got on mismatch).
+      (3) begin F parse→AST refactor: 40 emit* build nodes; trivial erase reproduces TODAY's untyped
+          strings BYTE-IDENTICAL (safety net = Stage 0 changes nothing observable). Land slices,
+          handoff if heavy. Plan: specs/v2-f5b-typed-ir-design.md. Reassess with Sergiy after Stage 0.
