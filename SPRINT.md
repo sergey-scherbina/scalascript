@@ -9,6 +9,37 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## v2-f5b-stage0 (`v2-f5b-stage0`, 2026-07-20) — typed-IR FOUNDATION (no observable change)
+
+Plan: `specs/v2-f5b-typed-ir-design.md` §4 (Stage 0) + §3 (verification regime). Stage 0 changes
+NOTHING observable — it is verified as no-change; it builds the gate we can trust and re-architects F's
+parse→emit fusion into parse→AST→erase, keeping today's UNTYPED IR byte-identical. NO typing (Stage 1).
+Edit ONLY `specs/v2.2-p6.5-fsub.ssc` + gate scripts (+ SPRINT/docs); the K62.3 stack fix may touch
+`v2/src/*`. Do NOT touch `v2/lib` oracle, `v1/`, or backends. Verify each slice: corpus (IR byte-identity
+vs oracle) AND `--self` (fixpoint) AND the new semantic gate ALL stay green.
+
+- [ ] **P1 — fix K62.3 gate-stack (a gate that lies red).** `onSizedStack` (Main.scala:26) runs the
+      pipeline on a 64 MB worker thread; the gate scripts' `-Xss512m` sizes only the MAIN thread (dead
+      flag post `311e71d7d`), so F0-bootstrap (compiling F's 222 KB source) overflows → StackOverflow →
+      gate FAILs red on a stock jar. Fix: gate scripts pass `-Dssc.stackSize` (which onSizedStack reads)
+      instead of the dead `-Xss512m`, defaulting to a value that covers F's compile with NO manual env
+      override. Confirm `specs/v2.2-p6.5-fsub.sh --self` = 153 ok / 0 FAIL byte-identical on stock jar.
+- [ ] **P2 — freeze the golden-OUTPUT gate (leg a, the immovable truth).** New script
+      `specs/v2.2-p6.5-semantic.sh`: for every corpus program P (+ tower examples) capture
+      `out_untyped = run-ir(oracle(P))` — the OBSERVABLE OUTPUT (stdout / error class), NOT the IR —
+      as a frozen golden set committed to the repo (captured NOW while F emits untyped IR = the correct
+      reference). Checker: `run-ir(F(P))` output must equal frozen golden. Guard apparatus traps: print
+      `expected=…got=…` on every mismatch; two empty outputs must NOT trivially pass; normalize nothing
+      silently. Gate must be GREEN now (F==oracle semantically today), with counts.
+- [ ] **P3 — begin F parse→AST refactor (the big one; byte-identical).** Change F's ~40 `emit*` to build
+      an AST node instead of concatenating IR strings; a single trivial `erase` walks the AST and
+      reproduces EXACTLY today's untyped IR strings, byte-identical. Refactor a cluster of related `emit*`
+      at a time; after every slice, corpus byte-identity + `--self` fixpoint + semantic gate ALL stay
+      green. NO typing (Stage 1). If too large to finish, land what's byte-identical-verified and HAND OFF
+      with a precise map of which `emit*` are converted vs remaining.
+
+---
+
 ## site-docs-lane (`site-docs-lane`, 2026-07-20)
 
 Grow `scalascript.dev` from one landing page into a real site. Decision (Sergiy,
