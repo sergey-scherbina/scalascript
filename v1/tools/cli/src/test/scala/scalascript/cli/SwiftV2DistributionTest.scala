@@ -5,6 +5,18 @@ import org.scalatest.funsuite.AnyFunSuite
 import _root_.ssc.swift.{SwiftPlatform, XcodeAppArtifact}
 
 final class SwiftV2DistributionTest extends AnyFunSuite:
+  // `plutil` is a macOS-only tool. The tests below inspect real .plist files (directly
+  // or via SwiftV2Cli/SwiftV2Distribution, which shell out to it), so on a Linux runner
+  // they die with `Cannot run program "plutil"` — which surfaced as red CI once the
+  // fork-death that had swallowed the result was fixed. Gate them the same way
+  // SwiftUiRealFixtureBuildTest gates `assume(swiftAvailable)` and RustGenCargoSmokeTest
+  // gates `assume(cargoAvailable)`: skip cleanly where the macOS toolchain is absent.
+  // iOS/xcarchive packaging is inherently macOS, so nothing meaningful is lost on Linux.
+  // The pure-logic tests (argv/team/export-method) do NOT read plists and stay ungated.
+  private def plutilAvailable: Boolean =
+    try { os.proc("plutil").call(check = false); true }
+    catch case _: Throwable => false
+
   private val app = XcodeAppArtifact(
     project = "Sentinel.xcodeproj",
     scheme = "Sentinel",
@@ -51,6 +63,7 @@ final class SwiftV2DistributionTest extends AnyFunSuite:
       assert(error.getMessage == "cmd: --notary-timeout-seconds must be an integer in 1..3600")
 
   test("export options are canonical automatic and contain no empty profile map"):
+    assume(plutilAvailable)
     val xml = SwiftV2Distribution.exportOptionsPlist("app-store-connect", "TEAM123")
     assert(xml.contains("<key>method</key><string>app-store-connect</string>"))
     assert(xml.contains("<key>destination</key><string>export</string>"))
@@ -63,6 +76,7 @@ final class SwiftV2DistributionTest extends AnyFunSuite:
     assert(lint.exitCode == 0, lint.err.text())
 
   test("archive ApplicationPath is relative contained and traversal is rejected"):
+    assume(plutilAvailable)
     val archive = os.temp.dir(prefix = "ssc-archive-") / "Sentinel.xcarchive"
     os.makeDir.all(archive / "Products" / "Applications" / "Sentinel.app")
     writeArchiveInfo(archive, "Applications/Sentinel.app")
@@ -95,6 +109,7 @@ final class SwiftV2DistributionTest extends AnyFunSuite:
       assert(duplicate.getMessage.contains("found 2"))
 
   test("shared app verifier rejects wrong bundle and debug CLI executable"):
+    assume(plutilAvailable)
     val root = os.temp.dir(prefix = "ssc-app-verify-")
     val bundle = root / "Sentinel.app"
     os.makeDir.all(bundle)
@@ -111,6 +126,7 @@ final class SwiftV2DistributionTest extends AnyFunSuite:
     assert(debugCli.getMessage.contains("not the expected application"))
 
   test("synthetic archives reject wrong bundle and debug CLI application"):
+    assume(plutilAvailable)
     val root = os.temp.dir(prefix = "ssc-archive-identity-")
     val archive = root / "Sentinel.xcarchive"
     val bundle = archive / "Products" / "Applications" / "Sentinel.app"
@@ -276,6 +292,7 @@ final class SwiftV2DistributionTest extends AnyFunSuite:
     }
 
   test("fake Xcode runner preserves archive verification and unique IPA handoff"):
+    assume(plutilAvailable)
     val root = os.temp.dir(prefix = "ssc-fake-xcode-")
     val fake = root / "xcodebuild"
     val log = root / "argv.log"
@@ -300,6 +317,7 @@ final class SwiftV2DistributionTest extends AnyFunSuite:
         case None => sys.props.remove("ssc.xcodebuild.command")
 
   test("fake signed device chain deploys only the verified Xcode app"):
+    assume(plutilAvailable)
     val root = os.temp.dir(prefix = "ssc-fake-device-")
     val log = root / "argv.log"
     val xcode = executable(root / "xcodebuild", fakeXcodeScript(log))
@@ -321,6 +339,7 @@ final class SwiftV2DistributionTest extends AnyFunSuite:
     }
 
   test("fake Developer ID chain preserves notarize and DMG toggles"):
+    assume(plutilAvailable)
     val root = os.temp.dir(prefix = "ssc-fake-macdist-")
     val log = root / "argv.log"
     val xcode = executable(root / "xcodebuild", fakeXcodeScript(log, "app", "macos"))
@@ -373,6 +392,7 @@ final class SwiftV2DistributionTest extends AnyFunSuite:
     }
 
   test("fake Developer ID notarization and DMG toggles are independent"):
+    assume(plutilAvailable)
     for (notarize, dmg) <- List(true -> false, false -> true) do
       val root = os.temp.dir(prefix = s"ssc-fake-mac-${notarize}-${dmg}-")
       val log = root / "argv.log"
@@ -399,6 +419,7 @@ final class SwiftV2DistributionTest extends AnyFunSuite:
       }
 
   test("fake Mac App Store export and fastlane consume one explicit PKG"):
+    assume(plutilAvailable)
     val root = os.temp.dir(prefix = "ssc-fake-macstore-")
     val log = root / "argv.log"
     val envLog = root / "env.log"
