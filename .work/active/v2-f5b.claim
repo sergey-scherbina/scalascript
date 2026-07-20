@@ -1,0 +1,14 @@
+claim: v2-f5b
+branch: feature/v2-f5b-stage1
+agent: opus (orchestrator — Stage 1, autonomous 1-5 per Sergiy)
+heartbeat: 2026-07-20T15:39:37Z
+status: in-progress — F5b Stage 1 (arithmetic/comparison typing → typed prims → delete δ-arith)
+what: Sergiy: execute Stages 1-5 autonomously, gated. STAGE 0 DONE (F=parse→AST→erase, e1e790e2f).
+      STAGE 1: minimal HM for numeric/String/Bool at the erase seam; structure climbStep+emitBin+erase
+      (localized per Stage 0 handoff; atoms already structured); emit i.*/f.*/big.*/sconcat/seq by
+      inferred type. ⚠️ VERIFICATION-REGIME SHIFT: corpus byte-identity vs the UNTYPED oracle WILL
+      DROP for arith programs — EXPECTED, not a regression. Truth = specs/v2.2-p6.5-semantic.sh 246/246
+      (output-equivalence) + typed fixpoint (stage1==stage2 on new typed IR). Delete δ-arith arms
+      (arithFast/arithOp/__arith__/__unary__/__eq__ numeric) from Runtime.scala ONLY after full
+      v2/conformance/check.sh confirms nothing else emits them (keep Op-lifting + ->/to/Map+/List-).
+      Plan: specs/v2-f5b-typed-ir-design.md §4 Stage 1. Kernel Δ ≈ −150..−220.
