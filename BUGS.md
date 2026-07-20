@@ -118,10 +118,12 @@ delivers the message; `V2ActorCliTest` goes green.
 
 ## v1-cluster-bully-no-convergence-over-ws — multi-node Bully election does not converge to lex-greatest
 
-**Status:** OPEN (found 2026-07-20, `ci-fork-failures` sweep). All 7 multi-node cluster tests fail;
-they run node fixtures via `java -jar ssc.jar --v1 …` (switched to `--v1` in `da63bb96a`, Jul 8 —
-the native front cannot run the cluster WS stack). Masked until `deb5e6c90` by the `System.exit` fork
-death.
+**Status:** FIXED 2026-07-20 by `ci-cluster-bully`. Root cause was the WS *transport*, not the
+Bully/election logic. All 7 multi-node cluster tests now pass (verified by running them and observing
+the correct lex-greatest leader on every node — see Resolution). Found 2026-07-20 by the
+`ci-fork-failures` sweep; node fixtures run via `java -jar ssc.jar --v1 …` (switched to `--v1` in
+`da63bb96a`, Jul 8 — the native front cannot run the cluster WS stack). Masked until `deb5e6c90` by
+the `System.exit` fork death.
 
 **Failing suites/tests:** `MultiNodeClusterTest` (two-node leader, spawnRemote, five-node, three-node
 re-elect), `ClusterBullyStatusConvergenceTest` (2-node status), `PartitionTest` (5-node static
@@ -137,18 +139,36 @@ partition), `PartitionHealingTest` (partition heals).
   `node-e`.
 - `spawnRemote`: remote behavior never runs (`REMOTE_SPAWN_TIMEOUT`).
 
-**Root cause (hypothesis).** `startElection` (ActorScheduler.scala) computes higher-id peers from the
-direct WS `peerChannels` map (`nid > localNodeId`), which diverges from the gossip `clusterMembers()`
-membership view a node prints just before electing. A node that knows a higher peer via gossip but
-lacks a direct channel to it sees `higher = ∅`, self-claims, and its (wrong) `broadcastCoordinator`
-propagates; lower nodes also never adopt the true coordinator's announcement. So membership (gossip)
-and the election's channel set are not the same thing.
+**Root cause (documented hypothesis — DISPROVEN).** The filed hypothesis blamed `startElection`
+(ActorScheduler.scala) for deriving higher-id peers from `peerChannels` instead of the gossip
+membership view. Verified false: `clusterMembers` already reads the *same* `peerChannels` map, and in
+the 2-node repro `startElection`/`broadcastCoordinator` ran exactly as intended. The Bully logic was
+correct all along.
 
-**Scope.** Real distributed-consensus defect in the v1 interpreter's cluster/Bully layer over the
-actor WS transport — not a harness gap, not env-specific (loopback WS works on the box; the elections
-are simply wrong). Substantial, dedicated debugging; out of scope for the CI sweep. **Done-when:**
-election defers to the lex-greatest reachable node and coordinator announcements update all peers;
-the 7 tests converge.
+**Root cause (ACTUAL — verified with `SSC_CLUSTER_DEBUG=1`).** A WS-transport defect in the
+fast-engine (default backend). `ssc.plugin.httpfast.WsConnection.dispatch` fed **only TEXT** frames
+into `recvQueue` (which backs the blocking `recv()` the cluster server-inbound handler pulls from);
+**BINARY** frames went to `onBinary` only and were dropped from `recv()`. The cluster wire protocol
+negotiates `ssc-actors-v2.cbor` — every post-handshake envelope is a **binary** frame. Each node both
+dials and accepts, so `peerChannels[peer]` (one entry per peer, last-write-wins) routes replies over
+whichever socket registered last; when that is the peer→*server*-inbound direction, the receiver's
+`recv()` never sees the frame. The only frames that reliably arrived were those delivered to a node's
+**client** socket (the client session's `recv()` correctly surfaces binary frames as ISO-8859-1
+strings). Deterministic given connection order → "consistent, not random". Trace: node-bbb correctly
+self-elected and called `broadcastCoordinator → node-aaa`, but node-aaa logged **zero** dispatched
+envelopes (no `alive`, no `coordinator`, no gossip `peers_resp`) — its server-inbound `recv()` was
+parked forever on binary frames while `members` stayed populated (loop blocked, not exited). Explains
+every symptom: dropped coordinator (2-node), fragmented gossip → wrong/partial membership and
+lex-smallest winners (5-node/partition), dropped `cluster_spawn_ack` (`spawnRemote` timeout).
+
+**Resolution.** `WsConnection.dispatch` now also enqueues BINARY frames into `recvQueue` as a Latin-1
+byte-view string (`new String(bytes, ISO_8859_1)`) when `recvActive` — the exact convention the WS
+client's `recv()` and the `onBinary→onMessage` bridge already use, and what `ActorWireProtocol.decodeV2`
+expects (`isoStr.getBytes("ISO-8859-1")`). One-file, transport-level fix; the Bully/election code was
+untouched. Verified: all 7 tests pass and converge to the correct lex-greatest leader on ALL nodes
+(2-node → node-b/node-bbb; 5-node → node-e on all five; 3-node re-elect node-c→node-b; partition
+quorum=3 → minority leaderless, majority elects node-e; healing → node-e on all five; `spawnRemote` →
+`REMOTE_SPAWN_OK`). No regression: `httpFastEngine/test` 43/43, cluster CLI suites green.
 
 ## js-char-into-int-param — a `Char` passed into an `Int` parameter stays boxed on the v1 JS backend
 
