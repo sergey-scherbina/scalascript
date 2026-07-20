@@ -47,9 +47,38 @@ failing fixture produces a reported test failure rather than a silent fork exit.
 
 ## v2-native-import-wildcard-drops-ssc-case-classes — `import std.x.*` misses pure-`.ssc` definitions
 
-**Status:** OPEN (found 2026-07-20, `ci-fork-failures` sweep). Surfaced by
-`V2CaseClassMethodCliTest` → "std mapreduce Cluster.close executes without a stub under default v2
-runner", one of the 23 failures that the `System.exit` fix (`deb5e6c90`) made visible.
+**Status:** FIXED 2026-07-20 by `ci-native-front-defects` (`452677b73`). `V2CaseClassMethodCliTest`
+"std mapreduce Cluster.close executes without a stub under default v2 runner" verified green on BOTH
+default v2 (native) and `--v1`, without switching to the Markdown-link form.
+
+**Documented hypothesis — HELD in mechanism, but was incomplete (two corrections, verified):**
+1. *Mechanism confirmed.* The dotted `import std.<pkg>.*` (and `.{names}` / `.Name`) was a silent
+   no-op on BOTH lanes — only the Markdown-link form `[Name](path.ssc)` loaded a pure-`.ssc` module.
+   The dotted form never triggered a module load.
+2. *"`Node` works, masks the gap" was imprecise.* Measured: with `import std.mapreduce.*`, `Node`
+   ALSO fails on `--v1` ("Undefined: Node"); on the native front `Node(...)` returns a fail-OPEN
+   `Stub` (not a real value). So neither lane "resolved" `Node` via the dotted import — the masking
+   was the native fail-open, not a working `Node`.
+3. *A SECOND latent defect the hypothesis missed.* Even via the WORKING Markdown-link import, the
+   test's exact `Cluster(List())` (one arg) fails with an arity error on both lanes, because the std
+   case class is `Cluster(nodes, pids)` (two params). Import resolution alone would NOT have made the
+   test green.
+
+**Fix (three parts, all minimal):**
+- v1 interpreter (`StatRuntime.execStat`): a dotted `import std.<pkg>.*` inside a fenced block now
+  resolves `std.a.b` → `std/a/b` and loads it through the existing `runImport` path (which already
+  dumps every exported name into scope). Scoped to the `std` root; a ref that doesn't resolve to a
+  std module stays a no-op, so ordinary Scala imports are unaffected.
+- native front (`RunNativeV2`): a dotted std import synthesizes a leading Markdown-link prelude root
+  that the self-hosted runner already loads correctly — NO tower change.
+- `std/mapreduce/cluster.ssc`: `pids` defaults to `Nil`, so `Cluster(nodes)` is a valid one-arg
+  handle and `close()` on an unconnected handle is a no-op.
+
+---
+### Original report (kept for context)
+
+Surfaced by `V2CaseClassMethodCliTest` → "std mapreduce Cluster.close executes without a stub under
+default v2 runner", one of the 23 failures that the `System.exit` fix (`deb5e6c90`) made visible.
 
 **Symptom.** `import std.mapreduce.*` then `Cluster(List())`:
 - default v2 (native front): `java.lang.RuntimeException: unbound global: Cluster`
@@ -88,9 +117,31 @@ green without switching to the markdown-link form.
 
 ## v2-native-receive-bare-var-catchall — `receive { case msg => … }` misses on the native front
 
-**Status:** OPEN (found 2026-07-20, `ci-fork-failures` sweep). Surfaced by `V2ActorCliTest` →
-"default and --v2 deliver sendAfter actor timers" after the `sendAfter` binding was fixed
-(`3964db7eb`).
+**Status:** FIXED 2026-07-20 by `ci-native-front-defects` (`ede7efaa0`). `V2ActorCliTest`
+"default and --v2 deliver sendAfter actor timers" verified green.
+
+**Documented hypothesis — HELD; precise mechanism pinned down (verified by narrowing):** the
+`receive { case msg => … }` block lowers to an effect-**handler** whose bare-var (named) catch-all
+case did not register — confirmed. The exact site: a partial-function literal lowers via
+`ssc1-lower.ssc0` `lowerHandlerMatch`. A NAMED catch-all (`case msg`) is flagged by `hasNamedCatchAll`
+and takes the `general` path, which appends a synthetic `__handler_dispatch_fallback__` vpat whose
+body is `miss`. `lowerMatch`'s `procArms` lets the LAST vpat win as the match default, so the
+fallback's `miss` OVERWROTE the user's real catch-all body → the handler always missed. A WILDCARD
+catch-all (`case _`) took the `lowerDirectHandlerMatch` path (no fallback) and worked — which is what
+masked it. Narrowed minimal repro (native): `val f = (m) => m match { case msg => … }; f("hello")`
+misses; `case _ =>` works; `case "x" => … case msg => …` works.
+
+**Fix:** in `lowerHandlerMatch`, skip the miss-fallback whenever the arms already contain an
+irrefutable catch-all (vpat OR wpat) — a catch-all handles the whole surface, so `miss` is
+unreachable. Aligns named-catch-all handlers with the already-correct wildcard behaviour. Touches the
+self-hosted tower (`v2/lib/ssc1-lower.ssc0`); the ssc0c self-compilation fixpoint is unaffected
+(ssc0c does not import `ssc1-lower`) and conformance stays green.
+
+---
+### Original report (kept for context)
+
+Surfaced by `V2ActorCliTest` → "default and --v2 deliver sendAfter actor timers" after the
+`sendAfter` binding was fixed (`3964db7eb`).
 
 **Symptom.** A bare, untyped catch-all pattern in a `receive` handler block fails:
 ```scalascript
