@@ -5,7 +5,42 @@ package ssc
 //   compile : ssc0 source -> canonical Core IR bytecode (stdout)         (the ssc0 -> ir stage)
 //   run-ir  : Core IR bytecode -> compile-to-closures -> execute         (pure VM)
 
-@main def cli(args: String*): Unit = args.toList match
+/** The VM evaluates a non-tail call by recursing on the JVM stack (~3 frames per
+  * user-level call), so usable recursion depth is set by the *thread* stack — and the
+  * platform default is both small and inconsistent: 1 MB on Linux/CI against 2 MB on
+  * macOS. That asymmetry is what let a whole family pass locally while CI stayed red for
+  * 192 consecutive runs, and it is why the launchers pass `-Xss512m`.
+  *
+  * Measured 2026-07-20: `ssc0c` compiling `examples/uselib.ssc0` — the largest such
+  * workload in the tree — overflows at 1m and 2m and succeeds at **4m**. The 512m in the
+  * launchers is a 128x overshoot of the real requirement.
+  *
+  * Running the pipeline on an explicitly sized thread makes a bare `java -jar ssc.jar`
+  * behave identically on every platform, with no launcher flag and no reliance on an OS
+  * default. `-Dssc.stackSize=<bytes>` overrides it; `0` keeps the caller's thread, which
+  * is what a host embedding its own sized thread wants.
+  *
+  * This bounds the *runtime* recursion pragmatically. It is not a substitute for an
+  * explicit continuation stack: a browser gives ~1 MB and no way to ask for more, so a
+  * client-side VM still needs the evaluator change tracked in BACKLOG `site-playground`. */
+private def onSizedStack(body: () => Unit): Unit =
+  val requested = Option(System.getProperty("ssc.stackSize")).flatMap(_.toLongOption)
+  val size = requested.getOrElse(64L * 1024 * 1024)
+  if size <= 0 then body()
+  else
+    var escaped: Throwable = null
+    val worker = new Thread(null, () => {
+      try body()
+      catch case t: Throwable => escaped = t
+    }, "ssc-vm", size)
+    worker.start()
+    worker.join()
+    // Re-raise on the caller so exit status and stderr stay exactly as before.
+    if escaped != null then throw escaped
+
+@main def cli(args: String*): Unit = onSizedStack(() => dispatch(args.toList))
+
+private def dispatch(args: List[String]): Unit = args match
   case "run" :: file :: rest =>                 // trailing args -> the program's #io.args()
     Runtime.argv = rest
     val prog = Lower.module(Loader.load(file))  // Loader resolves `import`s
