@@ -1,6 +1,6 @@
 feature/v2-f7-internal-gate 2026-07-19T13:42:57Z
 agent: codex
-heartbeat: 2026-07-20T02:27:40Z
+heartbeat: 2026-07-20T03:59:50Z
 status: in-progress
-done-so-far: exact compiler differential fix landed at 3056aa3b8; Sergiy deferred boundary hardening; refreshed F7 plan/spec and stack-aware JS/Rust launcher fix are committed locally
-next: rebase the plan/fix on current origin, run the complete v2 gate to natural exit, then shared v2 conformance and exact-SHA CI
+done-so-far: F7 landed through 07a4b74f9; full v2 gate exits 0 with 644 ok/0 FAIL; shared v2-* conformance passes 11/11; SPRINT/spec/CHANGELOG complete
+next: wait for exact-SHA run 29714603655 (currently queued) to return green, release claim/worktree, then claim Q1 v2-native-front-multiline-curried-def
