@@ -310,7 +310,10 @@ def plessOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(cx)))))))))
 def subInfoOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx))))))))))
 def objRegOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx)))))))))))
 def funcDfltsOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx))))))))))))
-def givenTabOf(cx) = snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx))))))))))))
+// G4: the 13th slot holds the pair (givenTab, usingSig); usingSig = [(defName, (usingTCs, fullCount))]
+// for named `using` param clauses, used to inject givens at call sites (mirrors ssc1-lower usingSigCell).
+def givenTabOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx)))))))))))))
+def usingSigOf(cx) = snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx)))))))))))))
 def ccNamesOf(cx) = fst(snd(cx))
 def fldNamesOf(cx) = fst(snd(snd(cx)))
 def valNamesOf(cx) = fst(snd(snd(snd(cx))))
@@ -697,7 +700,11 @@ def parseVarOrCallG(nm, ts, env, cx) = if isTok(hd(ts), 2, 21) then parseCall(nm
 // `(app (lam 1 (app (lam 1 (app (global greet) (local 1) (local 0))) <d1>)) <d0>)`. Otherwise the plain path.
 def parseCall(nm, ts, env, cx) = parseCallS(nm, scanArgs(ts), ts, env, cx)
 def parseCallS(nm, scan, ts, env, cx) = scan match { case (slices, rest) => if dfltGo(nm, slices, env, cx) then (synthCall(nm, dfltEntryPd(nm, cx), slices, env, cx), rest) else parseCallPlain(nm, ts, env, cx) }
-def parseCallPlain(nm, ts, env, cx) = parseArgs(ts, env, cx) match { case (args, r) => (emitCallR(nm, calleeOf(nm, env, cx), args, cx), r) }
+def parseCallPlain(nm, ts, env, cx) = if hasUsingSig(nm, cx) then parseCallU(nm, ts, env, cx) else parseArgs(ts, env, cx) match { case (args, r) => (emitCallR(nm, calleeOf(nm, env, cx), args, cx), r) }
+// G4: a using-sig call collects args as a LIST so the count + first-arg type are recoverable. An explicit
+// `(using x)` second clause merges positionally (no injection); otherwise inject one given per using TC.
+def parseCallU(nm, ts, env, cx) = parseArgL(ts, env, cx) match { case (es, r) => callU2(nm, es, r, env, cx) }
+def callU2(nm, es, r, env, cx) = if isUsingClause(r) then parseArgL(tl(tl(r)), env, cx) match { case (ues, r2) => (emitApp(calleeOf(nm, env, cx), joinArgs(es) ++ joinArgs(ues)), r2) } else (emitApp(calleeOf(nm, env, cx), joinArgs(es) ++ injectUsing(nm, es, cx)), r)
 def emitApp(callee, args) = "(app " ++ callee ++ args ++ ")"
 // ── default-synthesis decision + scanner ──
 def dfltEntryOf(nm, cx) = dfltLookupF(nm, funcDfltsOf(cx))
@@ -1158,7 +1165,12 @@ def emitDef(ts, cx) = emitDef1(snd(hd(tl(ts))), tl(tl(ts)), cx)
 // as unbound globals (the `def map (lam 0 ..)` typed-data divergence). Type params are erased. Non-generic
 // defs are byte-unchanged (skipGen is a no-op when hd is not `[`).
 def emitDef1(nm, ts, cx) = emitDef1G(nm, skipGen(ts), cx)
-def emitDef1G(nm, ts, cx) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (env, r) => emitDefBody(nm, dlen(env), env, skipToEq(r), cx) } else emitDefBody(nm, 0, Nil, skipToEq(ts), cx)
+def emitDef1G(nm, ts, cx) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (env, r) => emitDefU(nm, env, r, cx) } else emitDefBody(nm, 0, Nil, skipToEq(ts), cx)
+// G4: a `(using p: TC[..], ..)` clause after the regular params (ssc1-front parseUsingParams :1736) becomes
+// trailing real params (arity N+M), appended to env so `s.show(a)` dispatches on the param (local). The
+// oracle lowers the def at the FULL arity; call sites inject the givens (injectGivens).
+def isUsingClause(ts) = if isTok(hd(ts), 2, 21) then isWord(hd(tl(ts)), "using") else false
+def emitDefU(nm, env, r, cx) = if isUsingClause(r) then parseParams(tl(tl(r)), env) match { case (env2, r2) => emitDefBody(nm, dlen(env2), env2, skipToEq(r2), cx) } else emitDefBody(nm, dlen(env), env, skipToEq(r), cx)
 // pre-pass: top-level parenless-def names (same item advancement as collectTopVals; rest is
 // resolution-independent so a base cx gives the right boundaries).
 def collectPlessDefs(ts, cx) = collectPless0(skipSemisF(ts), cx)
@@ -1269,6 +1281,28 @@ def findGivenF1(h, r, tc, tn) = h match { case (gtype, gname) => gtype match { c
 // summon)` fallback = the prior __method__ behaviour (no regression; the deep active-ctx form is G4).
 def parseSummon(ts, env, cx) = summonEmit(findGivenF(givenTabOf(cx), fst(parseTCType(tl(ts))), snd(parseTCType(tl(ts)))), skipGen(ts))
 def summonEmit(gopt, rest) = gopt match { case Some(g) => ("(global " ++ g ++ ")", rest) case None => ("(global summon)", rest) }
+def findAnyGivenF(tab, tc) = tab match { case Nil => None case h :: r => h match { case (gtype, gname) => gtype match { case (gtc, gt) => if gtc == tc then Some(gname) else findAnyGivenF(r, tc) } } }
+// G4: pre-pass building the named-`using` signature registry [(defName, (usingTCs, fullCount))]. Scans
+// def heads; a def with a trailing `(using ..)` clause records its using TC heads (source order) + the
+// full arity (regular+using). fullCount gates call-site injection (only under-applied calls inject).
+def collectUsingSig(ts) = if isEmpty(ts) then Nil else (if isTok(hd(ts), 2, 1) then collectUS1(tl(ts)) else collectUsingSig(tl(ts)))
+def collectUS1(ts) = collectUS2(snd(hd(ts)), skipGen(tl(ts)))
+def collectUS2(nm, ts) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (env, r) => collectUS3(nm, dlen(env), r) } else collectUsingSig(ts)
+def collectUS3(nm, rc, r) = if isUsingClause(r) then parseParams(tl(tl(r)), Nil) match { case (uenv, r2) => Cons((nm, (usingTCsOf(tl(tl(r))), rc + dlen(uenv))), collectUsingSig(r2)) } else collectUsingSig(r)
+def usingTCsOf(ts) = if isTok(hd(ts), 2, 22) then Nil else usingTC1(ts)
+def usingTC1(ts) = Cons(snd(hd(tl(tl(ts)))), usingTCsMore(skipTypeRef(tl(tl(ts)))))
+def usingTCsMore(ts) = if isTok(hd(ts), 2, 27) then usingTCsOf(tl(ts)) else Nil
+def usSigLookup(nm, sig) = sig match { case Nil => None case h :: r => h match { case (n, info) => if n == nm then Some(info) else usSigLookup(nm, r) } }
+def hasUsingSig(nm, cx) = usSigLookup(nm, usingSigOf(cx)) match { case None => false case Some(x) => true }
+// G4: call-site given injection. `f(a)` where f has a using sig and the call under-applies (fewer args
+// than fullCount) appends one given per using TC, chosen by the FIRST arg's type (mirrors ssc1-lower
+// buildUsingGivenArgs :992 + injectGivens :1010). An explicit `f(a)(using x)` clause merges positionally.
+def injectUsing(nm, es, cx) = usSigLookup(nm, usingSigOf(cx)) match { case None => "" case Some(info) => injectUsing2(info, es, cx) }
+def injectUsing2(info, es, cx) = info match { case (tcs, full) => if dlen(es) < full then buildUsingArgs(givenTabOf(cx), tcs, argTypeOfEs(es)) else "" }
+def buildUsingArgs(tab, tcs, at) = tcs match { case Nil => "" case tc :: rest => " " ++ usingGivenFor(tab, tc, at) ++ buildUsingArgs(tab, rest, at) }
+def argTypeOfEs(es) = es match { case Nil => "?" case h :: t => typeOfArg(h) }
+def usingGivenFor(tab, tc, at) = findGivenF(tab, tc, at) match { case Some(g) => "(global " ++ g ++ ")" case None => findAnyGivenF(tab, tc) match { case Some(g) => "(global " ++ g ++ ")" case None => "(global __missing_using_" ++ tc ++ ")" } }
+def typeOfArg(a) = if startsW(a, "(lit (int ") then "Int" else (if startsW(a, "(lit (str ") then "String" else (if startsW(a, "(lit true)") then "Bool" else (if startsW(a, "(lit false)") then "Bool" else "?")))
 // A top-level `var name [: T] = init` runs its initializer in the entry as `cell.set(global name__cell)`
 // — IDENTICAL to a top val (ssc1-lower topExprs var/val cases :5593-5609) — so it reuses valItem1. The
 // empty cell def is emitted in the topVar slot (compile4). A top-level `while`/assignment becomes an
@@ -1707,7 +1741,7 @@ def compile1(ts, dq, bs) = compile2(ts, collectCC(ts), collectTypeCases(ts), dq,
 // The pre-pass results become the parse CONTEXT: case-class names (cs, cc-only, for isCC) + the UNIFIED
 // type-case field names (tcs, cc + enum cases) + top-level val names + the enum registries. Top-level vals
 // are collected with a base cx first (their `rest` boundaries do not depend on val-name resolution).
-def mkCxE(cs, tcs, ts, dq, vals, vars, bs, pless) = mkCx(dq, ccNamesL(cs), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts), vars, bs, pless, (collectSubReg(ts), collectEnumAllReg(ts)), collectObjReg(ts), collectFuncDflts(ts), collectGivenTable(ts))
+def mkCxE(cs, tcs, ts, dq, vals, vars, bs, pless) = mkCx(dq, ccNamesL(cs), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts), vars, bs, pless, (collectSubReg(ts), collectEnumAllReg(ts)), collectObjReg(ts), collectFuncDflts(ts), (collectGivenTable(ts), collectUsingSig(ts)))
 def compile2(ts, cs, tcs, dq, bs) = compile2b(ts, cs, tcs, dq, bs, mkCxE(cs, tcs, ts, dq, Nil, Nil, bs, Nil))
 def compile2b(ts, cs, tcs, dq, bs, base) = compile3(ts, cs, tcs, dq, mkCxE(cs, tcs, ts, dq, collectTopVals(ts, base), collectTopVars(ts, base), bs, collectPlessDefs(ts, base)))
 def compile3(ts, cs, tcs, dq, cx) = walkTop(ts, cx) match { case (strs, nDoc) => compile4(strs, nDoc, ts, tcs, dq, cx) }
