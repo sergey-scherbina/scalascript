@@ -9,6 +9,46 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## v2-f4 (`v2-f4`, 2026-07-20) — REVERSIBLE front-swap staging (flip HELD by Sergiy)
+
+Plan: `specs/v2-language-surface.md` §7 reversible sequence, steps 1-3 ONLY. Do NOT flip the installBin
+default (step 4, Sergiy) or delete ssc1-front/ssc1-lower (step 5). Edit gates (`specs/*`), `RunNativeV2`
++ `build.sbt` (flag-staging, additive, default unchanged), SPRINT/docs. Do NOT touch `v2/lib` oracle,
+`v1/`, backends.
+
+**MEASURED STATE (2026-07-20, opus, this worktree, jar = `scala-cli package v2/src`):**
+- Byte-identity corpus gate (`specs/v2.2-p6.5-corpus.sh`): **MATCH 225/510** — NOT a coverage number:
+  F emits TYPED IR (F5b Stage 1) that diverges from the untyped oracle BY DESIGN, so byte-identity is
+  DEAD as the cutover oracle. (§3 of v2-language-surface.md's "417/510" is pre-typed-regime stale.)
+- Output-equivalence (semantic freeze over 659 = 510 corpus + 149 tower): **FROZEN 246** output-equiv,
+  **400 oracle-can't-run in the bare kernel jar (rc!=0)** (need plugins/servers/effects drivers),
+  1 too-large, **0 F-emits-no-IR**, **12 F-DISAGREE** (the real gaps). The 12: effects, effects-handler,
+  effect-deep-handler-state, js-effect-multishot-long-fold (effects arc), extensions (ext-methods arc),
+  for-comprehensions, tagless-multi-file/standard-scala-multifence/scala-js-demo/dsl-multi-pass
+  (multi-file/multi-fence/scala-fence), wasm-primes/wasm-sorting (wasm backend). ALL 12 = F emits
+  INVALID IR (dangling `(global …)` / arity), oracle is correct → **GAP (F incomplete), none are OUT**.
+- Under output-equivalence, §5's byte-level OUT cases DON'T appear as disagreements (no output change /
+  oracle-can't-run). So the cutover ratchet must be OUTPUT-based, not byte-based.
+
+- [x] **Step 1 — DONE (`19ee570a3`+`03bdb7d9e`).** `classify` mode in `specs/v2.2-p6.5-semantic.sh` +
+      committed manifest `specs/v2.2-p6.5-classify.expected`. Output-equivalence basis (byte gate is
+      design-divergent post-typed-regime). Measured GREEN: 659 programs = MATCH 246 / oracle-excluded 401
+      / GAP 12 / OUT 0 / DEFERRED 0 / genuine-FAIL 0. Self-maintaining (reclassify hint, no fail).
+      Apparatus verified fail-loud (removed one GAP → RED, exit 1). Committed goldens untouched.
+- [ ] **Step 2 — stage F behind a flag (reversible, default UNCHANGED).** `SSC_FRONT=F` in
+      `RunNativeV2.nativeFrontLayout` + `installBin`: stage F's runnable (`F0.ir`, built at installBin
+      from `specs/v2.2-p6.5-fsub.ssc`) as the lowerer; keep `ssc1-check-run.ssc0` beside F. Default stays
+      `ssc1-run.ssc0`. Prove `SSC_FRONT=F bin/ssc run <prog>` == semantic golden on a spread. NOTE the
+      impedance mismatch: F does flat single-file lowering; the tower does markdown/multi-file/frontmatter
+      /content + `NativeCompilation` structural protocol — F-mode covers the flat case, delegates/documents
+      the rest.
+- [ ] **Step 3 — dual-run CI wiring (reversible).** A CI-runnable check running corpus+conformance under
+      BOTH fronts; requires F ≥ current semantic-equiv count, 0 genuine-FAIL, typed fixpoint byte-identical.
+- [ ] **Step 4/5 — HELD by Sergiy.** Produce a flip-readiness report: the one-line installBin change that
+      flips the default, the 12 F-gaps + handling recommendation (fallback/delegate), steps 1-3 green.
+
+---
+
 ## v2-f5b-stage0 (`v2-f5b-stage0`, 2026-07-20) — typed-IR FOUNDATION (no observable change)
 
 Plan: `specs/v2-f5b-typed-ir-design.md` §4 (Stage 0) + §3 (verification regime). Stage 0 changes
