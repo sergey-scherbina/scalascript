@@ -1,0 +1,10 @@
+claim: v2-f5b-design
+branch: (read-only design study — worktree f5b-design)
+agent: opus (orchestrator — fresh agent)
+heartbeat: 2026-07-20T11:14:41Z
+status: in-progress
+what: Sergiy chose F5b (typed IR). DESIGN study: fold Mira HM into F so F emits typed/monomorphized
+      IR → retire ~1200-ln __arith__/__method__ δ-dispatcher (faster+smaller, path to ~2800). Byte-
+      identity-with-untyped-oracle NO LONGER applies → design a NEW verification regime (semantic
+      equivalence + fixpoint on typed IR). Staged plan + risks + effort. Also fix K62.3 gate-stack
+      as prep. Read/design only, no kernel edits pushed. Largest phase, multi-session.
