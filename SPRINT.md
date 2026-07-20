@@ -52,14 +52,21 @@ default (step 4, Sergiy) or delete ssc1-front/ssc1-lower (step 5). Edit gates (`
       `RunNativeV2.compile` (frontIsF path): F's decoded Program → `_root_.ssc.Reader.validate` (unbound-
       global pre-check) in a try; on ANY failure re-lower via the DEFAULT runner (ssc1-run.ssc0,
       fsubSrc=None). Added `defaultRunner` to `NativeFrontLayout`. The ONE pre-check catches BOTH gap
-      classes (the 12 + ambient/plugin) — all emit an unbound global. Runtime-only gap = documented
-      known-gap (chose static pre-check over unsafe run-time rerun); measured NONE survive (multi-file
-      arity folds into unbound-global on the real path → falls back). GATES GREEN: dualrun **43/43 EQUAL,
-      0 DIVERGE** (slice includes every gap class); dualrun.expected EMPTY; classify green (raw coverage,
-      note added); fixpoint byte-identical (unchanged). `SSC_FRONT_TRACE=1` logs delegations.
-- **Step 4/5 — HELD by Sergiy.** FLIP-READY (no blocker). The flip = one line in `RunNativeV2.frontIsF`
-      (opt-IN → opt-OUT); no re-stage; old front stays as the safe fallback (so the flip can't regress
-      anything). Step 5 (delete old front) must wait until F covers the fallback set on its own.
+      classes (the 12 + ambient/plugin) — all emit an unbound global → fall back. Runtime-only gap =
+      documented known-gap (chose static pre-check over unsafe run-time rerun — ~half the corpus is
+      multi-file incl. scljet DB writers, so a rerun would duplicate side effects). GATES GREEN: dualrun
+      default slice **43/45 EQUAL, 2 expected-GAP** (dsl-ast-builder, multi-link-imports); classify green
+      (raw coverage, note added); fixpoint byte-identical. `SSC_FRONT_TRACE=1` logs delegations.
+      ★ RESIDUAL (full-corpus sweep): 2 MULTI-FILE programs where F lowers a value WRONG with all globals
+      resolved (dsl-ast-builder → <closure>, multi-link-imports → () ) survive the pre-check — documented
+      in dualrun.expected; they need F's multi-file lowering fixed. So F never-worse-than-default EXCEPT
+      this small documented class. (Full sweep is slow — F recompiles per program; complete enumeration
+      is a follow-up. ~half the corpus is multi-file; most fall back cleanly via unbound-global.)
+- **Step 4/5 — HELD by Sergiy.** FLIP-READY. The flip = one line in `RunNativeV2.frontIsF` (opt-IN →
+      opt-OUT); no re-stage; old front stays as the safe fallback (so the flip can't regress any
+      unbound-global gap). Caveat: the 2 documented multi-file residuals WOULD regress post-flip until F's
+      multi-file lowering is fixed — Sergiy's call whether to flip with that known small caveat or fix
+      first. Step 5 (delete old front) must wait until F covers the fallback set on its own.
 
 ---
 
