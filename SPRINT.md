@@ -48,11 +48,18 @@ default (step 4, Sergiy) or delete ssc1-front/ssc1-lower (step 5). Edit gates (`
       fixpoint byte-identical (366,123 B). ★ REVEALED an AMBIENT-PRELUDE/PLUGIN gap class beyond the 12
       (json-read, generators): the classify gate's 246 is per-file coverage, NOT drop-in-front coverage.
       **F is NOT a drop-in front today.**
-- **Step 4/5 — HELD by Sergiy.** FLIP-READINESS: steps 1-3 green. The flip = one line in
-      `RunNativeV2.frontIsF` (opt-IN → opt-OUT); no re-stage. BLOCKED on handling TWO gap classes: (1) the
-      12 single-file GAPs; (2) the ambient-prelude/plugin GAP class (larger, real-path-only). Recommended:
-      a delegate-fallback in RunNativeV2 (Global-resolution pre-check → re-run failed files through the
-      default runner) makes F never-worse-than-default. Full report in the task hand-off + language-surface §7.
+- [ ] **F4a — delegate-fallback (Sergiy chose F4a 2026-07-20): make F never-worse-than-default.**
+      In `RunNativeV2.compile` (frontIsF path): after F's structural result, run `_root_.ssc.Reader.validate`
+      (unbound-global pre-check) inside a try; on ANY failure (validate throws, or lowerNative/decode threw)
+      re-run the file through the DEFAULT runner (`ssc1-run.ssc0`, fsubSrc=None) and use that. Add
+      `defaultRunner` to `NativeFrontLayout`. Net: F handles what it fully covers; the old front (kept, now
+      the fallback) covers the rest. Runtime-only gap (tagless-multi-file arity — passes global pre-check,
+      fails at run) = DOCUMENTED known-gap (no clean static pre-check on untyped IR; run-time rerun unsafe
+      due to side-effect duplication). Then: dualrun slice includes fallback cases (extensions/effects/
+      json-read/generators) → all EQUAL; dualrun.expected shrinks to the runtime-gap; classify stays green
+      (raw-F-coverage, 12 GAP documented); fixpoint (`--self`) unchanged (doesn't touch RunNativeV2).
+- **Step 4/5 — HELD by Sergiy.** FLIP-READINESS: after F4a, the flip = one line in
+      `RunNativeV2.frontIsF` (opt-IN → opt-OUT); no re-stage; old front stays as the safe fallback.
 
 ---
 
