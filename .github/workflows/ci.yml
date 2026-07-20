@@ -306,8 +306,17 @@ jobs:
       - name: ScalaScript 2.1 direct-ASM local recursion gate
         run: tests/e2e/v21-direct-asm-recursion-smoke.sh
 
+      # The full `sbt test` genuinely needs > 90 min: it is dominated by the
+      # cross-backend differential suites that compile+run generated programs
+      # through `scala-cli run --server=false` (cold per-program compile, for
+      # isolation) and `node`. On run 29700272865 a single suite
+      # (CrossBackendPropertyTest) took 44.7 min of the 90-min budget and the
+      # whole test phase was still running when the 90-min hard cap fired — all
+      # tests were passing, they just ran out of wall clock. 150 min gives
+      # comfortable margin over the observed ~90+ min. See BACKLOG
+      # (ci-crossbackend-differential-runtime) for the optimization follow-up.
       - name: Test via sbt
-        timeout-minutes: 90
+        timeout-minutes: 150
         run: sbt test
 
       # Save the classes/zinc cache ONLY when compile + assembly + tests all
