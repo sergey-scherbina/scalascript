@@ -145,16 +145,22 @@ incident. New capability goes in a **new module**.
         crashed on an all-whitespace string (empty table cell `| | b |`), and the fence scanner
         hardcoded exactly three backticks so a four-backtick block closed on its inner fence.
       - New bug filed: `BUGS.md js-char-into-int-param` — pins this case to `backends: [int]`.
-- [ ] **S2 — recursive dir walk + docs generator** (`v1/tools/docs-site/generate.ssc` or
-      similar `.ssc` entry). Walk `docs/**.md`, render each via S1 into a page that reuses the
-      landing page's design tokens (the `:root` custom-property block in `site/index.html:17-64`),
-      emit sidebar nav from the file tree + `search-index.json`.
+- [x] **S2 — DONE (`c5a56b070`).** `v1/tools/docs-site/generate.ssc` walks `docs/**.md`,
+      renders each via S1's `markdownToHtml`, reuses the landing design tokens, emits per-page
+      sidebar (grouped by dir, active state, live filter) + auto-index + `search-index.json`.
+      Verified on the real corpus: 37 pages (incl. `docs/bench/`), correct `../` prefixing at
+      depth, 0 fence leaks. GOTCHA baked in: entry runs at **module top level**, not `@main` —
+      `ssc run` does not invoke a `def main`/`@main`.
 - [ ] **S3 — install page.** `/install` from `install.sh` + `native-release.yml` artifacts:
-      one-line install command, platform table, links to releases.
-- [ ] **S4 — wire into `pages.yml`.** Add the docs-generation step next to the registry one.
-      **Gate must COMPARE, not pre-judge** (AGENTS.md rule): assert generated page count > 0,
-      assert a known heading string survives into the HTML, print `expected=… got=…` on
-      mismatch. Never a bare `[[ ]]` under `set -e`.
+      one-line install command, platform table, links to releases. NOTE: `gh release list` is
+      empty — no published binaries yet, so link to the source install for now.
+- [x] **S4 — DONE (`<pages-commit>`).** `pages.yml` builds ssc (`install.sh --dev`) and runs the
+      generator into `site/docs`; composed under `/docs/`. Gates COMPARE (page-count floor + known
+      heading survives into HTML, `expected=/got=` on mismatch). Cost: +cold ssc build → timeout
+      15→45 min + class cache (`-v2-pages-` prefix, disjoint from ci.yml; save-on-success only).
+      `site/docs` gitignored; triggers fire on `docs/**` + the generator. Landing footer/nav now
+      point at `/docs/`. **PENDING: exact-SHA Pages CI must go green before closing** — a cold ssc
+      build in the Pages job is unproven; watch the Pages run for the landed SHA.
 - [ ] **S5 — landing polish.** Extra sections (examples gallery, benchmarks) once /docs exists
       to link into.
 
