@@ -1,5 +1,27 @@
 # Bug tracker
 
+## frontend-tui-fetch-refresh-static-after-bootstrap — refresh ticks redraw stale fetched content
+
+**Status:** OPEN (found 2026-07-20 while implementing rozum `ucc-poc-msglist`).
+
+**Symptom/reproduce:** emit a terminal app containing a `FetchUrlSignal("messages", url,
+tick.id)`, a `DataTable.Remote` bound to it, and a button whose handler is
+`IncrementSignal(tick)`. The emitted crate performs one GET before its first frame. Activating
+the button increments `tick` and redraws, but the table still contains the bootstrap response;
+the HTTP server receives no second request. The React backend already treats the same tick as a
+managed-fetch dependency.
+
+**Root cause:** `frontend/tui/TuiEmitter.collectFetches` reduces every fetch binding to
+`id -> url`, discarding `FetchUrlSignal.tickId`. Generated Rust has only `bootstrap(signals)`,
+called once before the event loop; `handle_key` mutates signals but no runtime code compares the
+refresh tick or re-runs the GET.
+
+**Fix / done-when:** retain `(id, url, tickId)` in emitter metadata, snapshot observed ticks after
+bootstrap, and re-fetch a binding before the next frame when (and only when) its tick changes.
+Transport failure must preserve the last-good body. A local-HTTP cargo regression must prove an
+initial JSON table row changes after the refresh action, while a non-fetch app still emits neither
+`ureq` nor fetch state. Contract: `specs/frontend-tui-fetch-refresh.md`.
+
 ## ssc0c-multifile-uselib-ir-divergence — self-hosted compiler disagrees with the Scala seed across an import
 
 **Status:** FIXED 2026-07-19 by `v2-f7-internal-gate` (`3056aa3b8`; awaiting full F7 exact-SHA CI).
