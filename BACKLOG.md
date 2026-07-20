@@ -51,9 +51,49 @@ is shallow (depth 25), so a compiler-side depth bound has enormous headroom — 
         the heap. Fully browser-proof; the honest fix; a rewrite of the evaluator core.
         `evaluateRemainingAsStep` → `Runtime.value` (`Runtime.scala:1512`) is the site — ~3 frames per
         user-level call today.
-      - (b) **Cut frames per level.** Only a 4x reduction is needed. Cheaper than (a) and may suffice
-        for a playground compiling small snippets, where recursion tracks the *input's* nesting, not
-        the compiler's size. Worth measuring before committing to (a).
+      - (b) **Cut frames per level.** ✗ **MEASURED 2026-07-20 — wrong lever, do not start here.**
+        See the measurement below: it buys a constant factor against a cost that grows *linearly
+        with program size*.
+      - (c) ⭐ **Make the self-hosted compiler's list traversals tail-recursive.** This is the real
+        fix and it is in `.ssc0` source, not in the VM.
+
+**The measurement that redirected this (2026-07-20).** Minimum stack for `ssc0c` to compile a file,
+via binary search (`-Dssc.stackSize=0` to defeat the sized VM thread):
+
+| Input | Min stack |
+|---|---|
+| `fact.ssc0` (6 lines) | 512k |
+| `calc.ssc0` (25 lines) | 1m |
+| `uselib.ssc0` (5 lines + 43-line import) | 4m |
+| 10 / 40 / 160 / 320 **trivial defs, zero nesting** | 512k / 2m / 4m / 8m |
+
+Stack is **linear in program size** — ~25 KB per top-level definition, ~40 KB per source line — and
+320 definitions with *no nesting at all* already need 8 MB. So this was never a nesting-depth
+problem. Meanwhile the VM's tail calls are perfect: **1,000,000 tail calls run in 256k**.
+
+**Root cause, in the compiler's own source.** `lib/ssc0c.ssc0:368`:
+```
+def lowDefs = (defs, globals) => match defs { case Nil => Nil
+  case Cons(d, t) => match d { case Pair(n, e) =>
+    Cons(IrDef(n, low(Nil, globals, e)), lowDefs(t, globals)) } }
+```
+The recursive call sits in a **constructor argument**, so it is non-tail and lowering N definitions
+costs N frames of the compiler's own recursion. `mapFst` (:329) has the same shape, and the shape
+`Cons(x, recurse(t))` occurs **10 times** in the 371-line source. This matches the stack profile of
+the real workload: `compileEffectAwareConstructor` + `evaluate$2` account for 15% of frames.
+
+**Why (b) cannot rescue this.** Full stack profile at overflow (3844 frames, `-XX:MaxJavaStackTraceDepth=0`):
+`If` closures 65.2%, `Let` body 11.2%, ctor-field evaluation 15.1%, trampoline 7.9%. Routing the
+tail-position closure calls (`If` + `Let`) through a new trampoline `Step` would remove 76% — a
+**4.25x** win — at the cost of a `Step` allocation per taken branch in the hottest path of a
+heavily perf-tuned VM. Against a linear law, 4.25x moves a browser's ~1 MB budget from ~25 to ~100
+definitions. That is a postponement, not a fix. Static `If`-chain flattening is cheaper (no
+allocation) but only **2.0x** — the chains measured 6 and 9 deep.
+
+**So (c) first.** Rewriting those 10 traversals with an accumulator + reverse turns O(program size)
+stack into O(nesting), which the existing TCO already handles for free. Must be verified against the
+byte-identical self-compilation fixpoint: the output IR must not change, only the stack profile.
+Reconsider (b)/(a) only if a browser budget is still short *after* (c).
 - [ ] 4. Scala.js cross-build of `v2/src` + virtual-FS shim + playground page.
 
 **Two dead ends already ruled out — do not re-investigate.** (a) `./ssc0-js` self-hosting: the
