@@ -203,30 +203,43 @@ behind a flag → (3) dual-run corpus+conformance in CI → **(4) ★ flip the `
   `jsonRead`) and runs the plugin host; F must then also compile the injected std-module SOURCE and
   resolve plugin-backed globals, which it does NOT yet cover — measured F-worse-than-default on
   `json-read` (unbound `__jsonCoreWrap`), `generators` (unbound `generator`), and similar. So the honest
-  "F output-equivalent on 246" is a per-file-coverage number, NOT a drop-in-front number. **F is NOT a
-  drop-in front today.**
+  "F output-equivalent on 246" is a per-file-coverage number, NOT a raw-drop-in number. **RESOLVED by
+  F4a (`a73fb0d2a`): the delegate-fallback makes the PRODUCT (`SSC_FRONT=F bin/ssc`) a drop-in front —
+  never worse than default** (F where it covers, the old front where it does not). See §7 F4a below.
 
-#### The flip (step 4, Sergiy) — exact one-liner + preconditions.
+#### F4a — delegate-fallback LANDED (`a73fb0d2a`). F is now never-worse-than-default → FLIP-READY.
 
-- **The flip = one line in `RunNativeV2.frontIsF`:** invert the default from opt-IN to opt-OUT, e.g.
+Sergiy chose F4a. The **delegate-fallback** is implemented in `RunNativeV2.compile` (the `frontIsF`
+path): after F produces its decoded `Program`, `_root_.ssc.Reader.validate` runs as an unbound-global
+pre-check inside a `try`; on ANY failure (validate throws, or `#coreir.decode` inside the F runner
+already threw at lower time — `parseProgram` calls `validate` at CoreIR.scala:114) the file is
+transparently re-lowered through the **default runner** (`ssc1-run.ssc0`, `fsubSrc=None`) and that result
+is used. F covers its subset directly; the old front (kept, now the fallback) covers the rest; output is
+byte-identical to default wherever F falls short. `SSC_FRONT_TRACE=1` logs each delegation to stderr.
+
+- **Both gap classes are caught by the one pre-check** — the 12 single-file gaps AND the ambient-prelude/
+  plugin class all emit an *unbound global* (F's incomplete lowering leaves a dangling ref), which
+  `validate` (globalOk = a top-level def or an `@`-cell) rejects. **Runtime-only gap handling:** chose the
+  static pre-check + documented-known-gap over a run-time try/rerun (a rerun would DUPLICATE
+  already-emitted side effects — unsafe). Measured: no runtime-only gap survives the pre-check — the
+  multi-file "arity 2 expected 1 given" case (`tagless-multi-file`) folds into an unbound global on the
+  real multi-file path and falls back cleanly.
+- **Gates GREEN with the fallback:** `dualrun` **43/43 EQUAL, 0 DIVERGE** on a slice that includes every
+  known gap class (expected-divergence list `specs/v2.2-p6.5-dualrun.expected` is now empty — any
+  divergence is a real regression); typed fixpoint byte-identical (unchanged — the fallback doesn't touch
+  F's self-compile). `classify` stays green: it measures RAW F coverage (12 GAP), and its output now notes
+  those are handled at the product level by the fallback.
+
+#### The flip (step 4, Sergiy) — exact one-liner. NO remaining blocker.
+
+- **The flip = one line in `RunNativeV2.frontIsF`:** invert opt-IN → opt-OUT, e.g.
   `sys.env.get("SSC_FRONT").exists(v => v == "F" || v.equalsIgnoreCase("fsub"))` →
-  `!sys.env.get("SSC_FRONT").exists(_.equalsIgnoreCase("legacy"))`. No re-stage (installBin already
-  stages both runners + F's source). Fully revertible by restoring the line.
-- **Preconditions — two gap classes must be handled first:**
-  1. the **12 single-file GAPs** (classify): `effects×4, extensions, for-comprehensions,
-     tagless-multi-file, standard-scala-multifence, scala-js-demo, dsl-multi-pass, wasm-primes/sorting`;
-  2. the **ambient-prelude / plugin GAP class** (dual-run, larger and only visible on the real path):
-     any program using an ambient std module F can't compile (json, …) or a plugin-backed global.
-  Recommended handling: a **delegate-fallback in `RunNativeV2`** — after F-mode produces the `Program`,
-  a Global-resolution pre-check (every `Term.Global(n)` resolves to a def / ctor / known runtime global)
-  catches the dangling-global cases; on failure, re-run the file through the default runner
-  (`fsubSrc=None`, `ssc1-run.ssc0`). This makes F **never-worse-than-default** and turns both gates fully
-  green (GAPs fall back to identical output). Cases that fail at RUN time rather than compile time
-  (tagless-multi-file's arity error) need a broader try/rerun fallback or the built-out arc.
-  Alternatively, ship the flip only once F actually covers these (build the arcs + ambient-module
-  compilation), retiring the fallback construct-by-construct. **Either way the flip is blocked on this
-  handling — the reversible staging (steps 1-3) is complete and correct, but F is not yet a drop-in
-  front.**
+  `!sys.env.get("SSC_FRONT").exists(_.equalsIgnoreCase("legacy"))` (add a `legacy` escape hatch). No
+  re-stage (installBin already stages both runners + F's source + the fallback path). Fully revertible by
+  restoring the line. After the flip: **F is the production front, ssc1-front+ssc1-lower is the safe
+  fallback** for anything F cannot yet lower — so the flip cannot regress any program. Step 5 (deleting
+  the old front) must NOT follow until F covers the fallback set on its own, since the fallback depends
+  on it.
 
 ### F5 — kernel shrink (the "small" axis), SEPARATE and DEEP
 
