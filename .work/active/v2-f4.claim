@@ -1,19 +1,14 @@
 claim: v2-f4
-branch: feature/v2-f4-stage
-agent: opus (orchestrator — F4a delegate-fallback)
-heartbeat: 2026-07-20T21:40:00Z
-status: F4a DONE — delegate-fallback landed; FLIP-READY (Sergiy holds the one-line flip)
-what: Sergiy chose F4a. Steps 1-3 (classify gate / SSC_FRONT=F flag / dualrun) + F4a delegate-fallback
-      all landed on main (f54937bb8). F never-worse-than-default via Reader.validate unbound-global
-      pre-check → re-lower gaps through the default runner (ssc1-run.ssc0). The ONE pre-check catches
-      BOTH gap classes (12 single-file + ambient/plugin). Runtime-only gap = documented known-gap (chose
-      static pre-check over unsafe run-time rerun — ~half corpus multi-file incl. scljet DB writers).
-      GATES: dualrun default slice 43/45 EQUAL + 2 expected-GAP (dsl-ast-builder, multi-link-imports),
-      classify green, fixpoint byte-identical (366123 B).
-      RESIDUAL (honest caveat): 2 MULTI-FILE programs where F lowers a value WRONG with all globals
-      resolved (dsl-ast-builder → <closure>, multi-link-imports → ()) survive the pre-check → documented
-      in dualrun.expected; need F's multi-file lowering fixed. So never-worse EXCEPT this small class.
-      FLIP (Sergiy): one line in RunNativeV2.frontIsF (opt-IN→opt-OUT); old front stays fallback; the 2
-      residuals would regress post-flip until F multi-file fixed. Full-corpus sweep is slow (F recompiles
-      per program) — complete residual enumeration is a follow-up. Step 5 (delete old front) blocked on
-      F covering the fallback set itself.
+branch: feature/v2-f4-sweep
+agent: opus (orchestrator — full residual sweep)
+heartbeat: 2026-07-20T20:10:43Z
+status: in-progress — F4a flip-readiness: COMPLETE residual sweep (Sergiy: sweep first)
+what: F4a delegate-fallback landed (F never-worse-than-default for unbound-global gaps). Flip=1 line,
+      held by Sergiy. BUT fallback can't catch WRONG-BUT-RESOLVES residuals (F resolves all globals
+      but lowers a value wrong → silently wrong output). 2 found (dsl-ast-builder, multi-link-imports),
+      sweep INCOMPLETE. TASK: run the FULL 510-corpus dualrun (default bin/ssc vs SSC_FRONT=F bin/ssc),
+      enumerate EVERY divergence, classify clean-fallback (byte-identical) vs wrong-but-resolves
+      residual. Prebuild F0 once (reuse across programs) for speed; real production path (ambient
+      prelude + plugins) required to catch the prelude/plugin + multi-file cases. Output the COMPLETE
+      residual set → Sergiy decides flip-now vs fix-first. Read-only-ish (extend dualrun gate + commit
+      the complete expected-residual manifest); do NOT flip, do NOT delete old front.
