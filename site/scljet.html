@@ -1,0 +1,567 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="SclJet is a SQLite engine written from scratch in ScalaScript. It reads and writes real .db files, proven byte-for-byte against sqlite3.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="SclJet — a SQLite engine written from scratch in ScalaScript">
+<meta property="og:description" content="Reads and writes real SQLite files, proven byte-for-byte against sqlite3. 22 modules of pure ScalaScript, no C.">
+<meta property="og:url" content="https://sergey-scherbina.github.io/scalascript/scljet.html">
+<meta name="theme-color" content="#0E151B" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F4F2EB" media="(prefers-color-scheme: light)">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%97%84%EF%B8%8F%3C/text%3E%3C/svg%3E">
+<title>SclJet — a SQLite engine written from scratch in ScalaScript</title>
+<style>
+  :root {
+    --paper:  #F4F2EB;
+    --panel:  #FBFAF5;
+    --ink:    #17212B;
+    --steel:  #5F707A;
+    --faint:  #8A97A0;
+    --rule:   #DEDACF;
+    --rule-2: #ECE8DE;
+    --signal: #A9541F;   /* copper — primary accent */
+    --signal-soft: #b4632b1a;
+    --trace:  #21716B;   /* teal — the "logical" counterpart */
+    --ok:     #2F6B45;
+    --warn:   #9A6417;
+    --bug:    #A63A34;
+    --grid:   #00000008;
+
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+
+    --measure: 66ch;
+    --step-0: clamp(0.86rem, 0.84rem + 0.12vw, 0.92rem);
+    --step-1: clamp(1.0rem, 0.95rem + 0.3vw, 1.15rem);
+    --step-2: clamp(1.35rem, 1.2rem + 0.7vw, 1.7rem);
+    --step-3: clamp(2rem, 1.5rem + 2.4vw, 3.4rem);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper:  #0E151B;
+      --panel:  #141D25;
+      --ink:    #E9EAE3;
+      --steel:  #8FA0AB;
+      --faint:  #647680;
+      --rule:   #243039;
+      --rule-2: #1B242C;
+      --signal: #DA8A50;
+      --signal-soft: #d98a4e1f;
+      --trace:  #58B8B0;
+      --ok:     #6BB683;
+      --warn:   #DBA658;
+      --bug:    #E27069;
+      --grid:   #FFFFFF06;
+    }
+  }
+  :root[data-theme="light"] {
+    --paper:#F4F2EB; --panel:#FBFAF5; --ink:#17212B; --steel:#5F707A; --faint:#8A97A0;
+    --rule:#DEDACF; --rule-2:#ECE8DE; --signal:#A9541F; --signal-soft:#b4632b1a;
+    --trace:#21716B; --ok:#2F6B45; --warn:#9A6417; --bug:#A63A34; --grid:#00000008;
+  }
+  :root[data-theme="dark"] {
+    --paper:#0E151B; --panel:#141D25; --ink:#E9EAE3; --steel:#8FA0AB; --faint:#647680;
+    --rule:#243039; --rule-2:#1B242C; --signal:#DA8A50; --signal-soft:#d98a4e1f;
+    --trace:#58B8B0; --ok:#6BB683; --warn:#DBA658; --bug:#E27069; --grid:#FFFFFF06;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: var(--step-0);
+    line-height: 1.6;
+    letter-spacing: 0.005em;
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 26px 26px;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 clamp(18px, 4vw, 40px); }
+
+  h1, h2, h3, .mono, .label, code, pre, table, .stat-n { font-family: var(--mono); }
+  h2, h3 { text-wrap: balance; line-height: 1.2; }
+
+  .label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: var(--signal);
+    font-weight: 500;
+  }
+  a { color: var(--signal); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  :focus-visible { outline: 2px solid var(--signal); outline-offset: 3px; border-radius: 2px; }
+
+  /* ── top bar ─────────────────────────────────────────── */
+  .topbar {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+    padding: 22px 0 18px; border-bottom: 1px solid var(--rule);
+  }
+  .brand { font-family: var(--mono); font-weight: 600; font-size: 1.05rem; letter-spacing: -0.01em; }
+  .brand b { color: var(--signal); font-weight: 600; }
+  .topbar .meta { font-family: var(--mono); font-size: 0.74rem; color: var(--faint); letter-spacing: 0.04em; }
+
+  /* ── hero ─────────────────────────────────────────────── */
+  .hero { padding: clamp(38px, 7vw, 76px) 0 clamp(30px, 5vw, 52px); }
+  .hero h1 {
+    font-size: var(--step-3); font-weight: 600; letter-spacing: -0.02em;
+    margin: 16px 0 0; line-height: 1.04; max-width: 20ch;
+  }
+  .hero h1 .em { color: var(--signal); }
+  .hero .lede {
+    max-width: 60ch; margin: 22px 0 0; font-size: var(--step-1); color: var(--steel);
+    line-height: 1.55;
+  }
+  .hero .lede b { color: var(--ink); font-weight: 600; }
+  .tags { display: flex; flex-wrap: wrap; gap: 8px 10px; margin-top: 28px; }
+  .tag {
+    font-family: var(--mono); font-size: 0.74rem; letter-spacing: 0.02em;
+    color: var(--steel); border: 1px solid var(--rule); border-radius: 999px;
+    padding: 5px 12px; background: var(--panel);
+  }
+  .tag .dot { color: var(--ok); }
+
+  /* ── the byte strip ──────────────────────────────────── */
+  .bytes {
+    margin-top: 34px; border: 1px solid var(--rule); background: var(--panel);
+    border-radius: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch;
+  }
+  .bytes .cap {
+    display:flex; justify-content:space-between; gap:12px;
+    padding: 10px 14px; border-bottom: 1px solid var(--rule-2);
+    font-family: var(--mono); font-size: 0.72rem; color: var(--faint); letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .hexrow { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; min-width: 620px; }
+  .hexcell { text-align: center; padding: 12px 4px 10px; border-right: 1px solid var(--rule-2); }
+  .hexcell:last-child { border-right: 0; }
+  .hexcell .hx { font-family: var(--mono); font-size: 0.9rem; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .hexcell .as { font-family: var(--mono); font-size: 0.72rem; color: var(--signal); margin-top: 3px; }
+  .hexcell .as.zero { color: var(--faint); }
+
+  /* ── section frame ───────────────────────────────────── */
+  section { padding: clamp(40px, 6vw, 72px) 0; border-top: 1px solid var(--rule); }
+  .sec-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 26px; }
+  .sec-head .n { font-family: var(--mono); font-size: 0.74rem; color: var(--faint); }
+  .sec-head h2 { font-size: var(--step-2); font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+  .prose { max-width: var(--measure); color: var(--steel); }
+  .prose b { color: var(--ink); font-weight: 600; }
+  .prose + .prose { margin-top: 0.9em; }
+
+  /* ── proof: the round trip ───────────────────────────── */
+  .proof { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  @media (max-width: 720px) { .proof { grid-template-columns: 1fr; } }
+  .card {
+    border: 1px solid var(--rule); background: var(--panel); border-radius: 10px; overflow: hidden;
+  }
+  .card > .hd {
+    padding: 13px 16px; border-bottom: 1px solid var(--rule-2);
+    font-family: var(--mono); font-size: 0.78rem; display:flex; align-items:center; gap: 9px;
+  }
+  .card > .hd .arrow { color: var(--signal); }
+  .card > .hd .who { color: var(--ink); font-weight: 600; }
+  pre {
+    margin: 0; padding: 15px 16px; overflow-x: auto; font-size: 0.8rem; line-height: 1.65;
+    color: var(--ink); font-variant-numeric: tabular-nums;
+  }
+  pre .c { color: var(--faint); }
+  pre .g { color: var(--ok); }
+  pre .s { color: var(--signal); }
+  pre .t { color: var(--trace); }
+  .verdict {
+    display:flex; align-items:center; gap: 9px; padding: 11px 16px;
+    border-top: 1px solid var(--rule-2); font-family: var(--mono); font-size: 0.78rem;
+  }
+  .verdict .chk { color: var(--ok); font-weight: 700; }
+  .verdict.warm .chk { color: var(--ok); }
+
+  /* ── code example ────────────────────────────────────── */
+  .codecard { border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; background: var(--panel); }
+  .codecard .fn {
+    padding: 11px 16px; border-bottom: 1px solid var(--rule-2);
+    font-family: var(--mono); font-size: 0.78rem; color: var(--steel);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .codecard .fn .dots { display: flex; gap: 5px; }
+  .codecard .fn .dots i { width: 9px; height: 9px; border-radius: 50%; background: var(--rule-2); display: block; }
+  .codecard .fn .dots i:first-child { background: var(--signal); opacity: 0.55; }
+  .codecard pre { font-size: 0.78rem; line-height: 1.7; }
+  .codecard pre .kw { color: var(--signal); }
+  .term { margin-top: 14px; border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; }
+  .term .prompt {
+    padding: 11px 16px; border-bottom: 1px solid var(--rule-2); background: var(--panel);
+    font-family: var(--mono); font-size: 0.78rem; color: var(--steel);
+  }
+  .term .prompt .p { color: var(--signal); }
+  .term pre { background: transparent; }
+  .term pre .h { color: var(--steel); }
+  .caption { margin-top: 16px; color: var(--steel); font-size: 0.85rem; max-width: var(--measure); }
+  .caption code { color: var(--ink); }
+  .example-grid { display: grid; grid-template-columns: 1.5fr 1fr; gap: 18px; align-items: start; }
+  @media (max-width: 820px) { .example-grid { grid-template-columns: 1fr; } }
+  .example-grid .term { margin-top: 0; }
+  .example-grid .term + .term { margin-top: 14px; }
+  .term pre .ok { color: var(--ok); }
+
+  /* ── address model ───────────────────────────────────── */
+  .addr {
+    margin-top: 8px; border: 1px solid var(--rule); border-radius: 12px; background: var(--panel);
+    overflow: hidden;
+  }
+  .addr .path {
+    padding: 20px 22px; border-bottom: 1px solid var(--rule-2);
+    font-family: var(--mono); font-size: clamp(1.1rem, 0.9rem + 1.4vw, 1.6rem); letter-spacing: 0.02em;
+  }
+  .addr .path .seg { color: var(--ink); }
+  .addr .path .sl { color: var(--faint); padding: 0 2px; }
+  .addr .path .col { color: var(--signal); }
+  .duo { display: grid; grid-template-columns: 1fr 1fr; }
+  @media (max-width: 640px) { .duo { grid-template-columns: 1fr; } }
+  .duo > div { padding: 20px 22px; }
+  .duo > .logical { border-right: 1px solid var(--rule-2); }
+  @media (max-width: 640px) { .duo > .logical { border-right: 0; border-bottom: 1px solid var(--rule-2); } }
+  .duo .k { font-family: var(--mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.14em; }
+  .duo .logical .k { color: var(--trace); }
+  .duo .physical .k { color: var(--signal); }
+  .duo .v { font-family: var(--mono); font-size: 1.7rem; margin-top: 8px; color: var(--ink); }
+  .duo .sub { color: var(--steel); margin-top: 8px; font-size: 0.85rem; max-width: 34ch; }
+  .addr .link {
+    padding: 13px 22px; border-top: 1px solid var(--rule-2); background: var(--signal-soft);
+    font-family: var(--mono); font-size: 0.8rem; color: var(--ink);
+  }
+  .addr .link b { color: var(--signal); }
+
+  .triad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 22px; }
+  @media (max-width: 640px) { .triad { grid-template-columns: 1fr; } }
+  .triad .t {
+    border: 1px solid var(--rule); border-radius: 9px; padding: 15px 16px; background: var(--panel);
+  }
+  .triad .t .w { font-family: var(--mono); color: var(--signal); font-size: 0.95rem; }
+  .triad .t .d { color: var(--steel); font-size: 0.83rem; margin-top: 5px; }
+
+  /* ── architecture stack ──────────────────────────────── */
+  .stack { display: flex; flex-direction: column; gap: 3px; }
+  .layer {
+    display: grid; grid-template-columns: 132px 1fr; gap: 16px; align-items: center;
+    border: 1px solid var(--rule); border-left: 3px solid var(--trace);
+    background: var(--panel); border-radius: 7px; padding: 12px 16px;
+  }
+  .layer.top { border-left-color: var(--signal); }
+  .layer .lname { font-family: var(--mono); font-weight: 600; color: var(--ink); font-size: 0.86rem; }
+  .layer .lmods { font-family: var(--mono); font-size: 0.76rem; color: var(--faint); letter-spacing: 0.01em; }
+  @media (max-width: 560px) {
+    .layer { grid-template-columns: 1fr; gap: 4px; }
+  }
+
+  /* ── capabilities table ──────────────────────────────── */
+  .tablewrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.82rem; min-width: 560px; }
+  thead th {
+    text-align: left; font-weight: 500; color: var(--faint); font-size: 0.7rem;
+    text-transform: uppercase; letter-spacing: 0.1em; padding: 12px 16px;
+    border-bottom: 1px solid var(--rule); background: var(--panel);
+  }
+  tbody td { padding: 12px 16px; border-bottom: 1px solid var(--rule-2); vertical-align: top; }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody td:first-child { color: var(--ink); font-family: var(--mono); white-space: nowrap; }
+  tbody td.note { color: var(--steel); font-family: var(--sans); }
+  .st { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.04em; white-space: nowrap; }
+  .st.ok  { color: var(--ok); }
+  .st.wip { color: var(--warn); }
+  .st.ok::before  { content: "●  "; }
+  .st.wip::before { content: "◐  "; }
+
+  /* ── numbers ─────────────────────────────────────────── */
+  .nums { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--rule);
+    border: 1px solid var(--rule); border-radius: 10px; overflow: hidden; }
+  @media (max-width: 680px) { .nums { grid-template-columns: repeat(2, 1fr); } }
+  .num { background: var(--panel); padding: 20px 18px; }
+  .num .stat-n { font-size: clamp(1.5rem, 1rem + 1.6vw, 2.1rem); color: var(--ink); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+  .num .stat-l { color: var(--steel); font-size: 0.78rem; margin-top: 6px; line-height: 1.4; }
+  .num .stat-n .u { color: var(--signal); }
+
+  /* ── footer ──────────────────────────────────────────── */
+  footer { border-top: 1px solid var(--rule); padding: 40px 0 60px; }
+  footer .v { max-width: 58ch; color: var(--steel); }
+  footer .v b { color: var(--ink); font-weight: 600; }
+  footer .sig { font-family: var(--mono); font-size: 0.74rem; color: var(--faint); margin-top: 22px; letter-spacing: 0.04em; }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .fade { opacity: 0; transform: translateY(8px); animation: rise 0.6s cubic-bezier(.2,.7,.3,1) forwards; }
+    @keyframes rise { to { opacity: 1; transform: none; } }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <div class="brand"><b>Scl</b>Jet</div>
+    <div class="meta">pure&nbsp;.ssc · no&nbsp;C · oracle:&nbsp;sqlite3&nbsp;3.51.0</div>
+  </div>
+
+  <!-- HERO ─────────────────────────────────────────────── -->
+  <header class="hero">
+    <span class="label">SQLite file format · from scratch</span>
+    <h1 class="fade">A database engine that speaks <span class="em">real SQLite</span>, byte for byte.</h1>
+    <p class="lede fade">
+      SclJet is a SQLite-compatible storage engine written entirely in ScalaScript — 22 modules,
+      no C, no bundled library. It <b>reads and writes ordinary <code>.db</code> files</b>, and the
+      reference <code>sqlite3</code> reads them back, runs <code>PRAGMA integrity_check</code>, and
+      writes into them. The proof isn't a claim; it's a diff.
+    </p>
+
+    <div class="tags fade">
+      <span class="tag"><span class="dot">●</span> reads real SQLite files</span>
+      <span class="tag"><span class="dot">●</span> writes valid SQLite files</span>
+      <span class="tag"><span class="dot">●</span> JDBC driver + façade</span>
+      <span class="tag"><span class="dot">●</span> runs on interpreter · JS · JVM · native</span>
+    </div>
+
+    <!-- the actual bytes emptyDatabase() writes -->
+    <div class="bytes fade">
+      <div class="cap"><span>offset 0 — every SclJet file opens with these 16 bytes</span><span>the SQLite magic header</span></div>
+      <div class="hexrow">
+        <div class="hexcell"><div class="hx">53</div><div class="as">S</div></div>
+        <div class="hexcell"><div class="hx">51</div><div class="as">Q</div></div>
+        <div class="hexcell"><div class="hx">4C</div><div class="as">L</div></div>
+        <div class="hexcell"><div class="hx">69</div><div class="as">i</div></div>
+        <div class="hexcell"><div class="hx">74</div><div class="as">t</div></div>
+        <div class="hexcell"><div class="hx">65</div><div class="as">e</div></div>
+        <div class="hexcell"><div class="hx">20</div><div class="as">␠</div></div>
+        <div class="hexcell"><div class="hx">66</div><div class="as">f</div></div>
+        <div class="hexcell"><div class="hx">6F</div><div class="as">o</div></div>
+        <div class="hexcell"><div class="hx">72</div><div class="as">r</div></div>
+        <div class="hexcell"><div class="hx">6D</div><div class="as">m</div></div>
+        <div class="hexcell"><div class="hx">61</div><div class="as">a</div></div>
+        <div class="hexcell"><div class="hx">74</div><div class="as">t</div></div>
+        <div class="hexcell"><div class="hx">20</div><div class="as">␠</div></div>
+        <div class="hexcell"><div class="hx">33</div><div class="as">3</div></div>
+        <div class="hexcell"><div class="hx">00</div><div class="as zero">␀</div></div>
+      </div>
+    </div>
+  </header>
+
+  <!-- PROOF ────────────────────────────────────────────── -->
+  <section>
+    <div class="sec-head"><span class="n">01</span><h2>The round trip</h2></div>
+    <p class="prose" style="margin-bottom:24px">
+      Two engines, one file, in both directions. A file written by the reference <code>sqlite3</code>
+      is queried by SclJet and comes back <b>byte-identical to the oracle</b>; a file written by
+      SclJet is opened by <code>sqlite3</code>, passes its integrity check, and is written into.
+    </p>
+    <div class="proof">
+      <div class="card">
+        <div class="hd"><span class="arrow">→</span> <span class="who">sqlite3</span> writes · <span class="who">SclJet</span> reads</div>
+<pre><span class="c"># SELECT · WHERE on the rowid · GROUP BY + SUM · ORDER BY LIMIT</span>
+1|ann|eng|100        <span class="g">✓</span>
+7|bob|sales|250      <span class="g">✓</span>
+9|cat|eng|300        <span class="g">✓</span>
+eng|2|400            <span class="g">✓</span>
+bob|250   ·   cat, bob</pre>
+        <div class="verdict"><span class="chk">✓</span> diff vs sqlite3 — <b>byte-identical</b></div>
+      </div>
+      <div class="card">
+        <div class="hd"><span class="arrow">←</span> <span class="who">SclJet</span> writes · <span class="who">sqlite3</span> reads</div>
+<pre><span class="s">PRAGMA integrity_check</span>  →  <span class="g">ok</span>
+<span class="s">SELECT id,item,qty,rowid</span>
+  1|bolt|480|1       <span class="c">(UPDATE applied)</span>
+  7|nut|1200|7       <span class="c">(IPK 7 == rowid 7)</span>
+<span class="s">INSERT ... 99,'screw'</span>  →  <span class="t">sqlite3 writes our file</span></pre>
+        <div class="verdict warm"><span class="chk">✓</span> a valid SQLite database, accepted end&#8209;to&#8209;end</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CODE EXAMPLE ─────────────────────────────────────── -->
+  <section>
+    <div class="sec-head"><span class="n">02</span><h2>A first taste</h2></div>
+    <p class="prose" style="margin-bottom:24px">
+      Create a database, add a row, read it back. Imports are <code>[names](module)</code> markdown
+      links, and a connection is <b>immutable</b> — every write returns a new image, threaded forward.
+    </p>
+
+    <div class="example-grid">
+      <div class="codecard">
+        <div class="fn"><span class="dots"><i></i><i></i><i></i></span> scljet-hello.ssc</div>
+<pre>[SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[jdbcOpen, jdbcExecuteUpdate, jdbcExecuteQuery,
+ rsNext, rsHasRow, rsGetLong, rsGetString](std/scljet/jdbc.ssc)
+
+<span class="c">// each write returns a new image, threaded forward</span>
+<span class="kw">def</span> run(c: JdbcConnection, sql: String): JdbcConnection =
+  jdbcExecuteUpdate(c, sql) <span class="kw">match</span>
+    <span class="kw">case</span> Right(u) =&gt; u.conn
+
+<span class="c">// create a database, add a book, read them back</span>
+buildTableDatabase(512, 1, 1, <span class="t">"books"</span>,
+  <span class="t">"CREATE TABLE books(id INTEGER PRIMARY KEY, title TEXT)"</span>,
+  List(List(SqlInteger(1L), SqlText(<span class="t">"SICP"</span>)))) <span class="kw">match</span>
+  <span class="kw">case</span> Right(image) =&gt;
+    <span class="kw">val</span> c = run(jdbcOpen(image),
+      <span class="t">"INSERT INTO books VALUES (2, 'TAPL')"</span>)
+    jdbcExecuteQuery(c,
+      <span class="t">"SELECT id, title FROM books ORDER BY id"</span>) <span class="kw">match</span>
+      <span class="kw">case</span> Right(rs) =&gt;
+        <span class="kw">var</span> r = rsNext(rs)
+        <span class="kw">while</span> rsHasRow(r) <span class="kw">do</span>
+          println(rsGetLong(r,1).toString + <span class="t">" · "</span> + rsGetString(r,2))
+          r = rsNext(r)</pre>
+      </div>
+
+      <div>
+        <div class="term">
+          <div class="prompt"><span class="p">$</span> ssc run scljet-hello.ssc</div>
+<pre>1 · SICP
+2 · TAPL</pre>
+        </div>
+        <div class="term">
+          <div class="prompt"><span class="p">$</span> ssc run scljet-file.ssc <span class="h"># interop</span></div>
+<pre><span class="h">SclJet wrote books.db</span>
+sqlite3 integrity_check  →  <span class="ok">ok</span>
+sqlite3 reads: 1 · SICP · 2 · TAPL
+sqlite3 adds a row  →  <span class="ok">now 3 books</span></pre>
+        </div>
+      </div>
+    </div>
+
+    <p class="caption">
+      Real output, byte-identical on the interpreter, JS, and the default <code>ssc run</code>. The
+      full example adds an <code>UPDATE</code> and a bound <code>?</code> parameter; the interop demo
+      (<code>scljet-file.ssc</code>) writes a real <code>.db</code> and lets the reference
+      <code>sqlite3</code> read it, check it, and write into it.
+    </p>
+  </section>
+
+  <!-- ADDRESS MODEL ────────────────────────────────────── -->
+  <section>
+    <div class="sec-head"><span class="n">03</span><h2>Every value has an address</h2></div>
+    <p class="prose">
+      The engine is the foundation; the idea it carries is addressing. An <b>address is the link
+      between a logical location and a physical one</b> — and the standing question is always the
+      same: <i>what does this bit mean, here?</i>
+    </p>
+    <p class="prose">
+      Take an <code>INTEGER PRIMARY KEY</code>. Real SQLite stores nothing for it in the record —
+      the value lives in the rowid. So the two halves of the address genuinely disagree, and only
+      the link between them is correct:
+    </p>
+
+    <div class="addr" style="margin-top:24px">
+      <div class="path">
+        <span class="seg">emp</span><span class="sl">/</span><span class="seg">7</span><span class="sl">/</span><span class="col">id</span>
+      </div>
+      <div class="duo">
+        <div class="logical">
+          <div class="k">logical — meaning</div>
+          <div class="v">7</div>
+          <div class="sub">the value, taken from the row's rowid</div>
+        </div>
+        <div class="physical">
+          <div class="k">physical — the bytes</div>
+          <div class="v">0&nbsp;bytes</div>
+          <div class="sub">the record field is NULL; nothing is stored here</div>
+        </div>
+      </div>
+      <div class="link">
+        both are true at once. <b>read → INTEGER 7 · fromRowid=true · stable=true</b> — reporting the
+        physical bit as the logical value is the exact bug this model exists to prevent.
+      </div>
+    </div>
+
+    <div class="triad">
+      <div class="t"><div class="w">address</div><div class="d">a name for one leaf — <code>table/rowid/column</code>, or a path into a document</div></div>
+      <div class="t"><div class="w">type · value</div><div class="d">the format's own type where known; <code>Raw(n)</code> — n bits — where not. Never a guess.</div></div>
+      <div class="t"><div class="w">one protocol</div><div class="d"><code>read address → (type, value)</code>; write is the same triple, applied</div></div>
+    </div>
+  </section>
+
+  <!-- ARCHITECTURE ─────────────────────────────────────── -->
+  <section>
+    <div class="sec-head"><span class="n">04</span><h2>Twenty-two modules, bytes up to SQL</h2></div>
+    <p class="prose" style="margin-bottom:26px">
+      Each layer is a pure, target-neutral <code>.ssc</code> module. Semantics are defined once;
+      the interpreter, JS, JVM, and the native VM are translators, not reinterpretations.
+    </p>
+    <div class="stack">
+      <div class="layer top">
+        <div class="lname">Front doors</div>
+        <div class="lmods">jdbc · typedsql · address</div>
+      </div>
+      <div class="layer top">
+        <div class="lname">SQL</div>
+        <div class="lmods">sql — lexer · SELECT/INSERT/UPDATE/DELETE/CREATE · joins · aggregates · subqueries</div>
+      </div>
+      <div class="layer">
+        <div class="lname">Mutation</div>
+        <div class="lmods">write · mutate · journal · wal · freelist</div>
+      </div>
+      <div class="layer">
+        <div class="lname">Schema &amp; read</div>
+        <div class="lmods">schema · readonly · btree · pager · page</div>
+      </div>
+      <div class="layer">
+        <div class="lname">Codec</div>
+        <div class="lmods">record · header · values · bytes</div>
+      </div>
+      <div class="layer">
+        <div class="lname">VFS</div>
+        <div class="lmods">vfs · memory-vfs · jvm-vfs — abstract file, in-memory image, real host files</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CAPABILITIES ─────────────────────────────────────── -->
+  <section>
+    <div class="sec-head"><span class="n">05</span><h2>What works today — and what doesn't yet</h2></div>
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr><th>Capability</th><th>Status</th><th>Detail</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Read real SQLite files</td><td><span class="st ok">solid</span></td><td class="note">byte-identical to sqlite3 3.51.0 across SELECT, WHERE, GROUP BY, aggregates, ORDER BY, LIMIT, joins, indexes</td></tr>
+          <tr><td>Write valid SQLite files</td><td><span class="st ok">solid</span></td><td class="note">INSERT / UPDATE / DELETE / CREATE — sqlite3 opens the result and passes <code>integrity_check</code></td></tr>
+          <tr><td>JDBC</td><td><span class="st ok">solid</span></td><td class="note">a real <code>java.sql.Driver</code> for <code>jdbc:scljet:</code> plus a portable façade; cross-checked value-for-value against Xerial sqlite-jdbc</td></tr>
+          <tr><td>Durable host-file writes</td><td><span class="st ok">solid</span></td><td class="note">crash-atomic (write-temp → fsync → atomic rename → fsync dir) and single-writer via a cross-process lock</td></tr>
+          <tr><td>Addressing</td><td><span class="st ok">solid</span></td><td class="note">read &amp; write by <code>table/rowid/column</code> for SQLite; read for JSON documents over a lossless tree</td></tr>
+          <tr><td>Backends</td><td><span class="st ok">solid</span></td><td class="note">interpreter, JS, the JVM driver, and the default <code>ssc run</code> native command</td></tr>
+          <tr><td>WAL &amp; rollback journal</td><td><span class="st wip">in&nbsp;progress</span></td><td class="note">codecs and transaction primitives exist; not yet the default write path</td></tr>
+          <tr><td>A few engine write edges</td><td><span class="st wip">in&nbsp;progress</span></td><td class="note"><code>UPDATE</code> of an IPK column, <code>NULL</code> in an <code>INSERT … VALUES</code> list — tracked, honest, open</td></tr>
+          <tr><td>Documents beyond JSON</td><td><span class="st wip">in&nbsp;progress</span></td><td class="note">YAML / XML / Markdown addressing, and remote references — same model, a different resolver</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- NUMBERS ──────────────────────────────────────────── -->
+  <section>
+    <div class="sec-head"><span class="n">06</span><h2>By the numbers</h2></div>
+    <div class="nums">
+      <div class="num"><div class="stat-n">13,631</div><div class="stat-l">lines of pure ScalaScript</div></div>
+      <div class="num"><div class="stat-n">22</div><div class="stat-l">modules, bytes up to SQL</div></div>
+      <div class="num"><div class="stat-n">99</div><div class="stat-l">conformance cases, locked on <span class="mono">int</span> &amp; <span class="mono">js</span></div></div>
+      <div class="num"><div class="stat-n">0<span class="u">×</span></div><div class="stat-l">bundled C, or SQLite library</div></div>
+    </div>
+  </section>
+
+  <!-- FOOTER ───────────────────────────────────────────── -->
+  <footer>
+    <span class="label">the direction</span>
+    <p class="v" style="margin-top:14px">
+      Start from the one stable, universal foundation — the SQLite file format — and connect every
+      other format onto the same addressing. <b>Every bit of data has a name, a value, and an
+      address</b>, from a local byte to a remote reference. Take what is already known and order it:
+      no guessing about what we don't know, careful attention to what we do.
+    </p>
+    <div class="sig">SclJet · a ScalaScript data engine · read the bytes</div>
+  </footer>
+
+</div>
+</body>
+</html>
