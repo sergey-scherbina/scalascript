@@ -29,7 +29,13 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 FSUB="$ROOT/specs/v2.2-p6.5-fsub.ssc"
 WORK=${NEWFRONT_WORK:-$(mktemp -d)}
 mkdir -p "$WORK/code" "$WORK/ref" "$WORK/p65"
-run()   { java -Xss512m -jar "$JAR" run "$@" 2>/dev/null; }
+# K62.3 (fixed 2026-07-20): size the onSizedStack WORKER via -Dssc.stackSize (bytes); the old
+# -Xss512m sized only the MAIN thread (dead flag) and F0 overflowed the 64 MB worker default. See
+# specs/v2.2-p6.5-fsub.sh for the full note. Exported so the parallel worker heredoc inherits it.
+SSC_STACK=${SSC_STACK:-1073741824}
+JVM="-Dssc.stackSize=$SSC_STACK"
+export JVM
+run()   { java $JVM -jar "$JAR" run "$@" 2>/dev/null; }
 die() { echo "FATAL(p65-corpus): $1" >&2; shift; for l in "$@"; do echo "       $l" >&2; done; exit 2; }
 [ -f "$FSUB" ] || die "F source not found: $FSUB"
 cd "$V2" || die "cannot cd to V2_DIR=$V2"
@@ -98,24 +104,24 @@ def main = () => match #io.args() { case Cons(p, r) => #io.print(#coreir.encode(
 DRV
 
 # ── 4. compare per file (parallel): mine = F0(code), ref = fresh-JVM oracle ──
-# QUOTED heredoc: written verbatim; WORK/V2/JAR/TIMEOUT_BIN/P65_TIMEOUT reach the worker via exported env.
+# QUOTED heredoc: written verbatim; WORK/V2/JAR/TIMEOUT_BIN/P65_TIMEOUT/JVM reach the worker via exported env.
 cat > "$WORK/p65worker.sh" <<'WORKER'
 #!/usr/bin/env bash
 code="$1"; n=$(basename "$code" .code); ref="$WORK/ref/$n.ir"; mine="$WORK/p65/$n.ir"
-[ -s "$ref" ] || ( cd "$V2" && java -Xss512m -jar "$JAR" run bin/_p65c_refone.ssc0 "$code" 2>/dev/null ) > "$ref"
+[ -s "$ref" ] || ( cd "$V2" && java $JVM -jar "$JAR" run bin/_p65c_refone.ssc0 "$code" 2>/dev/null ) > "$ref"
 [ -s "$ref" ] || { echo "SKIP $n"; exit 0; }
 rc=0
 if [ -n "$TIMEOUT_BIN" ]; then
-  "$TIMEOUT_BIN" "$P65_TIMEOUT" java -Xss512m -jar "$JAR" run-ir "$WORK/F0.ir" "$code" 2>/dev/null > "$mine"; rc=$?
+  "$TIMEOUT_BIN" "$P65_TIMEOUT" java $JVM -jar "$JAR" run-ir "$WORK/F0.ir" "$code" 2>/dev/null > "$mine"; rc=$?
 else
-  java -Xss512m -jar "$JAR" run-ir "$WORK/F0.ir" "$code" 2>/dev/null > "$mine"; rc=$?
+  java $JVM -jar "$JAR" run-ir "$WORK/F0.ir" "$code" 2>/dev/null > "$mine"; rc=$?
 fi
 if [ "$rc" -eq 124 ]; then echo "TIMEOUT $n |F0 exceeded ${P65_TIMEOUT}s (ref $(wc -c < "$ref")B)"
 elif cmp -s "$mine" "$ref"; then echo "MATCH $n"
 elif [ ! -s "$mine" ]; then echo "EMPTY $n |F produced nothing (ref $(wc -c < "$ref")B)"
 else echo "DIFF $n |ref $(wc -c < "$ref")B mine $(wc -c < "$mine")B"; fi
 WORKER
-export WORK V2 JAR TIMEOUT_BIN P65_TIMEOUT
+export WORK V2 JAR TIMEOUT_BIN P65_TIMEOUT JVM
 ls "$WORK/code"/*.code | xargs -P 6 -I{} bash "$WORK/p65worker.sh" {} > "$WORK/p65results.txt"
 rm -f "$V2/bin/_p65c_refone.ssc0"
 

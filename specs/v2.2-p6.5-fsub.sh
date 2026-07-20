@@ -28,8 +28,16 @@ FSUB="$HERE/v2.2-p6.5-fsub.ssc"
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"; rm -f "$V2/bin/_p65_fsub_drv.ssc0"' EXIT
 cd "$V2" || exit 2
-run()   { java -Xss512m -jar "$JAR" run "$@" 2>/dev/null; }
-runir() { java -Xss512m -jar "$JAR" run-ir "$@" 2>/dev/null; }
+# K62.3 (fixed 2026-07-20): the kernel runs the pipeline on an `onSizedStack` WORKER thread
+# (Main.scala:26), so the old `-Xss512m` was a DEAD flag here — it sizes the MAIN thread, never the
+# worker — and F0-bootstrap (compiling F's ~222 KB source) overflowed the 64 MB worker default →
+# StackOverflow → this gate LIED RED on a stock jar. The worker is sized ONLY by `-Dssc.stackSize`
+# (bytes), which onSizedStack reads. 1 GiB covers F compiling its own source with margin; override
+# via SSC_STACK if ever needed, but the DEFAULT must pass with no manual env — that is the fix.
+SSC_STACK=${SSC_STACK:-1073741824}
+JVM="-Dssc.stackSize=$SSC_STACK"
+run()   { java $JVM -jar "$JAR" run "$@" 2>/dev/null; }
+runir() { java $JVM -jar "$JAR" run-ir "$@" 2>/dev/null; }
 fail=0
 
 # ── the ssc0 driver ───────────────────────────────────────────────────────────────────────────
@@ -55,7 +63,7 @@ DRV
 
 # ── F0 = driver(ssc1-front(F)) : F, made runnable on the VM ───────────────────────────────────
 FSUB_SRC="$FSUB" run bin/_p65_fsub_drv.ssc0 > "$WORK/F0.ir"
-[ -s "$WORK/F0.ir" ] || { echo "FAIL: could not bootstrap F0 from $FSUB"; FSUB_SRC="$FSUB" java -jar "$JAR" run bin/_p65_fsub_drv.ssc0 2>&1 | head -5; exit 1; }
+[ -s "$WORK/F0.ir" ] || { echo "FAIL: could not bootstrap F0 from $FSUB"; FSUB_SRC="$FSUB" java $JVM -jar "$JAR" run bin/_p65_fsub_drv.ssc0 2>&1 | head -5; exit 1; }
 echo "ok   F0 bootstrapped ($(wc -c < "$WORK/F0.ir") bytes)"
 
 # ── the differential oracle ───────────────────────────────────────────────────────────────────
