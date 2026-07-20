@@ -18,19 +18,22 @@ Edit ONLY `specs/v2.2-p6.5-fsub.ssc` + gate scripts (+ SPRINT/docs); the K62.3 s
 `v2/src/*`. Do NOT touch `v2/lib` oracle, `v1/`, or backends. Verify each slice: corpus (IR byte-identity
 vs oracle) AND `--self` (fixpoint) AND the new semantic gate ALL stay green.
 
-- [ ] **P1 — fix K62.3 gate-stack (a gate that lies red).** `onSizedStack` (Main.scala:26) runs the
-      pipeline on a 64 MB worker thread; the gate scripts' `-Xss512m` sizes only the MAIN thread (dead
-      flag post `311e71d7d`), so F0-bootstrap (compiling F's 222 KB source) overflows → StackOverflow →
-      gate FAILs red on a stock jar. Fix: gate scripts pass `-Dssc.stackSize` (which onSizedStack reads)
-      instead of the dead `-Xss512m`, defaulting to a value that covers F's compile with NO manual env
-      override. Confirm `specs/v2.2-p6.5-fsub.sh --self` = 153 ok / 0 FAIL byte-identical on stock jar.
-- [ ] **P2 — freeze the golden-OUTPUT gate (leg a, the immovable truth).** New script
-      `specs/v2.2-p6.5-semantic.sh`: for every corpus program P (+ tower examples) capture
-      `out_untyped = run-ir(oracle(P))` — the OBSERVABLE OUTPUT (stdout / error class), NOT the IR —
-      as a frozen golden set committed to the repo (captured NOW while F emits untyped IR = the correct
-      reference). Checker: `run-ir(F(P))` output must equal frozen golden. Guard apparatus traps: print
-      `expected=…got=…` on every mismatch; two empty outputs must NOT trivially pass; normalize nothing
-      silently. Gate must be GREEN now (F==oracle semantically today), with counts.
+- [x] **P1 — DONE (`f5f848fdf`). K62.3 gate-stack fixed.** `onSizedStack` (Main.scala:26) runs the
+      pipeline on a 64 MB worker thread; the gate scripts' `-Xss512m` sized only the MAIN thread (dead
+      flag post `311e71d7d`), so F0-bootstrap overflowed → StackOverflow → the gate LIED RED on a stock
+      jar. Replaced the dead `-Xss512m` with `-Dssc.stackSize` (bytes, read by onSizedStack),
+      SSC_STACK-overridable, default 1 GiB. `specs/v2.2-p6.5-fsub.sh --self` = **153 ok / 0 FAIL,
+      byte-identical fixpoint 368,086 B, exit 0, NO manual env override** (measured). Same fix in
+      corpus.sh. NO kernel change was needed (fix is entirely in the gate scripts).
+- [x] **P2 — DONE (`8c4400f24`). Golden-OUTPUT semantic gate (leg a) frozen + green.**
+      `specs/v2.2-p6.5-semantic.sh` (freeze|check) captures `run-ir(oracle(P))` OUTPUT (stdout bytes +
+      exit status, NOT IR) for corpus + tower cases into committed `specs/v2.2-p6.5-golden/`; checker
+      asserts `run-ir(F(P))` output == golden. Apparatus guards: compares (exit,stdout) TUPLE (no
+      equal-empties), rc==0 + determinism (2×) + size-cap eligibility (each a counted bucket),
+      membership decided by real compare (includes only where F agrees today; 12 F-disagreements surfaced
+      in full), raw cmp (no normalization), prints expected/got, fails loud (exit 2) if broken.
+      **Measured: FROZEN 246 goldens; check 246/246 MATCH, 0 MISMATCH, exit 0.** Verified it FAILS on a
+      corrupted golden. Re-freeze only to intentionally extend the set.
 - [ ] **P3 — begin F parse→AST refactor (the big one; byte-identical).** Change F's ~40 `emit*` to build
       an AST node instead of concatenating IR strings; a single trivial `erase` walks the AST and
       reproduces EXACTLY today's untyped IR strings, byte-identical. Refactor a cluster of related `emit*`
