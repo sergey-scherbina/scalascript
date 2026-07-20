@@ -192,12 +192,13 @@ def isCont(ts) = if isEmpty(ts) then false else isCont1(hd(ts))
 def isCont1(t) = if fst(t) == 2 then isContP(t) else (if fst(t) == 1 then isContId(snd(t)) else false)
 def isContP(t) = if snd(t) == 4 then true else (if snd(t) == 5 then true else (if snd(t) == 31 then true else (if snd(t) == 49 then true else binPrec(t) > 0)))
 def isContId(w) = if w == "catch" then true else (if w == "finally" then true else (if w == "derives" then true else (if w == "extends" then true else (if w == "with" then true else false))))
-// `=`(20) `=>`(30) `then`(3) `else`(4) `match`(5) all open a layout block; so does the KEYWORD `do`
-// (ssc1-front isLayoutOpener :2866-2879), which F lexes as an ident (kind 1, not in kwCode) — so
-// `while cond do` ⏎ <indented body> opens a virtual `{ .. }`. (yield/with also open there — deferred to
-// the for/given clusters; those programs are DIFF regardless.)
+// `=`(20) `=>`(30) `then`(3) `else`(4) `match`(5) all open a layout block; so do the KEYWORDs `do` and
+// `with` (ssc1-front isLayoutOpener :2866-2879), which F lexes as idents (kind 1, not in kwCode). `with`
+// only opens when immediately followed by a NL (given/anon-instance body) — `extends A with B` keeps
+// `with` mid-line, so no block opens. (G1: `given n: T with` ⏎ <indented defs>.)
 def isDoOpener(t) = if fst(t) == 1 then snd(t) == "do" else false
-def isLayoutOpener(t) = if isTok(t, 2, 20) then true else (if isTok(t, 2, 30) then true else (if isTok(t, 2, 3) then true else (if isTok(t, 2, 4) then true else (if isTok(t, 2, 5) then true else isDoOpener(t)))))
+def isWithOpener(t) = if fst(t) == 1 then snd(t) == "with" else false
+def isLayoutOpener(t) = if isTok(t, 2, 20) then true else (if isTok(t, 2, 30) then true else (if isTok(t, 2, 3) then true else (if isTok(t, 2, 4) then true else (if isTok(t, 2, 5) then true else (if isDoOpener(t) then true else isWithOpener(t))))))
 def nlSemi(cont) = if cont then Nil else Cons((2, 52), Nil)
 def nlStep(v, stack, cont) = stack match { case Nil => (nlSemi(cont), stack) case top :: srest => nlStep1(v, top, stack, cont) }
 def nlStep1(v, top, stack, cont) = top match { case (tag, ind) => nlStep2(v, tag, ind, stack, cont) }
@@ -420,7 +421,7 @@ def emitYamlSel(c) = "(prim cell.get (global __yaml_" ++ globalNameOf(c) ++ "__c
 // A bare field access on `RoundingMode` — `RoundingMode.HALF_UP` — lowers to the field NAME as a string
 // literal `(lit (str "HALF_UP"))` (oracle ssc1-lower resolveField roundingOwner :1600, a hardcoded builtin;
 // RoundingMode is not a user enum). Only the bare-uid receiver `(global RoundingMode)` triggers it.
-def postSel(c, nm, cx) = if c == "(global RoundingMode)" then "(lit (str " ++ dqOf(cx) ++ nm ++ dqOf(cx) ++ "))" else (if isListField(nm) then "(app (global __list_" ++ nm ++ ") " ++ c ++ ")" else (if isFld(nm, cx) then "(app (global _sel_" ++ nm ++ ") " ++ c ++ ")" else (if isTupField(nm) then "(app (global _sel_" ++ nm ++ ") " ++ c ++ ")" else (if isYamlSel(nm, c, cx) then emitYamlSel(c) else emitMethod(nm, selRecv(c), "", dqOf(cx))))))
+def postSel(c, nm, cx) = if isObjMember(globalNameOf(c), nm, cx) then "(global " ++ globalNameOf(c) ++ "_" ++ nm ++ ")" else (if c == "(global RoundingMode)" then "(lit (str " ++ dqOf(cx) ++ nm ++ dqOf(cx) ++ "))" else (if isListField(nm) then "(app (global __list_" ++ nm ++ ") " ++ c ++ ")" else (if isFld(nm, cx) then "(app (global _sel_" ++ nm ++ ") " ++ c ++ ")" else (if isTupField(nm) then "(app (global _sel_" ++ nm ++ ") " ++ c ++ ")" else (if isYamlSel(nm, c, cx) then emitYamlSel(c) else emitMethod(nm, selRecv(c), "", dqOf(cx)))))))
 def emitLen(c, cx) = if isConcatCode(c, dqOf(cx)) then emitMethod("length", c, "", dqOf(cx)) else (if isStrLitish(c) then "(prim slen " ++ c ++ ")" else emitMethod("length", c, "", dqOf(cx)))
 def emitMethod(nm, c, args, dq) = "(prim __method__ (lit (str " ++ dq ++ nm ++ dq ++ ")) " ++ c ++ args ++ ")"
 // parseArgL (not parseArgs) so the arg COUNT and the single-arg shape are recoverable — selMethodOr needs
@@ -1180,7 +1181,7 @@ def importItem(ts) = (("", ""), skipImport(ts))
 // import as the wildcard terminator, so stop right after it (consuming a trailing `;` if layout made one).
 def skipImport(ts) = if isEmpty(ts) then ts else (if isTok(hd(ts), 2, 52) then tl(ts) else (if isTok(hd(ts), 2, 25) then skipImportStar(tl(ts)) else skipImport(tl(ts))))
 def skipImportStar(ts) = if isTok(hd(ts), 2, 52) then tl(ts) else ts
-def parseTopItem(ts, cx) = if isImportHead(ts) then importItem(ts) else (if isEnumHead(ts) then enumItem(ts, cx) else (if isCCHead(ts) then ccTopItem(ts, cx) else (if isTraitHead(ts) then traitItem(ts) else (if isObjectHead(ts) then objectItem(ts, cx) else (if isExternHead(ts) then externItem(ts) else (if isTypeHead(ts) then typeItem(ts) else (if isTok(hd(ts), 2, 1) then defTopItem(ts, cx) else (if isTok(hd(ts), 2, 7) then valItem(ts, cx) else (if isVarHead(ts) then varTopItem(ts, cx) else (if isWhileHead(ts) then whileTopItem(ts, cx) else (if isAssignHead(ts) then assignTopItem(ts, cx) else exprItem(ts, cx))))))))))))
+def parseTopItem(ts, cx) = if isImportHead(ts) then importItem(ts) else (if isEnumHead(ts) then enumItem(ts, cx) else (if isCCHead(ts) then ccTopItem(ts, cx) else (if isTraitHead(ts) then traitItem(ts) else (if isObjectHead(ts) then objectItem(ts, cx) else (if isGivenHead(ts) then givenItem(ts, cx) else (if isExternHead(ts) then externItem(ts) else (if isTypeHead(ts) then typeItem(ts) else (if isTok(hd(ts), 2, 1) then defTopItem(ts, cx) else (if isTok(hd(ts), 2, 7) then valItem(ts, cx) else (if isVarHead(ts) then varTopItem(ts, cx) else (if isWhileHead(ts) then whileTopItem(ts, cx) else (if isAssignHead(ts) then assignTopItem(ts, cx) else exprItem(ts, cx)))))))))))))
 // DA14: `extern def f(..): T` / `extern class X { .. }` is a signature-only declaration the runtime
 // provides — the oracle ERASES it (emits nothing, ssc1-front :2782-2793) and a call `f(x)` resolves to a
 // bare `(app (global f) x)`. F skips the whole statement (skipStmt tracks the class body's braces + stops
@@ -1212,15 +1213,40 @@ def objMemToks(kind, ts) = if kind == "def" then ts else skipToEq(ts)
 def objDefsStr(name, ms, cx) = ms match { case Nil => "" case h :: t => join2(objDef1(name, h, cx), objDefsStr(name, t, cx)) }
 def objDef1(name, m, cx) = m match { case (kind, nt) => nt match { case (mname, toks) => objDefEmit(kind, name ++ "_" ++ mname, toks, cx) } }
 def objDefEmit(kind, pfx, toks, cx) = if kind == "def" then objDefE(pfx, toks, cx) else (if kind == "val" then "(def " ++ pfx ++ " " ++ fst(bodyExpr(toks, Nil, cx)) ++ ")" else "(def " ++ pfx ++ "__cell (prim cell.new " ++ fst(bodyExpr(toks, Nil, cx)) ++ "))")
-def objDefE(pfx, ts, cx) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (env, r) => fst(emitDefBody(pfx, dlen(env), env, skipToEq(r), cx)) } else "(def " ++ pfx ++ " " ++ fst(bodyExpr(skipToEq(ts), Nil, cx)) ++ ")"
+def objDefE(pfx, ts, cx) = objDefE1(pfx, skipGen(ts), cx)
+def objDefE1(pfx, ts, cx) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (env, r) => fst(emitDefBody(pfx, dlen(env), env, skipToEq(r), cx)) } else "(def " ++ pfx ++ " " ++ fst(bodyExpr(skipToEq(ts), Nil, cx)) ++ ")"
 // pre-pass: objReg = [Pair(objName, [memberNames])], scanned directly off the token stream (base-cx-free).
-def collectObjReg(ts) = if isEmpty(ts) then Nil else (if isObjectHead(ts) then collectOR1(ts) else collectObjReg(tl(ts)))
+def collectObjReg(ts) = if isEmpty(ts) then Nil else (if isObjectHead(ts) then collectOR1(ts) else (if isGivenHead(ts) then collectGivenReg(ts) else collectObjReg(tl(ts))))
 def collectOR1(ts) = collectOR2(snd(hd(tl(ts))), objBodyToks(tl(tl(ts))))
 def collectOR2(name, ts) = if isTok(hd(ts), 2, 28) then Cons((name, memberNamesOf(collectObjMembers(tl(ts)))), collectObjReg(skipBrace(tl(ts), 1))) else collectObjReg(ts)
 def memberNamesOf(ms) = ms match { case Nil => Nil case h :: t => Cons(objMemName(h), memberNamesOf(t)) }
 def objMemName(m) = m match { case (kind, nt) => fst(nt) }
 def objMemsOf(name, reg) = reg match { case Nil => Nil case h :: t => if fst(h) == name then snd(h) else objMemsOf(name, t) }
 def isObjMember(name, m, cx) = if name == "" then false else memL(m, objMemsOf(name, objRegOf(cx)))
+// -- givens (G1: KC5/KC7b) ----------------------------------------------------------------------
+// `given n: T with <layout defs>` (given_obj, ssc1-front :2670-2690) → prefixed member DEF defs (like
+// object flattening; ssc1-lower prefixDefs :4246-4269 handles ONLY def members) PLUS a portable method
+// object `(def n (prim __mk_method_obj__ <alt "m" (global n_m)> for each def/val member>))`
+// (staticMemberObjectArgs :539, __mk_method_obj__ :4277). `given n [: T] = body` (given-val, :2667/:2692
+// → :4118) → `(def n <body>)`. Anonymous givens (uid after `given`) are erased. Member CALLS `n.m(args)`
+// and bare selections `n.m` static-dispatch via the objReg slot (collectObjReg scans given_obj too).
+def isGivenHead(ts) = isWord(hd(ts), "given")
+def givenItem(ts, cx) = if fst(hd(tl(ts))) == 1 then givenNamed(snd(hd(tl(ts))), tl(tl(ts)), ts, cx) else (("", ""), skipStmt(ts))
+def givenNamed(gname, t2, ts, cx) = if isTok(hd(t2), 2, 20) then givenValItem(gname, tl(t2), cx) else (if isTok(hd(t2), 2, 34) then givenAfterColon(gname, skipTypeRef(tl(t2)), ts, cx) else (("", ""), skipStmt(ts)))
+def givenAfterColon(gname, t3, ts, cx) = if isWord(hd(t3), "with") then givenObjItem(gname, objBodyToks(t3), cx) else (if isTok(hd(t3), 2, 20) then givenValItem(gname, tl(t3), cx) else (("", ""), skipStmt(ts)))
+def givenValItem(gname, ts, cx) = bodyExpr(ts, Nil, cx) match { case (b, r) => (("(def " ++ gname ++ " " ++ b ++ ")", ""), r) }
+def givenObjItem(gname, ts, cx) = if isTok(hd(ts), 2, 28) then givenObjEmit(gname, collectObjMembers(tl(ts)), cx, skipBrace(tl(ts), 1)) else (("", ""), ts)
+def givenObjEmit(gname, ms, cx, rest) = ((join2(givenDefsStr(gname, ms, cx), givenMethodObj(gname, ms, cx)), ""), rest)
+def givenDefsStr(gname, ms, cx) = ms match { case Nil => "" case h :: t => join2(givenDef1(gname, h, cx), givenDefsStr(gname, t, cx)) }
+def givenDef1(gname, m, cx) = m match { case (kind, nt) => if kind == "def" then (nt match { case (mname, toks) => objDefE(gname ++ "_" ++ mname, toks, cx) }) else "" }
+def givenMethodObj(gname, ms, cx) = "(def " ++ gname ++ " (prim __mk_method_obj__" ++ givenObjArgs(gname, ms, cx) ++ "))"
+def givenObjArgs(gname, ms, cx) = ms match { case Nil => "" case h :: t => givenObjArg1(gname, h, cx) ++ givenObjArgs(gname, t, cx) }
+def givenObjArg1(gname, m, cx) = m match { case (kind, nt) => if kind == "var" then "" else (nt match { case (mname, toks) => " (lit (str " ++ dqOf(cx) ++ mname ++ dqOf(cx) ++ ")) (global " ++ gname ++ "_" ++ mname ++ ")" }) }
+// pre-pass: also register given_obj names in objReg for static dispatch (like collectObjReg for objects).
+def collectGivenReg(ts) = if fst(hd(tl(ts))) == 1 then collectGivenReg1(snd(hd(tl(ts))), tl(tl(ts)), ts) else collectObjReg(tl(ts))
+def collectGivenReg1(gname, t2, ts) = if isTok(hd(t2), 2, 34) then collectGivenReg2(gname, skipTypeRef(tl(t2)), ts) else collectObjReg(tl(ts))
+def collectGivenReg2(gname, t3, ts) = if isWord(hd(t3), "with") then collectGivenObj(gname, objBodyToks(t3)) else collectObjReg(tl(ts))
+def collectGivenObj(gname, bodyTs) = if isTok(hd(bodyTs), 2, 28) then Cons((gname, memberNamesOf(collectObjMembers(tl(bodyTs)))), collectObjReg(skipBrace(tl(bodyTs), 1))) else collectObjReg(tl(bodyTs))
 // A top-level `var name [: T] = init` runs its initializer in the entry as `cell.set(global name__cell)`
 // — IDENTICAL to a top val (ssc1-lower topExprs var/val cases :5593-5609) — so it reuses valItem1. The
 // empty cell def is emitted in the topVar slot (compile4). A top-level `while`/assignment becomes an
@@ -1239,7 +1265,10 @@ def isWord(t, w) = if fst(t) == 1 then snd(t) == w else false
 def isTraitHead(ts) = if isWord(hd(ts), "trait") then true else (if isWord(hd(ts), "sealed") then isWord(hd(tl(ts)), "trait") else false)
 def traitItem(ts) = (("", ""), skipTraitDecl(ts))
 def skipTraitKw(ts) = if isWord(hd(ts), "sealed") then tl(tl(ts)) else tl(ts)
-def skipTraitDecl(ts) = skipTraitBody(skipExtends(skipTypeRef(skipTraitKw(ts))))
+def skipTraitDecl(ts) = skipTraitBody(skipTraitColon(skipExtends(skipTypeRef(skipTraitKw(ts)))))
+// A trait body may be layout-braced after a `:` (`trait X:` ⏎ <indented members>) — the `:` sits before
+// the virtual `{`, so skip it too — or explicitly `{`-braced, or absent (a pure marker trait).
+def skipTraitColon(ts) = if isTok(hd(ts), 2, 34) then tl(ts) else ts
 def skipTraitBody(ts) = if isTok(hd(ts), 2, 28) then skipBrace(tl(ts), 1) else ts
 def skipBrace(ts, d) = if d == 0 then ts else (if isEmpty(ts) then ts else (if isTok(hd(ts), 2, 28) then skipBrace(tl(ts), d + 1) else (if isTok(hd(ts), 2, 29) then skipBrace(tl(ts), d - 1) else skipBrace(tl(ts), d))))
 // skip one type reference (name token + optional [generics]); skip a trailing `extends T [with T]*`.
