@@ -19,9 +19,22 @@ class V2RunArgvCliTest extends AnyFunSuite:
   private def requireJar(): os.Path = sscJar.getOrElse:
     cancel("ssc.jar not found - run `sbt cli/assembly` first")
 
+  /** Repo root that holds the staged `bin/lib` tree, derived from the jar location:
+   *  `<root>/v1/tools/cli/target/scala-3.8.3/ssc.jar`. */
+  private def stagedRoot(jar: os.Path): os.Path = jar / os.up / os.up / os.up / os.up / os.up / os.up
+
   private def runSsc(cwd: os.Path, args: String*): os.CommandResult =
     val jar = requireJar()
-    val cmd: Seq[os.Shellable] = Seq[os.Shellable]("java", "-jar", jar.toString) ++
+    // `run --v2` reaches the native frontend, which requires a staged installation and
+    // reads its layout from `ssc.lib.path` — the property `bin/ssc` sets and a bare
+    // `java -jar` does not. Without it the CLI exits 1 with "native frontend requires a
+    // staged installation", which is a harness gap, not a product defect. CI stages the
+    // tree in the same step that assembles the jar (ci.yml: `cli/assembly installBin`).
+    val root = stagedRoot(jar)
+    if !os.exists(root / "bin" / "lib" / "native-front") then
+      cancel(s"staged bin/lib/native-front not found under $root - run `sbt installBin` first")
+    val cmd: Seq[os.Shellable] = Seq[os.Shellable](
+      "java", s"-Dssc.lib.path=$root", "-jar", jar.toString) ++
       args.map(a => a: os.Shellable)
     os.proc(cmd).call(
       cwd = cwd,
