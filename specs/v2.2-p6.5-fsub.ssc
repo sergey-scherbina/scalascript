@@ -310,10 +310,11 @@ def plessOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(cx)))))))))
 def subInfoOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx))))))))))
 def objRegOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx)))))))))))
 def funcDfltsOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx))))))))))))
-// G4: the 13th slot holds the pair (givenTab, usingSig); usingSig = [(defName, (usingTCs, fullCount))]
-// for named `using` param clauses, used to inject givens at call sites (mirrors ssc1-lower usingSigCell).
+// G4/Arc2: the 13th slot holds `(givenTab, (usingSig, extMethods))`. usingSig = [(defName, (usingTCs,
+// fullCount))] for `using` injection; extMethods = [extension-method names] for extension dispatch.
 def givenTabOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx)))))))))))))
-def usingSigOf(cx) = snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx)))))))))))))
+def usingSigOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx))))))))))))))
+def extMethodsOf(cx) = snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx))))))))))))))
 def ccNamesOf(cx) = fst(snd(cx))
 def fldNamesOf(cx) = fst(snd(snd(cx)))
 def valNamesOf(cx) = fst(snd(snd(snd(cx))))
@@ -428,7 +429,7 @@ def emitYamlSel(c) = "(prim cell.get (global __yaml_" ++ globalNameOf(c) ++ "__c
 // A bare field access on `RoundingMode` — `RoundingMode.HALF_UP` — lowers to the field NAME as a string
 // literal `(lit (str "HALF_UP"))` (oracle ssc1-lower resolveField roundingOwner :1600, a hardcoded builtin;
 // RoundingMode is not a user enum). Only the bare-uid receiver `(global RoundingMode)` triggers it.
-def postSel(c, nm, cx) = if isObjMember(globalNameOf(c), nm, cx) then "(global " ++ globalNameOf(c) ++ "_" ++ nm ++ ")" else (if c == "(global RoundingMode)" then "(lit (str " ++ dqOf(cx) ++ nm ++ dqOf(cx) ++ "))" else (if isListField(nm) then "(app (global __list_" ++ nm ++ ") " ++ c ++ ")" else (if isFld(nm, cx) then "(app (global _sel_" ++ nm ++ ") " ++ c ++ ")" else (if isTupField(nm) then "(app (global _sel_" ++ nm ++ ") " ++ c ++ ")" else (if isYamlSel(nm, c, cx) then emitYamlSel(c) else emitMethod(nm, selRecv(c), "", dqOf(cx)))))))
+def postSel(c, nm, cx) = if isObjMember(globalNameOf(c), nm, cx) then "(global " ++ globalNameOf(c) ++ "_" ++ nm ++ ")" else (if isExtMethod(nm, cx) then "(app (global " ++ nm ++ ") " ++ c ++ ")" else (if c == "(global RoundingMode)" then "(lit (str " ++ dqOf(cx) ++ nm ++ dqOf(cx) ++ "))" else (if isListField(nm) then "(app (global __list_" ++ nm ++ ") " ++ c ++ ")" else (if isFld(nm, cx) then "(app (global _sel_" ++ nm ++ ") " ++ c ++ ")" else (if isTupField(nm) then "(app (global _sel_" ++ nm ++ ") " ++ c ++ ")" else (if isYamlSel(nm, c, cx) then emitYamlSel(c) else emitMethod(nm, selRecv(c), "", dqOf(cx))))))))
 def emitLen(c, cx) = if isConcatCode(c, dqOf(cx)) then emitMethod("length", c, "", dqOf(cx)) else (if isStrLitish(c) then "(prim slen " ++ c ++ ")" else emitMethod("length", c, "", dqOf(cx)))
 def emitMethod(nm, c, args, dq) = "(prim __method__ (lit (str " ++ dq ++ nm ++ dq ++ ")) " ++ c ++ args ++ ")"
 // parseArgL (not parseArgs) so the arg COUNT and the single-arg shape are recoverable — selMethodOr needs
@@ -501,7 +502,7 @@ def methodRecv(c) = if isUidGlobal(c) then "(ctor " ++ c.substring(8, c.length -
 // DA10: a call whose receiver is a known `object O` and method a member of O resolves to the flattened
 // top-level def `(app (global O_m) args)` (ssc1-lower prefixDefs static dispatch), BEFORE the uid __method__
 // path. globalNameOf recovers O from the emitted `(global O)` receiver (works for uid AND lowercase names).
-def emitMethodCall(nm, c, es, cx) = if isObjMember(globalNameOf(c), nm, cx) then "(app (global " ++ globalNameOf(c) ++ "_" ++ nm ++ ")" ++ joinArgs(es) ++ ")" else (if isUidGlobal(c) then emitMethod(nm, methodRecv(c), joinArgs(es), dqOf(cx)) else emitMethodCall1(nm, c, es, cx))
+def emitMethodCall(nm, c, es, cx) = if isObjMember(globalNameOf(c), nm, cx) then "(app (global " ++ globalNameOf(c) ++ "_" ++ nm ++ ")" ++ joinArgs(es) ++ ")" else (if isExtMethod(nm, cx) then "(app (global " ++ nm ++ ") " ++ c ++ joinArgs(es) ++ ")" else (if isUidGlobal(c) then emitMethod(nm, methodRecv(c), joinArgs(es), dqOf(cx)) else emitMethodCall1(nm, c, es, cx)))
 def emitMethodCall1(nm, c, es, cx) = if isSelRecvCode(c) then selMethodOr(nm, c, es, dqOf(cx)) else emitCallMethod(nm, c, joinArgs(es), dqOf(cx))
 // isKnownSelMethod = ssc1-lower :1509 set MINUS the forms selMethodOr handles explicitly first
 // (map/mkString/take/sum/foldLeft/foldRight). _1.._4 route to _sel__N via isTupField.
@@ -1197,7 +1198,7 @@ def importItem(ts) = (("", ""), skipImport(ts))
 // import as the wildcard terminator, so stop right after it (consuming a trailing `;` if layout made one).
 def skipImport(ts) = if isEmpty(ts) then ts else (if isTok(hd(ts), 2, 52) then tl(ts) else (if isTok(hd(ts), 2, 25) then skipImportStar(tl(ts)) else skipImport(tl(ts))))
 def skipImportStar(ts) = if isTok(hd(ts), 2, 52) then tl(ts) else ts
-def parseTopItem(ts, cx) = if isImportHead(ts) then importItem(ts) else (if isEnumHead(ts) then enumItem(ts, cx) else (if isCCHead(ts) then ccTopItem(ts, cx) else (if isTraitHead(ts) then traitItem(ts) else (if isObjectHead(ts) then objectItem(ts, cx) else (if isGivenHead(ts) then givenItem(ts, cx) else (if isExternHead(ts) then externItem(ts) else (if isTypeHead(ts) then typeItem(ts) else (if isTok(hd(ts), 2, 1) then defTopItem(ts, cx) else (if isTok(hd(ts), 2, 7) then valItem(ts, cx) else (if isVarHead(ts) then varTopItem(ts, cx) else (if isWhileHead(ts) then whileTopItem(ts, cx) else (if isAssignHead(ts) then assignTopItem(ts, cx) else exprItem(ts, cx)))))))))))))
+def parseTopItem(ts, cx) = if isImportHead(ts) then importItem(ts) else (if isEnumHead(ts) then enumItem(ts, cx) else (if isCCHead(ts) then ccTopItem(ts, cx) else (if isTraitHead(ts) then traitItem(ts) else (if isObjectHead(ts) then objectItem(ts, cx) else (if isGivenHead(ts) then givenItem(ts, cx) else (if isExtensionHead(ts) then extensionItem(ts, cx) else (if isExternHead(ts) then externItem(ts) else (if isTypeHead(ts) then typeItem(ts) else (if isTok(hd(ts), 2, 1) then defTopItem(ts, cx) else (if isTok(hd(ts), 2, 7) then valItem(ts, cx) else (if isVarHead(ts) then varTopItem(ts, cx) else (if isWhileHead(ts) then whileTopItem(ts, cx) else (if isAssignHead(ts) then assignTopItem(ts, cx) else exprItem(ts, cx))))))))))))))
 // DA14: `extern def f(..): T` / `extern class X { .. }` is a signature-only declaration the runtime
 // provides — the oracle ERASES it (emits nothing, ssc1-front :2782-2793) and a call `f(x)` resolves to a
 // bare `(app (global f) x)`. F skips the whole statement (skipStmt tracks the class body's braces + stops
@@ -1303,6 +1304,22 @@ def buildUsingArgs(tab, tcs, at) = tcs match { case Nil => "" case tc :: rest =>
 def argTypeOfEs(es) = es match { case Nil => "?" case h :: t => typeOfArg(h) }
 def usingGivenFor(tab, tc, at) = findGivenF(tab, tc, at) match { case Some(g) => "(global " ++ g ++ ")" case None => findAnyGivenF(tab, tc) match { case Some(g) => "(global " ++ g ++ ")" case None => "(global __missing_using_" ++ tc ++ ")" } }
 def typeOfArg(a) = if startsW(a, "(lit (int ") then "Int" else (if startsW(a, "(lit (str ") then "String" else (if startsW(a, "(lit true)") then "Bool" else (if startsW(a, "(lit false)") then "Bool" else "?")))
+// -- ARC 2: extension methods -------------------------------------------------------------------
+// `extension [T] (r: R)` ⏎ <indented def members> — each member gets the receiver prepended as its FIRST
+// param (ssc1-front parseDef allParams :1740: extensionParams ++ params). A call `x.m(a)` / bare `x.m`
+// dispatches to `(app (global m) x a..)` (resolveField isExtensionMethod :1598). F's layout emits each
+// member as a `;`-separated top-level item after the header, so the group = the contiguous `def` members
+// immediately following (a non-def ends it). Members register in extMethods (collectExtMethods).
+def isExtensionHead(ts) = isWord(hd(ts), "extension")
+def extensionItem(ts, cx) = extHeader(skipGen(tl(ts)), cx)
+def extHeader(ts, cx) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (renv, r) => extMembers(renv, skipSemisF(r), cx, "") } else (("", ""), ts)
+def extMembers(renv, ts, cx, acc) = if isTok(hd(ts), 2, 1) then extMember(renv, snd(hd(tl(ts))), skipGen(tl(tl(ts))), cx, acc) else ((acc, ""), ts)
+def extMember(renv, mname, mts, cx, acc) = if isTok(hd(mts), 2, 21) then parseParams(tl(mts), renv) match { case (env, r) => extEmit(renv, mname, dlen(env), env, skipToEq(r), cx, acc) } else extEmit(renv, mname, dlen(renv), renv, skipToEq(mts), cx, acc)
+def extEmit(renv, mname, ar, env, bts, cx, acc) = emitDefBody(mname, ar, env, bts, cx) match { case (d, r2) => extMembers(renv, skipSemisF(r2), cx, join2(acc, d)) }
+def collectExtMethods(ts) = if isEmpty(ts) then Nil else (if isExtensionHead(ts) then collectEM(skipGen(tl(ts))) else collectExtMethods(tl(ts)))
+def collectEM(ts) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (renv, r) => collectEMs(skipSemisF(r)) } else collectExtMethods(tl(ts))
+def collectEMs(ts) = if isTok(hd(ts), 2, 1) then Cons(snd(hd(tl(ts))), collectEMs(skipSemisF(skipStmt(ts)))) else collectExtMethods(ts)
+def isExtMethod(nm, cx) = memL(nm, extMethodsOf(cx))
 // A top-level `var name [: T] = init` runs its initializer in the entry as `cell.set(global name__cell)`
 // — IDENTICAL to a top val (ssc1-lower topExprs var/val cases :5593-5609) — so it reuses valItem1. The
 // empty cell def is emitted in the topVar slot (compile4). A top-level `while`/assignment becomes an
@@ -1741,7 +1758,7 @@ def compile1(ts, dq, bs) = compile2(ts, collectCC(ts), collectTypeCases(ts), dq,
 // The pre-pass results become the parse CONTEXT: case-class names (cs, cc-only, for isCC) + the UNIFIED
 // type-case field names (tcs, cc + enum cases) + top-level val names + the enum registries. Top-level vals
 // are collected with a base cx first (their `rest` boundaries do not depend on val-name resolution).
-def mkCxE(cs, tcs, ts, dq, vals, vars, bs, pless) = mkCx(dq, ccNamesL(cs), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts), vars, bs, pless, (collectSubReg(ts), collectEnumAllReg(ts)), collectObjReg(ts), collectFuncDflts(ts), (collectGivenTable(ts), collectUsingSig(ts)))
+def mkCxE(cs, tcs, ts, dq, vals, vars, bs, pless) = mkCx(dq, ccNamesL(cs), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts), vars, bs, pless, (collectSubReg(ts), collectEnumAllReg(ts)), collectObjReg(ts), collectFuncDflts(ts), (collectGivenTable(ts), (collectUsingSig(ts), collectExtMethods(ts))))
 def compile2(ts, cs, tcs, dq, bs) = compile2b(ts, cs, tcs, dq, bs, mkCxE(cs, tcs, ts, dq, Nil, Nil, bs, Nil))
 def compile2b(ts, cs, tcs, dq, bs, base) = compile3(ts, cs, tcs, dq, mkCxE(cs, tcs, ts, dq, collectTopVals(ts, base), collectTopVars(ts, base), bs, collectPlessDefs(ts, base)))
 def compile3(ts, cs, tcs, dq, cx) = walkTop(ts, cx) match { case (strs, nDoc) => compile4(strs, nDoc, ts, tcs, dq, cx) }
