@@ -183,6 +183,20 @@
   .term-p { color: var(--pine); }
   .term-o { color: var(--code-dim); }
 
+  /* ---- examples gallery ---- */
+  .gallery { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .ex { background: var(--surface); border: 1px solid var(--line); border-radius: 13px; padding: 20px 20px 18px;
+    display: flex; flex-direction: column; gap: 8px; transition: border-color .18s, transform .18s; }
+  .ex:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .ex .fn { font-family: var(--mono); font-size: 12.5px; color: var(--accent); }
+  .ex h3 { font-family: var(--serif); font-weight: 600; font-size: 1.14rem; margin: 2px 0 0; letter-spacing: -.01em; }
+  .ex p { margin: 0; color: var(--muted); font-size: .95rem; line-height: 1.5; flex: 1; }
+  .ex .go { font-family: var(--mono); font-size: 12px; color: var(--faint); margin-top: 6px; }
+  .ex:hover .go { color: var(--accent); }
+  .perf-note { margin-top: 34px; font-size: 1rem; color: var(--muted); }
+  .perf-note a { color: var(--accent); border-bottom: 1px solid transparent; }
+  .perf-note a:hover { border-bottom-color: var(--accent); }
+
   /* ---- footer ---- */
   footer { border-top: 1px solid var(--line); padding: 46px 0 60px; }
   footer .wrap { display: flex; flex-wrap: wrap; gap: 24px; justify-content: space-between; align-items: flex-start; }
@@ -208,6 +222,7 @@
   @media (max-width: 860px) {
     .hero .grid, .targets-grid, .taste-grid { grid-template-columns: 1fr; }
     .maps { grid-template-columns: 1fr; }
+    .gallery { grid-template-columns: 1fr; }
     .lead { max-width: none; }
     nav.top a.hideable { display: none; }
   }
@@ -224,7 +239,7 @@
     <nav class="top">
       <a class="hideable" href="#reads">Syntax</a>
       <a class="hideable" href="#targets">Targets</a>
-      <a class="hideable" href="#start">Start</a>
+      <a class="hideable" href="#examples">Examples</a>
       <a href="docs/">Docs</a>
       <a href="install.html">Install</a>
       <a class="hideable" href="scljet.html">SclJet</a>
@@ -379,6 +394,50 @@
 <span class="term-p">$</span> ssc run <span class="t-op">--bytecode</span> ask.ssc   <span class="t-cm"># native VM lane</span>
 <span class="term-o">Hi, Ada</span></code></pre>
       </div>
+    </div>
+  </section>
+
+  <section class="band" id="examples">
+    <div class="wrap">
+      <p class="eyebrow rise">what you can build</p>
+      <h2 class="h2 rise d1">One language,<br>the whole stack.</h2>
+      <p class="sub rise d2">Every example is a real, runnable <span style="font-family:var(--mono);font-size:.9em;color:var(--accent)">.ssc</span> file in the repository — from a one-liner to a database engine written from scratch.</p>
+      <div class="gallery rise d2">
+        <a class="ex" href="https://github.com/sergey-scherbina/scalascript/blob/main/examples/hello.ssc">
+          <span class="fn">hello.ssc</span><h3>Hello, world</h3>
+          <p>The smallest program — a typed fenced block inside a Markdown document, run straight to output.</p>
+          <span class="go">view source ↗</span>
+        </a>
+        <a class="ex" href="https://github.com/sergey-scherbina/scalascript/blob/main/examples/algebraic-effects.ssc">
+          <span class="fn">algebraic-effects.ssc</span><h3>Typed effects</h3>
+          <p>Logger, State and NonDet as first-class effects with real handlers — checked in the type system, same on every backend.</p>
+          <span class="go">view source ↗</span>
+        </a>
+        <a class="ex" href="https://github.com/sergey-scherbina/scalascript/blob/main/examples/actors-pingpong.ssc">
+          <span class="fn">actors-pingpong.ssc</span><h3>Actors</h3>
+          <p><code style="font-family:var(--mono);font-size:.88em">spawn</code> / send / <code style="font-family:var(--mono);font-size:.88em">receive</code> / <code style="font-family:var(--mono);font-size:.88em">self</code> — message-passing concurrency, with a clustered transport over WebSockets.</p>
+          <span class="go">view source ↗</span>
+        </a>
+        <a class="ex" href="https://github.com/sergey-scherbina/scalascript/blob/main/examples/scljet-hello.ssc">
+          <span class="fn">scljet-hello.ssc</span><h3>A SQLite engine</h3>
+          <p>SclJet reads and writes real <code style="font-family:var(--mono);font-size:.88em">.db</code> files, byte-for-byte against <code style="font-family:var(--mono);font-size:.88em">sqlite3</code> — no C, no bundled library. <a href="scljet.html" style="color:var(--accent)">More&nbsp;→</a></p>
+          <span class="go">view source ↗</span>
+        </a>
+        <a class="ex" href="https://github.com/sergey-scherbina/scalascript/blob/main/examples/rest-api.ssc">
+          <span class="fn">rest-api.ssc</span><h3>A web API</h3>
+          <p>A todo REST API — typed routes, an HTML template literal, and a native reactive server, all in one document.</p>
+          <span class="go">view source ↗</span>
+        </a>
+        <a class="ex" href="https://github.com/sergey-scherbina/scalascript/blob/main/examples/wasm-fibonacci.ssc">
+          <span class="fn">wasm-fibonacci.ssc</span><h3>To WebAssembly</h3>
+          <p>The same source compiled to WASM — one of six backends the identical <code style="font-family:var(--mono);font-size:.88em">.ssc</code> lowers to.</p>
+          <span class="go">view source ↗</span>
+        </a>
+      </div>
+      <p class="perf-note rise d2">And it's fast: a three-tier interpreter with a JIT, plus AOT lanes to the JVM and native.
+        See the <a href="docs/performance.html">performance notes</a> and
+        <a href="docs/benchmarks.html">benchmark methodology</a>, or browse
+        <a href="https://github.com/sergey-scherbina/scalascript/tree/main/examples">all&nbsp;210&nbsp;examples</a>.</p>
     </div>
   </section>
 </main>
