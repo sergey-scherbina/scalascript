@@ -1,6 +1,6 @@
-feature/site-docs-lane 2026-07-20T02:42:38Z
+feature/site-docs-lane 2026-07-20T04:43:00Z
 agent: claude-site-lane
-heartbeat: 2026-07-20T02:42:38Z
+heartbeat: 2026-07-20T03:03:10Z
 status: in-progress
-done-so-far: recon complete — md parse exists in pure .ssc (std/markdown-core.ssc), NO md->HTML renderer, NO inline parsing (bold/italic/code/link); playground blocked on BUGS.md:1537 coreir-compiler-unbounded-depth (browser stack 1MB, not configurable)
-next: SPRINT plan, then std/markdown-html.ssc (new module - do NOT touch snapshot-tested markdown-core), then docs site generator, then wire into pages.yml
+done-so-far: S1 LANDED (557e8cc8e fix markdown-core, 3a604f3e7 std/markdown-html, dc9e3ce56 BUGS js-char-into-int-param). Renderer verified on real docs/ corpus: 28 pages, 776KB HTML, 0 crashes, 0 fence leaks. conformance markdown-html PASS[INT], content 6/6, litdoc 1/1, v2-self-hosted 3/3
+next: S2 docs-site generator (recursive dir walk + page template reusing site/index.html design tokens + sidebar nav + search-index.json)
