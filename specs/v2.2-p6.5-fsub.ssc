@@ -1445,7 +1445,7 @@ def goCaseCons(these, r) = goCasesF(r) match { case (rest, r2) => (appEnv(these,
 // the case-class ctor + mirror (lowerCaseCls, ssc1-lower :3827). Emitted in userDefs in document order.
 def enumItem(ts, cx) = enumCasesFrom(ts) match { case (cases, rest) => ((emitEnumDefs(cases, dqOf(cx)), ""), rest) }
 def emitEnumDefs(cases, dq) = cases match { case Nil => "" case h :: t => join2(emitEnumDef(h, dq), emitEnumDefs(t, dq)) }
-def emitEnumDef(c, dq) = c match { case (nm, fs) => if isEmpty(fs) then "(def " ++ nm ++ " (ctor " ++ nm ++ "))" else emitCtorFn((nm, fs)) }
+def emitEnumDef(c, dq) = c match { case (nm, fs) => if isEmpty(fs) then "(def " ++ nm ++ " (ctor " ++ nm ++ "))" else erase(emitCtorFn((nm, fs)), dq) }
 // pre-pass: unified ordered type-case list (case classes AND enum cases interleaved in declaration order)
 // -> drives emitSels + regFields + fldNames, so enum-case fields/regfields land in oracle order
 // (ssc1-lower collectCaseFields/collectCaseClassOrder descend into enums, :4918/4936).
@@ -1705,14 +1705,34 @@ def fieldNamesOf(fs) = fs match { case Nil => Nil case h :: t => Cons(fldName(h)
 def selArm1(n, c) = "(arm " ++ ccName(c) ++ " " ++ dlen(ccFields(c)) ++ " (local " ++ (dlen(ccFields(c)) - 1 - idxOf(n, ccFields(c), 0)) ++ "))"
 def idxOf(n, fs, i) = fs match { case Nil => 0 case h :: t => if fldName(h) == n then i else idxOf(n, t, i + 1) }
 
+// == F5b Stage 0: AST scaffold (parse -> AST -> erase) ============================================
+// F historically FUSED parse and emit: each emit* concatenated Core-IR TEXT directly, so there was no
+// tree and no place to attach types. F5b splits that fusion into parse -> AST -> erase, so a LATER
+// stage can infer types over the AST and emit TYPED IR (retiring the kernel's runtime-dispatch prims).
+// Stage 0 changes NOTHING observable: the converted emit* build an AST node and a trivial `erase`
+// reproduces TODAY's UNTYPED IR strings BYTE-IDENTICALLY. That "no-change" is the safety net for the
+// pervasive refactor, verified by specs/v2.2-p6.5-corpus.sh (IR byte-identity vs the oracle),
+// specs/v2.2-p6.5-semantic.sh (output equivalence) and the `--self` fixpoint.
+//
+// A node is a TAGGED TUPLE (tag, payload) — F's own idiom (a token is (kind,payload); parseAtom1
+// dispatches on fst). `erase(node, dq)` matches the tag and rebuilds the exact string the old emit*
+// concatenated. dq (the `"` char, threaded because F is escape-free) is passed to erase, not embedded.
+// CONVERTED SO FAR (Stage 0): ctorfn, mirror  (the case-class DECLARATION cluster). Every other emit*
+// still returns a String; erase is called only at the boundary where a converted node meets that text.
+def erase(n, dq) = n match { case (tag, p) => eraseB(tag, p, dq) }
+def eraseB(tag, p, dq) = if tag == "ctorfn" then eraseCtorFn(p) else (if tag == "mirror" then eraseMirror(p, dq) else "")
+def eraseCtorFn(p) = p match { case (name, ar) => "(def " ++ name ++ " (lam " ++ ar ++ " (ctor " ++ name ++ ctorArgs(ar, 0) ++ ")))" }
+def eraseMirror(p, dq) = p match { case (name, rest) => rest match { case (fnames, ftypes) => "(def __mirror_" ++ name ++ " (ctor Mirror (lit (str " ++ dq ++ name ++ dq ++ ")) " ++ strList(fnames, dq) ++ " " ++ strList(ftypes, dq) ++ "))" } }
+
 // -- ctor + mirror, emitted AT the declaration site ------------------------------------------------
 // The bare constructor def `(def C (lam N (ctor C (local ..))))`. A case class pairs it with a mirror
 // (emitCC); a PARAMETRIZED ENUM CASE emits ONLY this (ssc1-lower lowerCaseCls :3770 emits no mirror —
 // the mirror path lowerProductMetadata runs for `casecls`, not `enum`).
-def emitCtorFn(c) = "(def " ++ ccName(c) ++ " (lam " ++ dlen(ccFields(c)) ++ " (ctor " ++ ccName(c) ++ ctorArgs(dlen(ccFields(c)), 0) ++ ")))"
-def emitCC(c, dq) = emitCtorFn(c) ++ " " ++ emitMirror(c, dq)
+// F5b: emitCtorFn/emitMirror now BUILD nodes; emitCC/emitEnumDef erase them at the string boundary.
+def emitCtorFn(c) = ("ctorfn", (ccName(c), dlen(ccFields(c))))
+def emitCC(c, dq) = erase(emitCtorFn(c), dq) ++ " " ++ erase(emitMirror(c, dq), dq)
 def ctorArgs(ar, i) = if i >= ar then "" else " (local " ++ (ar - 1 - i) ++ ")" ++ ctorArgs(ar, i + 1)
-def emitMirror(c, dq) = "(def __mirror_" ++ ccName(c) ++ " (ctor Mirror (lit (str " ++ dq ++ ccName(c) ++ dq ++ ")) " ++ strList(fieldNamesOf(ccFields(c)), dq) ++ " " ++ strList(fieldTypesOf(ccFields(c)), dq) ++ "))"
+def emitMirror(c, dq) = ("mirror", (ccName(c), (fieldNamesOf(ccFields(c)), fieldTypesOf(ccFields(c)))))
 def fieldTypesOf(fs) = fs match { case Nil => Nil case h :: t => Cons(fldType(h), fieldTypesOf(t)) }
 def strList(xs, dq) = xs match { case Nil => "(ctor Nil)" case h :: t => "(ctor Cons (lit (str " ++ dq ++ h ++ dq ++ ")) " ++ strList(t, dq) ++ ")" }
 
