@@ -19,6 +19,7 @@ Pages would race each other. Layout:
 | `/` | `site/index.html` | this landing page |
 | `/packages.yaml`, `/packages/**`, `/search-index.json` | `registry/site/` | **contract** — `RegistryClient.DefaultRegistryUrl` is a built-in default in shipped source; these must stay at the root |
 | `/registry/` | `registry/site/index.html` | browseable registry index |
+| `/docs/` | generated from `docs/**.md` | built in-workflow by `bin/ssc run v1/tools/docs-site/generate.ssc` — the docs site is produced by the ScalaScript compiler itself. This adds a `sbt cli/installBin` build to the Pages job (hence its 45-min timeout + class cache); `site/docs/` is generated, not committed. |
 
 `DEPLOY.md` is stripped from the published artifact.
 
