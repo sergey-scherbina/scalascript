@@ -102,6 +102,64 @@ vs oracle) AND `--self` (fixpoint) AND the new semantic gate ALL stay green.
 
 ---
 
+## v2-f5b-stage1 (`v2-f5b-stage1`, 2026-07-20) — TYPED arithmetic emission (the F5b lever begins)
+
+Plan: `specs/v2-f5b-typed-ir-design.md` §4 (Stage 1) + §3 (verification regime SHIFT). F now emits
+`i.*`/`big.*`/`sconcat`/`seq` by INFERRED type instead of `(prim __arith__ …)`/`(prim __eq__ …)`. F's IR
+DIVERGES from the untyped `v2/lib` oracle BY DESIGN → corpus byte-identity drops for arith programs (data,
+NOT regression). Pass criteria: (1) `specs/v2.2-p6.5-semantic.sh check` stays **246/246** (immovable output
+truth); (2) `specs/v2.2-p6.5-fsub.sh --self` green with a NEW typed fixpoint (stage1==stage2 byte-identical
+on the typed IR). Edit ONLY `specs/v2.2-p6.5-fsub.ssc` (typing+emit) + gate scripts + `v2/src/Runtime.scala`
+(δ-arm deletion, gated on `v2/conformance/check.sh`). Do NOT touch `v2/lib` oracle, `v1/`, backends, or the
+OUTPUT goldens `specs/v2.2-p6.5-golden/`.
+
+KEY design facts established this lane (see also project memory):
+- The kernel typed prim `i.add` is FORGIVING: `liftArith`→`numBin` already handles Int, Float, Int/Float
+  mix AND Op-lifting. `i.lt`/`i.eq` use `numCmp` (Float-safe). So emitting `i.*` for ANY numeric (Int OR
+  Float) is correct — no need for `f.*` in Stage 1. ONLY `big.*` (strict `big()`) and `sconcat`/`seq`
+  (strict `str()`) require exact typing. `big.add` needs BOTH operands Big (BigInt+Int → keep `__arith__`).
+- `emitBin` already receives the ERASED operand IR strings → type is recoverable from the IR PREFIX
+  (generalize the proven `isStrExprCode`). NO type-environment thread needed for the literal/structural
+  cut: arithmetic over `.length`(slen)/`.charAt`(scodeAt)/prior-typed-prims/literals types itself.
+- `==` float NaN trap: `i.eq`(numCmp)→NaN==NaN=false, but `__eq__`(structural FloatV==FloatV)=true. So type
+  `==` ONLY for both-Int(i.eq)/both-String(seq)/both-Big(big.eq); float== and everything else stay `__eq__`.
+- `anyStr(FloatV)`==`Writer.floatStr` so `sconcat` matches `__arith__("++")` on String+Float (floatStr trap
+  avoided). Verified.
+
+- [ ] **S1-1 — Adapt `specs/v2.2-p6.5-fsub.sh` to the typed regime; verify GREEN on CURRENT untyped F.**
+      The `d` differential corpus + Step-1 self-check + the C1-working-compiler sub-check all assert
+      byte-identity to the UNTYPED oracle (`ssc1-front`) → they DIE under typed emission by design. Change
+      the `d` helper to compare OUTPUT (run F(P).ir and oracle(P).ir, cmp stdout+rc) instead of IR bytes;
+      replace Step 1 (F(F_src)==ssc1-front byte-id — impossible when typed) with the typed-fixpoint claim;
+      change the C1 sub-check from IR byte-id to output-equality (both run to 120). Keep Step-2 fixpoint
+      (stage1==stage2, self-referential, holds under typing). BUILD-THE-GATE-BEFORE-THE-FEATURE: run the
+      adapted gate on the UNCHANGED F and confirm it is honestly GREEN (outputs match), then implement.
+- [ ] **S1-2 — Type classifier `tyOfCode(c)` (IR-prefix → I/F/B/S/?).** Conservative certain-only prefixes:
+      lit int/float/str, `i.*` results, slen/scodeAt/scmp/sindexOf → I; `f.*`, i->f/big->f, lit float → F;
+      `big.*`, i->big → B; lit str, sconcat/sslice/i->str/big->str/f->str/str.trim/str.replace → S. Missing a
+      prefix = stays `__arith__` (safe); a WRONG prefix = miscompile (semantic gate catches). Err conservative.
+- [ ] **S1-3 — Typed `emitArith`/`emitBin`/`emitEq`.** `+`: if isStrExprCode(l)||isStrExprCode(r) → sconcat
+      (oracle's ++-upgrade, now typed); else both-numeric→i.add, both-Big→big.add, else `__arith__("+")`.
+      `- * / %`: both-numeric→i.{sub,mul,div,mod}, both-Big→big.*, else `__arith__`. `< <= > >=`:
+      both-numeric→i.{lt,le,gt,ge}, both-Big→big.*, else `__arith__` (string cmp/char-1-str stay dynamic).
+      `==`/`!=`: both-Int→i.eq, both-String→seq, both-Big→big.eq, else `__eq__`. `++`(k48): both-String→
+      sconcat else `__arith__("++")` (lists stay dynamic). `:+`, bitwise, &&/||, unary neg/~/! unchanged
+      (already typed / already correct). Verify EACH: semantic 246/246 + typed `--self`; record corpus drop.
+- [ ] **S1-4 — Re-freeze the typed-IR snapshot (leg c baseline) for later stages to diff against.** Corpus
+      OUTPUT goldens NEVER move. Record the new corpus byte-identity number (expected drop, quantified).
+- [ ] **S1-5 — (stretch) param/binding type thread for variable arithmetic.** Bare `local+local` stays
+      `__arith__` under S1-3 (no leaf type). Threading declared param types (`a: Int`) + val/def types would
+      type variable arith and ENABLE more deletion. INVASIVE (env entry shape or parallel tenv through ~40
+      parse fns), fixpoint-risky. Attempt only if budget allows; else HAND OFF with this map to Stage 2 lane.
+- [ ] **S1-6 — Delete dead δ-arith arms in `v2/src/Runtime.scala`, GATED on `v2/conformance/check.sh`.**
+      `__arith__`/`arithFast`/`arithOp`/`arithRest` numeric+String+cmp arms, `__unary__`, `__eq__` numeric —
+      BUT ONLY after check.sh confirms nothing on the kernel (F + ssc0 tower + conformance surface) still
+      emits them. The ssc0 tower (v2/lib/*.ssc0) LIKELY still emits `__arith__` → deletion may be SMALL/ZERO
+      in Stage 1 (deletion lags emission). Compare `^FAIL` count vs baseline (may be pre-RED on unrelated
+      items). Keep each arm until proven dead. Report the honest kernel Δ.
+
+---
+
 ## site-docs-lane (`site-docs-lane`, 2026-07-20)
 
 Grow `scalascript.dev` from one landing page into a real site. Decision (Sergiy,
