@@ -1,0 +1,59 @@
+---
+name: markdown-html
+version: 1.0.0
+backends: [int]
+---
+
+# Markdown to HTML conformance
+
+Pinned to `int` by `BUGS.md js-char-into-int-param`: on the v1 JS backend a `Char` passed
+into an `Int` parameter stays boxed, so `markdown-core` itself misparses headings and lists
+there and every block degrades to a paragraph. Widen this to `js` once that bug is fixed —
+the renderer below is lane-agnostic and passes on the v2 JS bridge today.
+
+[markdownToHtml, markdownInlineHtml, markdownSlug, markdownTitle, escapeHtml](std/markdown-html.ssc)
+
+```scalascript
+// Inline markup — the capability markdown-core deliberately lacks.
+println(markdownInlineHtml("plain text"))
+println(markdownInlineHtml("a **bold** word"))
+println(markdownInlineHtml("an *italic* word"))
+println(markdownInlineHtml("a `code` span"))
+println(markdownInlineHtml("see [the guide](user-guide.md) now"))
+println(markdownInlineHtml("an [external](https://example.com/a) link"))
+println(markdownInlineHtml("**bold with `code` inside**"))
+println(markdownInlineHtml("`**not bold** inside code`"))
+println(markdownInlineHtml("**bold with [a link](one.md) inside**"))
+println(markdownInlineHtml("[a **bold** label](two.md)"))
+println(markdownInlineHtml("`code` then **bold** then *em*"))
+
+// Degradation: an unclosed delimiter must stay literal, never emit an open tag.
+println(markdownInlineHtml("unbalanced ** stays literal"))
+println(markdownInlineHtml("unbalanced * stays literal"))
+println(markdownInlineHtml("unbalanced ` stays literal"))
+println(markdownInlineHtml("a [broken](link"))
+
+// Escaping.
+println(escapeHtml("<script>alert(\"x\" & 'y')</script>"))
+println(markdownInlineHtml("5 < 6 && 7 > 2"))
+
+// Anchors.
+println(markdownSlug("Getting Started"))
+println(markdownSlug("The `ssc` CLI — flags & options!"))
+
+// Blocks.
+println(markdownToHtml("# Title\n\nA paragraph with **bold**."))
+println(markdownToHtml("- one\n- two **bold**"))
+println(markdownToHtml("3. third\n4. fourth"))
+println(markdownToHtml("```scala\nval x = 1 < 2\n```"))
+println(markdownToHtml("| Name | Price |\n| :--- | ---: |\n| Free | 0 |"))
+println(markdownToHtml("![Logo](./logo.png \"Brand\")"))
+println(markdownToHtml("<!-- @meta component=PlanList -->"))
+
+// A lone link line is an import to markdown-core but prose in a document.
+println(markdownToHtml("[One](./one.md)"))
+
+// Title extraction for nav labels.
+println(markdownTitle("# The Title\n\nbody"))
+println(markdownTitle("no heading here"))
+```

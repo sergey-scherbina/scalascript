@@ -1,0 +1,37 @@
+plain text
+a <strong>bold</strong> word
+an <em>italic</em> word
+a <code>code</code> span
+see <a href="user-guide.html">the guide</a> now
+an <a href="https://example.com/a">external</a> link
+<strong>bold with <code>code</code> inside</strong>
+<code>**not bold** inside code</code>
+<strong>bold with <a href="one.html">a link</a> inside</strong>
+<a href="two.html">a <strong>bold</strong> label</a>
+<code>code</code> then <strong>bold</strong> then <em>em</em>
+unbalanced ** stays literal
+unbalanced * stays literal
+unbalanced ` stays literal
+a [broken](link
+&lt;script&gt;alert(&quot;x&quot; &amp; 'y')&lt;/script&gt;
+5 &lt; 6 &amp;&amp; 7 &gt; 2
+getting-started
+the-ssc-cli-flags-options
+<h1 id="title">Title</h1>
+<p>A paragraph with <strong>bold</strong>.</p>
+
+<ul><li>one</li><li>two <strong>bold</strong></li></ul>
+
+<ol start="3"><li>third</li><li>fourth</li></ol>
+
+<pre><code class="language-scala">val x = 1 &lt; 2</code></pre>
+
+<table><thead><tr><th style="text-align:left">Name</th><th style="text-align:right">Price</th></tr></thead><tbody><tr><td style="text-align:left">Free</td><td style="text-align:right">0</td></tr></tbody></table>
+
+<p><img src="./logo.png" alt="Logo" title="Brand"></p>
+
+
+<p><a href="./one.html">One</a></p>
+
+The Title
+

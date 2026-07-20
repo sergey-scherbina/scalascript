@@ -1,0 +1,247 @@
+---
+name: markdown-html
+version: 1.0.0
+description: Pure self-hosted Markdown to HTML renderer.
+---
+
+# Self-hosted Markdown to HTML rendering
+
+`markdown-core` scans Markdown into a typed AST but deliberately stops there: its
+`markdownRender` emits a debug S-expression used for conformance snapshots, and its
+inline scanner recognises only `${expr}` interpolation. This module adds the two
+missing pieces — real inline markup and an HTML emitter — **without touching
+`markdown-core`**, whose parse output is frozen by
+`tests/conformance/expected/v2-self-hosted-markdown-core.txt`.
+
+Like `markdown-core`, this module has no `extern def` and no host regex beyond the
+`split` patterns already used across `std`.
+
+Inline coverage is applied outermost-first so that nesting behaves: code spans win
+over emphasis (backticked `**text**` stays literal), then strong, then emphasis,
+then links. Unbalanced delimiters degrade to literal text rather than producing
+unclosed tags.
+
+Two behaviours are specific to rendering *documentation* rather than modules:
+
+- A standalone link line is parsed by `markdown-core` as a `MarkdownImport` — that
+  is module wiring in a `.ssc` file, but ordinary prose in a `.md` file. Here it is
+  rendered as a paragraph of links, so no content is silently dropped.
+- Link destinations ending in `.md` are rewritten to `.html`, so cross-references
+  between documentation pages resolve on a static site.
+
+[markdownParse, MarkdownDocument, MarkdownError, MarkdownHeading, MarkdownImport, MarkdownLink, MarkdownParagraph, MarkdownText, MarkdownExpr, MarkdownFence, MarkdownBulletList, MarkdownOrderedList, MarkdownImage, MarkdownTable, MarkdownTableRow, MarkdownMetadata](std/markdown-core.ssc)
+
+```scalascript
+// ---------------------------------------------------------------- escaping
+
+// Deliberately built from indexOf/substring rather than String.replace: the v2 JS
+// lane has no `.replace` dispatch for String (see BUGS.md js-string-replace-missing),
+// and chaining four passes would also walk the text four times. Recursion advances one
+// escapable character at a time, so depth tracks the number of `&<>"` in the run, not
+// its length.
+def mdhMin(a: Int, b: Int): Int =
+  if a < 0 then b else if b < 0 then a else if a < b then a else b
+
+def mdhEscapeEntity(c: Int): String =
+  if c == 38 then "&amp;"
+  else if c == 60 then "&lt;"
+  else if c == 62 then "&gt;"
+  else "&quot;"
+
+// indexOf scans in the host, so no frame is spent per ordinary character.
+def mdhEscapeNext(text: String, from: Int): Int =
+  mdhMin(mdhMin(text.indexOf("&", from), text.indexOf("<", from)),
+         mdhMin(text.indexOf(">", from), text.indexOf("\"", from)))
+
+def mdhEscapeFrom(text: String, from: Int): String =
+  val at = mdhEscapeNext(text, from)
+  if at < 0 then text.substring(from)
+  else
+    text.substring(from, at) + mdhEscapeEntity(text.charAt(at)) + mdhEscapeFrom(text, at + 1)
+
+def escapeHtml(text: String): String = mdhEscapeFrom(text, 0)
+
+// ---------------------------------------------------------------- helpers
+
+// A documentation cross-reference points at a sibling Markdown file; the published
+// site serves HTML, so retarget the extension and leave every other href alone.
+def mdhHref(destination: String): String =
+  if destination.endsWith(".md") then
+    destination.substring(0, destination.length - 3) + ".html"
+  else destination
+
+def mdhAnchorHtml(labelHtml: String, destination: String): String =
+  "<a href=\"" + escapeHtml(mdhHref(destination)) + "\">" + labelHtml + "</a>"
+
+def mdhAnchor(label: String, destination: String): String =
+  mdhAnchorHtml(escapeHtml(label), destination)
+
+// ---------------------------------------------------------------- inline markup
+
+// One left-to-right pass. Independent per-delimiter passes do NOT compose: splitting
+// on backticks first hands `**bold `x` more**` two fragments that each hold a single
+// `**`, so both look unbalanced and leak empty tags. Scanning for the earliest
+// delimiter and recursing into its body keeps nesting correct, and a delimiter whose
+// partner is missing is emitted literally instead of opening a tag that never closes.
+def markdownInlineHtml(text: String): String =
+  val code = text.indexOf("`")
+  val strong = text.indexOf("**")
+  val emphasis = text.indexOf("*")
+  val link = text.indexOf("[")
+  val first = mdhMin(mdhMin(code, strong), mdhMin(emphasis, link))
+  if first < 0 then escapeHtml(text)
+  else
+    val before = escapeHtml(text.substring(0, first))
+    if first == code then
+      val close = text.indexOf("`", first + 1)
+      if close < 0 then before + "`" + markdownInlineHtml(text.substring(first + 1))
+      else
+        before + "<code>" + escapeHtml(text.substring(first + 1, close)) + "</code>" +
+          markdownInlineHtml(text.substring(close + 1))
+    else if first == strong then
+      val close = text.indexOf("**", first + 2)
+      if close < 0 then before + "**" + markdownInlineHtml(text.substring(first + 2))
+      else
+        before + "<strong>" + markdownInlineHtml(text.substring(first + 2, close)) + "</strong>" +
+          markdownInlineHtml(text.substring(close + 2))
+    else if first == emphasis then
+      val close = text.indexOf("*", first + 1)
+      if close < 0 then before + "*" + markdownInlineHtml(text.substring(first + 1))
+      else
+        before + "<em>" + markdownInlineHtml(text.substring(first + 1, close)) + "</em>" +
+          markdownInlineHtml(text.substring(close + 1))
+    else
+      val mid = text.indexOf("](", first)
+      val close = if mid < 0 then -1 else text.indexOf(")", mid + 2)
+      if close < 0 then before + "[" + markdownInlineHtml(text.substring(first + 1))
+      else
+        val labelHtml = markdownInlineHtml(text.substring(first + 1, mid))
+        before + mdhAnchorHtml(labelHtml, text.substring(mid + 2, close)) +
+          markdownInlineHtml(text.substring(close + 1))
+
+def mdhInlineNodes(values: List[Any]): String = values match
+  case Nil => ""
+  case Cons(head, tail) =>
+    val piece = head match
+      case MarkdownText(value) => markdownInlineHtml(value)
+      case MarkdownExpr(source) => "<code>${" + escapeHtml(source) + "}</code>"
+      case _ => ""
+    piece + mdhInlineNodes(tail)
+
+def mdhLinkNodes(values: List[Any]): String = values match
+  case Nil => ""
+  case Cons(head, tail) =>
+    val piece = head match
+      case MarkdownLink(label, destination) => mdhAnchor(label, destination)
+      case _ => ""
+    val sep = if tail.nonEmpty then " " else ""
+    piece + sep + mdhLinkNodes(tail)
+
+// ---------------------------------------------------------------- anchors
+
+def mdhSlugChars(text: String, from: Int, acc: String): String =
+  if from >= text.length then acc
+  else
+    val c = text.charAt(from)
+    val keep = (c >= 97 && c <= 122) || (c >= 48 && c <= 57)
+    val next =
+      if keep then acc + text.substring(from, from + 1)
+      else if acc.length > 0 && !acc.endsWith("-") then acc + "-"
+      else acc
+    mdhSlugChars(text, from + 1, next)
+
+/** Stable anchor id for a heading, so a sidebar can deep-link into a page. */
+def markdownSlug(title: String): String =
+  val slug = mdhSlugChars(title.toLowerCase, 0, "")
+  if slug.endsWith("-") then slug.substring(0, slug.length - 1) else slug
+
+// ---------------------------------------------------------------- blocks
+
+def mdhRunLen(text: String, code: Int, from: Int): Int =
+  if from < text.length && text.charAt(from) == code then mdhRunLen(text, code, from + 1) else from
+
+def mdhIsThematicBreak(text: String): Boolean =
+  text.length >= 3 &&
+    (mdhRunLen(text, 45, 0) == text.length ||
+     mdhRunLen(text, 42, 0) == text.length ||
+     mdhRunLen(text, 95, 0) == text.length)
+
+def mdhItems(items: List[String]): String = items match
+  case Nil => ""
+  case Cons(head, tail) => "<li>" + markdownInlineHtml(head) + "</li>" + mdhItems(tail)
+
+def mdhAlignAttr(alignment: String): String =
+  if alignment == "none" then "" else " style=\"text-align:" + alignment + "\""
+
+def mdhCells(cells: List[String], alignments: List[String], tag: String): String = cells match
+  case Nil => ""
+  case Cons(head, tail) =>
+    val alignment = alignments match
+      case Cons(a, _) => a
+      case Nil => "none"
+    val rest = alignments match
+      case Cons(_, t) => t
+      case Nil => Nil
+    "<" + tag + mdhAlignAttr(alignment) + ">" + markdownInlineHtml(head) + "</" + tag + ">" +
+      mdhCells(tail, rest, tag)
+
+def mdhRows(rows: List[Any], alignments: List[String]): String = rows match
+  case Nil => ""
+  case Cons(head, tail) =>
+    val piece = head match
+      case MarkdownTableRow(cells) => "<tr>" + mdhCells(cells, alignments, "td") + "</tr>"
+      case _ => ""
+    piece + mdhRows(tail, alignments)
+
+def mdhBlock(block: Any): String = block match
+  case MarkdownHeading(level, title, attrs, line) =>
+    val tag = "h" + level
+    "<" + tag + " id=\"" + markdownSlug(title) + "\">" + markdownInlineHtml(title) + "</" + tag + ">"
+  case MarkdownParagraph(inlines, line) =>
+    val body = mdhInlineNodes(inlines)
+    // markdown-core has no thematic-break block, so `---` arrives as a paragraph;
+    // emitting it verbatim would print the rule as literal text.
+    if mdhIsThematicBreak(body) then "<hr>" else "<p>" + body + "</p>"
+  case MarkdownFence(language, source, line) =>
+    val cls = if language == "" then "" else " class=\"language-" + escapeHtml(language) + "\""
+    "<pre><code" + cls + ">" + escapeHtml(source) + "</code></pre>"
+  case MarkdownBulletList(items, line) => "<ul>" + mdhItems(items) + "</ul>"
+  case MarkdownOrderedList(start, items, line) =>
+    "<ol start=\"" + start + "\">" + mdhItems(items) + "</ol>"
+  case MarkdownImage(alt, source, title, line) =>
+    val titleAttr = if title == "" then "" else " title=\"" + escapeHtml(title) + "\""
+    "<p><img src=\"" + escapeHtml(source) + "\" alt=\"" + escapeHtml(alt) + "\"" + titleAttr + "></p>"
+  case MarkdownTable(headers, alignments, rows, line) =>
+    "<table><thead><tr>" + mdhCells(headers, alignments, "th") + "</tr></thead><tbody>" +
+      mdhRows(rows, alignments) + "</tbody></table>"
+  // In prose a lone link line is content, not an import directive — keep it visible.
+  case MarkdownImport(links, line) => "<p>" + mdhLinkNodes(links) + "</p>"
+  // `<!-- @meta ... -->` is machine metadata; it has no rendered form.
+  case MarkdownMetadata(raw, line) => ""
+  case _ => ""
+
+def mdhBlocks(blocks: List[Any]): String = blocks match
+  case Nil => ""
+  case Cons(head, tail) =>
+    val piece = mdhBlock(head)
+    val sep = if piece == "" then "" else "\n"
+    piece + sep + mdhBlocks(tail)
+
+/** Render a whole Markdown document to an HTML fragment. */
+def markdownToHtml(source: String): String = markdownParse(source) match
+  case MarkdownDocument(blocks) => mdhBlocks(blocks)
+  case MarkdownError(message, offset, line, column) =>
+    "<!-- markdown error at " + line + ":" + column + ": " + escapeHtml(message) + " -->"
+  case _ => "<!-- markdown error: invalid Markdown result -->"
+
+def mdhFirstHeading(blocks: List[Any]): String = blocks match
+  case Nil => ""
+  case Cons(head, tail) => head match
+    case MarkdownHeading(level, title, attrs, line) => title
+    case _ => mdhFirstHeading(tail)
+
+/** The document's first heading — the natural nav label for a page. */
+def markdownTitle(source: String): String = markdownParse(source) match
+  case MarkdownDocument(blocks) => mdhFirstHeading(blocks)
+  case _ => ""
+```
