@@ -1,21 +1,13 @@
 claim: v2-f4
 branch: feature/v2-f4-stage
-agent: opus (orchestrator — F4 reversible steps, Sergiy: F4 first)
-heartbeat: 2026-07-20T20:15:00Z
-status: REVERSIBLE STEPS 1-3 DONE + CI-wired (landed 82d09d90f); flip (step 4/5) HELD by Sergiy
-what: F4 front swap, reversible steps only. LANDED on main:
-      (1) classify gate — specs/v2.2-p6.5-semantic.sh `classify` + manifest v2.2-p6.5-classify.expected.
-          Output-equivalence basis (byte-identity is DEAD post-typed-regime: corpus byte MATCH 225/510).
-          GREEN: 659 progs = MATCH 246 / oracle-excluded 401 / GAP 12 / OUT 0 / DEFERRED 0 / genuine-FAIL 0.
-      (2) SSC_FRONT=F flag — RunNativeV2.frontIsF + v2/bin/ssc1-run-fsub.ssc0 (reuses ssc1-run's
-          structural machinery, swaps only the lowering: #coreir.decode(#coreir.eval(F ++ compile(src)))).
-          installBin stages the runner + fsub.ssc. Default UNCHANGED. Checker kept beside F. PROVEN
-          end-to-end: SSC_FRONT=F bin/ssc run == default output.
-      (3) dual-run gate — specs/v2.2-p6.5-dualrun.sh + dualrun.expected + CI f4-front-swap.yml
-          (nightly/dispatch). GREEN: 29/31 EQUAL, fixpoint byte-identical (366123 B).
-      FINDING: F is NOT a drop-in front — TWO gap classes: (a) 12 single-file GAPs; (b) AMBIENT-PRELUDE/
-      PLUGIN class (json-read, generators, …) only visible on the real path. So classify's 246 is per-file
-      coverage, not drop-in coverage.
-      FLIP (Sergiy): one line in RunNativeV2.frontIsF (opt-IN -> opt-OUT), no re-stage. BLOCKED on handling
-      both gap classes — recommended: delegate-fallback in RunNativeV2 (Global-resolution pre-check ->
-      re-run failed files through the default runner = never-worse-than-default). See language-surface §7.
+agent: opus (orchestrator — F4a delegate-fallback)
+heartbeat: 2026-07-20T18:12:56Z
+status: in-progress — F4a: delegate-fallback → flip-ready (Sergiy holds the flip)
+what: Sergiy chose F4a. Steps 1-3 done (classify gate, SSC_FRONT=F flag, dualrun). NOW: implement
+      delegate-fallback in RunNativeV2 (frontIsF path) — resolve F's decoded Program globals; on any
+      unresolved (F gap: the 12 single-file + ambient-prelude/plugin class json-read/generators),
+      re-run the file through the DEFAULT runner (fsubSrc=None, ssc1-run.ssc0) → F never-worse-than-
+      default. Handle runtime-only failures (tagless-multi-file arity) via broader try/rerun or
+      known-gap. Turn classify + dualrun gates FULLY green. Old front STAYS as fallback (shrink
+      deferred, per Sergiy). Then flip-readiness report: the one-line flip (RunNativeV2.frontIsF
+      opt-in→opt-out) for Sergiy. REVERSIBLE/additive; do NOT flip default.
