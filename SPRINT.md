@@ -34,12 +34,44 @@ vs oracle) AND `--self` (fixpoint) AND the new semantic gate ALL stay green.
       in full), raw cmp (no normalization), prints expected/got, fails loud (exit 2) if broken.
       **Measured: FROZEN 246 goldens; check 246/246 MATCH, 0 MISMATCH, exit 0.** Verified it FAILS on a
       corrupted golden. Re-freeze only to intentionally extend the set.
-- [ ] **P3 — begin F parse→AST refactor (the big one; byte-identical).** Change F's ~40 `emit*` to build
-      an AST node instead of concatenating IR strings; a single trivial `erase` walks the AST and
-      reproduces EXACTLY today's untyped IR strings, byte-identical. Refactor a cluster of related `emit*`
-      at a time; after every slice, corpus byte-identity + `--self` fixpoint + semantic gate ALL stay
-      green. NO typing (Stage 1). If too large to finish, land what's byte-identical-verified and HAND OFF
-      with a precise map of which `emit*` are converted vs remaining.
+- [~] **P3 — F parse→AST refactor BEGUN; scaffold + declaration cluster landed byte-identical. HANDOFF
+      map below.** (`de7d1a37d` slice 1, `6fe0c65fd` slice 2.)
+
+      **Scaffold (landed, in `specs/v2.2-p6.5-fsub.ssc` just above the "ctor + mirror" section):** a node
+      is a TAGGED TUPLE `(tag, payload)` — F's own idiom (a token is `(kind,payload)`; `parseAtom1`
+      dispatches on `fst`). `erase(n, dq)` → `eraseB(tag, p, dq)` rebuilds the exact string the old emit*
+      concatenated. F uses NO `case class` in its own source (all 31 mentions are comments) — tagged
+      tuples keep the fixpoint risk minimal (only tuples/match/if/++/`==`, all in F's proven subset).
+
+      **CONVERTED (3 node types, all self-contained declaration-level; every caller now `erase`s at the
+      string boundary):**
+      - `emitCtorFn` → `('ctorfn', (name, arity))`  [callers: `emitCC`, `emitEnumDef`]
+      - `emitMirror` → `('mirror', (name, (fnames, ftypes)))`  [caller: `emitCC`]
+      - `emitSel`    → `('sel', (name, arms-string))`  [caller: `emitSelList`; arms still a Raw sub-string]
+
+      **VERIFIED each slice (stock jar, no env override):** corpus byte-identity MATCH **417/510**
+      (unchanged from baseline), semantic gate **246/246**, `--self` **153 ok/0 FAIL** stage1==stage2
+      byte-identical. Fixpoint size 368,086 → 371,912 B (grew because F's OWN source grew; F(F_src) ==
+      oracle(F_src) still byte-identical, i.e. the AST code self-compiles identically under F and oracle).
+
+      **REMAINING — safe next declaration-level slices (self-contained, low risk, same pattern):**
+      `emitEnumDef` nullary-case string; `emitExtDispatchers`+`emitED*` (extension dispatchers);
+      `emitCCDecl`; `emitYamlSel`; and convert `selArm`/`selArm1` (turn the `sel` node's arms into arm
+      nodes instead of a Raw string).
+
+      **REMAINING — the BIG one (the actual F5b lever): the EXPRESSION pipeline.** `emitInt/emitFloat/
+      emitStr` (atoms) → `emitArith*/emitEq/emitIf/emitBin/emitPrimBin` (Stage-1 typing target) →
+      `emitLen/emitMethod*/emitApp/emitCallR/emitNullaryC/emitAssign/emitMatch`. These CANNOT be converted
+      one at a time: the expression result is threaded as a STRING through `parseAtom`/`parseAtom1`/`climb`
+      /`postfix`/`bodyExpr`/`parseExpr` and ~40 call sites (grep `parseExpr(`/`bodyExpr(`). Convert the
+      whole connected subgraph in ONE slice (bottom-up: atoms first, then operators, then the parse
+      functions thread `Node`), with the boundary `erase` at the ~40 places an expression string is
+      embedded — chiefly `emitDefBody` (`body`), `exprItem` (top expr), `parseLamBodyG`, `parseIfElse2`,
+      `parseWhileExpr`, `emitMatch` arms/scrut, `climb` (`emitBin`), map/tuple/for builders.
+      **NOTE for the expression conversion:** generalize `erase(n, dq)` to take `cx` (not just `dq`) —
+      expression string-literal/triple nodes need `bs` too (`emitStr`/`escTriple`), and Stage 1 will read
+      the inferred type off `cx`/the node. This is the natural seam where Stage 1 (`i.add`/`f.add`/… by
+      type) attaches. Est. multi-session (design §4 puts all of Stage 0 at ~3–5 sessions).
 
 ---
 

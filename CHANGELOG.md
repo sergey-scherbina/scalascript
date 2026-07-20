@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-07-20 — v2-f5b Stage 0: trustworthy gate stack + golden-output gate + F parse→AST begun
+
+Foundation for making the self-hosting front `F` emit typed IR (`specs/v2-f5b-typed-ir-design.md`),
+verified as no-change. Three pieces:
+- **K62.3 gate-stack fixed** (`f5f848fdf`). `onSizedStack` runs the pipeline on a worker thread, so the
+  gate scripts' `-Xss512m` (sizes the MAIN thread) was dead and F0-bootstrap overflowed the 64 MB worker
+  → StackOverflow → `specs/v2.2-p6.5-fsub.sh --self` LIED RED on a stock jar. Gate scripts now pass
+  `-Dssc.stackSize` (SSC_STACK-overridable, default 1 GiB); `--self` = 153 ok/0 FAIL byte-identical with
+  no manual env. No kernel change needed.
+- **Golden-OUTPUT semantic gate** (`8c4400f24`). `specs/v2.2-p6.5-semantic.sh` (freeze|check) captures
+  `run-ir(oracle(P))` OUTPUT (stdout + exit status, NOT IR) for corpus + tower cases into committed
+  `specs/v2.2-p6.5-golden/` (246 goldens); the checker asserts `run-ir(F(P))` output == golden. Unlike
+  IR byte-identity it survives the typed stages where F's IR diverges by design. Apparatus guards per
+  AGENTS.md: (exit,stdout) tuple compare (no equal-empties), rc0+determinism+size-cap eligibility,
+  membership by real compare, raw cmp, prints expected/got, fails loud if broken. 246/246 MATCH now;
+  verified it fails on a corrupted golden.
+- **F parse→AST refactor begun** (`de7d1a37d`, `6fe0c65fd`). AST scaffold in `F` (tagged-tuple nodes +
+  `erase` dispatcher) and the case-class DECLARATION cluster converted (`ctorfn`/`mirror`/`sel`),
+  reproducing today's UNTYPED IR byte-identically. NO typing (that is Stage 1). Every slice kept corpus
+  417/510, semantic 246/246, and the `--self` fixpoint green. Handoff map for the expression pipeline in
+  `SPRINT.md §v2-f5b-stage0`.
+
 ## 2026-07-20 — SwiftUI real-fixture failures are named and std/ui select lowering compiles
 
 The legacy SwiftUI JVM bridge now exports `selectFromView` and keeps the erased `Signal[T]()` read
