@@ -1280,9 +1280,18 @@ def collectGivenObj(gname, bodyTs) = if isTok(hd(bodyTs), 2, 28) then Cons((gnam
 // summon[TC[T]] to resolve the given (findGivenF, mirrors ssc1-lower findGiven :813). Type string comes
 // from the tokens (parseTCType), consistent between table build and summon lookup — the exact format need
 // only agree with itself, not the oracle's readTypeStr.
-def collectGivenTable(ts) = if isEmpty(ts) then Nil else (if isGivenHead(ts) then collectGT(ts) else collectGivenTable(tl(ts)))
+def collectGivenTable(ts) = if isEmpty(ts) then Nil else (if isGivenHead(ts) then collectGT(ts) else (if isCCHead(ts) then collectCCGiven(ts) else collectGivenTable(tl(ts))))
 def collectGT(ts) = if fst(hd(tl(ts))) == 1 then collectGT1(snd(hd(tl(ts))), tl(tl(ts)), ts) else collectGivenTable(tl(ts))
 def collectGT1(gname, t2, ts) = if isTok(hd(t2), 2, 34) then Cons((parseTCType(tl(t2)), gname), collectGivenTable(tl(ts))) else collectGivenTable(tl(ts))
+// A `case class T(..) derives TC1, TC2` synthesises given-table entries (ssc1-lower caseGeneratedGiven-
+// Entries :683): Mirror.Of/ProductOf[T] (+deriving.* aliases) -> __mirror_T (a top-level DEF, so summon
+// resolves it to a bare global), and TC[T] -> __derived_TC_T (a top-level VAL/cell, so summon resolves it
+// to cell.get __derived_TC_T__cell). F already emits both defs/cells (emitMirror + derivedInit); this only
+// makes summon FIND them. Keyed with the SAME strings parseTCTypeD produces for the summon type.
+def collectCCGiven(ts) = appEnv(caseGivenEntries(ccNameAt(ts), derivesAt(tl(tl(ts)))), collectGivenTable(tl(ts)))
+def caseGivenEntries(tn, tcs) = appEnv(mirrorGivenEntries(tn), derivedGivenEntries(tn, tcs))
+def mirrorGivenEntries(tn) = Cons((("Mirror.Of", tn), "__mirror_" ++ tn), Cons((("Mirror.ProductOf", tn), "__mirror_" ++ tn), Cons((("deriving.Mirror.Of", tn), "__mirror_" ++ tn), Cons((("deriving.Mirror.ProductOf", tn), "__mirror_" ++ tn), Nil))))
+def derivedGivenEntries(tn, tcs) = tcs match { case Nil => Nil case h :: t => Cons(((h, tn), "__derived_" ++ h ++ "_" ++ tn), derivedGivenEntries(tn, t)) }
 def parseTCType(ts) = (snd(hd(ts)), innerTypeStr(tl(ts)))
 def innerTypeStr(ts) = if isTok(hd(ts), 2, 50) then bracketStr(tl(ts), 1, "") else "*"
 def bracketStr(ts, d, acc) = if d == 0 then acc else (if isEmpty(ts) then acc else bracketStr1(hd(ts), tl(ts), d, acc))
@@ -1292,8 +1301,14 @@ def findGivenF1(h, r, tc, tn) = h match { case (gtype, gname) => gtype match { c
 // `summon[TC[T]]` → the resolved given `(global gname)` (then postSel/emitMethodCall objReg-dispatches the
 // following `.m`/`.m(..)`). Unresolved (abstract type param / no active-ctx yet) keeps the bare `(global
 // summon)` fallback = the prior __method__ behaviour (no regression; the deep active-ctx form is G4).
-def parseSummon(ts, env, cx) = summonEmit(findGivenF(givenTabOf(cx), fst(parseTCType(tl(ts))), snd(parseTCType(tl(ts)))), skipGen(ts))
-def summonEmit(gopt, rest) = gopt match { case Some(g) => ("(global " ++ g ++ ")", rest) case None => ("(global summon)", rest) }
+def parseSummon(ts, env, cx) = summonEmit(findGivenF(givenTabOf(cx), fst(parseTCTypeD(tl(ts))), snd(parseTCTypeD(tl(ts)))), skipGen(ts), cx)
+// bareCtor: a resolved given that is a top-level VAL (derived `__derived_TC_T`) reads via cell.get; a DEF
+// (given_obj/given-val/`__mirror_T`) reads as a bare global — exactly the oracle's `(var gname)` resolution.
+def summonEmit(gopt, rest, cx) = gopt match { case Some(g) => (bareCtor(g, cx), rest) case None => ("(global summon)", rest) }
+// A QUALIFIED TC head for summon: `Mirror.Of[Person]` -> ("Mirror.Of", "Person") (dotted name joined),
+// `Csv[Person]` -> ("Csv", "Person"). parseTCType alone stops at the `.` and mis-keys dotted TCs.
+def parseTCTypeD(ts) = parseTCTypeD1(snd(hd(ts)), tl(ts))
+def parseTCTypeD1(acc, ts) = if isTok(hd(ts), 2, 31) then parseTCTypeD1(acc ++ "." ++ snd(hd(tl(ts))), tl(tl(ts))) else (acc, innerTypeStr(ts))
 def findAnyGivenF(tab, tc) = tab match { case Nil => None case h :: r => h match { case (gtype, gname) => gtype match { case (gtc, gt) => if gtc == tc then Some(gname) else findAnyGivenF(r, tc) } } }
 // G4: pre-pass building the named-`using` signature registry [(defName, (usingTCs, fullCount))]. Scans
 // def heads; a def with a trailing `(using ..)` clause records its using TC heads (source order) + the
