@@ -1312,18 +1312,21 @@ lazy val backendInterpreter = project
     // locally-built internal runtime JARs and avoid resolving unpublished
     // io.scalascript artifacts from Maven Central.
     Test / resourceGenerators += Def.task {
+      val wireJar      = (wireCore / Compile / packageBin).value
       val sqlJar       = (backendSqlRuntime / Compile / packageBin).value
       val typedDataJar = (backendTypedDataRuntime / Compile / packageBin).value
       val graphJar     = (backendGraphRuntime / Compile / packageBin).value
       val outDir       = (Test / resourceManaged).value / "scalascript"
+      val wireOut      = outDir / "wire-core-jar.path"
       val sqlOut       = outDir / "sql-runtime-jar.path"
       val typedOut     = outDir / "typed-data-runtime-jar.path"
       val graphOut     = outDir / "graph-runtime-jar.path"
       IO.createDirectory(outDir)
+      IO.write(wireOut, wireJar.getAbsolutePath)
       IO.write(sqlOut, sqlJar.getAbsolutePath)
       IO.write(typedOut, typedDataJar.getAbsolutePath)
       IO.write(graphOut, graphJar.getAbsolutePath)
-      Seq(sqlOut, typedOut, graphOut)
+      Seq(wireOut, sqlOut, typedOut, graphOut)
     }.taskValue
   )
 

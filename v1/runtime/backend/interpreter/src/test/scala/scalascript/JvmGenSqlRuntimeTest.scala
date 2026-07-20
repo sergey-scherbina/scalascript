@@ -11,13 +11,12 @@ import scalascript.parser.Parser
 /** v1.26 Phase 7 (deferred) — end-to-end JvmGen smoke test that
  *  compiles + runs the emitted Scala source through `scala-cli`.
  *
- *  Without publishing `scalascript-backend-sql-runtime` to Maven
- *  Central, the `//> using lib "io.scalascript::…"` directive that
- *  JvmGen emits doesn't resolve.  Workaround: build the runtime JAR
- *  locally (`sbt backendSqlRuntime/Compile/packageBin`, wired into
- *  the `Test / resourceGenerators` of `backendInterpreter` so the jar
- *  is always fresh) and replace the directive in the emitted source
- *  with `//> using jar "<absolute-path>"` before handing it to
+ *  Without publishing the internal runtime modules to Maven Central,
+ *  the `//> using lib "io.scalascript::…"` directives that JvmGen emits
+ *  don't resolve.  Workaround: build the runtime JARs locally (wired
+ *  into the `Test / resourceGenerators` of `backendInterpreter` so the
+ *  jars are always fresh) and replace the directives in the emitted
+ *  source with `//> using jar "<absolute-path>"` before handing it to
  *  scala-cli.
  *
  *  Skipped (not failed) when `scala-cli` is unavailable on PATH so
@@ -34,6 +33,9 @@ class JvmGenSqlRuntimeTest extends AnyFunSuite {
   private lazy val typedDataRuntimeJar: String =
     readRuntimeJarPath("typed-data-runtime-jar.path")
 
+  private lazy val wireCoreJar: String =
+    readRuntimeJarPath("wire-core-jar.path")
+
   private def readRuntimeJarPath(fileName: String): String =
     val url = getClass.getClassLoader.getResource(s"scalascript/$fileName")
     assert(url != null, s"missing classpath resource `scalascript/$fileName` — " +
@@ -45,8 +47,13 @@ class JvmGenSqlRuntimeTest extends AnyFunSuite {
    *  `//> using jar "<absolute-path>"` so scala-cli picks up freshly-built
    *  local artifacts instead of trying to resolve unpublished snapshots. */
   private def rewriteLibToJar(src: String): String =
-    val withTypedData = rewriteInternalDepToJar(
+    val withWire = rewriteInternalDepToJarIfPresent(
       src,
+      artifact = "scalascript-wire-core",
+      jarPath = wireCoreJar
+    )
+    val withTypedData = rewriteInternalDepToJar(
+      withWire,
       artifact = "scalascript-backend-typed-data-runtime",
       jarPath = typedDataRuntimeJar
     )
@@ -66,6 +73,14 @@ class JvmGenSqlRuntimeTest extends AnyFunSuite {
       fail(
         s"emitted JvmGen source missing expected directive for `$artifact` — got first 500 chars:\n${src.take(500)}"
       )
+
+  private def rewriteInternalDepToJarIfPresent(src: String, artifact: String, jarPath: String): String =
+    val depLine = s"""//> using dep "io.scalascript::$artifact:0.1.0-SNAPSHOT""""
+    val libLine = s"""//> using lib "io.scalascript::$artifact:0.1.0-SNAPSHOT""""
+    val jarLine = s"""//> using jar "$jarPath""""
+    if src.contains(depLine) then src.replace(depLine, jarLine)
+    else if src.contains(libLine) then src.replace(libLine, jarLine)
+    else src
 
   /** Build, transform, and run the JvmGen emission through `scala-cli`.
    *  Returns (exitCode, stdout, stderr). */

@@ -29,6 +29,26 @@ class JvmGenEffectsRuntimeTest extends AnyFunSuite with Matchers:
   private def jvmCodeDoc(source: String): String =
     JvmGen.generate(Parser.parse(source))
 
+  private lazy val wireCoreJar: String =
+    val url = getClass.getClassLoader.getResource("scalascript/wire-core-jar.path")
+    assert(url != null, "missing classpath resource `scalascript/wire-core-jar.path` — " +
+      "expected backendInterpreter Test / resourceGenerators to build it")
+    val src = scala.io.Source.fromURL(url)
+    try src.mkString.trim finally src.close()
+
+  /** Keep forked scala-cli e2e tests self-contained: their working directory is
+   *  this subproject, so JvmGen cannot discover a sibling dev-tree JAR and its
+   *  normal Maven fallback would try to resolve an unpublished snapshot. */
+  private def useLocalWireCore(src: String): String =
+    val artifact = "scalascript-wire-core"
+    val depLine = s"""//> using dep "io.scalascript::$artifact:0.1.0-SNAPSHOT""""
+    val libLine = s"""//> using lib "io.scalascript::$artifact:0.1.0-SNAPSHOT""""
+    val jarLine = s"""//> using jar "$wireCoreJar""""
+    if src.contains(depLine) then src.replace(depLine, jarLine)
+    else if src.contains(libLine) then src.replace(libLine, jarLine)
+    else if src.linesIterator.exists(line => line.startsWith("//> using jar ") && line.contains(artifact)) then src
+    else fail(s"emitted JvmGen source missing expected directive for `$artifact`")
+
   private def tailFile(f: java.io.File, n: Int = 80): String =
     if f.exists() then
       val lines = java.nio.file.Files.readAllLines(f.toPath).toArray.toList.map(String.valueOf)
@@ -627,7 +647,7 @@ class JvmGenEffectsRuntimeTest extends AnyFunSuite with Matchers:
   test("JvmGen e2e: GET /_openapi.json exposes front-matter response schema"):
     assume(hasScalaCli, "scala-cli not available")
     val port = pickFreePort()
-    val sc = jvmCodeDoc(s"""---
+    val sc = useLocalWireCore(jvmCodeDoc(s"""---
       |routes:
       |  - method: GET
       |    path: /users/:id
@@ -649,7 +669,7 @@ class JvmGenEffectsRuntimeTest extends AnyFunSuite with Matchers:
       |def getUser(req: Request): Response = Response.json(User(req.params("id")))
       |serve($port)
       |```
-      |""".stripMargin)
+      |""".stripMargin))
     val tmp  = java.io.File.createTempFile("ssc-jvmgen-openapi-schema-", ".sc")
     val out  = java.io.File.createTempFile("ssc-jvmgen-openapi-schema-", ".out")
     val err  = java.io.File.createTempFile("ssc-jvmgen-openapi-schema-", ".err")
