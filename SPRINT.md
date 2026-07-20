@@ -300,8 +300,9 @@ incident. New capability goes in a **new module**.
       repo-escaping links to GitHub (blob/tree, .html→.md reversed), and bare links whose docs/
       target is absent but specs/<basename>.md exists → that spec on GitHub (110/111). Plus a
       renderer fix (`markdown-html`): `.md#fragment` cross-refs now retarget, absolute URLs never do.
-      **Result: 317 → 0 broken internal links.** Remaining landing-content polish (examples gallery,
-      benchmarks section) deferred — the structural integrity work was the priority.
+      **Result: 317 → 0 broken internal links.** Landing polish also DONE (`a3a7b2f49`): a
+      "What you can build" examples gallery (6 real repo examples → GitHub source) + an honest
+      performance line linking docs/performance + benchmarks (no hardcoded numbers); nav Examples anchor.
 
 Playground (in-browser `.ssc`) is **deliberately NOT in this sprint** — see BACKLOG entry
 `site-playground`; it is gated on `BUGS.md:1537 coreir-compiler-unbounded-depth`.
