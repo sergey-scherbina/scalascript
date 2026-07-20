@@ -54,8 +54,16 @@ is shallow (depth 25), so a compiler-side depth bound has enormous headroom — 
       - (b) **Cut frames per level.** ✗ **MEASURED 2026-07-20 — wrong lever, do not start here.**
         See the measurement below: it buys a constant factor against a cost that grows *linearly
         with program size*.
-      - (c) ⭐ **Make the self-hosted compiler's list traversals tail-recursive.** This is the real
-        fix and it is in `.ssc0` source, not in the VM.
+      - (c) ✓ **DONE 2026-07-20** — the self-hosted compiler's list traversals are now
+        tail-recursive (`lexAcc`, `parseTopAcc`, `lowDefsAcc`, `namesOfAcc`, `lowArmsAcc`,
+        `mapFstAcc`, `etaVarsAcc`, `parseImportsAcc`). Minimum stack to compile, by definition
+        count: 40 defs **2m → 256k**, 320 defs **8m → 512k**, 1280 defs **32m → 2m** (16x);
+        `uselib.ssc0` **4m → 256k**. Output byte-identical on 84/84 examples and both
+        self-compilation fixpoints. The lexer was the dominant term (one frame per *token*, six
+        branches); `parseTop` was the last linear one (one frame per top-level def).
+        **A browser's ~1 MB now covers ~640 top-level definitions, against ~25 before.**
+        A residual linear term remains (1280 defs still want 2m) but the curve is far flatter —
+        re-measure before deciding whether (a)/(b) are still worth anything.
 
 **The measurement that redirected this (2026-07-20).** Minimum stack for `ssc0c` to compile a file,
 via binary search (`-Dssc.stackSize=0` to defeat the sized VM thread):
