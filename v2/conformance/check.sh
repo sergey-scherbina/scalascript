@@ -3018,7 +3018,7 @@ echo "# backend: ir -> JS (lib/backend-js.ssc0) — node output == VM output"
 if have_node; then
   chk_js() { # file-stem
     vm=$(ssc run "examples/$1.ssc0" | tail -1)
-    ssc run bin/ssc0-js.ssc0 "examples/$1.ssc0" > "${TMPDIR:-/tmp}/ssc0bk-$1.js" 2>/dev/null
+    sscx run bin/ssc0-js.ssc0 "examples/$1.ssc0" > "${TMPDIR:-/tmp}/ssc0bk-$1.js" 2>/dev/null
     js=$(node "${TMPDIR:-/tmp}/ssc0bk-$1.js" 2>/dev/null | tail -1)
     if [ "$vm" = "$js" ]; then printf 'ok   %-26s => %s (node == vm)\n' "js $1.ssc0" "$js"
     else printf 'FAIL %-26s vm=[%s] node=[%s]\n' "js $1.ssc0" "$vm" "$js"; fail=1; fi
@@ -3042,7 +3042,7 @@ echo "# backend: ir -> Rust (lib/backend-rust.ssc0) — native binary output == 
 if have_rust; then
   chk_rust() { # file-stem
     vm=$(ssc run "examples/$1.ssc0" | tail -1)
-    ssc run bin/ssc0-rust.ssc0 "examples/$1.ssc0" > "${TMPDIR:-/tmp}/ssc0bk-$1.rs" 2>/dev/null
+    sscx run bin/ssc0-rust.ssc0 "examples/$1.ssc0" > "${TMPDIR:-/tmp}/ssc0bk-$1.rs" 2>/dev/null
     if rustc -O "${TMPDIR:-/tmp}/ssc0bk-$1.rs" -o "${TMPDIR:-/tmp}/ssc0bk-$1" 2>/dev/null; then
       rs=$("${TMPDIR:-/tmp}/ssc0bk-$1")
       if [ "$vm" = "$rs" ]; then printf 'ok   %-26s => %s (rustc == vm)\n' "rust $1.ssc0" "$rs"
