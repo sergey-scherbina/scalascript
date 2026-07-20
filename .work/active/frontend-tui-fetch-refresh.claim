@@ -1,6 +1,6 @@
 feature/frontend-tui-fetch-refresh 2026-07-20T02:26:59Z
 agent: codex-clear-lynx
-heartbeat: 2026-07-20T02:27:22Z
+heartbeat: 2026-07-20T02:41:21Z
 status: in-progress
-done-so-far: external worktree created; bootstrap-only refresh gap reproduced
-next: record BUGS/SPRINT/spec before implementation
+done-so-far: spec 8a49ceba4 landed; fix 15b45b0dd passes frontendTui 36/36; staged CLI passes rozum dual-target smoke
+next: update docs/bookkeeping, run exact-SHA gates, land and release claims
