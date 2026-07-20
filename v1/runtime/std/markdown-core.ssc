@@ -56,7 +56,11 @@ def markdownTrimEndAt(text: String, end: Int): Int =
 
 def markdownTrim(text: String): String =
   val start = markdownSkipSpace(text, 0)
-  text.substring(start, markdownTrimEndAt(text, text.length))
+  val end = markdownTrimEndAt(text, text.length)
+  // All-whitespace input drives start past end (" " gives start=1, end=0), and the
+  // unguarded substring then throws instead of yielding the empty string. An empty
+  // leading table cell — `| | b |` — reaches exactly this path.
+  if start >= end then "" else text.substring(start, end)
 
 def markdownNewline(source: String, from: Int): Int =
   if from >= source.length then source.length
@@ -169,21 +173,33 @@ def markdownImage(line: Any): Any =
           else MarkdownImage(text.substring(2, closeAlt), markdownTrim(target.substring(0, quote)),
             target.substring(quote + 1, titleEnd), markdownLineNumber(line))
 
-def markdownFenceOpen(line: Any): Boolean = markdownStarts(markdownTrim(markdownLineText(line)), "```")
-def markdownFenceClose(line: Any): Boolean = markdownTrim(markdownLineText(line)) == "```"
+// A fence opens on a run of three or more backticks and closes only on a run at
+// least as long, with nothing else on the line. Hardcoding exactly three made a
+// four-backtick block — the ordinary way to quote Markdown that itself contains a
+// fence, used across this repo's own docs — close on its first inner ``` and spill
+// the remainder into the document.
+def markdownFenceRun(text: String): Int = markdownCount(text, 0, 96)
 
-def markdownFenceBody(lines: List[Any], reversed: List[String], start: Any, language: String): Any = lines match
+def markdownFenceOpen(line: Any): Boolean = markdownFenceRun(markdownTrim(markdownLineText(line))) >= 3
+
+def markdownFenceCloses(line: Any, run: Int): Boolean =
+  val text = markdownTrim(markdownLineText(line))
+  val closeRun = markdownFenceRun(text)
+  closeRun >= run && closeRun == text.length
+
+def markdownFenceBody(lines: List[Any], reversed: List[String], start: Any, language: String, run: Int): Any = lines match
   case Nil => MarkdownError("unterminated fenced block", markdownLineOffset(start), markdownLineNumber(start), 1)
   case Cons(head, tail) =>
-    if markdownFenceClose(head) then MarkdownFenceOk(
+    if markdownFenceCloses(head, run) then MarkdownFenceOk(
       MarkdownFence(language, reversed.reverse.mkString("\n"), markdownLineNumber(start)), tail)
-    else markdownFenceBody(tail, markdownLineText(head) :: reversed, start, language)
+    else markdownFenceBody(tail, markdownLineText(head) :: reversed, start, language, run)
 
 def markdownFence(lines: List[Any]): Any = lines match
   case Nil => MarkdownError("missing fenced block", 0, 1, 1)
   case Cons(head, tail) =>
     val open = markdownTrim(markdownLineText(head))
-    markdownFenceBody(tail, Nil, head, markdownTrim(open.substring(3)))
+    val run = markdownFenceRun(open)
+    markdownFenceBody(tail, Nil, head, markdownTrim(open.substring(run)), run)
 
 def markdownBulletPrefix(text: String): Int =
   val t = markdownTrim(text)
