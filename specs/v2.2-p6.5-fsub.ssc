@@ -502,7 +502,7 @@ def methodRecv(c) = if isUidGlobal(c) then "(ctor " ++ c.substring(8, c.length -
 // DA10: a call whose receiver is a known `object O` and method a member of O resolves to the flattened
 // top-level def `(app (global O_m) args)` (ssc1-lower prefixDefs static dispatch), BEFORE the uid __method__
 // path. globalNameOf recovers O from the emitted `(global O)` receiver (works for uid AND lowercase names).
-def emitMethodCall(nm, c, es, cx) = if isObjMember(globalNameOf(c), nm, cx) then "(app (global " ++ globalNameOf(c) ++ "_" ++ nm ++ ")" ++ joinArgs(es) ++ ")" else (if isExtMethod(nm, cx) then "(app (global " ++ nm ++ ") " ++ c ++ joinArgs(es) ++ ")" else (if isUidGlobal(c) then emitMethod(nm, methodRecv(c), joinArgs(es), dqOf(cx)) else emitMethodCall1(nm, c, es, cx)))
+def emitMethodCall(nm, c, es, cx) = if isObjMember(globalNameOf(c), nm, cx) then "(app (global " ++ globalNameOf(c) ++ "_" ++ nm ++ ")" ++ joinArgs(es) ++ ")" else (if isExtMethod(nm, cx) then "(prim __methodOrExt__ (lit (str " ++ dqOf(cx) ++ nm ++ dqOf(cx) ++ ")) " ++ c ++ joinArgs(es) ++ " (global " ++ nm ++ "))" else (if isUidGlobal(c) then emitMethod(nm, methodRecv(c), joinArgs(es), dqOf(cx)) else emitMethodCall1(nm, c, es, cx)))
 def emitMethodCall1(nm, c, es, cx) = if isSelRecvCode(c) then selMethodOr(nm, c, es, dqOf(cx)) else emitCallMethod(nm, c, joinArgs(es), dqOf(cx))
 // isKnownSelMethod = ssc1-lower :1509 set MINUS the forms selMethodOr handles explicitly first
 // (map/mkString/take/sum/foldLeft/foldRight). _1.._4 route to _sel__N via isTupField.
@@ -1224,8 +1224,15 @@ def objBodyToks(ts) = if isEmpty(ts) then ts else (if isTok(hd(ts), 2, 28) then 
 def objectItem(ts, cx) = objectItem1(snd(hd(tl(ts))), objBodyToks(tl(tl(ts))), cx)
 def objectItem1(name, ts, cx) = if isTok(hd(ts), 2, 28) then ((objDefsStr(name, collectObjMembers(tl(ts)), cx), ""), skipBrace(tl(ts), 1)) else (("", ""), ts)
 def collectObjMembers(ts) = collectOM(skipSemisF(ts))
-def collectOM(ts) = if isEmpty(ts) then Nil else (if isTok(hd(ts), 2, 29) then Nil else (if isWord(hd(ts), "override") then collectOM(tl(ts)) else (if isTok(hd(ts), 2, 1) then collectOMk("def", ts) else (if isTok(hd(ts), 2, 7) then collectOMk("val", ts) else (if isVarHead(ts) then collectOMk("var", ts) else collectOM(skipStmt(ts)))))))
+def collectOM(ts) = if isEmpty(ts) then Nil else (if isTok(hd(ts), 2, 29) then Nil else (if isWord(hd(ts), "override") then collectOM(tl(ts)) else (if isTok(hd(ts), 2, 1) then collectOMk("def", ts) else (if isTok(hd(ts), 2, 7) then collectOMk("val", ts) else (if isVarHead(ts) then collectOMk("var", ts) else (if isExtensionHead(ts) then collectOMExt(skipGen(tl(ts))) else collectOM(skipStmt(ts))))))))
 def collectOMk(kind, ts) = Cons((kind, (snd(hd(tl(ts))), objMemToks(kind, tl(tl(ts))))), collectOM(skipSemisF(skipStmt(tl(tl(ts))))))
+// `extension (recv) def m(..) = ..` INSIDE a given/object body: each contiguous member `def` becomes an
+// "extdef" entry carrying (mname, (recvEnv, methodToks)); the receiver is prepended to the method's params
+// at emit (givenExtDef1 -> extDefE). Members are GLUED (deeper indent -> no `;`); collectOMExtMs stops at
+// the first non-def (a `;`-separated sibling like a plain `def log`). Mirrors ssc1-lower collectExtension-
+// Methods descending given_obj (:584) + prefixDefs skipping extension markers + staticMemberObjectArgs.
+def collectOMExt(ts) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (renv, r) => collectOMExtMs(renv, r) } else collectOM(ts)
+def collectOMExtMs(renv, ts) = if isTok(hd(ts), 2, 1) then Cons(("extdef", (snd(hd(tl(ts))), (renv, tl(tl(ts))))), collectOMExtMs(renv, skipStmt(tl(tl(ts))))) else collectOM(ts)
 def objMemToks(kind, ts) = if kind == "def" then ts else skipToEq(ts)
 def objDefsStr(name, ms, cx) = ms match { case Nil => "" case h :: t => join2(objDef1(name, h, cx), objDefsStr(name, t, cx)) }
 def objDef1(name, m, cx) = m match { case (kind, nt) => nt match { case (mname, toks) => objDefEmit(kind, name ++ "_" ++ mname, toks, cx) } }
@@ -1255,7 +1262,12 @@ def givenValItem(gname, ts, cx) = bodyExpr(ts, Nil, cx) match { case (b, r) => (
 def givenObjItem(gname, ts, cx) = if isTok(hd(ts), 2, 28) then givenObjEmit(gname, collectObjMembers(tl(ts)), cx, skipBrace(tl(ts), 1)) else (("", ""), ts)
 def givenObjEmit(gname, ms, cx, rest) = ((join2(givenDefsStr(gname, ms, cx), givenMethodObj(gname, ms, cx)), ""), rest)
 def givenDefsStr(gname, ms, cx) = ms match { case Nil => "" case h :: t => join2(givenDef1(gname, h, cx), givenDefsStr(gname, t, cx)) }
-def givenDef1(gname, m, cx) = m match { case (kind, nt) => if kind == "def" then (nt match { case (mname, toks) => objDefE(gname ++ "_" ++ mname, toks, cx) }) else "" }
+def givenDef1(gname, m, cx) = m match { case (kind, nt) => if kind == "def" then (nt match { case (mname, toks) => objDefE(gname ++ "_" ++ mname, toks, cx) }) else (if kind == "extdef" then givenExtDef1(gname, nt, cx) else "") }
+// An extension member inside a given: prefixed def with the receiver prepended as the FIRST param
+// (renv is the receiver env; method params parse on top of it, so recv=local N-1, method args below).
+def givenExtDef1(gname, nt, cx) = nt match { case (mname, rt) => rt match { case (renv, mts) => extDefE(gname ++ "_" ++ mname, renv, mts, cx) } }
+def extDefE(pfx, renv, ts, cx) = extDefE1(pfx, renv, skipGen(ts), cx)
+def extDefE1(pfx, renv, ts, cx) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), renv) match { case (env, r) => fst(emitDefBody(pfx, dlen(env), env, skipToEq(r), cx)) } else fst(emitDefBody(pfx, dlen(renv), renv, skipToEq(ts), cx))
 def givenMethodObj(gname, ms, cx) = "(def " ++ gname ++ " (prim __mk_method_obj__" ++ givenObjArgs(gname, ms, cx) ++ "))"
 def givenObjArgs(gname, ms, cx) = ms match { case Nil => "" case h :: t => givenObjArg1(gname, h, cx) ++ givenObjArgs(gname, t, cx) }
 def givenObjArg1(gname, m, cx) = m match { case (kind, nt) => if kind == "var" then "" else (nt match { case (mname, toks) => " (lit (str " ++ dqOf(cx) ++ mname ++ dqOf(cx) ++ ")) (global " ++ gname ++ "_" ++ mname ++ ")" }) }
@@ -1320,6 +1332,38 @@ def collectExtMethods(ts) = if isEmpty(ts) then Nil else (if isExtensionHead(ts)
 def collectEM(ts) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (renv, r) => collectEMs(skipSemisF(r)) } else collectExtMethods(tl(ts))
 def collectEMs(ts) = if isTok(hd(ts), 2, 1) then Cons(snd(hd(tl(ts))), collectEMs(skipSemisF(skipStmt(ts)))) else collectExtMethods(ts)
 def isExtMethod(nm, cx) = memL(nm, extMethodsOf(cx))
+// -- Extension-method INSTANCE DISPATCH (ssc1-lower :5295-5445) --------------------------------------
+// An `extension def m` inside `given g: TC[T] with` is emitted prefixed `g_m`, but a call `recv.m(a)`
+// refers to the bare `m` (via __methodOrExt__). With 2+ instances there is no single `m`; synthesise a
+// bare `m` DISPATCHER that type-tests the receiver tag and forwards to the matching `g_m`. One entry per
+// given-body ext method: (mname, (typeHead, (implName, arity))), in source order. Emitted AFTER userDefs.
+def collectExtDisp(ts) = if isEmpty(ts) then Nil else (if isGivenHead(ts) then collectED1(ts) else collectExtDisp(tl(ts)))
+def collectED1(ts) = if fst(hd(tl(ts))) == 1 then collectED2(snd(hd(tl(ts))), tl(tl(ts)), ts) else collectExtDisp(tl(ts))
+def collectED2(gname, t2, ts) = if isTok(hd(t2), 2, 34) then collectED3(gname, snd(parseTCType(tl(t2))), skipTypeRef(tl(t2)), ts) else collectExtDisp(tl(ts))
+def collectED3(gname, th, t3, ts) = if isWord(hd(t3), "with") then appEnv(edMembers(gname, th, collectObjMembers(tl(objBodyToks(t3)))), collectExtDisp(tl(ts))) else collectExtDisp(tl(ts))
+def edMembers(gname, th, ms) = ms match { case Nil => Nil case h :: t => appEnv(edMember1(gname, th, h), edMembers(gname, th, t)) }
+def edMember1(gname, th, m) = m match { case (kind, nt) => if kind == "extdef" then edMember2(gname, th, nt) else Nil }
+def edMember2(gname, th, nt) = nt match { case (mname, rt) => rt match { case (renv, mts) => Cons((mname, (th, (gname ++ "_" ++ mname, extArity(renv, mts)))), Nil) } }
+def extArity(renv, ts) = extArity1(renv, skipGen(ts))
+def extArity1(renv, ts) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), renv) match { case (env, r) => dlen(env) } else dlen(renv)
+// Runtime constructor tags for a nominal type head (ssc1-lower extTypeTags :5303): built-ins + user ADTs.
+def extTypeTags(th, cx) = if th == "List" then Cons("Cons", Cons("Nil", Nil)) else (if th == "Option" then Cons("Some", Cons("None", Nil)) else (if th == "Either" then Cons("Left", Cons("Right", Nil)) else (if th == "Tuple2" then Cons("Pair", Cons("Tuple2", Nil)) else extTypeTagsUser(th, cx))))
+def extTypeTagsUser(th, cx) = extTypeTagsUser1(th, subtypeChildren(th, cx))
+def extTypeTagsUser1(th, cs) = if isEmpty(cs) then Cons(th, Nil) else cs
+// One dispatcher `(def m (lam arity <chain>))` per distinct method; chain = if <recv is Ti> then gi_m(args) else ..; recv.
+def emitExtDispatchers(ts, cx) = emitEDwith(collectExtDisp(ts), cx)
+def emitEDwith(entries, cx) = emitEDall(edMethodNames(entries), entries, cx)
+def emitEDall(ms, entries, cx) = ms match { case Nil => "" case m :: r => emitOneED(m, edInstancesFor(m, entries), cx) ++ emitEDall(r, entries, cx) }
+def emitOneED(m, insts, cx) = insts match { case Nil => "" case first :: rest => emitOneED1(m, insts, first, cx) }
+def emitOneED1(m, insts, first, cx) = first match { case (th, ir) => ir match { case (impl, ar) => " (def " ++ m ++ " (lam " ++ ar ++ " " ++ edBuild(insts, ar, cx) ++ "))" } }
+def edBuild(insts, ar, cx) = insts match { case Nil => edRecvLocal(ar) case i :: r => edBuild1(i, r, ar, cx) }
+def edBuild1(i, r, ar, cx) = i match { case (th, ir) => ir match { case (impl, iar) => "(if " ++ orTagTests(edRecvLocal(ar), extTypeTags(th, cx), cx) ++ " (app (global " ++ impl ++ ")" ++ edArgs(ar) ++ ") " ++ edBuild(r, ar, cx) ++ ")" } }
+def edRecvLocal(ar) = "(local " ++ (ar - 1) ++ ")"
+def edArgs(ar) = edArgsGo(ar - 1)
+def edArgsGo(k) = if k < 0 then "" else " (local " ++ k ++ ")" ++ edArgsGo(k - 1)
+def edMethodNames(entries) = edUniq(entries, Nil)
+def edUniq(es, seen) = es match { case Nil => Nil case e :: r => e match { case (mm, rst) => if memL(mm, seen) then edUniq(r, seen) else Cons(mm, edUniq(r, Cons(mm, seen))) } }
+def edInstancesFor(m, entries) = entries match { case Nil => Nil case e :: r => e match { case (em, rst) => if em == m then Cons(rst, edInstancesFor(m, r)) else edInstancesFor(m, r) } }
 // A top-level `var name [: T] = init` runs its initializer in the entry as `cell.set(global name__cell)`
 // — IDENTICAL to a top val (ssc1-lower topExprs var/val cases :5593-5609) — so it reuses valItem1. The
 // empty cell def is emitted in the topVar slot (compile4). A top-level `while`/assignment becomes an
@@ -1772,7 +1816,7 @@ def rtrim1(s) = if s.length > 0 then (if s.charAt(s.length - 1) == 32 then s.sub
 // caseMethodDefs sit BETWEEN topValCells and sels (ssc1-lower :5570-5573); each carries a trailing space
 // like valCells/emitSels ("" when there are no body methods → a method-free program stays byte-identical).
 def compile4(strs, nDoc, ts, tcs, dq, cx) = compile4b(strs, nDoc, ts, tcs, dq, cx, collectCaseMethods(ts))
-def compile4b(strs, nDoc, ts, tcs, dq, cx, cms) = strs match { case (userDefs, docEntry) => rtrim1(prelude(dq) ++ valCells(varNamesOf(cx), dq) ++ valCells(valNamesOf(cx), dq) ++ caseMethodDefsStr(cms, cx) ++ emitSels(tcs, dq) ++ userDefs) ++ entryOf3(ts, tcs, docEntry, nDoc, dq, cms) }
+def compile4b(strs, nDoc, ts, tcs, dq, cx, cms) = strs match { case (userDefs, docEntry) => rtrim1(prelude(dq) ++ valCells(varNamesOf(cx), dq) ++ valCells(valNamesOf(cx), dq) ++ caseMethodDefsStr(cms, cx) ++ emitSels(tcs, dq) ++ userDefs ++ emitExtDispatchers(ts, cx)) ++ entryOf3(ts, tcs, docEntry, nDoc, dq, cms) }
 def ccNamesL(cs) = cs match { case Nil => Nil case h :: t => Cons(ccName(h), ccNamesL(t)) }
 // The CONSTANT 7258-byte prelude `ssc1-lower` emits (measured identical across programs).
 // It is fixed OUTPUT, so F carries it as a string constant; byte-identity stays the oracle.
