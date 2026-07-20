@@ -49,6 +49,20 @@ the *goal* is a clean complete language.
 
 ## 3. Current coverage (measured)
 
+> **★ MEASURED CORRECTION (2026-07-20, F4 reversible-staging).** The **byte-identity** numbers below
+> are PRE-typed-regime and no longer the coverage oracle. Since F5b Stage 1, F emits **TYPED** Core IR
+> that diverges from the untyped oracle byte-for-byte **by design** — the byte gate
+> (`specs/v2.2-p6.5-corpus.sh`) now measures **MATCH 225/510**, which is a typed-divergence artifact, not
+> a gap count. The trustworthy cutover metric is **output-equivalence** (`specs/v2.2-p6.5-semantic.sh`):
+> over 659 programs (510 corpus + 149 tower) — **246 output-equivalent, 401 oracle-can't-run-in-the-bare-
+> kernel-jar (rc≠0, need plugins/servers/effects drivers), 1 too-large, 0 F-emits-no-IR, and exactly 12
+> F-DISAGREE** (the real gaps: effects×4, extensions, for-comprehensions, tagless-multi-file,
+> standard-scala-multifence, scala-js-demo, dsl-multi-pass, wasm-primes/sorting). All 12 = oracle correct,
+> F emits **invalid IR** (dangling `(global …)` / arity) → all are **GAP** (F incomplete), none are OUT.
+> Under the output lens §5's byte-level OUT cases do NOT appear as disagreements (no output change, or the
+> oracle can't run them). The F4 cutover gate is therefore output-based: `specs/v2.2-p6.5-semantic.sh
+> classify` (self-maintaining, manifest `specs/v2.2-p6.5-classify.expected`). GREEN today: 0 genuine-FAIL.
+
 - Corpus MATCH: **417 / 510 (81%)** — `specs/v2.2-p6.5-corpus.sh` (was 408/509; +9 across deep6/deep7:
   given/using/summon + top-level extensions + extension-methods-in-given + Mirror/derived-given summon).
 - `F` self-compiles: X1 fixpoint `stage1 == stage2`, byte-identical (368,086 B); `--self`
@@ -146,8 +160,11 @@ redundant front library removed; self-hosting realized in the product, not just 
 
 Preconditions:
 1. `F` covers every IN construct (§4.1–4.2). **Both arcs now complete (417/510).**
-2. The corpus gate distinguishes MATCH / classified-OUT (§5) / DEFERRED (§6) / genuine-FAIL
-   (self-maintaining, like the negtc gate) — **not yet met; must be built first.**
+2. A gate distinguishes MATCH / classified-OUT (§5) / DEFERRED (§6) / genuine-FAIL (self-maintaining,
+   like the negtc gate) — **✅ MET (2026-07-20): `specs/v2.2-p6.5-semantic.sh classify`** (output-
+   equivalence basis; the byte gate is design-divergent post-typed-regime, see §3). Buckets against the
+   committed manifest `specs/v2.2-p6.5-classify.expected`; exits 1 on any UNEXPECTED disagreement. Green
+   today (0 genuine-FAIL); reports 12 GAP as the pre-flip precondition.
 3. The checker (`ssc1-check.ssc0`, a separate pre-pass in `RunNativeV2`) is kept beside `F` or
    folded into it — **open item, F is a parser+lowerer, not a checker.**
 4. `F` self-compiles (fixpoint) + `v2/conformance/check.sh` green on the cutover SHA.
@@ -173,8 +190,12 @@ honest achievable target per-region (move-to-tower / delete / must-stay), fixpoi
 
 ## 8. Verification
 
-- Surface coverage: `specs/v2.2-p6.5-corpus.sh` (MATCH count) + the OUT/DEFERRED classification
-  from this document.
+- **F4 cutover ratchet (the one that gates the flip): `specs/v2.2-p6.5-semantic.sh classify`** —
+  output-equivalence, self-maintaining, manifest `specs/v2.2-p6.5-classify.expected`. Green = 0
+  UNEXPECTED disagreement. Reports the GAP count (must be 0-after-handling before step 4).
+- Output-equivalence on the frozen golden set: `specs/v2.2-p6.5-semantic.sh check` (246/246).
+- Surface coverage (byte lens, INFORMATIONAL only post-typed-regime — divergence is by design):
+  `specs/v2.2-p6.5-corpus.sh` (MATCH count) + the OUT/DEFERRED classification from this document.
 - `F` correctness on its own source: `specs/v2.2-p6.5-fsub.sh --self` (fixpoint).
 - No kernel regression from cutover: full `v2/conformance/check.sh` (only it catches shared-seam
   regressions like `floatStr` — the run-ir-only fixpoint cannot).
