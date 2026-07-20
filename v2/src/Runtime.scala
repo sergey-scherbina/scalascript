@@ -661,6 +661,69 @@ object Compiler:
       mayProduceAutoThreadOp(cond) || mayProduceAutoThreadOp(body)
     case _ => false
 
+  /** The compiler's half of bounded capsule handling; `Reader.MaxDepth` is the codec's
+    * half. See BUGS.md `coreir-compiler-unbounded-depth`.
+    *
+    * `C.compile`, `FastCode.tryFC`, `mayProduceAutoThreadOp` and `collectRegfields` all
+    * recurse structurally over `Term`, so a perfectly well-formed — merely deeply nested —
+    * program overflowed the JVM stack instead of producing a diagnostic. On an untrusted
+    * persisted capsule that is a denial of service, and `StackOverflowError` is an `Error`
+    * that no `try` in the pipeline is meant to catch.
+    *
+    * Measured (2026-07-20): the `tryFC` cycle costs ~5 JVM frames per nesting level, and a
+    * `(seq …)` chain compiles fine at depth 300 but overflows at 400 on `-Xss1m` — the
+    * Linux/CI default main-thread stack. macOS defaults to 2m, which is why this hid
+    * locally; the same asymmetry kept CI red for 192 runs.
+    *
+    * Why 250 does not reject real work: compiling all 85 `v2/examples` produces a maximum
+    * `Term` depth of 72 — on artifacts up to 165 KB — and the 79,667 B self-hosted
+    * compiler's own IR is depth 25. That is ~3.5x headroom over the deepest program this
+    * toolchain has ever produced, while staying under the stack cliff on the smallest
+    * stack we support. Override with `-Dssc.compiler.maxDepth=N`. */
+  val MaxDepth: Int =
+    Option(System.getProperty("ssc.compiler.maxDepth")).flatMap(_.toIntOption).getOrElse(250)
+
+  /** Immediate subterms. Exhaustive on purpose — no catch-all — so that adding a `Term`
+    * case fails to compile here instead of silently under-reporting depth, which would make
+    * the bound below fail OPEN: precisely the failure this guard exists to prevent. */
+  private def subterms(t: Term): List[Term] = t match
+    case Lit(_) | Local(_) | Global(_) => Nil
+    case Lam(_, body)                  => body :: Nil
+    case App(function, args)           => function :: args
+    case Let(rhs, body)                => body :: rhs
+    case LetRec(lams, body)            => body :: lams
+    case If(cond, thenV, elseV)        => cond :: thenV :: elseV :: Nil
+    case Ctor(_, fields)               => fields
+    case Match(scrut, arms, default)   => scrut :: arms.map(_.body) ::: default.toList
+    case Prim(_, args)                 => args
+    case While(cond, body)             => cond :: body :: Nil
+    case Seq(terms)                    => terms
+
+  /** Nesting depth of a term, walked with an explicit worklist: a recursive probe would
+    * overflow on exactly the input it exists to reject. */
+  private[ssc] def termDepth(t: Term): Int =
+    var max = 0
+    var pending: List[(Term, Int)] = (t, 1) :: Nil
+    while pending.nonEmpty do
+      val (node, depth) = pending.head
+      pending = pending.tail
+      if depth > max then max = depth
+      var rest = subterms(node)
+      while rest.nonEmpty do
+        pending = (rest.head, depth + 1) :: pending
+        rest = rest.tail
+    max
+
+  /** Reject before recursing, so a hostile capsule gets a diagnostic rather than a
+    * `StackOverflowError`. Runs once per program; the walk is O(nodes). */
+  private[ssc] def checkDepth(p: Program): Unit =
+    val deepest = p.defs.foldLeft(termDepth(p.entry))((m, d) => math.max(m, termDepth(d.body)))
+    if deepest > MaxDepth then
+      sys.error(
+        s"Core IR nesting depth $deepest exceeds the compiler bound of $MaxDepth " +
+        s"(bounded compilation, BUGS.md coreir-compiler-unbounded-depth; real Core IR is " +
+        s"depth <= 72; override with -Dssc.compiler.maxDepth=N)")
+
   /** Compile a whole program; returns the entry Code (globals captured inside). */
   def compile(p: Program): Code = compileWithGlobals(p)._1
 
@@ -911,6 +974,7 @@ object Compiler:
 
   /** Compile a whole program; returns (entry Code, live globals map) for bench use. */
   def compileWithGlobals(p: Program): (Code, collection.mutable.Map[String, Value]) =
+    checkDepth(p)  // before ANY structural recursion below, collectRegfields included
     val topDefs = p.defs.iterator.map(d => d.name -> d.body).toMap
     // Concurrent-safe: an HTTP/WS server runs handlers on many virtual threads that READ this
     // map on every uncached Global, and `@`-cell / global.reg globals AUTO-CREATE writes into
