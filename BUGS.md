@@ -133,6 +133,11 @@ running. Every emitted test result before cancellation was passing. The last pri
 parallel reporter before the slow cross-backend differential tail. This independently confirms that
 the job cap, not a generator deadlock or the 150-minute step cap, was binding.
 
+The independent F7 exact-SHA run `29714603655` (`07a4b74f9`) reproduced the same boundary: lint,
+validation, and conformance passed, while the sbt job ran from `04:05:23Z` to `06:35:39Z` and was
+cancelled at the 150-minute outer cap. Its `Test via sbt` step had been running for 108 minutes with
+every emitted result green; the final line was again a parallel `GeneratorNativePluginTest` reporter.
+
 **Fix:**
 1. The initial correction raised the `Test via sbt` step cap 90 → 150. Run `29713194883` then proved
    the enclosing 150-minute job cap still bound before that step could finish.

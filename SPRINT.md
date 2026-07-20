@@ -1781,10 +1781,12 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
             `/tmp/v2-f7-full-final.{out,err,status}`.
       - [x] **F7.4 — prove closure.** Preserve the exact two-file differential and both self-fixpoints,
             then run `tests/conformance/run.sh --only 'v2-*'`. **Local shared gate:** 11/11 passed
-            (memoized), 0 failed. The final bookkeeping commit is based on current `origin/main`,
-            including the measured `Test via sbt` 150-minute budget fix (`f1addc8f7`). Local work is
-            complete, but the claim remains open until `scripts/ci-status --sha <full-landed-sha>`
-            returns 0 for this final commit; only then is F7 released.
+            (memoized), 0 failed. Initial exact-SHA run `29714603655` for `07a4b74f9` had green lint,
+            validation, and conformance jobs; its sbt job was cancelled exactly at the enclosing
+            150-minute job cap while `Test via sbt` was still running (the already-tracked
+            `BUGS.md#ci-testtimeout`, fixed later by `e25faeb79` with a 240-minute job cap). F7 is
+            rolled forward on current `origin/main`; the claim remains open until an exact containing
+            SHA returns 0 after the newly exposed v1 test failures are fixed.
 
 - [ ] **Q1 — native multiline curried definitions** (`v2-native-front-multiline-curried-def`). After
       releasing F7, re-sync claims and take this bug if still unclaimed. Reproduce the direct two-clause
