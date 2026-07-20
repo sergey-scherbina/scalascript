@@ -13,6 +13,11 @@ final class ActorsNativePlugin extends NativePlugin:
     private val lock = Object()
     private val actors = ConcurrentHashMap.newKeySet[Mailbox]()
     private val failure = AtomicReference[Throwable](null)
+    // Outstanding `sendAfter` timers. A scheduled-but-not-yet-fired timer keeps the
+    // scope non-quiescent so `runActors` cannot declare completion (and return)
+    // before the delayed message is delivered — the silent-loss regression that
+    // V2ActorCliTest guards.
+    private val pending = new java.util.concurrent.atomic.AtomicLong(0L)
 
     def add(mailbox: Mailbox): Unit =
       actors.add(mailbox)
@@ -22,16 +27,26 @@ final class ActorsNativePlugin extends NativePlugin:
       failure.compareAndSet(null, error)
       signal()
 
+    def timerStarted(): Unit =
+      pending.incrementAndGet()
+      signal()
+
+    def timerFired(): Unit =
+      pending.decrementAndGet()
+      signal()
+
     def signal(): Unit = lock.synchronized(lock.notifyAll())
 
     private def quiescent: Boolean =
-      val iterator = actors.iterator()
-      var result = true
-      while result && iterator.hasNext do
-        val mailbox = iterator.next()
-        result = mailbox.dead ||
-          (mailbox.blocked && mailbox.queue.isEmpty && mailbox.deadline < 0L)
-      result
+      if pending.get() > 0L then false
+      else
+        val iterator = actors.iterator()
+        var result = true
+        while result && iterator.hasNext do
+          val mailbox = iterator.next()
+          result = mailbox.dead ||
+            (mailbox.blocked && mailbox.queue.isEmpty && mailbox.deadline < 0L)
+        result
 
     def await(): Unit = lock.synchronized {
       while !quiescent do lock.wait(25L)
@@ -261,6 +276,27 @@ final class ActorsNativePlugin extends NativePlugin:
     }
 
     context.registerGlobal("self", 0)(_ => Value.ForeignV(requireCurrent("self")))
+
+    // `sendAfter(delayMs, pid, msg)` — deliver `msg` to `pid`'s mailbox after
+    // `delayMs` milliseconds (v1 ActorGlobals parity). A pending timer keeps the
+    // enclosing `runActors` scope non-quiescent, so the scope waits for the
+    // scheduled delivery instead of exiting 0 with the message silently dropped.
+    context.registerGlobal("sendAfter", 3) {
+      case Value.IntV(delayMs) :: target :: message :: Nil =>
+        val mailbox = mailboxOf(target).getOrElse(
+          throw new IllegalArgumentException("sendAfter(delayMs, pid, msg): pid is not an actor ref"))
+        val scope = requireCurrent("sendAfter").scope
+        scope.timerStarted()
+        Thread.ofVirtual().name("ssc-actor-timer").start(() => {
+          try
+            if delayMs > 0L then Thread.sleep(delayMs)
+            deliver(mailbox, message)
+          catch case _: InterruptedException => ()
+          finally scope.timerFired()
+        })
+        Value.UnitV
+      case _ => throw new IllegalArgumentException("sendAfter(delayMs, pid, msg)")
+    }
 
     context.register("actor.exit") {
       case ref :: reason :: Nil =>
