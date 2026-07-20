@@ -516,9 +516,26 @@ reuses DA10 objReg + emitMethodCall :496 (already static-dispatches objReg membe
       (global n_m) a)`); objDefE now skipGen (generic given/object method `def m[A](p)`). Corpus 408→409
       (+graph-rdf4j-http-storage), 0 drops, X1 stage1==stage2 335,060 B, --self 153 ok/0 FAIL. typeclass now
       needs only summon (G3); tagless-* need using (G4); typeclass-extension needs extension-in-given (Arc 2).
-- [ ] **G2 — `given n: T = body` / `given n = body` (given-val forms).** Non-`with` givens; oracle `("given",..)`.
-- [ ] **G3 — `summon[TC[T]].m(args)` static dispatch** via given table (findGiven). ssc1-lower :1468/:1666.
-- [ ] **G4 — `using`/context-bound injection** at call sites (buildUsingGivenArgs/injectGivens). The deepest part.
+- [x] **G2 — given-val form falls through via givenValItem (`(def n body)`) — implemented within G1.**
+- [x] **G3 — `summon[TC[T]]` static dispatch DONE.** Resolves via givenTab (findGivenF) → `(global gname)`, then
+      objReg dispatch handles `.m`. Corpus 409→410 (+typeclass), 0 drops, fixpoint 339,882 B, --self 153 ok/0 FAIL.
+- [x] **G4 — `using`-param clauses + call-site injection DONE.** using params → trailing real params; call
+      sites inject one given per using TC by first-arg type; explicit `(using x)` merges. New: usingSig registry
+      (13th slot now `(givenTab, usingSig)`), collectUsingSig, typeOfArg. Corpus 410→412 (+tagless-program,
+      +tagless-resolution), 0 drops, fixpoint 347,720 B, --self 153 ok/0 FAIL.
+- ARC 1 core COMPLETE (+4: typeclass, tagless-program, tagless-resolution, graph-rdf4j-http-storage; std-*
+  monoid/selective/monaderror were already MATCH). REMAINING given/summon files need DEEP sub-arcs, each 1-2
+  files, several oracle-degraded — assessed NOT worth the ratio, left for a dedicated push:
+  - **context bounds `[A: TC1: TC2]` (tagless-context-bounds, 1 file):** needs active-ctx summon
+    (`summon[Pretty[A]].m` where A abstract → first-given), summon aliases (`val m = summon[Monoid[A]]`;
+    m.combine), ctx-param synthesis + prepend injection. AND the oracle itself DEGRADES here
+    (`__missing_Monoid_combine`, uninjected `combineAll(xs)`) because Monoid is imported not local. Deep + messy.
+  - **derived/Mirror givens (custom-derives-mirror, rozum-agent-schema-derived):** `summon[Mirror.Of[T]]` →
+    `__mirror_T`; needs case-class `derives` → caseGeneratedGivenEntries in the given table + derived codecs.
+  - **effect system (effects, effects-handler, algebraic-effects):** NOT given/summon — these are `effect`
+    declarations lowering to `Console_writeLine`/`effect.perform.oneshot`. A SEPARATE arc (effect_decl).
+  - **extension-in-given (typeclass-extension, tagless-multi-file):** `extension` methods inside `given..with`
+    bodies (`__methodOrExt__`) — blocked on Arc 2.
 - [ ] **ARC 2 (extensions) — `extension (r: T) def m` layout E-frame + receiver-param prepend + registry + dispatch.**
       After Arc 1, or hand off. `script` flips with just extensions; `extensions.code` also needs multi-line for-blocks.
 
