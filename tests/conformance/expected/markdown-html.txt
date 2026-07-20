@@ -4,6 +4,8 @@ an <em>italic</em> word
 a <code>code</code> span
 see <a href="user-guide.html">the guide</a> now
 an <a href="https://example.com/a">external</a> link
+a <a href="user-guide.html#section-6">cross-ref</a> with fragment
+an external <a href="https://example.com/x.md#y">md</a> link stays md
 <strong>bold with <code>code</code> inside</strong>
 <code>**not bold** inside code</code>
 <strong>bold with <a href="one.html">a link</a> inside</strong>

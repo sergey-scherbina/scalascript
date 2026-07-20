@@ -66,9 +66,18 @@ def escapeHtml(text: String): String = mdhEscapeFrom(text, 0)
 // A documentation cross-reference points at a sibling Markdown file; the published
 // site serves HTML, so retarget the extension and leave every other href alone.
 def mdhHref(destination: String): String =
-  if destination.endsWith(".md") then
-    destination.substring(0, destination.length - 3) + ".html"
-  else destination
+  // Never rewrite an absolute URL — a link to another project's `README.md` on the
+  // web must stay a `.md` link.
+  if destination.indexOf("://") >= 0 then destination
+  else
+    // Split off a `#fragment` first: a cross-reference is commonly written
+    // `guide.md#section`, which does NOT end in `.md`, so retargeting only on a
+    // trailing `.md` left those links pointing at a non-existent `.md` file.
+    val hash = destination.indexOf("#")
+    val path = if hash < 0 then destination else destination.substring(0, hash)
+    val fragment = if hash < 0 then "" else destination.substring(hash)
+    if path.endsWith(".md") then path.substring(0, path.length - 3) + ".html" + fragment
+    else destination
 
 def mdhAnchorHtml(labelHtml: String, destination: String): String =
   "<a href=\"" + escapeHtml(mdhHref(destination)) + "\">" + labelHtml + "</a>"
