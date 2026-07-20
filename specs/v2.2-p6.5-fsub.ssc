@@ -1694,10 +1694,12 @@ def addNames(fs, acc) = fs match { case Nil => acc case h :: t => addNames(t, ad
 def addName(n, acc) = if memL(n, acc) then acc else Cons(n, acc)
 def memL(n, xs) = xs match { case Nil => false case h :: t => if h == n then true else memL(n, t) }
 def emitSels(cs, dq) = emitSelList(allFieldNames(cs), cs, dq)
-def emitSelList(ns, cs, dq) = ns match { case Nil => "" case h :: t => emitSel(h, cs, dq) ++ " " ++ emitSelList(t, cs, dq) }
+def emitSelList(ns, cs, dq) = ns match { case Nil => "" case h :: t => erase(emitSel(h, cs, dq), dq) ++ " " ++ emitSelList(t, cs, dq) }
 // NOTE: emitSels keeps a TRAILING space (prelude ++ sels ++ defs), and is "" when there are
 // no case classes -- so a case-class-free program is byte-unchanged.
-def emitSel(n, cs, dq) = "(def _sel_" ++ n ++ " (lam 1 (match (local 0) (" ++ selArms(n, cs) ++ ") (default (prim __method__ (lit (str " ++ dq ++ n ++ dq ++ ")) (local 0))))))"
+// F5b: builds a `sel` node; the arm-list stays a pre-rendered string sub-part (a Raw boundary — a
+// later slice can convert selArm/selArm1 too). eraseSel is in the scaffold's erase dispatcher.
+def emitSel(n, cs, dq) = ("sel", (n, selArms(n, cs)))
 def selArms(n, cs) = cs match { case Nil => "" case h :: t => join2(selArm(n, h), selArms(n, t)) }
 def selArm(n, c) = if memL(n, fieldNamesOf(ccFields(c))) then selArm1(n, c) else ""
 def fieldNamesOf(fs) = fs match { case Nil => Nil case h :: t => Cons(fldName(h), fieldNamesOf(t)) }
@@ -1717,11 +1719,12 @@ def idxOf(n, fs, i) = fs match { case Nil => 0 case h :: t => if fldName(h) == n
 // A node is a TAGGED TUPLE (tag, payload) — F's own idiom (a token is (kind,payload); parseAtom1
 // dispatches on fst). `erase(node, dq)` matches the tag and rebuilds the exact string the old emit*
 // concatenated. dq (the `"` char, threaded because F is escape-free) is passed to erase, not embedded.
-// CONVERTED SO FAR (Stage 0): ctorfn, mirror  (the case-class DECLARATION cluster). Every other emit*
-// still returns a String; erase is called only at the boundary where a converted node meets that text.
+// CONVERTED SO FAR (Stage 0): ctorfn, mirror, sel  (the case-class DECLARATION cluster). Every other
+// emit* still returns a String; erase is called only where a converted node meets that text.
 def erase(n, dq) = n match { case (tag, p) => eraseB(tag, p, dq) }
-def eraseB(tag, p, dq) = if tag == "ctorfn" then eraseCtorFn(p) else (if tag == "mirror" then eraseMirror(p, dq) else "")
+def eraseB(tag, p, dq) = if tag == "ctorfn" then eraseCtorFn(p) else (if tag == "mirror" then eraseMirror(p, dq) else (if tag == "sel" then eraseSel(p, dq) else ""))
 def eraseCtorFn(p) = p match { case (name, ar) => "(def " ++ name ++ " (lam " ++ ar ++ " (ctor " ++ name ++ ctorArgs(ar, 0) ++ ")))" }
+def eraseSel(p, dq) = p match { case (n, arms) => "(def _sel_" ++ n ++ " (lam 1 (match (local 0) (" ++ arms ++ ") (default (prim __method__ (lit (str " ++ dq ++ n ++ dq ++ ")) (local 0))))))" }
 def eraseMirror(p, dq) = p match { case (name, rest) => rest match { case (fnames, ftypes) => "(def __mirror_" ++ name ++ " (ctor Mirror (lit (str " ++ dq ++ name ++ dq ++ ")) " ++ strList(fnames, dq) ++ " " ++ strList(ftypes, dq) ++ "))" } }
 
 // -- ctor + mirror, emitted AT the declaration site ------------------------------------------------
