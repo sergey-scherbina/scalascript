@@ -35,17 +35,24 @@ default (step 4, Sergiy) or delete ssc1-front/ssc1-lower (step 5). Edit gates (`
       design-divergent post-typed-regime). Measured GREEN: 659 programs = MATCH 246 / oracle-excluded 401
       / GAP 12 / OUT 0 / DEFERRED 0 / genuine-FAIL 0. Self-maintaining (reclassify hint, no fail).
       Apparatus verified fail-loud (removed one GAP → RED, exit 1). Committed goldens untouched.
-- [ ] **Step 2 — stage F behind a flag (reversible, default UNCHANGED).** `SSC_FRONT=F` in
-      `RunNativeV2.nativeFrontLayout` + `installBin`: stage F's runnable (`F0.ir`, built at installBin
-      from `specs/v2.2-p6.5-fsub.ssc`) as the lowerer; keep `ssc1-check-run.ssc0` beside F. Default stays
-      `ssc1-run.ssc0`. Prove `SSC_FRONT=F bin/ssc run <prog>` == semantic golden on a spread. NOTE the
-      impedance mismatch: F does flat single-file lowering; the tower does markdown/multi-file/frontmatter
-      /content + `NativeCompilation` structural protocol — F-mode covers the flat case, delegates/documents
-      the rest.
-- [ ] **Step 3 — dual-run CI wiring (reversible).** A CI-runnable check running corpus+conformance under
-      BOTH fronts; requires F ≥ current semantic-equiv count, 0 genuine-FAIL, typed fixpoint byte-identical.
-- [ ] **Step 4/5 — HELD by Sergiy.** Produce a flip-readiness report: the one-line installBin change that
-      flips the default, the 12 F-gaps + handling recommendation (fallback/delegate), steps 1-3 green.
+- [x] **Step 2 — DONE (`dc67630db`).** `SSC_FRONT=F` (or fsub) in `RunNativeV2.nativeFrontLayout` +
+      `installBin`. Reversible via `v2/bin/ssc1-run-fsub.ssc0` (a copy of ssc1-run.ssc0 whose only change
+      is the user program's IR: `#coreir.decode(#coreir.eval(F_defs ++ expr:compile(userSrc,dq,bs)))` —
+      validated byte-identical to the F0.ir gate path); `--fsub-src` staged `fsub.ssc`; checker kept
+      beside F. Default UNCHANGED. PROVEN: `SSC_FRONT=F bin/ssc run` == default output end-to-end on the
+      corpus single-file spread; GAP program fails cleanly. Impedance mismatch handled by REUSING
+      ssc1-run's structural machinery (markdown/multi-file/frontmatter/content/NativeCompilation), so
+      RunNativeV2 needs no structural-decode change.
+- [x] **Step 3 — DONE (`7fdadf676`).** `specs/v2.2-p6.5-dualrun.sh` + `dualrun.expected`: faithful
+      `bin/ssc` vs `SSC_FRONT=F bin/ssc` on a slice + typed fixpoint. GREEN: 29/31 EQUAL, 2 expected GAP,
+      fixpoint byte-identical (366,123 B). ★ REVEALED an AMBIENT-PRELUDE/PLUGIN gap class beyond the 12
+      (json-read, generators): the classify gate's 246 is per-file coverage, NOT drop-in-front coverage.
+      **F is NOT a drop-in front today.**
+- **Step 4/5 — HELD by Sergiy.** FLIP-READINESS: steps 1-3 green. The flip = one line in
+      `RunNativeV2.frontIsF` (opt-IN → opt-OUT); no re-stage. BLOCKED on handling TWO gap classes: (1) the
+      12 single-file GAPs; (2) the ambient-prelude/plugin GAP class (larger, real-path-only). Recommended:
+      a delegate-fallback in RunNativeV2 (Global-resolution pre-check → re-run failed files through the
+      default runner) makes F never-worse-than-default. Full report in the task hand-off + language-surface §7.
 
 ---
 
