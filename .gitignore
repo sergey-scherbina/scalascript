@@ -84,3 +84,6 @@ todos.db
 conf-results*.txt
 *.scjs
 *.scjs-runtime
+
+# Generated docs site (produced by v1/tools/docs-site/generate.ssc in the Pages workflow)
+site/docs/
