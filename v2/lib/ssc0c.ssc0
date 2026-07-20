@@ -63,22 +63,31 @@ def scanStr = (s, i, acc) =>
         scanStr(s, next, #sconcat(acc, oneCode(code)))
     else scanStr(s, #i.add(i, 1), #sconcat(acc, oneCode(c)))
 
-def lexFrom = (s, i) =>
-  if #i.ge(i, #slen(s)) then Nil
+-- Tail-recursive: every branch is a self-call in TAIL position, with the token pushed
+-- onto `acc` instead of being wrapped in `Cons(tok, lexFrom(...))`. The old shape cost
+-- one JVM frame PER TOKEN, which is what made ssc0c's stack grow linearly with source
+-- size (measured: ~25 KB per top-level def, 320 trivial defs needed 8 MB). The VM gives
+-- tail calls constant stack — 1,000,000 of them run in 256k — so this costs nothing.
+-- `acc` is built in reverse and flipped once by the existing `rev`, so token order,
+-- and therefore the emitted IR, is unchanged.
+def lexAcc = (s, i, acc) =>
+  if #i.ge(i, #slen(s)) then acc
   else
     let c = #scodeAt(s, i) in
-    if isWs(c) then lexFrom(s, #i.add(i, 1))
-    else if #i.eq(c, 59) then lexFrom(s, #i.add(i, 1))                                  -- ';'
-    else if cand(#i.eq(c, 45), peekEq(s, #i.add(i, 1), 45)) then lexFrom(s, skipLine(s, i))         -- '--'
-    else if cand(#i.eq(c, 123), peekEq(s, #i.add(i, 1), 45)) then lexFrom(s, skipBlock(s, #i.add(i, 2)))  -- '{-'
-    else if isDig(c) then (let j = scanDig(s, i) in Cons(KNum(strToI(#sslice(s, i, j))), lexFrom(s, j)))
-    else if isIdStart(c) then (let j = scanId(s, i) in Cons(KName(#sslice(s, i, j)), lexFrom(s, j)))
-    else if #i.eq(c, 35) then (let j = scanPrim(s, #i.add(i, 1)) in Cons(KPrim(#sslice(s, #i.add(i, 1), j)), lexFrom(s, j)))
-    else if #i.eq(c, 34) then (match scanStr(s, #i.add(i, 1), "") { case Pair(str, j) => Cons(KStr(str), lexFrom(s, j)) })
-    else if cand(#i.eq(c, 61), peekEq(s, #i.add(i, 1), 62)) then Cons(KP("=>"), lexFrom(s, #i.add(i, 2)))  -- '=>'
-    else Cons(KP(#sslice(s, i, #i.add(i, 1))), lexFrom(s, #i.add(i, 1)))                -- single-char punct
+    if isWs(c) then lexAcc(s, #i.add(i, 1), acc)
+    else if #i.eq(c, 59) then lexAcc(s, #i.add(i, 1), acc)                              -- ';'
+    else if cand(#i.eq(c, 45), peekEq(s, #i.add(i, 1), 45)) then lexAcc(s, skipLine(s, i), acc)     -- '--'
+    else if cand(#i.eq(c, 123), peekEq(s, #i.add(i, 1), 45)) then lexAcc(s, skipBlock(s, #i.add(i, 2)), acc)  -- '{-'
+    else if isDig(c) then (let j = scanDig(s, i) in lexAcc(s, j, Cons(KNum(strToI(#sslice(s, i, j))), acc)))
+    else if isIdStart(c) then (let j = scanId(s, i) in lexAcc(s, j, Cons(KName(#sslice(s, i, j)), acc)))
+    else if #i.eq(c, 35) then (let j = scanPrim(s, #i.add(i, 1)) in lexAcc(s, j, Cons(KPrim(#sslice(s, #i.add(i, 1), j)), acc)))
+    else if #i.eq(c, 34) then (match scanStr(s, #i.add(i, 1), "") { case Pair(str, j) => lexAcc(s, j, Cons(KStr(str), acc)) })
+    else if cand(#i.eq(c, 61), peekEq(s, #i.add(i, 1), 62)) then lexAcc(s, #i.add(i, 2), Cons(KP("=>"), acc))  -- '=>'
+    else lexAcc(s, #i.add(i, 1), Cons(KP(#sslice(s, i, #i.add(i, 1))), acc))            -- single-char punct
 
-def lex = (s) => lexFrom(s, 0)
+def lexFrom = (s, i) => rev(lexAcc(s, i, Nil))
+
+def lex = (s) => rev(lexAcc(s, 0, Nil))
 
 -- ===== parser =====   each step -> Pair(node, restTokens).  AST: S* / L* constructors
 def collectParams = (toks, acc) =>             -- after '(' ; -> Some(Pair(params, rest)) | None
@@ -161,7 +170,8 @@ def etaNamesN = (n) =>
   else if #i.eq(n, 1) then Cons("$e0", Nil)
   else if #i.eq(n, 2) then Cons("$e0", Cons("$e1", Nil))
   else Cons("$e0", Cons("$e1", Cons("$e2", Nil)))
-def etaVars = (names) => match names { case Nil => Nil case Cons(nm, r) => Cons(SVar(nm), etaVars(r)) }
+def etaVarsAcc = (names, acc) => match names { case Nil => rev(acc) case Cons(nm, r) => etaVarsAcc(r, Cons(SVar(nm), acc)) }
+def etaVars = (names) => etaVarsAcc(names, Nil)
 def etaExpand = (op) => let names = etaNamesN(primArity(op)) in SLam(names, SPrim(op, etaVars(names)))
 
 def pAtom = (toks) =>
@@ -278,38 +288,44 @@ def pExpr = (toks) =>
     case Nil => Pair(SErr, Nil)
   }
 
-def parseTop = (toks) =>                         -- ( import "p" | def name = expr )*  -> [Pair(name, expr)]
+-- Tail-recursive over the definition list — one frame per top-level def was the last
+-- linear term after the lexer. Every early return yielded `Nil` and let the unwinding
+-- frames prepend what they had already parsed, i.e. "keep the defs parsed so far and
+-- drop the rest"; `rev(acc)` is that same value computed on the way in.
+def parseTopAcc = (toks, acc) =>                 -- ( import "p" | def name = expr )*  -> [Pair(name, expr)]
   match toks {
-    case Nil => Nil
+    case Nil => rev(acc)
     case Cons(d, r1) =>
       match d {
         case KName(kw) =>
-          if #seq(kw, "import") then parseTop(drop1(r1))    -- skip `import` + the path string
+          if #seq(kw, "import") then parseTopAcc(drop1(r1), acc)    -- skip `import` + the path string
           else
             match r1 {
               case Cons(nm, r2) =>
                 match nm { case KName(name) =>
-                  match r2 { case Cons(eq, r3) => match pExpr(r3) { case Pair(body, r4) => Cons(Pair(name, body), parseTop(r4)) } case Nil => Nil }
-                case _ => Nil }
-              case Nil => Nil
+                  match r2 { case Cons(eq, r3) => match pExpr(r3) { case Pair(body, r4) => parseTopAcc(r4, Cons(Pair(name, body), acc)) } case Nil => rev(acc) }
+                case _ => rev(acc) }
+              case Nil => rev(acc)
             }
-        case _ => Nil
+        case _ => rev(acc)
       }
   }
+def parseTop = (toks) => parseTopAcc(toks, Nil)
 
 -- collect the paths of every `import "path"` (scans the token stream)
-def parseImports = (toks) =>
+def parseImportsAcc = (toks, acc) =>
   match toks {
-    case Nil => Nil
+    case Nil => rev(acc)
     case Cons(t0, r0) =>
       match t0 {
         case KName(kw) =>
           if #seq(kw, "import") then
-            (match r0 { case Cons(s, r1) => match s { case KStr(p) => Cons(p, parseImports(r1)) case _ => parseImports(r0) } case Nil => Nil })
-          else parseImports(r0)
-        case _ => parseImports(r0)
+            (match r0 { case Cons(s, r1) => match s { case KStr(p) => parseImportsAcc(r1, Cons(p, acc)) case _ => parseImportsAcc(r0, acc) } case Nil => rev(acc) })
+          else parseImportsAcc(r0, acc)
+        case _ => parseImportsAcc(r0, acc)
       }
   }
+def parseImports = (toks) => parseImportsAcc(toks, Nil)
 
 -- ===== lower: S0 AST -> Core IR Data (de Bruijn) =====
 def idxOf = (scope, x) =>
@@ -326,7 +342,8 @@ def lowConst = (lit) =>
     case LStr(s)  => IrStr(s)
     case LUnit    => IrUnit
   }
-def mapFst = (binds) => match binds { case Nil => Nil case Cons(b, t) => match b { case Pair(n, e) => Cons(n, mapFst(t)) } }
+def mapFstAcc = (binds, acc) => match binds { case Nil => rev(acc) case Cons(b, t) => match b { case Pair(n, e) => mapFstAcc(t, Cons(n, acc)) } }
+def mapFst = (binds) => mapFstAcc(binds, Nil)
 def optOr = (a, b) => match a { case Some(v) => a case None => b }
 -- sequential let: rhs_i lowered before its name is in scope; returns Pair(loweredRhs, finalScope)
 def lowSeqBinds = (binds, scope, globals) =>
@@ -338,18 +355,22 @@ def lowSeqBinds = (binds, scope, globals) =>
   }
 def lowLams = (binds, sc, globals) => match binds { case Nil => Nil case Cons(b, t) => match b { case Pair(n, lam) => Cons(low(sc, globals, lam), lowLams(t, sc, globals)) } }
 -- arms -> Pair(irArms, defaultOpt); a later `_` wins (matches the Scala Lower)
-def lowArms = (arms, scope, globals) =>
+-- Tail-recursive, left to right. The original recursed FIRST and folded results back on
+-- the way out, costing a frame per arm; it also meant later arms were lowered before
+-- earlier ones. `optOr(drest, Some(...))` kept the LATER default, so walking forward and
+-- letting each `_` overwrite `dflt` preserves "a later `_` wins" exactly.
+def lowArmsAcc = (arms, scope, globals, acc, dflt) =>
   match arms {
-    case Nil => Pair(Nil, None)
+    case Nil => Pair(rev(acc), dflt)
     case Cons(a, rest) => match a { case SArm(pat, body) =>
-      match lowArms(rest, scope, globals) { case Pair(rs, drest) =>
-        match pat {
-          case PC(tag, vars) => Pair(Cons(IrArm(tag, len(vars), low(push(vars, scope), globals, body)), rs), drest)
-          case PW => Pair(rs, optOr(drest, Some(low(scope, globals, body))))
-        }
+      match pat {
+        case PC(tag, vars) =>
+          lowArmsAcc(rest, scope, globals, Cons(IrArm(tag, len(vars), low(push(vars, scope), globals, body)), acc), dflt)
+        case PW => lowArmsAcc(rest, scope, globals, acc, Some(low(scope, globals, body)))
       }
     }
   }
+def lowArms = (arms, scope, globals) => lowArmsAcc(arms, scope, globals, Nil, None)
 def low = (scope, globals, e) =>
   match e {
     case SLit(c)        => IrLit(lowConst(c))
@@ -364,8 +385,12 @@ def low = (scope, globals, e) =>
     case SMatch(scrut, arms) => match lowArms(arms, scope, globals) { case Pair(irArms, dflt) => IrMatch(low(scope, globals, scrut), irArms, dflt) }
   }
 
-def namesOf = (defs) => match defs { case Nil => Nil case Cons(d, t) => match d { case Pair(n, e) => Cons(n, namesOf(t)) } }
-def lowDefs = (defs, globals) => match defs { case Nil => Nil case Cons(d, t) => match d { case Pair(n, e) => Cons(IrDef(n, low(Nil, globals, e)), lowDefs(t, globals)) } }
+def namesOfAcc = (defs, acc) => match defs { case Nil => rev(acc) case Cons(d, t) => match d { case Pair(n, e) => namesOfAcc(t, Cons(n, acc)) } }
+def namesOf = (defs) => namesOfAcc(defs, Nil)
+-- `low(...)` is still an ordinary nested call, so its stack stays proportional to the
+-- DEF'S OWN expression nesting; only the walk over the def LIST becomes tail-recursive.
+def lowDefsAcc = (defs, globals, acc) => match defs { case Nil => rev(acc) case Cons(d, t) => match d { case Pair(n, e) => lowDefsAcc(t, globals, Cons(IrDef(n, low(Nil, globals, e)), acc)) } }
+def lowDefs = (defs, globals) => lowDefsAcc(defs, globals, Nil)
 def compileModule = (defs) => IrProg(lowDefs(defs, namesOf(defs)), IrApp(IrGlobal("main"), Nil))
 
 def compile = (src) => #coreir.encode(compileModule(parseTop(lex(src))))
