@@ -81,12 +81,20 @@ vs oracle) AND `--self` (fixpoint) AND the new semantic gate ALL stay green.
             → `('enumnull', nm)` node. `dqOf(cx)==dq`/`bsOf(cx)==bs` invariant verified (cx always
             `mkCx(dq,…,bs,…)`); callers thread cx. Gates: corpus 417/510 (0 drops/0 gains), semantic
             246/246, `--self` 153 ok/0 FAIL fixpoint 371,849 B.
-      - [ ] **0b-2 — expression pipeline (the BIG lever).** atoms→operators→parsers thread `Node`; erase at
-            the ~40 embed sites. Structured nodes for the Stage-1 targets (int/float/str/arith/eq/if/bin);
-            `('e', str)` raw node for the method/selection/app/ctor/match/block/lambda machinery (which
-            inspects receiver strings). Fold `emitYamlSel` in (it lives in postSel).
-      - [ ] **0b-3 — remaining declaration tail: `emitExtDispatchers`, `selArm`/`selArm1` (arm nodes),
-            `emitCCDecl` residue.** Lowest value; do with leftover budget.
+      - [x] **selArm DONE (`055732fda`).** `selArm1` → `('arm', (cname, (arity, localIdx)))`; sel arms
+            erased+join2'd. Completes the case-class/enum DECLARATION cluster (ctorfn/mirror/sel/arm/enumnull).
+      - [x] **0b-2 DONE (`3ca4f6b06`) — EXPRESSION pipeline converted to parse→AST→erase, byte-identical.**
+            Spine leaves (parseExpr/parseAtom*/parseNeg/Bang/Tilde/postfix/climb/climbStep/infixWord/
+            bodyExpr/parseArgExpr/parseAssign*/armBody*) thread AST nodes; atoms are structured
+            (int/float/str/triple); all other producers stay string-based, bridged via wrapE / erased via
+            erase(_,cx) at ~55 sites. Helpers eNode/wrapE/eraseP; erase arms e/int/float/str/triple.
+            Stage-1 attaches typed rendering at the erase seam WITHOUT touching parsers. Gates: corpus
+            417/510 (0 drops/0 gains), semantic 246/246, `--self` 153 ok/0 FAIL fixpoint 379,918 B.
+            NOTE: operators erase eagerly in climbStep for Stage 0 (result still `('e',str)`); Stage 1 makes
+            climbStep build structured arith/eq nodes (localized change, plumbing already in place).
+            `emitYamlSel` stays string-based (called from postSel, which erases its receiver) — fine.
+      - [ ] **0b-3 — remaining declaration tail: `emitExtDispatchers` → node.** The ONLY emit* still
+            returning a raw string at the declaration level (a recursive if-chain dispatcher). Lowest value.
 
 ---
 
