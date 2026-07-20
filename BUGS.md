@@ -1,5 +1,48 @@
 # Bug tracker
 
+## js-char-into-int-param — a `Char` passed into an `Int` parameter stays boxed on the v1 JS backend
+
+**Status:** OPEN (found 2026-07-20 while building `std/markdown-html.ssc` for the docs site).
+
+**Symptom/reproduce:** six lines, no imports. `ssc-tools run --v1` vs `ssc-tools emit-js | node`:
+
+```scalascript
+def isSpace(c: Int): Boolean = c == 32
+val s = "a b"
+println(s.charAt(1) == 32)      // INT true  | JS true
+println(isSpace(s.charAt(1)))   // INT true  | JS FALSE   <-- divergence
+println(isSpace(32))            // INT true  | JS true
+```
+
+An **inline** comparison against a `charAt` result unboxes correctly on both lanes. Passing the
+same value **through a call boundary** into an `Int` parameter does not: on JS the argument
+arrives as a one-character string, so `c == 32` evaluates `" " == 32` → false. Note the failure
+is silent — no error, just a wrong boolean.
+
+**Blast radius — this breaks the language's own Markdown scanner on that lane.**
+`runtime/std/markdown-core.ssc` routes every whitespace test through
+`markdownSpace(c: Int)` (:47), called as `markdownSpace(raw.charAt(level))` in `markdownHeading`
+(:100) and throughout `markdownBlockStart` (:312). So on the v1 JS backend:
+
+```
+markdownParse("# Title")     INT -> H1@1(Title|)     JS -> P@1(T(# Title))
+markdownParse("- one\n- two") INT -> UL@1(one,two)   JS -> P@1(T(- one\n- two))
+```
+
+Headings, bullet lists, ordered lists and GFM tables all silently degrade to paragraphs, and
+trailing spaces survive trimming (an image src came out as `"./logo.png "`). Everything built on
+markdown-core inherits this.
+
+**Why nobody noticed:** the markdown-core conformance case is `backends: [v2]`
+(`tests/conformance/v2-self-hosted-markdown-core.ssc:4`), so the JS lane has **never** run it.
+The gate is green because it never compared on that lane — the failure mode AGENTS.md warns about.
+
+**Fix / done-when:** the JS backend must unbox a `Char` at a call boundary when the parameter is
+declared `Int`, exactly as it already does for an inline `==`. Done when the repro above prints
+`true` three times on both lanes, `markdownParse("# Title")` yields `H1@1(Title|)` on the JS lane,
+and the markdown-core conformance case can be widened from `backends: [v2]` to include `js`
+without diffs. Until then `tests/conformance/markdown-html.ssc` is pinned to `backends: [int]`.
+
 ## frontend-tui-fetch-refresh-static-after-bootstrap — refresh ticks redraw stale fetched content
 
 **Status:** FIXED 2026-07-20 by `frontend-tui-fetch-refresh` (`6c6fcf21b`). Found while
