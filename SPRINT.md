@@ -240,8 +240,14 @@ incident. New capability goes in a **new module**.
       ssc build + generate + deploy), and `https://sergey-scherbina.github.io/scalascript/docs/`
       now serves 200 incl. nested pages + `search-index.json`; `/scljet.html` + `/registry/` stay
       200 (coexistence confirmed on the live site — nothing lost).
-- [ ] **S5 — landing polish.** Extra sections (examples gallery, benchmarks) once /docs exists
-      to link into.
+- [x] **S5 (link integrity) — DONE (`aadf44377`).** Checked every internal link across landing +
+      install + scljet + generated docs: 317 broken. Root cause: source docs link to sibling repo
+      content (specs/, examples/, SPEC.md, source) written for GitHub. Generator now rewrites
+      repo-escaping links to GitHub (blob/tree, .html→.md reversed), and bare links whose docs/
+      target is absent but specs/<basename>.md exists → that spec on GitHub (110/111). Plus a
+      renderer fix (`markdown-html`): `.md#fragment` cross-refs now retarget, absolute URLs never do.
+      **Result: 317 → 0 broken internal links.** Remaining landing-content polish (examples gallery,
+      benchmarks section) deferred — the structural integrity work was the priority.
 
 Playground (in-browser `.ssc`) is **deliberately NOT in this sprint** — see BACKLOG entry
 `site-playground`; it is gated on `BUGS.md:1537 coreir-compiler-unbounded-depth`.
