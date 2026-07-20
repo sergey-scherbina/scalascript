@@ -1,6 +1,6 @@
 feature/site-docs-lane 2026-07-20T04:43:00Z
 agent: claude-site-lane
-heartbeat: 2026-07-20T03:03:10Z
+heartbeat: 2026-07-20T13:57:17Z
 status: in-progress
 done-so-far: S1 LANDED (557e8cc8e fix markdown-core, 3a604f3e7 std/markdown-html, dc9e3ce56 BUGS js-char-into-int-param). Renderer verified on real docs/ corpus: 28 pages, 776KB HTML, 0 crashes, 0 fence leaks. conformance markdown-html PASS[INT], content 6/6, litdoc 1/1, v2-self-hosted 3/3
-next: S2 docs-site generator (recursive dir walk + page template reusing site/index.html design tokens + sidebar nav + search-index.json)
+next: S2 docs generator — PAUSED while CI is red (25 surfaced sbt-test failures after deb5e6c90 stopped the fork-kill)
