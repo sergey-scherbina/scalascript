@@ -919,10 +919,10 @@ class JvmGen(
       // == "swiftui" branch), already visible without import when present. Importing it
       // from here previously threw "value Signal is not a member of ... ui.primitives".
       // Full list of JvmRuntimeUiPrimitives.source's actual exports (kept in sync by hand;
-      // this had silently drifted — forKeyedView/seedSignal/emptyHeaders/fetchActionTo/
+      // this had silently drifted — forKeyedView/selectFromView/seedSignal/emptyHeaders/fetchActionTo/
       // fetchCaptureAction/rowEditAction were missing, so any real .ssc using dynamic
       // forKeyed or those less-common primitives hit "Not found" on this import alone).
-      importBuf.prepend("  import ui.primitives.{View, EventHandler, signal, seedSignal, componentScope, element, textNode, signalText, showSignal, fragment, forKeyedView, setSignal, inputChange, toggleSignal, eqSignal, hashSignal, emptyHeaders, emit, serve, fetchUrlSignal, fetchRowsSource, fetchAction, fetchActionTo, incSignal, fetchActionClear, fetchCaptureAction, fieldColumn, fieldPayload, wholeRowPayload, fieldsPayload, rowDeleteAction, rowPostAction, rowLinkAction, rowEditAction, dataTableView}")
+      importBuf.prepend("  import ui.primitives.{View, EventHandler, signal, seedSignal, componentScope, element, textNode, signalText, showSignal, fragment, forKeyedView, selectFromView, setSignal, inputChange, toggleSignal, eqSignal, hashSignal, emptyHeaders, emit, serve, fetchUrlSignal, fetchRowsSource, fetchAction, fetchActionTo, incSignal, fetchActionClear, fetchCaptureAction, fieldColumn, fieldPayload, wholeRowPayload, fieldsPayload, rowDeleteAction, rowPostAction, rowLinkAction, rowEditAction, dataTableView}")
 
     if importBuf.isEmpty && !hasPrimitivesObj then return src
 

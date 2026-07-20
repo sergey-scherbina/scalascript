@@ -53,6 +53,22 @@ object JvmRuntimeUiPrimitives:
        |        scalascript.frontend.View.Fragment(
        |          _rows.map(render(_).asInstanceOf[scalascript.frontend.View[?]]))
        |
+       |      // Native/JVM snapshot fallback for std/ui's reactive selectFrom.
+       |      // Browser emitters own keyed option reconciliation; the View IR keeps
+       |      // the same current rows and (label, value) Picker convention here.
+       |      def selectFromView[A](items: Any, key: A => String,
+       |                            optionFn: A => (String, String), selected: Any,
+       |                            style: String, placeholder: String, disabled: Boolean): View =
+       |        val _sig = items.asInstanceOf[scalascript.frontend.ReactiveSignal[?]]
+       |        val _rows = _sig.apply() match
+       |          case xs: Iterable[?] => xs.toSeq.asInstanceOf[Seq[A]]
+       |          case _               => Seq.empty[A]
+       |        val _options = _rows.map(optionFn).map { case (value, label) => label -> value }
+       |        scalascript.frontend.View.Picker(
+       |          _options,
+       |          selected.asInstanceOf[scalascript.frontend.ReactiveSignal[String]],
+       |          placeholder)
+       |
        |      def setSignal(s: Any, v: Any): EventHandler =
        |        scalascript.frontend.EventHandler.SetSignalLiteral(
        |          s.asInstanceOf[scalascript.frontend.ReactiveSignal[Any]], v)
@@ -203,5 +219,19 @@ object JvmRuntimeUiPrimitives:
        |
        |      def serve(tree: View, port: Int): Unit =
        |        _ssc_ui_serve(tree, port)
+       |
+       |    object lower:
+       |      // Signal-bearing TkNode fields are intentionally Any so nodes.ssc stays
+       |      // backend-neutral. Keep the zero-arg bridge local to lower.ssc: a
+       |      // file-level Any.apply extension would shadow String/array indexing.
+       |      extension (opaqueSignal: Any)
+       |        def apply(): Any =
+       |          opaqueSignal match
+       |            case signal: scalascript.frontend.ReactiveSignal[?] => signal.apply()
+       |            case thunk: Function0[?]                            => thunk.apply()
+       |            case other =>
+       |              throw IllegalArgumentException(
+       |                "opaque Signal[T] call expected ReactiveSignal or Function0, got " +
+       |                  Option(other).fold("null")(_.getClass.getName))
        |
        |""".stripMargin
