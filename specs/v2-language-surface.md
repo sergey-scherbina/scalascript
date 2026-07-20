@@ -49,11 +49,12 @@ the *goal* is a clean complete language.
 
 ## 3. Current coverage (measured)
 
-- Corpus MATCH: **408 / 509 (80%)** — `specs/v2.2-p6.5-corpus.sh`.
-- `F` self-compiles: X1 fixpoint `stage1 == stage2`, byte-identical (326,331 B); `--self`
+- Corpus MATCH: **417 / 510 (81%)** — `specs/v2.2-p6.5-corpus.sh` (was 408/509; +9 across deep6/deep7:
+  given/using/summon + top-level extensions + extension-methods-in-given + Mirror/derived-given summon).
+- `F` self-compiles: X1 fixpoint `stage1 == stage2`, byte-identical (368,086 B); `--self`
   153 ok / 0 FAIL — `specs/v2.2-p6.5-fsub.sh --self`.
-- Of the 101 remaining DIFFs: **~29 are OUT** (§5), **~2 are deferred** (§6), and the rest fall
-  into two large but legitimate arcs (§4) plus a handful of clean 1-offs.
+- Of the remaining DIFFs: **~29 are OUT** (§5), **~2 are deferred** (§6), and the rest fall
+  into two large but legitimate arcs (§4, now partially built) plus a handful of clean 1-offs.
 - **Clean ceiling ≈ 471 / 509** — the most `F` can match while staying correct (509 minus the OUT
   set). 100% is neither achievable nor desirable: the gap above the ceiling *is* v2 being right.
 

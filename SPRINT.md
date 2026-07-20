@@ -612,8 +612,30 @@ recv)` :1598; INSTANCE DISPATCHER :5295-5445 (extTypeTags List→Cons/Nil Option
     split glued defs. ALSO needs owner-prefix resolution inside given bodies (ref: `fa.map(f)` in listLogged_map
     → trailing closure `(global listLogged_map)` NOT `(global map)` — kc7bOwnerPrefix). ALSO for-comprehension
     `for {..} yield` in ext bodies + multi-file import. Multi-issue; more than a single slice.
-  - **context bounds `[A: TC1: TC2]` (tagless-context-bounds):** desugar to using params; active-ctx summon +
-    summon aliases. Oracle ITSELF degrades (`__missing_Monoid_combine`) → partly OUT per Decision C.
+  - **context bounds `[A: TC1: TC2]` (tagless-context-bounds) — ASSESSED, NOT a clean target (2026-07-20).**
+    VERIFIED the oracle ref emits `__missing_Monoid_combine`/`__missing_Monoid_empty`/`__missing_tc_Monoid`
+    (Monoid is IMPORTED from std/semigroup-monoid.ssc → unresolved in the single-file corpus .code). Matching
+    byte-for-byte would require BOTH (a) implementing context-bound desugaring `[A: Monoid: Pretty]` → 2 using
+    params (def arity +2, param synthesis) + active-ctx summon (`summon[Pretty[A]]`, abstract A → first Pretty
+    given = prettyInt) + summon aliases (`val m = summon[Monoid[A]]`) AND (b) REPRODUCING the oracle's `__missing_
+    Monoid_*` single-file degradation (not a real language feature). Large arc + degradation-mimicry → OUT/deferred
+    per Decision C. F's current output is also degraded (differently: `(global summon)` + `__method__`).
+
+**➜ v2-p65-deep7 SESSION HANDOFF (2026-07-20): corpus MATCH 414 → 417/510 (+3), 0 drops every slice, X1 fixpoint
+  stage1==stage2 byte-identical each slice (366,099 → 368,086 B), --self 153 ok/0 FAIL each, kernel +0, no v2/lib
+  oracle edits.** Landed E1 (extension methods inside given bodies: applied ext call → `__methodOrExt__`, given-
+  body `extension def m` → prefixed `gname_m` + method-obj, per-method INSTANCE DISPATCHER keyed on receiver
+  ctor tags) → +typeclass-extension; E2 (summon resolves Mirror.Of / derived givens via case-class `derives`
+  table entries + bareCtor cell.get) → +custom-derives-mirror, +rozum-agent-schema-derived. NEW infra in F
+  (reusable): collectOM `extdef` entries + givenExtDef1/extDefE (receiver-prepended given-body ext defs);
+  collectExtDisp/emitExtDispatchers + extTypeTags (List→Cons/Nil etc.) for instance dispatchers; parseTCTypeD
+  (dotted TC head); collectCCGiven/caseGivenEntries (case-class derives → given table). Harness: kernel jar
+  /tmp/ssc-deep7.jar; single-file /tmp/oc7.sh (uses EXTRACTED .code, NOT raw .ssc — oc6.sh feeds raw markdown and
+  mis-parses the entry); baseline /tmp/baseline_deep7.txt (417). GOTCHAs hit: fsub subset has NO `appendL` (use
+  `appEnv`); the oracle's ext dispatch distinction is BARE-sel (`(app (global m) recv)`) vs APPLIED
+  (`__methodOrExt__`), NOT top-level-vs-in-given. REMAINING given/ext arc is deep: tagless-multi-file (owner-prefix
+  + glued multi-member parse + for-comp-in-ext-body + multi-file — multi-blocker wall) and context bounds
+  (above, OUT). No cheap given/summon/extension near-misses remain.
 
 ## v2-finish — make v2 ideal, small, powerful, fully self-hosted (2026-07-18, Sergiy)
 
