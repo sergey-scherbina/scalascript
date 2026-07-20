@@ -1,0 +1,11 @@
+claim: v2-f5b
+branch: (planning — awaiting Sergiy go on the multi-session arc)
+agent: opus (orchestrator)
+heartbeat: 2026-07-20T11:27:51Z
+status: DESIGN DONE (specs/v2-f5b-typed-ir-design.md, f06e7b206); awaiting go to start Stage 0
+what: F5b = teach F to emit typed IR (fold Mira HM) → retire kernel δ-dispatch. HONEST scope:
+      typed-IR alone ~17-27 sessions → kernel ~4700 (NOT ~2800; that needs +effects-to-tower
+      +decimal-to-tower +FastCode removal = 3 orthogonal efforts). 5-stage plan; NEW verification
+      = frozen golden-output semantic-equivalence + typed fixpoint (byte-identity to untyped oracle
+      dies by design). Stage 0 (safe): freeze golden gate + F parse→AST refactor verified as
+      no-change. CI-green tail owned by sibling codex-clear-lynx (SwiftUI fixture); do not duplicate.
