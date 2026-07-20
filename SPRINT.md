@@ -73,6 +73,21 @@ vs oracle) AND `--self` (fixpoint) AND the new semantic gate ALL stay green.
       the inferred type off `cx`/the node. This is the natural seam where Stage 1 (`i.add`/`f.add`/… by
       type) attaches. Est. multi-session (design §4 puts all of Stage 0 at ~3–5 sessions).
 
+      **STAGE 0b SLICE PLAN (this lane, 2026-07-20) — baseline reconfirmed: corpus 417/510 (identical
+      set to `/tmp/f5b-match-baseline.txt`), semantic 246/246, `--self` 153 ok/0 FAIL fixpoint 371,912 B.
+      Jar `/tmp/ssc-stage0b.jar` (kernel unchanged — F-source edits need NO rebuild). Gate helper:
+      scratchpad `gates.sh`.**
+      - [x] **0b-1 DONE (`04bd1f3a6`).** Generalized `erase(n, dq)` → `erase(n, cx)` + `emitEnumDef` nullary
+            → `('enumnull', nm)` node. `dqOf(cx)==dq`/`bsOf(cx)==bs` invariant verified (cx always
+            `mkCx(dq,…,bs,…)`); callers thread cx. Gates: corpus 417/510 (0 drops/0 gains), semantic
+            246/246, `--self` 153 ok/0 FAIL fixpoint 371,849 B.
+      - [ ] **0b-2 — expression pipeline (the BIG lever).** atoms→operators→parsers thread `Node`; erase at
+            the ~40 embed sites. Structured nodes for the Stage-1 targets (int/float/str/arith/eq/if/bin);
+            `('e', str)` raw node for the method/selection/app/ctor/match/block/lambda machinery (which
+            inspects receiver strings). Fold `emitYamlSel` in (it lives in postSel).
+      - [ ] **0b-3 — remaining declaration tail: `emitExtDispatchers`, `selArm`/`selArm1` (arm nodes),
+            `emitCCDecl` residue.** Lowest value; do with leftover budget.
+
 ---
 
 ## site-docs-lane (`site-docs-lane`, 2026-07-20)
