@@ -1,0 +1,83 @@
+name: F4 Front Swap Gates
+
+# The F4 cutover ratchet: is the self-hosting front F (specs/v2.2-p6.5-fsub.ssc) ready to replace the
+# untyped ssc1-front+ssc1-lower as v2's native tier? Two complementary gates (specs/v2-language-surface.md §7):
+#   * classify — output-equivalence of run-ir(F(P)) vs the untyped oracle over the whole corpus+tower,
+#                bucketed MATCH / oracle-excluded / GAP·OUT·DEFERRED (manifest) / genuine-FAIL.
+#   * dualrun  — the FAITHFUL production path: bin/ssc run P (default front) vs SSC_FRONT=F bin/ssc run P,
+#                plus the typed self-compile fixpoint (byte-identical).
+# GREEN = no UNEXPECTED disagreement / divergence. This must be green BEFORE Sergiy flips the installBin
+# default (the irreversible step 4). Runs nightly + on demand (not per-PR): the gates re-compile F per
+# program, so a full sweep is slow — it is a pre-flip ratchet, not an every-commit check.
+
+on:
+  schedule:
+    - cron: '30 4 * * *'   # nightly, 04:30 UTC (after Corpus Contract at 04:00)
+  workflow_dispatch:
+    inputs:
+      full_corpus:
+        description: 'dual-run the FULL corpus (SSC_DUALRUN_ALL=1) instead of the fast slice'
+        type: boolean
+        default: false
+
+jobs:
+  f4-gates:
+    name: F4 classify + dual-run
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Scala CLI
+        uses: VirtusLab/scala-cli-setup@v1
+        with:
+          power: true
+          jvm: temurin:21
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup sbt
+        uses: sbt/setup-sbt@v1
+
+      - name: Cache Coursier/sbt
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/coursier
+            ~/.ivy2/cache
+            ~/.sbt
+          key: ${{ runner.os }}-sbt-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-sbt-
+
+      # coreutils gives GNU timeout(1) — the gates bound each per-program run so a pathological
+      # program cannot hang the sweep.
+      - name: Ensure timeout(1)
+        run: timeout --version >/dev/null 2>&1 || sudo apt-get update && sudo apt-get install -y coreutils
+
+      # Stages bin/ssc + bin/lib/** (installBin) so BOTH fronts run through the real launcher.
+      - name: Build ssc launcher (installBin)
+        run: bash install.sh --dev
+
+      # The run-ir-capable v2 kernel jar the gates drive directly.
+      - name: Package v2 kernel jar
+        run: scala-cli --power package v2/src --assembly -o /tmp/ssc-f4.jar --force
+
+      - name: Classify gate (output-equivalence, self-maintaining)
+        run: SSC_JAR=/tmp/ssc-f4.jar V2_DIR="$PWD/v2" bash specs/v2.2-p6.5-semantic.sh classify
+
+      - name: Dual-run gate (default front vs SSC_FRONT=F + fixpoint)
+        run: |
+          if [ "${{ github.event.inputs.full_corpus }}" = "true" ]; then export SSC_DUALRUN_ALL=1; fi
+          SSC_JAR=/tmp/ssc-f4.jar V2_DIR="$PWD/v2" bash specs/v2.2-p6.5-dualrun.sh
