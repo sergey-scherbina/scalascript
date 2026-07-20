@@ -1,0 +1,6 @@
+feature/coreir-compiler-depth 2026-07-20T03:13:06Z
+agent: claude-site-lane
+heartbeat: 2026-07-20T03:13:06Z
+status: in-progress
+done-so-far: claiming. Sergiy reprioritized BUGS.md:1588 coreir-compiler-unbounded-depth (was DEFERRED 2026-07-20) — it gates the browser playground (1MB non-configurable JS stack)
+next: reproduce BOTH halves — (a) synthetic depth-500 at -Xss1m, (b) the 5 v2 conformance FAILs on STRUCTURALLY SHALLOW programs (max depth 51). A reader-style depth bound alone canNOT fix (b); must measure what dimension actually drives frame count
