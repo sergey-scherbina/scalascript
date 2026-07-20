@@ -573,6 +573,39 @@ reuses DA10 objReg + emitMethodCall :496 (already static-dispatches objReg membe
   ceiling ~471; reaching it needs many dedicated deep pushes. Jar /tmp/ssc-deep6.jar; single-file harness
   /tmp/oc6.sh (JAR/V2/FSUB/F0_STALE env); baseline /tmp/baseline_deep6.txt (408).**
 
+## v2-p65-deep7 (`v2-p65-deep`, 2026-07-20) — complete extension-in-given / context-bounds / Mirror. Baseline MATCH 414/510
+Claim `v2-p65-deep` on origin/main. Kernel jar `/tmp/ssc-deep7.jar` (`scala-cli --power package v2/src --assembly
+-o /tmp/ssc-deep7.jar`; kernel +0, rebuild only if v2/src changes — it must NOT). Corpus gate:
+`SSC_JAR=/tmp/ssc-deep7.jar V2_DIR=<wt>/v2 NEWFRONT_WORK=/tmp/p65deep7 bash specs/v2.2-p6.5-corpus.sh`.
+Single-file harness (uses EXTRACTED .code, NOT raw .ssc — oc6.sh feeds raw markdown and mis-parses the entry):
+`JAR=/tmp/ssc-deep7.jar V2=<wt>/v2 FSUB=<wt>/specs/v2.2-p6.5-fsub.ssc F0_STALE=1 bash /tmp/oc7.sh <name>`
+(name = corpus basename; reads /tmp/p65deep7/code/<name>.code; F0_STALE=1 rebuilds F0 after editing fsub). Fresh
+baseline `/tmp/baseline_deep7.txt` (414 names) for `comm -23` drop-checks. --self:
+`SSC_JAR=/tmp/ssc-deep7.jar V2_DIR=<wt>/v2 bash specs/v2.2-p6.5-fsub.sh --self` → grep -cE '^ok ' = 153.
+ORACLE REFS: given_obj lower ssc1-lower :4235-4290 (prefixDefs skips extension_start/_end, prefixes inner def;
+staticMemberObjectArgs :539 includes ext member); collectExtensionMethods descends given_obj :584; applied ext
+call resolveMethodCall → `(prim __methodOrExt__ (str m) recv args (var m))` :1414; bare-sel ext → `(app (var m)
+recv)` :1598; INSTANCE DISPATCHER :5295-5445 (extTypeTags List→Cons/Nil Option→Some/None :5303; collectExtDispatch
+:5368; emitOneExtDispatcher :5426; emitExtDispatchers appended after allDefs in lowerProg :5665).
+- [x] **E1 — extension-in-given (typeclass-extension) DONE. Corpus 414→415, 0 drops, fixpoint 366,099 B, --self
+      153 ok/0 FAIL.** Three parts: (A) applied ext call now emits `(prim __methodOrExt__ (lit (str m)) recv args
+      (global m))` instead of `(app (global m) recv args)` (emitMethodCall; bare-sel postSel keeps `(app (global m)
+      recv)` — the oracle distinction is BARE-vs-APPLIED, not top-level-vs-in-given). (B) given-body `extension
+      (recv) def m = body` members → prefixed def `gname_m` with receiver prepended (collectOM `extdef` entries;
+      collectOMExt/collectOMExtMs; givenExtDef1/extDefE reuse emitDefBody with renv base) + included in the given's
+      `__mk_method_obj__`. (C) INSTANCE DISPATCHER: `(def m (lam ar <if recv-is-Ti then gi_m(args) else .. else
+      recv>))` synthesised per distinct given-body ext method (collectExtDisp/emitExtDispatchers, extTypeTags,
+      orTagTests reused), appended after userDefs in compile4b. GOTCHA: fsub subset has NO `appendL` — use `appEnv`.
+- REMAINING (each deep, 1-2 files):
+  - **tagless-multi-file (extension-in-given, HARDER):** given body MIXES plain `def pure`/`def log` with a NESTED
+    extension group (map/ap/flatMap GLUED by deeper indent). collectOMExtMs stops at first non-def / `;`; the glued
+    multi-member group needs parse-based extent (bodyExpr returns rest) since skipStmt can't split glued defs.
+    Also uses for-comprehension `for {..} yield` in ext bodies + multi-file import. Likely needs more than E1.
+  - **context bounds `[A: TC1: TC2]` (tagless-context-bounds):** desugar to using params; active-ctx summon +
+    summon aliases. Oracle ITSELF degrades (`__missing_Monoid_combine`) → partly OUT per Decision C.
+  - **derived/Mirror givens (custom-derives-mirror, rozum-agent-schema-derived):** `summon[Mirror.Of[T]]` →
+    `__mirror_T` via case-class `derives` → caseGeneratedGivenEntries in the given table.
+
 ## v2-finish — make v2 ideal, small, powerful, fully self-hosted (2026-07-18, Sergiy)
 
 **Sergiy's vision (2026-07-18):** v1 and v2 are INDEPENDENT. v1 stays as-is — it stabilizes and
