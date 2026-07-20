@@ -1,5 +1,32 @@
 # Changelog
 
+## 2026-07-20 — v2-f5b Stage 1 CORE: F emits TYPED arithmetic IR (i.*/big.*/sconcat/seq)
+
+The first TYPING stage. `F` (`specs/v2.2-p6.5-fsub.ssc`) now emits typed Core IR for literal/structural
+arithmetic instead of the dynamic `(prim __arith__ …)`/`(prim __eq__ …)` δ-dispatch. The type is recovered
+at the erase seam from each operand's emitted IR PREFIX (classifiers `isIntCode`/`isFloatCode`/`isBigCode`/
+`isStrCode`, generalizing the proven `isStrExprCode`) — no type-environment thread yet. Numerics route to
+the forgiving kernel prim `i.*` (its `numBin`/`numCmp` cover Int/Float/mix and `liftArith` the effect
+Op-lift); BigInt to strict `big.*`; String concat to `sconcat`; Int/String/BigInt `==` to `i.eq`/`seq`/
+`big.eq`. Overloaded `+`/`++`/`-` (tuple/range/`Map+`/`List-`/char) and bare-variable/`__method__` operands
+stay dynamic — a LEFT-biased `+`/`++` check keeps `list + strElem` appending (arithOp keys on `isList(left)`).
+- **New verification regime** (`5de5f4701`): `specs/v2.2-p6.5-fsub.sh --self` adapted — F's typed IR diverges
+  from the untyped oracle BY DESIGN, so the `d` differential corpus + C1 sub-check now compare OBSERVABLE
+  OUTPUT (run both IRs, cmp exit+stdout); the self-referential fixpoint (stage1==stage2) is unchanged and
+  is the load-bearing self-hosting claim. Built the gate FIRST and confirmed it green on untyped F.
+- **Typed emission** (`7c74c1280`): `emitPlus`/`emitArithT`/`emitEqT`/`emitPP` + `emitBin` routing. GOTCHA:
+  ssc1-front's expr parser emits its `_err` sentinel past ~20 nested `if startsW(..) then .. else (if ..)`
+  per def → `isIntCode` split in two.
+- **Verified**: semantic **246/246 MATCH** (`specs/v2.2-p6.5-semantic.sh` — output-equivalence to the
+  untyped oracle, the immovable truth, includes the arith tower cases); typed fixpoint **153 ok/0 FAIL**,
+  stage1==stage2 byte-identical **366123 B** (was 380660 — typed prims are shorter); a broad output check
+  over the full 510-corpus is **498 same / 12 F-coverage-gaps / 0 typing miscompiles**. Corpus
+  byte-identity-to-oracle **417→225** (−192 arithmetic programs diverge by design; 0 spurious gains).
+- **δ-arm deletion = 0 in Stage 1** (measured): F still emits `__arith__`/`__eq__` for bare-variable
+  arithmetic, and the ssc0 tower `ssc1-lower.ssc0` emits `__arith__`×12/`__eq__`×10, so those arms stay
+  live. Only `__unary__` is dead across F + all tower files. The real deletion needs the param-type thread
+  (approach B, SPRINT S1-5) to remove F's `__arith__` fallback — deferred, a genuine design wall this stage.
+
 ## 2026-07-20 — v2-f5b Stage 0 COMPLETE: F is parse→AST→erase, byte-identical, zero typing
 
 Finishes the Stage 0 refactor begun in the entry below. `F` (`specs/v2.2-p6.5-fsub.ssc`) no longer FUSES

@@ -126,37 +126,51 @@ KEY design facts established this lane (see also project memory):
 - `anyStr(FloatV)`==`Writer.floatStr` so `sconcat` matches `__arith__("++")` on String+Float (floatStr trap
   avoided). Verified.
 
-- [ ] **S1-1 — Adapt `specs/v2.2-p6.5-fsub.sh` to the typed regime; verify GREEN on CURRENT untyped F.**
-      The `d` differential corpus + Step-1 self-check + the C1-working-compiler sub-check all assert
-      byte-identity to the UNTYPED oracle (`ssc1-front`) → they DIE under typed emission by design. Change
-      the `d` helper to compare OUTPUT (run F(P).ir and oracle(P).ir, cmp stdout+rc) instead of IR bytes;
-      replace Step 1 (F(F_src)==ssc1-front byte-id — impossible when typed) with the typed-fixpoint claim;
-      change the C1 sub-check from IR byte-id to output-equality (both run to 120). Keep Step-2 fixpoint
-      (stage1==stage2, self-referential, holds under typing). BUILD-THE-GATE-BEFORE-THE-FEATURE: run the
-      adapted gate on the UNCHANGED F and confirm it is honestly GREEN (outputs match), then implement.
-- [ ] **S1-2 — Type classifier `tyOfCode(c)` (IR-prefix → I/F/B/S/?).** Conservative certain-only prefixes:
-      lit int/float/str, `i.*` results, slen/scodeAt/scmp/sindexOf → I; `f.*`, i->f/big->f, lit float → F;
-      `big.*`, i->big → B; lit str, sconcat/sslice/i->str/big->str/f->str/str.trim/str.replace → S. Missing a
-      prefix = stays `__arith__` (safe); a WRONG prefix = miscompile (semantic gate catches). Err conservative.
-- [ ] **S1-3 — Typed `emitArith`/`emitBin`/`emitEq`.** `+`: if isStrExprCode(l)||isStrExprCode(r) → sconcat
-      (oracle's ++-upgrade, now typed); else both-numeric→i.add, both-Big→big.add, else `__arith__("+")`.
-      `- * / %`: both-numeric→i.{sub,mul,div,mod}, both-Big→big.*, else `__arith__`. `< <= > >=`:
-      both-numeric→i.{lt,le,gt,ge}, both-Big→big.*, else `__arith__` (string cmp/char-1-str stay dynamic).
-      `==`/`!=`: both-Int→i.eq, both-String→seq, both-Big→big.eq, else `__eq__`. `++`(k48): both-String→
-      sconcat else `__arith__("++")` (lists stay dynamic). `:+`, bitwise, &&/||, unary neg/~/! unchanged
-      (already typed / already correct). Verify EACH: semantic 246/246 + typed `--self`; record corpus drop.
-- [ ] **S1-4 — Re-freeze the typed-IR snapshot (leg c baseline) for later stages to diff against.** Corpus
-      OUTPUT goldens NEVER move. Record the new corpus byte-identity number (expected drop, quantified).
-- [ ] **S1-5 — (stretch) param/binding type thread for variable arithmetic.** Bare `local+local` stays
-      `__arith__` under S1-3 (no leaf type). Threading declared param types (`a: Int`) + val/def types would
-      type variable arith and ENABLE more deletion. INVASIVE (env entry shape or parallel tenv through ~40
-      parse fns), fixpoint-risky. Attempt only if budget allows; else HAND OFF with this map to Stage 2 lane.
-- [ ] **S1-6 — Delete dead δ-arith arms in `v2/src/Runtime.scala`, GATED on `v2/conformance/check.sh`.**
-      `__arith__`/`arithFast`/`arithOp`/`arithRest` numeric+String+cmp arms, `__unary__`, `__eq__` numeric —
-      BUT ONLY after check.sh confirms nothing on the kernel (F + ssc0 tower + conformance surface) still
-      emits them. The ssc0 tower (v2/lib/*.ssc0) LIKELY still emits `__arith__` → deletion may be SMALL/ZERO
-      in Stage 1 (deletion lags emission). Compare `^FAIL` count vs baseline (may be pre-RED on unrelated
-      items). Keep each arm until proven dead. Report the honest kernel Δ.
+- [x] **S1-1 DONE (`5de5f4701`). Adapted `specs/v2.2-p6.5-fsub.sh` to the typed regime; GREEN on untyped F
+      first.** `d` helper now compares OUTPUT (run both IRs, cmp exit+stdout); Step-1 drops byte-id-to-oracle
+      (keeps stage1 for the fixpoint); C1 sub-check → output-equality (both→120); Step-2 fixpoint unchanged.
+- [x] **S1-2 DONE (`7c74c1280`). IR-prefix type classifiers** isStrCode/isIntCode(+isIntCode1)/isFloatCode/
+      isBigCode/isNumCode — certain-only prefixes; unknown → "?" → dynamic (safe). GOTCHA: ssc1-front's expr
+      parser emits its `_err` sentinel beyond ~20 nested `if startsW(..) then .. else (if ..)` per def →
+      isIntCode SPLIT in two (each ~10 deep). `k==N` conditions are cheaper (binPrecK's 23 fine). Also fixed a
+      stray-paren regression the split introduced (verify paren balance of generated deep-if lines!).
+- [x] **S1-3 DONE (`7c74c1280`). Typed emitPlus/emitArithT/emitArith/emitEqT/emitPP + emitBin routing.**
+      LEFT-biased +/++ (list+strElem APPENDS via arithOp isList(left), so unknown-left never sconcat'd);
+      numerics → forgiving i.* (numBin/numCmp cover Int/Float/mix); big.* only when BOTH Big; sconcat for
+      string concat; i.eq/seq/big.eq only both-Int/String/Big (float== keeps __eq__ for NaN). VERIFIED:
+      **semantic 246/246 MATCH; typed fixpoint 153 ok/0 FAIL, stage1==stage2 byte-identical 366123 B (was
+      380660); corpus byte-identity 417→225 (−192 arith programs diverge BY DESIGN, 0 spurious gains).**
+      COVERAGE: types literal/structural arith (`1+2*3`, `"a"+"b"`, `charAt(i)>=97`, `s.length+1` where
+      length is slen). Bare-variable arith (`def add(a,b)=a+b` → local+local) and `.length`/`.charAt` on a
+      variable receiver (→ __method__) stay `__arith__` — needs param types (S1-5).
+- [ ] **S1-4 — leg-c typed-IR snapshot gate (deferred, low value now).** No committed typed-IR snapshot
+      gate exists yet; corpus.sh (byte-id-to-oracle, now 225) + the frozen semantic goldens (immovable) are
+      the working baselines. A per-program `F_typed(P)` snapshot would only help detect *unintended* IR
+      churn between stages — build it when Stage 2 starts if useful. OUTPUT goldens never move (unchanged).
+- [ ] **S1-5 — HAND-OFF: param/binding type thread (approach B) — the real coverage+deletion lever.** This
+      is the genuine design wall this stage hit. Approach A (S1-2/3) types only what the erased operand IR
+      PREFIX reveals; a bare param `a:Int` erases to `(local N)` (no type), so `a+b` and `s.length` (→
+      __method__ on a var) stay dynamic — which is why NO δ arm is deletable yet (see S1-6). To type them, F
+      must carry TYPES through its expression pipeline:
+        • Capture declared param types in `parseParam`/`parseParamSkip` (they are currently SKIPPED, :1148/
+          :1160) — and def return types (`emitDefU` skips `: T` via skipToEq), val types.
+        • Thread a type-env parallel to `env` (the de-Bruijn NAME list). env is threaded through ~40 parse
+          fns and pushed as `nm :: env` / `"" :: env` everywhere; a parallel `tenv` (or env entries as
+          `(name,type)` pairs — touches lookup/lookupAt/pushU/dlen/calleeOf) is the invasive part.
+        • Give a variable reference node a type so `typeOfNode(node,tenv,cx)` returns it; climbStep passes
+          the two operand TYPES (not just erased strings) to emitBin. Then `.length`/`.charAt` on a
+          String-typed var can lower to slen/scodeAt (they currently __method__ for non-literal receivers).
+      RISK: fixpoint — F self-compiles, so any bug in the tenv thread breaks stage1==stage2. Land in
+      slices, gate EACH on semantic 246/246 + typed `--self`. Est. multi-session (design §4: whole Stage-1
+      is 3-4 sessions; approach B is most of it).
+- [ ] **S1-6 — δ-arm deletion: Δ=0 in Stage 1 (approach A) — MEASURED, deferred to post-S1-5.** Confirmed
+      empirically: (a) typed F STILL emits `__arith__` for bare-variable arith (`a+b`, `local>=local`) and
+      `__eq__` for `local==lit`; (b) the ssc0 tower `ssc1-lower.ssc0` emits `__arith__` ×12 + `__eq__` ×10;
+      (c) conformance .ssc are lowered by that tower. So `__arith__`/`arithFast`/`arithOp` numeric+string+cmp
+      arms and `__eq__` are ALL LIVE → 0 deletable. ONLY `__unary__` is dead across F(0)+all tower files(0)
+      — a ~10-line arm at Runtime.scala:3015-3022, plus `resolve2`/FLC refs — deletable pending a full
+      `v2/conformance/check.sh` pass (shared-seam, the floatStr rule). Deferred (tiny Δ; the real deletion
+      unlocks only after S1-5 removes F's __arith__ fallback AND F replaces the tower — a later phase).
 
 ---
 
