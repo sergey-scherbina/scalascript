@@ -1,11 +1,14 @@
 claim: v2-p65-deep
-branch: feature/v2-p65-deep6
-agent: opus (orchestrator — fresh agent, given/summon arc)
-heartbeat: 2026-07-20T02:16:19Z
-status: in-progress (Sergiy: surface-first — build BOTH arcs before F4 cutover)
-what: ARC 1 = given/using/summon (~10-15 progs; given-table + __mk_method_obj__ dictionary
-      synthesis; NO kernel δ per deep5 assessment). Then ARC 2 = extension methods. Both IN per
-      specs/v2-language-surface.md. Corpus MATCH 408->target ~460+ (ceiling 471). Keep --self green,
-      byte-verify vs oracle, drop-check every slice. Do NOT chase the ~29 OUT (oracle bugs/actors
-      warts) or float-E (deferred). Same file (specs/v2.2-p6.5-fsub.ssc) => SEQUENTIAL with any
-      sibling touching it. F4 cutover comes AFTER both arcs.
+branch: feature/v2-p65-deep7
+agent: opus (orchestrator — fresh agent, arc completions)
+heartbeat: 2026-07-20T03:22:21Z
+status: in-progress (Sergiy: surface-first — COMPLETE both arcs before F4 cutover)
+what: deep6 landed both arc CORES (408->414, +6, 0 drops, fixpoint held, kernel +0): given/using/
+      summon (typeclass/tagless/graph-rdf4j) + extension methods (script/markdown-html). No cheap
+      near-misses remain. deep7 = COMPLETE the two arcs' deep sub-features (each 1-2 file arc, per
+      SPRINT §v2-p65-deep6 handoff): extension-in-given (__methodOrExt__ dispatch; typeclass-
+      extension, tagless-multi-file); context bounds [A: TC1: TC2] (active-ctx summon + aliases);
+      derived/Mirror givens (summon[Mirror.Of[T]] via derives; custom-derives-mirror, rozum-agent-
+      schema-derived). DEFER: effect system (separate arc, effect_decl — NOT given/summon). Do NOT
+      chase OUT (oracle _err @main wasm-*, actor-send !, float-E). Keep --self green, byte-verify,
+      drop-check. Ceiling ~471. F4 cutover AFTER arcs complete (or Sergiy calls it sooner).
