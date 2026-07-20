@@ -203,9 +203,11 @@ behind a flag → (3) dual-run corpus+conformance in CI → **(4) ★ flip the `
   `jsonRead`) and runs the plugin host; F must then also compile the injected std-module SOURCE and
   resolve plugin-backed globals, which it does NOT yet cover — measured F-worse-than-default on
   `json-read` (unbound `__jsonCoreWrap`), `generators` (unbound `generator`), and similar. So the honest
-  "F output-equivalent on 246" is a per-file-coverage number, NOT a raw-drop-in number. **RESOLVED by
-  F4a (`a73fb0d2a`): the delegate-fallback makes the PRODUCT (`SSC_FRONT=F bin/ssc`) a drop-in front —
-  never worse than default** (F where it covers, the old front where it does not). See §7 F4a below.
+  "F output-equivalent on 246" is a per-file-coverage number, NOT a raw-drop-in number. **Largely
+  RESOLVED by F4a (`a73fb0d2a`): the delegate-fallback makes the PRODUCT (`SSC_FRONT=F bin/ssc`) never
+  worse than default for every UNBOUND-GLOBAL gap** (F where it covers, the old front where it leaves a
+  dangling ref) — EXCEPT a small documented multi-file runtime-correctness class (F lowers a value wrong
+  but with all globals resolved; e.g. dsl-ast-builder, multi-link-imports) that needs F fixes. See §7 F4a.
 
 #### F4a — delegate-fallback LANDED (`a73fb0d2a`). F is now never-worse-than-default → FLIP-READY.
 
@@ -217,18 +219,23 @@ transparently re-lowered through the **default runner** (`ssc1-run.ssc0`, `fsubS
 is used. F covers its subset directly; the old front (kept, now the fallback) covers the rest; output is
 byte-identical to default wherever F falls short. `SSC_FRONT_TRACE=1` logs each delegation to stderr.
 
-- **Both gap classes are caught by the one pre-check** — the 12 single-file gaps AND the ambient-prelude/
-  plugin class all emit an *unbound global* (F's incomplete lowering leaves a dangling ref), which
-  `validate` (globalOk = a top-level def or an `@`-cell) rejects. **Runtime-only gap handling:** chose the
-  static pre-check + documented-known-gap over a run-time try/rerun (a rerun would DUPLICATE
-  already-emitted side effects — unsafe). Measured: no runtime-only gap survives the pre-check — the
-  multi-file "arity 2 expected 1 given" case (`tagless-multi-file`) folds into an unbound global on the
-  real multi-file path and falls back cleanly.
-- **Gates GREEN with the fallback:** `dualrun` **43/43 EQUAL, 0 DIVERGE** on a slice that includes every
-  known gap class (expected-divergence list `specs/v2.2-p6.5-dualrun.expected` is now empty — any
-  divergence is a real regression); typed fixpoint byte-identical (unchanged — the fallback doesn't touch
-  F's self-compile). `classify` stays green: it measures RAW F coverage (12 GAP), and its output now notes
-  those are handled at the product level by the fallback.
+- **The unbound-global gap classes are caught by the one pre-check** — the 12 single-file gaps AND the
+  ambient-prelude/plugin class all emit an *unbound global* (F's incomplete lowering leaves a dangling
+  ref), which `validate` (globalOk = a top-level def or an `@`-cell) rejects → fall back. **Runtime-only
+  gap handling:** chose the static pre-check + documented-known-gap over a run-time try/rerun (a rerun
+  would DUPLICATE already-emitted external side effects — file/DB writes; ~half the corpus is multi-file
+  incl. scljet DB writers — so it is unsafe).
+- **A small RUNTIME-CORRECTNESS residual survives the pre-check** (task item 2's anticipated class, found
+  by the full-corpus sweep): MULTI-FILE programs where F's source-concatenation lowering produces a
+  semantically WRONG value with all globals resolved — `dsl-ast-builder` (a `<closure>` where `0`
+  expected), `multi-link-imports` (a `()` → `no dispatch for .getOrElse`). The pre-check passes and F
+  runs to a wrong result (rc=1). These are DOCUMENTED known-gaps (`specs/v2.2-p6.5-dualrun.expected`) that
+  need F's **multi-file lowering fixed**, not a fallback. So F-with-fallback is never-worse-than-default
+  **except for this documented multi-file-correctness class** — the honest flip caveat.
+- **Gates GREEN with the fallback:** `dualrun` **43/43 EQUAL, 0 DIVERGE** on the default slice (which
+  includes every unbound-global gap class); the full-corpus sweep lists only the runtime-correctness
+  residuals above. Typed fixpoint byte-identical (the fallback doesn't touch F's self-compile). `classify`
+  stays green (raw F coverage, 12 GAP; output notes the product-level fallback).
 
 #### The flip (step 4, Sergiy) — exact one-liner. NO remaining blocker.
 

@@ -70,7 +70,8 @@ else
     bitwise-operators data-types
     word-count json-read generators extensions effects for-comprehensions tagless-multi-file
     standard-scala-multifence scala-js-demo dsl-multi-pass wasm-primes wasm-sorting
-    effect-deep-handler-state js-effect-multishot-long-fold"
+    effect-deep-handler-state js-effect-multishot-long-fold
+    dsl-ast-builder multi-link-imports"
   FILES=""
   for n in $SPREAD; do
     for cand in "$ROOT/examples/$n.ssc" "$ROOT/tests/conformance/$n.ssc"; do

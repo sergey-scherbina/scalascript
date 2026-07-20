@@ -4,22 +4,30 @@
 # `SSC_FRONT=F bin/ssc run P` (F) — capturing (exit, stdout). It is GREEN when every divergence is
 # listed here; an UNEXPECTED divergence (F worse than the default front, not listed) is a genuine-FAIL.
 #
-# ★ SINCE THE F4a DELEGATE-FALLBACK (RunNativeV2), THIS LIST IS EMPTY. F covers its subset; where it
-# cannot — the 12 single-file gaps AND the ambient-prelude/plugin class (json's `__jsonCoreWrap`,
-# generators' `generator`, the multi-file / multi-fence / wasm cases) — F emits an UNBOUND global, which
-# `Reader.validate` catches, and RunNativeV2 transparently re-lowers the file through the default front.
-# So `SSC_FRONT=F bin/ssc run` is NEVER worse than the default: every known gap now falls back and
-# produces byte-identical output. Measured EQUAL through the real path: extensions, effects,
-# for-comprehensions, tagless-multi-file, json-read, generators, standard-scala-multifence, scala-js-demo,
-# dsl-multi-pass, wasm-primes/sorting, effect-deep-handler-state, js-effect-multishot-long-fold.
+# ★ SINCE THE F4a DELEGATE-FALLBACK (RunNativeV2), THE UNBOUND-GLOBAL gap classes fall back cleanly and
+# this list is NEARLY empty. F covers its subset; where it cannot — the 12 single-file gaps AND the
+# ambient-prelude/plugin class (json's `__jsonCoreWrap`, generators' `generator`, the multi-fence / wasm
+# / most multi-file cases) — F emits an UNBOUND global, which `Reader.validate` catches, and RunNativeV2
+# transparently re-lowers the file through the default front. Measured EQUAL through the real path:
+# extensions, effects, for-comprehensions, tagless-multi-file, json-read, generators,
+# standard-scala-multifence, scala-js-demo, dsl-multi-pass, wasm-primes/sorting, effect-deep-handler-state,
+# js-effect-multishot-long-fold. On the DEFAULT slice: 43/43 EQUAL, 0 divergence.
 #
-# Consequence: ANY divergence the gate now reports is a genuine problem — either F produces WRONG output
-# that still passes the global pre-check (a real F correctness bug), or a RUNTIME-only gap that survives
-# the pre-check (F lowers with all globals resolved but throws at run). None are currently known: on the
-# real path the multi-file "arity 2 expected 1 given" case folds into an unbound-global and falls back.
-# If such a case ever appears and cannot be caught by a clean static pre-check, add it here as a
-# documented GAP with the reason (a run-time rerun is unsafe — it would duplicate already-emitted side
-# effects; that is why the pre-check, not try/rerun, is the mechanism).
+# The ONLY residuals (below) are the RUNTIME-CORRECTNESS class task item 2 anticipated: multi-file
+# programs where F lowers a value WRONG but with all globals resolved (so the pre-check passes and F runs
+# to a wrong result). A static pre-check can't see them and a run-time rerun is UNSAFE (side-effect
+# duplication) — they need F's multi-file lowering fixed. So F is never-worse-than-default EXCEPT for
+# these documented programs.
 #
 # format (TAB-separated):  <BUCKET>\t<program>\t<reason>   (buckets: GAP / OUT / DEFERRED)
-# (intentionally empty — the fallback makes every known gap EQUAL to the default front.)
+
+# ── RUNTIME-CORRECTNESS residuals (the class task item 2 anticipated). MULTI-FILE programs where F's
+#    source-concatenation lowering produces a semantically WRONG value (a `<closure>` / a `()` where a
+#    real value is expected) that RESOLVES all globals — so the static pre-check passes and F runs to a
+#    wrong result (rc=1). NOT fallback-catchable: a run-time rerun is unsafe (F may have done external
+#    side effects — file/DB writes — before erroring; ~half the corpus is multi-file incl. scljet DB
+#    writers). These need F's MULTI-FILE lowering fixed, not a fallback. Found by the FULL-corpus sweep
+#    (SSC_DUALRUN_ALL=1); the default slice is unaffected. Append new ones here as the deep sweep surfaces
+#    them (it is slow — F recompiles its source per program). ──
+GAP	dsl-ast-builder	multi-file (imports std/dsl/pretty.ssc): F lowers spanEmpty.start/end to a <closure>; default prints 0..0. Needs F multi-file lowering fix.
+GAP	multi-link-imports	multi-file (imports std/money.ssc, std/either.ssc): F lowers a value to () → `no dispatch for .getOrElse on ()`; default prints "minor units: 1234". Needs F multi-file lowering fix.
