@@ -1578,16 +1578,20 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
             six valid escape forms. Exact results: fixture 259/259, `uselib` 2866/2866, single fixpoint
             22844/22844, multi fixpoint 27669/27669. `CONF_FAST=1 bash v2/conformance/check.sh` natural
             exit 0, 408 ok / 0 FAIL (`/tmp/v2-f7-f2-fast2.{out,err,status}`).
-      - [ ] **F7.3 — close the remaining normal-program failures.** The backend generators are documented
+      - [x] **F7.3 — close the remaining normal-program failures.** The backend generators are documented
             stack-heavy tower programs (`v2/specs/20-bootstrap.md`, `51-async.md`, and
             `56-async-actors-breadth.md`); make the JS/Rust generator checks use the existing `sscx`
             (`java -Xss512m -jar`) path instead of the default-stack `ssc` helper. Run `bash -n` and the
             complete `bash v2/conformance/check.sh` with stdout, stderr, and direct exit status captured.
             If anything still fails, reproduce that normal-program failure in the assembled jar and fix
-            its actual owner; do not expand this slice into adversarial boundary protection.
+            its actual owner; do not expand this slice into adversarial boundary protection. **Result
+            2026-07-20:** `bash -n` is clean; the complete gate naturally exits **0** with **644 ok / 0
+            FAIL**, including both tower backends, WASM, and 1e6 TCO. Captured streams/status:
+            `/tmp/v2-f7-full-final.{out,err,status}`.
       - [ ] **F7.4 — prove closure.** Preserve the exact two-file differential and both self-fixpoints,
             run `tests/conformance/run.sh --only 'v2-*'`, then obtain exact-SHA GitHub CI green before
-            marking F7 complete and releasing its claim.
+            marking F7 complete and releasing its claim. **Local shared gate:** 11/11 passed (memoized),
+            0 failed; exact-SHA CI remains.
 
 - [ ] **Q1 — next concrete bug after F7.** Re-sync `origin/main`, `BUGS.md`, and authoritative claims;
       select the highest-priority unclaimed bug that affects an ordinary user program (not an adversarial

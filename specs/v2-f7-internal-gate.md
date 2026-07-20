@@ -27,9 +27,9 @@ Core IR node set, value domain, canonical encoding, or adversarial-input policy.
 - [x] The single-file `ssc0c` fixpoint and the multi-file `bin/ssc0c.ssc0` fixpoint remain byte-identical.
 - [x] A mismatch prints the compared artifact paths, byte sizes, and a useful first canonical difference
       before the gate exits non-zero; it is never classified or skipped before the byte comparison runs.
-- [ ] Ordinary shipped tower programs, including JS/Rust backend generators, compile through `sscx` and
+- [x] Ordinary shipped tower programs, including JS/Rust backend generators, compile through `sscx` and
       preserve their exact interpreter/native observable output.
-- [ ] `v2/conformance/check.sh` reaches natural completion with no `FAIL` rows and exit status zero.
+- [x] `v2/conformance/check.sh` reaches natural completion with no `FAIL` rows and exit status zero.
 
 ## Out of scope
 
@@ -109,3 +109,11 @@ files. The comparator self-probe distinguishes one versus two bytes and rejects 
 all-escape two-file fixture is 259/259 bytes and runs to 42; `uselib` is 2866/2866; single and multi-file
 fixpoints are 22844/22844 and 27669/27669. `CONF_FAST=1 bash v2/conformance/check.sh` reaches natural exit
 0 with 408 ok / 0 FAIL; streams/status are `/tmp/v2-f7-f2-fast2.{out,err,status}`.
+
+F7.3 local result (2026-07-20): the two backend-generator invocations now use the gate's existing `sscx`
+helper. `bash -n v2/conformance/check.sh` passes, and the complete gate reaches natural exit **0** with
+**644 ok / 0 FAIL**; no `StackOverflowError` or `command not found` appears. The run includes JS, Rust,
+WASM, the exact compiler differentials/fixpoints, and the 1e6-tail-call check. Complete artifacts are
+`/tmp/v2-f7-full-final.{out,err,status}`. The affected shared conformance slice
+`tests/conformance/run.sh --only 'v2-*'` passes 11/11 (all memoized), 0 failed. Exact-SHA CI is the only
+remaining F7 closure gate.
