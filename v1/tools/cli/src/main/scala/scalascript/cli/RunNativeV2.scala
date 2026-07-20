@@ -77,7 +77,34 @@ object RunNativeV2:
           throw new IllegalArgumentException(detail)
       }
 
-      val structural = lowerNative(layout.runner, layout.stdRoot, layout.installRoot, sourceFiles, canonicalFiles, mutableFlag, layout.fsubSrc)
+      // F4a DELEGATE-FALLBACK (SSC_FRONT=F). F covers its subset; where it does not — the 12 single-file
+      // gaps AND the ambient-prelude/plugin class (e.g. json's `__jsonCoreWrap`, `generator`) — it emits
+      // Core IR with an UNBOUND global. `Reader.validate` catches exactly that (globalOk = a top-level def
+      // or an @-cell), and `#coreir.decode` inside the F runner already rejects the same at lower time
+      // (so `lowerNative` may throw first). On EITHER signal we transparently re-lower the file through
+      // the DEFAULT runner (ssc1-front+ssc1-lower) and use its result — so F is NEVER worse than default.
+      // Legit user-error sentinels (_err / _err_int_range / _err_mutable_fields) are also unbound globals,
+      // so they route through the fallback too; the default front reproduces the same sentinel and the
+      // checks below surface the correct message. Runtime-only F gaps (e.g. tagless-multi-file's arity
+      // error) pass this pre-check and are a DOCUMENTED known-gap (see specs/v2.2-p6.5-dualrun.expected):
+      // a static pre-check on untyped IR can't see them, and a run-time rerun would duplicate side effects.
+      def lowerWith(runner: java.io.File, fsub: Option[java.io.File]): NativeStructuralFrontend =
+        lowerNative(runner, layout.stdRoot, layout.installRoot, sourceFiles, canonicalFiles, mutableFlag, fsub)
+      val structural = layout.fsubSrc match
+        case Some(_) =>
+          val fResult =
+            try
+              val s = lowerWith(layout.runner, layout.fsubSrc)
+              _root_.ssc.Reader.validate(s.program) // throws on any unbound global (F coverage gap)
+              Some(s)
+            catch case _: Throwable => None
+          fResult.getOrElse {
+            if sys.env.contains("SSC_FRONT_TRACE") then
+              System.err.println(s"[SSC_FRONT=F] F could not fully lower ${sourceFiles.mkString(", ")}; delegating to the default front")
+            lowerWith(layout.defaultRunner, None)
+          }
+        case None =>
+          lowerWith(layout.runner, None)
       if mutableFieldSentinel(structural.program) then
         throw new IllegalArgumentException(
           "mutable class fields (a `var` field in a class) are disabled by default; " +
@@ -381,7 +408,10 @@ object RunNativeV2:
       checker: java.io.File,
       stdRoot: java.io.File,
       installRoot: java.io.File,
-      fsubSrc: Option[java.io.File])
+      fsubSrc: Option[java.io.File],
+      // The default runner (ssc1-front + ssc1-lower) — the delegate-fallback target when F cannot fully
+      // lower a program. Equals `runner` in the default lane; the ssc1-run.ssc0 path in F-mode.
+      defaultRunner: java.io.File)
 
   /** F4 front swap (REVERSIBLE, default UNCHANGED). `SSC_FRONT=F` opts the native tier into the
    *  self-hosting subset compiler F (specs/v2.2-p6.5-fsub.ssc, staged as tower/bin/fsub.ssc) as the
@@ -402,19 +432,20 @@ object RunNativeV2:
     val legacyBase = new java.io.File(installRoot, "bin/lib/native-front")
     val base = if standardBase.isDirectory then standardBase else legacyBase
     val useF = frontIsF
+    val defaultRunner = new java.io.File(base, "tower/bin/ssc1-run.ssc0")
     val runnerName = if useF then "ssc1-run-fsub.ssc0" else "ssc1-run.ssc0"
     val runner  = new java.io.File(base, s"tower/bin/$runnerName")
     val checker = new java.io.File(base, "tower/bin/ssc1-check-run.ssc0")
     val stdRoot = new java.io.File(base, "runtime")
     val fsubSrc = if useF then Some(new java.io.File(base, "tower/bin/fsub.ssc")) else None
-    if !runner.isFile || !checker.isFile || !stdRoot.isDirectory then
+    if !runner.isFile || !defaultRunner.isFile || !checker.isFile || !stdRoot.isDirectory then
       throw new IllegalStateException(
         s"native frontend resources are not staged under ${base.getPath}; run scripts/sbtc \"installBin\"")
     fsubSrc.foreach { f =>
       if !f.isFile then throw new IllegalStateException(
         s"SSC_FRONT=F requested but F source is not staged at ${f.getPath}; run scripts/sbtc \"installBin\"")
     }
-    NativeFrontLayout(runner, checker, stdRoot, installRoot, fsubSrc)
+    NativeFrontLayout(runner, checker, stdRoot, installRoot, fsubSrc, defaultRunner)
 
   /** The self-hosted resolver uses `/` as its target-independent separator;
    *  `java.nio.file.Path` accepts that spelling on Windows as well. */
