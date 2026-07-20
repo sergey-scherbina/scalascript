@@ -226,9 +226,11 @@ incident. New capability goes in a **new module**.
       root pages (`site/index.html`, `site/scljet.html`) are untouched; `docs/scljet.md` →
       `/docs/scljet.html` is a distinct URL from the curated `/scljet.html` (both kept). A GEN_MARK
       sentinel + `assertSafeOutDir` make overwriting a hand-authored page impossible (exit 1).
-- [ ] **S3 — install page.** `/install` from `install.sh` + `native-release.yml` artifacts:
-      one-line install command, platform table, links to releases. NOTE: `gh release list` is
-      empty — no published binaries yet, so link to the source install for now.
+- [x] **S3 — DONE (`db53c842c`).** `site/install.html` — hand-authored, landing chrome + tokens,
+      copy-to-clipboard. Leads with the working from-source route (Java 21+, `git clone` +
+      `./install.sh --dev`); Coursier + native binaries marked "coming soon" (honest — no releases
+      published). Platform matrix from native-release.yml. Linked from landing nav/footer/CTA;
+      Pages check-composed asserts install.html + scljet.html survive.
 - [x] **S4 — DONE (`66313e02a`).** `pages.yml` builds ssc (`install.sh --dev`) and runs the
       generator into `site/docs`; composed under `/docs/`. Gates COMPARE (page-count floor + known
       heading survives into HTML, `expected=/got=` on mismatch). Cost: +cold ssc build → timeout
