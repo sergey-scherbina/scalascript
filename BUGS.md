@@ -1,5 +1,50 @@
 # Bug tracker
 
+## cli-command-System.exit-kills-the-test-fork — a whole CLASS of green-looking CI reds
+
+**Status:** OPEN as a class (2026-07-20). One instance is fixed —
+`swiftui-real-fixture-system-exit-hides-failure`, closed the same day by `frontend-tui-fetch-refresh`
+(`deb5e6c90`). This entry exists so the next instance is recognised in minutes instead of hours.
+
+**The shape.** A CLI *command helper* calls `System.exit(n)` on failure. A test invokes that helper
+**in-process**. The exit kills the forked test JVM before ScalaTest can attach exit/stdout/stderr to
+the test, so the run shows:
+
+- every suite printing `All tests passed.`
+- **no** `*** FAILED ***` anywhere in the log
+- and then `Error during tests: … sbt.ForkMain <n> failed with exit code 1`
+
+That is the project's most expensive failure mode in its purest form: the apparatus reports success
+while hiding a real defect. In the proven instance the *actual* bug was generated Scala failing on
+`selected()` / missing `selectFromView` — invisible until the exit path was removed.
+
+**Why it will recur.** `System.exit`/`sys.exit` appears **459** times in v1 production sources.
+259 are in `tools/cli/Main.scala`, where a CLI entry point exiting is legitimate. The remaining ~200
+are in *command helper* files, which are exactly what tests call in-process:
+
+| File | exit sites |
+|---|---|
+| `EmitCommands.scala` | 32 |
+| `ClusterCommands.scala` | 23 |
+| `PluginCommands.scala` | 21 |
+| `SwiftUiCommands.scala` | 16 ← the one that bit |
+| `OAuthCli.scala` | 13 |
+| `LockCommands.scala` | 13 |
+
+**How to recognise it fast.** `ForkMain … exit code 1` **plus** zero `*** FAILED ***` in the whole
+log means "something called System.exit", not "a test failed". Do not go looking for a failing
+assertion — find which suite was running when the JVM died, then find the exit call it reached.
+
+**Fix direction (do not paper over the non-zero exit).** A helper reachable from a test must return a
+status instead of exiting; the test then asserts on exit/stdout/stderr. That is what the SwiftUI fix
+did — it switched to invoking the staged `ssc-tools package --v1 --target macos` command and
+capturing its result. Reproduce:
+`java -jar … ` style in-process invocation, or run the suite and watch for a fork exit with no
+reported failure.
+
+**Done-when:** command helpers reachable from tests no longer terminate the JVM, and a deliberately
+failing fixture produces a reported test failure rather than a silent fork exit.
+
 ## js-char-into-int-param — a `Char` passed into an `Int` parameter stays boxed on the v1 JS backend
 
 **Status:** OPEN (found 2026-07-20 while building `std/markdown-html.ssc` for the docs site).
