@@ -1,6 +1,0 @@
-feature/ssc0c-tail-traversals 2026-07-20T11:12:17Z
-agent: claude-site-lane
-heartbeat: 2026-07-20T11:12:17Z
-status: in-progress
-done-so-far: measurement landed d63ed7747 — ssc0c stack is LINEAR in program size (~25KB/def, 320 trivial defs need 8m) because list traversals recurse inside Cons(...) constructor args (lib/ssc0c.ssc0:368 lowDefs, :329 mapFst; shape occurs 10x in 371 lines). VM tail calls are already constant-stack (1M tail calls in 256k)
-next: rewrite the 10 traversals accumulator+reverse. MUST verify byte-identical self-compilation fixpoint (output IR unchanged, only stack profile) + re-measure the stack curve + v2 conformance 644/0
