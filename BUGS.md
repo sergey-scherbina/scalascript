@@ -1501,9 +1501,10 @@ the contract change was announced in the rozum `scalascript` room before landing
 
 ## coreir-compiler-unbounded-depth — a deep-but-well-formed capsule overflows the COMPILER at ~depth 500 on a 1m stack
 
-**Status:** REPRODUCED / claimed 2026-07-19 by `v2-f7-internal-gate` (found 2026-07-16 by
-`coreir-contract` while bounding the *reader*; the reader half is fixed, this half is not). Not a
-regression — pre-existing.
+**Status:** DEFERRED by Sergiy 2026-07-20; no longer claimed by or blocking
+`v2-f7-internal-gate` (found 2026-07-16 by `coreir-contract` while bounding the *reader*; the reader
+half is fixed, this half is not). Do not add boundary checks/protection in the current quality loop;
+revisit only when explicitly reprioritized. Not a regression — pre-existing.
 
 **Symptom.** `Compiler.valuePositionsNeedEffectThreading` / `FastCode.tryFC` recurse without a bound.
 A perfectly well-formed (nothing malformed — merely deeply nested) Core IR program overflows the JVM
@@ -1537,6 +1538,10 @@ bounds the *decoder*, so the reader itself yields a diagnostic instead of crashi
 capsule path is only fully DoS-safe once the compiler is bounded too. Real Core IR is shallow
 (measured: the 79,667 B X1 fixpoint IR is depth **25**; the `.coreir` fixtures are 6-12), so a
 compiler-side bound has enormous headroom available.
+
+**Current operational decision.** The normal-program F7 failures are handled by using the already
+documented `sscx` 512m-stack launcher for stack-heavy tower generators. That restores shipped workloads
+but intentionally does not change this bug's status or claim to protect adversarial capsules.
 
 ## irbin-v2bin-codec-fails-open — the deferred binary codec narrows BigInt, loses -0.0, and turns unknown tags into strings
 

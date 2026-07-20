@@ -1545,7 +1545,12 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
       IR differs and the compiler overflows in `compileEffectAwareApplication`; re-measure current
       `origin/main` before accepting either diagnosis because the harness and runtime have moved.
       Spec: `specs/v2-f7-internal-gate.md`; ledger:
-      `BUGS.md#ssc0c-multifile-uselib-ir-divergence` and `#coreir-compiler-unbounded-depth`.
+      `BUGS.md#ssc0c-multifile-uselib-ir-divergence`.
+      **Scope decision (Sergiy, 2026-07-20):** do not spend this loop adding or testing adversarial
+      compiler-depth/DoS boundaries. `BUGS.md#coreir-compiler-unbounded-depth` remains recorded but is
+      deferred and does not block F7. Close the observed normal-program failures with the documented
+      stack-aware launcher, then move on to user-visible bugs, measured optimization, code minimization,
+      and features.
       - [x] **F7.1 — establish current truth.** Run the full gate from this clean worktree with stdout,
             stderr, and exit status captured separately; record exact SHA, ok/fail count, failing labels,
             and artifact paths. Never pipe through `tail`. Re-run each failure directly in the assembled
@@ -1573,16 +1578,32 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
             six valid escape forms. Exact results: fixture 259/259, `uselib` 2866/2866, single fixpoint
             22844/22844, multi fixpoint 27669/27669. `CONF_FAST=1 bash v2/conformance/check.sh` natural
             exit 0, 408 ok / 0 FAIL (`/tmp/v2-f7-f2-fast2.{out,err,status}`).
-      - [ ] **F7.3 — close compiler-depth fail-open.** Reproduce the current smallest well-formed Core IR
-            depth that overflows at `-Xss1m` and the legitimate tower program that needs the same path.
-            Make traversal iterative or fail closed at a documented compiler bound with a stable
-            diagnostic; merely raising a launcher stack is not a DoS fix. Preserve 1e6 tail-call runtime
-            behavior and all ordinary fixpoints. Fresh structural measurements: the valid self-hosted
-            compiler IR has max S-expression depth 28; JS/Rust generators are 51, so the five failures
-            are compiler-recursion amplification, not reader-depth violations.
-      - [ ] **F7.4 — prove closure.** Add faithful multi-file and depth regressions, run their focused
-            suites plus `bash v2/conformance/check.sh` to natural exit, then run affected shared
-            conformance and exact-SHA GitHub CI before marking F7 complete.
+      - [ ] **F7.3 — close the remaining normal-program failures.** The backend generators are documented
+            stack-heavy tower programs (`v2/specs/20-bootstrap.md`, `51-async.md`, and
+            `56-async-actors-breadth.md`); make the JS/Rust generator checks use the existing `sscx`
+            (`java -Xss512m -jar`) path instead of the default-stack `ssc` helper. Run `bash -n` and the
+            complete `bash v2/conformance/check.sh` with stdout, stderr, and direct exit status captured.
+            If anything still fails, reproduce that normal-program failure in the assembled jar and fix
+            its actual owner; do not expand this slice into adversarial boundary protection.
+      - [ ] **F7.4 — prove closure.** Preserve the exact two-file differential and both self-fixpoints,
+            run `tests/conformance/run.sh --only 'v2-*'`, then obtain exact-SHA GitHub CI green before
+            marking F7 complete and releasing its claim.
+
+- [ ] **Q1 — next concrete bug after F7.** Re-sync `origin/main`, `BUGS.md`, and authoritative claims;
+      select the highest-priority unclaimed bug that affects an ordinary user program (not an adversarial
+      boundary-hardening item), promote its exact slug/repro here before coding, reproduce it in the real
+      assembled harness, and land a faithful regression plus the smallest owning fix.
+- [ ] **Q2 — measured optimization after the bug slice.** Select an unclaimed hot path exposed by the
+      real bug/feature workload, record a reproducible `scripts/bench <lane> <pattern>` baseline in this
+      file, profile before changing code, and land only a behavior-preserving improvement with repeated
+      before/after evidence and the affected conformance slice green.
+- [ ] **Q3 — minimize the touched path.** Remove duplication, dead branches, or avoidable abstractions
+      revealed by Q1/Q2 without broad redesign; report the net source-line/complexity change and prove
+      byte/observable behavior unchanged with the same regression and benchmark gates.
+- [ ] **Q4 — next user-facing feature.** Re-sync the board and claims, choose the highest-priority
+      unclaimed feature, replace this placeholder with its concrete slug/acceptance checks, write and
+      commit its feature spec first, then implement it with a runnable `examples/` program, docs, and
+      conformance coverage.
 
 The path to ideal/small/powerful is: **(1) establish truth (reconcile the stale ROADMAP), (2) converge
 the two fronts into one, (3) redraw the kernel/tower boundary so "small" is real.** Breadth (cover the

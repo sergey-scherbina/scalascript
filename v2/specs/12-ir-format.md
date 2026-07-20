@@ -171,10 +171,10 @@ defect. Two rules:
 Tested at `-Xss1m` on purpose by `specs/coreir-codec-vectors.sh` §"bounded decoding" — testing only
 at the developer default is how a whole family passed on macs and StackOverflowError'd in CI.
 
-**Known gap (`BUGS.md` → `coreir-compiler-unbounded-depth`):** bounding the reader is only the
-codec's half. `Compiler.valuePositionsNeedEffectThreading` / `FastCode.tryFC` independently overflow
-at ~depth 500 on `-Xss1m`, so the capsule path is not yet fully DoS-safe. Recorded, not silently
-papered over.
+**Known deferred gap (`BUGS.md` → `coreir-compiler-unbounded-depth`):** bounding the reader is only
+the codec's half. `Compiler.valuePositionsNeedEffectThreading` / `FastCode.tryFC` independently overflow
+at ~depth 500 on `-Xss1m`, so the capsule path is not yet fully DoS-safe. Sergiy explicitly deferred
+compiler-boundary work on 2026-07-20; it is recorded but is not part of F7 or the current quality loop.
 
 ## Semantics mapping
 
