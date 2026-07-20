@@ -2484,23 +2484,39 @@ databases:
 
 Bundled drivers: **SQLite** (`jdbc:sqlite:`) and **H2** (`jdbc:h2:`).  Any other driver can be added as a `dep:` import or placed on the classpath.
 
-#### SclJet low-level format module
+#### SclJet — a SQLite engine in pure ScalaScript
 
-`std/scljet/index.ssc` is an independent pure ScalaScript SQLite-format engine
-under staged development. Its current M2 surface decodes database headers, all
-four B-tree page/cell forms, overflow chunks/chains, record serial types, and
-UTF-8/UTF-16 bytes/code points. `openReadonly(vfs, path, options)` acquires a
-SHARED lock, rejects non-empty journal/WAL sidecars, maintains an immutable LRU
-page cache, validates freelist and auto-vacuum pointer-map ownership, decodes
-raw `sqlite_schema`, and exposes forward rowid/WITHOUT ROWID/index cursors.
-`jvmSqliteVfs()` adapts the separately packaged JVM host plugin to that abstract
-VFS contract; page, record, B-tree, schema, and pager policy remain `.ssc` code.
+`std/scljet` is an independent SQLite engine written entirely in ScalaScript — no C, no bundled
+SQLite library. It is a from-scratch alternative to the `jdbc:sqlite:` / `sql.js` providers above:
+both can be registered side by side.
 
-Run `ssc-tools run --v1 examples/scljet-readonly.ssc` for a complete real-file
-open/schema/row/close flow or `examples/scljet-readonly-codecs.ssc` for the pure
-low-level codecs. SclJet does not replace the JDBC/sql.js `sqlite:` provider yet
-and still exposes no query planner, recovery, WAL snapshot, or writable
-connection. See `specs/scljet.md` for the compatibility gates.
+SclJet **reads and writes** real `.db` files. It opens files written by the reference `sqlite3` and
+returns the same rows byte-for-byte (SELECT / WHERE / GROUP BY + aggregates / ORDER BY / LIMIT /
+joins / indexes), and files it writes (INSERT / UPDATE / DELETE / CREATE) are accepted by `sqlite3`
+and pass `PRAGMA integrity_check`. The friendliest surface is the portable JDBC façade
+(`scljet/jdbc.ssc`); a real JVM `java.sql.Driver` for `jdbc:scljet:<path>` URLs and a typed SQL
+builder (`scljet/typedsql.ssc`) sit on the same engine. Host-file writes are crash-atomic (temp →
+fsync → atomic rename) and single-writer via a cross-process lock, and every value is reachable by an
+`table/rowid/column` address that honours the logical/physical link (an `INTEGER PRIMARY KEY` reads
+its rowid, not the stored NULL).
+
+```scalascript
+[SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[jdbcOpen, jdbcExecuteUpdate, jdbcExecuteQuery, rsNext, rsHasRow, rsGetString](std/scljet/jdbc.ssc)
+
+buildTableDatabase(512, 1, 1, "books", "CREATE TABLE books(id INTEGER PRIMARY KEY, title TEXT)",
+  List(List(SqlInteger(1L), SqlText("SICP")))) match
+  case Right(image) => jdbcExecuteQuery(jdbcOpen(image), "SELECT title FROM books") // …
+  case Left(e)      => println(e.message)
+```
+
+Runnable examples: `examples/scljet-hello.ssc` (create a database and work with it) and
+`examples/scljet-file.ssc` (write a real file, then let the reference `sqlite3` read and check it).
+Not yet the default write path: WAL, and a couple of engine write edges (an `UPDATE` of an
+`INTEGER PRIMARY KEY` column, `NULL` in an `INSERT … VALUES` list) — tracked in `BUGS.md`.
+
+See the [SclJet guide](scljet.md) for a full walk-through, and `specs/scljet.md` /
+`specs/scljet-jdbc.md` / `specs/scljet-address.md` for the normative specs.
 
 Connection strings support `${scheme:ref}` secret references (see §6.2).
 

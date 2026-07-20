@@ -2,6 +2,9 @@
 
 [![CI](https://github.com/sergey-scherbina/scalascript/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sergey-scherbina/scalascript/actions/workflows/ci.yml)
 
+**Site:** [scalascript.dev overview](https://sergey-scherbina.github.io/scalascript/) ·
+**[SclJet](https://sergey-scherbina.github.io/scalascript/scljet.html)** — a SQLite engine in pure ScalaScript
+
 A language where **Markdown is syntax, not decoration** — `.ssc` files are
 executable documents combining YAML front-matter, Markdown prose, and
 Scala 3 code blocks.
@@ -230,7 +233,7 @@ bin/http.ssc
 | [Browser SQL](specs/browser-sql.md) | Cross-backend `sql` fenced blocks (JS / Node / Wasm / JVM) |
 | [Electron SQL](specs/electron-sql.md) | Current `sqlite:` behavior in Electron desktop bundles, including the localStorage-backed renderer fallback |
 | [Electron Persistence Bridge](specs/electron-persistence-bridge.md) | Main/preload bridge for durable Electron SQLite under `app.getPath("userData")` |
-| [SclJet](specs/scljet.md) | Pure ScalaScript SQLite-format engine: M2 opens clean files through an abstract VFS, validates schema/freelist/pointer maps, and traverses table/index B-trees; writes, recovery, WAL, and SQL remain later gates |
+| [SclJet](docs/scljet.md) | Pure ScalaScript SQLite engine — no C, no bundled library. Reads **and writes** real `.db` files (byte-identical to `sqlite3`, verified both ways), full SQL, a JDBC façade + `jdbc:scljet:` driver, crash-safe durable writes, and value-level addressing. [Live overview](https://sergey-scherbina.github.io/scalascript/scljet.html) · [guide](docs/scljet.md) · [spec](specs/scljet.md) |
 | [Secret Resolvers](secret-resolvers.md) | `${env:}` · `${file:}` · `${sops:}` · `SecretResolver` SPI for Vault / AWS SM / GCP / Doppler / 1Password |
 | [MCP Support](specs/mcp.md) | MCP server tools + resources, MCP client |
 | [Rozum / Agent SDK](specs/rozum-integration.md) | Generic app-owned agent loop over a stateless OpenAI-compatible rozum gateway, with strict tool schemas and in-process tool handlers |

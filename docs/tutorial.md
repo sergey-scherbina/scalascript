@@ -1738,3 +1738,81 @@ ssc run effects-demo.ssc
 - Add the `Reader[Config]` pattern to a real HTTP server: put your config in
   a `Reader`, call `runReader(cfg)(route(...))`, and never thread the config
   manually again.
+
+---
+
+# Tutorial 6: SclJet — a SQLite database in pure ScalaScript
+
+Tutorials 1 and 4 talk to SQLite through the `jdbc:sqlite:` provider, which wraps the mature Xerial
+driver. **SclJet** is the other way: a SQLite engine written entirely in ScalaScript — no C, no
+bundled library — that reads and writes ordinary `.db` files. Everything below runs on the
+interpreter, JS, and the default `ssc run`.
+
+## Step 1: create a database and work with it
+
+The friendliest surface is `scljet/jdbc.ssc`, a portable façade with the method names a JDBC caller
+already knows. A connection is **immutable**: every write returns a new database image, so you thread
+the connection forward.
+
+```scalascript
+[SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[JdbcConnection, jdbcOpen, jdbcExecuteUpdate, jdbcExecuteQuery, rsNext, rsHasRow, rsGetLong, rsGetString](std/scljet/jdbc.ssc)
+
+def run(c: JdbcConnection, sql: String): JdbcConnection =
+  jdbcExecuteUpdate(c, sql) match
+    case Right(u) => u.conn
+    case Left(m)  => println("! " + m); c
+
+buildTableDatabase(512, 1, 1, "books",
+  "CREATE TABLE books(id INTEGER PRIMARY KEY, title TEXT)",
+  List(List(SqlInteger(1L), SqlText("SICP")))) match
+  case Left(e) => println(e.message)
+  case Right(image) =>
+    val c = run(jdbcOpen(image), "INSERT INTO books VALUES (2, 'TAPL')")
+    jdbcExecuteQuery(c, "SELECT id, title FROM books ORDER BY id") match
+      case Left(m)  => println(m)
+      case Right(rs) =>
+        var r = rsNext(rs)
+        while rsHasRow(r) do
+          println(rsGetLong(r, 1).toString + " · " + rsGetString(r, 2))
+          r = rsNext(r)
+```
+
+```bash
+ssc run books.ssc
+# 1 · SICP
+# 2 · TAPL
+```
+
+`buildTableDatabase` writes a complete, valid SQLite image to start from. (An *empty* database leaves
+the text encoding unfixed until the first write, so seeding with one row is the simple path.)
+
+## Step 2: prove it's a real SQLite file
+
+SclJet writes ordinary SQLite. [`examples/scljet-file.ssc`](../examples/scljet-file.ssc) writes a
+database to disk, then shells out to the reference `sqlite3` (via `std.process`) to read it, run
+`PRAGMA integrity_check`, and write a row of its own:
+
+```text
+SclJet wrote books.db
+sqlite3 checks the file:
+  ok
+sqlite3 reads the rows SclJet wrote:
+  1 · SICP
+  2 · TAPL
+sqlite3 adds a row of its own, then counts:
+  now 3 books
+```
+
+The reverse works too — SclJet opens files written by `sqlite3` and returns the same rows,
+byte-for-byte.
+
+## What's Next
+
+- The full [SclJet guide](scljet.md) covers bound `?` parameters, the `jdbc:scljet:` JVM driver,
+  typed SQL, and the value-level addressing model (every value has an address linking its logical
+  meaning to its physical bytes).
+- Runnable examples: [`examples/scljet-hello.ssc`](../examples/scljet-hello.ssc) and
+  [`examples/scljet-file.ssc`](../examples/scljet-file.ssc).
+- Specs: [`specs/scljet.md`](../specs/scljet.md), [`specs/scljet-jdbc.md`](../specs/scljet-jdbc.md),
+  [`specs/scljet-address.md`](../specs/scljet-address.md).

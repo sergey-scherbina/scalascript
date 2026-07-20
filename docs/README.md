@@ -154,6 +154,7 @@ nested into topic subdirectories. This index is the map for both sets.
 - [client-server-object-store.md](client-server-object-store.md) — Client/Server Object Store & Sync
 - [client-zookeeper.md](client-zookeeper.md) — Minimal ZooKeeper client (deferred)
 - [browser-sql.md](browser-sql.md) — `sql` blocks on JS / Node / Wasm
+- [scljet.md](scljet.md) — **SclJet**: a SQLite engine in pure ScalaScript — reads and writes real `.db` files (proven against `sqlite3`), a JDBC façade, and value-level addressing
 
 ## Payments, wallets & blockchain
 
