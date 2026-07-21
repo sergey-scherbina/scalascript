@@ -345,10 +345,13 @@ def funcDfltsOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx))))))))
 // fullCount))] for `using` injection; extMethods = [extension-method names] for extension dispatch.
 def givenTabOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx)))))))))))))
 def usingSigOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx))))))))))))))
+// G4/Arc2 + E2c: extMethods sub-slot now nests `(extMethods, (mangleExt, objVarargs))`.
 def extMethodsOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx)))))))))))))))
 // mangleOf = methods whose top-level ext impl was emitted as `m__ext_default` (has both a top-level ext
 // and a given-body dispatcher) — the dispatcher for `m` delegates its fallback to `m__ext_default`.
-def mangleOf(cx) = snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx)))))))))))))))
+def mangleOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx))))))))))))))))
+// E2c: object-method vararg registry (mangled O_m -> lead). Rides the extMethods payload's deepest slot.
+def objVarargsOf(cx) = snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx))))))))))))))))
 def ccNamesOf(cx) = fst(snd(cx))
 def fldNamesOf(cx) = fst(snd(snd(cx)))
 def valNamesOf(cx) = fst(snd(snd(snd(cx))))
@@ -481,9 +484,21 @@ def emitMethod(nm, c, args, dq) = "(prim __method__ (lit (str " ++ dq ++ nm ++ d
 // existing parseArgL path unchanged (mg == "" or dfltGo false).
 def postMeth(c, nm, ts, env, cx) = if isCopyNamed(nm, tl(ts)) then parseCopyCall(c, tl(ts), env, cx) else postMethO(c, nm, objMangleName(c, nm, cx), tl(ts), env, cx)
 def objMangleName(c, nm, cx) = if isObjMember(globalNameOf(c), nm, cx) then globalNameOf(c) ++ "_" ++ nm else ""
-def postMethO(c, nm, mg, ts, env, cx) = if objDfltFires(mg, ts, env, cx) then objDfltCall(mg, ts, env, cx) else parseArgL(ts, env, cx) match { case (es, r) => postMeth2(c, nm, es, r, env, cx) }
+def postMethO(c, nm, mg, ts, env, cx) = if objDfltFires(mg, ts, env, cx) then objDfltCall(mg, ts, env, cx) else parseArgL(ts, env, cx) match { case (es, r) => postMethV(c, nm, mg, es, r, env, cx) }
 def objDfltFires(mg, ts, env, cx) = if mg == "" then false else dfltGo(mg, fst(scanArgs(ts)), env, cx)
 def objDfltCall(mg, ts, env, cx) = scanArgs(ts) match { case (slices, rest) => (synthCall(mg, dfltEntryPd(mg, cx), slices, env, cx), rest) }
+// E2c: an APPLIED object-method call `O.m(a, ..)` where `def m(.., xs: T*)` is a VARARG member (last
+// param a token-level trailing `*`, registered by collectObjVarargs under the MANGLED name `O_m` → lead).
+// The oracle (ssc1-lower) collapses every arg past the `lead` fixed leading args into ONE Cons-list arg
+// so the emitted app matches the arity-(lead+1) `O_m` global. Intercept AFTER parseArgL (unlike the
+// default-arg path, which intercepts before): the fixed lead args stay positional, the tail folds via
+// consChain. Gated registered-vararg-ONLY (mg == "" or not registered → the plain path is unchanged, so
+// every non-vararg call stays byte-for-byte identical).
+def postMethV(c, nm, mg, es, r, env, cx) = if objVarargFires(mg, cx) then (objVarargEmit(mg, es, cx), r) else postMeth2(c, nm, es, r, env, cx)
+def objVarargFires(mg, cx) = if mg == "" then false else objVarargHit(mg, objVarargsOf(cx))
+def objVarargHit(mg, reg) = reg match { case Nil => false case h :: t => if fst(h) == mg then true else objVarargHit(mg, t) }
+def objVarargLead(mg, reg) = reg match { case Nil => 0 case h :: t => if fst(h) == mg then snd(h) else objVarargLead(mg, t) }
+def objVarargEmit(mg, es, cx) = "(app (global " ++ mg ++ ")" ++ joinArgs(takeL(objVarargLead(mg, objVarargsOf(cx)), es)) ++ " " ++ consChain(dropL(objVarargLead(mg, objVarargsOf(cx)), es)) ++ ")"
 // `recv.copy(f = v, ..)` with ANY named arg desugars (ssc1-lower desugarCopy :1124) to a receiver-first
 // let-chain feeding the alternating name-lit/value-ref runtime ABI: `(let (recv) (let (v0) .. (prim
 // __method__ "copy" <recv> (str L0) <v0> ..)))`. recv binds outermost (deepest ref (local k)); each value
@@ -764,6 +779,7 @@ def dfltGoR(entry, slices) = entry match { case (found, pd) => if found == "__so
 def dfltGo2(pd, slices) = if anyNamedSlice(slices) then false else (if dlen(slices) >= dlen(pd) then false else allOmR(dropL(dlen(slices), pd)))
 def allOmR(pd) = pd match { case Nil => true case h :: t => if isEmpty(snd(h)) then false else allOmR(t) }
 def dropL(n, xs) = if n <= 0 then xs else (xs match { case Nil => Nil case h :: t => dropL(n - 1, t) })
+def takeL(n, xs) = if n <= 0 then Nil else (xs match { case Nil => Nil case h :: t => Cons(h, takeL(n - 1, t)) })
 def anyNamedSlice(slices) = slices match { case Nil => false case h :: t => if isNamedSlice(h) then true else anyNamedSlice(t) }
 def isNamedSlice(s) = if isEmpty(s) then false else (if fst(hd(s)) == 1 then (if isEmpty(tl(s)) then false else isTok(hd(tl(s)), 2, 20)) else false)
 // scanArgs (ts AFTER the `(`): -> ([argTokenSlice..], restAfterClose). Non-emitting; each slice is captured
@@ -1589,6 +1605,26 @@ def collectOD2(name, ts) = if isTok(hd(ts), 2, 28) then appEnv(objMemDflts(name,
 def objMemDflts(name, ms) = ms match { case Nil => Nil case h :: t => appEnv(objMemDflt1(name, h), objMemDflts(name, t)) }
 def objMemDflt1(name, m) = m match { case (kind, nt) => nt match { case (mname, toks) => if kind == "def" then objDefDflt(name ++ "_" ++ mname, skipGen(toks)) else Nil } }
 def objDefDflt(pfxName, ts) = if isTok(hd(ts), 2, 21) then dfltReg(pfxName, collectPD(tl(ts), Nil)) else Nil
+// E2c: object-method VARARG registry. `object O { def m(.., xs: T*) }` lowers m to a top-level
+// `(def O_m (lam N ..))` whose LAST param is the whole vararg Seq (one param), so the call `O.m(a, b, ..)`
+// must collapse the args past the `lead` fixed params into ONE list to match arity N. Register each
+// object def member whose LAST param is a token-level trailing `*` under the MANGLED name `O_m` →
+// lead = paramCount - 1. typeText ERASES the star (punctStr(25)=""), so detection is a TOKEN scan
+// (star = opcode 25), NOT collectPD's stripped type. Mirrors collectObjDflts (regular `object` only);
+// payload is `lead` (int), held in its OWN cx slot (objVarargsOf), never merged into funcDflts.
+def collectObjVarargs(ts) = if isEmpty(ts) then Nil else (if isObjectHead(ts) then collectOV1(ts) else collectObjVarargs(tl(ts)))
+def collectOV1(ts) = collectOV2(snd(hd(tl(ts))), objBodyToks(tl(tl(ts))))
+def collectOV2(name, ts) = if isTok(hd(ts), 2, 28) then appEnv(objMemVarargs(name, collectObjMembers(tl(ts))), collectObjVarargs(skipBrace(tl(ts), 1))) else collectObjVarargs(ts)
+def objMemVarargs(name, ms) = ms match { case Nil => Nil case h :: t => appEnv(objMemVararg1(name, h), objMemVarargs(name, t)) }
+def objMemVararg1(name, m) = m match { case (kind, nt) => nt match { case (mname, toks) => if kind == "def" then objDefVararg(name ++ "_" ++ mname, skipGen(toks)) else Nil } }
+def objDefVararg(pfxName, ts) = if isTok(hd(ts), 2, 21) then varargRegE(pfxName, tl(ts)) else Nil
+def varargRegE(pfxName, pts) = if lastParamStar(pts, 0, (2, 0)) then Cons((pfxName, pvCount(collectPD(pts, Nil)) - 1), Nil) else Nil
+def pvCount(pr) = pr match { case (pd, r) => dlen(pd) }
+// TOKEN-level trailing-`*` detector: walk the param-list tokens (AFTER the `(`) tracking bracket depth
+// (`(`/`[` open, `)`/`]` close) and the previous token. The vararg star (opcode 25) is the token
+// immediately before the depth-0 `)`. prev seeds with a non-star sentinel so an empty `()` never crashes.
+def lastParamStar(ts, d, prev) = if isEmpty(ts) then false else lastParamStar1(hd(ts), tl(ts), d, prev)
+def lastParamStar1(t, rest, d, prev) = if isTok(t, 2, 22) then (if d == 0 then isTok(prev, 2, 25) else lastParamStar(rest, d - 1, t)) else (if isOpenD(t) then lastParamStar(rest, d + 1, t) else (if isTok(t, 2, 51) then lastParamStar(rest, d - 1, t) else lastParamStar(rest, d, t)))
 // collectPD walks a param list (ts AFTER the `(`) -> ([(paramName, dfltToks)], restAfterClose). dfltToks
 // is Nil when the param has no default. Mirrors collectField but captures the default token slice.
 def collectPD(ts, acc) = if isEmpty(ts) then (revL(acc), ts) else (if isTok(hd(ts), 2, 22) then (revL(acc), tl(ts)) else collectPD1(ts, acc))
@@ -1961,7 +1997,7 @@ def compile1(ts, dq, bs) = compile2(ts, collectCC(ts), collectTypeCases(ts), dq,
 // The pre-pass results become the parse CONTEXT: case-class names (cs, cc-only, for isCC) + the UNIFIED
 // type-case field names (tcs, cc + enum cases) + top-level val names + the enum registries. Top-level vals
 // are collected with a base cx first (their `rest` boundaries do not depend on val-name resolution).
-def mkCxE(cs, tcs, ts, dq, vals, vars, bs, pless) = mkCx(dq, ccNamesL(cs), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts), vars, bs, pless, (collectSubReg(ts), collectEnumAllReg(ts)), collectObjReg(ts), appEnv(collectFuncDflts(ts), collectObjDflts(ts)), (collectGivenTable(ts), (collectUsingSig(ts), (collectExtMethods(ts), mangleExtMethods(ts)))))
+def mkCxE(cs, tcs, ts, dq, vals, vars, bs, pless) = mkCx(dq, ccNamesL(cs), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts), vars, bs, pless, (collectSubReg(ts), collectEnumAllReg(ts)), collectObjReg(ts), appEnv(collectFuncDflts(ts), collectObjDflts(ts)), (collectGivenTable(ts), (collectUsingSig(ts), (collectExtMethods(ts), (mangleExtMethods(ts), collectObjVarargs(ts))))))
 def compile2(ts, cs, tcs, dq, bs) = compile2b(ts, cs, tcs, dq, bs, mkCxE(cs, tcs, ts, dq, Nil, Nil, bs, Nil))
 def compile2b(ts, cs, tcs, dq, bs, base) = compile3(ts, cs, tcs, dq, mkCxE(cs, tcs, ts, dq, collectTopVals(ts, base), collectTopVars(ts, base), bs, collectPlessDefs(ts, base)))
 def compile3(ts, cs, tcs, dq, cx) = walkTop(ts, cx) match { case (strs, nDoc) => compile4(strs, nDoc, ts, tcs, dq, cx) }

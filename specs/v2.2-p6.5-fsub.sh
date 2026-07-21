@@ -374,6 +374,9 @@ d brk_ml     'val cols = [
 println(cols)'
 d brk_arg    'def f(xs: List[Int]): Int = xs.length
 def main(): Int = f([10, 20])'
+d obj_varargs 'object P:
+  def many(xs: Int*): Int = xs.toList.size
+def main(): Int = P.many(1, 2, 3)'
 
 if [ "${1:-}" = "--self" ]; then
   echo "--- X1: F compiles its OWN source (TYPED fixpoint) ---"
