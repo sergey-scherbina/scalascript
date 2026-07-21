@@ -1,0 +1,6 @@
+pages:4
+base:accepted
+truncated-next:overflow.next: overflow chain ended early or points out of range
+out-of-range-next:overflow.next: overflow chain ended early or points out of range
+looped-next:overflow chain contains a cycle
+truncated-page:overflow.length: overflow page is truncated

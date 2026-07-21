@@ -1,0 +1,105 @@
+#!/usr/bin/env ssc
+---
+name: scljet-overflow-traversal-corrupt
+description: SclJet M2d user-table overflow-chain traversal corruption — truncated/looped/short next pointers fail during traversal, not at open (cross-backend)
+backends: [int, js]
+---
+
+# SclJet overflow-chain traversal corruption
+
+The open-time reader validates only the header, pager, and page-1 schema, so a
+`next` pointer damaged inside a user table's overflow page is caught only when
+the row is traversed. This case builds a valid multi-page overflow chain in
+memory (no host VFS), corrupts the first overflow page's `next` pointer four
+ways, and drives each through the pager cursor. int and JS must agree byte-for-
+byte on the localized diagnostics.
+
+[ByteSlice, byteSliceSlice, byteSliceUpdated, SqliteValue, SqlInteger, SqlText, SqliteLimits, LockLevel, SyncFlags, DeviceCharacteristic, ShmLockMode, VfsError, VfsRead, VfsWrite, SharedRegion, SqliteFile, DatabaseHeader, ReadonlyPager, RowidTableTree, PagerCursorOpen, PagerCursorStep, openReadonlyCursor, readonlyCursorFirst, decodeDatabaseHeader, buildOverflowTableDatabase](std/scljet/index.ssc)
+
+```scalascript
+// "a" * n via log-depth recursion (JS has no TCO).
+def text(n: Int): String =
+  if n <= 0 then ""
+  else if n == 1 then "a"
+  else
+    val half = text(n / 2)
+    if n % 2 == 0 then half + half else half + half + "a"
+
+def limits(): SqliteLimits = SqliteLimits(
+  10000000L, 10000, 1000, 1000, 1000, 10, 10000000L, 10000, 1000,
+  1000000L, 10000000L, 64, 100000L, 10000, 10000000L
+)
+
+// A minimal SqliteFile stub: every page is served from the pager cache, so a
+// cache miss (which never happens here) is the only path that touches the file.
+case object NoFile extends SqliteFile:
+  def readAt(offset: Long, length: Int): Either[VfsError, VfsRead] = Left(VfsError("io", "cache miss", false))
+  def writeAt(offset: Long, bytes: ByteSlice): Either[VfsError, VfsWrite] = Left(VfsError("readonly", "no file", false))
+  def truncate(size: Long): Either[VfsError, Unit] = Left(VfsError("readonly", "no file", false))
+  def sync(flags: SyncFlags): Either[VfsError, Unit] = Right(())
+  def size(): Either[VfsError, Long] = Right(2048L)
+  def lock(level: LockLevel): Either[VfsError, Unit] = Right(())
+  def unlock(level: LockLevel): Either[VfsError, Unit] = Right(())
+  def checkReservedLock(): Either[VfsError, Boolean] = Right(false)
+  def sectorSize: Int = 512
+  def deviceCharacteristics: List[DeviceCharacteristic] = Nil
+  def shmMap(region: Int, size: Int, extend: Boolean): Either[VfsError, SharedRegion] = Left(VfsError("unsupported", "no shm", false))
+  def shmLock(offset: Int, count: Int, mode: ShmLockMode): Either[VfsError, Unit] = Left(VfsError("unsupported", "no shm", false))
+  def shmBarrier(): Unit = ()
+  def shmUnmap(delete: Boolean): Either[VfsError, Unit] = Right(())
+  def close(): Either[VfsError, Unit] = Right(())
+
+def pageAt(image: ByteSlice, index: Long): ByteSlice =
+  byteSliceSlice(image, ((index - 1L) * 512L).toInt, 512) match
+    case Right(page) => page
+    case Left(_) => ByteSlice.empty
+
+// Overwrite the 4-byte big-endian overflow `next` pointer (bytes 0..3 of a page).
+def putNext(page: ByteSlice, value: Long): ByteSlice =
+  val b0 = byteSliceUpdated(page, 0, ((value >> 24) & 255L).toInt).toOption.get
+  val b1 = byteSliceUpdated(b0, 1, ((value >> 16) & 255L).toInt).toOption.get
+  val b2 = byteSliceUpdated(b1, 2, ((value >> 8) & 255L).toInt).toOption.get
+  byteSliceUpdated(b2, 3, (value & 255L).toInt).toOption.get
+
+// The 1016-char row keeps 39 local bytes and spills a two-page overflow chain:
+// page 1 = schema, page 2 = table leaf root, pages 3 -> 4 = the chain.
+val rows: List[List[SqliteValue]] = List(
+  List(SqlInteger(1L), SqlText(text(1016))),
+  List(SqlInteger(2L), SqlText("tail")))
+val image = buildOverflowTableDatabase(512, 1, 1, "t", "CREATE TABLE t(n INTEGER, v TEXT)", rows).toOption.get
+val pageCount = (image.length / 512).toLong
+val header = decodeDatabaseHeader(byteSliceSlice(image, 0, 100).toOption.get).toOption.get
+
+def baseMap(): Map[Long, ByteSlice] =
+  var m: Map[Long, ByteSlice] = Map()
+  var i = 1L
+  while i <= pageCount do
+    m = m.updated(i, pageAt(image, i))
+    i = i + 1L
+  m
+
+def pagerOf(pages: Map[Long, ByteSlice]): ReadonlyPager =
+  ReadonlyPager("mem", "/mem.db", NoFile, header, pageCount, pageCount, pages,
+    pages.keys.toList.sorted, 32, limits(), false)
+
+// Read the first (overflow) row of the table root; the overflow chain is
+// assembled here, so a corrupt chain fails at this step.
+def traverse(pages: Map[Long, ByteSlice]): String =
+  openReadonlyCursor(pagerOf(pages), 2L, RowidTableTree) match
+    case Left(error) => "OPEN:" + error.message
+    case Right(PagerCursorOpen(p1, cursor)) => readonlyCursorFirst(p1, cursor) match
+      case Left(error) => error.message
+      case Right(PagerCursorStep(_, _, _)) => "accepted"
+
+// Page 3 is the first overflow page of the two-page chain (3 -> 4).
+val firstOverflow = 3L
+def mutateNext(value: Long): Map[Long, ByteSlice] =
+  baseMap().updated(firstOverflow, putNext(pageAt(image, firstOverflow), value))
+
+println("pages:" + pageCount.toString)
+println("base:" + traverse(baseMap()))
+println("truncated-next:" + traverse(mutateNext(0L)))
+println("out-of-range-next:" + traverse(mutateNext(99L)))
+println("looped-next:" + traverse(mutateNext(firstOverflow)))
+println("truncated-page:" + traverse(baseMap().updated(firstOverflow, byteSliceSlice(pageAt(image, firstOverflow), 0, 400).toOption.get)))
+```
