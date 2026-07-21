@@ -2203,6 +2203,16 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
             feature-spec behavior checks/results and SPRINT/CHANGELOG in separate commits, push each
             green slice, require exact-final-SHA `scripts/ci-status` exit 0, then release the claim and
             remove the worktree with `scripts/rm-worktree v2-native-coroutine-provider`.
+            - [ ] **Q4.4a — repair the gate exposed by final verification.** The closed-layout gate
+                  rejects the two staged native SclJet VFS JARs as unclassified, while the native
+                  plugin-boundary smoke omits them and passes blind. Track as
+                  `v21-scljet-vfs-standard-gate-inventory-drift`; add both explicit ownership/JAR/
+                  `jdeps` entries, require the service file only on the provider, and rerun both real
+                  gates plus the dependency detector self-test. This is measurement inventory only;
+                  do not alter SclJet runtime behavior or the active `mcp-types` lane.
+            - [ ] **Q4.4b — finish the original closeout after Q4.4a is green.** Re-run the complete
+                  Coroutine verification matrix, check the feature spec against named tests, record
+                  results/CHANGELOG, then hold the claim through exact-final-SHA CI exit 0.
 
 The path to ideal/small/powerful is: **(1) establish truth (reconcile the stale ROADMAP), (2) converge
 the two fronts into one, (3) redraw the kernel/tower boundary so "small" is real.** Breadth (cover the

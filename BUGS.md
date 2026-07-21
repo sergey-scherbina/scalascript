@@ -1,5 +1,25 @@
 # Bug tracker
 
+## v21-scljet-vfs-standard-gate-inventory-drift — staged provider JARs evade one gate and break another
+
+**Status:** OPEN (found 2026-07-21 by codex-q4 in the real final provider-isolation gate; announced
+to `@scalascript` / `@claude-code` in Rozum; queued in SPRINT Q4.4a).
+
+**Reproduce:** after `scripts/sbtc "installBin"`, run
+`tests/e2e/v21-plugin-backend-isolation-smoke.sh`. It exits 1 because
+`scripts/v21-core-dependency-gate` reports both
+`scalascript-scljet-vfs-host_3-0.1.0-SNAPSHOT.jar` and
+`scalascript-v2-native-scljet-vfs-plugin_3-0.1.0-SNAPSHOT.jar` as unclassified in the closed standard
+layout. In the same staged image, `tests/e2e/v21-native-plugin-boundary-smoke.sh` passes without
+inventorying either JAR, so its green result proves nothing about their dependencies or service
+boundary.
+
+**Root cause / fix gate:** feature commit `6131e17a3` added the native SclJet VFS plugin and shared
+zero-dependency host to `installBin`, but the two explicit measurement inventories were not updated.
+Register both ownership roots in `v21-core-dependency-gate`; add both to the native boundary JAR and
+`jdeps` inventory, require a service entry only on the plugin, and prove the host has none. Then run
+both real gates and their focused dependency-gate self-test; every check must print its failure.
+
 ## v1-jvm-coroutine-generic-surface — generated runtime rejects the public typed API
 
 **Status:** OPEN (found 2026-07-21 by codex-q4 while enabling additive native-bytecode
