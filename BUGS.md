@@ -1,5 +1,20 @@
 # Bug tracker
 
+## coroutine-demo-readme-link-missing — README points to an absent runnable example
+
+**Status:** OPEN (found 2026-07-21 by codex-q4 while specifying
+`v2-native-coroutine-provider`; planned in SPRINT Q4.3).
+
+**Reproduce:** from the repository root, `test -e examples/coroutine-demo.ssc` exits 1 while
+`README.md` lists `[coroutine-demo.ssc](examples/coroutine-demo.ssc)` in its runnable examples table.
+The missing file makes the public Coroutines entry a broken local link and leaves the documented
+low-level API without the required self-contained example.
+
+**Notes / fix gate:** add the referenced example as part of Q4.3, execute it through the assembled
+standard native VM, direct ASM, and `build-jvm` paths, and keep the README row aligned with the actual
+file. Record the landed SHA here as `fixed`; this self-reported bug can move to `done` only after the
+real assembled-path checks confirm the link target and program.
+
 ## bench-compile-wrapper-hides-real-compiler-benches — compile measurements cannot start
 
 **Status:** DONE (2026-07-21, `5aee0cd35`; found and confirmed through the real wrapper by codex while
