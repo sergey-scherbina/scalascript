@@ -118,6 +118,8 @@ declare -a root_specs=(
   'feature-plugin|scalascript-v2-native-crypto-plugin_*.jar'
   'feature-plugin|scalascript-v2-native-os-plugin_*.jar'
   'feature-plugin|scalascript-v2-native-fs-plugin_*.jar'
+  'feature-plugin|scalascript-scljet-vfs-host_*.jar'
+  'feature-plugin|scalascript-v2-native-scljet-vfs-plugin_*.jar'
   'feature-plugin|scalascript-v2-native-json-plugin_*.jar'
   'feature-plugin|scalascript-v2-native-http-fast-plugin_*.jar'
   'feature-plugin|scalascript-http-fast-engine_*.jar'

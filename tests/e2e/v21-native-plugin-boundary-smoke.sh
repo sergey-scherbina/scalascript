@@ -11,6 +11,8 @@ host=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-host-plugin_*.jar' 
 crypto=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-crypto-plugin_*.jar' -print -quit)
 os=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-os-plugin_*.jar' -print -quit)
 fs=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-fs-plugin_*.jar' -print -quit)
+scljet_vfs_host=$(find "$JARS" -maxdepth 1 -name 'scalascript-scljet-vfs-host_*.jar' -print -quit)
+scljet_vfs=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-scljet-vfs-plugin_*.jar' -print -quit)
 json=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-json-plugin_*.jar' -print -quit)
 http=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-http-fast-plugin_*.jar' -print -quit)
 http_engine=$(find "$JARS" -maxdepth 1 -name 'scalascript-http-fast-engine_*.jar' -print -quit)
@@ -28,7 +30,7 @@ actors=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-actors-plugin_*.j
 distributed=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-distributed-plugin_*.jar' -print -quit)
 graph=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-graph-plugin_*.jar' -print -quit)
 optics=$(find "$JARS" -maxdepth 1 -name 'scalascript-v2-native-optics-plugin_*.jar' -print -quit)
-for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$http_engine" "$sql" "$ui" "$state" "$effects" "$storage" "$reactive" "$yaml" "$content" "$dataset" "$generator" "$actors" "$distributed" "$graph" "$optics"; do
+for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$scljet_vfs_host" "$scljet_vfs" "$json" "$http" "$http_engine" "$sql" "$ui" "$state" "$effects" "$storage" "$reactive" "$yaml" "$content" "$dataset" "$generator" "$actors" "$distributed" "$graph" "$optics"; do
   [[ -n "$jar_file" && -f "$jar_file" ]] || {
     echo 'v21-native-plugin-boundary-smoke: staged native provider jar missing' >&2
     exit 2
@@ -39,6 +41,11 @@ jar tf "$host" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 jar tf "$crypto" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 jar tf "$os" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 jar tf "$fs" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
+jar tf "$scljet_vfs" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
+if jar tf "$scljet_vfs_host" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null; then
+  echo 'v21-native-plugin-boundary-smoke: SclJet VFS host must not be a native provider' >&2
+  exit 1
+fi
 jar tf "$json" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 jar tf "$http" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 if jar tf "$http_engine" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null; then
@@ -60,7 +67,7 @@ jar tf "$distributed" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/d
 jar tf "$graph" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 jar tf "$optics" | grep -Fx 'META-INF/services/ssc.plugin.NativePlugin' >/dev/null
 
-for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$json" "$http" "$http_engine" "$sql" "$ui" "$state" "$effects" "$storage" "$reactive" "$yaml" "$content" "$dataset" "$generator" "$actors" "$distributed" "$graph" "$optics"; do
+for jar_file in "$spi" "$host" "$crypto" "$os" "$fs" "$scljet_vfs_host" "$scljet_vfs" "$json" "$http" "$http_engine" "$sql" "$ui" "$state" "$effects" "$storage" "$reactive" "$yaml" "$content" "$dataset" "$generator" "$actors" "$distributed" "$graph" "$optics"; do
   deps=$(jdeps --multi-release base --ignore-missing-deps -verbose:class -cp "$CP" "$jar_file")
   if printf '%s\n' "$deps" | grep -E \
       'scala\.meta|scalascript\.interpreter|scalascript\.ast|scalascript\.plugin\.api|scalascript\.frontend|ssc\.bridge|dotty\.tools|javax\.tools' >/dev/null; then

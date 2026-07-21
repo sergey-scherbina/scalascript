@@ -14,6 +14,8 @@ head -1 "$report" | grep -Fx $'layer\troot\tdependency\tparser_codec_edge\tpolic
 grep -F $'seed\tscalascript-v2-core_' "$report" >/dev/null
 grep -F $'pure-core\tscalascript-v2-native-plugin-spi_' "$report" >/dev/null
 grep -F $'backend-plugin\tscalascript-v2-jvm-bytecode_' "$report" >/dev/null
+grep -F $'feature-plugin\tscalascript-scljet-vfs-host_' "$report" >/dev/null
+grep -F $'feature-plugin\tscalascript-v2-native-scljet-vfs-plugin_' "$report" >/dev/null
 grep -F $'feature-plugin\tscalascript-v2-native-json-plugin_' "$report" >/dev/null
 grep -F $'tools/compat\t(migration-full-layout)' "$report" >/dev/null || \
   test -d "$ROOT/bin/lib/standard/jars"
