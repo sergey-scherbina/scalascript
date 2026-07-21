@@ -9,6 +9,89 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## 2026-07-21 — Sergiy "займись всем этим" batch (scljet + v2 F5 + F4 flip)
+
+Six tasks queued after the scljet/v2 status review (2026-07-21). Decisions Sergiy made this session:
+F5 = **study + safe off-kernel relocations**; scljet = **all 4 items incl. the big mutable pager**;
+F4 flip = **flip with caveat** (after siblings land mcp-types + f-ambient-prelude-drop-in; old ssc0
+front stays as the safe fallback). The v2-F *residual/drop-in* side is being worked by siblings
+(`mcp-types` claude-code, `f-ambient-prelude-drop-in` opus, `v2-native-coroutine-provider` codex,
+`w5-int-width-measure` claude-code) — **do NOT touch `specs/v2.2-p6.5-fsub.ssc`, the coroutine
+provider, or the F cutover path from these tasks** (collision). These six are the non-colliding zone.
+
+- [ ] **scljet-overflow-traversal-hardening** (`scljet-overflow-traversal-hardening`) — the last M2d
+      corpus-hardening item (BACKLOG "SclJet interoperability follow-ups"). Add a **user-table
+      overflow-chain traversal corruption** negative check: truncated / looped `next` pointers inside
+      an overflow page of `overflow-thresholds.db` (non-schema pages). Current `scljet-corrupt-check`
+      only runs `openReadonly` (header + pager + page-1 schema), never traverses user tables, so these
+      can't be caught there. Add a **traversal-based** negative check: run the corpus dumper (already
+      prints `ERROR:<msg>` on a `Left`) over the corrupt file and assert the overflow diagnostic
+      (`overflow chain ended early or points out of range`, `overflow chain contains a cycle`,
+      `overflow page is truncated`). Byte-mutation must be reproducible via the pinned byte-exact
+      SQLite 3.53.3 (this machine's Python `sqlite3` = 3.53.3). Corpus `.db` files are `.gitignore`d →
+      `git add -f`. Verify int==js. Spec-dev: extend `specs/scljet.md` corpus section.
+
+- [ ] **scljet-portable-text-projection** (`scljet-portable-text-projection`) — general target-neutral
+      **code-points/UTF-16-units → String** construction API, then project SclJet `DecodedText` →
+      `SqlText` without a host/JSON decoder. NB `Int.toChar` now works on v1 int+JS (memory correction
+      2026-07-14: `codepointsToString(cps)=cps.fold(acc+cp.toChar.toString)`), so most of the old
+      blocker is gone — this task is to (a) give it a **spec'd, named** portable API surface (spec
+      `specs/scljet-portable-text-projection.md`), (b) wire `DecodedText`→`SqlText`, (c) prove
+      interp/VM/ASM/JS parity, keeping raw encoded bytes as the SQLite GIGO source of truth. Add a
+      conformance case + example. Check the v2 native path renders dynamic chars correctly too (v2 was
+      noted to render chars as decimal numbers — verify / file a bug if still true).
+
+- [ ] **scljet-standalone-library-symlink-drop** (`scljet-standalone-library-symlink-drop`) — drop the
+      `v1/runtime/std/scljet` → `../../../scljet` compatibility symlink and teach the resolvers a
+      **first-class `scljet/` library root**. Touch: `build.sbt` `installBin` glob (stage from `scljet/`
+      directly, ~line 1946/2033), `ImportResolver` (`v1/lang/core/.../imports/ImportResolver.scala`,
+      maps `std/foo`→`.../runtime/std/foo`), and the native/JS + `check-stdlib-interface-load` loaders
+      in `Main.scala` — all mapping `std/scljet` → `scljet/`. Spec `specs/scljet-standalone-library.md`.
+      ⚠ Touches `build.sbt` (shared hotspot with the flip + F5 tasks) → rebase before push; `scripts/sbtc`
+      does NOT reload build.sbt (run `sbtc "reload"` first, or `sbt -batch`). Verify: FULL conformance +
+      native `ssc run` + JS on the scljet cases (`--no-memo`), and one non-scljet std case still resolves.
+
+- [ ] **scljet-mutable-pager** (`scljet-mutable-pager`) — the big deep item. A real **in-place mutable
+      pager** on top of `journal.ssc` `writePagesJournaled`: dirty-page tracking + **cell-level in-place
+      edits** (insert/delete/update a cell within a leaf, split/merge on overflow/underflow), replacing
+      today's read-modify-rewrite DML (correct but rewrites the whole file). Also close **3+-level
+      indexes** (the remaining bullet in `scljet-m3-write-followups`). Existing `scljet/pager.ssc` is the
+      landing spot. Spec-dev FIRST: `specs/scljet-mutable-pager.md` (dirty-set model, journal-before-write
+      ordering, split/merge invariants, crash-safety proof obligation). Verify every step byte-exact vs
+      reference SQLite 3.53.3 (`integrity_check=ok` after in-place edits) + int==js. GOTCHAS from memory:
+      interp `if cond then <stmt>` (no else) SILENTLY SKIPPED → use if/else expression; JS has no TCO →
+      iterative `while`+`var` for page/byte loops; unique var-name prefixes (var-scope leak history);
+      conformance memo keys on `ssc.jar` not scljet sources → `--no-memo` after editing `scljet/*.ssc`;
+      verify JS via `bin/ssc-tools emit-js <case> | node` from `tests/conformance/` (scratchpad path
+      breaks emit-js's std/scljet resolution). Big → land in shippable slices on the feature branch,
+      push each green slice to main.
+
+- [ ] **v2-f5-kernel-shrink** (`v2-f5-kernel-shrink`) — Sergiy's chosen direction: **study + safe
+      off-kernel relocations**. Kernel ≈6,035 lines (`Runtime.scala` 4,818 + CoreIR 415 + Ssc0 311 +
+      PortableEffects 221 + PortableDecimal 171 + Main 97); target ~2,800. Step A (study): per-region
+      map — move-to-tower / delete / must-stay — with an **honest fixpoint-verified** achievable target;
+      write `specs/v2-f5-kernel-shrink.md`. Step B (execute the safe wins only): relocate perf layers
+      (FastCode/SelfRec ~962 lines) and PortableEffects/PortableDecimal off the kernel **where the X1
+      self-compile fixpoint stays byte-identical** (stage1==stage2) AND semantic gate stays green. Do
+      NOT attempt the deep δ-table retirement (needs F emitting typed/monomorphized IR) — that's a
+      separate later arc; queue it to BACKLOG with the study's findings. ⚠ Kernel = `v2/src` (build via
+      `scala-cli --power package v2/src --assembly`). Do NOT edit `specs/v2.2-p6.5-fsub.ssc` (F front —
+      sibling-owned) or `v2/lib` oracle. Gate every slice: fixpoint byte-identical + semantic 247+/247.
+
+- [ ] **v2-f4-flip** (`v2-f4-flip`, **orchestrator-held — Sergiy authorized "flip with caveat"**) — flip
+      F to the default native front: one line in `RunNativeV2.frontIsF` (opt-IN → opt-OUT); no re-stage;
+      old ssc0 front (`ssc1-front`/`ssc1-lower`) stays as the safe fallback (so unbound-global gaps can't
+      regress). **HARD GATE: do NOT land until siblings land `mcp-types` (last F4 residual) AND
+      `f-ambient-prelude-drop-in` (the "F is not a drop-in front" gap).** Caveat Sergiy accepted: any
+      still-open multi-file residuals regress post-flip until F's multi-file lowering is fixed; 3 were
+      SILENT-WRONG (F exits 0, wrong stdout) — re-run the clean `SSC_DUALRUN_ALL` sweep after the
+      siblings land and confirm the residual count before flipping. Full gates: fixpoint byte-identical,
+      semantic 247+/247, dualrun manifest green, docs (`specs/v2-language-surface.md` §7 step 4,
+      README front-default note). Step 5 (delete old front, ~8,900 lines) stays deferred until F covers
+      the fallback set on its own.
+
+---
+
 ## v2-f4 (`v2-f4`, 2026-07-20) — REVERSIBLE front-swap staging (flip HELD by Sergiy)
 
 Plan: `specs/v2-language-surface.md` §7 reversible sequence, steps 1-3 ONLY. Do NOT flip the installBin
