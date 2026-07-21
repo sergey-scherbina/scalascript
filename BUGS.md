@@ -1,5 +1,31 @@
 # Bug tracker
 
+## bench-compile-wrapper-hides-real-compiler-benches — compile measurements cannot start
+
+**Status:** OPEN (2026-07-21, found by codex while starting Q2 measured optimization).
+
+**Reproduce:**
+
+```bash
+BENCH_WI=1 BENCH_MI=1 BENCH_F=1 scripts/bench compile parseActors
+```
+
+The wrapper exits 1 with `No matching benchmarks` after invoking JMH with
+`.*CompilerBench.*parseActors.*`. The benchmark exists as `ParserBench.parseActors`, so the
+apparatus excludes the observable it claims to measure. `scripts/bench compile typeActors` and
+`unifyDeep` have the same shape because their classes are `TyperBench` and `UnifyBench`.
+
+**Root cause / companion defect.** `scripts/bench` hard-codes `CompilerBench` as the compile-lane
+class filter; only `SsccFormatCompilerBench` happens to contain that substring. Its `list` command
+also queries only `interpreterBench`, so it hides every compiler-project benchmark while claiming to
+list all available benches.
+
+**Fix plan.** Make the compile lane select all four compiler benchmark classes and make `list`
+aggregate the interpreter and compiler projects without duplicates. Add a fast wrapper regression
+that inspects the actual generated sbt/JMH commands, then prove `parseActors`, `typeActors`, and
+`unifyDeep` each run through `scripts/bench compile` and compiler benches appear in `scripts/bench
+list`. Only after that gate is truthful may Q2 record a baseline/profile and optimize compiler code.
+
 ## f-imported-caseclass-default-arg-synth — F front missed defaulted params on OBJECT-METHOD calls
 
 **Status:** FIXED (2026-07-21, `b1b72415e`; f-caseclass-default-arg). ROOT CAUSE RE-PINNED by live

@@ -2078,10 +2078,22 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
       `(` after the first `parseParamList`; global newline continuation is unchanged, so abstract-def
       boundaries stay intact. The staged native/v1 repro prints `ab!` on both and the same-line form
       remains green. `BUGS.md` and this queue now match the existing source, changelog, and git history.
-- [ ] **Q2 — measured optimization after the bug slice.** Select an unclaimed hot path exposed by the
-      real bug/feature workload, record a reproducible `scripts/bench <lane> <pattern>` baseline in this
-      file, profile before changing code, and land only a behavior-preserving improvement with repeated
-      before/after evidence and the affected conformance slice green.
+- [ ] **Q2 — measured optimization after the bug slice** (`q2-measured-optimization`). Compiler-front
+      lane selected because staged CLI/package tests repeatedly parse and typecheck `.ssc`, while active
+      F/dualrun and JIT claims own the adjacent paths. Record every result with the exact `scripts/bench`
+      command and land only a behavior-preserving improvement with repeated A/B evidence.
+      - [ ] **Q2.0 — repair the measurement apparatus before baseline.** Repro on current main:
+            `BENCH_WI=1 BENCH_MI=1 BENCH_F=1 scripts/bench compile parseActors` exits 1 because the
+            wrapper emits `.*CompilerBench.*parseActors.*`; that excludes `ParserBench`, `TyperBench`,
+            and `UnifyBench`. `scripts/bench list` also queries only `interpreterBench`. Make compile
+            select all compiler benchmark classes, aggregate both projects in `list`, and add a fast
+            command-generation regression. Done when wrapper calls for `parseActors`, `typeActors`,
+            and `unifyDeep` run and list output includes compiler benches.
+      - [ ] **Q2.1 — profile and optimize one measured compiler hot path.** After Q2.0 lands, run the
+            normal repeated `scripts/bench compile <case>` baseline plus an allocation/profile pass,
+            write the numbers and identified owner here, then make the smallest source change that
+            improves repeated measurements without changing parser/typer output. Verify the owning
+            unit suite and affected conformance slice before push.
 - [ ] **Q3 — minimize the touched path.** Remove duplication, dead branches, or avoidable abstractions
       revealed by Q1/Q2 without broad redesign; report the net source-line/complexity change and prove
       byte/observable behavior unchanged with the same regression and benchmark gates.
