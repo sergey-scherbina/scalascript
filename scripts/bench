@@ -101,13 +101,9 @@ esac
 jmh_run() {
   local project="$1"; shift
   local cls="$1"; shift
-  local extra=("$@")
   local regex=".*${cls}.*${pat}.*"
-  local options="-wi ${WI} -i ${MI} -f ${F}"
-  if ((${#extra[@]})); then
-    options+=" ${extra[*]}"
-  fi
-  sbt "${project}/Jmh/run ${options} ${regex}"
+  local options=(-wi "$WI" -i "$MI" -f "$F" "$@")
+  sbt "${project}/Jmh/run ${options[*]} ${regex}"
 }
 
 require_pat() {
