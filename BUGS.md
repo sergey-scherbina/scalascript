@@ -61,15 +61,31 @@ FIXPOINT (fsub.sh --self) stage1==stage2 byte-identical (369 543 B); fsub corpus
 
 ## f-object-method-varargs — F has no vararg collapse for object methods
 
-**Status:** OPEN, F-lane only (found 2026-07-21 by f-caseclass-default-arg; unmasked once the
-object-method default-arg fix let mcp-types run past `Resource.text`). Distinct from default-args.
+**Status:** FIXED 029a454b8 (2026-07-21). F-lane only (found 2026-07-21 by f-caseclass-default-arg;
+unmasked once the object-method default-arg fix let mcp-types run past `Resource.text`). Distinct from
+default-args.
 
 `object O { def m(xs: T*) }` — F emits `O_m` as an arity-1 def but lowers the call `O.m(a, b)` to
-`(app (global O_m) a b)` (2 args) → `arity: 1 expected, N given`. F has no vararg machinery at all; the
+`(app (global O_m) a b)` (2 args) → `arity: 1 expected, N given`. F had no vararg machinery at all; the
 oracle collapses trailing args into a list via `varargDefsCell` / `lastParamVarargCell`
 (ssc1-front :577–586). Minimal repro: `object P: def many(xs: Int*): Int = xs.toList.size` +
-`P.many(1,2,3)` → F `ssc: arity: 1 expected, 3 given`, oracle `3`. Blocks `tests/conformance/mcp-types.ssc`
+`P.many(1,2,3)` → F `ssc: arity: 1 expected, 3 given`, oracle `3`. Blocked `tests/conformance/mcp-types.ssc`
 (`Prompt.messages(m1, m2)`).
+
+**Fix (mirrors collectObjDflts/postMeth, commit 46626844a):** new `collectObjVarargs` registry maps each
+`object O { def m(.., xs: T*) }` (LAST param a token-level trailing `*` — opcode 25 — since `typeText`
+erases the star) to `O_m → lead = paramCount-1`, held in its own cx slot (`objVarargsOf`, nested in the
+extMethods payload alongside `mangleExt`). `postMethV` intercepts the object-method call path AFTER
+`parseArgL`, registered-vararg-ONLY, emitting `(app (global O_m) <takeL(lead) items> <consChain(dropL(lead))>)`
+byte-identical to the oracle; every non-vararg call is unchanged. Added a tower golden `tower__obj_varargs`.
+Gates: fsub `--self` fixpoint byte-identical (obj_varargs IR 7524B==ref), semantic 247/247, dualrun 0
+unexpected (mcp-types stays a manifest GAP). Verified on the typed-IR + dispatcher base after rebase.
+
+**Follow-up unmasked (separate, not vararg):** mcp-types now runs past the vararg call but still diverges
+at line 13 — `Transport.Http(8080)` matched by `case Transport.Http(p, _)` prints `?` under F vs
+`http:8080` under the default front. An F enum-case default-arg / multi-field-pattern gap (`Http` has a
+defaulted 2nd param), previously masked by the earlier arity crash; keeps mcp-types a dualrun GAP. Owned
+by the dualrun manifest (`specs/v2.2-p6.5-dualrun.expected`).
 
 ## f-operator-extension-dispatch — F treats `++`/`/` extension operators as builtin infix ops
 
