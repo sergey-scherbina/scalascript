@@ -527,6 +527,13 @@ effects at the destination. The following extensions require separate designs an
 TI-5's representative Scalameta-free boundary is complete; these full-surface
 parity slices are intentionally non-blocking for the artifact/packaging cutover:
 
+- [ ] **v1-jvm-coroutine-generic-surface** — make JvmGen's generated coroutine runtime preserve
+      the public `Coroutine[Y, R, T]` type surface instead of exposing erased
+      `coroutineCreate(() => Any)` / `suspend(Any): Any`. Baseline:
+      `bin/ssc-tools run-jvm tests/conformance/coroutine-basic.ssc` rejects explicit type arguments
+      and infers two-way resume values as `Any`; tracked in `BUGS.md`. This is compatibility-tier
+      lowering work, not part of the core-free native-provider Q4 slice. Done when the historical
+      JVM lane passes the same coroutine conformance output and its temporary `known-red` is removed.
 - [ ] **v21-native-http-advanced** — native middleware/CORS/gzip, TLS,
       streaming responses, SSE, uploads, WebSockets, and static UI serving;
       replace each current bounded unavailable diagnostic with a tested host

@@ -2185,10 +2185,15 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
             zero-capacity coroutine handoff and opaque lifecycle state; no module, SPI, allowlist, or
             packaging root changed. Provider tests are 9/9, and the assembled basic fixture is exact
             on VM/direct ASM. The old error fixture's null proxy is tracked separately for Q4.3.
-      - [ ] **Q4.3 — ship the user surface.** Add a self-contained `examples/coroutines.ssc`, reference
+      - [ ] **Q4.3 — ship the user surface.** Add the already-linked self-contained
+            `examples/coroutine-demo.ssc`, reference
             it from README/user docs and the feature spec, and extend focused conformance to compare
             VM/direct ASM for lazy start, yielded/returned two-way values, nested innermost suspend,
-            outside-suspend diagnostics, cancellation, and invalid resume.
+            outside-suspend diagnostics, cancellation, and invalid resume. **Discovery:** the
+            historical JVM codegen lane itself rejects the typed Coroutine API because its runtime
+            fragment erases `coroutineCreate`/`suspend`; this is tracked as
+            `v1-jvm-coroutine-generic-surface` in `BUGS.md`/`BACKLOG.md`. Keep that lane visible and
+            diffed via an expiring `known-red`; do not let it suppress the additive native ASM lane.
       - [ ] **Q4.4 — verify and close.** Run the provider unit suite, exact runnable example on VM,
             direct ASM and `build-jvm`, and `tests/conformance/run.sh --only 'coroutine-*'`; update the
             feature-spec behavior checks/results and SPRINT/CHANGELOG in separate commits, push each

@@ -1,5 +1,22 @@
 # Bug tracker
 
+## v1-jvm-coroutine-generic-surface — generated runtime rejects the public typed API
+
+**Status:** OPEN (found 2026-07-21 by codex-q4 while enabling additive native-bytecode
+conformance; deferred outside native-provider Q4 to `BACKLOG.md`).
+
+**Reproduce:** `bin/ssc-tools run-jvm tests/conformance/coroutine-basic.ssc` fails compilation:
+`coroutineCreate` does not take type parameters, and the value returned by `suspend` is `Any`, so
+the two-way `b + "-pong"` expression has no `+`. The JVM runtime fragment currently exposes
+`coroutineCreate(body: () => Any)` and `suspend(v: Any): Any`, while the normative/public API is
+`coroutineCreate[Y, R, T](body: () => T)` and `suspend[Y, R](out: Y): R`.
+
+**Notes / fix gate:** this is the pre-existing v1 Scala-codegen lane, not the new v2 native VM/ASM
+provider. A faithful fix must preserve the independent yield type `Y` and resume type `R`; merely
+adding unused type parameters to `coroutineCreate` does not repair inference for `suspend`. Until
+that compatibility lowering is fixed, coroutine conformance must still run and diff the JVM lane as
+an expiring `known-red` while the additive native VM and direct-ASM lanes compare normally.
+
 ## coroutine-error-conformance-null-proxy — native lane cannot validate the intended body failure
 
 **Status:** OPEN (found 2026-07-21 by codex-q4 in the real assembled VM/direct-ASM paths; planned in
