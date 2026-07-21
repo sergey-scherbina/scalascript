@@ -469,7 +469,18 @@ def emitMethod(nm, c, args, dq) = "(prim __method__ (lit (str " ++ dq ++ nm ++ d
 // parseArgL (not parseArgs) so the arg COUNT and the single-arg shape are recoverable — selMethodOr needs
 // them (mkString arity, map's multi-param-lambda guard). joinArgs rebuilds the identical space-joined
 // string, so charAt/substring/__method__ emission is byte-identical to the old parseArgs path.
-def postMeth(c, nm, ts, env, cx) = if isCopyNamed(nm, tl(ts)) then parseCopyCall(c, tl(ts), env, cx) else parseArgL(tl(ts), env, cx) match { case (es, r) => postMeth2(c, nm, es, r, env, cx) }
+// E2b: an APPLIED object-method call `O.m(a, ..)` (isObjMember) lowers to `(app (global O_m) ..)`
+// (emitMethodCall). When `def m(x, y = d)` has trailing defaults and the call is under-applied, mirror
+// the plain-def / ctor path and synthesize the omitted defaults, keyed by the MANGLED name `O_m` — the
+// exact global emitMethodCall targets — matching the oracle (ssc1-lower prefixDefs aliasFuncDefault :4196
+// + expandDefaultCall). Reuses scanArgs/dfltGo/synthCall so the emission is byte-identical to a plain call
+// under the same defaults; any non-object receiver / no-default method / over-applied call keeps the
+// existing parseArgL path unchanged (mg == "" or dfltGo false).
+def postMeth(c, nm, ts, env, cx) = if isCopyNamed(nm, tl(ts)) then parseCopyCall(c, tl(ts), env, cx) else postMethO(c, nm, objMangleName(c, nm, cx), tl(ts), env, cx)
+def objMangleName(c, nm, cx) = if isObjMember(globalNameOf(c), nm, cx) then globalNameOf(c) ++ "_" ++ nm else ""
+def postMethO(c, nm, mg, ts, env, cx) = if objDfltFires(mg, ts, env, cx) then objDfltCall(mg, ts, env, cx) else parseArgL(ts, env, cx) match { case (es, r) => postMeth2(c, nm, es, r, env, cx) }
+def objDfltFires(mg, ts, env, cx) = if mg == "" then false else dfltGo(mg, fst(scanArgs(ts)), env, cx)
+def objDfltCall(mg, ts, env, cx) = scanArgs(ts) match { case (slices, rest) => (synthCall(mg, dfltEntryPd(mg, cx), slices, env, cx), rest) }
 // `recv.copy(f = v, ..)` with ANY named arg desugars (ssc1-lower desugarCopy :1124) to a receiver-first
 // let-chain feeding the alternating name-lit/value-ref runtime ABI: `(let (recv) (let (v0) .. (prim
 // __method__ "copy" <recv> (str L0) <v0> ..)))`. recv binds outermost (deepest ref (local k)); each value
@@ -1538,6 +1549,19 @@ def goCaseDfParam(cname, ts) = collectPD(ts, Nil) match { case (pd, r) => goCase
 def goCaseDfPCons(cname, pd, r) = if pdAnyDflt(pd) then Cons((cname, pd), goCaseDf(r)) else goCaseDf(r)
 def goCaseDfNullary(ts) = goCaseDf(skipNullComma(ts))
 def skipNullComma(ts) = if isTok(hd(ts), 2, 27) then skipNullComma(tl(tl(ts))) else ts
+// E2b: object-method call-site defaults. `object O { def m(x, y = d) }` lowers m to a top-level
+// `(def O_m ..)` (objDefE) and the call `O.m(x)` to `(app (global O_m) ..)` (emitMethodCall). Register
+// each def member's default entry under the MANGLED name `O_m` (mirroring ssc1-lower's aliasFuncDefault
+// :4196) so postMeth can synth omitted trailing defaults on the object-call path. Reading each member's
+// OWN param list keys arity correctly, so same-named methods across objects (Tool.text/1 no-default vs
+// Resource.text/2 defaulted) never share an entry. Only regular `object` (not given_obj) — matching the
+// oracle, whose given prefixDefs :4268 does NOT alias defaults. Linear scan like collectObjReg.
+def collectObjDflts(ts) = if isEmpty(ts) then Nil else (if isObjectHead(ts) then collectOD1(ts) else collectObjDflts(tl(ts)))
+def collectOD1(ts) = collectOD2(snd(hd(tl(ts))), objBodyToks(tl(tl(ts))))
+def collectOD2(name, ts) = if isTok(hd(ts), 2, 28) then appEnv(objMemDflts(name, collectObjMembers(tl(ts))), collectObjDflts(skipBrace(tl(ts), 1))) else collectObjDflts(ts)
+def objMemDflts(name, ms) = ms match { case Nil => Nil case h :: t => appEnv(objMemDflt1(name, h), objMemDflts(name, t)) }
+def objMemDflt1(name, m) = m match { case (kind, nt) => nt match { case (mname, toks) => if kind == "def" then objDefDflt(name ++ "_" ++ mname, skipGen(toks)) else Nil } }
+def objDefDflt(pfxName, ts) = if isTok(hd(ts), 2, 21) then dfltReg(pfxName, collectPD(tl(ts), Nil)) else Nil
 // collectPD walks a param list (ts AFTER the `(`) -> ([(paramName, dfltToks)], restAfterClose). dfltToks
 // is Nil when the param has no default. Mirrors collectField but captures the default token slice.
 def collectPD(ts, acc) = if isEmpty(ts) then (revL(acc), ts) else (if isTok(hd(ts), 2, 22) then (revL(acc), tl(ts)) else collectPD1(ts, acc))
@@ -1898,7 +1922,7 @@ def compile1(ts, dq, bs) = compile2(ts, collectCC(ts), collectTypeCases(ts), dq,
 // The pre-pass results become the parse CONTEXT: case-class names (cs, cc-only, for isCC) + the UNIFIED
 // type-case field names (tcs, cc + enum cases) + top-level val names + the enum registries. Top-level vals
 // are collected with a base cx first (their `rest` boundaries do not depend on val-name resolution).
-def mkCxE(cs, tcs, ts, dq, vals, vars, bs, pless) = mkCx(dq, ccNamesL(cs), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts), vars, bs, pless, (collectSubReg(ts), collectEnumAllReg(ts)), collectObjReg(ts), collectFuncDflts(ts), (collectGivenTable(ts), (collectUsingSig(ts), collectExtMethods(ts))))
+def mkCxE(cs, tcs, ts, dq, vals, vars, bs, pless) = mkCx(dq, ccNamesL(cs), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts), vars, bs, pless, (collectSubReg(ts), collectEnumAllReg(ts)), collectObjReg(ts), appEnv(collectFuncDflts(ts), collectObjDflts(ts)), (collectGivenTable(ts), (collectUsingSig(ts), collectExtMethods(ts))))
 def compile2(ts, cs, tcs, dq, bs) = compile2b(ts, cs, tcs, dq, bs, mkCxE(cs, tcs, ts, dq, Nil, Nil, bs, Nil))
 def compile2b(ts, cs, tcs, dq, bs, base) = compile3(ts, cs, tcs, dq, mkCxE(cs, tcs, ts, dq, collectTopVals(ts, base), collectTopVars(ts, base), bs, collectPlessDefs(ts, base)))
 def compile3(ts, cs, tcs, dq, cx) = walkTop(ts, cx) match { case (strs, nDoc) => compile4(strs, nDoc, ts, tcs, dq, cx) }
