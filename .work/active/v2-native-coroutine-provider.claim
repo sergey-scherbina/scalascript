@@ -1,6 +1,6 @@
 feature/v2-native-coroutine-provider 2026-07-21T18:04:13Z
 agent: codex
-heartbeat: 2026-07-21T18:19:45Z
+heartbeat: 2026-07-21T18:27:58Z
 status: in-progress
-done-so-far: Q4 plan landed d6e551b33; native contract landed 6a9f434e4 and Q4.1 bookkeeping d9e7a3315
-next: implement one shared SuspendTarget plus coroutine lifecycle in 59-generator and add provider unit coverage
+done-so-far: spec 6a9f434e4; native provider 708a82678 with 9/9 unit tests; Q4.2 bookkeeping e4347f83a
+next: replace the null error proxy, opt conformance into v2/bytecode, add the missing runnable example and docs
