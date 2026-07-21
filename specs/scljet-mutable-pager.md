@@ -1,10 +1,10 @@
 # SclJet mutable pager — dirty-page tracking + cell-level in-place B-tree edits
 
 > Status: the dirty-page pager, cell-level leaf edits, insert/delete/update with
-> `balance()` split, arbitrary-depth index B-trees, and DML wiring are **built and
-> verified**. This spec documents the finished design and its invariants, and
-> specifies the **merge/rebalance-on-underflow** slice (freed page → freelist) that
-> completes SQLite's `balance()`.
+> `balance()` split, arbitrary-depth index B-trees, DML wiring, **and the
+> merge/rebalance-on-underflow slice (emptied page → freelist, root `balance_shallower`)**
+> are all **built and verified** (`integrity_check` = ok vs SQLite 3.53.3, int == js).
+> This spec documents the finished design and its invariants.
 
 ## Goal
 
@@ -27,7 +27,7 @@ primitives it depends on, which is where it belongs:
 | Dirty-set pager + atomic commit | `journal.ssc` | `MutablePager`, `openMutablePager`, `mutableGet`/`mutablePut`/`mutableAllocate`, `mutableCommit`/`mutableRollback` |
 | Cell-level leaf edits | `write.ssc` | `readLeafCells`, `leafInsertCell`/`leafDeleteCell`/`leafUpdateCell`, `rebuildLeafPage` |
 | `balance()` on insert/delete | `write.ssc` | `pagerInsertBalanced`, `pagerDeleteBalanced`, `balanceInsertNode`, `balanceDeeper` |
-| **Merge/rebalance on underflow** | `write.ssc` | `pagerDeleteRebalanced`, `freePageOnto`, `patchFreelistHeader` (this slice) |
+| **Merge/rebalance on underflow** | `write.ssc` | `pagerDeleteRebalanced`, `deleteInteriorNode`, `applyFreelist`/`buildFreelistTrunks`/`patchFreelistHeader` (this slice) |
 | Arbitrary-depth index trees | `write.ssc` | `buildIndexTree` (kind-2 interior levels stacked bottom-up) |
 | Read-back / freelist validation | `pager.ssc`, `freelist.ssc` | `ReadonlyPager`, `validateFreelist` |
 | DML wiring | `sql.ssc` | INSERT→`pagerInsertBalanced`, DELETE→`pagerDeleteBalanced`, UPDATE→delete+reinsert |
@@ -103,25 +103,31 @@ valid B-tree** — `integrity_check` accepts them — but the file never reclaim
 so a heavily-deleted table stays bloated. This slice adds the reclaiming half.
 
 `pagerDeleteRebalanced(pager, rootPage, rowid, pageSize)` performs a recursive
-delete-and-rebalance:
+delete-and-reclaim. A node is *reclaimed* only when a delete leaves it **empty** — not
+at a half-full fill-factor threshold. Empty-reclaim keeps the tree valid, reclaims the
+fully-emptied pages that range/bulk deletes produce (the common case), and — crucially —
+**never rewrites a divider key**: a divider is only ever *dropped*, so routing for every
+surviving rowid stays correct without re-deriving separators. SQLite's exact fill-factor
+redistribution (concatenating two partly-full siblings) is a documented non-goal.
 
-- **Leaf**: remove the cell. The leaf is *deficient* if it has 0 cells (empty). (We
-  only merge on empty rather than on a half-full threshold — this keeps the tree valid
-  and reclaims fully-emptied pages, the common case for range/bulk deletes, without
-  chasing SQLite's exact fill-factor heuristic, which we do not need for
-  `integrity_check`.) Signal the leaf's new state (cells + deficient flag) up.
-- **Interior**: choose child, recurse. If the returned child is **deficient**:
-  - **Merge** the deficient child with an adjacent sibling under this interior when
-    their combined contents fit one page: write the merged node to the **left** page
-    (keeping the lower page number — positional stability), drop the absorbed child +
-    its divider from this interior, and **free the absorbed page** (below). A table
-    interior merge folds the dropped divider rowid into the merged node's key stream;
-    a leaf merge simply concatenates cells.
-  - If a single merge cannot absorb it (siblings full), leave the deficient child in
-    place (valid, just not reclaimed) — a bounded, always-valid fallback.
-  - Rewrite this interior. If it now has a **single child**, signal *collapse* up.
-- **Root collapse** (`balance_shallower`): when the root interior has one child,
-  copy that child's content into the root page (root number kept) and free the child.
+- **Leaf** (kind 13): remove the cell (`leafDeleteCell`). If cells remain, rewrite the
+  leaf in place (`DelKept`). If it is now **empty**, the parent removes it.
+- **Interior** (kind 5, `deleteInteriorNode`): `chooseChild` for `rowid`, recurse.
+  - Child leaf emptied → `removeChildAt(node, slot)` drops that child **and one
+    adjacent divider** (the right divider, or the left one for the rightmost child —
+    correct precisely because the removed child held no surviving rowid), and the
+    emptied page is queued to be **freed** (below). If the interior still has `>= 2`
+    children, rewrite it (`DelKept`); if it drops to **one child**, signal
+    `DelCollapse(child)` up without rewriting (its page is about to be freed or reused).
+  - Child interior returned `DelCollapse(grand)` → `replaceChildAt(node, slot, grand)`
+    splices the grandchild directly into this node's slot (dividers unchanged — same
+    rowid range), the collapsed interior's page is **freed**, and this node is rewritten
+    (`DelKept`; its child count is unchanged).
+- **Root collapse** (`balance_shallower`): if the recursion returns `DelCollapse(child)`
+  at the root, copy that child's content into the **root page** (root number kept) and
+  free the child page. The root can thus shrink from interior back to a single leaf.
+- **Single-page tree**: if the root itself is a leaf, the cell is simply removed — an
+  empty root leaf is a valid empty table; nothing is freed.
 
 ### Freeing a page — freelist maintenance
 
@@ -135,14 +141,17 @@ length is unchanged:
   A trunk holds at most `usableSize/4 - 2` leaves.
 - **Header**: bytes 32–35 = first-freelist-trunk page number; bytes 36–39 = total
   freelist page count (trunks + leaves).
-- **Scheme** (`freePageOnto`): the first freed page becomes a trunk with 0 leaves and
-  becomes the header's first trunk. Each subsequent freed page is appended as a **leaf**
-  of the head trunk until it fills (`usableSize/4 - 2` leaves); the next freed page
-  then becomes a new head trunk chained (`nextTrunk`) to the old one. This is a valid
-  freelist — order/packing need not match SQLite byte-for-byte, only `integrity_check`
-  and our own `validateFreelist` must accept it.
-- The freed page's own bytes are overwritten (zeroed except the trunk header it may
-  carry) so it no longer decodes as a B-tree node.
+- **Scheme** (`applyFreelist` → `buildFreelistTrunks`): the union of any existing free
+  pages (`readExistingFree`, walking the current trunk chain over the staged image) and
+  the newly freed pages is laid out fresh — the first page of each group is a **trunk**,
+  the next up-to-`usableSize/4 - 2` pages are its **leaves**, and trunks chain via
+  `nextTrunk`. The header's first-trunk pointer + total count are patched
+  (`patchFreelistHeader`). This is a valid freelist — order/packing need not match
+  SQLite byte-for-byte, only `PRAGMA integrity_check` and our own `validateFreelist`
+  must accept it (both verified).
+- Only **trunk** pages are written; a freed page used as a freelist *leaf* keeps its
+  stale bytes (SQLite does the same with `secure_delete` off) — leaf content is never
+  read, and `integrity_check` accepts it.
 
 ### Delete/merge invariants (proof obligations)
 
