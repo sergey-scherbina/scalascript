@@ -1,0 +1,6 @@
+feature/q2-measured-optimization 2026-07-21T08:47:26Z
+agent: codex
+heartbeat: 2026-07-21T08:47:26Z
+status: not-started
+done-so-far: F7 exact closure complete; Q2 selected as an independent compiler-front performance lane to avoid active F/dualrun/JIT claims
+next: create an external worktree, inspect scripts/bench compile cases, record a reproducible baseline/profile in SPRINT before any source edit, then optimize only the measured owner
