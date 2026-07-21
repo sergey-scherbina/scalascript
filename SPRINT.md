@@ -62,11 +62,30 @@ default (step 4, Sergiy) or delete ssc1-front/ssc1-lower (step 5). Edit gates (`
       in dualrun.expected; they need F's multi-file lowering fixed. So F never-worse-than-default EXCEPT
       this small documented class. (Full sweep is slow — F recompiles per program; complete enumeration
       is a follow-up. ~half the corpus is multi-file; most fall back cleanly via unbound-global.)
+- [x] **FULL-CORPUS SWEEP — DONE (2026-07-21, this session). COMPLETE residual set = 10, not 2.**
+      Ran `SSC_DUALRUN_ALL=1` over all 521 programs in a clean F-staged worktree (first run's tail was
+      corrupted when the OOM-recovery pruned the orphaned pre-reboot worktree mid-sweep — re-ran clean).
+      **EQUAL 509/521.** Every divergence adjudicated (default×1 + F×2 for determinism; timeout-group 150s).
+      **10 DETERMINISTIC residuals, ALL one class = F's MULTI-FILE (import) lowering emits wrong values**
+      (single-file programs unaffected → 509 EQUAL). Full list + reasons in `specs/v2.2-p6.5-dualrun.expected`:
+        known:  dsl-ast-builder (<closure>), multi-link-imports (())
+        NEW:    money-multisection, money-portable-v2 (.getOrElse on () — std/money),
+                litdoc (internal ssc:2 — std/litdoc), mcp-types (ctor arity — std/mcp/types),
+                std-monaderror (partial rc1 — typeclass),
+                ⚠ std-bifunctor, tagless-sealed-dispatch, tkv2-theme-css-vars — **SILENT-WRONG (F exits 0
+                  with WRONG stdout)**: `Stub` for typeclass instances / wrong booleans. Post-flip these
+                  corrupt output with NO error — strongest fix-first argument.
+      2 sweep divergences were FALSE (documented NON-RESIDUAL in the manifest): http-client (network
+      non-determinism, F1≠F2), scljet-sql-orderby-expr (F byte-identical to default at 150s; the 60s sweep
+      timeout was a false-timeout — F correct-but-slow). scljet-sql-params/-range-descent from the corrupted
+      first run were teardown artifacts (EQUAL on the clean run). Manifest gate verified green on the
+      12-program residual slice. Sweep-only task: F multi-file lowering is NOT fixed here (hand-off).
 - **Step 4/5 — HELD by Sergiy.** FLIP-READY. The flip = one line in `RunNativeV2.frontIsF` (opt-IN →
       opt-OUT); no re-stage; old front stays as the safe fallback (so the flip can't regress any
-      unbound-global gap). Caveat: the 2 documented multi-file residuals WOULD regress post-flip until F's
-      multi-file lowering is fixed — Sergiy's call whether to flip with that known small caveat or fix
-      first. Step 5 (delete old front) must wait until F covers the fallback set on its own.
+      unbound-global gap). Caveat: **the 10 documented multi-file residuals WOULD regress post-flip** until
+      F's multi-file lowering is fixed — Sergiy's call whether to flip with that known caveat or fix first.
+      ⚠ 3 of the 10 are SILENT-WRONG (F exits 0, wrong output) — a flip would corrupt them undetectably.
+      Step 5 (delete old front) must wait until F covers the fallback set on its own.
 
 ---
 
