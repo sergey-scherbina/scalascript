@@ -1,6 +1,0 @@
-feature/durable-frame-codec 2026-07-21T21:22:46Z
-agent: claude-code
-heartbeat: 2026-07-21T21:22:46Z
-status: not-started
-done-so-far:
-next: spec-first canonical §9.1 durable-frame byte format; DurableCodec[S] reference impl in scala control leaf (baseline scalars+pair+list+either+imap), round-trip/canonical/float-bit-identity vectors; savable frames now serialize. Part 1 of saved-continuation-format (capsule/digest/DurableRef/schema = follow-on)
