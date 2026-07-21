@@ -1,8 +1,8 @@
 claim: f-typeclass-multifile
 branch: feature/f-multifile-fix
 agent: opus (F multi-file typeclass/given lowering — the SILENT-WRONG residual class)
-heartbeat: 2026-07-21T09:28:42Z
-status: LANDED std-bifunctor fix 11eae182d (extension-member collection: skipExtBody). Manifest reconciled 10->6. NEXT: f-extension-instance-dispatcher-arity (BUGS) — one bug blocks 3 residuals (std-monaderror, tagless-sealed-dispatch, tagless-multi-file).
+heartbeat: 2026-07-21T11:46:06Z
+status: LANDED 2 fixes (std-bifunctor 11eae182d ext-member-collection; tagless-sealed-dispatch c710dd292 same-named-ext dispatcher m__ext_default). Residuals 10->5. Remaining in scope: std-monaderror (now f-monaderror-none-match), litdoc. Gates green (fixpoint+semantic 246+dualrun).
         (multi-link-imports, money-multisection, money-portable-v2, tkv2-theme-css-vars). Reconciling
         dualrun.expected + fixing the typeclass-given class.
 what: Fix F's MULTI-FILE typeclass/given lowering — the SILENT-WRONG residuals std-bifunctor,
