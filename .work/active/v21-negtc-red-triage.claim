@@ -1,0 +1,6 @@
+feature/v21-negtc-red-triage 2026-07-21T20:47:41Z
+agent: opus-orch
+heartbeat: 2026-07-21T20:47:41Z
+status: in-progress
+done-so-far: CI-red identified — v21-negative-toolchain-release-gate FAILS "frontend.ok=198 below floor 200" on run 29862386090 (SHA aa13dbd70, symlink-drop tree). Lint/Conformance/Validate green. Suspect: scljet staging in bin/lib/standard/native-front broken, or a sibling change in the same commit range. Needs reproduce + root-cause.
+next: dedicated subagent reproduces (fresh installBin + native-front-corpus --standard), identifies exact non-OK examples, fixes or reverts if my batch caused it (else coordinates); also refreshes stale bin/lib jar.
