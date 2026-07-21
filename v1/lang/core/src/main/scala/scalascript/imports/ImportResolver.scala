@@ -97,6 +97,59 @@ object ImportResolver:
       os.home
     )
 
+  /** First-class SclJet library root (see `specs/scljet-standalone-library.md`).
+   *  SclJet is a standalone library that lives at the repo-root `scljet/` — NOT
+   *  under `runtime/std/` — yet is imported as `std/scljet/…`.  A packaged/staged
+   *  install keeps a real `runtime/std/scljet/` tree, so the normal std-root
+   *  resolution finds it there; this root is only consulted as a *fallback* when
+   *  that fails (dev tree, after the compat symlink `v1/runtime/std/scljet` was
+   *  dropped).  First existing candidate wins:
+   *    1. `ssc.scljet.path`   (override)
+   *    2. `$SSC_SCLJET_PATH`   (override)
+   *    3. `<libPath>/scljet`   (launcher: install / repo root + `/scljet`)
+   *    4. nearest ancestor of stdPath / libPath / jarDir containing `scljet/index.ssc` */
+  private[imports] def discoverScljetRoot(
+      prop: Option[String],
+      env:  Option[String],
+      lib:  Option[os.Path],
+      std:  Option[os.Path],
+      jar:  Option[os.Path]
+  ): Option[os.Path] =
+    def existing(p: os.Path): Option[os.Path] = if os.exists(p) then Some(p) else None
+    def walkUp(start: os.Path): Option[os.Path] =
+      var cur = start
+      var found: Option[os.Path] = None
+      var continue = true
+      while continue && found.isEmpty do
+        if os.exists(cur / "scljet" / "index.ssc") then found = Some(cur / "scljet")
+        else if cur.segmentCount == 0 then continue = false  // reached filesystem root
+        else cur = cur / os.up
+      found
+    prop.map(s => os.Path(s, os.pwd)).flatMap(existing)
+      .orElse(env.map(s => os.Path(s, os.pwd)).flatMap(existing))
+      .orElse(lib.map(_ / "scljet").flatMap(existing))
+      .orElse(std.flatMap(walkUp))
+      .orElse(lib.flatMap(walkUp))
+      .orElse(jar.flatMap(walkUp))
+
+  val scljetPath: Option[os.Path] =
+    discoverScljetRoot(
+      sys.props.get("ssc.scljet.path"),
+      sys.env.get("SSC_SCLJET_PATH"),
+      libPath,
+      stdPath,
+      jarDir
+    )
+
+  /** Map a `std/scljet/<rest>` library import to the first-class SclJet root
+   *  (`<scljetRoot>/<rest>`).  Returns `None` for any other path, so non-scljet
+   *  resolution is entirely unaffected. */
+  private def scljetLibPath(rawPath: String): Option[os.Path] =
+    if rawPath == "std/scljet" then scljetPath
+    else if rawPath.startsWith("std/scljet/") then
+      scljetPath.map(_ / os.RelPath(rawPath.stripPrefix("std/scljet/")))
+    else None
+
   def resolve(rawPath: String, baseDir: os.Path): os.Path =
     resolve(rawPath, baseDir, Map.empty, lockPath = None)
 
@@ -138,6 +191,9 @@ object ImportResolver:
           val fromLib =
             stdPath.map(_ / os.RelPath(pathThroughDep)).filter(os.exists)
               .orElse(libPath.map(_ / "runtime" / os.RelPath(pathThroughDep)).filter(os.exists))
+              // First-class SclJet library root: `std/scljet/…` → `<scljetRoot>/…`
+              // (dev tree, after the compat symlink was dropped).
+              .orElse(scljetLibPath(pathThroughDep).filter(os.exists))
           fromLib.getOrElse(
             cacheBackedRelative(pathThroughDep, baseDir, lockPath).getOrElse(local)
           )

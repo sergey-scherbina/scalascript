@@ -2064,7 +2064,21 @@ lazy val cli = project
         IO.createDirectory(dest.getParentFile)
         IO.copyFile(src, dest)
       }
-      log.info(s"bin/lib/native-front/    (${nativeTowerFiles.size} tower files, ${nativeStdFiles.size} std modules)")
+      // SclJet is a first-class standalone library at the repo-root `scljet/`
+      // (NOT under v1/runtime/std — the compat symlink was dropped). Stage it
+      // directly from there into `runtime/std/scljet/`, so the native front
+      // resolves `std/scljet/…` from real files. See
+      // specs/scljet-standalone-library.md.
+      val scljetSourceRoot = root / "scljet"
+      val scljetStagedRoot = stagedStdRoot / "scljet"
+      val scljetStdFiles = (scljetSourceRoot ** "*.ssc").get.filter(_.isFile)
+      scljetStdFiles.foreach { src =>
+        val rel = IO.relativize(scljetSourceRoot, src).getOrElse(sys.error(s"cannot relativize scljet library source: $src"))
+        val dest = scljetStagedRoot / rel
+        IO.createDirectory(dest.getParentFile)
+        IO.copyFile(src, dest)
+      }
+      log.info(s"bin/lib/native-front/    (${nativeTowerFiles.size} tower files, ${nativeStdFiles.size + scljetStdFiles.size} std modules)")
       IO.copyDirectory(nativeFrontDir, standardDir / "native-front", overwrite = true)
       log.info(s"bin/lib/standard/native-front/ (${nativeTowerFiles.size} tower files, ${nativeStdFiles.size} std modules)")
 
