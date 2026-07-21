@@ -1,28 +1,56 @@
 # Bug tracker
 
-## f-imported-caseclass-default-arg-synth — F front misses defaulted params on imported case-class ctors
+## f-imported-caseclass-default-arg-synth — F front missed defaulted params on OBJECT-METHOD calls
 
-**Status:** OPEN, F-lane only (2026-07-21, found by `f-multifile-lowering` while landing the F
-import-order fix). Two corpus programs hit it once the val-ordering bug is out of the way.
+**Status:** FIXED (2026-07-21, `b1b72415e`; f-caseclass-default-arg). ROOT CAUSE RE-PINNED by live
+trace — the miss is NOT about *imported case-class ctors*: those synthesize correctly on F, local and
+imported alike (`Box("hi")`, `Builder()` verified). The real gap was **object-method calls**.
+`object O { def m(x, y = d) }` lowers `m` to a top-level `(def O_m ..)` (objDefE) and the call `O.m(x)`
+to `(app (global O_m) ..)` via `emitMethodCall`'s isObjMember branch — which emitted the plain app with
+NO default synthesis, so an under-applied `O.m(x)` hit `arity: 2 expected, 1 given` at run time. The
+plain-def and case-class-ctor call paths already synthesized (dfltGo/synthCall); the object-method path
+did not, and funcDflts had no entry keyed to the mangled `O_m`. (mcp-types' actual failing call was
+`Resource.text("some text")` → `def text(s, mimeType = "text/plain")` in `object Resource`, NOT
+`ToolResult`; `Tool.text` — which internally calls `ToolResult(content)` — already worked.)
 
-**The shape.** When a program imports a case class whose constructor has a defaulted parameter and
-calls it with fewer args (relying on the default), the F native front (`SSC_FRONT=F bin/ssc run`)
-fails with `ssc: arity: 2 expected, 1 given`. The default front (`bin/ssc run`) resolves the default
-correctly. F is not synthesizing the default-argument value for an *imported* case-class constructor.
+**Fix (specs/v2.2-p6.5-fsub.ssc, byte-identical to the oracle):**
+- `collectObjDflts` registers each `object` def member's default entry under the MANGLED name `O_m`,
+  reading each member's OWN param list so same-named methods across objects never share an entry
+  (`Tool.text/1` no-default vs `Resource.text/2` defaulted). Merged into funcDflts in `mkCxE`. Mirrors
+  ssc1-lower `aliasFuncDefault` :4196 (regular `object` only; given_obj prefixDefs :4268 does not alias).
+- `postMeth` intercepts an applied object-member call: when `O_m` has a default entry and the call is
+  under-applied (no named args), it reuses scanArgs/dfltGo/synthCall to emit the nested-lambda default
+  fill keyed to `(global O_m)` — byte-identical to a plain-def call under the same defaults.
 
-**Repro (F lane; both pass on the default front and in `tests/conformance/run.sh`):**
-- `SSC_FRONT=F bin/ssc run tests/conformance/mcp-types.ssc` — imported
-  `case class ToolResult(contentJson: String, isError: Boolean = false)` (v1/runtime/std/agent.ssc:54),
-  called `ToolResult(content)` → `arity: 2 expected, 1 given`.
-- `SSC_FRONT=F bin/ssc run examples/dsl-ast-builder.ssc` — imported
-  `case class Builder[N, V](… _tags: List[String] = Nil …)` (v1/runtime/std/dsl/builders.ssc:30);
-  the first (Span) section is correct after the import-order fix, then the Builder section throws
-  the same `arity: 2 expected, 1 given`.
+**Verified GREEN:** objmeth/local/imported repros; `Resource.text` in mcp-types now prints "some text";
+FIXPOINT (fsub.sh --self) stage1==stage2 byte-identical (369 543 B); fsub corpus 0 FAIL; semantic.sh
+246/246 goldens; dualrun 44/45 EQUAL (1 pre-existing expected GAP), 0 unexpected.
 
-**Note.** The import-order reorder (`sscConcatSources(seen)`, landed 2026-07-21) removed the earlier
-`<closure>` val-ordering symptom from dsl-ast-builder's first section but does NOT fix this — the
-default-arg synth is a distinct front-end gap. Fix belongs in F's ctor lowering / default-arg
-synthesis for imported declarations.
+**Two DISTINCT pre-existing bugs UNMASKED by this fix** (separate follow-ups — NOT default-args): see
+`f-object-method-varargs` and `f-operator-extension-dispatch` below.
+
+## f-object-method-varargs — F has no vararg collapse for object methods
+
+**Status:** OPEN, F-lane only (found 2026-07-21 by f-caseclass-default-arg; unmasked once the
+object-method default-arg fix let mcp-types run past `Resource.text`). Distinct from default-args.
+
+`object O { def m(xs: T*) }` — F emits `O_m` as an arity-1 def but lowers the call `O.m(a, b)` to
+`(app (global O_m) a b)` (2 args) → `arity: 1 expected, N given`. F has no vararg machinery at all; the
+oracle collapses trailing args into a list via `varargDefsCell` / `lastParamVarargCell`
+(ssc1-front :577–586). Minimal repro: `object P: def many(xs: Int*): Int = xs.toList.size` +
+`P.many(1,2,3)` → F `ssc: arity: 1 expected, 3 given`, oracle `3`. Blocks `tests/conformance/mcp-types.ssc`
+(`Prompt.messages(m1, m2)`).
+
+## f-operator-extension-dispatch — F treats `++`/`/` extension operators as builtin infix ops
+
+**Status:** OPEN, F-lane only (found 2026-07-21 by f-caseclass-default-arg). Distinct from default-args.
+
+`examples/dsl-ast-builder.ssc` fails in the pretty-printer/render section. `std/dsl/pretty.ssc` defines
+operator extensions `extension (l: Doc) def ++(r: Any) = DocBeside(l, r)` / `def /(r: Any) = DocAbove(l, r)`
+used infix (`header ++ text(" ")`, `header / empty`). F lowers `++`/`/` as builtin infix operators
+instead of dispatching to the Doc extension → `arity: 2 expected, 1 given`. (The Builder case-class
+default path `Builder()` works; dsl-ast-builder remains a known GAP in `v2.2-p6.5-dualrun.expected`,
+whose closure-symptom note is now stale — the real residual is this operator-extension gap.)
 
 ## f-litdoc-runtime-error-2 — litdoc fails `ssc: 2` on the F native front only
 

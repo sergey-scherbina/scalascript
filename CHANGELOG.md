@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-07-21 — F front synthesizes default args for object-method calls
+
+`SSC_FRONT=F` now fills omitted trailing defaults on object-method calls `O.m(x)` (e.g.
+`Resource.text("some text")` where `def text(s, mimeType = "text/plain")` lives in `object Resource`).
+Root cause, re-pinned by live trace, was NOT imported case-class ctors (those already synthesize on F,
+local and imported): the object-method path emitted a plain `(app (global O_m) ..)` with no default
+synthesis. Fix in `specs/v2.2-p6.5-fsub.ssc`: `collectObjDflts` registers each object def member's
+default under the mangled `O_m` (own-arity keyed, mirroring ssc1-lower `aliasFuncDefault`) and `postMeth`
+routes under-applied object-member calls through the existing `synthCall`, byte-identical to a plain-def
+call. Gates: typed FIXPOINT stage1==stage2 byte-identical; fsub corpus 0 FAIL; semantic 246/246 goldens;
+dualrun 44/45 EQUAL (1 pre-existing expected GAP), 0 unexpected. Unmasked two distinct pre-existing
+F-lane gaps (`f-object-method-varargs`, `f-operator-extension-dispatch` in BUGS.md) (`b1b72415e`).
+
 ## 2026-07-21 — SwiftUI fixture probes the real compiler module capability
 
 `SwiftUiRealFixtureBuildTest` no longer treats any installed Swift binary as proof that Apple's
