@@ -1,6 +1,0 @@
-feature/frontend-tui-fetch-refresh 2026-07-20T02:26:59Z
-agent: codex-clear-lynx
-heartbeat: 2026-07-20T11:37:36Z
-status: in-progress
-done-so-far: refresh implementation plus wire-core and SwiftUI real-fixture tail fixes landed at exact candidate 4473a5dde391496e876a79c289d503c376811cf8; staged SwiftUI 2/2, SwiftUI 118/118, frontendTui 36/36, browser select 1/1, Markdown lint, and rozum dual-target smoke pass locally
-next: exact run 29738651881 is active for 4473a5dde391496e876a79c289d503c376811cf8; lint/validate and first sbt release gate are green, conformance plus remaining release gates continue; release only on exact green
