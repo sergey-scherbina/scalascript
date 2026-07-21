@@ -9,8 +9,9 @@ localized SclJet results.
 The valid corpus is generated and checked with official SQLite 3.53.3 source
 id `2026-06-26 20:14:12
 d4c0e51e4aeb96955b99185ab9cde75c339e2c29c3f3f12428d364a10d782c62`.
-The current slice has 25 valid databases, 30 named corruptions, 643 exact
-dump lines, and 32 deterministic bounded mutations. It covers every legal
+The current slice has 25 valid databases, 33 named corruptions (30 open-time
+plus 3 overflow-chain traversal), 643 exact dump lines, and 32 deterministic
+bounded mutations. It covers every legal
 page size, UTF-8/UTF-16LE/UTF-16BE and empty encoding 0, rowid and WITHOUT
 ROWID trees, explicit/automatic indexes, multi-level B-trees, overflow,
 freelist, full/incremental auto-vacuum pointer maps, clean WAL header versions,
@@ -91,9 +92,18 @@ a reserved serial type (10/11), an unknown schema object type, a rootpage that
 is negative or past the page count, and a page freeblock chain that is not
 increasing and in range. Exact table-leaf and index-btree payload thresholds
 are pinned by `overflow-thresholds.db` and `index-overflow-thresholds.db`.
-User-table overflow-chain traversal corruptions (truncated/looped chains on
-non-schema pages) remain explicit M2d work — they require a traversal-based
-negative check rather than the open-time `openReadonly` validation.
+
+The matrix also covers user-table overflow-chain traversal corruptions on
+non-schema pages: `overflow-chain-truncated.db`, `overflow-chain-out-of-range.db`,
+and `overflow-chain-cycle.db` mutate the `next` pointer of page 11 (the first
+overflow page of the `p = 1100` row's two-page chain in `overflow-thresholds.db`)
+to 0, 99, and 11 (self-loop) respectively. Unlike every other corruption these
+are accepted by open-time `openReadonly` and fail only during forward table
+traversal, so they are checked by `tests/tools/scljet-corrupt-traverse.ssc`
+(pinned in `corrupt-traversal-errors.txt`) rather than the open-time
+`scljet-corrupt-check.ssc`. Conformance `scljet-overflow-traversal-corrupt`
+(`[int, js]`) reproduces the same chain in memory and adds the length-short
+`overflow page is truncated` case that an on-disk file cannot express.
 
 ## Original pure codec vector
 
