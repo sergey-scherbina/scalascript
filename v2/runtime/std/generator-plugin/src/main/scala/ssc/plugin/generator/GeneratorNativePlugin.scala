@@ -15,10 +15,40 @@ final class GeneratorNativePlugin extends NativePlugin:
   private case object End extends Event
   private final case class Failed(error: Throwable) extends Event
 
-  private final class Emitter(state: GeneratorState):
-    def emit(value: Value): Unit = state.emit(value)
+  private trait SuspendTarget:
+    def suspend(value: Value): Value
 
-  private val currentEmitter = new ThreadLocal[Emitter]()
+  private final class Emitter(state: GeneratorState) extends SuspendTarget:
+    def emit(value: Value): Unit = state.emit(value)
+    def suspend(value: Value): Value =
+      emit(value)
+      Value.UnitV
+
+  private val currentSuspendTarget = new ThreadLocal[SuspendTarget]()
+
+  private def withSuspendTarget[A](target: SuspendTarget)(body: => A): A =
+    val previous = currentSuspendTarget.get()
+    currentSuspendTarget.set(target)
+    try body
+    finally
+      if previous == null then currentSuspendTarget.remove()
+      else currentSuspendTarget.set(previous)
+
+  private def failureDetail(error: Throwable): String =
+    var root = error
+    while root.getCause != null && root.getCause != root do root = root.getCause
+    root match
+      case thrown: ssc.SscThrow => thrown.value match
+        case Value.DataV(tag, fields)
+            if fields.size == 1 && (tag.endsWith("Exception") || tag.endsWith("Error")) =>
+          Prims.display(fields.head)
+        case value => Prims.display(value)
+      case _ =>
+        val rootMessage = Option(root.getMessage).filter(_.nonEmpty)
+          .getOrElse(root.getClass.getSimpleName)
+        val ownerMessage = Option(error.getMessage).filter(_.nonEmpty)
+          .getOrElse(error.getClass.getSimpleName)
+        if ownerMessage == rootMessage then rootMessage else s"$ownerMessage: $rootMessage"
 
   private final class GeneratorState(
       produce: Emitter => Unit,
@@ -37,10 +67,8 @@ final class GeneratorNativePlugin extends NativePlugin:
 
     private def runProducer(): Unit =
       val emitter = Emitter(this)
-      val previous = currentEmitter.get()
-      currentEmitter.set(emitter)
       try
-        produce(emitter)
+        withSuspendTarget(emitter)(produce(emitter))
         deliver(End)
       catch
         case _: CancellationException if cancelled.get() => ()
@@ -50,9 +78,6 @@ final class GeneratorNativePlugin extends NativePlugin:
           if !cancelled.get() then
             try deliver(Failed(error))
             catch case _: InterruptedException => Thread.currentThread().interrupt()
-      finally
-        if previous == null then currentEmitter.remove()
-        else currentEmitter.set(previous)
 
     def start(): Unit =
       val thread = Thread.ofVirtual().name("ssc-generator").unstarted(() => runProducer())
@@ -75,15 +100,8 @@ final class GeneratorNativePlugin extends NativePlugin:
               terminal = End
               None
             case Failed(error) =>
-              var root = error
-              while root.getCause != null && root.getCause != root do root = root.getCause
-              val rootMessage = Option(root.getMessage).filter(_.nonEmpty)
-                .getOrElse(root.getClass.getSimpleName)
-              val ownerMessage = Option(error.getMessage).filter(_.nonEmpty)
-                .getOrElse(error.getClass.getSimpleName)
-              val detail = if ownerMessage == rootMessage then rootMessage
-                else s"$ownerMessage: $rootMessage"
-              val bounded = new IllegalStateException(s"Generator producer failed: $detail", error)
+              val bounded = new IllegalStateException(
+                s"Generator producer failed: ${failureDetail(error)}", error)
               terminal = Failed(bounded)
               throw bounded
     }
@@ -93,6 +111,69 @@ final class GeneratorNativePlugin extends NativePlugin:
         cleanupOnce()
         val thread = producer
         if thread != null && thread != Thread.currentThread() then thread.interrupt()
+
+  private final class CoroutineState(body: Value, context: NativePluginContext)
+      extends SuspendTarget:
+    private val fromBody = new SynchronousQueue[Value]()
+    private val toBody = new SynchronousQueue[Value]()
+    private val cancelled = new AtomicBoolean(false)
+    @volatile private var bodyThread: Thread = null
+    private var started = false
+    private var terminal = false
+
+    private def step(tag: String, value: Value): Value =
+      Value.DataV(tag, Vector(value))
+
+    private def runBody(): Unit =
+      try
+        toBody.take()
+        val result = withSuspendTarget(this)(context.invoke(body, Nil))
+        fromBody.put(step("Returned", result))
+      catch
+        case _: CancellationException if cancelled.get() => ()
+        case _: InterruptedException if cancelled.get()  => ()
+        case error: Throwable =>
+          if !cancelled.get() then
+            try fromBody.put(step("Errored", Value.StrV(failureDetail(error))))
+            catch case _: InterruptedException => Thread.currentThread().interrupt()
+
+    private def start(): Unit =
+      val thread = Thread.ofVirtual().name("ssc-coroutine").unstarted(() => runBody())
+      bodyThread = thread
+      started = true
+      thread.start()
+
+    def suspend(value: Value): Value =
+      if cancelled.get() then throw new CancellationException("Coroutine cancelled")
+      fromBody.put(step("Yielded", value))
+      toBody.take()
+
+    def resume(input: Value): Value = synchronized {
+      if terminal || cancelled.get() then
+        throw new IllegalStateException(
+          "coroutineResume: coroutine already completed or cancelled")
+      if !started then start()
+      try
+        toBody.put(input)
+        val result = fromBody.take()
+        result match
+          case Value.DataV("Returned" | "Errored" | "Cancelled", _) => terminal = true
+          case _ => ()
+        result
+      catch
+        case error: InterruptedException =>
+          Thread.currentThread().interrupt()
+          throw new IllegalStateException("coroutineResume: interrupted", error)
+    }
+
+    def cancel(): Unit = synchronized {
+      if !terminal && cancelled.compareAndSet(false, true) then
+        terminal = true
+        val thread = bodyThread
+        if thread != null && thread != Thread.currentThread() then
+          thread.interrupt()
+          thread.join(500L)
+    }
 
   private def closure(arity: Int)(fn: List[Value] => Value): Value.ClosV =
     Value.ClosV(Runtime.emptyEnv, arity, env => Done(fn(env.toList)))
@@ -270,12 +351,28 @@ final class GeneratorNativePlugin extends NativePlugin:
       case body :: Nil => make(context) { _ => invoke(context, "body", body) }
       case _ => throw new IllegalArgumentException("generator(body)")
     }
+    context.registerGlobal("coroutineCreate", 1) {
+      case body :: Nil => Value.ForeignV(CoroutineState(body, context))
+      case _ => throw new IllegalArgumentException("coroutineCreate(body)")
+    }
+    context.registerGlobal("coroutineResume", 2) {
+      case Value.ForeignV(state: CoroutineState) :: input :: Nil => state.resume(input)
+      case _ => throw new IllegalArgumentException(
+        "coroutineResume: invalid coroutine handle")
+    }
+    context.registerGlobal("coroutineCancel", 1) {
+      case Value.ForeignV(state: CoroutineState) :: Nil =>
+        state.cancel()
+        Value.UnitV
+      case _ => throw new IllegalArgumentException(
+        "coroutineCancel: invalid coroutine handle")
+    }
     context.registerGlobal("suspend", 1) {
       case value :: Nil =>
-        val emitter = currentEmitter.get()
-        if emitter == null then
-          throw new IllegalStateException("suspend(value) requires a live Generator body")
-        emitter.emit(value)
-        Value.UnitV
+        val target = currentSuspendTarget.get()
+        if target == null then
+          throw new IllegalStateException(
+            "suspend called outside a coroutine or generator body")
+        target.suspend(value)
       case _ => throw new IllegalArgumentException("suspend(value)")
     }

@@ -121,8 +121,109 @@ final class GeneratorNativePluginTest extends AnyFunSuite:
     assert(Prims.unlistPub(call(large, "toList")).length == 100000)
   }
 
-  test("suspend outside a generator fails explicitly") {
+  test("coroutine is lazy and resume exchanges values until terminal return") {
+    install()
+    val ran = AtomicBoolean(false)
+    val coroutine = global("coroutineCreate", function(0) { _ =>
+      ran.set(true)
+      val first = global("suspend", Value.StrV("ping")) match
+        case Value.StrV(value) => value
+        case other => fail(s"unexpected first resume value: $other")
+      val second = global("suspend", Value.StrV(s"$first-pong")) match
+        case Value.StrV(value) => value
+        case other => fail(s"unexpected second resume value: $other")
+      Value.StrV(s"$second-final")
+    })
+
+    assert(!ran.get())
+    assert(global("coroutineResume", coroutine, Value.StrV("ignored")) ==
+      Value.DataV("Yielded", Vector(Value.StrV("ping"))))
+    assert(ran.get())
+    assert(global("coroutineResume", coroutine, Value.StrV("A")) ==
+      Value.DataV("Yielded", Vector(Value.StrV("A-pong"))))
+    assert(global("coroutineResume", coroutine, Value.StrV("B")) ==
+      Value.DataV("Returned", Vector(Value.StrV("B-final"))))
+    val completed = intercept[IllegalStateException](
+      global("coroutineResume", coroutine, Value.UnitV))
+    assert(completed.getMessage.contains("completed or cancelled"))
+  }
+
+  test("coroutine errors are terminal values") {
+    install()
+    val coroutine = global("coroutineCreate", function(0) { _ =>
+      global("suspend", Value.IntV(1))
+      throw new ssc.SscThrow(Value.DataV(
+        "RuntimeException", Vector(Value.StrV("boom"))))
+    })
+
+    assert(global("coroutineResume", coroutine, Value.UnitV) ==
+      Value.DataV("Yielded", Vector(Value.IntV(1))))
+    global("coroutineResume", coroutine, Value.UnitV) match
+      case Value.DataV("Errored", Vector(Value.StrV(message))) =>
+        assert(message == "boom")
+      case other => fail(s"expected Errored, got $other")
+    assertThrows[IllegalStateException](
+      global("coroutineResume", coroutine, Value.UnitV))
+  }
+
+  test("nested coroutine and Generator suspend targets remain isolated") {
+    install()
+    val generator = source(Seq(Value.IntV(1), Value.IntV(2)))
+    val outer = global("coroutineCreate", function(0) { _ =>
+      val inner = global("coroutineCreate", function(0) { _ =>
+        global("suspend", Value.IntV(99))
+        Value.StrV("inner-done")
+      })
+      global("coroutineResume", inner, Value.UnitV) match
+        case Value.DataV("Yielded", fields) if fields.size == 1 =>
+          global("suspend", fields.head)
+        case other => fail(s"unexpected inner step: $other")
+      Value.StrV("outer-done")
+    })
+
+    assert(call(generator, "next") == Value.DataV("Some", Vector(Value.IntV(1))))
+    assert(global("coroutineResume", outer, Value.UnitV) ==
+      Value.DataV("Yielded", Vector(Value.IntV(99))))
+    assert(call(generator, "next") == Value.DataV("Some", Vector(Value.IntV(2))))
+    assert(global("coroutineResume", outer, Value.UnitV) ==
+      Value.DataV("Returned", Vector(Value.StrV("outer-done"))))
+  }
+
+  test("coroutine cancellation is idempotent before, during, and after execution") {
+    install()
+    val neverStarted = AtomicBoolean(false)
+    val before = global("coroutineCreate", function(0) { _ =>
+      neverStarted.set(true)
+      Value.UnitV
+    })
+    assert(global("coroutineCancel", before) == Value.UnitV)
+    assert(global("coroutineCancel", before) == Value.UnitV)
+    assert(!neverStarted.get())
+    assertThrows[IllegalStateException](
+      global("coroutineResume", before, Value.UnitV))
+
+    val advanced = AtomicBoolean(false)
+    val during = global("coroutineCreate", function(0) { _ =>
+      global("suspend", Value.IntV(1))
+      advanced.set(true)
+      Value.UnitV
+    })
+    assert(global("coroutineResume", during, Value.UnitV) ==
+      Value.DataV("Yielded", Vector(Value.IntV(1))))
+    assert(global("coroutineCancel", during) == Value.UnitV)
+    assert(!advanced.get())
+    assertThrows[IllegalStateException](
+      global("coroutineResume", during, Value.UnitV))
+
+    val finished = global("coroutineCreate", function(0)(_ => Value.IntV(7)))
+    assert(global("coroutineResume", finished, Value.UnitV) ==
+      Value.DataV("Returned", Vector(Value.IntV(7))))
+    assert(global("coroutineCancel", finished) == Value.UnitV)
+    assert(global("coroutineCancel", finished) == Value.UnitV)
+  }
+
+  test("suspend outside a coroutine or generator fails explicitly") {
     install()
     val error = intercept[IllegalStateException](global("suspend", Value.IntV(1)))
-    assert(error.getMessage.contains("live Generator body"))
+    assert(error.getMessage.contains("outside a coroutine or generator body"))
   }
