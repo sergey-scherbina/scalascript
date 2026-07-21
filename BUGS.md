@@ -1,5 +1,21 @@
 # Bug tracker
 
+## coroutine-error-conformance-null-proxy — native lane cannot validate the intended body failure
+
+**Status:** OPEN (found 2026-07-21 by codex-q4 in the real assembled VM/direct-ASM paths; planned in
+SPRINT Q4.3).
+
+**Reproduce:** after installing the in-progress native Coroutine provider, both
+`bin/ssc run tests/conformance/coroutine-error.ssc` and its `--bytecode` twin print `unexpected` for
+the error arm. The test tries to induce failure with `val x: String = null; x.length.toString`, but
+the native value semantics do not throw for that compatibility-only null dereference. A minimal
+explicit `throw new RuntimeException("boom")` body produces `Errored(...)` on both native paths.
+
+**Notes / fix gate:** replace the null proxy with the explicit portable throw, retain the independent
+`case Errored(_)` observable, opt the case into v2 plus additive v2 bytecode, and require all selected
+lanes to compare against the same expected output. The gate must print actual output on mismatch; no
+known-failure or backend-specific classification may bypass the comparison.
+
 ## coroutine-contract-doc-drift — normative and feature specs disagree with the shipped surface
 
 **Status:** FIXED (2026-07-21, `6a9f434e4`; found by codex-q4 while specifying
