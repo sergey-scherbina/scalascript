@@ -1,6 +1,6 @@
 feature/v2-native-coroutine-provider 2026-07-21T18:04:13Z
 agent: codex
-heartbeat: 2026-07-21T19:11:21Z
+heartbeat: 2026-07-21T19:36:40Z
 status: in-progress
-done-so-far: Q4 complete through final bookkeeping b891791f7; local unit/conformance/example/dependency gates green
-next: wait for scripts/ci-status --sha b891791f7b5ac5fa47b43c9583b756a57a9e4ac8 exit 0, then release and clean up
+done-so-far: exact b891791f7 exposed demo tools-check import gap; explicit std/coroutine link fixed in 3cb6209a4, local all-examples checker/unit/conformance/VM-ASM-JAR gates green
+next: land spec and Q4.4c bookkeeping, require scripts/ci-status exit 0 on the new exact final SHA, then release and clean up
