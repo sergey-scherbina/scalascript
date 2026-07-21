@@ -1,6 +1,6 @@
 feature/q2-measured-optimization 2026-07-21T08:47:26Z
 agent: codex
-heartbeat: 2026-07-21T08:58:57Z
+heartbeat: 2026-07-21T09:09:53Z
 status: in-progress
-done-so-far: Q2.0 wrapper fix implemented; faithful command-generation gate green; real compiler JMH verification in progress
-next: run parseActors, typeActors, unifyDeep and combined list; conformance; land code and docs slices
+done-so-far: Q2.0 landed; compiler profile route landed; parseActors profile pins repeated source-cluster regex compilation as dominant allocation owner
+next: cache the exact full-match Pattern, run core parser tests/conformance, and require two-fork time+allocation A/B before accepting
