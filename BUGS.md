@@ -2,8 +2,9 @@
 
 ## v21-scljet-vfs-standard-gate-inventory-drift — staged provider JARs evade one gate and break another
 
-**Status:** OPEN (found 2026-07-21 by codex-q4 in the real final provider-isolation gate; announced
-to `@scalascript` / `@claude-code` in Rozum; queued in SPRINT Q4.4a).
+**Status:** DONE (2026-07-21, `c6cf03634`; found and confirmed by codex-q4 in the real final
+provider-isolation gate; reported with root cause to `@scalascript` / `@claude-code` in Rozum;
+SPRINT Q4.4a).
 
 **Reproduce:** after `scripts/sbtc "installBin"`, run
 `tests/e2e/v21-plugin-backend-isolation-smoke.sh`. It exits 1 because
@@ -14,11 +15,12 @@ layout. In the same staged image, `tests/e2e/v21-native-plugin-boundary-smoke.sh
 inventorying either JAR, so its green result proves nothing about their dependencies or service
 boundary.
 
-**Root cause / fix gate:** feature commit `6131e17a3` added the native SclJet VFS plugin and shared
+**Root cause / fix:** feature commit `6131e17a3` added the native SclJet VFS plugin and shared
 zero-dependency host to `installBin`, but the two explicit measurement inventories were not updated.
-Register both ownership roots in `v21-core-dependency-gate`; add both to the native boundary JAR and
-`jdeps` inventory, require a service entry only on the plugin, and prove the host has none. Then run
-both real gates and their focused dependency-gate self-test; every check must print its failure.
+Both now have closed-layout ownership and native-boundary `jdeps` checks; only the plugin must carry
+the native ServiceLoader entry, while the host is required not to. Dependency self-test,
+closed-layout smoke (27 roots / 129 edges / 43 classified JARs / 0 violations), backend isolation,
+and native plugin boundary all pass in the staged distribution.
 
 ## v1-jvm-coroutine-generic-surface — generated runtime rejects the public typed API
 
