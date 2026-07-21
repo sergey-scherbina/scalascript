@@ -1,6 +1,0 @@
-feature/v2-f7-internal-gate 2026-07-19T13:42:57Z
-agent: codex
-heartbeat: 2026-07-21T08:35:17Z
-status: in-progress
-done-so-far: code SHA c278b4b37 exact-CI green; final SHA 1f5e55b44 run 29805732016 remains 3/4 green with full sbt test active, all local gates green
-next: exact final ci-status exit 0 => record/release/remove; red => diagnose/fix exact named failure
