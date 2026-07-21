@@ -4,8 +4,9 @@ Single source of truth for every benchmark in this repo: what each one
 measures, when to use it, and the one-line command that runs it.
 
 Everything goes through `scripts/bench`. Run `scripts/bench help` for the
-full command list; `scripts/bench list` enumerates every available
-`@Benchmark` method.
+full command list; `scripts/bench list` queries both the interpreter and
+compiler benchmark projects and enumerates every available `@Benchmark`
+method without duplicates.
 
 ## One command per case
 
@@ -22,6 +23,7 @@ full command list; `scripts/bench list` enumerates every available
 | Compare interp vs JS vs JVM | `scripts/bench cross` |
 | Measure codegen time | `scripts/bench gen` |
 | Measure compile pipeline | `scripts/bench compile` |
+| Measure one compiler phase | `scripts/bench compile parseActors` |
 | Prove the off-mode still works | `scripts/bench off recursionFib` |
 | Profile (alloc + GC) one bench | `scripts/bench profile recursionFib` |
 | Wall-clock vs Scala/Node | `scripts/bench wall` |
@@ -45,7 +47,7 @@ BENCH_WI=1 BENCH_MI=1 scripts/bench interp    # quick smoke across all benches
 | `runtime/backend/interpreter-bench/.../InterpreterBench.scala` | `InterpreterBench` | Interpreter hot-path microbenchmarks (arith, recursion, pattern match, foreach, tuple, effects). |
 | `runtime/backend/interpreter-bench/.../RuntimeBench.scala` | `RuntimeBench` | Cross-backend EXECUTION speed: `interp_X` vs `js_X` (Node subprocess) vs `jvm_X` (standalone JAR). |
 | `runtime/backend/interpreter-bench/.../CrossBackendBench.scala` | `CrossBackendBench` | Cross-backend CODEGEN time: `jvmGen_X` / `jsGen_X` (no subprocess; measures the backend itself, not the output). |
-| `lang/core-bench/.../CompilerBench.scala` | `CompilerBench` | Parser, typer, unifier benches — orthogonal to interpreter perf. |
+| `lang/core-bench/.../CompilerBench.scala` | `ParserBench`, `TyperBench`, `UnifyBench`, `SsccFormatCompilerBench` | Parser, typer, unifier, and `.sscc` format benches — orthogonal to interpreter perf. |
 
 If you are micro-optimising the interpreter, almost everything you need is
 in `InterpreterBench`. The cross-backend benches are for periodic "how far
