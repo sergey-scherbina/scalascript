@@ -1,6 +1,0 @@
-feature/site-docs-lane 2026-07-20T04:43:00Z
-agent: claude-site-lane
-heartbeat: 2026-07-20T18:26:07Z
-status: in-progress
-done-so-far: SITE S1-S5 DONE. /docs live; install page live; link integrity 317->0 broken (GitHub-rewrite for repo-escaping links + markdown-html .md#frag fix). CI: cluster group (7) FIXED by subagent (WS binary-frame drop, NOT the filed hypothesis), plutil-gate (9 skip on Linux), 4+sendAfter earlier. Only 2 CI tests remain RED: import-wildcard + bare-var-receive (native-front defects, BUGS.md).
-next: optional landing polish (examples gallery/benchmarks); last 2 CI native-front defects (delegatable). Confirm Pages redeploy of rewritten docs.

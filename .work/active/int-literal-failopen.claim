@@ -1,8 +1,0 @@
-claim: int-literal-failopen
-branch: feature/int-literal-failopen
-agent: opus (orchestrator session 0716/17)
-heartbeat: 2026-07-17T15:14:16Z
-status: in-progress (spawned agent)
-what: two fail-open literal bugs. println(2147483648) -> null on the REFERENCE interpreter;
-      println(-9223372036854775808) -> 0 on v2 native. BUGS v1-interp-int-literal-above-2^31-becomes-null,
-      v2-native-min64-literal-prints-0. Int is 64-bit but half its range can't be written as a literal.

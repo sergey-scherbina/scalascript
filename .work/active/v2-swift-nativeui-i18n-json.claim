@@ -1,6 +1,0 @@
-feature/v2-swift-nativeui-i18n-json 2026-07-12T10:15:00Z
-agent: codex
-heartbeat: 2026-07-12T13:29:32Z
-status: in-progress
-done-so-far: Swift implementation/spec/docs/bookkeeping landed through 98a5f7bec; backend 54/54, CLI 54/54, PluginBridge 33/33, tkv2 12/12, assembled CLI and macOS/iOS e2e pass, and both reviewers approve. The stale clean v2.1 release claim was triaged/released after no live Rozum participant; exact money tuple-map and independent SclJet bridge blockers are recorded.
-next: Rebase the Swift closure worktree, implement faithful regressions/fixes for native _sel_map tuple spreading and the SclJet FrontendBridge receiver/delegation boundary, rerun 28/28 plus full bridge, close BUGS after reporter confirmation, then release claim and remove worktree.
