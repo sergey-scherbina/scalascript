@@ -1,6 +1,6 @@
 feature/v2-native-coroutine-provider 2026-07-21T18:04:13Z
 agent: codex
-heartbeat: 2026-07-21T18:04:13Z
-status: not-started
-done-so-far:
-next: create external worktree, replace Q4 placeholder with concrete resume-cold slices, and commit the feature spec before code
+heartbeat: 2026-07-21T18:05:01Z
+status: in-progress
+done-so-far: external worktree created at /Users/sergiy/work/my/scalascript-wt-v2-native-coroutine-provider
+next: replace Q4 placeholder with concrete resume-cold slices and commit the feature spec before code
