@@ -41,16 +41,6 @@ provider, or the F cutover path from these tasks** (collision). These six are th
       conformance case + example. Check the v2 native path renders dynamic chars correctly too (v2 was
       noted to render chars as decimal numbers — verify / file a bug if still true).
 
-- [ ] **scljet-standalone-library-symlink-drop** (`scljet-standalone-library-symlink-drop`) — drop the
-      `v1/runtime/std/scljet` → `../../../scljet` compatibility symlink and teach the resolvers a
-      **first-class `scljet/` library root**. Touch: `build.sbt` `installBin` glob (stage from `scljet/`
-      directly, ~line 1946/2033), `ImportResolver` (`v1/lang/core/.../imports/ImportResolver.scala`,
-      maps `std/foo`→`.../runtime/std/foo`), and the native/JS + `check-stdlib-interface-load` loaders
-      in `Main.scala` — all mapping `std/scljet` → `scljet/`. Spec `specs/scljet-standalone-library.md`.
-      ⚠ Touches `build.sbt` (shared hotspot with the flip + F5 tasks) → rebase before push; `scripts/sbtc`
-      does NOT reload build.sbt (run `sbtc "reload"` first, or `sbt -batch`). Verify: FULL conformance +
-      native `ssc run` + JS on the scljet cases (`--no-memo`), and one non-scljet std case still resolves.
-
 - [ ] **scljet-mutable-pager** (`scljet-mutable-pager`) — the big deep item. A real **in-place mutable
       pager** on top of `journal.ssc` `writePagesJournaled`: dirty-page tracking + **cell-level in-place
       edits** (insert/delete/update a cell within a leaf, split/merge on overflow/underflow), replacing

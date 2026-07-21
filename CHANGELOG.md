@@ -13,6 +13,17 @@ the `node:test` suite were updated; JS control suite 34/34. Both host reference 
 transport capsule, exact/portable runners, and Rust/Swift lanes remain follow-on slices
 (`feat 49f8fea6a`).
 
+## 2026-07-21 — SclJet is a first-class `scljet/` library root; compat symlink dropped
+
+Removed the `v1/runtime/std/scljet → ../../../scljet` compatibility symlink and taught the resolver a
+first-class SclJet library root. `ImportResolver` now discovers `scljetPath` (`discoverScljetRoot`) and,
+when a `std/scljet/…` import isn't found under the normal std root (dev tree, post-symlink), re-resolves
+it against `<scljetRoot>/…`; a packaged/staged install keeps a real `runtime/std/scljet/` tree so the
+installed layout stays byte-identical. `build.sbt installBin` now stages the library from repo-root
+`scljet/` directly instead of relying on the `**` glob following the symlink. Zero regression: `scljet-*`
+conformance INT 99/99 + JS 99/99 (0 failed), native `ssc run --native examples/scljet-hello.ssc` green,
+and a non-scljet std case (`json-deep-import`, `std/json`) still resolves on INT/JS/V2.
+
 ## 2026-07-21 — Last v2-F4 dualrun residual closed: enum-case defaults on the qualified ctor path
 
 The F front now synthesizes trailing default arguments for a QUALIFIED enum-case constructor
