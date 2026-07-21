@@ -66,11 +66,12 @@ so there is no val-ordering issue to reorder away.
 
 ## swiftui-real-fixture-swift-without-swiftui — Linux `swift` is not a SwiftUI capability
 
-**Status:** FIXED (2026-07-21, `c278b4b37`; found by codex while closing F7 exact CI). Exact run
-`29775034983` at `1fbe993b4` completed every earlier job/gate, then failed exactly one named test:
+**Status:** DONE (2026-07-21, `c278b4b37`; exact containing SHA `1f5e55b44`, run
+`29805732016`; found and confirmed by codex while closing F7 exact CI). Earlier run `29775034983`
+at `1fbe993b4` completed every preceding job/gate, then failed exactly one named test:
 `SwiftUiRealFixtureBuildTest` tried to build the macOS package on Ubuntu and `swiftc` reported
 `ContentView.swift:3:8: error: no such module 'SwiftUI'`. The final aggregate was 619 succeeded,
-1 failed, 22 canceled; this is the current full-CI blocker.
+1 failed, 22 canceled; this was the final full-CI blocker.
 
 **Root cause / repro.** The test's `swiftAvailable` predicate checks only `swift --version`. GitHub's
 Linux image has a working Swift compiler but no Apple SwiftUI SDK, so that proxy passes and the
@@ -83,8 +84,9 @@ impossible-module regression proves the probe compares module availability. The 
 staged `.ssc` regression remains outside that gate, so Linux still catches generated-Scala failures.
 The focused suite is 3/3 on macOS (including the real `swift build`); with a Linux-shaped `swiftc`
 that cannot import SwiftUI it is 2 passed / 1 named canceled, and the generated-Scala regression still
-runs. The complete v2 gate is 644 ok / 0 FAIL and shared `v2-*` conformance is 11/11. F7 keeps its claim
-until an exact containing SHA returns exit 0.
+runs. The complete v2 gate is 644 ok / 0 FAIL and shared `v2-*` conformance is 11/11. Exact run
+`29805732016` for containing SHA `1f5e55b447f6a2e28c2fd3efe2e5599d99f6a8bd` completed all four
+jobs successfully, including the full Linux sbt test; `scripts/ci-status` returned 0.
 
 ## cli-command-System.exit-kills-the-test-fork — a whole CLASS of green-looking CI reds
 

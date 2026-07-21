@@ -20,7 +20,9 @@ SwiftUI SDK is available. It typechecks `import SwiftUI` with `swiftc`, prints t
 diagnostic when the native package build is unavailable, and has an impossible-module regression
 that proves the gate compares capability. The deliberately-invalid generated-Scala regression remains
 ungated on Linux. Verification: focused macOS 3/3 including real `swift build`; Linux-shaped 2 passed /
-1 named canceled; full v2 644 ok / 0 FAIL; shared `v2-*` conformance 11/11 (`c278b4b37`).
+1 named canceled; full v2 644 ok / 0 FAIL; shared `v2-*` conformance 11/11 (`c278b4b37`). Exact run
+`29805732016` for containing SHA `1f5e55b44` completed lint, validation, conformance, and full sbt test
+successfully; `scripts/ci-status` returned 0.
 
 ## 2026-07-20 — v2-f5b Stage 1 CORE: F emits TYPED arithmetic IR (i.*/big.*/sconcat/seq)
 
