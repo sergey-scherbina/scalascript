@@ -1,6 +1,6 @@
-feature/v2-f5-kernel-shrink 2026-07-21T19:18:14Z
-agent: opus-orch
-heartbeat: 2026-07-21T19:18:14Z
+feature/v2-f5-kernel-shrink 2026-07-21T19:29:35Z
+agent: opus-orch-subagent
+heartbeat: 2026-07-21T19:29:35Z
 status: in-progress
-done-so-far: claimed by orchestrator (Sergiy "займись всем этим" batch, 2026-07-21); worked by a dedicated background subagent in its own worktree.
-next: study per-region kernel map + honest fixpoint-verified target; execute SAFE off-kernel relocations only; gate fixpoint+semantic
+done-so-far: worktree up; baselines GREEN (C_min fixpoint 32824B; F typed --self fixpoint 385827B; semantic running). Region map done: SelfRecLL+SelfTailRecLL2 (142L) + FastCode (820L) = perf layers; Prims delta-table 2057L; PortableEffects 221L; PortableDecimal 171L.
+next: measure perf impact of disabling fast paths on F self-compile fixpoint; if under budget, delete safely.
