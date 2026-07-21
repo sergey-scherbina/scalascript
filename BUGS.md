@@ -1,5 +1,41 @@
 # Bug tracker
 
+## f-imported-caseclass-default-arg-synth — F front misses defaulted params on imported case-class ctors
+
+**Status:** OPEN, F-lane only (2026-07-21, found by `f-multifile-lowering` while landing the F
+import-order fix). Two corpus programs hit it once the val-ordering bug is out of the way.
+
+**The shape.** When a program imports a case class whose constructor has a defaulted parameter and
+calls it with fewer args (relying on the default), the F native front (`SSC_FRONT=F bin/ssc run`)
+fails with `ssc: arity: 2 expected, 1 given`. The default front (`bin/ssc run`) resolves the default
+correctly. F is not synthesizing the default-argument value for an *imported* case-class constructor.
+
+**Repro (F lane; both pass on the default front and in `tests/conformance/run.sh`):**
+- `SSC_FRONT=F bin/ssc run tests/conformance/mcp-types.ssc` — imported
+  `case class ToolResult(contentJson: String, isError: Boolean = false)` (v1/runtime/std/agent.ssc:54),
+  called `ToolResult(content)` → `arity: 2 expected, 1 given`.
+- `SSC_FRONT=F bin/ssc run examples/dsl-ast-builder.ssc` — imported
+  `case class Builder[N, V](… _tags: List[String] = Nil …)` (v1/runtime/std/dsl/builders.ssc:30);
+  the first (Span) section is correct after the import-order fix, then the Builder section throws
+  the same `arity: 2 expected, 1 given`.
+
+**Note.** The import-order reorder (`sscConcatSources(seen)`, landed 2026-07-21) removed the earlier
+`<closure>` val-ordering symptom from dsl-ast-builder's first section but does NOT fix this — the
+default-arg synth is a distinct front-end gap. Fix belongs in F's ctor lowering / default-arg
+synthesis for imported declarations.
+
+## f-litdoc-runtime-error-2 — litdoc fails `ssc: 2` on the F native front only
+
+**Status:** OPEN, F-lane only (2026-07-21, found by `f-multifile-lowering`). Distinct from the
+import-order/val-ordering bug: byte-identical failure before and after that fix, so the reorder does
+not touch it. `std/litdoc.ssc` is self-contained (plain case classes, no top-level bare expressions),
+so there is no val-ordering issue to reorder away.
+
+**Repro:** `SSC_FRONT=F bin/ssc run tests/conformance/litdoc.ssc` → `ssc: 2` (empty stdout).
+`bin/ssc run tests/conformance/litdoc.ssc` and `tests/conformance/run.sh --only '*litdoc*'`
+(INT/JS/JVM) all pass. Needs its own investigation (candidate areas: F handling of `.split`,
+`.substring`, incremental `reparse`/`firstDiff`, or a numeric/index error surfacing as `ssc: 2`).
+
 ## swiftui-real-fixture-swift-without-swiftui — Linux `swift` is not a SwiftUI capability
 
 **Status:** FIXED (2026-07-21, `c278b4b37`; found by codex while closing F7 exact CI). Exact run
