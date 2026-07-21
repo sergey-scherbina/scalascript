@@ -1,5 +1,26 @@
 # Bug tracker
 
+## swiftui-real-fixture-swift-without-swiftui — Linux `swift` is not a SwiftUI capability
+
+**Status:** OPEN (2026-07-21, found by codex while closing F7 exact CI). Exact run
+`29775034983` at `1fbe993b4` completed every earlier job/gate, then failed exactly one named test:
+`SwiftUiRealFixtureBuildTest` tried to build the macOS package on Ubuntu and `swiftc` reported
+`ContentView.swift:3:8: error: no such module 'SwiftUI'`. The final aggregate was 619 succeeded,
+1 failed, 22 canceled; this is the current full-CI blocker.
+
+**Root cause / repro.** The test's `swiftAvailable` predicate checks only `swift --version`. GitHub's
+Linux image has a working Swift compiler but no Apple SwiftUI SDK, so that proxy passes and the
+macOS-only build starts. The real observable is whether the compiler can typecheck `import SwiftUI`:
+write a temporary `.swift` probe and run `swiftc -typecheck <probe>`, capturing exit/stdout/stderr.
+
+**Fix plan.** Replace the binary-presence proxy with that real module-capability comparison and
+print its diagnostic when the native package test is canceled. Keep the second deliberately-invalid
+staged `.ssc` test running on Linux: it proves generated-Scala failures remain visible and must not be
+hidden by the SwiftUI capability gate. Add a direct missing-module regression for the probe itself.
+Done when the focused suite reports the real build as canceled only when SwiftUI is genuinely absent,
+the missing-module and generated-Scala checks pass, macOS still performs `swift build`, and exact CI
+is green.
+
 ## cli-command-System.exit-kills-the-test-fork — a whole CLASS of green-looking CI reds
 
 **Status:** OPEN as a class (2026-07-20). One instance is fixed —
@@ -2221,10 +2242,8 @@ and is blocked on those gaps. Queued in SPRINT; a green `main` came first.
 
 ## v2-native-front-multiline-curried-def — a curried `def` whose second clause starts on a new line is mis-parsed
 
-**Status:** OPEN. Found 2026-07-16 while probing why `std/agent.ssc` will not parse on the native
-front. **Fix is known and verified** (see below) but not landed: nothing on the native lane reaches
-a multi-line curried def today (the module that has one is unreachable — see the bug above), so
-landing an unexercised parser change into the CI-red fix was not worth the risk.
+**Status:** FIXED 2026-07-18 by `native-front-run-gaps` (`d0722478e`; claim released in
+`e0a1c8e6f`). Found 2026-07-16 while probing why `std/agent.ssc` would not parse on the native front.
 
 **Reproduce:**
 
@@ -2242,11 +2261,11 @@ newline between `)` and `(` into `;` — a `)` can end a statement and a `(` can
 statement. `isCont` is the wrong place to fix it: adding `(` there would re-glue
 `val x = f { … }` NL `(x, y)`, a bug that pass explicitly fixed.
 
-**Verified fix** (in `parseDef`, right after the first `parseParamList`): a def signature is not
+**Fix/result** (in `parseDef`, right after the first `parseParamList`): a def signature is not
 complete before its `:`/`=`, so a `;` sitting directly before a `(` is always a continuation —
 drop just that separator. A `;` followed by anything else still ends the signature, so an abstract
-`def op(x: Int)` in a trait/effect stays abstract. Confirmed: fixes the repro, keeps the same-line
-form working, and moves `std/agent.ssc`'s first parse failure to the `try`/`catch` gap below.
+`def op(x: Int)` in a trait/effect stays abstract. The staged native/v1 repro prints `ab!` on both,
+the same-line form remains green, and `std/agent.ssc` advances to the independent `try`/`catch` gap.
 
 ## v2-native-front-try-catch — `try` / `catch` does not work on the native front
 

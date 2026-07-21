@@ -2033,15 +2033,27 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
             `BUGS.md#ci-testtimeout`, fixed later by `e25faeb79` with a 240-minute job cap). F7 is
             rolled forward on current `origin/main`; the claim remains open until an exact containing
             SHA returns 0 after the newly exposed v1 test failures are fixed.
+      - [ ] **F7.5 — gate the real Swift package test on SwiftUI, not a `swift` binary.** Exact run
+            `29775034983` at `1fbe993b4` reaches a natural `sbt test` verdict and has one failure:
+            Ubuntu provides `swift --version` but `swift build` fails with `no such module 'SwiftUI'`.
+            In `SwiftUiRealFixtureBuildTest`, probe the actual capability by typechecking a temporary
+            `import SwiftUI` file with `swiftc`; print exit/stdout/stderr on cancellation. Add a direct
+            impossible-module check so the gate proves it compares module availability. Do not gate the
+            deliberately-invalid staged `.ssc` test: it must still expose generated-Scala failures on
+            Linux. Verify the focused suite in the staged CLI harness and its Linux-shaped outcome.
+      - [ ] **F7.6 — exact closure and cleanup.** Run the affected CLI suite, the complete
+            `v2/conformance/check.sh`, and shared `tests/conformance/run.sh --only 'v2-*'`; push the
+            code and separate bookkeeping commits, then require `scripts/ci-status --sha <landed>` exit
+            0. Record the exact run, release `v2-f7-internal-gate`, and remove its worktree. The stale Q1
+            queue/BUGS state is reconciled in the planning commit because its implementation already
+            landed at `d0722478e` and was released at `e0a1c8e6f`.
 
-- [ ] **Q1 — native multiline curried definitions** (`v2-native-front-multiline-curried-def`). After
-      releasing F7, re-sync claims and take this bug if still unclaimed. Reproduce the direct two-clause
-      `def agentTool(... )` newline `(handler: ...)` program from `BUGS.md` through staged `bin/ssc` and
-      confirm v1 prints `ab!` while native fails. In `v2/lib/ssc1-front.ssc0`'s `parseDef`, consume only a
-      semicolon directly before a following parameter-list `(` after the first `parseParamList`; do not
-      change global newline continuation (which would re-glue unrelated statements). Add a real staged
-      CLI regression covering multiline, same-line, and abstract-def boundaries; done when native/v1 agree
-      and the affected front/fixpoint/shared-conformance gates are green.
+- [x] **Q1 — native multiline curried definitions** (`v2-native-front-multiline-curried-def`) —
+      ALREADY LANDED 2026-07-18 in `d0722478e` (claim released by `e0a1c8e6f`; the later open queue
+      entry was stale). `parseDef` drops only an inferred `;` directly before the next parameter-clause
+      `(` after the first `parseParamList`; global newline continuation is unchanged, so abstract-def
+      boundaries stay intact. The staged native/v1 repro prints `ab!` on both and the same-line form
+      remains green. `BUGS.md` and this queue now match the existing source, changelog, and git history.
 - [ ] **Q2 — measured optimization after the bug slice.** Select an unclaimed hot path exposed by the
       real bug/feature workload, record a reproducible `scripts/bench <lane> <pattern>` baseline in this
       file, profile before changing code, and land only a behavior-preserving improvement with repeated
