@@ -1,0 +1,99 @@
+diff --git a/v2/backend/swift/src/main/scala/ssc/swift/SwiftBackend.scala b/v2/backend/swift/src/main/scala/ssc/swift/SwiftBackend.scala
+index ad04c1252..f48247885 100644
+--- a/v2/backend/swift/src/main/scala/ssc/swift/SwiftBackend.scala
++++ b/v2/backend/swift/src/main/scala/ssc/swift/SwiftBackend.scala
+@@ -378,7 +378,7 @@ object SwiftBackend:
+     var prims = Set.empty[String]
+     def walk(term: Term): Unit = term match
+       case Term.Lit(_) | Term.Local(_) => ()
+-      case Term.Global(name) => if !(definitions(name) || builtinGlobals(name)) then globals += name
++      case Term.Global(name) => if !(definitions(name) || builtinGlobals(name) || name.startsWith("@")) then globals += name
+       case Term.Lam(_, body) => walk(body)
+       case Term.App(fn, args) => walk(fn); args.foreach(walk)
+       case Term.Let(rhs, body) => rhs.foreach(walk); walk(body)
+@@ -399,6 +399,11 @@ object SwiftBackend:
+   private def validateTerm(term: Term, definitions: Set[String]): Unit = term match
+     case Term.Lit(_) | Term.Local(_) => ()
+     case Term.Global(name) if definitions(name) || builtinGlobals(name) => ()
++    // `@`-prefixed globals are lazily-vivified cells (a `val x = Signal(0)`
++    // mutated via `x += 1` lowers to cell.set(Global("@x"), …) with no
++    // global.reg). The runtime auto-creates them on first access, mirroring
++    // v2/src/Runtime.scala:686-689, so they are not "unsupported".
++    case Term.Global(name) if name.startsWith("@") => ()
+     case Term.Global(name) => fail(s"unsupported global '$name'")
+     case Term.Lam(_, body) => validateTerm(body, definitions)
+     case Term.App(fn, args) => validateTerm(fn, definitions); args.foreach(validateTerm(_, definitions))
+diff --git a/v2/backend/swift/src/main/scala/ssc/swift/SwiftRuntime.scala b/v2/backend/swift/src/main/scala/ssc/swift/SwiftRuntime.scala
+index 74537eeee..5a9dd626a 100644
+--- a/v2/backend/swift/src/main/scala/ssc/swift/SwiftRuntime.scala
++++ b/v2/backend/swift/src/main/scala/ssc/swift/SwiftRuntime.scala
+@@ -784,8 +784,18 @@ private final class Machine {
+             guard environment.indices.contains(resolved) else { fatalError("local: index \(index) out of bounds") }
+             return .value(environment[resolved])
+         case let .global(name):
+-            guard let result = globals[name] else { fatalError("unbound global: \(name)") }
+-            return .value(result)
++            if let result = globals[name] { return .value(result) }
++            // Auto-create cells for @xxx globals on first access (lazy init),
++            // mirroring v2/src/Runtime.scala:686-689. A `val x = Signal(0)`
++            // mutated via `x += 1` lowers to cell.set(Global("@x"), …) but the
++            // `@x` cell is never global.reg'd — the general interpreter vivifies
++            // it on first touch, so the Swift runtime must too.
++            if name.hasPrefix("@") {
++                let created = SscValue.cell(SscCell(.unit))
++                globals[name] = created
++                return .value(created)
++            }
++            fatalError("unbound global: \(name)")
+         case let .lambda(arity, body):
+             return .value(.closure(SscClosure(arity: arity, environment: environment, body: body)))
+         case let .apply(function, arguments):
+diff --git a/v2/backend/swift/src/test/scala/ssc/swift/SwiftBackendTest.scala b/v2/backend/swift/src/test/scala/ssc/swift/SwiftBackendTest.scala
+index 084285fe1..0da962173 100644
+--- a/v2/backend/swift/src/test/scala/ssc/swift/SwiftBackendTest.scala
++++ b/v2/backend/swift/src/test/scala/ssc/swift/SwiftBackendTest.scala
+@@ -163,6 +163,24 @@ final class SwiftBackendTest extends AnyFunSuite:
+     val primitiveError = intercept[IllegalArgumentException](SwiftBackend.generate(badPrimitive))
+     assert(primitiveError.getMessage == "swift backend: unsupported primitive 'host.secret'")
+ 
++  test("Swift validation authorizes @-prefixed cell globals as lazily-vivified cells"):
++    // Regression for the real gap found running examples/frontend/dashboard/dashboard.ssc
++    // natively: `val refreshTick = Signal(0)` mutated via `refreshTick += 1` inside a
++    // Button lambda lowers to cell.set(Global("@refreshTick"), …) with no matching
++    // global.reg. The general interpreter (v2/src/Runtime.scala:686-689) auto-creates
++    // `@`-cells on first access, so Swift generation must not reject them as unsupported.
++    val cellGlobal = Program(Nil, Term.Seq(List(
++      Term.Prim("cell.set", List(Term.Global("@refreshTick"), Term.Lit(Const.CInt(1)))),
++      Term.Prim("cell.get", List(Term.Global("@refreshTick"))),
++    )))
++    assert(SwiftBackend.generate(cellGlobal).files.nonEmpty)
++    // A bare (never-set) `@`-global reference is likewise authorized.
++    assert(SwiftBackend.generate(Program(Nil, Term.Global("@fresh"))).files.nonEmpty)
++    // But a non-`@` unbound global still fails.
++    assert(intercept[IllegalArgumentException](
++      SwiftBackend.generate(Program(Nil, Term.Global("host.secret")))).getMessage ==
++      "swift backend: unsupported global 'host.secret'")
++
+   test("Swift validation authorizes only unconditional entry-spine registrations"):
+     val registered = Program(Nil,
+       Term.Let(List(str("en")), Term.Seq(List(
+@@ -566,6 +584,19 @@ public enum SessionProbe {
+     val expected = "\"" + tricky.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+     assert(runSwift("sexpr-string-escape", program) == expected)
+ 
++  test("real swift run auto-vivifies @-prefixed cell globals like the general interpreter"):
++    assume(swiftAvailable, "Swift toolchain is not available")
++    // The dashboard.ssc `refreshTick += 1` shape: set an unregistered `@`-cell, then
++    // read-modify-write it, matching v2/src/Runtime.scala auto-vivify semantics.
++    def int(value: Long) = Term.Lit(Const.CInt(value))
++    def tick = Term.Global("@tick")
++    val program = Program(Nil, Term.Seq(List(
++      Term.Prim("cell.set", List(tick, int(41))),
++      Term.Prim("cell.set", List(tick, Term.Prim("i.add", List(Term.Prim("cell.get", List(tick)), int(1))))),
++      Term.Prim("cell.get", List(tick)),
++    )))
++    assert(runSwift("cell-global", program) == "42")
++
+   test("real swift run matches VM structural fixtures fact tco and map"):
+     assume(swiftAvailable, "Swift toolchain is not available")
+     val cases = List(

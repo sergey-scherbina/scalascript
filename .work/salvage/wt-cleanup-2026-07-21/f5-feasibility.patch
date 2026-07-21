@@ -1,0 +1,102 @@
+diff --git a/v2/src/Runtime.scala b/v2/src/Runtime.scala
+index 83e4fe1a3..018627263 100644
+--- a/v2/src/Runtime.scala
++++ b/v2/src/Runtime.scala
+@@ -1,5 +1,7 @@
+ package ssc
+ 
++object F5 { val PERF_OFF = true }  // F5 EXPERIMENT: force perf layer off
++
+ // The ssc VM: IR -> ssc -> cpu.
+ // JIT philosophy (per design): once we know what a node is, we compile it ONCE
+ // into a closure that does exactly that — no re-dispatch on Term at run time.
+@@ -460,7 +462,7 @@ object SelfRecLL:
+   import Term.*, Const.*
+   type LL = Long => Long
+ 
+-  def compile(body: Term, selfName: String, arity: Int): Option[LL] =
++  def compile(body: Term, selfName: String, arity: Int): Option[LL] = if F5.PERF_OFF then None else
+     if arity != 1 then None
+     else
+       var self: LL = null
+@@ -524,7 +526,7 @@ object SelfTailRecLL2:
+   private final case class Recur(a0: LL2, a1: LL2) extends Tail
+   private final case class Branch(c: (Long, Long) => Boolean, th: Tail, el: Tail) extends Tail
+ 
+-  def compile(body: Term, selfName: String, arity: Int): Option[LL2] =
++  def compile(body: Term, selfName: String, arity: Int): Option[LL2] = if F5.PERF_OFF then None else
+     if arity != 2 then None
+     else
+       def goB(t: Term): Option[(Long, Long) => Boolean] = t match
+@@ -775,7 +777,7 @@ object Compiler:
+       (_: Env) => Done(IntV(result))
+     }
+ 
+-  private def tryClosedLongCellSumLoopFC(t: Term): Option[FastCode.FC] =
++  private def tryClosedLongCellSumLoopFC(t: Term): Option[FastCode.FC] = if F5.PERF_OFF then None else
+     closedLongCellSumLoopResult(t).map { result =>
+       (_: Env) => IntV(result)
+     }
+@@ -967,7 +969,7 @@ object Compiler:
+       (_: Env) => Done(runStaticFloatForeachLoop(plan))
+     }
+ 
+-  private def tryStaticFloatForeachLoopFC(t: Term, topDefs: Map[String, Term]): Option[FastCode.FC] =
++  private def tryStaticFloatForeachLoopFC(t: Term, topDefs: Map[String, Term]): Option[FastCode.FC] = if F5.PERF_OFF then None else
+     staticFloatForeachLoopPlan(t, topDefs).map { plan =>
+       (_: Env) => runStaticFloatForeachLoop(plan)
+     }
+@@ -1788,7 +1790,7 @@ object FastCode:
+ 
+   /** Try to compile a term to a FastLongCode (Env => Long), eliminating IntV boxing.
+    *  Covers Local lookups from LongCellV/IntV, arithmetic ops, and integer literals. */
+-  def tryFLC(t: Term, globals: collection.mutable.Map[String, Value]): Option[FLC] = t match
++  def tryFLC(t: Term, globals: collection.mutable.Map[String, Value]): Option[FLC] = if F5.PERF_OFF then None else t match
+     case term if Compiler.valuePositionsNeedEffectThreading(term) => None
+     case Lit(Const.CInt(n)) => Some(_ => n)
+     case Local(i) =>
+@@ -1925,7 +1927,7 @@ object FastCode:
+    *  Only handles `lcell.set` (typed Long cell — always safe to use FLC).
+    *  `cell.set` is intentionally excluded: it can hold FloatV, StrV, etc., so using
+    *  tryFLC (which coerces Float→0L) would silently corrupt non-Int cells. */
+-  def tryFCLongSet(t: Term, globals: collection.mutable.Map[String, Value]): Option[FC] = t match
++  def tryFCLongSet(t: Term, globals: collection.mutable.Map[String, Value]): Option[FC] = if F5.PERF_OFF then None else t match
+     case term if Compiler.valuePositionsNeedEffectThreading(term) => None
+     case Prim("lcell.set", List(Local(c), body)) =>
+       tryFLC(body, globals).map { flc =>
+@@ -1936,7 +1938,7 @@ object FastCode:
+ 
+   /** Float-safe FC for arm bodies and cell.set values: for __arith__, uses arithOp directly
+    *  (correct for Float operands) instead of the FLC-first shortcut (which coerces Float→0L). */
+-  def tryFCValue(t: Term, globals: collection.mutable.Map[String, Value]): Option[FC] = t match
++  def tryFCValue(t: Term, globals: collection.mutable.Map[String, Value]): Option[FC] = if F5.PERF_OFF then None else t match
+     case term if Compiler.valuePositionsNeedEffectThreading(term) => None
+     case Prim("__arith__", List(Lit(Const.CStr(op)), a0, a1)) =>
+       tryFCValue(a0, globals).flatMap { fc0 => tryFCValue(a1, globals).map { fc1 =>
+@@ -1946,7 +1948,7 @@ object FastCode:
+ 
+   /** Try to compile a term to a FastCode.  Returns None if the term
+    *  requires a tail call (Lam, App, LetRec, Match with complex arms). */
+-  def tryFC(t: Term, globals: collection.mutable.Map[String, Value]): Option[FC] = t match
++  def tryFC(t: Term, globals: collection.mutable.Map[String, Value]): Option[FC] = if F5.PERF_OFF then None else t match
+     case term if Compiler.valuePositionsNeedEffectThreading(term) => None
+     case Lit(k) =>
+       val v = Compiler.constV(k); Some(_ => v)
+@@ -2336,7 +2338,7 @@ object FastCode:
+    *  (self-recursive defs use the trampoline for TCO safety).
+    *  App(Global) FCs capture the target ClosV directly — so fcEntry updates in the
+    *  sibling def are visible at runtime without re-compilation. */
+-  def tryFCMutual(t: Term, globals: collection.mutable.Map[String, Value], selfName: String): Option[FC] = t match
++  def tryFCMutual(t: Term, globals: collection.mutable.Map[String, Value], selfName: String): Option[FC] = if F5.PERF_OFF then None else t match
+     case App(Global(name), args) if name != selfName =>
+       globals.get(name).collect { case closV: ClosV if closV.env.isEmpty =>
+         val argOpts = args.map(a => tryFCMutual(a, globals, selfName))
+@@ -2384,7 +2386,7 @@ object FastCode:
+     case _ => tryFC(t, globals)
+ 
+   /** Try to compile a condition term to a FastBoolCode (avoids BoolV allocation). */
+-  def tryFBc(t: Term, globals: collection.mutable.Map[String, Value]): Option[FBc] = t match
++  def tryFBc(t: Term, globals: collection.mutable.Map[String, Value]): Option[FBc] = if F5.PERF_OFF then None else t match
+     case term if Compiler.mayProduceAutoThreadOp(term) => None
+     // __arith__ comparisons — bridge generates these; fast path via unboxed Long comparison.
+     // GUARD (ALL ops): only when BOTH operands are provably Long. tryFLC reads a Local optimistically

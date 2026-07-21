@@ -1,0 +1,39 @@
+diff --git a/v2/lib/ssc1-lower.ssc0 b/v2/lib/ssc1-lower.ssc0
+index 096f62e35..dd63c8c96 100644
+--- a/v2/lib/ssc1-lower.ssc0
++++ b/v2/lib/ssc1-lower.ssc0
+@@ -844,10 +844,6 @@ def packVarargsArgs = (name, args) =>
+     }
+   else args
+ 
+--- Name of a `var`-tagged callee (else ""), for vararg-packing lookups.
+-def calleeName = (fn) =>
+-  match fn { case Pair(t, d) => if #seq(t, "var") then d else "" }
+-
+ -- K62.6c: build a Map from (resolved) `k -> v` / (k, v) entries. `map.put` MUTATES
+ -- and returns Unit, so use an IIFE: (fn __m => { map.put(__m,k,v); …; __m })(map.new).
+ def buildMapExpr = (args) =>
+@@ -1529,7 +1525,7 @@ def resolveE = (expr) =>
+                             else Pair("app", Pair(resolveCallee(fn), stripNargs(rargs)))
+                         }
+                     }
+-                else Pair("app", Pair(resolveCallee(fn), packVarargsArgs(calleeName(fn), stripNargs(rargs))))
++                else Pair("app", Pair(resolveCallee(fn), stripNargs(rargs)))
+                   }
+             }
+         }
+@@ -1880,7 +1876,13 @@ def lowerE = (scope, rawExpr) =>
+                       case _ =>
+                         IrApp(lowerE(scope, fn), lowerArgs(scope, injArgs))
+                     }
+-                  else IrApp(lowerE(scope, fn), lowerArgs(scope, injArgs))
++                  -- Trailing-vararg packing runs HERE (once per Ir node), not in
++                  -- resolveE: resolveE is re-applied top-down by lowerE at every level,
++                  -- so packing there compounded into a nested list ([[[…]]]). lowerE's
++                  -- app→IrApp step is terminal (Ir nodes are never re-lowered), so a
++                  -- single pack is idempotent. packVarargsArgs is a no-op for non-vararg
++                  -- callees; for a `T*` def it folds the trailing args into one Cons-list.
++                  else IrApp(lowerE(scope, fn), lowerArgs(scope, packVarargsArgs(fname, injArgs)))
+                 else IrApp(lowerE(scope, fn), lowerArgs(scope, injArgs))
+             }
+         }

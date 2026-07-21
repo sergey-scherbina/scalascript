@@ -1,0 +1,67 @@
+diff --git a/v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala b/v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala
+index 520f706f0..ceb0dcab4 100644
+--- a/v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala
++++ b/v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala
+@@ -11,10 +11,41 @@ object RunNativeV2:
+     val compilation = compile(files, mutable)
+     try
+       _root_.ssc.Runtime.argv = argv
+-      _root_.ssc.plugin.NativePluginHost.loadAll(compilation.config)
+-      if bytecode then runBytecode(compilation.program) else runVm(compilation.program)
++      onLargeStack("ssc-native-run") {
++        _root_.ssc.plugin.NativePluginHost.loadAll(compilation.config)
++        if bytecode then runBytecode(compilation.program) else runVm(compilation.program)
++      }
+     finally _root_.ssc.Runtime.argv = previousArgv
+ 
++  /** Run `body` on a dedicated large-stack thread and return its result. Both the
++   *  frontend (`compile`, which VM-evaluates the self-hosted tower over the whole
++   *  source) and the program run (`runVm`/`runBytecode`) recurse on the depth of
++   *  the CoreIR tree — a deeply nested `.ssc` (e.g. scljet's byte codecs / SQL
++   *  engine) overflows the default CLI thread stack. Isolating the deep stack here
++   *  keeps a huge `-Xss` off every other (server/actor) thread. */
++  // Reserved (lazily committed) stack for the frontend + program run. Both recurse
++  // on CoreIR-tree depth; a large self-hosted program (scljet's SQL engine) needs a
++  // big stack, and the INTERPRETED worst case (parallel CPU contention keeps the JVM
++  // from JIT-compiling the interpreter, so frames are far larger) needs more still.
++  // Overridable via -Dssc.native.stack.mb for tuning.
++  private val LargeStackBytes =
++    Option(System.getProperty("ssc.native.stack.mb")).flatMap(_.toLongOption)
++      .getOrElse(1024L) * 1024L * 1024L
++
++  private def onLargeStack[A](threadName: String)(body: => A): A =
++    val result  = new java.util.concurrent.atomic.AtomicReference[A]()
++    val failure = new java.util.concurrent.atomic.AtomicReference[Throwable]()
++    val task = new Runnable:
++      def run(): Unit =
++        try result.set(body)
++        catch case t: Throwable => failure.set(t)
++    val thread = new Thread(null, task, threadName, LargeStackBytes)
++    thread.start()
++    thread.join()
++    val err = failure.get()
++    if err != null then throw err
++    result.get()
++
+   /** `run-js --v2` on the native lane: native ssc1 front → CoreIR → v2 JsGen →
+    *  a temp CommonJS file executed with node. 64-bit-Int JS (the reason this lane
+    *  exists), now sourced from the native front instead of the scalameta bridge. */
+@@ -40,6 +71,9 @@ object RunNativeV2:
+     compile(files, mutable = false)
+ 
+   private[cli] def compile(files: List[String], mutable: Boolean): NativeV2Compilation =
++    onLargeStack("ssc-native-compile")(compileImpl(files, mutable))
++
++  private def compileImpl(files: List[String], mutable: Boolean): NativeV2Compilation =
+     val layout = nativeFrontLayout()
+     // The `--mutable` compiler flag (opt-in mutable class `var` fields) is passed
+     // to BOTH tower invocations; the self-hosted frontend rejects a mutable field
+@@ -191,7 +225,7 @@ object RunNativeV2:
+         catch
+           case e: TowerExit => exitCode.set(e.code)
+           case t: Throwable => failure.set(t)
+-    val thread = new Thread(null, task, threadName, 64L * 1024L * 1024L)
++    val thread = new Thread(null, task, threadName, LargeStackBytes)
+     try
+       thread.start()
+       thread.join()

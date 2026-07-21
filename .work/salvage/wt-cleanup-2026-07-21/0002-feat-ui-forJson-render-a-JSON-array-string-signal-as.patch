@@ -1,0 +1,471 @@
+From 3814f4c081f64abc8cfefd2711aeb6e13166d8ad Mon Sep 17 00:00:00 2001
+From: Sergiy Shcherbyna <sergey.scherbina@gmail.com>
+Date: Mon, 20 Jul 2026 05:24:45 +0200
+Subject: [PATCH 2/2] =?UTF-8?q?feat(ui):=20forJson=20=E2=80=94=20render=20?=
+ =?UTF-8?q?a=20JSON-array-string=20signal=20as=20a=20keyed=20reactive=20li?=
+ =?UTF-8?q?st?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Add a V1 UI-toolkit primitive that renders a DYNAMIC LIST from a signal
+holding a JSON ARRAY string, with per-item field access + conditional
+styling — so a chat message thread (left/right role bubbles) can be
+authored DECLARATIVELY instead of by hand-written JS. This closes the gap
+that forKeyed needs a real Signal[List[A]] while computedSignal / fetch
+signals only produce Signal[String], and _ssc_ui_arrayValue does NOT parse
+JSON — so a JSON-array-in-a-string could not feed forKeyed.
+
+API (std.ui.reactive / std.ui.primitives):
+- forJson(items: Signal[String], key: String)(render: Any => TkNode): TkNode
+  — JSON.parses `items` at render + on every change, keys each row by the
+  item FIELD `key` (index fallback), calls `render` with the parsed item.
+- itemField(item: Any, name: String): String — read a row field as text
+  ('' when absent/null); use it for text and to branch per-item styling.
+
+Layers, mirroring forKeyed at every step:
+- reactive.ssc forJson constructor -> ForJsonNode (nodes.ssc) -> lower.ssc
+  case forJsonView(items, key, item => lower(render(item))); forJsonView +
+  itemField extern defs in primitives.ssc (auto-mapped to _ssc_ui_* in JS).
+- signals.mjs: _ssc_ui_forJsonView / _ssc_ui_itemField builders,
+  _ssc_ui_jsonArray (parse array string) + _ssc_ui_jsonKey helpers, a
+  _ForJson SSR render case (data-ssc-forjson, per-row data-ssc-key), and
+  _mountForJson — the JSON-string sibling of _mountKeyed's keyed reconcile
+  (surviving rows keep their DOM), dispatched from _mountKeyed.
+- Interpreter/JVM parity (FrontendIntrinsics, JvmRuntimeUiPrimitives,
+  JvmGen import, JsGen hasUiHelpers): the browser runtime is authoritative
+  (like forKeyedView), JVM fallback renders empty. NOT recompiled here —
+  emit-spa uses the JS path + auto-mapped externs, so source .ssc + the
+  staged signals.mjs suffice; rebuild via sbt before relying on the JVM path.
+
+Proven end-to-end: emit-spa --frontend react -> headless Chrome. Initial
+JSON array renders 2 bubbles (user right/blue, bot left/grey); clicking a
+button that sets the signal to a longer array reconciles in a 3rd user
+bubble (right/blue) reactively. See examples/frontend/forjson-chat-demo.
+---
+ .../forjson-chat-demo/forjson-chat-demo.ssc   | 55 ++++++++++++
+ .../scalascript/js-runtime/signals.mjs        | 90 +++++++++++++++++++
+ .../scala/scalascript/codegen/JsGen.scala     |  2 +-
+ .../scala/scalascript/codegen/JvmGen.scala    |  2 +-
+ .../codegen/JvmRuntimeUiPrimitives.scala      | 15 ++++
+ .../plugin/frontend/FrontendIntrinsics.scala  | 27 ++++++
+ v1/runtime/std/ui/lower.ssc                   | 11 ++-
+ v1/runtime/std/ui/nodes.ssc                   |  5 ++
+ v1/runtime/std/ui/primitives.ssc              | 20 +++++
+ v1/runtime/std/ui/reactive.ssc                | 12 ++-
+ 10 files changed, 234 insertions(+), 5 deletions(-)
+ create mode 100644 examples/frontend/forjson-chat-demo/forjson-chat-demo.ssc
+
+diff --git a/examples/frontend/forjson-chat-demo/forjson-chat-demo.ssc b/examples/frontend/forjson-chat-demo/forjson-chat-demo.ssc
+new file mode 100644
+index 000000000..09aa51bfe
+--- /dev/null
++++ b/examples/frontend/forjson-chat-demo/forjson-chat-demo.ssc
+@@ -0,0 +1,55 @@
++---
++name: forjson-chat-demo
++version: 1.0.0
++description: forJson demo — a Signal[String] holding a JSON array of chat messages, rendered DECLARATIVELY as styled left/right bubbles keyed by id, with per-item conditional styling from the "role" field.
++frontend: react
++---
++
++# forjson-chat-demo — a JSON-array signal as a styled chat thread
++
++`messages` is a plain `Signal[String]` whose value is a JSON array of
++`{id, role, text}`. `forJson(messages, "id")` JSON-parses it, keys each row by
++`id`, and calls the render with the parsed item; `itemField(m, "role"/"text")`
++reads fields, and a per-item `if role == "user"` chooses the bubble side/colour.
++Clicking a button sets `messages` to a longer array — the new bubble is
++reconciled in reactively (surviving rows keep their DOM). Emit a self-contained
++file with
++`ssc emit-spa --frontend react examples/frontend/forjson-chat-demo/forjson-chat-demo.ssc > forjson-chat-demo.html`.
++
++[signal, serve, itemField](std/ui/primitives.ssc)
++[vstack, hstack](std/ui/layout.ssc)
++[heading, text](std/ui/typography.ssc)
++[signalButton](std/ui/input.ssc)
++[forJson, rawHtml](std/ui/reactive.ssc)
++[TkNode](std/ui/nodes.ssc)
++[lower](std/ui/lower.ssc)
++[defaultTheme](std/ui/theme.ssc)
++
++```scalascript
++val initial  = """[{"id":"1","role":"user","text":"hi"},{"id":"2","role":"bot","text":"hello there"}]"""
++val extended = """[{"id":"1","role":"user","text":"hi"},{"id":"2","role":"bot","text":"hello there"},{"id":"3","role":"user","text":"how are you?"}]"""
++
++val messages = signal("chatMessages", initial)
++
++// One chat bubble, rendered from a parsed JSON item.  Field reads + a conditional
++// on the "role" field drive the side (flex-end/flex-start) and colours — all
++// declarative, no hand-written JS.
++def bubble(m: Any): TkNode =
++  val role = itemField(m, "role")
++  val txt  = itemField(m, "text")
++  val side = if role == "user" then "flex-end" else "flex-start"
++  val bg   = if role == "user" then "#2563eb" else "#e5e7eb"
++  val fg   = if role == "user" then "#ffffff" else "#111827"
++  rawHtml(s"""<div class="row ${role}" style="display:flex;justify-content:${side};margin:4px 0"><div class="bubble ${role}" style="max-width:70%;padding:8px 12px;border-radius:12px;background:${bg};color:${fg}">${txt}</div></div>""")
++
++val tree = vstack(gap = 12)(
++  heading(1, "forJson chat"),
++  hstack(gap = 8)(
++    signalButton(messages, extended, "Append user msg"),
++    signalButton(messages, initial, "Reset")
++  ),
++  forJson(messages, "id")((m: Any) => bubble(m))
++)
++
++serve(lower(tree, defaultTheme), 8080)
++```
+diff --git a/v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/signals.mjs b/v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/signals.mjs
+index ff6e6c6ab..009171ff0 100644
+--- a/v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/signals.mjs
++++ b/v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/signals.mjs
+@@ -364,6 +364,16 @@ function _ssc_ui_signalText(sig) { return { _type: '_SignalText', sig }; }
+ function _ssc_ui_showSignal(cond, whenTrue, whenFalse) { return { _type: '_ShowSignal', cond, whenTrue, whenFalse }; }
+ function _ssc_ui_fragment(children) { return { _type: '_Fragment', children: children || [] }; }
+ function _ssc_ui_forKeyedView(items, key, render) { return { _type: '_ForKeyed', items, key, render }; }
++// forJsonView — like _ForKeyed, but `items` is a Signal[String] holding a JSON ARRAY
++// string. The runtime JSON.parses it (at SSR + on every change), keys rows by the item
++// FIELD named `key` (a string, not a fn), and calls `render` with the parsed item.
++function _ssc_ui_forJsonView(items, key, render) { return { _type: '_ForJson', items, key, render }; }
++// itemField — read a field of a parsed forJson item as a String ('' when absent/null).
++function _ssc_ui_itemField(item, name) {
++  if (item == null || typeof item !== 'object') return '';
++  var v = item[name];
++  return (v === null || v === undefined) ? '' : String(v);
++}
+ // selectFromView — a <select> whose <option> children track `items`
+ // reactively (specs/std-ui-select.md § "Reactive options (selectFrom)").
+ // Unlike _ForKeyed, this owns the WHOLE <select> element: <select>'s HTML
+@@ -448,6 +458,27 @@ function _ssc_ui_arrayValue(v) {
+   }
+   return [];
+ }
++// _ssc_ui_jsonArray — forJson's array resolver. Unlike _ssc_ui_arrayValue (which
++// expects the signal to already hold a JS array), this parses a JSON-array STRING.
++// Accepts a Signal[String], a raw string, or an already-parsed array; returns [] on
++// anything else or a parse error (an empty/half-typed body is a normal transient state).
++function _ssc_ui_jsonArray(v) {
++  var raw = v;
++  if (v && typeof v.get === 'function') raw = v.get();
++  if (Array.isArray(raw)) return raw;
++  if (typeof raw === 'string') {
++    var s = raw.trim();
++    if (!s) return [];
++    try { var p = JSON.parse(s); return Array.isArray(p) ? p : []; }
++    catch (_e) { return []; }
++  }
++  return [];
++}
++// _ssc_ui_jsonKey — a forJson row's stable key: the item's `keyField` value, else index.
++function _ssc_ui_jsonKey(item, keyField, idx) {
++  if (item && typeof item === 'object' && keyField && item[keyField] != null) return String(item[keyField]);
++  return String(idx);
++}
+ 
+ // Walk the View IR tree and produce a static HTML string + a Map of signal
+ // ids to their current values.  Split from _ssc_ui_renderPage so that the
+@@ -635,6 +666,21 @@ function _ssc_ui_renderBody(view) {
+         const sigId = v.items && v.items.id != null ? ` data-ssc-forkeyed-sig="${_esc(String(v.items.id))}"` : '';
+         return `<span data-ssc-forkeyed="${seq}"${sigId} style="display:contents">${rows}</span>`;
+       }
++      case '_ForJson': {
++        // Mirror _ForKeyed, but the items signal holds a JSON-array STRING: parse it,
++        // key each row by the item's `key` FIELD, render the parsed item. Shares the
++        // `keyed` seq registry so _mountKeyed dispatches this by index (see its _ForJson
++        // branch). Container marker is data-ssc-forjson to keep the mount selectors distinct.
++        collectSig(v.items);
++        const seq = keyed.length;
++        keyed.push(v);
++        const rows = _ssc_ui_jsonArray(v.items).map(function(item, idx) {
++          const key = _ssc_ui_jsonKey(item, v.key, idx);
++          return `<span data-ssc-key="${_esc(key)}" style="display:contents">${walk(_ssc_ui_renderKeyed(v.render, item))}</span>`;
++        }).join('');
++        const sigId = v.items && v.items.id != null ? ` data-ssc-forjson-sig="${_esc(String(v.items.id))}"` : '';
++        return `<span data-ssc-forjson="${seq}"${sigId} style="display:contents">${rows}</span>`;
++      }
+       case '_SelectFrom': {
+         // Mirrors _ForKeyed's key-based reconcile, adapted for <select>:
+         // the container marker lives on the <select> tag itself (not a
+@@ -1008,6 +1054,7 @@ function _ssc_ui_mount(sigs, keyedRoots) {
+   function _mountKeyed(scope, keyedViews) {
+     (keyedViews || []).forEach(function(kv, seq) {
+       if (kv && kv._type === '_SelectFrom') { _mountSelectFrom(scope, kv, seq); return; }
++      if (kv && kv._type === '_ForJson')    { _mountForJson(scope, kv, seq); return; }
+       _qsa(scope, '[data-ssc-forkeyed="' + seq + '"]').forEach(function(container) {
+         if (_bound(container, 'forkeyed')) return;
+         var sig = kv && kv.items;
+@@ -1047,6 +1094,49 @@ function _ssc_ui_mount(sigs, keyedRoots) {
+       });
+     });
+   }
++  // _mountForJson — the JSON-string sibling of _mountKeyed's forkeyed reconcile:
++  // same existing-by-key -> keep-or-create -> append -> drop-stale algorithm, but the
++  // backing signal holds a JSON-array STRING (parsed via _ssc_ui_jsonArray) and rows are
++  // keyed by the item's `key` field (via _ssc_ui_jsonKey). Surviving rows keep their DOM.
++  function _mountForJson(scope, kv, seq) {
++    _qsa(scope, '[data-ssc-forjson="' + seq + '"]').forEach(function(container) {
++      if (_bound(container, 'forjson')) return;
++      var sig = kv && kv.items;
++      if (!sig || sig.id == null) return;
++      var sigId = String(sig.id);
++      function makeRow(item, idx, key) {
++        var rowView = _ssc_ui_renderKeyed(kv.render, item);
++        var out = _ssc_ui_renderBody(rowView);
++        var wrap = document.createElement('span');
++        wrap.setAttribute('data-ssc-key', key);
++        wrap.style.display = 'contents';
++        wrap.innerHTML = out.body;
++        _bindScope(wrap, out.sigs, out.keyed);
++        return wrap;
++      }
++      function reconcile(rawVal) {
++        var rows = _ssc_ui_jsonArray(rawVal);
++        var existing = Object.create(null);
++        Array.prototype.forEach.call(container.children || [], function(child) {
++          var k = child.getAttribute && child.getAttribute('data-ssc-key');
++          if (k != null) existing[k] = child;
++        });
++        var keep = Object.create(null);
++        rows.forEach(function(item, idx) {
++          var key = _ssc_ui_jsonKey(item, kv.key, idx);
++          var node = existing[key];
++          if (!node) node = makeRow(item, idx, key);
++          keep[key] = true;
++          container.appendChild(node);
++        });
++        Array.prototype.slice.call(container.children || []).forEach(function(child) {
++          var k = child.getAttribute && child.getAttribute('data-ssc-key');
++          if (k != null && !keep[k]) child.remove();
++        });
++      }
++      _sub(sigId, reconcile);
++    });
++  }
+   // _mountSelectFrom — the <select>-specific sibling of _mountKeyed's own
+   // reconcile: same algorithm shape (existing-by-key map -> keep-or-create ->
+   // append in new order -> remove stale), but the container IS the <select>
+diff --git a/v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala b/v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala
+index 507c7603b..bfed33e0a 100644
+--- a/v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala
++++ b/v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala
+@@ -1421,7 +1421,7 @@ class JsGen(
+       // names must appear here or import-only usage emits without signals.mjs.
+       "validateField", "fieldError", "formErrors", "formValid", "formField",
+       "submitGate", "component(", "componentScope", "ctxSignal", "ctxSeedSignal",
+-      "textNode", "signalText", "showSignal", "fragment(", "forKeyed",
++      "textNode", "signalText", "showSignal", "fragment(", "forKeyed", "forJson", "itemField",
+       "rawText", "rawHtml", "vstack", "hstack", "heading(", "lower(",
+       "selectFrom"
+     ).exists(allText.contains)
+diff --git a/v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGen.scala b/v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGen.scala
+index 93e9d5820..2509321b0 100644
+--- a/v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGen.scala
++++ b/v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGen.scala
+@@ -922,7 +922,7 @@ class JvmGen(
+       // this had silently drifted — forKeyedView/seedSignal/emptyHeaders/fetchActionTo/
+       // fetchCaptureAction/rowEditAction were missing, so any real .ssc using dynamic
+       // forKeyed or those less-common primitives hit "Not found" on this import alone).
+-      importBuf.prepend("  import ui.primitives.{View, EventHandler, signal, seedSignal, componentScope, element, textNode, signalText, showSignal, fragment, forKeyedView, setSignal, inputChange, toggleSignal, eqSignal, hashSignal, emptyHeaders, emit, serve, fetchUrlSignal, fetchRowsSource, fetchAction, fetchActionTo, incSignal, fetchActionClear, fetchCaptureAction, fieldColumn, fieldPayload, wholeRowPayload, fieldsPayload, rowDeleteAction, rowPostAction, rowLinkAction, rowEditAction, dataTableView}")
++      importBuf.prepend("  import ui.primitives.{View, EventHandler, signal, seedSignal, componentScope, element, textNode, signalText, showSignal, fragment, forKeyedView, forJsonView, itemField, setSignal, inputChange, toggleSignal, eqSignal, hashSignal, emptyHeaders, emit, serve, fetchUrlSignal, fetchRowsSource, fetchAction, fetchActionTo, incSignal, fetchActionClear, fetchCaptureAction, fieldColumn, fieldPayload, wholeRowPayload, fieldsPayload, rowDeleteAction, rowPostAction, rowLinkAction, rowEditAction, dataTableView}")
+ 
+     if importBuf.isEmpty && !hasPrimitivesObj then return src
+ 
+diff --git a/v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmRuntimeUiPrimitives.scala b/v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmRuntimeUiPrimitives.scala
+index 2da360d31..445353caa 100644
+--- a/v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmRuntimeUiPrimitives.scala
++++ b/v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmRuntimeUiPrimitives.scala
+@@ -53,6 +53,21 @@ object JvmRuntimeUiPrimitives:
+        |        scalascript.frontend.View.Fragment(
+        |          _rows.map(render(_).asInstanceOf[scalascript.frontend.View[?]]))
+        |
++       |      // forJsonView — dynamic JSON-array rendering + keyed reconciliation lives in the
++       |      // JS emit-spa runtime (_ssc_ui_forJsonView / _mountForJson). The JVM/interpreter
++       |      // fallback renders empty (like the forKeyedView note, the browser is authoritative).
++       |      def forJsonView(items: Any, key: String, render: Any => View): View =
++       |        scalascript.frontend.View.Fragment(Seq.empty[scalascript.frontend.View[?]])
++       |
++       |      // itemField — read a String field off a parsed JSON row (a Map on the JVM).
++       |      def itemField(item: Any, name: String): String =
++       |        item match
++       |          case m: scala.collection.Map[?, ?] =>
++       |            m.asInstanceOf[scala.collection.Map[String, Any]].get(name) match
++       |              case Some(v) if v != null => v.toString
++       |              case _                    => ""
++       |          case _ => ""
++       |
+        |      def setSignal(s: Any, v: Any): EventHandler =
+        |        scalascript.frontend.EventHandler.SetSignalLiteral(
+        |          s.asInstanceOf[scalascript.frontend.ReactiveSignal[Any]], v)
+diff --git a/v1/runtime/std/frontend-plugin/src/main/scala/scalascript/compiler/plugin/frontend/FrontendIntrinsics.scala b/v1/runtime/std/frontend-plugin/src/main/scala/scalascript/compiler/plugin/frontend/FrontendIntrinsics.scala
+index 3899fa540..fb41e6b1c 100644
+--- a/v1/runtime/std/frontend-plugin/src/main/scala/scalascript/compiler/plugin/frontend/FrontendIntrinsics.scala
++++ b/v1/runtime/std/frontend-plugin/src/main/scala/scalascript/compiler/plugin/frontend/FrontendIntrinsics.scala
+@@ -145,6 +145,33 @@ object FrontendIntrinsics:
+         case _ => PluginError.raise("forKeyedView(items, key, render)")
+     },
+ 
++    // ── forJsonView(items, key, render): View ──────────────────────────────
++    // `items` is a Signal[String] holding a JSON-array string. The dynamic parse +
++    // keyed reconciliation lives in the JS emit-spa runtime (_ssc_ui_forJsonView /
++    // _mountForJson), where the render callback stays live in-browser; the
++    // interpreter/JVM fallback renders empty (the browser runtime is authoritative,
++    // same stance as the forKeyedView/selectFromView notes above).
++    QualifiedName("forJsonView") -> PluginNative.evalLegacy { (_, args) =>
++      args match
++        case List(Foreign("ReactiveSignal", _: ReactiveSignal[?]), _: String, Fn(_)) =>
++          PluginValue.foreign("View", View.Fragment(Nil))
++        case _ => PluginError.raise("forJsonView(items, key, render)")
++    },
++
++    // ── itemField(item, name): String ──────────────────────────────────────
++    // Read a String field off a parsed forJson row (a Map here); "" when absent/null.
++    QualifiedName("itemField") -> PluginNative.evalLegacy { (_, args) =>
++      args match
++        case List(item, name: String) =>
++          item match
++            case m: scala.collection.Map[?, ?] =>
++              m.asInstanceOf[scala.collection.Map[String, Any]].get(name) match
++                case Some(v) if v != null => v.toString
++                case _                    => ""
++            case _ => ""
++        case _ => PluginError.raise("itemField(item, name)")
++    },
++
+     // ── selectFromView[A](items, key, optionFn, selected, style, placeholder, disabled): View ──
+     // Interpreter/JVM fallback: like forKeyedView above, render the current
+     // signal list ONCE (no dynamic reconciliation here — that lives in the JS
+diff --git a/v1/runtime/std/ui/lower.ssc b/v1/runtime/std/ui/lower.ssc
+index db772f162..2140fa747 100755
+--- a/v1/runtime/std/ui/lower.ssc
++++ b/v1/runtime/std/ui/lower.ssc
+@@ -14,11 +14,11 @@ Pure function, no DOM, no async — safe for SSR.
+ Import this + a Theme, build your tree with widget constructors,
+ then call `serve(lower(tree, defaultTheme), 8080)`.
+ 
+-[TkNode, VStackNode, HStackNode, DividerNode, SpacerNode, HeadingNode, TextNode_, SignalHeadingNode, ShowWhenNode, SignalTextNode, FragmentNode, KeyedForNode, RawTextNode, RawHtmlNode, TextFieldNode, TextFieldRNode, CheckboxNode, SelectNode, SelectFromNode, SignalButtonNode, ActionButtonNode, SignalLabelButtonNode, SignalActionButtonNode, BadgeNode, SpinnerNode, SignalPreNode, CardNode, ModalNode, TableColumn, TableNode, RouteEntry, RouterNode, LinkNode, DataTableNode, StyledNode, TagNode, PillNode, KpiCardNode, Tab, TabBarNode, BoxNode, AnchorNode](nodes.ssc)
++[TkNode, VStackNode, HStackNode, DividerNode, SpacerNode, HeadingNode, TextNode_, SignalHeadingNode, ShowWhenNode, SignalTextNode, FragmentNode, KeyedForNode, ForJsonNode, RawTextNode, RawHtmlNode, TextFieldNode, TextFieldRNode, CheckboxNode, SelectNode, SelectFromNode, SignalButtonNode, ActionButtonNode, SignalLabelButtonNode, SignalActionButtonNode, BadgeNode, SpinnerNode, SignalPreNode, CardNode, ModalNode, TableColumn, TableNode, RouteEntry, RouterNode, LinkNode, DataTableNode, StyledNode, TagNode, PillNode, KpiCardNode, Tab, TabBarNode, BoxNode, AnchorNode](nodes.ssc)
+ 
+ [Theme, TypographyItem](theme.ssc)
+ 
+-[element, textNode, signalText, showSignal, fragment, forKeyedView, selectFromView, setSignal, inputChange, toggleSignal, eqSignal, dataTableView](primitives.ssc)
++[element, textNode, signalText, showSignal, fragment, forKeyedView, forJsonView, selectFromView, setSignal, inputChange, toggleSignal, eqSignal, dataTableView](primitives.ssc)
+ 
+ ```scalascript
+ // ── Token resolution (styled-TkNode, P2) ─────────────────────────────────
+@@ -201,6 +201,13 @@ def lower(n: TkNode, theme: Theme): View = n match
+     val lowerFn = lower
+     forKeyedView(items, key, (item) => lowerFn(render(item), theme))
+ 
++  case ForJsonNode(items, key, render) =>
++    // Same closure-capture note as KeyedForNode: bind the recursive `lower`
++    // locally so the deferred per-row callback does not re-resolve it from the
++    // runtime's callback context. `key` is a field name (String), not a fn.
++    val lowerFn = lower
++    forJsonView(items, key, (item) => lowerFn(render(item), theme))
++
+   case RawTextNode(text) =>
+     val fs = theme.typography.body.fontSize
+     val ff = theme.typography.body.fontFamily
+diff --git a/v1/runtime/std/ui/nodes.ssc b/v1/runtime/std/ui/nodes.ssc
+index 789da224b..353fae74e 100755
+--- a/v1/runtime/std/ui/nodes.ssc
++++ b/v1/runtime/std/ui/nodes.ssc
+@@ -16,6 +16,7 @@ exports:
+   - SignalTextNode
+   - FragmentNode
+   - KeyedForNode
++  - ForJsonNode
+   - RawTextNode
+   - RawHtmlNode
+   - TextFieldNode
+@@ -78,6 +79,10 @@ case class ShowWhenNode(signal: Any, whenTrue: TkNode, whenFalse: TkNode) extend
+ case class SignalTextNode(signal: Any)                  extends TkNode
+ case class FragmentNode(children: List[TkNode])         extends TkNode
+ case class KeyedForNode[A](items: Any, key: A => String, render: A => TkNode) extends TkNode
++// ForJsonNode — a keyed list whose `items` is a Signal[String] holding a JSON array
++// string; `key` is the item FIELD name to key rows by; `render` maps a parsed item
++// (Any) to a row TkNode. Lowers to forJsonView. See std.ui.reactive.forJson.
++case class ForJsonNode(items: Any, key: String, render: Any => TkNode) extends TkNode
+ case class RawTextNode(text: String)                    extends TkNode
+ case class RawHtmlNode(html: String)                    extends TkNode
+ 
+diff --git a/v1/runtime/std/ui/primitives.ssc b/v1/runtime/std/ui/primitives.ssc
+index 7aa22f725..47d790959 100755
+--- a/v1/runtime/std/ui/primitives.ssc
++++ b/v1/runtime/std/ui/primitives.ssc
+@@ -15,6 +15,8 @@ exports:
+   - showSignal
+   - fragment
+   - forKeyedView
++  - forJsonView
++  - itemField
+   - selectFromView
+   - setSignal
+   - inputChange
+@@ -95,6 +97,24 @@ extern def showSignal(cond: Signal[Boolean], whenTrue: View, whenFalse: View): V
+ extern def fragment(children: List[View]): View
+ extern def forKeyedView[A](items: Signal[List[A]], key: A => String, render: A => View): View
+ 
++// forJsonView — like forKeyedView, but `items` is a Signal[String] holding a JSON
++// ARRAY string (e.g. `[{"role":"user","text":"hi"}, …]`). The runtime JSON.parses
++// the string at render + on every change, keys each row by the item's `key` FIELD
++// (a property name, not a function — falls back to the row index when absent), and
++// calls `render` with the parsed item object. This bridges the gap that forKeyedView
++// needs a real Signal[List[A]] while computedSignal/fetch signals only yield
++// Signal[String]; a JSON-array-in-a-string can now feed a keyed reactive list.
++// Read fields off the item with `itemField(item, "name")`. Reconciliation reuses
++// forKeyedView's own keyed diff (surviving rows keep their DOM nodes).
++extern def forJsonView(items: Signal[String], key: String, render: Any => View): View
++
++// itemField — read a field of a forJson row item as a String ("" when the item is
++// null or the field is missing/null). The item is the parsed JSON object handed to a
++// forJson `render`; use the result as text or to drive conditional styling (a bubble
++// class/side from a "role" field). Not reactive per-field — the whole list re-renders
++// when the backing Signal[String] changes, which is the right grain for a message thread.
++extern def itemField(item: Any, name: String): String
++
+ // selectFromView — a <select> whose <option> children track `items`
+ // reactively (specs/std-ui-select.md § "Reactive options (selectFrom)").
+ // Unlike forKeyedView, this owns the WHOLE <select> element (attrs, events,
+diff --git a/v1/runtime/std/ui/reactive.ssc b/v1/runtime/std/ui/reactive.ssc
+index bc96cbe56..6e6c80311 100755
+--- a/v1/runtime/std/ui/reactive.ssc
++++ b/v1/runtime/std/ui/reactive.ssc
+@@ -8,6 +8,7 @@ exports:
+   - signalText_
+   - fragment_
+   - forKeyed
++  - forJson
+   - rawText
+   - rawHtml
+ ---
+@@ -15,7 +16,7 @@ exports:
+ # `std.ui.reactive` — reactive constructors
+ 
+ [Signal](primitives.ssc)
+-[TkNode, ShowWhenNode, SignalTextNode, FragmentNode, KeyedForNode, RawTextNode, RawHtmlNode](nodes.ssc)
++[TkNode, ShowWhenNode, SignalTextNode, FragmentNode, KeyedForNode, ForJsonNode, RawTextNode, RawHtmlNode](nodes.ssc)
+ 
+ ```scalascript
+ def showWhen(signal: Any, whenTrue: TkNode, whenFalse: TkNode): TkNode =
+@@ -28,6 +29,15 @@ def fragment_(children: TkNode*): TkNode = FragmentNode(children.toList)
+ def forKeyed[A](items: Signal[List[A]], key: A => String)(render: A => TkNode): TkNode =
+   KeyedForNode[A](items, key, render)
+ 
++// forJson — render a keyed reactive list from a Signal[String] holding a JSON ARRAY
++// string. `key` is the item field name used to key rows; `render` receives each parsed
++// item (Any) and returns its row TkNode. Read fields with `itemField(item, "name")` and
++// branch on them for per-item conditional styling (e.g. a chat bubble's side/class from
++// a "role" field). Closes the forKeyed gap: forKeyed needs a real Signal[List[A]], while
++// computedSignal / fetch signals only produce Signal[String] — forJson parses the JSON.
++def forJson(items: Signal[String], key: String)(render: Any => TkNode): TkNode =
++  ForJsonNode(items, key, render)
++
+ def rawText(text: String): TkNode = RawTextNode(text)
+ 
+ def rawHtml(html: String): TkNode = RawHtmlNode(html)
+-- 
+2.55.0
+

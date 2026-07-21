@@ -1,0 +1,55 @@
+From 0ed737dbd7299dd79128c32a394eeed8c821c834 Mon Sep 17 00:00:00 2001
+From: Sergiy Shcherbyna <sergey.scherbina@gmail.com>
+Date: Mon, 13 Jul 2026 11:01:17 +0200
+Subject: [PATCH] fix(v2-native): frame case-class `:`-bodies so ALL member
+ methods dispatch
+
+The landed Part-3 dispatch (caseMethodsCell capture + __regmethod__ +
+registerTaggedMethod) only worked for a SINGLE member method in a layout
+(`case class X(f: T):`) body: parseCaseClass.captureLayout stops at the first
+statement separator, so 2nd+ member defs leaked as top-level defs and never
+dispatched (`base.size()` -> Stub even though `base.get(4)` worked).
+
+Root cause was in `layout`: the inner type-annotation colon in `(data: List[Int])`
+consumed the declHead bit, so the OUTER body colon after `)` never opened the
+virtual { } block. Fix: a `:` inside a P/S/X (paren/bracket/ext-receiver) frame is
+a type colon and must NOT consume declHead. The outer body colon now frames the
+body, so it routes through captureBraced (which already loops over all members).
+
+Verified: mf/main.ssc (imported ByteSlice.get/size) native+ASM = 50,5 (== v1);
+collide.ssc = 5,2 (no built-in .size hijack). Native audit over all 193 conformance
+cases: 192 identical + 1 FIX (scljet-readonly-pager-btree: Stub-error -> golden),
+0 regressions (scljet-memory-vfs stays green). Conformance 171/0, V2 lane 13/13.
+---
+ v2/lib/ssc1-front.ssc0 | 15 +++++++++++++--
+ 1 file changed, 13 insertions(+), 2 deletions(-)
+
+diff --git a/v2/lib/ssc1-front.ssc0 b/v2/lib/ssc1-front.ssc0
+index aefce0f47..50d1ea87a 100644
+--- a/v2/lib/ssc1-front.ssc0
++++ b/v2/lib/ssc1-front.ssc0
+@@ -2677,8 +2677,19 @@ def layout = (toks) =>
+                  else if #seq(v, "effect") then true
+                  else declHead)
+               else declHead in
+-            let declColon = if #seq(k, ":") then inDeclHead else false in
+-            let nextDeclHead = if #seq(k, ":") then false else inDeclHead in
++            -- A `:` INSIDE a paren/bracket/ext-receiver frame (P/S/X) is a type
++            -- annotation (`x: Int`, `[A: TC]`, `(self: X)`), NOT a declaration-body
++            -- opener — it must not consume the declHead bit, so the OUTER body colon
++            -- after `)`/`]` still opens the virtual `{ … }` block. Without this,
++            -- `case class X(f: T):` leaves declHead=false at the body colon → the
++            -- body is unframed and its member defs leak as top-level `;`-separated
++            -- defs (only the first is captured; the rest never dispatch → Stub).
++            let inParenLike =
++              if topStackIs("P", stack) then true
++              else if topStackIs("S", stack) then true
++              else topStackIs("X", stack) in
++            let declColon = if #seq(k, ":") then (if inParenLike then false else inDeclHead) else false in
++            let nextDeclHead = if #seq(k, ":") then (if inParenLike then inDeclHead else false) else inDeclHead in
+             let nextExtensionHead =
+               if #seq(k, "id") then (if #seq(v, "extension") then true else extensionHead)
+               else extensionHead in
+-- 
+2.55.0
+

@@ -1,0 +1,73 @@
+diff --git a/v2/backend/swift/src/main/scala/ssc/swift/SwiftNativeUiApple.scala b/v2/backend/swift/src/main/scala/ssc/swift/SwiftNativeUiApple.scala
+index 6e69e9fc7..53b87377f 100644
+--- a/v2/backend/swift/src/main/scala/ssc/swift/SwiftNativeUiApple.scala
++++ b/v2/backend/swift/src/main/scala/ssc/swift/SwiftNativeUiApple.scala
+@@ -3612,9 +3612,32 @@ enum NativeUiStyles {
+         if let value = values["justify-content"] {
+             return "native CSS justify-content:" + value + " is not mapped"
+         }
++        // Cosmetic no-op properties the real std/ui toolkit emits (box-sizing,
++        // border-collapse, cursor, user-select) have no SwiftUI analog, but —
++        // like overflow:visible — an unrecognized value must still surface as a
++        // sourced Unsupported diagnostic rather than being silently swallowed.
++        for (property, accepted) in cosmeticNoOpValues {
++            if let value = values[property], !accepted.contains(value) {
++                return "unsupported native CSS value " + property + ":" + value
++            }
++        }
+         return nil
+     }
+ 
++    private static let cosmeticNoOpValues: [(String, Set<String>)] = [
++        ("box-sizing", ["content-box", "border-box"]),
++        ("border-collapse", ["collapse", "separate"]),
++        ("user-select", ["none", "auto", "text", "all", "contain"]),
++        ("cursor", [
++            "auto", "default", "none", "context-menu", "help", "pointer", "progress",
++            "wait", "cell", "crosshair", "text", "vertical-text", "alias", "copy",
++            "move", "no-drop", "not-allowed", "grab", "grabbing", "e-resize", "n-resize",
++            "ne-resize", "nw-resize", "s-resize", "se-resize", "sw-resize", "w-resize",
++            "ew-resize", "ns-resize", "nesw-resize", "nwse-resize", "col-resize",
++            "row-resize", "all-scroll", "zoom-in", "zoom-out",
++        ]),
++    ]
++
+     private static func pixels(_ value: String?) -> CGFloat? {
+         guard let value else { return nil }
+         let raw = value.trimmingCharacters(in: .whitespaces)
+diff --git a/v2/backend/swift/src/test/scala/ssc/swift/SwiftBackendTest.scala b/v2/backend/swift/src/test/scala/ssc/swift/SwiftBackendTest.scala
+index f826837ad..03ec5861d 100644
+--- a/v2/backend/swift/src/test/scala/ssc/swift/SwiftBackendTest.scala
++++ b/v2/backend/swift/src/test/scala/ssc/swift/SwiftBackendTest.scala
+@@ -1717,7 +1717,8 @@ struct DeferredProbe {
+         for invalid in [
+             "display:banana", "flex-direction:banana", "gap:nope", "flex:2 bananas",
+             "flex-grow:many", "text-align:sideways", "text-decoration:blink", "border:banana",
+-            "border:1px solid red junk", "border:1px solid banana;border-color:red", "box-shadow:banana"
++            "border:1px solid red junk", "border:1px solid banana;border-color:red", "box-shadow:banana",
++            "box-sizing:banana", "border-collapse:banana", "cursor:banana", "user-select:banana"
+         ] {
+             let attrs = SscMap()
+             attrs.put(.string("style"), .string(invalid))
+@@ -1727,6 +1728,21 @@ struct DeferredProbe {
+                 fatalError("recognized invalid CSS was silent: \(invalid)")
+             }
+         }
++        // The cosmetic no-op properties the real std/ui toolkit emits (with these
++        // exact values) must stay accepted — validating their value space must not
++        // regress busi's production buttons/links/tables into Unsupported.
++        for accepted in [
++            "box-sizing:border-box", "border-collapse:collapse",
++            "cursor:pointer", "cursor:not-allowed", "user-select:none"
++        ] {
++            let attrs = SscMap()
++            attrs.put(.string("style"), .string(accepted))
++            guard NativeUiStyles.diagnostic(
++                attrs: attrs, store: store, siteId: "deferred:action"
++            ) == nil else {
++                fatalError("shipped cosmetic no-op CSS became Unsupported: \(accepted)")
++            }
++        }
+         let invalidAria = SscMap()
+         invalidAria.put(.string("aria-disabled"), .string("sometimes"))
+         guard NativeUiStyles.diagnostic(

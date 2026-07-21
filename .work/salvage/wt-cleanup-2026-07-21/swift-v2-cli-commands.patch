@@ -1,0 +1,202 @@
+diff --git a/BUGS.md b/BUGS.md
+index e1123109f..93eeca0f9 100644
+--- a/BUGS.md
++++ b/BUGS.md
+@@ -3783,6 +3783,27 @@ present in Main.scala). The produced package builds to a real `.app` (see
+ distribution — genuine multi-day feature work owned by the swift specialists. _Original report:_
+ reported by Sergiy in the Codex session.
+ 
++- **Signing sub-slice — credential-free tier landed (opus, 07-13, CLI/packaging
++  layer only; Swift 6.3.2/Xcode 26.5).** Plain `ssc-tools package --target macos
++  <file.ssc>` (no `--distribution`, no team id) now ad-hoc codesigns the built
++  `.app` (`codesign --sign -`, no cert) and proves it with `codesign --verify
++  --deep --strict` before returning, so the packaged bundle is signed and
++  launch-ready with zero Apple credentials. Verified end-to-end on both
++  `examples/swift/appcore-nativeui.ssc` and the headline
++  `examples/frontend/ios-hello/ios-hello.ssc`: BEFORE (old output, xcodebuild
++  `CODE_SIGNING_ALLOWED=NO`) → no `_CodeSignature` seal, `codesign --verify` =
++  "code object is not signed at all" (exit 1); AFTER → `valid on disk` /
++  `satisfies its Designated Requirement` (exit 0), `Signature=adhoc` (not
++  linker-signed), `TeamIdentifier=not set`, `CFBundlePackageType=APPL`. `spctl
++  -a` still rejects ad-hoc (exit 3) — expected; Gatekeeper needs Developer ID.
++  Changes confined to `SwiftV2Cli.packageMacos`/`adhocSignAndVerify`
++  (`SwiftV2Commands.scala`) + `PackageCmd` (`Main.scala`); the 4 renderer files
++  untouched. Contract documented in `specs/v2-swift-swiftui-native.md`; regression
++  in `SwiftV2CliTest`. STILL REMAINING (credential-blocked, not implementable in
++  this env): Developer-ID `--distribution` codesign+notarize+DMG, TestFlight/App
++  Store publish, and real device runs — all need an Apple signing certificate /
++  notary profile / provisioning we do not have.
++
+ - **Reported symptom:** ScalaScript 2.0 has a problem with both the Swift backend
+   and the SwiftUI toolkit for desktop and mobile applications.
+ - **Real-harness repro (assembled `bin/ssc`, 2026-07-10):** after
+diff --git a/specs/v2-swift-swiftui-native.md b/specs/v2-swift-swiftui-native.md
+index aebdd2aa0..e922a88ea 100644
+--- a/specs/v2-swift-swiftui-native.md
++++ b/specs/v2-swift-swiftui-native.md
+@@ -104,6 +104,18 @@ ssc publish --target ios|macos --team-id <team> --api-key-path <key.json> ...
+ `SSC_NOTARY_KEYCHAIN_PROFILE` are the corresponding noninteractive environment
+ fallbacks; no v2 signed route reads these values from frontmatter.
+ 
++macOS signing is tiered by credential requirement. Plain `ssc package --target
++macos <file.ssc>` (no `--distribution`, no team id) builds the UI-mode `.app`
++and **ad-hoc signs** it (`codesign --sign -`, no Apple identity) then proves it
++with `codesign --verify --deep --strict`, so the packaged bundle is signed and
++launch-ready on the build host with zero credentials. This is the credential-
++free tier: an ad-hoc signature is self-consistent but carries no certificate
++authority, so Gatekeeper still rejects it for redistribution. Trusted
++distribution stays behind `--distribution --team-id <team>`, which archives and
++exports a Developer ID-signed (and optionally notarized) `.app`/DMG. A
++domain-only macOS program has no application bundle to sign; its SwiftPM
++executable is built unsigned.
++
+ `build`, `run`, `package`, and `publish` accept the same `--server-url` client
+ setting for Apple UI targets and validate/normalize it once before generation. A
+ manifest/client build setting may provide the same resolved value before this
+diff --git a/v1/tools/cli/src/main/scala/scalascript/cli/Main.scala b/v1/tools/cli/src/main/scala/scalascript/cli/Main.scala
+index 75a41f42c..17aef1b79 100644
+--- a/v1/tools/cli/src/main/scala/scalascript/cli/Main.scala
++++ b/v1/tools/cli/src/main/scala/scalascript/cli/Main.scala
+@@ -506,7 +506,7 @@ def printUsage(): Unit =
+       |  run-jvm --frontend javafx <f>     Launch the OpenJFX desktop frontend
+       |  build   --target desktop <f>      Generate an Electron bundle (npm run build to package)
+       |  build   --target ios|macos <f>    Generate a SwiftUI Swift package
+-      |  package --target macos <f>        Swift package + swift build (ready-to-run binary)
++      |  package --target macos <f>        Build + ad-hoc codesign .app (ready-to-run, no cert)
+       |  package --target ios <f>          Archive + export signed .ipa (Xcode + Apple Developer)
+       |    --export-method <m>             development|ad-hoc|enterprise|app-store (default: development)
+       |    --team-id <id>                  Apple Developer Team ID (or SSC_TEAM_ID)
+@@ -4934,10 +4934,12 @@ final class PackageCmd extends CliCommand:
+                     case Some(path) => println(s"  .dmg → ${displayPath(path)}")
+                     case None => println(s"  .app → ${displayPath(result.app)}")
+                 else
+-                  buildV2SwiftPackage(
+-                    pf, targetOut, _root_.ssc.swift.SwiftPlatform.MacOS,
+-                    runSwiftBuild = true, backendBaseUrl = serverUrlFlag)
+-                  println(s"  Xcode application → ${displayPath(targetOut)}")
++                  val command = "ssc package --target macos"
++                  val packaged = SwiftV2Cli.packageMacos(pf, targetOut, serverUrlFlag, command)
++                  if packaged.signed then
++                    println(s"  Signed application (ad-hoc) → ${displayPath(packaged.artifact)}")
++                  else
++                    println(s"  Swift package → ${displayPath(packaged.artifact)}")
+               case _ => ()
+             return
+           catch case e: Exception =>
+diff --git a/v1/tools/cli/src/main/scala/scalascript/cli/SwiftV2Commands.scala b/v1/tools/cli/src/main/scala/scalascript/cli/SwiftV2Commands.scala
+index b96e5c915..2c12259c2 100644
+--- a/v1/tools/cli/src/main/scala/scalascript/cli/SwiftV2Commands.scala
++++ b/v1/tools/cli/src/main/scala/scalascript/cli/SwiftV2Commands.scala
+@@ -18,6 +18,11 @@ private[cli] object SwiftV2Cli:
+       executable: os.Path,
+       buildSettings: Map[String, String],
+   )
++  /** Result of `ssc package --target macos` (no `--distribution`).
++   *  UI-mode apps yield a built, ad-hoc-signed, verified `.app` (`signed = true`);
++   *  a domain-only macOS program yields its built SwiftPM package root
++   *  (`signed = false` — a plain executable, nothing to bundle-sign). */
++  final case class PackagedMacApp(artifact: os.Path, signed: Boolean)
+ 
+   def parsePlatform(raw: String, command: String): SwiftPlatform =
+     raw.trim.toLowerCase match
+@@ -220,6 +225,53 @@ private[cli] object SwiftV2Cli:
+       throw new IllegalStateException(s"$command: application executable missing at $executable")
+     BuiltXcodeApp(bundle, executable, buildSettings)
+ 
++  /** Ad-hoc codesign (`codesign --sign -`) the bundle, then prove it with
++   *  `codesign --verify --deep --strict`. Ad-hoc signing needs NO Apple
++   *  identity/certificate and produces a launch-ready, self-consistent
++   *  signature (Gatekeeper still rejects it — that requires Developer ID via
++   *  `--distribution`; ad-hoc is the credential-free tier). Both steps run
++   *  hermetically (`--timestamp=none`, no notary/network). */
++  def adhocSignAndVerify(bundle: os.Path, command: String): Unit =
++    val codesign = sys.props.getOrElse("ssc.codesign.command", "codesign")
++    val sign = callProcess(
++      List(codesign, "--force", "--deep", "--timestamp=none", "--sign", "-", bundle.toString),
++      None, command, "ad-hoc codesign")
++    if sign.exitCode != 0 then
++      throw new IllegalStateException(
++        s"$command: ad-hoc codesign failed (exit ${sign.exitCode}): ${sign.err.text().take(2048)}")
++    val verify = callProcess(
++      List(codesign, "--verify", "--deep", "--strict", bundle.toString),
++      None, command, "codesign verification")
++    if verify.exitCode != 0 then
++      throw new IllegalStateException(
++        s"$command: codesign verification failed (exit ${verify.exitCode}): ${verify.err.text().take(2048)}")
++
++  /** `ssc package --target macos` (no `--distribution`): emit the package, build
++   *  the real artifact, and — for a UI-mode app — ad-hoc sign + verify the
++   *  produced `.app` so the packaged bundle is signed and launch-ready without
++   *  any Apple credential. A domain-only macOS program has no `.app` bundle to
++   *  sign; its SwiftPM executable is built and returned unsigned. */
++  def packageMacos(
++      sscFile: os.Path,
++      outDir: os.Path,
++      backendBaseUrl: Option[String],
++      command: String,
++  ): PackagedMacApp =
++    val emitted = emit(sscFile, outDir, SwiftPlatform.MacOS, backendBaseUrl = backendBaseUrl)
++    emitted.xcodeApp match
++      case Some(_) =>
++        val built = buildXcodeApplication(
++          emitted, "platform=macOS", outDir / "derived", command)
++        adhocSignAndVerify(built.bundle, command)
++        PackagedMacApp(built.bundle, signed = true)
++      case None =>
++        val swift = requireSwift(command)
++        val result = os.proc(swift, "build")
++          .call(stdout = os.Inherit, stderr = os.Inherit, cwd = outDir, check = false)
++        if result.exitCode != 0 then
++          throw new IllegalStateException(s"$command: swift build failed (exit ${result.exitCode})")
++        PackagedMacApp(outDir, signed = false)
++
+   def archiveXcodeApplication(
+       pkg: EmittedPackage,
+       destination: String,
+diff --git a/v1/tools/cli/src/test/scala/scalascript/cli/SwiftV2CliTest.scala b/v1/tools/cli/src/test/scala/scalascript/cli/SwiftV2CliTest.scala
+index 937027b89..a7d6007ec 100644
+--- a/v1/tools/cli/src/test/scala/scalascript/cli/SwiftV2CliTest.scala
++++ b/v1/tools/cli/src/test/scala/scalascript/cli/SwiftV2CliTest.scala
+@@ -160,6 +160,42 @@ final class SwiftV2CliTest extends AnyFunSuite:
+       finally os.remove.all(out)
+     }
+ 
++  test("package --target macos builds and ad-hoc signs a codesign-verifiable app"):
++    assume(xcodeAvailable, "Xcode is not available")
++    withLibPath {
++      val out = os.temp.dir(prefix = "ssc-v2-swift-package-macos-")
++      try
++        val packaged = SwiftV2Cli.packageMacos(
++          nativeUiExample, out, None, "ssc package --target macos")
++        assert(packaged.signed, "NativeUi macOS package must be ad-hoc signed")
++        assert(packaged.artifact.ext == "app")
++        assert(os.exists(packaged.artifact / "Contents" / "Info.plist"))
++        // Real proof: codesign accepts the bundle under strict, deep verification.
++        val verify = os.proc("codesign", "--verify", "--deep", "--strict", packaged.artifact.toString)
++          .call(stdout = os.Pipe, stderr = os.Pipe, check = false)
++        assert(verify.exitCode == 0, s"codesign --verify failed: ${verify.err.text()}")
++        // The signature is ad-hoc (Signature=adhoc, no certificate Authority) —
++        // proving no Apple identity was used, only `codesign --sign -`.
++        val display = os.proc("codesign", "-dvvv", packaged.artifact.toString)
++          .call(stdout = os.Pipe, stderr = os.Pipe, check = false)
++        val info = display.out.text() + display.err.text()
++        assert(info.contains("Signature=adhoc"), s"expected ad-hoc signature, got:\n$info")
++        assert(!info.contains("Authority="), s"ad-hoc signature must carry no certificate authority:\n$info")
++      finally os.remove.all(out)
++    }
++
++  test("ad-hoc codesign diagnostic is bounded when codesign is missing"):
++    val previous = sys.props.get("ssc.codesign.command")
++    sys.props("ssc.codesign.command") = "/definitely/missing/codesign"
++    try
++      val error = intercept[IllegalStateException](
++        SwiftV2Cli.adhocSignAndVerify(os.pwd / "nonexistent.app", "ssc package --target macos"))
++      assert(error.getMessage.contains("is required for ad-hoc codesign"))
++    finally
++      previous match
++        case Some(value) => sys.props("ssc.codesign.command") = value
++        case None => sys.props.remove("ssc.codesign.command")
++
+   test("missing Swift diagnostic is bounded and corrective"):
+     val previous = sys.props.get("ssc.swift.command")
+     sys.props("ssc.swift.command") = "/definitely/missing/swift"

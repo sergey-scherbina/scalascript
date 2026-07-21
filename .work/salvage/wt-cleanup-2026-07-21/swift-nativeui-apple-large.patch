@@ -1,0 +1,313 @@
+diff --git a/v2/backend/swift/src/main/scala/ssc/swift/SwiftNativeUiApple.scala b/v2/backend/swift/src/main/scala/ssc/swift/SwiftNativeUiApple.scala
+index 53b87377f..0f625c4c4 100644
+--- a/v2/backend/swift/src/main/scala/ssc/swift/SwiftNativeUiApple.scala
++++ b/v2/backend/swift/src/main/scala/ssc/swift/SwiftNativeUiApple.scala
+@@ -2704,8 +2704,10 @@ struct NativeUiRenderer: View {
+             content = renderOrderedList(children, start: start, source: source)
+         case "li":
+             content = AnyView(HStack(alignment: .top) { Text("•"); renderChildren(children) })
+-        case "table", "thead", "tbody", "tr", "th", "td":
+-            return unsupported("semantic table adapter pending at " + store.source(store.string(fields[0])))
++        case "table":
++            content = renderSemanticTable(children, source: source, nodeOwnerPath: nodeOwnerPath)
++        case "thead", "tbody", "tr", "th", "td":
++            return unsupported("<" + tag + "> is only valid inside a <table> at " + source)
+         default:
+             return unsupported("unsupported element <" + tag + "> at " + store.source(store.string(fields[0])))
+         }
+@@ -2737,6 +2739,131 @@ struct NativeUiRenderer: View {
+         })
+     }
+ 
++    private func renderSemanticTable(_ children: [SscValue], source: String, nodeOwnerPath: String) -> AnyView {
++        let model: SemanticTableModel
++        do {
++            model = try Self.decodeSemanticTable(children, source: source, store: store)
++        } catch let error as SemanticTableInvalid {
++            return unsupported(error.message)
++        } catch {
++            return unsupported(String(describing: error))
++        }
++        return AnyView(ScrollView(.horizontal) {
++            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
++                ForEach(Array(model.headerRows.enumerated()), id: \.offset) { _, cells in
++                    GridRow {
++                        ForEach(Array(0..<model.columns), id: \.self) { column in
++                            semanticTableCell(
++                                column < cells.count ? cells[column] : nil,
++                                source: source, nodeOwnerPath: nodeOwnerPath)
++                        }
++                    }
++                }
++                if !model.headerRows.isEmpty { Divider() }
++                ForEach(Array(model.bodyRows.enumerated()), id: \.offset) { _, cells in
++                    GridRow {
++                        ForEach(Array(0..<model.columns), id: \.self) { column in
++                            semanticTableCell(
++                                column < cells.count ? cells[column] : nil,
++                                source: source, nodeOwnerPath: nodeOwnerPath)
++                        }
++                    }
++                }
++            }
++        })
++    }
++
++    private func semanticTableCell(_ cell: SscValue?, source: String, nodeOwnerPath: String) -> AnyView {
++        guard let cell else { return AnyView(Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])) }
++        guard case let .data("NativeUiElement", cellFields) = cell, cellFields.count == 5,
++              case let .map(attrs) = cellFields[2], case let .map(events) = cellFields[3],
++              let inline = properList(cellFields[4]) else {
++            return unsupported("malformed table cell at " + source)
++        }
++        let siteId = store.string(cellFields[0])
++        if let issue = Self.validate(attrs, names: Self.supportedAttributes, kind: "attribute") {
++            return unsupported(issue + " at " + store.source(siteId))
++        }
++        if let issue = Self.validate(events, names: Self.supportedEventSlots, kind: "event slot") {
++            return unsupported(issue + " at " + store.source(siteId))
++        }
++        let inner = VStack(alignment: .leading, spacing: 0) { renderChildren(inline) }
++        let content: AnyView = store.string(cellFields[1]) == "th" ? AnyView(inner.bold()) : AnyView(inner)
++        let styled = NativeUiStyles.apply(content, attrs: attrs, store: store, siteId: siteId)
++        if events.entries.isEmpty { return styled }
++        return AnyView(Button(action: {
++            runEvents(events, siteId: siteId, nodeOwnerPath: nodeOwnerPath)
++        }) { styled }.buttonStyle(.plain))
++    }
++
++    static func decodeSemanticTable(
++        _ children: [SscValue], source: String, store: NativeUiStore
++    ) throws -> SemanticTableModel {
++        func rows(of value: SscValue) -> [SscValue]? {
++            var current = value, result: [SscValue] = []
++            while true {
++                switch current {
++                case let .data("Cons", fields) where fields.count == 2:
++                    result.append(fields[0]); current = fields[1]
++                case .data("Nil", _): return result
++                default: return nil
++                }
++            }
++        }
++        func rowCells(_ row: SscValue) throws -> [SscValue] {
++            guard case let .data("NativeUiElement", rowFields) = row, rowFields.count == 5,
++                  store.string(rowFields[1]) == "tr", let cells = rows(of: rowFields[4]) else {
++                throw SemanticTableInvalid(message: "table row must be <tr> at " + source)
++            }
++            for cell in cells {
++                guard case let .data("NativeUiElement", cellFields) = cell, cellFields.count == 5,
++                      store.string(cellFields[1]) == "th" || store.string(cellFields[1]) == "td" else {
++                    throw SemanticTableInvalid(message: "table cell must be <th> or <td> at " + source)
++                }
++            }
++            return cells
++        }
++        var headerRows: [[SscValue]] = [], bodyRows: [[SscValue]] = []
++        for child in children {
++            guard case let .data("NativeUiElement", groupFields) = child, groupFields.count == 5 else {
++                throw SemanticTableInvalid(message: "table child must be <thead>, <tbody>, or <tr> at " + source)
++            }
++            let groupTag = store.string(groupFields[1])
++            switch groupTag {
++            case "thead", "tbody":
++                guard let sectionRows = rows(of: groupFields[4]) else {
++                    throw SemanticTableInvalid(message: "table section must be a proper List at " + source)
++                }
++                for row in sectionRows {
++                    let cells = try rowCells(row)
++                    if groupTag == "thead" { headerRows.append(cells) } else { bodyRows.append(cells) }
++                }
++            case "tr":
++                bodyRows.append(try rowCells(child))
++            default:
++                throw SemanticTableInvalid(message: "table child must be <thead>, <tbody>, or <tr> at " + source)
++            }
++        }
++        let columns = (headerRows + bodyRows).map(\.count).max() ?? 0
++        guard !headerRows.isEmpty || !bodyRows.isEmpty else {
++            throw SemanticTableInvalid(message: "semantic table requires at least one row at " + source)
++        }
++        guard columns > 0 else {
++            throw SemanticTableInvalid(message: "semantic table requires at least one cell at " + source)
++        }
++        return SemanticTableModel(headerRows: headerRows, bodyRows: bodyRows, columns: columns)
++    }
++
++    struct SemanticTableModel {
++        let headerRows: [[SscValue]]
++        let bodyRows: [[SscValue]]
++        let columns: Int
++    }
++
++    struct SemanticTableInvalid: Error {
++        let message: String
++    }
++
+     private func runEvents(_ events: SscMap, input: String? = nil, siteId: String, nodeOwnerPath: String) {
+         for (_, event) in events.entries {
+             NativeUiActions.run(
+diff --git a/v2/backend/swift/src/test/scala/ssc/swift/SwiftBackendTest.scala b/v2/backend/swift/src/test/scala/ssc/swift/SwiftBackendTest.scala
+index 03ec5861d..01c2b6943 100644
+--- a/v2/backend/swift/src/test/scala/ssc/swift/SwiftBackendTest.scala
++++ b/v2/backend/swift/src/test/scala/ssc/swift/SwiftBackendTest.scala
+@@ -473,6 +473,37 @@ public enum SessionProbe {
+     assume(xcrunSwiftAvailable, "xcrun Swift toolchain is not available")
+     assert(runNativeTableProbe("apple", includeAppleSources = true) == "apple")
+ 
++  test("semantic HTML table renders a real SwiftUI Grid and rejects malformed structure"):
++    assume(xcrunSwiftAvailable, "xcrun Swift toolchain is not available")
++    val root = Files.createTempDirectory("ssc-swiftui-semantic-table-")
++    val errors = root.resolve("swift.stderr")
++    try
++      val generated = SwiftBackend.generate(nativeUiSemanticTableProgram(), "NativeSemanticTable")
++      generated.writeTo(root)
++      val probe = root.resolve("SemanticTableProbe.swift")
++      val binary = root.resolve("SemanticTableProbe")
++      Files.writeString(probe, semanticTableProbe, StandardCharsets.UTF_8)
++      val sources = generated.files.collect {
++        case (path, _) if path.startsWith("Sources/AppCore/") ||
++            (path.startsWith("AppleApp/") && !path.endsWith("App.swift")) =>
++          root.resolve(path).toString
++      }
++      val compile = new ProcessBuilder((List(
++        "xcrun", "swiftc", "-parse-as-library", "-swift-version", "6",
++        "-strict-concurrency=complete", "-warnings-as-errors",
++      ) ++ sources ++ List(probe.toString, "-o", binary.toString))*).redirectError(errors.toFile).start()
++      val compileOut = new String(compile.getInputStream.readAllBytes(), StandardCharsets.UTF_8)
++      val compileExit = compile.waitFor()
++      val compileErr = Files.readString(errors, StandardCharsets.UTF_8)
++      assert(compileExit == 0, s"Swift semantic table compile failed ($compileExit):\n$compileErr\n$compileOut")
++      val run = new ProcessBuilder(binary.toString).redirectError(errors.toFile).start()
++      val stdout = new String(run.getInputStream.readAllBytes(), StandardCharsets.UTF_8).trim
++      val runExit = run.waitFor()
++      val stderr = Files.readString(errors, StandardCharsets.UTF_8)
++      assert(runExit == 0, s"Swift semantic table probe failed ($runExit):\n$stderr\n$stdout")
++      assert(stdout == "header=1|body=2|cols=2|child=rejected|cell=rejected", stdout)
++    finally deleteRecursively(root)
++
+   test("trusted HTML WebKit adapter isolates content navigation and lifecycle"):
+     assume(xcrunSwiftAvailable, "xcrun Swift toolchain is not available")
+     assert(runNativeHtmlProbe() == "html")
+@@ -1242,6 +1273,46 @@ public enum SessionProbe {
+     Program(Nil, Term.Let(List(mutable, items, computed),
+       Term.App(Term.Global("emit"), List(root, str("out")))))
+ 
++  private def nativeUiSemanticTableProgram(): Program =
++    def pair(key: Term, value: Term): Term = Term.Ctor("Tuple2", List(key, value))
++    def txt(s: String): Term = Term.App(Term.Global("textNode"), List(str(s)))
++    def attrsOf(entries: (String, String)*): Term =
++      list(entries.toList.map((key, value) => pair(str(key), str(value))))
++    def eventsOf(entries: (String, Term)*): Term =
++      list(entries.toList.map((key, value) => pair(str(key), value)))
++    def el(tag: String, attrs: Term, events: Term, children: List[Term]): Term =
++      Term.App(Term.Global("element"), List(str(tag), attrs, events, list(children)))
++    val empty = list(Nil)
++    val validTable = el("table", attrsOf("role" -> "table"), empty, List(
++      el("thead", empty, empty, List(
++        el("tr", attrsOf("role" -> "row"), empty, List(
++          el("th", attrsOf("role" -> "columnheader"), eventsOf("click" -> str("noop")), List(txt("Name"))),
++          el("th", attrsOf("role" -> "columnheader"), empty, List(txt("Age"))),
++        )),
++      )),
++      el("tbody", empty, empty, List(
++        el("tr", attrsOf("role" -> "row"), empty, List(
++          el("td", attrsOf("role" -> "cell"), empty, List(txt("Ada"))),
++          el("td", attrsOf("role" -> "cell"), empty, List(txt("36"))),
++        )),
++        el("tr", attrsOf("role" -> "row"), empty, List(
++          el("td", attrsOf("role" -> "cell"), empty, List(txt("Alan"))),
++          el("td", attrsOf("role" -> "cell"), empty, List(txt("41"))),
++        )),
++      )),
++    ))
++    val malformedChild = el("table", empty, empty, List(
++      el("div", empty, empty, List(txt("nope"))),
++    ))
++    val malformedCell = el("table", empty, empty, List(
++      el("tbody", empty, empty, List(
++        el("tr", empty, empty, List(el("span", empty, empty, List(txt("bad"))))),
++      )),
++    ))
++    val root = Term.App(Term.Global("fragment"),
++      List(list(List(validTable, malformedChild, malformedCell))))
++    Program(Nil, Term.App(Term.Global("emit"), List(root, str("out"))))
++
+   private def nativeUiTableProgram(): Program =
+     val emptyMap = Term.Prim("map.new", Nil)
+     val refresh = Term.App(Term.Global("signal"), List(str("refresh"), Term.Lit(Const.CInt(0))))
+@@ -4168,6 +4239,74 @@ struct PayloadValidationProbe {
+         Swift.print("constructors|actions|raw")
+     }
+ }
++"""
++
++  private val semanticTableProbe = """
++import Foundation
++import SwiftUI
++
++@main
++struct SemanticTableProbe {
++    static func properList(_ value: SscValue) -> [SscValue] {
++        var current = value, result: [SscValue] = []
++        while true {
++            switch current {
++            case let .data("Cons", fields) where fields.count == 2:
++                result.append(fields[0]); current = fields[1]
++            case .data("Nil", _): return result
++            default: fatalError("expected proper list")
++            }
++        }
++    }
++    static func fields(_ value: SscValue, _ tag: String) -> [SscValue] {
++        guard case let .data(actual, fields) = value, actual == tag else { fatalError("expected \(tag)") }
++        return fields.asArray()
++    }
++    static func tableChildren(_ table: SscValue) -> [SscValue] {
++        properList(fields(table, "NativeUiElement")[4])
++    }
++    @MainActor static func rejects(_ table: SscValue, _ store: NativeUiStore, contains needle: String) -> Bool {
++        do {
++            _ = try NativeUiRenderer.decodeSemanticTable(tableChildren(table), source: "probe", store: store)
++            return false
++        } catch let error as NativeUiRenderer.SemanticTableInvalid {
++            return error.message.contains(needle)
++        } catch {
++            return false
++        }
++    }
++    @MainActor static func main() async {
++        let store = NativeUiStore()
++        let abi = fields(store.root, "NativeUiAbi")
++        let roots = properList(fields(abi[1], "NativeUiFragment")[0])
++        guard roots.count == 3 else { fatalError("expected three tables, got \(roots.count)") }
++
++        // A well-formed <table> decodes into the real header/body rows the
++        // SwiftUI Grid renders (no "semantic table adapter pending" stub).
++        let model: NativeUiRenderer.SemanticTableModel
++        do {
++            model = try NativeUiRenderer.decodeSemanticTable(
++                tableChildren(roots[0]), source: "probe", store: store)
++        } catch {
++            fatalError("valid table did not decode into a real control: \(error)")
++        }
++        guard model.headerRows.count == 1, model.bodyRows.count == 2, model.columns == 2 else {
++            fatalError("unexpected table shape: header=\(model.headerRows.count) body=\(model.bodyRows.count) cols=\(model.columns)")
++        }
++        // The real SwiftUI view constructs under strict concurrency.
++        _ = NativeUiRenderer(store: store, value: roots[0]).body
++
++        // A <table> child that is not a section/row is a strict Unsupported.
++        guard rejects(roots[1], store, contains: "thead") else {
++            fatalError("malformed table child was not rejected")
++        }
++        // A cell that is not <th>/<td> is a strict Unsupported.
++        guard rejects(roots[2], store, contains: "<th> or <td>") else {
++            fatalError("malformed table cell was not rejected")
++        }
++        Swift.print("header=\(model.headerRows.count)|body=\(model.bodyRows.count)|cols=\(model.columns)|child=rejected|cell=rejected")
++    }
++}
+ """
+ 
+   private val nativeUiTableProbe = """

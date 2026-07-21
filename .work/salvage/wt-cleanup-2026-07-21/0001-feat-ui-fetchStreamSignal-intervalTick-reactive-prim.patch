@@ -1,0 +1,405 @@
+From 44d378ef89e50ad7760ccf007d5c3369c6425141 Mon Sep 17 00:00:00 2001
+From: Sergiy Shcherbyna <sergey.scherbina@gmail.com>
+Date: Sun, 19 Jul 2026 15:57:32 +0200
+Subject: [PATCH 1/2] feat(ui): fetchStreamSignal + intervalTick reactive
+ primitives
+
+Add two V1 UI-toolkit primitives, wired end-to-end for emit-spa SPAs,
+mirroring fetchUrlSignal at every layer:
+
+- fetchStreamSignal(name, url, body, tick, headers?): on mount/tick, POST
+  url with the body signal value (application/json), then stream the
+  response via r.body.getReader(), setting the signal to the ACCUMULATED
+  decoded text on each chunk (OpenAI-style token streams; raw bytes, not
+  SSE-parsed). Keeps last-good on error.
+- intervalTick(name, ms): Int signal auto-incrementing every ms via
+  setInterval; feeds a fetchUrlSignal tick to auto-poll.
+
+Layers: primitives.ssc extern defs + exports; frontend FetchStreamSignal /
+IntervalTick descriptor classes; FetchIntrinsics interpreter intrinsics;
+JVM preamble + JvmRuntimeUiPrimitives lowering; signals.mjs builders
+(_ssc_ui_fetchStreamSignal / _ssc_ui_intervalTick), _SignalText SSR render
+(data-ssc-fetch-stream-url/-body/-tick/-headers, data-ssc-interval-ms),
+_mountFetchStream / _mountInterval, collectSig + both mount walk paths;
+JsGen capability detection.
+
+Proven end-to-end: emit-spa -> headless Chrome. Stream signal accumulates
+across 5 chunks to the full concatenation; POST body delivered server-side;
+intervalTick increments 0..5 over ~3s.
+---
+ .../scalascript/frontend/Primitives.scala     |  23 ++++
+ .../scalascript/js-runtime/signals.mjs        | 130 ++++++++++++++++++
+ .../scala/scalascript/codegen/JsGen.scala     |   2 +-
+ .../scalascript/codegen/JvmGenPreamble.scala  |  11 ++
+ .../codegen/JvmRuntimeUiPrimitives.scala      |  10 ++
+ .../plugin/fetch/FetchIntrinsics.scala        |  38 ++++-
+ v1/runtime/std/ui/primitives.ssc              |  17 +++
+ 7 files changed, 229 insertions(+), 2 deletions(-)
+
+diff --git a/frontend/core/src/main/scala/scalascript/frontend/Primitives.scala b/frontend/core/src/main/scala/scalascript/frontend/Primitives.scala
+index b849c8c12..3a4e9f38c 100644
+--- a/frontend/core/src/main/scala/scalascript/frontend/Primitives.scala
++++ b/frontend/core/src/main/scala/scalascript/frontend/Primitives.scala
+@@ -709,6 +709,29 @@ final class FetchJsonSignal(
+ ) extends FetchUrlSignal(id2, fetchUrl2, tickId2, headersId2):
+   override def codec: CodecHint = CodecHint.Json(modelTypeName)
+ 
++/** Signal backed by a STREAMING POST fetch.  On mount (and whenever `tickId`
++ *  increments) the browser runtime POSTs the current `bodyId` signal value to
++ *  `fetchUrl` (Content-Type application/json), then reads the response body via
++ *  `r.body.getReader()` and sets this signal to the ACCUMULATED decoded text so
++ *  far on each chunk — so a consumer bound to it sees the value grow token-by-token
++ *  (OpenAI-style SSE token streams; raw decoded bytes accumulated, not SSE-parsed).
++ *  On error the last-good value is retained (mirrors `FetchUrlSignal`). */
++final class FetchStreamSignal(
++    id2:           String,
++    val fetchUrl:  String,
++    val bodyId:    String,
++    val tickId:    String,
++    val headersId: Option[String] = None
++) extends ReactiveSignal[String](id2, "")
++
++/** Int signal that auto-increments every `ms` milliseconds (via `setInterval` in
++ *  the JS runtime).  Initial value 0.  Feeds a `fetchUrlSignal`'s refresh tick to
++ *  auto-poll: `fetchUrlSignal(..., intervalTick("t", 5000))`. */
++final class IntervalTick(
++    id2:     String,
++    val ms:  Int
++) extends ReactiveSignal[Int](id2, 0)
++
+ // ── Widget ref (formerly DomRef) ──────────────────────────────────────────────
+ 
+ /** Handle on a rendered element that platform code can access after mount.
+diff --git a/v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/signals.mjs b/v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/signals.mjs
+index 998d828c9..ff6e6c6ab 100644
+--- a/v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/signals.mjs
++++ b/v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/signals.mjs
+@@ -476,6 +476,12 @@ function _ssc_ui_renderBody(view) {
+       if (fg.tick) collectSig(fg.tick);
+       if (fg.headers) collectSig(fg.headers);
+     }
++    const fst = s._fetchStream;
++    if (fst) {
++      if (fst.body) collectSig(fst.body);
++      if (fst.tick) collectSig(fst.tick);
++      if (fst.headers) collectSig(fst.headers);
++    }
+   }
+ 
+   function walk(v) {
+@@ -586,6 +592,24 @@ function _ssc_ui_renderBody(view) {
+           if (fgHdr)  fgAttrs += ` data-ssc-fetch-get-headers="${_esc(fgHdr)}"`;
+           return `<span data-ssc-text="${id}"${fgAttrs}>${txt}</span>`;
+         }
++        const fst = v.sig && v.sig._fetchStream;
++        if (fst && fst.url) {
++          if (fst.body) collectSig(fst.body);
++          if (fst.tick) collectSig(fst.tick);
++          if (fst.headers) collectSig(fst.headers);
++          const fsBody = (fst.body && fst.body.id != null) ? String(fst.body.id) : '';
++          const fsTick = (fst.tick && fst.tick.id != null) ? String(fst.tick.id) : '';
++          const fsHdr  = (fst.headers && fst.headers.id != null) ? String(fst.headers.id) : '';
++          let fsAttrs = ` data-ssc-fetch-stream-url="${_esc(fst.url)}"`;
++          if (fsBody) fsAttrs += ` data-ssc-fetch-stream-body="${_esc(fsBody)}"`;
++          if (fsTick) fsAttrs += ` data-ssc-fetch-stream-tick="${_esc(fsTick)}"`;
++          if (fsHdr)  fsAttrs += ` data-ssc-fetch-stream-headers="${_esc(fsHdr)}"`;
++          return `<span data-ssc-text="${id}"${fsAttrs}>${txt}</span>`;
++        }
++        const iv = v.sig && v.sig._interval;
++        if (iv && iv.ms) {
++          return `<span data-ssc-text="${id}" data-ssc-interval-ms="${_esc(String(iv.ms))}">${txt}</span>`;
++        }
+         return `<span data-ssc-text="${id}">${txt}</span>`;
+       }
+       case '_ShowSignal': {
+@@ -790,6 +814,54 @@ function _ssc_ui_mount(sigs, keyedRoots) {
+     else doGet();
+     if (tickId) _sub(tickId, function(t) { if ((t | 0) > 0) doGet(); });
+   }
++  var _fetchStreamMounted = {};
++  function _mountFetchStream(sigId, url, bodyId, tickId, headersId) {
++    if (!sigId || !url || _fetchStreamMounted[sigId]) return;
++    _fetchStreamMounted[sigId] = true;
++    function doStream() {
++      var body = bodyId ? String(_sv[bodyId] == null ? '' : _sv[bodyId]) : '';
++      var opts = { method: 'POST', body: body, headers: { 'Content-Type': 'application/json' } };
++      if (headersId) {
++        var hs = _sv[headersId];
++        if (hs) { try { var extra = JSON.parse(hs); for (var k in extra) opts.headers[k] = extra[k]; } catch(_e) {} }
++      }
++      // Each (re)stream starts a fresh accumulator so the signal grows token-by-token.
++      fetch(url, opts).then(function(r) {
++        if (!r || !r.body || typeof r.body.getReader !== 'function') {
++          // No streaming body (older runtimes / non-stream response): fall back to full text.
++          return r.text().then(function(t) { _set(sigId, t == null ? '' : String(t)); });
++        }
++        var reader  = r.body.getReader();
++        var decoder = (typeof TextDecoder !== 'undefined') ? new TextDecoder() : null;
++        var acc = '';
++        function pump() {
++          return reader.read().then(function(res) {
++            if (res.done) {
++              if (decoder) { var tail = decoder.decode(); if (tail) { acc += tail; _set(sigId, acc); } }
++              return;
++            }
++            acc += decoder ? decoder.decode(res.value, { stream: true }) : String(res.value);
++            _set(sigId, acc);
++            return pump();
++          });
++        }
++        return pump();
++      })
++      // Offline / mid-stream failure is a normal state for a managed binding: retain last-good.
++      .catch(function(_e) {});
++    }
++    doStream();
++    if (tickId) _sub(tickId, function(t) { if ((t | 0) > 0) doStream(); });
++  }
++  var _intervalMounted = {};
++  function _mountInterval(sigId, ms) {
++    if (!sigId || _intervalMounted[sigId]) return;
++    var period = parseInt(ms, 10);
++    if (!(period > 0)) return;
++    _intervalMounted[sigId] = true;
++    if (typeof setInterval !== 'function') return;
++    setInterval(function() { _set(sigId, ((_sv[sigId] || 0) | 0) + 1); }, period);
++  }
+   function _qsa(scope, selector) {
+     var root = scope || document;
+     var out = [];
+@@ -916,6 +988,21 @@ function _ssc_ui_mount(sigs, keyedRoots) {
+       var headersId = el.getAttribute('data-ssc-fetch-get-headers');
+       _mountFetchGet(sigId, url, tickId, headersId);
+     });
++    _qsa(scope, '[data-ssc-fetch-stream-url]').forEach(function(el) {
++      if (_bound(el, 'fetch-stream')) return;
++      var sigId     = el.getAttribute('data-ssc-text');
++      var url       = el.getAttribute('data-ssc-fetch-stream-url');
++      var bodyId    = el.getAttribute('data-ssc-fetch-stream-body');
++      var tickId    = el.getAttribute('data-ssc-fetch-stream-tick');
++      var headersId = el.getAttribute('data-ssc-fetch-stream-headers');
++      _mountFetchStream(sigId, url, bodyId, tickId, headersId);
++    });
++    _qsa(scope, '[data-ssc-interval-ms]').forEach(function(el) {
++      if (_bound(el, 'interval')) return;
++      var sigId = el.getAttribute('data-ssc-text');
++      var ms    = el.getAttribute('data-ssc-interval-ms');
++      _mountInterval(sigId, ms);
++    });
+     _mountKeyed(scope, rowKeyed || []);
+   }
+   function _mountKeyed(scope, keyedViews) {
+@@ -1032,6 +1119,16 @@ function _ssc_ui_mount(sigs, keyedRoots) {
+       var headersId = (fg.headers && fg.headers.id != null) ? String(fg.headers.id) : '';
+       _mountFetchGet(sigId, fg.url, tickId, headersId, fg.urlSig);
+     }
++    if (s._fetchStream) {
++      var fst = s._fetchStream;
++      var fsBodyId = (fst.body && fst.body.id != null) ? String(fst.body.id) : '';
++      var fsTickId = (fst.tick && fst.tick.id != null) ? String(fst.tick.id) : '';
++      var fsHdrId  = (fst.headers && fst.headers.id != null) ? String(fst.headers.id) : '';
++      _mountFetchStream(sigId, fst.url, fsBodyId, fsTickId, fsHdrId);
++    }
++    if (s._interval && s._interval.ms) {
++      _mountInterval(sigId, s._interval.ms);
++    }
+   });
+   // show/hide branches
+   document.querySelectorAll('[data-ssc-cond]').forEach(function(el) {
+@@ -1410,6 +1507,21 @@ function _ssc_ui_mount(sigs, keyedRoots) {
+     var headersId = el.getAttribute('data-ssc-fetch-get-headers');
+     _mountFetchGet(sigId, url, tickId, headersId);
+   });
++  // fetchStreamSignal — mount + tick-driven re-stream (accumulate chunks into the signal)
++  document.querySelectorAll('[data-ssc-fetch-stream-url]').forEach(function(el) {
++    var sigId     = el.getAttribute('data-ssc-text');
++    var url       = el.getAttribute('data-ssc-fetch-stream-url');
++    var bodyId    = el.getAttribute('data-ssc-fetch-stream-body');
++    var tickId    = el.getAttribute('data-ssc-fetch-stream-tick');
++    var headersId = el.getAttribute('data-ssc-fetch-stream-headers');
++    _mountFetchStream(sigId, url, bodyId, tickId, headersId);
++  });
++  // intervalTick — auto-increment the Int signal every N ms
++  document.querySelectorAll('[data-ssc-interval-ms]').forEach(function(el) {
++    var sigId = el.getAttribute('data-ssc-text');
++    var ms    = el.getAttribute('data-ssc-interval-ms');
++    _mountInterval(sigId, ms);
++  });
+   _mountKeyed(document, keyedRoots || []);
+ }
+ 
+@@ -1483,6 +1595,24 @@ function _ssc_ui_fetchUrlSignalTo(name, urlSig, tick, headers) {
+   if (state) state._fetchGet = sig._fetchGet;
+   return sig;
+ }
++// fetchStreamSignal — POST `url` with the `body` signal value on mount + on each tick,
++// then stream the response body into `sig`, setting the accumulated decoded text so far
++// on every chunk (OpenAI-style token streams). Mounted by _mountFetchStream.
++function _ssc_ui_fetchStreamSignal(name, url, body, tick, headers) {
++  var sig = Signal('');
++  if (url) sig._fetchStream = { url: url, body: body || null, tick: tick || null, headers: headers || null };
++  var state = _signals.get(sig.id);
++  if (state) state._fetchStream = sig._fetchStream;
++  return sig;
++}
++// intervalTick — an Int signal that auto-increments every `ms` ms (setInterval).
++function _ssc_ui_intervalTick(name, ms) {
++  var sig = Signal(0);
++  sig._interval = { ms: ms | 0 };
++  var state = _signals.get(sig.id);
++  if (state) state._interval = sig._interval;
++  return sig;
++}
+ function _ssc_ui_fetchAction(method, url, body, tick, headers) { return { _type: '_FetchAction', method, url, body, tick, headers: headers || null }; }
+ // fetchActionTo — like fetchAction but the URL is a Signal[String] resolved at
+ // click time (path-id endpoints, e.g. /documents/<selectedId>/submit). urlSig is
+diff --git a/v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala b/v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala
+index 4d26e4dd9..507c7603b 100644
+--- a/v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala
++++ b/v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala
+@@ -1403,7 +1403,7 @@ class JsGen(
+     // std/ui modules, so they need the Signals runtime even without an explicit
+     // user-level `signal(...)` call.
+     val hasUiHelpers = List(
+-      "fetchUrlSignal", "fetchAction", "fetchActionClear", "fetchActionWith", "CaptureAction", "emptyHeaders",
++      "fetchUrlSignal", "fetchStreamSignal", "intervalTick", "fetchAction", "fetchActionClear", "fetchActionWith", "CaptureAction", "emptyHeaders",
+       "onBumpTick", "onSetSignal", "onNavigate", "formBody",
+       "dataTable", "dataTableView", "staticDataTable", "signalDataTable",
+       "seedSignal",
+diff --git a/v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGenPreamble.scala b/v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGenPreamble.scala
+index e31576dc5..fc17a4d73 100644
+--- a/v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGenPreamble.scala
++++ b/v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGenPreamble.scala
+@@ -756,6 +756,17 @@ private[codegen] trait JvmGenPreamble:
+          |    .filter(_.id != "__ssc_empty_headers").map(_.id)
+          |  new scalascript.frontend.FetchUrlSignal(name, url, _tick.id, _hOpt)
+          |
++         |def fetchStreamSignal(name: String, url: String, body: Any, tick: Any, headers: Any = null): Any =
++         |  val _body = body.asInstanceOf[scalascript.frontend.ReactiveSignal[?]]
++         |  val _tick = tick.asInstanceOf[scalascript.frontend.ReactiveSignal[?]]
++         |  val _hOpt = Option(headers)
++         |    .map(_.asInstanceOf[scalascript.frontend.ReactiveSignal[String]])
++         |    .filter(_.id != "__ssc_empty_headers").map(_.id)
++         |  new scalascript.frontend.FetchStreamSignal(name, url, _body.id, _tick.id, _hOpt)
++         |
++         |def intervalTick(name: String, ms: Int): Any =
++         |  new scalascript.frontend.IntervalTick(name, ms)
++         |
+          |// fetchRowsSource(sig, rowsPath): Scope B.3 — a managed-fetch Remote source whose
+          |// optional dotted envelope path (e.g. "result.items") is carried on the model so the
+          |// emitted client fetch JS drills it (StaticJsEmitter __ssc_rowsOf), matching the browser.
+diff --git a/v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmRuntimeUiPrimitives.scala b/v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmRuntimeUiPrimitives.scala
+index 33f55c654..2da360d31 100644
+--- a/v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmRuntimeUiPrimitives.scala
++++ b/v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmRuntimeUiPrimitives.scala
+@@ -83,6 +83,16 @@ object JvmRuntimeUiPrimitives:
+        |          .filter(_.id != "__ssc_empty_headers").map(_.id)
+        |        new scalascript.frontend.FetchUrlSignal(name, url, _tick.id, _hOpt)
+        |
++       |      def fetchStreamSignal(name: String, url: String, body: Any, tick: Any, headers: Any = null): Any =
++       |        val _body = body.asInstanceOf[scalascript.frontend.ReactiveSignal[?]]
++       |        val _tick = tick.asInstanceOf[scalascript.frontend.ReactiveSignal[?]]
++       |        val _hOpt = Option(headers).map(_.asInstanceOf[scalascript.frontend.ReactiveSignal[String]])
++       |          .filter(_.id != "__ssc_empty_headers").map(_.id)
++       |        new scalascript.frontend.FetchStreamSignal(name, url, _body.id, _tick.id, _hOpt)
++       |
++       |      def intervalTick(name: String, ms: Int): Any =
++       |        new scalascript.frontend.IntervalTick(name, ms)
++       |
+        |      // Scope B.3 — a managed-fetch Remote source whose optional dotted envelope
+        |      // path (e.g. "result.items") is carried on the model so the served custom
+        |      // frontend drills it (StaticJsEmitter __ssc_rowsOf), matching the browser.
+diff --git a/v1/runtime/std/fetch-plugin/src/main/scala/scalascript/compiler/plugin/fetch/FetchIntrinsics.scala b/v1/runtime/std/fetch-plugin/src/main/scala/scalascript/compiler/plugin/fetch/FetchIntrinsics.scala
+index 6378da707..987f6afb9 100644
+--- a/v1/runtime/std/fetch-plugin/src/main/scala/scalascript/compiler/plugin/fetch/FetchIntrinsics.scala
++++ b/v1/runtime/std/fetch-plugin/src/main/scala/scalascript/compiler/plugin/fetch/FetchIntrinsics.scala
+@@ -3,7 +3,7 @@ package scalascript.compiler.plugin.fetch
+ import scala.annotation.nowarn
+ import scalascript.backend.spi.*
+ import scalascript.ir.QualifiedName
+-import scalascript.frontend.{ReactiveSignal, FetchUrlSignal, FetchJsonSignal, EventHandler, View, FieldColumnDef, RowActionDef, TableDataSource, ColumnKind, RowPayload}
++import scalascript.frontend.{ReactiveSignal, FetchUrlSignal, FetchJsonSignal, FetchStreamSignal, IntervalTick, EventHandler, View, FieldColumnDef, RowActionDef, TableDataSource, ColumnKind, RowPayload}
+ import scalascript.plugin.api.{PluginNative, PluginValue, PluginError}
+ 
+ object FetchIntrinsics:
+@@ -80,6 +80,42 @@ object FetchIntrinsics:
+         case _ => PluginError.raise("fetchJsonSignal(name, url, refreshTick, modelTypeName[, headers])")
+     },
+ 
++    // fetchStreamSignal(name, url, body, tick[, headers]): Signal[String]
++    // Creates a FetchStreamSignal that POSTs `body`'s value to `url` on mount + whenever
++    // `tick` increments, streaming the response body into the signal (accumulated text).
++    // On JVM (interpreter) the initial value is just ""; the JS runtime performs the stream.
++    QualifiedName("fetchStreamSignal") -> PluginNative.evalLegacy { (_, args) =>
++      args match
++        case List(name: String, url: String,
++                  PluginValue.Foreign("ReactiveSignal", body: ReactiveSignal[?]),
++                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
++          PluginValue.foreign("ReactiveSignal", new FetchStreamSignal(name, url, body.id, tick.id))
++        case List(name: String, url: String,
++                  PluginValue.Foreign("ReactiveSignal", body: ReactiveSignal[?]),
++                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
++                  PluginValue.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
++          val hId = headers.id
++          PluginValue.foreign("ReactiveSignal",
++            new FetchStreamSignal(name, url, body.id, tick.id,
++              if hId == "__ssc_empty_headers" then None else Some(hId)))
++        case _ => PluginError.raise("fetchStreamSignal(name, url, body, tick[, headers])")
++    },
++
++    // intervalTick(name, ms): Signal[Int] — Int signal that auto-increments every `ms`
++    // milliseconds (setInterval in the JS runtime). Initial value 0; headless on the JVM.
++    QualifiedName("intervalTick") -> PluginNative.evalLegacy { (_, args) =>
++      def toMs(v: Any): Option[Int] = v match
++        case i: Int    => Some(i)
++        case l: Long   => Some(l.toInt)
++        case d: Double => Some(d.toInt)
++        case s: String => s.toIntOption
++        case _         => None
++      args match
++        case List(name: String, msArg) if toMs(msArg).isDefined =>
++          PluginValue.foreign("ReactiveSignal", new IntervalTick(name, toMs(msArg).get))
++        case _ => PluginError.raise("intervalTick(name, ms)")
++    },
++
+     // fetchAction(method, url, body, onSuccessTick[, headers]): EventHandler
+     // On click: fetch(url, {method, body: bodySignal.value, headers}) then increment onSuccessTick.
+     QualifiedName("fetchAction") -> PluginNative.evalLegacy { (_, args) =>
+diff --git a/v1/runtime/std/ui/primitives.ssc b/v1/runtime/std/ui/primitives.ssc
+index b01357e8c..7aa22f725 100755
+--- a/v1/runtime/std/ui/primitives.ssc
++++ b/v1/runtime/std/ui/primitives.ssc
+@@ -27,6 +27,8 @@ exports:
+   - serve
+   - fetchUrlSignal
+   - fetchUrlSignalTo
++  - fetchStreamSignal
++  - intervalTick
+   - fetchAction
+   - fetchActionTo
+   - incSignal
+@@ -163,6 +165,21 @@ extern def fetchUrlSignal(name: String, url: String, refreshTick: Signal[Int],
+ extern def fetchUrlSignalTo(name: String, urlSig: Signal[String], refreshTick: Signal[Int],
+                             headers: Signal[String] = emptyHeaders): Signal[String]
+ 
++// fetchStreamSignal — POST `url` on mount + whenever `tick` increments, with the
++// current `body` signal value as the request body (Content-Type application/json),
++// then STREAM the response body (const reader = r.body.getReader()) into the signal,
++// setting the ACCUMULATED decoded text so far on EACH chunk — so a consumer bound to
++// the signal sees it grow token-by-token (OpenAI-style SSE token streams; the raw
++// decoded bytes are accumulated verbatim, NOT parsed as SSE). On stream end the final
++// accumulated value stays; on error the last-good value is retained (like fetchUrlSignal).
++extern def fetchStreamSignal(name: String, url: String, body: Signal[String], tick: Signal[Int],
++                             headers: Signal[String] = emptyHeaders): Signal[String]
++
++// intervalTick — an Int signal that auto-increments every `ms` milliseconds (via
++// setInterval in the JS runtime). Initial value 0. Use it to auto-poll a
++// fetchUrlSignal: `fetchUrlSignal(..., intervalTick("t", 5000))`.
++extern def intervalTick(name: String, ms: Int): Signal[Int]
++
+ // fetchAction — on click: POST/PUT/DELETE url with body signal value,
+ // then increment onSuccessTick so fetchUrlSignal consumers re-fetch.
+ // headers: JSON-object Signal read at click time.
+-- 
+2.55.0
+
