@@ -105,9 +105,14 @@ interior split promotes a divider), and grows the tree a level at the root
 (`balance_deeper`) with the root page number preserved — to any depth. Verified against
 reference SQLite 3.53.3: repeated in-place inserts grow a one-leaf table through 2-level
 and 3-level trees (depth 3 at 160 rows, 84 pages), every intermediate `integrity_check`
-ok with exact ordered rows. Delete rewrites the target leaf (an underfull leaf stays a
-valid B-tree). The whole-file read-modify-rewrite in `mutate.ssc` remains for bulk DML;
-delete-time sibling merge (compaction, not correctness) is the one optional follow-up.
+ok with exact ordered rows. `pagerDeleteBalanced` rewrites the target leaf (an underfull
+leaf stays a valid B-tree). `pagerDeleteRebalanced` additionally **reclaims** emptied
+pages onto the freelist (page-1 bytes 32..39 + trunk pages) and collapses an interior
+that drops to one child (`balance_shallower` — root page kept), so the file gets pages
+back without changing its length; verified against reference SQLite 3.53.3
+(`integrity_check` ok, `freelist_count` matches, journal recovers the pre-image after a
+merge). Wiring the reclaiming delete into the live SQL DELETE (with matching free-page
+reuse on INSERT) is the remaining follow-up; see `specs/scljet-mutable-pager.md`.
 
 ## SQL
 
