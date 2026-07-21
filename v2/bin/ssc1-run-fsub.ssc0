@@ -689,7 +689,11 @@ def main = () =>
       else
       match sscLoadRoots(Cons(path, rest), Nil) {
         case Pair(allStmts, seen) =>
-          let userSrc = sscConcatSources(reverse(seen)) in
+          -- seen is DFS order [deepest-import … direct-import, root]; concat in THAT
+          -- order (NOT reverse) so imported modules' top-level val inits run before the
+          -- root's bare expressions read them — matching the default front's imports-first
+          -- lowering. reverse(seen) put root first → imported vals read as () (unit cell).
+          let userSrc = sscConcatSources(seen) in
           let ir = sscFsubIr(userSrc) in
           if #cell.get(sscStructuralCell) then
             NativeCompilation(ir, sscParseFrontmatters(paths), sscParseContents(reverse(seen), paths), paths)
