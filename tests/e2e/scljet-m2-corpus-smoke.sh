@@ -5,9 +5,10 @@ ROOT=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
 SSC_TOOLS="$ROOT/bin/ssc-tools"
 DUMPER="$ROOT/tests/tools/scljet-corpus-dump.ssc"
 CORRUPT_CHECKER="$ROOT/tests/tools/scljet-corrupt-check.ssc"
+TRAVERSE_CHECKER="$ROOT/tests/tools/scljet-corrupt-traverse.ssc"
 FUZZ_CHECKER="$ROOT/tests/tools/scljet-fuzz-check.ssc"
 FIXTURES="$ROOT/tests/fixtures/scljet/m2"
-[[ -x $SSC_TOOLS && -f $DUMPER && -f $CORRUPT_CHECKER && -f $FUZZ_CHECKER && -f $FIXTURES/manifest.tsv ]] || {
+[[ -x $SSC_TOOLS && -f $DUMPER && -f $CORRUPT_CHECKER && -f $TRAVERSE_CHECKER && -f $FUZZ_CHECKER && -f $FIXTURES/manifest.tsv ]] || {
   echo 'scljet-m2-corpus-smoke: run scripts/sbtc "installBin" first' >&2
   exit 2
 }
@@ -69,6 +70,15 @@ run_tier() {
   [[ ! -s $tmp/corrupt-err ]] || { echo "corrupt stderr on tier $tier:" >&2; cat "$tmp/corrupt-err" >&2; exit 1; }
   diff -u "$FIXTURES/corrupt-errors.txt" "$tmp/corrupt-actual" || { echo "corrupt diverged on tier $tier" >&2; exit 1; }
 
+  # 2b. User-table overflow-chain corruptions the open-time check cannot catch:
+  # they are accepted at open and fail only during forward table traversal.
+  (
+    cd "$ROOT"
+    env $env_prefix PATH=/usr/bin:/bin "$SSC_TOOLS" run --v1 "$TRAVERSE_CHECKER"
+  ) >"$tmp/traverse-actual" 2>"$tmp/traverse-err"
+  [[ ! -s $tmp/traverse-err ]] || { echo "traverse stderr on tier $tier:" >&2; cat "$tmp/traverse-err" >&2; exit 1; }
+  diff -u "$FIXTURES/corrupt-traversal-errors.txt" "$tmp/traverse-actual" || { echo "traverse diverged on tier $tier" >&2; exit 1; }
+
   # 3. Bounded fuzz mutations: 32 checked, 30 rejected, 2 legally accepted.
   (
     cd "$tmp"
@@ -77,11 +87,11 @@ run_tier() {
   [[ ! -s $tmp/fuzz-err ]] || { echo "fuzz stderr on tier $tier:" >&2; cat "$tmp/fuzz-err" >&2; exit 1; }
   [[ $(cat "$tmp/fuzz-actual") == "32:30:2" ]] || { echo "fuzz result changed on tier $tier: $(cat "$tmp/fuzz-actual")" >&2; exit 1; }
 
-  echo "  tier $tier: dump + corrupt + fuzz identical to reference oracle"
+  echo "  tier $tier: dump + corrupt + traverse + fuzz identical to reference oracle"
 }
 
 run_tier default ""
 run_tier asm "SSC_JIT_BACKEND=asm"
 run_tier fallback "SSC_JIT_BYTECODE=off SSC_FASTTIER=off"
 
-echo 'PASS scljet-m2-corpus-smoke (25 valid + 30 corrupt pinned files, 643 exact lines + 32 bounded mutations; VM/ASM/fallback tiers identical)'
+echo 'PASS scljet-m2-corpus-smoke (25 valid + 33 corrupt pinned files [30 open-time + 3 overflow-traversal], 643 exact lines + 3 traversal diagnostics + 32 bounded mutations; VM/ASM/fallback tiers identical)'

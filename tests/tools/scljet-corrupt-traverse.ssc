@@ -1,0 +1,82 @@
+#!/usr/bin/env ssc-tools run --v1
+---
+name: scljet-corrupt-traverse
+description: Traversal-time error checks for SclJet M2 user-table overflow-chain corruptions
+backends: [int]
+---
+
+# SclJet M2 overflow-chain traversal corpus
+
+The open-time `scljet-corrupt-check` tool validates only the header, pager, and
+page-1 schema, so a `next` pointer damaged inside a user table's overflow page
+is accepted at open and only surfaces when the row is traversed. This tool walks
+every user table of each corrupt file and pins the localized overflow diagnostic.
+
+[SqliteError, StrictSqlite, OpenReadOnly, JournalDelete, SyncFull, SqliteLimits, SqliteOpenOptions, RowidTableTree, RecordKeyTree, SchemaStorageKind, SchemaRowidTable, SchemaWithoutRowidTable, SchemaIndexBtree, SchemaNoBtree, SchemaEntry, ReadonlyDatabase, ReadonlyBtreeCursor, ReadonlyCursorStep, StorageRecord, jvmSqliteVfs, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly](std/scljet/index.ssc)
+
+```scalascript
+case class CorruptCase(id: String, path: String, expected: String)
+
+def limits(): SqliteLimits = SqliteLimits(
+  10000000L, 10000, 1000, 1000, 1000, 10, 10000000L, 10000, 1000,
+  1000000L, 10000000L, 64, 100000L, 10000, 10000000L
+)
+
+def options(): SqliteOpenOptions = SqliteOpenOptions(
+  OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, 0L, 64, false, limits()
+)
+
+// Walk every row of one root; the overflow chain is assembled per row, so a
+// corrupt `next` pointer fails here rather than at open.
+def walkRoot(database: ReadonlyDatabase, root: Long, storage: SchemaStorageKind): Either[SqliteError, ReadonlyDatabase] =
+  val rowidTree = storage == SchemaRowidTable
+  val treeKind = if rowidTree then RowidTableTree else RecordKeyTree
+  openReadonlyRoot(database, root, treeKind) match
+    case Left(error) => Left(error)
+    case Right(cursor) => readonlyFirst(database, cursor) match
+      case Left(error) => Left(error)
+      case Right(ReadonlyCursorStep(firstDatabase, firstCursor, firstRow)) =>
+        var currentDatabase = firstDatabase
+        var currentCursor = firstCursor
+        var currentRow = firstRow
+        var failure: Option[SqliteError] = None
+        while currentRow.isDefined && failure.isEmpty do
+          readonlyNext(currentDatabase, currentCursor) match
+            case Left(error) => failure = Some(error)
+            case Right(ReadonlyCursorStep(nextDatabase, nextCursor, nextRow)) =>
+              currentDatabase = nextDatabase
+              currentCursor = nextCursor
+              currentRow = nextRow
+        failure match
+          case Some(error) => Left(error)
+          case None => Right(currentDatabase)
+
+def walkEntries(database: ReadonlyDatabase, entries: List[SchemaEntry]): Either[SqliteError, ReadonlyDatabase] = entries match
+  case Nil => Right(database)
+  case Cons(entry, tail) => entry match
+    case SchemaEntry(_, _, _, _, rootPage, _, storage, _, _) =>
+      val next = rootPage match
+        case Some(page) => walkRoot(database, page, storage)
+        case None => Right(database)
+      next match
+        case Left(error) => Left(error)
+        case Right(nextDatabase) => walkEntries(nextDatabase, tail)
+
+def check(value: CorruptCase): Unit =
+  openReadonly(jvmSqliteVfs(), value.path, options()) match
+    case Left(error) => println(value.id + ":open-rejected:" + error.message)
+    case Right(database) =>
+      walkEntries(database, database.schema.entries) match
+        case Left(error) =>
+          val localized = error.message.contains(value.expected)
+          println(value.id + ":" + localized.toString + ":" + error.message)
+        case Right(finalDatabase) =>
+          closeReadonly(finalDatabase)
+          println(value.id + ":false:accepted")
+
+List(
+  CorruptCase("overflow-chain-truncated", "tests/fixtures/scljet/m2/corrupt/overflow-chain-truncated.db", "overflow chain ended early or points out of range"),
+  CorruptCase("overflow-chain-out-of-range", "tests/fixtures/scljet/m2/corrupt/overflow-chain-out-of-range.db", "overflow chain ended early or points out of range"),
+  CorruptCase("overflow-chain-cycle", "tests/fixtures/scljet/m2/corrupt/overflow-chain-cycle.db", "overflow chain contains a cycle")
+).foreach(check)
+```

@@ -1,0 +1,3 @@
+overflow-chain-truncated:true:overflow.next: overflow chain ended early or points out of range
+overflow-chain-out-of-range:true:overflow.next: overflow chain ended early or points out of range
+overflow-chain-cycle:true:overflow chain contains a cycle
