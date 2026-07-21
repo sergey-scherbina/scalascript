@@ -27,6 +27,21 @@ tightest windows (phase-1 election 3000→4500 ms, failover migration 12000→18
 poll-to-convergence `ClusterBullyStatusConvergenceTest` was left unchanged as the robust template.
 BUGS.md `cli-cluster-election-timing-flake-under-ci-load`.
 
+## 2026-07-21 — Durable continuation `save()`/`run()` — in-process keystone
+
+`Continuation.save()` no longer always returns `Save.Rejected`. A new managed builder
+`Continuation.savable(state, machine, codec: DurableValue[S])` supplies the typed
+defunctionalized save evidence, so its `save()` succeeds — returning a reusable
+`SavedContinuation` whose `run(value)` reconstructs an independent frame per admitted run
+(snapshot law, control-interoperability §8.2), begins directly at the capture point, and is
+multi-shot with no prefix replay. `Restore.admitLocally` discharges the in-process `Restore`
+row. Unmanaged host closures (`Continuation.runtime`) and codec-less `Continuation.local` still
+reject with `UnmanagedCapture`; the `SavedContinuation.Reusable`/`Continuation.Savable`
+constructors stay authority-guarded and user code still cannot forge a successful saved value.
+Control suite 117/117, ABI gate green. Byte codec/capsule, exact-artifact and portable-CoreIR
+runners, and JS/Rust/Swift lane parity remain follow-on slices of the durable chain
+(`specs/durable-continuation-save-run.md`; `spec 7fa13c295`, feat `329f18758`).
+
 ## 2026-07-21 — Native Coroutine provider runs on VM, direct ASM, and build-jvm
 
 The standard core-free `59-generator` provider now owns one dynamically scoped `suspend` target for

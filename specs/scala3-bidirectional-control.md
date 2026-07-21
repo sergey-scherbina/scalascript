@@ -292,6 +292,16 @@ later post-X1 slice may add a typed defunctionalized save-plan descriptor and a
 library-controlled factory without changing the contracts above; successful save
 is not part of the tier-1 capability claim.
 
+Landed post-X1 (`specs/durable-continuation-save-run.md`, in-process keystone): the
+`Continuation.savable(state, machine, codec: DurableValue[S])` builder supplies that
+typed defunctionalized evidence, so its `save()` succeeds — returning a reusable
+`SavedContinuation` via the library-owned `SavedContinuation.Authority`-guarded
+`Reusable` factory — while `Continuation.runtime`/`Continuation.local` (no codec)
+still deterministically perform `Save.Rejected(UnmanagedCapture(...))`. This is the
+same-process, `Savable`/no-transport case: the byte codec, capsule, and
+exact-artifact/portable-CoreIR runners remain later slices, and user code still
+cannot forge a successful `SavedContinuation`.
+
 No API-declared payload or control member may expose `Any`, `AnyRef`, interpreter
 `Value`, `DataV`, `ClosV`, VM frames, `SpiValue`, reflection, TLS, host stack
 objects, or hidden exception control. The unavoidable universal members inherited
