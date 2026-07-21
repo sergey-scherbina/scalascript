@@ -1,6 +1,6 @@
 feature/v2-f7-internal-gate 2026-07-19T13:42:57Z
 agent: codex
-heartbeat: 2026-07-21T08:14:45Z
+heartbeat: 2026-07-21T08:24:57Z
 status: in-progress
-done-so-far: code SHA c278b4b37 is exact-CI green in run 29805497326; final containing SHA 1f5e55b44 has 3/4 jobs green in run 29805732016 and full Test via sbt remains active with no failure
-next: require exact final SHA ci-status exit 0, then record/release/remove; diagnose exact named job if red
+done-so-far: code SHA c278b4b37 exact-CI green (29805497326); final containing SHA 1f5e55b44 run 29805732016 remains 3/4 green with full Test via sbt active and no named failure
+next: wait for exact final ci-status exit 0, then record/release/remove; if red fix the exact named failure
