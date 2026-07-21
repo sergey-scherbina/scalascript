@@ -82,6 +82,36 @@ instead of dispatching to the Doc extension → `arity: 2 expected, 1 given`. (T
 default path `Builder()` works; dsl-ast-builder remains a known GAP in `v2.2-p6.5-dualrun.expected`,
 whose closure-symptom note is now stale — the real residual is this operator-extension gap.)
 
+## f-extension-instance-dispatcher-arity — F miscompiles a same-named extension method across 2 instances
+
+**Status:** OPEN, F-lane only (found 2026-07-21, characterized while fixing the extension-member-collection
+bug). PRE-EXISTING (fails on pre-fix F too). Distinct from the member-collection fix.
+
+When the SAME extension method name is defined by TWO instances — one inside a `given … with` body and one
+as a standalone `extension` — F synthesises a bare dispatcher that type-tests the receiver and forwards to
+the matching `g_m`/global, but the arity is wrong: F errors `arity: N expected, N-1 given` at the call site
+(or F crashes compiling the pattern). Minimal repro (bare):
+
+```
+trait ME[F[_]]:
+  extension [A](fa: F[A]) def handleError(h: Int => F[A]): F[A]
+given optME: ME[Option] with
+  extension [A](fa: Option[A]) def handleError(h: Int => Option[A]): Option[A] = fa match { case None => h(0) case Some(x) => Some(x) }
+extension [A](fa: Either[String, A])
+  def handleError(h: String => Either[String, A]): Either[String, A] = fa match { case Left(e) => h(e) case Right(x) => Right(x) }
+def main(): Unit = { val o: Option[Int] = None; println(o.handleError((n: Int) => Some(99))) }
+```
+default prints `Some(99)`; `SSC_FRONT=F` → `arity: 1 expected, 0 given`. A SINGLE instance works
+(`mono3`); adding the second (standalone Either) `handleError` breaks it — so the fault is the
+2-instance dispatcher synthesis (`collectExtDisp`/`emitExtDispatchers`/`edBuild` + the standalone
+`extension` emitting a bare `handleError` global that collides with the dispatcher name). Likely fix:
+the dispatcher must own the bare method name and the standalone impl must be prefixed (or the dispatcher
+must fold the standalone instance in), with a consistent receiver-prepended arity.
+
+**Blocks 3 residuals** in `v2.2-p6.5-dualrun.expected`: std-monaderror (`arity: 3 expected, 2 given`),
+tagless-sealed-dispatch (rc=0 SILENT-WRONG, lines 8-9), tagless-multi-file (`arity: 2 expected, 1 given`
+— EXPOSED once the extension-member fix removed its unbound-global fallback).
+
 ## f-litdoc-runtime-error-2 — litdoc fails `ssc: 2` on the F native front only
 
 **Status:** OPEN, F-lane only (2026-07-21, found by `f-multifile-lowering`). Distinct from the

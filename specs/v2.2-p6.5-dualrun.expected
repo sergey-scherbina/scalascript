@@ -11,15 +11,17 @@
 # wrong result. On the DEFAULT slice: 43/43 EQUAL, 0 divergence.
 #
 # ════════════════════════════════════════════════════════════════════════════════════════════════════
-# COMPLETE FULL-CORPUS SWEEP — 2026-07-21 (SSC_DUALRUN_ALL=1, 521 programs, clean F-staged worktree).
-#   Result: EQUAL 509/521, DIVERGE 12 = 2 expected-GAP + 10 real residuals + (http-client, scljet-sql-
-#   orderby-expr were FALSE divergences — see NON-RESIDUAL section; excluded after per-program adjudication
-#   default×1 + F×2 for determinism, timeout-group at 150s).
-#   ALL 10 residuals are ONE class: F's MULTI-FILE (import) lowering emits wrong values. Single-file
-#   programs are unaffected (that is why 509/521 are EQUAL). The flip stays BLOCKED on an F multi-file
-#   lowering fix; the F4a fallback cannot catch these (globals resolve, values are wrong).
-#   ⚠ 3 residuals are SILENT-WRONG (F exits 0 with wrong stdout): std-bifunctor, tagless-sealed-dispatch,
-#     tkv2-theme-css-vars. Post-flip these would corrupt output with NO error — the strongest fix-first arg.
+# FULL-CORPUS SWEEP 2026-07-21 (SSC_DUALRUN_ALL=1, 521 programs): initially EQUAL 509/521, 10 real residuals,
+#   all one class = F's MULTI-FILE (import) lowering. RECONCILED as fixes land — now 6 residuals:
+#   FIXED: multi-link-imports, money-multisection, money-portable-v2, tkv2-theme-css-vars (import-order fix
+#          70d5bbabf); std-bifunctor (extension-member collection fix — F now collects EVERY member of a
+#          given-nested `extension` group; only the 1st was collected → later methods stubbed at recv.m).
+#   REMAINING 6 (below): dsl-ast-builder, litdoc, mcp-types, std-monaderror, tagless-sealed-dispatch,
+#          tagless-multi-file. The last three share the 2-instance `handleError` dispatcher bug (a same-named
+#          extension method in a `given` AND standalone). tagless-multi-file was EXPOSED by the std-bifunctor
+#          fix (its unbound-global fallback is gone) — the underlying bug is PRE-EXISTING.
+#   The flip stays BLOCKED until these are fixed; the F4a fallback cannot catch them (globals resolve,
+#   values are wrong). http-client / scljet-sql-orderby-expr were FALSE divergences (see NON-RESIDUAL).
 # ════════════════════════════════════════════════════════════════════════════════════════════════════
 #
 # format (TAB-separated):  <BUCKET>\t<program>\t<reason>
@@ -34,16 +36,15 @@
 #    catchable: a run-time rerun is unsafe (side-effect duplication; ~half the corpus is multi-file incl.
 #    scljet DB writers). These need F's MULTI-FILE lowering fixed. Each verified DETERMINISTIC (F run twice,
 #    identical) in a clean F-staged worktree on 2026-07-21. ──
-GAP	dsl-ast-builder	multi-file (imports std/dsl/*.ssc): F lowers spanEmpty.start/end to a <closure>; default prints 0..0. Needs F multi-file lowering fix.
-GAP	multi-link-imports	multi-file (imports std/money.ssc, std/either.ssc): F lowers a value to () → `no dispatch for .getOrElse on ()`, rc=1; default prints "minor units: 1234". Needs F multi-file lowering fix.
-GAP	money-multisection	multi-file (imports std/money.ssc): F lowers a value to () → `__method__: no dispatch for .getOrElse on ()`, rc=1; default prints "zł~2~0~XXX~2". Same root cause as multi-link-imports. Needs F multi-file lowering fix.
-GAP	money-portable-v2	multi-file (imports std/money.ssc): F lowers a value to () → `.getOrElse on ()`, rc=1; default prints "$3.75~true~1.2100~3.3333~1234~List(...)". Same root cause. Needs F multi-file lowering fix.
-GAP	litdoc	multi-file (imports std/litdoc.ssc): F aborts with internal `ssc: 2`, rc=1, empty stdout; default prints 401 B ("kinds: front,heading,..."). Needs F multi-file lowering fix.
-GAP	mcp-types	multi-file (imports std/mcp/types.ssc): F lowers a ctor with wrong arity → `arity: 2 expected, 1 given`, rc=1 after partial output (false/hello/true, 16 B); default prints full 107 B. Needs F multi-file lowering fix.
-GAP	std-monaderror	multi-file (imports std/either.ssc, std/monaderror.ssc — typeclass givens): F aborts after partial output (None~Some(42)~None, 18 B), rc=1; default prints 192 B. Needs F multi-file/typeclass lowering fix.
-GAP	std-bifunctor	SILENT-WRONG. multi-file (imports std/either.ssc, std/bifunctor.ssc — typeclass givens): F exits 0 but emits `Stub` for typeclass instances → wrong stdout (154 B vs default 183 B). No error. Needs F multi-file/typeclass lowering fix.
-GAP	tagless-sealed-dispatch	SILENT-WRONG. multi-file (imports std/either.ssc, std/bifunctor.ssc, std/monaderror.ssc — typeclasses): F exits 0 but emits `Stub` → wrong stdout (69 B vs default 93 B). No error. Needs F multi-file/typeclass lowering fix.
-GAP	tkv2-theme-css-vars	SILENT-WRONG. multi-file (imports std/ui/theme.ssc; NO typeclass): F exits 0 but computes wrong booleans (some true→false; 37 B vs default 34 B all-true). No error. Needs F multi-file lowering fix.
+# RECONCILED 2026-07-21 (10 → 6). FIXED and removed: multi-link-imports, money-multisection, money-portable-v2,
+# tkv2-theme-css-vars (F import-order fix 70d5bbabf); std-bifunctor (extension-member fix — F now collects ALL
+# members of a given-nested `extension` group, not just the 1st). Remaining 6 below.
+GAP	dsl-ast-builder	multi-file (imports std/dsl/*.ssc): F errors `arity: 2 expected, 1 given` — operator-extension (`++`/`/`) dispatch; default prints 0..0. See BUGS f-operator-extension-dispatch.
+GAP	litdoc	multi-file (imports std/litdoc.ssc): F aborts with internal `ssc: 2`, rc=1, empty stdout; default prints 401 B ("kinds: front,heading,..."). Distinct F-lane bug.
+GAP	mcp-types	multi-file (imports std/mcp/types.ssc): F object-method vararg call → `arity: 1 expected, 2 given`, rc=1 after partial output; default prints full 107 B. See BUGS f-object-method-varargs.
+GAP	std-monaderror	multi-file (imports std/either.ssc, std/monaderror.ssc): F errors `arity: 3 expected, 2 given` from the 2-INSTANCE `handleError` extension dispatcher (given Option + standalone Either, same method name), rc=1; default prints 192 B. See BUGS f-extension-instance-dispatcher-arity.
+GAP	tagless-sealed-dispatch	multi-file (imports std/either, std/bifunctor, std/monaderror): the `Stub` extension-member bug is FIXED; the remaining diverge is the 2-instance `handleError` dispatcher bug (rc=0 SILENT-WRONG — lines 8-9 Right(0)/Left(re:boom) vs Left(boom)). See BUGS f-extension-instance-dispatcher-arity.
+GAP	tagless-multi-file	EXPOSED 2026-07-21 by the extension-member fix (was masked by an unbound-global fallback; PRE-EXISTING — fails on pre-fix F too). Same 2-instance `handleError` dispatcher bug: F errors `arity: 2 expected, 1 given`, rc=1; default correct. See BUGS f-extension-instance-dispatcher-arity.
 
 # ── NON-RESIDUALS — divergences the sweep flagged that are NOT F correctness bugs (adjudicated 2026-07-21;
 #    listed so the full-corpus gate stays green, with the evidence to re-verify). ──
