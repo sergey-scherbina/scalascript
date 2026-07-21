@@ -113,8 +113,21 @@ would delegate to a non-existent `m__ext_default` → TYPEERR). **Fixes tagless-
 std-monaderror arity crash; verified fixpoint stage1==stage2 byte-identical, semantic 246/246, dualrun
 default 43/43. TWO residual cases were filed (separate bugs, below); tagless-multi-file now FIXED, one open:
 
-- **f-monaderror-none-match** — std-monaderror now advances past the dispatcher fix to `match: no arm for
-  None/0` (an Option match, likely the `handleOption`/`attemptOption` path or Unit `()` handling). OPEN.
+- **f-monaderror-none-match** — FIXED 2026-07-21 (`bcfc47ec8`). Root cause: the bare extension-method
+  DISPATCHER for a multi-param typeclass given (`MonadError[Option, Unit]`) derived its receiver type-head
+  from `innerTypeStr` = the WHOLE joined type-arg string `"Option,Unit"` and fed that to `extTypeTags`. No
+  runtime value carries tag `"Option,Unit"`, so the `__isTag__` test ALWAYS failed: with 1 instance the
+  dispatcher returned the receiver (None instead of Some(99)); with 2 instances a None receiver fell through
+  to the standalone Either impl's `match {Right|Left}` → runtime `match: no arm for None/0`. Fix (mirror
+  ssc1-lower firstTypeArg :5339 / collectExtDispatch :5399): apply `firstTypeArg` (depth-0 prefix up to the
+  first top-level comma, bracket-aware) to the TC type-args in `collectED2` before `extTypeTags`, so the
+  dispatcher tests the CONTAINER type's ctor tags (Some/None). No-op for single-param TCs. Verified: X1
+  fixpoint stage1==stage2 byte-identical, semantic 247/247, minimal repro (top-level-statement form, the
+  shape the conformance harness wraps) now byte-identical to the reference front + prints Some(99). Real
+  multi-file std-monaderror end-to-end equality is EXPECTED (the default front already prints 192 B → the
+  fenced input does not trigger extension-group swallowing; F's dispatcher is now byte-identical to default)
+  but was NOT observed via `SSC_FRONT=F bin/ssc run` (no staged install in this worktree) — a follow-up
+  should confirm it and flip the std-monaderror GAP in `specs/v2.2-p6.5-dualrun.expected`.
 - **tagless-multi-file `map`** — FIXED 2026-07-21 (`1a04abdc8`). NOT actually a `map`/builtin-collision case:
   the crash was on Monad's PLAIN `def log`/`def pure` (non-`extension` members) that immediately FOLLOW an
   `extension …` block inside a `given … with` body. Root cause: `skipExtBodyZ` (member-collection helper)
