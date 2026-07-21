@@ -2078,7 +2078,7 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
       `(` after the first `parseParamList`; global newline continuation is unchanged, so abstract-def
       boundaries stay intact. The staged native/v1 repro prints `ab!` on both and the same-line form
       remains green. `BUGS.md` and this queue now match the existing source, changelog, and git history.
-- [ ] **Q2 — measured optimization after the bug slice** (`q2-measured-optimization`). Compiler-front
+- [x] **Q2 — measured optimization after the bug slice** (`q2-measured-optimization`). Compiler-front
       lane selected because staged CLI/package tests repeatedly parse and typecheck `.ssc`, while active
       F/dualrun and JIT claims own the adjacent paths. Record every result with the exact `scripts/bench`
       command and land only a behavior-preserving improvement with repeated A/B evidence.
@@ -2096,7 +2096,7 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
             (3.934 ms/op, 0.003 ms/op, 1.156 us/op respectively), the combined list exposed every
             compiler class, and `v2-*` conformance passed 11/11. These one-iteration values prove
             routing only; Q2.1 must record a normal repeated baseline before source edits.
-      - [ ] **Q2.1 — profile and optimize one measured compiler hot path.** After Q2.0 lands, run the
+      - [x] **Q2.1 — profile and optimize one measured compiler hot path.** After Q2.0 lands, run the
             normal repeated `scripts/bench compile <case>` baseline plus an allocation/profile pass,
             write the numbers and identified owner here, then make the smallest source change that
             improves repeated measurements without changing parser/typer output. Verify the owning
@@ -2119,6 +2119,16 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
             `java.util.regex.Pattern`; preserve full-match semantics. Verify `core/testOnly
             scalascript.parser.ClusterFrontmatterTest`, parser/conformance gates, then compare two-fork
             `parseActors` time and allocation before accepting.
+            **DONE 2026-07-21 (`350c142ba`):** `extractSourceCluster` now compiles its unchanged
+            full-match regex once instead of once per input line. Clean `origin/main` baseline and
+            candidate both used `BENCH_WI=5 BENCH_MI=10 BENCH_F=2 scripts/bench compile parseActors`:
+            2.218 ± 0.048 → 2.085 ± 0.026 ms/op (**−6.0%**), with non-overlapping 99.9% intervals
+            [2.170, 2.266] and [2.059, 2.110]. Allocation A/B used `BENCH_F=2 scripts/bench
+            compile-profile parseActors`: 7,953,445.137 ± 314,274.755 → 6,784,902.185 ± 313,208.285
+            B/op (**−14.7%**, intervals non-overlapping). The profiled wall time is intentionally not
+            used as the timing verdict because JFR startup distorts the first iteration. Verification:
+            all parser suites 153/153, focused `ClusterFrontmatterTest` 9/9, and cluster conformance
+            5/5 passed.
 - [ ] **Q3 — minimize the touched path.** Remove duplication, dead branches, or avoidable abstractions
       revealed by Q1/Q2 without broad redesign; report the net source-line/complexity change and prove
       byte/observable behavior unchanged with the same regression and benchmark gates.

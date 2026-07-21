@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-07-21 — Parser stops recompiling the cluster-header regex per line
+
+`Parser.extractSourceCluster` now caches its unchanged full-match `Pattern` instead of invoking
+`String.matches` for every source line. The allocation profile had attributed 35.81% of sampled
+pressure to that exact compile stack. On `ParserBench.parseActors`, a clean two-fork long A/B measured
+2.218 ± 0.048 → 2.085 ± 0.026 ms/op (−6.0%) and 7,953,445 → 6,784,902 B/op (−14.7%); both 99.9%
+interval pairs were non-overlapping. Parser tests passed 153/153 and focused cluster conformance 5/5
+(`350c142ba`).
+
 ## 2026-07-21 — Compiler benchmarks have the same allocation profiler route
 
 `scripts/bench compile-profile <pattern>` applies the existing JMH GC and JFR profilers to parser,

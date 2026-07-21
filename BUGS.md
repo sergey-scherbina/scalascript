@@ -2,8 +2,8 @@
 
 ## bench-compile-wrapper-hides-real-compiler-benches — compile measurements cannot start
 
-**Status:** FIXED (2026-07-21, `5aee0cd35`; found and verified by codex while starting Q2 measured
-optimization).
+**Status:** DONE (2026-07-21, `5aee0cd35`; found and confirmed through the real wrapper by codex while
+starting Q2 measured optimization).
 
 **Reproduce:**
 
