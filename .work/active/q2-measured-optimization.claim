@@ -1,6 +1,6 @@
 feature/q2-measured-optimization 2026-07-21T08:47:26Z
 agent: codex
-heartbeat: 2026-07-21T08:47:47Z
+heartbeat: 2026-07-21T08:58:57Z
 status: in-progress
-done-so-far: external worktree created from current origin/main; Q2 assigned to independent compiler-front benchmark lane, no overlap reported in Rozum
-next: list scripts/bench compile cases, choose and profile a staged-CLI-relevant hot path, commit the concrete SPRINT baseline/plan before source edits
+done-so-far: Q2.0 wrapper fix implemented; faithful command-generation gate green; real compiler JMH verification in progress
+next: run parseActors, typeActors, unifyDeep and combined list; conformance; land code and docs slices
