@@ -29,3 +29,6 @@ bad-schema-type	tests/fixtures/scljet/m2/corrupt/bad-schema-type.db	8bec61279787
 bad-schema-rootpage	tests/fixtures/scljet/m2/corrupt/bad-schema-rootpage.db	aaf8e670915d11e0a0e9a7a606f9d5136e7917e04327e1e4ad79a4a63f5f3212	outside the logical database
 bad-schema-rootpage-negative	tests/fixtures/scljet/m2/corrupt/bad-schema-rootpage-negative.db	b0e3e411bab54b281544fffc5966670752ae05f3e4bd28957de1ac44779f4d05	rootpage must be non-negative
 bad-page-freeblock	tests/fixtures/scljet/m2/corrupt/bad-page-freeblock.db	db57f4e6253c8655002c37c223763b8a113bba207f484b71dc669390dd5ac977	freeblock
+overflow-chain-truncated	tests/fixtures/scljet/m2/corrupt/overflow-chain-truncated.db	fc296c564686b9266b894ae3a8565fe48e41021379f55bb523f15ee1570298ec	overflow chain ended early or points out of range
+overflow-chain-out-of-range	tests/fixtures/scljet/m2/corrupt/overflow-chain-out-of-range.db	8cbe030c6b4684652862ed1c2f6791aee885a8e46f758f2d78a0e89ebda34773	overflow chain ended early or points out of range
+overflow-chain-cycle	tests/fixtures/scljet/m2/corrupt/overflow-chain-cycle.db	e094cfccf3e561d188271d2120a2490848f3736ff9b2bda55440474b8c6a7d09	overflow chain contains a cycle

@@ -393,7 +393,7 @@ def first_schema_record(data: bytes) -> tuple[int, list[int], list[int], int]:
     return header_start, serial_offsets, serial_values, header_start + header_len
 
 
-def corruptions(simple: Path, autovacuum: Path, freelist: Path) -> None:
+def corruptions(simple: Path, autovacuum: Path, freelist: Path, overflow: Path) -> None:
     cases: list[tuple[str, bytes, str]] = []
     base = simple.read_bytes()
     bad_magic = bytearray(base); bad_magic[0] = 0
@@ -479,6 +479,30 @@ def corruptions(simple: Path, autovacuum: Path, freelist: Path) -> None:
         ("bad-schema-rootpage", bytes(bad_schema_rootpage_oob), "outside the logical database"),
         ("bad-schema-rootpage-negative", bytes(bad_schema_rootpage_negative), "rootpage must be non-negative"),
         ("bad-page-freeblock", bytes(bad_schema_freeblock), "freeblock"),
+    ])
+
+    # User-table overflow-chain traversal corruptions.  Unlike every case above,
+    # these damage a `next` pointer INSIDE a user table's overflow page, so the
+    # open-time openReadonly path (header + pager + page-1 schema) accepts the
+    # file; the corruption only surfaces when the row is actually traversed.
+    # overflow-thresholds.db pins a p=1100 row (rowid 7) whose payload spills a
+    # two-page overflow chain, page 11 -> page 12; bytes 0..3 of page 11 hold its
+    # `next` pointer.  These mutations are the only ones aimed at a non-schema
+    # page, and are pinned LAST so a full regen stays byte-identical.
+    ov = overflow.read_bytes()
+    ov_page_size, _, ov_pages, _, _, _ = header_meta(ov)
+    ov_chain_first = 11
+    ov_next_offset = (ov_chain_first - 1) * ov_page_size
+    assert ov_pages == 12, f"overflow-thresholds page count changed: {ov_pages}"
+    assert struct.unpack(">I", ov[ov_next_offset:ov_next_offset + 4])[0] == 12, \
+        "overflow-thresholds page-11 next pointer is no longer 12"
+    ov_truncated = bytearray(ov); put_u32(ov_truncated, ov_next_offset, 0)
+    ov_out_of_range = bytearray(ov); put_u32(ov_out_of_range, ov_next_offset, 99)  # 99 > 12-page file
+    ov_cycle = bytearray(ov); put_u32(ov_cycle, ov_next_offset, ov_chain_first)  # self-loop
+    cases.extend([
+        ("overflow-chain-truncated", bytes(ov_truncated), "overflow chain ended early or points out of range"),
+        ("overflow-chain-out-of-range", bytes(ov_out_of_range), "overflow chain ended early or points out of range"),
+        ("overflow-chain-cycle", bytes(ov_cycle), "overflow chain contains a cycle"),
     ])
     rows = ["id\tpath\tsha256\texpected"]
     for fixture_id, data, expected in cases:
@@ -607,7 +631,7 @@ def main() -> None:
     fixtures.append(("index-overflow-thresholds", index_overflow_thresholds))
 
     write_manifest(fixtures, source_id, compile_options)
-    corruptions(VALID / "page-512.db", auto_full, freelist)
+    corruptions(VALID / "page-512.db", auto_full, freelist, overflow_thresholds)
     for suffix in ("-wal", "-shm"):
         sidecar = Path(str(wal_clean) + suffix)
         if sidecar.exists():
