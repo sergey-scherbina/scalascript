@@ -1,5 +1,53 @@
 # Bug tracker
 
+## f-stmt-partial-function-block-dropped — F mishandles a `f { case … }` partial-function block arg
+
+**Status:** OPEN (found 2026-07-21 by opus while pinpointing why `SSC_FRONT=F` diverges on actor
+programs). F-front (`specs/v2.2-p6.5-fsub.ssc`) only. Root cause of the actors-pingpong /
+actors-typed-remote-spawn / auth-demo divergence on F.
+
+**Symptom:** a method call whose argument is a trailing PARTIAL-FUNCTION block — `f { case … => … }` —
+is mis-lowered by F. In an actor, `receive { case … => <side effect> }` in statement position silently
+skips the handler; a plain user fn (`handle { case s => println(..) }`) can crash the whole program (blank
+output). Works when the result is bound (`val x = f { case … }`) or the block is a plain lambda
+(`f { () => … }`). A paren-arg call in statement position (`sideEffect()`) also works.
+
+**Minimal repro (no actors):**
+```scalascript
+def handle(f: String => Unit): Unit = f("v")
+handle { case s => println("pf ran: " + s) }   // default: prints "pf ran: v"; F: prints NOTHING
+println("after")
+```
+Narrowing (all via assembled `SSC_FRONT=F bin/ssc run`; default front correct in every case):
+- T9c `sideEffect()` stmt-position → F OK (F does NOT drop stmt calls in general).
+- T10 `applyIt { () => println(..) }` stmt-position (lambda block) → F OK.
+- T11/`handle { case s => println(..) }` stmt-position (partial-function block) → **F FAILS**.
+- T8/T9b `val _ = receive { case s => s }` (result bound, returns value) → F OK.
+- T7 `receive(timeout=N){ case s => println(..) }` stmt-position → F FAILS (actor never prints).
+
+**Why it matters:** actor code idiomatically calls `receive { case … => <side effect> }` in statement
+position, so F silently skips message handling → `actors-pingpong` prints none of its pongs and the
+`before timeout: Some(...)` delivery becomes `None`. Hidden today because such programs reference unbound
+plugin globals and fall back to the default front; exposed by an F-drop-in probe that ran them directly on
+F. A REAL F correctness gap, NOT a "deep effects gap."
+
+**Located parser path (`specs/v2.2-p6.5-fsub.ssc`):** `parseAtom` (:383) → `parseAtom0/1` (:395) parse
+the head ident, then `postfix` (:431) sees a following `{` (token type 2,28) → `postBlockArg` (:436) →
+`blockArgApp` (:439). `blockArgApp(c,b)` = `if startsW(b,"(lam ") then (app c b) else (app c (lam 0 b))`.
+Hypothesis: `parseBlock` on `{ case … }` does NOT return a partial-function `(lam 1 (match (local 0) …))`,
+so `blockArgApp` wraps it as a 0-arg thunk → the callee gets a wrong-arity (0 vs 1) handler.
+
+**Unreconciled nuance to resolve FIRST (do not fix blind):** `val _ = receive { case s => s }` (handler
+RETURNS a value) runs correctly on F, but `val _ = handle { case s => println(..) }` (plain fn, handler
+SIDE-EFFECTS) produced BLANK output. So the failure mode depends on context — is the trigger `{ case }`
+arity, the handler-body type (Unit vs value), or the `postBlockArg` vs `postMethBlock` (:463, which uses a
+different wrapper `blockArgOf` :464) path? Re-derive the exact trigger before editing.
+
+**Fix gate:** make `f { case … }` lower identically to the default front in every position. Verify: the
+T11 repro prints on F; fsub `--self` fixpoint byte-identical; semantic goldens unchanged; the dualrun full
+sweep loses the actors-pingpong / actors-typed-remote-spawn / auth-demo residuals. Coordinate on
+`fsub.ssc` (shared with v2-f5-kernel-shrink / v2-f4-flip lanes). See `specs/f-ambient-prelude-drop-in.md`.
+
 ## scljet-js-conformance-stale-prebuilt-jar-after-symlink-drop — dropped compat symlink breaks scljet JS emit against the pre-built bin/lib jar
 
 **Status:** DONE 2026-07-21 (`638b4f610`, `v21-negtc-red-triage`). Restoring the
