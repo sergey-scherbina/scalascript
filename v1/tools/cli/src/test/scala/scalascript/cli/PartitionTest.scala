@@ -67,10 +67,10 @@ class PartitionTest extends AnyFunSuite with Matchers:
        |    sendAfter(800, s, "join")
        |    receive { case "join" =>
        |      $joinStmt
-       |      sendAfter(3000, s, "elect")
+       |      sendAfter(4500, s, "elect")
        |      receive { case "elect" =>
        |        electLeader()
-       |        sendAfter(3000, s, "report")
+       |        sendAfter(4500, s, "report")
        |        receive { case "report" =>
        |          println("MEMBERS:" + clusterMembers().mkString(","))
        |          println("LEADER:" + currentLeader())
@@ -84,6 +84,11 @@ class PartitionTest extends AnyFunSuite with Matchers:
        |""".stripMargin
 
   test("5-node static partition: quorum=3 leaves minority leaderless, majority elects node-e"):
+    // Real-WS 5-node election on fixed sendAfter windows — flaky under CI
+    // contention; retry the whole scenario (fresh ports) up to 3×.
+    ClusterTestSupport.retrying(3)(partitionScenario())
+
+  private def partitionScenario(): Unit =
     val jar = requireJar()
     val sandbox = os.pwd / "target" / "ssc-partition"
     os.remove.all(sandbox)

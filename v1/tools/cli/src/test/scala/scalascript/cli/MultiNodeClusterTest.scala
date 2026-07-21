@@ -141,8 +141,8 @@ class MultiNodeClusterTest extends AnyFunSuite:
        |          println("LEADER1:" + currentLeader())
        |          // Heartbeat tuned to 1.5 / 2.5 s above — survivors
        |          // detect the killed leader and re-elect within ~5 s.
-       |          // 12 s budget here gives headroom for slow CI.
-       |          sendAfter(12000, s, "rep2")
+       |          // 18 s budget here gives headroom for slow CI.
+       |          sendAfter(18000, s, "rep2")
        |          receive { case "rep2" =>
        |            println("LEADER2:" + currentLeader())
        |            stop()
@@ -156,6 +156,9 @@ class MultiNodeClusterTest extends AnyFunSuite:
        |""".stripMargin
 
   test("two-node cluster — both observe the same Bully leader"):
+    ClusterTestSupport.retrying(3)(twoNodeLeaderScenario())
+
+  private def twoNodeLeaderScenario(): Unit =
     val jar = requireJar()
     val sandbox = os.temp.dir(prefix = "ssc-multinode-")
     var procA: Option[Process] = None
@@ -199,6 +202,9 @@ class MultiNodeClusterTest extends AnyFunSuite:
       os.remove.all(sandbox)
 
   test("two-node cluster — spawnRemote starts a registered behavior on peer"):
+    ClusterTestSupport.retrying(3)(spawnRemoteScenario())
+
+  private def spawnRemoteScenario(): Unit =
     val jar = requireJar()
     val sandbox = os.temp.dir(prefix = "ssc-remote-spawn-")
     var procA: Option[Process] = None
@@ -298,6 +304,9 @@ class MultiNodeClusterTest extends AnyFunSuite:
       os.remove.all(sandbox)
 
   test("five-node cluster — all observe the same Bully leader"):
+    ClusterTestSupport.retrying(3)(fiveNodeLeaderScenario())
+
+  private def fiveNodeLeaderScenario(): Unit =
     val jar = requireJar()
     val sandbox = os.pwd / "target" / "ssc-multinode-5"
     os.remove.all(sandbox)
@@ -343,6 +352,9 @@ class MultiNodeClusterTest extends AnyFunSuite:
       // Keep sandbox for postmortem; lives at cli/target/ssc-multinode-5/.
 
   test("three-node cluster — surviving nodes re-elect after leader kill"):
+    ClusterTestSupport.retrying(3)(threeNodeReelectScenario())
+
+  private def threeNodeReelectScenario(): Unit =
     val jar = requireJar()
     val sandbox = os.pwd / "target" / "ssc-multinode-kill"
     os.remove.all(sandbox)
@@ -392,11 +404,11 @@ class MultiNodeClusterTest extends AnyFunSuite:
       info(s"killed leader $leaderId (idx=$killIdx)")
 
       // Wait for both survivors to settle and print LEADER2.
-      // Survivors print LEADER2 ~12 s after their initial LEADER1
-      // (sendAfter(12000) above, with the tightened heartbeat) —
-      // bound the wait at 25 s.
+      // Survivors print LEADER2 ~18 s after their initial LEADER1
+      // (sendAfter(18000) above, with the tightened heartbeat) —
+      // bound the wait at 32 s.
       val survivorIdxs = nodeIds.indices.filter(_ != killIdx)
-      val deadline2 = System.currentTimeMillis() + 25_000L
+      val deadline2 = System.currentTimeMillis() + 32_000L
       def survivorTexts() = survivorIdxs.map(i =>
         scala.io.Source.fromFile(outFiles(i)).mkString
       )

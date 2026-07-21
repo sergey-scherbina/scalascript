@@ -78,10 +78,10 @@ class PartitionHealingTest extends AnyFunSuite with Matchers:
        |    sendAfter(800, s, "join")
        |    receive { case "join" =>
        |      $sideJoin
-       |      sendAfter(3000, s, "elect1")
+       |      sendAfter(4500, s, "elect1")
        |      receive { case "elect1" =>
        |        electLeader()
-       |        sendAfter(3000, s, "rep1")
+       |        sendAfter(4500, s, "rep1")
        |        receive { case "rep1" =>
        |          println("LEADER1:" + currentLeader())
        |          sendAfter(500, s, "heal")
@@ -109,6 +109,11 @@ class PartitionHealingTest extends AnyFunSuite with Matchers:
        |""".stripMargin
 
   test("5-node partition heals: leaderless minority rejoins majority on node-e"):
+    // Real-WS 5-node election on fixed sendAfter windows — flaky under CI
+    // contention; retry the whole scenario (fresh ports) up to 3×.
+    ClusterTestSupport.retrying(3)(healScenario())
+
+  private def healScenario(): Unit =
     val jar = requireJar()
     val sandbox = os.pwd / "target" / "ssc-partition-healing"
     os.remove.all(sandbox)

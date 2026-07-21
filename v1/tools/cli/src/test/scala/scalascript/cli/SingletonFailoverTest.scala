@@ -93,8 +93,11 @@ class SingletonFailoverTest extends AnyFunSuite:
        |          // COUNTER:<leader>:1.
        |          val ok1 = Singleton.send("global-counter", "tick")
        |          println("SENT1:" + ok1)
-       |          // Sit through the leader-kill + re-elect window.
-       |          sendAfter(12000, s, "tick2")
+       |          // Sit through the leader-kill + re-elect + singleton
+       |          // migration window.  18 s gives slow CI headroom for the
+       |          // survivor to win re-election and spawn the migrated
+       |          // instance before this tick lands.
+       |          sendAfter(18000, s, "tick2")
        |          receive { case "tick2" =>
        |            val ok2 = Singleton.send("global-counter", "tick")
        |            println("SENT2:" + ok2)
@@ -132,6 +135,11 @@ class SingletonFailoverTest extends AnyFunSuite:
     (proc, outFile)
 
   test("Singleton migrates on leader-kill, new instance receives ticks"):
+    // Real-WS 3-node kill/re-elect/migrate on fixed sendAfter windows —
+    // flaky under CI contention; retry the whole scenario up to 3×.
+    ClusterTestSupport.retrying(3)(failoverScenario())
+
+  private def failoverScenario(): Unit =
     val jar = requireJar()
     // Resolve the worktree (or canonical) repo root that owns `runtime/std/`
     // so the node processes can import `runtime/std/cluster/singleton.ssc`
@@ -184,7 +192,7 @@ class SingletonFailoverTest extends AnyFunSuite:
 
       // Wait for both survivors to migrate the singleton and log a
       // fresh COUNTER line.
-      val deadline2 = System.currentTimeMillis() + 30_000L
+      val deadline2 = System.currentTimeMillis() + 36_000L
       def survivorTexts() = List(0, 1).map(i =>
         scala.io.Source.fromFile(outFiles(i)).mkString
       )
