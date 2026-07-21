@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-07-21 — Benchmark wrapper assembles JMH options without a branch
+
+`scripts/bench` now builds the complete JMH option vector once instead of keeping a second temporary
+array and conditionally appending it to a string. Generated commands are unchanged for ordinary,
+profiled, and space-containing `off` arguments; the exact-command gate and real compiler/profile
+routes pass. The production wrapper shrank from 199 to 195 lines, with option arrays 2 → 1 and the
+conditional append branch 1 → 0; parser tests passed 9/9 and focused cluster conformance 5/5
+(`c91fa77e4`).
+
 ## 2026-07-21 — Parser stops recompiling the cluster-header regex per line
 
 `Parser.extractSourceCluster` now caches its unchanged full-match `Pattern` instead of invoking
