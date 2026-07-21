@@ -16,6 +16,8 @@ WI="${BENCH_WI:-3}"
 MI="${BENCH_MI:-5}"
 F="${BENCH_F:-1}"
 
+COMPILER_BENCH_CLASSES='(ParserBench|TyperBench|UnifyBench|SsccFormatCompilerBench)'
+
 usage() {
   cat <<'EOF'
 Usage: scripts/bench <command> [name-pattern]
@@ -28,7 +30,7 @@ Commands:
                   Use this to see how far interp is from JVM/JS backends.
   gen [pat]       Codegen-time benchmarks (CrossBackendBench: jvmGen_X / jsGen_X).
                   Use this to track how long backends take to PRODUCE code.
-  compile [pat]   Compiler perf (CompilerBench: parser / typer / unifier).
+  compile [pat]   Compiler perf (parser / typer / unifier / .sscc format).
 
   asm [pat]       Same as `interp [pat]` but with SSC_JIT_BACKEND=asm.
                   Use this to verify AsmJitBackend is at parity with Javac.
@@ -98,7 +100,11 @@ jmh_run() {
   local cls="$1"; shift
   local extra=("$@")
   local regex=".*${cls}.*${pat}.*"
-  sbt "${project}/Jmh/run -wi ${WI} -i ${MI} -f ${F} ${extra[*]} ${regex}"
+  local options="-wi ${WI} -i ${MI} -f ${F}"
+  if ((${#extra[@]})); then
+    options+=" ${extra[*]}"
+  fi
+  sbt "${project}/Jmh/run ${options} ${regex}"
 }
 
 require_pat() {
@@ -112,7 +118,7 @@ case "$cmd" in
   interp)   jmh_run interpreterBench InterpreterBench ;;
   cross)    jmh_run interpreterBench RuntimeBench ;;
   gen)      jmh_run interpreterBench CrossBackendBench ;;
-  compile)  jmh_run compilerBench CompilerBench ;;
+  compile)  jmh_run compilerBench "$COMPILER_BENCH_CLASSES" ;;
 
   asm)
     # SSC_JIT_BACKEND is read from sys.env only; env var propagates to the
@@ -173,8 +179,8 @@ case "$cmd" in
     ;;
 
   list)
-    sbt 'interpreterBench/Jmh/run -lp .*' 2>/dev/null | \
-      grep -E 'scalascript\.bench\.' | sort
+    sbt 'interpreterBench/Jmh/run -lp .*' 'compilerBench/Jmh/run -lp .*' 2>/dev/null | \
+      grep -E 'scalascript\.bench\.' | sort -u
     ;;
 
   *)

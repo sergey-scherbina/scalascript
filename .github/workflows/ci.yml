@@ -58,6 +58,9 @@ jobs:
       - name: Verify standalone release installer launcher
         run: tests/e2e/release-installer-launcher.sh
 
+      - name: Verify benchmark wrapper routing
+        run: tests/e2e/bench-wrapper-gate.sh
+
   conformance:
     name: Conformance Suite
     runs-on: ubuntu-latest
