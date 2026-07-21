@@ -9,6 +9,13 @@ package ssc
 type Env  = Array[Value]
 type Code  = Env => Step   // a compiled term: given an env, yield the next Step
 
+/** F5 measurement toggle (v2-f5-kernel-shrink study). `SSC_FASTPATHS=off` disables
+ *  every optimizer fast path (SelfRecLL / SelfTailRecLL2 / FastCode / closed-form
+ *  loops) so the base Compiler path is always taken — semantically identical, just
+ *  no JIT specialization. Default `on` = unchanged behavior. Lets us measure whether
+ *  the perf layers are removable while the fixpoint stays byte-identical. */
+val fastPathsOn: Boolean = sys.env.getOrElse("SSC_FASTPATHS", "on") != "off"
+
 sealed trait Step
 final case class Done(v: Value)                       extends Step  // a finished value
 final case class Call(clos: Value.ClosV, args: Array[Value]) extends Step  // a tail call to bounce
@@ -461,7 +468,7 @@ object SelfRecLL:
   type LL = Long => Long
 
   def compile(body: Term, selfName: String, arity: Int): Option[LL] =
-    if arity != 1 then None
+    if arity != 1 || !fastPathsOn then None
     else
       var self: LL = null
       def goB(t: Term): Option[Long => Boolean] = t match
@@ -525,7 +532,7 @@ object SelfTailRecLL2:
   private final case class Branch(c: (Long, Long) => Boolean, th: Tail, el: Tail) extends Tail
 
   def compile(body: Term, selfName: String, arity: Int): Option[LL2] =
-    if arity != 2 then None
+    if arity != 2 || !fastPathsOn then None
     else
       def goB(t: Term): Option[(Long, Long) => Boolean] = t match
         case Lit(CBool(b)) => val v = b; Some((_, _) => v)
@@ -771,12 +778,12 @@ object Compiler:
       case _ => None
 
   private def tryClosedLongCellSumLoop(t: Term): Option[Code] =
-    closedLongCellSumLoopResult(t).map { result =>
+    if !fastPathsOn then None else closedLongCellSumLoopResult(t).map { result =>
       (_: Env) => Done(IntV(result))
     }
 
   private def tryClosedLongCellSumLoopFC(t: Term): Option[FastCode.FC] =
-    closedLongCellSumLoopResult(t).map { result =>
+    if !fastPathsOn then None else closedLongCellSumLoopResult(t).map { result =>
       (_: Env) => IntV(result)
     }
 
@@ -963,12 +970,12 @@ object Compiler:
     FloatV(total)
 
   private def tryStaticFloatForeachLoop(t: Term, topDefs: Map[String, Term]): Option[Code] =
-    staticFloatForeachLoopPlan(t, topDefs).map { plan =>
+    if !fastPathsOn then None else staticFloatForeachLoopPlan(t, topDefs).map { plan =>
       (_: Env) => Done(runStaticFloatForeachLoop(plan))
     }
 
   private def tryStaticFloatForeachLoopFC(t: Term, topDefs: Map[String, Term]): Option[FastCode.FC] =
-    staticFloatForeachLoopPlan(t, topDefs).map { plan =>
+    if !fastPathsOn then None else staticFloatForeachLoopPlan(t, topDefs).map { plan =>
       (_: Env) => runStaticFloatForeachLoop(plan)
     }
 
@@ -1925,7 +1932,7 @@ object FastCode:
    *  Only handles `lcell.set` (typed Long cell — always safe to use FLC).
    *  `cell.set` is intentionally excluded: it can hold FloatV, StrV, etc., so using
    *  tryFLC (which coerces Float→0L) would silently corrupt non-Int cells. */
-  def tryFCLongSet(t: Term, globals: collection.mutable.Map[String, Value]): Option[FC] = t match
+  def tryFCLongSet(t: Term, globals: collection.mutable.Map[String, Value]): Option[FC] = if !fastPathsOn then None else t match
     case term if Compiler.valuePositionsNeedEffectThreading(term) => None
     case Prim("lcell.set", List(Local(c), body)) =>
       tryFLC(body, globals).map { flc =>
@@ -1946,7 +1953,7 @@ object FastCode:
 
   /** Try to compile a term to a FastCode.  Returns None if the term
    *  requires a tail call (Lam, App, LetRec, Match with complex arms). */
-  def tryFC(t: Term, globals: collection.mutable.Map[String, Value]): Option[FC] = t match
+  def tryFC(t: Term, globals: collection.mutable.Map[String, Value]): Option[FC] = if !fastPathsOn then None else t match
     case term if Compiler.valuePositionsNeedEffectThreading(term) => None
     case Lit(k) =>
       val v = Compiler.constV(k); Some(_ => v)
@@ -2384,7 +2391,7 @@ object FastCode:
     case _ => tryFC(t, globals)
 
   /** Try to compile a condition term to a FastBoolCode (avoids BoolV allocation). */
-  def tryFBc(t: Term, globals: collection.mutable.Map[String, Value]): Option[FBc] = t match
+  def tryFBc(t: Term, globals: collection.mutable.Map[String, Value]): Option[FBc] = if !fastPathsOn then None else t match
     case term if Compiler.mayProduceAutoThreadOp(term) => None
     // __arith__ comparisons — bridge generates these; fast path via unboxed Long comparison.
     // GUARD (ALL ops): only when BOTH operands are provably Long. tryFLC reads a Local optimistically
