@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-07-21 — v2-f5-kernel-shrink: study + measured re-study of the "irreducible" perf layers
+
+Step A (study) delivered: `specs/v2-f5-kernel-shrink.md` — an honest, fixpoint-verified per-region
+map of the 6,035-line v2 kernel (move-to-tower / delete / must-stay). Re-studied the prior F5 pass's
+"irreducible" claim for FastCode/SelfRec **with data**, via a landed `SSC_FASTPATHS=off` measurement
+instrument (`d6b1fe5a2`, +7 net kernel lines, default-on byte-identical): the ~1,186 L perf layer is
+removable with **both self-hosting gates byte-identical/green** (X1 typed fixpoint 385,827 B
+stage1==stage2; C_min 32,824 B; semantic 248/248) and the compiler workload marginally *faster* —
+but numeric recursion regresses **4.3×** (fib(34)), which no gate measures. Conclusion: the blocker
+is PERF, not correctness; deleting now is the reverse of the AGENTS.md apparatus trap. Step B safe
+win = the instrument only. Deep remainder (δ-table → F5b typed IR; FastCode/SelfRec removal after it;
+PortableEffects/PortableDecimal → tower redesigns) queued to BACKLOG "v2 kernel-shrink deep
+remainder", each gated on its enabler. No `v2/lib` oracle / F-front / CoreIR edits.
+
 ## 2026-07-21 — SclJet portable code-points/UTF-16-units → String projection
 
 New `scljet/text.ssc`: a target-neutral, astral-safe text construction API —

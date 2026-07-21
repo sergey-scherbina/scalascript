@@ -46,17 +46,19 @@ provider, or the F cutover path from these tasks** (collision). These six are th
       breaks emit-js's std/scljet resolution). Big → land in shippable slices on the feature branch,
       push each green slice to main.
 
-- [ ] **v2-f5-kernel-shrink** (`v2-f5-kernel-shrink`) — Sergiy's chosen direction: **study + safe
-      off-kernel relocations**. Kernel ≈6,035 lines (`Runtime.scala` 4,818 + CoreIR 415 + Ssc0 311 +
-      PortableEffects 221 + PortableDecimal 171 + Main 97); target ~2,800. Step A (study): per-region
-      map — move-to-tower / delete / must-stay — with an **honest fixpoint-verified** achievable target;
-      write `specs/v2-f5-kernel-shrink.md`. Step B (execute the safe wins only): relocate perf layers
-      (FastCode/SelfRec ~962 lines) and PortableEffects/PortableDecimal off the kernel **where the X1
-      self-compile fixpoint stays byte-identical** (stage1==stage2) AND semantic gate stays green. Do
-      NOT attempt the deep δ-table retirement (needs F emitting typed/monomorphized IR) — that's a
-      separate later arc; queue it to BACKLOG with the study's findings. ⚠ Kernel = `v2/src` (build via
-      `scala-cli --power package v2/src --assembly`). Do NOT edit `specs/v2.2-p6.5-fsub.ssc` (F front —
-      sibling-owned) or `v2/lib` oracle. Gate every slice: fixpoint byte-identical + semantic 247+/247.
+- [x] **v2-f5-kernel-shrink** — **STUDY DONE** (spec `7a31df264`, instrument `d6b1fe5a2`). Step A
+      delivered: `specs/v2-f5-kernel-shrink.md` — per-region map + honest fixpoint-verified target.
+      **Finding: no mechanical shrink is safe now.** Re-studied the prior "irreducible" claim WITH DATA
+      (via a landed `SSC_FASTPATHS=off` instrument): FastCode/SelfRec (~1,186 L incl. Compiler
+      closed-form loop JIT) are removable with BOTH gates byte-identical/green (X1 fixpoint 385,827 B;
+      C_min 32,824 B; semantic 248/248) and the compiler workload even marginally faster — BUT numeric
+      recursion regresses **4.3×** (fib(34) 0.215→0.928 s), which neither gate measures. So they are
+      **perf-gated, not correctness-gated** → deleting now is the reverse apparatus trap; deferred to
+      BACKLOG until F5b typed IR softens the perf cost (then the instrument makes removal a verified
+      one-liner). PortableEffects/PortableDecimal → tower = a redesign (host BigDecimal + effect
+      substrate; ssc0 can't host them), not a mechanical move → BACKLOG. δ-table (~2,057 L) = OUT
+      (F5b). Step B landed = the instrument only (+7 net). Deep remainder queued in BACKLOG
+      "v2 kernel-shrink deep remainder".
 
 - [ ] **v2-f4-flip** (`v2-f4-flip`, **orchestrator-held — Sergiy authorized "flip with caveat"**) — flip
       F to the default native front: one line in `RunNativeV2.frontIsF` (opt-IN → opt-OUT); no re-stage;

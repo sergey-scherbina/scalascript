@@ -15,6 +15,33 @@ Status hygiene (2026-06-23): open `[ ]` rows below are intentionally still open,
 explicitly `BLOCKED` or `DEFERRED` product/external-decision items. History-only / wontfix notes
 are plain bullets without checkboxes so agents do not claim them as build work.
 
+## v2 kernel-shrink deep remainder (F5) — DEFERRED with measured findings (2026-07-21)
+
+Study: `specs/v2-f5-kernel-shrink.md` (SHA `7a31df264`). The 6,035 → ~2,800 kernel shrink is **four
+orthogonal deep efforts**, none a mechanical relocation. Measured basis, each with its enabler:
+
+1. **δ-table retirement** (`Prims` fan-out, ~2,057 L: `__arith__`/`__method__`/`__eq__`/`__unary__`)
+   → −1,100…−1,500 L. **Needs F to emit typed IR** = the F5b project (`specs/v2-f5b-typed-ir-design.md`).
+   Largest lever; lands the kernel near ~4,700. This is the prerequisite for #2.
+2. **FastCode/SelfRec removal** (~1,186 L: `SelfRecLL` 59 + `SelfTailRecLL2` 83 + Compiler closed-form
+   loop JIT ~224 + `FastCode` 820). **Measured (2026-07-21): removable byte-identically** — X1 fixpoint
+   385,827 B stage1==stage2, C_min 32,824 B, semantic 248/248 all green with `SSC_FASTPATHS=off`; the
+   compiler self-compile is even ~5 s faster. **Blocker is PERF, not correctness:** numeric recursion
+   regresses 4.3× (fib(34) 0.215→0.928 s) and neither self-hosting gate measures numeric hot loops.
+   Deleting now silently trades away the landed JIT wins (vm-jit 198×fib, while-hoist, hof-frame-reuse).
+   **Do after F5b typed IR** (direct typed calls replace tag dispatch, softening the cost): re-run the
+   §3 table with `SSC_FASTPATHS=off`, confirm fib within tolerance, then delete the guarded regions —
+   the `SSC_FASTPATHS` instrument (landed `d6b1fe5a2`) makes it a verified one-liner.
+3. **PortableEffects → ssc0 tower** (~221 L + ~6 kernel δ/handler sites). K3 effects redesign: the
+   effect substrate + Op-lifting + handler machinery must be reimplemented in the ssc0 tower. Not a
+   file move (the kernel dispatch sites stay until the redesign).
+4. **PortableDecimal → ssc0 tower** (~171 L + ~24 kernel `__method__`/δ sites). Needs a from-scratch
+   ssc0 exact-decimal implementation — the kernel wraps host `java.math.BigDecimal`, which the
+   interpreted tower cannot host. Redesign, not a mechanical move.
+
+Honest safe-shrink-available-NOW: ~0 L (no dead code in the perf layer; every candidate has a perf or
+redesign cost). Sequencing: **F5b typed IR first** (unblocks both #1 and #2).
+
 ## `site-playground` — in-browser `.ssc` playground — BLOCKED on compiler recursion (2026-07-20)
 
 A client-side playground on `scalascript.dev` (type `.ssc`, run it, no server). Wanted by
