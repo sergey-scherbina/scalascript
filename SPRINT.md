@@ -2176,11 +2176,15 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
             function/`Errored` surface, and the dedicated native spec selects one `SuspendTarget`
             inside the already-standard `59-generator` provider instead of a second plugin/global
             owner. Markdownlint and the two-case affected conformance slice pass.
-      - [ ] **Q4.2 — implement the standard native provider.** Add the smallest plugin/SPI ownership
+      - [x] **Q4.2 — implement the standard native provider.** Add the smallest plugin/SPI ownership
             change that registers `coroutineCreate`, `coroutineResume`, `coroutineCancel`, and exactly
             one compatible `suspend`; use bounded handoff and isolated per-coroutine state, wire the
             provider into standard launch/build-jvm packaging, and cover lifecycle/nesting/errors in
             provider unit tests. Do not touch F/dualrun files or add a compatibility fallback.
+            **DONE (`708a82678`):** `59-generator` now owns one dynamic `SuspendTarget` plus lazy
+            zero-capacity coroutine handoff and opaque lifecycle state; no module, SPI, allowlist, or
+            packaging root changed. Provider tests are 9/9, and the assembled basic fixture is exact
+            on VM/direct ASM. The old error fixture's null proxy is tracked separately for Q4.3.
       - [ ] **Q4.3 — ship the user surface.** Add a self-contained `examples/coroutines.ssc`, reference
             it from README/user docs and the feature spec, and extend focused conformance to compare
             VM/direct ASM for lazy start, yielded/returned two-way values, nested innermost suspend,
