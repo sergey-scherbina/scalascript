@@ -89,14 +89,36 @@ by the dualrun manifest (`specs/v2.2-p6.5-dualrun.expected`).
 
 ## f-operator-extension-dispatch — F treats `++`/`/` extension operators as builtin infix ops
 
-**Status:** OPEN, F-lane only (found 2026-07-21 by f-caseclass-default-arg). Distinct from default-args.
+**Status:** FIXED 2026-07-21 (dsl-ast-builder crash resolved; F now byte-identical to the default front).
+F-lane only. The BUGS.md title was a MIS-DIAGNOSIS — see root cause below.
 
-`examples/dsl-ast-builder.ssc` fails in the pretty-printer/render section. `std/dsl/pretty.ssc` defines
-operator extensions `extension (l: Doc) def ++(r: Any) = DocBeside(l, r)` / `def /(r: Any) = DocAbove(l, r)`
-used infix (`header ++ text(" ")`, `header / empty`). F lowers `++`/`/` as builtin infix operators
-instead of dispatching to the Doc extension → `arity: 2 expected, 1 given`. (The Builder case-class
-default path `Builder()` works; dsl-ast-builder remains a known GAP in `v2.2-p6.5-dualrun.expected`,
-whose closure-symptom note is now stale — the real residual is this operator-extension gap.)
+**Actual root cause (not operator dispatch):** F's `dsl-ast-builder` crash (`arity: 2 expected, 1 given`)
+was an EXTENSION-BODY ABSORPTION bug, not the operator. `std/dsl/pretty.ssc` writes a braceless top-level
+`extension (l: Doc)` ⏎ `def ++` / `def /`, and the pretty block is FOLLOWED by more top-level `def`s
+(`renderDoc`, `render`). F's layout DEFERRED the oracle's extension frames, so the members were flattened
+to `; def ++ ; def / ; def renderDoc …` with no block boundary — and `extMembers`/`collectEM` greedily
+absorbed EVERY contiguous following `def` as another receiver-bearing member, prepending the `Doc`
+receiver. `render` (1 param) thus became `lam2`, and the call `render(doc)` (1 arg) crashed with
+`arity: 2 expected, 1 given`. (Same shape made `main` → `lam1` in single-file repros.)
+
+**Fix (specs/v2.2-p6.5-fsub.ssc, commit `1e670aa1a`; mirrors ssc1-front layout E/X frames):** thread an
+`eh` extension-head flag through the layout — a TOP-LEVEL `extension` ident pushes an `X` receiver frame
+whose closing `)` opens an `L` block, wrapping the members in a virtual `{ … }`; `extMembers`/`collectEM`/
+`collectTopEM` consume the `{` (`extOpenBrace`) and STOP at the `}`. A dedented top-level `def` is no
+longer swallowed. Inert unless a real `extension` token appears at top level (fsub has none →
+self-compile byte-identical). **Verified:** fixpoint stage1==stage2 byte-identical; semantic 247/247;
+multi-file dsl-ast-builder now rc=0 with output BYTE-IDENTICAL to the oracle; `std/monaderror` absorption
+also fixed (`attemptEither`/`handleEither`/`raiseEither` now match oracle arity); uuid/streams/actors/
+script goldens neutral or unchanged. dsl-ast-builder GAP removed from `v2.2-p6.5-dualrun.expected`.
+
+**Separate, still-open (SHARED front limitation, NOT F-specific — out of this fix's scope):** BOTH the
+default front (ssc1-lower :2568/2558) and F lower `++`/`/` to `__arith__`, which at run-ir string-concats
+user ADTs (`Doc(a)Doc(b)`) / returns Unit — it never dispatches to the `++`/`/` extension global. So the
+Doc pretty-render is silently empty on BOTH fronts (dsl-ast-builder's `renderDoc` `case _ => ""` swallows
+it → they still MATCH). The real dispatch fix is to guard `++`/`/` with `isExtensionMethod`→`__arithExt__`
+(op, l, r, `(global op)`) — the shape `|` already uses (ssc1-lower :2582; `__arithExt__` correctly
+dispatches non-numeric operands at Runtime.scala:2734). That must land in BOTH ssc1-lower and fsub to keep
+F==default; filed as a follow-up (not required for the dualrun GAP, which is now EQUAL).
 
 ## f-extension-instance-dispatcher-arity — F miscompiles a same-named extension method across 2 instances
 
