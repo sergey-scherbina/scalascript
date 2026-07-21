@@ -173,15 +173,25 @@ tagless-sealed-dispatch (rc=0 SILENT-WRONG, lines 8-9), tagless-multi-file (`ari
 
 ## f-litdoc-runtime-error-2 — litdoc fails `ssc: 2` on the F native front only
 
-**Status:** OPEN, F-lane only (2026-07-21, found by `f-multifile-lowering`). Distinct from the
-import-order/val-ordering bug: byte-identical failure before and after that fix, so the reorder does
-not touch it. `std/litdoc.ssc` is self-contained (plain case classes, no top-level bare expressions),
-so there is no val-ordering issue to reorder away.
+**Status:** FIXED (2026-07-21, `f-litdoc`). Root cause: single-argument `String.substring(from)`.
+F's `emitPrimMeth` (specs/v2.2-p6.5-fsub.ssc) emitted `(prim sslice recv from)` — only 2 args — for a
+1-arg substring, dropping the end index. The runtime `sslice` prim reads `args(2)`
+(`Runtime.scala:2635 → Prims.int:4444`), so F's IR crashed at runtime with `IndexOutOfBoundsException: 2`,
+surfacing as `ssc: 2`. Scala's `s.substring(from) == s.substring(from, s.length)`; the reference
+(ssc1-lower.ssc0:1434-1437) appends `(prim slen robj)` as the end. Fix: when a substring has exactly one
+arg, `emitPrimMeth` now emits `(prim sslice recv from (prim slen recv))`; 2-arg substring is unchanged.
+`std/litdoc.ssc` hit this in `leadingHashes` (`t.substring(1)`), `takeFence` (`.substring(3)`), and
+`classifyLine` (`t.substring(lvl)`).
 
-**Repro:** `SSC_FRONT=F bin/ssc run tests/conformance/litdoc.ssc` → `ssc: 2` (empty stdout).
-`bin/ssc run tests/conformance/litdoc.ssc` and `tests/conformance/run.sh --only '*litdoc*'`
-(INT/JS/JVM) all pass. Needs its own investigation (candidate areas: F handling of `.split`,
-`.substring`, incremental `reparse`/`firstDiff`, or a numeric/index error surfacing as `ssc: 2`).
+**Repro (bare, single-file):** `def main(): Int =` `\n  println("hello".substring(1))` `\n  0` — under the
+original F the emitted IR crashes with `IndexOutOfBoundsException: 2`; after the fix F's IR is
+byte-identical to the reference front's and prints `ello`.
+
+**Verification:** X1 self-fixpoint byte-identical (154 ok / 0 FAIL); semantic gate 247/247 MATCH, 0
+MISMATCH (no golden regression); the real flattened litdoc (std/litdoc.ssc defs + the conformance test)
+runs under F with stdout BYTE-IDENTICAL to the reference (401 B, `kinds: front,heading,...`). The prior
+default lanes (INT/JS/JVM) were already green. Note: F's IR still diverges from the untyped oracle on the
+benign typed `+`/`++` string-concat op (F5b regime, by design) — output-equivalent, not byte-identical.
 
 ## swiftui-real-fixture-swift-without-swiftui — Linux `swift` is not a SwiftUI capability
 
