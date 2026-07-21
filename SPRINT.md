@@ -2310,9 +2310,17 @@ value. `[claimed]` = a live agent owns it; `[open]` = free to claim; `[blocked]`
   NOT spawn a competing scljet lane. See BUGS.md + the scljet SPRINT sections.
 
 **Stream 3 — control/interop (unblocked; a chain):**
-- `[open]` **coreir codec H4 + H5.** H4: `coreir.decode` is not registered at all. H5: the reader
-  fails OPEN on untrusted capsules (accepts `(local -1)`, odd-length hex, non-`Lam` letrec, unbound
-  globals). Security surface. See §"control-interoperability" → codec-hardening (landed partial).
+- `[x]` **coreir codec H4 + H5 — DONE `81bc5d122` (landed 2026-07-17; re-verified green 2026-07-21).**
+  H4: `coreir.decode : Str|Bytes -> IrProg` is registered (`Runtime.scala` `IrToData` + the validated
+  kernel `Reader`). H5: the canonical `Reader` fails CLOSED on untrusted capsules — strict NAT/INT/HEX
+  token parsers + `Reader.validate` reject `(local -1)`, out-of-range/free locals, `(lam +1)`,
+  `(arm T -1)`, `(int +1)`/`(int 01)`, odd-length/non-hex `(bytes …)`, non-`Lam` letrec bindings, and
+  unbound globals, each naming the offending node; a DEFINED global still round-trips (fail-open
+  regression guard held). Verified at HEAD (jar built from current `origin/main`):
+  `specs/coreir-codec-vectors.sh` **94/0**, `specs/coreir-inventory-gate.sh` all-6-sources-agree
+  (13 nodes / 7 consts). Spec (`10-core-ir.md` §5, `12-ir-format.md` §Reader-leniency/§bounded) +
+  CHANGELOG (2026-07-17 entry) already reconciled. The F4a delegate-fallback contract
+  (`Reader.validate` catching unbound globals) is preserved — only tightened, never loosened.
 - `[blocked]` **`save()`/`run()` durable continuations** → then **`control-interop-examples`.** Blocked
   because `save()`/`run()` does not exist on ANY lane yet (every `Continuation.save()` returns
   `Save.Rejected`). Unblock order is fixed; do not start examples first. See the GATE-LIFTED note.
