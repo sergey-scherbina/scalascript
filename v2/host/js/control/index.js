@@ -707,6 +707,113 @@ export const StateMachine = Object.freeze({
   }
 })
 
+// Typed durable-frame evidence for a captured state value. The in-process
+// keystone needs only an independent snapshot so the save snapshot law
+// (control-interoperability §8.2) holds. See specs/durable-continuation-save-run.md.
+export const DurableValue = Object.freeze({
+  immutable() {
+    return Object.freeze({ snapshot(value) { return value } })
+  },
+  copying(copy) {
+    const clone = requireFunction(copy, "durable value copy")
+    return Object.freeze({ snapshot(value) { return clone(value) } })
+  }
+})
+
+function requireDurableValue(codec) {
+  if (codec === null || typeof codec !== "object") {
+    throw new TypeError("durable value codec must be an object")
+  }
+  requireFunction(codec.snapshot, "durable value snapshot")
+  return codec
+}
+
+const restoreOwner = Symbol("scalascript.control.Restore.owner")
+const restoreKey = defineEffect("scalascript.control.Restore", restoreOwner)
+
+// Discharge the Restore capability for an in-process run with no provider-backed
+// restore. Nothing constructs a Restore operation yet, so onOperation is
+// unreachable; provider-backed admission is a follow-on slice.
+export const Restore = Object.freeze({
+  key: restoreKey,
+  admitLocally(body) {
+    const computation = requireEff(body, "restore body")
+    return handle(computation, {
+      effect: restoreKey,
+      onReturn: value => Eff.pure(value),
+      onOperation: () => {
+        throw new TypeError(
+          "Restore.admitLocally received a restore operation; no provider is bound"
+        )
+      }
+    })
+  }
+})
+
+const savedContinuationStates = new WeakMap()
+const savableContinuationStates = new WeakMap()
+
+// A reusable saved continuation from a managed savable state machine: immutable,
+// multi-shot, each run reconstructs an independent frame and begins at the capture
+// point — no prefix replay (control-interoperability §8.1/§8.2).
+class SavedContinuationImpl {
+  constructor(authority, frame, machine, codec) {
+    requireInternalAuthority(authority)
+    savedContinuationStates.set(this, Object.freeze({ frame, machine, codec }))
+    Object.freeze(this)
+  }
+
+  run(value) {
+    const state = requirePrivateState(
+      savedContinuationStates,
+      this,
+      "saved continuation"
+    )
+    return Eff.defer(() => {
+      const fresh = state.codec.snapshot(state.frame)
+      return requireEff(
+        state.machine.resume(fresh, value),
+        "saved continuation result"
+      )
+    })
+  }
+}
+
+class SavableContinuationImpl {
+  constructor(authority, state, machine, codec) {
+    requireInternalAuthority(authority)
+    savableContinuationStates.set(this, Object.freeze({ state, machine, codec }))
+    Object.freeze(this)
+  }
+
+  resume(value) {
+    const state = requirePrivateState(
+      savableContinuationStates,
+      this,
+      "savable continuation"
+    )
+    return requireEff(
+      state.machine.resume(state.state, value),
+      "savable continuation result"
+    )
+  }
+
+  save() {
+    const state = requirePrivateState(
+      savableContinuationStates,
+      this,
+      "savable continuation"
+    )
+    // Snapshot the live state now so a later mutation of the original cannot
+    // change the saved frame (§8.2). No admission service in-process, so this
+    // success value inhabits the Save row alongside the Rejected path.
+    const frame = state.codec.snapshot(state.state)
+    return Eff.pure(
+      new SavedContinuationImpl(internalAuthority, frame, state.machine, state.codec)
+    )
+  }
+}
+
 export const Continuation = Object.freeze({
   local(state, machine) {
     if (machine === null || typeof machine !== "object") {
@@ -714,5 +821,14 @@ export const Continuation = Object.freeze({
     }
     requireFunction(machine.resume, "resume state machine method")
     return new LocalContinuationImpl(internalAuthority, state, machine)
+  },
+
+  savable(state, machine, codec) {
+    if (machine === null || typeof machine !== "object") {
+      throw new TypeError("resume state machine must be an object")
+    }
+    requireFunction(machine.resume, "resume state machine method")
+    requireDurableValue(codec)
+    return new SavableContinuationImpl(internalAuthority, state, machine, codec)
   }
 })

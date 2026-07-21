@@ -5,9 +5,11 @@ import test from "node:test"
 import {
   CaptureFailure,
   Continuation,
+  DurableValue,
   Eff,
   MachineStep,
   ResumeMultiplicity,
+  Restore,
   Save,
   StateMachine,
   defineEffect,
@@ -547,6 +549,79 @@ test("local continuations are reusable and save rejects deterministically", () =
   assert.equal(calls, 2)
   assert.equal(unmanagedCapture(), "UnmanagedCapture(Continuation.local)")
   assert.equal(calls, 2)
+})
+
+function freezeSavable(continuation) {
+  return Eff.runPure(
+    handle(continuation.save(), {
+      effect: Save.key,
+      onReturn: value => Eff.pure(value),
+      onOperation() {
+        assert.fail("savable save unexpectedly rejected as an unmanaged capture")
+      }
+    })
+  )
+}
+
+test("a savable continuation saves and reruns from the capture point", () => {
+  let resumeCalls = 0
+  const continuation = Continuation.savable(
+    40,
+    {
+      resume(state, input) {
+        resumeCalls += 1
+        return Eff.pure(state + input)
+      }
+    },
+    DurableValue.immutable()
+  )
+
+  const saved = freezeSavable(continuation)
+  assert.equal(resumeCalls, 0) // save does not resume
+
+  assert.equal(Eff.runPure(Restore.admitLocally(saved.run(2))), 42)
+  assert.equal(Eff.runPure(Restore.admitLocally(saved.run(3))), 43)
+  assert.equal(resumeCalls, 2)
+})
+
+test("savable save/run never replays the prefix", () => {
+  let prefixRuns = 0
+  const prefixState = () => {
+    prefixRuns += 1
+    return 40
+  }
+  const continuation = Continuation.savable(
+    prefixState(),
+    { resume: (state, input) => Eff.pure(state + input) },
+    DurableValue.immutable()
+  )
+
+  const saved = freezeSavable(continuation)
+  assert.equal(prefixRuns, 1)
+
+  Eff.runPure(Restore.admitLocally(saved.run(1)))
+  Eff.runPure(Restore.admitLocally(saved.run(2)))
+  assert.equal(prefixRuns, 1) // the prefix is never re-executed
+})
+
+test("each savable run reconstructs an independent frame (snapshot law)", () => {
+  const codec = DurableValue.copying(array => array.slice())
+  const continuation = Continuation.savable(
+    [100],
+    {
+      resume(state, input) {
+        state[0] += input // mutate only this run's frame
+        return Eff.pure(state[0])
+      }
+    },
+    codec
+  )
+
+  const saved = freezeSavable(continuation)
+  // The original array captured above is snapshotted at save time; mutating a
+  // fresh reference cannot reach it, and each run clones the saved frame.
+  assert.equal(Eff.runPure(Restore.admitLocally(saved.run(1))), 101)
+  assert.equal(Eff.runPure(Restore.admitLocally(saved.run(5))), 105)
 })
 
 test("same stable effect id does not collapse distinct runtime owners", () => {

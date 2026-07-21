@@ -206,6 +206,11 @@ export const Save: Readonly<{
 export interface Restore
   extends Effect<"scalascript.control.Restore", typeof restoreEffectOwner> {}
 
+export const Restore: Readonly<{
+  key: EffectKey<Restore>
+  admitLocally<Fx extends Effect, R>(body: Eff<Fx | Restore, R>): Eff<Fx, R>
+}>
+
 export interface SavedContinuation<A, Fx extends Effect, R> {
   readonly [savedContinuationBrand]: Readonly<{
     input: (value: A) => void
@@ -214,6 +219,15 @@ export interface SavedContinuation<A, Fx extends Effect, R> {
   }>
   run(value: A): Eff<Fx | Restore, R>
 }
+
+export interface DurableValue<S> {
+  snapshot(value: S): S
+}
+
+export const DurableValue: Readonly<{
+  immutable<S>(): DurableValue<S>
+  copying<S>(copy: (value: S) => S): DurableValue<S>
+}>
 
 export interface PromptScope {
   readonly [promptScopeBrand]: never
@@ -294,5 +308,10 @@ export const Continuation: Readonly<{
   local<S, A, Fx extends Effect, R>(
     state: S,
     machine: ResumeStateMachine<S, A, Fx, R>
+  ): Continuation<A, Fx, R>
+  savable<S, A, Fx extends Effect, R>(
+    state: S,
+    machine: ResumeStateMachine<S, A, Fx, R>,
+    codec: DurableValue<S>
   ): Continuation<A, Fx, R>
 }>
