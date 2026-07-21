@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-07-21 — Compiler benchmarks have the same allocation profiler route
+
+`scripts/bench compile-profile <pattern>` applies the existing JMH GC and JFR profilers to parser,
+typer, unifier, or `.sscc` format benchmarks. The shared profile helper keeps interpreter behavior
+unchanged, and the CI wrapper gate compares both generated profile commands exactly. The first real
+`parseActors` profile measured 8,237,205.928 B/op and identified repeated regex compilation in
+`Parser.extractSourceCluster` as the dominant sampled allocation site (`420c5b41c`; docs
+`aedeedb9c`).
+
 ## 2026-07-21 — Compiler benchmark wrapper reaches the real JMH lanes
 
 `scripts/bench compile` now selects `ParserBench`, `TyperBench`, `UnifyBench`, and

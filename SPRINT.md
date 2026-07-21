@@ -2109,6 +2109,16 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
             and JFR profilers to the compiler project, document it, and run it on `parseActors` to pin
             allocation owners. Then use two-fork repeated A/B for any proposed parser change; reject a
             change whose intervals/noise do not support an improvement.
+            **Profile / selected change:** the route landed in `420c5b41c` (docs `aedeedb9c`). Exact
+            command `BENCH_WI=1 BENCH_MI=1 BENCH_F=1 scripts/bench compile-profile parseActors`
+            measured 8,237,205.928 B/op (769.322 MB/s; profiled time 7.207 ms/op). `jfr view
+            allocation-by-site` attributed 35.81% of sampled pressure to `Pattern$BitClass`; the full
+            allocation stack ends at `String.matches` → `Parser.extractSourceCluster`,
+            `Parser.scala:386`. That method recompiles the same source-cluster header regex once per
+            input line (683 lines in `actors.ssc`) on every parse. Make only that regex a cached
+            `java.util.regex.Pattern`; preserve full-match semantics. Verify `core/testOnly
+            scalascript.parser.ClusterFrontmatterTest`, parser/conformance gates, then compare two-fork
+            `parseActors` time and allocation before accepting.
 - [ ] **Q3 — minimize the touched path.** Remove duplication, dead branches, or avoidable abstractions
       revealed by Q1/Q2 without broad redesign; report the net source-line/complexity change and prove
       byte/observable behavior unchanged with the same regression and benchmark gates.
