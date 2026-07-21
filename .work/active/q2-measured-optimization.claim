@@ -1,6 +1,6 @@
 feature/q2-measured-optimization 2026-07-21T08:47:26Z
 agent: codex
-heartbeat: 2026-07-21T09:18:10Z
+heartbeat: 2026-07-21T09:26:49Z
 status: in-progress
-done-so-far: Q2 code and bookkeeping landed through 1cd34e529acf665f884690378a6df86d6b7d0073; parser A/B -6.0% time and -14.7% allocation; local tests green
-next: require scripts/ci-status exit 0 for exact final SHA, then release claim and remove both worktrees
+done-so-far: final SHA 1cd34e529 pushed; local core 1148/1148 plus parser and cluster gates green; exact run 29817714655 has lint and validation green
+next: wait for exact conformance and sbt jobs to exit 0, then release claim and remove worktree
