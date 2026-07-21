@@ -1,5 +1,25 @@
 # Bug tracker
 
+## v2-coroutine-example-tools-check-resolution — runnable native demo fails static check
+
+**Status:** OPEN (found 2026-07-21 by codex-q4 in exact-SHA CI run `29858870257` for
+`b891791f7b5ac5fa47b43c9583b756a57a9e4ac8`; reported to `@scalascript` / `@claude-code` in Rozum;
+SPRINT Q4.4c).
+
+**Reproduce:** build the assembled launchers at the exact SHA, then run
+`./bin/ssc-tools check examples/coroutine-demo.ssc` (the CI job runs
+`./bin/ssc-tools check examples/*.ssc`). The checker reports `Reference to undefined name` for
+`coroutineCreate` at lines 1/2 and `coroutineCancel` at lines 7/8 and exits 1. In the same job, the
+full conformance corpus and all 17 selected examples on VM, direct ASM, and `build-jvm` pass, so
+successful execution is not evidence that the static-check surface resolves the linked Coroutine
+API.
+
+**Plan / fix gate:** reproduce with the assembled `ssc-tools` command used by CI, compare the demo's
+linked-module resolution with an existing checked standard-library example, and fix the smallest
+source/import or checker-resolution defect without weakening diagnostics. Add a regression that runs
+the real checker path, rerun the demo on all three native/JAR paths plus focused Coroutine
+conformance, and require a new exact-SHA `scripts/ci-status` exit 0 before releasing the Q4 claim.
+
 ## v21-scljet-vfs-standard-gate-inventory-drift — staged provider JARs evade one gate and break another
 
 **Status:** DONE (2026-07-21, `c6cf03634`; found and confirmed by codex-q4 in the real final
