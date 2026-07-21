@@ -1933,13 +1933,18 @@ def skipStmtN(t, rest, d) = if isOpenNest(t) then skipStmtD(rest, d + 1) else (i
 // stop-and-keep at a depth-0 `def`: a `given … with` body GLUES its `extension` members (deeper indent,
 // NO `;`), so plain skipStmt runs past them all to the block-terminating `;` and only the 1st member is
 // collected → `recv.m` on the rest stubs (`__method__`, not the ext dispatcher). Stopping at the glued
-// `def` collects each; a `;` is still consumed (standalone members are `;`-separated) and a `}` ends the
-// body. Nesting-tracked so `(`/`[`/`{` in a body is skipped whole. Used by collectEMs (the ext-method
-// REGISTRY that decides `recv.m` → ext dispatch) and collectOMExtMs (the given-body emitter/dispatcher).
+// `def` collects each. It ALSO stops-and-KEEPS a depth-0 `;` (and `}`): inside a given/object body an
+// extension block ENDS at the first `;`-separated sibling (a dedented plain `def m` at body indent must
+// NOT be glued as an extension member — else its impl is emitted receiver-prepended, arity N+1, and a bare
+// `m` dispatcher is synthesised → `recv.m`/`g.m` crash `arity: N+1 expected, N given`). collectOMExtMs
+// (given-body emitter/dispatcher) reads this KEPT `;` as the block boundary; collectEMs/collectTopEMs (the
+// top-level ext REGISTRY, whose members ARE `;`-separated) wrap the result in `skipSemisF`, so KEEPING the
+// `;` is byte-neutral for them and they keep gluing. Nesting-tracked so `(`/`[`/`{` in a body is skipped
+// whole. Used by collectEMs (decides `recv.m` → ext dispatch) and collectOMExtMs (given-body emit).
 def skipExtBody(ts) = skipExtBodyD(ts, 0)
 def skipExtBodyD(ts, d) = if isEmpty(ts) then ts else skipExtBodyTok(hd(ts), tl(ts), d)
 def skipExtBodyTok(t, rest, d) = if d == 0 then skipExtBodyZ(t, rest) else skipExtBodyN(t, rest, d)
-def skipExtBodyZ(t, rest) = if isTok(t, 2, 1) then Cons(t, rest) else (if isTok(t, 2, 52) then rest else (if isTok(t, 2, 29) then Cons(t, rest) else (if isOpenNest(t) then skipExtBodyD(rest, 1) else skipExtBodyD(rest, 0))))
+def skipExtBodyZ(t, rest) = if isTok(t, 2, 1) then Cons(t, rest) else (if isTok(t, 2, 52) then Cons(t, rest) else (if isTok(t, 2, 29) then Cons(t, rest) else (if isOpenNest(t) then skipExtBodyD(rest, 1) else skipExtBodyD(rest, 0))))
 def skipExtBodyN(t, rest, d) = if isOpenNest(t) then skipExtBodyD(rest, d + 1) else (if isCloseNest(t) then skipExtBodyD(rest, d - 1) else skipExtBodyD(rest, d))
 def isOpenNest(t) = if isTok(t, 2, 21) then true else (if isTok(t, 2, 28) then true else isTok(t, 2, 50))
 def isCloseNest(t) = if isTok(t, 2, 22) then true else (if isTok(t, 2, 29) then true else isTok(t, 2, 51))
