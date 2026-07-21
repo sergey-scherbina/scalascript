@@ -1,0 +1,1 @@
+scala-fence width parity: OK

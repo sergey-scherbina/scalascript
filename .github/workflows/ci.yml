@@ -165,6 +165,9 @@ jobs:
       - name: Integer-literal fail-open regression (assembled launchers, both backends)
         run: tests/e2e/int-literal-failopen-smoke.sh
 
+      - name: Scala-fence width parity (W5 guard — scala fence == scalascript fence on every lane)
+        run: tests/e2e/scala-fence-width-parity-smoke.sh
+
       - name: Run examples on all three backends
         run: scala-cli examples/run-all.sc
 

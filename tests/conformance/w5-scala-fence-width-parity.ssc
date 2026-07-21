@@ -1,0 +1,48 @@
+---
+name: w5-scala-fence-width-parity
+---
+
+# W5 — `scala` fence width-parity guard
+
+Guard for **W5** (`specs/w5-int-width-findings.md`; Sergiy's Option C decision,
+2026-07-21). A ` ```scala ` fence and a ` ```scalascript ` fence that compute the
+**same** integer overflow must yield the **same** value on every lane: the `Int`
+width follows the BACKEND, not the fence tag
+([`specs/numeric-widths.md`](../../specs/numeric-widths.md) §2). Today a `scala`
+fence runs through the ScalaScript engine, byte-identical to a `scalascript`
+fence — the scalac/Scala.js routing that *would* make a `scala` fence carry
+Scala's 32-bit `Int` is unreachable dead code (findings §1).
+
+This case computes the overflow **once in each fence**, then compares the two in
+a third fence and prints a **lane-independent** token. Because both fences use
+the same backend width on any given lane, they are always equal — so the golden
+`scala-fence width parity: OK` matches int/js/jvm/v2 alike, with **no** `known-red`
+(that is the point: the assertion is `scala == scalascript`, NOT a 64-bit claim).
+If the dead branch is ever revived so a `scala` fence goes 32-bit while a
+`scalascript` fence stays 64-bit, the two vals diverge, this case prints the
+`MISMATCH expected=… got=…` branch, and the golden no longer matches — the gate
+fails loudly instead of silently corrupting a word's width.
+
+Every value is COMPUTED and no literal exceeds 2^31−1, to dodge the v1-interp
+literal fail-open bug (see `tests/conformance/int-width.ssc`).
+
+```scalascript
+// scalascript fence — the reference width.
+val ssBase: Int = 2147483647
+val ssParity = 2147483647 + 1   // 2^31 : 64-bit=2147483648 ; 32-bit wraps
+val ssWide = ssBase * 2 + 1     // 64-bit=4294967295 ; 32-bit(JVM)=-1
+```
+
+```scala
+// scala fence — IDENTICAL computation; only the fence tag differs.
+val scBase: Int = 2147483647
+val scParity = 2147483647 + 1
+val scWide = scBase * 2 + 1
+```
+
+```scalascript
+if ssParity == scParity && ssWide == scWide then
+  println("scala-fence width parity: OK")
+else
+  println("MISMATCH expected=" + ssParity + "," + ssWide + " got=" + scParity + "," + scWide)
+```
