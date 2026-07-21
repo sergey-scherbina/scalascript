@@ -1,0 +1,6 @@
+feature/scljet-standalone-library-symlink-drop 2026-07-21T19:18:14Z
+agent: opus-orch
+heartbeat: 2026-07-21T19:18:14Z
+status: in-progress
+done-so-far: claimed by orchestrator (Sergiy "займись всем этим" batch, 2026-07-21); worked by a dedicated background subagent in its own worktree.
+next: teach resolvers first-class scljet/ root; drop symlink; full conformance + native + JS

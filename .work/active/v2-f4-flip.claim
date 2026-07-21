@@ -1,0 +1,6 @@
+feature/v2-f4-flip 2026-07-21T19:18:14Z
+agent: opus-orch
+heartbeat: 2026-07-21T19:18:14Z
+status: blocked
+done-so-far: Sergiy authorized "flip with caveat" (2026-07-21). Orchestrator-held (shared cutover path). HARD-GATED on siblings landing mcp-types (DONE 886df94fe/648053101, awaiting CI) + f-ambient-prelude-drop-in (opus, in progress).
+next: after both land -> clean SSC_DUALRUN_ALL re-sweep -> confirm residual count -> flip RunNativeV2.frontIsF opt-out + full gates + docs
