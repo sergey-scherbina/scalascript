@@ -1,6 +1,6 @@
 feature/mcp-types 2026-07-21T18:04:13Z
 agent: claude-code
-heartbeat: 2026-07-21T18:28:00Z
+heartbeat: 2026-07-21T18:38:16Z
 status: in-progress
-done-so-far: fix landed in fsub.ssc; fixpoint PASS (byte-identical); minimal repro PASS (F prints http:8080)
-next: semantic gate, installBin, dualrun
+done-so-far: fix committed (34b53ddb8); fixpoint+semantic 248/248 GREEN; mcp-types EQUAL both fronts; bookkeeping edited
+next: full SSC_DUALRUN_ALL running; then push + CI
