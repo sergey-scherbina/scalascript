@@ -377,6 +377,18 @@ effects at the destination. The following extensions require separate designs an
       (`v1/lang/core/.../imports/ImportResolver.scala`), the native/JS +
       `check-stdlib-interface-load` loaders (`Main.scala`) — all mapping `std/scljet`
       → `scljet/`. Needs FULL conformance + native + JS verification.
+      ⚠️ **Attempted 2026-07-21 (`65a9a7e8a`) and REVERTED (`638b4f610`).** The drop
+      taught only the Scala `ImportResolver` + `installBin` staging, but MISSED the
+      self-hosted native front's own ssc-land resolver: `v2/bin/ssc1-run.ssc0`
+      `sscStdRoot` (and its `ssc1-run-fsub.ssc0` sibling) resolves a `std/…` import
+      against `SSC_STD` (unset in the v21 gate) or the `v1/runtime/` fallback, reading
+      REAL FILES FROM THE SOURCE TREE — never the staged `bin/lib`. With the symlink
+      gone, all 13 `examples/scljet-*.ssc` front-errored (`NoSuchFileException
+      v1/runtime/std/scljet/index.ssc`), dropping the v21 negative-toolchain gate's
+      `frontend.ok` 208→198 (below floor 200; CI 29862386090). LESSON: the symlink
+      cannot go until `ssc1-run.ssc0`'s `sscStdRoot` (both variants) gains a
+      first-class scljet root (repo-root `scljet/`) AND the v21 gate is re-measured
+      green (`tests/e2e/v21-negative-toolchain-release-gate.sh`, `frontend.ok≥208`).
 
 
 - [ ] **scljet-m3-write-followups** — edge cases beyond the m3b–m3d write path

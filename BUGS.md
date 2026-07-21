@@ -2,7 +2,16 @@
 
 ## scljet-js-conformance-stale-prebuilt-jar-after-symlink-drop — dropped compat symlink breaks scljet JS emit against the pre-built bin/lib jar
 
-**Status:** open (found 2026-07-21 by the `scljet-mutable-pager` agent; owner: `scljet-standalone-library-symlink-drop`).
+**Status:** DONE 2026-07-21 (`638b4f610`, `v21-negtc-red-triage`). Restoring the
+`v1/runtime/std/scljet → ../../../scljet` symlink — which the same commit did to fix the v21 gate red —
+IS this bug's documented "recreate the symlink" workaround, now committed permanently. With the symlink
+present the OLD (pre-`65a9a7e8a`) resolver in any stale pre-built `bin/lib` jar can again locate
+`std/scljet`, so the JS lane resolves; per this entry's own note "with the symlink present, all `scljet-*`
+INT+JS conformance passes (verified)". The symlink drop is reverted; the standalone-library polish is
+re-queued to BACKLOG (deep fix must teach both the Scala AND the native-front resolvers before the symlink
+can go).
+
+**Status (historical):** open (found 2026-07-21 by the `scljet-mutable-pager` agent; owner: `scljet-standalone-library-symlink-drop`).
 
 **Reproduce:** with the pre-built `bin/lib` jar dated before `65a9a7e8a`
 (`feat(scljet): drop compat symlink, first-class scljet/ library root`, Tue Jul 21 21:29),

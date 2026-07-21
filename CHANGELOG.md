@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-07-21 — Restore `v1/runtime/std/scljet` symlink: fix v21 gate red from the symlink drop
+
+The scljet symlink drop (`65a9a7e8a`) turned the CI "ScalaScript 2.1 standard-only negative toolchain
+release gate" red — `v21-negative-toolchain-freeze: frontend.ok=198 below floor 200` (run 29862386090,
+SHA `aa13dbd70`). Root cause: the self-hosted native front (`v2/bin/ssc1-run.ssc0` `sscStdRoot`) resolves
+a `std/…` import against `SSC_STD` (unset in the gate) or the `v1/runtime/` fallback, reading REAL FILES
+FROM THE SOURCE TREE — not the staged `bin/lib`. Only the Scala `ImportResolver` learned the new
+first-class `scljet/` root; the native front still looked for `v1/runtime/std/scljet/index.ssc`, so with
+the symlink gone all 13 `examples/scljet-*.ssc` front-errored (`NoSuchFileException`), cutting
+`frontend.ok` from 208 to 198. Reproduced with `installBin` + `scripts/native-front-corpus --standard`;
+the staged bin/lib scljet copy was correct (23 files in both native-front destinations) and irrelevant to
+the front step. Fix: restore the `v1/runtime/std/scljet → ../../../scljet` symlink (`638b4f610`) — the
+minimal, targeted change that re-resolves the source tree; the resolver + `installBin` staging additions
+from `65a9a7e8a` are pure adds and kept. Verified: `tests/e2e/v21-negative-toolchain-release-gate.sh`
+green, `frontend.ok=208`, `parity.mismatch=0`, all hard invariants pass. (scljet-file/hello/jdbc keep a
+pre-existing, unrelated front `StackOverflowError`; those large facade-inlining examples never front-OK'd
+and are unchanged since `65a9a7e8a^`.) The proper deep fix — teach `sscStdRoot` (both `ssc1-run.ssc0`
+variants) a first-class scljet root so the symlink can finally go — is re-queued to BACKLOG
+(`scljet-standalone-library` polish) with this lesson.
+
 ## 2026-07-21 — scljet mutable pager: merge/rebalance on delete underflow + spec
 
 Completed the in-place mutable-pager arc. New: `write.ssc` `pagerDeleteRebalanced` finishes
@@ -90,6 +110,9 @@ installed layout stays byte-identical. `build.sbt installBin` now stages the lib
 `scljet/` directly instead of relying on the `**` glob following the symlink. Zero regression: `scljet-*`
 conformance INT 99/99 + JS 99/99 (0 failed), native `ssc run --native examples/scljet-hello.ssc` green,
 and a non-scljet std case (`json-deep-import`, `std/json`) still resolves on INT/JS/V2.
+**⚠️ Correction (see entry below): this "zero regression" claim was wrong** — the drop broke the v21
+negative-toolchain gate (`frontend.ok` 208→198) because the self-hosted native front's own resolver was
+not covered. The symlink was restored in `638b4f610`.
 
 ## 2026-07-21 — W5 int-width: `scala` fence == `scalascript` fence, made honest + guarded (Option C)
 
