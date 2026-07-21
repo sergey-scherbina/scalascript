@@ -1,6 +1,6 @@
 feature/q2-measured-optimization 2026-07-21T08:47:26Z
 agent: codex
-heartbeat: 2026-07-21T09:09:53Z
+heartbeat: 2026-07-21T09:18:10Z
 status: in-progress
-done-so-far: Q2.0 landed; compiler profile route landed; parseActors profile pins repeated source-cluster regex compilation as dominant allocation owner
-next: cache the exact full-match Pattern, run core parser tests/conformance, and require two-fork time+allocation A/B before accepting
+done-so-far: Q2 code and bookkeeping landed through 1cd34e529acf665f884690378a6df86d6b7d0073; parser A/B -6.0% time and -14.7% allocation; local tests green
+next: require scripts/ci-status exit 0 for exact final SHA, then release claim and remove both worktrees
