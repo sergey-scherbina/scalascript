@@ -2101,6 +2101,14 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
             write the numbers and identified owner here, then make the smallest source change that
             improves repeated measurements without changing parser/typer output. Verify the owning
             unit suite and affected conformance slice before push.
+            **Baseline / next slice (2026-07-21):** `scripts/bench compile parseActors` selected
+            `ParserBench.parseActors` and measured 2.484 ± 1.348 ms/op over five iterations
+            (min/avg/max 2.181/2.484/3.061, one fork). Parser is the staged-CLI-relevant target and is
+            roughly three orders heavier than the typer/unifier smoke cases. Before source edits, add
+            a tested `scripts/bench compile-profile <pattern>` route that applies the existing JMH GC
+            and JFR profilers to the compiler project, document it, and run it on `parseActors` to pin
+            allocation owners. Then use two-fork repeated A/B for any proposed parser change; reject a
+            change whose intervals/noise do not support an improvement.
 - [ ] **Q3 — minimize the touched path.** Remove duplication, dead branches, or avoidable abstractions
       revealed by Q1/Q2 without broad redesign; report the net source-line/complexity change and prove
       byte/observable behavior unchanged with the same regression and benchmark gates.
