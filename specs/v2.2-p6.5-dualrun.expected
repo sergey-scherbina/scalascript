@@ -12,7 +12,7 @@
 #
 # ════════════════════════════════════════════════════════════════════════════════════════════════════
 # FULL-CORPUS SWEEP 2026-07-21 (SSC_DUALRUN_ALL=1, 521 programs): initially EQUAL 509/521, 10 real residuals,
-#   all one class = F's MULTI-FILE (import) lowering. RECONCILED as fixes land — now 3 residuals:
+#   all one class = F's MULTI-FILE (import) lowering. RECONCILED as fixes land — now 1 residual:
 #   FIXED: multi-link-imports, money-multisection, money-portable-v2, tkv2-theme-css-vars (import-order fix
 #          70d5bbabf); std-bifunctor (extension-member collection fix — F now collects EVERY member of a
 #          given-nested `extension` group); tagless-sealed-dispatch (dispatcher-arity fix — a same-named
@@ -26,10 +26,13 @@
 #          was dropped, so the runtime `sslice` prim read `args(2)` and crashed with `ssc: 2`
 #          (IndexOutOfBoundsException). Now, per ssc1-lower, a 1-arg substring appends `(prim slen recv)` as
 #          the end; verified byte-identical output F-vs-default on the real flattened litdoc).
-#   REMAINING 2 (below): mcp-types, std-monaderror. Each now
-#          blocked by a DIFFERENT residual bug (object-varargs, a monaderror
-#          None-match) — see the per-entry BUGS refs. dsl-ast-builder FIXED 2026-07-21 (extension
-#          top-level members no longer swallow following defs; F now byte-identical to default).
+#          std-monaderror (multi-param typeclass `MonadError[Option,Unit]`: the ext dispatcher derived its
+#          receiver type-head from the joined "Option,Unit" string → `__isTag__` never matched → fell through
+#          to a None-match crash; now it tests the container's ctor tags via the FIRST type-arg, mirroring
+#          ssc1-lower firstTypeArg — verified byte-identical F-vs-default end-to-end); dsl-ast-builder
+#          (top-level extension members no longer swallow following defs — layout E/X frame).
+#   REMAINING 1 (below): mcp-types — the vararg-arity crash is fixed; the remaining diverge is a distinct
+#          enum-case multi-field-pattern / default-arg gap (Transport.Http). 10→1 across 2026-07-21.
 #   The flip stays BLOCKED until these are fixed; the F4a fallback cannot catch them (globals resolve,
 #   values are wrong). http-client / scljet-sql-orderby-expr were FALSE divergences (see NON-RESIDUAL).
 # ════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -49,8 +52,7 @@
 # RECONCILED 2026-07-21 (10 → 6). FIXED and removed: multi-link-imports, money-multisection, money-portable-v2,
 # tkv2-theme-css-vars (F import-order fix 70d5bbabf); std-bifunctor (extension-member fix — F now collects ALL
 # members of a given-nested `extension` group, not just the 1st). Remaining 6 below.
-GAP	mcp-types	multi-file (imports std/mcp/types.ssc): F object-method vararg call → `arity: 1 expected, 2 given`, rc=1 after partial output; default prints full 107 B. See BUGS f-object-method-varargs.
-GAP	std-monaderror	multi-file (imports std/either.ssc, std/monaderror.ssc): the 2-instance `handleError` dispatcher bug is FIXED (dispatcher-arity fix); F now advances past it to a SEPARATE `match: no arm for None/0` bug, rc=1; default prints 192 B. See BUGS f-monaderror-none-match.
+GAP	mcp-types	SILENT-WRONG (rc=0, F prints `?` where default prints `http:8080`). multi-file (imports std/mcp/types.ssc): the vararg-arity crash is FIXED (029a454b8); the remaining diverge is `Transport.Http(8080)` matched by `case Transport.Http(p, _)` — an enum-case multi-field-pattern / default-arg gap (f-caseclass-default-arg family). Default correct. See BUGS.
 
 # ── NON-RESIDUALS — divergences the sweep flagged that are NOT F correctness bugs (adjudicated 2026-07-21;
 #    listed so the full-corpus gate stays green, with the evidence to re-verify). ──
