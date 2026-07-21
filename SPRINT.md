@@ -2238,7 +2238,7 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
             (single-iteration routing evidence, not a performance A/B). `ClusterFrontmatterTest` is
             9/9 and `*cluster*` conformance 5/5. The final bookkeeping SHA still requires exact CI exit
             0 before coordination cleanup.
-- [ ] **Q4 — v2-native-coroutine-provider.** Make the normative `Coroutine[Y, R, T]` primitive run on
+- [x] **Q4 — v2-native-coroutine-provider.** Make the normative `Coroutine[Y, R, T]` primitive run on
       the standard native VM/direct-ASM path without compatibility fallback. Baseline:
       `tests/conformance/{coroutine-basic,coroutine-error}.ssc` reach `unbound global:
       coroutineCreate`; the existing Generator provider already owns the global `suspend`, so the
@@ -2275,7 +2275,7 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
             direct ASM, and `build-jvm`; README/User Guide/spec links are live. Three focused cases
             pass INT/JS/native VM plus additive direct ASM, with the separate v1 JVM erasure defect
             still executed, diffed, and reported as one expiring known-red.
-      - [ ] **Q4.4 — verify and close.** Run the provider unit suite, exact runnable example on VM,
+      - [x] **Q4.4 — verify and close.** Run the provider unit suite, exact runnable example on VM,
             direct ASM and `build-jvm`, and `tests/conformance/run.sh --only 'coroutine-*'`; update the
             feature-spec behavior checks/results and SPRINT/CHANGELOG in separate commits, push each
             green slice, require exact-final-SHA `scripts/ci-status` exit 0, then release the claim and
@@ -2299,7 +2299,7 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
                   `fce731c4f344dad478fda5627b8577d66402bbc3fe0314a1cda3363e86577be6`.
                   Dependency/classloading gates pass with zero violations. The claim remains open
                   only for `scripts/ci-status` exit 0 on this final bookkeeping commit.
-            - [ ] **Q4.4c — repair the exact-CI static-check failure.** Exact run `29858870257` for
+            - [x] **Q4.4c — repair the exact-CI static-check failure.** Exact run `29858870257` for
                   `b891791f7` passed the full corpus and executed all examples identically, but the
                   separate `./bin/ssc-tools check examples/*.ssc` step rejects the new demo because
                   `coroutineCreate` and `coroutineCancel` do not resolve. Reproduce that assembled
@@ -2308,6 +2308,12 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
                   diagnostics. Add a real-path regression; rerun tools-check, the three demo paths,
                   provider tests, and `coroutine-*` conformance; then push new bookkeeping and hold
                   the claim for a fresh exact-final-SHA CI exit 0.
+                  **DONE (fix `3cb6209a4`, spec `e2bad7262`):** the executable prelude had hidden the
+                  demo's missing explicit `std/coroutine.ssc` link from runtime gates. The focused
+                  and complete assembled `ssc-tools check` commands now pass; provider tests are
+                  still 9/9, fresh conformance is still 3/3, and VM/direct-ASM/JAR stdout remains
+                  byte-identical. The all-examples checker is the regression. Claim remains open
+                  only for exact CI on this new final bookkeeping SHA.
 
 The path to ideal/small/powerful is: **(1) establish truth (reconcile the stale ROADMAP), (2) converge
 the two fronts into one, (3) redraw the kernel/tower boundary so "small" is real.** Breadth (cover the

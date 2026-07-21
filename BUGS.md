@@ -2,9 +2,9 @@
 
 ## v2-coroutine-example-tools-check-resolution — runnable native demo fails static check
 
-**Status:** OPEN (found 2026-07-21 by codex-q4 in exact-SHA CI run `29858870257` for
-`b891791f7b5ac5fa47b43c9583b756a57a9e4ac8`; reported to `@scalascript` / `@claude-code` in Rozum;
-SPRINT Q4.4c).
+**Status:** DONE (2026-07-21, fix `3cb6209a4`, verification/spec `e2bad7262`; found and confirmed by
+codex-q4 in exact-SHA CI run `29858870257` and the same assembled checker path locally; reported with
+root cause to `@scalascript` / `@claude-code` in Rozum; SPRINT Q4.4c).
 
 **Reproduce:** build the assembled launchers at the exact SHA, then run
 `./bin/ssc-tools check examples/coroutine-demo.ssc` (the CI job runs
@@ -14,11 +14,12 @@ full conformance corpus and all 17 selected examples on VM, direct ASM, and `bui
 successful execution is not evidence that the static-check surface resolves the linked Coroutine
 API.
 
-**Plan / fix gate:** reproduce with the assembled `ssc-tools` command used by CI, compare the demo's
-linked-module resolution with an existing checked standard-library example, and fix the smallest
-source/import or checker-resolution defect without weakening diagnostics. Add a regression that runs
-the real checker path, rerun the demo on all three native/JAR paths plus focused Coroutine
-conformance, and require a new exact-SHA `scripts/ci-status` exit 0 before releasing the Q4 claim.
+**Root cause / fix:** execution made the Coroutine globals available through the runtime/prelude, but
+the standalone document omitted the explicit `std/coroutine.ssc` link required by the static checker.
+The demo now imports `Step`, create/resume/suspend/cancel from that module. The exact focused and
+all-examples assembled checker commands pass; provider tests remain 9/9, focused conformance remains
+3/3, and native VM/direct-ASM/standalone-JAR stdout is byte-identical. The existing all-examples CI
+step is the real-path regression and still fails if the link is removed.
 
 ## v21-scljet-vfs-standard-gate-inventory-drift — staged provider JARs evade one gate and break another
 

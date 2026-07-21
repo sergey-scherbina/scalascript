@@ -78,7 +78,9 @@ conformance passes 3/3 across historical INT/JS, native VM, and additive ASM. A 
 generic-surface defect stays visible as an expiring known-red. Final verification also repaired a
 blind SclJet VFS provider/dependency inventory; 43 standard JARs now classify with zero violations
 (`708a82678`, example/conformance `b8fd4a31c`, docs `bfc893d99`, gate fix `c6cf03634`, spec verify
-`54ebca43d`).
+`54ebca43d`). Exact CI then exposed that the runnable demo omitted its static-check module link; the
+explicit Coroutine import now makes the focused and all-examples assembled checks pass without
+changing VM/ASM/JAR output (`3cb6209a4`, verification `e2bad7262`).
 
 ## 2026-07-21 — Benchmark wrapper assembles JMH options without a branch
 
