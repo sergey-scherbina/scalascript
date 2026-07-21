@@ -2439,12 +2439,15 @@ value. `[claimed]` = a live agent owns it; `[open]` = free to claim; `[blocked]`
   overflowed scalameta `Lit.Int`); v2 = `ssc1-lower.ssc0` fail-closed `parseI` + `pre -` min64 fold.
   P6.5 fixpoint byte-identical (79,667 B). BUGS marked FIXED. Follow-up (BACKLOG-worthy): v2
   `BigInt("…")` past Int64 still errors `i->big: not Int` — v2 can't build a >Int64 BigInt yet.
-- `[measured — awaiting Sergiy decision]` **W5** — MEASURED 2026-07-21: a ` ```scala ` fence is
-  byte-identical to a ` ```scalascript ` fence on every lane (width follows the BACKEND, not the fence
-  tag); the scalac/Scala.js routing that would make it 32-bit is unreachable dead code, but README+SPEC
-  promise it. No divergence today; latent hole. Full reproduction + the 3-option decision Sergiy must
-  make: `specs/w5-int-width-findings.md`. See also §`int-width-conformance` W5 and BACKLOG.md
-  §"`scala` fences vs `scalascript` fences". No behaviour changed.
+- `[x]` **W5 — DONE (Option C, `w5-int-width-guard`, 2026-07-21).** MEASURED 2026-07-21: a ` ```scala `
+  fence is byte-identical to a ` ```scalascript ` fence on every lane (width follows the BACKEND, not
+  the fence tag); the scalac/Scala.js routing that would make it 32-bit is unreachable dead code, but
+  README+SPEC promised it. Sergiy chose **Option C**: keep `Int`=64, make docs honest, add a loud
+  guard, KEEP the dead Scala.js path (now guarded). Landed: guard `tests/e2e/scala-fence-width-parity-smoke.sh`
+  (assembled launchers, all 5 lanes, `expected=/got=`, wired into CI) + conformance case
+  `tests/conformance/w5-scala-fence-width-parity.ssc`; both assert `scala`==`scalascript` per lane and
+  were proven fail-loud. Docs corrected (README/SPEC §3.3·§9.2·§9.4/docs/targets/docs/user-guide/
+  backend-specific-blocks §2.1). Full reproduction + decision: `specs/w5-int-width-findings.md`.
 
 ---
 
@@ -2719,6 +2722,12 @@ rows; `deep-tail-recursion` on `run-jvm` prints `705082704`, exit 0). Three thin
       --power package --js` ⇒ real scalac ⇒ `Int`=32), and `README.md` + `SPEC.md` §3.3 both *promise*
       that Scala.js path. So the hole is one case-reorder away, and the docs describe the dangerous
       version. Recorded rather than fixed, per the task's instruction.
+      **RESOLVED 2026-07-21 (`w5-int-width-guard`, Option C):** docs made honest (a `scala` fence runs
+      through the ScalaScript engine at 64-bit today, byte-identical to `scalascript`; real Scala.js is
+      a future separately-widthed capability; `runScalaFences` is a reserved no-op), the dead branch is
+      KEPT-but-guarded, and two fail-loud guards now assert `scala`==`scalascript` on every lane
+      (`tests/e2e/scala-fence-width-parity-smoke.sh` + `tests/conformance/w5-scala-fence-width-parity.ssc`).
+      See `specs/w5-int-width-findings.md` (now marked RESOLVED).
 
 **CI verdict for the landed SHA `a515faee0`** (AGENTS.md §4c), measured not assumed:
 - **`Conformance Suite`: SUCCESS** — the job W3 actually changes, green on Linux:

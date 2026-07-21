@@ -24,6 +24,23 @@ installed layout stays byte-identical. `build.sbt installBin` now stages the lib
 conformance INT 99/99 + JS 99/99 (0 failed), native `ssc run --native examples/scljet-hello.ssc` green,
 and a non-scljet std case (`json-deep-import`, `std/json`) still resolves on INT/JS/V2.
 
+## 2026-07-21 — W5 int-width: `scala` fence == `scalascript` fence, made honest + guarded (Option C)
+
+Resolved the W5 latent hole (`specs/w5-int-width-findings.md`): a ` ```scala ` fence is byte-identical
+to a ` ```scalascript ` fence on every lane today — its `Int` width follows the BACKEND, not the fence
+tag (`specs/numeric-widths.md`: `Int` is 64-bit) — because the scalac/Scala.js routing that would make
+a `scala` fence 32-bit is unreachable dead code, while README/SPEC promised that routing. Sergiy chose
+**Option C**: keep `Int`=64 everywhere, correct the docs, add a loud guard, and KEEP the dead Scala.js
+path as guarded scaffolding (do not delete, do not revive). Landed two fail-loud guards, each asserting
+`scala`-fence output == `scalascript`-fence output PER LANE (backend-agnostic — holds on the 32-bit
+v1-codegen lanes and the 64-bit lanes alike), each proven to go red on a temporary divergence:
+`tests/e2e/scala-fence-width-parity-smoke.sh` (assembled launchers over native/interp/JS-v2/JS-codegen/
+JVM-codegen, prints `expected=/got=`, wired into CI) and `tests/conformance/w5-scala-fence-width-parity.ssc`
+(parity-token case, auto-discovered by `run.sc`/`contract.sc`, one lane-independent golden, no known-red).
+Docs corrected to describe reality (real Scala.js/scala-cli is a future, separately-widthed capability;
+`runScalaFences` is a reserved no-op): `README.md`, `SPEC.md` §3.3/§9.2/§9.4, `docs/targets.md`,
+`docs/user-guide.md`, `specs/backend-specific-blocks.md` §2.1; findings doc marked RESOLVED.
+
 ## 2026-07-21 — Last v2-F4 dualrun residual closed: enum-case defaults on the qualified ctor path
 
 The F front now synthesizes trailing default arguments for a QUALIFIED enum-case constructor
