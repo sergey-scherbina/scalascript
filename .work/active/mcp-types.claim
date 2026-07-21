@@ -1,0 +1,6 @@
+feature/mcp-types 2026-07-21T18:20:16Z
+agent: claude-code
+heartbeat: 2026-07-21T18:20:16Z
+status: not-started
+done-so-far:
+next: build SSC_JAR, trace oracle vs F IR on minimal enum-case-default repro
