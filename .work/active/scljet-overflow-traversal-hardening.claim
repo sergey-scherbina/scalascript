@@ -1,6 +1,6 @@
 feature/scljet-overflow-traversal-hardening 2026-07-21T19:18:14Z
 agent: opus-orch
-heartbeat: 2026-07-21T19:18:14Z
-status: in-progress
-done-so-far: claimed by orchestrator (Sergiy "займись всем этим" batch, 2026-07-21); worked by a dedicated background subagent in its own worktree.
-next: spec + traversal-based negative check for corrupt user-table overflow chains; int==js; conformance + example
+heartbeat: 2026-07-21T19:56:00Z
+status: landed-awaiting-ci
+done-so-far: LANDED e60754c80 (6 commits) on origin/main. spec close + 3 corrupt overflow fixtures (generate.py corruptions() extended, regen byte-identical) + scljet-corrupt-traverse.ssc file tool + corrupt-traversal-errors.txt + e2e smoke wiring (3 tiers green) + conformance scljet-overflow-traversal-corrupt [int,js] + README. Verified: scljet-* 102/102 int+js (--no-memo, FRESH jar via install.sh --dev), e2e smoke PASS default/asm/fallback.
+next: await CI green for e60754c80 (run 29863437386 queued), then release claim + rm-worktree.
