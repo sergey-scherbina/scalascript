@@ -2168,10 +2168,14 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
       implementation must define one shared dynamic suspend dispatch rather than register duplicate
       globals. Claim: `.work/active/v2-native-coroutine-provider.claim`; feature contract:
       `specs/v2.1-native-coroutine-provider.md`.
-      - [ ] **Q4.1 — commit the contract before code.** Reconcile `SPEC.md` §7.5 and the older
+      - [x] **Q4.1 — commit the contract before code.** Reconcile `SPEC.md` §7.5 and the older
             `specs/coroutines.md` wording; specify lazy start, two-way resume values, innermost dynamic
             scope, completion/error/cancellation behavior, opaque unsavable handles, and ownership of
             the Generator/Coroutine `suspend` overlap. Commit the dedicated feature spec separately.
+            **DONE (`6a9f434e4`):** the global and historical contracts now match the shipped four-
+            function/`Errored` surface, and the dedicated native spec selects one `SuspendTarget`
+            inside the already-standard `59-generator` provider instead of a second plugin/global
+            owner. Markdownlint and the two-case affected conformance slice pass.
       - [ ] **Q4.2 — implement the standard native provider.** Add the smallest plugin/SPI ownership
             change that registers `coroutineCreate`, `coroutineResume`, `coroutineCancel`, and exactly
             one compatible `suspend`; use bounded handoff and isolated per-coroutine state, wire the

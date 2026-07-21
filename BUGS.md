@@ -2,8 +2,8 @@
 
 ## coroutine-contract-doc-drift — normative and feature specs disagree with the shipped surface
 
-**Status:** OPEN (found 2026-07-21 by codex-q4 while specifying
-`v2-native-coroutine-provider`; planned in SPRINT Q4.1).
+**Status:** FIXED (2026-07-21, `6a9f434e4`; found by codex-q4 while specifying
+`v2-native-coroutine-provider`, tracked in SPRINT Q4.1).
 
 **Reproduce:** `SPEC.md` §7.5 says "Three primitive operations" but lists four functions, models
 `Step` without the shipped/public `Errored(message)` case, and declares a by-name body while
@@ -11,11 +11,11 @@
 `specs/coroutines.md` separately repeats the old three-intrinsic pre-cancellation wording even though
 its own later sections say cancellation landed.
 
-**Notes / fix gate:** reconcile both specs with the existing public module and tested runtime contract
-before native implementation: four functions, `Yielded | Returned | Errored | Cancelled`, explicit
-lazy thunk, terminal error/cancellation semantics, and one shared Generator/Coroutine `suspend` owner.
-The feature-spec commit must land before code; record that SHA here as `fixed` after markdown lint and
-the affected coroutine conformance slice pass.
+**Fix / verification:** `SPEC.md`, `specs/coroutines.md`, and the new dedicated
+`specs/v2.1-native-coroutine-provider.md` now define four functions,
+`Yielded | Returned | Errored | Cancelled`, an explicit lazy thunk, terminal error/cancellation
+semantics, and one shared Generator/Coroutine `suspend` owner. The feature spec landed before code;
+markdownlint and `tests/conformance/run.sh --only 'coroutine-*'` pass.
 
 ## coroutine-demo-readme-link-missing — README points to an absent runnable example
 
