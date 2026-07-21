@@ -1,6 +1,6 @@
 feature/scljet-mutable-pager 2026-07-21T19:18:14Z
 agent: opus-orch
-heartbeat: 2026-07-21T19:18:14Z
+heartbeat: 2026-07-21T19:24:35Z
 status: in-progress
-done-so-far: claimed by orchestrator (Sergiy "займись всем этим" batch, 2026-07-21); worked by a dedicated background subagent in its own worktree.
+done-so-far: dedicated subagent working; surveyed existing scljet write/journal — cell-level balance + MutablePager + 3+-level index ALREADY landed; identifying real gaps (update-with-split, delete-merge, pager.ssc API)
 next: spec mutable pager; in-place dirty-page + cell-level edits on writePagesJournaled; 3+-level indexes; byte-exact vs sqlite 3.53.3
