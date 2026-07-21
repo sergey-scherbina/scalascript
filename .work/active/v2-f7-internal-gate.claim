@@ -1,6 +1,6 @@
 feature/v2-f7-internal-gate 2026-07-19T13:42:57Z
 agent: codex
-heartbeat: 2026-07-21T06:59:39Z
+heartbeat: 2026-07-21T07:12:19Z
 status: in-progress
-done-so-far: fix c278b4b37 + bookkeeping 1f5e55b44 landed; local gates macOS 3/3, Linux-shaped 2 passed + 1 named cancel, full v2 644/0, shared v2-* 11/11; exact run 29805732016 has lint, validation, conformance, and every v2.1 release gate green; full Test via sbt is in progress since 2026-07-21T06:41:49Z
-next: monitor exact SHA 1f5e55b447f6a2e28c2fd3efe2e5599d99f6a8bd to scripts/ci-status exit 0; then record run, release claim, remove worktree; diagnose any named real failure before retrying
+done-so-far: c278b4b37 fix + 1f5e55b44 bookkeeping landed; local gates macOS 3/3, Linux-shaped 2 passed + 1 named cancel, full v2 644/0, shared v2-* 11/11; exact run 29805732016 has 3/4 jobs green and full Test via sbt active since 2026-07-21T06:41:49Z after all release gates passed
+next: keep monitoring exact SHA 1f5e55b447f6a2e28c2fd3efe2e5599d99f6a8bd to scripts/ci-status exit 0; green => record run/release/remove worktree, red => diagnose named real failing job and fix
