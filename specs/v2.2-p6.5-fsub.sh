@@ -377,6 +377,10 @@ def main(): Int = f([10, 20])'
 d obj_varargs 'object P:
   def many(xs: Int*): Int = xs.toList.size
 def main(): Int = P.many(1, 2, 3)'
+d enum_case_dflt 'enum E:
+  case A
+  case C(a: Int, b: Int = 7)
+def main(): Int = E.C(1) match { case E.C(p, q) => p + q case _ => 0 }'
 
 if [ "${1:-}" = "--self" ]; then
   echo "--- X1: F compiles its OWN source (TYPED fixpoint) ---"

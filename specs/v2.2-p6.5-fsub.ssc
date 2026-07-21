@@ -675,7 +675,18 @@ def parseEnumCompanion(ename, ts, env, cx) = parseEnumComp1(ename, snd(hd(ts)), 
 // `E.Case` -> `(ctor Case)` (nullary); APPLIED parametrized `E.Case(args)` -> `(ctor Case args)` (folds
 // args into the ctor, ssc1-lower applied-ctor path :1700; NOT `(app (ctor Case) args)`); `E.values` -> list.
 def parseEnumComp1(ename, field, ts, env, cx) = if field == "values" then (enumValuesStr(enumCasesOfName(ename, enumRegOf(cx))), ts) else (if isTok(hd(ts), 2, 21) then parseEnumCaseApp(field, tl(ts), env, cx) else ("(ctor " ++ field ++ ")", ts))
-def parseEnumCaseApp(field, ts, env, cx) = parseArgs(ts, env, cx) match { case (args, r) => ("(ctor " ++ field ++ args ++ ")", r) }
+// E2c: a QUALIFIED enum-case ctor `E.Case(args)` (folded to `(ctor Case args)`) fills omitted trailing
+// defaults by INLINE APPEND — not the nested-lambda expandDefaultCall the def/unqualified-ctor path uses.
+// The oracle lowers `E.Case(args)` to a `ctorap` node and calls ctorApplyDefaults (ssc1-lower :1829): when
+// under-applied with every omitted trailing param carrying a REAL default, it appends those resolved
+// default exprs straight onto the ctor args (`Transport.Http(8080)` -> `(ctor Http (lit (int 8080))
+// (lit (str "/mcp")))`). Reuses the shared funcDflts entry (enumDfltEntries keys enum cases by CASE name)
+// + dfltGo, so a fully-applied, named, or defaultless call keeps the plain `(ctor Case args)` path.
+def parseEnumCaseApp(field, ts, env, cx) = parseEnumCaseAppD(field, scanArgs(ts), ts, env, cx)
+def parseEnumCaseAppD(field, scan, ts, env, cx) = scan match { case (slices, rest) => parseEnumCaseAppE(field, dfltGo(field, slices, env, cx), dlen(slices), ts, env, cx) }
+def parseEnumCaseAppE(field, fire, nprov, ts, env, cx) = parseArgs(ts, env, cx) match { case (args, r) => ("(ctor " ++ field ++ args ++ enumCtorDfltTail(fire, nprov, field, env, cx) ++ ")", r) }
+def enumCtorDfltTail(fire, nprov, field, env, cx) = if fire then enumDfltAppend(dropL(nprov, dfltEntryPd(field, cx)), env, cx) else ""
+def enumDfltAppend(tailpd, env, cx) = tailpd match { case Nil => "" case h :: t => " " ++ erase(fst(parseExpr(snd(h), 0, env, cx)), cx) ++ enumDfltAppend(t, env, cx) }
 def enumValuesStr(names) = names match { case Nil => "(ctor Nil)" case h :: t => "(ctor Cons (ctor " ++ h ++ ") " ++ enumValuesStr(t) ++ ")" }
 // `List(a, b, c)` is NOT a ctor call — it desugars to a right-nested Cons chain ending in Nil (measured:
 // List() -> (ctor Nil); List(a,b) -> (ctor Cons a (ctor Cons b (ctor Nil)))). Needs the args as a LIST
