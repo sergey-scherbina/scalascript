@@ -2425,8 +2425,9 @@ value. `[claimed]` = a live agent owns it; `[open]` = free to claim; `[blocked]`
   `Rejected`. Diagnosis: the old always-`Rejected` was **by design** (tier-1 oracle had no save-plan
   evidence), NOT a bug — see `specs/durable-continuation-save-run.md`. STILL OPEN before examples:
   (a) `saved-continuation-format` byte codec + capsule; (b) exact-artifact + portable-CoreIR runners;
-  (c) JS/Rust/Swift lane parity (mirror `v2/host/js/control/index.js:315-348`); (d) flip cross-lane
-  vectors 14/17 per lane. Do not start examples until a lane advertises `durable-save`/`no-replay`.
+  (c) lane parity: **JS lane MIRRORED 2026-07-21 (`49f8fea6a`)** — Rust/Swift host lanes remain;
+  (d) flip cross-lane vectors 14/17 per lane. Do not start examples until a lane advertises
+  `durable-save`/`no-replay`.
   See §"Reusable continuation save/run" for the follow-on items and the GATE-LIFTED note.
 
 **Health — get `main` to its first fully-green run:**

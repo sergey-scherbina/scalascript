@@ -71,10 +71,16 @@ unexported authority token, so property inspection, prototype grafting, or
 constructor calls cannot pre-claim or forge control authority. The npm tarball
 includes the repository's Apache 2.0 `LICENSE` verbatim.
 
-This first slice is intentionally local. `Continuation.local` is reusable, but
-`save()` performs typed `Save.Rejected(UnmanagedCapture("Continuation.local"))`.
-Generated ScalaScript↔JavaScript facades, source transforms, managed event-loop
-callbacks, mixed-language tail dispatch, durable save/run, and exact/portable
+`Continuation.local` is reusable but codec-less, so its `save()` performs typed
+`Save.Rejected(UnmanagedCapture("Continuation.local"))`; an unmanaged runtime
+closure rejects the same way. The managed `Continuation.savable(state, machine,
+codec)` builder supplies a `DurableValue` snapshot codec, so its `save()` succeeds
+and returns a reusable `SavedContinuation` whose `run(value)` reconstructs an
+independent frame per admitted run (snapshot law) and resumes once at the capture
+point — multi-shot, no prefix replay. `Restore.admitLocally` discharges the
+in-process `Restore` row. This is the same-process keystone; the byte-frame codec,
+transport capsule, generated ScalaScript↔JavaScript facades, source transforms,
+managed event-loop callbacks, mixed-language tail dispatch, and exact/portable
 runners remain later host-profile slices.
 
 From this directory:

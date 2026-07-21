@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-07-21 — Durable `save()`/`run()` mirrored on the JavaScript control lane
+
+The JS reference lane (`v2/host/js/control`) now matches the Scala keystone:
+`Continuation.savable(state, machine, codec)`, `DurableValue` (`immutable`/`copying`),
+`Restore` (`key` + `admitLocally`), and a reusable `SavedContinuation` whose `run(value)`
+reruns from the capture point per admitted run (snapshot law, no prefix replay).
+Codec-less `Continuation.local` and unmanaged runtime closures still perform
+`Save.Rejected(UnmanagedCapture)`. `index.d.ts`, the frozen export inventory, README, and
+the `node:test` suite were updated; JS control suite 34/34. Both host reference lanes
+(scala-explicit + js-explicit) now carry in-process durable save/run; the byte codec,
+transport capsule, exact/portable runners, and Rust/Swift lanes remain follow-on slices
+(`feat 49f8fea6a`).
+
 ## 2026-07-21 — Last v2-F4 dualrun residual closed: enum-case defaults on the qualified ctor path
 
 The F front now synthesizes trailing default arguments for a QUALIFIED enum-case constructor
