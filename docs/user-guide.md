@@ -3768,14 +3768,23 @@ bind-aware `sql`, and bind-aware `transaction`; list visible tags with:
 ssc --list-source-languages
 ```
 
-Standard `scala` fences are runnable when the file contains only standard Scala
-fences. In mixed `scalascript`/`scala` documents, standard `scala` fences are
-documentation examples by default, so snippets in prose do not execute
-accidentally. To run both languages in source order, opt in explicitly:
+`scala` fences run through the same ScalaScript engine as `scalascript` fences,
+in source order. **Today a `scala` fence is not compiled by real Scala 3 /
+Scala.js** — it is parsed and executed as the Scala-3 subset the engine already
+supports, so its output is byte-identical to a `scalascript` fence on every lane
+and `Int` is 64-bit ([`../specs/numeric-widths.md`](../specs/numeric-widths.md);
+the width follows the BACKEND, not the fence tag). Real Scala.js/scala-cli
+compilation of `scala` fences — carrying Scala's own 32-bit `Int` — is a future,
+separately-widthed capability that is not wired up
+([`../specs/w5-int-width-findings.md`](../specs/w5-int-width-findings.md)).
+
+The `runScalaFences:` front-matter key (and its aliases) is **reserved and
+currently a no-op** — no compiler/interpreter code reads it; `scala` fences
+already run by default. It is still accepted by the front-matter schema:
 
 ```yaml
 runScalaFences: true
-# aliases: run-scala-fences: true, scalaFences: runnable, scala-fences: runnable
+# reserved / no-op today; aliases: run-scala-fences: true, scalaFences: runnable, scala-fences: runnable
 ```
 
 Custom fenced DSLs use the same ServiceLoader-based `SourceLanguage` SPI.

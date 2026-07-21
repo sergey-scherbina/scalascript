@@ -395,11 +395,16 @@ per-backend support for every block language currently in `Lang.scala`.
 | `node.js` / `node` | ❌ (`UnknownBlockLanguage`) | ❌ | ❌ | ✅ (linked into bundle) | ❌ | ❌ |
 | `sql`             | ✅ (JDBC via `backend-sql-runtime`) | ✅ (emits `SqlRuntime.execute`) | ✅ (sql.js / DuckDB-Wasm — v1.27) | ✅ (sql.js / DuckDB-Wasm + `package.json` — v1.27) | ✅ (JS shim via `SqlRuntimeJsEmit` — v1.27) | ✅ (Spark SQL) |
 
-Standard `scala` fences are executable when the document uses only standard
-Scala fences. In mixed `scalascript`/`scala` documents, they are treated as
-illustrative examples by default; set `runScalaFences: true` (or
-`scalaFences: runnable`) in YAML front-matter to run standard `scala` fences
-alongside `scalascript` fences in document order.
+`scala` fences run through the same ScalaScript engine as `scalascript` fences,
+in document order. **Today a `scala` fence is not compiled by real Scala 3 /
+Scala.js** — its output is byte-identical to a `scalascript` fence on every lane,
+so `Int` is 64-bit ([`../specs/numeric-widths.md`](../specs/numeric-widths.md); the
+width follows the BACKEND, not the fence tag). The `runScalaFences:` /
+`scalaFences:` front-matter keys are **reserved and currently a no-op** (no
+compiler/interpreter code reads them; `scala` fences already run by default).
+Real Scala.js/scala-cli compilation of `scala` fences — carrying Scala's own
+32-bit `Int` — is a future, separately-widthed capability
+([`../specs/w5-int-width-findings.md`](../specs/w5-int-width-findings.md)).
 
 When a backend doesn't claim a block language, `CapabilityCheck`
 emits a `Diagnostic.UnknownBlockLanguage(<lang>)` so the user gets a

@@ -61,6 +61,21 @@ the matching backend and ignores it for all others.
 A block without a backend qualifier (plain ` ```scalascript `) is
 **cross-backend** and subject to the platform-type ban in §1.
 
+> **Status / width note (2026-07-21).** This spec is **planned**. The ` ```scala `
+> row above describes the *intended* escape-hatch mechanism (real Scala 3 source
+> compiled via scala-cli for the JVM target). **It is not wired up today:** a
+> current ` ```scala ` fence runs through the ScalaScript engine, byte-identical
+> to a ` ```scalascript ` fence, with `Int` at **64-bit**
+> ([`numeric-widths.md`](numeric-widths.md); the width follows the BACKEND, not
+> the fence tag). When the real-Scala route lands it will carry Scala's own
+> **32-bit `Int`** — a *declared, separately-widthed* boundary that must be
+> explicit (a `scala` block and a `scalascript` block exchanging integers would
+> otherwise mean one word at two widths). See
+> [`w5-int-width-findings.md`](w5-int-width-findings.md) for the measurement and
+> the decision to keep this route as guarded scaffolding for now, and
+> `tests/e2e/scala-fence-width-parity-smoke.sh` for the guard that fails loudly
+> the moment a `scala` fence's output diverges from a `scalascript` fence's.
+
 ### 2.2 Syntax
 
 Backend-specific blocks may appear anywhere in the document body where a

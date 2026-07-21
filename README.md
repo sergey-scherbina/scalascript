@@ -15,14 +15,21 @@ Scala 3 code blocks.
 |------------|----------|----------|
 | ` ```scalascript` | ScalaScript dialect — effects, handlers, content helpers, TCO | interpreter · JS transpiler · JVM · **Rust (native binary; up to R.5 web toolkit)** · WebAssembly |
 | ` ```ssc` | Alias for `scalascript` | interpreter · JS transpiler · JVM · Rust |
-| ` ```scala` | Standard Scala 3 — no ScalaScript extensions | interpreter · **Scala.js** (JS) · JVM · Rust (passthrough) |
+| ` ```scala` | Scala-3-subset alias — runs through the **ScalaScript engine**, byte-identical to `scalascript` today (64-bit `Int`) | interpreter · JS · JVM · Rust |
 | ` ```rust` | Standard Rust — passthrough verbatim into the emitted Cargo crate | **Rust** |
 
-Standard `scala` fences run in document order when a file uses only standard
-Scala fences. In mixed `scalascript`/`scala` documents, standard `scala` fences
-are illustrative by default; add `runScalaFences: true` (or
-`run-scala-fences: true`) to YAML front-matter to run both languages together
-in source order.
+`scala` fences run in document order alongside `scalascript` fences. **Today a
+`scala` fence is not compiled by real Scala 3 / Scala.js** — it is parsed and
+executed by the same ScalaScript engine as a `scalascript` fence, so its output
+is byte-identical on every lane (native / interpreter / JS / JVM). In particular
+`Int` is **64-bit**, per the normative width contract
+([`specs/numeric-widths.md`](specs/numeric-widths.md)) — the width follows the
+BACKEND, not the fence tag. Real Scala.js/`scalac` compilation (which would carry
+Scala's own 32-bit `Int`) is a **future, separately-widthed** capability that is
+not wired up. The `runScalaFences:` / `run-scala-fences:` front-matter key is
+**reserved and currently a no-op** (no compiler/interpreter code reads it; `scala`
+fences already run by default). Full measurement + rationale:
+[`specs/w5-int-width-findings.md`](specs/w5-int-width-findings.md).
 
 ````ssc
 ---
@@ -266,9 +273,13 @@ Dataset/MapReduce binary wire now reaches actor messages directly: `wireFormat =
 
 ## What Works
 
-All three backends support `scalascript` blocks.  `scala` blocks (standard
-Scala 3) are supported by the interpreter and JVM backend; the JS backend
-compiles them via Scala.js.
+All three backends support `scalascript` blocks.  `scala` blocks run today
+through the same ScalaScript engine (a Scala-3 subset), byte-identical to a
+`scalascript` block on every lane — `Int` is 64-bit, per
+[`specs/numeric-widths.md`](specs/numeric-widths.md). Compilation by real
+Scala 3 / Scala.js (which would carry Scala's 32-bit `Int`) is a future,
+separately-widthed capability, not wired up (see
+[`specs/w5-int-width-findings.md`](specs/w5-int-width-findings.md)).
 
 ### Core language
 
@@ -853,15 +864,24 @@ Built-in fenced languages are SourceLanguage plugins too: `scala`, `html`,
 `transaction` are visible through `--list-source-languages`. Third-party DSLs
 follow the same path.
 
-The JavaScript backend handles two block types differently:
+The JavaScript backend handles both block types with the **same** custom JS
+transpiler (`JsGen`) today:
 
-- **`scalascript` blocks** — transpiled by our custom JS transpiler (`JsGen`), which supports
-  ScalaScript-specific features (effects, content helpers, TCO, imports).
-- **`scala` blocks** — compiled by Scala.js via `scala-cli --js`, giving full Scala 3 fidelity
-  (standard library, type system, no custom runtime limitations).
+- **`scalascript` blocks** — transpiled by `JsGen`, which supports ScalaScript-specific
+  features (effects, content helpers, TCO, imports).
+- **`scala` blocks** — currently also transpiled by `JsGen` (parsed as the Scala-3
+  subset the engine supports), **not** compiled by real Scala.js. Output is
+  byte-identical to a `scalascript` block, so `Int` is 64-bit on the conforming lanes
+  ([`specs/numeric-widths.md`](specs/numeric-widths.md)) — the width follows the
+  BACKEND, not the fence tag.
 
-When a `.ssc` file contains both, the Scala.js-compiled section runs first, followed by
-the ScalaScript transpiled section.
+A real Scala.js route for `scala` blocks (via `scala-cli --js`, giving full Scala 3
+fidelity and Scala's own 32-bit `Int`) exists only as **unreachable, guarded scaffolding**
+today — see [`specs/w5-int-width-findings.md`](specs/w5-int-width-findings.md). When it is
+wired up it will be a **separately-widthed** target, and the guard test
+`tests/e2e/scala-fence-width-parity-smoke.sh` will fail loudly the moment a `scala`
+block's output diverges from a `scalascript` block's, rather than let one word mean two
+widths silently.
 
 ## Compiler Plugins with Intrinsics
 

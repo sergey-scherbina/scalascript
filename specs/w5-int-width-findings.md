@@ -1,10 +1,28 @@
 # W5 — Does a ` ```scala ` fence change `Int` width vs a ` ```scalascript ` fence?
 
-Status: **MEASURED — no divergence today; a LATENT hole recorded. Decision owed to Sergiy.**
+Status: **RESOLVED — Sergiy chose Option C (2026-07-21). Docs made honest; a loud guard added;
+Int stays 64-bit; the dead Scala.js path is KEPT but now guarded.**
 Measured 2026-07-21 by `w5-int-width-measure`. Reproduces (and strengthens) the
 `int-width-conformance` W5 measurement in `BACKLOG.md` §"`scala` fences vs `scalascript` fences".
 
-This is a **measure-and-report** artifact. No language/compiler/runtime behaviour was changed.
+This began as a **measure-and-report** artifact (no language/compiler/runtime behaviour was
+changed by the measurement). The decision and follow-up landed by `w5-int-width-guard`:
+
+- **Decision: Option C** (§5). Keep `Int`=64 everywhere; make the docs describe reality; add a
+  guard test; keep the dead Scala.js path as guarded scaffolding (do not delete, do not revive).
+- **Guards landed** — both assert `scala`-fence output == `scalascript`-fence output on every
+  lane (backend-agnostic; holds on the 32-bit v1-codegen lanes and the 64-bit lanes alike), and
+  both were proven fail-loud by a temporary divergence:
+  - `tests/e2e/scala-fence-width-parity-smoke.sh` — assembled-launcher smoke over native / interp
+    / JS(v2) / JS-codegen(v1) / JVM-codegen(v1), prints `expected=/got=` on mismatch; wired into
+    CI next to `int-literal-failopen-smoke.sh`.
+  - `tests/conformance/w5-scala-fence-width-parity.ssc` (+ `expected/…txt`) — parity-token case,
+    auto-discovered by `run.sc`/`contract.sc`, one lane-independent golden, no `known-red`.
+- **Docs corrected** to state current behaviour (a `scala` fence runs through the ScalaScript
+  engine at 64-bit today, byte-identical to `scalascript`; real Scala.js/scala-cli is a future
+  separately-widthed capability; `runScalaFences` is a reserved no-op): `README.md`, `SPEC.md`
+  §3.3 / §9.2 / §9.4, `docs/targets.md`, `docs/user-guide.md`, `specs/backend-specific-blocks.md`
+  §2.1. See `specs/numeric-widths.md` for the normative 64-bit contract.
 
 ---
 

@@ -146,21 +146,26 @@ processed by each backend.
 |-----|----------|-------------|
 | `scalascript` | ScalaScript | Full ScalaScript dialect: effects, handlers, tail-call optimisation, content helpers, module imports. |
 | `ssc` | ScalaScript | Legacy alias for `scalascript`. |
-| `scala` | Standard Scala 3 | No ScalaScript-specific extensions. JS backend compiles via Scala.js. |
+| `scala` | Scala-3 subset (ScalaScript engine) | Runs today through the same ScalaScript engine as `scalascript`, byte-identical on every lane — `Int` is 64-bit ([`specs/numeric-widths.md`](specs/numeric-widths.md)); the width follows the BACKEND, not the fence tag. Compilation by real Scala 3 / Scala.js (carrying Scala's 32-bit `Int`) is a future, separately-widthed capability, not wired up ([`specs/w5-int-width-findings.md`](specs/w5-int-width-findings.md)). |
 | `html` | HTML | String-valued block with `${expr}` interpolation; values are HTML-escaped. Not parsed. |
 | `css` | CSS | String-valued block with `${expr}` interpolation. Not parsed. |
 | `javascript` (alias `js`) | JavaScript | String-valued block with `${expr}` interpolation. Not parsed, not type-checked. The JS backend may splice the value directly into its output; other backends treat it as a plain `String` value. |
 | `node.js` (alias `node`) | Executable JavaScript for Node target | Linked verbatim into the bundle emitted by the `node` backend, alongside the JS produced from `scalascript` / `scala` blocks. Cross-language interop is by name via `extern def` declarations resolving against `globalThis`. Not type-checked. Other backends reject `node.js` blocks with a `UnknownBlockLanguage` diagnostic. |
 | `sql` | SQL / JDBC | Parameterised SQL executed via JDBC.  Every `${expr}` becomes a single positional `?` bind parameter; string substitution is never performed.  Block evaluates to `Seq[Row]` (SELECT) or `Int` update count (DDL/DML).  JVM-only target; other backends emit `UnknownBlockLanguage`. |
 
-A `.ssc` document may contain both `scala` and `scalascript` blocks. When a
-document uses only standard `scala` fences, those fences are executable units and
-run in document order. In a mixed document, `scalascript` fences are the runnable
-default and `scala` fences are illustrative unless the YAML front-matter opts in
-with `runScalaFences: true`, `run-scala-fences: true`, or
-`scalaFences: runnable` / `scala-fences: runnable`. With that opt-in,
-definitions are visible across runnable blocks within the same file.
-Other tags (`json`, `yaml`, `text`, etc.) are treated as inert prose.
+A `.ssc` document may contain both `scala` and `scalascript` blocks. Both are
+parsed and executed by the ScalaScript engine and run in document order, with
+top-level definitions visible across blocks within the same file. The
+`runScalaFences:` / `run-scala-fences:` / `scalaFences:` / `scala-fences:`
+front-matter keys are **reserved and currently a no-op**: no
+compiler/interpreter code reads them (only the `scripts/bc-parity-sweep`
+tooling inspects them), so `scala` fences already run by default regardless of
+the flag. Because a `scala` fence runs through the same engine, its output is
+byte-identical to a `scalascript` fence — see § 4.1 and
+[`specs/numeric-widths.md`](specs/numeric-widths.md) for the 64-bit `Int`
+contract, and [`specs/w5-int-width-findings.md`](specs/w5-int-width-findings.md)
+for the full W5 measurement. Other tags (`json`, `yaml`, `text`, etc.) are
+treated as inert prose.
 
 **String blocks** (`html`, `css`, `javascript`) carry no semantics of
 their own — the source is captured as a `String` after `${expr}`
@@ -1830,7 +1835,7 @@ Discovery via `ServiceLoader` (in-process JARs) or `plugin.yaml` (subprocess).
 | `jvm` | JVM (Scala 3 source) | `bin/sscc`, `ssc compile-jvm` | Scala 3 source → compiled via scala-cli | In-process emitter; scala-cli runs the produced `.scala` file. |
 | `js` | JavaScript (Node / SPA) | `bin/jssc`, `ssc emit-js` | JavaScript source (one-shot or segmented) | Same `JsGen` powers Node and browser builds; the latter pairs with `ssc emit-spa`. |
 | `node` | Node.js | `ssc run --backend node`, `bin/ssc-node` | Self-contained `.cjs` bundle for `node` | Extends JsGen with verbatim linking of `node.js` opaque-exec blocks (§ 3.3) and a Node-side `_output` flush epilogue. v1.25 Phase 3. |
-| `scalajs-spa` | Scala.js SPA bundle | `ssc emit-spa` | Self-contained HTML + JS bundle | Cross-compiles `scala` blocks via Scala.js for browser execution. |
+| `scalajs-spa` | Scala.js SPA bundle | `ssc emit-spa` | Self-contained HTML + JS bundle | Emits the SPA from `scalascript` blocks via `JsGen`. Cross-compiling `scala` blocks through real Scala.js is a **future** capability (the routing is unreachable, guarded scaffolding today — [`specs/w5-int-width-findings.md`](specs/w5-int-width-findings.md)); until then `scala` blocks run through the same ScalaScript engine as `scalascript`. |
 | `wasm` | WebAssembly (Scala.js) | `ssc emit-wasm` | `.wasm` module + JS glue | Re-uses Scala.js's WASM emission path. |
 | `swift` | Swift / Apple native | `ssc emit-swift`, `ssc build --target macos\|ios` | Swift Package (`AppCore` plus SwiftUI app target when UI is present) | Consumes checked v2 CoreIR, applies portable Decimal/Money/effect/UI lowering, and never falls back to v1 JvmGen. macOS and iOS share source semantics. Apple UI commands accept `--server-url <absolute-http(s)-url>` as the sole generated base for relative native HTTP requests. See `specs/v2-swift-swiftui-native.md`. |
 | `spark` | Apache Spark | `ssc run --backend spark`, `bin/ssc-spark` | Scala 3 + Spark source → `scala-cli run --dep org.apache.spark::spark-{core,sql}:<v>` | Out-of-process — Spark JARs resolved at runtime by Coursier. v1.21 `Dataset[T]` API maps 1-to-1. § 9.5. |
@@ -1882,14 +1887,18 @@ encounters in a module's IR.  The contract is per-language:
 | Lang class (§ 3.3) | Treatment by backends |
 |--------------------|----------------------|
 | `scalascript` / `ssc` | Custom transpilation per backend (`JsGen`, `JvmGen`, `Interpreter`, `SparkGen`, …). |
-| `scala` | Passed through to scala-cli (JVM target) or Scala.js (JS / WASM / SPA targets); interpreter runs the supported Scala 3 subset. |
+| `scala` | Runs today through the ScalaScript engine on every backend — the supported Scala 3 subset — byte-identical to `scalascript` (64-bit `Int`, [`specs/numeric-widths.md`](specs/numeric-widths.md)). Pass-through to real scala-cli (JVM) / Scala.js (JS / WASM / SPA), carrying Scala's own 32-bit `Int`, is a **future, separately-widthed** capability that is not wired up ([`specs/w5-int-width-findings.md`](specs/w5-int-width-findings.md)). |
 | String blocks (`html`, `css`, `javascript`) | Rendered to a `String` value with `${expr}` interpolation; bound to `<sectionId>.<lang>`. Universally supported — every backend renders or stores the value. |
 | Opaque-executable blocks (`node.js`, `sql`, …) | Recognised only by the backend(s) that declare the tag in `Capabilities.blockLanguages`.  Any other backend emits `Diagnostic.UnknownBlockLanguage(<tag>)` via `CapabilityCheck`. |
 | Inert tags (`python`, `yaml`, `text`, …) | Stored in the IR verbatim; ignored by every bundled backend. |
 
-The JS backend additionally compiles `scala` blocks via Scala.js, and
-the JVM backend includes `scala` blocks as-is alongside its
-`scalascript`-derived output.
+Today both the JS and JVM backends run `scala` blocks through the same
+ScalaScript engine as `scalascript` blocks — output is byte-identical and `Int`
+is 64-bit ([`specs/numeric-widths.md`](specs/numeric-widths.md)). Compiling
+`scala` blocks via real Scala.js (JS) or including them as native Scala source
+via scala-cli (JVM) — each carrying Scala's own 32-bit `Int` — is a future,
+separately-widthed capability that is not wired up
+([`specs/w5-int-width-findings.md`](specs/w5-int-width-findings.md)).
 
 ### 9.5 Apache Spark backend
 
