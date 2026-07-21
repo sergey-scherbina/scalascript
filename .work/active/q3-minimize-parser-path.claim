@@ -1,6 +1,0 @@
-feature/q3-minimize-parser-path 2026-07-21T15:14:37Z
-agent: codex
-heartbeat: 2026-07-21T17:56:05Z
-status: in-progress
-done-so-far: exact run 29844035544 for 22300330a is 3/4 green; final Test via sbt step 16 remains active since 16:05:48Z
-next: preserve exact run until scripts/ci-status exits 0; then release claim and remove worktree
