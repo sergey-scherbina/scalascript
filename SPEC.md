@@ -1151,23 +1151,33 @@ runAsync {
 
 ### 7.5 Coroutines
 
-Three primitive operations and one ADT:
+Four primitive operations and one ADT:
 
 ```scalascript
 enum Step[+Y, +T]:
   case Yielded(value: Y)
   case Returned(value: T)
+  case Errored(message: String)
   case Cancelled
 
-extern def coroutineCreate[Y, R, T](body: => T): Coroutine[Y, R, T]
+extern def coroutineCreate[Y, R, T](body: () => T): Coroutine[Y, R, T]
 extern def coroutineResume[Y, R, T](co: Coroutine[Y, R, T], in: R): Step[Y, T]
 extern def suspend[Y, R](out: Y): R
 extern def coroutineCancel[Y, R, T](co: Coroutine[Y, R, T]): Unit
 ```
 
 `coroutineCreate` is lazy — the body does not start until the first `coroutineResume`.
-`suspend(y)` is dynamically scoped to the innermost active coroutine.
-Cancelling a coroutine invalidates the handle; subsequent `coroutineResume` calls throw.
+The first resume input starts the thunk; every later input becomes the return value of
+the preceding `suspend(y)`. `suspend(y)` is dynamically scoped to the innermost active
+Coroutine or Generator body. Normal completion returns `Returned`; an unhandled body
+exception returns `Errored` and invalidates the handle. Cancelling is idempotent and
+also invalidates the handle; subsequent `coroutineResume` calls throw. `Cancelled`
+remains the portable controlled-shutdown case for higher-level consumers and does not
+make an explicitly cancelled low-level handle resumable again.
+
+The handle is mutable, process-local, opaque, and unsavable. The standard native
+ownership and lifecycle contract is normative in
+[`specs/v2.1-native-coroutine-provider.md`](specs/v2.1-native-coroutine-provider.md).
 
 #### 7.5.1 Generators
 

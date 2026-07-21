@@ -1,8 +1,10 @@
 # Coroutines
 
-Status: **design / planning**.  Implementation tracked across four
-milestones — v1.9 (coroutine primitive), v1.10 (generators), v1.11
-(continuation-based `Async`), v1.12 (algebraic-effects feasibility).
+Status: **primitive and cancellation shipped on v1/JS; ScalaScript 2.1 native
+provider specified**. Historical follow-up design is tracked across v1.10
+(generators), v1.11 (continuation-based `Async`), and v1.12
+(algebraic-effects feasibility). The standard native contract is
+[`v2.1-native-coroutine-provider.md`](v2.1-native-coroutine-provider.md).
 Companion to [`docs/direct-syntax.md`](../docs/direct-syntax.md) (which
 gives the *surface* for monadic code) and
 [`specs/backend-spi.md`](backend-spi.md) §8 (the intrinsic mechanism
@@ -57,17 +59,19 @@ The **non-goal**: replace user-facing APIs.  `Async.delay(...)` /
 
 ## 2. The primitive
 
-Three SPI intrinsics, one ADT.  Everything in this document reduces
+Four SPI intrinsics, one ADT.  Everything in this document reduces
 to this surface:
 
 ```scala
-// Status: a coroutine is either still running (gave us a Y) or done.
+// Status: a coroutine yielded, returned, failed, or was cancelled.
 enum Step[+Y, +T]:
   case Yielded(value: Y)
   case Returned(value: T)
+  case Errored(message: String)
+  case Cancelled
 
 // Create a paused coroutine.  Body does not execute until first resume.
-extern def coroutineCreate[Y, R, T](body: => T): Coroutine[Y, R, T]
+extern def coroutineCreate[Y, R, T](body: () => T): Coroutine[Y, R, T]
 
 // Resume; pass `in` as the result of the most recent suspend.  Returns
 // the next Yielded or the final Returned.  Resuming a Returned coroutine
@@ -78,6 +82,9 @@ extern def coroutineResume[Y, R, T](co: Coroutine[Y, R, T], in: R): Step[Y, T]
 // on the next resume.  Throws "outside coroutine" if called from non-
 // coroutine context.  Dynamically scoped, like `self()` in actors.
 extern def suspend[Y, R](out: Y): R
+
+// Invalidate the handle and interrupt an active body. Idempotent.
+extern def coroutineCancel[Y, R, T](co: Coroutine[Y, R, T]): Unit
 ```
 
 The two-way value passing (`suspend(y): R`) is **deliberate** — it
@@ -88,6 +95,12 @@ a result to the operation site via `resume`).
 `coroutineCreate` is **lazy**: the body does not start executing
 until the first `resume`.  This avoids the "coroutine runs ahead of
 its consumer" race that bedevils eager-start designs.
+
+Normal completion returns `Returned`; an unhandled body exception returns
+`Errored(message)`. Both are terminal. `coroutineCancel` is also terminal and
+idempotent; a later resume of any terminal handle throws. `Cancelled` remains
+available to higher-level controlled-shutdown protocols, but cancellation does
+not keep a low-level handle resumable solely to observe that case.
 
 ## 3. Grammar / scope rules
 
@@ -219,7 +232,7 @@ different abstraction at the user surface.
 
 ## 6. Backend intrinsic mapping
 
-The three intrinsics from §2 require one implementation per backend.
+The four intrinsics from §2 require one implementation per backend.
 
 ### 6.1 JVM (Loom virtual threads)
 
@@ -282,8 +295,8 @@ already used by `Async`.
 
 The SPI's `extern def` mechanism (Б-1 in
 `specs/spi-intrinsics-design.md`) is exactly the right surface:
-each backend declares its three implementations of
-`coroutineCreate / coroutineResume / suspend`, normalisation
+each backend declares its four implementations of
+`coroutineCreate / coroutineResume / suspend / coroutineCancel`, normalisation
 lowers user calls to `ExternCall(...)`, the backend's emit picks
 up.  No new SPI concept.
 
@@ -300,7 +313,7 @@ Both are useful, both stay — but for different things.
 | Layer | Coroutine | `Free[F, A]` (stdlib) |
 |-------|-----------|----------------------|
 | Concern | "How do we pause execution?" | "How do we represent an effectful program as a value?" |
-| Form | Runtime primitive (3 intrinsics) | Pure ScalaScript data structure (no intrinsics) |
+| Form | Runtime primitive (4 intrinsics) | Pure ScalaScript data structure (no intrinsics) |
 | Optimisation by user | Impossible — opaque handle | Possible — `cata`/fusion over the value tree |
 | Inspection / serialization | No | Only explicitly data-coded nodes; native closures/handles do not become durable |
 | Re-run with different handler | No | Yes — `foldMap(nt)` branches from the explicit data tree; unrelated to durable no-prefix-replay `save`/`run` |
@@ -403,8 +416,9 @@ breakdown of new code, new conformance tests, and dependencies:
 
 ### v1.9 — Coroutine primitive (~2 weeks)
 
-- 3 intrinsics (`coroutineCreate`, `coroutineResume`, `suspend`)
-  per backend (JVM, JS, INT)
+- 4 current intrinsics (`coroutineCreate`, `coroutineResume`, `suspend`,
+  `coroutineCancel`) per backend (JVM, JS, INT); cancellation followed the
+  initial three-operation v1.9 release in v1.9.x
 - New `Step[Y, T]` ADT and `Coroutine[Y, R, T]` opaque handle
 - Conformance: ping-pong, generator-like loop, two-way value
   passing, "outside coroutine" error
