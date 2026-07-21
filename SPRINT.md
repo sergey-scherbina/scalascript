@@ -2330,9 +2330,12 @@ value. `[claimed]` = a live agent owns it; `[open]` = free to claim; `[blocked]`
   overflowed scalameta `Lit.Int`); v2 = `ssc1-lower.ssc0` fail-closed `parseI` + `pre -` min64 fold.
   P6.5 fixpoint byte-identical (79,667 B). BUGS marked FIXED. Follow-up (BACKLOG-worthy): v2
   `BigInt("…")` past Int64 still errors `i->big: not Int` — v2 can't build a >Int64 BigInt yet.
-- `[open]` **W5** — measure whether a ` ```scala ` fence changes `Int` width (dead code today, but
-  README/SPEC promise the dangerous path). Ends in a language decision — measure + report, don't fix
-  blind. See §`int-width-conformance` W5.
+- `[measured — awaiting Sergiy decision]` **W5** — MEASURED 2026-07-21: a ` ```scala ` fence is
+  byte-identical to a ` ```scalascript ` fence on every lane (width follows the BACKEND, not the fence
+  tag); the scalac/Scala.js routing that would make it 32-bit is unreachable dead code, but README+SPEC
+  promise it. No divergence today; latent hole. Full reproduction + the 3-option decision Sergiy must
+  make: `specs/w5-int-width-findings.md`. See also §`int-width-conformance` W5 and BACKLOG.md
+  §"`scala` fences vs `scalascript` fences". No behaviour changed.
 
 ---
 
