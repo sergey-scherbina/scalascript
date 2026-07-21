@@ -1,6 +1,0 @@
-feature/w5-int-width-measure 2026-07-21T19:07:39Z
-agent: claude-code
-heartbeat: 2026-07-21T19:07:39Z
-status: in-progress
-done-so-far: claimed; measuring whether a scala fence changes Int width vs scalascript fence (MEASURE-ONLY, no behavior change)
-next: reproduce through real bin/ssc harness; write specs/w5-int-width-findings.md; frame decision for Sergiy
