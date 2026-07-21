@@ -381,9 +381,12 @@ object Parser:
         ))
       case (None, None) => None
 
+  private val SourceClusterHeaderPat =
+    java.util.regex.Pattern.compile("""^cluster\s+[A-Za-z_][A-Za-z0-9_-]*:\s*$""")
+
   private def extractSourceCluster(body: String): (Option[ClusterDecl], String) =
     val lines = body.linesIterator.toVector
-    val start = lines.indexWhere(line => line.matches("""^cluster\s+[A-Za-z_][A-Za-z0-9_-]*:\s*$"""))
+    val start = lines.indexWhere(line => SourceClusterHeaderPat.matcher(line).matches())
     if start < 0 then return (None, body)
     val name = lines(start).trim.stripPrefix("cluster").stripSuffix(":").trim
     var end = start + 1
