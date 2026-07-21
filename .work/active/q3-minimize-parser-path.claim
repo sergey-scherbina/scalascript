@@ -1,6 +1,6 @@
 feature/q3-minimize-parser-path 2026-07-21T15:14:37Z
 agent: codex
-heartbeat: 2026-07-21T15:22:43Z
+heartbeat: 2026-07-21T15:27:26Z
 status: in-progress
-done-so-far: Q3 plan landed at 258c0eff4; baseline wrapper gate and cluster conformance 5/5 green
-next: simplify jmh_run option assembly, run exact wrapper/parser/benchmark gates, and record reduction
+done-so-far: code c91fa77e4 and bookkeeping 22300330a landed; local wrapper, parser, benchmark, and conformance gates green
+next: require scripts/ci-status --sha 22300330aa30ec7081b6b2f8dc47dd58f1851a0d exit 0, then release claim and remove worktree
