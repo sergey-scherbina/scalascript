@@ -2161,7 +2161,7 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
             (single-iteration routing evidence, not a performance A/B). `ClusterFrontmatterTest` is
             9/9 and `*cluster*` conformance 5/5. The final bookkeeping SHA still requires exact CI exit
             0 before coordination cleanup.
-- [ ] **Q4 — v2-native-coroutine-provider.** Make the normative `Coroutine[Y, R, T]` primitive run on
+- [x] **Q4 — v2-native-coroutine-provider.** Make the normative `Coroutine[Y, R, T]` primitive run on
       the standard native VM/direct-ASM path without compatibility fallback. Baseline:
       `tests/conformance/{coroutine-basic,coroutine-error}.ssc` reach `unbound global:
       coroutineCreate`; the existing Generator provider already owns the global `suspend`, so the
@@ -2198,7 +2198,7 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
             direct ASM, and `build-jvm`; README/User Guide/spec links are live. Three focused cases
             pass INT/JS/native VM plus additive direct ASM, with the separate v1 JVM erasure defect
             still executed, diffed, and reported as one expiring known-red.
-      - [ ] **Q4.4 — verify and close.** Run the provider unit suite, exact runnable example on VM,
+      - [x] **Q4.4 — verify and close.** Run the provider unit suite, exact runnable example on VM,
             direct ASM and `build-jvm`, and `tests/conformance/run.sh --only 'coroutine-*'`; update the
             feature-spec behavior checks/results and SPRINT/CHANGELOG in separate commits, push each
             green slice, require exact-final-SHA `scripts/ci-status` exit 0, then release the claim and
@@ -2213,9 +2213,15 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
                   **DONE (`c6cf03634`):** 27 roots / 129 dependency edges / 43 staged JARs classify
                   with zero violations; dependency self-test, closed-layout smoke, backend
                   isolation, and native plugin boundary pass. Runtime code was unchanged.
-            - [ ] **Q4.4b — finish the original closeout after Q4.4a is green.** Re-run the complete
+            - [x] **Q4.4b — finish the original closeout after Q4.4a is green.** Re-run the complete
                   Coroutine verification matrix, check the feature spec against named tests, record
                   results/CHANGELOG, then hold the claim through exact-final-SHA CI exit 0.
+                  **DONE (spec verify `54ebca43d`):** provider tests are 9/9; fresh focused
+                  conformance is 3/3 with INT/JS/native VM and additive direct ASM; the demo is exact
+                  on VM/ASM/JAR and two builds share SHA-256
+                  `fce731c4f344dad478fda5627b8577d66402bbc3fe0314a1cda3363e86577be6`.
+                  Dependency/classloading gates pass with zero violations. The claim remains open
+                  only for `scripts/ci-status` exit 0 on this final bookkeeping commit.
 
 The path to ideal/small/powerful is: **(1) establish truth (reconcile the stale ROADMAP), (2) converge
 the two fronts into one, (3) redraw the kernel/tower boundary so "small" is real.** Breadth (cover the

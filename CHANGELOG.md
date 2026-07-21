@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-07-21 — Native Coroutine provider runs on VM, direct ASM, and build-jvm
+
+The standard core-free `59-generator` provider now owns one dynamically scoped `suspend` target for
+both Generator and `Coroutine[Y, R, T]`, plus lazy `coroutineCreate`, two-way `coroutineResume`, and
+idempotent `coroutineCancel`. Opaque handles deliver `Yielded`, `Returned`, or `Errored` exactly once;
+nested coroutines, Generator coexistence, pre/mid/post cancellation, outside-suspend diagnostics, and
+invalid repeat resume are covered without a new module, SPI, fallback, or packaging root. The public
+demo is byte-identical on native VM/direct ASM/build-jvm, provider tests pass 9/9, and focused
+conformance passes 3/3 across historical INT/JS, native VM, and additive ASM. A pre-existing v1 JVM
+generic-surface defect stays visible as an expiring known-red. Final verification also repaired a
+blind SclJet VFS provider/dependency inventory; 43 standard JARs now classify with zero violations
+(`708a82678`, example/conformance `b8fd4a31c`, docs `bfc893d99`, gate fix `c6cf03634`, spec verify
+`54ebca43d`).
+
 ## 2026-07-21 — Benchmark wrapper assembles JMH options without a branch
 
 `scripts/bench` now builds the complete JMH option vector once instead of keeping a second temporary

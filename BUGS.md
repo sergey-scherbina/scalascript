@@ -57,8 +57,8 @@ lifecycle case additionally passes direct ASM while printing the separate v1 JVM
 
 ## coroutine-contract-doc-drift — normative and feature specs disagree with the shipped surface
 
-**Status:** FIXED (2026-07-21, `6a9f434e4`; found by codex-q4 while specifying
-`v2-native-coroutine-provider`, tracked in SPRINT Q4.1).
+**Status:** DONE (2026-07-21, contract `6a9f434e4`, verification `54ebca43d`; found and confirmed by
+codex-q4 while specifying `v2-native-coroutine-provider`; SPRINT Q4.1/Q4.4).
 
 **Reproduce:** `SPEC.md` §7.5 says "Three primitive operations" but lists four functions, models
 `Step` without the shipped/public `Errored(message)` case, and declares a by-name body while
