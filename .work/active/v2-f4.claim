@@ -1,8 +1,8 @@
 claim: v2-f4
 branch: feature/v2-f4-sweep
 agent: opus (orchestrator — full residual sweep)
-heartbeat: 2026-07-20T20:10:43Z
-status: in-progress — F4a flip-readiness: COMPLETE residual sweep (Sergiy: sweep first)
+heartbeat: 2026-07-21T04:17:00Z
+status: in-progress — RESUMED after reboot; full-corpus (521 prog) dualrun sweep RUNNING (SSC_DUALRUN_ALL=1)
 what: F4a delegate-fallback landed (F never-worse-than-default for unbound-global gaps). Flip=1 line,
       held by Sergiy. BUT fallback can't catch WRONG-BUT-RESOLVES residuals (F resolves all globals
       but lowers a value wrong → silently wrong output). 2 found (dsl-ast-builder, multi-link-imports),
