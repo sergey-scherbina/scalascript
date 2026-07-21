@@ -1,6 +1,6 @@
 feature/q3-minimize-parser-path 2026-07-21T15:14:37Z
 agent: codex
-heartbeat: 2026-07-21T15:14:58Z
+heartbeat: 2026-07-21T15:22:43Z
 status: in-progress
-done-so-far: external worktree created at /Users/sergiy/work/my/scalascript-wt-q3-minimize-parser-path
-next: inspect Q1/Q2 touched path and commit concrete Q3 SPRINT slices before code
+done-so-far: Q3 plan landed at 258c0eff4; baseline wrapper gate and cluster conformance 5/5 green
+next: simplify jmh_run option assembly, run exact wrapper/parser/benchmark gates, and record reduction
