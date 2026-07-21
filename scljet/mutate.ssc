@@ -38,7 +38,7 @@ The table is assumed to be the single table rooted at page 2 — the shape SclJe
 writers produce.
 
 ```scalascript
-[KeyedRawRow, buildFromRawSchema, encodeRecord, SqliteValue, SqlInteger, SqlNull, SqlText, RawTable, buildMultiTableRaw, IndexEntry, buildTableWithIndexRaw, DecodedRecord, DecodedText, RecordField, ByteSlice, byteSliceToList, encodeVarint, ByteError, SqliteError, SqliteOpenOptions, SqliteLimits, OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, SqliteVfs, SqliteFile, VfsError, VfsRead, VfsWrite, FileKind, MainDatabaseFile, MainJournalFile, WalFile, OpenFlags, LockLevel, SyncFlags, DeviceCharacteristic, ShmLockMode, SharedRegion, byteSliceSlice, RowidTableTree, StorageRecord, ReadonlyDatabase, ReadonlyBtreeCursor, ReadonlyCursorStep, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly](index.ssc)
+[KeyedRawRow, buildFromRawSchema, encodeRecord, SqliteValue, SqlInteger, SqlNull, RawTable, buildMultiTableRaw, IndexEntry, buildTableWithIndexRaw, DecodedRecord, DecodedText, RecordField, decodedTextToSqlText, ByteSlice, byteSliceToList, encodeVarint, ByteError, SqliteError, SqliteOpenOptions, SqliteLimits, OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, SqliteVfs, SqliteFile, VfsError, VfsRead, VfsWrite, FileKind, MainDatabaseFile, MainJournalFile, WalFile, OpenFlags, LockLevel, SyncFlags, DeviceCharacteristic, ShmLockMode, SharedRegion, byteSliceSlice, RowidTableTree, StorageRecord, ReadonlyDatabase, ReadonlyBtreeCursor, ReadonlyCursorStep, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly](index.ssc)
 
 // ── Read-only VFS over a single in-memory database image ──
 
@@ -477,20 +477,12 @@ def readStorageRecords(database: ReadonlyDatabase, cursor: ReadonlyBtreeCursor):
         case Some(error) => Left(error)
         case None => Right(rsAcc.reverse)
 
-/** Rebuild a String from Unicode code points (`Int.toChar` works on both backends). */
-def codepointsToString(codePoints: List[Int]): String =
-  var cpsRemaining = codePoints
-  var cpsAcc = ""
-  while cpsRemaining.nonEmpty do
-    cpsAcc = cpsAcc + cpsRemaining.head.toChar.toString
-    cpsRemaining = cpsRemaining.tail
-  cpsAcc
-
 /** A record field as a `SqliteValue`: integers/reals/blobs from `value`, text
- *  rebuilt from its code points (so text index keys sort correctly). */
+ *  rebuilt from its code points via the shared portable projection (astral-safe,
+ *  identical across interp/VM/ASM/JS) so text index keys sort correctly. */
 def fieldToValue(field: RecordField): SqliteValue =
   if field.value.isDefined then field.value.get
-  else if field.text.isDefined then SqlText(codepointsToString(field.text.get.codePoints))
+  else if field.text.isDefined then decodedTextToSqlText(field.text.get)
   else SqlNull
 
 /** The value of column `col` in a decoded record (`SqlNull` if absent). */

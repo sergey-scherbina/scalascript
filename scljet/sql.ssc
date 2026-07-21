@@ -72,7 +72,7 @@ rows, applies the filter, and projects the result. `queryImage(dbBytes, sql)` op
 database image and returns the result rows; `renderRows` formats them like the sqlite3
 CLI (`a|b|c` per row, NULL blank) for differential testing.
 
-[ByteSlice, ByteError, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, ReadonlyDatabase, SchemaEntry, StorageRecord, DecodedRecord, RecordField, DecodedText, RowidTableTree, RecordKeyTree, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly, ReadonlyCursorStep, ReadonlyBtreeCursor, SqliteError, SqliteOpenOptions, SqliteLimits, OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, encodeRecord, openMutablePager, mutableCommit, mutableGet, mutablePut, MutablePager, PagerCommit, pagerInsertBalanced, pagerDeleteBalanced, readLeafCells, leafInsertCell, rebuildLeafPage, LeafCell, byteSliceSlice, byteSliceToList, byteSliceGet, writeU32Be, IndexEntry, buildIndexTree, sortIndexEntries, IndexTreeBytes, buildSingleTableIndexed, KeyedRawRow, SchemaIndex, SchemaTable, descendToLeaf, decodeVarint, VarintRead, decodeRecord, readU16Be, readU32Be, ByteRead](index.ssc)
+[ByteSlice, ByteError, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, ReadonlyDatabase, SchemaEntry, StorageRecord, DecodedRecord, RecordField, DecodedText, codePointsToString, RowidTableTree, RecordKeyTree, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly, ReadonlyCursorStep, ReadonlyBtreeCursor, SqliteError, SqliteOpenOptions, SqliteLimits, OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, encodeRecord, openMutablePager, mutableCommit, mutableGet, mutablePut, MutablePager, PagerCommit, pagerInsertBalanced, pagerDeleteBalanced, readLeafCells, leafInsertCell, rebuildLeafPage, LeafCell, byteSliceSlice, byteSliceToList, byteSliceGet, writeU32Be, IndexEntry, buildIndexTree, sortIndexEntries, IndexTreeBytes, buildSingleTableIndexed, KeyedRawRow, SchemaIndex, SchemaTable, descendToLeaf, decodeVarint, VarintRead, decodeRecord, readU16Be, readU32Be, ByteRead](index.ssc)
 [ImageVfs, fieldValueAt](mutate.ssc)
 
 ```scalascript
@@ -1209,13 +1209,9 @@ def reverseRecords(items: List[StorageRecord], acc: List[StorageRecord]): List[S
 def sqlOptions(): SqliteOpenOptions = SqliteOpenOptions(OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, 0L, 16, false,
   SqliteLimits(1000000L, 100, 100, 100, 100, 10, 1000000L, 100, 100, 1000L, 1000000L, 2, 1000L, 100, 1000000L))
 
-def cpToString(cps: List[Int]): String =
-  var r = cps
-  var s = ""
-  while r.nonEmpty do
-    s = s + r.head.toChar.toString
-    r = r.tail
-  s
+// Delegates to the shared portable projection (astral-safe, identical across
+// interp/VM/ASM/JS). See specs/scljet-portable-text-projection.md.
+def cpToString(cps: List[Int]): String = codePointsToString(cps)
 
 def columnIndex(colNames: List[String], name: String): Int =
   val target = upperStr(name)

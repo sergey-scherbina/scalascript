@@ -1,0 +1,38 @@
+#!/usr/bin/env ssc
+---
+name: scljet-portable-text
+description: SclJet portable code-points/UTF-16-units -> String projection; decode UTF-8 (ASCII + astral 4-byte + 2-byte) then project DecodedText -> SqlText and assert the reconstructed UTF-16 units (cross-backend)
+backends: [int, js]
+---
+
+# SclJet portable text projection
+
+[ByteSlice, byteSliceToList, EncodingUtf8, decodeText, decodedTextToSqlText, codePointToUtf16](std/scljet/index.ssc)
+
+```scalascript
+// Raw UTF-8 of "A" + U+1F600 (astral, 4-byte) + U+00DF (2-byte) + "Z". The bytes
+// are the storage source of truth (GIGO); the String is a decoded VIEW built
+// purely from code points via Int.toChar arithmetic — no host decoder. int==js.
+val raw = List(65, 240, 159, 152, 128, 195, 159, 90)
+
+def units(s: String): List[Int] =
+  var acc: List[Int] = Nil
+  var i = 0
+  while i < s.length do
+    acc = s.charAt(i).toInt :: acc
+    i = i + 1
+  acc.reverse
+
+ByteSlice.fromList(raw) match
+  case Left(e) => println("BYTES-ERROR:" + e.message)
+  case Right(bytes) => decodeText(bytes, EncodingUtf8) match
+    case Left(f) => println("DECODE-ERROR:" + f.message)
+    case Right(text) =>
+      val s = decodedTextToSqlText(text).value
+      println("codePoints=" + text.codePoints.toString)
+      println("wellFormed=" + text.wellFormed.toString)
+      println("astralPair=" + codePointToUtf16(128512).toString)
+      println("length=" + s.length.toString)
+      println("units=" + units(s).toString)
+      println("rawBytes=" + byteSliceToList(text.encoded).toString)
+```

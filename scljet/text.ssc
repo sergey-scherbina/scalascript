@@ -1,0 +1,69 @@
+---
+name: scljet-text
+version: 0.1.0
+description: Portable, target-neutral code-points / UTF-16-units -> String construction and DecodedText -> SqlText projection
+package: scljet
+exports:
+  - utf16UnitsToString
+  - codePointToUtf16
+  - codePointsToString
+  - decodedTextToSqlText
+---
+
+# SclJet portable text projection
+
+Target-neutral construction of a `String` from Unicode code points (or raw
+UTF-16 code units), and the `DecodedText -> SqlText` projection built on it.
+Every function uses only `Int.toChar` + `String` concatenation and integer
+arithmetic, so the result is byte-identical on the v1 interpreter (tree-walk,
+bytecode VM, ASM JIT) and on the JS backend. No host text decoder is ever used.
+
+The raw encoded bytes in `DecodedText.encoded` remain the storage source of
+truth; this projection is a decoded *view* for query/compare/print (GIGO: the
+U+FFFD replacements the byte decoder already produced pass through unchanged).
+
+See `specs/scljet-portable-text-projection.md`.
+
+[DecodedText](record.ssc)
+[SqlText](values.ssc)
+
+```scalascript
+// UTF-16 code units (each a 16-bit value 0..65535) -> String. On every backend a
+// String is a sequence of UTF-16 code units, so `unit.toChar` yields exactly one.
+// Iterative (JS has no TCO) so long text does not overflow node's stack.
+def utf16UnitsToString(units: List[Int]): String =
+  var uRemaining = units
+  var uAcc = ""
+  while uRemaining.nonEmpty do
+    uAcc = uAcc + uRemaining.head.toChar.toString
+    uRemaining = uRemaining.tail
+  uAcc
+
+// One Unicode code point -> its UTF-16 code unit(s). BMP passes through as a
+// single unit (surrogate values in 0xD800..0xDFFF included, matching the
+// historical fold); astral code points become a surrogate pair; out-of-range
+// values become U+FFFD. This is the ONLY place surrogate arithmetic lives.
+def codePointToUtf16(codePoint: Int): List[Int] =
+  if codePoint < 0 then List(65533)
+  else if codePoint <= 65535 then List(codePoint)
+  else if codePoint <= 1114111 then
+    val v = codePoint - 65536
+    List(55296 + (v / 1024), 56320 + (v % 1024))
+  else List(65533)
+
+// The general target-neutral projection: Unicode code points -> String,
+// astral-safe. For all-BMP input this is byte-identical to a naive
+// `cp.toChar.toString` fold, so existing (BMP) corpus output is unchanged.
+def codePointsToString(codePoints: List[Int]): String =
+  var cpRemaining = codePoints
+  var cpAcc = ""
+  while cpRemaining.nonEmpty do
+    cpAcc = cpAcc + utf16UnitsToString(codePointToUtf16(cpRemaining.head))
+    cpRemaining = cpRemaining.tail
+  cpAcc
+
+// Project a decoded SQLite text field to an `SqlText`. `text.encoded` (the raw
+// bytes) is untouched and stays the storage round-trip source of truth.
+def decodedTextToSqlText(text: DecodedText): SqlText =
+  SqlText(codePointsToString(text.codePoints))
+```

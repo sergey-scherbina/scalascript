@@ -70,6 +70,10 @@ exports:
   - DecodedRecord
   - decodeText
   - decodeRecord
+  - utf16UnitsToString
+  - codePointToUtf16
+  - codePointsToString
+  - decodedTextToSqlText
   - ReadonlyPager
   - DatabasePage
   - PagerPageRead
@@ -390,6 +394,8 @@ interfaces and prove compatibility through differential and crash testing.
 [BtreePageKind, IndexInteriorPage, TableInteriorPage, IndexLeafPage, TableLeafPage, PageContext, BtreePageHeader, CellPayload, BtreeCell, TableInteriorCell, TableLeafCell, IndexInteriorCell, IndexLeafCell, BtreePage, OverflowChunk, OverflowInput, OverflowPayload, localPayloadBytes, decodeBtreePage, decodeOverflowPage, decodeOverflowChain](page.ssc)
 
 [DecodedText, RecordField, DecodedRecord, decodeText, decodeRecord](record.ssc)
+
+[utf16UnitsToString, codePointToUtf16, codePointsToString, decodedTextToSqlText](text.ssc)
 
 [ReadonlyPager, DatabasePage, PagerPageRead, openReadonlyPager, pagerReadPage, closeReadonlyPager](pager.ssc)
 

@@ -1,0 +1,6 @@
+codePoints=List(65, 128512, 223, 90)
+wellFormed=true
+astralPair=List(55357, 56832)
+length=5
+units=List(65, 55357, 56832, 223, 90)
+rawBytes=List(65, 240, 159, 152, 128, 195, 159, 90)
