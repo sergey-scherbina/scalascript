@@ -1,6 +1,0 @@
-feature/scljet-standalone-library-symlink-drop 2026-07-21T19:18:14Z
-agent: opus-orch
-heartbeat: 2026-07-21T19:29:24Z
-status: in-progress
-done-so-far: ImportResolver first-class scljet root + build.sbt direct staging implemented in worktree; core compiles. About to drop symlink + full install + verify.
-next: git rm symlink; installBin; scljet-* conformance int+js; native run; non-scljet std; update spec
