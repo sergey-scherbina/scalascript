@@ -1,8 +1,22 @@
 claim: v2-f4
-branch: feature/v2-f4-sweep
+branch: feature/v2-f4-resweep
 agent: opus (orchestrator — full residual sweep)
-heartbeat: 2026-07-21T04:17:00Z
-status: in-progress — RESUMED after reboot; full-corpus (521 prog) dualrun sweep RUNNING (SSC_DUALRUN_ALL=1)
+heartbeat: 2026-07-21T04:52:00Z
+status: in-progress — CLEAN RE-RUN. First full sweep (worktree feature/v2-f4-sweep) was CORRUPTED: that
+        orphaned pre-reboot worktree was torn down (rm-worktree/prune) MID-SWEEP → exit 144 + `awk: can't
+        open manifest` at scljet-sql-params. New worktree feature/v2-f4-resweep off origin/main; installBin
+        building, then re-run SSC_DUALRUN_ALL=1 clean.
+preliminary-findings: (from the CORRUPTED-tail sweep — EARLY part intact, ran vs an intact F-staged bin)
+        FULL enumeration: EQUAL 513/521, DIVERGE 8 = 2 known-GAP + 6 UNEXPECTED.
+        LIKELY-REAL (ran BEFORE teardown, examples/ + conformance a-r): litdoc(def0/F1, multi-file std/litdoc),
+          mcp-types(def0/F1 partial, multi-fence no-import), money-multisection(def0/F1, std/money),
+          money-portable-v2(def0/F1, std/money). All 4 = wrong-but-resolves class (F1 = F ran to a wrong/
+          partial result; fallback did NOT catch = globals resolved).
+        SUSPECT/CORRUPTED (ran AT/AFTER teardown, 's' onward): scljet-sql-params(def0/F rc143 SIGTERM),
+          scljet-sql-range-descent(def1/F rc127 not-found). rc127 = launcher deleted mid-run → NOT a real
+          F residual; re-verify clean. The whole conformance 's'-'z' tail (scljet+ t/u/v/w..) is UNVERIFIED.
+        NOTE: shared-main bin/ssc has NO SSC_FRONT staging (stale sibling install) → SSC_FRONT=F is a no-op
+          there (runs default twice); NEVER re-verify residuals from shared main. Must use an F-staged worktree.
 what: F4a delegate-fallback landed (F never-worse-than-default for unbound-global gaps). Flip=1 line,
       held by Sergiy. BUT fallback can't catch WRONG-BUT-RESOLVES residuals (F resolves all globals
       but lowers a value wrong → silently wrong output). 2 found (dsl-ast-builder, multi-link-imports),
