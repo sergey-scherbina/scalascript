@@ -498,9 +498,30 @@ effects at the destination. The following extensions require separate designs an
       `balanceDeeper`; `pagerDeleteBalanced` rewrites the leaf) — all wired into the
       SQL engine's DML (`sql.ssc` INSERT/DELETE/UPDATE=delete+reinsert); conformance
       `scljet-pager-mutate`, `scljet-cell-inplace`, `scljet-balance-insert`. Spec:
-      `specs/scljet-mutable-pager.md`. Remaining: merge/rebalance on delete underflow
-      (free the emptied page onto the freelist) — see `scljet-mutable-pager`. (JIT
-      codegen bug found on the way — BUGS.md `interp-jit-nested-match-duplicate-var`.)
+      `specs/scljet-mutable-pager.md`. Merge/rebalance on delete underflow is DONE too
+      (2026-07-21): `write.ssc` `pagerDeleteRebalanced` reclaims an emptied non-root
+      leaf onto the freelist (page-1 bytes 32..39 + trunk pages, `buildFreelistTrunks`/
+      `patchFreelistHeader`) and collapses an interior dropping to one child
+      (`balance_shallower` — root page kept, interior→leaf); file length + header page
+      count unchanged, freelist grows. Only empty nodes are reclaimed (dividers dropped,
+      never rewritten). Verified vs reference SQLite 3.53.3: `integrity_check` ok and
+      `freelist_count` matches after a partial delete (10 pages freed) AND a root
+      collapse (12 freed, root→leaf); the journal recovers the original image after a
+      merge (crash-safe); int==js (conformance `scljet-balance-delete-merge`). The whole
+      m3 write matrix + in-place mutable pager is now complete. (JIT codegen bug found on
+      the way — BUGS.md `interp-jit-nested-match-duplicate-var`.)
+
+- [ ] **scljet-reclaiming-dml** — wire the reclaiming delete into the live SQL engine.
+      `sql.ssc` DELETE currently uses `pagerDeleteBalanced` (non-reclaiming); switching
+      `deleteRowidLoop` to `pagerDeleteRebalanced` makes DELETE return pages to the
+      freelist, but is only a net win when paired with **free-page reuse on INSERT**
+      (`pagerInsertBalanced`/`mutableAllocate` currently always allocate at EOF, ignoring
+      the freelist) — otherwise a delete-then-insert workload bloats. Do both together:
+      teach allocation to pop a page off the freelist (updating header bytes 32..39 +
+      trunk) before extending at EOF, then flip the DELETE path. Gate: no `scljet-sql-*`
+      golden shifts except intended byte-state changes; `integrity_check` ok across a
+      mixed insert/delete workload; int==js. Primitive + freelist writer already exist
+      (`specs/scljet-mutable-pager.md`).
 
 - [x] **scljet-byteslice-zeros-js-recursion** — DONE 2026-07-13. The core list
       helpers in `scljet/bytes.ssc` were made iterative (`while`+`var`, not linear

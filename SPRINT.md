@@ -31,20 +31,6 @@ provider, or the F cutover path from these tasks** (collision). These six are th
       SQLite 3.53.3 (this machine's Python `sqlite3` = 3.53.3). Corpus `.db` files are `.gitignore`d →
       `git add -f`. Verify int==js. Spec-dev: extend `specs/scljet.md` corpus section.
 
-- [ ] **scljet-mutable-pager** (`scljet-mutable-pager`) — the big deep item. A real **in-place mutable
-      pager** on top of `journal.ssc` `writePagesJournaled`: dirty-page tracking + **cell-level in-place
-      edits** (insert/delete/update a cell within a leaf, split/merge on overflow/underflow), replacing
-      today's read-modify-rewrite DML (correct but rewrites the whole file). Also close **3+-level
-      indexes** (the remaining bullet in `scljet-m3-write-followups`). Existing `scljet/pager.ssc` is the
-      landing spot. Spec-dev FIRST: `specs/scljet-mutable-pager.md` (dirty-set model, journal-before-write
-      ordering, split/merge invariants, crash-safety proof obligation). Verify every step byte-exact vs
-      reference SQLite 3.53.3 (`integrity_check=ok` after in-place edits) + int==js. GOTCHAS from memory:
-      interp `if cond then <stmt>` (no else) SILENTLY SKIPPED → use if/else expression; JS has no TCO →
-      iterative `while`+`var` for page/byte loops; unique var-name prefixes (var-scope leak history);
-      conformance memo keys on `ssc.jar` not scljet sources → `--no-memo` after editing `scljet/*.ssc`;
-      verify JS via `bin/ssc-tools emit-js <case> | node` from `tests/conformance/` (scratchpad path
-      breaks emit-js's std/scljet resolution). Big → land in shippable slices on the feature branch,
-      push each green slice to main.
 
 - [x] **v2-f5-kernel-shrink** — **STUDY DONE** (spec `7a31df264`, instrument `d6b1fe5a2`). Step A
       delivered: `specs/v2-f5-kernel-shrink.md` — per-region map + honest fixpoint-verified target.

@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-07-21 — scljet mutable pager: merge/rebalance on delete underflow + spec
+
+Completed the in-place mutable-pager arc. New: `write.ssc` `pagerDeleteRebalanced` finishes
+SQLite's `balance()` delete half — an emptied non-root leaf is reclaimed onto the freelist
+(page-1 bytes 32..39 + trunk pages) and an interior dropping to one child collapses
+(`balance_shallower`, root page number kept, interior→leaf); the file length and header page
+count stay the same while the freelist grows. Only empty nodes are reclaimed (dividers are
+dropped, never rewritten). Verified against reference SQLite 3.53.3: `integrity_check` = ok
+and `freelist_count` matches after a partial delete (10 pages freed) and a root collapse (12
+freed, root→leaf), and the rollback journal recovers the original image byte-for-byte after a
+merge (crash-safe); int==js (conformance `scljet-balance-delete-merge`). Wrote
+`specs/scljet-mutable-pager.md` documenting the whole pager (dirty-set model, journal-before-
+write ordering, split/merge invariants, crash-safety proof). Confirmed the rest of the arc was
+already landed + DML-wired (dirty-page `MutablePager`, cell-level leaf edits, `balance()` split
+on insert, arbitrary-depth `buildIndexTree` incl. a genuine 3-level index) and closed the stale
+`scljet-m3-write-followups` "3+-level indexes / full mutable pager" bullets. Follow-up queued:
+`scljet-reclaiming-dml` (wire the reclaiming delete + free-page reuse on insert into the SQL DML).
+
 ## 2026-07-21 — v2-f5-kernel-shrink: study + measured re-study of the "irreducible" perf layers
 
 Step A (study) delivered: `specs/v2-f5-kernel-shrink.md` — an honest, fixpoint-verified per-region
