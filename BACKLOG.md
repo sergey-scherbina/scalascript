@@ -458,10 +458,22 @@ effects at the destination. The following extensions require separate designs an
       the pre-images of the pages about to change, overwrites them in place, and
       returns the mutated database + rollback journal; `applyRollbackJournal` undoes
       it, so a crash before commit is recoverable (conformance
-      `scljet-journal-write`, verified differs+restores int==js). Remaining: 3+-level
-      indexes, and a full mutable pager (dirty-page tracking, transactions,
-      cell-level in-place edits) built ON TOP of `writePagesJournaled`. (JIT codegen
-      bug found on the way — BUGS.md `interp-jit-nested-match-duplicate-var`.)
+      `scljet-journal-write`, verified differs+restores int==js). 3+-level indexes are
+      DONE too (2026-07-14): `buildIndexTree` stacks kind-2 interior levels bottom-up
+      until a single-page root (`packIdxLevel`/`buildIdxLevels`) — a genuine 3-level
+      index (interior level itself overflows) verified on 3000 rows, `integrity_check`
+      cross-validates it, the planner uses `SEARCH … USING COVERING INDEX`, depth 3,
+      int==js (conformance `scljet-write-index-deep`). The full mutable pager is DONE
+      too (2026-07-14): `journal.ssc` `MutablePager` (dirty-page set + atomic journaled
+      `mutableCommit`/`mutableRollback`), `write.ssc` cell-level leaf edits
+      (`leafInsertCell`/`leafDeleteCell`/`leafUpdateCell`) and incremental `balance()`
+      on insert/delete (`pagerInsertBalanced` splits leaves + grows the tree via
+      `balanceDeeper`; `pagerDeleteBalanced` rewrites the leaf) — all wired into the
+      SQL engine's DML (`sql.ssc` INSERT/DELETE/UPDATE=delete+reinsert); conformance
+      `scljet-pager-mutate`, `scljet-cell-inplace`, `scljet-balance-insert`. Spec:
+      `specs/scljet-mutable-pager.md`. Remaining: merge/rebalance on delete underflow
+      (free the emptied page onto the freelist) — see `scljet-mutable-pager`. (JIT
+      codegen bug found on the way — BUGS.md `interp-jit-nested-match-duplicate-var`.)
 
 - [x] **scljet-byteslice-zeros-js-recursion** — DONE 2026-07-13. The core list
       helpers in `scljet/bytes.ssc` were made iterative (`while`+`var`, not linear
