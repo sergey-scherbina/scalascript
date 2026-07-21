@@ -1,0 +1,14 @@
+claim: f-typeclass-multifile
+branch: feature/f-multifile-fix
+agent: opus (F multi-file typeclass/given lowering — the SILENT-WRONG residual class)
+heartbeat: 2026-07-21T08:44:02Z
+status: in-progress — re-verified 10 residuals vs origin/main (79dad32b8): 4 now-fixed by 70d5bbabf
+        (multi-link-imports, money-multisection, money-portable-v2, tkv2-theme-css-vars). Reconciling
+        dualrun.expected + fixing the typeclass-given class.
+what: Fix F's MULTI-FILE typeclass/given lowering — the SILENT-WRONG residuals std-bifunctor,
+      tagless-sealed-dispatch (F emits `Stub` for imported typeclass givens, exits 0 with wrong stdout)
+      + std-monaderror (arity 3/2) + litdoc (internal ssc:2). Edit F source (specs/v2.2-p6.5-fsub.ssc);
+      verify each: residual now EQUAL to oracle + fsub --self fixpoint byte-identical + semantic 246/246 +
+      no corpus regression. Also RECONCILE dualrun.expected (remove the 4 now-fixed). NOT taking
+      f-object-method-varargs (mcp-types) or f-operator-extension-dispatch (dsl-ast-builder) — those are
+      the FRONT agent's filed bugs. NOT flipping the front.
