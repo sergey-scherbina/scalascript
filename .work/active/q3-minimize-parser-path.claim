@@ -1,6 +1,6 @@
 feature/q3-minimize-parser-path 2026-07-21T15:14:37Z
 agent: codex
-heartbeat: 2026-07-21T16:18:08Z
+heartbeat: 2026-07-21T16:28:12Z
 status: in-progress
-done-so-far: exact run 29844035544 for 22300330a has lint, validation, and conformance green; final Test via sbt step 16 is active
+done-so-far: exact run 29844035544 for 22300330a is 3/4 green; final Test via sbt step 16 remains active
 next: preserve exact run until scripts/ci-status exits 0; then release claim and remove worktree
