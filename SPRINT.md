@@ -2408,9 +2408,17 @@ value. `[claimed]` = a live agent owns it; `[open]` = free to claim; `[blocked]`
   (13 nodes / 7 consts). Spec (`10-core-ir.md` §5, `12-ir-format.md` §Reader-leniency/§bounded) +
   CHANGELOG (2026-07-17 entry) already reconciled. The F4a delegate-fallback contract
   (`Reader.validate` catching unbound globals) is preserved — only tightened, never loosened.
-- `[blocked]` **`save()`/`run()` durable continuations** → then **`control-interop-examples`.** Blocked
-  because `save()`/`run()` does not exist on ANY lane yet (every `Continuation.save()` returns
-  `Save.Rejected`). Unblock order is fixed; do not start examples first. See the GATE-LIFTED note.
+- `[~]` **`save()`/`run()` durable continuations** → then **`control-interop-examples`.** KEYSTONE
+  LANDED 2026-07-21 (`329f18758`, claim `durable-continuation-save-run`): the in-process managed
+  save/run now works on the **scala-explicit** lane. `Continuation.savable(state, machine, codec:
+  DurableValue[S]).save()` returns a real reusable `SavedContinuation`; `run()` is multi-shot, no
+  prefix replay, honours the §8.2 snapshot law; unmanaged closures + codec-less `local` stay
+  `Rejected`. Diagnosis: the old always-`Rejected` was **by design** (tier-1 oracle had no save-plan
+  evidence), NOT a bug — see `specs/durable-continuation-save-run.md`. STILL OPEN before examples:
+  (a) `saved-continuation-format` byte codec + capsule; (b) exact-artifact + portable-CoreIR runners;
+  (c) JS/Rust/Swift lane parity (mirror `v2/host/js/control/index.js:315-348`); (d) flip cross-lane
+  vectors 14/17 per lane. Do not start examples until a lane advertises `durable-save`/`no-replay`.
+  See §"Reusable continuation save/run" for the follow-on items and the GATE-LIFTED note.
 
 **Health — get `main` to its first fully-green run:**
 - `[open]` **ci-last-red — the `sbt — compile and test` job is the only red left.** 5 suites in
@@ -4882,12 +4890,22 @@ dynamic saved-capsule runner.
   run in a fresh/on-demand exact-artifact runner without calling `main` or effectful/static application
   initialization. Provider references use expiry/removal; inline exact-artifact values require finite
   `notAfter` so retention is bounded.
-- [ ] **continuation-save-run** — implement `continuation.save()` as typed
+- [~] **continuation-save-run** — implement `continuation.save()` as typed
   `Eff[Save,SavedContinuation.Aux[A,Fx,R]]` plus reusable local/remote `saved.run(value)`. Each run
   decodes an isolated frame, freshens captured prompt ids, and invokes the resume entry once; no prefix
   or automatic admitted-run retry. External redelivery is a distinct run; post-admission disconnect is
   `RunOutcomeUnknown`. Remote residual effects require a closed row or explicit authenticated
   `RemoteRunEnvironment[Fx]`. One-shot sources remain one-shot.
+  **IN-PROCESS KEYSTONE LANDED 2026-07-21 (`329f18758`, scala-explicit lane):** new public
+  `Continuation.savable(state, machine, codec: DurableValue[S])` builder + authority-guarded
+  `SavedContinuation.Reusable`; `save()` snapshots and returns a reusable value, `run()` re-snapshots
+  an independent frame per admitted run (§8.2), resumes once at the capture point, multi-shot, no
+  prefix replay; `Restore.admitLocally` discharges the in-process `Restore` row. Unmanaged/codec-less
+  stay `Rejected`. Spec `specs/durable-continuation-save-run.md`; control suite 117/117 + ABI gate.
+  **REMAINING:** prompt-id alpha-renaming per run (no prompts captured in the keystone state-machine
+  case yet — needs the shift/reset capture path); byte-frame decode (needs `saved-continuation-format`);
+  remote `saved.run` + `RemoteRunEnvironment[Fx]` + `RunOutcomeUnknown` (needs a runner). Those ride on
+  the format/runner slices below.
 - [ ] **portable-coreir-capsule-runner-jvm** — after the exact-artifact proof, closure-convert/link a
   state-abstracted `(FrozenFrame,input)=>Eff` CoreIR resume Program, materialize every application
   Global, and run the packed capsule on a generic managed-JVM CoreIR runner with no application JAR.
