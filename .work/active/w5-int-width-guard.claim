@@ -1,6 +1,6 @@
-feature/w5-int-width-guard 2026-07-21T19:20:58Z
+feature/w5-int-width-guard 2026-07-21T19:42:56Z
 agent: claude-code
-heartbeat: 2026-07-21T19:20:58Z
-status: in-progress
-done-so-far: read AGENTS.md + specs/w5-int-width-findings.md; Sergiy DECIDED Option C (keep Int=64, honest docs, guard test, keep dead Scala.js path guarded)
-next: create worktree; honest docs (README/SPEC/backend-specific-blocks); guard test scala==scalascript on all lanes; SPRINT/CHANGELOG bookkeeping
+heartbeat: 2026-07-21T19:42:56Z
+status: landed-awaiting-ci
+done-so-far: Option C landed on origin/main @ 59eef694c (guard test + honest docs + bookkeeping). Both guards proven fail-loud; conformance + e2e green locally on post-rebase build.
+next: verify exact-SHA CI green (scripts/ci-status --sha 59eef694c) then release claim + rm-worktree
