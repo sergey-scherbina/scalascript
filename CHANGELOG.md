@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-07-21 — Compiler benchmark wrapper reaches the real JMH lanes
+
+`scripts/bench compile` now selects `ParserBench`, `TyperBench`, `UnifyBench`, and
+`SsccFormatCompilerBench` instead of the nonexistent broad `CompilerBench` class filter, so named
+parser, typer, and unifier measurements run again. `scripts/bench list` aggregates both benchmark
+projects without duplicates, and CI compares the exact generated commands plus list output before a
+green verdict. Real smoke runs selected all three representative methods; affected conformance passed
+11/11 (`5aee0cd35`).
+
 ## 2026-07-21 — F front synthesizes default args for object-method calls
 
 `SSC_FRONT=F` now fills omitted trailing defaults on object-method calls `O.m(x)` (e.g.

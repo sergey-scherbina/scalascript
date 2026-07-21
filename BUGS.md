@@ -2,7 +2,8 @@
 
 ## bench-compile-wrapper-hides-real-compiler-benches — compile measurements cannot start
 
-**Status:** OPEN (2026-07-21, found by codex while starting Q2 measured optimization).
+**Status:** FIXED (2026-07-21, `5aee0cd35`; found and verified by codex while starting Q2 measured
+optimization).
 
 **Reproduce:**
 
@@ -20,11 +21,14 @@ class filter; only `SsccFormatCompilerBench` happens to contain that substring. 
 also queries only `interpreterBench`, so it hides every compiler-project benchmark while claiming to
 list all available benches.
 
-**Fix plan.** Make the compile lane select all four compiler benchmark classes and make `list`
-aggregate the interpreter and compiler projects without duplicates. Add a fast wrapper regression
-that inspects the actual generated sbt/JMH commands, then prove `parseActors`, `typeActors`, and
-`unifyDeep` each run through `scripts/bench compile` and compiler benches appear in `scripts/bench
-list`. Only after that gate is truthful may Q2 record a baseline/profile and optimize compiler code.
+**Fix / verification.** The compile lane now selects all four compiler benchmark classes and `list`
+aggregates the interpreter and compiler projects without duplicates. The CI wrapper regression
+compares the exact generated sbt/JMH commands and combined list output, printing expected and actual
+values on any mismatch. Real one-warmup/one-measurement runs through the wrapper selected
+`ParserBench.parseActors` (3.934 ms/op), `TyperBench.typeActors` (0.003 ms/op), and
+`UnifyBench.unifyDeep` (1.156 us/op); `scripts/bench list` showed all compiler classes. The smoke
+numbers prove routing only and are not the Q2 optimization baseline. The regression gate and affected
+`v2-*` conformance slice (11/11) passed.
 
 ## f-imported-caseclass-default-arg-synth — F front missed defaulted params on OBJECT-METHOD calls
 
