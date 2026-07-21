@@ -101,7 +101,7 @@ absorbed EVERY contiguous following `def` as another receiver-bearing member, pr
 receiver. `render` (1 param) thus became `lam2`, and the call `render(doc)` (1 arg) crashed with
 `arity: 2 expected, 1 given`. (Same shape made `main` → `lam1` in single-file repros.)
 
-**Fix (specs/v2.2-p6.5-fsub.ssc, commit `1e670aa1a`; mirrors ssc1-front layout E/X frames):** thread an
+**Fix (specs/v2.2-p6.5-fsub.ssc, commit `5b9940422`; mirrors ssc1-front layout E/X frames):** thread an
 `eh` extension-head flag through the layout — a TOP-LEVEL `extension` ident pushes an `X` receiver frame
 whose closing `)` opens an `L` block, wrapping the members in a virtual `{ … }`; `extMembers`/`collectEM`/
 `collectTopEM` consume the `{` (`extOpenBrace`) and STOP at the `}`. A dedented top-level `def` is no
