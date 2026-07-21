@@ -1677,6 +1677,12 @@ mismatch; limit exhaustion; and arithmetic boundaries. The test accepts no
 platform exception, hang, or unbounded allocation. Fuzz smoke mutates bounded
 fixture copies and asserts only success or a structured `SqliteError`.
 
+A separate slice of overflow-chain corruptions lives *inside a user table's*
+overflow pages, so it is invisible to open-time validation and only surfaces
+during forward table traversal: a truncated, out-of-range, or self-looped
+`next` pointer, and a length-short overflow page. These are exercised by a
+traversal-based dumper rather than the open-time corrupt check.
+
 ### SQL differential suite
 
 For each supported SQL case, execute the same schema, bindings, and statement on
@@ -2026,10 +2032,29 @@ now covered on the interpreter, VM, ASM, and fallback lanes; JS exactness stays
 an explicit open gate. Exact table-leaf and index-btree payload thresholds are
 pinned (`overflow-thresholds.db`, `index-overflow-thresholds.db`), and deep
 page-1 record/freeblock/schema byte-mutation corruptions fail safely with
-localized diagnostics. The one remaining M2d hardening item is user-table
-overflow-chain traversal corruption (truncated/looped chains on non-schema
-pages), which needs a traversal-based negative check beyond the open-time
-`openReadonly` validation (`BACKLOG.md`).
+localized diagnostics.
+
+The final M2d hardening item — user-table overflow-chain traversal corruption
+on non-schema pages — landed 2026-07-21. It closes a real gap: the open-time
+`openReadonly` path validates only the header, pager, and page-1 schema, so a
+`next` pointer damaged *inside* a user table's overflow page is never seen until
+the row is actually traversed. Three byte-mutations of the multi-page overflow
+chain of `overflow-thresholds.db` (the `p = 1100` row spills page 11 → 12) are
+now pinned as corrupt fixtures: a truncated `next` (→ 0) and an out-of-range
+`next` (→ 99) both surface `overflow chain ended early or points out of range`,
+and a self-looped `next` (→ 11) surfaces `overflow chain contains a cycle`.
+`openReadonly` accepts all three; the failures appear only when the table is
+walked. A new dumper `tests/tools/scljet-corrupt-traverse.ssc` (`backends:
+[int]`, `jvmSqliteVfs`) traverses each corrupt file and pins the localized
+diagnostics in `corrupt-traversal-errors.txt`, and
+`tests/e2e/scljet-m2-corpus-smoke.sh` runs it across the default VM, ASM, and
+tree-walk fallback tiers alongside the open-time corrupt checks. Cross-backend
+parity (int == JS) is proved by conformance `scljet-overflow-traversal-corrupt`
+(`[int, js]`), which reconstructs the same overflow chain in memory from
+`buildOverflowTableDatabase`, drives it through the pager cursor, and adds the
+truncated-page case (`overflow page is truncated`) that a length-consistent
+on-disk file cannot express. The corrupt corpus is now 33 files: 30 open-time
+mutations plus these 3 traversal-time ones.
 
 M3 progress (2026-07-13): the first write-path slice landed. `write.ssc`'s
 `emptyDatabase(pageSize)` serializes a freshly-created empty database — the
