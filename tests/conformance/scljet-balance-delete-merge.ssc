@@ -1,0 +1,131 @@
+---
+name: scljet-balance-delete-merge
+description: SclJet delete-underflow merge — emptied leaves are reclaimed to the freelist and an interior collapsing to one child shrinks the tree (balance_shallower), file length unchanged
+backends: [int, js]
+---
+
+# SclJet merge/rebalance on delete underflow
+
+`pagerDeleteRebalanced` completes SQLite's `balance()`: when a delete empties a
+non-root leaf the page is reclaimed onto the freelist (header bytes 32..39 + trunk
+pages) and an interior that drops to a single child collapses (the root becomes
+shallower, its page number kept). The file length and header page count stay the same;
+the freelist grows. Starting from a 24-row two-level table (14 pages), scenario A
+deletes rowids 1..20 (survivors 21..24) reclaiming ~10 leaves; scenario B deletes
+1..23 leaving one row, collapsing the root interior to a single leaf (root kind 13).
+Both walk the tree to confirm the survivors and the freelist count, and the journal
+recovers the original image byte-for-byte (crash-safety after a merge). Verified
+out-of-band against reference SQLite 3.53.3: `PRAGMA integrity_check` = ok and
+`freelist_count` matches after each merge. Fingerprinted (iterative Adler-32) so int
+and JS must agree byte-for-byte.
+
+[ByteSlice, byteSliceToList, byteSliceSlice, byteSliceGet, readU32Be, ByteRead, SqliteValue, SqlInteger, SqlText, buildTableDatabase, openMutablePager, mutableCommit, MutablePager, pagerDeleteRebalanced, readLeafCells, readInteriorNode, LeafCell, applyRollbackJournal](std/scljet/index.ssc)
+
+```scalascript
+def rowText(rowid: Int): String = "row-" + rowid.toString + "-padding-to-make-it-a-couple-hundred-bytes-so-a-leaf-holds-only-a-few-rows-and-splits-quickly-abcdefghijklmnopqrstuvwxyz0123456789-abcdefghijklmnopqrstuvwxyz"
+
+def mkRows(n: Int): List[List[SqliteValue]] =
+  var mrI = 1
+  var mrAcc: List[List[SqliteValue]] = Nil
+  while mrI <= n do
+    mrAcc = List(SqlInteger(mrI.toLong), SqlText(rowText(mrI))) :: mrAcc
+    mrI = mrI + 1
+  var mrOut: List[List[SqliteValue]] = Nil
+  while mrAcc.nonEmpty do
+    mrOut = mrAcc.head :: mrOut
+    mrAcc = mrAcc.tail
+  mrOut
+
+def mapRowids(cells: List[LeafCell]): List[Long] =
+  var r = cells
+  var accRev: List[Long] = Nil
+  while r.nonEmpty do
+    accRev = r.head.rowid :: accRev
+    r = r.tail
+  var out: List[Long] = Nil
+  while accRev.nonEmpty do
+    out = accRev.head :: out
+    accRev = accRev.tail
+  out
+
+def collectRowids(img: ByteSlice, pageNo: Int): List[Long] =
+  byteSliceSlice(img, (pageNo - 1) * 512, 512) match
+    case Left(_) => Nil
+    case Right(page) => byteSliceGet(page, 0) match
+      case Right(13) => readLeafCells(page, 0) match
+        case Right(cells) => mapRowids(cells)
+        case Left(_) => Nil
+      case Right(5) => readInteriorNode(page, 0) match
+        case Right(node) =>
+          var r = node.children
+          var acc: List[Long] = Nil
+          while r.nonEmpty do
+            acc = acc ++ collectRowids(img, r.head)
+            r = r.tail
+          acc
+        case Left(_) => Nil
+      case _ => Nil
+
+def adler32(bytes: ByteSlice): Long =
+  var adI = 0
+  var adA = 1L
+  var adB = 0L
+  while adI < bytes.length do
+    byteSliceGet(bytes, adI) match
+      case Right(b) =>
+        adA = (adA + b.toLong) % 65521L
+        adB = (adB + adA) % 65521L
+      case Left(e) => adA = adA
+    adI = adI + 1
+  adB * 65536L + adA
+
+def u32At(img: ByteSlice, off: Int): Long =
+  readU32Be(img, off) match
+    case Right(ByteRead(v, _)) => v
+    case Left(_) => -1L
+
+def rootKind(img: ByteSlice): Int =
+  byteSliceGet(img, 512) match
+    case Right(k) => k
+    case Left(_) => -1
+
+def deleteRange(pager0: MutablePager, root: Int, lo: Int, hi: Int): Either[String, MutablePager] =
+  var p = pager0
+  var i = lo
+  var err: Option[String] = None
+  while i <= hi && err.isEmpty do
+    pagerDeleteRebalanced(p, root, i.toLong, 512) match
+      case Left(e) => err = Some(e.message)
+      case Right(next) => p = next
+    i = i + 1
+  err match
+    case Some(m) => Left(m)
+    case None => Right(p)
+
+def scenario(label: String, db: ByteSlice, hi: Int): Unit =
+  deleteRange(openMutablePager(db, 512, 512), 2, 1, hi) match
+    case Left(m) => println(label + " delete-error: " + m)
+    case Right(afterDel) => mutableCommit(afterDel, 99L) match
+      case Left(error) => println(label + " commit-error: " + error.message)
+      case Right(pc) =>
+        val img = pc.pager.image
+        val recovered = applyRollbackReturn(img, pc.journal, db)
+        println(label + " pages=" + (img.length / 512).toString +
+          " headerCount=" + u32At(img, 28).toString +
+          " rootKind=" + rootKind(img).toString +
+          " freelistCount=" + u32At(img, 36).toString)
+        println(label + " survivors=" + collectRowids(img, 2).toString)
+        println(label + " recovers=" + recovered.toString + " fp=" + adler32(img).toString)
+
+def applyRollbackReturn(img: ByteSlice, journal: ByteSlice, original: ByteSlice): Boolean =
+  applyRollbackJournal(img, journal) match
+    case Left(_) => false
+    case Right(recovery) => byteSliceToList(recovery.database).toString == byteSliceToList(original).toString
+
+buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER, v TEXT)", mkRows(24)) match
+  case Left(error) => println("build-error: " + error.message)
+  case Right(db) =>
+    println("initial pages=" + (db.length / 512).toString + " rowids=" + collectRowids(db, 2).toString)
+    scenario("A", db, 20)
+    scenario("B", db, 23)
+```

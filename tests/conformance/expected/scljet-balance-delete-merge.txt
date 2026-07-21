@@ -1,0 +1,7 @@
+initial pages=14 rowids=List(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
+A pages=14 headerCount=14 rootKind=5 freelistCount=10
+A survivors=List(21, 22, 23, 24)
+A recovers=true fp=1771589888
+B pages=14 headerCount=14 rootKind=13 freelistCount=12
+B survivors=List(24)
+B recovers=true fp=4246752948

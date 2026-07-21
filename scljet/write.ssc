@@ -39,6 +39,7 @@ exports:
   - readInteriorNode
   - pagerInsertBalanced
   - pagerDeleteBalanced
+  - pagerDeleteRebalanced
   - descendToLeaf
 ---
 
@@ -2255,5 +2256,223 @@ def pagerDeleteBalanced(pager: MutablePager, rootPage: Int, rowid: Long, pageSiz
           case Right(body) => ByteSlice.fromList(body) match
             case Left(error) => Left(error)
             case Right(slice) => Right(mutablePut(pager, leafPage, slice))
+
+// ── Merge/rebalance on delete underflow (reclaim emptied pages to the freelist) ──
+//
+// `pagerDeleteBalanced` above leaves an emptied leaf in place — valid, but the file
+// never shrinks. `pagerDeleteRebalanced` completes SQLite's balance(): when a delete
+// empties a NON-root leaf it is removed from its parent and its page is reclaimed onto
+// the freelist (bytes 32..39 of page 1 + trunk pages), so the file length is unchanged
+// but the tree gets a page back — exactly SQLite's default (non-auto-vacuum) behaviour.
+// An interior that drops to a single child collapses: at the root its child's content
+// is copied up (root page kept, child freed, `balance_shallower`); below the root the
+// interior is freed and its single child spliced into the grandparent's slot. Only
+// EMPTY nodes are reclaimed (not a half-full fill-factor threshold — a non-goal, see
+// specs/scljet-mutable-pager.md); dividers are only dropped, never rewritten, so
+// routing for every surviving rowid stays correct. Assumes tables rooted at page >= 2.
+
+case class FreeTrunk(page: Int, leaves: List[Int])
+case class FreelistBuilt(pager: MutablePager, head: Int, count: Int)
+case class DelState(pager: MutablePager, freedRev: List[Int])
+sealed trait DelOutcome
+case object DelKept extends DelOutcome
+case class DelCollapse(single: Int) extends DelOutcome
+
+/** Drop `node`'s child at `slot` and the one adjacent divider (the right divider,
+ *  except when the rightmost child is removed — then the left divider). Correct only
+ *  when the removed child is empty: no surviving rowid was routed through it. */
+def removeChildAt(node: InteriorNode, slot: Int): InteriorNode =
+  val newChildren = intTake(node.children, slot) ++ intDrop(node.children, slot + 1)
+  val keyIdx = if slot < node.keys.length then slot else node.keys.length - 1
+  val newKeys = longTake(node.keys, keyIdx) ++ longDrop(node.keys, keyIdx + 1)
+  InteriorNode(newChildren, newKeys)
+
+/** Point `node`'s child slot at a new page (a collapsed interior's single child),
+ *  keeping every divider — the subtree's rowid range is unchanged. */
+def replaceChildAt(node: InteriorNode, slot: Int, newChild: Int): InteriorNode =
+  InteriorNode(intTake(node.children, slot) ++ (newChild :: intDrop(node.children, slot + 1)), node.keys)
+
+def reverseFreeTrunks(items: List[FreeTrunk], acc: List[FreeTrunk]): List[FreeTrunk] =
+  var rftR = items
+  var rftOut = acc
+  while rftR.nonEmpty do
+    rftOut = rftR.head :: rftOut
+    rftR = rftR.tail
+  rftOut
+
+/** Big-endian u32 for each freelist leaf page number, in order. */
+def freeLeafBytes(leaves: List[Int]): List[Int] =
+  var flbR = leaves
+  var flbAccRev: List[List[Int]] = Nil
+  while flbR.nonEmpty do
+    flbAccRev = writeBe32(flbR.head) :: flbAccRev
+    flbR = flbR.tail
+  cellsFlatten(reverseCellList(flbAccRev, Nil))
+
+/** Walk the existing freelist trunk chain (over the STAGED image) and collect every
+ *  free page (trunks + their leaves). Empty (count 0) freelist → Nil. Iteration is
+ *  bounded by the header count so a corrupt chain cannot loop. */
+def readExistingFree(pager: MutablePager): List[Int] =
+  mutableGet(pager, 1) match
+    case Left(_) => Nil
+    case Right(refPage1) => readU32Be(refPage1, 32) match
+      case Left(_) => Nil
+      case Right(ByteRead(refHead, _)) => readU32Be(refPage1, 36) match
+        case Left(_) => Nil
+        case Right(ByteRead(refCount, _)) =>
+          var refAccRev: List[Int] = Nil
+          var refT = refHead.toInt
+          var refIters = 0
+          val refBudget = refCount.toInt + 2
+          while refT != 0 && refIters < refBudget do
+            refAccRev = refT :: refAccRev
+            mutableGet(pager, refT) match
+              case Left(_) => refT = 0
+              case Right(refTrunk) => readU32Be(refTrunk, 0) match
+                case Left(_) => refT = 0
+                case Right(ByteRead(refNext, _)) => readU32Be(refTrunk, 4) match
+                  case Left(_) => refT = 0
+                  case Right(ByteRead(refLc, _)) =>
+                    var refJ = 0
+                    val refLeafCount = refLc.toInt
+                    while refJ < refLeafCount do
+                      readU32Be(refTrunk, 8 + 4 * refJ) match
+                        case Left(_) => refJ = refLeafCount
+                        case Right(ByteRead(refLeaf, _)) => refAccRev = refLeaf.toInt :: refAccRev
+                      refJ = refJ + 1
+                    refT = refNext.toInt
+            refIters = refIters + 1
+          intReverse(refAccRev, Nil)
+
+/** Lay `freePages` out as freelist trunk pages: the first page of each group is the
+ *  trunk, the next up-to-`usableSize/4-2` pages are its leaves; trunks chain via
+ *  `nextTrunk`. Stages every trunk page. Valid per `decodeFreelistTrunk` — order need
+ *  not match SQLite, only integrity_check + `validateFreelist` must accept it. */
+def buildFreelistTrunks(pager: MutablePager, freePages: List[Int], pageSize: Int): Either[ByteError, FreelistBuilt] =
+  val bftMaxLeaves = pageSize / 4 - 2
+  var bftRemaining = freePages
+  var bftGroupsRev: List[FreeTrunk] = Nil
+  while bftRemaining.nonEmpty do
+    val bftTrunk = bftRemaining.head
+    val bftRest = bftRemaining.tail
+    val bftLeaves = intTake(bftRest, bftMaxLeaves)
+    bftRemaining = intDrop(bftRest, bftMaxLeaves)
+    bftGroupsRev = FreeTrunk(bftTrunk, bftLeaves) :: bftGroupsRev
+  val bftGroups = reverseFreeTrunks(bftGroupsRev, Nil)
+  var bftPager = pager
+  var bftG = bftGroups
+  var bftFailure: Option[ByteError] = None
+  while bftG.nonEmpty && bftFailure.isEmpty do
+    val bftCur = bftG.head
+    val bftNext = if bftG.tail.nonEmpty then bftG.tail.head.page else 0
+    val bftBody = writeBe32(bftNext) ++ writeBe32(bftCur.leaves.length) ++ freeLeafBytes(bftCur.leaves) ++ writeZeros(pageSize - 8 - 4 * bftCur.leaves.length)
+    ByteSlice.fromList(bftBody) match
+      case Left(error) => bftFailure = Some(error)
+      case Right(bftSlice) => bftPager = mutablePut(bftPager, bftCur.page, bftSlice)
+    bftG = bftG.tail
+  bftFailure match
+    case Some(error) => Left(error)
+    case None => Right(FreelistBuilt(bftPager, bftGroups.head.page, freePages.length))
+
+/** Set page 1's first-freelist-trunk (bytes 32..35) and free page count (36..39). */
+def patchFreelistHeader(pager: MutablePager, headPage: Int, count: Int): Either[ByteError, MutablePager] =
+  mutableGet(pager, 1) match
+    case Left(error) => Left(error)
+    case Right(pfhPage1) => byteSliceSlice(pfhPage1, 0, 32) match
+      case Left(error) => Left(error)
+      case Right(pfhPrefix) => byteSliceSlice(pfhPage1, 40, pfhPage1.length - 40) match
+        case Left(error) => Left(error)
+        case Right(pfhSuffix) =>
+          ByteSlice.fromList(byteSliceToList(pfhPrefix) ++ byteSliceToList(writeU32Be(headPage.toLong)) ++ byteSliceToList(writeU32Be(count.toLong)) ++ byteSliceToList(pfhSuffix)) match
+            case Left(error) => Left(error)
+            case Right(pfhNew) => Right(mutablePut(pager, 1, pfhNew))
+
+/** Add the reclaimed pages (union with any existing freelist) and patch the header. */
+def applyFreelist(pager: MutablePager, freedRev: List[Int], pageSize: Int): Either[ByteError, MutablePager] =
+  if freedRev.isEmpty then Right(pager)
+  else
+    val afAll = readExistingFree(pager) ++ intReverse(freedRev, Nil)
+    buildFreelistTrunks(pager, afAll, pageSize) match
+      case Left(error) => Left(error)
+      case Right(afBuilt) => patchFreelistHeader(afBuilt.pager, afBuilt.head, afBuilt.count)
+
+/** Descend `pageNumber` (an interior) toward `rowid`, delete it from the target leaf,
+ *  and rebalance on the way up. Returns the threaded state plus this node's outcome:
+ *  `DelKept` (staged in place) or `DelCollapse(child)` (this interior now has one child
+ *  `child`; the caller frees this page and uses `child` in its place). */
+def deleteInteriorNode(state: DelState, pageNumber: Int, rowid: Long, pageSize: Int, depth: Int): Either[ByteError, (DelState, DelOutcome)] =
+  if depth > 64 then Left(ByteError("cycle", "delete descent exceeded 64 levels at page " + pageNumber.toString, pageNumber))
+  else mutableGet(state.pager, pageNumber) match
+    case Left(error) => Left(error)
+    case Right(dinPage) => readInteriorNode(dinPage, hoff(pageNumber)) match
+      case Left(error) => Left(error)
+      case Right(dinNode) =>
+        val dinSlot = chooseChild(dinNode, rowid)
+        val dinChild = intListGet(dinNode.children, dinSlot)
+        mutableGet(state.pager, dinChild) match
+          case Left(error) => Left(error)
+          case Right(dinChildBytes) =>
+            if pageKindAt(dinChildBytes, hoff(dinChild)) == 13 then
+              readLeafCells(dinChildBytes, hoff(dinChild)) match
+                case Left(error) => Left(error)
+                case Right(dinCells) =>
+                  val dinNewCells = leafDeleteCell(dinCells, rowid)
+                  if dinNewCells.nonEmpty then
+                    rebuildLeafPage(dinNewCells, pageSize, hoff(dinChild)) match
+                      case Left(error) => Left(error)
+                      case Right(dinBody) => ByteSlice.fromList(dinBody) match
+                        case Left(error) => Left(error)
+                        case Right(dinSlice) => Right((DelState(mutablePut(state.pager, dinChild, dinSlice), state.freedRev), DelKept))
+                  else
+                    val dinRemoved = removeChildAt(dinNode, dinSlot)
+                    val dinFreed = dinChild :: state.freedRev
+                    if dinRemoved.children.length <= 1 then
+                      Right((DelState(state.pager, dinFreed), DelCollapse(intListGet(dinRemoved.children, 0))))
+                    else buildInteriorFrom(dinRemoved.children, dinRemoved.keys, pageSize, hoff(pageNumber)) match
+                      case Left(error) => Left(error)
+                      case Right(dinBody) => ByteSlice.fromList(dinBody) match
+                        case Left(error) => Left(error)
+                        case Right(dinSlice) => Right((DelState(mutablePut(state.pager, pageNumber, dinSlice), dinFreed), DelKept))
+            else deleteInteriorNode(state, dinChild, rowid, pageSize, depth + 1) match
+              case Left(error) => Left(error)
+              case Right(dinPair) =>
+                val dinChildState = dinPair._1
+                dinPair._2 match
+                  case DelKept => Right((dinChildState, DelKept))
+                  case DelCollapse(dinGrand) =>
+                    val dinSpliced = replaceChildAt(dinNode, dinSlot, dinGrand)
+                    val dinFreed2 = dinChild :: dinChildState.freedRev
+                    buildInteriorFrom(dinSpliced.children, dinSpliced.keys, pageSize, hoff(pageNumber)) match
+                      case Left(error) => Left(error)
+                      case Right(dinBody) => ByteSlice.fromList(dinBody) match
+                        case Left(error) => Left(error)
+                        case Right(dinSlice) => Right((DelState(mutablePut(dinChildState.pager, pageNumber, dinSlice), dinFreed2), DelKept))
+
+/** Delete a row in place WITH underflow reclamation: emptied non-root pages move to the
+ *  freelist and an interior that drops to one child collapses (the root shallower). The
+ *  file length and header page count are unchanged; the freelist grows. Staged on the
+ *  pager — commit with `mutableCommit`. `rootPage` is the table's root page (>= 2). */
+def pagerDeleteRebalanced(pager: MutablePager, rootPage: Int, rowid: Long, pageSize: Int): Either[ByteError, MutablePager] =
+  mutableGet(pager, rootPage) match
+    case Left(error) => Left(error)
+    case Right(pdrRoot) =>
+      if pageKindAt(pdrRoot, hoff(rootPage)) == 13 then
+        readLeafCells(pdrRoot, hoff(rootPage)) match
+          case Left(error) => Left(error)
+          case Right(pdrCells) => rebuildLeafPage(leafDeleteCell(pdrCells, rowid), pageSize, hoff(rootPage)) match
+            case Left(error) => Left(error)
+            case Right(pdrBody) => ByteSlice.fromList(pdrBody) match
+              case Left(error) => Left(error)
+              case Right(pdrSlice) => Right(mutablePut(pager, rootPage, pdrSlice))
+      else deleteInteriorNode(DelState(pager, Nil), rootPage, rowid, pageSize, 0) match
+        case Left(error) => Left(error)
+        case Right(pdrPair) =>
+          val pdrState = pdrPair._1
+          pdrPair._2 match
+            case DelKept => applyFreelist(pdrState.pager, pdrState.freedRev, pageSize)
+            case DelCollapse(pdrChild) => mutableGet(pdrState.pager, pdrChild) match
+              case Left(error) => Left(error)
+              case Right(pdrChildContent) =>
+                applyFreelist(mutablePut(pdrState.pager, rootPage, pdrChildContent), pdrChild :: pdrState.freedRev, pageSize)
 
 ```
