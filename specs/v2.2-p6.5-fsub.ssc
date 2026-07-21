@@ -202,31 +202,39 @@ def isLayoutOpener(t) = if isTok(t, 2, 20) then true else (if isTok(t, 2, 30) th
 def nlSemi(cont) = if cont then Nil else Cons((2, 52), Nil)
 def nlStep(v, stack, cont) = stack match { case Nil => (nlSemi(cont), stack) case top :: srest => nlStep1(v, top, stack, cont) }
 def nlStep1(v, top, stack, cont) = top match { case (tag, ind) => nlStep2(v, tag, ind, stack, cont) }
-def nlStep2(v, tag, ind, stack, cont) = if tag == "B" then (nlSemi(cont), stack) else (if tag == "P" then (nlSemi(cont), stack) else (if tag == "S" then (nlSemi(cont), stack) else nlStep3(v, ind, stack, cont)))
+def nlStep2(v, tag, ind, stack, cont) = if tag == "B" then (nlSemi(cont), stack) else (if tag == "P" then (nlSemi(cont), stack) else (if tag == "S" then (nlSemi(cont), stack) else (if tag == "X" then (nlSemi(cont), stack) else nlStep3(v, ind, stack, cont))))
 def nlStep3(v, ind, stack, cont) = if v > ind then (Nil, stack) else (if v == ind then (nlSemi(cont), stack) else nlStepDedent(v, stack, cont))
 def nlStepDedent(v, stack, cont) = dedentL(v, stack) match { case (closeToks, ns) => (appEnv(closeToks, if cont then Nil else sepAfter(v, ns)), ns) }
-def layout(toks) = layoutGo(toks, Nil, false, false, false)
-def layoutGo(ts, stack, prevOpener, prevCanEnd, declHead) = ts match { case Nil => closeAllL(stack) case t :: rest => layoutTok(t, rest, stack, prevOpener, prevCanEnd, declHead) }
-def layoutTok(t, rest, stack, prevOpener, prevCanEnd, declHead) = if fst(t) == 7 then layoutNL(snd(t), rest, stack, prevOpener, prevCanEnd, declHead) else layoutTok2(t, rest, stack, declHead)
-def layoutTok2(t, rest, stack, declHead) = if isTok(t, 2, 21) then Cons(t, layoutGo(rest, Cons(("P", 0), stack), false, false, declHead)) else (if isTok(t, 2, 50) then Cons(t, layoutGo(rest, Cons(("S", 0), stack), false, false, declHead)) else (if isTok(t, 2, 22) then layoutCloseP(t, rest, stack, declHead) else (if isTok(t, 2, 51) then layoutCloseS(t, rest, stack, declHead) else (if isTok(t, 2, 28) then Cons(t, layoutGo(rest, Cons(("B", 0), stack), false, false, false)) else (if isTok(t, 2, 29) then layoutCloseB(t, rest, stack) else layoutDefault(t, rest, stack, declHead))))))
-def layoutNL(v, rest, stack, prevOpener, prevCanEnd, declHead) = if prevOpener then Cons((2, 28), layoutGo(rest, Cons(("L", v), stack), false, false, false)) else layoutNLsep(v, rest, stack, prevCanEnd, declHead)
+// ARC 2 (top-level extension layout): F now emits the oracle's extension frame. `eh` (extension-head)
+// is set on a TOP-LEVEL `extension` ident (stack empty); it survives an optional `[T]` clause and is
+// cleared at the receiver `(`, which pushes an "X" delimiter frame (distinct from a nested "P" so a
+// receiver-type paren does not fire). The `)` that closes the X frame acts as a layout opener, so the
+// following NL opens an "L" block wrapping the members in virtual `{ … }` (extMembers/collectEM consume
+// it → a dedented top-level `def` is no longer swallowed as a receiver-bearing member). Inert unless a
+// real `extension` token appears at top level (fsub has none → self-compile byte-identical).
+def isExtIdentTop(t, stack) = if isEmpty(stack) then isWord(t, "extension") else false
+def layout(toks) = layoutGo(toks, Nil, false, false, false, false)
+def layoutGo(ts, stack, prevOpener, prevCanEnd, declHead, eh) = ts match { case Nil => closeAllL(stack) case t :: rest => layoutTok(t, rest, stack, prevOpener, prevCanEnd, declHead, eh) }
+def layoutTok(t, rest, stack, prevOpener, prevCanEnd, declHead, eh) = if fst(t) == 7 then layoutNL(snd(t), rest, stack, prevOpener, prevCanEnd, declHead) else layoutTok2(t, rest, stack, declHead, eh)
+def layoutTok2(t, rest, stack, declHead, eh) = if isTok(t, 2, 21) then (if eh then Cons(t, layoutGo(rest, Cons(("X", 0), stack), false, false, declHead, false)) else Cons(t, layoutGo(rest, Cons(("P", 0), stack), false, false, declHead, false))) else (if isTok(t, 2, 50) then Cons(t, layoutGo(rest, Cons(("S", 0), stack), false, false, declHead, eh)) else (if isTok(t, 2, 22) then layoutCloseP(t, rest, stack, declHead) else (if isTok(t, 2, 51) then layoutCloseS(t, rest, stack, declHead, eh) else (if isTok(t, 2, 28) then Cons(t, layoutGo(rest, Cons(("B", 0), stack), false, false, false, false)) else (if isTok(t, 2, 29) then layoutCloseB(t, rest, stack) else layoutDefault(t, rest, stack, declHead, eh))))))
+def layoutNL(v, rest, stack, prevOpener, prevCanEnd, declHead) = if prevOpener then Cons((2, 28), layoutGo(rest, Cons(("L", v), stack), false, false, false, false)) else layoutNLsep(v, rest, stack, prevCanEnd, declHead)
 def suppressSepOf(rest, prevCanEnd) = if prevCanEnd then suppressSep2(rest) else true
 def suppressSep2(rest) = if canStartLine(rest) then isCont(rest) else true
 def layoutNLsep(v, rest, stack, prevCanEnd, declHead) = layoutNLsep2(v, rest, stack, declHead, suppressSepOf(rest, prevCanEnd))
-def layoutNLsep2(v, rest, stack, declHead, suppressSep) = nlStep(v, stack, suppressSep) match { case (emitted, ns) => appEnv(emitted, layoutGo(rest, ns, false, false, if suppressSep then declHead else false)) }
-def layoutCloseP(t, rest, stack, declHead) = closeToDelim("P", stack) match { case (cs, ns) => appEnv(cs, Cons(t, layoutGo(rest, ns, false, true, declHead))) }
-def layoutCloseS(t, rest, stack, declHead) = closeToDelim("S", stack) match { case (cs, ns) => appEnv(cs, Cons(t, layoutGo(rest, ns, false, true, declHead))) }
-def layoutCloseB(t, rest, stack) = closeToBrace(stack) match { case (cs, ns) => appEnv(cs, Cons(t, layoutGo(rest, ns, false, true, false))) }
-def layoutDefault(t, rest, stack, declHead) = layoutDefault2(t, rest, stack, inDeclHeadOf(t, declHead), inParenLikeOf(stack))
+def layoutNLsep2(v, rest, stack, declHead, suppressSep) = nlStep(v, stack, suppressSep) match { case (emitted, ns) => appEnv(emitted, layoutGo(rest, ns, false, false, if suppressSep then declHead else false, false)) }
+def layoutCloseP(t, rest, stack, declHead) = if topStackIs("X", stack) then closeToDelim("X", stack) match { case (cs, ns) => appEnv(cs, Cons(t, layoutGo(rest, ns, true, true, declHead, false))) } else closeToDelim("P", stack) match { case (cs, ns) => appEnv(cs, Cons(t, layoutGo(rest, ns, false, true, declHead, false))) }
+def layoutCloseS(t, rest, stack, declHead, eh) = closeToDelim("S", stack) match { case (cs, ns) => appEnv(cs, Cons(t, layoutGo(rest, ns, false, true, declHead, eh))) }
+def layoutCloseB(t, rest, stack) = closeToBrace(stack) match { case (cs, ns) => appEnv(cs, Cons(t, layoutGo(rest, ns, false, true, false, false))) }
+def layoutDefault(t, rest, stack, declHead, eh) = layoutDefault2(t, rest, stack, inDeclHeadOf(t, declHead), inParenLikeOf(stack), (if isExtIdentTop(t, stack) then true else eh))
 def inDeclHeadOf(t, declHead) = if isTok(t, 2, 10) then true else (if isWord(t, "trait") then true else (if isWord(t, "object") then true else (if isWord(t, "effect") then true else declHead)))
-def inParenLikeOf(stack) = if topStackIs("P", stack) then true else topStackIs("S", stack)
+def inParenLikeOf(stack) = if topStackIs("P", stack) then true else (if topStackIs("S", stack) then true else topStackIs("X", stack))
 def isColonTok(t) = isTok(t, 2, 34)
 def declColonOf(t, inDeclHead, inParenLike) = if isColonTok(t) then declColon2(inDeclHead, inParenLike) else false
 def declColon2(inDeclHead, inParenLike) = if inParenLike then false else inDeclHead
 def nextDeclHeadOf(t, inDeclHead, inParenLike) = if isColonTok(t) then nextDeclHead2(inDeclHead, inParenLike) else inDeclHead
 def nextDeclHead2(inDeclHead, inParenLike) = if inParenLike then inDeclHead else false
-def layoutDefault2(t, rest, stack, inDeclHead, inParenLike) = layoutDefault3(t, rest, stack, declColonOf(t, inDeclHead, inParenLike), nextDeclHeadOf(t, inDeclHead, inParenLike))
-def layoutDefault3(t, rest, stack, declColon, nextDeclHead) = Cons(t, layoutGo(rest, stack, layoutOpenerOr(declColon, t), canEndLine(t), nextDeclHead))
+def layoutDefault2(t, rest, stack, inDeclHead, inParenLike, eh) = layoutDefault3(t, rest, stack, declColonOf(t, inDeclHead, inParenLike), nextDeclHeadOf(t, inDeclHead, inParenLike), eh)
+def layoutDefault3(t, rest, stack, declColon, nextDeclHead, eh) = Cons(t, layoutGo(rest, stack, layoutOpenerOr(declColon, t), canEndLine(t), nextDeclHead, eh))
 def layoutOpenerOr(declColon, t) = if declColon then true else isLayoutOpener(t)
 
 // -- token / env helpers ----------------------------------------------------------------------
@@ -1403,24 +1411,30 @@ def typeOfArg(a) = if startsW(a, "(lit (int ") then "Int" else (if startsW(a, "(
 // immediately following (a non-def ends it). Members register in extMethods (collectExtMethods).
 def isExtensionHead(ts) = isWord(hd(ts), "extension")
 def extensionItem(ts, cx) = extHeader(skipGen(tl(ts)), cx)
-def extHeader(ts, cx) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (renv, r) => extMembers(renv, skipSemisF(r), cx, "") } else (("", ""), ts)
-def extMembers(renv, ts, cx, acc) = if isTok(hd(ts), 2, 1) then extMember(renv, snd(hd(tl(ts))), skipGen(tl(tl(ts))), cx, acc) else ((acc, ""), ts)
+// The layout wraps the members in a virtual `{ … }` (top-level extension L-block). extOpenBrace steps
+// past that leading `{`; extMembers STOPS at (and consumes) the matching `}`, so a dedented top-level
+// `def` after the block is NOT parsed as a receiver-bearing member. A single-line `extension (r) def m …`
+// has no NL after `)`, so no brace is emitted — extOpenBrace is a no-op and the old contiguous-def scan
+// (stop at a non-def) still applies.
+def extOpenBrace(r) = if isTok(hd(r), 2, 28) then tl(r) else r
+def extHeader(ts, cx) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (renv, r) => extMembers(renv, skipSemisF(extOpenBrace(r)), cx, "") } else (("", ""), ts)
+def extMembers(renv, ts, cx, acc) = if isTok(hd(ts), 2, 29) then ((acc, ""), tl(ts)) else (if isTok(hd(ts), 2, 1) then extMember(renv, snd(hd(tl(ts))), skipGen(tl(tl(ts))), cx, acc) else ((acc, ""), ts))
 def extMember(renv, mname, mts, cx, acc) = if isTok(hd(mts), 2, 21) then parseParams(tl(mts), renv) match { case (env, r) => extEmit(renv, mname, dlen(env), env, skipToEq(r), cx, acc) } else extEmit(renv, mname, dlen(renv), renv, skipToEq(mts), cx, acc)
 def extEmit(renv, mname, ar, env, bts, cx, acc) = emitDefBody(if memL(mname, mangleOf(cx)) then mname ++ "__ext_default" else mname, ar, env, bts, cx) match { case (d, r2) => extMembers(renv, skipSemisF(r2), cx, join2(acc, d)) }
 def collectExtMethods(ts) = if isEmpty(ts) then Nil else (if isExtensionHead(ts) then collectEM(skipGen(tl(ts))) else collectExtMethods(tl(ts)))
-def collectEM(ts) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (renv, r) => collectEMs(skipSemisF(r)) } else collectExtMethods(tl(ts))
-def collectEMs(ts) = if isTok(hd(ts), 2, 1) then Cons(snd(hd(tl(ts))), collectEMs(skipSemisF(skipExtBody(tl(tl(ts)))))) else collectExtMethods(ts)
+def collectEM(ts) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (renv, r) => collectEMs(skipSemisF(extOpenBrace(r))) } else collectExtMethods(tl(ts))
+def collectEMs(ts) = if isTok(hd(ts), 2, 29) then collectExtMethods(tl(ts)) else (if isTok(hd(ts), 2, 1) then Cons(snd(hd(tl(ts))), collectEMs(skipSemisF(skipExtBody(tl(tl(ts)))))) else collectExtMethods(ts))
 def isExtMethod(nm, cx) = memL(nm, extMethodsOf(cx))
 // STANDALONE (top-level, NOT given-body) extension method names — mirrors ssc1-lower collectTopLevelExt-
 // Methods (:5354): `given` bodies are SKIPPED so their `extension` members don't count as top-level. A
 // method with BOTH a top-level ext AND a given-body instance must have its top-level impl mangled to
 // `m__ext_default` (extNeedsMangle) so the bare `m` dispatcher can delegate to it instead of colliding.
 def collectTopExtMethods(ts) = if isEmpty(ts) then Nil else (if isGivenHead(ts) then collectTopExtMethods(skipGivenDecl(ts)) else (if isTraitHead(ts) then collectTopExtMethods(skipTraitDecl(ts)) else (if isExtensionHead(ts) then collectTopEM(skipGen(tl(ts))) else collectTopExtMethods(tl(ts)))))
-def collectTopEM(ts) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (renv, r) => collectTopEMs(skipSemisF(r)) } else collectTopExtMethods(tl(ts))
+def collectTopEM(ts) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (renv, r) => collectTopEMs(skipSemisF(extOpenBrace(r))) } else collectTopExtMethods(tl(ts))
 // only CONCRETE members (with a `=` body) are genuine standalone impls — an ABSTRACT ext member (a trait's
 // `def m(..): T` with no body) has no depth-0 `=` (2,20) [note `=>` is (2,30), distinct] and must NOT count
 // as a top-level impl (else the dispatcher would delegate to a non-existent `m__ext_default`).
-def collectTopEMs(ts) = if isTok(hd(ts), 2, 1) then (if extHasBody(tl(tl(ts))) then Cons(snd(hd(tl(ts))), collectTopEMs(skipSemisF(skipExtBody(tl(tl(ts)))))) else collectTopEMs(skipSemisF(skipExtBody(tl(tl(ts)))))) else collectTopExtMethods(ts)
+def collectTopEMs(ts) = if isTok(hd(ts), 2, 29) then collectTopExtMethods(tl(ts)) else (if isTok(hd(ts), 2, 1) then (if extHasBody(tl(tl(ts))) then Cons(snd(hd(tl(ts))), collectTopEMs(skipSemisF(skipExtBody(tl(tl(ts)))))) else collectTopEMs(skipSemisF(skipExtBody(tl(tl(ts)))))) else collectTopExtMethods(ts))
 def extHasBody(ts) = extHasBodyD(ts, 0)
 def extHasBodyD(ts, d) = if isEmpty(ts) then false else extHasBodyTok(hd(ts), tl(ts), d)
 def extHasBodyTok(t, rest, d) = if d == 0 then (if isTok(t, 2, 20) then true else (if isTok(t, 2, 1) then false else (if isTok(t, 2, 52) then false else (if isTok(t, 2, 29) then false else (if isOpenNest(t) then extHasBodyD(rest, 1) else extHasBodyD(rest, 0)))))) else (if isOpenNest(t) then extHasBodyD(rest, d + 1) else (if isCloseNest(t) then extHasBodyD(rest, d - 1) else extHasBodyD(rest, d)))
