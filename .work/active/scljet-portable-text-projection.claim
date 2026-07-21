@@ -1,6 +1,6 @@
 feature/scljet-portable-text-projection 2026-07-21T19:18:14Z
 agent: opus-orch
-heartbeat: 2026-07-21T19:37:19Z
-status: in-progress
-done-so-far: spec pushed (6afa6286c). Implemented scljet/text.ssc (utf16UnitsToString / codePointToUtf16 / codePointsToString / decodedTextToSqlText, astral-safe surrogate encoding), wired into index.ssc barrel, refactored mutate.ssc fieldToValue + sql.ssc cpToString to delegate. Conformance case scljet-portable-text + example added. Parity byte-identical: interp VM/ASM/tree-walk + JS + v2 native (scratch snapshot). No v2 char-rendering gap (stale native-front snapshot only). Running full scljet-* conformance sweep.
-next: land feature + docs + bookkeeping commits, then release claim.
+heartbeat: 2026-07-21T19:55:00Z
+status: landed-awaiting-ci
+done-so-far: LANDED on origin/main. spec 6afa6286c, feat 602905221, docs README ee84f7e91, bookkeeping 3e938b807. scljet/text.ssc (utf16UnitsToString/codePointToUtf16/codePointsToString/decodedTextToSqlText, astral-safe surrogate encoding) wired into index.ssc; mutate.ssc fieldToValue + sql.ssc cpToString delegate to it. Conformance case scljet-portable-text (int,js) + example scljet-text-projection.ssc. VERIFIED byte-identical: interp tree-walk/VM/ASM + JS + v2 native; full scljet-* sweep 100/100 int+js. No v2 char-rendering gap (only the stale native-front snapshot missing text.ssc, auto-fixed by installBin glob). NB sibling symlink-drop (65a9a7e8a) removed v1/runtime/std/scljet; local re-verify used a temporary untracked symlink; new-resolver path relies on the installBin scljet/**/*.ssc glob + CI.
+next: confirm CI green on 3e938b807, then git rm claim + rm-worktree.
