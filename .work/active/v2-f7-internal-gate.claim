@@ -1,6 +1,6 @@
 feature/v2-f7-internal-gate 2026-07-19T13:42:57Z
 agent: codex
-heartbeat: 2026-07-21T06:04:08Z
+heartbeat: 2026-07-21T06:46:17Z
 status: in-progress
-done-so-far: SwiftUI module-capability fix c278b4b37 and bookkeeping 1f5e55b44 landed; focused macOS 3/3, Linux-shaped 2 passed + 1 named cancel with generated-Scala regression still run, full v2 644/0, shared v2-* 11/11; exact run 29805732016 is in progress
-next: require scripts/ci-status --sha 1f5e55b447f6a2e28c2fd3efe2e5599d99f6a8bd exit 0; if green record the exact run, release the claim, and remove the worktree; if red diagnose and fix the real failing job
+done-so-far: SwiftUI module-capability fix c278b4b37 and bookkeeping 1f5e55b44 landed; local gates focused macOS 3/3, Linux-shaped 2 passed + 1 named cancel, full v2 644/0, shared v2-* 11/11; exact run 29805732016 has lint, validation, and conformance green and entered full Test via sbt at 2026-07-21T06:41:49Z
+next: monitor scripts/ci-status --sha 1f5e55b447f6a2e28c2fd3efe2e5599d99f6a8bd to exit 0; if green record exact run, release claim, remove worktree; if red diagnose and fix the real failing test/job
