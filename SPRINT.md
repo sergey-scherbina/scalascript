@@ -2161,10 +2161,31 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
             (single-iteration routing evidence, not a performance A/B). `ClusterFrontmatterTest` is
             9/9 and `*cluster*` conformance 5/5. The final bookkeeping SHA still requires exact CI exit
             0 before coordination cleanup.
-- [ ] **Q4 — next user-facing feature.** Re-sync the board and claims, choose the highest-priority
-      unclaimed feature, replace this placeholder with its concrete slug/acceptance checks, write and
-      commit its feature spec first, then implement it with a runnable `examples/` program, docs, and
-      conformance coverage.
+- [ ] **Q4 — v2-native-coroutine-provider.** Make the normative `Coroutine[Y, R, T]` primitive run on
+      the standard native VM/direct-ASM path without compatibility fallback. Baseline:
+      `tests/conformance/{coroutine-basic,coroutine-error}.ssc` reach `unbound global:
+      coroutineCreate`; the existing Generator provider already owns the global `suspend`, so the
+      implementation must define one shared dynamic suspend dispatch rather than register duplicate
+      globals. Claim: `.work/active/v2-native-coroutine-provider.claim`; feature contract:
+      `specs/v2.1-native-coroutine-provider.md`.
+      - [ ] **Q4.1 — commit the contract before code.** Reconcile `SPEC.md` §7.5 and the older
+            `specs/coroutines.md` wording; specify lazy start, two-way resume values, innermost dynamic
+            scope, completion/error/cancellation behavior, opaque unsavable handles, and ownership of
+            the Generator/Coroutine `suspend` overlap. Commit the dedicated feature spec separately.
+      - [ ] **Q4.2 — implement the standard native provider.** Add the smallest plugin/SPI ownership
+            change that registers `coroutineCreate`, `coroutineResume`, `coroutineCancel`, and exactly
+            one compatible `suspend`; use bounded handoff and isolated per-coroutine state, wire the
+            provider into standard launch/build-jvm packaging, and cover lifecycle/nesting/errors in
+            provider unit tests. Do not touch F/dualrun files or add a compatibility fallback.
+      - [ ] **Q4.3 — ship the user surface.** Add a self-contained `examples/coroutines.ssc`, reference
+            it from README/user docs and the feature spec, and extend focused conformance to compare
+            VM/direct ASM for lazy start, yielded/returned two-way values, nested innermost suspend,
+            outside-suspend diagnostics, cancellation, and invalid resume.
+      - [ ] **Q4.4 — verify and close.** Run the provider unit suite, exact runnable example on VM,
+            direct ASM and `build-jvm`, and `tests/conformance/run.sh --only 'coroutine-*'`; update the
+            feature-spec behavior checks/results and SPRINT/CHANGELOG in separate commits, push each
+            green slice, require exact-final-SHA `scripts/ci-status` exit 0, then release the claim and
+            remove the worktree with `scripts/rm-worktree v2-native-coroutine-provider`.
 
 The path to ideal/small/powerful is: **(1) establish truth (reconcile the stale ROADMAP), (2) converge
 the two fronts into one, (3) redraw the kernel/tower boundary so "small" is real.** Breadth (cover the
