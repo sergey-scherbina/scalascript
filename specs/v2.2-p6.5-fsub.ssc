@@ -1439,7 +1439,13 @@ def intersectNames(xs, ys) = xs match { case Nil => Nil case h :: t => if memL(h
 // given-body ext method: (mname, (typeHead, (implName, arity))), in source order. Emitted AFTER userDefs.
 def collectExtDisp(ts) = if isEmpty(ts) then Nil else (if isGivenHead(ts) then collectED1(ts) else collectExtDisp(tl(ts)))
 def collectED1(ts) = if fst(hd(tl(ts))) == 1 then collectED2(snd(hd(tl(ts))), tl(tl(ts)), ts) else collectExtDisp(tl(ts))
-def collectED2(gname, t2, ts) = if isTok(hd(t2), 2, 34) then collectED3(gname, snd(parseTCType(tl(t2))), skipTypeRef(tl(t2)), ts) else collectExtDisp(tl(ts))
+def collectED2(gname, t2, ts) = if isTok(hd(t2), 2, 34) then collectED3(gname, firstTypeArg(snd(parseTCType(tl(t2)))), skipTypeRef(tl(t2)), ts) else collectExtDisp(tl(ts))
+// A multi-param TC head (MonadError[Option, Unit]) yields innerTypeStr "Option,Unit"; the extension
+// dispatcher's receiver type is the FIRST (container) type arg only — "Option". Take the depth-0 prefix
+// up to the first top-level comma (bracket-aware for e.g. "Map[K,V],E"). Mirrors ssc1-lower firstTypeArg :5339.
+def firstTypeArg(t) = t.substring(0, ftaScan(t, 0, 0, t.length))
+def ftaScan(t, i, d, n) = if atEnd(i, n) then i else ftaScanC(t, i, d, n, t.charAt(i))
+def ftaScanC(t, i, d, n, c) = if c == 91 then ftaScan(t, i + 1, d + 1, n) else (if c == 93 then ftaScan(t, i + 1, d - 1, n) else (if c == 44 then (if d == 0 then i else ftaScan(t, i + 1, d, n)) else ftaScan(t, i + 1, d, n)))
 def collectED3(gname, th, t3, ts) = if isWord(hd(t3), "with") then appEnv(edMembers(gname, th, collectObjMembers(tl(objBodyToks(t3)))), collectExtDisp(tl(ts))) else collectExtDisp(tl(ts))
 def edMembers(gname, th, ms) = ms match { case Nil => Nil case h :: t => appEnv(edMember1(gname, th, h), edMembers(gname, th, t)) }
 def edMember1(gname, th, m) = m match { case (kind, nt) => if kind == "extdef" then edMember2(gname, th, nt) else Nil }
