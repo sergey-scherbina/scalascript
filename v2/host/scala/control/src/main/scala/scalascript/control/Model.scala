@@ -112,6 +112,32 @@ object Save extends Effect:
 type Save = Save.type
 
 /** Effect row used while a saved continuation is admitted and restored. */
-object Restore extends Effect
+object Restore extends Effect:
+  val key: EffectKey[Restore.type] =
+    EffectKey.named(EffectId("scalascript.control.Restore"), this)
+
+  /**
+   * Discharge the `Restore` capability for an in-process run that performs no
+   * provider-backed restore. Nothing constructs an `Operation[Restore.type, ?]`
+   * yet, so the handler's `onOperation` is unreachable; a provider-backed
+   * admission slice replaces this with real restore operations
+   * (control-interoperability §9.2). Until then `Restore` in a run's row is a
+   * declared call-site capability marker, discharged here.
+   */
+  def admitLocally[Fx <: Effect, R](body: Eff[Fx | Restore, R]): Eff[Fx, R] =
+    handle[Restore.type, Fx, R, R](body)(
+      new Handler[Restore.type, Fx, R, R]:
+        val effect: EffectKey[Restore.type] = key
+
+        def onReturn(value: R): Eff[Fx, R] = Eff.pure(value)
+
+        def onOperation[X](
+            @scala.annotation.unused operation: Operation[Restore.type, X],
+            @scala.annotation.unused resumption: Resumption[X, Fx, R]
+        ): Eff[Fx, R] =
+          throw new IllegalStateException(
+            "Restore.admitLocally received a restore operation; no provider is bound"
+          )
+    )
 
 type Restore = Restore.type

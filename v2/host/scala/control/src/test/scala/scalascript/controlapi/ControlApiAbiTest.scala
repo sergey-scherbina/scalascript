@@ -110,6 +110,10 @@ final class ControlApiAbiTest extends AnyFunSuite:
       "scalascript.control.Continuation$Authority",
     "scalascript.control.Continuation$Runtime" ->
       "scalascript.control.Continuation$Authority",
+    "scalascript.control.Continuation$Savable" ->
+      "scalascript.control.Continuation$Authority",
+    "scalascript.control.SavedContinuation$Reusable" ->
+      "scalascript.control.SavedContinuation$Authority",
     "scalascript.control.OneShotContinuation" ->
       "scalascript.control.OneShotContinuation$Authority",
     "scalascript.control.OneShotContinuation$Delegated" ->
@@ -208,9 +212,13 @@ final class ControlApiAbiTest extends AnyFunSuite:
       )
     }
 
-    // SavedContinuation currently has no public constructor. If one is added,
-    // it must be protected by the reserved post-X1 authority as well.
+    // The SavedContinuation base and its library-owned Reusable success plan must
+    // both keep their constructors behind the reserved post-X1 authority so user
+    // code cannot forge a successful saved value.
     constructorLines("scalascript.control.SavedContinuation").foreach { line =>
+      assert(line.contains("scalascript.control.SavedContinuation$Authority"), line)
+    }
+    constructorLines("scalascript.control.SavedContinuation$Reusable").foreach { line =>
       assert(line.contains("scalascript.control.SavedContinuation$Authority"), line)
     }
   }

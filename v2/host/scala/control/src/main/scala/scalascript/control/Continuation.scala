@@ -56,6 +56,24 @@ object Continuation:
         )
       )
 
+  private final class Savable[S, A, Fx <: Effect, R](
+      state: S,
+      machine: ResumeStateMachine[S, A, Fx, R],
+      codec: DurableValue[S],
+      candidate: Authority
+  ) extends Continuation[A, Fx, R](candidate):
+    // Ordinary local resume shares the current heap (control-interoperability §8.2).
+    override def resume(value: A): Eff[Fx, R] = machine.resume(state, value)
+
+    override def save(): Eff[Save, SavedContinuation.Aux[A, Fx, R]] =
+      // The codec is the typed defunctionalized evidence §8.1 names. Snapshot the
+      // live state now so a later mutation of the original cannot change the saved
+      // frame (§8.2). No admission service exists in-process, so the frozen Save
+      // row is inhabited only by the Rejected path of the unmanaged shapes;
+      // Nothing <: Save covariantly widens this successful result into that row.
+      val frame = codec.snapshot(state)
+      Eff.pure(SavedContinuation.reusable(frame, machine, codec))
+
   private[control] def runtime[A, Fx <: Effect, R](
       kernel: Eff.Authority,
       site: String
@@ -70,6 +88,20 @@ object Continuation:
       machine: ResumeStateMachine[S, A, Fx, R]
   ): Continuation[A, Fx, R] =
     new Local(state, machine, authority)
+
+  /**
+   * Managed builder whose state carries durable evidence, so `save()` succeeds.
+   * Mirrors [[local]] but additionally requires a [[DurableValue]] codec for the
+   * state; that codec is what lets a saved run reconstruct an independent frame
+   * (control-interoperability §8.1/§8.2). Unmanaged closures and codec-less
+   * [[local]] continuations remain unsavable.
+   */
+  def savable[S, A, Fx <: Effect, R](
+      state: S,
+      machine: ResumeStateMachine[S, A, Fx, R],
+      codec: DurableValue[S]
+  ): Continuation[A, Fx, R] =
+    new Savable(state, machine, codec, authority)
 
 sealed abstract class OneShotContinuation[-A, +Fx <: Effect, +R] private (
     candidate: OneShotContinuation.Authority
@@ -157,7 +189,7 @@ sealed abstract class SavedContinuation[-A, +R] private (
   def run(value: A): Eff[Effects | Restore, R]
 
 object SavedContinuation:
-  /** Reserved for post-X1 library-owned successful save plans. */
+  /** Library-owned successful save plans (post-X1; see durable-continuation-save-run). */
   private[control] final class Authority private[SavedContinuation] ()
 
   private val authority = new Authority()
@@ -167,5 +199,34 @@ object SavedContinuation:
       throw new IllegalArgumentException(
         "invalid SavedContinuation authority"
       )
+
+  /**
+   * A reusable saved continuation produced from a managed savable state machine.
+   * Immutable, copyable, and multi-shot: `save` does not consume the source and
+   * `run` may be called zero or more times. Each admitted run reconstructs an
+   * independent frame from the snapshot and begins directly at the capture point —
+   * never replaying the prefix, module `main`, or initializers
+   * (control-interoperability §8.1/§8.2).
+   */
+  private final class Reusable[S, A, Fx <: Effect, R](
+      frame: S,
+      machine: ResumeStateMachine[S, A, Fx, R],
+      codec: DurableValue[S],
+      candidate: Authority
+  ) extends SavedContinuation[A, R](candidate):
+    type Effects = Fx
+
+    def run(value: A): Eff[Fx | Restore, R] =
+      Eff.defer[Fx | Restore, R] {
+        val fresh = codec.snapshot(frame)
+        machine.resume(fresh, value)
+      }
+
+  private[control] def reusable[S, A, Fx <: Effect, R](
+      frame: S,
+      machine: ResumeStateMachine[S, A, Fx, R],
+      codec: DurableValue[S]
+  ): SavedContinuation.Aux[A, Fx, R] =
+    new Reusable(frame, machine, codec, authority)
 
   type Aux[A, Fx <: Effect, R] = SavedContinuation[A, R] { type Effects = Fx }
