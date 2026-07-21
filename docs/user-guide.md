@@ -1995,6 +1995,39 @@ threads and joins results in declared order. Future failures are delivered at
 and `build-jvm` use the same provider without the compatibility frontend or a
 compiler toolchain.
 
+### Low-level coroutines
+
+`Coroutine[Y, R, T]` is a lazy asymmetric coroutine. `Y` is the value yielded
+outward, `R` is the value supplied by the next resume, and `T` is the final
+return value. Creation only allocates an opaque process-local handle; the body
+starts on the first `coroutineResume`, whose input is a start signal and is not
+returned from a `suspend`.
+
+```scalascript
+val conversation = coroutineCreate[String, String, String] { () =>
+  val name = suspend("name?")
+  val reply = suspend("hello " + name)
+  "done: " + reply
+}
+
+println(coroutineResume(conversation, "ignored")) // Yielded(name?)
+println(coroutineResume(conversation, "Ada"))     // Yielded(hello Ada)
+println(coroutineResume(conversation, "thanks"))  // Returned(done: thanks)
+```
+
+An uncaught body error is delivered once as `Errored(message)`; normal
+completion is delivered once as `Returned(value)`. Either terminal step makes
+later resumes fail immediately. `coroutineCancel(handle)` is idempotent before
+start, while suspended, and after completion, and a cancelled handle cannot be
+resumed. Nested Coroutine and Generator bodies share one dynamically scoped
+`suspend`: the innermost active body receives the call, while an outside call
+fails with a bounded diagnostic.
+
+The standard ScalaScript 2.1 VM, direct ASM, and `build-jvm` routes use the same
+core-free provider and never serialize the opaque handle. See the runnable
+[`coroutine-demo.ssc`](../examples/coroutine-demo.ssc) and the
+[native provider contract](../specs/v2.1-native-coroutine-provider.md).
+
 ### Pull generators
 
 `generator` starts a lazy pull stream. Values cross a synchronous handoff only

@@ -203,7 +203,7 @@ bin/http.ssc
 | [Language Specification](SPEC.md) | Formal grammar, type system, semantics, all language constructs |
 | [UniML](specs/uniml.md) / [YAML 1.2.2 adapter](specs/uniml-yaml.md) | Cross-platform token-as-instruction tree VM with lossless JSON/XML/YAML dialect modules; YAML preserves presentation syntax and exposes explicit Core/JSON/Failsafe plus bounded alias projection |
 | [Direct Syntax](docs/direct-syntax.md) | Do-notation over any monad — `direct[M] { x = expr }`, `.!` postfix bind, effect-row unions; explicit Option/List blocks also run on the compiler-free standard 2.1 path |
-| [Coroutines & Generators](specs/coroutines.md) | Coroutine primitive underlying one-shot effects and generators |
+| [Coroutines & Generators](specs/coroutines.md) / [2.1 native provider](specs/v2.1-native-coroutine-provider.md) | Coroutine primitive underlying one-shot effects and generators; core-free VM/direct-ASM/build-jvm contract |
 | [Algebraic Effects spec](specs/algebraic-effects.md) | Typed effect rows — `!` operator, `multi effect`, Rémy-style unification, typed stdlib, `Reader[R]`, `NonDet` |
 | [Error Handling](docs/error-handling.md) | Checked errors via `throws[A, E]`, `attemptCatch`, `HasStackTrace` |
 | [Metaprogramming](specs/metaprogramming.md) / [v2 macros](specs/arch-metaprogramming-v2.md) | `inline`, `derives`, `compiletime.*`; partially implemented restricted quoted macros for `ssc link`, interpreter `ssc run`, and the JVM + JS backends, incl. `Expr.asValue match` compile-time constant folding, with targeted unsupported-body diagnostics; product `Mirror.Of[T]` and user `derived(m: Mirror)` typeclasses also run on the compiler-free standard 2.1 path |
@@ -344,7 +344,7 @@ compiles them via Scala.js.
 | Built-in `Async` effect | `runAsync { Async.delay(ms); Async.parallel(...) }` — deterministic and core-free on 2.1 native VM/direct ASM/build-jvm |
 | Real-thread `runAsyncParallel` | ordered JDK 21 virtual-thread concurrency without changing call sites or loading compatibility code |
 | Built-in `Storage` effect | `runStorage { Storage.put(k, v); Storage.get(k) }` — core-free JSON file-backed or ephemeral handlers on 2.1 native VM/direct ASM/build-jvm |
-| Coroutines | `coroutineCreate`, `coroutineResume`, `suspend`, `Step[Y,T]` ADT, `coroutineCancel` |
+| Coroutines | `coroutineCreate`, `coroutineResume`, `suspend`, `Step[Y,T]`, `coroutineCancel` — lazy two-way handoff with opaque handles, core-free on 2.1 native VM/direct ASM/build-jvm |
 | Generators | `generator[T] { () => suspend(v) }`, pull/combinator pipelines — core-free on 2.1 native VM/direct ASM/build-jvm; Dataset bridging remains explicit |
 | Reactive signals | `Signal(0)`, `s.get` / `s.set(v)`, `computed { … }`, `effect { … }` with diamond-dedup flush — core-free on 2.1 native VM/direct ASM/build-jvm |
 | Free monad | `Free[F,A]`, `liftF`, `foldMap`, `runM` — in `runtime/std/free.ssc` |
@@ -569,7 +569,7 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 | [std-effects-demo.ssc](examples/std-effects-demo.ssc) | Logger, Random, Clock, State, Env standard effects |
 | [direct-demo.ssc](examples/direct-demo.ssc) | `direct[M]` do-notation, `.!` postfix bind, effect-row unions |
 | [async-demo.ssc](examples/async-demo.ssc) | Built-in `Async` effect — `runAsync`, `async`, `await`, `parallel`, `delay` |
-| [coroutine-demo.ssc](examples/coroutine-demo.ssc) | `coroutineCreate`, `coroutineResume`, `suspend`, generators |
+| [coroutine-demo.ssc](examples/coroutine-demo.ssc) | Lazy two-way and nested `Coroutine[Y,R,T]` values plus idempotent cancellation; exact on native VM/direct ASM/build-jvm |
 | [signals-demo.ssc](examples/signals-demo.ssc) | Reactive signals — `Signal`, `computed`, `effect`, diamond dedup |
 | [storage-demo.ssc](examples/storage-demo.ssc) | Built-in `Storage` effect — core-free JSON-backed and ephemeral handlers on native VM/direct ASM |
 | [actors-demo.ssc](examples/actors-demo.ssc) | Actors — spawn, send, receive, supervision, cluster |
@@ -789,7 +789,7 @@ scala-cli conformance/run.sc
 | async-parallel | `runAsyncParallel` — real-thread Async on JVM |
 | storage | Built-in `Storage` effect — `get` / `put` / `remove` / `has` / `keys` via ephemeral or file-backed handler |
 | direct | Direct-syntax do-notation: `direct[M]`, `.!` bind, pure lift, control flow |
-| coroutines | `coroutineCreate`, `coroutineResume`, `suspend`, `Step[Y,T]`, `coroutineCancel` |
+| coroutines | Lazy two-way `coroutineCreate` / `coroutineResume` / `suspend`, terminal `Step[Y,T]`, nesting, and `coroutineCancel` |
 | generators | `generator[T] { () => suspend(v) }`, lazy `map` / `filter` / `take` / `drop` / `flatMap` / `zip` pipelines |
 | streams | `Source[A]` / `Sink[A]` / `Flow[A, B]`, `stream { emit(x) }`, bounded buffers, overflow strategies, wall-clock throttle/debounce, live `Source.signal`, and `sig.bind(source)` |
 | signals | Reactive `Signal` / `computed` / `effect` with diamond-dedup flush |
