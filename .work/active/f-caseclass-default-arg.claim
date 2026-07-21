@@ -1,0 +1,12 @@
+claim: f-caseclass-default-arg
+branch: feature/f-caseclass-default-arg
+agent: opus (host orchestrator — via subagent)
+heartbeat: 2026-07-21T06:40:34Z
+status: in-progress — investigate+fix F default-arg synthesis for imported case-class ctors.
+what: BUGS f-imported-caseclass-default-arg-synth. F front (fsub.ssc) does NOT synth default-arg
+      values for IMPORTED case-class ctors → mcp-types (ToolResult(content, isError=false)) and
+      dsl-ast-builder (Builder[N,V](_tags = Nil)) fail 'arity: 2 expected, 1 given' on the F lane.
+      Root cause not yet pinned (static pass: ccDfltEntry/dfltGo *should* fire for imported ctors but
+      don't). NEEDS live trace in an F-staged worktree. Fixes 2 of the 3 remaining flip residuals.
+      ⚠️ edits fsub.ssc = F's OWN lowering → affects the F0 self-compile fixpoint: run newfront-diff.sh
+      + F0 fixpoint + corpus byte-identity; if ANY regress, do NOT push — report. litdoc deferred.
