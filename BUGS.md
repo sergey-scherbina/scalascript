@@ -84,8 +84,29 @@ whose closure-symptom note is now stale — the real residual is this operator-e
 
 ## f-extension-instance-dispatcher-arity — F miscompiles a same-named extension method across 2 instances
 
-**Status:** OPEN, F-lane only (found 2026-07-21, characterized while fixing the extension-member-collection
-bug). PRE-EXISTING (fails on pre-fix F too). Distinct from the member-collection fix.
+**Status:** FIXED for the standalone+given collision class (2026-07-21). Root cause was a NAME COLLISION:
+a standalone `extension` method `m` was emitted as the bare global `m`, colliding with the bare `m`
+DISPATCHER synthesised for the given-body instances — so the runtime resolved `recv.m` to the wrong def
+(wrong arity / `Stub`). **Fix (mirrors ssc1-lower :4101/:5458):** a method that has BOTH a top-level ext
+and a given-body dispatcher has its standalone impl emitted as `m__ext_default` (extEmit mangle, driven by
+a new `mangleExtMethods` = collectTopExtMethods ∩ dispatcher-method-names threaded through cx), and the
+bare `m` dispatcher delegates its fallthrough to `m__ext_default` (`edFallback`) instead of returning the
+receiver. `collectTopExtMethods` skips `given`/`trait` bodies AND requires a concrete `=` body (`=>` is
+token 2,30, body `=` is 2,20) so trait-ABSTRACT ext members never count as top-level (else the dispatcher
+would delegate to a non-existent `m__ext_default` → TYPEERR). **Fixes tagless-sealed-dispatch** and the
+std-monaderror arity crash; verified fixpoint stage1==stage2 byte-identical, semantic 246/246, dualrun
+default 43/43. TWO residual cases remain (separate bugs, filed below):
+
+- **f-monaderror-none-match** — std-monaderror now advances past the dispatcher fix to `match: no arm for
+  None/0` (an Option match, likely the `handleOption`/`attemptOption` path or Unit `()` handling). OPEN.
+- **tagless-multi-file `map`** — a DISTINCT case: `map` has a trait-abstract member + 2 given instances but
+  NO standalone (and collides with the builtin `_sel_map`), so it is not the standalone class this fix
+  covers. Still `arity: 2 expected, 1 given`. OPEN.
+
+(original characterization retained below)
+
+Original status: OPEN, F-lane only (found 2026-07-21, characterized while fixing the extension-member-
+collection bug). PRE-EXISTING (fails on pre-fix F too). Distinct from the member-collection fix.
 
 When the SAME extension method name is defined by TWO instances — one inside a `given … with` body and one
 as a standalone `extension` — F synthesises a bare dispatcher that type-tests the receiver and forwards to
