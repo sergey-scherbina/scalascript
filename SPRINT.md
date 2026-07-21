@@ -19,19 +19,6 @@ front stays as the safe fallback). The v2-F *residual/drop-in* side is being wor
 `w5-int-width-measure` claude-code) — **do NOT touch `specs/v2.2-p6.5-fsub.ssc`, the coroutine
 provider, or the F cutover path from these tasks** (collision). These six are the non-colliding zone.
 
-- [ ] **scljet-overflow-traversal-hardening** (`scljet-overflow-traversal-hardening`) — the last M2d
-      corpus-hardening item (BACKLOG "SclJet interoperability follow-ups"). Add a **user-table
-      overflow-chain traversal corruption** negative check: truncated / looped `next` pointers inside
-      an overflow page of `overflow-thresholds.db` (non-schema pages). Current `scljet-corrupt-check`
-      only runs `openReadonly` (header + pager + page-1 schema), never traverses user tables, so these
-      can't be caught there. Add a **traversal-based** negative check: run the corpus dumper (already
-      prints `ERROR:<msg>` on a `Left`) over the corrupt file and assert the overflow diagnostic
-      (`overflow chain ended early or points out of range`, `overflow chain contains a cycle`,
-      `overflow page is truncated`). Byte-mutation must be reproducible via the pinned byte-exact
-      SQLite 3.53.3 (this machine's Python `sqlite3` = 3.53.3). Corpus `.db` files are `.gitignore`d →
-      `git add -f`. Verify int==js. Spec-dev: extend `specs/scljet.md` corpus section.
-
-
 - [x] **v2-f5-kernel-shrink** — **STUDY DONE** (spec `7a31df264`, instrument `d6b1fe5a2`). Step A
       delivered: `specs/v2-f5-kernel-shrink.md` — per-region map + honest fixpoint-verified target.
       **Finding: no mechanical shrink is safe now.** Re-studied the prior "irreducible" claim WITH DATA

@@ -51,6 +51,21 @@ assert the UTF-16 units. Full `scljet-*` sweep 100/100 (int+js). The v2 native
 "chars render as decimal numbers" note did NOT reproduce (verified with a
 dynamic-code-point probe on the native tier); no bug filed. Spec
 `specs/scljet-portable-text-projection.md`. Landed `602905221`.
+## 2026-07-21 — SclJet M2d closed: user-table overflow-chain traversal corruption
+
+The last M2d corpus-hardening item landed. `openReadonly` validates only the header,
+pager, and page-1 schema, so a `next` pointer damaged inside a user table's overflow
+page was accepted at open and never caught. Three byte-mutations of the `p = 1100`
+two-page overflow chain of `overflow-thresholds.db` (page 11 → 12) are now pinned corrupt
+fixtures — `next` → 0 (truncated), → 99 (out of range), → 11 (self-loop) — reproducible
+by the same `generate.py corruptions()` (regen byte-identical). A new traversal dumper
+`tests/tools/scljet-corrupt-traverse.ssc` walks every user table and pins the localized
+diagnostics (`corrupt-traversal-errors.txt`); `scljet-m2-corpus-smoke.sh` runs it on the
+default/asm/fallback tiers (all green). Cross-backend parity is proved by conformance
+`scljet-overflow-traversal-corrupt` (`[int, js]`), which reconstructs the chain in memory
+and adds the length-short `overflow page is truncated` case an on-disk file cannot express.
+Corrupt corpus now 33 files (30 open-time + 3 traversal); scljet-* conformance 100/100
+(INT+JS). Spec `specs/scljet.md` updated (`test 7eae569df`).
 
 ## 2026-07-21 — Durable `save()`/`run()` mirrored on the JavaScript control lane
 

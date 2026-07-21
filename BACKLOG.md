@@ -536,20 +536,17 @@ effects at the destination. The following extensions require separate designs an
       leak (BUGS.md `interp-var-scope-leak-across-calls`) means the new iterative
       helpers use uniquely-prefixed var names.
 
-- [ ] **scljet-m2d-hardening-overflow-traversal** — the last M2d corpus hardening
-      item after `scljet-m2d-hardening` slices 1-2 landed (2026-07-13). Index-btree
-      payload thresholds (`index-overflow-thresholds.db`) and deep page-1
-      record/freeblock/schema corruptions are done; what remains is **user-table
-      overflow-chain traversal corruption** — truncated or looped overflow chains on
-      non-schema pages (e.g. corrupt the `next` pointer inside an overflow page of
-      `overflow-thresholds.db`). The current `scljet-corrupt-check` tool only runs
-      `openReadonly` (header + pager + page-1 schema validation), which never
-      traverses user tables, so these cannot be caught there. Add a traversal-based
-      negative check: run the corpus dumper (which already prints `ERROR:<msg>` on a
-      `Left`) over the corrupt file and assert the expected overflow diagnostic
-      (`overflow chain ended early or points out of range`, `overflow chain contains
-      a cycle`, `overflow page is truncated`). Reproducible with the byte-exact SQLite
-      3.53.3; extend the byte-mutation path so a full regeneration reproduces it.
+- [x] **scljet-m2d-hardening-overflow-traversal** — ✓ Landed (2026-07-21). The last
+      M2d corpus-hardening item. Three byte-mutations of `overflow-thresholds.db`'s
+      `p = 1100` two-page overflow chain (page 11 → 12) are pinned corrupt fixtures —
+      `next` → 0 (truncated), → 99 (out of range), → 11 (self-loop) — added to
+      `generate.py corruptions()` (full regen byte-identical). `openReadonly` accepts
+      all three; they fail only during traversal. New `tests/tools/scljet-corrupt-traverse.ssc`
+      walks every user table and pins the diagnostics (`corrupt-traversal-errors.txt`),
+      wired into `scljet-m2-corpus-smoke.sh` (default/asm/fallback tiers green).
+      Cross-backend parity via conformance `scljet-overflow-traversal-corrupt`
+      (`[int, js]`), which rebuilds the chain in memory and adds the length-short
+      `overflow page is truncated` case (unreachable on disk). scljet-* 100/100 INT+JS.
 
 - [ ] **scljet-portable-text-projection** — specify and implement a general
       target-neutral `code points/UTF-16 units -> String` construction API, then
