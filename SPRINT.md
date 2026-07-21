@@ -2033,20 +2033,22 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
             `BUGS.md#ci-testtimeout`, fixed later by `e25faeb79` with a 240-minute job cap). F7 is
             rolled forward on current `origin/main`; the claim remains open until an exact containing
             SHA returns 0 after the newly exposed v1 test failures are fixed.
-      - [ ] **F7.5 — gate the real Swift package test on SwiftUI, not a `swift` binary.** Exact run
+      - [x] **F7.5 — gate the real Swift package test on SwiftUI, not a `swift` binary.** Exact run
             `29775034983` at `1fbe993b4` reaches a natural `sbt test` verdict and has one failure:
             Ubuntu provides `swift --version` but `swift build` fails with `no such module 'SwiftUI'`.
-            In `SwiftUiRealFixtureBuildTest`, probe the actual capability by typechecking a temporary
-            `import SwiftUI` file with `swiftc`; print exit/stdout/stderr on cancellation. Add a direct
-            impossible-module check so the gate proves it compares module availability. Do not gate the
-            deliberately-invalid staged `.ssc` test: it must still expose generated-Scala failures on
-            Linux. Verify the focused suite in the staged CLI harness and its Linux-shaped outcome.
+            **Landed in `c278b4b37`:** `SwiftUiRealFixtureBuildTest` now typechecks a temporary
+            `import SwiftUI` file with `swiftc` and prints exit/stdout/stderr on cancellation; a direct
+            impossible-module regression proves the comparison. The deliberately-invalid staged `.ssc`
+            test remains ungated. Focused macOS result: 3/3 including real `swift build`; Linux-shaped
+            result: 2 passed / 1 named canceled, with the generated-Scala failure regression still run.
       - [ ] **F7.6 — exact closure and cleanup.** Run the affected CLI suite, the complete
             `v2/conformance/check.sh`, and shared `tests/conformance/run.sh --only 'v2-*'`; push the
             code and separate bookkeeping commits, then require `scripts/ci-status --sha <landed>` exit
             0. Record the exact run, release `v2-f7-internal-gate`, and remove its worktree. The stale Q1
             queue/BUGS state is reconciled in the planning commit because its implementation already
-            landed at `d0722478e` and was released at `e0a1c8e6f`.
+            landed at `d0722478e` and was released at `e0a1c8e6f`. **Local gates complete:** focused
+            macOS 3/3, Linux-shaped 2 passed / 1 named canceled, full v2 644 ok / 0 FAIL, shared `v2-*`
+            11/11. Code is on `origin/main` at `c278b4b37`; exact containing-SHA CI is pending.
 
 - [x] **Q1 — native multiline curried definitions** (`v2-native-front-multiline-curried-def`) —
       ALREADY LANDED 2026-07-18 in `d0722478e` (claim released by `e0a1c8e6f`; the later open queue

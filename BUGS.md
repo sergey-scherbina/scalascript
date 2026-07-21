@@ -2,7 +2,7 @@
 
 ## swiftui-real-fixture-swift-without-swiftui — Linux `swift` is not a SwiftUI capability
 
-**Status:** OPEN (2026-07-21, found by codex while closing F7 exact CI). Exact run
+**Status:** FIXED (2026-07-21, `c278b4b37`; found by codex while closing F7 exact CI). Exact run
 `29775034983` at `1fbe993b4` completed every earlier job/gate, then failed exactly one named test:
 `SwiftUiRealFixtureBuildTest` tried to build the macOS package on Ubuntu and `swiftc` reported
 `ContentView.swift:3:8: error: no such module 'SwiftUI'`. The final aggregate was 619 succeeded,
@@ -13,13 +13,14 @@ Linux image has a working Swift compiler but no Apple SwiftUI SDK, so that proxy
 macOS-only build starts. The real observable is whether the compiler can typecheck `import SwiftUI`:
 write a temporary `.swift` probe and run `swiftc -typecheck <probe>`, capturing exit/stdout/stderr.
 
-**Fix plan.** Replace the binary-presence proxy with that real module-capability comparison and
-print its diagnostic when the native package test is canceled. Keep the second deliberately-invalid
-staged `.ssc` test running on Linux: it proves generated-Scala failures remain visible and must not be
-hidden by the SwiftUI capability gate. Add a direct missing-module regression for the probe itself.
-Done when the focused suite reports the real build as canceled only when SwiftUI is genuinely absent,
-the missing-module and generated-Scala checks pass, macOS still performs `swift build`, and exact CI
-is green.
+**Fix / verification.** `SwiftUiRealFixtureBuildTest` now typechecks a temporary `import SwiftUI`
+probe with `swiftc` and reports exit/stdout/stderr when the real package build is canceled. A direct
+impossible-module regression proves the probe compares module availability. The deliberately-invalid
+staged `.ssc` regression remains outside that gate, so Linux still catches generated-Scala failures.
+The focused suite is 3/3 on macOS (including the real `swift build`); with a Linux-shaped `swiftc`
+that cannot import SwiftUI it is 2 passed / 1 named canceled, and the generated-Scala regression still
+runs. The complete v2 gate is 644 ok / 0 FAIL and shared `v2-*` conformance is 11/11. F7 keeps its claim
+until an exact containing SHA returns exit 0.
 
 ## cli-command-System.exit-kills-the-test-fork — a whole CLASS of green-looking CI reds
 

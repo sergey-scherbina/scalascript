@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-07-21 — SwiftUI fixture probes the real compiler module capability
+
+`SwiftUiRealFixtureBuildTest` no longer treats any installed Swift binary as proof that Apple's
+SwiftUI SDK is available. It typechecks `import SwiftUI` with `swiftc`, prints the real compiler
+diagnostic when the native package build is unavailable, and has an impossible-module regression
+that proves the gate compares capability. The deliberately-invalid generated-Scala regression remains
+ungated on Linux. Verification: focused macOS 3/3 including real `swift build`; Linux-shaped 2 passed /
+1 named canceled; full v2 644 ok / 0 FAIL; shared `v2-*` conformance 11/11 (`c278b4b37`).
+
 ## 2026-07-20 — v2-f5b Stage 1 CORE: F emits TYPED arithmetic IR (i.*/big.*/sconcat/seq)
 
 The first TYPING stage. `F` (`specs/v2.2-p6.5-fsub.ssc`) now emits typed Core IR for literal/structural
