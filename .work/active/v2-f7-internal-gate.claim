@@ -1,6 +1,6 @@
 feature/v2-f7-internal-gate 2026-07-19T13:42:57Z
 agent: codex
-heartbeat: 2026-07-20T11:33:51Z
+heartbeat: 2026-07-21T05:44:22Z
 status: in-progress
-done-so-far: F7 landed through 07a4b74f9 and is rolled to exact candidate 4473a5dde; full v2 gate is 644 ok/0 FAIL and shared v2-* is 11/11; the clean-CI wire-core and hidden SwiftUI fork failures are fixed on this SHA
-next: rerun the full v2 gate at 4473a5dde, obtain exit-0 exact CI run 29738651881, release F7, then claim Q1 v2-native-front-multiline-curried-def
+done-so-far: F7 gate remains 644 ok/0 FAIL and shared v2-* 11/11; exact 4473a5dde and later full run 1fbe993b4 exposed one named Linux-only failure: SwiftUiRealFixtureBuildTest treats any swift binary as proof SwiftUI exists; orphan frontend claim released after its worktree was pruned
+next: recreate the F7 worktree, queue F7.5 plus stale-Q1 reconciliation, gate the real Swift package build on actual SwiftUI capability without hiding generated-code failures, verify locally, push, and obtain exact-SHA green
