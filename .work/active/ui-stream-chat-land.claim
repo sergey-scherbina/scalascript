@@ -1,0 +1,12 @@
+claim: ui-stream-chat-land
+branch: feature/ui-stream-chat-land
+agent: opus (host orchestrator — salvage land, via subagent)
+heartbeat: 2026-07-21T06:10:56Z
+status: in-progress — cherry-picking 2 salvaged UI commits onto fresh origin/main, verify UI slice, push.
+what: land the 2 committed-not-pushed UI reactive primitives salvaged in the 2026-07-21 worktree
+      cleanup. Source: old branch feature/ui-stream-chat (249 behind main), commits
+      44d378ef (fetchStreamSignal + intervalTick) + 3814f4c0 (forJson keyed reactive list).
+      Cherry-pick both onto a fresh worktree off origin/main; resolve minor conflicts
+      (JvmGen.scala + JvmRuntimeUiPrimitives.scala each diverged 1 commit); verify the affected
+      UI conformance/test slice ONLY (memory-conscious — heavy v2-f4 sweep running); push
+      feature/ui-stream-chat-land:main; release. Salvage backup: patches in .work/salvage/.
