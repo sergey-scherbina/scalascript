@@ -4,30 +4,48 @@
 # `SSC_FRONT=F bin/ssc run P` (F) — capturing (exit, stdout). It is GREEN when every divergence is
 # listed here; an UNEXPECTED divergence (F worse than the default front, not listed) is a genuine-FAIL.
 #
-# ★ SINCE THE F4a DELEGATE-FALLBACK (RunNativeV2), THE UNBOUND-GLOBAL gap classes fall back cleanly and
-# this list is NEARLY empty. F covers its subset; where it cannot — the 12 single-file gaps AND the
-# ambient-prelude/plugin class (json's `__jsonCoreWrap`, generators' `generator`, the multi-fence / wasm
-# / most multi-file cases) — F emits an UNBOUND global, which `Reader.validate` catches, and RunNativeV2
-# transparently re-lowers the file through the default front. Measured EQUAL through the real path:
-# extensions, effects, for-comprehensions, tagless-multi-file, json-read, generators,
-# standard-scala-multifence, scala-js-demo, dsl-multi-pass, wasm-primes/sorting, effect-deep-handler-state,
-# js-effect-multishot-long-fold. On the DEFAULT slice: 43/43 EQUAL, 0 divergence.
+# ★ SINCE THE F4a DELEGATE-FALLBACK (RunNativeV2), the UNBOUND-GLOBAL gap classes fall back cleanly:
+# where F cannot lower a program it emits an unbound global, `Reader.validate` catches it, and RunNativeV2
+# re-lowers the file through the default front → EQUAL. The residuals below are the class the fallback
+# CANNOT catch: F resolves all globals but lowers a VALUE wrong, so the pre-check passes and F runs to a
+# wrong result. On the DEFAULT slice: 43/43 EQUAL, 0 divergence.
 #
-# The ONLY residuals (below) are the RUNTIME-CORRECTNESS class task item 2 anticipated: multi-file
-# programs where F lowers a value WRONG but with all globals resolved (so the pre-check passes and F runs
-# to a wrong result). A static pre-check can't see them and a run-time rerun is UNSAFE (side-effect
-# duplication) — they need F's multi-file lowering fixed. So F is never-worse-than-default EXCEPT for
-# these documented programs.
+# ════════════════════════════════════════════════════════════════════════════════════════════════════
+# COMPLETE FULL-CORPUS SWEEP — 2026-07-21 (SSC_DUALRUN_ALL=1, 521 programs, clean F-staged worktree).
+#   Result: EQUAL 509/521, DIVERGE 12 = 2 expected-GAP + 10 real residuals + (http-client, scljet-sql-
+#   orderby-expr were FALSE divergences — see NON-RESIDUAL section; excluded after per-program adjudication
+#   default×1 + F×2 for determinism, timeout-group at 150s).
+#   ALL 10 residuals are ONE class: F's MULTI-FILE (import) lowering emits wrong values. Single-file
+#   programs are unaffected (that is why 509/521 are EQUAL). The flip stays BLOCKED on an F multi-file
+#   lowering fix; the F4a fallback cannot catch these (globals resolve, values are wrong).
+#   ⚠ 3 residuals are SILENT-WRONG (F exits 0 with wrong stdout): std-bifunctor, tagless-sealed-dispatch,
+#     tkv2-theme-css-vars. Post-flip these would corrupt output with NO error — the strongest fix-first arg.
+# ════════════════════════════════════════════════════════════════════════════════════════════════════
 #
-# format (TAB-separated):  <BUCKET>\t<program>\t<reason>   (buckets: GAP / OUT / DEFERRED)
+# format (TAB-separated):  <BUCKET>\t<program>\t<reason>
+#   buckets: GAP (real F residual — needs multi-file lowering fix) / OUT / DEFERRED /
+#            FLAKY (non-deterministic program, cannot byte-compare — NOT an F bug) /
+#            SLOW  (F correct but slower than the sweep timeout — a FALSE timeout, NOT an F bug)
+# NOTE: the gate's isGap() matches by program NAME in ANY bucket, so FLAKY/SLOW entries also suppress the
+#   fail. A future REAL regression on a FLAKY/SLOW program would be masked — re-verify by hand if suspect.
 
-# ── RUNTIME-CORRECTNESS residuals (the class task item 2 anticipated). MULTI-FILE programs where F's
-#    source-concatenation lowering produces a semantically WRONG value (a `<closure>` / a `()` where a
-#    real value is expected) that RESOLVES all globals — so the static pre-check passes and F runs to a
-#    wrong result (rc=1). NOT fallback-catchable: a run-time rerun is unsafe (F may have done external
-#    side effects — file/DB writes — before erroring; ~half the corpus is multi-file incl. scljet DB
-#    writers). These need F's MULTI-FILE lowering fixed, not a fallback. Found by the FULL-corpus sweep
-#    (SSC_DUALRUN_ALL=1); the default slice is unaffected. Append new ones here as the deep sweep surfaces
-#    them (it is slow — F recompiles its source per program). ──
-GAP	dsl-ast-builder	multi-file (imports std/dsl/pretty.ssc): F lowers spanEmpty.start/end to a <closure>; default prints 0..0. Needs F multi-file lowering fix.
-GAP	multi-link-imports	multi-file (imports std/money.ssc, std/either.ssc): F lowers a value to () → `no dispatch for .getOrElse on ()`; default prints "minor units: 1234". Needs F multi-file lowering fix.
+# ── GAP — RUNTIME-CORRECTNESS residuals. MULTI-FILE programs where F's lowering of imported values is
+#    WRONG while all globals resolve (static pre-check passes → F runs to a wrong result). NOT fallback-
+#    catchable: a run-time rerun is unsafe (side-effect duplication; ~half the corpus is multi-file incl.
+#    scljet DB writers). These need F's MULTI-FILE lowering fixed. Each verified DETERMINISTIC (F run twice,
+#    identical) in a clean F-staged worktree on 2026-07-21. ──
+GAP	dsl-ast-builder	multi-file (imports std/dsl/*.ssc): F lowers spanEmpty.start/end to a <closure>; default prints 0..0. Needs F multi-file lowering fix.
+GAP	multi-link-imports	multi-file (imports std/money.ssc, std/either.ssc): F lowers a value to () → `no dispatch for .getOrElse on ()`, rc=1; default prints "minor units: 1234". Needs F multi-file lowering fix.
+GAP	money-multisection	multi-file (imports std/money.ssc): F lowers a value to () → `__method__: no dispatch for .getOrElse on ()`, rc=1; default prints "zł~2~0~XXX~2". Same root cause as multi-link-imports. Needs F multi-file lowering fix.
+GAP	money-portable-v2	multi-file (imports std/money.ssc): F lowers a value to () → `.getOrElse on ()`, rc=1; default prints "$3.75~true~1.2100~3.3333~1234~List(...)". Same root cause. Needs F multi-file lowering fix.
+GAP	litdoc	multi-file (imports std/litdoc.ssc): F aborts with internal `ssc: 2`, rc=1, empty stdout; default prints 401 B ("kinds: front,heading,..."). Needs F multi-file lowering fix.
+GAP	mcp-types	multi-file (imports std/mcp/types.ssc): F lowers a ctor with wrong arity → `arity: 2 expected, 1 given`, rc=1 after partial output (false/hello/true, 16 B); default prints full 107 B. Needs F multi-file lowering fix.
+GAP	std-monaderror	multi-file (imports std/either.ssc, std/monaderror.ssc — typeclass givens): F aborts after partial output (None~Some(42)~None, 18 B), rc=1; default prints 192 B. Needs F multi-file/typeclass lowering fix.
+GAP	std-bifunctor	SILENT-WRONG. multi-file (imports std/either.ssc, std/bifunctor.ssc — typeclass givens): F exits 0 but emits `Stub` for typeclass instances → wrong stdout (154 B vs default 183 B). No error. Needs F multi-file/typeclass lowering fix.
+GAP	tagless-sealed-dispatch	SILENT-WRONG. multi-file (imports std/either.ssc, std/bifunctor.ssc, std/monaderror.ssc — typeclasses): F exits 0 but emits `Stub` → wrong stdout (69 B vs default 93 B). No error. Needs F multi-file/typeclass lowering fix.
+GAP	tkv2-theme-css-vars	SILENT-WRONG. multi-file (imports std/ui/theme.ssc; NO typeclass): F exits 0 but computes wrong booleans (some true→false; 37 B vs default 34 B all-true). No error. Needs F multi-file lowering fix.
+
+# ── NON-RESIDUALS — divergences the sweep flagged that are NOT F correctness bugs (adjudicated 2026-07-21;
+#    listed so the full-corpus gate stays green, with the evidence to re-verify). ──
+FLAKY	http-client	NETWORK non-determinism — the program's own output varies run-to-run (F1 rc=1 15 B vs F2 rc=1 0 B; default rc=124 timeout in the sweep vs rc=1 11 B on re-run). A non-deterministic program cannot be byte-compared; NOT an F bug.
+SLOW	scljet-sql-orderby-expr	FALSE TIMEOUT — at DR_TIMEOUT≥150 F output is BYTE-IDENTICAL to default (sha ae1324ba, 335 B, verified twice). The sweep's 60s timeout was too short for F on this heavy scljet DB program (F rc=124). F is CORRECT here, just slower; NOT a residual. Raise DR_TIMEOUT for scljet in full sweeps.
