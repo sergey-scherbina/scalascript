@@ -1,6 +1,6 @@
-feature/durable-continuation-save-run 2026-07-21T19:12:53Z
+feature/durable-continuation-save-run 2026-07-21T19:14:24Z
 agent: claude-code
-heartbeat: 2026-07-21T19:12:53Z
-status: not-started
-done-so-far:
-next: spec-first (saved-continuation-format + in-process save/run keystone), public typed builder + DurableValue codec; unmanaged stays Rejected
+heartbeat: 2026-07-21T19:14:24Z
+status: in-progress
+done-so-far: worktree created; design settled (public DurableValue[S] snapshot codec + Continuation.savable + authority-guarded reusable SavedContinuation; unmanaged stays Rejected)
+next: read ABI gate + JS save lane; write spec; implement scala keystone
