@@ -44,6 +44,18 @@ for method in parseActors typeActors unifyDeep; do
 done
 
 : > "$BENCH_TEST_LOG"
+run_bench compile-profile parseActors
+got="$(sed -n '1p' "$BENCH_TEST_LOG")"
+expected="compilerBench/Jmh/run -wi 1 -i 1 -f 1 -prof gc -prof \"jfr:configName=profile\" .*${compiler_classes}.*parseActors.*"
+[[ "$got" == "$expected" ]] || fail_compare 'compile-profile command' "$expected" "$got"
+
+: > "$BENCH_TEST_LOG"
+run_bench profile arithLoop
+got="$(sed -n '1p' "$BENCH_TEST_LOG")"
+expected='interpreterBench/Jmh/run -wi 1 -i 1 -f 1 -prof gc -prof "jfr:configName=profile" .*InterpreterBench.*arithLoop.*'
+[[ "$got" == "$expected" ]] || fail_compare 'interpreter profile command' "$expected" "$got"
+
+: > "$BENCH_TEST_LOG"
 got_list="$(run_bench list)"
 got_command="$(sed -n '1p' "$BENCH_TEST_LOG")"
 expected_command='interpreterBench/Jmh/run -lp .* compilerBench/Jmh/run -lp .*'
@@ -55,4 +67,4 @@ expected_list="$(printf '%s\n' \
   '[info] scalascript.bench.ParserBench.parseActors')"
 [[ "$got_list" == "$expected_list" ]] || fail_compare 'list output' "$expected_list" "$got_list"
 
-printf 'bench-wrapper-gate: compiler routing + combined unique list PASS\n'
+printf 'bench-wrapper-gate: compiler/profile routing + combined unique list PASS\n'

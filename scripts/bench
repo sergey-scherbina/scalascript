@@ -31,6 +31,8 @@ Commands:
   gen [pat]       Codegen-time benchmarks (CrossBackendBench: jvmGen_X / jsGen_X).
                   Use this to track how long backends take to PRODUCE code.
   compile [pat]   Compiler perf (parser / typer / unifier / .sscc format).
+  compile-profile <pat>
+                  `compile <pat>` + JFR alloc samples + JMH gc profiler.
 
   asm [pat]       Same as `interp [pat]` but with SSC_JIT_BACKEND=asm.
                   Use this to verify AsmJitBackend is at parity with Javac.
@@ -62,6 +64,7 @@ Examples:
   scripts/bench asm recursionFib        # one bench, ASM backend
   scripts/bench off recursionFib        # same bench with optimizations off
   scripts/bench profile instanceFieldAccess
+  scripts/bench compile-profile parseActors
   scripts/bench cross arithLoop         # interp vs JS vs JVM, one workload
   scripts/bench v2-bytecode arith-loop  # v2 VM vs v2 bytecode, one workload
 
@@ -81,7 +84,7 @@ pat="${1:-.*}"
 
 # Sprint notes use CLI-friendly kebab names. JMH method names stay JVM-safe.
 case "$cmd" in
-  interp|cross|gen|compile|asm|off|profile)
+  interp|cross|gen|compile|compile-profile|asm|off|profile)
     case "$pat" in
       option-chain) pat="optionChain" ;;
       either-chain) pat="eitherChain" ;;
@@ -114,11 +117,17 @@ require_pat() {
   fi
 }
 
+jmh_profile() {
+  require_pat
+  jmh_run "$1" "$2" '-prof' 'gc' '-prof' '"jfr:configName=profile"'
+}
+
 case "$cmd" in
   interp)   jmh_run interpreterBench InterpreterBench ;;
   cross)    jmh_run interpreterBench RuntimeBench ;;
   gen)      jmh_run interpreterBench CrossBackendBench ;;
   compile)  jmh_run compilerBench "$COMPILER_BENCH_CLASSES" ;;
+  compile-profile) jmh_profile compilerBench "$COMPILER_BENCH_CLASSES" ;;
 
   asm)
     # SSC_JIT_BACKEND is read from sys.env only; env var propagates to the
@@ -136,8 +145,7 @@ case "$cmd" in
     ;;
 
   profile)
-    require_pat
-    jmh_run interpreterBench InterpreterBench '-prof' 'gc' '-prof' '"jfr:configName=profile"'
+    jmh_profile interpreterBench InterpreterBench
     ;;
 
   smoke)
