@@ -1,8 +1,8 @@
 claim: f-typeclass-multifile
 branch: feature/f-multifile-fix
 agent: opus (F multi-file typeclass/given lowering — the SILENT-WRONG residual class)
-heartbeat: 2026-07-21T08:44:02Z
-status: in-progress — re-verified 10 residuals vs origin/main (79dad32b8): 4 now-fixed by 70d5bbabf
+heartbeat: 2026-07-21T09:15:33Z
+status: in-progress — FIX WORKING: skipExtBody collects glued given-nested extension members (collectEMs+collectOMExtMs). std-bifunctor NOW-EQUAL, tagless Stubs gone. Fixpoint gate 91/0 running.
         (multi-link-imports, money-multisection, money-portable-v2, tkv2-theme-css-vars). Reconciling
         dualrun.expected + fixing the typeclass-given class.
 what: Fix F's MULTI-FILE typeclass/given lowering — the SILENT-WRONG residuals std-bifunctor,
