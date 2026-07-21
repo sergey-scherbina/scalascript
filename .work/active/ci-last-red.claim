@@ -1,6 +1,6 @@
-feature/ci-last-red 2026-07-21T19:11:53Z
+feature/ci-last-red 2026-07-21T19:26:53Z
 agent: claude-code
-heartbeat: 2026-07-21T19:11:53Z
-status: in-progress
-done-so-far: baseline measured — sbt job is FLAKY not deterministically-red. Full-green run exists (b218aa5e8, run 29850150239). Remaining red = timing flakes in cli cluster leader-election family (SingletonFailoverTest, PartitionHealingTest): fixed sendAfter settle windows too short under CI load.
-next: widen settle windows + bounded retry on cluster CLI tests; land; exact-SHA CI green on sbt job.
+heartbeat: 2026-07-21T19:26:53Z
+status: verifying-ci
+done-so-far: landed test-hardening 648dbfec5 (ClusterTestSupport.retrying(3) + widened settle windows on the 4 flaky WS cluster suites) + bookkeeping 3dd146fa1. cli/Test/compile clean; Partition/PartitionHealing/SingletonFailover/MultiNode all green locally first-attempt.
+next: exact-SHA CI green on sbt job at 3dd146fa1. Obstacle: sibling pushes serially cancel in-flight runs.
