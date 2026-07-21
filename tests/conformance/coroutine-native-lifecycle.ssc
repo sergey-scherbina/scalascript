@@ -1,0 +1,97 @@
+---
+name: coroutine-native-lifecycle
+description: Native Coroutine lifecycle — lazy start, nesting, cancellation, and bounded diagnostics
+backends: [jvm, v2]
+also-codegen: v2
+known-red: "jvm — v1 JvmGen erases the public Coroutine type parameters; remove when BUGS.md v1-jvm-coroutine-generic-surface is fixed"
+---
+
+# Native Coroutine lifecycle
+
+This v2 integration case exercises both native execution engines. The additive JVM
+codegen lane is direct ASM; the pre-existing compatibility JVM lane remains visible
+as an expiring known-red until its erased Coroutine surface is fixed.
+
+```scalascript
+var started = false
+val pingpong = coroutineCreate[String, String, String] { () =>
+  started = true
+  val first = suspend("ping")
+  val second = suspend(first + "-pong")
+  second + "-done"
+}
+
+println("started:" + started.toString)
+println(coroutineResume(pingpong, "ignored"))
+println("started:" + started.toString)
+println(coroutineResume(pingpong, "A"))
+println(coroutineResume(pingpong, "B"))
+
+val repeated = try {
+  coroutineResume(pingpong, "C")
+  "unexpected"
+} catch {
+  case e: RuntimeException => e.getMessage
+}
+println("repeat:" + repeated)
+
+val outer = coroutineCreate[Int, Unit, String] { () =>
+  val inner = coroutineCreate[Int, Unit, String] { () =>
+    suspend(99)
+    "inner-done"
+  }
+  coroutineResume(inner, ()) match
+    case Yielded(value) =>
+      suspend(value)
+      ()
+    case _ => ()
+  "outer-done"
+}
+println(coroutineResume(outer, ()))
+println(coroutineResume(outer, ()))
+
+var cancelledBodyRan = false
+val cancelledBefore = coroutineCreate[Int, Unit, Unit] { () =>
+  cancelledBodyRan = true
+  suspend(1)
+}
+coroutineCancel(cancelledBefore)
+coroutineCancel(cancelledBefore)
+println("cancel-before:" + cancelledBodyRan.toString)
+val beforeResume = try {
+  coroutineResume(cancelledBefore, ())
+  "unexpected"
+} catch {
+  case e: RuntimeException => e.getMessage
+}
+println("cancel-before-resume:" + beforeResume)
+
+val cancelledMid = coroutineCreate[Int, Unit, Unit] { () =>
+  suspend(7)
+  suspend(8)
+}
+println(coroutineResume(cancelledMid, ()))
+coroutineCancel(cancelledMid)
+coroutineCancel(cancelledMid)
+val midResume = try {
+  coroutineResume(cancelledMid, ())
+  "unexpected"
+} catch {
+  case e: RuntimeException => e.getMessage
+}
+println("cancel-mid-resume:" + midResume)
+
+val finished = coroutineCreate[Unit, Unit, Int] { () => 7 }
+println(coroutineResume(finished, ()))
+coroutineCancel(finished)
+coroutineCancel(finished)
+println("cancel-after:ok")
+
+val outside = try {
+  suspend("outside")
+  "unexpected"
+} catch {
+  case e: RuntimeException => e.getMessage
+}
+println("outside:" + outside)
+```

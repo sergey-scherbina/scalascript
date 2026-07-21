@@ -1,0 +1,61 @@
+---
+name: coroutine-demo
+description: Lazy two-way coroutines, nested suspension, and explicit cancellation
+---
+
+# Coroutines
+
+A Coroutine is lazy: creating it allocates an opaque handle, while its body starts
+only when the first value is resumed into it. Each `suspend(out)` yields one value
+and receives the next resume input in return.
+
+```scalascript
+var started = false
+val conversation = coroutineCreate[String, String, String] { () =>
+  started = true
+  val name = suspend("What is your name?")
+  val answer = suspend("Hello, " + name)
+  "finished: " + answer
+}
+
+println("started before resume: " + started.toString)
+println(coroutineResume(conversation, "ignored"))
+println("started after resume: " + started.toString)
+println(coroutineResume(conversation, "Ada"))
+println(coroutineResume(conversation, "thanks"))
+```
+
+Nested coroutines keep `suspend` dynamically scoped to the innermost active body:
+
+```scalascript
+val outer = coroutineCreate[Int, Unit, String] { () =>
+  val inner = coroutineCreate[Int, Unit, String] { () =>
+    suspend(42)
+    "inner complete"
+  }
+  coroutineResume(inner, ()) match
+    case Yielded(value) =>
+      suspend(value)
+      ()
+    case _ => ()
+  "outer complete"
+}
+
+println(coroutineResume(outer, ()))
+println(coroutineResume(outer, ()))
+```
+
+Cancellation is explicit and idempotent. Cancelling before the first resume leaves
+the body unstarted; a cancelled handle cannot be resumed again.
+
+```scalascript
+var cancelledBodyRan = false
+val cancelled = coroutineCreate[Unit, Unit, Unit] { () =>
+  cancelledBodyRan = true
+  suspend(())
+}
+
+coroutineCancel(cancelled)
+coroutineCancel(cancelled)
+println("cancelled before start: " + (!cancelledBodyRan).toString)
+```

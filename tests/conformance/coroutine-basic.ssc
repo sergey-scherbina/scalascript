@@ -1,7 +1,7 @@
 ---
 name: coroutine-basic
-description: v1.9 coroutine primitive — create, resume, suspend, Yielded/Returned
-backends: [int, js]
+description: Coroutine primitive — create, resume, suspend, Yielded/Returned
+backends: [int, js, v2]
 ---
 
 # Coroutine — single yield then return

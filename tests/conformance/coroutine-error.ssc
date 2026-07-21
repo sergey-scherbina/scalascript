@@ -1,7 +1,7 @@
 ---
 name: coroutine-error
-description: v1.9 coroutine — error propagation and nested coroutines
-backends: [int, js]
+description: Coroutine — error propagation and nested coroutines
+backends: [int, js, v2]
 ---
 
 # Coroutine — error propagation
@@ -9,8 +9,7 @@ backends: [int, js]
 ```scalascript
 val co = coroutineCreate[Int, Unit, String] { () =>
   suspend(1)
-  val x: String = null
-  x.length.toString
+  throw new RuntimeException("boom")
 }
 println(coroutineResume(co, ()))
 val r = coroutineResume(co, ())

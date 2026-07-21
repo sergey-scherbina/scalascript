@@ -1,0 +1,15 @@
+started:false
+Yielded(ping)
+started:true
+Yielded(A-pong)
+Returned(B-done)
+repeat:coroutineResume: coroutine already completed or cancelled
+Yielded(99)
+Returned(outer-done)
+cancel-before:false
+cancel-before-resume:coroutineResume: coroutine already completed or cancelled
+Yielded(7)
+cancel-mid-resume:coroutineResume: coroutine already completed or cancelled
+Returned(7)
+cancel-after:ok
+outside:suspend called outside a coroutine or generator body
