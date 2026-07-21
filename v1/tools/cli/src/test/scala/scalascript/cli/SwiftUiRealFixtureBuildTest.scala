@@ -15,10 +15,11 @@ import org.scalatest.funsuite.AnyFunSuite
  *  reason). The test invokes the staged `bin/ssc-tools` launcher in a subprocess, exactly where
  *  `ssc.lib.path` and the installed compiler/runtime JAR layout are part of the supported contract.
  *
- *  Gated on a Swift toolchain (`assume(swiftAvailable)`) so a box without Xcode/swift skips
- *  cleanly — mirrors `RustGenCargoSmokeTest`'s `assume(cargoAvailable)` gate, which caught a
- *  real move/borrow bug that the Rust backend's string-match-only tests missed. Kept out of
- *  the fast string-match path: an actual `swift build` costs real wall-clock time. */
+ *  Gated on an actual `swiftc -typecheck` of `import SwiftUI`, not merely a Swift binary: Linux
+ *  distributions include `swift`/`swiftc` without Apple's SwiftUI SDK. This mirrors
+ *  `RustGenCargoSmokeTest`'s capability gate, which caught a real move/borrow bug that the Rust
+ *  backend's string-match-only tests missed. Kept out of the fast string-match path: an actual
+ *  `swift build` costs real wall-clock time. */
 class SwiftUiRealFixtureBuildTest extends AnyFunSuite:
 
   private val repoRoot: os.Path =
@@ -27,9 +28,27 @@ class SwiftUiRealFixtureBuildTest extends AnyFunSuite:
       cur = cur / os.up
     cur
 
-  private def swiftAvailable: Boolean =
-    try os.proc("swift", "--version").call(check = false).exitCode == 0
-    catch case _: Throwable => false
+  private def swiftModuleCapability(moduleName: String): Either[String, Unit] =
+    val probeDir = os.temp.dir(prefix = "ssc-swift-module-probe-")
+    try
+      val probe = probeDir / "Probe.swift"
+      os.write(probe, s"import $moduleName\n")
+      try
+        val result = os.proc("swiftc", "-typecheck", probe).call(check = false)
+        Either.cond(
+          result.exitCode == 0,
+          (),
+          s"swiftc cannot import $moduleName:\n${diagnostics(result)}")
+      catch
+        case error: Throwable =>
+          Left(s"swiftc cannot probe import $moduleName: ${error.getMessage}")
+    finally
+      scala.util.Try(os.remove.all(probeDir))
+
+  private def requireSwiftUi(): Unit =
+    swiftModuleCapability("SwiftUI") match
+      case Right(()) => ()
+      case Left(reason) => cancel(s"SwiftUI compiler capability unavailable — skipping native build:\n$reason")
 
   private def requireLauncher(): os.Path =
     StagedCliTestSupport.toolsLauncher.getOrElse:
@@ -46,8 +65,15 @@ class SwiftUiRealFixtureBuildTest extends AnyFunSuite:
   private def diagnostics(result: os.CommandResult): String =
     s"exit=${result.exitCode}\nstdout:\n${result.out.text()}\nstderr:\n${result.err.text()}"
 
+  test("Swift module capability probe rejects an unavailable module") {
+    val missing = "ScalaScriptDefinitelyMissingSwiftModule"
+    swiftModuleCapability(missing) match
+      case Left(reason) => assert(reason.contains(missing), reason)
+      case Right(()) => fail(s"swiftc unexpectedly imported deliberately missing module $missing")
+  }
+
   test("examples/frontend/ios-hello/ios-hello.ssc builds a real Swift package via swift build") {
-    assume(swiftAvailable, "swift not on PATH — skipping end-to-end SwiftUI native build")
+    requireSwiftUi()
     assume(JvmBytecode.scalaCliAvailable, "scala-cli not on PATH — needed for the --bytecode SwiftUI build")
     val launcher = requireLauncher()
     val sscFile = repoRoot / "examples" / "frontend" / "ios-hello" / "ios-hello.ssc"
