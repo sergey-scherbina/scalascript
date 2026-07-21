@@ -13,6 +13,20 @@ defaults onto the ctor args, reusing the shared `funcDflts` registry keyed by ca
 regression guard. Gates: fixpoint stage1==stage2 byte-identical, semantic 248/248, `SSC_DUALRUN_ALL=1`
 0 unexpected with mcp-types now EQUAL (`886df94fe`).
 
+## 2026-07-21 — CI `sbt` job de-flaked: retry + widen WS cluster election tests
+
+The `sbt — compile and test` job's residual redness was a TIMING FLAKE, not a deterministic failure:
+the `scalascript.cli` cluster leader-election tests (`PartitionTest`, `PartitionHealingTest`,
+`SingletonFailoverTest`, `MultiNodeClusterTest`) spawn real `ssc.jar` subprocesses and snapshot the
+elected leader/counter ONCE at a fixed `sendAfter` window, so under CI contention an election that
+misses the window fails a single-shot assertion (~2/3 of recent runs, `succeeded 619, failed 1` on a
+different case each time; the job is green when timing is met — run `29850150239` had all 4 jobs
+green). Added `ClusterTestSupport.retrying(3)` around the 8 snapshot-based scenarios (a real
+regression fails every attempt and is rethrown; a transient miss passes on retry) and widened the
+tightest windows (phase-1 election 3000→4500 ms, failover migration 12000→18000 ms). The
+poll-to-convergence `ClusterBullyStatusConvergenceTest` was left unchanged as the robust template.
+BUGS.md `cli-cluster-election-timing-flake-under-ci-load`.
+
 ## 2026-07-21 — Native Coroutine provider runs on VM, direct ASM, and build-jvm
 
 The standard core-free `59-generator` provider now owns one dynamically scoped `suspend` target for

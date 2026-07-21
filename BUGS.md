@@ -578,6 +578,36 @@ untouched. Verified: all 7 tests pass and converge to the correct lex-greatest l
 quorum=3 → minority leaderless, majority elects node-e; healing → node-e on all five; `spawnRemote` →
 `REMOTE_SPAWN_OK`). No regression: `httpFastEngine/test` 43/43, cluster CLI suites green.
 
+## cli-cluster-election-timing-flake-under-ci-load — snapshot-based WS cluster tests flake in CI
+
+**Status:** FIXED (mitigated) 2026-07-21 by `ci-last-red` (`15280bb8b`). Root cause is timing, not
+logic — the Bully convergence itself is correct (see `v1-cluster-bully-no-convergence-over-ws` above).
+
+**Symptom.** The `sbt — compile and test` CI job went red on ~2/3 of recent runs, always
+`Tests: succeeded 619, failed 1`, on a DIFFERENT `scalascript.cli` cluster test each run:
+- run `29848826436`: `SingletonFailoverTest` — node-b won re-election but never spawned the migrated
+  singleton before the tick landed ("node-b never spawned its migrated singleton instance").
+- run `29845877358`: `PartitionHealingTest` — phase-1 `Some("") was not equal to Some("node-e")`: all
+  five nodes read an EMPTY `LEADER1` while phase-2 (a longer window) converged to node-e fine.
+The same SHA family is green when timing is met (run `29850150239`, SHA `b218aa5e8`, all 4 jobs green),
+which disproves the earlier "origin/main was never green" premise.
+
+**Root cause.** `PartitionTest`, `PartitionHealingTest`, `SingletonFailoverTest`, and
+`MultiNodeClusterTest` spawn real `ssc.jar` subprocesses that print the elected leader / counter ONCE,
+at a fixed `sendAfter` window in the node `.ssc` script (e.g. phase-1 election settle was 3 s). Under
+CI contention (5 JVMs + GC pauses) an election occasionally misses that window; the node snapshots an
+empty/stale value and the single-shot assertion fails. A node that prints once cannot be recovered by
+test-side polling — which is exactly why the sister `ClusterBullyStatusConvergenceTest` (polls
+`/_ssc-cluster/status` until convergence) never flakes.
+
+**Fix (mitigation).** `ClusterTestSupport.retrying(n)` re-runs the whole scenario with fresh ports up
+to n times — a real regression fails EVERY attempt (last failure rethrown), a transient miss passes on
+retry; `TestCanceledException` never retried. All 8 snapshot scenarios wrapped in `retrying(3)`. Plus
+widened the tightest windows to proven-sufficient sizes (phase-1 election 3000→4500 ms; failover
+migration 12000→18000 ms + survivor deadlines 30→36 s / 25→32 s). NOT a determinism fix — real WS +
+real processes are non-deterministic by nature; the robust long-term shape is to convert the snapshot
+tests to the status-polling pattern of `ClusterBullyStatusConvergenceTest`.
+
 ## js-char-into-int-param — a `Char` passed into an `Int` parameter stays boxed on the v1 JS backend
 
 **Status:** OPEN (found 2026-07-20 while building `std/markdown-html.ssc` for the docs site).

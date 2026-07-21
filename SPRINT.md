@@ -2538,6 +2538,23 @@ real (or real flakes); fixing one leaves the job red.
       (negative blocks, the unordered actors set-compare, `[[ ! -s ]]`/`[[ $rc -ne 0 ]]`). Proven
       non-vacuous in isolation (mismatch prints want/got/diff, a bare `[[ ]]` failure names line+command);
       `bash -n` clean; the preamble runs to the staging guard with no spurious trap output.
+- [x] **4. `Test via sbt` — the residual red was a FLAKE, not deterministic (ci-last-red, 2026-07-21).**
+      With items 0-3 landed the sbt job reached the tests and went green at least once
+      (run `29850150239`, SHA `b218aa5e8`, ALL 4 jobs green) — disproving the "never green" premise.
+      The remaining redness was a TIMING FLAKE in the `scalascript.cli` cluster leader-election family:
+      ~2/3 of recent runs failed `Tests: succeeded 619, failed 1` on a DIFFERENT case each run
+      (`SingletonFailoverTest` run `29848826436`; `PartitionHealingTest` run `29845877358`). Root cause:
+      those tests spawn real `ssc.jar` subprocesses and snapshot the leader/counter ONCE at a fixed
+      `sendAfter` window; under CI contention an election misses the window and the single-shot
+      assertion fails (a node that prints once cannot be recovered by test-side polling). FIX (feature
+      `15280bb8b`): new `ClusterTestSupport.retrying(3)` wraps the 8 snapshot scenarios (real regression
+      fails ALL attempts and rethrows; transient miss passes on retry) + widened the tightest windows
+      (phase-1 election 3000→4500 ms, failover migration 12000→18000 ms + survivor deadlines).
+      `ClusterBullyStatusConvergenceTest` left alone (polls to convergence, never flakes — the robust
+      template). See BUGS.md `cli-cluster-election-timing-flake-under-ci-load`. Verified: `cli/Test/compile`
+      clean + Partition/PartitionHealing/SingletonFailover/MultiNode all green locally on the first
+      attempt. Awaiting exact-SHA CI green on the whole `sbt` job (concurrency-cancellation of in-flight
+      runs by sibling pushes is the practical obstacle to a clean settle).
 
 ## swift-renderer-port — port select/option + flex-wrap to the SwiftUI renderer (2026-07-18)
 
