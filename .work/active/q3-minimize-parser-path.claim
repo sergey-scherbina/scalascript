@@ -1,0 +1,6 @@
+feature/q3-minimize-parser-path 2026-07-21T15:14:37Z
+agent: codex
+heartbeat: 2026-07-21T15:14:37Z
+status: not-started
+done-so-far: Q2 exact closure complete; Q3 is unclaimed and F lane is disjoint
+next: create external worktree, inspect Q1/Q2 touched path, write concrete SPRINT slices before code
