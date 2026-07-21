@@ -1,0 +1,6 @@
+feature/durable-continuation-save-run 2026-07-21T19:12:53Z
+agent: claude-code
+heartbeat: 2026-07-21T19:12:53Z
+status: not-started
+done-so-far:
+next: spec-first (saved-continuation-format + in-process save/run keystone), public typed builder + DurableValue codec; unmanaged stays Rejected
