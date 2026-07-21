@@ -80,12 +80,16 @@ default (step 4, Sergiy) or delete ssc1-front/ssc1-lower (step 5). Edit gates (`
       timeout was a false-timeout — F correct-but-slow). scljet-sql-params/-range-descent from the corrupted
       first run were teardown artifacts (EQUAL on the clean run). Manifest gate verified green on the
       12-program residual slice. Sweep-only task: F multi-file lowering is NOT fixed here (hand-off).
+- [x] **RESIDUALS FULLY CLOSED — 10→1→0 (2026-07-21).** All documented multi-file residuals fixed; the
+      last, `mcp-types`, closed by `886df94fe` (enum-case trailing defaults synthesized on the QUALIFIED
+      ctor path — mirrors the oracle's `ctorApplyDefaults`; see BUGS `f-enum-case-default-arg-qualified`).
+      `specs/v2.2-p6.5-dualrun.expected` GAP bucket is now EMPTY; `SSC_DUALRUN_ALL=1` reports 0 unexpected.
 - **Step 4/5 — HELD by Sergiy.** FLIP-READY. The flip = one line in `RunNativeV2.frontIsF` (opt-IN →
       opt-OUT); no re-stage; old front stays as the safe fallback (so the flip can't regress any
-      unbound-global gap). Caveat: **the 10 documented multi-file residuals WOULD regress post-flip** until
-      F's multi-file lowering is fixed — Sergiy's call whether to flip with that known caveat or fix first.
-      ⚠ 3 of the 10 are SILENT-WRONG (F exits 0, wrong output) — a flip would corrupt them undetectably.
-      Step 5 (delete old front) must wait until F covers the fallback set on its own.
+      unbound-global gap). The prior "10 multi-file residuals WOULD regress post-flip" caveat is RESOLVED:
+      the residual set is now 0 (including the 3 former SILENT-WRONG cases), so a flip no longer corrupts
+      any documented program. Step 5 (delete old front) must still wait until F covers the fallback set on
+      its own (unbound-global gap classes still delegate).
 
 ---
 

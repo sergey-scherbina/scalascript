@@ -168,11 +168,42 @@ byte-identical to the oracle; every non-vararg call is unchanged. Added a tower 
 Gates: fsub `--self` fixpoint byte-identical (obj_varargs IR 7524B==ref), semantic 247/247, dualrun 0
 unexpected (mcp-types stays a manifest GAP). Verified on the typed-IR + dispatcher base after rebase.
 
-**Follow-up unmasked (separate, not vararg):** mcp-types now runs past the vararg call but still diverges
-at line 13 — `Transport.Http(8080)` matched by `case Transport.Http(p, _)` prints `?` under F vs
-`http:8080` under the default front. An F enum-case default-arg / multi-field-pattern gap (`Http` has a
-defaulted 2nd param), previously masked by the earlier arity crash; keeps mcp-types a dualrun GAP. Owned
-by the dualrun manifest (`specs/v2.2-p6.5-dualrun.expected`).
+**Follow-up unmasked (separate, not vararg): FIXED 886df94fe — see `f-enum-case-default-arg-qualified`.**
+mcp-types ran past the vararg call but still diverged — `Transport.Http(8080)` matched by
+`case Transport.Http(p, _)` printed `?` under F vs `http:8080` under the default front (an enum-case
+default-arg gap on the QUALIFIED ctor path). This was the LAST v2-F4 dualrun residual; now closed.
+
+## f-enum-case-default-arg-qualified — F skipped trailing defaults on the QUALIFIED enum-case ctor path
+
+**Status:** FIXED (2026-07-21, `886df94fe`; f-caseclass-default-arg family). F-lane only. This was the
+**last remaining v2-F4 dualrun residual** (`mcp-types`); the residual set 10→1→0 across 2026-07-21.
+
+**Root cause (live-traced, both fronts).** F's `parseEnumCaseApp` lowered a QUALIFIED enum-case ctor
+`E.Case(args)` by folding straight to `(ctor Case <args>)` with NO default synthesis. So an under-applied
+`Transport.Http(8080)` — `case Http(port: Int, path: String = "/mcp")` (a defaulted 2nd param) — emitted a
+1-FIELD value `(ctor Http (lit (int 8080)))`. The pattern `case Transport.Http(p, _)` compiles to an
+`(arm Http 2 ..)` (arity 2) in BOTH fronts, so F's 1-field value failed the arity test → fell through to
+the wildcard → `?`. The default front prints `http:8080`. Note the miss was specific to the QUALIFIED path:
+the UNqualified ctor call (`parseCtorGen`) and the plain def-call path already synthesized defaults; only
+`E.Case(args)` did not. (Distinct from `f-object-method-varargs` / `f-imported-caseclass-default-arg` — a
+separate lowering path, exactly as those entries predicted.)
+
+**Fix (specs/v2.2-p6.5-fsub.ssc, mirrors the oracle byte-for-byte at the value site).** The oracle lowers
+`E.Case(args)` to a `ctorap` node and calls `ctorApplyDefaults` (ssc1-lower :1829): when under-applied with
+every omitted trailing param carrying a REAL default, it **INLINE-APPENDS** those resolved default exprs
+onto the ctor args — NOT the nested-lambda `expandDefaultCall` the def/unqualified-ctor path uses. F now
+mirrors that: `parseEnumCaseApp` → `parseEnumCaseAppD`/`E` scans the positional args (`dfltGo` decides fire,
+reusing the SHARED `funcDflts` entry that `enumDfltEntries` already keys by CASE name), and `enumCtorDfltTail`
+appends `dropL(nprov, pd)`'s parsed default exprs, giving `(ctor Http (lit (int 8080)) (lit (str "/mcp")))`.
+A fully-applied, named, or defaultless call keeps the plain `(ctor Case args)` path — every non-defaulted
+enum case is byte-unchanged.
+
+**Verified GREEN:** minimal repro (`E.C(1)` with `case C(a, b = 7)` → 8; F `?`→correct before/after);
+`Transport.Http(8080)` emits the 2-field ctor; `bin/ssc run mcp-types.ssc` == `SSC_FRONT=F bin/ssc run
+mcp-types.ssc` byte-identical (14 lines incl. `http:8080`); FIXPOINT (fsub.sh --self) stage1==stage2
+byte-identical (385 827 B) with the new `d enum_case_dflt` tower case; semantic.sh 248/248 goldens (added
+`tower__enum_case_dflt`); dualrun `SSC_DUALRUN_ALL=1` 0 unexpected, mcp-types now EQUAL (GAP removed from
+`specs/v2.2-p6.5-dualrun.expected`).
 
 ## f-operator-extension-dispatch — F treats `++`/`/` extension operators as builtin infix ops
 

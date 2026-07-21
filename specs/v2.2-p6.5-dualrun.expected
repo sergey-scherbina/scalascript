@@ -31,10 +31,12 @@
 #          to a None-match crash; now it tests the container's ctor tags via the FIRST type-arg, mirroring
 #          ssc1-lower firstTypeArg — verified byte-identical F-vs-default end-to-end); dsl-ast-builder
 #          (top-level extension members no longer swallow following defs — layout E/X frame).
-#   REMAINING 1 (below): mcp-types — the vararg-arity crash is fixed; the remaining diverge is a distinct
-#          enum-case multi-field-pattern / default-arg gap (Transport.Http). 10→1 across 2026-07-21.
-#   The flip stays BLOCKED until these are fixed; the F4a fallback cannot catch them (globals resolve,
-#   values are wrong). http-client / scljet-sql-orderby-expr were FALSE divergences (see NON-RESIDUAL).
+#   REMAINING 0: mcp-types FIXED (886df94fe — enum-case trailing defaults now synthesized on the QUALIFIED
+#          ctor path, mirroring the oracle's ctorApplyDefaults; F's parseEnumCaseApp INLINE-APPENDS omitted
+#          trailing defaults). 10→1→0 across 2026-07-21. See BUGS f-caseclass-default-arg (enum-case path).
+#   The F4a fallback could NOT catch this class (globals resolve, values are wrong) — it needed F's lowering
+#   fixed. http-client / scljet-sql-orderby-expr were FALSE divergences (see NON-RESIDUAL). The v2-F4 dualrun
+#   residual set is now EMPTY; any DIVERGE is a genuine-FAIL.
 # ════════════════════════════════════════════════════════════════════════════════════════════════════
 #
 # format (TAB-separated):  <BUCKET>\t<program>\t<reason>
@@ -49,12 +51,14 @@
 #    catchable: a run-time rerun is unsafe (side-effect duplication; ~half the corpus is multi-file incl.
 #    scljet DB writers). These need F's MULTI-FILE lowering fixed. Each verified DETERMINISTIC (F run twice,
 #    identical) in a clean F-staged worktree on 2026-07-21. ──
-# RECONCILED 2026-07-21 (10 → 6). FIXED and removed: multi-link-imports, money-multisection, money-portable-v2,
+# RECONCILED 2026-07-21 (10 → 0). FIXED and removed: multi-link-imports, money-multisection, money-portable-v2,
 # tkv2-theme-css-vars (F import-order fix 70d5bbabf); std-bifunctor (extension-member fix — F now collects ALL
-# members of a given-nested `extension` group, not just the 1st). Remaining 6 below.
-GAP	mcp-types	SILENT-WRONG (rc=0, F prints `?` where default prints `http:8080`). multi-file (imports std/mcp/types.ssc): the vararg-arity crash is FIXED (029a454b8); the remaining diverge is `Transport.Http(8080)` matched by `case Transport.Http(p, _)` — an enum-case multi-field-pattern / default-arg gap (f-caseclass-default-arg family). Default correct. See BUGS.
+# members of a given-nested `extension` group, not just the 1st); ... then the last one, mcp-types, fixed
+# 886df94fe (enum-case trailing defaults on the QUALIFIED ctor path — ctorApplyDefaults mirror). NONE remain:
+# the GAP bucket is intentionally EMPTY. Re-adding a GAP requires a live-traced residual + a BUGS entry.
 
 # ── NON-RESIDUALS — divergences the sweep flagged that are NOT F correctness bugs (adjudicated 2026-07-21;
 #    listed so the full-corpus gate stays green, with the evidence to re-verify). ──
 FLAKY	http-client	NETWORK non-determinism — the program's own output varies run-to-run (F1 rc=1 15 B vs F2 rc=1 0 B; default rc=124 timeout in the sweep vs rc=1 11 B on re-run). A non-deterministic program cannot be byte-compared; NOT an F bug.
+FLAKY	actors-supervision	CONCURRENT-ACTOR non-determinism — the program's own message ordering varies run-to-run INDEPENDENT of the front. The DEFAULT front alone (untouched by the F fix) printed the last two lines as `working` then `no down received` 6/8 runs and in the opposite order 2/8; F printed the first order 8/8 in the same window. The supervisor's `no down received` tick and the worker's `working` tick race in the actor scheduler, so a byte compare is meaningless. NOT an F bug — actors-supervision has NO enum/ctor-default constructs, so the enum-case fix 886df94fe cannot affect it. Re-verify by running it ~8× on EITHER front and observing both orderings.
 SLOW	scljet-sql-orderby-expr	FALSE TIMEOUT — at DR_TIMEOUT≥150 F output is BYTE-IDENTICAL to default (sha ae1324ba, 335 B, verified twice). The sweep's 60s timeout was too short for F on this heavy scljet DB program (F rc=124). F is CORRECT here, just slower; NOT a residual. Raise DR_TIMEOUT for scljet in full sweeps.

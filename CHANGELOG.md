@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-07-21 — Last v2-F4 dualrun residual closed: enum-case defaults on the qualified ctor path
+
+The F front now synthesizes trailing default arguments for a QUALIFIED enum-case constructor
+`E.Case(args)`, closing `mcp-types` — the final v2-F4 dualrun residual (set went 10→1→0). F's
+`parseEnumCaseApp` had folded straight to `(ctor Case args)` with no default fill, so an under-applied
+`Transport.Http(8080)` (`case Http(port: Int, path: String = "/mcp")`) built a 1-field value that failed
+`case Transport.Http(p, _)` (arm arity 2) → F printed `?` where the default front printed `http:8080`.
+The fix mirrors the oracle's `ctorApplyDefaults` (ssc1-lower :1829): INLINE-APPEND the omitted trailing
+defaults onto the ctor args, reusing the shared `funcDflts` registry keyed by case name — no nested-lambda
+`expandDefaultCall`, and every non-defaulted enum case stays byte-unchanged. Added a `tower__enum_case_dflt`
+regression guard. Gates: fixpoint stage1==stage2 byte-identical, semantic 248/248, `SSC_DUALRUN_ALL=1`
+0 unexpected with mcp-types now EQUAL (`886df94fe`).
+
 ## 2026-07-21 — Native Coroutine provider runs on VM, direct ASM, and build-jvm
 
 The standard core-free `59-generator` provider now owns one dynamically scoped `suspend` target for
