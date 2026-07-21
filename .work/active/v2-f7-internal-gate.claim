@@ -1,6 +1,6 @@
 feature/v2-f7-internal-gate 2026-07-19T13:42:57Z
 agent: codex
-heartbeat: 2026-07-21T05:44:22Z
+heartbeat: 2026-07-21T06:04:08Z
 status: in-progress
-done-so-far: F7 gate remains 644 ok/0 FAIL and shared v2-* 11/11; exact 4473a5dde and later full run 1fbe993b4 exposed one named Linux-only failure: SwiftUiRealFixtureBuildTest treats any swift binary as proof SwiftUI exists; orphan frontend claim released after its worktree was pruned
-next: recreate the F7 worktree, queue F7.5 plus stale-Q1 reconciliation, gate the real Swift package build on actual SwiftUI capability without hiding generated-code failures, verify locally, push, and obtain exact-SHA green
+done-so-far: SwiftUI module-capability fix c278b4b37 and bookkeeping 1f5e55b44 landed; focused macOS 3/3, Linux-shaped 2 passed + 1 named cancel with generated-Scala regression still run, full v2 644/0, shared v2-* 11/11; exact run 29805732016 is in progress
+next: require scripts/ci-status --sha 1f5e55b447f6a2e28c2fd3efe2e5599d99f6a8bd exit 0; if green record the exact run, release the claim, and remove the worktree; if red diagnose and fix the real failing job
