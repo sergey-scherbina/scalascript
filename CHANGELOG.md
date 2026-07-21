@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-07-21 — SclJet portable code-points/UTF-16-units → String projection
+
+New `scljet/text.ssc`: a target-neutral, astral-safe text construction API —
+`utf16UnitsToString`, `codePointToUtf16` (the sole home of surrogate arithmetic),
+`codePointsToString`, and the `decodedTextToSqlText` projection. Built only from
+`Int.toChar` + `String` concat + integer math, so the reconstructed `String`
+(observed as `.length` + per-index `.charAt(i).toInt`) is byte-identical across
+the interpreter tiers (tree-walk / bytecode VM / ASM JIT), the JS backend, and
+the v2 native front — no host text decoder. The raw encoded bytes stay the
+SQLite GIGO source of truth. Consolidated the two ad-hoc byte-identical folds
+(`mutate.ssc` `codepointsToString`, `sql.ssc` `cpToString`) into it, fixing the
+latent astral-truncation bug (`Int.toChar` drops the high bits) in one place:
+`fieldToValue` now projects via `decodedTextToSqlText`, `cpToString` delegates to
+`codePointsToString`. Conformance case `scljet-portable-text` (`backends: int, js`)
++ example `scljet-text-projection.ssc` decode UTF-8 with an astral character and
+assert the UTF-16 units. Full `scljet-*` sweep 100/100 (int+js). The v2 native
+"chars render as decimal numbers" note did NOT reproduce (verified with a
+dynamic-code-point probe on the native tier); no bug filed. Spec
+`specs/scljet-portable-text-projection.md`. Landed `602905221`.
+
 ## 2026-07-21 — Durable `save()`/`run()` mirrored on the JavaScript control lane
 
 The JS reference lane (`v2/host/js/control`) now matches the Scala keystone:

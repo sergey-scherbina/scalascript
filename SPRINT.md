@@ -31,16 +31,6 @@ provider, or the F cutover path from these tasks** (collision). These six are th
       SQLite 3.53.3 (this machine's Python `sqlite3` = 3.53.3). Corpus `.db` files are `.gitignore`d →
       `git add -f`. Verify int==js. Spec-dev: extend `specs/scljet.md` corpus section.
 
-- [ ] **scljet-portable-text-projection** (`scljet-portable-text-projection`) — general target-neutral
-      **code-points/UTF-16-units → String** construction API, then project SclJet `DecodedText` →
-      `SqlText` without a host/JSON decoder. NB `Int.toChar` now works on v1 int+JS (memory correction
-      2026-07-14: `codepointsToString(cps)=cps.fold(acc+cp.toChar.toString)`), so most of the old
-      blocker is gone — this task is to (a) give it a **spec'd, named** portable API surface (spec
-      `specs/scljet-portable-text-projection.md`), (b) wire `DecodedText`→`SqlText`, (c) prove
-      interp/VM/ASM/JS parity, keeping raw encoded bytes as the SQLite GIGO source of truth. Add a
-      conformance case + example. Check the v2 native path renders dynamic chars correctly too (v2 was
-      noted to render chars as decimal numbers — verify / file a bug if still true).
-
 - [ ] **scljet-mutable-pager** (`scljet-mutable-pager`) — the big deep item. A real **in-place mutable
       pager** on top of `journal.ssc` `writePagesJournaled`: dirty-page tracking + **cell-level in-place
       edits** (insert/delete/update a cell within a leaf, split/merge on overflow/underflow), replacing
