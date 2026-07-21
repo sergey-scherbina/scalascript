@@ -111,13 +111,22 @@ receiver. `collectTopExtMethods` skips `given`/`trait` bodies AND requires a con
 token 2,30, body `=` is 2,20) so trait-ABSTRACT ext members never count as top-level (else the dispatcher
 would delegate to a non-existent `m__ext_default` → TYPEERR). **Fixes tagless-sealed-dispatch** and the
 std-monaderror arity crash; verified fixpoint stage1==stage2 byte-identical, semantic 246/246, dualrun
-default 43/43. TWO residual cases remain (separate bugs, filed below):
+default 43/43. TWO residual cases were filed (separate bugs, below); tagless-multi-file now FIXED, one open:
 
 - **f-monaderror-none-match** — std-monaderror now advances past the dispatcher fix to `match: no arm for
   None/0` (an Option match, likely the `handleOption`/`attemptOption` path or Unit `()` handling). OPEN.
-- **tagless-multi-file `map`** — a DISTINCT case: `map` has a trait-abstract member + 2 given instances but
-  NO standalone (and collides with the builtin `_sel_map`), so it is not the standalone class this fix
-  covers. Still `arity: 2 expected, 1 given`. OPEN.
+- **tagless-multi-file `map`** — FIXED 2026-07-21 (`1a04abdc8`). NOT actually a `map`/builtin-collision case:
+  the crash was on Monad's PLAIN `def log`/`def pure` (non-`extension` members) that immediately FOLLOW an
+  `extension …` block inside a `given … with` body. Root cause: `skipExtBodyZ` (member-collection helper)
+  CONSUMED the depth-0 `;` separator, so `collectOMExtMs` could not tell a glued extension member (deeper
+  indent, NO `;`) from a dedented `;`-separated plain `def`, and mis-glued the plain `def` as an extension
+  member → its impl emitted receiver-prepended (`lam 2`, arity N+1) + a spurious bare `m` dispatcher →
+  `g.m(a)` / `recv.m(a)` crash `arity: 2 expected, 1 given`. Fix: KEEP the `;` (`Cons t rest`) so
+  `collectOMExtMs` reads it as the extension-block boundary; `collectEMs`/`collectTopEMs` (top-level ext
+  registry, whose members ARE `;`-separated) wrap `skipExtBody` in `skipSemisF`, so keeping the `;` is
+  byte-identical for them. Verified: fixpoint stage1==stage2 byte-identical, semantic 247/247 (0 mismatch),
+  and F-vs-reference byte-identical stdout on the REAL multi-file path (`ssc1-run-fsub.ssc0` — fence
+  extraction + import closure) — OLD fsub crashed there, NEW fsub prints all 4 lines matching default.
 
 (original characterization retained below)
 

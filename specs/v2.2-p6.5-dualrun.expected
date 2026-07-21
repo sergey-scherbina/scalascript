@@ -12,15 +12,19 @@
 #
 # ════════════════════════════════════════════════════════════════════════════════════════════════════
 # FULL-CORPUS SWEEP 2026-07-21 (SSC_DUALRUN_ALL=1, 521 programs): initially EQUAL 509/521, 10 real residuals,
-#   all one class = F's MULTI-FILE (import) lowering. RECONCILED as fixes land — now 5 residuals:
+#   all one class = F's MULTI-FILE (import) lowering. RECONCILED as fixes land — now 4 residuals:
 #   FIXED: multi-link-imports, money-multisection, money-portable-v2, tkv2-theme-css-vars (import-order fix
 #          70d5bbabf); std-bifunctor (extension-member collection fix — F now collects EVERY member of a
 #          given-nested `extension` group); tagless-sealed-dispatch (dispatcher-arity fix — a same-named
 #          extension method in a `given` AND standalone: the standalone impl is now emitted as
-#          `m__ext_default` and the bare `m` dispatcher delegates its fallback to it, mirroring ssc1-lower).
-#   REMAINING 5 (below): dsl-ast-builder, litdoc, mcp-types, std-monaderror, tagless-multi-file. Each now
+#          `m__ext_default` and the bare `m` dispatcher delegates its fallback to it, mirroring ssc1-lower);
+#          tagless-multi-file (given-body extension block must END at the first `;`-separated plain `def`:
+#          `skipExtBodyZ` consumed the depth-0 `;` so `collectOMExtMs` mis-glued Monad's plain `def log`/`pure`
+#          as an extension member — receiver-prepended arity N+1 + a spurious bare dispatcher; now the `;` is
+#          KEPT as the block boundary; verified byte-identical output F-vs-default on the real multi-file path).
+#   REMAINING 4 (below): dsl-ast-builder, litdoc, mcp-types, std-monaderror. Each now
 #          blocked by a DIFFERENT residual bug (operator-ext, litdoc-internal, object-varargs, a monaderror
-#          None-match, and a map trait-abstract/builtin dispatcher case) — see the per-entry BUGS refs.
+#          None-match) — see the per-entry BUGS refs.
 #   The flip stays BLOCKED until these are fixed; the F4a fallback cannot catch them (globals resolve,
 #   values are wrong). http-client / scljet-sql-orderby-expr were FALSE divergences (see NON-RESIDUAL).
 # ════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -44,7 +48,6 @@ GAP	dsl-ast-builder	multi-file (imports std/dsl/*.ssc): F errors `arity: 2 expec
 GAP	litdoc	multi-file (imports std/litdoc.ssc): F aborts with internal `ssc: 2`, rc=1, empty stdout; default prints 401 B ("kinds: front,heading,..."). Distinct F-lane bug.
 GAP	mcp-types	multi-file (imports std/mcp/types.ssc): F object-method vararg call → `arity: 1 expected, 2 given`, rc=1 after partial output; default prints full 107 B. See BUGS f-object-method-varargs.
 GAP	std-monaderror	multi-file (imports std/either.ssc, std/monaderror.ssc): the 2-instance `handleError` dispatcher bug is FIXED (dispatcher-arity fix); F now advances past it to a SEPARATE `match: no arm for None/0` bug, rc=1; default prints 192 B. See BUGS f-monaderror-none-match.
-GAP	tagless-multi-file	multi-file (imports std/functor-applicative-monad.ssc): F errors `arity: 2 expected, 1 given` on `map`. NOT the standalone-collision class (map has a trait-abstract + 2 given instances, NO standalone) — a distinct dispatcher/builtin-name-collision case, unfixed by the dispatcher-arity fix. Default correct. See BUGS f-extension-instance-dispatcher-arity.
 
 # ── NON-RESIDUALS — divergences the sweep flagged that are NOT F correctness bugs (adjudicated 2026-07-21;
 #    listed so the full-corpus gate stays green, with the evidence to re-verify). ──
