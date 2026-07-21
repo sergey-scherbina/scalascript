@@ -1,6 +1,6 @@
 feature/mcp-types 2026-07-21T18:04:13Z
 agent: claude-code
-heartbeat: 2026-07-21T18:38:16Z
+heartbeat: 2026-07-21T19:17:12Z
 status: in-progress
-done-so-far: fix committed (34b53ddb8); fixpoint+semantic 248/248 GREEN; mcp-types EQUAL both fronts; bookkeeping edited
-next: full SSC_DUALRUN_ALL running; then push + CI
+done-so-far: fix+bookkeeping LANDED on origin/main (feat 886df94fe, book 648053101). All gates GREEN: fixpoint byte-identical, semantic 248/248, full dualrun only 1 flaky (actors-supervision, classified), mcp-types EQUAL.
+next: await exact-SHA CI on 648053101, then release claim + cleanup
