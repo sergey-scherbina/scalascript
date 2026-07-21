@@ -2129,9 +2129,29 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
             used as the timing verdict because JFR startup distorts the first iteration. Verification:
             all parser suites 153/153, focused `ClusterFrontmatterTest` 9/9, and cluster conformance
             5/5 passed.
-- [ ] **Q3 — minimize the touched path.** Remove duplication, dead branches, or avoidable abstractions
-      revealed by Q1/Q2 without broad redesign; report the net source-line/complexity change and prove
-      byte/observable behavior unchanged with the same regression and benchmark gates.
+- [ ] **Q3 — minimize the touched path** (`q3-minimize-parser-path`). Remove duplication, dead branches,
+      or avoidable abstractions revealed by Q1/Q2 without broad redesign; report the net source-line /
+      branch-complexity change and prove observable behavior unchanged with the same focused gates.
+      - [x] **Q3.0 — freeze the non-overlapping scope and baseline.** Audit Q1/Q2's exact diffs and run
+            `tests/e2e/bench-wrapper-gate.sh` before editing. Do not touch Q1's
+            `v2/lib/ssc1-front.ssc0`: the active `f-typeclass-multifile` lane owns that file. Keep Q2's
+            `SourceClusterHeaderPat` cache unless the audit finds a strictly smaller implementation;
+            it has one owner and its measured compile-once behavior must not be weakened. **Baseline
+            2026-07-21:** the exact-command wrapper gate passes; `scripts/bench` is 199 lines, and
+            `jmh_run` has two option arrays plus one conditional append branch. The parser cache is
+            already the smallest safe compile-once shape (one private pattern, one matcher call), so it
+            stays unchanged; the only production reduction is the benchmark wrapper's option assembly.
+      - [ ] **Q3.1 — remove conditional benchmark-option assembly.** In `scripts/bench` make `jmh_run`
+            build one options array from the three defaults plus its remaining arguments, eliminating
+            the temporary `extra` array and the append branch while preserving the exact sbt command
+            text. Keep the gate's expected strings independent from production constants so it still
+            compares rather than pre-judges normal and profiled routes.
+      - [ ] **Q3.2 — prove and record the reduction.** Run the wrapper gate, one-iteration real
+            `scripts/bench compile parseActors` and `scripts/bench compile-profile parseActors`,
+            `core/testOnly scalascript.parser.ClusterFrontmatterTest`, and
+            `tests/conformance/run.sh --only '*cluster*'`. Record production LOC / conditional-branch
+            delta and results here, land code and bookkeeping separately, then require exact-SHA
+            `scripts/ci-status` exit 0 before releasing the claim and removing the worktree.
 - [ ] **Q4 — next user-facing feature.** Re-sync the board and claims, choose the highest-priority
       unclaimed feature, replace this placeholder with its concrete slug/acceptance checks, write and
       commit its feature spec first, then implement it with a runnable `examples/` program, docs, and
