@@ -1,5 +1,31 @@
 # Bug tracker
 
+## scljet-js-conformance-stale-prebuilt-jar-after-symlink-drop — dropped compat symlink breaks scljet JS emit against the pre-built bin/lib jar
+
+**Status:** open (found 2026-07-21 by the `scljet-mutable-pager` agent; owner: `scljet-standalone-library-symlink-drop`).
+
+**Reproduce:** with the pre-built `bin/lib` jar dated before `65a9a7e8a`
+(`feat(scljet): drop compat symlink, first-class scljet/ library root`, Tue Jul 21 21:29),
+run `tests/conformance/run.sh --only 'scljet-balance-insert' --no-memo`. INT passes; the **JS lane
+fails** — `bin/ssc-tools emit-js tests/conformance/scljet-balance-insert.ssc` prints
+`JS generation error: The path created has enough ..s that it would start outside the root directory`
+and node then chokes on the non-JS output (`Unexpected token '<'`). Affects EVERY `scljet-*` JS lane.
+
+**Root cause:** `65a9a7e8a` deleted the `v1/runtime/std/scljet -> ../../../scljet` symlink and taught
+the resolver (`ImportResolver.discoverScljetRoot`) a first-class repo-root `scljet/` fallback — but that
+fix lives only in **source**. The committed pre-built `bin/lib/{ssc.jar,standard}` (used by the
+serverless conformance harness locally) predates it, so the OLD resolver can no longer locate
+`std/scljet` and JsGen derives a broken relative path. INT works because its module load path differs.
+Not a CI regression: CI's `install.sh --dev` rebuilds the jar with the new resolver, so CI's JS lane is
+green (the sibling's commit claims full conformance was verified). It only bites agents running the
+JS lane against the stale local pre-built jar.
+
+**Workaround (local):** recreate the symlink `ln -s ../../../scljet v1/runtime/std/scljet` (uncommitted)
+OR rebuild the jar with `bash install.sh --dev`. With the symlink present, all `scljet-*` INT+JS
+conformance passes (verified). **Fix:** regenerate/commit a fresh pre-built `bin/lib` (or document that
+a jar rebuild is mandatory after the symlink drop) so `KEY FACTS: bin/ssc + ssc-tools are prebuilt`
+stays true for the JS lane.
+
 ## v2-coroutine-example-tools-check-resolution — runnable native demo fails static check
 
 **Status:** DONE (2026-07-21, fix `3cb6209a4`, verification/spec `e2bad7262`; found and confirmed by
