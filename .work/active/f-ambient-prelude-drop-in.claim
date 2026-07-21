@@ -1,0 +1,6 @@
+feature/f-ambient-prelude-drop-in 2026-07-21T00:00:00Z
+agent: opus
+heartbeat: 2026-07-21T00:00:00Z
+status: in-progress
+done-so-far: scoped the gap — F emits (global __jsonCoreWrap)/(global generator) for plugin-backed extern defs; Reader.validate (v2/src/CoreIR.scala:300) rejects them as unbound by design (kernel reader can't see plugin registry) → F4a falls back. F output is likely CORRECT+executable (plugin binds extern at runtime); validate over-rejects. Goal: make F4a pre-check extern-aware so plugin/ambient-extern programs run DIRECTLY on F (true drop-in), not via fallback.
+next: MEASURE F-direct output for json-read/generators/other ambient-extern programs == default (byte-identical) before designing the fix; if correct, extend F4a pre-check in RunNativeV2 to treat known extern-def names as bound. Touches RunNativeV2.scala (+ maybe an additive helper near CoreIR.scala validate — coordinate with coreir-codec-h4-h5 lane). Does NOT touch fsub.ssc (no mcp-types collision). Flip (step 4) only after this closes AND mcp-types lands.
