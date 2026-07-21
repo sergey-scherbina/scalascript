@@ -19,8 +19,8 @@ an expiring `known-red` while the additive native VM and direct-ASM lanes compar
 
 ## coroutine-error-conformance-null-proxy — native lane cannot validate the intended body failure
 
-**Status:** OPEN (found 2026-07-21 by codex-q4 in the real assembled VM/direct-ASM paths; planned in
-SPRINT Q4.3).
+**Status:** DONE (2026-07-21, `b8fd4a31c`; found and confirmed by codex-q4 in the real assembled
+VM/direct-ASM paths; SPRINT Q4.3).
 
 **Reproduce:** after installing the in-progress native Coroutine provider, both
 `bin/ssc run tests/conformance/coroutine-error.ssc` and its `--bytecode` twin print `unexpected` for
@@ -28,10 +28,10 @@ the error arm. The test tries to induce failure with `val x: String = null; x.le
 the native value semantics do not throw for that compatibility-only null dereference. A minimal
 explicit `throw new RuntimeException("boom")` body produces `Errored(...)` on both native paths.
 
-**Notes / fix gate:** replace the null proxy with the explicit portable throw, retain the independent
-`case Errored(_)` observable, opt the case into v2 plus additive v2 bytecode, and require all selected
-lanes to compare against the same expected output. The gate must print actual output on mismatch; no
-known-failure or backend-specific classification may bypass the comparison.
+**Fix / verification:** the fixture now throws the portable `RuntimeException("boom")`, retains the
+independent `case Errored(_)` observable, and opts into native v2 beside historical INT/JS. Fresh
+focused conformance compares every selected lane with one expected output and passes; the dedicated
+lifecycle case additionally passes direct ASM while printing the separate v1 JVM codegen known-red.
 
 ## coroutine-contract-doc-drift — normative and feature specs disagree with the shipped surface
 
@@ -52,18 +52,18 @@ markdownlint and `tests/conformance/run.sh --only 'coroutine-*'` pass.
 
 ## coroutine-demo-readme-link-missing — README points to an absent runnable example
 
-**Status:** OPEN (found 2026-07-21 by codex-q4 while specifying
-`v2-native-coroutine-provider`; planned in SPRINT Q4.3).
+**Status:** DONE (2026-07-21, example `b8fd4a31c`, docs `bfc893d99`; found and confirmed by codex-q4
+while specifying `v2-native-coroutine-provider`; SPRINT Q4.3).
 
 **Reproduce:** from the repository root, `test -e examples/coroutine-demo.ssc` exits 1 while
 `README.md` lists `[coroutine-demo.ssc](examples/coroutine-demo.ssc)` in its runnable examples table.
 The missing file makes the public Coroutines entry a broken local link and leaves the documented
 low-level API without the required self-contained example.
 
-**Notes / fix gate:** add the referenced example as part of Q4.3, execute it through the assembled
-standard native VM, direct ASM, and `build-jvm` paths, and keep the README row aligned with the actual
-file. Record the landed SHA here as `fixed`; this self-reported bug can move to `done` only after the
-real assembled-path checks confirm the link target and program.
+**Fix / verification:** the linked example now demonstrates lazy two-way exchange, nesting, and
+idempotent pre-start cancellation. Its stdout is byte-identical through the assembled standard VM,
+direct ASM, and a freshly built `build-jvm` JAR; README, User Guide, and the feature spec link to the
+same checked-in file.
 
 ## bench-compile-wrapper-hides-real-compiler-benches — compile measurements cannot start
 

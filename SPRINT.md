@@ -2185,7 +2185,7 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
             zero-capacity coroutine handoff and opaque lifecycle state; no module, SPI, allowlist, or
             packaging root changed. Provider tests are 9/9, and the assembled basic fixture is exact
             on VM/direct ASM. The old error fixture's null proxy is tracked separately for Q4.3.
-      - [ ] **Q4.3 — ship the user surface.** Add the already-linked self-contained
+      - [x] **Q4.3 — ship the user surface.** Add the already-linked self-contained
             `examples/coroutine-demo.ssc`, reference
             it from README/user docs and the feature spec, and extend focused conformance to compare
             VM/direct ASM for lazy start, yielded/returned two-way values, nested innermost suspend,
@@ -2194,6 +2194,10 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
             fragment erases `coroutineCreate`/`suspend`; this is tracked as
             `v1-jvm-coroutine-generic-surface` in `BUGS.md`/`BACKLOG.md`. Keep that lane visible and
             diffed via an expiring `known-red`; do not let it suppress the additive native ASM lane.
+            **DONE (`b8fd4a31c`, docs `bfc893d99`):** the missing example is exact on native VM,
+            direct ASM, and `build-jvm`; README/User Guide/spec links are live. Three focused cases
+            pass INT/JS/native VM plus additive direct ASM, with the separate v1 JVM erasure defect
+            still executed, diffed, and reported as one expiring known-red.
       - [ ] **Q4.4 — verify and close.** Run the provider unit suite, exact runnable example on VM,
             direct ASM and `build-jvm`, and `tests/conformance/run.sh --only 'coroutine-*'`; update the
             feature-spec behavior checks/results and SPRINT/CHANGELOG in separate commits, push each
