@@ -4868,9 +4868,18 @@ dynamic saved-capsule runner.
 
 ### Reusable continuation save/run — common capsule, then profile runners
 
-- [ ] **saved-continuation-format** — after X1/CoreIR reconciliation, define the versioned self-hosted
+- [~] **saved-continuation-format** — after X1/CoreIR reconciliation, define the versioned self-hosted
   envelope + durable-frame codec/verifier with independent axes
   `CodeMode = Portable | ExactArtifact` and `FrameGate = Savable | Unsavable`:
+  **PART 1 LANDED 2026-07-21 (`0c815910d`, claim `durable-frame-codec`):** the canonical §9.1
+  durable-frame BYTE codec `DurableCodec[S]` (reference row) — scalars incl. f64 bit-identity +
+  pair/either/list/imap over a deterministic, bounded, self-delimiting big-endian format;
+  `snapshot = decode∘encode`; `DurableBytes` immutable; exact/bounded decode with typed
+  `DurableDecodeError`. Spec `specs/durable-frame-codec.md`; control suite 124/124 + ABI gate.
+  **REMAINING (Part 2+):** the capsule ENVELOPE (`frameDigest` domain-separated SHA-256, versioned
+  header, type fingerprints, `Portable`/`ExactArtifact` payload, signature); `DurableRef` (§9.2);
+  canonical-key maps + nominal versioned schema; graph codecs (§9.3); JS-lane mirror of this exact
+  format. The runners below consume the capsule.
   `Portable(resumeCodeDigest, closed Program((frame,input)=>Eff))` or
   `ExactArtifact(artifactDigest,target,resumePointId)`, both with `FrozenFrame`, A/R codec schemas,
   exact resolver/plugin implementation profile, lifecycle, bounded policy,

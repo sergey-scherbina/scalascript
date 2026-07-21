@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-07-21 — Canonical durable-frame byte codec (`DurableCodec`, save-run Part 1)
+
+Adds `DurableCodec[S] <: DurableValue[S]`: the canonical, deterministic, bounded §9.1
+durable-frame byte encoding (`specs/durable-frame-codec.md`) — `unit`/`boolean`/`int`/`long`/
+`bigInt`/`double` (IEEE-754 bit identity: `-0.0` and NaN payloads preserved)/`string`/`bytes`
+plus `pair`/`either`/`list`/`imap` combinators over a self-delimiting big-endian wire format.
+`snapshot` is now the `decode ∘ encode` round-trip, so a codec-backed `Continuation.savable`
+serializes its frame on every `save`/`run` (proven with a per-run-decoded mutable cell staying
+isolated). `DurableBytes` is immutable (no shared array); decoding is exact and bounded — it
+rejects truncation, trailing bytes, unknown sum tags, and oversized lengths with a typed
+`DurableDecodeError`. This is the cross-lane authoritative frame format and the reference row that
+the eventual native/CoreIR codec must match. Control suite 124/124, ABI gate green. The capsule
+envelope + `frameDigest`/signature, `DurableRef`, maps/nominal schema, and the JS-lane mirror are
+Part 2 (`feat 0c815910d`).
+
 ## 2026-07-21 — Restore `v1/runtime/std/scljet` symlink: fix v21 gate red from the symlink drop
 
 The scljet symlink drop (`65a9a7e8a`) turned the CI "ScalaScript 2.1 standard-only negative toolchain
