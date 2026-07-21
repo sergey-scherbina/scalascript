@@ -1,6 +1,6 @@
 feature/scljet-portable-text-projection 2026-07-21T19:18:14Z
 agent: opus-orch
-heartbeat: 2026-07-21T19:18:14Z
+heartbeat: 2026-07-21T19:37:19Z
 status: in-progress
-done-so-far: claimed by orchestrator (Sergiy "займись всем этим" batch, 2026-07-21); worked by a dedicated background subagent in its own worktree.
-next: spec portable code-points->String API; wire DecodedText->SqlText; prove interp/VM/ASM/JS parity
+done-so-far: spec pushed (6afa6286c). Implemented scljet/text.ssc (utf16UnitsToString / codePointToUtf16 / codePointsToString / decodedTextToSqlText, astral-safe surrogate encoding), wired into index.ssc barrel, refactored mutate.ssc fieldToValue + sql.ssc cpToString to delegate. Conformance case scljet-portable-text + example added. Parity byte-identical: interp VM/ASM/tree-walk + JS + v2 native (scratch snapshot). No v2 char-rendering gap (stale native-front snapshot only). Running full scljet-* conformance sweep.
+next: land feature + docs + bookkeeping commits, then release claim.
