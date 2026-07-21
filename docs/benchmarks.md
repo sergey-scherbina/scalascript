@@ -25,7 +25,8 @@ method without duplicates.
 | Measure compile pipeline | `scripts/bench compile` |
 | Measure one compiler phase | `scripts/bench compile parseActors` |
 | Prove the off-mode still works | `scripts/bench off recursionFib` |
-| Profile (alloc + GC) one bench | `scripts/bench profile recursionFib` |
+| Profile (alloc + GC) one interpreter bench | `scripts/bench profile recursionFib` |
+| Profile (alloc + GC) one compiler bench | `scripts/bench compile-profile parseActors` |
 | Wall-clock vs Scala/Node | `scripts/bench wall` |
 | Verify bench infra is alive | `scripts/bench smoke` |
 | List every available bench | `scripts/bench list` |
@@ -236,12 +237,14 @@ SSC_JIT=off scripts/bench off recursionFib
 
 ```bash
 scripts/bench profile recursionFib
+scripts/bench compile-profile parseActors
 ```
 
-Adds both `-prof gc` (deterministic alloc rate / norm) and
-`-prof jfr:configName=profile` (sampled allocation events + CPU). JFR
-output lands under `runtime/backend/interpreter-bench/jfr-cpu-*` and
-`*.jfr` files can be opened with `jfr print` or JDK Mission Control.
+Both routes add `-prof gc` (deterministic alloc rate / norm) and
+`-prof jfr:configName=profile` (sampled allocation events + CPU) to the
+selected JMH project. JFR output lands in that project's generated
+`<Class>.<method>-<Mode>/profile.jfr`; open it with `jfr view`, `jfr print`,
+or JDK Mission Control.
 
 For interpreting alloc samples: cross-check `jdk.ObjectAllocationSample`
 counts against `gc.alloc.rate.norm` — a sampler can over-attribute to a
