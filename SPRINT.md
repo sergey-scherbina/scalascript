@@ -2279,6 +2279,19 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
                   still 9/9, fresh conformance is still 3/3, and VM/direct-ASM/JAR stdout remains
                   byte-identical. The all-examples checker is the regression. Claim remains open
                   only for exact CI on this new final bookkeeping SHA.
+            - [ ] **Q4.4d — refresh the exact candidate after the inherited SclJet symlink-drop
+                  regression.** Final Q4 SHA `9a4b08249` includes sibling commit `65a9a7e8a`, which
+                  removed `v1/runtime/std/scljet` before every native-front resolver had moved to the
+                  first-class root. Exact run `29862561638` has Conformance/Lint/Validate green, but
+                  its `v21-negative-toolchain-release-gate` remains in progress beyond the declared
+                  30-minute step timeout. The owning `v21-negtc-red-triage` lane reproduced the real
+                  failure (`frontend.ok=198`, all 13 SclJet examples missing `std/scljet/index.ssc`)
+                  and landed the minimal symlink restore in `638b4f610` plus durable docs in
+                  `aef6ce8f2`; do not duplicate that fix. Cancel only the now-superseded Q4 run,
+                  consume the landed repair from current `origin/main`, rerun the real negative-
+                  toolchain gate plus `coroutine-*` and all-example tools-check, record the result in
+                  the feature spec, and push one fresh final bookkeeping SHA. Done only when
+                  `scripts/ci-status --sha <fresh-sha>` exits 0 for that exact SHA.
 
 The path to ideal/small/powerful is: **(1) establish truth (reconcile the stale ROADMAP), (2) converge
 the two fronts into one, (3) redraw the kernel/tower boundary so "small" is real.** Breadth (cover the
