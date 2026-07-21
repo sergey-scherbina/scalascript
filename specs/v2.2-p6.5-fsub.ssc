@@ -1277,7 +1277,7 @@ def collectOMk(kind, ts) = Cons((kind, (snd(hd(tl(ts))), objMemToks(kind, tl(tl(
 // the first non-def (a `;`-separated sibling like a plain `def log`). Mirrors ssc1-lower collectExtension-
 // Methods descending given_obj (:584) + prefixDefs skipping extension markers + staticMemberObjectArgs.
 def collectOMExt(ts) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (renv, r) => collectOMExtMs(renv, r) } else collectOM(ts)
-def collectOMExtMs(renv, ts) = if isTok(hd(ts), 2, 1) then Cons(("extdef", (snd(hd(tl(ts))), (renv, tl(tl(ts))))), collectOMExtMs(renv, skipStmt(tl(tl(ts))))) else collectOM(ts)
+def collectOMExtMs(renv, ts) = if isTok(hd(ts), 2, 1) then Cons(("extdef", (snd(hd(tl(ts))), (renv, tl(tl(ts))))), collectOMExtMs(renv, skipExtBody(tl(tl(ts))))) else collectOM(ts)
 def objMemToks(kind, ts) = if kind == "def" then ts else skipToEq(ts)
 def objDefsStr(name, ms, cx) = ms match { case Nil => "" case h :: t => join2(objDef1(name, h, cx), objDefsStr(name, t, cx)) }
 def objDef1(name, m, cx) = m match { case (kind, nt) => nt match { case (mname, toks) => objDefEmit(kind, name ++ "_" ++ mname, toks, cx) } }
@@ -1390,7 +1390,7 @@ def extMember(renv, mname, mts, cx, acc) = if isTok(hd(mts), 2, 21) then parsePa
 def extEmit(renv, mname, ar, env, bts, cx, acc) = emitDefBody(mname, ar, env, bts, cx) match { case (d, r2) => extMembers(renv, skipSemisF(r2), cx, join2(acc, d)) }
 def collectExtMethods(ts) = if isEmpty(ts) then Nil else (if isExtensionHead(ts) then collectEM(skipGen(tl(ts))) else collectExtMethods(tl(ts)))
 def collectEM(ts) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil) match { case (renv, r) => collectEMs(skipSemisF(r)) } else collectExtMethods(tl(ts))
-def collectEMs(ts) = if isTok(hd(ts), 2, 1) then Cons(snd(hd(tl(ts))), collectEMs(skipSemisF(skipStmt(ts)))) else collectExtMethods(ts)
+def collectEMs(ts) = if isTok(hd(ts), 2, 1) then Cons(snd(hd(tl(ts))), collectEMs(skipSemisF(skipExtBody(tl(tl(ts)))))) else collectExtMethods(ts)
 def isExtMethod(nm, cx) = memL(nm, extMethodsOf(cx))
 // -- Extension-method INSTANCE DISPATCH (ssc1-lower :5295-5445) --------------------------------------
 // An `extension def m` inside `given g: TC[T] with` is emitted prefixed `g_m`, but a call `recv.m(a)`
@@ -1866,6 +1866,18 @@ def skipStmtD(ts, d) = if isEmpty(ts) then ts else skipStmtTok(hd(ts), tl(ts), d
 def skipStmtTok(t, rest, d) = if d == 0 then skipStmtZ(t, rest) else skipStmtN(t, rest, d)
 def skipStmtZ(t, rest) = if isTok(t, 2, 52) then rest else (if isTok(t, 2, 29) then Cons(t, rest) else (if isOpenNest(t) then skipStmtD(rest, 1) else skipStmtD(rest, 0)))
 def skipStmtN(t, rest, d) = if isOpenNest(t) then skipStmtD(rest, d + 1) else (if isCloseNest(t) then skipStmtD(rest, d - 1) else skipStmtD(rest, d))
+// skipExtBody: advance past ONE extension-member def body to the NEXT member. It is skipStmt PLUS an extra
+// stop-and-keep at a depth-0 `def`: a `given … with` body GLUES its `extension` members (deeper indent,
+// NO `;`), so plain skipStmt runs past them all to the block-terminating `;` and only the 1st member is
+// collected → `recv.m` on the rest stubs (`__method__`, not the ext dispatcher). Stopping at the glued
+// `def` collects each; a `;` is still consumed (standalone members are `;`-separated) and a `}` ends the
+// body. Nesting-tracked so `(`/`[`/`{` in a body is skipped whole. Used by collectEMs (the ext-method
+// REGISTRY that decides `recv.m` → ext dispatch) and collectOMExtMs (the given-body emitter/dispatcher).
+def skipExtBody(ts) = skipExtBodyD(ts, 0)
+def skipExtBodyD(ts, d) = if isEmpty(ts) then ts else skipExtBodyTok(hd(ts), tl(ts), d)
+def skipExtBodyTok(t, rest, d) = if d == 0 then skipExtBodyZ(t, rest) else skipExtBodyN(t, rest, d)
+def skipExtBodyZ(t, rest) = if isTok(t, 2, 1) then Cons(t, rest) else (if isTok(t, 2, 52) then rest else (if isTok(t, 2, 29) then Cons(t, rest) else (if isOpenNest(t) then skipExtBodyD(rest, 1) else skipExtBodyD(rest, 0))))
+def skipExtBodyN(t, rest, d) = if isOpenNest(t) then skipExtBodyD(rest, d + 1) else (if isCloseNest(t) then skipExtBodyD(rest, d - 1) else skipExtBodyD(rest, d))
 def isOpenNest(t) = if isTok(t, 2, 21) then true else (if isTok(t, 2, 28) then true else isTok(t, 2, 50))
 def isCloseNest(t) = if isTok(t, 2, 22) then true else (if isTok(t, 2, 29) then true else isTok(t, 2, 51))
 
