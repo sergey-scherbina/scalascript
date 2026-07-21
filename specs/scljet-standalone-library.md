@@ -7,17 +7,29 @@ must be a **standalone library** — not organizationally owned by `v1/` — and
 work on **every** ScalaScript tier (v1 interpreter, native VM, direct ASM, JS,
 and the v2 standard/native-front tier), independent of the compiler version.
 
-## Status: DONE via a compatibility symlink (2026-07-13)
+## Status: DONE — first-class library root, symlink dropped (2026-07-21)
 
-The library source now lives at the repo-root **`scljet/`** (standalone, not
-under `v1/`), with `v1/runtime/std/scljet` a **symlink** to it. Every tier finds
-it unchanged: `installBin`'s glob follows the symlink and bundles the 16 files
-into `bin/lib/native-front/runtime/std/scljet` (and thus `standard/native-front`),
-the interpreter `ImportResolver` and native/JS loaders resolve `std/scljet` via
-the symlink. Verified: full `scljet-*` conformance 11/11 on `[int, js]`, native
-`ssc run`, and a non-scljet std case (`content-binding`) still green. The one
-remaining polish is **dropping the symlink** by teaching the resolvers a
-first-class library root (Option A below); until then the symlink is the seam.
+The library source lives at the repo-root **`scljet/`** (standalone, not under
+`v1/`) and is resolved as a **first-class library root** — no compatibility
+symlink. The former `v1/runtime/std/scljet → ../../../scljet` symlink has been
+**removed**; the resolvers map the `std/scljet/…` import to the standalone
+`scljet/` directory directly (Option A, implemented):
+
+- **`installBin`** stages the library from repo-root `scljet/` directly into
+  `bin/lib/native-front/runtime/std/scljet` (and thus `standard/native-front`) —
+  it no longer relies on a `**` glob following the symlink.
+- **`ImportResolver`** discovers a first-class SclJet root (`scljetPath`, see
+  `discoverScljetRoot`) and, when a `std/scljet/…` import is not found under the
+  normal std root, re-resolves it against `<scljetRoot>/…`. A packaged/staged
+  install keeps a real `runtime/std/scljet/` tree, so this fallback only fires in
+  the dev tree; the installed layout stays byte-identical.
+- **Native/JS loaders and `check-stdlib-interface-load`** resolve through
+  `ImportResolver` (native front) / the staged `runtime/std/scljet` tree, so no
+  per-loader special-case is needed once the two points above are in place.
+
+Verified: full `scljet-*` conformance on `[int, js]`, native `ssc run`, and a
+non-scljet std case still green. `scljet/` contains only SclJet with no `v1/`
+path dependency, and no symlink remains.
 
 ## Substantive requirement is already met
 
@@ -60,10 +72,11 @@ shared build green.
 ## Options
 
 - **Option A — keep the `std/scljet` import path, add a standalone source root.**
-  Teach every resolver (installBin, ImportResolver, native/JS, stdlib-interface)
-  to search a repo-root `scljet/` for `std/scljet/*` in addition to
-  `runtime/std/`. Consumers are unchanged. Smallest blast radius; the mapping
-  `std/scljet → scljet/` is a per-resolver special case.
+  ✓ **Implemented (2026-07-21).** Teach the resolver a first-class `scljet/`
+  root for `std/scljet/*` in addition to `runtime/std/`. Consumers are unchanged.
+  Smallest blast radius; the mapping `std/scljet → scljet/` is a resolver-level
+  fallback (`ImportResolver.scljetPath`) plus a direct `installBin` staging step.
+  The compat symlink is dropped.
 - **Option B — a real library import (`scljet/index.ssc` or a dep spec).**
   Move to repo-root `scljet/`, change every consumer import from
   `std/scljet/index.ssc` to a library/dep path, and give the resolvers a library
@@ -80,8 +93,10 @@ real-file access — a host integration, not the pure library. It can stay a v1
 plugin or move alongside as an optional host adapter; it is out of scope for the
 pure-`.ssc` relocation.
 
-## Done-when
+## Done-when (satisfied 2026-07-21)
 
 `installBin` stages scljet from the standalone location; `std/scljet` resolves on
 `--v1`, native VM/ASM, JS, and `ssc run` (v2); full conformance (not just scljet)
-is green; `scljet/` contains only SclJet with no `v1/` path dependency.
+is green; `scljet/` contains only SclJet with no `v1/` path dependency; and **no
+compatibility symlink remains** — the resolvers know the first-class `scljet/`
+root.

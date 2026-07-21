@@ -13,15 +13,14 @@ This directory is the **standalone SclJet library** — deliberately not owned b
 interpreter, the bytecode VM, the direct ASM JIT, the pure tree-walk fallback,
 JavaScript (Node), and the v2 standard/native tier (`ssc run`).
 
-It is consumed as the standard import `std/scljet/index.ssc`. For toolchain
-resolution that path is served from `v1/runtime/std/scljet`, which is a
-**symlink to this directory** — so the library lives here, standalone, while the
-existing `std/`-import resolvers (the interpreter `ImportResolver`, the native/JS
-loaders, and `installBin`'s bundling into both `bin/lib/native-front` and
-`bin/lib/standard/native-front`) find it unchanged. See
+It is consumed as the standard import `std/scljet/index.ssc`, resolved from this
+directory as a **first-class library root** (no compatibility symlink). The
+interpreter `ImportResolver` discovers this `scljet/` root and maps
+`std/scljet/…` here; `installBin` stages it directly into
+`bin/lib/native-front/runtime/std/scljet` (and `bin/lib/standard/native-front`),
+so the native/JS loaders find it in the packaged tree. See
 [`../specs/scljet-standalone-library.md`](../specs/scljet-standalone-library.md)
-for the follow-up that drops the compatibility symlink by giving the resolvers a
-first-class library root.
+for the resolution design.
 
 ## Status
 
