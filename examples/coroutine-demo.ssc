@@ -5,6 +5,8 @@ description: Lazy two-way coroutines, nested suspension, and explicit cancellati
 
 # Coroutines
 
+[Step, coroutineCreate, coroutineResume, suspend, coroutineCancel](std/coroutine.ssc)
+
 A Coroutine is lazy: creating it allocates an opaque handle, while its body starts
 only when the first value is resumed into it. Each `suspend(out)` yields one value
 and receives the next resume input in return.
