@@ -1,0 +1,14 @@
+claim: f-multifile-lowering
+branch: feature/f-multifile-lowering
+agent: opus (host orchestrator — via subagent)
+heartbeat: 2026-07-21T06:19:45Z
+status: in-progress — staging F, applying one-line reorder fix, verifying 6 residuals + gates.
+what: fix F multi-file/import lowering. ROOT CAUSE (static-confirmed): F runner
+      v2/bin/ssc1-run-fsub.ssc0 main concatenates ROOT-FIRST via sscConcatSources(reverse(seen)) →
+      imported top-level vals read as () before their cell.set inits → .getOrElse on () / <closure>.
+      FIX = reverse(seen) -> seen (imports/dependency order, matching default front's impDefs-first).
+      Fixes 5: money-multisection, money-portable-v2, dsl-ast-builder, litdoc, multi-link-imports.
+      6th (mcp-types) = SEPARATE default-arg-synth miss for imported case-class ctor; attempt after.
+      VERIFY: stage F (scripts/sbtc installBin) in worktree; SSC_FRONT=F bin/ssc run each of the 6;
+      newfront-diff.sh + single-file corpus byte-identity (must stay green); dualrun gate.
+      Salvage ssc1-lower patch is UNRELATED/already-landed — ignore.
