@@ -1,6 +1,6 @@
-feature/durable-continuation-save-run 2026-07-21T19:14:24Z
+feature/durable-continuation-save-run 2026-07-21T19:28:39Z
 agent: claude-code
-heartbeat: 2026-07-21T19:14:24Z
+heartbeat: 2026-07-21T19:28:39Z
 status: in-progress
-done-so-far: worktree created; design settled (public DurableValue[S] snapshot codec + Continuation.savable + authority-guarded reusable SavedContinuation; unmanaged stays Rejected)
-next: read ABI gate + JS save lane; write spec; implement scala keystone
+done-so-far: KEYSTONE LANDED (7e996a614) — in-process savable save()/run() on scala-explicit; control suite 117/117 + ABI gate green; spec + CHANGELOG + SPRINT synced
+next: JS lane parity (mirror v2/host/js/control savable save/run), then saved-continuation-format byte codec
