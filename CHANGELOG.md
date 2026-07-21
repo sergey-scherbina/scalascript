@@ -203,6 +203,12 @@ blind SclJet VFS provider/dependency inventory; 43 standard JARs now classify wi
 `54ebca43d`). Exact CI then exposed that the runnable demo omitted its static-check module link; the
 explicit Coroutine import now makes the focused and all-examples assembled checks pass without
 changing VM/ASM/JAR output (`3cb6209a4`, verification `e2bad7262`).
+The first post-checker candidate also inherited an unrelated SclJet symlink-drop regression
+(`65a9a7e8a`); its exact run completed Conformance/Lint/Validate but left the negative-toolchain
+gate stuck beyond its declared timeout. After the owning lane restored the required source-tree
+resolver path in `638b4f610`, a fresh real gate reports `release.ready=true`, `frontend.ok=208`,
+zero parity mismatches/one-sided failures, and zero runtime blockers; Coroutine tests remain 9/9,
+focused conformance 3/3, and the complete examples tools-check is green (`40c4a6ede`).
 
 ## 2026-07-21 — Benchmark wrapper assembles JMH options without a branch
 

@@ -2279,7 +2279,7 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
                   still 9/9, fresh conformance is still 3/3, and VM/direct-ASM/JAR stdout remains
                   byte-identical. The all-examples checker is the regression. Claim remains open
                   only for exact CI on this new final bookkeeping SHA.
-            - [ ] **Q4.4d — refresh the exact candidate after the inherited SclJet symlink-drop
+            - [x] **Q4.4d — refresh the exact candidate after the inherited SclJet symlink-drop
                   regression.** Final Q4 SHA `9a4b08249` includes sibling commit `65a9a7e8a`, which
                   removed `v1/runtime/std/scljet` before every native-front resolver had moved to the
                   first-class root. Exact run `29862561638` has Conformance/Lint/Validate green, but
@@ -2292,6 +2292,14 @@ seq in doc order + rtrim1 defs/entry boundary. `--self` 101 ok/0 FAIL, X1 fixpoi
                   toolchain gate plus `coroutine-*` and all-example tools-check, record the result in
                   the feature spec, and push one fresh final bookkeeping SHA. Done only when
                   `scripts/ci-status --sha <fresh-sha>` exits 0 for that exact SHA.
+                  **DONE locally (`638b4f610`, spec result `40c4a6ede`):** cancellation was requested
+                  for the superseded Q4 run after its Conformance/Lint/Validate jobs passed and the
+                  owning lane landed the symlink repair. A fresh `installBin` plus the complete real negative-
+                  toolchain release gate reports `release.ready=true`, `frontend.ok=208`, parity
+                  mismatch/one-sided `0`, runtime blockers `0`, and provider/server smokes green.
+                  Provider tests remain 9/9, fresh `coroutine-*` conformance remains 3/3, and every
+                  example passes assembled tools-check. The claim remains open only for exact CI on
+                  this fresh final bookkeeping SHA.
 
 The path to ideal/small/powerful is: **(1) establish truth (reconcile the stale ROADMAP), (2) converge
 the two fronts into one, (3) redraw the kernel/tower boundary so "small" is real.** Breadth (cover the
