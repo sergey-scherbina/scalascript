@@ -393,11 +393,14 @@ removal becomes perf-neutral.
       divergence** (2^31→Int32, max64→double) that the examples sweep + 9-test slice had NO integer-boundary
       program to catch — the exact F4 out-of-corpus miss. **REVERTED** (default → interpreter; `--bytecode`
       stays opt-in). Prereqs #1 (fallback) + #2 (stack-safety) KEPT — correct standalone. Post-revert green:
-      conformance int tests 3/0, semantic 248/248, fixpoint byte-identical. ⚠ **Blocker + unreconciled causal
-      path** in `BUGS.md §f-bytecode-default-switch-int64-ci-red`: v2 JvmByteGen is int64-CORRECT locally and
-      run.sc uses explicit lanes (switch-independent), so it is NOT localized whether the CI red is a real
-      v2-bytecode wrap or a misattributed v1-codegen KNOWN-RED. **Re-queued to BACKLOG**, gated on that bug;
-      the switch maturity gate MUST include the full conformance suite (int-boundary set), not just examples.
+      conformance int tests 3/0, semantic 248/248, fixpoint byte-identical. ✅ **int64 blocker RESOLVED
+      (2026-07-22, `0dbb7e018`)**: `BUGS.md §f-bytecode-default-switch-int64-ci-red` is NOT-A-BUG /
+      misattribution — `ssc run --bytecode` is int64-exact and byte-identical to the interpreter on the
+      full boundary set (2^31 / 2^53+1 / max64 / 1e12-mul / recursion / loop, both fronts); the CI
+      "divergence" values were the tolerated v1-codegen KNOWN-RED (JVM `run-jvm` + JS `emit-js`), and
+      run.sc's explicit lanes make the default-backend switch causally decoupled. **f5c-SWITCH is now
+      de-risked on the int64 axis** — re-attempt is unblocked on int64; the maturity gate SHOULD still run
+      the full conformance suite (not just examples) to catch any OTHER out-of-corpus regression.
 - [ ] **f5c-3 (NEXT — before the removal) — f.* double + `lcell`/`dcell` accumulator `i.*`** recognition in
       JvmByteGen (the 2 remaining `__arith__`-only sites) so float/accumulator numeric is fast on the default
       lane BEFORE the removal (else the removal regresses those classes on `ssc run`). Gate: byte-identical +
@@ -405,8 +408,8 @@ removal becomes perf-neutral.
 - [ ] **f5c-4 (BLOCKED — gated on f5c-SWITCH, now BACKLOG) — FastCode/SelfRec removal** (`SSC_FASTPATHS` off →
       delete `v2/src/Runtime.scala` regions, ~−1186 L) + re-measure default-lane (bytecode) fib/arith-loop perf-
       neutral; `--interpret` numeric now slower (accepted — reference lane). Highest-stakes irreversible kernel
-      deletion → build ONLY on a CI-GREEN switch. Blocked until `f-bytecode-default-switch-int64-ci-red` is
-      resolved and the switch re-lands CI-green.
+      deletion → build ONLY on a CI-GREEN switch. `f-bytecode-default-switch-int64-ci-red` is RESOLVED
+      (NOT-A-BUG, `0dbb7e018`); now blocked ONLY on the f5c-SWITCH re-landing CI-green.
 - [ ] **S1-6 — δ-arm deletion: Δ=0 in Stage 1 (approach A) — MEASURED, deferred to post-S1-5.** Confirmed
       empirically: (a) typed F STILL emits `__arith__` for bare-variable arith (`a+b`, `local>=local`) and
       `__eq__` for `local==lit`; (b) the ssc0 tower `ssc1-lower.ssc0` emits `__arith__` ×12 + `__eq__` ×10;
