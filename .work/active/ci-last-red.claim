@@ -1,0 +1,6 @@
+feature/ci-last-red 2026-07-22T00:00:00Z
+agent: opus
+heartbeat: 2026-07-22T16:00:00Z
+status: in-progress
+done-so-far: TAKEN OVER (prior claude-code claim orphaned 23h; its cluster-test hardening 648dbfec5/3dd146fa1 landed). New CI-red data point: sbt job HANGS 200min after GeneratorNativePluginTest 'synchronous pull' (next test 'ordered terminals' never completes). Root-cause hypothesis: generator/coroutine plugin uses UNBOUNDED SynchronousQueue.put/take (GeneratorNativePlugin.scala :66,89,97,129,148,149,157,158) on Thread.ofVirtual producers → under parallel sbt suites + CI carrier starvation/pinning the producer virtual thread starves → consumer take() blocks forever. NOTE ci-red-main is DIFFUSE (siblings fail on other lanes too).
+next: reproduce locally (run generator suite, maybe -Djdk.virtualThreadScheduler.parallelism=1 to stress); if repro, fix with bounded poll(timeout) that fails loud OR run the suite sequentially / raise test-JVM vthread carriers. Verify no regression. My f-string-literal fix (a1bad83b0) is blocked on this same CI-red.
