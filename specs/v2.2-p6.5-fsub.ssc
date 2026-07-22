@@ -987,7 +987,7 @@ def parseBlockLamDisp(ts, env, cx) = if blockLamMulti(ts) then parseBlockLam(ts,
 // 2 ..)` — matching the scrutinee as a Cons Data value → "scrutinee not Data" on a String / silently
 // skipped `receive { case s => .. }` actor handlers. F's own source uses only ctor/tuple case-lambdas, so
 // the ctor branch is byte-unchanged (fixpoint neutral). scrut is the param `(local 0)`.
-def caseLamIsGen(ts) = if firstArmHasGuard(ts) then true else (if fst(hd(tl(ts))) == 0 then true else (if isGenVarHead(tl(ts)) then true else (if isTypedArm(tl(ts)) then true else hasNestedArms(ts))))
+def caseLamIsGen(ts) = if firstArmHasGuard(ts) then true else (if fst(hd(tl(ts))) == 0 then true else (if isScalarLitHead(hd(tl(ts))) then true else (if isGenVarHead(tl(ts)) then true else (if isTypedArm(tl(ts)) then true else hasNestedArms(ts)))))
 def parseCaseLambda(ts, env, cx) = if caseLamIsGen(ts) then parseCaseLamGen(ts, env, cx) else parseArms(ts, "" :: env, cx) match { case (arms, r) => ("(lam 1 (match (local 0) (" ++ fst(arms) ++ ")" ++ snd(arms) ++ "))", r) }
 def parseCaseLamGen(ts, env, cx) = parseGenMatch("(local 0)", ts, "" :: env, cx) match { case (m, r) => ("(lam 1 " ++ m ++ ")", r) }
 // A block-local `val (a, b, ..) = e` tuple-destructure binds the tuple to an anon slot then each element
@@ -1076,7 +1076,7 @@ def matchBody(ts) = if isTok(hd(ts), 2, 28) then tl(ts) else ts
 // A match with a GUARD on its first arm routes to the ordered resolver (parseGenMatch), which — with the
 // ctor-arm branch below — reproduces ssc1-lower lowerMatch's hasGuardPat path (:3657). F's own source has
 // no pattern guards (every `if` sits after `=>`, in the body), so this leaves --self byte-unchanged.
-def parseMatchArms(scrut, ts, env, cx) = if firstArmHasGuard(ts) then parseGenMatch(scrut, ts, env, cx) else (if fst(hd(tl(ts))) == 0 then parseGenMatch(scrut, ts, env, cx) else (if isGenVarHead(tl(ts)) then parseGenMatch(scrut, ts, env, cx) else (if isTypedArm(tl(ts)) then parseGenMatch(scrut, ts, env, cx) else (if hasNestedArms(ts) then parseGenMatch(scrut, ts, env, cx) else parseCtorMatch(scrut, ts, env, cx)))))
+def parseMatchArms(scrut, ts, env, cx) = if firstArmHasGuard(ts) then parseGenMatch(scrut, ts, env, cx) else (if fst(hd(tl(ts))) == 0 then parseGenMatch(scrut, ts, env, cx) else (if isScalarLitHead(hd(tl(ts))) then parseGenMatch(scrut, ts, env, cx) else (if isGenVarHead(tl(ts)) then parseGenMatch(scrut, ts, env, cx) else (if isTypedArm(tl(ts)) then parseGenMatch(scrut, ts, env, cx) else (if hasNestedArms(ts) then parseGenMatch(scrut, ts, env, cx) else parseCtorMatch(scrut, ts, env, cx))))))
 // A guard is an `if` at pattern depth 0 (balanced ()/[]/{}) BEFORE the arm's `=>`; `case p => if ..` is a
 // body `if`, correctly not detected (the `=>` is hit first). ts points at the leading `case` (tl skips it).
 def firstArmHasGuard(ts) = scanArmGuard(tl(ts), 0)
@@ -1156,7 +1156,7 @@ def parseGenArms(ts, menv, cx) = parseGenArms0(skipSemisF(ts), menv, cx)
 // IrLit(IrUnit)), NOT `(lit (int 0))`. Only reachable when a match ends in a ctor/int arm with no
 // catch-all (every currently-MATCHing ordered file ends in a var/wildcard, so this is a latent-bug fix).
 def parseGenArms0(ts, menv, cx) = if isTok(hd(ts), 2, 6) then parseGenArm(tl(ts), menv, cx) else ("(lit unit)", armsRest(ts))
-def parseGenArm(ts, menv, cx) = if isTypedArm(ts) then parseTypedArm(ts, menv, cx) else (if isWild(hd(ts)) then parseGenWild(tl(ts), menv, cx) else (if fst(hd(ts)) == 3 then parseGenCtorDisp(ts, menv, cx) else (if isTok(hd(ts), 2, 21) then parseGenTupDisp(ts, menv, cx) else (if fst(hd(ts)) == 0 then parseGenInt(snd(hd(ts)), tl(ts), menv, cx) else parseGenVar(snd(hd(ts)), tl(ts), menv, cx)))))
+def parseGenArm(ts, menv, cx) = if isTypedArm(ts) then parseTypedArm(ts, menv, cx) else (if isWild(hd(ts)) then parseGenWild(tl(ts), menv, cx) else (if fst(hd(ts)) == 3 then parseGenCtorDisp(ts, menv, cx) else (if isTok(hd(ts), 2, 21) then parseGenTupDisp(ts, menv, cx) else (if fst(hd(ts)) == 0 then parseGenInt(snd(hd(ts)), tl(ts), menv, cx) else (if isScalarLitHead(hd(ts)) then parseGenLit(hd(ts), tl(ts), menv, cx) else parseGenVar(snd(hd(ts)), tl(ts), menv, cx))))))
 // -- ctor-pattern arms in the ordered resolver (`case Ctor(x) [if g] => ..`) ----------------------
 // A ctor arm lowers to a ONE-arm IrMatch whose default is the ordered lowering of the REST, and (when
 // guarded) whose arm body is `(if g body <fallback>)` where the fallback is the ordered lowering of the
@@ -1188,6 +1188,15 @@ def parseGenCtorPlain(nm, ar, vs, ts, menv, cx) = parseExpr(ts, 0, appEnv(vs, me
 def parseGenCtorPlain2(nm, ar, body, ts, menv, cx) = parseGenArms(ts, menv, cx) match { case (deflt, r) => (genCtorMatch(nm, ar, body, deflt, menv), r) }
 def parseGenInt(n, ts, menv, cx) = parseExpr(tl(ts), 0, menv, cx) match { case (body, r) => parseGenIntRest(n, erase(body, cx), r, menv, cx) }
 def parseGenIntRest(n, body, ts, menv, cx) = parseGenArms(ts, menv, cx) match { case (rest, r) => (emitIf(emitEq(genScrut(menv), emitInt(n)), body, rest), r) }
+// Scalar-literal arms (`case "s" =>` / `case 1.5 =>` / `case true =>`) mirror parseGenInt: an ordered
+// `(if (__eq__ scrut <lit>) body rest)`. Before this only INT literals (parseGenInt) were handled; a
+// STRING/float/bool pattern token fell through to parseGenVar (treating "s" as a binder) or, worse, to
+// parseConsArm in the ctor path -> `(arm Cons 2 ..)` -> "scrutinee not Data". litArmIR reuses the same
+// literal emitters as litPatF. F's own source uses no non-int literal match arms -> fixpoint neutral.
+def isScalarLitHead(t) = if fst(t) == 4 then true else (if fst(t) == 5 then true else (if isTok(t, 2, 8) then true else isTok(t, 2, 9)))
+def litArmIR(t, cx) = if fst(t) == 4 then emitStr(snd(t), dqOf(cx)) else (if fst(t) == 5 then emitFloat(snd(t)) else (if isTok(t, 2, 8) then "(lit true)" else "(lit false)"))
+def parseGenLit(t, ts, menv, cx) = parseExpr(tl(ts), 0, menv, cx) match { case (body, r) => parseGenLitRest(litArmIR(t, cx), erase(body, cx), r, menv, cx) }
+def parseGenLitRest(litIR, body, ts, menv, cx) = parseGenArms(ts, menv, cx) match { case (rest, r) => (emitIf(emitEq(genScrut(menv), litIR), body, rest), r) }
 def parseGenVar(nm, ts, menv, cx) = if isTok(hd(ts), 2, 2) then parseGenVarGuard(nm, tl(ts), menv, cx) else parseGenVarPlain(nm, tl(ts), menv, cx)
 def parseGenVarGuard(nm, ts, menv, cx) = parseExpr(ts, 0, nm :: menv, cx) match { case (g, r) => parseGenVarGuard2(nm, erase(g, cx), r, menv, cx) }
 def parseGenVarGuard2(nm, g, ts, menv, cx) = parseExpr(tl(ts), 0, nm :: menv, cx) match { case (body, r) => parseGenVarGuard3(nm, g, erase(body, cx), r, menv, cx) }
