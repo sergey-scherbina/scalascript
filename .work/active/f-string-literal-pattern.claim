@@ -1,6 +1,6 @@
 feature/f-string-literal-pattern 2026-07-22T00:00:00Z
 agent: opus
-heartbeat: 2026-07-22T14:40:00Z
+heartbeat: 2026-07-22T15:55:00Z
 status: in-progress
-done-so-far: FIX LANDED — feature+docs on origin/main (fsub.ssc: isScalarLitHead/litArmIR/parseGenLit route string/float/bool literal match+case-lambda arms through the ordered resolver). Gates GREEN: fsub --self byte-identical 403836B, semantic 248/248, dualrun slice 45/45, FULL SWEEP 528/528 (0 unexpected). CI run a1bad83b0 exists but in_progress ~3h (heavy GitHub Actions backlog).
-next: wait for a1bad83b0 CI green (gh run, ci-status is SHA-match-buggy), then CHANGELOG + release + rm-worktree.
+done-so-far: FIX LANDED (fsub.ssc string/float/bool literal patterns). ALL deterministic gates GREEN: fsub --self byte-identical 403836B, semantic 248/248, dualrun slice 45/45, FULL SWEEP 528/528 (0 divergences). CI a1bad83b0: 3/4 jobs GREEN (Conformance/Lint/Validate); `sbt — compile and test` RED = 200-min HANG after GeneratorNativePluginTest (a Scala plugin test) — NOT my change (fsub.ssc is F-front-only, cannot hang a Scala test; fixpoint+sweep prove F itself never hangs). Pre-existing flaky sbt-job hang (ci-red-main class; 8/40 recent runs fail on various things, 13 succeed).
+next: re-running the failed sbt job (rerun triggered on 29917327072) for a green SHA verdict — a contention hang may pass on retry. If it hangs again, escalate: this is the systemic ci-red-main hang, not this change.
