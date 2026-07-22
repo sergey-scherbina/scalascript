@@ -2,9 +2,10 @@
 
 ## scljet-unique-index-not-supported — `CREATE UNIQUE INDEX` is rejected and uniqueness is not modelled
 
-**Status:** OPEN (found 2026-07-16 by the `scljet-ipk-rowid` differential lane; claimed by
-Codex on 2026-07-22 as `scljet-unique-index-not-supported`). Reporter/context: project
-SPRINT U1-U4; no Rozum sequence was the original report.
+**Status:** FIXED `50d2ca5bc` (landed 2026-07-22; reporter confirmation pending). Found
+2026-07-16 by the `scljet-ipk-rowid` differential lane; claimed by Codex on 2026-07-22 as
+`scljet-unique-index-not-supported`. Reporter/context: project SPRINT U1-U4; no Rozum
+sequence was the original report.
 
 **Repro:** against a SclJet image containing `CREATE TABLE t(a INTEGER, b TEXT)`,
 `executeMutation(db, "CREATE UNIQUE INDEX ux ON t(a)")` returns `expected TABLE`.
@@ -28,7 +29,15 @@ therefore uses one corrected exact comparator for both B-tree ordering and dupli
 false and whose reference `PRAGMA integrity_check` can report a non-unique index entry.
 The fix must cover CREATE over existing rows plus INSERT/UPDATE, distinct NULL semantics,
 a cross-engine file differential, and the real conformance/JDBC harnesses. Feature contract:
-`specs/scljet-unique-index.md`. Fix SHA: pending.
+`specs/scljet-unique-index.md`.
+
+**Fix:** `parseCreateIndex` and both mutation dispatchers now carry the `unique` bit;
+stored schema SQL is re-parsed into `IndexInfo`, and CREATE plus full-rowset DML validation
+run before any rebuilt image is returned. The shared writer comparator now orders INTEGER/REAL
+exactly (including above 2^53), TEXT by BINARY order, and BLOB byte-for-byte, so physical B-tree
+ordering and duplicate equality cannot diverge. Verification: forced SclJet conformance 103/103
+on INT+JS; `scljetJdbcPlugin/test` 63/63 in 6 suites; sqlite-jdbc matches the three rejection
+paths and reference `PRAGMA integrity_check` returns `ok` for the SclJet-written REAL/BLOB file.
 
 ## f-int-literal-overflow-fails-open — F wraps out-of-range 64-bit integer literals instead of rejecting
 

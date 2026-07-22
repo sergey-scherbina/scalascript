@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-07-22 — SclJet enforces SQLite-compatible unique indexes
+
+`CREATE UNIQUE INDEX` now validates existing rows and persists its uniqueness through indexed
+INSERT/UPDATE rebuilds; failures are atomic and use SQLite's qualified-column diagnostic. Composite
+keys, distinct NULLs, exact INTEGER/REAL equality, BINARY text, and byte-equal BLOBs share the same
+comparator used for physical B-tree ordering. Reference sqlite-jdbc agrees on CREATE/INSERT/UPDATE
+rejection, reports `NON_UNIQUE=false`, and returns `ok` from `PRAGMA integrity_check` on a
+SclJet-written REAL/BLOB file. Forced SclJet conformance 103/103 (INT+JS), JDBC 63/63; runnable
+example: `examples/scljet-unique-index.ssc`.
+
 ## 2026-07-22 — DurableRef + a real `Restore` effect (save-run Part 3a)
 
 Adds `DurableRef[A]` (control-interoperability §9.2): an inert reference to external state carrying a

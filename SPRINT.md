@@ -3439,26 +3439,33 @@ once the statement parses, introspection (`getIndexInfo` → `NON_UNIQUE=false`)
 with no extra work — `ScljetIntrospectionTest` already proves that path against a reference-written
 file that HAS a unique index.
 
-- [ ] **U1 — parse.** Accept the optional `UNIQUE` between `CREATE` and `INDEX` in `parseCreateIndex`
+- [x] **U1 — parse.** Accept the optional `UNIQUE` between `CREATE` and `INDEX` in `parseCreateIndex`
       (`scljet/sql.ssc:~4800`); add `unique: Boolean = false` to `CreateIndexStmt`. Also fix the
       dispatch in `executeMutationCountedParams` (`~:5147`), which routes on `tkIsKw(toks.tail,
       "INDEX")` and would still send `CREATE UNIQUE INDEX` to `parseCreate`.
-- [ ] **U2 — enforce at CREATE.** Real SQLite REFUSES to create a unique index over existing
+- [x] **U2 — enforce at CREATE.** Real SQLite REFUSES to create a unique index over existing
       duplicates. `buildIndexEntriesFromRecords` already produces the key tuples — check for a
       duplicate key and fail with SQLite's message shape
       (`UNIQUE constraint failed: <table>.<col>[, <table>.<col>…]`). The audit found that
       `write.ssc::compareKeys` currently maps every REAL to integer zero and all BLOBs to equal;
       correct that physical comparator and reuse it for duplicate equality so validation and
       B-tree ordering cannot diverge.
-- [ ] **U3 — enforce at INSERT/UPDATE.** The hard half: `tableIndexInfos` carries no unique flag, so
+- [x] **U3 — enforce at INSERT/UPDATE.** The hard half: `tableIndexInfos` carries no unique flag, so
       thread it through and reject a duplicate in the `reindexTable` maintenance path
       (`executeInsert` `~:4390`, and the UPDATE equivalent). NOTE the pre-existing limit right there:
       "index maintenance on a multi-table database is not yet supported" — U3 inherits it.
-- [ ] **U4 — gate.** `tests/conformance/run.sh --only 'scljet-*' --no-memo` (**`--no-memo` mandatory**
+- [x] **U4 — gate.** `tests/conformance/run.sh --only 'scljet-*' --no-memo` (**`--no-memo` mandatory**
       — the memo keys on ssc.jar, NOT on `scljet/*.ssc`) + `scljetJdbcPlugin/test`. Add a differential
       that cross-checks the duplicate REJECTION against `org.xerial:sqlite-jdbc` (both must error) and
       a `PRAGMA integrity_check` on the file we write, including distinct unsorted REAL/BLOB keys —
       the oracle must be the reference engine through a FILE, per the lesson in the entry below.
+
+**LANDED 2026-07-22:** implementation `50d2ca5bc`, sqlite-jdbc differential `ebe5d5fd6`,
+docs/example `21a2060ee`, verified spec `c8c8580c9`. `CREATE UNIQUE INDEX` now validates existing
+rows and stored unique metadata protects INSERT/UPDATE atomically; the shared exact comparator
+also fixes REAL/BLOB physical ordering. Gates: forced SclJet conformance **103/103** on INT+JS,
+JDBC **63/63** in 6 suites, reference file `integrity_check=ok`, and the example is identical on
+the default runner and JS compatibility runner.
 
 ## codex-lane-salvage — recover value from three orphaned codex branches (2026-07-16, Sergiy: "разберись — может быть там есть чтото ценное; всё ценное замерж в мастер")
 
