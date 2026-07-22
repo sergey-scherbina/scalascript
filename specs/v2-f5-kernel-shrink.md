@@ -21,8 +21,15 @@ fixpoint-verified** target and the measured re-study of the prior "irreducible" 
   disabled, and the compiler workload is even marginally *faster* without them. They are irreducible
   for **perf**: numeric hot loops regress (fib(34): 0.215 s → 0.928 s = 4.3×). Deleting them now
   would be the *reverse* of the AGENTS.md apparatus trap — a green gate blessing a hidden regression.
-  Correct call: **defer** until F5b typed IR "softens the perf cost" (direct typed calls replace tag
-  dispatch), then re-measure and remove. This matches `specs/v2-f5b-typed-ir-design.md` §1.
+  ~~Correct call: **defer** until F5b typed IR "softens the perf cost"~~ — **REFUTED, MEASURED 2026-07-22
+  (F5b slice 1b-2).** Once `fib` emits fully-typed IR (`i.add`/`i.lt`/`i.sub`), the re-measure shows typed
+  vs untyped is a **~1% difference** while fastpaths ON vs OFF is **~5× (wall) / ~30× (compute)**:
+  fib(34) compute-only TYPED-off ~0.80 s vs UNTYPED-off ~0.81 s vs either-on ~0.02–0.03 s. The FastCode/
+  SelfRec win is the recursion/loop **specialization** (SelfRecLL Long tight loop, FastCode no-`Done`-box),
+  **orthogonal to arith dispatch** — so typed IR does NOT make the removal perf-neutral. **The removal is
+  NOT deferred-until-typed-IR; it is blocked on a different lever** — a typed-IR-driven bytecode/native
+  compile of the numeric-recursion class (a separate backend effort). Detail: `v2-f5b-typed-ir-design.md
+  §4.1 "MEASURED PERF FINDING"`.
 - **Step B outcome:** the only thing landed is the **measurement instrument** (`SSC_FASTPATHS=off`,
   +7 net kernel lines) that made this study reproducible and turns the eventual perf-layer removal
   into a verified one-line flip + delete. The actual −1,186 L removal and the effects/decimal
@@ -93,7 +100,7 @@ Confirms and sharpens `specs/v2-f5b-typed-ir-design.md` §1:
 | Effort | Δlines | Enabler / blocker |
 |---|---:|---|
 | **δ-table retirement** (Prims fan-out) | −1,100…−1,500 | **needs F5b typed IR** (OUT of this task) |
-| FastCode/SelfRec removal | −1,186 (measured; task said −800/−962) | **perf-gated**: green today but 4.3× numeric regression → defer until typed IR softens it |
+| FastCode/SelfRec removal | −1,186 (measured; task said −800/−962) | **perf-BLOCKED**: 4.3× numeric regression; typed IR does NOT recover it (MEASURED 2026-07-22, §0) → needs a typed-IR bytecode/native compile of numeric recursion, a separate backend effort |
 | PortableEffects → tower | ≈ −220 + δ sites | K3 effects redesign (ssc0 effect runtime) |
 | PortableDecimal → tower | ≈ −170 + δ sites | ssc0 exact-decimal impl (no host BigDecimal) |
 | fast-path dedup / interop trim | −150…−250 | partly enabled by typed IR |

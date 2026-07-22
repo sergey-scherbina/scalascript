@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-07-22 — v2-f5b Stage 1b slice 1b-2: def return-type registry closes `fib` + perf finding
+
+The self-hosting front `F` gained a **def return-type registry**: a top-level `def f(…): T = …` with a
+simple `T ∈ {Int,String,BigInt}` records `(f,T)`, and `operandTag` now types a `(app (global f) …)`
+operand by `f`'s declared return type. This **closes the numeric-recursion class** —
+`def fib(n: Int): Int = if n<2 then n else fib(n-1)+fib(n-2)` now emits `(i.add (app (global fib) (i.sub
+n 1)) (app (global fib) (i.sub n 2)))` (the top `+` was `__arith__`; both operands are `fib` call-results
+typed Int). Gates: semantic 248/248, X1 fixpoint stage1==stage2 byte-identical (398,412 B), corpus MATCH
+207→204 (typed-by-design), EMPTY 0, TIMEOUT 0. **Perf finding (MEASURED, corrects the roadmap):** with
+`fib` fully typed, fib(34) with the fast paths OFF is still ~5× slower (wall) / ~30× (compute) than ON,
+and typed-vs-untyped IR is only ~1% — so the FastCode/SelfRec win is recursion/loop *specialization*, not
+arith-dispatch avoidance. **Typed IR does NOT make the FastCode/SelfRec removal perf-neutral; the removal
+is NOT applied** (it would be a naked ~5× regression) and is now known to need a typed-IR-driven
+bytecode/native compile of numeric recursion — a separate backend effort. See
+`specs/v2-f5b-typed-ir-design.md §4.1` + `specs/v2-f5-kernel-shrink.md §0`.
+
 ## 2026-07-22 — v2-f5b Stage 1b slice 1b-1: F types bare Int/String/BigInt params
 
 The self-hosting front `F` (`specs/v2.2-p6.5-fsub.ssc`) now emits typed Core IR for arithmetic on

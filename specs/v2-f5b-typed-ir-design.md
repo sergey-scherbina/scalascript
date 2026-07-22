@@ -33,7 +33,7 @@ it does **not** by itself reach ~2,800. The measured 6,035→~2,800 decompositio
 | **Typed IR (this project, F5b)** | −1,100…−1,500 | — (the enabler; also perf-positive) |
 | Effects → tower (PortableEffects + effect δ + V2EffectContext) | ≈ −300 | yes (K3 redesign) |
 | Decimal → tower (PortableDecimal + `dec.*`) | ≈ −200 | yes |
-| FastCode/SelfRec removal | ≈ −800 | yes (perf-risky; typed IR softens the perf cost) |
+| FastCode/SelfRec removal | ≈ −800 | ~~typed IR softens the perf cost~~ **REFUTED 2026-07-22 (§4.1): typed IR ≠ perf-neutral; needs a bytecode/native compile of numeric recursion** |
 | Fast-path dedup + interop glue trim | ≈ −150…−250 | partly |
 
 **So ~2,800 = F5b typed-IR + three more orthogonal deep efforts.** Typed-IR gets ~40% of the shrink
@@ -160,11 +160,40 @@ is required — `climbStep` maps `(local N)` → `env[N]`'s type by index.
   2. *feat:* `parseParam` embeds a bare `Int`/`String`/`BigInt` annotation as `name:Type`; typed locals
      now route to `i.*`/`big.*`/`seq`. Gate: semantic **248/248** (output unchanged), typed fixpoint
      byte-identical, corpus byte-identity drops below 225 (newly-typed programs diverge by design).
-- **Slice 1b-2 (next) — typed `val`/`var` locals + def return-type registry.** Embed a `val x: T`/`var`
-  declared type (or infer from RHS tag) at the block-binder push sites; register each top-level def's
-  declared return type so a `(app (global f) …)` result carries `f`'s return type. This is what closes
-  full **fib** (`fib(n-1)+fib(n-2)` — both operands are `app` results): only then does the top `+`
-  become `i.add`. **Required for the perf story** (`fib` all-`i.*`), and the first real deletion enabler.
+- **Slice 1b-2 DONE (`317e0b495`, 2026-07-22) — def RETURN-type registry.** A top-level `def f(…): T = …`
+  with a simple `T∈{Int,String,BigInt}` registers `(f,T)` in a new `retTab` (deepest cx slot, alongside
+  `objVarargs`); `operandTag` types a `(app (global f) …)` operand by `f`'s return type (`callRet`, name
+  extracted from the erased string via `startsW "(app (global "` + `takeNm`). **Closes `fib`:**
+  `def fib(n: Int): Int = if n<2 then n else fib(n-1)+fib(n-2)` →
+  `(if (i.lt n 2) n (i.add (app (global fib) (i.sub n 1)) (app (global fib) (i.sub n 2))))` — the top `+`
+  is now `i.add`. Fixpoint-safe (F annotates no own return types either). Gates: semantic 248/248, X1
+  fixpoint stage1==stage2 byte-identical (398,412 B), corpus MATCH 207→204 (typed-by-design), EMPTY 0.
+  (The typed-`val`/`var` half is deferred to 1b-2b — `fib` needed only the return-type registry.)
+
+### ★★★ MEASURED PERF FINDING (2026-07-22) — the typed-IR-makes-removal-perf-neutral hypothesis is REFUTED
+
+The whole "typed IR softens the FastCode/SelfRec perf cost" premise (§0, §1, `v2-f5-kernel-shrink §0`) is
+**wrong, measured on the closed `fib`.** With `fib` now emitting fully-typed IR (`i.add`/`i.lt`/`i.sub`),
+`fib(34)` on the v2 kernel (`run-ir`, min of 3, minus a 0.18 s JVM+compile baseline → compute-only):
+
+| fib(34) compute | fastpaths ON | fastpaths OFF |
+|---|---|---|
+| **TYPED** (`i.add`) | ~0.02 s | **~0.80 s** |
+| UNTYPED (`__arith__`) | ~0.03 s | ~0.81 s |
+
+**Typed vs untyped is a ~1% difference; fastpaths ON vs OFF is ~30× (compute) / ~5× (wall).** So the
+FastCode/SelfRec win is the recursion/loop **specialization** (SelfRecLL arity-1 Long→Long tight loop;
+FastCode no-`Done`-boxing), which is **orthogonal to arith-prim dispatch** — the `__arith__` tag-dispatch
+was never the bottleneck for numeric recursion (frame alloc + boxing + closure dispatch is). Typed IR
+does **not** make the fast paths removable. **Decision: DO NOT remove FastCode/SelfRec** — it would be a
+naked ~5× regression even with full typed IR. The removal is not "deferred until typed IR"; it is
+**blocked on a different lever**: a typed-IR-driven **bytecode/native compilation of the numeric-recursion
+class** (replace the tree-walker for `Int`-typed recursive defs, not just the arith prim). That is a
+separate, larger backend effort. Typed IR's real payoff stands (kernel-size δ-table retirement +
+directness/correctness), but **not** as the enabler of the FastCode removal.
+- **Slice 1b-2b (optional) — typed `val`/`var` locals.** Embed `val x: T`/`var` declared types (or infer
+  from the RHS tag) at the block-binder push sites. Coverage only (fib already closed without it); no perf
+  or deletion unlock beyond 1b-1/1b-2.
 - **Slice 1b-3 — typed `.length`/`.charAt`/`.substring` on a String-typed local** (`postDot`/`emitLen`
   become env-type-aware: a String-typed `(local N)` receiver lowers `.length`→`slen`, `.charAt`→
   `scodeAt`). Subsumes part of Stage 2.

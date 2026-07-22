@@ -283,14 +283,22 @@ KEY design facts established this lane (see also project memory):
       `.length` (compiled to `__method__`, effect-sensitive) crashed F on 3 corpus programs; `matchN`
       sidesteps it. (3) `__unary__` is NOT safely deletable — JS/Rust/Swift backends still handle it
       (multi-backend Core IR contract), see design §4.1.
-- [ ] **S1-5 slice 1b-2 — typed `val`/`var` locals + def RETURN-type registry (the perf keystone).** The
-      remaining bare-var gap: (a) `val x: T = e` / `var` push bare names at block-binder sites (parseBlockVal
-      etc.) → embed their declared type (or infer from the RHS tag). (b) A `(app (global f) …)` call result
-      is `"?"` — register each top-level def's declared return type (`emitDefU`/`skipToEq` currently DROP
-      `: T`) so a call to `f` carries `f`'s return type. **This is what closes full `fib`** (`fib(n-1)+fib(n-2)`
-      — both operands are `app` results): only then does the top `+` become `i.add` and the numeric hot loop
-      emit direct typed prims — the perf-neutrality the FastCode/SelfRec removal needs. Gate each on semantic
-      248/248 + typed `--self`; corpus MATCH drops further by design.
+- [x] **S1-5 slice 1b-2 DONE (`317e0b495`, 2026-07-22) — def RETURN-type registry; `fib` CLOSED.** A
+      top-level `def f(…): T = …` with simple `T∈{Int,String,BigInt}` registers `(f,T)` in `retTab` (new
+      deepest cx slot, alongside objVarargs); `operandTag` types a `(app (global f) …)` operand by f's
+      return type (`callRet` extracts the name from `startsW "(app (global "`). `fib(n-1)+fib(n-2)` → top
+      `+` = `i.add`. Gates: semantic 248/248, X1 fixpoint stage1==stage2 byte-identical (398,412 B), corpus
+      MATCH 207→204 (typed-by-design), EMPTY 0, TIMEOUT 0. Fixpoint-safe (F has no own return types).
+      **★ PERF FINDING (MEASURED, REFUTES the removal premise):** with `fib` fully typed, fib(34) compute-only
+      TYPED-fastpaths-off ≈ 0.80 s vs UNTYPED-off ≈ 0.81 s vs either-on ≈ 0.02–0.03 s — typed vs untyped is
+      **~1%**, fastpaths on/off is **~5× wall / ~30× compute**. The FastCode/SelfRec win is recursion/loop
+      SPECIALIZATION, orthogonal to arith dispatch → **typed IR does NOT make the removal perf-neutral. DO
+      NOT remove the fast paths** (naked ~5× regression). The removal is BLOCKED on a different lever: a
+      typed-IR bytecode/native compile of the numeric-recursion class (separate backend effort). Detail:
+      `specs/v2-f5b-typed-ir-design.md §4.1`.
+- [ ] **S1-5 slice 1b-2b (optional, coverage only) — typed `val`/`var` locals.** `val x: T = e` / `var`
+      push bare names at block-binder sites (parseBlockVal etc.) → embed the declared type (or infer from the
+      RHS tag). No perf/deletion unlock (fib already closed); pure coverage. Gate as above.
 - [ ] **S1-5 slice 1b-3 — typed `.length`/`.charAt`/`.substring` on a String-typed local.** `postDot`/
       `emitLen` become env-type-aware (via `localTyOf` on the receiver): a String-typed `(local N)` receiver
       lowers `.length`→`slen`, `.charAt`→`scodeAt`. Subsumes part of Stage 2. Gate as above.
