@@ -38,7 +38,7 @@ composition decodes unambiguously.
 | `Int` (32-bit) | 4 bytes, two's-complement big-endian |
 | `Long` / ssc `I64` | 8 bytes, two's-complement big-endian |
 | `BigInt` | `u32` byte-count `n` + `n` bytes of minimal two's-complement big-endian magnitude (`BigInteger.toByteArray`); the value `0` encodes as `n=1, [0x00]` |
-| `Double` / `F64` | 8 bytes = `doubleToRawLongBits`, big-endian. **Bit identity is preserved**: `-0.0` stays `-0.0`, and every NaN keeps its exact payload. This is the codec's NaN policy — raw bits, never canonicalized to a single NaN. |
+| `Double` / `F64` | 8 bytes = `doubleToRawLongBits`, big-endian. Signed zero and every finite/infinite value keep their exact bits (`-0.0` stays `-0.0`). **NaN policy: any NaN normalizes to the single canonical `0x7ff8000000000000`.** Payloads are not preserved, because a JS engine cannot round-trip a NaN payload through a `Number`; canonicalizing on every lane is what makes the encoding byte-identical cross-lane. |
 | `String` | `u32` UTF-8 byte length + those UTF-8 bytes |
 | `Bytes` | `u32` length + raw bytes |
 | product / `pair(a, b)` | `encode(a)` then `encode(b)`, in field order |
@@ -91,7 +91,8 @@ genuinely serializes on every `save`/`run`.
       unicode `String`, empty `List`.
 - [ ] canonical/deterministic: `encode(v)` is byte-identical across repeated calls and
       independent of construction path; equal values ⇒ equal bytes.
-- [ ] float bit identity: `encode(-0.0) != encode(0.0)`; a NaN payload survives round-trip.
+- [ ] float canonical form: `encode(-0.0) != encode(0.0)`; every NaN encodes to
+      `0x7ff8000000000000` and decodes back to a NaN.
 - [ ] bounded/exact: `decode` rejects truncated input, trailing bytes, an unknown sum
       tag, and a length prefix larger than the remaining input — each a typed
       `DurableDecodeError`.
@@ -101,10 +102,33 @@ genuinely serializes on every `save`/`run`.
 - [ ] ABI gate stays green; no forbidden runtime reference leaks from the new public
       surface; `DurableBytes` exposes no shared mutable array.
 
+## 4a. Golden vectors (cross-lane byte identity)
+
+The format is authoritative only if every lane produces the *same* bytes. Rather than
+a live cross-process harness, both lanes assert one shared golden hex table — if the
+Scala `DurableCodecTest` and the JS `control.test.js` both pass it, the encodings are
+byte-identical. A representative subset (full table in the tests):
+
+| value | codec | hex |
+|---|---|---|
+| `true` | `boolean` | `01` |
+| `-1` | `int` | `ffffffff` |
+| `-1` (64-bit) | `long` | `ffffffffffffffff` |
+| `1.5` | `double` | `3ff8000000000000` |
+| `-0.0` | `double` | `8000000000000000` |
+| `NaN` | `double` | `7ff8000000000000` |
+| `"é"` | `string` | `00000002c3a9` |
+| `128` | `bigInt` | `000000020080` |
+| `-1` | `bigInt` | `00000001ff` |
+| `List(1,2)` | `list(int)` | `000000020000000100000002` |
+| `Right("A")` | `either(int,string)` | `010000000141` |
+
+Changing the wire format means changing both tables and this spec together.
+
 ## 5. Follow-on (queued in SPRINT)
 
-Part 2: `frameDigest` (domain-separated SHA-256) + the versioned capsule envelope (§10)
-+ `SavedContinuation.freeze()/restore()`; then `DurableRef` (§9.2), canonical-key maps
-and nominal versioned schema (§9.1), graph codecs (§9.3), and the JS-lane mirror of this
-exact format. The Portable/ExactArtifact runners and cross-lane capsule vectors ride on
-those.
+Part 2 (landed, `specs/durable-capsule-envelope.md`): the versioned capsule envelope +
+`frameDigest` + `ResumePoint.freeze/restore`. Remaining: `DurableRef` (§9.2), canonical-key
+maps and nominal versioned schema (§9.1), graph codecs (§9.3), and the JS-lane mirror of the
+**capsule** (the codec mirror landed here). The Portable/ExactArtifact runners and cross-lane
+capsule vectors ride on those.

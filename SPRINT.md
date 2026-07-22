@@ -4890,10 +4890,16 @@ dynamic saved-capsule runner.
   admits — rejecting stale version / cross-point id / tampered frame with typed `CapsuleRejected` —
   then rebinds to the `ExactArtifact`-bound machine (never travels as bytes) and returns a reusable
   `SavedContinuation`. Spec `specs/durable-capsule-envelope.md`; control suite 132/132 + ABI gate.
+  **JS-LANE CODEC MIRROR LANDED 2026-07-22 (claim `durable-frame-codec-js`):** the Part 1 frame codec
+  now exists on the JS lane (`v2/host/js/control`), byte-identical to Scala — verified by a shared
+  GOLDEN hex table asserted on BOTH lanes (Scala `DurableCodecTest` + JS `control.test.js`). Reconciled
+  the one cross-lane divergence: NaN normalizes to canonical `0x7ff8000000000000` on both lanes
+  (a JS `Number` can't round-trip a NaN payload; signed-zero/finite/inf bits stay exact). Scala
+  133/133, JS 39/39. Spec `specs/durable-frame-codec.md` §4a.
   **REMAINING (Part 3+):** the `Portable` CoreIR resume-program payload; signature/audience/tenant +
   capability policy; `DurableRef` (§9.2) resolution; a dynamic id→resume-point registry;
   canonical-key maps + nominal versioned schema; graph codecs (§9.3); `RunOutcomeUnknown`; JS-lane
-  mirror of the codec+envelope. The runners below consume the capsule.
+  mirror of the **capsule/envelope** (codec mirror done); Rust/Swift lanes. The runners consume the capsule.
   `Portable(resumeCodeDigest, closed Program((frame,input)=>Eff))` or
   `ExactArtifact(artifactDigest,target,resumePointId)`, both with `FrozenFrame`, A/R codec schemas,
   exact resolver/plugin implementation profile, lifecycle, bounded policy,

@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-07-22 — Durable frame codec mirrored on the JS lane, verified byte-identical
+
+The canonical frame codec now exists on the JavaScript reference lane
+(`v2/host/js/control`): `DurableBytes`, `DurableCodec` (scalars + `pair`/`either`/`list`/`imap`),
+and `DurableDecodeError` over the exact Scala wire format — `i64` as `bigint`, a
+`BigInteger.toByteArray`-compatible two's-complement, and big-endian `DataView` `f64`. Both host
+lanes now carry the same frame codec, and a codec is a `DurableValue`, so it doubles as
+`Continuation.savable` evidence. The one genuine cross-lane divergence — NaN — is reconciled: both
+lanes normalize any NaN to canonical `0x7ff8000000000000` (a JS `Number` cannot round-trip a NaN
+payload), while signed zero and all finite/infinite bits stay exact. Byte identity is proven, not
+asserted: both lanes assert one shared golden hex table (Scala `DurableCodecTest` §Golden + JS
+`control.test.js`). Scala 133/133, JS 39/39, ABI gate green; spec `specs/durable-frame-codec.md` §4a.
+The JS mirror of the capsule envelope (Part 2) is the next slice.
+
 ## 2026-07-22 — Durable capsule envelope + resume points (save-run Part 2)
 
 Wraps an encoded frame in a versioned, digest-verified transport envelope bound to a named
