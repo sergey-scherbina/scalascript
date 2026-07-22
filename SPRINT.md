@@ -2982,6 +2982,13 @@ Failures are LAYERED — fixing one reveals the next, so the run stays red until
       native module graph to `std/agent.ssc`, which the native front cannot parse. See BUGS.md
       `v2-native-front-in-fence-imports-not-followed` + the two parse gaps it is blocked on
       (`…-multiline-curried-def`, fix known+verified but unlanded; `…-try-catch`, undiagnosed).
+      **CORRECTION (2026-07-22, `54eae3197`):** the "gate PASSES" above was verified LOCALLY on
+      macOS only — the gate stayed CI-RED for an UNRELATED second reason. The sbt CI job failed the
+      swift lane: `GPI hop: DEUTDEFF — ACCC` (em-dash) printed as `? ` on the Linux runner (JVM
+      `System.out` fell back to the C-locale ASCII `native.encoding`). Fixed by pinning
+      `-Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8` on all three installBin launchers. See BUGS
+      `v21-explicit-lanes-gate-swift-em-dash-red`. Classic local-green≠CI-green — reproduced on
+      Linux/C-locale via Docker before declaring green this time.
 - [x] **4c. The never-run CI gate steps — all run locally now. Two more real bugs found behind them.**
       - `v21-direct-asm-recursion-smoke.sh` — PASS, but it was a **false green**: it pins
         `JAVA_TOOL_OPTIONS=-Xss256k` to prove the compiled lanes need no big stack, and an explicit

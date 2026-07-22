@@ -1,5 +1,34 @@
 # Bug tracker
 
+## v21-explicit-lanes-gate-swift-em-dash-red — JVM launcher stdout is locale-dependent (non-ASCII → `?` on CI)
+
+**Status:** FIXED (`54eae3197`, 2026-07-22). Last remaining CI-baseline red (the sbt
+`ScalaScript 2.1 explicit provider and target lanes` step, `tests/e2e/v21-explicit-lanes-gate.sh`).
+Orphaned pre-existing work — the scljet-VFS siblings it was attributed to were done/released.
+
+**Repro (Linux / C locale):** `LANG= tests/e2e/v21-explicit-swift-provider-smoke.sh` after
+`installBin` →  exit 1, silent (bare `[[ ]]`). Under `bash -x` / with the smoke hardened, the check
+`'pacs.008 transfer output'` fails: expected `GPI hop: DEUTDEFF — ACCC …`, got
+`GPI hop: DEUTDEFF ? ACCC …`. Passes on macOS (UTF-8 locale) — a "local green ≠ CI green" trap.
+Reproduced in `catthehacker/ubuntu:act-latest` + `openjdk-21` mounting the built worktree.
+
+**Root cause — NOT scljet-VFS (the claim's prime suspect).** The swift lane runs the `.ssc` example
+through `bin/ssc-provider` → `java scalascript.cli.StandardMain`, which `println`s an em-dash (U+2014).
+`file.encoding` is UTF-8 by default since JDK 18 (JEP 400), but `System.out`/`System.err` still use
+`native.encoding`, which is locale-derived. On the CI runner `LANG` is unset (C locale) and stdout is
+redirected to a file (no console), so `native.encoding = ANSI_X3.4-1968` (ASCII) and the em-dash is
+replaced with `?`. `java -XshowSettings:properties` in the C-locale container confirms
+`stdout.encoding = ANSI_X3.4-1968` while `file.encoding = UTF-8`.
+
+**Fix:** added `-Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8` to all three installBin launcher
+templates in `build.sbt` (`ssc`/`ssc-standard`, `ssc-tools`, `ssc-provider`) — the same "on every
+launcher" precedent as `-Xss`. `.ssc` observable output is now deterministic across locales; ASCII
+output is byte-identical (UTF-8 ⊇ ASCII), so no other lane's expected changed (verified: both
+scljet-VFS smokes still pass on Linux/C-locale, full gate 3/3 on macOS). Also hardened
+`v21-explicit-swift-provider-smoke.sh` to route every assertion through named `fail`/`expect_out`
+helpers (its bare `[[ ]]`/`grep`/`cmp`/redirected-run checks exited 1 printing NOTHING — the exact
+silent-gate anti-pattern AGENTS.md warns about, and why this needed a manual Docker bisect).
+
 ## durable-save-run-verifier-red — effect verifier mis-flags a def that fully handles its own effect
 
 **Status:** FIXED (`durable-save-run-verifier-red`, 2026-07-22). Pre-existing CI Conformance red

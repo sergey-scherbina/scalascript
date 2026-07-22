@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-07-22 — launcher stdout/stderr pinned to UTF-8 (last CI-baseline blocker, `54eae3197`)
+
+The `sbt — compile and test` CI job's `v21-explicit-lanes-gate` step failed at the **swift** lane:
+the pacs.008 line `GPI hop: DEUTDEFF — ACCC` (em-dash U+2014) printed as `... DEUTDEFF ? ACCC` on
+the Linux runner while passing on developer macs. Root cause was **not** scljet-VFS (the claim's
+prime suspect) — it was locale-dependent JVM stdout encoding. Although `file.encoding` is UTF-8 by
+default since JDK 18 (JEP 400), `System.out`/`System.err` fall back to `native.encoding`, which is
+locale-derived; under the CI runner's unset `LANG` (C locale) with stdout redirected, that is
+`ANSI_X3.4-1968` (ASCII), so non-ASCII chars became `?`. macOS passed because its locale is UTF-8 —
+a textbook "local green ≠ CI green". Fixed by adding `-Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8`
+to all three installBin launchers (`ssc`/`ssc-standard`, `ssc-tools`, `ssc-provider`), making `.ssc`
+observable output deterministic across locales (ASCII output stays byte-identical). Reproduced and
+verified on Linux/C-locale via Docker. Also hardened `v21-explicit-swift-provider-smoke.sh`: its
+bare `[[ ]]`/`grep`/`cmp`/redirected-launcher-run assertions failed silently under `set -e` (why the
+red hid behind a blank gate), now routed through named `fail`/`expect_out` helpers like the sibling
+smokes. With this, both CI-baseline reds are green (Conformance via `durable-save-run-verifier-red`,
+sbt via this).
+
 ## 2026-07-22 — F (self-hosted front) supports `md`/`raw` string interpolators (was fail-open `<closure>`)
 
 Blocker ③.1 of the `v2-f4-reflip` re-flip (BUGS `f-native-out-of-corpus-smoke-regressions`). Under
