@@ -1,6 +1,0 @@
-feature/durable-admission-resolver 2026-07-22T15:59:31Z
-agent: claude-code
-heartbeat: 2026-07-22T15:59:31Z
-status: in-progress
-done-so-far: 19/26 vectors specified; remaining need admission/runner/concurrency/spec. Vector 11 (missing-resolver admission) is tractable — builds on DurableRef, no capsule-format change.
-next: CapsuleRejected typed kind; ResumePoint.define requiredResolvers + restore(capsule, availableResolvers) admission check -> MissingDependency BEFORE run; both lanes; host programs; flip vector 11 (host lanes) w/ admission,durable-ref caps
