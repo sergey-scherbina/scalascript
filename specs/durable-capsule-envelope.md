@@ -67,13 +67,18 @@ canonical/deterministic/bounded guarantees):
 ```
 capsule := formatVersion:int
         || resumePointId:string
-        || frame:bytes            // the DurableCodec[S] encoding of the state
-        || frameDigest:bytes      // SHA-256, domain-separated
+        || codecAbiVersion:int         // pinned value/frame codec ABI (§10, §12)
+        || artifactAbiId:string        // pinned ExactArtifact/control identity
+        || requiredDependencies:list(string)  // sorted target/toolchain/plugin ids
+        || frame:bytes                 // the DurableCodec[S] encoding of the state
+        || frameDigest:bytes           // SHA-256, domain-separated
 ```
 
-`frameDigest = SHA-256("ssc-frame-v1\0" || frameBytes)` (§10). The domain-separation
-prefix keeps this hash distinct from any other SHA-256 use. The current
-`formatVersion` is `1`.
+`frameDigest = SHA-256("ssc-frame-v1\0" || frameBytes)` (§10) covers the frame only, so
+adding the ABI manifest does not change the digest. The domain-separation prefix keeps
+this hash distinct from any other SHA-256 use. The current `formatVersion` is `2`. The
+`codecAbiVersion`, `artifactAbiId`, and `requiredDependencies` are the `ArtifactProfile`
+a resume point pins at `freeze`, checked at admission (see §4).
 
 ## 4. Semantics
 

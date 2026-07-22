@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-07-22 — Capsule ABI manifest (format v2) + codec/artifact/dependency admission (vector 12)
+
+Extends the durable capsule to §10's ABI manifest so admission can reject codec, artifact, and
+dependency mismatches before any user code runs. A new public `ArtifactProfile` (`codecAbiVersion`,
+`artifactAbiId`, `requiredDependencies`) is pinned by `ResumePoint.define(...profile)`; `freeze` writes
+it into a format-**v2** capsule envelope (bumped from 1; the manifest fields sit before the frame, and
+`frameDigest` still covers the frame only so the golden digest is unchanged), and `restore` runs the
+checks in order with distinct `CapsuleRejected` kinds: integrity (`FormatVersion`/`ResumePointMismatch`/
+`FrameTampered`), then `CodecMismatch` (pinned codec ABI differs), `AbiMismatch` (pinned artifact
+identity differs), and `MissingDependency` (a required `DurableRef` resolver or capsule-declared
+toolchain dependency is absent). Defaults keep the existing `define`/`restore` signatures. The golden
+capsule hex is regenerated and remains byte-identical on both host lanes. Flips conformance vector
+`12-exact-artifact-and-codec-mismatch` `pending-codec`→`specified` (host-only, `structured`): the Scala
+and JS host programs demonstrate all three constructors, returning the oracle
+`CodecMismatch|AbiMismatch|MissingDependency`. 21/26 vectors now specified. Scala 150/150, ABI 6/6,
+JS 61/61, `run.sh` catalog PASS, process lanes 18/18.
+
 ## 2026-07-22 — Admission-time resolver check + typed capsule rejection (vector 11)
 
 Adds the first piece of §11 admission to the durable capsule on both host lanes.
