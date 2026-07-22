@@ -1,7 +1,0 @@
-axis: no-prefix-main-replay
-status: pending-codec
-needs: save()/run() + ExactArtifact init-free resume entry
-expected: Resuming a capsule invokes the resume entry directly at the capture
-  point — the computation before capture (and any `main`/module prefix) is NEVER
-  re-executed. Verified by a prefix with an observable side effect that must fire
-  exactly once (at capture), not again on each run().

@@ -397,6 +397,49 @@ function unmanagedCapture() {
   return `UnmanagedCapture(${failure.site})`
 }
 
+// Axis 14 — a savable continuation is frozen with save() and run twice in the same
+// process; the value is reusable, each run resumes at the capture point.
+function durableSaveRunSameProcess() {
+  const machine = { resume: (state, input) => Eff.pure(input * 10) }
+  const continuation = Continuation.savable(0, machine, DurableCodec.int)
+  const saved = Eff.runPure(
+    handle(continuation.save(), {
+      effect: Save.key,
+      onReturn: value => Eff.pure(value),
+      onOperation() {
+        assert.fail("durable save unexpectedly rejected")
+      }
+    })
+  )
+  const first = Eff.runPure(Restore.admitLocally(saved.run(1)))
+  const second = Eff.runPure(Restore.admitLocally(saved.run(2)))
+  return `${first},${second}`
+}
+
+// Axis 17 — the prefix (state construction) runs once at save; running the saved
+// continuation twice never re-executes it (the counter stays 1).
+function noPrefixMainReplay() {
+  let prefixRuns = 0
+  const buildState = () => {
+    prefixRuns += 1
+    return 0
+  }
+  const machine = { resume: (state, input) => Eff.pure(input * 10) }
+  const continuation = Continuation.savable(buildState(), machine, DurableCodec.int)
+  const saved = Eff.runPure(
+    handle(continuation.save(), {
+      effect: Save.key,
+      onReturn: value => Eff.pure(value),
+      onOperation() {
+        assert.fail("durable save unexpectedly rejected")
+      }
+    })
+  )
+  const first = Eff.runPure(Restore.admitLocally(saved.run(1)))
+  const second = Eff.runPure(Restore.admitLocally(saved.run(2)))
+  return `${first},${second},${prefixRuns}`
+}
+
 const semanticPrograms = new Map([
   ["01", oneShotResume],
   ["02", multiShotResume],
@@ -407,6 +450,8 @@ const semanticPrograms = new Map([
   ["07", handlerReinstall],
   ["08", returnTransform],
   ["09", nondeterminismProduct],
+  ["14", durableSaveRunSameProcess],
+  ["17", noPrefixMainReplay],
   ["18", nearestMatchingReset],
   ["19", residualForwarding],
   ["20", deepEffectStackSafety],

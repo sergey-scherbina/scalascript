@@ -1,6 +1,6 @@
 lane	adapter	status	capabilities	reason
-portable-vm	ssc-vm	ready	callbacks,effects,handler-deep,multi-shot,mutation,one-shot,residual,return-transform,stack-safe,tail-calls	standard native frontend and portable VM
-portable-asm	ssc-asm	ready	callbacks,effects,handler-deep,multi-shot,mutation,one-shot,residual,return-transform,stack-safe,tail-calls	standard native frontend and direct ASM
+portable-vm	ssc-vm	ready	callbacks,durable-save,effects,handler-deep,multi-shot,mutation,no-replay,one-shot,residual,return-transform,stack-safe,tail-calls	standard native frontend and portable VM
+portable-asm	ssc-asm	ready	callbacks,durable-save,effects,handler-deep,multi-shot,mutation,no-replay,one-shot,residual,return-transform,stack-safe,tail-calls	standard native frontend and direct ASM
 scala-explicit	scala3-control-test	ready	callbacks,capture-negative,effects,handler-deep,multi-shot,mutation,one-shot,prompt-isolation,residual,return-transform,shift-reset,stack-safe,tail-calls	compiler-independent scalascript-control_3 API
 scala-direct	scala3-control-macros-test	ready	shift-reset	bounded lexical direct-style macros over the explicit Scala control API
 jvm-generated	none	pending		typed managed JVM control lane not qualified

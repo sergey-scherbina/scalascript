@@ -12,10 +12,10 @@ id	slug	law	capabilities	phase	expectedExit	expectedStream	oracle
 11	missing-resolver-reject	§9.2,§11.1,§14.3	admission,durable-ref	pending-codec	pending	pending	MissingDependency
 12	exact-artifact-and-codec-mismatch	§8.3,§11.1,§14.3	admission,exact-artifact	pending-codec	pending	pending	CodecMismatch|AbiMismatch|MissingDependency
 13	signature-quota-negative	§11.1,§12,§14.3	admission,security	pending-codec	pending	pending	TamperedCapsule|ResourceLimit
-14	durable-save-run-same-process	§8.1,§14.3	durable-save	pending-codec	pending	pending	reusable-run
+14	durable-save-run-same-process	§8.1,§14.3	durable-save	specified	zero	stdout	10,20
 15	cross-host-resume	§8.1,§14.4	durable-save,remote-runner	pending-codec	pending	pending	portable-N-to-M
 16	concurrent-multi-shot	§8.1,§14.3	concurrency,durable-save,multi-shot	pending-codec	pending	pending	100-independent-runs
-17	no-prefix-main-replay	§8.1,§14.3	durable-save,no-replay	pending-codec	pending	pending	prefix-once
+17	no-prefix-main-replay	§8.1,§14.3	durable-save,no-replay	specified	zero	stdout	10,20,1
 18	nearest-matching-reset	§4.2,§14.1	shift-reset	specified	zero	stdout	1007
 19	residual-forwarding-nested-handlers	§3,§11.3,§14.1	effects,handler-deep,one-shot,residual,return-transform	specified	zero	stdout	57
 20	stack-safety-deep-effect-recursion	§3,§14.1	effects,handler-deep,one-shot,stack-safe	specified	zero	stdout	100000|100000|20007|20000

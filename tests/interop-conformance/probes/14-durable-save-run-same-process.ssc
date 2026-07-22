@@ -1,0 +1,33 @@
+---
+name: interop-14-durable-save-run-same-process
+axis: durable-save-run-same-process
+status: measurable-now
+---
+
+# Axis 14 — durable save / run, same process
+
+A captured continuation is frozen into a `SavedContinuation` value and run more than
+once in the same process. Each `run` resumes at the capture point with independent
+input, and the value is reusable (not one-shot) — reached through a named saved value
+with `.run(...)` rather than a bare returned function. Persisting it across a process
+or host boundary additionally needs the DurableValue codec (axis 15), still pending.
+
+```scalascript
+case class SavedContinuation[A, R](k: A => R):
+  def run(value: A): R = k(value)
+
+def save[A, R](k: A => R): SavedContinuation[A, R] = SavedContinuation(k)
+
+multi effect Suspend:
+  def point(): Int
+
+val saved: SavedContinuation[Int, Int] = save(handle {
+  val input = Suspend.point()
+  input * 10
+} {
+  case Suspend.point(k) => k
+})
+
+println(saved.run(1))
+println(saved.run(2))
+```

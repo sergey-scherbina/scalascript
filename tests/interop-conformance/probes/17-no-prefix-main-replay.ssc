@@ -1,0 +1,36 @@
+---
+name: interop-17-no-prefix-main-replay
+axis: no-prefix-main-replay
+status: measurable-now
+---
+
+# Axis 17 — no prefix / main replay
+
+Resuming a saved continuation invokes the resume entry directly at the capture point —
+the computation before the capture (the prefix) is never re-executed. Verified by a
+prefix with an observable side effect: a counter that must fire exactly once, at
+capture, not again on each `run`. The saved value is run twice, yet the counter stays 1.
+
+```scalascript
+case class SavedContinuation[A, R](k: A => R):
+  def run(value: A): R = k(value)
+
+def save[A, R](k: A => R): SavedContinuation[A, R] = SavedContinuation(k)
+
+var prefixRuns = 0
+
+multi effect Suspend:
+  def point(): Int
+
+val saved: SavedContinuation[Int, Int] = save(handle {
+  prefixRuns = prefixRuns + 1
+  val input = Suspend.point()
+  input * 10
+} {
+  case Suspend.point(k) => k
+})
+
+println(saved.run(1))
+println(saved.run(2))
+println(prefixRuns)
+```
