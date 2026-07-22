@@ -1,6 +1,0 @@
-feature/scljet-mutable-pager 2026-07-21T19:18:14Z
-agent: opus-orch
-heartbeat: 2026-07-21T19:55:01Z
-status: landed-awaiting-ci
-done-so-far: COMPLETE+locally-verified. Landed a0e7de7d9: spec (specs/scljet-mutable-pager.md); NEW pagerDeleteRebalanced merge/rebalance-on-underflow (freelist reclaim + root balance_shallower) f9167695b, verified integrity_check=ok vs sqlite 3.53.3 + freelist_count match + journal recovery + int==js (conformance scljet-balance-delete-merge); confirmed 3+-level indexes + full mutable pager already landed+DML-wired, closed stale m3-write-followups bullets; queued scljet-reclaiming-dml follow-up. Filed BUGS.md stale-jar/symlink regression (73bfd1d88), heads-up posted to rozum.
-next: awaiting exact-SHA CI green (runs queued/backlogged) then release + rm-worktree. Local prebuilt-jar needs v1/runtime/std/scljet symlink restored (65a9a7e8a stale-jar bug) to run scljet JS lane.
