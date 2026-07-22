@@ -1,6 +1,0 @@
-feature/durable-ref 2026-07-22T12:10:02Z
-agent: claude-code
-heartbeat: 2026-07-22T12:10:02Z
-status: not-started
-done-so-far:
-next: spec-first DurableRef (§9.2 inert ref) + make Restore REAL: Restore.Resolve[A] op + Restore.resolve + Restore.withResolver handler (post-admission resolution); DurableRef.codec[A] for frames. Scala reference row; JS mirror queued
