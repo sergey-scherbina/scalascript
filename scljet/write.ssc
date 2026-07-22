@@ -25,6 +25,7 @@ exports:
   - IndexEntry
   - buildTableWithIndexRaw
   - buildIndexTree
+  - compareKeyList
   - sortIndexEntries
   - IndexTreeBytes
   - buildSingleTableIndexed
@@ -1280,26 +1281,79 @@ def integerOf(value: SqliteValue): Long = value match
   case SqlInteger(x) => x
   case _ => 0L
 
+def isIntegerKey(value: SqliteValue): Boolean = value match
+  case SqlInteger(_) => true
+  case _ => false
+
+def realOfKey(value: SqliteValue): Double = value match
+  case SqlReal(x) => x
+  case _ => 0.0
+
 def textOf(value: SqliteValue): String = value match
   case SqlText(x) => x
   case _ => ""
 
+def blobOfKey(value: SqliteValue): ByteSlice = value match
+  case SqlBlob(x) => x
+  case _ => ByteSlice.empty
+
+def indexByteAt(bytes: ByteSlice, offset: Int): Int = byteSliceGet(bytes, offset) match
+  case Left(_) => 0
+  case Right(value) => value
+
+// SQLite's exact INTEGER-vs-REAL ordering. Converting the integer to Double first would
+// collapse adjacent values above 2^53; converting an out-of-range REAL to Long would saturate.
+def compareIntegerReal(integer: Long, real: Double): Int =
+  if real < -9223372036854775808.0 then 1
+  else if real >= 9223372036854775808.0 then -1
+  else
+    val truncated = real.toLong
+    if integer < truncated then -1
+    else if integer > truncated then 1
+    else
+      val integerReal = integer.toDouble
+      if real < integerReal then 1 else if real > integerReal then -1 else 0
+
+def compareNumericKeys(a: SqliteValue, b: SqliteValue): Int =
+  val ai = isIntegerKey(a)
+  val bi = isIntegerKey(b)
+  if ai && bi then
+    val x = integerOf(a)
+    val y = integerOf(b)
+    if x < y then -1 else if x > y then 1 else 0
+  else if ai then compareIntegerReal(integerOf(a), realOfKey(b))
+  else if bi then 0 - compareIntegerReal(integerOf(b), realOfKey(a))
+  else
+    val x = realOfKey(a)
+    val y = realOfKey(b)
+    if x < y then -1 else if x > y then 1 else 0
+
+def compareBlobKeys(a: ByteSlice, b: ByteSlice): Int =
+  val limit = if a.length < b.length then a.length else b.length
+  var i = 0
+  var result = 0
+  while i < limit && result == 0 do
+    val x = indexByteAt(a, i)
+    val y = indexByteAt(b, i)
+    if x < y then result = -1 else if x > y then result = 1
+    i = i + 1
+  if result != 0 then result else if a.length < b.length then -1 else if a.length > b.length then 1 else 0
+
 /** Compare two index-key values: by storage class first, then numeric value /
- *  BINARY text order (codepoint = byte order for ASCII/BMP). Single-level matches
- *  only (via `integerOf`/`textOf`) — a nested `match` here miscompiles on the
- *  interpreter's JIT (BUGS.md interp-jit-nested-match-duplicate-var). */
+ *  BINARY text/blob order. Numeric INTEGER/REAL comparisons stay exact above
+ *  2^53. Single-level matches only (via payload helpers) — a nested `match` here
+ *  miscompiles on the interpreter's JIT
+ *  (BUGS.md interp-jit-nested-match-duplicate-var). */
 def compareKeys(a: SqliteValue, b: SqliteValue): Int =
   val ca = valueClass(a)
   val cb = valueClass(b)
   if ca != cb then (if ca < cb then -1 else 1)
-  else if ca == 1 then
-    val x = integerOf(a)
-    val y = integerOf(b)
-    if x < y then -1 else if x > y then 1 else 0
+  else if ca == 1 then compareNumericKeys(a, b)
   else if ca == 2 then
     val x = textOf(a)
     val y = textOf(b)
     if x < y then -1 else if x > y then 1 else 0
+  else if ca == 3 then compareBlobKeys(blobOfKey(a), blobOfKey(b))
   else 0
 
 /** A leaf B-tree page with an explicit page kind (13 = table leaf, 10 = index

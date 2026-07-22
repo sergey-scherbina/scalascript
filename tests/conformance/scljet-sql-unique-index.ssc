@@ -1,0 +1,114 @@
+---
+name: scljet-sql-unique-index
+description: SclJet CREATE UNIQUE INDEX and CREATE/INSERT/UPDATE enforcement match SQLite, including composite keys, NULL, numeric and BLOB equality
+backends: [int, js]
+---
+
+# SclJet SQL unique indexes
+
+`CREATE UNIQUE INDEX` validates existing rows before changing the image. Later INSERT and UPDATE
+validate the complete proposed row set before rebuilding the table and its indexes. Composite keys
+name every constrained column; a key containing NULL never conflicts; numeric-equivalent INTEGER
+and REAL values and byte-equal BLOBs do conflict. Ordinary non-unique indexes still accept duplicate
+keys. The same cases are cross-checked against sqlite-jdbc in the JVM differential suite.
+
+[ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, renderRows, executeMutation, executeMutationCounted](std/scljet/sql.ssc)
+
+```scalascript
+def apply(db: ByteSlice, sql: String, label: String): ByteSlice =
+  executeMutation(db, sql) match
+    case Left(message) =>
+      println(label + ":ERR:" + message)
+      db
+    case Right(next) =>
+      println(label + ":OK")
+      next
+
+def applyCounted(db: ByteSlice, sql: String, label: String): ByteSlice =
+  executeMutationCounted(db, sql) match
+    case Left(message) =>
+      println(label + ":ERR:" + message)
+      db
+    case Right(result) =>
+      println(label + ":changes=" + result.changes.toString)
+      result.image
+
+def show(db: ByteSlice, sql: String, label: String): Unit =
+  queryImage(db, sql) match
+    case Left(message) => println(label + ":ERR:" + message)
+    case Right(rows) => println(label + ":" + renderRows(rows))
+
+def oneByteBlob(value: Int): SqliteValue =
+  ByteSlice.fromList(List(value)) match
+    case Left(_) => SqlNull
+    case Right(bytes) => SqlBlob(bytes)
+
+buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER, a INTEGER, b TEXT)",
+  List(List(SqlInteger(1L), SqlInteger(10L), SqlText("x")),
+       List(SqlInteger(2L), SqlInteger(20L), SqlText("y")))) match
+  case Left(error) => println("main-build-error:" + error.message)
+  case Right(db0) =>
+    val db1 = applyCounted(db0, "CREATE UNIQUE INDEX ux_ab ON t(a,b)", "create")
+    val db2 = apply(db1, "INSERT INTO t VALUES (3,10,'x')", "insert-dup")
+    show(db2, "SELECT id,a,b FROM t ORDER BY id", "rows-after-insert")
+    val db3 = apply(db2, "UPDATE t SET a=10,b='x' WHERE id=2", "update-dup")
+    show(db3, "SELECT id,a,b FROM t ORDER BY id", "rows-after-update")
+    val db4 = apply(db3, "INSERT INTO t VALUES (3,10,'z')", "insert-ok")
+    show(db4, "SELECT id,a,b FROM t ORDER BY id", "rows-final")
+
+buildTableDatabase(512, 1, 1, "dups", "CREATE TABLE dups(id INTEGER, a INTEGER, b TEXT)",
+  List(List(SqlInteger(1L), SqlInteger(7L), SqlText("same")),
+       List(SqlInteger(2L), SqlInteger(7L), SqlText("same")))) match
+  case Left(error) => println("dups-build-error:" + error.message)
+  case Right(db0) =>
+    apply(db0, "CREATE UNIQUE INDEX ux_dups ON dups(a,b)", "create-existing-dup")
+
+buildTableDatabase(512, 1, 1, "nullable", "CREATE TABLE nullable(id INTEGER, a INTEGER, b TEXT)",
+  List(List(SqlInteger(1L), SqlNull, SqlText("x")),
+       List(SqlInteger(2L), SqlNull, SqlText("x")),
+       List(SqlInteger(3L), SqlInteger(1L), SqlNull),
+       List(SqlInteger(4L), SqlInteger(1L), SqlNull))) match
+  case Left(error) => println("null-build-error:" + error.message)
+  case Right(db0) =>
+    val db1 = apply(db0, "CREATE UNIQUE INDEX ux_null ON nullable(a,b)", "null-create")
+    val db2 = apply(db1, "INSERT INTO nullable (id,b) VALUES (5,'x')", "null-insert-a")
+    val db3 = apply(db2, "INSERT INTO nullable (id,a) VALUES (6,1)", "null-insert-b")
+    show(db3, "SELECT COUNT(*) FROM nullable", "null-count")
+
+buildTableDatabase(512, 1, 1, "nums", "CREATE TABLE nums(id INTEGER, a REAL)",
+  List(List(SqlInteger(1L), SqlInteger(1L)),
+       List(SqlInteger(2L), SqlReal(1.0)))) match
+  case Left(error) => println("numeric-build-error:" + error.message)
+  case Right(db0) =>
+    apply(db0, "CREATE UNIQUE INDEX ux_num ON nums(a)", "numeric-dup")
+
+buildTableDatabase(512, 1, 1, "blobs", "CREATE TABLE blobs(id INTEGER, v BLOB)",
+  List(List(SqlInteger(1L), oneByteBlob(1)),
+       List(SqlInteger(2L), oneByteBlob(1)))) match
+  case Left(error) => println("blob-build-error:" + error.message)
+  case Right(db0) =>
+    apply(db0, "CREATE UNIQUE INDEX ux_blob ON blobs(v)", "blob-dup")
+
+// Valid but deliberately unsorted REAL/BLOB keys exercise the physical comparator, not only
+// duplicate rejection. The >2^53 integer remains distinct from the adjacent representable REAL.
+buildTableDatabase(512, 1, 1, "mixed", "CREATE TABLE mixed(id INTEGER, n, v BLOB)",
+  List(List(SqlInteger(1L), SqlReal(3.5), oneByteBlob(3)),
+       List(SqlInteger(2L), SqlReal(-2.25), oneByteBlob(255)),
+       List(SqlInteger(3L), SqlInteger(9007199254740993L), oneByteBlob(0)),
+       List(SqlInteger(4L), SqlReal(9007199254740992.0), oneByteBlob(2)))) match
+  case Left(error) => println("mixed-build-error:" + error.message)
+  case Right(db0) =>
+    val db1 = apply(db0, "CREATE UNIQUE INDEX ux_mixed_n ON mixed(n)", "mixed-number-create")
+    val db2 = apply(db1, "CREATE UNIQUE INDEX ux_mixed_v ON mixed(v)", "mixed-blob-create")
+    show(db2, "SELECT COUNT(*) FROM mixed", "mixed-count")
+
+buildTableDatabase(512, 1, 1, "plain", "CREATE TABLE plain(id INTEGER, a INTEGER)",
+  List(List(SqlInteger(1L), SqlInteger(9L)),
+       List(SqlInteger(2L), SqlInteger(9L)))) match
+  case Left(error) => println("plain-build-error:" + error.message)
+  case Right(db0) =>
+    val db1 = apply(db0, "CREATE INDEX ix_plain ON plain(a)", "plain-create")
+    val db2 = apply(db1, "INSERT INTO plain VALUES (3,9)", "plain-insert")
+    show(db2, "SELECT COUNT(*) FROM plain", "plain-count")
+```

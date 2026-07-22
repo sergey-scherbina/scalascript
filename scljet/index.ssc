@@ -145,6 +145,7 @@ exports:
   - IndexEntry
   - buildTableWithIndexRaw
   - buildIndexTree
+  - compareKeyList
   - sortIndexEntries
   - IndexTreeBytes
   - buildSingleTableIndexed
@@ -407,7 +408,7 @@ interfaces and prove compatibility through differential and crash testing.
 [SchemaObjectKind, SchemaTable, SchemaIndex, SchemaView, SchemaTrigger, SchemaStorageKind, SchemaRowidTable, SchemaWithoutRowidTable, SchemaIndexBtree, SchemaNoBtree, SchemaEntry, ReadonlySchema, ReadonlyDatabase](schema.ssc)
 
 [ReadonlyCursorStep, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly](readonly.ssc)
-[emptyDatabase, encodeRecord, buildSingleTableDatabase, buildTableDatabase, buildOverflowTableDatabase, buildOverflowBtreeDatabase, buildDeepTableDatabase, buildDeepOverflowTableDatabase, KeyedRow, buildKeyedDatabase, KeyedRawRow, buildKeyedRawDatabase, buildFromRawSchema, TableSpec, buildMultiTableDatabase, RawTable, buildMultiTableRaw, buildTableWithIndexDatabase, IndexEntry, buildTableWithIndexRaw, buildIndexTree, sortIndexEntries, IndexTreeBytes, buildSingleTableIndexed, KeyedRawRow, LeafCell, readLeafCells, leafInsertCell, leafDeleteCell, leafUpdateCell, rebuildLeafPage, InteriorNode, readInteriorNode, pagerInsertBalanced, pagerDeleteBalanced, pagerDeleteRebalanced, descendToLeaf](write.ssc)
+[emptyDatabase, encodeRecord, buildSingleTableDatabase, buildTableDatabase, buildOverflowTableDatabase, buildOverflowBtreeDatabase, buildDeepTableDatabase, buildDeepOverflowTableDatabase, KeyedRow, buildKeyedDatabase, KeyedRawRow, buildKeyedRawDatabase, buildFromRawSchema, TableSpec, buildMultiTableDatabase, RawTable, buildMultiTableRaw, buildTableWithIndexDatabase, IndexEntry, buildTableWithIndexRaw, buildIndexTree, compareKeyList, sortIndexEntries, IndexTreeBytes, buildSingleTableIndexed, KeyedRawRow, LeafCell, readLeafCells, leafInsertCell, leafDeleteCell, leafUpdateCell, rebuildLeafPage, InteriorNode, readInteriorNode, pagerInsertBalanced, pagerDeleteBalanced, pagerDeleteRebalanced, descendToLeaf](write.ssc)
 [rollbackJournalChecksum, JournalRecovery, applyRollbackJournal, JournalPage, writeRollbackJournal, JournaledWrite, writePagesJournaled, overwritePage, WriteTransaction, beginTransaction, stagePage, commitTransaction, rollbackTransaction, MutablePager, PagerCommit, openMutablePager, mutablePageCount, mutableGet, mutablePut, mutableAllocate, mutableCommit, mutableRollback](journal.ssc)
 [WalChecksum, WalWrite, walChecksumWords, writeWal, markWalMode, WalFrame, WalIndex, readWal, walPage, walReadPage, checkpointWal](wal.ssc)
 

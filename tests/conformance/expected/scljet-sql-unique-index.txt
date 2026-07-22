@@ -1,0 +1,24 @@
+create:changes=0
+insert-dup:ERR:UNIQUE constraint failed: t.a, t.b
+rows-after-insert:1|10|x
+2|20|y
+update-dup:ERR:UNIQUE constraint failed: t.a, t.b
+rows-after-update:1|10|x
+2|20|y
+insert-ok:OK
+rows-final:1|10|x
+2|20|y
+3|10|z
+create-existing-dup:ERR:UNIQUE constraint failed: dups.a, dups.b
+null-create:OK
+null-insert-a:OK
+null-insert-b:OK
+null-count:6
+numeric-dup:ERR:UNIQUE constraint failed: nums.a
+blob-dup:ERR:UNIQUE constraint failed: blobs.v
+mixed-number-create:OK
+mixed-blob-create:OK
+mixed-count:4
+plain-create:OK
+plain-insert:OK
+plain-count:3
