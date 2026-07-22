@@ -249,8 +249,12 @@ def isTok(t, k, v) = if fst(t) == k then snd(t) == v else false
 def skipSemisF(ts) = if isTok(hd(ts), 2, 52) then skipSemisF(tl(ts)) else ts
 // env = the innermost binding at the HEAD, so a name's position IS its (local i) index. Params are
 // pushed left-to-right, which reproduces the reference's reverse indexing (`def g(a,b)` -> a=1, b=0).
-def lookup(nm, env) = lookupAt(nm, env, 0)
-def lookupAt(nm, env, i) = env match { case Nil => 0 - 1 case h :: t => if h == nm then i else lookupAt(nm, t, i + 1) }
+// F5b: a param declared Int/String/BigInt is stored as `name:Type` (parseParam). Resolve `nm` against
+// the bare name AND the three embedded forms via STRUCTURAL `==` (total on ANY value — some env slots
+// are non-string placeholders, and `.length`/split would be strict on them). Forms are built once.
+def lookup(nm, env) = lookupAt(nm, nm ++ ":Int", nm ++ ":String", nm ++ ":BigInt", env, 0)
+def lookupAt(nm, ni, ns, nb, env, i) = env match { case Nil => 0 - 1 case h :: t => if matchN(h, nm, ni, ns, nb) then i else lookupAt(nm, ni, ns, nb, t, i + 1) }
+def matchN(h, nm, ni, ns, nb) = if h == nm then true else (if h == ni then true else (if h == ns then true else h == nb))
 def dlen(env) = env match { case Nil => 0 case h :: t => dlen(t) + 1 }
 
 // -- token text (for Mirror type names) ---------------------------------------------------------
@@ -321,13 +325,15 @@ def emitBin(k, l, r, dq) = if k == 57 then "(ctor Pair " ++ l ++ " " ++ r ++ ")"
 // operand string `(local N)` back to its slot type — no node rework, no parallel type-env thread.
 // Everything else (compound exprs, untyped params, mutable cells) stays "?" -> the prefix classifier.
 def envColonAt(s, i, n) = if atEnd(i, n) then 0 - 1 else (if s.charAt(i) == 58 then i else envColonAt(s, i + 1, n))
-def envNameOf(h) = envNameF(h, envColonAt(h, 0, h.length))
-def envNameF(h, c) = if c < 0 then h else h.substring(0, c)
+// Type READ for operandTag: only ever called on a binary-op operand `(local N)` = a value binding (a
+// string, possibly `name:Type`). A non-string placeholder slot is never a value operand, but guard it
+// anyway (`.charAt`/split are strict on strings) — a non-string slot has no embedded type -> "?".
+def envTy(h) = h match { case Nil => "?" case Cons(a, b) => "?" case Pair(a, b) => "?" case Some(a) => "?" case None => "?" case Left(a) => "?" case Right(a) => "?" case _ => envTyOf(h) }
 def envTyOf(h) = envTyF(h, envColonAt(h, 0, h.length))
 def envTyF(h, c) = if c < 0 then "?" else h.substring(c + 1, h.length)
 def nthEnv(env, n) = env match { case Nil => "" case h :: t => if n <= 0 then h else nthEnv(t, n - 1) }
 def isBareLocal(s) = if startsW(s, "(local ") then (if s.length > 7 then isDig(s.charAt(7)) else false) else false
-def localTyOf(s, env) = if isBareLocal(s) then envTyOf(nthEnv(env, scanNumV(s, 7, s.length, 0))) else "?"
+def localTyOf(s, env) = if isBareLocal(s) then envTy(nthEnv(env, scanNumV(s, 7, s.length, 0))) else "?"
 // tag ∈ { I=Int, F=Float, S=String, B=BigInt, ? }. A typed local wins; else the erased-IR prefix. The
 // prefixes are mutually exclusive, so a single tag reproduces the isXxxCode classification EXACTLY.
 def tyToTag(ty) = if ty == "Int" then "I" else (if ty == "String" then "S" else (if ty == "BigInt" then "B" else "?"))
@@ -1254,7 +1260,16 @@ def nestA4(nm, arity, armBodyStr, restTs, menv, cx) = parseGenArms(restTs, menv,
 // `def name(p1: T, p2: T): T = body`. Types are ERASED by the reference lowerer (measured: `def
 // g(a: String, b: String)` -> `(lam 2 ...)`), so skipping them is byte-faithful.
 def parseParams(ts, env) = if isTok(hd(ts), 2, 22) then (env, tl(ts)) else parseParam(ts, env)
-def parseParam(ts, env) = parseParamSkip(tl(ts), snd(hd(ts)) :: env)
+// F5b Stage 1b: capture a SIMPLE declared param type (`p: Int`/`String`/`BigInt`, immediately closed by
+// `,` or `)`) by embedding it in the env name as `name:Type` (localTyOf reads it back). Generic/tuple/
+// arrow/vararg/defaulted types don't match knownTyName+paramEndTok so they push the bare name (stays "?").
+// Type SKIPPING is unchanged (parseParamSkip runs on the same tl(ts)); only the pushed name gains a type.
+def parseParam(ts, env) = parseParamSkip(tl(ts), pushParam(snd(hd(ts)), tl(ts)) :: env)
+def pushParam(nm, rest) = if isColonTok(hd(rest)) then pushParamTy(nm, tl(rest)) else nm
+def pushParamTy(nm, tts) = if simpleKnownTy(tts) then nm ++ ":" ++ snd(hd(tts)) else nm
+def simpleKnownTy(tts) = if fst(hd(tts)) == 3 then (if knownTyName(snd(hd(tts))) then paramEndTok(hd(tl(tts))) else false) else false
+def paramEndTok(t) = if isTok(t, 2, 27) then true else isTok(t, 2, 22)
+def knownTyName(tn) = if tn == "Int" then true else (if tn == "String" then true else tn == "BigInt")
 // Type skipping must track PAREN **and BRACKET** depth: a tuple type `p: (Int, Int)` contains a `,`
 // and a `)`, and a generic type `m: Map[String, Int]` contains a `,` -- none of which end the
 // parameter list. Both were real bugs the oracle caught: `def g(p: (Int, Int))` came out `(lam 2)`
