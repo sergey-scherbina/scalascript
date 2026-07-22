@@ -100,6 +100,9 @@ class ExamplesSmokeTest extends AnyFunSuite:
     "lang-split.ssc",
     "content.ssc", "signals-demo.ssc", "storage-demo.ssc",
     "graph-storage-interpreter.ssc", "dataset-parallel-sum.ssc", "dataset-stats.ssc",
+    // durable-save-run exercises the same-process save/run idiom: a multi-shot effect's
+    // captured continuation is run several times while the prefix executes exactly once.
+    "durable-save-run.ssc",
     // typed-data exercises `foreach(println)` end-to-end through Normalize (the bare
     // `println` rewrite that used to break with "Not callable: ()").
     "typed-data.ssc"

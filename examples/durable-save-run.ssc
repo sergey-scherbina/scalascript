@@ -1,0 +1,51 @@
+#!/usr/bin/env ssc
+---
+name: durable-save-run
+description: The reusable-continuation save/run idiom — capture a continuation once, run it many times; the prefix executes exactly once (no replay)
+---
+
+# `save` / `run` — capture a continuation once, run it many times
+
+A `multi effect` operation hands its handler a **reusable continuation** (`resume`):
+calling it re-enters the computation *at the capture point*, so running it again never
+re-executes the **prefix** (the code before the capture). This is the same-process
+semantic core of the `save()` / `run()` idiom — capture a continuation once, then run
+it with independent inputs, while the prefix fires exactly once. (Persisting the
+continuation into a transportable capsule — the *durable* part — is the host-library +
+codec layer in `v2/host/scala/control`; this example shows the in-process semantics the
+capsule generalises.)
+
+```scalascript
+var prefixRuns = 0
+
+// A one-method effect whose captured continuation we treat as a saved continuation.
+multi effect Suspend:
+  def point(): Int
+
+// `capture` runs the prefix once, reaches the capture point, and hands the
+// continuation back as a first-class value — the reusable "saved continuation".
+def capture(): Int => Int = handle {
+  prefixRuns = prefixRuns + 1     // prefix — must run exactly once
+  val input = Suspend.point()     // capture point
+  input * 10                      // suffix — what each admitted run computes
+} {
+  case Suspend.point(saved) => saved
+}
+
+val saved = capture()
+
+// Run the saved continuation several times with independent inputs. Each run begins
+// at the capture point; the prefix is never replayed.
+println("run(1)  = " + saved(1))                        // run(1)  = 10
+println("run(5)  = " + saved(5))                        // run(5)  = 50
+println("run(42) = " + saved(42))                       // run(42) = 420
+println("prefix executed " + prefixRuns + " time(s)")   // prefix executed 1 time(s)
+```
+
+This is the same idiom as the host-library durable surface
+(`Continuation.savable(...).save()` then `saved.run(v)` — see
+`v2/host/scala/control` and `specs/durable-continuation-save-run.md`): the reusable
+continuation is the saved value, and the `prefixRuns` counter proves the prefix is not
+re-executed on each run. Multi-prompt `shift`/`reset` examples additionally need the
+delimited-control `.ssc` surface (`freshPrompt`/`reset`/`shift`), which is a separate
+slice.
