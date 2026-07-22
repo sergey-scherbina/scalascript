@@ -1,6 +1,6 @@
 feature/scljet-unique-index-not-supported 2026-07-22T11:53:53Z
 agent: codex
-heartbeat: 2026-07-22T11:54:26Z
+heartbeat: 2026-07-22T11:59:17Z
 status: in-progress
-done-so-far: claim visible on origin/main; isolated worktree created at scalascript-wt-scljet-unique-index-not-supported; SPRINT U1-U4 is the accepted implementation plan
-next: read BUGS/spec context and commit specs/scljet-unique-index.md before implementation
+done-so-far: spec + BUGS ledger landed on origin/main at 254043c57; local SQLite oracle probes pinned CREATE/INSERT/UPDATE errors, composite names, distinct NULL, numeric equivalence, and BLOB equality
+next: add and run the real-harness red regression, then implement parser/metadata/enforcement against the committed spec
