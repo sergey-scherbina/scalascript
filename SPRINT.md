@@ -4883,10 +4883,17 @@ dynamic saved-capsule runner.
   pair/either/list/imap over a deterministic, bounded, self-delimiting big-endian format;
   `snapshot = decode∘encode`; `DurableBytes` immutable; exact/bounded decode with typed
   `DurableDecodeError`. Spec `specs/durable-frame-codec.md`; control suite 124/124 + ABI gate.
-  **REMAINING (Part 2+):** the capsule ENVELOPE (`frameDigest` domain-separated SHA-256, versioned
-  header, type fingerprints, `Portable`/`ExactArtifact` payload, signature); `DurableRef` (§9.2);
-  canonical-key maps + nominal versioned schema; graph codecs (§9.3); JS-lane mirror of this exact
-  format. The runners below consume the capsule.
+  **PART 2 LANDED 2026-07-22 (`eed2fc010`, claim `durable-capsule-envelope`):** the capsule ENVELOPE
+  + resume points — `DurableCapsule` (versioned header + domain-separated SHA-256 `frameDigest`,
+  encoded via Part 1 combinators; inert `decode` per §9.2) and `ResumePoint`
+  (`define`/`savable`/`freeze`/`restore`). `freeze→encode→decode→restore→run` round-trips; `restore`
+  admits — rejecting stale version / cross-point id / tampered frame with typed `CapsuleRejected` —
+  then rebinds to the `ExactArtifact`-bound machine (never travels as bytes) and returns a reusable
+  `SavedContinuation`. Spec `specs/durable-capsule-envelope.md`; control suite 132/132 + ABI gate.
+  **REMAINING (Part 3+):** the `Portable` CoreIR resume-program payload; signature/audience/tenant +
+  capability policy; `DurableRef` (§9.2) resolution; a dynamic id→resume-point registry;
+  canonical-key maps + nominal versioned schema; graph codecs (§9.3); `RunOutcomeUnknown`; JS-lane
+  mirror of the codec+envelope. The runners below consume the capsule.
   `Portable(resumeCodeDigest, closed Program((frame,input)=>Eff))` or
   `ExactArtifact(artifactDigest,target,resumePointId)`, both with `FrozenFrame`, A/R codec schemas,
   exact resolver/plugin implementation profile, lifecycle, bounded policy,

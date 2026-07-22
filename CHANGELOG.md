@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-07-22 — Durable capsule envelope + resume points (save-run Part 2)
+
+Wraps an encoded frame in a versioned, digest-verified transport envelope bound to a named
+resume point (`specs/durable-capsule-envelope.md`). `DurableCapsule` carries `formatVersion` +
+`resumePointId` + `frame` + a domain-separated SHA-256 `frameDigest`, encoded with the Part 1
+combinators; `DurableCapsule.decode` is inert (§9.2 — parses without verifying or running).
+`ResumePoint.define(id, machine, codec)` gives `savable`/`freeze`/`restore`: `freeze(state)`
+produces a capsule, and `restore` admits it — rejecting a stale version, a cross-point id, or a
+tampered frame with typed `CapsuleRejected` (proven non-vacuously) — then rebinds to the
+`ExactArtifact`-bound machine (which never travels as bytes) and returns a reusable
+`SavedContinuation`: multi-shot, per-run independent frame, no prefix replay. `MessageDigest` stays
+internal; ABI gate green; control suite 132/132. The `Portable` CoreIR payload, signature/tenant
+layer, `DurableRef`, a dynamic resume-point registry, and the JS-lane mirror are follow-on
+(`feat eed2fc010`).
+
 ## 2026-07-22 — F4 flip attempted and REVERTED (F not yet a safe default front)
 
 Flipped the self-hosting subset compiler `F` (`specs/v2.2-p6.5-fsub.ssc`) to be the DEFAULT native front
