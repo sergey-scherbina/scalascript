@@ -499,10 +499,26 @@ object JvmByteGen:
   private def isLongCmp(op: String): Boolean =
     op == "<" || op == "<=" || op == ">" || op == ">=" || op == "==" || op == "!="
 
+  // F5c typed-IR bytecode: recognize BOTH the untyped `(prim __arith__ "op" a b)` form AND F's typed
+  // integer prims (`i.add`/`i.sub`/… — emitted by F5b for Int-typed operands) as a single long-arith
+  // node (opSymbol, a, b). Without this, typed IR (`i.add`) falls off the unboxed-Long fast path onto
+  // the generic boxed path — measured ~1.9× slower on the bytecode lane. The typed prims are still
+  // guarded by the same runtime `INSTANCEOF IntV` check as `__arith__`, so mixed-Int/Float/Op stays safe.
+  private def iArithSym(p: String): String = p match
+    case "i.add" => "+"; case "i.sub" => "-"; case "i.mul" => "*"; case "i.div" => "/"; case "i.mod" => "%"
+    case "i.lt" => "<"; case "i.le" => "<="; case "i.gt" => ">"; case "i.ge" => ">="; case "i.eq" => "=="
+    case _ => ""
+  private object ArithB:
+    def unapply(t: Term): Option[(String, Term, Term)] = t match
+      case Term.Prim("__arith__", List(Term.Lit(Const.CStr(op)), a, b)) => Some((op, a, b))
+      case Term.Prim(p, List(a, b)) =>
+        val s = iArithSym(p); if s.isEmpty then None else Some((s, a, b))
+      case _ => None
+
   private def canLong(t: Term): Boolean = t match
     case Term.Lit(Const.CInt(_)) => true
     case Term.Prim("lcell.get", List(Term.Local(_))) => true
-    case Term.Prim("__arith__", List(Term.Lit(Const.CStr(op)), a, b))
+    case ArithB(op, a, b)
         if op.length == 1 && "+-*/%".contains(op) =>
       canLong(a) && canLong(b)
     case _ => false
@@ -516,7 +532,7 @@ object JvmByteGen:
         loadLocalValue(i, ctx)
         mv.visitTypeInsn(Opcodes.CHECKCAST, LCELL)
         mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, LCELL, "v", "()J", false)
-      case Term.Prim("__arith__", List(Term.Lit(Const.CStr(op)), a, b))
+      case ArithB(op, a, b)
           if op.length == 1 && "+-*/%".contains(op) && canLong(a) && canLong(b) =>
         genLong(a, ctx)
         genLong(b, ctx)
@@ -542,7 +558,7 @@ object JvmByteGen:
       true
 
   private def genBoolBranchFalse(t: Term, ctx: Ctx, falseLabel: Label): Boolean = t match
-    case Term.Prim("__arith__", List(Term.Lit(Const.CStr(op)), a, b)) =>
+    case ArithB(op, a, b) =>
       // Long attempt emits nothing when inapplicable (guard short-circuits before emit),
       // so `||` safely falls through to the Double (dcell) comparison path.
       genLongCmpFalse(op, a, b, ctx, falseLabel) || genDoubleCmpFalse(op, a, b, ctx, falseLabel)
@@ -637,7 +653,7 @@ object JvmByteGen:
   private def canParamLong(t: Term, selfName: String, arity: Int): Boolean = t match
     case Term.Lit(Const.CInt(_)) => true
     case Term.Local(i) if i >= 0 && i < arity => true
-    case Term.Prim("__arith__", List(Term.Lit(Const.CStr(op)), a, b))
+    case ArithB(op, a, b)
         if op.length == 1 && "+-*/%".contains(op) =>
       canParamLong(a, selfName, arity) && canParamLong(b, selfName, arity)
     case Term.If(c, a, b) =>
@@ -649,7 +665,7 @@ object JvmByteGen:
     case _ => false
 
   private def canParamLongCond(t: Term, selfName: String, arity: Int): Boolean = t match
-    case Term.Prim("__arith__", List(Term.Lit(Const.CStr(op)), a, b)) if isLongCmp(op) =>
+    case ArithB(op, a, b) if isLongCmp(op) =>
       canParamLong(a, selfName, arity) && canParamLong(b, selfName, arity)
     case _ => false
 
@@ -675,7 +691,7 @@ object JvmByteGen:
         mv.visitLdcInsn(n)
       case Term.Local(i) if i >= 0 && i < arity =>
         mv.visitVarInsn(Opcodes.LLOAD, longParamSlot(i, arity))
-      case Term.Prim("__arith__", List(Term.Lit(Const.CStr(op)), a, b))
+      case ArithB(op, a, b)
           if op.length == 1 && "+-*/%".contains(op) =>
         emitParamLong(a, mv, selfName, arity, longName, startL, tail = false)
         emitParamLong(b, mv, selfName, arity, longName, startL, tail = false)
@@ -717,7 +733,7 @@ object JvmByteGen:
       falseLabel: Label
   ): Unit =
     t match
-      case Term.Prim("__arith__", List(Term.Lit(Const.CStr(op)), a, b)) if isLongCmp(op) =>
+      case ArithB(op, a, b) if isLongCmp(op) =>
         emitParamLong(a, mv, selfName, arity, longName, startL, tail = false)
         emitParamLong(b, mv, selfName, arity, longName, startL, tail = false)
         mv.visitInsn(Opcodes.LCMP)
@@ -1049,7 +1065,7 @@ object JvmByteGen:
         gen(r, ctx)
         mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "dcellAccum",
           s"(L$VAL;Ljava/lang/String;L$VAL;)L$VAL;", false)
-      case t @ Term.Prim("__arith__", Term.Lit(Const.CStr(aop)) :: a :: b :: Nil) =>
+      case t @ ArithB(aop, a, b) =>
         if genLongCmpValue(aop, a, b, ctx) then ()
         else if canLong(t) then
           genLong(t, ctx)
