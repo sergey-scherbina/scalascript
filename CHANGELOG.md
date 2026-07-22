@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-07-22 — v2-f5b Stage 1b slice 1b-1: F types bare Int/String/BigInt params
+
+The self-hosting front `F` (`specs/v2.2-p6.5-fsub.ssc`) now emits typed Core IR for arithmetic on
+**bare declared-typed parameters**, not just literal/structural operands (Stage 1-A). `parseParam`
+embeds a simple `Int`/`String`/`BigInt` param annotation into the env name as `name:Type`;
+`climbStep`→`operandTag` recovers a bare `(local N)` operand's type from `env[N]` and routes to the
+typed prim — `def add(a: Int, b: Int) = a + b` now compiles to `(prim i.add (local 1) (local 0))`
+instead of the runtime-dispatch `(prim __arith__ …)`; String params route to `sconcat`/`seq`. Two
+commits: a byte-identical tag-routing refactor (`c6d8ade0a`) then the param-typing feat (`d28f20c82`).
+`lookup` resolves names via structural `==` against the bare + embedded forms (`matchN`) — kept total
+because some env slots are non-string placeholders on which `.length` (an effect-sensitive `__method__`)
+crashed F. Fixpoint-safe by construction (F annotates zero own params). Gates: semantic 248/248, X1
+self-compile fixpoint stage1==stage2 byte-identical, corpus byte-identity 225→207 (−18 typed-by-design,
+0 crashes). Design + remaining plan (slices 1b-2 val/return-type registry → closes `fib` for perf,
+1b-3 typed `.length`/`.charAt`): `specs/v2-f5b-typed-ir-design.md §4.1`. δ-arm deletion still gated on
+the ssc0 tower emitting typed IR too (unchanged); FastCode/SelfRec removal remains perf-gated on 1b-2.
+
 ## 2026-07-22 — Durable frame codec mirrored on the JS lane, verified byte-identical
 
 The canonical frame codec now exists on the JavaScript reference lane

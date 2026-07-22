@@ -268,22 +268,32 @@ KEY design facts established this lane (see also project memory):
       gate exists yet; corpus.sh (byte-id-to-oracle, now 225) + the frozen semantic goldens (immovable) are
       the working baselines. A per-program `F_typed(P)` snapshot would only help detect *unintended* IR
       churn between stages — build it when Stage 2 starts if useful. OUTPUT goldens never move (unchanged).
-- [ ] **S1-5 — HAND-OFF: param/binding type thread (approach B) — the real coverage+deletion lever.** This
-      is the genuine design wall this stage hit. Approach A (S1-2/3) types only what the erased operand IR
-      PREFIX reveals; a bare param `a:Int` erases to `(local N)` (no type), so `a+b` and `s.length` (→
-      __method__ on a var) stay dynamic — which is why NO δ arm is deletable yet (see S1-6). To type them, F
-      must carry TYPES through its expression pipeline:
-        • Capture declared param types in `parseParam`/`parseParamSkip` (they are currently SKIPPED, :1148/
-          :1160) — and def return types (`emitDefU` skips `: T` via skipToEq), val types.
-        • Thread a type-env parallel to `env` (the de-Bruijn NAME list). env is threaded through ~40 parse
-          fns and pushed as `nm :: env` / `"" :: env` everywhere; a parallel `tenv` (or env entries as
-          `(name,type)` pairs — touches lookup/lookupAt/pushU/dlen/calleeOf) is the invasive part.
-        • Give a variable reference node a type so `typeOfNode(node,tenv,cx)` returns it; climbStep passes
-          the two operand TYPES (not just erased strings) to emitBin. Then `.length`/`.charAt` on a
-          String-typed var can lower to slen/scodeAt (they currently __method__ for non-literal receivers).
-      RISK: fixpoint — F self-compiles, so any bug in the tenv thread breaks stage1==stage2. Land in
-      slices, gate EACH on semantic 246/246 + typed `--self`. Est. multi-session (design §4: whole Stage-1
-      is 3-4 sessions; approach B is most of it).
+- [x] **S1-5 slice 1b-1 DONE (`c6d8ade0a` refactor + `d28f20c82` feat, 2026-07-22). Bare Int/String/BigInt
+      params now type.** Chosen mechanism (design §4.1): embed the declared type in the env NAME as
+      `name:Type` (NOT a parallel `tenv` thread — that was the 280-site invasive option; NOT env-as-pairs).
+      Only 2 edit sites: `parseParam` embeds the type; `lookup` resolves via `matchN` (bare name + the 3
+      constructed embedded forms, STRUCTURAL `==`). `climbStep`→`operandTag`→`localTyOf` recovers the type of
+      a bare `(local N)` operand from `env[N]` (no node rework, no thread). Refactor commit is byte-identical
+      (tag-keyed `emitBinT`/`emitPlusT`/`emitEqTt`/… reproduce the classifier routing); feat commit types
+      `def add(a: Int, b: Int) = a+b` → `i.add`, String→`sconcat`/`seq`. **Fixpoint-safe by construction** (F
+      annotates ZERO own params → self-output byte-identical). GATES: semantic 248/248, X1 fixpoint
+      stage1==stage2 byte-identical (394,558 B), corpus MATCH 225→207 (−18 typed-by-design), EMPTY 0.
+      GOTCHAS BANKED: (1) type names are UPPERCASE = token kind **3** (not 1) — `simpleKnownTy` checks kind 3.
+      (2) `lookupAt` MUST stay total (structural `==`) — some env slots are NON-string placeholders and
+      `.length` (compiled to `__method__`, effect-sensitive) crashed F on 3 corpus programs; `matchN`
+      sidesteps it. (3) `__unary__` is NOT safely deletable — JS/Rust/Swift backends still handle it
+      (multi-backend Core IR contract), see design §4.1.
+- [ ] **S1-5 slice 1b-2 — typed `val`/`var` locals + def RETURN-type registry (the perf keystone).** The
+      remaining bare-var gap: (a) `val x: T = e` / `var` push bare names at block-binder sites (parseBlockVal
+      etc.) → embed their declared type (or infer from the RHS tag). (b) A `(app (global f) …)` call result
+      is `"?"` — register each top-level def's declared return type (`emitDefU`/`skipToEq` currently DROP
+      `: T`) so a call to `f` carries `f`'s return type. **This is what closes full `fib`** (`fib(n-1)+fib(n-2)`
+      — both operands are `app` results): only then does the top `+` become `i.add` and the numeric hot loop
+      emit direct typed prims — the perf-neutrality the FastCode/SelfRec removal needs. Gate each on semantic
+      248/248 + typed `--self`; corpus MATCH drops further by design.
+- [ ] **S1-5 slice 1b-3 — typed `.length`/`.charAt`/`.substring` on a String-typed local.** `postDot`/
+      `emitLen` become env-type-aware (via `localTyOf` on the receiver): a String-typed `(local N)` receiver
+      lowers `.length`→`slen`, `.charAt`→`scodeAt`. Subsumes part of Stage 2. Gate as above.
 - [ ] **S1-6 — δ-arm deletion: Δ=0 in Stage 1 (approach A) — MEASURED, deferred to post-S1-5.** Confirmed
       empirically: (a) typed F STILL emits `__arith__` for bare-variable arith (`a+b`, `local>=local`) and
       `__eq__` for `local==lit`; (b) the ssc0 tower `ssc1-lower.ssc0` emits `__arith__` ×12 + `__eq__` ×10;
