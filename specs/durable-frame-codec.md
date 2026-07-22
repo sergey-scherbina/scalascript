@@ -44,6 +44,7 @@ composition decodes unambiguously.
 | product / `pair(a, b)` | `encode(a)` then `encode(b)`, in field order |
 | sum / `either(a, b)` | 1 tag byte (`0x00` left / `0x01` right) + the chosen branch's encoding |
 | `list(a)` | `u32` element count + each element encoded in order |
+| `map(k, v)` | `u32` entry count + entries sorted by the unsigned lexicographic order of each key's own encoding — so the bytes are independent of insertion order (§9.1). Decode rejects keys not in strictly ascending canonical order. |
 
 `u32` is an unsigned 32-bit big-endian count; a length or count above `2^31−1` is
 rejected (bounded). Decoding is **exact**: `decode` fails if input is truncated or has
@@ -75,6 +76,7 @@ object DurableCodec:
   def pair[A, B](a: DurableCodec[A], b: DurableCodec[B]): DurableCodec[(A, B)]
   def either[A, B](a: DurableCodec[A], b: DurableCodec[B]): DurableCodec[Either[A, B]]
   def list[A](a: DurableCodec[A]): DurableCodec[List[A]]
+  def map[K, V](k: DurableCodec[K], v: DurableCodec[V]): DurableCodec[Map[K, V]]
   def imap[A, B](a: DurableCodec[A])(to: A => B)(from: B => A): DurableCodec[B]
 ```
 

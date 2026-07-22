@@ -4971,10 +4971,14 @@ dynamic saved-capsule runner.
   if a run resolves with no provider. Scala reference row; control suite 139/139 + ABI gate. Spec
   `specs/durable-ref.md`. **JS MIRROR LANDED 2026-07-22 (`durable-ref-js`): `DurableRef` + real
   `Restore` now on the JS lane too (JS 50/50) — BOTH host lanes at full durable parity.**
+  **CANONICAL-KEY MAP CODEC LANDED 2026-07-22 (`durable-map-codec`, both lanes):** `DurableCodec.map[K,V]`
+  sorts entries by unsigned-lexicographic key-encoding so bytes are insertion-order-independent (§9.1);
+  decode rejects non-ascending keys. Shared golden hex on both lanes proves cross-lane canonical
+  identity. Scala 142/142, JS 53/53. **§9.1 baseline value algebra complete.**
   **REMAINING (Part 3b+):** the `Portable` CoreIR resume-program payload (this is v2/native — the
   CoreIR-free leaf can't host it); signature/audience/tenant + capability policy for `DurableRef`;
-  a dynamic id→resume-point registry; canonical-key maps + nominal versioned schema; graph codecs
-  (§9.3); `RunOutcomeUnknown`; Rust/Swift lanes (don't exist yet). The runners consume the capsule.
+  a dynamic id→resume-point registry; nominal versioned schema; graph codecs (§9.3);
+  `RunOutcomeUnknown`; Rust/Swift lanes (don't exist yet). The runners consume the capsule.
   `Portable(resumeCodeDigest, closed Program((frame,input)=>Eff))` or
   `ExactArtifact(artifactDigest,target,resumePointId)`, both with `FrozenFrame`, A/R codec schemas,
   exact resolver/plugin implementation profile, lifecycle, bounded policy,

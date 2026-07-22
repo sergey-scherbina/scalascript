@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-07-22 — Canonical-key durable map codec on both lanes
+
+Adds `DurableCodec.map[K, V]` to the durable frame algebra on both host lanes. Entries are written
+sorted by the unsigned lexicographic order of each key's own encoding, so the bytes are independent of
+insertion or iteration order (§9.1 "map order cannot affect canonical bytes"); decoding rejects keys
+that are not in strictly ascending canonical order, which also rejects duplicate keys. Both lanes
+assert the same golden hex — a map built `"b"` then `"a"` encodes sorted `a, b` — proving cross-lane
+canonical byte identity. This completes the §9.1 baseline durable value algebra. Scala 142/142,
+JS 53/53; spec `specs/durable-frame-codec.md`.
+
 ## 2026-07-22 — SclJet enforces SQLite-compatible unique indexes
 
 `CREATE UNIQUE INDEX` now validates existing rows and persists its uniqueness through indexed
