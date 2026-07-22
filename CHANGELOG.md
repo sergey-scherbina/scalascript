@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-07-22 — ci-red-main sbt-job HANG fixed (virtual-thread carrier starvation)
+
+The `sbt — compile and test` job intermittently hung to its 200-min GitHub timeout under CI load (long
+the perpetual-red job). Root cause (measured): the generator/coroutine native plugin hands off via
+unbounded `SynchronousQueue.put/take` on `Thread.ofVirtual()` producers; on JDK 21 a virtual thread that
+blocks inside `synchronized` PINS its carrier, and a 2-core CI runner has only 2 default carriers, so a
+few pinned VTs across the 4 parallel suites starve the producer → the consumer blocks forever. Fix:
+`ThisBuild / Test / javaOptions += "-Djdk.virtualThreadScheduler.parallelism=16"` (test-only, systemic,
+verified by a deterministic repro: 2 carriers + 4 pinned VTs hang a SynchronousQueue handshake, 16 do
+not). Confirmed by a green CI run (`9ddbd111b`, all 4 jobs incl. sbt). See BUGS
+`ci-vthread-carrier-starvation-hang`.
+
+## 2026-07-22 — F string/float/bool literal patterns in match + case-lambda (f-string-literal-pattern-not-data)
+
+The self-hosting front `F` only special-cased INT literal patterns in the ordered match resolver; a
+STRING / float / bool pattern fell through to `parseGenVar` / `parseConsArm` → `match: scrutinee not
+Data`. New `isScalarLitHead` / `litArmIR` / `parseGenLit` route scalar-literal arms to the resolver in
+`parseGenArm` and both match-dispatch predicates (`parseMatchArms`, `caseLamIsGen`). Gates: fsub `--self`
+byte-identical (403836 B), semantic 248/248, dualrun slice 45/45, full sweep 528/528 (0 divergences).
+Validated by a green main (the exact-SHA CI had hung on the unrelated vthread-carrier bug, now fixed).
+
 ## 2026-07-22 — Capsule signature + audience/tenant + quota admission (format v3, vector 13)
 
 Extends the durable capsule with the §11.1-step-2 security envelope so an untrusted network

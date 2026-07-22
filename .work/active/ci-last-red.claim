@@ -1,6 +1,0 @@
-feature/ci-last-red 2026-07-22T00:00:00Z
-agent: opus
-heartbeat: 2026-07-22T16:30:00Z
-status: verifying-ci
-done-so-far: FIX LANDED (9ddbd111b) for the ci-red-main sbt-job HANG. Root cause MEASURED: generator/coroutine plugin uses unbounded SynchronousQueue.put/take on Thread.ofVirtual() producers; JDK21 pins carriers on synchronized; 2-core CI runner has 2 default vthread carriers, 4 parallel suites pin them -> producer starves -> consumer hangs forever -> 200-min timeout. Deterministic repro (2 carriers+4 pins hang; 16 OK). Fix: -Djdk.virtualThreadScheduler.parallelism=16 in forked test JVM (test-only, systemic, verified: option applied + suite 9/9). BUGS: ci-vthread-carrier-starvation-hang.
-next: verify a CI run on the fixed main tip goes green on 'sbt — compile and test' (heavy ~3h GitHub backlog). This also validates the f-string-literal fix (a1bad83b0) whose exact-SHA CI hung on THIS bug.
