@@ -416,15 +416,16 @@ object RunNativeV2:
       // lower a program. Equals `runner` in the default lane; the ssc1-run.ssc0 path in F-mode.
       defaultRunner: java.io.File)
 
-  /** F4 front swap (REVERSIBLE, default UNCHANGED). `SSC_FRONT=F` opts the native tier into the
-   *  self-hosting subset compiler F (specs/v2.2-p6.5-fsub.ssc, staged as tower/bin/fsub.ssc) as the
-   *  lowerer, via the tower/bin/ssc1-run-fsub.ssc0 runner. The default (unset / any other value) stays
-   *  the untyped ssc1-front+ssc1-lower runner ssc1-run.ssc0. The checker (ssc1-check-run.ssc0) is kept
-   *  beside F in BOTH modes — F is a parser+lowerer, not a checker. The irreversible default flip
-   *  (step 4) is a one-line change here (`ssc1-run.ssc0` → `ssc1-run-fsub.ssc0` + wire fsubSrc always)
-   *  held by Sergiy; this flag makes staging fully reversible. */
+  /** F4 front swap — FLIPPED (step 4, 2026-07-22): F is now the DEFAULT native front. F is the
+   *  self-hosting subset compiler (specs/v2.2-p6.5-fsub.ssc, staged as tower/bin/fsub.ssc), run via the
+   *  tower/bin/ssc1-run-fsub.ssc0 runner; the F4a delegate-fallback in `compile` re-lowers anything F
+   *  cannot fully lower through the OLD ssc1-front+ssc1-lower runner (ssc1-run.ssc0), which is KEPT as
+   *  the safe fallback — so the flip cannot regress any program. The checker (ssc1-check-run.ssc0) is
+   *  kept beside F — F is a parser+lowerer, not a checker. Opt OUT with `SSC_FRONT=legacy` to use the
+   *  old front directly. REVERSIBLE: restore the opt-in test to return F to behind-a-flag. Verified by a
+   *  clean full-corpus dual-run (528/528, 0 unexpected divergence) + typed fixpoint + semantic gates. */
   private def frontIsF: Boolean =
-    sys.env.get("SSC_FRONT").exists(v => v == "F" || v.equalsIgnoreCase("fsub"))
+    !sys.env.get("SSC_FRONT").exists(_.equalsIgnoreCase("legacy"))
 
   private def nativeFrontLayout(): NativeFrontLayout =
     val installRoot = Option(System.getProperty("ssc.lib.path")).map(new java.io.File(_)).getOrElse {
