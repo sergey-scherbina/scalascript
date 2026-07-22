@@ -5154,10 +5154,18 @@ dynamic saved-capsule runner.
   rejects with `Save.Rejected(CaptureFailure.CaptureBarrier)` instead of a capsule, so a raw foreign
   frame never spills. `raw-foreignv-reject` pending-codec→specified (host-only, `structured`, oracle
   `CaptureBarrier`); distinct from vector 25's `UnmanagedCapture` (state IS captured, frame is not
-  durable); both host lanes; catalog negative meta-test repointed 10→13. Now **22/26 vectors
-  specified** (Scala 151/151, JS 62/62, ABI 6/6, catalog PASS 26/9, validator negatives 9/9). STILL
-  OPEN (4): 13 (signature/tenant/quota — needs crypto signatures), 15 (cross-host — remote runner), 16
-  (concurrent — Scala-doable but JS single-threaded blocks the unconditional JS coverage), 26
+  durable); both host lanes; catalog negative meta-test repointed 10→13. **VECTOR 13 FLIPPED
+  (`durable-signature-quota`):** the §11.1-step-2 security envelope. Capsule format bumped 2→3 with an
+  `AdmissionPolicy` (`audience`+`tenant`+`requiredBudget`+`signingKey`) a resume point pins at freeze;
+  `freeze` signs the canonical body with a hand-rolled **HMAC-SHA256** (`ssc-capsule-sig-v1\0` domain,
+  key never in the capsule), and `restore(...availableBudget)` emits two new `CapsuleRejected` kinds —
+  `TamperedCapsule` (missing/forged signature or wrong audience/tenant) and `ResourceLimit` (declared
+  budget > available), checked after integrity and before codec/ABI. `signature-quota-negative`
+  pending-codec→specified (host-only, `structured`, oracle `TamperedCapsule|ResourceLimit`); both host
+  lanes (Scala MessageDigest-HMAC == JS hand-rolled HMAC, golden hex regenerated +20 trailing bytes);
+  catalog negative meta-test repointed 13→15. Now **23/26 vectors specified** (Scala 152/152, JS 63/63,
+  ABI 6/6, catalog PASS 26/9, validator negatives 9/9). STILL OPEN (3): 15 (cross-host — remote runner),
+  16 (concurrent — Scala-doable but JS single-threaded blocks the unconditional JS coverage), 26
   (cancellation — pending-spec, no spec).
   Original blocked note (now superseded)
   preserved: BLOCKED, do not start: every one of its three

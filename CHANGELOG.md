@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-07-22 — Capsule signature + audience/tenant + quota admission (format v3, vector 13)
+
+Extends the durable capsule with the §11.1-step-2 security envelope so an untrusted network
+capsule is authenticated and resource-bounded at admission, before any user code runs. A new
+public `AdmissionPolicy` (`audience`, `tenant`, `requiredBudget`, `signingKey`) is pinned by
+`ResumePoint.define(...policy)`; `freeze` writes `audience`/`tenant`/`requiredBudget` into a
+format-**v3** capsule and, when the policy carries a signing key, signs the canonical body with a
+hand-rolled **HMAC-SHA256** (`"ssc-capsule-sig-v1\0"` domain; the key never travels in the
+capsule). `restore(...availableBudget)` runs the security checks after capsule integrity and before
+the codec/ABI/dependency checks, with two new `CapsuleRejected` kinds: `TamperedCapsule` (a
+missing/forged/tampered signature, or a mismatched audience/tenant) and `ResourceLimit` (the
+capsule's declared budget exceeds the runner's available budget). The signature covers the body
+with an empty signature slot, so any forged field edit breaks the HMAC; a tampered frame still
+fails the frame digest first (`FrameTampered`). Defaults keep the existing `define`/`restore`
+signatures (open, unsigned, trusted in-process). The golden capsule hex is regenerated (v3, +20
+trailing bytes) and remains byte-identical on both host lanes — the Scala lane's `MessageDigest`
+HMAC and the JS lane's hand-rolled HMAC agree. Flips conformance vector
+`13-signature-quota-negative` `pending-codec`→`specified` (host-only, `structured`): the Scala and
+JS host programs demonstrate a wrong-key signature rejection and an over-budget rejection, returning
+the oracle `TamperedCapsule|ResourceLimit`. 23/26 vectors now specified. Scala 152/152, ABI 6/6, JS
+63/63, `run.sh` catalog PASS (26 vectors/9 lanes), validator negative cases 9/9.
+
 ## 2026-07-22 — launcher stdout/stderr pinned to UTF-8 (last CI-baseline blocker, `54eae3197`)
 
 The `sbt — compile and test` CI job's `v21-explicit-lanes-gate` step failed at the **swift** lane:

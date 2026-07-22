@@ -55,8 +55,10 @@ final class DurableCapsule:
 object DurableCapsule:
   def decode(bytes: DurableBytes): DurableCapsule   // pure, bounded, does not resolve
 
-/** Typed rejection when a capsule cannot be admitted (version/id/digest). */
-final class CapsuleRejected(reason: String) extends RuntimeException
+/** Typed rejection when a capsule cannot be admitted. `kind` is a stable category:
+  * FormatVersion / ResumePointMismatch / FrameTampered (integrity), TamperedCapsule /
+  * ResourceLimit (security envelope), CodecMismatch / AbiMismatch / MissingDependency. */
+final class CapsuleRejected(val kind: String, message: String) extends RuntimeException
 ```
 
 ## 3. Envelope format
@@ -72,13 +74,21 @@ capsule := formatVersion:int
         || requiredDependencies:list(string)  // sorted target/toolchain/plugin ids
         || frame:bytes                 // the DurableCodec[S] encoding of the state
         || frameDigest:bytes           // SHA-256, domain-separated
+        || audience:string             // security envelope (§11.1 step 2, §12)
+        || tenant:string               //   the runner this capsule is addressed to
+        || requiredBudget:long         //   the execution/decode budget it demands
+        || signature:bytes             // keyed HMAC-SHA256 over the body (empty = unsigned)
 ```
 
 `frameDigest = SHA-256("ssc-frame-v1\0" || frameBytes)` (§10) covers the frame only, so
 adding the ABI manifest does not change the digest. The domain-separation prefix keeps
-this hash distinct from any other SHA-256 use. The current `formatVersion` is `2`. The
+this hash distinct from any other SHA-256 use. The current `formatVersion` is `3`. The
 `codecAbiVersion`, `artifactAbiId`, and `requiredDependencies` are the `ArtifactProfile`
-a resume point pins at `freeze`, checked at admission (see §4).
+a resume point pins at `freeze`; `audience`, `tenant`, `requiredBudget`, and `signature`
+are the `AdmissionPolicy` security envelope (see §4). The signature is
+`HMAC-SHA256(signingKey, "ssc-capsule-sig-v1\0" || canonical(capsule with an empty
+signature slot))`; the `signingKey` is held by the resume point and never travels in the
+capsule. An unsigned (trusted in-process) capsule carries an empty signature.
 
 ## 4. Semantics
 
@@ -87,9 +97,12 @@ a resume point pins at `freeze`, checked at admission (see §4).
 - `capsule.encode()` / `DurableCapsule.decode(bytes)`: canonical bytes for transport;
   decode is **inert** (§9.2) — it parses the envelope without checking the digest or
   touching a resume program, so a hostile capsule decodes to inert data, never runs.
-- `restore(capsule)`: **admission** — verify, then rebind. Rejects with
-  `CapsuleRejected` when `formatVersion != 1`, `capsule.resumePointId != this.id`, or
-  the recomputed `frameDigest` differs (tamper). On success it decodes the frame with
+- `restore(capsule, availableBudget)`: **admission** — verify, then rebind. Rejects with
+  `CapsuleRejected` when `formatVersion != 3`, `capsule.resumePointId != this.id`, or
+  the recomputed `frameDigest` differs (tamper). Then it runs the §11.1 step-2 security
+  admission (before the codec/ABI/dependency checks): a missing/forged/tampered keyed
+  signature or a mismatched `audience`/`tenant` rejects as `TamperedCapsule`, and a
+  `requiredBudget` exceeding `availableBudget` rejects as `ResourceLimit`. On success it decodes the frame with
   the registered codec and returns a reusable `SavedContinuation` bound to the
   registered machine — identical in behavior to a locally-saved one: multi-shot, each
   run reconstructs an independent frame, no prefix replay (§8.1/§8.2).
@@ -106,6 +119,9 @@ a resume point pins at `freeze`, checked at admission (see §4).
       (`CapsuleRejected`, digest mismatch) — proven non-vacuously (untampered restores).
 - [ ] restoring on a resume point with a different `id` is rejected.
 - [ ] an unsupported `formatVersion` is rejected.
+- [ ] a signed capsule presented to a runner with the wrong key, audience, or tenant is
+      rejected `TamperedCapsule`; one whose `requiredBudget` exceeds the runner's
+      `availableBudget` is rejected `ResourceLimit` — both proven non-vacuously.
 - [ ] `DurableCapsule.decode` is bounded/exact (truncated or trailing bytes rejected)
       and does not run or resolve anything.
 - [ ] `encode` is deterministic; equal capsules ⇒ equal bytes.
@@ -132,9 +148,11 @@ well as the envelope layout. Changing the format means updating both golden tabl
 
 ## 6. Follow-on (queued in SPRINT)
 
-`Portable` CoreIR resume-program payload; signature + audience/tenant + capability
-policy; `DurableRef` (§9.2) resolution as a post-admission effect; a dynamic
-id→resume-point registry for fully-decoupled restore; lifecycle/expiry;
-`RunOutcomeUnknown` on post-admission disconnect; and the Rust/Swift lane mirrors (the
-JS-lane codec + envelope mirror landed). The Portable/ExactArtifact runners consume this
-envelope.
+Landed since Part 2: the `DurableRef` (§9.2) post-admission resolve effect, the
+`ArtifactProfile` ABI manifest (codec/artifact/dependency admission, format v2), and the
+`AdmissionPolicy` signature + audience/tenant + quota envelope (format v3, this slice).
+Still queued: the `Portable` CoreIR resume-program payload; a broader capability policy;
+a dynamic id→resume-point registry for fully-decoupled restore; lifecycle/expiry and
+revocation; `RunOutcomeUnknown` on post-admission disconnect; and the Rust/Swift lane
+mirrors (the JS-lane codec + envelope + admission mirrors all landed). The
+Portable/ExactArtifact runners consume this envelope.
