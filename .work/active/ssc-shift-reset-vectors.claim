@@ -1,0 +1,6 @@
+feature/ssc-shift-reset-vectors 2026-07-22T14:30:01Z
+agent: claude-code
+heartbeat: 2026-07-22T14:30:01Z
+status: in-progress
+done-so-far: PROBED — .ssc effect/handle expresses multi-prompt delimited control: v18=1007 (nested handlers=nested resets), v22=7 (distinct effects=prompt isolation), v23=11 (reinstalled handler=shift-not-shift0). All BOTH lanes.
+next: probes 18/22/23 + expected + advertise shift-reset,prompt-isolation on portable-vm/asm; verify run.sh green (vectors already specified, no vectors.tsv change)
