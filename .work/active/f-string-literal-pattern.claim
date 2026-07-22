@@ -1,6 +1,6 @@
 feature/f-string-literal-pattern 2026-07-22T00:00:00Z
 agent: opus
-heartbeat: 2026-07-22T02:00:00Z
+heartbeat: 2026-07-22T14:40:00Z
 status: in-progress
-done-so-far: Root-caused (BUGS.md f-string-literal-pattern-not-data): parseMatchArms (fsub.ssc :1006) routes INT-literal first arms to parseGenMatch via `fst(hd(tl(ts))) == 0` but a STRING literal is token fst==4 → not routed → parseArm/parseConsArm emits (arm Cons 2 ..) → "scrutinee not Data". Same class as the just-landed f-stmt fix (9898b4e67).
-next: extend literal-pattern detection (fst==0 check in parseMatchArms dispatch + parseGenArm) to cover string (and other scalar) literal patterns, lowering to an ordered value-equality arm like the oracle (mirror parseGenInt with a parseGenStr). Verify: `v match { case "Foo" => .. }` repro prints on F; fsub --self byte-identical; semantic unchanged; dualrun slice EQUAL. Coordinate on fsub.ssc (shared w/ v2-f5-kernel-shrink, v2-f4 lanes).
+done-so-far: FIX LANDED — feature+docs on origin/main (fsub.ssc: isScalarLitHead/litArmIR/parseGenLit route string/float/bool literal match+case-lambda arms through the ordered resolver). Gates GREEN: fsub --self byte-identical 403836B, semantic 248/248, dualrun slice 45/45, FULL SWEEP 528/528 (0 unexpected). CI run a1bad83b0 exists but in_progress ~3h (heavy GitHub Actions backlog).
+next: wait for a1bad83b0 CI green (gh run, ci-status is SHA-match-buggy), then CHANGELOG + release + rm-worktree.
