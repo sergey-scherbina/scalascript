@@ -316,16 +316,24 @@ removal becomes perf-neutral.
       extractor (both forms → op symbol) at all 8 long/inline-arith sites. Typed fib 620→330 ms (regression
       fixed); unboxed `$long` path reaches typed IR → ~20 ms ≈ FastCode. Byte-identical output vs interp.
       `v2JvmBytecode/compile` green; self-hosting gates unaffected.
-- [ ] **f5c-2 (NEXT — the keystone) — don't OpAnf-lift calls to EFFECT-FREE defs.** `OpAnfNative.lift`
-      letifies fib's recursive-call args (`mayOp(App)=true`) → `Let{ fib(n-1); fib(n-2) in i.add(l1,l0) }` →
-      `canParamLong` (no `Let` case) fails → boxed (330 ms) instead of unboxed (20 ms). fib performs no
-      effect, so the lift is over-conservative. Fix: an effect-free-def registry (reuse/extend the F5b return-
-      type registry — a def returning `Int`/`String`/`BigInt` with no effect prims is pure) consulted by
-      `mayOp`; OR teach `canParamLong`/`emitParamLong` the `Let{ self-calls in arith(locals) }` shape. Gate:
-      fib ~20 ms on the native lane WITHOUT `SSC_NO_OPANF`; native-tier conformance green.
-- [ ] **f5c-3 — f.* (double) + `lcell`/`dcell` accumulator `i.*`** (the 2 remaining `__arith__`-only sites).
+- [x] **f5c-2 DONE (`8a76ea5bb`, 2026-07-22) — OpAnf effect-free-def registry; fib unboxed BY DEFAULT.**
+      `OpAnfNative.lift` letified fib's recursive-call args (`mayOp(App)=true`) → `Let` → `canParamLong`
+      failed → boxed (330 ms). fib is effect-free, so over-conservative. Added a least-fixpoint purity
+      registry: `mayOp(App(Global g, args)) = !pure(g) || args.mayOp`; a def is pure iff `mayOp(body)=false`
+      (reusing the kernel effect model `primitiveMayProduceAutoThreadOp`; conservative — any Op prim / local
+      or unknown call → impure). Threaded via `using PureG`. **fib(34) on the native lane WITHOUT
+      `SSC_NO_OPANF`: ~26 ms cold / ~8.5 ms warm, typed = untyped = (beats) interpreter FastCode-ON — the
+      ~5× gap CLOSED by default.** Correctness: 80-program sweep output-preserving (bc-before==bc-after);
+      effectful programs byte-identical to interpreter. `v2JvmBytecode/compile` green; self-hosting gates
+      unaffected (bytecode-lane-only; semantic 248/248, fixpoint byte-identical).
+- [ ] **f5c-3 — f.* (double) + `lcell`/`dcell` accumulator `i.*`** (the 2 remaining `__arith__`-only sites:
+      `canDouble`/`genDouble` ~599/613; `lcell.set`/`dcell.set` fused accumulator ~1040/1060). Typed float
+      recursion + typed `var` accumulator loops. **Required before f5c-4** so the removal doesn't regress them.
 - [ ] **f5c-4 — THEN apply the FastCode/SelfRec removal** (`SSC_FASTPATHS` off → delete, `v2/src`) + re-
-      measure fib on the native lane within tolerance of old FastCode-ON. Land only if perf-neutral.
+      measure fib on the native lane within tolerance of old FastCode-ON. Land only if perf-neutral. ⚠ First
+      settle the architectural question: FastCode/SelfRec are on the INTERPRETER (`run-ir`); bytecode perf is
+      the `run --native` lane. The removal is neutral only if user numeric hot loops run on the native lane
+      (self-hosting `run-ir` is string-processing, indifferent). Confirm the intended default execution lane.
 - [ ] **S1-6 — δ-arm deletion: Δ=0 in Stage 1 (approach A) — MEASURED, deferred to post-S1-5.** Confirmed
       empirically: (a) typed F STILL emits `__arith__` for bare-variable arith (`a+b`, `local>=local`) and
       `__eq__` for `local==lit`; (b) the ssc0 tower `ssc1-lower.ssc0` emits `__arith__` ×12 + `__eq__` ×10;

@@ -13,6 +13,24 @@ and resolves independently on each run (§8.2). `Restore.admitLocally` still dis
 run and now fails loudly if one resolves with no bound provider. This turns the previously-phantom
 `Restore` row into a genuine post-admission resolution effect. Scala reference row; control suite
 139/139, ABI gate green; spec `specs/durable-ref.md`. The JS-lane mirror is a follow-on.
+## 2026-07-22 — v2-f5c-2: OpAnf effect-free-def registry — fib hits the unboxed bytecode path by default
+
+The keystone of the bytecode lever. `OpAnfNative.lift` (native `run --bytecode` lane) Op-argument-lifted
+EVERY `App` argument (`mayOp(App)=true`), wrapping `fib(n-1)+fib(n-2)` in a `Let` — which defeated
+`JvmByteGen.canParamLong` (no `Let` case), so fib fell to the boxed path (~330 ms) instead of the unboxed
+`$long` path (~20 ms); the win only showed under `SSC_NO_OPANF=1`. `fib` performs no effect, so the lift
+was over-conservative. Added a **least-fixpoint purity registry**: a top-level def is pure iff `mayOp(body)`
+is false, and `mayOp(App(Global g, args)) = !pure(g) || args.mayOp`. Purity propagates conservatively —
+any Op-producing prim (reusing the kernel's `primitiveMayProduceAutoThreadOp`, which flags
+`__method__`/`effect.*`/`cell.get`/non-builtins), any call to a `Local` or an unknown/plugin global, or a
+call to an impure def makes a def impure (start all-pure, propagate). **Result: fib(34) on the bytecode
+lane runs ~26 ms cold / ~8.5 ms warm BY DEFAULT (was ~330 ms), typed = untyped = (beats) the interpreter
+FastCode-ON compute — the ~5× numeric-recursion gap is closed without `SSC_NO_OPANF`.** Correctness: an
+80-program corpus sweep is byte-identical before↔after the OpAnf change (output-preserving), and effectful
+programs (`effects`/`algebraic-effects`/`generators`/`coroutine-demo`/`async-demo`) are byte-identical to
+the interpreter. `v2JvmBytecode/compile` green; self-hosting gates unaffected (bytecode-lane-only; semantic
+248/248, X1 fixpoint byte-identical). Remaining before the FastCode/SelfRec removal: f5c-3 (typed `f.*`
+double + `lcell`/`dcell` accumulator `i.*`) — `specs/v2-f5c-typed-bytecode.md §4`.
 
 ## 2026-07-22 — v2-f5c: JvmByteGen recognizes typed `i.*` prims (bytecode lane, numeric recursion)
 
