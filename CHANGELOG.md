@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-07-22 — DurableRef + a real `Restore` effect (save-run Part 3a)
+
+Adds `DurableRef[A]` (control-interoperability §9.2): an inert reference to external state carrying a
+`providerId` and an opaque reference, plus `DurableRef.codec[A]` so references live inside durable
+frames. Decoding a reference — or a capsule frame that contains one — is inert: it never opens or
+contacts the resource. Resolution is now a real effect: `Restore` gains its first operation,
+`Restore.Resolve[A]`, performed via `Restore.resolve(ref)` after admission; a run whose saved machine
+resolves a reference carries `Restore` in its row, discharged at the call site by
+`Restore.withResolver(resolver)` — which resolves once per `resolve`, reinstalls around the suffix,
+and resolves independently on each run (§8.2). `Restore.admitLocally` still discharges a non-resolving
+run and now fails loudly if one resolves with no bound provider. This turns the previously-phantom
+`Restore` row into a genuine post-admission resolution effect. Scala reference row; control suite
+139/139, ABI gate green; spec `specs/durable-ref.md`. The JS-lane mirror is a follow-on.
+
 ## 2026-07-22 — v2-f5c: JvmByteGen recognizes typed `i.*` prims (bytecode lane, numeric recursion)
 
 After the F5b perf finding (typed IR ≠ interpreter-FastCode-removal enabler), Sergiy chose the bytecode
