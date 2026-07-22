@@ -103,6 +103,75 @@ lesson). So: type a class → (a)+(b) green → snapshot → THEN delete the now
 
 Running total Stages 1–5: **≈ −1,100…−1,500 → kernel ~4,500–4,900.**
 
+## 4.1 Reconciled state + Stage 1b concrete sub-plan (2026-07-22)
+
+**What is DONE and landed (verified against the gates in `specs/v2-f5-kernel-shrink.md §1`):**
+- **Stage 0** — F is `parse→AST→erase`, byte-identical (landed `6290a4e81`).
+- **Stage 1 approach A** — typed arithmetic/comparison by *IR-prefix type recovery* (landed `7c74c1280`).
+  `emitBin`/`emitPlus`/`emitArithT`/`emitEqT`/`emitPP` route `+ - * / % < … == ++` to
+  `i.*`/`big.*`/`sconcat`/`seq` when the **erased operand IR prefix** proves the type
+  (`isIntCode`/`isStrCode`/`isBigCode`/`isFloatCode`, all *certain-only* prefixes; unknown → `"?"` →
+  keep `__arith__`/`__eq__`). Types literal/structural arith (`1+2*3`, `"a"+"b"`, `charAt(i)>=97`,
+  `s.length+1` where `.length` is `slen`). Verified: semantic **248/248**, typed fixpoint
+  byte-identical, corpus byte-identity to the untyped oracle 417→225 (−192 arith programs diverge **by
+  design**, 0 spurious).
+
+**Measured deletion reality (`SPRINT.md S1-6`): δ-arm deletion is Δ=0 today.** Approach A cannot type a
+**bare variable** operand — a param `a:Int` erases to `(local N)`, which has no type prefix — so
+`def add(a,b)=a+b`, `n<2`, `n-1` (fib-shaped numeric recursion) all still emit `__arith__`. The ssc0
+tower (`ssc1-lower.ssc0`) *also* still emits `__arith__`×12 / `__eq__`×10, and conformance `.ssc` are
+lowered by that tower. So every numeric/string/cmp δ arm stays LIVE. **This bare-variable gap is also
+exactly the perf gap** the mission cares about: `FastCode`/`SelfRec` removal is perf-neutral only once
+fib-shaped numeric recursion emits direct `i.*` instead of `__arith__` tag-dispatch.
+
+**`__unary__` is NOT a safe deletion (contract-drift trap, 2026-07-22).** S1-6 flagged `__unary__` as
+the one δ arm with 0 emitters across F + tower + conformance. But it is still handled by the **JS, Rust,
+and Swift backends** (`v2/backend/{js,rust,swift}`), so it remains a live prim in the *multi-backend
+Core IR contract*. Deleting only the interpreter arm (`Runtime.scala:3022-3029`) would make a hand-
+written or future-front `(prim __unary__ …)` run on three backends but crash the interpreter —
+asymmetric contract drift a "0 corpus emitters" reading hides. **Leave it** until `__unary__` is retired
+across all backends together (a separate, coordinated change), or keep it as the documented dynamic
+fallback.
+
+### Stage 1b — bare-variable / param typing (approach B), scoped as small self-compiling slices
+
+The genuine lever. Chosen mechanism (rejected alternatives noted): give **`env` per-slot type info** so
+a bare `(local N)` recovers its declared type, then route `emitBin` by that type. `env` is a de-Bruijn
+**name list** threaded through ~40 parser fns / 280 call-sites; a bare `(local N)` operand string
+already encodes `N`, and `climbStep` already holds `env`, so **no new thread and no node-type rework**
+is required — `climbStep` maps `(local N)` → `env[N]`'s type by index.
+
+- **Encoding decision — embed the type in the env *name string* (`"name:Type"`), NOT env-as-pairs.**
+  Rejected `env: List[(name,type)]` (would touch all 27 `:: env` construction sites + risk an `fst` crash
+  if any site is missed) and a parallel `tenv` thread (the 280-site problem) and a per-def side-table
+  (breaks under nested binder shadowing). Name-embedding touches only **`lookupAt`** (compare
+  `envNameOf(h)==nm`) and **`parseParam`** (embed the declared type) — 2 edit sites, de-Bruijn-correct,
+  and transparent to the mangled `@`/`@@`/`__m`/`__u` entries (no colon → whole string is the name).
+- **Fixpoint-safe by construction:** F's own 1129 defs annotate **zero** param types (the 4 colon-in-
+  paren hits are all comments), so `parseParam` embeds nothing when F compiles itself → self-output
+  byte-identical → `stage1==stage2` holds trivially. Typing fires only for `.ssc` programs that annotate
+  params; their *output* is verified unchanged by the semantic gate (`i.*` vs `__arith__` agree).
+- **Slice 1b-1 (this increment) — INT/String/BigInt params → typed leaf arithmetic.** Two commits:
+  1. *refactor, byte-identical:* add tag helpers (`prefixTag`/`operandTag`/`localTyOf` + `emitBinT`/
+     `emitPlusT`/`emitArithTT`/`emitEqTt`/`emitPPt` mirroring the existing routing but keyed on a tag
+     `∈{I,F,S,B,?}`); `climbStep` calls the tag path. Untyped ⇒ tag = `prefixTag` ⇒ **byte-identical**
+     (corpus stays 225, semantic 248, typed fixpoint byte-identical). Existing string-classifier
+     `emit*` are left intact for their other callers (`assignRhs`, `interpChain2`, int-match `emitEq`).
+  2. *feat:* `parseParam` embeds a bare `Int`/`String`/`BigInt` annotation as `name:Type`; typed locals
+     now route to `i.*`/`big.*`/`seq`. Gate: semantic **248/248** (output unchanged), typed fixpoint
+     byte-identical, corpus byte-identity drops below 225 (newly-typed programs diverge by design).
+- **Slice 1b-2 (next) — typed `val`/`var` locals + def return-type registry.** Embed a `val x: T`/`var`
+  declared type (or infer from RHS tag) at the block-binder push sites; register each top-level def's
+  declared return type so a `(app (global f) …)` result carries `f`'s return type. This is what closes
+  full **fib** (`fib(n-1)+fib(n-2)` — both operands are `app` results): only then does the top `+`
+  become `i.add`. **Required for the perf story** (`fib` all-`i.*`), and the first real deletion enabler.
+- **Slice 1b-3 — typed `.length`/`.charAt`/`.substring` on a String-typed local** (`postDot`/`emitLen`
+  become env-type-aware: a String-typed `(local N)` receiver lowers `.length`→`slen`, `.charAt`→
+  `scodeAt`). Subsumes part of Stage 2.
+- **Deletion still lags a full tower pass:** even after F types all bare-var arith, the δ arms stay LIVE
+  until the **ssc0 tower** also emits typed IR (it lowers the conformance corpus). δ-arm deletion is a
+  later phase gated on the full `v2/conformance/check.sh` (shared-seam; the `floatStr` rule).
+
 ## 5. Risks
 
 - **Effects (Op-lifting):** `__arith__`/`__method__` thread unhandled `DataV("Op")` through arithmetic;
