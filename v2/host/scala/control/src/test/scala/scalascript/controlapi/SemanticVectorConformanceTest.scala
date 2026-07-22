@@ -119,6 +119,7 @@ private object SemanticVectorConformanceTest:
     val implementedIds: Set[String] =
       Set(
         "01", "02", "03", "04", "05", "06", "07", "08", "09",
+        "14", "17",
         "18", "19", "20", "21", "22", "23", "24", "25"
       )
 
@@ -224,6 +225,8 @@ private object SemanticVectorConformanceTest:
         case "07" => handlerReinstall()
         case "08" => returnTransform()
         case "09" => nondeterminismProduct()
+        case "14" => durableSaveRunSameProcess()
+        case "17" => noPrefixMainReplay()
         case "18" => nearestMatchingReset()
         case "19" => residualForwarding()
         case "20" => deepEffectStackSafety()
@@ -233,6 +236,52 @@ private object SemanticVectorConformanceTest:
         case "24" => multiShotSharedHeap()
         case "25" => unmanagedCapture()
         case other => throw new AssertionError(s"unimplemented semantic vector $other")
+
+    private type DurableSaved = SavedContinuation.Aux[Int, Nothing, Int]
+
+    private def freezeSavable(
+        continuation: Continuation[Int, Nothing, Int]
+    ): DurableSaved =
+      Eff.runPure(
+        handle[Save.type, Nothing, DurableSaved, DurableSaved](continuation.save())(
+          new Handler[Save.type, Nothing, DurableSaved, DurableSaved]:
+            val effect: EffectKey[Save.type] = Save.key
+            def onReturn(value: DurableSaved): Eff[Nothing, DurableSaved] =
+              Eff.pure(value)
+            def onOperation[X](
+                operation: Operation[Save.type, X],
+                resumption: Resumption[X, Nothing, DurableSaved]
+            ): Eff[Nothing, DurableSaved] =
+              throw new AssertionError("durable save unexpectedly rejected")
+        )
+      )
+
+    private val timesTen =
+      new ResumeStateMachine[Int, Int, Nothing, Int]:
+        def resume(state: Int, input: Int): Eff[Nothing, Int] =
+          Eff.pure(input * 10)
+
+    // Axis 14 — a savable continuation is frozen with save() and run twice in the
+    // same process; the value is reusable, each run resumes at the capture point.
+    private def durableSaveRunSameProcess(): String =
+      val saved =
+        freezeSavable(Continuation.savable(0, timesTen, DurableCodec.int))
+      val first = Eff.runPure(Restore.admitLocally(saved.run(1)))
+      val second = Eff.runPure(Restore.admitLocally(saved.run(2)))
+      s"$first,$second"
+
+    // Axis 17 — the prefix (state construction) runs once at save; running the saved
+    // continuation twice never re-executes it (the counter stays 1).
+    private def noPrefixMainReplay(): String =
+      var prefixRuns = 0
+      def buildState(): Int =
+        prefixRuns += 1
+        0
+      val saved =
+        freezeSavable(Continuation.savable(buildState(), timesTen, DurableCodec.int))
+      val first = Eff.runPure(Restore.admitLocally(saved.run(1)))
+      val second = Eff.runPure(Restore.admitLocally(saved.run(2)))
+      s"$first,$second,$prefixRuns"
 
     private def resumeReusable[A, Fx <: Effect, R](
         resumption: Resumption[A, Fx, R],
