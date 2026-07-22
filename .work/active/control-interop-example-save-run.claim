@@ -1,6 +1,0 @@
-feature/control-interop-example-save-run 2026-07-22T13:27:09Z
-agent: claude-code
-heartbeat: 2026-07-22T13:27:09Z
-status: not-started
-done-so-far: PROBED — .ssc save->run-twice is achievable NOW via multi-shot resume (reusable capture-point continuation); prefix fires exactly once; works on BOTH interp+native lanes
-next: ship examples/durable-save-run.ssc (documented) + README + examples-smoke wiring; SPRINT note that shift/reset .ssc surface remains the bigger gap
