@@ -296,9 +296,13 @@ object RunNativeV2:
     val bytecode: Option[Array[Byte]] =
       try Some(_root_.ssc.bytecode.JvmByteGen.emitProgram(_root_.ssc.bytecode.OpAnfNative.lift(prog)))
       catch
-        case _: _root_.ssc.bytecode.Unsupported           => None
-        case _: org.objectweb.asm.MethodTooLargeException => None
-        case _: org.objectweb.asm.ClassTooLargeException  => None
+        case _: _root_.ssc.bytecode.Unsupported => None
+        // Match ASM Method/Class-too-large by CLASS NAME, not by type. Referencing `org.objectweb.asm.*`
+        // in a catch clause makes the JVM EAGERLY load ASM when it verifies this method — even on the VM
+        // path that never calls emitProgram — which breaks native-VM backend isolation
+        // (v21-plugin-backend-isolation). RuntimeException is already loaded; these ASM size exceptions
+        // are IndexOutOfBoundsException (⊂ RuntimeException), so this catches them without the reference.
+        case e: RuntimeException if isAsmSizeLimit(e) => None
     bytecode match
       case None =>
         runVm(prog) // link-time coverage gap → interpreter (correct, just not JIT-fast)
@@ -308,6 +312,12 @@ object RunNativeV2:
           catch case e: java.lang.reflect.InvocationTargetException =>
             throw Option(e.getCause).getOrElse(e)
         V2Result.report(result)
+
+  /** ASM `MethodTooLargeException`/`ClassTooLargeException`, matched by class name so the type is not
+   *  referenced (which would eagerly load ASM on the VM path — see runBytecode's fallback comment). */
+  private def isAsmSizeLimit(e: Throwable): Boolean =
+    val n = e.getClass.getName
+    n == "org.objectweb.asm.MethodTooLargeException" || n == "org.objectweb.asm.ClassTooLargeException"
 
   private def containsErrorSentinel(program: _root_.ssc.Program): Boolean =
     program.defs.exists(definition => containsErrorSentinel(definition.body)) ||
