@@ -185,9 +185,40 @@ failures fail on BOTH fronts = pre-existing, NOT flip-related):
    origin/main):** F output byte-identical to legacy on the fixture (zero `<closure>`); `v21-native-md-interpolator-smoke`
    PASS; X1 fixpoint byte-identical (405,396 B); semantic 248/248; int-literal smoke green. (`f"…"`/`html"…"`
    prefixes are separate follow-ups.)
-2. **`tests/e2e/v21-native-plugin-boundary-smoke.sh`** — F-regression (PASS legacy, FAIL F) on one of the
-   plugin-boundary fixtures (out-of-corpus provider fixtures: `content-provider.ssc`, `dataset-provider.ssc`,
-   `fs-os-provider.ssc`, …). Exact failing fixture + mode NOT yet narrowed.
+2. **`tests/e2e/v21-native-plugin-boundary-smoke.sh` + `v21-plugin-backend-isolation-smoke.sh`** — NOT a
+   fixture-output divergence (as first suspected) but an **ISOLATION / class-load regression**. Re-diagnosed
+   and PINNED 2026-07-22 (opus). Both smokes assert the isolated native run loads no compiler/host class; the
+   boundary smoke greps the `-verbose:class` log for `ssc.Reader` (a "textual CoreIR reader"). Under F-default
+   an `ssc run --native` **class-loads `ssc.Reader`** (measured: `ssc.Reader$`, `ssc.Reader$P` + 23 parse
+   lambdas from the compiler jar); legacy loads **zero**. So under the re-flip, both smokes go RED.
+   **Root cause (measured):** the F runner tower (`ssc1-run-fsub.ssc0`) produces its structural result by
+   round-tripping F's emitted Core IR **text** through the `#coreir.decode` prim, which is
+   `IrToData.program(ssc.Reader.parseProgram(s))` (`v2/src/Runtime.scala:2999-3001`). The F runner uses
+   `coreir.decode`; the legacy runner does not → legacy loads no Reader. The load happens on **every** F run
+   (gap or not — verified on `examples/extensions.ssc`, a fallback program: Reader still loaded 24× during the
+   F attempt before the fallback fires).
+   **`RunNativeV2:101` `ssc.Reader.validate` is a RED HERRING for this smoke:** the tower loads `ssc.Reader`
+   (via decode) BEFORE `validate` runs, so removing `validate` does NOT reduce the runtime load and does NOT
+   turn the smoke green. (Confirmed: with `validate` replaced by an in-place `assertNoUnboundGlobal` scan that
+   loads no compiler class — behavior-verified: fallback fires identically, output EQUAL — the F run still
+   loaded `ssc.Reader` 24-25×. Change was NOT landed; main stays pristine.) The boundary smoke's *static* javap
+   check also does not see `validate`: it inspects the `RunNativeV2` forwarder class, and `validate` lives in
+   `RunNativeV2$`.
+   **⇒ DESIGN DECISION (for Sergiy — not decided unilaterally).** Options:
+   - **(D1) Scope the isolation guard.** The smoke's `ssc.Reader` guard was written to catch a *retired host /
+     scalameta parser*; the kernel `ssc.Reader` used by `#coreir.decode` is a *bounded, validated KERNEL codec*
+     (Runtime.scala comment), not a compiler frontend. Narrow the guard to the genuinely-forbidden classes
+     (`scala.meta`, `NativeFrontmatter`, `scalascript.parser.Parser`, host Markdown) and ACCEPT the kernel
+     Reader under F. Least-risk; but weakens the "native runtime loads no textual CoreIR reader" invariant.
+   - **(D2) Make the F runner emit structural Data directly** (no text→decode round-trip), like legacy's
+     `ssc1-lower`. Purest isolation; but a deep F-lane change (the F runner's output IS canonical IR text by
+     design) — owned by the F lane.
+   - **(D3) Make `#coreir.decode` not use `ssc.Reader`** (inline the decode in the kernel). Deep, risky —
+     `ssc.Reader` is the "BOUNDED + VALIDATED" fail-closed codec; reimplementing risks that guarantee.
+   Recommendation: **(D1)** as the proportionate near-term unblocker (the kernel Reader is a legitimate runtime
+   component, not a frontend leak), with **(D2)** as the ideal if the F lane wants literal zero-Reader isolation.
+   Independently, `RunNativeV2:101`'s `validate` can be swapped to the in-place `assertNoUnboundGlobal` scan as
+   isolation hygiene whenever the tower path is addressed — behavior-verified, but pointless on its own.
 
 **Why the corpus sweeps missed both:** the failing programs are e2e **fixtures** (`tests/fixtures/v21-native/*`),
 not corpus `examples/*.ssc`, so the 528-program dual-run and the 248-golden semantic gate had nothing to

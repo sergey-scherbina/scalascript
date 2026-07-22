@@ -70,11 +70,16 @@ provider, or the F cutover path from these tasks** (collision). These six are th
       **Salvage 2026-07-22 (opus):** ③.1 md-interpolator **FIXED** (`f02100097`, F supports `md`/`raw`
       interpolators — lexer only knew `s"…"`; rebased clean on origin/main + re-verified: F byte-identical to
       legacy on the fixture, X1 fixpoint byte-identical 405,396 B, semantic 248/248, int-literal smoke green).
-      ③.2 re-diagnosed: NOT a fixture-output divergence but an isolation/class-load regression — F's F4a
-      fallback called `ssc.Reader.validate`, which under F-default class-loads the compiler `ssc.Reader` in the
-      isolated native run → trips `v21-native-plugin-boundary` / `v21-plugin-backend-isolation`. Fix in flight
-      (option a: inline unbound-global scan, loads no compiler class). Re-flip STILL HELD (③.2 + the separate
-      durable-save-run CI baseline, which itself just landed a fix — verify before any flip).
+      ③.2 re-diagnosed + PINNED: NOT a fixture-output divergence but an isolation/class-load regression, and
+      **NOT** caused by `RunNativeV2:101 ssc.Reader.validate` as first assumed — the **F runner tower** produces
+      its structural result via the `#coreir.decode` prim (`IrToData.program(ssc.Reader.parseProgram(s))`),
+      which class-loads the kernel `ssc.Reader` on EVERY F run (measured 24-25×, gap or not); legacy uses no
+      decode and loads zero. Option (a) (inline unbound-global scan replacing `validate`) is behavior-correct
+      (fallback fires identically, output EQUAL) but **insufficient** — the tower loads Reader first, so it does
+      not turn the smoke green. **⇒ DESIGN DECISION for Sergiy** (BUGS `f-native-out-of-corpus-smoke-regressions`
+      item 2: D1 scope the isolation guard / D2 F emits structural Data directly / D3 kernel decode without
+      Reader; recommend D1 near-term). RunNativeV2 change NOT landed (main pristine). Re-flip STILL HELD (③.2
+      design decision + the separate durable-save-run CI baseline, whose fix just landed — verify before any flip).
 
 ---
 
