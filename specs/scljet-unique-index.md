@@ -66,6 +66,9 @@ executeMutationCountedParams(db, sql, params): Either[String, MutationResult]
       and real numeric equivalents conflict (`1` vs `1.0`), text compares by
       exact value, blobs compare byte-for-byte, and different non-numeric
       storage classes do not conflict.
+- [ ] The physical index-key ordering uses that same exact comparator: distinct
+      REAL and BLOB keys remain ordered and a valid mixed-value unique index
+      passes reference SQLite's `PRAGMA integrity_check`.
 - [ ] A conformance regression runs on the declared `int` and `js` lanes and
       covers CREATE, INSERT, UPDATE, composite keys, NULL, and non-unique
       compatibility.
@@ -108,6 +111,14 @@ The validator is intentionally independent of the rowid suffix stored in an
 SQLite index record. The suffix makes duplicate index entries physically
 orderable; it is not part of the declared uniqueness key.
 
+The writer's index-key comparator is also the validator's equality source. It
+orders integer/real pairs with SQLite's range-safe integer-versus-float rules,
+TEXT by the existing BINARY order, and BLOB byte-for-byte. This avoids a split
+between “duplicate” semantics and physical B-tree ordering. In particular, the
+old comparator's fallback values (`REAL` as integer zero and all BLOBs equal)
+cannot be retained: they can produce a reference-invalid index even when every
+declared key is unique.
+
 ## Decisions
 
 - **Enforce before writing any index pages** — chosen so parser acceptance can
@@ -119,6 +130,9 @@ orderable; it is not part of the declared uniqueness key.
 - **Validate the proposed complete row set** — chosen because current indexed
   DML already performs a compact whole-table rebuild. Rejected: a separate
   incremental lookup path that would duplicate comparison semantics.
+- **Share one exact key comparator** — chosen so uniqueness equality and B-tree
+  ordering cannot disagree. Rejected: a second SQL-layer equality function
+  beside the writer's physical ordering logic.
 - **Match SQLite NULL semantics** — chosen for compatibility. Rejected: treating
   NULL as equal under a unique index.
 - **Keep the existing indexed multi-table limitation** — this slice inherits
