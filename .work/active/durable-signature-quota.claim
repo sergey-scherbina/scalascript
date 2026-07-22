@@ -1,6 +1,0 @@
-feature/durable-signature-quota 2026-07-22T19:58:26Z
-agent: claude-code
-heartbeat: 2026-07-22T19:58:26Z
-status: in-progress
-done-so-far: 22/26 specified. Starting vector 13 (signature-quota-negative): capsule format v3 security envelope (audience/tenant/requiredBudget + HMAC-SHA256 signature) + admission kinds TamperedCapsule/ResourceLimit. Leaf-scoped, both host lanes.
-next: Scala AdmissionPolicy + capsule v3 + hand-rolled HMAC + freeze/restore checks; regen golden hex + version test; vector 13 program; mirror JS; flip vector 13 + repoint validation-test.sh meta-test 13->15
