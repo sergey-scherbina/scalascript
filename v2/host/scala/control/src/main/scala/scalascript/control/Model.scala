@@ -116,13 +116,64 @@ object Restore extends Effect:
   val key: EffectKey[Restore.type] =
     EffectKey.named(EffectId("scalascript.control.Restore"), this)
 
+  /** Resolve an inert `DurableRef` to its value — the one real restore operation. */
+  final case class Resolve[A](ref: DurableRef[A])
+      extends Operation[Restore.type, A]:
+    val effect: EffectKey[Restore.type] = Restore.key
+    val id: OperationId = OperationId(effect.id, "resolve")
+
+  /** Perform a post-admission resolution of a durable reference (§9.2). */
+  def resolve[A](ref: DurableRef[A]): Eff[Restore, A] =
+    perform(Resolve(ref))
+
+  /** Turns a `DurableRef` into its live value once admission has succeeded. */
+  trait Resolver:
+    def resolve[A](ref: DurableRef[A]): A
+
+  /**
+   * Discharge the `Restore` capability by resolving every `Resolve` through the
+   * provider-backed `resolver`. Each resolution runs once and the handler
+   * reinstalls around the suffix, so a multi-shot suffix that resolves twice
+   * calls the resolver twice; each run resolves independently (§8.2).
+   */
+  def withResolver[Fx <: Effect, R](resolver: Resolver)(
+      body: Eff[Fx | Restore, R]
+  ): Eff[Fx, R] =
+    handle[Restore.type, Fx, R, R](body)(
+      new Handler[Restore.type, Fx, R, R]:
+        val effect: EffectKey[Restore.type] = key
+
+        def onReturn(value: R): Eff[Fx, R] = Eff.pure(value)
+
+        def onOperation[X](
+            operation: Operation[Restore.type, X],
+            resumption: Resumption[X, Fx, R]
+        ): Eff[Fx, R] =
+          operation match
+            case resolveOp: Resolve[?] =>
+              // Resolve[A] <: Operation[Restore.type, A], so X is that A.
+              val resolved = resolver.resolve(resolveOp.ref).asInstanceOf[X]
+              resumption match
+                case Resumption.Reusable(continuation) =>
+                  continuation.resume(resolved)
+                case Resumption.OneShot(continuation) =>
+                  continuation.tryResume(resolved) match
+                    case Right(next)    => next
+                    case Left(rejected) =>
+                      throw new IllegalStateException(
+                        s"restore resolution resumed an already-claimed continuation: $rejected"
+                      )
+            case other =>
+              throw new IllegalStateException(
+                s"unknown Restore operation ${other.id}"
+              )
+    )
+
   /**
    * Discharge the `Restore` capability for an in-process run that performs no
-   * provider-backed restore. Nothing constructs an `Operation[Restore.type, ?]`
-   * yet, so the handler's `onOperation` is unreachable; a provider-backed
-   * admission slice replaces this with real restore operations
-   * (control-interoperability §9.2). Until then `Restore` in a run's row is a
-   * declared call-site capability marker, discharged here.
+   * provider-backed resolution. A run that never resolves a `DurableRef` returns
+   * directly; one that does resolve fails here, because no provider is bound —
+   * use `withResolver` to supply one.
    */
   def admitLocally[Fx <: Effect, R](body: Eff[Fx | Restore, R]): Eff[Fx, R] =
     handle[Restore.type, Fx, R, R](body)(
@@ -132,11 +183,11 @@ object Restore extends Effect:
         def onReturn(value: R): Eff[Fx, R] = Eff.pure(value)
 
         def onOperation[X](
-            @scala.annotation.unused operation: Operation[Restore.type, X],
+            operation: Operation[Restore.type, X],
             @scala.annotation.unused resumption: Resumption[X, Fx, R]
         ): Eff[Fx, R] =
           throw new IllegalStateException(
-            "Restore.admitLocally received a restore operation; no provider is bound"
+            s"Restore.admitLocally received ${operation.id}; no provider is bound"
           )
     )
 
