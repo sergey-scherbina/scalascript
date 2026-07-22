@@ -1,6 +1,6 @@
 feature/scljet-unique-index-not-supported 2026-07-22T11:53:53Z
 agent: codex
-heartbeat: 2026-07-22T12:20:26Z
+heartbeat: 2026-07-22T12:30:09Z
 status: in-progress
-done-so-far: parser, metadata, exact INTEGER/REAL/BLOB comparator, and CREATE/INSERT/UPDATE enforcement implemented locally; new INT/JS regression and existing JDBC suite 61/61 green
-next: add sqlite-jdbc rejection/file-integrity differential, then run full affected conformance and documentation gates
+done-so-far: implementation + sqlite-jdbc differential committed locally; forced scljet conformance 103/103 green and targeted differential 2/2 green
+next: finish the running full JDBC gate, then add example/docs, verify spec, land, and run exact-SHA CI
