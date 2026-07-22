@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-07-22 — Admission-time resolver check + typed capsule rejection (vector 11)
+
+Adds the first piece of §11 admission to the durable capsule on both host lanes.
+`ResumePoint.define(id, machine, codec, requiredResolvers)` declares the resolver/provider ids its
+`DurableRef`s need, and `ResumePoint.restore(capsule, availableResolvers)` rejects a capsule whose
+required resolver is absent **atomically at admission — before any frame is decoded or run** — with a
+typed `CapsuleRejected(kind = "MissingDependency")`, distinct from a present resolver whose resource
+fails later at mid-run resolution. `CapsuleRejected` now carries a stable `kind`
+(`FormatVersion`/`ResumePointMismatch`/`FrameTampered`/`MissingDependency`). Defaults keep the existing
+3-arg `define` / 1-arg `restore`, and the capsule wire format is unchanged (the manifest lives on the
+resume point, not the capsule — golden capsule hex unchanged). Flips the conformance vector
+`11-missing-resolver-reject` from `pending-codec` to `specified` (host-only, `structured`): the Scala
+and JS host programs admit + resolve when the resolver is present (`5+1=6`, non-vacuous) and reject with
+`MissingDependency` when absent. 20/26 vectors are now specified. Scala 149/149, ABI 6/6, JS 60/60,
+`run.sh` catalog PASS, process lanes 18/18.
+
 ## 2026-07-22 — `.ssc` process lanes cover multi-prompt shift/reset vectors 18/22/23
 
 The `portable-vm` and `portable-asm` `.ssc` lanes now cover the delimited-control conformance vectors
