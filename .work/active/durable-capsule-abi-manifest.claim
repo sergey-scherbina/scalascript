@@ -1,6 +1,0 @@
-feature/durable-capsule-abi-manifest 2026-07-22T16:24:38Z
-agent: claude-code
-heartbeat: 2026-07-22T16:24:38Z
-status: in-progress
-done-so-far: 20/26 vectors. Vector 12 next — capsule ABI manifest (codecAbiVersion+artifactAbiId+requiredDependencies), format v2, 3 typed rejections CodecMismatch/AbiMismatch/MissingDependency.
-next: ArtifactProfile + capsule format v2 (bump+regen golden both lanes) + ResumePoint profile + restore admission checks; vector 12 program both lanes; flip vector 12
