@@ -75,30 +75,46 @@ Caveat: measurements are single-run in-process `exec` (cold JVM JIT + class-load
 dominate a ~0.3 s run; the ~20 ms unboxed number is the interesting one). A warm-loop bench + the native-
 tier conformance suite are the rigorous validation (§5).
 
-## 3. The real blocker to firing unboxed BY DEFAULT — OpAnf argument lifting
+## 3. The blocker to firing unboxed BY DEFAULT — OpAnf argument lifting — RESOLVED (f5c-2)
 
-`OpAnfNative.lift` Op-argument-lifts any `App`/`Prim` argument that `mayOp` (and `mayOp(App)=true`), so
-`fib(n-1) + fib(n-2)` post-lift is `Let[2]{ fib(n-1); fib(n-2) in i.add(local1, local0) }`. `canParamLong`
-has no `Let` case → it fails → fib falls to the boxed inline-arith path (~330 ms) instead of the unboxed
-`$long` (~20 ms). This is why the ~16× win only shows under `SSC_NO_OPANF=1`. **fib performs no effect** —
-its recursive calls cannot produce an `Op` — so the lift is over-conservative here.
+`OpAnfNative.lift` Op-argument-lifted any `App`/`Prim` argument that `mayOp` (and `mayOp(App)=true`), so
+`fib(n-1) + fib(n-2)` post-lift was `Let[2]{ fib(n-1); fib(n-2) in i.add(local1, local0) }`. `canParamLong`
+has no `Let` case → it failed → fib fell to the boxed inline-arith path (~330 ms) instead of the unboxed
+`$long` (~20 ms). This is why the win only showed under `SSC_NO_OPANF=1`. **fib performs no effect** — its
+recursive calls cannot produce an `Op` — so the lift was over-conservative.
+
+**Fix (f5c-2, `8a76ea5bb`) — least-fixpoint purity registry.** A top-level def is PURE iff `mayOp(body)`
+is false, and `mayOp(App(Global g, args)) = !pure(g) || args.mayOp` (was unconditionally `true`). Purity is
+a least fixpoint over the call graph (start ALL pure, propagate impurity): any Op-producing prim, any call
+to a `Local` or to a non-def/unknown global, or a call to an already-impure def makes a def impure — reusing
+the kernel's own effect model (`primitiveMayProduceAutoThreadOp`, which flags `__method__`/`effect.*`/
+`cell.get`/non-builtins). Conservative by construction. Threaded via a `using PureG`. fib (only self-calls +
+`i.*`) stays pure → its recursive-call args are no longer lifted → no `Let` → `canParamLong` fires by
+default. **Measured, fib(34) on the bytecode lane WITHOUT `SSC_NO_OPANF`: ~26 ms cold / ~8.5 ms warm (12
+in-proc reps), typed = untyped = (beats) interpreter FastCode-ON.** The ~5× gap is CLOSED by default.
+Correctness: 80-program corpus sweep byte-identical before↔after the OpAnf change (output-preserving);
+effectful programs (`effects`/`algebraic-effects`/`generators`/`coroutine-demo`/`async-demo`) byte-identical
+to the interpreter.
 
 ## 4. Staging to the perf-neutral removal
 
-1. **[LANDED] Typed `i.*` recognition** in JvmByteGen's long + inline-arith paths. Regression fixed; unboxed
-   path reachable by typed IR.
-2. **[NEXT — the keystone] Don't OpAnf-lift calls to effect-free defs**, so `canParamLong` fires by default
-   for fib-class defs. Options: (a) an "effect-free def" registry (a def whose body never performs an
-   effect — reuse/extend the F5b def return-type registry: a def returning `Int`/`String`/`BigInt` with no
-   effect prims is pure) consulted by `mayOp`; or (b) teach `canParamLong`/`emitParamLong` to accept the
-   `Let{ self-calls in arith(locals) }` shape directly. (a) is cleaner and also helps other lanes. Gate:
-   fib runs ~20 ms on the bytecode lane WITHOUT `SSC_NO_OPANF`, native-tier conformance green.
-3. **f.* (double) + `lcell`/`dcell` accumulator `i.*`** recognition (the two remaining `__arith__`-only
-   sites) — typed float recursion + typed `var` accumulator loops.
-4. **Then apply the FastCode/SelfRec removal** (`SSC_FASTPATHS` default off → delete the guarded regions,
-   `v2/src/Runtime.scala`) and re-measure: numeric hot loops now get their specialization from typed
-   bytecode on the native lane; the self-hosting gates stay green (indifferent to the fast paths, F5 §3).
-   Land the removal ONLY if fib on the native lane is within tolerance of the old FastCode-ON path.
+1. **[LANDED f5c-1] Typed `i.*` recognition** in JvmByteGen's long + inline-arith paths. Regression fixed;
+   unboxed path reachable by typed IR.
+2. **[LANDED f5c-2] OpAnf effect-free-def registry** — fib hits the unboxed path BY DEFAULT (§3). Keystone
+   met: fib ~8.5 ms warm ≈ FastCode.
+3. **[NEXT] f.* (double) + `lcell`/`dcell` accumulator `i.*`** recognition — the two remaining
+   `__arith__`-only sites (`canDouble`/`genDouble` at JvmByteGen ~599/613; the `lcell.set`/`dcell.set` fused
+   accumulator at ~1040/1060). Typed float recursion + typed `var` accumulator loops. **Required before the
+   removal** so the removal doesn't regress those classes on the native lane.
+4. **THEN apply the FastCode/SelfRec removal** (`SSC_FASTPATHS` default off → delete the guarded regions,
+   `v2/src/Runtime.scala`) and re-measure: numeric hot loops get their specialization from typed bytecode on
+   the native lane; the self-hosting gates stay green (indifferent to the fast paths, F5 §3). Land the
+   removal ONLY if the native-lane fib (+ float/accumulator classes) is within tolerance of the old
+   FastCode-ON path. **⚠ Architectural note to settle first:** FastCode/SelfRec live on the INTERPRETER
+   (`run-ir`); the bytecode perf is a DIFFERENT lane (`run --native`). The removal is perf-neutral only if
+   numeric hot loops are expected to run on the native/bytecode lane (they do for `run --native`; the self-
+   hosting `run-ir` workload is string-processing and indifferent). Confirm the intended default execution
+   lane for user numeric code before deleting the interpreter fast paths.
 
 ## 5. Gates
 
