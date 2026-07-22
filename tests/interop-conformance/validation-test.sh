@@ -42,10 +42,10 @@ printf '%s\n' "$duplicate" >> "$case_dir/vectors.tsv"
 expect_rejected duplicate-vector "$case_dir"
 
 case_dir="$(fresh_case omitted-vector)"
-awk -F '\t' '$1 != "13"' "$case_dir/vectors.tsv" \
+awk -F '\t' '$1 != "15"' "$case_dir/vectors.tsv" \
   > "$case_dir/vectors.tsv.next"
 mv "$case_dir/vectors.tsv.next" "$case_dir/vectors.tsv"
-rm "$case_dir/pending/13-signature-quota-negative.pending"
+rm "$case_dir/pending/15-cross-host-resume.pending"
 expect_rejected omitted-vector "$case_dir"
 
 case_dir="$(fresh_case duplicate-lane)"
@@ -83,7 +83,7 @@ mv "$case_dir/probes/01-one-shot-resume.ssc.next" \
 expect_rejected mismatched-frontmatter "$case_dir"
 
 case_dir="$(fresh_case missing-pending-record)"
-rm "$case_dir/pending/13-signature-quota-negative.pending"
+rm "$case_dir/pending/15-cross-host-resume.pending"
 expect_rejected missing-pending-record "$case_dir"
 
 echo "catalog validator negative cases: $pass PASS"

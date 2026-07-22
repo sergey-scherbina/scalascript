@@ -1,6 +1,0 @@
-axis: signature-quota-negative
-status: pending-codec
-needs: capsule signature/audience/tenant/quota admission
-expected: An untrusted network capsule with a missing/invalid signature, wrong
-  audience/tenant, or exceeded quota is rejected at admission with a typed error.
-  Mandatory (not optional) for untrusted network capsules. Negative axis.

@@ -300,6 +300,8 @@ export class CapsuleRejected extends Error {
     | "FormatVersion"
     | "ResumePointMismatch"
     | "FrameTampered"
+    | "TamperedCapsule"
+    | "ResourceLimit"
     | "CodecMismatch"
     | "AbiMismatch"
     | "MissingDependency"
@@ -319,6 +321,30 @@ export const ArtifactProfile: Readonly<{
     artifactAbiId: string,
     requiredDependencies: ReadonlySet<string>
   ): ArtifactProfile
+}>
+
+/**
+ * The admission-security policy a resume point binds and enforces (§11.1 step 2, §12).
+ * A non-empty `signingKey` signs the capsule (HMAC-SHA256) and makes restore reject a
+ * missing/forged/tampered signature as `TamperedCapsule`; `audience`/`tenant` bind the
+ * capsule to a runner; `requiredBudget` is the demanded budget (`ResourceLimit` when it
+ * exceeds the runner's available budget). The key never travels in the capsule.
+ */
+export interface AdmissionPolicy {
+  readonly audience: string
+  readonly tenant: string
+  readonly requiredBudget: bigint
+  readonly signingKey: DurableBytes
+}
+
+export const AdmissionPolicy: Readonly<{
+  open: AdmissionPolicy
+  of(
+    audience: string,
+    tenant: string,
+    requiredBudget: bigint | number,
+    signingKey: DurableBytes
+  ): AdmissionPolicy
 }>
 
 /** A versioned, digest-verified durable capsule bound to a named resume point. */
@@ -341,14 +367,16 @@ export class ResumePoint<S, A, Fx extends Effect, R> {
   restore(
     capsule: DurableCapsule,
     availableResolvers?: ReadonlySet<string>,
-    availableDependencies?: ReadonlySet<string>
+    availableDependencies?: ReadonlySet<string>,
+    availableBudget?: bigint
   ): SavedContinuation<A, Fx, R>
   static define<S, A, Fx extends Effect, R>(
     id: string,
     machine: ResumeStateMachine<S, A, Fx, R>,
     codec: DurableCodec<S>,
     requiredResolvers?: ReadonlySet<string>,
-    profile?: ArtifactProfile
+    profile?: ArtifactProfile,
+    policy?: AdmissionPolicy
   ): ResumePoint<S, A, Fx, R>
 }
 

@@ -25,7 +25,7 @@ final class DurableCapsuleTest extends AnyFunSuite:
     val capsule = resume.freeze(new Cell(100))
     val transported = DurableCapsule.decode(capsule.encode())
     assert(transported.resumePointId == "cell")
-    assert(transported.formatVersion == 2)
+    assert(transported.formatVersion == 3)
 
     val saved = resume.restore(transported)
     // reusable multi-shot; each restored run reconstructs an independent frame.
@@ -36,7 +36,11 @@ final class DurableCapsuleTest extends AnyFunSuite:
     val resume = point("cell")
     val capsule = resume.freeze(new Cell(7))
     val raw = capsule.encode().toArray
-    raw(raw.length - 1) = (raw(raw.length - 1) ^ 0xff).toByte // corrupt the stored digest
+    // The 32-byte frame digest is followed by the security envelope (audience 4 +
+    // tenant 4 + budget 8 + signature-length 4 = 20 trailing bytes), so the digest's
+    // last byte is at length-21. Corrupt it: the envelope still decodes, but the
+    // recomputed frame digest no longer matches.
+    raw(raw.length - 21) = (raw(raw.length - 21) ^ 0xff).toByte
 
     // decode is inert: the tampered envelope parses without running or verifying.
     val tampered = DurableCapsule.decode(DurableBytes.fromArray(raw))
@@ -84,12 +88,14 @@ final class DurableCapsuleTest extends AnyFunSuite:
     assert(Eff.runPure(continuation.resume(22)) == 42)
 
   // Cross-lane golden capsule: the exact bytes for resume point "cell" freezing the
-  // state 100. The JS lane (control.test.js) asserts the SAME hex; matching bytes on
-  // both prove the versioned envelope AND the SHA-256 frame digest are byte-identical
-  // across lanes (Java MessageDigest here, a hand-rolled SHA-256 in JS).
+  // state 100 under the open (unsigned) policy. The JS lane (control.test.js) asserts
+  // the SAME hex; matching bytes on both prove the versioned envelope, the SHA-256
+  // frame digest, and the trailing security envelope (audience/tenant/budget/empty
+  // signature) are byte-identical across lanes (Java MessageDigest here, a hand-rolled
+  // SHA-256 in JS).
   test("golden capsule bytes match the cross-lane format"):
     val resume = point("cell")
     assert(
       resume.freeze(new Cell(100)).encode().toString ==
-        "000000020000000463656c6c0000000100000000000000000000000400000064000000204b458482422640f4fb818274ec2b4f3d1de3a487c25f991d751e483fdc0aea9b"
+        "000000030000000463656c6c0000000100000000000000000000000400000064000000204b458482422640f4fb818274ec2b4f3d1de3a487c25f991d751e483fdc0aea9b0000000000000000000000000000000000000000"
     )

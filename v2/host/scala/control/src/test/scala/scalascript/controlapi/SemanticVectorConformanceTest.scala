@@ -119,7 +119,7 @@ private object SemanticVectorConformanceTest:
     val implementedIds: Set[String] =
       Set(
         "01", "02", "03", "04", "05", "06", "07", "08", "09",
-        "10", "11", "12",
+        "10", "11", "12", "13",
         "14", "17",
         "18", "19", "20", "21", "22", "23", "24", "25"
       )
@@ -229,6 +229,7 @@ private object SemanticVectorConformanceTest:
         case "10" => rawForeignvReject()
         case "11" => missingResolverReject()
         case "12" => exactArtifactAndCodecMismatch()
+        case "13" => signatureQuotaNegative()
         case "14" => durableSaveRunSameProcess()
         case "17" => noPrefixMainReplay()
         case "18" => nearestMatchingReset()
@@ -372,6 +373,49 @@ private object SemanticVectorConformanceTest:
       val needsToolchain = point(ArtifactProfile(2, "y", Set("toolchain-z")))
       val missingDependency = admissionKind(needsToolchain, needsToolchain.freeze(0))
       s"$codecMismatch|$abiMismatch|$missingDependency"
+
+    // Axis 13 — an untrusted network capsule is admission-checked for a valid keyed
+    // signature and a resource budget before any user code runs. A capsule presented to
+    // a runner holding a different signing key fails signature verification
+    // (TamperedCapsule); a capsule whose declared budget exceeds the runner's available
+    // budget is ResourceLimit. Both reject at admission, before any frame is run.
+    private def signatureQuotaNegative(): String =
+      val key = DurableBytes.fromArray("tenant-secret".getBytes(StandardCharsets.UTF_8))
+      val policy = AdmissionPolicy("wallet", "acme", 100L, key)
+      val trusted =
+        ResumePoint.define(
+          "signed",
+          timesTen,
+          DurableCodec.int,
+          Set.empty,
+          ArtifactProfile.default,
+          policy
+        )
+      val signed = trusted.freeze(7)
+      // non-vacuous: the untouched signed capsule admits under a sufficient budget and runs.
+      val admitted =
+        Eff.runPure(Restore.admitLocally(trusted.restore(signed, availableBudget = 1000L).run(3)))
+      assert(admitted == 30, s"expected signed capsule to admit and run to 30, got $admitted")
+      // (a) a runner holding a different signing key cannot verify the signature.
+      val wrongKey =
+        DurableBytes.fromArray("attacker-key".getBytes(StandardCharsets.UTF_8))
+      val untrusted =
+        ResumePoint.define(
+          "signed",
+          timesTen,
+          DurableCodec.int,
+          Set.empty,
+          ArtifactProfile.default,
+          policy.copy(signingKey = wrongKey)
+        )
+      val tampered = admissionKind(untrusted, signed)
+      // (b) the same runner with a budget below the capsule's declared demand.
+      val resourceLimit =
+        try
+          val _ = trusted.restore(signed, availableBudget = 10L)
+          "Admitted"
+        catch case rejected: CapsuleRejected => rejected.kind
+      s"$tampered|$resourceLimit"
 
     private def resumeReusable[A, Fx <: Effect, R](
         resumption: Resumption[A, Fx, R],

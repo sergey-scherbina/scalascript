@@ -11,7 +11,7 @@ id	slug	law	capabilities	phase	expectedExit	expectedStream	oracle
 10	raw-foreignv-reject	§8.3,§9.1,§14.3	durable-save,foreign-barrier	specified	zero	structured	CaptureBarrier
 11	missing-resolver-reject	§9.2,§11.1,§14.3	admission,durable-ref	specified	zero	structured	MissingDependency
 12	exact-artifact-and-codec-mismatch	§8.3,§11.1,§14.3	admission,exact-artifact	specified	zero	structured	CodecMismatch|AbiMismatch|MissingDependency
-13	signature-quota-negative	§11.1,§12,§14.3	admission,security	pending-codec	pending	pending	TamperedCapsule|ResourceLimit
+13	signature-quota-negative	§11.1,§12,§14.3	admission,security	specified	zero	structured	TamperedCapsule|ResourceLimit
 14	durable-save-run-same-process	§8.1,§14.3	durable-save	specified	zero	stdout	10,20
 15	cross-host-resume	§8.1,§14.4	durable-save,remote-runner	pending-codec	pending	pending	portable-N-to-M
 16	concurrent-multi-shot	§8.1,§14.3	concurrency,durable-save,multi-shot	pending-codec	pending	pending	100-independent-runs

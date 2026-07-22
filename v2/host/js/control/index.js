@@ -1211,12 +1211,18 @@ export class CapsuleRejected extends Error {
   }
 }
 
-const capsuleFormatVersion = 2
+const capsuleFormatVersion = 3
 // "ssc-frame-v1\0" — NUL-terminated domain separator (§10).
 const frameDigestDomain = Uint8Array.from([
   ...new TextEncoder().encode("ssc-frame-v1"),
   0
 ])
+// "ssc-capsule-sig-v1\0" — domain separator for the keyed capsule signature.
+const capsuleSignatureDomain = Uint8Array.from([
+  ...new TextEncoder().encode("ssc-capsule-sig-v1"),
+  0
+])
+const emptySignature = DurableBytes.fromArray(new Uint8Array(0))
 
 // The pinned ABI/dependency identity a capsule carries so admission can reject a
 // codec, artifact, or dependency mismatch before any user code runs (§10, §12).
@@ -1231,10 +1237,33 @@ export const ArtifactProfile = Object.freeze({
   }
 })
 
+// The admission-security policy a resume point binds into every capsule it freezes
+// and enforces on restore (§11.1 step 2, §12). `signingKey` is the symmetric
+// HMAC-SHA256 key (empty = trusted in-process, unsigned); `audience`/`tenant` bind the
+// capsule to a runner; `requiredBudget` (a BigInt) is the demanded execution budget.
+// Missing/forged signature or wrong audience/tenant → TamperedCapsule; over-budget →
+// ResourceLimit. The key never travels in the serialized capsule.
+export const AdmissionPolicy = Object.freeze({
+  open: Object.freeze({
+    audience: "",
+    tenant: "",
+    requiredBudget: 0n,
+    signingKey: DurableBytes.fromArray(new Uint8Array(0))
+  }),
+  of(audience, tenant, requiredBudget, signingKey) {
+    return Object.freeze({
+      audience,
+      tenant,
+      requiredBudget: BigInt(requiredBudget),
+      signingKey
+    })
+  }
+})
+
 const capsuleStates = new WeakMap()
 
 export class DurableCapsule {
-  constructor(authority, formatVersion, resumePointId, codecAbiVersion, artifactAbiId, requiredDependencies, frame, digest) {
+  constructor(authority, formatVersion, resumePointId, codecAbiVersion, artifactAbiId, requiredDependencies, frame, digest, audience, tenant, requiredBudget, signature) {
     requireInternalAuthority(authority)
     capsuleStates.set(this, Object.freeze({
       formatVersion,
@@ -1243,7 +1272,11 @@ export class DurableCapsule {
       artifactAbiId,
       requiredDependencies: Object.freeze(requiredDependencies.slice()),
       frame,
-      digest
+      digest,
+      audience,
+      tenant,
+      requiredBudget,
+      signature
     }))
     Object.freeze(this)
   }
@@ -1276,22 +1309,37 @@ const capsuleCodec = DurableCodec.imap(
           DurableCodec.string,
           DurableCodec.pair(
             DurableCodec.list(DurableCodec.string),
-            DurableCodec.pair(DurableCodec.bytes, DurableCodec.bytes)
+            DurableCodec.pair(
+              DurableCodec.bytes,
+              DurableCodec.pair(
+                DurableCodec.bytes,
+                DurableCodec.pair(
+                  DurableCodec.string,
+                  DurableCodec.pair(
+                    DurableCodec.string,
+                    DurableCodec.pair(DurableCodec.long, DurableCodec.bytes)
+                  )
+                )
+              )
+            )
           )
         )
       )
     )
   ),
-  ([version, [id, [codecAbi, [artifactAbi, [deps, [frame, digest]]]]]]) =>
+  ([version, [id, [codecAbi, [artifactAbi, [deps, [frame,
+    [digest, [audience, [tenant, [requiredBudget, signature]]]]]]]]]]) =>
     new DurableCapsule(
-      internalAuthority, version, id, codecAbi, artifactAbi, deps, frame, digest
+      internalAuthority, version, id, codecAbi, artifactAbi, deps, frame, digest,
+      audience, tenant, requiredBudget, signature
     ),
   capsule => {
     const state = requirePrivateState(capsuleStates, capsule, "durable capsule")
     return [
       state.formatVersion,
       [state.resumePointId, [state.codecAbiVersion, [state.artifactAbiId,
-        [state.requiredDependencies, [state.frame, state.digest]]]]]
+        [state.requiredDependencies, [state.frame, [state.digest,
+          [state.audience, [state.tenant, [state.requiredBudget, state.signature]]]]]]]]]
     ]
   }
 )
@@ -1303,8 +1351,51 @@ function digestFrame(frame) {
   return new DurableBytes(sha256(combined))
 }
 
-function createCapsule(id, frame, profile) {
+// --- Keyed HMAC-SHA256 (RFC 2104) over the hand-rolled SHA-256, byte-identical to the
+// Scala reference lane's MessageDigest-based hand-rolled HMAC. ---
+
+const hmacBlockSize = 64
+
+function hmacSha256(key, message) {
+  const normalized = key.length > hmacBlockSize ? sha256(key) : key
+  const padded = new Uint8Array(hmacBlockSize) // zero-filled to the block size
+  padded.set(normalized)
+  const inner = new Uint8Array(hmacBlockSize + message.length)
+  const outer = new Uint8Array(hmacBlockSize + 32)
+  for (let i = 0; i < hmacBlockSize; i++) {
+    inner[i] = padded[i] ^ 0x36
+    outer[i] = padded[i] ^ 0x5c
+  }
+  inner.set(message, hmacBlockSize)
+  outer.set(sha256(inner), hmacBlockSize)
+  return sha256(outer)
+}
+
+function withSignature(capsule, signature) {
+  const s = requirePrivateState(capsuleStates, capsule, "durable capsule")
   return new DurableCapsule(
+    internalAuthority, s.formatVersion, s.resumePointId, s.codecAbiVersion,
+    s.artifactAbiId, s.requiredDependencies, s.frame, s.digest, s.audience,
+    s.tenant, s.requiredBudget, signature
+  )
+}
+
+// The signature covers the canonical body with an empty signature slot, so a forged
+// edit of any other field changes the message and breaks the HMAC.
+function signingMessage(capsule) {
+  const body = withSignature(capsule, emptySignature).encode().toArray()
+  const message = new Uint8Array(capsuleSignatureDomain.length + body.length)
+  message.set(capsuleSignatureDomain)
+  message.set(body, capsuleSignatureDomain.length)
+  return message
+}
+
+function signatureFor(capsule, key) {
+  return new DurableBytes(hmacSha256(key.toArray(), signingMessage(capsule)))
+}
+
+function createCapsule(id, frame, profile, policy) {
+  const unsigned = new DurableCapsule(
     internalAuthority,
     capsuleFormatVersion,
     id,
@@ -1312,8 +1403,14 @@ function createCapsule(id, frame, profile) {
     profile.artifactAbiId,
     [...profile.requiredDependencies].sort(),
     frame,
-    digestFrame(frame)
+    digestFrame(frame),
+    policy.audience,
+    policy.tenant,
+    policy.requiredBudget,
+    emptySignature
   )
+  if (policy.signingKey.length === 0) return unsigned
+  return withSignature(unsigned, signatureFor(unsigned, policy.signingKey))
 }
 
 function verifyCapsule(capsule, expectedId) {
@@ -1336,14 +1433,43 @@ function verifyCapsule(capsule, expectedId) {
   return state
 }
 
+// Security admission (§11.1 step 2): the keyed signature, the audience/tenant binding,
+// and the resource budget, each a distinct typed rejection. Runs after capsule integrity
+// (verifyCapsule) and before the codec/ABI/dependency checks.
+function admitSecurity(capsule, state, policy, availableBudget) {
+  if (policy.signingKey.length !== 0) {
+    if (signatureFor(capsule, policy.signingKey).toHex() !== state.signature.toHex()) {
+      throw new CapsuleRejected("TamperedCapsule", "capsule signature verification failed")
+    }
+  }
+  if (state.audience !== policy.audience) {
+    throw new CapsuleRejected(
+      "TamperedCapsule",
+      `capsule audience '${state.audience}' is not admitted by this runner`
+    )
+  }
+  if (state.tenant !== policy.tenant) {
+    throw new CapsuleRejected(
+      "TamperedCapsule",
+      `capsule tenant '${state.tenant}' is not admitted by this runner`
+    )
+  }
+  if (state.requiredBudget > availableBudget) {
+    throw new CapsuleRejected(
+      "ResourceLimit",
+      `capsule requires budget ${state.requiredBudget} exceeding available ${availableBudget}`
+    )
+  }
+}
+
 const resumePointStates = new WeakMap()
 
 export class ResumePoint {
-  constructor(authority, id, machine, codec, requiredResolvers, profile) {
+  constructor(authority, id, machine, codec, requiredResolvers, profile, policy) {
     requireInternalAuthority(authority)
     resumePointStates.set(
       this,
-      Object.freeze({ id, machine, codec, requiredResolvers, profile })
+      Object.freeze({ id, machine, codec, requiredResolvers, profile, policy })
     )
     Object.freeze(this)
   }
@@ -1367,16 +1493,23 @@ export class ResumePoint {
 
   freeze(state) {
     const point = requirePrivateState(resumePointStates, this, "resume point")
-    return createCapsule(point.id, point.codec.encode(state), point.profile)
+    return createCapsule(point.id, point.codec.encode(state), point.profile, point.policy)
   }
 
   // Admit a capsule and rebind it, running every admission check atomically before any
-  // frame is decoded or run (§9.2, §11, §12): capsule integrity (verifyCapsule), then a
-  // pinned codec-ABI (CodecMismatch), artifact-ABI (AbiMismatch), and required
-  // resolver/dependency (MissingDependency) check — each a distinct typed rejection.
-  restore(capsule, availableResolvers = new Set(), availableDependencies = new Set()) {
+  // frame is decoded or run (§9.2, §11, §12): capsule integrity (verifyCapsule), then the
+  // security envelope (TamperedCapsule / ResourceLimit), then a pinned codec-ABI
+  // (CodecMismatch), artifact-ABI (AbiMismatch), and required resolver/dependency
+  // (MissingDependency) check — each a distinct typed rejection.
+  restore(
+    capsule,
+    availableResolvers = new Set(),
+    availableDependencies = new Set(),
+    availableBudget = (2n ** 63n) - 1n
+  ) {
     const point = requirePrivateState(resumePointStates, this, "resume point")
     const state = verifyCapsule(capsule, point.id)
+    admitSecurity(capsule, state, point.policy, availableBudget)
     if (state.codecAbiVersion !== point.profile.codecAbiVersion) {
       throw new CapsuleRejected(
         "CodecMismatch",
@@ -1407,7 +1540,7 @@ export class ResumePoint {
     )
   }
 
-  static define(id, machine, codec, requiredResolvers = new Set(), profile = ArtifactProfile.default) {
+  static define(id, machine, codec, requiredResolvers = new Set(), profile = ArtifactProfile.default, policy = AdmissionPolicy.open) {
     if (typeof id !== "string" || id.length === 0) {
       throw new TypeError("resume point id must be a non-empty string")
     }
@@ -1422,7 +1555,10 @@ export class ResumePoint {
     if (profile === null || typeof profile !== "object") {
       throw new TypeError("artifact profile must be an object")
     }
-    return new ResumePoint(internalAuthority, id, machine, codec, requiredResolvers, profile)
+    if (policy === null || typeof policy !== "object") {
+      throw new TypeError("admission policy must be an object")
+    }
+    return new ResumePoint(internalAuthority, id, machine, codec, requiredResolvers, profile, policy)
   }
 }
 

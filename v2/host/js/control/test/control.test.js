@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs"
 import test from "node:test"
 
 import {
+  AdmissionPolicy,
   ArtifactProfile,
   CapsuleRejected,
   CaptureFailure,
@@ -524,6 +525,44 @@ function exactArtifactAndCodecMismatch() {
   return `${codecMismatch}|${abiMismatch}|${missingDependency}`
 }
 
+// Axis 13 — an untrusted network capsule is admission-checked for a valid keyed
+// signature and a resource budget before any user code runs. A capsule presented to a
+// runner holding a different signing key fails signature verification (TamperedCapsule);
+// a capsule whose declared budget exceeds the runner's is ResourceLimit.
+function signatureQuotaNegative() {
+  const machine = { resume: (state, input) => Eff.pure(input * 10) }
+  const key = DurableBytes.fromArray(new TextEncoder().encode("tenant-secret"))
+  const policy = AdmissionPolicy.of("wallet", "acme", 100n, key)
+  const trusted = ResumePoint.define(
+    "signed", machine, DurableCodec.int, new Set(), ArtifactProfile.default, policy
+  )
+  const signed = trusted.freeze(7)
+  const admissionKind = (target, capsule, budget) => {
+    try {
+      target.restore(capsule, new Set(), new Set(), budget)
+      return "Admitted"
+    } catch (error) {
+      if (error instanceof CapsuleRejected) return error.kind
+      throw error
+    }
+  }
+  // non-vacuous: the untouched signed capsule admits under a sufficient budget and runs.
+  const admitted = Eff.runPure(
+    Restore.admitLocally(trusted.restore(signed, new Set(), new Set(), 1000n).run(3))
+  )
+  assert.equal(admitted, 30) // 3 * 10
+  // (a) a runner holding a different signing key cannot verify the signature.
+  const wrongKey = DurableBytes.fromArray(new TextEncoder().encode("attacker-key"))
+  const untrusted = ResumePoint.define(
+    "signed", machine, DurableCodec.int, new Set(), ArtifactProfile.default,
+    AdmissionPolicy.of("wallet", "acme", 100n, wrongKey)
+  )
+  const tampered = admissionKind(untrusted, signed, (2n ** 63n) - 1n)
+  // (b) the same runner with a budget below the capsule's declared demand.
+  const resourceLimit = admissionKind(trusted, signed, 10n)
+  return `${tampered}|${resourceLimit}`
+}
+
 const semanticPrograms = new Map([
   ["01", oneShotResume],
   ["02", multiShotResume],
@@ -537,6 +576,7 @@ const semanticPrograms = new Map([
   ["10", rawForeignvReject],
   ["11", missingResolverReject],
   ["12", exactArtifactAndCodecMismatch],
+  ["13", signatureQuotaNegative],
   ["14", durableSaveRunSameProcess],
   ["17", noPrefixMainReplay],
   ["18", nearestMatchingReset],
@@ -937,7 +977,7 @@ test("freeze -> encode -> decode -> restore -> run reproduces the state", () => 
   const capsule = point.freeze({ value: 100 })
   const transported = DurableCapsule.decode(capsule.encode())
   assert.equal(transported.resumePointId, "cell")
-  assert.equal(transported.formatVersion, 2)
+  assert.equal(transported.formatVersion, 3)
   const saved = point.restore(transported)
   assert.equal(runRestored(saved, 1), 101)
   assert.equal(runRestored(saved, 5), 105)
@@ -946,7 +986,10 @@ test("freeze -> encode -> decode -> restore -> run reproduces the state", () => 
 test("a tampered frame is rejected at restore, not at decode", () => {
   const point = ResumePoint.define("cell", cellMachine, cellCodec)
   const raw = point.freeze({ value: 7 }).encode().toArray()
-  raw[raw.length - 1] ^= 0xff // corrupt the stored digest
+  // The 32-byte frame digest is followed by the security envelope (audience 4 + tenant 4
+  // + budget 8 + signature-length 4 = 20 trailing bytes), so the digest's last byte is at
+  // length-21. Corrupt it: the envelope still decodes, but the recomputed digest differs.
+  raw[raw.length - 21] ^= 0xff
   const tampered = DurableCapsule.decode(DurableBytes.fromArray(raw)) // inert decode
   assert.throws(() => point.restore(tampered), CapsuleRejected)
   // non-vacuous: the clean capsule still admits.
@@ -984,14 +1027,16 @@ test("capsule decoding is bounded and exact", () => {
 })
 
 // Cross-lane golden capsule: the exact bytes for resume point "cell" freezing the
-// int state 100. The embedded 32-byte digest was computed independently by Node's
-// crypto SHA-256, so a match proves this lane's hand-rolled SHA-256 AND the envelope
-// encoding agree with the Scala reference lane byte-for-byte.
+// int state 100 under the open (unsigned) policy. The embedded 32-byte digest was
+// computed independently by Node's crypto SHA-256, so a match proves this lane's
+// hand-rolled SHA-256 AND the envelope encoding — including the trailing security
+// envelope (audience/tenant/budget/empty signature) — agree with the Scala reference
+// lane byte-for-byte.
 test("golden capsule bytes match the cross-lane format", () => {
   const point = ResumePoint.define("cell", cellMachine, cellCodec)
   assert.equal(
     point.freeze({ value: 100 }).encode().toHex(),
-    "000000020000000463656c6c0000000100000000000000000000000400000064000000204b458482422640f4fb818274ec2b4f3d1de3a487c25f991d751e483fdc0aea9b"
+    "000000030000000463656c6c0000000100000000000000000000000400000064000000204b458482422640f4fb818274ec2b4f3d1de3a487c25f991d751e483fdc0aea9b0000000000000000000000000000000000000000"
   )
 })
 
