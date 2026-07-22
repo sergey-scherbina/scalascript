@@ -171,7 +171,7 @@ Preconditions:
 
 Reversible sequence (irreversible step isolated): (1) build the gate classification → (2) stage `F`
 behind a flag → (3) dual-run corpus+conformance in CI → **(4) ✅ flip the default front DONE 2026-07-22
-(`5e5e1d194`) — F is now default, `SSC_FRONT=legacy` opts out** → (5) delete the old ssc0 front (the
+(`3750df8c2`) — F is now default, `SSC_FRONT=legacy` opts out** → (5) delete the old ssc0 front (the
 ~8,900-line win — still deferred; the fallback depends on it).
 
 #### F4 staging — landed (steps 1-3, REVERSIBLE, default UNCHANGED). 2026-07-20, `v2-f4`.
@@ -238,7 +238,7 @@ byte-identical to default wherever F falls short. `SSC_FRONT_TRACE=1` logs each 
   residuals above. Typed fixpoint byte-identical (the fallback doesn't touch F's self-compile). `classify`
   stays green (raw F coverage, 12 GAP; output notes the product-level fallback).
 
-#### The flip (step 4) — ✅ DONE 2026-07-22 (`5e5e1d194`). F IS the default native front.
+#### The flip (step 4) — ✅ DONE 2026-07-22 (`3750df8c2`). F IS the default native front.
 
 - **The flip was one line in `RunNativeV2.frontIsF`:** inverted opt-IN → opt-OUT —
   `sys.env.get("SSC_FRONT").exists(v => v == "F" || v.equalsIgnoreCase("fsub"))` →

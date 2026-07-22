@@ -4,7 +4,7 @@
 # `SSC_FRONT=F bin/ssc run P` (F) — capturing (exit, stdout). It is GREEN when every divergence is
 # listed here; an UNEXPECTED divergence (F worse than the default front, not listed) is a genuine-FAIL.
 #
-# ★ POST-FLIP (2026-07-22, `5e5e1d194`): F is now the DEFAULT front, so `bin/ssc run P` (default) == F.
+# ★ POST-FLIP (2026-07-22, `3750df8c2`): F is now the DEFAULT front, so `bin/ssc run P` (default) == F.
 #   This gate therefore now compares F-vs-F (trivially EQUAL) and serves as a WIRING / self-consistency
 #   check. To reproduce the pre-flip old-front-vs-F comparison that this list documents, use the OLD
 #   front as the reference side: `SSC_FRONT=legacy bin/ssc run P` vs `SSC_FRONT=F bin/ssc run P`. The

@@ -33,7 +33,7 @@ provider, or the F cutover path from these tasks** (collision). These six are th
       (F5b). Step B landed = the instrument only (+7 net). Deep remainder queued in BACKLOG
       "v2 kernel-shrink deep remainder".
 
-- [x] **v2-f4-flip — DONE 2026-07-22 (`5e5e1d194`).** Flipped F to the DEFAULT native front (one line in
+- [x] **v2-f4-flip — DONE 2026-07-22 (`3750df8c2`).** Flipped F to the DEFAULT native front (one line in
       `RunNativeV2.frontIsF`, opt-IN → opt-OUT; `SSC_FRONT=legacy` opts out; old ssc0 front kept as the
       F4a fallback). Preconditions met (mcp-types landed 886df94fe/809bed9d3). Safety valve GREEN: clean
       full-corpus `SSC_DUALRUN_ALL` sweep (528/528, 0 unexpected divergence; sole divergence
