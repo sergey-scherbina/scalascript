@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-07-22 — v2-f5c: JvmByteGen recognizes typed `i.*` prims (bytecode lane, numeric recursion)
+
+After the F5b perf finding (typed IR ≠ interpreter-FastCode-removal enabler), Sergiy chose the bytecode
+lever. Discovered the native/bytecode lane (`v2/backend-jvm-bytecode/JvmByteGen`, `bin/ssc run --native`)
+already has unboxed-`Long` numeric fast paths — but they matched **only** the untyped `__arith__` form, so
+F5b's typed `i.add`/`i.sub`/`i.lt` fell to the boxed generic path (**~1.9× regression** on the native lane:
+fib(34) typed 620 ms vs untyped 330 ms). Fix: an `ArithB` extractor recognizing BOTH `__arith__` and the
+typed `i.*` prims, applied at all 8 long-path + inline-arith sites (provably equivalent — `i.add ≡ arith
+'+' ≡ arithFast`, exactly what the untyped path does, still IntV-guarded). Result: typed fib 620→**330 ms**
+(regression fixed); and the unboxed `$long` path (`canParamLong`) now reaches typed IR too → **~20 ms ≈ the
+interpreter FastCode-ON compute**, i.e. the perf-neutral FastCode/SelfRec removal is reachable via this
+lane. Correctness: a typed program (`fib`/`fact`/`i.lt`/`i.eq`/`i.mul`/String `+`) runs byte-identical on
+the bytecode lane vs the interpreter. Self-hosting gates unaffected (`run-ir` lane; semantic 248/248,
+fixpoint byte-identical). Design + the blocker to firing unboxed by default (OpAnf lifting fib's recursive-
+call args) + staging to the removal: `specs/v2-f5c-typed-bytecode.md`.
+
 ## 2026-07-22 — Durable capsule mirrored on the JS lane, verified byte-identical
 
 The capsule envelope + resume points now exist on the JavaScript reference lane

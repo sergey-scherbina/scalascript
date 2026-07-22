@@ -304,6 +304,28 @@ KEY design facts established this lane (see also project memory):
 - [ ] **S1-5 slice 1b-3 — typed `.length`/`.charAt`/`.substring` on a String-typed local.** `postDot`/
       `emitLen` become env-type-aware (via `localTyOf` on the receiver): a String-typed `(local N)` receiver
       lowers `.length`→`slen`, `.charAt`→`scodeAt`. Subsumes part of Stage 2. Gate as above.
+
+## v2-f5c — typed-IR JVM-bytecode for numeric recursion (the perf lever; `specs/v2-f5c-typed-bytecode.md`)
+
+Sergiy chose the bytecode lever over more typed-IR-emit (the F5b finding: typed IR ≠ interpreter-FastCode-
+removal-enabler). The bytecode lane (`JvmByteGen`, `bin/ssc run --native`) already has unboxed-`Long` numeric
+fast paths → fib ~20 ms ≈ interpreter FastCode; making numeric loops fast HERE is how the FastCode/SelfRec
+removal becomes perf-neutral.
+- [x] **f5c-1 DONE (`9d557848c`, 2026-07-22) — JvmByteGen recognizes typed `i.*`.** Its fast paths were
+      `__arith__`-only, so F5b typed IR was ~1.9× slower on the native lane (fib 620 vs 330 ms). `ArithB`
+      extractor (both forms → op symbol) at all 8 long/inline-arith sites. Typed fib 620→330 ms (regression
+      fixed); unboxed `$long` path reaches typed IR → ~20 ms ≈ FastCode. Byte-identical output vs interp.
+      `v2JvmBytecode/compile` green; self-hosting gates unaffected.
+- [ ] **f5c-2 (NEXT — the keystone) — don't OpAnf-lift calls to EFFECT-FREE defs.** `OpAnfNative.lift`
+      letifies fib's recursive-call args (`mayOp(App)=true`) → `Let{ fib(n-1); fib(n-2) in i.add(l1,l0) }` →
+      `canParamLong` (no `Let` case) fails → boxed (330 ms) instead of unboxed (20 ms). fib performs no
+      effect, so the lift is over-conservative. Fix: an effect-free-def registry (reuse/extend the F5b return-
+      type registry — a def returning `Int`/`String`/`BigInt` with no effect prims is pure) consulted by
+      `mayOp`; OR teach `canParamLong`/`emitParamLong` the `Let{ self-calls in arith(locals) }` shape. Gate:
+      fib ~20 ms on the native lane WITHOUT `SSC_NO_OPANF`; native-tier conformance green.
+- [ ] **f5c-3 — f.* (double) + `lcell`/`dcell` accumulator `i.*`** (the 2 remaining `__arith__`-only sites).
+- [ ] **f5c-4 — THEN apply the FastCode/SelfRec removal** (`SSC_FASTPATHS` off → delete, `v2/src`) + re-
+      measure fib on the native lane within tolerance of old FastCode-ON. Land only if perf-neutral.
 - [ ] **S1-6 — δ-arm deletion: Δ=0 in Stage 1 (approach A) — MEASURED, deferred to post-S1-5.** Confirmed
       empirically: (a) typed F STILL emits `__arith__` for bare-variable arith (`a+b`, `local>=local`) and
       `__eq__` for `local==lit`; (b) the ssc0 tower `ssc1-lower.ssc0` emits `__arith__` ×12 + `__eq__` ×10;
