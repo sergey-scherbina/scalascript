@@ -1,0 +1,6 @@
+feature/durable-map-codec 2026-07-22T12:46:45Z
+agent: claude-code
+heartbeat: 2026-07-22T12:46:45Z
+status: not-started
+done-so-far:
+next: DurableCodec.map[K,V] canonical-key ordering (sort by encoded key bytes; decode enforces strictly-ascending) both lanes + shared golden vector proving insertion order does not affect bytes; completes §9.1 value algebra. Spec update
