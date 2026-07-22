@@ -1,6 +1,0 @@
-feature/ssc-save-run-vectors 2026-07-22T14:03:46Z
-agent: claude-code
-heartbeat: 2026-07-22T14:03:46Z
-status: in-progress
-done-so-far: subagent (schema) done+landed, no more control-module collision. Probes verified pass on portable-vm/asm.
-next: full flip vectors 14/17 specified: probes+expected (process) + JS host semanticPrograms 14/17 in control.test.js + oracle=JS return + lanes.tsv durable-save/no-replay + delete pending; verify run.sh + JS + Scala control green
