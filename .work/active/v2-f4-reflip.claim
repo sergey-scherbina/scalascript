@@ -1,6 +1,6 @@
 feature/v2-f4-reflip 2026-07-22T03:59:39Z
 agent: opus-orch
-heartbeat: 2026-07-22T05:39:07Z
-status: HALTED-reflip-blocked (①② landed, re-flip NOT applied)
-done-so-far: LANDED to origin/main: ① int-literal fail-closed (3d5d6b151), ② CI budget staged (9d95d5be0), docs (f53784c81). Verified: int-literal smoke GREEN under F; X1 fixpoint byte-identical on combined F5b+① fsub.ssc (400969B); semantic 248/248; dualrun 45/45; negtc PASS under F-default (frontend.ok 208, mismatch 0, ~23min < 75). Re-flip HALTED.
-next: RE-FLIP BLOCKED on NEW blocker ③ = BUGS f-native-out-of-corpus-smoke-regressions (v21-native-md-interpolator fail-open <closure> on markdown interpolation + v21-native-plugin-boundary; PASS legacy/FAIL F, A/B-verified). Corpus dualrun could not see them (out-of-corpus fixtures). Fix ③ in fsub.ssc (parseInterp/interpChain markdown render), then whole tests/e2e/*smoke* green under F-default, THEN re-apply the one-line frontIsF flip. Claim kept OPEN per HALT rule; coordinator to decide reassignment.
+heartbeat: 2026-07-22T11:56:28Z
+status: fix-loop (③ md-interp FIXED, plugin-boundary deep)
+done-so-far: ①② landed earlier (3d5d6b151/9d95d5be0). Fix-loop: ③ md-interpolator FIXED on branch 622895041 (F now supports md/raw interpolators, was fail-open <closure>); gated green (fixpoint byte-identical 402529B, semantic 248/248, int-literal PASS, md smoke PASS, F==legacy on fixture). plugin-boundary diagnosed = F4a fallback ssc.Reader.validate loads ssc.Reader which the plugin-isolation assertion forbids (DEEP/design, touches v2/src).
+next: full smoke A/B under F re-running to confirm tail. If plugin-boundary is the only remaining genuine regr (deep/design-blocked): land md fix + report, do NOT re-flip.
