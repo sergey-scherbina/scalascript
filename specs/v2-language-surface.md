@@ -170,8 +170,9 @@ Preconditions:
 4. `F` self-compiles (fixpoint) + `v2/conformance/check.sh` green on the cutover SHA.
 
 Reversible sequence (irreversible step isolated): (1) build the gate classification → (2) stage `F`
-behind a flag → (3) dual-run corpus+conformance in CI → **(4) ★ flip the `installBin` default front
-(one commit — the CLI-switch Sergiy holds)** → (5) delete the old ssc0 front (the ~8,900-line win).
+behind a flag → (3) dual-run corpus+conformance in CI → **(4) ✅ flip the default front DONE 2026-07-22
+(`5e5e1d194`) — F is now default, `SSC_FRONT=legacy` opts out** → (5) delete the old ssc0 front (the
+~8,900-line win — still deferred; the fallback depends on it).
 
 #### F4 staging — landed (steps 1-3, REVERSIBLE, default UNCHANGED). 2026-07-20, `v2-f4`.
 
@@ -237,16 +238,25 @@ byte-identical to default wherever F falls short. `SSC_FRONT_TRACE=1` logs each 
   residuals above. Typed fixpoint byte-identical (the fallback doesn't touch F's self-compile). `classify`
   stays green (raw F coverage, 12 GAP; output notes the product-level fallback).
 
-#### The flip (step 4, Sergiy) — exact one-liner. NO remaining blocker.
+#### The flip (step 4) — ✅ DONE 2026-07-22 (`5e5e1d194`). F IS the default native front.
 
-- **The flip = one line in `RunNativeV2.frontIsF`:** invert opt-IN → opt-OUT, e.g.
+- **The flip was one line in `RunNativeV2.frontIsF`:** inverted opt-IN → opt-OUT —
   `sys.env.get("SSC_FRONT").exists(v => v == "F" || v.equalsIgnoreCase("fsub"))` →
-  `!sys.env.get("SSC_FRONT").exists(_.equalsIgnoreCase("legacy"))` (add a `legacy` escape hatch). No
-  re-stage (installBin already stages both runners + F's source + the fallback path). Fully revertible by
-  restoring the line. After the flip: **F is the production front, ssc1-front+ssc1-lower is the safe
-  fallback** for anything F cannot yet lower — so the flip cannot regress any program. Step 5 (deleting
-  the old front) must NOT follow until F covers the fallback set on its own, since the fallback depends
-  on it.
+  `!sys.env.get("SSC_FRONT").exists(_.equalsIgnoreCase("legacy"))` (a `legacy` escape hatch opts out to
+  the old front). No re-stage of resources (installBin already stages both runners + F's source + the
+  fallback path). Fully revertible by restoring the opt-in test. **Now: F is the production front,
+  ssc1-front+ssc1-lower is the safe F4a fallback** for anything F cannot yet lower — so the flip cannot
+  regress any program.
+- **Verified before flipping:** a clean full-corpus dual-run (`SSC_DUALRUN_ALL=1`, 528/528 programs,
+  default front vs `SSC_FRONT=F`, **0 unexpected divergence**). The sole divergence — `actors-supervision`
+  — is the documented concurrent-actor scheduler race (front-independent; adjudicated benign: identical
+  line-set on both fronts, F drops no `receive` handler, so NOT `f-stmt-partial-function-block-dropped`).
+- **Verified after flipping:** typed fixpoint byte-identical (stage1==stage2, 385,827 B), semantic gate
+  248/248, post-flip dual-run 45/45 EQUAL + fixpoint OK. End-to-end with no `SSC_FRONT`: single-file,
+  multi-file, and unbound-global-fallback programs each produce output byte-identical to the legacy front;
+  `SSC_FRONT_TRACE=1` shows the delegate-fallback firing on gaps.
+- Step 5 (deleting the old front, the ~8,900-line win) stays deferred until F covers the fallback set on
+  its own, since the fallback depends on it.
 
 ### F5 — kernel shrink (the "small" axis), SEPARATE and DEEP
 

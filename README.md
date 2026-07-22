@@ -827,7 +827,7 @@ ScalaScript supports the following bundled backends, all loaded through the
 
 | Command | Backend id | How it works |
 |---------|------------|--------------|
-| `bin/ssc file.ssc` / `ssc run file.ssc` | `v2`        | Default self-hosted frontend/checker → CoreIR → v2 VM. `--bytecode` selects direct ASM; program args use `ssc run file.ssc -- [args...]`. There is no compatibility fallback. |
+| `bin/ssc file.ssc` / `ssc run file.ssc` | `v2`        | Default self-hosted frontend/checker → CoreIR → v2 VM. The native front is the self-compiling **`F`** front (default since 2026-07-22); anything `F` cannot yet lower delegates to the prior `ssc1-front`+`ssc1-lower` front, kept as a safe fallback. `SSC_FRONT=legacy` selects that prior front directly. `--bytecode` selects direct ASM; program args use `ssc run file.ssc -- [args...]`. There is no Scalameta/v1 compatibility fallback. |
 | `ssc run --native file.ssc` | `v2-native` | Idempotent assertion of the same standard ScalaScript 2.1 path: structural CoreIR + Frontmatter YAML + Markdown Profile → v2 VM, with no host Markdown/front-matter parser and no Scala CLI/scalac/javac process. `--native --bytecode` selects direct ASM; unresolved runtime dispatch/effects fail instead of printing `Stub`/`Op`. |
 | `ssc-tools run --compat-frontend file.ssc` / `ssc-tools run --v1 file.ssc` | `int` | Explicit optional Scalameta/v1 compatibility paths. Plain `ssc` rejects these flags and names `ssc-tools`. |
 | `ssc-tools run --target jvm file.ssc`      | `jvm`         | Compile via JvmGen → temp `.sc` → `scala-cli run`. True JVM semantics, no artifacts left on disk. Requires `scala-cli`. |
