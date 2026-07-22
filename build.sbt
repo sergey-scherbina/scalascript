@@ -28,6 +28,16 @@ Global / concurrentRestrictions += Tags.limit(Tags.Test, positiveIntEnv("SSC_SBT
 // spawning per-connection virtual threads (each parked VT briefly
 // consumes carrier stack).  Cost is negligible.
 ThisBuild / Test / javaOptions += "-Xss8m"
+// Virtual-thread CARRIER STARVATION (ci-red-main hang). Forked suites run up to 4 in
+// parallel (the Tags.Test limit above) and spawn generator / coroutine / WS producers on
+// Thread.ofVirtual() that hand off via UNBOUNDED SynchronousQueue.put/take. On JDK 21 a
+// virtual thread that blocks inside `synchronized` PINS its carrier; a 2-core CI runner has
+// only 2 default carriers (= availableProcessors), so a few pinned VTs starve the generator
+// producers and their consumers block FOREVER -> the `Test via sbt` job hangs to its 200-min
+// action timeout (observed after GeneratorNativePluginTest). Measured repro: 2 carriers + 4
+// pinned VTs hangs a SynchronousQueue handshake (poll times out); 16 carriers does not. Give
+// the forked JVM ample carriers so a handful of pinned VTs can't exhaust them.
+ThisBuild / Test / javaOptions += "-Djdk.virtualThreadScheduler.parallelism=16"
 ThisBuild / Test / javaOptions += {
   val root = (ThisBuild / baseDirectory).value
   s"-Dssc.std.path=${root.getAbsolutePath}/runtime"
