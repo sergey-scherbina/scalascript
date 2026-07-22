@@ -267,6 +267,31 @@ export const DurableCodec: Readonly<{
   right<A, B>(value: B): DurableEither<A, B>
 }>
 
+export class CapsuleRejected extends Error {}
+
+/** A versioned, digest-verified durable capsule bound to a named resume point. */
+export class DurableCapsule {
+  private constructor()
+  readonly formatVersion: number
+  readonly resumePointId: string
+  encode(): DurableBytes
+  static decode(bytes: DurableBytes): DurableCapsule
+}
+
+/** A named binding of a resume program and its frame codec. */
+export class ResumePoint<S, A, Fx extends Effect, R> {
+  private constructor()
+  readonly id: string
+  savable(state: S): Continuation<A, Fx, R>
+  freeze(state: S): DurableCapsule
+  restore(capsule: DurableCapsule): SavedContinuation<A, Fx, R>
+  static define<S, A, Fx extends Effect, R>(
+    id: string,
+    machine: ResumeStateMachine<S, A, Fx, R>,
+    codec: DurableCodec<S>
+  ): ResumePoint<S, A, Fx, R>
+}
+
 export interface PromptScope {
   readonly [promptScopeBrand]: never
 }

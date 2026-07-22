@@ -1051,6 +1051,202 @@ export const DurableCodec = Object.freeze({
   }
 })
 
+// A self-contained, synchronous SHA-256 over a Uint8Array. The package is
+// deliberately import-free so it stays portable and zero-dependency; the digest
+// is a standard algorithm verified against known vectors in the test suite.
+const sha256Constants = Uint32Array.from([
+  0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1,
+  0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+  0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786,
+  0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+  0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147,
+  0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+  0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+  0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+  0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a,
+  0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+  0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+])
+
+function rotateRight32(value, count) {
+  return ((value >>> count) | (value << (32 - count))) >>> 0
+}
+
+function sha256(input) {
+  let h0 = 0x6a09e667, h1 = 0xbb67ae85, h2 = 0x3c6ef372, h3 = 0xa54ff53a
+  let h4 = 0x510e527f, h5 = 0x9b05688c, h6 = 0x1f83d9ab, h7 = 0x5be0cd19
+  const bitLength = input.length * 8
+  const withMark = input.length + 1
+  const zeros = (56 - (withMark % 64) + 64) % 64
+  const total = withMark + zeros + 8
+  const message = new Uint8Array(total)
+  message.set(input)
+  message[input.length] = 0x80
+  const view = new DataView(message.buffer)
+  view.setUint32(total - 8, Math.floor(bitLength / 0x100000000) >>> 0, false)
+  view.setUint32(total - 4, bitLength >>> 0, false)
+  const schedule = new Uint32Array(64)
+  for (let offset = 0; offset < total; offset += 64) {
+    for (let i = 0; i < 16; i++) schedule[i] = view.getUint32(offset + i * 4, false)
+    for (let i = 16; i < 64; i++) {
+      const w15 = schedule[i - 15]
+      const w2 = schedule[i - 2]
+      const s0 = (rotateRight32(w15, 7) ^ rotateRight32(w15, 18) ^ (w15 >>> 3)) >>> 0
+      const s1 = (rotateRight32(w2, 17) ^ rotateRight32(w2, 19) ^ (w2 >>> 10)) >>> 0
+      schedule[i] = (schedule[i - 16] + s0 + schedule[i - 7] + s1) >>> 0
+    }
+    let a = h0, b = h1, c = h2, d = h3, e = h4, f = h5, g = h6, h = h7
+    for (let i = 0; i < 64; i++) {
+      const bigS1 = (rotateRight32(e, 6) ^ rotateRight32(e, 11) ^ rotateRight32(e, 25)) >>> 0
+      const choose = ((e & f) ^ (~e & g)) >>> 0
+      const t1 = (h + bigS1 + choose + sha256Constants[i] + schedule[i]) >>> 0
+      const bigS0 = (rotateRight32(a, 2) ^ rotateRight32(a, 13) ^ rotateRight32(a, 22)) >>> 0
+      const majority = ((a & b) ^ (a & c) ^ (b & c)) >>> 0
+      const t2 = (bigS0 + majority) >>> 0
+      h = g; g = f; f = e; e = (d + t1) >>> 0; d = c; c = b; b = a; a = (t1 + t2) >>> 0
+    }
+    h0 = (h0 + a) >>> 0; h1 = (h1 + b) >>> 0; h2 = (h2 + c) >>> 0; h3 = (h3 + d) >>> 0
+    h4 = (h4 + e) >>> 0; h5 = (h5 + f) >>> 0; h6 = (h6 + g) >>> 0; h7 = (h7 + h) >>> 0
+  }
+  const out = new Uint8Array(32)
+  const outView = new DataView(out.buffer)
+  const words = [h0, h1, h2, h3, h4, h5, h6, h7]
+  for (let i = 0; i < 8; i++) outView.setUint32(i * 4, words[i] >>> 0, false)
+  return out
+}
+
+// Durable capsule envelope + resume points (specs/durable-capsule-envelope.md),
+// mirroring the Scala reference lane byte-for-byte.
+export class CapsuleRejected extends Error {
+  constructor(reason) {
+    super(reason)
+    this.name = "CapsuleRejected"
+  }
+}
+
+const capsuleFormatVersion = 1
+// "ssc-frame-v1\0" — NUL-terminated domain separator (§10).
+const frameDigestDomain = Uint8Array.from([
+  ...new TextEncoder().encode("ssc-frame-v1"),
+  0
+])
+
+const capsuleStates = new WeakMap()
+
+export class DurableCapsule {
+  constructor(authority, formatVersion, resumePointId, frame, digest) {
+    requireInternalAuthority(authority)
+    capsuleStates.set(this, Object.freeze({ formatVersion, resumePointId, frame, digest }))
+    Object.freeze(this)
+  }
+
+  get formatVersion() {
+    return requirePrivateState(capsuleStates, this, "durable capsule").formatVersion
+  }
+
+  get resumePointId() {
+    return requirePrivateState(capsuleStates, this, "durable capsule").resumePointId
+  }
+
+  encode() {
+    return capsuleCodec.encode(this)
+  }
+
+  static decode(bytes) {
+    return capsuleCodec.decode(bytes)
+  }
+}
+
+const capsuleCodec = DurableCodec.imap(
+  DurableCodec.pair(
+    DurableCodec.int,
+    DurableCodec.pair(
+      DurableCodec.string,
+      DurableCodec.pair(DurableCodec.bytes, DurableCodec.bytes)
+    )
+  ),
+  ([version, [id, [frame, digest]]]) =>
+    new DurableCapsule(internalAuthority, version, id, frame, digest),
+  capsule => {
+    const state = requirePrivateState(capsuleStates, capsule, "durable capsule")
+    return [state.formatVersion, [state.resumePointId, [state.frame, state.digest]]]
+  }
+)
+
+function digestFrame(frame) {
+  const combined = new Uint8Array(frameDigestDomain.length + frame.length)
+  combined.set(frameDigestDomain)
+  combined.set(frame.toArray(), frameDigestDomain.length)
+  return new DurableBytes(sha256(combined))
+}
+
+function createCapsule(id, frame) {
+  return new DurableCapsule(internalAuthority, capsuleFormatVersion, id, frame, digestFrame(frame))
+}
+
+function verifyCapsule(capsule, expectedId) {
+  const state = requirePrivateState(capsuleStates, capsule, "durable capsule")
+  if (state.formatVersion !== capsuleFormatVersion) {
+    throw new CapsuleRejected(`unsupported capsule format version ${state.formatVersion}`)
+  }
+  if (state.resumePointId !== expectedId) {
+    throw new CapsuleRejected(
+      `capsule resume point '${state.resumePointId}' does not match '${expectedId}'`
+    )
+  }
+  if (digestFrame(state.frame).toHex() !== state.digest.toHex()) {
+    throw new CapsuleRejected("capsule frame digest mismatch")
+  }
+  return state
+}
+
+const resumePointStates = new WeakMap()
+
+export class ResumePoint {
+  constructor(authority, id, machine, codec) {
+    requireInternalAuthority(authority)
+    resumePointStates.set(this, Object.freeze({ id, machine, codec }))
+    Object.freeze(this)
+  }
+
+  get id() {
+    return requirePrivateState(resumePointStates, this, "resume point").id
+  }
+
+  savable(state) {
+    const point = requirePrivateState(resumePointStates, this, "resume point")
+    return Continuation.savable(state, point.machine, point.codec)
+  }
+
+  freeze(state) {
+    const point = requirePrivateState(resumePointStates, this, "resume point")
+    return createCapsule(point.id, point.codec.encode(state))
+  }
+
+  restore(capsule) {
+    const point = requirePrivateState(resumePointStates, this, "resume point")
+    const state = verifyCapsule(capsule, point.id)
+    return new SavedContinuationImpl(
+      internalAuthority,
+      point.codec.decode(state.frame),
+      point.machine,
+      point.codec
+    )
+  }
+
+  static define(id, machine, codec) {
+    if (typeof id !== "string" || id.length === 0) {
+      throw new TypeError("resume point id must be a non-empty string")
+    }
+    if (machine === null || typeof machine !== "object") {
+      throw new TypeError("resume state machine must be an object")
+    }
+    requireFunction(machine.resume, "resume state machine method")
+    requireDurableValue(codec)
+    return new ResumePoint(internalAuthority, id, machine, codec)
+  }
+}
+
 const restoreOwner = Symbol("scalascript.control.Restore.owner")
 const restoreKey = defineEffect("scalascript.control.Restore", restoreOwner)
 

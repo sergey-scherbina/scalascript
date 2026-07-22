@@ -3,15 +3,18 @@ import { readFileSync } from "node:fs"
 import test from "node:test"
 
 import {
+  CapsuleRejected,
   CaptureFailure,
   Continuation,
   DurableBytes,
+  DurableCapsule,
   DurableCodec,
   DurableDecodeError,
   DurableValue,
   Eff,
   MachineStep,
   ResumeMultiplicity,
+  ResumePoint,
   Restore,
   Save,
   StateMachine,
@@ -781,4 +784,80 @@ test("a durable codec is usable as savable evidence", () => {
   )
   assert.equal(Eff.runPure(Restore.admitLocally(saved.run(1))), 101)
   assert.equal(Eff.runPure(Restore.admitLocally(saved.run(5))), 105)
+})
+
+const cellCodec = DurableCodec.imap(
+  DurableCodec.int,
+  bits => ({ value: bits }),
+  cell => cell.value
+)
+const cellMachine = {
+  resume(state, input) {
+    state.value += input
+    return Eff.pure(state.value)
+  }
+}
+const runRestored = (saved, input) => Eff.runPure(Restore.admitLocally(saved.run(input)))
+
+test("freeze -> encode -> decode -> restore -> run reproduces the state", () => {
+  const point = ResumePoint.define("cell", cellMachine, cellCodec)
+  const capsule = point.freeze({ value: 100 })
+  const transported = DurableCapsule.decode(capsule.encode())
+  assert.equal(transported.resumePointId, "cell")
+  assert.equal(transported.formatVersion, 1)
+  const saved = point.restore(transported)
+  assert.equal(runRestored(saved, 1), 101)
+  assert.equal(runRestored(saved, 5), 105)
+})
+
+test("a tampered frame is rejected at restore, not at decode", () => {
+  const point = ResumePoint.define("cell", cellMachine, cellCodec)
+  const raw = point.freeze({ value: 7 }).encode().toArray()
+  raw[raw.length - 1] ^= 0xff // corrupt the stored digest
+  const tampered = DurableCapsule.decode(DurableBytes.fromArray(raw)) // inert decode
+  assert.throws(() => point.restore(tampered), CapsuleRejected)
+  // non-vacuous: the clean capsule still admits.
+  const clean = point.restore(DurableCapsule.decode(point.freeze({ value: 7 }).encode()))
+  assert.equal(runRestored(clean, 0), 7)
+})
+
+test("a capsule cannot be restored on a different resume point", () => {
+  const producer = ResumePoint.define("producer", cellMachine, cellCodec)
+  const other = ResumePoint.define("other", cellMachine, cellCodec)
+  const capsule = producer.freeze({ value: 3 })
+  assert.throws(() => other.restore(capsule), CapsuleRejected)
+  assert.equal(runRestored(producer.restore(capsule), 4), 7)
+})
+
+test("an unsupported capsule format version is rejected", () => {
+  const point = ResumePoint.define("cell", cellMachine, cellCodec)
+  const raw = point.freeze({ value: 1 }).encode().toArray()
+  raw[3] = 2 // version int is big-endian in bytes 0..3
+  const badVersion = DurableCapsule.decode(DurableBytes.fromArray(raw))
+  assert.equal(badVersion.formatVersion, 2)
+  assert.throws(() => point.restore(badVersion), CapsuleRejected)
+})
+
+test("capsule decoding is bounded and exact", () => {
+  const raw = ResumePoint.define("cell", cellMachine, cellCodec).freeze({ value: 9 }).encode().toArray()
+  assert.throws(
+    () => DurableCapsule.decode(DurableBytes.fromArray(raw.slice(0, raw.length - 1))),
+    DurableDecodeError
+  )
+  assert.throws(
+    () => DurableCapsule.decode(DurableBytes.fromArray([...raw, 0])),
+    DurableDecodeError
+  )
+})
+
+// Cross-lane golden capsule: the exact bytes for resume point "cell" freezing the
+// int state 100. The embedded 32-byte digest was computed independently by Node's
+// crypto SHA-256, so a match proves this lane's hand-rolled SHA-256 AND the envelope
+// encoding agree with the Scala reference lane byte-for-byte.
+test("golden capsule bytes match the cross-lane format", () => {
+  const point = ResumePoint.define("cell", cellMachine, cellCodec)
+  assert.equal(
+    point.freeze({ value: 100 }).encode().toHex(),
+    "000000010000000463656c6c0000000400000064000000204b458482422640f4fb818274ec2b4f3d1de3a487c25f991d751e483fdc0aea9b"
+  )
 })

@@ -19,13 +19,16 @@ function assertPrivateConstructor(value, ...args) {
 }
 
 const expectedRuntimeExports = [
+  "CapsuleRejected",
   "CaptureFailure",
   "Continuation",
   "DurableBytes",
+  "DurableCapsule",
   "DurableCodec",
   "DurableDecodeError",
   "DurableValue",
   "Eff",
+  "ResumePoint",
   "MachineStep",
   "ResumeMultiplicity",
   "Restore",

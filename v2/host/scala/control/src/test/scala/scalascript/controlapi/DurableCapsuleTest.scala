@@ -82,3 +82,14 @@ final class DurableCapsuleTest extends AnyFunSuite:
     val resume = point("cell")
     val continuation = resume.savable(new Cell(20))
     assert(Eff.runPure(continuation.resume(22)) == 42)
+
+  // Cross-lane golden capsule: the exact bytes for resume point "cell" freezing the
+  // state 100. The JS lane (control.test.js) asserts the SAME hex; matching bytes on
+  // both prove the versioned envelope AND the SHA-256 frame digest are byte-identical
+  // across lanes (Java MessageDigest here, a hand-rolled SHA-256 in JS).
+  test("golden capsule bytes match the cross-lane format"):
+    val resume = point("cell")
+    assert(
+      resume.freeze(new Cell(100)).encode().toString ==
+        "000000010000000463656c6c0000000400000064000000204b458482422640f4fb818274ec2b4f3d1de3a487c25f991d751e483fdc0aea9b"
+    )
