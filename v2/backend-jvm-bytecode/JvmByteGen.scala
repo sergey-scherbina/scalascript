@@ -49,6 +49,23 @@ object JvmByteGen:
       localFrameArity: Int = -1,
       handlerDispatchRoot: Boolean = false)
 
+  /** f5c prereq #2 — LOCAL-tail context carried into a deferred Seq/Let CHAIN so a self/mutual tail call
+   *  in an effectful loop body still emits a stack-safe `Bounce` (not `Emit.app` recursion → overflow).
+   *  `emitChain`/`emitLetChain` MATERIALIZE the caller's `capDepth` JVM slots into the env array before the
+   *  chain runs, and Let chains `extend1` once per step, so the tied-closure's De Bruijn index shifts by
+   *  `capDepth (+ step)`. Both the `localTailTargets` KEYS and `localFrameArity` (the `localRebind` prefix
+   *  that strips the materialized slots back off to reconstruct the loop-lambda env) shift by that amount. */
+  private final case class TailCtx(
+      targets: Map[Int, (String, Int)],
+      frameArity: Int,
+      capDepth: Int)
+  private val emptyTailCtx = TailCtx(Map.empty, -1, 0)
+  private def shiftTailCtx(tc: TailCtx, extra: Int): (Map[Int, (String, Int)], Int) =
+    if tc.frameArity < 0 then (Map.empty, -1)
+    else
+      val s = tc.capDepth + extra
+      (tc.targets.map { case (k, v) => (k + s) -> v }, tc.frameArity + s)
+
   private final class Gen(val cw: ClassWriter, val sourceDebug: Option[JvmSourceDebug]):
     val pending = collection.mutable.Queue.empty[Pending]
     var lamIdx = 0
@@ -59,10 +76,10 @@ object JvmByteGen:
     /** Qualified partial functions must execute through their ClosV wrapper so
      *  the runtime scopes the unforgeable handler-dispatch owner token. */
     val handlerRootDefs = collection.mutable.HashSet.empty[String]
-    /** Pending Seq chains: (per-statement method names, statements, tailLast). */
-    val chains = collection.mutable.Queue.empty[(Vector[String], List[Term], Boolean, Vector[Option[Int]])]
-    /** Pending Let chains: (step names, body name, rhs terms, body, tail). */
-    val letChains = collection.mutable.Queue.empty[(Vector[String], String, List[Term], Term, Boolean, Option[Int])]
+    /** Pending Seq chains: (per-statement method names, statements, tailLast, lines, tail-ctx). */
+    val chains = collection.mutable.Queue.empty[(Vector[String], List[Term], Boolean, Vector[Option[Int]], TailCtx)]
+    /** Pending Let chains: (step names, body name, rhs terms, body, tail, line, tail-ctx). */
+    val letChains = collection.mutable.Queue.empty[(Vector[String], String, List[Term], Term, Boolean, Option[Int], TailCtx)]
     /** Top-level def names whose body is provably effect-free (never yields an
      *  Op) — App to these is safe inside an inline-foreach body. */
     val pureDefs = collection.mutable.HashSet[String]()
@@ -236,11 +253,11 @@ object JvmByteGen:
           localFrameArity = pnd.localFrameArity,
           handlerDispatchRoot = pnd.handlerDispatchRoot)
       while g.chains.nonEmpty do
-        val (names, ts, tailLast, lines) = g.chains.dequeue()
-        emitChain(g, names, ts, tailLast, lines)
+        val (names, ts, tailLast, lines, tc) = g.chains.dequeue()
+        emitChain(g, names, ts, tailLast, lines, tc)
       while g.letChains.nonEmpty do
-        val (steps, bodyName, rhs, body, tl, line) = g.letChains.dequeue()
-        emitLetChain(g, steps, bodyName, rhs, body, tl, line)
+        val (steps, bodyName, rhs, body, tl, line, tc) = g.letChains.dequeue()
+        emitLetChain(g, steps, bodyName, rhs, body, tl, line, tc)
 
     cw.visitEnd()
     cw.toByteArray
@@ -327,7 +344,7 @@ object JvmByteGen:
 
   private def emitLetChain(g: Gen, steps: Vector[String], bodyName: String,
                            rhs: List[Term], body: Term, tl: Boolean,
-                           sourceLine: Option[Int]): Unit =
+                           sourceLine: Option[Int], tc: TailCtx): Unit =
     rhs.zipWithIndex.foreach { (r, i) =>
       val mv = g.cw.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, steps(i), s"([L$VAL;)L$VAL;", null, null)
       mv.visitCode()
@@ -358,6 +375,10 @@ object JvmByteGen:
     val mv = g.cw.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, bodyName, s"([L$VAL;)L$VAL;", null, null)
     mv.visitCode()
     val ctx = new Ctx(mv, g)
+    // The body runs on env = captured(base + capDepth) ++ (rhs.length let-slots), so shift the local-tail
+    // context by capDepth + rhs.length (f5c prereq #2). A tail self/mutual call in the body then bounces.
+    val (bt, bfa) = shiftTailCtx(tc, rhs.length)
+    ctx.localTailTargets = bt; ctx.localFrameArity = bfa
     sourceLine.foreach(line => markLine(ctx, line))
     gen(body, ctx, tail = tl)
     mv.visitInsn(Opcodes.ARETURN)
@@ -371,12 +392,17 @@ object JvmByteGen:
       names: Vector[String],
       ts: List[Term],
       tailLast: Boolean,
-      sourceLines: Vector[Option[Int]]): Unit =
+      sourceLines: Vector[Option[Int]],
+      tc: TailCtx): Unit =
+    // Seq statements share the captured(base + capDepth) env (no per-statement extension), so all shift by
+    // capDepth. Only the LAST statement is in tail position; setting the context on the others is harmless.
+    val (st, sfa) = shiftTailCtx(tc, 0)
     ts.zipWithIndex.foreach { (stmt, i) =>
       val last = i == ts.length - 1
       val mv = g.cw.visitMethod(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, names(i), s"([L$VAL;)L$VAL;", null, null)
       mv.visitCode()
       val ctx = new Ctx(mv, g)
+      ctx.localTailTargets = st; ctx.localFrameArity = sfa
       sourceLines.lift(i).flatten.foreach(line => markLine(ctx, line))
       gen(stmt, ctx, tail = tailLast && last)
       if !last then
@@ -832,7 +858,8 @@ object JvmByteGen:
         // of the chain as its continuation via Emit.seqThread.
         val chainNames = ts.indices.map(_ => ctx.g.freshLam()).toVector
         val lines = consumeStatementLines(ctx, ts.length)
-        ctx.g.chains += ((chainNames, ts, tail, lines))
+        ctx.g.chains += ((chainNames, ts, tail, lines,
+          TailCtx(ctx.localTailTargets, ctx.localFrameArity, ctx.slotDepth)))
         emitCapture(ctx)
         mv.visitMethodInsn(Opcodes.INVOKESTATIC, GEN, chainNames(0), s"([L$VAL;)L$VAL;", false)
       case Term.If(c, a, b) =>
@@ -859,7 +886,8 @@ object JvmByteGen:
         // Emit.letThread with the rest of the chain as its continuation.
         val stepNames = rhs.indices.map(_ => ctx.g.freshLam()).toVector
         val bodyName  = ctx.g.freshLam()
-        ctx.g.letChains += ((stepNames, bodyName, rhs, body, tail, ctx.sourceLine))
+        ctx.g.letChains += ((stepNames, bodyName, rhs, body, tail, ctx.sourceLine,
+          TailCtx(ctx.localTailTargets, ctx.localFrameArity, ctx.slotDepth)))
         emitCapture(ctx)
         mv.visitMethodInsn(Opcodes.INVOKESTATIC, GEN, stepNames(0), s"([L$VAL;)L$VAL;", false)
       case Term.LetRec(lams, body) =>
@@ -1132,7 +1160,13 @@ object JvmByteGen:
           mv.visitMethodInsn(Opcodes.INVOKESTATIC, GEN, m, s"([L$VAL;)L$VAL;", false)
           mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "unroll", s"(L$VAL;)L$VAL;", false)
       case Term.App(f, args) =>
+        // Generic (non-optimized) call. UNROLL the result so a returned `Bounce` (from a self/mutual tail
+        // call inside the callee — e.g. the effectAwareWhile loop driver `App(Local 0)`) is trampolined to
+        // a final value here, at CONSTANT stack, instead of the callee recursing per iteration (f5c prereq
+        // #2). No-op for a normal value; an unhandled Op passes through unchanged (unroll only drives
+        // Bounces), so effect suspension is preserved.
         gen(f, ctx); genArray(args, ctx); callApp(mv)
+        mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "unroll", s"(L$VAL;)L$VAL;", false)
       case Term.Ctor(tag, fields) if tag == "Signal" || tag == "ComputedSignal" =>
         // VM parity: the installed reactive provider wins; bare kernels retain
         // the legacy mutable-cell fallback.
