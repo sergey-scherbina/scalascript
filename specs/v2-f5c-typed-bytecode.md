@@ -208,8 +208,22 @@ fall back → byte-identical to the interpreter, no crash; no regression on work
 248/248; CLI compiles. This closes gap #1 (Method-too-large) for the default-switch — those programs run
 (on the interpreter) instead of crashing. RUNTIME failures are deliberately NOT caught (must not re-run).
 
-### Prereq #2 — stack-safe effectful loops in JvmByteGen — ANALYZED, NOT landed (a dedicated effort)
-Gap #2 (StackOverflow on deep effectful `foreach`/`while`) is the hard blocker and NOT a bounded slice.
+### Prereq #2 — stack-safe effectful loops in JvmByteGen — ✓ LANDED (`bb0553aa1`)
+Fixed exactly per the design below. (1) `TailCtx` carries the local-tail context into the deferred Seq/Let
+chains; `emitChain`/`emitLetChain` re-apply it on each chained method's `Ctx` with de-Bruijn KEY-SHIFTING
+(`shiftTailCtx`: `+capDepth` for the materialized slots, `+step` for Let extensions) — so the recur emits a
+`Bounce` and `localRebind` strips the slots to reconstruct the loop-lambda env. (2) the generic `App`
+`unroll`s its result so the effectAwareWhile driver (`App(Local 0)`) trampolines the bounce loop at constant
+stack (no-op for normal values; Ops pass through → effect suspension preserved). **VERIFIED (all gates):**
+`pattern-match-heavy` 500 k + 3 M on `--bytecode` NO overflow + byte-identical to interp; full `examples/`
+sweep vs interp **DIFF=0 and BC-FAIL 2→0** (with prereq-#1, NO example hard-fails now); effectful progs
+(effects/algebraic-effects/generators/coroutine/async/actors) byte-identical; semantic 248/248; X1 fixpoint
+byte-identical; `v2JvmBytecode/compile` green. **Both hard-fail classes are now covered → the bytecode lane
+is default-safe on the tested surface.** Next: re-assess (full semantic/conformance + e2e through
+`--bytecode`), then switch the default (with the fallback + a reversible opt-out) + f5c-3 + the removal.
+
+Original root-cause analysis (now implemented):
+Gap #2 (StackOverflow on deep effectful `foreach`/`while`) was the hard blocker.
 **Root cause (traced):**
 - An effectful `while` (body `mayOp`, e.g. `shapes.foreach(…)` — `foreach` is `__method__` = impure) is
   lowered by `OpAnfNative.effectAwareWhile` to `LetRec([Lam(0, Let([cond], If(cond, Seq([body, App(Local(1),

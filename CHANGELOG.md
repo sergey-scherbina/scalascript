@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-07-22 — v2-f5c: stack-safe effectful loops on the bytecode lane (Option-A prereq #2)
+
+The last hard blocker to making the JVM-bytecode lane a safe default `ssc run` backend. Deep effectful
+`foreach`/`while` loops (e.g. `pattern-match-heavy` ≥500k iterations) StackOverflowed on `--bytecode`: an
+effectful loop body is Seq/Let-chained (`emitChain`/`emitLetChain`), and each chained statement got a fresh
+`Ctx` that dropped the local-tail context (`localTailTargets`/`localFrameArity`), so the loop's tail-recur
+missed the stack-safe `Bounce` path and fell to `Emit.app` recursion (a JVM frame per iteration). Fixed by
+(1) carrying the tail context into the deferred chains and re-applying it with de-Bruijn KEY-SHIFTING (the
+chain materializes `capDepth` slots into the env array and `extend1`s per Let step, so the tied-closure
+index and the `localRebind` prefix shift accordingly), and (2) `unroll`ing the generic `App` result so the
+loop driver trampolines the `Bounce` at constant stack (no-op for normal values; unhandled `Op`s pass
+through, so effect suspension is preserved). Verified: `pattern-match-heavy` 500k + 3M on `--bytecode` no
+overflow + byte-identical to the interpreter; full `examples/` sweep DIFF=0 and BC-FAIL 2→0 (with the
+prereq-#1 fallback, no example hard-fails now); effectful programs (effects/algebraic-effects/generators/
+coroutine/async/actors) byte-identical; semantic 248/248; X1 fixpoint byte-identical; `v2JvmBytecode/compile`
+green; `v21-direct-asm-recursion` smoke (vm==asm) passes. Both bytecode hard-fail classes are now covered —
+the lane is default-safe on the tested surface. Remaining toward Option A: re-assess through the full
+conformance/e2e, then switch the default (+ reversible opt-out), f5c-3 (typed `f.*`/accumulator), and the
+FastCode/SelfRec removal. Detail: `specs/v2-f5c-typed-bytecode.md §8`.
+
 ## 2026-07-22 — Runnable `.ssc` save/run example (reusable continuation, no prefix replay)
 
 `examples/durable-save-run.ssc` demonstrates the same-process semantic core of the `save()` / `run()`

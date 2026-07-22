@@ -342,17 +342,23 @@ removal becomes perf-neutral.
       default or remove.** Unblock prereqs: (1) **DONE (`48e31b163`)** — link-time fallback in
       `RunNativeV2.runBytecode` (`try emitProgram catch Unsupported|MethodTooLargeException => runVm`;
       pre-execution, side-effect-safe). scljet-hello/-jdbc fall back byte-identical, no crash; gap #1 closed.
-      (2) **ANALYZED, NOT landed — a dedicated JvmByteGen increment (spec §8).** Root cause: `emitChain`/
-      `emitLetChain` give each chained Seq/Let statement a FRESH `Ctx` that drops `localTailTargets`/
-      `localFrameArity` → the effectful-loop recur `App(Local(1))` lands where `localFrameArity=-1` → the
-      Bounce guard fails → generic `Emit.app` recursion → overflow. Fix = propagate the tail-call context to
-      chained Ctx WITH de-Bruijn key-shifting (not `startLabel`) + make the effectAwareWhile initial driver
-      unroll the Bounce. High regression surface (whole native tier); needs its own gated increment. (3)
-      optional method-splitting; (4) re-assess + switch + f5c-3 + removal with flip-level rigor.
-      **f5c-3 + f5c-4 stay BLOCKED on prereq #2.**
-- [ ] **f5c-3 (now GATED on the default-switch unblock) — f.* double + `lcell`/`dcell` accumulator `i.*`.**
-- [ ] **f5c-4 (BLOCKED on f5c-default-switch) — FastCode/SelfRec removal** (`SSC_FASTPATHS` off → delete,
-      `v2/src`). Only after the bytecode lane is a safe default (prereqs above).
+      (2) **DONE (`bb0553aa1`)** — stack-safe effectful loops in JvmByteGen (spec §8). `TailCtx` carries the
+      local-tail context into the deferred Seq/Let chains; `emitChain`/`emitLetChain` re-apply it with
+      de-Bruijn key-shifting (`shiftTailCtx`); the generic `App` `unroll`s so the effectAwareWhile driver
+      trampolines at constant stack. VERIFIED: pattern-match-heavy 500k+3M no overflow byte-identical;
+      examples sweep DIFF=0 + BC-FAIL 2→0; effectful progs byte-identical; semantic 248/248; fixpoint
+      byte-identical; v2JvmBytecode/compile. **Both hard-fail classes covered → bytecode lane is default-safe
+      on the tested surface** (213-example sweep + effectful + deep-loop + v21-direct-asm-recursion smoke).
+- [ ] **f5c-SWITCH (READY — prereqs met) — make the bytecode lane the DEFAULT `ssc run` backend.** Flip
+      `StandardMain.runNative` `var bytecode = false` → `true` + a reversible opt-out (`--interpret` /
+      `SSC_EXEC=vm`, mirroring `SSC_FRONT=legacy`). The prereq-#1 fallback + prereq-#2 stack-safety make it
+      safe. GATE with FLIP-LEVEL RIGOR: FULL conformance + the FULL e2e smoke suite on the new default +
+      semantic 248/248 + X1 fixpoint byte-identical. (Re-assessment so far — examples DIFF=0/BC-FAIL=0,
+      effectful byte-identical, v21-direct-asm-recursion pass — is strong but NOT the full conformance/e2e.)
+- [ ] **f5c-3 (after switch) — f.* double + `lcell`/`dcell` accumulator `i.*`** so those numeric classes are
+      also fast on the default lane before the removal.
+- [ ] **f5c-4 (after switch + f5c-3) — FastCode/SelfRec removal** (`SSC_FASTPATHS` off → delete `v2/src`
+      regions, ~−1186 L) + re-measure default-lane fib/arith-loop (perf-neutral). Flip-level rigor.
 - [ ] **S1-6 — δ-arm deletion: Δ=0 in Stage 1 (approach A) — MEASURED, deferred to post-S1-5.** Confirmed
       empirically: (a) typed F STILL emits `__arith__` for bare-variable arith (`a+b`, `local>=local`) and
       `__eq__` for `local==lit`; (b) the ssc0 tower `ssc1-lower.ssc0` emits `__arith__` ×12 + `__eq__` ×10;
