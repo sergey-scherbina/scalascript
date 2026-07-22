@@ -170,9 +170,9 @@ Preconditions:
 4. `F` self-compiles (fixpoint) + `v2/conformance/check.sh` green on the cutover SHA.
 
 Reversible sequence (irreversible step isolated): (1) build the gate classification → (2) stage `F`
-behind a flag → (3) dual-run corpus+conformance in CI → **(4) ✅ flip the default front DONE 2026-07-22
-(`3750df8c2`) — F is now default, `SSC_FRONT=legacy` opts out** → (5) delete the old ssc0 front (the
-~8,900-line win — still deferred; the fallback depends on it).
+behind a flag → (3) dual-run corpus+conformance in CI → **(4) flip the default front — ATTEMPTED +
+REVERTED 2026-07-22 (`3750df8c2`→`bf24267e9`); blocked on F int-literal fail-open + F perf, see below** →
+(5) delete the old ssc0 front (the ~8,900-line win — still deferred; the fallback depends on it).
 
 #### F4 staging — landed (steps 1-3, REVERSIBLE, default UNCHANGED). 2026-07-20, `v2-f4`.
 
@@ -238,25 +238,32 @@ byte-identical to default wherever F falls short. `SSC_FRONT_TRACE=1` logs each 
   residuals above. Typed fixpoint byte-identical (the fallback doesn't touch F's self-compile). `classify`
   stays green (raw F coverage, 12 GAP; output notes the product-level fallback).
 
-#### The flip (step 4) — ✅ DONE 2026-07-22 (`3750df8c2`). F IS the default native front.
+#### The flip (step 4) — ATTEMPTED then REVERTED 2026-07-22. F is NOT yet a safe default. Two blockers.
 
-- **The flip was one line in `RunNativeV2.frontIsF`:** inverted opt-IN → opt-OUT —
-  `sys.env.get("SSC_FRONT").exists(v => v == "F" || v.equalsIgnoreCase("fsub"))` →
-  `!sys.env.get("SSC_FRONT").exists(_.equalsIgnoreCase("legacy"))` (a `legacy` escape hatch opts out to
-  the old front). No re-stage of resources (installBin already stages both runners + F's source + the
-  fallback path). Fully revertible by restoring the opt-in test. **Now: F is the production front,
-  ssc1-front+ssc1-lower is the safe F4a fallback** for anything F cannot yet lower — so the flip cannot
-  regress any program.
-- **Verified before flipping:** a clean full-corpus dual-run (`SSC_DUALRUN_ALL=1`, 528/528 programs,
-  default front vs `SSC_FRONT=F`, **0 unexpected divergence**). The sole divergence — `actors-supervision`
-  — is the documented concurrent-actor scheduler race (front-independent; adjudicated benign: identical
-  line-set on both fronts, F drops no `receive` handler, so NOT `f-stmt-partial-function-block-dropped`).
-- **Verified after flipping:** typed fixpoint byte-identical (stage1==stage2, 385,827 B), semantic gate
-  248/248, post-flip dual-run 45/45 EQUAL + fixpoint OK. End-to-end with no `SSC_FRONT`: single-file,
-  multi-file, and unbound-global-fallback programs each produce output byte-identical to the legacy front;
-  `SSC_FRONT_TRACE=1` shows the delegate-fallback firing on gaps.
-- Step 5 (deleting the old front, the ~8,900-line win) stays deferred until F covers the fallback set on
-  its own, since the fallback depends on it.
+The flip landed (`3750df8c2`, one-line inversion of `RunNativeV2.frontIsF` opt-IN → opt-OUT with a
+`SSC_FRONT=legacy` escape hatch) and passed every pre-planned gate, but CI on `449076be4` went RED and it
+was REVERTED (`bf24267e9`). F remains available via `SSC_FRONT=F`; the default is again ssc1-front+ssc1-lower.
+
+- **Passed before flipping:** a clean full-corpus dual-run (`SSC_DUALRUN_ALL=1`, 528/528 programs, default
+  front vs `SSC_FRONT=F`, **0 unexpected divergence** — the sole divergence, `actors-supervision`, is the
+  documented front-independent concurrent-actor race, adjudicated benign).
+- **Passed after flipping:** typed fixpoint byte-identical (stage1==stage2, 385,827 B), semantic 248/248,
+  post-flip dual-run 45/45 EQUAL; end-to-end single/multi/fallback byte-identical to legacy.
+- **Why it was reverted — two OUT-OF-CORPUS blockers CI caught that the sweep could not:**
+  1. **F integer-literal fail-OPEN** (BUGS `f-int-literal-overflow-fails-open`): F WRAPS an out-of-range
+     64-bit integer literal (exit 0, wrong value) instead of failing closed like the old front. The
+     overflow VALUES aren't in any corpus program, so the output-equivalence sweep had nothing to compare.
+     Repro: `tests/e2e/int-literal-failopen-smoke.sh` (3 checks fail under F, pass under the old front).
+  2. **F performance**: F recompiles its ~250 KB source per invocation, so it is slower on heavy programs
+     → the sbt CI job hit the 30-min timeout (`run-timeout` had to be bumped from 0). A perf budget is a
+     flip precondition.
+- **Re-flip preconditions (now):** fix (1) — F must range-check integer literals and fail closed on 64-bit
+  overflow, mirroring `ssc1-lower`; address (2) — F fast enough (or cached) to stay under the CI budget.
+  Both are F-lowering/perf work on the sibling-owned `specs/v2.2-p6.5-fsub.ssc`, a separate arc. THEN the
+  flip is again a one-liner. **Lesson: the corpus dual-run is necessary but NOT sufficient — a default-front
+  flip must also pass the targeted e2e smokes (int-literal, fail-closed) and a perf budget.**
+- Step 5 (deleting the old front, the ~8,900-line win) remains far off — the old front is both the flip
+  fallback and, now, the correct default.
 
 ### F5 — kernel shrink (the "small" axis), SEPARATE and DEEP
 

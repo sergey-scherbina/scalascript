@@ -15,6 +15,26 @@ Status hygiene (2026-06-23): open `[ ]` rows below are intentionally still open,
 explicitly `BLOCKED` or `DEFERRED` product/external-decision items. History-only / wontfix notes
 are plain bullets without checkboxes so agents do not claim them as build work.
 
+## v2-f4-flip — RE-QUEUED (attempted + reverted 2026-07-22)
+
+Make `F` (`specs/v2.2-p6.5-fsub.ssc`) the DEFAULT native front. The flip itself is a one-liner in
+`RunNativeV2.frontIsF` (opt-IN → opt-OUT) — it landed `3750df8c2` and was reverted `bf24267e9` after CI
+went red. It passed every corpus-level gate (full-corpus dual-run 528/528, fixpoint byte-identical,
+semantic 248/248) but CI caught two OUT-OF-CORPUS blockers. **Both must be fixed before re-attempting:**
+
+1. **F integer-literal fail-OPEN** — BUGS `f-int-literal-overflow-fails-open`. F WRAPS an out-of-range
+   64-bit integer literal (exit 0, wrong value) instead of failing closed like `ssc1-lower`. Repro:
+   `tests/e2e/int-literal-failopen-smoke.sh` (3 checks fail under F). Fix: F must range-check int literals
+   during lowering and fail closed on 64-bit overflow. (F-lowering work on the sibling-owned fsub.ssc.)
+2. **F performance** — F recompiles its ~250 KB source per `bin/ssc` invocation, so it is much slower on
+   heavy programs (scljet F-side ~15–32 s vs old-front ~3–8 s) → the sbt CI job hit its 30-min timeout.
+   Need F fast enough (cache the compiled F, or a lighter bootstrap) to stay under the CI run budget.
+
+Re-flip precondition/verification set (learned the hard way — corpus dual-run is necessary but NOT
+sufficient): before re-flipping, additionally run the targeted e2e smokes — `int-literal-failopen-smoke`
+(fail-closed) — and confirm the full sbt CI (not just the fixpoint/semantic/dualrun gates) stays green
+within the timeout. Do NOT edit `specs/v2.2-p6.5-fsub.ssc` outside the owning F arc.
+
 ## v2 kernel-shrink deep remainder (F5) — DEFERRED with measured findings (2026-07-21)
 
 Study: `specs/v2-f5-kernel-shrink.md` (SHA `7a31df264`). The 6,035 → ~2,800 kernel shrink is **four

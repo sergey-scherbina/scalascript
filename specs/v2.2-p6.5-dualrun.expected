@@ -4,12 +4,12 @@
 # `SSC_FRONT=F bin/ssc run P` (F) — capturing (exit, stdout). It is GREEN when every divergence is
 # listed here; an UNEXPECTED divergence (F worse than the default front, not listed) is a genuine-FAIL.
 #
-# ★ POST-FLIP (2026-07-22, `3750df8c2`): F is now the DEFAULT front, so `bin/ssc run P` (default) == F.
-#   This gate therefore now compares F-vs-F (trivially EQUAL) and serves as a WIRING / self-consistency
-#   check. To reproduce the pre-flip old-front-vs-F comparison that this list documents, use the OLD
-#   front as the reference side: `SSC_FRONT=legacy bin/ssc run P` vs `SSC_FRONT=F bin/ssc run P`. The
-#   pre-flip full-corpus sweep (528/528) was CLEAN: 0 unexpected divergence, only the flaky non-residual
-#   below (actors-supervision).
+# NOTE (2026-07-22): a full-corpus `SSC_DUALRUN_ALL=1` sweep (528/528) was run CLEAN — 0 unexpected
+#   divergence, only the flaky non-residual below (actors-supervision). It nonetheless did NOT prove F
+#   safe as a DEFAULT front: the F4 flip (`3750df8c2`) was reverted (`bf24267e9`) because F fails OPEN on
+#   out-of-range 64-bit integer literals (values not in the corpus, so this gate cannot see them — see
+#   `tests/e2e/int-literal-failopen-smoke.sh` + BUGS `f-int-literal-overflow-fails-open`) and is too slow
+#   for the CI budget. This gate is necessary but not sufficient for a default-front flip.
 #
 # ★ SINCE THE F4a DELEGATE-FALLBACK (RunNativeV2), the UNBOUND-GLOBAL gap classes fall back cleanly:
 # where F cannot lower a program it emits an unbound global, `Reader.validate` catches it, and RunNativeV2

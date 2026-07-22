@@ -33,15 +33,16 @@ provider, or the F cutover path from these tasks** (collision). These six are th
       (F5b). Step B landed = the instrument only (+7 net). Deep remainder queued in BACKLOG
       "v2 kernel-shrink deep remainder".
 
-- [x] **v2-f4-flip — DONE 2026-07-22 (`3750df8c2`).** Flipped F to the DEFAULT native front (one line in
-      `RunNativeV2.frontIsF`, opt-IN → opt-OUT; `SSC_FRONT=legacy` opts out; old ssc0 front kept as the
-      F4a fallback). Preconditions met (mcp-types landed 886df94fe/809bed9d3). Safety valve GREEN: clean
-      full-corpus `SSC_DUALRUN_ALL` sweep (528/528, 0 unexpected divergence; sole divergence
-      actors-supervision = documented flaky concurrent-actor race, adjudicated benign — F drops no
-      receive handler). Full gates GREEN: fixpoint byte-identical (385,827 B), semantic 248/248 (fail-loud
-      confirmed), post-flip dualrun 45/45 EQUAL + fixpoint. End-to-end (no env) single/multi/fallback all
-      byte-identical to legacy; fallback fires. Docs updated (§7 step 4, README, dualrun.expected). Step 5
-      (delete old front, ~8,900 lines) stays deferred until F covers the fallback set on its own.
+- **v2-f4-flip — LANDED then REVERTED 2026-07-22.** Flip `3750df8c2`, revert `bf24267e9`. The flip
+      (F → default native front) passed every pre-planned gate — safety-valve full-corpus `SSC_DUALRUN_ALL`
+      sweep 528/528 (0 unexpected divergence), fixpoint byte-identical, semantic 248/248, post-flip dualrun
+      45/45 — but CI on `449076be4` went RED on TWO out-of-corpus gaps the sweep could not see:
+      (a) `int-literal-failopen-smoke` — F wraps out-of-range 64-bit integer literals instead of failing
+      closed (BUGS `f-int-literal-overflow-fails-open`); the overflow VALUES aren't in the corpus, so
+      output-equivalence had nothing to compare. (b) F is slower on heavy programs → the sbt CI job hit the
+      30-min timeout (`run-timeout` bumped from 0). Reverted (F stays available via `SSC_FRONT=F`; default
+      back to the old ssc0 front). RE-QUEUED to BACKLOG behind those two blockers. Lesson: the corpus
+      dual-run is necessary but NOT sufficient — a flip also needs the targeted e2e smokes + a perf budget.
 
 ---
 

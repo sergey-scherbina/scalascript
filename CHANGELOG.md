@@ -1,16 +1,17 @@
 # Changelog
 
-## 2026-07-22 — F4 flip: `F` is now the DEFAULT native front
+## 2026-07-22 — F4 flip attempted and REVERTED (F not yet a safe default front)
 
-Flipped the self-hosting subset compiler `F` (`specs/v2.2-p6.5-fsub.ssc`, ~1,847 lines) to be the
-DEFAULT front that `bin/ssc run` uses — a one-line inversion of `RunNativeV2.frontIsF` (opt-IN →
-opt-OUT). The prior `ssc1-front`+`ssc1-lower` runner is KEPT as the F4a delegate-fallback, so anything
-`F` cannot yet lower (unbound-global gaps) re-lowers through the old front and cannot regress. Opt out
-with `SSC_FRONT=legacy`; fully reversible by restoring the opt-in test. Gated on a clean full-corpus
-dual-run (528/528 programs, default-front vs `SSC_FRONT=F`, 0 unexpected divergence — the sole
-divergence, `actors-supervision`, is a documented front-independent concurrent-actor scheduler race),
-typed fixpoint byte-identical (stage1==stage2, 385,827 B), semantic gate 248/248, and post-flip dual-run
-45/45 EQUAL. Step 5 (deleting the ~8,900-line old front) remains deferred — the fallback depends on it.
+Flipped the self-hosting subset compiler `F` (`specs/v2.2-p6.5-fsub.ssc`) to be the DEFAULT native front
+(`3750df8c2`, a one-line inversion of `RunNativeV2.frontIsF`), then REVERTED it (`bf24267e9`) after CI on
+`449076be4` went red. The flip passed every pre-planned gate — a clean full-corpus dual-run (528/528, 0
+unexpected divergence), typed fixpoint byte-identical (385,827 B), semantic 248/248, post-flip dual-run
+45/45 — but CI surfaced two gaps the corpus sweep could not: (a) `int-literal-failopen-smoke` — F wraps
+out-of-range 64-bit integer literals instead of failing closed (fail-OPEN safety regression; the overflow
+values aren't in the corpus, so output-equivalence had nothing to compare — BUGS
+`f-int-literal-overflow-fails-open`); and (b) F is slower on heavy programs, tripping the sbt CI 30-min
+timeout. `F` stays available via `SSC_FRONT=F`; the default returns to the `ssc1-front`+`ssc1-lower`
+front. The flip is re-queued in BACKLOG behind those two blockers.
 
 ## 2026-07-21 — Canonical durable-frame byte codec (`DurableCodec`, save-run Part 1)
 

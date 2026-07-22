@@ -1,5 +1,21 @@
 # Bug tracker
 
+## f-int-literal-overflow-fails-open — F wraps out-of-range 64-bit integer literals instead of rejecting
+
+**Status:** OPEN (found 2026-07-22 by opus via the F4-flip CI going red; the flip was reverted, `3750df8c2` → `bf24267e9`). F-front (`specs/v2.2-p6.5-fsub.ssc`) native tier only. This is a **fail-OPEN safety regression**: it is why the F4 default-front flip could not stay landed.
+
+**Symptom:** an integer literal that overflows signed 64-bit is silently WRAPPED by F (exit 0, wrong value) instead of failing closed. The old front (`ssc1-front`+`ssc1-lower`) and the v1 reference correctly REJECT it (exit 1). In-range literals (min64 `-9223372036854775808`, max64 `9223372036854775807`, 2^62, 3e9) are all correct on F — only the OVERFLOW path fails open.
+
+**Repro:** `tests/e2e/int-literal-failopen-smoke.sh` — with F as the native default (`SSC_FRONT=F bin/ssc run` on the `vm`/`asm` tiers):
+- `9223372036854775808` (2^63) → F prints `-9223372036854775808` exit 0 (expected: fail closed, exit≠0).
+- `99999999999999999999999999` → F prints `-2537764290115403777` exit 0.
+- `-99999999999999999999999999` → F prints `2537764290115403777` exit 0.
+Old front / v1: all three `failed closed (exit 1)`. Smoke: 3 checks FAILED under F, all pass under the old front.
+
+**Why the 528-program `SSC_DUALRUN_ALL` sweep missed it:** these targeted overflow literal VALUES are not present in any corpus program, so the output-equivalence sweep had nothing to compare — a genuine OUT-OF-CORPUS gap. The e2e smoke covers it; the corpus does not. (Prior sibling class: `v1-interp-int-literal-above-2^31-becomes-null`, FIXED `5b71ad2f6` — the v1 leg of the same fail-open family.)
+
+**Fix (future F arc):** F must range-check integer literals during lowering and fail closed on 64-bit overflow, mirroring `ssc1-lower`. Do NOT edit `specs/v2.2-p6.5-fsub.ssc` here — sibling-owned; this is a separate future arc. Blocks re-attempting the F4 default-front flip.
+
 ## f-stmt-partial-function-block-dropped — F mishandles a `f { case … }` partial-function block arg
 
 **Status:** OPEN (found 2026-07-21 by opus while pinpointing why `SSC_FRONT=F` diverges on actor
