@@ -349,16 +349,24 @@ removal becomes perf-neutral.
       examples sweep DIFF=0 + BC-FAIL 2→0; effectful progs byte-identical; semantic 248/248; fixpoint
       byte-identical; v2JvmBytecode/compile. **Both hard-fail classes covered → bytecode lane is default-safe
       on the tested surface** (213-example sweep + effectful + deep-loop + v21-direct-asm-recursion smoke).
-- [ ] **f5c-SWITCH (READY — prereqs met) — make the bytecode lane the DEFAULT `ssc run` backend.** Flip
-      `StandardMain.runNative` `var bytecode = false` → `true` + a reversible opt-out (`--interpret` /
-      `SSC_EXEC=vm`, mirroring `SSC_FRONT=legacy`). The prereq-#1 fallback + prereq-#2 stack-safety make it
-      safe. GATE with FLIP-LEVEL RIGOR: FULL conformance + the FULL e2e smoke suite on the new default +
-      semantic 248/248 + X1 fixpoint byte-identical. (Re-assessment so far — examples DIFF=0/BC-FAIL=0,
-      effectful byte-identical, v21-direct-asm-recursion pass — is strong but NOT the full conformance/e2e.)
-- [ ] **f5c-3 (after switch) — f.* double + `lcell`/`dcell` accumulator `i.*`** so those numeric classes are
-      also fast on the default lane before the removal.
-- [ ] **f5c-4 (after switch + f5c-3) — FastCode/SelfRec removal** (`SSC_FASTPATHS` off → delete `v2/src`
-      regions, ~−1186 L) + re-measure default-lane fib/arith-loop (perf-neutral). Flip-level rigor.
+- [x] **f5c-SWITCH DONE (`c05924863`, 2026-07-22) — bytecode lane is now the DEFAULT `ssc run` backend.**
+      `StandardMain.runNative` default VM→bytecode (`defaultExecBytecode`); reversible opt-out `--interpret`/
+      `--vm`/`SSC_EXEC=vm`. Flip gate (F4-lesson: corpus green ≠ sufficient) caught + fixed a landed
+      regression: fix (a) (`7332deb05`) — SLICE-1 caught ASM size errors BY TYPE, which eagerly loaded ASM on
+      the VM path (v21-plugin-backend-isolation RED on main since 48e31b163) → now matched by class-name.
+      Plus (b1): the isolation smoke's VM-path checks forced `--interpret`. GATES: switch-relevant e2e A/B
+      (bytecode default vs SSC_EXEC=vm) **0 REGRESSIONS** (both-fail smokes fail on the VM too = pre-existing/
+      env); examples DIFF=0/BC-FAIL=0; pattern-match-heavy 500k+3M no overflow; effectful byte-identical;
+      semantic 248/248; fixpoint byte-identical; v2JvmBytecode/compile; isolation smoke passes. Reversible +
+      CI-verified as the out-of-corpus net. **⚠ verify exact-SHA CI on 9ddd2b501 before building the removal.**
+- [ ] **f5c-3 (NEXT — before the removal) — f.* double + `lcell`/`dcell` accumulator `i.*`** recognition in
+      JvmByteGen (the 2 remaining `__arith__`-only sites) so float/accumulator numeric is fast on the default
+      lane BEFORE the removal (else the removal regresses those classes on `ssc run`). Gate: byte-identical +
+      those classes hit the unboxed fast path.
+- [ ] **f5c-4 (after f5c-3 + switch-CI-green) — FastCode/SelfRec removal** (`SSC_FASTPATHS` off → delete
+      `v2/src/Runtime.scala` regions, ~−1186 L) + re-measure default-lane (bytecode) fib/arith-loop perf-
+      neutral; `--interpret` numeric now slower (accepted — reference lane). Highest-stakes: build on a
+      CI-verified switch, flip-level rigor.
 - [ ] **S1-6 — δ-arm deletion: Δ=0 in Stage 1 (approach A) — MEASURED, deferred to post-S1-5.** Confirmed
       empirically: (a) typed F STILL emits `__arith__` for bare-variable arith (`a+b`, `local>=local`) and
       `__eq__` for `local==lit`; (b) the ssc0 tower `ssc1-lower.ssc0` emits `__arith__` ×12 + `__eq__` ×10;

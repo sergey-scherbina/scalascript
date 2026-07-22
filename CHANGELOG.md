@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-07-22 — v2-f5c: JVM-bytecode lane is now the DEFAULT `ssc run` backend (Option A)
+
+The culmination of the F5b/F5c arc: `ssc run` now executes on the JIT-compiling bytecode lane by default
+(was the tree-walking interpreter), so numeric hot loops run at ~FastCode speed out of the box. Reversible
+— `--interpret` (or `--vm`, or `SSC_EXEC=vm`) opts back to the interpreter, mirroring `SSC_FRONT=legacy`.
+Safe because the earlier prerequisites are in place: the link-time fallback (a construct the bytecode lane
+can't compile → runs on the interpreter, side-effect-safe) and stack-safe effectful loops (no
+StackOverflow on deep `foreach`/`while`). The flip gate (per the F4-flip lesson — a corpus-level DIFF=0 is
+necessary but NOT sufficient) caught and fixed a real out-of-corpus regression that a landed SLICE-1 commit
+had introduced: it caught the ASM `Method/ClassTooLargeException` by TYPE in the fallback, which made the
+JVM eagerly load ASM even on the VM path (breaking native-VM backend isolation, red on main since
+`48e31b163`) — now matched by class name so no ASM type is referenced. Switch-relevant e2e smokes A/B
+(bytecode default vs `SSC_EXEC=vm`) show 0 regressions (the both-fail smokes fail on the VM too =
+pre-existing/env); examples sweep DIFF=0/BC-FAIL=0; pattern-match-heavy 500k+3M no overflow; effectful
+programs byte-identical; semantic 248/248; X1 fixpoint byte-identical. Reversible + CI-verified as the
+out-of-corpus safety net. Remaining: f5c-3 (typed `f.*`/accumulator recognition) then the FastCode/SelfRec
+removal (~−1186 kernel lines, on a CI-verified switch). Detail: `specs/v2-f5c-typed-bytecode.md`.
+
 ## 2026-07-22 — Scala host lane covers durable save/run vectors 14/17
 
 `scala-explicit` now advertises `durable-save,no-replay`, and `SemanticVectorConformanceTest`

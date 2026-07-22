@@ -258,3 +258,15 @@ lowering exists for.)
 **Net:** prereq #1 landed (large programs safe via fallback). Prereq #2 (deep effectful loops) is the
 remaining blocker to a safe default switch — a dedicated JvmByteGen increment. **The default switch + the
 FastCode/SelfRec removal stay BLOCKED until #2 lands.**
+
+### Switch LANDED (`c05924863`, 2026-07-22) — bytecode is the default `ssc run` backend
+`StandardMain.runNative` default VM→bytecode (`defaultExecBytecode`); reversible via `--interpret`/`--vm`/
+`SSC_EXEC=vm`. The flip gate caught + fixed a landed SLICE-1 regression (fix (a) `7332deb05`: ASM size
+errors matched by class-name, not type, so the VM path no longer eagerly loads ASM — `v21-plugin-backend-
+isolation` was red on main since `48e31b163`), and updated that smoke's VM-path checks to force
+`--interpret` (b1). Local gates: switch-relevant e2e A/B **0 regressions** (both-fail smokes fail on the VM
+too = pre-existing/env); examples DIFF=0/BC-FAIL=0; pattern-match-heavy 500k+3M no overflow; effectful
+byte-identical; semantic 248/248; X1 fixpoint byte-identical; conformance slice (recursion/pattern-match/
+effects/tail-rec/hof/maps/collections/tuples/enums/typeclass) 9/9 all backends; isolation smoke passes.
+Reversible + CI is the out-of-corpus net (F4 lesson). **Remaining: f5c-3 (typed `f.*`/accumulator), then the
+FastCode/SelfRec removal (~−1186 L) on a CI-verified switch.**
