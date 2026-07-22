@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs"
 import test from "node:test"
 
 import {
+  ArtifactProfile,
   CapsuleRejected,
   CaptureFailure,
   Continuation,
@@ -469,6 +470,34 @@ function missingResolverReject() {
   }
 }
 
+// Axis 12 — admission asserts the pinned codec ABI, artifact ABI, and required
+// dependencies as three separate typed rejections, before any user code runs.
+function exactArtifactAndCodecMismatch() {
+  const machine = { resume: (state, input) => Eff.pure(input * 10) }
+  const point = profile =>
+    ResumePoint.define("abi", machine, DurableCodec.int, new Set(), profile)
+  const admissionKind = (target, capsule) => {
+    try {
+      target.restore(capsule)
+      return "Admitted"
+    } catch (error) {
+      if (error instanceof CapsuleRejected) return error.kind
+      throw error
+    }
+  }
+  const codecMismatch = admissionKind(
+    point(ArtifactProfile.of(2, "x", new Set())),
+    point(ArtifactProfile.of(1, "x", new Set())).freeze(0)
+  )
+  const abiMismatch = admissionKind(
+    point(ArtifactProfile.of(2, "y", new Set())),
+    point(ArtifactProfile.of(2, "x", new Set())).freeze(0)
+  )
+  const needsToolchain = point(ArtifactProfile.of(2, "y", new Set(["toolchain-z"])))
+  const missingDependency = admissionKind(needsToolchain, needsToolchain.freeze(0))
+  return `${codecMismatch}|${abiMismatch}|${missingDependency}`
+}
+
 const semanticPrograms = new Map([
   ["01", oneShotResume],
   ["02", multiShotResume],
@@ -480,6 +509,7 @@ const semanticPrograms = new Map([
   ["08", returnTransform],
   ["09", nondeterminismProduct],
   ["11", missingResolverReject],
+  ["12", exactArtifactAndCodecMismatch],
   ["14", durableSaveRunSameProcess],
   ["17", noPrefixMainReplay],
   ["18", nearestMatchingReset],
@@ -880,7 +910,7 @@ test("freeze -> encode -> decode -> restore -> run reproduces the state", () => 
   const capsule = point.freeze({ value: 100 })
   const transported = DurableCapsule.decode(capsule.encode())
   assert.equal(transported.resumePointId, "cell")
-  assert.equal(transported.formatVersion, 1)
+  assert.equal(transported.formatVersion, 2)
   const saved = point.restore(transported)
   assert.equal(runRestored(saved, 1), 101)
   assert.equal(runRestored(saved, 5), 105)
@@ -908,9 +938,9 @@ test("a capsule cannot be restored on a different resume point", () => {
 test("an unsupported capsule format version is rejected", () => {
   const point = ResumePoint.define("cell", cellMachine, cellCodec)
   const raw = point.freeze({ value: 1 }).encode().toArray()
-  raw[3] = 2 // version int is big-endian in bytes 0..3
+  raw[3] = 9 // version int big-endian bytes 0..3; make it an unsupported 9
   const badVersion = DurableCapsule.decode(DurableBytes.fromArray(raw))
-  assert.equal(badVersion.formatVersion, 2)
+  assert.equal(badVersion.formatVersion, 9)
   assert.throws(() => point.restore(badVersion), CapsuleRejected)
 })
 
@@ -934,7 +964,7 @@ test("golden capsule bytes match the cross-lane format", () => {
   const point = ResumePoint.define("cell", cellMachine, cellCodec)
   assert.equal(
     point.freeze({ value: 100 }).encode().toHex(),
-    "000000010000000463656c6c0000000400000064000000204b458482422640f4fb818274ec2b4f3d1de3a487c25f991d751e483fdc0aea9b"
+    "000000020000000463656c6c0000000100000000000000000000000400000064000000204b458482422640f4fb818274ec2b4f3d1de3a487c25f991d751e483fdc0aea9b"
   )
 })
 

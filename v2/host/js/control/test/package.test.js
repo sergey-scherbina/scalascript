@@ -19,6 +19,7 @@ function assertPrivateConstructor(value, ...args) {
 }
 
 const expectedRuntimeExports = [
+  "ArtifactProfile",
   "CapsuleRejected",
   "CaptureFailure",
   "Continuation",

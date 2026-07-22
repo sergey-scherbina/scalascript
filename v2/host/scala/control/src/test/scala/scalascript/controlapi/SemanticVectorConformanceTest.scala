@@ -119,7 +119,7 @@ private object SemanticVectorConformanceTest:
     val implementedIds: Set[String] =
       Set(
         "01", "02", "03", "04", "05", "06", "07", "08", "09",
-        "11",
+        "11", "12",
         "14", "17",
         "18", "19", "20", "21", "22", "23", "24", "25"
       )
@@ -227,6 +227,7 @@ private object SemanticVectorConformanceTest:
         case "08" => returnTransform()
         case "09" => nondeterminismProduct()
         case "11" => missingResolverReject()
+        case "12" => exactArtifactAndCodecMismatch()
         case "14" => durableSaveRunSameProcess()
         case "17" => noPrefixMainReplay()
         case "18" => nearestMatchingReset()
@@ -312,6 +313,37 @@ private object SemanticVectorConformanceTest:
         val _ = point.restore(capsule, Set.empty)
         "NotRejected"
       catch case rejected: CapsuleRejected => rejected.kind
+
+    private def admissionKind(
+        point: ResumePoint[Int, Int, Nothing, Int],
+        capsule: DurableCapsule
+    ): String =
+      try
+        val _ = point.restore(capsule)
+        "Admitted"
+      catch case rejected: CapsuleRejected => rejected.kind
+
+    // Axis 12 — admission asserts the pinned codec ABI, artifact ABI, and required
+    // dependencies as three separate typed rejections, before any user code runs.
+    private def exactArtifactAndCodecMismatch(): String =
+      def point(profile: ArtifactProfile): ResumePoint[Int, Int, Nothing, Int] =
+        ResumePoint.define("abi", timesTen, DurableCodec.int, Set.empty, profile)
+      // (a) capsule pins codec ABI v1; a runtime at v2 rejects with CodecMismatch.
+      val codecMismatch =
+        admissionKind(
+          point(ArtifactProfile(2, "x", Set.empty)),
+          point(ArtifactProfile(1, "x", Set.empty)).freeze(0)
+        )
+      // (b) same codec ABI, differing artifact identity rejects with AbiMismatch.
+      val abiMismatch =
+        admissionKind(
+          point(ArtifactProfile(2, "y", Set.empty)),
+          point(ArtifactProfile(2, "x", Set.empty)).freeze(0)
+        )
+      // (c) an absent required target/toolchain dependency rejects with MissingDependency.
+      val needsToolchain = point(ArtifactProfile(2, "y", Set("toolchain-z")))
+      val missingDependency = admissionKind(needsToolchain, needsToolchain.freeze(0))
+      s"$codecMismatch|$abiMismatch|$missingDependency"
 
     private def resumeReusable[A, Fx <: Effect, R](
         resumption: Resumption[A, Fx, R],

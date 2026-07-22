@@ -289,8 +289,30 @@ export const DurableCodec: Readonly<{
 }>
 
 export class CapsuleRejected extends Error {
-  readonly kind: "FormatVersion" | "ResumePointMismatch" | "FrameTampered" | "MissingDependency"
+  readonly kind:
+    | "FormatVersion"
+    | "ResumePointMismatch"
+    | "FrameTampered"
+    | "CodecMismatch"
+    | "AbiMismatch"
+    | "MissingDependency"
 }
+
+/** The pinned ABI/dependency identity a capsule carries for admission (§10, §12). */
+export interface ArtifactProfile {
+  readonly codecAbiVersion: number
+  readonly artifactAbiId: string
+  readonly requiredDependencies: ReadonlySet<string>
+}
+
+export const ArtifactProfile: Readonly<{
+  default: ArtifactProfile
+  of(
+    codecAbiVersion: number,
+    artifactAbiId: string,
+    requiredDependencies: ReadonlySet<string>
+  ): ArtifactProfile
+}>
 
 /** A versioned, digest-verified durable capsule bound to a named resume point. */
 export class DurableCapsule {
@@ -306,17 +328,20 @@ export class ResumePoint<S, A, Fx extends Effect, R> {
   private constructor()
   readonly id: string
   readonly requiredResolvers: ReadonlySet<string>
+  readonly profile: ArtifactProfile
   savable(state: S): Continuation<A, Fx, R>
   freeze(state: S): DurableCapsule
   restore(
     capsule: DurableCapsule,
-    availableResolvers?: ReadonlySet<string>
+    availableResolvers?: ReadonlySet<string>,
+    availableDependencies?: ReadonlySet<string>
   ): SavedContinuation<A, Fx, R>
   static define<S, A, Fx extends Effect, R>(
     id: string,
     machine: ResumeStateMachine<S, A, Fx, R>,
     codec: DurableCodec<S>,
-    requiredResolvers?: ReadonlySet<string>
+    requiredResolvers?: ReadonlySet<string>,
+    profile?: ArtifactProfile
   ): ResumePoint<S, A, Fx, R>
 }
 

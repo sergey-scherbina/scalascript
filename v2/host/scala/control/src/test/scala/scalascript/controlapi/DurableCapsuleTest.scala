@@ -25,7 +25,7 @@ final class DurableCapsuleTest extends AnyFunSuite:
     val capsule = resume.freeze(new Cell(100))
     val transported = DurableCapsule.decode(capsule.encode())
     assert(transported.resumePointId == "cell")
-    assert(transported.formatVersion == 1)
+    assert(transported.formatVersion == 2)
 
     val saved = resume.restore(transported)
     // reusable multi-shot; each restored run reconstructs an independent frame.
@@ -57,9 +57,9 @@ final class DurableCapsuleTest extends AnyFunSuite:
   test("an unsupported format version is rejected"):
     val resume = point("cell")
     val raw = resume.freeze(new Cell(1)).encode().toArray
-    raw(3) = 2.toByte // version int is big-endian in bytes 0..3; make it 2
+    raw(3) = 9.toByte // version int big-endian bytes 0..3; make it an unsupported 9
     val badVersion = DurableCapsule.decode(DurableBytes.fromArray(raw))
-    assert(badVersion.formatVersion == 2)
+    assert(badVersion.formatVersion == 9)
     intercept[CapsuleRejected](resume.restore(badVersion))
 
   test("capsule decoding is bounded and exact"):
@@ -91,5 +91,5 @@ final class DurableCapsuleTest extends AnyFunSuite:
     val resume = point("cell")
     assert(
       resume.freeze(new Cell(100)).encode().toString ==
-        "000000010000000463656c6c0000000400000064000000204b458482422640f4fb818274ec2b4f3d1de3a487c25f991d751e483fdc0aea9b"
+        "000000020000000463656c6c0000000100000000000000000000000400000064000000204b458482422640f4fb818274ec2b4f3d1de3a487c25f991d751e483fdc0aea9b"
     )

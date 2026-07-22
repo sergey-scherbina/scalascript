@@ -1200,19 +1200,40 @@ export class CapsuleRejected extends Error {
   }
 }
 
-const capsuleFormatVersion = 1
+const capsuleFormatVersion = 2
 // "ssc-frame-v1\0" — NUL-terminated domain separator (§10).
 const frameDigestDomain = Uint8Array.from([
   ...new TextEncoder().encode("ssc-frame-v1"),
   0
 ])
 
+// The pinned ABI/dependency identity a capsule carries so admission can reject a
+// codec, artifact, or dependency mismatch before any user code runs (§10, §12).
+export const ArtifactProfile = Object.freeze({
+  default: Object.freeze({
+    codecAbiVersion: 1,
+    artifactAbiId: "",
+    requiredDependencies: new Set()
+  }),
+  of(codecAbiVersion, artifactAbiId, requiredDependencies) {
+    return Object.freeze({ codecAbiVersion, artifactAbiId, requiredDependencies })
+  }
+})
+
 const capsuleStates = new WeakMap()
 
 export class DurableCapsule {
-  constructor(authority, formatVersion, resumePointId, frame, digest) {
+  constructor(authority, formatVersion, resumePointId, codecAbiVersion, artifactAbiId, requiredDependencies, frame, digest) {
     requireInternalAuthority(authority)
-    capsuleStates.set(this, Object.freeze({ formatVersion, resumePointId, frame, digest }))
+    capsuleStates.set(this, Object.freeze({
+      formatVersion,
+      resumePointId,
+      codecAbiVersion,
+      artifactAbiId,
+      requiredDependencies: Object.freeze(requiredDependencies.slice()),
+      frame,
+      digest
+    }))
     Object.freeze(this)
   }
 
@@ -1238,14 +1259,29 @@ const capsuleCodec = DurableCodec.imap(
     DurableCodec.int,
     DurableCodec.pair(
       DurableCodec.string,
-      DurableCodec.pair(DurableCodec.bytes, DurableCodec.bytes)
+      DurableCodec.pair(
+        DurableCodec.int,
+        DurableCodec.pair(
+          DurableCodec.string,
+          DurableCodec.pair(
+            DurableCodec.list(DurableCodec.string),
+            DurableCodec.pair(DurableCodec.bytes, DurableCodec.bytes)
+          )
+        )
+      )
     )
   ),
-  ([version, [id, [frame, digest]]]) =>
-    new DurableCapsule(internalAuthority, version, id, frame, digest),
+  ([version, [id, [codecAbi, [artifactAbi, [deps, [frame, digest]]]]]]) =>
+    new DurableCapsule(
+      internalAuthority, version, id, codecAbi, artifactAbi, deps, frame, digest
+    ),
   capsule => {
     const state = requirePrivateState(capsuleStates, capsule, "durable capsule")
-    return [state.formatVersion, [state.resumePointId, [state.frame, state.digest]]]
+    return [
+      state.formatVersion,
+      [state.resumePointId, [state.codecAbiVersion, [state.artifactAbiId,
+        [state.requiredDependencies, [state.frame, state.digest]]]]]
+    ]
   }
 )
 
@@ -1256,8 +1292,17 @@ function digestFrame(frame) {
   return new DurableBytes(sha256(combined))
 }
 
-function createCapsule(id, frame) {
-  return new DurableCapsule(internalAuthority, capsuleFormatVersion, id, frame, digestFrame(frame))
+function createCapsule(id, frame, profile) {
+  return new DurableCapsule(
+    internalAuthority,
+    capsuleFormatVersion,
+    id,
+    profile.codecAbiVersion,
+    profile.artifactAbiId,
+    [...profile.requiredDependencies].sort(),
+    frame,
+    digestFrame(frame)
+  )
 }
 
 function verifyCapsule(capsule, expectedId) {
@@ -1283,11 +1328,11 @@ function verifyCapsule(capsule, expectedId) {
 const resumePointStates = new WeakMap()
 
 export class ResumePoint {
-  constructor(authority, id, machine, codec, requiredResolvers) {
+  constructor(authority, id, machine, codec, requiredResolvers, profile) {
     requireInternalAuthority(authority)
     resumePointStates.set(
       this,
-      Object.freeze({ id, machine, codec, requiredResolvers })
+      Object.freeze({ id, machine, codec, requiredResolvers, profile })
     )
     Object.freeze(this)
   }
@@ -1300,6 +1345,10 @@ export class ResumePoint {
     return requirePrivateState(resumePointStates, this, "resume point").requiredResolvers
   }
 
+  get profile() {
+    return requirePrivateState(resumePointStates, this, "resume point").profile
+  }
+
   savable(state) {
     const point = requirePrivateState(resumePointStates, this, "resume point")
     return Continuation.savable(state, point.machine, point.codec)
@@ -1307,25 +1356,38 @@ export class ResumePoint {
 
   freeze(state) {
     const point = requirePrivateState(resumePointStates, this, "resume point")
-    return createCapsule(point.id, point.codec.encode(state))
+    return createCapsule(point.id, point.codec.encode(state), point.profile)
   }
 
-  // Admit a capsule and rebind it. Every required resolver must be present in
-  // availableResolvers, checked atomically before any frame is decoded or run — a
-  // missing resolver is a typed MissingDependency, distinct from a present resolver
-  // whose resource fails later at mid-run resolution (§9.2, §11).
-  restore(capsule, availableResolvers = new Set()) {
+  // Admit a capsule and rebind it, running every admission check atomically before any
+  // frame is decoded or run (§9.2, §11, §12): capsule integrity (verifyCapsule), then a
+  // pinned codec-ABI (CodecMismatch), artifact-ABI (AbiMismatch), and required
+  // resolver/dependency (MissingDependency) check — each a distinct typed rejection.
+  restore(capsule, availableResolvers = new Set(), availableDependencies = new Set()) {
     const point = requirePrivateState(resumePointStates, this, "resume point")
-    const missing = [...point.requiredResolvers].filter(
-      resolver => !availableResolvers.has(resolver)
-    )
+    const state = verifyCapsule(capsule, point.id)
+    if (state.codecAbiVersion !== point.profile.codecAbiVersion) {
+      throw new CapsuleRejected(
+        "CodecMismatch",
+        `capsule codec ABI v${state.codecAbiVersion} is incompatible with runtime v${point.profile.codecAbiVersion}`
+      )
+    }
+    if (state.artifactAbiId !== point.profile.artifactAbiId) {
+      throw new CapsuleRejected(
+        "AbiMismatch",
+        `capsule artifact ABI '${state.artifactAbiId}' differs from runtime '${point.profile.artifactAbiId}'`
+      )
+    }
+    const missing = [
+      ...[...point.requiredResolvers].filter(resolver => !availableResolvers.has(resolver)),
+      ...state.requiredDependencies.filter(dependency => !availableDependencies.has(dependency))
+    ]
     if (missing.length > 0) {
       throw new CapsuleRejected(
         "MissingDependency",
-        `capsule requires unavailable resolver(s): ${missing.sort().join(", ")}`
+        `capsule requires unavailable dependency/resolver(s): ${missing.sort().join(", ")}`
       )
     }
-    const state = verifyCapsule(capsule, point.id)
     return new SavedContinuationImpl(
       internalAuthority,
       point.codec.decode(state.frame),
@@ -1334,7 +1396,7 @@ export class ResumePoint {
     )
   }
 
-  static define(id, machine, codec, requiredResolvers = new Set()) {
+  static define(id, machine, codec, requiredResolvers = new Set(), profile = ArtifactProfile.default) {
     if (typeof id !== "string" || id.length === 0) {
       throw new TypeError("resume point id must be a non-empty string")
     }
@@ -1346,7 +1408,10 @@ export class ResumePoint {
     if (!(requiredResolvers instanceof Set)) {
       throw new TypeError("required resolvers must be a Set")
     }
-    return new ResumePoint(internalAuthority, id, machine, codec, requiredResolvers)
+    if (profile === null || typeof profile !== "object") {
+      throw new TypeError("artifact profile must be an object")
+    }
+    return new ResumePoint(internalAuthority, id, machine, codec, requiredResolvers, profile)
   }
 }
 
