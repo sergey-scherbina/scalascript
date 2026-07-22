@@ -1,0 +1,6 @@
+feature/durable-frame-codec-js 2026-07-22T04:22:14Z
+agent: claude-code
+heartbeat: 2026-07-22T04:22:14Z
+status: not-started
+done-so-far:
+next: JS mirror of DurableCodec Part 1 (scalars+pair/either/list/imap) matching the scala wire format; reconcile NaN policy CROSS-LANE (canonicalize on BOTH lanes); shared GOLDEN hex vectors on both lanes to VERIFY byte identity; spec update. Capsule/SHA-256 JS mirror = follow-on
