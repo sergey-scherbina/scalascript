@@ -1,0 +1,6 @@
+feature/v2-f4-reflip 2026-07-22T03:59:39Z
+agent: opus-orch
+heartbeat: 2026-07-22T03:59:39Z
+status: in-progress
+done-so-far: Sergiy directive "F4 - чини и повторяй". Prior flip (3750df8c2) REVERTED (bf24267e9) — CI caught F int-literal-overflow-fail-open (BUGS f-int-literal-overflow-fails-open) + F perf CI-timeout. Both re-queued in BACKLOG.
+next: subagent fixes ① F overflow-literal fail-closed + ② F perf/CI-budget; verify via native-front e2e SMOKES (not just corpus) + negtc under F; then re-flip frontIsF opt-out + verify CI green.

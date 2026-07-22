@@ -1,0 +1,6 @@
+feature/v2-f5b-typed-ir 2026-07-22T03:59:39Z
+agent: opus-orch
+heartbeat: 2026-07-22T03:59:39Z
+status: in-progress
+done-so-far: Sergiy directive "F5 - применяй и продолжай с F5b и оптимизируй перф-регрессии". Study d6b1fe5a2 + BACKLOG "v2 kernel-shrink deep remainder": FastCode/SelfRec removal (~1186 L) is perf-gated (4.3× numeric regr); sequencing = F5b typed IR FIRST (perf-neutral enabler), then removal one-liner via SSC_FASTPATHS instrument. Design spec specs/v2-f5b-typed-ir-design.md exists.
+next: subagent pursues F5b typed IR (F emits typed/monomorphized IR); land safe slices gated on X1 fixpoint byte-identical + semantic; once F5b softens perf, apply FastCode/SelfRec removal perf-neutrally (recover 4.3×).
