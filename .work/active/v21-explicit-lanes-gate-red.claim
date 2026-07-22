@@ -1,6 +1,0 @@
-feature/v21-explicit-lanes-gate-red 2026-07-22T19:19:19Z
-agent: opus-orch
-heartbeat: 2026-07-22T19:19:19Z
-status: in-progress
-done-so-far: LAST CI-baseline blocker (durable-save-run Conformance red FIXED facd1a222; only this remains). sbt job 'ScalaScript 2.1' fails at tests/e2e/v21-explicit-lanes-gate.sh (scljet-JVM-VFS explicit-lanes) — passes v21-explicit-scljet-jvm-vfs-tools-smoke + scljet-readonly-jvm-vfs-smoke, then a LATER check in the gate fails (exit 1). Not negtc, not durable, not front/exec switch.
-next: subagent runs tests/e2e/v21-explicit-lanes-gate.sh locally, finds the EXACT failing check + why (real regr vs env/flake vs stale), fixes correctly (or classifies if env), verifies the gate green → CI baseline green.
