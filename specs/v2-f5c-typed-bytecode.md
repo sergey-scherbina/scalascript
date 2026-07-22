@@ -270,3 +270,19 @@ byte-identical; semantic 248/248; X1 fixpoint byte-identical; conformance slice 
 effects/tail-rec/hof/maps/collections/tuples/enums/typeclass) 9/9 all backends; isolation smoke passes.
 Reversible + CI is the out-of-corpus net (F4 lesson). **Remaining: f5c-3 (typed `f.*`/accumulator), then the
 FastCode/SelfRec removal (~−1186 L) on a CI-verified switch.**
+
+### Switch REVERTED (`git revert` of `9ddd2b501`, 2026-07-22) — CI-red on 64-bit integers
+CI is the out-of-corpus net, and it fired: the switch's full Conformance Suite reported 64-bit-integer
+divergences (`2147483648`→`-2147483648` = 2^31 wrapped to Int32; `max64`→a double; `2^53+1` exactness
+lost) that the local flip gate — examples sweep + a 9-test slice, neither containing an integer-boundary
+program — could not see. ssc `Int` is 64-bit, so a default lane that produces these corrupts every
+large-integer program. **Reverted**; default execution is the interpreter again (`var bytecode = false`),
+`--bytecode` opt-in. Prereqs #1 (fallback) + #2 (stack-safety) kept — correct standalone. Post-revert:
+conformance int tests 3/0, semantic 248/248, X1 fixpoint byte-identical. **Blocker + unreconciled causal
+path** (`BUGS.md §f-bytecode-default-switch-int64-ci-red`): locally the v2 JvmByteGen lane is int64-CORRECT
+(`int-width`/`int-literal` via `run --bytecode` == expected; typed `i.*` arith exact) and `run.sc` uses
+explicit lane flags (INT via `run-batch --v1`, bytecode via explicit `run --bytecode`) so it is
+switch-independent — so it is NOT localized whether the CI red is a real v2-bytecode wrap or a
+misattributed v1-codegen KNOWN-RED (`specs/numeric-widths.md §4`). Re-attempt only after that is resolved,
+with the FULL conformance suite (int-boundary set) in the maturity gate. **f5c-3 + the removal are
+BACKLOG, gated on the re-landed CI-green switch.**

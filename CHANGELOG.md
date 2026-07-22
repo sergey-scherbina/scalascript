@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-07-22 — Revert the f5c bytecode-lane default switch (CI-red on 64-bit integers)
+
+Reverts `9ddd2b501`, which had made the JVM-bytecode lane the DEFAULT `ssc run` execution backend
+(f5c Option A). The switch's local flip gate was green (examples DIFF=0, effectful byte-identical,
+semantic 248/248, fixpoint byte-identical) and even caught+fixed a real landed regression, but the
+switch's CI ran the FULL Conformance Suite — which the local gate did not — and reported 64-bit-integer
+divergences (`2147483648`→`-2147483648`, `max64`→a double) that no integer-boundary program in the
+examples sweep or the 9-test slice could catch. ssc `Int` is 64-bit, so a default lane that produces
+these corrupts every large-integer program. Default execution is restored to the interpreter;
+`--bytecode` remains the opt-in. The two standalone bytecode-lane improvements the switch depended on —
+the link-time fallback (`48e31b163`) and stack-safe effectful loops (`bb0553aa1`) — are kept. Post-revert:
+conformance int tests 3 passed/0 failed, semantic 248/248, X1 fixpoint byte-identical. The blocker and an
+unreconciled causal-path question (the v2 JvmByteGen lane is int64-correct locally; `run.sc` uses explicit
+lanes and is switch-independent) are tracked in `BUGS.md §f-bytecode-default-switch-int64-ci-red`; the
+switch + the FastCode/SelfRec removal it gated are re-queued to `SPRINT.md §v2-f5c` BACKLOG. Lesson: the
+switch's maturity gate MUST include the full conformance suite (an integer-boundary program set), not just
+the examples sweep.
+
 ## 2026-07-22 — §8.3 FrameGate: raw foreign frames reject save() with CaptureBarrier (vector 10)
 
 Adds the `Unsavable` side of the §8.3 FrameGate. A savable continuation whose captured state is a raw

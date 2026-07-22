@@ -349,24 +349,29 @@ removal becomes perf-neutral.
       examples sweep DIFF=0 + BC-FAIL 2→0; effectful progs byte-identical; semantic 248/248; fixpoint
       byte-identical; v2JvmBytecode/compile. **Both hard-fail classes covered → bytecode lane is default-safe
       on the tested surface** (213-example sweep + effectful + deep-loop + v21-direct-asm-recursion smoke).
-- [x] **f5c-SWITCH DONE (`c05924863`, 2026-07-22) — bytecode lane is now the DEFAULT `ssc run` backend.**
-      `StandardMain.runNative` default VM→bytecode (`defaultExecBytecode`); reversible opt-out `--interpret`/
-      `--vm`/`SSC_EXEC=vm`. Flip gate (F4-lesson: corpus green ≠ sufficient) caught + fixed a landed
-      regression: fix (a) (`7332deb05`) — SLICE-1 caught ASM size errors BY TYPE, which eagerly loaded ASM on
-      the VM path (v21-plugin-backend-isolation RED on main since 48e31b163) → now matched by class-name.
-      Plus (b1): the isolation smoke's VM-path checks forced `--interpret`. GATES: switch-relevant e2e A/B
-      (bytecode default vs SSC_EXEC=vm) **0 REGRESSIONS** (both-fail smokes fail on the VM too = pre-existing/
-      env); examples DIFF=0/BC-FAIL=0; pattern-match-heavy 500k+3M no overflow; effectful byte-identical;
-      semantic 248/248; fixpoint byte-identical; v2JvmBytecode/compile; isolation smoke passes. Reversible +
-      CI-verified as the out-of-corpus net. **⚠ verify exact-SHA CI on 9ddd2b501 before building the removal.**
+- [~] **f5c-SWITCH — LANDED (`9ddd2b501`) then REVERTED (`git revert` of `9ddd2b501`), 2026-07-22. CI-red on int64 → BACKLOG.**
+      The switch made `StandardMain.runNative` default VM→bytecode (`defaultExecBytecode`), reversible opt-out
+      `--interpret`/`--vm`/`SSC_EXEC=vm`. Local flip gate (F4-lesson) was green AND caught+fixed a real landed
+      regression (fix (a) `7332deb05`: SLICE-1 caught ASM size errors BY TYPE → eagerly loaded ASM on the VM
+      path, v21-plugin-backend-isolation RED since 48e31b163 → matched by class-name; b1: isolation smoke VM
+      checks forced `--interpret`). **BUT the switch's CI (full Conformance Suite) went RED with 64-bit-integer
+      divergence** (2^31→Int32, max64→double) that the examples sweep + 9-test slice had NO integer-boundary
+      program to catch — the exact F4 out-of-corpus miss. **REVERTED** (default → interpreter; `--bytecode`
+      stays opt-in). Prereqs #1 (fallback) + #2 (stack-safety) KEPT — correct standalone. Post-revert green:
+      conformance int tests 3/0, semantic 248/248, fixpoint byte-identical. ⚠ **Blocker + unreconciled causal
+      path** in `BUGS.md §f-bytecode-default-switch-int64-ci-red`: v2 JvmByteGen is int64-CORRECT locally and
+      run.sc uses explicit lanes (switch-independent), so it is NOT localized whether the CI red is a real
+      v2-bytecode wrap or a misattributed v1-codegen KNOWN-RED. **Re-queued to BACKLOG**, gated on that bug;
+      the switch maturity gate MUST include the full conformance suite (int-boundary set), not just examples.
 - [ ] **f5c-3 (NEXT — before the removal) — f.* double + `lcell`/`dcell` accumulator `i.*`** recognition in
       JvmByteGen (the 2 remaining `__arith__`-only sites) so float/accumulator numeric is fast on the default
       lane BEFORE the removal (else the removal regresses those classes on `ssc run`). Gate: byte-identical +
       those classes hit the unboxed fast path.
-- [ ] **f5c-4 (after f5c-3 + switch-CI-green) — FastCode/SelfRec removal** (`SSC_FASTPATHS` off → delete
-      `v2/src/Runtime.scala` regions, ~−1186 L) + re-measure default-lane (bytecode) fib/arith-loop perf-
-      neutral; `--interpret` numeric now slower (accepted — reference lane). Highest-stakes: build on a
-      CI-verified switch, flip-level rigor.
+- [ ] **f5c-4 (BLOCKED — gated on f5c-SWITCH, now BACKLOG) — FastCode/SelfRec removal** (`SSC_FASTPATHS` off →
+      delete `v2/src/Runtime.scala` regions, ~−1186 L) + re-measure default-lane (bytecode) fib/arith-loop perf-
+      neutral; `--interpret` numeric now slower (accepted — reference lane). Highest-stakes irreversible kernel
+      deletion → build ONLY on a CI-GREEN switch. Blocked until `f-bytecode-default-switch-int64-ci-red` is
+      resolved and the switch re-lands CI-green.
 - [ ] **S1-6 — δ-arm deletion: Δ=0 in Stage 1 (approach A) — MEASURED, deferred to post-S1-5.** Confirmed
       empirically: (a) typed F STILL emits `__arith__` for bare-variable arith (`a+b`, `local>=local`) and
       `__eq__` for `local==lit`; (b) the ssc0 tower `ssc1-lower.ssc0` emits `__arith__` ×12 + `__eq__` ×10;
