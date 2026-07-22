@@ -1755,6 +1755,18 @@ lazy val cli = project
       // v21-direct-asm-recursion-smoke: it runs the launcher under
       // JAVA_TOOL_OPTIONS=-Xss256k to prove the compiled lanes do NOT need a big
       // stack, and after -Xss64m landed it kept passing while quietly testing 64m.
+      //
+      // -Dstdout.encoding / -Dstderr.encoding = UTF-8 on every launcher: a `.ssc`
+      // program's observable output must be DETERMINISTIC across platforms — the
+      // language is target-agnostic and its output is the contract. `file.encoding`
+      // is UTF-8 by default since JDK 18 (JEP 400), but `System.out`/`System.err`
+      // still fall back to `native.encoding`, which is locale-derived. When stdout
+      // is redirected (no console) under a C / unset-LANG locale — the GitHub CI
+      // runner default — `native.encoding` is ANSI_X3.4-1968 (ASCII), so any
+      // non-ASCII char is replaced with `?`. That silently broke the swift lane
+      // (its expected `GPI hop: DEUTDEFF — ACCC` em-dash printed as `?` on Linux CI
+      // while passing on UTF-8-locale developer macs). Pinning UTF-8 makes output
+      // byte-identical everywhere; ASCII output is unchanged (UTF-8 ⊇ ASCII).
       val standardLauncherScript =
         """#!/usr/bin/env bash
           |_SSC_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1769,7 +1781,7 @@ lazy val cli = project
           |                   -Xlog:cds=off -Xlog:cds+dynamic=off)
           |  fi
           |fi
-          |exec java "${_SSC_CDS_ARGS[@]}" -Xss"${SSC_XSS:-64m}" -Dssc.lib.path="$_SSC_ROOT" \
+          |exec java "${_SSC_CDS_ARGS[@]}" -Xss"${SSC_XSS:-64m}" -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 -Dssc.lib.path="$_SSC_ROOT" \
           |  -cp "$_SSC_BIN/lib/standard/jars/*:$_SSC_BIN/lib/standard/ssc.jar" \
           |  scalascript.cli.StandardMain "$@"
           |""".stripMargin
@@ -1782,7 +1794,7 @@ lazy val cli = project
         """#!/usr/bin/env bash
           |_SSC_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
           |_SSC_ROOT="$(dirname "$_SSC_BIN")"
-          |exec java -Xss"${SSC_XSS:-64m}" -Dssc.lib.path="$_SSC_ROOT" \
+          |exec java -Xss"${SSC_XSS:-64m}" -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 -Dssc.lib.path="$_SSC_ROOT" \
           |  -cp "$_SSC_BIN/lib/jars/*:$_SSC_BIN/lib/ssc.jar" \
           |  scalascript.cli.ssc "$@"
           |""".stripMargin)
@@ -1804,7 +1816,7 @@ lazy val cli = project
           |  echo "ssc-provider: provider is not installed: $_SSC_PROVIDER" >&2
           |  exit 2
           |fi
-          |exec java -Xss"${SSC_XSS:-64m}" -Dssc.lib.path="$_SSC_ROOT" \
+          |exec java -Xss"${SSC_XSS:-64m}" -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 -Dssc.lib.path="$_SSC_ROOT" \
           |  -cp "$_SSC_PROVIDER_DIR/*:$_SSC_BIN/lib/standard/jars/*:$_SSC_BIN/lib/standard/ssc.jar" \
           |  scalascript.cli.StandardMain "$@"
           |""".stripMargin)
