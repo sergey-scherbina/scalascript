@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-07-22 — v2-f5c: link-time bytecode→interpreter fallback (Option-A prereq #1)
+
+Toward making the bytecode lane a safe default (Sergiy's Option A), `RunNativeV2.runBytecode` gained a
+LINK-TIME fallback: a pre-execution codegen failure (`ssc.bytecode.Unsupported`, or ASM
+`MethodTooLargeException`/`ClassTooLargeException` — the generated `install()`/method exceeding the JVM
+64 KB limit) now falls back to the interpreter (`runVm`) instead of crashing. Safe because `emitProgram`
+is pure code generation — no side effect has happened, so re-running on the VM can't duplicate output.
+RUNTIME failures (during `install`/`entry`, after side effects) are deliberately NOT caught. Verified:
+`scljet-hello`/`-jdbc` via `ssc run --bytecode` now fall back → byte-identical to the interpreter, no
+crash; no regression on working programs; semantic 248/248; CLI compiles. This closes the "Method too
+large" gap for a future default switch. The other blocker — `StackOverflowError` on deep EFFECTFUL
+`foreach`/`while` loops (a JvmByteGen chained-tail-call limitation, root-caused in
+`specs/v2-f5c-typed-bytecode.md §8`) — is a runtime, mid-execution class that a fallback cannot cover; it
+needs a dedicated JvmByteGen stack-safety increment. Until it lands, the bytecode default switch + the
+FastCode/SelfRec removal stay blocked.
+
 ## 2026-07-22 — Canonical-key durable map codec on both lanes
 
 Adds `DurableCodec.map[K, V]` to the durable frame algebra on both host lanes. Entries are written

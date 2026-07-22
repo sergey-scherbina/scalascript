@@ -195,3 +195,52 @@ no removal.**
 probes + the arith-loop/fib perf triad. The 125 both-fail examples (need env/args) and the frozen
 semantic/conformance goldens were NOT exhaustively run through `--bytecode` (0 divergence on the 87
 standalone-runnable examples is the evidence). The two hard-fail CLASSES are the blockers regardless.
+
+## 8. Default-safety prerequisites — progress (2026-07-22)
+
+Sergiy chose Option A (bytecode default, then removal). Prereqs from §7, being worked before any switch:
+
+### Prereq #1 — LINK-TIME fallback — ✓ LANDED (`48e31b163`)
+`RunNativeV2.runBytecode` now wraps `emitProgram` in a `try` that falls back to `runVm` on `Unsupported`
+/ ASM `MethodTooLargeException` / `ClassTooLargeException`. These are PRE-execution (pure codegen), so the
+fallback is side-effect-safe (no double execution). Verified: `scljet-hello`/`-jdbc` via `--bytecode` now
+fall back → byte-identical to the interpreter, no crash; no regression on working programs; semantic
+248/248; CLI compiles. This closes gap #1 (Method-too-large) for the default-switch — those programs run
+(on the interpreter) instead of crashing. RUNTIME failures are deliberately NOT caught (must not re-run).
+
+### Prereq #2 — stack-safe effectful loops in JvmByteGen — ANALYZED, NOT landed (a dedicated effort)
+Gap #2 (StackOverflow on deep effectful `foreach`/`while`) is the hard blocker and NOT a bounded slice.
+**Root cause (traced):**
+- An effectful `while` (body `mayOp`, e.g. `shapes.foreach(…)` — `foreach` is `__method__` = impure) is
+  lowered by `OpAnfNative.effectAwareWhile` to `LetRec([Lam(0, Let([cond], If(cond, Seq([body, App(Local(1),
+  Nil)]), unit)))], App(Local(0), Nil))` — a nullary self-tail-recursive loop closure.
+- JvmByteGen HAS a stack-safe local-tail path (the `Bounce` at the `App(Local(i))` case ~1099, guarded by
+  `tail && localFrameArity>=0 && localTailTargets.get(i - slotDepth)`), AND a JVM-loop path for a PLAIN
+  `While` (~946). Plain while + tail-recursion are stack-safe (deep-while 500 k, `v21-direct-asm-recursion`
+  pass under a 256 k stack).
+- **But** an effectful loop body gets **Seq/Let-CHAINED** (`emitChain`/`emitLetChain`, ~369/328): each
+  chained statement is a SEPARATE static method with a **fresh `Ctx`** — which **drops `localTailTargets`,
+  `localFrameArity`, `selfGlobal`, `startLabel`**. So the recur `App(Local(1))` lands in a chained method
+  with `localFrameArity = -1` → the `Bounce` guard fails → it falls to the generic `App` (`Emit.app`, ~1135)
+  = a recursive JVM call. `Emit.app` does NOT trampoline (only `Emit.unroll` does, and `callApp` = bare
+  `Emit.app`). So each loop iteration adds JVM frames → overflow at ~500 k. (Correct output, just deep.)
+
+**Fix design (why it's a dedicated, high-risk increment, not a bounded slice):** two coupled pieces, both
+touching the native-tier codegen for ALL programs:
+1. Propagate `localTailTargets` (+ `localFrameArity`, `selfGlobal`) into the chained-method `Ctx` in
+   `emitChain`/`emitLetChain` — but with **de-Bruijn KEY-SHIFTING**: each chain env-extension (`extend1`)
+   shifts the loop-closure index, so the keys must shift by the chain depth. `startLabel` must NOT propagate
+   (GOTO is method-local → only the `Bounce`, not the self-tail GOTO, works across chained methods).
+2. Make the effectAwareWhile INITIAL driver call (`App(Local(0), Nil)`, non-tail LetRec body) **unroll** the
+   returned `Bounce` (trampoline loop) — `callApp` currently doesn't. Without this, a Bounce-emitting recur
+   would run the loop only ONCE (wrong).
+Regression surface = the entire native tier; a wrong shift or an over-eager unroll breaks effect semantics
+or loop results. Needs its own increment with: semantic 248/248, X1 fixpoint byte-identical,
+`v2JvmBytecode/compile`, `pattern-match-heavy` ≥500 k runs on `--bytecode` without overflow byte-identical
+to the interpreter, AND the full examples sweep still byte-identical. (Alternative considered + rejected as
+unsafe: compile the effectAwareWhile LetRec as a plain JVM loop — loses the escaping-Op suspension the
+lowering exists for.)
+
+**Net:** prereq #1 landed (large programs safe via fallback). Prereq #2 (deep effectful loops) is the
+remaining blocker to a safe default switch — a dedicated JvmByteGen increment. **The default switch + the
+FastCode/SelfRec removal stay BLOCKED until #2 lands.**

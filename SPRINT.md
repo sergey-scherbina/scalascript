@@ -339,11 +339,17 @@ removal becomes perf-neutral.
       iters — `OpAnf.effectAwareWhile`→`LetRec` compiled as non-stack-safe recursion; interpreter is
       trampolined/safe — runtime, mid-execution, NOT cleanly recoverable = the hard blocker). Perf premise
       HOLDS (bytecode arith-loop 0.94 s beats post-removal interp 13.5 s; fib ~8.5 ms). **Do NOT switch the
-      default or remove.** Unblock prereqs (in order): (1) add a clean fallback (`try bytecode catch
-      Unsupported|Method-too-large => runVm`); (2) **make JvmByteGen stack-safe for effectful loops** (compile
-      the OpAnf `effectAwareWhile` LetRec as a JVM loop/trampoline, not recursion) — the real blocker; (3)
-      optional method-splitting; (4) re-assess (examples + FULL semantic/conformance through `--bytecode`) →
-      then switch + f5c-3 + removal with flip-level rigor.
+      default or remove.** Unblock prereqs: (1) **DONE (`48e31b163`)** — link-time fallback in
+      `RunNativeV2.runBytecode` (`try emitProgram catch Unsupported|MethodTooLargeException => runVm`;
+      pre-execution, side-effect-safe). scljet-hello/-jdbc fall back byte-identical, no crash; gap #1 closed.
+      (2) **ANALYZED, NOT landed — a dedicated JvmByteGen increment (spec §8).** Root cause: `emitChain`/
+      `emitLetChain` give each chained Seq/Let statement a FRESH `Ctx` that drops `localTailTargets`/
+      `localFrameArity` → the effectful-loop recur `App(Local(1))` lands where `localFrameArity=-1` → the
+      Bounce guard fails → generic `Emit.app` recursion → overflow. Fix = propagate the tail-call context to
+      chained Ctx WITH de-Bruijn key-shifting (not `startLabel`) + make the effectAwareWhile initial driver
+      unroll the Bounce. High regression surface (whole native tier); needs its own gated increment. (3)
+      optional method-splitting; (4) re-assess + switch + f5c-3 + removal with flip-level rigor.
+      **f5c-3 + f5c-4 stay BLOCKED on prereq #2.**
 - [ ] **f5c-3 (now GATED on the default-switch unblock) — f.* double + `lcell`/`dcell` accumulator `i.*`.**
 - [ ] **f5c-4 (BLOCKED on f5c-default-switch) — FastCode/SelfRec removal** (`SSC_FASTPATHS` off → delete,
       `v2/src`). Only after the bytecode lane is a safe default (prereqs above).
