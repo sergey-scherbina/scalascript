@@ -119,3 +119,51 @@ class EffectTyperTest extends AnyFunSuite:
     assert(effectWarnings.isEmpty,
       s"unexpected effect-verifier warnings: ${effectWarnings.map(_.show)}")
   }
+
+  // ── handle-discharge: a def that fully handles its own effect leaks nothing ──
+  // Regression for the durable-save-run.ssc CI Conformance red: `capture()` performs
+  // `Suspend.point()` INSIDE a `handle { … } { case Suspend.point(k) => k }` that
+  // discharges `Suspend`, so it is genuinely pure (`Int => Int`) and correctly
+  // declares no effect row.  The coarse name-reachability set would mis-flag it.
+
+  test("no verifier warning when a def fully discharges its own effect via handle") {
+    val tm = typeModule("""
+      |```scala
+      |multi effect Suspend:
+      |  def point(): Int
+      |
+      |def capture(): Int => Int = handle {
+      |  val input = Suspend.point()
+      |  input * 10
+      |} {
+      |  case Suspend.point(saved) => saved
+      |}
+      |```
+      |""".stripMargin)
+    val effectWarnings = tm.errors.filter(_.msg.contains("[effect-verifier]"))
+    assert(effectWarnings.isEmpty,
+      s"unexpected effect-verifier warnings: ${effectWarnings.map(_.show)}")
+  }
+
+  test("verifier still flags an effect performed OUTSIDE the discharging handle") {
+    // Discharge is lexically scoped, NOT a blanket suppression: an op performed
+    // before/outside the handle for that effect still leaks even when a handle for
+    // it appears elsewhere in the same body.
+    val tm = typeModule("""
+      |```scala
+      |multi effect Suspend:
+      |  def point(): Int
+      |
+      |def leaks(): Int =
+      |  val early = Suspend.point()
+      |  handle {
+      |    Suspend.point()
+      |  } {
+      |    case Suspend.point(saved) => saved
+      |  }
+      |```
+      |""".stripMargin)
+    val effectWarnings = tm.errors.filter(_.msg.contains("[effect-verifier]"))
+    assert(effectWarnings.exists(_.msg.contains("leaks")),
+      s"expected effect-verifier warning for leaks, got: ${tm.errors.map(_.show)}")
+  }

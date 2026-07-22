@@ -1,7 +1,7 @@
 package scalascript.transform
 
 import scala.collection.mutable
-import scala.meta.{Defn, Lit, Pat, Source, Stat, Term, Tree}
+import scala.meta.{Case, Defn, Lit, Pat, Source, Stat, Term, Tree, Type}
 
 /** Shared CPS effect analysis used by every backend that emits a Free-monad
  *  runtime (currently `JvmGen` and `JsGen`).
@@ -92,18 +92,6 @@ object EffectAnalysis:
       }
     }
 
-    def callees(tree: Tree): Set[String] = tree match
-      case Term.Apply.After_4_6_0(Term.Name(n), argClause) =>
-        Set(n) ++ argClause.values.flatMap(callees).toSet
-      case Term.Apply.After_4_6_0(Term.Select(Term.Name(qual), Term.Name(method)), argClause) =>
-        Set(s"$qual.$method") ++ argClause.values.flatMap(callees).toSet
-      case Term.Apply.After_4_6_0(fun, argClause) =>
-        callees(fun) ++ argClause.values.flatMap(callees).toSet
-      case Term.Select(Term.Name(qual), Term.Name(method)) =>
-        Set(s"$qual.$method")
-      case other =>
-        other.children.flatMap(callees).toSet
-
     var changed = true
     while changed do
       changed = false
@@ -116,6 +104,111 @@ object EffectAnalysis:
       }
 
     Result(effectOps.toSet, effectfulFuns.toSet, multiShotEffects.toSet)
+
+  /** Names called (directly or transitively via nesting) in a term — a
+   *  qualified `Qual.method` for a select-call, a bare `name` for a plain
+   *  call.  Used by the `analyze` fixed point and by [[leakingFuns]]. */
+  private def callees(tree: Tree): Set[String] = tree match
+    case Term.Apply.After_4_6_0(Term.Name(n), argClause) =>
+      Set(n) ++ argClause.values.flatMap(callees).toSet
+    case Term.Apply.After_4_6_0(Term.Select(Term.Name(qual), Term.Name(method)), argClause) =>
+      Set(s"$qual.$method") ++ argClause.values.flatMap(callees).toSet
+    case Term.Apply.After_4_6_0(fun, argClause) =>
+      callees(fun) ++ argClause.values.flatMap(callees).toSet
+    case Term.Select(Term.Name(qual), Term.Name(method)) =>
+      Set(s"$qual.$method")
+    case other =>
+      other.children.flatMap(callees).toSet
+
+  /** `true` for the head of a `handle` special form: `handle` or `handle[Eff]`. */
+  private def isHandleHead(t: Tree): Boolean = t match
+    case Term.Name("handle")                                => true
+    case Term.ApplyType.After_4_6_0(Term.Name("handle"), _) => true
+    case _                                                  => false
+
+  /** Effect-object names a handler's cases discharge: `case Eff.op(args, resume) => …`
+   *  contributes `Eff`.  A non-effect extractor (`Cons(h, t)`, `Some(x)`) contributes
+   *  nothing. */
+  private def handledEffectsInCases(cases: List[Case]): Set[String] =
+    cases.flatMap { c =>
+      c.pat match
+        case Pat.Extract.After_4_6_0(Term.Select(Term.Name(eff), _), _) => Some(eff)
+        case _                                                          => None
+    }.toSet
+
+  /** Effect ops a term LEAKS: an op `Eff.op` reached while NOT lexically inside a
+   *  `handle` block that discharges `Eff`.
+   *
+   *  `handle { body } { case Eff.op(…) => … }` (and `handle[Eff] { body } { … }`)
+   *  discharges every `Eff` named in its handler cases / explicit type argument for
+   *  the extent of `body`; the handler-case bodies themselves run under the OUTER
+   *  handled set (a handler may re-perform an outer effect).
+   *
+   *  This is the discharge-aware refinement of [[callees]]/`effectfulFuns`: plain
+   *  name-reachability cannot tell a performed-then-handled op from a genuinely
+   *  leaked one, so a `def` that fully discharges its own effect via an enclosing
+   *  `handle` (the reusable-continuation `capture()` idiom) is otherwise mis-flagged
+   *  as effectful-without-a-row.  `effectfulFuns` (consumed by the codegens) stays
+   *  the coarse over-approximation; only the verifier consults this finer set. */
+  private def leakedOps(tree: Tree, effectOps: Set[String], handled: Set[String]): Set[String] =
+    tree match
+      // handle { body } { cases }  /  handle[Eff] { body } { cases }
+      case Term.Apply.After_4_6_0(Term.Apply.After_4_6_0(head, bodyClause), pfClause)
+          if isHandleHead(head) =>
+        val cases = pfClause.values.collect { case pf: Term.PartialFunction => pf.cases }.flatten
+        val typeEffs = head match
+          case Term.ApplyType.After_4_6_0(_, targs) => targs.values.collect { case Type.Name(n) => n }.toSet
+          case _                                    => Set.empty[String]
+        val innerHandled = handled ++ typeEffs ++ handledEffectsInCases(cases)
+        bodyClause.values.flatMap(leakedOps(_, effectOps, innerHandled)).toSet ++
+          cases.flatMap(c => leakedOps(c.body, effectOps, handled)).toSet
+      // Eff.op(args)
+      case Term.Apply.After_4_6_0(Term.Select(Term.Name(qual), Term.Name(method)), argClause)
+          if effectOps.contains(s"$qual.$method") =>
+        val here = if handled.contains(qual) then Set.empty[String] else Set(s"$qual.$method")
+        here ++ argClause.values.flatMap(leakedOps(_, effectOps, handled)).toSet
+      // Eff.op referenced as a value
+      case Term.Select(Term.Name(qual), Term.Name(method))
+          if effectOps.contains(s"$qual.$method") =>
+        if handled.contains(qual) then Set.empty[String] else Set(s"$qual.$method")
+      case other =>
+        other.children.flatMap(leakedOps(_, effectOps, handled)).toSet
+
+  /** Top-level functions that LEAK at least one effect op — reached outside any
+   *  discharging `handle` — either directly or by calling another leaking function.
+   *  The effect-row verifier consults this in place of the coarse `effectfulFuns`
+   *  so a function that fully handles its own effects is not mis-flagged.
+   *
+   *  @param trees     same trees passed to [[analyze]]
+   *  @param effectOps the fully-qualified ops from `analyze(...).effectOps` */
+  def leakingFuns(trees: List[Tree], effectOps: Set[String]): Set[String] =
+    val funBodies = mutable.Map.empty[String, Term]
+    def collect(stats: List[Stat]): Unit = stats.foreach {
+      case d: Defn.Def => funBodies(d.name.value) = d.body
+      case _           => ()
+    }
+    trees.foreach {
+      case Source(stats)     => collect(stats)
+      case Term.Block(stats) => collect(stats)
+      case other             => other.children.foreach {
+        case s: Source     => collect(s.stats)
+        case b: Term.Block => collect(b.stats)
+        case _             => ()
+      }
+    }
+    val leaking = mutable.Set.empty[String]
+    funBodies.foreach { (fname, body) =>
+      if leakedOps(body, effectOps, Set.empty).nonEmpty then leaking += fname
+    }
+    var changed = true
+    while changed do
+      changed = false
+      funBodies.foreach { (fname, body) =>
+        if !leaking.contains(fname) && callees(body).exists(leaking.contains) then
+          leaking += fname
+          changed = true
+      }
+    leaking.toSet
 
   /** Verifier mode: compare the type-system's declared effect set against the
    *  name-reachability analysis.  Returns diagnostic messages for divergences.

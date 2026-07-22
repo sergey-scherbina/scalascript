@@ -518,7 +518,17 @@ class Typer(
           case s: Source     => List(s)
           case b: Term.Block => List(b)
           case other         => List(other)
-        val analysisResult = scalascript.transform.EffectAnalysis.analyze(trees)
+        val analysisResult0 = scalascript.transform.EffectAnalysis.analyze(trees)
+        // Discharge-aware refinement: a function that fully HANDLES the effects it
+        // performs (e.g. `def capture(): Int => Int = handle { … Eff.op() … } { case
+        // Eff.op(k) => k }`) does not leak them and correctly declares no effect row.
+        // `analyze.effectfulFuns` is a coarse name-reachability set that would mis-flag
+        // such a function; the verifier consults the handle-scoped `leakingFuns` instead.
+        // (`effectfulFuns` itself is left intact — the codegens consume it as-is.)
+        val leaking = scalascript.transform.EffectAnalysis.leakingFuns(trees, analysisResult0.effectOps)
+        val analysisResult = analysisResult0.copy(
+          effectfulFuns = analysisResult0.effectfulFuns intersect leaking
+        )
         // Include ALL defs (even those with no declared effects) so the verifier
         // can warn when an effectful function declares no row.
         val declaredEffects: Map[String, Set[String]] = summaries.collect {
