@@ -1,9 +1,0 @@
-feature/v2-f4-reflip 2026-07-22T19:26:24Z
-agent: opus-orch
-heartbeat: 2026-07-22T19:26:24Z
-status: salvage DELIVERED (subagent). ③.1 md-interpolator FIXED+LANDED; ③.2 plugin-boundary = DESIGN DECISION pending Sergiy (documented). NOT re-flipped. Re-flip still HELD.
-done-so-far:
-  ① int-literal fail-closed (landed earlier). ② CI-budget (landed earlier).
-  ③.1 md/raw interpolator fix: rebased clean on origin/main (f02100097) + docs (e8cef6107). RE-VERIFIED on rebased tree: F byte-identical to legacy on md-interpolator fixture (zero <closure>), v21-native-md-interpolator-smoke PASS, int-literal-failopen-smoke PASS, X1 fixpoint byte-identical (405,396 B), semantic 248/248.
-  ③.2 plugin-boundary: RE-DIAGNOSED + PINNED (61de236da). Root cause is NOT RunNativeV2:101 ssc.Reader.validate (red herring) — it is the F RUNNER TOWER's #coreir.decode prim = IrToData.program(ssc.Reader.parseProgram) (Runtime.scala:2999-3001), which class-loads kernel ssc.Reader on EVERY F run (measured 24-25x, gap or not); legacy uses no decode, loads 0. Option (a) inline unbound-global scan is behavior-correct (fallback fires identically, output EQUAL) but INSUFFICIENT (tower loads Reader first). RunNativeV2 change NOT landed (main pristine). => DESIGN DECISION (BUGS f-native-out-of-corpus-smoke-regressions item 2: D1 scope isolation guard / D2 F emits structural Data directly / D3 kernel decode without Reader; recommend D1 near-term).
-next (owner): Sergiy decides ③.2 (D1/D2/D3). Re-flip remains HELD (③.2 + CI baseline: durable-save-run fixed@29ef91546, but v21-explicit-lanes-gate-red now claimed separately). Do NOT flip frontIsF until ③.2 resolved + full e2e smoke set green under F + full-conformance gate green.
