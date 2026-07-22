@@ -191,15 +191,17 @@ jobs:
   sbt:
     name: sbt — compile and test
     runs-on: ubuntu-latest
-    # JOB-level cap. This must exceed (prior gates ~45-50 min, incl. the negtc
-    # release gate ~30 min) + the full `sbt test` phase (>105 min observed: run
-    # 29712918894 hit the old 150-min JOB cap with the differential suites still
-    # running — the STEP cap alone was raised to 150 but the JOB cap, not the step,
-    # was the binding constraint). Raised generously to clear it in one shot rather
-    # than guess-and-refail a multi-hour run; TUNE DOWN once the true test-phase
-    # duration is observed. Real fix (make the cross-backend differential suites
-    # fast / nightly, since v1 is crystallized): BACKLOG ci-crossbackend-differential-runtime.
-    timeout-minutes: 240
+    # JOB-level cap. This must exceed (prior gates + the full `sbt test` phase). Raised
+    # ahead of the F4 default-front flip (v2-f4-reflip, 2026-07-22): when F becomes the
+    # default the negtc release gate re-lowers the corpus through the slower F front, so its
+    # step cap went 30->75 min (see that step's note; the flip itself is HELD — BACKLOG
+    # v2-f4-flip). Budget: prior gates ~65-90 min (incl. negtc up to 75) + `sbt test` >105
+    # min observed (run 29712918894 hit the old 150-min JOB cap with the differential suites
+    # still running; STEP cap raised to 200). Raised 240->300 generously to clear it in one
+    # shot rather than guess-and-refail a multi-hour run; TUNE DOWN once F-perf (F5b) lands
+    # and the true durations are observed. Real fix (fast/nightly cross-backend differential
+    # suites, since v1 is crystallized): BACKLOG ci-crossbackend-differential-runtime.
+    timeout-minutes: 300
 
     steps:
       - name: Checkout
@@ -310,8 +312,19 @@ jobs:
       - name: ScalaScript 2.1 JRE-shaped no-javac module gate
         run: tests/e2e/v21-jre-module-gate.sh --report target/v21-jre-module.tsv
 
+      # F4 default-front flip PREREQUISITE (v2-f4-reflip, 2026-07-22): budget staged ahead of making F the
+      # default native front. The flip itself is HELD (F stays opt-in via SSC_FRONT=F) until two out-of-corpus
+      # native-smoke F-regressions are fixed — see BACKLOG v2-f4-flip. WHEN F becomes the default, this gate's
+      # two full-corpus sweeps (native-front-corpus runtime step + bc-parity-sweep) re-lower every one of the
+      # 212 corpus programs through F, the interpreted self-hosting subset compiler — ~2-4x slower than the old
+      # ssc1-front+ssc1-lower (measured: hello 0.8s->1.5s, heavy scljet 8s->32s). The frozen metrics stay put
+      # (frontend.ok/checker.ok use the hardcoded legacy ssc1-run.ssc0 runner; vm/asm parity is front-
+      # independent and the F4a fallback keeps F output == legacy) — only the WALL TIME grows: a measured
+      # F-default run of this gate took ~23 min, which blew the old 30-min cap (that is why the first flip
+      # 3750df8c2 was reverted). Raised to 75 for headroom; deep F-perf is the F5b typed-IR arc (BACKLOG). While
+      # F is opt-in this ceiling is slack (legacy negtc finishes in ~15 min). TUNE DOWN once F is faster.
       - name: ScalaScript 2.1 standard-only negative toolchain release gate
-        timeout-minutes: 30
+        timeout-minutes: 75
         run: tests/e2e/v21-negative-toolchain-release-gate.sh --report target/v21-negative-toolchain-release.tsv
 
       - name: ScalaScript 2.1 direct-ASM local recursion gate
