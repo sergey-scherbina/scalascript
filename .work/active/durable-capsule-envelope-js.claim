@@ -1,6 +1,0 @@
-feature/durable-capsule-envelope-js 2026-07-22T11:39:47Z
-agent: claude-code
-heartbeat: 2026-07-22T11:39:47Z
-status: not-started
-done-so-far:
-next: JS mirror of DurableCapsule+ResumePoint+CapsuleRejected (Part 2) using node:crypto SHA-256 (domain ssc-frame-v1\0, matches java MessageDigest); capsule encoded via JS Part1 codec; freeze/restore/verify; cross-lane GOLDEN digest+capsule hex asserted on BOTH lanes (digest of int(100)=4b4584..aea9b verified via node). Full host-lane durable parity
