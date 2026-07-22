@@ -2,7 +2,15 @@
 
 ## f-int-literal-overflow-fails-open — F wraps out-of-range 64-bit integer literals instead of rejecting
 
-**Status:** OPEN (found 2026-07-22 by opus via the F4-flip CI going red; the flip was reverted, `3750df8c2` → `bf24267e9`). F-front (`specs/v2.2-p6.5-fsub.ssc`) native tier only. This is a **fail-OPEN safety regression**: it is why the F4 default-front flip could not stay landed.
+**Status:** FIXED `180f16fcb` (`v2-f4-reflip`, 2026-07-22). F's lexer now range-checks decimal literals and
+fails CLOSED, mirroring `ssc1-lower`. Root cause: F's `scanNumV` accumulated `acc*10 + d`, which silently
+WRAPS Long, so an out-of-range literal lexed to the wrapped value and emitted it. Fix (fsub.ssc, lexer/parser
+only): `scanNumOv` flips an overflow flag the step BEFORE the multiply would overflow signed 64-bit; an
+overflowing decimal becomes a kind-11 token (raw digits) that `parseAtom1` fails closed via
+`(global _err_int_range)` and `parseNeg` folds ONLY the min64 half (exactly 2^63) — every in-range literal
+stays kind 0 → byte-identical. Verified: `tests/e2e/int-literal-failopen-smoke.sh` GREEN under F (incl.
+F-as-default post-reflip); X1 fixpoint byte-identical (388,384 B); semantic 248/248; dualrun 45/45 EQUAL.
+Was the fail-OPEN safety regression that reverted the first F4 default-front flip (`3750df8c2` → `bf24267e9`).
 
 **Symptom:** an integer literal that overflows signed 64-bit is silently WRAPPED by F (exit 0, wrong value) instead of failing closed. The old front (`ssc1-front`+`ssc1-lower`) and the v1 reference correctly REJECT it (exit 1). In-range literals (min64 `-9223372036854775808`, max64 `9223372036854775807`, 2^62, 3e9) are all correct on F — only the OVERFLOW path fails open.
 
@@ -15,6 +23,39 @@ Old front / v1: all three `failed closed (exit 1)`. Smoke: 3 checks FAILED under
 **Why the 528-program `SSC_DUALRUN_ALL` sweep missed it:** these targeted overflow literal VALUES are not present in any corpus program, so the output-equivalence sweep had nothing to compare — a genuine OUT-OF-CORPUS gap. The e2e smoke covers it; the corpus does not. (Prior sibling class: `v1-interp-int-literal-above-2^31-becomes-null`, FIXED `5b71ad2f6` — the v1 leg of the same fail-open family.)
 
 **Fix (future F arc):** F must range-check integer literals during lowering and fail closed on 64-bit overflow, mirroring `ssc1-lower`. Do NOT edit `specs/v2.2-p6.5-fsub.ssc` here — sibling-owned; this is a separate future arc. Blocks re-attempting the F4 default-front flip.
+
+## f-native-out-of-corpus-smoke-regressions — F fails on out-of-corpus native e2e smokes the corpus sweep can't see
+
+**Status:** OPEN (found 2026-07-22 by opus during the `v2-f4-reflip` re-flip verification; the re-flip was
+HALTED as a result — ①② landed, F stays opt-in via `SSC_FRONT=F`). F-front (`specs/v2.2-p6.5-fsub.ssc`)
+native tier. **These are the current blockers of the F4 default-front flip** now that the int-literal fail-open
+(`f-int-literal-overflow-fails-open`) is fixed.
+
+**What happened:** after fixing blocker ① and bumping the CI budget (blocker ②), the re-flip passed every
+corpus-level gate — X1 fixpoint byte-identical, semantic 248/248, dualrun 45/45 EQUAL, negtc gate PASS
+(frontend.ok 208≥200, mismatch=0) — but the targeted native `bin/ssc` e2e SMOKE set (run under F-as-default)
+caught **2 F-regressions** that PASS under `SSC_FRONT=legacy` and FAIL under F (A/B-verified; 10 other smoke
+failures fail on BOTH fronts = pre-existing, NOT flip-related):
+
+1. **`tests/e2e/v21-native-md-interpolator-smoke.sh`** — F FAIL-OPENs on markdown `${…}` interpolation.
+   Repro: `bin/ssc run tests/fixtures/v21-native/md-interpolator.ssc`. Legacy prints the interpolated
+   content (`[Hello, Ada!\n  nested 3\n\nTail]\nsingle-Ada\nlocal:ok\n[]`); **F prints `[<closure>]\n<closure>\nlocal:ok\n[<closure>]`, exit 0** — the classic fail-open `<closure>` (an unforced thunk emitted as a value). F's markdown-interpolation lowering emits a closure where the reference forces/renders it. The F4a delegate-fallback does NOT catch it (F "successfully" lowers to runnable-but-wrong IR; the fallback only fires on unbound-global / validate failures).
+2. **`tests/e2e/v21-native-plugin-boundary-smoke.sh`** — F-regression (PASS legacy, FAIL F) on one of the
+   plugin-boundary fixtures (out-of-corpus provider fixtures: `content-provider.ssc`, `dataset-provider.ssc`,
+   `fs-os-provider.ssc`, …). Exact failing fixture + mode NOT yet narrowed.
+
+**Why the corpus sweeps missed both:** the failing programs are e2e **fixtures** (`tests/fixtures/v21-native/*`),
+not corpus `examples/*.ssc`, so the 528-program dual-run and the 248-golden semantic gate had nothing to
+compare — a genuine OUT-OF-CORPUS gap, the SAME class as `f-int-literal-overflow-fails-open`. This is the
+mission lesson made concrete: **a clean corpus dual-run is necessary but NOT sufficient for a default-front
+cutover — the targeted e2e smokes must also be green under F-as-default.**
+
+**Fix gate (F arc — do NOT edit fsub.ssc outside the owning F lane):** make `bin/ssc run` under F byte-identical
+to `SSC_FRONT=legacy` on `tests/fixtures/v21-native/md-interpolator.ssc` and every `v21-native-*` /
+`v21-self-hosted-*` smoke fixture; then re-run the full `tests/e2e/*smoke*` set under F-as-default (all green)
+before re-attempting the flip. Start with md-interpolator (`parseInterp`/`interpChain` in fsub.ssc + how the
+markdown-content block renders the interpolated pieces). Coordinate on `fsub.ssc` (shared with the F5b /
+f-stmt-partial-function-block lanes). See `specs/v2-language-surface.md` §7.
 
 ## f-stmt-partial-function-block-dropped — F mishandles a `f { case … }` partial-function block arg
 

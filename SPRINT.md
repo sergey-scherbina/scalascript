@@ -33,16 +33,18 @@ provider, or the F cutover path from these tasks** (collision). These six are th
       (F5b). Step B landed = the instrument only (+7 net). Deep remainder queued in BACKLOG
       "v2 kernel-shrink deep remainder".
 
-- **v2-f4-flip — LANDED then REVERTED 2026-07-22.** Flip `3750df8c2`, revert `bf24267e9`. The flip
-      (F → default native front) passed every pre-planned gate — safety-valve full-corpus `SSC_DUALRUN_ALL`
-      sweep 528/528 (0 unexpected divergence), fixpoint byte-identical, semantic 248/248, post-flip dualrun
-      45/45 — but CI on `449076be4` went RED on TWO out-of-corpus gaps the sweep could not see:
-      (a) `int-literal-failopen-smoke` — F wraps out-of-range 64-bit integer literals instead of failing
-      closed (BUGS `f-int-literal-overflow-fails-open`); the overflow VALUES aren't in the corpus, so
-      output-equivalence had nothing to compare. (b) F is slower on heavy programs → the sbt CI job hit the
-      30-min timeout (`run-timeout` bumped from 0). Reverted (F stays available via `SSC_FRONT=F`; default
-      back to the old ssc0 front). RE-QUEUED to BACKLOG behind those two blockers. Lesson: the corpus
-      dual-run is necessary but NOT sufficient — a flip also needs the targeted e2e smokes + a perf budget.
+- **v2-f4-reflip — 2nd flip attempt 2026-07-22: blockers ①② CLEARED, re-flip HALTED on a NEW ③ blocker.**
+      Fixed ① F int-literal fail-OPEN (`180f16fcb`, BUGS `f-int-literal-overflow-fails-open` → FIXED) and
+      ② staged the CI budget bump (`f12147c93`, negtc step 30→75 + sbt job 240→300; measured F-default negtc
+      ~23 min). Corpus gates all GREEN under the fix (X1 fixpoint byte-identical 388,384 B, semantic 248/248,
+      dualrun 45/45, negtc PASS frontend.ok 208≥200 mismatch=0). BUT the targeted native `bin/ssc` e2e smoke
+      set (run under F-as-default, A/B'd vs `SSC_FRONT=legacy`) caught ③ = **2 out-of-corpus F-regressions**
+      (`v21-native-md-interpolator` fail-open `<closure>` on markdown `${}` interpolation; `v21-native-plugin-boundary`)
+      that PASS on legacy — BUGS `f-native-out-of-corpus-smoke-regressions`. Re-flip HALTED per the mission
+      rule (better to land ①② than re-flip onto a broken state); ①② + docs landed, re-flip one-liner NOT
+      applied (F stays opt-in via `SSC_FRONT=F`). Lesson (proven twice): corpus dual-run necessary but NOT
+      sufficient — the full `tests/e2e/*smoke*` set must be green under F-as-default first. See BACKLOG
+      `v2-f4-flip` (still HELD, now blocked on ③).
 
 ---
 

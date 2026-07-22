@@ -16,6 +16,23 @@ is NOT applied** (it would be a naked ~5× regression) and is now known to need 
 bytecode/native compile of numeric recursion — a separate backend effort. See
 `specs/v2-f5b-typed-ir-design.md §4.1` + `specs/v2-f5-kernel-shrink.md §0`.
 
+## 2026-07-22 — F int-literal fail-closed + F4 re-flip prep (re-flip HELD on a new blocker)
+
+Cleared the two blockers that reverted the first F4 default-front flip, but HALTED the re-flip when the
+targeted e2e smokes caught a third, out-of-corpus blocker (mission rule: land the fixes, don't re-flip onto
+a broken state). Landed:
+- **① F fails CLOSED on out-of-range integer literals** (`180f16fcb`, BUGS `f-int-literal-overflow-fails-open`).
+  F's lexer range-checks decimal literals (overflow → kind-11 token → `(global _err_int_range)`, min64
+  preserved) instead of silently wrapping Long. `int-literal-failopen-smoke` GREEN under F; X1 fixpoint
+  byte-identical (388,384 B), semantic 248/248, dualrun 45/45.
+- **② CI budget staged for the flip** (`f12147c93`): negtc gate step 30→75 min + sbt job 240→300 min. F is
+  ~2-4x slower (measured F-default negtc ~23 min); frozen metrics unchanged (front-independent). Deep F-perf
+  recovery is the F5b typed-IR arc.
+- **③ NEW blocker filed, re-flip HELD** (BUGS `f-native-out-of-corpus-smoke-regressions`): `v21-native-md-interpolator`
+  (fail-open `<closure>` on markdown interpolation) and `v21-native-plugin-boundary` fail under F-as-default,
+  pass under `SSC_FRONT=legacy`. `RunNativeV2.frontIsF` stays opt-in. See BACKLOG `v2-f4-flip`.
+
+
 ## 2026-07-22 — v2-f5b Stage 1b slice 1b-1: F types bare Int/String/BigInt params
 
 The self-hosting front `F` (`specs/v2.2-p6.5-fsub.ssc`) now emits typed Core IR for arithmetic on
@@ -46,6 +63,7 @@ payload), while signed zero and all finite/infinite bits stay exact. Byte identi
 asserted: both lanes assert one shared golden hex table (Scala `DurableCodecTest` §Golden + JS
 `control.test.js`). Scala 133/133, JS 39/39, ABI gate green; spec `specs/durable-frame-codec.md` §4a.
 The JS mirror of the capsule envelope (Part 2) is the next slice.
+
 
 ## 2026-07-22 — Durable capsule envelope + resume points (save-run Part 2)
 

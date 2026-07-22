@@ -238,32 +238,37 @@ byte-identical to default wherever F falls short. `SSC_FRONT_TRACE=1` logs each 
   residuals above. Typed fixpoint byte-identical (the fallback doesn't touch F's self-compile). `classify`
   stays green (raw F coverage, 12 GAP; output notes the product-level fallback).
 
-#### The flip (step 4) — ATTEMPTED then REVERTED 2026-07-22. F is NOT yet a safe default. Two blockers.
+#### The flip (step 4) — STILL HELD. 1st attempt REVERTED, 2nd attempt HALTED (2026-07-22). F is NOT yet a safe default.
 
-The flip landed (`3750df8c2`, one-line inversion of `RunNativeV2.frontIsF` opt-IN → opt-OUT with a
-`SSC_FRONT=legacy` escape hatch) and passed every pre-planned gate, but CI on `449076be4` went RED and it
-was REVERTED (`bf24267e9`). F remains available via `SSC_FRONT=F`; the default is again ssc1-front+ssc1-lower.
+The flip is a one-line inversion of `RunNativeV2.frontIsF` opt-IN → opt-OUT with a `SSC_FRONT=legacy` escape
+hatch. It has been attempted twice and does not yet stay landed:
 
-- **Passed before flipping:** a clean full-corpus dual-run (`SSC_DUALRUN_ALL=1`, 528/528 programs, default
-  front vs `SSC_FRONT=F`, **0 unexpected divergence** — the sole divergence, `actors-supervision`, is the
-  documented front-independent concurrent-actor race, adjudicated benign).
-- **Passed after flipping:** typed fixpoint byte-identical (stage1==stage2, 385,827 B), semantic 248/248,
-  post-flip dual-run 45/45 EQUAL; end-to-end single/multi/fallback byte-identical to legacy.
-- **Why it was reverted — two OUT-OF-CORPUS blockers CI caught that the sweep could not:**
-  1. **F integer-literal fail-OPEN** (BUGS `f-int-literal-overflow-fails-open`): F WRAPS an out-of-range
-     64-bit integer literal (exit 0, wrong value) instead of failing closed like the old front. The
-     overflow VALUES aren't in any corpus program, so the output-equivalence sweep had nothing to compare.
-     Repro: `tests/e2e/int-literal-failopen-smoke.sh` (3 checks fail under F, pass under the old front).
-  2. **F performance**: F recompiles its ~250 KB source per invocation, so it is slower on heavy programs
-     → the sbt CI job hit the 30-min timeout (`run-timeout` had to be bumped from 0). A perf budget is a
-     flip precondition.
-- **Re-flip preconditions (now):** fix (1) — F must range-check integer literals and fail closed on 64-bit
-  overflow, mirroring `ssc1-lower`; address (2) — F fast enough (or cached) to stay under the CI budget.
-  Both are F-lowering/perf work on the sibling-owned `specs/v2.2-p6.5-fsub.ssc`, a separate arc. THEN the
-  flip is again a one-liner. **Lesson: the corpus dual-run is necessary but NOT sufficient — a default-front
-  flip must also pass the targeted e2e smokes (int-literal, fail-closed) and a perf budget.**
+- **1st attempt (`3750df8c2`, reverted `bf24267e9`):** passed every corpus-level gate but CI went RED on two
+  OUT-OF-CORPUS blockers — (1) F integer-literal fail-OPEN, (2) F slower → 30-min negtc step cap timeout.
+- **2nd attempt (`v2-f4-reflip`, 2026-07-22): both cleared, but HALTED before the flip landed on a THIRD
+  out-of-corpus blocker the targeted e2e smokes caught.** What was verified and what was found:
+  - **① FIXED** (`180f16fcb`): F now range-checks decimal literals and fails closed (BUGS
+    `f-int-literal-overflow-fails-open`). `int-literal-failopen-smoke` GREEN under F-as-default.
+  - **② ADDRESSED** (`f12147c93`): F is ~2-4x slower (interpreted self-hosting compiler; measured hello
+    0.8→1.5 s, scljet 8→32 s). A measured F-default negtc gate run took ~23 min (blew the old 30-min cap),
+    so the CI budget was bumped (negtc step 30→75, sbt job 240→300; frozen metrics unchanged — they use the
+    hardcoded legacy runner + front-independent parity). Deep F-perf recovery is the **F5b typed-IR arc**.
+  - **Corpus gates GREEN under the fix:** X1 fixpoint byte-identical (388,384 B), semantic 248/248,
+    dual-run 45/45 EQUAL, negtc PASS (frontend.ok 208≥200, mismatch=0).
+  - **③ NEW BLOCKER — HALTED here** (BUGS `f-native-out-of-corpus-smoke-regressions`): the targeted native
+    `bin/ssc` e2e smoke set, run under F-as-default and A/B'd vs `SSC_FRONT=legacy`, caught **2 F-regressions**
+    (`v21-native-md-interpolator` — fail-open `<closure>` on markdown `${…}` interpolation; and
+    `v21-native-plugin-boundary`) that PASS on legacy and FAIL on F. Their programs are e2e fixtures, not
+    corpus `examples/*.ssc`, so the dual-run / semantic gates could not see them. (10 other smoke failures
+    fail on BOTH fronts = pre-existing, not flip-related.)
+- **Lesson (now proven TWICE): the corpus dual-run is necessary but NOT sufficient for a default-front
+  cutover.** Re-flip preconditions: the whole targeted `tests/e2e/*smoke*` set must be green under
+  F-as-default (A/B'd against `SSC_FRONT=legacy` to separate F-regressions from pre-existing failures), in
+  addition to X1 fixpoint + semantic + dual-run + negtc-within-budget. Fix ③ (F byte-identical to legacy on
+  the `v21-native-*` / `v21-self-hosted-*` fixtures) is the remaining F-lowering work on the sibling-owned
+  `specs/v2.2-p6.5-fsub.ssc`; THEN the flip is again a one-liner.
 - Step 5 (deleting the old front, the ~8,900-line win) remains far off — the old front is both the flip
-  fallback and, now, the correct default.
+  fallback and, still, the correct default.
 
 ### F5 — kernel shrink (the "small" axis), SEPARATE and DEEP
 
