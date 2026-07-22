@@ -1,6 +1,6 @@
 feature/scljet-unique-index-not-supported 2026-07-22T11:53:53Z
 agent: codex
-heartbeat: 2026-07-22T11:59:17Z
+heartbeat: 2026-07-22T12:08:47Z
 status: in-progress
-done-so-far: spec + BUGS ledger landed on origin/main at 254043c57; local SQLite oracle probes pinned CREATE/INSERT/UPDATE errors, composite names, distinct NULL, numeric equivalence, and BLOB equality
-next: add and run the real-harness red regression, then implement parser/metadata/enforcement against the committed spec
+done-so-far: feature spec, BUGS/SPRINT plan, comparator prerequisite, SQLite oracle probes, and real-harness red regression are complete; latest planning SHA a23307105
+next: implement the exact shared key comparator plus parser/metadata/CREATE and DML uniqueness enforcement
