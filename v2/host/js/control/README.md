@@ -78,10 +78,20 @@ codec)` builder supplies a `DurableValue` snapshot codec, so its `save()` succee
 and returns a reusable `SavedContinuation` whose `run(value)` reconstructs an
 independent frame per admitted run (snapshot law) and resumes once at the capture
 point — multi-shot, no prefix replay. `Restore.admitLocally` discharges the
-in-process `Restore` row. This is the same-process keystone; the byte-frame codec,
-transport capsule, generated ScalaScript↔JavaScript facades, source transforms,
-managed event-loop callbacks, mixed-language tail dispatch, and exact/portable
-runners remain later host-profile slices.
+in-process `Restore` row.
+
+For durable transport, `DurableCodec` is the canonical frame byte codec and
+`ResumePoint.define(id, machine, codec)` gives `freeze`/`restore`: `freeze(state)`
+produces a versioned, SHA-256-digest-verified `DurableCapsule`, and `restore` admits
+it — rejecting a stale version, cross-point id, or tampered frame with `CapsuleRejected`
+— then returns a reusable `SavedContinuation`. The codec and capsule bytes (including
+the digest) are byte-identical to the Scala reference lane, pinned by shared golden
+vectors. The digest uses a self-contained synchronous SHA-256 so the package stays
+import-free.
+
+The generated ScalaScript↔JavaScript facades, source transforms, managed event-loop
+callbacks, mixed-language tail dispatch, and exact/portable runners remain later
+host-profile slices.
 
 From this directory:
 

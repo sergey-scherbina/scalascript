@@ -107,10 +107,29 @@ prefix keeps this hash distinct from any other SHA-256 use. The current
 - [ ] ABI gate green; no forbidden runtime reference leaks (`MessageDigest` stays
       internal, never in a public signature).
 
+## 5a. Cross-lane golden capsule
+
+Both host lanes are implemented (Scala `v2/host/scala/control`, JS `v2/host/js/control`)
+and both assert one shared golden capsule to prove byte identity of the *whole* envelope,
+including the SHA-256 digest — Java `MessageDigest` on one lane, a self-contained sync
+SHA-256 on the other. For resume point `"cell"` freezing the state `100`
+(`int` frame `00000064`):
+
+```
+000000010000000463656c6c00000004000000640000002 0
+4b458482422640f4fb818274ec2b4f3d1de3a487c25f991d751e483fdc0aea9b
+```
+
+(`version=1 | id="cell" | frame=int(100) | digest=SHA-256("ssc-frame-v1\0" ‖ 00000064)`,
+concatenated with no separators). The embedded 32-byte digest was computed independently
+by Node's `crypto`, so a match on both lanes cross-checks each SHA-256 implementation as
+well as the envelope layout. Changing the format means updating both golden tables.
+
 ## 6. Follow-on (queued in SPRINT)
 
 `Portable` CoreIR resume-program payload; signature + audience/tenant + capability
 policy; `DurableRef` (§9.2) resolution as a post-admission effect; a dynamic
 id→resume-point registry for fully-decoupled restore; lifecycle/expiry;
-`RunOutcomeUnknown` on post-admission disconnect; and the JS-lane mirror of the
-codec + envelope. The Portable/ExactArtifact runners consume this envelope.
+`RunOutcomeUnknown` on post-admission disconnect; and the Rust/Swift lane mirrors (the
+JS-lane codec + envelope mirror landed). The Portable/ExactArtifact runners consume this
+envelope.

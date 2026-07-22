@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-07-22 — Durable capsule mirrored on the JS lane, verified byte-identical
+
+The capsule envelope + resume points now exist on the JavaScript reference lane
+(`v2/host/js/control`): `DurableCapsule`, `ResumePoint` (`define`/`savable`/`freeze`/`restore`),
+and `CapsuleRejected`, encoded via the JS frame codec so the envelope is byte-identical to Scala.
+The frame digest uses a self-contained, synchronous SHA-256 — the package stays import-free and
+zero-dependency (parallel to Scala's `java.security.MessageDigest`). `restore` admits with the same
+rules (reject stale version / cross-point id / tampered frame via `CapsuleRejected`), inert `decode`,
+and an `ExactArtifact`-bound machine. Cross-lane byte identity of the *whole* capsule — envelope plus
+the SHA-256 digest — is proven, not asserted: both lanes assert one shared golden capsule hex (resume
+point `cell` freezing `100`) whose embedded 32-byte digest was computed independently by Node's
+`crypto`, so the match cross-checks the hand-rolled SHA-256 against both Node crypto and Java
+`MessageDigest`. Both host lanes now carry the full durable surface (codec + capsule). Scala 134/134,
+JS 45/45; export inventory + `.d.ts` updated; spec `specs/durable-capsule-envelope.md` §5a.
+
 ## 2026-07-22 — F case-lambda `{ case … }` dispatch fix (f-stmt-partial-function-block-dropped)
 
 The self-hosting front `F` mis-lowered a `{ case … }` case-lambda: `parseCaseLambda` called `parseArms`

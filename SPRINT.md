@@ -4916,10 +4916,17 @@ dynamic saved-capsule runner.
   the one cross-lane divergence: NaN normalizes to canonical `0x7ff8000000000000` on both lanes
   (a JS `Number` can't round-trip a NaN payload; signed-zero/finite/inf bits stay exact). Scala
   133/133, JS 39/39. Spec `specs/durable-frame-codec.md` §4a.
+  **JS-LANE CAPSULE MIRROR LANDED 2026-07-22 (claim `durable-capsule-envelope-js`):** `DurableCapsule`
+  + `ResumePoint` + `CapsuleRejected` now on the JS lane, envelope byte-identical to Scala. The frame
+  digest uses a self-contained SYNC SHA-256 (package stays import-free/zero-dep; parallel to Scala's
+  `MessageDigest`). Cross-lane proof: both lanes assert one shared GOLDEN capsule hex (id `cell`,
+  state 100) whose embedded digest was computed independently by Node crypto — so the match validates
+  the hand-rolled SHA-256 == Node crypto == Java MessageDigest. Scala 134/134, JS 45/45. Spec
+  `specs/durable-capsule-envelope.md` §5a. **BOTH host lanes now have full durable parity (codec + capsule).**
   **REMAINING (Part 3+):** the `Portable` CoreIR resume-program payload; signature/audience/tenant +
   capability policy; `DurableRef` (§9.2) resolution; a dynamic id→resume-point registry;
-  canonical-key maps + nominal versioned schema; graph codecs (§9.3); `RunOutcomeUnknown`; JS-lane
-  mirror of the **capsule/envelope** (codec mirror done); Rust/Swift lanes. The runners consume the capsule.
+  canonical-key maps + nominal versioned schema; graph codecs (§9.3); `RunOutcomeUnknown`; Rust/Swift
+  lanes (don't exist yet). The runners consume the capsule.
   `Portable(resumeCodeDigest, closed Program((frame,input)=>Eff))` or
   `ExactArtifact(artifactDigest,target,resumePointId)`, both with `FrozenFrame`, A/R codec schemas,
   exact resolver/plugin implementation profile, lifecycle, bounded policy,
