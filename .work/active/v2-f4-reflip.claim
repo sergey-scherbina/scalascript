@@ -1,6 +1,6 @@
-feature/v2-f4-reflip 2026-07-22T03:59:39Z
+feature/v2-f4-reflip 2026-07-22T18:55:56Z
 agent: opus-orch
-heartbeat: 2026-07-22T11:56:28Z
-status: fix-loop (③ md-interp FIXED, plugin-boundary deep)
-done-so-far: ①② landed earlier (3d5d6b151/9d95d5be0). Fix-loop: ③ md-interpolator FIXED on branch 622895041 (F now supports md/raw interpolators, was fail-open <closure>); gated green (fixpoint byte-identical 402529B, semantic 248/248, int-literal PASS, md smoke PASS, F==legacy on fixture). plugin-boundary diagnosed = F4a fallback ssc.Reader.validate loads ssc.Reader which the plugin-isolation assertion forbids (DEEP/design, touches v2/src).
-next: full smoke A/B under F re-running to confirm tail. If plugin-boundary is the only remaining genuine regr (deep/design-blocked): land md fix + report, do NOT re-flip.
+heartbeat: 2026-07-22T18:55:56Z
+status: salvage (prior subagent stalled ~7h)
+done-so-far: ① int-literal fail-closed 3d5d6b151, ② CI-budget 9d95d5be0 LANDED. ③ md-interpolator fix 622895041 committed on branch, NOT pushed (verified: fixpoint byte-identical, semantic 248/248, md-smoke green under F). plugin-boundary = deep F4a-fallback-isolation blocker (RunNativeV2 loads ssc.Reader.validate → violates plugin-free isolation). Re-flip DOUBLY blocked: plugin-boundary + pre-existing CI baseline red (durable-save-run, separate keystone task).
+next: fresh subagent rebases + re-verifies + pushes md-fix 622895041; assesses plugin-boundary (lazy/lighter validation vs design decision) and fixes cleanly or reports; does NOT re-flip (blocked on baseline+plugin-boundary).
