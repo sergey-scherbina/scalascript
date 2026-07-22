@@ -1,6 +1,0 @@
-feature/v2-f4-flip 2026-07-22T02:05:36Z
-agent: opus-orch
-heartbeat: 2026-07-22T02:05:36Z
-status: landed-awaiting-ci
-done-so-far: FLIPPED + LANDED. F is now the DEFAULT native front (RunNativeV2.frontIsF opt-in->opt-out; SSC_FRONT=legacy opts out; old front kept as F4a fallback). Landed on origin/main: flip 3750df8c2, docs 9e0d777c9, bookkeeping fe538ddb1, SHA-fix 449076be4. Authoritative gates ALL GREEN: pre-flip safety-valve full-corpus dual-run 528/528 (0 unexpected divergence; sole divergence actors-supervision = documented flaky concurrent-actor race, adjudicated benign, F drops no receive handler); typed fixpoint byte-identical (stage1==stage2 385,827 B); semantic 248/248 (fail-loud confirmed via deliberate golden corruption); post-flip dualrun 45/45 EQUAL + fixpoint. End-to-end (no env): single/multi-file + unbound-global fallback all byte-identical to legacy; SSC_FRONT_TRACE shows fallback firing. Main CI was healthy pre-push (latest push runs green).
-next: exact-SHA CI on 449076be4 is in flight (watcher running). On CI green -> release this claim + rm-worktree v2-f4-flip. Flip is a revertible one-liner if any issue.
