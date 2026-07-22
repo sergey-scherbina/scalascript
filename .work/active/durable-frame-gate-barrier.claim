@@ -1,6 +1,0 @@
-feature/durable-frame-gate-barrier 2026-07-22T16:47:37Z
-agent: claude-code
-heartbeat: 2026-07-22T16:47:37Z
-status: in-progress
-done-so-far: 21/26. Vector 10 (foreign-value CaptureBarrier) = §8.3 FrameGate; DurableValue.captureBarrier + DurableValue.unsavable; savable.save() rejects with it. No format change/crypto.
-next: DurableValue.captureBarrier/unsavable + savable.save() check both lanes; CaptureFailure.CaptureBarrier JS; vector 10 program both lanes; flip vector 10 (foreign-barrier cap on scala-explicit)
