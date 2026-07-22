@@ -88,7 +88,14 @@ if SWIFT_AGGREGATOR_URL="$url" SWIFT_API_KEY=test-swift-key \
   echo 'v21-explicit-swift-provider-smoke: plain ssc unexpectedly loaded SWIFT' >&2
   exit 1
 fi
-grep -F 'unbound global: SwiftProvider' "$tmp/plain.err" >/dev/null ||
-  fail 'plain ssc rejects SwiftProvider' "$tmp/plain.err"
+# Lane-agnostic: the plain (no-provider) run MUST be rejected because a SWIFT-provider global is
+# unbound. WHICH global is named first is a codegen/link-order artifact (the interpreter reports
+# SwiftProvider, the JVM-bytecode lane reports ChargeBearer — both are SWIFT-provider symbols that
+# only exist with the explicit provider). The security intent is "no silent SWIFT load": the run
+# above already fail-loud exits if plain ssc SUCCEEDS (rc 0), and this line additionally asserts the
+# rejection reason is an unbound-global — so a non-rejection (SWIFT loaded, no `unbound global:`
+# line) still trips one of the two checks. Pin the class, not the specific symbol.
+grep -F 'unbound global:' "$tmp/plain.err" >/dev/null ||
+  fail 'plain ssc rejects the SWIFT-requiring program (unbound provider global)' "$tmp/plain.err"
 
 echo 'PASS v21-explicit-swift-provider-smoke (1 exact row, VM/ASM)'
