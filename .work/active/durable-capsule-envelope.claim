@@ -1,0 +1,6 @@
+feature/durable-capsule-envelope 2026-07-22T04:02:44Z
+agent: claude-code
+heartbeat: 2026-07-22T04:02:44Z
+status: not-started
+done-so-far:
+next: spec-first capsule envelope; DurableCapsule (versioned + domain-sep SHA-256 frameDigest, reuses Part1 codec) + ResumePoint define/savable/freeze/restore w/ verify; tests freeze->encode->decode->restore->run-twice + tamper/version/id rejection. Part 2 of saved-continuation-format
