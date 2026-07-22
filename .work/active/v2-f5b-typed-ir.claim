@@ -1,6 +1,6 @@
 feature/v2-f5b-typed-ir 2026-07-22T12:23:50Z
 agent: opus-orch
-heartbeat: 2026-07-22T12:23:50Z
-status: paused-awaiting-lane-decision
+heartbeat: 2026-07-22T12:39:44Z
+status: in-progress-option-A
 done-so-far: F5c bytecode-lever landed: f5c-1 ec1690f28 (JvmByteGen typed i.* + fixed latent 1.9× native-lane regr), f5c-2 c44a02a15 (effect-free-def purity registry → fib unboxed by default). fib(34) bytecode-lane 330→~26ms cold/~8.5ms warm ≈ interp FastCode-ON. Gates green (80-prog corpus byte-identical, effectful byte-identical, semantic 248/248, fixpoint byte-identical, v2JvmBytecode/compile success). Removal NOT applied.
 next: PAUSED at ARCHITECTURAL FORK for Sergiy — FastCode/SelfRec are INTERPRETER (run-ir) fast paths; ssc run (default) = interpreter (bytecode=false); the lever made numeric fast only on ssc run --bytecode (opt-in). Removal 5×-regresses default ssc run unless the bytecode/native lane becomes the default execution backend. Decision: (A) bytecode-lane default → remove [needs bytecode-lane maturity check]; (B) keep interp default, DON'T remove; (C) remove + accept regr. f5c-3 (double/accumulator prims) + f5c-4 (removal) held. Worktree intact.
