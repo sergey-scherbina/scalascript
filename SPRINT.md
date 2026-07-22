@@ -33,17 +33,15 @@ provider, or the F cutover path from these tasks** (collision). These six are th
       (F5b). Step B landed = the instrument only (+7 net). Deep remainder queued in BACKLOG
       "v2 kernel-shrink deep remainder".
 
-- [ ] **v2-f4-flip** (`v2-f4-flip`, **orchestrator-held — Sergiy authorized "flip with caveat"**) — flip
-      F to the default native front: one line in `RunNativeV2.frontIsF` (opt-IN → opt-OUT); no re-stage;
-      old ssc0 front (`ssc1-front`/`ssc1-lower`) stays as the safe fallback (so unbound-global gaps can't
-      regress). **HARD GATE: do NOT land until siblings land `mcp-types` (last F4 residual) AND
-      `f-ambient-prelude-drop-in` (the "F is not a drop-in front" gap).** Caveat Sergiy accepted: any
-      still-open multi-file residuals regress post-flip until F's multi-file lowering is fixed; 3 were
-      SILENT-WRONG (F exits 0, wrong stdout) — re-run the clean `SSC_DUALRUN_ALL` sweep after the
-      siblings land and confirm the residual count before flipping. Full gates: fixpoint byte-identical,
-      semantic 247+/247, dualrun manifest green, docs (`specs/v2-language-surface.md` §7 step 4,
-      README front-default note). Step 5 (delete old front, ~8,900 lines) stays deferred until F covers
-      the fallback set on its own.
+- [x] **v2-f4-flip — DONE 2026-07-22 (`5e5e1d194`).** Flipped F to the DEFAULT native front (one line in
+      `RunNativeV2.frontIsF`, opt-IN → opt-OUT; `SSC_FRONT=legacy` opts out; old ssc0 front kept as the
+      F4a fallback). Preconditions met (mcp-types landed 886df94fe/809bed9d3). Safety valve GREEN: clean
+      full-corpus `SSC_DUALRUN_ALL` sweep (528/528, 0 unexpected divergence; sole divergence
+      actors-supervision = documented flaky concurrent-actor race, adjudicated benign — F drops no
+      receive handler). Full gates GREEN: fixpoint byte-identical (385,827 B), semantic 248/248 (fail-loud
+      confirmed), post-flip dualrun 45/45 EQUAL + fixpoint. End-to-end (no env) single/multi/fallback all
+      byte-identical to legacy; fallback fires. Docs updated (§7 step 4, README, dualrun.expected). Step 5
+      (delete old front, ~8,900 lines) stays deferred until F covers the fallback set on its own.
 
 ---
 

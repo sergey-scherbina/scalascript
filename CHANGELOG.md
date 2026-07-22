@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-07-22 — F4 flip: `F` is now the DEFAULT native front
+
+Flipped the self-hosting subset compiler `F` (`specs/v2.2-p6.5-fsub.ssc`, ~1,847 lines) to be the
+DEFAULT front that `bin/ssc run` uses — a one-line inversion of `RunNativeV2.frontIsF` (opt-IN →
+opt-OUT). The prior `ssc1-front`+`ssc1-lower` runner is KEPT as the F4a delegate-fallback, so anything
+`F` cannot yet lower (unbound-global gaps) re-lowers through the old front and cannot regress. Opt out
+with `SSC_FRONT=legacy`; fully reversible by restoring the opt-in test. Gated on a clean full-corpus
+dual-run (528/528 programs, default-front vs `SSC_FRONT=F`, 0 unexpected divergence — the sole
+divergence, `actors-supervision`, is a documented front-independent concurrent-actor scheduler race),
+typed fixpoint byte-identical (stage1==stage2, 385,827 B), semantic gate 248/248, and post-flip dual-run
+45/45 EQUAL. Step 5 (deleting the ~8,900-line old front) remains deferred — the fallback depends on it.
+
 ## 2026-07-21 — Canonical durable-frame byte codec (`DurableCodec`, save-run Part 1)
 
 Adds `DurableCodec[S] <: DurableValue[S]`: the canonical, deterministic, bounded §9.1
