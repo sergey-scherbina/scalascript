@@ -315,6 +315,35 @@ def emitPP(l, r, dq) = if isStrCode(l, dq) then emitSconcat(l, r) else emitArith
 def emitIf(c, t, e) = "(if " ++ c ++ " " ++ t ++ " " ++ e ++ ")"
 def emitPrimBin(nm, l, r) = "(prim " ++ nm ++ " " ++ l ++ " " ++ r ++ ")"
 def emitBin(k, l, r, dq) = if k == 57 then "(ctor Pair " ++ l ++ " " ++ r ++ ")" else (if k == 49 then "(ctor Cons " ++ l ++ " " ++ r ++ ")" else (if k == 48 then emitPP(l, r, dq) else (if k == 44 then emitEqT(l, r, dq) else (if k == 45 then emitIf(emitEqT(l, r, dq), "(lit false)", "(lit true)") else (if k == 46 then emitIf(l, r, "(lit false)") else (if k == 47 then emitIf(l, "(lit true)", r) else (if k == 61 then emitArithS(":+", l, r, dq) else (if k == 62 then emitPrimBin("i.and", l, r) else (if k == 63 then emitPrimBin("i.or", l, r) else (if k == 64 then emitPrimBin("i.xor", l, r) else (if k == 65 then emitPrimBin("i.shl", l, r) else (if k == 66 then emitPrimBin("i.shr", l, r) else (if k == 67 then emitPrimBin("i.ushr", l, r) else emitArith(k, l, r, dq))))))))))))))
+// -- F5b Stage 1b: bare-variable (param) type recovery from env ----------------------------------
+// A bare `(local N)` operand carries no IR-prefix type, but env[N] does when the param was declared
+// `Int`/`String`/`BigInt` (parseParam embeds `name:Type`). climbStep already holds env, so it maps the
+// operand string `(local N)` back to its slot type — no node rework, no parallel type-env thread.
+// Everything else (compound exprs, untyped params, mutable cells) stays "?" -> the prefix classifier.
+def envColonAt(s, i, n) = if atEnd(i, n) then 0 - 1 else (if s.charAt(i) == 58 then i else envColonAt(s, i + 1, n))
+def envNameOf(h) = envNameF(h, envColonAt(h, 0, h.length))
+def envNameF(h, c) = if c < 0 then h else h.substring(0, c)
+def envTyOf(h) = envTyF(h, envColonAt(h, 0, h.length))
+def envTyF(h, c) = if c < 0 then "?" else h.substring(c + 1, h.length)
+def nthEnv(env, n) = env match { case Nil => "" case h :: t => if n <= 0 then h else nthEnv(t, n - 1) }
+def isBareLocal(s) = if startsW(s, "(local ") then (if s.length > 7 then isDig(s.charAt(7)) else false) else false
+def localTyOf(s, env) = if isBareLocal(s) then envTyOf(nthEnv(env, scanNumV(s, 7, s.length, 0))) else "?"
+// tag ∈ { I=Int, F=Float, S=String, B=BigInt, ? }. A typed local wins; else the erased-IR prefix. The
+// prefixes are mutually exclusive, so a single tag reproduces the isXxxCode classification EXACTLY.
+def tyToTag(ty) = if ty == "Int" then "I" else (if ty == "String" then "S" else (if ty == "BigInt" then "B" else "?"))
+def prefixTag(c, dq) = if isStrCode(c, dq) then "S" else (if isIntCode(c) then "I" else (if isFloatCode(c) then "F" else (if isBigCode(c) then "B" else "?")))
+def tagOr(t, c, dq) = if t == "?" then prefixTag(c, dq) else t
+def operandTag(c, env, dq) = tagOr(tyToTag(localTyOf(c, env)), c, dq)
+def isNumTag(t) = if t == "I" then true else t == "F"
+// tag-keyed mirrors of emitBin/emitPP/emitEqT/emitArith/emitPlus/emitArithT — byte-identical for untyped
+// operands (tag = prefixTag). Only the type-DEPENDENT arms differ; type-agnostic arms delegate as-is.
+def emitBinT(k, l, r, lt, rt, dq) = if k == 57 then "(ctor Pair " ++ l ++ " " ++ r ++ ")" else (if k == 49 then "(ctor Cons " ++ l ++ " " ++ r ++ ")" else (if k == 48 then emitPPt(l, r, lt, dq) else (if k == 44 then emitEqTt(l, r, lt, rt, dq) else (if k == 45 then emitIf(emitEqTt(l, r, lt, rt, dq), "(lit false)", "(lit true)") else (if k == 46 then emitIf(l, r, "(lit false)") else (if k == 47 then emitIf(l, "(lit true)", r) else (if k == 61 then emitArithS(":+", l, r, dq) else (if k == 62 then emitPrimBin("i.and", l, r) else (if k == 63 then emitPrimBin("i.or", l, r) else (if k == 64 then emitPrimBin("i.xor", l, r) else (if k == 65 then emitPrimBin("i.shl", l, r) else (if k == 66 then emitPrimBin("i.shr", l, r) else (if k == 67 then emitPrimBin("i.ushr", l, r) else emitArithTg(k, l, r, lt, rt, dq))))))))))))))
+def emitPPt(l, r, lt, dq) = if lt == "S" then emitSconcat(l, r) else emitArithS("++", l, r, dq)
+def emitEqTt(l, r, lt, rt, dq) = if lt == "I" then (if rt == "I" then emitPrimBin("i.eq", l, r) else emitEq(l, r)) else (if lt == "S" then (if rt == "S" then emitPrimBin("seq", l, r) else emitEq(l, r)) else (if lt == "B" then (if rt == "B" then emitPrimBin("big.eq", l, r) else emitEq(l, r)) else emitEq(l, r)))
+def emitArithTg(k, l, r, lt, rt, dq) = if k == 23 then emitPlusT(l, r, lt, rt, dq) else emitArithTT(k, l, r, lt, rt, dq)
+def emitPlusT(l, r, lt, rt, dq) = if lt == "S" then emitSconcat(l, r) else (if isNumTag(lt) then (if isNumTag(rt) then emitPrimBin("i.add", l, r) else (if rt == "S" then emitSconcat(l, r) else emitArithS("+", l, r, dq))) else (if lt == "B" then (if rt == "B" then emitPrimBin("big.add", l, r) else emitArithS("+", l, r, dq)) else emitArithS("+", l, r, dq)))
+def emitArithTT(k, l, r, lt, rt, dq) = if isNumTag(lt) then (if isNumTag(rt) then emitPrimBin(intPrimK(k), l, r) else emitArithS(arithSym(k), l, r, dq)) else (if lt == "B" then (if rt == "B" then emitPrimBin(bigPrimK(k), l, r) else emitArithS(arithSym(k), l, r, dq)) else emitArithS(arithSym(k), l, r, dq))
+def emitBinTop(k, l, r, env, cx) = emitBinT(k, l, r, operandTag(l, env, dqOf(cx)), operandTag(r, env, dqOf(cx)), dqOf(cx))
 // Scala's precedence-by-first-character, restricted to the operators the subset uses.
 def binPrec(t) = if fst(t) == 2 then binPrecK(snd(t)) else 0
 // bitwise prec (left-assoc; F prec 5 is the ONLY right-assoc slot so bitwise ops avoid it): `&`(62)=4,
@@ -888,7 +917,7 @@ def infixWord(left, ts, minPrec, env, cx) = parseAtom(tl(ts), env, cx) match { c
 def climb(left, ts, minPrec, env, cx) = if isInfixWord(hd(ts)) then infixWord(left, ts, minPrec, env, cx) else (if binPrec(hd(ts)) >= minPrec then climbStep(left, ts, minPrec, env, cx) else (left, ts))
 def climbStep(left, ts, minPrec, env, cx) = { val p = binPrec(hd(ts))
   if p == 0 then (left, ts)
-  else parseExpr(tl(ts), rightMin(p), env, cx) match { case (right, r2) => climb(eNode(emitBin(snd(hd(ts)), erase(left, cx), erase(right, cx), dqOf(cx))), r2, minPrec, env, cx) } }
+  else parseExpr(tl(ts), rightMin(p), env, cx) match { case (right, r2) => climb(eNode(emitBinTop(snd(hd(ts)), erase(left, cx), erase(right, cx), env, cx)), r2, minPrec, env, cx) } }
 def rightMin(p) = if p == 5 then p else p + 1
 
 // -- val-blocks ---------------------------------------------------------------------------------
