@@ -1,6 +1,0 @@
-feature/ci-last-red 2026-07-21T19:26:53Z
-agent: claude-code
-heartbeat: 2026-07-21T19:26:53Z
-status: verifying-ci
-done-so-far: landed test-hardening 648dbfec5 (ClusterTestSupport.retrying(3) + widened settle windows on the 4 flaky WS cluster suites) + bookkeeping 3dd146fa1. cli/Test/compile clean; Partition/PartitionHealing/SingletonFailover/MultiNode all green locally first-attempt.
-next: exact-SHA CI green on sbt job at 3dd146fa1. Obstacle: sibling pushes serially cancel in-flight runs.

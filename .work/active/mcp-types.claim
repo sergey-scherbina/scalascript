@@ -1,6 +1,0 @@
-feature/mcp-types 2026-07-21T18:04:13Z
-agent: claude-code
-heartbeat: 2026-07-21T19:40:10Z
-status: in-progress
-done-so-far: LANDED 809bed9d3 (feat 886df94fe + bookkeeping + scljet SLOW). Gates GREEN: fixpoint byte-identical, semantic 248/248, mcp-types EQUAL, full dualrun only 2 pre-existing non-residuals (actors flaky + scljet false-timeout), both classified.
-next: await CI on 809bed9d3, then release claim + cleanup

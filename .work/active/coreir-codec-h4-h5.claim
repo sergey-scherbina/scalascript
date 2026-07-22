@@ -1,6 +1,0 @@
-feature/coreir-codec-h4-h5 2026-07-21T19:11:22Z
-agent: claude-code
-heartbeat: 2026-07-21T19:16:01Z
-status: verifying-ci
-done-so-far: H4+H5 confirmed already landed (81bc5d122, intact at HEAD). Built jar from current origin/main; gates GREEN — coreir-codec-vectors.sh 94/0 (all hostile capsules rejected fail-closed, valid round-trips pass), coreir-inventory-gate.sh all-6-sources-agree. Reconciled stale SPRINT.md [open] item -> DONE; pushed 9df7f7f17.
-next: await exact-SHA CI on 9df7f7f17 (doc-only change); release claim + rm-worktree when terminal
