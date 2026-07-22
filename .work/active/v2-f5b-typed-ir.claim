@@ -1,6 +1,6 @@
-feature/v2-f5b-typed-ir 2026-07-22T05:36:07Z
+feature/v2-f5b-typed-ir 2026-07-22T03:59:39Z
 agent: opus-orch
-heartbeat: 2026-07-22T05:36:07Z
-status: paused-awaiting-decision
-done-so-far: F5b slices landed (origin/main): typed param arith d28f20c82, def return-type registry 317e0b495 (fib CLOSED → i.add). Gates green: semantic 248/248, X1 fixpoint byte-identical 398,412 B, corpus→204 EMPTY/TIMEOUT 0. ★ MEASURED + REFUTED the design hypothesis: typed IR does NOT make FastCode/SelfRec removal perf-neutral (fib typed vs untyped ~1%; fastpaths ON vs OFF ~5× wall/~30× compute — the win is recursion SPECIALIZATION not arith dispatch). Removal NOT applied (kernel untouched). Specs corrected.
-next: PAUSED at a strategic FORK for Sergiy — (a) build the bytecode lever (emit real bytecode for Int-typed recursive defs) = the actual perf path to enable the removal [bigger backend effort]; (b) continue typed-IR-emit for kernel SIZE only (δ-table retirement, also gated on ssc0 tower); (c) accept the ~5× perf regr and apply removal anyway. Worktree intact for resume.
+heartbeat: 2026-07-22T12:01:24Z
+status: in-progress
+done-so-far: F5b (1b-1 param typing, 1b-2 return-type registry -> fib closed) landed. NOW f5c bytecode lever (10dd71aa8): discovered the NATIVE/bytecode lane (JvmByteGen, bin/ssc run --native) already has unboxed-Long numeric fast paths BUT they matched __arith__ ONLY -> F5b typed i.* fell to boxed path = ~1.9x regression on native lane (fib 620 vs 330ms). FIXED: ArithB extractor recognizes typed i.* at all 8 long/inline-arith sites. Typed fib 620->330ms (regression fixed); unboxed $long path now reaches typed IR -> ~20ms ≈ interpreter FastCode-ON compute. Byte-identical output vs interpreter; v2JvmBytecode/compile green; self-hosting gates unaffected (run-ir lane, semantic 248/248). Design specs/v2-f5c-typed-bytecode.md.
+next: f5c-2 KEYSTONE = don't OpAnf-lift calls to EFFECT-FREE defs so canParamLong fires by DEFAULT (fib ~20ms without SSC_NO_OPANF). OpAnf letifies fib's recursive-call args (mayOp(App)=true) -> Let -> canParamLong fails -> boxed. Fix via effect-free-def registry (extend F5b return-type registry). Then f5c-3 (f.*/accumulator i.*), f5c-4 apply FastCode/SelfRec removal + re-measure native-lane fib within tol. Only then is the removal perf-neutral.
