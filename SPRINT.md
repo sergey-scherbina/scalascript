@@ -5086,9 +5086,13 @@ dynamic saved-capsule runner.
   **SCALA HOST LANE SYMMETRY DONE (`ssc-save-run-vectors-scala`):** scala-explicit now advertises
   `durable-save,no-replay` and `SemanticVectorConformanceTest` covers 14/17 through the reference
   library — all three applicable lanes (process portable-vm/asm, JS host, Scala host) now cover
-  durable save/run. STILL OPEN: multi-prompt shift/reset `.ssc` example (no `freshPrompt`/`reset`/`shift`
-  `.ssc` surface); cross-host vectors 15/16 (need the DurableValue wire codec across processes — i.e.
-  the exact/portable runners). Original blocked note (now largely superseded)
+  durable save/run. **SHIFT/RESET GAP CLOSED (`ssc-shift-reset-vectors`):** the `.ssc` process lanes
+  (portable-vm/asm) now cover the multi-prompt delimited-control vectors 18/22/23 (1007/7/11), realized
+  natively via algebraic effects with deep handlers — nested `handle`s = nested resets (18), distinct
+  effects = distinct prompts (22), `resume` reinstalls the handler = shift-not-shift0 (23). `lanes.tsv`
+  advertises `shift-reset,prompt-isolation` on both process lanes; run.sh catalog PASS, portable-vm/asm
+  18/18. STILL OPEN: cross-host vectors 15/16 (need the DurableValue wire codec across processes — i.e.
+  the exact/portable runners). Original blocked note (now superseded)
   preserved: BLOCKED, do not start: every one of its three
   deliverables is gated on work that does not exist yet. Measured 2026-07-16 on
   `0891ed8cf` with the assembled `bin/ssc` and `tests/interop-conformance/run.sh --list`

@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-07-22 — `.ssc` process lanes cover multi-prompt shift/reset vectors 18/22/23
+
+The `portable-vm` and `portable-asm` `.ssc` lanes now cover the delimited-control conformance vectors
+`18-nearest-matching-reset` (1007), `22-fresh-nested-prompt-isolation` (7), and `23-shift-not-shift0`
+(11) — closing the last `UNSUPPORTED` gap for these lanes. `.ssc` realizes multi-prompt delimited
+control natively through algebraic effects with deep handlers: nested `handle` boundaries for one
+effect are nested resets (18, the inner/nearest catches a continuation-discarding shift); two distinct
+effects are two distinct prompts (22, a shift on `p` is forwarded through `q`'s reset and caught only
+by `p`'s); and a deep handler reinstalls itself around the resumed suffix, so a second operation is
+caught by the same delimiter — shift, not shift0 (23). New probes + expected bytes; `lanes.tsv`
+advertises `shift-reset,prompt-isolation` on both process lanes (the vectors were already `specified`
+via the Scala/JS host lanes). `run.sh` catalog PASS, portable-vm/asm 18/18, control suites unaffected.
+
 ## 2026-07-22 — v2-f5c: JVM-bytecode lane is now the DEFAULT `ssc run` backend (Option A)
 
 The culmination of the F5b/F5c arc: `ssc run` now executes on the JIT-compiling bytecode lane by default
