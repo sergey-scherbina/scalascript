@@ -17,6 +17,12 @@ failure shape: `UNIQUE constraint failed: t.a` (or `t.a, t.b` for a composite in
 token is `INDEX`. The stored/rebuilt `IndexInfo` carries key positions but no uniqueness bit,
 so INSERT/UPDATE cannot enforce a unique index even if parsing alone is added.
 
+The implementation audit also found a directly blocking writer defect:
+`write.ssc::compareKeys` extracts only `SqlInteger` payloads from the numeric class (so every
+`SqlReal` sorts as zero) and returns equality for every BLOB pair. A parser/enforcement fix that
+left this comparator intact could still emit a physically misordered unique index. The feature
+therefore uses one corrected exact comparator for both B-tree ordering and duplicate detection.
+
 **Safety note:** a parser-only fix is forbidden. It would store `CREATE UNIQUE INDEX` in
 `sqlite_schema` while allowing duplicate keys, producing a file whose declared constraint is
 false and whose reference `PRAGMA integrity_check` can report a non-unique index entry.

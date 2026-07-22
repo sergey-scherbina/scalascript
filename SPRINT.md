@@ -3438,7 +3438,10 @@ file that HAS a unique index.
 - [ ] **U2 — enforce at CREATE.** Real SQLite REFUSES to create a unique index over existing
       duplicates. `buildIndexEntriesFromRecords` already produces the key tuples — check for a
       duplicate key and fail with SQLite's message shape
-      (`UNIQUE constraint failed: <table>.<col>[, <table>.<col>…]`).
+      (`UNIQUE constraint failed: <table>.<col>[, <table>.<col>…]`). The audit found that
+      `write.ssc::compareKeys` currently maps every REAL to integer zero and all BLOBs to equal;
+      correct that physical comparator and reuse it for duplicate equality so validation and
+      B-tree ordering cannot diverge.
 - [ ] **U3 — enforce at INSERT/UPDATE.** The hard half: `tableIndexInfos` carries no unique flag, so
       thread it through and reject a duplicate in the `reindexTable` maintenance path
       (`executeInsert` `~:4390`, and the UPDATE equivalent). NOTE the pre-existing limit right there:
@@ -3446,8 +3449,8 @@ file that HAS a unique index.
 - [ ] **U4 — gate.** `tests/conformance/run.sh --only 'scljet-*' --no-memo` (**`--no-memo` mandatory**
       — the memo keys on ssc.jar, NOT on `scljet/*.ssc`) + `scljetJdbcPlugin/test`. Add a differential
       that cross-checks the duplicate REJECTION against `org.xerial:sqlite-jdbc` (both must error) and
-      a `PRAGMA integrity_check` on the file we write — the oracle must be the reference engine
-      through a FILE, per the lesson in the entry below.
+      a `PRAGMA integrity_check` on the file we write, including distinct unsorted REAL/BLOB keys —
+      the oracle must be the reference engine through a FILE, per the lesson in the entry below.
 
 ## codex-lane-salvage — recover value from three orphaned codex branches (2026-07-16, Sergiy: "разберись — может быть там есть чтото ценное; всё ценное замерж в мастер")
 
