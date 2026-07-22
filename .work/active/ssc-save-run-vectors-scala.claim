@@ -1,6 +1,0 @@
-feature/ssc-save-run-vectors-scala 2026-07-22T14:09:39Z
-agent: claude-code
-heartbeat: 2026-07-22T14:09:39Z
-status: in-progress
-done-so-far: vectors 14/17 flipped on process+JS lanes; adding Scala host-lane coverage for symmetry
-next: scala-explicit caps += durable-save,no-replay; SemanticPrograms 14/17 (savable/save/run) + implementedIds + run cases; verify SemanticVectorConformanceTest + run.sh green
