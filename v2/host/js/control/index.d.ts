@@ -241,11 +241,18 @@ export interface SavedContinuation<A, Fx extends Effect, R> {
 
 export interface DurableValue<S> {
   snapshot(value: S): S
+  /**
+   * If present, the frame this evidence describes cannot cross the save boundary
+   * (a raw foreign value with no durable codec, the §8.3 FrameGate); `save()`
+   * rejects with this `CaptureFailure` instead of producing a `SavedContinuation`.
+   */
+  readonly captureBarrier?: CaptureFailure
 }
 
 export const DurableValue: Readonly<{
   immutable<S>(): DurableValue<S>
   copying<S>(copy: (value: S) => S): DurableValue<S>
+  unsavable<S>(failure: CaptureFailure): DurableValue<S>
 }>
 
 export class DurableDecodeError extends Error {}

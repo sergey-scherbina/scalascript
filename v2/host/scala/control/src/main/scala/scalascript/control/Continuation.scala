@@ -66,13 +66,17 @@ object Continuation:
     override def resume(value: A): Eff[Fx, R] = machine.resume(state, value)
 
     override def save(): Eff[Save, SavedContinuation.Aux[A, Fx, R]] =
-      // The codec is the typed defunctionalized evidence §8.1 names. Snapshot the
-      // live state now so a later mutation of the original cannot change the saved
-      // frame (§8.2). No admission service exists in-process, so the frozen Save
-      // row is inhabited only by the Rejected path of the unmanaged shapes;
-      // Nothing <: Save covariantly widens this successful result into that row.
-      val frame = codec.snapshot(state)
-      Eff.pure(SavedContinuation.reusable(frame, machine, codec))
+      // The codec is the typed defunctionalized evidence §8.1 names. A codec may
+      // declare its frame Unsavable (a raw foreign value with no durable codec, the
+      // §8.3 FrameGate); save() then rejects with the typed CaptureFailure instead
+      // of producing a SavedContinuation, never spilling into a capsule. Otherwise
+      // snapshot the live state now so a later mutation of the original cannot change
+      // the saved frame (§8.2); Nothing <: Save covariantly widens the success value.
+      codec.captureBarrier match
+        case Some(failure) => perform(Save.Rejected(failure))
+        case None =>
+          val frame = codec.snapshot(state)
+          Eff.pure(SavedContinuation.reusable(frame, machine, codec))
 
   private[control] def runtime[A, Fx <: Effect, R](
       kernel: Eff.Authority,

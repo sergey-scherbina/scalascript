@@ -717,6 +717,17 @@ export const DurableValue = Object.freeze({
   copying(copy) {
     const clone = requireFunction(copy, "durable value copy")
     return Object.freeze({ snapshot(value) { return clone(value) } })
+  },
+  // Evidence that a frame is NOT savable — its captured value is a raw foreign value
+  // with no durable codec. A savable built with it resumes in-process, but save()
+  // rejects with `failure` (the §8.3 FrameGate discriminator).
+  unsavable(failure) {
+    return Object.freeze({
+      snapshot() {
+        throw new TypeError("an unsavable frame has no snapshot")
+      },
+      captureBarrier: failure
+    })
   }
 })
 
@@ -1567,9 +1578,13 @@ class SavableContinuationImpl {
       this,
       "savable continuation"
     )
-    // Snapshot the live state now so a later mutation of the original cannot
-    // change the saved frame (§8.2). No admission service in-process, so this
-    // success value inhabits the Save row alongside the Rejected path.
+    // A codec may declare its frame Unsavable (a raw foreign value with no durable
+    // codec, the §8.3 FrameGate); save() then rejects with the typed CaptureFailure
+    // instead of producing a SavedContinuation. Otherwise snapshot the live state now
+    // so a later mutation of the original cannot change the saved frame (§8.2).
+    if (state.codec.captureBarrier !== undefined && state.codec.captureBarrier !== null) {
+      return perform(Save.Rejected(state.codec.captureBarrier))
+    }
     const frame = state.codec.snapshot(state.state)
     return Eff.pure(
       new SavedContinuationImpl(internalAuthority, frame, state.machine, state.codec)

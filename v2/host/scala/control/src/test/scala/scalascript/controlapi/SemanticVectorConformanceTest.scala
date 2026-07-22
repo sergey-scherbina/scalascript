@@ -119,7 +119,7 @@ private object SemanticVectorConformanceTest:
     val implementedIds: Set[String] =
       Set(
         "01", "02", "03", "04", "05", "06", "07", "08", "09",
-        "11", "12",
+        "10", "11", "12",
         "14", "17",
         "18", "19", "20", "21", "22", "23", "24", "25"
       )
@@ -226,6 +226,7 @@ private object SemanticVectorConformanceTest:
         case "07" => handlerReinstall()
         case "08" => returnTransform()
         case "09" => nondeterminismProduct()
+        case "10" => rawForeignvReject()
         case "11" => missingResolverReject()
         case "12" => exactArtifactAndCodecMismatch()
         case "14" => durableSaveRunSameProcess()
@@ -313,6 +314,33 @@ private object SemanticVectorConformanceTest:
         val _ = point.restore(capsule, Set.empty)
         "NotRejected"
       catch case rejected: CapsuleRejected => rejected.kind
+
+    // Axis 10 — a savable whose frame holds a raw foreign value (an Unsavable codec, the
+    // §8.3 FrameGate) rejects at save() with a typed CaptureBarrier, never a capsule.
+    private def rawForeignvReject(): String =
+      val unsavable: DurableValue[Int] =
+        DurableValue.unsavable(
+          CaptureFailure.CaptureBarrier("frame", "raw foreign value")
+        )
+      val continuation = Continuation.savable(0, timesTen, unsavable)
+      Eff.runPure(
+        handle[Save.type, Nothing, String, String](
+          continuation.save().map(_ => "NotRejected")
+        )(
+          new Handler[Save.type, Nothing, String, String]:
+            val effect: EffectKey[Save.type] = Save.key
+            def onReturn(value: String): Eff[Nothing, String] = Eff.pure(value)
+            def onOperation[X](
+                operation: Operation[Save.type, X],
+                resumption: Resumption[X, Nothing, String]
+            ): Eff[Nothing, String] =
+              operation match
+                case Save.Rejected(failure) =>
+                  failure match
+                    case CaptureFailure.CaptureBarrier(_, _) => Eff.pure("CaptureBarrier")
+                    case other => Eff.pure(s"Unexpected($other)")
+        )
+      )
 
     private def admissionKind(
         point: ResumePoint[Int, Int, Nothing, Int],

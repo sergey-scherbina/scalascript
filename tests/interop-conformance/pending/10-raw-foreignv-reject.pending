@@ -1,7 +1,0 @@
-axis: raw-foreignv-reject
-status: pending-codec
-needs: FrameGate save-time check (Savable | Unsavable)
-expected: A continuation whose captured frame holds a raw ForeignV (live
-  object/socket/lock/closure) with no DurableRef/codec is UNSAVABLE: `save()`
-  fails with a typed CaptureBarrier in ALL code modes (never silently succeeds,
-  never spilled into an ExactArtifact). Negative axis — the FrameGate discriminator.

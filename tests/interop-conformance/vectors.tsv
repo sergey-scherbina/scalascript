@@ -8,7 +8,7 @@ id	slug	law	capabilities	phase	expectedExit	expectedStream	oracle
 07	handler-reinstall-recursion	§3,§14.1	effects,handler-deep,one-shot	specified	zero	stdout	3
 08	return-clause-transform	§3,§14.1	effects,one-shot,return-transform	specified	zero	stdout	42,42
 09	nondeterminism-product	§3,§14.1	effects,multi-shot	specified	zero	stdout	11,21,12,22
-10	raw-foreignv-reject	§8.3,§9.1,§14.3	durable-save,foreign-barrier	pending-codec	pending	pending	CaptureBarrier
+10	raw-foreignv-reject	§8.3,§9.1,§14.3	durable-save,foreign-barrier	specified	zero	structured	CaptureBarrier
 11	missing-resolver-reject	§9.2,§11.1,§14.3	admission,durable-ref	specified	zero	structured	MissingDependency
 12	exact-artifact-and-codec-mismatch	§8.3,§11.1,§14.3	admission,exact-artifact	specified	zero	structured	CodecMismatch|AbiMismatch|MissingDependency
 13	signature-quota-negative	§11.1,§12,§14.3	admission,security	pending-codec	pending	pending	TamperedCapsule|ResourceLimit

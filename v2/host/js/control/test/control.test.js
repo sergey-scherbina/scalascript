@@ -398,6 +398,32 @@ function unmanagedCapture() {
   return `UnmanagedCapture(${failure.site})`
 }
 
+// Axis 10 — a savable built over a raw foreign value (no durable codec) still
+// resumes in-process, but save() rejects with the typed CaptureBarrier — the
+// Unsavable side of the §8.3 FrameGate — never spilling the foreign value into a
+// capsule. Distinct from vector 25: the state IS captured, the frame is not durable.
+function rawForeignvReject() {
+  const machine = { resume: (state, input) => Eff.pure(input * 10) }
+  const unsavable = DurableValue.unsavable(
+    CaptureFailure.CaptureBarrier("frame", "raw foreign value")
+  )
+  const continuation = Continuation.savable(0, machine, unsavable)
+  const rejected = handle(continuation.save(), {
+    effect: Save.key,
+    onReturn() {
+      assert.fail("unsavable frame unexpectedly saved")
+    },
+    onOperation(operation) {
+      assert.equal(Save.Rejected.is(operation), true)
+      const [failure] = operation.args
+      return Eff.pure(failure)
+    }
+  })
+  const failure = Eff.runPure(rejected)
+  assert.equal(failure.kind, "CaptureBarrier")
+  return failure.kind
+}
+
 // Axis 14 — a savable continuation is frozen with save() and run twice in the same
 // process; the value is reusable, each run resumes at the capture point.
 function durableSaveRunSameProcess() {
@@ -508,6 +534,7 @@ const semanticPrograms = new Map([
   ["07", handlerReinstall],
   ["08", returnTransform],
   ["09", nondeterminismProduct],
+  ["10", rawForeignvReject],
   ["11", missingResolverReject],
   ["12", exactArtifactAndCodecMismatch],
   ["14", durableSaveRunSameProcess],
