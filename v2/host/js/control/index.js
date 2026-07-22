@@ -1247,22 +1247,98 @@ export class ResumePoint {
   }
 }
 
+// An inert reference to external state (specs/durable-ref.md, §9.2). It carries
+// only a providerId and an opaque reference; decoding never contacts the resource.
+// A forged reference simply fails resolution, so the constructor is public.
+export class DurableRef {
+  #providerId
+  #opaqueReference
+
+  constructor(providerId, opaqueReference) {
+    this.#providerId = providerId
+    this.#opaqueReference = opaqueReference
+    Object.freeze(this)
+  }
+
+  get providerId() {
+    return this.#providerId
+  }
+
+  get opaqueReference() {
+    return this.#opaqueReference
+  }
+
+  static of(providerId, opaqueReference) {
+    if (typeof providerId !== "string") {
+      throw new TypeError("durable reference provider id must be a string")
+    }
+    if (!(opaqueReference instanceof DurableBytes)) {
+      throw new TypeError("durable reference opaque reference must be DurableBytes")
+    }
+    return new DurableRef(providerId, opaqueReference)
+  }
+
+  static codec() {
+    return durableRefCodec
+  }
+}
+
+const durableRefCodec = DurableCodec.imap(
+  DurableCodec.pair(DurableCodec.string, DurableCodec.bytes),
+  ([providerId, opaqueReference]) => new DurableRef(providerId, opaqueReference),
+  ref => [ref.providerId, ref.opaqueReference]
+)
+
 const restoreOwner = Symbol("scalascript.control.Restore.owner")
 const restoreKey = defineEffect("scalascript.control.Restore", restoreOwner)
+const restoreResolve = restoreKey.operation("resolve")
 
-// Discharge the Restore capability for an in-process run with no provider-backed
-// restore. Nothing constructs a Restore operation yet, so onOperation is
-// unreachable; provider-backed admission is a follow-on slice.
 export const Restore = Object.freeze({
   key: restoreKey,
+  // Resolve an inert DurableRef to its value — the one real restore operation.
+  Resolve: restoreResolve,
+
+  // Perform a post-admission resolution of a durable reference (§9.2).
+  resolve(ref) {
+    return perform(restoreResolve(ref))
+  },
+
+  // Discharge Restore by resolving every Resolve through the resolver, once per
+  // resolve, reinstalling around the suffix; each run resolves independently.
+  withResolver(resolver, body) {
+    if (resolver === null || typeof resolver !== "object") {
+      throw new TypeError("resolver must be an object")
+    }
+    requireFunction(resolver.resolve, "resolver resolve method")
+    return handle(requireEff(body, "restore body"), {
+      effect: restoreKey,
+      onReturn: value => Eff.pure(value),
+      onOperation(operation, resumption) {
+        if (!restoreResolve.is(operation)) {
+          throw new TypeError(`unknown Restore operation ${operation.id?.name}`)
+        }
+        const [ref] = operation.args
+        const resolved = resolver.resolve(ref)
+        if (resumption.kind === "Reusable") {
+          return resumption.continuation.resume(resolved)
+        }
+        const attempt = resumption.continuation.tryResume(resolved)
+        if (attempt.ok) return attempt.computation
+        throw new TypeError("restore resolution resumed an already-claimed continuation")
+      }
+    })
+  },
+
+  // Discharge Restore for an in-process run that resolves nothing; a run that does
+  // resolve fails here, because no provider is bound — use withResolver.
   admitLocally(body) {
     const computation = requireEff(body, "restore body")
     return handle(computation, {
       effect: restoreKey,
       onReturn: value => Eff.pure(value),
-      onOperation: () => {
+      onOperation(operation) {
         throw new TypeError(
-          "Restore.admitLocally received a restore operation; no provider is bound"
+          `Restore.admitLocally received ${operation.id?.name}; no provider is bound`
         )
       }
     })

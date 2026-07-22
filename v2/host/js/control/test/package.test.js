@@ -26,6 +26,7 @@ const expectedRuntimeExports = [
   "DurableCapsule",
   "DurableCodec",
   "DurableDecodeError",
+  "DurableRef",
   "DurableValue",
   "Eff",
   "ResumePoint",

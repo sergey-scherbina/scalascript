@@ -206,8 +206,27 @@ export const Save: Readonly<{
 export interface Restore
   extends Effect<"scalascript.control.Restore", typeof restoreEffectOwner> {}
 
+/** An inert reference to external state, resolved only post-admission (§9.2). */
+export class DurableRef<out A> {
+  private constructor()
+  readonly providerId: string
+  readonly opaqueReference: DurableBytes
+  static of<A>(providerId: string, opaqueReference: DurableBytes): DurableRef<A>
+  static codec<A>(): DurableCodec<DurableRef<A>>
+}
+
+export interface Resolver {
+  resolve<A>(ref: DurableRef<A>): A
+}
+
 export const Restore: Readonly<{
   key: EffectKey<Restore>
+  Resolve: OperationFactory<Restore, unknown, readonly [DurableRef<unknown>]>
+  resolve<A>(ref: DurableRef<A>): Eff<Restore, A>
+  withResolver<Fx extends Effect, R>(
+    resolver: Resolver,
+    body: Eff<Fx | Restore, R>
+  ): Eff<Fx, R>
   admitLocally<Fx extends Effect, R>(body: Eff<Fx | Restore, R>): Eff<Fx, R>
 }>
 

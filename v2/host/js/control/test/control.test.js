@@ -10,6 +10,7 @@ import {
   DurableCapsule,
   DurableCodec,
   DurableDecodeError,
+  DurableRef,
   DurableValue,
   Eff,
   MachineStep,
@@ -860,4 +861,86 @@ test("golden capsule bytes match the cross-lane format", () => {
     point.freeze({ value: 100 }).encode().toHex(),
     "000000010000000463656c6c0000000400000064000000204b458482422640f4fb818274ec2b4f3d1de3a487c25f991d751e483fdc0aea9b"
   )
+})
+
+const memRef = value => DurableRef.of("mem", DurableCodec.int.encode(value))
+
+function countingResolver() {
+  const resolver = {
+    calls: 0,
+    resolve(ref) {
+      resolver.calls += 1
+      assert.equal(ref.providerId, "mem")
+      return DurableCodec.int.decode(ref.opaqueReference)
+    }
+  }
+  return resolver
+}
+
+const addAfterResolve = {
+  resume(state, input) {
+    return Restore.resolve(state).map(value => value + input)
+  }
+}
+
+function freezeRefSavable(continuation) {
+  return Eff.runPure(
+    handle(continuation.save(), {
+      effect: Save.key,
+      onReturn: value => Eff.pure(value),
+      onOperation() {
+        assert.fail("DurableRef savable save unexpectedly rejected")
+      }
+    })
+  )
+}
+
+test("DurableRef codec round-trips inert reference data without resolving", () => {
+  const codec = DurableRef.codec()
+  const decoded = codec.decode(codec.encode(memRef(99)))
+  assert.equal(decoded.providerId, "mem")
+  assert.equal(DurableCodec.int.decode(decoded.opaqueReference), 99)
+})
+
+test("a savable frame that is a DurableRef resolves post-admission", () => {
+  const resolver = countingResolver()
+  const continuation = Continuation.savable(memRef(40), addAfterResolve, DurableRef.codec())
+  const saved = freezeRefSavable(continuation)
+  assert.equal(resolver.calls, 0)
+  assert.equal(Eff.runPure(Restore.withResolver(resolver, saved.run(2))), 42)
+  assert.equal(Eff.runPure(Restore.withResolver(resolver, saved.run(5))), 45)
+  assert.equal(resolver.calls, 2) // once per admitted run, independently
+})
+
+test("withResolver resolves once per resolve in a run", () => {
+  const resolver = countingResolver()
+  const twiceMachine = {
+    resume(state, input) {
+      return Restore.resolve(state).flatMap(first =>
+        Restore.resolve(state).map(second => first + second + input)
+      )
+    }
+  }
+  const continuation = Continuation.savable(memRef(10), twiceMachine, DurableRef.codec())
+  const saved = freezeRefSavable(continuation)
+  assert.equal(Eff.runPure(Restore.withResolver(resolver, saved.run(1))), 21)
+  assert.equal(resolver.calls, 2)
+})
+
+test("admitLocally rejects a run that resolves a DurableRef", () => {
+  const continuation = Continuation.savable(memRef(1), addAfterResolve, DurableRef.codec())
+  const saved = freezeRefSavable(continuation)
+  assert.throws(() => Eff.runPure(Restore.admitLocally(saved.run(1))), TypeError)
+})
+
+test("a capsule whose frame is a DurableRef decodes inert and resolves on run", () => {
+  const resolver = countingResolver()
+  const point = ResumePoint.define("ref-point", addAfterResolve, DurableRef.codec())
+  const capsule = point.freeze(memRef(100))
+  const transported = DurableCapsule.decode(capsule.encode())
+  assert.equal(resolver.calls, 0) // decoding contacts no resource
+  const saved = point.restore(transported)
+  assert.equal(resolver.calls, 0) // restore admits but does not resolve
+  assert.equal(Eff.runPure(Restore.withResolver(resolver, saved.run(1))), 101)
+  assert.equal(resolver.calls, 1)
 })
