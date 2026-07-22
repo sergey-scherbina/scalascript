@@ -1,0 +1,6 @@
+feature/bytecode-int64-verify-fix 2026-07-22T20:01:45Z
+agent: opus-orch
+heartbeat: 2026-07-22T20:01:45Z
+status: in-progress
+done-so-far: BUGS f-bytecode-default-switch-int64-ci-red was filed during the F5c-switch CI-red — but that CI-red was later confirmed MISATTRIBUTED (real cause = durable-save-run, now fixed). F5c subagent could NOT reproduce a v2-bytecode int64 wrap (typed i.* int64-exact); the CI divergence values (2^31->Int32, max64->double) match the v1-codegen KNOWN-RED (specs/numeric-widths.md §4) that run.sc TOLERATES. Unresolved: is there a REAL v2-bytecode int64 bug, or was it all misattribution? Precondition for the F5c switch re-apply (switch makes --bytecode the default → int64 must be correct).
+next: subagent BUILDS the bytecode lane, tests large ints (2^31, max64=9223372036854775807, 9007199254740993, mul-overflow) on 'ssc run --bytecode' vs 'ssc run' (interp) — if v2-bytecode WRAPS/loses precision → REAL bug → fix JvmByteGen int64; if EXACT → misattribution → close/correct the BUGS entry. Identify which backend the CI divergence was (v1-codegen known-red vs v2-bytecode).
