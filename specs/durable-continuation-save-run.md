@@ -22,7 +22,7 @@ not a bug: the reference kernel holds two continuation shapes and neither carrie
 |---|---|---|
 | `Runtime` (`Continuation.runtime`) | opaque host closure `A => Eff[Fx, R]` | `Rejected(UnmanagedCapture(site))` — unchanged. A host closure has no reified frame; it is genuinely unsavable in the reference model. |
 | `Local` (`Continuation.local`) | managed `(state: S, machine)` with **no** durable evidence for `S` | `Rejected(UnmanagedCapture("Continuation.local"))` — unchanged. The state machine is managed, but without a codec for `S` the snapshot law cannot be honored. |
-| `Savable` (`Continuation.savable`, **new**) | managed `(state: S, machine, codec: DurableValue[S])` | **succeeds** — the caller-supplied codec is the typed defunctionalized evidence §8.1 names. |
+| `Savable` (`Continuation.savable`, **new**) | managed `(state: S, machine, codec: DurableValue[S])` | **succeeds** — the caller-supplied codec is the typed defunctionalized evidence §8.1 names — **unless** the codec declares a §8.3 capture barrier (`DurableValue.unsavable`, a raw foreign frame), in which case `save()` rejects with `CaptureBarrier` and never spills the frame into a capsule. |
 
 ## 2. New public surface (`scalascript.control`)
 
@@ -32,10 +32,18 @@ not a bug: the reference kernel holds two continuation shapes and neither carrie
   * the §9.1 canonical encoding. No reflection over `S`. */
 trait DurableValue[S]:
   def snapshot(value: S): S
+  /** If defined, the frame is a raw foreign value with no durable codec (the §8.3
+    * FrameGate `Unsavable` side); `save()` rejects with this `CaptureFailure`
+    * instead of producing a `SavedContinuation`. */
+  def captureBarrier: Option[CaptureFailure] = None
 
 object DurableValue:
   /** For an immutable value type, an independent copy is the value itself. */
   def immutable[S]: DurableValue[S]
+
+  /** Evidence that a frame is NOT savable — a raw foreign value. A `savable` built
+    * with it resumes in-process, but `save()` rejects with `failure`. */
+  def unsavable[S](failure: CaptureFailure): DurableValue[S]
 
 /** New managed builder: a resumable state machine whose state carries durable
   * evidence. `save()` on the result succeeds. Mirrors `Continuation.local`. */

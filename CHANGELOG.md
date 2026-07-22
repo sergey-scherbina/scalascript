@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-07-22 — §8.3 FrameGate: raw foreign frames reject save() with CaptureBarrier (vector 10)
+
+Adds the `Unsavable` side of the §8.3 FrameGate. A savable continuation whose captured state is a raw
+foreign value (a live object/socket/lock with no durable codec) still resumes in-process, but `save()`
+now rejects with a typed `CaptureFailure.CaptureBarrier` instead of producing a `SavedContinuation`, so
+the foreign value never spills into a capsule. A new `DurableValue.unsavable(failure)` builds that
+evidence — its `captureBarrier` returns the failure and `snapshot` throws — and
+`Continuation.savable(...).save()` consults `codec.captureBarrier` first, performing
+`Save.Rejected(failure)` when present. Distinct from vector 25 (`UnmanagedCapture`), where the
+continuation is unmanaged and un-captured: here the state IS captured but its frame is not durable.
+Mirrored byte-for-byte on both host lanes (Scala + JS `index.js`/`index.d.ts`). Flips conformance vector
+`10-raw-foreignv-reject` `pending-codec`→`specified` (host-only, `structured`), oracle `CaptureBarrier`;
+the catalog's negative meta-test repoints its omitted-vector/missing-pending cases from 10 to
+still-pending vector 13. 22/26 vectors now specified. Scala 151/151, ABI 6/6, JS 62/62, `run.sh` catalog
+PASS (26 vectors/9 lanes), validator negative cases 9/9.
+
 ## 2026-07-22 — Capsule ABI manifest (format v2) + codec/artifact/dependency admission (vector 12)
 
 Extends the durable capsule to §10's ABI manifest so admission can reject codec, artifact, and
