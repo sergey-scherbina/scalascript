@@ -30,7 +30,7 @@ for parser in json-core yaml-core markdown-core; do
 done
 
 PATH=/usr/bin:/bin JAVA_TOOL_OPTIONS=-verbose:class SSC_NO_CDS=1 \
-  "$ROOT/bin/ssc-standard" run --native --interpret "$fixture" >"$tmp/vm.log" 2>&1
+  "$ROOT/bin/ssc-standard" run --native "$fixture" >"$tmp/vm.log" 2>&1
 grep -F 'H1@1(Pricing|#pricing route=/pricing)' "$tmp/vm.log" >/dev/null
 if grep -Ei 'class,load] org[.]objectweb[.]asm|class,load] (ujson|upickle|upack)[.]' \
     "$tmp/vm.log" >/dev/null; then
@@ -47,7 +47,7 @@ if grep -Ei 'class,load] (ujson|upickle|upack)[.]' "$tmp/asm.log" >/dev/null; th
   exit 1
 fi
 
-PATH=/usr/bin:/bin SSC_NO_CDS=1 "$ROOT/bin/ssc-standard" run --native --interpret \
+PATH=/usr/bin:/bin SSC_NO_CDS=1 "$ROOT/bin/ssc-standard" run --native \
   "$sql_fixture" >"$tmp/sql-vm.out"
 PATH=/usr/bin:/bin SSC_NO_CDS=1 "$ROOT/bin/ssc-standard" run --native --bytecode \
   "$sql_fixture" >"$tmp/sql-asm.out"
