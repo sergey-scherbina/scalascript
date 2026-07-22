@@ -155,10 +155,12 @@ Old front / v1: all three `failed closed (exit 1)`. Smoke: 3 checks FAILED under
 
 ## f-native-out-of-corpus-smoke-regressions — F fails on out-of-corpus native e2e smokes the corpus sweep can't see
 
-**Status:** OPEN (found 2026-07-22 by opus during the `v2-f4-reflip` re-flip verification; the re-flip was
-HALTED as a result — ①② landed, F stays opt-in via `SSC_FRONT=F`). F-front (`specs/v2.2-p6.5-fsub.ssc`)
-native tier. **These are the current blockers of the F4 default-front flip** now that the int-literal fail-open
-(`f-int-literal-overflow-fails-open`) is fixed.
+**Status:** OPEN — narrowed (found 2026-07-22 by opus during the `v2-f4-reflip` re-flip verification; the
+re-flip was HALTED as a result — ①② landed, F stays opt-in via `SSC_FRONT=F`). F-front
+(`specs/v2.2-p6.5-fsub.ssc`) native tier. **Progress 2026-07-22:** regression ③.1 (md-interpolator)
+**FIXED** (`f02100097`); regression ③.2 (plugin-boundary) re-diagnosed as an isolation/class-load issue,
+not a fixture-output divergence — see the per-item notes below. **These remain the current blockers of the
+F4 default-front flip** now that the int-literal fail-open (`f-int-literal-overflow-fails-open`) is fixed.
 
 **What happened:** after fixing blocker ① and bumping the CI budget (blocker ②), the re-flip passed every
 corpus-level gate — X1 fixpoint byte-identical, semantic 248/248, dualrun 45/45 EQUAL, negtc gate PASS
@@ -166,9 +168,23 @@ corpus-level gate — X1 fixpoint byte-identical, semantic 248/248, dualrun 45/4
 caught **2 F-regressions** that PASS under `SSC_FRONT=legacy` and FAIL under F (A/B-verified; 10 other smoke
 failures fail on BOTH fronts = pre-existing, NOT flip-related):
 
-1. **`tests/e2e/v21-native-md-interpolator-smoke.sh`** — F FAIL-OPENs on markdown `${…}` interpolation.
-   Repro: `bin/ssc run tests/fixtures/v21-native/md-interpolator.ssc`. Legacy prints the interpolated
-   content (`[Hello, Ada!\n  nested 3\n\nTail]\nsingle-Ada\nlocal:ok\n[]`); **F prints `[<closure>]\n<closure>\nlocal:ok\n[<closure>]`, exit 0** — the classic fail-open `<closure>` (an unforced thunk emitted as a value). F's markdown-interpolation lowering emits a closure where the reference forces/renders it. The F4a delegate-fallback does NOT catch it (F "successfully" lowers to runnable-but-wrong IR; the fallback only fires on unbound-global / validate failures).
+1. **[FIXED 2026-07-22 `f02100097`] `tests/e2e/v21-native-md-interpolator-smoke.sh`** — F FAIL-OPENed on
+   markdown `md"…"` / `raw"…"` interpolation.
+   Repro (was): `bin/ssc run tests/fixtures/v21-native/md-interpolator.ssc`. Legacy prints the interpolated
+   content (`[Hello, Ada!\n  nested 3\n\nTail]\nsingle-Ada\nlocal:ok\n[]`); **F printed `[<closure>]\n<closure>\nlocal:ok\n[<closure>]`, exit 0** — the classic fail-open `<closure>`.
+   **Actual root cause:** F's lexer only special-cased `s"…"` (a kind-6 interp token); ANY other interpolator
+   prefix (`md`/`raw`/…) was lexed as a bare ident + a SEPARATE string token, so `md"…"` parsed as a reference
+   to the `md` global (a closure) applied to nothing → `<closure>` at runtime. (Not "F emits a closure where
+   the reference forces it" — F never recognized the prefix as an interpolator at all.) The F4a delegate-fallback
+   could not catch it: `md` IS a bound global, so the IR was closed and ran (wrong, not unbound).
+   **Fix:** parser-level, mirroring the reference (ssc1-front :1053-1067) — `parseAtom1`'s kind-1 ident branch
+   now routes a bare `md`/`raw` immediately followed by a str (kind 4) or triple (kind 8) token to interpolation:
+   `md"…"` = `(prim __mdStrip__ <s-interp>)` (de-indent/trim; triple content escTriple-escaped before the `$`
+   split), `raw"…"` = plain s-interp; a prefix NOT followed by a string stays an ordinary ident (`md("ok")` is
+   still the call). F's own source uses no interpolation so the fixpoint is untouched. **Verified (rebased on
+   origin/main):** F output byte-identical to legacy on the fixture (zero `<closure>`); `v21-native-md-interpolator-smoke`
+   PASS; X1 fixpoint byte-identical (405,396 B); semantic 248/248; int-literal smoke green. (`f"…"`/`html"…"`
+   prefixes are separate follow-ups.)
 2. **`tests/e2e/v21-native-plugin-boundary-smoke.sh`** — F-regression (PASS legacy, FAIL F) on one of the
    plugin-boundary fixtures (out-of-corpus provider fixtures: `content-provider.ssc`, `dataset-provider.ssc`,
    `fs-os-provider.ssc`, …). Exact failing fixture + mode NOT yet narrowed.

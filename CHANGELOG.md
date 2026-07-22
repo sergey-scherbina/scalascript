@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-07-22 — F (self-hosted front) supports `md`/`raw` string interpolators (was fail-open `<closure>`)
+
+Blocker ③.1 of the `v2-f4-reflip` re-flip (BUGS `f-native-out-of-corpus-smoke-regressions`). Under
+`SSC_FRONT=F`, `md"…"` / `raw"…"` string interpolation FAILED OPEN: F's lexer special-cased only `s"…"`,
+so any other interpolator prefix was lexed as a bare ident + a separate string token — `md"…"` parsed as a
+reference to the `md` global (a closure) and printed `<closure>` (exit 0) instead of the interpolated
+content, where legacy renders it. The F4a delegate-fallback could not catch it (`md` is a bound global, so
+the IR was closed and ran — wrong, not unbound). Fixed at the parser level in `specs/v2.2-p6.5-fsub.ssc`
+(`parseAtom1` kind-1 ident branch), mirroring the reference front (ssc1-front :1053-1067): a bare `md`/`raw`
+immediately followed by a str/triple token becomes interpolation — `md"…"` = `(prim __mdStrip__ <s-interp>)`
+(de-indent/trim; triple content escTriple-escaped before the `$` split), `raw"…"` = plain s-interp; a prefix
+NOT followed by a string stays an ordinary ident (`md("ok")` is still the call). F's own source uses no
+interpolation, so the fixpoint is untouched. Verified on the branch rebased on current origin/main: F output
+byte-identical to `SSC_FRONT=legacy` on `tests/fixtures/v21-native/md-interpolator.ssc` (zero `<closure>`);
+`v21-native-md-interpolator-smoke` PASS; X1 fixpoint byte-identical (405,396 B); semantic 248/248; int-literal
+fail-open smoke green. `f"…"` / `html"…"` prefixes are separate follow-ups. The re-flip stays HELD (blocked on
+③.2 plugin-boundary isolation + a separate pre-existing CI Conformance baseline red). Commit `f02100097`.
+
 ## 2026-07-22 — Fix effect-verifier false-positive on a self-discharging `handle` (unblocks CI Conformance)
 
 The CI "Conformance Suite" `ssc-tools check examples/*.ssc` step had been RED since
