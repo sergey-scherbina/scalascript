@@ -59,11 +59,18 @@ f-stmt-partial-function-block lanes). See `specs/v2-language-surface.md` §7.
 
 ## f-string-literal-pattern-not-data — F match/case-lambda rejects a string-literal pattern
 
-**Status:** OPEN (found 2026-07-22 by opus while fixing f-stmt-partial-function-block-dropped; PRE-EXISTING,
-separate). F-front (`specs/v2.2-p6.5-fsub.ssc`) only. Affects BOTH a regular `x match { case "s" => .. }`
-and a `f { case "s" => .. }` case-lambda — so NOT case-lambda-specific and out of scope for
-f-stmt-partial-function-block-dropped (that fix made case-lambdas consistent with regular match; this
-limitation is shared by both).
+**Status:** FIXED 2026-07-22 by opus. F-front (`specs/v2.2-p6.5-fsub.ssc`) only. Affected BOTH a regular
+`x match { case "s" => .. }` and a `f { case "s" => .. }` case-lambda.
+
+**Fix:** the ordered resolver now handles STRING / FLOAT / BOOL literal arms alongside INT. New
+`isScalarLitHead` + `litArmIR` + `parseGenLit`/`parseGenLitRest` (mirror `parseGenInt` — an ordered
+`(if (__eq__ scrut <lit>) body rest)` using the same literal emitters as `litPatF`); `parseGenArm` routes
+a scalar-literal arm to `parseGenLit`; and the two match-dispatch predicates (`parseMatchArms`,
+`caseLamIsGen`) route a scalar-literal FIRST arm to `parseGenMatch` (previously only `fst==0` INT did).
+Verified byte-equal to default: string/float/bool patterns in both regular match and case-lambda, a
+realistic multi-string HTTP-method dispatch (`case "GET" => ..`), and int/ctor arms unchanged. Gates:
+fsub `--self` byte-identical (403836 B; F's source uses no non-int literal arms → fixpoint neutral);
+semantic 248/248; dualrun slice EQUAL.
 
 **Repro:** `val v = "Foo"; v match { case "Foo" => println("lit"); case other => println(other) }` →
 default prints `lit`; F errors `ssc: match: scrutinee not Data: "Foo"`. Int-literal patterns
