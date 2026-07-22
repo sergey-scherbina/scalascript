@@ -1,6 +1,0 @@
-feature/durable-ref-js 2026-07-22T12:39:41Z
-agent: claude-code
-heartbeat: 2026-07-22T12:39:41Z
-status: not-started
-done-so-far:
-next: JS mirror of DurableRef[A]+codec + real Restore (Resolve op + resolve + Resolver + withResolver); mirror Scala Part 3a; both lanes back to parity
