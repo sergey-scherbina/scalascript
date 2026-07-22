@@ -27,6 +27,11 @@ import ssc.{Term as T, Arm, Def as CDef, Program}
  *  def's body pre/post lift. */
 object OpAnfNative:
 
+  /** f5c-2 effect-free-def registry: `pg(g)` = the top-level def `g` is PURE — it never evaluates to a
+   *  raw `DataV("Op", …)`, so a call `App(Global(g), args)` need not be Op-argument-lifted (only its args,
+   *  independently, if THEY mayOp). Non-defs (plugins/builtins) and any doubt default to impure. */
+  private type PureG = String => Boolean
+
   def lift(p: Program): Program =
     if sys.env.contains("SSC_NO_OPANF") then return p
     val dumpTarget = sys.env.get("SSC_DUMP_IR").filter(_.nonEmpty)
@@ -35,6 +40,7 @@ object OpAnfNative:
         System.err.println(s"=== IR[$name] PRE-lift ===\n${show(d.body, 0)}")
       }
     }
+    given pg: PureG = pureGlobals(p)
     val lifted = Program(p.defs.map(d => CDef(d.name, tx(d.body))), tx(p.entry))
     dumpTarget.foreach { name =>
       lifted.defs.find(_.name == name).foreach { d =>
@@ -43,10 +49,31 @@ object OpAnfNative:
     }
     lifted
 
+  /** Least-fixpoint purity over the top-level call graph. A def is PURE iff `mayOp(body)` is false under
+   *  the current classification (start ALL pure, then propagate impurity: any Op-producing prim, any call
+   *  to a non-def/unknown global, any call to a `Local`, or a call to an already-impure def makes it
+   *  impure). CONSERVATIVE by construction — `mayOp` reuses the kernel's own effect model
+   *  (`primitiveMayProduceAutoThreadOp`, which flags `__method__`/`effect.*`/`cell.get`/non-builtins). fib
+   *  (only self-calls + `i.*`) stays pure; anything touching effects/dispatch/unknowns is impure. */
+  private def pureGlobals(p: Program): PureG =
+    val bodies: Map[String, T] = p.defs.iterator.map(d => d.name -> d.body).toMap
+    var impure = Set.empty[String]
+    given pg: PureG = (g: String) => bodies.contains(g) && !impure(g)
+    var changed = true
+    while changed do
+      changed = false
+      for (name, body) <- bodies do
+        if !impure(name) && mayOp(body) then
+          impure += name; changed = true
+    pg
+
   /** May evaluating this term return a raw `DataV("Op", …)`? Op sources on the
    *  native lane: any App and the method-dispatch prims. */
-  private def mayOp(t: T): Boolean = t match
-    case T.App(_, _) => true
+  private def mayOp(t: T)(using pg: PureG): Boolean = t match
+    // A call to a PROVABLY-PURE top-level def never yields a raw Op (f5c-2); its args still lift if THEY
+    // mayOp. Any other callee (local, plugin/builtin global, impure def) stays conservatively Op-capable.
+    case T.App(T.Global(g), as) => !pg(g) || as.exists(mayOp)
+    case T.App(_, as)        => true
     case T.Prim(op, as) =>
       ssc.Compiler.primitiveMayProduceAutoThreadOp(op) || as.exists(mayOp)
     case T.Let(rhs, b)       => rhs.exists(mayOp) || mayOp(b)
@@ -66,25 +93,25 @@ object OpAnfNative:
   private def isHandleStage(f: T, args: List[T]): Boolean =
     f == T.Global("handle") && args.length == 1
 
-  private def tx(t: T): T = t match
+  private def tx(t: T)(using pg: PureG): T = t match
     case T.App(f, as) =>
-      val f2 = tx(f); val as2 = as.map(tx)
+      val f2 = tx(f); val as2 = as.map(a => tx(a))
       val positions = f2 :: as2
-      if !isHandleStage(f2, as2) && positions.exists(mayOp) then
+      if !isHandleStage(f2, as2) && positions.exists(x => mayOp(x)) then
         letify(positions, lifted => T.App(lifted.head, lifted.tail))
       else T.App(f2, as2)
     case T.Prim(op, as) =>
-      val as2 = as.map(tx)
-      if !isEffectPrim(op) && as2.exists(mayOp) then letify(as2, ls => T.Prim(op, ls))
+      val as2 = as.map(a => tx(a))
+      if !isEffectPrim(op) && as2.exists(x => mayOp(x)) then letify(as2, ls => T.Prim(op, ls))
       else T.Prim(op, as2)
     case T.Ctor(tag, fs) =>
-      val fs2 = fs.map(tx)
-      if fs2.exists(mayOp) then letify(fs2, ls => T.Ctor(tag, ls))
+      val fs2 = fs.map(a => tx(a))
+      if fs2.exists(x => mayOp(x)) then letify(fs2, ls => T.Ctor(tag, ls))
       else T.Ctor(tag, fs2)
     case T.Match(s, arms, d) =>
       val s2 = tx(s)
       val arms2 = arms.map(a => Arm(a.tag, a.arity, tx(a.body)))
-      val d2 = d.map(tx)
+      val d2 = d.map(a => tx(a))
       if mayOp(s2) then
         T.Let(List(s2), T.Match(T.Local(0),
           arms2.map(a => Arm(a.tag, a.arity, shift(a.body, 1, a.arity))),
@@ -95,9 +122,9 @@ object OpAnfNative:
       if mayOp(c2) then T.Let(List(c2), T.If(T.Local(0), shift(x2, 1, 0), shift(y2, 1, 0)))
       else T.If(c2, x2, y2)
     case T.Lam(ar, b)      => T.Lam(ar, tx(b))
-    case T.Let(rhs, b)     => T.Let(rhs.map(tx), tx(b))
-    case T.LetRec(lams, b) => T.LetRec(lams.map(tx), tx(b))
-    case T.Seq(ts)         => T.Seq(ts.map(tx))
+    case T.Let(rhs, b)     => T.Let(rhs.map(a => tx(a)), tx(b))
+    case T.LetRec(lams, b) => T.LetRec(lams.map(a => tx(a)), tx(b))
+    case T.Seq(ts)         => T.Seq(ts.map(a => tx(a)))
     case T.While(c, b) =>
       val c2 = tx(c); val b2 = tx(b)
       if mayOp(c2) || mayOp(b2) then effectAwareWhile(c2, b2)
