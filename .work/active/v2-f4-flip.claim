@@ -1,6 +1,6 @@
 feature/v2-f4-flip 2026-07-21T22:30:12Z
 agent: opus-orch
-heartbeat: 2026-07-21T22:46:00Z
+heartbeat: 2026-07-22T00:30:00Z
 status: in-progress
-done-so-far: Worktree scalascript-wt-v2-f4-flip created off origin/main b0ec278df. installBin staged F FRESH (verified: tower/bin fsub.ssc+ssc1-run-fsub.ssc0 mtimes=now; SSC_FRONT=F confirmed LIVE via delegation trace, not a no-op). Kernel jar built. RUNNING the clean SSC_DUALRUN_ALL=1 safety-valve sweep (528 programs, DR_TIMEOUT=150, default-front vs SSC_FRONT=F) BEFORE any flip. Preconditions MET — mcp-types landed (886df94fe/809bed9d3), dualrun residual set documented EMPTY.
+done-so-far: Worktree created, installBin staged F FRESH (SSC_FRONT=F confirmed LIVE via delegation trace), kernel jar built. Running the clean safety-valve sweep (default-front vs SSC_FRONT=F, all 528 programs, DR_TIMEOUT=150) as RESUMABLE foreground/bg batches — the first bg attempt was killed externally, so I made progress durable per-program (uncommitted local hook in dualrun.sh, keyed on full path). Progress ~137/528 compared, 0 divergences so far (scljet F-side ~15-32s/prog makes the full sweep ~85 min). NO flip yet — awaiting a COMPLETE clean sweep. Preconditions MET (mcp-types landed 886df94fe/809bed9d3).
 next: dedicated subagent does clean SSC_DUALRUN_ALL re-sweep (safety valve: HALT if any new diverge/silent-wrong, esp. f-stmt-partial-function-block receive-handler bug) -> full gates (fixpoint byte-identical, semantic 247+, dualrun manifest) -> flip RunNativeV2.frontIsF opt-in->opt-out (keep old front as fallback, do NOT delete) -> docs -> verify.
