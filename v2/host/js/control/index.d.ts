@@ -229,6 +229,44 @@ export const DurableValue: Readonly<{
   copying<S>(copy: (value: S) => S): DurableValue<S>
 }>
 
+export class DurableDecodeError extends Error {}
+
+export class DurableBytes {
+  private constructor()
+  readonly length: number
+  toArray(): Uint8Array
+  toHex(): string
+  static fromArray(source: ArrayLike<number>): DurableBytes
+}
+
+/** A canonical, deterministic, bounded byte codec that is also a DurableValue. */
+export interface DurableCodec<S> extends DurableValue<S> {
+  encode(value: S): DurableBytes
+  decode(bytes: DurableBytes): S
+}
+
+export type DurableEither<A, B> = { left: A } | { right: B }
+
+export const DurableCodec: Readonly<{
+  unit: DurableCodec<void>
+  boolean: DurableCodec<boolean>
+  int: DurableCodec<number>
+  long: DurableCodec<bigint>
+  bigInt: DurableCodec<bigint>
+  double: DurableCodec<number>
+  string: DurableCodec<string>
+  bytes: DurableCodec<DurableBytes>
+  pair<A, B>(left: DurableCodec<A>, right: DurableCodec<B>): DurableCodec<[A, B]>
+  either<A, B>(
+    left: DurableCodec<A>,
+    right: DurableCodec<B>
+  ): DurableCodec<DurableEither<A, B>>
+  list<A>(element: DurableCodec<A>): DurableCodec<A[]>
+  imap<A, B>(codec: DurableCodec<A>, to: (value: A) => B, from: (value: B) => A): DurableCodec<B>
+  left<A, B>(value: A): DurableEither<A, B>
+  right<A, B>(value: B): DurableEither<A, B>
+}>
+
 export interface PromptScope {
   readonly [promptScopeBrand]: never
 }

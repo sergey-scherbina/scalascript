@@ -20,14 +20,16 @@ final class DurableCodecTest extends AnyFunSuite:
     for value <- List("", "hello", "юникод ✓ 𝟛") do
       assert(DurableCodec.string.decode(DurableCodec.string.encode(value)) == value)
 
-  test("floating-point encoding preserves bit identity"):
+  test("floating-point encoding is canonical: signed zero kept, NaN normalized"):
     // -0.0 and +0.0 are `==` but must not share canonical bytes.
     assert(DurableCodec.double.encode(-0.0) != DurableCodec.double.encode(0.0))
     assert(rawBits(DurableCodec.double.decode(DurableCodec.double.encode(-0.0))) == rawBits(-0.0))
-    // an exact NaN payload survives the round-trip.
+    // any NaN normalizes to one canonical NaN so the bytes match across lanes.
     val nan = java.lang.Double.longBitsToDouble(0x7ff8000000000123L)
     val decoded = DurableCodec.double.decode(DurableCodec.double.encode(nan))
-    assert(rawBits(decoded) == 0x7ff8000000000123L)
+    assert(java.lang.Double.isNaN(decoded))
+    assert(rawBits(decoded) == 0x7ff8000000000000L)
+    assert(DurableCodec.double.encode(nan) == DurableCodec.double.encode(Double.NaN))
     for value <- List(1.5, -2.25, Double.PositiveInfinity, Double.NegativeInfinity) do
       assert(DurableCodec.double.decode(DurableCodec.double.encode(value)) == value)
 
@@ -118,3 +120,38 @@ final class DurableCodecTest extends AnyFunSuite:
     // snapshot is the serialization round-trip, not a structural copy.
     assert(codec.snapshot(42) == 42)
     assert(codec.decode(codec.encode(42)) == 42)
+
+  // Cross-lane golden vectors: the exact hex every lane must produce for these
+  // values (specs/durable-frame-codec.md §Golden). The JS lane asserts the SAME
+  // table; matching hex on both proves byte identity without a live cross-process
+  // harness. If you change the wire format, update both tables and the spec.
+  test("golden byte vectors pin the canonical wire format"):
+    def hex(bytes: DurableBytes): String = bytes.toString
+    assert(hex(DurableCodec.boolean.encode(true)) == "01")
+    assert(hex(DurableCodec.boolean.encode(false)) == "00")
+    assert(hex(DurableCodec.int.encode(1)) == "00000001")
+    assert(hex(DurableCodec.int.encode(-1)) == "ffffffff")
+    assert(hex(DurableCodec.int.encode(Int.MinValue)) == "80000000")
+    assert(hex(DurableCodec.long.encode(1L)) == "0000000000000001")
+    assert(hex(DurableCodec.long.encode(-1L)) == "ffffffffffffffff")
+    assert(hex(DurableCodec.double.encode(1.5)) == "3ff8000000000000")
+    assert(hex(DurableCodec.double.encode(-0.0)) == "8000000000000000")
+    assert(hex(DurableCodec.double.encode(Double.NaN)) == "7ff8000000000000")
+    assert(hex(DurableCodec.double.encode(Double.PositiveInfinity)) == "7ff0000000000000")
+    assert(hex(DurableCodec.string.encode("")) == "00000000")
+    assert(hex(DurableCodec.string.encode("A")) == "0000000141")
+    assert(hex(DurableCodec.string.encode("é")) == "00000002c3a9")
+    assert(hex(DurableCodec.bigInt.encode(BigInt(0))) == "0000000100")
+    assert(hex(DurableCodec.bigInt.encode(BigInt(127))) == "000000017f")
+    assert(hex(DurableCodec.bigInt.encode(BigInt(128))) == "000000020080")
+    assert(hex(DurableCodec.bigInt.encode(BigInt(-1))) == "00000001ff")
+    assert(hex(DurableCodec.bigInt.encode(BigInt(256))) == "000000020100")
+    assert(hex(DurableCodec.list(DurableCodec.int).encode(List(1, 2))) == "000000020000000100000002")
+    assert(hex(DurableCodec.list(DurableCodec.int).encode(Nil)) == "00000000")
+    assert(hex(DurableCodec.pair(DurableCodec.int, DurableCodec.boolean).encode((7, true))) == "0000000701")
+    assert(
+      hex(DurableCodec.either(DurableCodec.int, DurableCodec.string).encode(Left(5))) == "0000000005"
+    )
+    assert(
+      hex(DurableCodec.either(DurableCodec.int, DurableCodec.string).encode(Right("A"))) == "010000000141"
+    )

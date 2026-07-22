@@ -5,6 +5,9 @@ import test from "node:test"
 import {
   CaptureFailure,
   Continuation,
+  DurableBytes,
+  DurableCodec,
+  DurableDecodeError,
   DurableValue,
   Eff,
   MachineStep,
@@ -656,4 +659,126 @@ test("same stable effect id does not collapse distinct runtime owners", () => {
     }
   })
   assert.equal(Eff.runPure(completed), 73)
+})
+
+test("durable codec scalars and combinators round-trip", () => {
+  assert.equal(DurableCodec.boolean.decode(DurableCodec.boolean.encode(true)), true)
+  for (const value of [0, 1, -1, -2147483648, 2147483647]) {
+    assert.equal(DurableCodec.int.decode(DurableCodec.int.encode(value)), value)
+  }
+  for (const value of [0n, -1n, 9223372036854775807n, -9223372036854775808n]) {
+    assert.equal(DurableCodec.long.decode(DurableCodec.long.encode(value)), value)
+  }
+  for (const value of [0n, -1n, 128n, 255n, 123456789012345678901234567890n]) {
+    assert.equal(DurableCodec.bigInt.decode(DurableCodec.bigInt.encode(value)), value)
+  }
+  for (const value of ["", "hello", "юникод ✓ 𝟛"]) {
+    assert.equal(DurableCodec.string.decode(DurableCodec.string.encode(value)), value)
+  }
+  const composite = DurableCodec.either(
+    DurableCodec.string,
+    DurableCodec.pair(DurableCodec.int, DurableCodec.boolean)
+  )
+  assert.deepEqual(composite.decode(composite.encode({ right: [7, true] })), { right: [7, true] })
+  assert.deepEqual(composite.decode(composite.encode({ left: "x" })), { left: "x" })
+  const listCodec = DurableCodec.list(DurableCodec.int)
+  assert.deepEqual(listCodec.decode(listCodec.encode([1, 2, 3])), [1, 2, 3])
+})
+
+test("durable double encoding is canonical: signed zero kept, NaN normalized", () => {
+  assert.notEqual(
+    DurableCodec.double.encode(-0.0).toHex(),
+    DurableCodec.double.encode(0.0).toHex()
+  )
+  assert.equal(DurableCodec.double.encode(NaN).toHex(), "7ff8000000000000")
+  assert.ok(Number.isNaN(DurableCodec.double.decode(DurableCodec.double.encode(NaN))))
+  for (const value of [1.5, -2.25, Infinity, -Infinity]) {
+    assert.equal(DurableCodec.double.decode(DurableCodec.double.encode(value)), value)
+  }
+})
+
+// The SAME golden hex table asserted by the Scala lane (DurableCodecTest). Matching
+// hex on both lanes proves the wire format is byte-identical across lanes.
+test("durable codec golden byte vectors match the cross-lane format", () => {
+  const hex = value => value.toHex()
+  assert.equal(hex(DurableCodec.boolean.encode(true)), "01")
+  assert.equal(hex(DurableCodec.boolean.encode(false)), "00")
+  assert.equal(hex(DurableCodec.int.encode(1)), "00000001")
+  assert.equal(hex(DurableCodec.int.encode(-1)), "ffffffff")
+  assert.equal(hex(DurableCodec.int.encode(-2147483648)), "80000000")
+  assert.equal(hex(DurableCodec.long.encode(1n)), "0000000000000001")
+  assert.equal(hex(DurableCodec.long.encode(-1n)), "ffffffffffffffff")
+  assert.equal(hex(DurableCodec.double.encode(1.5)), "3ff8000000000000")
+  assert.equal(hex(DurableCodec.double.encode(-0.0)), "8000000000000000")
+  assert.equal(hex(DurableCodec.double.encode(NaN)), "7ff8000000000000")
+  assert.equal(hex(DurableCodec.double.encode(Infinity)), "7ff0000000000000")
+  assert.equal(hex(DurableCodec.string.encode("")), "00000000")
+  assert.equal(hex(DurableCodec.string.encode("A")), "0000000141")
+  assert.equal(hex(DurableCodec.string.encode("é")), "00000002c3a9")
+  assert.equal(hex(DurableCodec.bigInt.encode(0n)), "0000000100")
+  assert.equal(hex(DurableCodec.bigInt.encode(127n)), "000000017f")
+  assert.equal(hex(DurableCodec.bigInt.encode(128n)), "000000020080")
+  assert.equal(hex(DurableCodec.bigInt.encode(-1n)), "00000001ff")
+  assert.equal(hex(DurableCodec.bigInt.encode(256n)), "000000020100")
+  assert.equal(hex(DurableCodec.list(DurableCodec.int).encode([1, 2])), "000000020000000100000002")
+  assert.equal(hex(DurableCodec.list(DurableCodec.int).encode([])), "00000000")
+  assert.equal(hex(DurableCodec.pair(DurableCodec.int, DurableCodec.boolean).encode([7, true])), "0000000701")
+  assert.equal(
+    hex(DurableCodec.either(DurableCodec.int, DurableCodec.string).encode({ left: 5 })),
+    "0000000005"
+  )
+  assert.equal(
+    hex(DurableCodec.either(DurableCodec.int, DurableCodec.string).encode({ right: "A" })),
+    "010000000141"
+  )
+})
+
+test("durable codec decoding is bounded and exact", () => {
+  const fourBytes = DurableCodec.int.encode(5).toArray()
+  assert.throws(
+    () => DurableCodec.int.decode(DurableBytes.fromArray(fourBytes.slice(0, 3))),
+    DurableDecodeError
+  )
+  assert.throws(
+    () => DurableCodec.int.decode(DurableBytes.fromArray([...fourBytes, 0])),
+    DurableDecodeError
+  )
+  assert.throws(
+    () => DurableCodec.either(DurableCodec.int, DurableCodec.int).decode(DurableBytes.fromArray([2, 0, 0, 0, 0])),
+    DurableDecodeError
+  )
+  assert.throws(
+    () => DurableCodec.string.decode(DurableBytes.fromArray([0x7f, 0x7f, 0x7f, 0x7f])),
+    DurableDecodeError
+  )
+  assert.throws(
+    () => DurableCodec.list(DurableCodec.int).decode(DurableBytes.fromArray([0x02, 0, 0, 0])),
+    DurableDecodeError
+  )
+})
+
+test("a durable codec is usable as savable evidence", () => {
+  const cellCodec = DurableCodec.imap(
+    DurableCodec.int,
+    bits => ({ value: bits }),
+    cell => cell.value
+  )
+  const machine = {
+    resume(state, input) {
+      state.value += input
+      return Eff.pure(state.value)
+    }
+  }
+  const continuation = Continuation.savable({ value: 100 }, machine, cellCodec)
+  const saved = Eff.runPure(
+    handle(continuation.save(), {
+      effect: Save.key,
+      onReturn: value => Eff.pure(value),
+      onOperation() {
+        assert.fail("codec-backed savable save unexpectedly rejected")
+      }
+    })
+  )
+  assert.equal(Eff.runPure(Restore.admitLocally(saved.run(1))), 101)
+  assert.equal(Eff.runPure(Restore.admitLocally(saved.run(5))), 105)
 })

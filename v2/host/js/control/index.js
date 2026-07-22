@@ -728,6 +728,329 @@ function requireDurableValue(codec) {
   return codec
 }
 
+// Canonical durable-frame byte codec (specs/durable-frame-codec.md). The wire
+// format is byte-identical to the Scala reference lane; the golden vectors in the
+// test suite pin that agreement.
+export class DurableDecodeError extends Error {
+  constructor(message) {
+    super(message)
+    this.name = "DurableDecodeError"
+  }
+}
+
+const durableTextEncoder = new TextEncoder()
+const durableTextDecoder = new TextDecoder("utf-8", { fatal: false })
+const durableMaxElementCount = 1 << 24
+const durableCanonicalNaNBits = 0x7ff8000000000000n
+
+export class DurableBytes {
+  #bytes
+
+  constructor(source) {
+    this.#bytes = Uint8Array.from(source)
+    Object.freeze(this)
+  }
+
+  get length() {
+    return this.#bytes.length
+  }
+
+  toArray() {
+    return Uint8Array.from(this.#bytes)
+  }
+
+  toHex() {
+    let out = ""
+    for (const value of this.#bytes) out += value.toString(16).padStart(2, "0")
+    return out
+  }
+
+  static fromArray(source) {
+    return new DurableBytes(source)
+  }
+}
+
+class DurableWriter {
+  constructor() {
+    this.parts = []
+  }
+
+  writeByte(value) {
+    this.parts.push(value & 0xff)
+  }
+
+  writeInt(value) {
+    this.writeByte(value >>> 24)
+    this.writeByte(value >>> 16)
+    this.writeByte(value >>> 8)
+    this.writeByte(value)
+  }
+
+  writeLong(value) {
+    const unsigned = BigInt.asUintN(64, value)
+    for (let shift = 56n; shift >= 0n; shift -= 8n) {
+      this.writeByte(Number((unsigned >> shift) & 0xffn))
+    }
+  }
+
+  writeBytes(array) {
+    for (const value of array) this.writeByte(value)
+  }
+
+  toBytes() {
+    return new DurableBytes(this.parts)
+  }
+}
+
+class DurableReader {
+  constructor(bytes) {
+    this.data = bytes.toArray()
+    this.position = 0
+  }
+
+  require(count) {
+    if (count < 0 || this.position + count > this.data.length) {
+      throw new DurableDecodeError(
+        `durable frame truncated: need ${count} byte(s) at offset ${this.position} of ${this.data.length}`
+      )
+    }
+  }
+
+  readByte() {
+    this.require(1)
+    return this.data[this.position++]
+  }
+
+  readInt() {
+    return (
+      (this.readByte() << 24) |
+      (this.readByte() << 16) |
+      (this.readByte() << 8) |
+      this.readByte()
+    )
+  }
+
+  readLong() {
+    let unsigned = 0n
+    for (let index = 0; index < 8; index++) {
+      unsigned = (unsigned << 8n) | BigInt(this.readByte())
+    }
+    return BigInt.asIntN(64, unsigned)
+  }
+
+  readByteLength(label) {
+    const value = this.readInt()
+    if (value < 0) {
+      throw new DurableDecodeError(`${label} length out of range: ${value}`)
+    }
+    if (value > this.data.length - this.position) {
+      throw new DurableDecodeError(
+        `${label} length ${value} exceeds ${this.data.length - this.position} remaining byte(s)`
+      )
+    }
+    return value
+  }
+
+  readElementCount(label) {
+    const value = this.readInt()
+    if (value < 0 || value > durableMaxElementCount) {
+      throw new DurableDecodeError(`${label} element count out of range: ${value}`)
+    }
+    return value
+  }
+
+  readBytes(count) {
+    this.require(count)
+    const out = this.data.slice(this.position, this.position + count)
+    this.position += count
+    return out
+  }
+
+  requireExhausted() {
+    if (this.position !== this.data.length) {
+      throw new DurableDecodeError(
+        `durable frame has ${this.data.length - this.position} trailing byte(s)`
+      )
+    }
+  }
+}
+
+function makeDurableCodec(write, read) {
+  const codec = {
+    write,
+    read,
+    encode(value) {
+      const writer = new DurableWriter()
+      write(writer, value)
+      return writer.toBytes()
+    },
+    decode(bytes) {
+      const reader = new DurableReader(bytes)
+      const value = read(reader)
+      reader.requireExhausted()
+      return value
+    },
+    snapshot(value) {
+      return codec.decode(codec.encode(value))
+    }
+  }
+  return Object.freeze(codec)
+}
+
+// Minimal two's-complement big-endian, byte-identical to Java BigInteger.toByteArray.
+function bigIntToDurableBytes(value) {
+  if (value === 0n) return Uint8Array.of(0)
+  let width = 1
+  while (true) {
+    const bits = BigInt(width * 8)
+    const min = -(1n << (bits - 1n))
+    const max = (1n << (bits - 1n)) - 1n
+    if (value >= min && value <= max) break
+    width++
+  }
+  const mask = (1n << BigInt(width * 8)) - 1n
+  let unsigned = value & mask
+  const out = new Uint8Array(width)
+  for (let index = width - 1; index >= 0; index--) {
+    out[index] = Number(unsigned & 0xffn)
+    unsigned >>= 8n
+  }
+  return out
+}
+
+function durableBytesToBigInt(bytes) {
+  let unsigned = 0n
+  for (const value of bytes) unsigned = (unsigned << 8n) | BigInt(value)
+  return BigInt.asIntN(bytes.length * 8, unsigned)
+}
+
+export const DurableCodec = Object.freeze({
+  unit: makeDurableCodec(
+    (_writer, _value) => {},
+    _reader => undefined
+  ),
+  boolean: makeDurableCodec(
+    (writer, value) => writer.writeByte(value ? 1 : 0),
+    reader => {
+      const tag = reader.readByte()
+      if (tag === 0) return false
+      if (tag === 1) return true
+      throw new DurableDecodeError(`invalid boolean tag: ${tag}`)
+    }
+  ),
+  int: makeDurableCodec(
+    (writer, value) => writer.writeInt(value),
+    reader => reader.readInt()
+  ),
+  long: makeDurableCodec(
+    (writer, value) => writer.writeLong(value),
+    reader => reader.readLong()
+  ),
+  bigInt: makeDurableCodec(
+    (writer, value) => {
+      const magnitude = bigIntToDurableBytes(value)
+      writer.writeInt(magnitude.length)
+      writer.writeBytes(magnitude)
+    },
+    reader => {
+      const count = reader.readByteLength("bigint")
+      if (count === 0) {
+        throw new DurableDecodeError("bigint magnitude must be non-empty")
+      }
+      return durableBytesToBigInt(reader.readBytes(count))
+    }
+  ),
+  double: makeDurableCodec(
+    (writer, value) => {
+      const view = new DataView(new ArrayBuffer(8))
+      if (Number.isNaN(value)) view.setBigUint64(0, durableCanonicalNaNBits, false)
+      else view.setFloat64(0, value, false)
+      for (let index = 0; index < 8; index++) writer.writeByte(view.getUint8(index))
+    },
+    reader => {
+      const view = new DataView(new ArrayBuffer(8))
+      for (let index = 0; index < 8; index++) view.setUint8(index, reader.readByte())
+      return view.getFloat64(0, false)
+    }
+  ),
+  string: makeDurableCodec(
+    (writer, value) => {
+      const utf8 = durableTextEncoder.encode(value)
+      writer.writeInt(utf8.length)
+      writer.writeBytes(utf8)
+    },
+    reader => {
+      const count = reader.readByteLength("string")
+      return durableTextDecoder.decode(reader.readBytes(count))
+    }
+  ),
+  bytes: makeDurableCodec(
+    (writer, value) => {
+      const array = value.toArray()
+      writer.writeInt(array.length)
+      writer.writeBytes(array)
+    },
+    reader => {
+      const count = reader.readByteLength("bytes")
+      return new DurableBytes(reader.readBytes(count))
+    }
+  ),
+  pair(left, right) {
+    return makeDurableCodec(
+      (writer, value) => {
+        left.write(writer, value[0])
+        right.write(writer, value[1])
+      },
+      reader => [left.read(reader), right.read(reader)]
+    )
+  },
+  either(left, right) {
+    return makeDurableCodec(
+      (writer, value) => {
+        if (Object.prototype.hasOwnProperty.call(value, "left")) {
+          writer.writeByte(0)
+          left.write(writer, value.left)
+        } else {
+          writer.writeByte(1)
+          right.write(writer, value.right)
+        }
+      },
+      reader => {
+        const tag = reader.readByte()
+        if (tag === 0) return { left: left.read(reader) }
+        if (tag === 1) return { right: right.read(reader) }
+        throw new DurableDecodeError(`invalid either tag: ${tag}`)
+      }
+    )
+  },
+  list(element) {
+    return makeDurableCodec(
+      (writer, value) => {
+        writer.writeInt(value.length)
+        for (const item of value) element.write(writer, item)
+      },
+      reader => {
+        const count = reader.readElementCount("list")
+        const out = []
+        for (let index = 0; index < count; index++) out.push(element.read(reader))
+        return out
+      }
+    )
+  },
+  imap(codec, to, from) {
+    return makeDurableCodec(
+      (writer, value) => codec.write(writer, from(value)),
+      reader => to(codec.read(reader))
+    )
+  },
+  left(value) {
+    return { left: value }
+  },
+  right(value) {
+    return { right: value }
+  }
+})
+
 const restoreOwner = Symbol("scalascript.control.Restore.owner")
 const restoreKey = defineEffect("scalascript.control.Restore", restoreOwner)
 

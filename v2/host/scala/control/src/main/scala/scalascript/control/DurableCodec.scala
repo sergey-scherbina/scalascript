@@ -185,9 +185,17 @@ object DurableCodec:
         throw new DurableDecodeError("bigint magnitude must be non-empty")
       BigInt(new java.math.BigInteger(reader.readBytes(count)))
 
+  // A single canonical NaN. Signed zero and every finite/infinite value keep
+  // their exact bits; only NaN payloads are normalized, so the encoding is
+  // byte-identical across lanes (a JS engine cannot preserve a NaN payload).
+  private[control] val CanonicalNaNBits: Long = 0x7ff8000000000000L
+
   val double: DurableCodec[Double] = new DurableCodec[Double]:
     def write(writer: DurableWriter, value: Double): Unit =
-      writer.writeLong(java.lang.Double.doubleToRawLongBits(value))
+      val bits =
+        if java.lang.Double.isNaN(value) then CanonicalNaNBits
+        else java.lang.Double.doubleToRawLongBits(value)
+      writer.writeLong(bits)
     def read(reader: DurableReader): Double =
       java.lang.Double.longBitsToDouble(reader.readLong())
 
