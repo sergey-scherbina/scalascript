@@ -440,6 +440,35 @@ function noPrefixMainReplay() {
   return `${first},${second},${prefixRuns}`
 }
 
+// Axis 11 — a capsule whose frame holds a DurableRef naming resolver "db" is rejected
+// at admission (before any run) when "db" is absent; when present it admits and resolves.
+function missingResolverReject() {
+  const machine = {
+    resume: (state, input) => Restore.resolve(state).map(value => value + input)
+  }
+  const point = ResumePoint.define(
+    "resolver-point",
+    machine,
+    DurableRef.codec(),
+    new Set(["db"])
+  )
+  const capsule = point.freeze(DurableRef.of("db", DurableCodec.int.encode(5)))
+  const resolver = { resolve: ref => DurableCodec.int.decode(ref.opaqueReference) }
+  // present resolver admits and resolves mid-run (non-vacuous): 5 + 1 = 6
+  const admitted = Eff.runPure(
+    Restore.withResolver(resolver, point.restore(capsule, new Set(["db"])).run(1))
+  )
+  assert.equal(admitted, 6)
+  // absent resolver rejected at admission, before any run
+  try {
+    point.restore(capsule, new Set())
+    return "NotRejected"
+  } catch (error) {
+    if (error instanceof CapsuleRejected) return error.kind
+    throw error
+  }
+}
+
 const semanticPrograms = new Map([
   ["01", oneShotResume],
   ["02", multiShotResume],
@@ -450,6 +479,7 @@ const semanticPrograms = new Map([
   ["07", handlerReinstall],
   ["08", returnTransform],
   ["09", nondeterminismProduct],
+  ["11", missingResolverReject],
   ["14", durableSaveRunSameProcess],
   ["17", noPrefixMainReplay],
   ["18", nearestMatchingReset],

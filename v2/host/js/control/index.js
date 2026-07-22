@@ -1193,9 +1193,10 @@ function sha256(input) {
 // Durable capsule envelope + resume points (specs/durable-capsule-envelope.md),
 // mirroring the Scala reference lane byte-for-byte.
 export class CapsuleRejected extends Error {
-  constructor(reason) {
-    super(reason)
+  constructor(kind, message) {
+    super(message)
     this.name = "CapsuleRejected"
+    this.kind = kind
   }
 }
 
@@ -1262,15 +1263,19 @@ function createCapsule(id, frame) {
 function verifyCapsule(capsule, expectedId) {
   const state = requirePrivateState(capsuleStates, capsule, "durable capsule")
   if (state.formatVersion !== capsuleFormatVersion) {
-    throw new CapsuleRejected(`unsupported capsule format version ${state.formatVersion}`)
+    throw new CapsuleRejected(
+      "FormatVersion",
+      `unsupported capsule format version ${state.formatVersion}`
+    )
   }
   if (state.resumePointId !== expectedId) {
     throw new CapsuleRejected(
+      "ResumePointMismatch",
       `capsule resume point '${state.resumePointId}' does not match '${expectedId}'`
     )
   }
   if (digestFrame(state.frame).toHex() !== state.digest.toHex()) {
-    throw new CapsuleRejected("capsule frame digest mismatch")
+    throw new CapsuleRejected("FrameTampered", "capsule frame digest mismatch")
   }
   return state
 }
@@ -1278,14 +1283,21 @@ function verifyCapsule(capsule, expectedId) {
 const resumePointStates = new WeakMap()
 
 export class ResumePoint {
-  constructor(authority, id, machine, codec) {
+  constructor(authority, id, machine, codec, requiredResolvers) {
     requireInternalAuthority(authority)
-    resumePointStates.set(this, Object.freeze({ id, machine, codec }))
+    resumePointStates.set(
+      this,
+      Object.freeze({ id, machine, codec, requiredResolvers })
+    )
     Object.freeze(this)
   }
 
   get id() {
     return requirePrivateState(resumePointStates, this, "resume point").id
+  }
+
+  get requiredResolvers() {
+    return requirePrivateState(resumePointStates, this, "resume point").requiredResolvers
   }
 
   savable(state) {
@@ -1298,8 +1310,21 @@ export class ResumePoint {
     return createCapsule(point.id, point.codec.encode(state))
   }
 
-  restore(capsule) {
+  // Admit a capsule and rebind it. Every required resolver must be present in
+  // availableResolvers, checked atomically before any frame is decoded or run — a
+  // missing resolver is a typed MissingDependency, distinct from a present resolver
+  // whose resource fails later at mid-run resolution (§9.2, §11).
+  restore(capsule, availableResolvers = new Set()) {
     const point = requirePrivateState(resumePointStates, this, "resume point")
+    const missing = [...point.requiredResolvers].filter(
+      resolver => !availableResolvers.has(resolver)
+    )
+    if (missing.length > 0) {
+      throw new CapsuleRejected(
+        "MissingDependency",
+        `capsule requires unavailable resolver(s): ${missing.sort().join(", ")}`
+      )
+    }
     const state = verifyCapsule(capsule, point.id)
     return new SavedContinuationImpl(
       internalAuthority,
@@ -1309,7 +1334,7 @@ export class ResumePoint {
     )
   }
 
-  static define(id, machine, codec) {
+  static define(id, machine, codec, requiredResolvers = new Set()) {
     if (typeof id !== "string" || id.length === 0) {
       throw new TypeError("resume point id must be a non-empty string")
     }
@@ -1318,7 +1343,10 @@ export class ResumePoint {
     }
     requireFunction(machine.resume, "resume state machine method")
     requireDurableValue(codec)
-    return new ResumePoint(internalAuthority, id, machine, codec)
+    if (!(requiredResolvers instanceof Set)) {
+      throw new TypeError("required resolvers must be a Set")
+    }
+    return new ResumePoint(internalAuthority, id, machine, codec, requiredResolvers)
   }
 }
 

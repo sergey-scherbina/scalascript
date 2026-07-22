@@ -288,7 +288,9 @@ export const DurableCodec: Readonly<{
   right<A, B>(value: B): DurableEither<A, B>
 }>
 
-export class CapsuleRejected extends Error {}
+export class CapsuleRejected extends Error {
+  readonly kind: "FormatVersion" | "ResumePointMismatch" | "FrameTampered" | "MissingDependency"
+}
 
 /** A versioned, digest-verified durable capsule bound to a named resume point. */
 export class DurableCapsule {
@@ -303,13 +305,18 @@ export class DurableCapsule {
 export class ResumePoint<S, A, Fx extends Effect, R> {
   private constructor()
   readonly id: string
+  readonly requiredResolvers: ReadonlySet<string>
   savable(state: S): Continuation<A, Fx, R>
   freeze(state: S): DurableCapsule
-  restore(capsule: DurableCapsule): SavedContinuation<A, Fx, R>
+  restore(
+    capsule: DurableCapsule,
+    availableResolvers?: ReadonlySet<string>
+  ): SavedContinuation<A, Fx, R>
   static define<S, A, Fx extends Effect, R>(
     id: string,
     machine: ResumeStateMachine<S, A, Fx, R>,
-    codec: DurableCodec<S>
+    codec: DurableCodec<S>,
+    requiredResolvers?: ReadonlySet<string>
   ): ResumePoint<S, A, Fx, R>
 }
 

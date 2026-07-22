@@ -1,8 +1,0 @@
-axis: missing-resolver-reject
-status: pending-codec
-needs: atomic admission over the capsule manifest
-expected: Restoring a capsule whose DurableRef names a resolver/plugin/capability
-  absent on the target is rejected ATOMICALLY at admission, BEFORE any user code
-  runs (no partial admission, no mid-run discovery). Distinct from resource
-  liveness: a present resolver whose resource is deleted/expired/revoked is a
-  typed residual failure mid-run, not an admission reject. Negative axis.

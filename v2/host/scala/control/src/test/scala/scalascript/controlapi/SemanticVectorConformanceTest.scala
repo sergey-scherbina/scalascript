@@ -119,6 +119,7 @@ private object SemanticVectorConformanceTest:
     val implementedIds: Set[String] =
       Set(
         "01", "02", "03", "04", "05", "06", "07", "08", "09",
+        "11",
         "14", "17",
         "18", "19", "20", "21", "22", "23", "24", "25"
       )
@@ -225,6 +226,7 @@ private object SemanticVectorConformanceTest:
         case "07" => handlerReinstall()
         case "08" => returnTransform()
         case "09" => nondeterminismProduct()
+        case "11" => missingResolverReject()
         case "14" => durableSaveRunSameProcess()
         case "17" => noPrefixMainReplay()
         case "18" => nearestMatchingReset()
@@ -282,6 +284,34 @@ private object SemanticVectorConformanceTest:
       val first = Eff.runPure(Restore.admitLocally(saved.run(1)))
       val second = Eff.runPure(Restore.admitLocally(saved.run(2)))
       s"$first,$second,$prefixRuns"
+
+    // Axis 11 — a capsule whose frame holds a DurableRef naming resolver "db" is
+    // rejected ATOMICALLY at admission (before any run) when "db" is absent; when it is
+    // present the capsule admits and resolves mid-run.
+    private def missingResolverReject(): String =
+      val resolveThenAdd =
+        new ResumeStateMachine[DurableRef[Int], Int, Restore, Int]:
+          def resume(state: DurableRef[Int], input: Int): Eff[Restore, Int] =
+            Restore.resolve(state).map(value => value + input)
+      val point = ResumePoint.define(
+        "resolver-point",
+        resolveThenAdd,
+        DurableRef.codec[Int],
+        Set("db")
+      )
+      val capsule = point.freeze(DurableRef.of[Int]("db", DurableCodec.int.encode(5)))
+      val resolver = new Restore.Resolver:
+        def resolve[T](ref: DurableRef[T]): T =
+          DurableCodec.int.decode(ref.opaqueReference).asInstanceOf[T]
+      // present resolver admits and resolves mid-run (non-vacuous): 5 + 1 = 6
+      val admitted =
+        Eff.runPure(Restore.withResolver(resolver)(point.restore(capsule, Set("db")).run(1)))
+      assert(admitted == 6, s"expected admitted resolve to yield 6, got $admitted")
+      // absent resolver is rejected at admission, before any run
+      try
+        val _ = point.restore(capsule, Set.empty)
+        "NotRejected"
+      catch case rejected: CapsuleRejected => rejected.kind
 
     private def resumeReusable[A, Fx <: Effect, R](
         resumption: Resumption[A, Fx, R],
