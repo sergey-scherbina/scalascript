@@ -1,6 +1,6 @@
 feature/v2-f5c-switch-reapply 2026-07-22T23:01:48Z
 agent: opus-orch
-heartbeat: 2026-07-22T23:10:38Z
+heartbeat: 2026-07-22T23:17:54Z
 status: in-progress
 subagent-progress: switch RE-APPLIED on feature/v2-f5c-switch-reapply (StandardMain exec default VM->bytecode, byte-identical to c05924863) + isolation-smoke --interpret. Verified: exec-plan asm/vm/reversible; int-boundary 2^31/max64/2^53+1 EXACT on new default (misattribution confirmed clean). RUNNING flip gates: FULL conformance (317), FULL e2e-smoke A/B, kernel jar for semantic+fixpoint. NOT landed yet — gates in flight.
 done-so-far: GREEN CI BASELINE achieved (6 consecutive green runs since 54eae3197; durable-save-run + v21-explicit-lanes-gate both fixed). Both F5c-switch "blockers" resolved as MISATTRIBUTIONS: (1) the switch CI-red was durable-save-run (fixed), (2) f-bytecode-default-switch-int64 = v1-codegen known-red not v2-bytecode (v2-bytecode 64-bit-exact, verified 0dbb7e018). So the switch (c05924863, reverted by c6ddf0a4f) was FINE. Prereqs on main: fallback b5949022a + stack-safe effectful loops dc6843887. Sergiy directed to continue Option A.
