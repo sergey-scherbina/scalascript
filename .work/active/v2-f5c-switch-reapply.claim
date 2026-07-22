@@ -1,0 +1,6 @@
+feature/v2-f5c-switch-reapply 2026-07-22T23:01:48Z
+agent: opus-orch
+heartbeat: 2026-07-22T23:01:48Z
+status: in-progress
+done-so-far: GREEN CI BASELINE achieved (6 consecutive green runs since 54eae3197; durable-save-run + v21-explicit-lanes-gate both fixed). Both F5c-switch "blockers" resolved as MISATTRIBUTIONS: (1) the switch CI-red was durable-save-run (fixed), (2) f-bytecode-default-switch-int64 = v1-codegen known-red not v2-bytecode (v2-bytecode 64-bit-exact, verified 0dbb7e018). So the switch (c05924863, reverted by c6ddf0a4f) was FINE. Prereqs on main: fallback b5949022a + stack-safe effectful loops dc6843887. Sergiy directed to continue Option A.
+next: subagent re-applies the switch (StandardMain var bytecode false->bytecode-default + reversible opt-out) with FULL flip-level rigor (FULL conformance + FULL e2e-smoke A/B, not examples-sweep — the lesson); lands it; I verify CI against the GREEN baseline (meaningful now, ready to revert if a NEW out-of-corpus regr appears). Then f5c-3 + removal gated on switch CI-green.
