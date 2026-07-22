@@ -1,0 +1,6 @@
+feature/f-stmt-partial-function-block 2026-07-22T00:00:00Z
+agent: opus
+heartbeat: 2026-07-22T00:00:00Z
+status: in-progress
+done-so-far: Root-caused (see BUGS.md f-stmt-partial-function-block-dropped): F mis-lowers `f { case … }` partial-function block args; actor `receive { case … }` stmt handlers silently skipped. Located parser path parseAtom(:383)->postfix(:431)->postBlockArg(:436)->blockArgApp(:439) in specs/v2.2-p6.5-fsub.ssc.
+next: FIRST resolve the nuance (val _ = receive{case s=>s} works but val _ = handle{case s=>println} blanks) to pin the exact trigger, THEN fix blockArgApp/parseBlock so `{ case … }` lowers to a partial-function (lam 1 (match (local 0) …)). Verify: T11 repro prints on F; fsub --self byte-identical; semantic unchanged; dualrun sweep loses actors-* residuals. Coordinate on fsub.ssc (shared w/ v2-f5-kernel-shrink, v2-f4-flip).
