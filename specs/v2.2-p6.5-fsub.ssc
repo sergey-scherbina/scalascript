@@ -20,6 +20,17 @@ def scanId(s, i, n) = if atEnd(i, n) then i else (if isAlnum(s.charAt(i)) then s
 def numSep(s, i, n) = if s.charAt(i) == 95 then (if atEnd(i + 1, n) then false else isDig(s.charAt(i + 1))) else false
 def scanNumV(s, i, n, acc) = if atEnd(i, n) then acc else (if isDig(s.charAt(i)) then scanNumV(s, i + 1, n, acc * 10 + (s.charAt(i) - 48)) else (if numSep(s, i, n) then scanNumV(s, i + 1, n, acc) else acc))
 def scanNumE(s, i, n) = if atEnd(i, n) then i else (if isDig(s.charAt(i)) then scanNumE(s, i + 1, n) else (if numSep(s, i, n) then scanNumE(s, i + 1, n) else i))
+// FAIL-CLOSED int-literal overflow (BUGS f-int-literal-overflow-fails-open): scanNumV's `acc * 10 + d`
+// silently WRAPS Long, so an out-of-range decimal literal used to lex to the wrapped value and emit it
+// (fail-OPEN). scanNumOv threads a Bool that flips true the step BEFORE the multiply would overflow signed
+// 64-bit (MAX = 9223372036854775807, MAX/10 = 922337203685477580, MAX%10 = 7), mirroring ssc1-lower's
+// `#str->i` returning None. lexNum2 then emits a kind-11 token (raw digits) which parseAtom1/parseNeg fail
+// closed via `_err_int_range` — except the min64 half (exactly 2^63) folded under a leading `-`.
+def ovStep(acc, d, ov) = if ov then true else (if acc > 922337203685477580 then true else (if acc == 922337203685477580 then d > 7 else false))
+def scanNumOv(s, i, n, acc, ov) = if atEnd(i, n) then ov else (if isDig(s.charAt(i)) then scanNumOv(s, i + 1, n, acc * 10 + (s.charAt(i) - 48), ovStep(acc, s.charAt(i) - 48, ov)) else (if numSep(s, i, n) then scanNumOv(s, i + 1, n, acc, ov) else ov))
+// Raw digit string (numeric separators dropped, like ssc1-front stripNumericSeparators) carried on an
+// overflow token so the parser can tell the min64 half `9223372036854775808` from a genuine overflow.
+def scanNumStr(s, i, n) = if atEnd(i, n) then "" else (if isDig(s.charAt(i)) then s.substring(i, i + 1) ++ scanNumStr(s, i + 1, n) else (if numSep(s, i, n) then scanNumStr(s, i + 1, n) else ""))
 def scanLineEnd(s, i, n) = if atEnd(i, n) then i else (if s.charAt(i) == 10 then i else scanLineEnd(s, i + 1, n))
 // Escape-free by design (P6.6b): scan to the closing quote by CHAR CODE 34 -- never a `"` literal.
 def scanStr(s, i, n) = if atEnd(i, n) then i else (if s.charAt(i) == 34 then i else (if s.charAt(i) == 92 then scanStr(s, i + 2, n) else scanStr(s, i + 1, n)))
@@ -142,7 +153,10 @@ def lexNum(s, i, n) = if isHexPfx(s, i, n) then lexHex(s, i, n) else lexNum1(s, 
 // A trailing `L`/`l` Long suffix is stripped (the oracle emits `(lit (int N))` for `5L`), so `1L` lexes
 // as the int 1, not int 1 + a stray uid `L` (which cascaded into a mis-parse across the scljet cluster).
 def longEnd(s, e, n) = if atEnd(e, n) then e else (if s.charAt(e) == 76 then e + 1 else (if s.charAt(e) == 108 then e + 1 else e))
-def lexNum1(s, i, n, e) = if isFloatDot(s, e, n) then lexFloat(s, i, n, scanNumE(s, e + 1, n)) else Cons((0, scanNumV(s, i, n, 0)), lex(s, longEnd(s, e, n), n))
+def lexNum1(s, i, n, e) = if isFloatDot(s, e, n) then lexFloat(s, i, n, scanNumE(s, e + 1, n)) else lexNum2(s, i, n, e)
+// Decimal int: kind 0 carries the value as today for every IN-RANGE literal (byte-identical); an
+// OUT-OF-RANGE literal becomes kind 11 carrying the raw digits so parseAtom1/parseNeg fail it closed.
+def lexNum2(s, i, n, e) = if scanNumOv(s, i, n, 0, false) then Cons((11, scanNumStr(s, i, n)), lex(s, longEnd(s, e, n), n)) else Cons((0, scanNumV(s, i, n, 0)), lex(s, longEnd(s, e, n), n))
 def lexFloat(s, i, n, fe) = Cons((5, s.substring(i, fe)), lex(s, fe, n))
 // `%` (modulo, code 56) — same precedence class as `*`/`/` (ssc1-front opPrec :1439), symbol "%".
 // `^`=64 (bitwise xor, infix) and `~`=68 (bitwise not, prefix) reach here via lexOp1; both were DROPPED.
@@ -430,7 +444,11 @@ def parseAtom(ts, env, cx) = if isEmpty(ts) then (eNode(emitInt(0)), Nil) else (
 // oracle parses the SIGNED string to IrInt(Long.MinValue) instead of `0 - <sub>` (ssc1-lower pre "-"
 // :2615-2632). F's lexer already wraps 9223372036854775808 around to Long.MinValue, so the negated atom
 // IS exactly that literal — emit it bare rather than wrapping in i.sub. Every other negative keeps i.sub.
-def parseNeg(ts, env, cx) = parseAtom(ts, env, cx) match { case (a, r) => (eNode(negEmit(erase(a, cx))), r) }
+def parseNeg(ts, env, cx) = if isEmpty(ts) then negPlain(ts, env, cx) else (if fst(hd(ts)) == 11 then negOvfl(snd(hd(ts)), tl(ts)) else negPlain(ts, env, cx))
+def negPlain(ts, env, cx) = parseAtom(ts, env, cx) match { case (a, r) => (eNode(negEmit(erase(a, cx))), r) }
+// `-<overflow-literal>`: the ONLY out-of-range positive whose negation is a legal Int is exactly 2^63
+// (== min64 = -9223372036854775808); any larger magnitude fails closed (ssc1-lower pre "-" min64 fold).
+def negOvfl(digs, rest) = (eNode(if digs == "9223372036854775808" then "(lit (int -9223372036854775808))" else "(global _err_int_range)"), rest)
 def negEmit(a) = if a == "(lit (int -9223372036854775808))" then a else "(prim i.sub (lit (int 0)) " ++ a ++ ")"
 // `~x` bitwise-not prefix -> (prim i.not x), binds to the atom like unary `-`/`!` (ssc1-lower :1168).
 def parseTilde(ts, env, cx) = parseAtom(ts, env, cx) match { case (a, r) => (eNode("(prim i.not " ++ erase(a, cx) ++ ")"), r) }
@@ -438,7 +456,7 @@ def parseTilde(ts, env, cx) = parseAtom(ts, env, cx) match { case (a, r) => (eNo
 // exactly like unary `-` (parseNeg): `!f(a)` -> `!(f(a))`, `!a && b` -> `(!a) && b` (climb sees `&&` after).
 def parseBang(ts, env, cx) = parseAtom(ts, env, cx) match { case (a, r) => (eNode("(if " ++ erase(a, cx) ++ " (lit false) (lit true))"), r) }
 def parseAtom0(ts, env, cx) = parseAtom1(hd(ts), tl(ts), env, cx)
-def parseAtom1(t, rest, env, cx) = if fst(t) == 0 then (("int", snd(t)), rest) else (if fst(t) == 5 then (("float", snd(t)), rest) else (if fst(t) == 6 then (parseInterp(snd(t), env, cx), rest) else (if fst(t) == 4 then (("str", snd(t)), rest) else (if fst(t) == 8 then (("triple", snd(t)), rest) else (if fst(t) == 3 then wrapE(parseCtor(snd(t), rest, env, cx)) else (if fst(t) == 1 then wrapE(parseIdent(t, rest, env, cx)) else (if isTok(t, 2, 21) then wrapE(parseParenOrLam(rest, env, cx)) else (if isTok(t, 2, 50) then parseBrkLit(rest, env, cx) else (if isTok(t, 2, 28) then wrapE(parseBlock(rest, env, cx)) else (if isTok(t, 2, 2) then wrapE(parseIf(rest, env, cx)) else (if isTok(t, 2, 60) then (eNode("(prim __notImplemented__)"), rest) else (if isTok(t, 2, 8) then (eNode("(lit true)"), rest) else (if isTok(t, 2, 9) then (eNode("(lit false)"), rest) else (eNode(emitInt(0)), rest))))))))))))))
+def parseAtom1(t, rest, env, cx) = if fst(t) == 0 then (("int", snd(t)), rest) else (if fst(t) == 11 then (eNode("(global _err_int_range)"), rest) else (if fst(t) == 5 then (("float", snd(t)), rest) else (if fst(t) == 6 then (parseInterp(snd(t), env, cx), rest) else (if fst(t) == 4 then (("str", snd(t)), rest) else (if fst(t) == 8 then (("triple", snd(t)), rest) else (if fst(t) == 3 then wrapE(parseCtor(snd(t), rest, env, cx)) else (if fst(t) == 1 then wrapE(parseIdent(t, rest, env, cx)) else (if isTok(t, 2, 21) then wrapE(parseParenOrLam(rest, env, cx)) else (if isTok(t, 2, 50) then parseBrkLit(rest, env, cx) else (if isTok(t, 2, 28) then wrapE(parseBlock(rest, env, cx)) else (if isTok(t, 2, 2) then wrapE(parseIf(rest, env, cx)) else (if isTok(t, 2, 60) then (eNode("(prim __notImplemented__)"), rest) else (if isTok(t, 2, 8) then (eNode("(lit true)"), rest) else (if isTok(t, 2, 9) then (eNode("(lit false)"), rest) else (eNode(emitInt(0)), rest)))))))))))))))
 // Bracket list literal `[e1, .., en]` in EXPRESSION position == `List(e1,..,en)` (ssc bracket sugar,
 // ssc1-front :1140-1154) -> the same Cons-chain. Empty `[]` -> `(ctor Nil)`. (Statement-position `[..]`
 // is a markdown link-import, already consumed by isImportHead; type-args `x[T]` are postfix skipGen'd,
