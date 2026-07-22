@@ -137,10 +137,47 @@ ordering and duplicate equality cannot diverge. Verification: forced SclJet conf
 on INT+JS; `scljetJdbcPlugin/test` 63/63 in 6 suites; sqlite-jdbc matches the three rejection
 paths and reference `PRAGMA integrity_check` returns `ok` for the SclJet-written REAL/BLOB file.
 
-## f-bytecode-default-switch-int64-ci-red — making the JVM-bytecode lane the DEFAULT `ssc run` backend went CI-red with 64-bit-integer divergence (BLOCKS the f5c default switch)
+## f-bytecode-default-switch-int64-ci-red — RESOLVED: NOT-A-BUG (misattribution; v2-bytecode is int64-exact, the CI divergence lines were the v1-codegen KNOWN-RED)
 
-**Status:** OPEN (found 2026-07-22 by opus during the `v2-f5c` default-execution switch; the switch
-`9ddd2b501` was **REVERTED** (a `git revert` of `9ddd2b501`, this branch) the same day). Blocks re-attempting the bytecode-lane
+**Status:** NOT-A-BUG / MISATTRIBUTION — **RESOLVED 2026-07-22 by opus** (`bytecode-int64-verify-fix`).
+Hypothesis (b) below is CONFIRMED decisively: there is **no v2-bytecode int64 wrap**. The CI Conformance
+"64-bit-integer divergence" lines the coordinator quoted are the pre-existing **v1-codegen KNOWN-RED**
+(`JVM` = `run-jvm`, `JS ` = `emit-js`+node), which `run.sc` *tolerates* (they print `KNOWN-RED [...]` +
+a capped diff but do NOT increment `failed`). The v2-bytecode lane (`JVM/v2` = `ssc run --bytecode`) and
+the v2-JS lane (`JS/v2`) both **PASS**. The actual CI-red that reverted the F5c switch was
+`durable-save-run` (effect verifier — its own entry, since fixed), not this. **No fix to the bytecode
+lane is needed; the F5c switch re-apply is DE-RISKED on the int64 axis.** The switch `9ddd2b501` was
+`git revert`ed the same day it landed; keep it opt-in until re-attempted per the gate below.
+
+**RESOLUTION EVIDENCE (measured 2026-07-22, this worktree, freshly-built `installBin` jar):**
+- **Decisive probe** — a top-level program printing `2147483648` (2^31 literal), `9223372036854775807`
+  (max64), `9007199254740993` (2^53+1, the double-precision witness), `1000000 * 1000000` (1e12 mul that
+  overflows Int32), computed `2147483647+1` and `twoTo31*4194304+1`, recursive `sumTo(100000,0)=5000050000`
+  (> 2^32), and a `while` accumulator `3 * 2147483648 = 6442450944` — is **byte-identical** on
+  `ssc run --bytecode` (v2 asm) and `ssc run` (vm interpreter), and **every value is 64-bit exact**
+  (no Int32 wrap, no double-precision loss). Exact on BOTH fronts (default and `SSC_FRONT=F`).
+- **Conformance int slice** (`run.sh --only int-width,int-literal`): `JVM/v2` **PASS**, `JS/v2` **PASS**,
+  `INT` **PASS**; the KNOWN-RED lines are the v1-codegen lanes and reproduce the CI values exactly —
+  `KNOWN-RED [JVM]`: `2147483648→-2147483648`, `9007199254740993→1`, `9223372036854775807→-1`;
+  `KNOWN-RED [JS ]`: `2147483648→-2147483648`, `9007199254740993→-9007199254740991`,
+  `9223372036854775807→9223372036854776000`. Suite verdict: `2 passed, 0 failed`. So the CI's
+  `expected=2147483648 got=-2147483648`, `…got=9223372036854776000`, `…got=-9007199254740991 / 1`
+  are precisely these v1-codegen KNOWN-RED diffs (JVM gives `1`/`-1`, JS gives the double-folded values).
+- **Why the switch is causally decoupled:** `run.sc` uses **explicit** lane flags — `INT` via
+  `ssc-tools run --v1`, `JVM/v2` via `ssc run --bytecode`, `JVM` via `ssc-tools run-jvm`, `JS` via
+  `emit-js`. It **never** invokes bare `ssc run`, the only thing the switch changed. Flipping the default
+  backend has zero effect on the conformance harness.
+
+**v1-codegen known-red status (verified in scope):** still LIVE and correctly documented in
+`specs/numeric-widths.md` §4 and `int-width.ssc`'s `known-red:` front-matter — the v1 JVM/JS codegen
+lanes still truncate to 32 bits (JVM) / fold-at-32 + carry-in-double (JS), so the declaration has NOT
+expired (run.sc would FAIL a stale known-red that started passing). **Do NOT fix the v1 codegen** — it
+is slated for deletion (`MILESTONES.md` stream 1); the two rows expire with it.
+
+--- original triage (kept for the record) ---
+
+**Original status:** OPEN (found 2026-07-22 by opus during the `v2-f5c` default-execution switch; the switch
+`9ddd2b501` was **REVERTED** (a `git revert` of `9ddd2b501`, this branch) the same day). Blocked re-attempting the bytecode-lane
 default switch (f5c-SWITCH) and therefore the FastCode/SelfRec kernel removal (f5c-4) that was gated on it.
 Reported by the coordinator from the switch's CI (Conformance Suite job).
 
@@ -168,24 +205,22 @@ integer-boundary program, so they were green — an OUT-OF-CORPUS gap the full c
   §4 and tolerated by run.sc as a declared-red (`int-width` = "3 passed, 0 failed" locally, both pre- and
   post-switch since run.sc is switch-independent). These EXPIRE when v1 codegen is deleted — do NOT fix v1.
 
-**Two hypotheses to discriminate FIRST (need the actual CI Conformance-Suite log for `9ddd2b501`):**
-(a) a real v2-bytecode int64 wrap in a scenario the local int-width/arith probes don't cover (a specific
-front/IR shape that reaches JvmByteGen with an Int32-typed constant) — if so, fix JvmByteGen and add that
-program to the switch maturity gate; or (b) a **misattribution** — the CI red is the pre-existing v1-codegen
-KNOWN-RED (or another pre-existing conformance fail: std-monaderror / durable-save-run / distributed-failure)
-counted as hard-red in the CI environment, NOT switch-caused — if so the switch's true blocker is different.
-Repro to localize: run the *exact* CI Conformance-Suite invocation on `9ddd2b501` vs its parent, and on the
-revert; diff which lane/case flipped red.
+**Two hypotheses — DISCRIMINATED (2026-07-22):** (a) a real v2-bytecode int64 wrap — **REJECTED**: the
+JVM/v2 lane is int64-exact on int-width/int-literal and on the decisive probe above. (b) a **misattribution**
+— **CONFIRMED**: the CI red is the pre-existing v1-codegen KNOWN-RED (visible-but-tolerated) plus the
+separately-fixed `durable-save-run`, NOT switch-caused. The switch's true blocker was `durable-save-run`,
+which is fixed.
 
 **Revert (done):** `git revert 9ddd2b501` restored `StandardMain.runNative` default to the interpreter
 (`var bytecode = false`); `--bytecode` stays the opt-in. Prereq #1 (link-time bytecode fallback) and
 prereq #2 (stack-safe effectful loops) are correct standalone bytecode-lane improvements and were KEPT.
 Post-revert local gates: conformance int tests 3 passed/0 failed, semantic 248/248, X1 fixpoint byte-identical.
 
-**Fix gate (future f5c-SWITCH re-attempt):** the switch's maturity gate MUST run the FULL conformance suite
-(specifically an integer-boundary program set: 2^31, 2^53±1, max64, min64), not just the examples sweep +
-a hand-picked slice. Re-queued to BACKLOG (`SPRINT.md` §f5c) gated on discriminating (a)/(b) above and, if
-(a), the v2-bytecode int64 fix. Do NOT edit `RunNativeV2.frontIsF` (sibling-owned).
+**Fix gate (future f5c-SWITCH re-attempt):** the int64 axis is now CLEAR — no v2-bytecode int64 fix is
+required. The switch's maturity gate SHOULD still run the FULL conformance suite (not just the examples
+sweep + a hand-picked slice) to catch any *other* out-of-corpus regression, but the integer-boundary set
+(2^31, 2^53±1, max64, min64) is already exact on `ssc run --bytecode` and byte-identical to the interpreter.
+Do NOT edit `RunNativeV2.frontIsF` (sibling-owned).
 
 ## f-int-literal-overflow-fails-open — F wraps out-of-range 64-bit integer literals instead of rejecting
 
