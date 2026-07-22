@@ -5069,15 +5069,16 @@ dynamic saved-capsule runner.
   reusable continuation via `multi effect` and runs it several times with a prefix counter proving the
   prefix fires exactly once (no replay). Validated on BOTH the interpreter and native `.ssc` lanes;
   wired into `ExamplesSmokeTest`. This is the honest same-process demonstration using the EXISTING
-  multi-shot `resume` (the semantic core of save/run). **NOT flipped: the formal interop vectors 14/17.**
-  `pending/14` explicitly wants the durable-capsule API "rather than a returned function", and there is
-  still no `.ssc`-callable `save`/`run`/capsule surface — flipping 14/17 with the returned-continuation
-  idiom would BEND the example around the gap (SPRINT rule: "do not bend"). Honest flip needs a thin
-  `.ssc` `save`/`run` surface over the interpreter's reusable `resume` (`EffectsRuntime.scala:396-401`,
-  ~60-130 lines; validate on the interpreter lane — the native lane has `v2-zero-arg-unknown-method-fails-open`).
-  STILL OPEN below: multi-prompt shift/reset `.ssc` example (no `freshPrompt`/`reset`/`shift` `.ssc`
-  surface), and the formal 14/17 vector flip. Original blocked note (now partly stale) preserved:
-  BLOCKED, do not start: every one of its three
+  multi-shot `resume` (the semantic core of save/run). **VECTORS 14/17 FLIPPED to `specified` 2026-07-22
+  (`ssc-save-run-vectors` claim, `5777a3fad`):** avoided bending by using a distinct `.ssc`
+  `SavedContinuation` VALUE with `.run(...)` (a case class over the reusable `resume`), NOT a bare
+  returned function — probes pass byte-exact on portable-vm + portable-asm (15/15 each), JS host lane
+  runs them through the real `Continuation.savable`/`save`/`run` (control.test.js 59/59, oracle 10,20 /
+  10,20,1), Scala lane unaffected (scala-explicit lacks `durable-save` cap). run.sh catalog PASS.
+  STILL OPEN: multi-prompt shift/reset `.ssc` example (no `freshPrompt`/`reset`/`shift` `.ssc` surface);
+  scala-explicit `durable-save` cap + Scala programs for 14/17 (symmetry); cross-host vectors 15/16
+  (need the DurableValue wire codec across processes). Original blocked note (now largely superseded)
+  preserved: BLOCKED, do not start: every one of its three
   deliverables is gated on work that does not exist yet. Measured 2026-07-16 on
   `0891ed8cf` with the assembled `bin/ssc` and `tests/interop-conformance/run.sh --list`
   (re-measure, don't trust this line). Ship runnable ScalaScript typed multi-prompt

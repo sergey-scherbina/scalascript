@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-07-22 — Interop vectors 14/17 (durable save/run) flipped to specified
+
+The control-interoperability conformance vectors `14-durable-save-run-same-process` and
+`17-no-prefix-main-replay` move from `pending-codec` to `specified` and pass on every applicable lane,
+honestly (not bent around the gap). On the process lanes (`portable-vm`, `portable-asm`) new probes use
+a `.ssc` `SavedContinuation` value with `.run(...)` — a captured continuation frozen into a named saved
+value (not a bare returned function), run twice at the capture point, with a prefix counter proving no
+replay (byte-exact stdout, exit 0, empty stderr; `lanes.tsv` now advertises `durable-save,no-replay`
+there). On the JS host lane, `control.test.js` semantic programs exercise the real
+`Continuation.savable` / `save()` / `SavedContinuation.run` / `Restore.admitLocally`, returning the
+catalog oracles `10,20` and `10,20,1`. The Scala host lane is lane-filtered and `scala-explicit` does
+not advertise `durable-save`, so 14/17 stay ineligible there (its coverage assertion is unaffected).
+`run.sh` catalog validation PASS, `portable-vm`/`portable-asm` 15/15, JS control 59/59, Scala control
+18/18. Cross-host vectors 15/16 remain pending on the DurableValue wire codec.
+
 ## 2026-07-22 — durable-nominal-schema: versioned schema identity for durable frames
 
 Adds `DurableCodec.schema(schemaId, version, codec)` to the durable frame value algebra on both
