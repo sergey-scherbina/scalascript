@@ -1,0 +1,6 @@
+feature/durable-save-run-verifier-red 2026-07-22T18:54:00Z
+agent: opus-orch
+heartbeat: 2026-07-22T18:54:00Z
+status: in-progress
+done-so-far: PRE-EXISTING CI Conformance red (blocks ALL flip/switch CI verdicts, incl F5c switch + F4 re-flip). ssc-tools check examples/*.ssc fails on examples/durable-save-run.ssc: [effect-verifier] 'capture' appears effectful (reaches Suspend) but declares no effect row. durable-continuation sibling is DONE/released (no active claim) → orphaned. Confirmed pre-existing (pre-switch runs f68dfd0dd/437c3932f also red) — the F5c-switch CI-red was MISATTRIBUTED to this.
+next: subagent diagnoses (verifier false-positive on handle-discharge vs example genuinely leaks effect) + fixes RIGHT (fix verifier OR annotate example — do NOT suppress) + verifies FULL Conformance Suite green.
