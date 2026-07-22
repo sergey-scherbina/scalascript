@@ -5000,9 +5000,16 @@ dynamic saved-capsule runner.
   sorts entries by unsigned-lexicographic key-encoding so bytes are insertion-order-independent (§9.1);
   decode rejects non-ascending keys. Shared golden hex on both lanes proves cross-lane canonical
   identity. Scala 142/142, JS 53/53. **§9.1 baseline value algebra complete.**
+  **NOMINAL VERSIONED-SCHEMA CODEC LANDED 2026-07-22 (`durable-nominal-schema`, both lanes):**
+  `DurableCodec.schema(schemaId, version, codec)` prefixes `string(schemaId) ++ int(version)` before
+  the wrapped codec's bytes and rejects, on decode, a value written under a different name/version
+  with a typed `DurableDecodeError` (byte-identical messages both lanes). Shared golden hex
+  (`schema("Point",1,pair(int,int)).encode((3,4))` = `00000005506f696e74000000010000000300000004`)
+  proves cross-lane identity. Scala 146/146, JS 57/57, ABI 6/6. Spec `specs/durable-nominal-schema.md`.
+  **This closes §9.1's "immutable nominal … data with versioned schema identity".**
   **REMAINING (Part 3b+):** the `Portable` CoreIR resume-program payload (this is v2/native — the
   CoreIR-free leaf can't host it); signature/audience/tenant + capability policy for `DurableRef`;
-  a dynamic id→resume-point registry; nominal versioned schema; graph codecs (§9.3);
+  a dynamic id→resume-point registry; graph codecs (§9.3);
   `RunOutcomeUnknown`; Rust/Swift lanes (don't exist yet). The runners consume the capsule.
   `Portable(resumeCodeDigest, closed Program((frame,input)=>Eff))` or
   `ExactArtifact(artifactDigest,target,resumePointId)`, both with `FrozenFrame`, A/R codec schemas,

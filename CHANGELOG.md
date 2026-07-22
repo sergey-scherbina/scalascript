@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-07-22 — durable-nominal-schema: versioned schema identity for durable frames
+
+Adds `DurableCodec.schema(schemaId, version, codec)` to the durable frame value algebra on both
+host lanes (`v2/host/scala/control`, `v2/host/js/control`), byte-identical. The encoding prefixes
+`string(schemaId) ++ int(version)` before the wrapped codec's bytes; decode rejects a value written
+under a different schema name or version with a typed `DurableDecodeError` (identical messages on
+both lanes), so an evolving schema fails loudly instead of mis-decoding. Cross-lane byte identity is
+pinned by a shared golden hex vector — `schema("Point", 1, pair(int, int)).encode((3, 4))` =
+`00000005506f696e74000000010000000300000004` — asserted on both lanes. Completes
+control-interoperability §9.1's "immutable nominal … data with versioned schema identity" — the
+§9.1 baseline value algebra is now fully closed. Scala 146/146, JS 57/57, ABI gate 6/6; specs
+`specs/durable-nominal-schema.md` + `specs/durable-frame-codec.md`.
+
 ## 2026-07-22 — v2-f5c: stack-safe effectful loops on the bytecode lane (Option-A prereq #2)
 
 The last hard blocker to making the JVM-bytecode lane a safe default `ssc run` backend. Deep effectful

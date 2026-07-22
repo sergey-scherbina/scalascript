@@ -45,6 +45,7 @@ composition decodes unambiguously.
 | sum / `either(a, b)` | 1 tag byte (`0x00` left / `0x01` right) + the chosen branch's encoding |
 | `list(a)` | `u32` element count + each element encoded in order |
 | `map(k, v)` | `u32` entry count + entries sorted by the unsigned lexicographic order of each key's own encoding — so the bytes are independent of insertion order (§9.1). Decode rejects keys not in strictly ascending canonical order. |
+| `schema(id, ver, a)` | `string(id)` (nominal name) ++ `int(ver)` ++ `a`'s encoding; decode rejects a value written under a different name or version with a typed `DurableDecodeError` (nominal versioned-schema identity, §9.1 — see [`durable-nominal-schema.md`](durable-nominal-schema.md)). |
 
 `u32` is an unsigned 32-bit big-endian count; a length or count above `2^31−1` is
 rejected (bounded). Decoding is **exact**: `decode` fails if input is truncated or has
@@ -78,6 +79,7 @@ object DurableCodec:
   def list[A](a: DurableCodec[A]): DurableCodec[List[A]]
   def map[K, V](k: DurableCodec[K], v: DurableCodec[V]): DurableCodec[Map[K, V]]
   def imap[A, B](a: DurableCodec[A])(to: A => B)(from: B => A): DurableCodec[B]
+  def schema[S](schemaId: String, version: Int, codec: DurableCodec[S]): DurableCodec[S]
 ```
 
 `imap` is how a caller builds a codec for a nominal type (case class ↔ tuple) without
@@ -130,7 +132,7 @@ Changing the wire format means changing both tables and this spec together.
 ## 5. Follow-on (queued in SPRINT)
 
 Part 2 (landed, `specs/durable-capsule-envelope.md`): the versioned capsule envelope +
-`frameDigest` + `ResumePoint.freeze/restore`. Remaining: `DurableRef` (§9.2), canonical-key
-maps and nominal versioned schema (§9.1), graph codecs (§9.3), and the JS-lane mirror of the
-**capsule** (the codec mirror landed here). The Portable/ExactArtifact runners and cross-lane
-capsule vectors ride on those.
+`frameDigest` + `ResumePoint.freeze/restore`. `DurableRef` (§9.2), canonical-key maps, and
+nominal versioned schema (§9.1, [`durable-nominal-schema.md`](durable-nominal-schema.md)) have
+landed on both host lanes. Remaining: graph codecs (§9.3) and the Portable/ExactArtifact
+runners with their cross-lane capsule vectors.
