@@ -155,3 +155,29 @@ final class DurableCodecTest extends AnyFunSuite:
     assert(
       hex(DurableCodec.either(DurableCodec.int, DurableCodec.string).encode(Right("A"))) == "010000000141"
     )
+
+  private def bytesFromHex(hex: String): DurableBytes =
+    DurableBytes.fromArray(
+      hex.grouped(2).map(pair => Integer.parseInt(pair, 16).toByte).toArray
+    )
+
+  test("map codec round-trips and canonicalizes key order"):
+    val codec = DurableCodec.map(DurableCodec.string, DurableCodec.int)
+    for value <- List(Map.empty[String, Int], Map("a" -> 1), Map("b" -> 2, "a" -> 1, "c" -> 3)) do
+      assert(codec.decode(codec.encode(value)) == value)
+    // insertion / iteration order does not affect the canonical bytes (§9.1).
+    assert(codec.encode(Map("b" -> 2, "a" -> 1)) == codec.encode(Map("a" -> 1, "b" -> 2)))
+
+  test("map codec golden bytes are canonical-key-ordered"):
+    val codec = DurableCodec.map(DurableCodec.string, DurableCodec.int)
+    // built "b" then "a" but the bytes are sorted a, b.
+    assert(
+      codec.encode(Map("b" -> 2, "a" -> 1)).toString ==
+        "00000002000000016100000001000000016200000002"
+    )
+
+  test("map codec rejects non-canonical key order on decode"):
+    val codec = DurableCodec.map(DurableCodec.string, DurableCodec.int)
+    // two entries written in descending key order ("b" then "a").
+    val nonCanonical = bytesFromHex("00000002000000016200000002000000016100000001")
+    intercept[DurableDecodeError](codec.decode(nonCanonical))

@@ -281,6 +281,7 @@ export const DurableCodec: Readonly<{
     right: DurableCodec<B>
   ): DurableCodec<DurableEither<A, B>>
   list<A>(element: DurableCodec<A>): DurableCodec<A[]>
+  map<K, V>(keyCodec: DurableCodec<K>, valueCodec: DurableCodec<V>): DurableCodec<Map<K, V>>
   imap<A, B>(codec: DurableCodec<A>, to: (value: A) => B, from: (value: B) => A): DurableCodec<B>
   left<A, B>(value: A): DurableEither<A, B>
   right<A, B>(value: B): DurableEither<A, B>

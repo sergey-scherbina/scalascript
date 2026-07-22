@@ -1043,6 +1043,45 @@ export const DurableCodec = Object.freeze({
       reader => to(codec.read(reader))
     )
   },
+  // A canonical Map codec: entries are written sorted by the unsigned lexicographic
+  // order of each key's own encoding, so bytes are independent of insertion order
+  // (§9.1). Decoding rejects keys not in strictly ascending canonical order.
+  map(keyCodec, valueCodec) {
+    return makeDurableCodec(
+      (writer, value) => {
+        const entries = [...value.entries()].map(([key, item]) => ({
+          keyBytes: keyCodec.encode(key).toArray(),
+          key,
+          item
+        }))
+        entries.sort((left, right) =>
+          compareBytesUnsigned(left.keyBytes, right.keyBytes)
+        )
+        writer.writeInt(entries.length)
+        for (const entry of entries) {
+          keyCodec.write(writer, entry.key)
+          valueCodec.write(writer, entry.item)
+        }
+      },
+      reader => {
+        const count = reader.readElementCount("map")
+        const result = new Map()
+        let previousKey = null
+        for (let index = 0; index < count; index++) {
+          const key = keyCodec.read(reader)
+          const keyBytes = keyCodec.encode(key).toArray()
+          if (previousKey !== null && compareBytesUnsigned(previousKey, keyBytes) >= 0) {
+            throw new DurableDecodeError(
+              "map keys are not in strictly ascending canonical order"
+            )
+          }
+          previousKey = keyBytes
+          result.set(key, valueCodec.read(reader))
+        }
+        return result
+      }
+    )
+  },
   left(value) {
     return { left: value }
   },
@@ -1050,6 +1089,14 @@ export const DurableCodec = Object.freeze({
     return { right: value }
   }
 })
+
+function compareBytesUnsigned(left, right) {
+  const length = Math.min(left.length, right.length)
+  for (let index = 0; index < length; index++) {
+    if (left[index] !== right[index]) return left[index] - right[index]
+  }
+  return left.length - right.length
+}
 
 // A self-contained, synchronous SHA-256 over a Uint8Array. The package is
 // deliberately import-free so it stays portable and zero-dependency; the digest

@@ -944,3 +944,33 @@ test("a capsule whose frame is a DurableRef decodes inert and resolves on run", 
   assert.equal(Eff.runPure(Restore.withResolver(resolver, saved.run(1))), 101)
   assert.equal(resolver.calls, 1)
 })
+
+const bytesFromHex = hex =>
+  DurableBytes.fromArray(hex.match(/../g).map(pair => parseInt(pair, 16)))
+
+test("map codec round-trips and canonicalizes key order", () => {
+  const codec = DurableCodec.map(DurableCodec.string, DurableCodec.int)
+  for (const value of [new Map(), new Map([["a", 1]]), new Map([["b", 2], ["a", 1], ["c", 3]])]) {
+    assert.deepEqual(codec.decode(codec.encode(value)), value)
+  }
+  // insertion order does not affect the canonical bytes.
+  assert.equal(
+    codec.encode(new Map([["b", 2], ["a", 1]])).toHex(),
+    codec.encode(new Map([["a", 1], ["b", 2]])).toHex()
+  )
+})
+
+// The SAME golden hex as the Scala lane: built "b" then "a", bytes sorted a, b.
+test("map codec golden bytes match the cross-lane canonical order", () => {
+  const codec = DurableCodec.map(DurableCodec.string, DurableCodec.int)
+  assert.equal(
+    codec.encode(new Map([["b", 2], ["a", 1]])).toHex(),
+    "00000002000000016100000001000000016200000002"
+  )
+})
+
+test("map codec rejects non-canonical key order on decode", () => {
+  const codec = DurableCodec.map(DurableCodec.string, DurableCodec.int)
+  const nonCanonical = bytesFromHex("00000002000000016200000002000000016100000001")
+  assert.throws(() => codec.decode(nonCanonical), DurableDecodeError)
+})

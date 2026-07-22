@@ -268,3 +268,46 @@ object DurableCodec:
       def write(writer: DurableWriter, value: B): Unit =
         codec.write(writer, from(value))
       def read(reader: DurableReader): B = to(codec.read(reader))
+
+  /**
+   * A canonical map codec. Entries are written sorted by the unsigned lexicographic
+   * order of each key's own encoding, so the bytes are independent of insertion or
+   * iteration order (§9.1). Decoding rejects keys that are not in strictly ascending
+   * canonical order (which also rejects duplicate keys).
+   */
+  def map[K, V](
+      keyCodec: DurableCodec[K],
+      valueCodec: DurableCodec[V]
+  ): DurableCodec[Map[K, V]] =
+    new DurableCodec[Map[K, V]]:
+      def write(writer: DurableWriter, value: Map[K, V]): Unit =
+        val sorted = value.toVector.sortWith { (left, right) =>
+          java.util.Arrays.compareUnsigned(
+            keyCodec.encode(left._1).view,
+            keyCodec.encode(right._1).view
+          ) < 0
+        }
+        writer.writeInt(sorted.length)
+        sorted.foreach { entry =>
+          keyCodec.write(writer, entry._1)
+          valueCodec.write(writer, entry._2)
+        }
+      def read(reader: DurableReader): Map[K, V] =
+        val count = reader.readElementCount("map")
+        val builder = Map.newBuilder[K, V]
+        var previousKey: Array[Byte] = null
+        var index = 0
+        while index < count do
+          val key = keyCodec.read(reader)
+          val keyBytes = keyCodec.encode(key).view
+          if previousKey != null &&
+            java.util.Arrays.compareUnsigned(previousKey, keyBytes) >= 0
+          then
+            throw new DurableDecodeError(
+              "map keys are not in strictly ascending canonical order"
+            )
+          previousKey = keyBytes
+          val value = valueCodec.read(reader)
+          builder += (key -> value)
+          index += 1
+        builder.result()
