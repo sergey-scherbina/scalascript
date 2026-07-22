@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-07-22 — F case-lambda `{ case … }` dispatch fix (f-stmt-partial-function-block-dropped)
+
+The self-hosting front `F` mis-lowered a `{ case … }` case-lambda: `parseCaseLambda` called `parseArms`
+directly, bypassing the `parseMatchArms` dispatch, so a bare-variable / typed / int first arm fell into
+`parseConsArm` and emitted a `(arm Cons 2 …)` — `match: scrutinee not Data` errors, and silently-skipped
+`receive { case … => <side effect> }` actor handlers (the actors-pingpong / actors-typed-remote-spawn /
+auth-demo F divergences). Fixed by routing non-ctor case-lambda arms through the same ordered resolver
+(`parseGenMatch`) as a regular `x match { … }`; ctor/tuple keep the direct form (fixpoint neutral).
+Gates: fsub `--self` byte-identical (386706 B), semantic 248/248, dualrun slice 45/45; CI green
+(`e97ac5460`). Follow-up filed: `f-string-literal-pattern-not-data` (string-literal patterns, pre-existing).
+
 ## 2026-07-22 — v2-f5b Stage 1b slice 1b-2: def return-type registry closes `fib` + perf finding
 
 The self-hosting front `F` gained a **def return-type registry**: a top-level `def f(…): T = …` with a

@@ -1,6 +1,0 @@
-feature/f-stmt-partial-function-block 2026-07-22T00:00:00Z
-agent: opus
-heartbeat: 2026-07-22T01:00:00Z
-status: in-progress
-done-so-far: FIX LANDED — feature 9898b4e67 (fsub.ssc parseCaseLambda routes non-ctor case-lambda arms through parseMatchArms/parseGenMatch), docs e97ac5460 (BUGS f-stmt FIXED + f-string-literal-pattern-not-data tracked + 6 scljet-sql SLOW). F-front gates GREEN: fsub --self byte-identical 386706B, semantic 248/248, dualrun slice 45/45. Full sweep: only pre-existing scljet-sql SLOW timeouts (proven byte-identical + not-my-regression), documented.
-next: exact-SHA CI green on e97ac5460, then release + rm-worktree. Follow-up bug filed: f-string-literal-pattern-not-data (string-literal patterns fail in F match, pre-existing, separate).
