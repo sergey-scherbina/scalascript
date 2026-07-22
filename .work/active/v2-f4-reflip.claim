@@ -1,6 +1,6 @@
 feature/v2-f4-reflip 2026-07-22T03:59:39Z
 agent: opus-orch
-heartbeat: 2026-07-22T04:30:46Z
+heartbeat: 2026-07-22T04:45:25Z
 status: in-progress
-done-so-far: Fix ① int-literal-overflow-fail-closed LANDED to feature branch (180f16fcb). Verified: int-literal smoke GREEN under SSC_FRONT=F; X1 fixpoint byte-identical (388384B); semantic 248/248; dualrun 45/45 EQUAL.
-next: diagnose blocker ② (negtc 30-min CI budget under F-slow) -> speedup-or-budget-bump; then re-flip frontIsF opt-out + verify e2e smokes under F-default; push ①② then re-flip then docs.
+done-so-far: ① int-literal fail-closed committed (180f16fcb); ② CI budget bump committed (4a43e5756, negtc 30->75min, job 240->300min); re-flip applied+built+verified locally (F default: int-literal smoke GREEN, X1 fixpoint identical, semantic 248/248, dualrun 45/45). Diagnosed ②: F ~2-4x slower (deep, F5b arc); frozen negtc metrics front-independent so budget-bump is the honest fix.
+next: negtc gate running under F-default to confirm <75min + PASS; then run native bin/ssc e2e smoke subset under F; then push ①② (rebase), commit+push re-flip + docs.
