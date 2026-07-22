@@ -57,11 +57,40 @@ before re-attempting the flip. Start with md-interpolator (`parseInterp`/`interp
 markdown-content block renders the interpolated pieces). Coordinate on `fsub.ssc` (shared with the F5b /
 f-stmt-partial-function-block lanes). See `specs/v2-language-surface.md` §7.
 
+## f-string-literal-pattern-not-data — F match/case-lambda rejects a string-literal pattern
+
+**Status:** OPEN (found 2026-07-22 by opus while fixing f-stmt-partial-function-block-dropped; PRE-EXISTING,
+separate). F-front (`specs/v2.2-p6.5-fsub.ssc`) only. Affects BOTH a regular `x match { case "s" => .. }`
+and a `f { case "s" => .. }` case-lambda — so NOT case-lambda-specific and out of scope for
+f-stmt-partial-function-block-dropped (that fix made case-lambdas consistent with regular match; this
+limitation is shared by both).
+
+**Repro:** `val v = "Foo"; v match { case "Foo" => println("lit"); case other => println(other) }` →
+default prints `lit`; F errors `ssc: match: scrutinee not Data: "Foo"`. Int-literal patterns
+(`case 1 =>`) work on both — only STRING (and likely other non-int scalar) literal patterns fail.
+
+**Root cause (located):** `parseMatchArms` (`specs/v2.2-p6.5-fsub.ssc` :1006) routes an INT-literal first
+arm to the ordered resolver via `fst(hd(tl(ts))) == 0`, but a STRING literal is token type `fst == 4`, so
+it is NOT routed → falls through `parseArm` to `parseConsArm`, which emits a `(arm Cons 2 ..)` requiring a
+Data scrutinee. **Fix gate:** extend the literal-pattern detection (the `fst == 0` check in `parseMatchArms`
+and `parseGenArm`) to cover string/other scalar literal patterns, lowering them to an ordered
+value-equality arm like the oracle. Verify the repro on F + fixpoint byte-identical + semantic unchanged.
+
 ## f-stmt-partial-function-block-dropped — F mishandles a `f { case … }` partial-function block arg
 
-**Status:** OPEN (found 2026-07-21 by opus while pinpointing why `SSC_FRONT=F` diverges on actor
-programs). F-front (`specs/v2.2-p6.5-fsub.ssc`) only. Root cause of the actors-pingpong /
-actors-typed-remote-spawn / auth-demo divergence on F.
+**Status:** FIXED 2026-07-22 by opus (`9898b4e67`). F-front (`specs/v2.2-p6.5-fsub.ssc`) only. Root
+cause of the actors-pingpong / actors-typed-remote-spawn / auth-demo divergence on F.
+
+**Fix:** `parseCaseLambda` (`fsub.ssc`) now routes through the SAME dispatch as a regular `x match { .. }`
+(`parseMatchArms`): a bare-variable / typed / guarded / int / nested first arm goes to the ordered
+resolver `parseGenMatch("(local 0)", ..)` (new `caseLamIsGen` / `parseCaseLamGen`); the pure ctor/tuple
+form keeps the direct `(lam 1 (match (local 0) ..))` via `parseArms` (byte-unchanged → fixpoint neutral;
+F's own source uses only ctor/tuple case-lambdas). Verified on self-contained repros of every
+actor-relevant pattern (bare `case s`, typed `case s: String`, wild `case _`, ctor `case E.B(n)`, int
+`case 1`) — F output byte-equal to default. Gates: fsub `--self` fixpoint byte-identical (386706 B);
+semantic 248/248; dualrun slice 45/45 EQUAL. Direct actor-on-F run is gated on the (separate) drop-in
+mechanism, but the exact bug construct is proven fixed. (String-literal patterns remain a SEPARATE
+pre-existing gap — see f-string-literal-pattern-not-data.)
 
 **Symptom:** a method call whose argument is a trailing PARTIAL-FUNCTION block — `f { case … => … }` —
 is mis-lowered by F. In an actor, `receive { case … => <side effect> }` in statement position silently
