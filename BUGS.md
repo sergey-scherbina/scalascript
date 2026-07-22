@@ -1,5 +1,29 @@
 # Bug tracker
 
+## scljet-unique-index-not-supported — `CREATE UNIQUE INDEX` is rejected and uniqueness is not modelled
+
+**Status:** OPEN (found 2026-07-16 by the `scljet-ipk-rowid` differential lane; claimed by
+Codex on 2026-07-22 as `scljet-unique-index-not-supported`). Reporter/context: project
+SPRINT U1-U4; no Rozum sequence was the original report.
+
+**Repro:** against a SclJet image containing `CREATE TABLE t(a INTEGER, b TEXT)`,
+`executeMutation(db, "CREATE UNIQUE INDEX ux ON t(a)")` returns `expected TABLE`.
+The tokenizer succeeds, but both mutation dispatchers recognize only `CREATE INDEX`.
+Reference SQLite accepts the statement. Reference duplicate probes establish the required
+failure shape: `UNIQUE constraint failed: t.a` (or `t.a, t.b` for a composite index).
+
+**Root cause:** `parseCreateIndex` requires `CREATE INDEX`; `executeMutation` and
+`executeMutationCountedParams` route CREATE statements by checking only whether the second
+token is `INDEX`. The stored/rebuilt `IndexInfo` carries key positions but no uniqueness bit,
+so INSERT/UPDATE cannot enforce a unique index even if parsing alone is added.
+
+**Safety note:** a parser-only fix is forbidden. It would store `CREATE UNIQUE INDEX` in
+`sqlite_schema` while allowing duplicate keys, producing a file whose declared constraint is
+false and whose reference `PRAGMA integrity_check` can report a non-unique index entry.
+The fix must cover CREATE over existing rows plus INSERT/UPDATE, distinct NULL semantics,
+a cross-engine file differential, and the real conformance/JDBC harnesses. Feature contract:
+`specs/scljet-unique-index.md`. Fix SHA: pending.
+
 ## f-int-literal-overflow-fails-open — F wraps out-of-range 64-bit integer literals instead of rejecting
 
 **Status:** FIXED `180f16fcb` (`v2-f4-reflip`, 2026-07-22). F's lexer now range-checks decimal literals and
