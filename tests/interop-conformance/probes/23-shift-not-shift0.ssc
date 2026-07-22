@@ -1,0 +1,29 @@
+---
+name: interop-23-shift-not-shift0
+axis: shift-not-shift0
+status: measurable-now
+---
+
+# Axis 23 — shift, not shift0
+
+A deep handler REINSTALLS itself around the resumed continuation — the defining property
+of `shift`, as opposed to `shift0`, which does not reinstall the delimiter. So a second
+operation performed in the resumed suffix is caught by the same reinstalled handler. Both
+operations resume with 11; the second is reached only because the delimiter was
+reinstalled, and it yields the final 11. Under shift0 the second operation would escape
+the (consumed) delimiter instead.
+
+```scalascript
+effect Ctl:
+  def op(): Int
+
+def prog(): Int = handle {
+  val a = Ctl.op()
+  val b = Ctl.op()
+  b
+} {
+  case Ctl.op(resume) => resume(11)
+}
+
+println(prog())
+```

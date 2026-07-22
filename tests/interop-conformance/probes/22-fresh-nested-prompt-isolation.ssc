@@ -1,0 +1,33 @@
+---
+name: interop-22-fresh-nested-prompt-isolation
+axis: fresh-nested-prompt-isolation
+status: measurable-now
+---
+
+# Axis 22 — fresh nested prompt isolation
+
+Two distinct effects are two distinct prompts. A `shift` on prompt `p` is NOT captured
+by a nested reset for a different prompt `q`: `q`'s handler does not match it and
+forwards it (residual forwarding) out to `p`'s reset. Because `p`'s shift discards its
+continuation — the `+ 1000` and the `q` boundary alike — the answer is just 7, proving
+the two prompts are isolated.
+
+```scalascript
+effect CtlP:
+  def shift(): Int
+effect CtlQ:
+  def use(): Int
+
+def prog(): Int = handle {
+  val throughQ = handle {
+    CtlP.shift()
+  } {
+    case CtlQ.use(resume) => 999
+  }
+  throughQ + 1000
+} {
+  case CtlP.shift(resume) => 7
+}
+
+println(prog())
+```

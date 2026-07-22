@@ -1,0 +1,32 @@
+---
+name: interop-18-nearest-matching-reset
+axis: nearest-matching-reset
+status: measurable-now
+---
+
+# Axis 18 — nearest matching reset
+
+`.ssc` realizes multi-prompt delimited control through algebraic effects with deep
+handlers: nested `handle` boundaries for the same effect are nested `reset`s. A `shift`
+— an operation whose handler discards its continuation — is caught by the NEAREST
+enclosing reset. Here the inner reset catches the shift and returns 7; the surrounding
+`+ 1000` sits in the inner reset's answer position and yields 1007, which the outer
+reset (which would also match the shift, but never sees it) passes through.
+
+```scalascript
+effect Ctl:
+  def shift(): Int
+
+def prog(): Int = handle {
+  val inner = handle {
+    Ctl.shift()
+  } {
+    case Ctl.shift(resume) => 7
+  }
+  inner + 1000
+} {
+  case Ctl.shift(resume) => 7
+}
+
+println(prog())
+```
