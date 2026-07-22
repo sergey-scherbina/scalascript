@@ -1,0 +1,6 @@
+feature/scljet-unique-index-not-supported 2026-07-22T11:53:53Z
+agent: codex
+heartbeat: 2026-07-22T11:53:53Z
+status: not-started
+done-so-far: selected the highest-value free isolated SclJet slice; SPRINT U1-U4 already define parser, CREATE/DML enforcement, and differential gates
+next: create the worktree, read BUGS/spec context, and commit specs/scljet-unique-index.md before implementation
