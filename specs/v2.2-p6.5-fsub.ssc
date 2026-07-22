@@ -979,7 +979,17 @@ def parseBlockLamId(ts, env, cx) = parseBlockLamBody(1, snd(hd(ts)) :: env, tl(t
 def parseBlockLamBody(ar, env2, ts, cx) = parseBlock(ts, env2, cx) match { case (b, r) => ("(lam " ++ ar ++ " " ++ b ++ ")", r) }
 def parseBlock0(ts, env, cx) = if isTok(hd(ts), 2, 6) then parseCaseLambda(ts, env, cx) else (if isBlockLamHead(ts) then parseBlockLamDisp(ts, env, cx) else (if isTok(hd(ts), 2, 7) then parseBlockVal(tl(ts), env, cx) else (if isVarHead(ts) then parseBlockVar(tl(ts), env, cx) else (if isWhileHead(ts) then parseBlockWhile(tl(ts), env, cx) else (if isAssignHead(ts) then parseBlockAssign(ts, env, cx) else parseBlockExpr(ts, env, cx))))))
 def parseBlockLamDisp(ts, env, cx) = if blockLamMulti(ts) then parseBlockLam(ts, env, cx) else parseBlockExpr(ts, env, cx)
-def parseCaseLambda(ts, env, cx) = parseArms(ts, "" :: env, cx) match { case (arms, r) => ("(lam 1 (match (local 0) (" ++ fst(arms) ++ ")" ++ snd(arms) ++ "))", r) }
+// A `{ case .. }` case-lambda is a match on the lambda's single param, so it must route through the
+// SAME dispatch as `x match { .. }` (parseMatchArms): a bare-variable / typed / guarded / int / nested
+// first arm goes to the ordered resolver (parseGenMatch), the pure ctor/tuple/cons form keeps the direct
+// (lam 1 (match (local 0) ..)) shape via parseArms. Before this, parseCaseLambda called parseArms
+// unconditionally, so `f { case s => .. }` (bare binder) fell into parseConsArm and emitted a `(arm Cons
+// 2 ..)` — matching the scrutinee as a Cons Data value → "scrutinee not Data" on a String / silently
+// skipped `receive { case s => .. }` actor handlers. F's own source uses only ctor/tuple case-lambdas, so
+// the ctor branch is byte-unchanged (fixpoint neutral). scrut is the param `(local 0)`.
+def caseLamIsGen(ts) = if firstArmHasGuard(ts) then true else (if fst(hd(tl(ts))) == 0 then true else (if isGenVarHead(tl(ts)) then true else (if isTypedArm(tl(ts)) then true else hasNestedArms(ts))))
+def parseCaseLambda(ts, env, cx) = if caseLamIsGen(ts) then parseCaseLamGen(ts, env, cx) else parseArms(ts, "" :: env, cx) match { case (arms, r) => ("(lam 1 (match (local 0) (" ++ fst(arms) ++ ")" ++ snd(arms) ++ "))", r) }
+def parseCaseLamGen(ts, env, cx) = parseGenMatch("(local 0)", ts, "" :: env, cx) match { case (m, r) => ("(lam 1 " ++ m ++ ")", r) }
 // A block-local `val (a, b, ..) = e` tuple-destructure binds the tuple to an anon slot then each element
 // via its 1-based `_sel__i` projection as nested lets: `(let (<e>) (let ((app _sel__1 (local 0))) (let
 // ((app _sel__2 (local 1))) <rest>)))` (measured vs oracle; distinct from the top-level cell form). The
