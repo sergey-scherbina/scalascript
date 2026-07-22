@@ -19,11 +19,9 @@ class ScljetIntrospectionTest extends AnyFunSuite:
 
   private def memConn(): Connection = DriverManager.getConnection("jdbc:scljet::memory:")
 
-  /** NOTE: no `CREATE UNIQUE INDEX` here — the ENGINE cannot parse it
-   *  (`parseCreateIndex` requires `CREATE INDEX`; `CREATE UNIQUE INDEX` falls
-   *  through to `parseCreate` → "expected TABLE").  So every index a scljet
-   *  database can hold is non-unique, and the unique path is exercised instead
-   *  against a file written by the reference driver (see the last test). */
+  /** This shared fixture intentionally contains only non-unique indexes so the
+   *  `unique=true` empty-filter case remains observable. SclJet-created unique
+   *  indexes and their reference-file contract live in ScljetUniqueIndexTest. */
   private val Ddl = List(
     "CREATE TABLE emp(id INTEGER PRIMARY KEY, name TEXT, dept INTEGER)",
     "CREATE INDEX emp_name ON emp(name)",
@@ -128,8 +126,8 @@ class ScljetIntrospectionTest extends AnyFunSuite:
     val c = memConn()
     try
       seed(c)
-      // Every index a scljet-created database can hold is non-unique (the engine
-      // cannot CREATE UNIQUE INDEX), so the contract filter empties the result.
+      // This fixture contains only non-unique indexes, so the contract filter
+      // empties the result.
       assert(!c.getMetaData.getIndexInfo(null, null, "emp", true, false).next())
 
       // Pin the deviation: the reference driver IGNORES the flag and returns
@@ -236,9 +234,8 @@ class ScljetIntrospectionTest extends AnyFunSuite:
     assert(scIdx == refIdx, s"scljet=$scIdx\nsqlite=$refIdx")
 
   test("introspects a database file created by the reference driver, incl. a UNIQUE index"):
-    // The engine cannot CREATE a unique index, but it can READ a file that has
-    // one — which is the only way to exercise NON_UNIQUE=false end-to-end, and
-    // the case that matters for interop with real SQLite files.
+    // Preserve the reference-writes → SclJet-reads direction independently of
+    // SclJetUniqueIndexTest's SclJet-writes → reference-reads differential.
     val dir = java.nio.file.Files.createTempDirectory("scljet-ref-file-")
     val db = dir.resolve("ref.db")
     try
