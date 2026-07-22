@@ -35,7 +35,11 @@ object StandardMain:
     val (beforeArgs, programArgs) =
       if separator < 0 then args -> Nil
       else args.take(separator) -> args.drop(separator + 1)
-    var bytecode = false
+    // f5c (2026-07-22): the JVM-BYTECODE lane is now the DEFAULT execution backend — it JIT-compiles
+    // numeric hot loops (~FastCode perf) and falls back to the interpreter for any construct it cannot
+    // compile (link-time, side-effect-safe — RunNativeV2.runBytecode). REVERSIBLE: opt back to the
+    // tree-walking VM with `--interpret` (or `SSC_EXEC=vm`), mirroring `SSC_FRONT=legacy`.
+    var bytecode = defaultExecBytecode
     var mutable = false
     val files = collection.mutable.ListBuffer.empty[String]
     if beforeArgs.exists(arg => arg == "--v1" || arg == "--compat-frontend") then
@@ -43,6 +47,7 @@ object StandardMain:
     beforeArgs.foreach {
       case "--native" | "--v2" => ()
       case "--bytecode"         => bytecode = true
+      case "--interpret" | "--vm" => bytecode = false
       case "--mutable"          => mutable = true
       case flag if flag.startsWith("-") =>
         throw new IllegalArgumentException(s"unknown standard run option: $flag")
@@ -50,11 +55,23 @@ object StandardMain:
     }
     if files.isEmpty then
       throw new IllegalArgumentException(
-        "usage: ssc run [--native] [--bytecode] [--mutable] file.ssc [more.ssc ...] -- [args ...]")
+        "usage: ssc run [--native] [--bytecode|--interpret] [--mutable] file.ssc [more.ssc ...] -- [args ...]")
     RunNativeV2.run(files.toList, programArgs, bytecode, mutable)
 
+  /** f5c: bytecode is the default execution backend. `SSC_EXEC=vm|interpret|interpreter` opts back to the
+   *  tree-walking VM; `SSC_EXEC=asm|bytecode` forces bytecode; unset → bytecode. Explicit CLI flags
+   *  (`--bytecode`/`--interpret`) still win over the env-derived default (handled at the call site). */
+  private def defaultExecBytecode: Boolean =
+    sys.env.get("SSC_EXEC").map(_.trim.toLowerCase) match
+      case Some("vm" | "interpret" | "interpreter") => false
+      case Some("asm" | "bytecode")                 => true
+      case _                                         => true
+
   private def printExecutionPlan(args: List[String]): Unit =
-    val bytecode = args.contains("--bytecode")
+    val bytecode =
+      if args.contains("--interpret") || args.contains("--vm") then false
+      else if args.contains("--bytecode") then true
+      else defaultExecBytecode
     val backend = if bytecode then "asm" else "vm"
     println(
       s"""{"tier":"standard","frontend":"native","checker":"native","backend":"$backend","compiler":false}""")
