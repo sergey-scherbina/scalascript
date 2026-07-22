@@ -132,3 +132,66 @@ Lanes: `RunNativeV2.runBytecode` (v1 CLI), `JvmByteGen.{emitProgram,runProgram}`
 Fast paths: `JvmByteGen` `canParamLong`/`genLong`/`genLongCmp*`/`emitParamLong*` + the `gen()` inline-arith
 case. Kernel equivalence: `Runtime.scala` `arithFast` (3914) vs `i.*` (2573+). Interpreter baseline:
 `specs/v2-f5-kernel-shrink.md §3` + `specs/v2-f5b-typed-ir-design.md §4.1`.
+
+## 7. ★ DEFAULT-BACKEND MATURITY ASSESSMENT (2026-07-22) — HALT: the bytecode lane is NOT default-safe
+
+Sergiy chose Option A: make the bytecode lane the DEFAULT `ssc run` backend, then remove FastCode/SelfRec
+(so the removal is perf-neutral). STEP 1 gate = assess default-safety FIRST. **Verdict: HALT — do NOT
+switch the default or remove.** Assessed with `bin/ssc-standard` (real tower front + dispatch), current
+default = interpreter (`StandardMain.runNative` `var bytecode = false`); `--bytecode` is opt-in.
+
+**Fallback behavior: there is NONE.** `RunNativeV2.run` is a HARD SWITCH — `if bytecode then runBytecode
+else runVm`. `runBytecode` catches only `InvocationTargetException`; an `Unsupported`/`Method too large`/
+`StackOverflowError` propagates and crashes. So under a bytecode default, any construct JvmByteGen can't
+handle **breaks the program** (no auto-fallback to the interpreter).
+
+**Correctness where both lanes run: CLEAN.** Full `examples/` sweep (212), `ssc run` vs `ssc run
+--bytecode`: **DIFF = 0** (zero output divergence), MATCH = 85, BOTH-FAIL = 125 (need args/http/db — not
+standalone-runnable on EITHER lane, out of scope), **BC-FAIL (asm-only) = 2**.
+
+**Gap list (bytecode hard-fails, no fallback):**
+1. **"Method too large"** — `scljet-hello`, `scljet-jdbc`: the generated `ssc/gen/Entry.install ()V` exceeds
+   the JVM 64 KB per-method bytecode limit. Large programs (big top-level init) can't be emitted as one
+   method. This is a **link-time** failure (before execution) → **recoverable via a fallback** (catch →
+   `runVm`), or via method-splitting in JvmByteGen (a real effort).
+2. **`StackOverflowError` on deep EFFECTFUL loops** — `pattern-match-heavy` overflows at ≥ 500 k iterations
+   (`while i<N do shapes.foreach(s => total = total + area(s))`). Mechanism: `foreach` is a `__method__`
+   dispatch (impure), so `OpAnf.effectAwareWhile` lowers the loop to a `LetRec` tail-recursive form, and
+   **JvmByteGen compiles that as non-stack-safe recursion** (each iteration = a stack frame). The
+   interpreter is trampolined (`Runtime.run`) and runs it fine (8 s). PLAIN `while` loops and tail-recursion
+   ARE stack-safe on bytecode (arith-loop, deep-while, `v21-direct-asm-recursion` all pass under a 256 k
+   stack) — only the OpAnf-lowered EFFECTFUL-loop shape overflows. This is a **runtime, mid-execution**
+   failure (after side effects) → **NOT cleanly recoverable by a fallback**. This is the hard blocker.
+
+**Perf (the goal was to justify the removal): bytecode is a GOOD default for the numeric classes, and this
+part of the premise HOLDS.** `bin/ssc-standard`, wall:
+- arith-loop (200 M `sum+=i`): interp-FASTPATHS-ON **1.13 s**, interp-FASTPATHS-OFF (= post-removal interp)
+  **13.5 s**, **bytecode 0.94 s** — bytecode is *faster than the closed-form interpreter* and 14× faster
+  than the post-removal interpreter. (The BACKLOG 2026-07-09 "bytecode slower on arith-loop 0.6 ms vs
+  0.000015 ms" was a degenerate JMH micro-case where the interp closed-form *solves* the sum in O(1); at
+  real scale the JIT'd bytecode loop wins.)
+- fib(34): bytecode ~8.5 ms warm ≈ interpreter FastCode-ON (§3).
+
+**Conclusion.** The removal's perf premise (numeric fast on the bytecode default) holds for loops +
+recursion. But the bytecode lane is **not default-safe**: it hard-fails on (1) large programs and (2) deep
+effectful loops, with **no fallback**, and #2 is not cleanly recoverable. Switching the default would break
+working programs — exactly the "don't break programs to win kernel size" gate. **HALTED. No default switch,
+no removal.**
+
+**To unblock (prerequisites, in order):**
+1. **Clean fallback** in `RunNativeV2.runBytecode`: wrap `emitProgram` + class-load in `try … catch { case
+   Unsupported | LinkageError("Method too large") => runVm(prog) }`. Safe (link-time, pre-execution).
+   Covers gap #1 and any `Unsupported`. Reversible flag to force a lane. **Necessary but NOT sufficient.**
+2. **Stack-safe effectful loops in JvmByteGen** (gap #2, the hard one): compile the `OpAnf.effectAwareWhile`
+   `LetRec` loop as a real JVM loop / trampoline, not recursion — so deep effectful `foreach`/`while` don't
+   overflow. Until this lands, the bytecode lane cannot be a safe default (a mid-execution overflow can't be
+   fallen back from). A real JvmByteGen backend effort.
+3. (Optional) method-splitting for gap #1 so large programs run ON bytecode instead of falling back.
+4. Then re-run this assessment (examples + FULL semantic/conformance corpus through `--bytecode`) → if
+   default-safe, switch the default (with the fallback) + f5c-3 (double/accumulator) + THEN the FastCode/
+   SelfRec removal, verified with flip-level rigor (full conformance + e2e smokes + fixpoint + semantic).
+
+**Scope note:** assessed the 212-program `examples/` corpus standalone + targeted deep-loop/large-program
+probes + the arith-loop/fib perf triad. The 125 both-fail examples (need env/args) and the frozen
+semantic/conformance goldens were NOT exhaustively run through `--bytecode` (0 divergence on the 87
+standalone-runnable examples is the evidence). The two hard-fail CLASSES are the blockers regardless.

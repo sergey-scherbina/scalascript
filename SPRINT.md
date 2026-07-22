@@ -329,11 +329,24 @@ removal becomes perf-neutral.
 - [ ] **f5c-3 — f.* (double) + `lcell`/`dcell` accumulator `i.*`** (the 2 remaining `__arith__`-only sites:
       `canDouble`/`genDouble` ~599/613; `lcell.set`/`dcell.set` fused accumulator ~1040/1060). Typed float
       recursion + typed `var` accumulator loops. **Required before f5c-4** so the removal doesn't regress them.
-- [ ] **f5c-4 — THEN apply the FastCode/SelfRec removal** (`SSC_FASTPATHS` off → delete, `v2/src`) + re-
-      measure fib on the native lane within tolerance of old FastCode-ON. Land only if perf-neutral. ⚠ First
-      settle the architectural question: FastCode/SelfRec are on the INTERPRETER (`run-ir`); bytecode perf is
-      the `run --native` lane. The removal is neutral only if user numeric hot loops run on the native lane
-      (self-hosting `run-ir` is string-processing, indifferent). Confirm the intended default execution lane.
+- [~] **f5c-default-switch (Option A) — HALTED 2026-07-22. Bytecode lane is NOT default-safe.** Full
+      assessment in `specs/v2-f5c-typed-bytecode.md §7`. Sergiy chose: make bytecode the default `ssc run`
+      backend, then remove FastCode/SelfRec. STEP-1 gate FAILED. Findings (via `bin/ssc-standard`): (a)
+      correctness where both run is CLEAN — 212-example sweep DIFF=0; (b) **NO fallback** — `RunNativeV2.run`
+      hard-switches, `Unsupported`/`Method too large`/`StackOverflow` crash; (c) **2 hard-fail classes with no
+      fallback**: **"Method too large"** (scljet-hello/-jdbc, generated `install()` > JVM 64 KB — link-time,
+      recoverable via fallback) and **`StackOverflowError` on deep EFFECTFUL loops** (pattern-match-heavy ≥500k
+      iters — `OpAnf.effectAwareWhile`→`LetRec` compiled as non-stack-safe recursion; interpreter is
+      trampolined/safe — runtime, mid-execution, NOT cleanly recoverable = the hard blocker). Perf premise
+      HOLDS (bytecode arith-loop 0.94 s beats post-removal interp 13.5 s; fib ~8.5 ms). **Do NOT switch the
+      default or remove.** Unblock prereqs (in order): (1) add a clean fallback (`try bytecode catch
+      Unsupported|Method-too-large => runVm`); (2) **make JvmByteGen stack-safe for effectful loops** (compile
+      the OpAnf `effectAwareWhile` LetRec as a JVM loop/trampoline, not recursion) — the real blocker; (3)
+      optional method-splitting; (4) re-assess (examples + FULL semantic/conformance through `--bytecode`) →
+      then switch + f5c-3 + removal with flip-level rigor.
+- [ ] **f5c-3 (now GATED on the default-switch unblock) — f.* double + `lcell`/`dcell` accumulator `i.*`.**
+- [ ] **f5c-4 (BLOCKED on f5c-default-switch) — FastCode/SelfRec removal** (`SSC_FASTPATHS` off → delete,
+      `v2/src`). Only after the bytecode lane is a safe default (prereqs above).
 - [ ] **S1-6 — δ-arm deletion: Δ=0 in Stage 1 (approach A) — MEASURED, deferred to post-S1-5.** Confirmed
       empirically: (a) typed F STILL emits `__arith__` for bare-variable arith (`a+b`, `local>=local`) and
       `__eq__` for `local==lit`; (b) the ssc0 tower `ssc1-lower.ssc0` emits `__arith__` ×12 + `__eq__` ×10;
