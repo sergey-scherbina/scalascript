@@ -10,6 +10,16 @@ rejection, reports `NON_UNIQUE=false`, and returns `ok` from `PRAGMA integrity_c
 SclJet-written REAL/BLOB file. Forced SclJet conformance 103/103 (INT+JS), JDBC 63/63; runnable
 example: `examples/scljet-unique-index.ssc`.
 
+## 2026-07-22 — DurableRef + real `Restore` mirrored on the JS lane
+
+The JavaScript reference lane (`v2/host/js/control`) now matches the Scala Part 3a surface:
+`DurableRef` (`of` + `codec`) and the real `Restore` effect — `Restore.Resolve`, `Restore.resolve(ref)`,
+and `Restore.withResolver(resolver, body)` resolving post-admission once per `resolve`, reinstalling
+around the suffix, independently on each run. `Restore.admitLocally` still discharges a non-resolving
+run and fails loudly if one resolves without a bound provider; decoding a reference (or a capsule frame
+containing one) stays inert. Both host lanes now carry the full durable surface — codec, capsule, and
+references. `.d.ts` + export inventory updated; JS 50/50.
+
 ## 2026-07-22 — DurableRef + a real `Restore` effect (save-run Part 3a)
 
 Adds `DurableRef[A]` (control-interoperability §9.2): an inert reference to external state carrying a

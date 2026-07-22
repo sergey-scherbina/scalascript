@@ -79,10 +79,11 @@ object Restore:                                // extended
 - [ ] a `DurableRef` inside a decoded capsule is not resolved by `decode` (inert).
 - [ ] ABI gate green; no forbidden runtime reference leaks from the new surface.
 
+Both host lanes are implemented (Scala `v2/host/scala/control`, JS `v2/host/js/control`).
+
 ## 5. Follow-on (queued in SPRINT)
 
 Schema/resolver-implementation-digest identity, audience/tenant/capability policy,
-protected secret/bearer codecs, expiry/revocation lifecycle, `RunOutcomeUnknown` on
-post-admission disconnect, and the JS-lane mirror of `DurableRef` + the real `Restore`
-operation. A dynamic id→resume-point registry and canonical-key maps / nominal schema
-remain separate queued slices.
+protected secret/bearer codecs, expiry/revocation lifecycle, and `RunOutcomeUnknown` on
+post-admission disconnect. A dynamic id→resume-point registry and canonical-key maps /
+nominal schema remain separate queued slices.

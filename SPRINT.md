@@ -4969,12 +4969,12 @@ dynamic saved-capsule runner.
   `Restore.withResolver(resolver)` (resolves post-admission, once per resolve, per-run independent).
   Decode stays inert (a capsule frame containing a ref contacts no resource); `admitLocally` fails loudly
   if a run resolves with no provider. Scala reference row; control suite 139/139 + ABI gate. Spec
-  `specs/durable-ref.md`. **JS mirror of DurableRef + real Restore = queued follow-on.**
+  `specs/durable-ref.md`. **JS MIRROR LANDED 2026-07-22 (`durable-ref-js`): `DurableRef` + real
+  `Restore` now on the JS lane too (JS 50/50) — BOTH host lanes at full durable parity.**
   **REMAINING (Part 3b+):** the `Portable` CoreIR resume-program payload (this is v2/native — the
   CoreIR-free leaf can't host it); signature/audience/tenant + capability policy for `DurableRef`;
   a dynamic id→resume-point registry; canonical-key maps + nominal versioned schema; graph codecs
-  (§9.3); `RunOutcomeUnknown`; JS-lane mirror of DurableRef; Rust/Swift lanes (don't exist yet). The
-  runners consume the capsule.
+  (§9.3); `RunOutcomeUnknown`; Rust/Swift lanes (don't exist yet). The runners consume the capsule.
   `Portable(resumeCodeDigest, closed Program((frame,input)=>Eff))` or
   `ExactArtifact(artifactDigest,target,resumePointId)`, both with `FrozenFrame`, A/R codec schemas,
   exact resolver/plugin implementation profile, lifecycle, bounded policy,

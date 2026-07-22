@@ -89,6 +89,13 @@ the digest) are byte-identical to the Scala reference lane, pinned by shared gol
 vectors. The digest uses a self-contained synchronous SHA-256 so the package stays
 import-free.
 
+A frame may also hold a `DurableRef` — an inert reference to external state
+(`DurableRef.of(providerId, opaqueReference)`, `DurableRef.codec()`) that decoding never
+resolves. Resolution is the real `Restore` effect: a run performs `Restore.resolve(ref)`,
+discharged at the call site by `Restore.withResolver(resolver, body)` (resolved once per
+`resolve`, independently on each run). `Restore.admitLocally` still discharges a run that
+resolves nothing and fails loudly if one resolves with no provider.
+
 The generated ScalaScript↔JavaScript facades, source transforms, managed event-loop
 callbacks, mixed-language tail dispatch, and exact/portable runners remain later
 host-profile slices.
