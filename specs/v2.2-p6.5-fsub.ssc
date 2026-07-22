@@ -339,7 +339,15 @@ def localTyOf(s, env) = if isBareLocal(s) then envTy(nthEnv(env, scanNumV(s, 7, 
 def tyToTag(ty) = if ty == "Int" then "I" else (if ty == "String" then "S" else (if ty == "BigInt" then "B" else "?"))
 def prefixTag(c, dq) = if isStrCode(c, dq) then "S" else (if isIntCode(c) then "I" else (if isFloatCode(c) then "F" else (if isBigCode(c) then "B" else "?")))
 def tagOr(t, c, dq) = if t == "?" then prefixTag(c, dq) else t
-def operandTag(c, env, dq) = tagOr(tyToTag(localTyOf(c, env)), c, dq)
+// F5b 1b-2: a bare typed local wins; else a call `(app (global f) …)` whose f has a declared Int/String/
+// BigInt RETURN type (retTab, collected per top-level def); else the erased-IR prefix. This is what closes
+// fib: fib(n-1)+fib(n-2) are both app-results -> Int -> the top `+` becomes i.add.
+def operandTag(c, env, cx) = tagOr2(tyToTag(localTyOf(c, env)), callRet(c, cx), c, dqOf(cx))
+def tagOr2(lt, rty, c, dq) = if lt == "?" then tagOr(tyToTag(rty), c, dq) else lt
+def callRet(c, cx) = if startsW(c, "(app (global ") then lookupRet(takeNm(c, 13, 13), retTabOf(cx)) else "?"
+def takeNm(c, i, j) = if j >= c.length then c.substring(i, j) else (if isNmChar(c.charAt(j)) then takeNm(c, i, j + 1) else c.substring(i, j))
+def isNmChar(ch) = if ch >= 48 && ch <= 57 then true else (if ch >= 65 && ch <= 90 then true else (if ch >= 97 && ch <= 122 then true else ch == 95))
+def lookupRet(nm, tab) = tab match { case Nil => "?" case h :: t => if fst(h) == nm then snd(h) else lookupRet(nm, t) }
 def isNumTag(t) = if t == "I" then true else t == "F"
 // tag-keyed mirrors of emitBin/emitPP/emitEqT/emitArith/emitPlus/emitArithT — byte-identical for untyped
 // operands (tag = prefixTag). Only the type-DEPENDENT arms differ; type-agnostic arms delegate as-is.
@@ -349,7 +357,7 @@ def emitEqTt(l, r, lt, rt, dq) = if lt == "I" then (if rt == "I" then emitPrimBi
 def emitArithTg(k, l, r, lt, rt, dq) = if k == 23 then emitPlusT(l, r, lt, rt, dq) else emitArithTT(k, l, r, lt, rt, dq)
 def emitPlusT(l, r, lt, rt, dq) = if lt == "S" then emitSconcat(l, r) else (if isNumTag(lt) then (if isNumTag(rt) then emitPrimBin("i.add", l, r) else (if rt == "S" then emitSconcat(l, r) else emitArithS("+", l, r, dq))) else (if lt == "B" then (if rt == "B" then emitPrimBin("big.add", l, r) else emitArithS("+", l, r, dq)) else emitArithS("+", l, r, dq)))
 def emitArithTT(k, l, r, lt, rt, dq) = if isNumTag(lt) then (if isNumTag(rt) then emitPrimBin(intPrimK(k), l, r) else emitArithS(arithSym(k), l, r, dq)) else (if lt == "B" then (if rt == "B" then emitPrimBin(bigPrimK(k), l, r) else emitArithS(arithSym(k), l, r, dq)) else emitArithS(arithSym(k), l, r, dq))
-def emitBinTop(k, l, r, env, cx) = emitBinT(k, l, r, operandTag(l, env, dqOf(cx)), operandTag(r, env, dqOf(cx)), dqOf(cx))
+def emitBinTop(k, l, r, env, cx) = emitBinT(k, l, r, operandTag(l, env, cx), operandTag(r, env, cx), dqOf(cx))
 // Scala's precedence-by-first-character, restricted to the operators the subset uses.
 def binPrec(t) = if fst(t) == 2 then binPrecK(snd(t)) else 0
 // bitwise prec (left-assoc; F prec 5 is the ONLY right-assoc slot so bitwise ops avoid it): `&`(62)=4,
@@ -394,7 +402,9 @@ def extMethodsOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(s
 // and a given-body dispatcher) — the dispatcher for `m` delegates its fallback to `m__ext_default`.
 def mangleOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx))))))))))))))))
 // E2c: object-method vararg registry (mangled O_m -> lead). Rides the extMethods payload's deepest slot.
-def objVarargsOf(cx) = snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx))))))))))))))))
+def objVarargsOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx)))))))))))))))))
+// F5b 1b-2: the deepest cx payload now carries (objVarargs, retTab); retTab = [(defName, retTypeName)].
+def retTabOf(cx) = snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx)))))))))))))))))
 def ccNamesOf(cx) = fst(snd(cx))
 def fldNamesOf(cx) = fst(snd(snd(cx)))
 def valNamesOf(cx) = fst(snd(snd(snd(cx))))
@@ -1649,6 +1659,16 @@ def collectFuncDflts(ts) = if isEmpty(ts) then Nil else collectFD1(ts)
 def collectFD1(ts) = if isDefHead(ts) then appEnv(defDfltEntry(ts), collectFuncDflts(tl(ts))) else (if isCCHead(ts) then appEnv(ccDfltEntry(ts), collectFuncDflts(tl(ts))) else (if isEnumHead(ts) then appEnv(enumDfltEntries(ts), collectFuncDflts(tl(ts))) else collectFuncDflts(tl(ts))))
 def isDefHead(ts) = if isTok(hd(ts), 2, 1) then isNameTok(hd(tl(ts))) else false
 def isNameTok(t) = if fst(t) == 1 then true else fst(t) == 3
+// F5b 1b-2: def RETURN-type registry. `def f(params): T = …` / parenless `def f: T = …` with a SIMPLE
+// T ∈ {Int,String,BigInt} registers (f, T); a call `(app (global f) …)` is then typed by callRet. Linear
+// top-level scan (react to a def head, advance one token) — same shape as collectFuncDflts.
+def collectRetTab(ts) = if isEmpty(ts) then Nil else (if isDefHead(ts) then appEnv(defRetEntry(ts), collectRetTab(tl(ts))) else collectRetTab(tl(ts)))
+def defRetEntry(ts) = defRet1(snd(hd(tl(ts))), afterDefParams(skipGen(tl(tl(ts)))))
+def afterDefParams(ts) = if isTok(hd(ts), 2, 21) then skipBalP(tl(ts), 1) else ts
+def skipBalP(ts, d) = if isEmpty(ts) then ts else (if isTok(hd(ts), 2, 21) then skipBalP(tl(ts), d + 1) else (if isTok(hd(ts), 2, 22) then (if d == 1 then tl(ts) else skipBalP(tl(ts), d - 1)) else skipBalP(tl(ts), d)))
+def defRet1(nm, rest) = if isColonTok(hd(rest)) then defRet2(nm, tl(rest)) else Nil
+def defRet2(nm, tts) = if simpleRetTy(tts) then Cons((nm, snd(hd(tts))), Nil) else Nil
+def simpleRetTy(tts) = if fst(hd(tts)) == 3 then (if knownTyName(snd(hd(tts))) then isTok(hd(tl(tts)), 2, 20) else false) else false
 // A `def NAME [gen] (params)` — register only when the param list actually holds a default.
 def defDfltEntry(ts) = defDfltE1(snd(hd(tl(ts))), skipGen(tl(tl(ts))))
 def defDfltE1(nm, afterName) = if isTok(hd(afterName), 2, 21) then dfltReg(nm, collectPD(tl(afterName), Nil)) else Nil
@@ -2077,7 +2097,7 @@ def compile1(ts, dq, bs) = compile2(ts, collectCC(ts), collectTypeCases(ts), dq,
 // The pre-pass results become the parse CONTEXT: case-class names (cs, cc-only, for isCC) + the UNIFIED
 // type-case field names (tcs, cc + enum cases) + top-level val names + the enum registries. Top-level vals
 // are collected with a base cx first (their `rest` boundaries do not depend on val-name resolution).
-def mkCxE(cs, tcs, ts, dq, vals, vars, bs, pless) = mkCx(dq, ccNamesL(cs), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts), vars, bs, pless, (collectSubReg(ts), collectEnumAllReg(ts)), collectObjReg(ts), appEnv(collectFuncDflts(ts), collectObjDflts(ts)), (collectGivenTable(ts), (collectUsingSig(ts), (collectExtMethods(ts), (mangleExtMethods(ts), collectObjVarargs(ts))))))
+def mkCxE(cs, tcs, ts, dq, vals, vars, bs, pless) = mkCx(dq, ccNamesL(cs), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts), vars, bs, pless, (collectSubReg(ts), collectEnumAllReg(ts)), collectObjReg(ts), appEnv(collectFuncDflts(ts), collectObjDflts(ts)), (collectGivenTable(ts), (collectUsingSig(ts), (collectExtMethods(ts), (mangleExtMethods(ts), (collectObjVarargs(ts), collectRetTab(ts)))))))
 def compile2(ts, cs, tcs, dq, bs) = compile2b(ts, cs, tcs, dq, bs, mkCxE(cs, tcs, ts, dq, Nil, Nil, bs, Nil))
 def compile2b(ts, cs, tcs, dq, bs, base) = compile3(ts, cs, tcs, dq, mkCxE(cs, tcs, ts, dq, collectTopVals(ts, base), collectTopVars(ts, base), bs, collectPlessDefs(ts, base)))
 def compile3(ts, cs, tcs, dq, cx) = walkTop(ts, cx) match { case (strs, nDoc) => compile4(strs, nDoc, ts, tcs, dq, cx) }
