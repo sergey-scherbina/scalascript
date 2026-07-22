@@ -1,5 +1,45 @@
 # Bug tracker
 
+## durable-save-run-verifier-red — effect verifier mis-flags a def that fully handles its own effect
+
+**Status:** FIXED (`durable-save-run-verifier-red`, 2026-07-22). Pre-existing CI Conformance red
+since `examples/durable-save-run.ssc` landed (`af46212c3`) — the `ssc-tools check examples/*.ssc`
+step (the CI "Conformance Suite" job) failed, blocking ALL flip/switch CI verdicts on the repo.
+The durable-continuation example was ORPHANED (its sibling task was done/released).
+
+**Repro:** `./bin/ssc-tools check examples/durable-save-run.ssc` →
+`examples/durable-save-run.ssc: error: [effect-verifier] 'capture' appears effectful (reaches
+Suspend) but declares no effect row (!)`.
+
+**Root cause — verifier FALSE-POSITIVE, not an example leak.** `capture(): Int => Int =
+handle { … Suspend.point() … } { case Suspend.point(saved) => saved }` fully DISCHARGES the
+`Suspend` multi-effect at the `handle` boundary, so `capture` is genuinely pure (`Int => Int`,
+exactly as the spec documents) and correctly declares no effect row. `EffectAnalysis.analyze`'s
+name-reachability sees `Suspend.point` lexically inside `capture` and marks it effectful, ignoring
+the enclosing `handle`. It only manifested here because durable-save-run puts the `multi effect
+Suspend` declaration AND `capture` in ONE fenced block (the analysis runs per-block; effects.ssc /
+algebraic-effects.ssc split the effect decl from the discharging code across blocks, so their
+per-block `effectOps` set is empty in the def's block → never flagged). Annotating the example
+with a row would be a LIE (`capture()`'s caller does not, and must not, handle `Suspend`).
+
+**Fix:** added a discharge-aware `EffectAnalysis.leakingFuns(trees, effectOps)` — a handle-scoped
+leak set: an op `Eff.op` counts as leaked only when reached OUTSIDE a `handle` that discharges
+`Eff` (effect names taken from the handler's `case Eff.op(...)` patterns, the same extraction the
+runtime's `EffectsRuntime.handledOps` uses, plus any explicit `handle[Eff]` type arg). The Typer's
+effect-row verifier now consults `leakingFuns` instead of the coarse `effectfulFuns`. The coarse
+`effectfulFuns` (consumed by JvmGen/JsGen CPS codegen) and the interpreter's `multiShotEffects` are
+left UNCHANGED, so execution/codegen are unaffected — this is a verifier-only refinement.
+Files: `v1/lang/core/src/main/scala/scalascript/transform/EffectAnalysis.scala`,
+`v1/lang/core/src/main/scala/scalascript/typer/Typer.scala`. Regression tests in
+`EffectTyperTest` (discharge accepted; op performed OUTSIDE the handle still flagged — proving
+lexical scoping, not blanket suppression).
+
+**Verify:** `ssc-tools check examples/durable-save-run.ssc` OK; example still runs
+(run(1)=10 / run(5)=50 / run(42)=420 / prefix 1 time); full `ssc-tools check examples/*.ssc`
+= 0 errors (220 examples, only pre-existing shadowing/quoted-macro warnings). EffectTyperTest +
+EffectAnalysisVerifierTest green (incl. the existing "still flags a real leak" test); transform +
+typer test packages 302/302.
+
 ## scljet-unique-index-not-supported — `CREATE UNIQUE INDEX` is rejected and uniqueness is not modelled
 
 **Status:** FIXED `50d2ca5bc` (landed 2026-07-22; reporter confirmation pending). Found

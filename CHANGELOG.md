@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-07-22 — Fix effect-verifier false-positive on a self-discharging `handle` (unblocks CI Conformance)
+
+The CI "Conformance Suite" `ssc-tools check examples/*.ssc` step had been RED since
+`examples/durable-save-run.ssc` landed (`af46212c3`), blocking every flip/switch CI verdict:
+`[effect-verifier] 'capture' appears effectful (reaches Suspend) but declares no effect row`.
+Root cause was a verifier false-positive — `capture(): Int => Int = handle { … Suspend.point() … }
+{ case Suspend.point(k) => k }` fully discharges `Suspend` at the `handle` boundary and is
+genuinely pure, but `EffectAnalysis`'s name-reachability marked it effectful for reaching
+`Suspend.point` lexically. Added a discharge-aware `EffectAnalysis.leakingFuns` (handle-scoped
+leak set, effect names from the handler `case` patterns) that the Typer verifier now consults in
+place of the coarse `effectfulFuns`; `effectfulFuns` (codegen) and `multiShotEffects` (interp) are
+unchanged. Full `ssc-tools check examples/*.ssc` now 0 errors; the example still runs (prefix once,
+run(n)=n*10). Regression tests lock in that self-discharge is accepted while an op performed
+outside its handle is still flagged.
+
 ## 2026-07-22 — Revert the f5c bytecode-lane default switch (CI-red on 64-bit integers)
 
 Reverts `9ddd2b501`, which had made the JVM-bytecode lane the DEFAULT `ssc run` execution backend

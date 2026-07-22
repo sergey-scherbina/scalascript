@@ -9,6 +9,28 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## 2026-07-22 — durable-save-run-verifier-red (pre-existing CI Conformance blocker)
+
+- [ ] **durable-save-run-verifier-red** — CI `ssc-tools check examples/*.ssc` has been RED since
+      `examples/durable-save-run.ssc` landed (`af46212c3`), blocking ALL flip/switch CI verdicts.
+      Error: `[effect-verifier] 'capture' appears effectful (reaches Suspend) but declares no effect row (!)`.
+      **ROOT CAUSE = verifier FALSE-POSITIVE (not an example leak).** `capture(): Int => Int =
+      handle { … Suspend.point() … } { case Suspend.point(saved) => saved }` fully DISCHARGES the
+      `Suspend` multi-effect at the `handle` boundary, so `capture` is genuinely pure (`Int => Int`,
+      per spec) and correctly declares no effect row. `EffectAnalysis.analyze`'s name-reachability sees
+      `Suspend.point` lexically inside `capture` and marks it effectful, ignoring the enclosing `handle`.
+      Only manifests here because durable-save-run puts the `multi effect Suspend` decl AND `capture`
+      in ONE fenced block (analyze runs per-block; effects.ssc/algebraic-effects split them, so their
+      effectOps set is empty in the def's block → never flagged). Annotating the example with a row
+      would be WRONG (a lie: `capture()`'s caller does NOT handle Suspend). **FIX:** add a
+      discharge-aware `EffectAnalysis.leakingFuns(trees, effectOps)` (handle-scoped leak set) and have
+      the Typer verifier consult it instead of the coarse `effectfulFuns`. `effectfulFuns` (consumed by
+      JvmGen/JsGen CPS codegen) left UNCHANGED — interp uses only `multiShotEffects`, so `ssc run` is
+      unaffected. Verify: `ssc-tools check examples/durable-save-run.ssc` passes, example still runs
+      (run(1)=10/run(5)=50/run(42)=420/prefix 1), full `ssc-tools check examples/*.ssc` = 0 errors.
+
+---
+
 ## 2026-07-21 — Sergiy "займись всем этим" batch (scljet + v2 F5 + F4 flip)
 
 Six tasks queued after the scljet/v2 status review (2026-07-21). Decisions Sergiy made this session:
