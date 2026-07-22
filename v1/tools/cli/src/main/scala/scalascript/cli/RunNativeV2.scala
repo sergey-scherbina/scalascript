@@ -283,12 +283,31 @@ object RunNativeV2:
     // the kernel's Let-threading defers them into the Op's continuation
     // (head-field-effect-shadow / js-applyunary-effect-cps). Excludes
     // effect.handle/perform/pure. See ssc.bytecode.OpAnfNative.
-    val bytes = _root_.ssc.bytecode.JvmByteGen.emitProgram(_root_.ssc.bytecode.OpAnfNative.lift(prog))
-    val result =
-      try _root_.ssc.bytecode.JvmByteGen.runProgram(bytes)
-      catch case e: java.lang.reflect.InvocationTargetException =>
-        throw Option(e.getCause).getOrElse(e)
-    V2Result.report(result)
+    //
+    // f5c prereq #1 — LINK-TIME fallback to the interpreter. `emitProgram` is pure code generation, so a
+    // failure HERE happens BEFORE any program side effect and is safe to recover by running the VM instead
+    // (no double execution). Two classes fall back cleanly: (a) a construct JvmByteGen cannot compile
+    // (`Unsupported`); (b) an ASM `MethodTooLargeException`/`ClassTooLargeException` — the generated
+    // `install`/method exceeds the JVM 64 KB limit (large top-level init; e.g. scljet-hello/-jdbc). A
+    // RUNTIME failure — during `install`/`entry`, after side effects — is deliberately NOT caught here: it
+    // must never re-run on the VM (side-effect duplication; same reason the front swap uses a static
+    // pre-check). Deep effectful loops that StackOverflow on this lane are that runtime class — a separate
+    // fix (stack-safe effectful loops in JvmByteGen), not a fallback.
+    val bytecode: Option[Array[Byte]] =
+      try Some(_root_.ssc.bytecode.JvmByteGen.emitProgram(_root_.ssc.bytecode.OpAnfNative.lift(prog)))
+      catch
+        case _: _root_.ssc.bytecode.Unsupported           => None
+        case _: org.objectweb.asm.MethodTooLargeException => None
+        case _: org.objectweb.asm.ClassTooLargeException  => None
+    bytecode match
+      case None =>
+        runVm(prog) // link-time coverage gap → interpreter (correct, just not JIT-fast)
+      case Some(bytes) =>
+        val result =
+          try _root_.ssc.bytecode.JvmByteGen.runProgram(bytes)
+          catch case e: java.lang.reflect.InvocationTargetException =>
+            throw Option(e.getCause).getOrElse(e)
+        V2Result.report(result)
 
   private def containsErrorSentinel(program: _root_.ssc.Program): Boolean =
     program.defs.exists(definition => containsErrorSentinel(definition.body)) ||
