@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-07-22 — Scala host lane covers durable save/run vectors 14/17
+
+`scala-explicit` now advertises `durable-save,no-replay`, and `SemanticVectorConformanceTest`
+implements vectors `14-durable-save-run-same-process` and `17-no-prefix-main-replay` through the
+reference host library (`Continuation.savable` / `save()` / `SavedContinuation.run` /
+`Restore.admitLocally`), returning the catalog oracles `10,20` and `10,20,1`. Completing the flip
+from the previous entry, all three applicable lanes — the `.ssc` process lanes (`portable-vm`,
+`portable-asm`), the JS host lane, and now the Scala host lane — carry the same formal conformance
+coverage of the same-process durable save/run idiom. Scala control 23/23, `run.sh` catalog PASS.
+
 ## 2026-07-22 — Interop vectors 14/17 (durable save/run) flipped to specified
 
 The control-interoperability conformance vectors `14-durable-save-run-same-process` and

@@ -5075,9 +5075,12 @@ dynamic saved-capsule runner.
   returned function — probes pass byte-exact on portable-vm + portable-asm (15/15 each), JS host lane
   runs them through the real `Continuation.savable`/`save`/`run` (control.test.js 59/59, oracle 10,20 /
   10,20,1), Scala lane unaffected (scala-explicit lacks `durable-save` cap). run.sh catalog PASS.
-  STILL OPEN: multi-prompt shift/reset `.ssc` example (no `freshPrompt`/`reset`/`shift` `.ssc` surface);
-  scala-explicit `durable-save` cap + Scala programs for 14/17 (symmetry); cross-host vectors 15/16
-  (need the DurableValue wire codec across processes). Original blocked note (now largely superseded)
+  **SCALA HOST LANE SYMMETRY DONE (`ssc-save-run-vectors-scala`):** scala-explicit now advertises
+  `durable-save,no-replay` and `SemanticVectorConformanceTest` covers 14/17 through the reference
+  library — all three applicable lanes (process portable-vm/asm, JS host, Scala host) now cover
+  durable save/run. STILL OPEN: multi-prompt shift/reset `.ssc` example (no `freshPrompt`/`reset`/`shift`
+  `.ssc` surface); cross-host vectors 15/16 (need the DurableValue wire codec across processes — i.e.
+  the exact/portable runners). Original blocked note (now largely superseded)
   preserved: BLOCKED, do not start: every one of its three
   deliverables is gated on work that does not exist yet. Measured 2026-07-16 on
   `0891ed8cf` with the assembled `bin/ssc` and `tests/interop-conformance/run.sh --list`
