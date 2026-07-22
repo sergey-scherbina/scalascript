@@ -181,3 +181,27 @@ final class DurableCodecTest extends AnyFunSuite:
     // two entries written in descending key order ("b" then "a").
     val nonCanonical = bytesFromHex("00000002000000016200000002000000016100000001")
     intercept[DurableDecodeError](codec.decode(nonCanonical))
+
+  // Nominal versioned-schema identity (§9.1, specs/durable-nominal-schema.md): the
+  // header is string(schemaId) ++ int(version), and decode rejects a value written
+  // under a different schema name or version.
+  private def pointCodec(id: String, version: Int): DurableCodec[(Int, Int)] =
+    DurableCodec.schema(id, version, DurableCodec.pair(DurableCodec.int, DurableCodec.int))
+
+  test("nominal schema codec round-trips a stamped value"):
+    val codec = pointCodec("Point", 1)
+    assert(codec.decode(codec.encode((3, 4))) == ((3, 4)))
+
+  test("nominal schema codec rejects a mismatched schema name on decode"):
+    intercept[DurableDecodeError](pointCodec("Line", 1).decode(pointCodec("Point", 1).encode((3, 4))))
+
+  test("nominal schema codec rejects a mismatched schema version on decode"):
+    intercept[DurableDecodeError](pointCodec("Point", 2).decode(pointCodec("Point", 1).encode((3, 4))))
+
+  // Cross-lane golden: the JS lane asserts the SAME hex (control.test.js). See §5 of
+  // specs/durable-nominal-schema.md.
+  test("nominal schema codec golden bytes pin the cross-lane format"):
+    assert(
+      pointCodec("Point", 1).encode((3, 4)).toString ==
+        "00000005506f696e74000000010000000300000004"
+    )

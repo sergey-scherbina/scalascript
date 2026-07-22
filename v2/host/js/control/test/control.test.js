@@ -974,3 +974,30 @@ test("map codec rejects non-canonical key order on decode", () => {
   const nonCanonical = bytesFromHex("00000002000000016200000002000000016100000001")
   assert.throws(() => codec.decode(nonCanonical), DurableDecodeError)
 })
+
+// Nominal versioned-schema identity (§9.1, specs/durable-nominal-schema.md): header
+// is string(schemaId) ++ int(version); decode rejects a mismatched name or version.
+const pointCodec = (id, version) =>
+  DurableCodec.schema(id, version, DurableCodec.pair(DurableCodec.int, DurableCodec.int))
+
+test("nominal schema codec round-trips a stamped value", () => {
+  const codec = pointCodec("Point", 1)
+  assert.deepEqual(codec.decode(codec.encode([3, 4])), [3, 4])
+})
+
+test("nominal schema codec rejects a mismatched schema name on decode", () => {
+  assert.throws(() => pointCodec("Line", 1).decode(pointCodec("Point", 1).encode([3, 4])), DurableDecodeError)
+})
+
+test("nominal schema codec rejects a mismatched schema version on decode", () => {
+  assert.throws(() => pointCodec("Point", 2).decode(pointCodec("Point", 1).encode([3, 4])), DurableDecodeError)
+})
+
+// The SAME golden hex as the Scala lane (DurableCodecTest) — matching hex proves the
+// schema header is byte-identical across lanes.
+test("nominal schema codec golden bytes match the cross-lane format", () => {
+  assert.equal(
+    pointCodec("Point", 1).encode([3, 4]).toHex(),
+    "00000005506f696e74000000010000000300000004"
+  )
+})

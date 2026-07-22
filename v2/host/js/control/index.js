@@ -1043,6 +1043,34 @@ export const DurableCodec = Object.freeze({
       reader => to(codec.read(reader))
     )
   },
+  // Stamp a value's canonical bytes with a nominal schema identity (a name and an
+  // integer version) and reject, on decode, bytes written under a different name or
+  // version (§9.1). Header is string(schemaId) ++ int(version), byte-identical to the
+  // Scala reference lane. See specs/durable-nominal-schema.md.
+  schema(schemaId, version, codec) {
+    return makeDurableCodec(
+      (writer, value) => {
+        DurableCodec.string.write(writer, schemaId)
+        DurableCodec.int.write(writer, version)
+        codec.write(writer, value)
+      },
+      reader => {
+        const got = DurableCodec.string.read(reader)
+        const decodedVersion = DurableCodec.int.read(reader)
+        if (got !== schemaId) {
+          throw new DurableDecodeError(
+            `schema identity mismatch: expected '${schemaId}', got '${got}'`
+          )
+        }
+        if (decodedVersion !== version) {
+          throw new DurableDecodeError(
+            `schema version mismatch: expected ${version}, got ${decodedVersion}`
+          )
+        }
+        return codec.read(reader)
+      }
+    )
+  },
   // A canonical Map codec: entries are written sorted by the unsigned lexicographic
   // order of each key's own encoding, so bytes are independent of insertion order
   // (§9.1). Decoding rejects keys not in strictly ascending canonical order.

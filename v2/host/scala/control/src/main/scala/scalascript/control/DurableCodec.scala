@@ -270,6 +270,37 @@ object DurableCodec:
       def read(reader: DurableReader): B = to(codec.read(reader))
 
   /**
+   * Stamp a value's canonical bytes with a nominal schema identity — a name and an
+   * integer version — and reject, on decode, bytes written under a different name or
+   * version (§9.1). The header is `string(schemaId) ++ int(version)`, reusing the
+   * Part 1 scalar encodings, so evolving a schema (rename or version bump) makes an
+   * older capsule fail loudly instead of mis-decoding. See
+   * specs/durable-nominal-schema.md.
+   */
+  def schema[S](
+      schemaId: String,
+      version: Int,
+      codec: DurableCodec[S]
+  ): DurableCodec[S] =
+    new DurableCodec[S]:
+      def write(writer: DurableWriter, value: S): Unit =
+        DurableCodec.string.write(writer, schemaId)
+        DurableCodec.int.write(writer, version)
+        codec.write(writer, value)
+      def read(reader: DurableReader): S =
+        val got = DurableCodec.string.read(reader)
+        val decodedVersion = DurableCodec.int.read(reader)
+        if got != schemaId then
+          throw new DurableDecodeError(
+            s"schema identity mismatch: expected '$schemaId', got '$got'"
+          )
+        if decodedVersion != version then
+          throw new DurableDecodeError(
+            s"schema version mismatch: expected $version, got $decodedVersion"
+          )
+        codec.read(reader)
+
+  /**
    * A canonical map codec. Entries are written sorted by the unsigned lexicographic
    * order of each key's own encoding, so the bytes are independent of insertion or
    * iteration order (§9.1). Decoding rejects keys that are not in strictly ascending
