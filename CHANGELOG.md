@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-07-22 — Runnable `.ssc` save/run example (reusable continuation, no prefix replay)
+
+`examples/durable-save-run.ssc` demonstrates the same-process semantic core of the `save()` / `run()`
+idiom on the `.ssc` lane: a `multi effect` operation's captured continuation is a reusable saved
+continuation — running it several times with independent inputs re-enters at the capture point, and a
+prefix counter proves the prefix executes exactly once (no replay). Validated identically on the
+interpreter and native `.ssc` lanes (`run(1)=10`, `run(5)=50`, `run(42)=420`, `prefix=1`); added to
+`ExamplesSmokeTest`'s curated in-process run set and the README examples table. This is the first
+runnable `.ssc` deliverable of `control-interop-examples`, using the existing multi-shot `resume`; the
+formal interop-conformance vectors 14/17 are deliberately NOT flipped, since they want the durable
+capsule API specifically and there is still no `.ssc`-callable `save`/`run` surface — flipping them
+with a returned-continuation would bend the example around the gap.
+
 ## 2026-07-22 — v2-f5c: link-time bytecode→interpreter fallback (Option-A prereq #1)
 
 Toward making the bytecode lane a safe default (Sergiy's Option A), `RunNativeV2.runBytecode` gained a

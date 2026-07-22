@@ -643,6 +643,7 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 | [wasm-scalascript.ssc](examples/wasm-scalascript.ssc) | `scalascript` blocks → WebAssembly — Point geometry with `//> using dep` |
 | [wasm-http.ssc](examples/wasm-http.ssc) | HTTP Fetch via scalajs-dom in Wasm — `//> using dep` hoisted directive |
 | [algebraic-effects.ssc](examples/algebraic-effects.ssc) | Typed effects end-to-end — discharge signatures, `Reader[R]`, `NonDet`, `multi effect` |
+| [durable-save-run.ssc](examples/durable-save-run.ssc) | The same-process `save`/`run` idiom — capture a reusable continuation once via `multi effect`, run it many times; a prefix counter proves the prefix fires exactly once (no replay) |
 | [examples/frontend/counter/](examples/frontend/) · [show-hide/](examples/frontend/show-hide/) · [todo/](examples/frontend/todo/) · `toolkit-demo` | One source compiled to React / Vue / Solid / Custom — first three via Frontend Framework SPI, **toolkit-demo** via high-level Toolkit (`Tk` facade) and covered by an Electron Add-flow smoke test |
 | [x402-server.ssc](examples/x402-server.ssc) · [x402-client.ssc](examples/x402-client.ssc) | HTTP 402 micropayment server + client (Ethereum settlement) |
 | [x402-metamask.ssc](examples/x402-metamask.ssc) | Browser x402 wallet helper — connect MetaMask and sign EIP-712 via `window.ethereum` |

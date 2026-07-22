@@ -5051,7 +5051,20 @@ dynamic saved-capsule runner.
   missing resolver vs unavailable resource, raw foreign rejection, one-shot-source
   rejection, lifecycle expiry/revocation, signature/quota, and tampered/cross-tenant
   rejection. The portable-VM is the reference evidence row; it does not own laws.
-- [ ] **control-interop-examples** — BLOCKED, do not start: every one of its three
+- [~] **control-interop-examples** — PARTIAL 2026-07-22 (`control-interop-example-save-run` claim):
+  the **runnable same-process save→run example landed** — `examples/durable-save-run.ssc` captures a
+  reusable continuation via `multi effect` and runs it several times with a prefix counter proving the
+  prefix fires exactly once (no replay). Validated on BOTH the interpreter and native `.ssc` lanes;
+  wired into `ExamplesSmokeTest`. This is the honest same-process demonstration using the EXISTING
+  multi-shot `resume` (the semantic core of save/run). **NOT flipped: the formal interop vectors 14/17.**
+  `pending/14` explicitly wants the durable-capsule API "rather than a returned function", and there is
+  still no `.ssc`-callable `save`/`run`/capsule surface — flipping 14/17 with the returned-continuation
+  idiom would BEND the example around the gap (SPRINT rule: "do not bend"). Honest flip needs a thin
+  `.ssc` `save`/`run` surface over the interpreter's reusable `resume` (`EffectsRuntime.scala:396-401`,
+  ~60-130 lines; validate on the interpreter lane — the native lane has `v2-zero-arg-unknown-method-fails-open`).
+  STILL OPEN below: multi-prompt shift/reset `.ssc` example (no `freshPrompt`/`reset`/`shift` `.ssc`
+  surface), and the formal 14/17 vector flip. Original blocked note (now partly stale) preserved:
+  BLOCKED, do not start: every one of its three
   deliverables is gated on work that does not exist yet. Measured 2026-07-16 on
   `0891ed8cf` with the assembled `bin/ssc` and `tests/interop-conformance/run.sh --list`
   (re-measure, don't trust this line). Ship runnable ScalaScript typed multi-prompt
