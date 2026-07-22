@@ -1,7 +1,7 @@
 # SclJet `CREATE UNIQUE INDEX`
 
-Status: accepted for implementation  
-Owner: `scljet-unique-index-not-supported`  
+Status: implemented and verified
+Owner: `scljet-unique-index-not-supported`
 Parent contract: [`scljet.md`](scljet.md)
 
 ## Overview
@@ -43,39 +43,39 @@ executeMutationCountedParams(db, sql, params): Either[String, MutationResult]
 
 ## Behavior
 
-- [ ] Both mutation dispatchers parse `CREATE INDEX` as non-unique and
+- [x] Both mutation dispatchers parse `CREATE INDEX` as non-unique and
       `CREATE UNIQUE INDEX` as unique; the existing non-unique form remains
       byte-for-behavior compatible.
-- [ ] Creating a unique index over pre-existing duplicate non-NULL keys fails
+- [x] Creating a unique index over pre-existing duplicate non-NULL keys fails
       before any schema page or index page is committed.
-- [ ] Creating a unique index over valid rows writes a reference-readable
+- [x] Creating a unique index over valid rows writes a reference-readable
       SQLite index, preserves the original `CREATE UNIQUE INDEX` schema text,
       and reports `NON_UNIQUE=false` through JDBC metadata.
-- [ ] INSERT and UPDATE reject a key that duplicates another row covered by
+- [x] INSERT and UPDATE reject a key that duplicates another row covered by
       any stored unique index; DELETE and non-conflicting mutations remain
       valid.
-- [ ] A failed CREATE/INSERT/UPDATE is atomic at the pure-image boundary: the
+- [x] A failed CREATE/INSERT/UPDATE is atomic at the pure-image boundary: the
       caller retains the original image and no partial rebuilt image is
       returned.
-- [ ] Composite unique keys compare the ordered key tuple without the rowid
+- [x] Composite unique keys compare the ordered key tuple without the rowid
       tie-breaker and name every indexed column in the SQLite-shaped error.
-- [ ] If any component of a candidate key is NULL, that key does not conflict.
+- [x] If any component of a candidate key is NULL, that key does not conflict.
       Multiple `(1, NULL)` and `(NULL, "x")` rows are therefore legal, matching
       SQLite's distinct-NULL rule.
-- [ ] Equality follows the supported BINARY-index storage semantics: integer
+- [x] Equality follows the supported BINARY-index storage semantics: integer
       and real numeric equivalents conflict (`1` vs `1.0`), text compares by
       exact value, blobs compare byte-for-byte, and different non-numeric
       storage classes do not conflict.
-- [ ] The physical index-key ordering uses that same exact comparator: distinct
+- [x] The physical index-key ordering uses that same exact comparator: distinct
       REAL and BLOB keys remain ordered and a valid mixed-value unique index
       passes reference SQLite's `PRAGMA integrity_check`.
-- [ ] A conformance regression runs on the declared `int` and `js` lanes and
+- [x] A conformance regression runs on the declared `int` and `js` lanes and
       covers CREATE, INSERT, UPDATE, composite keys, NULL, and non-unique
       compatibility.
-- [ ] A JVM `sqlite-jdbc` differential proves matching duplicate rejection at
+- [x] A JVM `sqlite-jdbc` differential proves matching duplicate rejection at
       CREATE/INSERT/UPDATE and runs reference `PRAGMA integrity_check` on a
       successful SclJet-written file.
-- [ ] A runnable example and SclJet user documentation show the supported
+- [x] A runnable example and SclJet user documentation show the supported
       statement and duplicate diagnostic.
 
 ## Design
@@ -162,4 +162,15 @@ round-trip alone is not evidence for uniqueness correctness.
 
 ## Results
 
-Pending implementation and verification.
+- `tests/conformance/run.sh --only 'scljet-*' --no-memo`: **103/103** cases
+  passed on 2026-07-22; every declared SclJet case was green on both `int` and
+  `js`, including the new composite/NULL/numeric/BLOB/non-unique regression.
+- `scripts/sbtc "scljetJdbcPlugin/test"`: **63/63** tests in 6 suites passed.
+  `ScljetUniqueIndexTest` compares CREATE/INSERT/UPDATE failures against
+  sqlite-jdbc, confirms `NON_UNIQUE=false`, and gets `ok` from reference
+  `PRAGMA integrity_check` on a SclJet-written file with deliberately unsorted
+  REAL/BLOB keys and distinct integer/real values above 2^53.
+- `bin/ssc run examples/scljet-unique-index.ssc` and
+  `bin/ssc-tools run-js examples/scljet-unique-index.ssc` produced the documented
+  identical output, including
+  `UNIQUE constraint failed: books.title, books.year`.
