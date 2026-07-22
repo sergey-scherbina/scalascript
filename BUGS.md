@@ -1,5 +1,34 @@
 # Bug tracker
 
+## ci-vthread-carrier-starvation-hang — `Test via sbt` hangs to its 200-min timeout under CI load
+
+**Status:** FIXED 2026-07-22 by opus (build.sbt `-Djdk.virtualThreadScheduler.parallelism=16`). A major
+contributor to the long-running ci-red-main saga: the `sbt — compile and test` job intermittently HANGS
+(no output for hours → GitHub's 200-min action timeout), most often observed right after
+`GeneratorNativePluginTest`.
+
+**Root cause (measured, not guessed).** The generator/coroutine native plugin
+(`v2/runtime/std/generator-plugin/.../GeneratorNativePlugin.scala`) hands values between a `Thread.ofVirtual()`
+producer and the consumer via **UNBOUNDED `SynchronousQueue.put/take`** (no timeout). On **JDK 21** a
+virtual thread that blocks inside a `synchronized` block **PINS its carrier** (fixed only in JDK 24,
+JEP 491). Forked test JVMs run up to 4 suites in parallel (`Tags.limit(Tags.Test, 4)`) and a 2-core CI
+runner has only **2 default virtual-thread carriers** (= availableProcessors). A few pinned virtual
+threads exhaust the carriers, the generator/coroutine producer can never be scheduled, and the consumer's
+`take()` blocks **forever** → the whole job hangs. The suite passes in **749 ms** standalone — it is
+purely a carrier-starvation-under-contention hang.
+
+**Deterministic repro (`/tmp/VThreadRepro.scala`, scala-cli, JDK 21):** pin 4 carriers with
+`synchronized`+sleep virtual threads, then a `SynchronousQueue` handshake — `parallelism=2` →
+`STARVED-HUNG` (poll times out); `parallelism=16` → `OK-42`.
+
+**Fix.** Give the forked test JVM ample carriers so a handful of pinned VTs cannot exhaust them:
+`ThisBuild / Test / javaOptions += "-Djdk.virtualThreadScheduler.parallelism=16"`. Test-only (no
+production-runtime change), systemic (helps every virtual-thread-heavy suite: generators, coroutines, WS),
+low-risk. Verified: option reaches the forked JVM (`show Test/javaOptions`), generator suite 9/9 green.
+Follow-ups (BACKLOG-worthy): the plugin's unbounded `SynchronousQueue` handshakes are still a latent
+liveness hazard if carriers are ever exhausted — a bounded `poll`/`offer` with a loud diagnostic would
+convert a future hang into a re-runnable failure; and JDK 24 removes `synchronized` pinning entirely.
+
 ## v21-explicit-lanes-gate-swift-em-dash-red — JVM launcher stdout is locale-dependent (non-ASCII → `?` on CI)
 
 **Status:** FIXED (`54eae3197`, 2026-07-22). Last remaining CI-baseline red (the sbt
