@@ -2526,7 +2526,10 @@ both can be registered side by side.
 SclJet **reads and writes** real `.db` files. It opens files written by the reference `sqlite3` and
 returns the same rows byte-for-byte (SELECT / WHERE / GROUP BY + aggregates / ORDER BY / LIMIT /
 joins / indexes), and files it writes (INSERT / UPDATE / DELETE / CREATE) are accepted by `sqlite3`
-and pass `PRAGMA integrity_check`. The friendliest surface is the portable JDBC façade
+and pass `PRAGMA integrity_check`. `CREATE UNIQUE INDEX name ON table(columns)` is enforced when
+created and on later INSERT/UPDATE operations; duplicate failures use SQLite's
+`UNIQUE constraint failed: table.column` diagnostic, while keys containing NULL remain distinct.
+The friendliest surface is the portable JDBC façade
 (`scljet/jdbc.ssc`); a real JVM `java.sql.Driver` for `jdbc:scljet:<path>` URLs and a typed SQL
 builder (`scljet/typedsql.ssc`) sit on the same engine. Host-file writes are crash-atomic (temp →
 fsync → atomic rename) and single-writer via a cross-process lock, and every value is reachable by an
@@ -2543,8 +2546,9 @@ buildTableDatabase(512, 1, 1, "books", "CREATE TABLE books(id INTEGER PRIMARY KE
   case Left(e)      => println(e.message)
 ```
 
-Runnable examples: `examples/scljet-hello.ssc` (create a database and work with it) and
-`examples/scljet-file.ssc` (write a real file, then let the reference `sqlite3` read and check it).
+Runnable examples: `examples/scljet-hello.ssc` (create a database and work with it),
+`examples/scljet-unique-index.ssc` (enforced composite uniqueness), and `examples/scljet-file.ssc`
+(write a real file, then let the reference `sqlite3` read and check it).
 Not yet the default write path: WAL, and a couple of engine write edges (an `UPDATE` of an
 `INTEGER PRIMARY KEY` column, `NULL` in an `INSERT … VALUES` list) — tracked in `BUGS.md`.
 

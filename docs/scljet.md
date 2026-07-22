@@ -10,6 +10,7 @@ differential against `sqlite3`, in both directions, through a real file.
   [`specs/scljet-jdbc.md`](../specs/scljet-jdbc.md) (JDBC),
   [`specs/scljet-address.md`](../specs/scljet-address.md) (addressing)
 - **Runnable examples:** [`examples/scljet-hello.ssc`](../examples/scljet-hello.ssc),
+  [`examples/scljet-unique-index.ssc`](../examples/scljet-unique-index.ssc),
   [`examples/scljet-file.ssc`](../examples/scljet-file.ssc)
 
 SclJet is distinct from the `sqlite:` / `jdbc:sqlite:` providers documented in the
@@ -66,6 +67,29 @@ and blobs cannot break out of the query):
 jdbcExecuteQueryParams(c, "SELECT title FROM books WHERE id > ?", List(SqlInteger(1L)))
 ```
 
+## Enforced unique indexes
+
+SclJet accepts ordinary SQLite syntax and enforces it at every write boundary:
+
+```sql
+CREATE UNIQUE INDEX books_identity ON books(title, year);
+```
+
+Creating the index rejects duplicate existing non-NULL keys. Later INSERT and UPDATE operations
+validate the complete proposed row set before rebuilding any pages, so a failure is atomic at the
+immutable-image boundary. Diagnostics use SQLite's column-qualified shape:
+
+```text
+UNIQUE constraint failed: books.title, books.year
+```
+
+Composite keys follow declared order. A key containing NULL does not conflict (SQLite's
+distinct-NULL rule); integer/real numeric equivalents compare exactly, text uses BINARY order, and
+BLOBs compare byte-for-byte. The original `CREATE UNIQUE INDEX` text stays in `sqlite_schema`, so
+JDBC metadata reports `NON_UNIQUE=false`. See the runnable
+[`scljet-unique-index.ssc`](../examples/scljet-unique-index.ssc) example and the
+[feature contract](../specs/scljet-unique-index.md).
+
 ## Two engines, one file — interop with real `sqlite3`
 
 SclJet writes ordinary SQLite files. [`examples/scljet-file.ssc`](../examples/scljet-file.ssc)
@@ -115,7 +139,7 @@ See [`specs/scljet-address.md`](../specs/scljet-address.md).
 | Capability | Status |
 |---|---|
 | Read real SQLite files | **solid** — byte-identical to `sqlite3` across SELECT, WHERE, GROUP BY, aggregates, ORDER BY, LIMIT, joins, indexes |
-| Write valid SQLite files | **solid** — INSERT / UPDATE / DELETE / CREATE; `sqlite3` opens the result and passes `integrity_check` |
+| Write valid SQLite files | **solid** — INSERT / UPDATE / DELETE / CREATE, including enforced `CREATE UNIQUE INDEX`; `sqlite3` opens the result and passes `integrity_check` |
 | JDBC | **solid** — a real `java.sql.Driver` for `jdbc:scljet:` plus the portable façade; cross-checked against Xerial `sqlite-jdbc` |
 | Durable host-file writes | **solid** — crash-atomic (temp → fsync → atomic rename → fsync dir) and single-writer via a cross-process lock |
 | Addressing | **solid** — read & write by `table/rowid/column`; read for JSON documents |

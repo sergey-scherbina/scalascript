@@ -1482,7 +1482,9 @@ plus expected constructs.
 Grammar coverage is tracked by statement family against the official syntax
 diagrams. M4 starts with:
 
-- `CREATE TABLE`/`CREATE INDEX` and corresponding DROP;
+- `CREATE TABLE`/`CREATE [UNIQUE] INDEX` and corresponding DROP (the implemented
+  plain-column unique-index enforcement slice is specified in
+  [`scljet-unique-index.md`](scljet-unique-index.md));
 - `INSERT`, `UPDATE`, `DELETE` with constraints and conflict actions;
 - `SELECT` with expressions, aliases, WHERE, ORDER BY, LIMIT/OFFSET, simple
   joins, grouping, aggregates, DISTINCT, and compound SELECT;

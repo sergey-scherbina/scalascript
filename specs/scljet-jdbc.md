@@ -666,14 +666,14 @@ cannot rot into accidents):
    make our own metadata self-contradictory, so internal consistency wins. A test pins
    `getTypeInfo` against `getColumns` for the same type names.
 
-*Engine limits this surface exposes (NOT shim gaps).* The engine cannot `CREATE UNIQUE
-INDEX` at all (`parseCreateIndex` requires `CREATE INDEX`; `CREATE UNIQUE INDEX` falls
-through to `parseCreate` → "expected TABLE"), so every index a scljet-*created* database
-can hold is non-unique. The unique path is therefore exercised against a file written by
-the reference driver and opened via `jdbc:scljet:<file>` — which also demonstrates that
-catalog introspection works on real SQLite files. **That same test pins a live engine bug:
-an `INTEGER PRIMARY KEY` column in a real SQLite file reads back as `0`, because the rowid
-alias is not substituted (`BUGS.md` → `scljet-ipk-rowid-alias-not-substituted`).**
+*Unique-index interop.* The engine creates and enforces `CREATE UNIQUE INDEX`, preserves
+that exact schema text, and `getIndexInfo` therefore reports `NON_UNIQUE=false` for indexes
+created through `jdbc:scljet:` as well as indexes read from reference-written files.
+`ScljetUniqueIndexTest` differentially compares CREATE/INSERT/UPDATE rejection with
+sqlite-jdbc and asks reference SQLite to run `PRAGMA integrity_check` on a SclJet-written
+file containing unsorted REAL and BLOB keys. Expression/partial/collated indexes and
+table-level UNIQUE constraints remain separate engine slices; see
+[`scljet-unique-index.md`](scljet-unique-index.md).
 
 Still NOT implemented (throw `SQLFeatureNotSupportedException`): `getProcedures`,
 `getFunctions`, `getUDTs`, `getSuperTables`, `getBestRowIdentifier`, `getVersionColumns`.

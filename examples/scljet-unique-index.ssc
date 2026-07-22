@@ -1,0 +1,66 @@
+#!/usr/bin/env ssc
+---
+name: scljet-unique-index
+description: Enforced CREATE UNIQUE INDEX in SclJet — composite keys, an atomic duplicate rejection, and a legal insert
+backends: [int, js]
+---
+
+# SclJet unique indexes
+
+`CREATE UNIQUE INDEX` is an enforced constraint, not schema decoration. SclJet checks existing rows
+when the index is created and checks the complete proposed row set before every indexed INSERT or
+UPDATE. A failed immutable JDBC-façade write returns `Left`, so the caller keeps the original image.
+
+[SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[JdbcResultSet, jdbcOpen, jdbcExecuteUpdate, jdbcExecuteQuery, rsNext, rsHasRow, rsGetLong, rsGetString](std/scljet/jdbc.ssc)
+
+```scalascript
+def printBooks(result: Either[String, JdbcResultSet]): Unit = result match
+  case Left(message) => println("query failed: " + message)
+  case Right(rs) =>
+    var row = rsNext(rs)
+    while rsHasRow(row) do
+      println(rsGetLong(row, 1).toString + " · " + rsGetString(row, 2) +
+        " (" + rsGetLong(row, 3).toString + ")")
+      row = rsNext(row)
+
+buildTableDatabase(512, 1, 1, "books",
+  "CREATE TABLE books(id INTEGER PRIMARY KEY, title TEXT, year INTEGER)",
+  List(List(SqlInteger(1L), SqlText("SICP"), SqlInteger(1985L)),
+       List(SqlInteger(2L), SqlText("TAPL"), SqlInteger(2002L)))) match
+  case Left(error) => println("build failed: " + error.message)
+  case Right(image) =>
+    val initial = jdbcOpen(image)
+    jdbcExecuteUpdate(initial,
+      "CREATE UNIQUE INDEX books_identity ON books(title, year)") match
+      case Left(message) => println("index failed: " + message)
+      case Right(created) =>
+        val indexed = created.conn
+        println("unique index created")
+
+        // Same composite key as id=1: rejected before a new image is returned.
+        jdbcExecuteUpdate(indexed,
+          "INSERT INTO books VALUES (3, 'SICP', 1985)") match
+          case Left(message) => println("duplicate rejected: " + message)
+          case Right(_) => println("unexpected duplicate acceptance")
+
+        // The failed call did not mutate `indexed`; a different key remains legal.
+        jdbcExecuteUpdate(indexed,
+          "INSERT INTO books VALUES (3, 'The Little Schemer', 1974)") match
+          case Left(message) => println("insert failed: " + message)
+          case Right(inserted) =>
+            println("rows after the legal insert:")
+            printBooks(jdbcExecuteQuery(inserted.conn,
+              "SELECT id, title, year FROM books ORDER BY id"))
+```
+
+Expected output:
+
+```text
+unique index created
+duplicate rejected: UNIQUE constraint failed: books.title, books.year
+rows after the legal insert:
+1 · SICP (1985)
+2 · TAPL (2002)
+3 · The Little Schemer (1974)
+```

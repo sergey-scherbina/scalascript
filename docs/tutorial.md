@@ -1787,6 +1787,18 @@ ssc run books.ssc
 `buildTableDatabase` writes a complete, valid SQLite image to start from. (An *empty* database leaves
 the text encoding unfixed until the first write, so seeding with one row is the simple path.)
 
+To make a key unique, execute the same SQLite DDL through the immutable connection:
+
+```scalascript
+val indexed = run(c, "CREATE UNIQUE INDEX books_title ON books(title)")
+```
+
+SclJet validates existing rows before creating the index and validates later INSERT/UPDATE changes
+before returning a new image. A duplicate returns
+`Left("UNIQUE constraint failed: books.title")`; keep using `indexed`, which was not mutated. Keys
+containing NULL remain distinct. The complete composite-key walkthrough is
+[`examples/scljet-unique-index.ssc`](../examples/scljet-unique-index.ssc).
+
 ## Step 2: prove it's a real SQLite file
 
 SclJet writes ordinary SQLite. [`examples/scljet-file.ssc`](../examples/scljet-file.ssc) writes a
@@ -1812,7 +1824,8 @@ byte-for-byte.
 - The full [SclJet guide](scljet.md) covers bound `?` parameters, the `jdbc:scljet:` JVM driver,
   typed SQL, and the value-level addressing model (every value has an address linking its logical
   meaning to its physical bytes).
-- Runnable examples: [`examples/scljet-hello.ssc`](../examples/scljet-hello.ssc) and
+- Runnable examples: [`examples/scljet-hello.ssc`](../examples/scljet-hello.ssc),
+  [`examples/scljet-unique-index.ssc`](../examples/scljet-unique-index.ssc), and
   [`examples/scljet-file.ssc`](../examples/scljet-file.ssc).
 - Specs: [`specs/scljet.md`](../specs/scljet.md), [`specs/scljet-jdbc.md`](../specs/scljet-jdbc.md),
   [`specs/scljet-address.md`](../specs/scljet-address.md).

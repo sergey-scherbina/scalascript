@@ -240,7 +240,7 @@ bin/http.ssc
 | [Browser SQL](specs/browser-sql.md) | Cross-backend `sql` fenced blocks (JS / Node / Wasm / JVM) |
 | [Electron SQL](specs/electron-sql.md) | Current `sqlite:` behavior in Electron desktop bundles, including the localStorage-backed renderer fallback |
 | [Electron Persistence Bridge](specs/electron-persistence-bridge.md) | Main/preload bridge for durable Electron SQLite under `app.getPath("userData")` |
-| [SclJet](docs/scljet.md) | Pure ScalaScript SQLite engine — no C, no bundled library. Reads **and writes** real `.db` files (byte-identical to `sqlite3`, verified both ways), full SQL, a JDBC façade + `jdbc:scljet:` driver, crash-safe durable writes, and value-level addressing. [Live overview](https://sergey-scherbina.github.io/scalascript/scljet.html) · [guide](docs/scljet.md) · [spec](specs/scljet.md) |
+| [SclJet](docs/scljet.md) | Pure ScalaScript SQLite engine — no C, no bundled library. Reads **and writes** real `.db` files (byte-identical to `sqlite3`, verified both ways), full SQL with enforced `CREATE UNIQUE INDEX`, a JDBC façade + `jdbc:scljet:` driver, crash-safe durable writes, and value-level addressing. [Live overview](https://sergey-scherbina.github.io/scalascript/scljet.html) · [guide](docs/scljet.md) · [spec](specs/scljet.md) |
 | [Secret Resolvers](secret-resolvers.md) | `${env:}` · `${file:}` · `${sops:}` · `SecretResolver` SPI for Vault / AWS SM / GCP / Doppler / 1Password |
 | [MCP Support](specs/mcp.md) | MCP server tools + resources, MCP client |
 | [Rozum / Agent SDK](specs/rozum-integration.md) | Generic app-owned agent loop over a stateless OpenAI-compatible rozum gateway, with strict tool schemas and in-process tool handlers |
@@ -604,6 +604,7 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 | [mount-demo/](examples/mount-demo/) | `mount()` intrinsic — file-based handlers, typed (`CaseClass => CaseClass` auto-deser/ser), 1-arg, 2-arg with ctx, static response |
 | [sql-sqlite-file.ssc](examples/sql-sqlite-file.ssc) | SQLite file database — `databases:` front-matter, `sql` DDL/DML blocks, `Db.query/execute` |
 | [scljet-hello.ssc](examples/scljet-hello.ssc) | First taste of SclJet — create a books database and work with it through the JDBC façade: CRUD, an `ORDER BY` query, and a bound `?` parameter (runs on interpreter, JS, and the default `ssc run`) |
+| [scljet-unique-index.ssc](examples/scljet-unique-index.ssc) | Enforced `CREATE UNIQUE INDEX` — composite key, SQLite-shaped duplicate diagnostic, atomic rejection, and a legal insert (interpreter + JS) |
 | [scljet-file.ssc](examples/scljet-file.ssc) | Two engines, one file — SclJet writes a real `.db` to disk, then the same program shells out to the reference `sqlite3` (via `std.process`) to read it, run `integrity_check`, and write into it (JVM host; degrades cleanly if `sqlite3` is absent) |
 | [scljet-readonly-codecs.ssc](examples/scljet-readonly-codecs.ssc) | Pure low-level SQLite 3.53.3 header, B-tree cell, and record decoding without JDBC/sql.js |
 | [scljet-readonly.ssc](examples/scljet-readonly.ssc) | Write a pinned SQLite image through the JVM VFS plugin, then open its schema and stream a table row through SclJet's pure immutable pager |
