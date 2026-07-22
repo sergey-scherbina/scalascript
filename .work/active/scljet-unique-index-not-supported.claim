@@ -1,6 +1,6 @@
 feature/scljet-unique-index-not-supported 2026-07-22T11:53:53Z
 agent: codex
-heartbeat: 2026-07-22T12:08:47Z
+heartbeat: 2026-07-22T12:20:26Z
 status: in-progress
-done-so-far: feature spec, BUGS/SPRINT plan, comparator prerequisite, SQLite oracle probes, and real-harness red regression are complete; latest planning SHA a23307105
-next: implement the exact shared key comparator plus parser/metadata/CREATE and DML uniqueness enforcement
+done-so-far: parser, metadata, exact INTEGER/REAL/BLOB comparator, and CREATE/INSERT/UPDATE enforcement implemented locally; new INT/JS regression and existing JDBC suite 61/61 green
+next: add sqlite-jdbc rejection/file-integrity differential, then run full affected conformance and documentation gates
