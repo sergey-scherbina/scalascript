@@ -1,6 +1,6 @@
-feature/v2-f4-reflip 2026-07-22T19:01:02Z
+feature/v2-f4-reflip 2026-07-22T19:12:29Z
 agent: opus-orch
-heartbeat: 2026-07-22T19:01:02Z
-status: salvage IN PROGRESS (subagent active): rebasing md-fix 622895041 on origin/main; then plugin-boundary option-(a) inline unbound-global scan.
+heartbeat: 2026-07-22T19:12:29Z
+status: salvage IN PROGRESS (subagent active): md-fix REBASED clean (a1bf70cb8); fixpoint X1 byte-identical (405396 B) + semantic 248/248 GREEN on rebased tree; installBin building; next md-smoke-F + int-literal then push md-fix; then plugin-boundary option-(a) inline unbound-global scan.
 done-so-far: ① int-literal fail-closed 3d5d6b151, ② CI-budget 9d95d5be0 LANDED. ③ md-interpolator fix 622895041 committed on branch, NOT yet pushed (prior verify: fixpoint byte-identical, semantic 248/248, md-smoke green under F). plugin-boundary = RunNativeV2$ calls ssc.Reader.validate on the F4a fallback → under F-default the --native run class-loads ssc.Reader → trips v21 isolation runtime check. Static javap check only inspects the RunNativeV2 forwarder so it is currently green. Fix = inline unbound-global scan (loads no compiler class).
 next: rebase+reverify+push md-fix; implement option (a) inline scan; verify both fronts + isolation smokes; push. NOT re-flipping (blocked on baseline red + this).
