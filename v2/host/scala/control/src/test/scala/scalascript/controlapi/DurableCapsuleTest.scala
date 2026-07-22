@@ -1,0 +1,84 @@
+package scalascript.controlapi
+
+import org.scalatest.funsuite.AnyFunSuite
+import scalascript.control.*
+
+final class DurableCapsuleTest extends AnyFunSuite:
+  private final class Cell(var value: Int)
+
+  private val cellCodec: DurableCodec[Cell] =
+    DurableCodec.imap(DurableCodec.int)(bits => new Cell(bits))(cell => cell.value)
+
+  private val cellMachine = new ResumeStateMachine[Cell, Int, Nothing, Int]:
+    override def resume(state: Cell, input: Int): Eff[Nothing, Int] =
+      state.value += input // mutate only this run's decoded frame
+      Eff.pure(state.value)
+
+  private def point(id: String): ResumePoint[Cell, Int, Nothing, Int] =
+    ResumePoint.define(id, cellMachine, cellCodec)
+
+  private def run(saved: SavedContinuation.Aux[Int, Nothing, Int], input: Int): Int =
+    Eff.runPure(Restore.admitLocally(saved.run(input)))
+
+  test("freeze -> encode -> decode -> restore -> run reproduces the state"):
+    val resume = point("cell")
+    val capsule = resume.freeze(new Cell(100))
+    val transported = DurableCapsule.decode(capsule.encode())
+    assert(transported.resumePointId == "cell")
+    assert(transported.formatVersion == 1)
+
+    val saved = resume.restore(transported)
+    // reusable multi-shot; each restored run reconstructs an independent frame.
+    assert(run(saved, 1) == 101) // 100 + 1
+    assert(run(saved, 5) == 105) // 100 + 5, not 101 + 5
+
+  test("a tampered frame is rejected at restore, not at decode"):
+    val resume = point("cell")
+    val capsule = resume.freeze(new Cell(7))
+    val raw = capsule.encode().toArray
+    raw(raw.length - 1) = (raw(raw.length - 1) ^ 0xff).toByte // corrupt the stored digest
+
+    // decode is inert: the tampered envelope parses without running or verifying.
+    val tampered = DurableCapsule.decode(DurableBytes.fromArray(raw))
+    intercept[CapsuleRejected](resume.restore(tampered))
+
+    // non-vacuous: the untampered capsule still admits and runs.
+    val clean = resume.restore(DurableCapsule.decode(capsule.encode()))
+    assert(run(clean, 0) == 7)
+
+  test("a capsule cannot be restored on a different resume point"):
+    val producer = point("producer")
+    val other = point("other")
+    val capsule = producer.freeze(new Cell(3))
+    intercept[CapsuleRejected](other.restore(capsule))
+    // its own resume point still admits it.
+    assert(run(producer.restore(capsule), 4) == 7)
+
+  test("an unsupported format version is rejected"):
+    val resume = point("cell")
+    val raw = resume.freeze(new Cell(1)).encode().toArray
+    raw(3) = 2.toByte // version int is big-endian in bytes 0..3; make it 2
+    val badVersion = DurableCapsule.decode(DurableBytes.fromArray(raw))
+    assert(badVersion.formatVersion == 2)
+    intercept[CapsuleRejected](resume.restore(badVersion))
+
+  test("capsule decoding is bounded and exact"):
+    val raw = point("cell").freeze(new Cell(9)).encode().toArray
+    intercept[DurableDecodeError](
+      DurableCapsule.decode(DurableBytes.fromArray(raw.take(raw.length - 1)))
+    )
+    intercept[DurableDecodeError](
+      DurableCapsule.decode(DurableBytes.fromArray(raw :+ 0.toByte))
+    )
+
+  test("freezing the same state is deterministic"):
+    val resume = point("cell")
+    assert(resume.freeze(new Cell(50)).encode() == resume.freeze(new Cell(50)).encode())
+
+  test("a resume point requires a non-empty id"):
+    intercept[IllegalArgumentException](point(""))
+
+  test("the in-process savable path still works from a resume point"):
+    val resume = point("cell")
+    val continuation = resume.savable(new Cell(20))
+    assert(Eff.runPure(continuation.resume(22)) == 42)
