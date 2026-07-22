@@ -1,0 +1,6 @@
+feature/durable-nominal-schema 2026-07-22T13:54:51Z
+agent: claude-opus-4-8
+heartbeat: 2026-07-22T13:54:51Z
+status: not-started
+done-so-far:
+next: write spec + create worktree
