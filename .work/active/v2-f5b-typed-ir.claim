@@ -1,6 +1,6 @@
-feature/v2-f5b-typed-ir 2026-07-22T03:59:39Z
+feature/v2-f5b-typed-ir 2026-07-22T05:36:07Z
 agent: opus-orch
-heartbeat: 2026-07-22T05:33:53Z
-status: in-progress
-done-so-far: LANDED to origin/main through 6608b907a. Slice 1b-1 (bare Int/String/BigInt params -> i.*/big.*/seq) + slice 1b-2 (def RETURN-type registry -> fib CLOSED: fib(n-1)+fib(n-2) top + = i.add). Gates all GREEN: semantic 248/248, X1 fixpoint stage1==stage2 byte-identical (398412 B), corpus 225->204 typed-by-design, EMPTY 0, TIMEOUT 0. ★ PERF FINDING (MEASURED): typed IR does NOT recover FastCode/SelfRec perf — fib(34) fastpaths OFF ~0.80s vs ON ~0.02s (compute), typed-vs-untyped only ~1%. Fast-path win is recursion/loop specialization, orthogonal to arith dispatch. REMOVAL NOT APPLIED (would be naked ~5x regr). Design §0/§1 hypothesis REFUTED + corrected in specs.
-next: FastCode/SelfRec removal is BLOCKED on a different lever = typed-IR bytecode/native compile of numeric recursion (separate backend effort), NOT more typed-IR-emit. Remaining typed-IR-emit work (1b-2b typed val/var, 1b-3 typed .length/.charAt) is KERNEL-SIZE only (delta-table retirement), still additionally gated on the ssc0 TOWER emitting typed IR before any delta-arm deletion. Awaiting Sergiy/orch direction on: (a) pursue the bytecode lever for perf, or (b) continue typed-IR-emit for size.
+heartbeat: 2026-07-22T05:36:07Z
+status: paused-awaiting-decision
+done-so-far: F5b slices landed (origin/main): typed param arith d28f20c82, def return-type registry 317e0b495 (fib CLOSED → i.add). Gates green: semantic 248/248, X1 fixpoint byte-identical 398,412 B, corpus→204 EMPTY/TIMEOUT 0. ★ MEASURED + REFUTED the design hypothesis: typed IR does NOT make FastCode/SelfRec removal perf-neutral (fib typed vs untyped ~1%; fastpaths ON vs OFF ~5× wall/~30× compute — the win is recursion SPECIALIZATION not arith dispatch). Removal NOT applied (kernel untouched). Specs corrected.
+next: PAUSED at a strategic FORK for Sergiy — (a) build the bytecode lever (emit real bytecode for Int-typed recursive defs) = the actual perf path to enable the removal [bigger backend effort]; (b) continue typed-IR-emit for kernel SIZE only (δ-table retirement, also gated on ssc0 tower); (c) accept the ~5× perf regr and apply removal anyway. Worktree intact for resume.
