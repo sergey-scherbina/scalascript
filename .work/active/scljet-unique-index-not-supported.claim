@@ -1,6 +1,6 @@
 feature/scljet-unique-index-not-supported 2026-07-22T11:53:53Z
 agent: codex
-heartbeat: 2026-07-22T13:07:44Z
+heartbeat: 2026-07-22T13:17:43Z
 status: in-progress
 done-so-far: implementation/docs/bookkeeping landed through b56601aa4; forced conformance 103/103, JDBC 63/63, examples and markdown lint green
 next: exact-SHA CI run 29920816027 is in progress for b56601aa4; release only after exit 0
