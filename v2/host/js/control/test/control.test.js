@@ -1065,6 +1065,44 @@ test("golden capsule bytes match the cross-lane format", () => {
   )
 })
 
+// Cross-host resume (§14.3 item 9, §14.4): the SAME cross-host capsule the Scala host lane
+// freezes and runs (CrossHostResumeTest). Asserting this lane freezes to these exact bytes
+// AND decodes+restores+runs them closes the JVM<->JS N->M cross product: what one host
+// produces equals the wire equals what the other consumes. ExactArtifact CodeMode — the
+// timesTen machine is held independently by each host; only the frame/id/ABI travel.
+const crossHostWire =
+  "000000030000000a63726f73732d686f73740000000100000000000000000000000400000000000000201a9218260fcc4b03663c43df997cfab438a54e55fc8300b24aadc61381c6c4460000000000000000000000000000000000000000"
+
+function fromHex(hex) {
+  const out = new Uint8Array(hex.length / 2)
+  for (let index = 0; index < out.length; index++) {
+    out[index] = parseInt(hex.slice(index * 2, index * 2 + 2), 16)
+  }
+  return out
+}
+
+const timesTen = { resume: (state, input) => Eff.pure(input * 10) }
+
+test("a capsule frozen by one host is restored and run by another (cross-host, ExactArtifact)", () => {
+  const point = ResumePoint.define("cross-host", timesTen, DurableCodec.int)
+  // (1) this host PRODUCES the canonical cross-host wire for state 0.
+  assert.equal(point.freeze(0).encode().toHex(), crossHostWire)
+  // (2) this host CONSUMES the foreign wire: decode is inert, restore rebinds to this
+  //     host's own resume point, and run executes at the capture point.
+  const foreign = DurableCapsule.decode(DurableBytes.fromArray(fromHex(crossHostWire)))
+  const saved = point.restore(foreign)
+  assert.equal(Eff.runPure(Restore.admitLocally(saved.run(7))), 70)
+  assert.equal(Eff.runPure(Restore.admitLocally(saved.run(3))), 30)
+})
+
+test("a cross-host capsule only admits on the matching resume point", () => {
+  const point = ResumePoint.define("cross-host", timesTen, DurableCodec.int)
+  const other = ResumePoint.define("other-host", timesTen, DurableCodec.int)
+  const foreign = DurableCapsule.decode(DurableBytes.fromArray(fromHex(crossHostWire)))
+  assert.throws(() => other.restore(foreign), CapsuleRejected)
+  assert.equal(Eff.runPure(Restore.admitLocally(point.restore(foreign).run(4))), 40)
+})
+
 const memRef = value => DurableRef.of("mem", DurableCodec.int.encode(value))
 
 function countingResolver() {

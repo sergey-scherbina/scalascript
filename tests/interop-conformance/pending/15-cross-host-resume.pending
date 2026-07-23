@@ -5,5 +5,13 @@ expected: A capsule saved on the portable-VM resumes on a DIFFERENT compatible
   host (Portable CodeMode + Durable FrameGate), producing byte-identical
   observable output. This is the axis the whole DurableValue/ExactArtifact model
   exists to enable; the portable-VM spike currently reports this ✗ (no capsule).
+progress: The ExactArtifact half is now demonstrated cross-lane between the two
+  qualified host runtimes (JVM + JS). A canonical "cross-host" capsule (id
+  cross-host, timesTen machine, int frame, format v3) is FROZEN to byte-identical
+  bytes by both host lanes AND decoded+restored+run by both (Scala
+  CrossHostResumeTest, JS control.test.js), closing the JVM↔JS N→M cross product
+  transitively. NOT YET FLIPPED: the vector's Portable CodeMode (the resume program
+  travelling as a CoreIR payload for a runner that does not pre-hold the machine)
+  plus a native portable-VM runner remain v2/native work.
 sketch: |
   # capsule produced here, resumed by another runner profile's harness row.
