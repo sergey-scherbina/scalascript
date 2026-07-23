@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-07-23 — durable-save-run-verifier-red closed (effect-verifier false-positive fix verified green)
+
+The CI `ssc-tools check examples/*.ssc` step (Conformance Suite job) was RED since
+`examples/durable-save-run.ssc` landed — the effect verifier false-positive-flagged `capture()`, which
+fully DISCHARGES its `Suspend` multi-effect at its own `handle` boundary (genuinely `Int => Int`, no
+effect row). Fixed by `facd1a222` (`EffectAnalysis.leakingFuns` — a handle-scoped/discharge-aware leak
+set the Typer verifier consults instead of the coarse name-reachability `effectfulFuns`; `effectfulFuns`
+left intact for JvmGen/JsGen CPS codegen). Confirmed green: the Conformance Suite job passes on every CI
+run after `facd1a222` (e.g. `d4272d123`, `c3e9e1b98`). SPRINT item retired.
+
 ## 2026-07-23 — Cancellation-semantics proposal for vector 26 (non-binding, owner decision)
 
 Adds `specs/durable-cancellation-proposal.md`: a non-binding option for the semantic owner to resolve
