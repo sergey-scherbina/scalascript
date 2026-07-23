@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-07-23 — Portable-CodeMode capsule runner: fresh-process resume on the VM (foundation for vector 15)
+
+Adds the reference VM's first **Portable CodeMode** durable surface: a capsule whose resume PROGRAM
+travels as closed CoreIR bytes, admitted and run by a runner that holds **no machine**
+(control-interoperability §10.1 `Portable(resumeCodeDigest, closedResumeProgram)`, §14.3 items 10-11).
+New `v2/src/Capsule.scala` (`encode`/`decode`/`run`) reuses the existing bounded, fail-closed CoreIR
+codec (`Writer.program` / `Reader.toProgram` + `validate`, the untrusted-capsule entry point) and adds a
+domain-separated SHA-256 over the resume bytes; `decode` is inert and re-validates + re-checks the digest
+(a tampered resume rejects before any run). Two new CLI modes in `v2/src/Main.scala` — `ssc
+freeze-capsule <file> [frame]` and `ssc run-capsule <file> <input>` — that reuse the existing
+`Compiler.compile` / `Runtime.runManaged` path (no `Runtime.scala` edit). `v2/conformance/portable-capsule.sh`
+demonstrates it end-to-end: freeze a capsule in one JVM, then admit+run it in a **separate** JVM holding
+no machine (`frame*10 + input` → 42/45, multi-shot; tamper rejected). This is the VM-side Portable
+counterpart of the host SDK's ExactArtifact `CrossHostResumeTest`.
+
+It does **not** flip vector `15-cross-host-resume` (stays `pending-codec`): the resume program here is
+hand-authored, so the §10.2 pass that *generates* a closed resume program from an arbitrary `.ssc`
+saveable region — and a second admitting backend for the full §14.4 cross-backend N→M matrix — remain
+separate work; `pending/15` records the foundation. 24/26 vectors specified (unchanged); `run.sh`
+catalog PASS.
+
 ## 2026-07-23 — durable-save-run-verifier-red closed (effect-verifier false-positive fix verified green)
 
 The CI `ssc-tools check examples/*.ssc` step (Conformance Suite job) was RED since

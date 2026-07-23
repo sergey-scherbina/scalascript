@@ -5181,8 +5181,13 @@ dynamic saved-capsule runner.
   + JS control.test.js `7→70/3→30`), closing the JVM↔JS N→M cross product transitively (§14.3 item 9,
   §14.4) — the axis the whole DurableValue model exists to enable. ExactArtifact CodeMode (machine held
   per host; only frame/id/ABI travel); `pending/15` updated. Scala 155/155, JS 66/66. STILL OPEN (2):
-  **15** (Portable CodeMode = CoreIR resume-program payload + native portable-VM runner = v2/native; the
-  ExactArtifact half is now done), **26** (cancellation — `pending-spec`, DELIBERATELY owner-unspecified:
+  **15** (Portable CodeMode; the ExactArtifact half is done, AND the VM now has a Portable fresh-process
+  foundation — `run-capsule` (`durable`... claim `portable-run-capsule`): `v2/src/Capsule.scala` +
+  `ssc freeze-capsule`/`run-capsule` run a capsule whose resume PROGRAM travels as closed CoreIR bytes,
+  admitted+run in a SEPARATE process holding no machine, digest-verified; `v2/conformance/portable-capsule.sh`
+  PASS (freeze in one JVM, run in another → 42/45, tamper rejected). STILL NOT FLIPPED: resume program is
+  HAND-AUTHORED — the §10.2 generation pass + a 2nd admitting backend for the §14.4 N→M matrix remain),
+  **26** (cancellation — `pending-spec`, DELIBERATELY owner-unspecified:
   the pending record forbids inventing the race/report/diagnostic rules — needs the semantic owner to
   freeze them, not a harness flip). **NON-BINDING PROPOSAL drafted for 26**
   (`specs/durable-cancellation-proposal.md`, claim `durable-cancellation-proposal`): recommended answers
