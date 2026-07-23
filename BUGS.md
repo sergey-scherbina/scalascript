@@ -1,5 +1,35 @@
 # Bug tracker
 
+## jdk-backend-accept-teardown-race — uncaught `RejectedExecutionException` on `jdk-backend-accept` thread at teardown
+
+**Status:** OPEN — benign / **non-CI-blocking** (found 2026-07-23 by opus while fixing
+`wsproxy-teardown-race`). A sibling of that race in a *different* subsystem (the JDK HTTP
+backend, `http-server/jvm`), recorded here with a ready one-line fix; deferred as out of the
+wsproxy claim's scope.
+
+**Symptom:** an uncaught `java.util.concurrent.RejectedExecutionException` prints on a
+`jdk-backend-accept-<port>` thread at test teardown (observed in `ServeAsyncReadyTest`, ~2/5
+local `backendInterpreterServer/test` runs). Stack:
+`JdkServerBackend.$anonfun$3(JdkServerBackend.scala:109)` → `ThreadPerTaskExecutor.execute`.
+
+**Root cause:** the accept loop submits `pool.execute(() => proxyConnection(client, …))`
+(`JdkServerBackend.scala:109`) for a connection accepted right at shutdown. `stop()` has already
+set `_running = false` and called `_connPool.shutdownNow()`, so the submit is rejected. The catch
+clause `case _: Throwable if _running => ()` (line 112) only swallows *while running*; at teardown
+`_running` is false, so the rejection escapes uncaught. (`WsProxy`'s own accept loop does NOT have
+this bug — its catch swallows `Throwable` unconditionally and only *logs* when running.)
+
+**Why non-CI-blocking (unlike the ws-proxy-conn race):** the process-wide WS slot is reserved
+*inside* `proxyConnection`, which never runs here — so nothing leaks `_wsActiveCount` and there is
+no cascade into a downstream 503/101 boundary failure. `sbt test` exits 0 even when it prints
+(verified: 5/5 local runs green, exception appeared in 2). Only cost: one accepted `client` socket
+leaked + stderr noise.
+
+**One-line fix (ready):** mirror `WsProxy`'s accept loop — swallow the rejection during shutdown,
+e.g. add to the catch at `JdkServerBackend.scala:110-112`:
+`case _: java.util.concurrent.RejectedExecutionException if !_running => ()`
+(and best-effort `client.close()`). Deferred: separate subsystem, not the ws-proxy-conn race.
+
 ## f-native-multi-file-positional-args-reversed — `ssc run --native A.ssc B.ssc` runs files in REVERSE order under F
 
 **Status:** OPEN (found 2026-07-23 by opus during `v2-f4-reflip-D1` verification). A new, minimal,

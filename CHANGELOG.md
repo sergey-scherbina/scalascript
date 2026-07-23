@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-07-23 — wsproxy-teardown-race: benign-guard the WS upgrade-handler dispatch
+
+Fixes the last blocker to the F4 re-flip's green CI: an uncaught
+`java.util.concurrent.RejectedExecutionException` on a `ws-proxy-conn-N` virtual thread
+(`WsProxy$$Lambda`) during `sbt test` teardown. `WsProxy.tryUpgrade` dispatched the user's
+`onWebSocket` block via `wsExecutor.execute(...)` (`WsProxy.scala`), but `wsExecutor` is owned by the
+interpreter/test, not the proxy — a connection accepted just before shutdown reached that submit after
+the test's `executor.shutdownNow()`. The rejected submit crashed the per-connection VT *after* it had
+reserved the process-wide WS slot (`WsConnection.tryReserveSlot`) and the per-route slot, but before the
+handler ran — leaking both. Under F-default (slower `.ssc` compile) timing that leak accumulated into a
+downstream WS test getting `503` where `101` was expected → a real `sbt test` failure. Pre-existing race
+(no server/WsProxy/pool code changed in the flip window); F only shifted the timing that exposes it.
+
+Fix: guard the dispatch — on `RejectedExecutionException` **when the proxy or `wsExecutor` is shutting
+down** (`tearingDown`: `!running` or the executor `isShutdown`), abandon the upgrade and `ws.close(1001,…)`
+the connection (which releases the reserved slots via the writer VT), instead of letting the exception
+escape. A rejection while everything is live still propagates (real bug). Mirrors the same guard the shared
+`WebSocket` runtime already applies to its callback dispatches. New deterministic regression test
+`WsProxyTeardownRaceTest` (shuts `wsExecutor` down before the upgrade; asserts no `ws-proxy-conn` uncaught
+`RejectedExecutionException` via a scoped default-uncaught-handler): RED pre-fix, GREEN post-fix; full
+`backendInterpreterServer/test` green 5/5, zero ws-proxy-conn exceptions. Does not touch
+`RunNativeV2.frontIsF` or the F5c exec-default. Discovered a benign non-CI-blocking sibling race in
+`JdkServerBackend` (recorded in `BUGS.md` as `jdk-backend-accept-teardown-race`).
+
 ## 2026-07-23 — §10.2 save-region reification: automatic liveness (slice 2, vector 15)
 
 Second slice of the §10.2 generation pass (`specs/portable-save-region.md`): `SaveRegion.reifyAuto`

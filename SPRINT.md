@@ -9,6 +9,19 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## 2026-07-23 — jdk-backend-accept-teardown-race (benign follow-up, ready one-liner)
+
+- [ ] **jdk-backend-accept-teardown-race** — swallow the uncaught
+      `RejectedExecutionException` on the `jdk-backend-accept` thread at teardown. Found while
+      fixing `wsproxy-teardown-race`; **non-CI-blocking** (only stderr noise + one leaked accept
+      socket; `sbt test` stays green). Fix: mirror `WsProxy`'s accept loop —
+      `JdkServerBackend.scala:110-112`, add
+      `case _: java.util.concurrent.RejectedExecutionException if !_running => ()`
+      (best-effort `client.close()`). Full repro + rationale in `BUGS.md`
+      (`jdk-backend-accept-teardown-race`).
+
+---
+
 ## 2026-07-22 — durable-save-run-verifier-red (pre-existing CI Conformance blocker)
 
 ---
