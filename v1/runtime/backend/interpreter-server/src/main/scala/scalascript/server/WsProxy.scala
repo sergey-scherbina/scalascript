@@ -80,6 +80,16 @@ final class WsProxy(
 
   def localPort: Int = server.getLocalPort
 
+  /** True once this proxy — or the interpreter-owned `wsExecutor` — has
+   *  begun shutting down.  `wsExecutor` is not owned here (the interpreter
+   *  / test creates and stops it), so a dispatch onto it can lose a race
+   *  with that shutdown; a `RejectedExecutionException` is only benign in
+   *  this state.  Anything else is a real bug and must propagate. */
+  private def tearingDown: Boolean =
+    !running || (wsExecutor match
+      case es: java.util.concurrent.ExecutorService => es.isShutdown
+      case _                                        => false)
+
   // ─── Accept loop ──────────────────────────────────────────────────
 
   private def acceptLoop(): Unit =
@@ -266,11 +276,34 @@ final class WsProxy(
         // the user's onWebSocket block.  Runs on the interpreter
         // executor so global state stays serial.
         val wsValue = WsConnection.asValue(ws, entry.interpreter, log, request)
-        wsExecutor.execute { () =>
-          try entry.interpreter.invoke(entry.handler, List(wsValue))
-          catch case e: Throwable =>
-            log.println(s"WS upgrade handler error: ${e.getMessage}")
-        }
+        // Dispatch the user's onWebSocket block on the interpreter
+        // executor so global state stays serial.  This submit can lose a
+        // race with teardown: `wsExecutor` is owned by the interpreter /
+        // test, and a connection accepted just before shutdown reaches
+        // here after the executor is already stopping (e.g. a test's
+        // `executor.shutdownNow()` following `proxy.stop()`).  A
+        // `RejectedExecutionException` in that window is benign — the
+        // proxy is closing and this connection is being torn down anyway —
+        // so abandon the upgrade instead of letting it surface as an
+        // uncaught exception on the `ws-proxy-conn` virtual thread (which
+        // would fail the test run).  Mirrors the same guard the shared
+        // `WebSocket` runtime already applies to its callback dispatches.
+        val dispatched =
+          try
+            wsExecutor.execute { () =>
+              try entry.interpreter.invoke(entry.handler, List(wsValue))
+              catch case e: Throwable =>
+                log.println(s"WS upgrade handler error: ${e.getMessage}")
+            }
+            true
+          catch case _: java.util.concurrent.RejectedExecutionException if tearingDown =>
+            false
+        if !dispatched then
+          // Executor gone before the handler could run — tear this
+          // connection down cleanly (releases the reserved slots via the
+          // writer VT) and skip the heartbeat + read loop.
+          try ws.close(1001, "server shutting down") catch case _: Throwable => ()
+          return
         // Arm the heartbeat and block in the read loop on this VT.
         // When the read loop returns (peer close / EOF / protocol error)
         // it enqueues a SENTINEL on the writer's queue; the writer VT
