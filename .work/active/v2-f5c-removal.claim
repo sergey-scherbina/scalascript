@@ -1,6 +1,6 @@
 feature/v2-f5c-removal 2026-07-23T02:52:13Z
 agent: opus-orch
-heartbeat: 2026-07-23T03:16:53Z
+heartbeat: 2026-07-23T03:25:49Z
 status: in-progress
-done-so-far: f5c-3 committed locally (14d9f552e). GREEN: v2JvmBytecode/compile, A/B double/accumulator byte-identical bytecode-vs-interpret 10/10 (default + SSC_FRONT=F), semantic 248/248, C_min byte-identical (32824 B), X1 full fixpoint byte-identical (405396 B). FULL conformance + FULL e2e A/B still running (JVM-launch-bound, slow). Then push f5c-3, then f5c-4 removal.
-next: on conf+e2e green push f5c-3; f5c-4 = delete FastCode/SelfRec/closed-form (~1156 L, mayProduceAutoThreadOp STAYS — base-path effect threading) + fcEntry + fastPathsOn, reproduce proven SSC_FASTPATHS=off branches; verify C_min/X1 byte-identical + semantic 248 + conformance + e2e + perf-neutral. HALT on any regression.
+done-so-far: f5c-3 committed local (14d9f552e). GREEN: v2JvmBytecode/compile; A/B double/accumulator byte-identical bytecode-vs-interpret 10/10 (default + SSC_FRONT=F); semantic 248/248; C_min byte-identical (32824 B); X1 fixpoint byte-identical (405396 B); FULL conformance 297 passed/0 failed (== switch baseline). FULL e2e A/B running (~15/76, all fails env-invariant: missing tests/bin/ssc, server-tier timeouts — baseline-invariant, independent of JvmByteGen).
+next: on e2e triage-green push f5c-3; then f5c-4 removal (~1156 L, mayProduceAutoThreadOp STAYS) reproducing proven SSC_FASTPATHS=off branches; verify C_min/X1 byte-identical + semantic + conformance + e2e + perf-neutral. HALT on any regression.
