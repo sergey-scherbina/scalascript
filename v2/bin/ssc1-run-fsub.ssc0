@@ -489,6 +489,58 @@ def sscLoadRoots = (paths, seen) =>
       }
   }
 
+-- Post-order path traversal for F's multi-file source closure. Mirrors the
+-- sscLoad* loaders' `sscApp` accumulation EXACTLY but yields the ordered SOURCE
+-- PATHS (deduped, first occurrence wins its slot) instead of parsed defs — so
+-- `sscConcatSources` re-lowers the closure in the same order the legacy front's
+-- `lowerProg(allStmts)` does: a module's imports (left-to-right) before the
+-- module itself, and positional roots left-to-right. The flat `seen` list is
+-- reverse-pre-order, which reverses SIBLINGS (multiple positional roots, or
+-- multiple sibling imports) — that is the `A.ssc B.ssc` runs-B-then-A bug.
+-- The shared loaders cannot be augmented to also return this list (the
+-- front-matter / markdown / content projectors read their def slot), hence a
+-- dedicated traversal. `seen` threading is identical to sscLoad*, so the
+-- `reverse(seen)` the structural content projection consumes is unchanged.
+def sscOrderMod = (rawPath, seen) =>
+  let path0 = sscNormalize(rawPath) in
+  let path = if sscEndsSsc(path0) then path0 else #sconcat(path0, "/index.ssc") in
+  if sscMem(seen, path) then Pair(Nil, seen)
+  else
+    let fileStr = #utf8->str(#io.readFile(path)) in
+    match sscOrderImps(sscImports(fileStr), sscDir(path), Cons(path, seen)) {
+      case Pair(impPaths, seen2) => Pair(sscApp(impPaths, Cons(path, Nil)), seen2)
+    }
+def sscOrderImps = (imps, dir, seen) =>
+  match imps {
+    case Nil => Pair(Nil, seen)
+    case Cons(rel, rest) =>
+      match sscOrderMod(sscResolve(dir, rel), seen) {
+        case Pair(p1, seen2) => match sscOrderImps(rest, dir, seen2) { case Pair(p2, seen3) => Pair(sscApp(p1, p2), seen3) }
+      }
+  }
+def sscOrderRoot = (rawPath, seen) =>
+  let path = sscNormalize(rawPath) in
+  let fileStr = #utf8->str(#io.readFile(path)) in
+  let src = sscProgramSource(fileStr) in
+  if #i.eq(slen(src), 0) then
+    let z = #io.eprint(#sconcat("ssc1-run: no scalascript blocks found: ", #sconcat(path, "\n"))) in
+    #io.exit(1)
+  else
+    match sscOrderImps(sscImports(fileStr), sscDir(path), Cons(path, seen)) {
+      case Pair(impPaths, seen2) => Pair(sscApp(impPaths, Cons(path, Nil)), seen2)
+    }
+def sscOrderRoots = (paths, seen) =>
+  match paths {
+    case Nil => Pair(Nil, seen)
+    case Cons(path, rest) =>
+      match sscOrderRoot(path, seen) {
+        case Pair(p1, seen2) =>
+          match sscOrderRoots(rest, seen2) {
+            case Pair(more, seen3) => Pair(sscApp(p1, more), seen3)
+          }
+      }
+  }
+
 -- Build and evaluate a configuration-only CoreIR program from the canonical
 -- ScalaScript YAML module. The user program is never executed during compile;
 -- only yamlParse calls over front-matter strings run in this nested pure VM.
@@ -824,13 +876,16 @@ def main = () =>
         let z = #io.eprint("ssc1-run-fsub: --fsub-src <F.ssc> is required (SSC_FRONT=F staging)\n") in
         #io.exit(2)
       else
-      match sscLoadRoots(Cons(path, rest), Nil) {
-        case Pair(allStmts, seen) =>
-          -- seen is DFS order [deepest-import … direct-import, root]; concat in THAT
-          -- order (NOT reverse) so imported modules' top-level val inits run before the
-          -- root's bare expressions read them — matching the default front's imports-first
-          -- lowering. reverse(seen) put root first → imported vals read as () (unit cell).
-          let userSrc = sscConcatSources(seen) in
+      match sscOrderRoots(Cons(path, rest), Nil) {
+        case Pair(orderedPaths, seen) =>
+          -- orderedPaths is POST-ORDER (imports before their importer, siblings —
+          -- multiple positional roots and multiple sibling imports — left-to-right),
+          -- matching the legacy front's lowerProg(allStmts) statement order. The flat
+          -- `seen` list is reverse-pre-order and REVERSES siblings, so concatenating it
+          -- ran `A.ssc B.ssc` as B-then-A; concatenating orderedPaths preserves positional
+          -- order while keeping imported modules' top-level val inits ahead of the root's
+          -- bare expressions. `seen` still carries the dedup set for the content projection.
+          let userSrc = sscConcatSources(orderedPaths) in
           let ir = sscFsubIr(userSrc) in
           if #cell.get(sscStructuralCell) then
             NativeCompilation(ir, sscParseFrontmatters(paths), sscParseContents(reverse(seen), paths), paths)
