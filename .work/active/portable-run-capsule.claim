@@ -1,0 +1,6 @@
+feature/portable-run-capsule 2026-07-23T04:32:25Z
+agent: claude-code
+heartbeat: 2026-07-23T04:32:25Z
+status: in-progress
+done-so-far: Building the fresh-process Portable-CodeMode milestone (vector 15 foundation, does NOT flip it). ssc run-capsule: a hand-authored closed CoreIR resume Program + frame packed in a capsule, run in a SEPARATE process by a runner holding NO machine.
+next: read v2/src (CoreIR/PortableEffects/Runtime/Main); new v2/src/Capsule.scala (encode/decode a Portable capsule reusing Writer.program/Reader.parseProgram) + a run-capsule mode in Main.scala that CALLS existing Runtime.runManaged (NO Runtime.scala edit → low collision w/ v2-f5c-removal); fresh-process test. LOW collision: touches Main.scala + new Capsule.scala only.
