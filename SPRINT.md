@@ -5196,8 +5196,14 @@ dynamic saved-capsule runner.
   foundation — `run-capsule` (`durable`... claim `portable-run-capsule`): `v2/src/Capsule.scala` +
   `ssc freeze-capsule`/`run-capsule` run a capsule whose resume PROGRAM travels as closed CoreIR bytes,
   admitted+run in a SEPARATE process holding no machine, digest-verified; `v2/conformance/portable-capsule.sh`
-  PASS (freeze in one JVM, run in another → 42/45, tamper rejected). STILL NOT FLIPPED: resume program is
-  HAND-AUTHORED — the §10.2 generation pass + a 2nd admitting backend for the §14.4 N→M matrix remain),
+  PASS (freeze in one JVM, run in another → 42/45, tamper rejected). **§10.2 GENERATION pass, first slice
+  LANDED (`portable-save-region`):** `v2/src/SaveRegion.scala` closure-converts a compiler-declared
+  saveable region into a GENERATED closed resume Program (frame tuple + `Lam(2,...)` that destructures it
+  + applies the region lambda); `ssc freeze-region` → reified capsule runs machine-less → 19/10;
+  `specs/portable-save-region.md` design (staged straight-line→effectful→2nd-backend). VM effects =
+  runtime `ClosV` continuations → pass works on a SYNTACTIC region, not whole-program CPS. STILL NOT
+  FLIPPED: reification is first-order (explicit scalar slots); auto-liveness + global closure + effectful
+  regions + a 2nd admitting backend for §14.4 N→M remain),
   **26** (cancellation — `pending-spec`, DELIBERATELY owner-unspecified:
   the pending record forbids inventing the race/report/diagnostic rules — needs the semantic owner to
   freeze them, not a harness flip). **NON-BINDING PROPOSAL drafted for 26**

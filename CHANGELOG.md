@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-07-23 — §10.2 save-region reification: first slice (generated closed resume program, vector 15)
+
+First slice of the §10.2 generation pass (control-interoperability §10.2, `specs/portable-save-region.md`):
+`v2/src/SaveRegion.scala` closure-converts a compiler-declared saveable region into a **generated**
+closed CoreIR resume program, replacing the hand-authored resume of the earlier Portable milestone. The
+VM's effect continuation at a `perform` is a live `ClosV` (which §10.2 forbids serializing), so the pass
+operates on a *syntactic* region — the resume segment as a lambda — and closes it over its captured
+frame: given frame slots + a closed region lambda `(slot0..slotN, input) => body`, it emits the frame
+value `Ctor("frame", slots)` and a closed `Lam(2, (frame, input) => …)` that pattern-matches the frame
+tuple and applies the region lambda to the fields + input (no free variables → `Reader.validate` admits
+it). The capsule frame generalizes from a scalar `frame-int` to a first-order value term (a `Lit` or a
+`Ctor` of `Lit`s). New `ssc freeze-region` mode; `v2/conformance/portable-capsule.sh` now also freezes a
+reified region (frame captures `a=3, b=4`; resume `(a,b,input) => a*input + b`) and runs it in a separate
+machine-less process → `3*5+4=19`, `3*2+4=10`. Reuses `Compiler.compile`/`Runtime.runManaged` (no
+`Runtime.scala` edit).
+
+Does **not** flip vector `15-cross-host-resume` (stays `pending-codec`): the reification is first-order
+(explicit scalar slots) — auto-liveness, global closure, effectful regions (the `specs/portable-save-region.md`
+staging), and a second admitting backend for the §14.4 N→M matrix remain. `pending/15` records it. 24/26
+vectors specified (unchanged); `run.sh` catalog PASS.
+
 ## 2026-07-23 — D2: F native path emits IrProg Data directly — zero `ssc.Reader` (unblocks the F4 flip)
 
 The self-hosted F front's native runner (`v2/bin/ssc1-run-fsub.ssc0`) no longer round-trips F's emitted
