@@ -413,12 +413,16 @@ removal becomes perf-neutral.
 - [x] **f5c-3 DONE (`44265b437`, 2026-07-23)** — see the checked entry above (typed f.*/i.* double + accumulator
       recognition in JvmByteGen; byte-identical on the default front; A/B 10/10, conformance 297/0, semantic
       248/248, C_min+X1 fixpoint byte-identical).
-- [~] **f5c-4 IN PROGRESS (2026-07-23) — FastCode/SelfRec removal** (`SSC_FASTPATHS` off → delete
-      `v2/src/Runtime.scala` guarded regions, ~−1186 L) + re-measure default-lane (bytecode) fib/arith-loop perf-
-      neutral; `--interpret` numeric now slower (accepted — reference lane). Highest-stakes irreversible kernel
-      deletion. Unblocked: f5c-SWITCH CI-green + f5c-3 landed. `mayProduceAutoThreadOp` cluster STAYS (base-path
-      effect threading, not a fast path). Reproduce the proven `SSC_FASTPATHS=off` branches; gate on X1/C_min
-      byte-identical + semantic + conformance + e2e A/B + perf-neutral.
+- [x] **f5c-4 DONE (2026-07-23) — FastCode/SelfRec removal (Option A final).** Deleted `object SelfRecLL`,
+      `object SelfTailRecLL2`, `object FastCode`, the in-`Compiler` closed-form loop JIT, the `ClosV.fcEntry`
+      field, and the `SSC_FASTPATHS` instrument; the 6 fast-path call sites collapse to the proven-byte-identical
+      `SSC_FASTPATHS=off` base branches (re-verified OFF≡ON on this tree first). `mayProduceAutoThreadOp` cluster
+      KEPT (base-path effect threading). **Runtime.scala 4,825 → 3,485 (−1,340 L); kernel v2/src 6,035 → 4,695.**
+      GATES: fail-loud re-confirmed (float-δ break → semantic MISMATCH 3/248 while C_min stayed 32,824);
+      C_min 32,824 B + X1 405,396 B fixpoint byte-identical; semantic 248/248; conformance 297/0; e2e A/B 0 real
+      regressions. PERF default (bytecode): fib(34) ~0.80 s, 200 M arith-loop ~1.64 s — perf-NEUTRAL;
+      `--interpret` fib 1.70 s / 200 M-loop 13.46 s (~5–12× slower, ACCEPTED reference lane). Claim OPEN pending
+      CI-green vs baseline.
 - [ ] **S1-6 — δ-arm deletion: Δ=0 in Stage 1 (approach A) — MEASURED, deferred to post-S1-5.** Confirmed
       empirically: (a) typed F STILL emits `__arith__` for bare-variable arith (`a+b`, `local>=local`) and
       `__eq__` for `local==lit`; (b) the ssc0 tower `ssc1-lower.ssc0` emits `__arith__` ×12 + `__eq__` ×10;

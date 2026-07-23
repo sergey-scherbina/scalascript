@@ -112,15 +112,21 @@ to the interpreter.
    compile; A/B byte-identical bytecode-vs-interpreter on a double/accumulator set (5 programs × {default
    front, SSC_FRONT=F}) = 10/10; conformance 297/0; semantic 248/248; C_min+X1 fixpoint byte-identical.
    Typed float recursion + typed `var` accumulator loops now hit the fast bytecode path.
-4. **THEN apply the FastCode/SelfRec removal** (`SSC_FASTPATHS` default off → delete the guarded regions,
-   `v2/src/Runtime.scala`) and re-measure: numeric hot loops get their specialization from typed bytecode on
-   the native lane; the self-hosting gates stay green (indifferent to the fast paths, F5 §3). Land the
-   removal ONLY if the native-lane fib (+ float/accumulator classes) is within tolerance of the old
-   FastCode-ON path. **⚠ Architectural note to settle first:** FastCode/SelfRec live on the INTERPRETER
-   (`run-ir`); the bytecode perf is a DIFFERENT lane (`run --native`). The removal is perf-neutral only if
-   numeric hot loops are expected to run on the native/bytecode lane (they do for `run --native`; the self-
-   hosting `run-ir` workload is string-processing and indifferent). Confirm the intended default execution
-   lane for user numeric code before deleting the interpreter fast paths.
+4. **[LANDED f5c-4, 2026-07-23] FastCode/SelfRec removal** — deleted the guarded regions in
+   `v2/src/Runtime.scala` (`object SelfRecLL`, `object SelfTailRecLL2`, `object FastCode`, the in-`Compiler`
+   closed-form loop JIT, the `ClosV.fcEntry` field, the `SSC_FASTPATHS` instrument); the six fast-path call
+   sites collapse to the base Compiler path — the proven-byte-identical `SSC_FASTPATHS=off` behavior
+   (re-verified OFF≡ON on this tree first). `mayProduceAutoThreadOp` + cluster KEPT (base-path effect
+   threading, NOT a fast path). **Runtime.scala 4,825 → 3,485 (−1,340 L); kernel `v2/src` 6,035 → 4,695.**
+   The perf-neutrality question was settled by **Option A**: the default execution lane is now the
+   **bytecode** lane (`ssc run` default), so user numeric hot loops run there — the interpreter fast paths
+   only ever helped `run-ir`/`--interpret`, now the *reference* lane. Gates (all byte-identical/green):
+   C_min 32,824 B + X1 405,396 B fixpoint stage1==stage2; semantic 248/248; conformance 297/0; e2e A/B 0
+   real regressions. Fail-loud re-confirmed first (a float-δ break → semantic MISMATCH 3/248 while C_min
+   stayed 32,824 — proving the semantic gate is the behavioral ground truth, the fixpoint alone is
+   self-consistency). Perf (default bytecode lane): fib(34) ~0.80 s wall, 200 M arith-loop ~1.64 s wall —
+   perf-NEUTRAL vs pre-removal default; `--interpret` fib 1.70 s / 200 M-loop 13.46 s (~5–12× slower,
+   ACCEPTED reference lane).
 
 ## 5. Gates
 

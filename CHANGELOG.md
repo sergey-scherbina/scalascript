@@ -78,6 +78,31 @@ v2/native work — the `pending/15` record is updated to record this foundation.
 (unchanged). Scala 155/155, JS 66/66, `run.sh` catalog PASS (26 vectors/9 lanes), validator negative
 cases 9/9.
 
+## 2026-07-23 — v2 kernel FastCode/SelfRec removal (f5c-4, Option A final): −1,340 L
+
+The interpreter's numeric perf layer — `object SelfRecLL`, `object SelfTailRecLL2`, `object FastCode`, the
+in-`Compiler` closed-form loop JIT (`closedLongCellSumLoop*`/`staticFloatForeachLoop*`), the `ClosV.fcEntry`
+field, and the `SSC_FASTPATHS` measurement instrument — was deleted from `v2/src/Runtime.scala`. The six
+fast-path call sites collapse to the base Compiler path, which is exactly the proven-byte-identical
+`SSC_FASTPATHS=off` behavior (OFF≡ON re-verified on this tree for C_min + semantic + X1 before deleting).
+`mayProduceAutoThreadOp` and its cluster were KEPT — they are base-path effect-threading, not a fast path.
+
+This closes **Option A**: the removal was perf-BLOCKED (a 4.3× interpreter numeric-recursion regression the
+self-hosting gates can't see) until the JVM-**bytecode** lane became the default `ssc run` execution backend
+(f5c-SWITCH) and learned the numeric fast paths (f5c-1/2/3, incl. typed `f.*`/`i.*` double + accumulator).
+User numeric hot loops now run on the bytecode lane; the interpreter is the *reference* lane where slower is
+accepted. Preceded by f5c-3 (`44265b437`, typed float/accumulator recognition in JvmByteGen).
+
+- **Kernel `v2/src`: 6,035 → 4,695 lines (Runtime.scala 4,825 → 3,485, −1,340).**
+- Gates (byte-identical to baseline): C_min fixpoint **32,824 B**, X1 typed fixpoint **405,396 B**
+  (stage1==stage2), semantic **248/248**, FULL conformance **297/0**, FULL e2e A/B **0 real regressions**.
+- Fail-loud re-confirmed first: a deliberate float-δ break → semantic **MISMATCH 3/248** while the C_min
+  fixpoint stayed 32,824 B — proving the semantic gate (not the self-consistent fixpoint) is the behavioral
+  ground truth for a kernel change.
+- Perf (default = bytecode lane, `bin/ssc run`): fib(34) ~0.80 s wall, 200 M-iter arith-loop ~1.64 s wall —
+  **perf-NEUTRAL** vs pre-removal default (the bytecode lane, `Emit`, is independent of the deleted code).
+  `--interpret` numeric is now ~5–12× slower (fib 1.70 s, 200 M-loop 13.46 s) — ACCEPTED (reference lane).
+
 ## 2026-07-23 — SingletonFailoverTest migration window widened (ci-red-main residual)
 
 After the virtual-thread-carrier hang fix let the `sbt — compile and test` job complete, the residual

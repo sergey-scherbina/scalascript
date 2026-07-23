@@ -7,6 +7,24 @@ fixpoint-verified** target and the measured re-study of the prior "irreducible" 
 
 ## 0. Bottom line (honest)
 
+> **✅ FastCode/SelfRec removal LANDED 2026-07-23 (f5c-4, Option A).** The perf block below was
+> real for the *interpreter* lane, and it was dissolved not by typed IR but by **making the JVM-bytecode
+> lane the default `ssc run` execution backend** (f5c-SWITCH) + teaching that lane the numeric fast paths
+> (f5c-1/2/3). Numeric hot loops now get their specialization from the **bytecode** lane, so the
+> interpreter's FastCode/SelfRec were deletable at zero cost to the default lane. Removed:
+> `object SelfRecLL`, `object SelfTailRecLL2`, `object FastCode`, the in-`Compiler` closed-form loop JIT,
+> the `ClosV.fcEntry` field, and the `SSC_FASTPATHS` instrument; the six fast-path call sites collapse to
+> the base Compiler path (the proven-byte-identical `SSC_FASTPATHS=off` behavior — re-verified OFF≡ON on
+> this tree before deleting). **Kernel `v2/src`: 6,035 → 4,695 lines (Runtime.scala 4,825 → 3,485, −1,340).**
+> Gates (post-removal, byte-identical to baseline): C_min fixpoint **32,824 B**, X1 typed fixpoint
+> **405,396 B** (stage1==stage2), semantic **248/248**, FULL conformance **297/0**, e2e A/B 0 real
+> regressions. Perf (default = bytecode lane, `bin/ssc run`): fib(34) ~0.80 s wall, 200 M-iter arith-loop
+> ~1.64 s wall — **perf-NEUTRAL vs pre-removal default** (the bytecode lane, `Emit`, is architecturally
+> independent of the deleted interpreter code). `--interpret` numeric is now ~5–12× slower (fib 1.70 s,
+> 200 M-loop 13.46 s) — **ACCEPTED**: the tree-walking interpreter is the *reference* lane, not the perf
+> lane. `mayProduceAutoThreadOp` + its cluster were KEPT (base-path effect threading, not a fast path).
+> The rest of §0–§5 below is the original study that motivated this call; it is preserved as the record.
+
 - The v2 kernel is **6,035 lines** (`v2/src`: Runtime 4,818 + CoreIR 415 + Ssc0 311 +
   PortableEffects 221 + PortableDecimal 171 + Main 97). Target ~2,800.
 - **No mechanical shrink is SAFE right now.** Every shrink candidate falls into exactly one of:
@@ -119,7 +137,11 @@ lands, re-run the §3 table; when fib parity is within tolerance, delete the gua
 nothing else. Gates verified green in **both** modes.
 
 **Queued to BACKLOG (the deep, OUT-of-scope remainder), each with its enabler:**
-1. FastCode/SelfRec removal (−1,186 L) — after F5b typed IR; re-measure §3, require fib within tol.
+1. ~~FastCode/SelfRec removal (−1,186 L) — after F5b typed IR; re-measure §3, require fib within tol.~~
+   **✅ LANDED 2026-07-23 (f5c-4)** — via **Option A** (bytecode-default switch), NOT typed IR. The
+   enabler turned out to be relocating the *default execution lane*, not softening the interpreter's
+   arith dispatch. Actual removal −1,340 L (Runtime.scala 4,825 → 3,485; objects + closed-form JIT +
+   `fcEntry` + `SSC_FASTPATHS` + 6 call-site collapses). All gates byte-identical/green (see §0 banner).
 2. PortableEffects → ssc0 tower (K3 effects redesign).
 3. PortableDecimal → ssc0 tower (ssc0 exact decimal).
 4. δ-table retirement — the F5b project itself (`specs/v2-f5b-typed-ir-design.md`).
