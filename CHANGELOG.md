@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-07-23 — f-case-object-drops-program: lower top-level `case object` in F
+
+Fixes the actual last CI blocker to the F4 re-flip's green `sbt — compile and test` job. Run
+`30011873355`/`7ce98b9fd` failed at the **physically slim standard distribution gate** step (NOT
+`Test via sbt`, as the whack-a-mole premise assumed — `Test via sbt` is clean under F): under F the
+default front, `run tests/fixtures/v21-native/fs-os-provider.ssc` printed a single `0` instead of its
+six lines. Legacy correct → a genuine F-regression. Root cause: F's compiler
+(`specs/v2.2-p6.5-fsub.ssc`) had no `parseTopItem` rule for a standalone `case object N [extends P]`
+(head `case`(2,6)+word `object` misses both isCCHead=`case`+`class` and isObjectHead=bare `object`), so
+it fell through to `exprItem`, lowering to a bare `0` expression that ALSO consumed the following
+statements. Any program reaching F fully with a top-level `case object` — e.g. anything importing
+`std/os.ssc` (`case object Jvm extends Platform`) — collapsed to `(entry (lit (int 0)))`. A SILENT wrong
+answer: no unbound global, so `validateNoReader` passed and the F4a delegate-fallback never fired.
+(The corpus/fixpoint/semantic missed it: `fsub.ssc` itself uses no `case object`, and larger std-heavy
+programs delegate to legacy for OTHER coverage gaps first.) Fix: add `isCaseObjectHead`/`caseObjectItem`
+to `parseTopItem`, lowering `case object N` to `(def N (ctor N))` — identical to the nullary-enum-case
+emission (`eraseEnumNull`, ssc1-lower :3826) — and consuming the head + optional `extends`/body so the
+walk resumes at the next statement. The same fix unblocks the JRE-shaped module gate and the native
+entry-smoke, which also run `fs-os-provider.ssc`. Verified: X1 fixpoint stage1==stage2 byte-identical
+(406008 B; `fsub.ssc` uses no `case object` so the fixpoint is unchanged), semantic gate 248/248, and
+every v21-slim / v21-jre program A/B byte-identical F-vs-legacy.
+
 ## 2026-07-23 — f-multifile-positional-order: preserve positional file order in F's multi-file closure
 
 Fixes the remaining blocker to the F4 re-flip's green CI: with F the default native front, the

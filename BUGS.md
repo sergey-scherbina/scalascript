@@ -1,5 +1,35 @@
 # Bug tracker
 
+## f-case-object-drops-program — F silently lowers a top-level `case object` to `0`, dropping the rest of the program
+
+**Status:** FIXED (2026-07-23, `<sha>` — pending fixpoint/semantic/slim re-verify) by `opus` under the
+`flip-sbt-suite-under-F` claim. The F4 default-front flip's last CI blocker on the `sbt — compile and test`
+job (run `30011873355`/`7ce98b9fd` failed at the **physically slim standard distribution gate** step, NOT
+`Test via sbt` — the whack-a-mole premise was slightly off: `Test via sbt` itself is clean under F).
+
+**Symptom.** Under F (the default native front) `tests/e2e/v21-slim-distribution-gate.sh` fails at check
+`fs/os provider vm`: `run tests/fixtures/v21-native/fs-os-provider.ssc` prints a single `0` (rc 0) instead
+of its six lines. Legacy (`SSC_FRONT=legacy`) is correct — a genuine F-regression, not a flake.
+
+**Root cause.** F's `compile` (`specs/v2.2-p6.5-fsub.ssc`) has no top-level `case object` rule. `parseTopItem`
+routes `case class` (isCCHead = `case`+`class`) and bare `object` (isObjectHead) but a standalone
+`case object N [extends P]` — head is `case`(2,6)+word `object` — misses BOTH and falls through to
+`exprItem`, which lowers it to a bare `0` expression AND consumes the following statements. So any program
+that reaches F fully (no other coverage gap) and contains a top-level `case object` — e.g. anything importing
+`std/os.ssc`, which declares `case object Jvm extends Platform` — collapses to `(entry (lit (int 0)))`, the
+empty-program default. This is a SILENT wrong answer: no unbound global, so `validateNoReader` passes and the
+F4a delegate-fallback never fires. (Corpus/fixpoint/semantic missed it because `fsub.ssc` itself uses no
+`case object`, and complex programs importing `std/os` delegate to legacy for OTHER coverage gaps first.)
+
+**Fix.** Add a `case object` branch to `parseTopItem`: `isCaseObjectHead` + `caseObjectItem`, lowering
+`case object N` to `(def N (ctor N))` — EXACTLY the nullary-enum-case emission (`eraseEnumNull`, ssc1-lower
+:3826) — and consuming `case`/`object`/name + optional `extends`/body (`skipCCBody(skipExtends(...))`) so the
+walk resumes at the next statement. `fsub.ssc` uses no `case object`, so the X1 fixpoint is byte-unchanged.
+
+**Repro.** `scripts/sbtc installBin`; `SSC_NO_CDS=1 bin/ssc run tests/fixtures/v21-native/fs-os-provider.ssc`
+(F prints `0`, legacy prints the six lines). Minimal: a `.ssc` whose sole block is
+`case object Jvm` + `println("hi")` prints `0` under F, `hi` under legacy.
+
 ## jdk-backend-accept-teardown-race — uncaught `RejectedExecutionException` on `jdk-backend-accept` thread at teardown
 
 **Status:** OPEN — benign / **non-CI-blocking** (found 2026-07-23 by opus while fixing
