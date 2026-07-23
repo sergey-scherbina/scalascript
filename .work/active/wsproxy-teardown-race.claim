@@ -1,6 +1,6 @@
-feature/wsproxy-teardown-race 2026-07-23T10:26:18Z
+feature/wsproxy-teardown-race 2026-07-23T10:35:30Z
 agent: opus-orch
-heartbeat: 2026-07-23T10:26:18Z
+heartbeat: 2026-07-23T10:35:30Z
 status: in-progress
-done-so-far: F4 re-flip (F=default front) is correctness-validated (Conformance green UNDER F, semantic 248/248, fixpoint byte-identical) but 2/2 flip-including CI runs (10bb15bfa, 3f433bef2) FAIL the sbt 'Test via sbt' step on: 'RejectedExecutionException: Task scalascript.server.WsProxy$$Lambda rejected from ThreadPoolExecutor[Shutting down]' (ws-proxy-conn-1 thread). NO server/WsProxy/thread-pool code changed in the window (only the flip + save-region) → PRE-EXISTING teardown race, likely timing-exposed by F-default being slower. Pre-flip runs (8f9b25212 etc.) pass sbt = the job CAN be green. NOT an F correctness regression.
-next: subagent fixes the WsProxy test/server TEARDOWN RACE (shut down ws-proxy-conn threads before/gracefully, or handle RejectedExecutionException on pool shutdown as benign) so the sbt test step is race-free → unblocks the flip's green CI. File requires: interpreter-server WsProxy.scala + its test.
+done-so-far: Root-caused the ws-proxy-conn RejectedExecutionException as an unguarded wsExecutor.execute at WsProxy.scala upgrade-handler dispatch (the sole WsProxy$$Lambda submit; the shared WebSocket runtime already guards its own submits). Applied benign-teardown guard + clean early-bail. Compiles. Now writing deterministic reproduction test + repeated-run verification.
+next: verify fix (reproduce on HEAD, green with fix), run full backendInterpreterServer/test repeatedly, push.
