@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-07-23 — v2-f4 flip: the self-hosting front F is now the DEFAULT native lowerer
+
+`RunNativeV2.frontIsF` inverted from opt-IN (`SSC_FRONT=F`) to opt-OUT: F (the self-hosted subset
+compiler, `specs/v2.2-p6.5-fsub.ssc`) is now the default native front; `SSC_FRONT=legacy` is the escape
+hatch. REVERSIBLE (one line / env var). The F4a delegate-fallback (`defaultRunner = ssc1-run.ssc0`) is
+unchanged, so F stays **never-worse-than-legacy** — an F lowering gap falls back to legacy transparently.
+Landed only after every blocker cleared (multi-file residuals with mcp-types last, int-literal-overflow,
+md-interpolator, and the plugin-boundary/isolation `ssc.Reader` load ③.2 fixed by D2). Readiness
+verified before flipping: the full e2e smoke set (72 scripts) is A/B-green under F vs legacy — **zero
+F-only regressions**; the default now engages F (`SSC_FRONT_TRACE`), `SSC_FRONT=legacy` escapes to it,
+and the plugin-boundary isolation smoke passes under the default. specs/v2-language-surface.md §7 step 4.
+
 ## 2026-07-23 — §10.2 save-region reification: first slice (generated closed resume program, vector 15)
 
 First slice of the §10.2 generation pass (control-interoperability §10.2, `specs/portable-save-region.md`):

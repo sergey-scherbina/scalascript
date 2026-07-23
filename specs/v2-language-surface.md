@@ -238,10 +238,13 @@ byte-identical to default wherever F falls short. `SSC_FRONT_TRACE=1` logs each 
   residuals above. Typed fixpoint byte-identical (the fallback doesn't touch F's self-compile). `classify`
   stays green (raw F coverage, 12 GAP; output notes the product-level fallback).
 
-#### The flip (step 4) — STILL HELD. 1st attempt REVERTED, 2nd attempt HALTED (2026-07-22). F is NOT yet a safe default.
+#### The flip (step 4) — DONE (2026-07-23, `628b75d96`, Sergiy "помоги с флипом"). F is the default native front.
 
-The flip is a one-line inversion of `RunNativeV2.frontIsF` opt-IN → opt-OUT with a `SSC_FRONT=legacy` escape
-hatch. It has been attempted twice and does not yet stay landed:
+`RunNativeV2.frontIsF` is now opt-OUT: F is the default native lowerer, `SSC_FRONT=legacy` is the escape
+hatch, and the F4a delegate-fallback keeps it never-worse-than-legacy. Landed after every blocker cleared
+(the two prior attempts halted on int-literal-overflow and the plugin-boundary `ssc.Reader` load ③.2 —
+both fixed; ③.2 by D2). Readiness verified before flipping: the full e2e smoke set (72 scripts) is A/B-green
+under F vs legacy — zero F-only regressions. History of the two earlier attempts (why they halted):
 
 - **1st attempt (`3750df8c2`, reverted `bf24267e9`):** passed every corpus-level gate but CI went RED on two
   OUT-OF-CORPUS blockers — (1) F integer-literal fail-OPEN, (2) F slower → 30-min negtc step cap timeout.
