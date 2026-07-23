@@ -98,7 +98,7 @@ object RunNativeV2:
           val fResult =
             try
               val s = lowerWith(layout.runner, layout.fsubSrc)
-              _root_.ssc.Reader.validate(s.program) // throws on any unbound global (F coverage gap)
+              validateNoReader(s.program) // throws on any unbound global (F coverage gap)
               Some(s)
             catch case _: Throwable => None
           fResult.getOrElse {
@@ -350,6 +350,47 @@ object RunNativeV2:
    *  literal, which is folded). Surface a specific, actionable message so a
    *  too-big literal fails CLOSED with a clear diagnostic instead of silently
    *  lowering to `0` (`v2-native-min64-literal-prints-0`). */
+  /** D2 (f-runner-structural-data): the F4a delegate-fallback pre-check — a Reader-FREE port of
+   *  `ssc.Reader.validate`, throwing on the same signals (unbound global, out-of-range local,
+   *  non-lam letrec binding). Calling `ssc.Reader.validate` here class-loaded `ssc.Reader` on the
+   *  F native path, which the v21-native-plugin-boundary / v21-plugin-backend-isolation smokes
+   *  forbid post-flip. This walk stays byte-for-byte behaviourally identical so the fallback (F ->
+   *  default front on a coverage gap) is unchanged; it just no longer touches the textual reader. */
+  private def validateNoReader(p: _root_.ssc.Program): Unit =
+    val defNames = p.defs.iterator.map(_.name).toSet
+    def globalOk(g: String): Boolean = defNames.contains(g) || g.startsWith("@")
+    def go(t: _root_.ssc.Term, depth: Int): Unit = t match
+      case _root_.ssc.Term.Lit(_) => ()
+      case _root_.ssc.Term.Local(i) =>
+        if i < 0 || i >= depth then
+          sys.error(s"local index out of range: (local $i) with $depth binder(s) in scope")
+      case _root_.ssc.Term.Global(g) =>
+        if !globalOk(g) then
+          sys.error(s"unbound global: (global $g) is neither a top-level def nor an @-cell")
+      case _root_.ssc.Term.Lam(ar, b)      => go(b, depth + ar)
+      case _root_.ssc.Term.App(fn, as)     => go(fn, depth); as.foreach(go(_, depth))
+      case _root_.ssc.Term.Let(rhs, body)  =>
+        rhs.iterator.zipWithIndex.foreach { case (r, i) => go(r, depth + i) }
+        go(body, depth + rhs.length)
+      case _root_.ssc.Term.LetRec(lams, body) =>
+        val d2 = depth + lams.length
+        lams.foreach {
+          case l: _root_.ssc.Term.Lam => go(l, d2)
+          case _                      => sys.error("letrec binding must be a lam")
+        }
+        go(body, d2)
+      case _root_.ssc.Term.If(c, th, el)   => go(c, depth); go(th, depth); go(el, depth)
+      case _root_.ssc.Term.Ctor(_, fs)     => fs.foreach(go(_, depth))
+      case _root_.ssc.Term.Prim(_, as)     => as.foreach(go(_, depth))
+      case _root_.ssc.Term.While(c, b)     => go(c, depth); go(b, depth)
+      case _root_.ssc.Term.Seq(ts)         => ts.foreach(go(_, depth))
+      case _root_.ssc.Term.Match(scrut, arms, default) =>
+        go(scrut, depth)
+        arms.foreach(a => go(a.body, depth + a.arity))
+        default.foreach(go(_, depth))
+    p.defs.foreach(d => go(d.body, 0))
+    go(p.entry, 0)
+
   private def intRangeSentinel(program: _root_.ssc.Program): Boolean =
     program.defs.exists(definition => intRangeSentinel(definition.body)) ||
       intRangeSentinel(program.entry)

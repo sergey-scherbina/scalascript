@@ -657,9 +657,11 @@ def sscNativeArgs = (args) =>
 --
 -- The mechanic (validated byte-identical to the F0.ir gate path): compile F's own source with the
 -- current front (parse+lowerProg), append a top-level expression `compile(userSrc, dq, bs)`, and
--- #coreir.eval it — F then lowers the user source to Core IR TEXT; #coreir.decode turns that text back
--- into the IrProg Data tree the structural ABI carries. dq/bs are the `"`/`\` strings F splices into its
--- output (P6.6b escape-free design), built via #sfromCodes so this driver has no `"`-in-a-string.
+-- #coreir.eval it — F then lowers the user source to Core IR TEXT; the self-hosted irTextToData (see
+-- D2 block below) turns that text back into the IrProg Data tree the structural ABI carries — WITHOUT
+-- #coreir.decode, so no ssc.Reader is class-loaded on the F native path. dq/bs are the `"`/`\` strings
+-- F splices into its output (P6.6b escape-free design), built via #sfromCodes so this driver has no
+-- `"`-in-a-string.
 def sscFsubSrcCell = #cell.new("")
 def sscConcatSources = (paths) =>
   match paths {
@@ -671,13 +673,148 @@ def sscConcatSources = (paths) =>
       else (if #i.eq(slen(src), 0) then more
       else #sconcat(src, #sconcat("\n\n", more)))
   }
+
+-- D2 (f-runner-structural-data): self-hosted S-expr -> IrProg-Data reader. Parses F's canonical
+-- Core IR TEXT (the Writer form, v2/src/CoreIR.scala) into EXACTLY the IrToData Data tree
+-- (v2/src/Runtime.scala) so the F native path never class-loads the Java ssc.Reader (which
+-- #coreir.decode does, tripping the v21-native-plugin-boundary / v21-plugin-backend-isolation
+-- smokes under an F-default `ssc run --native`). This lives in the ssc0 RUNNER — NOT in fsub.ssc —
+-- because F drops '#' (opCode 35 = 0) so #str->f/#str->big would mis-lex in the X1 fixpoint, and
+-- pure F cannot parse a float from a string. F's `compile` still emits text (fixpoint untouched);
+-- the runner reads that text via irTextToData, which loads no ssc.Reader. F's output is
+-- first-party/trusted, so this is a PLAIN recursive-descent parse — no fail-closed bounds/validation.
+-- ssc0 capitalized-ctor application builds DataV byte-identical to IrToData (IrProg/IrLam/IrArm/...);
+-- scalar leaves fall out as the kernel's natural IntV/StrV/BoolV/FloatV/BigV; lists are Cons/Nil.
+-- Verified: irTextToData(t) == #coreir.decode(t) (structural #__eq__) over all node/const forms.
+def d2fst = (p) => match p { case Pair(a, b) => a }
+def d2snd = (p) => match p { case Pair(a, b) => b }
+def d2isWs = (c) => if #i.eq(c, 32) then true else (if #i.eq(c, 10) then true else (if #i.eq(c, 9) then true else #i.eq(c, 13)))
+def d2skipWs = (s, i, n) => if #i.ge(i, n) then i else (if d2isWs(#scodeAt(s, i)) then d2skipWs(s, #i.add(i, 1), n) else i)
+def d2isDelim = (c) => if d2isWs(c) then true else (if #i.eq(c, 40) then true else (if #i.eq(c, 41) then true else #i.eq(c, 34)))
+def d2atomEnd = (s, i, n) => if #i.ge(i, n) then i else (if d2isDelim(#scodeAt(s, i)) then i else d2atomEnd(s, #i.add(i, 1), n))
+def d2readAtom = (s, i, n) => let i1 = d2skipWs(s, i, n) in let e = d2atomEnd(s, i1, n) in Pair(#sslice(s, i1, e), e)
+def d2rparen = (s, i, n) => #i.add(d2skipWs(s, i, n), 1)
+def d2strToInt = (a) => match #str->i(a) { case Some(x) => x case None => 0 }
+def d2strToBig = (a) => match #str->big(a) { case Some(x) => x case None => #i->big(0) }
+def d2strToFloat = (a) => match #str->f(a) { case Some(x) => x case None => 0 }
+def d2hexDig = (c) => if #i.ge(c, 48) then (if #i.le(c, 57) then #i.sub(c, 48) else (if #i.ge(c, 97) then (if #i.le(c, 102) then #i.sub(c, 87) else 0) else (if #i.ge(c, 65) then (if #i.le(c, 70) then #i.sub(c, 55) else 0) else 0))) else 0
+def d2hex4 = (s, i) => #i.add(#i.mul(#i.add(#i.mul(#i.add(#i.mul(d2hexDig(#scodeAt(s, i)), 16), d2hexDig(#scodeAt(s, #i.add(i, 1)))), 16), d2hexDig(#scodeAt(s, #i.add(i, 2)))), 16), d2hexDig(#scodeAt(s, #i.add(i, 3))))
+-- `(bytes <hex>)` never appears in F's output (F's front has no byte-literal syntax); this ASCII-only
+-- path exists for total-function completeness. Bytes >= 0x80 would need a codes->Bytes kernel prim.
+def d2hexCodes = (hx, i, n) => if #i.ge(i, n) then Nil else Cons(#i.add(#i.mul(d2hexDig(#scodeAt(hx, i)), 16), d2hexDig(#scodeAt(hx, #i.add(i, 1)))), d2hexCodes(hx, #i.add(i, 2), n))
+def d2hexToBytes = (hx) => #str->utf8(#sfromCodes(d2hexCodes(hx, 0, #slen(hx))))
+def d2readStr = (s, i, n) => let i1 = d2skipWs(s, i, n) in d2strBody(s, #i.add(i1, 1), n, "")
+def d2strBody = (s, i, n, acc) =>
+  if #i.ge(i, n) then Pair(acc, i)
+  else let c = #scodeAt(s, i) in
+    if #i.eq(c, 34) then Pair(acc, #i.add(i, 1))
+    else if #i.eq(c, 92) then d2strEsc(s, #i.add(i, 1), n, acc)
+    else d2strBody(s, #i.add(i, 1), n, #sconcat(acc, #sslice(s, i, #i.add(i, 1))))
+def d2strEsc = (s, i, n, acc) =>
+  let e = #scodeAt(s, i) in
+  if #i.eq(e, 34) then d2strBody(s, #i.add(i, 1), n, #sconcat(acc, #sfromCodes(Cons(34, Nil))))
+  else if #i.eq(e, 92) then d2strBody(s, #i.add(i, 1), n, #sconcat(acc, #sfromCodes(Cons(92, Nil))))
+  else if #i.eq(e, 110) then d2strBody(s, #i.add(i, 1), n, #sconcat(acc, #sfromCodes(Cons(10, Nil))))
+  else if #i.eq(e, 114) then d2strBody(s, #i.add(i, 1), n, #sconcat(acc, #sfromCodes(Cons(13, Nil))))
+  else if #i.eq(e, 116) then d2strBody(s, #i.add(i, 1), n, #sconcat(acc, #sfromCodes(Cons(9, Nil))))
+  else if #i.eq(e, 117) then d2strBody(s, #i.add(i, 5), n, #sconcat(acc, #sfromCodes(Cons(d2hex4(s, #i.add(i, 1)), Nil))))
+  else d2strBody(s, #i.add(i, 1), n, #sconcat(acc, #sslice(s, i, #i.add(i, 1))))
+def d2const = (s, j, n) =>
+  let i1 = d2skipWs(s, j, n) in
+  if #i.eq(#scodeAt(s, i1), 40) then d2constList(s, #i.add(i1, 1), n)
+  else let a = d2readAtom(s, i1, n) in let av = d2fst(a) in
+    Pair(if #seq(av, "unit") then IrUnit else (if #seq(av, "true") then IrBool(true) else IrBool(false)), d2snd(a))
+def d2constList = (s, i, n) =>
+  let ka = d2readAtom(s, i, n) in let k = d2fst(ka) in let j = d2snd(ka) in
+  if #seq(k, "int") then let a = d2readAtom(s, j, n) in Pair(IrInt(d2strToInt(d2fst(a))), d2rparen(s, d2snd(a), n))
+  else if #seq(k, "big") then let a = d2readAtom(s, j, n) in Pair(IrBig(d2strToBig(d2fst(a))), d2rparen(s, d2snd(a), n))
+  else if #seq(k, "float") then let a = d2readAtom(s, j, n) in Pair(IrFloat(d2strToFloat(d2fst(a))), d2rparen(s, d2snd(a), n))
+  else if #seq(k, "str") then let sv = d2readStr(s, j, n) in Pair(IrStr(d2fst(sv)), d2rparen(s, d2snd(sv), n))
+  else let i1 = d2skipWs(s, j, n) in
+    if #i.eq(#scodeAt(s, i1), 41) then Pair(IrBytes(#str->utf8("")), #i.add(i1, 1))
+    else let a = d2readAtom(s, i1, n) in Pair(IrBytes(d2hexToBytes(d2fst(a))), d2rparen(s, d2snd(a), n))
+def d2term = (s, i, n) =>
+  let i1 = d2skipWs(s, i, n) in
+  let ha = d2readAtom(s, #i.add(i1, 1), n) in
+  d2dispatch(d2fst(ha), s, d2snd(ha), n)
+def d2termList = (s, i, n) =>
+  let i1 = d2skipWs(s, i, n) in
+  if #i.eq(#scodeAt(s, i1), 41) then Pair(Nil, #i.add(i1, 1))
+  else let t = d2term(s, i1, n) in let rest = d2termList(s, d2snd(t), n) in Pair(Cons(d2fst(t), d2fst(rest)), d2snd(rest))
+def d2dispatch = (h, s, j, n) =>
+  if #seq(h, "lit") then let cp = d2const(s, j, n) in Pair(IrLit(d2fst(cp)), d2rparen(s, d2snd(cp), n))
+  else if #seq(h, "local") then let a = d2readAtom(s, j, n) in Pair(IrLocal(d2strToInt(d2fst(a))), d2rparen(s, d2snd(a), n))
+  else if #seq(h, "global") then let a = d2readAtom(s, j, n) in Pair(IrGlobal(d2fst(a)), d2rparen(s, d2snd(a), n))
+  else if #seq(h, "lam") then let a = d2readAtom(s, j, n) in let b = d2term(s, d2snd(a), n) in Pair(IrLam(d2strToInt(d2fst(a)), d2fst(b)), d2rparen(s, d2snd(b), n))
+  else if #seq(h, "app") then let fn = d2term(s, j, n) in let as = d2termList(s, d2snd(fn), n) in Pair(IrApp(d2fst(fn), d2fst(as)), d2snd(as))
+  else if #seq(h, "let") then let i1 = d2skipWs(s, j, n) in let rhs = d2termList(s, #i.add(i1, 1), n) in let b = d2term(s, d2snd(rhs), n) in Pair(IrLet(d2fst(rhs), d2fst(b)), d2rparen(s, d2snd(b), n))
+  else if #seq(h, "letrec") then let i1 = d2skipWs(s, j, n) in let ls = d2termList(s, #i.add(i1, 1), n) in let b = d2term(s, d2snd(ls), n) in Pair(IrLetRec(d2fst(ls), d2fst(b)), d2rparen(s, d2snd(b), n))
+  else if #seq(h, "if") then let c = d2term(s, j, n) in let t = d2term(s, d2snd(c), n) in let e = d2term(s, d2snd(t), n) in Pair(IrIf(d2fst(c), d2fst(t), d2fst(e)), d2rparen(s, d2snd(e), n))
+  else if #seq(h, "ctor") then let tg = d2readAtom(s, j, n) in let fs = d2termList(s, d2snd(tg), n) in Pair(IrCtor(d2fst(tg), d2fst(fs)), d2snd(fs))
+  else if #seq(h, "prim") then let op = d2readAtom(s, j, n) in let as = d2termList(s, d2snd(op), n) in Pair(IrPrim(d2fst(op), d2fst(as)), d2snd(as))
+  else if #seq(h, "while") then let c = d2term(s, j, n) in let b = d2term(s, d2snd(c), n) in Pair(IrWhile(d2fst(c), d2fst(b)), d2rparen(s, d2snd(b), n))
+  else if #seq(h, "seq") then let ts = d2termList(s, j, n) in Pair(IrSeq(d2fst(ts)), d2snd(ts))
+  else if #seq(h, "match") then d2pMatch(s, j, n)
+  else Pair(IrLit(IrUnit), j)
+def d2pMatch = (s, j, n) =>
+  let sc = d2term(s, j, n) in
+  let i1 = d2skipWs(s, d2snd(sc), n) in
+  let arms = d2armList(s, #i.add(i1, 1), n) in
+  let df = d2default(s, d2snd(arms), n) in
+  Pair(IrMatch(d2fst(sc), d2fst(arms), d2fst(df)), d2snd(df))
+def d2armList = (s, i, n) =>
+  let i1 = d2skipWs(s, i, n) in
+  if #i.eq(#scodeAt(s, i1), 41) then Pair(Nil, #i.add(i1, 1))
+  else let a = d2arm(s, i1, n) in let rest = d2armList(s, d2snd(a), n) in Pair(Cons(d2fst(a), d2fst(rest)), d2snd(rest))
+def d2arm = (s, i, n) =>
+  let i1 = d2skipWs(s, i, n) in
+  let ha = d2readAtom(s, #i.add(i1, 1), n) in
+  let tg = d2readAtom(s, d2snd(ha), n) in
+  let ar = d2readAtom(s, d2snd(tg), n) in
+  let b = d2term(s, d2snd(ar), n) in
+  Pair(IrArm(d2fst(tg), d2strToInt(d2fst(ar)), d2fst(b)), d2rparen(s, d2snd(b), n))
+def d2default = (s, i, n) =>
+  let i1 = d2skipWs(s, i, n) in
+  if #i.eq(#scodeAt(s, i1), 41) then Pair(None, #i.add(i1, 1))
+  else let ha = d2readAtom(s, #i.add(i1, 1), n) in let dt = d2term(s, d2snd(ha), n) in let k = d2rparen(s, d2snd(dt), n) in Pair(Some(d2fst(dt)), d2rparen(s, k, n))
+def d2def = (t, i, n) =>
+  let i1 = d2skipWs(t, i, n) in
+  let ha = d2readAtom(t, #i.add(i1, 1), n) in
+  let nm = d2readAtom(t, d2snd(ha), n) in
+  let b = d2term(t, d2snd(nm), n) in
+  Pair(IrDef(d2fst(nm), d2fst(b)), d2rparen(t, d2snd(b), n))
+def d2defList = (t, i, n) =>
+  let i1 = d2skipWs(t, i, n) in
+  if #i.eq(#scodeAt(t, i1), 41) then Pair(Nil, #i.add(i1, 1))
+  else let d = d2def(t, i1, n) in let rest = d2defList(t, d2snd(d), n) in Pair(Cons(d2fst(d), d2fst(rest)), d2snd(rest))
+def d2defs = (t, i, n) =>
+  let i1 = d2skipWs(t, i, n) in
+  let ha = d2readAtom(t, #i.add(i1, 1), n) in
+  d2defList(t, d2snd(ha), n)
+def d2entry = (t, i, n) =>
+  let i1 = d2skipWs(t, i, n) in
+  let ha = d2readAtom(t, #i.add(i1, 1), n) in
+  let e = d2term(t, d2snd(ha), n) in
+  Pair(d2fst(e), d2rparen(t, d2snd(e), n))
+def irTextToData = (t) =>
+  let n = #slen(t) in
+  let i0 = d2skipWs(t, 0, n) in
+  let ha = d2readAtom(t, #i.add(i0, 1), n) in
+  let defsP = d2defs(t, d2snd(ha), n) in
+  let entryP = d2entry(t, d2snd(defsP), n) in
+  IrProg(d2fst(defsP), d2fst(entryP))
+
 def sscFsubIr = (userSrc) =>
   let fSrc = #utf8->str(#io.readFile(#cell.get(sscFsubSrcCell))) in
   let dq = #sfromCodes(Cons(34, Nil)) in
   let bs = #sfromCodes(Cons(92, Nil)) in
   let callExpr = mkApp(mkVar("compile"), Cons(mkStr(userSrc), Cons(mkStr(dq), Cons(mkStr(bs), Nil)))) in
   let fProg = sscApp(parse(fSrc), Cons(Pair("expr", callExpr), Nil)) in
-  #coreir.decode(#coreir.eval(lowerProg(fProg)))
+  -- D2: F's `compile` emits the user IR as canonical TEXT (via #coreir.eval running F0); the
+  -- self-hosted irTextToData parses that text into the IrProg Data tree WITHOUT #coreir.decode,
+  -- so the F native path class-loads no ssc.Reader. callExpr stays `compile(...)` — F still emits
+  -- text, so the X1 fixpoint is byte-identical.
+  irTextToData(#coreir.eval(lowerProg(fProg)))
 
 def main = () =>
   let paths = sscNativeArgs(#io.args()) in
