@@ -52,6 +52,17 @@ private def dispatch(args: List[String]): Unit = args match
     Runtime.argv = rest
     val prog = Reader.parseProgram(read(file))
     out(Runtime.runManaged(Compiler.compile(prog), Array.empty[Value]))
+  case "freeze-capsule" :: file :: rest =>      // freeze a Portable capsule (demo resume) -> file
+    val frame = rest.headOption.flatMap(_.toLongOption).getOrElse(0L)
+    java.nio.file.Files.writeString(
+      java.nio.file.Paths.get(file),
+      Capsule.encode(frame, Capsule.demoResume)
+    )
+  case "run-capsule" :: file :: rest =>         // admit + run a Portable capsule holding NO machine
+    val inputN = rest.headOption
+      .flatMap(_.toLongOption)
+      .getOrElse(sys.error("run-capsule: integer input required"))
+    out(Capsule.run(Capsule.decode(read(file)), inputN))
   case "bench-ir" :: file :: rest =>            // in-process bench: warmup + timed reps, print median ms
     val warmup = intArg(rest, "--warmup", 10)
     val reps   = intArg(rest, "--reps",  100)
@@ -78,6 +89,8 @@ private def dispatch(args: List[String]): Unit = args match
         |  ssc run-ir  <file.coreir> [args...]  run pre-compiled Core IR bytecode
         |  ssc bench-ir <file.coreir> [--warmup N] [--reps N]
         |                                        in-process bench: prints median ms/op
+        |  ssc freeze-capsule <file> [frame]    freeze a Portable capsule (demo resume) to file
+        |  ssc run-capsule <file> <input>       admit + run a Portable capsule (holds no machine)
         |
         |  program args are read inside the program via #io.args()""".stripMargin)
     sys.exit(2)
