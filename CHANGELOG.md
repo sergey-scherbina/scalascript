@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-07-23 — Cross-host ExactArtifact resume proven JVM↔JS (foundation for vector 15)
+
+Demonstrates the axis the whole DurableValue model exists to enable: a durable capsule saved by one host
+runtime is decoded and RUN by a different host runtime with byte-identical observable output
+(control-interoperability §14.3 item 9, §14.4). A canonical "cross-host" capsule (resume point
+`cross-host`, `input * 10` machine, int frame, format v3) is now asserted on both host lanes — Scala
+`CrossHostResumeTest` and JS `control.test.js` — which each (1) FREEZE to the exact same wire bytes and
+(2) DECODE those bytes as a foreign capsule, restore on their own independently-defined resume point,
+and run (`7→70`, `3→30`). Because both lanes independently produce AND consume the identical wire, the
+JVM↔JS N→M cross product is closed transitively; a mismatched resume-point id is rejected at admission.
+This is the **ExactArtifact** realization (the resume machine is held independently by each host; only
+the frame/id/ABI travel). It does **not** flip conformance vector `15-cross-host-resume`, which remains
+`pending-codec`: that vector's Portable CodeMode (the resume program itself travelling as a CoreIR
+payload for a runner that does not pre-hold the machine) plus a native portable-VM runner remain
+v2/native work — the `pending/15` record is updated to record this foundation. 24/26 vectors specified
+(unchanged). Scala 155/155, JS 66/66, `run.sh` catalog PASS (26 vectors/9 lanes), validator negative
+cases 9/9.
+
 ## 2026-07-23 — SingletonFailoverTest migration window widened (ci-red-main residual)
 
 After the virtual-thread-carrier hang fix let the `sbt — compile and test` job complete, the residual

@@ -5193,8 +5193,16 @@ dynamic saved-capsule runner.
   is justified + pinned (`["16"]`), NOT silent. `concurrent-multi-shot` pending-codec→specified
   (host-only, `structured`, oracle `100-independent-runs`); verified deterministic across repeated
   runs. Now **24/26 vectors specified** (Scala 153/153, JS 64/64, ABI 6/6, catalog PASS 26/9, validator
-  negatives 9/9). STILL OPEN (2): 15 (cross-host — remote runner = v2/native, cross-module), 26
-  (cancellation — pending-spec, no spec exists).
+  negatives 9/9). **CROSS-HOST ExactArtifact FOUNDATION landed (`durable-crosshost-capability`, does NOT
+  flip vector 15):** a canonical `cross-host` capsule (timesTen machine, int frame, format v3) is FROZEN
+  to byte-identical bytes by both host lanes AND decoded+restored+run by both (Scala CrossHostResumeTest
+  + JS control.test.js `7→70/3→30`), closing the JVM↔JS N→M cross product transitively (§14.3 item 9,
+  §14.4) — the axis the whole DurableValue model exists to enable. ExactArtifact CodeMode (machine held
+  per host; only frame/id/ABI travel); `pending/15` updated. Scala 155/155, JS 66/66. STILL OPEN (2):
+  **15** (Portable CodeMode = CoreIR resume-program payload + native portable-VM runner = v2/native; the
+  ExactArtifact half is now done), **26** (cancellation — `pending-spec`, DELIBERATELY owner-unspecified:
+  the pending record forbids inventing the race/report/diagnostic rules — needs the semantic owner to
+  freeze them, not a harness flip).
   Original blocked note (now superseded)
   preserved: BLOCKED, do not start: every one of its three
   deliverables is gated on work that does not exist yet. Measured 2026-07-16 on
