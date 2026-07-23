@@ -104,7 +104,7 @@ object Reader:
     * Override with `-Dssc.coreir.maxDepth=N` for a deliberately deep experiment.
     *
     * NOTE (recorded, not silently fixed): bounding the *reader* does not by itself make the
-    * whole capsule path DoS-safe. `Compiler.valuePositionsNeedEffectThreading` / `FastCode.tryFC`
+    * whole capsule path DoS-safe. `Compiler.valuePositionsNeedEffectThreading` / `C.compile`
     * independently overflow at ~depth 500 on `-Xss1m` — a separate unbounded recursion, tracked
     * in `BUGS.md` as `coreir-compiler-unbounded-depth`. This bound is the codec's half. */
   val MaxDepth: Int = Option(System.getProperty("ssc.coreir.maxDepth")).flatMap(_.toIntOption).getOrElse(1000)
