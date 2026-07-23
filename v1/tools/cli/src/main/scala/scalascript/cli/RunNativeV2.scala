@@ -486,15 +486,19 @@ object RunNativeV2:
       // lower a program. Equals `runner` in the default lane; the ssc1-run.ssc0 path in F-mode.
       defaultRunner: java.io.File)
 
-  /** F4 front swap (REVERSIBLE, default UNCHANGED). `SSC_FRONT=F` opts the native tier into the
-   *  self-hosting subset compiler F (specs/v2.2-p6.5-fsub.ssc, staged as tower/bin/fsub.ssc) as the
-   *  lowerer, via the tower/bin/ssc1-run-fsub.ssc0 runner. The default (unset / any other value) stays
-   *  the untyped ssc1-front+ssc1-lower runner ssc1-run.ssc0. The checker (ssc1-check-run.ssc0) is kept
-   *  beside F in BOTH modes — F is a parser+lowerer, not a checker. The irreversible default flip
-   *  (step 4) is a one-line change here (`ssc1-run.ssc0` → `ssc1-run-fsub.ssc0` + wire fsubSrc always)
-   *  held by Sergiy; this flag makes staging fully reversible. */
+  /** F4 front swap — FLIPPED (2026-07-23, Sergiy). The self-hosting subset compiler F
+   *  (specs/v2.2-p6.5-fsub.ssc, staged as tower/bin/fsub.ssc, run via tower/bin/ssc1-run-fsub.ssc0) is
+   *  now the DEFAULT native lowerer; `SSC_FRONT=legacy` is the escape hatch back to the untyped
+   *  ssc1-front+ssc1-lower runner ssc1-run.ssc0 (kept as the F4a delegate-fallback `defaultRunner`, so F
+   *  is never-worse-than-legacy). `SSC_FRONT=F`/`fsub` still select F (backward compatible). The checker
+   *  (ssc1-check-run.ssc0) is kept beside F in BOTH modes — F is a parser+lowerer, not a checker. The
+   *  flip is REVERSIBLE: set `SSC_FRONT=legacy`, or revert this one line to the opt-in form. Cleared to
+   *  flip after every blocker landed: multi-file residuals (mcp-types last), int-literal-overflow,
+   *  md-interpolator, and the plugin-boundary/isolation `ssc.Reader` load (③.2, fixed by D2 —
+   *  ssc1-run-fsub emits IrProg Data directly, RunNativeV2 uses validateNoReader). Readiness verified:
+   *  the full e2e smoke set (72 scripts) is A/B-green under F vs legacy — zero F-only regressions. */
   private def frontIsF: Boolean =
-    sys.env.get("SSC_FRONT").exists(v => v == "F" || v.equalsIgnoreCase("fsub"))
+    !sys.env.get("SSC_FRONT").exists(_.equalsIgnoreCase("legacy"))
 
   private def nativeFrontLayout(): NativeFrontLayout =
     val installRoot = Option(System.getProperty("ssc.lib.path")).map(new java.io.File(_)).getOrElse {
