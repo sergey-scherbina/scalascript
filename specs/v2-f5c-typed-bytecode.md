@@ -286,3 +286,38 @@ switch-independent — so it is NOT localized whether the CI red is a real v2-by
 misattributed v1-codegen KNOWN-RED (`specs/numeric-widths.md §4`). Re-attempt only after that is resolved,
 with the FULL conformance suite (int-boundary set) in the maturity gate. **f5c-3 + the removal are
 BACKLOG, gated on the re-landed CI-green switch.**
+
+### Switch RE-LANDED (2026-07-23) — the int64 revert was a v1-codegen misattribution (PROVEN by the full suite)
+Re-applied byte-identical to `c05924863` (`StandardMain.runNative` default VM→bytecode via
+`defaultExecBytecode`; reversible `--interpret`/`--vm`/`SSC_EXEC=vm`). Landed on a now-GREEN CI baseline,
+after the FULL flip-level maturity gate (the 2-revert lesson: FULL conformance + FULL e2e-smoke, not the
+examples sweep that missed the out-of-corpus issue both prior times).
+
+**The int64 revert reason is DEFINITIVELY a v1-codegen misattribution — proven by running the FULL
+conformance suite ON THE NEW DEFAULT.** The `int-width` case: `PASS [JVM/v2]` (v2 bytecode) and
+`PASS [JS/v2]` (v2 JS) are 64-bit-EXACT (`2147483648`/`9007199254740993`/`9223372036854775807` all exact);
+the `-2147483648` / `max64→double` / `2^53+1`-exactness-lost values are on the DECLARED `KNOWN-RED [JVM]`
+and `KNOWN-RED [JS]` lanes = the **v1 codegen** (expires when v1 codegen is deleted, `specs/numeric-widths.md
+§4`). The switch flips only `ssc run --v2` (the conformance V2 lane) VM→bytecode; that lane and every
+`*/v2` lane pass. All 4 conformance known-reds are v1-codegen (JVM/JS), switch-independent.
+
+**FULL maturity gate (all green on the new default):**
+- FULL conformance suite: **297 passed / 0 failed** (+2 pending, 4 declared v1-codegen known-reds).
+- FULL e2e-smoke A/B (ALL 76 smokes, bytecode default vs `SSC_EXEC=vm`): **0 real divergences** —
+  35 both-pass, 40 env-not-eligible (legacy `dirname/..` smokes that fail on BOTH lanes = can't be a
+  regression). The thorough A/B surfaced ONE divergence that CI's curated subset does NOT run:
+  `v21-explicit-swift-provider` — an ERROR-PATH diagnostic-ordering artifact, NOT a program regression
+  (plain `ssc run` REJECTS the SwiftProvider-requiring program on BOTH lanes = security invariant held;
+  positive provider-loaded path byte-identical vm==asm; only the first unbound-global named differs —
+  `SwiftProvider` interp vs `ChargeBearer` bytecode). Fixed intent-preservingly (mirrors the isolation-smoke
+  update): relaxed the rejection assertion `unbound global: SwiftProvider` → lane-agnostic `unbound
+  global:`. **Confirmed still fail-loud on a real violation** (layer 1 exits if plain ssc succeeds/rc0 =
+  loaded; layer 2 requires the rejection be an unbound-global — a non-rejection trips one of the two;
+  verified against synthetic violation vectors). Now passes A/B on both lanes.
+- int-boundary 2^31/max64/2^53+1 exact; **semantic 248/248**; **X1 fixpoint byte-identical** (32824 B);
+  **v2JvmBytecode/compile** green.
+
+**Reversible + CI is the out-of-corpus net.** The switch keeps the `--interpret`/`SSC_EXEC=vm` opt-out; the
+release is gated on this switch's CI going green against the now-green baseline (ready to revert if CI
+surfaces a genuine NEW out-of-corpus regression). **Next: f5c-3 (typed `f.*`/accumulator) then the
+FastCode/SelfRec removal — gated on the switch's CI-green, NOT yet started.**

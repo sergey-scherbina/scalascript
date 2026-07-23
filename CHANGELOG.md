@@ -1,5 +1,36 @@
 # Changelog
 
+## 2026-07-23 — v2-f5c: JVM-bytecode lane RE-LANDED as the DEFAULT `ssc run` backend (Option A)
+
+Re-applies the f5c Option-A switch (byte-identical to `c05924863`, reverted `c6ddf0a4f`): `ssc run` now
+executes on the JIT-compiling JVM-bytecode lane by default. Reversible opt-out `--interpret` / `--vm` /
+`SSC_EXEC=vm` selects the tree-walking VM (mirrors `SSC_FRONT=legacy`); `--bytecode` / `SSC_EXEC=bytecode`
+force bytecode. Safe on the prior prerequisites: the link-time fallback (`b5949022a`) + stack-safe effectful
+loops (`dc6843887`) — no program hard-fails on the new default.
+
+**The two revert reasons were both misattributions, now proven.** (1) The CI-red was `durable-save-run` (a
+separate effect-verifier false-positive, since fixed) on a now-GREEN baseline. (2) The "int64 wrap" was the
+DECLARED v1-codegen KNOWN-RED, not v2-bytecode — proven by the FULL conformance suite run ON THE NEW
+DEFAULT: the `int-width` case is `PASS [JVM/v2]` + `PASS [JS/v2]` (v2 bytecode + v2 JS lanes 64-bit-exact),
+while the `2147483648→-2147483648` / `max64→double` / `2^53+1` divergences are only on `KNOWN-RED [JVM]`/
+`[JS]` = the v1 codegen (`specs/numeric-widths.md §4`, expire when v1 codegen is deleted).
+
+Landed only after the FULL flip-level maturity gate (the lesson from the 2 reverts — run the FULL
+conformance suite + FULL e2e-smoke suite, NOT just the examples/corpus sweep that missed the out-of-corpus
+issue both prior times): FULL conformance **297 passed / 0 failed** (4 declared known-reds, all v1-codegen
+JVM/JS, switch-independent); FULL e2e-smoke A/B over **all 76 smokes** — **0 real divergences** (35 both-pass,
+40 env-not-eligible). The thorough A/B surfaced one divergence CI's curated subset does not run,
+`v21-explicit-swift-provider`: an error-path diagnostic-ordering artifact (plain `ssc run` REJECTS the
+SwiftProvider-requiring program on both lanes = the "no silent SWIFT load" security invariant holds; the
+positive provider-loaded path is byte-identical vm==asm; only the first unbound-global named differs —
+`SwiftProvider` on the interpreter, `ChargeBearer` on bytecode). Fixed intent-preservingly (like the
+isolation-smoke update): the rejection assertion relaxed from the interpreter-specific `unbound global:
+SwiftProvider` to the lane-agnostic `unbound global:`, confirmed to stay fail-loud on a real violation
+(layer 1 exits if plain ssc succeeds = loaded SWIFT; layer 2 requires the rejection be an unbound-global).
+Also int-boundary 2^31/max64/2^53+1 exact; semantic 248/248; X1 fixpoint byte-identical; `v2JvmBytecode/
+compile`. Reversible + CI is the out-of-corpus net. Next (gated on this switch's CI-green): f5c-3 then the
+FastCode/SelfRec removal.
+
 ## 2026-07-22 — ci-red-main sbt-job HANG fixed (virtual-thread carrier starvation)
 
 The `sbt — compile and test` job intermittently hung to its 200-min GitHub timeout under CI load (long

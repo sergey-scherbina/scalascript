@@ -401,6 +401,22 @@ removal becomes perf-neutral.
       run.sc's explicit lanes make the default-backend switch causally decoupled. **f5c-SWITCH is now
       de-risked on the int64 axis** — re-attempt is unblocked on int64; the maturity gate SHOULD still run
       the full conformance suite (not just examples) to catch any OTHER out-of-corpus regression.
+- [x] **f5c-SWITCH RE-LANDED (2026-07-23) — bytecode is the default `ssc run` backend again.** Byte-identical
+      to `c05924863` (`StandardMain` default VM→bytecode via `defaultExecBytecode`; reversible
+      `--interpret`/`--vm`/`SSC_EXEC=vm`). Landed on the now-GREEN CI baseline after the FULL flip-level
+      maturity gate (the 2-revert lesson applied HARD — FULL conformance + FULL e2e-smoke, not the examples
+      sweep). **int64 revert reason PROVEN a v1-codegen misattribution** by the full conformance run on the
+      new default: `int-width` `PASS [JVM/v2]`+`PASS [JS/v2]` (v2 bytecode/JS int64-exact); the
+      `-2147483648`/`max64→double`/`2^53+1` divergences are the DECLARED `KNOWN-RED [JVM]`/`[JS]` = v1
+      codegen. Gates: FULL conformance **297 passed/0 failed** (4 known-reds all v1-codegen, switch-indep);
+      FULL e2e-smoke A/B (ALL 76) **0 real divergences** (35 both-pass, 40 env-not-eligible); the thorough
+      A/B caught ONE divergence CI does not run — `v21-explicit-swift-provider` error-path diagnostic-ordering
+      (plain ssc rejects the SWIFT prog on BOTH lanes = security held; only the first unbound-global name
+      differs SwiftProvider/ChargeBearer) — fixed intent-preservingly (assertion relaxed to lane-agnostic
+      `unbound global:`, confirmed still fail-loud on a real SWIFT-load); int-boundary exact; semantic
+      248/248; X1 fixpoint byte-identical; v2JvmBytecode/compile. **Claim stays OPEN — release gated on this
+      switch's CI going green vs the baseline (reversible, ready to revert on a genuine NEW out-of-corpus
+      regression). f5c-3 + the removal stay BACKLOG, gated on the switch's CI-green — NOT started.**
 - [ ] **f5c-3 (NEXT — before the removal) — f.* double + `lcell`/`dcell` accumulator `i.*`** recognition in
       JvmByteGen (the 2 remaining `__arith__`-only sites) so float/accumulator numeric is fast on the default
       lane BEFORE the removal (else the removal regresses those classes on `ssc run`). Gate: byte-identical +
