@@ -62,6 +62,13 @@ provider, or the F cutover path from these tasks** (collision). These six are th
       item 2: D1 scope the isolation guard / D2 F emits structural Data directly / D3 kernel decode without
       Reader; recommend D1 near-term). RunNativeV2 change NOT landed (main pristine). Re-flip STILL HELD (③.2
       design decision + the separate durable-save-run CI baseline, whose fix just landed — verify before any flip).
+      **UPDATE 2026-07-23 (③.2 FIXED via D2, landed cca93b867):** Sergiy chose D2. CORRECTION to the pin above —
+      `RunNativeV2:101 validate` was NOT a red herring; it is the SECOND `ssc.Reader` source (both decode AND
+      validate load it: decode-only removal → 12×, validate-only → ~24×, both → 0×). D2 removed BOTH: (a)
+      self-hosted `irTextToData` in the ssc0 runner `ssc1-run-fsub.ssc0` replaces `#coreir.decode`; (b) Reader-free
+      `validateNoReader` replaces `Reader.validate`. MEASURED zero `ssc.Reader` under `SSC_FRONT=F` == legacy; both
+      isolation smokes green A/B; X1 fixpoint byte-identical (405,396 B, `fsub.ssc` untouched); semantic 248/248;
+      dualrun 45/45. Flip (`frontIsF`) is now unblocked on the smoke-isolation axis — still orchestrator-held.
 
 ---
 
