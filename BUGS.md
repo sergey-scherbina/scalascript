@@ -32,7 +32,27 @@ e.g. add to the catch at `JdkServerBackend.scala:110-112`:
 
 ## f-native-multi-file-positional-args-reversed — `ssc run --native A.ssc B.ssc` runs files in REVERSE order under F
 
-**Status:** OPEN (found 2026-07-23 by opus during `v2-f4-reflip-D1` verification). A new, minimal,
+**Status:** FIXED 2026-07-23 by opus (`fa19761c2`). Root cause: F's native runner
+(`v2/bin/ssc1-run-fsub.ssc0`) re-lowers the multi-file closure from a source string it rebuilds with
+`sscConcatSources(seen)`. `seen` is the loaders' flat dedup list in **reverse-pre-order**, which reverses
+SIBLINGS (multiple positional roots, and — latent — multiple sibling imports), so `A.ssc B.ssc` concatenated
+as B-then-A. The legacy runner (`ssc1-run.ssc0`) instead does `lowerProg(allStmts)`, and `allStmts` is
+accumulated in correct POST-ORDER via `sscApp` — hence the F-vs-legacy divergence the F4 default flip
+exposed (cli/Test `V2RunArgvCliTest` case "run --v2 keeps multi-file positionals … as source files",
+`List("second","first") != List("first","second")`). **Fix:** a dedicated post-order path traversal
+(`sscOrderMod`/`sscOrderImps`/`sscOrderRoot`/`sscOrderRoots`) mirroring the `sscLoad*` loaders' `sscApp`
+accumulation but yielding ordered SOURCE PATHS; `main` concats `sscConcatSources(orderedPaths)`. The shared
+loaders can't return this list (the front-matter/markdown/content projectors read their def slot), hence the
+duplication. `seen` threading is byte-identical, so the structural content projection's `reverse(seen)` is
+unchanged. Verified: `V2RunArgvCliTest` 2/2 green; A/B byte-identical F-vs-legacy on 2-file, 3-file,
+reversed-arg, and import-before-root (`70d5bbabf` guard) scenarios; L48 fixture `first\nsecond`; P6.6
+self-compilation fixpoint stage1==stage2 byte-identical (runner-only change — the fixpoint/semantic gates
+operate on `fsub.ssc`, untouched). Distinct from the tracked `dualrun.expected` IMPORT-value-lowering
+residuals.
+
+<details><summary>Original report (2026-07-23, opus during <code>v2-f4-reflip-D1</code>)</summary>
+
+A new, minimal,
 deterministic manifestation of the DOCUMENTED "multi-file source-concatenation" caveat class (spec
 `specs/v2-language-surface.md` §7 F4a; `specs/v2.2-p6.5-dualrun.expected`). The F4 flip (F is the default
 native front, `10bb15bfa`) is LIVE with that caveat accepted by Sergiy; this entry records the SMALLEST
@@ -68,6 +88,10 @@ script-level both-fail masks the check-level F divergence.)
 fallback cannot help (F resolves all globals and produces a WRONG value, so there is no error to trigger
 the F4a delegate-fallback). Deep F-lane change; part of the F5b typed-IR arc. Interim workaround:
 `SSC_FRONT=legacy bin/ssc run --native …` for multi-positional-file runs.
+(Superseded: the fix was NOT a deep typed-IR change — the runner's source-concat order was wrong;
+correcting it to post-order matched legacy. See Status above.)
+
+</details>
 
 ## ci-vthread-carrier-starvation-hang — `Test via sbt` hangs to its 200-min timeout under CI load
 

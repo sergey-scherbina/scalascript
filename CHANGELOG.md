@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-07-23 — f-multifile-positional-order: preserve positional file order in F's multi-file closure
+
+Fixes the remaining blocker to the F4 re-flip's green CI: with F the default native front, the
+`cli/Test` `V2RunArgvCliTest` case "run --v2 keeps multi-file positionals … as source files" was RED
+(`List("second","first") != List("first","second")`). `ssc run --native A.ssc B.ssc` ran the files in
+REVERSE order under F. Root cause: F's native runner (`v2/bin/ssc1-run-fsub.ssc0`) re-lowers the
+multi-file closure from a source string it rebuilds with `sscConcatSources(seen)`; `seen` is the
+loaders' flat dedup list in **reverse-pre-order**, which reverses siblings (multiple positional roots,
+and — latent — multiple sibling imports), so `A B` concatenated as B-then-A. The legacy runner
+(`ssc1-run.ssc0`) instead does `lowerProg(allStmts)` where `allStmts` is accumulated in correct
+post-order — hence the F-vs-legacy divergence the flip exposed (same bug class as the import-order fix
+`70d5bbabf`, but for siblings rather than imports-before-root).
+
+Fix: a dedicated post-order path traversal (`sscOrderMod`/`sscOrderImps`/`sscOrderRoot`/`sscOrderRoots`)
+mirroring the `sscLoad*` loaders' `sscApp` accumulation but yielding ordered SOURCE PATHS; `main` concats
+`sscConcatSources(orderedPaths)`. The shared loaders can't be augmented (the front-matter/markdown/content
+projectors read their def slot). `seen` threading is byte-identical, so the structural content
+projection's `reverse(seen)` is unchanged. Runner-only change — the X1/P6.6 self-compilation fixpoint and
+the semantic gate operate on `fsub.ssc` and are untouched. Verified: `V2RunArgvCliTest` 2/2 green; A/B
+byte-identical F-vs-legacy on 2-file, 3-file, reversed-arg, and import-before-root scenarios; L48 fixture
+`first\nsecond`; P6.6 fixpoint stage1==stage2 byte-identical (32824 B). Does not touch
+`RunNativeV2.frontIsF` or the F5c exec-default. Closes `BUGS.md`
+`f-native-multi-file-positional-args-reversed` (cf23c5feb).
+
 ## 2026-07-23 — wsproxy-teardown-race: benign-guard the WS upgrade-handler dispatch
 
 Fixes the last blocker to the F4 re-flip's green CI: an uncaught

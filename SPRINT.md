@@ -82,6 +82,14 @@ provider, or the F cutover path from these tasks** (collision). These six are th
       `validateNoReader` replaces `Reader.validate`. MEASURED zero `ssc.Reader` under `SSC_FRONT=F` == legacy; both
       isolation smokes green A/B; X1 fixpoint byte-identical (405,396 B, `fsub.ssc` untouched); semantic 248/248;
       dualrun 45/45. Flip (`frontIsF`) is now unblocked on the smoke-isolation axis — still orchestrator-held.
+      **UPDATE 2026-07-23 (V2RunArgvCliTest blocker FIXED, `fa19761c2`):** with F live-default, the `cli/Test`
+      `V2RunArgvCliTest` case "run --v2 keeps multi-file positionals … as source files" was RED —
+      `ssc run --native A.ssc B.ssc` ran files in REVERSE order under F. Root cause in the runner
+      `ssc1-run-fsub.ssc0`: `userSrc = sscConcatSources(seen)` fed the flat reverse-pre-order `seen`, reversing
+      siblings; legacy lowers post-order `allStmts`. Fixed with a dedicated post-order path traversal
+      (`sscOrder*`) → `sscConcatSources(orderedPaths)`. Runner-only; X1/P6.6 fixpoint + semantic untouched.
+      `V2RunArgvCliTest` 2/2 green; A/B byte-identical F-vs-legacy (2-file/3-file/reversed/import-before-root);
+      BUGS `f-native-multi-file-positional-args-reversed` → FIXED.
 
 ---
 
