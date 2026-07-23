@@ -1,0 +1,6 @@
+feature/v2-f5c-removal 2026-07-23T02:52:13Z
+agent: opus-orch
+heartbeat: 2026-07-23T02:52:13Z
+status: in-progress
+done-so-far: F5c bytecode-default switch LANDED + CI-GREEN vs the green baseline (c3e9e1b98, all 4 jobs success). bytecode = default ssc run backend, reversible (--interpret/SSC_EXEC=vm). Numeric now fast on the default lane (fib ~8.5ms warm). This unblocks the perf-NEUTRAL FastCode/SelfRec removal (Option A final).
+next: subagent does f5c-3 (typed f.* double + lcell/dcell accumulator i.* on JvmByteGen — fast on default lane) THEN f5c-4 removal (SSC_FASTPATHS off -> delete FastCode/SelfRec Runtime.scala regions ~-1186 L) + re-measure default-lane fib/arith-loop perf-neutral (--interpret slower is accepted). FULL flip-level rigor (full conformance + full e2e A/B), gate on switch-CI-green baseline. Irreversible deletion → max care.
