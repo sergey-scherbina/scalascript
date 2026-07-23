@@ -1,6 +1,6 @@
 feature/v2-f5c-removal 2026-07-23T02:52:13Z
 agent: opus-orch
-heartbeat: 2026-07-23T03:56:33Z
+heartbeat: 2026-07-23T04:14:50Z
 status: in-progress
-done-so-far: f5c-3 committed local (14d9f552e). GREEN: conformance 297/0 (==baseline), semantic 248/248, C_min+X1 byte-identical, A/B double/accumulator 10/10 (default+SSC_FRONT=F). e2e 36pass/2skip/38fail — ALL 30 non-v21 fails ENV (INT-lane render/JS/v1-tier, tests/bin/ssc-missing, server/timeout, toolchain-count-gate). Verifying 8 v21-* on rebuilt BASELINE bin/ssc: 2/8 confirmed FAIL-on-baseline; 6 running.
-next: on 0-real-regression -> restore f5c-3 src + rebuild + rebase + push f5c-3; then f5c-4 removal (~1156L, mayProduceAutoThreadOp STAYS) reproducing proven SSC_FASTPATHS=off branches; fail-loud X1 first, then C_min/X1 byte-identical + semantic + conformance + e2e + perf-neutral. HALT on any regression.
+done-so-far: f5c-3 LANDED (feat 44265b437 + docs 178bf096f). f5c-4 removal IMPLEMENTED (not yet pushed): deleted SelfRecLL/SelfTailRecLL2/FastCode + closed-form helpers + fcEntry field + fastPathsOn flag; rewrote 6 call sites to the proven SSC_FASTPATHS=off base branches; mayProduceAutoThreadOp cluster KEPT (base-path effect threading). Kernel 4825->3485 (-1340 L). GATES GREEN: fail-loud confirmed (float break -> semantic MISMATCH 3/248 while C_min stayed 32824 = validates semantic gate needed, not just fixpoint); C_min 32824 B byte-identical; semantic 248/248; X1 fixpoint 405396 B byte-identical; kernel+bytecode+installBin compile; A/B byte-identical. PERF default-lane (bytecode) fib34 0.80s + 200M-loop 1.64s FAST (perf-neutral, bytecode=Emit independent of deleted kernel); --interpret 13.46s (accepted).
+next: FULL conformance (297/0) + FULL e2e A/B running; on green push f5c-4 + docs. HALT on any regression.
