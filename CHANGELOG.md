@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-07-23 — SingletonFailoverTest migration window widened (ci-red-main residual)
+
+After the virtual-thread-carrier hang fix let the `sbt — compile and test` job complete, the residual
+ci-red-main flake was `scalascript.cli.SingletonFailoverTest` failing under a pathological 56%-GC 2-hour
+CI run: the cluster singleton migration must finish inside the `tick2` window so the migrated node-b
+instance is up to receive it; under GC-thrash migration overran the 18 s window and `COUNTER:node-b:1`
+was never logged (even `retrying(3)` blew all 3). Widened `tick2` 18 s → 30 s and the wait deadline
+36 s → 50 s (conservative headroom targeting the failure mode). Verified green locally under normal load.
+
 ## 2026-07-23 — Concurrent multi-shot from one immutable capsule (vector 16, Scala host lane)
 
 Flips conformance vector `16-concurrent-multi-shot` `pending-codec`→`specified`: one saved continuation

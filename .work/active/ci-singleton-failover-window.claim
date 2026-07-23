@@ -1,6 +1,0 @@
-feature/ci-singleton-failover-window 2026-07-23T00:00:00Z
-agent: opus
-heartbeat: 2026-07-23T02:00:00Z
-status: in-progress
-done-so-far: After the vthread-carrier hang fix (9ddbd111b) the sbt job COMPLETES; residual ci-red-main flake = scalascript.cli.SingletonFailoverTest 'Singleton migrates on leader-kill' failed under pathological GC-thrash (56% GC, 2h run, d4272d123). Root: the singleton migration must finish inside the tick2 window (sendAfter 18000ms between tick1 and tick2); under GC-thrash migration takes >18s so the migrated singleton on node-b isn't up when tick2 fires -> never logs COUNTER:node-b:1. Already wrapped in retrying(3) but all 3 blew the window.
-next: widen tick2 window 18000->30000 + deadline2 36000->50000 (conservative headroom, targets the failure mode). Verify SingletonFailoverTest still green locally; land.
