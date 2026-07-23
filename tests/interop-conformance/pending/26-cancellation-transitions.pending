@@ -5,3 +5,8 @@ expected: Intentionally unspecified. The semantic owner requires cancellation ev
   but has not frozen whether cancellation races before/after a resume claim, how a
   cancelled reusable continuation reports later resumes, or the portable diagnostic.
   This harness must not become the accidental owner by inventing those rules.
+proposal: A non-binding option is on the table for the semantic owner in
+  specs/durable-cancellation-proposal.md (recommended answers to all three open
+  questions, reusing the frozen atomic one-shot claim + typed-failure models). It flips
+  nothing and changes no reference code; this vector stays pending-spec until the owner
+  ratifies, amends, or rejects it.

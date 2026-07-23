@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-07-23 — Cancellation-semantics proposal for vector 26 (non-binding, owner decision)
+
+Adds `specs/durable-cancellation-proposal.md`: a non-binding option for the semantic owner to resolve
+conformance vector `26-cancellation-transitions`, which is deliberately `pending-spec` (its pending
+record forbids the harness from inventing the rules). The proposal answers all three open questions —
+the cancel-vs-resume race (modelled on the frozen atomic, eager one-shot claim from §3.1), how a
+cancelled reusable continuation reports later resumes (rejected at admission with a new typed
+`Cancelled` failure, distinct from `ExpiredOrRevoked`/`AlreadyResumed`), and the target-neutral
+diagnostic (a §13 failure row + a `CANCELLED` boundary projection mirroring `ONESHOT_VIOLATION`) —
+while explicitly leaving in-flight-suffix interruption out of the base contract as target-specific. It
+flips **nothing**, changes no reference code, and vector 26 stays `pending-spec` with oracle
+`UNSPECIFIED` until the owner ratifies, amends, or rejects it; `pending/26` now points at it. 24/26
+vectors specified (unchanged); `run.sh` catalog PASS.
+
 ## 2026-07-23 — Cross-host ExactArtifact resume proven JVM↔JS (foundation for vector 15)
 
 Demonstrates the axis the whole DurableValue model exists to enable: a durable capsule saved by one host

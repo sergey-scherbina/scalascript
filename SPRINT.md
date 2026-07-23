@@ -5202,7 +5202,13 @@ dynamic saved-capsule runner.
   **15** (Portable CodeMode = CoreIR resume-program payload + native portable-VM runner = v2/native; the
   ExactArtifact half is now done), **26** (cancellation — `pending-spec`, DELIBERATELY owner-unspecified:
   the pending record forbids inventing the race/report/diagnostic rules — needs the semantic owner to
-  freeze them, not a harness flip).
+  freeze them, not a harness flip). **NON-BINDING PROPOSAL drafted for 26**
+  (`specs/durable-cancellation-proposal.md`, claim `durable-cancellation-proposal`): recommended answers
+  to all three open questions (cancel-vs-resume race modelled on the atomic one-shot claim; cancelled
+  reusable → new typed `Cancelled` admission failure distinct from `ExpiredOrRevoked`/`AlreadyResumed`;
+  `CANCELLED` boundary projection; in-flight interrupt left out of base contract as target-specific).
+  Flips nothing; `pending/26` points at it; awaits owner ratify/amend/reject. Parallel: a v2/native
+  Portable-runner exploration for 15 is scoping the CoreIR resume-program-payload build.
   Original blocked note (now superseded)
   preserved: BLOCKED, do not start: every one of its three
   deliverables is gated on work that does not exist yet. Measured 2026-07-16 on
