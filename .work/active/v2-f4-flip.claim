@@ -1,9 +1,10 @@
 feature/v2-f4-flip 2026-07-23T00:00:00Z
 agent: opus
-heartbeat: 2026-07-23T08:38:00Z
-status: verifying-ci (F4 gate dispatched)
+heartbeat: 2026-07-23T08:56:00Z
+status: F4 gate GREEN; verifying regular CI
 done-so-far: FLIP LANDED — F is the DEFAULT native front (feat 10bb15bfa RunNativeV2.frontIsF opt-OUT + docs 3f433bef2), built on D2 (84712131d/cca93b867 — F runner emits IrProg Data directly + Reader-free validateNoReader → zero ssc.Reader; SUPERSEDES D1, which opus-orch's subagent confirmed + stood down on, ae8800295). REVERSIBLE (SSC_FRONT=legacy escape / one-line revert). Readiness verified pre-flip: full e2e smoke 72/72 A/B-green, ZERO F-only regressions; plugin-boundary isolation smokes PASS A/B.
   FOLLOWUPS LANDED (this session, pushed d32c35345):
    • F4 Front Swap Gates / classify CI (scheduled, run 29987225710) was RED — genuine-FAIL on durable-save-run (newly-added multishot example af46212c3; orc=0 frc=1). Root-caused NOT a regression: raw F can't lower a multishot reusable continuation (same class as js-effect-multishot-long-fold); product path (F4a fallback) re-lowers correctly — verified byte-identical F vs legacy (run(1)=10/prefix 1×, rc=0). Fixed via classify-manifest reconcile (7bccf2eb0): +durable-save-run GAP, -now-matching tagless-multi-file. GAP count still 12. Dual-run step unaffected (tests product path where it's EQUAL).
    • De-flaked ProfileCommandTest --compare regression-warning (d32c35345): two separate real runs disagreed at 1-2ms → self-consistent single --compare run parsing its own Current column. Compile-verified (cli/Test/compile rc=0). This flake repeatedly reddened the sbt job (e.g. D2 cca93b867).
-next: monitor F4 Front Swap Gates dispatch run 29991784922 (on d32c35345) → expect classify GREEN + dual-run GREEN. Monitor regular CI on d32c35345 (sbt job should now pass ProfileCommandTest). On green: release claim + rm-worktree. Worktree HELD until F4 gate + CI both green.
+F4 gate VERIFIED GREEN: dispatch run 29991784922 on d32c35345 — "F4 classify + dual-run" job success (classify accepts reconciled manifest; dual-run durable-save-run EQUAL, no red moved).
+next: monitor regular CI on d32c35345 (run 29992392149, ~2h push backlog) — sbt job should now pass de-flaked ProfileCommandTest, Conformance green. On green: release claim + rm-worktree. Worktree HELD until regular CI green.
