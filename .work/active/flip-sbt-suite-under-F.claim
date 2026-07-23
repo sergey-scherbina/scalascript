@@ -1,7 +1,7 @@
 feature/flip-sbt-suite-under-F 2026-07-23T13:54:53Z
 agent: opus-orch
 subagent: opus-flip-sbt (running full sbt test under F)
-heartbeat: 2026-07-23T13:57:10Z
-status: in-progress
+heartbeat: 2026-07-23T14:29:33Z
+status: F-regression FOUND+FIXED (case-object) — verifying fixpoint/semantic/slim; full sbt test running
 done-so-far: F4 re-flip (F=default front) — Conformance/e2e/fixpoint/semantic all green under F, BUT the CI 'sbt — compile and test' (full sbt test unit suite) keeps surfacing ONE F-exposed test failure per CI run (whack-a-mole): WsProxy teardown-race (FIXED 599553bc8), V2RunArgvCliTest multi-file order (FIXED fa19761c2), now another on run 30011873355/7ce98b9fd (sbt=failure, log not yet available). Root issue: subagents verified conformance/e2e but NOT the full 'sbt test' suite under F-default, where these live.
 next: subagent runs the FULL 'sbt test' suite under F-DEFAULT locally (matching CI), enumerates ALL failing tests at once, A/B triages each (F-regression vs flake-under-F-timing vs pre-existing), FIXES all genuine F-regressions + stabilizes timing-flakes (like WsProxy), reports the complete set. Breaks the one-failure-per-CI-run loop.
