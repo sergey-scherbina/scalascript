@@ -1,6 +1,6 @@
 feature/v2-f4-flip 2026-07-23T00:00:00Z
 agent: opus
-heartbeat: 2026-07-23T08:00:00Z
-status: in-progress
-done-so-far: Sergiy directed "помоги с флипом" (2026-07-23). ALL technical blockers cleared: mcp-types, f-ambient-prelude (fallback-covered never-worse), int-literal-overflow (180f16fcb), md-interpolator (f02100097), and ③.2/D2 (84712131d — F native path emits IrProg Data directly, zero ssc.Reader, both isolation smokes green under F). Flip mechanic = one line in RunNativeV2.frontIsF (:496-497): invert opt-IN (SSC_FRONT=F) -> opt-OUT (default F, SSC_FRONT=legacy escape hatch). REVERSIBLE.
-next: (1) READINESS — full tests/e2e/*smoke* A/B under SSC_FRONT=F vs =legacy (the ③ lesson: corpus sweep insufficient); (2) if green, flip frontIsF + rebuild + re-verify smokes under the new default + X1 fixpoint/semantic 248/semantic dualrun 45; (3) land + exact-SHA CI. D2 SHA cca93b867 CI still in_progress (~2h backlog) but D2 landed+locally-verified. Coordinate: opus-orch conceptually owns flip + active in v2-f5c-removal (kernel, no flip collision).
+heartbeat: 2026-07-23T09:15:00Z
+status: verifying-ci
+done-so-far: FLIP LANDED — F is the DEFAULT native front (feat 10bb15bfa RunNativeV2.frontIsF opt-OUT + docs 3f433bef2). REVERSIBLE (SSC_FRONT=legacy escape hatch / one-line revert). F4a fallback unchanged -> never-worse-than-legacy. Readiness verified pre-flip: full e2e smoke set 72/72 A/B-green under F vs legacy, ZERO F-only regressions; default confirmed engaging F (SSC_FRONT_TRACE), SSC_FRONT=legacy escapes, plugin-boundary isolation smoke PASS under default (D2 holds). All blockers cleared: mcp-types (last multi-file residual), int-literal, md-interpolator, III.2/D2.
+next: monitor exact-SHA CI on 3f433bef2 (~2h GitHub backlog; ci-status SHA-match-buggy -> use gh run). On green: release + rm-worktree. On red: fix-forward or one-line revert (SSC_FRONT default) — worktree HELD. Note D2 SHA cca93b867 CI still in_progress separately.
