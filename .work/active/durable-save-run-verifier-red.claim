@@ -1,0 +1,6 @@
+feature/durable-save-run-verifier-red 2026-07-23T00:00:00Z
+agent: opus
+heartbeat: 2026-07-23T07:00:00Z
+status: in-progress
+done-so-far: SPRINT durable-save-run-verifier-red — CI `ssc-tools check examples/*.ssc` (Conformance Suite job) RED since examples/durable-save-run.ssc landed (af46212c3), blocking ALL flip/switch CI verdicts. Root cause DIAGNOSED (in SPRINT): verifier FALSE-POSITIVE — capture() DISCHARGES the Suspend multi-effect at its `handle` boundary (genuinely Int=>Int, correctly no effect row), but EffectAnalysis.analyze's name-reachability sees Suspend.point lexically inside capture and marks it effectful, ignoring the enclosing handle. Only manifests because durable-save-run puts the effect decl AND capture in ONE fenced block. Files: v1/lang/core/.../transform/EffectAnalysis.scala + typer/Typer.scala (NOT fsub/kernel -> no D2/v2-f5c collision).
+next: add discharge-aware EffectAnalysis.leakingFuns(trees, effectOps) (handle-scoped leak set), Typer verifier consults it instead of coarse effectfulFuns; leave effectfulFuns (JvmGen/JsGen CPS codegen) UNCHANGED (interp uses multiShotEffects -> ssc run unaffected). Verify: ssc-tools check examples/durable-save-run.ssc passes + runs (run(1)=10/run(5)=50/run(42)=420/prefix 1); full ssc-tools check examples/*.ssc = 0 errors.
