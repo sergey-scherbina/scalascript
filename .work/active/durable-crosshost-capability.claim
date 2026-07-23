@@ -1,6 +1,0 @@
-feature/durable-crosshost-capability 2026-07-23T03:54:45Z
-agent: claude-code
-heartbeat: 2026-07-23T03:54:45Z
-status: in-progress
-done-so-far: 24/26 specified. Building the ExactArtifact CROSS-HOST resume CAPABILITY (JVM<->JS) as foundation for vector 15 — NOT flipping vector 15 (it needs Portable CodeMode + a v2/native remote runner). A checked-in cross-host capsule (id cross-host, timesTen, int, state 0, format v3) is frozen==asserted by both host lanes AND decoded+restored+run by both -> N->M closed transitively.
-next: compute cross-host golden hex; Scala CrossHostResumeTest + JS test (freeze==wire, decode(wire)->restore->run(7)=70/run(3)=30); update pending/15 note; docs; verify; land. Vector 15 stays pending-codec.
