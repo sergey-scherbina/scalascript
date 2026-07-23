@@ -94,10 +94,11 @@ class SingletonFailoverTest extends AnyFunSuite:
        |          val ok1 = Singleton.send("global-counter", "tick")
        |          println("SENT1:" + ok1)
        |          // Sit through the leader-kill + re-elect + singleton
-       |          // migration window.  18 s gives slow CI headroom for the
-       |          // survivor to win re-election and spawn the migrated
-       |          // instance before this tick lands.
-       |          sendAfter(18000, s, "tick2")
+       |          // migration window.  30 s gives slow / GC-thrashing CI headroom
+       |          // for the survivor to win re-election and spawn the migrated
+       |          // instance before this tick lands (was 18 s; under a 56%-GC
+       |          // 2-hour CI run migration overran it — ci-singleton-failover-window).
+       |          sendAfter(30000, s, "tick2")
        |          receive { case "tick2" =>
        |            val ok2 = Singleton.send("global-counter", "tick")
        |            println("SENT2:" + ok2)
@@ -192,7 +193,8 @@ class SingletonFailoverTest extends AnyFunSuite:
 
       // Wait for both survivors to migrate the singleton and log a
       // fresh COUNTER line.
-      val deadline2 = System.currentTimeMillis() + 36_000L
+      // >= tick2 window (30 s) + migration + tick delivery, with GC-thrash margin.
+      val deadline2 = System.currentTimeMillis() + 50_000L
       def survivorTexts() = List(0, 1).map(i =>
         scala.io.Source.fromFile(outFiles(i)).mkString
       )
