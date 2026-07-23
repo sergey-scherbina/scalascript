@@ -15,9 +15,14 @@ progress: The ExactArtifact half is now demonstrated cross-lane between the two
   `ssc run-capsule`) where the resume PROGRAM travels as closed CoreIR bytes and is
   admitted+run in a SEPARATE process holding no machine (digest-verified, fail-closed
   decode); demonstrated by `v2/conformance/portable-capsule.sh` (freeze in one JVM,
-  run in another → frame*10+input; tamper rejected). NOT YET FLIPPED: this Portable
-  resume program is HAND-AUTHORED — the §10.2 pass that GENERATES a closed resume
-  program from an arbitrary .ssc saveable region, and a SECOND admitting backend for
-  the full §14.4 cross-backend N→M matrix, remain separate work.
+  run in another → frame*10+input; tamper rejected). The §10.2 GENERATION pass has
+  its first slice too: `v2/src/SaveRegion.scala` (`ssc freeze-region`) closure-converts
+  a compiler-declared saveable region (frame captures a,b; resume (a,b,input)=>a*input+b)
+  into a GENERATED closed resume Program — a frame tuple + a `Lam(2,...)` that
+  destructures it and applies the region lambda — run by the same machine-less runner
+  (`portable-capsule.sh`: reified region → 19/10). NOT YET FLIPPED: the reification is
+  first-order (explicit scalar slots); auto-liveness, global closure, effectful regions
+  (`specs/portable-save-region.md` staging), and a SECOND admitting backend for the full
+  §14.4 cross-backend N→M matrix remain.
 sketch: |
   # capsule produced here, resumed by another runner profile's harness row.

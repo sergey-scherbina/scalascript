@@ -52,11 +52,17 @@ private def dispatch(args: List[String]): Unit = args match
     Runtime.argv = rest
     val prog = Reader.parseProgram(read(file))
     out(Runtime.runManaged(Compiler.compile(prog), Array.empty[Value]))
-  case "freeze-capsule" :: file :: rest =>      // freeze a Portable capsule (demo resume) -> file
+  case "freeze-capsule" :: file :: rest =>      // freeze a Portable capsule (hand-authored resume) -> file
     val frame = rest.headOption.flatMap(_.toLongOption).getOrElse(0L)
     java.nio.file.Files.writeString(
       java.nio.file.Paths.get(file),
-      Capsule.encode(frame, Capsule.demoResume)
+      Capsule.encode(Term.Lit(Const.CInt(frame)), Capsule.demoResume)
+    )
+  case "freeze-region" :: file :: _ =>          // reify a §10.2 saveable region -> Portable capsule
+    val (frame, resume) = SaveRegion.reify(SaveRegion.demoRegionSlots, SaveRegion.demoRegionResume)
+    java.nio.file.Files.writeString(
+      java.nio.file.Paths.get(file),
+      Capsule.encode(frame, resume)
     )
   case "run-capsule" :: file :: rest =>         // admit + run a Portable capsule holding NO machine
     val inputN = rest.headOption

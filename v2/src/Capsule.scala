@@ -26,7 +26,7 @@ import java.security.MessageDigest
  * closed resume program from an arbitrary `.ssc` saveable region, and a second admitting
  * backend for the full §14.4 cross-backend N→M matrix, remain separate work.
  */
-final case class PortableCapsule(version: Int, frame: Long, resume: Program)
+final case class PortableCapsule(version: Int, frame: Term, resume: Program)
 
 object Capsule:
   val Version: Int = 1
@@ -41,10 +41,13 @@ object Capsule:
     md.update(Writer.program(resume).getBytes(StandardCharsets.UTF_8))
     md.digest().map(b => f"${b & 0xff}%02x").mkString
 
-  /** Freeze a captured int frame + a closed resume program into capsule bytes. Pure. */
-  def encode(frame: Long, resume: Program): String =
+  /**
+   * Freeze a captured frame value (a first-order CoreIR value term — a `Lit`, or a `Ctor`
+   * of `Lit`s for a multi-slot frame) plus a closed resume program into capsule bytes. Pure.
+   */
+  def encode(frame: Term, resume: Program): String =
     s"(portable-capsule (version $Version) (resume-digest ${digestOf(resume)}) " +
-      s"(frame-int $frame) (resume ${Writer.program(resume)}))"
+      s"(frame ${Writer.term(frame)}) (resume ${Writer.program(resume)}))"
 
   /**
    * Admit capsule bytes: parse the envelope, re-validate the resume program fail-closed,
@@ -58,7 +61,7 @@ object Capsule:
         if version != Version then
           sys.error(s"portable-capsule: unsupported version $version")
         val declaredDigest = atomField(fields, "resume-digest")
-        val frame = longField(fields, "frame-int")
+        val frame = Reader.toTerm(subField(fields, "frame"))
         val resume = Reader.toProgram(subField(fields, "resume"))
         Reader.validate(resume) // fail CLOSED — untrusted resume program
         if digestOf(resume) != declaredDigest then
@@ -77,7 +80,7 @@ object Capsule:
       capsule.resume.defs,
       Term.App(
         capsule.resume.entry,
-        List(Term.Lit(Const.CInt(capsule.frame)), Term.Lit(Const.CInt(input)))
+        List(capsule.frame, Term.Lit(Const.CInt(input)))
       )
     )
     Runtime.runManaged(Compiler.compile(driver), Array.empty[Value])
@@ -114,10 +117,6 @@ object Capsule:
   private def intField(fields: List[Sx], key: String): Int =
     atomField(fields, key).toIntOption
       .getOrElse(sys.error(s"portable-capsule: $key is not an int"))
-
-  private def longField(fields: List[Sx], key: String): Long =
-    atomField(fields, key).toLongOption
-      .getOrElse(sys.error(s"portable-capsule: $key is not a long"))
 
   private def subField(fields: List[Sx], key: String): Sx =
     field(fields, key) match

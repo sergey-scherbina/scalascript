@@ -60,4 +60,16 @@ else
   printf 'ok   %-30s => rejected\n' "tamper rejected"
 fi
 
+# §10.2 reification: `freeze-region` closure-converts a compiler-declared saveable region
+# (frame captures a=3, b=4; resume (a,b,input) => a*input + b) into a capsule whose resume
+# program is GENERATED (not hand-authored) — a closed Lam(2, ...) that destructures the frame
+# tuple and applies the region lambda. Proves the §10.2 frame-construction + closure-conversion
+# steps end-to-end via the same machine-less fresh-process runner.
+REG="$TMP/region.portable"
+ssc freeze-region "$REG" >/dev/null
+if grep -q '(frame (ctor frame' "$REG"; then printf 'ok   %-30s => yes\n' "reified frame is a tuple"
+else printf 'FAIL %-30s\n' "reified frame is a tuple"; fail=1; fi
+check "reified region run input=5" "$(ssc run-capsule "$REG" 5)" "19"   # 3*5 + 4
+check "reified region run input=2" "$(ssc run-capsule "$REG" 2)" "10"   # 3*2 + 4
+
 if [ "$fail" -eq 0 ]; then echo "portable-capsule: PASS"; else echo "portable-capsule: FAIL"; exit 1; fi
