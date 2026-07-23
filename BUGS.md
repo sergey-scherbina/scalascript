@@ -2,8 +2,10 @@
 
 ## f-case-object-drops-program — F silently lowers a top-level `case object` to `0`, dropping the rest of the program
 
-**Status:** FIXED (2026-07-23, `<sha>` — pending fixpoint/semantic/slim re-verify) by `opus` under the
-`flip-sbt-suite-under-F` claim. The F4 default-front flip's last CI blocker on the `sbt — compile and test`
+**Status:** FIXED (2026-07-23, `35331f1c7`) by `opus` under the
+`flip-sbt-suite-under-F` claim. Verified: X1 fixpoint stage1==stage2 byte-identical (406008 B), semantic
+248/248, REAL v21-slim + v21-jre-module + v21-negative-toolchain (release.ready true, parity.mismatch 0) +
+v21-direct-asm gates all PASS under F, F-sensitive cli suites 17/17 under F. The F4 default-front flip's last CI blocker on the `sbt — compile and test`
 job (run `30011873355`/`7ce98b9fd` failed at the **physically slim standard distribution gate** step, NOT
 `Test via sbt` — the whack-a-mole premise was slightly off: `Test via sbt` itself is clean under F).
 
