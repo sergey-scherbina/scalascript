@@ -57,6 +57,33 @@ are F's natural scalar values, so they fall out of parsing the atoms.
 `#coreir.eval(lowerProg(fProgData))` where `fProgData` appends `irTextToData(compile(userSrc,dq,bs))`
 instead of bare `compile(...)`. Confirm no other `#coreir.decode` remains on the F native path.
 
+## IMPLEMENTATION AS LANDED (2026-07-23, revised from the scoped plan — measurement drove two changes)
+
+**Revision 1 — the reader lives in the ssc0 RUNNER, not `fsub.ssc`.** The scoped plan put `irTextToData`
+in `specs/v2.2-p6.5-fsub.ssc` and wrapped `callExpr`. That is **unsafe**: F's lexer DROPS `#` (`opCode`
+35 = 0 → skipped), so `#str->f`/`#str->big`/`#str->utf8` would mis-lex under the X1 fixpoint (F compiling
+its own source), and **pure F cannot parse a float from a string** (F treats floats as verbatim source
+text; there is no float-from-string in the subset). So `irTextToData` is written in the **ssc0 runner**
+`v2/bin/ssc1-run-fsub.ssc0` (ssc0 has full `#prim` access), and `sscFsubIr` becomes
+`irTextToData(#coreir.eval(lowerProg(fProg)))` with `callExpr` UNCHANGED (`compile(...)`). Effects: F's
+`compile` still emits text ⇒ X1 fixpoint **byte-identical** (`fsub.ssc` is not touched at all); the reader
+runs in the runner's own kernel evaluation ⇒ loads **no** `ssc.Reader`; ssc0 capitalized-ctor application
+builds `DataV` byte-identical to `IrToData` (verified via `#__eq__`). Notes on leaves: `#str->i`/`#str->f`/
+`#str->big` return `Some/None` (unwrapped); `(bytes)` empty → `#str->utf8("")`; `(bytes <hex>)` non-empty is
+an ASCII-only total-function path that **never occurs** in F output (F's front has no byte-literal syntax);
+`(float nan|inf|-inf)` never occurs either (not `.ssc` source syntax). `-` has no ssc0 operator token, so
+negative ints are read purely from the `"-N"` atom via `#str->i` (no source minus).
+
+**Revision 2 — RunNativeV2 `Reader.validate` is a SECOND Reader source (was mislabelled a "red herring").**
+MEASURED: removing `#coreir.decode` alone still loaded `ssc.Reader` **12×** — because the F4a delegate-
+fallback pre-check `RunNativeV2:101` calls `_root_.ssc.Reader.validate(s.program)`, and that class-loads
+`ssc.Reader` too. (BUGS.md ③.2 tested each source in isolation and, finding each alone insufficient,
+wrongly concluded validate was a red herring — but BOTH must go: decode-only → 12×, validate-only → ~24×,
+both → 0.) Fix: a Reader-free `validateNoReader` in `RunNativeV2` (v1/tools/cli only — NOT `frontIsF`,
+NO `v2/src` change), a faithful port of `Reader.validate` (unbound global / out-of-range local / non-lam
+letrec) so the fallback fires identically. Result (MEASURED, `-verbose:class`): **zero** `ssc.Reader`
+under `SSC_FRONT=F` on both a direct-lower program and a fallback program, == legacy's zero.
+
 ## Verification (gates)
 1. **Correctness:** `irTextToData(t)` output == `#coreir.decode(t)` output for a spread of programs
    (compare the Data trees). This is the exact-equivalence check.
@@ -72,8 +99,17 @@ F5b / f-stmt / f-string-literal lanes — rebase-and-coordinate. D3 (reimplement
 `ssc.Reader` in the kernel) was rejected (risks the fail-closed guarantee); D1 (scope the guard) was the
 lighter alternative Sergiy passed over in favour of this purest-isolation D2.
 
-## Status
+## Status — DONE (2026-07-23)
 - [x] Scoped: exact input (Writer) + output (IrToData) formats captured; F built; verification defined.
-- [ ] Implement `irTextToData` (S-expr tokenizer + recursive parser + Data build) in `fsub.ssc`.
-- [ ] Wire the runner to drop `#coreir.decode`.
-- [ ] Verify (correctness equivalence + isolation smokes + full A/B + fixpoint/semantic/dualrun).
+- [x] Implement `irTextToData` (S-expr tokenizer + recursive term/const parser + Data build) — in the ssc0
+      RUNNER `v2/bin/ssc1-run-fsub.ssc0` (see Revision 1), not `fsub.ssc`.
+- [x] Wire the runner to drop `#coreir.decode` (`irTextToData(#coreir.eval(lowerProg(fProg)))`).
+- [x] Make the F4a fallback pre-check Reader-free (`validateNoReader` in RunNativeV2; see Revision 2).
+- [x] Verify:
+  - Correctness: `#__eq__(irTextToData(t), #coreir.decode(t))` EQ on 28 synthetic node/const forms (neg int,
+    i64-max, escaped/control strings, big, empty+ASCII bytes, match ±default, all terms) AND on real IR
+    (a real program + the 407 KB runner IR itself, no stack overflow).
+  - Isolation: MEASURED **zero** `ssc.Reader` under `SSC_FRONT=F` (direct + fallback programs), == legacy.
+    `v21-native-plugin-boundary-smoke` + `v21-plugin-backend-isolation-smoke` PASS under F AND legacy.
+  - No regression: X1 fixpoint byte-identical (405,396 B); semantic 248/248; dualrun (see run); v21-native /
+    v21-self-hosted smoke family A/B (F == legacy).

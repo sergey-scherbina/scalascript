@@ -252,8 +252,10 @@ Old front / v1: all three `failed closed (exit 1)`. Smoke: 3 checks FAILED under
 re-flip was HALTED as a result — ①② landed, F stays opt-in via `SSC_FRONT=F`). F-front
 (`specs/v2.2-p6.5-fsub.ssc`) native tier. **Progress 2026-07-22:** regression ③.1 (md-interpolator)
 **FIXED** (`f02100097`); regression ③.2 (plugin-boundary) re-diagnosed as an isolation/class-load issue,
-not a fixture-output divergence — see the per-item notes below. **These remain the current blockers of the
-F4 default-front flip** now that the int-literal fail-open (`f-int-literal-overflow-fails-open`) is fixed.
+not a fixture-output divergence — see the per-item notes below. **Update 2026-07-23: ③.2 FIXED via D2**
+(self-hosted `irTextToData` reader + Reader-free `validateNoReader`; zero `ssc.Reader` under F, both
+isolation smokes green A/B) — so BOTH smoke regressions (③.1, ③.2) are now cleared; the F4 default-front
+flip (`RunNativeV2.frontIsF`, orchestrator-held) is unblocked on the smoke-isolation axis.
 
 **What happened:** after fixing blocker ① and bumping the CI budget (blocker ②), the re-flip passed every
 corpus-level gate — X1 fixpoint byte-identical, semantic 248/248, dualrun 45/45 EQUAL, negtc gate PASS
@@ -278,7 +280,8 @@ failures fail on BOTH fronts = pre-existing, NOT flip-related):
    origin/main):** F output byte-identical to legacy on the fixture (zero `<closure>`); `v21-native-md-interpolator-smoke`
    PASS; X1 fixpoint byte-identical (405,396 B); semantic 248/248; int-literal smoke green. (`f"…"`/`html"…"`
    prefixes are separate follow-ups.)
-2. **`tests/e2e/v21-native-plugin-boundary-smoke.sh` + `v21-plugin-backend-isolation-smoke.sh`** — NOT a
+2. **[FIXED 2026-07-23 via D2] `tests/e2e/v21-native-plugin-boundary-smoke.sh` +
+   `v21-plugin-backend-isolation-smoke.sh`** — NOT a
    fixture-output divergence (as first suspected) but an **ISOLATION / class-load regression**. Re-diagnosed
    and PINNED 2026-07-22 (opus). Both smokes assert the isolated native run loads no compiler/host class; the
    boundary smoke greps the `-verbose:class` log for `ssc.Reader` (a "textual CoreIR reader"). Under F-default
@@ -290,14 +293,21 @@ failures fail on BOTH fronts = pre-existing, NOT flip-related):
    `coreir.decode`; the legacy runner does not → legacy loads no Reader. The load happens on **every** F run
    (gap or not — verified on `examples/extensions.ssc`, a fallback program: Reader still loaded 24× during the
    F attempt before the fallback fires).
-   **`RunNativeV2:101` `ssc.Reader.validate` is a RED HERRING for this smoke:** the tower loads `ssc.Reader`
-   (via decode) BEFORE `validate` runs, so removing `validate` does NOT reduce the runtime load and does NOT
-   turn the smoke green. (Confirmed: with `validate` replaced by an in-place `assertNoUnboundGlobal` scan that
-   loads no compiler class — behavior-verified: fallback fires identically, output EQUAL — the F run still
-   loaded `ssc.Reader` 24-25×. Change was NOT landed; main stays pristine.) The boundary smoke's *static* javap
-   check also does not see `validate`: it inspects the `RunNativeV2` forwarder class, and `validate` lives in
-   `RunNativeV2$`.
-   **⇒ DESIGN DECISION (for Sergiy — not decided unilaterally).** Options:
+   **CORRECTION (2026-07-23): `RunNativeV2:101` `ssc.Reader.validate` was NOT a red herring — it is the
+   SECOND Reader source.** The 2026-07-22 note tested each source in ISOLATION and, finding each alone
+   insufficient, wrongly concluded validate was a red herring. The correct reading: **BOTH** load `ssc.Reader`,
+   so both must go. MEASURED 2026-07-23: `#coreir.decode`-only removal → still 12× (via validate);
+   validate-only removal → still ~24× (via decode); **both removed → 0×.** (The 2026-07-22 test replaced only
+   validate and still saw 24-25× because decode still ran.) The boundary smoke's *static* javap check inspects
+   the `RunNativeV2` forwarder class and does not see `validate` (which lives in `RunNativeV2$`), so it was
+   already passing; only the RUNTIME `-verbose:class` check needed both removals.
+   **⇒ RESOLVED via D2 (Sergiy's choice), landed 2026-07-23.** (D1/D3 below not taken.) D2 = (a) the F runner
+   emits the `IrProg` Data directly through a self-hosted S-expr reader `irTextToData` (in the ssc0 runner
+   `ssc1-run-fsub.ssc0`, dropping `#coreir.decode`); (b) `RunNativeV2:101` `Reader.validate` → Reader-free
+   `validateNoReader` (faithful port, fallback unchanged). MEASURED zero `ssc.Reader` under `SSC_FRONT=F`
+   (direct + fallback programs) == legacy; both isolation smokes PASS under F AND legacy; X1 fixpoint
+   byte-identical (405,396 B — `fsub.ssc` untouched); semantic 248/248. See `specs/f-runner-structural-data-d2.md`.
+   Original options considered:
    - **(D1) Scope the isolation guard.** The smoke's `ssc.Reader` guard was written to catch a *retired host /
      scalameta parser*; the kernel `ssc.Reader` used by `#coreir.decode` is a *bounded, validated KERNEL codec*
      (Runtime.scala comment), not a compiler frontend. Narrow the guard to the genuinely-forbidden classes
