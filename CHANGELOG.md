@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-07-23 — D2: F native path emits IrProg Data directly — zero `ssc.Reader` (unblocks the F4 flip)
+
+The self-hosted F front's native runner (`v2/bin/ssc1-run-fsub.ssc0`) no longer round-trips F's emitted
+Core IR **text** through `#coreir.decode` (`IrToData.program(ssc.Reader.parseProgram(s))`). A new
+self-hosted S-expr → `IrProg`-Data reader `irTextToData` (in the ssc0 runner — F drops `#` and pure F
+can't parse a float from a string, so it can't live in `fsub.ssc`) parses F's canonical IR text directly
+into the `IrToData` Data tree; ssc0 capitalized-ctor application builds `DataV` byte-identical to
+`IrToData` (verified via `#__eq__` on 28 node/const forms + the 407 KB runner IR). F's `compile` still
+emits text so the X1 fixpoint is byte-identical (`fsub.ssc` untouched). Also ports the F4a delegate-
+fallback pre-check `RunNativeV2:101` from `ssc.Reader.validate` to a Reader-free `validateNoReader` — the
+SECOND `ssc.Reader` source on the F path (both had to go; decode-only left 12×, validate-only ~24×, both
+0×). **Measured zero `ssc.Reader`** under `SSC_FRONT=F` == legacy; both isolation smokes green A/B;
+X1 fixpoint byte-identical (405,396 B); semantic 248/248; dualrun 45/45. Closes BUGS.md
+`f-native-out-of-corpus-smoke-regressions` ③.2. See `specs/f-runner-structural-data-d2.md`.
+
 ## 2026-07-23 — Portable-CodeMode capsule runner: fresh-process resume on the VM (foundation for vector 15)
 
 Adds the reference VM's first **Portable CodeMode** durable surface: a capsule whose resume PROGRAM
