@@ -1,6 +1,0 @@
-feature/durable-cancellation-proposal 2026-07-23T04:16:39Z
-agent: claude-code
-heartbeat: 2026-07-23T04:16:39Z
-status: in-progress
-done-so-far: 24/26 specified. Writing a cancellation-semantics SPEC PROPOSAL for vector 26 (pending-spec, owner-unspecified). Does NOT flip vector 26 or invent frozen rules — a design doc for semantic-owner (Sergiy/codex-interop) ratification. Parallel to a v2/native Portable-runner exploration for vector 15.
-next: specs/durable-cancellation-proposal.md — the 3 open questions (race vs resume-claim, cancelled-reusable later-resume report, portable diagnostic) with recommended answers; update pending/26 note to point at it. Vector 26 stays pending-spec.
