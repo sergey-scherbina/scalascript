@@ -1,6 +1,0 @@
-feature/f-multifile-positional-order 2026-07-23T13:17:48Z
-agent: opus-orch
-heartbeat: 2026-07-23T13:17:48Z
-status: in-progress
-done-so-far: The F4 re-flip's green CI is BLOCKED by scalascript.cli.V2RunArgvCliTest (sbt 'cli/Test' — *** 1 TEST FAILED ***) — NOT WsProxy (that's fixed, 63/0). V2RunArgvCliTest exercises multi-positional-file 'ssc run A.ssc B.ssc'; under F-default the files run in REVERSE order (F4 subagent found: second\nfirst instead of first\nsecond, BUGS cf23c5feb). Correcting an earlier report: this IS CI-caught (V2RunArgvCliTest), NOT CI-blind — so 'accept the caveat' can't green the flip; the order MUST be fixed. Same bug class as the earlier import-order fix 70d5bbabf (sscConcatSources reverse).
-next: subagent finds F's MULTI-POSITIONAL-FILE concatenation/ordering (RunNativeV2 F path / the F runner ssc1-run-fsub), fixes the reverse so A.ssc B.ssc runs A then B (== legacy), verifies V2RunArgvCliTest passes + the multi-file behavior == legacy + fixpoint/semantic green. Unblocks flip green CI.
