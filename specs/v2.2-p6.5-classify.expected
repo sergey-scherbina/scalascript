@@ -29,15 +29,17 @@
 # A program that starts MATCHing (F improved) is reported by the gate as a stale entry to REMOVE (a
 # self-maintaining reclassify hint) — it does NOT fail the gate.
 
-# ── the 12 measured GAPs (opus, 2026-07-20). All: oracle correct, F emits INVALID IR (dangling
-#    `(global …)` reference / arity mismatch) → runtime error → different output. ──
+# ── the 12 measured GAPs (opus, 2026-07-20; reconciled 2026-07-23). All: oracle correct, F emits
+#    INVALID IR (dangling `(global …)` reference / arity mismatch) → runtime error → different output.
+#    2026-07-23 reconcile: tagless-multi-file now MATCHes (F improved) → removed; durable-save-run
+#    (newly-added multishot example af46212c3) added as GAP. Count unchanged (12). ──
 GAP	effects	effects arc — F does not lower effect.perform/handle; F IR references unbound (global effect) (v2-language-surface.md §4, separate arc)
 GAP	effects-handler	effects arc — unbound global in F IR
 GAP	effect-deep-handler-state	effects arc — deep handler state; unbound global in F IR
 GAP	js-effect-multishot-long-fold	effects arc — multishot continuation; unbound global in F IR
+GAP	durable-save-run	effects arc — multishot reusable continuation (multi effect + resume run-many); raw F does not lower it (unbound global in F IR), same class as js-effect-multishot-long-fold. Product-level F4a delegate-fallback re-lowers correctly (verified: run(1)=10/prefix 1×) so SSC_FRONT=F is never worse.
 GAP	extensions	extension-methods arc — needs layout E/EB/X frames (§4.2); F drops the receiver, inner def `go` unbound
 GAP	for-comprehensions	for-comprehension desugaring incomplete — F IR references unbound (global x)
-GAP	tagless-multi-file	multi-file — F is single-file; second module's method under-applied (arity 2 expected 1 given)
 GAP	standard-scala-multifence	multi-fence — F compiles one fence only; cross-fence def `f` unbound
 GAP	scala-js-demo	scala-fence / multi-construct — cross-fence def `merge` unbound
 GAP	dsl-multi-pass	multi-pass DSL — cross-section def `check` unbound
