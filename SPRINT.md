@@ -5201,9 +5201,12 @@ dynamic saved-capsule runner.
   saveable region into a GENERATED closed resume Program (frame tuple + `Lam(2,...)` that destructures it
   + applies the region lambda); `ssc freeze-region` → reified capsule runs machine-less → 19/10;
   `specs/portable-save-region.md` design (staged straight-line→effectful→2nd-backend). VM effects =
-  runtime `ClosV` continuations → pass works on a SYNTACTIC region, not whole-program CPS. STILL NOT
-  FLIPPED: reification is first-order (explicit scalar slots); auto-liveness + global closure + effectful
-  regions + a 2nd admitting backend for §14.4 N→M remain),
+  runtime `ClosV` continuations → pass works on a SYNTACTIC region, not whole-program CPS. **Slice 2
+  AUTO-LIVENESS LANDED (`portable-region-liveness`):** `SaveRegion.reifyAuto` DERIVES the frame slots from
+  a free-outer-variable analysis of `(input)=>body` + a depth-aware de-Bruijn rewrite folding free refs
+  into frame-tuple reads (verified on a nested-lambda region → 23/11); `ssc freeze-region-auto`. STILL NOT
+  FLIPPED: first-order scalars; global closure (defs→resume.defs) + effectful regions + a 2nd admitting
+  backend for §14.4 N→M remain),
   **26** (cancellation — `pending-spec`, DELIBERATELY owner-unspecified:
   the pending record forbids inventing the race/report/diagnostic rules — needs the semantic owner to
   freeze them, not a harness flip). **NON-BINDING PROPOSAL drafted for 26**

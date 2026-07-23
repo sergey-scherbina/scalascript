@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-07-23 — §10.2 save-region reification: automatic liveness (slice 2, vector 15)
+
+Second slice of the §10.2 generation pass (`specs/portable-save-region.md`): `SaveRegion.reifyAuto`
+**derives** the frame slots from a free-variable analysis of a saveable region, instead of the explicit
+slots of slice 1. Given a region `Lam(1, body)` = `(input) => body`, `freeOuterIndices` collects the free
+outer de-Bruijn locals of `body` (those reaching above the region's own binder), and a depth-aware
+`rewrite` folds each free reference into a read of a frame tuple while shifting the input past the frame
+fields — producing a closed `Lam(2, (frame, input) => body')` with no free variables. The rewrite handles
+nested binders (`Lam`/`Let`/`LetRec`/`Match` arms) by tracking binder depth; it is verified on a region
+written with a nested lambda, `(input) => (\u. a + u)(input * b)`, whose free `a` (reached through the
+inner lambda) is rewritten correctly. New `ssc freeze-region-auto` mode; `v2/conformance/portable-capsule.sh`
+freezes the auto-derived region (finds free `a=3, b=4`) and runs it machine-less in a separate process →
+`3 + 5*4 = 23`, `3 + 2*4 = 11`. Reuses `Compiler.compile`/`Runtime.runManaged` (no `Runtime.scala` edit).
+
+Does **not** flip vector `15-cross-host-resume` (stays `pending-codec`): still first-order scalar frames —
+global closure (defs into `resume.defs`), effectful regions, and a second admitting backend for the §14.4
+N→M matrix remain (`specs/portable-save-region.md` staging). `pending/15` records it. 24/26 vectors
+specified (unchanged); `run.sh` catalog PASS.
+
 ## 2026-07-23 — v2-f4 flip: the self-hosting front F is now the DEFAULT native lowerer
 
 `RunNativeV2.frontIsF` inverted from opt-IN (`SSC_FRONT=F`) to opt-OUT: F (the self-hosted subset
