@@ -1,0 +1,6 @@
+feature/portable-save-region 2026-07-23T06:53:57Z
+agent: claude-code
+heartbeat: 2026-07-23T06:53:57Z
+status: in-progress
+done-so-far: Starting the §10.2 build (vector 15 flip, multi-week). VM effects = runtime DataV("Op", label, arg, k:ClosV) — the continuation is a LIVE ClosV, which §10.2 forbids capturing. So §10.2 = a COMPILE-TIME delimited-continuation reification pass that statically emits a closed CoreIR resume Program from a Save-effect perform. f5c-removal Runtime.scala rewrite has LANDED → low collision now.
+next: design doc specs/portable-save-region.md (grounded in the runtime-Op/ClosV finding; staged straight-line→effectful→full) + a first SaveRegion.scala pass slice (simplest region: free-var liveness → frame + closed resume Lam), feeding freeze-capsule. Prefer a NEW SaveRegion.scala; minimal/no Runtime.scala edit.
