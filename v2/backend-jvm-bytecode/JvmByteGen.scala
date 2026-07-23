@@ -294,7 +294,11 @@ object JvmByteGen:
   private def pureNoEffect(t: Term, pureDefs: collection.Set[String]): Boolean = t match
     case Term.Lit(_) | Term.Local(_) | Term.Global(_) => true
     case Term.Prim(op, args) =>
-      val okOp = op == "__arith__" || op == "__isTag__" || op == "fieldAt" ||
+      // Typed integer/float prims (`i.*`/`f.*`, emitted by F5b) are pure numeric ops — the typed
+      // twins of `__arith__`; allowlisting them lets typed accumulator/loop bodies stay fast-path
+      // eligible (else a typed `f.add`/`i.add` body is misclassified effectful and boxes).
+      val okOp = op == "__arith__" || op.startsWith("i.") || op.startsWith("f.") ||
+        op == "__isTag__" || op == "fieldAt" ||
         op.startsWith("cell.") || op.startsWith("lcell.") || op.startsWith("dcell.") ||
         op == "arr.get" || op == "arr.set" || op == "unitV"
       okOp && args.forall(pureNoEffect(_, pureDefs))
@@ -541,6 +545,23 @@ object JvmByteGen:
         val s = iArithSym(p); if s.isEmpty then None else Some((s, a, b))
       case _ => None
 
+  // F5c-3 twin of iArithSym/ArithB for the unboxed-Double lane: recognize F's typed FLOAT prims
+  // (`f.add`/`f.sub`/… — emitted by F5b for Float-typed operands) as the same (opSymbol, a, b) node
+  // the untyped `(prim __arith__ …)` form produces. Only the ops the Double fast path accelerates
+  // are mapped (+ - * / arith, < <= > >= compare); f.eq/f.mod and everything else stay unmapped so a
+  // typed float op that is NOT accelerated falls through to the exact generic `prim2("f.…")` handler —
+  // bit-identical to the interpreter reference (no reroute onto the boxed `arith` δ).
+  private def fArithSym(p: String): String = p match
+    case "f.add" => "+"; case "f.sub" => "-"; case "f.mul" => "*"; case "f.div" => "/"
+    case "f.lt" => "<"; case "f.le" => "<="; case "f.gt" => ">"; case "f.ge" => ">="
+    case _ => ""
+  private object DArithB:
+    def unapply(t: Term): Option[(String, Term, Term)] = t match
+      case Term.Prim("__arith__", List(Term.Lit(Const.CStr(op)), a, b)) => Some((op, a, b))
+      case Term.Prim(p, List(a, b)) =>
+        val s = fArithSym(p); if s.isEmpty then None else Some((s, a, b))
+      case _ => None
+
   private def canLong(t: Term): Boolean = t match
     case Term.Lit(Const.CInt(_)) => true
     case Term.Prim("lcell.get", List(Term.Local(_))) => true
@@ -588,6 +609,11 @@ object JvmByteGen:
       // Long attempt emits nothing when inapplicable (guard short-circuits before emit),
       // so `||` safely falls through to the Double (dcell) comparison path.
       genLongCmpFalse(op, a, b, ctx, falseLabel) || genDoubleCmpFalse(op, a, b, ctx, falseLabel)
+    case DArithB(op, a, b) =>
+      // Typed float compare (`f.lt`/…). ArithB above already covers __arith__ and i.*, so this
+      // only fires for f.*; genDoubleCmpFalse emits nothing and returns false when not applicable,
+      // so the caller safely falls back to the generic (boxed) condition path.
+      genDoubleCmpFalse(op, a, b, ctx, falseLabel)
     case _ => false
 
   private def genLongCmpValue(op: String, a: Term, b: Term, ctx: Ctx): Boolean =
@@ -622,7 +648,7 @@ object JvmByteGen:
   private def canDouble(t: Term): Boolean = t match
     case Term.Lit(Const.CFloat(_)) => true
     case Term.Prim("dcell.get", List(Term.Local(_))) => true
-    case Term.Prim("__arith__", List(Term.Lit(Const.CStr(op)), a, b))
+    case DArithB(op, a, b)
         if op.length == 1 && "+-*/".contains(op) =>
       canDouble(a) && canDouble(b)
     case _ => false
@@ -636,7 +662,7 @@ object JvmByteGen:
         loadLocalValue(i, ctx)
         mv.visitTypeInsn(Opcodes.CHECKCAST, DCELL)
         mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, DCELL, "v", "()D", false)
-      case Term.Prim("__arith__", List(Term.Lit(Const.CStr(op)), a, b))
+      case DArithB(op, a, b)
           if op.length == 1 && "+-*/".contains(op) && canDouble(a) && canDouble(b) =>
         genDouble(a, ctx)
         genDouble(b, ctx)
@@ -1064,9 +1090,9 @@ object JvmByteGen:
       // Fused accumulator: lcell.set(c, arith(op, lcell.get(c), r)) where r is a boxed
       // element (not statically Long) — the foreach/loop accumulator hot path. Emits a
       // single Emit.lcellAccum (unboxed cell side) instead of box(lcell.get)+arith+prim2.
+      // ArithB matches both the untyped __arith__ form and F's typed `i.*` accumulator.
       case Term.Prim("lcell.set", List(Term.Local(c),
-          Term.Prim("__arith__", List(Term.Lit(Const.CStr(op)),
-            Term.Prim("lcell.get", List(Term.Local(c2))), r))))
+          ArithB(op, Term.Prim("lcell.get", List(Term.Local(c2))), r)))
           if c == c2 && op.length == 1 && "+-*/%".contains(op) && !canLong(r) =>
         loadLocalValue(c, ctx)
         mv.visitLdcInsn(op)
@@ -1084,9 +1110,9 @@ object JvmByteGen:
         call0(mv, "unitV")
       // Fused double accumulator (twin of the lcell one above): dcell.set(c, arith(op,
       // dcell.get(c), r)) where r is a boxed element (not statically Double).
+      // DArithB matches both the untyped __arith__ form and F's typed `f.*` accumulator.
       case Term.Prim("dcell.set", List(Term.Local(c),
-          Term.Prim("__arith__", List(Term.Lit(Const.CStr(op)),
-            Term.Prim("dcell.get", List(Term.Local(c2))), r))))
+          DArithB(op, Term.Prim("dcell.get", List(Term.Local(c2))), r)))
           if c == c2 && op.length == 1 && "+-*/".contains(op) && !canDouble(r) =>
         loadLocalValue(c, ctx)
         mv.visitLdcInsn(op)
@@ -1105,6 +1131,15 @@ object JvmByteGen:
         else
           mv.visitLdcInsn(aop); gen(a, ctx); gen(b, ctx)
           mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "arith", s"(Ljava/lang/String;L$VAL;L$VAL;)L$VAL;", false)
+      // Typed float value expression (`f.add`/`f.lt`/…). ArithB above already handled __arith__/i.*;
+      // these fire only for f.* and only when the Double fast path applies. A typed float op that is
+      // NOT accelerated (boxed operands, f.eq, …) matches no guard here and falls through to the
+      // generic Prim handler below — staying on the exact `prim2("f.…")` path (bit-identical to interp).
+      case t @ DArithB(aop, a, b) if isDoubleCmp(aop) && canDouble(a) && canDouble(b) =>
+        genDoubleCmpValue(aop, a, b, ctx); ()
+      case t @ DArithB(_, _, _) if canDouble(t) =>
+        genDouble(t, ctx)
+        callD(mv, "floatV")
       case Term.Prim(op, args) =>
         args.length match
           case 0 => mv.visitLdcInsn(op); callP(mv, "prim0", 0)
