@@ -298,41 +298,36 @@ class ProfileCommandTest extends AnyFunSuite:
     val sandbox = os.temp.dir(prefix = "ssc-profile-regr-")
     try
       val file = writeFixture(sandbox, "simple.ssc", simpleSrc)
-      val outJson = (sandbox / "actual.json").toString
-      runProfile(s"--out=$outJson", file)
-      val actualContent = os.read(os.Path(outJson))
-      // Parse actual jvm-codegen wallMs from the written JSON
-      val codegenMsOpt = """"name":"jvm-codegen","wallMs":\s*(\d+)""".r
-        .findFirstMatchIn(actualContent)
-        .map(_.group(1).toLong)
-      codegenMsOpt match
-        case None =>
-          // jvm-codegen not in output or 0ms — skip regression test
-          assume(false, "jvm-codegen phase not found in output — skipping regression test")
-        case Some(codegenMs) if codegenMs < 2 =>
-          // Too fast to reliably demonstrate >10% regression
-          assume(false, s"jvm-codegen only ${codegenMs}ms — regression test unreliable at this speed")
-        case Some(codegenMs) =>
-          // Set baseline to 1ms → current/1 - 1 = (N-1)*100% regression
-          val baselineJson =
-            s"""|{
-                |  "version": "ssc-profile/1.0",
-                |  "file": "simple.ssc",
-                |  "timestamp": "2026-01-01T00:00:00Z",
-                |  "runs": 1,
-                |  "phases": [
-                |    {"name":"jvm-codegen","wallMs":1,"allocBytes":100}
-                |  ],
-                |  "totalWallMs": 1,
-                |  "totalAllocBytes": 100
-                |}
-                |""".stripMargin
-          val baselineFile = (sandbox / "baseline_regr.json").toString
-          os.write(os.Path(baselineFile), baselineJson)
-          val out = runProfile(s"--compare=$baselineFile", file)
-          val hasWarning = out.contains("⚠") || out.contains("Regression") || out.contains("regression")
-          assert(hasWarning,
-            s"expected ⚠ warning (jvm-codegen actual=${codegenMs}ms vs baseline=1ms); got:\n$out")
+      // Baseline pinned at jvm-codegen = 1 ms.
+      val baselineJson =
+        s"""|{
+            |  "version": "ssc-profile/1.0",
+            |  "file": "simple.ssc",
+            |  "timestamp": "2026-01-01T00:00:00Z",
+            |  "runs": 1,
+            |  "phases": [
+            |    {"name":"jvm-codegen","wallMs":1,"allocBytes":100}
+            |  ],
+            |  "totalWallMs": 1,
+            |  "totalAllocBytes": 100
+            |}
+            |""".stripMargin
+      val baselineFile = (sandbox / "baseline_regr.json").toString
+      os.write(os.Path(baselineFile), baselineJson)
+      // SELF-CONSISTENT single run. The previous version measured jvm-codegen once via `--out` and then
+      // ran `--compare` (a SEPARATE real run) — at 1–2 ms granularity the two runs disagreed, so the
+      // "current" the baseline was chosen against did not match the run the warning came from → flaky.
+      // Parse the CURRENT column from the SAME `--compare` output (Main.scala renders each phase as
+      // "jvm-codegen  <baseline>  <current>  <pct><warn>"), so the ⚠ assertion can never disagree with a
+      // different run. current >= 2 ms vs baseline 1 ms ⇒ (cur-1)/1*100 >= 100% > 10% ⇒ the ⚠ is required.
+      val out = runProfile(s"--compare=$baselineFile", file)
+      """jvm-codegen\s+\d+\s+(\d+)""".r.findFirstMatchIn(out).map(_.group(1).toInt) match
+        case Some(cur) if cur >= 2 =>
+          assert(out.contains("⚠"),
+            s"jvm-codegen current=${cur}ms vs baseline=1ms must show ⚠ (>10%); got:\n$out")
+        case other =>
+          assume(false,
+            s"jvm-codegen current too fast (<2ms, got $other) to demonstrate >10% regression; got:\n$out")
     finally os.remove.all(sandbox)
 
   // ─── Test 13: --runs=3 produces min/avg/max output ────────────────────────
