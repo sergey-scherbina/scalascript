@@ -1,5 +1,44 @@
 # Bug tracker
 
+## f-native-multi-file-positional-args-reversed — `ssc run --native A.ssc B.ssc` runs files in REVERSE order under F
+
+**Status:** OPEN (found 2026-07-23 by opus during `v2-f4-reflip-D1` verification). A new, minimal,
+deterministic manifestation of the DOCUMENTED "multi-file source-concatenation" caveat class (spec
+`specs/v2-language-surface.md` §7 F4a; `specs/v2.2-p6.5-dualrun.expected`). The F4 flip (F is the default
+native front, `10bb15bfa`) is LIVE with that caveat accepted by Sergiy; this entry records the SMALLEST
+repro and its CI / A-B blind spots so the fix loop can use it.
+
+**Deterministic repro (F default vs `SSC_FRONT=legacy`, staged `bin/ssc` after `installBin`):**
+
+```
+# tests/fixtures/v21-native/multi-first.ssc   -> println("first")
+# tests/fixtures/v21-native/multi-second.ssc  -> println("second")
+bin/ssc run --native multi-first.ssc multi-second.ssc
+  F (default): "second\nfirst"   # WRONG — reversed (3/3 deterministic)
+  legacy:      "first\nsecond"   # correct
+# and reversed args confirm it: F on (multi-second, multi-first) prints "first\nsecond".
+```
+
+F executes the positional input files in REVERSE argument order. It is asserted by
+`tests/e2e/v21-native-entry-smoke.sh` check `L48` (`expect_out "L48" $'first\nsecond' …`).
+
+**Scope / blast radius (SMALL):** ONLY multiple POSITIONAL file arguments. Single-file runs and
+single-file-with-imports (`[lib](lib.ssc)` link imports) are byte-identical F-vs-legacy (verified). The
+tracked `dualrun.expected` residuals are the IMPORT-based multi-file value-lowering class; this positional
+sub-case is DISTINCT and was not in that list nor exercised by the corpus.
+
+**Why CI + the "72-script A/B green" readiness claim missed it:** `v21-native-entry-smoke.sh` is NOT run
+in CI. In a whole-script rc-level A/B it reads as `both_fail` — F exits rc=1 at `L48` (via `expect_out …
+exit 1`) while legacy reaches rc=1 only LATER on unrelated env checks (http-server-fast / storage) via the
+smoke's ERR trap — so an rc-only differential buckets it "not an F-only regression." The real signal is at
+the CHECK level: legacy PASSES L48, F FAILS it. (AGENTS.md "compare first, classify after" — the
+script-level both-fail masks the check-level F divergence.)
+
+**Fix direction:** F's multi-file source-concatenation lowering must preserve positional file order. A
+fallback cannot help (F resolves all globals and produces a WRONG value, so there is no error to trigger
+the F4a delegate-fallback). Deep F-lane change; part of the F5b typed-IR arc. Interim workaround:
+`SSC_FRONT=legacy bin/ssc run --native …` for multi-positional-file runs.
+
 ## ci-vthread-carrier-starvation-hang — `Test via sbt` hangs to its 200-min timeout under CI load
 
 **Status:** FIXED 2026-07-22 by opus (build.sbt `-Djdk.virtualThreadScheduler.parallelism=16`). A major
