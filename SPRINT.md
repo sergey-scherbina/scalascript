@@ -361,9 +361,13 @@ removal becomes perf-neutral.
       ~5× gap CLOSED by default.** Correctness: 80-program sweep output-preserving (bc-before==bc-after);
       effectful programs byte-identical to interpreter. `v2JvmBytecode/compile` green; self-hosting gates
       unaffected (bytecode-lane-only; semantic 248/248, fixpoint byte-identical).
-- [ ] **f5c-3 — f.* (double) + `lcell`/`dcell` accumulator `i.*`** (the 2 remaining `__arith__`-only sites:
-      `canDouble`/`genDouble` ~599/613; `lcell.set`/`dcell.set` fused accumulator ~1040/1060). Typed float
-      recursion + typed `var` accumulator loops. **Required before f5c-4** so the removal doesn't regress them.
+- [x] **f5c-3 DONE (`44265b437`, 2026-07-23) — f.* (double) + `lcell`/`dcell` accumulator `i.*`/`f.*`.**
+      `fArithSym`+`DArithB` (twin of `iArithSym`/`ArithB`) → typed FLOAT prims hit the unboxed Double path
+      (`canDouble`/`genDouble`/`genBoolBranchFalse`/top-level); `lcell.set`/`dcell.set` fused accumulators
+      match via `ArithB`/`DArithB` (untyped `__arith__` AND typed `i.*`/`f.*`); `pureNoEffect` allowlists
+      `i.*`/`f.*`. Byte-identical on the default front by construction (`DArithB` ⊇ old `__arith__` match).
+      Gates: v2JvmBytecode/compile; A/B byte-identical bytecode-vs-interpret 10/10 (5 progs × {default,
+      SSC_FRONT=F}); conformance 297/0; semantic 248/248; C_min+X1 fixpoint byte-identical.
 - [~] **f5c-default-switch (Option A) — HALTED 2026-07-22. Bytecode lane is NOT default-safe.** Full
       assessment in `specs/v2-f5c-typed-bytecode.md §7`. Sergiy chose: make bytecode the default `ssc run`
       backend, then remove FastCode/SelfRec. STEP-1 gate FAILED. Findings (via `bin/ssc-standard`): (a)
@@ -417,15 +421,15 @@ removal becomes perf-neutral.
       248/248; X1 fixpoint byte-identical; v2JvmBytecode/compile. **Claim stays OPEN — release gated on this
       switch's CI going green vs the baseline (reversible, ready to revert on a genuine NEW out-of-corpus
       regression). f5c-3 + the removal stay BACKLOG, gated on the switch's CI-green — NOT started.**
-- [ ] **f5c-3 (NEXT — before the removal) — f.* double + `lcell`/`dcell` accumulator `i.*`** recognition in
-      JvmByteGen (the 2 remaining `__arith__`-only sites) so float/accumulator numeric is fast on the default
-      lane BEFORE the removal (else the removal regresses those classes on `ssc run`). Gate: byte-identical +
-      those classes hit the unboxed fast path.
-- [ ] **f5c-4 (BLOCKED — gated on f5c-SWITCH, now BACKLOG) — FastCode/SelfRec removal** (`SSC_FASTPATHS` off →
-      delete `v2/src/Runtime.scala` regions, ~−1186 L) + re-measure default-lane (bytecode) fib/arith-loop perf-
+- [x] **f5c-3 DONE (`44265b437`, 2026-07-23)** — see the checked entry above (typed f.*/i.* double + accumulator
+      recognition in JvmByteGen; byte-identical on the default front; A/B 10/10, conformance 297/0, semantic
+      248/248, C_min+X1 fixpoint byte-identical).
+- [~] **f5c-4 IN PROGRESS (2026-07-23) — FastCode/SelfRec removal** (`SSC_FASTPATHS` off → delete
+      `v2/src/Runtime.scala` guarded regions, ~−1186 L) + re-measure default-lane (bytecode) fib/arith-loop perf-
       neutral; `--interpret` numeric now slower (accepted — reference lane). Highest-stakes irreversible kernel
-      deletion → build ONLY on a CI-GREEN switch. `f-bytecode-default-switch-int64-ci-red` is RESOLVED
-      (NOT-A-BUG, `0dbb7e018`); now blocked ONLY on the f5c-SWITCH re-landing CI-green.
+      deletion. Unblocked: f5c-SWITCH CI-green + f5c-3 landed. `mayProduceAutoThreadOp` cluster STAYS (base-path
+      effect threading, not a fast path). Reproduce the proven `SSC_FASTPATHS=off` branches; gate on X1/C_min
+      byte-identical + semantic + conformance + e2e A/B + perf-neutral.
 - [ ] **S1-6 — δ-arm deletion: Δ=0 in Stage 1 (approach A) — MEASURED, deferred to post-S1-5.** Confirmed
       empirically: (a) typed F STILL emits `__arith__` for bare-variable arith (`a+b`, `local>=local`) and
       `__eq__` for `local==lit`; (b) the ssc0 tower `ssc1-lower.ssc0` emits `__arith__` ×12 + `__eq__` ×10;

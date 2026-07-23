@@ -102,10 +102,16 @@ to the interpreter.
    unboxed path reachable by typed IR.
 2. **[LANDED f5c-2] OpAnf effect-free-def registry** — fib hits the unboxed path BY DEFAULT (§3). Keystone
    met: fib ~8.5 ms warm ≈ FastCode.
-3. **[NEXT] f.* (double) + `lcell`/`dcell` accumulator `i.*`** recognition — the two remaining
-   `__arith__`-only sites (`canDouble`/`genDouble` at JvmByteGen ~599/613; the `lcell.set`/`dcell.set` fused
-   accumulator at ~1040/1060). Typed float recursion + typed `var` accumulator loops. **Required before the
-   removal** so the removal doesn't regress those classes on the native lane.
+3. **[LANDED f5c-3, `44265b437`] f.* (double) + `lcell`/`dcell` accumulator `i.*`/`f.*`** recognition — the
+   two remaining `__arith__`-only sites. `fArithSym`+`DArithB` (twin of `iArithSym`/`ArithB`) teach
+   `canDouble`/`genDouble`/`genBoolBranchFalse`/the top-level dispatch the typed FLOAT prims; the
+   `lcell.set`/`dcell.set` fused accumulators now match via `ArithB`/`DArithB` (both untyped `__arith__` AND
+   typed `i.*`/`f.*`); `pureNoEffect` allowlists `i.*`/`f.*` so typed accumulator/loop bodies stay fast-path
+   eligible. **Byte-identical on the default front by construction** (`DArithB` ⊇ the old `__arith__` match;
+   the typed cases fire only for `i.*`/`f.*`, which only the F5b typed front emits). Gates: v2JvmBytecode
+   compile; A/B byte-identical bytecode-vs-interpreter on a double/accumulator set (5 programs × {default
+   front, SSC_FRONT=F}) = 10/10; conformance 297/0; semantic 248/248; C_min+X1 fixpoint byte-identical.
+   Typed float recursion + typed `var` accumulator loops now hit the fast bytecode path.
 4. **THEN apply the FastCode/SelfRec removal** (`SSC_FASTPATHS` default off → delete the guarded regions,
    `v2/src/Runtime.scala`) and re-measure: numeric hot loops get their specialization from typed bytecode on
    the native lane; the self-hosting gates stay green (indifferent to the fast paths, F5 §3). Land the
