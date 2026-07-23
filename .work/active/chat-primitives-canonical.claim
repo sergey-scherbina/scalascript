@@ -1,0 +1,14 @@
+feature/chat-primitives-canonical 2026-07-23T03:25:08Z
+agent: opus-rozum-chat
+heartbeat: 2026-07-23T03:25:08Z
+status: in-progress
+done-so-far: starting. Cherry-picking 2 UI-stream commits onto current main
+  (44d378ef8 fetchStreamSignal+intervalTick, 3814f4c08 forJson) from
+  origin/feature/ui-stream-chat — branch is 689 commits stale so it's a
+  cherry-pick, not a merge. Additive to std/ui (primitives/reactive/lower/nodes)
+  + js-runtime signals.mjs + fetch/frontend intrinsics + JVM lowering. No overlap
+  with the active v2-f5c-removal claim (that's v2 native codegen).
+next: cherry-pick both in a worktree, resolve additive conflicts, sbtc build +
+  installBin, conformance --only 'std-ui-*', push branch:main, ci-status.
+  Unblocks rozum deploy rebuilding chat.html from chat.ssc (retires the emit-spa
+  fail-safe). Driven from rozum by Sergiy ("Бери Canonical toolchain").
