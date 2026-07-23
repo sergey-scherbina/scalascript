@@ -1389,7 +1389,16 @@ def importItem(ts) = (("", ""), skipImport(ts))
 // import as the wildcard terminator, so stop right after it (consuming a trailing `;` if layout made one).
 def skipImport(ts) = if isEmpty(ts) then ts else (if isTok(hd(ts), 2, 52) then tl(ts) else (if isTok(hd(ts), 2, 25) then skipImportStar(tl(ts)) else skipImport(tl(ts))))
 def skipImportStar(ts) = if isTok(hd(ts), 2, 52) then tl(ts) else ts
-def parseTopItem(ts, cx) = if isImportHead(ts) then importItem(ts) else (if isEnumHead(ts) then enumItem(ts, cx) else (if isCCHead(ts) then ccTopItem(ts, cx) else (if isTraitHead(ts) then traitItem(ts) else (if isObjectHead(ts) then objectItem(ts, cx) else (if isGivenHead(ts) then givenItem(ts, cx) else (if isExtensionHead(ts) then extensionItem(ts, cx) else (if isExternHead(ts) then externItem(ts) else (if isTypeHead(ts) then typeItem(ts) else (if isTok(hd(ts), 2, 1) then defTopItem(ts, cx) else (if isTok(hd(ts), 2, 7) then valItem(ts, cx) else (if isVarHead(ts) then varTopItem(ts, cx) else (if isWhileHead(ts) then whileTopItem(ts, cx) else (if isAssignHead(ts) then assignTopItem(ts, cx) else exprItem(ts, cx))))))))))))))
+// A standalone `case object N [extends P]` (NOT inside an enum) is a nullary singleton — lower it EXACTLY
+// like a nullary enum case: `(def N (ctor N))` (ssc1-lower :3826). Its head is `case` (2,6) + word `object`,
+// so isCCHead (case+`class`) and isObjectHead (bare `object`) both MISS it; without this branch it falls to
+// exprItem and lowers to a bare `0`/`unit` expression that silently DROPS the rest of the program
+// (v21-slim-distribution fs/os-provider: os.ssc's `case object Jvm extends Platform` made the whole program
+// print `0`). fsub.ssc itself uses no `case object`, so the X1 fixpoint is byte-unchanged. Consume the head
+// (case, object, name) then any `extends`/body so the walk resumes at the next top-level statement.
+def isCaseObjectHead(ts) = if isTok(hd(ts), 2, 6) then isWord(hd(tl(ts)), "object") else false
+def caseObjectItem(ts, cx) = ((eraseEnumNull(snd(hd(tl(tl(ts))))), ""), skipCCBody(skipExtends(tl(tl(tl(ts))))))
+def parseTopItem(ts, cx) = if isCaseObjectHead(ts) then caseObjectItem(ts, cx) else (if isImportHead(ts) then importItem(ts) else (if isEnumHead(ts) then enumItem(ts, cx) else (if isCCHead(ts) then ccTopItem(ts, cx) else (if isTraitHead(ts) then traitItem(ts) else (if isObjectHead(ts) then objectItem(ts, cx) else (if isGivenHead(ts) then givenItem(ts, cx) else (if isExtensionHead(ts) then extensionItem(ts, cx) else (if isExternHead(ts) then externItem(ts) else (if isTypeHead(ts) then typeItem(ts) else (if isTok(hd(ts), 2, 1) then defTopItem(ts, cx) else (if isTok(hd(ts), 2, 7) then valItem(ts, cx) else (if isVarHead(ts) then varTopItem(ts, cx) else (if isWhileHead(ts) then whileTopItem(ts, cx) else (if isAssignHead(ts) then assignTopItem(ts, cx) else exprItem(ts, cx)))))))))))))))
 // DA14: `extern def f(..): T` / `extern class X { .. }` is a signature-only declaration the runtime
 // provides — the oracle ERASES it (emits nothing, ssc1-front :2782-2793) and a call `f(x)` resolves to a
 // bare `(app (global f) x)`. F skips the whole statement (skipStmt tracks the class body's braces + stops
