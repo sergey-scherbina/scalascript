@@ -598,16 +598,41 @@ const catalogRows = readFileSync(catalogUrl, "utf8")
   .split("\n")
   .slice(1)
   .map(line => {
-    const [id, slug, , , phase, , , oracle] = line.split("\t")
-    return { id, slug, phase, oracle }
+    const [id, slug, , capabilities, phase, , , oracle] = line.split("\t")
+    return { id, slug, capabilities: capabilities.split(","), phase, oracle }
   })
-const specified = catalogRows.filter(row => row.phase === "specified")
+const specifiedAll = catalogRows.filter(row => row.phase === "specified")
 
-test("local explicit program coverage agrees with every specified catalog row", () => {
+// Capabilities this single-threaded JS host lane structurally cannot exercise. A
+// specified vector that requires one is covered on the Scala host lane only (see
+// lanes.tsv `scala-explicit`); the JS suite records the skip explicitly rather than
+// silently under-reporting coverage.
+const jsUnsupportedCapabilities = new Set(["concurrency"])
+const jsSkipped = specifiedAll.filter(row =>
+  row.capabilities.some(cap => jsUnsupportedCapabilities.has(cap))
+)
+const specified = specifiedAll.filter(row =>
+  !row.capabilities.some(cap => jsUnsupportedCapabilities.has(cap))
+)
+
+test("local explicit program coverage agrees with every JS-coverable specified row", () => {
   assert.deepEqual(
     Array.from(semanticPrograms.keys()).sort(),
     specified.map(row => row.id).sort()
   )
+})
+
+// Non-silent skip: every skipped vector must genuinely require a JS-unsupported
+// capability, and the skip set is pinned so a future concurrency vector is flagged for
+// review instead of hiding behind this filter.
+test("vectors skipped on the JS host lane are justified and host-lane-only", () => {
+  for (const row of jsSkipped) {
+    assert.ok(
+      row.capabilities.some(cap => jsUnsupportedCapabilities.has(cap)),
+      `vector ${row.id} skipped without an unsupported capability`
+    )
+  }
+  assert.deepEqual(jsSkipped.map(row => row.id).sort(), ["16"])
 })
 
 for (const vector of specified) {

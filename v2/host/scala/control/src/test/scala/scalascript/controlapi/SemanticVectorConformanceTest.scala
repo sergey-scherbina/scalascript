@@ -120,7 +120,7 @@ private object SemanticVectorConformanceTest:
       Set(
         "01", "02", "03", "04", "05", "06", "07", "08", "09",
         "10", "11", "12", "13",
-        "14", "17",
+        "14", "16", "17",
         "18", "19", "20", "21", "22", "23", "24", "25"
       )
 
@@ -231,6 +231,7 @@ private object SemanticVectorConformanceTest:
         case "12" => exactArtifactAndCodecMismatch()
         case "13" => signatureQuotaNegative()
         case "14" => durableSaveRunSameProcess()
+        case "16" => concurrentMultiShot()
         case "17" => noPrefixMainReplay()
         case "18" => nearestMatchingReset()
         case "19" => residualForwarding()
@@ -274,6 +275,53 @@ private object SemanticVectorConformanceTest:
       val first = Eff.runPure(Restore.admitLocally(saved.run(1)))
       val second = Eff.runPure(Restore.admitLocally(saved.run(2)))
       s"$first,$second"
+
+    // Axis 16 — one immutable saved capsule is run() 100 times CONCURRENTLY; each run
+    // reconstructs its own frame at the capture point and never interferes with another
+    // (§8.1/§14.3 item 3, extends axis-02 from sequential to concurrent). The machine
+    // mutates its per-run decoded frame; a shared/mutable frame would corrupt the
+    // results. All 100 threads are released together for genuine concurrency.
+    private def concurrentMultiShot(): String =
+      final class Cell(var value: Int)
+      val cellCodec: DurableCodec[Cell] =
+        DurableCodec.imap(DurableCodec.int)(bits => new Cell(bits))(cell => cell.value)
+      val accumulate =
+        new ResumeStateMachine[Cell, Int, Nothing, Int]:
+          def resume(cell: Cell, input: Int): Eff[Nothing, Int] =
+            cell.value += input // mutate ONLY this run's freshly decoded frame
+            Eff.pure(cell.value)
+      val saved =
+        freezeSavable(Continuation.savable(new Cell(1000), accumulate, cellCodec))
+
+      val count = 100
+      val results = new java.util.concurrent.atomic.AtomicIntegerArray(count)
+      val ready = new java.util.concurrent.CountDownLatch(1)
+      val done = new java.util.concurrent.CountDownLatch(count)
+      var index = 0
+      while index < count do
+        val input = index
+        val worker = new Thread(() =>
+          ready.await()
+          results.set(input, Eff.runPure(Restore.admitLocally(saved.run(input))))
+          done.countDown()
+        )
+        worker.start()
+        index += 1
+      ready.countDown() // release all 100 at once
+      done.await()
+
+      // Each run reconstructs an independent Cell(1000); result(i) == 1000 + i with no
+      // cross-run interference (a shared/mutable frame would produce corrupted totals).
+      var independent = 0
+      var i = 0
+      while i < count do
+        if results.get(i) == (1000 + i) then independent += 1
+        i += 1
+      assert(
+        independent == count,
+        s"concurrent runs interfered: only $independent/$count were independent"
+      )
+      s"$count-independent-runs"
 
     // Axis 17 — the prefix (state construction) runs once at save; running the saved
     // continuation twice never re-executes it (the counter stays 1).

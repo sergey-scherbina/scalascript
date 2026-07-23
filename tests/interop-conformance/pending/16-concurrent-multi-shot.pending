@@ -1,6 +1,0 @@
-axis: concurrent-multi-shot
-status: pending-codec
-needs: SavedContinuation + concurrent run() scheduling
-expected: Multiple `saved.run(...)` invocations executed CONCURRENTLY each begin
-  at the capture point with their own value and do not interfere (immutable
-  captured frame). Extends axis-02 (multi-shot) from sequential to concurrent.

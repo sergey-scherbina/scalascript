@@ -14,7 +14,7 @@ id	slug	law	capabilities	phase	expectedExit	expectedStream	oracle
 13	signature-quota-negative	§11.1,§12,§14.3	admission,security	specified	zero	structured	TamperedCapsule|ResourceLimit
 14	durable-save-run-same-process	§8.1,§14.3	durable-save	specified	zero	stdout	10,20
 15	cross-host-resume	§8.1,§14.4	durable-save,remote-runner	pending-codec	pending	pending	portable-N-to-M
-16	concurrent-multi-shot	§8.1,§14.3	concurrency,durable-save,multi-shot	pending-codec	pending	pending	100-independent-runs
+16	concurrent-multi-shot	§8.1,§14.3	concurrency,durable-save,multi-shot	specified	zero	structured	100-independent-runs
 17	no-prefix-main-replay	§8.1,§14.3	durable-save,no-replay	specified	zero	stdout	10,20,1
 18	nearest-matching-reset	§4.2,§14.1	shift-reset	specified	zero	stdout	1007
 19	residual-forwarding-nested-handlers	§3,§11.3,§14.1	effects,handler-deep,one-shot,residual,return-transform	specified	zero	stdout	57
