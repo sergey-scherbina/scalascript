@@ -1,6 +1,6 @@
 feature/v2-f5c-removal 2026-07-23T02:52:13Z
 agent: opus-orch
-heartbeat: 2026-07-23T03:09:43Z
+heartbeat: 2026-07-23T03:16:53Z
 status: in-progress
-done-so-far: f5c-3 IMPLEMENTED in JvmByteGen (DArithB typed-float extractor + typed i.*/f.* accumulator fusion + pureNoEffect allowlist for typed prims). v2JvmBytecode/compile GREEN. A/B double/accumulator byte-identical bytecode-vs-interpret 10/10 (both default and SSC_FRONT=F). C_min fixpoint byte-identical (32824 B). semantic 248/248. X1 full fixpoint + FULL conformance + FULL e2e A/B RUNNING.
-next: land f5c-3 on green; then f5c-4 removal (delete FastCode/SelfRec ~1186 L from Runtime.scala, SSC_FASTPATHS default-off) with full-flip rigor + perf re-measure. HALT on any regression.
+done-so-far: f5c-3 committed locally (14d9f552e). GREEN: v2JvmBytecode/compile, A/B double/accumulator byte-identical bytecode-vs-interpret 10/10 (default + SSC_FRONT=F), semantic 248/248, C_min byte-identical (32824 B), X1 full fixpoint byte-identical (405396 B). FULL conformance + FULL e2e A/B still running (JVM-launch-bound, slow). Then push f5c-3, then f5c-4 removal.
+next: on conf+e2e green push f5c-3; f5c-4 = delete FastCode/SelfRec/closed-form (~1156 L, mayProduceAutoThreadOp STAYS — base-path effect threading) + fcEntry + fastPathsOn, reproduce proven SSC_FASTPATHS=off branches; verify C_min/X1 byte-identical + semantic 248 + conformance + e2e + perf-neutral. HALT on any regression.
