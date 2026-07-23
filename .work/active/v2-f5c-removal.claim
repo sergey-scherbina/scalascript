@@ -1,6 +1,0 @@
-feature/v2-f5c-removal 2026-07-23T02:52:13Z
-agent: opus-orch
-heartbeat: 2026-07-23T05:56:11Z
-status: in-progress
-done-so-far: OPTION A COMPLETE + LANDED. f5c-3 (44265b437 feat + 178bf096f docs): typed f.* double + i./f. accumulator recognition in JvmByteGen. f5c-4 (358a6e6cf feat + 8f9b25212 docs): FastCode/SelfRec/closed-form removal from v2/src/Runtime.scala. Runtime.scala 4825->3485 (-1340 L; v2/src total now 4840 incl. concurrent sibling Capsule.scala). GATES all byte-identical/green post-rebase: fail-loud re-confirmed (float-delta break -> semantic MISMATCH 3/248, C_min stayed 32824); C_min 32824 B + X1 405396 B fixpoint stage1==stage2 byte-identical; semantic 248/248; FULL conformance 297/0; FULL e2e A/B fail-set IDENTICAL to f5c-3 (0 new regressions, all 38 env-invariant incl. 8 v21-* confirmed FAIL-on-baseline). PERF default(bytecode) fib34 0.80s + 200M-loop 1.64s perf-NEUTRAL; --interpret 1.70s/13.46s (~5-12x, accepted reference lane). frontIsF untouched.
-next: CLAIM OPEN per orchestrator gate — release on CI-green vs baseline (removal git-revertible if CI surfaces genuine out-of-corpus regression). scripts/ci-status --sha 8f9b25212.
