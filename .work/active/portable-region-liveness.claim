@@ -1,0 +1,6 @@
+feature/portable-region-liveness 2026-07-23T08:13:24Z
+agent: claude-code
+heartbeat: 2026-07-23T08:13:24Z
+status: in-progress
+done-so-far: §10.2 slice 2 = AUTO-LIVENESS. Slice 1 (explicit frame slots) landed. Now: derive the frame slots from a free-outer-variable analysis of the region body Lam(1,body), + a depth-aware de-Bruijn rewrite that folds free outer refs into frame-tuple field reads. Verified the transform by hand on a nested-lambda region (a+input*b → 23). NO Runtime.scala edit.
+next: SaveRegion.freeOuterIndices + rewrite + reifyAuto(Lam(1,body)) → (J, closed resume); freeze-region-auto mode building frame from J+env; conformance assertions (23/11). Then docs/land.
