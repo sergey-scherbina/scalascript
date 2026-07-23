@@ -1,6 +1,0 @@
-feature/durable-concurrent-multishot 2026-07-23T03:21:56Z
-agent: claude-code
-heartbeat: 2026-07-23T03:21:56Z
-status: in-progress
-done-so-far: 23/26 specified. Starting vector 16 (concurrent-multi-shot) on the SCALA host lane only (JS single-thread structurally blocks it). 100 concurrent saved.run() proving immutable-frame independence.
-next: Scala concurrentMultiShot program (100 threads, CountDownLatch, per-run snapshot independence); flip vector 16 + add concurrency cap to scala-explicit; make control.test.js coverage SKIP caps with 'concurrency' (log the skip); verify + land
