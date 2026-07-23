@@ -5179,10 +5179,18 @@ dynamic saved-capsule runner.
   budget > available), checked after integrity and before codec/ABI. `signature-quota-negative`
   pending-codec→specified (host-only, `structured`, oracle `TamperedCapsule|ResourceLimit`); both host
   lanes (Scala MessageDigest-HMAC == JS hand-rolled HMAC, golden hex regenerated +20 trailing bytes);
-  catalog negative meta-test repointed 13→15. Now **23/26 vectors specified** (Scala 152/152, JS 63/63,
-  ABI 6/6, catalog PASS 26/9, validator negatives 9/9). STILL OPEN (3): 15 (cross-host — remote runner),
-  16 (concurrent — Scala-doable but JS single-threaded blocks the unconditional JS coverage), 26
-  (cancellation — pending-spec, no spec).
+  catalog negative meta-test repointed 13→15. **VECTOR 16 FLIPPED (`durable-concurrent-multishot`):**
+  concurrent-multi-shot on the **Scala host lane only**. One immutable saved capsule is `run()` 100×
+  CONCURRENTLY (100 threads released together via `CountDownLatch`) against a machine that mutates its
+  own decoded frame; each result is independent (`1000+i`), proving the per-run `codec.snapshot` frame
+  reconstruction has zero cross-run interference — no new runtime needed. Host-lane-only: the
+  `concurrency` cap (added to `scala-explicit`) is structurally unavailable on single-threaded JS, so
+  `control.test.js` now filters its coverage by a `jsUnsupportedCapabilities` set and asserts the skip
+  is justified + pinned (`["16"]`), NOT silent. `concurrent-multi-shot` pending-codec→specified
+  (host-only, `structured`, oracle `100-independent-runs`); verified deterministic across repeated
+  runs. Now **24/26 vectors specified** (Scala 153/153, JS 64/64, ABI 6/6, catalog PASS 26/9, validator
+  negatives 9/9). STILL OPEN (2): 15 (cross-host — remote runner = v2/native, cross-module), 26
+  (cancellation — pending-spec, no spec exists).
   Original blocked note (now superseded)
   preserved: BLOCKED, do not start: every one of its three
   deliverables is gated on work that does not exist yet. Measured 2026-07-16 on

@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-07-23 — Concurrent multi-shot from one immutable capsule (vector 16, Scala host lane)
+
+Flips conformance vector `16-concurrent-multi-shot` `pending-codec`→`specified`: one saved continuation
+is `run()` 100 times **concurrently** and every run begins at the capture point with its own value and
+zero cross-run interference (§8.1/§14.3 item 3, extending axis-02 from sequential to concurrent). This
+needed no new runtime — `SavedContinuation.run` already reconstructs an independent frame per run
+(`codec.snapshot`), so the shared captured frame is only ever read; the Scala conformance program
+releases 100 threads together via a `CountDownLatch` against a machine that mutates its own decoded
+frame, and asserts each of the 100 results is independent (`1000 + i`). Vector 16 is host-lane-only:
+its `concurrency` capability (added to `scala-explicit` in `lanes.tsv`) is structurally unavailable on
+the single-threaded JS host, so `control.test.js` now filters the JS coverage set by a
+`jsUnsupportedCapabilities` set and asserts the skip is justified and pinned (exactly `["16"]`) rather
+than silently under-reporting. 24/26 vectors now specified. Scala 153/153 (concurrent vector verified
+deterministic across repeated runs), ABI 6/6, JS 64/64, `run.sh` catalog PASS (26 vectors/9 lanes),
+validator negative cases 9/9.
+
 ## 2026-07-23 — v2-f5c: JVM-bytecode lane RE-LANDED as the DEFAULT `ssc run` backend (Option A)
 
 Re-applies the f5c Option-A switch (byte-identical to `c05924863`, reverted `c6ddf0a4f`): `ssc run` now
