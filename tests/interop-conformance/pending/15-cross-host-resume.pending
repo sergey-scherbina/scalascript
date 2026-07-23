@@ -20,8 +20,11 @@ progress: The ExactArtifact half is now demonstrated cross-lane between the two
   a compiler-declared saveable region (frame captures a,b; resume (a,b,input)=>a*input+b)
   into a GENERATED closed resume Program — a frame tuple + a `Lam(2,...)` that
   destructures it and applies the region lambda — run by the same machine-less runner
-  (`portable-capsule.sh`: reified region → 19/10). NOT YET FLIPPED: the reification is
-  first-order (explicit scalar slots); auto-liveness, global closure, effectful regions
+  (`portable-capsule.sh`: reified region → 19/10). AUTO-LIVENESS also landed
+  (`SaveRegion.reifyAuto`): the frame slots are DERIVED from a free-outer-variable analysis
+  of a region `(input)=>body` + a depth-aware de-Bruijn rewrite folding the free refs into
+  frame-tuple reads (verified on a nested-lambda region → 23/11). NOT YET FLIPPED: still
+  first-order scalars; global closure (defs→resume.defs), effectful regions
   (`specs/portable-save-region.md` staging), and a SECOND admitting backend for the full
   §14.4 cross-backend N→M matrix remain.
 sketch: |

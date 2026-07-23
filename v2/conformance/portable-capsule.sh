@@ -72,4 +72,13 @@ else printf 'FAIL %-30s\n' "reified frame is a tuple"; fail=1; fi
 check "reified region run input=5" "$(ssc run-capsule "$REG" 5)" "19"   # 3*5 + 4
 check "reified region run input=2" "$(ssc run-capsule "$REG" 2)" "10"   # 3*2 + 4
 
+# §10.2 auto-liveness (slice 2): `freeze-region-auto` DERIVES the frame from a free-variable
+# analysis of the region body — no explicit slots. The demo region `(input) => a + input*b`
+# is written with a nested lambda so the depth-aware de-Bruijn rewrite is exercised; the pass
+# finds the free outer vars {a=3, b=4}, builds the frame tuple, and closes the body over it.
+AUTO="$TMP/auto.portable"
+ssc freeze-region-auto "$AUTO" >/dev/null
+check "auto-liveness run input=5" "$(ssc run-capsule "$AUTO" 5)" "23"   # 3 + 5*4
+check "auto-liveness run input=2" "$(ssc run-capsule "$AUTO" 2)" "11"   # 3 + 2*4
+
 if [ "$fail" -eq 0 ]; then echo "portable-capsule: PASS"; else echo "portable-capsule: FAIL"; exit 1; fi

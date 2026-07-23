@@ -104,9 +104,13 @@ version also digests/round-trips the frame (§9.1 canonical codec).
 
 ## 6. Staging (each an independently landable slice)
 
-1. **First-order scalar/tuple frame** (this slice): `body` a straight-line arithmetic/`If`/`Match`
-   term over `input` + live scalar outer locals; no user-`Global` calls, no inner effects. Proves
-   liveness + closure conversion + the frame generalization end-to-end via `run-capsule`.
+1. **First-order scalar/tuple frame** — ✅ **LANDED** (`SaveRegion.reify`, explicit slots):
+   frame construction + closure conversion of a closed region lambda into `Lam(2, …)`, end-to-end
+   via `run-capsule`.
+1a. **Automatic liveness** — ✅ **LANDED** (`SaveRegion.reifyAuto`): the frame slots are *derived*
+   from a free-outer-variable analysis (`freeOuterIndices`) of a region `Lam(1, body)`, and `body`
+   is folded over the frame tuple by a depth-aware de-Bruijn `rewrite` (verified on a nested-lambda
+   region, `(input) => a + input*b`). First-order scalars; no user-`Global` calls, no inner effects.
 2. **Global closure** — carry transitively-reached top-level `def`s into `resume.defs`
    (defunctionalization of first-order globals).
 3. **Nominal / graph frame** — non-scalar frame slots via the §9.1/§9.3 codecs; align the VM
