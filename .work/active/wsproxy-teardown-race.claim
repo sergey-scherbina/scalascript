@@ -1,6 +1,0 @@
-feature/wsproxy-teardown-race 2026-07-23T10:35:30Z
-agent: opus-orch
-heartbeat: 2026-07-23T10:35:30Z
-status: in-progress
-done-so-far: Root-caused the ws-proxy-conn RejectedExecutionException as an unguarded wsExecutor.execute at WsProxy.scala upgrade-handler dispatch (the sole WsProxy$$Lambda submit; the shared WebSocket runtime already guards its own submits). Applied benign-teardown guard + clean early-bail. Compiles. Now writing deterministic reproduction test + repeated-run verification.
-next: verify fix (reproduce on HEAD, green with fix), run full backendInterpreterServer/test repeatedly, push.
