@@ -1,6 +1,6 @@
 feature/v2-f5c-removal 2026-07-23T02:52:13Z
 agent: opus-orch
-heartbeat: 2026-07-23T04:14:50Z
+heartbeat: 2026-07-23T04:36:46Z
 status: in-progress
-done-so-far: f5c-3 LANDED (feat 44265b437 + docs 178bf096f). f5c-4 removal IMPLEMENTED (not yet pushed): deleted SelfRecLL/SelfTailRecLL2/FastCode + closed-form helpers + fcEntry field + fastPathsOn flag; rewrote 6 call sites to the proven SSC_FASTPATHS=off base branches; mayProduceAutoThreadOp cluster KEPT (base-path effect threading). Kernel 4825->3485 (-1340 L). GATES GREEN: fail-loud confirmed (float break -> semantic MISMATCH 3/248 while C_min stayed 32824 = validates semantic gate needed, not just fixpoint); C_min 32824 B byte-identical; semantic 248/248; X1 fixpoint 405396 B byte-identical; kernel+bytecode+installBin compile; A/B byte-identical. PERF default-lane (bytecode) fib34 0.80s + 200M-loop 1.64s FAST (perf-neutral, bytecode=Emit independent of deleted kernel); --interpret 13.46s (accepted).
-next: FULL conformance (297/0) + FULL e2e A/B running; on green push f5c-4 + docs. HALT on any regression.
+done-so-far: f5c-3 LANDED (44265b437 + 178bf096f). f5c-4 committed LOCAL (feat 9e4bd1be7 + docs ea5426283), not yet pushed. Kernel Runtime.scala 4825->3485 (-1340 L); v2/src 6035->4695. GATES GREEN: fail-loud re-confirmed (float break -> semantic MISMATCH 3/248, C_min stayed 32824); C_min 32824 B + X1 405396 B fixpoint byte-identical; semantic 248/248; FULL conformance 297/0; OFF==ON re-verified on tree; compile all modules. PERF default(bytecode) fib34 0.80s + 200M-loop 1.64s perf-NEUTRAL; --interpret 1.70s/13.46s (accepted). 3 residual FastCode comment-refs cleaned. FULL e2e A/B running (~38/76), comparing fail-set to f5c-3's (env-invariant).
+next: on e2e fail-set == f5c-3 (0 new regressions) -> rebase + push f5c-4 feat+docs to origin/main. Claim OPEN (orch gates release on CI-green vs baseline). Do NOT touch frontIsF.
