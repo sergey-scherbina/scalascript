@@ -1,0 +1,11 @@
+slug: claim-metadata-consistency
+branch: feature/claim-metadata-consistency
+agent: claude-code
+started: 2026-07-27T21:07:58Z
+heartbeat: 2026-07-27T21:07:58Z
+status: claimed-before-planning
+items: claim-ledger-claimfile-scope-drift
+paths: .githooks/ scripts/coord-claim tests/coord/ specs/claim-mutex.md BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
