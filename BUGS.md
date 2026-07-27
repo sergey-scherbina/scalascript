@@ -497,6 +497,12 @@ above** — that needs the backlog gone. They were deliberately NOT mass-cancell
 may be the exact-SHA verdict another agent is waiting on, and destroying a sibling's evidence to
 make my own fix look verified is the opposite of the point. Draining them is the CI owner's call.
 
+**Fresh exact-SHA instance, Corpus Contract E7.** Run `30307158170` for final
+SHA `9975a0c0c` was superseded and completed `cancelled` with zero jobs. Per
+AGENTS.md this is RED/no verdict, never neutral: E7 released on evidence level
+3 (its named local classifier, real-corpus, conformance, routing, and doc gates),
+not on a fictional CI green.
+
 **Observed on `ci.yml` / `main`, 2026-07-27 ~16:59Z:**
 
 - **6 of the last 14 runs ended `cancelled`** (`b672b0d41`, `bb78a98ea`, `309011c05`, `1ad34d8ec`,

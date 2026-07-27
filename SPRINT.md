@@ -817,7 +817,9 @@ mode in its purest form: the apparatus that establishes trust was itself unteste
       **Verification:** initial roster 465 sorted/unique names; self-test 29/29;
       14/14 CLI refusal diagnostics; real `arithmetic,int-width` slice labels only
       `int-width` as NEW; production-form shard GREEN; conformance 2/2 with both v2
-      cells PASS and only the two declared v1 known-red cells.
+      cells PASS and only the two declared v1 known-red cells. **CI evidence level
+      3:** exact-SHA run `30307158170` for `9975a0c0c` was `cancelled` with zero
+      jobs (RED/no verdict); release uses the named local gates above.
 
 - [ ] **E8 — restore the repository markdownlint gate.** Fix BUGS
       `markdownlint-bugs-lane-labels`: two existing `BUGS.md` lane summaries use

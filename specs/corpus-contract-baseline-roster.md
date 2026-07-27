@@ -221,3 +221,8 @@ contract and v2 lane identity landed as `2a796b258`.
 A full `--update-baseline` was intentionally not run: the neighboring
 `corpus-gate-remaining-reds` claim owns `corpus-baseline.tsv`, and E7's initial
 roster is paired to that exact existing freeze.
+
+CI evidence for release is **level 3**. `scripts/ci-status --sha 9975a0c0c`
+initially found no exact run; GitHub run `30307158170` then completed
+`cancelled` with zero jobs after being superseded. That outcome is recorded as
+RED/no verdict, not green, so the release relies on the named local gates above.
