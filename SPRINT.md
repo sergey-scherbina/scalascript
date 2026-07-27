@@ -112,6 +112,20 @@ SLOWER until `f5c-1`; `.length` receivers were classifier-shaped — they were b
       (it may be IO/parse-bound), and whether the bytecode lane admits F's shape (`OpAnf` purity,
       closures, the string-heavy workload — the f5c wins were NUMERIC, and F is string/list-heavy,
       so do not assume the win transfers).
+      - [ ] **V-6b.1 — specify and pin a no-fallback admission probe.** Commit
+            `specs/v2-f-bytecode-probe.md` before implementation. The probe must execute the frozen
+            F0 through `JvmByteGen`, fail visibly if bytecode emission or execution is unsupported,
+            and compare the produced `F(F_src)` bytes before classifying the result.
+      - [ ] **V-6b.2 — run the structural and performance controls.** Add
+            `scripts/v2-f-bytecode-probe` so a fresh checkout can rebuild F0, run a VM control and a
+            direct-ASM candidate on identical source bytes, print raw samples plus medians, and prove
+            which backend actually executed. Test the 2x self-compile target before touching the
+            product path.
+      - [ ] **V-6b.3 — admit or reject the hypothesis from evidence.** If direct ASM accepts F0 and
+            meets the report's targets, widen this claim only to the concrete free integration path,
+            add parity/conformance coverage, and wire it without silent fallback. Otherwise record
+            the exact unsupported shape and queue the measured V-6c alternative. Do not overlap the
+            live `v2-bytecode-lane-silent-downgrade` claim on `RunNativeV2`.
 - [ ] **V-6c — decide and record.** Either a queued optimisation with a measured target, or an explicit
       "2-4× is accepted, here is why" written into `BACKLOG.md`. An accepted cost that is written down
       is fine; an unowned cost that everyone assumes someone is fixing is not — that is the state this
