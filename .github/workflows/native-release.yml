@@ -1,85 +1,217 @@
 name: Native Release
 
 on:
+  workflow_dispatch:
   push:
     tags:
-      - 'v*.*.*'   # triggers on version tags, e.g. v1.50.0
+      - 'v*.*.*'
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
+  qualifier-contract:
+    name: Prove compare-first release refusals
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Run controlled archive mutations
+        run: tests/e2e/native-release-qualification.sh
+
+      - name: Run controlled publication mutations
+        run: tests/e2e/native-release-publication.sh
+
   native-image:
-    name: Build native ssc (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    name: Qualify ${{ matrix.artifact_id }} on ${{ matrix.runner }}
+    needs: qualifier-contract
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    permissions:
+      contents: read
 
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            artifact: ssc-linux-x86_64
-            graalvm-arch: linux-amd64
-          - os: macos-latest
-            artifact: ssc-macos-arm64
-            graalvm-arch: macos-aarch64
-          - os: macos-13
-            artifact: ssc-macos-x86_64
-            graalvm-arch: macos-amd64
+          - runner: ubuntu-latest
+            artifact_id: ssc-linux-x86_64
+          - runner: macos-latest
+            artifact_id: ssc-macos-arm64
+          - runner: macos-15-intel
+            artifact_id: ssc-macos-x86_64
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       - name: Setup GraalVM 21
-        uses: graalvm/setup-graalvm@v1
+        uses: graalvm/setup-graalvm@0def53c0fd8534bc13416c9469f5be45265824fd # v1
         with:
           java-version: '21'
-          distribution: 'graalvm'
+          distribution: graalvm
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup sbt
-        uses: sbt/setup-sbt@v1
+        uses: sbt/setup-sbt@f6db8ab474efba716fc7f04441ab33714e4825af # v1
 
-      - name: Build native ssc binary
-        run: sbt cli/graalvm-native-image:packageBin
-
-      - name: Build ssc-plugin-host.jar
-        # ssc-plugin-host.jar is a plain JVM fat-jar (no GraalVM needed for the
-        # jar itself).  It ships alongside the native binary so that --plugin
-        # <foo.jar> works in native mode via the subprocess bridge.
-        run: sbt pluginHost/assembly
-
-      - name: Collect artifacts
+      - name: Build native binary, frontend data, and plugin host
         run: |
-          mkdir -p dist/lib
-          cp v1/tools/cli/target/graalvm-native-image/ssc dist/${{ matrix.artifact }}
-          chmod +x dist/${{ matrix.artifact }}
-          PLUGIN_HOST=$(find v1/tools/plugin-host/target -name "ssc-plugin-host.jar" | head -1)
-          cp "$PLUGIN_HOST" dist/lib/ssc-plugin-host.jar
+          sbt \
+            'set cli / graalVMNativeImageOptions -= "-J-Xmx8g"' \
+            'set cli / graalVMNativeImageOptions += "-J-Xmx5g"' \
+            "cli/installBin" \
+            "cli/graalvm-native-image:packageBin" \
+            "pluginHost/assembly"
 
-      - name: Create release archive
-        # Archive layout:
-        #   ssc                        (native executable)
-        #   lib/ssc-plugin-host.jar    (JVM host for --plugin <jar> bridge)
-        #   README.md
+      - name: Assemble release payload
+        env:
+          ARTIFACT_ID: ${{ matrix.artifact_id }}
         run: |
-          mkdir -p dist/archive/lib
-          cp dist/${{ matrix.artifact }} dist/archive/ssc
-          cp dist/lib/ssc-plugin-host.jar dist/archive/lib/ssc-plugin-host.jar
-          cp native-image-configs/README.md dist/archive/README.md 2>/dev/null || true
-          tar -czf dist/${{ matrix.artifact }}.tar.gz -C dist/archive .
+          set -euo pipefail
+          mkdir -p dist/archive/lib dist/archive/bin/lib/standard
 
-      - name: Upload native binary artifact
-        uses: actions/upload-artifact@v4
+          native_binary=v1/tools/cli/target/graalvm-native-image/scalascript-cli
+          test -x "$native_binary"
+          cp "$native_binary" "dist/$ARTIFACT_ID"
+          chmod +x "dist/$ARTIFACT_ID"
+          cp "dist/$ARTIFACT_ID" dist/archive/ssc
+
+          shopt -s nullglob
+          plugin_hosts=(v1/tools/plugin-host/target/scala-*/ssc-plugin-host.jar)
+          if [[ ${#plugin_hosts[@]} -ne 1 ]]; then
+            printf 'plugin-host collection: expected=1 actual=%s paths=%s\n' \
+              "${#plugin_hosts[@]}" "${plugin_hosts[*]:-<none>}" >&2
+            exit 1
+          fi
+          cp "${plugin_hosts[0]}" dist/archive/lib/ssc-plugin-host.jar
+          test -s dist/archive/lib/ssc-plugin-host.jar
+
+          test -d bin/lib/standard/native-front
+          cp -R bin/lib/standard/native-front \
+            dist/archive/bin/lib/standard/native-front
+          cp README.md dist/archive/README.md
+
+      - name: Manifest and compress release payload
+        env:
+          ARTIFACT_ID: ${{ matrix.artifact_id }}
+        run: |
+          set -euo pipefail
+          front=dist/archive/bin/lib/standard/native-front
+          python3 - "$front" <<'PY'
+          import hashlib
+          import os
+          import sys
+
+          root = os.path.realpath(sys.argv[1])
+          manifest = os.path.join(root, "MANIFEST.sha256")
+          if os.path.lexists(manifest):
+              os.remove(manifest)
+
+          paths = []
+          for directory, directories, files in os.walk(root):
+              directories.sort()
+              files.sort()
+              for name in files:
+                  absolute = os.path.join(directory, name)
+                  if os.path.islink(absolute):
+                      raise SystemExit(f"native-front manifest refuses symlink: {absolute}")
+                  paths.append(os.path.relpath(absolute, root).replace(os.sep, "/"))
+
+          with open(manifest, "w", encoding="utf-8", newline="\n") as output:
+              for relative in sorted(paths):
+                  digest = hashlib.sha256()
+                  with open(os.path.join(root, *relative.split("/")), "rb") as stream:
+                      for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                          digest.update(chunk)
+                  output.write(f"{digest.hexdigest()}  {relative}\n")
+          PY
+
+          archive="dist/$ARTIFACT_ID.tar.gz"
+          COPYFILE_DISABLE=1 tar -czf "$archive" -C dist/archive \
+            ssc lib bin README.md
+          if command -v sha256sum >/dev/null 2>&1; then
+            digest=$(sha256sum "$archive" | awk '{print $1}')
+          else
+            digest=$(shasum -a 256 "$archive" | awk '{print $1}')
+          fi
+          printf '%s  %s\n' "$digest" "${archive##*/}" >"$archive.sha256"
+
+      - name: Qualify isolated shipped bytes
+        env:
+          ARTIFACT_ID: ${{ matrix.artifact_id }}
+        run: |
+          set -euo pipefail
+          isolated="$RUNNER_TEMP/native-release-$ARTIFACT_ID"
+          mkdir -p "$isolated"
+          cp "dist/$ARTIFACT_ID" "$isolated/"
+          cp "dist/$ARTIFACT_ID.tar.gz" "$isolated/"
+          cp "dist/$ARTIFACT_ID.tar.gz.sha256" "$isolated/"
+          cp scripts/native-release-qualify "$isolated/"
+          chmod +x "$isolated/$ARTIFACT_ID" "$isolated/native-release-qualify"
+
+          # A native image with a captured checkout root must fail here. Hide
+          # both current and legacy staged frontend layouts before execution.
+          mv bin/lib/standard/native-front \
+            "$RUNNER_TEMP/hidden-standard-native-front"
+          mv bin/lib/native-front \
+            "$RUNNER_TEMP/hidden-legacy-native-front"
+
+          cd "$isolated"
+          ./native-release-qualify "$ARTIFACT_ID" "$ARTIFACT_ID.tar.gz"
+
+      - name: Upload qualified native artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: ${{ matrix.artifact }}
+          name: ${{ matrix.artifact_id }}
           path: |
-            dist/${{ matrix.artifact }}
-            dist/${{ matrix.artifact }}.tar.gz
+            dist/${{ matrix.artifact_id }}
+            dist/${{ matrix.artifact_id }}.tar.gz
+            dist/${{ matrix.artifact_id }}.tar.gz.sha256
+          if-no-files-found: error
           retention-days: 30
 
-      - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v1
-        if: startsWith(github.ref, 'refs/tags/')
+  release:
+    name: Publish qualified tag
+    needs: native-image
+    if: >-
+      github.event_name == 'push' &&
+      github.ref_type == 'tag' &&
+      startsWith(github.ref_name, 'v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout versioned publication contract
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          files: dist/${{ matrix.artifact }}.tar.gz
+          persist-credentials: false
+
+      - name: Download qualified artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: ssc-*
+          path: dist
+          merge-multiple: true
+
+      - name: Validate and publish fresh GitHub Release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          scripts/native-release-publish "$GITHUB_REF_NAME" dist
