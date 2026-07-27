@@ -31,9 +31,33 @@ and String negative controls.
 
 ## v2-native-front-drops-attributed-code-fence — the DEFAULT lane silently discards any ```scalascript fence carrying an attribute
 
-**Status:** OPEN — **high severity: silent code loss on the default execution path** (found
-2026-07-27 by `corpus-gate-remaining-reds` while scoping the doc-block decision; the decision
-question is what surfaced it, the bug is independent of it).
+**Status:** **FIXED 2026-07-27** by `corpus-gate-remaining-reds`. Was high severity: silent code loss
+on the default execution path. Found while scoping the doc-block decision — the decision question is
+what surfaced it, the bug is independent of it.
+
+**Fix.** `sscFenceSource` in both runners (`v2/bin/ssc1-run.ssc0` legacy, `ssc1-run-fsub.ssc0` F) and
+`joinScalaScript` in `ssc1-check-run.ssc0` now dispatch on the info string's FIRST WORD
+(`sscFenceToken` / the new `fenceLangTok` in `v2/lib/mira-md.ssc0`) instead of matching the whole
+string. `yaml` and `yml` had the identical defect on the same lines — `` ```yaml @id=plans-data ``
+(literally the syntax `ContentDocumentTest` covers) would have been dropped too; they are fixed in
+the same pass, so the whole function now dispatches by one rule, the way `sql` already did.
+
+**What was deliberately NOT changed.** The obvious one-line version — make `getFenceLang` return the
+first word — was rejected after checking: `sscSqlFenceSource` reads `@db=` and `@side=` back out of
+that same string via `sscFenceAttr`, so narrowing it at the source would have silently broken sql
+fence attributes. `getFenceLang` keeps returning the full info string, with a comment saying why.
+
+**Verification.** The 5-line repro now prints `42` on v2/F, v2/legacy and INT (was `unbound global:
+helper` on both native fronts). New corpus case `tests/conformance/fence-attr-code.ssc` — the only
+case that attributes a `scalascript` fence, which is exactly why the differential gate was blind to
+this — passes on INT, JS, JVM and V2. `sql-basic`, `sql-transaction`, `v2-self-hosted-yaml-core`,
+`content-binding`, `content-tables`, `content-introspection`, `content-to-markdown` 7/7. **X1 self-
+compile fixpoint: stage1 == stage2 byte-identical (409,629 B)** — the runners are part of the tower,
+so this was the load-bearing check.
+
+**Note for `specs/ssc-doc-blocks.md`.** With this fixed, a `@doc` block now *executes* on v2, as it
+should until the feature exists. The earlier appearance of "`@doc` already works on v2" was this bug,
+confirmed by the fix flipping it.
 
 **Symptom.** A fence written `` ```scalascript @id=defs `` is executed by INT and by JS, and is
 **dropped entirely** by the native lane — the code inside it never reaches the program:

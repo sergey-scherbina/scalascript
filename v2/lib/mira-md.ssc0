@@ -50,10 +50,25 @@ def startsWith3bt = (s) =>
     else false
   else false
 
--- Language tag from opening fence line (content after ```, stripped)
+-- Language tag from opening fence line (content after ```, stripped). This is the
+-- WHOLE info string, attributes included -- `sql @db=x @side=client` reaches the sql
+-- lowerer as-is and `sscFenceAttr` reads the attributes back out of it, so this must
+-- NOT be narrowed to the first word.
 def getFenceLang = (s) =>
   if #i.le(#slen(s), 3) then ""
   else strip(#sslice(s, 3, #slen(s)))
+
+-- CommonMark: the info string's FIRST word is the language; whatever follows is
+-- attributes. Anything ASKING "is this a code fence?" must compare against THIS, never
+-- against the whole info string -- comparing the whole string made every attributed
+-- ```scalascript fence fall through to "not code" and be DROPPED, code and all
+-- (BUGS.md v2-native-front-drops-attributed-code-fence).
+def fenceLangTokEnd = (s, i) =>
+  if #i.ge(i, #slen(s)) then i
+  else
+    let c = #scodeAt(s, i) in
+    if #i.eq(c, 32) then i else (if #i.eq(c, 9) then i else fenceLangTokEnd(s, #i.add(i, 1)))
+def fenceLangTok = (s) => #sslice(s, 0, fenceLangTokEnd(s, 0))
 
 -- Is this line a closing fence (stripped = exactly ```)?
 def isClosingFence = (line) =>

@@ -1,0 +1,34 @@
+#!/usr/bin/env ssc
+---
+name: fence-attr-code
+---
+
+# An attributed code fence is still code
+
+CommonMark says the info string's FIRST word is the language and the rest is
+attributes. The native lane used to compare the WHOLE info string against
+`scalascript`, so any attributed fence fell through to "not a code fence" and was
+dropped — code included. `def helper` below simply vanished, and the reference to it
+from the next block failed with `unbound global: helper` on the native lane while INT
+and JS printed `42`.
+
+Regression for `BUGS.md#v2-native-front-drops-attributed-code-fence`. Keep this case:
+it is the only corpus case that attributes a `scalascript` fence, which is exactly why
+the differential gate could not see the bug.
+
+```scalascript @id=defs
+def helper(): Int = 42
+```
+
+The definition above must be visible here — same module, attributed fence or not.
+
+```scalascript
+println(helper())
+```
+
+An attribute on the second fence must not change that either.
+
+```scalascript @id=more
+def twice(n: Int): Int = n + n
+println(twice(helper()))
+```
