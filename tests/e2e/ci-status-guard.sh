@@ -139,6 +139,111 @@ run_case missing 1 "CI RED $SHA" "missing required job: sbt — compile and test
 run_case no-run 2 "CI UNKNOWN $SHA" "no push ci.yml run found"
 run_case gh-fail 2 "CI UNKNOWN $SHA" "gh run list failed"
 
+# ── non-ci workflows: the blind spot (BUGS ci-status-blind-to-non-ci-workflows) ────────────────
+# ci-status hardcoded `--workflow ci.yml --event push`, so the four other workflows were invisible
+# to every automated check. Measured 2026-07-27: corpus-contract.yml had 0 successes in 12 runs, all
+# scheduled. These cases assert that a scheduled workflow can now be queried AND judged — and, just
+# as importantly, that its verdict is derived from its OWN jobs rather than ci.yml's four names,
+# which no other workflow has.
+FAKE_WF="$TMP/gh-wf"
+cat > "$FAKE_WF" <<'FAKE_WF_EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+mode="${FAKE_WF_MODE:?}"
+args=" $* "
+
+if [[ "$args" == *" run list "* ]]; then
+  # --all-workflows asks per file with --limit 1 and no branch/event/commit filter.
+  if [[ "$args" == *" --limit 1 "* ]]; then
+    case "$args" in
+      *" --workflow ci.yml "*)              printf 'completed|success|push|abc123abc|2026-07-27T10:00:00Z|https://example.invalid/1\n' ;;
+      *" --workflow corpus-contract.yml "*) printf 'completed|cancelled|schedule|def456def|2026-07-27T03:00:00Z|https://example.invalid/2\n' ;;
+      *" --workflow never-run.yml "*)       printf 'NONE\n' ;;
+      *)                                    printf 'completed|success|push|abc123abc|2026-07-27T10:00:00Z|https://example.invalid/3\n' ;;
+    esac
+    exit 0
+  fi
+  # Single-workflow query. A scheduled run must NOT be filtered by --event push, and --latest must
+  # not pin a --commit: assert both, so a regression to the old hardcoded filters fails here.
+  if [[ "$args" == *" --event push "* ]]; then
+    printf 'fake gh: --event push must not be sent for a scheduled query: %s\n' "$*" >&2; exit 64
+  fi
+  if [[ "$args" == *" --commit "* ]]; then
+    printf 'fake gh: --latest must not pin a commit: %s\n' "$*" >&2; exit 64
+  fi
+  if [[ "$args" != *" --workflow corpus-contract.yml "* ]]; then
+    printf 'fake gh: expected the requested workflow in args: %s\n' "$*" >&2; exit 64
+  fi
+  printf 'RUN_ID=99\n'
+  printf 'RUN_SHA=fedcba987654321fedcba987654321fedcba9876\n'
+  printf 'RUN_STATUS=completed\n'
+  case "$mode" in
+    wf-green) printf 'RUN_CONCLUSION=success\n' ;;
+    wf-red)   printf 'RUN_CONCLUSION=failure\n' ;;
+  esac
+  printf 'RUN_URL=https://example.invalid/actions/runs/99\n'
+  exit 0
+fi
+
+if [[ "$args" == *" run view 99 "* ]]; then
+  case "$mode" in
+    wf-green) printf 'Corpus Contract (shard 1/4)|completed|success\n'
+              printf 'Corpus Contract (shard 2/4)|completed|success\n' ;;
+    wf-red)   printf 'Corpus Contract (shard 1/4)|completed|success\n'
+              printf 'Corpus Contract (shard 2/4)|completed|failure\n' ;;
+  esac
+  exit 0
+fi
+
+printf 'fake gh: unsupported args: %s\n' "$*" >&2
+exit 64
+FAKE_WF_EOF
+chmod +x "$FAKE_WF"
+
+wf_case() { # wf_case <mode> <expected-code> <needle…>
+  local mode="$1" expected="$2"; shift 2
+  local output code
+  set +e
+  output="$(FAKE_WF_MODE="$mode" SSC_CI_GH="$FAKE_WF" \
+    "$ROOT/scripts/ci-status" --workflow corpus-contract.yml --event any --latest 2>&1)"
+  code=$?
+  set -e
+  if [[ "$code" -ne "$expected" ]]; then
+    printf 'ci-status-guard[%s]: expected exit=%s got=%s\n%s\n' "$mode" "$expected" "$code" "$output" >&2
+    exit 1
+  fi
+  local needle
+  for needle in "$@"; do
+    if [[ "$output" != *"$needle"* ]]; then
+      printf 'ci-status-guard[%s]: expected output to contain=%q, got:\n%s\n' "$mode" "$needle" "$output" >&2
+      exit 1
+    fi
+  done
+}
+
+# GREEN and RED for the SAME workflow: a one-sided check could not tell "judged its own jobs" from
+# "found no job it recognised and defaulted to pass".
+wf_case wf-green 0 "CI GREEN" "Corpus Contract (shard 1/4): completed/success"
+wf_case wf-red   1 "CI RED"   "Corpus Contract (shard 2/4): completed/failure"
+
+# --all-workflows: a nightly that is cancelled every run must make the sweep RED, and a workflow
+# that has never run must be reported without being counted as a failure.
+set +e
+all_output="$(FAKE_WF_MODE=wf-green SSC_CI_GH="$FAKE_WF" "$ROOT/scripts/ci-status" --all-workflows 2>&1)"
+all_code=$?
+set -e
+if [[ "$all_code" -ne 1 ]]; then
+  printf 'ci-status-guard[all-workflows]: expected exit=1 (a cancelled nightly is RED), got=%s\n%s\n' \
+    "$all_code" "$all_output" >&2
+  exit 1
+fi
+for needle in "corpus-contract.yml" "RED" "WORKFLOWS RED"; do
+  if [[ "$all_output" != *"$needle"* ]]; then
+    printf 'ci-status-guard[all-workflows]: missing %q in:\n%s\n' "$needle" "$all_output" >&2
+    exit 1
+  fi
+done
+
 remote_sha="$(git -C "$ROOT" rev-parse origin/main)"
 set +e
 coord_output="$(FAKE_CI_MODE=red FAKE_EXPECT_SHA="$remote_sha" SSC_CI_GH="$FAKE_GH" \

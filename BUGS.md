@@ -455,6 +455,55 @@ drops the block for the wrong reason, and would drop `@id=…` just the same. `@
 implemented explicitly in every lane AFTER this bug is fixed, or the doc-block feature would be
 built on an accident. See `specs/ssc-doc-blocks.md`.
 
+## ci-status-blind-to-non-ci-workflows — the tool agents trust for a verdict could not see 4 of 5 workflows
+
+**Status:** **FIXED 2026-07-27** by opus (`ci-status-all-workflows`). Found while looking for work
+after the bug list ran dry — this was not on the board, and that is the point: the check that would
+have surfaced it did not exist.
+
+**Symptom.** `scripts/ci-status` hardcoded `--workflow ci.yml --branch main --event push`. The repo
+has five workflows. Four of them — `corpus-contract.yml`, `f4-front-swap.yml`, `native-release.yml`,
+`pages.yml` — could not be queried by it at all, and the two that matter most run on a **schedule**,
+which the `--event push` filter excludes by construction. So no automated check anyone ran ever
+looked at them.
+
+**Measured, which is what makes it a bug rather than a tidiness complaint:**
+
+| workflow | last 12 runs |
+|---|---|
+| `corpus-contract.yml` | **0 success** — 4 `failure`, 7 `cancelled`, 1 running; every one `schedule` or `workflow_dispatch` |
+| `f4-front-swap.yml` | 7 success, 1 failure |
+| `native-release.yml` | **never run** (tag-triggered, `v*.*.*`) |
+| `pages.yml` | 12 success |
+
+A nightly that has never once been green, and a release workflow that has never executed, were both
+invisible to every tool in the repo. This is the apparatus-lies-green shape again: not a wrong
+answer, an unaskable question.
+
+**Fix.** `--workflow`, `--event` (`any` disables the filter), `--branch`, `--latest` (a scheduled run
+fires against whatever `main` was at the time, so an exact-SHA query almost never matches one), and
+`--all-workflows` — one line per workflow file from its most recent run of any trigger, which is the
+blind-spot sweep. Verdicts for a non-`ci.yml` workflow come from **its own jobs**: `ci.yml`'s four
+required job names exist nowhere else, and inventing a required list for a workflow the script does
+not know would be a guess.
+
+**No-argument behaviour is byte-identical** — AGENTS.md §4c and the agents depend on it, and
+`tests/e2e/ci-status-guard.sh` asserts the exact filter set it sends. That existing suite passes
+unchanged.
+
+**A/B'd, not just run.** Against the PREVIOUS `ci-status` the new cases fail
+(`ci-status: unknown argument: --workflow`, `wf-green: expected exit=0 got=2`); against the fix the
+whole suite passes. The new cases assert GREEN **and** RED for the same non-ci workflow, because a
+one-sided check could not distinguish "judged its own jobs" from "recognised no job and defaulted to
+pass", and the `--all-workflows` case asserts that a cancelled nightly makes the sweep exit 1 while a
+never-run workflow is reported without being counted as a failure.
+
+**Live output after the fix** (`scripts/ci-status --all-workflows`) shows `native-release.yml
+NEVER-RUN` and each workflow's real verdict on one line.
+
+**Not fixed here:** `corpus-contract.yml` being red is a real defect owned by the live
+`corpus-contract-*` claims. This entry only makes it impossible to keep missing.
+
 ## ci-runs-cancelled-under-churn — most commits get no verdict, and `cancelled` is RED
 
 **Status:** **MECHANISM ESTABLISHED, fix landed 2026-07-27** (opus, `ci-queue-concurrency`,

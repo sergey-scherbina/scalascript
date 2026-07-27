@@ -1,23 +1,57 @@
 #!/usr/bin/env bash
-# Read-only exact-SHA GitHub Actions status for the main CI workflow.
+# Read-only GitHub Actions status. Exact-SHA for ci.yml by default; any workflow on request.
+#
+# It used to hardcode `--workflow ci.yml --event push`, which meant NO automated check in this repo
+# ever looked at the other four workflows. Measured 2026-07-27: `corpus-contract.yml` had 0 successes
+# in its last 12 runs (4 failure, 7 cancelled, 1 running) — every one of them scheduled, therefore
+# invisible to every tool an agent runs — and `native-release.yml` had never run at all. A status tool
+# that structurally cannot see a red is the apparatus-lies-green shape this project keeps paying for.
+#
+# The no-argument behaviour is unchanged on purpose (agents and AGENTS.md §4c depend on it, and
+# tests/e2e/ci-status-guard.sh asserts the exact filter set it sends).
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GH_BIN="${SSC_CI_GH:-gh}"
 SHA=""
+WORKFLOW="ci.yml"
+EVENT="push"
+BRANCH="main"
+LATEST=0
+ALL_WORKFLOWS=0
 
 usage() {
   cat <<'EOF'
-Usage: scripts/ci-status [--sha GIT_SHA]
+Usage: scripts/ci-status [--sha GIT_SHA] [--workflow FILE] [--event E|any]
+                         [--branch B] [--latest] [--all-workflows]
 
-Checks the push-triggered ci.yml run for exactly one commit. Without --sha,
-uses the locally fetched origin/main commit.
+Default (no arguments): the push-triggered ci.yml run for exactly one commit,
+using the locally fetched origin/main commit. This is the AGENTS.md §4c check
+and its behaviour is deliberately unchanged.
+
+  --workflow FILE    workflow file to query (default: ci.yml)
+  --event E          trigger to filter on; `any` disables the filter. A
+                     SCHEDULED workflow has no push run, so `--event any` (or
+                     --latest) is the only way to see it at all.
+  --branch B         branch filter (default: main)
+  --latest           ignore the SHA and take the most recent run. Scheduled
+                     runs fire against whatever main was at the time, so an
+                     exact-SHA query almost never matches one.
+  --all-workflows    one line per workflow in .github/workflows, from its most
+                     recent run of any kind. This is the blind-spot check: it
+                     is what makes a workflow that is red every night, or that
+                     has never run, impossible to miss.
+
+For ci.yml the four required jobs must each be green. For any other workflow
+the rule is simply that the run completed successfully AND every job in it
+succeeded — required-job lists are workflow-specific and inventing one for a
+workflow this script does not know would be a guess.
 
 Exit codes:
-  0  exact run completed and all required jobs succeeded
-  1  exact run completed red or omitted a required job
-  2  exact run is pending, absent, or could not be queried
+  0  run completed and all required jobs succeeded
+  1  run completed red or omitted a required job
+  2  run is pending, absent, or could not be queried
 EOF
 }
 
@@ -32,6 +66,23 @@ while [[ $# -gt 0 ]]; do
       SHA="$2"
       shift 2
       ;;
+    --workflow)
+      if [[ $# -lt 2 || -z "$2" ]]; then
+        printf 'ci-status: --workflow requires a value\n' >&2; usage >&2; exit 2
+      fi
+      WORKFLOW="$2"; shift 2 ;;
+    --event)
+      if [[ $# -lt 2 || -z "$2" ]]; then
+        printf 'ci-status: --event requires a value\n' >&2; usage >&2; exit 2
+      fi
+      EVENT="$2"; shift 2 ;;
+    --branch)
+      if [[ $# -lt 2 || -z "$2" ]]; then
+        printf 'ci-status: --branch requires a value\n' >&2; usage >&2; exit 2
+      fi
+      BRANCH="$2"; shift 2 ;;
+    --latest) LATEST=1; shift ;;
+    --all-workflows) ALL_WORKFLOWS=1; shift ;;
     --help|-h)
       usage
       exit 0
@@ -69,13 +120,58 @@ if ! command -v "$GH_BIN" >/dev/null 2>&1; then
   unknown "GitHub CLI is unavailable: $GH_BIN"
 fi
 
+# ── --all-workflows: the blind-spot sweep ────────────────────────────────────
+# One line per workflow FILE that exists, taken from its most recent run of any trigger. No branch,
+# event or commit filter — those filters are exactly what hid the scheduled workflows. A workflow
+# with no runs at all is reported loudly but does NOT set the exit code: a tag-triggered release
+# workflow legitimately has none, and making that permanently non-zero would train everyone to
+# ignore the command.
+if [[ "$ALL_WORKFLOWS" -eq 1 ]]; then
+  any_red=0
+  any_unknown=0
+  for wf in "$ROOT"/.github/workflows/*.yml; do
+    [[ -e "$wf" ]] || continue
+    name="$(basename "$wf")"
+    set +e
+    payload="$(cd "$ROOT" && "$GH_BIN" run list --workflow "$name" --limit 1 \
+      --json status,conclusion,event,headSha,createdAt,url \
+      --jq 'if length == 0 then "NONE" else .[0] | "\(.status)|\(.conclusion // "")|\(.event)|\(.headSha[0:9])|\(.createdAt)|\(.url)" end' 2>&1)"
+    code=$?
+    set -e
+    if [[ "$code" -ne 0 ]]; then
+      printf '  %-24s QUERY-FAILED  %s\n' "$name" "$(head -1 <<<"$payload")"
+      any_unknown=1
+      continue
+    fi
+    if [[ "$payload" == "NONE" || -z "$payload" ]]; then
+      printf '  %-24s NEVER-RUN\n' "$name"
+      continue
+    fi
+    IFS='|' read -r st concl ev sha created url <<<"$payload"
+    verdict="$st/${concl:-pending}"
+    case "$concl" in
+      success) mark="GREEN" ;;
+      failure|cancelled|timed_out|startup_failure) mark="RED"; any_red=1 ;;
+      *) mark="PENDING"; any_unknown=1 ;;
+    esac
+    printf '  %-24s %-8s %-22s %s %s %s\n' "$name" "$mark" "$verdict" "$ev" "$sha" "$created"
+  done
+  if [[ "$any_red" -eq 1 ]]; then
+    printf 'WORKFLOWS RED\n'; exit 1
+  fi
+  if [[ "$any_unknown" -eq 1 ]]; then
+    printf 'WORKFLOWS PENDING/UNKNOWN\n'; exit 2
+  fi
+  printf 'WORKFLOWS GREEN\n'; exit 0
+fi
+
+list_args=(run list --workflow "$WORKFLOW" --branch "$BRANCH")
+if [[ "$EVENT" != "any" ]]; then list_args+=(--event "$EVENT"); fi
+if [[ "$LATEST" -eq 0 ]]; then list_args+=(--commit "$SHA"); fi
+
 set +e
 run_payload="$(
-  cd "$ROOT" && "$GH_BIN" run list \
-    --workflow ci.yml \
-    --branch main \
-    --event push \
-    --commit "$SHA" \
+  cd "$ROOT" && "$GH_BIN" "${list_args[@]}" \
     --limit 5 \
     --json databaseId,headSha,status,conclusion,url \
     --jq 'if length == 0 then empty else .[0] | "RUN_ID=\(.databaseId)\nRUN_SHA=\(.headSha)\nRUN_STATUS=\(.status)\nRUN_CONCLUSION=\(.conclusion // "")\nRUN_URL=\(.url)" end' \
@@ -88,7 +184,14 @@ if [[ "$run_code" -ne 0 ]]; then
   unknown "gh run list failed" "$run_payload"
 fi
 if [[ -z "$run_payload" ]]; then
-  unknown "no push ci.yml run found for the exact SHA"
+  if [[ "$WORKFLOW" == "ci.yml" && "$EVENT" == "push" && "$LATEST" -eq 0 ]]; then
+    unknown "no push ci.yml run found for the exact SHA"
+  fi
+  scope="$WORKFLOW (event=$EVENT, branch=$BRANCH)"
+  if [[ "$LATEST" -eq 1 ]]; then
+    unknown "no run found for $scope"
+  fi
+  unknown "no run found for $scope at the exact SHA"
 fi
 
 run_id=""
@@ -109,9 +212,12 @@ done <<<"$run_payload"
 if [[ -z "$run_id" || -z "$run_sha" || -z "$run_status" || -z "$run_url" ]]; then
   unknown "malformed gh run list response" "$run_payload"
 fi
-if [[ "$run_sha" != "$SHA" ]]; then
+# In --latest mode the SHA is informational: a scheduled run fires against whatever main was at the
+# time, so demanding a match would reject exactly the runs this mode exists to surface.
+if [[ "$LATEST" -eq 0 && "$run_sha" != "$SHA" ]]; then
   unknown "GitHub returned SHA $run_sha for requested SHA $SHA" "$run_payload"
 fi
+if [[ "$LATEST" -eq 1 ]]; then SHA="$run_sha"; fi
 
 set +e
 jobs_payload="$(
@@ -126,12 +232,25 @@ if [[ "$jobs_code" -ne 0 ]]; then
   unknown "gh run view failed for run $run_id" "$jobs_payload"
 fi
 
-required_jobs=(
-  "Lint Markdown"
-  "Validate ScalaScript"
-  "Conformance Suite"
-  "sbt — compile and test"
-)
+# ci.yml has a known contract — those four jobs must exist AND be green, so a run that silently
+# dropped one is RED rather than accidentally green. For any other workflow there is no such list,
+# and inventing one would be a guess: the rule there is that every job the run DID have succeeded.
+if [[ "$WORKFLOW" == "ci.yml" ]]; then
+  required_jobs=(
+    "Lint Markdown"
+    "Validate ScalaScript"
+    "Conformance Suite"
+    "sbt — compile and test"
+  )
+else
+  required_jobs=()
+  while IFS='|' read -r jname _jstatus _jconcl; do
+    [[ -n "$jname" ]] && required_jobs+=("$jname")
+  done <<<"$jobs_payload"
+  if [[ "${#required_jobs[@]}" -eq 0 ]]; then
+    unknown "run $run_id for $WORKFLOW reported no jobs" "$jobs_payload"
+  fi
+fi
 
 report=""
 all_success=true
