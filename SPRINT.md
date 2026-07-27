@@ -214,9 +214,27 @@ Stage 2 is partly subsumed by 1b-3.
       **Fixed by making the instrument fail closed:** the census now REFUSES any input containing a
       markdown fence and says why. Verified both ways — refuses the literate file, still measures
       `fsub.ssc` identically.
-      **⇒ The (a)-vs-(b) decision still needs corpus data, and this driver cannot produce it.** Next
-      step: dump IR through the REAL pipeline (`bin/ssc` under `SSC_FRONT=F`) for a set of corpus
-      programs, then census that. Until then, do not claim anything about corpus `__method__` traffic.
+      **Finding 3 — corpus measured through the REAL pipeline; (a) is settled as NOT worth doing.**
+      The staged tower runs the literate projection, so it is the correct harness. Invoke it directly
+      (this is what `RunNativeV2.runTower` does, minus `--structural`, which returns a Data value
+      instead of IR text):
+
+          cd bin/lib/standard/native-front
+          java -Dssc.stackSize=1073741824 -jar $SSC_JAR run tower/bin/ssc1-run-fsub.ssc0 \
+            --fsub-src $PWD/tower/bin/fsub.ssc --std-root $PWD/runtime --lib-root <repo>/bin/lib <prog.ssc>
+
+      Measured: `w5-scala-fence-width-parity` → 10 sites and the prose names are GONE (the projection
+      fix confirmed end-to-end); `scljet-mutate-update` → **664 KB IR, 1060 `__method__` sites**, top
+      `.length ×151`, `.reverse ×80`, `.toLong ×78`.
+      **⇒ Choose (b), real param inference.** One real corpus program carries ~1060 sites while F's
+      entire own source carries 44, so annotating F's own params would address ~2% of the traffic and
+      nothing at all in user code. (a) is dead as a strategy — keep it only as an optional tidy-up if
+      it ever helps F's self-compile time, which is V-6's question, not this one.
+      ⚠️ **One bucket is still unexplained**: `.25 ×127` in `scljet-mutate-update`. A method literally
+      named `25` is implausible, so either the inline scanner used for this run mis-reads an escape
+      (it is a shell-quoted one-off, not the committed census) or the IR holds something unexpected.
+      **Do not fold `.25` into any total until it is explained** — this is the same shape of unexplained
+      residue that turned out to matter twice already today.
       **Superseded description of Finding 2, kept for the trail:** run on a literate
       markdown-heavy conformance program, `specs/v2-f5b-method-census.sh` reports 24 named sites whose
       names are PROSE — `.This`, `.Because`, `.If`, `.Every`, `.md`, `.ssc`, `.js`, `.Today`, `.31`.
