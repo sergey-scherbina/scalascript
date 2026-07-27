@@ -2,12 +2,12 @@ slug: scljet-production-completion
 branch: feature/scljet-production-completion
 agent: claude-code
 started: 2026-07-27T21:34:57Z
-heartbeat: 2026-07-27T22:45:50Z
+heartbeat: 2026-07-27T23:27:08Z
 status: in-progress
 items: scljet-production-completion scljet-ipk-update-numeric-affinity scljet-standalone-library scljet-reclaiming-dml scljet-portable-text-projection scljet-same-jvm-reference-lock-bridge scljet-m3-write-followups scljet-m4-sql-core scljet-m5-wal scljet-m6-sql-compat scljet-m7-extensibility scljet-m8-production-readiness
-paths: scljet/ specs/scljet.md specs/scljet- tests/conformance/scljet- tests/conformance/expected/scljet- tests/tools/scljet- tests/fixtures/scljet/ tests/e2e/scljet- v2/runtime/std/scljet- examples/scljet- scripts/scljet- site/scljet.html docs/scljet.md
+paths: scljet/ specs/scljet.md specs/scljet- tests/conformance/scljet- tests/conformance/expected/scljet- tests/tools/scljet- tests/fixtures/scljet/ tests/e2e/scljet- v1/runtime/std/scljet-jdbc-plugin/ v2/runtime/std/scljet- examples/scljet- scripts/scljet- site/scljet.html docs/scljet.md
 scope: |
   Production-completion plan, feature spec, and fail-loud 48-capability inventory are landed.
   Execute the falsifiable SC-1..SC-11 slices in order, shipping each independently green slice.
-done-so-far: portable SC-1a landed at a00db1967 after independent review; fail-first gates and full scljet corpus are 108/108 green on INT+JS
-next: add live sqlite-jdbc differential when the stale v1 runtime claim is released; meanwhile document SC-1a evidence and continue non-overlapping SC-1b/c semantics
+done-so-far: portable SC-1a landed at a00db1967; SC-1b NULL semantics at b63206552; SC-1c exact numeric/BLOB comparison at f36f951ba; SQL corpus 56/56 green on INT+JS
+next: run and extend the now-unblocked live sqlite-jdbc SC-1 differential under the dedicated JDBC plugin path
