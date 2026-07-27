@@ -38,9 +38,37 @@ the job that would catch a scljet regression, and the 300-min `sbt` job is the l
 
 ## v2-front-try-in-def-body-shapes-break — two `try`-as-a-def-body shapes break, one of them SILENTLY
 
-**Status:** OPEN (found 2026-07-27 by opus while pinning `v2-native-front-try-catch` layer 2 — the
-conformance case for that fix hit these on its first run). **v2 FRONT (parse/layout), both fronts —
-not the kernel.** The v1 reference handles both shapes.
+**Status:** **shape (a) FIXED 2026-07-27** by opus (`front-try-def-body-shapes`); **shape (b) still
+OPEN.** Found the same day while pinning `v2-native-front-try-catch` layer 2 — the conformance case
+for that fix hit both on its first run. **v2 FRONT (parse/layout), not the kernel.** The v1
+reference handles both shapes.
+
+**(a) — ROOT CAUSE, to the line.** `specs/v2.2-p6.5-fsub.ssc` `parseHArm` — the CATCH handler-arm
+parser — assumed **every** arm was `pat : T =>` and read the type head as *the token two past the
+pattern*:
+
+```
+parseHTyped(isWild(hd(ts)), snd(hd(ts)), snd(hd(tl(tl(ts)))), skipTypeToArrow(tl(tl(ts))), …)
+```
+
+For `case _ => "W"` the tokens are `_`, `=>`, `"W"`, so the "type" became **`"W"` — the arm's own
+body** — and F emitted `__isTag__(v, "W", -1)`, a test that can never hold. The handler fell through
+to `__handler_dispatch_miss__`, and on the default lane the whole program then vanished at exit 0.
+An ordinary `match` was never affected: `parseGenArm` tests `isTypedArm` first; only this handler
+path assumed. (Verified by lowering: plain `match { case _ => "W" }` → a correct
+`(default (lit (str "W")))`; the same arm under `catch` → the bogus tag test.)
+
+**Fix:** `isTypedHArm` + an untyped catch-all branch (`parseHAll` / `parseHWildAll` /
+`parseHBindAll`) mirroring the typed one minus the tag test. The remaining arms are still parsed, so
+token consumption cannot desync, but not emitted — a catch-all makes them unreachable.
+**Measured after:** `case _ =>` → `W`, `case e =>` → `bound`, a typed arm followed by `case _` →
+`fallback`, and a *non-throwing* body with a wildcard catch still returns the value (`2`), i.e. the
+handler does not fire when nothing is thrown. The conformance case
+`tests/conformance/try-catch-exception-delivery.ssc` now carries both untyped shapes as the
+regression shield.
+
+**(b) — STILL OPEN.** The braceless multiline `try` as a def body does not terminate cleanly (detail
+below). Untouched by this fix.
 
 **Measured, minimal repros (real CLI, built `bin/`):**
 
