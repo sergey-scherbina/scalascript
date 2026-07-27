@@ -81,9 +81,11 @@ strongest CI evidence actually available.
         `SqlReal` plus decimal/exponent TEXT. This deliberately accepts reference rounding inside
         range (`9007199254740993.0` → `9007199254740992`) while rejecting REAL/decimal
         `Long.MinValue`, positive `2^63`, fractional, malformed, hexadecimal, and non-finite
-        values without changing the image. Only a real SQL NULL means auto-rowid on INSERT. Also
-        make the numeric lexer preserve direct overflow/exponent semantics instead of wrapping
-        bare `9223372036854775808` to `Long.MinValue`. Extend
+        values without changing the image. Only a real SQL NULL means auto-rowid on INSERT.
+        Allocate from the true signed maximum (negative-only tables included), and use an unused
+        positive fallback after `Long.MaxValue` rather than wrapping. Make decimal integer lexing
+        overflow-aware and require complete mutation-token consumption, so unsupported exponent/
+        hex forms fail before mutation until SC-8 implements them. Extend
         `scljet-update-ipk-moves-rowid` and the sqlite-jdbc differential in both directions; verify
         `integrity_check`, collisions, and indexed-table ordering after the move. This is the first
         code slice.
@@ -180,9 +182,10 @@ strongest CI evidence actually available.
       matrix in dependency-sized commits: compound SELECT; CTE/recursive CTE; window clauses and
       frames; RETURNING; transaction/PRAGMA statements; CREATE VIEW/TRIGGER; ALTER; ATTACH/DETACH
       and super-journal coordination; VACUUM; ANALYZE; REINDEX; expression/partial/collated indexes;
-      remaining expression and statement families. Each family needs live sqlite3 differential
-      fixtures, NULL/affinity/collation edge cases, prepared and transaction coverage, and a
-      user-facing example when it adds an API pattern.
+      signed `VALUES` and complete decimal/exponent/hex source-number grammar; remaining expression
+      and statement families. Keep TEXT numeric affinity distinct from source hex literals. Each
+      family needs live sqlite3 differential fixtures, NULL/affinity/collation edge cases, prepared
+      and transaction coverage, and a user-facing example when it adds an API pattern.
 
 - [ ] **SC-9 — extensibility and security.** Implement connection-local scalar, aggregate, window,
       and collation registries through the existing public interfaces, with deterministic error

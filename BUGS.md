@@ -1,5 +1,69 @@
 # Bug tracker
 
+## scljet-sql-numeric-literal-grammar-gaps — signed VALUES, exponent, and hex literals are incomplete
+
+**Status:** OPEN (found 2026-07-27 by `scljet-production-completion` while
+running the assembled IPK-affinity matrix). This is a declared SC-8 grammar
+slice; SC-1a must make every unsupported form fail before mutation.
+
+**Real-harness reproduction.** `INSERT INTO t VALUES (-5)` fails with
+`expected a literal`; bare `2e2` is split into integer `2` plus identifier
+`e2`; bare `0x10` is split into integer `0` plus identifier `x10`. Reference
+SQLite inserts rowids `-5`, `200`, and `16`. TEXT `'0x10'` is deliberately
+different and must remain a datatype mismatch under affinity.
+
+**Root cause / required slice.** The numeric lexer starts only on a decimal
+digit, supports only `digits` and `digits.digits`, and INSERT `VALUES` accepts
+one unsigned literal token rather than a signed expression. SC-8 must add the
+full SQLite signed decimal/exponent/hex source-literal grammar and differential
+vectors without changing the distinct TEXT-affinity grammar.
+
+## scljet-update-ignores-unconsumed-numeric-tail — malformed numeric UPDATE can mutate the wrong row
+
+**Status:** OPEN (found 2026-07-27 by `scljet-production-completion`; reproduced
+through the assembled v1 runner and real `jdbc:scljet:` driver).
+
+**Real-harness reproduction.** From rowid 100,
+`UPDATE t SET id = 2e2 WHERE id = 100` moves the row to 2, while
+`UPDATE t SET id = 0x10 WHERE id = 100` moves it to 0. The lexer leaves `e2`
+or `x10` plus the intended WHERE tokens, but UPDATE execution ignores that
+unconsumed tail. Reference SQLite moves to 200 and 16 respectively.
+
+**Root cause / safety gate.** Mutation parsers do not all require an empty
+remaining token stream before execution. SC-1a must reject any unconsumed tail
+before opening a mutable pager; SC-8 then implements the missing literal
+families. A syntax gap may fail loud, but it may never partially execute.
+
+## scljet-sql-integer-literal-overflow-wraps-rowid — decimal 2^63 becomes Long.MinValue
+
+**Status:** OPEN (found 2026-07-27 by `scljet-production-completion`; reproduced
+through assembled INT and `jdbc:scljet:` paths).
+
+**Real-harness reproduction.** Bare decimal literal `9223372036854775808` in an
+IPK INSERT or UPDATE succeeds as rowid `-9223372036854775808`. Reference SQLite
+represents the positive literal as binary64 `2^63` and the IPK assignment
+returns `datatype mismatch`.
+
+**Root cause.** `tokenize` accumulates `num = num * 10 + digit` in `Long`
+without overflow detection. SC-1a must parse the unsigned decimal magnitude
+exactly, keep in-range integers as `SqlInteger`, and represent an out-of-range
+decimal token through SQLite's binary64 path instead of wrapping.
+
+## scljet-auto-rowid-negative-and-max-boundaries — allocation starts at zero and wraps at Long.MaxValue
+
+**Status:** OPEN (found 2026-07-27 by `scljet-production-completion`; static
+root cause confirmed against reference SQLite 3.51.0).
+
+**Reproduction.** With only rowid `-5`, `INSERT ... VALUES (NULL, ...)` chooses
+1 in SclJet but -4 in SQLite. With an existing `Long.MaxValue`, SclJet computes
+`max + 1` and wraps to `Long.MinValue`; SQLite chooses an unused positive rowid
+through its bounded fallback.
+
+**Root cause.** `maxRowidOf` starts at zero instead of representing an empty
+table separately, and `assignInsertRowids` increments unchecked. SC-1a must use
+the true signed maximum, start an empty table at 1, and choose an unused
+positive fallback when the maximum cannot be incremented.
+
 ## native-release-unqualified-and-unrelocatable — release workflow cannot prove a runnable v2 artifact
 
 **Status:** OPEN (found 2026-07-27 by `native-release-qualification` against
@@ -941,11 +1005,12 @@ delivery fix rather than this divergence — deliberately, and recorded here ins
 the restriction.
 
 
-## scljet-ipk-update-numeric-affinity — `SET <ipk> = '5'` / `= 7.0` is refused where SQLite coerces
+## scljet-ipk-update-numeric-affinity — INSERT auto-assigns invalid IPKs and UPDATE refuses valid affinity
 
-**Status:** OPEN — known gap, deliberately fail-CLOSED (opened 2026-07-27 by `scljet-ipk-rowid`
-while cross-checking the IPK-move fix). **Not a regression:** before that fix the whole statement
-was silently ignored, so this is a completeness gap in a newly-loud path, not a new defect.
+**Status:** OPEN (opened 2026-07-27 by `scljet-ipk-rowid`, expanded the same day
+by `scljet-production-completion` after assembled INSERT/UPDATE differential).
+UPDATE is deliberately fail-closed; INSERT is a correctness defect because it
+silently converts every invalid explicit IPK into automatic allocation.
 
 **Symptom** (reference sqlite3 3.51.0 vs scljet, same statements on `emp(id INTEGER PRIMARY KEY, …)`):
 
@@ -956,14 +1021,20 @@ UPDATE emp SET id = NULL  → both: datatype mismatch                           
 UPDATE emp SET id = 'x'   → both: datatype mismatch                              ✓
 UPDATE emp SET id = '5'   → sqlite: row moves to 5   scljet: datatype mismatch   ✗
 UPDATE emp SET id = 7.0   → sqlite: row moves to 7   scljet: datatype mismatch   ✗
+INSERT INTO emp VALUES ('5', ...)  → sqlite: rowid 5  scljet: next auto rowid    ✗
+INSERT INTO emp VALUES (7.0, ...)  → sqlite: rowid 7  scljet: next auto rowid    ✗
+INSERT INTO emp VALUES ('x', ...)  → sqlite: mismatch scljet: next auto rowid    ✗
+INSERT INTO emp VALUES (7.5, ...)  → sqlite: mismatch scljet: next auto rowid    ✗
 ```
 
 Measured directly: `sqlite3 c.db "UPDATE emp SET id='5' WHERE id=1; SELECT rowid,id,name FROM emp"`
 → `5|5|ann`, and the same with `7.0` → `7|7|ann`.
 
-**Root cause.** `targetRowidOf` (`scljet/sql.ssc`) accepts only `SqlInteger`. SQLite applies its
-usual numeric affinity to an IPK assignment first: TEXT whose content is an exact integer, and a
-REAL with no fractional part, both convert; everything else is `datatype mismatch`.
+**Root cause.** `targetRowidOf` accepts only `SqlInteger`, while
+`valueIntOrNone` feeds `assignInsertRowids` and maps every non-integer value to
+the same `None` as SQL NULL. SQLite applies its rowid numeric conversion first:
+valid numeric TEXT/REAL becomes an explicit integer, only actual NULL requests
+automatic allocation, and every other value is `datatype mismatch`.
 
 **Why it was left.** A faithful fix needs SQLite's exact text→integer affinity rules (leading and
 trailing space, sign, overflow, prefix forms like `'5abc'`), and `sql.ssc` has no such helper — the
@@ -972,9 +1043,13 @@ The integral-REAL half is a two-line fix and could land on its own. A loud rejec
 better than the silent no-op that preceded it, so this is a completeness gap, not a correctness
 risk.
 
-**Fix sketch.** Add a numeric-affinity helper beside `targetRowidOf`, share it with whatever else
-needs affinity, and extend `tests/conformance/scljet-update-ipk-moves-rowid.ssc` — its `'x'` line
-already pins the rejection, so add `'5'` and `7.0` cases in the same commit that makes them move.
+**Fix sketch.** Add one target-neutral coercion returning
+`Either[String, Option[Long]]`, use it from both INSERT and UPDATE, and make
+`assignInsertRowids` return `Either` so the whole row batch is validated before
+pager mutation. Extend `scljet-update-ipk-moves-rowid` and add bound-value
+INSERT/UPDATE plus live sqlite-jdbc differential vectors for exact integer
+TEXT, decimal/exponent TEXT, integral REAL, rounding boundaries, invalid values,
+collisions, and indexed paths.
 
 
 ## scljet-ipk-move-indexed-corrupts-btree — an IPK move on an INDEXED table wrote an out-of-order b-tree
