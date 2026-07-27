@@ -668,11 +668,38 @@ an owner decision rather than a patch.
 
 ## coroutine-demo-js-not-callable — the coroutine demo dies on the v1 JS backend
 
-**Status:** OPEN (found 2026-07-27 by `corpus-gate-remaining-reds`). `bin/ssc-tools run-js
-examples/coroutine-demo.ssc` → `Error: not callable: ()` from the generated `.cjs`. Note the
-identical shape in `rozum-agent-schema-derived-js-and-v2-gaps` (`not callable: …`) — check whether
-they are one defect before fixing either. Not investigated further: the v1 JS backend was held by a
-live `js-char-into-int-param` claim at the time.
+**Status:** OPEN — **diagnosed to the line 2026-07-27 by opus**, fix blocked on territory (the v1 JS
+backend is inside `v1/runtime/**`, held by `corpus-gate-remaining-reds`).
+
+**Cause.** `not callable: ()` is `_show(undefined)`: an `extern def` whose JS binding resolved to
+`undefined` and was then `_call`ed. `v1/runtime/std/coroutine.ssc` declares four externs; `JsGen`
+lowers three of them as intrinsics (`_coroutineCreate`, `_coroutineResume`, and `suspend` → `yield`)
+but has NO case for `coroutineCancel`, and `async.mjs` has no `_coroutineCancel` either. So the
+generated module binding falls through to
+`const coroutineCancel = (typeof _ssc_ui_coroutineCancel !== 'undefined') ? _ssc_ui_coroutineCancel : undefined;`
+and the demo's `coroutineCancel(cancelled)` becomes `_call(undefined, …)`.
+
+**Fix shape** (three parts, all in `v1/runtime/backend/js/`):
+1. `async.mjs`: add `_coroutineCancel(co)` — guard on `co._done`, set it, then `co._gen.return()`.
+   On an UNSTARTED generator `.return()` does not run the body, which is exactly what the demo
+   asserts (`cancelled before start: true`), and the `_done` guard makes a second cancel a no-op
+   (the demo cancels twice on purpose).
+2. `JsGen`: lower `coroutineCancel(co)` next to the `coroutineResume` case (~line 4900).
+3. `JsGen:1334`: add `coroutineCancel` to the capability probe that decides whether `async.mjs` is
+   emitted at all — otherwise a program that only cancels links against a missing runtime.
+
+**Is it the same defect as `rozum-agent-schema-derived-js-and-v2-gaps`?** The entry asked; the answer
+is **same class, different cause — do not fix them as one.** Both are an extern binding that silently
+became `undefined`, but: `coroutineCancel` has NO JS implementation anywhere, while `route` (the rozum
+one, `_call(_call(route, "POST", …))`) IS implemented — `_ssc_http_route`, exported as
+`globalThis.route` — and the module binding `const route = std.http.route` SHADOWS it with the same
+`_ssc_ui_route`-or-`undefined` probe. One needs a runtime function; the other needs the binding to
+find the implementation that already exists. Details recorded on that entry.
+
+**The aggravating factor is shared and worth fixing once:** the probe's `: undefined` tail is
+fail-OPEN. An extern with no JS implementation should be a loud link-time error naming the extern,
+not a value that survives until someone calls it and gets `not callable: ()` with no name in the
+message.
 
 ## coroutine-demo-import-cycle-on-interpreter — `examples/coroutine-demo.ssc` cannot run on the INT lane
 
@@ -734,6 +761,19 @@ repro: a `try` with a **multi-statement body** as a def body. Full A/B and owner
 `v2-front-try-in-def-body-shapes-break` shape **(c)**, which is where the fix belongs — that entry's
 (a)+(b) fixes are already in the build this was measured on. Fixing (c) should clear the v2 half of
 this bug without touching this example.
+
+**JS SIDE PINNED 2026-07-27 (opus).** `Error: not callable: ()` is `_show(undefined)`, and the call
+site is `_call(_call(route, "POST", "/v1/chat/completions"), …)`. `route` IS implemented in the JS
+runtime — `_ssc_http_route`, exported as `globalThis.route` — but the generated module binding
+`const route = std.http.route` shadows it, and `std.http.route` comes from the extern probe
+`(typeof _ssc_ui_route !== 'undefined') ? _ssc_ui_route : undefined`, which finds no `_ssc_ui_route`
+and yields `undefined`. So this is a BINDING defect, not a missing implementation: the extern probe
+looks only for the `_ssc_ui_*` name and never for the runtime function actually present.
+
+This is the same CLASS as `coroutine-demo-js-not-callable` (an extern silently bound to `undefined`)
+but NOT the same cause — that one has no JS implementation at all. Fixing either does not fix the
+other; the entry there records the comparison. Common to both: the probe's `: undefined` tail is
+fail-open and should be a loud link error naming the extern.
 
 **Notes.** Two independent gaps behind one case: a v1-JS codegen defect and a native-front parse gap.
 The case also binds a real socket on a fixed port, which makes it a candidate for
