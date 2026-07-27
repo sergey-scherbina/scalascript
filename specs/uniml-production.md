@@ -228,6 +228,58 @@ The entity table is generated from a pinned WHATWG `entities.json`:
 
 Line, delimiter-run, fence, reference, block, source and core limits are enforced and diagnosed.
 
+### 5.4 Frozen UPR-1 characterization baseline
+
+The compare-first apparatus landed before production grammar changes. These numbers are the
+reviewed starting state, not a conformance verdict; the release gates remain deliberately red until
+UPR-2 and UPR-3 close every mismatch.
+
+YAML uses all 402 cases and 94 upstream error markers from
+`yaml-test-suite` `data-2022-01-17`:
+
+```text
+cases=402 expected-errors=94 actual-errors=220
+source=402/402 chunks=402/402 validity=210/402
+semantics=128/402 strict=112/402 crashes=0
+baseline-sha256=6a02cd7f47ab532b265ca2429e2051d418a98971301e15df7bba3f72a5be9e3c
+category-sha256=03abbe294e1b24ef1df37fd45150dcaaef8f53c0550f2e5772ba77523a82c98a
+```
+
+The closed 1,300-file case roster has logical payload SHA-256
+`97e131ad015f478c85318061d7e1b3c12ab517f8b922a5c005fa25ab4be5b7b5` and manifest SHA-256
+`51c3212589a9c51ecb5de32ea9037be2c5a5aa38e2a6e710afa60f427403bf45`.
+The census command exits zero only for that exact full-observable baseline. The strict command
+exits one and reports exactly 290 non-conforming cases; zero or any different roster/count is a
+gate failure.
+
+Markdown uses all 652 CommonMark 0.31.2 examples plus the 23 enabled official GFM 0.29 examples
+(8 tables, 2 task lists, 2 strikethrough, 11 extended autolinks). The pinned canonical case
+digests are:
+
+```text
+commonmark-cases-sha256=f636418b09346809aa605ee4d52c3e600bf0f057251b77c386e49fae67a184a3
+gfm-enabled-cases-sha256=56ec730753789fa2a39db08f0dbfe7b63c9eec3b612494ff3fb0f75fef1facdd
+```
+
+Every case runs five independent axes (`source`, `tokens`, `status`, `html`, `chunks`), including
+matches:
+
+```text
+cases=675 passing-cases=460 failing-cases=215
+axes=3375 match=3131 diff=240 error=4 non-pass-axes=244
+full-rows-sha256=9094aa2a7469be431b06565b91ca44c721c93a50ed69faf2991a7c17b2702f62
+non-pass-rows-sha256=9211ced6fdd0b51f6c839836377aa59d7d1d7a608f063e76994abb9b9c3fd9da
+sections-sha256=b2b6c9d920fd9430bc9347dfbc55a4edf027d4c5e067b1d412a7c07c7f2107a5
+baseline-file-sha256=c1dc525945cece8137cba4f2ade1215b423eb91cb5a6d90b049f3688d006f1b5
+```
+
+The JVM and Scala.js census suites must pass with those exact rows. Both strict platform gates
+must currently exit one with the same 244 non-pass axes and digests; the known-good filtered
+CommonMark case 652 must exit zero. Generator checks authenticate the closed file rosters before
+either baseline runs. Gate qualification also requires the no-clean
+`scripts/verify-uniml-dual-build` root→standalone transition twice, preventing incompatible Zinc
+products from manufacturing parser failures.
+
 ## 6. M5 ScalaScript language adapter
 
 ### 6.1 Declared profile
