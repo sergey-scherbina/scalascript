@@ -426,9 +426,35 @@ built on an accident. See `specs/ssc-doc-blocks.md`.
 
 ## ci-runs-cancelled-under-churn — most commits get no verdict, and `cancelled` is RED
 
-**Status:** OPEN — **health / apparatus**, recorded 2026-07-27 by opus (observed while waiting on
-exact-SHA CI for four landed batches). **Mechanism NOT established** — the facts are below; the
-cause is not, and this entry deliberately does not guess it.
+**Status:** **MECHANISM ESTABLISHED, fix landed 2026-07-27** (opus, `ci-queue-concurrency`,
+`2f7052ba3`) — **verification deliberately still pending, see the criterion at the end.** Originally
+recorded the same day while waiting on exact-SHA CI for four landed batches, without guessing a cause.
+
+**Re-measured ~21:20Z, and it is worse than the first observation.** Of the last 60 CI runs **ZERO
+had completed** — 55 `queued`, 5 `in_progress` — with the oldest queued run waiting since 18:13Z,
+over three hours. Across the last 100 runs of all workflows, **16 CI runs were `in_progress`
+simultaneously**.
+
+**Mechanism.** 16 concurrent runs × 4 jobs ≈ 64 concurrent jobs, above the account's concurrent-job
+budget. `ci.yml` had no `concurrency:` block, so nothing superseded anything: every push started a
+fresh run, the budget stayed saturated by `sbt` jobs (`timeout-minutes: 300`), and newer runs queued
+behind them until evicted or cancelled. The `cancelled` outcomes are queue eviction, not flaky gates.
+
+**Fix.** `concurrency: {group: ci-${{ github.ref }}, cancel-in-progress: false}`. The `false` is the
+point: a run already EXECUTING is never killed, so a long `sbt` job still reaches its verdict; what
+GitHub cancels is the previously PENDING run in the group. The queue collapses from 55 deep to at
+most one running plus one pending per ref, and the newest commit is always next to run.
+
+**Cost, stated plainly:** intermediate commits get no verdict of their own — but they get none today
+either, so this trades a silent red for an explicit supersede, which is what makes the
+green-descendant ladder in AGENTS.md §4c usable.
+
+**⚠️ NOT VERIFIED YET, and this must not be quietly dropped.** A workflow-level `concurrency` block
+cannot be exercised locally; the file was checked structurally (top-level keys, block shape, no tabs)
+and nothing more. **Falsifiable success criterion:** `gh run list --workflow=ci.yml` should show at
+most one `in_progress` plus one `queued` run for `refs/heads/main`, and completed runs should start
+appearing again. If the queue is still tens deep an hour after this landed, the mechanism above is
+WRONG and this entry must be reopened, not closed.
 
 **Observed on `ci.yml` / `main`, 2026-07-27 ~16:59Z:**
 
@@ -2645,7 +2671,33 @@ conformance use 512-byte pages (as the existing scljet cases already do). Filed 
 
 ## scljet-jdbc-facade-bytecode-class-too-large — the JDBC-facade examples overflow the JVM class-size limit on the bytecode lane
 
-**Status:** OPEN — backend capacity gap, not a correctness bug (found 2026-07-19 by `ci-negtc-gate`,
+**Status:** OPEN as a capacity gap — but **it stopped being invisible 2026-07-27** (opus,
+`v2-bytecode-lane-silent-downgrade`, `af4725ed9`). The v2 JVM bytecode backend still emits one
+monolithic `ssc/gen/Entry` and still cannot compile these programs; splitting it is v2 kernel work.
+
+**What changed, and why it mattered more than the gap itself.** The symptom this entry describes
+(`rc=1`, `Class too large`) had already vanished — not because the gap was fixed, but because a
+link-time fallback in `RunNativeV2.runBytecode` now silently runs the VM instead. The fallback is
+correct (nothing has executed yet, so there is no double side effect); its SILENCE was not.
+`scripts/bc-parity-sweep` diffs `run` against `run --bytecode`, so a fallback made it compare the VM
+against ITSELF and record `identical` — certified bytecode/VM parity for programs the bytecode
+backend never compiled.
+
+**A/B on one launcher:** the sweep at the previous `origin/main` reported `scljet-hello.ssc identical
+0 0`; with the fix it reports `skipped-bytecode-fallback` with `MethodTooLargeException` as the
+reason — note MethodTooLarge today, where this entry recorded ClassTooLarge.
+
+**Full sweep after the fix: 214 cases, mismatch 0, bytecode-error 0.** THREE rows left `identical`
+for `skipped-bytecode-fallback`: `scljet-hello.ssc`, `scljet-jdbc.ssc`, and
+**`scljet-unique-index.ssc`** — the third is not named anywhere in this entry. The silent fallback
+had already swallowed an example nobody knew about, which is exactly how a fail-open default drifts.
+
+The runner now prints a stable marker on stderr (never stdout, so output comparisons are unaffected)
+and `tests/e2e/bytecode-fallback-visible.sh` asserts BOTH directions — the oversized example must
+announce, a small program that really compiles must not — because a one-sided test would pass just as
+well if the marker were printed unconditionally, sweeping every case into the skip bucket.
+
+**Historical status:** OPEN — backend capacity gap, not a correctness bug (found 2026-07-19 by `ci-negtc-gate`,
 the last red `sbt — compile and test` step). **v2 JVM bytecode backend**, not the engine or the examples.
 
 **Symptom/reproduce** — `examples/scljet-hello.ssc` and `examples/scljet-jdbc.ssc` run correctly on the
