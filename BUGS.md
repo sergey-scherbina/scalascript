@@ -388,11 +388,23 @@ opt-in via `SSC_FRONT=F`. F-front (`specs/v2.2-p6.5-fsub.ssc`) native tier. **�
 2026-07-22 (`f02100097`). **③.2 plugin-boundary FIXED** 2026-07-23 via D2 (`cca93b867`) — re-diagnosed as
 an isolation/class-load issue rather than a fixture-output divergence: self-hosted `irTextToData` reader
 + Reader-free `validateNoReader`, measured zero `ssc.Reader` loads under F (was 24-25×), both isolation
-smokes green A/B. **Closed 2026-07-27** by the F4 flip landing (`56d7d705f`, `RunNativeV2.frontIsF` now
-opt-OUT): the readiness bar this bug itself defined — the FULL targeted e2e smoke set green under
-F-as-default, A/B'd against `SSC_FRONT=legacy` — was met at **72/72 scripts with zero F-only
-regressions**, and regular CI is green on the flipped tree (run `30020319173` on `18ee1c21a`, 4/4 jobs).
-See the per-item notes below for both root causes.
+smokes green A/B. **Closed 2026-07-27 on a re-run, not on the paperwork.** The flip landing
+(`56d7d705f`, `RunNativeV2.frontIsF` now opt-OUT) reported the readiness bar this bug itself defined —
+72/72 e2e smoke scripts green under F-as-default with zero F-only regressions, CI green on the flipped
+tree (run `30020319173` on `18ee1c21a`, 4/4 jobs) — but a status flip justified by another commit's
+claim is exactly the pre-judging this project keeps paying for. So the three owning smokes were re-run
+from a fresh `installBin` stage at `492254d31`, F being the live default:
+
+| smoke | default (= F) | `SSC_FRONT=legacy` |
+|---|---|---|
+| `tests/e2e/v21-native-md-interpolator-smoke.sh` | PASS | PASS |
+| `tests/e2e/v21-native-plugin-boundary-smoke.sh` | PASS | PASS |
+| `tests/e2e/v21-plugin-backend-isolation-smoke.sh` | PASS | PASS |
+
+`bin/ssc run tests/fixtures/v21-native/md-interpolator.ssc` prints the interpolated content
+(`[Hello, Ada!` …), not the fail-open `[<closure>]`. The gate is fail-loud for this exact defect — it
+is what caught ③.1/③.2 on 2026-07-22 in the first place. See the per-item notes below for both root
+causes.
 
 **What happened:** after fixing blocker ① and bumping the CI budget (blocker ②), the re-flip passed every
 corpus-level gate — X1 fixpoint byte-identical, semantic 248/248, dualrun 45/45 EQUAL, negtc gate PASS
