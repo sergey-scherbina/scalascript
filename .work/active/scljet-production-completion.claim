@@ -1,0 +1,11 @@
+slug: scljet-production-completion
+branch: feature/scljet-production-completion
+agent: claude-code
+started: 2026-07-27T21:34:57Z
+heartbeat: 2026-07-27T21:34:57Z
+status: claimed-before-planning
+items: scljet-production-completion scljet-ipk-update-numeric-affinity scljet-standalone-library scljet-reclaiming-dml scljet-portable-text-projection scljet-same-jvm-reference-lock-bridge scljet-m3-write-followups scljet-m4-sql-core scljet-m5-wal scljet-m6-sql-compat scljet-m7-extensibility scljet-m8-production-readiness
+paths: scljet/ specs/scljet.md specs/scljet- tests/conformance/scljet- tests/conformance/expected/scljet- tests/tools/scljet- tests/fixtures/scljet/ tests/e2e/scljet- v2/runtime/std/scljet- examples/scljet- scripts/scljet- site/scljet.html docs/scljet.md build.sbt
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
