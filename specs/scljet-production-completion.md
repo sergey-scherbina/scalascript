@@ -156,7 +156,8 @@ INT and JS, including exact unary `Long.MinValue`, invalid-later-row atomicity,
 indexed INSERT/UPDATE, and structurally incomplete DDL. The post-rebase full
 SclJet sweep is 108/108. This is not yet the SC-1a closure verdict: the same
 matrix still has to run against reference sqlite-jdbc, compare resulting rows
-and `integrity_check`, after the foreign `v1/runtime/**` claim releases.
+and `integrity_check`. The foreign `v1/runtime/**` claim has now released, so
+this reference lane is unblocked but remains required before SC-1a closure.
 
 Before schema work builds on it, scalar value semantics also need live differential gates:
 
@@ -166,6 +167,18 @@ Before schema work builds on it, scalar value semantics also need live different
 - BLOB comparison is bytewise and does not treat all same-class blobs as equal;
 - the same comparator semantics drive filtering, ordering, DISTINCT, grouping, and index
   behavior.
+
+Portable SC-1b landed in `b63206552`. Its compare-first
+`scljet-sql-null-semantics` gate passes on INT and JS across scalar and simple
+CASE evaluation, WHERE/HAVING/ON boundaries, empty and NULL-bearing IN/NOT IN,
+non-correlated and correlated subqueries, two- and three-table joins, indexed
+residual filtering, and UPDATE/DELETE. Non-correlated subquery substitution now
+preserves exact NULL/REAL/BLOB values and maps an empty scalar result to NULL.
+The same post-change run kept all 55 pre-existing `scljet-sql-*` cases green;
+the only red case was the deliberately fail-first SC-1c numeric/BLOB gate.
+The capability remains `subset`: live sqlite-jdbc comparison is still pending,
+and correlated subqueries in an outer join plus error propagation from
+correlated subqueries are separately tracked production gaps.
 
 ### SC-2 — reclaim and reuse
 

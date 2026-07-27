@@ -492,7 +492,7 @@ physical index behavior.
 
 ## scljet-sql-null-three-valued-logic — scalar and IN predicates treat UNKNOWN as true/false
 
-**Status:** OPEN (found 2026-07-27 by `scljet-production-completion`; reproduced
+**Status:** FIXED (found 2026-07-27 by `scljet-production-completion`; reproduced
 on assembled `bin/lib/ssc.jar` from `9d96146b3` through both
 `bin/ssc-tools run --v1` and emitted JS/Node).
 
@@ -515,6 +515,65 @@ predicates. `valueInList` is Boolean and cannot represent UNKNOWN, correlated
 subqueries blindly invert it for `NOT IN`, and the non-correlated value token
 rewrites NULL to numeric zero. SC-1b needs a tri-state predicate/IN layer while
 retaining total comparison for ORDER/GROUP/DISTINCT/index operations.
+
+**Fix:** `b63206552` adds a separate TRUE/FALSE/UNKNOWN predicate layer,
+NULL-aware IN/NOT IN, simple-CASE/HAVING/JOIN handling, exact bound subquery
+values, and indexed/unindexed plus DML coverage. The focused INT+JS gate passes;
+status remains FIXED rather than DONE until the live sqlite-jdbc comparison
+confirms the reporter matrix.
+
+## scljet-correlated-subquery-join-where-unsupported — joined outer rows bypass correlated evaluation
+
+**Status:** OPEN (found 2026-07-28 by independent
+`scljet-production-completion` review; reproduced on assembled
+`bin/lib/ssc.jar` from `b63206552` through `bin/ssc-tools run --v1`).
+
+**Real-harness reproduction.** On the SC-1b fixture, run
+`SELECT t.id FROM t LEFT JOIN u ON t.v=u.x WHERE t.v NOT IN
+(SELECT x FROM s WHERE owner=t.id) ORDER BY t.id`. Reference SQLite 3.51.0
+returns id `4`; SclJet returns no rows. The equivalent single-table correlated
+query returns `4`, so this is specific to the joined outer-row path.
+
+**Root cause.** `joinCondState` and `multiCondState` call plain `predState`.
+They neither receive the database nor substitute values from the joined outer
+row, so EXISTS/IN/scalar subquery condition kinds never reach `condStateCtx`.
+A fix needs joined-row substitution for every bound table plus two- and
+N-table fail-first gates; treating only the first table as the outer context
+would be another partial implementation.
+
+## scljet-correlated-subquery-errors-swallowed — NOT turns subquery execution failure into TRUE
+
+**Status:** OPEN (found 2026-07-28 by independent
+`scljet-production-completion` review; reproduced on assembled
+`bin/lib/ssc.jar` from `b63206552` through `bin/ssc-tools run --v1`).
+
+**Real-harness reproduction.** Run
+`SELECT id FROM t WHERE NOT EXISTS (SELECT x FROM missing WHERE
+missing.x=t.v) ORDER BY id`. Reference SQLite 3.51.0 fails with
+`no such table: missing`; SclJet returns every outer row. Parse/execute failures
+inside correlated IN and scalar subqueries are swallowed by the same path.
+
+**Root cause.** `existsHolds`, `inSubqState`, and `scalarSubqState` map every
+`Left` to FALSE. NOT EXISTS/NOT IN then invert that fabricated FALSE to TRUE.
+The correlated state/filter pipeline must carry `Either[String, Int]` (or an
+equivalent explicit error channel) through query execution and never classify
+an execution error as SQL FALSE or UNKNOWN.
+
+## scljet-sql-double-equals-parser-gap — WHERE rejects SQLite's `==` equality alias
+
+**Status:** OPEN (found 2026-07-28 by `scljet-production-completion`;
+reproduced on assembled `bin/lib/ssc.jar` from `b63206552` through
+`bin/ssc-tools run --v1`).
+
+**Real-harness reproduction.** `SELECT id FROM t WHERE v == 2 ORDER BY id`
+returns `QUERY-ERROR:expected an expression operand`; reference SQLite 3.51.0
+returns id `2`. Scalar-expression comparison already normalizes `==` to `=`,
+so the accepted operator set is internally inconsistent.
+
+**Root cause.** WHERE condition tokenization/parsing does not consume `==`,
+while `compareValue` contains a local alias normalization. SC-8 must accept and
+normalize the alias consistently in scalar, WHERE/HAVING/ON, correlated scalar,
+and index-range paths, with complete-token fail-closed coverage.
 
 ## v2-f-small-vm-admission-loads-asm — F admission classification breaks VM backend isolation
 
