@@ -76,6 +76,9 @@ for parity.
       Direct ASM is selected only when that program contains a string-backed
       constant that requires multiple classfile modified-UTF8 entries. Small
       first programs and every later nested eval stay on the VM.
+- [ ] Classifying a small first program does not initialize `JvmByteGen` or
+      load `org.objectweb.asm.*`; backend classes load only after admission
+      selects direct ASM.
 - [ ] The nested evaluator is thread-scoped and restoring. It cannot affect a
       checker, legacy-front run, another thread, or a later tower run.
 - [ ] `OpAnfNative.lift` plus bytecode emission finish before the candidate is
@@ -138,15 +141,17 @@ only when the F runner is active. A local one-shot flag consumes the first
 nested program before classification, preventing later YAML, Markdown, or
 content evals from being mistaken for F0.
 
-`JvmByteGen.requiresStringChunking` is the shared admission predicate. It walks
-program constants and uses the same modified-UTF8 byte accounting as
-`loadString`, so selection cannot drift to a character-count or ordinary-UTF8
-heuristic. When selected, the evaluator lifts and emits before execution,
-temporarily replaces `Emit.globalsRef`, runs the generated class, and restores
-the previous map. Only the same pre-execution failures accepted by the public
-bytecode lane (`Unsupported` and ASM method/class-size limits) return `None`.
-Invocation/runtime failures escape after unwrapping
-`InvocationTargetException`.
+`JvmBytecodeAdmission.requiresStringChunking` is the shared admission
+predicate. Its class has no ASM references or eager emitter state. It walks
+program constants and owns the modified-UTF8 byte accounting plus chunk
+splitting used by `JvmByteGen.loadString`, so selection cannot drift to a
+character-count or ordinary-UTF8 heuristic and a rejected small program cannot
+load the backend merely by being classified. When selected, the evaluator
+lifts and emits before execution, temporarily replaces `Emit.globalsRef`, runs
+the generated class, and restores the previous map. Only the same pre-execution
+failures accepted by the public bytecode lane (`Unsupported` and ASM
+method/class-size limits) return `None`. Invocation/runtime failures escape
+after unwrapping `InvocationTargetException`.
 
 ## Decisions
 
@@ -179,6 +184,12 @@ Invocation/runtime failures escape after unwrapping
   deliberately runs on a dedicated large-stack thread, so a caller-thread
   scope would not propagate. A process-global callback would contaminate
   checkers and concurrent/later compilations.
+- **ASM-free admission helper** — even a read-only call on `JvmByteGen`
+  initializes its emitter object and ASM `Handle`; the backend-isolation gate
+  caught this on hello. The selector therefore calls a data-only helper, and
+  the emitter consumes that helper's chunking implementation. Rejected:
+  duplicating the byte-count test in `RunNativeV2` (selection/emission drift)
+  and making ASM eager on every default VM compile.
 
 ## Results
 
