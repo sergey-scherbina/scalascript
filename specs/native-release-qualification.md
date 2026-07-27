@@ -264,6 +264,43 @@ upload, delete, or `--clobber`.
   acceptance source for this workflow.
 - Changing ScalaScript language or CoreIR semantics to make a release pass.
 
+### Public-release blockers after qualification
+
+The non-publishing matrix run proves that the declared archives execute; it
+does not by itself make a public release production-ready. A read-only
+supply-chain audit against `origin/main@f24afc1a1` identified the following
+mandatory follow-up slices. They are ordered so later trust metadata describes
+an already stable release identity and payload:
+
+1. **`native-release-identity-governance`** — bind the exact stable tag to the
+   version reported by the executable and package metadata, then require the
+   release commit to descend from the protected main line and pass an explicit
+   production approval/tag-authenticity policy. The current build version is
+   `0.1.0-SNAPSHOT`, while qualification accepts any non-empty version output,
+   so tag syntax alone cannot establish artifact identity.
+2. **`native-release-compliant-reproducible-payload`** — include the Apache
+   license, generated third-party notices, and a component inventory; either
+   remove raw executable assets or make them genuinely standalone; publish a
+   digest for every payload; pin the effective runner/toolchain/dependency
+   inputs; normalize archive metadata; and compare two independent unsigned
+   builds before calling the payload reproducible. The current raw executable
+   still requires the archive's adjacent frontend tree, and only archives have
+   checksum sidecars.
+3. **`native-release-trust-metadata`** — generate and validate an SBOM and
+   provenance attestation for the final payload, sign the bytes that users
+   receive, and Developer-ID sign, notarize, and staple the final macOS
+   distributions. These steps must occur after all byte-changing packaging and
+   before publication.
+4. **`native-release-install-lifecycle`** — replace the stale JVM-only,
+   non-verifying installer/Homebrew/Coursier endpoints with a digest/signature
+   verifying native path; install atomically into versioned locations; and
+   automate upgrade, downgrade, yank, and rollback drills. A create-only
+   release prevents silent clobbering but is not a rollback policy.
+
+Until all four slices have their own compare-first gates and exact release
+evidence, a green qualification run authorizes further engineering only, not a
+public production tag.
+
 ## Design
 
 ### Compare the shipped object
