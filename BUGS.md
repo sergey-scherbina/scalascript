@@ -154,8 +154,9 @@ making the tests faster. A scheduled `sbt` still catches everything, just later 
 
 ## v2-native-backticked-identifier — quoted keyword parameters corrupt native parsing
 
-**Status:** OPEN (found 2026-07-28 by `codex` while continuing the std-ui
-exact-output gate; SPRINT `v2-native-backticked-identifier`).
+**Status:** **DONE 2026-07-28** by `codex` (`c4e4d3a33`; found and
+re-confirmed in the same assembled exact-output harness while continuing
+SPRINT `v2-native-backticked-identifier`).
 
 **Real-harness reproduction.** With CSS scopes installed, all five aggregator
 roots fail at `unbound global: label`. Running canonical component modules one
@@ -180,16 +181,21 @@ three tokens (backtick operator, `type` keyword, backtick operator), breaks the
 parameter list/body boundary, and later evaluates `label` as a global. This is
 why the structural sentinel gate did not name the actual source construct.
 
-**Fix acceptance.** Lex a closed backtick-delimited identifier as one ordinary
-identifier token while preserving its spelling, including when the spelling
-is a keyword. Pin a cross-module default/explicit-argument regression using
-the original HTML interpolation shape. Default/legacy × VM/direct ASM and all
-five original std-ui outputs must compare exactly.
+**Resolution.** `ssc1-front` now scans a closed backtick-delimited name as one
+ordinary `id` token without its delimiters; an unclosed name remains visible
+to the parser instead of consuming the rest of the file. The multi-file
+`std-ui-native-backticked-id` regression preserves the original HTML
+interpolation plus default/explicit keyword-parameter calls.
+
+**Verification.** The focused regression is exact on default/legacy ×
+VM/direct ASM and PASS on INT/JS/JVM. All five original std-ui roots compare
+exactly on the same four native routes and remain 5/5 on INT/JS/JVM.
 
 ## v2-native-std-ui-scope-global — V2 standard runtime omits the CSS scoping helper
 
-**Status:** OPEN (found 2026-07-28 by `codex` while verifying the full
-std-ui closure; SPRINT `v2-native-std-ui-scope-global`).
+**Status:** **DONE 2026-07-28** by `codex` (`757212871`; found and
+re-confirmed in the same assembled exact-output harness while verifying the
+full std-ui closure; SPRINT `v2-native-std-ui-scope-global`).
 
 **Real-harness reproduction.** After the quote scanner and `html` parser
 corrections, all five original roots advance to the same runtime failure:
@@ -212,17 +218,22 @@ V1 supplies `scope(name)`, `Scope.cls`, and `Scope.css` in its core runtime,
 but `v2/runtime/std/ui-plugin` registers none of them. This is not a parser or
 module-resolution error: execution reaches an honest missing-global lookup.
 
-**Fix acceptance.** Register the existing contract in the V2 UI plugin:
-`scope(name)` must return portable data, `cls(name)` must append
-`__<scope>`, and `css(source)` must rewrite every
-`.identifier` to `.identifier__<scope>` exactly like V1. Add plugin unit
-coverage plus a multi-file assembled regression. Default/legacy × VM/direct
-ASM and the five original std-ui expected outputs must compare exactly.
+**Resolution.** The V2 UI plugin now registers the existing contract:
+`scope(name)` returns portable `Scope` data, `.cls(name)` appends
+`__<scope>`, and `.css(source)` rewrites selectors with the V1 regex
+semantics. The implementation stays in `v2/runtime/std/ui-plugin`, not core.
+
+**Verification.** `v2NativeUiPlugin/test` is 16/16. The multi-file
+`std-ui-native-css-scope` regression and all five original std-ui roots are
+exact on default/legacy × VM/direct ASM; the declared INT/JS/JVM lanes remain
+green.
 
 ## v2-native-html-interpolator-parse — self-hosted frontend emits `_err` for built-in `html` strings
 
-**Status:** OPEN (found 2026-07-28 by `codex` while reducing
-`v2-std-ui-closure-pair-match`; SPRINT `v2-native-html-interpolator-parse`).
+**Status:** **DONE 2026-07-28** by `codex` (`a04239fdc`; found and
+re-confirmed in the same assembled exact-output harness while reducing
+`v2-std-ui-closure-pair-match`; SPRINT
+`v2-native-html-interpolator-parse`).
 
 **Real-harness reproduction.** This minimal document fails before execution:
 
@@ -253,17 +264,23 @@ the following string token survives as malformed syntax.
 escape `&`, `<`, `>`, `"`, and `'`, and `raw(value)` must preserve trusted
 markup. The existing V1 interpreter/JVM/JS contract implements exactly that.
 
-**Fix acceptance.** Add native-front parsing and portable lowering for both
-ordinary and triple-quoted `html` strings, preserving `raw(value)` as an
-`_Raw` marker. Pin the original cross-module lambda shape and escape/raw
-observable output. Default/legacy × VM/direct-ASM must compare exactly, then
-all five std-ui roots must compare with their checked-in output.
+**Resolution.** The native frontend now builds dedicated HTML interpolation
+IR: ordinary holes call internal `__htmlEscape__`, while `raw(value)` lowers
+to portable `_Raw` data and bypasses escaping. Treating `html` as ordinary
+`s` interpolation was rejected because it would silently remove the existing
+HTML-safety contract.
+
+**Verification.** The multi-file `std-ui-native-html-lambda` regression checks
+the original lambda/import boundary plus escaped and raw output. It is exact
+on default/legacy × VM/direct ASM and PASS on INT/JS/JVM; the five original
+std-ui roots also compare exactly.
 
 ## v2-std-ui-closure-pair-match — native self-hosted frontend crashes after resolving the aggregator
 
-**Status:** OPEN (found 2026-07-28 by `codex` while working SPRINT
-`v2-std-ui-missing-fixture`; tracked as follow-up
-`v2-std-ui-native-pair-match`).
+**Status:** **DONE 2026-07-28** by `codex` (`9509190dd`, full closure
+confirmed at `c4e4d3a33`; found and re-confirmed in the same assembled
+exact-output harness while working SPRINT `v2-std-ui-missing-fixture`;
+tracked as follow-up `v2-std-ui-native-pair-match`).
 
 **Real-harness reproduction.** After correcting the five stale imports to the
 canonical root module, each assembled native command reaches the source
@@ -291,20 +308,22 @@ its argument surfaced that corruption as `Pair/2`. The focused regression
 fails identically under default/legacy × VM/ASM before the scanner correction
 and preserves both output quotes afterward.
 
-**Next exposed layer.** With the quote-run correction installed, `Pair/2`
-disappears, but all five full std-ui roots now reach the native structural
-sentinel gate and report `_err`. Keep this entry OPEN until that independently
-malformed construct is reduced and the five expected outputs execute.
+**Resolution chain.** The quote-run correction removed `Pair/2` and exposed
+three independent honest layers: missing built-in `html` parsing, missing V2
+UI-plugin CSS scopes, and backticked keyword identifiers. Those layers were
+tracked separately and closed by `a04239fdc`, `757212871`, and `c4e4d3a33`;
+no catch-all match arm was added.
 
-**Fix acceptance.** Reduce the failure to the smallest source-closure or
-CoreIR shape, pin it in the real tower/runtime harness, and fix the actual
-match/effect interaction. Both native VM and direct ASM must then match all
-five checked-in expected outputs; INT/JS/JVM must remain 5/5.
+**Verification.** The multi-file `std-ui-native-pair-minimal` regression is
+exact on default/legacy × VM/direct ASM and PASS on INT/JS/JVM. The complete
+five-root closure now matches every checked-in expected output on both native
+engines with both frontends and remains 5/5 on INT/JS/JVM.
 
 ## v2-std-ui-imports-stale-after-tests-move — five fixtures still target the old conformance location
 
-**Status:** OPEN (found 2026-07-28 by `codex` while working SPRINT
-`v2-std-ui-missing-fixture`).
+**Status:** **DONE 2026-07-28** by `codex` (`29c6cc249`, full native closure
+confirmed at `c4e4d3a33`; found and re-confirmed in the same assembled
+exact-output harness while working SPRINT `v2-std-ui-missing-fixture`).
 
 **Real-harness reproduction.** The declared INT/JS/JVM conformance slice is
 5/5, because the compatibility resolver's fallback search masks the bad
@@ -325,9 +344,12 @@ resolve `../examples/std-ui` to the nonexistent
 `examples/std-ui/index.ssc`; nearby `std-ui-i18n.ssc` already uses the correct
 `../../examples/std-ui/...` route.
 
-**Fix.** Point the five imports (and the aggregator's explanatory example) at
-`../../examples/std-ui`. Keep expected output unchanged, require all declared
-lanes plus native VM/direct ASM to compare before closing.
+**Resolution.** The five imports and the aggregator's explanatory example now
+point at the canonical `../../examples/std-ui` module; no duplicate test
+fixture was introduced and expected output stayed unchanged.
+
+**Verification.** The original five roots are 5/5 on INT/JS/JVM and exact on
+default/legacy × native VM/direct ASM.
 
 ## ci-status-sha-misses-commits-covered-by-a-later-tip — a code commit can be TESTED and still report "no run"
 

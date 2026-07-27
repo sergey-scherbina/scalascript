@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-07-28 — SSC v2 executes the canonical std-ui pack exactly
+
+The five moved conformance roots now import the canonical
+`examples/std-ui` pack and compare exactly on default/legacy × native
+VM/direct ASM, while INT/JS/JVM remain 5/5. Four native defects were fixed:
+quote-run termination, HTML-safe interpolation and `raw` lowering, portable
+CSS scopes in the UI plugin, and backticked keyword identifiers.
+
+The four focused multi-file regressions are exact on all four native routes
+and PASS on INT/JS/JVM; UI-plugin tests are 16/16 and `v2Core/test` passes.
+Implementation: `29c6cc249`, `9509190dd`, `a04239fdc`, `757212871`,
+`c4e4d3a33`.
+
 ## 2026-07-28 — coordination status recognizes the claim mutex ledger
 
 `scripts/coord-status` no longer reports the required `.work/active/LEDGER.tsv` as an invalid
