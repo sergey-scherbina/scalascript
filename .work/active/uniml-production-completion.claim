@@ -2,10 +2,14 @@ slug: uniml-production-completion
 branch: feature/uniml-production-completion
 agent: claude-code
 started: 2026-07-27T21:28:38Z
-heartbeat: 2026-07-27T21:28:38Z
-status: claimed-before-planning
-items: uniml-yaml-m31-full-grammar,uniml-markdown-html5-entities,uniml-portable-5-binding,uniml-m5-language-adapters,uniml-m6-tooling,v2.2-p6.22,scljet-address-uniml-u2-u3,uniml-production-release
-paths: SPRINT.md,BACKLOG.md,CHANGELOG.md,MILESTONES.md,README.md,specs/uniml-production.md,specs/uniml.md,specs/uniml-yaml.md,specs/uniml-markdown.md,specs/v2.2-self-hosted-dialect.md
+heartbeat: 2026-07-27T21:42:02Z
+status: in-progress
+items: uniml-yaml-m31-full-grammar uniml-markdown-html5-entities uniml-portable-5-binding uniml-m5-language-adapters uniml-m6-tooling v2.2-p6.22 scljet-address-uniml-u2-u3 uniml-production-release UPR-0 UPR-1a UPR-1b UPR-1c
+paths: SPRINT.md BACKLOG.md CHANGELOG.md MILESTONES.md README.md specs/uniml-production.md specs/uniml.md specs/uniml-yaml.md specs/uniml-markdown.md specs/v2.2-self-hosted-dialect.md uniml/corpus uniml/yaml/src/test uniml/markdown/src/test uniml/project uniml/build.sbt build.sbt
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  The production contract and full UPR-0..UPR-9 queue are committed. This scope now implements
+  UPR-1 only: pinned official YAML/CommonMark/GFM corpus data, deterministic generators, and
+  compare-first conformance gates that establish and print the red semantic baseline before any
+  grammar fix. No parser production sources are in scope yet.
+done-so-far: UPR-0 spec landed as 24255fe1a
+next: implement UPR-1a/1b/1c corpus provenance, generation, compare-first gates, and baseline report
