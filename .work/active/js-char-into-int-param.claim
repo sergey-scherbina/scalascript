@@ -1,6 +1,6 @@
 feature/js-char-into-int-param 2026-07-27T16:08:54Z
 agent: codex
-heartbeat: 2026-07-27T16:09:25Z
+heartbeat: 2026-07-27T16:16:13Z
 status: in-progress
-done-so-far: claim landed and isolated worktree created at /Users/sergiy/work/my/scalascript-wt-js-char-into-int-param
-next: commit the resume-cold SPRINT plan, then reproduce the INT/JS divergence in the real harness
+done-so-far: plan and assembled-harness baseline landed through 1ad34d8ec; INT=true/true/true, JS=true/false/true
+next: add the failing backend/conformance regression, then normalize declared Int parameters at JS function entry
