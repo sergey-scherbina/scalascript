@@ -1,5 +1,29 @@
 # Bug tracker
 
+## native-release-unqualified-and-unrelocatable — release workflow cannot prove a runnable v2 artifact
+
+**Status:** OPEN (found 2026-07-27 by `native-release-qualification` against
+`origin/main@6919b46db`; no release run exists yet).
+
+**Real release-path reproduction.** `gh run list --workflow native-release.yml`
+returns no runs because the workflow is tag-only. Its x86_64 macOS leg still
+uses the retired `macos-13` runner, and each archive contains only `ssc`,
+`lib/ssc-plugin-host.jar`, and an optional README. It never executes the
+compressed artifact.
+
+The native v2 runtime requires
+`bin/lib/standard/native-front/{tower,runtime}` plus an `ssc.lib.path`
+installation root. The archive ships neither the data nor a relocatable
+bootstrap, so successful `native-image` compilation would still not prove that
+an extracted product can run `.ssc` without borrowing the checkout.
+
+**Fix acceptance.** A credential-safe `workflow_dispatch` run must build,
+archive, isolate, and execute Linux x86_64, macOS arm64, and macOS x86_64
+artifacts. The qualifier must verify the complete native-front manifest,
+direct/archive byte identity, VM/direct-ASM output without fallback, plugin-host
+startup, bounded timeouts, and exact checksums before upload. Publication
+remains tag-only. Record the successful run id and fix SHA here.
+
 ## scljet-sql-blob-comparison-collapses-values — all BLOBs compare equal
 
 **Status:** OPEN (found 2026-07-27 by `scljet-production-completion`; reproduced
