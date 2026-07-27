@@ -86,6 +86,20 @@ SLOWER until `f5c-1`; `.length` receivers were classifier-shaped — they were b
       (JFR: `java -XX:StartFlightRecording=... -jar $SSC_JAR run-ir …`). Deliverable is a written
       breakdown — parse vs lower vs VM-execute vs IO — not a single number. Ready when: the report
       names the dominant cost with evidence, and says what it is NOT (so the next agent stops guessing).
+      - [ ] **V-6a.1 — freeze a reproducible wall-clock A/B.** Build one assembled CLI jar, discover
+            the exact F0 / `F(F_src)` commands from `specs/v2.2-p6.5-fsub.sh`, then run the same jar,
+            input bytes, JVM options and warm-up policy under `SSC_FRONT=F` and `SSC_FRONT=legacy`.
+            Record medians and raw samples for self-compile, `hello`, and `scljet`; do not compare
+            different launchers or let memoized outputs stand in for execution.
+      - [ ] **V-6a.2 — attribute the delta instead of guessing from wall time.** Capture JFR for both
+            fronts on the self-compile workload, inspect CPU samples, allocations and file IO, and
+            map hot stacks back to front parse, F VM execution, lower/erase, and output serialization.
+            If phase boundaries are not visible in JFR, use existing trace/timing switches or a
+            throwaway local probe; do not land instrumentation as part of this measurement claim.
+      - [ ] **V-6a.3 — publish the evidence and hand V-6b a falsifiable next step.** Write
+            `specs/v2-f-compile-profile.md` with environment, exact commands, samples, phase breakdown,
+            dominant cost, explicit non-causes, and the measured admission criteria for testing the
+            bytecode-lane hypothesis. Check off V-6a only when a fresh agent can reproduce the result.
 - [ ] **V-6b — test the one structural hypothesis worth naming up front, but only after V-6a.**
       F is an `.ssc` program **interpreted** on the v2 VM, while the thing that fixed the runtime axis
       was compiling hot code to JVM bytecode (`f5c-1..3`, fib ~8.5 ms warm). So: **can F itself run on
