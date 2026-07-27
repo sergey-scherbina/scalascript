@@ -190,6 +190,37 @@ function _setOf(...xs) {
   for (const x of xs) if (!out.some(y => _eq(y, x))) out.push(x);
   return out;
 }
+// Integer division and remainder. ssc `Int` is 64-bit INTEGER arithmetic, so `10 / 0` must fail the
+// way it does on the interpreter and the JVM — not produce JS's `Infinity`/`NaN`, which is a silent
+// wrong answer that a `try/catch` never sees (BUGS js-int-division-by-zero-yields-infinity).
+//
+// Only the STATICALLY-Int path routes here (JsGen emits `_idiv`/`_imod` when it knows both operands
+// are Int). Double division by zero is legitimately Infinity in Scala too, so `_arith`'s dynamic
+// number path is deliberately left alone — guessing from `Number.isInteger` at runtime would break
+// `4.0 / 0`, which must stay Infinity.
+//
+// The message matches the JVM's ArithmeticException so the three lanes read alike, and it is a plain
+// `Error` because that is what this runtime's `catch` support already understands.
+function _idiv(a, b) {
+  if (typeof a === 'bigint' || typeof b === 'bigint') {
+    const y = _toBig(b);
+    if (y === 0n) throw new Error('/ by zero');
+    return _toBig(a) / y;
+  }
+  if (b === 0) throw new Error('/ by zero');
+  return Math.trunc(a / b);
+}
+
+function _imod(a, b) {
+  if (typeof a === 'bigint' || typeof b === 'bigint') {
+    const y = _toBig(b);
+    if (y === 0n) throw new Error('/ by zero');
+    return _toBig(a) % y;
+  }
+  if (b === 0) throw new Error('/ by zero');
+  return a % b;
+}
+
 function _arith(op, a, b) {
   // String concatenation keeps priority (matches the interpreter's `a + show(b)`).
   if (op === '+' && (typeof a === 'string' || typeof b === 'string'))

@@ -5014,8 +5014,15 @@ class JsGen(
           case "by" =>
             // `(n to m) by step` → re-step the materialized range array. (xbackend-range-by-step.)
             s"_dispatch($lhsJs, 'by', [$rhsJs])"
+          // ssc `Int` is 64-bit INTEGER arithmetic, so a zero divisor must FAIL — `Math.trunc(x / 0)`
+          // is `Infinity`, a silent wrong answer that no `try/catch` ever sees
+          // (BUGS js-int-division-by-zero-yields-infinity). Only this statically-Int path is routed:
+          // Double division by zero is legitimately Infinity in Scala too, so the dynamic `_arith`
+          // number path is deliberately untouched.
           case "/" if isIntExpr(lhs) && args.headOption.exists(isIntExpr) =>
-            s"Math.trunc($lhsJs / $rhsJs)"
+            s"_idiv($lhsJs, $rhsJs)"
+          case "%" if isIntExpr(lhs) && args.headOption.exists(isIntExpr) =>
+            s"_imod($lhsJs, $rhsJs)"
           // Exact numerics (v1.64): when operands aren't both statically Int,
           // route arithmetic/comparison through _arith so BigInt/Decimal work
           // (native JS `+` throws on BigInt+Number and can't add Decimal objects).
