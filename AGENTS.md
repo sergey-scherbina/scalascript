@@ -24,11 +24,27 @@ Every piece of work, always, in this order:
    skip; JVM lane is serverless by default; use `--warm-jvm` only for local
    speed probes). It costs seconds now, so a push without
    at least the affected-slice run is not acceptable. Full corpus stays for CI.
-   4c. **Exact-SHA CI before release**: after the final push, run
-   `scripts/ci-status --sha <landed-sha>`. Exit 0 is the only CI-green verdict.
-   Pending/unknown keeps the claim open; red is recorded in `BUGS.md` + `SPRINT.md`
-   and fixed in the real failing job. A local gate or another commit's green run is
-   never evidence for this SHA.
+   4c. **CI evidence before release** — RELAXED 2026-07-27 by Sergiy. The old rule
+   ("exit 0 on `scripts/ci-status --sha <landed-sha>` is the only green verdict; pending
+   keeps the claim open") became unsatisfiable at four parallel agents: measured
+   2026-07-27, **6 of 14 runs on main ended `cancelled`** with an 8-deep queue and the
+   oldest runs `in_progress` for 80+ min, so most commits never get a verdict at all
+   (`BUGS.md` `ci-runs-cancelled-under-churn`). A rule nobody can satisfy is not a gate —
+   it just moves the lying somewhere else.
+
+   **The rule now:** before releasing a claim, obtain and STATE the strongest evidence you
+   actually have, in this order:
+
+   1. `scripts/ci-status --sha <landed-sha>` exit 0 — still the gold standard when you get it.
+   2. Otherwise `gh run view <run> --json jobs`: name the **specific job that would catch
+      your change** (e.g. `Conformance Suite` for a conformance/engine change) and report its
+      conclusion. A green descendant run counts, with the `merge-base` named.
+   3. Otherwise your local gates, listed by name and result.
+
+   Two things stay non-negotiable: **`cancelled` is RED, never neutral**, and the
+   release-claim must say **which of the three levels the evidence is** — never write
+   "green" for a run that did not produce one. Red is still recorded in `BUGS.md` +
+   `SPRINT.md` and fixed in the real failing job.
 5. **Release + clean up**: remove the claim, then `scripts/rm-worktree <name>`
    (kills the worktree's build daemons too).
 
