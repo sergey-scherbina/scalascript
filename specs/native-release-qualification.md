@@ -127,16 +127,25 @@ qualifier requires the extracted file set and every digest to match it exactly.
       `ProcessHandle`; a missing/empty environment override falls through to
       native bundled-root discovery.
 - [ ] Native-image configuration initializes `os.package$` plus the complete
-      `scalascript` application package tree at run time despite the existing
-      `--initialize-at-build-time=scalascript` setting. This prevents frozen
-      cwd/home/cache/library/tmp paths, persisted random state, build-runner
-      values for documented JIT/FASTTIER runtime switches, and equivalent
-      future eager state reached through cross-package initialization chains.
+      `scalascript` and `ssc` application package trees at run time despite the
+      existing `--initialize-at-build-time=scalascript` setting. This prevents
+      frozen cwd/home/cache/library/tmp paths, persisted random state,
+      build-runner values for documented JIT/FASTTIER and v2 depth switches,
+      and equivalent future eager state reached through cross-package
+      initialization chains.
 - [ ] The runtime-initialization policy is embedded below
       `META-INF/native-image/` in the CLI artifact and therefore applies to
       ordinary local `cli/graalvm-native-image:packageBin` builds as well as the
       release workflow. Runner-specific builder-memory policy is not embedded
       in that reusable artifact metadata.
+- [ ] The shared native-image build settings resolve reflection and resource
+      configuration files from the repository root and contain only real
+      GraalVM `Feature` implementations. The default local build and the
+      release workflow use the same valid settings; CI does not hide broken
+      defaults behind workflow-only replacements.
+- [ ] Packaging reads the actual sbt-native-packager output
+      `target/graalvm-native-image/scalascript-cli`, verifies it is executable,
+      and renames only the release-facing copy to `ssc`.
 - [ ] The workflow copies the binary, archive, checksum, and qualifier outside
       the checkout, makes the checkout's staged native frontend unavailable,
       and runs qualification from the isolated copy. A build-time absolute
@@ -175,9 +184,11 @@ qualifier requires the extracted file set and every digest to match it exactly.
       standard arm64 macOS runner while reserving memory for native/off-heap
       work; duplicate `-Xmx` options are refused by source inspection/lint.
 - [ ] The completed manual run has successful Linux x86_64, macOS arm64, and
-      macOS x86_64 matrix jobs, and
-      `scripts/ci-status --workflow native-release.yml --event any --latest`
-      exits zero for that exact run.
+      macOS x86_64 matrix jobs. `gh run view <run-id> --json jobs` shows the
+      qualifier prerequisite and all three matrix legs completed successfully,
+      while `Publish qualified tag` is completed/skipped. A cancelled matrix
+      leg is red; the intentionally skipped publication job is the proof that
+      a manual dispatch remained non-publishing.
 
 ## Out of Scope
 
@@ -190,6 +201,10 @@ qualifier requires the extracted file set and every digest to match it exactly.
 - Re-testing arbitrary third-party plugin behavior; the qualifier proves that
   the shipped subprocess host is present and starts, while the backend SPI
   suites own its protocol semantics.
+- Changing the generic `scripts/ci-status` job-selection contract. Until that
+  tool distinguishes a guarded, intentionally skipped job from a required
+  execution job, exact `gh run view <run-id> --json jobs` evidence is the
+  acceptance source for this workflow.
 - Changing ScalaScript language or CoreIR semantics to make a release pass.
 
 ## Design
@@ -252,15 +267,16 @@ processes do not touch `ProcessHandle`.
 The current native-image build initializes the broad `scalascript` package at
 build time. Correctness takes priority over speculative startup savings: the
 portable CLI metadata requests run-time initialization for the complete
-application namespace plus os-lib's cwd owner:
+v1 and v2 application namespaces plus os-lib's cwd owner:
 
 ```text
 os.package$
 scalascript
+ssc
 ```
 
 The CLI embeds the exact
-`--initialize-at-run-time=os.package$,scalascript` option in
+`--initialize-at-run-time=os.package$,scalascript,ssc` option in
 `META-INF/native-image/scalascript/ssc/native-image.properties`. GraalVM
 [recommends embedded native-image configuration](https://www.graalvm.org/jdk21/reference-manual/native-image/overview/BuildConfiguration/)
 and documents that
@@ -268,8 +284,9 @@ and documents that
 `os.package$` owns `os.pwd`; import and plugin objects eagerly call
 cwd/home-derived os-lib APIs; server objects eagerly capture
 `java.io.tmpdir` and allocate `SecureRandom`; interpreter objects eagerly read
-documented environment and system-property switches. GraalVM's security guide
-warns that
+documented environment and system-property switches. The v2 `ssc.Reader` and
+`ssc.Compiler` objects eagerly capture documented depth properties. GraalVM's
+security guide warns that
 [build-time static state is persisted, including random seeds](https://www.graalvm.org/jdk21/security-guide/native-image/).
 Restricting the override to only those audited subpackages is unsafe because
 outer objects in other ScalaScript packages can initialize them transitively
@@ -283,12 +300,39 @@ startup regression. A future optimization may replace the broad build-time
 rule with a measured allowlist of proven-safe classes; it must not narrow this
 run-time policy based only on the current object inventory.
 
+GraalVM JDK 21 package selectors are non-strict when no class has the exact
+package name. Conflicting package rules are combined with
+[`InitKind.max`](https://github.com/oracle/graal/blob/jdk-21.0.5/substratevm/src/com.oracle.svm.hosted/src/com/oracle/svm/hosted/classinitialization/InitKind.java#L42-L51),
+where `RUN_TIME` follows `BUILD_TIME`, through
+[`ClassInitializationConfiguration`](https://github.com/oracle/graal/blob/jdk-21.0.5/substratevm/src/com.oracle.svm.hosted/src/com/oracle/svm/hosted/classinitialization/ClassInitializationConfiguration.java#L89-L107).
+The same implementation is present in the 21.0.0, 21.0.1, 21.0.2, and
+21.0.5 tags. Therefore the embedded `scalascript` run-time rule wins even
+though sbt-native-packager places the explicit broad build-time option after
+the classpath. The real native build still remains the acceptance proof.
+
 Builder heap is runner policy, not artifact semantics. The workflow removes the
 inherited `-J-Xmx8g` and adds `-J-Xmx5g`: the standard arm64 macOS runner has
 [7 GB of RAM](https://docs.github.com/en/actions/how-tos/write-workflows/choose-where-workflows-run/choose-the-runner-for-a-job),
 and GraalVM notes that native-image
 [actual memory can exceed the configured Java heap](https://www.graalvm.org/latest/reference-manual/native-image/overview/BuildOutput/).
 The archive must not capture the checkout path used on the hosted runner.
+
+### Make the native-image invocation self-consistent
+
+The CLI project base is `v1/tools/cli`, so repository-root configuration files
+resolve through `../../../native-image-configs`, not `../../native-image-configs`.
+The build uses those existing reflection and resource files directly.
+`org.graalvm.home.HomeFinder` is an abstract lookup utility, not an
+`org.graalvm.nativeimage.hosted.Feature`; passing it through `--features`
+aborts feature registration and is removed rather than replaced with an
+unproven feature.
+
+The native-image output name comes from the CLI project name,
+`scalascript-cli`. The workflow consumes that exact build output, then gives
+the copied direct-download artifact and archive entry their stable release
+names. Source-side assumptions are checked before dispatch with the effective
+sbt settings and filesystem paths; the hosted build and archive execution are
+the final observables.
 
 ### Exercise both v2 execution backends
 
@@ -324,12 +368,13 @@ marker, so a VM run wearing the bytecode label cannot qualify the release.
 - **Bound every product process** — chosen because a hung executable is a
   release failure and GNU `timeout` is absent on stock macOS. The portable
   qualifier uses its existing Python runtime for subprocess deadlines.
-- **Runtime-initialize the complete application namespace** — chosen because
-  cwd/home/tmp, RNG, and runtime-toggle state is host-dependent, while
-  cross-package initialization can reach audited objects through an
+- **Runtime-initialize both application namespaces** — chosen because
+  cwd/home/tmp, RNG, runtime-toggle, and v2 depth state is host-dependent,
+  while cross-package initialization can reach audited objects through an
   apparently unrelated outer object. Rejected: enumerating only the currently
-  known host-sensitive subpackages (transitive and future eager state would
-  silently reopen the defect).
+  known host-sensitive subpackages or relying on automatic safe-initialization
+  for `ssc` (transitive and future eager state would silently reopen the
+  defect).
 - **Embed portable native-image policy in the CLI JAR** — chosen so local and
   release builds share the correctness rule automatically. Rejected:
   workflow-only class-initialization flags (they leave the documented local
@@ -337,6 +382,11 @@ marker, so a VM run wearing the bytecode label cannot qualify the release.
 - **Keep builder heap in CI** — chosen because available RAM is a runner
   property. Rejected: embedding `-J-Xmx5g` in `native-image.properties`
   (needlessly constrains larger developer/build machines).
+- **Repair shared native-image defaults** — chosen because documented local and
+  release builds must execute the same valid invocation. Rejected:
+  workflow-only removal of the invalid feature and replacement of missing
+  configuration paths (would make CI green while leaving the local contract
+  broken).
 - **Allowlist the runtime environment** — chosen because deleting a short list
   of known contaminants leaves future Java/toolchain variables ambient.
   Rejected: inheriting the runner environment and unsetting only current
@@ -368,9 +418,19 @@ Pre-change baseline on 2026-07-27:
   build-time `SecureRandom` owners, and nine interpreter objects that read
   runtime switches, in addition to `os.package$.pwd`; package-boundary review
   showed that a narrow override could still initialize those objects through
-  outer ScalaScript objects, and an absolute smoke-test path could hide the
-  frozen cwd. Workflow review also found that inherited `-J-Xmx8g` exceeds the
-  7 GB arm64 macOS runner's physical memory.
+  outer ScalaScript objects. The v2 `ssc` namespace also contains eager
+  property-backed depth limits, and an absolute smoke-test path could hide the
+  frozen cwd.
+- Effective-setting review found that the native output is named
+  `scalascript-cli`, both explicit native-image configuration paths point to a
+  non-existent `v1/native-image-configs`, and
+  `org.graalvm.home.HomeFinder` does not implement the required hosted
+  `Feature` interface. Workflow review also found that inherited `-J-Xmx8g`
+  exceeds the 7 GB arm64 macOS runner's physical memory.
+- The generic non-CI path in `scripts/ci-status` requires every reported job to
+  conclude `success`; it would therefore call the required skipped manual
+  publication job red. Exact `gh run view` job evidence is used instead of
+  weakening the workflow's permission boundary.
 
 Implementation measurements and the exact manual run are recorded here during
 the verify phase.

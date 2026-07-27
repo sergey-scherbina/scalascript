@@ -332,12 +332,24 @@ installation root. The archive ships neither the data nor a relocatable
 bootstrap, so successful `native-image` compilation would still not prove that
 an extracted product can run `.ssc` without borrowing the checkout.
 
+Effective-setting audit found three earlier build blockers before a hosted run:
+the sbt-native-packager output is named `scalascript-cli` while the workflow
+looked for `ssc`; both explicit native-image config paths resolve below the
+non-existent `v1/native-image-configs`; and
+`--features=org.graalvm.home.HomeFinder` names an abstract utility that does not
+implement the required hosted `Feature` interface. The generic
+`scripts/ci-status` non-CI contract also treats the intentionally skipped
+manual publication job as red, so exact run-job evidence is required without
+making that privileged job reachable from dispatch.
+
 **Fix acceptance.** A credential-safe `workflow_dispatch` run must build,
 archive, isolate, and execute Linux x86_64, macOS arm64, and macOS x86_64
 artifacts. The qualifier must verify the complete native-front manifest,
 direct/archive byte identity, VM/direct-ASM output without fallback, plugin-host
-startup, bounded timeouts, and exact checksums before upload. Publication
-remains tag-only. Record the successful run id and fix SHA here.
+startup, bounded timeouts, and exact checksums before upload. Shared local and
+CI native-image defaults must use the existing config files and no invalid
+feature. Publication remains tag-only. Record the successful run id, required
+job conclusions, and fix SHA here.
 
 ## scljet-sql-blob-comparison-collapses-values — all BLOBs compare equal
 

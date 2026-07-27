@@ -31,14 +31,22 @@ qualify artifacts; `NEVER-RUN` is the blocker this slice closes.
       package. Run it on each matrix runner before artifact upload, and add a
       credential-safe manual dry-run whose publish step cannot run on dispatch.
       Preserve the tag-triggered release path and make every mismatch print its
-      expected/actual observable.
+      expected/actual observable. Before dispatch, repair the shared
+      native-image defaults: configuration files resolve from repository root,
+      the invalid `HomeFinder` feature is absent, the runtime-init metadata
+      covers `scalascript` and `ssc`, and packaging consumes the actual
+      `scalascript-cli` output. `build.sbt` is temporarily held by the UniML
+      claim; workflow-only overrides may prove the matrix while waiting, but
+      NRQ-1 remains open until the shared default is fixed.
 - [ ] **NRQ-2 — execute and record the real three-platform dry-run.** Validate
       workflow YAML and shell syntax locally, run the mandatory affected
       conformance slice, dispatch the dry-run, and require every declared
       platform job plus artifact inspection to succeed. Record the run id/SHA
-      and require `scripts/ci-status --workflow native-release.yml --latest`
-      exit 0. A cancelled/skipped matrix leg is RED; do not call local Linux
-      evidence a cross-platform qualification.
+      and inspect `gh run view <run-id> --json jobs`: the qualifier and all
+      three matrix legs must succeed, while `Publish qualified tag` must be
+      skipped on dispatch. A cancelled/skipped matrix leg is RED; the skipped
+      publish job is required safety evidence. Do not call local Linux evidence
+      a cross-platform qualification.
 
 ## 2026-07-27 — SclJet production completion (Sergiy: "Реализуй всё по scljet")
 
