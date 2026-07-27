@@ -497,6 +497,26 @@ which is faster and equivalent for this case), and check the effects/Op-lifting 
 registry change landed today (`c3841d01e`, "OpAnf purity registry classified EVERY def as pure,
 disabling Op lifting"), which is adjacent to how an effect reaches its handler.
 
+## scljet-ipk-insert-indexed-out-of-order — indexed INSERT rebuild preserves statement order, not rowid order
+
+**Status:** OPEN (found 2026-07-28 by `scljet-production-completion` in the
+live sqlite-jdbc SC-1a differential).
+
+**Real-harness reproduction.** Through `jdbc:scljet:`, create one
+`INTEGER PRIMARY KEY` table plus an index, seed rowid 50, then execute prepared
+INSERTs whose bound IPKs arrive out of order (for example 4, 51, 7, and -5).
+The mutations report success, but the next
+`SELECT ... ORDER BY id` fails with `table rowids are not strictly increasing`.
+The same bound-value matrix succeeds through Xerial `jdbc:sqlite:`.
+
+**Root cause / required fix.** The indexed branch of `executeInsertRows`
+passes `existingRows ++ newRows` straight to `reindexTable`, which writes table
+cells in list order. The indexed UPDATE branch already documents and enforces
+the missing invariant with `sortRowsByRowid`; INSERT must use that same
+compare-first sort/duplicate backstop before rebuilding the table and its
+indexes. The live differential must then compare outcomes and rows with SQLite
+and run real `PRAGMA integrity_check` on the SclJet-written file.
+
 ## scljet-sql-numeric-literal-grammar-gaps — signed VALUES, exponent, and hex literals are incomplete
 
 **Status:** OPEN (found 2026-07-27 by `scljet-production-completion` while
