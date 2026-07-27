@@ -87,8 +87,34 @@ lanes plus native VM/direct ASM to compare before closing.
 
 ## ci-status-sha-misses-commits-covered-by-a-later-tip — a code commit can be TESTED and still report "no run"
 
-**Status:** OPEN — measurement caveat, found 2026-07-28 by `ci-bookkeeping-floods-verdicts` while
-verifying the `paths-ignore` change on live traffic. Not caused by it; made easier to notice by it.
+**Status:** **FIXED 2026-07-28** by opus (`ci-status-descendant-fallback`). Found 2026-07-28 by
+`ci-bookkeeping-floods-verdicts` while verifying the `paths-ignore` change on live traffic; not
+caused by it, only made easier to notice.
+
+**Fix.** When the exact-SHA query finds nothing, `scripts/ci-status` now looks for the NEAREST run
+whose head is a descendant of the requested commit — real `git merge-base --is-ancestor`, not string
+matching — and reports its verdict labelled `(descendant)` with a `covered by: <sha>` line. The label
+is in the HEADLINE, not a trailing note: "tested as part of a later tip" is genuinely weaker evidence
+than "tested alone" and must never read as the latter. `--exact-only` restores the strict answer.
+
+**Verified on the exact commit this entry names.** `scripts/ci-status --sha 2adeef250` went from
+`CI UNKNOWN` to a real verdict, `covered by d11a7746…`.
+
+**A second defect found by running it — in my own output.** That covering run is
+`completed/cancelled` with **ZERO jobs** (queue eviction), and the report said
+`missing required job: Lint Markdown` ×4 — which reads as "the workflow dropped its jobs" and sends
+the reader after a config problem that does not exist. A run with no jobs now says so plainly:
+`run completed/cancelled with ZERO jobs — it never started one, so it is evidence of nothing`, and
+points at `ci-runs-cancelled-under-churn`.
+
+**Gate.** Four new cases in `tests/e2e/ci-status-guard.sh`, using REAL commits from this repository
+because the ancestry check is real git. The one that makes it a gate rather than a demo is the
+NEGATIVE: when the only available run is an ANCESTOR, the answer must stay `CI UNKNOWN` — otherwise
+the fallback would accept any recent run as evidence for anything. Plus `--exact-only` must return
+UNKNOWN where the fallback returns GREEN, which proves the other verdicts came from the fallback and
+not from some unrelated path, and a zero-jobs case asserting the run is RED **without** the
+misleading missing-job list. A/B: against the previous script `desc-green` fails with
+`expected exit=0 got=2` — exactly the false UNKNOWN this entry describes.
 
 **What happens.** GitHub creates ONE run per push, attributed to the push's TIP commit, and applies
 `paths` filtering to the push as a whole. So a push of `code-commit` followed by `docs-commit`

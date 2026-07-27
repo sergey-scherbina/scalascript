@@ -139,6 +139,138 @@ run_case missing 1 "CI RED $SHA" "missing required job: sbt — compile and test
 run_case no-run 2 "CI UNKNOWN $SHA" "no push ci.yml run found"
 run_case gh-fail 2 "CI UNKNOWN $SHA" "gh run list failed"
 
+# ── descendant coverage (BUGS ci-status-sha-misses-commits-covered-by-a-later-tip) ─────────────
+# GitHub creates ONE run per PUSH, attributed to the push's TIP. A code commit pushed together with
+# a later docs commit therefore has no run of its own, and the old answer — CI UNKNOWN — was wrong
+# in the expensive direction: it says "unverified" about a commit that was fully tested.
+#
+# These cases use REAL commits from this repository, because the ancestry test is real `git
+# merge-base --is-ancestor`, not a string comparison. The negative case is the one that matters: a
+# run whose head is NOT a descendant must still be UNKNOWN, or the fallback would accept any recent
+# run as evidence for anything.
+DESC_SHA="$(git -C "$ROOT" rev-parse origin/main 2>/dev/null || git -C "$ROOT" rev-parse HEAD)"
+ANC_SHA="$(git -C "$ROOT" rev-parse "${DESC_SHA}~5" 2>/dev/null || echo "$DESC_SHA")"
+
+FAKE_DESC="$TMP/gh-desc"
+cat > "$FAKE_DESC" <<'FAKE_DESC_EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+mode="${FAKE_DESC_MODE:?}"
+args=" $* "
+
+if [[ "$args" == *" run list "* ]]; then
+  # The exact-SHA query finds nothing — that IS the bug's situation.
+  if [[ "$args" == *" --commit "* ]]; then exit 0; fi
+  # The fallback query must NOT pin a commit and must ask for a real candidate window.
+  if [[ "$args" != *" --limit 40 "* ]]; then
+    printf 'fake gh: fallback query expected --limit 40: %s
+' "$*" >&2; exit 64
+  fi
+  case "$mode" in
+    desc-green) printf '%s|77|completed|success|https://example.invalid/actions/runs/77
+' "$FAKE_DESC_HEAD" ;;
+    desc-red)   printf '%s|77|completed|failure|https://example.invalid/actions/runs/77
+' "$FAKE_DESC_HEAD" ;;
+    desc-none)  printf '%s|77|completed|success|https://example.invalid/actions/runs/77
+' "$FAKE_DESC_HEAD" ;;
+  esac
+  exit 0
+fi
+
+if [[ "$args" == *" run view 77 "* ]]; then
+  printf 'Lint Markdown|completed|success
+'
+  printf 'Validate ScalaScript|completed|success
+'
+  case "$mode" in
+    desc-red) printf 'Conformance Suite|completed|failure
+' ;;
+    *)        printf 'Conformance Suite|completed|success
+' ;;
+  esac
+  printf 'sbt — compile and test|completed|success
+'
+  exit 0
+fi
+
+printf 'fake gh: unsupported args: %s
+' "$*" >&2
+exit 64
+FAKE_DESC_EOF
+chmod +x "$FAKE_DESC"
+
+desc_case() { # desc_case <mode> <head-sha> <requested-sha> <expected-code> <extra-args…|-> <needle…>
+  local mode="$1" head="$2" want="$3" expected="$4" extra="$5"; shift 5
+  local output code args=()
+  [[ "$extra" != "-" ]] && args=("$extra")
+  set +e
+  output="$(FAKE_DESC_MODE="$mode" FAKE_DESC_HEAD="$head" SSC_CI_GH="$FAKE_DESC" \
+    "$ROOT/scripts/ci-status" --sha "$want" "${args[@]}" 2>&1)"
+  code=$?
+  set -e
+  if [[ "$code" -ne "$expected" ]]; then
+    printf 'ci-status-guard[%s]: expected exit=%s got=%s\n%s\n' "$mode" "$expected" "$code" "$output" >&2
+    exit 1
+  fi
+  local needle
+  for needle in "$@"; do
+    if [[ "$output" != *"$needle"* ]]; then
+      printf 'ci-status-guard[%s]: expected output to contain=%q, got:\n%s\n' "$mode" "$needle" "$output" >&2
+      exit 1
+    fi
+  done
+}
+
+# A green run on a DESCENDANT covers the ancestor — and must say so in the headline, never silently.
+desc_case desc-green "$DESC_SHA" "$ANC_SHA" 0 - "CI GREEN (descendant)" "covered by: $DESC_SHA"
+# A red descendant is red for the ancestor too.
+desc_case desc-red   "$DESC_SHA" "$ANC_SHA" 1 - "CI RED (descendant)"
+# THE NEGATIVE THAT MATTERS: the only run available is an ANCESTOR, not a descendant. It proves
+# nothing about the requested commit, so the answer must stay UNKNOWN.
+desc_case desc-none  "$ANC_SHA"  "$DESC_SHA" 2 - "CI UNKNOWN"
+# --exact-only restores the strict answer, which also proves the three verdicts above came from the
+# fallback rather than from some unrelated path.
+desc_case desc-green "$DESC_SHA" "$ANC_SHA" 2 --exact-only "CI UNKNOWN"
+
+# A run with ZERO jobs is a run that never started one — today, queue eviction or a concurrency
+# supersede. It must NOT be reported as "the workflow dropped four required jobs", which sends the
+# reader after a config problem that does not exist. Observed on the real run 30310314697.
+FAKE_NOJOBS="$TMP/gh-nojobs"
+cat > "$FAKE_NOJOBS" <<'FAKE_NOJOBS_EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+args=" $* "
+if [[ "$args" == *" run list "* ]]; then
+  printf 'RUN_ID=88\n'
+  printf 'RUN_SHA=%s\n' "${FAKE_NOJOBS_SHA:?}"
+  printf 'RUN_STATUS=completed\n'
+  printf 'RUN_CONCLUSION=cancelled\n'
+  printf 'RUN_URL=https://example.invalid/actions/runs/88\n'
+  exit 0
+fi
+if [[ "$args" == *" run view 88 "* ]]; then exit 0; fi   # cancelled before any job existed
+printf 'fake gh: unsupported args: %s\n' "$*" >&2
+exit 64
+FAKE_NOJOBS_EOF
+chmod +x "$FAKE_NOJOBS"
+
+set +e
+nojobs_out="$(FAKE_NOJOBS_SHA="$SHA" SSC_CI_GH="$FAKE_NOJOBS" "$ROOT/scripts/ci-status" --sha "$SHA" 2>&1)"
+nojobs_code=$?
+set -e
+if [[ "$nojobs_code" -ne 1 ]]; then
+  printf 'ci-status-guard[no-jobs]: expected exit=1, got=%s\n%s\n' "$nojobs_code" "$nojobs_out" >&2
+  exit 1
+fi
+if [[ "$nojobs_out" != *"ZERO jobs"* ]]; then
+  printf 'ci-status-guard[no-jobs]: expected the zero-jobs explanation, got:\n%s\n' "$nojobs_out" >&2
+  exit 1
+fi
+if [[ "$nojobs_out" == *"missing required job"* ]]; then
+  printf 'ci-status-guard[no-jobs]: reported missing jobs for a run that never started one:\n%s\n' "$nojobs_out" >&2
+  exit 1
+fi
+
 # ── non-ci workflows: the blind spot (BUGS ci-status-blind-to-non-ci-workflows) ────────────────
 # ci-status hardcoded `--workflow ci.yml --event push`, so the four other workflows were invisible
 # to every automated check. Measured 2026-07-27: corpus-contract.yml had 0 successes in 12 runs, all
