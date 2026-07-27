@@ -1,0 +1,11 @@
+slug: v2-std-ui-missing-fixture
+branch: feature/v2-std-ui-missing-fixture
+agent: claude-code
+started: 2026-07-27T22:28:02Z
+heartbeat: 2026-07-27T22:28:02Z
+status: claimed-before-planning
+items: v2-std-ui-missing-fixture
+paths: tests/conformance/std-ui- tests/conformance/expected/std-ui- tests/examples/std-ui/
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
