@@ -230,7 +230,24 @@ each is independently landable and each must keep `v2/conformance/portable-capsu
       region (`Fx` closed, §11.3). Needs a local CPS of the region only — NOT whole-program CPS
       (explicit non-goal in the spec §7). The VM's runtime continuation is a live `ClosV`, which
       §10.2 forbids serializing; that is why the pass is syntactic.
-- [ ] **E4 — slice 5, second admitting backend + the flip.** A non-JVM runtime that admits and runs
+- [ ] **E4 — slice 5, second admitting backend + the flip.** ⚠️ **Scouted 2026-07-27 — read this
+      before picking a target.** The JS control host (`v2/host/js/control`) is **not** a candidate:
+      its README states it "does not depend on CoreIR, a compiler, a backend, or a runtime" — it is
+      the **ExactArtifact** lane (the machine stays per-host; only frame/id/ABI travel). Portable is
+      the opposite: the resume PROGRAM travels, so a second *admitting* backend must actually be a
+      small CoreIR admitter. Concretely it needs, all matching the JVM one byte-for-byte:
+      (a) a reader for the canonical S-expr envelope + program; (b) `validate`'s scope rules
+      (locals in range; a global is a def of the same program or an `@`-cell — E1 relies on this);
+      (c) the SHA-256 resume digest with the SAME domain separator `ssc-portable-capsule-v1\0`;
+      (d) `validateFrame` (E2) and the Fx-closed run guard (E3) — a second backend that omits these
+      re-opens the holes on its own lane; (e) an evaluator for the node set a resume actually uses
+      (`Lit/Local/Global/Lam/App/Prim/Let/LetRec/If/Ctor/Match/Seq`) plus the effect prims.
+      **The trap that already cost this project a revert: `Int` is 64-bit.** A JS admitter must use
+      `BigInt`, not `number`, or `2^31`/`max64`/`2^53+1` diverge — exactly the int64 class that
+      reverted the bytecode-default switch once (`specs/v2-f5c-typed-bytecode.md` §8).
+      **Settle `BACKLOG.md portable-capsule-integrity` FIRST** — the N→M matrix freezes goldens on
+      whatever a capsule is promised to guarantee, and the two lanes currently disagree.
+      Original scope: A non-JVM runtime that admits and runs
       the Portable capsule, giving §14.4 its N→M cross product. **Only after this does vector 15
       flip** — and only if the realization matches the pending's stated mechanism. ⚠️ Do NOT flip by
       bending the realization to the pending text; that is the BENDING failure mode the durable arc
