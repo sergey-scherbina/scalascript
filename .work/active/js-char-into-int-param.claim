@@ -2,13 +2,15 @@ slug: js-char-into-int-param
 branch: feature/js-char-into-int-param
 agent: codex
 started: 2026-07-27T16:08:54Z
-heartbeat: 2026-07-27T19:01:48Z
-status: in-progress
+heartbeat: 2026-07-27T19:20:18Z
+status: landed-awaiting-evidence
 items: js-char-into-int-param js-int-boundary-const-lambda
 paths: v1/runtime/backend/js/ tests/conformance/js-int-boundary-const-lambda.ssc tests/conformance/expected/js-int-boundary-const-lambda.txt
 scope: |
   The Char-to-Int boundary fix landed in b672b0d41 and passed focused local gates, but exact-SHA
   conformance run 30286311782 exposed a JS regression in multi-parameter typed lambdas:
   entry normalization assigns to immutable `const [a, b]` bindings, causing three standard-library
-  conformance cases to exit with `TypeError: Assignment to constant variable`.
-next: Rebase the worktree, record the CI regression in SPRINT.md and BUGS.md, then fix immutable lambda parameter normalization and add/run a minimal conformance regression plus the three failing standard-library cases.
+  conformance cases to exit with `TypeError: Assignment to constant variable`. Fix 57d107739 uses
+  mutable destructuring only when normalization is present; the minimal fail-first regression and
+  all three exact CI witnesses are green, and CrossBackendPropertyTest is 17/17.
+next: Land BUGS/SPRINT/CHANGELOG bookkeeping, inspect CI evidence for 57d107739, then release under AGENTS.md rule 4c and remove the worktree.
