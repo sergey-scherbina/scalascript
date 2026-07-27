@@ -45,7 +45,32 @@ win is recursion/loop **specialization** (SelfRecLL arity-1 Long→Long tight lo
 Batch B closed 1b-2b and 1b-3 and left **no B3**. Per the design's staged plan, Stages 2-5 remain;
 Stage 2 is partly subsumed by 1b-3.
 
-- [ ] **V-1a — Stage 2 remainder: String/Char methods beyond `.length`.** `str.*` family →
+- [x] **V-1a — MEASURED, and it REFRAMES the slice. No code landed, deliberately.** The census
+      (`specs/v2-f5b-method-census.sh`, landed) says F's own source still has **44 untyped
+      `__method__` sites = 30 named + 14 dynamic**, and `.length` is **20 of the 30** — two thirds —
+      *after* slice 1b-3 supposedly typed it.
+      **Then the receiver bucketing killed the obvious hypothesis.** I guessed the 20 were
+      `sconcat`/`str.trim`/`utf8->str`-shaped receivers that `emitLen` did not classify (it only asks
+      `isStrLitish`/`isStrLocal`, while a stronger `isStrCode` already exists), implemented exactly
+      that, and the count did **not move: still 20**. The receivers are all **bare locals** —
+      `(local 0)` ×11, `(local 1)` ×5, `(local 2)` ×4 — i.e. `isBareLocal` holds but `localTyOf`
+      returns `?`, because F's own source is written in the subset's untyped style.
+      **⇒ The lever for `.length` is local type INFERENCE (design approach B), not more receiver
+      classification.** That is a bigger slice than this item assumed, and it is what V-1a should
+      become. The speculative `isStrPrimCode` change was **reverted** — zero measured benefit is not
+      worth a new def in a self-compiling compiler.
+      One trap recorded while there: `isStrCode` admits `isConcatCode`, i.e. an UNRESOLVED
+      `__arith__ "++"` whose receiver may be a **List**. Fine for arith routing, wrong for a receiver
+      decision — lowering `.length` to `slen` on a list is a silent wrong answer. Anyone wiring
+      `isStrCode` into a receiver path must exclude that arm first.
+      Baseline re-measured on this tree: X1 FIXPOINT byte-identical **409,629 B** (SPRINT elsewhere
+      still says 406,964 — that number is stale, other commits moved it).
+- [ ] **V-1a′ — local type inference for bare locals (approach B), the actual next slice.** Infer a
+      local's type from its binding site where the subset allows it (RHS tag, call return type via the
+      existing `callRet` registry, pattern-bound positions), so `localTyOf` stops returning `?` for the
+      20 measured sites. Gate exactly as below, and **re-run the census before and after** — it is now
+      the instrument that says whether a slice did anything.
+- [ ] **V-1a″ (superseded scope, keep for reference) — Stage 2 remainder: String/Char methods beyond `.length`.** `str.*` family →
       `slen`/`scodeAt`/`str.*` for String-typed receivers that 1b-3 did not cover (non-local receivers,
       `val`-bound results, fields). Design §4 Stage 2, **Δ ≈ −60…−120 kernel lines** once the tower
       also emits typed IR (see V-1c). Ready when: X1 `--self` ok/0 FAIL, FIXPOINT byte-identical,

@@ -67,7 +67,7 @@ census() { # census <label> <ir-file>
 import sys, collections
 ir = open(sys.argv[1], encoding="utf-8", errors="replace").read()
 LIT = '(lit (str "'
-counts, other = collections.Counter(), 0
+counts, recv, other = collections.Counter(), collections.Counter(), 0
 i = 0
 while True:
     i = ir.find("__method__", i)
@@ -97,6 +97,14 @@ while True:
         other += 1
         continue
     counts[name] += 1
+    # Also bucket the RECEIVER shape: knowing WHICH receivers still tag-dispatch is what turns the
+    # census into a work item. Without it the count says "20 .length" and a plausible-but-wrong guess
+    # about the receiver survives measurement (it did: the sconcat/str.trim hypothesis changed nothing).
+    r = k + 3
+    while r < len(ir) and ir[r].isspace():
+        r += 1
+    shape = ir[r:r+34].split(")")[0][:34]
+    recv[(name, shape.strip())] += 1
     i = k
 total = sum(counts.values()) + other
 for name, n in counts.most_common(25):
@@ -104,6 +112,11 @@ for name, n in counts.most_common(25):
 if other:
     print(f"  {other:5d} <dynamic/other — no literal name at the call site>")
 print(f"  ----- {total} total (named {sum(counts.values())} + other {other})")
+top = [x for x in recv.items() if x[0][0] == "length"]
+if top:
+    print("  receivers still tag-dispatching .length:")
+    for (nm, shape), n in sorted(top, key=lambda x: -x[1])[:12]:
+        print(f"    {n:5d}  {shape}")
 PYCENSUS
 }
 
