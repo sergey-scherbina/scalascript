@@ -144,25 +144,25 @@ upload, delete, or `--clobber`.
 - [ ] A manual dispatch builds and qualifies all three declared platform
       artifacts but cannot receive a release-writing token or execute a publish
       step.
-- [ ] A version-tag build runs the identical archive qualifier before the
+- [x] A version-tag build runs the identical archive qualifier before the
       tag-only publication job can download or publish artifacts.
-- [ ] A tag publication accepts only exact stable SemVer names such as
+- [x] A tag publication accepts only exact stable SemVer names such as
       `v2.0.0`; malformed glob matches, prerelease-looking names, leading-zero
       numeric identifiers, branches, and manual dispatches cannot publish.
-- [ ] Workflow-level concurrency serializes runs for the same full ref without
+- [x] Workflow-level concurrency serializes runs for the same full ref without
       cancelling an in-progress run. Independent tags remain parallel.
 - [ ] A read-only CI prerequisite executes the compare-first e2e archive and
       publication contracts before any native-image matrix leg. The controlled
       good objects must pass, while every one-dimension mutation must fail at
       its named expected/actual check without contacting GitHub.
-- [ ] The qualifier refuses a missing file, duplicate entry, unexpected regular
+- [x] The qualifier refuses a missing file, duplicate entry, unexpected regular
       file, unsafe path, symlink, non-executable `ssc`, direct/extracted binary
       mismatch, missing plugin host, checksum mismatch, wrong process exit,
       wrong stdout (including a `v20` runtime falsely matching `v2`), subprocess
       timeout, unexpected or missing frontend-manifest entry, frontend content
       mismatch, and unexpected ASM fallback with a named expected/actual
       diagnostic.
-- [ ] Interface and format failures are also compare-first and named: malformed
+- [x] Interface and format failures are also compare-first and named: malformed
       artifact id, wrong archive basename, missing checksum sidecar, duplicate,
       unsorted, unsafe, or malformed manifest rows, version stderr, ASM
       non-zero exit/stderr, unreadable checksum/archive/manifest/frontend bytes,
@@ -171,7 +171,7 @@ upload, delete, or `--clobber`.
       directory, with ScalaScript path overrides unset, its native executable
       discovers the bundled standard v2 frontend data without a checkout or an
       absolute build-machine path.
-- [ ] Installation-root configuration preserves
+- [x] Installation-root configuration preserves
       `ssc.lib.path > SSC_LIB_PATH > bundled-root` precedence. JVM launches and
       native launches with either explicit override do not query
       `ProcessHandle`; a missing/empty environment override falls through to
@@ -183,7 +183,7 @@ upload, delete, or `--clobber`.
       build-runner values for documented JIT/FASTTIER and v2 depth switches,
       and equivalent future eager state reached through cross-package
       initialization chains.
-- [ ] The runtime-initialization policy is embedded below
+- [x] The runtime-initialization policy is embedded below
       `META-INF/native-image/` in the CLI artifact and therefore applies to
       ordinary local `cli/graalvm-native-image:packageBin` builds as well as the
       release workflow. Runner-specific builder-memory policy is not embedded
@@ -193,7 +193,7 @@ upload, delete, or `--clobber`.
       GraalVM `Feature` implementations. The default local build and the
       release workflow use the same valid settings; CI does not hide broken
       defaults behind workflow-only replacements.
-- [ ] Packaging reads the actual sbt-native-packager output
+- [x] Packaging reads the actual sbt-native-packager output
       `target/graalvm-native-image/scalascript-cli`, verifies it is executable,
       and renames only the release-facing copy to `ssc`.
 - [ ] The workflow copies the binary, archive, checksum, and qualifier outside
@@ -224,19 +224,19 @@ upload, delete, or `--clobber`.
       qualifies the packaged path and host startup; existing protocol tests
       retain responsibility for native CLI lookup and third-party backend
       semantics.
-- [ ] Version, VM, ASM, and plugin-host subprocesses have a cross-platform
+- [x] Version, VM, ASM, and plugin-host subprocesses have a cross-platform
       bounded timeout. A hung product is a named qualification failure rather
       than a runner that waits indefinitely.
-- [ ] Every matrix artifact and checksum is uploaded only after its runner-local
+- [x] Every matrix artifact and checksum is uploaded only after its runner-local
       post-extraction qualification passes.
-- [ ] Publication refuses any pre-existing release for the tag and creates a
+- [x] Publication refuses any pre-existing release for the tag and creates a
       fresh release with all nine assets in one exact `gh release create`
       invocation. Only a confirmed release-by-tag HTTP 404 permits that call;
       malformed tags, wrong/missing/linked assets, checksum drift, ambiguous
       lookup failures, argument drift, and create failure are compare-first e2e
       refusals. It never uses `gh release upload --clobber`; an asset upload
       failure cannot delete or mix files from a previously published release.
-- [ ] The workflow removes the repository-wide `-J-Xmx8g` native-image option
+- [x] The workflow removes the repository-wide `-J-Xmx8g` native-image option
       and uses a single `-J-Xmx5g` builder limit. This stays below the 7 GB
       standard arm64 macOS runner while reserving memory for native/off-heap
       work; duplicate `-Xmx` options are refused by source inspection/lint.
@@ -529,5 +529,33 @@ Pre-change baseline on 2026-07-27:
   `gh release upload --clobber`. A rerun could therefore mix or delete
   non-reproducible platform assets.
 
-Implementation measurements and the exact manual run are recorded here during
-the verify phase.
+Implementation measurements through `origin/main@5ee331fc2`:
+
+- `8077605b9` landed the archive qualifier, relocatable native bootstrap, and
+  embedded run-time initialization policy; `3ade9b1a3` made the successful
+  qualifier summary compare the exact archive digest.
+- `aecb881ef` added the fail-closed publication helper and its fake-`gh`
+  contract; `a3863235e` bounded sidecar size before reading or rendering bytes.
+  The publication suite passes 41/41 compare-first cases on macOS system Bash
+  3.2, including exact NUL-delimited lookup/create argv, existing release,
+  401/403/429/500, network, malformed response, anomalous exit-zero 404, and
+  create failure without retry.
+- `5ee331fc2` wired manual dispatch, the read-only prerequisite, the
+  three-platform matrix, runner-local qualification, per-ref serialization,
+  and the separate tag-only write job. Official `actionlint` 1.7.12, YAML
+  parsing, all seven `run:` blocks, the exact matrix/permission/action-pin
+  assertions, and the 61-case archive qualifier are green locally.
+- `NativeImageInstallRootTest` passes 7/7. `cli/packageBin` produces
+  `scalascript-cli_3-0.1.0-SNAPSHOT.jar`, whose embedded policy is exactly
+  `Args = --initialize-at-run-time=os.package$,scalascript,ssc`.
+- Independent publisher/workflow and Graal class-initialization reviews found
+  no blocker, high, or medium issue in the landed implementation. The
+  publication review's only bounded-output hardening note was closed by
+  `a3863235e`.
+
+Still open before dispatch: the shared `build.sbt` defaults point two config
+options at non-existent `v1/native-image-configs`, pass the non-`Feature`
+`org.graalvm.home.HomeFinder`, and are temporarily owned by the active
+`uniml-production-completion` claim. Once that path is released, repair the
+shared defaults, rerun the effective-setting gates, dispatch the manual
+workflow, and record its exact run id, SHA, and job conclusions here.
