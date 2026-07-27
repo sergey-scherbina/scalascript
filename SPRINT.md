@@ -16,9 +16,13 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       `isSpace(s.charAt(1))` silently returns `false` while the interpreter returns `true`. This also
       degrades headings/lists/tables in `runtime/std/markdown-core.ssc` on JS. BUGS entry:
       `js-char-into-int-param`; claim: `.work/active/js-char-into-int-param.claim`.
-  - [ ] Reproduce first in the real assembled harness: the six-line BUGS fixture must print
-        `true/true/true` under `ssc-tools run --v1` but currently `true/false/true` under
-        `ssc-tools emit-js | node`. Record the exact commands and generated-call shape before editing.
+  - [x] Reproduced first in the worktree-local assembled harness (`./install.sh --dev`):
+        `bin/ssc-tools run --v1 scratch/js-char-into-int-param-repro.ssc` prints
+        `true/true/true`, while `bin/ssc-tools emit-js … | node` prints `true/false/true`.
+        Generated JS is `function isSpace(c) { return (c === 32); }` called as
+        `isSpace(_dispatch(s, 'charAt', [1]))`; `_dispatch` returns boxed `_Char`, and strict
+        equality does not invoke its `valueOf`. Inline comparison stays green because `_arith`
+        routes through the existing `_charCodeOrNull` normalization.
   - [ ] Locate the v1 JS call-emission/type-coercion path and normalize a Char-valued argument only
         when its resolved parameter type is `Int`; preserve existing inline comparisons and ordinary
         String arguments. Prefer the existing Char unboxing primitive used by inline `==` over a new
