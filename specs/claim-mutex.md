@@ -42,9 +42,11 @@ One line per **active** claim (added on claim, removed on release), plus a heade
 
 ```
 # generation: 7
-#slug	agent	started	items	paths
-claim-mutex	opus	2026-07-27T17:41:02Z	claim-mutex	specs/claim-mutex.md .githooks/ scripts/
+#slug<TAB>agent<TAB>started<TAB>items<TAB>paths
+claim-mutex<TAB>opus<TAB>2026-07-27T17:41:02Z<TAB>claim-mutex<TAB>specs/claim-mutex.md .githooks/ scripts/
 ```
+
+Each `<TAB>` above denotes one literal tab byte in `LEDGER.tsv`.
 
 The **generation counter is the mechanism**, not decoration. Every claim and release must increment
 it, so two concurrent claims both rewrite line 1 from the same base. The loser's rebase then hits a

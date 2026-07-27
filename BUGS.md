@@ -790,7 +790,7 @@ legitimately `Infinity` in Scala too and a runtime `Number.isInteger` guess woul
 BigInt path already threw natively. The conformance case pins that boundary with an explicit Double
 line, so a later "improvement" cannot quietly extend this into floating point.
 
-**Verified:** new case `tests/conformance/js-int-division-by-zero.ssc` PASS [INT][JS][JVM] — JS now
+**Verified:** new case `tests/conformance/js-int-division-by-zero.ssc` `PASS [INT][JS][JVM]` — JS now
 matches INT line for line (`div-failed` / `mod-failed` / `3` / `1` / `Infinity`);
 `try-catch-exception-delivery`, which had been restricted to `[int, jvm]` *because of this bug*, is
 back on `js` and green on all three; arithmetic/numeric sweep 14/14 with 0 failures (the two
@@ -2797,7 +2797,7 @@ rewritten the wrong function and seen no improvement; the correction is also wri
 **Verified** by rebuilding both ways: with the recursive `copyLoop` the JS lane crashes outright,
 with the fix it prints the correct rows. New case `tests/conformance/scljet-large-page.ssc` uses
 4096 ON PURPOSE — every other scljet case uses 512 precisely because 4096 crashed, so the page size
-is the assertion. PASS [INT][JS]; full scljet sweep 106/106.
+is the assertion. `PASS [INT][JS]`; full scljet sweep 106/106.
 
 **Historical report:** OPEN (found 2026-07-19 by `scljet-hello-example` while writing `examples/scljet-hello.ssc`).
 **JS backend / non-tail recursion**, not the engine's logic. Low severity — clear workaround.
