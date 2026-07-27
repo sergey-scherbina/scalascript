@@ -2,12 +2,12 @@ slug: scljet-production-completion
 branch: feature/scljet-production-completion
 agent: claude-code
 started: 2026-07-27T21:34:57Z
-heartbeat: 2026-07-27T21:57:30Z
+heartbeat: 2026-07-27T22:24:38Z
 status: in-progress
 items: scljet-production-completion scljet-ipk-update-numeric-affinity scljet-standalone-library scljet-reclaiming-dml scljet-portable-text-projection scljet-same-jvm-reference-lock-bridge scljet-m3-write-followups scljet-m4-sql-core scljet-m5-wal scljet-m6-sql-compat scljet-m7-extensibility scljet-m8-production-readiness
 paths: scljet/ specs/scljet.md specs/scljet- tests/conformance/scljet- tests/conformance/expected/scljet- tests/tools/scljet- tests/fixtures/scljet/ tests/e2e/scljet- v2/runtime/std/scljet- examples/scljet- scripts/scljet- site/scljet.html docs/scljet.md
 scope: |
   Production-completion plan, feature spec, and fail-loud 48-capability inventory are landed.
   Execute the falsifiable SC-1..SC-11 slices in order, shipping each independently green slice.
-done-so-far: plan/spec/capability gate landed through 9d96146b3; SC-1a SQLite rowid affinity audited
-next: add fail-first INT+JS IPK numeric-affinity conformance, implement shared INSERT/UPDATE coercion, then add live sqlite-jdbc differential when the v1 runtime claim releases
+done-so-far: plan/spec/capability gate landed; SC-1a fail-first INT+JS regression, shared coercion, and full 54/54 SQL suite are green locally
+next: finish independent review and full scljet corpus; land portable SC-1a, then add live sqlite-jdbc differential when the v1 runtime claim releases
