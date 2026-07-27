@@ -11,10 +11,11 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ## 2026-07-27 — `js-char-into-int-param`
 
-- [ ] **Fix `Char` → `Int` coercion at v1 JavaScript call boundaries.** The JS backend currently
-      passes `String.charAt` as a one-character JS string into a declared `Int` parameter, so
-      `isSpace(s.charAt(1))` silently returns `false` while the interpreter returns `true`. This also
-      degrades headings/lists/tables in `runtime/std/markdown-core.ssc` on JS. BUGS entry:
+- [ ] **Fix `Char` → `Int` coercion at v1 JavaScript call boundaries.** Implementation + regressions
+      LANDED in `b672b0d41`; the claim remains open only for exact-SHA CI. The JS backend passed
+      `String.charAt` as boxed `_Char` into a declared `Int` parameter, so
+      `isSpace(s.charAt(1))` silently returned `false` while the interpreter returned `true`. This
+      also degraded headings/lists/tables in `runtime/std/markdown-core.ssc` on JS. BUGS entry:
       `js-char-into-int-param`; claim: `.work/active/js-char-into-int-param.claim`.
   - [x] Reproduced first in the worktree-local assembled harness (`./install.sh --dev`):
         `bin/ssc-tools run --v1 scratch/js-char-into-int-param-repro.ssc` prints
@@ -23,16 +24,17 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
         `isSpace(_dispatch(s, 'charAt', [1]))`; `_dispatch` returns boxed `_Char`, and strict
         equality does not invoke its `valueOf`. Inline comparison stays green because `_arith`
         routes through the existing `_charCodeOrNull` normalization.
-  - [ ] Locate the v1 JS call-emission/type-coercion path and normalize a Char-valued argument only
-        when its resolved parameter type is `Int`; preserve existing inline comparisons and ordinary
-        String arguments. Prefer the existing Char unboxing primitive used by inline `==` over a new
-        runtime convention.
-  - [ ] Add a focused call-boundary regression plus Markdown coverage: the minimal fixture must agree
-        on INT/JS, `markdownParse("# Title")` must produce `H1@1(Title|)` on JS, and the relevant
-        conformance case must include `js` instead of remaining interpreter-only.
-  - [ ] Run the affected conformance slice and focused backend tests, update BUGS to FIXED and
-        CHANGELOG with the landed SHA/evidence, push each verified slice, require exact-SHA CI green,
-        then release the claim and remove the worktree with `scripts/rm-worktree`.
+  - [x] Normalized only declared `Int` parameters once at emitted function entry via the existing
+        `_charCodeOrNull(p) ?? p`. Applied consistently to defs/methods/lambdas/TCO/extensions and
+        product constructors; ordinary Int and String parameters are negative controls.
+  - [x] Added `CrossBackendPropertyTest` coverage (top-level def, object method, typed lambda,
+        char literal, ordinary Int, String negative) and widened `markdown-html` to `[int, js]`.
+  - [x] Local gates: focused differential green; full `CrossBackendPropertyTest` 17/17
+        (74 generated INT↔JS + 19 INT↔JVM, zero skips); assembled repro green on both lanes;
+        `tests/conformance/run.sh --only 'markdown-html' --no-memo` PASS INT + PASS JS.
+        BUGS is FIXED and CHANGELOG records the result.
+  - [ ] Require exact-SHA CI green for the final bookkeeping SHA, then mark this parent done,
+        release the claim, and remove the worktree with `scripts/rm-worktree`.
 
 ## 2026-07-27 — Sergiy "берись за все" batch (F4 arc closure → F5b lever → scljet → stream-3 decision)
 

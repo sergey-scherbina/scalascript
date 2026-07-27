@@ -1532,7 +1532,8 @@ tests to the status-polling pattern of `ClusterBullyStatusConvergenceTest`.
 
 ## js-char-into-int-param — a `Char` passed into an `Int` parameter stays boxed on the v1 JS backend
 
-**Status:** OPEN (found 2026-07-20 while building `std/markdown-html.ssc` for the docs site).
+**Status:** FIXED 2026-07-27 in `b672b0d41` (found 2026-07-20 while building
+`std/markdown-html.ssc` for the docs site; exact-SHA CI pending before claim release).
 
 **Symptom/reproduce:** six lines, no imports. `ssc-tools run --v1` vs `ssc-tools emit-js | node`:
 
@@ -1546,8 +1547,9 @@ println(isSpace(32))            // INT true  | JS true
 
 An **inline** comparison against a `charAt` result unboxes correctly on both lanes. Passing the
 same value **through a call boundary** into an `Int` parameter does not: on JS the argument
-arrives as a one-character string, so `c == 32` evaluates `" " == 32` → false. Note the failure
-is silent — no error, just a wrong boolean.
+arrives as a boxed `_Char` (`charAt`) or a one-character string (char literal), so the generated
+strict `c === 32` does not apply Scala's widening. Note the failure is silent — no error, just a
+wrong boolean.
 
 **Blast radius — this breaks the language's own Markdown scanner on that lane.**
 `runtime/std/markdown-core.ssc` routes every whitespace test through
@@ -1570,8 +1572,22 @@ The gate is green because it never compared on that lane — the failure mode AG
 **Fix / done-when:** the JS backend must unbox a `Char` at a call boundary when the parameter is
 declared `Int`, exactly as it already does for an inline `==`. Done when the repro above prints
 `true` three times on both lanes, `markdownParse("# Title")` yields `H1@1(Title|)` on the JS lane,
-and the markdown-core conformance case can be widened from `backends: [v2]` to include `js`
-without diffs. Until then `tests/conformance/markdown-html.ssc` is pinned to `backends: [int]`.
+and the real Markdown renderer conformance can include `js` without diffs.
+`tests/conformance/markdown-html.ssc` was pinned to `backends: [int]` until this fix.
+
+**Resolution / verification (`b672b0d41`).** The code generator now normalizes only parameters
+declared `Int`, once at each emitted function boundary, through the existing
+`_charCodeOrNull(p) ?? p`; ordinary numbers are unchanged, `_Char` and char literals become their
+code point, and String parameters remain untouched. The same helper is used by regular/effectful
+defs, object/given/class methods, typed lambdas, TCO wrappers, extensions, and product/enum
+constructors, so indirect calls do not depend on call-site name recovery.
+
+The assembled repro is `true/true/true` on both interpreter and `emit-js | node`. A focused
+differential covers top-level def, object method, typed lambda, char literal, ordinary Int, and a
+negative String parameter (7/7 true on INT/JS/JVM). Full `CrossBackendPropertyTest` is 17/17,
+including 74 generated INT↔JS and 19 generated INT↔JVM programs. The previously pinned real
+consumer is widened and green:
+`tests/conformance/run.sh --only 'markdown-html' --no-memo` → PASS INT + PASS JS.
 
 ## frontend-tui-fetch-refresh-static-after-bootstrap — refresh ticks redraw stale fetched content
 

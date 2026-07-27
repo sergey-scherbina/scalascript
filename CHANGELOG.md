@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-07-27 — v1 JS widens `Char` at declared `Int` function boundaries
+
+Fixed `js-char-into-int-param` in `b672b0d41`. The JS runtime represents `charAt` values as boxed
+`_Char`, but generated `Int`-parameter bodies trusted their declaration and used strict numeric
+operations directly; `isSpace(s.charAt(1))` therefore returned `false` while the interpreter
+returned `true`. Generated functions now normalize only declared `Int` parameters once on entry
+through the existing char-code helper, consistently across defs, methods, typed lambdas, TCO,
+extensions, effects, and product constructors. String parameters and ordinary Int arguments remain
+unchanged.
+
+The cross-backend regression covers seven positive/negative boundary shapes on INT/JS/JVM. Full
+`CrossBackendPropertyTest` is 17/17 (74 generated INT↔JS + 19 generated INT↔JVM), and the real
+consumer `markdown-html` is no longer interpreter-pinned: its conformance case passes on both INT
+and JS, restoring headings, lists, tables, escaping, and trimming on the v1 JS lane.
+
 ## 2026-07-27 — scljet: an IPK move on an INDEXED table wrote a corrupt b-tree
 
 Follow-up to the same day's IPK-move fix, which landed the semantics but only on the unindexed
