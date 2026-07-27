@@ -742,6 +742,26 @@ Stage 2 is partly subsumed by 1b-3.
 - Not queued deliberately: FastCode/SelfRec deletion (V-0), and the numeric-recursion bytecode lever
   that would unblock it — that is a separate backend project, not a shrink task.
 
+### V-3a — the REAL delegation blockers, measured 2026-07-28 (supersedes the block-comment theory)
+
+The block-comment fix (`bc2c6f7c7`) was predicted to dominate the DIFF count. **It did not** — 7 of 7
+doc-comment-heavy programs still delegate, and the corpus gate did not move. What it removed was
+NOISE: `scljet-mutate-update`'s unbound-global set dropped from 304 prose words to **53 real
+identifiers**, which is the first time the actual blockers have been legible.
+
+- [ ] **V-3a — close the measured unbound-global clusters.** For `scljet-mutate-update`:
+      `error ×6`, `leftChild ×4`, `seen ×2`, `cellPtr ×2`, `refTrunk ×2`, plus the `jvmVfs*` host-VFS
+      intrinsics (`jvmVfsOpen/Delete/Exists/FullPath/ReadAt/WriteAt/Truncate`). The `jvmVfs*` group
+      looks like plugin/`extern def` binding that F does not implement; the bare names look like a
+      scoping gap (nested defs / pattern binders). **Census the same way across more programs first**
+      — the clusters, not one program's list, are the work item.
+- [ ] **V-3b — fix the metric before trusting any breadth number.** `specs/v2.2-p6.5-corpus.sh`
+      compares byte-for-byte against the UNTYPED oracle while F emits typed IR by design, so its DIFF
+      mixes real gaps with intended divergence and cannot answer "does F still delegate". The
+      delegation question has a direct instrument: `SSC_FRONT=F SSC_FRONT_TRACE=1` prints
+      `delegating to the default front`. Build the corpus-wide delegation count on THAT, and re-state
+      V-3's headline number in those terms.
+
 ### V-3 — P6.5 breadth (the only v2 item that was genuinely pickable before this section)
 
 - [ ] **V-3 — close the corpus DIFFs so the F4a fallback can retire.** Corpus MATCH **205**, DIFF

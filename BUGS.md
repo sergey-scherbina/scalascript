@@ -470,7 +470,22 @@ unbound global, and the closing marker yields a nonsense `__method__ "25"`. The 
 (`ssc1-run.ssc0`) handles the same input correctly. Reproduces BOTH in a bare `.ssc` and inside a
 fenced code block, so it is the LEXER — not the literate projection, and not the import path.
 
-**Impact — very likely the dominant P6.5 breadth blocker, rather than 300 separate gaps.**
+**Impact — MEASURED 2026-07-28 after the fix landed: NOT the dominant breadth blocker. My prediction
+was wrong, and the correction matters more than the original claim.** Delegation was re-measured with
+`SSC_FRONT_TRACE=1` over 7 doc-comment-heavy conformance programs: **7 of 7 still delegate**, this one
+included. The real-corpus gate likewise did not move (MATCH 202 / DIFF 327 over 529 programs, versus a
+205/315 baseline taken on a smaller corpus — so no improvement, and the two numbers are not directly
+comparable anyway).
+
+What the fix actually bought is **diagnosis, not coverage**: for `scljet-mutate-update` the unbound-
+global set went from 304 prose words plus the real ones, down to **53 real identifiers** —
+`error ×6`, `leftChild ×4`, `seen ×2`, `cellPtr ×2`, `refTrunk ×2`, and the `jvmVfs*` host-VFS
+intrinsics. Those are the genuine blockers, and they were invisible under the prose. The corpus gate
+also cannot answer the delegation question at all: it compares IR byte-for-byte against the UNTYPED
+oracle, while F now emits typed IR by design, so its DIFF count mixes coverage gaps with
+typed-by-design divergence. **Use `SSC_FRONT_TRACE` for the delegation question, not the corpus gate.**
+
+Original claim, kept because it was wrong in an instructive way:
 Block doc comments are idiomatic in this codebase (the whole `scljet/` engine uses them), so every
 such module poisons F's lowering. Measured on `tests/conformance/scljet-mutate-update.ssc`, same
 staged tower, only the runner differing:
