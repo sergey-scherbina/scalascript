@@ -1,6 +1,14 @@
-feature/js-char-into-int-param 2026-07-27T16:08:54Z
+slug: js-char-into-int-param
+branch: feature/js-char-into-int-param
 agent: codex
-heartbeat: 2026-07-27T17:18:16Z
-status: landed-awaiting-exact-sha-ci
-done-so-far: fix b672b0d41 + BUGS/SPRINT/CHANGELOG 35a70f095 landed; focused, full differential 17/17, and markdown-html INT/JS gates green
-next: exact-SHA run 30286311782 is queued; require green for 35a70f095ba344c63f080b57807d1b9599211e67, then mark sprint done and release
+started: 2026-07-27T16:08:54Z
+heartbeat: 2026-07-27T19:01:16Z
+status: in-progress
+items: js-char-into-int-param js-int-boundary-const-lambda
+paths: v1/runtime/backend/js/
+scope: |
+  The Char-to-Int boundary fix landed in b672b0d41 and passed focused local gates, but exact-SHA
+  conformance run 30286311782 exposed a JS regression in multi-parameter typed lambdas:
+  entry normalization assigns to immutable `const [a, b]` bindings, causing three standard-library
+  conformance cases to exit with `TypeError: Assignment to constant variable`.
+next: Rebase the worktree, record the CI regression in SPRINT.md and BUGS.md, then fix immutable lambda parameter normalization and run the three failing conformance cases plus JS backend tests.
