@@ -47,6 +47,10 @@ to a passing VM run.
 - [ ] The direct-ASM candidate performs
       `OpAnfNative.lift -> JvmByteGen.emitProgram -> JvmByteGen.runProgram`
       directly, with no catch-and-run-VM path.
+- [ ] `JvmByteGen` accepts a product-shaped F0 whose embedded user-source
+      `CStr` exceeds the classfile modified-UTF8 limit. It reconstructs the
+      exact string from bounded constants, including NUL, BMP, and surrogate
+      code units, without changing CoreIR or filesystem semantics.
 - [ ] Output bytes are compared before acceptance or performance
       classification; a mismatch prints both digests and fails.
 - [ ] Raw fresh-process samples, medians, and the bytecode/VM speedup are
@@ -85,6 +89,16 @@ separate files. The shell layer hashes and compares those files before
 calculating timing statistics. The bytecode process reports emitter and JVM
 exceptions verbatim and terminates; it contains no fallback branch.
 
+JVM constant-pool UTF8 entries are limited to 65,535 modified-UTF8 bytes. A
+product F0 embeds the resolved user source as a `CStr`, so realistic source
+closures can exceed that limit even though F's file-backed bootstrap F0 does
+not. `JvmByteGen` therefore emits a direct `ldc` only when the literal fits.
+Otherwise it partitions UTF-16 code units into chunks bounded by their
+modified-UTF8 encoded length and constructs one `String` with
+`StringBuilder.append`. Chunking by the classfile encoding, rather than source
+character count or ordinary UTF-8, preserves NUL and surrogate behavior and
+keeps every constant independently valid.
+
 The probe intentionally uses fresh JVM processes. This answers the product
 compile-time question and avoids making a warmed in-process loop look like a
 cold frontend improvement.
@@ -99,11 +113,23 @@ cold frontend improvement.
 - **Keep fallback out of the candidate driver** — `RunNativeV2` currently
   falls back at link time, which can hide rejection and pre-judge the
   experiment as green.
+- **Chunk oversized `CStr` values in the emitter** — the classfile limit is a
+  JVM representation constraint, not a language or CoreIR limit. Rejected:
+  truncating source (incorrect), writing literals to temporary files (changes
+  artifact/runtime semantics), and a character-count-only threshold (does not
+  model modified UTF8).
 - **Use an external developer script before product wiring** — this keeps a
   rejected hypothesis out of the CLI and provides a reusable regression gate
   if the lane is admitted.
 
 ## Results
 
-Pending implementation and verification.
+The initial file-backed F0 control is admitted: five fresh VM runs had a
+4.93-second median and five direct-ASM runs had a 2.27-second median (2.17x),
+with identical 409,629-byte output.
 
+The first exact product-shape control is intentionally red. SClJet resolves to
+593,193 source bytes, which the current runner embeds in a 1,040,325-byte F0.
+`JvmByteGen.emitProgram` rejects it in 0.26 seconds with
+`java.lang.IllegalArgumentException: UTF8 string too large`. This is the
+concrete blocker the large-string behavior item must turn green.
