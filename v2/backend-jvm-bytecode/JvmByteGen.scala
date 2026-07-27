@@ -29,6 +29,8 @@ object JvmByteGen:
   private val OBJ   = "java/lang/Object"
   private val GEN   = "ssc/gen/Entry"
   private val ARTIFACT = "ssc/plugin/NativeArtifactRuntime"
+  private val STRING_BUILDER = "java/lang/StringBuilder"
+  private val MaxModifiedUtf8Bytes = 65535
 
   private def isHandlerDispatchRoot(arity: Int, body: Term): Boolean =
     HandlerDispatchShape.isRoot(arity, body)
@@ -835,12 +837,12 @@ object JvmByteGen:
         case Const.CBool(b)  => mv.visitInsn(if b then Opcodes.ICONST_1 else Opcodes.ICONST_0); callZ(mv, "boolV")
         case Const.CInt(n)   => mv.visitLdcInsn(n); callJ(mv, "intV")
         case Const.CFloat(d) => mv.visitLdcInsn(d); callD(mv, "floatV")
-        case Const.CStr(s)   => mv.visitLdcInsn(s); callStr(mv, "strV")
+        case Const.CStr(s)   => loadString(mv, s); callStr(mv, "strV")
         // BigInt / byte-vector literals: cannot `ldc` the object, so emit a
         // decimal / base64 String and reconstruct via Emit (was a hard Unsupported).
-        case Const.CBig(n)   => mv.visitLdcInsn(n.toString); callStr(mv, "bigVStr")
+        case Const.CBig(n)   => loadString(mv, n.toString); callStr(mv, "bigVStr")
         case Const.CBytes(b) =>
-          mv.visitLdcInsn(java.util.Base64.getEncoder.encodeToString(b.toArray))
+          loadString(mv, java.util.Base64.getEncoder.encodeToString(b.toArray))
           callStr(mv, "bytesVB64")
       case Term.Global(gname) =>
         mv.visitLdcInsn(gname); callStr(mv, "global")
@@ -1315,6 +1317,57 @@ object JvmByteGen:
     mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, m, s"(Z)L$VAL;", false)
   private def callStr(mv: MethodVisitor, m: String) =
     mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, m, s"(Ljava/lang/String;)L$VAL;", false)
+
+  /** Load one source string without exceeding the classfile CONSTANT_Utf8
+    * limit. The limit is measured in modified UTF-8 bytes, not chars or
+    * ordinary UTF-8: NUL takes two bytes and each surrogate code unit takes
+    * three. Product-shaped F0 embeds the resolved user source in one CStr, so
+    * realistic module closures cross 64 KiB here. */
+  private def loadString(mv: MethodVisitor, value: String): Unit =
+    val chunks = modifiedUtf8Chunks(value)
+    chunks match
+      case chunk :: Nil => mv.visitLdcInsn(chunk)
+      case _ =>
+        mv.visitTypeInsn(Opcodes.NEW, STRING_BUILDER)
+        mv.visitInsn(Opcodes.DUP)
+        mv.visitLdcInsn(value.length)
+        mv.visitMethodInsn(Opcodes.INVOKESPECIAL, STRING_BUILDER, "<init>", "(I)V", false)
+        chunks.foreach { chunk =>
+          mv.visitLdcInsn(chunk)
+          mv.visitMethodInsn(
+            Opcodes.INVOKEVIRTUAL,
+            STRING_BUILDER,
+            "append",
+            "(Ljava/lang/String;)Ljava/lang/StringBuilder;",
+            false)
+        }
+        mv.visitMethodInsn(
+          Opcodes.INVOKEVIRTUAL,
+          STRING_BUILDER,
+          "toString",
+          "()Ljava/lang/String;",
+          false)
+
+  private def modifiedUtf8Chunks(value: String): List[String] =
+    val chunks = collection.mutable.ListBuffer.empty[String]
+    var start = 0
+    var index = 0
+    var bytes = 0
+    while index < value.length do
+      val ch = value.charAt(index)
+      val width =
+        if ch >= 1 && ch <= 0x7f then 1
+        else if ch <= 0x7ff then 2
+        else 3
+      if bytes + width > MaxModifiedUtf8Bytes then
+        chunks += value.substring(start, index)
+        start = index
+        bytes = 0
+      bytes += width
+      index += 1
+    chunks += value.substring(start)
+    chunks.toList
+
   private def callVB(mv: MethodVisitor, m: String) =
     mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, m, s"(L$VAL;)Z", false)
   private def callP(mv: MethodVisitor, m: String, arity: Int) =
