@@ -1,0 +1,12 @@
+---
+name: std-ui-native-pair-minimal
+---
+
+# Imported raw triple-quoted string ending in a literal quote
+
+[ProgressBar](./std-ui-native-pair-lib.ssc)
+
+```scalascript
+println(ProgressBar.render(-1))
+println(ProgressBar.render(7))
+```

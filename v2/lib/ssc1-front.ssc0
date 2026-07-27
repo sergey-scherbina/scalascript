@@ -164,15 +164,19 @@ def scanStr = (s, i) =>
       else scanStr(s, #i.add(i, 1))
     else scanStr(s, #i.add(i, 1))
 
--- Triple-quoted strings are raw: find the first closing `"""` and preserve
--- every byte in between (including newlines, quotes, and backslashes).
+-- Triple-quoted strings are raw. A run of N >= 3 quotes closes with its LAST
+-- three quotes; the preceding N - 3 quotes are string content. This is what
+-- makes `"""quoted""""` preserve the quote before the delimiter.
+def scanQuoteRunEnd = (s, i) =>
+  if #i.ge(i, slen(s)) then i
+  else if #i.eq(sget(s, i), 34) then scanQuoteRunEnd(s, #i.add(i, 1))
+  else i
 def scanTripleEnd = (s, i) =>
   if #i.ge(i, slen(s)) then i
   else if #i.eq(sget(s, i), 34) then
-    if #i.eq(nget(s, #i.add(i, 1)), 34) then
-      if #i.eq(nget(s, #i.add(i, 2)), 34) then i
-      else scanTripleEnd(s, #i.add(i, 1))
-    else scanTripleEnd(s, #i.add(i, 1))
+    let runEnd = scanQuoteRunEnd(s, i) in
+    if #i.ge(#i.sub(runEnd, i), 3) then #i.sub(runEnd, 3)
+    else scanTripleEnd(s, runEnd)
   else scanTripleEnd(s, #i.add(i, 1))
 
 -- Hex-digit value (0-9 A-F a-f); non-hex → 0. Used to decode `\uXXXX` escapes.

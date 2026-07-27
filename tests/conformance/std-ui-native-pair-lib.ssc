@@ -1,0 +1,14 @@
+---
+name: std-ui-native-pair-lib
+---
+
+```scalascript
+object ProgressBar:
+  def render(value: Int = -1): String =
+    val (cls, style, aria) =
+      if value < 0 then ("a", "b", """aria-busy="true"""")
+      else
+        val v = if value > 100 then 100 else if value < 0 then 0 else value
+        ("x", v.toString, "aria-valuemin=\"0\"")
+    cls + style + aria
+```
