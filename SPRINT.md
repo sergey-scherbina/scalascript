@@ -186,7 +186,28 @@ each is independently landable and each must keep `v2/conformance/portable-capsu
       fail-closed property `Reader.validate` exists to give. Verify: extend
       `v2/conformance/portable-capsule.sh` with a region calling a def that calls another def,
       frozen in one JVM and run in a second (the existing 42/45 + tamper-rejected cases stay green).
-- [ ] **E2 — slice 3, nominal/graph frame.** Non-scalar frame slots through the §9.1/§9.3 codecs;
+- [x] **E2 — DONE for the nominal half; the byte-format alignment is split out (see below).**
+      Slice 3 has to answer "what may a frame contain" before it can allow non-scalar slots — and
+      answering it uncovered a fail-open: `Capsule.decode` validated the resume program and its
+      digest but took the **frame** as an arbitrary `Term` and spliced it into the driver.
+      **Measured (BUGS `portable-capsule-frame-unvalidated`):** a frame carrying `(global dbl)` was
+      admitted and injected a real closure into the resume (E1 now carries the reached defs, so the
+      target exists); `(local 0)` reached `Compiler.compile` and died with
+      `ArrayIndexOutOfBoundsException` instead of a diagnostic. Fixed with `Capsule.validateFrame`
+      — a frame is DATA: literals and constructors recursively, everything else rejected naming the
+      node (`Lam` too: a lambda is a value at runtime but *code* in the bytes). That definition is
+      exactly what admits nominal slots, so the guard and the feature are the same change:
+      `frameOfTerms` + `ssc freeze-region-nominal` carry `Pair(3,4)` as a slot and the resume
+      destructures it with an ordinary `Match`.
+      **Gates:** `portable-capsule.sh` **21/21 PASS** — including `data-only frame edit still runs`
+      (111), which is what keeps the three rejection lines honest: without it a blanket "any frame
+      edit fails" would pass them for the wrong reason. Semantic **248/248 GREEN, MISMATCH 0**.
+      **NOT done, split out on purpose:** the §9.1/§9.3 **byte-format alignment** with the host
+      `DurableCodec` (cross-lane frame identity, not just cross-process). It ran into a
+      format-level question that is the owner's, not a slice's — the VM capsule has no integrity
+      seal over its data half while the host lane has HMAC format v3 — now queued as
+      `BACKLOG.md portable-capsule-integrity` with three options and a recommendation. **E4's N→M
+      matrix is what makes that difference observable, so decide it before E4.** Original scope: Non-scalar frame slots through the §9.1/§9.3 codecs;
       align the VM frame with the host `DurableCodec` byte format so the frame is cross-lane
       identical, not merely cross-process. This is what makes E4's N→M meaningful.
 - [ ] **E3 — slice 4, effectful region.** A region whose body performs effects handled INSIDE the

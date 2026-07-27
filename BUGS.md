@@ -67,6 +67,48 @@ remains.
 **Context.** The F4 flip was known to cost speed (the `f4-arc-closure` batch recorded "2-4× slower;
 hello 0.8→1.5 s, scljet 8→32 s"), but nothing measured it against the corpus, so nobody knew it was
 already breaching a gate budget. `v2-f5b-typed-locals` (SPRINT Batch B) is the recovery path.
+## portable-capsule-frame-unvalidated — the capsule's frame half escapes the fail-closed admission
+
+**Status:** OPEN → being fixed under `portable-nominal-frame` (found 2026-07-27 by opus while starting
+vector-15 arc slice 3, which has to define what a frame may legally contain). **VM Portable capsule**
+(`v2/src/Capsule.scala`), the `run-capsule` admission path.
+
+`Capsule.decode` re-parses the envelope, runs `Reader.validate` on the **resume program**, and re-checks
+the `resume-digest` — the fail-closed, untrusted-capsule contract. It does **none of that for the
+`frame`**: the frame is taken as an arbitrary `Term` (`Reader.toTerm`) and spliced straight into the
+driver `App(entry, [frame, input])`, which is then compiled and run. So half of the capsule's input
+bypasses admission entirely.
+
+**Measured (real harness, `java -jar ssc.jar run-capsule`, capsule from `freeze-region-global`; baseline
+`17` = `quad(3) + a` with `a = 5`):**
+
+| Probe | What the bytes say | Result | Should be |
+|---|---|---|---|
+| **A** — swap the captured value | `(frame (ctor frame (lit (int 99))` | **`111`, exit 0 — silently accepted** | detected, or documented as out of scope for a *code* digest |
+| **B** — put CODE in the frame | `(frame (ctor frame (global dbl)` | admitted; injects a **closure** into the resume (here it happened to die in `Prims.asInt`, "expected Int, got \<closure\>") | rejected at admission |
+| **C** — out-of-scope local | `(frame (ctor frame (local 0)` | admitted; `ArrayIndexOutOfBoundsException: Index -1` from `Compiler.compile` | rejected at admission with a diagnostic |
+
+**Why B is the serious one.** Portable CodeMode's whole claim is that code travels as *validated* bytes
+(§10.1) — the frame is supposed to be **data**. With E1 (`ebc576bec`) the capsule now also carries the
+defs the region reaches, so a frame slot `(global <carried-def>)` resolves to a real closure: a capsule
+author can hand the resume a *function* where it expects a value. That it crashed in this probe is an
+accident of the demo resume body (`i.add` forced the slot); a resume that **applies** its slot would call
+attacker-chosen carried code. B and C also fail with raw internal exceptions rather than the fail-closed
+diagnostic the format promises.
+
+**A is different — and is NOT fixed by validation.** The envelope's digest is deliberately a *code*
+digest (`resume-digest`, §10.1 `Portable(resumeCodeDigest, closedResumeProgram)`); the frame is data that
+legitimately differs per capsule, so "the digest didn't catch it" is by design. The real statement is
+that the **VM-side Portable capsule has no integrity/authenticity seal at all** over its data half, while
+the **host-side lane already has one** (format v3: HMAC signature + audience/tenant/quota, see
+`project_durable_continuation_save_run_0721`). Closing that is a **format decision** (v1 → v2 envelope +
+a key/authority model), not a unilateral bump, so it is recorded here and queued in `BACKLOG.md` rather
+than fixed inside this slice.
+
+**Fix in progress (B + C only):** a `validateFrame` that admits exactly the first-order VALUE terms a
+frame may contain — `Lit`, or `Ctor(tag, fields)` recursively — and rejects everything else naming the
+offending node, mirroring `Reader.validate`'s style. This is also the precondition for slice 3's nominal
+frames: "what may a frame contain" has to be answered before non-scalar slots are allowed in.
 
 ## bytecode-opanf-purity-registry-marks-every-def-pure — effect Ops leak into `if` conditions on the DEFAULT execution lane
 

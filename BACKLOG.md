@@ -59,6 +59,31 @@ to separate F-regressions from pre-existing failures — it ended at 72/72, zero
 `sbt test` suite run under F-default rather than one-failure-per-CI-run whack-a-mole. Do NOT edit
 `specs/v2.2-p6.5-fsub.ssc` outside the owning F arc.
 
+## portable-capsule-integrity — the VM capsule has no seal over its DATA half (2026-07-27)
+
+**Owner decision required — a format change, not a fix.** Found while closing
+`BUGS.md portable-capsule-frame-unvalidated` (vector-15 arc slice 3). That bug's B and C (frame
+carrying code / an out-of-scope local) are FIXED by `Capsule.validateFrame`. Its **A** is not, and
+deliberately so:
+
+Measured — editing the captured frame value in the bytes (`(lit (int 5))` → `(lit (int 99))`) is
+**silently accepted**: the run returns `111` instead of `17`, exit 0. That is not a bug in the
+digest; the envelope's digest is by design a **code** digest (`resume-digest`, §10.1
+`Portable(resumeCodeDigest, closedResumeProgram)`) and the frame is data that legitimately varies
+per capsule. The real gap is that the VM-side Portable capsule has **no integrity/authenticity seal
+at all** over its data half, while the **host lane already has one** — format v3: HMAC signature +
+audience/tenant/quota. So the two lanes disagree about what a capsule guarantees, right when the
+vector-15 arc is heading for a cross-lane N→M matrix (E4) where that difference becomes observable.
+
+Options for the owner: (a) leave as-is and DOCUMENT that a VM capsule is not tamper-evident over
+its frame — callers must obtain it over an authenticated channel; (b) bump the envelope v1 → v2 and
+extend the digest to cover `(frame …)` — cheap, gives tamper-*evidence* but not authenticity, and
+re-freezes any stored capsule; (c) adopt the host's format-v3 model (HMAC + audience/tenant/quota)
+so both lanes make the same promise — the most work, and the only one that survives an untrusted
+transport. **Recommend (c) if E4's cross-lane matrix is to mean anything, (a) only as an explicit,
+written-down limitation.** Do not pick silently: whichever is chosen becomes the contract the
+cross-lane goldens freeze.
+
 ## v2 kernel-shrink deep remainder (F5) — DEFERRED with measured findings (2026-07-21)
 
 Study: `specs/v2-f5-kernel-shrink.md` (SHA `7a31df264`). The 6,035 → ~2,800 kernel shrink is **four
