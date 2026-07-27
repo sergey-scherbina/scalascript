@@ -39,13 +39,40 @@ export const ResumeMultiplicity: Readonly<{
 }>
 
 export type ResumeRejected = Readonly<{
-  kind: "AlreadyResumed"
+  kind: "AlreadyResumed" | "Cancelled" | "TooLateToCancel"
   operation: OperationId
 }>
 
+// `Cancelled` and `TooLateToCancel` are separate kinds on purpose (owner decision D1): a lost
+// cancel must not be reported under a name that means resumption (§13 non-collapsibility).
 export const ResumeRejected: Readonly<{
   AlreadyResumed(operation: OperationId): ResumeRejected
+  Cancelled(operation: OperationId): ResumeRejected
+  TooLateToCancel(operation: OperationId): ResumeRejected
 }>
+
+/** Evidence that a cancellation took effect — distinct from the `Cancelled` rejection. */
+export type CancelAccepted = Readonly<{
+  kind: "CancelAccepted"
+  operation: OperationId
+}>
+
+export function CancelAccepted(operation: OperationId): CancelAccepted
+
+export type CancelAttempt =
+  | Readonly<{ ok: true, accepted: CancelAccepted }>
+  | Readonly<{ ok: false, rejection: ResumeRejected }>
+
+/** What a lane's `cancel` promises about work already running (owner decision D2). */
+export type CancellationScope = "BlocksNewAdmissions" | "InterruptsInFlight"
+
+export const CancellationScope: Readonly<{
+  BlocksNewAdmissions: "BlocksNewAdmissions"
+  InterruptsInFlight: "InterruptsInFlight"
+}>
+
+/** The identity a saved continuation reports in its rejections. */
+export const SavedOperation: OperationId
 
 export interface EffectKey<Fx extends Effect> {
   readonly id: EffectId
@@ -164,6 +191,9 @@ export interface OneShotContinuation<A, Fx extends Effect, R> {
     result: () => R
   }>
   tryResume(value: A): ResumeAttempt<Fx, R>
+  /** Cancel this one-shot. Competes for the SAME claim as `tryResume`, so the loser learns which
+   *  side won: a lost resume gets `Cancelled`, a lost cancel gets `TooLateToCancel` (D1). */
+  tryCancel(): CancelAttempt
 }
 
 export type ResumeAttempt<Fx extends Effect, R> =
@@ -237,6 +267,13 @@ export interface SavedContinuation<A, Fx extends Effect, R> {
     result: () => R
   }>
   run(value: A): Eff<Fx | Restore, R>
+  /** Admission-checked run: the cancellation check happens here, before any frame is
+   *  reconstructed (§11.1), and D4 puts it ahead of expiry/revocation. */
+  tryRun(value: A): ResumeAttempt<Fx, R>
+  /** Latch this saved value cancelled — monotonic, idempotent, blocks only NEW admissions (D2). */
+  cancel(): CancelAccepted
+  readonly isCancelled: boolean
+  readonly cancellationScope: CancellationScope
 }
 
 export interface DurableValue<S> {

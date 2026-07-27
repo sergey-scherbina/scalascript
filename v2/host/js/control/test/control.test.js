@@ -5,6 +5,8 @@ import test from "node:test"
 import {
   AdmissionPolicy,
   ArtifactProfile,
+  CancelAccepted,
+  CancellationScope,
   CapsuleRejected,
   CaptureFailure,
   Continuation,
@@ -18,6 +20,8 @@ import {
   MachineStep,
   ResumeMultiplicity,
   ResumePoint,
+  ResumeRejected,
+  SavedOperation,
   Restore,
   Save,
   StateMachine,
@@ -1240,4 +1244,110 @@ test("nominal schema codec golden bytes match the cross-lane format", () => {
     pointCodec("Point", 1).encode([3, 4]).toHex(),
     "00000005506f696e74000000010000000300000004"
   )
+})
+
+// ── cancellation transitions (vector 26; owner decisions D1/D2/D4) ────────────────────────────────
+// Mirrors the Scala lane exactly: same transitions, same names. `cancel` and `resume` compete for
+// the SAME claim, and the loser is told which side won — D1 refuses to report a lost cancel as
+// `AlreadyResumed`, which would name a *resume* failure for a caller who asked to *stop* the work.
+
+function withOneShotCancellation(inspect) {
+  let suffixRuns = 0
+  let observed
+  const handled = handle(
+    perform(OneOp()).map(value => {
+      suffixRuns += 1
+      return value + 1
+    }),
+    {
+      effect: One,
+      onReturn: value => Eff.pure(String(value)),
+      onOperation(operation, resumption) {
+        assert.equal(resumption.kind, "OneShot")
+        observed = inspect(resumption.continuation)
+        return Eff.pure("done")
+      }
+    }
+  )
+  Eff.runPure(handled)
+  return { observed, suffixRuns }
+}
+
+test("cancel then resume — the resume is rejected as Cancelled, and the suffix never runs", () => {
+  const { observed, suffixRuns } = withOneShotCancellation(k => {
+    const cancelled = k.tryCancel()
+    assert.equal(cancelled.ok, true)
+    assert.equal(cancelled.accepted.kind, "CancelAccepted")
+    return k.tryResume(41)
+  })
+  assert.equal(observed.ok, false)
+  assert.equal(observed.rejection.kind, "Cancelled")
+  assert.equal(suffixRuns, 0)
+})
+
+test("resume then cancel — the cancel is TooLateToCancel, NOT AlreadyResumed (D1)", () => {
+  const { observed } = withOneShotCancellation(k => {
+    assert.equal(k.tryResume(41).ok, true)
+    return k.tryCancel()
+  })
+  assert.equal(observed.ok, false)
+  assert.equal(observed.rejection.kind, "TooLateToCancel")
+  assert.notEqual(observed.rejection.kind, "AlreadyResumed")
+})
+
+test("cancelling twice is idempotent — the same evidence, never a failure", () => {
+  const { observed } = withOneShotCancellation(k => [k.tryCancel(), k.tryCancel()])
+  assert.equal(observed[0].ok, true)
+  assert.equal(observed[1].ok, true)
+  assert.deepEqual(observed[0].accepted, observed[1].accepted)
+})
+
+test("a second resume after a cancel still reports Cancelled, not AlreadyResumed", () => {
+  // A claim that flipped to "resumed" on the first REJECTED resume would report the wrong reason
+  // from then on.
+  const { observed, suffixRuns } = withOneShotCancellation(k => {
+    k.tryCancel()
+    k.tryResume(1)
+    return k.tryResume(2)
+  })
+  assert.equal(observed.rejection.kind, "Cancelled")
+  assert.equal(suffixRuns, 0)
+})
+
+test("a cancelled saved continuation rejects every NEW run at admission (D4)", () => {
+  let snapshots = 0
+  const codec = {
+    snapshot(value) {
+      snapshots += 1
+      return value
+    }
+  }
+  const machine = { resume: (state, input) => Eff.pure(state + input) }
+  const saved = Eff.runPure(
+    handle(Continuation.savable(40, machine, codec).save(), {
+      effect: Save.key,
+      onReturn: value => Eff.pure(value),
+      onOperation() {
+        assert.fail("savable save unexpectedly rejected")
+      }
+    })
+  )
+
+  assert.equal(Eff.runPure(Restore.admitLocally(saved.run(2))), 42)
+  const before = snapshots
+
+  const accepted = saved.cancel()
+  assert.deepEqual(accepted, CancelAccepted(SavedOperation))
+  assert.equal(saved.isCancelled, true)
+
+  const rejected = saved.tryRun(2)
+  assert.equal(rejected.ok, false)
+  assert.equal(rejected.rejection.kind, "Cancelled")
+  // Rejected at ADMISSION: no frame was reconstructed. If the check sat inside the deferred body
+  // the snapshot would have run first, and this count is what distinguishes the two.
+  assert.equal(snapshots, before)
+
+  assert.throws(() => saved.run(2), error => error.rejection.kind === "Cancelled")
+  // D2's boundary is machine-readable rather than a footnote.
+  assert.equal(saved.cancellationScope, CancellationScope.BlocksNewAdmissions)
 })

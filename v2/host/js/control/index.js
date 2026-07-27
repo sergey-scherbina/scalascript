@@ -82,10 +82,41 @@ export const ResumeMultiplicity = Object.freeze({
   OneShot: "OneShot"
 })
 
+// `Cancelled` and `TooLateToCancel` are DELIBERATELY separate rows (owner decision D1): collapsing
+// "your cancel arrived after the resume claim" into AlreadyResumed would name a *resume* failure for
+// a caller who asked to *stop* the work, which §13's non-collapsibility rule forbids.
 export const ResumeRejected = Object.freeze({
   AlreadyResumed(operation) {
     return Object.freeze({ kind: "AlreadyResumed", operation })
+  },
+  /** A run was requested on a continuation the caller had cancelled. */
+  Cancelled(operation) {
+    return Object.freeze({ kind: "Cancelled", operation })
+  },
+  /** A cancel lost the race to a resume that had already claimed the slot. */
+  TooLateToCancel(operation) {
+    return Object.freeze({ kind: "TooLateToCancel", operation })
   }
+})
+
+/** Evidence that a cancellation took effect — named apart from ResumeRejected.Cancelled so the
+ *  success and failure sides of tryCancel never read as the same thing. */
+export function CancelAccepted(operation) {
+  return Object.freeze({ kind: "CancelAccepted", operation })
+}
+
+/** What this lane's cancel promises about work already running (owner decision D2). The portable
+ *  base contract blocks only NEW admissions; a lane that can interrupt a running suffix says so. */
+export const CancellationScope = Object.freeze({
+  BlocksNewAdmissions: "BlocksNewAdmissions",
+  InterruptsInFlight: "InterruptsInFlight"
+})
+
+/** The identity a saved continuation reports in its rejections. Exported because §13 makes the
+ *  structured operation id the embedding contract, never message parsing. */
+export const SavedOperation = Object.freeze({
+  effect: Object.freeze({ value: "ssc.control.saved" }),
+  name: "run"
 })
 
 export const CaptureFailure = Object.freeze({
@@ -351,7 +382,9 @@ class LocalContinuationImpl {
 class OneShotContinuationImpl {
   constructor(authority, operation, resume) {
     requireInternalAuthority(authority)
-    oneShotStates.set(this, { claimed: false, operation, resume })
+    // Three states under one claim rather than a boolean: "taken" alone cannot say BY WHOM, which
+    // is exactly the distinction D1 requires. "free" | "resumed" | "cancelled".
+    oneShotStates.set(this, { claim: "free", operation, resume })
     Object.freeze(this)
   }
 
@@ -361,16 +394,41 @@ class OneShotContinuationImpl {
       this,
       "one-shot continuation"
     )
-    if (state.claimed) {
+    if (state.claim === "cancelled") {
+      return Object.freeze({
+        ok: false,
+        rejection: ResumeRejected.Cancelled(state.operation)
+      })
+    }
+    if (state.claim === "resumed") {
       return Object.freeze({
         ok: false,
         rejection: ResumeRejected.AlreadyResumed(state.operation)
       })
     }
 
-    state.claimed = true
+    state.claim = "resumed"
     const computation = requireEff(state.resume(value), "one-shot resumed computation")
     return Object.freeze({ ok: true, computation })
+  }
+
+  // cancel and resume compete for the SAME claim, so the eager-claim law (§3.1) extends without a
+  // new race algebra — and the loser is told which side won. Cancelling twice is idempotent: being
+  // sure is not an error.
+  tryCancel() {
+    const state = requirePrivateState(
+      oneShotStates,
+      this,
+      "one-shot continuation"
+    )
+    if (state.claim === "resumed") {
+      return Object.freeze({
+        ok: false,
+        rejection: ResumeRejected.TooLateToCancel(state.operation)
+      })
+    }
+    state.claim = "cancelled"
+    return Object.freeze({ ok: true, accepted: CancelAccepted(state.operation) })
   }
 }
 
@@ -396,6 +454,17 @@ class DelegatedOneShotContinuationImpl {
         "delegated one-shot computation"
       )
     })
+  }
+
+  // A delegated view shares the SOURCE's claim — cancelling through the view cancels the one
+  // continuation, not a copy of its state.
+  tryCancel() {
+    const state = requirePrivateState(
+      delegatedContinuationStates,
+      this,
+      "delegated one-shot continuation"
+    )
+    return state.source.tryCancel()
   }
 }
 
@@ -1669,23 +1738,66 @@ const savableContinuationStates = new WeakMap()
 class SavedContinuationImpl {
   constructor(authority, frame, machine, codec) {
     requireInternalAuthority(authority)
-    savedContinuationStates.set(this, Object.freeze({ frame, machine, codec }))
+    savedContinuationStates.set(this, { frame, machine, codec, cancelled: false })
     Object.freeze(this)
   }
 
+  // Enforces the cancellation latch, then delegates. Prefer tryRun where the rejection should be a
+  // value rather than a throw.
   run(value) {
+    const attempt = this.tryRun(value)
+    if (!attempt.ok) {
+      const error = new Error(`run rejected: ${attempt.rejection.kind}`)
+      error.rejection = attempt.rejection
+      throw error
+    }
+    return attempt.computation
+  }
+
+  // The cancellation check happens HERE — before any frame is reconstructed and before an execution
+  // identity exists, which is what "rejected at admission" means (§11.1). Owner decision D4 puts it
+  // FIRST, ahead of expiry/revocation: when a value is both expired and cancelled, the caller's own
+  // action is the more informative answer, and an unspecified tie becomes a per-lane accident.
+  tryRun(value) {
     const state = requirePrivateState(
       savedContinuationStates,
       this,
       "saved continuation"
     )
-    return Eff.defer(() => {
-      const fresh = state.codec.snapshot(state.frame)
-      return requireEff(
-        state.machine.resume(fresh, value),
-        "saved continuation result"
-      )
+    if (state.cancelled) {
+      return Object.freeze({ ok: false, rejection: ResumeRejected.Cancelled(SavedOperation) })
+    }
+    return Object.freeze({
+      ok: true,
+      computation: Eff.defer(() => {
+        const fresh = state.codec.snapshot(state.frame)
+        return requireEff(
+          state.machine.resume(fresh, value),
+          "saved continuation result"
+        )
+      })
     })
+  }
+
+  // Monotonic latch: idempotent by construction, never a failure. Blocks only NEW admissions —
+  // runs already in flight are not killed (D2), which cancellationScope states in machine-readable
+  // form rather than in a footnote.
+  cancel() {
+    const state = requirePrivateState(
+      savedContinuationStates,
+      this,
+      "saved continuation"
+    )
+    state.cancelled = true
+    return CancelAccepted(SavedOperation)
+  }
+
+  get isCancelled() {
+    return requirePrivateState(savedContinuationStates, this, "saved continuation").cancelled
+  }
+
+  get cancellationScope() {
+    return CancellationScope.BlocksNewAdmissions
   }
 }
 

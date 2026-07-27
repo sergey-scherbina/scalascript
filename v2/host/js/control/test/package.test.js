@@ -21,6 +21,10 @@ function assertPrivateConstructor(value, ...args) {
 const expectedRuntimeExports = [
   "AdmissionPolicy",
   "ArtifactProfile",
+  // vector 26 (cancellation): the evidence type, the D2 scope enum, and the stable saved-run
+  // operation id — public because §13 makes the structured id the embedding contract.
+  "CancelAccepted",
+  "CancellationScope",
   "CapsuleRejected",
   "CaptureFailure",
   "Continuation",
@@ -36,6 +40,7 @@ const expectedRuntimeExports = [
   "ResumeMultiplicity",
   "Restore",
   "ResumeRejected",
+  "SavedOperation",
   "Save",
   "StateMachine",
   "defineEffect",
