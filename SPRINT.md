@@ -7083,8 +7083,24 @@ emits `def C(a) = IrCtor(C, [a])`; extend to `def C(a) = let y=a*2 in IrCtor(C, 
   pre-commit main); scljet is main's active M4 WIP, left untouched.
 
 ### Effects / runtime providers
-- [ ] **v2-generator-provider** — dataset-from-generator: `Dataset.fromGenerator requires the standard
-  generator provider` (parses now that compound-assign landed; needs the native generator provider).
+- [ ] **v2-generator-provider** — ACTIVE
+  (`feature/v2-generator-provider`): close the assembled V2
+  `Dataset.fromGenerator requires the standard generator provider` failure
+  without duplicating Generator state inside dataset-plugin.
+  - Run `dataset-from-generator` unchanged through its declared lanes and
+    default/legacy × native VM/direct ASM; compare output before classifying
+    the missing bridge.
+  - Reduce `fromGenerator` and `toGenerator` independently if the combined
+    case fails, retaining lazy pull and ordered terminal behavior in the
+    smallest real-harness fixture.
+  - Inspect the existing Dataset provider hook and Generator foreign value.
+    Prefer a narrow plugin-to-plugin portable contract; do not move a
+    user-facing intrinsic into core or create a second Generator runtime.
+  - Add direct plugin tests for both bridge directions and opt the existing
+    conformance case into V2 only when its checked-in output is exact.
+  - Run dataset/generator plugin suites, the focused conformance case, and the
+    neighboring generator slice. Done when default/legacy × VM/direct ASM all
+    agree and existing INT/JS/JVM lanes remain unchanged.
 - [ ] **v2-distributed-failure-retry** — advances past `Random.uuid`, then emits `Stub` in the
   kill-worker/retry path (failure-recovery dispatch gap).
 

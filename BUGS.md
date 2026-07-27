@@ -1,5 +1,27 @@
 # Bug tracker
 
+## v2-generator-provider — Dataset cannot consume the native Generator provider
+
+**Status:** OPEN (reported by the SSC v2 corpus audit; accepted 2026-07-28
+by `codex`, SPRINT `v2-generator-provider`).
+
+**Reported real-harness reproduction.**
+
+```bash
+bin/ssc run --native tests/conformance/dataset-from-generator.ssc
+# Dataset.fromGenerator requires the standard generator provider
+```
+
+The historical declared INT/JS/JVM lanes pass, but the case has not been
+opted into V2. Establish the fresh default/legacy × VM/direct-ASM baseline
+before deciding whether the report remains current.
+
+**Fix acceptance.** `Dataset.fromGenerator` must lazily consume the existing
+native Generator value and `Dataset.toGenerator` must return one owned by the
+same provider. Pin both directions at the real plugin boundary, preserve
+ordered output, and avoid a duplicate generator implementation in
+dataset-plugin.
+
 ## v2-callback-exc-parity-followups — distributed/generator callbacks rewrap user throws
 
 **Status:** **DONE 2026-07-28** by `codex` (`218e7c527`; found by the SSC
