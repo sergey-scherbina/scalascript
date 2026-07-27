@@ -1,8 +1,8 @@
 slug: v2-std-ui-missing-fixture
 branch: feature/v2-std-ui-missing-fixture
-agent: claude-code
+agent: codex
 started: 2026-07-27T22:28:02Z
-heartbeat: 2026-07-27T22:36:28Z
+heartbeat: 2026-07-27T23:01:52Z
 status: in-progress
 items: v2-std-ui-missing-fixture v2-std-ui-native-pair-match
 paths: tests/conformance/std-ui- tests/conformance/expected/std-ui- tests/examples/std-ui/ v2/src/ v2/lib/ssc1-front.ssc0 v2/lib/ssc1-lower.ssc0
@@ -10,5 +10,5 @@ scope: |
   Fix the five stale imports without duplicating the root std-ui library, then diagnose and close
   the native frontend's shared `match: no arm for Pair/2` failure exposed after import resolution.
   Keep the fixture correction and compiler/runtime fix independently tested and shippable.
-done-so-far: root cause and baseline landed; five path edits keep declared INT/JS/JVM lanes 5/5 and expose one shared native Pair/2 failure
-next: record the native failure as a separate bug/sprint slice, isolate its self-hosted match site, then add a fail-first regression
+done-so-far: five imports fixed; Pair/2 reduced to raw triple-quote termination, scanner fix passes focused default/legacy VM+ASM and INT/JS/JVM regression
+next: close the newly exposed legacy html interpolator parser gap, rerun all five std-ui roots against exact expected output, then land
