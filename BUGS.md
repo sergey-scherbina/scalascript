@@ -3329,6 +3329,28 @@ expression in **a top-level code block** is automatically printed and contains t
 fences. The initial ledger entry called `bin/ssc` the interpreter; that was wrong after the 2.1
 cutover. Existing legacy `InterpreterTest` auto-output tests do not exercise the failing v2 path.
 
+**Mechanism located 2026-07-27 (opus).** The entry above said what the fix must ACHIEVE but not where
+the information dies, so anyone picking it up would start by re-deriving that. The block boundary is
+destroyed *before the lexer runs*: `v2/bin/ssc1-run-fsub.ssc0` (F lane, default) concatenates every
+scalascript fence into ONE string via `sscConcatSources`/`sscAppendSource` — joined with `"\n\n"` —
+and hands that single string to F's `compile(userSrc, …)`; the legacy lane does the identical thing in
+`joinScalaScript`. After the join, "which statement ended a block" is not recoverable by any later
+stage, which is why no amount of work in the lowerer or the runtime can fix this.
+
+Contrast v1, which keeps blocks separate all the way to the backends: the interpreter runs
+`SectionRuntime.execBlockStats` with `printResult = rest.isEmpty` (per block), and `JsGen` emits the
+`_auto` wrapper under `case t: Term if isLast && topLevel`. Both consume a PER-BLOCK statement list.
+
+So the fix has to be one of: (a) F's `compile` learns a block-tail marker and lowers it to an
+auto-output helper (mirroring v1's runtime `Value.UnitV => ()` test, since Unit-ness is a runtime
+property, not a syntactic one), or (b) the driver compiles each block separately and merges the IR —
+which must first answer how a later block still sees an earlier block's `val`. A text heuristic
+("last line at column 0") is NOT viable: `examples/content.ssc` ends a block with `))` at column 0.
+
+**BLOCKED, not deferred for convenience:** both (a) and (b) land in `specs/v2.2-p6.5-fsub.ssc`, held by
+the live claim `v2-board-and-f5b`. Taking it would be exactly the collision the mutex exists to stop.
+Ready for whoever holds F next.
+
 **Expected/fix plan.** The v2 native frontend/runtime must eventually emit every non-Unit block tail
 once in source order while Unit/definition tails stay silent. Its owning files overlap the live
 `v2-native-stack-overflow` claim, so this CI lane must not patch them. Separately, the historical
