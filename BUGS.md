@@ -1,5 +1,56 @@
 # Bug tracker
 
+## f-validateNoReader-rejects-plugin-externs — the F-vs-legacy guard counts a legitimate `extern def` as a coverage gap
+
+**Status:** OPEN (found 2026-07-28 by `v2-board-and-f5b` while measuring why F still delegates).
+Affects `RunNativeV2.validateNoReader`, i.e. the F4a delegate-fallback decision — not F itself.
+
+**What happens.** `validateNoReader` accepts a global only if it is a top-level `def` in the same
+program or starts with `@`:
+
+```scala
+def globalOk(g: String): Boolean = defNames.contains(g) || g.startsWith("@")
+```
+
+A plugin intrinsic declared as `extern def` (e.g. `extern def jvmVfsOpen(path: String, readOnly:
+Boolean, create: Boolean): JvmVfsResult` in `scljet/jvm-vfs.ssc`) is neither, so F's program is
+rejected and the run silently delegates to the legacy front.
+
+**The evidence that this is a mis-classification and not an F gap:** the LEGACY front emits exactly
+the same thing. Measured on `tests/conformance/scljet-mutate-update.ssc`, both fronts produce
+`(global jvmVfsOpen)` with no corresponding `(def …)` — the name is resolved by the plugin registry
+at run time, which is the design. Legacy is never validated, so only F is punished for it.
+
+**Impact.** Every program touching a plugin extern delegates unconditionally, regardless of what F
+can actually compile. That is a permanent, invisible tax: double lowering on each run, F's output
+discarded, and the program counted against F's breadth. It is a strong candidate for the dominant
+delegation cause, but **that is NOT yet measured** — see the caveat below, and measure it before
+repeating the claim.
+
+**Fix direction (a decision, not a mechanical change).** Do not simply loosen the check: it exists
+because genuine F gaps also surface as unbound globals, and loosening it trades a loud delegation for
+a silent wrong answer. The information needed to tell them apart exists — the program's own `extern
+def` declarations, and the plugin registry — so the guard should accept *declared* externs and keep
+rejecting unknown names. Owner call, since it changes the F4a fallback contract.
+
+---
+
+## MEASURED, NOT YET EXPLAINED — the non-extern residue
+
+For the same program, after the block-comment fix, 53 unbound globals remain. `jvmVfs*` are the
+externs above. The rest — `error ×6`, `leftChild ×4`, `seen ×2`, `cellPtr ×2`, `refTrunk ×2` — are
+NOT externs and NOT top-level defs. In the source they are a case-class FIELD
+(`case class TableInteriorCell(leftChild: Long, …)`, `scljet/page.ssc:59`) and pattern binders
+(`case Right(ByteRead(cellPtr, _)) =>`, `scljet/sql.ssc:3729`; `case Right(refTrunk) =>`,
+`scljet/write.ssc:2385`), which suggested a nested-pattern binder leak.
+
+**Two minimal repros were built for that hypothesis and BOTH failed to reproduce it** — F handles
+`case Some(Pair(a, b))` and `case Right(ByteRead(cellPtr, _))` with a user case class cleanly, no
+unbound globals. So the mechanism is something else, still unknown, and the guessed one is recorded
+here only so the next person does not spend the same two attempts on it. Start from the real program
+and bisect it down, rather than from a plausible-looking shape.
+
+
 ## heartbeat-threshold-stated-in-two-repos — AGENTS.md and the multi-agent skill can drift apart
 
 **Status:** **FIXED 2026-07-28** by opus (`heartbeat-threshold-drift-gate`) — gate landed here, and
