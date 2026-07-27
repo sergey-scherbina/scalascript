@@ -1,0 +1,11 @@
+slug: native-release-qualification
+branch: feature/native-release-qualification
+agent: claude-code
+started: 2026-07-27T21:46:13Z
+heartbeat: 2026-07-27T21:46:13Z
+status: claimed-before-planning
+items: native-release-never-run native-release-qualification
+paths: .github/workflows/native-release.yml specs/native-release-qualification.md tests/e2e/native-release-qualification.sh scripts/native-release-qualify
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
