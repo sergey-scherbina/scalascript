@@ -1,0 +1,11 @@
+slug: portable-js-admitter
+branch: feature/portable-js-admitter
+agent: claude-code
+started: 2026-07-27T18:31:54Z
+heartbeat: 2026-07-27T18:31:54Z
+status: claimed-before-planning
+items: SPRINT-F3
+paths: v2/host/js/portable-admitter/**
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
