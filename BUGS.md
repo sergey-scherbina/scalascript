@@ -5,17 +5,26 @@
 **Status:** OPEN (found by the SSC v2 parity audit; accepted 2026-07-28 by
 `codex`, SPRINT `v2-callback-exc-parity-followups`).
 
-**Reproduction target.** Invoke one distributed callback and one generator
-callback whose ScalaScript body raises an `ssc.SscThrow`. Both plugin
-boundaries currently let the general diagnostic catch wrap that user throw,
-even though the dataset plugin preserves the same runtime value by rethrowing
-`ssc.SscThrow` first. A separate host exception is the control: it must still
-receive the plugin-specific contextual diagnostic.
+**Real-harness reproduction.**
 
-**Root-cause hypothesis.** The two plugins retained the old catch ordering
-after dataset-plugin established the callback contract. This must be proven
-with fail-first tests at both real callback boundaries before changing code;
-message similarity or static catch shape alone is not sufficient.
+```bash
+tests/conformance/run.sh \
+  --only 'distributed-callback-user-throw,generator-callback-user-throw' \
+  --no-memo
+```
+
+The assembled V2 lane is 0/2 before the fix and prints an exact observable
+diff: expected user messages `distributed-user-boom` /
+`generator-user-boom`, but got `Distributed.handler[fail] callback failed for
+[7]` / `Generator.foreach callback failed for [8]`. Direct plugin tests fail
+the same contract independently: distributed is 4/5 and generator is 9/10
+because both throw `IllegalArgumentException` where the exact original
+`ssc.SscThrow` instance is required.
+
+**Root cause.** Both callback helpers catch all `Throwable` values and add
+plugin diagnostics before checking for `ssc.SscThrow`. Dataset-plugin already
+establishes the correct order: rethrow the user value first, contextualize
+only genuine host failures.
 
 **Fix acceptance.** Preserve the original user throw unchanged in both
 plugins, retain contextual wrapping for host failures, and keep the affected

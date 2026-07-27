@@ -7083,6 +7083,10 @@ emits `def C(a) = IrCtor(C, [a])`; extend to `def C(a) = let y=a*2 in IrCtor(C, 
   - Pin each callback boundary fail-first in its plugin test suite: an
     `ssc.SscThrow` raised by user code must escape unchanged, while a distinct
     host exception must retain the plugin's contextual diagnostic wrapper.
+  - **Measured fail-first baseline:** direct plugin suites are distributed
+    4/5 and generator 9/10; the assembled V2 conformance pair is 0/2 with
+    exact output changing from the expected original user messages to the two
+    plugin `callback failed` wrappers.
   - Compare the current behavior before classifying it; do not weaken or
     remove the host-failure diagnostic in order to make the user case pass.
   - Apply the minimal catch-order correction used by dataset-plugin:
