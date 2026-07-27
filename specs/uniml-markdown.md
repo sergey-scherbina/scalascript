@@ -125,8 +125,13 @@ model is not the canonical Markdown representation and never becomes a dependenc
 
 ### Compatibility gates
 
-- [x] Pinned CommonMark 0.31.2 examples pass in both JVM and Scala.js lanes with a documented supported
-      count and failure profile (see Results); focused GFM 0.29 examples cover every enabled extension.
+- [x] The original M4 curated CommonMark 0.31.2 examples pass in both JVM and Scala.js lanes with a
+      documented supported count (see Results); focused GFM 0.29 examples cover every enabled
+      extension for regression purposes.
+- [ ] The production gate compares exact expected semantics for all 652 CommonMark 0.31.2 examples
+      and the official enabled GFM 0.29 extension cases on JVM and Scala.js.
+- [ ] The generated WHATWG entity table covers every semicolon-terminated HTML5 name applicable to
+      CommonMark, including two-code-point replacements and decoding in every permitted context.
 - [x] The optional `DocumentContent` bridge (`unimlMarkdownBridge`, JVM-only, landed 2026-07-13) is
       differential-tested against the existing CommonMark-based `Parser.buildDocumentContent` path for
       representable paragraphs/headings/lists/images/tables, and reports model loss for block quotes,
@@ -190,7 +195,7 @@ the target model cannot preserve.
 ## Module layout
 
 ```text
-v1/lang/uniml-markdown/
+uniml/markdown/
   src/main/scala/scalascript/uniml/dialect/markdown/
     MarkdownDialect.scala
     MarkdownLexer.scala
@@ -209,7 +214,8 @@ artifact name is `scalascript-uniml-markdown`.
 - Rendering HTML, sanitizing HTML/URLs, fetching links/images, or executing embedded content.
 - Unspecified vendor Markdown extensions outside the selected CommonMark/GFM/ScalaScript profile.
 - Replacing the existing compiler Markdown/frontend path during M4.
-- Incremental edit-delta reparse, formatter/rewrite protocols, or a DOM compatibility layer.
+- Incremental edit-delta reparse and formatter/rewrite implementations in the dialect leaf; those
+  belong to the M6 tooling layer. A DOM compatibility layer remains out of scope.
 
 ## Decisions
 
@@ -227,7 +233,7 @@ artifact name is `scalascript-uniml-markdown`.
 ## Results
 
 Landed 2026-07-13. The `unimlMarkdown` / `unimlMarkdownJs` `CrossType.Pure` leaf module
-(`v1/lang/uniml-markdown`, artifact `scalascript-uniml-markdown`) depends only on `unimlCross`.
+(`uniml/markdown`, artifact `scalascript-uniml-markdown`) depends only on `unimlCross`.
 
 **Verification** — 25 focused tests green on **JVM and Scala.js** (`unimlMarkdown/test`,
 `unimlMarkdownJs/test`), covering:
@@ -251,7 +257,7 @@ Landed 2026-07-13. The `unimlMarkdown` / `unimlMarkdownJs` `CrossType.Pure` leaf
   ZWJ sequences — each checked for losslessness, no-throw projection AND chunk-split invariance under
   both CommonMark and GFM profiles. All pass, confirming the invariants hold broadly.
 
-**Design note.** M4 defers inline parsing to `finish()` over one bounded whole-source buffer (chunk
+**Design note.** M4 defers inline parsing to `stop(state)` over one bounded whole-source buffer (chunk
 invariance by construction). Emphasis is resolved with a CommonMark-faithful delimiter stack; block
 structure uses a container stack whose transitions are `Reframe` instructions, with dangling frames
 closed on the last token to avoid spurious end-of-input diagnostics.
@@ -266,5 +272,9 @@ as a trivia token at its source position, no longer leaking into the projected i
 correct deep/mixed container nesting (nested quotes/lists, quote-in-list, list-in-quote, and lazy
 continuation into a nested quote).
 
-**Deferred beyond M4.1:** the exotic HTML5-only named entities beyond the HTML4/XHTML set (unknown
-names stay literal, which is lossless).
+The original M4/M4.1 profile deferred HTML5-only named entities beyond the HTML4/XHTML set and used
+34 curated examples as a lossless/no-throw gate. Those facts remain accurate historical results,
+but neither is the final production conformance boundary. The full generated entity table and
+652-example compare-first CommonMark gate are required by
+[`uniml-production.md`](uniml-production.md); only measured completion may check the two production
+rows above.

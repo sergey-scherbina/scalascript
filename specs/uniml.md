@@ -61,17 +61,18 @@ enum UniNode:
 
 final case class UniEdge(role: Option[String], child: UniNode)
 
-trait Processor[I, O]:
-  def push(input: I): ProcessBatch[O]
-  def finish(): ProcessBatch[O]
-  final def andThen[P](next: Processor[O, P]): Processor[I, P]
+trait Processor[S, I, O]:
+  def start: S
+  def step(state: S, input: I): Stepped[S, O]
+  def stop(state: S): ProcessBatch[O]
 
-final case class ProcessBatch[+A](values: Vector[A], diagnostics: Vector[Diagnostic])
+final case class Stepped[S, O](state: S, batch: ProcessBatch[O])
+final case class ProcessBatch[A](values: Vector[A], diagnostics: Vector[Diagnostic])
 
 trait DialectAdapter:
   def id: String
   def aliases: Set[String] = Set.empty
-  def instructions(source: SourceInput): Processor[SourceChunk, VmToken]
+  def instructions(source: SourceInput): Processor[String, SourceChunk, VmToken]
   def project(tree: UniNode): Projection = Projection.Identity(tree)
 
 object UniML:
@@ -90,9 +91,9 @@ stable contracts:
 - `Reframe` close-kind vectors are ordered innermost-first and its open-frame vector is ordered
   outermost-first; the carrier token is emitted exactly once after `closeBefore`/`open` and before
   `closeAfter`;
-- `ProcessBatch` may contain zero, one, or many values, allowing lexers and projections to be
-  composed without requiring the whole document in memory;
-- `finish()` is called exactly once after the final input and flushes buffered state;
+- `ProcessBatch` may contain zero, one, or many values; a processor's immutable `S` is threaded
+  explicitly through the driver and no processor instance owns hidden mutable lifecycle state;
+- `stop(state)` is called exactly once after the final input and flushes the final immutable state;
 - parsing returns all completed roots, diagnostics, and an explicit completion status; an empty
   document is not confused with a failed parse.
 
@@ -110,7 +111,7 @@ every possible chunking.
       deterministically and never silently closes a different frame.
 - [x] Every consumed source-backed VM input appears exactly once as a token leaf in the resulting
       tree, including opening/closing punctuation, trivia, comments, and `Report` tokens.
-- [x] A processor chain forwards values and diagnostics in order, flushes every stage on `finish()`,
+- [x] A processor chain forwards values and diagnostics in order, flushes every stage on `stop`,
       and produces the same result whether values arrive singly or in batches.
 - [x] A literal/code-point adapter demonstrates the universal fallback: arbitrary Unicode text,
       including an unknown programming language, can be ingested losslessly as `Emit` instructions
@@ -199,15 +200,15 @@ SourceChunk
   → optional validation/projection/render processors
 ```
 
-Each stage owns only its local state. `push` and `finish` are synchronous, deterministic, and do not
-spawn threads. Backpressure is caller-controlled: the caller does not push the next input until it has
-consumed the returned batch. A composed processor forwards outputs immediately and preserves the
-diagnostic order `(upstream diagnostics, downstream diagnostics caused by those outputs)`. On
-completion it flushes upstream, forwards all flushed values through downstream, and then flushes
-downstream exactly once.
+Each stage exposes immutable `start` state and deterministic `step(state,input)` / `stop(state)`
+transitions; no transition spawns threads. Backpressure is caller-controlled: the caller does not
+step the next input until it has consumed the returned batch. A driver preserves the diagnostic
+order `(upstream diagnostics, downstream diagnostics caused by those outputs)`. On completion it
+stops upstream, forwards all flushed values through downstream, and then stops downstream exactly
+once.
 
-Processor instances are deliberately not thread-safe and not reusable after `finish()`. Factories,
-dialects, tokens, nodes, batches, and diagnostics are immutable and safe to share.
+Processor definitions, states, dialects, tokens, nodes, batches, and diagnostics are immutable and
+safe to share. A state value represents one point in one fold and is never mutated.
 
 ## Dialect adapters and embedding
 
@@ -254,7 +255,7 @@ consumed tokens. Dialect adapters may add tighter limits but may not silently di
 ## Module layout
 
 ```text
-v1/lang/uniml/
+uniml/core/
   src/main/scala/scalascript/uniml/
     Source.scala          # source ids, positions, spans, chunks, tokens
     Tree.scala            # UniNode, UniEdge, origin and traversal helpers
@@ -274,14 +275,17 @@ or platform APIs. Dialect modules may depend on UniML and existing format librar
 ## Relationship to existing ScalaScript models
 
 - `scalascript.markup.Markup` remains the semantic XML/HTML/SVG model and serialization surface.
-  UniML is the lossless streaming CST layer; a future XML adapter may project into `Markup`.
-- `DocumentContent` remains ScalaScript's stable Markdown content ABI. A future Markdown adapter may
-  project a UniML tree into it, but this initial module does not change `SPEC.md` parsing semantics.
+  UniML is the lossless streaming CST layer; the XML adapter's optional bridge projects into
+  `Markup`.
+- `DocumentContent` remains ScalaScript's stable Markdown content ABI. The optional
+  `unimlMarkdownBridge` projects a UniML document into it and diagnoses model loss; it does not make
+  `DocumentContent` canonical.
 - compiler AST/CoreIR remain executable language models. A programming-language adapter may project
   into them only after parsing and validation; UniML never executes the AST.
 
-Therefore this feature does not change the ScalaScript language grammar or runtime semantics and does
-not require a normative `SPEC.md` change in M0.
+The core feature does not change ScalaScript grammar/runtime semantics. Production standard-library
+bindings and the M5 ScalaScript adapter are governed separately by
+[`uniml-production.md`](uniml-production.md).
 
 ## Security and resource invariants
 
@@ -344,6 +348,11 @@ not require a normative `SPEC.md` change in M0.
 Each milestone is independently releasable. A compatibility label is added only after its gate has
 focused tests, an external/differential corpus where available, chunk-boundary invariance tests, and
 lossless token coverage.
+
+The original safe M0–M4 profiles landed, but the full-roadmap production label additionally requires
+the M3.1, external CommonMark/GFM, M5, M6, portable binding, compiler-front, packaging, and release
+gates in [`uniml-production.md`](uniml-production.md). Curated lossless/no-throw cases do not by
+themselves establish full grammar conformance.
 
 ## Results
 

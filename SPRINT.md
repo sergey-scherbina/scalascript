@@ -128,6 +128,229 @@ strongest CI evidence actually available.
       docs/site, and state the strongest exact-SHA/job/local evidence. Cancelled CI is red; curated
       106/106 alone is never called production completion.
 
+---
+
+## 2026-07-27 — UniML production completion (Sergiy: "Реализуй всё. Доведи до продакшена")
+
+**Claim:** `uniml-production-completion`. **Normative execution contract:**
+[`specs/uniml-production.md`](specs/uniml-production.md). This section is the single entry point for
+the remaining UniML work; older unchecked UniML rows are evidence/history, not a second queue.
+
+### Honest starting point and bounded meaning of "all"
+
+M0–M4 exist and the four format leaves are JVM/Scala.js green in their originally declared safe
+profiles. That is not the same as production completion:
+
+- YAML has only 8 embedded official cases out of the pinned 402-case YAML test-suite and leaves its
+  M3.1 grammar/lexical rows open;
+- Markdown has 34 curated CommonMark inputs out of 652 and checks losslessness/no-throw, not the
+  official expected semantics; the HTML5 entity tail is absent;
+- the ScalaScript adapter and hybrid composer live under test source roots, not in a publishable
+  module;
+- M6 (query/rewrite/diff/source-map/incremental/formatter) has no implementation;
+- ordinary `.ssc` code cannot obtain a lossless UniML document;
+- the canonical self-hosted front `F` is default but still delegates on a measured corpus; the
+  test-only Scala spike is an oracle/tooling adapter, not the selected product front;
+- `scljet-address-uniml` has only its pure JSON resolver (U1), with no runtime bridge or `.ssc`
+  surface.
+
+For this program, **all** means every currently declared UniML M0–M6 production obligation plus the
+named P6.22/binding/address/release tails. It does not mean automatic language detection, arbitrary
+future programming-language grammars, user-executable grammars, deep incremental typing, a second
+handwritten JS parser, or a stylistically opinionated universal formatter. Those stay explicit
+future work and cannot be used to move this finish line.
+
+### Non-negotiable measurement rule
+
+Every compatibility gate **compares first and classifies after**. Official cases are never skipped
+because a marker, heuristic, or old exclusion predicts failure. Each failing case prints its id,
+expected/actual observable, and diff. Exclusions are allowed only for transport encodings the
+Unicode `String` API cannot represent and are asserted by an exact pinned manifest. A passing
+self-parity test is not external conformance.
+
+### Ordered production slices
+
+- [ ] **UPR-0 — freeze the production contract before implementation.**
+      Write and commit `specs/uniml-production.md`; reconcile the stale mutable `Processor[I,O]`
+      prose in `specs/uniml.md` with the shipped immutable `Processor[S,I,O]`; reconcile
+      `specs/uniml-yaml.md`, `specs/uniml-markdown.md`, and
+      `specs/v2.2-self-hosted-dialect.md`. Record the settled split:
+      (1) M5 publishes a ScalaScript **tooling dialect** and safe hybrid composer;
+      (2) canonical compiler front remains the already-selected self-hosted `F`, not the Scala
+      spike; (3) M6 is a standalone cross-platform tooling artifact. Sergiy's request in this
+      section satisfies the old P6.22 "do not act without Sergiy" gate, but it does not waive any
+      corpus/fixpoint gate. Ready when the specs name exact APIs, observable laws, corpora,
+      security/resource limits, compatibility policy, paths, and release evidence.
+
+- [ ] **UPR-1 — build fail-closed external corpus gates before grammar changes.**
+  - [ ] **UPR-1a YAML corpus.** Vendor the exact `yaml/yaml-test-suite`
+        `data-2022-01-17` material with provenance + digest and all 402 `in.yaml` cases. Compare
+        validity/error classification and normalized `test.event` semantics after first asserting
+        exact CST source reconstruction. Keep a tiny explicit encoding-only exclusion manifest;
+        no production-based preclassification.
+  - [ ] **UPR-1b CommonMark/GFM corpora.** Vendor CommonMark 0.31.2 `spec.json` (652 examples) and
+        the official GFM 0.29 extension cases with provenance + digest. Add a deterministic
+        test-only semantic renderer and compare exact official output on JVM and Scala.js, in
+        addition to losslessness/chunk invariance.
+  - [ ] **UPR-1c report.** Print per-section pass/fail totals and the full case diff; persist the
+        red baseline in this section and the spec before fixing it. The gate must prove its own red
+        path with a deliberately corrupted expectation.
+
+- [ ] **UPR-2 — YAML 1.2.2 M3.1 full grammar and hardening.**
+  - [ ] **UPR-2a lexical/directive layer.** Implement the YAML printable set, BOM rules, directive
+        placement/scoping, `%YAML`/`%TAG` validation and handle expansion, tag URI/anchor/alias
+        lexical rules, and every stable diagnostic promised by `specs/uniml-yaml.md`.
+  - [ ] **UPR-2b scalar engine.** Implement multiline plain/single/double quoted folding, complete
+        double-quoted escapes and escaped line breaks, literal/folded block indentation,
+        more-indented lines, chomping, explicit indentation, and malformed-header recovery.
+  - [ ] **UPR-2c structural grammar.** Replace heuristic indentation acceptance with strict
+        block/dedent state; cover indentationless sequences, compact/property-only nodes,
+        explicit/complex keys, flow pairs/collections, document streams, and deterministic local
+        recovery.
+  - [ ] **UPR-2d resource behavior.** Remove quadratic `state + chunk`/repeated string
+        concatenation, enforce every source/line/scalar/indent/depth/node/token/diagnostic/
+        anchor/alias/expansion limit, and add adversarial/fuzz/no-throw tests.
+  - [ ] **UPR-2e closure.** All representable official YAML cases compare green on JVM and
+        Scala.js; every chunk split of dense CRLF/astral documents is identical; Core Schema
+        differential remains green; `uniml/lint-portable-subset.sh` stays green.
+
+- [ ] **UPR-3 — CommonMark/GFM completion and full HTML5 entities.**
+  - [ ] **UPR-3a generated entity data.** Generate a deterministic, checksummed table from pinned
+        WHATWG `entities.json`: all semicolon-terminated HTML5 names and multi-code-point values;
+        distinguish unknown text from an entity token; reject invalid numeric/surrogate values;
+        decode only in contexts CommonMark permits (including destinations/titles/definitions,
+        excluding code/raw HTML).
+  - [ ] **UPR-3b block grammar.** Close tabs/indentation, indented code coalescing, fenced closing
+        whitespace, HTML blocks, multiline reference definitions/titles, lists/containers and
+        blank/lazy continuation by official section.
+  - [ ] **UPR-3c inline grammar.** Close destinations/titles, labels and Unicode normalization,
+        bracket/reference precedence, autolinks/email/raw HTML, delimiter/emphasis rule-of-three
+        behavior, escapes/entities/code spans and line breaks by official section.
+  - [ ] **UPR-3d limits/complexity.** Actually enforce line/delimiter/fence/reference/block and
+        core limits with diagnostics; keep scanning bounded and linear on adversarial inputs.
+  - [ ] **UPR-3e closure.** CommonMark 0.31.2 is 652/652 exact on JVM + Scala.js; enabled GFM 0.29
+        cases are exact; lossless/chunk/property suites and `DocumentContent` differential stay
+        green. Only then may the specs call the profile conformant.
+
+- [ ] **UPR-4 — M5 production ScalaScript dialect and hybrid composition.**
+  - [ ] **UPR-4a publishable adapter.** Move/refactor the 2,447-line test spike into
+        `uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/` as lexer/parser/
+        projection/public facade. Preserve exact raw lexemes; use code-point spans; make malformed
+        input total; add finite source/depth/token/diagnostic limits and typed projection failures.
+        The declared dialect id must name the actually passing subset until its corpus reaches full
+        ScalaScript breadth.
+  - [ ] **UPR-4b cross build.** Define `unimlScalaCross` JVM + Scala.js in the root and standalone
+        builds, publish `scalascript-uniml-scalascript`, remove all production `test->test`
+        dependencies, aggregate it in root CI, and keep the former spike only as a thin
+        compatibility/oracle alias if needed.
+  - [ ] **UPR-4c safe composer.** Publish `SscCompose`. Retain the host body's source tokens while
+        attaching all injected roots; remap child spans to the parent source/absolute code-point
+        range; guarantee globally monotone unique token ids; localize child diagnostics; keep the
+        built-in registry non-overridable and unknown fences inert.
+  - [ ] **UPR-4d gates.** JVM+JS exact reconstruction/chunk/surrogate/limit/error tests, single- and
+        multi-file external front differential for the declared profile, and a hybrid
+        front-matter/prose/multiple-fence corpus. No lossless or compatibility label from a
+        first-root-only/self-parity shortcut.
+
+- [ ] **UPR-5 — M6 cross-platform tooling reference implementation.**
+  - [ ] **UPR-5a module/API.** Add `uniml/tooling` as JVM+Scala.js artifact with
+        `NodePath`, deterministic iterative query, validated `TextEdit`/`RewritePlan`, structural
+        `TreeDiff`, monotone `SourceMap` (explicit synthetic/unmapped segments),
+        `ParseSnapshot`/stable sidecar node ids/damage ranges, and formatter protocols.
+  - [ ] **UPR-5b rewrite + diff laws.** Reject overlapping/out-of-range/cross-source edits; identity
+        produces no edit; unchanged bytes remain byte-identical; `apply(diff(a,b),a) == b`;
+        diagnostics include the actual conflicting ranges.
+  - [ ] **UPR-5c source-map/query laws.** Source/token/node lookups are deterministic and
+        source-ordered, synthetic regions never pretend to have source bytes, and forward/reverse
+        mappings are monotone with explicit ambiguity.
+  - [ ] **UPR-5d incremental reparse.** A full-reparse fallback may preserve correctness but is not
+        advertised as reuse. Ship at least one dialect-aware damage/reuse implementation; random
+        edit sequences over JSON/YAML/XML/Markdown/ScalaScript must equal clean parsing, while
+        unchanged nodes outside damage retain stable ids.
+  - [ ] **UPR-5e formatter.** Formatter returns a rewrite plan, is idempotent, reparses to equivalent
+        semantics, preserves excluded/inert regions exactly, and ships conservative canonical
+        formatters for the declared format profiles rather than a style-preference framework.
+
+- [ ] **UPR-6 — portable `.ssc` ABI and additive standard-library bindings.**
+  - [ ] **UPR-6a ABI.** Add pure `runtime/std/uniml.ssc` ADTs for spans, diagnostics, ordered
+        lossless nodes/results/tool operations. Never leak Scala `UniNode`, platform objects,
+        unordered maps, `Double`-coerced YAML numbers, or duplicate-key loss across the ABI.
+  - [ ] **UPR-6b public format surfaces.** Add lossless wrappers to `std.json` and `std.yaml`, create
+        public `std.markdown`, and expose XML/ScalaScript through `std.uniml`. Preserve every legacy
+        `jsonParse/jsonRead/jsonValue`, `parseYaml/toYaml`, bootstrap Markdown/content behavior;
+        migration happens only after byte/semantic parity gates and with explicit duplicate/alias/
+        numeric policies.
+  - [ ] **UPR-6c backend parity.** Prefer the one portable `.ssc` implementation compiled by the
+        normal v2/JS path. Host plugins are adapters, not a second parser. If an intrinsic is needed,
+        use plugin modules and `TargetedIntrinsicProvider`/runtime preambles; never hard-code a new
+        intrinsic in interpreter core or JS/JVM generators. Production closure requires
+        interpreter, v2 native/ASM, JVM and JS/Node behavior to agree.
+  - [ ] **UPR-6d examples/gates.** Add runnable `examples/uniml-{json,yaml,markdown}.ssc` plus a hybrid
+        example, std-interface checks, assembled-jar tests and affected conformance across all
+        supported backends.
+
+- [ ] **UPR-7 — finish `scljet-address-uniml` U2/U3 without lying about physical units.**
+  - [ ] **UPR-7a resolver correctness.** Before exposure, use RFC 6901 path escaping, decode JSON
+        string keys correctly, reject Error **and Fatal**, return source slices for composites,
+        define code-point/UTF-8 units explicitly, and test duplicate keys, arrays, escaped keys,
+        emoji/multibyte input and invalid documents against an independent JSON oracle.
+  - [ ] **UPR-7b bridges.** Add separate v1 interpreter and v2 native plugin packages around the
+        shared resolver, ServiceLoader/build/installBin/standard-JAR wiring, and a pure
+        `DocAddressedValue` ABI. New intrinsics live in plugins only.
+  - [ ] **UPR-7c `.ssc` surface.** Add `addressReadDoc(text,path)` to `scljet/address.ssc`,
+        conformance and an external differential that compares logical value first and then verifies
+        the exact reported source slice. Do not advertise legacy JS/JVM source-codegen support until
+        the portable UPR-6 binding supplies it; final production closure requires that parity.
+
+- [ ] **UPR-8 — P6.22 canonical self-hosted front closure (separate from the M5 adapter).**
+  - [ ] **UPR-8a reconcile authority.** Preserve the recorded Option A:
+        self-hosted `F` is the canonical product front; the Scala UniML adapter is an
+        oracle/tooling artifact. Record fresh compare-first corpus counts because the historical
+        205 MATCH / 315 delegated snapshot may move under parallel v2 work.
+  - [ ] **UPR-8b eliminate breadth gaps.** Grow `specs/v2.2-p6.5-fsub.ssc` in measured slices until
+        raw single-file and multi-file corpus reports DIFF=HOLE=EMPTY=TIMEOUT=0. Every slice reruns
+        `--self`, semantic, multi-file, v2 conformance, and exact byte diffs; no fallback may be
+        counted as a match.
+  - [ ] **UPR-8c production proof.** Add tools-fat-jar CI for spike differential, C_min/X1
+        stage1==stage2 and capstone. An assembled e2e run must prove the no-delegate marker and fail
+        if legacy is invoked.
+  - [ ] **UPR-8d retire legacy only after zero.** Remove the F4a delegate and
+        `ssc1-front.ssc0`/`ssc1-lower.ssc0` only after all zero-fallback gates pass; then rerun full
+        tests/conformance/examples and both literal fixed points. The user authorization permits
+        this decision, not premature deletion.
+
+- [ ] **UPR-9 — production release, packaging, CI and durable closeout.**
+  - [ ] Publishable versioned artifacts for core + JSON/XML/YAML/Markdown/ScalaScript/tooling, no
+        test-scope production dependencies, generated-data provenance/checksums, API docs and
+        migration/security/limits documentation.
+  - [ ] Root CI and standalone `cd uniml && sbt test` cover all JVM/Scala.js projects; corpus,
+        portable-subset, hybrid, M6 property, std/backend, address, fixpoint and assembled-jar gates
+        run fail-closed with bounded shards/timeouts.
+  - [ ] Run affected conformance after every slice and full conformance before release. Record the
+        strongest available CI evidence level exactly; `cancelled` remains red.
+  - [ ] Update `BACKLOG.md`, `CHANGELOG.md`, `MILESTONES.md`, README and all behavior checkboxes only
+        from measured results. Release the claim and remove every worktree/build daemon only when no
+        required row above remains.
+
+### Required local gate matrix
+
+```text
+scripts/sbtc ";uniml/test;unimlJs/test;unimlJson/test;unimlJsonJs/test;unimlXml/test;unimlXmlJs/test"
+scripts/sbtc ";unimlYaml/test;unimlYamlJs/test;unimlMarkdown/test;unimlMarkdownJs/test;unimlMarkdownBridge/test"
+scripts/sbtc ";unimlScala/test;unimlScalaJs/test;unimlTooling/test;unimlToolingJs/test"
+(cd uniml && sbt test)
+uniml/lint-portable-subset.sh
+tests/conformance/run.sh --only 'json*,yaml*,markdown*,content*,uniml*,scljet-address*'
+./v2/conformance/check.sh
+git diff --check
+```
+
+Each implementation slice adds its narrower red/green command and exact observed counts here before
+it is checked off. The final matrix is additive; it does not replace external corpus, self-host,
+assembled-jar, or full-suite evidence.
+
+---
+
 ## 2026-07-27 — v2: the one board (Sergiy: "запиши все в спринт и делай")
 
 **Why this section exists.** Asked for the v2 status, the honest answer was that v2 runs on memory, not

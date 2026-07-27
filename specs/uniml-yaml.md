@@ -124,8 +124,11 @@ duplicates; any conversion to a host map requires an explicit duplicate-key poli
 - [x] Focused suites pass unchanged on JVM and Scala.js, including exhaustive two-chunk splits for
       CRLF, escapes, supplementary Unicode, directives, tags, anchors, flow collections, and block
       scalar content.
-- [x] The corpus gate includes a pinned official YAML test-suite subset and differential
+- [x] The M3 corpus gate includes a pinned official YAML test-suite **subset** and differential
       Core Schema values against an independent YAML 1.2 implementation.
+- [ ] The M3.1 production gate compares all representable cases in the pinned 402-case
+      `yaml/yaml-test-suite` `data-2022-01-17` corpus, including validity and normalized
+      `test.event` semantics, on JVM and Scala.js.
 
 ## Token model
 
@@ -246,7 +249,7 @@ Stable groups include:
 ## Module layout
 
 ```text
-v1/lang/uniml-yaml/
+uniml/yaml/
   src/main/scala/scalascript/uniml/dialect/yaml/
     YamlDialect.scala
     YamlLexer.scala
@@ -266,12 +269,13 @@ parsers may be test/differential or later projection consumers but are not the l
 - YAML 1.1 implicit booleans/timestamps and implementation-specific legacy tags.
 - Application object constructors, arbitrary tags, reflection, or code execution.
 - Implicit merge-key semantics, schema validation, querying, patching, formatting, or generation.
-- Incremental reparse; M3 guarantees transport chunk invariance, not edit-delta reuse.
+- Incremental reparse in the dialect leaf; edit-delta reuse belongs to the M6 tooling layer.
 - Replacing current ScalaScript front-matter/runtime YAML parsing in M3.
-- Full-production coverage of YAML 1.2.2's exotic productions, including multiline quoted-scalar
-  folding, every Unicode noncharacter restriction, complete `%TAG` handle expansion, and all
-  indentationless/property-only sequence combinations. These are recorded as the M3.1 grammar
-  hardening follow-up rather than silently claimed by the safe M3 profile.
+
+The former “exotic productions” deferral is no longer out of scope. Multiline quoted-scalar folding,
+the YAML printable profile, complete `%TAG` handle expansion, and indentationless/property-only
+combinations are required by the M3.1 production contract in
+[`uniml-production.md`](uniml-production.md).
 
 ## Decisions
 
@@ -315,3 +319,8 @@ documents. The official subset pins eight valid presentation cases from `yaml/ya
 `data-2022-01-17` (`6e6c296a`), while the JVM-only differential suite compares 27 Core Schema scalar
 classes with SnakeYAML Engine 2.9. The unchecked grammar/lexical behavior items and explicit
 out-of-scope paragraph bound M3 honestly; they are the queued M3.1 hardening work, not hidden claims.
+
+M3.1 is complete only when the three unchecked behavior rows above are checked from the full
+compare-first corpus and resource gates defined in
+[`uniml-production.md`](uniml-production.md). The eight-case M3 subset remains useful regression
+coverage but is not a production YAML 1.2.2 conformance claim.

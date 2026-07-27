@@ -456,13 +456,15 @@ effects at the destination. The following extensions require separate designs an
 
 ## UniML conformance hardening (2026-07-12)
 
-- [ ] **uniml-yaml-m31-full-grammar** — extend the safe M3 YAML 1.2.2 profile through the remaining
+- [~] **uniml-yaml-m31-full-grammar — CLAIMED / MOVED TO SPRINT 2026-07-27.** Extend the safe M3
+      YAML 1.2.2 profile through the remaining
       grammar/lexical productions: multiline single/double-quoted folding and continuation escapes,
       every printable/noncharacter restriction, `%TAG` handle expansion/validation, indentationless
       sequences after property-only nodes, additional complex-key forms, and strict block indentation
       recovery. Grow the pinned `yaml/yaml-test-suite` `data-2022-01-17` subset beyond the eight M3
       cases and keep JVM/Scala.js behavior identical. This is explicitly deferred from M3 rather than
-      silently counted as compatibility already delivered.
+      silently counted as compatibility already delivered. The active compare-first 402-case plan is
+      UPR-1/UPR-2 in `SPRINT.md`; do not pick this stale backlog row independently.
 
 - [x] **uniml-markdown-m41-conformance** — ✓ Landed (2026-07-13). Lazy paragraph continuation,
       tight/loose list classification and the full CommonMark HTML-block type table (1–7 with correct
@@ -484,7 +486,8 @@ effects at the destination. The following extensions require separate designs an
 - [x] **uniml-markdown-m41-entities** — ✓ Landed (2026-07-13). Expanded `MarkdownProjection`'s
       named-entity table to the full HTML4/XHTML set (~250: Latin-1 generated from its contiguous
       block, plus Greek/punctuation/arrow/math). Numeric decode + unknown-stays-literal unchanged.
-      Remaining exotic HTML5-only names (obscure math/legacy no-semicolon forms) still deferred.
+      Remaining HTML5-only names and the full 652-example semantic gate moved to active UPR-1/UPR-3
+      in `SPRINT.md` on 2026-07-27; M4.1's historical completion is not the final production label.
 
 ## SclJet interoperability follow-ups (2026-07-12)
 
