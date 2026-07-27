@@ -165,7 +165,32 @@ Stage 2 is partly subsumed by 1b-3.
       `isStrCode` into a receiver path must exclude that arm first.
       Baseline re-measured on this tree: X1 FIXPOINT byte-identical **409,629 B** (SPRINT elsewhere
       still says 406,964 — that number is stale, other commits moved it).
-- [ ] **V-1a′ — local type inference for bare locals (approach B), the actual next slice.** Infer a
+- [ ] **V-1a′ — IN PROGRESS, measured to a decision point. Read this before writing any inference.**
+      **Finding 1 (solid, hand-verified):** the 20 `.length` receivers in F's own source are ALL
+      parameters of ordinary untyped top-level defs — `def startsW(s, p)`, `def takeNm(c, i, j)`,
+      `def globalNameOf(c)`, `def rtrim1(s)`, `def envTyF(h, c)`, `def firstTypeArg(t)`,
+      `def interpExpr(src, …)`, `def parseInterp(content, …)`. 21 lexical sites, ≈20 in IR. Not `val`
+      bindings, not pattern binders, not call results.
+      **Consequence — two very different options, and the cheap one is a trap worth naming:**
+      (a) **Annotate F's own params** (`def startsW(s: String, p: String)`). Costs nothing to build —
+      slice 1b-1's machinery already types annotated params — and would flip all 20 sites. **But it
+      only improves F COMPILING ITSELF.** User programs are not annotated, so it moves the fixpoint
+      artifact and not the corpus, and δ-arm deletion is gated on the corpus. Do NOT mistake a greener
+      census on `F(F_src)` for progress toward the deletion.
+      (b) **Real param inference** (usage-based or call-site-based) — helps arbitrary programs, and is
+      the actual approach-B work. Bigger, and it must not break the fixpoint.
+      **Decide (a) vs (b) with corpus data, which is exactly what is still missing** — see Finding 2.
+      **Finding 2 (UNRESOLVED — do not build on the corpus census yet):** run on a literate
+      markdown-heavy conformance program, `specs/v2-f5b-method-census.sh` reports 24 named sites whose
+      names are PROSE — `.This`, `.Because`, `.If`, `.Every`, `.md`, `.ssc`, `.js`, `.Today`, `.31`.
+      Anchoring the scanner to the full `(prim __method__ ` prim-application form did NOT change it,
+      and the F-source control stayed exactly right (44 = 30 named + 14 dynamic, 20 `.length`), so
+      this is **not** a loose-regex artifact — the IR really does contain 24 such prim applications.
+      Either F emits method dispatch over prose tokens in literate documents (a real defect worth its
+      own BUGS entry) or the probe is wrong in a way three fixes have not found. **Resolve this before
+      choosing (a) or (b)** — it decides whether the corpus census can be trusted at all, and it may
+      itself be a bug bigger than this slice.
+- [ ] **V-1a″ (was: the original V-1a′ wording) — local type inference for bare locals (approach B).** Infer a
       local's type from its binding site where the subset allows it (RHS tag, call return type via the
       existing `callRet` registry, pattern-bound positions), so `localTyOf` stops returning `?` for the
       20 measured sites. Gate exactly as below, and **re-run the census before and after** — it is now

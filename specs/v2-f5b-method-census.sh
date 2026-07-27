@@ -67,16 +67,15 @@ census() { # census <label> <ir-file>
 import sys, collections
 ir = open(sys.argv[1], encoding="utf-8", errors="replace").read()
 LIT = '(lit (str "'
+ANCHOR = "(prim __method__ "   # full anchor: a PRIM APPLICATION, not the bare token
 counts, recv, other = collections.Counter(), collections.Counter(), 0
 i = 0
 while True:
-    i = ir.find("__method__", i)
+    i = ir.find(ANCHOR, i)
     if i < 0:
         break
-    i += len("__method__")
+    i += len(ANCHOR)
     j = i
-    while j < len(ir) and ir[j].isspace():
-        j += 1
     # A named call site is exactly `__method__ (lit (str "NAME"))`. Read NAME with a real string
     # scanner (escape-aware) instead of a regex: the IR is ONE line, so a regex that stops at the
     # first `)` mis-buckets names, and one that allows any body silently swallows hundreds of
