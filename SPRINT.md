@@ -127,6 +127,15 @@ SQLite (MILESTONES stream 2 calls this out explicitly):
       form with its expected output unchanged. Original scope: `INSERT … VALUES (…, NULL, …)` is rejected
       while `UPDATE … SET x = NULL` works — a parser/value-path asymmetry.
 
+⚠️ **OUTSTANDING for whoever picks this up next: exact-SHA CI is NOT yet confirmed for this
+batch.** Everything below was verified by its own gates locally (X1 + fixpoint, semantic 248/248,
+scljet 105/105, cross-engine 7/7, portable-capsule 14/14), and the claim was released before the CI
+runs finished — which is a deviation from AGENTS.md §4c (pending CI should keep the claim open). The
+runs were queued/in-progress at hand-off: `30280918495` (batch C), `30281508270` (B2),
+`30281945660` (E1). **Check them first** (`scripts/ci-status --sha <sha>`, exit 0 is the only green)
+and record any red in `BUGS.md` + here before building on this work. Local green is not CI green —
+that lesson cost this project 192 consecutive red runs.
+
 **Batch E — vector 15 (Portable CodeMode) FULL ARC — Sergiy chose "всё, включая второй бэкенд"
 (2026-07-27).** This is the only path that actually flips vector 15 and takes durable to 25/26;
 it is a multi-session arc, not a slice. Staging is already fixed by `specs/portable-save-region.md`
