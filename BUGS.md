@@ -125,19 +125,27 @@ the same assembled route. The regular three-case conformance command is 3/3,
 but it runs only INT/JS/JVM for these manifests, so that green result does not
 exercise or disprove the native-v2 mismatch.
 
-**Classification.** Adding the contract-required imports from `std/json.ssc`
-makes all three cases byte-identical on V2, including the two values above.
-Adding those imports plus V2 to the existing shared manifests is not valid:
-the strict/lookup self-hosted routes fail on JS and do not compile on JVM,
-while the old fixtures intentionally exercise the legacy plugin intrinsics on
-those lanes. The native sweep therefore fed a legacy no-import fixture to a
-different public API and called its output a product regression.
+**Classification.** The first mixed-lane import control incorrectly appeared
+green on V2. An isolated, fail-closed rerun disproved it: explicit
+`std/json.ssc` imports still print `()` and `0.0`. This is the intended
+self-hosted representation, not a native-v2 conversion defect. The assembled
+compatibility product (`bin/ssc-tools run --v1`) prints the same two values
+before reaching a later v1-only callable-instance limitation; both the v1 and
+v2 `JsonCore` bridges map JSON null to Unit and preserve fractional/exponent
+tokens as exact Decimal values. The old `None` / integral-double display comes
+from the legacy plugin-global `jsonParse` API.
+
+Adding the self-hosted imports plus V2 to the existing shared manifests is not
+valid: the strict/lookup routes fail on JS and do not compile on JVM, while the
+old fixtures intentionally exercise legacy plugin intrinsics on those lanes.
+The native sweep therefore fed a legacy no-import fixture to a different
+public API, then compared it with the legacy API's representation.
 
 **Fix.** Leave the three legacy fixtures and expected files unchanged. Add one
 V2-only conformance case that explicitly imports the self-hosted JSON surface
-and pins strict raw parse, typed navigation, lookup, JSON null, and integral
-decimal rendering. The ordinary conformance command must then execute the V2
-boundary instead of relying on an ad-hoc sweep.
+and pins strict raw parse, typed navigation, lookup, Unit-backed JSON null, and
+exact decimal rendering. The ordinary conformance command must then execute
+the V2 boundary instead of relying on an ad-hoc sweep.
 
 ## native-release-unqualified-and-unrelocatable — release workflow cannot prove a runnable v2 artifact
 

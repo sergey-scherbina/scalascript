@@ -7124,11 +7124,15 @@ emits `def C(a) = IrCtor(C, [a])`; extend to `def C(a) = let y=a*2 in IrCtor(C, 
     display (`expected=0`, `got=0.0`). Track the real defect as BUGS
     `v2-json-read-native-representation-parity`; do not preserve the stale
     "unbound self-hosted global" diagnosis.
-  - **Import control:** explicit `std/json.ssc` imports make all three outputs
-    exact on V2. The same edit breaks JS and JVM, so the shared legacy-intrinsic
-    fixtures cannot simply gain a V2 lane. Keep them byte-for-byte unchanged
-    and add one V2-only `json-self-hosted-import` case covering strict raw
-    parse, `JsonValue`, lookup, null, and integral-decimal rendering.
+  - **Import-control correction:** the first mixed-lane run falsely appeared
+    exact on V2. The isolated V2 fixture and a direct assembled rerun both
+    print `()` / `0.0`; assembled v1 self-hosted execution prints the same.
+    The legacy `None` / `0` expectation therefore belongs to the old global
+    intrinsic API, not `std/json.ssc`. The import also breaks JS and JVM, so
+    the shared legacy-intrinsic fixtures cannot simply gain a V2 lane. Keep
+    them byte-for-byte unchanged and add one V2-only
+    `json-self-hosted-import` case covering strict raw parse, `JsonValue`,
+    lookup, Unit-backed null, and exact-decimal rendering.
   - Done when regular conformance keeps json-read/json-value/json-lookup 3/3 on
     their original lanes and the new V2-only import-boundary case passes through
     both the standard wrapper and the assembled product, with no native stub or
