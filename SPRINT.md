@@ -83,44 +83,32 @@ today would conclude the flip is still held and CI has never been green. That is
 `feedback_measurement_must_compare_not_prejudge` failure shape applied to the *plan* instead of
 the *gate*, so it gets fixed first.
 
-- [ ] **1. `BACKLOG.md` §`v2-f4-flip`** — header says "STILL HELD (2nd re-flip attempt … NEW blocker
-      found)"; blocker ③ is cleared. Rewrite as landed (`56d7d705f`), keep the two-revert history +
-      the "corpus dual-run is necessary but NOT sufficient" lesson (it is the durable part), and
-      point the residual perf cost at the F5b arc. Remaining open sub-item after the rewrite:
-      F4 **step 5** (delete `ssc1-front`/`ssc1-lower` + the F4a delegate-fallback) — Sergiy's call,
-      not agent-claimable.
-- [ ] **2. `BUGS.md` `f-native-out-of-corpus-smoke-regressions`** — `Status: OPEN — narrowed`, but its
-      own body records ③.1 FIXED (`f02100097`) and ③.2 FIXED via D2 (`cca93b867`), and the flip
-      release-claim verified the full 72-script e2e smoke set A/B-green under F vs legacy with zero
-      F-only regressions. Flip to FIXED with the landed SHAs + that verification line.
-- [ ] **3. `MILESTONES.md` §Health** — "CI was red for 192 consecutive runs … main has never had a
-      fully green run" → record the first green (`18ee1c21a`, run `30020319173`, 4/4 jobs) and keep
-      the standing rule (`gh run list` before claiming a lane green) — the rule survives, the status
-      does not. Also refresh §1 (stream 1): the F4 front swap is done at the default level.
-- [ ] **4. `jdk-backend-accept-teardown-race`** — the ready one-liner below; close it in the same
-      sweep so the top of the queue is genuinely empty. Separate feature commit.
-- [ ] **5. Stale worktrees** — `scalascript-wt-{ci-last-red,d2-reader-impl,v2-f4-flip}` have no
-      unpushed commits and clean status = cleanup artifacts (AGENTS.md Rule 4). Remove with
-      `scripts/rm-worktree` (kills their sbt/bloop daemons too), then `scripts/kill-stale-builders`.
+- [x] **1. `BACKLOG.md` §`v2-f4-flip`** — rewritten as LANDED (`56d7d705f`), keeping the three-attempt
+      history and the "corpus dual-run is necessary but NOT sufficient" lesson. Residual perf cost
+      pointed at the F5b arc. Remaining open sub-item: F4 **step 5** (delete `ssc1-front`/`ssc1-lower`
+      + the F4a delegate-fallback) — point of no return, Sergiy's call, not agent-claimable.
+- [x] **2. `BUGS.md` `f-native-out-of-corpus-smoke-regressions`** — FIXED. Closed on a **re-run**, not
+      on the flip claim's paperwork: the three owning smokes (`v21-native-md-interpolator`,
+      `v21-native-plugin-boundary`, `v21-plugin-backend-isolation`) re-run from a fresh `installBin`
+      stage with F as the live default, each A/B'd against `SSC_FRONT=legacy` — 3/3 PASS on both
+      fronts, and the fixture prints the interpolated content rather than the fail-open `<closure>`.
+- [x] **3. `MILESTONES.md`** — §Health records the first fully-green run (`18ee1c21a`, run
+      `30020319173`, 4/4 jobs) and keeps the standing rule; §1 records the front swap as done at the
+      default level. Also corrected every stale `[claimed]` in §"REMAINING WORK — the one index" (the
+      claim tree held nothing but `_placeholder`).
+- [x] **4. `jdk-backend-accept-teardown-race`** — fixed (`JdkServerBackend` accept loop now catches the
+      rejection on the submit and closes the orphaned client socket when `_running` is already false).
+      `backendInterpreterServer/test` 62/0, `ServeAsyncReadyTest` 4/4 × 3 runs. BUGS closed.
+- [x] **5. Stale worktrees** — `ci-last-red`, `d2-reader-impl`, `v2-f4-flip` removed via
+      `scripts/rm-worktree` (all clean, zero commits ahead).
 - [ ] **6. Plan the F5b typed-IR arc into SPRINT** — the agreed next track. F is default but
       interpreted and 2-4× slower than legacy (measured: hello 0.8→1.5 s, scljet 8→32 s; forced the
       negtc CI step budget 30→75 min). F5b typed IR is the single prerequisite for BOTH deferred
       kernel-shrink levers (δ-table retirement −1,100…1,500 L; FastCode/SelfRec deletion, already
       proven byte-identical but perf-blocked at fib 4.3×). Existing slices: §`v2-f5b-stage1` (S1-5),
       §`v2-f5c`, `specs/v2-f5b-typed-ir-design.md`. Re-measure the baseline before claiming any of it.
-
----
-
-## 2026-07-23 — jdk-backend-accept-teardown-race (benign follow-up, ready one-liner)
-
-- [ ] **jdk-backend-accept-teardown-race** — swallow the uncaught
-      `RejectedExecutionException` on the `jdk-backend-accept` thread at teardown. Found while
-      fixing `wsproxy-teardown-race`; **non-CI-blocking** (only stderr noise + one leaked accept
-      socket; `sbt test` stays green). Fix: mirror `WsProxy`'s accept loop —
-      `JdkServerBackend.scala:110-112`, add
-      `case _: java.util.concurrent.RejectedExecutionException if !_running => ()`
-      (best-effort `client.close()`). Full repro + rationale in `BUGS.md`
-      (`jdk-backend-accept-teardown-race`).
+      **Superseded by the `f4-arc-closure` sibling's Batch B** (queued `22806a86a`) — see the
+      collision note at the top of this section.
 
 ---
 
@@ -2627,14 +2615,24 @@ release → `ok`. Deterministic (30 s ≫ 2 s; the query can't return until sclj
 The single answer to "what's left". Each line points to the detailed section that owns it. Ordered by
 value. `[claimed]` = a live agent owns it; `[open]` = free to claim; `[blocked]` = has a prerequisite.
 
+> **Ownership markers re-checked 2026-07-27: every `[claimed]` below was stale.** `git ls-tree
+> origin/main .work/active/` held nothing but `_placeholder` — no agent was alive on any of them.
+> A `[claimed]` written into this file is a snapshot, not a lock; the claim tree is the only
+> authority (AGENTS.md §"Task claiming protocol"). Markers corrected in place below.
+
 **Stream 1 — self-hosting (the spine):**
-- `[claimed]` **P6.5 subset breadth → cover all of ScalaScript.** The self-compilation fixpoint holds
+- `[open]` **P6.5 subset breadth → cover all of ScalaScript.** The self-compilation fixpoint holds
   for the subset `F` is written in; the remaining breadth (given/summon, enums, extensions,
   for-comprehensions, `var`/`while`, interpolation, prelude selectors, List-var registry) is bounded
-  mechanical corpus growth, no design question left. See §"v2.2 STATUS" + the P6.5 item. Owner: p65 agent.
-- `[claimed]` **newfront Phase 2 — multi-file / imports.** Multi-file MATCH **43/216 (20%)** behind the
+  mechanical corpus growth, no design question left. See §"v2.2 STATUS" + the P6.5 item.
+  **Raised in priority 2026-07-23:** F is now the DEFAULT front, so every subset gap is a live
+  delegate-fallback to legacy rather than an opt-in curiosity — and F4 step 5 (deleting
+  `ssc1-front`/`ssc1-lower`) cannot happen until the fallback is unnecessary.
+- `[open]` **newfront Phase 2 — multi-file / imports.** Multi-file MATCH **43/216 (20%)** behind the
   new gate; close link-imports `[names](path)` + `import a.b.{x,y}` across files. See
-  §`new-self-hosting-front`. Owner: newfront agent.
+  §`new-self-hosting-front`. **Ask before claiming:** this is the *other* front-replacement thread,
+  started before F won the cutover. With F shipped as default, whether newfront still has a job is a
+  direction question for Sergiy, not an agent decision.
 - `[x]` **P6.21 — the self-host CI guard is itself RED.** FIXED 2026-07-17 (`ci-last-red`): the guard
   was wrong, not the self-host — `ScalaSpikeSpec`'s `C_min` case could not FIND `specs/v2.2-p6.6-cmin.L`
   from the sbt module CWD (and `emit projections` wrote to a hardcoded macOS path). Both anchored to a
@@ -2644,9 +2642,12 @@ value. `[claimed]` = a live agent owns it; `[open]` = free to claim; `[blocked]`
   on v2-native; unverified in the subset — do not infer). See the P6.6/self-host arc section.
 
 **Stream 2 — dogfood:**
-- `[claimed]` scljet — a live sibling holds `scljet-jdbc-durability`. Open scljet items
-  (`scljet-update-ipk-column-silently-ignored`, unique-index-not-supported) belong to that owner; do
-  NOT spawn a competing scljet lane. See BUGS.md + the scljet SPRINT sections.
+- `[open]` scljet — the `scljet-jdbc-durability` claim is long gone (released; `scljet-unique-index-
+  not-supported` landed `50d2ca5bc`). Still open in BUGS.md: `scljet-update-ipk-column-silently-
+  ignored` + `scljet-update-ipk-does-not-move-rowid` (the `INTEGER PRIMARY KEY`-aliases-rowid family,
+  which MILESTONES calls out as making our files wrong for real SQLite), `scljet-insert-null-literal-
+  rejected`, `scljet-js-large-page-byteslice-recursion-overflow`, `scljet-jdbc-facade-bytecode-class-
+  too-large`. One agent should own the family — do NOT spawn competing scljet lanes.
 
 **Stream 3 — control/interop (unblocked; a chain):**
 - `[x]` **coreir codec H4 + H5 — DONE `81bc5d122` (landed 2026-07-17; re-verified green 2026-07-21).**
@@ -2673,10 +2674,16 @@ value. `[claimed]` = a live agent owns it; `[open]` = free to claim; `[blocked]`
   `durable-save`/`no-replay`.
   See §"Reusable continuation save/run" for the follow-on items and the GATE-LIFTED note.
 
-**Health — get `main` to its first fully-green run:**
-- `[open]` **ci-last-red — the `sbt — compile and test` job is the only red left.** 5 suites in
-  `Test via sbt` (newfront/swift/scljet lanes) + `v21-native-entry-smoke` still asserts with silent
-  `[[ ]]`. See §`ci-last-red`. **Until this closes, main has never had a fully green run.**
+**Health — ✓ ACHIEVED 2026-07-23: `main`'s first fully-green run.**
+- `[x]` **ci-last-red — the `sbt — compile and test` job was the last red.** Closed by the F4-flip
+  endgame crew rather than by this item directly: the remaining `Test via sbt` failures were
+  root-caused one by one (`599553bc8` WsProxy teardown race, `fa19761c2` multi-file positional order,
+  `35331f1c7` the silent top-level `case object` drop) and the whole suite was finally run under
+  F-default in one pass instead of one-failure-per-CI-run whack-a-mole. Run `30020319173` on
+  `18ee1c21a` is green on all four jobs. See §`ci-last-red` for the original inventory and the silent
+  `[[ ]]` assertions it fixed. **Standing rule survives the milestone:** a local green is not a CI
+  green — check `gh run list --workflow=ci.yml --branch=main`, and remember `[skip ci]` bookkeeping
+  commits leave HEAD without a run of its own, so verify the newest *code* commit.
 
 **Fail-open correctness bugs found today (all silent, exit 0):**
 - `[x]` **int-literal-failopen** — DONE `5b71ad2f6`. `println(2147483648)` → `null` (v1 ref) and

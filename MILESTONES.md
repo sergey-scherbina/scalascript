@@ -21,6 +21,12 @@ This is the spine: the `C_min` compiler-for-L-in-L fixpoint already holds (stage
 byte-identical, no quine), and the **new self-hosting front** is replacing `ssc1-front`+`ssc1-lower`
 byte-identically against the frozen Core IR.
 
+**Front swap DONE at the default level (2026-07-23, `56d7d705f`):** `F` is the default native front
+(`RunNativeV2.frontIsF` opt-OUT; `SSC_FRONT=legacy` reverts), CI-green on the flipped tree.
+`ssc1-front`/`ssc1-lower` remain only as the F4a delegate-fallback; deleting them (F4 step 5) is
+Sergiy's call. The residual cost is perf — F is interpreted and ~2-4× slower — which is the F5b
+typed-IR arc, also the prerequisite for both kernel-shrink levers. See `BACKLOG.md` §`v2-f4-flip`.
+
 Two independent threads run under this stream — don't confuse them:
 
 - **newfront** — the clean front replacing `ssc1-front`+`ssc1-lower`, byte-identical on the corpus.
@@ -74,13 +80,18 @@ other languages can drive — and be driven by — ScalaScript.
   API and semantic vectors "may proceed now" per SPRINT.
 - Detail: `SPRINT.md` §`control-interoperability`, `specs/control-interoperability.md`.
 
-### Health (blocks everything — check before trusting any gate)
+### Health (check before trusting any gate)
 
-`origin/main` CI was **red for 192 consecutive runs** (through 2026-07-16) and nobody read it, so
-failures stacked: each one masked the next. **A local green does not imply CI green** — the
-launchers passed no `-Xss`, so the interpreter inherited the JVM default main-thread stack (2m on
-macOS, 1m on Linux), and every `scljet-*` case passed on developer macs while StackOverflowError-ing
-in CI. Check `gh run list --workflow=ci.yml --branch=main` before claiming a lane green.
+**First fully-green run on `main`: 2026-07-23** — run `30020319173` on `18ee1c21a`, all four jobs
+(`Conformance Suite`, `sbt — compile and test`, `Validate ScalaScript`, `Lint Markdown`). That ends a
+streak of **192 consecutive red runs** (through 2026-07-16) that nobody read, during which failures
+stacked and each one masked the next.
+
+The rule outlives the streak: **a local green does not imply CI green.** The launchers passed no
+`-Xss`, so the interpreter inherited the JVM default main-thread stack (2m on macOS, 1m on Linux), and
+every `scljet-*` case passed on developer macs while StackOverflowError-ing in CI. Check
+`gh run list --workflow=ci.yml --branch=main` before claiming a lane green, and note that
+`[skip ci]` bookkeeping commits leave HEAD without a run of its own — verify the newest *code* commit.
 Detail: `SPRINT.md` §`ci-red-main`.
 
 ---

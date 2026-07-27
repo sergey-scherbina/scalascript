@@ -1,5 +1,48 @@
 # Changelog
 
+## 2026-07-27 — post-f4-board-reconcile: the board catches up with two landed milestones
+
+Bookkeeping-only, but load-bearing: the planning files contradicted reality on both of the things
+that landed 2026-07-23, so a fresh agent reading them would have concluded the opposite of the truth.
+
+- **`v2-f4-flip` — LANDED.** `BACKLOG.md` still headed the section "STILL HELD … NEW blocker found".
+  F has been the DEFAULT native front since `56d7d705f` (`RunNativeV2.frontIsF` is opt-OUT;
+  `SSC_FRONT=legacy` is both the escape hatch and the one-line revert). Rewritten as landed, keeping
+  the three-attempt history and the durable lesson (corpus dual-run + fixpoint + semantic are
+  *necessary but NOT sufficient* for a default-front cutover — every blocker that actually bit was
+  invisible to them: out-of-corpus fixtures, isolation behaviour, full-`sbt test` timing). What stays
+  open under the milestone is **F4 step 5** — deleting `ssc1-front`/`ssc1-lower` and the F4a
+  delegate-fallback — which is a point of no return and therefore Sergiy's call.
+- **`main` had its first fully-green CI run.** `MILESTONES.md` §Health still said "main has never had
+  a fully green run" and SPRINT still listed `ci-last-red` as "the only red left". Run `30020319173`
+  on `18ee1c21a` is green on all four jobs (Conformance Suite, `sbt — compile and test`, Validate
+  ScalaScript, Lint Markdown), ending the 192-consecutive-red streak. The standing rule survives the
+  milestone and is kept: a local green is not a CI green, and `[skip ci]` bookkeeping commits leave
+  HEAD without a run of its own — verify the newest *code* commit.
+- **Stale ownership markers.** Every `[claimed]` in SPRINT's "REMAINING WORK — the one index" was
+  stale (the claim tree held nothing but `_placeholder`). Corrected in place, with a note that a
+  `[claimed]` written into a file is a snapshot, not a lock.
+- **`BUGS.md`:** `f-native-out-of-corpus-smoke-regressions` → FIXED, closed on a re-run of its three
+  owning smokes under F-as-default and A/B'd against legacy (3/3 PASS on both), not on the flip
+  claim's paperwork. `jdk-backend-accept-teardown-race` → FIXED (below).
+- **Housekeeping:** removed the three orphaned worktrees (`ci-last-red`, `d2-reader-impl`,
+  `v2-f4-flip` — all clean, zero commits ahead) via `scripts/rm-worktree`.
+
+## 2026-07-27 — jdk-backend-accept-teardown-race: swallow the accept-thread rejection at teardown
+
+`JdkServerBackend`'s accept loop submitted `pool.execute(() => proxyConnection(client, …))` for a
+connection accepted right at shutdown; `stop()` had already flipped `_running` and called
+`shutdownNow()`, and the loop's catch (`case _: Throwable if _running => ()`) only swallows *while
+running*, so the `RejectedExecutionException` escaped uncaught on the `jdk-backend-accept-<port>`
+thread (~2/5 local `backendInterpreterServer/test` runs). Benign, unlike its sibling
+`wsproxy-teardown-race` (`599553bc8`): the process-wide WS slot is reserved inside `proxyConnection`,
+which never runs here, so nothing leaks `_wsActiveCount` and there is no 503/101 cascade — cost was
+one leaked accept socket plus stderr noise. Fixed by mirroring `WsProxy`'s accept loop: an inner catch
+on the submit that closes the orphaned client socket when `_running` is already false. Verified
+`backendInterpreterServer/test` 62 passed / 0 failed and `ServeAsyncReadyTest` 4/4 on three
+consecutive runs — noting that a clean run of a ~2/5 race is weak evidence on its own, so the
+load-bearing part is that the documented stack is now explicitly handled.
+
 ## 2026-07-23 — f-case-object-drops-program: lower top-level `case object` in F
 
 Fixes the actual last CI blocker to the F4 re-flip's green `sbt — compile and test` job. Run

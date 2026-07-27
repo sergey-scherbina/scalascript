@@ -15,32 +15,49 @@ Status hygiene (2026-06-23): open `[ ]` rows below are intentionally still open,
 explicitly `BLOCKED` or `DEFERRED` product/external-decision items. History-only / wontfix notes
 are plain bullets without checkboxes so agents do not claim them as build work.
 
-## v2-f4-flip — STILL HELD (2nd re-flip attempt 2026-07-22: blockers ①② cleared, NEW blocker found)
+## v2-f4-flip — ✓ LANDED (2026-07-23, `56d7d705f`) — F is the DEFAULT native front
 
-Make `F` (`specs/v2.2-p6.5-fsub.ssc`) the DEFAULT native front. The flip itself is a one-liner in
-`RunNativeV2.frontIsF` (opt-IN → opt-OUT). First attempt landed `3750df8c2`, reverted `bf24267e9` on two
-CI-caught out-of-corpus blockers. Second attempt (`v2-f4-reflip`, 2026-07-22) FIXED both but was HALTED
-before the flip when the targeted e2e smokes caught a THIRD blocker class:
+`F` (`specs/v2.2-p6.5-fsub.ssc`) is now the default native lowerer: `RunNativeV2.frontIsF` is opt-OUT
+(`SSC_FRONT=legacy` is the escape hatch and the one-line revert). Verified end-to-end: F4 Front Swap
+Gates green (classify + dual-run + fixpoint), and regular CI green on the flipped tree — run
+`30020319173` on `18ee1c21a`, all 4 jobs, which is also `main`'s first fully-green run after the
+192-red streak. `ssc1-front`/`ssc1-lower` stay wired as the F4a delegate-fallback, so F is
+never-worse-than-legacy.
 
-1. **✓ DONE — F integer-literal fail-OPEN** — BUGS `f-int-literal-overflow-fails-open`, FIXED `180f16fcb`.
-   F now range-checks decimal literals and fails closed (kind-11 overflow token → `(global _err_int_range)`,
-   min64 preserved). `int-literal-failopen-smoke` GREEN under F; fixpoint/semantic/dualrun all green.
-2. **✓ ADDRESSED (staged) — F performance / CI budget** — F is ~2-4x slower (interpreted self-hosting
-   compiler; measured hello 0.8→1.5 s, scljet 8→32 s), so a measured F-default negtc gate run took ~23 min
-   and blew the old 30-min step cap. CI budget bumped `f12147c93` (negtc step 30→75, sbt job 240→300;
-   frozen metrics unchanged — front-independent). Deep F-perf recovery is the **F5b typed-IR arc**.
-3. **✗ NEW BLOCKER — F out-of-corpus native-smoke regressions** — BUGS `f-native-out-of-corpus-smoke-regressions`.
-   Under F-as-default, `v21-native-md-interpolator` (fail-open `<closure>` on markdown `${…}` interpolation)
-   and `v21-native-plugin-boundary` FAIL, while both PASS under `SSC_FRONT=legacy` (A/B-verified; 10 other
-   smoke failures fail on both fronts = pre-existing). These fixtures are out-of-corpus so the dual-run /
-   semantic gates couldn't see them — the SAME class as blocker ①. **Fix these (byte-identical to legacy on
-   the `v21-native-*` / `v21-self-hosted-*` fixtures), then the whole `tests/e2e/*smoke*` set must be green
-   under F-as-default**, before re-attempting the one-line flip.
+**Still open under this milestone — F4 step 5: delete `ssc1-front`/`ssc1-lower` + the F4a
+delegate-fallback.** That is the point of no return (F becomes the only front, no fallback path), so it
+is Sergiy's call, not agent-claimable.
 
-Re-flip precondition/verification set (learned twice now — corpus dual-run is necessary but NOT sufficient):
-X1 fixpoint byte-identical + semantic + dualrun + negtc within budget, **AND** the full targeted
-`tests/e2e/*smoke*` set green under F-as-default (A/B'd vs `SSC_FRONT=legacy` to separate F-regressions from
-pre-existing failures). Do NOT edit `specs/v2.2-p6.5-fsub.ssc` outside the owning F arc.
+**Residual cost, tracked elsewhere:** F is an interpreted self-hosting compiler and ~2-4× slower than
+legacy (measured hello 0.8→1.5 s, scljet 8→32 s), which forced a CI budget bump (`f12147c93`: negtc step
+30→75 min, sbt job 240→300; frozen metrics unchanged — front-independent). Deep recovery is the **F5b
+typed-IR arc**, which is also the prerequisite for both kernel-shrink levers — see §"v2 kernel-shrink
+deep remainder (F5)" below.
+
+### How it got there — and the lesson worth keeping
+
+Three attempts. First landed `3750df8c2`, reverted `bf24267e9`. Second (`v2-f4-reflip`, 2026-07-22)
+cleared its blockers but was HALTED before flipping when a third class appeared. Blockers, in order:
+
+1. **F integer-literal fail-OPEN** — BUGS `f-int-literal-overflow-fails-open`, FIXED `180f16fcb`.
+2. **F performance / CI budget** — addressed by the budget bump above.
+3. **F out-of-corpus native-smoke regressions** — BUGS `f-native-out-of-corpus-smoke-regressions`:
+   `v21-native-md-interpolator` (fail-open `<closure>` on `md"…"`, FIXED `f02100097`) and
+   `v21-native-plugin-boundary` (an isolation/class-load issue — F's tower class-loaded kernel
+   `ssc.Reader` on every run; FIXED via D2 `cca93b867`, zero `ssc.Reader` under F).
+4. **Exposed only once F was live-default:** multi-file positional order (`fa19761c2`), the silent
+   top-level `case object` drop (`35331f1c7` — collapsed any std-importing program to `0`), and the
+   pre-existing `WsProxy` teardown race that F's slower compile turned into a real `sbt test` red
+   (`599553bc8`).
+
+**The lesson (proven three times, keep it):** corpus dual-run + fixpoint + semantic gates are
+*necessary but NOT sufficient* for a default-front cutover. Every one of blockers ①③④ was invisible to
+them — out-of-corpus fixtures, isolation behaviour, and full-`sbt test` timing live outside the corpus.
+The bar that actually held was: X1 fixpoint byte-identical + semantic + dualrun + negtc within budget,
+**AND** the full targeted `tests/e2e/*smoke*` set green under F-as-default (A/B'd vs `SSC_FRONT=legacy`
+to separate F-regressions from pre-existing failures — it ended at 72/72, zero F-only), **AND** the full
+`sbt test` suite run under F-default rather than one-failure-per-CI-run whack-a-mole. Do NOT edit
+`specs/v2.2-p6.5-fsub.ssc` outside the owning F arc.
 
 ## v2 kernel-shrink deep remainder (F5) — DEFERRED with measured findings (2026-07-21)
 
