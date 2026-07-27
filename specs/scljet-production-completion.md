@@ -92,7 +92,7 @@ the same bookkeeping commit that changes the capability.
 | WAL codec/read overlay/image checkpoint | `helper-only` | no shared-memory snapshot/lock protocol |
 | Standard wal-index and concurrent WAL | `open` | no wal-index module or transaction/checkpoint state machine |
 | Curated SQL evaluator | `subset` | current `scljet-sql-*` cases |
-| Affinity and constraints | `open` | only rowid/IPK and explicit unique-index enforcement are partial foundations |
+| Affinity and constraints | `subset` | portable IPK affinity is gated; scalar semantics, the JVM oracle, and general constraints remain open |
 | Typed SQL | `subset` | `typedsql.ssc` and four conformance cases; stale pre-implementation label is false |
 | Portable/JVM JDBC | `subset` | façade and shim exist; prepare reparses and rows materialize |
 | Connection transaction SQL/savepoints | `open` | image staging is not the canonical VFS transaction protocol |
@@ -149,6 +149,14 @@ also have a fail-closed SC-1 gate: decimal-integer lexing detects overflow inste
 wrapping, and every mutation parser must consume its complete token stream before writing.
 The remaining signed `VALUES`, exponent, and hexadecimal source-literal grammar lands with
 SC-8; until then an unsupported form returns a syntax error without mutating any row.
+
+Portable SC-1a landed in `a00db1967`. The compare-first
+`scljet-ipk-numeric-affinity` and `scljet-mutation-complete-parse` gates pass on
+INT and JS, including exact unary `Long.MinValue`, invalid-later-row atomicity,
+indexed INSERT/UPDATE, and structurally incomplete DDL. The post-rebase full
+SclJet sweep is 108/108. This is not yet the SC-1a closure verdict: the same
+matrix still has to run against reference sqlite-jdbc, compare resulting rows
+and `integrity_check`, after the foreign `v1/runtime/**` claim releases.
 
 Before schema work builds on it, scalar value semantics also need live differential gates:
 

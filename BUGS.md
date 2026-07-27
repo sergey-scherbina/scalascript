@@ -208,8 +208,10 @@ vectors without changing the distinct TEXT-affinity grammar.
 
 ## scljet-update-ignores-unconsumed-numeric-tail — mutation parsers can execute a recognized prefix
 
-**Status:** OPEN (found 2026-07-27 by `scljet-production-completion`; reproduced
-through the assembled v1 runner and real `jdbc:scljet:` driver).
+**Status:** FIXED in `a00db1967` (found 2026-07-27 by
+`scljet-production-completion`; reproduced through the assembled v1 runner and
+real `jdbc:scljet:` driver). The fail-first INT+JS regression now passes; keep
+SC-1a open until its reference sqlite-jdbc matrix also passes.
 
 **Real-harness reproduction.** From rowid 100,
 `UPDATE t SET id = 2e2 WHERE id = 100` moves the row to 2, while
@@ -235,8 +237,10 @@ may fail loud, but it may never partially execute.
 
 ## scljet-sql-integer-literal-overflow-wraps-rowid — decimal 2^63 becomes Long.MinValue
 
-**Status:** OPEN (found 2026-07-27 by `scljet-production-completion`; reproduced
-through assembled INT and `jdbc:scljet:` paths).
+**Status:** FIXED in `a00db1967` (found 2026-07-27 by
+`scljet-production-completion`; reproduced through assembled INT and
+`jdbc:scljet:` paths). `scljet-ipk-numeric-affinity` is green on INT+JS; the
+reference sqlite-jdbc closure gate remains pending.
 
 **Real-harness reproduction.** Bare decimal literal `9223372036854775808` in an
 IPK INSERT or UPDATE succeeds as rowid `-9223372036854775808`. Reference SQLite
@@ -248,10 +252,19 @@ without overflow detection. SC-1a must parse the unsigned decimal magnitude
 exactly, keep in-range integers as `SqlInteger`, and represent an out-of-range
 decimal token through SQLite's binary64 path instead of wrapping.
 
+Independent pre-push review caught the adjacent signed-boundary hazard:
+reclassifying the unsigned magnitude as REAL must still fold exactly
+`-9223372036854775808` (including leading-zero spellings) to integer
+`Long.MinValue`, without accepting the binary64-rounded
+`-9223372036854775809` or decimal `-9223372036854775808.0`. The regression gate
+pins all three.
+
 ## scljet-auto-rowid-negative-and-max-boundaries — allocation starts at zero and wraps at Long.MaxValue
 
-**Status:** OPEN (found 2026-07-27 by `scljet-production-completion`; static
-root cause confirmed against reference SQLite 3.51.0).
+**Status:** FIXED in `a00db1967` (found 2026-07-27 by
+`scljet-production-completion`; static root cause confirmed against reference
+SQLite 3.51.0). Portable regressions cover negative-only and `Long.MaxValue`
+tables; the reference sqlite-jdbc closure gate remains pending.
 
 **Reproduction.** With only rowid `-5`, `INSERT ... VALUES (NULL, ...)` chooses
 1 in SclJet but -4 in SQLite. With an existing `Long.MaxValue`, SclJet computes
@@ -1285,10 +1298,11 @@ the restriction.
 
 ## scljet-ipk-update-numeric-affinity — INSERT auto-assigns invalid IPKs and UPDATE refuses valid affinity
 
-**Status:** OPEN (opened 2026-07-27 by `scljet-ipk-rowid`, expanded the same day
-by `scljet-production-completion` after assembled INSERT/UPDATE differential).
-UPDATE is deliberately fail-closed; INSERT is a correctness defect because it
-silently converts every invalid explicit IPK into automatic allocation.
+**Status:** FIXED in `a00db1967` (opened 2026-07-27 by
+`scljet-ipk-rowid`, expanded the same day by
+`scljet-production-completion` after assembled INSERT/UPDATE differential).
+The fail-first affinity matrix is green on INT+JS; keep the encompassing SC-1a
+item open until reference sqlite-jdbc rows and integrity also compare green.
 
 **Symptom** (reference sqlite3 3.51.0 vs scljet, same statements on `emp(id INTEGER PRIMARY KEY, …)`):
 
