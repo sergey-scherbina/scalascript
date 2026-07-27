@@ -25,6 +25,7 @@ import RenderHelpers.*
 import ArtifactInfoPrinters.*
 
 @main def ssc(rawArgs: String*): Unit =
+  NativeImageInstallRoot.configure()
   // --quiet silences third-party SLF4J library output (commonmark, …)
   // by raising the slf4j-simple threshold to error.  Must run before any SLF4J
   // logger is first touched.  Keep --quiet in args0 so subcommands can see it.

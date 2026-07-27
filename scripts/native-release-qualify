@@ -1,0 +1,648 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  printf '%s\n' \
+    'usage: scripts/native-release-qualify <artifact-id> <archive.tar.gz>' >&2
+}
+
+fail_check() {
+  local check=$1
+  local expected=$2
+  local actual=$3
+  printf "native-release-qualify: FAILED check '%s'\n" "$check" >&2
+  printf '%s\n' '--- expected' "$expected" '--- actual' "$actual" >&2
+  exit 1
+}
+
+file_repr() {
+  "$PYTHON" - "$1" <<'PY'
+import sys
+
+with open(sys.argv[1], "rb") as stream:
+    print(repr(stream.read()))
+PY
+}
+
+if [[ $# -ne 2 ]]; then
+  usage
+  exit 2
+fi
+
+ARTIFACT_ID=$1
+ARCHIVE=$2
+ARCHIVE_BASE=${ARCHIVE##*/}
+SIDECAR="${ARCHIVE}.sha256"
+PYTHON=${SSC_RELEASE_PYTHON:-$(command -v python3 || true)}
+JAVA=${SSC_RELEASE_JAVA:-$(command -v java || true)}
+PROCESS_TIMEOUT=${SSC_RELEASE_TIMEOUT_SECONDS:-60}
+
+if [[ ! $ARTIFACT_ID =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+  fail_check artifact-id 'letters, digits, dot, underscore, or dash' "$ARTIFACT_ID"
+fi
+if [[ $ARCHIVE_BASE != "$ARTIFACT_ID.tar.gz" ]]; then
+  fail_check archive-name "$ARTIFACT_ID.tar.gz" "$ARCHIVE_BASE"
+fi
+if [[ ! -f $ARCHIVE ]]; then
+  fail_check archive-file 'a regular archive file' "$ARCHIVE is missing or not regular"
+fi
+if [[ ! -f $SIDECAR ]]; then
+  fail_check checksum-sidecar 'a regular <archive>.sha256 file' "$SIDECAR is missing or not regular"
+fi
+if [[ -z $PYTHON || ! -x $PYTHON ]]; then
+  fail_check python-runtime 'an executable python3' "${PYTHON:-not found}"
+fi
+PYTHON_VERSION=$(
+  "$PYTHON" -c 'import platform; print(platform.python_version())' 2>&1
+) || fail_check python-runtime 'Python 3.9 or newer' "$PYTHON_VERSION"
+if ! "$PYTHON" -c \
+  'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)'
+then
+  fail_check python-runtime 'Python 3.9 or newer' "$PYTHON_VERSION"
+fi
+if [[ -z $JAVA || ! -x $JAVA ]]; then
+  fail_check plugin-java 'an executable Java runtime for the plugin host' "${JAVA:-not found}"
+fi
+if [[ ! $PROCESS_TIMEOUT =~ ^[1-9][0-9]*$ ]]; then
+  fail_check process-timeout 'a positive integer number of seconds' "$PROCESS_TIMEOUT"
+fi
+
+ARCHIVE_DIR=${ARCHIVE%/*}
+if [[ $ARCHIVE_DIR == "$ARCHIVE" ]]; then
+  ARCHIVE_DIR=.
+fi
+ARCHIVE_DIR=$(cd "$ARCHIVE_DIR" && pwd)
+ARCHIVE="$ARCHIVE_DIR/$ARCHIVE_BASE"
+SIDECAR="${ARCHIVE}.sha256"
+DIRECT_BINARY="$ARCHIVE_DIR/$ARTIFACT_ID"
+
+if [[ ! -f $DIRECT_BINARY ]]; then
+  fail_check direct-binary-file "$ARTIFACT_ID beside the archive" \
+    "$DIRECT_BINARY is missing or not regular"
+fi
+if [[ ! -x $DIRECT_BINARY ]]; then
+  fail_check direct-binary-executable "$ARTIFACT_ID with at least one executable bit" \
+    "$DIRECT_BINARY is not executable"
+fi
+
+QUALIFY_TMP=$(mktemp -d "${TMPDIR:-/tmp}/ssc-native-release.XXXXXX")
+cleanup() {
+  rm -rf "$QUALIFY_TMP"
+}
+trap cleanup EXIT HUP INT TERM
+
+ACTUAL_SHA=$(
+  "$PYTHON" - "$ARCHIVE" "$SIDECAR" "$ARCHIVE_BASE" <<'PY'
+import hashlib
+import sys
+
+archive, sidecar, archive_base = sys.argv[1:]
+
+
+def fail(check: str, expected: str, actual: str) -> None:
+    print(f"native-release-qualify: FAILED check '{check}'", file=sys.stderr)
+    print("--- expected", file=sys.stderr)
+    print(expected, file=sys.stderr)
+    print("--- actual", file=sys.stderr)
+    print(actual, file=sys.stderr)
+    raise SystemExit(1)
+
+
+try:
+    digest = hashlib.sha256()
+    with open(archive, "rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    actual_hash = digest.hexdigest()
+    expected = f"{actual_hash}  {archive_base}\n".encode("ascii")
+    with open(sidecar, "rb") as stream:
+        actual = stream.read()
+except OSError as error:
+    fail("checksum-read", "readable archive and checksum sidecar bytes", str(error))
+if actual != expected:
+    fail("checksum-sidecar", repr(expected), repr(actual))
+print(actual_hash)
+PY
+)
+
+EXTRACTED="$QUALIFY_TMP/extracted"
+mkdir -p "$EXTRACTED"
+
+# Validate raw members before writing anything. Python's tar parser gives stable
+# names and types on GNU/Linux and macOS, unlike human-oriented `tar -tvf`.
+"$PYTHON" - "$ARCHIVE" "$EXTRACTED" <<'PY'
+import os
+import shutil
+import sys
+import tarfile
+
+archive, destination = sys.argv[1:]
+
+
+def fail(check: str, expected: str, actual: str) -> None:
+    print(f"native-release-qualify: FAILED check '{check}'", file=sys.stderr)
+    print("--- expected", file=sys.stderr)
+    print(expected, file=sys.stderr)
+    print("--- actual", file=sys.stderr)
+    print(actual, file=sys.stderr)
+    raise SystemExit(1)
+
+
+def canonical_name(raw: str, is_directory: bool) -> str:
+    if raw.startswith("/"):
+        fail("archive-path", "a relative path", raw)
+    if any(character in raw for character in "\x00\r\n\t"):
+        fail("archive-path", "a path without control characters", repr(raw))
+    candidate = raw
+    while candidate.startswith("./"):
+        candidate = candidate[2:]
+    if is_directory:
+        candidate = candidate.rstrip("/")
+    if candidate in ("", "."):
+        return ""
+    parts = candidate.split("/")
+    bad = next((part for part in parts if part in ("", ".", "..")), None)
+    if bad is not None:
+        fail(
+            "archive-path",
+            "a canonical relative path without empty, dot, or dot-dot components",
+            raw,
+        )
+    return "/".join(parts)
+
+
+def allowed_file(path: str) -> bool:
+    return path in {
+        "ssc",
+        "lib/ssc-plugin-host.jar",
+        "README.md",
+    } or path.startswith("bin/lib/standard/native-front/")
+
+
+def allowed_directory(path: str) -> bool:
+    fixed = {
+        "",
+        "lib",
+        "bin",
+        "bin/lib",
+        "bin/lib/standard",
+        "bin/lib/standard/native-front",
+    }
+    return path in fixed or path.startswith("bin/lib/standard/native-front/")
+
+
+try:
+    with tarfile.open(archive, mode="r:gz") as bundle:
+        members = bundle.getmembers()
+        if not members:
+            fail("archive-members", "one or more declared entries", "empty archive")
+
+        validated: list[tuple[tarfile.TarInfo, str]] = []
+        seen: dict[str, str] = {}
+        for member in members:
+            canonical = canonical_name(member.name, member.isdir())
+            key = canonical or "<archive-root>"
+            if key in seen:
+                fail(
+                    "archive-duplicate",
+                    "each canonical path exactly once",
+                    f"{member.name} duplicates {seen[key]}",
+                )
+            seen[key] = member.name
+
+            if member.isdir():
+                if not allowed_directory(canonical):
+                    fail("archive-layout", "a declared distribution directory", member.name)
+            elif member.isreg():
+                if not allowed_file(canonical):
+                    fail("archive-layout", "a declared distribution regular file", member.name)
+            else:
+                fail(
+                    "archive-entry-type",
+                    "regular file or directory",
+                    f"{member.name}: tar type {member.type!r}",
+                )
+            validated.append((member, canonical))
+
+        # Manual extraction copies only the already-validated regular files.
+        # It cannot create links, devices, FIFOs, or paths outside destination.
+        for member, canonical in validated:
+            if member.isdir():
+                if canonical:
+                    os.makedirs(os.path.join(destination, *canonical.split("/")), exist_ok=True)
+                continue
+            target = os.path.join(destination, *canonical.split("/"))
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            source = bundle.extractfile(member)
+            if source is None:
+                fail("archive-read", "readable regular-file bytes", member.name)
+            with source, open(target, "xb") as output:
+                shutil.copyfileobj(source, output)
+            os.chmod(target, member.mode & 0o777)
+except (tarfile.TarError, OSError) as error:
+    fail("archive-read", "a readable gzip-compressed tar archive", str(error))
+PY
+
+require_file() {
+  local relative=$1
+  local path="$EXTRACTED/$relative"
+  if [[ ! -f $path ]]; then
+    fail_check archive-required-file "$relative" "$relative is missing or not regular"
+  fi
+}
+
+require_file ssc
+require_file lib/ssc-plugin-host.jar
+require_file README.md
+require_file bin/lib/standard/native-front/MANIFEST.sha256
+require_file bin/lib/standard/native-front/tower/bin/fsub.ssc
+require_file bin/lib/standard/native-front/tower/bin/ssc1-run-fsub.ssc0
+require_file bin/lib/standard/native-front/tower/bin/ssc1-run.ssc0
+require_file bin/lib/standard/native-front/tower/bin/ssc1-check-run.ssc0
+require_file bin/lib/standard/native-front/runtime/std/index.ssc
+
+SSC_EXE="$EXTRACTED/ssc"
+PLUGIN_HOST="$EXTRACTED/lib/ssc-plugin-host.jar"
+FRONT_ROOT="$EXTRACTED/bin/lib/standard/native-front"
+if [[ ! -x $SSC_EXE ]]; then
+  fail_check archive-ssc-executable 'ssc with at least one executable bit' 'ssc is not executable'
+fi
+if [[ ! -s $PLUGIN_HOST ]]; then
+  fail_check archive-plugin-host 'a non-empty lib/ssc-plugin-host.jar' 'plugin host is empty'
+fi
+
+"$PYTHON" - "$FRONT_ROOT" <<'PY'
+import hashlib
+import os
+import re
+import sys
+
+root = os.path.realpath(sys.argv[1])
+manifest_path = os.path.join(root, "MANIFEST.sha256")
+line_pattern = re.compile(r"^([0-9a-f]{64})  ([^\r\n]+)$")
+
+
+def fail(check: str, expected: str, actual: str) -> None:
+    print(f"native-release-qualify: FAILED check '{check}'", file=sys.stderr)
+    print("--- expected", file=sys.stderr)
+    print(expected, file=sys.stderr)
+    print("--- actual", file=sys.stderr)
+    print(actual, file=sys.stderr)
+    raise SystemExit(1)
+
+
+try:
+    with open(manifest_path, "rb") as stream:
+        raw_manifest = stream.read()
+except OSError as error:
+    fail("frontend-manifest-read", "readable manifest bytes", str(error))
+try:
+    manifest_text = raw_manifest.decode("utf-8")
+except UnicodeDecodeError as error:
+    fail("frontend-manifest-format", "UTF-8 text", str(error))
+if not manifest_text.endswith("\n"):
+    fail("frontend-manifest-format", "a final newline", repr(raw_manifest[-80:]))
+
+declared: dict[str, str] = {}
+declared_order: list[str] = []
+for number, line in enumerate(manifest_text.splitlines(), start=1):
+    match = line_pattern.fullmatch(line)
+    if not match:
+        fail(
+            "frontend-manifest-format",
+            "<64 lowercase hex>  <canonical relative path>",
+            f"line {number}: {line!r}",
+        )
+    digest, relative = match.groups()
+    parts = relative.split("/")
+    if (
+        relative.startswith("/")
+        or relative == "MANIFEST.sha256"
+        or any(part in ("", ".", "..") for part in parts)
+    ):
+        fail("frontend-manifest-path", "a canonical relative data-file path", relative)
+    if relative in declared:
+        fail("frontend-manifest-duplicate", "each path exactly once", relative)
+    declared[relative] = digest
+    declared_order.append(relative)
+
+if declared_order != sorted(declared_order):
+    fail(
+        "frontend-manifest-order",
+        "paths sorted bytewise",
+        "\n".join(declared_order),
+    )
+
+actual_files: list[str] = []
+for directory, directories, files in os.walk(root):
+    directories.sort()
+    files.sort()
+    for name in files:
+        absolute = os.path.join(directory, name)
+        relative = os.path.relpath(absolute, root).replace(os.sep, "/")
+        if relative != "MANIFEST.sha256":
+            actual_files.append(relative)
+actual_files.sort()
+
+declared_files = sorted(declared)
+if declared_files != actual_files:
+    fail(
+        "frontend-manifest-files",
+        "\n".join(declared_files),
+        "\n".join(actual_files),
+    )
+
+for relative in declared_files:
+    try:
+        digest = hashlib.sha256()
+        with open(os.path.join(root, *relative.split("/")), "rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError as error:
+        fail("frontend-file-read", f"readable bytes for {relative}", str(error))
+    actual = digest.hexdigest()
+    expected = declared[relative]
+    if actual != expected:
+        fail("frontend-manifest-digest", f"{expected}  {relative}", f"{actual}  {relative}")
+PY
+
+"$PYTHON" - "$DIRECT_BINARY" "$SSC_EXE" <<'PY'
+import hashlib
+import sys
+
+direct, extracted = sys.argv[1:]
+
+
+def digest(path: str) -> str:
+    value = hashlib.sha256()
+    with open(path, "rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            value.update(chunk)
+    return value.hexdigest()
+
+
+try:
+    same = True
+    with open(direct, "rb") as left, open(extracted, "rb") as right:
+        while True:
+            left_chunk = left.read(1024 * 1024)
+            right_chunk = right.read(1024 * 1024)
+            if left_chunk != right_chunk:
+                same = False
+                break
+            if not left_chunk:
+                break
+except OSError as error:
+    print("native-release-qualify: FAILED check 'direct-binary-read'", file=sys.stderr)
+    print("--- expected", file=sys.stderr)
+    print("readable direct and extracted executable bytes", file=sys.stderr)
+    print("--- actual", file=sys.stderr)
+    print(str(error), file=sys.stderr)
+    raise SystemExit(1)
+if not same:
+    print("native-release-qualify: FAILED check 'direct-binary-identity'", file=sys.stderr)
+    print("--- expected", file=sys.stderr)
+    print(f"direct sha256={digest(direct)}", file=sys.stderr)
+    print("--- actual", file=sys.stderr)
+    print(f"archive sha256={digest(extracted)}", file=sys.stderr)
+    raise SystemExit(1)
+PY
+
+"$PYTHON" - "$PLUGIN_HOST" <<'PY'
+import sys
+import zipfile
+
+jar = sys.argv[1]
+expected_main = "scalascript.plugin.SubprocessHost"
+expected_class = "scalascript/plugin/SubprocessHost.class"
+
+
+def fail(check: str, expected: str, actual: str) -> None:
+    print(f"native-release-qualify: FAILED check '{check}'", file=sys.stderr)
+    print("--- expected", file=sys.stderr)
+    print(expected, file=sys.stderr)
+    print("--- actual", file=sys.stderr)
+    print(actual, file=sys.stderr)
+    raise SystemExit(1)
+
+
+try:
+    with zipfile.ZipFile(jar) as bundle:
+        try:
+            raw_manifest = bundle.read("META-INF/MANIFEST.MF").decode("utf-8")
+        except KeyError:
+            fail("plugin-main-entry", f"Main-Class: {expected_main}", "manifest is missing")
+
+        unfolded: list[str] = []
+        for line in raw_manifest.replace("\r\n", "\n").split("\n"):
+            if line.startswith(" ") and unfolded:
+                unfolded[-1] += line[1:]
+            else:
+                unfolded.append(line)
+        main_line = next(
+            (line for line in unfolded if line.lower().startswith("main-class:")),
+            "",
+        )
+        actual_main = main_line.split(":", 1)[1].strip() if main_line else "missing"
+        if actual_main != expected_main:
+            fail("plugin-main-entry", expected_main, actual_main)
+
+        try:
+            class_size = bundle.getinfo(expected_class).file_size
+        except KeyError:
+            fail("plugin-main-class", expected_class, "entry is missing")
+        if class_size <= 0:
+            fail("plugin-main-class", f"non-empty {expected_class}", "entry is empty")
+except (OSError, UnicodeError, zipfile.BadZipFile) as error:
+    fail("plugin-jar", "a readable plugin-host JAR", str(error))
+PY
+
+RUN_DIR="$QUALIFY_TMP/runtime"
+EMPTY_PATH="$QUALIFY_TMP/empty-path"
+HOME_DIR="$QUALIFY_TMP/home"
+mkdir -p \
+  "$RUN_DIR" \
+  "$EMPTY_PATH" \
+  "$HOME_DIR/cache" \
+  "$HOME_DIR/config" \
+  "$HOME_DIR/tmp"
+PROBE="$RUN_DIR/release-probe.ssc"
+cat >"$PROBE" <<'SSC'
+val answer = (40 + 2) * 2
+println(answer)
+SSC
+
+LAST_STDOUT=
+LAST_STDERR=
+LAST_RC=
+run_process() {
+  local label=$1
+  local mode=$2
+  local cwd=$3
+  shift 3
+  LAST_STDOUT="$QUALIFY_TMP/$label.stdout"
+  LAST_STDERR="$QUALIFY_TMP/$label.stderr"
+  local status_file="$QUALIFY_TMP/$label.status"
+
+  "$PYTHON" - \
+    "$PROCESS_TIMEOUT" "$mode" "$cwd" "$EMPTY_PATH" "$HOME_DIR" \
+    "$LAST_STDOUT" "$LAST_STDERR" "$status_file" "$@" <<'PY'
+import os
+import signal
+import subprocess
+import sys
+
+(
+    timeout_text,
+    mode,
+    cwd,
+    empty_path,
+    home,
+    stdout_path,
+    stderr_path,
+    status_path,
+    *command,
+) = sys.argv[1:]
+
+if mode == "runtime":
+    environment = {
+        "HOME": home,
+        "XDG_CACHE_HOME": os.path.join(home, "cache"),
+        "XDG_CONFIG_HOME": os.path.join(home, "config"),
+        "TMPDIR": os.path.join(home, "tmp"),
+        "PATH": empty_path,
+        "PWD": cwd,
+        "LANG": "C",
+        "LC_ALL": "C",
+    }
+else:
+    environment = os.environ.copy()
+    for key in (
+        "JAVA_TOOL_OPTIONS",
+        "JDK_JAVA_OPTIONS",
+        "_JAVA_OPTIONS",
+        "CLASSPATH",
+    ):
+        environment.pop(key, None)
+
+try:
+    with open(stdout_path, "wb") as stdout, open(stderr_path, "wb") as stderr:
+        process = subprocess.Popen(
+            command,
+            cwd=cwd,
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=stdout,
+            stderr=stderr,
+            start_new_session=True,
+        )
+        try:
+            return_code = process.wait(timeout=float(timeout_text))
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait()
+            with open(status_path, "w", encoding="utf-8") as status:
+                status.write("timeout\n")
+        else:
+            with open(status_path, "w", encoding="utf-8") as status:
+                status.write(f"exit:{return_code}\n")
+except OSError as error:
+    with open(status_path, "w", encoding="utf-8") as status:
+        status.write(f"spawn-error:{error}\n")
+PY
+
+  local status
+  status=$(cat "$status_file")
+  case "$status" in
+    timeout)
+      fail_check "$label-timeout" "completion within $PROCESS_TIMEOUT seconds" 'timed out'
+      ;;
+    spawn-error:*)
+      fail_check "$label-spawn" 'a started process' "${status#spawn-error:}"
+      ;;
+    exit:*)
+      LAST_RC=${status#exit:}
+      ;;
+    *)
+      fail_check "$label-status" 'exit:<code>, timeout, or spawn-error:<message>' "$status"
+      ;;
+  esac
+}
+
+expect_exit() {
+  local label=$1
+  local expected=$2
+  if [[ $LAST_RC -ne $expected ]]; then
+    fail_check "$label-exit" "$expected" \
+      "$LAST_RC; stderr=$(file_repr "$LAST_STDERR")"
+  fi
+}
+
+expect_empty() {
+  local label=$1
+  local file=$2
+  if [[ -s $file ]]; then
+    fail_check "$label" "b''" "$(file_repr "$file")"
+  fi
+}
+
+expect_exact_line() {
+  local label=$1
+  local expected_text=$2
+  local actual_file=$3
+  local expected_file="$QUALIFY_TMP/$label.expected"
+  printf '%s\n' "$expected_text" >"$expected_file"
+  if ! cmp -s "$expected_file" "$actual_file"; then
+    fail_check "$label" "$(file_repr "$expected_file")" "$(file_repr "$actual_file")"
+  fi
+}
+
+run_process version runtime "$RUN_DIR" "$SSC_EXE" --version
+expect_exit version 0
+expect_empty version-stderr "$LAST_STDERR"
+"$PYTHON" - "$LAST_STDOUT" <<'PY'
+import re
+import sys
+
+path = sys.argv[1]
+with open(path, "rb") as stream:
+    actual = stream.read()
+pattern = (
+    rb"ssc [^\r\n]+\n"
+    rb"runtime: v2 \(default; --v1 opts back\)  \xc2\xb7  jvm [^\r\n]+\n"
+)
+if re.fullmatch(pattern, actual) is None:
+    print("native-release-qualify: FAILED check 'version-stdout'", file=sys.stderr)
+    print("--- expected", file=sys.stderr)
+    print(
+        "b'ssc <version>\\nruntime: v2 (default; --v1 opts back)  "
+        "\\xc2\\xb7  jvm <version>\\n'",
+        file=sys.stderr,
+    )
+    print("--- actual", file=sys.stderr)
+    print(repr(actual), file=sys.stderr)
+    raise SystemExit(1)
+PY
+
+run_process vm runtime "$RUN_DIR" "$SSC_EXE" run --v2 --interpret release-probe.ssc
+expect_exit vm 0
+expect_exact_line vm-stdout 84 "$LAST_STDOUT"
+expect_empty vm-stderr "$LAST_STDERR"
+
+run_process asm runtime "$RUN_DIR" "$SSC_EXE" run --v2 --bytecode release-probe.ssc
+expect_exit asm 0
+expect_exact_line asm-stdout 84 "$LAST_STDOUT"
+FALLBACK_MARKER='ssc: --bytecode fell back to the VM lane'
+if grep -Fq "$FALLBACK_MARKER" "$LAST_STDERR"; then
+  fail_check asm-no-fallback 'fallback marker absent' "$FALLBACK_MARKER"
+fi
+expect_empty asm-stderr "$LAST_STDERR"
+
+run_process plugin plugin "$RUN_DIR" "$JAVA" -jar "$PLUGIN_HOST"
+expect_exit plugin-host 1
+expect_empty plugin-host-stdout "$LAST_STDOUT"
+expect_exact_line plugin-host-stderr \
+  '[ssc-plugin-host] Usage: SubprocessHost <plugin.jar>' "$LAST_STDERR"
+
+printf 'QUALIFIED artifact=%s sha256=%s vm=84 asm=84 plugin-host=ready\n' \
+  "$ARTIFACT_ID" "$ACTUAL_SHA"
