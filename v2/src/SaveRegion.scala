@@ -30,6 +30,9 @@ object SaveRegion:
    * no machine held.
    */
   def reify(frameSlots: List[Const], resumeLam: Term): (Term, Program) =
+    // §11.3 Fx-closed — the same obligation as the auto path. Checking only `reifyAuto` would have
+    // left the explicit-slots entry able to freeze an Fx-OPEN region, i.e. a half-closed hole.
+    assertFxClosed(resumeLam, Nil)
     val n = frameSlots.length
     resumeLam match
       case Term.Lam(arity, _) if arity == n + 1 => ()
@@ -310,6 +313,7 @@ object SaveRegion:
 
   /** `reify` (explicit slots) carrying the globals the region reaches — same rule as `reifyAuto`. */
   def reify(frameSlots: List[Const], resumeLam: Term, programDefs: List[Def]): (Term, Program) =
+    assertFxClosed(resumeLam, programDefs) // with the defs, a performing CALL is caught too
     val (frame, prog) = reify(frameSlots, resumeLam)
     (frame, Program(closeGlobals(globalsOf(prog.entry), programDefs), prog.entry))
 
