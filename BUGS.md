@@ -2059,9 +2059,32 @@ so it can never turn a red step green. It ships with a `--self-test` asserting B
 on a silent fork exit, stays quiet on an ordinary reported failure and on a clean run — because a
 detector only ever observed staying quiet is not a detector; also checked against a real sbt log.
 
-**Still open:** the ~200 `System.exit` sites in CLI command helpers. Each remains a latent instance
-and the fix direction below is unchanged — a helper reachable from a test must RETURN a status. What
-changed is the time-to-diagnose, not the defect.
+**The live instance is CLOSED 2026-07-27** by opus (`cli-oauth-exit-in-tests`), and the "~200 sites"
+figure turns out to overstate today's exposure by two orders of magnitude.
+
+**Measured, not assumed.** The count that matters is not `System.exit` sites but sites REACHABLE
+from a test in-process. Of the six helper files this entry tabulates, tests reference exactly one:
+`OAuthCli.run`, from `OAuthCliTest`. No test invokes `Main.main` or `StandardMain` in-process either,
+so nothing else in `tools/cli` is currently reachable. `EmitCommands`, `ClusterCommands`,
+`PluginCommands`, `SwiftUiCommands` and `LockCommands` — 105 sites between them — have zero test
+callers today. They stay latent (a new test calling one re-arms them), but they are not live.
+
+**Fix.** `OAuthCli` now computes an exit code: `status(args): Int` holds all the logic and every
+helper returns 0/1/2, while `run` — the single boundary `Main.scala` calls — is the only thing that
+may end the process. 13 `sys.exit` sites became 1, and it is not reachable from a test.
+
+**The old test file was itself evidence.** Its header said it tested only "the offline paths that
+don't call sys.exit" — the defect had shaped the tests to avoid every path that could catch it. The
+seven failure-path cases that were impossible before now assert the status: unknown subcommand,
+missing args for mint/introspect/discover/jwks/dcr-register, and a token that does not verify. A
+success-side case keeps the suite from passing by returning non-zero for everything. 13/13.
+
+**A/B — the signature reproduced deliberately, then removed.** With a throwaway test calling the
+exiting boundary `run`, the run printed `Tests: succeeded 13, failed 0` and `All tests passed.` and
+then died with `sbt.ForkMain … failed with exit code 2`; the probe test itself never appeared in the
+report, having been killed mid-flight. That is this entry's signature exactly, produced on demand.
+`scripts/detect-fork-exit` was then pointed at that REAL log — not a synthetic one — and correctly
+reported the silent fork exit and named `OAuthCliTest` as the suite that was running.
 
 **Historical status:** OPEN as a class (2026-07-20). One instance is fixed —
 `swiftui-real-fixture-system-exit-hides-failure`, closed the same day by `frontend-tui-fetch-refresh`

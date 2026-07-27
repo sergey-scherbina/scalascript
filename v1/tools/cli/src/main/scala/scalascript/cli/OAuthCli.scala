@@ -17,18 +17,36 @@ import scalascript.oauth.*
  *    ssc oauth introspect   <secret> <token>    — decode + show JWT claims */
 object OAuthCli:
 
-  def run(args: List[String]): Unit =
+  /** Exit status for `ssc oauth …` — computed WITHOUT terminating the JVM.
+   *
+   *  This split exists because `OAuthCliTest` calls this helper IN-PROCESS. When the failure paths
+   *  called `sys.exit` directly, a test that exercised one killed the forked test JVM before
+   *  ScalaTest could attach the result: every suite printed "All tests passed.", no `*** FAILED ***`
+   *  appeared anywhere, and the run ended with a bare `ForkMain … exit code 1`
+   *  (BUGS.md `cli-command-System.exit-kills-the-test-fork`). The old test suite said so in its own
+   *  comment — "for exit-status testing we use the offline paths that don't call sys.exit" — i.e.
+   *  the defect had quietly shaped the tests to avoid every path that could catch it.
+   *
+   *  Exit lives at the boundary (`run`) and nowhere else. Anything reachable from a test returns. */
+  def status(args: List[String]): Int =
     args.headOption match
       case Some("discover")     => discover(args.tail)
       case Some("jwks")         => jwks(args.tail)
       case Some("dcr-register") => dcrRegister(args.tail)
       case Some("mint")         => mint(args.tail)
       case Some("introspect")   => introspect(args.tail)
-      case Some("help") | Some("--help") | Some("-h") | None => usage()
+      case Some("help") | Some("--help") | Some("-h") | None =>
+        usage()
+        0
       case Some(other) =>
         System.err.println(s"Unknown subcommand: $other")
         usage()
-        sys.exit(2)
+        2
+
+  /** Entry point used by `Main.scala` — the one place allowed to end the process. */
+  def run(args: List[String]): Unit =
+    val rc = status(args)
+    if rc != 0 then sys.exit(rc)
 
   private def usage(): Unit =
     println(
@@ -48,20 +66,22 @@ object OAuthCli:
 
   // ─── discover ──────────────────────────────────────────────────────
 
-  private def discover(args: List[String]): Unit =
+  private def discover(args: List[String]): Int =
     args.headOption match
       case Some(issuer) =>
-        try println(OAuthClient.discoverAs(issuer).render(indent = 2))
+        try
+          println(OAuthClient.discoverAs(issuer).render(indent = 2))
+          0
         catch case e: Throwable =>
           System.err.println(s"discover failed: ${e.getMessage}")
-          sys.exit(1)
+          1
       case None =>
         System.err.println("ssc oauth discover <issuer>")
-        sys.exit(2)
+        2
 
   // ─── jwks ──────────────────────────────────────────────────────────
 
-  private def jwks(args: List[String]): Unit =
+  private def jwks(args: List[String]): Int =
     args.headOption match
       case Some(issuer) =>
         try
@@ -74,22 +94,23 @@ object OAuthCli:
             .send(req, java.net.http.HttpResponse.BodyHandlers.ofString())
           if resp.statusCode() != 200 then
             System.err.println(s"jwks fetch returned HTTP ${resp.statusCode()}")
-            sys.exit(1)
+            1
           else
             println(ujson.read(resp.body()).render(indent = 2))
+            0
         catch case e: Throwable =>
           System.err.println(s"jwks fetch failed: ${e.getMessage}")
-          sys.exit(1)
+          1
       case None =>
         System.err.println("ssc oauth jwks <issuer>")
-        sys.exit(2)
+        2
 
   // ─── dcr-register ──────────────────────────────────────────────────
 
-  private def dcrRegister(args: List[String]): Unit =
+  private def dcrRegister(args: List[String]): Int =
     if args.length < 2 then
       System.err.println("ssc oauth dcr-register <issuer> <redirect-uri> [more redirect URIs…]")
-      sys.exit(2)
+      2
     else
       val issuer    = args(0)
       val redirects = args.tail.toList
@@ -100,7 +121,7 @@ object OAuthCli:
         regUri match
           case None =>
             System.err.println(s"AS at $issuer doesn't advertise registration_endpoint (DCR disabled)")
-            sys.exit(1)
+            1
           case Some(url) =>
             val body = ujson.Obj(
               "redirect_uris" -> ujson.Arr.from(redirects.map(ujson.Str(_)))
@@ -115,19 +136,20 @@ object OAuthCli:
               .send(req, java.net.http.HttpResponse.BodyHandlers.ofString())
             if resp.statusCode() != 201 && resp.statusCode() != 200 then
               System.err.println(s"DCR returned HTTP ${resp.statusCode()}: ${resp.body()}")
-              sys.exit(1)
+              1
             else
               println(ujson.read(resp.body()).render(indent = 2))
+              0
       catch case e: Throwable =>
         System.err.println(s"DCR failed: ${e.getMessage}")
-        sys.exit(1)
+        1
 
   // ─── mint (test token) ─────────────────────────────────────────────
 
-  private def mint(args: List[String]): Unit =
+  private def mint(args: List[String]): Int =
     if args.length < 2 then
       System.err.println("ssc oauth mint <secret> <subject> [scopes…]")
-      sys.exit(2)
+      2
     else
       val secret  = args(0)
       val subject = args(1)
@@ -137,19 +159,21 @@ object OAuthCli:
           s"WARN: secret is ${secret.length} bytes — RFC 7518 §3.2 recommends ≥ 32 for HS256")
       val token = OAuth.issueHmacToken(secret, subject, scopes, 3600L)
       println(token)
+      0
 
   // ─── introspect (decode + claim summary) ──────────────────────────
 
-  private def introspect(args: List[String]): Unit =
+  private def introspect(args: List[String]): Int =
     if args.length < 2 then
       System.err.println("ssc oauth introspect <secret> <token>")
-      sys.exit(2)
+      2
     else
       val secret = args(0)
       val token  = args(1)
       OAuth.decodeHmacToken(secret, token) match
         case Left(reason) =>
           System.err.println(s"introspect failed: $reason")
-          sys.exit(1)
+          1
         case Right(payload) =>
           println(payload.render(indent = 2))
+          0

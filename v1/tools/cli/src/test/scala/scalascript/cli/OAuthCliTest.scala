@@ -7,14 +7,19 @@ import scalascript.oauth.*
 /** v1.17.x — `ssc oauth ...` CLI subcommand coverage.  Tests the
  *  offline paths (mint + introspect) end-to-end; network-touching
  *  paths (discover, jwks, dcr-register) are smoke-tested only via
- *  the error paths to avoid spinning a real AS in unit tests. */
+ *  the error paths to avoid spinning a real AS in unit tests.
+ *
+ *  Every FAILURE path is asserted through `OAuthCli.status`, which returns an exit code instead of
+ *  calling `sys.exit`.  That is not a style preference: while these helpers exited directly, calling
+ *  one from a test killed the forked test JVM, and the run reported "All tests passed." for every
+ *  suite with no `*** FAILED ***` anywhere, ending in a bare `ForkMain … exit code 1`
+ *  (BUGS.md `cli-command-System.exit-kills-the-test-fork`).  This file's own header used to say it
+ *  avoided those paths for exactly that reason — the defect had shaped the tests around itself, so
+ *  the untested paths were precisely the ones that could expose it.  The cases below are the ones
+ *  that were impossible before. */
 class OAuthCliTest extends AnyFunSuite with Matchers:
 
-  /** Run an OAuthCli command + capture stdout / stderr / exit code.
-   *  Returns (stdout, stderr) — sys.exit is caught via SecurityManager
-   *  trick: we rely on commands that exit cleanly OR throw.  For
-   *  exit-status testing we use the offline paths that don't call
-   *  sys.exit on success. */
+  /** Capture stdout while running `thunk`. */
   private def captureStdout(thunk: => Unit): String =
     val out = new java.io.ByteArrayOutputStream
     val ps  = new java.io.PrintStream(out)
@@ -84,3 +89,68 @@ class OAuthCliTest extends AnyFunSuite with Matchers:
   test("no args: prints usage"):
     val out = captureStdout { OAuthCli.run(Nil) }
     out should include ("ssc oauth")
+
+  // ─── failure paths: a status, not a dead JVM ──────────────────────
+  //
+  // Each case below reaches a branch that used to call `sys.exit`. If any of them regresses to an
+  // exit, this suite does not fail — the whole forked JVM dies and the run reports success with a
+  // trailing `ForkMain … exit code`. `scripts/detect-fork-exit` recognises that signature in CI;
+  // these asserts are what stop it happening in the first place.
+
+  /** Run a status-returning command, capturing stdout and stderr alongside the code. */
+  private def statusOf(args: List[String]): (Int, String, String) =
+    val out = new java.io.ByteArrayOutputStream
+    val err = new java.io.ByteArrayOutputStream
+    val outPs = new java.io.PrintStream(out)
+    val errPs = new java.io.PrintStream(err)
+    val prevOut = System.out
+    val prevErr = System.err
+    System.setOut(outPs); System.setErr(errPs)
+    val rc =
+      try Console.withOut(outPs) { Console.withErr(errPs) { OAuthCli.status(args) } }
+      finally { System.setOut(prevOut); System.setErr(prevErr) }
+    outPs.flush(); errPs.flush()
+    (rc, out.toString("UTF-8"), err.toString("UTF-8"))
+
+  test("unknown subcommand: status 2 with usage, and the JVM survives"):
+    val (rc, out, err) = statusOf(List("nope"))
+    rc shouldBe 2
+    err should include ("Unknown subcommand: nope")
+    out should include ("ssc oauth")
+
+  test("mint: missing arguments are a usage error, not an exit"):
+    val (rc, _, err) = statusOf(List("mint", "only-one"))
+    rc shouldBe 2
+    err should include ("ssc oauth mint")
+
+  test("introspect: missing arguments are a usage error, not an exit"):
+    val (rc, _, err) = statusOf(List("introspect", "only-one"))
+    rc shouldBe 2
+    err should include ("ssc oauth introspect")
+
+  test("introspect: a token that does not verify is status 1, not an exit"):
+    val good = OAuth.issueHmacToken("k" * 40, "bob", Set("read"), 3600L)
+    val (rc, _, err) = statusOf(List("introspect", "j" * 40, good))
+    rc shouldBe 1
+    err should include ("introspect failed")
+
+  test("discover: no issuer is a usage error, not an exit"):
+    val (rc, _, err) = statusOf(List("discover"))
+    rc shouldBe 2
+    err should include ("ssc oauth discover")
+
+  test("jwks: no issuer is a usage error, not an exit"):
+    val (rc, _, err) = statusOf(List("jwks"))
+    rc shouldBe 2
+    err should include ("ssc oauth jwks")
+
+  test("dcr-register: too few arguments is a usage error, not an exit"):
+    val (rc, _, err) = statusOf(List("dcr-register", "https://issuer"))
+    rc shouldBe 2
+    err should include ("ssc oauth dcr-register")
+
+  // The success side, so the suite cannot pass by returning a non-zero code for everything.
+  test("success paths return status 0"):
+    statusOf(List("mint", "k" * 40, "alice"))._1 shouldBe 0
+    statusOf(List("help"))._1                    shouldBe 0
+    statusOf(Nil)._1                             shouldBe 0
