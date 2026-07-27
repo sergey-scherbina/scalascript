@@ -1,0 +1,11 @@
+slug: v2-f-bytecode-probe
+branch: feature/v2-f-bytecode-probe
+agent: codex
+started: 2026-07-27T20:58:16Z
+heartbeat: 2026-07-27T20:58:16Z
+status: claimed-before-planning
+items: V-6b
+paths: specs/v2-f-bytecode-probe.md scripts/v2-f-bytecode-probe
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
