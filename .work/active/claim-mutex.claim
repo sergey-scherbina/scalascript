@@ -2,11 +2,11 @@ slug: claim-mutex
 branch: feature/claim-mutex
 agent: opus
 started: 2026-07-27T17:27:27Z
-heartbeat: 2026-07-27T17:27:27Z
+heartbeat: 2026-07-27T17:35:09Z
 status: claimed-before-planning
 direction: Coordination / process
 items: claim-mutex
-paths: specs/claim-mutex.md .githooks/** scripts/** AGENTS.md SPRINT.md CHANGELOG.md .work/active/LEDGER.tsv
+paths: specs/claim-mutex.md .githooks/ scripts/ tests/coord/ .github/workflows/ci.yml AGENTS.md SPRINT.md CHANGELOG.md .work/active/LEDGER.tsv
 scope: |
   Sergiy asked to tighten claim discipline after TWO collisions on 2026-07-27:
   (A) post-f4-board-reconcile vs f4-arc-closure — same work, different slugs, ~2 min apart;
@@ -22,4 +22,7 @@ scope: |
     4. invert the protocol to claim-BEFORE-plan (AGENTS.md; skill lives in the .agents/plugins
        submodule — mirror there or note it).
   Every hook must be PROVEN to fail loudly (AGENTS.md: build the gate before trusting it).
-next: write specs/claim-mutex.md first (spec-dev), commit it, then implement.
+next: WIDENED paths (tests/coord/, .github/workflows/ci.yml) — the new scope guard refused
+  my own first commit for exactly these, which is the dogfood proof it works. Spec landed; hooks,
+  ledger, coord-claim and both test scripts are written and green (10/10, all refuse-cases proven
+  red when the hooks are neutered). Remaining: land + CI.
