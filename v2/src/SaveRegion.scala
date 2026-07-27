@@ -243,3 +243,40 @@ object SaveRegion:
   val demoGlobalRegion: Term =
     Term.Lam(1, Term.Prim("i.add", List(Term.App(Term.Global("quad"), List(Term.Local(0))), Term.Local(1))))
   val demoGlobalEnv: List[Const] = List(Const.CInt(5)) // outer 0 = a
+
+  // ── Slice 3: NOMINAL frame slots ───────────────────────────────────────────
+  // A frame slot need not be a scalar. `frameOf` takes `Const`s, which can only express literals;
+  // a captured value that is a CONSTRUCTOR (`Pair(3, 4)`, a nested record, a list cell) has to be
+  // carried as a `Ctor` term. `Capsule.validateFrame` admits exactly that shape — literals and
+  // constructors, recursively — so a nominal slot travels as DATA with no widening of the trust
+  // boundary. The resume destructures it with an ordinary `Match`, i.e. no new IR surface.
+
+  /** Build a frame from already-built value TERMS (literals or constructors), not just `Const`s. */
+  def frameOfTerms(slots: List[Term]): Term = Term.Ctor("frame", slots)
+
+  // Demo for `ssc freeze-region-nominal`: the single frame slot is a nominal `Pair(3, 4)` rather
+  // than a scalar, and the region destructures it:
+  //   region: (input) => match p { case Pair(x, y) => x * input + y }
+  // With p = Pair(3, 4) and input = 5 → 19; input = 2 → 10. The region's free outer var is p
+  // (outer index 0), so auto-liveness derives the one-slot frame by itself.
+  val demoNominalRegion: Term =
+    Term.Lam(
+      1,
+      Term.Match(
+        Term.Local(1), // p — the free outer var (input is Local(0))
+        List(
+          Arm(
+            "Pair",
+            2,
+            // arm binds x = Local(1), y = Local(0); input has shifted to Local(2)
+            Term.Prim(
+              "i.add",
+              List(Term.Prim("i.mul", List(Term.Local(1), Term.Local(2))), Term.Local(0))
+            )
+          )
+        ),
+        None
+      )
+    )
+  val demoNominalSlot: Term =
+    Term.Ctor("Pair", List(Term.Lit(Const.CInt(3)), Term.Lit(Const.CInt(4))))

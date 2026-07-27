@@ -62,6 +62,7 @@ object Capsule:
           sys.error(s"portable-capsule: unsupported version $version")
         val declaredDigest = atomField(fields, "resume-digest")
         val frame = Reader.toTerm(subField(fields, "frame"))
+        validateFrame(frame) // fail CLOSED — the frame is DATA, never code (see below)
         val resume = Reader.toProgram(subField(fields, "resume"))
         Reader.validate(resume) // fail CLOSED — untrusted resume program
         if digestOf(resume) != declaredDigest then
@@ -84,6 +85,52 @@ object Capsule:
       )
     )
     Runtime.runManaged(Compiler.compile(driver), Array.empty[Value])
+
+  /**
+   * Fail-closed admission for the capsule's **frame** — the half that used to escape it
+   * (`BUGS.md` `portable-capsule-frame-unvalidated`). `decode` validated the resume program and
+   * re-checked its digest, then spliced the frame into `App(entry, [frame, input])` as an
+   * arbitrary `Term`: a frame carrying `(global g)` injected a **closure** into the resume (with
+   * E1 carrying the reached defs, a real one), and `(local 0)` reached `Compiler.compile` as an
+   * out-of-scope index and died with `ArrayIndexOutOfBoundsException` instead of a diagnostic.
+   *
+   * A frame is **data, never code** (§10.1: in Portable CodeMode the code is what travels as
+   * *validated* bytes). This admits exactly the first-order value terms — a literal, or a
+   * constructor whose fields are recursively values — which is also slice 3's definition of a
+   * NOMINAL frame: `Ctor` nesting is what carries a structured slot, so allowing it here is the
+   * feature, and allowing anything else is the hole.
+   *
+   * Everything else is rejected naming the offending node, in `Reader.validate`'s style. In
+   * particular `Lam` is rejected: a lambda is a value at runtime but it is *code* in the bytes,
+   * and admitting it would re-open exactly the boundary this closes.
+   */
+  def validateFrame(frame: Term): Unit =
+    def go(t: Term, path: String): Unit = t match
+      case Term.Lit(_) => ()
+      case Term.Ctor(tag, fields) =>
+        fields.iterator.zipWithIndex.foreach { case (f, i) => go(f, s"$path/$tag[$i]") }
+      case other =>
+        sys.error(
+          s"portable-capsule: frame must be a first-order value (literals and constructors only), " +
+            s"got ${frameNodeName(other)} at $path — a frame carries DATA, never code"
+        )
+    go(frame, "frame")
+
+  // Reader.nodeName is private to Reader; this names the nodes a frame can wrongly contain.
+  private def frameNodeName(t: Term): String = t match
+    case Term.Local(i)  => s"(local $i)"
+    case Term.Global(g) => s"(global $g)"
+    case Term.Lam(a, _) => s"(lam $a ...)"
+    case Term.App(_, _) => "(app ...)"
+    case Term.Prim(o, _) => s"(prim $o ...)"
+    case Term.Let(_, _) => "(let ...)"
+    case Term.LetRec(_, _) => "(letrec ...)"
+    case Term.If(_, _, _) => "(if ...)"
+    case Term.Match(_, _, _) => "(match ...)"
+    case Term.While(_, _) => "(while ...)"
+    case Term.Seq(_) => "(seq ...)"
+    case Term.Lit(_) => "(lit ...)"
+    case Term.Ctor(tag, _) => s"(ctor $tag ...)"
 
   /** The hand-authored demo resume machine `(frame, input) => frame * 10 + input`
     * (`Local(1)` = the captured frame, `Local(0)` = the run input). */

@@ -78,6 +78,14 @@ private def dispatch(args: List[String]): Unit = args match
       java.nio.file.Paths.get(file),
       Capsule.encode(frame, resume)
     )
+  case "freeze-region-nominal" :: file :: _ =>  // §10.2 slice 3: a NOMINAL (ctor) frame slot
+    val (liveIndices, resume) = SaveRegion.reifyAuto(SaveRegion.demoNominalRegion)
+    if liveIndices != List(0) then sys.error(s"freeze-region-nominal: expected one live slot, got $liveIndices")
+    val frame = SaveRegion.frameOfTerms(List(SaveRegion.demoNominalSlot))
+    java.nio.file.Files.writeString(
+      java.nio.file.Paths.get(file),
+      Capsule.encode(frame, resume)
+    )
   case "run-capsule" :: file :: rest =>         // admit + run a Portable capsule holding NO machine
     val inputN = rest.headOption
       .flatMap(_.toLongOption)
