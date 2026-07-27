@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+#
+# detect-fork-exit — name the "green log, red exit" failure mode instead of leaving it to be
+# rediscovered by hand (BUGS.md `cli-command-System.exit-kills-the-test-fork`).
+#
+# THE SHAPE. A CLI command helper calls `System.exit(n)`. A test invokes that helper in-process. The
+# exit kills the forked test JVM before ScalaTest can attach a result, so the log shows:
+#
+#   - every suite printing `All tests passed.`
+#   - NO `*** FAILED ***` anywhere
+#   - and then `Error during tests: … sbt.ForkMain <n> failed with exit code 1`
+#
+# Read naively that says "tests passed but something odd happened at the end". It actually means a
+# real defect was hidden: in the proven instance the generated Scala was failing on `selected()` and
+# nothing said so until the exit path was removed. Diagnosing it from scratch cost hours; the
+# signature takes a second to check, which is the whole reason this script exists.
+#
+# Usage:
+#   sbt test 2>&1 | tee /tmp/sbt.log ; scripts/detect-fork-exit /tmp/sbt.log
+#   scripts/detect-fork-exit --self-test        # prove the detector can actually fail
+#
+# Exit 0 = signature absent. Exit 1 = signature present (a silent fork exit). Exit 2 = usage error.
+set -uo pipefail
+
+FORK_EXIT_RE='sbt\.ForkMain.*failed with exit code|Error during tests'
+FAILURE_RE='\*\*\* FAILED \*\*\*|\*\*\* ABORTED \*\*\*'
+
+scan() { # scan <logfile> → 0 clean, 1 signature present
+  local log="$1"
+  local fork_exit failures
+  fork_exit=$(grep -cE "$FORK_EXIT_RE" "$log" 2>/dev/null || true)
+  failures=$(grep -cE "$FAILURE_RE" "$log" 2>/dev/null || true)
+
+  if [ "${fork_exit:-0}" -eq 0 ]; then
+    echo "detect-fork-exit: no fork-exit line — nothing to diagnose"
+    return 0
+  fi
+  if [ "${failures:-0}" -gt 0 ]; then
+    # A fork exit WITH reported failures is the ordinary case: some test failed and sbt exited
+    # non-zero because of it. That is the apparatus working, so this script stays quiet.
+    echo "detect-fork-exit: fork exit accompanied by ${failures} reported failure(s) — ordinary test failure, not the silent class"
+    return 0
+  fi
+
+  cat >&2 <<EOF
+
+✋ detect-fork-exit: SILENT FORK EXIT — the log says pass, the exit says fail.
+
+A forked test JVM died with no reported test failure. That is not a flake and not a build hiccup:
+something called System.exit()/sys.exit() while a test was running, which kills the JVM before
+ScalaTest can attach a result. Every suite therefore prints "All tests passed." and a real defect
+stays invisible.
+
+Where to look — the suite that was RUNNING when the JVM died, not a failing assertion:
+
+$(grep -nE 'Test via sbt|^\[info\] [A-Za-z].*Test:|ForkMain|Error during tests' "$1" | tail -12)
+
+~200 System.exit sites live in CLI *command helper* files (EmitCommands, ClusterCommands,
+PluginCommands, SwiftUiCommands, OAuthCli, LockCommands…), which is exactly what tests call
+in-process. A helper reachable from a test must RETURN a status; the test then asserts on it.
+
+Full diagnosis and the proven instance: BUGS.md cli-command-System.exit-kills-the-test-fork
+EOF
+  return 1
+}
+
+self_test() {
+  # A detector that has only ever been observed staying quiet is not a detector (AGENTS.md
+  # "measurement apparatus must COMPARE, never PRE-JUDGE"). These three cases assert both verdicts.
+  local tmp rc fail=0
+  tmp=$(mktemp -d)
+  trap 'rm -rf "$tmp"' RETURN
+
+  printf '[info] All tests passed.\n[error] Error during tests:\n[error] sbt.ForkMain 6 failed with exit code 1\n' \
+    > "$tmp/silent.log"
+  printf '[info] MySuite:\n[info] - does a thing *** FAILED ***\n[error] sbt.ForkMain 6 failed with exit code 1\n' \
+    > "$tmp/honest.log"
+  printf '[info] All tests passed.\n[success] Total time: 3 s\n' > "$tmp/clean.log"
+
+  scan "$tmp/silent.log" >/dev/null 2>&1; rc=$?
+  [ "$rc" -eq 1 ] && echo "PASS  detects a fork exit with no reported failure" \
+                  || { echo "FAIL  missed the silent fork exit"; fail=1; }
+
+  scan "$tmp/honest.log" >/dev/null 2>&1; rc=$?
+  [ "$rc" -eq 0 ] && echo "PASS  stays quiet when the failure WAS reported" \
+                  || { echo "FAIL  fired on an ordinary reported failure"; fail=1; }
+
+  scan "$tmp/clean.log" >/dev/null 2>&1; rc=$?
+  [ "$rc" -eq 0 ] && echo "PASS  stays quiet on a clean run" \
+                  || { echo "FAIL  fired on a clean run"; fail=1; }
+
+  [ "$fail" -eq 0 ] && echo "detect-fork-exit self-test: 3 PASS" || echo "detect-fork-exit self-test: FAILED"
+  return "$fail"
+}
+
+case "${1:-}" in
+  --self-test) self_test ;;
+  "" ) echo "usage: scripts/detect-fork-exit <sbt-log> | --self-test" >&2; exit 2 ;;
+  *)
+    [ -f "$1" ] || { echo "detect-fork-exit: no such log: $1" >&2; exit 2; }
+    scan "$1"
+    ;;
+esac

@@ -351,7 +351,19 @@ jobs:
       # (ci-crossbackend-differential-runtime) for the real optimization follow-up.
       - name: Test via sbt
         timeout-minutes: 200
-        run: sbt test
+        # Tee'd so the next step can read it. `pipefail` keeps sbt's exit status as the step's.
+        run: |
+          set -o pipefail
+          sbt test 2>&1 | tee /tmp/sbt-test.log
+
+      # Runs ONLY when the step above failed — that is exactly the situation where the log says
+      # "All tests passed." and the exit says otherwise, and where a reader has historically spent
+      # hours hunting a failing assertion that does not exist. The detector names the real cause
+      # (something called System.exit inside a forked test JVM) or stays quiet if this was an
+      # ordinary reported failure. It never turns a red step green: `|| true` keeps it advisory.
+      - name: Diagnose a silent fork exit
+        if: failure()
+        run: scripts/detect-fork-exit /tmp/sbt-test.log || true
 
       # Save the classes/zinc cache ONLY when compile + assembly + tests all
       # passed, so a failed build can never poison later runs.
