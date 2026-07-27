@@ -7083,24 +7083,6 @@ emits `def C(a) = IrCtor(C, [a])`; extend to `def C(a) = let y=a*2 in IrCtor(C, 
   pre-commit main); scljet is main's active M4 WIP, left untouched.
 
 ### Effects / runtime providers
-- [ ] **v2-coroutine-provider** — ACTIVE
-  (`feature/v2-coroutine-provider`): reconcile the reported
-  `coroutineCreate` missing-global result with the provider already present in
-  `v2NativeGeneratorPlugin`.
-  - Run `coroutine-basic`, `coroutine-error`, and the newer
-    `coroutine-native-lifecycle` through the declared conformance lanes with
-    memoization disabled; compare output before classifying the queue item.
-  - Run each case through default/legacy × native VM/direct ASM so a frontend
-    fallback or plugin-tier difference cannot masquerade as provider coverage.
-  - Inspect provider registration, packaging history, and each case's
-    frontmatter only after measuring. If another landed commit already closed
-    the gap, record that SHA and remove the stale item without changing code.
-  - If a real route is still red, reduce whether the missing global comes from
-    plugin installation, standard-tier packaging, or source lowering; pin the
-    smallest real-harness regression before fixing it.
-  - Done when all intended native routes resolve `coroutineCreate` and compare
-    with checked-in output, or the exact remaining unsupported lane is tracked
-    separately with evidence.
 - [ ] **v2-generator-provider** — dataset-from-generator: `Dataset.fromGenerator requires the standard
   generator provider` (parses now that compound-assign landed; needs the native generator provider).
 - [ ] **v2-distributed-failure-retry** — advances past `Random.uuid`, then emits `Stub` in the

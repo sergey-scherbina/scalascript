@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-07-28 — Native coroutine provider queue state reconciled
+
+The `v2-coroutine-provider` SPRINT entry predated the implementation: it was
+queued in `5bd569acc4`, then the provider landed in `708a82678` and its native
+lifecycle gate in `b8fd4a31c`. A fresh assembled run passes all three
+coroutine cases on their declared lanes; default/legacy × native VM/direct ASM
+is exact in all 12 combinations. No production change was needed.
+
 ## 2026-07-28 — V2 callback plugins preserve user exceptions
 
 Distributed and Generator callback helpers now rethrow ScalaScript user
