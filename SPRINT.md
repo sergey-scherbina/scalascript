@@ -778,8 +778,11 @@ mode in its purest form: the apparatus that establishes trust was itself unteste
             and slice forms verbatim.
       - [ ] **E7.8 — document the lane that production actually executes.** Fix BUGS
             `corpus-contract-doc-mislabels-v2-lane`: `bin/ssc run --v2` is the
-            standard/native `RunNativeV2` tier (native ssc1 front + native plugin host);
-            `ssc-tools run --v2` is the separate v1-front bridge and is not this gate.
+            standard/native `RunNativeV2` tier and defaults to direct ASM
+            (`bytecode=true`, link-time VM fallback), not the VM-only retired bridge.
+            `ssc-tools run --v2` now uses the same native front with
+            `bytecode=false`; correct the operator docs plus stale inline comments and
+            pin `bin/ssc info --execution-plan --v2` as the architecture check.
 
 - [x] **E5 — DONE: make a timeout impossible to misread as benign.** After E2 the gate fits its budget,
       but the *detection* hole stays: any future budget breach reappears as `cancelled`. Cheapest

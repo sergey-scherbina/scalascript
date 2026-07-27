@@ -6,16 +6,26 @@
 (SPRINT E7; found 2026-07-27 by Codex while reconciling the gate docs at
 `fc5f07f28`).
 
-**Reproduce.** `specs/corpus-contract.md` says the contract's `v2` lane is the
-v1-frontend → v2-VM bridge. `laneCmd` actually executes
-`bin/ssc run --v2`, whose path is `StandardMain → RunNativeV2 → native ssc1
-frontend → v2 VM + NativePluginHost`. The bridge is the different
-`bin/ssc-tools run --v2` tier.
+**Reproduce.** `specs/corpus-contract.md` calls the contract's `v2` lane a
+v1-frontend → v2-VM bridge. The comment beside `laneCmd` improves the frontend
+name but still calls it a VM lane and says `ssc-tools run --v2` is the retired
+bridge. Current routing says otherwise:
 
-**Impact / fix.** A failing production cell would be assigned to the wrong
-frontend and plugin system. Update both Corpus Contract operator docs to name
-the standard/native tier and explicitly distinguish the tools bridge; keep the
-executable command beside the architecture statement.
+- `bin/ssc run --v2` enters `StandardMain → RunNativeV2` with the native
+  frontend/checker and native plugin host. In a default environment it passes
+  `bytecode=true`, so direct ASM is the primary backend (with link-time
+  side-effect-safe VM fallback); `--interpret` or `SSC_EXEC=vm` opts into the
+  VM. `bin/ssc info --execution-plan --v2` reports
+  `{"tier":"standard","frontend":"native","checker":"native","backend":"asm"}`.
+- `bin/ssc-tools run --v2` also uses the native frontend and `RunNativeV2`, but
+  selects `bytecode=false` and therefore the VM. `FrontendBridge`/`RunV2` has
+  been retired.
+
+**Impact / fix.** A failing production cell would be assigned to both the wrong
+frontend and the wrong execution backend. Update the two Corpus Contract docs,
+the stale `laneCmd` comment, and the remaining retired-bridge comments in
+`Main.scala`; keep `bin/ssc info --execution-plan --v2` as the executable
+architecture check.
 
 ## corpus-contract-usage-missing-arg-separator — documented commands do not reach the script
 
