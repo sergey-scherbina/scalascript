@@ -449,7 +449,22 @@ private[interpreter] object SectionRuntime:
                   (args: List[Value]) => CallRuntime.callValue(fv, args, Map.empty[String, Value], child))
               case _ => enrichFnClosures(v, childCtx)
             else enrichFnClosures(v, childCtx)
-          val imported = rebindPluginNative(sourceName, targetName, enriched, interp)
+          val rebound = rebindPluginNative(sourceName, targetName, enriched, interp)
+          // Same failure as `rebindPluginNative` guards against, one layer down: a HOST BUILTIN is
+          // per-interpreter infrastructure, not a value to hand over. The child's copy closes over
+          // the CHILD interpreter, so a callback-style builtin invokes the CALLER's closure against
+          // the CHILD's globals. `v1/runtime/std/coroutine.ssc` re-exports `coroutineCreate` via
+          // `extern def`, so importing it left a coroutine body unable to read OR write the
+          // importer's top-level `var`s — reads raised `Undefined: n`, writes silently created a
+          // child-local binding and the caller saw its `var` unchanged. The importer already has
+          // its own identical builtin registered on itself; prefer that one.
+          // See BUGS.md `imported-builtin-native-runs-callback-in-defining-interpreter`.
+          val imported = rebound match
+            case fn: Value.NativeFnV =>
+              interp.globals.get(targetName) match
+                case Some(own: Value.NativeFnV) if !(own eq fn) => own
+                case _                                          => fn
+            case other => other
           // busi-p0-statusval-eventcase-collision — if an imported binding
           // would overwrite an existing same-name binding of a different
           // kind (e.g. a status-wrapper InstanceV val being shadowed by a

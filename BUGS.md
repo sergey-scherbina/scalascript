@@ -80,10 +80,54 @@ rebuilds it as `Content.CodeBlock(cb.lang, nested, tree, cb.span, pe, cb.lineOff
 blocks, and the modules that use those do not declare a `package:`. It took a new attribute that
 literate `std/` modules DO use to hit the combination.
 
+## imported-builtin-native-runs-callback-in-defining-interpreter — an imported builtin runs your closure in the WRONG scope
+
+**Status:** **FIXED 2026-07-27** by `corpus-gate-remaining-reds`. Filed first as
+`coroutine-started-after-resume-int-vs-v2` (one wrong flag); the flag turned out to be the visible
+tip of a scope bug.
+
+**Symptom, minimal (11 lines).** With `[coroutineCreate](std/coroutine.ssc)` imported, a coroutine
+body cannot see the importer's top-level `var`s at all:
+
+```scalascript
+var n = 7
+val co = coroutineCreate[String, String, String] { () => println(n); n = 99; suspend("s"); "done" }
+println(coroutineResume(co, "x"))
+println("outside n = " + n.toString)
+```
+
+Reading `n` inside the body raised `Undefined: n` (with a position pointing into
+`std/coroutine.ssc`, which is the tell); writing it silently created a child-local binding, so the
+caller's `var` stayed `7`. **Without the import the same program is correct** (`outside n = 99`) —
+that A/B is the whole diagnosis.
+
+**Root cause.** `coroutineCreate` is a NativeFn registered per-interpreter (`interp.globals(...) =
+NativeFnV(...)`), closing over the interpreter that registered it. `std/coroutine.ssc` re-exports it
+through `extern def`, so importing the module handed the CHILD's copy to the parent, and the body —
+a closure created in the PARENT — was then run via the child's interpreter, against the child's
+globals. Closures do not carry their interpreter (`CallRuntime.callValue(fn, args, env, interp)`
+takes it from the caller), so the scope followed the builtin, not the closure.
+
+**The guard already existed, one layer up.** `rebindPluginNative` rebinds *plugin* natives to the
+caller for exactly this reason — its comment says "otherwise callback-style intrinsics invoke user
+closures in the child Interpreter that loaded the dependency, where the caller's module globals are
+absent". A *builtin* native was not covered. Fix: at the import binding site, if the imported value
+is a `NativeFnV` and the importer already has its own `NativeFnV` under that name, bind the
+importer's — a host builtin is per-interpreter infrastructure, not a value to transfer.
+
+**Why it survived.** `tests/conformance/coroutine-native-lifecycle.ssc` — whose committed golden
+states the correct answer (`started:false` then `started:true`) — was gated `backends: [jvm, v2]`,
+so **INT was never held to it**. Widened to `[int, jvm, v2]` as part of this fix; INT now PASSes it.
+
+**Verification.** `coroutine-demo` is byte-identical on INT and v2 (8 lines; it was 17 vs 8 before
+`@doc`, and SKIPped on every lane before that). Body reads `n = 7`, writes `99`, caller observes
+`99`. Full conformance **305 passed / 0 failed** — the change is in import binding, so the whole
+suite was the affected slice, not a slice of it.
+
 ## coroutine-started-after-resume-int-vs-v2 — INT and the native lane disagree on a coroutine's started flag
 
-**Status:** OPEN (found 2026-07-27 by `corpus-gate-remaining-reds`, newly VISIBLE rather than newly
-introduced — see below).
+**Status:** **FIXED** — see `imported-builtin-native-runs-callback-in-defining-interpreter` above,
+which is the actual defect this was a symptom of. Original report below.
 
 **Symptom.** `examples/coroutine-demo.ssc`, line 3 of the output:
 

@@ -1,7 +1,7 @@
 ---
 name: coroutine-native-lifecycle
 description: Native Coroutine lifecycle — lazy start, nesting, cancellation, and bounded diagnostics
-backends: [jvm, v2]
+backends: [int, jvm, v2]
 also-codegen: v2
 known-red: "jvm — v1 JvmGen erases the public Coroutine type parameters; remove when BUGS.md v1-jvm-coroutine-generic-surface is fixed"
 ---
