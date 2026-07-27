@@ -1,0 +1,4 @@
+cases/** -text whitespace=-trailing-space,-space-before-tab
+LICENSE -text
+categories.tsv -text
+SHA256SUMS -text

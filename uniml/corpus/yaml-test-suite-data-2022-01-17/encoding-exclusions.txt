@@ -1,0 +1,5 @@
+# Intentionally empty.
+#
+# data-2022-01-17 has 402 UTF-8-representable in.yaml files. Additions to this
+# manifest are fail-closed: generate.py accepts only exact relative case ids
+# whose selected upstream files cannot be decoded as UTF-8.
