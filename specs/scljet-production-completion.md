@@ -84,7 +84,7 @@ the same bookkeeping commit that changes the capability.
 | Capability | Initial state | Source/evidence boundary |
 |---|---|---|
 | Byte/page/record/B-tree read corpus | `implemented` | M1–M2 conformance and pinned valid/corrupt corpus |
-| Balanced B-tree insertion | `implemented` | `pagerInsertBalanced`; reference integrity/read-back gates |
+| Balanced B-tree insertion | `subset` | Image path is correct for local non-overflow cells; production storage boundaries remain |
 | Reclaiming deletion primitive | `helper-only` | `pagerDeleteRebalanced` isolated test; live SQL does not call it |
 | Freelist reuse during insertion | `open` | allocation is EOF-only |
 | Rollback-journal codec and image recovery | `helper-only` | byte/image inverse tests only |
@@ -109,34 +109,59 @@ the same bookkeeping commit that changes the capability.
 
 ### SC-1 — IPK numeric affinity
 
-`targetRowidOf` must implement SQLite-compatible conversion for an INTEGER PRIMARY KEY
-assignment:
+One shared rowid coercion must implement SQLite-compatible conversion for an INTEGER
+PRIMARY KEY value on both INSERT and UPDATE:
 
 - `SqlInteger` is accepted directly;
 - a finite `SqlReal` is accepted only when it is exactly integral and representable as a
   signed 64-bit integer;
-- `SqlText` is accepted only when the entire trimmed decimal token is an optional sign
-  followed by one or more digits and the result is representable as signed 64-bit;
+- `SqlText` follows SQLite's complete numeric text grammar, including decimal points and
+  exponents, and is accepted only when the whole trimmed token converts to an exact
+  signed-64 integer;
 - NULL, blob, fractional/non-finite real, malformed text, and overflow fail without
   mutating the image.
 
+Only an actual SQL NULL requests automatic rowid assignment on INSERT. A malformed or
+non-integral explicit value never silently becomes an automatic rowid.
+
 Leading-numeric-prefix JDBC getter conversion is not reusable here: affinity validates the
-whole value. The gate covers signs, surrounding ASCII whitespace, `Long.MinValue`,
-`Long.MaxValue`, one-step overflow on both ends, fractional values, scientific text, empty
-text, indexed and unindexed tables, and collisions. The same statements run through
-SclJet and reference sqlite-jdbc; resulting rows and integrity status are compared.
+whole value. The gate covers signs, surrounding ASCII whitespace, decimal/exponent forms,
+`Long.MinValue`, `Long.MaxValue`, one-step overflow and floating-point rounding boundaries,
+fractional values, hexadecimal/malformed/empty text, indexed and unindexed tables, and
+collisions. The same statements run through SclJet and reference sqlite-jdbc; resulting
+rows and integrity status are compared.
+
+Before schema work builds on it, scalar value semantics also need live differential gates:
+
+- comparisons with NULL and IN/NOT IN propagate SQL UNKNOWN rather than treating
+  `NULL == NULL` as true;
+- INTEGER/REAL comparison remains exact above 2^53 and at signed-64 boundaries;
+- BLOB comparison is bytewise and does not treat all same-class blobs as equal;
+- the same comparator semantics drive filtering, ordering, DISTINCT, grouping, and index
+  behavior.
 
 ### SC-2 — reclaim and reuse
 
 The live SQL DELETE path and the delete phase of UPDATE use reclaiming deletion. Any page
 allocator used by B-tree split or root growth must consume a validated freelist leaf before
-extending EOF.
+extending a separately tracked physical EOF.
 
 Popping a free page is a pager operation, not a change to the integer returned by
 `mutableAllocate`: it must stage the changed database header and trunk page together with
 the reused page. Corrupt freelist pointers/counts fail closed. A delete/insert workload
 must plateau in page count once sufficient free pages exist, and rollback recovery must
 reconstruct the exact original image.
+
+This first reclaim/reuse gate is not storage completion. Canonical M3 additionally requires:
+
+- allocating and freeing overflow chains for incremental large TEXT/BLOB DML;
+- using `usableSize`, not raw page size, on reserved-byte databases;
+- bumping the database change counter and version-valid-for header fields on commit;
+- correct indexed multi-table DML rather than whole-image/single-table restrictions;
+- maintaining auto-vacuum pointer maps or rejecting that mode explicitly and safely.
+
+Each boundary is tested against a reference-created file. A green small-row,
+reserved-byte-zero page-plateau test cannot close M3.
 
 ### SC-3 — schema semantics
 
@@ -158,6 +183,14 @@ Preparing produces an immutable parsed program with explicit parameter slots and
 cookie it depends on. Repeated execution binds values without tokenizing or parsing again.
 A cookie change either reparses safely or returns the documented schema error.
 
+The target-neutral planner lowers parsed statements through explicit logical and physical
+plan nodes. Its affinity/collation-aware access choices always retain a correct full-scan
+alternative, and `EXPLAIN QUERY PLAN` has stable, tested output.
+
+Execution uses the canonical immutable register/cursor program rather than treating the
+direct AST evaluator as the final VM. Program validation bounds registers and jumps, rejects
+unsafe backward jumps, and supports interruption and resource limits.
+
 A query cursor exposes `step`, current row, and close. Simple table/index/range paths stream
 without constructing the full result list. Sort, group, window, DISTINCT, and joins may
 retain an explicitly documented materialization boundary until their own streaming work.
@@ -166,7 +199,18 @@ list.
 
 ### SC-5 and SC-6 — rollback transactions and connection state
 
-The rollback protocol follows the ordering and lock transitions in the canonical spec:
+Normal rollback writers follow the lock progression
+SHARED→RESERVED→PENDING→EXCLUSIVE. Hot recovery has a distinct
+SHARED/PENDING→EXCLUSIVE path that must not advertise RESERVED ownership. Both MemoryVFS and
+the JVM VFS must be able to express these transitions.
+
+Before live recovery, the journal codec must handle real multi-header/large journals,
+checked arithmetic and sizes, partial headers/record suffixes, and zero-extension when a
+crash truncated the database below its original size. The deterministic fault apparatus
+must model reordering, capacity/disk-full, device characteristics, and sector size in
+addition to simple error/short/crash effects.
+
+The rollback commit protocol follows the ordering in the canonical spec:
 
 1. acquire the required lock state;
 2. create and populate the rollback journal;
@@ -185,17 +229,31 @@ The concrete engine/connection then owns autocommit, BEGIN modes, COMMIT, ROLLBA
 SAVEPOINT, RELEASE, rollback-to, busy handling, read-your-writes, and statement atomicity.
 SQL text and both JDBC façades share this state machine.
 
+Implementation is split and gated in this order: lock/journal/fault hardening; open-time hot
+recovery; DELETE-mode commit; TRUNCATE/PERSIST; exhaustive fault and reference-contention
+closure.
+
 ### SC-7 — WAL
 
-Production WAL requires the SQLite wal-index in shared memory, including duplicate headers,
-read marks, `nBackfill`, page-number/hash regions, native byte order, and the documented
-WRITE/CKPT/RECOVER/read locks. Readers hold a stable snapshot. Writers append and publish a
-commit only after WAL sync. Checkpoint modes honor reader boundaries and the required
+Production WAL first needs real golden fixtures and codec hardening: frames may grow the
+database beyond base EOF, a committed WAL page 1 defines the effective database header/schema
+for that snapshot, and page-size mismatch fails at open.
+
+The SQLite wal-index in shared memory includes duplicate headers, read marks, `nBackfill`,
+page-number/hash regions, native byte order, and the documented WRITE/CKPT/RECOVER/read
+locks. A failed shared→exclusive upgrade under external contention must restore the prior OS
+shared lock. Readers hold a stable snapshot. Writers append and publish a commit only after
+WAL sync. Checkpoint modes honor reader boundaries and the required
 WAL-before-backfill/database-after-copy sync order.
 
 The pure `readWal`, overlay, and `checkpointWal` image functions remain useful test helpers,
 but they are never evidence for concurrent WAL. A VFS without shared memory and shared-memory
 locks rejects production WAL mode.
+
+WAL lands in separately falsifiable stages: fixture/codec hardening; wal-index
+codec/recovery; SHM capability and lock behavior; snapshot reader; append writer;
+PASSIVE/FULL/RESTART/TRUNCATE checkpoint/reset; then exhaustive crash and mixed-process
+concurrency.
 
 ### SC-8 — SQL compatibility
 
@@ -259,10 +317,10 @@ reported as full production completion.
 ## Behavior checklist
 
 - [ ] SC-0 capability manifest is complete and fail-loud.
-- [ ] SC-1 IPK numeric affinity matches SQLite.
-- [ ] SC-2 live DML reclaims and safely reuses pages.
+- [ ] SC-1 rowid coercion and scalar value/NULL semantics match SQLite.
+- [ ] SC-2 live DML reclaims/reuses pages and closes incremental storage boundaries.
 - [ ] SC-3 affinity and constraints share parsed schema semantics.
-- [ ] SC-4 prepared programs and cursor execution are real.
+- [ ] SC-4 prepared programs, planner/EXPLAIN, execution VM, and cursors are real.
 - [ ] SC-5 VFS rollback commit/recovery passes exhaustive faults.
 - [ ] SC-6 connection transactions/savepoints pass differential concurrency.
 - [ ] SC-7 standard WAL/wal-index passes mixed-implementation concurrency.

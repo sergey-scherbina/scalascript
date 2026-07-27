@@ -74,20 +74,37 @@ strongest CI evidence actually available.
       remain open. Gate: a support-manifest script/test fails on an unclassified SQL/storage/
       provider capability instead of inferring green from the existing 106 cases.
 
-- [ ] **SC-1 — IPK numeric-affinity correctness.** Fix `BUGS.md`
-      `scljet-ipk-update-numeric-affinity`: an INTEGER PRIMARY KEY update accepts an exact integral
-      `SqlReal` and a whitespace/sign/bounds-safe decimal `SqlText`, while rejecting fractional,
-      malformed, and overflowing values without changing the image. Extend
-      `scljet-update-ipk-moves-rowid` and the sqlite-jdbc differential in both directions; verify
-      `integrity_check` and indexed-table ordering after the move. This is the first code slice.
+- [ ] **SC-1 — foundational SQL value correctness.**
+  - [ ] **SC-1a — IPK numeric affinity.** Fix `BUGS.md`
+        `scljet-ipk-update-numeric-affinity` through one rowid coercion used by INSERT and UPDATE:
+        accept exact integral `SqlReal` and full SQLite numeric-text forms whose result is an exact
+        signed-64 integer (decimal point and exponent included); reject fractional, malformed,
+        hexadecimal, rounded-at-the-boundary, and overflowing values without changing the image.
+        Only a real SQL NULL means auto-rowid on INSERT. Extend
+        `scljet-update-ipk-moves-rowid` and the sqlite-jdbc differential in both directions; verify
+        `integrity_check`, collisions, and indexed-table ordering after the move. This is the first
+        code slice.
+  - [ ] **SC-1b — three-valued predicates.** Reproduce the static `NULL = NULL` and
+        `NOT IN (..., NULL)` findings in the real harness, add `BUGS.md` entries if confirmed, then
+        make scalar comparison/IN/NOT IN propagate UNKNOWN exactly like SQLite. Gate with a live
+        differential `scljet-sql-null-semantics` case rather than the existing IS-NULL-only test.
+  - [ ] **SC-1c — exact value comparison.** Reproduce precision loss above 2^53 and same-class BLOB
+        equality in the real harness, record confirmed bugs, then make INTEGER/REAL and BLOB
+        comparisons exact and shared by filtering, ordering, DISTINCT, grouping, and index
+        semantics. Gate with `scljet-sql-value-compare` against live SQLite.
 
 - [ ] **SC-2 — reclaiming live DML plus safe freelist reuse.** Turn the already-tested
-      `pagerDeleteRebalanced` primitive into live DELETE/UPDATE behavior and make insert/split/root
-      allocation consume validated freelist pages before EOF. Consuming a page must update/stage
-      freelist trunks and database-header bytes atomically; corrupt freelists fail closed.
-      Differential gate: multi-level delete→insert→update cycles plateau in page count, decrease
-      freelist count on reuse, retain ordered rows on INT+JS, and pass reference
-      `integrity_check`; crash recovery restores the exact pre-image.
+  - [ ] **SC-2a — reclaim/reuse.** Turn `pagerDeleteRebalanced` into live DELETE/UPDATE behavior
+        and make insert/split/root allocation consume a checked free-page pool before the separate
+        physical EOF cursor. Consuming a page stages freelist trunks and database-header bytes
+        atomically; corrupt freelists fail closed. Mixed DML must plateau in page count, decrease
+        freelist count on reuse, retain ordered INT+JS rows, pass reference `integrity_check`, and
+        recover the exact pre-image.
+  - [ ] **SC-2b — incremental storage completeness.** Add overflow allocation/freeing for large
+        TEXT/BLOB cells, reserved-byte usable-size accounting, change-counter/version-valid-for
+        header updates, indexed multi-table DML, and auto-vacuum pointer-map maintenance or an
+        explicit fail-closed refusal. Gate each boundary with large/reserved/indexed/auto-vacuum
+        reference files; small reserved=0 rows alone cannot close canonical M3.
 
 - [ ] **SC-3 — schema metadata, affinity, and constraints foundation.** Parse declared columns and
       table constraints once into a target-neutral schema model shared by SQL, typed SQL, JDBC
@@ -96,21 +113,36 @@ strongest CI evidence actually available.
       foreign keys; STRICT/generated columns. Every accepted/rejected mutation is differentially
       checked against the pinned SQLite oracle, including rollback of partial multi-row failures.
 
-- [ ] **SC-4 — compiled prepare and true cursor execution.** Introduce immutable
-      prepared-select/prepared-mutation programs with numbered parameter slots, schema-cookie
-      invalidation/reprepare, and no tokenize/parse on each execute. Add a real `QueryCursor/step`
-      path over simple full/range/index scans and adapt portable/JVM ResultSet to it; explicitly
-      materialize only operators that require it (sort/group/join) until their streaming slices
-      land. Gate parse-count/schema-change behavior, bind fidelity, close/interrupt/limits, and
-      row identity against the existing evaluator plus SQLite.
+- [ ] **SC-4 — compiled planning, execution VM, and true cursor execution.**
+  - [ ] **SC-4a — compiled prepare.** Introduce immutable prepared-select/prepared-mutation
+        programs with numbered parameter slots, schema-cookie invalidation/reprepare, and no
+        tokenize/parse on each execute.
+  - [ ] **SC-4b — target-neutral planner and EXPLAIN.** Lower parsed statements to explicit logical
+        and physical plan nodes; make affinity/collation-aware access choices and expose stable
+        `EXPLAIN QUERY PLAN`, always differential against the correct full-scan plan.
+  - [ ] **SC-4c — immutable execution program and cursor.** Add the canonical bounded
+        register/cursor VM with checked backward jumps, interruption, and limits, then a real
+        `QueryCursor/step` over simple scans/seeks. Adapt portable/JVM ResultSet to it; explicitly
+        materialize only operators that require it until their own streaming slices land.
+        Gate parse counts, schema changes, bind fidelity, plan identity, close/interrupt/limits,
+        and row identity against the existing evaluator plus SQLite.
 
 - [ ] **SC-5 — real rollback-mode VFS transactions and recovery.** Replace image-only claims with
-      the normative lock/journal state machine: PENDING→RESERVED→EXCLUSIVE transitions; hot-journal
-      open recovery; journal create/write/sync; database write/truncate/sync; DELETE, TRUNCATE, and
-      PERSIST invalidation; directory sync and cache invalidation. Run deterministic MemoryVFS
-      fault injection at every operation boundary and real JVM hot-journal/cross-process fixtures.
-      A reopened database must be exactly old or new, never mixed, and reference SQLite must safely
-      share the file in rollback mode.
+  - [ ] **SC-5a — lock semantics, journal hardening, and fault apparatus.** Support normal
+        SHARED→RESERVED→PENDING→EXCLUSIVE writers and hot recovery's separate
+        SHARED/PENDING→EXCLUSIVE path without RESERVED. Harden multi-header/large/truncated journal
+        parsing, checked sizes/arithmetic and zero-extension. Add reorder/capacity/device controls
+        to the MemoryVFS fault model.
+  - [ ] **SC-5b — open-time hot recovery.** Restore/truncate/sync/invalidate through the VFS while
+        holding the recovery locks; cover partial journal headers/suffixes and a database already
+        truncated below its original size with JVM real fixtures.
+  - [ ] **SC-5c — DELETE-mode commit.** Implement journal create/write/sync → database
+        write/truncate/sync → journal delete + directory sync, cache invalidation, and lock release.
+  - [ ] **SC-5d — TRUNCATE/PERSIST modes.** Implement their distinct invalidation and sync rules;
+        do not alias them to DELETE in either behavior or tests.
+  - [ ] **SC-5e — exhaustive recovery evidence.** Inject every VFS failure/crash ordinal and run
+        mixed reference-SQLite cross-process contention. Reopen must be exactly old or new, never
+        mixed.
 
 - [ ] **SC-6 — connection transactions, SQL transaction statements, and savepoints.** Build the
       concrete connection/engine state over SC-5; implement BEGIN modes, COMMIT, ROLLBACK,
@@ -119,13 +151,23 @@ strongest CI evidence actually available.
       Differential/concurrency gates cover two handles, schema changes, failed statements,
       nested savepoints, and close cleanup.
 
-- [ ] **SC-7 — standard WAL and wal-index.** Harden WAL against real golden fixtures, then add the
-      standard native-endian shared-memory wal-index (duplicate headers, hash tables, read marks,
-      `nBackfill`), stable reader snapshots, writer append/commit/reset/salts, and PASSIVE/FULL/
-      RESTART/TRUNCATE checkpoints with the required sync/lock ordering. A VFS without SHM/SHM
-      locks must reject production WAL honestly. Gate mixed SclJet/reference readers, writer, and
-      checkpointer across processes plus deterministic crash points; keep pure image overlay helpers
-      explicitly classified as helpers, not production WAL evidence.
+- [ ] **SC-7 — standard WAL and wal-index.**
+  - [ ] **SC-7a — real fixtures and codec hardening.** Compare real WAL files/checksums, support
+        growth beyond base EOF, derive the effective header/schema from WAL page 1, and reject page-
+        size mismatches at open.
+  - [ ] **SC-7b — wal-index codec/recovery.** Implement native-endian duplicate headers, hash/page
+        regions, read marks, `nBackfill`, checksum validation, and recovery.
+  - [ ] **SC-7c — honest SHM capability/locking.** Reject WAL when SHM/locks are unavailable; fix
+        shared→exclusive upgrade so failed external contention restores the OS shared lock.
+  - [ ] **SC-7d — stable snapshot reader.** Acquire a read mark and keep page/header/schema views
+        on one committed snapshot.
+  - [ ] **SC-7e — append writer.** Implement WRITE locking, frame append/checksum/sync, commit
+        publication, salt/reset, busy handling, and cleanup.
+  - [ ] **SC-7f — checkpoint modes.** Implement PASSIVE/FULL/RESTART/TRUNCATE, reader boundaries,
+        `nBackfill`, reset, and required sync order.
+  - [ ] **SC-7g — crash/concurrency closure.** Run deterministic crash points and mixed
+        SclJet/reference readers, writer, and checkpointer across processes. Pure image overlay
+        helpers stay classified as helpers, never production-WAL evidence.
 
 - [ ] **SC-8 — complete the official SQL families.** Close the canonical M4/M6 grammar/semantics
       matrix in dependency-sized commits: compound SELECT; CTE/recursive CTE; window clauses and
