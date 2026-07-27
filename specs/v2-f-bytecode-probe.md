@@ -38,6 +38,17 @@ On rejection it also prints the exception class and message. A rejected,
 miscompiled, or byte-different candidate exits non-zero; it is never converted
 to a passing VM run.
 
+Product integration adds no CLI flag and does not change `.ssc` semantics.
+When `SSC_FRONT_TRACE=1` is set, a selected nested compiler run prints this
+stable stderr marker:
+
+```text
+[SSC_FRONT=F] nested F0 direct-ASM
+```
+
+The marker is diagnostic only; program stdout remains the observable compared
+for parity.
+
 ## Behavior
 
 - [ ] The probe rebuilds one kernel plus one F0 from the current checkout and
@@ -61,15 +72,30 @@ to a passing VM run.
 - [ ] The probe leaves the checkout unchanged and either removes temporary
       artifacts or preserves all of them under the explicit `--keep`
       directory.
+- [ ] The product F runner considers only its first nested `coreir.eval`.
+      Direct ASM is selected only when that program contains a string-backed
+      constant that requires multiple classfile modified-UTF8 entries. Small
+      first programs and every later nested eval stay on the VM.
+- [ ] The nested evaluator is thread-scoped and restoring. It cannot affect a
+      checker, legacy-front run, another thread, or a later tower run.
+- [ ] `OpAnfNative.lift` plus bytecode emission finish before the candidate is
+      considered started. `Unsupported` and ASM method/class-size failures in
+      that link phase may delegate to VM; any failure from `runProgram` is
+      propagated and never rerun on VM.
+- [ ] A selected direct-ASM run gets a fresh `Emit.globalsRef` for its entire
+      install/entry execution and restores the previous map in `finally`.
+- [ ] The product gate compares stdout bytes before inspecting trace markers:
+      hello stays on VM, while the exact product SClJet workload selects nested
+      direct ASM and remains byte-identical to `SSC_FRONT=legacy`.
 
 ## Out of scope
 
 - Changing ScalaScript source semantics or the CoreIR format.
 - Weakening F's correctness-preserving legacy fallback.
-- Editing `RunNativeV2` while the separate
-  `v2-bytecode-lane-silent-downgrade` claim owns that integration path.
-- Optimising `JvmByteGen` before the probe identifies a concrete unsupported
-  or slow shape.
+- Making all `coreir.eval` calls use direct ASM.
+- Changing the user program's VM/direct-ASM choice (`ssc run` versus
+  `ssc run --bytecode`); this policy accelerates the compiler front only.
+- Retrying a bytecode program after install or entry execution has begun.
 - Treating a VM fallback as bytecode evidence.
 
 ## Design
@@ -103,6 +129,25 @@ The probe intentionally uses fresh JVM processes. This answers the product
 compile-time question and avoids making a warmed in-process loop look like a
 cold frontend improvement.
 
+Product integration is deliberately narrower than the probe. `Runtime` exposes
+a restoring thread-local scope whose evaluator has the shape
+`Program => Option[Value]`; `coreir.eval` asks that scope first and retains its
+existing VM implementation when no evaluator is installed or it returns
+`None`. `RunNativeV2` installs one evaluator inside the dedicated tower thread
+only when the F runner is active. A local one-shot flag consumes the first
+nested program before classification, preventing later YAML, Markdown, or
+content evals from being mistaken for F0.
+
+`JvmByteGen.requiresStringChunking` is the shared admission predicate. It walks
+program constants and uses the same modified-UTF8 byte accounting as
+`loadString`, so selection cannot drift to a character-count or ordinary-UTF8
+heuristic. When selected, the evaluator lifts and emits before execution,
+temporarily replaces `Emit.globalsRef`, runs the generated class, and restores
+the previous map. Only the same pre-execution failures accepted by the public
+bytecode lane (`Unsupported` and ASM method/class-size limits) return `None`.
+Invocation/runtime failures escape after unwrapping
+`InvocationTargetException`.
+
 ## Decisions
 
 - **Probe F0, not product `.ssc` input** — F0 is the already-bootstrapped
@@ -121,6 +166,19 @@ cold frontend improvement.
 - **Use an external developer script before product wiring** — this keeps a
   rejected hypothesis out of the CLI and provides a reusable regression gate
   if the lane is admitted.
+- **Select by the first large nested F0, not unconditionally** — exact product
+  SClJet benefits strongly, but emission/loading overhead makes a tiny hello
+  F0 slower. Rejected: compiling the outer F runner (it leaves nested F0 on
+  the VM and regresses hello) and compiling every `coreir.eval` (later content
+  evals are different workloads and would pay unmeasured startup cost).
+- **Delegate only before execution** — emission is side-effect-free, so an
+  unsupported or JVM-size-limited candidate can safely use the existing VM
+  implementation. Rejected: catch-and-rerun after `runProgram`, because install
+  or entry may already have produced side effects.
+- **Thread-local runtime hook, installed inside the tower thread** — the tower
+  deliberately runs on a dedicated large-stack thread, so a caller-thread
+  scope would not propagate. A process-global callback would contaminate
+  checkers and concurrent/later compilations.
 
 ## Results
 
@@ -128,8 +186,20 @@ The initial file-backed F0 control is admitted: five fresh VM runs had a
 4.93-second median and five direct-ASM runs had a 2.27-second median (2.17x),
 with identical 409,629-byte output.
 
-The first exact product-shape control is intentionally red. SClJet resolves to
-593,193 source bytes, which the current runner embeds in a 1,040,325-byte F0.
-`JvmByteGen.emitProgram` rejects it in 0.26 seconds with
-`java.lang.IllegalArgumentException: UTF8 string too large`. This is the
-concrete blocker the large-string behavior item must turn green.
+The first exact product-shape control exposed the concrete blocker: SClJet
+resolves to 593,193 source bytes, which the runner embeds in a 1,040,325-byte
+F0; pre-fix emission rejected it with
+`java.lang.IllegalArgumentException: UTF8 string too large`.
+
+After modified-UTF8 chunking, that exact F0 is admitted. VM execution took
+35.89 seconds and direct ASM 8.19 seconds (4.38x), with identical
+1,082,761-byte output (recorded SHA-256 prefix `6f52b6`).
+A three-run file-backed rerun measured 4.71 versus 2.12 seconds (2.22x), with
+the same output digest as the five-run control.
+
+An outer-runner control rejects unconditional product wiring: compiling the
+outer hello runner to ASM took about 1.68 seconds versus 1.25 seconds on VM and
+still executed nested F0 through `coreir.eval` on the VM. A direct tiny F0
+control likewise measured about 0.44 seconds for emit/load/run versus 0.26
+seconds on VM. These controls admit the selective large-nested-F0 policy and
+reject unconditional ASM.
