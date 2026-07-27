@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-07-27 — claim-mutex: task claims that actually exclude each other
+
+Two agents did the same work twice in one day, and a third worked inside another's live claim. The
+cause was mechanical, not inattention: the claim check compared slug **filenames**, so the same work
+under a different slug was invisible; and the protocol's intended mutex — "push rejected ⇒ someone
+won the race" — fired but auto-resolved, because every claim wrote a **disjoint file**, letting the
+loser rebase cleanly and never see the winner. Nothing bound commits to a claim at all.
+
+Four layers, ordered by how hard they are to bypass: a shared `.work/active/LEDGER.tsv` whose
+`# generation: N` header every claim must bump (two concurrent claims now **conflict** at rebase —
+the only layer needing no hook, since it rides on the remote's fast-forward rule); a `pre-push`
+guard refusing a claim whose declared `items:`/`paths:` overlap a live one; a `pre-commit` scope
+guard holding commits inside their claim's `paths:`; and `scripts/coord-claim` + an `AGENTS.md`
+change to claim **before** planning, since claiming after planning is what creates the window.
+
+Overlap is not banned — *accidental* overlap is. A `verify-<slug>` claim may overlap on purpose:
+that is how `scljet-ipk-move-indexed-corrupts-btree` was found. Every gate is proven to FAIL rather
+than merely to pass (neutering both hooks turns exactly the four refuse-cases red), and the ledger
+test asserts the control direction too. Dogfooded: the scope guard refused its own implementing
+commit. Spec: `specs/claim-mutex.md`.
+
+
 ## 2026-07-27 — v1 JS widens `Char` at declared `Int` function boundaries
 
 Fixed `js-char-into-int-param` in `b672b0d41`. The JS runtime represents `charAt` values as boxed

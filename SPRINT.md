@@ -27,20 +27,20 @@ Two collisions in one day, both on `origin/main`, both wasteful:
 3. Nothing checks that an agent's commits stay INSIDE its claim, which is all of (B).
 4. The protocol order is pick → plan → claim, so the race window equals the planning time.
 
-- [ ] **1. `.work/active/LEDGER.tsv` + a `# generation: N` header every claim must bump.** One shared
+- [x] **1. `.work/active/LEDGER.tsv` + a `# generation: N` header every claim must bump.** One shared
       line per ACTIVE claim (removed on release). The generation counter is the point: two concurrent
       claims both rewrite line 1, so the loser's rebase CONFLICTS instead of auto-merging. This is the
       only non-bypassable layer — it rides on the remote's fast-forward rule, not on a hook an agent
       can skip. Must be **proven** to conflict with a real two-clone test, not assumed.
-- [ ] **2. Claims declare `items:` / `paths:`; a `pre-push` hook refuses an overlapping claim.**
+- [x] **2. Claims declare `items:` / `paths:`; a `pre-push` hook refuses an overlapping claim.**
       Gives the ledger a key to compare on, so (A) becomes detectable. Path overlap by prefix
       containment (predictable; full glob intersection is not worth it).
-- [ ] **3. `pre-commit` scope guard.** In a `feature/<slug>` worktree, refuse staged paths outside the
+- [x] **3. `pre-commit` scope guard.** In a `feature/<slug>` worktree, refuse staged paths outside the
       claim's declared `paths:`. Extends the EXISTING hook, which already inspects staged paths, the
       branch and the checkout kind. Always-allow the shared bookkeeping set (SPRINT/BACKLOG/CHANGELOG/
       BUGS/`.work/**`) or every claim would have to list it. Backward compatible: no claim, or a claim
       with no `paths:`, → allow with a note; enforce only when `paths:` is declared.
-- [ ] **4. Invert the order: claim BEFORE planning.** One-paragraph change in `AGENTS.md` (+ mirror
+- [x] **4. Invert the order: claim BEFORE planning.** One-paragraph change in `AGENTS.md` (+ mirror
       into the `multi-agent` skill, which lives in the `.agents/plugins` submodule — separate repo, so
       either bump it or queue it). A claim is cheap and revocable; planning first is what creates the
       window.
@@ -49,7 +49,18 @@ Two collisions in one day, both on `origin/main`, both wasteful:
 live file-corruption bug (`scljet-ipk-move-indexed-corrupts-btree`). The goal is that an overlap be
 DELIBERATE ("I am re-checking someone's result") rather than accidental.
 
-Spec: `specs/claim-mutex.md` (write + commit BEFORE implementing — spec-dev).
+✓ **LANDED** — spec `5e5b48a52`, implementation `379557814`. All four layers in, 10/10 gate tests
+green and wired into CI, every refuse-case proven red when the hooks are neutered. Dogfood: the
+scope guard refused its own implementing commit (naming `tests/coord/` and `.github/workflows/ci.yml`
+as outside the claim); the claim was widened and re-pushed rather than bypassed.
+
+**Follow-up (not done here):** the `multi-agent` skill still documents the old `pick → plan → claim`
+order and the nominal slug check. It lives in the `.agents/plugins` **submodule** (separate repo
+`sergey-scherbina/agent-plugins`), so changing it means a commit there plus a pointer bump — out of
+this claim's `paths:`. `AGENTS.md` inlines the binding rules, so this project is correct either way,
+but the skill will keep telling other repos the old order until it is updated.
+
+Spec: `specs/claim-mutex.md`.
 
 ---
 
