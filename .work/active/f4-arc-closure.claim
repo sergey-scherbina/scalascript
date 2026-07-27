@@ -1,0 +1,14 @@
+slug: f4-arc-closure
+agent: opus
+started: 2026-07-27T00:00:00Z
+heartbeat: 2026-07-27T00:00:00Z
+direction: Health / bookkeeping
+scope: |
+  Close the F4 flip arc honestly + adjacent quick wins (Sergiy: "берись за все"):
+  1. Reconcile stale docs: BACKLOG "v2-f4-flip STILL HELD", MILESTONES Health
+     ("main has never had a fully green run" / 192 red runs), SPRINT F4 sections.
+  2. Verify + close (or keep open with evidence) BUGS f-native-out-of-corpus-smoke-regressions
+     — SPRINT says both parts fixed (f02100097, cca93b867) but BUGS still says OPEN.
+  3. jdk-backend-accept-teardown-race one-liner (JdkServerBackend.scala:110-112).
+  4. Remove 3 orphaned worktrees (ci-last-red, d2-reader-impl, v2-f4-flip) + stale builders.
+  Follow-on claims by the same agent: v2-f5b typed locals, scljet ipk/rowid.
