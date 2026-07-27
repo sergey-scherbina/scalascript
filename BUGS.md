@@ -36,9 +36,48 @@ the job that would catch a scljet regression, and the 300-min `sbt` job is the l
 (Conformance / Validate / Lint) as the per-push verdict and run `sbt` on a schedule.
 
 
-## v2-front-try-in-def-body-shapes-break — two `try`-as-a-def-body shapes break, one of them SILENTLY
+## v2-front-try-in-def-body-shapes-break — `try`-as-a-def-body shapes break; (a)+(b) fixed, (c) OPEN
 
-**Status:** **BOTH SHAPES FIXED 2026-07-27** by opus — (a) `front-try-def-body-shapes`, (b)
+**⚠️ SHAPE (c) IS STILL OPEN — found 2026-07-27 by `corpus-gate-remaining-reds`, AFTER (a)+(b)
+landed and verified against a build that contains them.** The differentiator is not where `catch`
+sits — it is a **MULTI-STATEMENT `try` body**.
+
+Minimal repro (5 lines), on a build with (a)+(b) in it:
+
+```scalascript
+def f(): String =
+  try
+    val x = "ok"
+    x
+  catch case e: Throwable => "caught"
+println(f())
+```
+
+→ `ssc: native frontend rejected incomplete parse …: structural CoreIR contains parser sentinel _err`
+
+A/B that isolates it exactly — only the `try` body changes:
+
+| `try` body | `catch` layout | result |
+|---|---|---|
+| single expression `"ok"` | `catch case e => "caught"` (same line) | **ok** |
+| single expression `"ok"` | `catch` / `case` on separate lines | **ok** |
+| single expression `"ok"` | case body on the next line | **ok** |
+| **`val x = "ok"` then `x`** | same line | **`_err`** |
+| **`val x = "ok"` then `x`** | case body on next line | **`_err`** |
+
+**Why it matters right now.** This is the root cause of `rozum-agent-schema-derived v2 FAIL`, which
+the corpus contract has been reporting: the failure is not in that example at all — importing
+`std/agent.ssc` is enough, and `std/agent.ssc:385-391` (`postChatCompletionsOnce`) is exactly this
+shape. Bisected at top-level def boundaries to that function; `std/json.ssc` and `std/http.ssc`
+import clean. So one parser gap silently removes `std/agent.ssc` — and everything importing it —
+from the native lane.
+
+**Owner note.** The fix belongs in `specs/v2.2-p6.5-fsub.ssc` (the `parseHArms0`/`parseCatchPf`
+region that (b) already touched). NOT taken by `corpus-gate-remaining-reds`: that file had three
+fixes land in it today from another agent and `v2-try-misses-io-exceptions` is live in the same
+area — handing over the pin rather than racing on the same parser.
+
+**Status of (a)+(b):** **FIXED 2026-07-27** by opus — (a) `front-try-def-body-shapes`, (b)
 `front-braceless-try-def-body`. Found the same day while pinning `v2-native-front-try-catch` layer 2
 — the conformance case for that fix hit both on its first run.
 
@@ -321,6 +360,14 @@ run had already reported — the last time the gate managed to finish before it 
 | `int` | runs (serves on `http://localhost:19702/`, prints `Done`) |
 | `js` | `Error: not callable: …` from the generated `.cjs` |
 | `v2` | `native frontend rejected incomplete parse …: structural CoreIR contains parser sentinel _err` |
+
+**⚠️ v2 SIDE PINNED 2026-07-27.** It is not this example's code at all. Importing `std/agent.ssc`
+ALONE reproduces the `_err`; `std/json.ssc` and `std/http.ssc` import clean. Bisected at top-level
+def boundaries to `std/agent.ssc:385-391` (`postChatCompletionsOnce`), then reduced to a 5-line
+repro: a `try` with a **multi-statement body** as a def body. Full A/B and owner note in
+`v2-front-try-in-def-body-shapes-break` shape **(c)**, which is where the fix belongs — that entry's
+(a)+(b) fixes are already in the build this was measured on. Fixing (c) should clear the v2 half of
+this bug without touching this example.
 
 **Notes.** Two independent gaps behind one case: a v1-JS codegen defect and a native-front parse gap.
 The case also binds a real socket on a fixed port, which makes it a candidate for
