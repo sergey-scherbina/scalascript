@@ -197,7 +197,7 @@ active_files="$(git -C "$ROOT" ls-tree -r --name-only "$REMOTE_REF" .work/active
 claim_files="$(printf '%s\n' "$active_files" | grep '\.claim$' || true)"
 invalid_active_files="$(
   printf '%s\n' "$active_files" |
-    grep -Ev '(^$|^\.work/active/_placeholder$|\.claim$)' || true
+    grep -Ev '(^$|^\.work/active/(_placeholder|LEDGER\.tsv)$|\.claim$)' || true
 )"
 
 claimed_slugs=""
