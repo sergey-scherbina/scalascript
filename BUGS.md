@@ -2,7 +2,41 @@
 
 ## heartbeat-threshold-stated-in-two-repos — AGENTS.md and the multi-agent skill can drift apart
 
-**Status:** OPEN — flagged, deliberately not fixed from here (2026-07-28, `heartbeat-cadence`).
+**Status:** **FIXED 2026-07-28** by opus (`heartbeat-threshold-drift-gate`) — gate landed here, and
+the submodule copy corrected in its own repo (commit `242501d` in `agent-plugins`, **local, not
+pushed**: pushing to another remote is the owner's call). Originally flagged, deliberately not fixed,
+by `heartbeat-cadence` the same day.
+
+**The drift was live and harmful, not cosmetic.** The skill said 20 minutes in **seven** places while
+`scripts/coord-status` enforced 45. An agent following the skill would declare a claim orphaned at
+minute 21 and take work AGENTS.md says is still live — the exact collision the claim mutex exists to
+prevent, reached by READING the rules rather than by ignoring them.
+
+**Fix, in two parts.** The number in the skill now matches, and the skill says `scripts/coord-status`
+is the source of truth rather than only restating a figure. More durably,
+`tests/coord/heartbeat-threshold-single-source.sh` reads the threshold **from the code that performs
+the comparison** — not from the comment beside it, which could itself have drifted — and fails if any
+prose copy disagrees.
+
+**Three drafts of the matcher, recorded because each failed in a way worth knowing:**
+1. "any minute-figure on a line mentioning heartbeat" flagged the heartbeat CADENCE ("sitting for
+   more than ~10 minutes") — a different quantity that is legitimately not 45.
+2. Widening the trigger to any `<`/`>` beside a figure then flagged `can't separate confidently in
+   <5 minutes` in AGENTS.md — prose with nothing to do with claims.
+3. The deciding case is one line in the skill carrying BOTH: *"sits for more than ~10 minutes. Older
+   than ~20 minutes → treat as potentially stale."* One clause right, one wrong, so **no line-level
+   rule can be correct and complete**. The gate matches PHRASES.
+
+A gate that cries about a correct line is one people learn to ignore, so this mattered more than the
+number did.
+
+**Two self-checks, because a checker only ever seen passing is not a checker.** It asserts a
+deliberately-wrong fixture is REJECTED and a matching one ACCEPTED, and their output is suppressed —
+a green run must not contain the word FAIL, or every human and every `grep -c FAIL` misreads it.
+A/B: restoring the old submodule text makes the gate exit 1; with the fix it exits 0.
+
+**Not wired into `ci.yml`** — that file is held by the live `ci-bookkeeping-floods-verdicts` claim.
+It belongs beside the other two `tests/coord/` gates in the `Validate` job.
 
 The claim-staleness threshold is written down twice: `AGENTS.md` + `scripts/coord-status` in THIS
 repo, and `.agents/plugins/multi-agent/commands/multi-agent.md` in the **agent-plugins submodule**
