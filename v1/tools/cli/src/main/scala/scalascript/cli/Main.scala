@@ -1512,9 +1512,9 @@ final class RunCmd extends CliCommand:
     var deviceIdFlag:      Option[String] = None   // --device-id <udid>
     var teamIdFlag:        Option[String] = None   // --team-id <developer team>
     var v1Flag:            Boolean        = false  // --v1 (rollback to the v1 tree-walking interpreter)
-    var v2Flag:            Boolean        = false  // --v2 (force the ssc 2.0 VM via FrontendBridge)
+    var v2Flag:            Boolean        = false  // --v2 (native frontend + RunNativeV2 VM)
     var nativeFlag:        Boolean        = false  // --native (self-hosted frontend -> v2)
-    var compatFrontendFlag: Boolean       = false  // --compat-frontend (explicit Scalameta bridge)
+    var compatFrontendFlag: Boolean       = false  // --compat-frontend (legacy alias for native-front v2 VM)
     var bytecodeFlag:      Boolean        = false  // --bytecode (v2 lane compiled to JVM bytecode, Phase 4)
     val fileArgs = scala.collection.mutable.ArrayBuffer.empty[String]
     val programArgs = scala.collection.mutable.ArrayBuffer.empty[String]
@@ -7834,9 +7834,9 @@ final class BenchCmd extends CliCommand:
       catch case _: Throwable => ()
       parseBenchMs(outBuf.toString("UTF-8"))
 
-    // v2 engine lane: same wrapper, run through FrontendBridge + the v2 VM
-    // (the post-switch `ssc run` default). Stdout captured like timeInterp —
-    // the wrapper prints its own per-iteration ms.
+    // v2 engine lane: same wrapper, native frontend + the v2 VM. This is the
+    // tools-bench VM lane; the standard `ssc run` command now defaults to ASM.
+    // Stdout is captured like timeInterp — the wrapper prints its own per-iteration ms.
     def timeV2(): Option[Double] =
       val outBuf = new java.io.ByteArrayOutputStream()
       val outPs  = new java.io.PrintStream(outBuf, true, "UTF-8")

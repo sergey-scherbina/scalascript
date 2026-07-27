@@ -628,15 +628,15 @@ def laneCmd(lane: String, file: os.Path): Seq[String] = lane match
   case "int" => Seq(sscToolsBin.toString, "run", "--v1", file.toString)
   case "js"  => Seq(sscToolsBin.toString, "run-js", file.toString)
   case "jvm" => Seq(sscToolsBin.toString, "run-jvm", file.toString)
-  // v2 lane = `bin/ssc run --v2` = the STANDARD/NATIVE tier (StandardMain →
-  // RunNativeV2 → native ssc1 frontend → v2 VM + NativePluginHost). This is the real
-  // v2.2 product. Do NOT switch to `sscToolsBin run --v2`: that's a DIFFERENT tier
-  // (Main → RunV2 → v1-frontend/FrontendBridge + PluginBridge) — a different frontend
-  // AND plugin system, so its results aren't comparable. The v2 failures here are
-  // native-tier gaps (native-front std-import resolution — jsonRead et al. are
-  // self-hosted in native-front/std/*.ssc; native-front parse gaps; native-plugin
-  // registration for actor-cluster/derived-codecs). See SPRINT "v2 lane — DEFINITIVE
-  // architecture map". (v2-lane-is-native-tier.)
+  // v2 lane = the exact STANDARD/NATIVE product command. StandardMain →
+  // RunNativeV2 uses the native ssc1 frontend/checker and NativePluginHost. In the
+  // default environment StandardMain passes bytecode=true, so direct ASM is primary
+  // with side-effect-safe link-time VM fallback; `--interpret`/SSC_EXEC=vm is the
+  // explicit VM override. `sscToolsBin run --v2` is not the retired bridge either:
+  // FrontendBridge/RunV2 is gone, and the tools route now uses the same native front
+  // with RunNativeV2(bytecode=false). It remains a different command/backend from the
+  // production default this contract is meant to gate. Check the standard route with
+  // `bin/ssc info --execution-plan --v2`. (v2-lane-is-native-tier.)
   case "v2"  => Seq(sscBin.toString, "run", "--v2", file.toString)
   case other => sys.error(s"unknown lane: $other")
 
@@ -699,11 +699,11 @@ val shardLabel = shard.map((i, n) => s" [shard $i/$n of ${selected.length}]").ge
 println(s"Corpus contract: ${cases.length} cases$shardLabel × lanes [${lanes.mkString(", ")}] " +
   s"(golden probe ${timeoutS}s, lane ${laneTimeoutS}s)")
 
-// Bounded parallelism: each case runs `lanes` sequentially in its own worker, so at
-// most `workers` subprocess JVMs are live at once. ~4× faster than serial; hang-safe
-// (a hung case only ties up its own worker until its per-run timeout fires). Capped
-// at 4 (with the 30s default timeout) so heavy JVM contention doesn't push a slow
-// case past the timeout and flap the gate — a flaky contract is worse than a slow one.
+// Bounded-by-default parallelism: each case runs `lanes` sequentially in its own
+// worker, so at most `workers` subprocess JVMs are live at once. The computed
+// default is capped at 4 to avoid contention-induced timeout flakes; an explicit
+// positive `--workers` value deliberately overrides that cap for controlled hosts.
+// A hung case only ties up its worker until the per-run timeout fires.
 val workers = workersOverride
   .getOrElse(math.min(4, math.max(2, Runtime.getRuntime.availableProcessors - 2)))
 val pool    = java.util.concurrent.Executors.newFixedThreadPool(workers)
