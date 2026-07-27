@@ -297,6 +297,13 @@ an already stable release identity and payload:
    automate upgrade, downgrade, yank, and rollback drills. A create-only
    release prevents silent clobbering but is not a rollback policy.
 
+Repository state measured on 2026-07-28 reinforces the trust/governance
+blockers: `gh secret list --app actions` and `gh variable list` return no
+entries, and the only configured GitHub environment is `github-pages`. Native
+release signing/notarization therefore needs an explicit credential and
+protected `production` environment provisioning step; workflow code must not
+pretend that absent trust material is optional.
+
 Until all four slices have their own compare-first gates and exact release
 evidence, a green qualification run authorizes further engineering only, not a
 public production tag.
