@@ -539,7 +539,7 @@ def isListField(nm) = if nm == "head" then true else (if nm == "tail" then true 
 // A method type-application `recv.m[T](args)` / `recv.m[T]` discards the `[T]` (ssc1-front buildPostfix
 // :1406: a non-Db `sel` with a `[` returns e unchanged, type args dropped), then dispatches on what
 // follows: `(` -> method call, else a bare selection. So skip `[T]` and re-dispatch.
-def postDot1(c, nm, ts, env, cx) = if nm == "length" then (emitLen(c, cx), ts) else (if isTok(hd(ts), 2, 50) then postDot1(c, nm, skipGen(ts), env, cx) else (if isTok(hd(ts), 2, 21) then postMeth(c, nm, ts, env, cx) else (if isTok(hd(ts), 2, 28) then postMethBlock(c, nm, ts, env, cx) else (postSel(c, nm, cx), ts))))
+def postDot1(c, nm, ts, env, cx) = if nm == "length" then (emitLen(c, env, cx), ts) else (if isTok(hd(ts), 2, 50) then postDot1(c, nm, skipGen(ts), env, cx) else (if isTok(hd(ts), 2, 21) then postMeth(c, nm, ts, env, cx) else (if isTok(hd(ts), 2, 28) then postMethBlock(c, nm, ts, env, cx) else (postSel(c, nm, cx), ts))))
 def postMethBlock(c, nm, ts, env, cx) = parseBlock(tl(ts), env, cx) match { case (b, r) => (emitMethodCall(nm, c, Cons(blockArgOf(b), Nil), cx), r) }
 def blockArgOf(b) = if startsW(b, "(lam ") then b else "(lam 0 " ++ b ++ ")"
 // A bare collection-companion selection `Array.empty`/`Seq.empty`/… wraps the receiver as `(ctor X)`
@@ -558,7 +558,16 @@ def emitYamlSel(c) = "(prim cell.get (global __yaml_" ++ globalNameOf(c) ++ "__c
 // literal `(lit (str "HALF_UP"))` (oracle ssc1-lower resolveField roundingOwner :1600, a hardcoded builtin;
 // RoundingMode is not a user enum). Only the bare-uid receiver `(global RoundingMode)` triggers it.
 def postSel(c, nm, cx) = if isObjMember(globalNameOf(c), nm, cx) then "(global " ++ globalNameOf(c) ++ "_" ++ nm ++ ")" else (if isExtMethod(nm, cx) then "(app (global " ++ nm ++ ") " ++ c ++ ")" else (if c == "(global RoundingMode)" then "(lit (str " ++ dqOf(cx) ++ nm ++ dqOf(cx) ++ "))" else (if isListField(nm) then "(app (global __list_" ++ nm ++ ") " ++ c ++ ")" else (if isFld(nm, cx) then "(app (global _sel_" ++ nm ++ ") " ++ c ++ ")" else (if isTupField(nm) then "(app (global _sel_" ++ nm ++ ") " ++ c ++ ")" else (if isYamlSel(nm, c, cx) then emitYamlSel(c) else emitMethod(nm, selRecv(c), "", dqOf(cx))))))))
-def emitLen(c, cx) = if isConcatCode(c, dqOf(cx)) then emitMethod("length", c, "", dqOf(cx)) else (if isStrLitish(c) then "(prim slen " ++ c ++ ")" else emitMethod("length", c, "", dqOf(cx)))
+// F5b Stage 1b slice 1b-3: a String-TYPED local receiver (`def f(s: String) = s.length`) also lowers
+// to `(prim slen ..)`. The declared type recovered from the env name (`name:String`, parseParam) is
+// exactly the evidence the prefix classifier cannot get from a bare `(local N)` — same read path as
+// operandTag's typed arithmetic (slice 1b-1). Order matters: isConcatCode stays FIRST (a `++` receiver
+// takes the __method__ path even though it IS a string — measured against the reference), so only a
+// receiver that is neither concat nor string-literal-ish reaches the typed test. Typed-by-design
+// divergence from the oracle, which emits `__method__` here. `.charAt`/`.substring` need no change:
+// emitPrimMeth already lowers them to scodeAt/sslice unconditionally, for ANY receiver.
+def emitLen(c, env, cx) = if isConcatCode(c, dqOf(cx)) then emitMethod("length", c, "", dqOf(cx)) else (if isStrLitish(c) then "(prim slen " ++ c ++ ")" else (if isStrLocal(c, env) then "(prim slen " ++ c ++ ")" else emitMethod("length", c, "", dqOf(cx))))
+def isStrLocal(c, env) = localTyOf(c, env) == "String"
 def emitMethod(nm, c, args, dq) = "(prim __method__ (lit (str " ++ dq ++ nm ++ dq ++ ")) " ++ c ++ args ++ ")"
 // parseArgL (not parseArgs) so the arg COUNT and the single-arg shape are recoverable — selMethodOr needs
 // them (mkString arity, map's multi-param-lambda guard). joinArgs rebuilds the identical space-joined
