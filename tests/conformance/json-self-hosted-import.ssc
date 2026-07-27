@@ -1,0 +1,34 @@
+---
+name: json-self-hosted-import
+backends: [v2]
+---
+
+# Self-hosted JSON import boundary
+
+The native v2 lane exposes strict parsing, typed navigation, lookup, and
+rendering through the explicitly imported `std/json.ssc` facade. JSON null is
+the portable Unit value and fractional tokens remain exact Decimals. Legacy
+plugin-global fixtures exercise a different API and are not evidence for this
+boundary.
+
+[jsonParse, jsonRead, jsonStringify, lookup, lookupOpt](std/json.ssc)
+
+```scalascript
+val parsedNull: Any = jsonParse("null")
+val parsedDecimal: Any = jsonParse("0.0")
+println(parsedNull)
+println(parsedDecimal)
+println(jsonStringify(parsedNull))
+println(jsonStringify(parsedDecimal))
+
+val wrapped = jsonRead("""{"name":"Ada","count":2}""")
+println(wrapped("name").asString)
+println(wrapped("count").asInt)
+println(wrapped.get("missing"))
+
+val raw: Any = jsonParse("""{"name":"Ada"}""")
+println(lookup(raw, "name"))
+println(lookupOpt(raw, "missing"))
+
+println(jsonStringify(List(1, 2, 3)))
+```
