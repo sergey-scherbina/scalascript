@@ -1,0 +1,6 @@
+feature/post-f4-board-reconcile 2026-07-27T14:43:00Z
+agent: opus
+heartbeat: 2026-07-27T14:43:00Z
+status: in-progress
+done-so-far: nothing yet — claiming.
+next: reconcile the board after the F4 flip landed (56d7d705f) + first fully-green CI on main: (1) BACKLOG v2-f4-flip "STILL HELD" -> landed; (2) BUGS f-native-out-of-corpus-smoke-regressions OPEN -> FIXED (both regressions cleared, 72/72 smokes A/B green); (3) MILESTONES Health "never had a fully green run" -> green on 18ee1c21a run 30020319173; (4) close the ready one-liner jdk-backend-accept-teardown-race (JdkServerBackend.scala:110-112); (5) remove 3 stale worktrees. Then plan the F5b typed-IR arc into SPRINT.
