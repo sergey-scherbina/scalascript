@@ -97,11 +97,24 @@ Slices are already specified in §`v2-f5b-stage1` — execute them in this order
 two of them the same `INTEGER PRIMARY KEY` = rowid alias defect that makes our files wrong for real
 SQLite (MILESTONES stream 2 calls this out explicitly):
 
-- [ ] **C1 — `scljet-update-ipk-column-silently-ignored` + `scljet-update-ipk-does-not-move-rowid`.**
+- [x] **C1 — DONE.** Both entries were one defect from two angles, fixed as one change: `EditRow`
+      gained `newRowid`, `executeUpdate` ipk-normalizes BEFORE the WHERE (that half is why
+      `WHERE id = 1` matched nothing and the statement looked like a silent success), `applyUpdates`
+      deletes all old rowids before inserting any new one (swap-safe), collisions and non-integer
+      targets are refused before the image is touched, and the indexed path applies the same target
+      rowid. Measured A/B: move disabled → `1|1|ann`, fixed → `5|5|ann`. New case
+      `scljet-update-ipk-moves-rowid` [int, js]. ⚠️ Two apparatus traps cost a cycle each and are in
+      `BUGS.md`: scljet edits are invisible until `./install.sh --dev` re-stages them, and of the TWO
+      staged copies the launcher prefers `bin/lib/standard/native-front/…` — I first A/B'd the other
+      one and wrongly concluded the case was blind to the fix. Original scope:
       `UPDATE t SET <ipk> = …` reports success and does nothing / rewrites the column but leaves the
       rowid behind. Fix as one change: the ipk column must BE the rowid, so an ipk update is a rowid
       move (delete+reinsert at the new key, with conflict detection).
-- [ ] **C2 — `scljet-insert-null-literal-rejected`.** `INSERT … VALUES (…, NULL, …)` is rejected
+- [x] **C2 — DONE.** `litValue` accepts the `NULL` keyword (+ the shared message no longer names
+      the wrong clause) and `parseExprAtom` lowers a bare `NULL` to a literal — it used to fall
+      through to `SxCol("NULL")`, i.e. the right answer only because an unknown column reads as NULL.
+      New case `scljet-insert-null` [int, js]; `scljet-address-read` switched back to the literal
+      form with its expected output unchanged. Original scope: `INSERT … VALUES (…, NULL, …)` is rejected
       while `UPDATE … SET x = NULL` works — a parser/value-path asymmetry.
 
 **Batch D — stream-3 decision for Sergiy (not agent work).** Durable continuations stand at 24/26
