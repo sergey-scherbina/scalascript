@@ -3775,7 +3775,30 @@ but intentionally does not change this bug's status or claim to protect adversar
 
 ## irbin-v2bin-codec-fails-open — the deferred binary codec narrows BigInt, loses -0.0, and turns unknown tags into strings
 
-**Status:** OPEN (found 2026-07-16 by `coreir-contract`). **Not** the canonical codec — `lib/irbin.ssc0`
+**Status:** **3 of 4 FIXED 2026-07-27** by opus (`irbin-fail-open`, `cb8ad2863`); two sub-defects
+remain and are marked below.
+
+- **(1) BigInt narrowing — FIXED.** `IrBig` now travels as its decimal string (`big->str`/`str->big`),
+  arbitrary precision like the canonical codec. A/B measured: `2^64+1` round-trips **PRESERVED** with
+  the fix and **CORRUPTED** without it.
+- **(3) Unknown tag / unparseable float — FIXED.** Both now decode to a named unbound global
+  (`_err_irbin_unknown_tag`, `_err_irbin_bad_float`) — the tower's loud-failure idiom, same shape as
+  `ssc1-lower`'s `_err_int_range`. The old codec crashed with `IndexOutOfBoundsException` on the same
+  input, so the new regression case discriminates rather than agreeing with prior behaviour.
+- **(2) `-0.0` still collapses — STILL OPEN.** The encoder uses `#f->str`, the USER-visible renderer.
+  The canonical form is `Writer.floatLit`, which is **not exposed as a kernel prim**, so irbin cannot
+  reach it from ssc0. Fixing this needs either a `floatLit` prim or an exact-bits float prim — a
+  shared-kernel change, deliberately not bundled into a codec fix.
+- **`IrBytes` still has no representation — STILL OPEN.** Same shape: it needs a bytes↔hex prim to
+  encode what the canonical codec writes as `(bytes HEX)`.
+
+Frozen size note: the demo moved 108 → **110 bytes**, deliberately — two bytes to stop returning
+wrong values for BigInts the old encoding could not represent. Recorded in `check.sh` next to the
+expectation so the change reads as intentional. New regression case
+`v2/examples/irbin-failclosed.ssc0` pins all three fixed properties; `v2/conformance/check.sh`
+409 ok / 0 FAIL.
+
+**Historical report:** OPEN (found 2026-07-16 by `coreir-contract`). **Not** the canonical codec — `lib/irbin.ssc0`
 is the deferred `v2-bin` experiment (`12-ir-format.md` §"Open / deferred"); the canonical text codec is
 unaffected. Filed so it is fixed *before* `v2-bin` is ever promoted to a real format.
 
