@@ -100,6 +100,45 @@ format and must verify before extraction. `MANIFEST.sha256` lists every other
 regular file below `native-front` with its relative path and digest; the
 qualifier requires the extracted file set and every digest to match it exactly.
 
+### Publication helper
+
+```text
+scripts/native-release-publish <stable-tag> <artifact-directory>
+```
+
+The privileged job calls one versioned repository helper rather than carrying
+untested release mutation inline in workflow YAML. The helper requires Bash 3.2
+or newer, Python 3.9 or newer, `gh`, a non-empty `GH_TOKEN`, and an explicit
+`GH_REPO` in `owner/repository` form. `<stable-tag>` must match the exact stable
+SemVer grammar from the workflow contract.
+
+`<artifact-directory>` must be a real directory, not a link, and its complete
+top-level entry set must be exactly these nine non-empty regular files:
+
+```text
+ssc-linux-x86_64
+ssc-linux-x86_64.tar.gz
+ssc-linux-x86_64.tar.gz.sha256
+ssc-macos-arm64
+ssc-macos-arm64.tar.gz
+ssc-macos-arm64.tar.gz.sha256
+ssc-macos-x86_64
+ssc-macos-x86_64.tar.gz
+ssc-macos-x86_64.tar.gz.sha256
+```
+
+Every checksum sidecar is byte-compared with the lowercase SHA-256 of its
+archive in conventional `digest  basename\n` form. The helper then performs a
+read-only release-by-tag REST lookup. Only a confirmed HTTP 404 authorizes
+creation: a success response means the release already exists, while a missing
+or different error status is an ambiguous lookup failure and remains red.
+
+For an absent release the helper makes one exact
+`gh release create <tag> ...` CLI invocation with `--repo`, `--verify-tag`,
+`--title`, `--generate-notes`, and all nine explicitly ordered paths. Any
+non-zero result is a publication failure. It never invokes release edit,
+upload, delete, or `--clobber`.
+
 ## Behavior
 
 - [ ] A manual dispatch builds and qualifies all three declared platform
@@ -112,10 +151,10 @@ qualifier requires the extracted file set and every digest to match it exactly.
       numeric identifiers, branches, and manual dispatches cannot publish.
 - [ ] Workflow-level concurrency serializes runs for the same full ref without
       cancelling an in-progress run. Independent tags remain parallel.
-- [ ] A read-only CI prerequisite executes the compare-first e2e qualifier
-      contract before any native-image matrix leg. The controlled good archive
-      must pass, while every one-dimension mutation must fail at its named
-      expected/actual check.
+- [ ] A read-only CI prerequisite executes the compare-first e2e archive and
+      publication contracts before any native-image matrix leg. The controlled
+      good objects must pass, while every one-dimension mutation must fail at
+      its named expected/actual check without contacting GitHub.
 - [ ] The qualifier refuses a missing file, duplicate entry, unexpected regular
       file, unsafe path, symlink, non-executable `ssc`, direct/extracted binary
       mismatch, missing plugin host, checksum mismatch, wrong process exit,
@@ -191,9 +230,12 @@ qualifier requires the extracted file set and every digest to match it exactly.
 - [ ] Every matrix artifact and checksum is uploaded only after its runner-local
       post-extraction qualification passes.
 - [ ] Publication refuses any pre-existing release for the tag and creates a
-      fresh release with all nine assets in one `gh release create` operation.
-      It never uses `gh release upload --clobber`; an asset upload failure
-      cannot delete or mix files from a previously published release.
+      fresh release with all nine assets in one exact `gh release create`
+      invocation. Only a confirmed release-by-tag HTTP 404 permits that call;
+      malformed tags, wrong/missing/linked assets, checksum drift, ambiguous
+      lookup failures, argument drift, and create failure are compare-first e2e
+      refusals. It never uses `gh release upload --clobber`; an asset upload
+      failure cannot delete or mix files from a previously published release.
 - [ ] The workflow removes the repository-wide `-J-Xmx8g` native-image option
       and uses a single `-J-Xmx5g` builder limit. This stays below the 7 GB
       standard arm64 macOS runner while reserving memory for native/off-heap
@@ -274,13 +316,24 @@ The workflow concurrency key includes the workflow name and full Git ref.
 active publisher, while different release tags retain independent build
 capacity.
 
-The release job revalidates `GITHUB_REF_NAME` against exact stable SemVer before
-it downloads artifacts. It refuses an existing GitHub Release instead of
-mutating assets. For a fresh tag it passes the complete nine-file set to one
-`gh release create --verify-tag` call. GitHub CLI creates a draft, uploads the
-assets, and publishes only after the uploads complete, so a partial upload is
-not exposed as a published release. An operator must investigate and remove any
-failed draft before a retry; the workflow never silently clobbers it.
+The release job checks out the exact tag with credential persistence disabled,
+downloads the qualified artifacts, and delegates all validation and mutation to
+`scripts/native-release-publish`. That helper revalidates `GITHUB_REF_NAME`
+against exact stable SemVer, byte-compares the complete nine-file set and
+sidecars, and asks the release-by-tag REST endpoint for current state. It
+continues only on a parsed HTTP 404. A success response is an existing release;
+an authentication, transport, API, or unparseable response is ambiguous and
+fails closed rather than being treated as absence.
+
+For a confirmed-fresh tag the helper passes the complete ordered file set to
+one `gh release create --verify-tag` call. GitHub CLI creates a draft, uploads
+the assets, and publishes only after the uploads complete, so a partial upload
+is not exposed as a published release. An operator must investigate and remove
+any failed draft before a retry; the workflow never silently clobbers it. The
+publication e2e test supplies a fake `gh`, records every argument, and compares
+the exact lookup/create transcript before classifying the good case. Separate
+mutations prove that malformed tags, file-set/type/checksum drift, existing
+releases, ambiguous lookup results, and failed creation cannot report success.
 
 ### Bundle the self-hosted frontend as runtime data
 
@@ -379,10 +432,12 @@ marker, so a VM run wearing the bytecode label cannot qualify the release.
   broad and cannot express numeric grammar. Rejected: treating any
   `v*.*.*` match as a production version (names such as `vfoo.bar.baz` would
   become ordinary releases).
-- **Single-writer, create-only publication** — chosen because release assets
-  must come from one qualified run. Rejected: `gh release upload --clobber`
-  without per-ref concurrency (concurrent or failed reruns can delete and mix
-  non-reproducible native assets).
+- **Single-writer, confirmed-absent, create-only publication** — chosen because
+  release assets must come from one qualified run. Only a parsed REST 404 is
+  absence; a generic non-zero `gh release view` result is ambiguous and could
+  hide authentication or transport failure. Rejected: `gh release upload
+  --clobber` without per-ref concurrency (concurrent or failed reruns can delete
+  and mix non-reproducible native assets).
 - **Qualify after compression** — chosen because the archive is the customer
   artifact. Rejected: smoke-testing `dist/archive` before `tar` (cannot catch a
   bad archive command or path set).
