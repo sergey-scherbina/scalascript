@@ -127,11 +127,43 @@ SQLite (MILESTONES stream 2 calls this out explicitly):
       form with its expected output unchanged. Original scope: `INSERT … VALUES (…, NULL, …)` is rejected
       while `UPDATE … SET x = NULL` works — a parser/value-path asymmetry.
 
-**Batch D — stream-3 decision for Sergiy (not agent work).** Durable continuations stand at 24/26
-vectors; the remaining two are owner-gated, not implementation-gated: vec 15 (Portable CodeMode —
-needs a 2nd runtime + §10.2 global-closure/effectful scope call) and vec 26 (`pending-spec` →
-proposal needs an owner). Surface both as a question; do not "flip" either by bending the
-realization to the pending's stated mechanism.
+**Batch E — vector 15 (Portable CodeMode) FULL ARC — Sergiy chose "всё, включая второй бэкенд"
+(2026-07-27).** This is the only path that actually flips vector 15 and takes durable to 25/26;
+it is a multi-session arc, not a slice. Staging is already fixed by `specs/portable-save-region.md`
+§6 — follow it, do not re-plan it. Slices 1 + 1a are LANDED (`SaveRegion.reify` explicit slots;
+`reifyAuto` free-outer-variable liveness + depth-aware de-Bruijn rewrite). Remaining, in order —
+each is independently landable and each must keep `v2/conformance/portable-capsule.sh` PASS:
+
+- [ ] **E1 — slice 2, global closure.** Today `reifyAuto` returns `Program(Nil, entry)`, so a region
+      body that calls a user `def` produces an unbound `Global` and `Reader.validate` fail-closes.
+      Collect the `Term.Global` names reachable from the rewritten body, take their **transitive**
+      closure over the source program's `defs`, and emit them as `resume.defs` in dependency order.
+      Watch: a global whose body is itself a `Lam` capturing nothing is fine (defs are closed by
+      construction); a *missing* name must stay a loud error, never a silent drop — that is the
+      fail-closed property `Reader.validate` exists to give. Verify: extend
+      `v2/conformance/portable-capsule.sh` with a region calling a def that calls another def,
+      frozen in one JVM and run in a second (the existing 42/45 + tamper-rejected cases stay green).
+- [ ] **E2 — slice 3, nominal/graph frame.** Non-scalar frame slots through the §9.1/§9.3 codecs;
+      align the VM frame with the host `DurableCodec` byte format so the frame is cross-lane
+      identical, not merely cross-process. This is what makes E4's N→M meaningful.
+- [ ] **E3 — slice 4, effectful region.** A region whose body performs effects handled INSIDE the
+      region (`Fx` closed, §11.3). Needs a local CPS of the region only — NOT whole-program CPS
+      (explicit non-goal in the spec §7). The VM's runtime continuation is a live `ClosV`, which
+      §10.2 forbids serializing; that is why the pass is syntactic.
+- [ ] **E4 — slice 5, second admitting backend + the flip.** A non-JVM runtime that admits and runs
+      the Portable capsule, giving §14.4 its N→M cross product. **Only after this does vector 15
+      flip** — and only if the realization matches the pending's stated mechanism. ⚠️ Do NOT flip by
+      bending the realization to the pending text; that is the BENDING failure mode the durable arc
+      has already been warned about once.
+
+**Batch D — DONE as a decision, 2026-07-27.** Sergiy answered both:
+- **vec 26** — did NOT ratify the proposal wholesale; asked to see the disputed points first.
+  Delivered `specs/durable-cancellation-open-decisions.md` (`6f3015d50`): five forks with their
+  downstream cost and a recommendation each — D1 resume-then-cancel reported as `AlreadyResumed`
+  (collapses two facts, in tension with §13 non-collapsibility), D2 in-flight runs not stopped,
+  D3 `cancellationStatus` not in the capsule, D4 the unspecified expired-AND-cancelled tie,
+  D5 naming/ABI. **Vector 26 stays `pending-spec` until he answers those five.** Do not implement.
+- **vec 15** — chose the FULL arc including the second backend → queued as Batch E above.
 
 **Batch E — `corpus-contract-shard-fix` (the broken measuring apparatus; claimed 2026-07-27).**
 Not in Batches A-D and not on anybody's board: **the `Corpus Contract` nightly has NEVER produced a
