@@ -9,6 +9,50 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## 2026-07-27 — claim-mutex (Sergiy: "как ужесточить дисциплину?")
+
+Two collisions in one day, both on `origin/main`, both wasteful:
+**(A)** `post-f4-board-reconcile` and `f4-arc-closure` claimed the SAME work under DIFFERENT slugs
+~2 min apart. **(B)** `v2-f5b-typed-locals` did batch C while `scljet-ipk-rowid` held it on
+`origin/main`.
+
+**Diagnosis (mechanical, not a discipline lapse):**
+1. The claim check greps for the exact slug filename
+   (`grep -Fx ".work/active/<slug>.claim"`), so *same work, different slug* is invisible to it. The
+   slug namespace does not match the work namespace.
+2. The protocol's own comment (`# if rejected: another agent won the race`) shows push-rejection was
+   *meant* to be the mutual exclusion. It fires — a second push to `main` IS rejected non-fast-forward
+   — but the loser then rebases, and because every claim writes a **disjoint new file** the rebase is
+   clean, so the loser never learns a rival claim exists. The mechanism is designed but inert.
+3. Nothing checks that an agent's commits stay INSIDE its claim, which is all of (B).
+4. The protocol order is pick → plan → claim, so the race window equals the planning time.
+
+- [ ] **1. `.work/active/LEDGER.tsv` + a `# generation: N` header every claim must bump.** One shared
+      line per ACTIVE claim (removed on release). The generation counter is the point: two concurrent
+      claims both rewrite line 1, so the loser's rebase CONFLICTS instead of auto-merging. This is the
+      only non-bypassable layer — it rides on the remote's fast-forward rule, not on a hook an agent
+      can skip. Must be **proven** to conflict with a real two-clone test, not assumed.
+- [ ] **2. Claims declare `items:` / `paths:`; a `pre-push` hook refuses an overlapping claim.**
+      Gives the ledger a key to compare on, so (A) becomes detectable. Path overlap by prefix
+      containment (predictable; full glob intersection is not worth it).
+- [ ] **3. `pre-commit` scope guard.** In a `feature/<slug>` worktree, refuse staged paths outside the
+      claim's declared `paths:`. Extends the EXISTING hook, which already inspects staged paths, the
+      branch and the checkout kind. Always-allow the shared bookkeeping set (SPRINT/BACKLOG/CHANGELOG/
+      BUGS/`.work/**`) or every claim would have to list it. Backward compatible: no claim, or a claim
+      with no `paths:`, → allow with a note; enforce only when `paths:` is declared.
+- [ ] **4. Invert the order: claim BEFORE planning.** One-paragraph change in `AGENTS.md` (+ mirror
+      into the `multi-agent` skill, which lives in the `.agents/plugins` submodule — separate repo, so
+      either bump it or queue it). A claim is cheap and revocable; planning first is what creates the
+      window.
+
+**Non-goal for this task:** eliminating overlap entirely. The duplicate on 2026-07-27 is what found a
+live file-corruption bug (`scljet-ipk-move-indexed-corrupts-btree`). The goal is that an overlap be
+DELIBERATE ("I am re-checking someone's result") rather than accidental.
+
+Spec: `specs/claim-mutex.md` (write + commit BEFORE implementing — spec-dev).
+
+---
+
 ## 2026-07-27 — `js-char-into-int-param`
 
 - [ ] **Fix `Char` → `Int` coercion at v1 JavaScript call boundaries.** Implementation + regressions
