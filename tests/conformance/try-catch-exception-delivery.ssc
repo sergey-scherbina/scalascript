@@ -23,10 +23,9 @@ instead of throwing, so every `catch` here is simply never entered and the case 
 divergence rather than the delivery bug. That divergence is itself a defect — `BUGS.md`
 `js-int-division-by-zero-yields-infinity` — filed from this case, not swept under it.
 
-One shape is still deliberately absent — a **braceless multiline** `try` as a def body, which
-corrupts whatever follows it (`BUGS.md` `v2-front-try-in-def-body-shapes-break`). That one is a
-layout defect, not an exception-delivery one, and mixing it in would make this case fail for a
-reason it is not about.
+The **braceless multiline** shape is in as well, now that it works. It is a load-bearing case rather
+than a decorative one: its failure mode was to swallow the rest of the file, so the `println`s that
+follow it are what detect a regression — the case would print *less*, not fail an assertion.
 
 ```scalascript
 def divide(a: Int, b: Int): String =
@@ -47,6 +46,16 @@ def viaWildcard(a: Int, b: Int): String =
 def viaBinder(a: Int, b: Int): String =
   try { (a / b).toString } catch { case e => "caught-binder" }
 
+// BRACELESS multiline, as a def body. This shape used to leave the def's block open — F's handler-arm
+// parser ate the VIRTUAL `}` that layout had inserted to close the def body — so everything after it
+// was swallowed into the def and the program printed nothing at exit 0. The `println`s below are
+// therefore part of the assertion: if the block reopened, they would vanish rather than fail.
+def viaBraceless(a: Int, b: Int): String =
+  try
+    (a / b).toString
+  catch
+    case e: Throwable => "caught-braceless"
+
 // The handler must NOT fire when nothing is thrown — otherwise a `catch` that swallowed every
 // successful result would also satisfy the four assertions above.
 println(divide(10, 0))
@@ -54,6 +63,7 @@ println(viaException(10, 0))
 println(viaRuntime(10, 0))
 println(viaWildcard(10, 0))
 println(viaBinder(10, 0))
+println(viaBraceless(10, 0))
 println(divide(10, 2))
 println(viaRuntime(9, 3))
 println(viaWildcard(8, 4))

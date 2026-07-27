@@ -3,6 +3,7 @@ caught-exception
 caught-runtime
 caught-wildcard
 caught-binder
+caught-braceless
 5
 3
 2

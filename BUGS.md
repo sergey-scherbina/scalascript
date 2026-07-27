@@ -38,9 +38,30 @@ the job that would catch a scljet regression, and the 300-min `sbt` job is the l
 
 ## v2-front-try-in-def-body-shapes-break — two `try`-as-a-def-body shapes break, one of them SILENTLY
 
-**Status:** **shape (a) FIXED 2026-07-27** by opus (`front-try-def-body-shapes`); **shape (b) still
-OPEN.** Found the same day while pinning `v2-native-front-try-catch` layer 2 — the conformance case
-for that fix hit both on its first run. **v2 FRONT (parse/layout), not the kernel.** The v1
+**Status:** **BOTH SHAPES FIXED 2026-07-27** by opus — (a) `front-try-def-body-shapes`, (b)
+`front-braceless-try-def-body`. Found the same day while pinning `v2-native-front-try-catch` layer 2
+— the conformance case for that fix hit both on its first run.
+
+**(b) — ROOT CAUSE, and it was one line.** `parseHArms0` called `hClose` **unconditionally** at the
+end of the catch arms, while `hOpen` only consumes a `{` when one is there. So a BRACELESS
+`catch case … => …` ate the next `}` in the stream — which is the **virtual brace layout inserted to
+close the enclosing def body**. The def's block stayed open and swallowed everything after it:
+`def w(..) = try ⏎ … ⏎ catch ⏎ case …` followed by `println(w(0))` lowered to a def *containing* the
+println and `(entry (lit unit))` — no output, exit 0. Fix: consume the `}` in `parseCatchPf`, and
+only when a `{` was actually opened (`closeIfBraced`).
+
+**Measured before/after, F front, four shapes** — this is also the matrix that corrected the old
+notes, since the two fronts turned out to have COMPLEMENTARY gaps:
+
+| shape | legacy front | F before | F after |
+|---|---|---|---|
+| def body, braced | fails | `W` | `W` |
+| def body, braceless multiline | `W` | **empty, exit 0** | **`W`** |
+| `val` binding, braceless | `W` | fails loudly | **`W`** |
+| braceless def then another def | `W` | `cf` `g1` | `cf` `g1` |
+
+The loud failures were invisible in the CLI because the F4a fallback covers them; the **silent** one
+was not, because F emitted a VALID-but-wrong program with nothing for the fallback to detect. **v2 FRONT (parse/layout), not the kernel.** The v1
 reference handles both shapes.
 
 **(a) — ROOT CAUSE, to the line.** `specs/v2.2-p6.5-fsub.ssc` `parseHArm` — the CATCH handler-arm
