@@ -164,4 +164,48 @@ else
   printf 'ok   %-30s => refused\n' "Fx-open refused at run"
 fi
 
+# ── format-v2 SEAL (specs/portable-capsule-seal.md; Sergiy's decision (c)) ───────────────────────
+# The capsule's DATA half used to be covered by nothing: `resume-digest` is by design a CODE digest,
+# so editing the captured frame in the bytes was accepted silently (17 -> 111, exit 0). The VM lane
+# now carries the host lane's seal — HMAC-SHA256 over the canonical body with an EMPTY signature
+# slot, plus audience/tenant binding and a budget.
+#
+# The PAIR below is what makes this gate mean something: the SAME frame edit must be REJECTED when
+# the runner is keyed and must still RUN when it is not. Only one of those lines on its own would
+# be satisfied by a blanket refusal (or by no seal at all).
+SEAL="$TMP/sealed.portable"
+export SSC_CAPSULE_KEY=gate-key SSC_CAPSULE_AUDIENCE=gate-aud SSC_CAPSULE_TENANT=gate-ten
+ssc freeze-region-global "$SEAL" >/dev/null
+if grep -q '(signature [0-9a-f]' "$SEAL"; then printf 'ok   %-30s => yes\n' "keyed freeze signs the body"
+else printf 'FAIL %-30s\n' "keyed freeze signs the body"; fail=1; fi
+check "sealed run, same key" "$(ssc run-capsule "$SEAL" 3)" "17"
+
+reject_sealed() { # name | env-prefix | file
+  if env $2 java -jar "$JAR" run-capsule "$3" 3 >/dev/null 2>&1; then
+    printf 'FAIL %-30s admitted\n' "$1"; fail=1
+  else printf 'ok   %-30s => rejected\n' "$1"; fi
+}
+sed 's/(lit (int 5))/(lit (int 99))/' "$SEAL" > "$TMP/sealed-edited.portable"
+reject_sealed "sealed: frame edit rejected"  "SSC_CAPSULE_KEY=gate-key SSC_CAPSULE_AUDIENCE=gate-aud SSC_CAPSULE_TENANT=gate-ten" "$TMP/sealed-edited.portable"
+reject_sealed "sealed: wrong key rejected"   "SSC_CAPSULE_KEY=other    SSC_CAPSULE_AUDIENCE=gate-aud SSC_CAPSULE_TENANT=gate-ten" "$SEAL"
+reject_sealed "sealed: audience mismatch"    "SSC_CAPSULE_KEY=gate-key SSC_CAPSULE_AUDIENCE=elsewhere SSC_CAPSULE_TENANT=gate-ten" "$SEAL"
+reject_sealed "sealed: tenant mismatch"      "SSC_CAPSULE_KEY=gate-key SSC_CAPSULE_AUDIENCE=gate-aud SSC_CAPSULE_TENANT=other"     "$SEAL"
+
+# The trusted in-process path — unkeyed — still runs a sealed capsule (the host's contract, adopted
+# deliberately: an unkeyed runner has no key to verify with, so a signature admits nothing extra).
+unset SSC_CAPSULE_KEY SSC_CAPSULE_AUDIENCE SSC_CAPSULE_TENANT
+check "sealed run, unkeyed runner" "$(ssc run-capsule "$SEAL" 3)" "17"
+# … and THIS is the other half of the pair: the same edit the keyed runner refused still runs here.
+check "unsigned path: frame edit runs" "$(ssc run-capsule "$TMP/sealed-edited.portable" 3)" "111"
+
+# A keyed runner does not admit what it cannot verify: an unsigned v2, or a v1 legacy capsule.
+ssc freeze-region-global "$TMP/unsigned.portable" >/dev/null
+reject_sealed "keyed: unsigned rejected"     "SSC_CAPSULE_KEY=gate-key" "$TMP/unsigned.portable"
+reject_sealed "keyed: v1 legacy rejected"    "SSC_CAPSULE_KEY=gate-key" "fixtures/fx-open.portable"
+
+# Budget is a RESOURCE failure, kept distinct from tampering (§13 non-collapsibility: a quota
+# problem must not be reported as an attack). Checked even on the unkeyed path.
+SSC_CAPSULE_BUDGET=100 ssc freeze-region-global "$TMP/big.portable" >/dev/null
+reject_sealed "budget over runner rejected"  "SSC_CAPSULE_RUNNER_BUDGET=10" "$TMP/big.portable"
+
 if [ "$fail" -eq 0 ]; then echo "portable-capsule: PASS"; else echo "portable-capsule: FAIL"; exit 1; fi

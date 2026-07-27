@@ -108,12 +108,14 @@ frame was taken as an arbitrary `Term`: `(global g)` injected a closure into the
 value at runtime but *code* in the bytes, and the whole point of Portable CodeMode is that code
 travels only as validated bytes.
 
-The resume-digest keeps covering the resume program bytes only. **A frame's VALUE is therefore not
-tamper-evident** (measured: editing `(lit (int 5))` → `(lit (int 99))` is silently accepted). That is
-consistent with the digest being a *code* digest (§10.1), but it means the VM capsule makes a weaker
-promise than the host lane, which seals its capsules with HMAC (format v3). Resolving that is an
-owner-level format decision — `BACKLOG.md portable-capsule-integrity` — and it should be settled
-**before** slice 5, because the cross-backend N→M matrix is what makes the divergence observable.
+The resume-digest keeps covering the resume program bytes only — it is a *code* digest (§10.1).
+**RESOLVED 2026-07-27 (Sergiy's decision (c)):** the data half is now covered by a keyed **seal**
+rather than by the digest — envelope v2 carries audience/tenant/budget/signature, the signature
+being HMAC-SHA256 over the canonical body with an empty signature slot, so an edit to any field
+(including the frame) breaks it. See `specs/portable-capsule-seal.md`. The seal is conditional on a
+key, exactly as on the host lane, and that conditionality is what makes the two lanes' promises
+equal. v1 envelopes stay admissible as legacy/unsigned (a keyed runner rejects them), which is also
+what keeps the committed `fx-open.portable` fixture usable.
 
 ## 6. Staging (each an independently landable slice)
 

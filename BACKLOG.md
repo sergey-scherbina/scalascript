@@ -59,6 +59,20 @@ to separate F-regressions from pre-existing failures — it ended at 72/72, zero
 `sbt test` suite run under F-default rather than one-failure-per-CI-run whack-a-mole. Do NOT edit
 `specs/v2.2-p6.5-fsub.ssc` outside the owning F arc.
 
+## portable-capsule-integrity — ✅ DONE (c) landed 2026-07-27
+
+**Shipped.** `v2/src/Capsule.scala` envelope v1 → v2 with audience/tenant/budget/signature; the
+signature is HMAC-SHA256 over the canonical body with an empty signature slot (the host's own
+construction, so both lanes agree bit-for-bit on what a signature is), constant-time compared, key
+never in the capsule. Admission order and the two deliberate boundaries are in
+`specs/portable-capsule-seal.md`. Gate `v2/conformance/portable-capsule.sh` **36/36**, including the
+pair that makes it meaningful — the same frame edit is REJECTED under a key and still RUNS unkeyed.
+
+**Vector-15 E4 is unblocked**, and the ordering it was waiting for now holds: the second admitting
+backend gets built against the SEALED format (SPRINT F3).
+
+**Original decision record (kept):**
+
 ## portable-capsule-integrity — DECIDED (c): adopt the host's format-v3 seal (2026-07-27)
 
 **✅ Sergiy chose (c)** — adopt the host lane's format-v3 model (HMAC signature + audience / tenant /
