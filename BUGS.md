@@ -1,5 +1,42 @@
 # Bug tracker
 
+## semantic-gate-red-tkv2-typed-client-derived — the F golden gate is 247/248 on main, on BOTH fronts
+
+**Status:** OPEN (found 2026-07-28 by `v2-board-and-f5b` while gating an unrelated F lexer fix).
+**Not front-specific and not caused by that fix** — see the isolation below.
+
+**Symptom.** `specs/v2.2-p6.5-semantic.sh` reports:
+
+```
+MATCH (F output == golden)  : 247 / 248
+MISMATCH (F output != golden): 1
+MISMATCH tkv2-typed-client-derived: exit expected=0 got=1
+```
+
+Running the program directly gives the same result on either front:
+
+```
+SSC_FRONT=F      bin/ssc run tests/conformance/tkv2-typed-client-derived.ssc
+SSC_FRONT=legacy bin/ssc run tests/conformance/tkv2-typed-client-derived.ssc
+  -> ssc: unhandled runtime effect: Api.getApiItemsById   (exit 1)
+```
+
+**Isolation (why this is not the block-comment fix).** The legacy front does not go through F's lexer
+at all, and it fails identically. Re-checked with the working tree stashed, i.e. on clean
+`origin/main`: legacy still fails the same way. SPRINT records this gate at **248/248 earlier the
+same day**, so something landed on `main` between those two measurements.
+
+**Why it matters.** This is a release gate for the self-hosting arc, and it is quietly red. The
+diagnostic is also a known-misleading one: `BUGS.md` already documents two other cases where
+`unhandled runtime effect` was the surface symptom of something else entirely (`WorkerProtocol.applyStage`,
+`Transport.Spawn`), so the effect name should not be taken at face value.
+
+**Next step:** bisect `origin/main` over today's commits with
+`specs/v2.2-p6.5-semantic.sh --only tkv2-typed-client-derived` (or the direct `bin/ssc run` above,
+which is faster and equivalent for this case), and check the effects/Op-lifting area first — a purity
+registry change landed today (`c3841d01e`, "OpAnf purity registry classified EVERY def as pure,
+disabling Op lifting"), which is adjacent to how an effect reaches its handler.
+
 ## scljet-sql-numeric-literal-grammar-gaps — signed VALUES, exponent, and hex literals are incomplete
 
 **Status:** OPEN (found 2026-07-27 by `scljet-production-completion` while
