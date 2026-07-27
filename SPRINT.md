@@ -9,6 +9,27 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## 2026-07-27 — `js-char-into-int-param`
+
+- [ ] **Fix `Char` → `Int` coercion at v1 JavaScript call boundaries.** The JS backend currently
+      passes `String.charAt` as a one-character JS string into a declared `Int` parameter, so
+      `isSpace(s.charAt(1))` silently returns `false` while the interpreter returns `true`. This also
+      degrades headings/lists/tables in `runtime/std/markdown-core.ssc` on JS. BUGS entry:
+      `js-char-into-int-param`; claim: `.work/active/js-char-into-int-param.claim`.
+  - [ ] Reproduce first in the real assembled harness: the six-line BUGS fixture must print
+        `true/true/true` under `ssc-tools run --v1` but currently `true/false/true` under
+        `ssc-tools emit-js | node`. Record the exact commands and generated-call shape before editing.
+  - [ ] Locate the v1 JS call-emission/type-coercion path and normalize a Char-valued argument only
+        when its resolved parameter type is `Int`; preserve existing inline comparisons and ordinary
+        String arguments. Prefer the existing Char unboxing primitive used by inline `==` over a new
+        runtime convention.
+  - [ ] Add a focused call-boundary regression plus Markdown coverage: the minimal fixture must agree
+        on INT/JS, `markdownParse("# Title")` must produce `H1@1(Title|)` on JS, and the relevant
+        conformance case must include `js` instead of remaining interpreter-only.
+  - [ ] Run the affected conformance slice and focused backend tests, update BUGS to FIXED and
+        CHANGELOG with the landed SHA/evidence, push each verified slice, require exact-SHA CI green,
+        then release the claim and remove the worktree with `scripts/rm-worktree`.
+
 ## 2026-07-27 — Sergiy "берись за все" batch (F4 arc closure → F5b lever → scljet → stream-3 decision)
 
 Queued after the 2026-07-27 status review. Starting state (measured, not assumed):
