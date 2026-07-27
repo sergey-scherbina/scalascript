@@ -1,5 +1,74 @@
 # Bug tracker
 
+## v2-front-try-in-def-body-shapes-break — two `try`-as-a-def-body shapes break, one of them SILENTLY
+
+**Status:** OPEN (found 2026-07-27 by opus while pinning `v2-native-front-try-catch` layer 2 — the
+conformance case for that fix hit these on its first run). **v2 FRONT (parse/layout), both fronts —
+not the kernel.** The v1 reference handles both shapes.
+
+**Measured, minimal repros (real CLI, built `bin/`):**
+
+```
+def w(x: Int): String =
+  try { (10 / x).toString } catch { case _ => "W" }      -- WILDCARD catch, braced, def body
+println(w(0))
+```
+
+| lane | result |
+|---|---|
+| `ssc run` (default) | **no output, exit 0** |
+| `ssc run --native` (F) | **no output, exit 0** |
+| `ssc run --bytecode` / `--interpret` | no output |
+| `SSC_FRONT=legacy ssc run --native` | `ssc: unbound global: try` (loud) |
+| `ssc-tools run --v1` (reference) | **`W`** ✓ |
+
+The trigger is the **bare wildcard** `case _` specifically: the same def with
+`catch { case e: Throwable => … }` works, and the same wildcard works when the `try` is an
+*expression argument* (`println(try { … } catch { case _ => … })` → `wild`). Only `try` as a **def
+body** with a wildcard catch breaks.
+
+```
+def f(a: Int, b: Int): String =
+  try
+    (a / b).toString
+  catch
+    case e: Throwable => "c"      -- BRACELESS multiline, def body
+println(f(10, 0))
+```
+
+This one parses, but does not TERMINATE cleanly: a following top-level statement is silently
+dropped (no output, exit 0), and a following `def` whose body starts with `try` becomes
+`ssc: unbound global: try`. Inserting any other `def` between them hides it. v1 prints `c`.
+
+**Why it matters more than it looks:** the default lane fails **silently at exit 0** — a whole
+program disappears with no diagnostic. The F4a delegate-fallback does not save it either, because F
+emits a *valid but wrong* program (no unbound global to trip the fallback) — the same class as the
+F multi-file-order regression (`f-native-multi-file-positional-args-reversed`).
+
+**Not fixed here** — this is front/layout work, and the claim that found it was scoped to the
+exception-delivery kernel bug. The conformance case `tests/conformance/try-catch-exception-delivery.ssc`
+documents both shapes as deliberately absent so it pins delivery rather than layout.
+
+## js-int-division-by-zero-yields-infinity — `10 / 0` is `Infinity` on the JS lane instead of throwing
+
+**Status:** OPEN (found 2026-07-27 by opus, surfaced by the new
+`try-catch-exception-delivery` conformance case on its first JS run). **v1 JS backend.**
+
+`ssc` `Int` is 64-bit integer arithmetic, so `10 / 0` must fail, not produce a float. On the JS lane
+it yields JS's `Infinity`:
+
+```
+line 1: expected=caught-throwable  got=Infinity
+```
+
+i.e. the `try` body never throws, so no `catch` is entered and the program prints `Infinity` where
+INT and JVM print the caught value. Silent wrong answer, exit 0.
+
+**Scope note:** the case that found this is restricted to `backends: [int, jvm]` so it pins the
+delivery fix rather than this divergence — deliberately, and recorded here instead of swept under
+the restriction.
+
+
 ## scljet-ipk-update-numeric-affinity — `SET <ipk> = '5'` / `= 7.0` is refused where SQLite coerces
 
 **Status:** OPEN — known gap, deliberately fail-CLOSED (opened 2026-07-27 by `scljet-ipk-rowid`
@@ -151,7 +220,16 @@ hello 0.8→1.5 s, scljet 8→32 s"), but nothing measured it against the corpus
 already breaching a gate budget. `v2-f5b-typed-locals` (SPRINT Batch B) is the recovery path.
 ## portable-capsule-frame-unvalidated — the capsule's frame half escapes the fail-closed admission
 
-**Status:** OPEN → being fixed under `portable-nominal-frame` (found 2026-07-27 by opus while starting
+**Status:** **FIXED 2026-07-27** by opus (`portable-nominal-frame`, landed `7edee1a51..2050eeafc`).
+`Capsule.validateFrame` admits exactly the first-order value terms a frame may contain — `Lit`, or
+`Ctor` whose fields are recursively values — and rejects everything else naming the offending node
+(`Lam` too: a lambda is a value at runtime but *code* in the bytes). Probes B and C are now refused
+at admission; **probe A is deliberately NOT fixed here** and is queued as an owner-level format
+decision, `BACKLOG.md portable-capsule-integrity`. Gate: `v2/conformance/portable-capsule.sh`
+21/21 → 25/25, including `data-only frame edit still runs`, which is what keeps the rejection lines
+honest — a blanket "any frame edit fails" guard would satisfy them for the wrong reason.
+
+**Historical status:** OPEN → being fixed under `portable-nominal-frame` (found 2026-07-27 by opus while starting
 vector-15 arc slice 3, which has to define what a frame may legally contain). **VM Portable capsule**
 (`v2/src/Capsule.scala`), the `run-capsule` admission path.
 
@@ -3611,7 +3689,38 @@ the same-line form remains green, and `std/agent.ssc` advances to the independen
 
 ## v2-native-front-try-catch — `try` / `catch` does not work on the native front
 
-**Status:** OPEN, **not diagnosed** (time-boxed). Found 2026-07-16 behind the curried-def gap; it is
+**Status:** **LAYER 2 FIXED 2026-07-27** by opus (`bugs-native-front-trycatch`) — the entry below
+called it "not diagnosed"; it is now diagnosed to the line and fixed.
+
+**Root cause (layer 2, the real blocker).** A `catch { case e: Throwable => … }` lowers to a NOMINAL
+tag test `__isTag__(v, "Throwable", -1)`, and `tryRun` (`v2/src/Runtime.scala`) delivers a host error
+to the handler as `DataV("RuntimeException", [message])`. The v2 tag test was **flat** — a plain
+`t == expected` with no notion of supertypes — so the tags never matched, control fell through to
+`__handler_dispatch_miss__`, and the program died with `match: no matching case`. Nothing was wrong
+with the parser or the lowering.
+
+**Fix:** mirror the v1 reference rule verbatim — `PatternRuntime.isExceptionSupertype` and its use at
+`PatternRuntime.scala:1321`: a pattern naming one of the four JVM exception SUPERtypes
+(`Throwable` / `Exception` / `RuntimeException` / `Error`) matches the instance, because a `catch`
+scrutinee is a synthesized exception carrying the throwable's simple name and users catch it by
+supertype. Deliberately permissive — it is permissive in the reference, and the reference is the
+oracle the frozen goldens encode.
+
+**Verified.** Discriminating A/B on the SAME IR and the SAME runner, only the kernel differing:
+old jar → `match: no matching case`, new jar → `err`. Real CLI, all lanes: braced and braceless
+forms × {default F, `SSC_FRONT=legacy`, v1 reference} = **6/6 `err`**. Kernel gates: semantic
+**248/248 GREEN (MISMATCH 0)** — the permissive rule moved no golden — X1 **155 ok / 0 FAIL**,
+fixpoint byte-identical 406,964 B. New conformance case
+`tests/conformance/try-catch-exception-delivery.ssc` (`[int, jvm]`) PASS, byte-identical to the v1
+reference; every case in it actually throws, because a `try` whose body never fails passes even with
+the bug present — which is exactly how this survived.
+
+**Layer 1 correction:** the note below says the braceless multiline form is "STILL BROKEN". Measured
+2026-07-27: it now works on the legacy front AND through the real CLI under F (the F4a fallback
+covers F's own parse gap). What IS still broken are two *other* def-body shapes, filed separately as
+`v2-front-try-in-def-body-shapes-break` — including one that fails **silently at exit 0**.
+
+**Historical status:** OPEN, **not diagnosed** (time-boxed). Found 2026-07-16 behind the curried-def gap; it is
 the second thing that stops `std/agent.ssc` (`postChatCompletionsOnce`, a braceless
 `try … catch case e: Throwable => …`) from parsing on the native lane.
 
