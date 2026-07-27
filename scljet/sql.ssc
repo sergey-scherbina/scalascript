@@ -1598,7 +1598,7 @@ def evalCaseSingle(operand: Option[SxNode], whens: List[SxWhen], elseExpr: Optio
     case Some(opExpr) =>
       val opVal = evalExpr(opExpr, rec, colNames)
       while r.nonEmpty && out.isEmpty do
-        if sqlCompare(opVal, evalExpr(r.head.cond, rec, colNames)) == 0 then out = Some(evalExpr(r.head.result, rec, colNames))
+        if comparisonState("=", opVal, evalExpr(r.head.cond, rec, colNames)) == 1 then out = Some(evalExpr(r.head.result, rec, colNames))
         r = r.tail
     case None =>
       while r.nonEmpty && out.isEmpty do
@@ -1636,7 +1636,7 @@ def evalCaseJoin(operand: Option[SxNode], whens: List[SxWhen], elseExpr: Option[
     case Some(opExpr) =>
       val opVal = evalExprJoin(opExpr, recA, colsA, tableA, recBOpt, colsB, tableB)
       while r.nonEmpty && out.isEmpty do
-        if sqlCompare(opVal, evalExprJoin(r.head.cond, recA, colsA, tableA, recBOpt, colsB, tableB)) == 0 then out = Some(evalExprJoin(r.head.result, recA, colsA, tableA, recBOpt, colsB, tableB))
+        if comparisonState("=", opVal, evalExprJoin(r.head.cond, recA, colsA, tableA, recBOpt, colsB, tableB)) == 1 then out = Some(evalExprJoin(r.head.result, recA, colsA, tableA, recBOpt, colsB, tableB))
         r = r.tail
     case None =>
       while r.nonEmpty && out.isEmpty do
@@ -1703,6 +1703,26 @@ def isNullValue(v: SqliteValue): Boolean = v match
   case SqlNull => true
   case _ => false
 
+// SQL predicate state: -1 = UNKNOWN, 0 = FALSE, 1 = TRUE. Keep this separate from
+// `sqlCompare`, whose total order is required by ORDER BY, GROUP BY, DISTINCT, and indexes.
+def truthNotState(state: Int): Int =
+  if state < 0 then -1 else if state == 0 then 1 else 0
+
+def truthAndState(a: Int, b: Int): Int =
+  if a == 0 || b == 0 then 0
+  else if a < 0 || b < 0 then -1
+  else 1
+
+def truthOrState(a: Int, b: Int): Int =
+  if a == 1 || b == 1 then 1
+  else if a < 0 || b < 0 then -1
+  else 0
+
+def comparisonState(op: String, a: SqliteValue, b: SqliteValue): Int =
+  if isNullValue(a) || isNullValue(b) then -1
+  else if condMatches(op, sqlCompare(a, b)) then 1
+  else 0
+
 def valueInList(v: SqliteValue, values: List[SqliteValue]): Boolean =
   var r = values
   var found = false
@@ -1710,6 +1730,22 @@ def valueInList(v: SqliteValue, values: List[SqliteValue]): Boolean =
     if sqlCompare(v, r.head) == 0 then found = true
     r = r.tail
   found
+
+// SQL IN membership differs from total-value equality: an empty RHS is FALSE even for
+// a NULL LHS, a match wins, and a non-matching NULL on either side produces UNKNOWN.
+// `valueInList` remains total because DISTINCT/grouping need NULL == NULL.
+def membershipState(v: SqliteValue, values: List[SqliteValue]): Int =
+  if values.isEmpty then 0
+  else if isNullValue(v) then -1
+  else
+    var r = values
+    var found = false
+    var sawNull = false
+    while r.nonEmpty && !found do
+      if isNullValue(r.head) then sawNull = true
+      else if sqlCompare(v, r.head) == 0 then found = true
+      r = r.tail
+    if found then 1 else if sawNull then -1 else 0
 
 // Text form of a value for LIKE (sqlite coerces numbers to their text form).
 def coerceText(v: SqliteValue): String = v match
@@ -1752,25 +1788,29 @@ def likeMatch(textRaw: String, patRaw: String): Boolean =
     while charCode(p, jj) == 37 do jj = jj + 1
     jj == m
 
-// Evaluate one predicate given the already-resolved left value `v` and right value `rv`
-// (`rv` is the RHS of a scalar comparison, or the LIKE pattern; unused by IS/BETWEEN/IN).
-// Shared by single-table (condHolds) and join (joinCondHolds) evaluation.
-def predHolds(cond: Condition, v: SqliteValue, rv: SqliteValue): Boolean =
-  if cond.op == "truthy" then isTruthy(v)
-  else if cond.op == "isnull" then isNullValue(v)
-  else if cond.op == "notnull" then isNullValue(v) == false
+// Evaluate one predicate given the already-resolved left value `v` and right value `rv`.
+// UNKNOWN is preserved until the WHERE/HAVING/ON boundary.
+def predState(cond: Condition, v: SqliteValue, rv: SqliteValue): Int =
+  if cond.op == "truthy" then boolState(v)
+  else if cond.op == "isnull" then if isNullValue(v) then 1 else 0
+  else if cond.op == "notnull" then if isNullValue(v) then 0 else 1
   else if cond.op == "between" then
-    if isNullValue(v) then false
-    else sqlCompare(v, cond.values.head) >= 0 && sqlCompare(v, cond.values.tail.head) <= 0
-  else if cond.op == "in" then
-    if isNullValue(v) then false else valueInList(v, cond.values)
-  else if cond.op == "notin" then
-    if isNullValue(v) then false else valueInList(v, cond.values) == false
+    if cond.values.length < 2 then 0
+    else truthAndState(
+      comparisonState(">=", v, cond.values.head),
+      comparisonState("<=", v, cond.values.tail.head))
+  else if cond.op == "in" then membershipState(v, cond.values)
+  else if cond.op == "notin" then truthNotState(membershipState(v, cond.values))
   else if cond.op == "like" then
-    if isNullValue(v) then false else likeMatch(coerceText(v), coerceText(rv))
+    if isNullValue(v) || isNullValue(rv) then -1
+    else if likeMatch(coerceText(v), coerceText(rv)) then 1 else 0
   else if cond.op == "notlike" then
-    if isNullValue(v) then false else likeMatch(coerceText(v), coerceText(rv)) == false
-  else condMatches(cond.op, sqlCompare(v, rv))
+    if isNullValue(v) || isNullValue(rv) then -1
+    else if likeMatch(coerceText(v), coerceText(rv)) then 0 else 1
+  else comparisonState(cond.op, v, rv)
+
+def predHolds(cond: Condition, v: SqliteValue, rv: SqliteValue): Boolean =
+  predState(cond, v, rv) == 1
 
 // The right-hand value of a scalar comparison / LIKE: an expression is evaluated, otherwise
 // the parsed literal in `value`.
@@ -1784,27 +1824,36 @@ def condLeftSingle(cond: Condition, rec: StorageRecord, colNames: List[String]):
     case Some(e) => evalExpr(e, rec, colNames)
     case None => rowValue(rec, colNames, cond.column)
 
+def condState(cond: Condition, rec: StorageRecord, colNames: List[String]): Int =
+  predState(cond, condLeftSingle(cond, rec, colNames), condRightSingle(cond, rec, colNames))
+
 def condHolds(cond: Condition, rec: StorageRecord, colNames: List[String]): Boolean =
-  predHolds(cond, condLeftSingle(cond, rec, colNames), condRightSingle(cond, rec, colNames))
+  condState(cond, rec, colNames) == 1
+
+def andGroupState(group: List[Condition], rec: StorageRecord, colNames: List[String]): Int =
+  var r = group
+  var state = 1
+  while r.nonEmpty && state != 0 do
+    state = truthAndState(state, condState(r.head, rec, colNames))
+    r = r.tail
+  state
 
 def andGroupHolds(group: List[Condition], rec: StorageRecord, colNames: List[String]): Boolean =
-  var r = group
-  var all = true
-  while r.nonEmpty && all do
-    if !condHolds(r.head, rec, colNames) then all = false
-    r = r.tail
-  all
+  andGroupState(group, rec, colNames) == 1
 
 // where = OR-of-ANDs; an empty clause means no filter (always true).
-def whereHolds(where: List[List[Condition]], rec: StorageRecord, colNames: List[String]): Boolean =
-  if where.isEmpty then true
+def whereState(where: List[List[Condition]], rec: StorageRecord, colNames: List[String]): Int =
+  if where.isEmpty then 1
   else
     var r = where
-    var any = false
-    while r.nonEmpty && !any do
-      if andGroupHolds(r.head, rec, colNames) then any = true
+    var state = 0
+    while r.nonEmpty && state != 1 do
+      state = truthOrState(state, andGroupState(r.head, rec, colNames))
       r = r.tail
-    any
+    state
+
+def whereHolds(where: List[List[Condition]], rec: StorageRecord, colNames: List[String]): Boolean =
+  whereState(where, rec, colNames) == 1
 
 def projItemNames(items: List[ProjItem]): List[String] =
   var r = items
@@ -1939,7 +1988,7 @@ def evalCaseGroup(operand: Option[SxNode], whens: List[SxWhen], elseExpr: Option
     case Some(opExpr) =>
       val opVal = evalExprGroup(opExpr, group, colNames)
       while r.nonEmpty && out.isEmpty do
-        if sqlCompare(opVal, evalExprGroup(r.head.cond, group, colNames)) == 0 then out = Some(evalExprGroup(r.head.result, group, colNames))
+        if comparisonState("=", opVal, evalExprGroup(r.head.cond, group, colNames)) == 1 then out = Some(evalExprGroup(r.head.result, group, colNames))
         r = r.tail
     case None =>
       while r.nonEmpty && out.isEmpty do
@@ -2054,7 +2103,7 @@ def havingHolds(having: Option[HavingCond], group: List[StorageRecord], colNames
       else hc.item.expr match
         case Some(e) => evalExprGroup(e, group, colNames)
         case None => if group.isEmpty then SqlNull else rowValue(group.head, colNames, hc.item.name)
-    condMatches(hc.op, sqlCompare(lv, hc.value))
+    comparisonState(hc.op, lv, hc.value) == 1
 
 def filterGroups(groups: List[List[StorageRecord]], having: Option[HavingCond], colNames: List[String]): List[List[StorageRecord]] =
   var r = groups
@@ -2225,18 +2274,21 @@ def existsHolds(db: ReadonlyDatabase, subTokens: List[Token], outerTable: String
         case Right(rows) => rows.nonEmpty
         case Left(_) => false
 
-// `col [NOT] IN (subquery)`: substitute the outer refs, run the subquery, test membership of the left
-// value in its first column.
-def inSubqHolds(db: ReadonlyDatabase, cond: Condition, rec: StorageRecord, colNames: List[String], outerTable: String): Boolean =
+// `col [NOT] IN (subquery)`: substitute the outer refs, run the subquery, and preserve
+// UNKNOWN from NULL membership until the outer WHERE boundary.
+def inSubqState(db: ReadonlyDatabase, cond: Condition, rec: StorageRecord, colNames: List[String], outerTable: String): Int =
   val colVal = condLeftSingle(cond, rec, colNames)
   val sub = substituteOuterRefs(cond.subTokens, outerTable, colNames, rec)
   parseSelect(sub) match
-    case Left(_) => false
+    case Left(_) => 0
     case Right(stmt) =>
       val rowsE = if stmt.table == "" then executeNoFrom(stmt) else executeSelect(db, stmt)
       rowsE match
-        case Left(_) => false
-        case Right(rows) => valueInList(colVal, firstColumn(rows))
+        case Left(_) => 0
+        case Right(rows) => membershipState(colVal, firstColumn(rows))
+
+def inSubqHolds(db: ReadonlyDatabase, cond: Condition, rec: StorageRecord, colNames: List[String], outerTable: String): Boolean =
+  inSubqState(db, cond, rec, colNames, outerTable) == 1
 
 def isCmpOp(op: String): Boolean =
   op == "=" || op == "<>" || op == "!=" || op == "<" || op == "<=" || op == ">" || op == ">="
@@ -2247,47 +2299,58 @@ def scalarSubqValue(rows: List[List[SqliteValue]]): SqliteValue =
   else if rows.head.isEmpty then SqlNull
   else rows.head.head
 
-// `col <cmp> (subquery)`: substitute the outer refs, run the subquery, compare the left value with its
-// scalar. A NULL either side makes the comparison unknown (false), as in SQL.
-def scalarSubqHolds(db: ReadonlyDatabase, cond: Condition, rec: StorageRecord, colNames: List[String], outerTable: String): Boolean =
+// `col <cmp> (subquery)`: substitute the outer refs, run the subquery, and compare
+// against its scalar result (NULL for an empty result).
+def scalarSubqState(db: ReadonlyDatabase, cond: Condition, rec: StorageRecord, colNames: List[String], outerTable: String): Int =
   val colVal = condLeftSingle(cond, rec, colNames)
   val sub = substituteOuterRefs(cond.subTokens, outerTable, colNames, rec)
   parseSelect(sub) match
-    case Left(_) => false
+    case Left(_) => 0
     case Right(stmt) =>
       val rowsE = if stmt.table == "" then executeNoFrom(stmt) else executeSelect(db, stmt)
       rowsE match
-        case Left(_) => false
-        case Right(rows) =>
-          val scalar = scalarSubqValue(rows)
-          if isNullValue(colVal) || isNullValue(scalar) then false
-          else condMatches(cond.op, sqlCompare(colVal, scalar))
+        case Left(_) => 0
+        case Right(rows) => comparisonState(cond.op, colVal, scalarSubqValue(rows))
+
+def scalarSubqHolds(db: ReadonlyDatabase, cond: Condition, rec: StorageRecord, colNames: List[String], outerTable: String): Boolean =
+  scalarSubqState(db, cond, rec, colNames, outerTable) == 1
+
+def condStateCtx(db: ReadonlyDatabase, cond: Condition, rec: StorageRecord, colNames: List[String], outerTable: String): Int =
+  if cond.op == "exists" then
+    if existsHolds(db, cond.subTokens, outerTable, colNames, rec) then 1 else 0
+  else if cond.op == "notexists" then
+    if existsHolds(db, cond.subTokens, outerTable, colNames, rec) then 0 else 1
+  else if cond.op == "insubq" then inSubqState(db, cond, rec, colNames, outerTable)
+  else if cond.op == "notinsubq" then truthNotState(inSubqState(db, cond, rec, colNames, outerTable))
+  else if cond.subTokens.nonEmpty && isCmpOp(cond.op) then scalarSubqState(db, cond, rec, colNames, outerTable)
+  else condState(cond, rec, colNames)
 
 def condHoldsCtx(db: ReadonlyDatabase, cond: Condition, rec: StorageRecord, colNames: List[String], outerTable: String): Boolean =
-  if cond.op == "exists" then existsHolds(db, cond.subTokens, outerTable, colNames, rec)
-  else if cond.op == "notexists" then existsHolds(db, cond.subTokens, outerTable, colNames, rec) == false
-  else if cond.op == "insubq" then inSubqHolds(db, cond, rec, colNames, outerTable)
-  else if cond.op == "notinsubq" then inSubqHolds(db, cond, rec, colNames, outerTable) == false
-  else if cond.subTokens.nonEmpty && isCmpOp(cond.op) then scalarSubqHolds(db, cond, rec, colNames, outerTable)
-  else condHolds(cond, rec, colNames)
+  condStateCtx(db, cond, rec, colNames, outerTable) == 1
+
+def andGroupStateCtx(db: ReadonlyDatabase, group: List[Condition], rec: StorageRecord, colNames: List[String], outerTable: String): Int =
+  var r = group
+  var state = 1
+  while r.nonEmpty && state != 0 do
+    state = truthAndState(state, condStateCtx(db, r.head, rec, colNames, outerTable))
+    r = r.tail
+  state
 
 def andGroupHoldsCtx(db: ReadonlyDatabase, group: List[Condition], rec: StorageRecord, colNames: List[String], outerTable: String): Boolean =
-  var r = group
-  var all = true
-  while r.nonEmpty && all do
-    if !condHoldsCtx(db, r.head, rec, colNames, outerTable) then all = false
-    r = r.tail
-  all
+  andGroupStateCtx(db, group, rec, colNames, outerTable) == 1
 
-def whereHoldsCtx(db: ReadonlyDatabase, where: List[List[Condition]], rec: StorageRecord, colNames: List[String], outerTable: String): Boolean =
-  if where.isEmpty then true
+def whereStateCtx(db: ReadonlyDatabase, where: List[List[Condition]], rec: StorageRecord, colNames: List[String], outerTable: String): Int =
+  if where.isEmpty then 1
   else
     var r = where
-    var any = false
-    while r.nonEmpty && !any do
-      if andGroupHoldsCtx(db, r.head, rec, colNames, outerTable) then any = true
+    var state = 0
+    while r.nonEmpty && state != 1 do
+      state = truthOrState(state, andGroupStateCtx(db, r.head, rec, colNames, outerTable))
       r = r.tail
-    any
+    state
+
+def whereHoldsCtx(db: ReadonlyDatabase, where: List[List[Condition]], rec: StorageRecord, colNames: List[String], outerTable: String): Boolean =
+  whereStateCtx(db, where, rec, colNames, outerTable) == 1
 
 def filterRowsCtx(db: ReadonlyDatabase, rows: List[StorageRecord], where: List[List[Condition]], colNames: List[String], outerTable: String): List[StorageRecord] =
   var r = rows
@@ -2493,26 +2556,35 @@ def joinCondRight(cond: Condition, recA: StorageRecord, colsA: List[String], tab
     case Some(e) => evalExprJoin(e, recA, colsA, tableA, recBOpt, colsB, tableB)
     case None => cond.value
 
+def joinCondState(cond: Condition, recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): Int =
+  predState(cond, joinCondLeft(cond, recA, colsA, tableA, recBOpt, colsB, tableB), joinCondRight(cond, recA, colsA, tableA, recBOpt, colsB, tableB))
+
 def joinCondHolds(cond: Condition, recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): Boolean =
-  predHolds(cond, joinCondLeft(cond, recA, colsA, tableA, recBOpt, colsB, tableB), joinCondRight(cond, recA, colsA, tableA, recBOpt, colsB, tableB))
+  joinCondState(cond, recA, colsA, tableA, recBOpt, colsB, tableB) == 1
+
+def joinAndGroupState(group: List[Condition], recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): Int =
+  var r = group
+  var state = 1
+  while r.nonEmpty && state != 0 do
+    state = truthAndState(state, joinCondState(r.head, recA, colsA, tableA, recBOpt, colsB, tableB))
+    r = r.tail
+  state
 
 def joinAndGroupHolds(group: List[Condition], recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): Boolean =
-  var r = group
-  var all = true
-  while r.nonEmpty && all do
-    if !joinCondHolds(r.head, recA, colsA, tableA, recBOpt, colsB, tableB) then all = false
-    r = r.tail
-  all
+  joinAndGroupState(group, recA, colsA, tableA, recBOpt, colsB, tableB) == 1
 
-def joinWhereHolds(where: List[List[Condition]], recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): Boolean =
-  if where.isEmpty then true
+def joinWhereState(where: List[List[Condition]], recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): Int =
+  if where.isEmpty then 1
   else
     var r = where
-    var any = false
-    while r.nonEmpty && !any do
-      if joinAndGroupHolds(r.head, recA, colsA, tableA, recBOpt, colsB, tableB) then any = true
+    var state = 0
+    while r.nonEmpty && state != 1 do
+      state = truthOrState(state, joinAndGroupState(r.head, recA, colsA, tableA, recBOpt, colsB, tableB))
       r = r.tail
-    any
+    state
+
+def joinWhereHolds(where: List[List[Condition]], recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): Boolean =
+  joinWhereState(where, recA, colsA, tableA, recBOpt, colsB, tableB) == 1
 
 def joinProjectRow(recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String, stmt: SelectStmt): List[SqliteValue] =
   var accRev: List[SqliteValue] = Nil
@@ -2671,7 +2743,7 @@ def evalCaseGroupJoin(operand: Option[SxNode], whens: List[SxWhen], elseExpr: Op
     case Some(opExpr) =>
       val opVal = evalExprGroupJoin(opExpr, pairs, colsA, tableA, colsB, tableB)
       while r.nonEmpty && out.isEmpty do
-        if sqlCompare(opVal, evalExprGroupJoin(r.head.cond, pairs, colsA, tableA, colsB, tableB)) == 0 then out = Some(evalExprGroupJoin(r.head.result, pairs, colsA, tableA, colsB, tableB))
+        if comparisonState("=", opVal, evalExprGroupJoin(r.head.cond, pairs, colsA, tableA, colsB, tableB)) == 1 then out = Some(evalExprGroupJoin(r.head.result, pairs, colsA, tableA, colsB, tableB))
         r = r.tail
     case None =>
       while r.nonEmpty && out.isEmpty do
@@ -2794,7 +2866,7 @@ def partitionPairs(sorted: List[JoinPair], colsA: List[String], tableA: String, 
 
 def havingHoldsPairs(having: Option[HavingCond], group: List[JoinPair], colsA: List[String], tableA: String, colsB: List[String], tableB: String): Boolean = having match
   case None => true
-  case Some(hc) => condMatches(hc.op, sqlCompare(computeJoinAgg(hc.item, group, colsA, tableA, colsB, tableB), hc.value))
+  case Some(hc) => comparisonState(hc.op, computeJoinAgg(hc.item, group, colsA, tableA, colsB, tableB), hc.value) == 1
 
 def filterPairGroups(groups: List[List[JoinPair]], having: Option[HavingCond], colsA: List[String], tableA: String, colsB: List[String], tableB: String): List[List[JoinPair]] =
   var r = groups
@@ -2835,7 +2907,7 @@ def joinExecute(db: ReadonlyDatabase, stmt: SelectStmt, spec: JoinSpec): Either[
             val rbOpt: Option[StorageRecord] = Some(rb.head)
             val lv = joinColValue(ra.head, colsA, stmt.table, rbOpt, colsB, spec.table, spec.leftCol)
             val rv = joinColValue(ra.head, colsA, stmt.table, rbOpt, colsB, spec.table, spec.rightCol)
-            if condMatches(spec.op, sqlCompare(lv, rv)) then
+            if comparisonState(spec.op, lv, rv) == 1 then
               matched = true
               if joinWhereHolds(stmt.where, ra.head, colsA, stmt.table, rbOpt, colsB, spec.table) then
                 pairsRev = JoinPair(ra.head, rbOpt) :: pairsRev
@@ -2855,7 +2927,7 @@ def joinExecute(db: ReadonlyDatabase, stmt: SelectStmt, spec: JoinSpec): Either[
               val rbOpt2: Option[StorageRecord] = Some(rb2.head)
               val lv2 = joinColValue(ra2.head, colsA, stmt.table, rbOpt2, colsB, spec.table, spec.leftCol)
               val rv2 = joinColValue(ra2.head, colsA, stmt.table, rbOpt2, colsB, spec.table, spec.rightCol)
-              if condMatches(spec.op, sqlCompare(lv2, rv2)) then bMatched = true
+              if comparisonState(spec.op, lv2, rv2) == 1 then bMatched = true
               ra2 = ra2.tail
             if !bMatched then
               val nullA = nullRow()
@@ -2946,7 +3018,7 @@ def evalCaseMulti(operand: Option[SxNode], whens: List[SxWhen], elseExpr: Option
     case Some(opExpr) =>
       val opVal = evalExprMulti(opExpr, joinRow, tables)
       while r.nonEmpty && out.isEmpty do
-        if sqlCompare(opVal, evalExprMulti(r.head.cond, joinRow, tables)) == 0 then out = Some(evalExprMulti(r.head.result, joinRow, tables))
+        if comparisonState("=", opVal, evalExprMulti(r.head.cond, joinRow, tables)) == 1 then out = Some(evalExprMulti(r.head.result, joinRow, tables))
         r = r.tail
     case None =>
       while r.nonEmpty && out.isEmpty do
@@ -2968,36 +3040,48 @@ def evalExprMulti(e: SxNode, joinRow: List[StorageRecord], tables: List[JoinTabl
   case SxAgg(_, _, _) => SqlNull
   case SxCase(operand, whens, elseExpr) => evalCaseMulti(operand, whens, elseExpr, joinRow, tables)
 
-def multiCondHolds(cond: Condition, joinRow: List[StorageRecord], tables: List[JoinTable]): Boolean =
+def multiCondState(cond: Condition, joinRow: List[StorageRecord], tables: List[JoinTable]): Int =
   val lv = cond.leftExpr match
     case Some(e) => evalExprMulti(e, joinRow, tables)
     case None => multiColValue(joinRow, tables, cond.column)
   val rv = cond.rightExpr match
     case Some(e) => evalExprMulti(e, joinRow, tables)
     case None => cond.value
-  predHolds(cond, lv, rv)
+  predState(cond, lv, rv)
+
+def multiCondHolds(cond: Condition, joinRow: List[StorageRecord], tables: List[JoinTable]): Boolean =
+  multiCondState(cond, joinRow, tables) == 1
+
+def multiAndGroupState(group: List[Condition], joinRow: List[StorageRecord], tables: List[JoinTable]): Int =
+  var r = group
+  var state = 1
+  while r.nonEmpty && state != 0 do
+    state = truthAndState(state, multiCondState(r.head, joinRow, tables))
+    r = r.tail
+  state
 
 def multiAndGroup(group: List[Condition], joinRow: List[StorageRecord], tables: List[JoinTable]): Boolean =
-  var r = group
-  var all = true
-  while r.nonEmpty && all do
-    if !multiCondHolds(r.head, joinRow, tables) then all = false
-    r = r.tail
-  all
+  multiAndGroupState(group, joinRow, tables) == 1
 
-def multiWhereHolds(where: List[List[Condition]], joinRow: List[StorageRecord], tables: List[JoinTable]): Boolean =
-  if where.isEmpty then true
+def multiWhereState(where: List[List[Condition]], joinRow: List[StorageRecord], tables: List[JoinTable]): Int =
+  if where.isEmpty then 1
   else
     var r = where
-    var any = false
-    while r.nonEmpty && !any do
-      if multiAndGroup(r.head, joinRow, tables) then any = true
+    var state = 0
+    while r.nonEmpty && state != 1 do
+      state = truthOrState(state, multiAndGroupState(r.head, joinRow, tables))
       r = r.tail
-    any
+    state
+
+def multiWhereHolds(where: List[List[Condition]], joinRow: List[StorageRecord], tables: List[JoinTable]): Boolean =
+  multiWhereState(where, joinRow, tables) == 1
 
 // ON `leftCol op rightCol` over the bound tables.
 def onHolds(joinRow: List[StorageRecord], tables: List[JoinTable], spec: JoinSpec): Boolean =
-  condMatches(spec.op, sqlCompare(multiColValue(joinRow, tables, spec.leftCol), multiColValue(joinRow, tables, spec.rightCol)))
+  comparisonState(
+    spec.op,
+    multiColValue(joinRow, tables, spec.leftCol),
+    multiColValue(joinRow, tables, spec.rightCol)) == 1
 
 def wrapSingletons(rows: List[StorageRecord]): List[List[StorageRecord]] =
   var r = rows
@@ -3194,7 +3278,7 @@ def evalCaseMultiGroup(operand: Option[SxNode], whens: List[SxWhen], elseExpr: O
     case Some(opExpr) =>
       val opVal = evalExprMultiGroup(opExpr, group, tables)
       while r.nonEmpty && out.isEmpty do
-        if sqlCompare(opVal, evalExprMultiGroup(r.head.cond, group, tables)) == 0 then out = Some(evalExprMultiGroup(r.head.result, group, tables))
+        if comparisonState("=", opVal, evalExprMultiGroup(r.head.cond, group, tables)) == 1 then out = Some(evalExprMultiGroup(r.head.result, group, tables))
         r = r.tail
     case None =>
       while r.nonEmpty && out.isEmpty do
@@ -3260,7 +3344,7 @@ def havingHoldsMulti(having: Option[HavingCond], group: List[List[StorageRecord]
       else hc.item.expr match
         case Some(e) => evalExprMultiGroup(e, group, tables)
         case None => if group.isEmpty then SqlNull else multiColValue(group.head, tables, hc.item.name)
-    condMatches(hc.op, sqlCompare(lv, hc.value))
+    comparisonState(hc.op, lv, hc.value) == 1
 
 def multiJoinExecute(db: ReadonlyDatabase, stmt: SelectStmt): Either[String, List[List[SqliteValue]]] =
   readJoinTables(db, joinTableNames(stmt)) match
@@ -3380,8 +3464,8 @@ def executeNoFrom(stmt: SelectStmt): Either[String, List[List[SqliteValue]]] =
 // ── Non-correlated subqueries: evaluate `( SELECT … )` and splice its result back as tokens ──
 // A `( SELECT … )` after IN becomes a value list `( v1, v2, … )`; anywhere else it is a scalar
 // (the first value of the first row). The subquery must not reference the outer query
-// (non-correlated); integer/text results only. Runs as a pre-pass before parse, and recurses so
-// nested subqueries resolve too.
+// (non-correlated). Exact bound tokens preserve NULL, REAL, and BLOB values. Runs as a pre-pass
+// before parse, and recurses so nested subqueries resolve too.
 
 // Split the paren group whose opening `(` was just consumed: returns (inner tokens, tokens after
 // the matching `)`), or None if unbalanced.
@@ -3402,11 +3486,7 @@ def splitParenGroup(afterLparen: List[Token]): Option[(List[Token], List[Token])
     case Some(pair) => Some((pair._1.reverse, pair._2))
     case None => None
 
-def valueToken(v: SqliteValue): Token = v match
-  case SqlInteger(x) => Token("num", "", x)
-  case SqlText(s) => Token("str", s, 0L)
-  case SqlReal(x) => Token("num", "", x.toLong)
-  case _ => Token("num", "", 0L)
+def valueToken(v: SqliteValue): Token = exactValueToken(v)
 
 def valueListTokens(values: List[SqliteValue]): List[Token] =
   var r = values
@@ -3421,7 +3501,7 @@ def valueListTokens(values: List[SqliteValue]): List[Token] =
   (Token("lparen", "(", 0L) :: Nil) ++ accRev.reverse ++ (Token("rparen", ")", 0L) :: Nil)
 
 def scalarValueTokens(values: List[SqliteValue]): List[Token] =
-  if values.isEmpty then Token("num", "", 0L) :: Nil
+  if values.isEmpty then exactValueToken(SqlNull) :: Nil
   else valueToken(values.head) :: Nil
 
 def firstColumn(rows: List[List[SqliteValue]]): List[SqliteValue] =
@@ -4843,7 +4923,7 @@ def evalCaseValues(operand: Option[SxNode], whens: List[SxWhen], elseExpr: Optio
     case Some(opExpr) =>
       val opVal = evalExprValues(opExpr, values, colNames)
       while r.nonEmpty && out.isEmpty do
-        if sqlCompare(opVal, evalExprValues(r.head.cond, values, colNames)) == 0 then out = Some(evalExprValues(r.head.result, values, colNames))
+        if comparisonState("=", opVal, evalExprValues(r.head.cond, values, colNames)) == 1 then out = Some(evalExprValues(r.head.result, values, colNames))
         r = r.tail
     case None =>
       while r.nonEmpty && out.isEmpty do

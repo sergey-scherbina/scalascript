@@ -1,0 +1,123 @@
+---
+name: scljet-sql-null-semantics
+description: SclJet SQL — NULL comparisons, IN/NOT IN, subqueries, joins, and boolean groups use SQL UNKNOWN
+backends: [int, js]
+---
+
+# scljet — SQL three-valued NULL semantics
+
+The expected rows are pinned from SQLite 3.51.0. UNKNOWN is retained through
+AND/OR/NOT and becomes non-matching only at WHERE/HAVING/ON boundaries.
+
+[ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlText, buildTableDatabase, buildTableWithIndexDatabase](std/scljet/index.ssc)
+[executeMutation, queryImage](std/scljet/sql.ssc)
+
+```scalascript
+def showValue(v: SqliteValue): String = v match
+  case SqlNull => "NULL"
+  case SqlInteger(x) => x.toString
+  case SqlText(x) => x
+  case _ => "?"
+
+def showRow(row: List[SqliteValue]): String = row match
+  case Nil => ""
+  case h :: Nil => showValue(h)
+  case h :: t => showValue(h) + "|" + showRow(t)
+
+def showRows(rows: List[List[SqliteValue]]): String = rows match
+  case Nil => "(no rows)"
+  case h :: Nil => showRow(h)
+  case h :: t => showRow(h) + " ; " + showRows(t)
+
+def dump(image: ByteSlice, label: String, sql: String): Unit =
+  queryImage(image, sql) match
+    case Left(message) => println(label + "=QUERY-ERROR:" + message)
+    case Right(rows) => println(label + "=" + showRows(rows))
+
+def mutate(image: ByteSlice, sql: String): ByteSlice =
+  executeMutation(image, sql) match
+    case Left(message) =>
+      println("setup-error:" + message)
+      image
+    case Right(next) => next
+
+def addLookups(image: ByteSlice): ByteSlice =
+  val withTable = mutate(image, "CREATE TABLE u(uid INTEGER PRIMARY KEY, x INTEGER)")
+  val withRows = mutate(withTable, "INSERT INTO u VALUES (10, 2), (11, NULL)")
+  val withThirdTable = mutate(withRows, "CREATE TABLE w(wid INTEGER PRIMARY KEY, y INTEGER)")
+  val withThirdRows = mutate(withThirdTable, "INSERT INTO w VALUES (20, 2), (21, NULL)")
+  val withCorrelatedTable = mutate(withThirdRows,
+    "CREATE TABLE s(sid INTEGER PRIMARY KEY, owner INTEGER, x INTEGER)")
+  mutate(withCorrelatedTable,
+    "INSERT INTO s VALUES (30, 1, 1), (31, 2, 9), (32, 2, NULL), (33, 3, NULL)")
+
+def corePredicates(image: ByteSlice, prefix: String): Unit =
+  dump(image, prefix + "-eq-null", "SELECT id FROM t WHERE v = NULL ORDER BY id")
+  dump(image, prefix + "-ne-null", "SELECT id FROM t WHERE v <> NULL ORDER BY id")
+  dump(image, prefix + "-gt-null", "SELECT id FROM t WHERE v > NULL ORDER BY id")
+  dump(image, prefix + "-in-empty", "SELECT id FROM t WHERE v IN () ORDER BY id")
+  dump(image, prefix + "-not-in-empty", "SELECT id FROM t WHERE v NOT IN () ORDER BY id")
+  dump(image, prefix + "-in-null", "SELECT id FROM t WHERE v IN (2, NULL) ORDER BY id")
+  dump(image, prefix + "-not-in-null", "SELECT id FROM t WHERE v NOT IN (2, NULL) ORDER BY id")
+  dump(image, prefix + "-or-null", "SELECT id FROM t WHERE v = 1 OR v = NULL ORDER BY id")
+  dump(image, prefix + "-and-null", "SELECT id FROM t WHERE v <> 2 AND v = NULL ORDER BY id")
+  dump(image, prefix + "-between-null", "SELECT id FROM t WHERE v BETWEEN NULL AND 2 ORDER BY id")
+  dump(image, prefix + "-not-like-null", "SELECT id FROM t WHERE note NOT LIKE NULL ORDER BY id")
+
+val rows = List(
+  List(SqlInteger(1L), SqlInteger(1L), SqlText("a")),
+  List(SqlInteger(2L), SqlInteger(2L), SqlText("b")),
+  List(SqlInteger(3L), SqlNull, SqlNull),
+  List(SqlInteger(4L), SqlInteger(0L), SqlText("z"))
+)
+
+buildTableDatabase(512, 1, 1, "t",
+  "CREATE TABLE t(id INTEGER PRIMARY KEY, v INTEGER, note TEXT)", rows) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(base) =>
+    val image = addLookups(base)
+    dump(image, "scalar",
+      "SELECT NULL = NULL, NULL <> NULL, NULL < 1, NOT (NULL = 1), " +
+      "1 AND NULL, 0 AND NULL, 1 OR NULL, 0 OR NULL, " +
+      "CASE NULL WHEN NULL THEN 1 ELSE 0 END")
+    dump(image, "case-from",
+      "SELECT id, CASE v WHEN NULL THEN 1 ELSE 0 END FROM t ORDER BY id")
+    corePredicates(image, "scan")
+    dump(image, "in-subquery", "SELECT id FROM t WHERE v IN (SELECT x FROM u) ORDER BY id")
+    dump(image, "not-in-subquery", "SELECT id FROM t WHERE v NOT IN (SELECT x FROM u) ORDER BY id")
+    dump(image, "empty-not-in-subquery",
+      "SELECT id FROM t WHERE v NOT IN (SELECT x FROM u WHERE uid = 999) ORDER BY id")
+    dump(image, "correlated-in",
+      "SELECT id FROM t WHERE v IN (SELECT x FROM s WHERE owner = t.id) ORDER BY id")
+    dump(image, "correlated-not-in",
+      "SELECT id FROM t WHERE v NOT IN (SELECT x FROM s WHERE owner = t.id) ORDER BY id")
+    dump(image, "scalar-subquery",
+      "SELECT id FROM t WHERE v = (SELECT x FROM u WHERE x IS NULL) ORDER BY id")
+    dump(image, "scalar-subquery-ne-null",
+      "SELECT id FROM t WHERE v <> (SELECT x FROM u WHERE x IS NULL) ORDER BY id")
+    dump(image, "scalar-empty-ne",
+      "SELECT id FROM t WHERE v <> (SELECT x FROM u WHERE uid = 999) ORDER BY id")
+    dump(image, "join", "SELECT t.id, u.uid FROM t JOIN u ON t.v = u.x ORDER BY t.id, u.uid")
+    dump(image, "left-join",
+      "SELECT t.id, u.uid FROM t LEFT JOIN u ON t.v = u.x ORDER BY t.id, u.uid")
+    dump(image, "join3",
+      "SELECT t.id, u.uid, w.wid FROM t " +
+      "JOIN u ON t.v = u.x JOIN w ON u.x = w.y ORDER BY t.id, u.uid, w.wid")
+    dump(image, "join-where-null",
+      "SELECT t.id, u.uid FROM t LEFT JOIN u ON t.v = u.x " +
+      "WHERE u.x = NULL ORDER BY t.id, u.uid")
+    dump(image, "having-null",
+      "SELECT v, COUNT(*) FROM t GROUP BY v HAVING v = NULL ORDER BY v")
+    val afterUpdate = mutate(image, "UPDATE t SET note = 'bad' WHERE v = NULL")
+    dump(afterUpdate, "mutation-update", "SELECT id, note FROM t ORDER BY id")
+    val afterDelete = mutate(image, "DELETE FROM t WHERE v <> NULL")
+    dump(afterDelete, "mutation-delete", "SELECT id FROM t ORDER BY id")
+
+buildTableWithIndexDatabase(512, 1, 1, "t",
+  "CREATE TABLE t(id INTEGER PRIMARY KEY, v INTEGER, note TEXT)",
+  "idx_v", "CREATE INDEX idx_v ON t(v)", List(1), rows) match
+  case Left(error) => println("indexed-build-error:" + error.message)
+  case Right(base) =>
+    val image = addLookups(base)
+    corePredicates(image, "index")
+```
