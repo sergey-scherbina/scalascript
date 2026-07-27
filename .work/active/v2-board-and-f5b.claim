@@ -2,13 +2,22 @@ slug: v2-board-and-f5b
 branch: feature/v2-board-and-f5b
 agent: opus
 started: 2026-07-27T19:53:39Z
-heartbeat: 2026-07-27T21:14:39Z
+heartbeat: 2026-07-27T22:52:58Z
 status: claimed-before-planning
 items: v2-board-reconcile f5b-next p65-breadth f4-step5 f5-kernel-shrink
 paths: specs/v2.2-p6.5-fsub.ssc specs/v2-f5b-typed-ir-design.md specs/v2-f5-kernel-shrink.md tests/conformance/v2-
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: V-1a' (Sergiy: 'Бери V-1a'') — local type inference for bare locals. V-1a is CLOSED
-  (measured: all 20 remaining .length sites sit on bare locals, not on classifier-shaped receivers;
-  the speculative isStrPrimCode change was reverted). Now: attribute those locals to their BINDER
-  kind before implementing anything.
+next: |
+  LANDED so far: v2 one-board (V-0..V-6) + two corrections of my OWN wrong claims (FastCode removal
+  was DONE not rejected; block comments were NOT the dominant breadth blocker); the method census
+  instrument (3 parser fixes + fail-closed on literate input); V-1a measured and closed; the F
+  block-comment lexer fix (2adeef250) with 3 fail-loud gate cases.
+  OPEN RIGHT NOW: (1) evidence for 2adeef250 — every CI descendant is 'cancelled' (superseded, the
+  documented ci.yml design), so a full LOCAL conformance run is in flight as level-3 evidence;
+  (2) V-3a: close the measured unbound-global clusters (error x6, leftChild x4, seen, cellPtr,
+  refTrunk, jvmVfs* host intrinsics) — census more programs first; (3) V-3b: rebuild the breadth
+  metric on SSC_FRONT_TRACE, since the corpus gate compares against the UNTYPED oracle and cannot
+  answer the delegation question.
+  NOT MINE, filed only: semantic gate 247/248 on main (tkv2-typed-client-derived, fails on BOTH
+  fronts on clean main).
