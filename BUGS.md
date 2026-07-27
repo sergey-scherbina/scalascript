@@ -1,60 +1,56 @@
 # Bug tracker
 
-## f-imported-literate-module-prose-compiled-as-code — F compiles the PROSE of imported `.ssc` modules
+## f-block-comment-lexed-as-code — F has no block-comment support; doc comments become expressions
 
-**Status:** OPEN (found 2026-07-27 by `v2-board-and-f5b` while building a corpus census for the F5b
-slice). **F-front only** (`specs/v2.2-p6.5-fsub.ssc`), and F is the DEFAULT native front.
+**Status:** OPEN (found 2026-07-27 by `v2-board-and-f5b`). **F-front only**
+(`specs/v2.2-p6.5-fsub.ssc`), and F is the DEFAULT native front.
 
-**Symptom** — same program, same staged tower, only the runner differs:
+**Minimal reproduction — two lines** (a `/**` doc comment followed by any def):
 
-| runner | IR | `(prim __method__` sites | prose globals (`the`/`is`/`and`) |
+```
+/** The database is returned unchanged when the journal is not hot. */
+def main(): Int = 42
+```
+
+F's `entry` for that program:
+
+```
+(entry (seq (prim i.mul (lit (int 0)) (lit (int 0)))
+  (global The) (global database) (global is) (global returned) (global unchanged)
+  (global when) (global the) (global journal) (global is) (global not)
+  (prim __arith__ (lit (str "/")) (prim __method__ (lit (str "25")) (global hot)) (lit (int 0)))
+  (app (global main)) ... (lit (int 42)) (app (global main))))
+```
+
+The opening marker lexes as division-then-star (hence `i.mul 0 0`), every prose word becomes an
+unbound global, and the closing marker yields a nonsense `__method__ "25"`. The legacy front
+(`ssc1-run.ssc0`) handles the same input correctly. Reproduces BOTH in a bare `.ssc` and inside a
+fenced code block, so it is the LEXER — not the literate projection, and not the import path.
+
+**Impact — very likely the dominant P6.5 breadth blocker, rather than 300 separate gaps.**
+Block doc comments are idiomatic in this codebase (the whole `scljet/` engine uses them), so every
+such module poisons F's lowering. Measured on `tests/conformance/scljet-mutate-update.ssc`, same
+staged tower, only the runner differing:
+
+| runner | IR | method sites | prose globals (the/is/and) |
 |---|---|---|---|
 | `ssc1-run.ssc0` (legacy) | 568,555 B | 860 | **0** |
 | `ssc1-run-fsub.ssc0` (F) | 664,520 B | 1060 | **304** |
 
-Reproduce (staged install required):
+**Why nobody noticed.** The prose lowers to UNBOUND globals, so `RunNativeV2.validateNoReader`
+rejects F's program and the F4a delegate-fallback silently re-lowers with legacy. Output is correct;
+the cost is a full double lowering, F's work discarded, and the program counted as a corpus DIFF.
+**Re-measure the 315 DIFFs (SPRINT `V-3`) after fixing this** — a large share may be this one defect.
 
-```bash
-cd bin/lib/standard/native-front
-java -Dssc.stackSize=1073741824 -jar $SSC_JAR run tower/bin/ssc1-run-fsub.ssc0 \
-  --fsub-src $PWD/tower/bin/fsub.ssc --std-root $PWD/runtime --lib-root <repo>/bin/lib \
-  <repo>/tests/conformance/scljet-mutate-update.ssc > f.ir
-# same with tower/bin/ssc1-run.ssc0 (drop --fsub-src) > legacy.ir
-grep -c '(global the)' f.ir legacy.ir
-```
+**Fail-open risk, structural rather than observed:** the fallback only fires because the prose words
+are unbound. The opening marker ALREADY lowers to a bound expression, and a comment containing words
+like `map`, `filter` or `head` would lower to bound globals too — a silently-wrong program that
+`validateNoReader` would pass. Check that direction first when fixing.
 
-Raw IR from the F side, where English documentation has become expressions:
-
-```
-(global is) (prim __arith__ (lit (str "*")) (global not) (global hot)) (global and) (global the)
-(global database) (global is) (global returned)
-(prim __arith__ (lit (str "/")) (prim __method__ (lit (str "25")) (app (global unchanged) (lit (int 0)))) …)
-```
-
-**Scope — the ROOT file is fine, the IMPORTS are not.** A fenced conformance program with no `.ssc`
-imports (`w5-scala-fence-width-parity.ssc`) lowers cleanly under F: 10 method sites, zero prose. The
-defect appears once the program imports literate modules (here the `scljet/*.ssc` engine, which is
-markdown with fenced code). So F's markdown/front-matter projection is applied to the entry file but
-not on the import path. The exact mechanism is not pinned yet — that is the first step of a fix.
-
-**Why nothing is visibly broken today, and why that is the dangerous part.** The prose lowers to
-UNBOUND globals, so `RunNativeV2.validateNoReader` rejects F's program and the F4a delegate-fallback
-silently re-lowers with the legacy front. The user sees a correct result; the cost is invisible:
-every program importing a literate module pays a full double lowering and then throws F's output
-away. **It also means the P6.5 breadth number may be badly misattributed** — a large share of the
-315 corpus DIFFs (SPRINT `V-3`) could be this ONE defect rather than 315 independent coverage gaps.
-Measure that before grinding through the DIFF clusters one by one.
-
-**Not a runtime-correctness bug as far as measured:** the fallback fires, conformance is green, and
-the dead prose expressions are never evaluated. It is a coverage + performance defect, plus a
-fail-open risk if any prose ever lowers to something BOUND (`(global map)`, `(global filter)` and
-similar are real globals — a sentence containing such a word would produce a bound, silently-wrong
-expression instead of a loud unbound one, and the fallback would NOT fire).
-
-**Next step:** pin where the projection is skipped on F's import path (compare F's loader against
-`ssc1-front`'s), then re-measure the corpus DIFF count — it is plausibly the single biggest lever for
-P6.5 breadth.
-
+**Fix sketch:** F's lexer skips line comments (the X1 gate has a `comment` case) but has no
+block-comment state. Add block-comment skipping with nesting, mirroring `ssc1-front`'s lexer, and add
+BOTH a gate case whose comment holds prose AND one whose comment holds bound-global words
+(`map`, `filter`), so the fail-open direction is pinned too.
 
 ## markdownlint-bugs-lane-labels — repository markdownlint is red on prose syntax
 

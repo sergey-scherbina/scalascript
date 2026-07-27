@@ -235,8 +235,10 @@ Stage 2 is partly subsumed by 1b-3.
       English prose lowered as code (`(global the)`, `(global is)`, `__arith__ "*" not hot`). A/B on the
       SAME program and staged tower, changing only the runner: **legacy 568,555 B / 860 sites / 0 prose
       globals vs F 664,520 B / 1060 sites / 304 prose globals.** The root file projects fine; the defect
-      rides in on IMPORTED literate modules. Filed as `BUGS.md`
-      `f-imported-literate-module-prose-compiled-as-code`.
+      rides in on IMPORTED literate modules. **Root cause pinned to a 2-line repro: F has NO block-comment support** — the opening marker lexes
+      as division-then-star, prose words become unbound globals, the closing marker yields a bogus
+      method call. Not the import path and not the projection: it reproduces in a bare `.ssc` AND
+      inside a fence. Filed as `BUGS.md` `f-block-comment-lexed-as-code`.
       **This probably re-scopes V-3.** The prose lowers to unbound globals, so `validateNoReader`
       rejects F's program and the F4a fallback silently re-lowers with legacy — meaning **any program
       importing a literate module is a corpus DIFF today**. A large share of the 315 DIFFs may be this
