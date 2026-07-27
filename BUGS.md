@@ -34,10 +34,19 @@ walk resumes at the next statement. `fsub.ssc` uses no `case object`, so the X1 
 
 ## jdk-backend-accept-teardown-race — uncaught `RejectedExecutionException` on `jdk-backend-accept` thread at teardown
 
-**Status:** OPEN — benign / **non-CI-blocking** (found 2026-07-23 by opus while fixing
-`wsproxy-teardown-race`). A sibling of that race in a *different* subsystem (the JDK HTTP
-backend, `http-server/jvm`), recorded here with a ready one-line fix; deferred as out of the
-wsproxy claim's scope.
+**Status:** FIXED (2026-07-27, `post-f4-board-reconcile`). Found 2026-07-23 by opus while fixing
+`wsproxy-teardown-race` — a sibling of that race in a *different* subsystem (the JDK HTTP
+backend, `http-server/jvm`), recorded with a ready one-line fix and deferred as out of the
+wsproxy claim's scope; applied as queued. The accept loop now catches the rejection on the
+submit itself and closes the orphaned client socket when `_running` is already false
+(`_running` is `@volatile` and `stop()` flips it before `shutdownNow()`, so the guard is live
+by the time a rejection is possible). Verified: `runtimeServerJvm/compile` clean,
+`backendInterpreterServer/test` 62 succeeded / 0 failed (1 pre-existing canceled),
+`ServeAsyncReadyTest` 4/4 on 3 consecutive runs with no `RejectedExecutionException` printed.
+**Honest limit on that last number:** the race showed in only ~2/5 runs before, so three clean
+runs is weak evidence on its own — the load-bearing part is that the documented stack
+(`JdkServerBackend.scala:109` → `ThreadPerTaskExecutor.execute`) is now explicitly handled
+rather than left to a catch clause that is inactive at teardown.
 
 **Symptom:** an uncaught `java.util.concurrent.RejectedExecutionException` prints on a
 `jdk-backend-accept-<port>` thread at test teardown (observed in `ServeAsyncReadyTest`, ~2/5
@@ -373,14 +382,17 @@ Old front / v1: all three `failed closed (exit 1)`. Smoke: 3 checks FAILED under
 
 ## f-native-out-of-corpus-smoke-regressions — F fails on out-of-corpus native e2e smokes the corpus sweep can't see
 
-**Status:** OPEN — narrowed (found 2026-07-22 by opus during the `v2-f4-reflip` re-flip verification; the
-re-flip was HALTED as a result — ①② landed, F stays opt-in via `SSC_FRONT=F`). F-front
-(`specs/v2.2-p6.5-fsub.ssc`) native tier. **Progress 2026-07-22:** regression ③.1 (md-interpolator)
-**FIXED** (`f02100097`); regression ③.2 (plugin-boundary) re-diagnosed as an isolation/class-load issue,
-not a fixture-output divergence — see the per-item notes below. **Update 2026-07-23: ③.2 FIXED via D2**
-(self-hosted `irTextToData` reader + Reader-free `validateNoReader`; zero `ssc.Reader` under F, both
-isolation smokes green A/B) — so BOTH smoke regressions (③.1, ③.2) are now cleared; the F4 default-front
-flip (`RunNativeV2.frontIsF`, orchestrator-held) is unblocked on the smoke-isolation axis.
+**Status:** FIXED (both regressions cleared; confirmed by the landed flip). Found 2026-07-22 by opus
+during the `v2-f4-reflip` re-flip verification, which was HALTED as a result — ①② landed, F stayed
+opt-in via `SSC_FRONT=F`. F-front (`specs/v2.2-p6.5-fsub.ssc`) native tier. **③.1 md-interpolator FIXED**
+2026-07-22 (`f02100097`). **③.2 plugin-boundary FIXED** 2026-07-23 via D2 (`cca93b867`) — re-diagnosed as
+an isolation/class-load issue rather than a fixture-output divergence: self-hosted `irTextToData` reader
++ Reader-free `validateNoReader`, measured zero `ssc.Reader` loads under F (was 24-25×), both isolation
+smokes green A/B. **Closed 2026-07-27** by the F4 flip landing (`56d7d705f`, `RunNativeV2.frontIsF` now
+opt-OUT): the readiness bar this bug itself defined — the FULL targeted e2e smoke set green under
+F-as-default, A/B'd against `SSC_FRONT=legacy` — was met at **72/72 scripts with zero F-only
+regressions**, and regular CI is green on the flipped tree (run `30020319173` on `18ee1c21a`, 4/4 jobs).
+See the per-item notes below for both root causes.
 
 **What happened:** after fixing blocker ① and bumping the CI budget (blocker ②), the re-flip passed every
 corpus-level gate — X1 fixpoint byte-identical, semantic 248/248, dualrun 45/45 EQUAL, negtc gate PASS
