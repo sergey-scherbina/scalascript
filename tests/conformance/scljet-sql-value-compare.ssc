@@ -1,0 +1,96 @@
+---
+name: scljet-sql-value-compare
+description: SclJet SQL — exact INTEGER/REAL and bytewise BLOB comparison across relational operators
+backends: [int, js]
+---
+
+# scljet — exact SQL value comparison
+
+The expected rows are pinned from SQLite 3.51.0. INTEGER values are not rounded
+through binary64 before comparison, and BLOB ordering is unsigned bytewise
+lexicographic ordering.
+
+[ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, buildTableDatabase, buildTableWithIndexDatabase](std/scljet/index.ssc)
+[executeMutation, queryImageParams](std/scljet/sql.ssc)
+
+```scalascript
+def bytes(values: List[Int]): ByteSlice = ByteSlice.fromList(values) match
+  case Left(_) => ByteSlice.empty
+  case Right(result) => result
+
+def showValue(v: SqliteValue): String = v match
+  case SqlNull => "NULL"
+  case SqlInteger(x) => x.toString
+  case SqlText(x) => x
+  case _ => "?"
+
+def showRow(row: List[SqliteValue]): String = row match
+  case Nil => ""
+  case h :: Nil => showValue(h)
+  case h :: t => showValue(h) + "|" + showRow(t)
+
+def showRows(rows: List[List[SqliteValue]]): String = rows match
+  case Nil => "(no rows)"
+  case h :: Nil => showRow(h)
+  case h :: t => showRow(h) + " ; " + showRows(t)
+
+def dump(image: ByteSlice, label: String, sql: String, params: List[SqliteValue]): Unit =
+  queryImageParams(image, sql, params) match
+    case Left(message) => println(label + "=QUERY-ERROR:" + message)
+    case Right(rows) => println(label + "=" + showRows(rows))
+
+def mutate(image: ByteSlice, sql: String): ByteSlice =
+  executeMutation(image, sql) match
+    case Left(message) =>
+      println("setup-error:" + message)
+      image
+    case Right(next) => next
+
+def comparisons(image: ByteSlice, prefix: String): Unit =
+  dump(image, prefix + "-eq-int",
+    "SELECT id FROM cmp WHERE n = ? ORDER BY id",
+    List(SqlInteger(9007199254740993L)))
+  dump(image, prefix + "-lt-real-max",
+    "SELECT id FROM cmp WHERE n < ? ORDER BY id",
+    List(SqlReal(9223372036854775808.0)))
+  dump(image, prefix + "-blob-eq",
+    "SELECT id FROM cmp WHERE b = ? ORDER BY id",
+    List(SqlBlob(bytes(List(1)))))
+  dump(image, prefix + "-blob-lt",
+    "SELECT id FROM cmp WHERE b < ? ORDER BY id",
+    List(SqlBlob(bytes(List(2)))))
+
+val minLong = -9223372036854775807L - 1L
+val rows = List(
+  List(SqlInteger(1L), SqlInteger(9007199254740992L), SqlBlob(bytes(List(1)))),
+  List(SqlInteger(2L), SqlInteger(9007199254740993L), SqlBlob(bytes(List(2)))),
+  List(SqlInteger(3L), SqlReal(9007199254740992.0), SqlBlob(bytes(List(1, 0)))),
+  List(SqlInteger(4L), SqlInteger(9223372036854775807L), SqlBlob(bytes(List(255)))),
+  List(SqlInteger(5L), SqlReal(9223372036854775808.0), SqlBlob(bytes(List(0)))),
+  List(SqlInteger(6L), SqlInteger(minLong), SqlBlob(bytes(List(128)))),
+  List(SqlInteger(7L), SqlReal(-9223372036854775808.0), SqlBlob(bytes(List(127))))
+)
+
+buildTableDatabase(512, 1, 1, "cmp",
+  "CREATE TABLE cmp(id INTEGER PRIMARY KEY, n, b BLOB)", rows) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(base) =>
+    comparisons(base, "scan")
+    dump(base, "scan-order-n", "SELECT id FROM cmp ORDER BY n, id", Nil)
+    dump(base, "scan-distinct-n", "SELECT COUNT(DISTINCT n) FROM cmp", Nil)
+    dump(base, "scan-group-n", "SELECT COUNT(*) FROM cmp GROUP BY n ORDER BY n", Nil)
+    dump(base, "scan-order-b", "SELECT id FROM cmp ORDER BY b, id", Nil)
+    dump(base, "scan-distinct-b", "SELECT COUNT(DISTINCT b) FROM cmp", Nil)
+    val withRef = mutate(base, "CREATE TABLE ref(rid INTEGER PRIMARY KEY, n)")
+    val joined = mutate(withRef, "INSERT INTO ref VALUES (100, 9007199254740993)")
+    dump(joined, "join-exact",
+      "SELECT cmp.id FROM cmp JOIN ref ON cmp.n = ref.n ORDER BY cmp.id", Nil)
+
+buildTableWithIndexDatabase(512, 1, 1, "cmp",
+  "CREATE TABLE cmp(id INTEGER PRIMARY KEY, n, b BLOB)",
+  "idx_n", "CREATE INDEX idx_n ON cmp(n)", List(1), rows) match
+  case Left(error) => println("indexed-build-error:" + error.message)
+  case Right(base) =>
+    val indexed = mutate(base, "CREATE INDEX idx_b ON cmp(b)")
+    comparisons(indexed, "index")
+```

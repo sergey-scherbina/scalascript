@@ -72,7 +72,7 @@ rows, applies the filter, and projects the result. `queryImage(dbBytes, sql)` op
 database image and returns the result rows; `renderRows` formats them like the sqlite3
 CLI (`a|b|c` per row, NULL blank) for differential testing.
 
-[ByteSlice, ByteError, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, ReadonlyDatabase, SchemaEntry, StorageRecord, DecodedRecord, RecordField, DecodedText, codePointsToString, RowidTableTree, RecordKeyTree, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly, ReadonlyCursorStep, ReadonlyBtreeCursor, SqliteError, SqliteOpenOptions, SqliteLimits, OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, encodeRecord, openMutablePager, mutableCommit, mutableGet, mutablePut, MutablePager, PagerCommit, pagerInsertBalanced, pagerDeleteBalanced, readLeafCells, leafInsertCell, rebuildLeafPage, LeafCell, byteSliceSlice, byteSliceToList, byteSliceGet, writeU32Be, IndexEntry, buildIndexTree, compareKeyList, sortIndexEntries, IndexTreeBytes, buildSingleTableIndexed, KeyedRawRow, SchemaIndex, SchemaTable, descendToLeaf, decodeVarint, VarintRead, decodeRecord, readU16Be, readU32Be, ByteRead](index.ssc)
+[ByteSlice, ByteError, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, ReadonlyDatabase, SchemaEntry, StorageRecord, DecodedRecord, RecordField, DecodedText, codePointsToString, RowidTableTree, RecordKeyTree, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly, ReadonlyCursorStep, ReadonlyBtreeCursor, SqliteError, SqliteOpenOptions, SqliteLimits, OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, encodeRecord, openMutablePager, mutableCommit, mutableGet, mutablePut, MutablePager, PagerCommit, pagerInsertBalanced, pagerDeleteBalanced, readLeafCells, leafInsertCell, rebuildLeafPage, LeafCell, byteSliceSlice, byteSliceToList, byteSliceGet, writeU32Be, IndexEntry, buildIndexTree, compareKeys, compareKeyList, sortIndexEntries, IndexTreeBytes, buildSingleTableIndexed, KeyedRawRow, SchemaIndex, SchemaTable, descendToLeaf, decodeVarint, VarintRead, decodeRecord, readU16Be, readU32Be, ByteRead](index.ssc)
 [ImageVfs, fieldValueAt](mutate.ssc)
 
 ```scalascript
@@ -1667,28 +1667,7 @@ def valueClassOf(v: SqliteValue): Int = v match
   case SqlText(_) => 2
   case SqlBlob(_) => 3
 
-def numOf(v: SqliteValue): Double = v match
-  case SqlInteger(x) => x.toDouble
-  case SqlReal(x) => x
-  case _ => 0.0
-
-def textOf(v: SqliteValue): String = v match
-  case SqlText(s) => s
-  case _ => ""
-
-def sqlCompare(a: SqliteValue, b: SqliteValue): Int =
-  val ca = valueClassOf(a)
-  val cb = valueClassOf(b)
-  if ca != cb then (if ca < cb then -1 else 1)
-  else if ca == 1 then
-    val na = numOf(a)
-    val nb = numOf(b)
-    if na < nb then -1 else if na > nb then 1 else 0
-  else if ca == 2 then
-    val ta = textOf(a)
-    val tb = textOf(b)
-    if ta < tb then -1 else if ta > tb then 1 else 0
-  else 0
+def sqlCompare(a: SqliteValue, b: SqliteValue): Int = compareKeys(a, b)
 
 def condMatches(op: String, cmp: Int): Boolean =
   if op == "=" then cmp == 0

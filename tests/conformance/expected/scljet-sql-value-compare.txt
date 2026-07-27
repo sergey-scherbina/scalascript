@@ -1,0 +1,14 @@
+scan-eq-int=2
+scan-lt-real-max=1 ; 2 ; 3 ; 4 ; 6 ; 7
+scan-blob-eq=1
+scan-blob-lt=1 ; 3 ; 5
+scan-order-n=6 ; 7 ; 1 ; 3 ; 2 ; 4 ; 5
+scan-distinct-n=5
+scan-group-n=2 ; 2 ; 1 ; 1 ; 1
+scan-order-b=5 ; 1 ; 3 ; 2 ; 7 ; 6 ; 4
+scan-distinct-b=7
+join-exact=2
+index-eq-int=2
+index-lt-real-max=1 ; 2 ; 3 ; 4 ; 6 ; 7
+index-blob-eq=1
+index-blob-lt=1 ; 3 ; 5

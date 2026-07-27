@@ -25,6 +25,7 @@ exports:
   - IndexEntry
   - buildTableWithIndexRaw
   - buildIndexTree
+  - compareKeys
   - compareKeyList
   - sortIndexEntries
   - IndexTreeBytes
