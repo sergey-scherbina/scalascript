@@ -1,0 +1,232 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+export LC_ALL=C
+
+refuse() {
+  local check=$1
+  local expected=$2
+  local actual=$3
+  printf 'native release publication: %s: expected=%s actual=%s\n' \
+    "$check" "$expected" "$actual" >&2
+  exit 1
+}
+
+if (( BASH_VERSINFO[0] < 3 ||
+      (BASH_VERSINFO[0] == 3 && BASH_VERSINFO[1] < 2) )); then
+  refuse "bash runtime" ">=3.2" \
+    "${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]}"
+fi
+
+if [[ $# -ne 2 ]]; then
+  refuse "arguments" "2:<stable-tag>,<artifact-directory>" "$#"
+fi
+
+tag=$1
+artifact_directory=$2
+stable_semver='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+repository_pattern='^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$'
+
+if [[ ! "$tag" =~ $stable_semver ]]; then
+  refuse "release tag" "stable-vMAJOR.MINOR.PATCH" "$tag"
+fi
+if [[ -z "${GH_TOKEN:-}" ]]; then
+  refuse "GH_TOKEN" "non-empty" "missing"
+fi
+if [[ -z "${GH_REPO:-}" ]]; then
+  refuse "GH_REPO" "owner/repository" "missing"
+fi
+if [[ ! "$GH_REPO" =~ $repository_pattern ]]; then
+  refuse "GH_REPO" "owner/repository" "$GH_REPO"
+fi
+if ! command -v python3 >/dev/null 2>&1; then
+  refuse "python runtime" "python3>=3.9" "missing"
+fi
+if ! command -v gh >/dev/null 2>&1; then
+  refuse "GitHub CLI" "gh" "missing"
+fi
+
+asset_root=$(
+  python3 - "$artifact_directory" <<'PY'
+import hashlib
+import os
+import stat
+import sys
+
+
+def refuse(check, expected, actual):
+    print(
+        "native release publication: "
+        f"{check}: expected={expected} actual={actual}",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+
+
+if sys.version_info < (3, 9):
+    refuse(
+        "python runtime",
+        ">=3.9",
+        ".".join(str(part) for part in sys.version_info[:3]),
+    )
+
+root_arg = sys.argv[1]
+root_link_candidate = root_arg.rstrip(os.sep) or os.sep
+if os.path.islink(root_link_candidate):
+    refuse("artifact directory type", "directory", "symlink")
+if not os.path.isdir(root_arg):
+    refuse("artifact directory type", "directory", "missing-or-nondirectory")
+
+root = os.path.realpath(root_arg)
+artifact_ids = (
+    "ssc-linux-x86_64",
+    "ssc-macos-arm64",
+    "ssc-macos-x86_64",
+)
+expected_names = tuple(
+    name
+    for artifact_id in artifact_ids
+    for name in (
+        artifact_id,
+        f"{artifact_id}.tar.gz",
+        f"{artifact_id}.tar.gz.sha256",
+    )
+)
+
+try:
+    actual_names = tuple(sorted(os.listdir(root)))
+except OSError as error:
+    refuse("artifact directory read", "readable", error.__class__.__name__)
+
+sorted_expected = tuple(sorted(expected_names))
+if actual_names != sorted_expected:
+    refuse(
+        "asset set",
+        ",".join(sorted_expected),
+        ",".join(actual_names) if actual_names else "<empty>",
+    )
+
+
+def file_kind(mode):
+    if stat.S_ISLNK(mode):
+        return "symlink"
+    if stat.S_ISDIR(mode):
+        return "directory"
+    if stat.S_ISFIFO(mode):
+        return "fifo"
+    if stat.S_ISSOCK(mode):
+        return "socket"
+    if stat.S_ISCHR(mode):
+        return "character-device"
+    if stat.S_ISBLK(mode):
+        return "block-device"
+    return "non-regular"
+
+
+for name in expected_names:
+    path = os.path.join(root, name)
+    try:
+        metadata = os.lstat(path)
+    except OSError as error:
+        refuse(f"asset type {name}", "regular-file", error.__class__.__name__)
+    if not stat.S_ISREG(metadata.st_mode):
+        refuse(f"asset type {name}", "regular-file", file_kind(metadata.st_mode))
+    if metadata.st_size == 0:
+        refuse(f"asset size {name}", ">0", "0")
+    try:
+        with open(path, "rb") as stream:
+            stream.read(1)
+    except OSError as error:
+        refuse(f"asset read {name}", "readable", error.__class__.__name__)
+
+for artifact_id in artifact_ids:
+    archive_name = f"{artifact_id}.tar.gz"
+    archive_path = os.path.join(root, archive_name)
+    checksum_name = f"{archive_name}.sha256"
+    checksum_path = os.path.join(root, checksum_name)
+    digest = hashlib.sha256()
+    try:
+        with open(archive_path, "rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        with open(checksum_path, "rb") as stream:
+            actual_sidecar = stream.read()
+    except OSError as error:
+        refuse(
+            f"checksum read {artifact_id}",
+            "readable",
+            error.__class__.__name__,
+        )
+    expected_sidecar = (
+        f"{digest.hexdigest()}  {archive_name}\n".encode("ascii")
+    )
+    if actual_sidecar != expected_sidecar:
+        refuse(
+            f"checksum bytes {artifact_id}",
+            repr(expected_sidecar),
+            repr(actual_sidecar),
+        )
+
+print(root)
+PY
+)
+
+lookup_directory=$(mktemp -d "${TMPDIR:-/tmp}/ssc-native-release.XXXXXX") ||
+  refuse "lookup workspace" "temporary-directory" "creation-failed"
+lookup_stdout="$lookup_directory/stdout"
+lookup_stderr="$lookup_directory/stderr"
+
+cleanup_lookup() {
+  rm -f -- "$lookup_stdout" "$lookup_stderr"
+  rmdir -- "$lookup_directory" 2>/dev/null || true
+}
+trap cleanup_lookup EXIT
+
+set +e
+gh api --method GET --include --silent \
+  "repos/$GH_REPO/releases/tags/$tag" \
+  >"$lookup_stdout" 2>"$lookup_stderr"
+lookup_exit=$?
+set -e
+
+lookup_status=$(
+  awk '
+    $1 ~ /^HTTP\/[0-9.]+$/ && $2 ~ /^[0-9][0-9][0-9]$/ { status = $2 }
+    END { print status }
+  ' "$lookup_stdout"
+)
+
+if [[ $lookup_exit -eq 0 ]]; then
+  refuse "release lookup" "nonzero-exit+HTTP-404" \
+    "exit-0+HTTP-${lookup_status:-unknown}"
+fi
+if [[ "$lookup_status" != "404" ]]; then
+  refuse "release lookup" "nonzero-exit+HTTP-404" \
+    "exit-$lookup_exit+HTTP-${lookup_status:-unknown}"
+fi
+
+assets=()
+for artifact_id in \
+  ssc-linux-x86_64 \
+  ssc-macos-arm64 \
+  ssc-macos-x86_64
+do
+  assets+=(
+    "$asset_root/$artifact_id"
+    "$asset_root/$artifact_id.tar.gz"
+    "$asset_root/$artifact_id.tar.gz.sha256"
+  )
+done
+
+if ! gh release create "$tag" \
+  --repo "$GH_REPO" \
+  --verify-tag \
+  --title "$tag" \
+  --generate-notes \
+  "${assets[@]}"
+then
+  refuse "release create" "exit-0" "nonzero"
+fi
+
+printf 'native release publication: tag=%s assets=%s status=created\n' \
+  "$tag" "${#assets[@]}"
