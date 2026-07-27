@@ -19,27 +19,50 @@ HEAD carries only `[skip ci]` release-claims (diff = 2 deleted `.claim` files). 
 
 **Batch A — `f4-arc-closure` (claimed 2026-07-27).** Close the arc honestly + adjacent quick wins.
 
-- [ ] **A1 — reconcile the stale F4 status docs.** Three places still describe a held/red world:
+> **⚠️ COLLISION — Batch A was done twice, in parallel.** Two agents claimed the same work minutes
+> apart: `post-f4-board-reconcile` (claim `ec56aeb01`) and `f4-arc-closure` (claim `08a6cb9d2`).
+> A1-A4 are all **[x] DONE and landed** by `post-f4-board-reconcile` — see the SHAs on each item and
+> the section below. Neither agent checked `git ls-tree origin/main .work/active/` between writing
+> its plan and claiming, so both saw an empty queue; the second claim landed ~2 min after the first.
+> **Lesson for the next agent: re-read the claim tree immediately before `git push`ing a claim, not
+> only when you start planning** — the planning window is exactly where the race lives. Batches B/C/D
+> below are untouched and remain the real queue.
+
+- [x] **A1 — reconcile the stale F4 status docs.** DONE (`post-f4-board-reconcile`). One deviation
+      from the plan below: the `v2-f4-flip` entry stayed in `BACKLOG.md` (rewritten as LANDED) rather
+      than moving wholesale to `CHANGELOG.md`, because **F4 step 5** — deleting `ssc1-front`/`ssc1-lower`
+      + the F4a delegate-fallback — is still open under that milestone and is Sergiy's call. A
+      CHANGELOG one-liner was added alongside. Original plan: Three places still describe a held/red world:
       `BACKLOG.md:18` "v2-f4-flip — STILL HELD", `MILESTONES.md` §Health ("red for 192 consecutive
       runs" / "main has never had a fully green run" / ci-last-red as the one red left), and the
       SPRINT F4 sections (`## v2-f4` + the 2026-07-21 batch entry) which narrate the HALT. Rewrite
       each to the measured post-flip state with the evidence SHAs (`cca93b867` D2, `35331f1c7`
       case-object, `fa19761c2` multi-file order, run `30020319173`). Move the completed `v2-f4-flip`
       entry out of `BACKLOG.md` into `CHANGELOG.md`.
-- [ ] **A2 — verify then close `BUGS.md` `f-native-out-of-corpus-smoke-regressions`.** Its Status
+- [x] **A2 — verify then close `BUGS.md` `f-native-out-of-corpus-smoke-regressions`.** DONE, and the
+      "do NOT close on the doc" instruction was the right call — it caught a first pass that had closed
+      it on the flip claim's 72/72 assertion. Re-ran all three smokes from a fresh `installBin` stage
+      with F live-default and A/B'd each against `SSC_FRONT=legacy`: **3/3 PASS on both fronts**, and
+      `md-interpolator.ssc` prints the interpolated content, not the fail-open `<closure>`. Marked
+      FIXED with that matrix. Original plan: Its Status
       header still reads OPEN while its own body records BOTH regressions fixed (③.1 `f02100097`
       md/raw interpolator; ③.2 `cca93b867` via D2, zero `ssc.Reader`). Do NOT close on the doc —
       **re-run the three smokes in the real harness under F-as-default** (now the default):
       `tests/e2e/v21-native-md-interpolator-smoke.sh`, `v21-native-plugin-boundary-smoke.sh`,
       `v21-plugin-backend-isolation-smoke.sh`. Green ⇒ mark FIXED with the run evidence; red ⇒ keep
       OPEN and record what actually fails (that would mean the flip landed on a broken axis).
-- [ ] **A3 — `jdk-backend-accept-teardown-race` one-liner.** `JdkServerBackend.scala:110-112`: the
+- [x] **A3 — `jdk-backend-accept-teardown-race` one-liner.** DONE. Inner catch on the submit closes
+      the orphaned client socket when `_running` is already false (`@volatile`, and `stop()` flips it
+      before `shutdownNow()`, so the guard is live). `backendInterpreterServer/test` 62/0;
+      `ServeAsyncReadyTest` 4/4 × 3 runs with no rejection printed — recorded in BUGS as weak evidence
+      on its own for a ~2/5 race, the structural handling being the load-bearing part. Original plan: `JdkServerBackend.scala:110-112`: the
       catch is `case _: Throwable if _running => ()`, so a connection accepted during `stop()`
       (after `_running=false` + `_connPool.shutdownNow()`) escapes uncaught. Add
       `case _: java.util.concurrent.RejectedExecutionException if !_running => ()` with a
       best-effort `client.close()`, mirroring `WsProxy`'s accept loop. Verify: repeat
       `backendInterpreterServer/testOnly *ServeAsyncReadyTest*` (the exception showed in ~2/5 runs).
-- [ ] **A4 — remove the 3 orphaned worktrees.** `ci-last-red`, `d2-reader-impl`, `v2-f4-flip` — all
+- [x] **A4 — remove the 3 orphaned worktrees.** DONE via `scripts/rm-worktree` (all three clean,
+      zero commits ahead; local + remote branches deleted with them). Original plan: `ci-last-red`, `d2-reader-impl`, `v2-f4-flip` — all
       clean, zero commits ahead of `origin/main`. Use `scripts/rm-worktree` (bare `git worktree
       remove` leaks the sbt server), then `scripts/kill-stale-builders --kill`.
 
@@ -72,45 +95,28 @@ vectors; the remaining two are owner-gated, not implementation-gated: vec 15 (Po
 needs a 2nd runtime + §10.2 global-closure/effectful scope call) and vec 26 (`pending-spec` →
 proposal needs an owner). Surface both as a question; do not "flip" either by bending the
 realization to the pending's stated mechanism.
-## 2026-07-27 — post-f4-board-reconcile (the board lies; fix it before anyone builds on it)
+## 2026-07-27 — post-f4-board-reconcile — ✓ DONE (see Batch A above; same work, claimed first)
 
-Two things landed on 2026-07-23 that the planning files still contradict: the **F4 flip**
-(`56d7d705f` — F is the DEFAULT native front, `RunNativeV2.frontIsF` is now opt-OUT) and the
-**first fully-green CI run on `main`** (run `30020319173` on `18ee1c21a`: Conformance Suite,
-`sbt — compile and test`, Validate ScalaScript, Lint Markdown all `success` — ending the
-192-consecutive-red streak). A fresh agent reading `BACKLOG.md` / `BUGS.md` / `MILESTONES.md`
-today would conclude the flip is still held and CI has never been green. That is exactly the
-`feedback_measurement_must_compare_not_prejudge` failure shape applied to the *plan* instead of
-the *gate*, so it gets fixed first.
+Duplicate of Batch A above, claimed ~2 min earlier (`ec56aeb01` vs `08a6cb9d2`). Kept only for the
+evidence trail; the per-item detail now lives on A1-A4. What landed:
 
-- [x] **1. `BACKLOG.md` §`v2-f4-flip`** — rewritten as LANDED (`56d7d705f`), keeping the three-attempt
-      history and the "corpus dual-run is necessary but NOT sufficient" lesson. Residual perf cost
-      pointed at the F5b arc. Remaining open sub-item: F4 **step 5** (delete `ssc1-front`/`ssc1-lower`
-      + the F4a delegate-fallback) — point of no return, Sergiy's call, not agent-claimable.
-- [x] **2. `BUGS.md` `f-native-out-of-corpus-smoke-regressions`** — FIXED. Closed on a **re-run**, not
-      on the flip claim's paperwork: the three owning smokes (`v21-native-md-interpolator`,
-      `v21-native-plugin-boundary`, `v21-plugin-backend-isolation`) re-run from a fresh `installBin`
-      stage with F as the live default, each A/B'd against `SSC_FRONT=legacy` — 3/3 PASS on both
-      fronts, and the fixture prints the interpolated content rather than the fail-open `<closure>`.
-- [x] **3. `MILESTONES.md`** — §Health records the first fully-green run (`18ee1c21a`, run
-      `30020319173`, 4/4 jobs) and keeps the standing rule; §1 records the front swap as done at the
-      default level. Also corrected every stale `[claimed]` in §"REMAINING WORK — the one index" (the
-      claim tree held nothing but `_placeholder`).
-- [x] **4. `jdk-backend-accept-teardown-race`** — fixed (`JdkServerBackend` accept loop now catches the
-      rejection on the submit and closes the orphaned client socket when `_running` is already false).
-      `backendInterpreterServer/test` 62/0, `ServeAsyncReadyTest` 4/4 × 3 runs. BUGS closed.
-- [x] **5. Stale worktrees** — `ci-last-red`, `d2-reader-impl`, `v2-f4-flip` removed via
-      `scripts/rm-worktree` (all clean, zero commits ahead).
-- [ ] **6. Plan the F5b typed-IR arc into SPRINT** — the agreed next track. F is default but
-      interpreted and 2-4× slower than legacy (measured: hello 0.8→1.5 s, scljet 8→32 s; forced the
-      negtc CI step budget 30→75 min). F5b typed IR is the single prerequisite for BOTH deferred
-      kernel-shrink levers (δ-table retirement −1,100…1,500 L; FastCode/SelfRec deletion, already
-      proven byte-identical but perf-blocked at fib 4.3×). Existing slices: §`v2-f5b-stage1` (S1-5),
-      §`v2-f5c`, `specs/v2-f5b-typed-ir-design.md`. Re-measure the baseline before claiming any of it.
-      **Superseded by the `f4-arc-closure` sibling's Batch B** (queued `22806a86a`) — see the
-      collision note at the top of this section.
+- BACKLOG §`v2-f4-flip` rewritten as LANDED (`56d7d705f`), keeping the three-attempt history and the
+  durable lesson; **F4 step 5** (delete `ssc1-front`/`ssc1-lower` + the F4a delegate-fallback) left
+  open as Sergiy's call.
+- MILESTONES §Health records `main`'s first fully-green run (`18ee1c21a`, run `30020319173`, 4/4 jobs)
+  and keeps the standing "local green ≠ CI green" rule; §1 records the front swap as done at the
+  default level.
+- Every stale `[claimed]` in §"REMAINING WORK — the one index" corrected (the claim tree held nothing
+  but `_placeholder`), plus the now-obsolete `ci-last-red` "only red left" line.
+- BUGS: `f-native-out-of-corpus-smoke-regressions` FIXED on a re-run (3/3 smokes, A/B vs legacy);
+  `jdk-backend-accept-teardown-race` FIXED with the queued one-liner.
+- Three orphaned worktrees removed.
 
----
+Remaining from this section, now owned by Batch B above: **the F5b typed-IR arc**. F is default but
+interpreted and 2-4× slower (hello 0.8→1.5 s, scljet 8→32 s; forced negtc 30→75 min), and F5b is the
+single prerequisite for BOTH deferred kernel-shrink levers (δ-table −1,100…1,500 L; FastCode/SelfRec
+deletion, proven byte-identical but perf-blocked at fib 4.3×). Re-measure the baseline before
+claiming — `specs/v2-f5b-typed-ir-design.md`, §`v2-f5b-stage1` (S1-5), §`v2-f5c`.
 
 ## 2026-07-22 — durable-save-run-verifier-red (pre-existing CI Conformance blocker)
 
