@@ -17,7 +17,33 @@ shrink existed only as prose; the pickable v2 items sat in sections from 18-20 J
 batches were all stream 3. Worse, **the board carried a premise that measurement had already refuted**
 (see V-2). This section is now the single v2 entry point; the older sections stay as detail.
 
-### ⚠️ V-0 — CORRECTION that supersedes several places on the board
+### ⛔ V-0 IS ITSELF WRONG — corrected 2026-07-27, same day, read this first
+
+**The FastCode/SelfRec removal was DONE on 2026-07-23 (`f5c-4`), not "decided against".** V-0 below was
+written from `specs/v2-f5b-typed-ir-design.md` (dated 2026-07-22) and `BACKLOG.md`, both of which stop
+one day before the work landed. Verified in source, not in a document: `object SelfRecLL`,
+`object FastCode` and `object SelfTailRecLL2` no longer exist in `v2/src`.
+
+What actually happened is that the design note's own escape clause was executed. It said the removal was
+blocked on "a different lever — typed-IR-driven bytecode compilation of the numeric-recursion class".
+That lever was built: `f5c-1` taught `JvmByteGen` the typed `i.*` forms (its fast paths were
+`__arith__`-only, so typed IR had been **1.9× SLOWER** — fib 620 vs 330 ms — a regression that fix
+closed), `f5c-2` added the OpAnf effect-free-def purity registry so fib unboxes by default
+(**fib(34) ~26 ms cold / ~8.5 ms warm**, beating the interpreter's FastCode), `f5c-3` extended it to
+`f.*`/cell accumulators. Then `f5c-4` deleted the fast paths: **Runtime.scala 4,825 → 3,485 (−1,340 L),
+kernel `v2/src` 6,035 → 4,695**, perf-NEUTRAL on the default bytecode lane (fib(34) ~0.80 s, 200 M
+arith-loop ~1.64 s), gates fail-loud-re-confirmed, C_min + X1 fixpoint byte-identical, semantic 248/248,
+conformance 297/0.
+
+So: **~4,700 is not a future target — it is the current state**, reached by the bytecode lever rather
+than by F5b. `--interpret` stays 5-12× slower and is an ACCEPTED reference lane, not a regression.
+
+**The lesson, which is the reusable part:** V-0 was written to fix a stale premise on the board and was
+itself stale by one day, because it trusted a spec + BACKLOG and never opened SPRINT's own `v2-f5c`
+section. Correcting a document with another document reproduces the failure it is trying to fix — the
+authority is the code and the measured gate, and here two greps in `v2/src` would have settled it.
+
+### ⚠️ V-0 (SUPERSEDED — kept so the reasoning trail is visible) — the F5b perf finding
 
 `specs/v2-f5b-typed-ir-design.md` §"MEASURED PERF FINDING (2026-07-22)" **refutes** the premise that
 typed IR makes the FastCode/SelfRec deletion perf-neutral. Measured on the closed `fib(34)`:
@@ -36,8 +62,8 @@ win is recursion/loop **specialization** (SelfRecLL arity-1 Long→Long tight lo
 - `BACKLOG.md` §"v2 kernel-shrink deep remainder (F5)" item 2 still says "Do after F5b typed IR
   (direct typed calls replace tag dispatch, softening the cost)". **That is the refuted premise** —
   corrected there in the same commit as this section.
-- **Honest kernel target: F5b lands ~4,700, not ~2,800.** ~2,800 additionally needs effects-to-tower +
-  decimal-to-tower + the FastCode removal that is now decided against.
+- **~4,700 is ALREADY REACHED** (`f5c-4`, kernel 6,035 → 4,695) — by the bytecode lever, not by F5b.
+  The remaining path toward ~2,800 is effects-to-tower + decimal-to-tower + δ-table retirement.
 - F5b's real payoff stands, but it is **δ-table retirement + directness/correctness**, not perf unlock.
 
 ### V-1 — F5b next slice (the live lever; nothing else in F5b is queued)

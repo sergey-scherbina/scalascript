@@ -125,7 +125,14 @@ orthogonal deep efforts**, none a mechanical relocation. Measured basis, each wi
 1. **δ-table retirement** (`Prims` fan-out, ~2,057 L: `__arith__`/`__method__`/`__eq__`/`__unary__`)
    → −1,100…−1,500 L. **Needs F to emit typed IR** = the F5b project (`specs/v2-f5b-typed-ir-design.md`).
    Largest lever; lands the kernel near ~4,700. This is the prerequisite for #2.
-2. **FastCode/SelfRec removal — ❌ DECIDED AGAINST 2026-07-22, premise REFUTED by measurement.**
+2. **FastCode/SelfRec removal — ✅ DONE 2026-07-23 (`f5c-4`).** Runtime.scala 4,825 → 3,485 (−1,340 L);
+   kernel `v2/src` **6,035 → 4,695**; perf-NEUTRAL on the default bytecode lane (fib(34) ~0.80 s, 200 M
+   arith-loop ~1.64 s); gates fail-loud re-confirmed, C_min + X1 fixpoint byte-identical, semantic
+   248/248, conformance 297/0. Verified in source: `object SelfRecLL`/`FastCode`/`SelfTailRecLL2` are
+   gone from `v2/src`. The history below explains why it looked blocked, and is kept for that reason —
+   the blocker was real, and was removed by building the lever it named (`f5c-1..3`), NOT by typed IR.
+
+   Historical (2026-07-22, superseded):
    (~1,186 L: `SelfRecLL` 59 + `SelfTailRecLL2` 83 + Compiler closed-form loop JIT ~224 + `FastCode` 820.)
    Removable byte-identically (X1 fixpoint 385,827 B, C_min 32,824 B, semantic 248/248 under
    `SSC_FASTPATHS=off`), but the **perf blocker does NOT dissolve with typed IR**, which is what this
