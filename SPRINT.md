@@ -9,6 +9,72 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## 2026-07-27 — Sergiy "берись за все" batch (F4 arc closure → F5b lever → scljet → stream-3 decision)
+
+Queued after the 2026-07-27 status review. Starting state (measured, not assumed):
+F4 flip is **DONE** — `RunNativeV2.frontIsF` is opt-OUT, F is the DEFAULT native front
+(`56d7d705f`); regular CI **success** on `18ee1c21a` (run `30020319173`) — the last code commit;
+HEAD carries only `[skip ci]` release-claims (diff = 2 deleted `.claim` files). No live claims on
+`origin/main`. So `main` HAS had its first fully-green run, and several docs still say otherwise.
+
+**Batch A — `f4-arc-closure` (claimed 2026-07-27).** Close the arc honestly + adjacent quick wins.
+
+- [ ] **A1 — reconcile the stale F4 status docs.** Three places still describe a held/red world:
+      `BACKLOG.md:18` "v2-f4-flip — STILL HELD", `MILESTONES.md` §Health ("red for 192 consecutive
+      runs" / "main has never had a fully green run" / ci-last-red as the one red left), and the
+      SPRINT F4 sections (`## v2-f4` + the 2026-07-21 batch entry) which narrate the HALT. Rewrite
+      each to the measured post-flip state with the evidence SHAs (`cca93b867` D2, `35331f1c7`
+      case-object, `fa19761c2` multi-file order, run `30020319173`). Move the completed `v2-f4-flip`
+      entry out of `BACKLOG.md` into `CHANGELOG.md`.
+- [ ] **A2 — verify then close `BUGS.md` `f-native-out-of-corpus-smoke-regressions`.** Its Status
+      header still reads OPEN while its own body records BOTH regressions fixed (③.1 `f02100097`
+      md/raw interpolator; ③.2 `cca93b867` via D2, zero `ssc.Reader`). Do NOT close on the doc —
+      **re-run the three smokes in the real harness under F-as-default** (now the default):
+      `tests/e2e/v21-native-md-interpolator-smoke.sh`, `v21-native-plugin-boundary-smoke.sh`,
+      `v21-plugin-backend-isolation-smoke.sh`. Green ⇒ mark FIXED with the run evidence; red ⇒ keep
+      OPEN and record what actually fails (that would mean the flip landed on a broken axis).
+- [ ] **A3 — `jdk-backend-accept-teardown-race` one-liner.** `JdkServerBackend.scala:110-112`: the
+      catch is `case _: Throwable if _running => ()`, so a connection accepted during `stop()`
+      (after `_running=false` + `_connPool.shutdownNow()`) escapes uncaught. Add
+      `case _: java.util.concurrent.RejectedExecutionException if !_running => ()` with a
+      best-effort `client.close()`, mirroring `WsProxy`'s accept loop. Verify: repeat
+      `backendInterpreterServer/testOnly *ServeAsyncReadyTest*` (the exception showed in ~2/5 runs).
+- [ ] **A4 — remove the 3 orphaned worktrees.** `ci-last-red`, `d2-reader-impl`, `v2-f4-flip` — all
+      clean, zero commits ahead of `origin/main`. Use `scripts/rm-worktree` (bare `git worktree
+      remove` leaks the sbt server), then `scripts/kill-stale-builders --kill`.
+
+**Batch B — `v2-f5b-typed-locals` (the perf lever; next claim).** The flip is paid for in speed: F
+is 2-4× slower (hello 0.8→1.5 s, scljet 8→32 s; CI budgets already bumped to negtc 75 / sbt 300).
+F5b typed IR is the recovery path AND the prerequisite for the F5 kernel shrink (δ-table
+−1,100…1,500 L; FastCode/SelfRec deletion, blocked only on the measured 4.3× fib regression).
+Slices are already specified in §`v2-f5b-stage1` — execute them in this order:
+
+- [ ] **B1 — S1-5 slice 1b-3: typed `.length`/`.charAt`/`.substring` on a String-typed local.**
+      `postDot`/`emitLen` become env-type-aware via `localTyOf`; a String-typed `(local N)` receiver
+      lowers `.length`→`slen`, `.charAt`→`scodeAt`. Gate as in S1-5 slice 1b-1 (`d28f20c82`).
+- [ ] **B2 — S1-5 slice 1b-2b: typed `val`/`var` locals.** Embed the declared type (or infer from
+      the RHS tag) at the block-binder sites (`parseBlockVal` etc.) using the same `name:Type`
+      env-name mechanism. Coverage only — no deletion unlock; do it after B1.
+
+**Batch C — `scljet-ipk-rowid` (dogfood correctness; next claim after B).** Three open engine bugs,
+two of them the same `INTEGER PRIMARY KEY` = rowid alias defect that makes our files wrong for real
+SQLite (MILESTONES stream 2 calls this out explicitly):
+
+- [ ] **C1 — `scljet-update-ipk-column-silently-ignored` + `scljet-update-ipk-does-not-move-rowid`.**
+      `UPDATE t SET <ipk> = …` reports success and does nothing / rewrites the column but leaves the
+      rowid behind. Fix as one change: the ipk column must BE the rowid, so an ipk update is a rowid
+      move (delete+reinsert at the new key, with conflict detection).
+- [ ] **C2 — `scljet-insert-null-literal-rejected`.** `INSERT … VALUES (…, NULL, …)` is rejected
+      while `UPDATE … SET x = NULL` works — a parser/value-path asymmetry.
+
+**Batch D — stream-3 decision for Sergiy (not agent work).** Durable continuations stand at 24/26
+vectors; the remaining two are owner-gated, not implementation-gated: vec 15 (Portable CodeMode —
+needs a 2nd runtime + §10.2 global-closure/effectful scope call) and vec 26 (`pending-spec` →
+proposal needs an owner). Surface both as a question; do not "flip" either by bending the
+realization to the pending's stated mechanism.
+
+---
+
 ## 2026-07-23 — jdk-backend-accept-teardown-race (benign follow-up, ready one-liner)
 
 - [ ] **jdk-backend-accept-teardown-race** — swallow the uncaught
