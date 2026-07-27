@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-07-27 — The full repository markdownlint gate is green again
+
+Two prose lane summaries no longer parse as undefined reference links, and the
+claim-ledger wire-format example now displays its tab separators explicitly
+instead of embedding invisible hard tabs. The exact CI-equivalent command moved
+from 10 diagnostics to 0 without disabling MD052 or MD010. Implementation:
+`ffb7b4695`.
+
 ## 2026-07-27 — Corpus Contract freezes case coverage beside non-PASS rows
 
 The production differential gate can now distinguish a new case from a

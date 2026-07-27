@@ -58,8 +58,9 @@ P6.5 breadth.
 
 ## markdownlint-bugs-lane-labels — repository markdownlint is red on prose syntax
 
-**Status:** OPEN (found 2026-07-27 by Codex while running the exact CI
-markdownlint command for Corpus Contract E7; queued as SPRINT E8).
+**Status:** **FIXED 2026-07-27** in `ffb7b4695` (reporter confirmation
+pending). Found by Codex while running the exact CI markdownlint command for
+Corpus Contract E7; queued as SPRINT E8.
 
 **Reproduce.**
 `npx --yes markdownlint-cli@latest '**/*.md' --ignore node_modules` exits 1
@@ -76,6 +77,10 @@ with ten diagnostics:
 the TSV example with explicit `<TAB>` markers plus a literal-tab note. Then run
 the exact CI command successfully. Do not silence MD052/MD010, add fake link
 definitions, or weaken the example's delimiter contract.
+
+**Result.** The exact full-repository command now exits 0 with no diagnostics
+(A/B: 10 before, 0 after), while MD052 and MD010 remain enabled. The mandatory
+`arithmetic` conformance slice is 1/1 with INT, JS, and JVM all passing.
 
 ## corpus-contract-doc-mislabels-v2-lane — operator spec sends triage to the wrong architecture
 

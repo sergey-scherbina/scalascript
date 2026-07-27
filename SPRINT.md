@@ -850,13 +850,16 @@ mode in its purest form: the apparatus that establishes trust was itself unteste
       3:** exact-SHA run `30307158170` for `9975a0c0c` was `cancelled` with zero
       jobs (RED/no verdict); release uses the named local gates above.
 
-- [ ] **E8 — restore the repository markdownlint gate.** Fix BUGS
+- [x] **E8 — DONE: restore the repository markdownlint gate.** Fix BUGS
       `markdownlint-bugs-lane-labels`: two existing `BUGS.md` lane summaries use
       adjacent `[INT][JS][JVM]` text (MD052), and the TSV example in
       `specs/claim-mutex.md` uses eight invisible hard tabs (MD010). Render the lane
       summaries as inline code and the delimiters as explicit `<TAB>` markers, then run
       the exact CI command `markdownlint '**/*.md' --ignore node_modules`; do not
       disable either rule.
+      **Landed:** `ffb7b4695`. Exact full-repository A/B is 10 diagnostics before
+      versus 0 after; MD052/MD010 remain enabled. Mandatory `arithmetic`
+      conformance is 1/1 with INT, JS, and JVM all passing.
 
 - [x] **E5 — DONE: make a timeout impossible to misread as benign.** After E2 the gate fits its budget,
       but the *detection* hole stays: any future budget breach reappears as `cancelled`. Cheapest
