@@ -236,29 +236,78 @@ integrity_check` through a real file — it validates cell ordering AND cross-ch
 against the table) and `tests/conformance/scljet-update-ipk-moves-rowid.ssc` (same two cases, int
 + JS).
 
+## literate-import-executes-example-blocks — importing a literate module RUNS its documentation examples on INT, not on v2
+
+**Status:** OPEN (found 2026-07-27 by `corpus-gate-remaining-reds`, immediately after unblocking
+`coroutine-demo-import-cycle-on-interpreter` below — this is what the cycle error had been hiding).
+Filed as a **semantics question**, deliberately not decided here: it changes what every literate
+`std/` module does to its importers.
+
+**Measurement** (`examples/coroutine-demo.ssc`, which imports `std/coroutine.ssc`):
+
+| lane | output |
+|---|---|
+| `int` | **17 lines** — the 9 lines printed by `std/coroutine.ssc`'s own `## Example` blocks, then the demo's 8 |
+| `v2` | **8 lines** — the demo's own output only |
+| `js` | `Error: not callable: ()` (a separate gap, see below) |
+
+So INT executes an imported literate module's example blocks as side effects of the import, and the
+native lane does not. Because the corpus contract takes the live INT output as the golden when a case
+has no `expected/` file, INT's behaviour is the reference and `v2` reports `DIVERGE`.
+
+**Why it matters beyond this case.** Every literate module under `v1/runtime/std/` with a runnable
+`## Example` block imposes that block's output on every importer — invisible until someone diffs the
+lanes. The two defensible answers point in opposite directions (v2 is arguably right: an import
+should bind names, not print; INT is arguably right: a `.ssc` document IS its blocks), so this needs
+an owner decision rather than a patch.
+
+## coroutine-demo-js-not-callable — the coroutine demo dies on the v1 JS backend
+
+**Status:** OPEN (found 2026-07-27 by `corpus-gate-remaining-reds`). `bin/ssc-tools run-js
+examples/coroutine-demo.ssc` → `Error: not callable: ()` from the generated `.cjs`. Note the
+identical shape in `rozum-agent-schema-derived-js-and-v2-gaps` (`not callable: …`) — check whether
+they are one defect before fixing either. Not investigated further: the v1 JS backend was held by a
+live `js-char-into-int-param` claim at the time.
+
 ## coroutine-demo-import-cycle-on-interpreter — `examples/coroutine-demo.ssc` cannot run on the INT lane
 
-**Status:** OPEN (found 2026-07-27 by `corpus-contract-shard-fix`, in the corpus contract's first
-completed verdict). Not a gate artifact — reproduced directly.
+**Status:** FIXED (2026-07-27, `corpus-gate-remaining-reds`) by removing the three self-imports from
+`v1/runtime/std/coroutine.ssc`. Found 2026-07-27 by `corpus-contract-shard-fix` in the corpus
+contract's first completed verdict. Not a gate artifact — reproduced directly.
 
-**Symptom.** `bin/ssc-tools run --v1 examples/coroutine-demo.ssc` → exit 1 with
+**Verification.** `coroutine-demo` on INT: rc 0, 17 lines (was: exit 1). `std/coroutine.ssc` run
+DIRECTLY: 9 lines, **0 duplicate lines**. A genuine `A→B→A` cycle still errors
+(`Import cycle detected: b.ssc → a.ssc → b.ssc`). The case is no longer `SKIP`ped on every lane —
+which is what then exposed `literate-import-executes-example-blocks` and
+`coroutine-demo-js-not-callable` above. **The gate is not greener for this fix; it is more honest:
+one hidden SKIP became two visible, filed gaps.**
+
+**Why the fix is in the `.ssc` and not the resolver — a rejected approach, recorded so it is not
+retried blind.** The obvious fix is to make the resolver treat a DIRECT self-import as a no-op
+(`moduleLoading` is insertion-ordered, so `moduleLoading.lastOption.contains(resolvedPath)` is
+exactly "this module is importing itself"). That was implemented and it worked for the demo, and a
+true `A→B→A` cycle still errored. **But it silently broke running a literate module directly:**
+`ssc-tools run --v1 v1/runtime/std/coroutine.ssc` went from a clear cycle ERROR to executing every
+example block **TWICE** (18 output lines, all duplicated). Cause: the ENTRY file is never pushed onto
+`moduleLoading`, so its self-import is not recognised as one and the file is loaded as its own child
+— body runs once as the child and once as the entry. Trading an explicit error for silent duplicated
+side effects is a worse bug than the one being fixed. Doing it properly needs a `selfPath` on
+`Interpreter` (the file whose body is executing) threaded through the entry construction too — a real
+change to shared machinery, not a one-liner.
+
+**Root cause (unchanged).** `v1/runtime/std/coroutine.ssc` re-imported ITSELF at lines 44, 63 and 82
+(`[Step, coroutineCreate, coroutineResume, suspend](std/coroutine.ssc)`) inside its `## Example`
+blocks. The cycle detector at `SectionRuntime.scala:382` is correct and caught it. The imports were
+vacuous — proven, not assumed: with the resolver patch skipping them the examples still ran, so the
+names were already in scope. The demo only started importing `std/coroutine.ssc` in `3cb6209a4`
+("import demo API for tools check", 2026-07-21), which made the *tools check* pass and broke the
+*interpreter* lane, unnoticed because the differential gate could not finish a run.
+
+**Original symptom.** `bin/ssc-tools run --v1 examples/coroutine-demo.ssc` → exit 1 with
 `[ERROR] Import cycle detected: coroutine.ssc → coroutine.ssc`
 (`InterpretError` at `SectionRuntime.scala:384`). Because the corpus contract takes the live INT
 output as the golden when a case has no `expected/` file, an INT that cannot run skips the case on
-**every** lane — so this single defect removes the whole coroutine demo from differential coverage.
-
-**Root cause.** `v1/runtime/std/coroutine.ssc` is a literate module whose own example blocks import
-the module they document — lines 44, 63 and 82 all carry
-`[Step, coroutineCreate, coroutineResume, suspend](std/coroutine.ssc)`, i.e. a self-import. The
-interpreter follows those links when the module is imported and trips its cycle detector. The demo
-only started importing `std/coroutine.ssc` in `3cb6209a4` ("import demo API for tools check",
-2026-07-21) — that fix made the *tools check* pass and broke the *interpreter* lane, which nothing
-was watching because the differential gate could not finish a run.
-
-**Fix direction (not yet applied).** The self-imports inside a literate module's example blocks are
-documentation, not dependencies — either the resolver should not follow an import that names the
-enclosing file, or `std/coroutine.ssc`'s example blocks should stop re-importing themselves. Prefer
-the resolver fix: any literate std module is free to grow the same shape.
+**every** lane — so this single defect removed the whole coroutine demo from differential coverage.
 
 ## rozum-agent-schema-derived-js-and-v2-gaps — a newly-runnable example fails on both non-INT lanes
 
