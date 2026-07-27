@@ -6,6 +6,28 @@ on:
   pull_request:
     branches: [main]
 
+# Without this, CI could not deliver a verdict at all under the project's push rate.
+#
+# MEASURED 2026-07-27 (BUGS.md ci-runs-cancelled-under-churn): of the last 60 CI runs, ZERO had
+# completed — 55 queued, 5 running — and the oldest queued run had been waiting over three hours.
+# Across the last 100 runs of all workflows, 16 CI runs were in progress SIMULTANEOUSLY. At four
+# jobs per run that is ~64 concurrent jobs, which sits above the account's concurrent-job budget, so
+# the budget stayed saturated by `sbt` jobs (timeout-minutes: 300) and everything newer queued behind
+# them until it was evicted or cancelled. A `cancelled` gate is RED, not neutral (MILESTONES.md), so
+# the apparatus meant to establish trust was quietly producing reds for commits that were fine.
+#
+# `cancel-in-progress: false` is deliberate: a run that is ALREADY EXECUTING is never killed, so a
+# long `sbt` job still reaches a verdict. What GitHub does cancel is the previously PENDING run in
+# the group — so the queue collapses from 55 deep to at most one running plus one pending per ref,
+# and the newest commit is always the next thing to run.
+#
+# The cost, stated plainly: intermediate commits get no verdict of their own. They get none today
+# either — they queue for hours and are then cancelled — so this trades a silent red for an explicit
+# supersede, which is what makes the green-descendant evidence ladder in AGENTS.md §4c usable.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   lint:
     name: Lint Markdown
