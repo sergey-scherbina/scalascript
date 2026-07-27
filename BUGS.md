@@ -1,5 +1,61 @@
 # Bug tracker
 
+## f-imported-literate-module-prose-compiled-as-code — F compiles the PROSE of imported `.ssc` modules
+
+**Status:** OPEN (found 2026-07-27 by `v2-board-and-f5b` while building a corpus census for the F5b
+slice). **F-front only** (`specs/v2.2-p6.5-fsub.ssc`), and F is the DEFAULT native front.
+
+**Symptom** — same program, same staged tower, only the runner differs:
+
+| runner | IR | `(prim __method__` sites | prose globals (`the`/`is`/`and`) |
+|---|---|---|---|
+| `ssc1-run.ssc0` (legacy) | 568,555 B | 860 | **0** |
+| `ssc1-run-fsub.ssc0` (F) | 664,520 B | 1060 | **304** |
+
+Reproduce (staged install required):
+
+```bash
+cd bin/lib/standard/native-front
+java -Dssc.stackSize=1073741824 -jar $SSC_JAR run tower/bin/ssc1-run-fsub.ssc0 \
+  --fsub-src $PWD/tower/bin/fsub.ssc --std-root $PWD/runtime --lib-root <repo>/bin/lib \
+  <repo>/tests/conformance/scljet-mutate-update.ssc > f.ir
+# same with tower/bin/ssc1-run.ssc0 (drop --fsub-src) > legacy.ir
+grep -c '(global the)' f.ir legacy.ir
+```
+
+Raw IR from the F side, where English documentation has become expressions:
+
+```
+(global is) (prim __arith__ (lit (str "*")) (global not) (global hot)) (global and) (global the)
+(global database) (global is) (global returned)
+(prim __arith__ (lit (str "/")) (prim __method__ (lit (str "25")) (app (global unchanged) (lit (int 0)))) …)
+```
+
+**Scope — the ROOT file is fine, the IMPORTS are not.** A fenced conformance program with no `.ssc`
+imports (`w5-scala-fence-width-parity.ssc`) lowers cleanly under F: 10 method sites, zero prose. The
+defect appears once the program imports literate modules (here the `scljet/*.ssc` engine, which is
+markdown with fenced code). So F's markdown/front-matter projection is applied to the entry file but
+not on the import path. The exact mechanism is not pinned yet — that is the first step of a fix.
+
+**Why nothing is visibly broken today, and why that is the dangerous part.** The prose lowers to
+UNBOUND globals, so `RunNativeV2.validateNoReader` rejects F's program and the F4a delegate-fallback
+silently re-lowers with the legacy front. The user sees a correct result; the cost is invisible:
+every program importing a literate module pays a full double lowering and then throws F's output
+away. **It also means the P6.5 breadth number may be badly misattributed** — a large share of the
+315 corpus DIFFs (SPRINT `V-3`) could be this ONE defect rather than 315 independent coverage gaps.
+Measure that before grinding through the DIFF clusters one by one.
+
+**Not a runtime-correctness bug as far as measured:** the fallback fires, conformance is green, and
+the dead prose expressions are never evaluated. It is a coverage + performance defect, plus a
+fail-open risk if any prose ever lowers to something BOUND (`(global map)`, `(global filter)` and
+similar are real globals — a sentence containing such a word would produce a bound, silently-wrong
+expression instead of a loud unbound one, and the fallback would NOT fire).
+
+**Next step:** pin where the projection is skipped on F's import path (compare F's loader against
+`ssc1-front`'s), then re-measure the corpus DIFF count — it is plausibly the single biggest lever for
+P6.5 breadth.
+
+
 ## markdownlint-bugs-lane-labels — repository markdownlint is red on prose syntax
 
 **Status:** OPEN (found 2026-07-27 by Codex while running the exact CI

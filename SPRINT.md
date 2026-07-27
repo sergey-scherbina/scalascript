@@ -230,7 +230,18 @@ Stage 2 is partly subsumed by 1b-3.
       entire own source carries 44, so annotating F's own params would address ~2% of the traffic and
       nothing at all in user code. (a) is dead as a strategy — keep it only as an optional tidy-up if
       it ever helps F's self-compile time, which is V-6's question, not this one.
-      ⚠️ **One bucket is still unexplained**: `.25 ×127` in `scljet-mutate-update`. A method literally
+      **Finding 4 — the unexplained bucket WAS the finding, again.** `.25 ×127` is not a scanner
+      artifact: the IR really contains `(prim __method__ (lit (str "25")) …)`, and its surroundings are
+      English prose lowered as code (`(global the)`, `(global is)`, `__arith__ "*" not hot`). A/B on the
+      SAME program and staged tower, changing only the runner: **legacy 568,555 B / 860 sites / 0 prose
+      globals vs F 664,520 B / 1060 sites / 304 prose globals.** The root file projects fine; the defect
+      rides in on IMPORTED literate modules. Filed as `BUGS.md`
+      `f-imported-literate-module-prose-compiled-as-code`.
+      **This probably re-scopes V-3.** The prose lowers to unbound globals, so `validateNoReader`
+      rejects F's program and the F4a fallback silently re-lowers with legacy — meaning **any program
+      importing a literate module is a corpus DIFF today**. A large share of the 315 DIFFs may be this
+      ONE defect rather than 315 coverage gaps. **Measure that before grinding the DIFF clusters.**
+      ⚠️ Superseded note (kept for the trail): `.25 ×127` was flagged as possibly a scanner escape bug. A method literally
       named `25` is implausible, so either the inline scanner used for this run mis-reads an escape
       (it is a shell-quoted one-off, not the committed census) or the IR holds something unexpected.
       **Do not fold `.25` into any total until it is explained** — this is the same shape of unexplained
