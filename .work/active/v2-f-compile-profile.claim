@@ -2,7 +2,7 @@ slug: v2-f-compile-profile
 branch: feature/v2-f-compile-profile
 agent: codex
 started: 2026-07-27T20:27:42Z
-heartbeat: 2026-07-27T20:29:01Z
+heartbeat: 2026-07-27T20:51:30Z
 status: in-progress
 items: V-6a
 paths: specs/v2-f-compile-profile.md
@@ -11,4 +11,5 @@ scope: |
   self-compile path, hello, and scljet; capture JFR for the self-compile workload; publish
   a phase-attributed report and a falsifiable admission criterion for V-6b. No product-code
   changes are in scope for this claim.
-next: execute V-6a.1 reproducible wall-clock A/B, then capture JFR and publish the report
+done-so-far: wall A/B complete; JFR and throwaway phase probes isolate the cost to F's VM front
+next: publish specs/v2-f-compile-profile.md, check off V-6a, verify and land
