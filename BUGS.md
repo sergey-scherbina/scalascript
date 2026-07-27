@@ -1,5 +1,33 @@
 # Bug tracker
 
+## v2-std-ui-imports-stale-after-tests-move — five fixtures still target the old conformance location
+
+**Status:** OPEN (found 2026-07-28 by `codex` while working SPRINT
+`v2-std-ui-missing-fixture`).
+
+**Real-harness reproduction.** The declared INT/JS/JVM conformance slice is
+5/5, because the compatibility resolver's fallback search masks the bad
+relative path. Each assembled native command fails before execution:
+
+```bash
+bin/ssc run --bytecode tests/conformance/std-ui-aggregator.ssc
+```
+
+The same failure occurs for std-ui-extended{,-b,-c,-d}; all five diagnostics
+resolve `../examples/std-ui` to the nonexistent
+`tests/examples/std-ui/index.ssc`.
+
+**Root cause.** Commit `d0665660a` moved `conformance/*.ssc` to
+`tests/conformance/*.ssc` byte-for-byte and did not update their imports.
+`../examples/std-ui` was correct before that move. Git history contains no
+`tests/examples/std-ui` fixture, while the canonical module remains at
+`examples/std-ui/index.ssc`; nearby `std-ui-i18n.ssc` already uses the correct
+`../../examples/std-ui/...` route.
+
+**Fix.** Point the five imports (and the aggregator's explanatory example) at
+`../../examples/std-ui`. Keep expected output unchanged, require all declared
+lanes plus native VM/direct ASM to compare before closing.
+
 ## ci-status-sha-misses-commits-covered-by-a-later-tip — a code commit can be TESTED and still report "no run"
 
 **Status:** OPEN — measurement caveat, found 2026-07-28 by `ci-bookkeeping-floods-verdicts` while

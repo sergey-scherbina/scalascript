@@ -7115,6 +7115,13 @@ emits `def C(a) = IrCtor(C, [a])`; extend to `def C(a) = let y=a*2 in IrCtor(C, 
   - Apply the smallest path-correct fixture change. Prefer pointing tests at
     the canonical root module when it is the intended API; restore a test-local
     fixture only if history proves it has distinct semantics.
+  - **Measured baseline / decision:** declared conformance is already 5/5 on
+    INT/JS/JVM, but direct assembled V2 fails all five at
+    `tests/examples/std-ui/index.ssc`. Commit `d0665660a` moved the cases from
+    root `conformance/` into `tests/conformance/` without changing
+    `../examples`; history contains no test-local std-ui fixture. Therefore
+    update the five stale imports to the canonical
+    `../../examples/std-ui/index.ssc` route rather than copying the library.
   - Re-run all five cases through the conformance harness and the affected
     assembled V2 route. Preserve existing expected bytes; triage any newly
     exposed product failure separately instead of hiding it behind the import
