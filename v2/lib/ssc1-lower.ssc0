@@ -1951,6 +1951,15 @@ def fInterpCall = (fn) =>
   match fn { case Pair(ftag, fdata) =>
     if #seq(ftag, "var") then #seq(fdata, "__fInterpolate__") else false }
 
+-- `raw(value)` is the trusted-markup escape hatch used by html interpolation.
+-- Represent it as data rather than a host/global call so every native target
+-- observes the same marker and __htmlEscape__ can distinguish it from strings.
+def htmlRawCall = (fn) =>
+  match fn { case Pair(ftag, fdata) =>
+    if #seq(ftag, "var") then #seq(fdata, "raw")
+    else if #seq(ftag, "uid") then #seq(fdata, "raw")
+    else false }
+
 def isTypedDbQueryMarker = (fn) =>
   match fn { case Pair(ftag, fdata) => #seq(ftag, "typed_db_query") }
 
@@ -2065,6 +2074,7 @@ def resolveE = (expr) =>
             else if isFocusMarker(fn) then
               resolveFocusArgs(args)
             else if fInterpCall(fn) then Pair("prim", Pair("__fInterpolate__", resolveArgs(args)))
+            else if htmlRawCall(fn) then Pair("ctorap", Pair("_Raw", resolveArgs(args)))
             else
             -- K62.17: expand omitted positional defaults into a scoped,
             -- single-evaluation lambda chain before ordinary call resolution.

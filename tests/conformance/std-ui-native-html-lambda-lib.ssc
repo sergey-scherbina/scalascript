@@ -1,0 +1,12 @@
+---
+name: std-ui-native-html-lambda-lib
+---
+
+```scalascript
+object HtmlList:
+  def render(items: List[String]): String =
+    items.map(it => html"""<li>${it}</li>""").mkString
+
+  def trusted(value: String): String =
+    html"""<p>${raw(value)}</p>"""
+```

@@ -1,0 +1,12 @@
+---
+name: std-ui-native-html-lambda
+---
+
+# Imported HTML interpolation inside a collection lambda
+
+[HtmlList](./std-ui-native-html-lambda-lib.ssc)
+
+```scalascript
+println(HtmlList.render(List("&<>\"'")))
+println(HtmlList.trusted("<em>ok</em>"))
+```

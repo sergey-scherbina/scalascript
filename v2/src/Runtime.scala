@@ -1338,6 +1338,10 @@ object Prims:
           sb.append(str(a, i + 2))
           i += 3
         StrV(sb.toString)
+    case "__htmlEscape__" => a =>
+      a(0) match
+        case DataV("_Raw", fields) if fields.nonEmpty => StrV(anyStr(fields.head))
+        case value                                    => StrV(htmlEscape(anyStr(value)))
     case "seq"       => a => BoolV(str(a, 0) == str(a, 1))
     case "scmp"      => a => IntV(str(a, 0).compareTo(str(a, 1)).toLong)
     case "sindexOf"  => a => IntV(str(a, 0).indexOf(str(a, 1)).toLong)
@@ -3175,6 +3179,20 @@ object Prims:
    *  the kernel's println/interpolation paths. This is a renderer over an
    *  already-built Value; it never parses source or data formats. */
   def display(v: Value): String = anyStr(v)
+
+  private def htmlEscape(s: String): String =
+    val sb = new StringBuilder(s.length)
+    var i = 0
+    while i < s.length do
+      s.charAt(i) match
+        case '&'  => sb.append("&amp;")
+        case '<'  => sb.append("&lt;")
+        case '>'  => sb.append("&gt;")
+        case '"'  => sb.append("&quot;")
+        case '\'' => sb.append("&#39;")
+        case c    => sb.append(c)
+      i += 1
+    sb.toString
 
   private def anyStr(v: Value): String = v match
     case StrV(s)   => s
