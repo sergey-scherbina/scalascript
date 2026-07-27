@@ -2,13 +2,13 @@ slug: v2-std-ui-missing-fixture
 branch: feature/v2-std-ui-missing-fixture
 agent: claude-code
 started: 2026-07-27T22:28:02Z
-heartbeat: 2026-07-27T22:28:21Z
+heartbeat: 2026-07-27T22:36:28Z
 status: in-progress
-items: v2-std-ui-missing-fixture
-paths: tests/conformance/std-ui- tests/conformance/expected/std-ui- tests/examples/std-ui/
+items: v2-std-ui-missing-fixture v2-std-ui-native-pair-match
+paths: tests/conformance/std-ui- tests/conformance/expected/std-ui- tests/examples/std-ui/ v2/src/ v2/lib/ssc1-front.ssc0 v2/lib/ssc1-lower.ssc0
 scope: |
-  Reproduce the five std-ui aggregator/extended cases in the real harness, determine whether
-  their missing module is a bad relative import or a genuinely absent fixture, apply the smallest
-  path-correct fix, and prove every declared lane without duplicating the root std-ui library.
-done-so-far: claim landed and isolated worktree created from origin/main
-next: write the resume-cold execution plan into SPRINT.md, then capture the five-case baseline
+  Fix the five stale imports without duplicating the root std-ui library, then diagnose and close
+  the native frontend's shared `match: no arm for Pair/2` failure exposed after import resolution.
+  Keep the fixture correction and compiler/runtime fix independently tested and shippable.
+done-so-far: root cause and baseline landed; five path edits keep declared INT/JS/JVM lanes 5/5 and expose one shared native Pair/2 failure
+next: record the native failure as a separate bug/sprint slice, isolate its self-hosted match site, then add a fail-first regression
