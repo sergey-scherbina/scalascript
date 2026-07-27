@@ -2,8 +2,8 @@ slug: corpus-gate-remaining-reds
 branch: feature/corpus-gate-remaining-reds
 agent: opus-orch
 started: 2026-07-27T17:30:00Z
-heartbeat: 2026-07-27T21:47:47Z
-status: all claimed work LANDED; holding the claim only for the pending closing gate run 30308225366 (queued — runners saturated)
+heartbeat: 2026-07-27T22:49:10Z
+status: RELEASING — all work landed and verified LOCALLY; CI confirmation is structurally blocked, not pending
 direction: Differential gate / interpreter + backends
 items: corpus-gate-remaining-reds
 bugs: coroutine-demo-import-cycle-on-interpreter rozum-agent-schema-derived-js-and-v2-gaps
