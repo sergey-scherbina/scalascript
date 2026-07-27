@@ -1,7 +1,7 @@
 ---
 name: generator-callback-user-throw
 description: Native Generator.foreach preserves user RuntimeException values
-backends: [v2]
+backends: [jvm, v2]
 also-codegen: v2
 ---
 

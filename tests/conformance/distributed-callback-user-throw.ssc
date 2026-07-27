@@ -1,11 +1,13 @@
 ---
 name: distributed-callback-user-throw
 description: Native distributed callbacks preserve user RuntimeException values
-backends: [v2]
+backends: [jvm, v2]
 also-codegen: v2
 ---
 
 # Distributed callback user throw
+
+[NamedHandler, HandlerRegistry](std/mapreduce/handlers.ssc)
 
 ```scalascript
 HandlerRegistry.register(NamedHandler("fail", (value: Int) =>
