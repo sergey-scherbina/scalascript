@@ -1,0 +1,72 @@
+---
+name: try-catch-io-failure
+description: try/catch recovers from an I/O failure (missing file) — a CHECKED host exception, not a RuntimeException
+backends: [int, v2]
+---
+
+# `try` / `catch` — an I/O failure is recoverable
+
+Companion to `try-catch-exception-delivery.ssc`, which pins that a *thrown* exception reaches the
+handler. This pins the other half: a failure raised by the **host** inside an intrinsic.
+
+The v2 VM's `tryRun` selected its catch on `RuntimeException`, which put the line in exactly the
+wrong place. On the JVM an I/O failure is a *checked* exception — `java.nio.file.NoSuchFileException`
+and `java.net.ConnectException` are both `IOException`, i.e. **not** `RuntimeException` — so the two
+most ordinary recoverable conditions in existence (a missing file, an unreachable host) escaped
+`try`/`catch` entirely and killed the program, while a genuine defect such as a
+`NullPointerException` was quietly delivered to the user's handler.
+
+Why this went unnoticed for so long: a `try` around a ScalaScript-level `throw` works, and a `try`
+around an intrinsic that *succeeds* works. Only an intrinsic that actually fails shows it — and the
+code that most needed it was error-handling code, which is precisely what nobody exercises on the
+happy path. It made `std/agent`'s `postChatCompletionsOnce` unable to report `transportError`, so
+`AgentEndpointPool`'s whole failover was dead code on this lane. Found from busi, 2026-07-27.
+
+The fix is `NonFatal`, not "catch everything": `VirtualMachineError` (OOM, stack overflow),
+`ThreadDeath`, `InterruptedException` and `LinkageError` must still reach the boundary and must
+still not be catchable by user code.
+
+`readFile` on a path that cannot exist is the cheapest deterministic host failure available — no
+network, no timing, no listening socket to arrange.
+
+**`v2` is the load-bearing lane here** — it is the one that runs `ssc run --v2`, the VM whose
+`tryRun` had the defect, and the lane busi runs in production. `int` is in as the reference: the
+v1 interpreter already converted any `Throwable` into a matchable value, so the two lanes together
+pin that v2 now agrees with v1 instead of diverging from it.
+
+`jvm`/`js` are deliberately out, and not because the fix does not apply: those lanes do not expose
+`std.fs` at all (`value readFile is not a member of …`), so the case would pin that gap rather
+than this one. Recorded rather than silently narrowed — the sibling
+`try-catch-exception-delivery.ssc` excludes `js` for the same kind of reason.
+
+[readFile, writeFile](std/fs.ssc)
+
+```scalascript
+def readOrDefault(path: String): String =
+  try readFile(path)
+  catch case _ => "recovered"
+
+// A typed arm must work too: the caught value is delivered as `RuntimeException`, and
+// `isExceptionSupertype` is what lets `Throwable` match it. Widening the caught SET must not
+// change the delivered SHAPE, or every existing handler silently stops matching.
+def readOrDefaultTyped(path: String): String =
+  try readFile(path)
+  catch case e: Throwable => "recovered-typed"
+
+// The handler must NOT fire when the intrinsic succeeds — otherwise a `catch` that swallowed
+// every result would satisfy the two cases above just as well.
+//
+// The setup write is deliberately OUTSIDE the `try`. A braceless multiline `try` whose body is
+// two statements does not parse on the v2 lane (`ssc: unbound global: catch`) — a real defect,
+// but a parser one, and pinning it here would make this case fail for a reason that has nothing
+// to do with which host exceptions `tryRun` catches.
+writeFile("/tmp/ssc-try-catch-io-failure-probe.txt", "present")
+
+def readExisting(): String =
+  try readFile("/tmp/ssc-try-catch-io-failure-probe.txt")
+  catch case _ => "wrongly-recovered"
+
+println(readOrDefault("/definitely/missing/ssc-conformance-file"))
+println(readOrDefaultTyped("/definitely/missing/ssc-conformance-file"))
+println(readExisting())
+```

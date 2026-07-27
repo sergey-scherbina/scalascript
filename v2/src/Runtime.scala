@@ -3216,8 +3216,24 @@ object Prims:
     typeName == "Throwable" || typeName == "Exception" ||
       typeName == "RuntimeException" || typeName == "Error"
 
-  /** Run a `try` body thunk; on a ScalaScript `throw` or a host RuntimeException, invoke the catch
-    * handler with the caught value. Non-RuntimeException host errors propagate to the boundary. */
+  /** Run a `try` body thunk; on a ScalaScript `throw` or a non-fatal host failure, invoke the
+    * catch handler with the caught value. Fatal host errors propagate to the boundary.
+    *
+    * The boundary is `NonFatal`, not `RuntimeException`. Selecting on `RuntimeException` drew the
+    * line in exactly the wrong place: an I/O failure is a *checked* exception in the JVM
+    * (`java.nio.file.NoSuchFileException`, `java.net.ConnectException` — both `IOException`), so
+    * a missing file and an unreachable host — the two most ordinary recoverable conditions there
+    * are — escaped `try`/`catch` entirely, while a genuine defect like a `NullPointerException`
+    * was quietly handed to the user's handler. Backwards on both counts.
+    *
+    * `NonFatal` keeps the stated intent (Runtime.scala's `RecoverableError` doc: unexpected host
+    * failures must reach the program boundary) and draws it where it belongs: `VirtualMachineError`
+    * (OOM, stack overflow), `ThreadDeath`, `InterruptedException` and `LinkageError` still
+    * propagate and are still not catchable by user code.
+    *
+    * Downstream, this is what made `std/agent`'s `postChatCompletionsOnce` unable to set
+    * `transportError` — so `AgentEndpointPool` failover was dead code on this lane — and what made
+    * busi's `safePost` inert. Found from busi, 2026-07-27. */
   private def tryRun(body: Value.ClosV, handler: Value.ClosV): Value =
     try callClos(body, Array.empty)
     catch
@@ -3226,7 +3242,10 @@ object Prims:
       case r: ReturnThrow      => throw r
       case c: ControlRunFailure => throw c
       case t: SscThrow         => callClos(handler, Array(t.value))
-      case e: RuntimeException =>
+      case scala.util.control.NonFatal(e) =>
+        // The tag stays "RuntimeException": it is what `catch case e: Throwable/Exception/
+        // RuntimeException` tag-tests against (isExceptionSupertype), so widening the caught set
+        // must not change the delivered shape or every existing handler stops matching.
         callClos(handler, Array(Value.DataV("RuntimeException",
           Vector(Value.StrV(Option(e.getMessage).getOrElse(""))))))
   private val valueOrdering: Ordering[Value] = Ordering.fromLessThan(valueLessThan)
