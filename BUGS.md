@@ -2,8 +2,8 @@
 
 ## js-int-boundary-const-lambda — JS `Int` normalization assigns to immutable typed-lambda bindings
 
-**Status:** OPEN (found 2026-07-27 by exact-SHA CI run `30286311782`, `Conformance Suite` job
-`90044864452`, at `35a70f095`; regression introduced by `b672b0d41`).
+**Status:** FIXED 2026-07-27 in `57d107739` (found by exact-SHA CI run `30286311782`,
+`Conformance Suite` job `90044864452`, at `35a70f095`; regression introduced by `b672b0d41`).
 
 **Symptom/reproduce.** The JS lanes of `std-foldable-traversable`,
 `std-functor-applicative-monad`, and `std-index` exit with
@@ -28,6 +28,15 @@ multi-argument path.
 fix, then emit normalization without assigning to immutable bindings. The new case and all three
 standard-library witnesses must pass on JS while preserving the original Char-to-Int, ordinary-Int,
 and String negative controls.
+
+**Resolution / verification.** Multi-parameter typed lambdas now destructure with `let` only when
+an `Int` entry guard needs to normalize a binding; lambdas without such guards retain `const`.
+`js-int-boundary-const-lambda` was proven fail-loud before the change (PASS INT / FAIL JS with the
+same exception), then passed together with all three CI witnesses: 4/4 cases green on every
+declared lane. Full `CrossBackendPropertyTest` passed 17/17 (74 generated INT↔JS + 19 INT↔JVM,
+zero skips), including the original Char widening and String/ordinary-Int controls. Evidence level
+3 under AGENTS.md rule 4c: exact-SHA run `30297788784` was queued for `57d107739` at release time;
+the named local gates above are green and no job for the fixed SHA had reported red.
 
 ## v2-native-front-drops-attributed-code-fence — the DEFAULT lane silently discards any ```scalascript fence carrying an attribute
 

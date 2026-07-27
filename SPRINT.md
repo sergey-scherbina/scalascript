@@ -66,8 +66,9 @@ Spec: `specs/claim-mutex.md`.
 
 ## 2026-07-27 — `js-char-into-int-param`
 
-- [ ] **Fix `Char` → `Int` coercion at v1 JavaScript call boundaries.** Implementation + regressions
-      LANDED in `b672b0d41`, but exact-SHA run `30286311782` found a regression before release:
+- [x] **Fix `Char` → `Int` coercion at v1 JavaScript call boundaries.** Original implementation
+      landed in `b672b0d41`; exact-SHA run `30286311782` found a regression before release, fixed in
+      `57d107739`:
       multi-parameter typed lambdas declare destructured parameters with `const`, then the new
       entry normalization assigns to those bindings and crashes with
       `TypeError: Assignment to constant variable`. The JS backend originally passed
@@ -91,20 +92,22 @@ Spec: `specs/claim-mutex.md`.
         (74 generated INT↔JS + 19 INT↔JVM, zero skips); assembled repro green on both lanes;
         `tests/conformance/run.sh --only 'markdown-html' --no-memo` PASS INT + PASS JS.
         BUGS is FIXED and CHANGELOG records the result.
-  - [ ] Add `js-int-boundary-const-lambda` as a minimal INT/JS conformance regression with a
+  - [x] Added `js-int-boundary-const-lambda` as a minimal INT/JS conformance regression with a
         two-argument typed lambda, and first prove that the landed implementation fails on JS while
         INT prints the expected result. Existing real-harness witnesses are
-        `std-foldable-traversable`, `std-functor-applicative-monad`, and `std-index`.
-  - [ ] Fix typed-lambda emission so `Int` boundary normalization never assigns to an immutable
-        binding. Prefer retaining immutable bindings when no normalization is needed; do not
-        weaken String or ordinary-Int behavior.
-  - [ ] Verify the minimal case plus all three exact CI failures with
-        `tests/conformance/run.sh --only '<case>' --no-memo`, then run the focused/full JS
-        differential tests that cover the original Char behavior.
-  - [ ] Update BUGS/CHANGELOG with the root cause and gates. Apply AGENTS.md evidence rule 4c to the
-        new landed SHA: exact-SHA green if available, otherwise state the strongest job/local
-        evidence; any red job still blocks release. Then mark this parent done, release the claim,
-        and remove the worktree with `scripts/rm-worktree`.
+        `std-foldable-traversable`, `std-functor-applicative-monad`, and `std-index`. Fail-first
+        result: PASS INT / FAIL JS with the exact `Assignment to constant variable`.
+  - [x] Fixed typed-lambda emission so `Int` boundary normalization never assigns to an immutable
+        binding: multi-parameter lambdas use `let` only when an entry guard must assign, retaining
+        `const` when no normalization is needed.
+  - [x] Verified the minimal case plus all three exact CI failures in the assembled real harness:
+        4/4 conformance green on every declared lane. Full `CrossBackendPropertyTest` is 17/17,
+        including the original Char widening and String/ordinary-Int controls, 74 generated
+        INT↔JS programs and 19 generated INT↔JVM programs with zero skips.
+  - [x] BUGS/CHANGELOG updated with root cause and gates. Release evidence is **level 3** under
+        AGENTS.md rule 4c: exact-SHA run `30297788784` for `57d107739` was queued at release time;
+        local gates are the fail-first regression, affected conformance 4/4, and differential
+        17/17 above. No red job exists for the fixed SHA.
 
 ## 2026-07-27 — Sergiy "берись за все" batch (F4 arc closure → F5b lever → scljet → stream-3 decision)
 

@@ -37,6 +37,12 @@ The cross-backend regression covers seven positive/negative boundary shapes on I
 consumer `markdown-html` is no longer interpreter-pinned: its conformance case passes on both INT
 and JS, restoring headings, lists, tables, escaping, and trimming on the v1 JS lane.
 
+Exact-SHA CI caught one release-blocking follow-up before the claim closed: multi-parameter typed
+lambdas destructured parameters with `const`, then the new normalization assigned to them. Fixed in
+`57d107739` by using mutable destructuring only when an entry guard exists; guard-free lambdas keep
+`const`. A fail-first conformance case pins the exact shape, and it plus all three CI witnesses pass
+4/4 in the assembled harness; the full differential suite remains 17/17.
+
 ## 2026-07-27 — scljet: an IPK move on an INDEXED table wrote a corrupt b-tree
 
 Follow-up to the same day's IPK-move fix, which landed the semantics but only on the unindexed
