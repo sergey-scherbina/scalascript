@@ -105,4 +105,34 @@ else
   printf 'ok   %-30s => rejected\n' "missing def rejected"
 fi
 
+# §10.2 nominal frame (slice 3): the frame slot is a CONSTRUCTOR value, not a scalar — the region
+# `(input) => match p { case Pair(x,y) => x*input + y }` with p = Pair(3,4). Auto-liveness derives
+# the single slot; the value travels as data and the resume destructures it with an ordinary Match.
+NOM="$TMP/nominal.portable"
+ssc freeze-region-nominal "$NOM" >/dev/null
+if grep -q '(frame (ctor frame (ctor Pair' "$NOM"; then printf 'ok   %-30s => yes\n' "nominal slot travels as data"
+else printf 'FAIL %-30s\n' "nominal slot travels as data"; fail=1; fi
+check "nominal frame run input=5" "$(ssc run-capsule "$NOM" 5)" "19"   # 3*5 + 4
+check "nominal frame run input=2" "$(ssc run-capsule "$NOM" 2)" "10"   # 3*2 + 4
+
+# The frame is DATA, never code (BUGS portable-capsule-frame-unvalidated). Before validateFrame,
+# `decode` validated only the resume: a frame carrying (global g) injected a closure into the
+# resume, and (local 0) reached Compiler.compile and died with ArrayIndexOutOfBounds. Both must now
+# be REJECTED at admission. Measured pre-fix behaviour is in the BUGS entry.
+reject_frame() { # name  sed-expr
+  sed "$2" "$GLOB" > "$TMP/badframe"
+  if ssc run-capsule "$TMP/badframe" 3 >/dev/null 2>&1; then
+    printf 'FAIL %-30s admitted\n' "$1"; fail=1
+  else
+    printf 'ok   %-30s => rejected\n' "$1"
+  fi
+}
+reject_frame "frame with code rejected"  's/(frame (ctor frame (lit (int 5))/(frame (ctor frame (global dbl)/'
+reject_frame "frame with local rejected" 's/(frame (ctor frame (lit (int 5))/(frame (ctor frame (local 0)/'
+reject_frame "frame with lam rejected"   's/(frame (ctor frame (lit (int 5))/(frame (ctor frame (lam 1 (local 0))/'
+# ... and a legitimate value edit still runs (the guard rejects CODE, not data — it must not be a
+# blanket "any frame edit fails", which would pass the three checks above for the wrong reason).
+sed 's/(frame (ctor frame (lit (int 5))/(frame (ctor frame (lit (int 99))/' "$GLOB" > "$TMP/datachange"
+check "data-only frame edit still runs" "$(ssc run-capsule "$TMP/datachange" 3)" "111"  # quad(3)=12, +99
+
 if [ "$fail" -eq 0 ]; then echo "portable-capsule: PASS"; else echo "portable-capsule: FAIL"; exit 1; fi
