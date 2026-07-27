@@ -138,4 +138,16 @@ mechanical guard against landing a stale pair.
 
 ## Results
 
-Pending implementation and verification.
+Red control captured before implementation (2026-07-27):
+
+```text
+$ scala-cli --server=false tests/conformance/contract.sc -- \
+    --update-baseline --only hello --list
+hello
+exit 0
+```
+
+The unsafe partial-update shape was accepted instead of exiting 2. `--list`
+made the reproduction non-destructive; the baseline remained SHA-256
+`d73cc059362c1aea218f39029387867af5cdba0477403003e1d528e1a91a62ec`.
+Implementation and green verification remain pending.
