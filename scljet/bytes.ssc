@@ -119,10 +119,20 @@ def rawUpdated(bytes: ByteSlice, index: Int, value: Int): ByteSlice =
   val updatedChunks = bytes.chunks.updated(chunk, replacement)
   byteSliceWindow(updatedChunks, bytes.start, bytes.length)
 
+// Iterative for the same reason `collectBytes` above is: this recursed ONCE PER BYTE of the source,
+// so a 4096-byte page went 4096 frames deep and blew node's stack (`RangeError: Maximum call stack
+// size exceeded`) while 512 stayed shallow — JS has no TCO, and the interpreter/native VM only
+// tolerated it because they trampoline (BUGS scljet-js-large-page-byteslice-recursion-overflow).
+//
+// Note for anyone re-reading that entry: it blamed `replaceAt`/`rawUpdated`, but `replaceAt` walks a
+// 64-byte CHUNK and is bounded at 64 frames regardless of page size. The depth was always here.
 def copyLoop(source: ByteSlice, sourceIndex: Int, target: ByteSlice, targetOffset: Int): ByteSlice =
-  if sourceIndex >= source.length then target
-  else copyLoop(source, sourceIndex + 1,
-    rawUpdated(target, targetOffset + sourceIndex, rawGet(source, sourceIndex)), targetOffset)
+  var clIndex = sourceIndex
+  var clTarget = target
+  while clIndex < source.length do
+    clTarget = rawUpdated(clTarget, targetOffset + clIndex, rawGet(source, clIndex))
+    clIndex = clIndex + 1
+  clTarget
 
 object ByteSlice:
   def empty: ByteSlice = byteSliceUnsafe(Nil)

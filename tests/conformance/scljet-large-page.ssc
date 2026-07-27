@@ -1,0 +1,48 @@
+---
+name: scljet-large-page
+description: a 4096-byte page survives a byte-slice update on every lane, including JS (no TCO)
+backends: [int, js]
+---
+
+# A 4096-byte page must not overflow the JS stack
+
+`copyLoop` in `scljet/bytes.ssc` used to recurse once per byte of the slice, so a 4096-byte page went
+4096 frames deep and JS died with `RangeError: Maximum call stack size exceeded`, while 512 stayed
+shallow and every other lane tolerated it by trampolining
+(`BUGS.md` `scljet-js-large-page-byteslice-recursion-overflow`).
+
+**The page size is the assertion.** Every other scljet case uses 512 precisely because 4096 crashed;
+this one uses 4096 on purpose, so a return to per-byte recursion fails here rather than silently
+limiting what page sizes the engine supports.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[executeMutation, queryImage](std/scljet/sql.ssc)
+
+```scalascript
+def showValue(v: SqliteValue): String = v match
+  case SqlInteger(x) => x.toString
+  case SqlText(x) => x
+  case _ => "?"
+
+def showRow(row: List[SqliteValue]): String = row match
+  case Nil => ""
+  case h :: Nil => showValue(h)
+  case h :: t => showValue(h) + "|" + showRow(t)
+
+def showRows(rows: List[List[SqliteValue]]): String = rows match
+  case Nil => "(none)"
+  case h :: Nil => showRow(h)
+  case h :: t => showRow(h) + " ; " + showRows(t)
+
+buildTableDatabase(4096, 1, 1, "emp", "CREATE TABLE emp(id INTEGER PRIMARY KEY, name TEXT)",
+  List(List(SqlInteger(1L), SqlText("ann")))) match
+  case Left(error) => println("build failed: " + error.message)
+  case Right(base) =>
+    // The INSERT is what drives copyLoop across the whole page.
+    executeMutation(base, "INSERT INTO emp VALUES (2, 'bob')") match
+      case Left(message) => println("insert failed: " + message)
+      case Right(next) =>
+        queryImage(next, "SELECT id, name FROM emp") match
+          case Left(message) => println("query failed: " + message)
+          case Right(rows) => println(showRows(rows))
+```
