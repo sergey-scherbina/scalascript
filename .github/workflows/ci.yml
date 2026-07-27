@@ -61,6 +61,12 @@ jobs:
       - name: Verify benchmark wrapper routing
         run: tests/e2e/bench-wrapper-gate.sh
 
+      - name: Verify claim mutex (concurrent claims collide)
+        run: tests/coord/claim-mutex-conflict.sh
+
+      - name: Verify claim guards refuse overlap and out-of-scope commits
+        run: tests/coord/claim-hooks.sh
+
   conformance:
     name: Conformance Suite
     runs-on: ubuntu-latest

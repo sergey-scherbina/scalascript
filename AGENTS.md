@@ -7,14 +7,30 @@
 
 Every piece of work, always, in this order:
 
-1. **Plan → SPRINT.md first.** Write ALL planned slices as `[ ]` items in
+1. **CLAIM FIRST — before planning, not after** (changed 2026-07-27, see below):
+
+   ```bash
+   scripts/coord-claim <slug> --items "<SPRINT ids / BUGS slugs>" --paths "<path prefixes>"
+   ```
+
+   From the **main checkout**. This writes `.work/active/<slug>.claim`, adds its line to
+   `.work/active/LEDGER.tsv`, bumps the ledger's generation counter and pushes — one commit.
+   `items:` and `paths:` are what make the claim mean something: `items` is the WORK (so a rival
+   claim under a *different slug* is detectable) and `paths` is what you may touch (enforced at
+   commit time). Push rejected ⇒ someone moved first ⇒ **re-read the queue**, don't blindly rebase.
+
+   *Why this moved to step 1:* claiming after planning leaves a race window as long as your
+   planning. On 2026-07-27 two agents claimed the same work 2 minutes apart in exactly that gap,
+   and a third did a task another agent already held. A claim is one cheap, revocable commit;
+   planning is minutes. Full diagnosis and the guards: [`specs/claim-mutex.md`](specs/claim-mutex.md).
+2. **Then plan → SPRINT.md.** Write ALL planned slices as `[ ]` items in
    SPRINT.md *before* coding. Then execute them one at a time, checking off.
-2. **Work in a WORKTREE** on a `feature/<name>` branch off `origin/main` —
-   `scripts/new-worktree <name>`. Never feature-edit the shared main checkout
+3. **Work in a WORKTREE** on a `feature/<slug>` branch off `origin/main` —
+   `scripts/new-worktree <slug>`. Never feature-edit the shared main checkout
    (a pre-commit hook refuses it; only `.work/` coordination commits are
-   allowed there).
-3. **Claim before starting**: commit `.work/active/<slug>.claim` to main so
-   siblings don't collide; check `git log origin/main` for sibling claims first.
+   allowed there). Branch name must match the claim slug — that is how the scope
+   guard finds your claim. Commits outside your claim's `paths:` are refused;
+   widen the claim (and let the overlap guard check it) rather than working around it.
 4. **Push each finished piece straight to `origin/main`**
    (`git push origin <branch>:main`, rebase on rejection) — small commits,
    feature and docs/bookkeeping separated. Verify (suite/corpus) BEFORE the push.
@@ -994,14 +1010,25 @@ Skill location: `.agents/plugins/multi-agent/commands/multi-agent.md` (in main r
 
 Key invariants:
 - Claim from the **main checkout** (`$MAIN`) only — never from a worktree
+- **Claim BEFORE planning, via `scripts/coord-claim`** — see §THE WORKFLOW step 1 and
+  [`specs/claim-mutex.md`](specs/claim-mutex.md). Hand-writing a claim file skips the
+  `LEDGER.tsv` generation bump, which is the thing that makes two concurrent claims collide
+  instead of silently auto-merging.
 - A claim is valid only when `.work/active/<slug>.claim` is visible on `origin/main`
+- **Declare `items:` and `paths:`.** The old check compared slug *filenames*, so the same work
+  under two different slugs was invisible to it — that is precisely how 2026-07-27 went wrong.
+  `items` is compared by the pre-push overlap guard, `paths` by the pre-commit scope guard.
+- **Deliberately re-checking another agent's landed result is legitimate** — claim it as
+  `verify-<slug>` with the same `items`, which the overlap guard allows on purpose. Accidental
+  duplication is the target here, not intentional cross-checking.
 - Files in `.work/active/` without `.claim` suffix are invalid markers — report or repair before starting
 - Never assume a claim is yours; read the `agent:` field first
 - Heartbeat > 20 min = potentially orphaned; run `/multi-agent triage <slug>` before touching
 
 Quick reference:
+- `scripts/coord-claim <slug> --items … --paths …` — claim (preferred; keeps the ledger correct)
 - `/multi-agent status` — active claims, heartbeat ages, pending tasks
-- `/multi-agent claim <slug>` — claim a task
+- `/multi-agent claim <slug>` — claim a task (legacy path; does not bump the ledger)
 - `/multi-agent triage <slug>` — assess a foreign claim
 - `/multi-agent heartbeat` — refresh your heartbeat
 - `/multi-agent release <slug>` — release a stale claim

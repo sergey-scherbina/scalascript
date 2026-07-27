@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+#
+# coord-claim — claim a task atomically, BEFORE planning it (specs/claim-mutex.md).
+#
+#   scripts/coord-claim <slug> --items "<id> [<id>…]" --paths "<prefix> […]" [--agent <id>]
+#
+# Writes `.work/active/<slug>.claim`, adds the matching `.work/active/LEDGER.tsv` line and bumps the
+# ledger's generation counter, then commits and pushes to origin/main in ONE commit.
+#
+# Why the generation bump matters: it is what makes two concurrent claims collide. Without it each
+# claim writes a disjoint file, so the loser of the push race rebases cleanly and never learns the
+# winner exists — which is exactly how two agents did the same work twice on 2026-07-27.
+#
+# On a rejected push this does NOT auto-rebase: it stops and tells you to re-read the queue, because
+# "the push was rejected" means someone else moved first and your plan may now be wrong.
+set -euo pipefail
+
+slug=""; items=""; paths=""; agent="${SSC_AGENT_ID:-claude-code}"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --items) items="$2"; shift 2 ;;
+    --paths) paths="$2"; shift 2 ;;
+    --agent) agent="$2"; shift 2 ;;
+    -*) echo "unknown flag: $1" >&2; exit 2 ;;
+    *) slug="$1"; shift ;;
+  esac
+done
+
+if [ -z "$slug" ] || [ -z "$items" ] || [ -z "$paths" ]; then
+  cat >&2 <<'EOF'
+usage: scripts/coord-claim <slug> --items "<id> …" --paths "<prefix> …" [--agent <id>]
+
+  --items  SPRINT item ids and/or BUGS slugs — the WORK, not the name. This is what lets the
+           pre-push guard notice a rival claim under a different slug.
+  --paths  path prefixes this claim may touch; the pre-commit guard holds you to them.
+
+Claim FIRST, then plan: a claim is one cheap revocable commit, while planning takes minutes, and
+that gap is the whole race window.
+EOF
+  exit 2
+fi
+
+MAIN=$(git worktree list | head -1 | awk '{print $1}')
+cd "$MAIN"
+
+[ -d .git ] || { echo "✋ claim from the MAIN checkout, not a worktree (AGENTS.md)" >&2; exit 1; }
+[ "$(git symbolic-ref --short HEAD)" = "main" ] || { echo "✋ main checkout must be on branch main" >&2; exit 1; }
+
+git fetch -q origin
+git merge --ff-only origin/main -q
+
+claim=".work/active/${slug}.claim"
+ledger=".work/active/LEDGER.tsv"
+
+if git ls-tree -r --name-only origin/main -- .work/active/ | grep -Fxq "$claim"; then
+  echo "✋ '${slug}' is already claimed on origin/main. Read it first:" >&2
+  git show "origin/main:$claim" >&2
+  exit 1
+fi
+
+ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+mkdir -p .work/active
+[ -f "$ledger" ] || printf '# generation: 0\n#slug\tagent\tstarted\titems\tpaths\n' > "$ledger"
+
+cat > "$claim" <<EOF
+slug: ${slug}
+branch: feature/${slug}
+agent: ${agent}
+started: ${ts}
+heartbeat: ${ts}
+status: claimed-before-planning
+items: ${items}
+paths: ${paths}
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
+EOF
+
+SLUG="$slug" AGENT="$agent" TS="$ts" ITEMS="$items" PATHS="$paths" python3 - "$ledger" <<'PY'
+import os, re, sys
+p = sys.argv[1]
+lines = [l for l in open(p).read().split("\n") if l.strip() != ""]
+gen = int(re.search(r"# generation: (\d+)", lines[0]).group(1))
+lines[0] = f"# generation: {gen + 1}"          # the bump IS the mutex — never drop it
+lines.append("\t".join([os.environ["SLUG"], os.environ["AGENT"], os.environ["TS"],
+                        os.environ["ITEMS"], os.environ["PATHS"]]))
+open(p, "w").write("\n".join(lines) + "\n")
+PY
+
+git add "$claim" "$ledger"
+git commit -q -m "claim: ${slug} (${items}) [skip ci]"
+
+if git push -q origin main 2>/dev/null; then
+  echo "✓ claimed ${slug}  items='${items}'  paths='${paths}'"
+  echo "  now: scripts/new-worktree ${slug}   then plan it into SPRINT.md"
+else
+  cat >&2 <<EOF
+
+✋ push rejected — another agent moved first.
+
+Deliberately NOT auto-rebasing: someone else changed the queue, so re-read it before deciding.
+  git fetch origin && git ls-tree origin/main .work/active/
+Then either pick different work, or reset this claim and redo it:
+  git reset --hard origin/main
+EOF
+  exit 1
+fi

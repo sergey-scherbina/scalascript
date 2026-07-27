@@ -52,4 +52,61 @@ EOF
     exit 1
   fi
 fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Claim scope guard (specs/claim-mutex.md, layer 3).
+#
+# In a feature/<slug> worktree, staged paths must fall inside the `paths:` its claim declares on
+# origin/main. This is the gate for the 2026-07-27 case where an agent holding one claim did the
+# work of another agent's claim and nothing objected.
+#
+# Two deliberate softenings, without which the guard would be disabled by whoever it first annoys:
+#   - a shared set every task legitimately touches is always allowed;
+#   - no claim, or a claim that declares no `paths:`, is allowed with a note (backward compatible).
+# ─────────────────────────────────────────────────────────────────────────────
+case "$branch" in
+  feature/*)
+    slug=${branch#feature/}
+    claim_paths=$(git show "origin/main:.work/active/${slug}.claim" 2>/dev/null |
+                    sed -n 's/^paths:[[:space:]]*//p' | head -1 || true)
+    if [ -n "$claim_paths" ]; then
+      staged=$(git diff --cached --name-only)
+      outside=""
+      for f in $staged; do
+        case "$f" in
+          # Shared bookkeeping / coordination — every task touches these by design.
+          SPRINT.md|BACKLOG.md|CHANGELOG.md|BUGS.md|MILESTONES.md|AGENTS.md|README.md) continue ;;
+          .work/*|specs/*) continue ;;
+        esac
+        ok=0
+        for p in $claim_paths; do
+          # Declared paths are PREFIXES; tolerate a trailing glob people write out of habit
+          # (`scljet/**` and `scljet/` must mean the same thing, or the guard fires on its own author).
+          while [ "${p%\*}" != "$p" ]; do p="${p%\*}"; done
+          case "$f" in "$p"*) ok=1; break ;; esac
+        done
+        [ "$ok" -eq 1 ] || outside="$outside $f"
+      done
+      if [ -n "$outside" ]; then
+        cat >&2 <<EOF
+
+✋ pre-commit: these staged paths are outside what claim '${slug}' declared.
+
+Declared paths: ${claim_paths}
+Outside them:
+$(printf '  %s\n' $outside)
+
+Working outside your own claim is how one agent silently redid another's task on 2026-07-27
+(specs/claim-mutex.md). Pick one:
+  - widen the claim:  edit .work/active/${slug}.claim 'paths:' in the MAIN checkout, push it, then
+                      re-run this commit — that also lets the pre-push guard spot a real overlap;
+  - or claim the other work separately and do it in its own worktree.
+
+Override (rarely correct): git commit --no-verify
+EOF
+        exit 1
+      fi
+    fi
+    ;;
+esac
 exit 0

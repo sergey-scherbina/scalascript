@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+#
+# Claim-overlap guard (specs/claim-mutex.md, layer 2).
+#
+# Refuses a push to `main` that introduces a claim overlapping a DIFFERENT live claim — the
+# same-work-different-slug case the old check could not see, because it compared slug FILENAMES
+# (`grep -Fx .work/active/<slug>.claim`) rather than the work itself.
+#
+# Overlap is judged on two declared fields of the claim file:
+#   items: <id> [<id>…]   SPRINT item ids / BUGS slugs — the WORK
+#   paths: <prefix> […]   path prefixes the claim may touch
+#
+# A claim named `verify-*` is allowed to overlap on purpose: re-checking another agent's landed
+# result is valuable (it is how scljet-ipk-move-indexed-corrupts-btree was found). The point of this
+# hook is that overlap be DELIBERATE, not accidental.
+#
+# Escape hatch: git push --no-verify
+set -euo pipefail
+
+remote_tip=""
+local_tip=""
+while read -r _local_ref local_sha remote_ref remote_sha; do
+  [ "$remote_ref" = "refs/heads/main" ] || continue
+  [ "$local_sha" = "0000000000000000000000000000000000000000" ] && continue   # branch delete
+  local_tip="$local_sha"
+  remote_tip="$remote_sha"
+done
+
+# Nothing aimed at main (or nothing to compare against) — not our business.
+[ -n "$local_tip" ] || exit 0
+case "$remote_tip" in ""|0000000000000000000000000000000000000000) exit 0 ;; esac
+
+# Field lookup: `items:`/`paths:` from a claim blob, whitespace-separated.
+field() { # field <sha>:<path> <name>
+  git show "$1" 2>/dev/null | sed -n "s/^$2:[[:space:]]*//p" | head -1
+}
+
+# Claims this push ADDS (or rewrites) relative to the remote tip.
+incoming=$(git diff --name-only --diff-filter=AM "$remote_tip" "$local_tip" -- '.work/active/*.claim' 2>/dev/null || true)
+[ -n "$incoming" ] || exit 0
+
+# Claims already live on the remote tip.
+live=$(git ls-tree -r --name-only "$remote_tip" -- .work/active/ 2>/dev/null | grep '\.claim$' || true)
+[ -n "$live" ] || exit 0
+
+problems=""
+for new in $incoming; do
+  new_slug=$(basename "$new" .claim)
+  case "$new_slug" in verify-*) continue ;; esac          # deliberate re-verification
+  new_items=$(field "$local_tip:$new" items)
+  new_paths=$(field "$local_tip:$new" paths)
+  [ -n "$new_items$new_paths" ] || continue               # undeclared → nothing to compare (compat)
+
+  for old in $live; do
+    old_slug=$(basename "$old" .claim)
+    [ "$old_slug" = "$new_slug" ] && continue             # same slug: a re-write of one's own claim
+    old_items=$(field "$remote_tip:$old" items)
+    old_paths=$(field "$remote_tip:$old" paths)
+
+    for i in $new_items; do
+      for j in $old_items; do
+        [ "$i" = "$j" ] && problems="$problems\n  item '$i' is already claimed by '$old_slug'"
+      done
+    done
+    # Prefix containment in either direction: scljet/ vs scljet/sql.ssc overlap.
+    # Trailing globs are normalised away first, so `scljet/**` and `scljet/` mean the same thing.
+    for p in $new_paths; do
+      while [ "${p%\*}" != "$p" ]; do p="${p%\*}"; done
+      for q in $old_paths; do
+        while [ "${q%\*}" != "$q" ]; do q="${q%\*}"; done
+        case "$p" in "$q"*) problems="$problems\n  path '$p' falls inside '$q', claimed by '$old_slug'" ;; esac
+        case "$q" in "$p"*) [ "$p" = "$q" ] || problems="$problems\n  path '$p' contains '$q', claimed by '$old_slug'" ;; esac
+      done
+    done
+  done
+done
+
+if [ -n "$problems" ]; then
+  cat >&2 <<EOF
+
+✋ pre-push: this claim overlaps a live claim on origin/main.
+$(printf "$problems")
+
+Two agents doing the same work under different slugs is exactly what this guard exists to stop
+(specs/claim-mutex.md). Before pushing, either:
+  - pick different work:            git ls-tree origin/main .work/active/
+  - triage the other claim first:   /multi-agent triage <slug>     (stale heartbeat ⇒ release it)
+  - or, if you are DELIBERATELY re-checking that agent's result, name your claim 'verify-<slug>' —
+    that is allowed, and is how a live corruption bug was caught on 2026-07-27.
+
+Override (rarely correct): git push --no-verify
+EOF
+  exit 1
+fi
+exit 0
