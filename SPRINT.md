@@ -320,7 +320,18 @@ order and the nominal slug check. It lives in the `.agents/plugins` **submodule*
 this claim's `paths:`. `AGENTS.md` inlines the binding rules, so this project is correct either way,
 but the skill will keep telling other repos the old order until it is updated.
 
-- [ ] **claim-metadata-consistency — ledger/claim drift makes layer 2 fail open.** Reproduced while
+- [x] **claim-metadata-consistency — ledger/claim drift makes layer 2 fail open.** DONE 2026-07-27
+      (opus, `28414d3f7`). Two asymmetric rules: a claim the push touches must match its own ledger
+      row (refused — the pusher owns both copies); a live remote claim whose copies disagree is
+      compared on the UNION of both and named in a warning (refusing on someone else's stale row
+      would let one agent block everyone). A SECOND hole of the same family was found while fixing
+      it: the hook globbed unquoted `$paths`, so `v1/runtime/**` shrank to the directories existing
+      at that instant and stopped covering anything newer — `set -f`. Gate A/B'd via the new
+      `HOOKS_SRC=` override: the four new cases FAIL against the previous hook, the negative control
+      passes on both, 20/20 against the fix. Today's one drifting row was deliberately left
+      unrepaired, per the item's own "do not merely repair today's row". Original text below.
+
+      Reproduced while
       claiming E7: the live ledger row for `corpus-gate-remaining-reds` included
       `tests/conformance/corpus-baseline.tsv`, its `.claim` omitted it, and an overlapping claim
       pushed successfully as `0fade8820`. Root cause and safe repro are in BUGS
