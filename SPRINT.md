@@ -9,6 +9,125 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## 2026-07-27 — SclJet production completion (Sergiy: "Реализуй всё по scljet")
+
+**Active claim:** `scljet-production-completion`. This is the one resume-cold entry point for
+the remaining SclJet program. The current **106/106** `scljet-*` conformance sweep proves the
+landed curated subset on INT+JS; it does **not** close the unchecked M3–M8 behavior gates in
+`specs/scljet.md`. In particular, the repository has correct pure image codecs/primitives for
+rollback journals and WAL, but not yet a VFS-backed rollback transaction state machine or the
+standard shared-memory wal-index/concurrent WAL protocol. The SQL evaluator is broad, but it is
+not the full official grammar/constraint/prepare/streaming contract.
+
+Foreign work stays foreign: `scljet-address-uniml-u2-u3` belongs to the active
+`uniml-production-completion` claim, and SclJet-triggered F/bytecode capacity work belongs to
+`v2-f-bytecode-probe`. Do not duplicate either. The standalone-library self-hosted resolver and
+same-JVM reference-lock bridge need paths temporarily owned by other live claims; wait for those
+claims to release, then widen this claim through `scripts/coord-claim`/the overlap guard before
+editing. Provider replacement of the existing `sqlite:` id remains a separate explicit user
+approval per the canonical spec; this program may build and prove an opt-in `scljet:` provider
+without silently changing existing applications.
+
+Execution order is dependency order. Every numbered slice is independently shippable: update the
+behavior spec first, add a fail-first real/differential gate, implement, run the affected
+`scljet-*` conformance slice plus the relevant JVM/e2e suite, push immediately, and record the
+strongest CI evidence actually available.
+
+- [ ] **SC-0 — executable completion contract and truthful inventory.** Add
+      `specs/scljet-production-completion.md` as the bridge from the canonical M3–M8 gates to
+      concrete source/test observables. Record what is already implemented vs image-only vs
+      production-wired; define the live sqlite3/sqlite-jdbc oracle matrix and no-proxy/no-silent-
+      fallback rules. Reconcile stale facts without claiming completion: portable text projection
+      is landed; typed SQL and JDBC are implemented subsets despite stale "pre-implementation"
+      headers; the standalone library still has a compatibility symlink; M3/M5 transaction gates
+      remain open. Gate: a support-manifest script/test fails on an unclassified SQL/storage/
+      provider capability instead of inferring green from the existing 106 cases.
+
+- [ ] **SC-1 — IPK numeric-affinity correctness.** Fix `BUGS.md`
+      `scljet-ipk-update-numeric-affinity`: an INTEGER PRIMARY KEY update accepts an exact integral
+      `SqlReal` and a whitespace/sign/bounds-safe decimal `SqlText`, while rejecting fractional,
+      malformed, and overflowing values without changing the image. Extend
+      `scljet-update-ipk-moves-rowid` and the sqlite-jdbc differential in both directions; verify
+      `integrity_check` and indexed-table ordering after the move. This is the first code slice.
+
+- [ ] **SC-2 — reclaiming live DML plus safe freelist reuse.** Turn the already-tested
+      `pagerDeleteRebalanced` primitive into live DELETE/UPDATE behavior and make insert/split/root
+      allocation consume validated freelist pages before EOF. Consuming a page must update/stage
+      freelist trunks and database-header bytes atomically; corrupt freelists fail closed.
+      Differential gate: multi-level delete→insert→update cycles plateau in page count, decrease
+      freelist count on reuse, retain ordered rows on INT+JS, and pass reference
+      `integrity_check`; crash recovery restores the exact pre-image.
+
+- [ ] **SC-3 — schema metadata, affinity, and constraints foundation.** Parse declared columns and
+      table constraints once into a target-neutral schema model shared by SQL, typed SQL, JDBC
+      metadata, and the planner. Land separately gated sub-slices for INSERT/UPDATE affinity;
+      DEFAULT + NOT NULL; column/table PRIMARY KEY and UNIQUE; CHECK; conflict actions/UPSERT;
+      foreign keys; STRICT/generated columns. Every accepted/rejected mutation is differentially
+      checked against the pinned SQLite oracle, including rollback of partial multi-row failures.
+
+- [ ] **SC-4 — compiled prepare and true cursor execution.** Introduce immutable
+      prepared-select/prepared-mutation programs with numbered parameter slots, schema-cookie
+      invalidation/reprepare, and no tokenize/parse on each execute. Add a real `QueryCursor/step`
+      path over simple full/range/index scans and adapt portable/JVM ResultSet to it; explicitly
+      materialize only operators that require it (sort/group/join) until their streaming slices
+      land. Gate parse-count/schema-change behavior, bind fidelity, close/interrupt/limits, and
+      row identity against the existing evaluator plus SQLite.
+
+- [ ] **SC-5 — real rollback-mode VFS transactions and recovery.** Replace image-only claims with
+      the normative lock/journal state machine: PENDING→RESERVED→EXCLUSIVE transitions; hot-journal
+      open recovery; journal create/write/sync; database write/truncate/sync; DELETE, TRUNCATE, and
+      PERSIST invalidation; directory sync and cache invalidation. Run deterministic MemoryVFS
+      fault injection at every operation boundary and real JVM hot-journal/cross-process fixtures.
+      A reopened database must be exactly old or new, never mixed, and reference SQLite must safely
+      share the file in rollback mode.
+
+- [ ] **SC-6 — connection transactions, SQL transaction statements, and savepoints.** Build the
+      concrete connection/engine state over SC-5; implement BEGIN modes, COMMIT, ROLLBACK,
+      SAVEPOINT, RELEASE, rollback-to, autocommit/read-your-writes, busy timeout, and statement
+      atomicity. Wire portable JDBC, the JVM driver, and SQL text to the same state machine.
+      Differential/concurrency gates cover two handles, schema changes, failed statements,
+      nested savepoints, and close cleanup.
+
+- [ ] **SC-7 — standard WAL and wal-index.** Harden WAL against real golden fixtures, then add the
+      standard native-endian shared-memory wal-index (duplicate headers, hash tables, read marks,
+      `nBackfill`), stable reader snapshots, writer append/commit/reset/salts, and PASSIVE/FULL/
+      RESTART/TRUNCATE checkpoints with the required sync/lock ordering. A VFS without SHM/SHM
+      locks must reject production WAL honestly. Gate mixed SclJet/reference readers, writer, and
+      checkpointer across processes plus deterministic crash points; keep pure image overlay helpers
+      explicitly classified as helpers, not production WAL evidence.
+
+- [ ] **SC-8 — complete the official SQL families.** Close the canonical M4/M6 grammar/semantics
+      matrix in dependency-sized commits: compound SELECT; CTE/recursive CTE; window clauses and
+      frames; RETURNING; transaction/PRAGMA statements; CREATE VIEW/TRIGGER; ALTER; ATTACH/DETACH
+      and super-journal coordination; VACUUM; ANALYZE; REINDEX; expression/partial/collated indexes;
+      remaining expression and statement families. Each family needs live sqlite3 differential
+      fixtures, NULL/affinity/collation edge cases, prepared and transaction coverage, and a
+      user-facing example when it adds an API pattern.
+
+- [ ] **SC-9 — extensibility and security.** Implement connection-local scalar, aggregate, window,
+      and collation registries through the existing public interfaces, with deterministic error
+      propagation, planner/index collation correctness, trusted-schema restrictions, and resource
+      limits. Write and approve a separate virtual-table/table-valued-function spec before that
+      subsystem. Specify and implement extended-profile version negotiation, migration, downgrade,
+      and strict-profile refusal; never let extensions silently alter StrictSqlite files.
+
+- [ ] **SC-10 — standalone distribution and opt-in provider integration.** After conflicting claims
+      release, teach both self-hosted `sscStdRoot` variants the repo-root SclJet library, remove the
+      compatibility symlink, and run install/native/INT+JS/non-SclJet/v21-negative gates. Then wire
+      the concrete opt-in `scljet:` engine through `Db.*`, SQL fences, manifests, and host VFS
+      plugins without changing `sqlite:`. Document exact durability/concurrency capabilities and
+      ship runnable file/transaction/WAL/typed/JDBC examples. The existing provider may be replaced
+      only by a later explicit user-approved compatibility cutover.
+
+- [ ] **SC-11 — production evidence and milestone closure.** Put the pinned SQL differential,
+      file-format corpus, corruption fuzz, operation-boundary fault matrix, rollback/WAL concurrency,
+      and cross-backend identity suites in CI with fail-loud backend markers. Add reproducible
+      `scripts/bench` cases/baselines for parse/prepare, point/range/index scan, writes, commit,
+      checkpoint, and mixed contention; validate representative real application migrations.
+      Only then check the canonical M3–M8 behavior boxes, reconcile SPRINT/BACKLOG/CHANGELOG/README/
+      docs/site, and state the strongest exact-SHA/job/local evidence. Cancelled CI is red; curated
+      106/106 alone is never called production completion.
+
 ## 2026-07-27 — v2: the one board (Sergiy: "запиши все в спринт и делай")
 
 **Why this section exists.** Asked for the v2 status, the honest answer was that v2 runs on memory, not
