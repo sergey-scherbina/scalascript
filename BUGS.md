@@ -152,6 +152,40 @@ per-push verdict comes from something that already is. The other three jobs meas
 schedule") is not one option among several; it is the only shape that fits the arithmetic without
 making the tests faster. A scheduled `sbt` still catches everything, just later and in batches.
 
+## v2-native-backticked-identifier — quoted keyword parameters corrupt native parsing
+
+**Status:** OPEN (found 2026-07-28 by `codex` while continuing the std-ui
+exact-output gate; SPRINT `v2-native-backticked-identifier`).
+
+**Real-harness reproduction.** With CSS scopes installed, all five aggregator
+roots fail at `unbound global: label`. Running canonical component modules one
+at a time gives an exact split: `spinner`, `badge`, `avatar`, `code`, `card`,
+`switch`, `alert`, `tag`, `stats`, `data-list`, and `table` exit 0, while:
+
+```bash
+bin/ssc run --native examples/std-ui/input.ssc
+# ssc: unbound global: label
+```
+
+`Input.render` is the only reduced module containing a quoted keyword
+parameter and reference:
+
+```scalascript
+def render(name: String, label: String = "", `type`: String = "text"): String =
+  html"""<input name="${name}" type="${`type`}">"""
+```
+
+`ssc1-front` has no lexer branch for backtick-delimited identifiers. It emits
+three tokens (backtick operator, `type` keyword, backtick operator), breaks the
+parameter list/body boundary, and later evaluates `label` as a global. This is
+why the structural sentinel gate did not name the actual source construct.
+
+**Fix acceptance.** Lex a closed backtick-delimited identifier as one ordinary
+identifier token while preserving its spelling, including when the spelling
+is a keyword. Pin a cross-module default/explicit-argument regression using
+the original HTML interpolation shape. Default/legacy × VM/direct ASM and all
+five original std-ui outputs must compare exactly.
+
 ## v2-native-std-ui-scope-global — V2 standard runtime omits the CSS scoping helper
 
 **Status:** OPEN (found 2026-07-28 by `codex` while verifying the full

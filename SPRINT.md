@@ -7221,6 +7221,19 @@ emits `def C(a) = IrCtor(C, [a])`; extend to `def C(a) = let y=a*2 in IrCtor(C, 
     execution engines.
   - Rerun all five original roots against their checked-in bytes. Any next
     shared failure is a new tracked layer, not grounds to weaken the gate.
+- [ ] **v2-native-backticked-identifier** — ACTIVE
+  (`feature/v2-std-ui-missing-fixture`): repair the `Input.render` parse that
+  becomes `unbound global: label` after the CSS-scope layer is fixed.
+  - **Measured reduction:** eleven neighboring std-ui modules execute directly;
+    only `input.ssc` fails, and its unique syntax is the `` `type` `` keyword
+    parameter/reference. The native lexer currently emits backticks as generic
+    operators and the enclosed `type` as a keyword.
+  - Add a bounded backtick-identifier scan in `ssc1-front` that emits one `id`
+    token without retaining delimiters. Keep malformed/unclosed input visible
+    to the parser rather than consuming the rest of the file.
+  - Add a multi-file regression with both an explicit and a default quoted
+    keyword parameter call, verify default/legacy × VM/direct ASM plus
+    INT/JS/JVM, then resume exact comparison of the five original roots.
 - [ ] **v2-js-only-tests** — js-cps-intrinsic-rewrite (`nowMillis`) / js-state-effect-runner /
   js-symbolic-infix-operator (custom multi-char operators `<~>`/`~~` — a real lexer gap but the test
   is `backends: [int, js]`) / if-then-no-else-after-while (`backends: [int]` AND the test file is
