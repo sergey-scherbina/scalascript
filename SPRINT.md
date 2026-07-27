@@ -253,6 +253,14 @@ order and the nominal slug check. It lives in the `.agents/plugins` **submodule*
 this claim's `paths:`. `AGENTS.md` inlines the binding rules, so this project is correct either way,
 but the skill will keep telling other repos the old order until it is updated.
 
+- [ ] **claim-metadata-consistency — ledger/claim drift makes layer 2 fail open.** Reproduced while
+      claiming E7: the live ledger row for `corpus-gate-remaining-reds` included
+      `tests/conformance/corpus-baseline.tsv`, its `.claim` omitted it, and an overlapping claim
+      pushed successfully as `0fade8820`. Root cause and safe repro are in BUGS
+      `claim-ledger-claimfile-scope-drift`. Fix both producers and the guard: updates write matching
+      metadata, pre-push refuses any mismatch, and the gate proves inconsistent metadata RED while a
+      consistent disjoint claim remains GREEN. This is a separate claim; do not fold it into E7.
+
 Spec: `specs/claim-mutex.md`.
 
 ---
@@ -664,7 +672,27 @@ mode in its purest form: the apparatus that establishes trust was itself unteste
       that confusion. Wording softened in `contract.sc` as the cheap half. The real fix is a case
       ROSTER in the baseline (every name seen at freeze), which makes NEW detectable; it changes the
       baseline format and needs one unsharded full run to regenerate, so it is queued rather than
-      done. Not urgent — the softened message tells the triager to check the case's git history.
+      done. **Claimed 2026-07-27 as `corpus-contract-baseline-roster`.** Plan/spec:
+      `specs/corpus-contract-baseline-roster.md`.
+      - [ ] **E7.1 — freeze the selected-case universe beside the failure rows.** Add sorted,
+            unique `tests/conformance/contract-roster.tsv`, paired to the exact
+            `corpus-baseline.tsv` bytes by SHA-256. Seed it from the commit that produced the
+            current baseline, not from current HEAD — otherwise the motivating post-freeze
+            `coroutine-demo` would be mislabeled REGRESSION again.
+      - [ ] **E7.2 — classify from evidence, not absence.** A non-PASS for a rostered case that has
+            no baseline row is REGRESSED; a case absent from the roster is NEW whether it currently
+            passes or fails. Full runs also report removed/stale roster cases; shard/`--only` runs
+            never infer removals outside their observed scope.
+      - [ ] **E7.3 — close the other partial-update holes found during the read.** Reject
+            `--update-baseline` under `--only`, `--shard`, `--list`, or a non-canonical lane set
+            (BUGS `corpus-baseline-update-scoped-run-truncates`). A full update rewrites the
+            baseline+roster pair and its digest together.
+      - [ ] **E7.4 — prove the classifier fails loudly.** A lightweight self-test must distinguish a
+            synthetic NEW red case from an existing-case regression, report a new PASS case so the
+            roster cannot silently age, retain improvement detection, reject a digest mismatch, and
+            prove scoped baseline updates exit 2. Then run the real roster check and an affected
+            Corpus Contract slice. Do not hand-edit `corpus-baseline.tsv`: the live
+            `corpus-gate-remaining-reds` claim owns its re-baseline.
 
 - [x] **E5 — DONE: make a timeout impossible to misread as benign.** After E2 the gate fits its budget,
       but the *detection* hole stays: any future budget breach reappears as `cancelled`. Cheapest

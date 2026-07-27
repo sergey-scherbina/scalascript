@@ -1,5 +1,60 @@
 # Bug tracker
 
+## claim-ledger-claimfile-scope-drift — inconsistent claim metadata makes the overlap guard fail open
+
+**Status:** OPEN (found 2026-07-27 by Codex while claiming SPRINT E7; observed at
+`0fade8820` / `540f0ba52`). Coordination-apparatus bug; no implementation is
+part of the E7 claim.
+
+**Reproduce.** On `origin/main`, the `corpus-gate-remaining-reds` row in
+`.work/active/LEDGER.tsv` declared
+`tests/conformance/corpus-baseline.tsv`, while
+`.work/active/corpus-gate-remaining-reds.claim` did not. A second claim
+(`corpus-contract-baseline-roster`) declared that exact path and
+`scripts/coord-claim` still pushed successfully as `0fade8820`; an identical
+path overlap should have been refused.
+
+**Root cause.** Scope is duplicated in the ledger and the per-claim file with
+no consistency check. The pre-push overlap guard reads `items:` / `paths:` from
+the remote `.claim` blobs, while the ledger is the mutex's authoritative active
+scope and may contain different values. Any update that changes only one copy
+silently creates a hole.
+
+**Fix / done-when.** Queue `claim-metadata-consistency`: make every supported
+claim update write both representations, and make pre-push fail closed when a
+ledger row and its `.claim` disagree before it considers overlaps. The
+regression gate must construct an inconsistent pair and prove the push is
+rejected; a matching pair remains accepted. Do not merely repair today's row —
+that would hide the mechanism.
+
+## corpus-baseline-update-scoped-run-truncates — `--update-baseline` can erase out-of-scope rows
+
+**Status:** OPEN → fix in flight under `corpus-contract-baseline-roster`
+(SPRINT E7; found 2026-07-27 by Codex on `540f0ba52`).
+
+**Reproduce.** `tests/conformance/contract.sc` refuses
+`--update-baseline --shard`, but accepts both:
+
+```bash
+scala-cli tests/conformance/contract.sc --update-baseline --only hello
+scala-cli tests/conformance/contract.sc --update-baseline --lanes int
+```
+
+The update writes `current`, which contains only the cases and lanes selected
+by those flags, over the whole `corpus-baseline.tsv`. The first command drops
+every non-`hello` row; the second drops every JS/v2 row. Use a disposable copy
+for the red reproduction — running either command in the main checkout is
+destructive.
+
+**Root cause.** The shard guard correctly states the invariant ("update rewrites
+the WHOLE baseline") but checks only `shard.isDefined`. `--only` and a
+non-canonical lane set create the same partial-observation shape.
+
+**Fix / done-when.** A baseline update is admitted only for the unsharded,
+unfiltered canonical lane set, and every refused combination exits 2 with the
+exact unsafe scope in the diagnostic. Pin the cheap negative control with
+`--list` so no built toolchain or corpus execution is required.
+
 ## parser-package-wrap-drops-fence-attrs — a `package:` module silently loses EVERY fence attribute
 
 **Status:** **FIXED 2026-07-27** by `corpus-gate-remaining-reds` (one argument). Found while
