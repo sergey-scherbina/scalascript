@@ -30,7 +30,9 @@ setup() {
   mkdir -p .githooks .work/active scljet specs
   cp "$HOOKS_SRC/pre-commit" "$HOOKS_SRC/pre-push" .githooks/
   chmod +x .githooks/*
-  printf 'slug: scljet-ipk\nitems: C1 C2\npaths: scljet/ tests/conformance/scljet-\n' \
+  # The live claim also declares SPRINT.md/BUGS.md — the realistic case, since nearly every claim
+  # lists the board files. Before the exemption this made the board unclaimable by anyone else.
+  printf 'slug: scljet-ipk\nitems: C1 C2\npaths: scljet/ tests/conformance/scljet- SPRINT.md BUGS.md\n' \
     > .work/active/scljet-ipk.claim
   printf '# generation: 1\n#slug\tagent\tstarted\titems\tpaths\n' > .work/active/LEDGER.tsv
   : > scljet/sql.ssc; : > README.md
@@ -85,6 +87,19 @@ check "allows a DELIBERATE verify-* overlap" \
 setup
 check "normalises a trailing glob: 'scljet/**' still overlaps 'scljet/'" \
       "refuse" "$(try_claim glob-lane 'Z2' 'scljet/**')"
+# The shared board files are NOT work. Layer 3 always allowed them; layer 2 refused a claim that
+# merely named one, so a finished task could not be ticked off — on 2026-07-27 four completed items
+# sat open on the board because of exactly this. The pair below is the point: the board is shared,
+# and real work is still guarded.
+setup
+check "allows a claim that also names the shared board files" \
+      "allow" "$(try_claim board-tick 'Z3' 'SPRINT.md BUGS.md CHANGELOG.md')"
+setup
+check "allows shared board files ALONGSIDE a disjoint work path" \
+      "allow" "$(try_claim v2-lane 'Z4' 'v2/ SPRINT.md')"
+setup
+check "still refuses real work even when the board files are also named" \
+      "refuse" "$(try_claim sneaky 'Z5' 'SPRINT.md scljet/sql.ssc')"
 
 echo
 echo "claim-mutex layer 3 — pre-commit claim-scope guard"

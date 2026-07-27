@@ -91,6 +91,36 @@ Two deliberate softenings, or it would be unusable:
 
 Escape hatch `git commit --no-verify`, same as the worktree guardrail.
 
+### The shared set applies to layer 2 as well (fixed 2026-07-27)
+
+Layer 3 exempted the board files from the start; **layer 2 did not**, so a claim that merely *named*
+`SPRINT.md` was refused as an overlap against any live claim that also listed it — and nearly every
+claim lists it. The two layers disagreed about the same files, and the practical result was that a
+finished task could not be ticked off: on 2026-07-27 four completed items (SPRINT F1/F2/F3 and the
+`js-int-division-by-zero` fix) sat open on the board because nobody could commit the tick. That is
+the exact drift this mutex exists to prevent, produced by the mutex itself.
+
+The overlap guard is for **work**, not for the notebook the work is recorded in. Two agents editing
+different lines of `SPRINT.md` rebase cleanly; two agents doing the same *task* is what must be
+caught, and `items:` catches that independently of any path. So `is_shared_bookkeeping` in
+`.githooks/pre-push` skips those names on both sides of the comparison, and the refusal message says
+so — if a board file ever appears in an overlap report, the hook has a bug.
+
+**Guarded against over-reach:** `tests/coord/claim-hooks.sh` asserts the pair, not just the
+permission — a claim naming only board files is allowed, board files alongside a disjoint work path
+are allowed, and a claim that names board files *and* a genuinely overlapping work path is still
+REFUSED. Measured against the pre-fix hook, the first two fail and the third passes, so the cases
+discriminate rather than merely agreeing with today's behaviour.
+
+### A refusal must say WHICH refusal it is (fixed 2026-07-27)
+
+`scripts/coord-claim` pushed with `2>/dev/null`, so the pre-push hook's diagnostic was discarded and
+an **overlap refusal** printed the same "another agent moved first" text as a plain generation race.
+The two need opposite responses — retry vs. stop and re-read the queue — and the agent hitting the
+first was told to do the second, retrying about ten times before diagnosing it by reading the hook
+source. `coord-claim` now keeps the push output and distinguishes the two, printing the hook's own
+reason for an overlap and stating plainly that retrying will not help.
+
 ### 4. Claim **before** planning
 
 `AGENTS.md` §workflow changes from `pick → plan → claim` to `pick → claim → plan`. A claim is one

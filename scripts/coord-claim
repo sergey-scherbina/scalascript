@@ -90,18 +90,36 @@ PY
 git add "$claim" "$ledger"
 git commit -q -m "claim: ${slug} (${items}) [skip ci]"
 
-if git push -q origin main 2>/dev/null; then
+# Keep the push output. Swallowing it (the old `2>/dev/null`) meant an OVERLAP refusal from the
+# pre-push guard and a plain generation race printed the SAME message — so an agent blocked by a real
+# conflict was told to retry, and retried ~10 times before diagnosing it by reading the hook. A guard
+# that cannot say WHY it refused is only half a guard.
+push_log=$(mktemp)
+if git push -q origin main >"$push_log" 2>&1; then
+  rm -f "$push_log"
   echo "✓ claimed ${slug}  items='${items}'  paths='${paths}'"
   echo "  now: scripts/new-worktree ${slug}   then plan it into SPRINT.md"
 else
-  cat >&2 <<EOF
+  if grep -q 'overlaps a live claim' "$push_log"; then
+    cat >&2 <<EOF
 
-✋ push rejected — another agent moved first.
+✋ claim REFUSED — it overlaps a live claim. This is NOT a race; retrying will not help.
+
+$(cat "$push_log")
+EOF
+  else
+    cat >&2 <<EOF
+
+✋ push rejected — another agent moved first (the queue generation advanced).
 
 Deliberately NOT auto-rebasing: someone else changed the queue, so re-read it before deciding.
   git fetch origin && git ls-tree origin/main .work/active/
 Then either pick different work, or reset this claim and redo it:
   git reset --hard origin/main
+
+$(sed -n '1,6p' "$push_log")
 EOF
+  fi
+  rm -f "$push_log"
   exit 1
 fi

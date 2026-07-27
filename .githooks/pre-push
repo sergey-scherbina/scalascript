@@ -43,6 +43,25 @@ incoming=$(git diff --name-only --diff-filter=AM "$remote_tip" "$local_tip" -- '
 live=$(git ls-tree -r --name-only "$remote_tip" -- .work/active/ 2>/dev/null | grep '\.claim$' || true)
 [ -n "$live" ] || exit 0
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Shared bookkeeping files are EXEMPT from the overlap comparison.
+#
+# Layer 3 (pre-commit) already exempts exactly this set — "every task touches these by design" —
+# but layer 2 did not, so a claim that merely NAMED SPRINT.md was refused as an overlap. The two
+# layers disagreed about the same files, and the result was that a finished task could not be
+# ticked off: on 2026-07-27 four completed items sat open on the board because nobody could commit
+# the tick, which is the exact drift this mutex exists to prevent.
+#
+# These files are line-oriented and append-mostly; two agents editing different lines rebase
+# cleanly. The overlap guard is for WORK, not for the notebook the work is recorded in — an item
+# claimed twice is still caught by `items:`, which is the check that actually matters.
+is_shared_bookkeeping() {
+  case "$1" in
+    SPRINT.md|BACKLOG.md|CHANGELOG.md|BUGS.md|MILESTONES.md|README.md) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 problems=""
 for new in $incoming; do
   new_slug=$(basename "$new" .claim)
@@ -66,8 +85,10 @@ for new in $incoming; do
     # Trailing globs are normalised away first, so `scljet/**` and `scljet/` mean the same thing.
     for p in $new_paths; do
       while [ "${p%\*}" != "$p" ]; do p="${p%\*}"; done
+      is_shared_bookkeeping "$p" && continue
       for q in $old_paths; do
         while [ "${q%\*}" != "$q" ]; do q="${q%\*}"; done
+        is_shared_bookkeeping "$q" && continue
         case "$p" in "$q"*) problems="$problems\n  path '$p' falls inside '$q', claimed by '$old_slug'" ;; esac
         case "$q" in "$p"*) [ "$p" = "$q" ] || problems="$problems\n  path '$p' contains '$q', claimed by '$old_slug'" ;; esac
       done
@@ -87,6 +108,9 @@ Two agents doing the same work under different slugs is exactly what this guard 
   - triage the other claim first:   /multi-agent triage <slug>     (stale heartbeat ⇒ release it)
   - or, if you are DELIBERATELY re-checking that agent's result, name your claim 'verify-<slug>' —
     that is allowed, and is how a live corruption bug was caught on 2026-07-27.
+
+Note: SPRINT.md / BACKLOG.md / CHANGELOG.md / BUGS.md / MILESTONES.md / README.md are SHARED and are
+never an overlap — if one of those is in the list above, this hook has a bug.
 
 Override (rarely correct): git push --no-verify
 EOF
