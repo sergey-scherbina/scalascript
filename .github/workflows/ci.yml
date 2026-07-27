@@ -1,10 +1,35 @@
 name: CI
 
+# A commit that changes NO code does not get a CI run. This is the other half of
+# `ci-runs-cancelled-under-churn`: the concurrency block below collapses the queue to "one running
+# plus one pending", but it does not decide WHICH commit gets that pending slot — so a docs commit
+# pushed seconds after a code commit evicts the code commit's run, and the code commit never gets a
+# verdict at all.
+#
+# MEASURED 2026-07-28 over one hour on `main`: 80 commits, 58 of them without `[skip ci]` (i.e. each
+# creating a run), and **43 of those 58 changed ONLY `.md` or `.work/` files**. ~74% of the CI load
+# carried no code while `sbt — compile and test` takes 3h16m and 62 runs were queued; the last
+# `success` on this workflow was 2026-07-27T16:31:33Z, nine hours earlier.
+#
+# `[skip ci]` already exists and 22 of those 80 commits used it — the other 58 did not. A rule that
+# depends on every agent remembering it is a wish, not a rule; `paths-ignore` is the same intent as
+# enforcement. It CANNOT hide a code change: GitHub skips the run only when EVERY changed path
+# matches, so a commit touching code AND a doc still runs in full.
+#
+# This does not weaken the evidence ladder — AGENTS.md §4c already tells you that `[skip ci]`
+# bookkeeping commits leave HEAD without a run of its own and that you verify the newest CODE
+# commit. This makes that documented practice reliable instead of discretionary.
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - '.work/**'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - '.work/**'
 
 # Without this, CI could not deliver a verdict at all under the project's push rate.
 #
