@@ -7104,39 +7104,6 @@ emits `def C(a) = IrCtor(C, [a])`; extend to `def C(a) = let y=a*2 in IrCtor(C, 
 - [ ] **v2-std-ui-missing-fixture** — std-ui-aggregator / std-ui-extended{,-b,-c,-d} import
   `../examples/std-ui` = `tests/examples/std-ui/index.ssc`, which DOES NOT EXIST. Restore the fixture
   dir or re-scope these tests (fails on ALL backends without it).
-- [ ] **v2-json-self-hosted** — ACTIVE (`feature/v2-json-self-hosted`):
-  re-measure the stale missing-import diagnosis and close the actual native-v2
-  parity gap across json-read / json-value / json-lookup.
-  - Reproduce all three through the assembled product/conformance harness on
-    their declared lanes; capture the exact pre-fix diagnostics.
-  - Run explicit-import controls against the same expected output and inspect
-    the standard-module contract. Prefer fixture imports if JSON is deliberately
-    opt-in and the existing native stubs already direct callers to import it;
-    auto-loading is admissible only if the language contract promises that
-    module implicitly.
-  - Apply the smallest contract-correct fix, preserving the same observable
-    output; add a dedicated regression only if the three cases do not pin the
-    actual import boundary.
-  - **Measured baseline:** regular conformance is 3/3 on INT/JS/JVM. The
-    assembled `bin/ssc run --bytecode` route already makes json-value and
-    json-lookup byte-identical without source edits; json-read exits 0 but
-    differs only at JSON null (`expected=None`, `got=()`) and integral double
-    display (`expected=0`, `got=0.0`). Track the real defect as BUGS
-    `v2-json-read-native-representation-parity`; do not preserve the stale
-    "unbound self-hosted global" diagnosis.
-  - **Import-control correction:** the first mixed-lane run falsely appeared
-    exact on V2. The isolated V2 fixture and a direct assembled rerun both
-    print `()` / `0.0`; assembled v1 self-hosted execution prints the same.
-    The legacy `None` / `0` expectation therefore belongs to the old global
-    intrinsic API, not `std/json.ssc`. The import also breaks JS and JVM, so
-    the shared legacy-intrinsic fixtures cannot simply gain a V2 lane. Keep
-    them byte-for-byte unchanged and add one V2-only
-    `json-self-hosted-import` case covering strict raw parse, `JsonValue`,
-    lookup, Unit-backed null, and exact-decimal rendering.
-  - Done when regular conformance keeps json-read/json-value/json-lookup 3/3 on
-    their original lanes and the new V2-only import-boundary case passes through
-    both the standard wrapper and the assembled product, with no native stub or
-    fallback standing in for `std/json.ssc`.
 - [ ] **v2-js-only-tests** — js-cps-intrinsic-rewrite (`nowMillis`) / js-state-effect-runner /
   js-symbolic-infix-operator (custom multi-char operators `<~>`/`~~` — a real lexer gap but the test
   is `backends: [int, js]`) / if-then-no-else-after-while (`backends: [int]` AND the test file is

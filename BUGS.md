@@ -128,8 +128,9 @@ the true signed maximum, start an empty table at 1, and choose an unused
 positive fallback when the maximum cannot be incremented.
 ## v2-json-read-native-representation-parity — native JSON read differs from established output
 
-**Status:** OPEN — RECLASSIFIED AS A FIXTURE/GATE DEFECT (found 2026-07-27
-by `codex` while working SPRINT `v2-json-self-hosted`).
+**Status:** DONE — fixture/gate defect fixed by `1edd8cd6c` (found and
+confirmed 2026-07-27 by `codex` while working SPRINT
+`v2-json-self-hosted`).
 
 **Real-harness reproduction.** Build the worktree product with
 `scripts/sbtc "installBin"`, then run:
@@ -172,6 +173,11 @@ V2-only conformance case that explicitly imports the self-hosted JSON surface
 and pins strict raw parse, typed navigation, lookup, Unit-backed JSON null, and
 exact decimal rendering. The ordinary conformance command must then execute
 the V2 boundary instead of relying on an ad-hoc sweep.
+
+**Verification.** `json-self-hosted-import` passes its declared V2 lane, and
+its output is byte-identical through native VM, direct ASM, and
+`ssc-standard`. The original `json-read,json-value,json-lookup` slice remains
+3/3 on INT/JS/JVM, and `v21-self-hosted-json-cutover-smoke.sh` passes.
 
 ## native-release-unqualified-and-unrelocatable — release workflow cannot prove a runnable v2 artifact
 

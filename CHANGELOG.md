@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-07-28 — v2 self-hosted JSON has an explicit conformance boundary
+
+`json-self-hosted-import` now exercises the public `std/json.ssc` route on its
+declared V2 lane: strict raw parsing, Unit-backed JSON null, exact Decimal
+tokens, typed `JsonValue` navigation, lookup, and self-hosted rendering. The
+same expected bytes pass through native VM, direct ASM, and `ssc-standard`;
+the established legacy JSON slice remains 3/3 on INT/JS/JVM.
+
+The work also corrected a misleading native sweep instead of changing valid
+runtime semantics. Its `None` / `0` expectation came from the legacy
+plugin-global API, while both v1 and v2 self-hosted bridges deliberately
+produce `()` / `0.0`. The first mixed-lane import control that appeared green
+was retracted after an isolated fail-closed comparison disproved it.
+Regression: `1edd8cd6c`.
+
 ## 2026-07-27 — F accelerates large nested compiler runs with selective direct ASM
 
 The F product runner now sends only its first large nested F0 through direct
