@@ -676,6 +676,26 @@ which is faster and equivalent for this case), and check the effects/Op-lifting 
 registry change landed today (`c3841d01e`, "OpAnf purity registry classified EVERY def as pure,
 disabling Op lifting"), which is adjacent to how an effect reaches its handler.
 
+## scljet-jdbc-nan-binding-diverges — PreparedStatement binds NaN as REAL instead of SQLite NULL
+
+**Status:** OPEN (found 2026-07-28 by the independently reviewed live
+sqlite-jdbc SC-1a differential).
+
+**Real-harness reproduction.** Bind `Double.NaN` with `setDouble` to the
+`INTEGER PRIMARY KEY` parameter of an INSERT. Pinned Xerial sqlite-jdbc
+canonicalises the value through `sqlite3_bind_double` to SQL NULL and assigns
+the next automatic rowid; `jdbc:scljet:` passes `SqlReal(NaN)` into IPK
+affinity and returns datatype mismatch. The compare-first matrix reports the
+phase/category difference and the missing row explicitly.
+
+**Root cause / required fix.** `PreparedStatementHandler` maps every
+`setDouble`, `setFloat`, boxed `Double`, and boxed `Float` directly to
+`SqlReal`. Its JDBC boundary must map NaN to `SqlNull`, while preserving
+positive and negative infinity as REAL values (which the IPK affinity layer
+then rejects). Keep the pure engine contract distinct: an explicitly
+constructed `SqlReal(NaN)` is still a non-integral REAL and must fail IPK
+coercion.
+
 ## scljet-ipk-insert-indexed-out-of-order — indexed INSERT rebuild preserves statement order, not rowid order
 
 **Status:** OPEN (found 2026-07-28 by `scljet-production-completion` in the
