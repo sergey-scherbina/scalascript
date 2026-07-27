@@ -2,10 +2,10 @@ slug: v2-f-bytecode-probe
 branch: feature/v2-f-bytecode-probe
 agent: codex
 started: 2026-07-27T20:58:16Z
-heartbeat: 2026-07-27T21:12:52Z
+heartbeat: 2026-07-27T21:15:09Z
 status: in-progress
 items: V-6b
-paths: specs/v2-f-bytecode-probe.md scripts/v2-f-bytecode-probe v2/backend-jvm-bytecode/JvmByteGen.scala v2/backend-jvm-bytecode/src/test/scala/ssc/bytecode/JvmByteGenLargeStringTest.scala
+paths: specs/v2-f-bytecode-probe.md scripts/v2-f-bytecode-probe v2/backend-jvm-bytecode/JvmByteGen.scala v1/tools/cli/src/test/scala/scalascript/cli/JvmByteGenLargeStringTest.scala
 scope: |
   V-6b: build a reproducible no-fallback driver that executes the already-bootstrapped F0 through
   JvmByteGen, compares exact output against the VM before classification, measures fresh-process
