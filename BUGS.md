@@ -1,5 +1,27 @@
 # Bug tracker
 
+## coord-status-ledger-invalid-marker — the required claim ledger is reported as an invalid marker
+
+**Status:** OPEN (reported 2026-07-28 by the production-readiness coordination audit; baseline
+`d900d00cf9`).
+
+**Reported real-script reproduction.**
+
+```bash
+scripts/coord-status --no-fetch
+```
+
+The status checker reports `.work/active/LEDGER.tsv` as an invalid active marker and suggests
+`git mv .work/active/LEDGER.tsv .work/active/LEDGER.tsv.claim`. That advice contradicts the claim
+mutex contract: `scripts/coord-claim` deliberately maintains `LEDGER.tsv` as the shared generation
+ledger, not as an agent claim.
+
+**Fix acceptance.** Reproduce against the real script, then add a compare-first coordination
+regression which proves both sides of the classification: the exact required ledger is silent, and
+an arbitrary non-`.claim` file under `.work/active/` remains a loud invalid marker. Preserve the
+existing diagnostic for real mistakes; do not broadly exempt `.tsv` files or all special-looking
+names.
+
 ## f-validateNoReader-rejects-plugin-externs — the F-vs-legacy guard counts a legitimate `extern def` as a coverage gap
 
 **Status:** OPEN (found 2026-07-28 by `v2-board-and-f5b` while measuring why F still delegates).
