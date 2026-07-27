@@ -310,3 +310,113 @@ final class ContinuationSemanticsTest extends AnyFunSuite:
       Eff.runPure(failure) ==
         CaptureFailure.UnmanagedCapture("Continuation.local")
     )
+
+  // ── cancellation transitions (vector 26; owner decisions D1/D4) ────────────────────────────────
+  // `cancel` and `resume` compete for the SAME atomic claim, so the eager-claim law extends without
+  // a new race algebra — and the LOSER is told which side won. That distinction is the whole point
+  // of D1: reporting a lost cancel as `AlreadyResumed` would name a *resume* failure for a caller
+  // who asked to *stop* the work, which §13's non-collapsibility rule forbids.
+
+  /** Run `body` under a handler that hands the one-shot continuation to `inspect`, and return what
+    * `inspect` decides. The suffix must never run: every case here rejects or cancels. */
+  private def withOneShot[A](
+      inspect: OneShotContinuation[Int, Nothing, Int] => A
+  ): (A, Int) =
+    var suffixCalls = 0
+    var observed: Option[A] = None
+    val body: Eff[OnceEffect.type, Int] =
+      perform(TakeOnce).flatMap { value =>
+        Eff.defer {
+          suffixCalls += 1
+          Eff.pure(value + 1)
+        }
+      }
+    val handled = handle[OnceEffect.type, Nothing, Int, Int](body)(
+      new Handler[OnceEffect.type, Nothing, Int, Int]:
+        override val effect: EffectKey[OnceEffect.type] = OnceEffect.key
+        override def onReturn(value: Int): Eff[Nothing, Int] = Eff.pure(value)
+        override def onOperation[X](
+            operation: Operation[OnceEffect.type, X],
+            resumption: Resumption[X, Nothing, Int]
+        ): Eff[Nothing, Int] =
+          operation match
+            case TakeOnce =>
+              resumption match
+                case Resumption.OneShot(continuation) =>
+                  observed = Some(inspect(continuation))
+                  Eff.pure(0)
+                case Resumption.Reusable(_) =>
+                  throw new AssertionError("one-shot operation exposed a reusable resumption")
+    )
+    Eff.runPure(handled)
+    (observed.getOrElse(throw new AssertionError("handler never ran")), suffixCalls)
+
+  test("cancel then resume — the resume is rejected as Cancelled, and the suffix never runs"):
+    val (result, suffixCalls) = withOneShot { k =>
+      val cancelled = k.tryCancel()
+      assert(cancelled == Right(CancelAccepted(TakeOnce.id)))
+      k.tryResume(41)
+    }
+    assert(result == Left(ResumeRejected.Cancelled(TakeOnce.id)))
+    assert(suffixCalls == 0, "a cancelled continuation must not run its suffix")
+
+  test("resume then cancel — the cancel is TooLateToCancel, NOT AlreadyResumed (D1)"):
+    val (result, _) = withOneShot { k =>
+      assert(k.tryResume(41).isRight)
+      k.tryCancel()
+    }
+    assert(result == Left(ResumeRejected.TooLateToCancel(TakeOnce.id)))
+    // The distinction is the decision: this must NOT be reported as a resume failure.
+    assert(result != Left(ResumeRejected.AlreadyResumed(TakeOnce.id)))
+
+  test("cancelling twice is idempotent — the same evidence, never a failure"):
+    val (result, _) = withOneShot { k =>
+      val first = k.tryCancel()
+      val second = k.tryCancel()
+      (first, second)
+    }
+    assert(result == (Right(CancelAccepted(TakeOnce.id)), Right(CancelAccepted(TakeOnce.id))))
+
+  test("a second resume after a cancel still reports Cancelled, not AlreadyResumed"):
+    // The claim is CANCELLED, so every later resume must keep saying so — a state machine that
+    // flipped to "resumed" on the first rejected resume would report the wrong reason afterwards.
+    val (result, suffixCalls) = withOneShot { k =>
+      k.tryCancel()
+      k.tryResume(1)
+      k.tryResume(2)
+    }
+    assert(result == Left(ResumeRejected.Cancelled(TakeOnce.id)))
+    assert(suffixCalls == 0)
+
+  test("concurrent cancel and resume — exactly one wins, and the loser names the winner"):
+    // The §3.1 eager law under real contention: whichever side wins, the other's rejection must
+    // identify the winner, and the suffix must run at most once.
+    val outcomes = (1 to 200).map { _ =>
+      val (pair, suffixCalls) = withOneShot { k =>
+        val start = new CountDownLatch(1)
+        val pool = Executors.newFixedThreadPool(2)
+        try
+          val resumeTask = pool.submit(new Callable[Either[ResumeRejected, Any]] {
+            override def call(): Either[ResumeRejected, Any] =
+              start.await(5, TimeUnit.SECONDS); k.tryResume(41)
+          })
+          val cancelTask = pool.submit(new Callable[Either[ResumeRejected, Any]] {
+            override def call(): Either[ResumeRejected, Any] =
+              start.await(5, TimeUnit.SECONDS); k.tryCancel()
+          })
+          start.countDown()
+          (resumeTask.get(5, TimeUnit.SECONDS), cancelTask.get(5, TimeUnit.SECONDS))
+        finally pool.shutdownNow()
+      }
+      assert(suffixCalls <= 1)
+      pair
+    }
+    outcomes.foreach { case (resumed, cancelled) =>
+      (resumed.isRight, cancelled.isRight) match
+        case (true, false) =>
+          assert(cancelled == Left(ResumeRejected.TooLateToCancel(TakeOnce.id)))
+        case (false, true) =>
+          assert(resumed == Left(ResumeRejected.Cancelled(TakeOnce.id)))
+        case other =>
+          throw new AssertionError(s"exactly one side must win, got $other")
+    }

@@ -1,6 +1,6 @@
 package scalascript.control
 
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 sealed trait Resumption[-A, +Fx <: Effect, +R]
 
@@ -114,7 +114,21 @@ sealed abstract class OneShotContinuation[-A, +Fx <: Effect, +R] private (
 
   def tryResume(value: A): Either[ResumeRejected, Eff[Fx, R]]
 
+  /**
+   * Cancel this one-shot continuation. `cancel` and `resume` compete for the SAME atomic claim, so
+   * the existing eager-claim law (§3.1) extends without a new race algebra: exactly one wins, and
+   * the loser is told WHICH — a resume that lost gets `Cancelled`, a cancel that lost gets
+   * `TooLateToCancel` (owner decision D1). Cancelling twice succeeds idempotently with the same
+   * evidence; it is not an error to be sure.
+   */
+  def tryCancel(): Either[ResumeRejected, CancelAccepted]
+
 object OneShotContinuation:
+  // The one atomic claim, as three states rather than a boolean — see Runtime.tryResume/tryCancel.
+  private final val ClaimFree = 0
+  private final val ClaimResumed = 1
+  private final val ClaimCancelled = 2
+
   /** JVM-visible only as an unforgeable constructor parameter. */
   private[control] final class Authority private[OneShotContinuation] ()
 
@@ -131,13 +145,23 @@ object OneShotContinuation:
       resumeBody: A => Eff[Fx, R],
       candidate: Authority
   ) extends OneShotContinuation[A, Fx, R](candidate):
-    private val claimed = new AtomicBoolean(false)
+    // A single AtomicBoolean could say only "taken", never BY WHOM — which is exactly the
+    // distinction D1 requires. Three states, one CAS: 0 free, 1 resumed, 2 cancelled. The winner
+    // still wins atomically and the loser still learns before touching the suffix (§3.1); it now
+    // also learns which side won.
+    private val claim = new AtomicInteger(ClaimFree)
 
     override def tryResume(
         value: A
     ): Either[ResumeRejected, Eff[Fx, R]] =
-      if claimed.compareAndSet(false, true) then Right(resumeBody(value))
+      if claim.compareAndSet(ClaimFree, ClaimResumed) then Right(resumeBody(value))
+      else if claim.get() == ClaimCancelled then Left(ResumeRejected.Cancelled(operation))
       else Left(ResumeRejected.AlreadyResumed(operation))
+
+    override def tryCancel(): Either[ResumeRejected, CancelAccepted] =
+      if claim.compareAndSet(ClaimFree, ClaimCancelled) then Right(CancelAccepted(operation))
+      else if claim.get() == ClaimResumed then Left(ResumeRejected.TooLateToCancel(operation))
+      else Right(CancelAccepted(operation)) // already cancelled — idempotent, never a failure
 
   private final class Delegated[A, Fx <: Effect, R, Fx2 <: Effect, R2](
       source: OneShotContinuation[A, Fx, R],
@@ -150,6 +174,10 @@ object OneShotContinuation:
       source.tryResume(value) match
         case Left(rejected) => Left(rejected)
         case Right(next)    => Right(transform(next))
+
+    // A delegated view shares the SOURCE's claim — cancelling through the view must cancel the one
+    // continuation, not a copy of its state.
+    override def tryCancel(): Either[ResumeRejected, CancelAccepted] = source.tryCancel()
 
   private[control] def runtime[A, Fx <: Effect, R](
       kernel: Eff.Authority,

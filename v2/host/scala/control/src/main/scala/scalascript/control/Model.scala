@@ -13,9 +13,26 @@ final case class OperationId(effect: EffectId, name: String)
 enum ResumeMultiplicity:
   case Reusable, OneShot
 
-/** Typed rejection produced when a one-shot continuation was already invoked. */
+/**
+ * Typed rejection produced when a continuation cannot be resumed or cancelled.
+ *
+ * `Cancelled` and `TooLateToCancel` are DELIBERATELY separate rows (owner decision D1,
+ * `specs/durable-cancellation-open-decisions.md`): collapsing "your cancel arrived after the
+ * resume claim" into `AlreadyResumed` would report the caller's *cancel* under a name that means
+ * *resumption*, and §13 requires diagnostics to stay non-collapsible. A caller asking "did I manage
+ * to stop it?" gets an unambiguous answer instead of having to reinterpret `AlreadyResumed` by
+ * context.
+ */
 enum ResumeRejected:
   case AlreadyResumed(operation: OperationId)
+  /** A run was requested on a continuation the caller had cancelled. */
+  case Cancelled(operation: OperationId)
+  /** A cancel lost the race to a resume that had already claimed the slot. */
+  case TooLateToCancel(operation: OperationId)
+
+/** Evidence that a cancellation took effect. Named apart from `ResumeRejected.Cancelled` so the
+ *  success and failure sides of `tryCancel` never read as the same thing. */
+final case class CancelAccepted(operation: OperationId)
 
 /**
  * Local type evidence and stable descriptor identity for an effect algebra.
