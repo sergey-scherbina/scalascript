@@ -75,3 +75,18 @@ class FNestedBytecodeEvalTest extends AnyFunSuite:
       assert(Emit.globalsRef.asInstanceOf[AnyRef] eq sentinel.asInstanceOf[AnyRef])
       assert(evaluator(large).isEmpty)
     finally Emit.globalsRef = original
+
+  test("F evaluator propagates a failure after bytecode execution starts"):
+    val failing = Program(
+      List(Def("payload", Term.Lit(Const.CStr("x" * 70000)))),
+      Term.Prim("__arith__", List(
+        Term.Lit(Const.CStr("/")),
+        Term.Lit(Const.CInt(1)),
+        Term.Lit(Const.CInt(0)),
+      )),
+    )
+    val evaluator = RunNativeV2.fNestedBytecodeEvaluator(trace = false)
+
+    val failure =
+      intercept[RunNativeV2.FNestedBytecodeFailure](evaluator(failing))
+    assert(failure.original.isInstanceOf[ArithmeticException])

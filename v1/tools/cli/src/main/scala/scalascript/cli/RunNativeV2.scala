@@ -100,7 +100,10 @@ object RunNativeV2:
               val s = lowerWith(layout.runner, layout.fsubSrc)
               validateNoReader(s.program) // throws on any unbound global (F coverage gap)
               Some(s)
-            catch case _: Throwable => None
+            catch
+              case failure: FNestedBytecodeFailure =>
+                throw failure.original
+              case _: Throwable => None
           fResult.getOrElse {
             if sys.env.contains("SSC_FRONT_TRACE") then
               System.err.println(s"[SSC_FRONT=F] F could not fully lower ${sourceFiles.mkString(", ")}; delegating to the default front")
@@ -189,7 +192,8 @@ object RunNativeV2:
       runner,
       mutableFlag ++ fsubFlag ++ ("--structural" :: "--std-root" :: portablePath(stdRoot.getCanonicalFile) ::
         "--lib-root" :: portablePath(libRoot.getCanonicalFile) :: sourceFiles),
-      "ssc-native-frontend")
+      "ssc-native-frontend",
+      useFNestedBytecode = fsubSrc.nonEmpty)
     if result.exitCode != 0 then
       throw new RuntimeException(s"native frontend exited with ${result.exitCode}")
     val value = result.value
@@ -235,7 +239,11 @@ object RunNativeV2:
    * committed memory, so a generous value is cheap. */
   private val TowerStackBytes: Long = 512L * 1024L * 1024L
 
-  private def runTower(runner: java.io.File, args: List[String], threadName: String): TowerResult =
+  private def runTower(
+      runner: java.io.File,
+      args: List[String],
+      threadName: String,
+      useFNestedBytecode: Boolean = false): TowerResult =
     val irOut   = new java.io.ByteArrayOutputStream()
     val irPs    = new java.io.PrintStream(irOut, true, java.nio.charset.StandardCharsets.UTF_8)
     val failure = new java.util.concurrent.atomic.AtomicReference[Throwable]()
@@ -249,8 +257,18 @@ object RunNativeV2:
           _root_.ssc.Runtime.argv = args
           Console.withOut(irPs) {
             val tower = _root_.ssc.Lower.module(_root_.ssc.Loader.load(runner.getCanonicalPath))
-            resultValue.set(_root_.ssc.Runtime.runManaged(
-              _root_.ssc.Compiler.compile(tower), Array.empty[_root_.ssc.Value]))
+            val code = _root_.ssc.Compiler.compile(tower)
+            val value =
+              if useFNestedBytecode then
+                _root_.ssc.Runtime.withCoreIrEvaluator(
+                  fNestedBytecodeEvaluator(sys.env.contains("SSC_FRONT_TRACE"))) {
+                  _root_.ssc.Runtime.runManaged(
+                    code, Array.empty[_root_.ssc.Value])
+                }
+              else
+                _root_.ssc.Runtime.runManaged(
+                  code, Array.empty[_root_.ssc.Value])
+            resultValue.set(value)
           }
         catch
           case e: TowerExit => exitCode.set(e.code)
@@ -268,6 +286,63 @@ object RunNativeV2:
     finally
       _root_.ssc.Runtime.exitHandler = previousExitHandler
       irPs.close()
+
+  /** Keeps a nested bytecode failure out of F's broad coverage fallback. Once
+    * install/entry begins, retrying through either F0's VM or the legacy front
+    * could hide a miscompile and duplicate compiler-side effects. */
+  private[cli] final class FNestedBytecodeFailure(
+      val original: Throwable
+  ) extends RuntimeException(original)
+
+  /** One evaluator per F tower. The first coreir.eval is F0; consuming the
+    * one-shot before classification guarantees later content/YAML evals stay
+    * on their existing VM path even when the first program is small. */
+  private[cli] def fNestedBytecodeEvaluator(
+      trace: Boolean
+  ): _root_.ssc.Program => Option[_root_.ssc.Value] =
+    var first = true
+    program =>
+      if !first then None
+      else
+        first = false
+        if !_root_.ssc.bytecode.JvmByteGen.requiresStringChunking(program) then
+          None
+        else
+          runNestedF0Bytecode(program, trace)
+
+  private def runNestedF0Bytecode(
+      program: _root_.ssc.Program,
+      trace: Boolean
+  ): Option[_root_.ssc.Value] =
+    val bytecode =
+      try
+        Some(_root_.ssc.bytecode.JvmByteGen.emitProgram(
+          _root_.ssc.bytecode.OpAnfNative.lift(program)))
+      catch
+        case e: _root_.ssc.bytecode.Unsupported =>
+          noteFNestedBytecodeVm("unsupported-construct", e.getMessage, trace)
+          None
+        case e: RuntimeException if isAsmSizeLimit(e) =>
+          noteFNestedBytecodeVm("class-size-limit", e.getClass.getName, trace)
+          None
+        case t: Throwable =>
+          throw new FNestedBytecodeFailure(t)
+
+    bytecode.map { bytes =>
+      val previousGlobals = _root_.ssc.Emit.globalsRef
+      _root_.ssc.Emit.globalsRef = collection.mutable.HashMap.empty
+      try
+        if trace then System.err.println(FNestedBytecodeMarker)
+        try _root_.ssc.bytecode.JvmByteGen.runProgram(bytes)
+        catch
+          case e: java.lang.reflect.InvocationTargetException =>
+            throw new FNestedBytecodeFailure(
+              Option(e.getCause).getOrElse(e))
+          case t: Throwable =>
+            throw new FNestedBytecodeFailure(t)
+      finally
+        _root_.ssc.Emit.globalsRef = previousGlobals
+    }
 
   private def runVm(prog: _root_.ssc.Program): Unit =
     V2Result.report(_root_.ssc.Runtime.runManaged(
@@ -332,6 +407,19 @@ object RunNativeV2:
    *  `tests/e2e/bytecode-fallback-visible.sh`.
    */
   private[cli] val BytecodeFallbackMarker = "ssc: --bytecode fell back to the VM lane"
+
+  private[cli] val FNestedBytecodeMarker = "[SSC_FRONT=F] nested F0 direct-ASM"
+
+  private def noteFNestedBytecodeVm(
+      reason: String,
+      detail: String,
+      trace: Boolean
+  ): Unit =
+    if trace then
+      val suffix =
+        Option(detail).filter(_.nonEmpty).map(d => s" ($d)").getOrElse("")
+      System.err.println(
+        s"[SSC_FRONT=F] nested F0 stayed on VM [$reason]$suffix")
 
   private def noteBytecodeFallback(reason: String, detail: String): Unit =
     val suffix = Option(detail).filter(_.nonEmpty).map(d => s" ($d)").getOrElse("")

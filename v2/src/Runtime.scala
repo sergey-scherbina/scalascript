@@ -307,6 +307,31 @@ object Runtime:
   // the program through the `io.args` primitive. Set by Main before running.
   var argv: List[String] = Nil
 
+  /** Host-only override for nested CoreIR evaluation. The scope is deliberately
+    * thread-local: native frontend towers run on dedicated large-stack threads,
+    * while checkers and unrelated compilations may coexist in the same JVM. An
+    * evaluator returns None to retain the ordinary VM path. */
+  private val coreIrEvaluator =
+    new ThreadLocal[Program => Option[Value]]
+
+  def withCoreIrEvaluator[A](
+      evaluator: Program => Option[Value]
+  )(body: => A): A =
+    val previous = coreIrEvaluator.get()
+    coreIrEvaluator.set(evaluator)
+    try body
+    finally
+      if previous == null then coreIrEvaluator.remove()
+      else coreIrEvaluator.set(previous)
+
+  private[ssc] def evalCoreIr(program: Program): Value =
+    val evaluator = coreIrEvaluator.get()
+    if evaluator == null then
+      Runtime.run(Compiler.compile(program), Array.empty[Value])
+    else
+      evaluator(program).getOrElse(
+        Runtime.run(Compiler.compile(program), Array.empty[Value]))
+
   // Singleton empty env; reused for arity-0 closures to avoid allocation.
   val emptyEnv: Env = Array.empty[Value]
 
@@ -1662,8 +1687,7 @@ object Prims:
     case "io.exit" => a => Runtime.exitHandler(int(a, 0).toInt); UnitV
     // Core IR serialization: a Data-tree (IrProg/IrLam/… built in ssc0) -> canonical bytecode
     case "coreir.encode" => a => StrV(IrEncode.program(a(0)))
-    case "coreir.eval"   => a => Runtime.run(
-      Compiler.compile(IrDecode.program(a(0))), Array.empty[Value])
+    case "coreir.eval"   => a => Runtime.evalCoreIr(IrDecode.program(a(0)))
     // coreir.decode : Str|Bytes -> IrProg — parse canonical Core IR text back into the IrProg
     // Data tree the tower consumes (inverse of coreir.encode). The text is read through the
     // BOUNDED + VALIDATED kernel Reader, so `#coreir.decode` inherits the same fail-closed

@@ -32,6 +32,41 @@ object JvmByteGen:
   private val STRING_BUILDER = "java/lang/StringBuilder"
   private val MaxModifiedUtf8Bytes = 65535
 
+  /** Whether emitting this program must reconstruct at least one literal from
+    * multiple CONSTANT_Utf8 entries. This is also the product F0 admission
+    * predicate, so it intentionally shares the exact modified-UTF8 accounting
+    * used by loadString rather than approximating with character count. */
+  def requiresStringChunking(program: Program): Boolean =
+    def constant(c: Const): Boolean = c match
+      case Const.CStr(value) =>
+        modifiedUtf8ExceedsLimit(value)
+      case Const.CBig(value) =>
+        modifiedUtf8ExceedsLimit(value.toString)
+      case Const.CBytes(value) =>
+        modifiedUtf8ExceedsLimit(
+          java.util.Base64.getEncoder.encodeToString(value.toArray))
+      case _ => false
+
+    def term(t: Term): Boolean = t match
+      case Term.Lit(c) => constant(c)
+      case Term.Lam(_, body) => term(body)
+      case Term.App(fn, args) => term(fn) || args.exists(term)
+      case Term.Let(rhs, body) => rhs.exists(term) || term(body)
+      case Term.LetRec(lams, body) => lams.exists(term) || term(body)
+      case Term.If(cond, yes, no) => term(cond) || term(yes) || term(no)
+      case Term.Ctor(_, fields) => fields.exists(term)
+      case Term.Match(scrutinee, arms, default) =>
+        term(scrutinee) ||
+          arms.exists(arm => term(arm.body)) ||
+          default.exists(term)
+      case Term.Prim(_, args) => args.exists(term)
+      case Term.While(cond, body) => term(cond) || term(body)
+      case Term.Seq(terms) => terms.exists(term)
+      case _ => false
+
+    program.defs.exists(definition => term(definition.body)) ||
+      term(program.entry)
+
   private def isHandlerDispatchRoot(arity: Int, body: Term): Boolean =
     HandlerDispatchShape.isRoot(arity, body)
 
@@ -1355,10 +1390,7 @@ object JvmByteGen:
     var bytes = 0
     while index < value.length do
       val ch = value.charAt(index)
-      val width =
-        if ch >= 1 && ch <= 0x7f then 1
-        else if ch <= 0x7ff then 2
-        else 3
+      val width = modifiedUtf8Width(ch)
       if bytes + width > MaxModifiedUtf8Bytes then
         chunks += value.substring(start, index)
         start = index
@@ -1367,6 +1399,20 @@ object JvmByteGen:
       index += 1
     chunks += value.substring(start)
     chunks.toList
+
+  private def modifiedUtf8ExceedsLimit(value: String): Boolean =
+    var index = 0
+    var bytes = 0
+    while index < value.length do
+      bytes += modifiedUtf8Width(value.charAt(index))
+      if bytes > MaxModifiedUtf8Bytes then return true
+      index += 1
+    false
+
+  private inline def modifiedUtf8Width(ch: Char): Int =
+    if ch >= 1 && ch <= 0x7f then 1
+    else if ch <= 0x7ff then 2
+    else 3
 
   private def callVB(mv: MethodVisitor, m: String) =
     mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, m, s"(L$VAL;)Z", false)
