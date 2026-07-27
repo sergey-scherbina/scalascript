@@ -2,14 +2,14 @@ slug: corpus-contract-baseline-roster
 branch: feature/corpus-contract-baseline-roster
 agent: codex
 started: 2026-07-27T20:31:04Z
-heartbeat: 2026-07-27T21:08:07Z
+heartbeat: 2026-07-27T21:14:36Z
 status: in-progress
-items: E7 corpus-contract-baseline-roster baseline-update-filter-truncates corpus-contract-freeze-digest-unbound corpus-contract-delta-false-improvements corpus-contract-zero-evidence-green corpus-contract-shards-miss-removals corpus-contract-skip-transition-false-improvement corpus-contract-usage-missing-arg-separator
+items: E7 corpus-contract-baseline-roster baseline-update-filter-truncates corpus-contract-freeze-digest-unbound corpus-contract-delta-false-improvements corpus-contract-zero-evidence-green corpus-contract-shards-miss-removals corpus-contract-skip-transition-false-improvement corpus-contract-usage-missing-arg-separator corpus-contract-doc-mislabels-v2-lane
 paths: tests/conformance/contract.sc tests/conformance/contract-roster.tsv tests/conformance/CONTRACT.md
 scope: |
   Add a frozen full-case roster beside corpus-baseline.tsv so the differential gate distinguishes
   NEW cases from regressions without touching the neighboring re-baseline claim. Also fail closed
   on partial updates, unbound roster edits, unobserved/status-change false improvements, and
-  zero-evidence invocations, sharded removal loss, false SKIP improvements, and unusable usage docs.
-done-so-far: hardened implementation passes 25 synthetic checks, 14 CLI negatives, real NEW and conformance slices; re-review found three final gaps
-next: spec/fix sharded removals, SKIP transitions, baseline lane validation, and usage separators; then final review
+  zero-evidence invocations, sharded removal loss, false SKIP improvements, and misleading operator docs.
+done-so-far: implementation landed as fc5f07f28 after 29 checks, 14 CLI negatives, real NEW/shard/conformance gates, and clean re-review
+next: document the paired freeze and correct the stale v2-lane architecture statement, then verify/bookkeep
