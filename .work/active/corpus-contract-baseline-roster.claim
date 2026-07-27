@@ -2,12 +2,12 @@ slug: corpus-contract-baseline-roster
 branch: feature/corpus-contract-baseline-roster
 agent: codex
 started: 2026-07-27T20:31:04Z
-heartbeat: 2026-07-27T20:32:24Z
+heartbeat: 2026-07-27T20:41:26Z
 status: in-progress
 items: E7 corpus-contract-baseline-roster baseline-update-filter-truncates
-paths: tests/conformance/contract.sc tests/conformance/contract-roster.tsv
+paths: tests/conformance/contract.sc tests/conformance/contract-roster.tsv tests/conformance/CONTRACT.md
 scope: |
   Add a frozen full-case roster beside corpus-baseline.tsv so the differential gate distinguishes
   NEW cases from regressions without touching the neighboring re-baseline claim. Also fail closed
   when --update-baseline is combined with --only, which currently truncates the frozen baseline.
-next: write the resume-cold SPRINT/spec plan and negative-control gate before implementation
+next: implement the paired-freeze parser/classifier, then prove the synthetic and real gates
