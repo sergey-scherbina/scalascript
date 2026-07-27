@@ -108,6 +108,11 @@ d paren      'def main(): Int = (1 + 2) * 3'
 d assoc      'def main(): Int = 10 - 3 - 2'
 d notype     'def main() = 1 + 2'
 d comment    'def main(): Int = 1 + 2 // trailing comment'
+d blockcmt   '/** The database is returned unchanged when the journal is not hot. */
+def main(): Int = 42'
+d blockcmt_bound '/** map filter head length reverse */
+def main(): Int = 42'
+d blockcmt_inline 'def main(): Int = 1 /* mid-expression */ + 2'
 d twodefs    'def g(a: Int, b: Int): Int = a + b
 def main(): Int = g(1, 2)'
 d locals     'def g(a: Int, b: Int): Int = a - b

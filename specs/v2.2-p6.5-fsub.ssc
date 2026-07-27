@@ -38,7 +38,8 @@ def scanStr(s, i, n) = if atEnd(i, n) then i else (if s.charAt(i) == 34 then i e
 // Newlines are NO LONGER whitespace: the lexer emits an NL token (kind 7, payload = the indent of the
 // NEXT code line) so the layout pass can reconstruct brace-less indented blocks. Blank lines and
 // `//`-comment lines are skipped (their indent ignored); a trailing NL at EOF emits nothing (like the
-// oracle's EOF-not-NL). `/* */` block comments are not handled here (F's lexer mishandles them anyway).
+// oracle's EOF-not-NL). `/* */` block comments need no arm HERE: this path returns to `lex`, whose
+// `lexSlash` skips them (added 2026-07-28, BUGS f-block-comment-lexed-as-code).
 def countInd(s, i, n, acc) = if atEnd(i, n) then (acc, i) else countInd1(s, i, n, acc, s.charAt(i))
 def countInd1(s, i, n, acc, c) = if c == 32 then countInd(s, i + 1, n, acc + 1) else (if c == 9 then countInd(s, i + 1, n, acc + 1) else (acc, i))
 def skipToCode(s, i, n) = skipToCode2(countInd(s, i + 1, n, 0), s, n)
@@ -92,7 +93,13 @@ def lexPlus(s, i, n) = if s.charAt(i + 1) == 43 then Cons((2, 48), lex(s, i + 2,
 // (ssc1-front :1477 prec 1, ssc1-lower inf `->` :2572) and is the entry separator in `Map(k -> v, ..)`.
 def lexMinus(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 54), lex(s, i + 2, n)) else (if s.charAt(i + 1) == 62 then Cons((2, 57), lex(s, i + 2, n)) else Cons((2, 24), lex(s, i + 1, n)))
 def lexStar(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 55), lex(s, i + 2, n)) else Cons((2, 25), lex(s, i + 1, n))
-def lexSlash(s, i, n) = if s.charAt(i + 1) == 47 then lex(s, scanLineEnd(s, i + 2, n), n) else Cons((2, 26), lex(s, i + 1, n))
+// Block comments. Without this arm F lexed `/**` as `/` then `*` (an i.mul on whatever surrounded it),
+// every prose word inside as a global reference, and `*/` as a bogus method call — so any module with
+// doc comments produced unbound globals, was rejected by validateNoReader, and silently fell back to
+// the legacy front (BUGS f-block-comment-lexed-as-code). NOT nested: the first `*/` closes, matching
+// the reference lexer. An unterminated comment runs to EOF rather than looping.
+def scanBlockEnd(s, i, n) = if atEnd(i, n) then n else (if atEnd(i + 1, n) then n else (if s.charAt(i) == 42 then (if s.charAt(i + 1) == 47 then i + 2 else scanBlockEnd(s, i + 1, n)) else scanBlockEnd(s, i + 1, n)))
+def lexSlash(s, i, n) = if s.charAt(i + 1) == 47 then lex(s, scanLineEnd(s, i + 2, n), n) else (if s.charAt(i + 1) == 42 then lex(s, scanBlockEnd(s, i + 2, n), n) else Cons((2, 26), lex(s, i + 1, n)))
 def lexEq(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 44), lex(s, i + 2, n)) else (if s.charAt(i + 1) == 62 then Cons((2, 30), lex(s, i + 2, n)) else Cons((2, 20), lex(s, i + 1, n)))
 // `<-` (generator arrow, code 58) — the `for x <- xs ..` binder separator (ssc1-front lex :400).
 // `<<`=65 shift-left; `>>`=66 shift-right; `>>>`=67 unsigned shift-right (ssc1-front :402/:407).
