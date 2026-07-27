@@ -55,8 +55,20 @@ object OpAnfNative:
    *  impure). CONSERVATIVE by construction — `mayOp` reuses the kernel's own effect model
    *  (`primitiveMayProduceAutoThreadOp`, which flags `__method__`/`effect.*`/`cell.get`/non-builtins). fib
    *  (only self-calls + `i.*`) stays pure; anything touching effects/dispatch/unknowns is impure. */
+  /** A top-level def's body is a `Lam` (nested `Lam`s when curried). `mayOp` answers
+   *  "does EVALUATING this term yield a raw Op?", and for a `Lam` that is always false —
+   *  it yields a closure. The purity fixpoint asks a DIFFERENT question: "can CALLING
+   *  this def yield an Op?", so it has to look UNDER the lambdas. Classifying the `Lam`
+   *  node itself made `mayOp(body)` false for every def, so the fixpoint marked NOTHING
+   *  impure and `pg` answered "pure" for all globals — which silently disabled
+   *  Op-argument lifting at every call site, including effect-performing defs.
+   *  See BUGS.md `bytecode-opanf-purity-registry-marks-every-def-pure`. */
+  private def underLams(t: T): T = t match
+    case T.Lam(_, b) => underLams(b)
+    case other       => other
+
   private def pureGlobals(p: Program): PureG =
-    val bodies: Map[String, T] = p.defs.iterator.map(d => d.name -> d.body).toMap
+    val bodies: Map[String, T] = p.defs.iterator.map(d => d.name -> underLams(d.body)).toMap
     var impure = Set.empty[String]
     given pg: PureG = (g: String) => bodies.contains(g) && !impure(g)
     var changed = true

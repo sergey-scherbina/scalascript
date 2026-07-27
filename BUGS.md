@@ -1,5 +1,91 @@
 # Bug tracker
 
+## bytecode-opanf-purity-registry-marks-every-def-pure — effect Ops leak into `if` conditions on the DEFAULT execution lane
+
+**Status:** OPEN → fix in flight (2026-07-27, `corpus-contract-shard-fix`). Found by the corpus
+contract the first time it was able to finish a run — see `corpus-contract-never-green` below for why
+that took 12 days. Regression against the frozen baseline (`head-field-effect-shadow` was `PASS` on
+the `v2` lane), so it is a genuine regression, not a known gap.
+
+**Symptom.** `bin/ssc run --v2 tests/conformance/head-field-effect-shadow.ssc` prints `abc123` and then
+dies with `ssc: if: condition not Bool: Op("GigSource.fetch", (), <closure>)`; the golden is
+`abc123` + `fast:30,slow:10`. A raw effect `Op` reaches an `if` condition instead of being deferred
+into the Op's continuation.
+
+**Lane pin (measured, fresh build of `e8214a277`).** Front-agnostic and execution-lane-specific:
+
+| lane | result |
+|---|---|
+| `bin/ssc run --v2` (default = bytecode) | `if: condition not Bool: Op(…)` |
+| `SSC_EXEC=vm` / `--interpret` (tree-walking VM) | correct |
+| `SSC_FRONT=legacy` + default lane | same failure ⇒ **not** an F regression |
+| `ssc-tools run --v1` (interpreter reference) | correct |
+
+**Minimal repro** (15 lines, no imports):
+
+```scalascript
+effect Src:
+  def get(): Int
+def runSrc[A](body: () => A): A =
+  handle { body() } { case Src.get(resume) => resume(7) }
+def classify(n: Int): String = if n > 5 then "big" else "small"
+def top(): String = classify(Src.get())
+println(runSrc(() => top()))
+```
+
+`bin/ssc run --v2` → `if: condition not Bool: Op("Src.get", (), <closure>)`; `SSC_EXEC=vm` → `big`.
+
+**Root cause.** `OpAnfNative.pureGlobals` (the f5c-2 effect-free-def registry, `c44a02a15`) builds its
+purity fixpoint over `d.body` for each top-level def — but a def's body is a **`Lam`**, and
+`OpAnfNative.mayOp` answers "does EVALUATING this term yield a raw Op?", for which a `Lam` is
+correctly `false` (it yields a closure). So `mayOp(body)` was `false` for *every* def, the fixpoint
+marked *nothing* impure, and `pg(g)` answered "pure" for every global. That short-circuits the
+Op-argument lifting in `tx`: `mayOp(App(Global(g), as)) = !pg(g) || as.exists(mayOp)` collapses to
+`as.exists(mayOp)`, so `App(Global("Src_get"), Nil)` — the Op SOURCE, whose body is
+`Lam(0, Prim("effect.perform.oneshot", …))` — is judged Op-free and its call site is never letified.
+Confirmed with `SSC_DUMP_IR=top`: the post-lift IR is byte-identical to the pre-lift IR, and
+`SSC_NO_OPANF=1` changes nothing (the pass was already a no-op on this shape).
+
+The purity question ("can CALLING this def yield an Op?") is not the `mayOp` question ("does
+EVALUATING this term yield an Op?"); the registry has to look UNDER the def's lambdas.
+
+**Why it surfaced only now.** Two commits, neither wrong on its own: `c44a02a15` (2026-07-22) added
+the registry, latent while the bytecode lane was opt-in; `01716755b` (2026-07-22, f5c Option A) made
+that lane the DEFAULT for `ssc run`, turning a dormant fail-open into wrong output on the default
+path. It sat on `main` for 5 days because the gate that watches exactly this could not finish a run.
+
+**Fix.** `OpAnfNative`: classify purity on the term under the def's lambdas
+(`bodies = p.defs.map(d => d.name -> underLams(d.body))`). `__arith__` is not in
+`operationProducingBuiltinNames`, so `fib` and friends stay pure and keep the f5c-2 unboxed fast path;
+`__method__` / `effect.perform*` are in it, so effectful defs are correctly impure again.
+
+## corpus-contract-never-green — the always-on differential gate produced ZERO verdicts in 13 runs
+
+**Status:** FIXED (2026-07-27, `corpus-contract-shard-fix`: `0c626d348` mechanism, `3b2b98f96`
+matrix, `e8214a277` separator). Filed because the *detection* failure is the durable lesson, not the
+timeout.
+
+**Symptom.** `Corpus Contract` — added `48110001c` (2026-07-14) as "the always-on differential gate
+for the v2 migration" / "strangler-fig safety net" — never once reported `success`: 3 `failure`
+(07-15..07-17) then 10 `cancelled` (07-18..07-27).
+
+**Root cause.** Not a hang: the `timeout-minutes: 60` wall. Run `30244286812` logged `… 350/485` at
+`07:53:40` and was killed at `07:55:17`. The workflow header still promised "~415 cases … ~25 min";
+by 07-27 the corpus was 485 cases and per-case cost had grown (F became the default native front and
+is 2-4× slower), so a full pass needed ~95-100 min.
+
+**Why nobody noticed for 12 days.** GitHub surfaces a job timeout as **`cancelled`, not `failure`**,
+which reads as "someone cancelled it"; and `scripts/ci-status` only ever queries `ci.yml` with
+`--event push`, so no automated check looks at the scheduled workflows at all. Consequence: the whole
+F4 front-flip landed without its differential net, and
+`bytecode-opanf-purity-registry-marks-every-def-pure` (above) sat undetected on `main` for 5 days —
+the gate caught it within one run of being able to finish.
+
+**Fix.** `--shard i/N` (round-robin) + `--list` in `contract.sc`; the baseline compare was already
+subset-safe (`inScope`), and `--update-baseline` now refuses to run sharded (it would truncate the
+baseline to 1/N). Workflow runs 4 shards, `fail-fast: false`. `MILESTONES.md` §Health now states that
+a scheduled workflow reported `cancelled` is RED.
+
 ## f-case-object-drops-program — F silently lowers a top-level `case object` to `0`, dropping the rest of the program
 
 **Status:** FIXED (2026-07-23, `35331f1c7`) by `opus` under the
