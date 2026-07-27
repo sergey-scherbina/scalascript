@@ -1,0 +1,11 @@
+slug: v2-callback-exc-parity-followups
+branch: feature/v2-callback-exc-parity-followups
+agent: codex
+started: 2026-07-27T23:36:21Z
+heartbeat: 2026-07-27T23:36:21Z
+status: claimed-before-planning
+items: v2-callback-exc-parity-followups
+paths: v2/runtime/std/distributed-plugin/ v2/runtime/std/generator-plugin/ tests/conformance/distributed- tests/conformance/generator- tests/conformance/expected/distributed- tests/conformance/expected/generator-
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
