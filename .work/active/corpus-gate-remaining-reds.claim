@@ -2,12 +2,12 @@ slug: corpus-gate-remaining-reds
 branch: feature/corpus-gate-remaining-reds
 agent: opus-orch
 started: 2026-07-27T17:30:00Z
-heartbeat: 2026-07-27T20:02:11Z
-status: implementing @doc doc-only blocks (Sergiy approved) across INT/JS/JVM/native + the two pre-existing attr-loss bugs it exposed
+heartbeat: 2026-07-27T20:48:06Z
+status: fixing imported-builtin-native-runs-callback-in-defining-interpreter (the coroutine scope bug behind the started-flag divergence)
 direction: Differential gate / interpreter + backends
 items: corpus-gate-remaining-reds
 bugs: coroutine-demo-import-cycle-on-interpreter rozum-agent-schema-derived-js-and-v2-gaps
-paths: v1/lang/core/** v1/runtime/** v1/tools/cli/src/main/scala/scalascript/cli/AutoViewEntry.scala examples/rozum-agent-schema-derived.ssc tests/conformance/fence-doc-block.ssc tests/conformance/fence-attr-code.ssc tests/conformance/expected/fence-doc-block.txt tests/conformance/expected/fence-attr-code.txt v2/bin/** v2/lib/mira-md.ssc0 specs/ssc-doc-blocks.md BUGS.md
+paths: v1/lang/core/** v1/runtime/** v1/tools/cli/src/main/scala/scalascript/cli/AutoViewEntry.scala examples/rozum-agent-schema-derived.ssc tests/conformance/fence-doc-block.ssc tests/conformance/fence-attr-code.ssc tests/conformance/expected/fence-doc-block.txt tests/conformance/expected/fence-attr-code.txt v2/bin/** v2/lib/mira-md.ssc0 specs/ssc-doc-blocks.md BUGS.md tests/conformance/coroutine-native-lifecycle.ssc
 scope: |
   Direct continuation of `corpus-contract-shard-fix` (released 098cb8ff1): finish the two REAL bugs
   that gate found, so the Corpus Contract can go fully green for the first time and SPRINT E6
