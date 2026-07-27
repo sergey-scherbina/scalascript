@@ -200,6 +200,70 @@ class ScljetIpkRowidDifferentialTest extends AnyFunSuite:
         assert(rows(ref, "PRAGMA integrity_check") == List("ok"))
       finally ref.close()
 
+  test("an IPK move on an INDEXED table keeps the b-tree in rowid order"):
+    // The same statement takes a DIFFERENT code path when the table has an index: instead of
+    // deleting and reinserting through the b-tree, executeUpdate rebuilds table + indexes from a row
+    // list via `reindexTable` — which writes cells in LIST order and never calls `leafInsertCell`.
+    // So a move that relocated the row's KEY while leaving its POSITION produced a file our own
+    // reader rejected ("table rowids are not strictly increasing") and reference
+    // `PRAGMA integrity_check` called corrupt ("Tree N page N cell 0: Rowid N out of order").
+    // Every other test in this suite uses an UNINDEXED table, which is why the corruption survived
+    // them: it is not a wrong value anywhere, it is a malformed b-tree.
+    //
+    // The target MUST move the row PAST a surviving row (1 → 9, over bob at 7). An earlier version
+    // of this test moved 1 → 5, which leaves the list [5, 7] still ascending — it passed with the
+    // ordering fix reverted, i.e. it was a gate that could not fail. Ordering bugs are only visible
+    // when the fixture actually forces a reorder.
+    withTempDb("update-indexed"): db =>
+      val c = DriverManager.getConnection(s"jdbc:scljet:${db.toString}")
+      try
+        val s = c.createStatement()
+        s.executeUpdate(Ddl)
+        s.executeUpdate("CREATE INDEX idx_name ON emp(name)")
+        s.executeUpdate(Ins)                                   // rowids 1 (ann), 7 (bob)
+        s.executeUpdate("UPDATE emp SET id = 9 WHERE id = 1")  // ann must end up AFTER bob
+        assert(rows(c, "SELECT rowid, id, name FROM emp") == List("7|7|bob", "9|9|ann"),
+          "the moved row must read back in rowid order — a mis-ordered b-tree fails the read itself")
+      finally c.close()
+
+      val ref = refConn(db)
+      try
+        // integrity_check is the assertion that matters: it validates cell ordering AND cross-checks
+        // the index against the table, so it is what distinguishes "moved" from "corrupt".
+        assert(rows(ref, "PRAGMA integrity_check") == List("ok"),
+          "an IPK move on an indexed table must leave a structurally valid SQLite file")
+        assert(rows(ref, "SELECT rowid, id, name FROM emp") == List("7|7|bob", "9|9|ann"))
+        // the index must follow the row: its entries carry the rowid as their tail
+        assert(rows(ref, "SELECT id FROM emp WHERE name = 'ann'") == List("9"))
+      finally ref.close()
+
+  test("an IPK move onto an occupied rowid is refused on an INDEXED table too"):
+    // The indexed path bypasses leafInsertCell, so it also bypassed the duplicate-rowid refusal the
+    // unindexed path gets for free — a collision was accepted in silence. Both paths now share
+    // ipkMoveConflict, so the refusal and its wording are the same on either side.
+    withTempDb("update-indexed-conflict"): db =>
+      val c = DriverManager.getConnection(s"jdbc:scljet:${db.toString}")
+      try
+        val s = c.createStatement()
+        s.executeUpdate(Ddl)
+        s.executeUpdate("CREATE INDEX idx_name ON emp(name)")
+        s.executeUpdate(Ins)
+        val refused =
+          try
+            s.executeUpdate("UPDATE emp SET id = 7 WHERE id = 1")
+            false
+          catch case _: java.sql.SQLException => true
+        assert(refused, "moving row 1 onto the occupied rowid 7 must be refused on an indexed table")
+        assert(rows(c, "SELECT rowid, id, name FROM emp") == List("1|1|ann", "7|7|bob"),
+          "a refused UPDATE must change nothing")
+      finally c.close()
+
+      val ref = refConn(db)
+      try
+        assert(rows(ref, "PRAGMA integrity_check") == List("ok"))
+        assert(rows(ref, "SELECT rowid, id, name FROM emp") == List("1|1|ann", "7|7|bob"))
+      finally ref.close()
+
   test("an IPK move onto an occupied rowid is refused and leaves the file intact"):
     // Real SQLite raises `UNIQUE constraint failed: emp.id`; we refuse before writing anything, so
     // the pre-update file must survive byte-for-byte as far as both engines can tell.

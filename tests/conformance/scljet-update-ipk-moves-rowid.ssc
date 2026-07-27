@@ -20,7 +20,7 @@ This case is a self-consistent oracle — scljet writes the image and scljet rea
 semantics (does the row move? is a collision refused?), not the file bytes; the cross-engine file
 check lives in the JVM lane where a real SQLite writer exists.
 
-[ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlText, buildTableDatabase, buildTableWithIndexDatabase](std/scljet/index.ssc)
 [executeMutation, queryImage](std/scljet/sql.ssc)
 
 ```scalascript
@@ -85,4 +85,27 @@ buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER PRIMARY KEY, n
     println("-- a non-integer target is refused rather than coerced --")
     val f = step(e, "UPDATE emp SET id = 'x' WHERE id = 9")
     dump(f, "after:")
+
+// The SAME statements on an INDEXED table take a different code path: `reindexTable` rebuilds the
+// table from a row list instead of deleting/reinserting through the b-tree, so it gets neither the
+// b-tree's cell ORDERING nor its duplicate refusal for free. A move that changed only the key left
+// the row in its old position — our reader then refuses the table outright ("rowids are not
+// strictly increasing"), which is what `dump` prints below if this regresses.
+//
+// The move must jump the row PAST a surviving one: a target that happens to keep the list ascending
+// cannot observe an ordering bug at all. Note `buildTableWithIndexDatabase` assigns SEQUENTIAL
+// rowids (1, 2) regardless of the IPK values supplied — unlike an INSERT, which honours them — so
+// bob lives at rowid 2 here and the collision target is 2, not 7.
+buildTableWithIndexDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER PRIMARY KEY, name TEXT)",
+  "idx", "CREATE INDEX idx ON emp(name)", List(1),
+  List(List(SqlInteger(1L), SqlText("ann")), List(SqlInteger(7L), SqlText("bob")))) match
+  case Left(error) => println("build failed (indexed): " + error.message)
+  case Right(ibase) =>
+    println("-- indexed: the moved row must change POSITION, not just key --")
+    val g = step(ibase, "UPDATE emp SET id = 9 WHERE id = 1")
+    dump(g, "after:")
+
+    println("-- indexed: a collision is refused here too, with the same wording --")
+    val h = step(ibase, "UPDATE emp SET id = 2 WHERE id = 1")
+    dump(h, "after:")
 ```

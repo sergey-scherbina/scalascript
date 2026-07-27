@@ -4870,9 +4870,58 @@ def executeUpdate(dbBytes: ByteSlice, stmt: UpdateStmt): Either[String, ByteSlic
                       case Left(error) => Left(error.message)
                       case Right(pc) => Right(pc.pager.image)
             else if countTables(db) != 1 then Left("index maintenance on a multi-table database is not yet supported")
-            else updatedSqlRows(rows, colNames, stmt, ipkIdx) match
+            // The indexed path needs the same two guarantees the b-tree gives the unindexed one for
+            // free, because reindexTable never calls leafInsertCell: the SAME collision policy
+            // (buildUpdateEdits + ipkMoveConflict — run here only to check, so both paths reject a
+            // statement with identical wording), and ROWID ORDER, since reindexTable writes cells in
+            // list order and a moved row that kept its position yields a corrupt b-tree.
+            else buildUpdateEdits(rows, colNames, stmt, ipkIdx) match
               case Left(message) => Left(message)
-              case Right(sqlRows) => reindexTable(dbBytes, db, stmt.table, sqlRows, infos)
+              case Right(edits) => ipkMoveConflict(edits, rows) match
+                case Some(message) => Left(message)
+                case None => updatedSqlRows(rows, colNames, stmt, ipkIdx) match
+                  case Left(message) => Left(message)
+                  case Right(sqlRows) => sortRowsByRowid(sqlRows) match
+                    case Left(message) => Left(message)
+                    case Right(ordered) => reindexTable(dbBytes, db, stmt.table, ordered, infos)
+
+/** Re-sort rows into strictly ascending rowid order for the indexed rebuild.
+ *
+ *  `reindexTable` writes the table's cells in LIST order and never goes through `leafInsertCell`, so
+ *  an IPK move that changed only the key left the row in its old position. Measured on the version
+ *  that did: our own reader said "table rowids are not strictly increasing" and reference
+ *  `PRAGMA integrity_check` said `Tree 2 page 2 cell 0: Rowid 5 out of order` — a CORRUPT file that
+ *  both engines could still partly read, which is why it survived a same-engine check.
+ *
+ *  The duplicate arm is a backstop, not the collision policy: `ipkMoveConflict` has already rejected
+ *  those with SQLite's wording before anything is written. It stays because it is the invariant
+ *  `reindexTable` depends on, and an unguarded rebuild would encode the violation into the file.
+ *
+ *  Insertion sort: the list is already ascending apart from the moved rows, and the engine is
+ *  rebuilding the whole table plus its indexes here anyway. */
+def sortRowsByRowid(rows: List[SqlRow]): Either[String, List[SqlRow]] =
+  var r = rows
+  var out: List[SqlRow] = Nil
+  var err: Option[String] = None
+  while r.nonEmpty && err.isEmpty do
+    val row = r.head
+    var tail = out
+    var headRev: List[SqlRow] = Nil
+    while tail.nonEmpty && tail.head.rowid < row.rowid do
+      headRev = tail.head :: headRev
+      tail = tail.tail
+    if tail.nonEmpty && tail.head.rowid == row.rowid then
+      err = Some("UNIQUE constraint failed: duplicate rowid " + row.rowid.toString)
+    else
+      var merged = row :: tail
+      while headRev.nonEmpty do
+        merged = headRev.head :: merged
+        headRev = headRev.tail
+      out = merged
+    r = r.tail
+  err match
+    case Some(message) => Left(message)
+    case None => Right(out)
 
 // Existing rows with WHERE-matched rows' values replaced by the SET assignments (for
 // index-maintaining UPDATE — the index entry uses each row's new key).
