@@ -519,7 +519,7 @@ SLOWER until `f5c-1`; `.length` receivers were classifier-shaped — they were b
       2.04/1.08 s for hello, and 66.20/10.78 s for SclJet. The SclJet delta is F's interpreted
       generic VM work: its failed F attempt alone allocates about 319 GB and then falls back to a
       second legacy compile. Startup, file IO, checker time, and GC pauses are not the dominant cost.
-- [ ] **V-6b — test the one structural hypothesis worth naming up front, but only after V-6a.**
+- [x] **V-6b — test the one structural hypothesis worth naming up front, but only after V-6a.**
       F is an `.ssc` program **interpreted** on the v2 VM, while the thing that fixed the runtime axis
       was compiling hot code to JVM bytecode (`f5c-1..3`, fib ~8.5 ms warm). So: **can F itself run on
       the bytecode lane instead of the tree-walker?** That would apply the already-built lever to the
@@ -527,54 +527,62 @@ SLOWER until `f5c-1`; `.length` receivers were classifier-shaped — they were b
       (it may be IO/parse-bound), and whether the bytecode lane admits F's shape (`OpAnf` purity,
       closures, the string-heavy workload — the f5c wins were NUMERIC, and F is string/list-heavy,
       so do not assume the win transfers).
-      - [ ] **V-6b.1 — specify and pin a no-fallback admission probe.** Commit
+      - [x] **V-6b.1 — specify and pin a no-fallback admission probe.** Commit
             `specs/v2-f-bytecode-probe.md` before implementation. The probe must execute the frozen
             F0 through `JvmByteGen`, fail visibly if bytecode emission or execution is unsupported,
             and compare the produced `F(F_src)` bytes before classifying the result.
-      - [ ] **V-6b.2 — run the structural and performance controls.** Add
+      - [x] **V-6b.2 — run the structural and performance controls.** Add
             `scripts/v2-f-bytecode-probe` so a fresh checkout can rebuild F0, run a VM control and a
             direct-ASM candidate on identical source bytes, print raw samples plus medians, and prove
             which backend actually executed. Test the 2x self-compile target before touching the
             product path.
-            - [ ] **V-6b.2a — admit the exact product-shaped F0, not only the file-backed gate F0.**
+            - [x] **V-6b.2a — admit the exact product-shaped F0, not only the file-backed gate F0.**
                   SClJet's 593,193-byte resolved source closure is embedded as one CoreIR `CStr`;
-                  the resulting 1,040,325-byte F0 currently rejects before execution with
+                  the resulting 1,040,325-byte F0 rejected before the fix with
                   `IllegalArgumentException: UTF8 string too large`. Make `JvmByteGen` materialize
                   classfile-oversized strings from bounded modified-UTF8 chunks, pin ASCII plus
                   NUL/non-ASCII parity in a unit test, then rerun this exact F0 before integration.
-      - [ ] **V-6b.3 — admit or reject the hypothesis from evidence.** If direct ASM accepts F0 and
+      - [x] **V-6b.3 — admit or reject the hypothesis from evidence.** If direct ASM accepts F0 and
             meets the report's targets, widen this claim only to the concrete free integration path,
             add parity/conformance coverage, and wire it without silent fallback. Otherwise record
             the exact unsupported shape and queue the measured V-6c alternative. Do not overlap the
             live `v2-bytecode-lane-silent-downgrade` claim on `RunNativeV2`.
-            - [ ] **V-6b.3a — specify the selective product policy before code.** Update
+            - [x] **V-6b.3a — specify the selective product policy before code.** Update
                   `specs/v2-f-bytecode-probe.md` with the measured decision: direct ASM is exact and
                   4.38x faster on the 1,040,325-byte product SClJet F0, but startup/emission makes
                   unconditional ASM slower on hello. The product may therefore try direct ASM only
                   for the first nested F `coreir.eval` whose constants exceed the JVM modified-UTF8
                   entry limit; small and later evals remain VM. Emission/link failure may delegate
                   before execution starts, but a started bytecode run must never rerun on VM.
-            - [ ] **V-6b.3b — add the scoped evaluator and regression tests first.** Give
+            - [x] **V-6b.3b — add the scoped evaluator and regression tests first.** Give
                   `v2.Runtime` a restoring thread-local `Program => Option[Value]` evaluator scope,
-                  expose one shared oversized-string predicate from `JvmByteGen`, and pin delegation,
+                  expose one shared oversized-string predicate from
+                  `JvmBytecodeAdmission`, and pin delegation,
                   one-shot selection, thread isolation, exact large-string output, and restoration
                   in `FNestedBytecodeEvalTest`.
-                  - [ ] **V-6b.3b.1 — keep admission classification ASM-free.** The real
+                  - [x] **V-6b.3b.1 — keep admission classification ASM-free.** The real
                         `v21-plugin-backend-isolation-smoke.sh` caught that calling the predicate on
                         `JvmByteGen` initializes ASM even when hello stays on VM. Move constant walking,
                         modified-UTF8 accounting, and chunk splitting into an ASM-free helper shared by
                         `RunNativeV2` and `JvmByteGen`; rerun isolation plus the product gate before push.
-            - [ ] **V-6b.3c — wire and prove the real F product path.** Install the one-shot evaluator
+            - [x] **V-6b.3c — wire and prove the real F product path.** Install the one-shot evaluator
                   only around `RunNativeV2`'s F runner, isolate `Emit.globalsRef`, and emit a
                   trace-only backend marker. Add `tests/e2e/v2-f-nested-bytecode-fast-path.sh` that
                   compares stdout bytes before checking the marker: hello must stay VM and SClJet
                   must use direct ASM with exact legacy output. Re-run the no-fallback probe,
                   bytecode fallback visibility, focused unit tests, and affected conformance before
                   classifying V-6b/V-6c.
-- [ ] **V-6c — decide and record.** Either a queued optimisation with a measured target, or an explicit
-      "2-4× is accepted, here is why" written into `BACKLOG.md`. An accepted cost that is written down
-      is fine; an unowned cost that everyone assumes someone is fixing is not — that is the state this
-      item exists to end.
+      **Landed:** `389b36e0f`. The no-fallback probe is byte-exact and 2.20x
+      faster (4.740/2.150-second medians); the exact product F0 is byte-exact
+      and 4.38x faster on direct ASM (35.89/8.19 seconds). Selective integration
+      keeps hello on the VM and reduced the product SClJet F observation from
+      the V-6a 66.20-second baseline to 26 seconds in the final parity gate.
+      Focused tests passed 11/11; product, backend-isolation, fallback-visibility,
+      and affected 1/1 conformance gates passed.
+- [x] **V-6c — decide and record.** Resolved by landing the measured selective
+      nested-F0 direct-ASM optimisation rather than accepting the unowned cost.
+      The measured integration closes the cost named by this decision item, so
+      no "accept the remaining 2-4×" backlog entry is required.
 
 ⚠️ **Do not re-derive the CI budget as the problem.** The budgets were already raised (`f12147c93`) and
 the frozen metrics are front-independent; the budget is a symptom, not the work.

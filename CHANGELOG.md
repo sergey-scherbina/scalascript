@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-07-27 — F accelerates large nested compiler runs with selective direct ASM
+
+The F product runner now sends only its first large nested F0 through direct
+ASM; small first programs and later nested evaluations stay on the VM. Output
+is compared before backend classification, runtime failures cannot be hidden
+by a VM retry, and ASM-free admission preserves the native VM isolation
+contract.
+
+The exact product-shaped F0 is byte-identical and 4.38x faster in the direct
+control (35.89 versus 8.19 seconds). The final product parity gate kept hello
+on the VM and observed SClJet at 26 seconds versus the prior V-6a 66.20-second
+F baseline; that product comparison is a single gate observation, not a
+benchmark median. Implementation: `389b36e0f`; verification and reproduction:
+[`specs/v2-f-bytecode-probe.md`](specs/v2-f-bytecode-probe.md).
+
 ## 2026-07-27 — The full repository markdownlint gate is green again
 
 Two prose lane summaries no longer parse as undefined reference links, and the

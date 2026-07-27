@@ -2,30 +2,32 @@
 
 ## v2-f-small-vm-admission-loads-asm — F admission classification breaks VM backend isolation
 
-**Status:** OPEN (found 2026-07-27 by `codex` while verifying unlanded
-`15b99b5ee`).
+**Status:** DONE (found 2026-07-27 by `codex` while verifying unlanded
+`15b99b5ee`; fixed in `389b36e0f`). The reporter confirmed the fix by rerunning
+the exact real-harness isolation gate successfully.
 
-**Reproduce.** Build the staged product with `scripts/sbtc "installBin"`, then
-run `tests/e2e/v21-plugin-backend-isolation-smoke.sh`. The VM control exits 1:
+**Pre-fix reproduce.** Build the staged product with
+`scripts/sbtc "installBin"`, then run
+`tests/e2e/v21-plugin-backend-isolation-smoke.sh`. The VM control exits 1:
 
 ```text
 native VM loaded a backend ASM or external parser/codec class
 ```
 
-The new selective F path asks
+The pre-fix selective F path asked
 `JvmByteGen.requiresStringChunking(firstNestedProgram)` even when the program
-is small and will stay on VM. Initializing `JvmByteGen` initializes its ASM
-`Handle`/emitter state, so the classification probe itself loads
-`org.objectweb.asm.*`. That violates the existing closed-native VM contract
-even though no class is emitted.
+was small and would stay on VM. Initializing `JvmByteGen` initialized its ASM
+`Handle`/emitter state, so the classification probe itself loaded
+`org.objectweb.asm.*`. That violated the existing closed-native VM contract
+even though no class was emitted.
 
-**Impact / fix.** Ordinary small `ssc run --interpret` programs now load the
-backend they explicitly did not select. Move modified-UTF8 accounting,
-program-constant walking, and chunk splitting into an ASM-free bytecode
-admission helper. `RunNativeV2` must classify through that helper;
-`JvmByteGen.loadString` must use the same helper so selection and emission
-cannot drift. Done when the focused nested-F tests, product hello/SClJet gate,
-and `v21-plugin-backend-isolation-smoke.sh` are all green.
+**Root cause / fix.** Admission lived on an ASM-owning singleton, so a
+supposedly data-only classification initialized the backend. Modified-UTF8
+accounting, program-constant walking, and chunk splitting now live in the
+ASM-free `JvmBytecodeAdmission`; both `RunNativeV2` and
+`JvmByteGen.loadString` use it so selection and emission cannot drift.
+Focused tests passed 11/11, the hello/SClJet product gate passed, and
+`v21-plugin-backend-isolation-smoke.sh` now passes.
 
 ## f-block-comment-lexed-as-code — F has no block-comment support; doc comments become expressions
 
