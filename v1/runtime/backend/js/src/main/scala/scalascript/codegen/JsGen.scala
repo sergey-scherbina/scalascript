@@ -2587,14 +2587,15 @@ class JsGen(
     // @jvm + no @js   → emit a stub that throws a clear runtime error.
     // no annotation   → skip (intrinsic table handles it at call sites).
     case d: Defn.Def if scalascript.transform.EffectAnalysis.isExternDef(d.body) =>
-      val params = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).map(_.name.value).toList
+      val paramVals = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+      val params = paramVals.map(_.name.value).toList
       val sourceName = d.name.value
       val jsName = emittedName(sourceName)
       extractAnnotationArg(d.mods, "js") match
         case Some(jsExpr) =>
           val body     = substituteJsArgs(jsExpr, params)
           val paramsStr = params.mkString(", ")
-          line(s"function $jsName($paramsStr) { return $body; }")
+          line(s"function $jsName($paramsStr) ${intParamReturnBody(paramVals, body)}")
         case None =>
           if extractAnnotationArg(d.mods, "jvm").isDefined then
             // @jvm-only: provide a stub that throws at runtime instead of a silent undefined
@@ -2675,14 +2676,15 @@ class JsGen(
         if baseParamsStr.isEmpty then cbParamsStr
         else if cbParamsStr.isEmpty then baseParamsStr
         else s"$baseParamsStr, $cbParamsStr"
+      val intParamGuards = intParamGuardLines(paramVals)
       if sourceName == "main" && params.isEmpty then hasMain = true
       // Effectful function: body emitted in CPS form, returns Free value.
       if isEffectfulFun(sourceName) then
         d.body match
           case Term.Block(stats) =>
-            line(s"function $fname($paramsStr) { return ${genCpsBlockAsIife(stats)}; }")
+            line(s"function $fname($paramsStr) ${intParamReturnBody(paramVals, genCpsBlockAsIife(stats))}")
           case expr =>
-            line(s"function $fname($paramsStr) { return ${genCpsExpr(expr)}; }")
+            line(s"function $fname($paramsStr) ${intParamReturnBody(paramVals, genCpsExpr(expr))}")
       // Context-bound params: emit plain function with auto-resolve guards; skip TCO
       else if cbParams.nonEmpty || usingGuards.nonEmpty then
         val hintParam = paramVals.headOption.map(_.name.value).getOrElse("undefined")
@@ -2695,6 +2697,7 @@ class JsGen(
           case Term.Block(bodyStats) =>
             line(s"function $fname($paramsStr) {")
             indent += 1
+            intParamGuards.foreach(line)
             allGuards.foreach(line)
             genFunctionBody(bodyStats)
             indent -= 1
@@ -2702,6 +2705,7 @@ class JsGen(
           case expr =>
             line(s"function $fname($paramsStr) {")
             indent += 1
+            intParamGuards.foreach(line)
             allGuards.foreach(line)
             line(s"return ${genExpr(expr)};")
             indent -= 1
@@ -2725,7 +2729,10 @@ class JsGen(
         // safeJsParam guards against JS reserved words (e.g. `default` → `default_p`).
         val renames  = paramRenameMap(params)
         val formals  = params.map(p => s"_$p").mkString(", ")
-        val letDecls = "let " + params.map(p => s"${safeJsParam(p)} = _$p").mkString(", ")
+        val byName   = paramVals.map(p => p.name.value -> p).toMap
+        val letDecls = "let " + params.map { p =>
+          s"${safeJsParam(p)} = ${intParamInitializer(byName(p), s"_$p")}"
+        }.mkString(", ")
         line(s"function $fname($formals) {")
         indent += 1
         line(s"$letDecls;")
@@ -2754,6 +2761,7 @@ class JsGen(
             line(s"$fnKw $fname($paramsStr) {")
             indent += 1
             curryGuard.foreach(line)
+            intParamGuards.foreach(line)
             withParamRenames(defRenames)(genFunctionBody(bodyStats))
             indent -= 1
             line("}")
@@ -2761,6 +2769,7 @@ class JsGen(
             line(s"$fnKw $fname($paramsStr) {")
             indent += 1
             curryGuard.foreach(line)
+            intParamGuards.foreach(line)
             withParamRenames(defRenames)(genMatchAsStmts(tm, t => line(s"return ${genExpr(t)};")))
             indent -= 1
             line("}")
@@ -2770,11 +2779,13 @@ class JsGen(
                 line(s"$fnKw $fname($paramsStr) {")
                 indent += 1
                 line(g)
+                intParamGuards.foreach(line)
                 line(s"return ${withParamRenames(defRenames)(genExpr(expr))};")
                 indent -= 1
                 line("}")
               case None =>
-                line(s"$fnKw $fname($paramsStr) { return ${withParamRenames(defRenames)(genExpr(expr))}; }")
+                val body = withParamRenames(defRenames)(genExpr(expr))
+                line(s"$fnKw $fname($paramsStr) ${intParamReturnBody(paramVals, body)}")
       cbSummonMap.clear()
       cbSummonMap ++= savedCbMap
 
@@ -2787,7 +2798,7 @@ class JsGen(
       val paramsStr = paramListWithDefaults(paramVals)
       val fields   = params.map(p => s"$p: $p").mkString(", ")
       val tagField = caseClassTagMap.get(typeName).map(t => s"_tag: $t, ").getOrElse("")
-      line(s"function $ctorName($paramsStr) { return {_type: '$typeName', ${tagField}$fields}; }")
+      line(s"function $ctorName($paramsStr) ${intParamReturnBody(paramVals, s"{_type: '$typeName', ${tagField}$fields}")}")
       line(jsTypedJsonRegisterProduct(typeName, params, ctorName))
       // Compile case-class body methods (e.g. `override def toString`, or trait
       // methods on a class that `extends` an interface — a FixtureVfs's
@@ -2803,8 +2814,9 @@ class JsGen(
         case meth: Defn.Def
             if meth.paramClauseGroups.flatMap(_.paramClauses).filterNot(_.mod.nonEmpty).sizeIs <= 1 =>
           val methName    = meth.name.value
-          val methParams  = meth.paramClauseGroups.flatMap(_.paramClauses)
-            .filterNot(_.mod.nonEmpty).flatMap(_.values).map(_.name.value)
+          val methParamVals = meth.paramClauseGroups.flatMap(_.paramClauses)
+            .filterNot(_.mod.nonEmpty).flatMap(_.values)
+          val methParams  = methParamVals.map(_.name.value)
           // A parameter that is a JS reserved word (e.g. `delete`) must be
           // renamed in both the lambda header and the body (`delete` -> `delete_p`).
           val methRenames = paramRenameMap(methParams)
@@ -2812,7 +2824,8 @@ class JsGen(
           val destructure = if fields.isEmpty then "" else s"const {${fields.mkString(", ")}} = _self; "
           val recv        = ("_self" :: methParams.map(safeJsParam)).mkString(", ")
           val bodyJs      = withParamRenames(methRenames)(genExpr(meth.body))
-          line(s"_registerExt('$methName', ($recv) => { ${destructure}return $bodyJs; }, '$typeName');")
+          val guards      = intParamGuardLines(methParamVals).mkString(" ")
+          line(s"_registerExt('$methName', ($recv) => { $destructure$guards return $bodyJs; }, '$typeName');")
         case _ => ()
       }
 
@@ -2847,7 +2860,7 @@ class JsGen(
               val paramsStr = paramListWithDefaults(paramVals)
               val fields    = params.map(p => s"$p: $p").mkString(", ")
               val tagField  = caseClassTagMap.get(sourceCaseName).map(t => s"_tag: $t, ").getOrElse("")
-              line(s"function $caseName($paramsStr) { return {_type: '$sourceCaseName', ${tagField}$fields}; }")
+              line(s"function $caseName($paramsStr) ${intParamReturnBody(paramVals, s"{_type: '$sourceCaseName', ${tagField}$fields}")}")
               line(jsTypedJsonRegisterProduct(sourceCaseName, params, caseName))
             allCases += sourceCaseName -> caseName
         // `case A, B` (comma-separated parameterless cases) → RepeatedEnumCase.
@@ -2952,6 +2965,9 @@ class JsGen(
   private def genExtensionDef(recvName: String, recvType: String, defn: Defn.Def): Unit =
     val mparamVals = defn.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
     val paramsStr  = (recvName :: mparamVals.map(formalWithDefault)).mkString(", ")
+    val entryGuards =
+      (if recvType == "Int" then List(s"$recvName = _charCodeOrNull($recvName) ?? $recvName;") else Nil) ++
+        intParamGuardLines(mparamVals)
     // Encode receiver TYPE into the function name so that the same extension
     // method on different types (e.g., Functor[List].ap and Functor[Option].ap)
     // does not collide and silently overwrite each other.  A SYMBOLIC extension
@@ -2964,11 +2980,13 @@ class JsGen(
       case Term.Block(bodyStats) =>
         line(s"function $fnName($paramsStr) {")
         indent += 1
+        entryGuards.foreach(line)
         genFunctionBody(bodyStats)
         indent -= 1
         line("}")
       case expr =>
-        line(s"function $fnName($paramsStr) { return ${genExpr(expr)}; }")
+        val guards = if entryGuards.isEmpty then "" else entryGuards.mkString("", " ", " ")
+        line(s"function $fnName($paramsStr) {$guards return ${genExpr(expr)}; }")
     // Register extension for dispatch.  The receiver type (when known)
     // disambiguates same-named extensions across typeclass instances
     // — e.g., Functor[List].map vs Functor[Option].map both register
@@ -3034,7 +3052,7 @@ class JsGen(
         val params    = paramVals.map(_.name.value)
         val paramsStr = paramListWithDefaults(paramVals)
         val argsArr = if params.isEmpty then "[]" else s"[${params.mkString(", ")}]"
-        decls += s"const $opName = ($paramsStr) => _perform('$objectName', '$opName', $argsArr);"
+        decls += s"const $opName = ($paramsStr) => ${intParamReturnBody(paramVals, s"_perform('$objectName', '$opName', $argsArr)")};"
         names += opName
       case dd: Defn.Def =>
         val fname = dd.name.value
@@ -3065,18 +3083,19 @@ class JsGen(
         // Reserved-word params are renamed in the signature (safeJsParam, e.g.
         // `default` → `default_p`); the body must see the same renames or its
         // references emit the bare reserved word (SyntaxError on Node).
-        val objDefRenames = paramRenameMap(allClauses.flatMap(_.values).map(_.name.value))
-        val bodyJsRaw = withParamTypeEvidence(allClauses.flatMap(_.values)) {
+        val objectParamVals = allClauses.flatMap(_.values)
+        val objDefRenames = paramRenameMap(objectParamVals.map(_.name.value))
+        val bodyJsExpr = withParamTypeEvidence(objectParamVals) {
          withParamRenames(objDefRenames) {
           dd.body match
-            case Term.Block(bodyStats) =>
-              if objCbGuards.isEmpty then genBlockAsIife(bodyStats)
-              else s"{ ${objCbGuards.mkString(" ")} return ${genBlockAsIife(bodyStats)}; }"
-            case expr =>
-              if objCbGuards.isEmpty then genExpr(expr)
-              else s"{ ${objCbGuards.mkString(" ")} return ${genExpr(expr)}; }"
+            case Term.Block(bodyStats) => genBlockAsIife(bodyStats)
+            case expr                  => genExpr(expr)
          }
         }
+        val entryGuards = intParamGuardLines(objectParamVals) ++ objCbGuards
+        val bodyJsRaw =
+          if entryGuards.isEmpty then bodyJsExpr
+          else s"{ ${entryGuards.mkString(" ")} return $bodyJsExpr; }"
         cbSummonMap.clear()
         cbSummonMap ++= savedCbMap2
         def clauseSig(params: List[Term.Param]): String =
@@ -3117,7 +3136,7 @@ class JsGen(
         val paramsStr = paramListWithDefaults(paramVals)
         val fields    = params.map(p => s"$p: $p").mkString(", ")
         val tagField  = caseClassTagMap.get(typeName).map(t => s"_tag: $t, ").getOrElse("")
-        decls += s"function $typeName($paramsStr) { return {_type: '$typeName', ${tagField}$fields}; }"
+        decls += s"function $typeName($paramsStr) ${intParamReturnBody(paramVals, s"{_type: '$typeName', ${tagField}$fields}")}"
         decls += jsTypedJsonRegisterProduct(typeName, params, typeName)
         names += typeName
       case d: Defn.Enum =>
@@ -3139,7 +3158,7 @@ class JsGen(
               val paramsStr = paramListWithDefaults(paramVals)
               val fields    = params.map(p => s"$p: $p").mkString(", ")
               val tagField  = caseClassTagMap.get(caseName).map(t => s"_tag: $t, ").getOrElse("")
-              decls += s"function $caseName($paramsStr) { return {_type: '$caseName', ${tagField}$fields}; }"
+              decls += s"function $caseName($paramsStr) ${intParamReturnBody(paramVals, s"{_type: '$caseName', ${tagField}$fields}")}"
               decls += jsTypedJsonRegisterProduct(caseName, params, caseName)
               names += caseName; allCases += caseName
           case rec: Defn.RepeatedEnumCase =>
@@ -3245,12 +3264,14 @@ class JsGen(
   private def genDefAsMethod(dd: Defn.Def): String =
     val paramVals = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
     val paramsStr = paramListWithDefaults(paramVals)
-    dd.body match
+    val bodyJs = dd.body match
       case Term.Block(bodyStats) =>
-        val bodyJs = genBlockAsIife(bodyStats)
-        s"($paramsStr) => $bodyJs"
+        genBlockAsIife(bodyStats)
       case expr =>
-        s"($paramsStr) => ${genExpr(expr)}"
+        genExpr(expr)
+    val guards = intParamGuardLines(paramVals)
+    if guards.isEmpty then s"($paramsStr) => $bodyJs"
+    else s"($paramsStr) => { ${guards.mkString(" ")} return $bodyJs; }"
 
   /** Render a comma-separated formal parameter list with `= <expr>` for any
    *  parameter that has a default value. Used everywhere we emit a JS function
@@ -3317,6 +3338,27 @@ class JsGen(
       case Some(d) => s"$n = ${genExpr(d)}"
       case None    => n
 
+  /** Scala widens `Char` to `Int` at a typed parameter boundary. The JS lane
+   *  represents runtime chars as `_Char` (and char literals as one-char strings),
+   *  so normalize only declared `Int` parameters once on function entry. */
+  private def isDeclaredIntParam(p: Term.Param): Boolean =
+    p.decltpe.exists { case Type.Name("Int") => true; case _ => false }
+
+  private def intParamGuardLines(paramVals: Seq[Term.Param]): List[String] =
+    paramVals.collect {
+      case p if isDeclaredIntParam(p) =>
+        val n = safeJsParam(p.name.value)
+        s"$n = _charCodeOrNull($n) ?? $n;"
+    }.toList
+
+  private def intParamReturnBody(paramVals: Seq[Term.Param], expr: String): String =
+    val guards = intParamGuardLines(paramVals)
+    if guards.isEmpty then s"{ return $expr; }"
+    else s"{ ${guards.mkString(" ")} return $expr; }"
+
+  private def intParamInitializer(p: Term.Param, source: String): String =
+    if isDeclaredIntParam(p) then s"(_charCodeOrNull($source) ?? $source)" else source
+
   // ─── Mutual TCO helpers ──────────────────────────────────────────
 
   // Emits _fname_impl (while-loop + _tailCall for mutual calls) and the public wrapper.
@@ -3325,7 +3367,11 @@ class JsGen(
     val friends  = mutualGroups(sourceName) - sourceName
     val renames  = paramRenameMap(params)
     val formals  = params.map(p => s"_$p").mkString(", ")
-    val letDecls = "let " + params.map(p => s"${safeJsParam(p)} = _$p").mkString(", ")
+    val paramVals = d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)
+    val byName = paramVals.map(p => p.name.value -> p).toMap
+    val letDecls = "let " + params.map { p =>
+      s"${safeJsParam(p)} = ${intParamInitializer(byName(p), s"_$p")}"
+    }.mkString(", ")
     line(s"function $implName($formals) {")
     indent += 1
     line(s"$letDecls;")
@@ -4189,14 +4235,18 @@ class JsGen(
           case expr              => genExpr(expr)
       }
       val jsParams = params.map(localBindingName)
-      if jsParams.length == 1 then s"${jsParams.head} => $bodyJs"
+      val intGuards = intParamGuardLines(paramClause.values)
+      if jsParams.length == 1 then
+        if intGuards.isEmpty then s"${jsParams.head} => $bodyJs"
+        else s"${jsParams.head} => { ${intGuards.mkString(" ")} return $bodyJs; }"
       else
         // Auto-tuple: when this lambda is passed somewhere that supplies a
         // single tuple-arg (e.g. `pairs.foreach((n, s) => ...)`, where the
         // callback receives one `[n, s]` array), destructure on entry.
         val arity   = jsParams.length
         val joined  = jsParams.mkString(", ")
-        s"((...__a) => { const [$joined] = (__a.length === 1 && Array.isArray(__a[0]) && __a[0].length === $arity) ? __a[0] : __a; return $bodyJs; })"
+        val guards  = if intGuards.isEmpty then "" else intGuards.mkString(" ", " ", " ")
+        s"((...__a) => { const [$joined] = (__a.length === 1 && Array.isArray(__a[0]) && __a[0].length === $arity) ? __a[0] : __a;$guards return $bodyJs; })"
 
     // Partial function { case ... => ... }
     case Term.PartialFunction(cases) =>

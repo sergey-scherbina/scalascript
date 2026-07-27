@@ -1,15 +1,13 @@
 ---
 name: markdown-html
 version: 1.0.0
-backends: [int]
+backends: [int, js]
 ---
 
 # Markdown to HTML conformance
 
-Pinned to `int` by `BUGS.md js-char-into-int-param`: on the v1 JS backend a `Char` passed
-into an `Int` parameter stays boxed, so `markdown-core` itself misparses headings and lists
-there and every block degrades to a paragraph. Widen this to `js` once that bug is fixed —
-the renderer below is lane-agnostic and passes on the v2 JS bridge today.
+The JS lane is a regression guard for `BUGS.md js-char-into-int-param`: `markdown-core`
+passes `String.charAt` results into `Int` scanner parameters throughout its block parser.
 
 [markdownToHtml, markdownInlineHtml, markdownSlug, markdownTitle, escapeHtml](std/markdown-html.ssc)
 

@@ -464,6 +464,28 @@ class CrossBackendPropertyTest extends AnyFunSuite:
     assert(cme == runJvm(cm) && cme == runJs(cm),
       s"char-method map/filter diverged: interp=$cme js=${runJs(cm)} jvm=${runJvm(cm)}")
 
+  test("Char widens to Int at JS function boundaries"):
+    assume(has("node") && has("scala-cli"), "node/scala-cli not available")
+    val m = module(
+      """def isSpace(c: Int): Boolean = c == 32
+        |object Checks:
+        |  def isSpace(c: Int): Boolean = c == 32
+        |val lambda = (c: Int) => c == 32
+        |def sameString(value: String): Boolean = value == " "
+        |val s = "a b"
+        |println(s.charAt(1) == 32)
+        |println(isSpace(s.charAt(1)))
+        |println(isSpace(' '))
+        |println(isSpace(32))
+        |println(Checks.isSpace(s.charAt(1)))
+        |println(lambda(s.charAt(1)))
+        |println(sameString(" "))
+        |""".stripMargin)
+    val exp = interp(m)
+    assert(exp == List.fill(7)("true").mkString("\n"), s"unexpected interpreter baseline: $exp")
+    assert(runJs(m) == exp, s"JS failed Char -> Int parameter widening: interp=[$exp] js=[${runJs(m)}]")
+    assert(runJvm(m) == exp, s"JVM failed Char -> Int parameter widening: interp=[$exp] jvm=[${runJvm(m)}]")
+
   // Collection constructors beyond List/Map/Set. The interpreter backs every sequence type with a
   // single `ListV` (and JS with arrays), but `Seq(...)` / `Vector(...)` / `Array(...)` / `IndexedSeq(...)`
   // threw `Undefined: Seq` in interp (no companion), and `.toVector`/`.toSeq` were missing. Now their
