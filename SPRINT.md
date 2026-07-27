@@ -66,6 +66,42 @@ win is recursion/loop **specialization** (SelfRecLL arity-1 Long→Long tight lo
   The remaining path toward ~2,800 is effects-to-tower + decimal-to-tower + δ-table retirement.
 - F5b's real payoff stands, but it is **δ-table retirement + directness/correctness**, not perf unlock.
 
+### V-6 — F's COMPILE-TIME cost: the one open problem with no plan (queued 2026-07-27, Sergiy: "Да")
+
+F is the default front and is **2-4× slower than legacy** — measured `hello` 0.8→1.5 s, `scljet` 8→32 s,
+which is what forced the CI budget bump (negtc 30→75 min, sbt job 240→300). Every other v2 perf axis has
+an owner or an answer; this one had neither, and two places on the board still call F5b "the recovery
+path" for it, which today's data does not support (typed arithmetic is ~1% — see V-0).
+
+**Do the measurement before proposing a fix.** The 2-4× number is a wall-clock observation on two
+programs; nobody has established WHERE the time goes. Queued deliberately as measure-then-decide,
+because the last three perf beliefs on this board were each wrong in a different direction (typed IR
+would enable the FastCode removal — no; typed IR would be faster on the native lane — it was 1.9×
+SLOWER until `f5c-1`; `.length` receivers were classifier-shaped — they were bare locals).
+
+- [ ] **V-6a — profile F self-compiling, and A/B it against legacy on the SAME program.** Workload: the
+      F0 bootstrap + `F(F_src)` path that `specs/v2.2-p6.5-fsub.sh` already builds (F's own ~222 KB
+      source is the biggest real input in the loop); plus `hello` and `scljet` for the two numbers
+      already on record. Run each under `SSC_FRONT=F` and `SSC_FRONT=legacy` and capture a profile
+      (JFR: `java -XX:StartFlightRecording=... -jar $SSC_JAR run-ir …`). Deliverable is a written
+      breakdown — parse vs lower vs VM-execute vs IO — not a single number. Ready when: the report
+      names the dominant cost with evidence, and says what it is NOT (so the next agent stops guessing).
+- [ ] **V-6b — test the one structural hypothesis worth naming up front, but only after V-6a.**
+      F is an `.ssc` program **interpreted** on the v2 VM, while the thing that fixed the runtime axis
+      was compiling hot code to JVM bytecode (`f5c-1..3`, fib ~8.5 ms warm). So: **can F itself run on
+      the bytecode lane instead of the tree-walker?** That would apply the already-built lever to the
+      compiler front. Unknowns to settle in V-6a first: whether F's hot path is even VM execution
+      (it may be IO/parse-bound), and whether the bytecode lane admits F's shape (`OpAnf` purity,
+      closures, the string-heavy workload — the f5c wins were NUMERIC, and F is string/list-heavy,
+      so do not assume the win transfers).
+- [ ] **V-6c — decide and record.** Either a queued optimisation with a measured target, or an explicit
+      "2-4× is accepted, here is why" written into `BACKLOG.md`. An accepted cost that is written down
+      is fine; an unowned cost that everyone assumes someone is fixing is not — that is the state this
+      item exists to end.
+
+⚠️ **Do not re-derive the CI budget as the problem.** The budgets were already raised (`f12147c93`) and
+the frozen metrics are front-independent; the budget is a symptom, not the work.
+
 ### V-1 — F5b next slice (the live lever; nothing else in F5b is queued)
 
 Batch B closed 1b-2b and 1b-3 and left **no B3**. Per the design's staged plan, Stages 2-5 remain;
