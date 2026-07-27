@@ -9,6 +9,37 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## 2026-07-27 — native release qualification
+
+**Active claim:** `native-release-qualification`. The native release workflow has
+never run: its only trigger is a publishing `v*.*.*` tag, so the current default
+F frontend/direct-ASM product stack has no release-path evidence on Linux x86_64,
+macOS arm64, or macOS x86_64. Visibility (`ci-status-all-workflows`) does not
+qualify artifacts; `NEVER-RUN` is the blocker this slice closes.
+
+- [ ] **NRQ-0 — specify a non-publishing release qualification contract.** Add
+      `specs/native-release-qualification.md` before workflow code. A manual
+      `workflow_dispatch` dry-run must exercise the same build/package matrix
+      while making release publication structurally unreachable. Define the
+      archive layout, launcher/version/hello execution, plugin-host discovery,
+      checksum, fail-loud, and exact-run evidence requirements. Explicitly keep
+      real tag publication and signing/notarization out of this slice.
+- [ ] **NRQ-1 — build the compare-first qualification gate, then wire it.** Add
+      `scripts/native-release-qualify` plus
+      `tests/e2e/native-release-qualification.sh`; prove the gate red against
+      missing/corrupt/wrong-layout/wrong-output fixtures before accepting a real
+      package. Run it on each matrix runner before artifact upload, and add a
+      credential-safe manual dry-run whose publish step cannot run on dispatch.
+      Preserve the tag-triggered release path and make every mismatch print its
+      expected/actual observable.
+- [ ] **NRQ-2 — execute and record the real three-platform dry-run.** Validate
+      workflow YAML and shell syntax locally, run the mandatory affected
+      conformance slice, dispatch the dry-run, and require every declared
+      platform job plus artifact inspection to succeed. Record the run id/SHA
+      and require `scripts/ci-status --workflow native-release.yml --latest`
+      exit 0. A cancelled/skipped matrix leg is RED; do not call local Linux
+      evidence a cross-platform qualification.
+
 ## 2026-07-27 — SclJet production completion (Sergiy: "Реализуй всё по scljet")
 
 **Active claim:** `scljet-production-completion`. This is the one resume-cold entry point for
