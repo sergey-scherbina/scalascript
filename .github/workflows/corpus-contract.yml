@@ -92,5 +92,8 @@ jobs:
       - name: Build ssc launcher (sbt-assembly)
         run: bash install.sh --dev
 
+      # The `--` is load-bearing: without it scala-cli claims `--shard` as its own flag
+      # and dies with "Unrecognized argument" before the script starts. The pre-shard
+      # command passed no script arguments at all, so this separator was never needed here.
       - name: Run corpus contract (shard ${{ matrix.shard }}/4)
-        run: scala-cli tests/conformance/contract.sc --shard ${{ matrix.shard }}/4
+        run: scala-cli tests/conformance/contract.sc -- --shard ${{ matrix.shard }}/4
