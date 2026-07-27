@@ -27,6 +27,10 @@ byte-identically against the frozen Core IR.
 Sergiy's call. The residual cost is perf — F is interpreted and ~2-4× slower — which is the F5b
 typed-IR arc, also the prerequisite for both kernel-shrink levers. See `BACKLOG.md` §`v2-f4-flip`.
 
+**Single v2 entry point: `SPRINT.md` §"2026-07-27 — v2: the one board".** Read it before anything
+below — it carries a correction (the FastCode-removal premise is refuted by measurement, and the
+~2,800 kernel target is not currently reachable) and it is where the pickable v2 items live.
+
 Two independent threads run under this stream — don't confuse them:
 
 - **newfront** — the clean front replacing `ssc1-front`+`ssc1-lower`, byte-identical on the corpus.

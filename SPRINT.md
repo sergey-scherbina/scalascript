@@ -9,6 +9,98 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## 2026-07-27 — v2: the one board (Sergiy: "запиши все в спринт и делай")
+
+**Why this section exists.** Asked for the v2 status, the honest answer was that v2 runs on memory, not
+on the board: B1/B2 were `[x]` in one batch and `[]` in their home section; F4 step 5 and the kernel
+shrink existed only as prose; the pickable v2 items sat in sections from 18-20 July while the active
+batches were all stream 3. Worse, **the board carried a premise that measurement had already refuted**
+(see V-2). This section is now the single v2 entry point; the older sections stay as detail.
+
+### ⚠️ V-0 — CORRECTION that supersedes several places on the board
+
+`specs/v2-f5b-typed-ir-design.md` §"MEASURED PERF FINDING (2026-07-22)" **refutes** the premise that
+typed IR makes the FastCode/SelfRec deletion perf-neutral. Measured on the closed `fib(34)`:
+
+| fib(34), compute-only | fastpaths ON | fastpaths OFF |
+|---|---|---|
+| **TYPED** (`i.add`) | ~0.02 s | **~0.80 s** |
+| UNTYPED (`__arith__`) | ~0.03 s | ~0.81 s |
+
+Typed vs untyped is **~1%**; fastpaths on vs off is **~30× compute / ~5× wall**. The FastCode/SelfRec
+win is recursion/loop **specialization** (SelfRecLL arity-1 Long→Long tight loop, no-`Done` boxing) —
+**orthogonal** to arith-prim dispatch, which was never the bottleneck. Consequences:
+
+- **DO NOT remove FastCode/SelfRec.** It is not "deferred until typed IR"; it is blocked on a
+  different, larger lever — typed-IR-driven bytecode/native compilation of the numeric-recursion class.
+- `BACKLOG.md` §"v2 kernel-shrink deep remainder (F5)" item 2 still says "Do after F5b typed IR
+  (direct typed calls replace tag dispatch, softening the cost)". **That is the refuted premise** —
+  corrected there in the same commit as this section.
+- **Honest kernel target: F5b lands ~4,700, not ~2,800.** ~2,800 additionally needs effects-to-tower +
+  decimal-to-tower + the FastCode removal that is now decided against.
+- F5b's real payoff stands, but it is **δ-table retirement + directness/correctness**, not perf unlock.
+
+### V-1 — F5b next slice (the live lever; nothing else in F5b is queued)
+
+Batch B closed 1b-2b and 1b-3 and left **no B3**. Per the design's staged plan, Stages 2-5 remain;
+Stage 2 is partly subsumed by 1b-3.
+
+- [ ] **V-1a — Stage 2 remainder: String/Char methods beyond `.length`.** `str.*` family →
+      `slen`/`scodeAt`/`str.*` for String-typed receivers that 1b-3 did not cover (non-local receivers,
+      `val`-bound results, fields). Design §4 Stage 2, **Δ ≈ −60…−120 kernel lines** once the tower
+      also emits typed IR (see V-1c). Ready when: X1 `--self` ok/0 FAIL, FIXPOINT byte-identical,
+      semantic 248/248, corpus EMPTY 0 / TIMEOUT 0, **and** an IR-level probe shows the typed prim
+      replacing `__method__` on the positive cases while the negative cases (untyped receiver,
+      `List[Int]`, `Int`) stay untagged.
+      ⚠️ Both previous slices' first probes were WRONG in the same way (they measured output, which
+      agrees either way, or grepped lines on a single-line IR). **The probe must count occurrences of
+      the specific `__method__ (lit (str "…"))` form in F vs the oracle on the SAME program, and must
+      include the negative cases** — they are what protects the runtime.
+- [ ] **V-1b — Stage 3: collections + overloaded operators.** List/Option/Either → `_sel_*`; typed
+      `->`/`to`/`until`/`Map+`/`List-`. Design §4 Stage 3. ⚠️ Design §5: `arithOp` overloads `+`/`-`
+      across tuple/range/Map/List/char — typed emit must route each by type to its own prim; these are
+      real semantic branches, not indirection. Verify Op-lifting per stage (`liftArith2`) — silent-wrong risk.
+- [ ] **V-1c — the deletion gate nobody has scoped: the ssc0 TOWER must emit typed IR too.** Design
+      §4.1: "δ arms stay LIVE until the ssc0 tower also emits typed IR (it lowers the conformance
+      corpus)". So **no δ-arm deletion is possible from F alone**, however much of F5b lands. Size this
+      before promising any kernel-line reduction; gate on the full `v2/conformance/check.sh`
+      (shared-seam, the `floatStr` rule — `Writer.floatStr` is SHARED for v1 parity, never edit it).
+
+### V-2 — kernel shrink (F5), corrected
+
+- [ ] **V-2a — re-write `BACKLOG.md` §F5 item 2 against the measurement** (done in this commit) and
+      **re-scope the remaining shrink** to what is actually reachable: δ-table retirement (gated on
+      V-1c), PortableEffects→tower, PortableDecimal→tower. Each is a redesign, not a file move.
+- Not queued deliberately: FastCode/SelfRec deletion (V-0), and the numeric-recursion bytecode lever
+  that would unblock it — that is a separate backend project, not a shrink task.
+
+### V-3 — P6.5 breadth (the only v2 item that was genuinely pickable before this section)
+
+- [ ] **V-3 — close the corpus DIFFs so the F4a fallback can retire.** Corpus MATCH **205**, DIFF
+      **315** (measured at B1, 2026-07-27 — **re-measure before starting**). Every DIFF is a program
+      where F silently delegates to legacy, so the fallback cannot be removed and F4 step 5 stays
+      blocked. Detail + the impact-ordered clusters: §`v2-p65-*` sections and `F3` below. Ready when:
+      DIFF trends to 0 with fixpoint byte-identical and semantic 248/248 after each cluster.
+
+### V-4 — F4 step 5 (was prose in three files, never a task)
+
+- [ ] **V-4 — delete `ssc1-front`/`ssc1-lower` + the F4a delegate-fallback.** BLOCKED on V-3 (a live
+      fallback cannot be deleted while 315 corpus programs still use it) and it is a **point of no
+      return** — Sergiy's call, not agent-claimable. Ready when: DIFF 0, full e2e smoke set green under
+      F with no fallback, `sbt test` green, and Sergiy has said go. Recorded here so it stops living
+      only in prose in `BACKLOG.md` / `MILESTONES.md` / three SPRINT sections.
+
+### V-5 — newfront: a DECISION for Sergiy, not a task
+
+`MILESTONES.md` stream 1 still lists **two** front-replacement threads. F won and shipped as the
+default; **newfront** sits at Phase 1 MATCH 478/499 with Phase 2 imports 43/216, and its Phase 3/4
+`[ ]` items are still open in §`new-self-hosting-front`. Whether that thread still has a job after F
+became the default is a direction question. Options: (a) retire it and delete its `[ ]` items,
+(b) keep it as the clean-rewrite target that F's subset eventually becomes, (c) park it explicitly.
+**Do not claim newfront work until this is answered.**
+
+---
+
 ## 2026-07-27 — claim-mutex (Sergiy: "как ужесточить дисциплину?")
 
 Two collisions in one day, both on `origin/main`, both wasteful:
@@ -813,10 +905,17 @@ KEY design facts established this lane (see also project memory):
       NOT remove the fast paths** (naked ~5× regression). The removal is BLOCKED on a different lever: a
       typed-IR bytecode/native compile of the numeric-recursion class (separate backend effort). Detail:
       `specs/v2-f5b-typed-ir-design.md §4.1`.
-- [ ] **S1-5 slice 1b-2b (optional, coverage only) — typed `val`/`var` locals.** `val x: T = e` / `var`
+- [x] **S1-5 slice 1b-2b DONE** (= batch B's **B2**, landed 2026-07-27; `val` only, `var` deliberately
+      excluded — a var is a mutable CELL whose reads emit `(prim cell.get ..)`, never a bare `(local N)`).
+      Gates: X1 155 ok / 0 FAIL, FIXPOINT byte-identical 406,964 B, semantic 248/248.
+      Original scope: `val x: T = e` / `var`
       push bare names at block-binder sites (parseBlockVal etc.) → embed the declared type (or infer from the
       RHS tag). No perf/deletion unlock (fib already closed); pure coverage. Gate as above.
-- [ ] **S1-5 slice 1b-3 — typed `.length`/`.charAt`/`.substring` on a String-typed local.** `postDot`/
+- [x] **S1-5 slice 1b-3 DONE** (= batch B's **B1**, landed 2026-07-27). Scope correction: `.charAt`/
+      `.substring` needed NO change (`emitPrimMeth` already lowers them for ANY receiver), so the real
+      delta was `.length` alone. Gates: X1 155 ok / 0 FAIL, FIXPOINT byte-identical 406,256 B, semantic
+      248/248; corpus MATCH 207→205 (−2 typed-by-design), EMPTY 0, TIMEOUT 0.
+      Original scope: `postDot`/
       `emitLen` become env-type-aware (via `localTyOf` on the receiver): a String-typed `(local N)` receiver
       lowers `.length`→`slen`, `.charAt`→`scodeAt`. Subsumes part of Stage 2. Gate as above.
 

@@ -125,15 +125,20 @@ orthogonal deep efforts**, none a mechanical relocation. Measured basis, each wi
 1. **δ-table retirement** (`Prims` fan-out, ~2,057 L: `__arith__`/`__method__`/`__eq__`/`__unary__`)
    → −1,100…−1,500 L. **Needs F to emit typed IR** = the F5b project (`specs/v2-f5b-typed-ir-design.md`).
    Largest lever; lands the kernel near ~4,700. This is the prerequisite for #2.
-2. **FastCode/SelfRec removal** (~1,186 L: `SelfRecLL` 59 + `SelfTailRecLL2` 83 + Compiler closed-form
-   loop JIT ~224 + `FastCode` 820). **Measured (2026-07-21): removable byte-identically** — X1 fixpoint
-   385,827 B stage1==stage2, C_min 32,824 B, semantic 248/248 all green with `SSC_FASTPATHS=off`; the
-   compiler self-compile is even ~5 s faster. **Blocker is PERF, not correctness:** numeric recursion
-   regresses 4.3× (fib(34) 0.215→0.928 s) and neither self-hosting gate measures numeric hot loops.
-   Deleting now silently trades away the landed JIT wins (vm-jit 198×fib, while-hoist, hof-frame-reuse).
-   **Do after F5b typed IR** (direct typed calls replace tag dispatch, softening the cost): re-run the
-   §3 table with `SSC_FASTPATHS=off`, confirm fib within tolerance, then delete the guarded regions —
-   the `SSC_FASTPATHS` instrument (landed `d6b1fe5a2`) makes it a verified one-liner.
+2. **FastCode/SelfRec removal — ❌ DECIDED AGAINST 2026-07-22, premise REFUTED by measurement.**
+   (~1,186 L: `SelfRecLL` 59 + `SelfTailRecLL2` 83 + Compiler closed-form loop JIT ~224 + `FastCode` 820.)
+   Removable byte-identically (X1 fixpoint 385,827 B, C_min 32,824 B, semantic 248/248 under
+   `SSC_FASTPATHS=off`), but the **perf blocker does NOT dissolve with typed IR**, which is what this
+   entry used to promise. Measured on the closed `fib(34)`, compute-only
+   (`specs/v2-f5b-typed-ir-design.md` §"MEASURED PERF FINDING"): TYPED `i.add` ~0.02 s ON vs **~0.80 s
+   OFF**; UNTYPED `__arith__` ~0.03 s ON vs ~0.81 s OFF. **Typed vs untyped ≈ 1%; fastpaths on vs off
+   ≈ 30× compute / ~5× wall.** The win is recursion/loop SPECIALIZATION (SelfRecLL arity-1 Long→Long
+   tight loop, no-`Done` boxing) — orthogonal to arith-prim dispatch, which was never the bottleneck.
+   So this is **not "deferred until F5b"**: deleting after full typed IR would still be a naked ~5×
+   regression. It is blocked on a different, larger lever — typed-IR-driven bytecode/native compilation
+   of the numeric-recursion class (replace the tree-walker for `Int`-typed recursive defs), a separate
+   backend project. The `SSC_FASTPATHS` instrument (`d6b1fe5a2`) stays useful for measuring, not for
+   deleting.
 3. **PortableEffects → ssc0 tower** (~221 L + ~6 kernel δ/handler sites). K3 effects redesign: the
    effect substrate + Op-lifting + handler machinery must be reimplemented in the ssc0 tower. Not a
    file move (the kernel dispatch sites stay until the redesign).
@@ -142,7 +147,16 @@ orthogonal deep efforts**, none a mechanical relocation. Measured basis, each wi
    interpreted tower cannot host. Redesign, not a mechanical move.
 
 Honest safe-shrink-available-NOW: ~0 L (no dead code in the perf layer; every candidate has a perf or
-redesign cost). Sequencing: **F5b typed IR first** (unblocks both #1 and #2).
+redesign cost). Sequencing: **F5b typed IR first — but it unblocks #1 only, NOT #2** (see the
+measurement above; the earlier "unblocks both" claim was the refuted premise).
+
+**Honest target: F5b lands the kernel near ~4,700, not ~2,800.** Reaching ~2,800 needs F5b PLUS
+effects-to-tower PLUS decimal-to-tower PLUS the FastCode removal that is now decided against — so
+~2,800 is not currently a reachable number, and nothing should be planned against it.
+
+**And #1 has its own unscoped gate:** δ arms stay LIVE until the **ssc0 tower** also emits typed IR
+(it lowers the conformance corpus), so no δ-arm deletion is possible from F alone
+(`specs/v2-f5b-typed-ir-design.md` §4.1). Queued as `V-1c` in `SPRINT.md`.
 
 ## `site-playground` — in-browser `.ssc` playground — BLOCKED on compiler recursion (2026-07-20)
 
