@@ -163,6 +163,36 @@ runs were queued/in-progress at hand-off: `30280918495` (batch C), `30281508270`
 and record any red in `BUGS.md` + here before building on this work. Local green is not CI green —
 that lesson cost this project 192 consecutive red runs.
 
+## 2026-07-27 — Sergiy's decisions, and the two arcs they unblock
+
+Answered this session: **portable-capsule-integrity → (c)**, **vector 26 D1 → a distinct
+`TooLateToCancel`**, **D4 → cancellation checked first**, **AGENTS.md §4c → relaxed**. D2/D3/D5 were
+not named; this agent's recommendations were taken and are marked ASSUMED in
+`specs/durable-cancellation-open-decisions.md` — cheap to revisit before the oracle text freezes,
+not after. §4c is already relaxed (three-level evidence ladder; `cancelled` stays RED and the claim
+must say WHICH level it has). Remaining work, in the order the decisions imply:
+
+- [ ] **F1 — capsule format-v3 seal (decision (c)).** Give the VM Portable capsule the host lane's
+      seal: HMAC signature + audience / tenant / quota, envelope v1 → v2. Host side is
+      `v2/host/scala/control/.../DurableCapsule.scala`; VM side `v2/src/Capsule.scala` (today: v1,
+      code-only `resume-digest`). **Keep both existing guards** — E2's `validateFrame` and E3's
+      Fx-closed run check are orthogonal and the seal replaces neither. The committed fixture
+      `v2/conformance/fixtures/fx-open.portable` is pinned to the current envelope, so re-freeze or
+      version-pin it in the same commit. Gate: `v2/conformance/portable-capsule.sh` (25 lines today)
+      plus a new tamper case — a capsule whose FRAME was edited must now be REJECTED, which is the
+      thing (c) buys and the current 111-vs-17 line documents as accepted.
+- [ ] **F2 — vector 26 implementation + flip.** The transition table is decided (see the spec's
+      DECIDED section). Host-only (`structured`) on both lanes, oracle demonstrating
+      cancel-then-resume → `Cancelled`, resume-then-cancel → **`TooLateToCancel`**,
+      reusable-cancel-blocks-run → `Cancelled`, idempotent-cancel → `Cancelled`. Two new §13 rows
+      (`Cancelled`, `TooLateToCancel`) + their boundary projections; cancellation checked FIRST in
+      the §11.1 admission order. Takes durable to **25/26**. ⚠️ Do not flip by bending the
+      realization to the pending's wording — that is the failure mode this arc was warned about.
+- [ ] **F3 — vector-15 E4, AFTER F1.** Second admitting backend, built against the SEALED format.
+      Scouting notes are in Batch E's E4 item (the JS control host is the ExactArtifact lane, NOT a
+      candidate; `Int` is 64-bit so a JS admitter needs BigInt). Building it before F1 means writing
+      it twice.
+
 **Batch E — vector 15 (Portable CodeMode) FULL ARC — Sergiy chose "всё, включая второй бэкенд"
 (2026-07-27).** This is the only path that actually flips vector 15 and takes durable to 25/26;
 it is a multi-session arc, not a slice. Staging is already fixed by `specs/portable-save-region.md`
