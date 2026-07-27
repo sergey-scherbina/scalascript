@@ -105,9 +105,40 @@ object RunNativeV2:
                 throw failure.original
               case _: Throwable => None
           fResult.getOrElse {
-            if sys.env.contains("SSC_FRONT_TRACE") then
-              System.err.println(s"[SSC_FRONT=F] F could not fully lower ${sourceFiles.mkString(", ")}; delegating to the default front")
-            lowerWith(layout.defaultRunner, None)
+            val viaDefault = lowerWith(layout.defaultRunner, None)
+            // ANNOUNCE a real coverage gap; stay quiet for a user error.
+            //
+            // This delegation used to be visible only under SSC_FRONT_TRACE, an env var nobody sets.
+            // That was fine while F was opt-IN staging; F is now the DEFAULT front, so the silence
+            // means every F gap looks like success at the CLI — and any corpus run driven through
+            // `bin/ssc` measures the LEGACY front for those programs while reporting them as F.
+            // Same shape as the `--bytecode` fallback (BUGS scljet-jdbc-facade-bytecode-class-too-large):
+            // a silent fallback turns a differential measurement into a self-comparison.
+            //
+            // The condition is the point. The fallback fires for TWO different reasons, because a
+            // user error and an F gap both show up as an unbound global: `undefinedThing()` in user
+            // code routes here exactly like a construct F cannot lower. Announcing both would print
+            // a compiler-internals line at every typo — noise that gets filtered out mentally within
+            // a day, taking the signal with it. So: if the default front reproduces a sentinel, the
+            // user's own program is at fault and this says nothing; if the default front SUCCEEDS
+            // where F failed, that is an F coverage gap and it is worth exactly one line.
+            // The test for "was this the user's fault or F's?" is to run the DEFAULT front's result
+            // through the very check F failed. If the default front also produces an unbound global,
+            // the file is broken whichever front reads it. Checking only for `_err*` SENTINELS was
+            // not enough and the gate caught it: a plain `undefinedThing()` is an ordinary unbound
+            // global, not a sentinel, so every typo still printed the coverage-gap line.
+            val userErrorNotGap =
+              try
+                validateNoReader(viaDefault.program)
+                false
+              catch case _: Throwable => true
+            if !userErrorNotGap then
+              System.err.println(
+                s"$FDelegationMarker ${sourceFiles.mkString(", ")}")
+            else if sys.env.contains("SSC_FRONT_TRACE") then
+              System.err.println(
+                s"[SSC_FRONT=F] delegated on a user-error sentinel (not an F gap): ${sourceFiles.mkString(", ")}")
+            viaDefault
           }
         case None =>
           lowerWith(layout.runner, None)
@@ -407,6 +438,13 @@ object RunNativeV2:
    *  `tests/e2e/bytecode-fallback-visible.sh`.
    */
   private[cli] val BytecodeFallbackMarker = "ssc: --bytecode fell back to the VM lane"
+
+  /** Stable, greppable marker for "the default front is F, and F did not compile this file".
+    *
+    *  Machine-readable on purpose: it is what makes "how much of the corpus does F actually cover?"
+    *  a measurement instead of a claim, and `tests/e2e/f-front-delegation-visible.sh` pins the exact
+    *  string so a reworded message cannot quietly switch the measurement off. */
+  private[cli] val FDelegationMarker = "ssc: F did not lower this file; compiled with the default front instead —"
 
   private[cli] val FNestedBytecodeMarker = "[SSC_FRONT=F] nested F0 direct-ASM"
 
