@@ -1,5 +1,68 @@
 # Bug tracker
 
+## scljet-sql-blob-comparison-collapses-values — all BLOBs compare equal
+
+**Status:** OPEN (found 2026-07-27 by `scljet-production-completion`; reproduced
+on assembled `bin/lib/ssc.jar` from `9d96146b3` through both
+`bin/ssc-tools run --v1` and emitted JS/Node).
+
+**Real-harness reproduction.** Insert BLOB values `x'03'`, `x'ff'`, `x'00'`,
+and `x'02'`, then run `ORDER BY v` and `COUNT(DISTINCT v)`. SclJet INT and JS
+preserve insertion order and report one distinct value; reference SQLite sorts
+them as `00,02,03,ff` and reports four. Joining two three-row tables on equal
+BLOBs produces a nine-row Cartesian product in SclJet instead of the three
+byte-equal pairs.
+
+**Root cause.** `sqlCompare` in `scljet/sql.ssc` returns zero for every
+same-class BLOB pair. The physical comparator in `scljet/write.ssc` already has
+the required bytewise implementation, so SC-1c should expose/reuse that
+comparator for SQL total ordering while keeping SQL NULL predicate state
+separate.
+
+## scljet-sql-numeric-comparison-rounds-through-double — INTEGER/REAL loses precision above 2^53
+
+**Status:** OPEN (found 2026-07-27 by `scljet-production-completion`; reproduced
+on assembled `bin/lib/ssc.jar` from `9d96146b3` through both
+`bin/ssc-tools run --v1` and emitted JS/Node).
+
+**Real-harness reproduction.** With INTEGER `9007199254740993` and REAL
+`9007199254740992.0`, SclJet INT treats them as equal: equality selects both,
+the INTEGER is not greater, and `ORDER BY` leaves the INTEGER before the REAL.
+Reference SQLite selects only the REAL for equality, selects the INTEGER for
+greater-than, and orders the REAL first. JS happens to agree on these vectors,
+so an INT+JS gate is required rather than accepting one backend as a proxy.
+
+**Root cause.** `sqlCompare` converts both numeric operands to host `Double`.
+`scljet/write.ssc` already contains exact INTEGER/REAL comparison that avoids
+this loss; SC-1c should make one comparator drive SQL ordering/equality and
+physical index behavior.
+
+## scljet-sql-null-three-valued-logic — scalar and IN predicates treat UNKNOWN as true/false
+
+**Status:** OPEN (found 2026-07-27 by `scljet-production-completion`; reproduced
+on assembled `bin/lib/ssc.jar` from `9d96146b3` through both
+`bin/ssc-tools run --v1` and emitted JS/Node).
+
+**Real-harness reproduction.** On rows `(1,NULL),(2,NULL),(3,1),(4,1)`,
+unindexed `WHERE a = NULL` returns ids `1,2`, `a = a` returns all four,
+`a <> 1`/`a < 1` return the NULL rows, and `a >= NULL` returns all four;
+reference SQLite returns no row for the first/fourth groups and only `3,4` for
+`a = a`. Literal `1 NOT IN (NULL,2)`, non-correlated
+`id NOT IN (SELECT NULL)`, and correlated NULL RHS cases likewise return rows
+that SQLite excludes.
+
+An index can hide the defect: after creating a suitable index, candidate
+selection happens to make `a = NULL` and `a < 1` empty before the broken
+predicate runs. The regression must compare unindexed and indexed paths rather
+than treating the indexed result as evidence for scalar semantics.
+
+**Root cause.** `sqlCompare` is intentionally a total storage-order comparator
+and returns equality for NULL/NULL; `predHolds` incorrectly reuses it for SQL
+predicates. `valueInList` is Boolean and cannot represent UNKNOWN, correlated
+subqueries blindly invert it for `NOT IN`, and the non-correlated value token
+rewrites NULL to numeric zero. SC-1b needs a tri-state predicate/IN layer while
+retaining total comparison for ORDER/GROUP/DISTINCT/index operations.
+
 ## v2-f-small-vm-admission-loads-asm — F admission classification breaks VM backend isolation
 
 **Status:** DONE (found 2026-07-27 by `codex` while verifying unlanded

@@ -77,21 +77,28 @@ strongest CI evidence actually available.
 - [ ] **SC-1 — foundational SQL value correctness.**
   - [ ] **SC-1a — IPK numeric affinity.** Fix `BUGS.md`
         `scljet-ipk-update-numeric-affinity` through one rowid coercion used by INSERT and UPDATE:
-        accept exact integral `SqlReal` and full SQLite numeric-text forms whose result is an exact
-        signed-64 integer (decimal point and exponent included); reject fractional, malformed,
-        hexadecimal, rounded-at-the-boundary, and overflowing values without changing the image.
-        Only a real SQL NULL means auto-rowid on INSERT. Extend
+        accept SQLite's exact-integer TEXT fast path and its binary64 `MustBeInt` behavior for
+        `SqlReal` plus decimal/exponent TEXT. This deliberately accepts reference rounding inside
+        range (`9007199254740993.0` → `9007199254740992`) while rejecting REAL/decimal
+        `Long.MinValue`, positive `2^63`, fractional, malformed, hexadecimal, and non-finite
+        values without changing the image. Only a real SQL NULL means auto-rowid on INSERT. Also
+        make the numeric lexer preserve direct overflow/exponent semantics instead of wrapping
+        bare `9223372036854775808` to `Long.MinValue`. Extend
         `scljet-update-ipk-moves-rowid` and the sqlite-jdbc differential in both directions; verify
         `integrity_check`, collisions, and indexed-table ordering after the move. This is the first
         code slice.
   - [ ] **SC-1b — three-valued predicates.** Reproduce the static `NULL = NULL` and
         `NOT IN (..., NULL)` findings in the real harness, add `BUGS.md` entries if confirmed, then
-        make scalar comparison/IN/NOT IN propagate UNKNOWN exactly like SQLite. Gate with a live
+        make scalar comparison/IN/NOT IN propagate UNKNOWN exactly like SQLite. Reproduction on
+        assembled INT+JS confirms both plus NULL loss in correlated/non-correlated subqueries;
+        an index can mask the broken predicate, so gate unindexed and indexed paths with a live
         differential `scljet-sql-null-semantics` case rather than the existing IS-NULL-only test.
   - [ ] **SC-1c — exact value comparison.** Reproduce precision loss above 2^53 and same-class BLOB
         equality in the real harness, record confirmed bugs, then make INTEGER/REAL and BLOB
-        comparisons exact and shared by filtering, ordering, DISTINCT, grouping, and index
-        semantics. Gate with `scljet-sql-value-compare` against live SQLite.
+        comparisons exact and shared by filtering, ordering, DISTINCT, grouping, joins, and index
+        semantics. Both are confirmed on the assembled harness; reuse the already-correct physical
+        comparator in `scljet/write.ssc` and gate `scljet-sql-value-compare` on INT+JS against live
+        SQLite.
 
 - [ ] **SC-2 — reclaiming live DML plus safe freelist reuse.** Turn the already-tested
   - [ ] **SC-2a — reclaim/reuse.** Turn `pagerDeleteRebalanced` into live DELETE/UPDATE behavior
