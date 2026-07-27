@@ -1855,7 +1855,15 @@ def parseTryCatch(body, ts, env, cx) = parseCatchPf(ts, env, cx) match { case (p
 def parseTryCF(body, pf, ts, env, cx) = if isWord(hd(ts), "finally") then parseTryCFin(body, pf, tl(ts), env, cx) else ("(prim __tryCatch__ (lam 0 " ++ body ++ ") " ++ pf ++ ")", ts)
 def parseTryFin(body, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (fin, r) => ("(prim __tryFinally__ (lam 0 " ++ body ++ ") (lam 0 " ++ erase(fin, cx) ++ "))", r) }
 def parseTryCFin(body, pf, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (fin, r) => ("(prim __tryCatchFinally__ (lam 0 " ++ body ++ ") " ++ pf ++ " (lam 0 " ++ erase(fin, cx) ++ "))", r) }
-def parseCatchPf(ts, env, cx) = parseHArms(hOpen(ts), "__m" :: "__pf" :: env, cx) match { case (chain, r) => ("(lam 1 (let ((local 0)) " ++ chain ++ "))", r) }
+// The `}` is consumed HERE, and only when a `{` was actually opened. parseHArms0 used to call hClose
+// unconditionally at the end of the arms — so a BRACELESS `catch case … => …` ate the next `}` in the
+// stream, which is the VIRTUAL brace layout inserted to close the enclosing def body. The block then
+// stayed open and swallowed the following top-level statements: `def w(..) = try ⏎ .. ⏎ catch ⏎ case ..`
+// followed by `println(w(0))` lowered to a def containing the println and `(entry (lit unit))` — no
+// output, exit 0 (BUGS `v2-front-try-in-def-body-shapes-break` shape (b)).
+def parseCatchPf(ts, env, cx) = parseCatchPf1(isTok(hd(ts), 2, 28), hOpen(ts), env, cx)
+def parseCatchPf1(braced, ts, env, cx) = parseHArms(ts, "__m" :: "__pf" :: env, cx) match { case (chain, r) => ("(lam 1 (let ((local 0)) " ++ chain ++ "))", closeIfBraced(braced, r)) }
+def closeIfBraced(braced, ts) = if braced then hClose(ts) else ts
 def hOpen(ts) = if isTok(hd(ts), 2, 28) then tl(ts) else ts
 def hClose(ts) = if isTok(hd(ts), 2, 29) then tl(ts) else ts
 def pfRef(menv) = "(local " ++ lookup("__pf", menv) ++ ")"
@@ -1864,7 +1872,7 @@ def hMiss(menv) = "(prim __handler_dispatch_miss__ " ++ pfRef(menv) ++ ")"
 // fallback arm: `(let (<scrut>) (miss(pf)))` — the fallback alias binder pushes one slot before miss.
 def hMissArm(menv) = "(let (" ++ genScrut(menv) ++ ") " ++ hMiss("__hfb__" :: menv) ++ ")"
 def parseHArms(ts, menv, cx) = parseHArms0(skipSemisF(ts), menv, cx)
-def parseHArms0(ts, menv, cx) = if isTok(hd(ts), 2, 6) then parseHArm(tl(ts), menv, cx) else (hMissArm(menv), hClose(ts))
+def parseHArms0(ts, menv, cx) = if isTok(hd(ts), 2, 6) then parseHArm(tl(ts), menv, cx) else (hMissArm(menv), ts)
 // An UNTYPED handler arm — `case _ => b` or `case e => b` — is a CATCH-ALL with no type to test.
 // parseHArm used to assume EVERY arm was `pat : T =>` and read the type head as "the token two past the
 // pattern"; for `case _ => "W"` that token is the arm's BODY, so it emitted `__isTag__(v, "W", -1)` — a
