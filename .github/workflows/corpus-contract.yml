@@ -2,9 +2,21 @@ name: Corpus Contract
 
 # The always-on differential gate (tests/conformance/contract.sc): both corpora
 # × lanes {int, js, v2} diffed against the golden, compared to corpus-baseline.tsv.
-# Runs nightly + on demand rather than per-PR because the full corpus (~415 cases ×
-# 3 lanes, no memo/batch yet) takes ~25 min. It is RED on any regression or on a
+# Runs nightly + on demand rather than per-PR. It is RED on any regression or on a
 # closed gap that wasn't recorded in the baseline. See tests/conformance/CONTRACT.md.
+#
+# SHARDED since 2026-07-27 (corpus-contract-shard-fix), and here is why — the header
+# used to say "~415 cases × 3 lanes … ~25 min" and that estimate went stale silently:
+# by 2026-07-27 the corpus was 485 cases and per-case cost had grown (F is the default
+# native front since 56d7d705f and is 2-4× slower), so a full pass needed ~95-100 min
+# against a 60-min budget. Result: 13 runs, ZERO green — 3 `failure` then 10 killed at
+# the wall. A job timeout surfaces as `cancelled`, NOT `failure`, so it read as benign
+# and the whole F4 front-flip landed without its differential net.
+#   ⇒ If you ever see this workflow `cancelled`, treat it as RED, not as "someone
+#     cancelled it" — and re-check the per-shard budget below rather than raising the
+#     timeout, which is what hid the growth last time.
+# 4 round-robin shards ≈ 6 min setup + ~24 min cases each; the 60-min guard stays as a
+# guard, not as the operating point.
 #
 # TODO: add memo (F2) + batch lanes (F4) like run.sc, then promote to a per-PR gate.
 
@@ -15,9 +27,17 @@ on:
 
 jobs:
   contract:
-    name: Corpus Contract (int/js/v2 differential)
+    name: Corpus Contract shard ${{ matrix.shard }}/4 (int/js/v2 differential)
     runs-on: ubuntu-latest
     timeout-minutes: 60
+
+    # Round-robin shards (idx % 4), not contiguous blocks — the corpus is name-sorted
+    # and the slow cases cluster by name. fail-fast: false so one red shard still lets
+    # the others report; a partial verdict is what made the timeout unreadable.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
 
     steps:
       - name: Checkout
@@ -72,5 +92,5 @@ jobs:
       - name: Build ssc launcher (sbt-assembly)
         run: bash install.sh --dev
 
-      - name: Run corpus contract
-        run: scala-cli tests/conformance/contract.sc
+      - name: Run corpus contract (shard ${{ matrix.shard }}/4)
+        run: scala-cli tests/conformance/contract.sc --shard ${{ matrix.shard }}/4
