@@ -642,6 +642,12 @@ AGENTS.md this is RED/no verdict, never neutral: E7 released on evidence level
 3 (its named local classifier, real-corpus, conformance, routing, and doc gates),
 not on a fictional CI green.
 
+**Fresh exact-SHA instance, V-6b.** Run `30308711327` for final SHA
+`42c4f487f` was superseded and completed `cancelled` with zero jobs. This is
+again RED/no verdict. V-6b releases on evidence level 3: focused unit tests
+11/11, exact no-fallback and product parity gates, backend isolation,
+fallback visibility, affected conformance 1/1, and full-repository markdownlint.
+
 **Observed on `ci.yml` / `main`, 2026-07-27 ~16:59Z:**
 
 - **6 of the last 14 runs ended `cancelled`** (`b672b0d41`, `bb78a98ea`, `309011c05`, `1ad34d8ec`,

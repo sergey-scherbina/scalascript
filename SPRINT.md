@@ -579,6 +579,10 @@ SLOWER until `f5c-1`; `.length` receivers were classifier-shaped — they were b
       the V-6a 66.20-second baseline to 26 seconds in the final parity gate.
       Focused tests passed 11/11; product, backend-isolation, fallback-visibility,
       and affected 1/1 conformance gates passed.
+      **CI evidence level 3:** exact-SHA run `30308711327` for final
+      `42c4f487f` was `cancelled` with zero jobs (RED/no verdict). Release uses
+      the named local gates above plus the exact 2.20x no-fallback probe and
+      full-repository markdownlint.
 - [x] **V-6c — decide and record.** Resolved by landing the measured selective
       nested-F0 direct-ASM optimisation rather than accepting the unowned cost.
       The measured integration closes the cost named by this decision item, so
