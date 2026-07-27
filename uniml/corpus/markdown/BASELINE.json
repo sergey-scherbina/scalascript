@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 3,
+  "meaning": "Complete independent-axis compare-first census before CommonMark/GFM production conformance fixes. Every case x axis row, including MATCH, pins expected and actual plus canonical full diagnostics and token/tree observables. This is characterization evidence, not a green release verdict.",
+  "axesPerCase": [
+    "source",
+    "tokens",
+    "status",
+    "html",
+    "chunks"
+  ],
+  "cases": 675,
+  "passingCases": 460,
+  "failingCases": 215,
+  "totalAxes": 3375,
+  "nonPassAxes": 244,
+  "nonPassAxisCounts": {
+    "html": 215,
+    "source": 14,
+    "tokens": 14,
+    "status": 1,
+    "chunks": 0
+  },
+  "nonPassStatusCounts": {
+    "DIFF": 240,
+    "ERROR": 4
+  },
+  "commonmark-0.31.2": {
+    "cases": 652,
+    "passingCases": 451,
+    "failingCases": 201,
+    "nonPassAxes": 230
+  },
+  "gfm-0.29-enabled-extensions": {
+    "cases": 23,
+    "passingCases": 9,
+    "failingCases": 14,
+    "nonPassAxes": 14
+  },
+  "exactRows": "BASELINE.tsv",
+  "exactRowsCount": 3375,
+  "exactRowsFileSha256": "c1dc525945cece8137cba4f2ade1215b423eb91cb5a6d90b049f3688d006f1b5",
+  "fullRowsSha256": "9094aa2a7469be431b06565b91ca44c721c93a50ed69faf2991a7c17b2702f62",
+  "nonPassRowsSha256": "9211ced6fdd0b51f6c839836377aa59d7d1d7a608f063e76994abb9b9c3fd9da",
+  "perSectionTotalsSha256": "b2b6c9d920fd9430bc9347dfbc55a4edf027d4c5e067b1d412a7c07c7f2107a5",
+  "strictGate": "red"
+}

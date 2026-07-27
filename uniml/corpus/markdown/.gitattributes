@@ -1,0 +1,3 @@
+# Every file in this closed tree is byte-authenticated by MANIFEST.json.
+# Never apply checkout EOL conversion before generate.py verifies it.
+* -text
