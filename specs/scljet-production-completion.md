@@ -129,6 +129,11 @@ PRIMARY KEY value on both INSERT and UPDATE:
 Only an actual SQL NULL requests automatic rowid assignment on INSERT. A malformed or
 non-integral explicit value never silently becomes an automatic rowid.
 
+Automatic assignment uses the greatest existing rowid, even when every rowid is negative:
+an empty table starts at 1 and otherwise uses `max + 1`. If the greatest rowid is
+`Long.MaxValue`, it chooses an unused positive candidate under SQLite's bounded fallback
+rule; it never wraps to `Long.MinValue`.
+
 Leading-numeric-prefix JDBC getter conversion is not reusable here: affinity validates the
 whole value. The gate covers signs, surrounding ASCII whitespace, decimal/exponent forms,
 `Long.MinValue`, `Long.MaxValue`, one-step overflow, underflow to zero, and floating-point
@@ -138,6 +143,12 @@ rather than mathematical decimal exactness: for example `9007199254740993.0` bec
 accepted rowid `9007199254740992`, while a decimal form that rounds to positive `2^63` and
 the REAL/decimal form of `Long.MinValue` are rejected. The same statements run through
 SclJet and reference sqlite-jdbc; resulting rows and integrity status are compared.
+
+Bound `SqliteValue` cases isolate rowid coercion from SQL tokenization. Direct SQL literals
+also have a fail-closed SC-1 gate: decimal-integer lexing detects overflow instead of
+wrapping, and every mutation parser must consume its complete token stream before writing.
+The remaining signed `VALUES`, exponent, and hexadecimal source-literal grammar lands with
+SC-8; until then an unsupported form returns a syntax error without mutating any row.
 
 Before schema work builds on it, scalar value semantics also need live differential gates:
 
