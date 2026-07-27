@@ -2,13 +2,13 @@ slug: native-release-qualification
 branch: feature/native-release-qualification
 agent: claude-code
 started: 2026-07-27T21:46:13Z
-heartbeat: 2026-07-27T21:54:25Z
+heartbeat: 2026-07-27T22:03:38Z
 status: in-progress
 items: native-release-never-run native-release-qualification
-paths: .github/workflows/native-release.yml specs/native-release-qualification.md tests/e2e/native-release-qualification.sh scripts/native-release-qualify
+paths: .github/workflows/native-release.yml specs/native-release-qualification.md tests/e2e/native-release-qualification.sh scripts/native-release-qualify v1/tools/cli/src/main/scala/scalascript/cli/Main.scala v1/tools/cli/src/main/scala/scalascript/cli/NativeImageInstallRoot.scala v1/tools/cli/src/test/scala/scalascript/cli/NativeImageInstallRootTest.scala
 scope: |
   Qualify the never-run native release workflow through a credential-safe manual
   dry-run. Build and inspect every declared platform artifact without publishing
   a GitHub release; make archive/runtime/plugin checks fail loud.
-done-so-far: resume-cold SPRINT plan landed; feature spec committed and lint-clean
-next: build the worktree dev distribution, rerun conformance, then land the spec
+done-so-far: spec plus hardened isolation/manifest/timeout contract landed
+next: implement the compare-first qualifier and relocatable native-image bootstrap
