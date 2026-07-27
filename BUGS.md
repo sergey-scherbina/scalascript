@@ -1,5 +1,35 @@
 # Bug tracker
 
+## ci-sbt-job-is-28x-the-code-push-interval — the arithmetic no queue policy can fix
+
+**Status:** OPEN — **measurement, handed to whoever owns the `sbt` job** (2026-07-28,
+`ci-bookkeeping-floods-verdicts`). Not mine to fix: job structure and `timeout-minutes` belong to
+`ci-runs-cancelled-under-churn`.
+
+**The numbers** (6 hours on `main`, measured 2026-07-28):
+
+| quantity | value |
+|---|---|
+| commits | 253 |
+| of those, changing code (i.e. creating a run after `paths-ignore`) | **51** |
+| mean interval between CODE pushes | **7 min** |
+| `sbt — compile and test` duration | **196 min** (17:55:20→21:11:40) |
+| ratio | **28** |
+
+Twenty-eight code pushes arrive while one `sbt` job runs. With GitHub's one-pending-run-per-
+concurrency-group rule, at most 1 commit in 28 can reach a verdict, and only if a runner is free.
+
+**What this rules out.** Queue management is not the lever. `paths-ignore` removed the 74% of load
+that carried no code and drained the backlog from 62 runs to 1 — necessary, and visible — but the
+ratio above is unchanged by it, because it was never about the docs commits.
+
+**What is left.** Either the verdict-carrying job gets shorter than the push interval, or the
+per-push verdict comes from something that already is. The other three jobs measured
+`Validate` 34 s, `Lint` 28 s, `Conformance Suite` 38 min — so the candidate already listed under
+`ci-runs-cancelled-under-churn` ("gate the fast jobs as the per-push verdict and run `sbt` on a
+schedule") is not one option among several; it is the only shape that fits the arithmetic without
+making the tests faster. A scheduled `sbt` still catches everything, just later and in batches.
+
 ## v2-std-ui-imports-stale-after-tests-move — five fixtures still target the old conformance location
 
 **Status:** OPEN (found 2026-07-28 by `codex` while working SPRINT
