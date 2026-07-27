@@ -334,6 +334,12 @@ frame may contain — `Lit`, or `Ctor(tag, fields)` recursively — and rejects 
 offending node, mirroring `Reader.validate`'s style. This is also the precondition for slice 3's nominal
 frames: "what may a frame contain" has to be answered before non-scalar slots are allowed in.
 
+**Follow-up (final run `30285845478`).** The 90 s lane budget cleared 8 of the 9 timeouts;
+**`scljet-jdbc v2` still times out**, i.e. the largest scljet case needs >90 s under F where legacy
+is a few seconds. Do NOT answer that by raising the budget again — at some point the honest reading
+is that the case is too slow to gate, and the cost itself is the thing to fix. (`scljet-jdbc` also
+carries `scljet-jdbc-facade-bytecode-class-too-large`, so it may be two problems stacked.)
+
 ## bytecode-opanf-purity-registry-marks-every-def-pure — effect Ops leak into `if` conditions on the DEFAULT execution lane
 
 **Status:** OPEN → fix in flight (2026-07-27, `corpus-contract-shard-fix`). Found by the corpus

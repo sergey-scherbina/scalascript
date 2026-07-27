@@ -328,11 +328,30 @@ mode in its purest form: the apparatus that establishes trust was itself unteste
       update comes after the next run, and only for the entries proven to be documented state
       (`int-width js KNOWN-RED`, `dataset-from-generator js`).
 
-- [ ] **E6 — baseline reconciliation (after the post-`afa5981a2` run).** Expected remaining reds once
-      the budget split and known-red support are live: `coroutine-demo` and
-      `rozum-agent-schema-derived` only — both filed as real bugs. Then run
-      `contract.sc --update-baseline` **UNSHARDED** (it refuses under `--shard`) and commit the diff
-      with a line per entry saying which of the two it is: documented state, or a bug that stays red.
+- [x] **E6 — DONE, and the decision is NOT to update the baseline.** Final run `30285845478` (on
+      `30f9a2f03`, all fixes live, corpus now 487): **shard 2/4 reports `✓ contract GREEN`** — the
+      first green shard this gate has ever produced — and the whole matrix is down from **14
+      non-PASS to 5**, every one accounted for:
+
+      | remaining entry | what it is |
+      |---|---|
+      | `coroutine-demo * SKIP` | **open bug** `coroutine-demo-import-cycle-on-interpreter` |
+      | `rozum-agent-schema-derived js FAIL` + `v2 FAIL` | **open bug** `rozum-agent-schema-derived-js-and-v2-gaps` |
+      | `int-width js KNOWN-RED` | declared red, now correctly bucketed (was reported as a regression before `afa5981a2`) |
+      | `scljet-jdbc v2 TIMEOUT` | the one survivor of the 9 timeouts — the largest scljet case still exceeds even the 90 s lane budget under F (see `f-front-compile-cost-7x-on-scljet`, and it also carries `scljet-jdbc-facade-bytecode-class-too-large`) |
+      | *(improvements)* `dataset-from-generator js`, `rozum-agent-schema-derived *` | genuine closed gap / case became runnable |
+
+      **Why no `--update-baseline`.** Two of the five are open bugs, and `--update-baseline` is
+      all-or-nothing — it rewrites the whole matrix from the current run, so there is no way to
+      record the documented rows without also recording the bugs. **A gate that is red because two
+      filed bugs are open is a gate working correctly.** The way to green here is to fix them, not to
+      re-freeze the baseline around them. Re-baseline only when `coroutine-demo` and
+      `rozum-agent-schema-derived` are fixed (or the latter is skipped on *non-hermetic* grounds,
+      which is a judgement about the case, not about the gate) — and do it UNSHARDED.
+
+      Confirmed in CI on the full corpus along the way: `head-field-effect-shadow v2 FAIL` is gone
+      after `c3841d01e` (run `30282931604`), and the timeout set is provably contention-flaky — run 3
+      surfaced `scljet-write-index-deep js TIMEOUT`, which run 2 did not, on identical code.
 
 - [ ] **E7 — baseline cannot distinguish NEW from REGRESSED (found while triaging E4).** The
       baseline records only NON-PASS entries, so a case added after the freeze that is non-PASS looks
