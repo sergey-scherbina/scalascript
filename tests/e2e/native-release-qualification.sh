@@ -407,16 +407,26 @@ run_case() {
 
 expect_pass() {
   local name=$1
+  local expected_sha
+  local expected_output
   run_case "$name"
   if [[ $CASE_RC -ne 0 ]]; then
     printf 'native-release-qualification[%s]: expected exit=0, got=%s\n%s\n' \
       "$name" "$CASE_RC" "$CASE_OUTPUT" >&2
     exit 1
   fi
-  if [[ $CASE_OUTPUT != QUALIFIED\ artifact="$ARTIFACT_ID"\ sha256=*\
-\ vm=84\ asm=84\ plugin-host=ready ]]; then
-    printf 'native-release-qualification[%s]: unexpected success summary:\n%s\n' \
-      "$name" "$CASE_OUTPUT" >&2
+  expected_sha=$("$PYTHON" - "$TMP/$name/$ARTIFACT_ID.tar.gz" <<'PY'
+import hashlib
+import sys
+
+with open(sys.argv[1], "rb") as stream:
+    print(hashlib.sha256(stream.read()).hexdigest())
+PY
+)
+  expected_output="QUALIFIED artifact=$ARTIFACT_ID sha256=$expected_sha vm=84 asm=84 plugin-host=ready"
+  if [[ $CASE_OUTPUT != "$expected_output" ]]; then
+    printf 'native-release-qualification[%s]: summary expected=%q actual=%q\n' \
+      "$name" "$expected_output" "$CASE_OUTPUT" >&2
     exit 1
   fi
   PASSED=$((PASSED + 1))
