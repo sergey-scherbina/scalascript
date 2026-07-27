@@ -7104,10 +7104,9 @@ emits `def C(a) = IrCtor(C, [a])`; extend to `def C(a) = let y=a*2 in IrCtor(C, 
 - [ ] **v2-std-ui-missing-fixture** — std-ui-aggregator / std-ui-extended{,-b,-c,-d} import
   `../examples/std-ui` = `tests/examples/std-ui/index.ssc`, which DOES NOT EXIST. Restore the fixture
   dir or re-scope these tests (fails on ALL backends without it).
-- [ ] **v2-json-self-hosted** — ACTIVE (`feature/v2-json-self-hosted`): close
-  json-read / json-value / json-lookup, whose `jsonParse`/`jsonRead`/`lookup`
-  implementations are intentionally self-hosted while the cases do not import
-  `std/json.ssc`.
+- [ ] **v2-json-self-hosted** — ACTIVE (`feature/v2-json-self-hosted`):
+  re-measure the stale missing-import diagnosis and close the actual native-v2
+  parity gap across json-read / json-value / json-lookup.
   - Reproduce all three through the assembled product/conformance harness on
     their declared lanes; capture the exact pre-fix diagnostics.
   - Run explicit-import controls against the same expected output and inspect
@@ -7118,6 +7117,13 @@ emits `def C(a) = IrCtor(C, [a])`; extend to `def C(a) = let y=a*2 in IrCtor(C, 
   - Apply the smallest contract-correct fix, preserving the same observable
     output; add a dedicated regression only if the three cases do not pin the
     actual import boundary.
+  - **Measured baseline:** regular conformance is 3/3 on INT/JS/JVM. The
+    assembled `bin/ssc run --bytecode` route already makes json-value and
+    json-lookup byte-identical without source edits; json-read exits 0 but
+    differs only at JSON null (`expected=None`, `got=()`) and integral double
+    display (`expected=0`, `got=0.0`). Track the real defect as BUGS
+    `v2-json-read-native-representation-parity`; do not preserve the stale
+    "unbound self-hosted global" diagnosis.
   - Done when `tests/conformance/run.sh --only
     'json-read,json-value,json-lookup' --no-memo` passes every declared lane and
     the assembled v2 route demonstrably executes the self-hosted implementation

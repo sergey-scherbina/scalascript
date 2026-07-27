@@ -63,7 +63,36 @@ through its bounded fallback.
 table separately, and `assignInsertRowids` increments unchecked. SC-1a must use
 the true signed maximum, start an empty table at 1, and choose an unused
 positive fallback when the maximum cannot be incremented.
+## v2-json-read-native-representation-parity — native JSON read differs from established output
 
+**Status:** OPEN (found 2026-07-27 by `codex` while working SPRINT
+`v2-json-self-hosted`).
+
+**Real-harness reproduction.** Build the worktree product with
+`scripts/sbtc "installBin"`, then run:
+
+```bash
+bin/ssc run --bytecode tests/conformance/json-read.ssc
+```
+
+Compare stdout with `tests/conformance/expected/json-read.txt` before
+classifying the backend. The product exits 0 but has two exact differences:
+
+```text
+expected=None  got=()
+expected=0     got=0.0
+```
+
+The sibling `json-value` and `json-lookup` cases are already byte-identical on
+the same assembled route. The regular three-case conformance command is 3/3,
+but it runs only INT/JS/JVM for these manifests, so that green result does not
+exercise or disprove the native-v2 mismatch.
+
+**Next.** Compare explicit `std/json.ssc` imports with the current implicit
+route, identify whether the difference originates in the self-hosted facade,
+native JSON provider, or generic value rendering, then pin the actual boundary
+in the v2 lane. Preserve INT/JS/JVM output and do not change the expected file
+to bless a backend divergence.
 ## native-release-unqualified-and-unrelocatable — release workflow cannot prove a runnable v2 artifact
 
 **Status:** OPEN (found 2026-07-27 by `native-release-qualification` against
