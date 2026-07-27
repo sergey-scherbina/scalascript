@@ -1,0 +1,11 @@
+slug: board-catchup
+branch: feature/board-catchup
+agent: claude-code
+started: 2026-07-27T20:09:50Z
+heartbeat: 2026-07-27T20:09:50Z
+status: claimed-before-planning
+items: board-catchup-F1-F2-F3-jsdiv
+paths: SPRINT.md BUGS.md CHANGELOG.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
