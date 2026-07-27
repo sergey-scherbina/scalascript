@@ -1,6 +1,6 @@
 feature/js-char-into-int-param 2026-07-27T16:08:54Z
 agent: codex
-heartbeat: 2026-07-27T16:08:54Z
-status: not-started
-done-so-far: selected an unclaimed, non-overlapping JS-backend bug after refreshing origin/main
-next: create the worktree and commit the resume-cold SPRINT plan before implementation
+heartbeat: 2026-07-27T16:09:25Z
+status: in-progress
+done-so-far: claim landed and isolated worktree created at /Users/sergiy/work/my/scalascript-wt-js-char-into-int-param
+next: commit the resume-cold SPRINT plan, then reproduce the INT/JS divergence in the real harness
