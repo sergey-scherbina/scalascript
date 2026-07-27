@@ -51,43 +51,43 @@ for parity.
 
 ## Behavior
 
-- [ ] The probe rebuilds one kernel plus one F0 from the current checkout and
+- [x] The probe rebuilds one kernel plus one F0 from the current checkout and
       feeds the identical F source bytes and program arguments to both lanes.
-- [ ] A VM control executes F0 and establishes the expected `F(F_src)` output
+- [x] A VM control executes F0 and establishes the expected `F(F_src)` output
       before the bytecode result is classified.
-- [ ] The direct-ASM candidate performs
+- [x] The direct-ASM candidate performs
       `OpAnfNative.lift -> JvmByteGen.emitProgram -> JvmByteGen.runProgram`
       directly, with no catch-and-run-VM path.
-- [ ] `JvmByteGen` accepts a product-shaped F0 whose embedded user-source
+- [x] `JvmByteGen` accepts a product-shaped F0 whose embedded user-source
       `CStr` exceeds the classfile modified-UTF8 limit. It reconstructs the
       exact string from bounded constants, including NUL, BMP, and surrogate
       code units, without changing CoreIR or filesystem semantics.
-- [ ] Output bytes are compared before acceptance or performance
+- [x] Output bytes are compared before acceptance or performance
       classification; a mismatch prints both digests and fails.
-- [ ] Raw fresh-process samples, medians, and the bytecode/VM speedup are
+- [x] Raw fresh-process samples, medians, and the bytecode/VM speedup are
       printed. The default repetition count is at least three.
-- [ ] The result is assessed against the V-6a admission target: exact output
+- [x] The result is assessed against the V-6a admission target: exact output
       parity and at least 2x faster than the 5.17 s direct self-compile
       baseline. Product integration remains blocked unless both hold.
-- [ ] The probe leaves the checkout unchanged and either removes temporary
+- [x] The probe leaves the checkout unchanged and either removes temporary
       artifacts or preserves all of them under the explicit `--keep`
       directory.
-- [ ] The product F runner considers only its first nested `coreir.eval`.
+- [x] The product F runner considers only its first nested `coreir.eval`.
       Direct ASM is selected only when that program contains a string-backed
       constant that requires multiple classfile modified-UTF8 entries. Small
       first programs and every later nested eval stay on the VM.
-- [ ] Classifying a small first program does not initialize `JvmByteGen` or
+- [x] Classifying a small first program does not initialize `JvmByteGen` or
       load `org.objectweb.asm.*`; backend classes load only after admission
       selects direct ASM.
-- [ ] The nested evaluator is thread-scoped and restoring. It cannot affect a
+- [x] The nested evaluator is thread-scoped and restoring. It cannot affect a
       checker, legacy-front run, another thread, or a later tower run.
-- [ ] `OpAnfNative.lift` plus bytecode emission finish before the candidate is
+- [x] `OpAnfNative.lift` plus bytecode emission finish before the candidate is
       considered started. `Unsupported` and ASM method/class-size failures in
       that link phase may delegate to VM; any failure from `runProgram` is
       propagated and never rerun on VM.
-- [ ] A selected direct-ASM run gets a fresh `Emit.globalsRef` for its entire
+- [x] A selected direct-ASM run gets a fresh `Emit.globalsRef` for its entire
       install/entry execution and restores the previous map in `finally`.
-- [ ] The product gate compares stdout bytes before inspecting trace markers:
+- [x] The product gate compares stdout bytes before inspecting trace markers:
       hello stays on VM, while the exact product SClJet workload selects nested
       direct ASM and remains byte-identical to `SSC_FRONT=legacy`.
 
@@ -214,3 +214,25 @@ still executed nested F0 through `coreir.eval` on the VM. A direct tiny F0
 control likewise measured about 0.44 seconds for emit/load/run versus 0.26
 seconds on VM. These controls admit the selective large-nested-F0 policy and
 reject unconditional ASM.
+
+The selective product integration landed through `389b36e0f`. The final
+three-run no-fallback probe measured VM samples of 4.70, 4.74, and 4.78 seconds
+against direct-ASM samples of 2.15, 2.18, and 2.13 seconds: medians 4.740 and
+2.150 seconds, or 2.20x. Both lanes produced
+`364ab60cdd6cfecc655fa3b9d7fa9ac55ce373896aa0516fff07d3d47b10e6fd`;
+the emitted class was 634,292 bytes.
+
+The product gate compared output before backend markers. Hello remained exact
+and on the VM (F 2 seconds, legacy 1 second); SClJet remained exact and selected
+the nested direct-ASM path (F 26 seconds, legacy 9 seconds). The 26-second F
+observation is about 2.55x faster than the prior V-6a 66.20-second product
+baseline, but each product figure is a single gate observation rather than a
+benchmark median.
+
+Verification also caught and closed one integration defect: the first selector
+called an ASM-owning object even for hello. Moving admission to
+`JvmBytecodeAdmission` restored the exact backend-isolation gate. The final
+focused suite passed 11/11, `v21-plugin-backend-isolation-smoke.sh` passed,
+`bytecode-fallback-visible.sh` passed, the hello/SClJet product gate passed,
+and `tests/conformance/run.sh --only 'v2-self-hosted-parser-fuzz' --no-memo`
+passed 1/1.
