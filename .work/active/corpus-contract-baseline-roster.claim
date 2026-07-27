@@ -2,14 +2,14 @@ slug: corpus-contract-baseline-roster
 branch: feature/corpus-contract-baseline-roster
 agent: codex
 started: 2026-07-27T20:31:04Z
-heartbeat: 2026-07-27T20:56:31Z
+heartbeat: 2026-07-27T21:08:07Z
 status: in-progress
-items: E7 corpus-contract-baseline-roster baseline-update-filter-truncates corpus-contract-freeze-digest-unbound corpus-contract-delta-false-improvements corpus-contract-zero-evidence-green
+items: E7 corpus-contract-baseline-roster baseline-update-filter-truncates corpus-contract-freeze-digest-unbound corpus-contract-delta-false-improvements corpus-contract-zero-evidence-green corpus-contract-shards-miss-removals corpus-contract-skip-transition-false-improvement corpus-contract-usage-missing-arg-separator
 paths: tests/conformance/contract.sc tests/conformance/contract-roster.tsv tests/conformance/CONTRACT.md
 scope: |
   Add a frozen full-case roster beside corpus-baseline.tsv so the differential gate distinguishes
   NEW cases from regressions without touching the neighboring re-baseline claim. Also fail closed
   on partial updates, unbound roster edits, unobserved/status-change false improvements, and
-  zero-evidence invocations discovered during implementation review.
-done-so-far: spec/red control landed; first implementation passed 13 checks and exposed three fail-open review gaps
-next: record the review gaps in BUGS/SPRINT/spec, then harden and re-run synthetic plus real gates
+  zero-evidence invocations, sharded removal loss, false SKIP improvements, and unusable usage docs.
+done-so-far: hardened implementation passes 25 synthetic checks, 14 CLI negatives, real NEW and conformance slices; re-review found three final gaps
+next: spec/fix sharded removals, SKIP transitions, baseline lane validation, and usage separators; then final review
