@@ -48,6 +48,25 @@ runs is weak evidence on its own — the load-bearing part is that the documente
 (`JdkServerBackend.scala:109` → `ThreadPerTaskExecutor.execute`) is now explicitly handled
 rather than left to a catch clause that is inactive at teardown.
 
+**Amendment 2026-07-27 (`f4-arc-closure`, measured — it is not weak evidence, it is NO evidence;
+do not redo these two attempts):** the sibling `f4-arc-closure` lane independently applied the same
+one-liner and then ran the baseline A/B that the note above stops short of. Result: **the suite
+cannot distinguish fixed from unfixed.**
+
+| Attempt | With fix | Without fix (`git stash` baseline) | Verdict |
+|---|---|---|---|
+| `backendInterpreterServer/testOnly *ServeAsyncReadyTest*` ×5 | 5/5 green, 0 occurrences | 5/5 green, **0 occurrences** | does NOT discriminate |
+| purpose-built 40-round "connect continuously, `stop()` mid-flight" stress + `jdk-backend-accept` uncaught-exception collector | PASS | **PASS** | does NOT discriminate → test deleted rather than kept as a green-lying gate |
+
+So the closure rests **entirely** on the code-path argument (a rejection at teardown matched no
+clause: `SocketException` — wrong type; `Throwable if _running` — guard false), not on any green run.
+Why the window resists synthetic reproduction: `stop()` flips `_running` and closes the listen socket
+*before* `_connPool.shutdownNow()`, so after the close `accept()` throws (caught) and the loop exits —
+the rejection needs `shutdownNow()` to land in the microseconds between an `accept()` that already
+returned a client and the following `execute()`. That is why it only appeared under real
+interpreter-server load. A deterministic gate would need a test-only seam in the accept loop;
+judged disproportionate for a benign teardown-only defect. `runtimeServerJvm/test` 30/30 green.
+
 **Symptom:** an uncaught `java.util.concurrent.RejectedExecutionException` prints on a
 `jdk-backend-accept-<port>` thread at test teardown (observed in `ServeAsyncReadyTest`, ~2/5
 local `backendInterpreterServer/test` runs). Stack:
