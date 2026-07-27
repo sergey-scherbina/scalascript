@@ -72,9 +72,23 @@ F5b typed IR is the recovery path AND the prerequisite for the F5 kernel shrink 
 −1,100…1,500 L; FastCode/SelfRec deletion, blocked only on the measured 4.3× fib regression).
 Slices are already specified in §`v2-f5b-stage1` — execute them in this order:
 
-- [ ] **B1 — S1-5 slice 1b-3: typed `.length`/`.charAt`/`.substring` on a String-typed local.**
-      `postDot`/`emitLen` become env-type-aware via `localTyOf`; a String-typed `(local N)` receiver
-      lowers `.length`→`slen`, `.charAt`→`scodeAt`. Gate as in S1-5 slice 1b-1 (`d28f20c82`).
+- [x] **B1 — DONE (slice 1b-3).** Scope correction worth keeping: `.charAt`/`.substring` needed **no
+      change** — `emitPrimMeth` already lowers them to `scodeAt`/`sslice` unconditionally for ANY
+      receiver, so the real delta was `.length` alone (`emitLen` gained `env`; new `isStrLocal`).
+      Fixpoint-safe by construction: F annotates zero params in its OWN source (verified — the only
+      `: String` occurrences in `fsub.ssc` are inside comments).
+      **Gates (measured, this tree):** X1 `specs/v2.2-p6.5-fsub.sh --self` **155 ok / 0 FAIL** +
+      **X1 FIXPOINT stage1 == stage2 byte-identical (406,256 B)**; semantic gate **248/248 GREEN**;
+      corpus MATCH **207 → 205** (−2 typed-by-design), DIFF 315, **EMPTY 0, TIMEOUT 0**.
+      ⚠️ **Apparatus note (the interesting part):** the gate's own `len_var` case passes either way —
+      it compares OUTPUT, and `slen` and `__method__ "length"` agree. The discriminating evidence is
+      the IR: the gate line shows `len_var` IR **7378 B vs ref 7405 B**, and a dedicated probe
+      (occurrence counts of `__method__ (lit (str "length")` in F vs the oracle on the SAME program)
+      confirms `def h(s: String) = s.length` flips to `slen` while **untyped param, `List[Int]`
+      param, `(s ++ s)` receiver and `Int` param all stay `__method__`** — the negative cases are
+      what protects the runtime. The probe's FIRST version counted `grep -c` (lines) on a
+      single-line IR that embeds the prelude, and reported *every* case as `slen`: it was fixed, not
+      trusted. `brk_arg` (`xs: List[Int]`) already exists in the gate as the standing negative case.
 - [ ] **B2 — S1-5 slice 1b-2b: typed `val`/`var` locals.** Embed the declared type (or infer from
       the RHS tag) at the block-binder sites (`parseBlockVal` etc.) using the same `name:Type`
       env-name mechanism. Coverage only — no deletion unlock; do it after B1.
