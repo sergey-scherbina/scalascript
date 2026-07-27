@@ -63,6 +63,28 @@ final class DistributedNativePluginTest extends AnyFunSuite:
     assert(V2PluginRegistry.lookup("HandlerRegistry.unknown").isEmpty)
   }
 
+  test("callbacks preserve user throws and contextualize host failures") {
+    install()
+    val registry = V2PluginRegistry.lookupGlobal("HandlerRegistry").get
+    val userThrow = new ssc.SscThrow(
+      Value.DataV("RuntimeException", Vector(Value.StrV("user boom"))))
+    register("user", function(1)(_ => throw userThrow))
+
+    val observed = intercept[ssc.SscThrow] {
+      call(registry, "apply", Value.StrV("user"), Value.IntV(7))
+    }
+    assert(observed eq userThrow)
+
+    register("host", function(1)(_ => throw new IllegalStateException("host boom")))
+    val hostFailure = intercept[IllegalArgumentException] {
+      call(registry, "apply", Value.StrV("host"), Value.IntV(8))
+    }
+    assert(hostFailure.getMessage ==
+      "Distributed.handler[host] callback failed for [8]")
+    assert(hostFailure.getCause.isInstanceOf[IllegalStateException])
+    assert(hostFailure.getCause.getMessage == "host boom")
+  }
+
   test("map, filter, and flatMap preserve contiguous partition order") {
     install()
     register("plusOne", function(1) {

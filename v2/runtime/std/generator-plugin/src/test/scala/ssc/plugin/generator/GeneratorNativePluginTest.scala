@@ -90,6 +90,26 @@ final class GeneratorNativePluginTest extends AnyFunSuite:
       Value.DataV("Tuple2", Vector(Value.StrV("y"), Value.IntV(1)))))
   }
 
+  test("foreach preserves user throws and contextualizes host failures") {
+    install()
+    val userThrow = new ssc.SscThrow(
+      Value.DataV("RuntimeException", Vector(Value.StrV("user boom"))))
+    val observed = intercept[ssc.SscThrow] {
+      call(source(Seq(Value.IntV(7))), "foreach",
+        function(1)(_ => throw userThrow))
+    }
+    assert(observed eq userThrow)
+
+    val hostFailure = intercept[IllegalArgumentException] {
+      call(source(Seq(Value.IntV(8))), "foreach",
+        function(1)(_ => throw new IllegalStateException("host boom")))
+    }
+    assert(hostFailure.getMessage ==
+      "Generator.foreach callback failed for [8]")
+    assert(hostFailure.getCause.isInstanceOf[IllegalStateException])
+    assert(hostFailure.getCause.getMessage == "host boom")
+  }
+
   test("bounded infinite take cancels its abandoned producer") {
     install()
     val stopped = CountDownLatch(1)
