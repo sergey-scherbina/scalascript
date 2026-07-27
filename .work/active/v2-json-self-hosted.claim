@@ -1,0 +1,11 @@
+slug: v2-json-self-hosted
+branch: feature/v2-json-self-hosted
+agent: codex
+started: 2026-07-27T22:09:43Z
+heartbeat: 2026-07-27T22:09:43Z
+status: claimed-before-planning
+items: v2-json-self-hosted
+paths: tests/conformance/json-read.ssc tests/conformance/json-value.ssc tests/conformance/json-lookup.ssc tests/conformance/expected/json-read.txt tests/conformance/expected/json-value.txt tests/conformance/expected/json-lookup.txt runtime/std/json.ssc
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
