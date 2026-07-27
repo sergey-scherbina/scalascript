@@ -1,8 +1,7 @@
-# generation: 22
+# generation: 23
 #slug	agent	started	items	paths
 claim-mutex	opus	2026-07-27T17:27:27Z	claim-mutex	specs/claim-mutex.md .githooks/** scripts/** AGENTS.md SPRINT.md CHANGELOG.md .work/active/LEDGER.tsv
 corpus-gate-remaining-reds	opus-orch	2026-07-27T17:30:00Z	corpus-gate-remaining-reds	v1/runtime/backend/interpreter/** v1/runtime/std/coroutine.ssc examples/rozum-agent-schema-derived.ssc tests/conformance/corpus-baseline.tsv tests/conformance/corpus-skip.txt BUGS.md SPRINT.md CHANGELOG.md
 post-f4-board-reconcile	opus	2026-07-27T14:58:45Z	post-f4-board-reconcile	(undeclared)
 scljet-ipk-rowid	opus	2026-07-27T15:23:56Z	scljet-ipk-rowid	(undeclared)
-js-int-div-by-zero	claude-code	2026-07-27T19:51:56Z	js-int-division-by-zero-yields-infinity	v1/runtime/backend/js/** tests/conformance/try-catch-exception-delivery.ssc tests/conformance/expected/try-catch-exception-delivery.txt tests/conformance/js-int-division-by-zero.ssc tests/conformance/expected/js-int-division-by-zero.txt
 v2-board-and-f5b	opus	2026-07-27T19:53:39Z	v2-board-reconcile f5b-next p65-breadth f4-step5 f5-kernel-shrink	specs/v2.2-p6.5-fsub.ssc specs/v2-f5b-typed-ir-design.md specs/v2-f5-kernel-shrink.md tests/conformance/v2-
