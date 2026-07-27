@@ -2344,7 +2344,27 @@ tracked here).
 
 ## p65-fsub-toplevel-val-infinite-loop — F (P6.5 subset compiler) hangs on a top-level `val`
 
-**Status:** OPEN (found 2026-07-18 by `v2-p65-canonical` while building the F3 real-corpus gate
+**Status:** **STALE — CLOSED 2026-07-27 by opus (`p65-toplevel-val-stale`) on measurement, not on a
+fix of mine.** F gained top-level statement support in a later F3 breadth slice and the hang is gone;
+the entry had been carrying a claim that was no longer true, and it was being cited as the reason
+216+/504 corpus programs TIMEOUT — so leaving it open was actively misleading planning.
+
+**Re-measured today, on the same repro this entry specifies:**
+
+| program | before (per this entry) | now |
+|---|---|---|
+| `val a = 10` + `def main(): Int = a` | TIMEOUT (infinite loop) | lowers, runs, prints **10** |
+| `val xs = [1,2,3]` + `xs.length` | — | lowers, runs, prints **3** |
+| `println(1)` + `def main` | dropped the expr | runs, prints **2** |
+
+And the corpus-level consequence this entry predicted is gone too: the F corpus sweep measured
+**TIMEOUT 0** (MATCH 205, DIFF 315, EMPTY 0) on 2026-07-27, against the 216+/504 recorded here.
+
+Nothing was changed to close this — it is closed because the claim stopped being true, which is the
+only honest reason to close a bug nobody fixed. The `emitDefs` non-progress analysis below stays as
+the record of what the defect WAS.
+
+**Historical report:** OPEN (found 2026-07-18 by `v2-p65-canonical` while building the F3 real-corpus gate
 `specs/v2.2-p6.5-corpus.sh`). **`specs/v2.2-p6.5-fsub.ssc`** (F, the P6.5-subset front), not the
 kernel. This is why 216+/504 corpus programs TIMEOUT rather than DIFF.
 
