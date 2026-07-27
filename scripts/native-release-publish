@@ -123,6 +123,7 @@ def file_kind(mode):
     return "non-regular"
 
 
+file_sizes = {}
 for name in expected_names:
     path = os.path.join(root, name)
     try:
@@ -133,6 +134,7 @@ for name in expected_names:
         refuse(f"asset type {name}", "regular-file", file_kind(metadata.st_mode))
     if metadata.st_size == 0:
         refuse(f"asset size {name}", ">0", "0")
+    file_sizes[name] = metadata.st_size
     try:
         with open(path, "rb") as stream:
             stream.read(1)
@@ -149,8 +151,6 @@ for artifact_id in artifact_ids:
         with open(archive_path, "rb") as stream:
             for chunk in iter(lambda: stream.read(1024 * 1024), b""):
                 digest.update(chunk)
-        with open(checksum_path, "rb") as stream:
-            actual_sidecar = stream.read()
     except OSError as error:
         refuse(
             f"checksum read {artifact_id}",
@@ -160,6 +160,21 @@ for artifact_id in artifact_ids:
     expected_sidecar = (
         f"{digest.hexdigest()}  {archive_name}\n".encode("ascii")
     )
+    if file_sizes[checksum_name] != len(expected_sidecar):
+        refuse(
+            f"checksum size {artifact_id}",
+            str(len(expected_sidecar)),
+            str(file_sizes[checksum_name]),
+        )
+    try:
+        with open(checksum_path, "rb") as stream:
+            actual_sidecar = stream.read()
+    except OSError as error:
+        refuse(
+            f"checksum read {artifact_id}",
+            "readable",
+            error.__class__.__name__,
+        )
     if actual_sidecar != expected_sidecar:
         refuse(
             f"checksum bytes {artifact_id}",

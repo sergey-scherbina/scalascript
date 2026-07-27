@@ -512,7 +512,7 @@ import sys
 
 path = pathlib.Path(sys.argv[1])
 digest = path.read_text(encoding="ascii").split()[0]
-path.write_text(f"{digest}  wrong.tar.gz\n", encoding="ascii")
+path.write_text(f"{digest}  bad-macos-arm64.tar.gz\n", encoding="ascii")
 PY
 expected_checksum_error=$(checksum_error_line ssc-macos-arm64 "$fixture_directory")
 invoke wrong-sidecar-basename v2.3.4 "$fixture_directory"
@@ -523,10 +523,21 @@ pass_case "wrong checksum basename fails before GitHub"
 
 new_fixture trailing-sidecar-bytes
 printf 'trailing\n' >>"$fixture_directory/ssc-macos-x86_64.tar.gz.sha256"
-expected_checksum_error=$(checksum_error_line ssc-macos-x86_64 "$fixture_directory")
+expected_sidecar_size=$(
+  python3 -c \
+    'print(len(("0" * 64 + "  ssc-macos-x86_64.tar.gz\n").encode("ascii")))'
+)
+actual_sidecar_size=$(
+  python3 -c \
+    'import os,sys; print(os.path.getsize(sys.argv[1]))' \
+    "$fixture_directory/ssc-macos-x86_64.tar.gz.sha256"
+)
 invoke trailing-sidecar-bytes v2.3.4 "$fixture_directory"
 assert_exit 1
-assert_line "stderr" "$current_stderr" "$expected_checksum_error"
+assert_line \
+  "stderr" \
+  "$current_stderr" \
+  "native release publication: checksum size ssc-macos-x86_64: expected=$expected_sidecar_size actual=$actual_sidecar_size"
 assert_no_gh
 pass_case "trailing checksum bytes fail before GitHub"
 
