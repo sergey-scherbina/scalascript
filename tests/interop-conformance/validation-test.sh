@@ -41,11 +41,14 @@ duplicate="$(sed -n '2p' "$case_dir/vectors.tsv")"
 printf '%s\n' "$duplicate" >> "$case_dir/vectors.tsv"
 expect_rejected duplicate-vector "$case_dir"
 
+# A gap in the contiguous id sequence must be rejected. Vector 15 no longer HAS a pending record
+# (it was flipped when the second admitting backend landed), so this case only drops its row —
+# removing a pending file that is not there aborted the whole suite under `set -e`.
 case_dir="$(fresh_case omitted-vector)"
 awk -F '\t' '$1 != "15"' "$case_dir/vectors.tsv" \
   > "$case_dir/vectors.tsv.next"
 mv "$case_dir/vectors.tsv.next" "$case_dir/vectors.tsv"
-rm "$case_dir/pending/15-cross-host-resume.pending"
+rm -f "$case_dir/pending/15-cross-host-resume.pending"
 expect_rejected omitted-vector "$case_dir"
 
 case_dir="$(fresh_case duplicate-lane)"
@@ -82,8 +85,16 @@ mv "$case_dir/probes/01-one-shot-resume.ssc.next" \
   "$case_dir/probes/01-one-shot-resume.ssc"
 expect_rejected mismatched-frontmatter "$case_dir"
 
+# A vector that is NOT specified must carry a pending record. The case used to delete vector 15's
+# record — but every vector is specified now, so it had nothing to delete and the suite aborted.
+# It now SYNTHESISES the situation instead: push a row back to pending WITHOUT writing a record.
+# That keeps the rule guarded no matter how many vectors happen to be pending today, which is the
+# property the original phrasing accidentally depended on.
 case_dir="$(fresh_case missing-pending-record)"
-rm "$case_dir/pending/15-cross-host-resume.pending"
+awk -F '\t' 'BEGIN { OFS = "\t" } $1 == "15" { $5 = "pending-codec"; $6 = "pending"; $7 = "pending" } { print }' \
+  "$case_dir/vectors.tsv" > "$case_dir/vectors.tsv.next"
+mv "$case_dir/vectors.tsv.next" "$case_dir/vectors.tsv"
+rm -f "$case_dir/pending/15-cross-host-resume.pending"
 expect_rejected missing-pending-record "$case_dir"
 
 echo "catalog validator negative cases: $pass PASS"

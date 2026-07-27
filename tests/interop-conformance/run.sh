@@ -175,18 +175,23 @@ validate_lane_catalog() {
       }
     }
     BEGIN {
-      required = "portable-vm portable-asm scala-explicit scala-direct jvm-generated js-generated rust-generated wasm-generated swift-generated"
+      required = "portable-vm portable-asm scala-explicit scala-direct portable-js jvm-generated js-generated rust-generated wasm-generated swift-generated"
       requiredCount = split(required, requiredLane, " ")
       for (i = 1; i <= requiredCount; i++) allowedLane[requiredLane[i]] = 1
       expectedAdapter["portable-vm"] = "ssc-vm"
       expectedAdapter["portable-asm"] = "ssc-asm"
       expectedAdapter["scala-explicit"] = "scala3-control-test"
       expectedAdapter["scala-direct"] = "scala3-control-macros-test"
+      # The second ADMITTING backend: a non-JVM runtime that admits and runs a capsule whose
+      # resume program travels as closed CoreIR bytes. Not a compiler lane -- it never produces a
+      # capsule, it only admits one the portable-VM froze.
+      expectedAdapter["portable-js"] = "node-portable-admitter"
       expectedStatus["portable-vm"] = "ready"
       expectedStatus["portable-asm"] = "ready"
       expectedStatus["scala-explicit"] = "ready"
       expectedStatus["scala-direct"] = "ready"
-      for (i = 5; i <= requiredCount; i++) {
+      expectedStatus["portable-js"] = "ready"
+      for (i = 6; i <= requiredCount; i++) {
         expectedAdapter[requiredLane[i]] = "none"
         expectedStatus[requiredLane[i]] = "pending"
       }
@@ -199,7 +204,7 @@ validate_lane_catalog() {
       if ($1 !~ /^[a-z0-9]+(-[a-z0-9]+)*$/) bad("invalid lane id: " $1)
       if (seenLane[$1]++) bad("duplicate lane: " $1)
       if (!allowedLane[$1]) bad("unknown lane: " $1)
-      if ($2 != "ssc-vm" && $2 != "ssc-asm" && $2 != "scala3-control-test" && $2 != "scala3-control-macros-test" && $2 != "none")
+      if ($2 != "ssc-vm" && $2 != "ssc-asm" && $2 != "scala3-control-test" && $2 != "scala3-control-macros-test" && $2 != "node-portable-admitter" && $2 != "none")
         bad("unknown adapter: " $2)
       if ($3 != "ready" && $3 != "optional" && $3 != "pending")
         bad("invalid status: " $3)
@@ -255,7 +260,7 @@ validate_ready_lane_coverage() {
       capabilities_are_subset "$lane_caps" "$required_caps" || continue
       stream="$(vector_field "$key" 7)"
       case "$adapter:$stream" in
-        ssc-vm:stdout|ssc-vm:stderr|ssc-asm:stdout|ssc-asm:stderr|scala3-control-test:*|scala3-control-macros-test:*)
+        ssc-vm:stdout|ssc-vm:stderr|ssc-asm:stdout|ssc-asm:stderr|scala3-control-test:*|scala3-control-macros-test:*|node-portable-admitter:stdout)
           eligible=$((eligible + 1))
           ;;
       esac
@@ -388,6 +393,10 @@ print_matrix() {
         status="UNSUPPORTED"; detail="missing: $(missing_capabilities "$lane_caps" "$required_caps")"
       elif { [ "$adapter" = "ssc-vm" ] || [ "$adapter" = "ssc-asm" ]; } && [ "$stream" = "structured" ]; then
         status="UNSUPPORTED"; detail="structured host result"
+      elif [ "$adapter" = "node-portable-admitter" ] && [ "$stream" != "stdout" ]; then
+        # The admitter reports an observable, not a host-object result: it admits and runs bytes,
+        # it does not construct capsules or host values.
+        status="UNSUPPORTED"; detail="admitter reports an observable only"
       else
         status="READY"; detail="$adapter"
       fi
@@ -493,6 +502,41 @@ run_scala_lane() {
     "scala3ControlApi/testOnly $suite")
 }
 
+# The portable-js lane runs the admitter's own suite, whose fixtures are JVM-frozen. The FRESH-bytes
+# cross-host comparison (freeze here, run there, same run) lives in v2/conformance/portable-capsule.sh
+# — deliberately, because a fixture is a snapshot and would go stale silently.
+run_node_admitter_lane() {
+  lane="$1"
+  admitter="$ROOT/v2/host/js/portable-admitter"
+  if ! command -v node >/dev/null 2>&1; then
+    echo "LANE $lane UNAVAILABLE: node is not installed" >&2
+    return 3
+  fi
+  if [ ! -f "$admitter/admit.js" ]; then
+    echo "LANE $lane UNAVAILABLE: admitter missing at $admitter" >&2
+    return 3
+  fi
+  # FRESH BYTES, not a snapshot. When the standard launcher is available the lane freezes a capsule
+  # HERE and hands its path (plus the launcher's OWN observable) to the node suite, so the two
+  # runtimes are compared on today's format. Committed fixtures alone would keep passing on stale
+  # bytes if this side's format moved — a self-consistent oracle in a cross-lane costume.
+  xh_env=""
+  if [ -x "$SSC" ] || command -v "$SSC" >/dev/null 2>&1; then
+    xh_dir="$(mktemp -d)"
+    if "$SSC" freeze-region-global "$xh_dir/fresh.portable" >/dev/null 2>&1; then
+      xh_expected="$("$SSC" run-capsule "$xh_dir/fresh.portable" 3 2>/dev/null)"
+      if [ -n "$xh_expected" ]; then
+        xh_env="SSC_XH_CAPSULE=$xh_dir/fresh.portable SSC_XH_INPUT=3 SSC_XH_EXPECTED=$xh_expected"
+        echo "LANE $lane: fresh capsule frozen by $SSC (observable '$xh_expected')"
+      fi
+    fi
+  fi
+  [ -n "$xh_env" ] || echo "LANE $lane: no launcher — the fresh cross-host check will SKIP" >&2
+
+  echo "LANE $lane: node --test $admitter"
+  (cd "$admitter" && env $xh_env node --test --test-concurrency=1 test/*.test.js)
+}
+
 run_lane() {
   lane="$1"
   grep -Fxq "$lane" "$tmp/lane-keys" || { echo "error: unknown lane '$lane'" >&2; return 2; }
@@ -507,6 +551,7 @@ run_lane() {
   case "$adapter" in
     ssc-vm|ssc-asm) run_process_lane "$lane" "$adapter" "$lane_caps" ;;
     scala3-control-test|scala3-control-macros-test) run_scala_lane "$lane" "$adapter" ;;
+    node-portable-admitter) run_node_admitter_lane "$lane" ;;
     *) echo "LANE $lane UNAVAILABLE: adapter '$adapter' is not installed" >&2; return 3 ;;
   esac
 }

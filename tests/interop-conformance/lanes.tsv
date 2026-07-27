@@ -3,6 +3,7 @@ portable-vm	ssc-vm	ready	callbacks,durable-save,effects,handler-deep,multi-shot,
 portable-asm	ssc-asm	ready	callbacks,durable-save,effects,handler-deep,multi-shot,mutation,no-replay,one-shot,prompt-isolation,residual,return-transform,shift-reset,stack-safe,tail-calls	standard native frontend and direct ASM
 scala-explicit	scala3-control-test	ready	admission,callbacks,cancellation,capture-negative,concurrency,durable-ref,durable-save,effects,exact-artifact,foreign-barrier,handler-deep,multi-shot,mutation,no-replay,one-shot,prompt-isolation,residual,return-transform,security,shift-reset,stack-safe,tail-calls	compiler-independent scalascript-control_3 API
 scala-direct	scala3-control-macros-test	ready	shift-reset	bounded lexical direct-style macros over the explicit Scala control API
+portable-js	node-portable-admitter	ready	admission,durable-save,remote-runner,security	non-JVM admitter for Portable capsules: admits and runs bytes the portable-VM froze
 jvm-generated	none	pending		typed managed JVM control lane not qualified
 js-generated	none	pending		JS/TypeScript control host and runner profile not qualified
 rust-generated	none	pending		Rust control host and runner profile not qualified
