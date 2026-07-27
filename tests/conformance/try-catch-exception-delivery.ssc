@@ -1,0 +1,50 @@
+---
+name: try-catch-exception-delivery
+description: try/catch actually delivers a thrown exception to the handler, matched by supertype (Throwable/Exception/RuntimeException) or a wildcard
+backends: [int, jvm]
+---
+
+# `try` / `catch` — the exception actually reaches the handler
+
+`BUGS.md` `v2-native-front-try-catch` layer 2. The parse half of that bug had been fixed; what
+remained is that on the v2 lanes a **thrown** exception never reached the handler. A host error is
+delivered as `DataV("RuntimeException", [message])` while `catch { case e: Throwable => … }` lowers
+to a nominal tag test `__isTag__(v, "Throwable", -1)` — and the tag test was flat, with no notion of
+supertypes, so it failed and the handler fell through to `match: no matching case`.
+
+Every case below therefore has to actually **throw**: a `try` whose body never fails passes even
+with the bug present, which is exactly why the bug survived (`try { println(x) } catch …` worked).
+The v1 reference rule this pins is `PatternRuntime.isExceptionSupertype` — a pattern naming
+`Throwable` / `Exception` / `RuntimeException` / `Error` matches the synthesized exception, because
+a `catch` scrutinee carries the throwable's simple name and users catch it by supertype.
+
+`js` is deliberately out of the backend list: on the JS lane `10 / 0` evaluates to `Infinity`
+instead of throwing, so every `catch` here is simply never entered and the case would pin JS's
+divergence rather than the delivery bug. That divergence is itself a defect — `BUGS.md`
+`js-int-division-by-zero-yields-infinity` — filed from this case, not swept under it.
+
+Two shapes are deliberately absent, because they hit a SEPARATE and still-open front defect that
+would make this case fail for a reason it is not about — `BUGS.md`
+`v2-front-try-in-def-body-shapes-break`: a **braceless multiline** `try` as a def body corrupts what
+follows it, and a **wildcard** `catch { case _ => … }` as a def body drops the whole program (exit 0,
+no output) on every v2 lane while v1 prints the caught value. Both are front/parse bugs, not the
+exception-delivery bug this case pins.
+
+```scalascript
+def divide(a: Int, b: Int): String =
+  try { (a / b).toString } catch { case e: Throwable => "caught-throwable" }
+
+def viaException(a: Int, b: Int): String =
+  try { (a / b).toString } catch { case e: Exception => "caught-exception" }
+
+def viaRuntime(a: Int, b: Int): String =
+  try { (a / b).toString } catch { case e: RuntimeException => "caught-runtime" }
+
+// The handler must NOT fire when nothing is thrown — otherwise a `catch` that swallowed every
+// successful result would also satisfy the four assertions above.
+println(divide(10, 0))
+println(viaException(10, 0))
+println(viaRuntime(10, 0))
+println(divide(10, 2))
+println(viaRuntime(9, 3))
+```
