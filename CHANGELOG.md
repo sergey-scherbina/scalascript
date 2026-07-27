@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-07-27 — scljet: an IPK move on an INDEXED table wrote a corrupt b-tree
+
+Follow-up to the same day's IPK-move fix, which landed the semantics but only on the unindexed
+path. `executeUpdate`'s indexed branch rebuilds table + indexes through `reindexTable`, which
+writes the row list in LIST order and never calls `leafInsertCell` — so a moved row got a new key
+while keeping its position, and reference `PRAGMA integrity_check` called the result corrupt
+(`Tree 2 page 2 cell 0: Rowid 5 out of order`); a rowid collision on that path was accepted in
+silence. The branch now shares the unindexed path's collision policy (`ipkMoveConflict`, identical
+wording) and sorts rows by rowid before the rebuild.
+
+The verification lesson is the durable part, recorded in `BUGS.md`
+`scljet-ipk-move-indexed-corrupts-btree`: the existing cross-engine differential was thorough and
+judged real files, but every case used an UNINDEXED table — coverage of the right KIND is not
+coverage of the right PATH. And the first gate written for the bug was itself fake: it moved rowid
+1 → 5 with rows at 1 and 7, which leaves the list ascending, so it passed with the fix reverted.
+An ordering bug is only observable when the fixture forces a reorder. Both new gates were then
+confirmed to fail against the unfixed code and pass with the fix. Verified: `scljetJdbcPlugin/test`
+67/67, conformance `--only 'scljet-*'` 105/105 (int + JS).
+
+
 ## 2026-07-27 — scljet SQL: an `INTEGER PRIMARY KEY` assignment moves the row; `NULL` is a literal
 
 Closes three open engine bugs from `MILESTONES.md` stream 2 ("*our files are wrong for real SQLite*").
