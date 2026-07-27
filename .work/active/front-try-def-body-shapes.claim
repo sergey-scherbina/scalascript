@@ -1,0 +1,21 @@
+slug: front-try-def-body-shapes
+branch: feature/front-try-def-body-shapes
+agent: opus
+started: 2026-07-27T17:05:00Z
+heartbeat: 2026-07-27T17:05:00Z
+direction: Language & Compiler (front / layout)
+scope: |
+  BUGS v2-front-try-in-def-body-shapes-break — found 2026-07-27 while fixing try/catch delivery.
+  TWO shapes of `try` as a DEF BODY break on the v2 front (both fronts; v1 reference is correct):
+   (a) wildcard `def w(x) = try { .. } catch { case _ => "W" }` -> the WHOLE program is dropped:
+       no output, exit 0 on default/F/bytecode/interpret; legacy front says `unbound global: try`.
+       The same wildcard works when the try is an EXPRESSION ARGUMENT, and the same def with
+       `case e: Throwable` works — so the trigger is bare `case _` in a def-body try.
+   (b) braceless multiline try as a def body does not terminate: a following top-level statement is
+       silently dropped, a following def whose body starts with `try` becomes `unbound global: try`.
+  WORST PROPERTY: (a) is SILENT at exit 0 on the default lane, and F emits a VALID-but-wrong program
+  so the F4a fallback never fires — no existing gate can see it.
+  Lead: `unbound global: try` on legacy means `try` was parsed as an IDENTIFIER, i.e. the try-parse
+  arm was not entered — start at ssc1-front.ssc0 try parsing (~:1077-1101) + the layout/semicolon
+  inference that the curried-def and layer-1 bugs also hit.
+  Repro (3 lines) and the full lane table are in the BUGS entry.
