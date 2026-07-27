@@ -1,0 +1,17 @@
+slug: portable-nominal-frame
+branch: feature/portable-nominal-frame
+agent: opus
+started: 2026-07-27T18:40:00Z
+heartbeat: 2026-07-27T18:40:00Z
+direction: Control / interop (vector 15 full arc — Sergiy chose "всё, включая второй бэкенд")
+scope: |
+  SPRINT Batch E2 = specs/portable-save-region.md §6 slice 3 — NOMINAL / GRAPH FRAME.
+  Today a Portable capsule frame is a flat tuple of SCALAR slots (Ctor("frame", [Lit(...)])).
+  Slice 3: non-scalar slots (ctor/nominal values, nested structure) through the §9.1/§9.3 codecs,
+  and align the VM frame bytes with the host DurableCodec format so the frame is CROSS-LANE
+  identical, not merely cross-process. That alignment is what makes E4's N->M matrix meaningful.
+  Context: E1 (global closure) landed ebc576bec; gate v2/conformance/portable-capsule.sh 14/14.
+  F5c is COMPLETE (verified by measurement: zero FastCode/SelfRec refs, kernel 6035 -> 5104), so
+  the "default next = F5c" answer is already satisfied; this is the chosen remaining arc.
+  Do NOT flip vector 15 here — it flips only after E4 (second admitting backend), and only if the
+  realization matches the pending's stated mechanism (no BENDING).
