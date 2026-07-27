@@ -222,29 +222,67 @@ those regressions by hand instead (`case-object`, multi-file order, md-interpola
 work this gate exists to do. This is the recorded `measurement-must-compare-not-prejudge` failure
 mode in its purest form: the apparatus that establishes trust was itself untested and looked benign.
 
-- [ ] **E1 — `--shard i/N` in `tests/conformance/contract.sc`.** Round-robin (`idx % N == i`) over
+- [x] **E1 — DONE: `--shard i/N` in `tests/conformance/contract.sc`.** Round-robin (`idx % N == i`) over
       the already-sorted/deduped `cases` list, NOT contiguous blocks: the corpus is name-sorted and
       the slow cases cluster, so blocks would give wildly uneven shards. The baseline compare is
       **already subset-safe** (`inScope` filters the baseline down to `ranNames`), so a shard gates
       honestly against its own slice with no other change. **Guard: `--update-baseline` must REFUSE
       to run under `--shard`** — it rewrites the whole file from `current`, so a sharded update would
       silently truncate the baseline to 1/N of it. Exit 2 with a message.
-- [ ] **E2 — `corpus-contract.yml` → 4-way matrix.** `strategy: matrix: shard: [0,1,2,3]` +
+- [x] **E2 — DONE: `corpus-contract.yml` → 4-way matrix.** `strategy: matrix: shard: [0,1,2,3]` +
       `fail-fast: false`, each job `scala-cli tests/conformance/contract.sc --shard ${{ }}/4`.
       Budget per shard ≈ 6 min setup + ~24 min cases ≈ 30 min, inside the (kept) 60-min guard.
       Update the stale header comment with the measured numbers instead of the 2026-07-14 estimate.
-- [ ] **E3 — prove the partition locally before pushing.** Assert the N shards are disjoint and
+- [x] **E3 — DONE: prove the partition locally before pushing.** Assert the N shards are disjoint and
       their union is exactly the unsharded case list (a shard bug silently shrinks coverage while
       every shard reports GREEN — the same class of lie as the timeout). Cheap check: run each shard
       with `--lanes int --only '<small glob>'`-scale sampling and compare name sets.
-- [ ] **E4 — let it finish once, then reconcile the verdict.** `workflow_dispatch` on the landed SHA.
+- [x] **E4 (original plan — outcome recorded in the E4 entry immediately below).** Prediction held:
+      the gate came back RED, and both cases named here showed up in it. Original text:
+      `workflow_dispatch` on the landed SHA.
       The gate will almost certainly come back RED — the last run that *finished* (07-17,
       `29559215512`) reported 2 regressions + 2 improvements, all baseline drift on
       `rozum-agent-schema-derived` (SKIP → runnable, then FAIL on js+v2) and `dataset-from-generator`
       (js now PASS), and 10 more days of corpus churn have landed since. Triage each entry as
       REGRESSION (fix or file in `BUGS.md`) vs closed-gap (record via `--update-baseline`, unsharded).
       **Do not `--update-baseline` a regression away.**
-- [ ] **E5 — make a timeout impossible to misread as benign.** After E2 the gate fits its budget,
+- [x] **E4 — DONE: first verdict obtained and triaged.** Run `30281019432` (on `e8214a277`) is the
+      first time this gate ever finished: 4 shards, **20-23 min each** against the 60-min guard, all
+      `failure` — i.e. an actual verdict instead of a `cancelled`. Totals: **PASS 879/968 cells,
+      78 SKIP cases, 14 non-PASS-not-in-baseline, 2 improvements.** Every one of the 14 was triaged
+      by hand in the real harness (never from the gate's own label):
+
+      | entry | verdict |
+      |---|---|
+      | `head-field-effect-shadow v2 FAIL` | **REAL correctness regression** → fixed `c3841d01e` (see BUGS `bytecode-opanf-purity-registry-marks-every-def-pure`) |
+      | 7× `scljet-* v2 TIMEOUT` | **NOT correctness** — F compile cost: `scljet-crud` 28.2 s under F vs 4.16 s legacy, identical output, against a 30 s budget → BUGS `f-front-compile-cost-7x-on-scljet` + lane budget split `afa5981a2` |
+      | `scljet-write-deep-btree js`, `scljet-balance-delete-merge int` TIMEOUT | CI contention (4.7 s / 13.0 s locally, rc 0) → same budget split |
+      | `int-width js DIVERGE` | **NOT a regression** — a DECLARED `known-red:` the contract could not see → `afa5981a2` teaches it the front-matter `run.sc` already honoured |
+      | `coroutine-demo * SKIP` | **REAL bug** (`Import cycle detected: coroutine.ssc → coroutine.ssc`) AND a gate artifact: the case was added 07-21, after the 07-17 freeze, so "was PASS in the baseline" was false → BUGS `coroutine-demo-import-cycle-on-interpreter` |
+      | `rozum-agent-schema-derived js+v2 FAIL` | two real lane gaps on a newly-runnable case → BUGS `rozum-agent-schema-derived-js-and-v2-gaps` |
+      | `dataset-from-generator js` (improvement) | genuine closed gap → belongs in the baseline |
+      | `rozum-agent-schema-derived *` (improvement) | case became runnable on int |
+
+      **Baseline deliberately NOT updated yet.** Three of these are real bugs; recording them would
+      be exactly the "update-baseline a regression away" this task exists to prevent. The baseline
+      update comes after the next run, and only for the entries proven to be documented state
+      (`int-width js KNOWN-RED`, `dataset-from-generator js`).
+
+- [ ] **E6 — baseline reconciliation (after the post-`afa5981a2` run).** Expected remaining reds once
+      the budget split and known-red support are live: `coroutine-demo` and
+      `rozum-agent-schema-derived` only — both filed as real bugs. Then run
+      `contract.sc --update-baseline` **UNSHARDED** (it refuses under `--shard`) and commit the diff
+      with a line per entry saying which of the two it is: documented state, or a bug that stays red.
+
+- [ ] **E7 — baseline cannot distinguish NEW from REGRESSED (found while triaging E4).** The
+      baseline records only NON-PASS entries, so a case added after the freeze that is non-PASS looks
+      identical to a case that regressed — `coroutine-demo` was reported as a regression on exactly
+      that confusion. Wording softened in `contract.sc` as the cheap half. The real fix is a case
+      ROSTER in the baseline (every name seen at freeze), which makes NEW detectable; it changes the
+      baseline format and needs one unsharded full run to regenerate, so it is queued rather than
+      done. Not urgent — the softened message tells the triager to check the case's git history.
+
+- [x] **E5 — DONE: make a timeout impossible to misread as benign.** After E2 the gate fits its budget,
       but the *detection* hole stays: any future budget breach reappears as `cancelled`. Cheapest
       honest fix — record the hazard in `MILESTONES.md` §Health next to the CI-radar note so the next
       status sweep counts `cancelled` as red for scheduled workflows.

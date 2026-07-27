@@ -352,7 +352,12 @@ if newRegressions.isEmpty && improvements.isEmpty then
   println("✓ contract GREEN — live matrix matches the baseline (no regressions).")
 else
   if newRegressions.nonEmpty then
-    System.err.println(s"\n✗ ${newRegressions.length} REGRESSION(S) — these were PASS in the baseline:")
+    // NOT necessarily "was PASS": the baseline records only NON-PASS entries, so a case ADDED
+    // since the freeze is indistinguishable from a case that regressed. `coroutine-demo`
+    // (added 2026-07-21, baseline frozen 07-17) was reported as a regression on exactly this
+    // confusion. Distinguishing them needs a full case roster in the baseline — BACKLOG.
+    System.err.println(s"\n✗ ${newRegressions.length} NON-PASS not in the baseline — a regression, " +
+      "or a case added since the baseline was frozen (check the case's git history before triaging):")
     newRegressions.foreach(e => System.err.println("    " + e.replace("\t", "  ")))
   if improvements.nonEmpty then
     System.err.println(s"\n△ ${improvements.length} IMPROVEMENT(S)/stale baseline — now PASS, still in baseline:")

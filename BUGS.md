@@ -1,5 +1,73 @@
 # Bug tracker
 
+## coroutine-demo-import-cycle-on-interpreter — `examples/coroutine-demo.ssc` cannot run on the INT lane
+
+**Status:** OPEN (found 2026-07-27 by `corpus-contract-shard-fix`, in the corpus contract's first
+completed verdict). Not a gate artifact — reproduced directly.
+
+**Symptom.** `bin/ssc-tools run --v1 examples/coroutine-demo.ssc` → exit 1 with
+`[ERROR] Import cycle detected: coroutine.ssc → coroutine.ssc`
+(`InterpretError` at `SectionRuntime.scala:384`). Because the corpus contract takes the live INT
+output as the golden when a case has no `expected/` file, an INT that cannot run skips the case on
+**every** lane — so this single defect removes the whole coroutine demo from differential coverage.
+
+**Root cause.** `v1/runtime/std/coroutine.ssc` is a literate module whose own example blocks import
+the module they document — lines 44, 63 and 82 all carry
+`[Step, coroutineCreate, coroutineResume, suspend](std/coroutine.ssc)`, i.e. a self-import. The
+interpreter follows those links when the module is imported and trips its cycle detector. The demo
+only started importing `std/coroutine.ssc` in `3cb6209a4` ("import demo API for tools check",
+2026-07-21) — that fix made the *tools check* pass and broke the *interpreter* lane, which nothing
+was watching because the differential gate could not finish a run.
+
+**Fix direction (not yet applied).** The self-imports inside a literate module's example blocks are
+documentation, not dependencies — either the resolver should not follow an import that names the
+enclosing file, or `std/coroutine.ssc`'s example blocks should stop re-importing themselves. Prefer
+the resolver fix: any literate std module is free to grow the same shape.
+
+## rozum-agent-schema-derived-js-and-v2-gaps — a newly-runnable example fails on both non-INT lanes
+
+**Status:** OPEN (found 2026-07-27 by `corpus-contract-shard-fix`; the same two entries the 07-17
+run had already reported — the last time the gate managed to finish before it started timing out).
+
+**Symptom** (`examples/rozum-agent-schema-derived.ssc`):
+
+| lane | result |
+|---|---|
+| `int` | runs (serves on `http://localhost:19702/`, prints `Done`) |
+| `js` | `Error: not callable: …` from the generated `.cjs` |
+| `v2` | `native frontend rejected incomplete parse …: structural CoreIR contains parser sentinel _err` |
+
+**Notes.** Two independent gaps behind one case: a v1-JS codegen defect and a native-front parse gap.
+The case also binds a real socket on a fixed port, which makes it a candidate for
+`tests/conformance/corpus-skip.txt` on the documented non-hermetic grounds — but **do not skip it to
+make the gate green**: skipping must follow from it being non-hermetic, and the two lane gaps have to
+be filed (this entry) either way. Pin the `_err` sentinel to a concrete construct before triaging the
+v2 side.
+
+## f-front-compile-cost-7x-on-scljet — F as the default front pushes correct cases past gate budgets
+
+**Status:** OPEN — measured, not yet addressed (2026-07-27, `corpus-contract-shard-fix`). Filed as a
+PERF finding: output is correct on both fronts, so nothing here is a correctness bug.
+
+**Measurement** (same tree, same build, `examples/scljet-crud.ssc`, `v2` lane):
+
+| front | wall | output |
+|---|---|---|
+| F (default since `56d7d705f`) | **28.20 s** | correct |
+| `SSC_FRONT=legacy` | **4.16 s** | correct, identical |
+
+**Impact.** The corpus contract's per-lane budget was 30 s, so seven scljet cases
+(`scljet-crud`, `-jdbc`, `-bytes`, `-full`, `-readonly-codecs`, `-text-projection`, `-write-table`)
+reported `v2 TIMEOUT` as REGRESSIONS in run `30281019432` while being perfectly correct — a 28.2 s
+case against a 30 s budget is a coin flip on a loaded CI runner. Mitigated on the gate side by
+splitting the golden probe from the lane budget (`--lane-timeout 90`, `afa5981a2`), which stops the
+correctness gate reporting perf as TIMEOUT noise. **That is mitigation, not a fix** — the ~7×
+remains.
+
+**Context.** The F4 flip was known to cost speed (the `f4-arc-closure` batch recorded "2-4× slower;
+hello 0.8→1.5 s, scljet 8→32 s"), but nothing measured it against the corpus, so nobody knew it was
+already breaching a gate budget. `v2-f5b-typed-locals` (SPRINT Batch B) is the recovery path.
+
 ## bytecode-opanf-purity-registry-marks-every-def-pure — effect Ops leak into `if` conditions on the DEFAULT execution lane
 
 **Status:** OPEN → fix in flight (2026-07-27, `corpus-contract-shard-fix`). Found by the corpus
