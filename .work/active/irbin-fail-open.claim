@@ -1,0 +1,11 @@
+slug: irbin-fail-open
+branch: feature/irbin-fail-open
+agent: claude-code
+started: 2026-07-27T20:20:32Z
+heartbeat: 2026-07-27T20:20:32Z
+status: claimed-before-planning
+items: irbin-v2bin-codec-fails-open
+paths: v2/lib/irbin.ssc0 v2/conformance BUGS.md CHANGELOG.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
