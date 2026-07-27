@@ -1,5 +1,19 @@
 # Bug tracker
 
+## heartbeat-threshold-stated-in-two-repos — AGENTS.md and the multi-agent skill can drift apart
+
+**Status:** OPEN — flagged, deliberately not fixed from here (2026-07-28, `heartbeat-cadence`).
+
+The claim-staleness threshold is written down twice: `AGENTS.md` + `scripts/coord-status` in THIS
+repo, and `.agents/plugins/multi-agent/commands/multi-agent.md` in the **agent-plugins submodule**
+(a separate repo). Raising it 20 min -> 45 min here leaves the submodule saying 20, so an agent
+reading the skill and an agent reading AGENTS.md disagree about when a claim is orphaned.
+
+Not edited from this claim on purpose: committing into another repository to keep a number in sync
+is exactly the scope drift `claim-mutex` exists to catch, and it would land unreviewed in a repo
+this claim does not own. Someone with the submodule in scope should update it, or — better — the
+skill should stop restating the number and point at `scripts/coord-status` as the single source.
+
 ## ci-sbt-job-is-28x-the-code-push-interval — the arithmetic no queue policy can fix
 
 **Status:** OPEN — **measurement, handed to whoever owns the `sbt` job** (2026-07-28,

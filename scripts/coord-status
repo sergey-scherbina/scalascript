@@ -384,8 +384,15 @@ else
         heartbeat_age_seconds=$((NOW_EPOCH - heartbeat_epoch))
         if [[ "$heartbeat_age_seconds" -lt 0 ]]; then
           heartbeat_age_seconds=0
-        elif [[ "$heartbeat_age_seconds" -gt 1200 ]]; then
-          heartbeat_reason="older-than-20m"
+        # 45 min, raised from 20 on 2026-07-28. The threshold is a forcing function, not just a
+        # report: every live claim has to commit at least this often to stay fresh, and agents
+        # commit sooner than that to be safe — 202 of 253 commits in one 6-hour window carried no
+        # code. Raising it halves that floor. The cost is stated rather than hidden: an ABANDONED
+        # claim now blocks its work for up to 45 minutes instead of 20. That is a relaxation, not a
+        # removal — the protection has earned its keep (the whole board was once orphaned with the
+        # newest heartbeat 21 hours old), and `/multi-agent triage <slug>` is unchanged.
+        elif [[ "$heartbeat_age_seconds" -gt 2700 ]]; then
+          heartbeat_reason="older-than-45m"
         fi
       fi
     fi

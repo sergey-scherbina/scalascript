@@ -1023,7 +1023,10 @@ Key invariants:
   duplication is the target here, not intentional cross-checking.
 - Files in `.work/active/` without `.claim` suffix are invalid markers — report or repair before starting
 - Never assume a claim is yours; read the `agent:` field first
-- Heartbeat > 20 min = potentially orphaned; run `/multi-agent triage <slug>` before touching
+- Heartbeat > 45 min = potentially orphaned; run `/multi-agent triage <slug>` before touching
+- Heartbeat on a **material status change**, not as running commentary. The threshold is a floor,
+  not a target: a claim that is alive and unchanged does not need a commit every few minutes.
+  (Raised from 20 min on 2026-07-28 — 202 of 253 commits in one 6-hour window carried no code.)
 
 Quick reference:
 - `scripts/coord-claim <slug> --items … --paths …` — claim (preferred; keeps the ledger correct)
