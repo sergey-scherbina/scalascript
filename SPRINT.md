@@ -699,8 +699,9 @@ mode in its purest form: the apparatus that establishes trust was itself unteste
             the motivating post-freeze `coroutine-demo` would be mislabeled REGRESSION again.
       - [ ] **E7.2 — classify from evidence, not absence.** A non-PASS for a rostered case that has
             no baseline row is REGRESSED; a case absent from the roster is NEW whether it currently
-            passes or fails. Full runs also report removed/stale roster cases; shard/`--only` runs
-            never infer removals outside their observed scope.
+            passes or fails. Any unfiltered run, including a production shard, reports
+            removed/stale names from the complete pre-shard `selected` universe; only `--only`
+            suppresses global removal inference.
       - [ ] **E7.3 — close the other partial-update holes found during the read.** Reject
             `--update-baseline` under `--only`, `--shard`, `--list`, or a non-canonical lane set
             (BUGS `corpus-baseline-update-scoped-run-truncates`). A full update rewrites the
@@ -716,10 +717,16 @@ mode in its purest form: the apparatus that establishes trust was itself unteste
             `corpus-contract-delta-false-improvements`: `FAIL → DIVERGE` and
             `KNOWN-RED → FAIL` are status changes only; a backend-excluded lane is unobserved, not
             improved. A frozen red is an improvement only when that exact cell ran and now passes.
+            A frozen wildcard SKIP improves only if the case becomes runnable and every observed
+            eligible cell passes.
       - [ ] **E7.6 — refuse zero-evidence green.** Fix BUGS
             `corpus-contract-zero-evidence-green`: validate option arity/values, reject empty or
             duplicate/unknown lane lists, and exit 2 when a normal gate selects zero cases or
             observes zero case cells. Assertions must check the diagnostic, not just the exit code.
+      - [ ] **E7.7 — make operator commands executable as written.** Fix BUGS
+            `corpus-contract-usage-missing-arg-separator`: every scala-cli example that passes
+            contract options includes the required `--` separator; run the displayed self-test
+            and slice forms verbatim.
 
 - [x] **E5 — DONE: make a timeout impossible to misread as benign.** After E2 the gate fits its budget,
       but the *detection* hole stays: any future budget breach reappears as `cancelled`. Cheapest

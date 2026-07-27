@@ -1,5 +1,58 @@
 # Bug tracker
 
+## corpus-contract-usage-missing-arg-separator — documented commands do not reach the script
+
+**Status:** OPEN → fix in flight under `corpus-contract-baseline-roster`
+(SPRINT E7; found 2026-07-27 by Codex re-review on `a7ef5749c`).
+
+**Reproduce.** The usage block and feature spec showed
+`scala-cli ... contract.sc --self-test`. scala-cli consumes that as its own
+option and exits 1 with `Unrecognized argument: --self-test`; the script never
+runs. The working form is `scala-cli ... contract.sc -- --self-test`.
+
+**Root cause / fix.** Every example omitted scala-cli's argument separator.
+Add the load-bearing `--` to all commands that pass Corpus Contract options and
+pin the exact working forms in both operator docs.
+
+## corpus-contract-skip-transition-false-improvement — runnable-but-failing is called PASS
+
+**Status:** OPEN → fix in flight under `corpus-contract-baseline-roster`
+(SPRINT E7; found 2026-07-27 by Codex re-review on `a7ef5749c`).
+
+**Reproduce.** Freeze `x<TAB>*<TAB>SKIP`, then make `x` runnable with current
+`x<TAB>js<TAB>FAIL`. The wildcard is in scope and absent from the current
+non-PASS rows, so the first key-based classifier emitted both a JS regression
+and `IMPROVEMENT — now PASS` for the old SKIP. The same false improvement
+appears when the case becomes runnable but has zero eligible requested lanes.
+
+**Root cause.** A missing lane-specific non-PASS row means PASS only because
+that exact lane key was observed. A wildcard SKIP is case-level; its absence
+means merely "not skipped", not "all lanes passed".
+
+**Fix / done-when.** A frozen wildcard SKIP improves only when at least one
+eligible lane cell ran and every observed cell passed. Runnable-with-failure
+and zero-eligible-cell transitions do not claim improvement. Synthetic tests
+cover all three branches.
+
+## corpus-contract-shards-miss-removals — every production shard suppresses coverage loss
+
+**Status:** OPEN → fix in flight under `corpus-contract-baseline-roster`
+(SPRINT E7; found 2026-07-27 by Codex re-review on `a7ef5749c`).
+
+**Reproduce.** `.github/workflows/corpus-contract.yml` runs only four
+`--shard i/4` jobs. The first roster implementation computed removals only
+when `shard.isEmpty`, so deleting/renaming a rostered PASS-only case produced
+an empty delta in every production job.
+
+**Root cause.** The design treated a shard's executed `cases` as its only
+knowledge, but `selected` is already the complete unsharded, skip-filtered
+universe and is computed before `cases` is sliced.
+
+**Fix / done-when.** Every run without `--only`, including every shard,
+compares `R - selectedCurrentCases`; an `--only` diagnostic slice suppresses
+global removal inference. A synthetic/selection check proves a shard sees a
+removed roster case.
+
 ## corpus-contract-zero-evidence-green — an empty selection can pass without comparing anything
 
 **Status:** OPEN → fix in flight under `corpus-contract-baseline-roster`
@@ -64,7 +117,9 @@ otherwise valid LF commit fail on a CRLF checkout.
 SHA-256 and a canonical-roster-body SHA-256. Canonical LF serialization keeps
 the content identity portable across checkout EOL settings. Mutating a roster
 name without refreshing the header must fail closed; focused tests also cover
-unsorted/duplicate names and a baseline name missing from the roster.
+unsorted/duplicate names, a baseline name missing from the roster, and
+unknown/untrimmed baseline lanes that would otherwise remain permanently
+outside every observed scope.
 
 ## claim-ledger-claimfile-scope-drift — inconsistent claim metadata makes the overlap guard fail open
 

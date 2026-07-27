@@ -20,10 +20,10 @@ semantics or the normative `SPEC.md`.
   `# corpus-contract-roster-v1<TAB>baseline-sha256=<64hex><TAB>roster-sha256=<64hex>`,
   followed by the sorted, unique set of case names at the same freeze. Both
   digests cover canonical UTF-8/LF serializations, independent of checkout EOL.
-- `scala-cli tests/conformance/contract.sc --update-baseline` is the only
+- `scala-cli tests/conformance/contract.sc -- --update-baseline` is the only
   writer for both files. It is valid only for an unsharded, unfiltered run over
   the canonical default lanes `int,js,v2`.
-- `scala-cli tests/conformance/contract.sc --self-test` exercises the pure
+- `scala-cli tests/conformance/contract.sc -- --self-test` exercises the pure
   baseline classifier without requiring a built toolchain or running a corpus
   lane.
 
@@ -33,16 +33,18 @@ semantics or the normative `SPEC.md`.
       in the frozen non-PASS rows, is reported as `REGRESSION`.
 - [ ] A current case absent from the frozen roster is reported as `NEW`,
       whether its current rows are PASS or non-PASS.
-- [ ] A full unfiltered run reports roster entries no longer present in the
-      current selected corpus as stale/removed; a shard or `--only` run never
-      infers removal outside the cases it observed.
+- [ ] Any unfiltered selection, including a shard, reports roster entries no
+      longer present in the complete pre-shard selected corpus as
+      stale/removed. An `--only` run suppresses global removal inference.
 - [ ] Existing improvement detection remains intact: a frozen non-PASS row that
       was actually observed and now passes is red until the baseline is
       deliberately refreshed. A status transition or backend-excluded cell is
-      not an improvement.
+      not an improvement. A frozen case-level SKIP improves only when at least
+      one eligible lane ran and all observed lane cells passed.
 - [ ] Missing, duplicate, unsorted, digest-mismatched, or
       baseline-inconsistent roster metadata fails closed with a diagnostic; it
-      is never treated as an empty roster.
+      is never treated as an empty roster. Baseline lanes must be canonical,
+      known lane names (or `*` paired with `SKIP`).
 - [ ] `--update-baseline` combined with `--shard`, `--only`, `--list`, or a
       malformed/non-canonical lane list exits 2 before any file is written.
 - [ ] A full baseline update writes the current non-PASS rows and the complete
@@ -70,22 +72,26 @@ semantics or the normative `SPEC.md`.
 Let `R` be the frozen case roster, `B` the frozen non-PASS cell map, `C` the
 current non-PASS cell map, `N` the case names actually observed by this run,
 and `O` the `(case,lane)` keys actually observed after `backends:` filtering.
-The wildcard `(case,*)` key is considered observed whenever the case itself was
-observed, so a former case-level SKIP can expire when the case becomes runnable.
+The wildcard `(case,*)` key is considered in scope whenever the case itself was
+observed. It becomes an improvement only when the case has at least one
+observed lane key and `C` has no non-PASS row for that case.
 
 - `newCases = N - R`
 - `B_scoped = { (key,status) in B | key in O }`
 - `regressions = { (key,status) in C | case(key) in R and key not in B }`
 - `changes = { key in C ∩ B_scoped | C(key) != B(key) }`
-- `improvements = { (key,status) in B_scoped | key not in C }`
-- on a full unfiltered run only, `removedCases = R - selectedCurrentCases`
+- `improvements = { non-wildcard row in B_scoped | key not in C } ∪
+  { (case,*,SKIP) | observedLanes(case) is non-empty and no current non-PASS
+  row belongs to case }`
+- without `--only`, `removedCases = R - selectedCurrentCases`
 
 `B_scoped` keeps the existing subset behavior: only rows for observed cases and
 actually executed lanes participate. Since `C` stores only non-PASS rows, the
 absence used by `improvements` means PASS only after membership in `O` proves
-that the cell ran. New-case detection is safe in every subset
-because presence in `N` is positive evidence; removal detection is full-run
-only because absence from a subset proves nothing.
+that the cell ran. New-case detection is safe in every subset because presence
+in `N` is positive evidence. Removal detection uses the complete `selected`
+list computed before shard slicing, so each production shard can detect global
+coverage loss; `--only` changes that list and therefore suppresses removals.
 
 The parser validates canonical sorted uniqueness and one status per
 `(case,lane)` key, verifies SHA-256 for both the canonical baseline and
@@ -146,11 +152,12 @@ mechanical guard against landing a stale pair.
 ## Verification plan
 
 1. Before implementation, record the red control:
-   `scala-cli tests/conformance/contract.sc --update-baseline --only hello --list`
+   `scala-cli tests/conformance/contract.sc -- --update-baseline --only hello --list`
    currently exits 0 instead of refusing the unsafe scope.
-2. Run `scala-cli tests/conformance/contract.sc --self-test`; it must cover NEW
+2. Run `scala-cli tests/conformance/contract.sc -- --self-test`; it must cover NEW
    red, NEW pass, REGRESSION, true IMPROVEMENT, status CHANGE without a false
-   improvement, unobserved-lane suppression, positive/scoped removal,
+   improvement, wildcard-SKIP transitions, unobserved-lane suppression,
+   sharded positive/`--only`-suppressed removal,
    baseline/roster digest mismatch, malformed metadata, and partial-update
    refusal.
 3. Reconstruct the initial roster from baseline freeze `3449c588c`; prove
