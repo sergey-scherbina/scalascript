@@ -1,0 +1,16 @@
+---
+name: conformance-js-int-boundary-const-lambda
+version: 1.0.0
+backends: [int, js]
+---
+
+# JS `Int` boundaries inside multi-parameter typed lambdas
+
+```scalascript
+def invokeInts(f: (Int, Int) => Int, a: Int, b: Int): Int = f(a, b)
+def invokeStrings(f: (String, String) => String, a: String, b: String): String = f(a, b)
+
+println(invokeInts((a: Int, b: Int) => a + b, 20, 22))
+println(invokeInts((a: Int, b: Int) => a + b, "a b".charAt(1), 1))
+println(invokeStrings((a: String, b: String) => a + b, "A", "B"))
+```

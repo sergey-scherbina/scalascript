@@ -4246,7 +4246,8 @@ class JsGen(
         val arity   = jsParams.length
         val joined  = jsParams.mkString(", ")
         val guards  = if intGuards.isEmpty then "" else intGuards.mkString(" ", " ", " ")
-        s"((...__a) => { const [$joined] = (__a.length === 1 && Array.isArray(__a[0]) && __a[0].length === $arity) ? __a[0] : __a;$guards return $bodyJs; })"
+        val binding = if intGuards.isEmpty then "const" else "let"
+        s"((...__a) => { $binding [$joined] = (__a.length === 1 && Array.isArray(__a[0]) && __a[0].length === $arity) ? __a[0] : __a;$guards return $bodyJs; })"
 
     // Partial function { case ... => ... }
     case Term.PartialFunction(cases) =>
