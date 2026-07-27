@@ -2332,7 +2332,21 @@ next failure once Emit is fixed). `bin/ssc run`/`--bytecode` green does NOT cove
 
 ## scljet-js-large-page-byteslice-recursion-overflow — a 4096-byte page overflows the JS stack on a byte-slice update
 
-**Status:** OPEN (found 2026-07-19 by `scljet-hello-example` while writing `examples/scljet-hello.ssc`).
+**Status:** **FIXED 2026-07-27** by opus (`scljet-js-copyloop-stack`). `copyLoop` is now iterative
+(the var/while idiom `collectBytes` in the same file already used for this exact reason), so a
+4096-byte page no longer recurses 4096 frames deep on a runtime without TCO.
+
+⚠️ **The diagnosis below was WRONG about which function.** `replaceAt` walks a 64-byte CHUNK — it is
+bounded at 64 frames regardless of page size and could not have caused this. The depth was always in
+`copyLoop`, which recursed once per byte of the SLICE. Anyone following the original entry would have
+rewritten the wrong function and seen no improvement; the correction is also written next to the fix.
+
+**Verified** by rebuilding both ways: with the recursive `copyLoop` the JS lane crashes outright,
+with the fix it prints the correct rows. New case `tests/conformance/scljet-large-page.ssc` uses
+4096 ON PURPOSE — every other scljet case uses 512 precisely because 4096 crashed, so the page size
+is the assertion. PASS [INT][JS]; full scljet sweep 106/106.
+
+**Historical report:** OPEN (found 2026-07-19 by `scljet-hello-example` while writing `examples/scljet-hello.ssc`).
 **JS backend / non-tail recursion**, not the engine's logic. Low severity — clear workaround.
 
 **Symptom/reproduce:** `buildTableDatabase(4096, …)` then a façade `INSERT`/`UPDATE` on the JS lane:
