@@ -167,3 +167,79 @@ object SaveRegion:
   /** Build the save-site frame value for a reified auto-region from its live-index list. */
   def frameOf(liveIndices: List[Int], env: List[Const]): Term =
     Term.Ctor("frame", liveIndices.map(idx => Term.Lit(env(idx))))
+
+  // ── Slice 2: global closure (spec §6 item 2) ───────────────────────────────
+  // A region body may call top-level defs. `CoreIR.validate` admits `(global g)` only when g is a
+  // def of the SAME program (or an `@`-cell) — there is no builtin escape hatch — and a Portable
+  // capsule is admitted in a process holding no machine and no source. So a resume that reaches a
+  // user def must CARRY it: `resume.defs` is the transitive closure of the globals the closed body
+  // reaches. Defs are closed by construction (a def body has no free locals), so carrying one needs
+  // no rewriting — only selection and ordering.
+
+  /** The `Global` names occurring directly in `t` (one level; `closeGlobals` does the transitive part). */
+  private def globalsOf(t: Term): Set[String] = t match
+    case Term.Global(g)         => Set(g)
+    case Term.Local(_)          => Set.empty
+    case Term.Lit(_)            => Set.empty
+    case Term.Lam(_, b)         => globalsOf(b)
+    case Term.App(fn, args)     => globalsOf(fn) ++ args.flatMap(globalsOf)
+    case Term.Let(rhs, b)       => rhs.flatMap(globalsOf).toSet ++ globalsOf(b)
+    case Term.LetRec(lams, b)   => lams.flatMap(globalsOf).toSet ++ globalsOf(b)
+    case Term.If(c, th, e)      => globalsOf(c) ++ globalsOf(th) ++ globalsOf(e)
+    case Term.Ctor(_, fields)   => fields.flatMap(globalsOf).toSet
+    case Term.Match(s, arms, e) => globalsOf(s) ++ arms.flatMap(a => globalsOf(a.body)) ++ e.toSet.flatMap(globalsOf)
+    case Term.Prim(_, args)     => args.flatMap(globalsOf).toSet
+    case Term.While(c, b)       => globalsOf(c) ++ globalsOf(b)
+    case Term.Seq(terms)        => terms.flatMap(globalsOf).toSet
+
+  /**
+   * The transitive closure of `roots` over `defs`, returned in the source program's OWN relative
+   * order — that order is what made the source program valid, and re-sorting could break a mutual
+   * reference. Recursion and mutual recursion terminate because a name is marked reached BEFORE its
+   * body is scanned.
+   *
+   * `@`-cells are not defs (validate admits them by prefix) and are skipped. A root naming no def
+   * is a LOUD error: dropping it silently would turn a capsule that `validate` should reject into
+   * one that is admitted and runs the wrong thing — the exact fail-open shape §10.2's fail-closed
+   * reader exists to prevent.
+   */
+  def closeGlobals(roots: Set[String], defs: List[Def]): List[Def] =
+    val byName = defs.iterator.map(d => d.name -> d).toMap
+    val reached = scala.collection.mutable.LinkedHashSet.empty[String]
+    def visit(g: String): Unit =
+      if !g.startsWith("@") && !reached.contains(g) then
+        val d = byName.getOrElse(
+          g,
+          sys.error(s"save-region: the region reaches (global $g), but no such top-level def exists to carry")
+        )
+        reached += g
+        globalsOf(d.body).foreach(visit)
+    roots.toList.sorted.foreach(visit)
+    defs.filter(d => reached.contains(d.name))
+
+  /** `reifyAuto` carrying the globals the region reaches (slice 2). The 1-arg form keeps the
+   *  slice-1 behaviour — no defs, so a region that calls one still fails closed at validate. */
+  def reifyAuto(region: Term, programDefs: List[Def]): (List[Int], Program) =
+    val (liveIndices, prog) = reifyAuto(region)
+    (liveIndices, Program(closeGlobals(globalsOf(prog.entry), programDefs), prog.entry))
+
+  /** `reify` (explicit slots) carrying the globals the region reaches — same rule as `reifyAuto`. */
+  def reify(frameSlots: List[Const], resumeLam: Term, programDefs: List[Def]): (Term, Program) =
+    val (frame, prog) = reify(frameSlots, resumeLam)
+    (frame, Program(closeGlobals(globalsOf(prog.entry), programDefs), prog.entry))
+
+  // Demo for `ssc freeze-region-global`: the region calls `quad`, which calls `dbl` — so the
+  // closure must be TRANSITIVE — while `unused` must NOT travel, proving this selects rather than
+  // dumps the whole program.
+  //   def dbl(x)  = x * 2
+  //   def quad(x) = dbl(dbl(x))
+  //   def unused(x) = x + 999
+  //   region: (input) => quad(input) + a        -- a is the one free outer var (frame slot)
+  val demoGlobalDefs: List[Def] = List(
+    Def("dbl", Term.Lam(1, Term.Prim("i.mul", List(Term.Local(0), Term.Lit(Const.CInt(2)))))),
+    Def("quad", Term.Lam(1, Term.App(Term.Global("dbl"), List(Term.App(Term.Global("dbl"), List(Term.Local(0))))))),
+    Def("unused", Term.Lam(1, Term.Prim("i.add", List(Term.Local(0), Term.Lit(Const.CInt(999))))))
+  )
+  val demoGlobalRegion: Term =
+    Term.Lam(1, Term.Prim("i.add", List(Term.App(Term.Global("quad"), List(Term.Local(0))), Term.Local(1))))
+  val demoGlobalEnv: List[Const] = List(Const.CInt(5)) // outer 0 = a

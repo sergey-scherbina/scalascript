@@ -81,4 +81,28 @@ ssc freeze-region-auto "$AUTO" >/dev/null
 check "auto-liveness run input=5" "$(ssc run-capsule "$AUTO" 5)" "23"   # 3 + 5*4
 check "auto-liveness run input=2" "$(ssc run-capsule "$AUTO" 2)" "11"   # 3 + 2*4
 
+# §10.2 global closure (slice 2): the region calls `quad`, which calls `dbl`, so BOTH must travel
+# in resume.defs — `validate` admits `(global g)` only when g is a def of the same program, and the
+# runner process holds no machine and no source. `unused` must NOT travel: the pass selects the
+# transitive closure, it does not dump the program. Region: (input) => quad(input) + a, a = 5.
+GLOB="$TMP/global.portable"
+ssc freeze-region-global "$GLOB" >/dev/null
+if grep -q '(def quad' "$GLOB" && grep -q '(def dbl' "$GLOB"; then
+  printf 'ok   %-30s => yes\n' "reached defs travel (transitive)"
+else printf 'FAIL %-30s\n' "reached defs travel (transitive)"; fail=1; fi
+if grep -q '(def unused' "$GLOB"; then
+  printf 'FAIL %-30s unreached def was carried\n' "closure selects, not dumps"; fail=1
+else printf 'ok   %-30s => yes\n' "closure selects, not dumps"; fi
+check "global-closure run input=3" "$(ssc run-capsule "$GLOB" 3)" "17"  # quad(3)=12, +5
+check "global-closure run input=1" "$(ssc run-capsule "$GLOB" 1)" "9"   # quad(1)=4,  +5
+
+# Fail-CLOSED: dropping a carried def from the bytes must be rejected at admission, not run with a
+# silently-missing global. This is the check that makes the two above mean something.
+sed '/(def dbl/d' "$GLOB" > "$GLOB.nodbl"
+if ssc run-capsule "$GLOB.nodbl" 3 >/dev/null 2>&1; then
+  printf 'FAIL %-30s capsule with a missing def was admitted\n' "missing def rejected"; fail=1
+else
+  printf 'ok   %-30s => rejected\n' "missing def rejected"
+fi
+
 if [ "$fail" -eq 0 ]; then echo "portable-capsule: PASS"; else echo "portable-capsule: FAIL"; exit 1; fi

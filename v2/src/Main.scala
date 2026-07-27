@@ -71,6 +71,13 @@ private def dispatch(args: List[String]): Unit = args match
       java.nio.file.Paths.get(file),
       Capsule.encode(frame, resume)
     )
+  case "freeze-region-global" :: file :: _ =>   // §10.2 slice 2: carry the defs the region reaches
+    val (liveIndices, resume) = SaveRegion.reifyAuto(SaveRegion.demoGlobalRegion, SaveRegion.demoGlobalDefs)
+    val frame = SaveRegion.frameOf(liveIndices, SaveRegion.demoGlobalEnv)
+    java.nio.file.Files.writeString(
+      java.nio.file.Paths.get(file),
+      Capsule.encode(frame, resume)
+    )
   case "run-capsule" :: file :: rest =>         // admit + run a Portable capsule holding NO machine
     val inputN = rest.headOption
       .flatMap(_.toLongOption)
