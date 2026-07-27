@@ -1,0 +1,34 @@
+---
+name: js-int-division-by-zero
+description: Int division/remainder by zero FAILS on every lane instead of yielding JS Infinity/NaN
+backends: [int, jvm, js]
+---
+
+# Integer division by zero must fail, not produce `Infinity`
+
+`ssc` `Int` is 64-bit **integer** arithmetic, so `10 / 0` has no value — it must fail the way it
+does on the interpreter and the JVM. The v1 JS backend used to emit `Math.trunc(a / b)`, so a zero
+divisor produced JS's `Infinity` (and `NaN` for `%`): a silent wrong answer that no `try/catch` ever
+saw, because nothing was thrown (`BUGS.md` `js-int-division-by-zero-yields-infinity`).
+
+The cases below all *catch*, so the observable is the caught value rather than a crash — a program
+that merely died would not show which lane produced what. Double division is included on purpose:
+`4.0 / 0` is legitimately `Infinity` in Scala too, and pinning that here is what stops a fix from
+over-reaching into floating point.
+
+```scalascript
+def divide(a: Int, b: Int): String =
+  try { (a / b).toString } catch { case _ => "div-failed" }
+
+def remainder(a: Int, b: Int): String =
+  try { (a % b).toString } catch { case _ => "mod-failed" }
+
+println(divide(10, 0))
+println(remainder(10, 0))
+println(divide(10, 3))
+println(remainder(10, 3))
+
+// Floating point keeps IEEE semantics — this must NOT become an error.
+val f: Double = 4.0
+println((f / 0.0).toString)
+```

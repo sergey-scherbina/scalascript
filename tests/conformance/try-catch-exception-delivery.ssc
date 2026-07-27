@@ -1,7 +1,7 @@
 ---
 name: try-catch-exception-delivery
 description: try/catch actually delivers a thrown exception to the handler, matched by supertype (Throwable/Exception/RuntimeException) or a wildcard
-backends: [int, jvm]
+backends: [int, jvm, js]
 ---
 
 # `try` / `catch` — the exception actually reaches the handler
@@ -18,10 +18,10 @@ The v1 reference rule this pins is `PatternRuntime.isExceptionSupertype` — a p
 `Throwable` / `Exception` / `RuntimeException` / `Error` matches the synthesized exception, because
 a `catch` scrutinee carries the throwable's simple name and users catch it by supertype.
 
-`js` is deliberately out of the backend list: on the JS lane `10 / 0` evaluates to `Infinity`
-instead of throwing, so every `catch` here is simply never entered and the case would pin JS's
-divergence rather than the delivery bug. That divergence is itself a defect — `BUGS.md`
-`js-int-division-by-zero-yields-infinity` — filed from this case, not swept under it.
+`js` is back in the backend list. It was excluded because `10 / 0` evaluated to `Infinity` there, so
+no `catch` was ever entered — the divergence this case surfaced and that was filed rather than swept
+under the restriction (`BUGS.md` `js-int-division-by-zero-yields-infinity`). With that fixed, the JS
+lane throws like the others and belongs here.
 
 The **braceless multiline** shape is in as well, now that it works. It is a load-bearing case rather
 than a decorative one: its failure mode was to swallow the rest of the file, so the `println`s that
