@@ -1,5 +1,28 @@
 # Changelog
 
+## 2026-07-27 — Corpus Contract freezes case coverage beside non-PASS rows
+
+The production differential gate can now distinguish a new case from a
+regression without reconstructing git history. `contract-roster.tsv` freezes
+all 465 names from the baseline-producing observation and binds its canonical
+body plus `corpus-baseline.tsv` with two SHA-256 digests. New all-PASS and
+non-PASS cases, rostered regressions, real improvements, status changes, and
+removed/renamed coverage are separate RED classifications; sharded production
+runs retain global removal detection.
+
+The same slice closes the apparatus holes found during review: partial or
+malformed freeze updates are refused before writing, unobserved/status-change
+cells cannot become false improvements, wildcard SKIP expires only after an
+eligible all-PASS observation, and zero-case/zero-cell runs exit 2 instead of
+GREEN. The parser/classifier self-test is 29/29, fourteen CLI negative controls
+fail with their intended diagnostics, the real post-freeze `int-width` case is
+reported only as NEW, and the affected conformance slice is 2/2.
+
+Operator documentation now names the actual `v2` product route:
+`bin/ssc run --v2` uses the native frontend/checker and defaults to direct ASM
+with visible link-time VM fallback; the retired `FrontendBridge` no longer
+backs `ssc-tools`. Implementation: `fc5f07f28`; docs: `2a796b258`.
+
 ## 2026-07-27 — F compile-time cost is measured, attributed, and reproducible
 
 The same-jar V-6a profile identifies F's interpreted generic-VM execution as the dominant compile

@@ -744,56 +744,69 @@ mode in its purest form: the apparatus that establishes trust was itself unteste
       after `c3841d01e` (run `30282931604`), and the timeout set is provably contention-flaky — run 3
       surfaced `scljet-write-index-deep js TIMEOUT`, which run 2 did not, on identical code.
 
-- [ ] **E7 — baseline cannot distinguish NEW from REGRESSED (found while triaging E4).** The
+- [x] **E7 — DONE: paired freeze distinguishes NEW from REGRESSION (found while triaging E4).** The
       baseline records only NON-PASS entries, so a case added after the freeze that is non-PASS looks
       identical to a case that regressed — `coroutine-demo` was reported as a regression on exactly
-      that confusion. Wording softened in `contract.sc` as the cheap half. The real fix is a case
-      ROSTER in the baseline (every name seen at freeze), which makes NEW detectable; it changes the
-      baseline format and needs one unsharded full run to regenerate, so it is queued rather than
-      done. **Claimed 2026-07-27 as `corpus-contract-baseline-roster`.** Plan/spec:
+      that confusion. `contract-roster.tsv` now freezes every name beside the non-PASS rows and binds
+      both halves with canonical SHA-256, so NEW, regression, improvement, status change, and removal
+      are evidence-backed classifications. **Landed 2026-07-27 as
+      `corpus-contract-baseline-roster`: implementation `fc5f07f28`, operator docs
+      `2a796b258`.** Plan/spec:
       `specs/corpus-contract-baseline-roster.md`.
-      - [ ] **E7.1 — freeze the selected-case universe beside the failure rows.** Add sorted,
+      - [x] **E7.1 — freeze the selected-case universe beside the failure rows.** Add sorted,
             unique `tests/conformance/contract-roster.tsv`, paired by SHA-256 to both the
             canonical-LF baseline serialization and its own canonical-LF roster body. Seed it
             from the commit that produced the current baseline, not from current HEAD — otherwise
             the motivating post-freeze `coroutine-demo` would be mislabeled REGRESSION again.
-      - [ ] **E7.2 — classify from evidence, not absence.** A non-PASS for a rostered case that has
+      - [x] **E7.2 — classify from evidence, not absence.** A non-PASS for a rostered case that has
             no baseline row is REGRESSED; a case absent from the roster is NEW whether it currently
             passes or fails. Any unfiltered run, including a production shard, reports
             removed/stale names from the complete pre-shard `selected` universe; only `--only`
             suppresses global removal inference.
-      - [ ] **E7.3 — close the other partial-update holes found during the read.** Reject
+      - [x] **E7.3 — close the other partial-update holes found during the read.** Reject
             `--update-baseline` under `--only`, `--shard`, `--list`, or a non-canonical lane set
             (BUGS `corpus-baseline-update-scoped-run-truncates`). A full update rewrites the
             baseline+roster pair and its digest together.
-      - [ ] **E7.4 — prove the classifier fails loudly.** A lightweight self-test must distinguish a
+      - [x] **E7.4 — prove the classifier fails loudly.** A lightweight self-test must distinguish a
             synthetic NEW red case from an existing-case regression, report a new PASS case so the
             roster cannot silently age, retain true improvement detection, reject baseline and
             roster-body digest mismatches plus malformed metadata, and prove scoped baseline
             updates exit 2. Then run the real roster check and an affected Corpus Contract slice.
             Do not hand-edit `corpus-baseline.tsv`: the live
             `corpus-gate-remaining-reds` claim owns its re-baseline.
-      - [ ] **E7.5 — classify by observed cell key, not whole-row absence.** Fix BUGS
+      - [x] **E7.5 — classify by observed cell key, not whole-row absence.** Fix BUGS
             `corpus-contract-delta-false-improvements`: `FAIL → DIVERGE` and
             `KNOWN-RED → FAIL` are status changes only; a backend-excluded lane is unobserved, not
             improved. A frozen red is an improvement only when that exact cell ran and now passes.
             A frozen wildcard SKIP improves only if the case becomes runnable and every observed
             eligible cell passes.
-      - [ ] **E7.6 — refuse zero-evidence green.** Fix BUGS
+      - [x] **E7.6 — refuse zero-evidence green.** Fix BUGS
             `corpus-contract-zero-evidence-green`: validate option arity/values, reject empty or
             duplicate/unknown lane lists, and exit 2 when a normal gate selects zero cases or
             observes zero case cells. Assertions must check the diagnostic, not just the exit code.
-      - [ ] **E7.7 — make operator commands executable as written.** Fix BUGS
+      - [x] **E7.7 — make operator commands executable as written.** Fix BUGS
             `corpus-contract-usage-missing-arg-separator`: every scala-cli example that passes
             contract options includes the required `--` separator; run the displayed self-test
             and slice forms verbatim.
-      - [ ] **E7.8 — document the lane that production actually executes.** Fix BUGS
+      - [x] **E7.8 — document the lane that production actually executes.** Fix BUGS
             `corpus-contract-doc-mislabels-v2-lane`: `bin/ssc run --v2` is the
             standard/native `RunNativeV2` tier and defaults to direct ASM
             (`bytecode=true`, link-time VM fallback), not the VM-only retired bridge.
             `ssc-tools run --v2` now uses the same native front with
             `bytecode=false`; correct the operator docs plus stale inline comments and
             pin `bin/ssc info --execution-plan --v2` as the architecture check.
+      **Verification:** initial roster 465 sorted/unique names; self-test 29/29;
+      14/14 CLI refusal diagnostics; real `arithmetic,int-width` slice labels only
+      `int-width` as NEW; production-form shard GREEN; conformance 2/2 with both v2
+      cells PASS and only the two declared v1 known-red cells.
+
+- [ ] **E8 — restore the repository markdownlint gate.** Fix BUGS
+      `markdownlint-bugs-lane-labels`: two existing `BUGS.md` lane summaries use
+      adjacent `[INT][JS][JVM]` text (MD052), and the TSV example in
+      `specs/claim-mutex.md` uses eight invisible hard tabs (MD010). Render the lane
+      summaries as inline code and the delimiters as explicit `<TAB>` markers, then run
+      the exact CI command `markdownlint '**/*.md' --ignore node_modules`; do not
+      disable either rule.
 
 - [x] **E5 — DONE: make a timeout impossible to misread as benign.** After E2 the gate fits its budget,
       but the *detection* hole stays: any future budget breach reappears as `cancelled`. Cheapest

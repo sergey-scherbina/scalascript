@@ -1,10 +1,30 @@
 # Bug tracker
 
+## markdownlint-bugs-lane-labels — repository markdownlint is red on prose syntax
+
+**Status:** OPEN (found 2026-07-27 by Codex while running the exact CI
+markdownlint command for Corpus Contract E7; queued as SPRINT E8).
+
+**Reproduce.**
+`npx --yes markdownlint-cli@latest '**/*.md' --ignore node_modules` exits 1
+with ten diagnostics:
+
+- MD052 at the two plain-text summaries `PASS [INT][JS][JVM]` and
+  `PASS [INT][JS]` in `BUGS.md`. CommonMark parses adjacent brackets as
+  reference-link labels, but no `INT`/`JS`/`JVM` definitions exist.
+- Eight MD010 diagnostics for the literal tab-separated example rows in
+  `specs/claim-mutex.md`. The TSV content is intentional, but invisible hard
+  tabs are not required to explain the wire format.
+
+**Fix / done-when.** Render each complete lane summary as inline code and show
+the TSV example with explicit `<TAB>` markers plus a literal-tab note. Then run
+the exact CI command successfully. Do not silence MD052/MD010, add fake link
+definitions, or weaken the example's delimiter contract.
+
 ## corpus-contract-doc-mislabels-v2-lane — operator spec sends triage to the wrong architecture
 
-**Status:** OPEN → docs fix in flight under `corpus-contract-baseline-roster`
-(SPRINT E7; found 2026-07-27 by Codex while reconciling the gate docs at
-`fc5f07f28`).
+**Status:** **FIXED 2026-07-27** in `2a796b258` (reporter confirmation
+pending). Found by Codex while reconciling the E7 gate docs at `fc5f07f28`.
 
 **Reproduce.** `specs/corpus-contract.md` calls the contract's `v2` lane a
 v1-frontend → v2-VM bridge. The comment beside `laneCmd` improves the frontend
@@ -29,8 +49,9 @@ architecture check.
 
 ## corpus-contract-usage-missing-arg-separator — documented commands do not reach the script
 
-**Status:** OPEN → fix in flight under `corpus-contract-baseline-roster`
-(SPRINT E7; found 2026-07-27 by Codex re-review on `a7ef5749c`).
+**Status:** **FIXED 2026-07-27** in `fc5f07f28`, with the operator forms
+verified and documented in `2a796b258` (reporter confirmation pending). Found
+by Codex re-review on `a7ef5749c`.
 
 **Reproduce.** The usage block and feature spec showed
 `scala-cli ... contract.sc --self-test`. scala-cli consumes that as its own
@@ -43,8 +64,8 @@ pin the exact working forms in both operator docs.
 
 ## corpus-contract-skip-transition-false-improvement — runnable-but-failing is called PASS
 
-**Status:** OPEN → fix in flight under `corpus-contract-baseline-roster`
-(SPRINT E7; found 2026-07-27 by Codex re-review on `a7ef5749c`).
+**Status:** **FIXED 2026-07-27** in `fc5f07f28` (reporter confirmation
+pending). Found by Codex re-review on `a7ef5749c`.
 
 **Reproduce.** Freeze `x<TAB>*<TAB>SKIP`, then make `x` runnable with current
 `x<TAB>js<TAB>FAIL`. The wildcard is in scope and absent from the current
@@ -63,8 +84,8 @@ cover all three branches.
 
 ## corpus-contract-shards-miss-removals — every production shard suppresses coverage loss
 
-**Status:** OPEN → fix in flight under `corpus-contract-baseline-roster`
-(SPRINT E7; found 2026-07-27 by Codex re-review on `a7ef5749c`).
+**Status:** **FIXED 2026-07-27** in `fc5f07f28` (reporter confirmation
+pending). Found by Codex re-review on `a7ef5749c`.
 
 **Reproduce.** `.github/workflows/corpus-contract.yml` runs only four
 `--shard i/4` jobs. The first roster implementation computed removals only
@@ -82,8 +103,8 @@ removed roster case.
 
 ## corpus-contract-zero-evidence-green — an empty selection can pass without comparing anything
 
-**Status:** OPEN → fix in flight under `corpus-contract-baseline-roster`
-(SPRINT E7; found 2026-07-27 by Codex review on `e124cc20f`).
+**Status:** **FIXED 2026-07-27** in `fc5f07f28` (reporter confirmation
+pending). Found by Codex review on `e124cc20f`.
 
 **Reproduce.** With a built toolchain, either a misspelled filter such as
 `scala-cli --server=false tests/conformance/contract.sc -- --only definitely-not-a-case`
@@ -104,8 +125,8 @@ exit-2 diagnostic so a different early failure cannot masquerade as the fix.
 
 ## corpus-contract-delta-false-improvements — unobserved lanes and status changes look improved
 
-**Status:** OPEN → fix in flight under `corpus-contract-baseline-roster`
-(SPRINT E7; found 2026-07-27 by Codex review on `e124cc20f`).
+**Status:** **FIXED 2026-07-27** in `fc5f07f28` (reporter confirmation
+pending). Found by Codex review on `e124cc20f`.
 
 **Reproduce.** In the pure classifier, freeze `x<TAB>js<TAB>FAIL` and observe
 `x<TAB>js<TAB>DIVERGE`: row-level set subtraction reports both CHANGE and
@@ -127,8 +148,8 @@ real improvement.
 
 ## corpus-contract-freeze-digest-unbound — roster edits do not invalidate the paired freeze
 
-**Status:** OPEN → fix in flight under `corpus-contract-baseline-roster`
-(SPRINT E7; found 2026-07-27 by Codex review on `e124cc20f`).
+**Status:** **FIXED 2026-07-27** in `fc5f07f28` (reporter confirmation
+pending). Found by Codex review on `e124cc20f`.
 
 **Reproduce.** Add `coroutine-demo` at the sorted position in
 `contract-roster.tsv` without changing its header. The first implementation's
@@ -204,15 +225,15 @@ that would hide the mechanism.
 
 ## corpus-baseline-update-scoped-run-truncates — `--update-baseline` can erase out-of-scope rows
 
-**Status:** OPEN → fix in flight under `corpus-contract-baseline-roster`
-(SPRINT E7; found 2026-07-27 by Codex on `540f0ba52`).
+**Status:** **FIXED 2026-07-27** in `fc5f07f28` (reporter confirmation
+pending). Found by Codex on `540f0ba52`.
 
 **Reproduce.** `tests/conformance/contract.sc` refuses
 `--update-baseline --shard`, but accepts both:
 
 ```bash
-scala-cli tests/conformance/contract.sc --update-baseline --only hello
-scala-cli tests/conformance/contract.sc --update-baseline --lanes int
+scala-cli tests/conformance/contract.sc -- --update-baseline --only hello
+scala-cli tests/conformance/contract.sc -- --update-baseline --lanes int
 ```
 
 The update writes `current`, which contains only the cases and lanes selected

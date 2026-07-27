@@ -2,11 +2,12 @@
 
 ## Overview
 
-The Corpus Contract freezes only non-PASS `(case, lane, status)` rows today.
-Absence therefore has two incompatible meanings: an existing case was PASS at
-the freeze, or the case did not exist at the freeze. This feature adds a frozen
-case roster so the differential gate reports `NEW` and `REGRESSED` from
-evidence instead of asking a triager to reconstruct git history.
+Before this feature, the Corpus Contract froze only non-PASS
+`(case, lane, status)` rows. Absence therefore had two incompatible meanings:
+an existing case was PASS at the freeze, or the case did not exist at the
+freeze. The companion frozen roster lets the differential gate report `NEW`
+and `REGRESSION` from evidence instead of asking a triager to reconstruct git
+history.
 
 This is test-apparatus behavior only. It does not change ScalaScript language
 semantics or the normative `SPEC.md`.
@@ -29,28 +30,28 @@ semantics or the normative `SPEC.md`.
 
 ## Behavior
 
-- [ ] A current non-PASS row for a case present in the frozen roster, but not
+- [x] A current non-PASS row for a case present in the frozen roster, but not
       in the frozen non-PASS rows, is reported as `REGRESSION`.
-- [ ] A current case absent from the frozen roster is reported as `NEW`,
+- [x] A current case absent from the frozen roster is reported as `NEW`,
       whether its current rows are PASS or non-PASS.
-- [ ] Any unfiltered selection, including a shard, reports roster entries no
+- [x] Any unfiltered selection, including a shard, reports roster entries no
       longer present in the complete pre-shard selected corpus as
       stale/removed. An `--only` run suppresses global removal inference.
-- [ ] Existing improvement detection remains intact: a frozen non-PASS row that
+- [x] Existing improvement detection remains intact: a frozen non-PASS row that
       was actually observed and now passes is red until the baseline is
       deliberately refreshed. A status transition or backend-excluded cell is
       not an improvement. A frozen case-level SKIP improves only when at least
       one eligible lane ran and all observed lane cells passed.
-- [ ] Missing, duplicate, unsorted, digest-mismatched, or
+- [x] Missing, duplicate, unsorted, digest-mismatched, or
       baseline-inconsistent roster metadata fails closed with a diagnostic; it
       is never treated as an empty roster. Baseline lanes must be canonical,
       known lane names (or `*` paired with `SKIP`).
-- [ ] `--update-baseline` combined with `--shard`, `--only`, `--list`, or a
+- [x] `--update-baseline` combined with `--shard`, `--only`, `--list`, or a
       malformed/non-canonical lane list exits 2 before any file is written.
-- [ ] A full baseline update writes the current non-PASS rows and the complete
+- [x] A full baseline update writes the current non-PASS rows and the complete
       selected-case roster, with a roster header digesting both canonical
       serializations written by that update.
-- [ ] CLI options fail closed on missing values, duplicates, unknown lanes,
+- [x] CLI options fail closed on missing values, duplicates, unknown lanes,
       empty filters/lane lists, and non-positive numeric budgets. A normal gate
       exits 2 instead of GREEN when it selects zero cases or observes zero
       lane/skip cells.
@@ -120,9 +121,9 @@ the freeze and is the motivating NEW case. Including it in the initial roster
 would preserve the original misclassification while making the new gate look
 green.
 
-If `corpus-baseline.tsv` moves before E7 lands, discard the reconstructed
-roster and regenerate from the exact new baseline update. The digest is the
-mechanical guard against landing a stale pair.
+`corpus-baseline.tsv` did not move before E7 landed. Future changes must use
+the paired writer so the failure rows, roster names, and both digests advance
+as one observation.
 
 ## Decisions
 
@@ -183,4 +184,40 @@ exit 0
 The unsafe partial-update shape was accepted instead of exiting 2. `--list`
 made the reproduction non-destructive; the baseline remained SHA-256
 `d73cc059362c1aea218f39029387867af5cdba0477403003e1d528e1a91a62ec`.
-Implementation and green verification remain pending.
+
+Implementation landed on `origin/main` as `fc5f07f28`; the corrected operator
+contract and v2 lane identity landed as `2a796b258`.
+
+- The initial `contract-roster.tsv` has **465 sorted, unique names** reconstructed
+  from baseline-producing commit
+  `3449c588cc362d3ad30555344195b299f09d6150`. It excludes the post-freeze
+  `coroutine-demo`, `coroutine-native-lifecycle`, and `int-width` cases.
+- Canonical baseline SHA-256 is
+  `d73cc059362c1aea218f39029387867af5cdba0477403003e1d528e1a91a62ec`;
+  canonical roster-body SHA-256 is
+  `5644dba6de418a725e61a220769b03a33bf9698807ffa3ea3b545e1ceb887fea`.
+  The whole roster file intentionally has the different SHA-256
+  `1eea8e49c8df34afbba40024417e30133408fc58791addefb760f247fae98f28`.
+- `scala-cli tests/conformance/contract.sc -- --self-test` passes **29**
+  parser/classifier checks. Fourteen CLI negative controls (unsafe update
+  shapes, missing/empty/duplicate/unknown values, zero selection/cells, and
+  non-positive budgets) each exit 2 with the intended diagnostic; a refused
+  update leaves both freeze files byte-identical.
+- The real mixed slice
+  `--only arithmetic,int-width --workers 1` reports only the post-freeze
+  `int-width js KNOWN-RED` row as `NEW`, never `REGRESSION`. The production-form
+  `--shard 27/494 --lanes int --workers 1` is GREEN while retaining global
+  removal detection.
+- `tests/conformance/run.sh --only 'arithmetic,int-width' --no-memo` passes
+  **2/2** cases with the two declared v1 JS/JVM known-red cells and both v2
+  cells passing.
+- `bin/ssc info --execution-plan --v2` confirms the documented standard route:
+  native frontend/checker and default `asm` backend. Markdownlint passes for
+  the E7 operator/spec documents and `git diff --check` is clean; the exact
+  repository-wide lint exposed the separate pre-existing SPRINT E8 failures.
+  An independent read-only review found no remaining E7 contract/doc
+  correctness issue.
+
+A full `--update-baseline` was intentionally not run: the neighboring
+`corpus-gate-remaining-reds` claim owns `corpus-baseline.tsv`, and E7's initial
+roster is paired to that exact existing freeze.
