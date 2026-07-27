@@ -7101,9 +7101,26 @@ emits `def C(a) = IrCtor(C, [a])`; extend to `def C(a) = let y=a*2 in IrCtor(C, 
   tkv2-select-reactive.
 
 ### Not compiler bugs (fixture / design / out-of-scope)
-- [ ] **v2-std-ui-missing-fixture** — std-ui-aggregator / std-ui-extended{,-b,-c,-d} import
-  `../examples/std-ui` = `tests/examples/std-ui/index.ssc`, which DOES NOT EXIST. Restore the fixture
-  dir or re-scope these tests (fails on ALL backends without it).
+- [ ] **v2-std-ui-missing-fixture** — ACTIVE
+  (`feature/v2-std-ui-missing-fixture`): close the missing-module failure in
+  std-ui-aggregator / std-ui-extended{,-b,-c,-d} without duplicating a
+  production library into the test tree.
+  - Run the exact five-case conformance slice with memoization disabled and
+    record every declared lane's pre-fix result; compare output before
+    classifying the fixture.
+  - Inspect each import, the canonical root `examples/std-ui/index.ssc`, nearby
+    test import conventions, and relevant history. Decide from that evidence
+    whether `tests/examples/std-ui` is intentionally absent or accidentally
+    deleted.
+  - Apply the smallest path-correct fixture change. Prefer pointing tests at
+    the canonical root module when it is the intended API; restore a test-local
+    fixture only if history proves it has distinct semantics.
+  - Re-run all five cases through the conformance harness and the affected
+    assembled V2 route. Preserve existing expected bytes; triage any newly
+    exposed product failure separately instead of hiding it behind the import
+    error.
+  - Done when every declared lane resolves the intended std-ui module and all
+    five cases compare byte-for-byte with their checked-in expected output.
 - [ ] **v2-js-only-tests** — js-cps-intrinsic-rewrite (`nowMillis`) / js-state-effect-runner /
   js-symbolic-infix-operator (custom multi-char operators `<~>`/`~~` — a real lexer gap but the test
   is `backends: [int, js]`) / if-then-no-else-after-while (`backends: [int]` AND the test file is
