@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-07-27 — F compile-time cost is measured, attributed, and reproducible
+
+The same-jar V-6a profile identifies F's interpreted generic-VM execution as the dominant compile
+cost: F/legacy medians are 5.17/1.49 s for self-compile, 2.04/1.08 s for hello, and 66.20/10.78 s
+for SclJet. The SclJet F attempt spends 59.25 s and allocates about 319 GB before falling back to a
+second 9.57 s legacy compile; startup, file IO, checking, and GC pauses were ruled out as dominant
+causes. Reproduction commands, raw samples, JFR attribution, and V-6b admission criteria are in
+[`specs/v2-f-compile-profile.md`](specs/v2-f-compile-profile.md).
+
 ## 2026-07-27 — ⭐ durable interop conformance reaches 26/26, and the board can be updated again
 
 **All 26 vectors are `specified`; the `pending/` directory is empty.** The last two closed today:
