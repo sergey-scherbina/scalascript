@@ -2,20 +2,23 @@ slug: scljet-ipk-rowid
 branch: feature/scljet-ipk-rowid
 agent: opus
 started: 2026-07-27T15:23:56Z
-heartbeat: 2026-07-27T15:23:56Z
-direction: Database / dogfood correctness
-scope: |
-  SPRINT "берись за все" Batch C. Sergiy assigned C to this agent; F5b (Batch B) went to the
-  v2-f5b-typed-locals sibling — do NOT touch the F front, the kernel, or v2/ from this claim.
-  C1: scljet-update-ipk-column-silently-ignored + scljet-update-ipk-does-not-move-rowid — one
-      defect, two entries. An INTEGER PRIMARY KEY column IS the rowid, so UPDATE t SET <ipk>=N
-      must RE-KEY the row (delete + reinsert at the new rowid, duplicate => error like
-      leafInsertCell), and index entries store the rowid as their tail so they must move too.
-      Today executeUpdate rewrites the record field at the existing rowid and reports Right.
-  C2: scljet-insert-null-literal-rejected — INSERT ... VALUES (..., NULL, ...) fails in any
-      position with "expected a literal in WHERE" while UPDATE ... SET x = NULL parses fine.
-      INSERT's value-list literal reader is the suspect (and its error text misnames the clause).
-  Ground truth is real sqlite3, not our own output: both bugs are recorded with measured
-  reference behaviour. Write the failing repro FIRST, in the real harness, before fixing.
-next: locate the engine write path (executeUpdate / parseValueList) and reproduce C1 + C2 against
-  real sqlite3 before touching code.
+heartbeat: 2026-07-27T16:30:40Z
+status: landed-awaiting-exact-sha-ci
+done-so-far: |
+  COLLISION NOTE: the v2-f5b-typed-locals sibling took Batch C despite this claim being on
+  origin/main, and landed 4a20a50b7 + b183be7e8. Their version is broader than the one this lane
+  had ready (ipk-normalize before the WHERE, all-deletes-before-any-insert for swaps, pre-flight
+  ipkMoveConflict, parseExprAtom NULL), so this lane DROPPED its duplicate rather than reverting
+  theirs — and instead cross-checked their result against real sqlite3.
+  That cross-check found a LIVE CORRUPTION BUG on main: their fix covered only the unindexed
+  path; with an index, reindexTable rebuilt the table in list order, so a moved row kept its
+  position -> "Rowid 5 out of order" per reference PRAGMA integrity_check, and a rowid collision
+  was accepted silently. Fixed additively on top of theirs: 3c8691861 (b65bbb637 fix +
+  617d2af8c BUGS + changelog). Indexed branch now shares ipkMoveConflict and sorts by rowid.
+  Gates added and PROVEN fail-loud against origin/main's exact code (2 failed / 7 passed there,
+  9/9 with the fix): ScljetIpkRowidDifferentialTest indexed move + indexed collision (real
+  sqlite3 integrity_check through a file), and the int+JS conformance case.
+  Verified: scljetJdbcPlugin/test 67/67, conformance --only 'scljet-*' 105/105.
+next: exact-SHA CI on 3c8691861 per AGENTS.md 4c. Batch C's remaining item C2
+  (scljet-insert-null-literal-rejected) was landed by the sibling and independently re-verified
+  here against reference sqlite3 (9|<null>|9 + auto-rowid) — nothing left on C.
