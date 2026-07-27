@@ -210,7 +210,23 @@ each is independently landable and each must keep `v2/conformance/portable-capsu
       matrix is what makes that difference observable, so decide it before E4.** Original scope: Non-scalar frame slots through the §9.1/§9.3 codecs;
       align the VM frame with the host `DurableCodec` byte format so the frame is cross-lane
       identical, not merely cross-process. This is what makes E4's N→M meaningful.
-- [ ] **E3 — slice 4, effectful region.** A region whose body performs effects handled INSIDE the
+- [x] **E3 — DONE, and the queued premise was wrong.** This slice was queued as "needs a local CPS
+      of the region"; **measured, it needed none.** An Fx-CLOSED region (perform AND handler inside)
+      already reified and ran machine-less — `50` in a fresh process, with the frame slot read from
+      *inside* the handler lambda. The effect prims are ordinary `Prim`s (`Runtime.scala:1231` →
+      `PortableEffects.eval`) and a plain `Lam(1,…)` handler is always `Matched`, so the existing
+      pass covers it. **Writing the CPS pass first would have been weeks of work for a problem that
+      did not exist** — the measurement cost ten minutes.
+      What the measurement DID find is the opposite defect: the **Fx-OPEN** case was fail-open — a
+      region performing with no handler froze happily and the resume returned
+      `Op("E.get", 8, <closure>)`, i.e. a LIVE continuation handed to a runner with no machine and
+      no handlers. Refused now in two places: `assertFxClosed` at reify time (a `handle` protects
+      its computation only, not its own handler body; a call to a performing def counts at the call
+      site) and `Capsule.run` at run time for foreign capsules — the latter pinned by a committed
+      fixture `v2/conformance/fixtures/fx-open.portable` frozen by the pre-guard build, because the
+      current tool can no longer produce one. Gate `portable-capsule.sh` **25/25 PASS**.
+      Out of scope (unchanged): an effect whose handler is OUTSIDE the region = whole-program CPS.
+      Original scope: A region whose body performs effects handled INSIDE the
       region (`Fx` closed, §11.3). Needs a local CPS of the region only — NOT whole-program CPS
       (explicit non-goal in the spec §7). The VM's runtime continuation is a live `ClosV`, which
       §10.2 forbids serializing; that is why the pass is syntactic.

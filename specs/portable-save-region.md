@@ -134,8 +134,28 @@ owner-level format decision — `BACKLOG.md portable-capsule-integrity` — and 
    `DurableCodec` **byte format** for cross-lane identity, which is blocked on the format decision
    in `BACKLOG.md portable-capsule-integrity` (the two lanes currently promise different things
    about a capsule). Settle that before slice 5.
-4. **Effectful continuation** — a region whose `body` itself performs effects handled *inside*
-   the region (`Fx` closed, §11.3); needs a local CPS of the region only, not the whole program.
+4. **Effectful continuation** — ✅ **LANDED 2026-07-27, and the premise below was WRONG.** This
+   slice was planned as "needs a local CPS of the region"; **measured, it needed none.** An
+   Fx-CLOSED region — the `effect.perform` *and* its `effect.handle` both inside — already reifies
+   and runs machine-less as-is, because the pass treats the effect prims as ordinary `Prim`s and
+   the runtime folds them (`Runtime.scala:1231` → `PortableEffects.eval`; a plain `Lam(1, …)`
+   handler is always `HandlerDispatch.Matched`). Verified end-to-end on
+   `(input) => effect.handle(effect.perform("E.get", input), (event) => a * 10)` with the frame
+   slot read from **inside the handler lambda** (so the depth-aware rewrite is exercised): `50` in
+   a fresh process for every input.
+
+   What the measurement DID find is the opposite failure — the **Fx-OPEN** case was fail-open: a
+   region performing with no handler froze happily and the resume returned
+   `Op("E.get", 8, <closure>)`, handing a **live continuation** to a runner that holds no machine
+   and no handlers. §11.3 requires Fx-closedness, so it is now refused in two places:
+   `SaveRegion.assertFxClosed` at **reify time** (before any bytes exist; a `handle` protects its
+   *computation* only, not its own handler body, and a call to a performing def counts as a perform
+   at the call site), and `Capsule.run` at **run time** for capsules from any other producer —
+   pinned by a committed fixture `v2/conformance/fixtures/fx-open.portable`, frozen by the
+   pre-guard build, since the current tool can no longer produce one.
+
+   Still out of scope (unchanged, §7): an effect whose handler is OUTSIDE the region — that is
+   whole-program CPS.
 5. **Second admitting backend** — a non-JVM runtime that admits+runs the Portable capsule, for
    the §14.4 cross-backend N→M matrix. Only after this does vector 15 flip.
 
