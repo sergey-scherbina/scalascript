@@ -1,0 +1,11 @@
+slug: board-tick-claim-consistency
+branch: feature/board-tick-claim-consistency
+agent: claude-code
+started: 2026-07-27T21:28:50Z
+heartbeat: 2026-07-27T21:28:50Z
+status: claimed-before-planning
+items: claim-metadata-consistency-tick
+paths: SPRINT.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
