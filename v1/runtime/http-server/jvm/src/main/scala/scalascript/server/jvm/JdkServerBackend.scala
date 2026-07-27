@@ -106,7 +106,14 @@ class JdkServerBackend extends HttpServerSpi:
       while _running && !pubSocket.isClosed do
         try
           val client = pubSocket.accept()
-          pool.execute(() => proxyConnection(client, internalPort, handler))
+          try pool.execute(() => proxyConnection(client, internalPort, handler))
+          catch
+            // Teardown race: stop() flips _running and shutdownNow()s the pool before this
+            // submit lands, so the rejection would escape uncaught on the accept thread
+            // (the outer catch only swallows while running). Drop the socket instead —
+            // proxyConnection never ran, so nothing else is holding it. Mirrors WsProxy.
+            case _: java.util.concurrent.RejectedExecutionException if !_running =>
+              try client.close() catch case _: Throwable => ()
         catch
           case _: java.net.SocketException if !_running => () // shutting down
           case _: Throwable if _running                 => ()
