@@ -90,6 +90,17 @@ def scanEnd = (pred, s, i) =>
   else if pred(sget(s, i)) then scanEnd(pred, s, #i.add(i, 1))
   else i
 
+-- Scan a Scala backtick-delimited identifier. Stop at a line boundary as well
+-- as EOF so an unclosed delimiter remains a visible operator token instead of
+-- swallowing the rest of the source.
+def scanBacktickEnd = (s, i) =>
+  if #i.ge(i, slen(s)) then i
+  else let c = sget(s, i) in
+    if #i.eq(c, 96) then i
+    else if #i.eq(c, 10) then i
+    else if #i.eq(c, 13) then i
+    else scanBacktickEnd(s, #i.add(i, 1))
+
 -- Decimal separators are part of a numeric token only between digits. Starting
 -- at a digit, consume digits plus `_` followed by a digit; invalid/trailing
 -- underscores stay outside the token and are rejected by ordinary parsing.
@@ -300,6 +311,13 @@ def lexFrom = (s, i) =>
     else if #i.eq(c, 95) then
       let e = scanEnd(isAlphaNum, s, #i.add(i2, 1)) in
       Cons(mkTok("id", #sslice(s, i2, e)), lexFrom(s, e))
+    else if #i.eq(c, 96) then
+      let e = scanBacktickEnd(s, #i.add(i2, 1)) in
+      if #i.lt(e, slen(s)) then
+        if #i.eq(sget(s, e), 96) then
+          Cons(mkTok("id", #sslice(s, #i.add(i2, 1), e)), lexFrom(s, #i.add(e, 1)))
+        else Cons(mkTok("op", "`"), lexFrom(s, #i.add(i2, 1)))
+      else Cons(mkTok("op", "`"), lexFrom(s, #i.add(i2, 1)))
     else if isHexStart(s, i2) then
       -- hex literal 0xFF: scan hex digits after `0x`, emit the decimal value token
       (match scanHexVal(s, #i.add(i2, 2), 0) {

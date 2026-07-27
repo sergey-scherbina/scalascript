@@ -1,0 +1,9 @@
+---
+name: std-ui-native-backticked-id-lib
+---
+
+```scalascript
+object KeywordInput:
+  def render(label: String, `type`: String = "text"): String =
+    html"""<label>${label}<input type="${`type`}"></label>"""
+```

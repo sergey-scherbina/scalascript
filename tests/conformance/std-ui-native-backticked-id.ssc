@@ -1,0 +1,12 @@
+---
+name: std-ui-native-backticked-id
+---
+
+# Imported component with a quoted keyword parameter
+
+[KeywordInput](./std-ui-native-backticked-id-lib.ssc)
+
+```scalascript
+println(KeywordInput.render("Email", "email"))
+println(KeywordInput.render("Name"))
+```

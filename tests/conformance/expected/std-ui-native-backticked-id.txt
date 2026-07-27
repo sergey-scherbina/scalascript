@@ -1,0 +1,2 @@
+<label>Email<input type="email"></label>
+<label>Name<input type="text"></label>
