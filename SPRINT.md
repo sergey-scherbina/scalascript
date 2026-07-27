@@ -134,7 +134,16 @@ it is a multi-session arc, not a slice. Staging is already fixed by `specs/porta
 `reifyAuto` free-outer-variable liveness + depth-aware de-Bruijn rewrite). Remaining, in order —
 each is independently landable and each must keep `v2/conformance/portable-capsule.sh` PASS:
 
-- [ ] **E1 — slice 2, global closure.** Today `reifyAuto` returns `Program(Nil, entry)`, so a region
+- [x] **E1 — DONE (slice 2, global closure).** `SaveRegion.globalsOf` + `closeGlobals` compute the
+      transitive closure over the source `defs`, returned in the **source program's own relative
+      order** (that order is what made the program valid; re-sorting could break a mutual
+      reference), with a name marked reached BEFORE its body is scanned so recursion terminates.
+      A root naming no def is a LOUD error. New `reifyAuto(region, defs)` / `reify(slots, lam, defs)`
+      overloads (the 1-arg forms keep slice-1 behaviour) + `ssc freeze-region-global`.
+      **Gate `v2/conformance/portable-capsule.sh` PASS, 14/14** — including the three new lines that
+      make it mean something: `quad`+`dbl` travel transitively, `unused` does NOT (selects, not
+      dumps), fresh-process runs give 17/9, and deleting a carried def from the bytes is **rejected
+      at admission** rather than run with a missing global. Original scope: Today `reifyAuto` returns `Program(Nil, entry)`, so a region
       body that calls a user `def` produces an unbound `Global` and `Reader.validate` fail-closes.
       Collect the `Term.Global` names reachable from the rewritten body, take their **transitive**
       closure over the source program's `defs`, and emit them as `resume.defs` in dependency order.
