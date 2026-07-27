@@ -1,5 +1,51 @@
 # Bug tracker
 
+## scljet-ipk-move-indexed-corrupts-btree — an IPK move on an INDEXED table wrote an out-of-order b-tree
+
+**Status:** FIXED (2026-07-27, `scljet-ipk-rowid`, commit `9cb9865e1`). Found the same day by
+`scljet-ipk-rowid` while cross-checking the freshly landed IPK-move fix (`4a20a50b7`) against the
+reference engine — i.e. it was live on `origin/main` for a few hours, not a long-standing defect.
+
+**Symptom** (measured on `origin/main` `c85e484d7`; table with any index, `UPDATE emp SET id = 5
+WHERE id = 1`):
+
+```
+scljet reads:  table rowids are not strictly increasing     <- our own reader refuses the table
+sqlite3:       *** in database main ***
+               Tree 2 page 2 cell 0: Rowid 5 out of order   <- reference: the FILE is corrupt
+```
+
+A rowid collision on the same path was additionally accepted in silence.
+
+**Root cause.** `executeUpdate` has two branches. Unindexed deletes and reinserts through the
+b-tree, so `leafInsertCell` places each cell by key and rejects duplicates. Indexed calls
+`reindexTable`, which rebuilds table + indexes by writing the row list **in list order** and never
+reaches `leafInsertCell`. The move fix gave the row a new KEY without changing its POSITION, and
+`ipkMoveConflict` was wired only into the unindexed branch — so that path lost both guarantees.
+
+**Fix.** The indexed branch now runs the same collision policy (`buildUpdateEdits` +
+`ipkMoveConflict`, called to check only, so both paths refuse with identical wording) and then
+`sortRowsByRowid` before the rebuild.
+
+**Why it escaped a genuinely thorough verification** — worth keeping, this is the reusable part:
+
+1. *The conformance case is a self-consistent oracle by design*, and its own header says so. But
+   the failure here is not a wrong VALUE, it is a malformed b-tree — the file stays partly
+   readable, so a self-consistent check can pass while the artifact is corrupt.
+2. *The cross-engine differential existed and was thorough — but every case used an UNINDEXED
+   table.* The bug lives on the other branch. Coverage of the right KIND (through a file, judged
+   by the reference) is not coverage of the right PATH.
+3. *The first gate written for it was itself fake.* It moved rowid 1 → 5 with rows at 1 and 7:
+   `[5, 7]` is still ascending, so it passed with the ordering fix reverted. **An ordering bug is
+   only observable when the fixture forces a reorder** — the test now moves 1 → 9, past the
+   surviving row at 7. Both new gates were then confirmed to FAIL against `origin/main`'s exact
+   code (2 failed / 7 passed) and pass with the fix.
+
+**Gates:** `ScljetIpkRowidDifferentialTest` (indexed move + indexed collision, `PRAGMA
+integrity_check` through a real file — it validates cell ordering AND cross-checks the index
+against the table) and `tests/conformance/scljet-update-ipk-moves-rowid.ssc` (same two cases, int
++ JS).
+
 ## coroutine-demo-import-cycle-on-interpreter — `examples/coroutine-demo.ssc` cannot run on the INT lane
 
 **Status:** OPEN (found 2026-07-27 by `corpus-contract-shard-fix`, in the corpus contract's first
