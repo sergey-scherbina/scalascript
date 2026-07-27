@@ -59,7 +59,26 @@ to separate F-regressions from pre-existing failures — it ended at 72/72, zero
 `sbt test` suite run under F-default rather than one-failure-per-CI-run whack-a-mole. Do NOT edit
 `specs/v2.2-p6.5-fsub.ssc` outside the owning F arc.
 
-## portable-capsule-integrity — the VM capsule has no seal over its DATA half (2026-07-27)
+## portable-capsule-integrity — DECIDED (c): adopt the host's format-v3 seal (2026-07-27)
+
+**✅ Sergiy chose (c)** — adopt the host lane's format-v3 model (HMAC signature + audience / tenant /
+quota) for the VM Portable capsule, so both lanes make the **same** promise about what a capsule
+guarantees. Rejected: (a) document-the-hole, (b) extend the digest over the frame — (b) pays a format
+bump for tamper-*evidence* without authenticity, and fleet-wide forbidding still needs revocation.
+
+**This unblocks vector-15 E4** (second admitting backend), which was held precisely because the N→M
+matrix would otherwise freeze goldens on a contract the two lanes disagree about. Sequence: land the
+seal, THEN build the second admitter against the sealed format — not the reverse, or the second
+backend gets written twice.
+
+Implementation notes for whoever picks it up: the host side is
+`v2/host/scala/control/.../DurableCapsule.scala` (format v3); the VM side is `v2/src/Capsule.scala`,
+whose envelope is v1 with a code-only `resume-digest`. The frame guard from E2
+(`Capsule.validateFrame`) and the Fx-closed run guard from E3 stay — the seal is orthogonal to both
+and does not replace either. A committed fixture (`v2/conformance/fixtures/fx-open.portable`) already
+depends on the current envelope, so the version bump needs it re-frozen or version-pinned.
+
+**Original analysis (kept — it is why (c) was chosen):**
 
 **Owner decision required — a format change, not a fix.** Found while closing
 `BUGS.md portable-capsule-frame-unvalidated` (vector-15 arc slice 3). That bug's B and C (frame
