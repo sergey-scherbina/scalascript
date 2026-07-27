@@ -77,6 +77,10 @@ definitions, or weaken the example's delimiter contract.
 **Result.** The exact full-repository command now exits 0 with no diagnostics
 (A/B: 10 before, 0 after), while MD052 and MD010 remain enabled. The mandatory
 `arithmetic` conformance slice is 1/1 with INT, JS, and JVM all passing.
+**CI evidence level 3:** exact-SHA run `30307690766` for bookkeeping commit
+`90745ec27` was still `pending` with zero jobs at release (no CI verdict); the
+named local gates are the full-repository markdownlint command (exit 0),
+`git diff --check` (exit 0), and `arithmetic` conformance (1/1).
 
 ## corpus-contract-doc-mislabels-v2-lane — operator spec sends triage to the wrong architecture
 

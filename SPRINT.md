@@ -862,6 +862,10 @@ mode in its purest form: the apparatus that establishes trust was itself unteste
       **Landed:** `ffb7b4695`. Exact full-repository A/B is 10 diagnostics before
       versus 0 after; MD052/MD010 remain enabled. Mandatory `arithmetic`
       conformance is 1/1 with INT, JS, and JVM all passing.
+      **CI evidence level 3:** exact-SHA run `30307690766` for `90745ec27`
+      remained `pending` with zero jobs at release (no CI verdict); release uses
+      full-repository markdownlint, `git diff --check`, and the 1/1 conformance
+      slice as its named local gates.
 
 - [x] **E5 — DONE: make a timeout impossible to misread as benign.** After E2 the gate fits its budget,
       but the *detection* hole stays: any future budget breach reappears as `cancelled`. Cheapest
