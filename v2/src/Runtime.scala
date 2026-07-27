@@ -1524,7 +1524,21 @@ object Prims:
     case "__isTag__" => a => a(0) match
       // arity < 0 = "any arity" — used by type-ascription patterns (`case _: T =>`)
       // where the test is on the tag alone, independent of field count.
-      case DataV(t, fs) => val ar = int(a, 2).toInt; BoolV(t == str(a, 1) && (ar < 0 || fs.length == ar))
+      //
+      // The tag test is nominal and FLAT — there is no subtype graph here — which broke `catch`
+      // outright (BUGS `v2-native-front-try-catch`): a host error is delivered to the handler as
+      // `DataV("RuntimeException", [msg])` (see `tryRun`), while `catch { case e: Throwable => … }`
+      // lowers to `__isTag__(v, "Throwable", -1)`, so the tags never matched and the handler fell
+      // through to `__handler_dispatch_miss__` = "match: no matching case". Mirror the v1 reference
+      // rule verbatim (`PatternRuntime.isExceptionSupertype` + its use at :1321): a pattern naming
+      // one of the four JVM exception SUPERtypes matches any instance, because a catch scrutinee is
+      // a synthesized exception whose tag is the thrown throwable's simple name and users catch it
+      // by supertype without knowing the concrete class. Deliberately permissive — it is permissive
+      // in the reference, and the reference is what the frozen goldens encode.
+      case DataV(t, fs) =>
+        val ar = int(a, 2).toInt
+        val expected = str(a, 1)
+        BoolV((t == expected || isExceptionSupertype(expected)) && (ar < 0 || fs.length == ar))
       // Primitive values are not DataV constructors, but source-level typed
       // patterns still use the same portable nominal test (`case s: String`).
       // They are necessarily arity-zero; aliases retain the ScalaScript surface
@@ -3195,6 +3209,13 @@ object Prims:
     case _ => false
   private def callClos(fn: Value.ClosV, args: Array[Value]): Value =
     Runtime.run(fn.code, if args.isEmpty then fn.env else Runtime.extend(fn.env, args))
+  /** The JVM exception supertypes a pattern may name — verbatim from the v1 reference
+    * (`PatternRuntime.isExceptionSupertype`). A `catch` scrutinee is a synthesized exception whose
+    * tag is the throwable's simple name, so users catch it by supertype. */
+  private def isExceptionSupertype(typeName: String): Boolean =
+    typeName == "Throwable" || typeName == "Exception" ||
+      typeName == "RuntimeException" || typeName == "Error"
+
   /** Run a `try` body thunk; on a ScalaScript `throw` or a host RuntimeException, invoke the catch
     * handler with the caught value. Non-RuntimeException host errors propagate to the boundary. */
   private def tryRun(body: Value.ClosV, handler: Value.ClosV): Value =
