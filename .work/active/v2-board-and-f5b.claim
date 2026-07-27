@@ -2,10 +2,13 @@ slug: v2-board-and-f5b
 branch: feature/v2-board-and-f5b
 agent: opus
 started: 2026-07-27T19:53:39Z
-heartbeat: 2026-07-27T19:53:39Z
+heartbeat: 2026-07-27T21:14:39Z
 status: claimed-before-planning
 items: v2-board-reconcile f5b-next p65-breadth f4-step5 f5-kernel-shrink
 paths: specs/v2.2-p6.5-fsub.ssc specs/v2-f5b-typed-ir-design.md specs/v2-f5-kernel-shrink.md tests/conformance/v2-
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: V-1a' (Sergiy: 'Бери V-1a'') — local type inference for bare locals. V-1a is CLOSED
+  (measured: all 20 remaining .length sites sit on bare locals, not on classifier-shaped receivers;
+  the speculative isStrPrimCode change was reverted). Now: attribute those locals to their BINDER
+  kind before implementing anything.
