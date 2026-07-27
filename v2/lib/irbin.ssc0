@@ -50,7 +50,10 @@ def enc = (arr, ir) =>
     case IrUnit              => tag(arr, 15)
     case IrBool(b)           => let a1 = tag(arr, 16) in let u = #arr.push(a1, if b then 1 else 0) in a1
     case IrInt(n)            => let a1 = tag(arr, 17) in encSVar(a1, n)
-    case IrBig(n)            => let a1 = tag(arr, 18) in encSVar(a1, #big->i(n))
+    -- BigInt travels as its DECIMAL STRING, not as a 64-bit varint. `big->i` "may overflow"
+    -- (10-core-ir.md §5), so the old encSVar silently CORRUPTED any BigInt outside Int64 instead of
+    -- rejecting it — the canonical text codec has always been arbitrary-precision here.
+    case IrBig(n)            => let a1 = tag(arr, 18) in encStr(a1, #big->str(n))
     case IrFloat(d)          => let a1 = tag(arr, 19) in encStr(a1, #f->str(d))
     case IrStr(s)            => let a1 = tag(arr, 20) in encStr(a1, s)
   }
@@ -84,9 +87,14 @@ def dec = (arr, pos) =>
   else if #i.eq(t, 15) then Pair(IrUnit, p)
   else if #i.eq(t, 16) then (let b = #arr.get(arr, p) in Pair(IrBool(if #i.eq(b, 1) then true else false), #i.add(p, 1)))
   else if #i.eq(t, 17) then (match decSVar(arr, p) { case Pair(n, p2) => Pair(IrInt(n), p2) })
-  else if #i.eq(t, 18) then (match decSVar(arr, p) { case Pair(n, p2) => Pair(IrBig(#i->big(n)), p2) })
-  else if #i.eq(t, 19) then (match decStr(arr, p) { case Pair(s, p2) => match #str->f(s) { case Some(d) => Pair(IrFloat(d), p2) case None => Pair(IrFloat(0.0), p2) } })
-  else (match decStr(arr, p) { case Pair(s, p2) => Pair(IrStr(s), p2) })
+  else if #i.eq(t, 18) then (match decStr(arr, p) { case Pair(s, p2) => match #str->big(s) { case Some(n) => Pair(IrBig(n), p2) case None => Pair(IrGlobal("_err_irbin_bad_bigint"), p2) } })
+  else if #i.eq(t, 19) then (match decStr(arr, p) { case Pair(s, p2) => match #str->f(s) { case Some(d) => Pair(IrFloat(d), p2) case None => Pair(IrGlobal("_err_irbin_bad_float"), p2) } })
+  else if #i.eq(t, 20) then (match decStr(arr, p) { case Pair(s, p2) => Pair(IrStr(s), p2) })
+  -- FAIL CLOSED. The old bare `else` turned ANY unrecognised tag into IrStr, so corrupt or
+  -- future-versioned input decoded to a plausible-looking WRONG program instead of an error; an
+  -- unparseable float likewise became 0.0. Both now decode to a named unbound global, the tower's
+  -- established loud-failure idiom (ssc1-lower's `_err_int_range`).
+  else Pair(IrGlobal("_err_irbin_unknown_tag"), p)
 
 def binEncode = (ir) => enc(#arr.new(), ir)
 def binDecode = (arr) => match dec(arr, 0) { case Pair(ir, p) => ir }

@@ -1,0 +1,41 @@
+import "../lib/irbin.ssc0"
+-- The three fail-OPEN defects of the deferred v2-bin codec, pinned so a future edit cannot quietly
+-- restore them (BUGS.md irbin-v2bin-codec-fails-open).
+--
+-- Each line prints an outcome rather than crashing, so a regression shows WHICH property broke.
+
+-- (1) A BigInt far outside Int64. The old encoder pushed it through `big->i`, which "may overflow"
+-- (10-core-ir.md §5), so the value came back CORRUPTED with no error. Measured before the fix:
+-- this line printed "bigint-CORRUPTED".
+def huge = match #str->big("18446744073709551617") { case Some(x) => x case None => #i->big(0) }
+def bigIr = IrProg(Nil, IrLit(IrBig(huge)))
+def bigCheck =
+  let back = binDecode(binEncode(bigIr)) in
+  if #seq(#coreir.encode(back), #coreir.encode(bigIr)) then "bigint-preserved" else "bigint-CORRUPTED"
+
+-- (2) An unknown tag byte must FAIL CLOSED. The old decoder had a bare `else` that turned ANY
+-- unrecognised tag into IrStr, so corrupt or future-versioned input decoded to a plausible-looking
+-- WRONG program. 99 is not a tag this codec emits.
+def unknownTag = let a = #arr.new() in let u = #arr.push(a, 99) in a
+-- Matched structurally rather than through `coreir.encode`: that prim demands an IrProg, and the
+-- refusal value is deliberately a bare node, so encoding it would fail for the wrong reason.
+def unknownCheck =
+  match binDecode(unknownTag) {
+    case IrGlobal(n) => if #seq(n, "_err_irbin_unknown_tag") then "unknown-tag-refused" else "unknown-tag-WRONG-ERROR"
+    case _ => "unknown-tag-ACCEPTED"
+  }
+
+-- (3) A float body that does not parse must fail closed too — it used to become 0.0, a silent
+-- wrong number. Tag 19 = IrFloat, followed by a string that is not a float literal.
+def badFloat =
+  let a = #arr.new() in
+  let u1 = #arr.push(a, 19) in
+  let u2 = #arr.push(a, 3) in
+  let u3 = #arr.push(a, 120) in let u4 = #arr.push(a, 121) in let u5 = #arr.push(a, 122) in a
+def floatCheck =
+  match binDecode(badFloat) {
+    case IrGlobal(n) => if #seq(n, "_err_irbin_bad_float") then "bad-float-refused" else "bad-float-WRONG-ERROR"
+    case _ => "bad-float-ACCEPTED"
+  }
+
+def main = () => #io.println(Pair(bigCheck, Pair(unknownCheck, floatCheck)))

@@ -287,7 +287,11 @@ chk run examples/mapx-demo.ssc0     '"pair|triple|int|nested|?  size=4  upd=PAIR
 chk run examples/set-demo.ssc0      "234211"                          # lib/set: structural Set (union/inter/diff/member/subset; tuple dedup) — tup2 s1=3 ∪4 ∩2 \1 mem1
 chk run examples/sieve.ssc0         "List(2, 3, 5, 7, 11, 13, 17, 19, 23, 29)"  # mutable #arr.*
 chk run examples/sha256-demo.ssc0   "4"                                # SHA-256 (lib/sha256.ssc0) vs 4 standard vectors incl. multi-block; VM-only (64-bit bitwise+byte+#arr)
-chk run examples/irbin-demo.ssc0    'Pair("roundtrip-ok", Pair(108, 334))'   # v2-bin (lib/irbin.ssc0): IR-tree -> compact binary -> IR-tree, all node types; 108 bytes vs 334 S-expr chars
+chk run examples/irbin-demo.ssc0    'Pair("roundtrip-ok", Pair(110, 334))'   # v2-bin (lib/irbin.ssc0): IR-tree -> compact binary -> IR-tree, all node types; 110 bytes vs 334 S-expr chars
+# 108 -> 110 on 2026-07-27, deliberately: IrBig now travels as its DECIMAL STRING instead of a 64-bit
+# varint, because `big->i` silently CORRUPTED any BigInt outside Int64. Two bytes for a value that
+# used to come back wrong (BUGS irbin-v2bin-codec-fails-open).
+chk run examples/irbin-failclosed.ssc0 'Pair(bigint-preserved, Pair(unknown-tag-refused, bad-float-refused))'  # the three fail-OPEN defects, pinned
 # v2-bin executable round-trip: a runnable IR through binary -> back to S-expr -> actually runs to 42
 ssc run examples/irbin-run.ssc0 > "${TMPDIR:-/tmp}/irbin.coreir" 2>/dev/null
 got=$(ssc run-ir "${TMPDIR:-/tmp}/irbin.coreir" | tail -1)
