@@ -9,21 +9,6 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-## 2026-07-28 — coordination status must recognize its ledger
-
-**Active claim:** `coord-status-ledger-false-positive`.
-
-- [ ] **coord-status-ledger-invalid-marker — keep the required ledger out of invalid-marker
-      diagnostics without weakening marker validation.** At baseline `d900d00cf9`, reproduce the
-      report that `scripts/coord-status --no-fetch` classifies
-      `.work/active/LEDGER.tsv` as an invalid active marker and suggests renaming it to
-      `LEDGER.tsv.claim`, even though `scripts/coord-claim` requires that ledger. Add a
-      compare-first regression under `tests/coord/` that asserts the exact ledger diagnostic is
-      absent while a genuinely invalid non-`.claim` marker is still reported with a useful
-      expected/actual diff. Then make the smallest `scripts/coord-status` classification change,
-      run the focused coordination gates plus an affected conformance slice, land code and
-      bookkeeping separately, and record the strongest CI evidence available.
-
 ## 2026-07-27 — native release qualification
 
 **Active claim:** `native-release-qualification`. The native release workflow has

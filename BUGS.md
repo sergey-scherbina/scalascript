@@ -2,8 +2,8 @@
 
 ## coord-status-ledger-invalid-marker — the required claim ledger is reported as an invalid marker
 
-**Status:** OPEN (reported 2026-07-28 by the production-readiness coordination audit; baseline
-`d900d00cf9`).
+**Status:** **FIXED 2026-07-28** in `cfcdae1ab` (reported by the production-readiness coordination
+audit; baseline `d900d00cf9`, awaiting reporter confirmation).
 
 **Reported real-script reproduction.**
 
@@ -16,11 +16,12 @@ The status checker reports `.work/active/LEDGER.tsv` as an invalid active marker
 mutex contract: `scripts/coord-claim` deliberately maintains `LEDGER.tsv` as the shared generation
 ledger, not as an agent claim.
 
-**Fix acceptance.** Reproduce against the real script, then add a compare-first coordination
-regression which proves both sides of the classification: the exact required ledger is silent, and
-an arbitrary non-`.claim` file under `.work/active/` remains a loud invalid marker. Preserve the
-existing diagnostic for real mistakes; do not broadly exempt `.tsv` files or all special-looking
-names.
+**Root cause and verification.** The invalid-marker predicate knew about `_placeholder` and
+`.claim` files, but was not updated when the claim mutex introduced its required `LEDGER.tsv`.
+The fix exempts that exact full path, not the `.tsv` suffix. The end-to-end regression executes the
+real script in a throwaway repository: it failed first with both `LEDGER.tsv` and `rogue.tsv`, then
+passed with only `rogue.tsv` plus its exact repair command. All four `tests/coord/*.sh` gates pass;
+the live `scripts/coord-status --no-fetch` invalid-marker section now prints `none`.
 
 ## f-validateNoReader-rejects-plugin-externs — the F-vs-legacy guard counts a legitimate `extern def` as a coverage gap
 

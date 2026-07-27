@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-07-28 — coordination status recognizes the claim mutex ledger
+
+`scripts/coord-status` no longer reports the required `.work/active/LEDGER.tsv` as an invalid
+claim or advises renaming it to `LEDGER.tsv.claim`. The exemption is exact: a sibling `rogue.tsv`
+fixture remains invalid and retains the repair diagnostic.
+
+The real-script regression failed first on both leaked ledger lines, then passed after the
+one-predicate fix; all coordination gates remain green. Implementation: `cfcdae1ab`.
+
 ## 2026-07-28 — v2 self-hosted JSON has an explicit conformance boundary
 
 `json-self-hosted-import` now exercises the public `std/json.ssc` route on its
