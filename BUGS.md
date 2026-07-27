@@ -1,5 +1,41 @@
 # Bug tracker
 
+## scljet-ipk-update-numeric-affinity — `SET <ipk> = '5'` / `= 7.0` is refused where SQLite coerces
+
+**Status:** OPEN — known gap, deliberately fail-CLOSED (opened 2026-07-27 by `scljet-ipk-rowid`
+while cross-checking the IPK-move fix). **Not a regression:** before that fix the whole statement
+was silently ignored, so this is a completeness gap in a newly-loud path, not a new defect.
+
+**Symptom** (reference sqlite3 3.51.0 vs scljet, same statements on `emp(id INTEGER PRIMARY KEY, …)`):
+
+```
+UPDATE emp SET id = 5     → both move the row                                    ✓
+UPDATE emp SET id = 7.5   → both: datatype mismatch                              ✓
+UPDATE emp SET id = NULL  → both: datatype mismatch                              ✓
+UPDATE emp SET id = 'x'   → both: datatype mismatch                              ✓
+UPDATE emp SET id = '5'   → sqlite: row moves to 5   scljet: datatype mismatch   ✗
+UPDATE emp SET id = 7.0   → sqlite: row moves to 7   scljet: datatype mismatch   ✗
+```
+
+Measured directly: `sqlite3 c.db "UPDATE emp SET id='5' WHERE id=1; SELECT rowid,id,name FROM emp"`
+→ `5|5|ann`, and the same with `7.0` → `7|7|ann`.
+
+**Root cause.** `targetRowidOf` (`scljet/sql.ssc`) accepts only `SqlInteger`. SQLite applies its
+usual numeric affinity to an IPK assignment first: TEXT whose content is an exact integer, and a
+REAL with no fractional part, both convert; everything else is `datatype mismatch`.
+
+**Why it was left.** A faithful fix needs SQLite's exact text→integer affinity rules (leading and
+trailing space, sign, overflow, prefix forms like `'5abc'`), and `sql.ssc` has no such helper — the
+nearest one, `parseLongStr`, lives in `jdbc.ssc`, the wrong direction for the engine to depend on.
+The integral-REAL half is a two-line fix and could land on its own. A loud rejection is strictly
+better than the silent no-op that preceded it, so this is a completeness gap, not a correctness
+risk.
+
+**Fix sketch.** Add a numeric-affinity helper beside `targetRowidOf`, share it with whatever else
+needs affinity, and extend `tests/conformance/scljet-update-ipk-moves-rowid.ssc` — its `'x'` line
+already pins the rejection, so add `'5'` and `7.0` cases in the same commit that makes them move.
+
+
 ## scljet-ipk-move-indexed-corrupts-btree — an IPK move on an INDEXED table wrote an out-of-order b-tree
 
 **Status:** FIXED (2026-07-27, `scljet-ipk-rowid`, commit `9cb9865e1`). Found the same day by
