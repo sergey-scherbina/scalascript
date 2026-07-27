@@ -1,0 +1,88 @@
+---
+name: scljet-update-ipk-moves-rowid
+description: SclJet SQL — assigning an INTEGER PRIMARY KEY column moves the row to that rowid, and a collision is refused
+backends: [int, js]
+---
+
+# scljet — `UPDATE t SET <ipk> = N` moves the row
+
+An `INTEGER PRIMARY KEY` column **is** the rowid, so assigning to it relocates the row. scljet used
+to treat it as an ordinary column: it rewrote the field, left the rowid where it was, and — because
+the read path materialises the rowid back into the IPK column — the write then looked like a silent
+no-op that still reported success. Two `BUGS.md` entries,
+`scljet-update-ipk-column-silently-ignored` and `scljet-update-ipk-does-not-move-rowid`.
+
+Both of the bug reports' statement forms are exercised, because they failed for *different* reasons:
+`WHERE id = 1` also needed the IPK value materialised **before** the WHERE runs (otherwise the
+predicate matched nothing at all), while `WHERE name = 'ann'` only needed the move itself.
+
+This case is a self-consistent oracle — scljet writes the image and scljet reads it. It pins the
+semantics (does the row move? is a collision refused?), not the file bytes; the cross-engine file
+check lives in the JVM lane where a real SQLite writer exists.
+
+[ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[executeMutation, queryImage](std/scljet/sql.ssc)
+
+```scalascript
+def showValue(v: SqliteValue): String = v match
+  case SqlNull => "NULL"
+  case SqlInteger(x) => x.toString
+  case SqlText(x) => x
+  case _ => "?"
+
+def showRow(row: List[SqliteValue]): String = row match
+  case Nil => ""
+  case h :: Nil => showValue(h)
+  case h :: t => showValue(h) + "|" + showRow(t)
+
+def showRows(rows: List[List[SqliteValue]]): String = rows match
+  case Nil => "(no rows)"
+  case h :: Nil => showRow(h)
+  case h :: t => showRow(h) + " ; " + showRows(t)
+
+// Prints the outcome either way: a refused statement is a RESULT here, not a crash, and the
+// difference between "refused" and "silently did nothing" is the whole point of the case.
+def step(image: ByteSlice, sql: String): ByteSlice =
+  executeMutation(image, sql) match
+    case Left(message) =>
+      println("refused: " + sql + " -- " + message)
+      image
+    case Right(next) =>
+      println("ok: " + sql)
+      next
+
+// Selects `rowid` explicitly, not just `id`. With the bug present the two DISAGREE — the rowid
+// stays put while the assignment is lost — and a projection of `id` alone leaves the reader
+// guessing which of the two it is looking at (the read path materialises the rowid into the IPK
+// column, so `id` follows the rowid, not the stored field). Measured: with the move disabled this
+// prints `1|1|ann` where the fix prints `5|5|ann`.
+def dump(image: ByteSlice, label: String): Unit =
+  queryImage(image, "SELECT rowid, id, name FROM emp") match
+    case Left(message) => println("  " + label + " QUERY FAILED: " + message)
+    case Right(rows) => println("  " + label + " " + showRows(rows))
+
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER PRIMARY KEY, name TEXT)",
+  List(List(SqlInteger(1L), SqlText("ann")))) match
+  case Left(error) => println("build failed: " + error.message)
+  case Right(base) =>
+    println("-- the bug report's first form: WHERE on the IPK column itself --")
+    val a = step(base, "UPDATE emp SET id = 5 WHERE id = 1")
+    dump(a, "after:")
+
+    println("-- the second form: WHERE on another column --")
+    val b = step(a, "UPDATE emp SET id = 9 WHERE name = 'ann'")
+    dump(b, "after:")
+
+    println("-- a non-IPK update leaves the rowid alone --")
+    val c = step(b, "UPDATE emp SET name = 'bea' WHERE id = 9")
+    dump(c, "after:")
+
+    println("-- moving onto an occupied rowid is refused, and changes nothing --")
+    val d = step(c, "INSERT INTO emp VALUES (10, 'cid')")
+    val e = step(d, "UPDATE emp SET id = 10 WHERE id = 9")
+    dump(e, "after:")
+
+    println("-- a non-integer target is refused rather than coerced --")
+    val f = step(e, "UPDATE emp SET id = 'x' WHERE id = 9")
+    dump(f, "after:")
+```

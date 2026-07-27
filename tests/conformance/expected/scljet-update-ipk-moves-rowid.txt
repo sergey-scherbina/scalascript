@@ -1,0 +1,16 @@
+-- the bug report's first form: WHERE on the IPK column itself --
+ok: UPDATE emp SET id = 5 WHERE id = 1
+  after: 5|5|ann
+-- the second form: WHERE on another column --
+ok: UPDATE emp SET id = 9 WHERE name = 'ann'
+  after: 9|9|ann
+-- a non-IPK update leaves the rowid alone --
+ok: UPDATE emp SET name = 'bea' WHERE id = 9
+  after: 9|9|bea
+-- moving onto an occupied rowid is refused, and changes nothing --
+ok: INSERT INTO emp VALUES (10, 'cid')
+refused: UPDATE emp SET id = 10 WHERE id = 9 -- UNIQUE constraint failed: rowid 10 already exists
+  after: 9|9|bea ; 10|10|cid
+-- a non-integer target is refused rather than coerced --
+refused: UPDATE emp SET id = 'x' WHERE id = 9 -- datatype mismatch: INTEGER PRIMARY KEY must be assigned an integer
+  after: 9|9|bea ; 10|10|cid

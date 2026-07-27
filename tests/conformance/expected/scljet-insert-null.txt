@@ -1,0 +1,13 @@
+-- baseline forms that already parsed --
+ok: INSERT INTO emp VALUES (2, 'bob', 2.5)
+ok: INSERT INTO emp(id, name) VALUES (3, 'cat')
+-- an explicit NULL literal, in every position --
+ok: INSERT INTO emp VALUES (4, 'dee', NULL)
+ok: INSERT INTO emp VALUES (5, NULL, 3.5)
+ok: INSERT INTO emp VALUES (6, NULL, NULL)
+-- lowercase spelling is the same keyword --
+ok: INSERT INTO emp VALUES (7, 'eve', null)
+-- UPDATE … SET x = NULL keeps working (it parses via parseExpr) --
+ok: UPDATE emp SET bonus = NULL WHERE id = 2
+-- the rows --
+  1|ann|1.5 ; 2|bob|NULL ; 3|cat|NULL ; 4|dee|NULL ; 5|NULL|3.5 ; 6|NULL|NULL ; 7|eve|NULL

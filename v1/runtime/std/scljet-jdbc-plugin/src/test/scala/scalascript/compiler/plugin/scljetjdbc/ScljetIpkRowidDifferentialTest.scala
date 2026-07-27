@@ -169,3 +169,58 @@ class ScljetIpkRowidDifferentialTest extends AnyFunSuite:
         assert(rows(ref, "SELECT id, name FROM emp") == List("1|ann", "7|bob", "9|cid"))
         assert(rows(ref, "PRAGMA integrity_check") == List("ok"))
       finally ref.close()
+
+  test("UPDATE of an IPK column MOVES the row, and real SQLite agrees through the file"):
+    // BUGS.md `scljet-update-ipk-does-not-move-rowid` + `scljet-update-ipk-column-silently-ignored`
+    // (fixed 2026-07-27). An IPK column IS the rowid, so assigning it relocates the row. We used to
+    // rewrite the column and leave the rowid — and since an IPK read returns the rowid, the write
+    // then looked like a silent no-op that still reported success.
+    //
+    // This is the file-level half of the proof that the `[int, js]` conformance case
+    // (`scljet-update-ipk-moves-rowid`) cannot give: that case is a self-consistent oracle, whereas
+    // here real SQLite reads the bytes we wrote. Before the fix the reference read `1|1|ann`
+    // (row never moved); the bug report measured exactly that.
+    withTempDb("update-move"): db =>
+      val c = DriverManager.getConnection(s"jdbc:scljet:${db.toString}")
+      try
+        val s = c.createStatement()
+        s.executeUpdate(Ddl)
+        s.executeUpdate("INSERT INTO emp VALUES (1,'ann'),(7,'bob')")
+        s.executeUpdate("UPDATE emp SET id = 5 WHERE id = 1")
+        assert(rows(c, "SELECT rowid, id, name FROM emp") == List("5|5|ann", "7|7|bob"),
+          "scljet must report the moved row at its new rowid")
+      finally c.close()
+
+      val ref = refConn(db)
+      try
+        // The contract is the FILE: SQLite reads the rowid for an IPK column, so if the row had not
+        // actually moved this would read `1|1|ann` no matter what our own reader claims.
+        assert(rows(ref, "SELECT rowid, id, name FROM emp") == List("5|5|ann", "7|7|bob"),
+          "real SQLite must see the row at rowid 5 — the row moved in the FILE, not just in our reader")
+        assert(rows(ref, "PRAGMA integrity_check") == List("ok"))
+      finally ref.close()
+
+  test("an IPK move onto an occupied rowid is refused and leaves the file intact"):
+    // Real SQLite raises `UNIQUE constraint failed: emp.id`; we refuse before writing anything, so
+    // the pre-update file must survive byte-for-byte as far as both engines can tell.
+    withTempDb("update-conflict"): db =>
+      val c = DriverManager.getConnection(s"jdbc:scljet:${db.toString}")
+      try
+        val s = c.createStatement()
+        s.executeUpdate(Ddl)
+        s.executeUpdate(Ins)
+        val refused =
+          try
+            s.executeUpdate("UPDATE emp SET id = 7 WHERE id = 1")
+            false
+          catch case _: java.sql.SQLException => true
+        assert(refused, "moving row 1 onto the occupied rowid 7 must be refused, not silently applied")
+        assert(rows(c, "SELECT rowid, id, name FROM emp") == List("1|1|ann", "7|7|bob"),
+          "a refused UPDATE must change nothing")
+      finally c.close()
+
+      val ref = refConn(db)
+      try
+        assert(rows(ref, "SELECT rowid, id, name FROM emp") == List("1|1|ann", "7|7|bob"))
+        assert(rows(ref, "PRAGMA integrity_check") == List("ok"))
+      finally ref.close()

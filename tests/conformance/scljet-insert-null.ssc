@@ -1,0 +1,76 @@
+---
+name: scljet-insert-null
+description: SclJet SQL — an explicit NULL literal is accepted in an INSERT VALUES list (every position, either case)
+backends: [int, js]
+---
+
+# scljet — an explicit `NULL` literal in an INSERT's VALUES list
+
+Regression case for `BUGS.md` `scljet-insert-null-literal-rejected`: an explicit `NULL`
+was rejected in ANY position of a VALUES list (`expected a literal in WHERE` — the wrong
+clause name too), while `UPDATE … SET x = NULL` worked, because UPDATE parses its RHS with
+`parseExpr` and INSERT reads literals with `litValue`. Every line below must print `ok`
+followed by the row; a `FAILED` line is the bug.
+
+Reproduces the bug report's exact statement set, including the two forms that already worked
+(the positional form with no NULL, and the omitted-column workaround) so a regression in the
+other direction is visible too.
+
+[ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlText, SqlReal, buildTableDatabase](std/scljet/index.ssc)
+[executeMutation, queryImage](std/scljet/sql.ssc)
+
+```scalascript
+def showValue(v: SqliteValue): String = v match
+  case SqlNull => "NULL"
+  case SqlInteger(x) => x.toString
+  case SqlReal(x) => x.toString
+  case SqlText(x) => x
+  case _ => "?"
+
+def showRow(row: List[SqliteValue]): String = row match
+  case Nil => ""
+  case h :: Nil => showValue(h)
+  case h :: t => showValue(h) + "|" + showRow(t)
+
+def showRows(rows: List[List[SqliteValue]]): String = rows match
+  case Nil => ""
+  case h :: Nil => showRow(h)
+  case h :: t => showRow(h) + " ; " + showRows(t)
+
+// Loud on failure — a silent no-op would make a rejected INSERT look like a missing row.
+def step(image: ByteSlice, sql: String): ByteSlice =
+  executeMutation(image, sql) match
+    case Left(message) =>
+      println("FAILED: " + message + " -- " + sql)
+      image
+    case Right(next) =>
+      println("ok: " + sql)
+      next
+
+def dump(image: ByteSlice, sql: String): Unit =
+  queryImage(image, sql) match
+    case Left(message) => println("QUERY FAILED: " + message + " -- " + sql)
+    case Right(rows) => println("  " + showRows(rows))
+
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER PRIMARY KEY, name TEXT, bonus REAL)",
+  List(List(SqlInteger(1L), SqlText("ann"), SqlReal(1.5)))) match
+  case Left(error) => println("build failed: " + error.message)
+  case Right(base) =>
+    println("-- baseline forms that already parsed --")
+    val a = step(base, "INSERT INTO emp VALUES (2, 'bob', 2.5)")
+    val b = step(a, "INSERT INTO emp(id, name) VALUES (3, 'cat')")
+
+    println("-- an explicit NULL literal, in every position --")
+    val c = step(b, "INSERT INTO emp VALUES (4, 'dee', NULL)")
+    val d = step(c, "INSERT INTO emp VALUES (5, NULL, 3.5)")
+    val e = step(d, "INSERT INTO emp VALUES (6, NULL, NULL)")
+
+    println("-- lowercase spelling is the same keyword --")
+    val f = step(e, "INSERT INTO emp VALUES (7, 'eve', null)")
+
+    println("-- UPDATE … SET x = NULL keeps working (it parses via parseExpr) --")
+    val g = step(f, "UPDATE emp SET bonus = NULL WHERE id = 2")
+
+    println("-- the rows --")
+    dump(g, "SELECT id, name, bonus FROM emp")
+```

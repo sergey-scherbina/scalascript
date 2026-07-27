@@ -19,10 +19,10 @@ Spec: `specs/scljet-address.md`.
 
 Rows are inserted through the SQL path, because that is the path that honours the
 `INTEGER PRIMARY KEY` = rowid alias (`buildTableDatabase` is a low-level builder that assigns
-rowids sequentially and does not). The NULL row omits its column rather than writing
-`VALUES (…, NULL)`: an explicit NULL in a VALUES list is an open engine gap
-(`BUGS.md` → `scljet-insert-null-literal-rejected`), while omitting the column is equivalent
-and parses.
+rowids sequentially and does not). The NULL row is written with an explicit `VALUES (…, NULL)`
+— the form the engine used to reject (`BUGS.md` → `scljet-insert-null-literal-rejected`, fixed
+2026-07-27). It is equivalent to omitting the column, which is what this case used as the
+workaround before; the expected output is unchanged by the switch, which is the point.
 
 [ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlText, SqlReal, SqlBlob, buildTableDatabase](std/scljet/index.ssc)
 [executeMutation](std/scljet/sql.ssc)
@@ -62,7 +62,7 @@ buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER PRIMARY KEY, n
   case Left(error) => println("build failed: " + error.message)
   case Right(base) =>
     val image = insert(insert(base, "INSERT INTO emp VALUES (7, 'bob', 2.5)"),
-                       "INSERT INTO emp(id, name) VALUES (9, 'cat')")
+                       "INSERT INTO emp VALUES (9, 'cat', NULL)")
 
     println("-- an IPK table: id IS the rowid, addresses are stable --")
     readAt(image, "emp/7/name")
