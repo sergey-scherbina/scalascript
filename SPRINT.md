@@ -37,7 +37,10 @@ qualify artifacts; `NEVER-RUN` is the blocker this slice closes.
       covers `scalascript` and `ssc`, and packaging consumes the actual
       `scalascript-cli` output. `build.sbt` is temporarily held by the UniML
       claim; workflow-only overrides may prove the matrix while waiting, but
-      NRQ-1 remains open until the shared default is fixed.
+      NRQ-1 remains open until the shared default is fixed. Serialize each
+      full-ref workflow, accept only exact stable SemVer publication tags, and
+      replace existing-release `--clobber` with create-only fail-closed
+      publication.
 - [ ] **NRQ-2 — execute and record the real three-platform dry-run.** Validate
       workflow YAML and shell syntax locally, run the mandatory affected
       conformance slice, dispatch the dry-run, and require every declared

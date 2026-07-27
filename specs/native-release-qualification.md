@@ -22,8 +22,14 @@ only after the same qualification succeeds.
 
 - a `workflow_dispatch` event always performs a dry qualification and never
   creates or mutates a GitHub Release;
-- a pushed `v*.*.*` tag performs the same qualification and may publish only
-  after every matrix leg succeeds.
+- a pushed tag selected by `v*.*.*` performs the same qualification, but may
+  publish only when its exact name is stable SemVer
+  `v<major>.<minor>.<patch>` with no leading zeroes and every matrix leg
+  succeeds. A broader glob match is a failed run, not a release.
+
+Workflow runs are serialized per full Git ref with
+`cancel-in-progress: false`. A same-tag rerun cannot interleave release asset
+mutation with another run.
 
 The build matrix remains:
 
@@ -101,6 +107,11 @@ qualifier requires the extracted file set and every digest to match it exactly.
       step.
 - [ ] A version-tag build runs the identical archive qualifier before the
       tag-only publication job can download or publish artifacts.
+- [ ] A tag publication accepts only exact stable SemVer names such as
+      `v2.0.0`; malformed glob matches, prerelease-looking names, leading-zero
+      numeric identifiers, branches, and manual dispatches cannot publish.
+- [ ] Workflow-level concurrency serializes runs for the same full ref without
+      cancelling an in-progress run. Independent tags remain parallel.
 - [ ] A read-only CI prerequisite executes the compare-first e2e qualifier
       contract before any native-image matrix leg. The controlled good archive
       must pass, while every one-dimension mutation must fail at its named
@@ -179,6 +190,10 @@ qualifier requires the extracted file set and every digest to match it exactly.
       than a runner that waits indefinitely.
 - [ ] Every matrix artifact and checksum is uploaded only after its runner-local
       post-extraction qualification passes.
+- [ ] Publication refuses any pre-existing release for the tag and creates a
+      fresh release with all nine assets in one `gh release create` operation.
+      It never uses `gh release upload --clobber`; an asset upload failure
+      cannot delete or mix files from a previously published release.
 - [ ] The workflow removes the repository-wide `-J-Xmx8g` native-image option
       and uses a single `-J-Xmx5g` builder limit. This stays below the 7 GB
       standard arm64 macOS runner while reserving memory for native/off-heap
@@ -251,6 +266,21 @@ upload with `contents: read`. A distinct release job is selected only by a
 `v*.*.*` tag, downloads the already-qualified artifacts, and receives
 `contents: write`. A boolean workflow input is deliberately not a publication
 switch: a manual event is always non-publishing by construction.
+
+### Make publication single-writer and fail closed
+
+The workflow concurrency key includes the workflow name and full Git ref.
+`cancel-in-progress: false` prevents a newer same-tag run from interrupting an
+active publisher, while different release tags retain independent build
+capacity.
+
+The release job revalidates `GITHUB_REF_NAME` against exact stable SemVer before
+it downloads artifacts. It refuses an existing GitHub Release instead of
+mutating assets. For a fresh tag it passes the complete nine-file set to one
+`gh release create --verify-tag` call. GitHub CLI creates a draft, uploads the
+assets, and publishes only after the uploads complete, so a partial upload is
+not exposed as a published release. An operator must investigate and remove any
+failed draft before a retry; the workflow never silently clobbers it.
 
 ### Bundle the self-hosted frontend as runtime data
 
@@ -345,6 +375,14 @@ marker, so a VM run wearing the bytecode label cannot qualify the release.
 - **Manual dispatch is always dry** — chosen because event identity makes
   publication structurally unreachable. Rejected: a `publish=true` input
   (manual typo or expression coercion could grant the dangerous path).
+- **Stable SemVer tags only** — chosen because the trigger glob is intentionally
+  broad and cannot express numeric grammar. Rejected: treating any
+  `v*.*.*` match as a production version (names such as `vfoo.bar.baz` would
+  become ordinary releases).
+- **Single-writer, create-only publication** — chosen because release assets
+  must come from one qualified run. Rejected: `gh release upload --clobber`
+  without per-ref concurrency (concurrent or failed reruns can delete and mix
+  non-reproducible native assets).
 - **Qualify after compression** — chosen because the archive is the customer
   artifact. Rejected: smoke-testing `dist/archive` before `tar` (cannot catch a
   bad archive command or path set).
@@ -431,6 +469,10 @@ Pre-change baseline on 2026-07-27:
   conclude `success`; it would therefore call the required skipped manual
   publication job red. Exact `gh run view` job evidence is used instead of
   weakening the workflow's permission boundary.
+- Tag publication accepted arbitrary `v*.*.*` glob matches, had no per-ref
+  concurrency, and replaced assets in an existing release with
+  `gh release upload --clobber`. A rerun could therefore mix or delete
+  non-reproducible platform assets.
 
 Implementation measurements and the exact manual run are recorded here during
 the verify phase.

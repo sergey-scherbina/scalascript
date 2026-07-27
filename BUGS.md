@@ -388,6 +388,9 @@ implement the required hosted `Feature` interface. The generic
 `scripts/ci-status` non-CI contract also treats the intentionally skipped
 manual publication job as red, so exact run-job evidence is required without
 making that privileged job reachable from dispatch.
+The tag path also accepted non-SemVer `v*.*.*` matches and used
+`gh release upload --clobber` without per-ref concurrency, allowing concurrent
+or failed reruns to mix or delete non-reproducible native assets.
 
 **Fix acceptance.** A credential-safe `workflow_dispatch` run must build,
 archive, isolate, and execute Linux x86_64, macOS arm64, and macOS x86_64
@@ -395,8 +398,9 @@ artifacts. The qualifier must verify the complete native-front manifest,
 direct/archive byte identity, VM/direct-ASM output without fallback, plugin-host
 startup, bounded timeouts, and exact checksums before upload. Shared local and
 CI native-image defaults must use the existing config files and no invalid
-feature. Publication remains tag-only. Record the successful run id, required
-job conclusions, and fix SHA here.
+feature. Publication remains tag-only, exact stable SemVer, serialized per ref,
+and create-only for a previously absent release. Record the successful run id,
+required job conclusions, and fix SHA here.
 
 ## scljet-sql-blob-comparison-collapses-values — all BLOBs compare equal
 
