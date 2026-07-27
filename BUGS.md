@@ -1,5 +1,22 @@
 # Bug tracker
 
+## corpus-contract-doc-mislabels-v2-lane — operator spec sends triage to the wrong architecture
+
+**Status:** OPEN → docs fix in flight under `corpus-contract-baseline-roster`
+(SPRINT E7; found 2026-07-27 by Codex while reconciling the gate docs at
+`fc5f07f28`).
+
+**Reproduce.** `specs/corpus-contract.md` says the contract's `v2` lane is the
+v1-frontend → v2-VM bridge. `laneCmd` actually executes
+`bin/ssc run --v2`, whose path is `StandardMain → RunNativeV2 → native ssc1
+frontend → v2 VM + NativePluginHost`. The bridge is the different
+`bin/ssc-tools run --v2` tier.
+
+**Impact / fix.** A failing production cell would be assigned to the wrong
+frontend and plugin system. Update both Corpus Contract operator docs to name
+the standard/native tier and explicitly distinguish the tools bridge; keep the
+executable command beside the architecture statement.
+
 ## corpus-contract-usage-missing-arg-separator — documented commands do not reach the script
 
 **Status:** OPEN → fix in flight under `corpus-contract-baseline-roster`

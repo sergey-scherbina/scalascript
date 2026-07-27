@@ -758,6 +758,10 @@ mode in its purest form: the apparatus that establishes trust was itself unteste
             `corpus-contract-usage-missing-arg-separator`: every scala-cli example that passes
             contract options includes the required `--` separator; run the displayed self-test
             and slice forms verbatim.
+      - [ ] **E7.8 — document the lane that production actually executes.** Fix BUGS
+            `corpus-contract-doc-mislabels-v2-lane`: `bin/ssc run --v2` is the
+            standard/native `RunNativeV2` tier (native ssc1 front + native plugin host);
+            `ssc-tools run --v2` is the separate v1-front bridge and is not this gate.
 
 - [x] **E5 — DONE: make a timeout impossible to misread as benign.** After E2 the gate fits its budget,
       but the *detection* hole stays: any future budget breach reappears as `cancelled`. Cheapest
