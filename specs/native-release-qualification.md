@@ -43,12 +43,31 @@ is separate, depends on the complete matrix, and is the only job granted
 scripts/native-release-qualify <artifact-id> <archive.tar.gz>
 ```
 
+`<artifact-id>` is an ASCII release identifier matching
+`[A-Za-z0-9][A-Za-z0-9._-]*`; the archive basename must be exactly
+`<artifact-id>.tar.gz`. Qualification requires Bash 3.2 or newer and Python
+3.9 or newer on the runner. Those tools are qualification dependencies, not
+runtime dependencies of the shipped `ssc`.
+
 The command validates and executes the supplied archive. The archive's
 directory must also contain the separately uploaded `<artifact-id>` executable;
 the qualifier byte-compares it with the extracted `ssc`. It does not read build
 outputs, source-tree libraries, or a checked-out example after extraction.
 Success is silent except for a final stable summary. Every refusal names the
 failed check and prints the relevant expected and actual values.
+
+Runtime installation-root precedence is exact:
+
+1. an existing `ssc.lib.path` system property is authoritative;
+2. otherwise, a non-empty `SSC_LIB_PATH` is promoted to that property;
+3. otherwise, and only in a native-image runtime, the executable discovers its
+   bundled root.
+
+JVM launches and explicitly configured native launches must not inspect the
+current executable. The native image must initialize the Scala object backing
+`scalascript.imports.ImportResolver` at run time; the package-wide
+build-time-initialization default must not snapshot build-runner paths or
+environment values into the executable.
 
 Each uploaded artifact contains:
 
@@ -82,22 +101,44 @@ qualifier requires the extracted file set and every digest to match it exactly.
       step.
 - [ ] A version-tag build runs the identical archive qualifier before the
       tag-only publication job can download or publish artifacts.
+- [ ] A read-only CI prerequisite executes the compare-first e2e qualifier
+      contract before any native-image matrix leg. The controlled good archive
+      must pass, while every one-dimension mutation must fail at its named
+      expected/actual check.
 - [ ] The qualifier refuses a missing file, duplicate entry, unexpected regular
       file, unsafe path, symlink, non-executable `ssc`, direct/extracted binary
       mismatch, missing plugin host, checksum mismatch, wrong process exit,
-      wrong stdout, subprocess timeout, unexpected or missing frontend-manifest
-      entry, frontend content mismatch, and unexpected ASM fallback with a
-      named expected/actual diagnostic.
+      wrong stdout (including a `v20` runtime falsely matching `v2`), subprocess
+      timeout, unexpected or missing frontend-manifest entry, frontend content
+      mismatch, and unexpected ASM fallback with a named expected/actual
+      diagnostic.
+- [ ] Interface and format failures are also compare-first and named: malformed
+      artifact id, wrong archive basename, missing checksum sidecar, duplicate,
+      unsorted, unsafe, or malformed manifest rows, version stderr, ASM
+      non-zero exit/stderr, unreadable checksum/archive/manifest/frontend bytes,
+      and an unsupported Python runtime never escape as a raw traceback.
 - [ ] The archive is relocatable. After extraction into a fresh temporary
       directory, with ScalaScript path overrides unset, its native executable
       discovers the bundled standard v2 frontend data without a checkout or an
       absolute build-machine path.
+- [ ] Installation-root configuration preserves
+      `ssc.lib.path > SSC_LIB_PATH > bundled-root` precedence. JVM launches and
+      native launches with either explicit override do not query
+      `ProcessHandle`; a missing/empty environment override falls through to
+      native bundled-root discovery.
+- [ ] Native-image configuration initializes
+      `scalascript.imports.ImportResolver$` at run time despite the broader
+      `--initialize-at-build-time=scalascript` setting, so `libPath`,
+      `stdPath`, cache roots, and other host-derived eager state are not frozen
+      from the build runner.
 - [ ] The workflow copies the binary, archive, checksum, and qualifier outside
       the checkout, makes the checkout's staged native frontend unavailable,
       and runs qualification from the isolated copy. A build-time absolute
       checkout path therefore fails rather than borrowing files from the runner.
-- [ ] `ssc --version` exits zero and identifies ScalaScript plus the v2 default
-      runtime.
+- [ ] `ssc --version` exits zero and prints exactly two newline-terminated
+      records: a non-empty `ssc <version>` line followed by
+      `runtime: v2 (default; --v1 opts back)  ·  jvm <version>`. A prefix such
+      as `v20` is not a v2 identity.
 - [ ] A generated, self-contained `.ssc` probe runs through
       `ssc run --v2 --interpret` and prints the exact expected result.
 - [ ] The same probe runs through `ssc run --v2 --bytecode`, prints the same
@@ -105,7 +146,11 @@ qualifier requires the extracted file set and every digest to match it exactly.
       `ssc: --bytecode fell back to the VM lane` marker.
 - [ ] Ordinary VM and ASM probes need no `java`, `scala-cli`, `scalac`, `javac`,
       repository file, or ambient `SSC_LIB_PATH`/`SSC_STD_PATH`. The plugin host
-      is the only archive component allowed to require a JRE.
+      is the only archive component allowed to require a JRE. Runtime probes
+      receive a minimal allowlisted environment with an empty `PATH`, isolated
+      `HOME`/XDG directories, and their isolated working directory; they do not
+      inherit `JAVA_HOME`, `SSC_HOME`, ScalaScript path overrides, or toolchain
+      injection variables.
 - [ ] `lib/ssc-plugin-host.jar` is non-empty, has the expected main entry point,
       and its no-argument invocation reaches the stable
       `[ssc-plugin-host] Usage: SubprocessHost <plugin.jar>` diagnostic. This
@@ -156,6 +201,21 @@ rather than hidden by the arithmetic smoke test.
 The e2e test constructs controlled archives and executable stubs. The same
 observable is run once in a known-good form and then mutated one dimension at a
 time, proving that each refusal would be red if the release were broken.
+Its mutation table covers the public invocation grammar, checksum sidecar,
+archive safety/layout, complete ordered manifest, direct-byte identity, plugin
+JAR structure/invocation, exact version/VM/ASM bytes, fallback marker, stderr,
+exit status, and all four process timeouts.
+The good native stub also refuses a non-extracted executable path, unexpected
+argv, a changed probe, a non-isolated working directory, or any poisoned
+ScalaScript/Java environment value. The Java stub accepts only
+`-jar <extracted-plugin-host>` and proves that the selected path is the regular
+file from the extracted archive. This makes isolation and invocation shape
+tested observables rather than source-inspection assumptions.
+
+The workflow runs this controlled contract in a small read-only prerequisite
+job. Native matrix jobs depend on it, so a false-green regression in refusal
+logic cannot qualify a real archive merely because the hosted product happens
+to be healthy.
 
 ### Keep qualification and publication separate
 
@@ -172,7 +232,20 @@ library sources. Those files are runtime data even though the CLI executable is
 native. The distribution therefore carries the staged
 `bin/lib/standard/native-front` subtree and resolves its installation root from
 the extracted executable when no explicit development override is present.
-The archive must not capture the checkout path used on the hosted runner.
+`ssc.lib.path` remains authoritative; a non-empty `SSC_LIB_PATH` is promoted
+before discovery so the bootstrap cannot accidentally mask it. Discovery is
+lazy and native-only, so JVM launchers and explicitly configured native
+processes do not touch `ProcessHandle`.
+
+The current native-image build initializes the broad `scalascript` package at
+build time. Its release invocation must add the more-specific
+`--initialize-at-run-time=scalascript.imports.ImportResolver$` override. GraalVM
+documents that
+[explicit options can select an individual class for run-time initialization](https://www.graalvm.org/dev/reference-manual/native-image/guides/specify-class-initialization/)
+even when a package is selected for build-time initialization.
+The real archive execution remains the decisive proof that no host path was
+captured. The archive must not capture the checkout path used on the hosted
+runner.
 
 ### Exercise both v2 execution backends
 
@@ -208,6 +281,15 @@ marker, so a VM run wearing the bytecode label cannot qualify the release.
 - **Bound every product process** — chosen because a hung executable is a
   release failure and GNU `timeout` is absent on stock macOS. The portable
   qualifier uses its existing Python runtime for subprocess deadlines.
+- **Runtime-initialize the resolver module** — chosen because its eager path
+  state is host-dependent and a package-wide build-time rule would serialize
+  the CI checkout and home into the image. Rejected: relying only on the early
+  bootstrap call (it runs after build-time class initialization has already
+  frozen the values).
+- **Allowlist the runtime environment** — chosen because deleting a short list
+  of known contaminants leaves future Java/toolchain variables ambient.
+  Rejected: inheriting the runner environment and unsetting only current
+  ScalaScript overrides.
 
 ## Results
 
@@ -224,6 +306,13 @@ Pre-change baseline on 2026-07-27:
   `bin/lib/standard/native-front` data and an `ssc.lib.path` installation root.
   The archive provided neither runtime data nor a relocatable root bootstrap,
   so native compilation success could not establish a usable v2 distribution.
+- Pre-implementation gate review found that the first version matcher accepted
+  `runtime: v20...` as v2, the fake runtime did not prove environment/argv
+  isolation, and the e2e refusal suite was not reachable from the workflow.
+- Bootstrap review found that `currentExecutable` was evaluated eagerly on JVM
+  launches, `SSC_LIB_PATH` could be masked, and
+  `--initialize-at-build-time=scalascript` would freeze
+  `ImportResolver` path state before the entrypoint bootstrap.
 
 Implementation measurements and the exact manual run are recorded here during
 the verify phase.
