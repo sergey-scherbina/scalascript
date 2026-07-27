@@ -1,5 +1,31 @@
 # Bug tracker
 
+## ci-status-sha-misses-commits-covered-by-a-later-tip — a code commit can be TESTED and still report "no run"
+
+**Status:** OPEN — measurement caveat, found 2026-07-28 by `ci-bookkeeping-floods-verdicts` while
+verifying the `paths-ignore` change on live traffic. Not caused by it; made easier to notice by it.
+
+**What happens.** GitHub creates ONE run per push, attributed to the push's TIP commit, and applies
+`paths` filtering to the push as a whole. So a push of `code-commit` followed by `docs-commit`
+produces a single run named after the DOCS commit — the code was fully tested, but
+`scripts/ci-status --sha <code-sha>` finds nothing and reports `CI UNKNOWN`.
+
+**Observed.** `100c20676` (md-only) → `2adeef250` (`specs/v2.2-p6.5-fsub.sh` + `.ssc`, real code) →
+`d11a77460` (BUGS.md only) landed as one push. Exactly one CI run was created, on `d11a77460`.
+Reading the per-commit table naively says "a docs commit triggered a run and a code commit did not",
+which is wrong on both halves and was my first reading of it.
+
+**Why it matters.** AGENTS.md §4c tells you to verify the newest CODE commit by exact SHA. Under
+batched pushes that instruction can report UNKNOWN for a commit that was actually covered, which
+pushes people toward re-running or toward accepting weaker evidence. The green-descendant ladder
+already handles it — a descendant run covers its ancestors — but `ci-status --sha` does not say so.
+
+**Fix direction.** Have `scripts/ci-status` fall back: when no run exists for the exact SHA, look
+for the nearest run whose head is a DESCENDANT of it and report that explicitly as
+"covered by <sha> (descendant)" rather than UNKNOWN. That is the evidence ladder AGENTS.md already
+describes, made mechanical instead of manual.
+
+
 ## semantic-gate-red-tkv2-typed-client-derived — the F golden gate is 247/248 on main, on BOTH fronts
 
 **Status:** OPEN (found 2026-07-28 by `v2-board-and-f5b` while gating an unrelated F lexer fix).
