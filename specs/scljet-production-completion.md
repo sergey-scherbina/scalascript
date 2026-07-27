@@ -113,11 +113,16 @@ One shared rowid coercion must implement SQLite-compatible conversion for an INT
 PRIMARY KEY value on both INSERT and UPDATE:
 
 - `SqlInteger` is accepted directly;
-- a finite `SqlReal` is accepted only when it is exactly integral and representable as a
-  signed 64-bit integer;
-- `SqlText` follows SQLite's complete numeric text grammar, including decimal points and
-  exponents, and is accepted only when the whole trimmed token converts to an exact
-  signed-64 integer;
+- `SqlReal` follows SQLite's binary64 `MustBeInt` decision: the value must be finite,
+  integral after conversion to signed 64-bit, strictly greater than binary64
+  `Long.MinValue`, strictly less than binary64 `2^63`, and byte-for-value equal after
+  converting the resulting integer back to binary64. Consequently an integer
+  `Long.MinValue` is legal while the numerically equal REAL is a datatype mismatch;
+- `SqlText` consumes the whole token after trimming SQLite ASCII whitespace
+  (`0x09..0x0d`, `0x20`). A sign plus decimal digits with no point or exponent uses exact
+  signed-64 parsing and therefore accepts both integer endpoints. Decimal-point and
+  exponent forms use SQLite's binary64 conversion followed by the same `MustBeInt`
+  decision as `SqlReal`;
 - NULL, blob, fractional/non-finite real, malformed text, and overflow fail without
   mutating the image.
 
@@ -126,10 +131,13 @@ non-integral explicit value never silently becomes an automatic rowid.
 
 Leading-numeric-prefix JDBC getter conversion is not reusable here: affinity validates the
 whole value. The gate covers signs, surrounding ASCII whitespace, decimal/exponent forms,
-`Long.MinValue`, `Long.MaxValue`, one-step overflow and floating-point rounding boundaries,
-fractional values, hexadecimal/malformed/empty text, indexed and unindexed tables, and
-collisions. The same statements run through SclJet and reference sqlite-jdbc; resulting
-rows and integrity status are compared.
+`Long.MinValue`, `Long.MaxValue`, one-step overflow, underflow to zero, and floating-point
+rounding boundaries, fractional values, hexadecimal/malformed/empty text, indexed and
+unindexed tables, and collisions. The oracle explicitly pins SQLite's conversion behavior
+rather than mathematical decimal exactness: for example `9007199254740993.0` becomes the
+accepted rowid `9007199254740992`, while a decimal form that rounds to positive `2^63` and
+the REAL/decimal form of `Long.MinValue` are rejected. The same statements run through
+SclJet and reference sqlite-jdbc; resulting rows and integrity status are compared.
 
 Before schema work builds on it, scalar value semantics also need live differential gates:
 
