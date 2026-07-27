@@ -1,0 +1,11 @@
+slug: v2-coroutine-provider
+branch: feature/v2-coroutine-provider
+agent: codex
+started: 2026-07-27T23:51:12Z
+heartbeat: 2026-07-27T23:51:12Z
+status: claimed-before-planning
+items: v2-coroutine-provider
+paths: v2/runtime/std/generator-plugin/ tests/conformance/coroutine- tests/conformance/expected/coroutine- tests/fixtures/v21-native/generator-provider.ssc
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
