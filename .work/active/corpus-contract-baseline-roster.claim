@@ -2,10 +2,12 @@ slug: corpus-contract-baseline-roster
 branch: feature/corpus-contract-baseline-roster
 agent: codex
 started: 2026-07-27T20:31:04Z
-heartbeat: 2026-07-27T20:31:04Z
-status: claimed-before-planning
-items: E7 corpus-contract-baseline-roster
-paths: tests/conformance/contract.sc tests/conformance/corpus-baseline.tsv tests/conformance/contract-roster.tsv
+heartbeat: 2026-07-27T20:32:24Z
+status: in-progress
+items: E7 corpus-contract-baseline-roster baseline-update-filter-truncates
+paths: tests/conformance/contract.sc tests/conformance/contract-roster.tsv
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  Add a frozen full-case roster beside corpus-baseline.tsv so the differential gate distinguishes
+  NEW cases from regressions without touching the neighboring re-baseline claim. Also fail closed
+  when --update-baseline is combined with --only, which currently truncates the frozen baseline.
+next: write the resume-cold SPRINT/spec plan and negative-control gate before implementation
