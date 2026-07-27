@@ -109,8 +109,9 @@ qualifier requires the extracted file set and every digest to match it exactly.
 - [ ] `lib/ssc-plugin-host.jar` is non-empty, has the expected main entry point,
       and its no-argument invocation reaches the stable
       `[ssc-plugin-host] Usage: SubprocessHost <plugin.jar>` diagnostic. This
-      qualifies archive lookup and host startup; existing protocol tests retain
-      responsibility for third-party backend semantics.
+      qualifies the packaged path and host startup; existing protocol tests
+      retain responsibility for native CLI lookup and third-party backend
+      semantics.
 - [ ] Version, VM, ASM, and plugin-host subprocesses have a cross-platform
       bounded timeout. A hung product is a named qualification failure rather
       than a runner that waits indefinitely.
