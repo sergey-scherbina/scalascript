@@ -109,6 +109,52 @@ vectors; the remaining two are owner-gated, not implementation-gated: vec 15 (Po
 needs a 2nd runtime + §10.2 global-closure/effectful scope call) and vec 26 (`pending-spec` →
 proposal needs an owner). Surface both as a question; do not "flip" either by bending the
 realization to the pending's stated mechanism.
+
+**Batch E — `corpus-contract-shard-fix` (the broken measuring apparatus; claimed 2026-07-27).**
+Not in Batches A-D and not on anybody's board: **the `Corpus Contract` nightly has NEVER produced a
+green verdict.** Added `48110001c` (2026-07-14) as *"the always-on differential gate for the v2
+migration"* / *"strangler-fig safety net"*; since then **13 runs = 3 `failure` (07-15..07-17) + 10
+`cancelled` (07-18..07-27), 0 `success`.** The `cancelled` ones are **not** hangs — they are the
+`timeout-minutes: 60` wall: run `30244286812` (today, `56d7d705f`) logged `… 350/485` at
+`07:53:40` and was killed at `07:55:17`. Measured rate from that log: 25 cases per ~2.5 min early,
+per ~7.2 min late (≈9.6 s/case mean, ≈17 s/case in the tail) ⇒ the full 485 needs **~95-100 min**,
+not the *"~415 cases … ~25 min"* the workflow header still claims. Two compounding causes: the
+corpus grew (383 → 485 cases) and the per-case cost grew (F-default is 2-4× slower per Batch B).
+
+Why it went unnoticed for 12 days is the point: **GitHub reports a job timeout as `cancelled`, not
+`failure`** — so `gh run list` reads as "someone cancelled it", the repo's own red-CI radar ignores
+it, and the whole F4 front-flip therefore landed *without* its main differential net. We caught
+those regressions by hand instead (`case-object`, multi-file order, md-interpolator) — exactly the
+work this gate exists to do. This is the recorded `measurement-must-compare-not-prejudge` failure
+mode in its purest form: the apparatus that establishes trust was itself untested and looked benign.
+
+- [ ] **E1 — `--shard i/N` in `tests/conformance/contract.sc`.** Round-robin (`idx % N == i`) over
+      the already-sorted/deduped `cases` list, NOT contiguous blocks: the corpus is name-sorted and
+      the slow cases cluster, so blocks would give wildly uneven shards. The baseline compare is
+      **already subset-safe** (`inScope` filters the baseline down to `ranNames`), so a shard gates
+      honestly against its own slice with no other change. **Guard: `--update-baseline` must REFUSE
+      to run under `--shard`** — it rewrites the whole file from `current`, so a sharded update would
+      silently truncate the baseline to 1/N of it. Exit 2 with a message.
+- [ ] **E2 — `corpus-contract.yml` → 4-way matrix.** `strategy: matrix: shard: [0,1,2,3]` +
+      `fail-fast: false`, each job `scala-cli tests/conformance/contract.sc --shard ${{ }}/4`.
+      Budget per shard ≈ 6 min setup + ~24 min cases ≈ 30 min, inside the (kept) 60-min guard.
+      Update the stale header comment with the measured numbers instead of the 2026-07-14 estimate.
+- [ ] **E3 — prove the partition locally before pushing.** Assert the N shards are disjoint and
+      their union is exactly the unsharded case list (a shard bug silently shrinks coverage while
+      every shard reports GREEN — the same class of lie as the timeout). Cheap check: run each shard
+      with `--lanes int --only '<small glob>'`-scale sampling and compare name sets.
+- [ ] **E4 — let it finish once, then reconcile the verdict.** `workflow_dispatch` on the landed SHA.
+      The gate will almost certainly come back RED — the last run that *finished* (07-17,
+      `29559215512`) reported 2 regressions + 2 improvements, all baseline drift on
+      `rozum-agent-schema-derived` (SKIP → runnable, then FAIL on js+v2) and `dataset-from-generator`
+      (js now PASS), and 10 more days of corpus churn have landed since. Triage each entry as
+      REGRESSION (fix or file in `BUGS.md`) vs closed-gap (record via `--update-baseline`, unsharded).
+      **Do not `--update-baseline` a regression away.**
+- [ ] **E5 — make a timeout impossible to misread as benign.** After E2 the gate fits its budget,
+      but the *detection* hole stays: any future budget breach reappears as `cancelled`. Cheapest
+      honest fix — record the hazard in `MILESTONES.md` §Health next to the CI-radar note so the next
+      status sweep counts `cancelled` as red for scheduled workflows.
+
 ## 2026-07-27 — post-f4-board-reconcile — ✓ DONE (see Batch A above; same work, claimed first)
 
 Duplicate of Batch A above, claimed ~2 min earlier (`ec56aeb01` vs `08a6cb9d2`). Kept only for the
