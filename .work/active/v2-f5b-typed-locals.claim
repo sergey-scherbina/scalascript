@@ -1,0 +1,16 @@
+slug: v2-f5b-typed-locals
+branch: feature/v2-f5b-typed-locals
+agent: opus
+started: 2026-07-27T15:10:00Z
+heartbeat: 2026-07-27T15:10:00Z
+direction: Language & Compiler (v2 / F5b typed-IR arc)
+worktree: /Users/sergiy/work/my/scalascript-wt-f4-arc-closure  (reused — same agent, sequential batch; keeps the built bin/)
+scope: |
+  SPRINT 2026-07-27 batch, Batch B — the F-perf recovery lever now that F is the default front.
+  B1 = S1-5 slice 1b-3: typed .length/.charAt/.substring on a String-typed local (postDot/emitLen
+       env-type-aware via localTyOf; .length -> slen, .charAt -> scodeAt).
+  B2 = S1-5 slice 1b-2b: typed val/var locals (embed declared/inferred type at block-binder sites
+       using the same name:Type env-name mechanism as slice 1b-1, d28f20c82).
+  Gates per slice (same as 1b-1): X1 fixpoint stage1==stage2 byte-identical, semantic 248/248,
+  corpus byte-id-to-oracle >= 225, plus the F-vs-legacy A/B on the touched constructs.
+  NOTE: specs/v2.2-p6.5-fsub.ssc is shared with the F-bugfix lanes — check for siblings first.
