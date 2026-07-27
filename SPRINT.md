@@ -7190,6 +7190,23 @@ emits `def C(a) = IrCtor(C, [a])`; extend to `def C(a) = let y=a*2 in IrCtor(C, 
     that construct before declaring native coverage green.
   - Verify the focused regression, affected v2 module tests, all five native
     VM/direct-ASM outputs, and the existing five-case INT/JS/JVM slice.
+- [ ] **v2-native-html-interpolator-parse** — ACTIVE
+  (`feature/v2-std-ui-missing-fixture`): close the `_err` layer exposed after
+  the raw triple-quote scanner fix.
+  - **Measured fail-first baseline:** import bisection reduced the five roots
+    to `examples/std-ui/data-list.ssc`, then
+    `items.map(it => html"""<li>${it}</li>""")`; a top-level two-line
+    `html`/`raw` document still exits 1 with the structural `_err` sentinel on
+    default/legacy × native VM/direct ASM.
+  - Extend `ssc1-front` with a dedicated HTML interpolation builder. Do not
+    reuse ordinary `s` concatenation: ordinary holes must escape
+    `& < > " '`, while `raw(value)` must lower to the `_Raw` marker and bypass
+    escaping. Reuse the existing V1 HTML contract rather than inventing new
+    syntax.
+  - Add a multi-file conformance regression retaining the original
+    lambda/import boundary and asserting both escaped and raw output. Rebuild
+    `installBin`, compare all four native routes, then rerun the original five
+    std-ui roots byte-for-byte; continue reducing any newly exposed layer.
 - [ ] **v2-js-only-tests** — js-cps-intrinsic-rewrite (`nowMillis`) / js-state-effect-runner /
   js-symbolic-infix-operator (custom multi-char operators `<~>`/`~~` — a real lexer gap but the test
   is `backends: [int, js]`) / if-then-no-else-after-while (`backends: [int]` AND the test file is

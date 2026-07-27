@@ -152,6 +152,46 @@ per-push verdict comes from something that already is. The other three jobs meas
 schedule") is not one option among several; it is the only shape that fits the arithmetic without
 making the tests faster. A scheduled `sbt` still catches everything, just later and in batches.
 
+## v2-native-html-interpolator-parse — self-hosted frontend emits `_err` for built-in `html` strings
+
+**Status:** OPEN (found 2026-07-28 by `codex` while reducing
+`v2-std-ui-closure-pair-match`; SPRINT `v2-native-html-interpolator-parse`).
+
+**Real-harness reproduction.** This minimal document fails before execution:
+
+```scalascript
+println(html"""<p>${"<x>"}</p>""")
+println(html"""<p>${raw("<x>")}</p>""")
+```
+
+All four assembled routes fail identically:
+
+```bash
+bin/ssc run --native tests/conformance/std-ui-diag-html-root.ssc
+bin/ssc run --bytecode tests/conformance/std-ui-diag-html-root.ssc
+SSC_FRONT=legacy bin/ssc run --native tests/conformance/std-ui-diag-html-root.ssc
+SSC_FRONT=legacy bin/ssc run --bytecode tests/conformance/std-ui-diag-html-root.ssc
+# exit 1: structural CoreIR contains parser sentinel _err
+```
+
+Import-closure bisection first isolated the full failure to
+`examples/std-ui/data-list.ssc`, then to `items.map(it =>
+html"""<li>${it}</li>""")`; the top-level two-line reduction above proves the
+lambda is not required. `v2/lib/ssc1-front.ssc0::parseAtom` recognizes only
+`s`, `f`, `raw`, and `md` string prefixes, so `html` remains a variable and
+the following string token survives as malformed syntax.
+
+**Required semantics.** This cannot be fixed by treating `html` as ordinary
+`s` interpolation: literal HTML is trusted, each interpolated value must
+escape `&`, `<`, `>`, `"`, and `'`, and `raw(value)` must preserve trusted
+markup. The existing V1 interpreter/JVM/JS contract implements exactly that.
+
+**Fix acceptance.** Add native-front parsing and portable lowering for both
+ordinary and triple-quoted `html` strings, preserving `raw(value)` as an
+`_Raw` marker. Pin the original cross-module lambda shape and escape/raw
+observable output. Default/legacy × VM/direct-ASM must compare exactly, then
+all five std-ui roots must compare with their checked-in output.
+
 ## v2-std-ui-closure-pair-match — native self-hosted frontend crashes after resolving the aggregator
 
 **Status:** OPEN (found 2026-07-28 by `codex` while working SPRINT
