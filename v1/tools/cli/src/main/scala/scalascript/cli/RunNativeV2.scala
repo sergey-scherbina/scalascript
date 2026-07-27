@@ -305,7 +305,7 @@ object RunNativeV2:
       if !first then None
       else
         first = false
-        if !_root_.ssc.bytecode.JvmByteGen.requiresStringChunking(program) then
+        if !_root_.ssc.bytecode.JvmBytecodeAdmission.requiresStringChunking(program) then
           None
         else
           runNestedF0Bytecode(program, trace)

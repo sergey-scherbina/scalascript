@@ -19,23 +19,12 @@ import ssc.{Term, Const, Value, Program, HandlerDispatchShape, PortableEffects}
  *  plus Emit.clos; the resulting ClosV interops with the VM by construction. */
 final class Unsupported(val form: String) extends RuntimeException(form)
 
-object JvmByteGen:
-  private val EMIT  = "ssc/Emit"
-  private val LAMFN = "ssc/Emit$LamFn"
-  private val VAL   = "ssc/Value"
-  private val INTV  = "ssc/Value$IntV"
-  private val LCELL = "ssc/Value$LongCellV"
-  private val DCELL = "ssc/Value$DoubleCellV"
-  private val OBJ   = "java/lang/Object"
-  private val GEN   = "ssc/gen/Entry"
-  private val ARTIFACT = "ssc/plugin/NativeArtifactRuntime"
-  private val STRING_BUILDER = "java/lang/StringBuilder"
+/** Data-only admission and literal chunking shared by the product selector and
+  * the ASM emitter. This object must remain free of org.objectweb.asm
+  * references so classifying a VM-bound program does not load the backend. */
+object JvmBytecodeAdmission:
   private val MaxModifiedUtf8Bytes = 65535
 
-  /** Whether emitting this program must reconstruct at least one literal from
-    * multiple CONSTANT_Utf8 entries. This is also the product F0 admission
-    * predicate, so it intentionally shares the exact modified-UTF8 accounting
-    * used by loadString rather than approximating with character count. */
   def requiresStringChunking(program: Program): Boolean =
     def constant(c: Const): Boolean = c match
       case Const.CStr(value) =>
@@ -66,6 +55,48 @@ object JvmByteGen:
 
     program.defs.exists(definition => term(definition.body)) ||
       term(program.entry)
+
+  private[bytecode] def modifiedUtf8Chunks(value: String): List[String] =
+    val chunks = collection.mutable.ListBuffer.empty[String]
+    var start = 0
+    var index = 0
+    var bytes = 0
+    while index < value.length do
+      val width = modifiedUtf8Width(value.charAt(index))
+      if bytes + width > MaxModifiedUtf8Bytes then
+        chunks += value.substring(start, index)
+        start = index
+        bytes = 0
+      bytes += width
+      index += 1
+    chunks += value.substring(start)
+    chunks.toList
+
+  private def modifiedUtf8ExceedsLimit(value: String): Boolean =
+    var index = 0
+    var bytes = 0
+    while index < value.length do
+      bytes += modifiedUtf8Width(value.charAt(index))
+      if bytes > MaxModifiedUtf8Bytes then return true
+      index += 1
+    false
+
+  private inline def modifiedUtf8Width(ch: Char): Int =
+    if ch >= 1 && ch <= 0x7f then 1
+    else if ch <= 0x7ff then 2
+    else 3
+
+object JvmByteGen:
+  private val EMIT  = "ssc/Emit"
+  private val LAMFN = "ssc/Emit$LamFn"
+  private val VAL   = "ssc/Value"
+  private val INTV  = "ssc/Value$IntV"
+  private val LCELL = "ssc/Value$LongCellV"
+  private val DCELL = "ssc/Value$DoubleCellV"
+  private val OBJ   = "java/lang/Object"
+  private val GEN   = "ssc/gen/Entry"
+  private val ARTIFACT = "ssc/plugin/NativeArtifactRuntime"
+  private val STRING_BUILDER = "java/lang/StringBuilder"
 
   private def isHandlerDispatchRoot(arity: Int, body: Term): Boolean =
     HandlerDispatchShape.isRoot(arity, body)
@@ -1359,7 +1390,7 @@ object JvmByteGen:
     * three. Product-shaped F0 embeds the resolved user source in one CStr, so
     * realistic module closures cross 64 KiB here. */
   private def loadString(mv: MethodVisitor, value: String): Unit =
-    val chunks = modifiedUtf8Chunks(value)
+    val chunks = JvmBytecodeAdmission.modifiedUtf8Chunks(value)
     chunks match
       case chunk :: Nil => mv.visitLdcInsn(chunk)
       case _ =>
@@ -1382,37 +1413,6 @@ object JvmByteGen:
           "toString",
           "()Ljava/lang/String;",
           false)
-
-  private def modifiedUtf8Chunks(value: String): List[String] =
-    val chunks = collection.mutable.ListBuffer.empty[String]
-    var start = 0
-    var index = 0
-    var bytes = 0
-    while index < value.length do
-      val ch = value.charAt(index)
-      val width = modifiedUtf8Width(ch)
-      if bytes + width > MaxModifiedUtf8Bytes then
-        chunks += value.substring(start, index)
-        start = index
-        bytes = 0
-      bytes += width
-      index += 1
-    chunks += value.substring(start)
-    chunks.toList
-
-  private def modifiedUtf8ExceedsLimit(value: String): Boolean =
-    var index = 0
-    var bytes = 0
-    while index < value.length do
-      bytes += modifiedUtf8Width(value.charAt(index))
-      if bytes > MaxModifiedUtf8Bytes then return true
-      index += 1
-    false
-
-  private inline def modifiedUtf8Width(ch: Char): Int =
-    if ch >= 1 && ch <= 0x7f then 1
-    else if ch <= 0x7ff then 2
-    else 3
 
   private def callVB(mv: MethodVisitor, m: String) =
     mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, m, s"(L$VAL;)Z", false)

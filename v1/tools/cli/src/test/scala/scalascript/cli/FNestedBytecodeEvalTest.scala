@@ -3,7 +3,7 @@ package scalascript.cli
 import java.util.concurrent.atomic.AtomicReference
 import org.scalatest.funsuite.AnyFunSuite
 import _root_.ssc.{Const, Def, Emit, IrToData, Prims, Program, Runtime, Term, Value}
-import _root_.ssc.bytecode.JvmByteGen
+import _root_.ssc.bytecode.JvmBytecodeAdmission
 
 class FNestedBytecodeEvalTest extends AnyFunSuite:
 
@@ -18,9 +18,9 @@ class FNestedBytecodeEvalTest extends AnyFunSuite:
       Term.Lit(Const.CUnit),
     )
 
-    assert(!JvmByteGen.requiresStringChunking(small))
+    assert(!JvmBytecodeAdmission.requiresStringChunking(small))
     assert(nulHeavy.length < 65535)
-    assert(JvmByteGen.requiresStringChunking(largeInDefinition))
+    assert(JvmBytecodeAdmission.requiresStringChunking(largeInDefinition))
 
   test("coreir evaluator scope delegates, nests, restores, and stays thread-local"):
     val program = Program(Nil, Term.Lit(Const.CInt(7)))
