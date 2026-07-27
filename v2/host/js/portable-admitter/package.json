@@ -1,0 +1,15 @@
+{
+  "name": "@scalascript/portable-admitter",
+  "version": "0.1.0-snapshot.0",
+  "description": "Non-JVM admitting backend for ScalaScript Portable capsules (conformance vector 15, §14.4 N→M)",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": { "import": "./admit.js", "default": "./admit.js" },
+    "./package.json": "./package.json"
+  },
+  "files": ["admit.js", "reader.js", "eval.js", "README.md"],
+  "scripts": {
+    "test": "node --test --test-concurrency=1 test/*.test.js"
+  }
+}
