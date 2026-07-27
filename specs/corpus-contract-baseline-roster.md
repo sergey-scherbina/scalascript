@@ -15,9 +15,9 @@ semantics or the normative `SPEC.md`.
 
 - `tests/conformance/corpus-baseline.tsv` remains the sorted set of non-PASS
   `case<TAB>lane<TAB>status` rows.
-- `tests/conformance/contract-roster.tsv` contains a
-  `# corpus-baseline-sha256: <hex>` header followed by the sorted, unique set of
-  case names at the same freeze. Other comment lines begin with `#`.
+- `tests/conformance/contract-roster.tsv` starts with the exact versioned
+  header `# corpus-contract-roster-v1<TAB>baseline-sha256=<64hex>`, followed by
+  the sorted, unique set of case names at the same freeze.
 - `scala-cli tests/conformance/contract.sc --update-baseline` is the only
   writer for both files. It is valid only for an unsharded, unfiltered run over
   the canonical default lanes `int,js,v2`.
