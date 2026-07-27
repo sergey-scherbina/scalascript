@@ -2,13 +2,13 @@ slug: v2-f-bytecode-probe
 branch: feature/v2-f-bytecode-probe
 agent: codex
 started: 2026-07-27T20:58:16Z
-heartbeat: 2026-07-27T21:15:09Z
+heartbeat: 2026-07-27T21:29:22Z
 status: in-progress
 items: V-6b
-paths: specs/v2-f-bytecode-probe.md scripts/v2-f-bytecode-probe v2/backend-jvm-bytecode/JvmByteGen.scala v1/tools/cli/src/test/scala/scalascript/cli/JvmByteGenLargeStringTest.scala
+paths: specs/v2-f-bytecode-probe.md scripts/v2-f-bytecode-probe v2/backend-jvm-bytecode/JvmByteGen.scala v2/src/Runtime.scala v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala v1/tools/cli/src/test/scala/scalascript/cli/JvmByteGenLargeStringTest.scala v1/tools/cli/src/test/scala/scalascript/cli/FNestedBytecodeEvalTest.scala tests/e2e/v2-f-nested-bytecode-fast-path.sh
 scope: |
-  V-6b: build a reproducible no-fallback driver that executes the already-bootstrapped F0 through
-  JvmByteGen, compares exact output against the VM before classification, measures fresh-process
-  speedup, and remove the concrete large-CStr admission blocker without touching live RunNativeV2 work.
-done-so-far: file-backed F0 is exact and 2.17x faster; exact product SclJet F0 rejects with UTF8 string too large
-next: chunk large CStr constants in JvmByteGen, add a red/green unit test, then rerun exact product F0
+  V-6b: retain the reproducible no-fallback F0 probe and large-string bytecode admission fix, then
+  integrate a selective direct-ASM evaluator for the first large nested F0 in the product F runner.
+  Small nested programs stay on the VM; link-time failure may delegate before execution starts.
+done-so-far: direct ASM is exact and 2.22x on file-backed F0; exact product SclJet F0 is exact and 4.38x after large-string chunking; unconditional outer ASM regresses hello
+next: plan and spec the selective nested F0 evaluator, add tests first, then integrate and verify product hello plus SclJet
