@@ -7101,9 +7101,24 @@ emits `def C(a) = IrCtor(C, [a])`; extend to `def C(a) = let y=a*2 in IrCtor(C, 
 - [ ] **v2-std-ui-missing-fixture** — std-ui-aggregator / std-ui-extended{,-b,-c,-d} import
   `../examples/std-ui` = `tests/examples/std-ui/index.ssc`, which DOES NOT EXIST. Restore the fixture
   dir or re-scope these tests (fails on ALL backends without it).
-- [ ] **v2-json-self-hosted** — json-read / json-value / json-lookup: `jsonParse`/`jsonRead`/`lookup`
-  are INTENTIONALLY self-hosted (`jsonParse` native stub throws "import std/json.ssc"); the cases
-  don't import it. Decide: auto-load `std/json.ssc`, or update the cases.
+- [ ] **v2-json-self-hosted** — ACTIVE (`feature/v2-json-self-hosted`): close
+  json-read / json-value / json-lookup, whose `jsonParse`/`jsonRead`/`lookup`
+  implementations are intentionally self-hosted while the cases do not import
+  `std/json.ssc`.
+  - Reproduce all three through the assembled product/conformance harness on
+    their declared lanes; capture the exact pre-fix diagnostics.
+  - Run explicit-import controls against the same expected output and inspect
+    the standard-module contract. Prefer fixture imports if JSON is deliberately
+    opt-in and the existing native stubs already direct callers to import it;
+    auto-loading is admissible only if the language contract promises that
+    module implicitly.
+  - Apply the smallest contract-correct fix, preserving the same observable
+    output; add a dedicated regression only if the three cases do not pin the
+    actual import boundary.
+  - Done when `tests/conformance/run.sh --only
+    'json-read,json-value,json-lookup' --no-memo` passes every declared lane and
+    the assembled v2 route demonstrably executes the self-hosted implementation
+    rather than a native stub or fallback.
 - [ ] **v2-js-only-tests** — js-cps-intrinsic-rewrite (`nowMillis`) / js-state-effect-runner /
   js-symbolic-infix-operator (custom multi-char operators `<~>`/`~~` — a real lexer gap but the test
   is `backends: [int, js]`) / if-then-no-else-after-while (`backends: [int]` AND the test file is
