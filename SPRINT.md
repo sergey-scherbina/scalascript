@@ -121,6 +121,12 @@ SLOWER until `f5c-1`; `.length` receivers were classifier-shaped — they were b
             direct-ASM candidate on identical source bytes, print raw samples plus medians, and prove
             which backend actually executed. Test the 2x self-compile target before touching the
             product path.
+            - [ ] **V-6b.2a — admit the exact product-shaped F0, not only the file-backed gate F0.**
+                  SClJet's 593,193-byte resolved source closure is embedded as one CoreIR `CStr`;
+                  the resulting 1,040,325-byte F0 currently rejects before execution with
+                  `IllegalArgumentException: UTF8 string too large`. Make `JvmByteGen` materialize
+                  classfile-oversized strings from bounded modified-UTF8 chunks, pin ASCII plus
+                  NUL/non-ASCII parity in a unit test, then rerun this exact F0 before integration.
       - [ ] **V-6b.3 — admit or reject the hypothesis from evidence.** If direct ASM accepts F0 and
             meets the report's targets, widen this claim only to the concrete free integration path,
             add parity/conformance coverage, and wire it without silent fallback. Otherwise record
