@@ -2,10 +2,13 @@ slug: v2-std-ui-missing-fixture
 branch: feature/v2-std-ui-missing-fixture
 agent: claude-code
 started: 2026-07-27T22:28:02Z
-heartbeat: 2026-07-27T22:28:02Z
-status: claimed-before-planning
+heartbeat: 2026-07-27T22:28:21Z
+status: in-progress
 items: v2-std-ui-missing-fixture
 paths: tests/conformance/std-ui- tests/conformance/expected/std-ui- tests/examples/std-ui/
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  Reproduce the five std-ui aggregator/extended cases in the real harness, determine whether
+  their missing module is a bad relative import or a genuinely absent fixture, apply the smallest
+  path-correct fix, and prove every declared lane without duplicating the root std-ui library.
+done-so-far: claim landed and isolated worktree created from origin/main
+next: write the resume-cold execution plan into SPRINT.md, then capture the five-case baseline
