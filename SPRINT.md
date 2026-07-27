@@ -40,7 +40,13 @@ qualify artifacts; `NEVER-RUN` is the blocker this slice closes.
       NRQ-1 remains open until the shared default is fixed. Serialize each
       full-ref workflow, accept only exact stable SemVer publication tags, and
       replace existing-release `--clobber` with create-only fail-closed
-      publication.
+      publication. Put the privileged mutation behind
+      `scripts/native-release-publish <tag> <dist-dir>` and prove it through
+      `tests/e2e/native-release-publication.sh`: compare the exact nine-file
+      asset set and checksum bytes, require a confirmed release-by-tag 404
+      before one exact `gh release create` invocation, and make malformed tags,
+      pre-existing releases, ambiguous lookup failures, argv drift, and create
+      failures red before any real tag is involved.
 - [ ] **NRQ-2 — execute and record the real three-platform dry-run.** Validate
       workflow YAML and shell syntax locally, run the mandatory affected
       conformance slice, dispatch the dry-run, and require every declared
