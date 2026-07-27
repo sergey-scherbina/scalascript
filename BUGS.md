@@ -65,8 +65,8 @@ the true signed maximum, start an empty table at 1, and choose an unused
 positive fallback when the maximum cannot be incremented.
 ## v2-json-read-native-representation-parity — native JSON read differs from established output
 
-**Status:** OPEN (found 2026-07-27 by `codex` while working SPRINT
-`v2-json-self-hosted`).
+**Status:** OPEN — RECLASSIFIED AS A FIXTURE/GATE DEFECT (found 2026-07-27
+by `codex` while working SPRINT `v2-json-self-hosted`).
 
 **Real-harness reproduction.** Build the worktree product with
 `scripts/sbtc "installBin"`, then run:
@@ -88,11 +88,20 @@ the same assembled route. The regular three-case conformance command is 3/3,
 but it runs only INT/JS/JVM for these manifests, so that green result does not
 exercise or disprove the native-v2 mismatch.
 
-**Next.** Compare explicit `std/json.ssc` imports with the current implicit
-route, identify whether the difference originates in the self-hosted facade,
-native JSON provider, or generic value rendering, then pin the actual boundary
-in the v2 lane. Preserve INT/JS/JVM output and do not change the expected file
-to bless a backend divergence.
+**Classification.** Adding the contract-required imports from `std/json.ssc`
+makes all three cases byte-identical on V2, including the two values above.
+Adding those imports plus V2 to the existing shared manifests is not valid:
+the strict/lookup self-hosted routes fail on JS and do not compile on JVM,
+while the old fixtures intentionally exercise the legacy plugin intrinsics on
+those lanes. The native sweep therefore fed a legacy no-import fixture to a
+different public API and called its output a product regression.
+
+**Fix.** Leave the three legacy fixtures and expected files unchanged. Add one
+V2-only conformance case that explicitly imports the self-hosted JSON surface
+and pins strict raw parse, typed navigation, lookup, JSON null, and integral
+decimal rendering. The ordinary conformance command must then execute the V2
+boundary instead of relying on an ad-hoc sweep.
+
 ## native-release-unqualified-and-unrelocatable — release workflow cannot prove a runnable v2 artifact
 
 **Status:** OPEN (found 2026-07-27 by `native-release-qualification` against

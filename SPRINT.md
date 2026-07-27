@@ -7124,10 +7124,15 @@ emits `def C(a) = IrCtor(C, [a])`; extend to `def C(a) = let y=a*2 in IrCtor(C, 
     display (`expected=0`, `got=0.0`). Track the real defect as BUGS
     `v2-json-read-native-representation-parity`; do not preserve the stale
     "unbound self-hosted global" diagnosis.
-  - Done when `tests/conformance/run.sh --only
-    'json-read,json-value,json-lookup' --no-memo` passes every declared lane and
-    the assembled v2 route demonstrably executes the self-hosted implementation
-    rather than a native stub or fallback.
+  - **Import control:** explicit `std/json.ssc` imports make all three outputs
+    exact on V2. The same edit breaks JS and JVM, so the shared legacy-intrinsic
+    fixtures cannot simply gain a V2 lane. Keep them byte-for-byte unchanged
+    and add one V2-only `json-self-hosted-import` case covering strict raw
+    parse, `JsonValue`, lookup, null, and integral-decimal rendering.
+  - Done when regular conformance keeps json-read/json-value/json-lookup 3/3 on
+    their original lanes and the new V2-only import-boundary case passes through
+    both the standard wrapper and the assembled product, with no native stub or
+    fallback standing in for `std/json.ssc`.
 - [ ] **v2-js-only-tests** — js-cps-intrinsic-rewrite (`nowMillis`) / js-state-effect-runner /
   js-symbolic-infix-operator (custom multi-char operators `<~>`/`~~` — a real lexer gap but the test
   is `backends: [int, js]`) / if-then-no-else-after-while (`backends: [int]` AND the test file is
