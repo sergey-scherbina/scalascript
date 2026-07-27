@@ -1,0 +1,11 @@
+slug: cli-oauth-exit-in-tests
+branch: feature/cli-oauth-exit-in-tests
+agent: claude-code
+started: 2026-07-27T21:14:23Z
+heartbeat: 2026-07-27T21:14:23Z
+status: claimed-before-planning
+items: cli-command-System.exit-kills-the-test-fork
+paths: v1/tools/cli/src/main/scala/scalascript/cli/OAuthCli.scala v1/tools/cli/src/test/scala/scalascript/cli/OAuthCliTest.scala BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
