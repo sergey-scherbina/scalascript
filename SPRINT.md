@@ -72,6 +72,42 @@ vectors; the remaining two are owner-gated, not implementation-gated: vec 15 (Po
 needs a 2nd runtime + §10.2 global-closure/effectful scope call) and vec 26 (`pending-spec` →
 proposal needs an owner). Surface both as a question; do not "flip" either by bending the
 realization to the pending's stated mechanism.
+## 2026-07-27 — post-f4-board-reconcile (the board lies; fix it before anyone builds on it)
+
+Two things landed on 2026-07-23 that the planning files still contradict: the **F4 flip**
+(`56d7d705f` — F is the DEFAULT native front, `RunNativeV2.frontIsF` is now opt-OUT) and the
+**first fully-green CI run on `main`** (run `30020319173` on `18ee1c21a`: Conformance Suite,
+`sbt — compile and test`, Validate ScalaScript, Lint Markdown all `success` — ending the
+192-consecutive-red streak). A fresh agent reading `BACKLOG.md` / `BUGS.md` / `MILESTONES.md`
+today would conclude the flip is still held and CI has never been green. That is exactly the
+`feedback_measurement_must_compare_not_prejudge` failure shape applied to the *plan* instead of
+the *gate*, so it gets fixed first.
+
+- [ ] **1. `BACKLOG.md` §`v2-f4-flip`** — header says "STILL HELD (2nd re-flip attempt … NEW blocker
+      found)"; blocker ③ is cleared. Rewrite as landed (`56d7d705f`), keep the two-revert history +
+      the "corpus dual-run is necessary but NOT sufficient" lesson (it is the durable part), and
+      point the residual perf cost at the F5b arc. Remaining open sub-item after the rewrite:
+      F4 **step 5** (delete `ssc1-front`/`ssc1-lower` + the F4a delegate-fallback) — Sergiy's call,
+      not agent-claimable.
+- [ ] **2. `BUGS.md` `f-native-out-of-corpus-smoke-regressions`** — `Status: OPEN — narrowed`, but its
+      own body records ③.1 FIXED (`f02100097`) and ③.2 FIXED via D2 (`cca93b867`), and the flip
+      release-claim verified the full 72-script e2e smoke set A/B-green under F vs legacy with zero
+      F-only regressions. Flip to FIXED with the landed SHAs + that verification line.
+- [ ] **3. `MILESTONES.md` §Health** — "CI was red for 192 consecutive runs … main has never had a
+      fully green run" → record the first green (`18ee1c21a`, run `30020319173`, 4/4 jobs) and keep
+      the standing rule (`gh run list` before claiming a lane green) — the rule survives, the status
+      does not. Also refresh §1 (stream 1): the F4 front swap is done at the default level.
+- [ ] **4. `jdk-backend-accept-teardown-race`** — the ready one-liner below; close it in the same
+      sweep so the top of the queue is genuinely empty. Separate feature commit.
+- [ ] **5. Stale worktrees** — `scalascript-wt-{ci-last-red,d2-reader-impl,v2-f4-flip}` have no
+      unpushed commits and clean status = cleanup artifacts (AGENTS.md Rule 4). Remove with
+      `scripts/rm-worktree` (kills their sbt/bloop daemons too), then `scripts/kill-stale-builders`.
+- [ ] **6. Plan the F5b typed-IR arc into SPRINT** — the agreed next track. F is default but
+      interpreted and 2-4× slower than legacy (measured: hello 0.8→1.5 s, scljet 8→32 s; forced the
+      negtc CI step budget 30→75 min). F5b typed IR is the single prerequisite for BOTH deferred
+      kernel-shrink levers (δ-table retirement −1,100…1,500 L; FastCode/SelfRec deletion, already
+      proven byte-identical but perf-blocked at fib 4.3×). Existing slices: §`v2-f5b-stage1` (S1-5),
+      §`v2-f5c`, `specs/v2-f5b-typed-ir-design.md`. Re-measure the baseline before claiming any of it.
 
 ---
 
