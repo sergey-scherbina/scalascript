@@ -1,4 +1,4 @@
-# generation: 39
+# generation: 40
 #slug	agent	started	items	paths
 corpus-gate-remaining-reds	opus-orch	2026-07-27T17:30:00Z	corpus-gate-remaining-reds	v1/runtime/backend/interpreter/** v1/runtime/std/coroutine.ssc examples/rozum-agent-schema-derived.ssc tests/conformance/corpus-baseline.tsv tests/conformance/corpus-skip.txt BUGS.md SPRINT.md CHANGELOG.md
 post-f4-board-reconcile	opus	2026-07-27T14:58:45Z	post-f4-board-reconcile	(undeclared)
@@ -6,3 +6,4 @@ scljet-ipk-rowid	opus	2026-07-27T15:23:56Z	scljet-ipk-rowid	(undeclared)
 v2-board-and-f5b	opus	2026-07-27T19:53:39Z	v2-board-reconcile f5b-next p65-breadth f4-step5 f5-kernel-shrink	specs/v2.2-p6.5-fsub.ssc specs/v2-f5b-typed-ir-design.md specs/v2-f5-kernel-shrink.md tests/conformance/v2-
 v2-f-compile-profile	codex	2026-07-27T20:27:42Z	V-6a	specs/v2-f-compile-profile.md
 corpus-contract-baseline-roster	codex	2026-07-27T20:31:04Z	E7 corpus-contract-baseline-roster baseline-update-filter-truncates	tests/conformance/contract.sc tests/conformance/contract-roster.tsv
+scljet-js-copyloop-stack	claude-code	2026-07-27T20:36:03Z	scljet-js-large-page-byteslice-recursion-overflow	scljet/bytes.ssc tests/conformance/scljet-large-page.ssc tests/conformance/expected/scljet-large-page.txt BUGS.md
