@@ -2,10 +2,13 @@ slug: v2-f-compile-profile
 branch: feature/v2-f-compile-profile
 agent: codex
 started: 2026-07-27T20:27:42Z
-heartbeat: 2026-07-27T20:27:42Z
-status: claimed-before-planning
+heartbeat: 2026-07-27T20:29:01Z
+status: in-progress
 items: V-6a
 paths: specs/v2-f-compile-profile.md
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  V-6a only: establish a same-jar/same-input wall-clock A/B for F versus legacy on F's
+  self-compile path, hello, and scljet; capture JFR for the self-compile workload; publish
+  a phase-attributed report and a falsifiable admission criterion for V-6b. No product-code
+  changes are in scope for this claim.
+next: execute V-6a.1 reproducible wall-clock A/B, then capture JFR and publish the report
