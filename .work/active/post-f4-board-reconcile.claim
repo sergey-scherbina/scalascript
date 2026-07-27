@@ -1,6 +1,18 @@
-feature/post-f4-board-reconcile 2026-07-27T14:43:00Z
+feature/post-f4-board-reconcile 2026-07-27T14:58:45Z
 agent: opus
-heartbeat: 2026-07-27T14:43:00Z
-status: in-progress
-done-so-far: nothing yet — claiming.
-next: reconcile the board after the F4 flip landed (56d7d705f) + first fully-green CI on main: (1) BACKLOG v2-f4-flip "STILL HELD" -> landed; (2) BUGS f-native-out-of-corpus-smoke-regressions OPEN -> FIXED (both regressions cleared, 72/72 smokes A/B green); (3) MILESTONES Health "never had a fully green run" -> green on 18ee1c21a run 30020319173; (4) close the ready one-liner jdk-backend-accept-teardown-race (JdkServerBackend.scala:110-112); (5) remove 3 stale worktrees. Then plan the F5b typed-IR arc into SPRINT.
+heartbeat: 2026-07-27T14:58:45Z
+status: landed-awaiting-exact-sha-ci
+done-so-far: |
+  All five slices landed on origin/main through ebdbd18b8:
+    e0b474031 fix(http-server) jdk-backend-accept teardown rejection (BUGS closed)
+    8ceec021c + 5bdc2e32d BUGS: both stale-OPEN entries closed; the smoke one closed on a
+      RE-RUN (3/3 smokes under F-default, A/B vs SSC_FRONT=legacy), not on the flip paperwork
+    c3f3b8692 BACKLOG v2-f4-flip -> LANDED (step 5 left open, Sergiy's call); MILESTONES Health
+      -> first green run 18ee1c21a / run 30020319173; stale [claimed] markers corrected
+    ebdbd18b8 reconciled the DUPLICATE Batch A from the f4-arc-closure sibling
+  Removed 3 orphaned worktrees (ci-last-red, d2-reader-impl, v2-f4-flip).
+  COLLISION: f4-arc-closure (claim 08a6cb9d2) claimed the identical Batch A ~2 min after this
+  claim (ec56aeb01). Its A1-A4 are marked [x] with evidence in SPRINT; its B/C/D are untouched.
+next: exact-SHA CI on ebdbd18b8 is IN PROGRESS (run 30277647549). Claim stays open until it is
+  green per AGENTS.md 4c. Nothing else in flight. Next track (F5b typed IR) is Batch B in SPRINT
+  and is the f4-arc-closure sibling's declared next claim — do not duplicate it a second time.
