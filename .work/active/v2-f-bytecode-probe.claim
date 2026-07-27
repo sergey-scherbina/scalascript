@@ -2,13 +2,13 @@ slug: v2-f-bytecode-probe
 branch: feature/v2-f-bytecode-probe
 agent: codex
 started: 2026-07-27T20:58:16Z
-heartbeat: 2026-07-27T21:08:20Z
+heartbeat: 2026-07-27T21:12:52Z
 status: in-progress
 items: V-6b
-paths: specs/v2-f-bytecode-probe.md scripts/v2-f-bytecode-probe
+paths: specs/v2-f-bytecode-probe.md scripts/v2-f-bytecode-probe v2/backend-jvm-bytecode/JvmByteGen.scala v2/backend-jvm-bytecode/src/test/scala/ssc/bytecode/JvmByteGenLargeStringTest.scala
 scope: |
   V-6b: build a reproducible no-fallback driver that executes the already-bootstrapped F0 through
   JvmByteGen, compares exact output against the VM before classification, measures fresh-process
-  speedup, and integrates the admitted lane only after the live RunNativeV2 claim releases.
-done-so-far: no-fallback probe landed; 5-run F0 VM/direct-ASM medians 4.93/2.27 s, exact output, 2.17x
-next: measure hello/SclJet candidate tax, verify the spec, then integrate after RunNativeV2 ownership clears
+  speedup, and remove the concrete large-CStr admission blocker without touching live RunNativeV2 work.
+done-so-far: file-backed F0 is exact and 2.17x faster; exact product SclJet F0 rejects with UTF8 string too large
+next: chunk large CStr constants in JvmByteGen, add a red/green unit test, then rerun exact product F0
