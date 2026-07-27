@@ -1,5 +1,27 @@
 # Durable cancellation (vector 26) — the contested points, for the semantic owner
 
+## ✅ DECIDED 2026-07-27 by Sergiy — this section is now the contract
+
+| Fork | Decision | Note |
+|---|---|---|
+| **D1** resume-then-cancel | **A distinct `TooLateToCancel`** — option (b) | NOT collapsed into `AlreadyResumed`; §13 non-collapsibility applies literally. Costs a second §13 row + boundary projection, which is the price of the distinction. |
+| **D4** admission-order tie | **Cancellation checked FIRST** | When a continuation is both expired and cancelled, the caller's own action is the more informative answer to "why did my run not happen". The tie is now SPECIFIED — it must not be left per-lane. |
+| **D2** in-flight runs | **(c) — assumed, not named by the owner** | Base contract blocks new admissions only (portable across targets), PLUS a mandatory capability bit so `blocks-new` vs `interrupts-in-flight` is machine-readable instead of a footnote. |
+| **D3** capsule carries cancellation | **(a)+(c) — assumed, not named** | Host-local only, no format bump, and the API says so at the call site (`cancelLocally`). Fleet-wide forbidding stays provider-backed revocation. |
+| **D5** naming / ABI | **assumed, not named** | `Cancelled` for the §13 row, boundary code `CANCELLED`, `tryCancel` internal behind the `.ssc` `cancel()` sugar. |
+
+⚠️ **D2, D3 and D5 were NOT named in the owner's answer** — they are this agent's recommendations,
+taken so the arc can proceed, and flagged here rather than silently absorbed. Any of them is cheap
+to revisit *before* the vector flips; after the conformance oracle text is frozen it is not.
+
+**What this unblocks:** vector `26-cancellation-transitions` becomes writable — host-only
+(`structured`) on both lanes, oracle demonstrating the transition table (cancel-then-resume →
+`Cancelled`, resume-then-cancel → **`TooLateToCancel`**, reusable-cancel-blocks-run → `Cancelled`,
+idempotent-cancel → `Cancelled`), taking durable to **25/26**. The remaining one is vector 15.
+
+The analysis that produced these forks follows unchanged, as the record of *why* each was a fork.
+
+
 Companion to [`durable-cancellation-proposal.md`](durable-cancellation-proposal.md). That document
 is one self-consistent option; this one isolates **where a different choice would give materially
 different semantics**, so the decision is made on the forks rather than on the whole document.
