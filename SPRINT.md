@@ -67,7 +67,10 @@ Spec: `specs/claim-mutex.md`.
 ## 2026-07-27 — `js-char-into-int-param`
 
 - [ ] **Fix `Char` → `Int` coercion at v1 JavaScript call boundaries.** Implementation + regressions
-      LANDED in `b672b0d41`; the claim remains open only for exact-SHA CI. The JS backend passed
+      LANDED in `b672b0d41`, but exact-SHA run `30286311782` found a regression before release:
+      multi-parameter typed lambdas declare destructured parameters with `const`, then the new
+      entry normalization assigns to those bindings and crashes with
+      `TypeError: Assignment to constant variable`. The JS backend originally passed
       `String.charAt` as boxed `_Char` into a declared `Int` parameter, so
       `isSpace(s.charAt(1))` silently returned `false` while the interpreter returned `true`. This
       also degraded headings/lists/tables in `runtime/std/markdown-core.ssc` on JS. BUGS entry:
@@ -88,8 +91,20 @@ Spec: `specs/claim-mutex.md`.
         (74 generated INT↔JS + 19 INT↔JVM, zero skips); assembled repro green on both lanes;
         `tests/conformance/run.sh --only 'markdown-html' --no-memo` PASS INT + PASS JS.
         BUGS is FIXED and CHANGELOG records the result.
-  - [ ] Require exact-SHA CI green for the final bookkeeping SHA, then mark this parent done,
-        release the claim, and remove the worktree with `scripts/rm-worktree`.
+  - [ ] Add `js-int-boundary-const-lambda` as a minimal INT/JS conformance regression with a
+        two-argument typed lambda, and first prove that the landed implementation fails on JS while
+        INT prints the expected result. Existing real-harness witnesses are
+        `std-foldable-traversable`, `std-functor-applicative-monad`, and `std-index`.
+  - [ ] Fix typed-lambda emission so `Int` boundary normalization never assigns to an immutable
+        binding. Prefer retaining immutable bindings when no normalization is needed; do not
+        weaken String or ordinary-Int behavior.
+  - [ ] Verify the minimal case plus all three exact CI failures with
+        `tests/conformance/run.sh --only '<case>' --no-memo`, then run the focused/full JS
+        differential tests that cover the original Char behavior.
+  - [ ] Update BUGS/CHANGELOG with the root cause and gates. Apply AGENTS.md evidence rule 4c to the
+        new landed SHA: exact-SHA green if available, otherwise state the strongest job/local
+        evidence; any red job still blocks release. Then mark this parent done, release the claim,
+        and remove the worktree with `scripts/rm-worktree`.
 
 ## 2026-07-27 — Sergiy "берись за все" batch (F4 arc closure → F5b lever → scljet → stream-3 decision)
 

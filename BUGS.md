@@ -1,5 +1,34 @@
 # Bug tracker
 
+## js-int-boundary-const-lambda — JS `Int` normalization assigns to immutable typed-lambda bindings
+
+**Status:** OPEN (found 2026-07-27 by exact-SHA CI run `30286311782`, `Conformance Suite` job
+`90044864452`, at `35a70f095`; regression introduced by `b672b0d41`).
+
+**Symptom/reproduce.** The JS lanes of `std-foldable-traversable`,
+`std-functor-applicative-monad`, and `std-index` exit with
+`TypeError: Assignment to constant variable`; INT and JVM pass. The generated multi-argument
+typed lambda has this shape:
+
+```javascript
+((...__a) => {
+  const [a, b] = (__a.length === 1 && Array.isArray(__a[0])) ? __a[0] : __a;
+  a = _charCodeOrNull(a) ?? a;
+  // ...
+})
+```
+
+**Root cause.** The `Char` → `Int` fix normalizes every declared `Int` parameter once at function
+entry. Typed lambdas destructure their rest argument into `const` bindings, unlike regular
+function parameters, so the shared assignment-based entry code is invalid for this emitter shape.
+The earlier focused typed-lambda regression had one parameter and did not exercise the destructured
+multi-argument path.
+
+**Fix / done-when.** Add a minimal two-argument typed-lambda conformance case that fails before the
+fix, then emit normalization without assigning to immutable bindings. The new case and all three
+standard-library witnesses must pass on JS while preserving the original Char-to-Int, ordinary-Int,
+and String negative controls.
+
 ## v2-native-front-drops-attributed-code-fence — the DEFAULT lane silently discards any ```scalascript fence carrying an attribute
 
 **Status:** OPEN — **high severity: silent code loss on the default execution path** (found
@@ -1847,7 +1876,8 @@ tests to the status-polling pattern of `ClusterBullyStatusConvergenceTest`.
 ## js-char-into-int-param — a `Char` passed into an `Int` parameter stays boxed on the v1 JS backend
 
 **Status:** FIXED 2026-07-27 in `b672b0d41` (found 2026-07-20 while building
-`std/markdown-html.ssc` for the docs site; exact-SHA CI pending before claim release).
+`std/markdown-html.ssc` for the docs site). Exact-SHA CI subsequently exposed the separate
+`js-int-boundary-const-lambda` regression, which must be fixed before this claim is released.
 
 **Symptom/reproduce:** six lines, no imports. `ssc-tools run --v1` vs `ssc-tools emit-js | node`:
 
