@@ -94,6 +94,42 @@ unbound globals. So the mechanism is something else, still unknown, and the gues
 here only so the next person does not spend the same two attempts on it. Start from the real program
 and bisect it down, rather than from a plausible-looking shape.
 
+## js-extern-shim-shadows-globalthis-implementation — the shim bound `undefined` over a working runtime function
+
+**Status:** **FIXED 2026-07-28** by `js-not-callable-unit`.
+
+**Symptom.** `Error: not callable: ()` thrown from `_call` deep in a generated bundle, with nothing
+in the message naming what failed. Hit `examples/rozum-agent-schema-derived.ssc` (JS lane).
+
+**Root cause.** `std/http.ssc` declares `extern def route`. The JS runtime DOES implement it — as
+`_ssc_http_route`, and it even publishes `globalThis.route = _ssc_http_route`. But `JsGen`'s extern
+shim looked only for `_ssc_ui_<name>` and for an intrinsic RENAME, and on finding neither emitted
+`const route = … : undefined` — **shadowing the working implementation** inside the module
+namespace. Calling it then threw, thousands of lines away from the cause.
+
+**Fix.** Add a last tier to the fallback chain: `globalThis.<name>` when it is a function. A property
+lookup deliberately — writing the bare name would be a TDZ self-reference to the `const` being
+declared, the same trap the intrinsic-rename branch guards against with `target != fname`. The
+`typeof` chain preserves the old behaviour (stay `undefined`) when nothing provides the name.
+
+**Verified.** The failure MOVED from the `route` call site (line 7877) to the next unresolved name
+(7912) — that displacement, not the absence of an error, is the evidence `route` now resolves.
+Conformance: extern-heavy slice `http-*,json-*,crypto-*,auth-*,std-*,uuid-*,effects*,coroutine*`
+27/27, and a full run reached 1023 lines with zero FAIL before being interrupted.
+
+**What this did NOT fix, and the hypothesis it corrected.** This work was claimed on the theory that
+`coroutine-demo` and `rozum-agent-schema-derived` shared ONE defect, because both failed with a
+byte-identical `not callable: ()`. They share the SHAPE, not the cause — there are three:
+
+| name | cause |
+|---|---|
+| `route` | shim shadowed a working `globalThis` implementation — **fixed here** |
+| `serveAsync` | runtime has `_ssc_http_serve` under a DIFFERENT name; nothing bridges them |
+| `coroutineCancel` | no JS implementation at all |
+
+The second needs a decision about whether `serve` and `serveAsync` mean the same thing (blocking vs
+not); the third is a missing feature. Both are JS-runtime surface questions, not codegen bugs, and
+are left open rather than papered over.
 
 ## heartbeat-threshold-stated-in-two-repos — AGENTS.md and the multi-agent skill can drift apart
 

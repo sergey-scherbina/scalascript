@@ -3039,11 +3039,25 @@ class JsGen(
         // `_sha256`).  An identity RuntimeCall (`csrfToken` → `csrfToken`, as in
         // std/auth) would make the fallback reference the very const being
         // declared (`const csrfToken = … : csrfToken`) → a TDZ self-reference.
+        // Last resort before `undefined`: a runtime that publishes the name on `globalThis`.
+        // `std/http.ssc` declares `extern def route`, the JS runtime implements it as
+        // `_ssc_http_route` AND registers `globalThis.route = _ssc_http_route` — but this shim
+        // only looked for `_ssc_ui_route` and an intrinsic RENAME, so it bound `undefined` and
+        // SHADOWED the working implementation. The failure surfaced far away as
+        // `Error: not callable: ()` deep in the generated bundle, with nothing naming `route`
+        // (BUGS.md `js-extern-shim-shadows-globalthis-implementation`).
+        //
+        // A property lookup, deliberately: writing the bare name here would be a TDZ
+        // self-reference to the `const` being declared — the same trap the intrinsic-rename branch
+        // above guards against with `target != fname`. The `typeof` chain keeps the old behaviour
+        // (stay `undefined`) when nothing provides the name.
+        val onGlobal =
+          s"(typeof globalThis !== 'undefined' && typeof globalThis.$fname === 'function' ? globalThis.$fname : undefined)"
         val fallback = intrinsics.get(scalascript.ir.QualifiedName(fname)).collect {
           case scalascript.backend.spi.RuntimeCall(target) if target != fname => target
         } match
-          case Some(target) => s"(typeof $target !== 'undefined' ? $target : undefined)"
-          case None         => "undefined"
+          case Some(target) => s"(typeof $target !== 'undefined' ? $target : $onGlobal)"
+          case None         => onGlobal
         decls += s"const $fname = (typeof $stub !== 'undefined') ? $stub : $fallback;"
         names += fname
       case dd: Defn.Def if isEffectOpDef(dd.body) =>
