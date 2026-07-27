@@ -1,0 +1,57 @@
+-- bound INSERT coercion --
+insert-text-int=OK:5
+insert-real-int=OK:7
+insert-text-exp=OK:75
+insert-null-auto=OK:76
+insert-signed-ws=OK:9
+-- invalid explicit INSERT values never become auto-rowids --
+reject-text=ERR:datatype mismatch: INTEGER PRIMARY KEY must be assigned an integer
+reject-fraction=ERR:datatype mismatch: INTEGER PRIMARY KEY must be assigned an integer
+reject-prefix=ERR:datatype mismatch: INTEGER PRIMARY KEY must be assigned an integer
+reject-text-hex=ERR:datatype mismatch: INTEGER PRIMARY KEY must be assigned an integer
+reject-text-overflow=ERR:datatype mismatch: INTEGER PRIMARY KEY must be assigned an integer
+reject-real-min=ERR:datatype mismatch: INTEGER PRIMARY KEY must be assigned an integer
+reject-blob=ERR:datatype mismatch: INTEGER PRIMARY KEY must be assigned an integer
+reject-empty=ERR:datatype mismatch: INTEGER PRIMARY KEY must be assigned an integer
+reject-sign-plus=ERR:datatype mismatch: INTEGER PRIMARY KEY must be assigned an integer
+reject-sign-minus=ERR:datatype mismatch: INTEGER PRIMARY KEY must be assigned an integer
+reject-text-negative-overflow=ERR:datatype mismatch: INTEGER PRIMARY KEY must be assigned an integer
+reject-real-nan=ERR:datatype mismatch: INTEGER PRIMARY KEY must be assigned an integer
+reject-real-infinity=ERR:datatype mismatch: INTEGER PRIMARY KEY must be assigned an integer
+-- direct decimal overflow and unsupported exponent fail before mutation --
+reject-direct-overflow=ERR:datatype mismatch: INTEGER PRIMARY KEY must be assigned an integer
+reject-direct-negative-overflow=ERR:datatype mismatch: INTEGER PRIMARY KEY must be assigned an integer
+reject-exponent-tail=ERR:unexpected trailing tokens after UPDATE
+reject-insert-select-tail=ERR:unexpected trailing tokens after INSERT
+reject-late-batch=ERR:datatype mismatch: INTEGER PRIMARY KEY must be assigned an integer
+-- SQLite binary64 rounding plus exact integer endpoints --
+insert-underflow-zero=OK:0
+insert-rounded=OK:9007199254740992
+insert-rounded-high=OK:9223372036854774784
+insert-min=OK:-9223372036854775808
+insert-max=OK:9223372036854775807
+after-inserts=-9223372036854775808|-9223372036854775808|min ; 0|0|underflow ; 1|1|seed ; 5|5|text-int ; 7|7|real-int ; 9|9|signed-ws ; 75|75|text-exp ; 76|76|auto ; 9007199254740992|9007199254740992|rounded ; 9223372036854774784|9223372036854774784|rounded-high ; 9223372036854775807|9223372036854775807|max
+-- bound UPDATE uses the same coercion and collision policy --
+update-text-real=OK:0
+update-real=OK:0
+reject-update-fraction=ERR:datatype mismatch: INTEGER PRIMARY KEY must be assigned an integer
+reject-update-collision=ERR:UNIQUE constraint failed: rowid 8 already exists
+reject-insert-collision=ERR:duplicate rowid 8
+after-updates=-9223372036854775808|-9223372036854775808|min ; 0|0|underflow ; 1|1|seed ; 6|6|text-int ; 8|8|real-int ; 9|9|signed-ws ; 75|75|text-exp ; 76|76|auto ; 9007199254740992|9007199254740992|rounded ; 9223372036854774784|9223372036854774784|rounded-high ; 9223372036854775807|9223372036854775807|max
+-- direct unary Long.MinValue stays an INTEGER literal --
+reject-direct-below-min=ERR:datatype mismatch: INTEGER PRIMARY KEY must be assigned an integer
+update-direct-min=OK:0
+direct-min-rows=-9223372036854775808|-9223372036854775808|seed
+-- auto-rowid follows a negative maximum --
+move-negative=OK:0
+negative-auto=OK:-4
+negative-auto-rows=-5|-5|seed ; -4|-4|auto
+-- auto-rowid after Long.MaxValue stays positive and unique --
+move-max=OK:0
+max-auto=OK:1
+max-auto-valid=true
+-- indexed UPDATE shares coercion and keeps row order --
+indexed-text-real=OK:0
+indexed-insert-text-real=OK:10
+indexed-invalid=ERR:datatype mismatch: INTEGER PRIMARY KEY must be assigned an integer
+indexed-rows=2|2|bob ; 9|9|ann ; 10|10|cam

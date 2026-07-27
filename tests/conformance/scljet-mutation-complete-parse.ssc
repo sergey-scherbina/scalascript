@@ -1,0 +1,42 @@
+---
+name: scljet-mutation-complete-parse
+description: SclJet SQL mutations consume their complete token stream before returning a new image
+backends: [int, js]
+---
+
+# scljet — mutation parsers fail closed
+
+Every mutation parser must reject an unsupported suffix before returning a changed
+database image. The malformed statements below used to execute their recognized
+prefix and silently discard the rest.
+
+[ByteSlice, SqliteValue, SqlInteger, SqlText, buildTableDatabase, buildTableWithIndexDatabase](std/scljet/index.ssc)
+[executeMutationCountedParams](std/scljet/sql.ssc)
+
+```scalascript
+def reject(image: ByteSlice, label: String, sql: String): Unit =
+  executeMutationCountedParams(image, sql, Nil) match
+    case Left(message) => println(label + "=ERR:" + message)
+    case Right(_) => println(label + "=UNSAFE-SUCCESS")
+
+buildTableDatabase(512, 1, 1, "emp",
+  "CREATE TABLE emp(id INTEGER PRIMARY KEY, note TEXT)",
+  List(List(SqlInteger(1L), SqlText("seed")))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(base) =>
+    reject(base, "create-table-tail", "CREATE TABLE rogue(a INTEGER) garbage")
+    reject(base, "create-table-missing-body", "CREATE TABLE rogue")
+    reject(base, "create-table-unclosed", "CREATE TABLE rogue(a INTEGER")
+    reject(base, "create-index-tail", "CREATE INDEX idx_bad ON emp(note) garbage")
+    reject(base, "create-index-partial", "CREATE INDEX idx_bad ON emp(note) WHERE note = 'x'")
+    reject(base, "bare-create", "CREATE")
+
+buildTableWithIndexDatabase(512, 1, 1, "emp",
+  "CREATE TABLE emp(id INTEGER PRIMARY KEY, note TEXT)",
+  "idx_note", "CREATE INDEX idx_note ON emp(note)", List(1),
+  List(List(SqlInteger(1L), SqlText("seed")))) match
+  case Left(error) => println("indexed-build-error:" + error.message)
+  case Right(base) =>
+    reject(base, "drop-index-tail", "DROP INDEX idx_note garbage")
+    reject(base, "bare-drop-index", "DROP INDEX")
+```

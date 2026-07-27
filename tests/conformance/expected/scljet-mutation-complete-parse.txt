@@ -1,0 +1,8 @@
+create-table-tail=ERR:unexpected trailing tokens after CREATE TABLE
+create-table-missing-body=ERR:expected '(' after table name
+create-table-unclosed=ERR:expected ')' in CREATE TABLE
+create-index-tail=ERR:unexpected trailing tokens after CREATE INDEX
+create-index-partial=ERR:unexpected trailing tokens after CREATE INDEX
+bare-create=ERR:expected TABLE
+drop-index-tail=ERR:unexpected trailing tokens after DROP INDEX
+bare-drop-index=ERR:expected index name

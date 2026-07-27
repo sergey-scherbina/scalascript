@@ -1,0 +1,197 @@
+---
+name: scljet-ipk-numeric-affinity
+description: SclJet SQL — INSERT and UPDATE share SQLite-compatible INTEGER PRIMARY KEY numeric coercion
+backends: [int, js]
+---
+
+# scljet — INTEGER PRIMARY KEY numeric affinity
+
+Bound values isolate rowid coercion from SQL source-number grammar. The two raw
+statements additionally pin overflow and fail-closed trailing-token behavior.
+
+[ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, buildTableDatabase, buildTableWithIndexDatabase](std/scljet/index.ssc)
+[MutationResult, executeMutationCountedParams, queryImage](std/scljet/sql.ssc)
+
+```scalascript
+def showValue(v: SqliteValue): String = v match
+  case SqlNull => "NULL"
+  case SqlInteger(x) => x.toString
+  case SqlText(x) => x
+  case _ => "?"
+
+def showRow(row: List[SqliteValue]): String = row match
+  case Nil => ""
+  case h :: Nil => showValue(h)
+  case h :: t => showValue(h) + "|" + showRow(t)
+
+def showRows(rows: List[List[SqliteValue]]): String = rows match
+  case Nil => "(no rows)"
+  case h :: Nil => showRow(h)
+  case h :: t => showRow(h) + " ; " + showRows(t)
+
+def dump(image: ByteSlice, label: String): Unit =
+  queryImage(image, "SELECT rowid, id, note FROM emp ORDER BY rowid") match
+    case Left(message) => println(label + "=QUERY-ERROR:" + message)
+    case Right(rows) => println(label + "=" + showRows(rows))
+
+def step(image: ByteSlice, label: String, sql: String, params: List[SqliteValue]): ByteSlice =
+  executeMutationCountedParams(image, sql, params) match
+    case Left(message) =>
+      println(label + "=ERR:" + message)
+      image
+    case Right(result) =>
+      println(label + "=OK:" + result.lastInsertRowid.toString)
+      result.image
+
+def rowId(row: List[SqliteValue]): Long = row match
+  case SqlInteger(x) :: _ => x
+  case _ => -1L
+
+def maxFallbackValid(rows: List[List[SqliteValue]]): Boolean =
+  var r = rows
+  var sawMax = false
+  var sawCandidate = false
+  while r.nonEmpty do
+    val id = rowId(r.head)
+    if id == 9223372036854775807L then sawMax = true
+    else if id > 0L then sawCandidate = true
+    r = r.tail
+  rows.length == 2 && sawMax && sawCandidate
+
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER PRIMARY KEY, note TEXT)",
+  List(List(SqlInteger(1L), SqlText("seed")))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(base) =>
+    println("-- bound INSERT coercion --")
+    val a1 = step(base, "insert-text-int", "INSERT INTO emp VALUES (?, 'text-int')",
+      List(SqlText("5")))
+    val a2 = step(a1, "insert-real-int", "INSERT INTO emp VALUES (?, 'real-int')",
+      List(SqlReal(7.0)))
+    val a3 = step(a2, "insert-text-exp", "INSERT INTO emp VALUES (?, 'text-exp')",
+      List(SqlText("7.5e1")))
+    val a4 = step(a3, "insert-null-auto", "INSERT INTO emp VALUES (?, 'auto')",
+      List(SqlNull))
+    val numericWs =
+      " " + 9.toChar.toString + 10.toChar.toString + 11.toChar.toString +
+      12.toChar.toString + 13.toChar.toString
+    val aSigned = step(a4, "insert-signed-ws", "INSERT INTO emp VALUES (?, 'signed-ws')",
+      List(SqlText(numericWs + "+0009" + numericWs)))
+
+    println("-- invalid explicit INSERT values never become auto-rowids --")
+    val a5 = step(aSigned, "reject-text", "INSERT INTO emp VALUES (?, 'bad-text')",
+      List(SqlText("x")))
+    val a6 = step(a5, "reject-fraction", "INSERT INTO emp VALUES (?, 'bad-real')",
+      List(SqlReal(7.5)))
+    val a7 = step(a6, "reject-prefix", "INSERT INTO emp VALUES (?, 'bad-prefix')",
+      List(SqlText("5abc")))
+    val a8 = step(a7, "reject-text-hex", "INSERT INTO emp VALUES (?, 'bad-hex')",
+      List(SqlText("0x10")))
+    val a9 = step(a8, "reject-text-overflow", "INSERT INTO emp VALUES (?, 'bad-overflow')",
+      List(SqlText("9223372036854775808")))
+    val a10 = step(a9, "reject-real-min", "INSERT INTO emp VALUES (?, 'bad-real-min')",
+      List(SqlText("-9223372036854775808.0")))
+    val a11 = step(a10, "reject-blob", "INSERT INTO emp VALUES (?, 'bad-blob')",
+      List(SqlBlob(ByteSlice.empty)))
+    val aEmpty = step(a11, "reject-empty", "INSERT INTO emp VALUES (?, 'bad-empty')",
+      List(SqlText("")))
+    val aPlus = step(aEmpty, "reject-sign-plus", "INSERT INTO emp VALUES (?, 'bad-plus')",
+      List(SqlText("+")))
+    val aMinus = step(aPlus, "reject-sign-minus", "INSERT INTO emp VALUES (?, 'bad-minus')",
+      List(SqlText("-")))
+    val aNegativeOverflow = step(aMinus, "reject-text-negative-overflow",
+      "INSERT INTO emp VALUES (?, 'bad-negative-overflow')",
+      List(SqlText("-9223372036854775809")))
+    val aNan = step(aNegativeOverflow, "reject-real-nan",
+      "INSERT INTO emp VALUES (?, 'bad-nan')", List(SqlReal(0.0 / 0.0)))
+    val aInfinity = step(aNan, "reject-real-infinity",
+      "INSERT INTO emp VALUES (?, 'bad-infinity')", List(SqlReal(1.0 / 0.0)))
+
+    println("-- direct decimal overflow and unsupported exponent fail before mutation --")
+    val a12 = step(aInfinity, "reject-direct-overflow",
+      "INSERT INTO emp VALUES (9223372036854775808, 'direct-overflow')", Nil)
+    val aNegativeDirect = step(a12, "reject-direct-negative-overflow",
+      "UPDATE emp SET id = -9223372036854775809 WHERE id = 5", Nil)
+    val a13 = step(aNegativeDirect, "reject-exponent-tail",
+      "UPDATE emp SET id = 2e2 WHERE id = 5", Nil)
+    val aSelectTail = step(a13, "reject-insert-select-tail",
+      "INSERT INTO emp SELECT 2e2", Nil)
+    val aLateBatch = step(aSelectTail, "reject-late-batch",
+      "INSERT INTO emp VALUES (?, 'batch-ok'), (?, 'batch-bad')",
+      List(SqlInteger(90L), SqlText("bad")))
+
+    println("-- SQLite binary64 rounding plus exact integer endpoints --")
+    val a14 = step(aLateBatch, "insert-underflow-zero", "INSERT INTO emp VALUES (?, 'underflow')",
+      List(SqlText("1e-1000")))
+    val a15 = step(a14, "insert-rounded", "INSERT INTO emp VALUES (?, 'rounded')",
+      List(SqlText("9007199254740993.0")))
+    val a16 = step(a15, "insert-rounded-high", "INSERT INTO emp VALUES (?, 'rounded-high')",
+      List(SqlText("9223372036854775000.0")))
+    val a17 = step(a16, "insert-min", "INSERT INTO emp VALUES (?, 'min')",
+      List(SqlText("-9223372036854775808")))
+    val a18 = step(a17, "insert-max", "INSERT INTO emp VALUES (?, 'max')",
+      List(SqlText("9223372036854775807")))
+    dump(a18, "after-inserts")
+
+    println("-- bound UPDATE uses the same coercion and collision policy --")
+    val a19 = step(a18, "update-text-real", "UPDATE emp SET id = ? WHERE id = 5",
+      List(SqlText("6.0")))
+    val a20 = step(a19, "update-real", "UPDATE emp SET id = ? WHERE id = 7",
+      List(SqlReal(8.0)))
+    val a21 = step(a20, "reject-update-fraction", "UPDATE emp SET id = ? WHERE id = 8",
+      List(SqlReal(8.5)))
+    val a22 = step(a21, "reject-update-collision", "UPDATE emp SET id = ? WHERE id = 6",
+      List(SqlText("8.0")))
+    val a23 = step(a22, "reject-insert-collision", "INSERT INTO emp VALUES (?, 'collision')",
+      List(SqlText("8.0")))
+    dump(a23, "after-updates")
+
+println("-- direct unary Long.MinValue stays an INTEGER literal --")
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER PRIMARY KEY, note TEXT)",
+  List(List(SqlInteger(1L), SqlText("seed")))) match
+  case Left(error) => println("direct-min-build-error:" + error.message)
+  case Right(base) =>
+    val rejected = step(base, "reject-direct-below-min",
+      "UPDATE emp SET id = -9223372036854775809 WHERE id = 1", Nil)
+    val moved = step(rejected, "update-direct-min",
+      "UPDATE emp SET id = -9223372036854775808 WHERE id = 1", Nil)
+    dump(moved, "direct-min-rows")
+
+println("-- auto-rowid follows a negative maximum --")
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER PRIMARY KEY, note TEXT)",
+  List(List(SqlInteger(1L), SqlText("seed")))) match
+  case Left(error) => println("negative-build-error:" + error.message)
+  case Right(base) =>
+    val moved = step(base, "move-negative", "UPDATE emp SET id = ? WHERE id = 1",
+      List(SqlInteger(-5L)))
+    val inserted = step(moved, "negative-auto", "INSERT INTO emp VALUES (?, 'auto')",
+      List(SqlNull))
+    dump(inserted, "negative-auto-rows")
+
+println("-- auto-rowid after Long.MaxValue stays positive and unique --")
+buildTableDatabase(512, 1, 1, "emp", "CREATE TABLE emp(id INTEGER PRIMARY KEY, note TEXT)",
+  List(List(SqlInteger(1L), SqlText("seed")))) match
+  case Left(error) => println("max-build-error:" + error.message)
+  case Right(base) =>
+    val moved = step(base, "move-max", "UPDATE emp SET id = ? WHERE id = 1",
+      List(SqlInteger(9223372036854775807L)))
+    val inserted = step(moved, "max-auto", "INSERT INTO emp VALUES (?, 'auto')",
+      List(SqlNull))
+    queryImage(inserted, "SELECT id FROM emp ORDER BY id") match
+      case Left(message) => println("max-auto-valid=QUERY-ERROR:" + message)
+      case Right(rows) => println("max-auto-valid=" + maxFallbackValid(rows).toString)
+
+println("-- indexed UPDATE shares coercion and keeps row order --")
+buildTableWithIndexDatabase(512, 1, 1, "emp",
+  "CREATE TABLE emp(id INTEGER PRIMARY KEY, note TEXT)",
+  "idx", "CREATE INDEX idx ON emp(note)", List(1),
+  List(List(SqlInteger(1L), SqlText("ann")), List(SqlInteger(2L), SqlText("bob")))) match
+  case Left(error) => println("indexed-build-error:" + error.message)
+  case Right(base) =>
+    val moved = step(base, "indexed-text-real", "UPDATE emp SET id = ? WHERE id = 1",
+      List(SqlText("9.0")))
+    val inserted = step(moved, "indexed-insert-text-real",
+      "INSERT INTO emp VALUES (?, 'cam')", List(SqlText("10.0")))
+    val refused = step(inserted, "indexed-invalid", "UPDATE emp SET id = ? WHERE id = 9",
+      List(SqlText("x")))
+    dump(refused, "indexed-rows")
+```
