@@ -2,10 +2,12 @@ slug: v2-generator-provider
 branch: feature/v2-generator-provider
 agent: codex
 started: 2026-07-27T23:56:39Z
-heartbeat: 2026-07-27T23:56:39Z
-status: claimed-before-planning
+heartbeat: 2026-07-27T23:56:50Z
+status: in-progress
 items: v2-generator-provider
 paths: v2/runtime/std/dataset-plugin/ v2/runtime/std/generator-plugin/ tests/conformance/dataset-from-generator.ssc tests/conformance/expected/dataset-from-generator.txt tests/fixtures/v21-native/generator-provider.ssc
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  Reproduce Dataset.fromGenerator/toGenerator on assembled V2, identify the bridge contract between
+  the dataset and generator plugins, and fix or close the provider item without duplicating runtime state.
+done-so-far: claim landed and worktree created
+next: write the compare-first plan into SPRINT.md, then run the native fixture
