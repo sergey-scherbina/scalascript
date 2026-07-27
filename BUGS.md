@@ -1,5 +1,41 @@
 # Bug tracker
 
+## ci-runs-cancelled-under-churn — most commits get no verdict, and `cancelled` is RED
+
+**Status:** OPEN — **health / apparatus**, recorded 2026-07-27 by opus (observed while waiting on
+exact-SHA CI for four landed batches). **Mechanism NOT established** — the facts are below; the
+cause is not, and this entry deliberately does not guess it.
+
+**Observed on `ci.yml` / `main`, 2026-07-27 ~16:59Z:**
+
+- **6 of the last 14 runs ended `cancelled`** (`b672b0d41`, `bb78a98ea`, `309011c05`, `1ad34d8ec`,
+  `4e0c17737`, `32214b697`, `adba80d36`). In the one inspected (`30286193700`) all four jobs
+  cancelled together, ~8.5 min in — not an instant supersede.
+- The queue was **8 runs deep**; the three oldest (`1ebb8bf1e`, `a02036602`, `e0529a53b`) had been
+  `in_progress` for **80+ minutes**.
+- **`ci.yml` has no `concurrency:` block**, so GitHub is not auto-cancelling superseded runs.
+  `pages.yml` is the only workflow with one and it is `cancel-in-progress: false`.
+
+**Why this is a bug and not just slowness.** `MILESTONES.md` already records that a gate reporting
+`cancelled` is **RED, not neutral**. `AGENTS.md` §4c makes an exit-0 exact-SHA run the *only* green
+verdict and says pending/unknown keeps a claim open. With four agents pushing, that verdict is
+effectively unreachable: a claim either stays open forever or is released on evidence the rule does
+not accept. Both happened today. This is the same shape as the entries in
+`feedback_measurement_must_compare_not_prejudge` — the apparatus that is supposed to establish trust
+is the thing that is broken, and it fails *quietly* (a cancelled run looks like "not red").
+
+**Interim practice** (what this session actually did, stated so it is auditable rather than implied):
+verify via a **green descendant** run plus `gh run view --json jobs` for the specific job that could
+catch the change, and say in the release-claim which evidence exists. Example: for the scljet batch
+the run was still `in_progress` while its `Conformance Suite` job already read `success` — that is
+the job that would catch a scljet regression, and the 300-min `sbt` job is the long pole.
+
+**Candidate fixes for whoever owns CI** (each needs the mechanism confirmed first): add a
+`concurrency` group with `cancel-in-progress: false` so queued runs are not lost; or split the
+300-min `sbt` job so a verdict arrives before the queue laps it; or gate the fast jobs
+(Conformance / Validate / Lint) as the per-push verdict and run `sbt` on a schedule.
+
+
 ## v2-front-try-in-def-body-shapes-break — two `try`-as-a-def-body shapes break, one of them SILENTLY
 
 **Status:** OPEN (found 2026-07-27 by opus while pinning `v2-native-front-try-catch` layer 2 — the
