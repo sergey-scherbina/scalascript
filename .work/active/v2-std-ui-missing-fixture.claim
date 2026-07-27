@@ -2,9 +2,9 @@ slug: v2-std-ui-missing-fixture
 branch: feature/v2-std-ui-missing-fixture
 agent: codex
 started: 2026-07-27T22:28:02Z
-heartbeat: 2026-07-27T23:01:52Z
+heartbeat: 2026-07-27T23:03:57Z
 status: in-progress
-items: v2-std-ui-missing-fixture v2-std-ui-native-pair-match
+items: v2-std-ui-missing-fixture v2-std-ui-native-pair-match v2-native-html-interpolator-parse
 paths: tests/conformance/std-ui- tests/conformance/expected/std-ui- tests/examples/std-ui/ v2/src/ v2/lib/ssc1-front.ssc0 v2/lib/ssc1-lower.ssc0
 scope: |
   Fix the five stale imports without duplicating the root std-ui library, then diagnose and close
