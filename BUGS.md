@@ -59,6 +59,40 @@ The fix exempts that exact full path, not the `.tsv` suffix. The end-to-end regr
 real script in a throwaway repository: it failed first with both `LEDGER.tsv` and `rogue.tsv`, then
 passed with only `rogue.tsv` plus its exact repair command. All four `tests/coord/*.sh` gates pass;
 the live `scripts/coord-status --no-fetch` invalid-marker section now prints `none`.
+## uniml-root-standalone-target-cache-collision — prescribed root→standalone verification corrupts UniML compilation state
+
+**Status:** OPEN (found 2026-07-28 while qualifying UPR-1 after the root JVM/Scala.js suites
+were green).
+
+**Reproduction.** In one UniML worktree, first run the root build:
+
+```bash
+scripts/sbtc ";unimlYaml/test;unimlYamlJs/test"
+```
+
+Then run the standalone build exactly as required by the production gate:
+
+```bash
+cd uniml && sbt -batch test
+```
+
+The standalone build reuses target directories under `uniml/<module>/.jvm|.js/target` but loads
+them through a different sbt build definition. The observed run failed with hundreds of false
+`Not found: Limits` / `Not found: VmToken` compile errors plus JVM
+`NoClassDefFoundError: scalascript/uniml/SourceId$` and
+`NoClassDefFoundError: scalascript/uniml/VmInstruction`, even though the same root projects had
+just passed. This is a real-harness failure; no clean was inserted between the two prescribed
+gates.
+
+**Impact.** Root and standalone verification are not composable in the documented order. A clean
+workspace can hide the collision, so CI/local evidence depends on which build touched the shared
+incremental products last.
+
+**Fix acceptance.** Reproduce and isolate the exact target/analysis collision, then give the root
+and standalone builds disjoint products (or prove their module definitions byte-identical) without
+requiring `clean`. Run root YAML/Markdown JVM+Scala.js tests followed by standalone `sbt test`,
+then repeat the root slice and standalone test a second time; all four transitions must be green.
+
 ## uniml-yaml-corpus-gate-exception-isolation — post-capture hashing can erase observed axes
 
 **Status:** OPEN (found 2026-07-28 by the independent `uniml_code_test_audit` sub-review while

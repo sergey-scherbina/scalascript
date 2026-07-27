@@ -301,6 +301,12 @@ self-parity test is not external conformance.
         capture, preserve already collected observations, continue semantic/later-case evaluation
         after malformed UTF-16, and keep fatal VM errors propagating. Prove the old local commit
         fails the regression, then renew independent review and rerun the full UPR-1a matrix.
+  - [ ] **UPR-1e root/standalone build isolation.** Close
+        `BUGS.md` `uniml-root-standalone-target-cache-collision`: the prescribed root-build then
+        standalone-build sequence must not share incompatible incremental products. Reproduce
+        without `clean`, isolate the target/analysis collision, make products disjoint (or prove
+        build definitions identical), and run root→standalone→root→standalone green before UPR-1
+        can claim a production gate.
 
 - [ ] **UPR-2 — YAML 1.2.2 M3.1 full grammar and hardening.**
   - [ ] **UPR-2a lexical/directive layer.** Implement the YAML printable set, BOM rules, directive
