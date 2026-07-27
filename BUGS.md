@@ -81,10 +81,11 @@ The fix exempts that exact full path, not the `.tsv` suffix. The end-to-end regr
 real script in a throwaway repository: it failed first with both `LEDGER.tsv` and `rogue.tsv`, then
 passed with only `rogue.tsv` plus its exact repair command. All four `tests/coord/*.sh` gates pass;
 the live `scripts/coord-status --no-fetch` invalid-marker section now prints `none`.
+
 ## uniml-root-standalone-target-cache-collision — prescribed root→standalone verification corrupts UniML compilation state
 
-**Status:** OPEN (found 2026-07-28 while qualifying UPR-1 after the root JVM/Scala.js suites
-were green).
+**Status:** FIXED in `3e52e6909` (found 2026-07-28 while qualifying UPR-1 after the root
+JVM/Scala.js suites were green).
 
 **Reproduction.** In one UniML worktree, first run the root build:
 
@@ -115,11 +116,20 @@ and standalone builds disjoint products (or prove their module definitions byte-
 requiring `clean`. Run root YAML/Markdown JVM+Scala.js tests followed by standalone `sbt test`,
 then repeat the root slice and standalone test a second time; all four transitions must be green.
 
+**Root cause and verification.** The root build and `uniml/build.sbt` described the same nine
+cross-project source trees with incompatible Zinc/export settings while writing into the same
+`target` products. The standalone projects now use nine distinct `target/standalone` namespaces,
+and their aggregate test is guarded by a fail-closed path-isolation check. Injecting one shared
+target makes that check fail with the complete offending path set. The no-clean
+`scripts/verify-uniml-dual-build` transition gate ran
+root YAML/Markdown JVM+Scala.js → standalone aggregate twice; all four transitions passed and the
+second round compiled zero sources. Independent review accepted the isolation and transition gate.
+
 ## uniml-yaml-corpus-gate-exception-isolation — post-capture hashing can erase observed axes
 
-**Status:** OPEN (found 2026-07-28 by the independent `uniml_code_test_audit` sub-review while
-qualifying UPR-1a). The affected gate exists only in the local, not-yet-landed YAML corpus commit
-`0720175d`; its push was stopped when the review retracted ACCEPT.
+**Status:** FIXED in `70068fd7b` (found 2026-07-28 by the independent
+`uniml_code_test_audit` sub-review while qualifying UPR-1a). The affected gate existed only in the
+local YAML corpus commit `0720175d`; its push was stopped when the review retracted ACCEPT.
 
 **Reproduction.** `YamlScheduleEvaluation.observation` computes the SHA-256 of reconstructed text
 after `YamlCaptured[YamlReconstruction]` has returned. A parse hook that reconstructs a lone UTF-16
@@ -140,6 +150,14 @@ and later cases must still run; baseline rows/digests must remain total and dist
 `LinkageError` and other fatal VM errors must still propagate. Re-run YAML JVM+Scala.js suites,
 the 402-case census/expected-red strict gate, standalone `uniml`, portable lint, and affected
 conformance before requesting renewed independent acceptance.
+
+**Root cause and verification.** Hashing and canonical rendering were moved inside explicit
+per-axis/per-row/per-case capture. Deterministic ASCII fallbacks retain every observable and escape
+malformed UTF-16; semantic evaluation and later cases continue, while `LinkageError` and other
+fatal errors still propagate. The fail-first regression passed on JVM and Scala.js (17/17 each),
+the official census remained 402 cases / 94 expected errors / zero crashes, and the strict gate
+remained expected-red on exactly 290 cases with unchanged baseline/category digests. Portable lint,
+the standalone build, affected conformance, and renewed independent acceptance all passed.
 
 ## f-validateNoReader-rejects-plugin-externs — the F-vs-legacy guard counts a legitimate `extern def` as a coverage gap
 
