@@ -121,7 +121,8 @@ private object SemanticVectorConformanceTest:
         "01", "02", "03", "04", "05", "06", "07", "08", "09",
         "10", "11", "12", "13",
         "14", "16", "17",
-        "18", "19", "20", "21", "22", "23", "24", "25"
+        "18", "19", "20", "21", "22", "23", "24", "25",
+        "26"
       )
 
     private object One extends Effect:
@@ -228,6 +229,7 @@ private object SemanticVectorConformanceTest:
         case "09" => nondeterminismProduct()
         case "10" => rawForeignvReject()
         case "11" => missingResolverReject()
+        case "26" => cancellationTransitions()
         case "12" => exactArtifactAndCodecMismatch()
         case "13" => signatureQuotaNegative()
         case "14" => durableSaveRunSameProcess()
@@ -464,6 +466,75 @@ private object SemanticVectorConformanceTest:
           "Admitted"
         catch case rejected: CapsuleRejected => rejected.kind
       s"$tampered|$resourceLimit"
+
+    /**
+     * Vector 26 — the cancellation transition table, as decided by the semantic owner
+     * (`specs/durable-cancellation-open-decisions.md`). Four outcomes, in the order the table
+     * states them; the second is the decision that this vector exists to pin: a cancel that lost
+     * the race reports `TooLateToCancel`, NOT `AlreadyResumed`.
+     */
+    private def cancellationTransitions(): String =
+      // (a) cancel wins the one-shot claim -> the later resume is told it was Cancelled.
+      val cancelThenResume = oneShotOutcome { k =>
+        k.tryCancel()
+        k.tryResume(1) match
+          case Left(rejection) => rejectionName(rejection)
+          case Right(_)        => "Resumed"
+      }
+      // (b) resume wins -> the later cancel is TooLateToCancel (owner decision D1).
+      val resumeThenCancel = oneShotOutcome { k =>
+        k.tryResume(1)
+        k.tryCancel() match
+          case Left(rejection) => rejectionName(rejection)
+          case Right(_)        => "Cancelled"
+      }
+      // (c) a cancelled REUSABLE saved value rejects every new run at admission (D4 order).
+      val reusableBlocked =
+        val machine = new ResumeStateMachine[Int, Int, Nothing, Int]:
+          override def resume(state: Int, input: Int): Eff[Nothing, Int] = Eff.pure(state + input)
+        val saved = freezeSavable(Continuation.savable(40, machine, DurableValue.immutable[Int]))
+        saved.cancel()
+        saved.tryRun(1) match
+          case Left(rejection) => rejectionName(rejection)
+          case Right(_)        => "Admitted"
+      // (d) cancelling twice is idempotent — being sure is not an error.
+      val idempotent = oneShotOutcome { k =>
+        k.tryCancel()
+        k.tryCancel() match
+          case Right(_) => "Cancelled"
+          case Left(_)  => "Rejected"
+      }
+      s"$cancelThenResume|$resumeThenCancel|$reusableBlocked|$idempotent"
+
+    private def rejectionName(rejection: ResumeRejected): String = rejection match
+      case ResumeRejected.AlreadyResumed(_)  => "AlreadyResumed"
+      case ResumeRejected.Cancelled(_)       => "Cancelled"
+      case ResumeRejected.TooLateToCancel(_) => "TooLateToCancel"
+
+    /** Hand a fresh one-shot continuation to `inspect` and return what it decides. */
+    private def oneShotOutcome(inspect: OneShotContinuation[Int, Nothing, Int] => String): String =
+      var observed = "unreached"
+      val handled = handle[One.type, Nothing, Int, Int](perform(OneOp))(
+        new Handler[One.type, Nothing, Int, Int]:
+          override val effect: EffectKey[One.type] = One.key
+          override def onReturn(value: Int): Eff[Nothing, Int] = Eff.pure(value)
+          override def onOperation[X](
+              operation: Operation[One.type, X],
+              resumption: Resumption[X, Nothing, Int]
+          ): Eff[Nothing, Int] =
+            // Matching the operation is what refines X to Int — the same shape the neighbouring
+            // one-shot vectors use.
+            operation match
+              case OneOp =>
+                resumption match
+                  case Resumption.OneShot(continuation) =>
+                    observed = inspect(continuation)
+                    Eff.pure(0)
+                  case Resumption.Reusable(_) =>
+                    throw new AssertionError("one-shot operation exposed a reusable resumption")
+      )
+      Eff.runPure(handled)
+      observed
 
     private def resumeReusable[A, Fx <: Effect, R](
         resumption: Resumption[A, Fx, R],
