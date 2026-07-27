@@ -241,7 +241,15 @@ object Normalize:
   private def section(s: ast.Section): ir.Section =
     ir.Section(
       heading     = heading(s.heading),
-      content     = s.content.map(content),
+      // A `@doc` block is documentation, never part of the program, so it must not enter the
+      // normalized IR at all (specs/ssc-doc-blocks.md). Dropping it HERE rather than in each
+      // backend is what makes the feature hold across lanes: `ir.Content.CodeBlock` carries no
+      // fence attributes, and `Denormalize` rebuilds `ast.Content.CodeBlock` without them, so a
+      // backend downstream of the SPI cannot see `@doc` even if it wanted to — which is exactly
+      // why the first attempt let the JS lane keep executing doc blocks while INT skipped them.
+      // (Same reason `@side=server` on a scalascript block is honoured by INT and ignored by the
+      // SPI backends — see BUGS.md `ir-normalize-drops-code-fence-attrs`.)
+      content     = s.content.filterNot(_.isDocOnly).map(content),
       subsections = s.subsections.map(section),
       span        = s.span.map(span)
     )

@@ -127,7 +127,12 @@ object Parser:
         // synthesized wrapper.  Preserving the field here means
         // `extractor` + LSP can keep using `cb.lineOffset` as the single
         // source of truth regardless of whether `package:` is set.
-        Content.CodeBlock(cb.lang, nested, tree, cb.span, pe, cb.lineOffset)
+        // `attrs` MUST be carried through. Dropping them here (the field defaults to
+        // `Map.empty`, so the omission was silent) meant every fence attribute — `@db=`,
+        // `@side=`, `@id=`, `@doc` — vanished for any module with `package:` in its
+        // front-matter, and for those modules only. It is how `std/coroutine.ssc` kept
+        // executing its `@doc` examples while a package-less file honoured them.
+        Content.CodeBlock(cb.lang, nested, tree, cb.span, pe, cb.lineOffset, cb.attrs)
       case other => other
     }
     section.copy(
@@ -320,14 +325,17 @@ object Parser:
    *  Used today by `sql` blocks to read `@db=name` (v1.26).  The
    *  syntax is general; future tags can pick up their own attrs
    *  without changing the parser. */
-  private val FenceAttrPat = """@([A-Za-z_][A-Za-z0-9_-]*)=(?:"([^"]*)"|(\S+))""".r
+  private val FenceAttrPat = """@([A-Za-z_][A-Za-z0-9_-]*)(?:=(?:"([^"]*)"|(\S+)))?""".r
 
   private def parseFenceAttrs(tail: String): Map[String, String] =
     if tail.isEmpty then Map.empty
     else
       FenceAttrPat.findAllMatchIn(tail).map { m =>
-        val key   = m.group(1).toLowerCase
-        val value = Option(m.group(2)).getOrElse(m.group(3))
+        val key = m.group(1).toLowerCase
+        // The value is OPTIONAL: a bare `@flag` is the boolean form and reads as "true", so
+        // ```` ```scalascript @doc ```` needs no `=true` noise. Keeping it in the same `@`
+        // namespace as `@db=`/`@id=` means one attribute surface, not two.
+        val value = Option(m.group(2)).orElse(Option(m.group(3))).getOrElse("true")
         key -> value
       }.toMap
 

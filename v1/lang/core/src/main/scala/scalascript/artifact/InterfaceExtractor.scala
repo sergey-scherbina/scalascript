@@ -290,7 +290,7 @@ object InterfaceExtractor:
     val blockLineOffsets = scala.collection.mutable.Map.empty[scala.meta.Tree, Int]
     def collectTrees(sec: ast.Section): Unit =
       sec.content.foreach {
-        case cb: ast.Content.CodeBlock if ast.Lang.isParseable(cb.lang) =>
+        case cb: ast.Content.CodeBlock if cb.isProgramCode =>
           cb.tree.foreach { node =>
             scalascript.ast.ScalaNode.fold(node) { t =>
               scalaTrees += t

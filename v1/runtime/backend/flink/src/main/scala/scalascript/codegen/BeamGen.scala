@@ -123,7 +123,7 @@ private class BeamGen(
   private def collectBlocks(sections: List[Section]): List[Block] =
     sections.flatMap { s =>
       val own = s.content.flatMap {
-        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) => List(Block(cb.source))
+        case cb: Content.CodeBlock if cb.isProgramCode => List(Block(cb.source))
         case imp: Content.Import => inlineImport(imp.path)
         case _ => Nil
       }

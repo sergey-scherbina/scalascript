@@ -1,0 +1,33 @@
+#!/usr/bin/env ssc
+---
+name: fence-doc-block
+---
+
+# A `@doc` block is documentation, not program
+
+`@doc` on the fence line marks a block as documentation. It is still parsed and
+diagnosed like any other block — that is the point of preferring it over an untagged
+fence, which lets a usage example rot into something that no longer compiles — but it
+is never executed, never lowered, and its bindings are invisible to other blocks.
+
+Spec: `specs/ssc-doc-blocks.md`. This case must stay a CROSS-LANE case: per-lane
+greens are exactly what hid the INT-vs-native divergence that motivated the feature.
+
+```scalascript
+def shared(): Int = 1
+println("program")
+```
+
+The block below is documentation. It must print nothing on every lane, and its `demo`
+must not become a program definition.
+
+```scalascript @doc
+def demo(): Int = shared() + 41
+println("DOC-BLOCK-MUST-NOT-RUN")
+```
+
+A `@doc` block does not hide the blocks around it.
+
+```scalascript
+println(shared() + 1)
+```

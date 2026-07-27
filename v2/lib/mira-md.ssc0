@@ -70,6 +70,24 @@ def fenceLangTokEnd = (s, i) =>
     if #i.eq(c, 32) then i else (if #i.eq(c, 9) then i else fenceLangTokEnd(s, #i.add(i, 1)))
 def fenceLangTok = (s) => #sslice(s, 0, fenceLangTokEnd(s, 0))
 
+-- Is the bare flag `@<name>` present in the info string? Requires whitespace (or end of
+-- string) right after it, so `@doc` does not match `@document` and `@doc=false` reads as
+-- "not a doc block" -- the same rule the v1 side applies via attrs (Content.isDocOnly).
+def fenceFindText = (s, needle, i) =>
+  if #i.gt(#i.add(i, #slen(needle)), #slen(s)) then #i.neg(1)
+  else if #seq(#sslice(s, i, #i.add(i, #slen(needle))), needle) then i
+  else fenceFindText(s, needle, #i.add(i, 1))
+def fenceHasFlag = (lang, name) =>
+  let tok = #sconcat("@", name) in
+  let at = fenceFindText(lang, tok, 0) in
+  if #i.lt(at, 0) then false
+  else
+    let after = #i.add(at, #slen(tok)) in
+    if #i.ge(after, #slen(lang)) then true
+    else
+      let c = #scodeAt(lang, after) in
+      if #i.eq(c, 32) then true else (if #i.eq(c, 9) then true else false)
+
 -- Is this line a closing fence (stripped = exactly ```)?
 def isClosingFence = (line) =>
   let t = strip(line) in

@@ -335,6 +335,33 @@ enum Content:
   /** Ordered or unordered list. */
   case DataList(items: List[ListItem], ordered: Boolean, span: Option[Span] = None)
 
+  /** `@doc` on the fence line: this block is DOCUMENTATION, not part of the program.
+   *
+   *  It is still parsed and diagnosed like any other block — that is the whole reason to
+   *  prefer it over an untagged ```` ``` ```` fence, which lets a usage example silently rot
+   *  into something that no longer compiles. It is simply never executed, never lowered, and
+   *  its bindings are invisible to other blocks.
+   *
+   *  The motivating case: a literate `std/` module holds definitions AND runnable
+   *  `## Example` blocks, so importing it ran the examples and printed their output into the
+   *  importer (`coroutine-demo` printed 17 lines, 9 of them belonging to `std/coroutine.ssc`)
+   *  — while the native lane did not run them at all, so the two lanes disagreed.
+   *  See `specs/ssc-doc-blocks.md`. */
+  def isDocOnly: Boolean = this match
+    case cb: Content.CodeBlock => cb.attrs.get("doc").exists(_ != "false")
+    case _                     => false
+
+  /** Is this block part of the PROGRAM — i.e. should a lane execute or lower it?
+   *
+   *  Every lane must ask THIS, not `Lang.isParseable(lang)` alone: a `@doc` block is
+   *  parseable by construction, and a lane that forgets the second half re-creates exactly the
+   *  INT-vs-native divergence `@doc` exists to remove. It is also the right question for the
+   *  static scans (does the program declare a `var`, define this name, have an entry point?) —
+   *  a documentation example must not answer any of them. */
+  def isProgramCode: Boolean = this match
+    case cb: Content.CodeBlock => Lang.isParseable(cb.lang) && !cb.isDocOnly
+    case _                     => false
+
 /** An import binding: `[Name](path)`, `[Name as Alias](path)`, or `[Name from Module](path)`.
  *
  *  `alias`      renames the imported name locally (`Name as Alias`).

@@ -1,5 +1,51 @@
 # Bug tracker
 
+## parser-package-wrap-drops-fence-attrs — a `package:` module silently loses EVERY fence attribute
+
+**Status:** **FIXED 2026-07-27** by `corpus-gate-remaining-reds` (one argument). Found while
+implementing `@doc`: the feature worked on a plain file and did nothing in `std/coroutine.ssc`.
+
+**Symptom.** With `package: x` in the front-matter, `@db=`, `@side=`, `@id=` and `@doc` all vanish —
+`cb.attrs` arrives empty at every consumer. Without `package:` the same file is fine. Minimal A/B is
+three lines of front-matter:
+
+```
+---
+name: p
+package: std.probe      ← remove this line and the @doc block stops running
+---
+```
+
+**Root cause.** `Parser.wrapSectionInPackage` re-wraps each parseable block in `object <seg>:` and
+rebuilds it as `Content.CodeBlock(cb.lang, nested, tree, cb.span, pe, cb.lineOffset)` — **without
+`attrs`**. The field has a default (`Map.empty`), so the omission compiled and was silent. Fix: pass
+`cb.attrs` through.
+
+**Why it went unnoticed.** The only shipped consumer of fence attributes was `@db=`/`@side=` on `sql`
+blocks, and the modules that use those do not declare a `package:`. It took a new attribute that
+literate `std/` modules DO use to hit the combination.
+
+## coroutine-started-after-resume-int-vs-v2 — INT and the native lane disagree on a coroutine's started flag
+
+**Status:** OPEN (found 2026-07-27 by `corpus-gate-remaining-reds`, newly VISIBLE rather than newly
+introduced — see below).
+
+**Symptom.** `examples/coroutine-demo.ssc`, line 3 of the output:
+
+| lane | line 3 |
+|---|---|
+| `int` | `started after resume: false` |
+| `v2` | `started after resume: true` |
+
+Everything else in the 8-line output now matches.
+
+**Why it appears now.** This case has been invisible on both counts: it was `SKIP`ped on every lane
+by `coroutine-demo-import-cycle-on-interpreter`, and once that was fixed the comparison was drowned
+by a 9-line prefix that INT printed and v2 did not
+(`literate-import-executes-example-blocks`). With both resolved the two lanes finally line up
+8-for-8, and this is the one genuine semantic disagreement underneath. Pin which lane is right
+against `specs/` before changing either — the flag is observable API.
+
 ## js-int-boundary-const-lambda — JS `Int` normalization assigns to immutable typed-lambda bindings
 
 **Status:** FIXED 2026-07-27 in `57d107739` (found by exact-SHA CI run `30286311782`,
@@ -386,12 +432,34 @@ integrity_check` through a real file — it validates cell ordering AND cross-ch
 against the table) and `tests/conformance/scljet-update-ipk-moves-rowid.ssc` (same two cases, int
 + JS).
 
+## ir-normalize-drops-code-fence-attrs — no SPI backend can see a fence attribute on a code block
+
+**Status:** OPEN — **by design today, and the design is the problem** (found 2026-07-27 by
+`corpus-gate-remaining-reds` while implementing `@doc`).
+
+**Symptom.** `@side=server` on a ```` ```scalascript ```` block is honoured by INT and ignored by
+every SPI backend (JS, JVM, Rust, Spark…), so a block meant to be server-only is emitted into the JS
+bundle.
+
+**Root cause.** `ir.Content.CodeBlock` has no `attrs` field at all, and `Denormalize.content`
+rebuilds `ast.Content.CodeBlock(lang, source, tree, span)` without one. SQL attributes survive only
+because `db` and `side` were promoted to dedicated IR fields on `ir.Content.SqlBlock`; the generic
+`@key=value` surface has nowhere to live. INT keeps them because it interprets the `ast.Module`
+directly, never crossing the SPI.
+
+**Not blocking `@doc`,** which sidesteps it: `Normalize` now DROPS `@doc` blocks instead of trying to
+carry the marker across the boundary — a documentation block has no business in a normalized program
+IR anyway. Anything that must be *visible* to a backend still needs a real IR field or an `attrs`
+map on `ir.Content.CodeBlock`; that is a format change (`SsccFormat` V3 writes IR) and is why it is
+filed rather than fixed here.
+
 ## literate-import-executes-example-blocks — importing a literate module RUNS its documentation examples on INT, not on v2
 
-**Status:** OPEN (found 2026-07-27 by `corpus-gate-remaining-reds`, immediately after unblocking
-`coroutine-demo-import-cycle-on-interpreter` below — this is what the cycle error had been hiding).
-Filed as a **semantics question**, deliberately not decided here: it changes what every literate
-`std/` module does to its importers.
+**Status:** **RESOLVED 2026-07-27** by the `@doc` feature (Sergiy's decision, `specs/ssc-doc-blocks.md`)
+— the divergence is gone, and the mechanism that caused it is now expressible rather than implicit.
+`v1/runtime/std/coroutine.ssc`'s three `## Example` blocks are marked `@doc`, so importing it prints
+nothing: `coroutine-demo` is **8 lines on INT and 8 on v2** (was 17 vs 8). Original report below —
+it remains the reason the feature exists.
 
 **Measurement** (`examples/coroutine-demo.ssc`, which imports `std/coroutine.ssc`):
 

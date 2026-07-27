@@ -1625,9 +1625,9 @@ class JvmGen(
         index
       }
       val own = s.content.flatMap {
-        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) && cb.attrs.get("side").contains("client") =>
+        case cb: Content.CodeBlock if cb.isProgramCode && cb.attrs.get("side").contains("client") =>
           Nil
-        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
+        case cb: Content.CodeBlock if cb.isProgramCode =>
           // `Content.CodeBlock.lineOffset` is populated by `Parser` from
           // CommonMark `BLOCKS` source-spans and points to the FIRST CODE
           // LINE inside the fence (0-based in the .ssc file).  When the
@@ -2689,7 +2689,7 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
     def loop(sections: List[Section]): List[String] =
       sections.flatMap { section =>
         section.content.flatMap {
-          case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
+          case cb: Content.CodeBlock if cb.isProgramCode =>
             cb.tree.toList.flatMap(node => ScalaNode.fold(node)(topLevelExtensionNamesInTree)) ++
               topLevelExtensionNamesInSource(cb.source, moduleIndent)
           case _ => Nil

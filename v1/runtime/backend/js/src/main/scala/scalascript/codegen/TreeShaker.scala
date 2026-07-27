@@ -151,7 +151,7 @@ object TreeShaker:
 
     def scanSection(section: Section): Unit =
       section.content.foreach {
-        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
+        case cb: Content.CodeBlock if cb.isProgramCode =>
           cb.tree.foreach { node =>
             ScalaNode.fold(node) {
               case Source(stats)     => collectStats(stats)

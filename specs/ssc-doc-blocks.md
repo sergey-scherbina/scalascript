@@ -1,7 +1,26 @@
 # `@doc` — documentation-only code blocks
 
-**Status:** SPEC, not implemented. Decided by Sergiy 2026-07-27 ("маркер doc-only блока") after the
-corpus contract surfaced an INT-vs-v2 divergence on `examples/coroutine-demo.ssc`.
+**Status:** **IMPLEMENTED 2026-07-27** (`corpus-gate-remaining-reds`). Decided by Sergiy the same day
+("маркер doc-only блока") after the corpus contract surfaced an INT-vs-v2 divergence on
+`examples/coroutine-demo.ssc`.
+
+**Where it lives.** One predicate, `Content.isProgramCode` (`v1/lang/core/.../ast/AST.scala`),
+replaces the ~30 `Lang.isParseable(cb.lang)` guards across the interpreter and every backend — a lane
+that forgets the second half re-creates exactly the divergence this removes, so there is one thing to
+get right instead of thirty. `Normalize` drops `@doc` blocks before the IR (see the "what the
+cross-lane test caught" note below). The native tower checks the flag in `sscFenceSource`
+(`fenceHasFlag` in `v2/lib/mira-md.ssc0`). The parser accepts a bare `@flag` as `"true"` so `@doc`
+needs no `=true` noise.
+
+**What the cross-lane test caught, and would not have caught per-lane.** The first implementation
+guarded every walk in `JsGen` and the JS lane still executed doc blocks. Capturing the actual bundle
+showed why: backends behind the SPI receive `ir.NormalizedModule` and rebuild the AST via
+`Denormalize`, and **the IR carries no fence attributes at all** (`ir-normalize-drops-code-fence-attrs`).
+Hence the fix in `Normalize` rather than in each backend. Separately, `std/coroutine.ssc` ignored
+`@doc` while a plain fixture honoured it — `Parser.wrapSectionInPackage` was rebuilding blocks
+without `attrs`, so **every** fence attribute vanished for any module declaring `package:`
+(`parser-package-wrap-drops-fence-attrs`, fixed). Both were pre-existing; neither is visible to a
+single-lane test.
 
 ## The problem this solves
 
@@ -65,7 +84,22 @@ Every lane that executes blocks, or the feature just moves the divergence:
 | JS | JS codegen's block walk |
 | JVM | JVM codegen's block walk |
 
-## Verification (write these before the code)
+## Verification — measured 2026-07-27
+
+- `tests/conformance/fence-doc-block.ssc`: `program` / `2` on **INT, JS, JVM, v2/F and v2/legacy** —
+  the doc block runs nowhere and does not hide its neighbours.
+- A syntax error inside a `@doc` block still fails: `error: failed to parse scalascript block …` from
+  both `run --v1` and `ssc check`. Rule 1 holds — `@doc` does not degrade into an untagged fence.
+- `examples/coroutine-demo.ssc`: **8 lines on INT, 8 on v2** (was 17 vs 8). One difference remains,
+  `started after resume` — a genuine coroutine-semantics disagreement that was hidden behind the
+  9-line prefix; filed as `coroutine-started-after-resume-int-vs-v2`, NOT caused by this change.
+- `fence-attr-code` (the earlier attributed-fence fix) still `42` / `84` on every lane.
+- Conformance `fence-doc-block,fence-attr-code,coroutine*,sql-basic,sql-transaction,
+  v2-self-hosted-yaml-core,content-binding,content-tables`: **10/10**.
+- **X1 self-compile fixpoint: stage1 == stage2 byte-identical (409,629 B)** — unchanged from before
+  the feature, as expected: `fsub.ssc` itself uses no `@doc`.
+
+## Original plan (kept for the record)
 
 - A fixture with one `@doc` block and one bare block, run on **all four lanes**: every lane prints
   only the bare block's output. This is the whole feature — it must be a cross-lane test, not a

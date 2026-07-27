@@ -43,7 +43,7 @@ private[interpreter] object SectionRuntime:
 
   def runSection(section: Section, interp: Interpreter, contentSection: Option[SectionContent] = None): Unit =
     section.content.foreach {
-      case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
+      case cb: Content.CodeBlock if cb.isProgramCode =>
         withCurrentContentSection(interp, contentSection) {
           interp.currentSource = cb.source
           interp.lineOffset = cb.tree match
@@ -303,7 +303,7 @@ private[interpreter] object SectionRuntime:
     def hasVarStat(stats: List[Stat]): Boolean = stats.exists(_.isInstanceOf[Defn.Var])
     def loop(section: Section): Boolean =
       section.content.exists {
-        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
+        case cb: Content.CodeBlock if cb.isProgramCode =>
           cb.tree.exists(t => ScalaNode.fold(t) {
             case s: Source     => hasVarStat(s.stats)
             case b: Term.Block => hasVarStat(b.stats)
@@ -319,7 +319,7 @@ private[interpreter] object SectionRuntime:
       stats.collect { case d: Defn.Def => d.name.value }.toSet
     def loop(section: Section): Set[String] =
       section.content.iterator.flatMap {
-        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
+        case cb: Content.CodeBlock if cb.isProgramCode =>
           cb.tree.iterator.flatMap(t => ScalaNode.fold(t) {
             case s: Source     => names(s.stats)
             case b: Term.Block => names(b.stats)
@@ -345,7 +345,7 @@ private[interpreter] object SectionRuntime:
     def hasEntry(stats: List[Stat]): Boolean = stats.exists(isEntry)
     def loop(section: Section): Boolean =
       section.content.exists {
-        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
+        case cb: Content.CodeBlock if cb.isProgramCode =>
           cb.tree.exists(t => ScalaNode.fold(t) {
             case s: Source     => hasEntry(s.stats)
             case b: Term.Block => hasEntry(b.stats)

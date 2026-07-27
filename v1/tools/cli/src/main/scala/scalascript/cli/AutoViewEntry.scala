@@ -44,7 +44,7 @@ object AutoViewEntry:
   private def foreachTopStat(module: Module)(f: Stat => Unit): Unit =
     def loop(section: Section): Unit =
       section.content.foreach {
-        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
+        case cb: Content.CodeBlock if cb.isProgramCode =>
           cb.tree.foreach(node => ScalaNode.fold(node) {
             case s: Source     => s.stats.foreach(f)
             case b: Term.Block => b.stats.foreach(f)

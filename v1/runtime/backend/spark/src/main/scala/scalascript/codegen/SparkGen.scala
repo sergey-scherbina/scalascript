@@ -1151,7 +1151,7 @@ private class SparkGen(
     sections.flatMap { s =>
       val secId = sectionIdent(s.heading.text)
       val own = s.content.flatMap {
-        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
+        case cb: Content.CodeBlock if cb.isProgramCode =>
           List(SparkGen.Block(cb.source))
         // Phase C: `sql` block → val _sqlBlock_<N> = spark.sql(...).  The
         // rewriter walks the source once and produces a (sqlText, binds)

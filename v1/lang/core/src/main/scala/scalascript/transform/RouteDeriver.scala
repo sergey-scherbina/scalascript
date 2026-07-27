@@ -89,7 +89,7 @@ object RouteDeriver:
   ): Unit =
     sections.foreach { s =>
       s.content.foreach {
-        case cb: Content.CodeBlock if Lang.isParseable(cb.lang) =>
+        case cb: Content.CodeBlock if cb.isProgramCode =>
           cb.tree.foreach { node =>
             ScalaNode.fold(node) { tree =>
               tree.collect {

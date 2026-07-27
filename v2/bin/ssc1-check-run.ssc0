@@ -13,7 +13,11 @@ def joinScalaScript = (blocks) =>
         match b {
           case Pair(lang, src) =>
             let langTok = fenceLangTok(lang) in
-            let isCode = if #seq(langTok, "scalascript") then true else #seq(langTok, "scala") in
+            -- `@doc` = documentation, never lowered into the program (specs/ssc-doc-blocks.md).
+            let isDoc = fenceHasFlag(lang, "doc") in
+            let isCode =
+              if isDoc then false
+              else (if #seq(langTok, "scalascript") then true else #seq(langTok, "scala")) in
             if isCode then
               let sep = if #i.eq(slen(acc), 0) then "" else "\n\n" in
               go(rest, #sconcat(acc, #sconcat(sep, src)))
