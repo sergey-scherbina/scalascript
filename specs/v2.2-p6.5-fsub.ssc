@@ -1020,7 +1020,20 @@ def parseCaseLamGen(ts, env, cx) = parseGenMatch("(local 0)", ts, "" :: env, cx)
 // via its 1-based `_sel__i` projection as nested lets: `(let (<e>) (let ((app _sel__1 (local 0))) (let
 // ((app _sel__2 (local 1))) <rest>)))` (measured vs oracle; distinct from the top-level cell form). The
 // tuple sits at (local i-1) when element i's let is built. Plain `val name = e` unchanged.
-def parseBlockVal(ts, env, cx) = if isTok(hd(ts), 2, 21) then parseBlockValTup(ts, env, cx) else parseBlockVal1(snd(hd(ts)), skipToEq(tl(ts)), env, cx)
+// F5b Stage 1b slice 1b-2b: a `val x: Int|String|BigInt = e` embeds its DECLARED type in the env
+// name (`x:Int`) exactly as parseParam does for params, so operandTag/localTyOf see a typed local
+// for block-local values too. `lookup` already resolves a bare `x` against the three embedded forms
+// structurally (slice 1b-1), so nothing downstream needs to know. Type SKIPPING is unchanged —
+// skipToEq still runs on the same tokens; only the pushed NAME gains a type.
+// `var` is deliberately NOT typed: a var is a mutable CELL, so its reads emit `(prim cell.get ..)`
+// rather than a bare `(local N)`, and localTyOf (isBareLocal) can never fire on one. Typing it would
+// be dead weight that still has to survive every env lookup.
+def parseBlockVal(ts, env, cx) = if isTok(hd(ts), 2, 21) then parseBlockValTup(ts, env, cx) else parseBlockVal1(pushVal(snd(hd(ts)), tl(ts)), skipToEq(tl(ts)), env, cx)
+def pushVal(nm, rest) = if isColonTok(hd(rest)) then pushValTy(nm, tl(rest)) else nm
+def pushValTy(nm, tts) = if simpleValTy(tts) then nm ++ ":" ++ snd(hd(tts)) else nm
+// The type must be a bare known type name (kind 3 = uppercase) immediately closed by `=` (2,20) —
+// a generic/tuple/arrow annotation does not match, so it pushes the bare name and stays "?".
+def simpleValTy(tts) = if fst(hd(tts)) == 3 then (if knownTyName(snd(hd(tts))) then isTok(hd(tl(tts)), 2, 20) else false) else false
 def parseBlockValTup(ts, env, cx) = bvtInit(tupNames(tl(ts)), skipToEq(ts), env, cx)
 def bvtInit(names, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => bvtBody(names, erase(e, cx), r, env, cx) }
 def bvtBody(names, e, ts, env, cx) = bvtChain(names, 1, "" :: env, ts, cx) match { case (chain, r) => ("(let (" ++ e ++ ") " ++ chain ++ ")", r) }
