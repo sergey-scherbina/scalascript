@@ -23,12 +23,10 @@ instead of throwing, so every `catch` here is simply never entered and the case 
 divergence rather than the delivery bug. That divergence is itself a defect — `BUGS.md`
 `js-int-division-by-zero-yields-infinity` — filed from this case, not swept under it.
 
-Two shapes are deliberately absent, because they hit a SEPARATE and still-open front defect that
-would make this case fail for a reason it is not about — `BUGS.md`
-`v2-front-try-in-def-body-shapes-break`: a **braceless multiline** `try` as a def body corrupts what
-follows it, and a **wildcard** `catch { case _ => … }` as a def body drops the whole program (exit 0,
-no output) on every v2 lane while v1 prints the caught value. Both are front/parse bugs, not the
-exception-delivery bug this case pins.
+One shape is still deliberately absent — a **braceless multiline** `try` as a def body, which
+corrupts whatever follows it (`BUGS.md` `v2-front-try-in-def-body-shapes-break`). That one is a
+layout defect, not an exception-delivery one, and mixing it in would make this case fail for a
+reason it is not about.
 
 ```scalascript
 def divide(a: Int, b: Int): String =
@@ -40,11 +38,23 @@ def viaException(a: Int, b: Int): String =
 def viaRuntime(a: Int, b: Int): String =
   try { (a / b).toString } catch { case e: RuntimeException => "caught-runtime" }
 
+// An UNTYPED arm is a catch-all. Both shapes are here because F's handler-arm parser used to assume
+// every arm was `pat : T =>` and read the arm's BODY as the type name — which made the tag test
+// unsatisfiable and, on the default lane, silently dropped the whole program at exit 0.
+def viaWildcard(a: Int, b: Int): String =
+  try { (a / b).toString } catch { case _ => "caught-wildcard" }
+
+def viaBinder(a: Int, b: Int): String =
+  try { (a / b).toString } catch { case e => "caught-binder" }
+
 // The handler must NOT fire when nothing is thrown — otherwise a `catch` that swallowed every
 // successful result would also satisfy the four assertions above.
 println(divide(10, 0))
 println(viaException(10, 0))
 println(viaRuntime(10, 0))
+println(viaWildcard(10, 0))
+println(viaBinder(10, 0))
 println(divide(10, 2))
 println(viaRuntime(9, 3))
+println(viaWildcard(8, 4))
 ```
