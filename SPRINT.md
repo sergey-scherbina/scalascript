@@ -7076,9 +7076,21 @@ emits `def C(a) = IrCtor(C, [a])`; extend to `def C(a) = let y=a*2 in IrCtor(C, 
   generator provider` (parses now that compound-assign landed; needs the native generator provider).
 - [ ] **v2-distributed-failure-retry** — advances past `Random.uuid`, then emits `Stub` in the
   kill-worker/retry path (failure-recovery dispatch gap).
-- [ ] **v2-callback-exc-parity-followups** — distributed-plugin (:53) + generator-plugin (:120) carry
-  the SAME user-exception-wrapping anti-pattern fixed in dataset-plugin (`catch case e: ssc.SscThrow
-  => throw e` before the diagnostic wrap). Known 3-line fix; apply if/when a case exercises it.
+- [ ] **v2-callback-exc-parity-followups** — ACTIVE
+  (`feature/v2-callback-exc-parity-followups`): distributed-plugin and
+  generator-plugin carry the same user-exception-wrapping anti-pattern already
+  fixed in dataset-plugin.
+  - Pin each callback boundary fail-first in its plugin test suite: an
+    `ssc.SscThrow` raised by user code must escape unchanged, while a distinct
+    host exception must retain the plugin's contextual diagnostic wrapper.
+  - Compare the current behavior before classifying it; do not weaken or
+    remove the host-failure diagnostic in order to make the user case pass.
+  - Apply the minimal catch-order correction used by dataset-plugin:
+    rethrow `ssc.SscThrow` before the general diagnostic catch in both plugins.
+  - Run both plugin test suites plus the affected distributed/generator
+    conformance slices through `tests/conformance/run.sh --only ... --no-memo`.
+  - Done when both fail-first regressions pass, host failures remain
+    contextualized, and the existing conformance output is unchanged.
 
 ### Actor features (medium; some timing-flaky)
 - [ ] **v2-actors-bounded-mailbox** — `spawnBounded(n, Overflow.X, thunk)` + `Overflow` enum

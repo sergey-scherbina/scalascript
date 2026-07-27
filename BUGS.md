@@ -1,5 +1,26 @@
 # Bug tracker
 
+## v2-callback-exc-parity-followups — distributed/generator callbacks rewrap user throws
+
+**Status:** OPEN (found by the SSC v2 parity audit; accepted 2026-07-28 by
+`codex`, SPRINT `v2-callback-exc-parity-followups`).
+
+**Reproduction target.** Invoke one distributed callback and one generator
+callback whose ScalaScript body raises an `ssc.SscThrow`. Both plugin
+boundaries currently let the general diagnostic catch wrap that user throw,
+even though the dataset plugin preserves the same runtime value by rethrowing
+`ssc.SscThrow` first. A separate host exception is the control: it must still
+receive the plugin-specific contextual diagnostic.
+
+**Root-cause hypothesis.** The two plugins retained the old catch ordering
+after dataset-plugin established the callback contract. This must be proven
+with fail-first tests at both real callback boundaries before changing code;
+message similarity or static catch shape alone is not sufficient.
+
+**Fix acceptance.** Preserve the original user throw unchanged in both
+plugins, retain contextual wrapping for host failures, and keep the affected
+distributed/generator conformance output byte-identical.
+
 ## coord-status-ledger-invalid-marker — the required claim ledger is reported as an invalid marker
 
 **Status:** **FIXED 2026-07-28** in `cfcdae1ab` (reported by the production-readiness coordination
