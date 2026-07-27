@@ -1744,7 +1744,19 @@ jobs successfully, including the full Linux sbt test; `scripts/ci-status` return
 
 ## cli-command-System.exit-kills-the-test-fork — a whole CLASS of green-looking CI reds
 
-**Status:** OPEN as a class (2026-07-20). One instance is fixed —
+**Status:** OPEN as a class — but **no longer invisible** (2026-07-27). `scripts/detect-fork-exit`
+recognises the signature (a fork-exit line with ZERO reported failures), explains what it means, and
+points at the suite that was running instead of at a failing assertion that does not exist. Wired
+into CI behind `if: failure()` so it speaks only in the situation it is about, and behind `|| true`
+so it can never turn a red step green. It ships with a `--self-test` asserting BOTH verdicts — fires
+on a silent fork exit, stays quiet on an ordinary reported failure and on a clean run — because a
+detector only ever observed staying quiet is not a detector; also checked against a real sbt log.
+
+**Still open:** the ~200 `System.exit` sites in CLI command helpers. Each remains a latent instance
+and the fix direction below is unchanged — a helper reachable from a test must RETURN a status. What
+changed is the time-to-diagnose, not the defect.
+
+**Historical status:** OPEN as a class (2026-07-20). One instance is fixed —
 `swiftui-real-fixture-system-exit-hides-failure`, closed the same day by `frontend-tui-fetch-refresh`
 (`deb5e6c90`). This entry exists so the next instance is recognised in minutes instead of hours.
 
