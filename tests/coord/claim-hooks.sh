@@ -9,7 +9,10 @@
 # Runs against a throwaway bare repo with the REAL hooks copied in — touches nothing in this repo.
 set -euo pipefail
 
-HOOKS_SRC=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.githooks" && pwd)
+# Overridable so the suite can be pointed at a PREVIOUS version of the hooks. That is not a
+# convenience: a new case is only a gate if it fails against the code it was written for, and
+# `HOOKS_SRC=/tmp/old-hooks bash tests/coord/claim-hooks.sh` is how that gets checked.
+HOOKS_SRC=${HOOKS_SRC:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.githooks" && pwd)}
 LAB=$(mktemp -d "${TMPDIR:-/tmp}/claim-hooks-test.XXXXXX")
 trap 'rm -rf "$LAB"' EXIT HUP INT TERM
 G=(-c user.email=test@example.com -c user.name=test -c commit.gpgsign=false)
@@ -34,7 +37,12 @@ setup() {
   # lists the board files. Before the exemption this made the board unclaimable by anyone else.
   printf 'slug: scljet-ipk\nitems: C1 C2\npaths: scljet/ tests/conformance/scljet- SPRINT.md BUGS.md\n' \
     > .work/active/scljet-ipk.claim
+  # The ledger row MIRRORS the claim file. It used to be left empty here, which quietly made every
+  # case a test of the .claim copy alone — the very asymmetry `claim-ledger-claimfile-scope-drift`
+  # is about. `scripts/coord-claim` always writes both, so this is also the realistic state.
   printf '# generation: 1\n#slug\tagent\tstarted\titems\tpaths\n' > .work/active/LEDGER.tsv
+  printf 'scljet-ipk\ttest\t2026-01-01T00:00:00Z\tC1 C2\tscljet/ tests/conformance/scljet- SPRINT.md BUGS.md\n' \
+    >> .work/active/LEDGER.tsv
   : > scljet/sql.ssc; : > README.md
   git add -A; git "${G[@]}" commit -qm init --no-verify; git push -q origin main
   git fetch -q origin
@@ -44,9 +52,49 @@ setup() {
 try_claim() { # try_claim <slug> <items> <paths>
   cd "$LAB/w/main"
   printf 'slug: %s\nitems: %s\npaths: %s\n' "$1" "$2" "$3" > ".work/active/$1.claim"
-  git add ".work/active/$1.claim" >/dev/null
+  printf '%s\ttest\t2026-01-01T00:00:00Z\t%s\t%s\n' "$1" "$2" "$3" >> .work/active/LEDGER.tsv
+  git add ".work/active/$1.claim" .work/active/LEDGER.tsv >/dev/null
   git "${G[@]}" commit -qm "claim: $1" >/dev/null
   if git push -q origin main 2>/dev/null; then echo allow; else echo refuse; fi
+}
+
+# Push a claim whose two copies DISAGREE — the hole this suite exists to close.
+# <ledger-paths> is what the LEDGER row says; <claim-paths> is what the .claim says.
+try_claim_drift() { # try_claim_drift <slug> <items> <claim-paths> <ledger-paths>
+  cd "$LAB/w/main"
+  printf 'slug: %s\nitems: %s\npaths: %s\n' "$1" "$2" "$3" > ".work/active/$1.claim"
+  printf '%s\ttest\t2026-01-01T00:00:00Z\t%s\t%s\n' "$1" "$2" "$4" >> .work/active/LEDGER.tsv
+  git add ".work/active/$1.claim" .work/active/LEDGER.tsv >/dev/null
+  git "${G[@]}" commit -qm "claim: $1" >/dev/null
+  if git push -q origin main 2>/dev/null; then echo allow; else echo refuse; fi
+}
+
+# Same, for the items: field — items are what the guard actually keys the work on, so a drift there
+# is the more dangerous of the two.
+try_claim_drift_items() { # try_claim_drift_items <slug> <claim-items> <ledger-items> <paths>
+  cd "$LAB/w/main"
+  printf 'slug: %s\nitems: %s\npaths: %s\n' "$1" "$2" "$4" > ".work/active/$1.claim"
+  printf '%s\ttest\t2026-01-01T00:00:00Z\t%s\t%s\n' "$1" "$3" "$4" >> .work/active/LEDGER.tsv
+  git add ".work/active/$1.claim" .work/active/LEDGER.tsv >/dev/null
+  git "${G[@]}" commit -qm "claim: $1" >/dev/null
+  if git push -q origin main 2>/dev/null; then echo allow; else echo refuse; fi
+}
+
+# Make the LIVE claim on origin/main inconsistent, then try to claim <paths> against it.
+# Which copy carries the extra scope is the parameter: both directions must be caught, because a
+# guard that reads only one copy passes whichever test matches the copy it happens to read.
+try_claim_vs_drifted_live() { # try_claim_vs_drifted_live <where:claim|ledger> <extra-path> <rival-paths>
+  cd "$LAB/w/main"
+  if [ "$1" = claim ]; then
+    printf 'slug: scljet-ipk\nitems: C1 C2\npaths: scljet/ %s\n' "$2" > .work/active/scljet-ipk.claim
+  else
+    printf '# generation: 1\n#slug\tagent\tstarted\titems\tpaths\n' > .work/active/LEDGER.tsv
+    printf 'scljet-ipk\ttest\t2026-01-01T00:00:00Z\tC1 C2\tscljet/ %s\n' "$2" >> .work/active/LEDGER.tsv
+  fi
+  git add -A >/dev/null; git "${G[@]}" commit -qm "drift the live claim" --no-verify >/dev/null
+  git push -q origin main --no-verify 2>/dev/null || true
+  git fetch -q origin
+  try_claim rival Z9 "$3"
 }
 
 # Try to commit <file> in a feature worktree for <slug>; echo allow|refuse.
@@ -100,6 +148,43 @@ check "allows shared board files ALONGSIDE a disjoint work path" \
 setup
 check "still refuses real work even when the board files are also named" \
       "refuse" "$(try_claim sneaky 'Z5' 'SPRINT.md scljet/sql.ssc')"
+
+# ── ledger/.claim consistency (BUGS.md claim-ledger-claimfile-scope-drift) ──────────────────────
+# Scope is stored twice and nothing checked that the copies agree, so a path present in only one of
+# them was a hole a rival could claim through. Observed for real at `0fade8820`, and again on
+# 2026-07-27 with a live claim whose .claim said `v1/runtime/**` while its ledger row said
+# `v1/runtime/backend/interpreter/**`.
+setup
+check "refuses a push whose own .claim and ledger row disagree on paths" \
+      "refuse" "$(try_claim_drift drifty 'Z6' 'v2/ specs/' 'v2/')"
+setup
+check "refuses a push whose own .claim and ledger row disagree on items" \
+      "refuse" "$(try_claim_drift_items drifty2 'Z7 Z7b' 'Z7' 'v2/')"
+setup
+check "allows a push whose two copies agree (the guard is not just always-refuse)" \
+      "allow" "$(try_claim consistent 'Z8' 'v2/')"
+# The union rule, both directions. Either copy alone would pass one of these and fail the other.
+setup
+check "a live claim's LEDGER-only path still blocks a rival (union, ledger side)" \
+      "refuse" "$(try_claim_vs_drifted_live ledger 'tests/conformance/corpus-baseline.tsv' 'tests/conformance/corpus-baseline.tsv')"
+setup
+check "a live claim's CLAIM-only path still blocks a rival (union, claim side)" \
+      "refuse" "$(try_claim_vs_drifted_live claim 'v1/runtime/' 'v1/runtime/backend/js/')"
+
+# ── glob expansion (same fail-open family) ─────────────────────────────────────────────────────
+# `for p in $paths` is unquoted, so a claim path written `foo/**` was expanded against the working
+# tree and became only the directories that exist TODAY. A rival claiming a sibling path under the
+# same root then slipped through. `set -f` in the hook is what this asserts.
+setup
+mkdir -p "$LAB/w/main/broad/alpha" "$LAB/w/main/broad/beta"
+: > "$LAB/w/main/broad/alpha/f.txt"
+cd "$LAB/w/main"; git add -A >/dev/null; git "${G[@]}" commit -qm "dirs" --no-verify >/dev/null
+printf 'slug: broad-lane\nitems: W1\npaths: broad/**\n' > .work/active/broad-lane.claim
+printf 'broad-lane\ttest\t2026-01-01T00:00:00Z\tW1\tbroad/**\n' >> .work/active/LEDGER.tsv
+git add -A >/dev/null; git "${G[@]}" commit -qm "claim: broad-lane" --no-verify >/dev/null
+git push -q origin main --no-verify 2>/dev/null || true; git fetch -q origin
+check "a 'broad/**' claim still covers a path that does not exist on disk yet" \
+      "refuse" "$(try_claim newcomer 'W2' 'broad/gamma/')"
 
 echo
 echo "claim-mutex layer 3 — pre-commit claim-scope guard"

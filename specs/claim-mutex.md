@@ -75,6 +75,33 @@ slugs differed, but both would have declared the same items (`A1`-`A4`).
 Path overlap is by **prefix containment**, not glob intersection — predictable and explainable in an
 error message. Full glob algebra is not worth the complexity here.
 
+#### 2a. The two copies of the scope must agree
+
+Scope is written **twice** — the ledger row and the `.claim` file — and for a while nothing checked
+that they said the same thing. The overlap guard read only the `.claim`, so a path that appeared
+solely in the LEDGER row was invisible to it and a rival could claim that exact path
+(`0fade8820`; BUGS.md `claim-ledger-claimfile-scope-drift`). Duplicated state without a consistency
+check does not stay consistent: on 2026-07-27 a live claim's `.claim` said `v1/runtime/**` while its
+row said `v1/runtime/backend/interpreter/**`.
+
+`pre-push` now enforces two asymmetric rules, split by **who can actually fix the problem**:
+
+1. A claim the push **adds or rewrites** must agree with its own ledger row, on both fields
+   (compared as sets, so order does not matter). Disagreement is **refused** — the pusher owns both
+   copies, and letting it through is what opens the hole.
+2. A claim **already live on the remote** whose copies disagree is compared on the **union** of the
+   two, and named in a warning. Union is the fail-closed reading — the widest declared scope wins, so
+   neither copy can hide work. Refusing here instead would let one agent's stale row block everyone
+   else, which turns the mutex into a deadlock.
+
+Related, same failure direction: the hook runs with **globbing off** (`set -f`). `for p in $paths` is
+an unquoted expansion, so a claim path written `v1/runtime/**` used to be expanded against the
+working tree and shrink to the directories that happened to exist at that moment — it stopped
+covering anything created later. Claim paths are literal prefixes and must never be globbed.
+
+Both rules and the glob case are asserted by `tests/coord/claim-hooks.sh`, which is runnable against
+an older hook via `HOOKS_SRC=<dir>` — that is how each new case was shown to fail before the fix.
+
 ### 3. `pre-commit` scope guard — commits stay inside the claim
 
 In a worktree on `feature/<slug>`, staged paths must fall inside that claim's `paths:` (read from

@@ -123,9 +123,36 @@ outside every observed scope.
 
 ## claim-ledger-claimfile-scope-drift — inconsistent claim metadata makes the overlap guard fail open
 
-**Status:** OPEN (found 2026-07-27 by Codex while claiming SPRINT E7; observed at
-`0fade8820` / `540f0ba52`). Coordination-apparatus bug; no implementation is
-part of the E7 claim.
+**Status:** **FIXED 2026-07-27** by opus (`claim-metadata-consistency`). Found 2026-07-27 by Codex
+while claiming SPRINT E7; observed at `0fade8820` / `540f0ba52`.
+
+**Confirmed still open when picked up, and independently re-observed.** A live-claim census found
+exactly one drifting pair — and it bit within the hour: `corpus-gate-remaining-reds` had
+`v1/runtime/**` in its `.claim` and `v1/runtime/backend/interpreter/**` in its ledger row, while the
+row ALSO declared `tests/conformance/corpus-baseline.tsv` and `corpus-skip.txt`, which the `.claim`
+did not — the Codex hole, still open at that moment.
+
+**Fix — two asymmetric rules, split by who can fix the problem.** (1) A claim the push adds or
+rewrites must agree with its own ledger row on both fields, compared as SETS so ordering is not a
+false alarm; disagreement is refused, because the pusher owns both copies. (2) A claim already live
+on the remote whose copies disagree is compared on the UNION of the two and named in a warning —
+union is the fail-closed reading, and refusing on someone else's stale row would let one agent block
+every other, turning the mutex into a deadlock.
+
+**Second hole, same family, found while fixing the first:** the hook ran with globbing ON, and
+`for p in $paths` is an unquoted expansion — so a claim path written `v1/runtime/**` was expanded
+against the working tree and shrank to the directories that existed at that moment, silently ceasing
+to cover anything created later. `set -f` now covers the whole hook.
+
+**Verified by A/B, not by a green run.** The suite is now runnable against an older hook
+(`HOOKS_SRC=<dir> bash tests/coord/claim-hooks.sh`). Against the PREVIOUS hook the four new gates
+FAIL — ledger/claim paths drift, items drift, the union-from-the-ledger-side case, and the glob case
+— and the negative control ("two copies agree" → allow) passes on both, so the suite is not merely
+always-refusing. Against the fix: 20/20 PASS.
+
+**Today's drifted row was deliberately NOT hand-repaired**, per this entry's own instruction. The
+union rule makes it harmless, the warning names it, and rule 1 makes its owner sync it on their next
+claim push — which is the mechanism doing the work rather than a one-off cleanup hiding it.
 
 **Reproduce.** On `origin/main`, the `corpus-gate-remaining-reds` row in
 `.work/active/LEDGER.tsv` declared

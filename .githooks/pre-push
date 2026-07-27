@@ -16,6 +16,13 @@
 #
 # Escape hatch: git push --no-verify
 set -euo pipefail
+# Globbing OFF for the whole hook. `for p in $paths` is an unquoted expansion, so a claim path
+# written as `v1/runtime/**` was EXPANDED against the working tree before being compared — it became
+# the directories that happen to exist today (`v1/runtime/backend` …) and stopped covering anything
+# added later. That is fail-open in the same direction as the drift bug below: a rival claiming a
+# not-yet-existing path under `v1/runtime/` would have been let through. The hook globs nothing on
+# purpose; claim paths are literal prefixes.
+set -f
 
 remote_tip=""
 local_tip=""
@@ -33,6 +40,35 @@ case "$remote_tip" in ""|0000000000000000000000000000000000000000) exit 0 ;; esa
 # Field lookup: `items:`/`paths:` from a claim blob, whitespace-separated.
 field() { # field <sha>:<path> <name>
   git show "$1" 2>/dev/null | sed -n "s/^$2:[[:space:]]*//p" | head -1
+}
+
+# Same fields, but from the LEDGER row — the mutex's authoritative active scope
+# (`.work/active/LEDGER.tsv`, columns: slug agent started items paths).
+ledger_field() { # ledger_field <sha> <slug> <items|paths>
+  git show "$1:.work/active/LEDGER.tsv" 2>/dev/null |
+    awk -F'\t' -v s="$2" -v w="$3" '$1 == s { print (w == "items" ? $4 : $5); exit }' || true
+}
+
+# Order-insensitive normal form, so "A B" and "B A" are the same declaration.
+norm() { tr ' \t' '\n\n' | sed '/^$/d' | LC_ALL=C sort -u | tr '\n' ' ' | sed 's/ *$//'; }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Scope is stored TWICE — in the ledger row and in the `.claim` — and nothing used to check that the
+# two agree. The guard read only the `.claim`, so a claim whose LEDGER row declared a path its
+# `.claim` did not was invisible here and a rival claiming that exact path was let through
+# (BUGS.md `claim-ledger-claimfile-scope-drift`, observed at `0fade8820`). Duplicated state with no
+# consistency check does not stay consistent.
+#
+# Two rules, and they are deliberately different because the pusher can only fix one of them:
+#
+#   1. A claim THIS PUSH adds or rewrites must agree with its own ledger row. Refused — you are the
+#      one who can fix it, and the alternative is that the hole is created right here.
+#   2. A claim already on the remote that disagrees with its row is compared on the UNION of both
+#      declarations, and named in a warning. Union is the fail-CLOSED reading: the widest declared
+#      scope wins, so neither copy can hide work. Refusing instead would let one agent's stale row
+#      block every other agent, which is how a mutex turns into a deadlock.
+claim_scope() { # claim_scope <sha> <claim-path> <slug> <items|paths>  → union of both copies
+  printf '%s %s' "$(field "$1:$2" "$4")" "$(ledger_field "$1" "$3" "$4")" | norm
 }
 
 # Claims this push ADDS (or rewrites) relative to the remote tip.
@@ -62,19 +98,63 @@ is_shared_bookkeeping() {
   esac
 }
 
+# Rule 1 — a claim this push touches must agree with its own ledger row.
+drift=""
+for new in $incoming; do
+  new_slug=$(basename "$new" .claim)
+  c_items=$(field "$local_tip:$new" items | norm)
+  c_paths=$(field "$local_tip:$new" paths | norm)
+  l_items=$(ledger_field "$local_tip" "$new_slug" items | norm)
+  l_paths=$(ledger_field "$local_tip" "$new_slug" paths | norm)
+  # Declaring nothing ANYWHERE stays allowed — that is the documented backward-compatible claim.
+  if [ -n "$c_items$c_paths$l_items$l_paths" ]; then
+    if [ "$c_items" != "$l_items" ]; then
+      drift="$drift\n  '$new_slug' items disagree:\n    .claim : ${c_items:-<none>}\n    ledger : ${l_items:-<none>}"
+    fi
+    if [ "$c_paths" != "$l_paths" ]; then
+      drift="$drift\n  '$new_slug' paths disagree:\n    .claim : ${c_paths:-<none>}\n    ledger : ${l_paths:-<none>}"
+    fi
+  fi
+done
+
+if [ -n "$drift" ]; then
+  cat >&2 <<EOF
+
+✋ pre-push: a claim disagrees with its LEDGER row.
+$(printf '%b' "$drift")
+
+Scope lives in BOTH .work/active/<slug>.claim and the LEDGER row, and the overlap guard needs them
+to say the same thing — a path declared in only one copy is a hole another agent can claim through
+(specs/claim-mutex.md; BUGS.md claim-ledger-claimfile-scope-drift). Update the copy you changed by
+hand so both match, then push again.
+
+Override (rarely correct): git push --no-verify
+EOF
+  exit 1
+fi
+
 problems=""
+warnings=""
 for new in $incoming; do
   new_slug=$(basename "$new" .claim)
   case "$new_slug" in verify-*) continue ;; esac          # deliberate re-verification
-  new_items=$(field "$local_tip:$new" items)
-  new_paths=$(field "$local_tip:$new" paths)
+  new_items=$(claim_scope "$local_tip" "$new" "$new_slug" items)
+  new_paths=$(claim_scope "$local_tip" "$new" "$new_slug" paths)
   [ -n "$new_items$new_paths" ] || continue               # undeclared → nothing to compare (compat)
 
   for old in $live; do
     old_slug=$(basename "$old" .claim)
     [ "$old_slug" = "$new_slug" ] && continue             # same slug: a re-write of one's own claim
-    old_items=$(field "$remote_tip:$old" items)
-    old_paths=$(field "$remote_tip:$old" paths)
+    # Rule 2 — the remote copy may be inconsistent and is not this push's to repair; compare on the
+    # UNION so neither copy can hide work, and say so rather than fail on someone else's drift.
+    old_items=$(claim_scope "$remote_tip" "$old" "$old_slug" items)
+    old_paths=$(claim_scope "$remote_tip" "$old" "$old_slug" paths)
+    if [ "$(field "$remote_tip:$old" paths | norm)" != "$(ledger_field "$remote_tip" "$old_slug" paths | norm)" ]; then
+      case "$warnings" in
+        *"'$old_slug'"*) : ;;
+        *) warnings="$warnings\n  note: live claim '$old_slug' disagrees with its ledger row; compared on the union of both" ;;
+      esac
+    fi
 
     for i in $new_items; do
       for j in $old_items; do
@@ -115,5 +195,8 @@ never an overlap — if one of those is in the list above, this hook has a bug.
 Override (rarely correct): git push --no-verify
 EOF
   exit 1
+fi
+if [ -n "$warnings" ]; then
+  printf '%b\n' "$warnings" >&2
 fi
 exit 0
