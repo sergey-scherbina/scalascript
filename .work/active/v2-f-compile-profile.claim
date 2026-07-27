@@ -1,0 +1,11 @@
+slug: v2-f-compile-profile
+branch: feature/v2-f-compile-profile
+agent: codex
+started: 2026-07-27T20:27:42Z
+heartbeat: 2026-07-27T20:27:42Z
+status: claimed-before-planning
+items: V-6a
+paths: specs/v2-f-compile-profile.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
