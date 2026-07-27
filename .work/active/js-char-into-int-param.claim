@@ -1,0 +1,6 @@
+feature/js-char-into-int-param 2026-07-27T16:08:54Z
+agent: codex
+heartbeat: 2026-07-27T16:08:54Z
+status: not-started
+done-so-far: selected an unclaimed, non-overlapping JS-backend bug after refreshing origin/main
+next: create the worktree and commit the resume-cold SPRINT plan before implementation
