@@ -1,0 +1,12 @@
+---
+name: std-ui-native-css-scope-lib
+---
+
+```scalascript
+object ScopedCard:
+  private val sc = scope("Card")
+  val css: String = sc.css(".root .item:hover { color: red }")
+
+  def cls(name: String): String =
+    sc.cls(name)
+```

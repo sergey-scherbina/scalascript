@@ -28,6 +28,7 @@ final class UiNativePlugin extends NativePlugin:
   private final case class ScopeKey(rootId: String, scope: String)
   private final case class SignalKey(scope: ScopeKey, id: String)
   private val rootId = "root"
+  private val scopedClassPattern = """\.([A-Za-z_][A-Za-z0-9_-]*)""".r
   private val signals = mutable.LinkedHashMap.empty[SignalKey, SignalCell]
   private val storage = mutable.LinkedHashMap.empty[String, String]
   private val scopes = mutable.ArrayBuffer("root")
@@ -170,6 +171,14 @@ final class UiNativePlugin extends NativePlugin:
 
   private def metadata(entries: (String, Value)*): Value.MapV =
     Value.MapV.from(entries.map { case (key, value) => Value.StrV(key) -> value })
+
+  private def cssScopeName(value: Value, operation: String): String = value match
+    case Value.DataV("Scope", Seq(Value.StrV(name))) => name
+    case _ => throw new RuntimeException(s"$operation receiver must be Scope")
+
+  private def rewriteScopedCss(source: String, scope: String): String =
+    scopedClassPattern.replaceAllIn(source, matched =>
+      java.util.regex.Matcher.quoteReplacement(s".${matched.group(1)}__$scope"))
 
   private def signalFields(value: Value, operation: String): IndexedSeq[Value] = value match
     case Value.DataV("NativeUiSignal", fields) if fields.length == 6 => fields
@@ -412,6 +421,7 @@ final class UiNativePlugin extends NativePlugin:
 
   def install(context: NativePluginContext): Unit =
     val fields = List(
+      "Scope" -> Vector("name"),
       "NativeUiAbi" -> Vector("version", "root", "config"),
       "NativeUiRootConfig" -> Vector("operation", "outDir", "port", "extraCss"),
       "NativeUiSignal" -> Vector("id", "scope", "kind", "read", "write", "metadata"),
@@ -442,6 +452,21 @@ final class UiNativePlugin extends NativePlugin:
       "NativeUiRowAction" -> Vector("kind", "label", "request", "payload", "refresh", "options"),
       "NativeUiRowPayload" -> Vector("kind", "names"))
     fields.foreach(context.registerFields)
+
+    native(context, "scope") {
+      case Value.StrV(name) :: Nil => Value.DataV("Scope", Vector(Value.StrV(name)))
+      case _ => throw new RuntimeException("scope(name)")
+    }
+    context.registerTaggedMethod("Scope", "cls") {
+      case receiver :: Value.StrV(name) :: Nil =>
+        Value.StrV(s"${name}__${cssScopeName(receiver, "Scope.cls")}")
+      case _ => throw new RuntimeException("Scope.cls(name)")
+    }
+    context.registerTaggedMethod("Scope", "css") {
+      case receiver :: Value.StrV(source) :: Nil =>
+        Value.StrV(rewriteScopedCss(source, cssScopeName(receiver, "Scope.css")))
+      case _ => throw new RuntimeException("Scope.css(source)")
+    }
 
     context.registerTaggedApply("NativeUiSignal") { case signal :: Nil => readSignal(signal, "NativeUiSignal.apply"); case _ => throw new RuntimeException("NativeUiSignal.apply()") }
     List("apply", "get").foreach { name =>

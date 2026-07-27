@@ -1,0 +1,12 @@
+---
+name: std-ui-native-css-scope
+---
+
+# Imported component CSS scope
+
+[ScopedCard](./std-ui-native-css-scope-lib.ssc)
+
+```scalascript
+println(ScopedCard.cls("root"))
+println(ScopedCard.css)
+```

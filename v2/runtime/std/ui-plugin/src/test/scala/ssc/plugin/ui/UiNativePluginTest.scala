@@ -43,6 +43,19 @@ class UiNativePluginTest extends AnyFunSuite:
         case _ => ()
     loop(root)
 
+  test("CSS scopes are portable and preserve the V1 cls/css contract"):
+    NativePluginHost.installProviders(List(UiNativePlugin()))
+    val scoped = call("scope", Value.StrV("Card"))
+
+    assert(scoped == Value.DataV("Scope", Vector(Value.StrV("Card"))))
+    assertPortable(scoped)
+    assert(invoke(method(scoped, "cls"), Value.StrV("root")) == Value.StrV("root__Card"))
+    assert(
+      invoke(
+        method(scoped, "css"),
+        Value.StrV(".root .item:hover { color: red }")) ==
+        Value.StrV(".root__Card .item__Card:hover { color: red }"))
+
   test("mutable and derived signals use the native callback boundary"):
     NativePluginHost.installProviders(List(UiNativePlugin()))
     val count = call("signal", Value.StrV("count"), Value.IntV(1))

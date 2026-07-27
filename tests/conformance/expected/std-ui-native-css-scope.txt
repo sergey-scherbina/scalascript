@@ -1,0 +1,2 @@
+root__Card
+.root__Card .item__Card:hover { color: red }
