@@ -1,0 +1,11 @@
+slug: vector15-flip
+branch: feature/vector15-flip
+agent: claude-code
+started: 2026-07-27T18:57:04Z
+heartbeat: 2026-07-27T18:57:04Z
+status: claimed-before-planning
+items: SPRINT-F3 vector-15
+paths: v2/conformance/portable-capsule.sh v2/host/js/portable-admitter/** tests/interop-conformance/run.sh tests/interop-conformance/lanes.tsv tests/interop-conformance/vectors.tsv tests/interop-conformance/pending
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
