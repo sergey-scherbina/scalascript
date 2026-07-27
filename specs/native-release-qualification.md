@@ -302,7 +302,11 @@ blockers: `gh secret list --app actions` and `gh variable list` return no
 entries, and the only configured GitHub environment is `github-pages`. Native
 release signing/notarization therefore needs an explicit credential and
 protected `production` environment provisioning step; workflow code must not
-pretend that absent trust material is optional.
+pretend that absent trust material is optional. The repository API reports
+public visibility, an empty ruleset list, and HTTP 404 for `main` branch
+protection; `gh release list` reports no existing releases. The historical
+bootstrap decision says private, so visibility is a governance decision to
+confirm rather than silently mutate during release engineering.
 
 Until all four slices have their own compare-first gates and exact release
 evidence, a green qualification run authorizes further engineering only, not a
