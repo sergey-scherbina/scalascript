@@ -96,11 +96,24 @@ differentially for a range of inputs, and asserts the reified capsule round-trip
 
 ## 5. Capsule frame generalization
 
-`v2/src/Capsule.scala` currently carries `(frame-int K)`. This design generalizes the frame slot
-to a CoreIR **value term** `(frame VALUE)` where `VALUE` is a `Lit` or a `Ctor` of `Lit`s (a flat
-first-order frame). Decode reconstructs the value; `run` applies the resume entry to
-`(frameValue, input)`. The resume-digest keeps covering the resume program bytes; a fuller
-version also digests/round-trips the frame (§9.1 canonical codec).
+`v2/src/Capsule.scala` carries `(frame VALUE)`. **Updated 2026-07-27 (slice 3):** `VALUE` is a
+`Lit` **or a `Ctor` whose fields are recursively values** — not only a flat `Ctor` of `Lit`s — so a
+nominal/structured slot (`Pair(3,4)`, a nested record, a list cell) travels as data. Decode
+reconstructs the value; `run` applies the resume entry to `(frameValue, input)`.
+
+**That set is enforced, not merely described** — `Capsule.validateFrame` rejects anything else at
+admission, naming the offending node (`BUGS.md portable-capsule-frame-unvalidated`). Before it, the
+frame was taken as an arbitrary `Term`: `(global g)` injected a closure into the resume and
+`(local 0)` reached the compiler as an out-of-scope index. `Lam` is rejected as well — a lambda is a
+value at runtime but *code* in the bytes, and the whole point of Portable CodeMode is that code
+travels only as validated bytes.
+
+The resume-digest keeps covering the resume program bytes only. **A frame's VALUE is therefore not
+tamper-evident** (measured: editing `(lit (int 5))` → `(lit (int 99))` is silently accepted). That is
+consistent with the digest being a *code* digest (§10.1), but it means the VM capsule makes a weaker
+promise than the host lane, which seals its capsules with HMAC (format v3). Resolving that is an
+owner-level format decision — `BACKLOG.md portable-capsule-integrity` — and it should be settled
+**before** slice 5, because the cross-backend N→M matrix is what makes the divergence observable.
 
 ## 6. Staging (each an independently landable slice)
 
@@ -111,10 +124,16 @@ version also digests/round-trips the frame (§9.1 canonical codec).
    from a free-outer-variable analysis (`freeOuterIndices`) of a region `Lam(1, body)`, and `body`
    is folded over the frame tuple by a depth-aware de-Bruijn `rewrite` (verified on a nested-lambda
    region, `(input) => a + input*b`). First-order scalars; no user-`Global` calls, no inner effects.
-2. **Global closure** — carry transitively-reached top-level `def`s into `resume.defs`
-   (defunctionalization of first-order globals).
-3. **Nominal / graph frame** — non-scalar frame slots via the §9.1/§9.3 codecs; align the VM
-   frame with the host `DurableCodec` byte format for cross-lane identity.
+2. **Global closure** — ✅ **LANDED** (`ebc576bec`, `SaveRegion.closeGlobals`): the transitive
+   closure of the globals the closed body reaches is emitted as `resume.defs`, in the source
+   program's own relative order, with a name marked reached before its body is scanned (so
+   recursion terminates) and a LOUD error for a root that names no def.
+3. **Nominal / graph frame** — ⚠️ **HALF LANDED (2026-07-27).** *Done:* non-scalar slots are
+   admitted and pinned (`frameOfTerms`, `ssc freeze-region-nominal`, `Capsule.validateFrame`
+   defining the legal value set — see §5). *Not done:* aligning the VM frame with the host
+   `DurableCodec` **byte format** for cross-lane identity, which is blocked on the format decision
+   in `BACKLOG.md portable-capsule-integrity` (the two lanes currently promise different things
+   about a capsule). Settle that before slice 5.
 4. **Effectful continuation** — a region whose `body` itself performs effects handled *inside*
    the region (`Fx` closed, §11.3); needs a local CPS of the region only, not the whole program.
 5. **Second admitting backend** — a non-JVM runtime that admits+runs the Portable capsule, for
