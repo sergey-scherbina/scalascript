@@ -56,11 +56,29 @@ scala-cli tests/conformance/contract.sc -- --lanes int,js,jvm,v2
 
 # after intentionally changing the known state (fixed a gap, added a case):
 scala-cli tests/conformance/contract.sc -- --update-baseline
+
+# one CI matrix slice (round-robin, idx % 4) — what the nightly workflow runs
+scala-cli tests/conformance/contract.sc -- --shard 0/4
+
+# which cases would a shard take? (prints names, runs nothing, needs no build)
+scala-cli tests/conformance/contract.sc -- --shard 0/4 --list
 ```
 
 Default lanes are `int,js,v2` (fast). `--timeout <s>` bounds each run (servers
 hang; the default skips them). Note the `--` separating scala-cli's own flags from
 the script's.
+
+`--shard i/N` selects every `N`-th case from the sorted, deduped case list
+(round-robin, **not** contiguous blocks — the corpus is name-sorted and the slow
+cases cluster by name, so blocks give very uneven shards). The baseline comparison
+is subset-safe: it is scoped to the case names actually run, so a shard gates
+honestly against its own slice and the `N` shards together cover the whole corpus.
+Verify that property with `--list` (the `N` outputs must be disjoint and their union
+must equal the unsharded list) rather than by re-deriving the partition by hand.
+
+`--update-baseline` **refuses** to run under `--shard` (exit 2): it rewrites the whole
+baseline file from the cases it just ran, so a sharded update would silently truncate
+the baseline to `1/N` of itself. Update it unsharded, over the full corpus.
 
 ## Adding / gating cases
 

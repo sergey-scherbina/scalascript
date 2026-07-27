@@ -34,6 +34,8 @@
 //   scala-cli tests/conformance/contract.sc --only 'hello,lang-*'
 //   scala-cli tests/conformance/contract.sc --lanes int,js,v2   (default; add jvm)
 //   scala-cli tests/conformance/contract.sc --timeout 30
+//   scala-cli tests/conformance/contract.sc --shard 0/4         # CI matrix slice
+//   scala-cli tests/conformance/contract.sc --shard 0/4 --list  # names only, runs nothing
 // ─────────────────────────────────────────────────────────────────────────────
 
 def repoRoot: os.Path =
@@ -47,11 +49,14 @@ val sscBin       = root / "bin" / "ssc"
 val sscToolsBin  = root / "bin" / "ssc-tools"
 val baselineFile = root / "tests" / "conformance" / "corpus-baseline.tsv"
 
-if !os.exists(sscBin) || !os.exists(sscToolsBin) then
+val cliArgs = args.toList
+
+// `--list` only enumerates the selected case names (see below) — it runs no lane, so it
+// must not require a built toolchain.
+if !cliArgs.contains("--list") && (!os.exists(sscBin) || !os.exists(sscToolsBin)) then
   System.err.println("bin/ssc or bin/ssc-tools not found — build first: bash install.sh --dev")
   System.exit(2)
 
-val cliArgs = args.toList
 def flagVal(name: String): Option[String] =
   cliArgs.sliding(2).collectFirst { case List(`name`, v) => v }
 val updateBaseline = cliArgs.contains("--update-baseline")
@@ -59,6 +64,25 @@ val onlyGlobs      = flagVal("--only").toList.flatMap(_.split(',')).map(_.trim).
 val lanes          = flagVal("--lanes").map(_.split(',').map(_.trim).filter(_.nonEmpty).toList)
                        .getOrElse(List("int", "js", "v2"))
 val timeoutS       = flagVal("--timeout").map(_.toInt).getOrElse(30)
+
+// `--shard i/N` — run only the cases whose index in the sorted, deduped case list is
+// ≡ i (mod N). ROUND-ROBIN, not contiguous blocks: the corpus is name-sorted and the
+// slow cases cluster by name, so blocks would give wildly uneven shards. The baseline
+// compare is already subset-safe (`inScope` scopes it to the names actually run), so a
+// shard gates honestly against its own slice and N shards together cover the corpus.
+val shard: Option[(Int, Int)] = flagVal("--shard").map { s =>
+  s.split('/').toList.map(_.trim.toIntOption) match
+    case List(Some(i), Some(n)) if n > 0 && i >= 0 && i < n => (i, n)
+    case _ => sys.error(s"--shard expects i/N with 0 <= i < N (e.g. 0/4), got: $s")
+}
+
+// `--update-baseline` rewrites the WHOLE baseline file from the cases it just ran, so
+// doing it under a shard would silently truncate the baseline to 1/N of itself.
+if updateBaseline && shard.isDefined then
+  System.err.println(
+    "--update-baseline rewrites the entire baseline from the cases it ran; under --shard " +
+      "that would truncate it to 1/N. Re-run the update unsharded (full corpus).")
+  System.exit(2)
 
 def globMatch(glob: String, name: String): Boolean =
   ("^" + java.util.regex.Pattern.quote(glob).replace("*", "\\E.*\\Q").replace("?", "\\E.\\Q") + "$").r
@@ -89,12 +113,23 @@ val skipGlobs =
   else Nil
 def isSkipped(name: String): Boolean = skipGlobs.exists(g => globMatch(g, name))
 
-val cases = allCases
+val selected = allCases
   .filter(c => onlyGlobs.isEmpty || onlyGlobs.exists(g => globMatch(g, c.name)))
   .filterNot(c => isSkipped(c.name))
   // de-dupe by name (a name appearing in both corpora — conformance wins, it has a golden)
   .groupBy(_.name).values.map(cs => cs.sortBy(c => if c.corpus == "conf" then 0 else 1).head).toList
   .sortBy(_.name)
+
+val cases = shard match
+  case Some((i, n)) => selected.zipWithIndex.collect { case (c, idx) if idx % n == i => c }
+  case None         => selected
+
+// `--list` — print the selected case names and exit. Exists so a shard partition can be
+// verified (disjoint + union == unsharded) against the REAL selection code instead of a
+// re-implementation of it, which would only agree with itself.
+if cliArgs.contains("--list") then
+  cases.foreach(c => println(c.name))
+  System.exit(0)
 
 // `backends:` frontmatter gate — restrict which lanes a case runs on. Accepts the
 // same tokens as run.sc (int/js/jvm/v2, `interpreter` aliases int).
@@ -179,7 +214,8 @@ def processCase(c: Case): (String, Either[String, Map[String, String]]) =
             lane -> classify(o, rc, g)
       (c.name, Right(row.toMap))
 
-println(s"Corpus contract: ${cases.length} cases × lanes [${lanes.mkString(", ")}] (timeout ${timeoutS}s)")
+val shardLabel = shard.map((i, n) => s" [shard $i/$n of ${selected.length}]").getOrElse("")
+println(s"Corpus contract: ${cases.length} cases$shardLabel × lanes [${lanes.mkString(", ")}] (timeout ${timeoutS}s)")
 
 // Bounded parallelism: each case runs `lanes` sequentially in its own worker, so at
 // most `workers` subprocess JVMs are live at once. ~4× faster than serial; hang-safe
