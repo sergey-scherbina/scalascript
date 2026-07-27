@@ -94,6 +94,17 @@ every `scljet-*` case passed on developer macs while StackOverflowError-ing in C
 `[skip ci]` bookkeeping commits leave HEAD without a run of its own — verify the newest *code* commit.
 Detail: `SPRINT.md` §`ci-red-main`.
 
+**`cancelled` is RED, and the scheduled gates are outside every automated check.**
+`scripts/ci-status` only ever looks at `ci.yml` + `--event push`, so the nightly workflows
+(`Corpus Contract`, `F4 Front Swap Gates`) are read by nobody unless a human asks. That is how the
+corpus gate managed to run **13 times without one green verdict** (2026-07-14 → 07-27) while looking
+untroubled: GitHub reports a **job timeout as `cancelled`, not `failure`**, so a gate that had
+outgrown its budget scrolled past as "someone cancelled it" for 12 days — and the F4 front-flip
+landed without the differential net that exists to catch exactly what we then found by hand. When
+sweeping health, run `gh run list --limit 25 --json workflowName,conclusion,createdAt` over **all**
+workflows and count `cancelled` as red; a scheduled gate that never reports `success` is broken, not
+quiet. Detail: `SPRINT.md` §Batch E `corpus-contract-shard-fix`.
+
 ---
 
 ## Not current
