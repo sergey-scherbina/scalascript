@@ -1,0 +1,11 @@
+slug: coord-status-ledger-false-positive
+branch: feature/coord-status-ledger-false-positive
+agent: claude-code
+started: 2026-07-27T23:13:53Z
+heartbeat: 2026-07-27T23:13:53Z
+status: claimed-before-planning
+items: coord-status-ledger-invalid-marker
+paths: scripts/coord-status tests/coord BUGS.md SPRINT.md CHANGELOG.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
