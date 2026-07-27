@@ -30,6 +30,33 @@ per-push verdict comes from something that already is. The other three jobs meas
 schedule") is not one option among several; it is the only shape that fits the arithmetic without
 making the tests faster. A scheduled `sbt` still catches everything, just later and in batches.
 
+## v2-std-ui-closure-pair-match — native self-hosted frontend crashes after resolving the aggregator
+
+**Status:** OPEN (found 2026-07-28 by `codex` while working SPRINT
+`v2-std-ui-missing-fixture`; tracked as follow-up
+`v2-std-ui-native-pair-match`).
+
+**Real-harness reproduction.** After correcting the five stale imports to the
+canonical root module, each assembled native command reaches the source
+closure and then fails:
+
+```bash
+bin/ssc run --bytecode tests/conformance/std-ui-aggregator.ssc
+# ssc: match: no arm for Pair/2
+```
+
+std-ui-extended{,-b,-c,-d} fail identically. Running the staged
+`tower/bin/ssc1-run.ssc0` directly through `v2/ssc` preserves the stack:
+`Runtime.handlerMatchFailed` is reached while the self-hosted frontend tower
+executes, with repeated `compileEffectAwareConstructor` /
+`compileEffectAwareApplication` frames. This is before user code or either
+native execution backend starts.
+
+**Fix acceptance.** Reduce the failure to the smallest source-closure or
+CoreIR shape, pin it in the real tower/runtime harness, and fix the actual
+match/effect interaction. Both native VM and direct ASM must then match all
+five checked-in expected outputs; INT/JS/JVM must remain 5/5.
+
 ## v2-std-ui-imports-stale-after-tests-move — five fixtures still target the old conformance location
 
 **Status:** OPEN (found 2026-07-28 by `codex` while working SPRINT

@@ -7128,6 +7128,23 @@ emits `def C(a) = IrCtor(C, [a])`; extend to `def C(a) = let y=a*2 in IrCtor(C, 
     error.
   - Done when every declared lane resolves the intended std-ui module and all
     five cases compare byte-for-byte with their checked-in expected output.
+- [ ] **v2-std-ui-native-pair-match** — ACTIVE
+  (`feature/v2-std-ui-missing-fixture`): close the real native frontend crash
+  exposed by the landed path correction (`29c6cc249`).
+  - Compare F/default and `SSC_FRONT=legacy`, native VM and direct ASM. The
+    current staged-runner stack reaches `Runtime.handlerMatchFailed` while the
+    frontend tower executes, before user-code execution.
+  - Reduce the std-ui import closure to the first module/construct that changes
+    the honest result from a later validation error into
+    `match: no arm for Pair/2`. Instrument only if the compare-first reduction
+    cannot name the failing self-hosted match.
+  - Add a fail-first regression at the narrowest real boundary: tower/compiler
+    unit coverage for an IR-level defect, or a multi-file conformance case for
+    import/lowering behavior.
+  - Apply the smallest runtime or ssc1 front/lower correction; do not add a
+    catch-all match arm that would hide malformed data.
+  - Verify the focused regression, affected v2 module tests, all five native
+    VM/direct-ASM outputs, and the existing five-case INT/JS/JVM slice.
 - [ ] **v2-js-only-tests** — js-cps-intrinsic-rewrite (`nowMillis`) / js-state-effect-runner /
   js-symbolic-infix-operator (custom multi-char operators `<~>`/`~~` — a real lexer gap but the test
   is `backends: [int, js]`) / if-then-no-else-after-while (`backends: [int]` AND the test file is
