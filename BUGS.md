@@ -1,5 +1,54 @@
 # Bug tracker
 
+## v2-native-front-drops-attributed-code-fence — the DEFAULT lane silently discards any ```scalascript fence carrying an attribute
+
+**Status:** OPEN — **high severity: silent code loss on the default execution path** (found
+2026-07-27 by `corpus-gate-remaining-reds` while scoping the doc-block decision; the decision
+question is what surfaced it, the bug is independent of it).
+
+**Symptom.** A fence written `` ```scalascript @id=defs `` is executed by INT and by JS, and is
+**dropped entirely** by the native lane — the code inside it never reaches the program:
+
+```markdown
+```scalascript @id=defs
+def helper(): Int = 42
+```
+
+```scalascript
+println(helper())
+```
+```
+
+| lane | result |
+|---|---|
+| `ssc-tools run --v1` (INT) | `42` |
+| `ssc-tools run-js` | `42` |
+| `bin/ssc run --v2` (**default**) | `ssc: unbound global: helper` |
+| `SSC_FRONT=legacy` + `--v2` | `ssc: unbound global: helper` |
+
+**Front-agnostic** — legacy fails identically, so this is the native lane's fence recognition, NOT
+an F regression. It is the same family as `f-case-object-drops-program`: source the author wrote
+does not reach the program. Here it happens to surface loudly as `unbound global` when something
+references the dropped code; when the dropped block only had side effects (the literate `## Example`
+case) it is **silent** — the program just prints less.
+
+**Why it matters now.** The `@key=value` fence-attribute syntax is a shipped surface (`ContentDocumentTest`
+covers `` ```yaml @id=plans-data ``, and `Content.CodeBlock.attrs` is read by the SQL/transaction
+block runners). Any `.ssc` that attributes a scalascript fence is miscompiled on the lane that is now
+the default.
+
+**Fix direction.** The native front's fence scanner evidently matches the info-string exactly
+(` ```scalascript `) instead of taking the FIRST word of it as the language and the rest as
+attributes, which is what CommonMark specifies and what the v1 parser does. Reproduce with the
+5-line case above; the gate would not have caught it because no corpus case attributes a scalascript
+fence.
+
+**Interaction with the doc-block decision (Sergiy, 2026-07-27: "маркер doc-only блока").** Note the
+native lane's current behaviour makes `@doc` look like it already works there — it does not; it
+drops the block for the wrong reason, and would drop `@id=…` just the same. `@doc` has to be
+implemented explicitly in every lane AFTER this bug is fixed, or the doc-block feature would be
+built on an accident. See `specs/ssc-doc-blocks.md`.
+
 ## ci-runs-cancelled-under-churn — most commits get no verdict, and `cancelled` is RED
 
 **Status:** OPEN — **health / apparatus**, recorded 2026-07-27 by opus (observed while waiting on
