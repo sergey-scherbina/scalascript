@@ -1,0 +1,278 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+REPS=3
+KEEP=
+
+usage() {
+  echo "usage: scripts/v2-f-bytecode-probe [--reps N] [--keep DIR]" >&2
+}
+
+while (($#)); do
+  case "$1" in
+    --reps)
+      [[ $# -ge 2 ]] || { usage; exit 2; }
+      REPS=$2
+      shift 2
+      ;;
+    --keep)
+      [[ $# -ge 2 ]] || { usage; exit 2; }
+      KEEP=$2
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      usage
+      exit 2
+      ;;
+  esac
+done
+
+[[ "$REPS" =~ ^[1-9][0-9]*$ ]] || {
+  echo "error: --reps must be a positive integer" >&2
+  exit 2
+}
+
+if [[ -n "$KEEP" ]]; then
+  mkdir -p "$KEEP"
+  WORK=$(cd "$KEEP" && pwd)
+  ARTIFACT_DIR=$WORK
+else
+  WORK=$(mktemp -d "${TMPDIR:-/tmp}/ssc-v2-f-bytecode.XXXXXX")
+  ARTIFACT_DIR=temporary-removed-on-exit
+  trap 'rm -rf "$WORK"' EXIT
+fi
+
+KERNEL_JAR="$WORK/ssc-kernel.jar"
+PROBE_JAR="$WORK/f-bytecode-probe.jar"
+F0="$WORK/F0.ir"
+FSRC="$ROOT/specs/v2.2-p6.5-fsub.ssc"
+DRIVER="$WORK/FBytecodeProbe.scala"
+
+sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
+median() {
+  printf '%s\n' "$@" |
+    sort -n |
+    awk '{ v[NR] = $1 } END {
+      if (NR % 2) printf "%.3f", v[(NR + 1) / 2]
+      else printf "%.3f", (v[NR / 2] + v[NR / 2 + 1]) / 2
+    }'
+}
+
+samples_csv() {
+  local IFS=,
+  echo "$*"
+}
+
+echo "building kernel..." >&2
+if ! scala-cli --power package "$ROOT/v2/src" \
+  --assembly --server=false --force -o "$KERNEL_JAR" \
+  >"$WORK/kernel-build.log" 2>&1; then
+  cat "$WORK/kernel-build.log" >&2
+  exit 1
+fi
+
+echo "bootstrapping F0..." >&2
+awk -v here="$ROOT/specs" -v out="$F0" '
+  NR == 28 { print "HERE=\"" here "\""; next }
+  NR <= 76 { print }
+  NR == 76 { print "cp \"$WORK/F0.ir\" \"" out "\"" }
+' "$ROOT/specs/v2.2-p6.5-fsub.sh" |
+  SSC_JAR="$KERNEL_JAR" V2_DIR="$ROOT/v2" bash >/dev/null
+
+[[ -s "$F0" ]] || {
+  echo "error: F0 bootstrap produced no CoreIR" >&2
+  exit 1
+}
+
+cat >"$DRIVER" <<'SCALA'
+import java.nio.charset.StandardCharsets
+import java.nio.file.{Files, Paths}
+import scala.util.control.NonFatal
+import ssc.*
+import ssc.bytecode.{JvmByteGen, OpAnfNative}
+
+private def rootCause(t: Throwable): Throwable = t match
+  case e: java.lang.reflect.InvocationTargetException if e.getCause != null =>
+    rootCause(e.getCause)
+  case other => other
+
+private def report(v: Value): Unit = v match
+  case Value.UnitV => ()
+  case other => println(Show.show(other))
+
+@main def v2FBytecodeProbe(mode: String, irFile: String, programArgs: String*): Unit =
+  try
+    Runtime.argv = programArgs.toList
+    val text = Files.readString(Paths.get(irFile), StandardCharsets.UTF_8)
+    val program = Reader.parseProgram(text)
+    val result = mode match
+      case "vm" =>
+        Runtime.runManaged(Compiler.compile(program), Array.empty[Value])
+      case "bytecode" =>
+        Emit.globalsRef = collection.mutable.HashMap.empty
+        val bytes = JvmByteGen.emitProgram(OpAnfNative.lift(program))
+        System.err.println(s"BYTECODE_CLASS_BYTES=${bytes.length}")
+        JvmByteGen.runProgram(bytes)
+      case other =>
+        throw new IllegalArgumentException(s"unknown mode: $other")
+    report(result)
+  catch
+    case NonFatal(t) =>
+      val cause = rootCause(t)
+      val prefix = mode.toUpperCase(java.util.Locale.ROOT)
+      val message = Option(cause.getMessage).getOrElse("").replace('\n', ' ')
+      System.err.println(s"${prefix}_ERROR_CLASS=${cause.getClass.getName}")
+      System.err.println(s"${prefix}_ERROR_MESSAGE=$message")
+      cause.printStackTrace(System.err)
+      sys.exit(3)
+SCALA
+
+echo "building no-fallback VM/direct-ASM driver..." >&2
+if ! scala-cli --power package \
+  "$ROOT/v2/src" \
+  "$ROOT/v2/jvm-runtime/src/main/scala" \
+  "$ROOT/v2/backend-jvm-bytecode" \
+  "$DRIVER" \
+  --assembly --server=false --force \
+  --dep org.ow2.asm:asm:9.7 \
+  --main-class v2FBytecodeProbe \
+  -o "$PROBE_JAR" >"$WORK/probe-build.log" 2>&1; then
+  cat "$WORK/probe-build.log" >&2
+  exit 1
+fi
+
+LAST_TIME=
+run_timed() {
+  local mode=$1 out=$2 err=$3
+  local rc
+  set +e
+  {
+    /usr/bin/time -p java -Xss512m -jar "$PROBE_JAR" \
+      "$mode" "$F0" "$FSRC" >"$out"
+  } 2>"$err"
+  rc=$?
+  set -e
+  LAST_TIME=$(awk '$1 == "real" { value = $2 } END { print value }' "$err")
+  [[ -n "$LAST_TIME" ]] || LAST_TIME=unknown
+  return "$rc"
+}
+
+vm_times=()
+bytecode_times=()
+
+vm_out="$WORK/vm-1.out"
+vm_err="$WORK/vm-1.err"
+echo "running VM control 1/$REPS..." >&2
+if ! run_timed vm "$vm_out" "$vm_err"; then
+  cat "$vm_err" >&2
+  echo "error: VM control failed" >&2
+  exit 1
+fi
+vm_times+=("$LAST_TIME")
+vm_digest=$(sha256 "$vm_out")
+
+bytecode_out="$WORK/bytecode-1.out"
+bytecode_err="$WORK/bytecode-1.err"
+echo "running direct-ASM candidate 1/$REPS..." >&2
+if ! run_timed bytecode "$bytecode_out" "$bytecode_err"; then
+  vm_median=$(median "${vm_times[@]}")
+  error_class=$(awk -F= '/^BYTECODE_ERROR_CLASS=/{ print substr($0, index($0, "=") + 1); exit }' "$bytecode_err")
+  error_message=$(awk -F= '/^BYTECODE_ERROR_MESSAGE=/{ print substr($0, index($0, "=") + 1); exit }' "$bytecode_err")
+  [[ -n "$error_class" ]] || error_class=process-failed
+  echo "VM_OUTPUT_SHA256=$vm_digest"
+  echo "BYTECODE_ADMISSION=rejected"
+  echo "BYTECODE_OUTPUT_SHA256=none"
+  echo "OUTPUT_EQUAL=not-run"
+  echo "VM_SAMPLES_SECONDS=$(samples_csv "${vm_times[@]}")"
+  echo "BYTECODE_SAMPLES_SECONDS=none"
+  echo "VM_MEDIAN_SECONDS=$vm_median"
+  echo "BYTECODE_MEDIAN_SECONDS=none"
+  echo "BYTECODE_SPEEDUP=none"
+  echo "PERFORMANCE_TARGET=not-run"
+  echo "BYTECODE_ERROR_CLASS=$error_class"
+  echo "BYTECODE_ERROR_MESSAGE=$error_message"
+  echo "ARTIFACT_DIR=$ARTIFACT_DIR"
+  exit 1
+fi
+bytecode_times+=("$LAST_TIME")
+bytecode_digest=$(sha256 "$bytecode_out")
+bytecode_class_bytes=$(awk -F= '/^BYTECODE_CLASS_BYTES=/{ print $2; exit }' "$bytecode_err")
+
+if ! cmp -s "$vm_out" "$bytecode_out"; then
+  echo "VM_OUTPUT_SHA256=$vm_digest"
+  echo "BYTECODE_ADMISSION=rejected"
+  echo "BYTECODE_OUTPUT_SHA256=$bytecode_digest"
+  echo "OUTPUT_EQUAL=no"
+  echo "VM_SAMPLES_SECONDS=$(samples_csv "${vm_times[@]}")"
+  echo "BYTECODE_SAMPLES_SECONDS=$(samples_csv "${bytecode_times[@]}")"
+  echo "VM_MEDIAN_SECONDS=$(median "${vm_times[@]}")"
+  echo "BYTECODE_MEDIAN_SECONDS=$(median "${bytecode_times[@]}")"
+  echo "BYTECODE_SPEEDUP=none"
+  echo "PERFORMANCE_TARGET=not-run"
+  echo "BYTECODE_CLASS_BYTES=${bytecode_class_bytes:-unknown}"
+  echo "ARTIFACT_DIR=$ARTIFACT_DIR"
+  echo "error: direct-ASM output differs from VM control" >&2
+  exit 1
+fi
+
+for ((i = 2; i <= REPS; i++)); do
+  vm_i_out="$WORK/vm-$i.out"
+  vm_i_err="$WORK/vm-$i.err"
+  echo "running VM control $i/$REPS..." >&2
+  run_timed vm "$vm_i_out" "$vm_i_err" || {
+    cat "$vm_i_err" >&2
+    exit 1
+  }
+  vm_times+=("$LAST_TIME")
+  cmp -s "$vm_out" "$vm_i_out" || {
+    echo "error: VM control output is not deterministic at repetition $i" >&2
+    exit 1
+  }
+
+  bytecode_i_out="$WORK/bytecode-$i.out"
+  bytecode_i_err="$WORK/bytecode-$i.err"
+  echo "running direct-ASM candidate $i/$REPS..." >&2
+  run_timed bytecode "$bytecode_i_out" "$bytecode_i_err" || {
+    cat "$bytecode_i_err" >&2
+    exit 1
+  }
+  bytecode_times+=("$LAST_TIME")
+  cmp -s "$vm_out" "$bytecode_i_out" || {
+    echo "error: direct-ASM output differs at repetition $i" >&2
+    exit 1
+  }
+done
+
+vm_median=$(median "${vm_times[@]}")
+bytecode_median=$(median "${bytecode_times[@]}")
+speedup=$(awk -v vm="$vm_median" -v bc="$bytecode_median" \
+  'BEGIN { if (bc == 0) print "inf"; else printf "%.2f", vm / bc }')
+performance_target=$(awk -v speedup="$speedup" \
+  'BEGIN { if (speedup == "inf" || speedup + 0 >= 2) print "met"; else print "missed" }')
+
+echo "VM_OUTPUT_SHA256=$vm_digest"
+echo "BYTECODE_ADMISSION=accepted"
+echo "BYTECODE_OUTPUT_SHA256=$bytecode_digest"
+echo "OUTPUT_EQUAL=yes"
+echo "VM_SAMPLES_SECONDS=$(samples_csv "${vm_times[@]}")"
+echo "BYTECODE_SAMPLES_SECONDS=$(samples_csv "${bytecode_times[@]}")"
+echo "VM_MEDIAN_SECONDS=$vm_median"
+echo "BYTECODE_MEDIAN_SECONDS=$bytecode_median"
+echo "BYTECODE_SPEEDUP=$speedup"
+echo "PERFORMANCE_TARGET=$performance_target"
+echo "BYTECODE_CLASS_BYTES=${bytecode_class_bytes:-unknown}"
+echo "ARTIFACT_DIR=$ARTIFACT_DIR"
+
+[[ "$performance_target" == met ]]
