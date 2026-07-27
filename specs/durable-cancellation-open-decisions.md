@@ -24,19 +24,23 @@ idempotent-cancel → `Cancelled`), taking durable to **25/26**. The remaining o
 Recorded here rather than in `SPRINT.md`: that file is declared by two other live claims, so this
 claim deliberately kept out of it. Each slice lands independently green.
 
-- [ ] **S1 — one-shot race (Scala lane).** This is where the decisions actually bite. `Runtime`
+- [x] **S1 — DONE.** one-shot race (Scala lane). This is where the decisions actually bite. `Runtime`
       holds a single `AtomicBoolean claimed`, which cannot express *who* won — replace it with a
       three-state atomic (free / resumed / cancelled) so the loser learns which:
       cancel-then-resume → resume gets `Cancelled`; resume-then-cancel → cancel gets
       **`TooLateToCancel`** (D1); cancel twice → idempotent success. `ResumeRejected` gains the two
       rows; `Delegated` forwards `tryCancel`.
-- [ ] **S2 — reusable latch (Scala lane).** `cancel()` latches the saved value monotonically; every
+- [x] **S2 — DONE.** reusable latch (Scala lane). `cancel()` latches the saved value monotonically; every
       NEW `run(input)` is rejected `Cancelled` **at admission**, before an `ExecutionId` exists —
       and per D4 the cancellation check comes **FIRST**, ahead of expiry/revocation, so the
       expired-AND-cancelled tie is specified rather than a per-lane accident. In-flight runs are not
       killed (D2) and the capability bit says so.
-- [ ] **S3 — JS lane parity.** Same transitions in `v2/host/js/control`, same names.
-- [ ] **S4 — flip the vector.** `lanes.tsv`: add the `cancellation` capability to both host lanes.
+- [x] **S3 — DONE.** JS lane parity. Same transitions in `v2/host/js/control`, same names.
+- [x] **S4 — DONE — vector 26 is FLIPPED, durable is 25/26.** Scope stated honestly: the flip is on
+      **scala-explicit only**. The JS package has the same implementation and tests (S3), but its
+      harness lane `js-generated` is `status=pending` ("not qualified"), so declaring it a
+      conformance lane would be the exact bending this arc was warned about. One line when it
+      qualifies. Vector 15 is now the ONLY pending record. Original scope: `lanes.tsv`: add the `cancellation` capability to both host lanes.
       `vectors.tsv` row 26: `pending-spec/pending/pending/UNSPECIFIED` →
       `specified/zero/structured/<transition summary>`. Retire `pending/26-*.pending`. Durable → 25/26.
       ⚠️ Do NOT flip a vector whose realization does not match the pending's stated mechanism — that
