@@ -174,6 +174,21 @@ executes, with repeated `compileEffectAwareConstructor` /
 `compileEffectAwareApplication` frames. This is before user code or either
 native execution backend starts.
 
+**First root cause isolated.** Import-closure bisection reduced the crash to
+`examples/std-ui/progress-bar.ssc`, then to a two-file fixture containing
+`"""aria-busy="true""""`. `scanTripleEnd` chose the first three quotes in the
+four-quote run, although the literal quote is content and the final three are
+the delimiter. The rest of the function was consequently parsed as string
+fragments plus a malformed `idx_assign`; the lowerer's honest `Cons` match on
+its argument surfaced that corruption as `Pair/2`. The focused regression
+fails identically under default/legacy × VM/ASM before the scanner correction
+and preserves both output quotes afterward.
+
+**Next exposed layer.** With the quote-run correction installed, `Pair/2`
+disappears, but all five full std-ui roots now reach the native structural
+sentinel gate and report `_err`. Keep this entry OPEN until that independently
+malformed construct is reduced and the five expected outputs execute.
+
 **Fix acceptance.** Reduce the failure to the smallest source-closure or
 CoreIR shape, pin it in the real tower/runtime harness, and fix the actual
 match/effect interaction. Both native VM and direct ASM must then match all

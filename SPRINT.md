@@ -7180,6 +7180,14 @@ emits `def C(a) = IrCtor(C, [a])`; extend to `def C(a) = let y=a*2 in IrCtor(C, 
     import/lowering behavior.
   - Apply the smallest runtime or ssc1 front/lower correction; do not add a
     catch-all match arm that would hide malformed data.
+  - **Measured reduction / first fix:** only `progress-bar.ssc` triggered
+    `Pair/2`; its four-quote raw-string terminator made `scanTripleEnd` stop
+    three quotes too early and fabricate a malformed `idx_assign`. The
+    multi-file `std-ui-native-pair-minimal` fixture fails in all four
+    default/legacy × VM/ASM combinations before the scanner fix and emits the
+    exact two quote-bearing lines afterward. The full five-case rerun now
+    exposes the next honest failure, structural parser sentinel `_err`; reduce
+    that construct before declaring native coverage green.
   - Verify the focused regression, affected v2 module tests, all five native
     VM/direct-ASM outputs, and the existing five-case INT/JS/JVM slice.
 - [ ] **v2-js-only-tests** — js-cps-intrinsic-rewrite (`nowMillis`) / js-state-effect-runner /
