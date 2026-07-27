@@ -1,0 +1,11 @@
+slug: v2-bytecode-lane-silent-downgrade
+branch: feature/v2-bytecode-lane-silent-downgrade
+agent: claude-code
+started: 2026-07-27T20:53:04Z
+heartbeat: 2026-07-27T20:53:04Z
+status: claimed-before-planning
+items: scljet-jdbc-facade-bytecode-class-too-large
+paths: v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala scripts/bc-parity-sweep tests/e2e/ BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
