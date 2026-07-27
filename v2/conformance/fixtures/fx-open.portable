@@ -1,0 +1,1 @@
+(portable-capsule (version 1) (resume-digest 3961e05171fbd61e581041db6ad9c0ae163b5589072ae9eb92dc2c010cbce488) (frame (ctor frame (lit (int 5)))) (resume (program (defs) (entry (lam 2 (match (local 1) ((arm frame 1 (prim effect.perform (lit (str "E.get")) (prim i.add (local 1) (local 0)))))))))))

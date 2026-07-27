@@ -135,4 +135,33 @@ reject_frame "frame with lam rejected"   's/(frame (ctor frame (lit (int 5))/(fr
 sed 's/(frame (ctor frame (lit (int 5))/(frame (ctor frame (lit (int 99))/' "$GLOB" > "$TMP/datachange"
 check "data-only frame edit still runs" "$(ssc run-capsule "$TMP/datachange" 3)" "111"  # quad(3)=12, +99
 
+# §10.2 slice 4 — EFFECTFUL regions. Measured 2026-07-27 and it corrected the slice's premise: an
+# Fx-CLOSED region (the perform AND its handler inside) already reifies and runs machine-less, with
+# no local CPS pass — the frame slot is even read from inside the handler lambda. The region is
+# `(input) => effect.handle(effect.perform("E.get", input), (event) => a * 10)` with a = 5, so the
+# handled result is 50 for ANY input (the handler discards the operation and uses the frame).
+EFF="$TMP/effect.portable"
+ssc freeze-region-effect "$EFF" >/dev/null
+check "effectful region run input=3" "$(ssc run-capsule "$EFF" 3)" "50"
+check "effectful region run input=7" "$(ssc run-capsule "$EFF" 7)" "50"
+
+# The OPEN case must be refused BEFORE any bytes exist (§11.3 Fx-closed). Before the guard this
+# froze happily and the run returned `Op("E.get", 8, <closure>)` — a LIVE continuation handed to a
+# runner that holds no machine and no handlers.
+if ssc freeze-region-effect "$TMP/open.portable" --escaping >/dev/null 2>&1; then
+  printf 'FAIL %-30s Fx-open region was frozen\n' "Fx-open refused at freeze"; fail=1
+else
+  printf 'ok   %-30s => refused\n' "Fx-open refused at freeze"
+fi
+
+# Defence in depth: a capsule from ANY other producer (here a committed fixture, frozen by the
+# pre-guard build) must be refused at RUN. The reify-time guard cannot cover foreign capsules, and
+# this fixture is the only way to keep that second layer honest — the current tool cannot produce
+# one by design.
+if ssc run-capsule fixtures/fx-open.portable 3 >/dev/null 2>&1; then
+  printf 'FAIL %-30s foreign Fx-open capsule ran\n' "Fx-open refused at run"; fail=1
+else
+  printf 'ok   %-30s => refused\n' "Fx-open refused at run"
+fi
+
 if [ "$fail" -eq 0 ]; then echo "portable-capsule: PASS"; else echo "portable-capsule: FAIL"; exit 1; fi
