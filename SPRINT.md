@@ -679,10 +679,10 @@ mode in its purest form: the apparatus that establishes trust was itself unteste
       done. **Claimed 2026-07-27 as `corpus-contract-baseline-roster`.** Plan/spec:
       `specs/corpus-contract-baseline-roster.md`.
       - [ ] **E7.1 — freeze the selected-case universe beside the failure rows.** Add sorted,
-            unique `tests/conformance/contract-roster.tsv`, paired to the exact
-            `corpus-baseline.tsv` bytes by SHA-256. Seed it from the commit that produced the
-            current baseline, not from current HEAD — otherwise the motivating post-freeze
-            `coroutine-demo` would be mislabeled REGRESSION again.
+            unique `tests/conformance/contract-roster.tsv`, paired by SHA-256 to both the
+            canonical-LF baseline serialization and its own canonical-LF roster body. Seed it
+            from the commit that produced the current baseline, not from current HEAD — otherwise
+            the motivating post-freeze `coroutine-demo` would be mislabeled REGRESSION again.
       - [ ] **E7.2 — classify from evidence, not absence.** A non-PASS for a rostered case that has
             no baseline row is REGRESSED; a case absent from the roster is NEW whether it currently
             passes or fails. Full runs also report removed/stale roster cases; shard/`--only` runs
@@ -693,10 +693,19 @@ mode in its purest form: the apparatus that establishes trust was itself unteste
             baseline+roster pair and its digest together.
       - [ ] **E7.4 — prove the classifier fails loudly.** A lightweight self-test must distinguish a
             synthetic NEW red case from an existing-case regression, report a new PASS case so the
-            roster cannot silently age, retain improvement detection, reject a digest mismatch, and
-            prove scoped baseline updates exit 2. Then run the real roster check and an affected
-            Corpus Contract slice. Do not hand-edit `corpus-baseline.tsv`: the live
+            roster cannot silently age, retain true improvement detection, reject baseline and
+            roster-body digest mismatches plus malformed metadata, and prove scoped baseline
+            updates exit 2. Then run the real roster check and an affected Corpus Contract slice.
+            Do not hand-edit `corpus-baseline.tsv`: the live
             `corpus-gate-remaining-reds` claim owns its re-baseline.
+      - [ ] **E7.5 — classify by observed cell key, not whole-row absence.** Fix BUGS
+            `corpus-contract-delta-false-improvements`: `FAIL → DIVERGE` and
+            `KNOWN-RED → FAIL` are status changes only; a backend-excluded lane is unobserved, not
+            improved. A frozen red is an improvement only when that exact cell ran and now passes.
+      - [ ] **E7.6 — refuse zero-evidence green.** Fix BUGS
+            `corpus-contract-zero-evidence-green`: validate option arity/values, reject empty or
+            duplicate/unknown lane lists, and exit 2 when a normal gate selects zero cases or
+            observes zero case cells. Assertions must check the diagnostic, not just the exit code.
 
 - [x] **E5 — DONE: make a timeout impossible to misread as benign.** After E2 the gate fits its budget,
       but the *detection* hole stays: any future budget breach reappears as `cancelled`. Cheapest

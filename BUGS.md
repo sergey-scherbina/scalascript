@@ -1,5 +1,71 @@
 # Bug tracker
 
+## corpus-contract-zero-evidence-green — an empty selection can pass without comparing anything
+
+**Status:** OPEN → fix in flight under `corpus-contract-baseline-roster`
+(SPRINT E7; found 2026-07-27 by Codex review on `e124cc20f`).
+
+**Reproduce.** With a built toolchain, either a misspelled filter such as
+`scala-cli --server=false tests/conformance/contract.sc -- --only definitely-not-a-case`
+or an empty lane value such as `--only arithmetic --lanes ''` reaches the
+normal gate with zero cases/cells. Removal inference is correctly suppressed
+for a subset, so the empty delta prints GREEN (`PASS cells: 0/0`) even though
+no observable was compared.
+
+**Root cause.** CLI values and the selected case/cell counts are trusted
+without a positive-evidence check. An empty slice is represented by the same
+empty sets as a fully matching slice.
+
+**Fix / done-when.** Validate option arity, lane names, non-empty lane sets,
+duplicates, and positive numeric values; reject a normal gate with zero
+selected cases or zero observed lane/skip cells. `--list` remains an
+enumeration operation, not evidence. Regression checks must assert the exact
+exit-2 diagnostic so a different early failure cannot masquerade as the fix.
+
+## corpus-contract-delta-false-improvements — unobserved lanes and status changes look improved
+
+**Status:** OPEN → fix in flight under `corpus-contract-baseline-roster`
+(SPRINT E7; found 2026-07-27 by Codex review on `e124cc20f`).
+
+**Reproduce.** In the pure classifier, freeze `x<TAB>js<TAB>FAIL` and observe
+`x<TAB>js<TAB>DIVERGE`: row-level set subtraction reports both CHANGE and
+IMPROVEMENT, although the cell never passed. A
+`KNOWN-RED → FAIL` transition additionally prints that the declaration
+"expired" because the lane now passes. Separately, if `backends:` stops
+selecting a frozen red lane, requested-lane scoping treats the unobserved row
+as an improvement.
+
+**Root cause.** The delta compares whole `(case,lane,status)` strings instead
+of mapping statuses by `(case,lane)`, and scopes the baseline by requested
+lanes rather than the cells that actually ran.
+
+**Fix / done-when.** Compare by cell key: a changed status is only CHANGE, and
+IMPROVEMENT requires an observed frozen-red cell whose current row is absent
+(therefore PASS/runnable). Backend-excluded cells stay out of scope. Synthetic
+tests cover `FAIL → DIVERGE`, `KNOWN-RED → FAIL`, an unobserved lane, and a
+real improvement.
+
+## corpus-contract-freeze-digest-unbound — roster edits do not invalidate the paired freeze
+
+**Status:** OPEN → fix in flight under `corpus-contract-baseline-roster`
+(SPRINT E7; found 2026-07-27 by Codex review on `e124cc20f`).
+
+**Reproduce.** Add `coroutine-demo` at the sorted position in
+`contract-roster.tsv` without changing its header. The first implementation's
+header hashes only `corpus-baseline.tsv`; sorted/unique/subset validation still
+passes because `coroutine-demo` has no baseline row. NEW classification has
+silently changed while the supposedly paired freeze remains "valid".
+
+**Root cause.** The digest binds the roster header to the failure matrix but
+does not bind the roster body itself. Exact checkout-byte hashing also makes an
+otherwise valid LF commit fail on a CRLF checkout.
+
+**Fix / done-when.** The versioned header carries both a canonical-baseline
+SHA-256 and a canonical-roster-body SHA-256. Canonical LF serialization keeps
+the content identity portable across checkout EOL settings. Mutating a roster
+name without refreshing the header must fail closed; focused tests also cover
+unsorted/duplicate names and a baseline name missing from the roster.
+
 ## claim-ledger-claimfile-scope-drift — inconsistent claim metadata makes the overlap guard fail open
 
 **Status:** OPEN (found 2026-07-27 by Codex while claiming SPRINT E7; observed at
@@ -44,16 +110,19 @@ The update writes `current`, which contains only the cases and lanes selected
 by those flags, over the whole `corpus-baseline.tsv`. The first command drops
 every non-`hello` row; the second drops every JS/v2 row. Use a disposable copy
 for the red reproduction — running either command in the main checkout is
-destructive.
+destructive. Review also found that a trailing/missing `--only`, `--shard`, or
+`--lanes`, an empty `--only ''`, and duplicate canonical lanes can evade
+value-based guards unless raw option presence/arity is validated.
 
 **Root cause.** The shard guard correctly states the invariant ("update rewrites
-the WHOLE baseline") but checks only `shard.isDefined`. `--only` and a
-non-canonical lane set create the same partial-observation shape.
+the WHOLE baseline") but checks only successfully parsed values.
+`--only`, malformed/missing values, and a non-canonical lane list create the
+same partial-observation shape or are silently replaced by defaults.
 
 **Fix / done-when.** A baseline update is admitted only for the unsharded,
-unfiltered canonical lane set, and every refused combination exits 2 with the
-exact unsafe scope in the diagnostic. Pin the cheap negative control with
-`--list` so no built toolchain or corpus execution is required.
+unfiltered canonical lane list, and every refused or malformed combination
+exits 2 with the exact unsafe scope in the diagnostic. Pin the cheap negative
+control with `--list` so no built toolchain or corpus execution is required.
 
 ## parser-package-wrap-drops-fence-attrs — a `package:` module silently loses EVERY fence attribute
 
