@@ -1,0 +1,28 @@
+slug: js-not-callable-unit
+branch: feature/js-not-callable-unit
+agent: opus-orch
+started: 2026-07-28T00:55:00Z
+heartbeat: 2026-07-28T00:55:00Z
+status: claimed-before-planning
+direction: v1 JS backend / codegen
+items: js-not-callable-unit
+bugs: coroutine-demo-js-not-callable rozum-agent-schema-derived-js-and-v2-gaps
+paths: v1/runtime/backend/js/** BUGS.md tests/conformance/js-not-callable-unit.ssc tests/conformance/expected/js-not-callable-unit.txt
+scope: |
+  Two of the corpus contract's remaining reds, both filed by me, both on the v1 JS lane, and the
+  evidence says ONE defect rather than two:
+
+    examples/coroutine-demo.ssc            -> Error: not callable: ()
+    examples/rozum-agent-schema-derived.ssc -> Error: not callable: ()
+
+  Byte-identical message AND byte-identical operand: the generated `.cjs` is calling a value that
+  evaluated to Unit. Fixing one should close both; if it does not, that itself is the finding and
+  the second gets its own entry.
+
+  Plan: reduce each to a minimal .ssc, check whether the two minimals coincide, then pin which
+  codegen path emits `()` where a function belongs. Add ONE cross-lane conformance case (the JS
+  lane must fail-first) — neither example is in a position to serve as the regression test, since
+  both are large and one binds a real socket.
+
+  Prerequisite already satisfied: the v1 JS backend is unclaimed (js-char-into-int-param released).
+next: minimal repro for each, compare, then locate the emitter
