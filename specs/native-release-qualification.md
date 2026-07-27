@@ -64,10 +64,10 @@ Runtime installation-root precedence is exact:
    bundled root.
 
 JVM launches and explicitly configured native launches must not inspect the
-current executable. The native image must initialize the Scala object backing
-`scalascript.imports.ImportResolver` at run time; the package-wide
-build-time-initialization default must not snapshot build-runner paths or
-environment values into the executable.
+current executable. The native image must initialize every eager
+host-path consumer at run time; the package-wide build-time-initialization
+default must not snapshot build-runner paths or environment values into the
+executable.
 
 Each uploaded artifact contains:
 
@@ -127,10 +127,18 @@ qualifier requires the extracted file set and every digest to match it exactly.
       `ProcessHandle`; a missing/empty environment override falls through to
       native bundled-root discovery.
 - [ ] Native-image configuration initializes
-      `scalascript.imports.ImportResolver$` at run time despite the broader
-      `--initialize-at-build-time=scalascript` setting, so `libPath`,
-      `stdPath`, cache roots, and other host-derived eager state are not frozen
-      from the build runner.
+      `os.package$`, `scalascript.imports.ImportResolver$`,
+      `scalascript.imports.DepCache$`,
+      `scalascript.imports.RegistryClient$`, and
+      `scalascript.compiler.plugin.RemotePluginInstaller$` at run time despite
+      the broader `--initialize-at-build-time=scalascript` setting, so
+      `os.pwd`, home/cache roots, library roots, and registry/plugin paths are
+      not frozen from the build runner.
+- [ ] The runtime-initialization policy is embedded below
+      `META-INF/native-image/` in the CLI artifact and therefore applies to
+      ordinary local `cli/graalvm-native-image:packageBin` builds as well as the
+      release workflow. Runner-specific builder-memory policy is not embedded
+      in that reusable artifact metadata.
 - [ ] The workflow copies the binary, archive, checksum, and qualifier outside
       the checkout, makes the checkout's staged native frontend unavailable,
       and runs qualification from the isolated copy. A build-time absolute
@@ -140,7 +148,9 @@ qualifier requires the extracted file set and every digest to match it exactly.
       `runtime: v2 (default; --v1 opts back)  ·  jvm <version>`. A prefix such
       as `v20` is not a v2 identity.
 - [ ] A generated, self-contained `.ssc` probe runs through
-      `ssc run --v2 --interpret` and prints the exact expected result.
+      `ssc run --v2 --interpret` by a relative path from the isolated working
+      directory and prints the exact expected result. An absolute probe path is
+      insufficient because it can bypass a build-time-frozen `os.pwd`.
 - [ ] The same probe runs through `ssc run --v2 --bytecode`, prints the same
       result, and does not emit the stable
       `ssc: --bytecode fell back to the VM lane` marker.
@@ -162,6 +172,10 @@ qualifier requires the extracted file set and every digest to match it exactly.
       than a runner that waits indefinitely.
 - [ ] Every matrix artifact and checksum is uploaded only after its runner-local
       post-extraction qualification passes.
+- [ ] The workflow removes the repository-wide `-J-Xmx8g` native-image option
+      and uses a single `-J-Xmx5g` builder limit. This stays below the 7 GB
+      standard arm64 macOS runner while reserving memory for native/off-heap
+      work; duplicate `-Xmx` options are refused by source inspection/lint.
 - [ ] The completed manual run has successful Linux x86_64, macOS arm64, and
       macOS x86_64 matrix jobs, and
       `scripts/ci-status --workflow native-release.yml --event any --latest`
@@ -238,14 +252,34 @@ lazy and native-only, so JVM launchers and explicitly configured native
 processes do not touch `ProcessHandle`.
 
 The current native-image build initializes the broad `scalascript` package at
-build time. Its release invocation must add the more-specific
-`--initialize-at-run-time=scalascript.imports.ImportResolver$` override. GraalVM
-documents that
-[explicit options can select an individual class for run-time initialization](https://www.graalvm.org/dev/reference-manual/native-image/guides/specify-class-initialization/)
-even when a package is selected for build-time initialization.
-The real archive execution remains the decisive proof that no host path was
-captured. The archive must not capture the checkout path used on the hosted
-runner.
+build time. Bytecode inspection identifies five eager host-path owners that
+must be more specifically initialized at run time:
+
+```text
+os.package$
+scalascript.imports.ImportResolver$
+scalascript.imports.DepCache$
+scalascript.imports.RegistryClient$
+scalascript.compiler.plugin.RemotePluginInstaller$
+```
+
+The CLI embeds their comma-separated
+`--initialize-at-run-time=...` option in
+`META-INF/native-image/scalascript/ssc/native-image.properties`. GraalVM
+[recommends embedded native-image configuration](https://www.graalvm.org/jdk21/reference-manual/native-image/overview/BuildConfiguration/)
+and documents that
+[explicit options can select individual run-time-initialized classes](https://www.graalvm.org/jdk21/reference-manual/native-image/guides/specify-class-initialization/)
+even when a package is selected for build-time initialization. `os.package$`
+owns `os.pwd`; the four ScalaScript objects eagerly call cwd/home-derived
+os-lib APIs. The real archive execution through a relative source path remains
+the decisive proof that no host path was captured.
+
+Builder heap is runner policy, not artifact semantics. The workflow removes the
+inherited `-J-Xmx8g` and adds `-J-Xmx5g`: the standard arm64 macOS runner has
+[7 GB of RAM](https://docs.github.com/en/actions/how-tos/write-workflows/choose-where-workflows-run/choose-the-runner-for-a-job),
+and GraalVM notes that native-image
+[actual memory can exceed the configured Java heap](https://www.graalvm.org/latest/reference-manual/native-image/overview/BuildOutput/).
+The archive must not capture the checkout path used on the hosted runner.
 
 ### Exercise both v2 execution backends
 
@@ -282,10 +316,17 @@ marker, so a VM run wearing the bytecode label cannot qualify the release.
   release failure and GNU `timeout` is absent on stock macOS. The portable
   qualifier uses its existing Python runtime for subprocess deadlines.
 - **Runtime-initialize the resolver module** — chosen because its eager path
-  state is host-dependent and a package-wide build-time rule would serialize
-  the CI checkout and home into the image. Rejected: relying only on the early
-  bootstrap call (it runs after build-time class initialization has already
-  frozen the values).
+  state and the other four eager cwd/home consumers are host-dependent, while
+  a package-wide build-time rule would serialize the CI checkout and home into
+  the image. Rejected: initializing only `ImportResolver$` (a frozen
+  `os.package$.pwd` and registry/plugin caches would remain).
+- **Embed portable native-image policy in the CLI JAR** — chosen so local and
+  release builds share the correctness rule automatically. Rejected:
+  workflow-only class-initialization flags (they leave the documented local
+  native build path defective).
+- **Keep builder heap in CI** — chosen because available RAM is a runner
+  property. Rejected: embedding `-J-Xmx5g` in `native-image.properties`
+  (needlessly constrains larger developer/build machines).
 - **Allowlist the runtime environment** — chosen because deleting a short list
   of known contaminants leaves future Java/toolchain variables ambient.
   Rejected: inheriting the runner environment and unsetting only current
@@ -313,6 +354,10 @@ Pre-change baseline on 2026-07-27:
   launches, `SSC_LIB_PATH` could be masked, and
   `--initialize-at-build-time=scalascript` would freeze
   `ImportResolver` path state before the entrypoint bootstrap.
+- Expanded bytecode review found four ScalaScript eager cwd/home consumers plus
+  `os.package$.pwd`; an absolute smoke-test path could hide that frozen cwd.
+  Workflow review also found that inherited `-J-Xmx8g` exceeds the 7 GB arm64
+  macOS runner's physical memory.
 
 Implementation measurements and the exact manual run are recorded here during
 the verify phase.
