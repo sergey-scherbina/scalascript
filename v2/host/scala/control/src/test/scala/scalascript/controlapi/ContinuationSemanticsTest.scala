@@ -420,3 +420,49 @@ final class ContinuationSemanticsTest extends AnyFunSuite:
         case other =>
           throw new AssertionError(s"exactly one side must win, got $other")
     }
+
+  // ── reusable cancellation latch (vector 26 S2; owner decisions D2/D4) ──────────────────────────
+  // Uses the lane's established idiom for a savable continuation: `freezeSavable` to obtain the
+  // saved value and `Restore.admitLocally` to run it.
+
+  private def savedCounter(): SavedContinuation.Aux[Int, Nothing, Int] =
+    val machine = new ResumeStateMachine[Int, Int, Nothing, Int]:
+      override def resume(state: Int, input: Int): Eff[Nothing, Int] = Eff.pure(state + input)
+    freezeSavable(Continuation.savable(40, machine, DurableValue.immutable[Int]))
+
+  test("a cancelled reusable saved continuation rejects every NEW run at admission"):
+    val saved = savedCounter()
+    assert(Eff.runPure(Restore.admitLocally(saved.run(2))) == 42, "runs before the latch are fine")
+    assert(saved.cancel() == CancelAccepted(SavedContinuation.SavedOperation))
+    assert(saved.isCancelled)
+    // The rejection is a VALUE on tryRun …
+    assert(saved.tryRun(2) == Left(ResumeRejected.Cancelled(SavedContinuation.SavedOperation)))
+    // … and `run` enforces the same latch rather than quietly bypassing it.
+    val thrown = intercept[RunRejected](saved.run(2))
+    assert(thrown.rejection == ResumeRejected.Cancelled(SavedContinuation.SavedOperation))
+
+  test("cancelling a saved continuation twice is idempotent"):
+    val saved = savedCounter()
+    assert(saved.cancel() == saved.cancel())
+    assert(saved.isCancelled)
+
+  test("the rejection happens at ADMISSION — no frame is reconstructed"):
+    // If the check sat inside the deferred body instead, the snapshot would run before the
+    // rejection surfaced. Counting snapshots is what distinguishes the two.
+    var snapshots = 0
+    val inner = DurableValue.immutable[Int]
+    val codec = new DurableValue[Int]:
+      override def snapshot(value: Int): Int = { snapshots += 1; inner.snapshot(value) }
+    val machine = new ResumeStateMachine[Int, Int, Nothing, Int]:
+      override def resume(state: Int, input: Int): Eff[Nothing, Int] = Eff.pure(state + input)
+    val saved = freezeSavable(Continuation.savable(40, machine, codec))
+    assert(Eff.runPure(Restore.admitLocally(saved.run(2))) == 42)
+    val before = snapshots
+    saved.cancel()
+    assert(saved.tryRun(2).isLeft)
+    assert(snapshots == before, "a cancelled run must not reconstruct a frame")
+
+  test("the base contract advertises that cancel blocks new admissions only (D2)"):
+    // The weakness is machine-readable rather than a footnote: a caller can DETECT that in-flight
+    // work is not interrupted instead of assuming it is.
+    assert(savedCounter().cancellationScope == CancellationScope.BlocksNewAdmissions)

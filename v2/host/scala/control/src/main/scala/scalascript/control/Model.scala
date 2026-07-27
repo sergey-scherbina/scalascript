@@ -30,6 +30,18 @@ enum ResumeRejected:
   /** A cancel lost the race to a resume that had already claimed the slot. */
   case TooLateToCancel(operation: OperationId)
 
+
+/** What a lane's `cancel` promises about work already running (owner decision D2). The base
+ *  contract is portable and blocks only NEW admissions; a lane able to interrupt a running suffix
+ *  says so here, so callers can DETECT the difference instead of guessing from a footnote. */
+enum CancellationScope:
+  case BlocksNewAdmissions, InterruptsInFlight
+
+/** Thrown by `SavedContinuation.run` when admission rejects it; `tryRun` returns the same rejection
+ *  as a value. The typed `rejection` — never a message — is the embedding contract. */
+final class RunRejected(val rejection: ResumeRejected)
+    extends RuntimeException(s"run rejected: $rejection")
+
 /** Evidence that a cancellation took effect. Named apart from `ResumeRejected.Cancelled` so the
  *  success and failure sides of `tryCancel` never read as the same thing. */
 final case class CancelAccepted(operation: OperationId)

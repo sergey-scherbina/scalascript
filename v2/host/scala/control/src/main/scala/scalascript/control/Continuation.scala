@@ -1,6 +1,6 @@
 package scalascript.control
 
-import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger}
 
 sealed trait Resumption[-A, +Fx <: Effect, +R]
 
@@ -218,7 +218,38 @@ sealed abstract class SavedContinuation[-A, +R] private (
 
   type Effects <: Effect
 
-  def run(value: A): Eff[Effects | Restore, R]
+  /**
+   * Run this saved continuation. Enforces the cancellation latch: a cancelled value rejects every
+   * NEW run. Prefer [[tryRun]] where the rejection should be a value rather than a throw — `run`
+   * exists for the common path and delegates to it.
+   */
+  def run(value: A): Eff[Effects | Restore, R] =
+    tryRun(value) match
+      case Right(next)     => next
+      case Left(rejection) => throw new RunRejected(rejection)
+
+  /**
+   * Admission-checked run. The cancellation check happens HERE — when `tryRun` is called, before
+   * any frame is reconstructed and before an execution identity exists — which is what "rejected at
+   * admission" means (§11.1). Owner decision D4 puts it FIRST, ahead of expiry/revocation: when a
+   * value is both expired and cancelled, the caller's own action is the more informative answer to
+   * "why did my run not happen", and leaving the tie unspecified would make it a per-lane accident.
+   */
+  def tryRun(value: A): Either[ResumeRejected, Eff[Effects | Restore, R]]
+
+  /**
+   * Latch this saved value cancelled — monotonic and idempotent. Blocks only NEW admissions:
+   * runs already in flight are not killed (owner decision D2, because interrupting a running
+   * suffix is irreducibly target-specific), which is why [[cancellationScope]] exists to say so
+   * in machine-readable form rather than in a footnote.
+   */
+  def cancel(): CancelAccepted
+
+  def isCancelled: Boolean
+
+  /** What this lane's `cancel` actually promises. `BlocksNewAdmissions` is the portable base
+   *  contract; a lane that can also interrupt a running suffix advertises otherwise. */
+  def cancellationScope: CancellationScope = CancellationScope.BlocksNewAdmissions
 
 object SavedContinuation:
   /** Library-owned successful save plans (post-X1; see durable-continuation-save-run). */
@@ -244,21 +275,41 @@ object SavedContinuation:
       frame: S,
       machine: ResumeStateMachine[S, A, Fx, R],
       codec: DurableValue[S],
+      operation: OperationId,
       candidate: Authority
   ) extends SavedContinuation[A, R](candidate):
     type Effects = Fx
 
-    def run(value: A): Eff[Fx | Restore, R] =
-      Eff.defer[Fx | Restore, R] {
-        val fresh = codec.snapshot(frame)
-        machine.resume(fresh, value)
-      }
+    private val cancelled = new AtomicBoolean(false)
+
+    def tryRun(value: A): Either[ResumeRejected, Eff[Fx | Restore, R]] =
+      // D4: checked FIRST, and before the defer — a cancelled value must not reconstruct a frame.
+      if cancelled.get() then Left(ResumeRejected.Cancelled(operation))
+      else
+        Right(Eff.defer[Fx | Restore, R] {
+          val fresh = codec.snapshot(frame)
+          machine.resume(fresh, value)
+        })
+
+    def cancel(): CancelAccepted =
+      cancelled.set(true) // monotonic latch: idempotent by construction, never a failure
+      CancelAccepted(operation)
+
+    def isCancelled: Boolean = cancelled.get()
 
   private[control] def reusable[S, A, Fx <: Effect, R](
       frame: S,
       machine: ResumeStateMachine[S, A, Fx, R],
-      codec: DurableValue[S]
+      codec: DurableValue[S],
+      operation: OperationId = SavedOperation
   ): SavedContinuation.Aux[A, Fx, R] =
-    new Reusable(frame, machine, codec, authority)
+    new Reusable(frame, machine, codec, operation, authority)
+
+  /** The identity a saved continuation reports in its rejections when the save site did not carry
+   *  one — stable and target-neutral, never a synthesized per-instance name. PUBLIC because it is
+   *  part of the observable contract: §13 says embedding goes through the structured OperationId
+   *  and its constructor, never through message parsing, so a caller must be able to compare it. */
+  val SavedOperation: OperationId =
+    OperationId(EffectId("ssc.control.saved"), "run")
 
   type Aux[A, Fx <: Effect, R] = SavedContinuation[A, R] { type Effects = Fx }
