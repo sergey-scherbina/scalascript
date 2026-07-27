@@ -15,6 +15,14 @@ val upickleV   = "4.4.2"
 val sharedScalacOptions       = Seq("-Wunused:all", "-deprecation", "-feature")
 val sharedScalacOptionsStrict = sharedScalacOptions :+ "-Werror"
 
+lazy val verifyStandaloneTargetIsolation = taskKey[Unit](
+  "Verify that every standalone UniML subproject has a distinct target namespace",
+)
+
+val standaloneTargetSettings = Seq(
+  target := baseDirectory.value / "target" / "standalone",
+)
+
 lazy val unimlCross =
   crossProject(JVMPlatform, JSPlatform)
     .crossType(CrossType.Pure)
@@ -25,6 +33,7 @@ lazy val unimlCross =
       Compile / scalacOptions ++= sharedScalacOptionsStrict,
       Test    / scalacOptions ++= sharedScalacOptions,
     )
+    .settings(standaloneTargetSettings)
     .jvmConfigure(_.withId("uniml"))
     .jsConfigure(_.withId("unimlJs"))
     .jsSettings(Test / fork := false)
@@ -43,6 +52,7 @@ lazy val unimlJsonCross =
       Compile / scalacOptions ++= sharedScalacOptionsStrict,
       Test    / scalacOptions ++= sharedScalacOptions,
     )
+    .settings(standaloneTargetSettings)
     .jvmConfigure(_.withId("unimlJson"))
     .jsConfigure(_.withId("unimlJsonJs"))
     .jsSettings(Test / fork := false)
@@ -58,6 +68,7 @@ lazy val unimlYamlCross =
       Compile / scalacOptions ++= sharedScalacOptionsStrict,
       Test    / scalacOptions ++= sharedScalacOptions,
     )
+    .settings(standaloneTargetSettings)
     .jvmConfigure(_.withId("unimlYaml"))
     .jvmSettings(
       libraryDependencies += "org.snakeyaml" % "snakeyaml-engine" % "2.9" % Test,
@@ -77,6 +88,7 @@ lazy val unimlMarkdownCross =
       Compile / scalacOptions ++= sharedScalacOptionsStrict,
       Test    / scalacOptions ++= sharedScalacOptions,
     )
+    .settings(standaloneTargetSettings)
     .jvmConfigure(_.withId("unimlMarkdown"))
     .jvmSettings(
       Test / unmanagedSourceDirectories += baseDirectory.value.getParentFile / "src" / "test-jvm" / "scala",
@@ -97,6 +109,7 @@ lazy val unimlScala = project
     Compile / scalacOptions ++= sharedScalacOptionsStrict,
     Test    / scalacOptions ++= sharedScalacOptions,
   )
+  .settings(standaloneTargetSettings)
 
 lazy val root = project
   .in(file("."))
@@ -110,4 +123,45 @@ lazy val root = project
   .settings(
     name := "uniml",
     publish / skip := true,
+    verifyStandaloneTargetIsolation := {
+      val resolved = Vector(
+        "uniml"           -> (unimlCross.jvm / target).value,
+        "unimlJs"         -> (unimlCross.js / target).value,
+        "unimlJson"       -> (unimlJsonCross.jvm / target).value,
+        "unimlJsonJs"     -> (unimlJsonCross.js / target).value,
+        "unimlYaml"       -> (unimlYamlCross.jvm / target).value,
+        "unimlYamlJs"     -> (unimlYamlCross.js / target).value,
+        "unimlMarkdown"   -> (unimlMarkdownCross.jvm / target).value,
+        "unimlMarkdownJs" -> (unimlMarkdownCross.js / target).value,
+        "unimlScala"      -> (unimlScala / target).value,
+      ).map { case (id, path) => id -> path.getAbsoluteFile.toPath.normalize }
+      val invalidSuffix = resolved.filterNot { case (_, path) =>
+        val count = path.getNameCount
+        count >= 2 &&
+        path.getName(count - 2).toString == "target" &&
+        path.getName(count - 1).toString == "standalone"
+      }
+      val collisions =
+        resolved.groupBy(_._2).toVector.filter(_._2.size > 1).sortBy(_._1.toString)
+      if (
+        resolved.size != 9 ||
+        resolved.map(_._2).distinct.size != 9 ||
+        invalidSuffix.nonEmpty ||
+        collisions.nonEmpty
+      ) {
+        val paths = resolved.map { case (id, path) => s"  $id=$path" }.mkString("\n")
+        val duplicatePaths = collisions.map { case (path, members) =>
+          s"  $path <- ${members.map(_._1).sorted.mkString(",")}"
+        }.mkString("\n")
+        sys.error(
+          "Standalone UniML target isolation failed.\n" +
+            s"Expected 9 distinct paths ending in target/standalone; resolved:\n$paths\n" +
+            (if (duplicatePaths.isEmpty) "" else s"Collisions:\n$duplicatePaths\n")
+        )
+      }
+      streams.value.log.info(
+        "Standalone UniML target isolation: 9 distinct target/standalone namespaces",
+      )
+    },
+    Test / test := ((Test / test) dependsOn verifyStandaloneTargetIsolation).value,
   )

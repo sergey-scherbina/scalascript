@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_SLICE=';unimlYaml/test;unimlYamlJs/test;unimlMarkdown/test;unimlMarkdownJs/test'
+
+for round in 1 2; do
+  printf '== UniML dual-build round %s/2: root JVM + Scala.js ==\n' "$round"
+  (
+    cd "$ROOT"
+    scripts/sbtc "$ROOT_SLICE"
+  )
+
+  printf '== UniML dual-build round %s/2: standalone aggregate ==\n' "$round"
+  (
+    cd "$ROOT/uniml"
+    sbt -batch test
+  )
+done
+
+printf 'OK — root and standalone UniML products remained isolated across two no-clean transitions.\n'
