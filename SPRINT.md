@@ -89,7 +89,17 @@ Slices are already specified in §`v2-f5b-stage1` — execute them in this order
       what protects the runtime. The probe's FIRST version counted `grep -c` (lines) on a
       single-line IR that embeds the prelude, and reported *every* case as `slen`: it was fixed, not
       trusted. `brk_arg` (`xs: List[Int]`) already exists in the gate as the standing negative case.
-- [ ] **B2 — S1-5 slice 1b-2b: typed `val`/`var` locals.** Embed the declared type (or infer from
+- [x] **B2 — DONE (`val` only).** `parseBlockVal` embeds the declared type in the env name exactly
+      as `parseParam` does; `lookup`'s structural resolve from slice 1b-1 means nothing downstream
+      changes. **`var` deliberately excluded** — a var is a mutable CELL, its reads emit
+      `(prim cell.get ..)` not a bare `(local N)`, so `localTyOf`/`isBareLocal` can never fire on
+      one; typing it would be dead weight that still has to survive every env lookup. Gates: X1
+      **155 ok / 0 FAIL** + **FIXPOINT byte-identical 406,964 B**, semantic **248/248 GREEN**.
+      Probes: `val s: String` → `.length` becomes `slen`; `val a: Int` + `val b: Int` → `a + b`
+      becomes typed arith (`__arith__` 1→0); untyped `val` and `val xs: List[Int]` stay untyped.
+      ⚠️ Probe lesson (second one this batch): the probe measured only `.length`, so the
+      arithmetic case read "unchanged" for want of a measurement — it now counts `__arith__` too.
+      Original scope: Embed the declared type (or infer from
       the RHS tag) at the block-binder sites (`parseBlockVal` etc.) using the same `name:Type`
       env-name mechanism. Coverage only — no deletion unlock; do it after B1.
 
