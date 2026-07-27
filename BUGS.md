@@ -2,8 +2,9 @@
 
 ## v2-callback-exc-parity-followups — distributed/generator callbacks rewrap user throws
 
-**Status:** OPEN (found by the SSC v2 parity audit; accepted 2026-07-28 by
-`codex`, SPRINT `v2-callback-exc-parity-followups`).
+**Status:** **DONE 2026-07-28** by `codex` (`218e7c527`; found by the SSC
+v2 parity audit and re-confirmed in the exact assembled harness, SPRINT
+`v2-callback-exc-parity-followups`).
 
 **Real-harness reproduction.**
 
@@ -26,9 +27,15 @@ plugin diagnostics before checking for `ssc.SscThrow`. Dataset-plugin already
 establishes the correct order: rethrow the user value first, contextualize
 only genuine host failures.
 
-**Fix acceptance.** Preserve the original user throw unchanged in both
-plugins, retain contextual wrapping for host failures, and keep the affected
-distributed/generator conformance output byte-identical.
+**Resolution.** Both helpers now rethrow `ssc.SscThrow` before their general
+diagnostic catch. The host-failure control remains wrapped with the exact
+operation and rendered arguments, so the fix narrows only the user-exception
+path.
+
+**Verification.** Distributed/generator plugin suites moved from 4/5 and 9/10
+to 5/5 and 10/10. The assembled pair moved from 0/2 to 2/2 on V1 JVM, V2
+direct ASM, and V2 VM. Default/legacy × native VM/direct ASM also compare
+exactly; the neighboring distributed/generator conformance slice is 8/8.
 
 ## coord-status-ledger-invalid-marker — the required claim ledger is reported as an invalid marker
 

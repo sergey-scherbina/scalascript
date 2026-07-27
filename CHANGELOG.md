@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-07-28 — V2 callback plugins preserve user exceptions
+
+Distributed and Generator callback helpers now rethrow ScalaScript user
+exceptions unchanged while retaining contextual wrappers for genuine host
+failures. Two assembled regressions cover V1 JVM, V2 direct ASM, and V2 VM;
+the plugin suites pass 5/5 and 10/10, all four native frontend/engine routes
+compare exactly, and the neighboring conformance slice is 8/8.
+
+Implementation: `218e7c527`.
+
 ## 2026-07-28 — SSC v2 executes the canonical std-ui pack exactly
 
 The five moved conformance roots now import the canonical
