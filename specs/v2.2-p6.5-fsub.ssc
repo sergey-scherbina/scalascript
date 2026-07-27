@@ -1865,7 +1865,20 @@ def hMiss(menv) = "(prim __handler_dispatch_miss__ " ++ pfRef(menv) ++ ")"
 def hMissArm(menv) = "(let (" ++ genScrut(menv) ++ ") " ++ hMiss("__hfb__" :: menv) ++ ")"
 def parseHArms(ts, menv, cx) = parseHArms0(skipSemisF(ts), menv, cx)
 def parseHArms0(ts, menv, cx) = if isTok(hd(ts), 2, 6) then parseHArm(tl(ts), menv, cx) else (hMissArm(menv), hClose(ts))
-def parseHArm(ts, menv, cx) = parseHTyped(isWild(hd(ts)), snd(hd(ts)), snd(hd(tl(tl(ts)))), skipTypeToArrow(tl(tl(ts))), menv, cx)
+// An UNTYPED handler arm — `case _ => b` or `case e => b` — is a CATCH-ALL with no type to test.
+// parseHArm used to assume EVERY arm was `pat : T =>` and read the type head as "the token two past the
+// pattern"; for `case _ => "W"` that token is the arm's BODY, so it emitted `__isTag__(v, "W", -1)` — a
+// test that can never hold — and the handler fell through to a dispatch miss. On the default lane the
+// whole program then vanished at exit 0 (BUGS `v2-front-try-in-def-body-shapes-break`). A plain `match`
+// was never affected: parseGenArm tests `isTypedArm` first; only this handler path assumed.
+// The remaining arms are still PARSED (token consumption must not desync) but not emitted — a catch-all
+// makes them unreachable, which is what the `(default ..)` of an ordinary match expresses.
+def isTypedHArm(ts) = isTok(hd(tl(ts)), 2, 34)
+def parseHArm(ts, menv, cx) = if isTypedHArm(ts) then parseHTyped(isWild(hd(ts)), snd(hd(ts)), snd(hd(tl(tl(ts)))), skipTypeToArrow(tl(tl(ts))), menv, cx) else parseHAll(isWild(hd(ts)), snd(hd(ts)), tl(ts), menv, cx)
+def parseHAll(wild, binder, tsA, menv, cx) = if wild then parseHWildAll(tl(tsA), menv, cx) else parseHBindAll(binder, tl(tsA), menv, cx)
+def parseHWildAll(ts, menv, cx) = parseExpr(ts, 0, "__hsel__" :: menv, cx) match { case (body, r) => parseHAllRest("(let (" ++ hSelected(menv) ++ ") " ++ erase(body, cx) ++ ")", r, menv, cx) }
+def parseHBindAll(binder, ts, menv, cx) = parseExpr(ts, 0, "__hsel__" :: binder :: menv, cx) match { case (body, r) => parseHAllRest("(let (" ++ genScrut(menv) ++ ") (let (" ++ hSelected(binder :: menv) ++ ") " ++ erase(body, cx) ++ "))", r, menv, cx) }
+def parseHAllRest(out, ts, menv, cx) = parseHArms(ts, menv, cx) match { case (rest, r) => (out, r) }
 def parseHTyped(wild, binder, th, tsA, menv, cx) = if wild then parseHWild(th, tl(tsA), menv, cx) else parseHBind(binder, th, tl(tsA), menv, cx)
 def parseHWild(th, ts, menv, cx) = parseExpr(ts, 0, "__hsel__" :: menv, cx) match { case (body, r) => parseHWildRest(th, erase(body, cx), r, menv, cx) }
 def parseHWildRest(th, body, ts, menv, cx) = parseHArms(ts, menv, cx) match { case (rest, r) => (emitIf(typedTagTest(genScrut(menv), th, cx), "(let (" ++ hSelected(menv) ++ ") " ++ body ++ ")", rest), r) }
