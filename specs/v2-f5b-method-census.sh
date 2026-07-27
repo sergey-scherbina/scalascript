@@ -127,6 +127,23 @@ else
   for p in "$@"; do
     case "$p" in /*) src="$p" ;; *) src="$OLDPWD/$p" ;; esac
     [ -f "$src" ] || { echo "skip (not a file): $p"; continue; }
+    # FAIL CLOSED on a literate document. This driver calls F's `compile` on the RAW file, the way
+    # the X1 gate does — it does NOT run the markdown/front-matter projection that `bin/ssc` performs
+    # before the front sees anything. On a fenced .ssc that means F compiles the PROSE as code:
+    # measured on tests/conformance/w5-scala-fence-width-parity.ssc, documentation words lower to
+    # `(global the)` / `(global is)`, "32-bit" becomes `__arith__ "-" 32 bit`, and "0. This" becomes
+    # `__method__ "This"`. The resulting census is not wrong about the IR — it is measuring an input
+    # F never receives in production, which is worse, because the numbers look plausible.
+    # fsub.ssc and the gate's synthetic programs are pure code, so they are unaffected.
+    if grep -q '^```' "$src"; then
+      cat >&2 <<EOM
+REFUSING $p — this file has markdown fences, and this driver bypasses literate projection.
+  It would compile the PROSE as code and report method names like .This / .Because / .md, which are
+  artifacts of the harness, not of F. For corpus measurement, dump IR through the real pipeline
+  (\`bin/ssc\` with SSC_FRONT=F) instead of through this driver.
+EOM
+      continue
+    fi
     runir "$WORK/F0.ir" "$src" > "$WORK/p.ir"
     census "$p" "$WORK/p.ir"
   done

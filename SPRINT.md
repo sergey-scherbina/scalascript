@@ -180,7 +180,25 @@ Stage 2 is partly subsumed by 1b-3.
       (b) **Real param inference** (usage-based or call-site-based) — helps arbitrary programs, and is
       the actual approach-B work. Bigger, and it must not break the fixpoint.
       **Decide (a) vs (b) with corpus data, which is exactly what is still missing** — see Finding 2.
-      **Finding 2 (UNRESOLVED — do not build on the corpus census yet):** run on a literate
+      **Finding 2 — RESOLVED 2026-07-27: it was MY HARNESS, not F.** The census driver calls F's
+      `compile(src, dq, bs)` on the RAW file, exactly as the X1 gate does, and therefore **bypasses the
+      markdown/front-matter projection that `bin/ssc` runs before the front sees anything.** Fed a
+      fenced `.ssc`, F duly compiles the PROSE as code. Raw IR from
+      `tests/conformance/w5-scala-fence-width-parity.ssc` settles it:
+      `(global make) (global a) (global the) (global is)` for documentation words,
+      `(prim __arith__ (lit (str "-")) (lit (int 32)) (global bit))` for the text "32-bit", and
+      `(prim __method__ (lit (str "This")) (lit (int 0)))` for a sentence boundary "0. This".
+      So the 24 prose-named sites are real IR from an input F never receives in production — which is
+      worse than a parsing bug, because the numbers look plausible. **F is not defective here; the
+      measurement was.** `fsub.ssc` and the gate's synthetic programs are pure code, so the F-source
+      control (44 = 30 + 14, 20 `.length`) and the X1 gate itself are unaffected.
+      **Fixed by making the instrument fail closed:** the census now REFUSES any input containing a
+      markdown fence and says why. Verified both ways — refuses the literate file, still measures
+      `fsub.ssc` identically.
+      **⇒ The (a)-vs-(b) decision still needs corpus data, and this driver cannot produce it.** Next
+      step: dump IR through the REAL pipeline (`bin/ssc` under `SSC_FRONT=F`) for a set of corpus
+      programs, then census that. Until then, do not claim anything about corpus `__method__` traffic.
+      **Superseded description of Finding 2, kept for the trail:** run on a literate
       markdown-heavy conformance program, `specs/v2-f5b-method-census.sh` reports 24 named sites whose
       names are PROSE — `.This`, `.Because`, `.If`, `.Every`, `.md`, `.ssc`, `.js`, `.Today`, `.31`.
       Anchoring the scanner to the full `(prim __method__ ` prim-application form did NOT change it,
