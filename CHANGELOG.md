@@ -1,5 +1,36 @@
 # Changelog
 
+## 2026-07-27 — ⭐ durable interop conformance reaches 26/26, and the board can be updated again
+
+**All 26 vectors are `specified`; the `pending/` directory is empty.** The last two closed today:
+
+- **vector 26 (cancellation transitions)** — was `pending-spec` because the harness refused to invent
+  the rules. Sergiy answered the forks (a distinct `TooLateToCancel` rather than collapsing a lost
+  cancel into `AlreadyResumed`; cancellation checked FIRST at admission), so the rules came from the
+  owner. Scala 165/165 including 200 rounds of two-thread contention where the loser must NAME the
+  winner; JS 71/71; vectors 29/29.
+- **vector 15 (cross-host resume)** — a non-JVM admitter (`v2/host/js/portable-admitter`) admits AND
+  runs a capsule the JVM froze, with int64 parity including two's-complement wrap. It was NOT flipped
+  on the first attempt: the evidence rested on committed fixtures, which go stale silently. The flip
+  came only after the comparison moved onto bytes frozen in the same run, and the lane now SKIPS
+  loudly when it cannot do that.
+
+Underneath both: the **capsule format-v3 seal** (HMAC + audience/tenant/budget), which made the two
+lanes promise the same thing about a capsule and was the prerequisite the E4 ordering demanded.
+
+**The claim mutex no longer blocks the board.** Layer 3 exempted `SPRINT.md`/`BUGS.md`/`CHANGELOG.md`
+from the start; layer 2 did not, so a claim that merely named one was refused as an overlap — and
+four finished items sat open on the board because nobody could commit the tick. The overlap guard is
+for work, not for the notebook the work is recorded in. `coord-claim` also stopped reporting an
+overlap refusal and a generation race with the same message: they need opposite responses, and
+conflating them cost about ten retries and a wrong diagnosis.
+
+Also fixed today: `try`/`catch` never delivered a caught exception on the v2 lanes (the tag test was
+flat, so `case e: Throwable` never matched the `RuntimeException` the runtime delivers); two
+`try`-as-a-def-body parse shapes, one of which dropped the ENTIRE program at exit 0; and integer
+division by zero yielding `Infinity` on the JS lane.
+
+
 ## 2026-07-27 — claim-mutex: task claims that actually exclude each other
 
 Two agents did the same work twice in one day, and a third worked inside another's live claim. The

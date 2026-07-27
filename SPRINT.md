@@ -362,7 +362,10 @@ not named; this agent's recommendations were taken and are marked ASSUMED in
 not after. §4c is already relaxed (three-level evidence ladder; `cancelled` stays RED and the claim
 must say WHICH level it has). Remaining work, in the order the decisions imply:
 
-- [ ] **F1 — capsule format-v3 seal (decision (c)).** Give the VM Portable capsule the host lane's
+- [x] **F1 — DONE** (`f19499d65..173cba71e`). Envelope v1→v2 with the host lane's HMAC seal +
+      audience/tenant/budget; gate `portable-capsule.sh` 36/36 including the pair that makes it
+      mean something — the same frame edit REJECTED under a key and still RUNNING unkeyed.
+      Original scope: Give the VM Portable capsule the host lane's
       seal: HMAC signature + audience / tenant / quota, envelope v1 → v2. Host side is
       `v2/host/scala/control/.../DurableCapsule.scala`; VM side `v2/src/Capsule.scala` (today: v1,
       code-only `resume-digest`). **Keep both existing guards** — E2's `validateFrame` and E3's
@@ -371,14 +374,20 @@ must say WHICH level it has). Remaining work, in the order the decisions imply:
       version-pin it in the same commit. Gate: `v2/conformance/portable-capsule.sh` (25 lines today)
       plus a new tamper case — a capsule whose FRAME was edited must now be REJECTED, which is the
       thing (c) buys and the current 111-vs-17 line documents as accepted.
-- [ ] **F2 — vector 26 implementation + flip.** The transition table is decided (see the spec's
+- [x] **F2 — DONE** (`4a1ae5ca6..33bd98b29`), durable 24/26 → 25/26. Four slices; Scala 165/165
+      (incl. 200 rounds of two-thread contention where the loser must NAME the winner), JS 71/71,
+      vectors 29/29. Flip on `scala-explicit` only — the JS lane is not a qualified conformance
+      lane, and claiming it would have been bending. Original scope: The transition table is decided (see the spec's
       DECIDED section). Host-only (`structured`) on both lanes, oracle demonstrating
       cancel-then-resume → `Cancelled`, resume-then-cancel → **`TooLateToCancel`**,
       reusable-cancel-blocks-run → `Cancelled`, idempotent-cancel → `Cancelled`. Two new §13 rows
       (`Cancelled`, `TooLateToCancel`) + their boundary projections; cancellation checked FIRST in
       the §11.1 admission order. Takes durable to **25/26**. ⚠️ Do not flip by bending the
       realization to the pending's wording — that is the failure mode this arc was warned about.
-- [ ] **F3 — vector-15 E4, AFTER F1.** Second admitting backend, built against the SEALED format.
+- [x] **F3 — DONE** (`d0e5a6bf6..3814f0b7c`), durable **26/26, pending directory EMPTY**. A
+      non-JVM admitter (`v2/host/js/portable-admitter`) admits AND runs a JVM-frozen capsule; the
+      gate freezes FRESH bytes each run rather than trusting a committed fixture, and the lane
+      SKIPS loudly when it cannot. int64 parity including two's-complement wrap. Original scope: Second admitting backend, built against the SEALED format.
       Scouting notes are in Batch E's E4 item (the JS control host is the ExactArtifact lane, NOT a
       candidate; `Int` is 64-bit so a JS admitter needs BigInt). Building it before F1 means writing
       it twice.

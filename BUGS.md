@@ -332,7 +332,26 @@ documents both shapes as deliberately absent so it pins delivery rather than lay
 
 ## js-int-division-by-zero-yields-infinity — `10 / 0` is `Infinity` on the JS lane instead of throwing
 
-**Status:** OPEN (found 2026-07-27 by opus, surfaced by the new
+**Status:** **FIXED 2026-07-27** by opus (`js-int-div-by-zero`, `2079f466a..f21a9428b`). JsGen
+emitted `Math.trunc(a / b)`, and `Math.trunc(Infinity)` is `Infinity` — nothing threw, so no `catch`
+was entered and the program printed `Infinity` at exit 0 where INT and JVM printed the caught value.
+
+New `_idiv`/`_imod` in the JS runtime throw `/ by zero` (the JVM's ArithmeticException wording, as a
+plain `Error`, which is what this runtime's catch support already understands); `JsGen` routes only
+the **statically-Int** `/` and `%` there.
+
+**Deliberately narrow:** the dynamic `_arith` number path is untouched, because `4.0 / 0` is
+legitimately `Infinity` in Scala too and a runtime `Number.isInteger` guess would break it. The
+BigInt path already threw natively. The conformance case pins that boundary with an explicit Double
+line, so a later "improvement" cannot quietly extend this into floating point.
+
+**Verified:** new case `tests/conformance/js-int-division-by-zero.ssc` PASS [INT][JS][JVM] — JS now
+matches INT line for line (`div-failed` / `mod-failed` / `3` / `1` / `Infinity`);
+`try-catch-exception-delivery`, which had been restricted to `[int, jvm]` *because of this bug*, is
+back on `js` and green on all three; arithmetic/numeric sweep 14/14 with 0 failures (the two
+KNOWN-RED lanes are the declared v1-codegen 64-bit non-conformance, pre-existing and out of scope).
+
+**Historical report:** OPEN (found 2026-07-27 by opus, surfaced by the new
 `try-catch-exception-delivery` conformance case on its first JS run). **v1 JS backend.**
 
 `ssc` `Int` is 64-bit integer arithmetic, so `10 / 0` must fail, not produce a float. On the JS lane
