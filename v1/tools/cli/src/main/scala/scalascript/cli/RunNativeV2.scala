@@ -293,16 +293,27 @@ object RunNativeV2:
     // must never re-run on the VM (side-effect duplication; same reason the front swap uses a static
     // pre-check). Deep effectful loops that StackOverflow on this lane are that runtime class — a separate
     // fix (stack-safe effectful loops in JvmByteGen), not a fallback.
+    //
+    // The fallback ANNOUNCES itself on stderr. It used to be silent, and silence made it a lie
+    // detector's blind spot: `scripts/bc-parity-sweep` compares the `run` and `run --bytecode`
+    // stdout, so a program that fell back was compared AGAINST ITSELF and recorded `identical` —
+    // certified bytecode/VM parity for a program the bytecode backend never compiled. The note goes
+    // to stderr, never stdout, so output comparisons are unaffected; the sweep keys on it to
+    // classify the case honestly. See BUGS.md `scljet-jdbc-facade-bytecode-class-too-large`.
     val bytecode: Option[Array[Byte]] =
       try Some(_root_.ssc.bytecode.JvmByteGen.emitProgram(_root_.ssc.bytecode.OpAnfNative.lift(prog)))
       catch
-        case _: _root_.ssc.bytecode.Unsupported => None
+        case e: _root_.ssc.bytecode.Unsupported =>
+          noteBytecodeFallback("unsupported-construct", e.getMessage)
+          None
         // Match ASM Method/Class-too-large by CLASS NAME, not by type. Referencing `org.objectweb.asm.*`
         // in a catch clause makes the JVM EAGERLY load ASM when it verifies this method — even on the VM
         // path that never calls emitProgram — which breaks native-VM backend isolation
         // (v21-plugin-backend-isolation). RuntimeException is already loaded; these ASM size exceptions
         // are IndexOutOfBoundsException (⊂ RuntimeException), so this catches them without the reference.
-        case e: RuntimeException if isAsmSizeLimit(e) => None
+        case e: RuntimeException if isAsmSizeLimit(e) =>
+          noteBytecodeFallback("class-size-limit", e.getClass.getName)
+          None
     bytecode match
       case None =>
         runVm(prog) // link-time coverage gap → interpreter (correct, just not JIT-fast)
@@ -312,6 +323,19 @@ object RunNativeV2:
           catch case e: java.lang.reflect.InvocationTargetException =>
             throw Option(e.getCause).getOrElse(e)
         V2Result.report(result)
+
+  /** Stable, greppable marker for "you asked for `--bytecode` and did not get it".
+   *
+   *  Machine-readable on purpose: `scripts/bc-parity-sweep` matches this exact prefix to tell a real
+   *  bytecode run from a VM run wearing its name. Changing the wording without updating the sweep
+   *  turns every fallback back into a fake `identical`, so the marker is asserted by
+   *  `tests/e2e/bytecode-fallback-visible.sh`.
+   */
+  private[cli] val BytecodeFallbackMarker = "ssc: --bytecode fell back to the VM lane"
+
+  private def noteBytecodeFallback(reason: String, detail: String): Unit =
+    val suffix = Option(detail).filter(_.nonEmpty).map(d => s" ($d)").getOrElse("")
+    System.err.println(s"$BytecodeFallbackMarker [$reason]$suffix")
 
   /** ASM `MethodTooLargeException`/`ClassTooLargeException`, matched by class name so the type is not
    *  referenced (which would eagerly load ASM on the VM path — see runBytecode's fallback comment). */

@@ -171,6 +171,20 @@ for f in "$ROOT"/examples/*.ssc; do
     continue
   fi
 
+  # THE CASE ABOVE NO LONGER FIRES ON ITS OWN. Since the link-time fallback landed
+  # (`RunNativeV2.runBytecode`), an oversized program no longer EXITS non-zero on the bytecode
+  # lane — it quietly runs on the VM and returns 0. That made this sweep compare the VM against
+  # ITSELF and record `identical`: certified parity for programs the bytecode backend never
+  # compiled, which is the failure mode where the apparatus lies green. The runner now prints a
+  # marker on stderr and we key on it, so a fallback is reported as the skip it is. Matching the
+  # marker (not the ASM text) also covers the `Unsupported` fallback, which was equally invisible.
+  if [[ $bc_rc -eq 0 ]] && grep -qF 'ssc: --bytecode fell back to the VM lane' "$tmp/bc.err"; then
+    skipped=$((skipped + 1))
+    record "$b" skipped-bytecode-fallback "$vm_rc" "$bc_rc" \
+      "$(grep -F 'ssc: --bytecode fell back to the VM lane' "$tmp/bc.err" | head -1)"
+    continue
+  fi
+
   if [[ $vm_rc -ne 0 && $bc_rc -ne 0 ]]; then
     bothfail=$((bothfail + 1))
     detail=$(head -1 "$tmp/bc.err")
