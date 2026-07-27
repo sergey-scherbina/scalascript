@@ -347,16 +347,22 @@ def parseColumnList(toks: List[String], remaining: List[Token]): Either[String, 
     case Some(r) => r
     case None => Right((reverseStrings(accRev, Nil), rest))
 
+// `NULL` is a literal keyword, not a column name — the lexer has no NULL token kind, so it arrives
+// as an `ident` whose upper text is NULL (same shape `IS NULL` already matches via isKw). Without
+// this arm `INSERT INTO t VALUES (…, NULL, …)` failed in ANY position while `UPDATE … SET x = NULL`
+// worked, because UPDATE goes through parseExpr instead (BUGS scljet-insert-null-literal-rejected).
+// The message is shared by the INSERT and WHERE readers, so it no longer names one clause.
 def litValue(token: Token): Either[String, SqliteValue] =
   if token.kind == "num" then Right(SqlInteger(token.num))
   else if token.kind == "str" then Right(SqlText(token.text))
+  else if isKw(token, "NULL") then Right(SqlNull)
   else if token.kind == "real" then token.bound match
     case Some(v) => Right(v)
     case None => Left("real token without a value")
   else if token.kind == "bound" then token.bound match
     case Some(v) => Right(v)
     case None => Left("bound token without a value")
-  else Left("expected a literal in WHERE")
+  else Left("expected a literal")
 
 // Parse an optional `WHERE col op literal`; returns the condition (or None) and the
 // tokens after it (for a trailing ORDER BY / LIMIT). A non-WHERE token is left in place.
@@ -725,6 +731,10 @@ def parseExprAtom(toks: List[Token]): Either[String, (SxNode, List[Token])] =
       case Left(message) => Left(message)
       case Right(a) => Right((SxNeg(a._1), a._2))
   else if tkIsKw(toks, "CASE") then parseCase(toks.tail)
+  // `NULL` before the generic ident branch: it is a literal, not a column. Previously it fell
+  // through to `SxCol("NULL")`, which happened to evaluate to NULL (an unknown column reads as
+  // NULL) — right answer, wrong reason, and it would have resolved to a real column named `null`.
+  else if tkIsKw(toks, "NULL") then Right((SxLit(SqlNull), toks.tail))
   else if tkKind(toks) == "num" then Right((SxLit(SqlInteger(toks.head.num)), toks.tail))
   else if tkKind(toks) == "str" then Right((SxLit(SqlText(toks.head.text)), toks.tail))
   else if tkKind(toks) == "real" then toks.head.bound match
@@ -4561,7 +4571,9 @@ def keepSqlRows(rows: List[StorageRecord], ncols: Int, victims: List[Long]): Lis
 // (e.g. `n + 1`, another column) is carried as an SxNode evaluated against the pre-update row.
 case class Assignment(column: String, value: SqliteValue, expr: Option[SxNode])
 case class UpdateStmt(table: String, assignments: List[Assignment], where: List[List[Condition]])
-case class EditRow(rowid: Long, record: ByteSlice)
+// `rowid` is where the row lives now, `newRowid` where it must end up — they differ only when the
+// statement assigns to an `INTEGER PRIMARY KEY` column, which in SQLite moves the row.
+case class EditRow(rowid: Long, newRowid: Long, record: ByteSlice)
 
 def reverseAssignments(items: List[Assignment], acc: List[Assignment]): List[Assignment] =
   var r = items
@@ -4709,8 +4721,80 @@ def reverseEdits(items: List[EditRow], acc: List[EditRow]): List[EditRow] =
     r = r.tail
   out
 
-/** Build (rowid, new record) for every row the WHERE selects. */
-def buildUpdateEdits(rows: List[StorageRecord], colNames: List[String], stmt: UpdateStmt): Either[String, List[EditRow]] =
+// An `INTEGER PRIMARY KEY` column IS the rowid, so assigning to it MOVES the row to a new rowid
+// rather than editing a field (BUGS `scljet-update-ipk-does-not-move-rowid` +
+// `scljet-update-ipk-column-silently-ignored`). The target is the assigned value; when the table has
+// no IPK, or the assignment left the (rowid-materialised) IPK value alone, the row stays put.
+// A non-integer target is REJECTED rather than guessed at: the rowid must be an integer, and a
+// silent coercion here is exactly the class of wrong-and-quiet answer these two bugs were.
+def targetRowidOf(values: List[SqliteValue], ipkIdx: Int, current: Long): Either[String, Long] =
+  if ipkIdx < 0 then Right(current)
+  else valueAtPos(values, ipkIdx) match
+    case SqlInteger(x) => Right(x)
+    case _ => Left("datatype mismatch: INTEGER PRIMARY KEY must be assigned an integer")
+
+def editTargets(edits: List[EditRow]): List[Long] =
+  var r = edits
+  var accRev: List[Long] = Nil
+  while r.nonEmpty do
+    accRev = r.head.newRowid :: accRev
+    r = r.tail
+  accRev.reverse
+
+def containsRowid(ids: List[Long], id: Long): Boolean =
+  var r = ids
+  var found = false
+  while r.nonEmpty do
+    if r.head == id then found = true
+    r = r.tail
+  found
+
+def countRowid(ids: List[Long], id: Long): Int =
+  var r = ids
+  var n = 0
+  while r.nonEmpty do
+    if r.head == id then n = n + 1
+    r = r.tail
+  n
+
+def storedRowids(rows: List[StorageRecord]): List[Long] =
+  var r = rows
+  var accRev: List[Long] = Nil
+  while r.nonEmpty do
+    r.head.rowid match
+      case Some(id) => accRev = id :: accRev
+      case None => accRev = accRev
+    r = r.tail
+  accRev.reverse
+
+// Two ways an IPK move can collide, both a UNIQUE failure in real SQLite: two moved rows landing on
+// the same rowid, and a moved row landing on a row that is NOT itself moving away. Checked BEFORE
+// anything is written, so a rejected UPDATE leaves the image untouched.
+def ipkMoveConflict(edits: List[EditRow], rows: List[StorageRecord]): Option[String] =
+  val targets = editTargets(edits)
+  val moved = editSources(edits)
+  var r = edits
+  var bad: Option[String] = None
+  while r.nonEmpty do
+    val e = r.head
+    if e.newRowid != e.rowid then
+      if countRowid(targets, e.newRowid) > 1 then
+        bad = Some("UNIQUE constraint failed: two rows moved to rowid " + e.newRowid.toString)
+      else if containsRowid(storedRowids(rows), e.newRowid) && !containsRowid(moved, e.newRowid) then
+        bad = Some("UNIQUE constraint failed: rowid " + e.newRowid.toString + " already exists")
+    r = r.tail
+  bad
+
+def editSources(edits: List[EditRow]): List[Long] =
+  var r = edits
+  var accRev: List[Long] = Nil
+  while r.nonEmpty do
+    accRev = r.head.rowid :: accRev
+    r = r.tail
+  accRev.reverse
+
+/** Build (old rowid, target rowid, new record) for every row the WHERE selects. */
+def buildUpdateEdits(rows: List[StorageRecord], colNames: List[String], stmt: UpdateStmt, ipkIdx: Int): Either[String, List[EditRow]] =
   var r = rows
   var accRev: List[EditRow] = Nil
   var err: Option[String] = None
@@ -4722,25 +4806,34 @@ def buildUpdateEdits(rows: List[StorageRecord], colNames: List[String], stmt: Up
         case Left(error) => err = Some(error.message)
         case Right(record) =>
           rec.rowid match
-            case Some(id) => accRev = EditRow(id, record) :: accRev
+            case Some(id) => targetRowidOf(newValues, ipkIdx, id) match
+              case Left(message) => err = Some(message)
+              case Right(target) => accRev = EditRow(id, target, record) :: accRev
             case None => accRev = accRev
     r = r.tail
   err match
     case Some(message) => Left(message)
     case None => Right(reverseEdits(accRev, Nil))
 
+// Delete EVERY old rowid before inserting ANY new one. Per-row delete-then-insert would corrupt a
+// swap (`SET id = 2 WHERE id = 1` together with `SET id = 1 WHERE id = 2`): the second delete would
+// remove the row the first insert had just placed. Two phases make the batch atomic in effect.
 def applyUpdates(pager: MutablePager, root: Int, edits: List[EditRow], pageSize: Int): Either[String, MutablePager] =
   var p = pager
   var r = edits
   var err: Option[String] = None
   while r.nonEmpty && err.isEmpty do
-    val edit = r.head
-    pagerDeleteBalanced(p, root, edit.rowid, pageSize) match
+    pagerDeleteBalanced(p, root, r.head.rowid, pageSize) match
       case Left(error) => err = Some(error.message)
-      case Right(afterDelete) => pagerInsertBalanced(afterDelete, root, edit.rowid, edit.record, pageSize) match
-        case Left(error) => err = Some(error.message)
-        case Right(afterInsert) => p = afterInsert
+      case Right(afterDelete) => p = afterDelete
     r = r.tail
+  var w = edits
+  while w.nonEmpty && err.isEmpty do
+    val edit = w.head
+    pagerInsertBalanced(p, root, edit.newRowid, edit.record, pageSize) match
+      case Left(error) => err = Some(error.message)
+      case Right(afterInsert) => p = afterInsert
+    w = w.tail
   err match
     case Some(message) => Left(message)
     case None => Right(p)
@@ -4757,35 +4850,55 @@ def executeUpdate(dbBytes: ByteSlice, stmt: UpdateStmt): Either[String, ByteSlic
         case Left(error) => Left(error.message)
         case Right(cursor) => collectRows(db, cursor) match
           case Left(error) => Left(error.message)
-          case Right(rows) =>
+          case Right(rawRows) =>
+            val ipkIdx = tableIpkIndex(db, stmt.table)
+            // Materialise the rowid into the IPK column BEFORE the WHERE runs — the same rule
+            // `finishRows` follows on the read side. Without it `UPDATE emp SET id = 5 WHERE id = 1`
+            // matched nothing whenever the stored field disagreed with the rowid, which is precisely
+            // the state an IPK table is normally in (SQLite stores the IPK field as NULL).
+            val rows = ipkNormalizeRows(rawRows, ipkIdx)
             val infos = tableIndexInfos(db, stmt.table, colNames)
-            if infos.isEmpty then buildUpdateEdits(rows, colNames, stmt) match
+            if infos.isEmpty then buildUpdateEdits(rows, colNames, stmt, ipkIdx) match
               case Left(message) => Left(message)
               case Right(edits) =>
                 if edits.isEmpty then Right(dbBytes)
-                else applyUpdates(openMutablePager(dbBytes, pageSize, pageSize), root, edits, pageSize) match
-                  case Left(message) => Left(message)
-                  case Right(pager) => mutableCommit(pager, 1L) match
-                    case Left(error) => Left(error.message)
-                    case Right(pc) => Right(pc.pager.image)
+                else ipkMoveConflict(edits, rows) match
+                  case Some(message) => Left(message)
+                  case None => applyUpdates(openMutablePager(dbBytes, pageSize, pageSize), root, edits, pageSize) match
+                    case Left(message) => Left(message)
+                    case Right(pager) => mutableCommit(pager, 1L) match
+                      case Left(error) => Left(error.message)
+                      case Right(pc) => Right(pc.pager.image)
             else if countTables(db) != 1 then Left("index maintenance on a multi-table database is not yet supported")
-            else reindexTable(dbBytes, db, stmt.table, updatedSqlRows(rows, colNames, stmt), infos)
+            else updatedSqlRows(rows, colNames, stmt, ipkIdx) match
+              case Left(message) => Left(message)
+              case Right(sqlRows) => reindexTable(dbBytes, db, stmt.table, sqlRows, infos)
 
 // Existing rows with WHERE-matched rows' values replaced by the SET assignments (for
 // index-maintaining UPDATE — the index entry uses each row's new key).
-def updatedSqlRows(rows: List[StorageRecord], colNames: List[String], stmt: UpdateStmt): List[SqlRow] =
+// The indexed path rebuilds the table from these rows, so an IPK assignment must land here as a new
+// KEY too — otherwise the same statement would move the row on an unindexed table and silently not
+// move it on an indexed one.
+def updatedSqlRows(rows: List[StorageRecord], colNames: List[String], stmt: UpdateStmt, ipkIdx: Int): Either[String, List[SqlRow]] =
   var r = rows
   var accRev: List[SqlRow] = Nil
-  while r.nonEmpty do
+  var err: Option[String] = None
+  while r.nonEmpty && err.isEmpty do
     val rec = r.head
     val rowid = rec.rowid match
       case Some(id) => id
       case None => 0L
     val vals = extractValues(rec, colNames.length)
-    val newVals = if whereHolds(stmt.where, rec, colNames) then applyAssignments(vals, colNames, stmt.assignments) else vals
-    accRev = SqlRow(rowid, newVals) :: accRev
+    val matched = whereHolds(stmt.where, rec, colNames)
+    val newVals = if matched then applyAssignments(vals, colNames, stmt.assignments) else vals
+    val target = if matched then targetRowidOf(newVals, ipkIdx, rowid) else Right(rowid)
+    target match
+      case Left(message) => err = Some(message)
+      case Right(id) => accRev = SqlRow(id, newVals) :: accRev
     r = r.tail
-  accRev.reverse
+  err match
+    case Some(message) => Left(message)
+    case None => Right(accRev.reverse)
 
 // ── CREATE TABLE (append a schema row on page 1 + an empty table root) ──
 
