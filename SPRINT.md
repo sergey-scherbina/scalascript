@@ -132,6 +132,25 @@ SLOWER until `f5c-1`; `.length` receivers were classifier-shaped — they were b
             add parity/conformance coverage, and wire it without silent fallback. Otherwise record
             the exact unsupported shape and queue the measured V-6c alternative. Do not overlap the
             live `v2-bytecode-lane-silent-downgrade` claim on `RunNativeV2`.
+            - [ ] **V-6b.3a — specify the selective product policy before code.** Update
+                  `specs/v2-f-bytecode-probe.md` with the measured decision: direct ASM is exact and
+                  4.38x faster on the 1,040,325-byte product SClJet F0, but startup/emission makes
+                  unconditional ASM slower on hello. The product may therefore try direct ASM only
+                  for the first nested F `coreir.eval` whose constants exceed the JVM modified-UTF8
+                  entry limit; small and later evals remain VM. Emission/link failure may delegate
+                  before execution starts, but a started bytecode run must never rerun on VM.
+            - [ ] **V-6b.3b — add the scoped evaluator and regression tests first.** Give
+                  `v2.Runtime` a restoring thread-local `Program => Option[Value]` evaluator scope,
+                  expose one shared oversized-string predicate from `JvmByteGen`, and pin delegation,
+                  one-shot selection, thread isolation, exact large-string output, and restoration
+                  in `FNestedBytecodeEvalTest`.
+            - [ ] **V-6b.3c — wire and prove the real F product path.** Install the one-shot evaluator
+                  only around `RunNativeV2`'s F runner, isolate `Emit.globalsRef`, and emit a
+                  trace-only backend marker. Add `tests/e2e/v2-f-nested-bytecode-fast-path.sh` that
+                  compares stdout bytes before checking the marker: hello must stay VM and SClJet
+                  must use direct ASM with exact legacy output. Re-run the no-fallback probe,
+                  bytecode fallback visibility, focused unit tests, and affected conformance before
+                  classifying V-6b/V-6c.
 - [ ] **V-6c — decide and record.** Either a queued optimisation with a measured target, or an explicit
       "2-4× is accepted, here is why" written into `BACKLOG.md`. An accepted cost that is written down
       is fine; an unowned cost that everyone assumes someone is fixing is not — that is the state this
