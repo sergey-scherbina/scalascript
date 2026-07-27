@@ -185,6 +185,125 @@ final class YamlOfficialCorpusSpec extends AnyFunSuite:
     assert(outcome.crash.nonEmpty)
   }
 
+  test("post-capture digest failures preserve observations and continue semantic and later cases") {
+    val malformedText = "\uD800"
+    val malformed = caseById("229Q").copy(
+      id = "malformed-utf16",
+      input = malformedText,
+    )
+    val ordinary = caseById("236B")
+    var semanticAttempts = Vector.empty[String]
+    val hooks = YamlCorpusHooks.default.copy(
+      parse = source =>
+        val id = source.source.value.stripPrefix("yaml-test-suite:")
+        if id == malformed.id then
+          val end = SourcePosition(offset = 1, line = 1, column = 2)
+          val span = SourceSpan(source.source, SourcePosition.Start, end)
+          ParseResult(
+            roots = Vector(
+              UniNode.Token(SourceToken(0L, "malformed-utf16", malformedText, span))
+            ),
+            diagnostics = Vector.empty,
+            status = CompletionStatus.Complete,
+          )
+        else YamlCorpusHooks.default.parse(source),
+      semantic = (source, input) =>
+        semanticAttempts = semanticAttempts :+ source.value.stripPrefix("yaml-test-suite:")
+        YamlCorpusHooks.default.semantic(source, input),
+    )
+
+    val isolated = YamlOfficialCorpusGate.evaluateCases(Vector(malformed, ordinary)) { testCase =>
+      YamlOfficialCorpusGate.evaluateOne(testCase, hooks)
+    }
+    assert(semanticAttempts == Vector(malformed.id, ordinary.id))
+    val outcome = isolated.outcomes.head
+    assert(outcome.reconstructedSource == malformedText)
+    assert(outcome.chunkObservations.nonEmpty)
+    assert(outcome.chunkObservations.exists(_.axisErrors.exists(_.contains("digest"))))
+    assert(outcome.actualEvents.nonEmpty)
+    assert(outcome.semanticAxisError.isEmpty)
+    assert(isolated.baselineRows.size == 2)
+  }
+
+  test("full-row canonicalization records malformed semantic text without aborting the report") {
+    val first = report.outcomes.head.copy(
+      actualEvents = Vector(
+        YamlNormalizedEvent("scalar", value = Some("\uD800"))
+      )
+    )
+    val second = report.outcomes(1)
+    val malformed = YamlOfficialCorpusGate.report(Vector(first, second))
+    val rows = malformed.baselineRows
+    assert(rows.size == 2)
+    assert(rows.exists(_.contains("baseline.error=")))
+    assert(rows.exists(_.startsWith(second.testCase.id + "\t")))
+    assert(malformed.baselineDigest.nonEmpty)
+    assert(rows.forall(YamlCorpusUtf8.isWellFormed))
+
+    val firstRow = rows.find(_.startsWith(first.testCase.id + "\t")).get
+    val changedStatus = YamlOfficialCorpusGate
+      .report(Vector(first.copy(actualStatus = first.actualStatus + "-changed")))
+      .baselineRows
+      .head
+    assert(changedStatus != firstRow)
+  }
+
+  test("aggregate digests fail closed and full case identity is authenticated before reporting") {
+    val passing = report.outcomes.find(_.strictExact).getOrElse(fail("baseline has no passing case"))
+    val changed = passing.copy(
+      testCase = passing.testCase.copy(
+        title = passing.testCase.title + " changed",
+        categories = Vector("\uD800"),
+      )
+    )
+    val malformed = YamlOfficialCorpusGate.report(Vector(changed))
+    assert(malformed.categoryRows.size == 1)
+    assert(malformed.categoryDigest == "unavailable")
+    assert(malformed.categoryDigestError.exists(_.contains("unpaired UTF-16")))
+    assert(malformed.aggregateErrors.exists(_.startsWith("category digest:")))
+    assert(!malformed.isStrictGreen)
+
+    val error = intercept[IllegalStateException] {
+      YamlOfficialCorpusGate.requireIntegrityAndRoster(malformed)
+    }
+    assert(error.getMessage.contains("case identity mismatch"))
+    assertThrows[IllegalStateException](YamlOfficialCorpusGate.printCensus(malformed))
+  }
+
+  test("one failure-rendering exception produces a deterministic fallback without swallowing fatal errors") {
+    val passing = report.outcomes.find(_.strictExact).getOrElse(fail("baseline has no passing case"))
+    val malformed = passing.copy(
+      actualEvents = Vector(
+        YamlNormalizedEvent("scalar", value = Some("\uD800"))
+      )
+    )
+    val escaped = YamlOfficialCorpusGate.renderFailureSafely(malformed)
+    assert(YamlCorpusUtf8.isWellFormed(escaped))
+    assert(escaped.contains("\\ud800"))
+
+    val returnedMalformed = YamlOfficialCorpusGate.renderFailureSafelyWith(
+      passing,
+      _ => "\uD800",
+    )
+    assert(returnedMalformed.startsWith("CASE " + passing.testCase.id))
+    assert(returnedMalformed.contains("<render unavailable>"))
+    assert(YamlCorpusUtf8.isWellFormed(returnedMalformed))
+
+    val renderedException = YamlOfficialCorpusGate.renderFailureSafelyWith(
+      passing,
+      _ => throw new IllegalStateException("deliberate render crash"),
+    )
+    assert(renderedException.startsWith("CASE " + passing.testCase.id))
+    assert(renderedException.contains("<render unavailable>"))
+    assert(renderedException.contains("render-error-sha256="))
+    assertThrows[LinkageError] {
+      YamlOfficialCorpusGate.renderFailureSafelyWith(
+        passing,
+        _ => throw new LinkageError("must propagate"),
+      )
+    }
+  }
+
   test("outer case failure is isolated but fatal VM errors are not swallowed") {
     val crashId = YamlOfficialCorpus.cases(YamlOfficialCorpus.cases.size / 2).id
     val baselineById = report.outcomes.map(value => value.testCase.id -> value).toMap

@@ -69,10 +69,7 @@ private[yaml] final case class YamlCorpusOutcome(
     semanticAxisError: Option[String],
     outerAxisError: Option[String],
 ):
-  def semanticsExact: Boolean = semanticAxisError.isEmpty && expectedEvents == actualEvents
-  def validityExact: Boolean =
-    validityObserved && expectedValid == actualValid
-  def axisErrors: Vector[String] =
+  private def observedAxisErrors: Vector[String] =
     Vector(
       sourceAxisError.map("source: " + _),
       semanticAxisError.map("semantic: " + _),
@@ -80,18 +77,18 @@ private[yaml] final case class YamlCorpusOutcome(
     ).flatten ++ chunkObservations.flatMap { observation =>
       observation.axisErrors.map(error => s"chunk:${observation.name}: $error")
     }
-  def crash: Option[String] = axisErrors.headOption
-  def strictExact: Boolean =
-    sourceExact && chunkExact && validityExact && semanticsExact && axisErrors.isEmpty
 
-  def baselineRow: String =
+  private lazy val baselineRowCapture: YamlCaptured[String] =
+    YamlCaptured(buildBaselineRow(observedAxisErrors))
+
+  private def buildBaselineRow(errors: Vector[String]): String =
     val expectedSourceSha256 = YamlCorpusSha256.digestUtf8(testCase.input)
     val actualSourceSha256 = YamlCorpusSha256.digestUtf8(reconstructedSource)
     val expectedEventsSha256 = YamlCorpusCanonical.eventsSha256(expectedEvents)
     val actualEventsSha256 = YamlCorpusCanonical.eventsSha256(actualEvents)
     val chunkCanonical = chunkObservations.map(_.canonical)
     val fields = Vector(
-      testCase.id,
+      YamlCorpusText.canonicalText(testCase.id),
       s"source.expected=$expectedSourceSha256",
       s"source.actual=$actualSourceSha256",
       s"source.problems=${reconstructionProblems.size}:${YamlCorpusCanonical.digest(reconstructionProblems)}",
@@ -104,9 +101,104 @@ private[yaml] final case class YamlCorpusOutcome(
       s"events.actual=${actualEvents.size}:$actualEventsSha256",
       s"events.error=${YamlCorpusCanonical.optionDigest(semanticAxisError)}",
       s"chunks=${chunkObservations.size}:${YamlCorpusCanonical.digest(chunkCanonical)}",
-      s"axis-errors=${axisErrors.size}:${YamlCorpusCanonical.digest(axisErrors)}",
+      s"axis-errors=${errors.size}:${YamlCorpusCanonical.digest(errors)}",
     )
     fields.mkString("\t")
+
+  private def fallbackBaselineRow(error: String): String =
+    val fields = Vector(
+      YamlCorpusText.canonicalText(testCase.id),
+      "baseline.error=" + YamlCorpusText.utf16Sha256(error),
+      "baseline.error.utf16=" + YamlCorpusText.utf16Hex(error),
+      fallbackUtf16Field("source.expected.utf16", testCase.input),
+      fallbackUtf16Field("source.actual.utf16", reconstructedSource),
+      s"source.problems.count=${reconstructionProblems.size}",
+      fallbackUtf16Field(
+        "source.problems.utf16",
+        YamlCorpusCanonical.rawStrings(reconstructionProblems),
+      ),
+      fallbackUtf16Field(
+        "source.error.utf16",
+        YamlCorpusCanonical.option(sourceAxisError),
+      ),
+      s"source.exact=$sourceExact",
+      s"status.expected=${if expectedValid then "valid" else "error"}",
+      s"status.actual=${if validityObserved then if actualValid then "valid" else "error" else "unobserved"}",
+      fallbackUtf16Field("status.completion.utf16", actualStatus),
+      s"diagnostics.count=${diagnostics.size}",
+      fallbackUtf16Field(
+        "diagnostics.utf16",
+        YamlCorpusCanonical.rawDiagnostics(diagnostics),
+      ),
+      s"events.expected.count=${expectedEvents.size}",
+      fallbackUtf16Field(
+        "events.expected.utf16",
+        YamlCorpusCanonical.rawEvents(expectedEvents),
+      ),
+      s"events.actual.count=${actualEvents.size}",
+      fallbackUtf16Field(
+        "events.actual.utf16",
+        YamlCorpusCanonical.rawEvents(actualEvents),
+      ),
+      fallbackUtf16Field(
+        "events.error.utf16",
+        YamlCorpusCanonical.option(semanticAxisError),
+      ),
+      s"chunks.count=${chunkObservations.size}",
+      fallbackUtf16Field(
+        "chunks.utf16",
+        YamlCorpusCanonical.rawChunks(chunkObservations),
+      ),
+      s"chunks.exact=$chunkExact",
+      s"axis-errors.count=${observedAxisErrors.size}",
+      fallbackUtf16Field(
+        "axis-errors.utf16",
+        YamlCorpusCanonical.rawStrings(observedAxisErrors),
+      ),
+    )
+    fields.mkString("\t")
+
+  private def fallbackUtf16Field(label: String, rawValue: => String): String =
+    val captured = YamlCaptured {
+      val value = rawValue
+      s"$label=${value.length}:${YamlCorpusText.utf16Sha256(value)}"
+    }
+    captured.value.getOrElse {
+      val error = captured.error.getOrElse("fallback field unavailable")
+      s"$label=unavailable:${YamlCorpusText.utf16Sha256(error)}"
+    }
+
+  private def emergencyBaselineRow(primaryError: String, fallbackError: String): String =
+    val caseId =
+      YamlCaptured(YamlCorpusText.canonicalText(testCase.id)).value
+        .getOrElse("<case-id-unavailable>")
+    Vector(
+      caseId,
+      "baseline.error=" + YamlCorpusText.utf16Sha256(primaryError),
+      "baseline.fallback.error=" + YamlCorpusText.utf16Sha256(fallbackError),
+    ).mkString("\t")
+
+  def baselineAxisError: Option[String] = baselineRowCapture.error
+  def semanticsExact: Boolean = semanticAxisError.isEmpty && expectedEvents == actualEvents
+  def validityExact: Boolean =
+    validityObserved && expectedValid == actualValid
+  def axisErrors: Vector[String] =
+    observedAxisErrors ++ baselineAxisError.map("baseline: " + _)
+  def crash: Option[String] = axisErrors.headOption
+  def strictExact: Boolean =
+    sourceExact && chunkExact && validityExact && semanticsExact && axisErrors.isEmpty
+
+  def baselineRow: String =
+    baselineRowCapture.value.getOrElse {
+      val primaryError = baselineRowCapture.error.getOrElse("baseline row unavailable")
+      val fallback = YamlCaptured(fallbackBaselineRow(primaryError))
+      fallback.value.getOrElse(
+        emergencyBaselineRow(
+          primaryError,
+          fallback.error.getOrElse("baseline fallback unavailable"),
+        )
+      )
+    }
 
 private[yaml] final case class YamlCorpusCensus(
     total: Int,
@@ -144,10 +236,22 @@ private[yaml] final case class YamlCorpusReport(
     census: YamlCorpusCensus,
 ):
   def failures: Vector[YamlCorpusOutcome] = outcomes.filterNot(_.strictExact)
-  def isStrictGreen: Boolean = outcomes.nonEmpty && failures.isEmpty
+  private lazy val baselineDigestCapture: YamlCaptured[String] =
+    YamlCaptured(YamlCorpusSha256.digestUtf8(baselineRows.mkString("", "\n", "\n")))
+  private lazy val categoryDigestCapture: YamlCaptured[String] =
+    YamlCaptured(YamlCorpusSha256.digestUtf8(categoryRows.mkString("", "\n", "\n")))
+
+  def aggregateErrors: Vector[String] =
+    Vector(
+      baselineDigestCapture.error.map("baseline digest: " + _),
+      categoryDigestCapture.error.map("category digest: " + _),
+    ).flatten
+  def isStrictGreen: Boolean =
+    outcomes.nonEmpty && failures.isEmpty && aggregateErrors.isEmpty
   def baselineRows: Vector[String] = outcomes.map(_.baselineRow).sorted
   def baselineDigest: String =
-    YamlCorpusSha256.digestUtf8(baselineRows.mkString("", "\n", "\n"))
+    baselineDigestCapture.value.getOrElse("unavailable")
+  def baselineDigestError: Option[String] = baselineDigestCapture.error
 
   def categoryCensus: Vector[YamlCorpusCategoryCensus] =
     outcomes.flatMap(outcome => outcome.testCase.categories.map(_ -> outcome)).groupBy(_._1).toVector
@@ -168,7 +272,8 @@ private[yaml] final case class YamlCorpusReport(
       }
   def categoryRows: Vector[String] = categoryCensus.map(_.summary)
   def categoryDigest: String =
-    YamlCorpusSha256.digestUtf8(categoryRows.mkString("", "\n", "\n"))
+    categoryDigestCapture.value.getOrElse("unavailable")
+  def categoryDigestError: Option[String] = categoryDigestCapture.error
 
 private[yaml] object YamlOfficialCorpus:
   val cases: Vector[YamlOfficialCase] = YamlOfficialCorpusData.cases.map { encoded =>
@@ -289,17 +394,20 @@ private final case class YamlScheduleEvaluation(
     reconstruction: YamlCaptured[YamlReconstruction],
 ):
   def observation: YamlChunkObservation =
+    val reconstructedSourceDigest = reconstruction.value match
+      case Some(result) => YamlCaptured(YamlCorpusSha256.digestUtf8(result.text))
+      case None         => YamlCaptured[String](None, None)
     YamlChunkObservation(
       name = schedule.name,
       splitOffsets = YamlCorpusChunks.splitOffsets(schedule),
       parseSnapshotSha256 = snapshot.value,
-      reconstructedSourceSha256 =
-        reconstruction.value.map(result => YamlCorpusSha256.digestUtf8(result.text)),
+      reconstructedSourceSha256 = reconstructedSourceDigest.value,
       reconstructionProblems = reconstruction.value.map(_.problems).getOrElse(Vector.empty),
       axisErrors = Vector(
         parsed.error.map("parse: " + _),
         snapshot.error.map("snapshot: " + _),
         reconstruction.error.map("reconstruction: " + _),
+        reconstructedSourceDigest.error.map("reconstructed-source-digest: " + _),
       ).flatten,
     )
 
@@ -370,31 +478,36 @@ private[yaml] object YamlOfficialCorpusGate:
         case None => YamlCaptured.unavailable("parse result unavailable")
       YamlScheduleEvaluation(schedule, parsed, snapshot, reconstruction)
     }
-    val whole = evaluated.head
-    val wholeObservation = whole.observation
-    val referenceSnapshot = whole.snapshot.value
-    val inputSha256 = YamlCorpusSha256.digestUtf8(testCase.input)
-    val chunkProblems = evaluated.flatMap { schedule =>
-      val observation = schedule.observation
-      val problems = Vector.newBuilder[String]
-      observation.axisErrors.foreach(error =>
-        problems += s"schedule=${observation.name} $error"
-      )
-      if observation.parseSnapshotSha256 != referenceSnapshot then
-        problems +=
-          s"schedule=${observation.name} parse snapshot differs from schedule=${whole.schedule.name}"
-      if observation.reconstructedSourceSha256 != Some(inputSha256) then
-        problems += s"schedule=${observation.name} reconstructed source differs"
-      observation.reconstructionProblems.foreach(problem =>
-        problems += s"schedule=${observation.name} $problem"
-      )
-      problems.result()
-    }
-
     val semantic = YamlCaptured {
       val result = hooks.semantic(sourceId, testCase.input)
       result -> YamlEventNormalization.fromActual(result.stream)
     }
+    val observations = evaluated.map(_.observation)
+    val whole = evaluated.head
+    val wholeObservation = observations.head
+    val referenceSnapshot = whole.snapshot.value
+    val inputSha256 = YamlCaptured(YamlCorpusSha256.digestUtf8(testCase.input))
+    val chunkProblems =
+      inputSha256.error.map("expected-source-digest: " + _).toVector ++
+        observations.flatMap { observation =>
+          val problems = Vector.newBuilder[String]
+          observation.axisErrors.foreach(error =>
+            problems += s"schedule=${observation.name} $error"
+          )
+          if observation.parseSnapshotSha256 != referenceSnapshot then
+            problems +=
+              s"schedule=${observation.name} parse snapshot differs from schedule=${whole.schedule.name}"
+          if
+            inputSha256.value.nonEmpty &&
+            observation.reconstructedSourceSha256 != inputSha256.value
+          then
+            problems += s"schedule=${observation.name} reconstructed source differs"
+          observation.reconstructionProblems.foreach(problem =>
+            problems += s"schedule=${observation.name} $problem"
+          )
+          problems.result()
+        }
+
     val parsedDiagnostics = whole.parsed.value.map(_.diagnostics).getOrElse(Vector.empty)
     val semanticDiagnostics = semantic.value.map(_._1.diagnostics).getOrElse(Vector.empty)
     val allDiagnostics = parsedDiagnostics ++ semanticDiagnostics
@@ -415,6 +528,8 @@ private[yaml] object YamlOfficialCorpusGate:
     val sourceAxisError =
       whole.parsed.error.map("parse: " + _).orElse(
         whole.reconstruction.error.map("reconstruction: " + _)
+      ).orElse(
+        inputSha256.error.map("expected-source-digest: " + _)
       )
     val sourceExact =
       sourceAxisError.isEmpty &&
@@ -428,7 +543,7 @@ private[yaml] object YamlOfficialCorpusGate:
       reconstructionProblems = reconstruction.problems,
       sourceExact = sourceExact,
       sourceAxisError = sourceAxisError,
-      chunkObservations = wholeObservation +: evaluated.tail.map(_.observation),
+      chunkObservations = wholeObservation +: observations.tail,
       chunkProblems = chunkProblems,
       chunkExact = chunkProblems.isEmpty,
       expectedValid = !testCase.shouldFail,
@@ -460,6 +575,7 @@ private[yaml] object YamlOfficialCorpusGate:
     )
 
   def printCensus(report: YamlCorpusReport): Unit =
+    requireIntegrityAndRoster(report)
     println(
       s"yaml-test-suite ${YamlOfficialCorpusData.version} " +
         s"revision=${YamlOfficialCorpusData.revision} ${report.census.summary}"
@@ -469,9 +585,12 @@ private[yaml] object YamlOfficialCorpusGate:
       s"baseline-sha256=${report.baselineDigest} rows=${report.baselineRows.size} " +
         s"category-sha256=${report.categoryDigest} categories=${report.categoryRows.size}"
     )
+    report.aggregateErrors.foreach(error =>
+      println("  aggregate-error=" + YamlCorpusText.canonicalText(error))
+    )
 
   def printFailures(report: YamlCorpusReport): Unit =
-    report.failures.foreach(outcome => println(renderFailure(outcome)))
+    report.failures.foreach(outcome => println(renderFailureSafely(outcome)))
 
   def requireIntegrityAndRoster(report: YamlCorpusReport): Unit =
     val problems = Vector.newBuilder[String]
@@ -482,6 +601,20 @@ private[yaml] object YamlOfficialCorpusGate:
       problems +=
         s"case roster expected=${expectedIds.size} actual=${actualIds.size}; " +
           YamlCorpusDiff.firstVectorDifference(expectedIds, actualIds)
+    val expectedCases = YamlOfficialCorpus.cases
+    val actualCases = report.outcomes.map(_.testCase)
+    if actualCases != expectedCases then
+      val count = math.max(expectedCases.size, actualCases.size)
+      val mismatch =
+        (0 until count).find(index => expectedCases.lift(index) != actualCases.lift(index))
+      mismatch.foreach { index =>
+        val expected = expectedCases.lift(index)
+        val actual = actualCases.lift(index)
+        problems +=
+          s"case identity mismatch index=$index " +
+            s"expected-id=${expected.map(value => YamlCorpusText.canonicalText(value.id)).getOrElse("<missing>")} " +
+            s"actual-id=${actual.map(value => YamlCorpusText.canonicalText(value.id)).getOrElse("<missing>")}"
+      }
     if report.census.total != expectedIds.size then
       problems += s"census total expected=${expectedIds.size} actual=${report.census.total}"
     val found = problems.result()
@@ -507,6 +640,9 @@ private[yaml] object YamlOfficialCorpusGate:
         YamlOfficialCorpusBaseline.baselineRows,
         report.baselineRows,
       )
+    report.baselineDigestError.foreach(error =>
+      problems += "baseline digest unavailable: " + YamlCorpusText.canonicalText(error)
+    )
     if report.categoryDigest != YamlOfficialCorpusBaseline.categorySha256 then
       problems +=
         s"category SHA-256 expected=${YamlOfficialCorpusBaseline.categorySha256} " +
@@ -516,6 +652,9 @@ private[yaml] object YamlOfficialCorpusGate:
         YamlOfficialCorpusBaseline.categoryRows,
         report.categoryRows,
       )
+    report.categoryDigestError.foreach(error =>
+      problems += "category digest unavailable: " + YamlCorpusText.canonicalText(error)
+    )
     val found = problems.result()
     if found.nonEmpty then
       throw new IllegalStateException(
@@ -526,7 +665,8 @@ private[yaml] object YamlOfficialCorpusGate:
     requireIntegrityAndRoster(report)
     if !report.isStrictGreen then
       throw new IllegalStateException(
-        s"YAML strict corpus gate failed: ${report.failures.size}/${report.census.total} cases mismatch"
+        s"YAML strict corpus gate failed: ${report.failures.size}/${report.census.total} " +
+          s"cases mismatch, aggregate-errors=${report.aggregateErrors.size}"
       )
 
   def printBaselineCandidate(report: YamlCorpusReport): Unit =
@@ -591,6 +731,31 @@ private[yaml] object YamlOfficialCorpusGate:
       YamlCorpusDiff.eventDifferences(outcome.expectedEvents, outcome.actualEvents)
         .foreach(line => lines += "    " + line)
     lines.result().mkString("\n")
+
+  def renderFailureSafely(outcome: YamlCorpusOutcome): String =
+    renderFailureSafelyWith(outcome, renderFailure)
+
+  private[yaml] def renderFailureSafelyWith(
+      outcome: YamlCorpusOutcome,
+      renderer: YamlCorpusOutcome => String,
+  ): String =
+    val rendered = YamlCaptured {
+      val value = renderer(outcome)
+      if value == null then
+        throw new IllegalArgumentException("failure renderer returned null")
+      if !YamlCorpusUtf8.isWellFormed(value) then
+        throw new IllegalArgumentException("failure renderer returned ill-formed UTF-16")
+      value
+    }
+    rendered.value.getOrElse {
+      val error = rendered.error.getOrElse("failure rendering unavailable")
+      val caseId =
+        YamlCaptured(YamlCorpusText.canonicalText(outcome.testCase.id)).value
+          .getOrElse("<case-id-unavailable>")
+      s"CASE $caseId — <render unavailable>\n" +
+        s"  render-error-sha256=${YamlCorpusText.utf16Sha256(error)} " +
+        s"utf16=${YamlCorpusText.utf16Hex(error)}"
+    }
 
 @main def yamlOfficialCorpusCensus(): Unit =
   val report = YamlOfficialCorpusGate.evaluate()
@@ -673,30 +838,49 @@ private[yaml] object YamlCorpusCanonical:
       case Some(found) => "some:" + found
       case None        => "none"
 
+  def rawStrings(values: Vector[String]): String =
+    values.map(value => record(Vector(value))).mkString
+
+  def rawEvents(events: Vector[YamlNormalizedEvent]): String =
+    events.map { event =>
+      record(
+        Vector(
+          event.kind,
+          option(event.anchor),
+          option(event.tag),
+          option(event.value),
+        )
+      )
+    }.mkString
+
+  def rawDiagnostics(diagnostics: Vector[YamlDiagnosticKey]): String =
+    diagnostics.map(key => record(Vector(key.severity, key.code))).mkString
+
+  def rawChunks(observations: Vector[YamlChunkObservation]): String =
+    observations.map { observation =>
+      record(
+        Vector(
+          observation.name,
+          observation.splitOffsets.mkString(","),
+          option(observation.parseSnapshotSha256),
+          option(observation.reconstructedSourceSha256),
+          rawStrings(observation.reconstructionProblems),
+          rawStrings(observation.axisErrors),
+        )
+      )
+    }.mkString
+
   def digest(values: Vector[String]): String =
-    YamlCorpusSha256.digestUtf8(values.map(value => record(Vector(value))).mkString)
+    YamlCorpusSha256.digestUtf8(rawStrings(values))
 
   def optionDigest(value: Option[String]): String =
     digest(Vector(option(value)))
 
   def eventsSha256(events: Vector[YamlNormalizedEvent]): String =
-    YamlCorpusSha256.digestUtf8(
-      events.map { event =>
-        record(
-          Vector(
-            event.kind,
-            option(event.anchor),
-            option(event.tag),
-            option(event.value),
-          )
-        )
-      }.mkString
-    )
+    YamlCorpusSha256.digestUtf8(rawEvents(events))
 
   def diagnosticsSha256(diagnostics: Vector[YamlDiagnosticKey]): String =
-    YamlCorpusSha256.digestUtf8(
-      diagnostics.map(key => record(Vector(key.severity, key.code))).mkString
-    )
+    YamlCorpusSha256.digestUtf8(rawDiagnostics(diagnostics))
 
   def position(value: SourcePosition): String =
     s"${value.offset}:${value.line}:${value.column}"
@@ -1087,12 +1271,30 @@ private[yaml] object YamlCorpusText:
       case '\r' => result.append("\\r")
       case '\t' => result.append("\\t")
       case '\b' => result.append("\\b")
+      case char if char >= '\uD800' && char <= '\uDFFF' =>
+        result.append("\\u")
+        result.append(f"${char.toInt}%04x")
       case char if char < ' ' =>
         result.append("\\u")
         result.append(f"${char.toInt}%04x")
       case char => result.append(char)
     }
     result.append('"').result()
+
+  def utf16Hex(value: String): String =
+    val result = new StringBuilder(value.length * 4)
+    var index = 0
+    while index < value.length do
+      result.append(f"${value.charAt(index).toInt}%04x")
+      index += 1
+    result.result()
+
+  def utf16Sha256(value: String): String =
+    YamlCorpusSha256.digestAscii(utf16Hex(value))
+
+  def canonicalText(value: String): String =
+    if YamlCorpusUtf8.isWellFormed(value) then value
+    else "invalid-utf16:" + utf16Hex(value)
 
   def scalaLiteral(value: String): String = escape(value)
 
@@ -1168,6 +1370,22 @@ private[yaml] object YamlCorpusDiff:
     }.toVector
 
 private[yaml] object YamlCorpusUtf8:
+  def isWellFormed(value: String): Boolean =
+    var index = 0
+    var valid = true
+    while index < value.length && valid do
+      val first = value.charAt(index)
+      if first >= '\uD800' && first <= '\uDBFF' then
+        if
+          index + 1 >= value.length ||
+          value.charAt(index + 1) < '\uDC00' ||
+          value.charAt(index + 1) > '\uDFFF'
+        then valid = false
+        else index += 2
+      else if first >= '\uDC00' && first <= '\uDFFF' then valid = false
+      else index += 1
+    valid
+
   def encode(value: String): Array[Byte] =
     val bytes = Array.newBuilder[Byte]
     var index = 0
