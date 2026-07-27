@@ -206,7 +206,7 @@ one unsigned literal token rather than a signed expression. SC-8 must add the
 full SQLite signed decimal/exponent/hex source-literal grammar and differential
 vectors without changing the distinct TEXT-affinity grammar.
 
-## scljet-update-ignores-unconsumed-numeric-tail — malformed numeric UPDATE can mutate the wrong row
+## scljet-update-ignores-unconsumed-numeric-tail — mutation parsers can execute a recognized prefix
 
 **Status:** OPEN (found 2026-07-27 by `scljet-production-completion`; reproduced
 through the assembled v1 runner and real `jdbc:scljet:` driver).
@@ -217,10 +217,21 @@ through the assembled v1 runner and real `jdbc:scljet:` driver).
 or `x10` plus the intended WHERE tokens, but UPDATE execution ignores that
 unconsumed tail. Reference SQLite moves to 200 and 16 respectively.
 
+The fail-first portable gate also proved sibling paths on both INT and JS:
+`INSERT INTO t SELECT 2e2` inserts rowid 2 after discarding `e2`;
+`CREATE TABLE rogue(a) garbage`, a body-less/unclosed CREATE TABLE,
+`CREATE INDEX idx ON t(a) garbage`, a partial-index `WHERE`, and
+`DROP INDEX idx garbage` all return success after executing only the recognized
+prefix. The immutable input image is not modified in place, but the API returns
+a changed image for a statement it never parsed completely.
+
 **Root cause / safety gate.** Mutation parsers do not all require an empty
-remaining token stream before execution. SC-1a must reject any unconsumed tail
-before opening a mutable pager; SC-8 then implements the missing literal
-families. A syntax gap may fail loud, but it may never partially execute.
+remaining token stream before execution. UPDATE/DELETE/VALUES INSERT expose a
+remainder directly; SELECT currently drops its remainder, and the CREATE
+TABLE/INDEX plus DROP INDEX parsers ignore their trailing tokens. SC-1a must
+reject any unconsumed or structurally incomplete mutation before opening a
+mutable pager; SC-8 then implements the missing literal families. A syntax gap
+may fail loud, but it may never partially execute.
 
 ## scljet-sql-integer-literal-overflow-wraps-rowid — decimal 2^63 becomes Long.MinValue
 
