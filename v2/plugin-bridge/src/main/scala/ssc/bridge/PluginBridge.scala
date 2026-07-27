@@ -2145,6 +2145,26 @@ object PluginBridge:
           case BridgeThrow(v) => callClosure(handler, List(v))
           case e: scalascript.interpreter.InterpretError =>
             callClosure(handler, List(StrV(e.getMessage)))
+          // A host exception raised INSIDE an intrinsic used to escape try/catch entirely: the
+          // two arms above cover a ScalaScript `throw` and an interpreter error, and nothing
+          // else. So `readFile` on a missing path or `httpPost` to a closed port — the most
+          // ordinary recoverable conditions there are — killed the program instead of reaching
+          // the handler, while `try`/`catch` looked like it worked because a ScalaScript-level
+          // `throw` IS caught. It made std/agent's transportError unreachable (AgentEndpointPool
+          // failover was dead code on this lane) and busi's safePost inert.
+          //
+          // NonFatal, not Throwable: VirtualMachineError (OOM, stack overflow), ThreadDeath,
+          // InterruptedException and LinkageError must still reach the boundary.
+          //
+          // Delivered as StrV(message), matching the InterpretError arm above — the shape a
+          // wildcard `catch case _ =>` and a binder arm both accept.
+          //
+          // Upstream equivalent: scalascript main 88ee7e119 (there the v2 VM's tryRun switched
+          // from `case e: RuntimeException` to NonFatal). Carried here because busi's submodule
+          // pin is a DIVERGED branch, 4133 commits behind main — bumping to main to get a
+          // two-line fix would drop weeks of language change into a production system.
+          case scala.util.control.NonFatal(e) =>
+            callClosure(handler, List(StrV(Option(e.getMessage).getOrElse(e.getClass.getSimpleName))))
       case _ => sys.error("__try__(thunk, handler)"))
     // getenv(key[, default]) — interpreter built-in not in any SPI plugin
     if V2PluginRegistry.lookupGlobal("getenv").isEmpty then
