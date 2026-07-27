@@ -1,6 +1,6 @@
 feature/js-char-into-int-param 2026-07-27T16:08:54Z
 agent: codex
-heartbeat: 2026-07-27T17:04:02Z
+heartbeat: 2026-07-27T17:18:16Z
 status: landed-awaiting-exact-sha-ci
 done-so-far: fix b672b0d41 + BUGS/SPRINT/CHANGELOG 35a70f095 landed; focused, full differential 17/17, and markdown-html INT/JS gates green
 next: exact-SHA run 30286311782 is queued; require green for 35a70f095ba344c63f080b57807d1b9599211e67, then mark sprint done and release
