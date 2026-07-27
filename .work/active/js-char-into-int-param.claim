@@ -1,6 +1,6 @@
 feature/js-char-into-int-param 2026-07-27T16:08:54Z
 agent: codex
-heartbeat: 2026-07-27T16:16:13Z
-status: in-progress
-done-so-far: plan and assembled-harness baseline landed through 1ad34d8ec; INT=true/true/true, JS=true/false/true
-next: add the failing backend/conformance regression, then normalize declared Int parameters at JS function entry
+heartbeat: 2026-07-27T16:47:32Z
+status: landed-awaiting-exact-sha-ci
+done-so-far: fix b672b0d41 + BUGS/SPRINT/CHANGELOG 35a70f095 landed; focused, full differential 17/17, and markdown-html INT/JS gates green
+next: require exact-SHA CI green for 35a70f095ba344c63f080b57807d1b9599211e67, then mark sprint done and release
