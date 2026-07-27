@@ -1,5 +1,32 @@
 # Bug tracker
 
+## v2-f-small-vm-admission-loads-asm — F admission classification breaks VM backend isolation
+
+**Status:** OPEN (found 2026-07-27 by `codex` while verifying unlanded
+`15b99b5ee`).
+
+**Reproduce.** Build the staged product with `scripts/sbtc "installBin"`, then
+run `tests/e2e/v21-plugin-backend-isolation-smoke.sh`. The VM control exits 1:
+
+```text
+native VM loaded a backend ASM or external parser/codec class
+```
+
+The new selective F path asks
+`JvmByteGen.requiresStringChunking(firstNestedProgram)` even when the program
+is small and will stay on VM. Initializing `JvmByteGen` initializes its ASM
+`Handle`/emitter state, so the classification probe itself loads
+`org.objectweb.asm.*`. That violates the existing closed-native VM contract
+even though no class is emitted.
+
+**Impact / fix.** Ordinary small `ssc run --interpret` programs now load the
+backend they explicitly did not select. Move modified-UTF8 accounting,
+program-constant walking, and chunk splitting into an ASM-free bytecode
+admission helper. `RunNativeV2` must classify through that helper;
+`JvmByteGen.loadString` must use the same helper so selection and emission
+cannot drift. Done when the focused nested-F tests, product hello/SClJet gate,
+and `v21-plugin-backend-isolation-smoke.sh` are all green.
+
 ## f-block-comment-lexed-as-code — F has no block-comment support; doc comments become expressions
 
 **Status:** OPEN (found 2026-07-27 by `v2-board-and-f5b`). **F-front only**

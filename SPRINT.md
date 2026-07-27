@@ -517,6 +517,11 @@ SLOWER until `f5c-1`; `.length` receivers were classifier-shaped — they were b
                   expose one shared oversized-string predicate from `JvmByteGen`, and pin delegation,
                   one-shot selection, thread isolation, exact large-string output, and restoration
                   in `FNestedBytecodeEvalTest`.
+                  - [ ] **V-6b.3b.1 — keep admission classification ASM-free.** The real
+                        `v21-plugin-backend-isolation-smoke.sh` caught that calling the predicate on
+                        `JvmByteGen` initializes ASM even when hello stays on VM. Move constant walking,
+                        modified-UTF8 accounting, and chunk splitting into an ASM-free helper shared by
+                        `RunNativeV2` and `JvmByteGen`; rerun isolation plus the product gate before push.
             - [ ] **V-6b.3c — wire and prove the real F product path.** Install the one-shot evaluator
                   only around `RunNativeV2`'s F runner, isolate `Emit.globalsRef`, and emit a
                   trace-only backend marker. Add `tests/e2e/v2-f-nested-bytecode-fast-path.sh` that
