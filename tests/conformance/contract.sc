@@ -65,6 +65,23 @@ val lanes          = flagVal("--lanes").map(_.split(',').map(_.trim).filter(_.no
                        .getOrElse(List("int", "js", "v2"))
 val timeoutS       = flagVal("--timeout").map(_.toInt).getOrElse(30)
 
+// TWO budgets, deliberately different (measured 2026-07-27):
+//   `--timeout`      bounds the INT probe that establishes the golden. It also decides which
+//                    cases become SKIPs (a server/arg case is skipped when int can't run it),
+//                    and a skipped case pays this twice — with ~78 skips, raising THIS is what
+//                    makes the whole gate expensive. Keep it tight.
+//   `--lane-timeout` bounds the per-lane comparison runs. This one has to be generous: the `v2`
+//                    lane invokes the self-hosted compiler, and since F became the default native
+//                    front it costs ~7x more than legacy on the scljet cases — `scljet-crud`
+//                    measured 28.2 s under F vs 4.16 s under `SSC_FRONT=legacy`, with IDENTICAL
+//                    output. At a 30 s budget that is a coin flip on a loaded runner, so seven
+//                    scljet cases reported `v2 TIMEOUT` as REGRESSIONS in run 30281019432 while
+//                    being perfectly correct.
+// This separation is NOT a way to hide the slowdown: the F compile cost is filed in BUGS.md
+// (`f-front-compile-cost-7x-on-scljet`) and belongs to a perf gate. A correctness gate that
+// reports perf as TIMEOUT noise trains people to ignore it — which is how this one died.
+val laneTimeoutS   = flagVal("--lane-timeout").map(_.toInt).getOrElse(math.max(90, timeoutS))
+
 // `--shard i/N` — run only the cases whose index in the sorted, deduped case list is
 // ≡ i (mod N). ROUND-ROBIN, not contiguous blocks: the corpus is name-sorted and the
 // slow cases cluster by name, so blocks would give wildly uneven shards. The baseline
@@ -131,6 +148,47 @@ if cliArgs.contains("--list") then
   cases.foreach(c => println(c.name))
   System.exit(0)
 
+/** The case's YAML front-matter lines (between the first two `---`), or Nil. */
+def frontmatter(src: String): List[String] =
+  val lines = src.linesIterator.toList
+  val startIdx = lines.indexWhere(_.trim == "---")
+  if startIdx < 0 then Nil
+  else
+    val rest = lines.drop(startIdx + 1)
+    val endIdx = rest.indexWhere(_.trim == "---")
+    if endIdx < 0 then Nil else rest.take(endIdx).map(_.trim)
+
+/** `known-red: <lane>[,<lane>] — <reason>` — a DECLARED, EXPIRING per-lane non-conformance,
+ *  the same front-matter `run.sc` honours (`parseKnownRed` there; keep the two in step).
+ *
+ *  Without this the contract reports a red the project has explicitly declared — e.g.
+ *  `int-width` on `js`, where the v1 codegen is documented as non-conforming for 64-bit Int
+ *  and `specs/numeric-widths.md` §4 says NOT to fix it — as a REGRESSION. That is how a gate
+ *  teaches people to ignore it, which is exactly how this one died the first time.
+ *
+ *  The lane still RUNS and is still DIFFED; only its bucket changes, to `KNOWN-RED`. The
+ *  declaration expires by itself: if the lane starts PASSING, the entry drops out of `current`
+ *  and the baseline's `KNOWN-RED` row surfaces as an IMPROVEMENT — i.e. "delete the
+ *  declaration", which is precisely what should happen. */
+def parseKnownRed(src: String): Map[String, String] =
+  frontmatter(src).find(_.startsWith("known-red:")) match
+    case None => Map.empty
+    case Some(line) =>
+      // The reason contains `: ` and `#`, so the YAML value is quoted — unquote it.
+      val raw = line.stripPrefix("known-red:").trim
+      val body =
+        if raw.length >= 2 && raw.head == '"' && raw.last == '"' then raw.drop(1).dropRight(1)
+        else if raw.length >= 2 && raw.head == '\'' && raw.last == '\'' then raw.drop(1).dropRight(1)
+        else raw
+      val (lanesPart, reason) = body.split("—", 2) match
+        case Array(l, r) => (l.trim, r.trim)
+        case _           => (body, "")
+      if reason.isEmpty then
+        System.err.println(s"[error] known-red without a reason: '$line' — a known-red MUST state " +
+          "why it is red and when it expires, or it is indistinguishable from an unnoticed bug")
+        System.exit(1)
+      lanesPart.split(",").map(_.trim.toLowerCase).filter(_.nonEmpty).map(_ -> reason).toMap
+
 // `backends:` frontmatter gate — restrict which lanes a case runs on. Accepts the
 // same tokens as run.sc (int/js/jvm/v2, `interpreter` aliases int).
 def parseBackends(src: String): Option[Set[String]] =
@@ -170,9 +228,9 @@ def laneCmd(lane: String, file: os.Path): Seq[String] = lane match
 // Run a lane with a hard timeout; returns (stdout, exitCode). 124 = timed out.
 // Retries ONCE on timeout so parallel JVM contention (a normally-fast case pushed
 // past the timeout) doesn't flap the gate — only a genuine hang times out twice.
-def runLane(lane: String, file: os.Path): (String, Int) =
+def runLane(lane: String, file: os.Path, budgetS: Int = timeoutS): (String, Int) =
   def once(): (String, Int) =
-    val cmd = Seq("timeout", timeoutS.toString) ++ laneCmd(lane, file)
+    val cmd = Seq("timeout", budgetS.toString) ++ laneCmd(lane, file)
     val r = os.proc(cmd).call(stdin = "", stderr = os.Pipe, check = false)
     (r.out.text().stripTrailing(), r.exitCode)
   val res = once()
@@ -201,7 +259,9 @@ def golden(c: Case): Either[String, String] = c.expected match
 // One case → (name, Left(skip-reason) | Right(lane→status)). Pure per-case work
 // (each `runLane` is its own timeout-bounded subprocess), so cases run in parallel.
 def processCase(c: Case): (String, Either[String, Map[String, String]]) =
-  val gate = parseBackends(os.read(c.file))
+  val src      = os.read(c.file)
+  val gate     = parseBackends(src)
+  val knownRed = parseKnownRed(src)
   golden(c) match
     case Left(reason) => (c.name, Left(reason))
     case Right(g) =>
@@ -210,12 +270,19 @@ def processCase(c: Case): (String, Either[String, Map[String, String]]) =
           // For an expected-file golden we still diff INT; for a live golden INT == golden.
           if lane == "int" && c.expected.isEmpty then lane -> "PASS"
           else
-            val (o, rc) = runLane(lane, c.file)
-            lane -> classify(o, rc, g)
+            val (o, rc) = runLane(lane, c.file, laneTimeoutS)
+            val st = classify(o, rc, g)
+            // A declared known-red lane keeps running and diffing; only its bucket changes,
+            // so it lands in the baseline as a documented red instead of a fake regression.
+            // A known-red that PASSES stays PASS — the stale declaration then surfaces via
+            // the IMPROVEMENT path, which is the expiry mechanism.
+            if st != "PASS" && knownRed.contains(lane) then lane -> "KNOWN-RED"
+            else lane -> st
       (c.name, Right(row.toMap))
 
 val shardLabel = shard.map((i, n) => s" [shard $i/$n of ${selected.length}]").getOrElse("")
-println(s"Corpus contract: ${cases.length} cases$shardLabel × lanes [${lanes.mkString(", ")}] (timeout ${timeoutS}s)")
+println(s"Corpus contract: ${cases.length} cases$shardLabel × lanes [${lanes.mkString(", ")}] " +
+  s"(golden probe ${timeoutS}s, lane ${laneTimeoutS}s)")
 
 // Bounded parallelism: each case runs `lanes` sequentially in its own worker, so at
 // most `workers` subprocess JVMs are live at once. ~4× faster than serial; hang-safe
@@ -291,4 +358,7 @@ else
     System.err.println(s"\n△ ${improvements.length} IMPROVEMENT(S)/stale baseline — now PASS, still in baseline:")
     improvements.foreach(e => System.err.println("    " + e.replace("\t", "  ")))
     System.err.println("  → re-run with --update-baseline to record the closed gaps.")
+    if improvements.exists(_.contains("KNOWN-RED")) then
+      System.err.println("  → a KNOWN-RED entry here means the declaration EXPIRED: that lane now " +
+        "passes, so DELETE the case's `known-red:` front-matter (do not just re-baseline it).")
   System.exit(1)
