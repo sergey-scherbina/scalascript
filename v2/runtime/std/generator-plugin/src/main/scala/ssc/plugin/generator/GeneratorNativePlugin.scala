@@ -195,10 +195,12 @@ final class GeneratorNativePlugin extends NativePlugin:
       fn: Value,
       args: Value*): Value =
     try context.invoke(fn, args.toList)
-    catch case error: Throwable =>
-      val rendered = args.map(Prims.display).mkString(", ")
-      throw new IllegalArgumentException(
-        s"Generator.$operation callback failed for [$rendered]", error)
+    catch
+      case error: ssc.SscThrow => throw error
+      case error: Throwable =>
+        val rendered = args.map(Prims.display).mkString(", ")
+        throw new IllegalArgumentException(
+          s"Generator.$operation callback failed for [$rendered]", error)
 
   private def make(
       context: NativePluginContext,
