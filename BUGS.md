@@ -152,6 +152,39 @@ per-push verdict comes from something that already is. The other three jobs meas
 schedule") is not one option among several; it is the only shape that fits the arithmetic without
 making the tests faster. A scheduled `sbt` still catches everything, just later and in batches.
 
+## v2-native-std-ui-scope-global — V2 standard runtime omits the CSS scoping helper
+
+**Status:** OPEN (found 2026-07-28 by `codex` while verifying the full
+std-ui closure; SPRINT `v2-native-std-ui-scope-global`).
+
+**Real-harness reproduction.** After the quote scanner and `html` parser
+corrections, all five original roots advance to the same runtime failure:
+
+```bash
+bin/ssc run --native tests/conformance/std-ui-aggregator.ssc
+# ssc: unbound global: scope
+```
+
+The direct-ASM route fails identically. The first imported component already
+contains the canonical API shape:
+
+```scalascript
+private val sc = scope("Spinner")
+private val rootCls = sc.cls("root")
+val css = sc.css(""".root { display: inline-block }""")
+```
+
+V1 supplies `scope(name)`, `Scope.cls`, and `Scope.css` in its core runtime,
+but `v2/runtime/std/ui-plugin` registers none of them. This is not a parser or
+module-resolution error: execution reaches an honest missing-global lookup.
+
+**Fix acceptance.** Register the existing contract in the V2 UI plugin:
+`scope(name)` must return portable data, `cls(name)` must append
+`__<scope>`, and `css(source)` must rewrite every
+`.identifier` to `.identifier__<scope>` exactly like V1. Add plugin unit
+coverage plus a multi-file assembled regression. Default/legacy × VM/direct
+ASM and the five original std-ui expected outputs must compare exactly.
+
 ## v2-native-html-interpolator-parse — self-hosted frontend emits `_err` for built-in `html` strings
 
 **Status:** OPEN (found 2026-07-28 by `codex` while reducing

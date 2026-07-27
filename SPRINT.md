@@ -7207,6 +7207,20 @@ emits `def C(a) = IrCtor(C, [a])`; extend to `def C(a) = let y=a*2 in IrCtor(C, 
     lambda/import boundary and asserting both escaped and raw output. Rebuild
     `installBin`, compare all four native routes, then rerun the original five
     std-ui roots byte-for-byte; continue reducing any newly exposed layer.
+- [ ] **v2-native-std-ui-scope-global** — ACTIVE
+  (`feature/v2-std-ui-missing-fixture`): close the next exact-output layer,
+  `unbound global: scope`, shared by all five original std-ui roots.
+  - Preserve the established V1 contract in
+    `v2/runtime/std/ui-plugin`: `scope(name)` returns portable `Scope` data;
+    tagged `.cls(name)` appends `__<scope>`; tagged `.css(source)` rewrites
+    `.identifier` selectors with the same regex semantics. Do not add this
+    user-facing intrinsic to core.
+  - Pin direct plugin behavior and a cross-module component fixture that
+    initializes a scoped class/CSS value at module load. Prove fail-first on
+    native VM/direct ASM, then rebuild and compare default/legacy × both
+    execution engines.
+  - Rerun all five original roots against their checked-in bytes. Any next
+    shared failure is a new tracked layer, not grounds to weaken the gate.
 - [ ] **v2-js-only-tests** — js-cps-intrinsic-rewrite (`nowMillis`) / js-state-effect-runner /
   js-symbolic-infix-operator (custom multi-char operators `<~>`/`~~` — a real lexer gap but the test
   is `backends: [int, js]`) / if-then-no-else-after-while (`backends: [int]` AND the test file is
