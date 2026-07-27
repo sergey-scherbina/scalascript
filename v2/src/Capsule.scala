@@ -84,7 +84,20 @@ object Capsule:
         List(capsule.frame, Term.Lit(Const.CInt(input)))
       )
     )
-    Runtime.runManaged(Compiler.compile(driver), Array.empty[Value])
+    val result = Runtime.runManaged(Compiler.compile(driver), Array.empty[Value])
+    // Defence in depth for §11.3 (Fx-closed). `SaveRegion.assertFxClosed` refuses an Fx-OPEN region
+    // at reify time, but a capsule can be produced by anything — and this runner holds no machine
+    // and no handlers, so an escaping `Op` has nobody to interpret it. Measured before this guard:
+    // a region performing with no handler resumed to `Op("E.get", 8, <closure>)`, i.e. a LIVE
+    // continuation handed out as a result. Fail closed instead.
+    result match
+      case Value.DataV("Op", fields) =>
+        val label = fields.headOption.map(Show.show).getOrElse("?")
+        sys.error(
+          s"portable-capsule: the resume escaped an unhandled effect $label — a capsule must be " +
+            "Fx-closed (§11.3); this runner holds no machine and no handlers to interpret it"
+        )
+      case other => other
 
   /**
    * Fail-closed admission for the capsule's **frame** — the half that used to escape it

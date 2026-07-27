@@ -133,6 +133,7 @@ object SaveRegion:
    * returned resume is a closed `Lam(2, (frame, input) => body')`.
    */
   def reifyAuto(region: Term): (List[Int], Program) =
+    assertFxClosed(region, Nil) // §11.3 — refuse an Fx-OPEN region before any bytes exist
     region match
       case Term.Lam(1, body) =>
         val liveIndices = freeOuterIndices(body, 0).toList.sorted
@@ -217,9 +218,93 @@ object SaveRegion:
     roots.toList.sorted.foreach(visit)
     defs.filter(d => reached.contains(d.name))
 
+  // ── Slice 4: the Fx-closed obligation (§11.3) ──────────────────────────────
+  // MEASURED 2026-07-27, and it corrects this slice's premise: an Fx-CLOSED effectful region (the
+  // perform and its handler both inside) ALREADY reifies and runs machine-less — 50/50 through
+  // freeze → bytes → fresh process, with the frame slot read from inside the handler lambda. No
+  // local CPS was needed; the pass treats the effect prims as ordinary `Prim`s and the runtime
+  // folds them. What was NOT safe is the OPEN case: a region performing with no handler froze
+  // happily and the run returned a raw `Op("E.get", 8, <closure>)` to a runner that holds no
+  // machine and no handlers — a live continuation handed out as a result. §11.3 requires a
+  // saveable region to be Fx-closed, so that must be refused at REIFY time, before bytes exist.
+
+  /** Does `t` perform an effect itself, or call a global that (transitively) does? */
+  private def mayPerform(t: Term, performing: Set[String]): Boolean = t match
+    case Term.Prim(op, args) =>
+      op == "effect.perform" || op == "effect.perform.oneshot" || args.exists(mayPerform(_, performing))
+    case Term.Global(g)         => performing.contains(g)
+    case Term.Local(_)          => false
+    case Term.Lit(_)            => false
+    case Term.Lam(_, b)         => mayPerform(b, performing)
+    case Term.App(fn, args)     => mayPerform(fn, performing) || args.exists(mayPerform(_, performing))
+    case Term.Let(rhs, b)       => rhs.exists(mayPerform(_, performing)) || mayPerform(b, performing)
+    case Term.LetRec(lams, b)   => lams.exists(mayPerform(_, performing)) || mayPerform(b, performing)
+    case Term.If(c, th, e)      => mayPerform(c, performing) || mayPerform(th, performing) || mayPerform(e, performing)
+    case Term.Ctor(_, fields)   => fields.exists(mayPerform(_, performing))
+    case Term.Match(s, arms, e) => mayPerform(s, performing) || arms.exists(a => mayPerform(a.body, performing)) || e.exists(mayPerform(_, performing))
+    case Term.While(c, b)       => mayPerform(c, performing) || mayPerform(b, performing)
+    case Term.Seq(terms)        => terms.exists(mayPerform(_, performing))
+
+  /** The defs that (transitively) perform — greatest fixpoint by iteration to a stable set. */
+  private def performingDefs(defs: List[Def]): Set[String] =
+    var acc = Set.empty[String]
+    var changed = true
+    while changed do
+      val next = defs.iterator.filter(d => mayPerform(d.body, acc)).map(_.name).toSet
+      changed = next != acc
+      acc = next
+    acc
+
+  /**
+   * Reject a region whose effects are not handled INSIDE it (§11.3 Fx-closed). The rule, walked
+   * over the region body: `effect.handle(computation, handler)` protects `computation` — and only
+   * it; a perform inside the HANDLER is not covered by the handle it belongs to (it would escape
+   * to the handler's own caller) unless it sits under a further handle. A call to a def that
+   * performs counts as a perform at the CALL SITE, so carrying such a def (slice 2) is fine as
+   * long as the call is under a handle.
+   *
+   * Conservative and loud by design: a rejected region is a diagnostic at freeze time, whereas the
+   * alternative is a capsule that resumes to a raw `Op` in a process with nothing to interpret it.
+   */
+  def assertFxClosed(region: Term, programDefs: List[Def]): Unit =
+    val performing = performingDefs(programDefs)
+    def go(t: Term, handled: Boolean): Unit = t match
+      case Term.Prim("effect.handle", List(computation, handler)) =>
+        go(computation, true)   // the handle covers its computation …
+        go(handler, handled)    // … but not its own handler body
+      case Term.Prim(op, _) if !handled && (op == "effect.perform" || op == "effect.perform.oneshot") =>
+        sys.error(
+          s"save-region: the region performs `$op` with no handler inside it — a saveable region " +
+            "must be Fx-closed (§11.3), otherwise the resume hands a live Op to a runner that " +
+            "holds no machine and no handlers"
+        )
+      case Term.App(fn, args) =>
+        if !handled && mayPerform(Term.App(fn, args), performing) then
+          sys.error(
+            "save-region: the region calls a def that performs an effect, with no handler inside " +
+              "the region — a saveable region must be Fx-closed (§11.3)"
+          )
+        go(fn, handled); args.foreach(go(_, handled))
+      case Term.Global(g) if !handled && performing.contains(g) =>
+        sys.error(s"save-region: the region reaches performing def `$g` with no handler inside it (§11.3)")
+      case Term.Prim(_, args)     => args.foreach(go(_, handled))
+      case Term.Local(_)          => ()
+      case Term.Lit(_)            => ()
+      case Term.Global(_)         => ()
+      case Term.Lam(_, b)         => go(b, handled)
+      case Term.Let(rhs, b)       => rhs.foreach(go(_, handled)); go(b, handled)
+      case Term.LetRec(lams, b)   => lams.foreach(go(_, handled)); go(b, handled)
+      case Term.If(c, th, e)      => go(c, handled); go(th, handled); go(e, handled)
+      case Term.Ctor(_, fields)   => fields.foreach(go(_, handled))
+      case Term.Match(s, arms, e) => go(s, handled); arms.foreach(a => go(a.body, handled)); e.foreach(go(_, handled))
+      case Term.While(c, b)       => go(c, handled); go(b, handled)
+      case Term.Seq(terms)        => terms.foreach(go(_, handled))
+    go(region, false)
+
   /** `reifyAuto` carrying the globals the region reaches (slice 2). The 1-arg form keeps the
    *  slice-1 behaviour — no defs, so a region that calls one still fails closed at validate. */
   def reifyAuto(region: Term, programDefs: List[Def]): (List[Int], Program) =
+    assertFxClosed(region, programDefs) // with the defs in hand, a performing CALL is caught too
     val (liveIndices, prog) = reifyAuto(region)
     (liveIndices, Program(closeGlobals(globalsOf(prog.entry), programDefs), prog.entry))
 
@@ -280,3 +365,45 @@ object SaveRegion:
     )
   val demoNominalSlot: Term =
     Term.Ctor("Pair", List(Term.Lit(Const.CInt(3)), Term.Lit(Const.CInt(4))))
+
+  // ── Slice 4 probes: EFFECTFUL regions ──────────────────────────────────────
+  // Effects are ordinary CoreIR prims dispatched to PortableEffects (`Runtime.scala:1231`):
+  // `effect.perform(label, args…)` builds `Op(label, arg, k)`, `effect.handle(computation, handler)`
+  // folds it, and a plain `Lam(1, …)` handler always `Matched` (`Runtime.dispatchHandler1`). The
+  // reification pass treats `Prim` generically, so the question "does a CLOSED effectful region
+  // already reify and run machine-less?" is a MEASUREMENT, not a design question — these two demos
+  // are that measurement.
+
+  // A: Fx CLOSED — the perform and its handler are both inside the region, so nothing escapes.
+  //   (input) => effect.handle(effect.perform("E.get", input), (event) => a * 10)
+  // De Bruijn: in the region body d=0 → input = Local(0), a = Local(1). Inside the handler lambda
+  // d=1 → event = Local(0), input = Local(1), a = Local(2). So the handler reads the frame slot,
+  // which also exercises the depth-aware rewrite through a nested binder.
+  val demoEffectRegion: Term =
+    Term.Lam(
+      1,
+      Term.Prim(
+        "effect.handle",
+        List(
+          Term.Prim("effect.perform", List(Term.Lit(Const.CStr("E.get")), Term.Local(0))),
+          Term.Lam(1, Term.Prim("i.mul", List(Term.Local(2), Term.Lit(Const.CInt(10)))))
+        )
+      )
+    )
+  val demoEffectEnv: List[Const] = List(Const.CInt(5)) // outer 0 = a → the region yields 50
+
+  // B: Fx ESCAPING — a perform with NO handler in the region. §11.3 says a saveable region must be
+  // Fx-closed, so this is the shape that must NOT be silently accepted: today it would resume to a
+  // raw `Op` value handed to a caller that has no handler for it.
+  //   (input) => effect.perform("E.get", input + a)
+  val demoEffectEscapingRegion: Term =
+    Term.Lam(
+      1,
+      Term.Prim(
+        "effect.perform",
+        List(
+          Term.Lit(Const.CStr("E.get")),
+          Term.Prim("i.add", List(Term.Local(0), Term.Local(1)))
+        )
+      )
+    )

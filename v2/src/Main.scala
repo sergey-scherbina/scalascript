@@ -86,6 +86,15 @@ private def dispatch(args: List[String]): Unit = args match
       java.nio.file.Paths.get(file),
       Capsule.encode(frame, resume)
     )
+  case "freeze-region-effect" :: file :: rest => // §10.2 slice 4 probe: Fx-CLOSED effectful region
+    val escaping = rest.contains("--escaping")   //   --escaping: the Fx-OPEN shape (must not pass)
+    val region = if escaping then SaveRegion.demoEffectEscapingRegion else SaveRegion.demoEffectRegion
+    val (liveIndices, resume) = SaveRegion.reifyAuto(region)
+    val frame = SaveRegion.frameOf(liveIndices, SaveRegion.demoEffectEnv)
+    java.nio.file.Files.writeString(
+      java.nio.file.Paths.get(file),
+      Capsule.encode(frame, resume)
+    )
   case "run-capsule" :: file :: rest =>         // admit + run a Portable capsule holding NO machine
     val inputN = rest.headOption
       .flatMap(_.toLongOption)
