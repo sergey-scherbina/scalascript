@@ -456,6 +456,16 @@ most one `in_progress` plus one `queued` run for `refs/heads/main`, and complete
 appearing again. If the queue is still tens deep an hour after this landed, the mechanism above is
 WRONG and this entry must be reopened, not closed.
 
+**Interim observation, ~10 min after landing (recorded because a promise to verify is worthless
+unless the check is actually written down).** `main` runs now read `pending: 1, cancelled: 1,
+queued: 38`. The `pending` + `cancelled` pair is the new group engaging exactly as described — one
+run held pending, a previously pending one superseded. The 38 are the PRE-EXISTING backlog: GitHub
+runs each with the workflow definition from its own commit, so runs created before `2f7052ba3` keep
+the old unbounded behaviour and must drain on their own. **This is not yet the success criterion
+above** — that needs the backlog gone. They were deliberately NOT mass-cancelled: any one of them
+may be the exact-SHA verdict another agent is waiting on, and destroying a sibling's evidence to
+make my own fix look verified is the opposite of the point. Draining them is the CI owner's call.
+
 **Observed on `ci.yml` / `main`, 2026-07-27 ~16:59Z:**
 
 - **6 of the last 14 runs ended `cancelled`** (`b672b0d41`, `bb78a98ea`, `309011c05`, `1ad34d8ec`,
