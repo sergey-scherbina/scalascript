@@ -1,5 +1,36 @@
 # Changelog
 
+## 2026-07-27 — scljet SQL: an `INTEGER PRIMARY KEY` assignment moves the row; `NULL` is a literal
+
+Closes three open engine bugs from `MILESTONES.md` stream 2 ("*our files are wrong for real SQLite*").
+
+**`UPDATE t SET <ipk> = N` now MOVES the row** (`scljet-update-ipk-does-not-move-rowid` +
+`scljet-update-ipk-column-silently-ignored` — one defect from two angles). An IPK column *is* the
+rowid, so the assignment is a relocation, not a field edit. `EditRow` gained `newRowid`;
+`executeUpdate` normalises the rowid into the IPK column **before** the WHERE runs (without which
+the reporter's own `WHERE id = 1` matched nothing, which is what made the statement look like a
+silent success); `applyUpdates` deletes every old rowid before inserting any new one, so a swap
+(`1→2` with `2→1`) can't have its second delete remove what the first insert just placed. Collisions
+and non-integer targets are refused *before* the image is touched. The indexed path applies the same
+target rowid, so the statement can't move a row on an unindexed table and silently not move it on an
+indexed one. Measured A/B: move disabled → `1|1|ann`, fixed → `5|5|ann` (real SQLite: `5|ann|5`).
+
+**An explicit `NULL` literal is accepted in an INSERT VALUES list** (`scljet-insert-null-literal-rejected`).
+`litValue` knew `num`/`str`/`real`/`bound` but not the `NULL` keyword, so `VALUES (…, NULL, …)` failed
+in any position — with a message that named the wrong clause. `parseExprAtom` also lowers a bare
+`NULL` to a literal now: it previously fell through to `SxCol("NULL")` and evaluated to NULL only
+because an unknown column reads as NULL, which would have broken against a column actually named
+`null`. `scljet-address-read` is switched back from its omit-the-column workaround to the literal
+form, expected output unchanged.
+
+New conformance cases: `scljet-insert-null`, `scljet-update-ipk-moves-rowid` (both `[int, js]`).
+
+⚠️ Two apparatus traps hit and recorded in `BUGS.md` so they are not re-paid: `bin/ssc run` reads
+`std/scljet/*` from the **staged** tree (`./install.sh --dev` required before a scljet edit is
+testable at all), and there are **two** staged copies — the launcher prefers
+`bin/lib/standard/native-front/…`, so A/B-patching the other one is a silent no-op that reads as
+"the test can't see this change".
+
 ## 2026-07-27 — post-f4-board-reconcile: the board catches up with two landed milestones
 
 Bookkeeping-only, but load-bearing: the planning files contradicted reality on both of the things

@@ -1649,7 +1649,17 @@ scoped `backends: [int, js]` until the parser fix lands.
 
 ## scljet-update-ipk-column-silently-ignored — `UPDATE t SET <ipk> = …` does nothing, and reports success
 
-**Status:** OPEN (found 2026-07-17 by `scljet-address-write` while probing the write path before
+**Status:** **FIXED 2026-07-27** by opus (`v2-f5b-typed-locals` batch C), together with its sibling
+`scljet-update-ipk-does-not-move-rowid` — they are one defect seen from two angles, so they were
+fixed as one change. See that entry for the implementation and the measured A/B.
+
+The part specific to THIS report was the second half of the root cause: `WHERE id = 1` matched
+nothing, because `executeUpdate` filtered the RAW records while the read path materialises the rowid
+into the IPK column. `executeUpdate` now applies `ipkNormalizeRows` **before** `whereHolds` runs —
+the same rule `finishRows` already follows on the read side, and the reason the reporter's exact
+statement looked like a silent no-op rather than a failed match.
+
+**Historical report:** OPEN (found 2026-07-17 by `scljet-address-write` while probing the write path before
 building on it). **Engine — the `scljet-m3-writes` lane.** Silent wrong behaviour: no error, no
 change, `Right(image)`.
 
@@ -2791,7 +2801,35 @@ completeness gap of the same family as `interp-collection-stdlib-completeness-ga
 
 ## scljet-insert-null-literal-rejected — `INSERT … VALUES (…, NULL, …)` is rejected; `UPDATE … SET x = NULL` works
 
-**Status:** OPEN (found 2026-07-16 by `scljet-address`). **Engine — the `scljet-m3-writes` lane.**
+**Status:** **FIXED 2026-07-27** by opus (`v2-f5b-typed-locals` batch C). The reporter's hypothesis was
+right — INSERT's value list reads literals with `litValue`, which knew `num`/`str`/`real`/`bound` but
+not the `NULL` keyword, while UPDATE's RHS goes through `parseExpr`. Two changes, because the second
+one was the *reason* UPDATE appeared to work:
+
+1. `litValue` accepts `NULL` (an `ident` token whose upper text is NULL — the lexer has no NULL kind,
+   which is why `IS NULL` also matches via `isKw`) and the shared message no longer misnames the
+   clause: `expected a literal in WHERE` → `expected a literal`.
+2. `parseExprAtom` lowers a bare `NULL` to `SxLit(SqlNull)` **before** its generic `ident` branch.
+   Previously `NULL` fell through to `SxCol("NULL")` and evaluated to NULL only because an unknown
+   column reads as NULL — the right answer for the wrong reason, and it would have resolved to a real
+   column named `null` if one existed.
+
+Verified in the real harness (`bin/ssc run`, after `./install.sh --dev` — see the gotcha below): new
+conformance case `tests/conformance/scljet-insert-null.ssc` **PASS [INT] [JS]**, covering NULL in
+every position, both spellings, and the UPDATE form; full `scljet-*` sweep **103/104**, the one
+failure (`scljet-sql-update-expr`) being a load flake that is byte-identical to its golden standalone
+and PASSes on an in-harness re-run. `tests/conformance/scljet-address-read.ssc` has been switched
+back from the omit-the-column workaround to the literal `VALUES (…, NULL)` form the reporter asked
+for, with its expected output unchanged — which is itself the equivalence check.
+
+⚠️ **Gotcha for the next agent (cost one full test cycle):** `bin/ssc run` resolves `std/scljet/*`
+from the **staged** `bin/lib/standard/native-front/runtime/std/`, not from the source tree, so a
+`scljet/*.ssc` edit is invisible until `./install.sh --dev` re-stages it. There are **two** staged
+copies (`bin/lib/native-front/…` and `bin/lib/standard/native-front/…`) and the launcher prefers
+`standard/` — patching the other one to A/B a change is a silent no-op that reads as "the test cannot
+see this", which is exactly the wrong conclusion.
+
+**Historical report:** OPEN (found 2026-07-16 by `scljet-address`). **Engine — the `scljet-m3-writes` lane.**
 Found on `origin/main` `1832b5b22`.
 
 **Symptom/reproduce** — a `NULL` literal in an INSERT's VALUES list fails in **any** position, and
@@ -4869,7 +4907,40 @@ reference driver", which pins the parts that DO hold. Related engine gaps found 
 
 ## scljet-update-ipk-does-not-move-rowid — `UPDATE t SET <ipk>=N` rewrites the column but leaves the rowid
 
-**Status:** OPEN (found 2026-07-16 by the `scljet-ipk-rowid` lane, while verifying that the read
+**Status:** **FIXED 2026-07-27** by opus (`v2-f5b-typed-locals` batch C). An `INTEGER PRIMARY KEY`
+assignment now MOVES the row, as the reporter's "fix sketch" prescribed. Implementation
+(`scljet/sql.ssc`):
+
+- `EditRow` carries `newRowid` alongside `rowid`; `targetRowidOf` reads the assigned IPK value.
+- `executeUpdate` `ipkNormalizeRows` **before** the WHERE (that half is the sibling entry
+  `scljet-update-ipk-column-silently-ignored`), and passes `tableIpkIndex` down.
+- `applyUpdates` deletes **every** old rowid before inserting **any** new one. Per-row
+  delete-then-insert corrupts a swap (`1→2` together with `2→1`): the second delete would remove the
+  row the first insert just placed.
+- Collisions are refused **before** anything is written, so a rejected UPDATE leaves the image
+  untouched — two moved rows landing on one rowid, or a move onto a row that is not itself moving:
+  `UNIQUE constraint failed: rowid N already exists`. A non-integer target is refused
+  (`datatype mismatch: INTEGER PRIMARY KEY must be assigned an integer`) rather than coerced.
+- The indexed path (`updatedSqlRows` → `reindexTable`) applies the same target rowid, so the
+  statement cannot move the row on an unindexed table and silently not move it on an indexed one.
+
+**Measured A/B** (the case would otherwise have proved nothing — see the note below): with the move
+disabled in the staged tree, `UPDATE emp SET id = 5 WHERE id = 1` gives
+`SELECT rowid, id, name` → `1|1|ann`; with the fix → `5|5|ann`, matching real SQLite's `5|ann|5`.
+New conformance case `tests/conformance/scljet-update-ipk-moves-rowid.ssc` covers both statement
+forms, the non-IPK update, the collision, and the non-integer target.
+
+⚠️ The case originally projected `id` alone and I read an A/B as "the test is blind to the move" —
+**wrong on two counts**: the patch had gone into the unused staged copy (`bin/lib/native-front/…`
+instead of the `standard/…` one the launcher prefers), and `id` does follow the rowid on read. The
+case now selects `rowid` explicitly so the two cannot be confused.
+
+**Semantics NOT changed here (deliberate, and still divergent from SQLite):** scljet stores the IPK
+value in the record; real SQLite stores NULL there and lets the rowid carry it. The whole corpus
+(and `physicalBytes` in the address cases) is built on the current convention, so switching it is a
+separate, file-format-level change.
+
+**Historical report:** OPEN (found 2026-07-16 by the `scljet-ipk-rowid` lane, while verifying that the read
 substitution `14f4da4ac` does not regress `UPDATE`). **Pre-existing write-path gap — NOT a
 regression from that fix.** Low severity relative to the read bug: it needs an explicit `UPDATE` of
 an IPK column, which is rare.
