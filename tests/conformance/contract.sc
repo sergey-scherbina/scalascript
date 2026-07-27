@@ -16,26 +16,29 @@
 //   PASS / DIVERGE / FAIL / TIMEOUT.
 //
 // The current (case,lane)→status matrix is compared against a FROZEN BASELINE
-// (corpus-baseline.tsv). The gate is RED on:
-//   • a REGRESSION   — a (case,lane) that was PASS in the baseline is now non-PASS
+// (`corpus-baseline.tsv`) and the case universe frozen with it
+// (`contract-roster.tsv`). The gate is RED on:
+//   • a NEW CASE     — a case absent from the frozen roster (PASS or non-PASS)
+//   • a REGRESSION   — a rostered case has a non-PASS row absent from the baseline
 //   • an IMPROVEMENT — a (case,lane) that was non-PASS is now PASS (tighten the
 //                      baseline: it means a gap closed and should be recorded)
 //   • a CHANGE       — a known non-PASS changed kind (DIVERGE→FAIL etc.)
-// It is GREEN when the live matrix == the baseline (known feature-gaps stay
-// documented and don't red the gate).
+// It is GREEN when the live matrix and case universe equal the same frozen
+// observation (known feature-gaps stay documented and don't red the gate).
 //
 // This is the strangler-fig safety net: refactor the runtime / grow v2 and the
 // contract instantly shows any lane that regressed; as v2 catches up to INT the
 // baseline shrinks toward zero.
 //
 // Usage:
-//   scala-cli tests/conformance/contract.sc                 # gate against baseline
-//   scala-cli tests/conformance/contract.sc --update-baseline
-//   scala-cli tests/conformance/contract.sc --only 'hello,lang-*'
-//   scala-cli tests/conformance/contract.sc --lanes int,js,v2   (default; add jvm)
-//   scala-cli tests/conformance/contract.sc --timeout 30
-//   scala-cli tests/conformance/contract.sc --shard 0/4         # CI matrix slice
-//   scala-cli tests/conformance/contract.sc --shard 0/4 --list  # names only, runs nothing
+//   scala-cli tests/conformance/contract.sc                          # gate against baseline
+//   scala-cli tests/conformance/contract.sc -- --update-baseline
+//   scala-cli tests/conformance/contract.sc -- --only 'hello,lang-*'
+//   scala-cli tests/conformance/contract.sc -- --lanes int,js,v2    # default; add jvm
+//   scala-cli tests/conformance/contract.sc -- --timeout 30
+//   scala-cli tests/conformance/contract.sc -- --shard 0/4          # CI matrix slice
+//   scala-cli tests/conformance/contract.sc -- --shard 0/4 --list   # names only, runs nothing
+//   scala-cli tests/conformance/contract.sc -- --self-test           # classifier only, no build
 // ─────────────────────────────────────────────────────────────────────────────
 
 def repoRoot: os.Path =
@@ -48,22 +51,71 @@ val root         = repoRoot
 val sscBin       = root / "bin" / "ssc"
 val sscToolsBin  = root / "bin" / "ssc-tools"
 val baselineFile = root / "tests" / "conformance" / "corpus-baseline.tsv"
+val rosterFile   = root / "tests" / "conformance" / "contract-roster.tsv"
 
-val cliArgs = args.toList
+// scala-cli forwards the shebang's `--server=false` into script `args`; it is
+// runner configuration, not a Corpus Contract option.
+val cliArgs = args.toList.filterNot(_ == "--server=false")
 
-// `--list` only enumerates the selected case names (see below) — it runs no lane, so it
-// must not require a built toolchain.
-if !cliArgs.contains("--list") && (!os.exists(sscBin) || !os.exists(sscToolsBin)) then
-  System.err.println("bin/ssc or bin/ssc-tools not found — build first: bash install.sh --dev")
+def cliFail(message: String): Nothing =
+  System.err.println(s"[error] corpus contract CLI: $message")
   System.exit(2)
+  throw new IllegalStateException("unreachable")
+
+val valueFlags = Set("--only", "--lanes", "--timeout", "--lane-timeout", "--shard", "--workers")
+val switchFlags = Set("--update-baseline", "--list", "--self-test")
+
+// Fail closed on unknown, duplicate, or valueless options. In particular, a
+// trailing `--only` must not disappear into the default full selection while
+// `--update-baseline` is preparing to replace the whole freeze.
+def validateCli(args: List[String]): Unit =
+  val seen = collection.mutable.Set.empty[String]
+  var i = 0
+  while i < args.length do
+    val arg = args(i)
+    if seen.contains(arg) then cliFail(s"duplicate option: $arg")
+    if valueFlags.contains(arg) then
+      if i + 1 >= args.length || args(i + 1).startsWith("--") then
+        cliFail(s"$arg requires a value")
+      seen += arg
+      i += 2
+    else if switchFlags.contains(arg) then
+      seen += arg
+      i += 1
+    else cliFail(s"unknown argument: $arg")
+
+validateCli(cliArgs)
 
 def flagVal(name: String): Option[String] =
   cliArgs.sliding(2).collectFirst { case List(`name`, v) => v }
+
+def commaValues(name: String): List[String] =
+  val values = flagVal(name).toList.flatMap(_.split(",", -1)).map(_.trim)
+  if values.exists(_.isEmpty) then cliFail(s"$name contains an empty comma-separated value")
+  values
+
+def positiveInt(name: String, default: => Int): Int =
+  flagVal(name) match
+    case None => default
+    case Some(raw) =>
+      raw.toIntOption.filter(_ > 0).getOrElse(cliFail(s"$name expects a positive integer, got: '$raw'"))
+
 val updateBaseline = cliArgs.contains("--update-baseline")
-val onlyGlobs      = flagVal("--only").toList.flatMap(_.split(',')).map(_.trim).filter(_.nonEmpty)
-val lanes          = flagVal("--lanes").map(_.split(',').map(_.trim).filter(_.nonEmpty).toList)
-                       .getOrElse(List("int", "js", "v2"))
-val timeoutS       = flagVal("--timeout").map(_.toInt).getOrElse(30)
+val onlyRequested  = cliArgs.contains("--only")
+val onlyGlobs      = commaValues("--only")
+if onlyRequested && onlyGlobs.isEmpty then cliFail("--only requires at least one non-empty glob")
+
+val canonicalLanes = List("int", "js", "v2")
+val allowedLanes   = Set("int", "js", "jvm", "v2")
+val lanesRequested = cliArgs.contains("--lanes")
+val lanes          = if lanesRequested then commaValues("--lanes") else canonicalLanes
+if lanes.isEmpty then cliFail("--lanes requires at least one lane")
+val unknownLanes = lanes.filterNot(allowedLanes)
+if unknownLanes.nonEmpty then cliFail(s"unknown lane(s): ${unknownLanes.distinct.mkString(",")}")
+val duplicateLanes = lanes.groupBy(identity).collect { case (lane, xs) if xs.size > 1 => lane }.toList.sorted
+if duplicateLanes.nonEmpty then cliFail(s"duplicate lane(s): ${duplicateLanes.mkString(",")}")
+
+val timeoutS       = positiveInt("--timeout", 30)
 
 // TWO budgets, deliberately different (measured 2026-07-27):
 //   `--timeout`      bounds the INT probe that establishes the golden. It also decides which
@@ -80,7 +132,8 @@ val timeoutS       = flagVal("--timeout").map(_.toInt).getOrElse(30)
 // This separation is NOT a way to hide the slowdown: the F compile cost is filed in BUGS.md
 // (`f-front-compile-cost-7x-on-scljet`) and belongs to a perf gate. A correctness gate that
 // reports perf as TIMEOUT noise trains people to ignore it — which is how this one died.
-val laneTimeoutS   = flagVal("--lane-timeout").map(_.toInt).getOrElse(math.max(90, timeoutS))
+val laneTimeoutS   = positiveInt("--lane-timeout", math.max(90, timeoutS))
+val workersOverride = flagVal("--workers").map(_ => positiveInt("--workers", 1))
 
 // `--shard i/N` — run only the cases whose index in the sorted, deduped case list is
 // ≡ i (mod N). ROUND-ROBIN, not contiguous blocks: the corpus is name-sorted and the
@@ -90,20 +143,366 @@ val laneTimeoutS   = flagVal("--lane-timeout").map(_.toInt).getOrElse(math.max(9
 val shard: Option[(Int, Int)] = flagVal("--shard").map { s =>
   s.split('/').toList.map(_.trim.toIntOption) match
     case List(Some(i), Some(n)) if n > 0 && i >= 0 && i < n => (i, n)
-    case _ => sys.error(s"--shard expects i/N with 0 <= i < N (e.g. 0/4), got: $s")
+    case _ => cliFail(s"--shard expects i/N with 0 <= i < N (e.g. 0/4), got: '$s'")
 }
 
-// `--update-baseline` rewrites the WHOLE baseline file from the cases it just ran, so
-// doing it under a shard would silently truncate the baseline to 1/N of itself.
-if updateBaseline && shard.isDefined then
+/** Every partial observation that would make a full baseline rewrite destructive. */
+def unsafeBaselineUpdateScopes(
+    onlyRequested: Boolean,
+    only: List[String],
+    shardRequested: Boolean,
+    shard: Option[(Int, Int)],
+    lanesRequested: Boolean,
+    lanes: List[String],
+    listOnly: Boolean,
+    selfTest: Boolean
+): List[String] =
+  List(
+    Option.when(onlyRequested)(s"--only ${only.mkString(",")}"),
+    Option.when(shardRequested)(shard.map((i, n) => s"--shard $i/$n").getOrElse("--shard")),
+    Option.when(lanesRequested && lanes != canonicalLanes)(
+      s"--lanes ${lanes.mkString(",")} (canonical: ${canonicalLanes.mkString(",")})"),
+    Option.when(listOnly)("--list"),
+    Option.when(selfTest)("--self-test")
+  ).flatten
+
+// `--update-baseline` rewrites the WHOLE non-PASS matrix AND roster. Any scoped
+// run would silently erase observations it did not make, so refuse before
+// checking the toolchain or touching either file.
+val unsafeUpdate = unsafeBaselineUpdateScopes(
+  onlyRequested,
+  onlyGlobs,
+  cliArgs.contains("--shard"),
+  shard,
+  lanesRequested,
+  lanes,
+  cliArgs.contains("--list"),
+  cliArgs.contains("--self-test")
+)
+if updateBaseline && unsafeUpdate.nonEmpty then
   System.err.println(
-    "--update-baseline rewrites the entire baseline from the cases it ran; under --shard " +
-      "that would truncate it to 1/N. Re-run the update unsharded (full corpus).")
+    "--update-baseline requires the full unsharded corpus on canonical lanes int,js,v2; " +
+      s"unsafe partial scope: ${unsafeUpdate.mkString("; ")}. No baseline files were written.")
   System.exit(2)
 
 def globMatch(glob: String, name: String): Boolean =
   ("^" + java.util.regex.Pattern.quote(glob).replace("*", "\\E.*\\Q").replace("?", "\\E.\\Q") + "$").r
     .findFirstIn(name).isDefined
+
+case class FrozenContract(baseline: Set[String], roster: Set[String])
+case class ContractDelta(
+    scopedBaseline: Set[String],
+    newCases: List[String],
+    newNonPass: List[String],
+    regressions: List[String],
+    statusChanges: List[String],
+    improvements: List[String],
+    removedCases: List[String]
+)
+
+val RosterHeader =
+  """# corpus-contract-roster-v1\tbaseline-sha256=([0-9a-f]{64})\troster-sha256=([0-9a-f]{64})""".r
+val Utf8 = java.nio.charset.StandardCharsets.UTF_8
+val NonPassStatuses = Set("DIVERGE", "FAIL", "TIMEOUT", "KNOWN-RED", "SKIP")
+
+def sha256(bytes: Array[Byte]): String =
+  java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
+    .map(b => f"${b & 0xff}%02x").mkString
+
+def canonicalText(lines: List[String]): String =
+  lines.mkString("\n") + (if lines.nonEmpty then "\n" else "")
+
+def canonicalBytes(lines: List[String]): Array[Byte] = canonicalText(lines).getBytes(Utf8)
+
+def entryParts(entry: String): (String, String, String) =
+  entry.split("\t", -1).toList match
+    case List(name, lane, status) => (name, lane, status)
+    case _ => throw new IllegalArgumentException(s"invalid contract entry: '$entry'")
+
+def entryCase(entry: String): String = entryParts(entry)._1
+def entryKey(entry: String): (String, String) =
+  val (name, lane, _) = entryParts(entry)
+  name -> lane
+
+def rowsByKey(rows: Set[String]): Map[(String, String), String] =
+  rows.iterator.map { entry =>
+    val (name, lane, status) = entryParts(entry)
+    (name -> lane) -> status
+  }.toMap
+
+def parseBaselineLines(lines: List[String]): Either[String, Set[String]] =
+  if lines.exists(_.trim.isEmpty) then Left("blank/whitespace baseline row")
+  else if lines != lines.sorted then Left("baseline rows are not sorted")
+  else if lines.distinct.size != lines.size then Left("baseline contains duplicate rows")
+  else
+    val malformed = lines.find { line =>
+      line.split("\t", -1).toList match
+        case List(name, lane, status) =>
+          name.isEmpty || name != name.trim || lane.isEmpty || lane != lane.trim ||
+            status != status.trim || (!allowedLanes.contains(lane) && lane != "*") ||
+            !NonPassStatuses.contains(status) ||
+            (lane == "*") != (status == "SKIP")
+        case _ => true
+    }
+    malformed match
+      case Some(line) =>
+        Left(s"malformed baseline row: '$line' (expected case<TAB>lane<TAB>non-PASS-status)")
+      case None =>
+        val keys = lines.map(entryKey)
+        val duplicateKeys =
+          keys.groupBy(identity).collect { case (key, xs) if xs.size > 1 => key }.toList.sortBy(identity)
+        if duplicateKeys.nonEmpty then
+          Left("baseline contains multiple statuses for cell(s): " +
+            duplicateKeys.map((name, lane) => s"$name/$lane").mkString(", "))
+        else Right(lines.toSet)
+
+def parseRosterLines(
+    lines: List[String],
+    baselineCanonicalBytes: Array[Byte],
+    baseline: Set[String]
+): Either[String, Set[String]] =
+  lines match
+    case Nil => Left("roster is empty (missing version/hash header)")
+    case header :: names =>
+      header match
+        case RosterHeader(recordedBaselineHash, recordedRosterHash) =>
+          val actualBaselineHash = sha256(baselineCanonicalBytes)
+          val actualRosterHash = sha256(canonicalBytes(names))
+          if recordedBaselineHash != actualBaselineHash then
+            Left(s"roster/baseline digest mismatch: roster=$recordedBaselineHash " +
+              s"baseline=$actualBaselineHash")
+          else if recordedRosterHash != actualRosterHash then
+            Left(s"roster body digest mismatch: header=$recordedRosterHash body=$actualRosterHash")
+          else if names.isEmpty then Left("roster has no case names")
+          else if names.exists(n => n.isEmpty || n != n.trim || n.contains('\t') || n.startsWith("#")) then
+            Left("roster names must be non-empty, unindented, one-column values")
+          else if names != names.sorted then Left("roster names are not sorted")
+          else if names.distinct.size != names.size then Left("roster contains duplicate case names")
+          else
+            val roster = names.toSet
+            val missing = baseline.map(entryCase).diff(roster).toList.sorted
+            if missing.nonEmpty then
+              Left(s"baseline names absent from roster: ${missing.mkString(", ")}")
+            else Right(roster)
+        case _ =>
+          Left("unsupported/malformed roster header; expected " +
+            "'# corpus-contract-roster-v1<TAB>baseline-sha256=<64 lowercase hex>" +
+            "<TAB>roster-sha256=<64 lowercase hex>'")
+
+def loadFrozenContract(): FrozenContract =
+  def fail(message: String): Nothing =
+    System.err.println(s"[error] corpus contract freeze invalid: $message")
+    System.exit(2)
+    throw new IllegalStateException("unreachable")
+
+  if !os.exists(baselineFile) then fail(s"missing ${baselineFile.relativeTo(root)}")
+  if !os.exists(rosterFile) then fail(s"missing ${rosterFile.relativeTo(root)}")
+  val baselineText = new String(os.read.bytes(baselineFile), Utf8)
+  val baselineLines = baselineText.linesIterator.toList
+  val baseline = parseBaselineLines(baselineLines) match
+    case Right(value) => value
+    case Left(error)  => fail(error)
+  val rosterText = new String(os.read.bytes(rosterFile), Utf8)
+  val roster = parseRosterLines(rosterText.linesIterator.toList, canonicalBytes(baselineLines), baseline) match
+    case Right(value) => value
+    case Left(error)  => fail(error)
+  FrozenContract(baseline, roster)
+
+def contractDelta(
+    current: Set[String],
+    baseline: Set[String],
+    roster: Set[String],
+    ranNames: Set[String],
+    observedLaneKeys: Set[(String, String)],
+    fullSelectedNames: Option[Set[String]]
+): ContractDelta =
+  val currentByKey = rowsByKey(current)
+  val currentCases = current.map(entryCase)
+  val observedKeys = observedLaneKeys ++ ranNames.map(name => name -> "*")
+  val scopedBaseline = baseline.filter(entry => observedKeys.contains(entryKey(entry)))
+  val scopedByKey = rowsByKey(scopedBaseline)
+  val newCases = (ranNames -- roster).toList.sorted
+  val newCaseSet = newCases.toSet
+  val regressions = current.filter { entry =>
+    roster.contains(entryCase(entry)) && !scopedByKey.contains(entryKey(entry))
+  }.toList.sorted
+  val statusChanges = current.flatMap { entry =>
+    val key = entryKey(entry)
+    scopedByKey.get(key).filter(_ != currentByKey(key)).map { oldStatus =>
+      val (name, lane) = key
+      s"$name\t$lane\t$oldStatus → ${currentByKey(key)}"
+    }
+  }.toList.sorted
+  ContractDelta(
+    scopedBaseline = scopedBaseline,
+    newCases = newCases,
+    newNonPass = current.filter(e => newCaseSet.contains(entryCase(e))).toList.sorted,
+    regressions = regressions,
+    statusChanges = statusChanges,
+    improvements = scopedBaseline.filter { entry =>
+      val (name, lane, status) = entryParts(entry)
+      if lane == "*" then
+        status == "SKIP" && observedLaneKeys.exists(_._1 == name) && !currentCases.contains(name)
+      else !currentByKey.contains(name -> lane)
+    }.toList.sorted,
+    removedCases = fullSelectedNames.map(roster.diff).getOrElse(Set.empty).toList.sorted
+  )
+
+def renderRoster(baselineCanonicalBytes: Array[Byte], names: List[String]): String =
+  val body = canonicalText(names)
+  s"# corpus-contract-roster-v1\tbaseline-sha256=${sha256(baselineCanonicalBytes)}" +
+    s"\troster-sha256=${sha256(body.getBytes(Utf8))}\n$body"
+
+def runSelfTest(): Unit =
+  var checks = 0
+  def check(condition: Boolean, clue: String): Unit =
+    checks += 1
+    if !condition then throw new AssertionError(s"contract self-test failed: $clue")
+
+  val baselineLines = List("gap\tjs\tFAIL")
+  val baselineBytes = canonicalBytes(baselineLines)
+  val baseline = parseBaselineLines(baselineLines).toOption.get
+  val rosterLines = renderRoster(baselineBytes, List("gap", "stable")).linesIterator.toList
+  val roster = parseRosterLines(rosterLines, baselineBytes, baseline).toOption.get
+  check(roster == Set("gap", "stable"), "valid paired roster parses")
+  val crlfBaselineLines = new String("gap\tjs\tFAIL\r\n".getBytes(Utf8), Utf8).linesIterator.toList
+  val crlfRosterLines =
+    renderRoster(baselineBytes, List("gap", "stable")).replace("\n", "\r\n").linesIterator.toList
+  check(canonicalBytes(crlfBaselineLines).sameElements(baselineBytes) &&
+    parseRosterLines(crlfRosterLines, canonicalBytes(crlfBaselineLines), baseline).isRight,
+    "canonical hashes are checkout-EOL independent")
+  check(
+    parseRosterLines(rosterLines, canonicalBytes(List("gap\tjs\tTIMEOUT")), baseline).isLeft,
+    "baseline digest mismatch is rejected")
+  check(
+    parseRosterLines(rosterLines.updated(2, "stable-renamed"), baselineBytes, baseline).isLeft,
+    "roster body mutation is rejected")
+  check(
+    parseRosterLines(
+      renderRoster(baselineBytes, List("stable", "gap")).linesIterator.toList,
+      baselineBytes,
+      baseline).left.exists(_.contains("not sorted")),
+    "unsorted roster names are rejected")
+  check(
+    parseRosterLines(
+      renderRoster(baselineBytes, List("gap", "gap", "stable")).linesIterator.toList,
+      baselineBytes,
+      baseline).left.exists(_.contains("duplicate")),
+    "duplicate roster names are rejected")
+  check(
+    parseRosterLines(
+      renderRoster(baselineBytes, List("stable")).linesIterator.toList,
+      baselineBytes,
+      baseline).left.exists(_.contains("absent")),
+    "baseline name omitted from roster is rejected")
+  check(
+    parseBaselineLines(List("same\tjs\tFAIL", "same\tjs\tTIMEOUT")).left
+      .exists(_.contains("multiple statuses")),
+    "multiple baseline statuses for one cell are rejected")
+  check(
+    parseBaselineLines(List("bad\tbogus\tFAIL")).isLeft &&
+      parseBaselineLines(List("bad\t js\tFAIL")).isLeft,
+    "unknown or untrimmed baseline lanes are rejected")
+
+  val current = Set("new-red\tint\tFAIL", "stable\tjs\tFAIL")
+  val ran = Set("gap", "new-pass", "new-red", "stable")
+  val observed = Set("gap" -> "js", "new-pass" -> "int", "new-red" -> "int", "stable" -> "js")
+  val delta = contractDelta(current, baseline, roster, ran, observed, Some(ran))
+  check(delta.newCases == List("new-pass", "new-red"), "new PASS and non-PASS cases stay visible")
+  check(delta.newNonPass == List("new-red\tint\tFAIL"), "new red is NEW only")
+  check(delta.regressions == List("stable\tjs\tFAIL"), "rostered new red is a regression")
+  check(delta.statusChanges.isEmpty, "new red is not a status change")
+  check(delta.improvements == List("gap\tjs\tFAIL"), "observed pass remains an improvement")
+  check(delta.removedCases.isEmpty, "full current roster has no removals")
+  val removed = contractDelta(Set.empty, baseline, roster, Set("stable"), Set("stable" -> "js"),
+    Some(Set("stable")))
+  check(removed.removedCases == List("gap"), "unfiltered shard reports a removed roster case")
+  val subset = contractDelta(Set.empty, baseline, roster, Set("stable"), Set("stable" -> "js"), None)
+  check(subset.removedCases.isEmpty, "--only subset never infers global removals")
+
+  val changedBaseline = Set("changed\tjs\tFAIL")
+  val changed = contractDelta(
+    Set("changed\tjs\tDIVERGE"),
+    changedBaseline,
+    Set("changed"),
+    Set("changed"),
+    Set("changed" -> "js"),
+    None)
+  check(changed.statusChanges == List("changed\tjs\tFAIL → DIVERGE"), "status transition is CHANGE")
+  check(changed.regressions.isEmpty && changed.improvements.isEmpty,
+    "status transition is neither regression nor improvement")
+
+  val knownRedChanged = contractDelta(
+    Set("declared\tjs\tFAIL"),
+    Set("declared\tjs\tKNOWN-RED"),
+    Set("declared"),
+    Set("declared"),
+    Set("declared" -> "js"),
+    None)
+  check(knownRedChanged.statusChanges == List("declared\tjs\tKNOWN-RED → FAIL"),
+    "KNOWN-RED transition stays a status change")
+  check(knownRedChanged.improvements.isEmpty, "KNOWN-RED transition does not claim PASS")
+
+  val unobserved = contractDelta(
+    Set.empty,
+    Set("hidden\tjs\tFAIL"),
+    Set("hidden"),
+    Set("hidden"),
+    Set("hidden" -> "int"),
+    None)
+  check(unobserved.improvements.isEmpty, "backend-excluded lane is not an improvement")
+
+  val skipBaseline = Set("formerly-skipped\t*\tSKIP")
+  val skipNowFailing = contractDelta(
+    Set("formerly-skipped\tjs\tFAIL"),
+    skipBaseline,
+    Set("formerly-skipped"),
+    Set("formerly-skipped"),
+    Set("formerly-skipped" -> "js"),
+    None)
+  check(skipNowFailing.regressions == List("formerly-skipped\tjs\tFAIL") &&
+    skipNowFailing.improvements.isEmpty,
+    "SKIP to runnable-but-failing does not claim PASS")
+  val skipNowPassing = contractDelta(
+    Set.empty,
+    skipBaseline,
+    Set("formerly-skipped"),
+    Set("formerly-skipped"),
+    Set("formerly-skipped" -> "js"),
+    None)
+  check(skipNowPassing.improvements == List("formerly-skipped\t*\tSKIP"),
+    "SKIP to observed all-PASS is an improvement")
+  val skipNoEligibleCells = contractDelta(
+    Set.empty,
+    skipBaseline,
+    Set("formerly-skipped"),
+    Set("formerly-skipped"),
+    Set.empty,
+    None)
+  check(skipNoEligibleCells.improvements.isEmpty,
+    "SKIP to zero eligible cells does not claim PASS")
+
+  check(
+    unsafeBaselineUpdateScopes(true, List("hello"), false, None, false, canonicalLanes, false, false)
+      .exists(_.startsWith("--only")),
+    "--only update is rejected")
+  check(
+    unsafeBaselineUpdateScopes(false, Nil, true, Some(0 -> 4), false, canonicalLanes, false, false)
+      .exists(_.startsWith("--shard")),
+    "--shard update is rejected")
+  check(
+    unsafeBaselineUpdateScopes(false, Nil, false, None, true, List("v2"), false, false)
+      .exists(_.startsWith("--lanes")),
+    "partial-lane update is rejected")
+  check(
+    unsafeBaselineUpdateScopes(false, Nil, false, None, true, canonicalLanes, false, false).isEmpty,
+    "explicit canonical full update remains admitted")
+
+  println(s"contract self-test: PASS ($checks checks)")
+
+if cliArgs.contains("--self-test") then
+  runSelfTest()
+  System.exit(0)
 
 // A corpus case: source file, base name, optional expected-output file.
 case class Case(file: os.Path, name: String, expected: Option[String], corpus: String)
@@ -147,6 +546,22 @@ val cases = shard match
 if cliArgs.contains("--list") then
   cases.foreach(c => println(c.name))
   System.exit(0)
+
+if cases.isEmpty then
+  val scope =
+    if onlyGlobs.nonEmpty then s" for --only ${onlyGlobs.mkString(",")}"
+    else shard.map((i, n) => s" in --shard $i/$n").getOrElse("")
+  cliFail(s"selected zero cases$scope; refusing a zero-evidence gate")
+
+if !os.exists(sscBin) || !os.exists(sscToolsBin) then
+  cliFail("bin/ssc or bin/ssc-tools not found — build first: bash install.sh --dev")
+
+// Validate the two halves of the frozen observation BEFORE any lane runs. A
+// missing/mismatched roster must fail in seconds, not after a 20-minute shard.
+// A full update is the recovery/writer path, so it validates the newly built
+// pair after serialization instead of requiring the old pair to be healthy.
+val frozenContract: Option[FrozenContract] =
+  if updateBaseline then None else Some(loadFrozenContract())
 
 /** The case's YAML front-matter lines (between the first two `---`), or Nil. */
 def frontmatter(src: String): List[String] =
@@ -289,7 +704,7 @@ println(s"Corpus contract: ${cases.length} cases$shardLabel × lanes [${lanes.mk
 // (a hung case only ties up its own worker until its per-run timeout fires). Capped
 // at 4 (with the 30s default timeout) so heavy JVM contention doesn't push a slow
 // case past the timeout and flap the gate — a flaky contract is worse than a slow one.
-val workers = flagVal("--workers").map(_.toInt)
+val workers = workersOverride
   .getOrElse(math.min(4, math.max(2, Runtime.getRuntime.availableProcessors - 2)))
 val pool    = java.util.concurrent.Executors.newFixedThreadPool(workers)
 val counter = java.util.concurrent.atomic.AtomicInteger(0)
@@ -321,49 +736,85 @@ for (name, reason) <- skips do
   current += s"$name\t*\tSKIP"
   System.err.println(s"  SKIP $name ($reason)")
 
+val passCount = statuses.values.map(_.values.count(_ == "PASS")).sum
+val cellCount = statuses.values.map(_.size).sum
+if cellCount == 0 && skips.isEmpty then
+  cliFail(s"${cases.size} case(s) selected but no lane or SKIP cell was observed; " +
+    "refusing a zero-evidence gate")
+
 if updateBaseline then
-  os.write.over(baselineFile, current.mkString("\n") + (if current.nonEmpty then "\n" else ""))
-  println(s"\nWrote baseline: ${current.size} non-PASS entries → ${baselineFile.relativeTo(root)}")
+  val baselineLines = current.toList
+  val baselineText = canonicalText(baselineLines)
+  val baselineBytes = canonicalBytes(baselineLines)
+  val rosterNames = selected.map(_.name)
+  val rosterText = renderRoster(baselineBytes, rosterNames)
+
+  // Validate the canonical content in memory before replacing either half. The
+  // dual digests make an interrupted two-file write fail closed on the next gate.
+  val checkedBaseline = parseBaselineLines(baselineLines)
+    .fold(e => throw new IllegalStateException(s"refusing to write invalid baseline: $e"), identity)
+  parseRosterLines(rosterText.linesIterator.toList, baselineBytes, checkedBaseline)
+    .fold(e => throw new IllegalStateException(s"refusing to write invalid roster: $e"), identity)
+
+  os.write.over(baselineFile, baselineText)
+  os.write.over(rosterFile, rosterText)
+  println(s"\nWrote paired freeze: ${current.size} non-PASS entries → ${baselineFile.relativeTo(root)}")
+  println(s"                     ${rosterNames.size} case names → ${rosterFile.relativeTo(root)}")
   System.exit(0)
 
 // ── gate against the frozen baseline ─────────────────────────────────────────
-val baseline: Set[String] =
-  if os.exists(baselineFile) then os.read.lines(baselineFile).filter(_.trim.nonEmpty).toSet else Set.empty
+val frozen = frozenContract.getOrElse(
+  throw new IllegalStateException("frozen contract missing outside --update-baseline"))
+val baseline = frozen.baseline
+val roster   = frozen.roster
 
-// Only compare within the lanes/cases we actually ran (subset-safe).
-val ranNames = statuses.keySet ++ skips.keySet
-def inScope(entry: String): Boolean =
-  val parts = entry.split('\t')
-  parts.length >= 2 && ranNames.contains(parts(0)) &&
-    (parts(1) == "*" || lanes.contains(parts(1)))
-val baseScoped = baseline.filter(inScope)
+// Only compare cells that actually ran after each case's `backends:` filter.
+// The classifier scopes wildcard SKIP rows separately: an old case-level SKIP
+// improves only when the case now has eligible cells and every one passes.
+val ranNames = (statuses.keySet ++ skips.keySet).toSet
+val observedLaneKeys =
+  statuses.iterator.flatMap { case (name, row) => row.keysIterator.map(lane => name -> lane) }.toSet
 
-val newRegressions = (current -- baseScoped).toList.sorted   // now non-PASS, wasn't in baseline
-val improvements   = (baseScoped -- current).toList.sorted   // was in baseline, now PASS/gone
+val fullSelectedNames =
+  Option.when(onlyGlobs.isEmpty)(selected.map(_.name).toSet)
+val delta = contractDelta(current.toSet, baseline, roster, ranNames, observedLaneKeys, fullSelectedNames)
 
 val sep = "─" * 64
 println(s"\n$sep")
-val passCount = statuses.values.map(_.values.count(_ == "PASS")).sum
-val cellCount = statuses.values.map(_.size).sum
-println(s"  PASS cells: $passCount/$cellCount   SKIP cases: ${skips.size}   baseline: ${baseScoped.size}")
+println(s"  PASS cells: $passCount/$cellCount   SKIP cases: ${skips.size}   " +
+  s"baseline: ${delta.scopedBaseline.size}   roster: ${roster.size}")
 println(sep)
 
-if newRegressions.isEmpty && improvements.isEmpty then
-  println("✓ contract GREEN — live matrix matches the baseline (no regressions).")
+if delta.newCases.isEmpty && delta.regressions.isEmpty && delta.statusChanges.isEmpty &&
+    delta.improvements.isEmpty && delta.removedCases.isEmpty then
+  println("✓ contract GREEN — live matrix and case universe match the paired freeze.")
 else
-  if newRegressions.nonEmpty then
-    // NOT necessarily "was PASS": the baseline records only NON-PASS entries, so a case ADDED
-    // since the freeze is indistinguishable from a case that regressed. `coroutine-demo`
-    // (added 2026-07-21, baseline frozen 07-17) was reported as a regression on exactly this
-    // confusion. Distinguishing them needs a full case roster in the baseline — BACKLOG.
-    System.err.println(s"\n✗ ${newRegressions.length} NON-PASS not in the baseline — a regression, " +
-      "or a case added since the baseline was frozen (check the case's git history before triaging):")
-    newRegressions.foreach(e => System.err.println("    " + e.replace("\t", "  ")))
-  if improvements.nonEmpty then
-    System.err.println(s"\n△ ${improvements.length} IMPROVEMENT(S)/stale baseline — now PASS, still in baseline:")
-    improvements.foreach(e => System.err.println("    " + e.replace("\t", "  ")))
+  if delta.newCases.nonEmpty then
+    System.err.println(s"\n＋ ${delta.newCases.length} NEW CASE(S) absent from the frozen roster:")
+    delta.newCases.foreach { name =>
+      val rows = delta.newNonPass.filter(entryCase(_) == name)
+      val observedCellCount = statuses.get(name).fold(0)(_.size)
+      if rows.isEmpty && observedCellCount == 0 then
+        System.err.println(s"    $name  (no eligible lane cells observed)")
+      else if rows.isEmpty then System.err.println(s"    $name  (all observed cells PASS)")
+      else rows.foreach(e => System.err.println("    " + e.replace("\t", "  ")))
+    }
+    System.err.println("  → classify each new case, then refresh the paired freeze with one full run.")
+  if delta.regressions.nonEmpty then
+    System.err.println(s"\n✗ ${delta.regressions.length} REGRESSION row(s) in rostered cases:")
+    delta.regressions.foreach(e => System.err.println("    " + e.replace("\t", "  ")))
+  if delta.statusChanges.nonEmpty then
+    System.err.println(s"\n↕ ${delta.statusChanges.length} NON-PASS STATUS CHANGE(S):")
+    delta.statusChanges.foreach(e => System.err.println("    " + e.replace("\t", "  ")))
+  if delta.removedCases.nonEmpty then
+    System.err.println(s"\n− ${delta.removedCases.length} REMOVED/RENAMED/SKIPPED roster case(s):")
+    delta.removedCases.foreach(name => System.err.println("    " + name))
+    System.err.println("  → confirm the coverage removal, then refresh the paired freeze.")
+  if delta.improvements.nonEmpty then
+    System.err.println(s"\n△ ${delta.improvements.length} IMPROVEMENT(S)/stale baseline — now PASS, still in baseline:")
+    delta.improvements.foreach(e => System.err.println("    " + e.replace("\t", "  ")))
     System.err.println("  → re-run with --update-baseline to record the closed gaps.")
-    if improvements.exists(_.contains("KNOWN-RED")) then
+    if delta.improvements.exists(_.contains("KNOWN-RED")) then
       System.err.println("  → a KNOWN-RED entry here means the declaration EXPIRED: that lane now " +
         "passes, so DELETE the case's `known-red:` front-matter (do not just re-baseline it).")
   System.exit(1)
