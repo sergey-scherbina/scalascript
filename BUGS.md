@@ -59,6 +59,31 @@ The fix exempts that exact full path, not the `.tsv` suffix. The end-to-end regr
 real script in a throwaway repository: it failed first with both `LEDGER.tsv` and `rogue.tsv`, then
 passed with only `rogue.tsv` plus its exact repair command. All four `tests/coord/*.sh` gates pass;
 the live `scripts/coord-status --no-fetch` invalid-marker section now prints `none`.
+## uniml-yaml-corpus-gate-exception-isolation — post-capture hashing can erase observed axes
+
+**Status:** OPEN (found 2026-07-28 by the independent `uniml_code_test_audit` sub-review while
+qualifying UPR-1a). The affected gate exists only in the local, not-yet-landed YAML corpus commit
+`0720175d`; its push was stopped when the review retracted ACCEPT.
+
+**Reproduction.** `YamlScheduleEvaluation.observation` computes the SHA-256 of reconstructed text
+after `YamlCaptured[YamlReconstruction]` has returned. A parse hook that reconstructs a lone UTF-16
+surrogate makes `YamlCorpusUtf8.encode` throw there. The outer per-case `safely` then replaces the
+whole result with `crashedOutcome`: already collected parse/snapshot/reconstruction observations
+are lost and the semantic hook is never attempted. Separately, `YamlCorpusOutcome.baselineRow` and
+`YamlCorpusReport.baselineRows` canonicalize outside the per-case capture, so an unpaired surrogate
+inside an observed semantic value can make the report itself throw instead of recording a red row.
+
+**Impact.** The official pinned inputs are valid UTF-8, so the frozen 402-case numbers are stable,
+but the apparatus fails its hostile-input and exception-isolation contract. A future parser
+regression could turn a detailed per-axis red into an opaque outer crash or prevent later cases/axes
+from being measured.
+
+**Fix acceptance.** Add fail-first malformed-UTF-16 tests. Digest/canonicalization failures must
+become deterministic axis errors without discarding already observed values; semantic evaluation
+and later cases must still run; baseline rows/digests must remain total and distinguish the failure;
+`LinkageError` and other fatal VM errors must still propagate. Re-run YAML JVM+Scala.js suites,
+the 402-case census/expected-red strict gate, standalone `uniml`, portable lint, and affected
+conformance before requesting renewed independent acceptance.
 
 ## f-validateNoReader-rejects-plugin-externs — the F-vs-legacy guard counts a legitimate `extern def` as a coverage gap
 

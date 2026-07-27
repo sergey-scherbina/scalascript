@@ -295,6 +295,12 @@ self-parity test is not external conformance.
   - [ ] **UPR-1c report.** Print per-section pass/fail totals and the full case diff; persist the
         red baseline in this section and the spec before fixing it. The gate must prove its own red
         path with a deliberately corrupted expectation.
+  - [ ] **UPR-1d exception isolation.** Close
+        `BUGS.md` `uniml-yaml-corpus-gate-exception-isolation` before landing UPR-1a: keep
+        reconstruction hashing and full-row canonicalization inside explicit per-axis/per-case
+        capture, preserve already collected observations, continue semantic/later-case evaluation
+        after malformed UTF-16, and keep fatal VM errors propagating. Prove the old local commit
+        fails the regression, then renew independent review and rerun the full UPR-1a matrix.
 
 - [ ] **UPR-2 — YAML 1.2.2 M3.1 full grammar and hardening.**
   - [ ] **UPR-2a lexical/directive layer.** Implement the YAML printable set, BOM rules, directive
