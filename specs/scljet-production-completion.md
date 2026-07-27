@@ -180,6 +180,17 @@ The capability remains `subset`: live sqlite-jdbc comparison is still pending,
 and correlated subqueries in an outer join plus error propagation from
 correlated subqueries are separately tracked production gaps.
 
+Portable SC-1c landed in `f36f951ba`. SQL now reuses the physical index
+comparator instead of converting INTEGER values to binary64 or collapsing
+same-class BLOB values. The SQLite-3.51.0-pinned
+`scljet-sql-value-compare` gate passes on INT and JS across relational
+filtering, mixed INTEGER/REAL signed-64 and 2^53 boundaries, bytewise BLOB
+equality/order, ORDER BY, DISTINCT, GROUP BY, two-table JOIN, and indexed
+predicates. The post-change `scljet-sql-* --no-memo` sweep is 56/56. The
+capability remains `subset` until the live sqlite-jdbc oracle runs; multi-level
+numeric/BLOB divider coverage and long-BLOB performance are explicit
+non-blocking follow-ups rather than claims made by this slice.
+
 ### SC-2 — reclaim and reuse
 
 The live SQL DELETE path and the delete phase of UPDATE use reclaiming deletion. Any page

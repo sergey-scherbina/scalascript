@@ -478,7 +478,7 @@ required job conclusions, and fix SHA here.
 
 ## scljet-sql-blob-comparison-collapses-values — all BLOBs compare equal
 
-**Status:** OPEN (found 2026-07-27 by `scljet-production-completion`; reproduced
+**Status:** FIXED (found 2026-07-27 by `scljet-production-completion`; reproduced
 on assembled `bin/lib/ssc.jar` from `9d96146b3` through both
 `bin/ssc-tools run --v1` and emitted JS/Node).
 
@@ -495,9 +495,14 @@ the required bytewise implementation, so SC-1c should expose/reuse that
 comparator for SQL total ordering while keeping SQL NULL predicate state
 separate.
 
+**Fix:** `f36f951ba` exports the physical comparator through the public SclJet
+module and makes every SQL comparison path reuse it. Bytewise filter/order,
+DISTINCT, JOIN, and indexed cases pass on INT and JS; status remains FIXED
+pending the live sqlite-jdbc confirmation.
+
 ## scljet-sql-numeric-comparison-rounds-through-double — INTEGER/REAL loses precision above 2^53
 
-**Status:** OPEN (found 2026-07-27 by `scljet-production-completion`; reproduced
+**Status:** FIXED (found 2026-07-27 by `scljet-production-completion`; reproduced
 on assembled `bin/lib/ssc.jar` from `9d96146b3` through both
 `bin/ssc-tools run --v1` and emitted JS/Node).
 
@@ -512,6 +517,11 @@ so an INT+JS gate is required rather than accepting one backend as a proxy.
 `scljet/write.ssc` already contains exact INTEGER/REAL comparison that avoids
 this loss; SC-1c should make one comparator drive SQL ordering/equality and
 physical index behavior.
+
+**Fix:** `f36f951ba` removes the SQL-side binary64 conversion and delegates to
+the exact physical comparator. Mixed INTEGER/REAL filtering, ordering,
+DISTINCT, grouping, JOIN, and indexed boundary cases pass on INT and JS; status
+remains FIXED pending the live sqlite-jdbc confirmation.
 
 ## scljet-sql-null-three-valued-logic — scalar and IN predicates treat UNKNOWN as true/false
 
