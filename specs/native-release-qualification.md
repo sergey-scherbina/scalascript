@@ -127,13 +127,12 @@ qualifier requires the extracted file set and every digest to match it exactly.
       `ProcessHandle`; a missing/empty environment override falls through to
       native bundled-root discovery.
 - [ ] Native-image configuration initializes
-      `os.package$`, `scalascript.imports.ImportResolver$`,
-      `scalascript.imports.DepCache$`,
-      `scalascript.imports.RegistryClient$`, and
-      `scalascript.compiler.plugin.RemotePluginInstaller$` at run time despite
-      the broader `--initialize-at-build-time=scalascript` setting, so
-      `os.pwd`, home/cache roots, library roots, and registry/plugin paths are
-      not frozen from the build runner.
+      `os.package$` plus the more-specific `scalascript.imports`,
+      `scalascript.compiler.plugin`, `scalascript.server`, and
+      `scalascript.interpreter` package trees at run time despite the broader
+      `--initialize-at-build-time=scalascript` setting. This prevents frozen
+      cwd/home/cache/library/tmp paths, persisted server/plugin random state,
+      and build-runner values for documented JIT/FASTTIER runtime switches.
 - [ ] The runtime-initialization policy is embedded below
       `META-INF/native-image/` in the CLI artifact and therefore applies to
       ordinary local `cli/graalvm-native-image:packageBin` builds as well as the
@@ -252,15 +251,15 @@ lazy and native-only, so JVM launchers and explicitly configured native
 processes do not touch `ProcessHandle`.
 
 The current native-image build initializes the broad `scalascript` package at
-build time. Bytecode inspection identifies five eager host-path owners that
-must be more specifically initialized at run time:
+build time. Bytecode inspection identifies four more-specific ScalaScript
+package trees plus os-lib's cwd owner that must be initialized at run time:
 
 ```text
 os.package$
-scalascript.imports.ImportResolver$
-scalascript.imports.DepCache$
-scalascript.imports.RegistryClient$
-scalascript.compiler.plugin.RemotePluginInstaller$
+scalascript.imports
+scalascript.compiler.plugin
+scalascript.server
+scalascript.interpreter
 ```
 
 The CLI embeds their comma-separated
@@ -270,9 +269,14 @@ The CLI embeds their comma-separated
 and documents that
 [explicit options can select individual run-time-initialized classes](https://www.graalvm.org/jdk21/reference-manual/native-image/guides/specify-class-initialization/)
 even when a package is selected for build-time initialization. `os.package$`
-owns `os.pwd`; the four ScalaScript objects eagerly call cwd/home-derived
-os-lib APIs. The real archive execution through a relative source path remains
-the decisive proof that no host path was captured.
+owns `os.pwd`; import and plugin objects eagerly call cwd/home-derived os-lib
+APIs; server objects eagerly capture `java.io.tmpdir` and allocate
+`SecureRandom`; interpreter objects eagerly read documented environment and
+system-property switches. GraalVM's security guide warns that
+[build-time static state is persisted, including random seeds](https://www.graalvm.org/jdk21/security-guide/native-image/).
+The real archive execution through a relative source path remains the decisive
+proof for cwd/import relocatability, while the embedded package-level policy
+prevents the same defect class in server, plugin, and interpreter state.
 
 Builder heap is runner policy, not artifact semantics. The workflow removes the
 inherited `-J-Xmx8g` and adds `-J-Xmx5g`: the standard arm64 macOS runner has
@@ -315,11 +319,12 @@ marker, so a VM run wearing the bytecode label cannot qualify the release.
 - **Bound every product process** — chosen because a hung executable is a
   release failure and GNU `timeout` is absent on stock macOS. The portable
   qualifier uses its existing Python runtime for subprocess deadlines.
-- **Runtime-initialize the resolver module** — chosen because its eager path
-  state and the other four eager cwd/home consumers are host-dependent, while
-  a package-wide build-time rule would serialize the CI checkout and home into
-  the image. Rejected: initializing only `ImportResolver$` (a frozen
-  `os.package$.pwd` and registry/plugin caches would remain).
+- **Runtime-initialize host-sensitive package trees** — chosen because their
+  cwd/home/tmp, RNG, and runtime-toggle state is host-dependent, while a broad
+  build-time rule would serialize the CI environment into the image. Rejected:
+  enumerating only the first five path objects (server RNG/tmp and interpreter
+  switches would remain frozen, and future objects in the same subsystems
+  would silently reopen the defect).
 - **Embed portable native-image policy in the CLI JAR** — chosen so local and
   release builds share the correctness rule automatically. Rejected:
   workflow-only class-initialization flags (they leave the documented local
@@ -354,10 +359,11 @@ Pre-change baseline on 2026-07-27:
   launches, `SSC_LIB_PATH` could be masked, and
   `--initialize-at-build-time=scalascript` would freeze
   `ImportResolver` path state before the entrypoint bootstrap.
-- Expanded bytecode review found four ScalaScript eager cwd/home consumers plus
-  `os.package$.pwd`; an absolute smoke-test path could hide that frozen cwd.
-  Workflow review also found that inherited `-J-Xmx8g` exceeds the 7 GB arm64
-  macOS runner's physical memory.
+- Expanded bytecode review found eager cwd/home/tmp consumers, four
+  build-time `SecureRandom` owners, and nine interpreter objects that read
+  runtime switches, in addition to `os.package$.pwd`; an absolute smoke-test
+  path could hide the frozen cwd. Workflow review also found that inherited
+  `-J-Xmx8g` exceeds the 7 GB arm64 macOS runner's physical memory.
 
 Implementation measurements and the exact manual run are recorded here during
 the verify phase.
