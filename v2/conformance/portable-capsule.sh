@@ -208,4 +208,72 @@ reject_sealed "keyed: v1 legacy rejected"    "SSC_CAPSULE_KEY=gate-key" "fixture
 SSC_CAPSULE_BUDGET=100 ssc freeze-region-global "$TMP/big.portable" >/dev/null
 reject_sealed "budget over runner rejected"  "SSC_CAPSULE_RUNNER_BUDGET=10" "$TMP/big.portable"
 
+# ── CROSS-HOST: a capsule frozen HERE, admitted and run by a NON-JVM runtime ─────────────────────
+# Conformance vector 15's stated mechanism: "a capsule saved on the portable-VM resumes on a
+# DIFFERENT compatible host, producing byte-identical observable output".
+#
+# The bytes are frozen FRESH in this script and handed straight to node — deliberately NOT a
+# committed fixture. A fixture is a snapshot: if this side's format moves, the fixture goes stale and
+# the check keeps passing on old bytes, which is a self-consistent oracle wearing a cross-lane
+# costume. Freezing here means the two lanes are compared on today's format every run.
+ADMITTER="$SRC/../host/js/portable-admitter"
+if ! command -v node >/dev/null 2>&1; then
+  printf 'SKIP %-30s => node not installed\n' "cross-host (JVM -> node)"
+elif [ ! -f "$ADMITTER/admit.js" ]; then
+  printf 'FAIL %-30s => admitter missing at %s\n' "cross-host (JVM -> node)" "$ADMITTER"; fail=1
+else
+  XH="$TMP/crosshost.portable"
+  XHS="$TMP/crosshost-sealed.portable"
+  ssc freeze-region-global "$XH" >/dev/null
+  SSC_CAPSULE_KEY=xh-key SSC_CAPSULE_AUDIENCE=xh-aud SSC_CAPSULE_TENANT=xh-ten \
+    ssc freeze-region-global "$XHS" >/dev/null
+
+  # (a) the SAME capsule, run on both hosts, must give the SAME observable.
+  jvm_out="$(ssc run-capsule "$XH" 3)"
+  node_out="$(node --input-type=module -e "
+    import { admit } from '$ADMITTER/admit.js'
+    import { evaluate } from '$ADMITTER/eval.js'
+    import { readFileSync } from 'node:fs'
+    const c = admit(readFileSync('$XH','utf8'))
+    process.stdout.write(String(evaluate(c.program, c.frame, 3n)))
+  " 2>/dev/null)"
+  check "cross-host: same observable" "$node_out" "$jvm_out"
+
+  # (b) the SEAL is cross-lane: node verifies a signature this JVM produced. If the HMAC
+  # construction, domain separator or canonical body disagreed by one byte, this could not verify.
+  sealed_out="$(node --input-type=module -e "
+    import { admit } from '$ADMITTER/admit.js'
+    import { evaluate } from '$ADMITTER/eval.js'
+    import { readFileSync } from 'node:fs'
+    const c = admit(readFileSync('$XHS','utf8'), {key:'xh-key', audience:'xh-aud', tenant:'xh-ten'})
+    process.stdout.write(String(evaluate(c.program, c.frame, 3n)))
+  " 2>/dev/null)"
+  check "cross-host: sealed verifies" "$sealed_out" "$jvm_out"
+
+  # (c) int64 — the trap. A JS `number` diverges at max64; both lanes must wrap identically.
+  sed 's/(lit (int 5))/(lit (int 9223372036854775807))/' "$XH" > "$TMP/xh-max64.portable"
+  jvm_max="$(ssc run-capsule "$TMP/xh-max64.portable" 3)"
+  node_max="$(node --input-type=module -e "
+    import { admit } from '$ADMITTER/admit.js'
+    import { evaluate } from '$ADMITTER/eval.js'
+    import { readFileSync } from 'node:fs'
+    const c = admit(readFileSync('$TMP/xh-max64.portable','utf8'))
+    process.stdout.write(String(evaluate(c.program, c.frame, 3n)))
+  " 2>/dev/null)"
+  check "cross-host: int64 wrap agrees" "$node_max" "$jvm_max"
+
+  # (d) a tamper this JVM rejects must be rejected THERE too — parity of refusal, not just of
+  # acceptance. An admitter that accepts more than the freezer is not a second implementation.
+  sed 's/(lit (int 5))/(lit (int 99))/' "$XHS" > "$TMP/xh-tampered.portable"
+  if node --input-type=module -e "
+    import { admit } from '$ADMITTER/admit.js'
+    import { readFileSync } from 'node:fs'
+    admit(readFileSync('$TMP/xh-tampered.portable','utf8'), {key:'xh-key', audience:'xh-aud', tenant:'xh-ten'})
+  " >/dev/null 2>&1; then
+    printf 'FAIL %-30s node admitted a tampered sealed capsule\n' "cross-host: tamper rejected"; fail=1
+  else
+    printf 'ok   %-30s => rejected\n' "cross-host: tamper rejected"
+  fi
+fi
+
 if [ "$fail" -eq 0 ]; then echo "portable-capsule: PASS"; else echo "portable-capsule: FAIL"; exit 1; fi

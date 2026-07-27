@@ -108,3 +108,44 @@ test("an unsupported prim is an ERROR, never a silent wrong answer", () => {
   broken.defs.forEach((d) => rewrite(d))
   assert.throws(() => evaluate(broken, capsule.frame, 3n), /unsupported prim/)
 })
+
+// ── conformance vector 15 (cross-host-resume, §14.4 N→M) ──────────────────────────────────────────
+// The harness lane freezes a capsule with the JVM launcher and passes its path plus the launcher's
+// OWN observable. That is the vector's stated mechanism — "a capsule saved on the portable-VM
+// resumes on a DIFFERENT compatible host, producing byte-identical observable output" — checked on
+// bytes frozen in the same run rather than on a committed snapshot.
+//
+// It SKIPS rather than passes when no launcher was available: a check that silently succeeds when it
+// could not run is the failure mode this whole file exists to avoid.
+test("vector 15 — a freshly frozen JVM capsule resumes here with the same observable", (t) => {
+  const capsulePath = process.env.SSC_XH_CAPSULE
+  const expected = process.env.SSC_XH_EXPECTED
+  const input = process.env.SSC_XH_INPUT
+  if (!capsulePath || !expected || !input) {
+    t.skip("no launcher-frozen capsule (SSC_XH_CAPSULE unset) — nothing to compare against")
+    return
+  }
+  const capsule = admit(readFileSync(capsulePath, "utf8"))
+  const observed = evaluate(capsule.program, capsule.frame, BigInt(input))
+  assert.equal(String(observed), expected.trim())
+})
+
+// Vector 14 (durable-save-run-same-process, oracle `10,20`) — the lane's capability list makes it
+// eligible, so it must be ASSERTED here rather than merely claimed. Running one admitted capsule
+// twice with different inputs is exactly what the vector states: the save is reusable and each run
+// starts at the capture point. Uses the launcher-frozen capsule when the lane provided one, so this
+// is fresh bytes too; the region is `quad(input) + a` with a = 5, i.e. 4*input + 5.
+test("vector 14 — one admitted capsule runs repeatedly, each run from the capture point", (t) => {
+  const capsulePath = process.env.SSC_XH_CAPSULE
+  if (!capsulePath) {
+    t.skip("no launcher-frozen capsule (SSC_XH_CAPSULE unset)")
+    return
+  }
+  const capsule = admit(readFileSync(capsulePath, "utf8"))
+  const first = evaluate(capsule.program, capsule.frame, 1n)
+  const second = evaluate(capsule.program, capsule.frame, 2n)
+  // Reusable: the second run must not see anything the first left behind.
+  assert.equal(first, 9n)
+  assert.equal(second, 13n)
+  assert.equal(evaluate(capsule.program, capsule.frame, 1n), first, "runs are independent")
+})
