@@ -1,0 +1,19 @@
+---
+name: generator-callback-user-throw
+description: Native Generator.foreach preserves user RuntimeException values
+backends: [v2]
+also-codegen: v2
+---
+
+# Generator callback user throw
+
+```scalascript
+val values = generator[Int] { () => suspend(8) }
+val message = try {
+  values.foreach(_ => throw new RuntimeException("generator-user-boom"))
+  "unexpected"
+} catch {
+  case error: RuntimeException => error.getMessage
+}
+println(message)
+```

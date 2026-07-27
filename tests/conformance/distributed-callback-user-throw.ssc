@@ -1,0 +1,22 @@
+---
+name: distributed-callback-user-throw
+description: Native distributed callbacks preserve user RuntimeException values
+backends: [v2]
+also-codegen: v2
+---
+
+# Distributed callback user throw
+
+```scalascript
+HandlerRegistry.register(NamedHandler("fail", (value: Int) =>
+  throw new RuntimeException("distributed-user-boom")
+))
+
+val message = try {
+  HandlerRegistry.apply("fail", 7)
+  "unexpected"
+} catch {
+  case error: RuntimeException => error.getMessage
+}
+println(message)
+```
