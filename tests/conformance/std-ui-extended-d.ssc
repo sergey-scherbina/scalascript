@@ -4,7 +4,7 @@ name: std-ui-extended-d
 
 # v0.10 iter D smoke — DateInput / DatePicker / TimeInput / DateTimePicker / Combobox / RangeSlider / Carousel
 
-[DateInput, DatePicker, TimeInput, DateTimePicker, Combobox, RangeSlider, Carousel](../examples/std-ui)
+[DateInput, DatePicker, TimeInput, DateTimePicker, Combobox, RangeSlider, Carousel](../../examples/std-ui)
 
 ```scalascript
 // DateInput

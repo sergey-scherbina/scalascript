@@ -4,7 +4,7 @@ name: std-ui-extended
 
 # v0.10 — extended pack iter A smoke
 
-[Card, Switch, Alert, Tag](../examples/std-ui)
+[Card, Switch, Alert, Tag](../../examples/std-ui)
 
 ```scalascript
 println(Card.render("Header text", "Body content", "Footer").contains("Header text"))

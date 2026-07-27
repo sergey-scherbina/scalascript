@@ -4,7 +4,7 @@ name: std-ui-extended-c
 
 # v0.10 iter C smoke — Stepper / Lightbox / FileUpload
 
-[Stepper, Lightbox, FileUpload](../examples/std-ui)
+[Stepper, Lightbox, FileUpload](../../examples/std-ui)
 
 ```scalascript
 val s1 = Stepper.render(List("Cart", "Shipping", "Payment", "Confirm"), 2)

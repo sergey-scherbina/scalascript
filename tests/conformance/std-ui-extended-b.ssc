@@ -4,7 +4,7 @@ name: std-ui-extended-b
 
 # v0.10 iter B smoke — Stats / Empty / Toolbar / Tree
 
-[Stats, Empty, Toolbar, Tree](../examples/std-ui)
+[Stats, Empty, Toolbar, Tree](../../examples/std-ui)
 
 ```scalascript
 println(Stats.render("Revenue", "$1,234", "+12%").contains("up__Stats"))
