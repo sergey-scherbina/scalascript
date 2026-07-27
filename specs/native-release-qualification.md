@@ -31,7 +31,7 @@ The build matrix remains:
 |---|---|---|
 | `ssc-linux-x86_64` | `ubuntu-latest` | Linux x86_64 |
 | `ssc-macos-arm64` | `macos-latest` | macOS arm64 |
-| `ssc-macos-x86_64` | `macos-13` | macOS x86_64 |
+| `ssc-macos-x86_64` | `macos-15-intel` | macOS x86_64 |
 
 The matrix job has read-only repository credentials. A tag-only publication job
 is separate, depends on the complete matrix, and is the only job granted
@@ -43,7 +43,9 @@ is separate, depends on the complete matrix, and is the only job granted
 scripts/native-release-qualify <artifact-id> <archive.tar.gz>
 ```
 
-The command validates and executes the supplied archive. It does not read build
+The command validates and executes the supplied archive. The archive's
+directory must also contain the separately uploaded `<artifact-id>` executable;
+the qualifier byte-compares it with the extracted `ssc`. It does not read build
 outputs, source-tree libraries, or a checked-out example after extraction.
 Success is silent except for a final stable summary. Every refusal names the
 failed check and prints the relevant expected and actual values.
@@ -62,13 +64,16 @@ The distribution archive contains:
 ssc
 lib/ssc-plugin-host.jar
 bin/lib/standard/native-front/**
+bin/lib/standard/native-front/MANIFEST.sha256
 README.md
 ```
 
 Directories may appear as tar entries. Regular files outside the declared
 layout, duplicate paths, absolute paths, `..` traversal, and links are refused.
 The checksum sidecar uses the conventional lowercase SHA-256 plus basename
-format and must verify before extraction.
+format and must verify before extraction. `MANIFEST.sha256` lists every other
+regular file below `native-front` with its relative path and digest; the
+qualifier requires the extracted file set and every digest to match it exactly.
 
 ## Behavior
 
@@ -78,13 +83,19 @@ format and must verify before extraction.
 - [ ] A version-tag build runs the identical archive qualifier before the
       tag-only publication job can download or publish artifacts.
 - [ ] The qualifier refuses a missing file, duplicate entry, unexpected regular
-      file, unsafe path, symlink, non-executable `ssc`, missing plugin host,
-      checksum mismatch, wrong process exit, wrong stdout, and unexpected ASM
-      fallback with a named expected/actual diagnostic.
+      file, unsafe path, symlink, non-executable `ssc`, direct/extracted binary
+      mismatch, missing plugin host, checksum mismatch, wrong process exit,
+      wrong stdout, subprocess timeout, unexpected or missing frontend-manifest
+      entry, frontend content mismatch, and unexpected ASM fallback with a
+      named expected/actual diagnostic.
 - [ ] The archive is relocatable. After extraction into a fresh temporary
       directory, with ScalaScript path overrides unset, its native executable
       discovers the bundled standard v2 frontend data without a checkout or an
       absolute build-machine path.
+- [ ] The workflow copies the binary, archive, checksum, and qualifier outside
+      the checkout, makes the checkout's staged native frontend unavailable,
+      and runs qualification from the isolated copy. A build-time absolute
+      checkout path therefore fails rather than borrowing files from the runner.
 - [ ] `ssc --version` exits zero and identifies ScalaScript plus the v2 default
       runtime.
 - [ ] A generated, self-contained `.ssc` probe runs through
@@ -100,12 +111,15 @@ format and must verify before extraction.
       `[ssc-plugin-host] Usage: SubprocessHost <plugin.jar>` diagnostic. This
       qualifies archive lookup and host startup; existing protocol tests retain
       responsibility for third-party backend semantics.
+- [ ] Version, VM, ASM, and plugin-host subprocesses have a cross-platform
+      bounded timeout. A hung product is a named qualification failure rather
+      than a runner that waits indefinitely.
 - [ ] Every matrix artifact and checksum is uploaded only after its runner-local
       post-extraction qualification passes.
 - [ ] The completed manual run has successful Linux x86_64, macOS arm64, and
       macOS x86_64 matrix jobs, and
-      `scripts/ci-status --workflow native-release.yml --latest` exits zero for
-      that exact run.
+      `scripts/ci-status --workflow native-release.yml --event any --latest`
+      exits zero for that exact run.
 
 ## Out of Scope
 
@@ -125,10 +139,18 @@ format and must verify before extraction.
 ### Compare the shipped object
 
 The qualifier receives the compressed archive, verifies its checksum and path
-set, extracts it into a new directory, and runs only files below that directory.
-It must not inspect `dist/archive` or execute the pre-archive binary. This makes
-missing resources, lost executable bits, stale archive composition, and
-absolute-path coupling observable.
+set, extracts it into a new directory, byte-compares the extracted executable
+with the separately uploaded binary, and runs only files below that directory.
+The workflow first copies the four qualification inputs to `RUNNER_TEMP`, then
+makes the checkout's staged native frontend unavailable. It must not inspect
+`dist/archive` or execute the pre-archive binary. This makes missing resources,
+lost executable bits, stale archive composition, and absolute-path coupling
+observable.
+
+Before compression, packaging hashes the complete staged `native-front` file
+set into its own manifest. Qualification compares the extracted set first and
+then hashes every file, so an omitted but probe-unused standard module is red
+rather than hidden by the arithmetic smoke test.
 
 The e2e test constructs controlled archives and executable stubs. The same
 observable is run once in a known-good form and then mutated one dimension at a
@@ -168,6 +190,13 @@ marker, so a VM run wearing the bytecode label cannot qualify the release.
 - **Run each artifact on its own matrix runner** — chosen because native
   executables are OS/architecture-specific. Rejected: download all archives
   into one Linux verification job (it can inspect but cannot execute macOS).
+- **Use the supported Intel runner label** — `macos-15-intel` replaces the
+  retired `macos-13` label while preserving x86_64 coverage. Rejected:
+  `macos-latest` for both macOS legs (currently selects arm64 and would duplicate
+  architecture coverage).
+- **Compare the direct download with the archive** — chosen because both are
+  uploaded release artifacts. Rejected: qualify only the archive while trusting
+  that the separately copied binary came from the same build output.
 - **Retain an explicit VM control** — chosen to distinguish frontend/runtime
   packaging failures from ASM admission failures. Rejected: ASM-only smoke
   (cannot localize the failing layer).
@@ -175,6 +204,9 @@ marker, so a VM run wearing the bytecode label cannot qualify the release.
   the uploaded bytes is independently testable now. Rejected: claiming
   bit-identical native-image output without first normalizing toolchain and
   archive metadata.
+- **Bound every product process** — chosen because a hung executable is a
+  release failure and GNU `timeout` is absent on stock macOS. The portable
+  qualifier uses its existing Python runtime for subprocess deadlines.
 
 ## Results
 
@@ -182,6 +214,9 @@ Pre-change baseline on 2026-07-27:
 
 - `gh run list --workflow native-release.yml` returned no runs.
 - The tag-only workflow could publish without ever executing the archive.
+- Its `macos-13` x86_64 runner label was
+  [retired on 2025-12-04](https://github.blog/changelog/2025-09-19-github-actions-macos-13-runner-image-is-closing-down/);
+  the supported standard Intel label is `macos-15-intel`.
 - The archive held only `ssc`, `lib/ssc-plugin-host.jar`, and an optional
   `README.md`.
 - `RunNativeV2.nativeFrontLayout` requires staged
