@@ -329,10 +329,11 @@ self-parity test is not external conformance.
           document's `%TAG` declarations, validate duplicates/undefined handles and percent escapes,
           reset declarations at document boundaries, and expand scalar/sequence/mapping tags in the
           semantic output consumed by the event trace. Measured target cases are exactly `5TYM`,
-          `6CK3`, `6JWB`,
-          `6WLZ`, `735Y`, `9WXW`, `CC74`, `P76L`, `U3C3`, and `Z9M4`: all are currently
-          valid/valid with equal event counts and tag-only diffs. Expected no-regression movement is
-          semantics 128→138 and strict 112→122.
+          `6CK3`, `6JWB`, `6WLZ`, `735Y`, `9WXW`, `CC74`, `P76L`, `U3C3`, and `Z9M4`: all are
+          currently valid/valid with equal event counts and tag-only diffs. Bare non-specific `!`
+          must also remain a legal tag in `52DL` and `8MK2`; those event rows are already exact but
+          lexer validity is red. Expected no-regression movement is semantics 128→138, validity
+          210→212, strict 112→124, and actual errors 220→218.
   - [ ] **UPR-2b scalar engine.** Implement multiline plain/single/double quoted folding, complete
         double-quoted escapes and escaped line breaks, literal/folded block indentation,
         more-indented lines, chomping, explicit indentation, and malformed-header recovery.
