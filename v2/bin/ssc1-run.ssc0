@@ -354,37 +354,55 @@ def sscPendingBreak = (t) =>
   else startsWith3bt(t)
 def sscPendingJoin = (pending, t) =>
   if #i.eq(#slen(pending), 0) then t else #sconcat(pending, #sconcat(" ", t))
-def sscScanLines = (lines, inFence, pending, acc) =>
+-- Scan mode for the fence a ``` line opens. A `[names](path.ssc)` link is an import
+-- wherever it stands, so a scalascript/scala fence stays TRANSPARENT to the scan (1);
+-- every other fence -- sql/yaml/bash/text and any `@doc` block -- stays OPAQUE (2).
+-- The predicate is deliberately the SAME one `sscFenceSource` uses to decide what is
+-- program text, so the scanner and the source collector cannot disagree about which
+-- fences are code (BUGS.md v2-native-front-in-fence-imports-not-followed).
+def sscFenceScanMode = (t) =>
+  let lang = getFenceLang(t) in
+  let token = fenceLangTok(lang) in
+  let isCode = if #seq(token, "scalascript") then true else #seq(token, "scala") in
+  if fenceHasFlag(lang, "doc") then 2
+  else if isCode then 1
+  else 2
+-- mode: 0 = prose, 1 = inside a CODE fence (scanned exactly like prose), 2 = opaque fence.
+def sscScanLines = (lines, mode, pending, acc) =>
   match lines {
     case Nil => acc
     case Cons(line, rest) =>
-      if inFence then
-        if isClosingFence(line) then sscScanLines(rest, false, "", acc)
-        else sscScanLines(rest, true, "", acc)
+      if #i.eq(mode, 2) then
+        if isClosingFence(line) then sscScanLines(rest, 0, "", acc)
+        else sscScanLines(rest, 2, "", acc)
       else
         let t = strip(line) in
-        if startsWith3bt(t) then sscScanLines(rest, true, "", acc)
+        -- Inside a code fence only a BARE ``` closes it -- the same boundary rule
+        -- sscSourceLines applies, so both walks agree on where the fence ends.
+        let atFence = if #i.eq(mode, 1) then isClosingFence(line) else startsWith3bt(t) in
+        let next = if #i.eq(mode, 1) then 0 else sscFenceScanMode(t) in
+        if atFence then sscScanLines(rest, next, "", acc)
         else if #i.gt(#slen(pending), 0) then
           if sscPendingBreak(t) then
-            if sscStartsChar(t, 91) then sscScanLines(Cons(line, rest), false, "", acc)
-            else sscScanLines(rest, false, "", acc)
+            if sscStartsChar(t, 91) then sscScanLines(Cons(line, rest), mode, "", acc)
+            else sscScanLines(rest, mode, "", acc)
           else
             let joined = sscPendingJoin(pending, t) in
             let close = sscFindChar(joined, 1, 93) in
             if #i.lt(close, #slen(joined)) then
               let paths = sscImportPaths(joined) in
-              sscScanLines(rest, false, "", sscPushImports(paths, acc))
-            else sscScanLines(rest, false, joined, acc)
+              sscScanLines(rest, mode, "", sscPushImports(paths, acc))
+            else sscScanLines(rest, mode, joined, acc)
         else
           let paths = sscImportPaths(t) in
           match paths {
             case Nil =>
-              if sscWrappedImportStart(t) then sscScanLines(rest, false, t, acc)
-              else sscScanLines(rest, false, "", acc)
-            case _ => sscScanLines(rest, false, "", sscPushImports(paths, acc))
+              if sscWrappedImportStart(t) then sscScanLines(rest, mode, t, acc)
+              else sscScanLines(rest, mode, "", acc)
+            case _ => sscScanLines(rest, mode, "", sscPushImports(paths, acc))
           }
   }
-def sscImports = (src) => reverse(sscScanLines(splitLines(src, 0, Nil), false, "", Nil))
+def sscImports = (src) => reverse(sscScanLines(splitLines(src, 0, Nil), 0, "", Nil))
 
 -- resolve an import target: `std/…` maps to the std root (SSC_STD env, else the
 -- in-tree v1/runtime); everything else is relative to the importing file.

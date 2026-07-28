@@ -1,0 +1,32 @@
+---
+name: native-import-in-fence
+description: A module import link written INSIDE a code fence must load the module on every lane
+backends: [int, js, jvm, v2]
+known-red: "js,jvm — v1 JsGen/JvmGen do not follow an in-fence import either; the INT lane does. Remove when BUGS.md js-jvm-codegen-in-fence-imports-not-followed is fixed"
+---
+
+# Import link inside a code fence
+
+`BUGS.md` `v2-native-front-in-fence-imports-not-followed`. The Markdown link form
+`[names](path.ssc)` is an import wherever it stands — the same statement above the
+fence and inside it must load the same module.
+
+The native lane's import scanner used to flip into "skip to the closing fence" mode
+on the opening ` ``` `, so an in-fence link was never collected and every imported
+name stayed unbound. `v1` resolved it fine, which made this a pure lane divergence:
+`bin/ssc run` printed `ssc: unbound global: square` for this exact program while
+`ssc-tools run --v1` printed the numbers below.
+
+```scalascript
+[square, cube, factorial](./lib/math-utils.ssc)
+println(square(5))
+println(cube(3))
+println(factorial(6))
+```
+
+The second fence checks that a *later* fence still sees the module imported by the
+first — the scan is over the whole document, not per fence.
+
+```scalascript
+println(square(7))
+```
