@@ -202,7 +202,7 @@ sit red for days looking quiet. Measured 2026-07-28:
 | `Corpus Contract` | ❌ failure `30334389306` | stale baseline + unclassified cases |
 | `F4 Front Swap Gates` | ❌ failure `30337665226` | 4 genuine F disagreements |
 
-- [ ] **corpus-contract-refresh-freeze-0728** — make the nightly corpus contract report a verdict again.
+- [x] **corpus-contract-refresh-freeze-0728** — **DONE: `Corpus Contract` is GREEN, all 4 shards** (run `30374351823` on `7fb1e9813`). This is its **first success in 24 runs** — the history is 10 `cancelled` (job timeouts, which GitHub reports as cancellation) + 13 `failure` + this one. Two commits: `81bb58b56` dropped 9 expired baseline rows, `7fb1e9813` rostered `list-apply-method` and `for-yield-layout` and dropped `wasm-scalascript v2`. Four of the nine expired rows were my own loose end — landing SC-2 deleted the `known-red:` front-matter but not the paired baseline rows, so conformance went green while the contract did not. **Removing a known-red means removing BOTH.** The reported `scljet-jdbc v2 TIMEOUT` did NOT recur and was A/B-measured as not-a-regression (26.03 s with SC-2 vs 26.07 s without) — filed as BUGS §`corpus-contract-scljet-jdbc-v2-timeout`. Edited surgically, NOT with `--update-baseline`: that regenerates the whole freeze from one run, and a full run currently drops one INT case with zero output, so it could have frozen a passing case as failing. Original entry:
       *Why:* it is bookkeeping, not a defect — the gate is doing its job and nobody has answered it.
       *What it is asking for, exactly* (shard 0 of 4; other shards similar):
       ```text
