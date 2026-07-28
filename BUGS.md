@@ -2825,10 +2825,33 @@ v2 side.
 
 ## f-front-compile-cost-7x-on-scljet — F as the default front pushes correct cases past gate budgets
 
-**Status:** OPEN — measured, not yet addressed (2026-07-27, `corpus-contract-shard-fix`). Filed as a
-PERF finding: output is correct on both fronts, so nothing here is a correctness bug.
+**Status:** OPEN, but **2.5× smaller than filed** — re-measured 2026-07-28 after
+`v2-method-dispatch-never-jits` was fixed (`197ae13ab`). Filed as a PERF finding: output is correct
+on both fronts, so nothing here is a correctness bug.
 
-**Measurement** (same tree, same build, `examples/scljet-crud.ssc`, `v2` lane):
+**Re-measurement 2026-07-28** (`bin/ssc run --v2`, slice-1 build, two runs per cell, outputs
+byte-identical between fronts):
+
+| program | front F | legacy | ratio |
+|---|---|---|---|
+| `examples/scljet-crud.ssc` | **11.40 s** (was 28.20) | **4.08 s** (was 4.16) | **2.8×** (was 6.8×) |
+| `examples/scljet-jdbc.ssc` | **27.94 s** (was: exceeded a 90 s budget) | 9.35 s | 3.0× |
+
+**The legacy column is the control and it is what makes this comparison honest across days:** it
+reproduces its originally-recorded 4.16 s at 4.08 s, on a different day and a different build, so
+the F column's 28.20 → 11.40 is a real change and not machine drift.
+
+Cause of the improvement: F is an `.ssc` program *interpreted on the v2 VM* and its hot path is
+lexing/parsing/string concatenation — exactly the `__method__`-dispatching shape that was never
+being JIT-compiled. This was written down as a prediction in `specs/v2-runtime-perf-vs-v1.md`
+**before** it was measured. `scljet-jdbc`, the one case that could not fit even the raised 90 s lane
+budget, now completes in 27.9 s and PASSED the v2 lane in the 2026-07-28 corpus-contract run.
+
+Still open: ~2.8-3.0× remains, and `specs/v2-f-compile-cost.md` Result 2 (the cost SCALES with
+program size, so a super-linear step inside F is the likely remaining cause) has not been retested.
+
+**Original measurement** (2026-07-27, same tree/build, `examples/scljet-crud.ssc`, `v2` lane) —
+kept so the delta above is checkable:
 
 | front | wall | output |
 |---|---|---|
