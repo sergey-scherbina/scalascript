@@ -41,6 +41,57 @@ message (`RowCodec.derived expects Mirror metadata`, 3 succeeded / 1 failed); wi
 
 **For the Mirror lane:** `SqlNativePlugin` was the only production consumer that destructured a
 Mirror by fixed arity (`grep -rn 'DataV("Mirror"' v1 v2` — one production site, two test sites).
+## v2-object-apply-unbound — `object O { def apply(x) }` is unbound on the native lane
+
+**Status:** OPEN (found 2026-07-28 by `v2-stub-apply-and-serve-banner` while verifying that the
+`List.apply` fix did NOT break the shape the roadmap warned about). Pre-existing — A/B'd against a
+build without that fix, identical both sides, so it is not a regression from it.
+
+**Reproduce** — four lines:
+
+```scalascript
+object O:
+  def apply(x: Int): String = "user-apply:" + x.toString
+println(O(7))
+println(O.apply(7))
+```
+
+| lane | result |
+|---|---|
+| `bin/ssc run` (native) | **`ssc: unbound global: O`** |
+| `bin/ssc-tools run --v1` | `user-apply:7` then `user-apply:7` |
+
+**Severity: LOW-ish, and deliberately so.** It fails **loud** with a non-zero exit, so it is not
+the `Stub`-sentinel fail-open class that dominates the other v2 gaps — a user sees it immediately.
+It is filed because it is a plain Scala idiom (a companion-style `apply`) that the reference lane
+supports and the default lane does not.
+
+**Why it is noted here rather than fixed opportunistically.** The roadmap's `V2-100-3` entry warns
+that "fixing" `.apply` in the FRONTEND — lowering it to an application — breaks exactly this shape,
+because `O.apply(1)` must reach the user's method rather than index anything. The `List.apply` fix
+therefore went into a VM dispatch arm matching only cons/nil receivers, and this entry records the
+other half of that trade-off so the next agent does not undo one by fixing the other.
+
+**Related:** `standard-tier-named-arg-skip-default` and the `v2` object-member family — the
+suspicion is that the object itself is never registered as a global when its only member is
+`apply`, not that `apply` dispatch is missing.
+
+## v2-serve-banner-belongs-on-stderr — a server banner is not program output
+
+**Status:** OPEN, **deliberately deferred** (filed 2026-07-28 by `v2-stub-apply-and-serve-banner`
+as option (2) of `v2-serve-banner-missing`, which took option (1)).
+
+`WebServer.start`'s three-line startup banner goes to **stdout** on both lanes, which is how it got
+captured into the goldens of every serving example in the first place. A banner is developer
+chatter, not program output; on stderr it would not be part of any observable contract.
+
+**Not done opportunistically, and the reason is a measurement, not taste.** It rewrites the golden
+of every serving example and needs its own claim plus a full-corpus re-freeze. **Whoever takes it
+must check first:** `tests/conformance/run.sc` builds its comparison with
+`outputWithFailureContext(out, err, exitCode)`. If that folds stderr into the compared text
+unconditionally, moving the banner to stderr changes **nothing** observable and only churns the
+goldens — so establish that before touching anything.
+
 
 ## scljet-wal-recover flakes under parallel load — INT lane produces no output at all
 
