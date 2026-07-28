@@ -2,12 +2,12 @@ slug: v2-actors-bounded-mailbox
 branch: feature/v2-actors-bounded-mailbox
 agent: codex
 started: 2026-07-28T00:38:45Z
-heartbeat: 2026-07-28T00:50:33Z
+heartbeat: 2026-07-28T00:53:16Z
 status: in-progress
 items: v2-actors-bounded-mailbox
 paths: v2/runtime/std/actors-plugin/ tests/conformance/actors-bounded-mailbox.ssc tests/conformance/expected/actors-bounded-mailbox.txt specs/v2.1-native-actors-provider.md SPEC.md
 scope: |
   Reproduce the existing bounded-mailbox contract on assembled V2, extend the sole native actor
   provider with DropOldest, DropNewest, and Block semantics, and pin exact cross-lane behavior.
-done-so-far: compare-first JVM/V2 baseline and native CoreIR ownership gap measured; bounded mailbox contract drafted
-next: land the feature/global spec update, then add fail-first provider tests
+done-so-far: compare-first baseline and native CoreIR ownership gap recorded; feature/global contract landed in 02fa8c600
+next: add and commit fail-first provider/conformance tests, then implement one synchronized mailbox boundary
