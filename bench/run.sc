@@ -30,7 +30,12 @@ val root        = Paths.get(getClass.getResource("/").toURI).getParent.getParent
                     case s if s.endsWith("/bench") => s.dropRight(6)
                     case s => s
 val corpusDir   = Paths.get(s"$root/bench/corpus")
-val sscBin      = Paths.get(s"$root/bin/ssc")
+// `bench` is a TOOLS-tier command. After the standard/tools split, `bin/ssc` (the
+// standard entry) answers `--backend` with "requires the optional ScalaScript
+// tools/compatibility tier" on stderr and exits — so every cell of this harness
+// silently became `n/a`. Prefer `bin/ssc-tools`, and probe rather than assume
+// (below): a launcher that cannot run `bench --backend` is not a usable ssc here.
+val sscBinCandidates = Seq(s"$root/bin/ssc-tools", s"$root/bin/ssc").map(Paths.get(_))
 val baselineOut = Paths.get(s"$root/bench/BASELINE.md")
 
 // ── arg parsing ───────────────────────────────────────────────────────────────
@@ -46,11 +51,24 @@ val backendFlag: Option[String] =
   if idx >= 0 && idx + 1 < args.length then Some(args(idx + 1))
   else args.collectFirst { case s if s.startsWith("--backend=") => s.stripPrefix("--backend=") }
 
-val backends: Seq[String] = backendFlag match
-  case Some(b)             => Seq(b)
-  case None if v2BackendMode => Seq("v2", "v2-jvm", "v2-rust")
-  case None if v2BytecodeMode => Seq("v2", "v2-bytecode")
-  case None                => Seq("ssc", "ssc-asm", "v2", "jvm", "js", "rust")
+// --backends a,b,c: an explicit comma-separated column set. Needed for
+// cross-tier comparisons the single-backend flag and the two canned v2 modes
+// cannot express (e.g. `ssc,v2,v2-bytecode` — v1 interp vs v2 VM vs v2 bytecode
+// side by side in ONE table, so every row is measured on the same machine state).
+val backendsFlag: Option[Seq[String]] =
+  val idx = args.indexOf("--backends")
+  val raw =
+    if idx >= 0 && idx + 1 < args.length then Some(args(idx + 1))
+    else args.collectFirst { case s if s.startsWith("--backends=") => s.stripPrefix("--backends=") }
+  raw.map(_.split(",").iterator.map(_.trim).filter(_.nonEmpty).toSeq).filter(_.nonEmpty)
+
+val backends: Seq[String] = backendsFlag match
+  case Some(bs) => bs
+  case None => backendFlag match
+    case Some(b)             => Seq(b)
+    case None if v2BackendMode => Seq("v2", "v2-jvm", "v2-rust")
+    case None if v2BytecodeMode => Seq("v2", "v2-bytecode")
+    case None                => Seq("ssc", "ssc-asm", "v2", "jvm", "js", "rust")
 
 // --warmup N / --reps N / --warmup-time N: pass-through to ssc bench (defaults mirror BenchCmd)
 def parseInt2(flag: String, default: Int): Int =
@@ -74,13 +92,14 @@ val warmupTimeMs: Option[Long] =
   else if args.exists(a => a == "--warmup" || a.startsWith("--warmup=")) then None
   else Some(2000L)
 
-// non-flag args that don't belong to --backend/--warmup/--warmup-time/--reps are workload filters
+// non-flag args that don't belong to --backend(s)/--warmup/--warmup-time/--reps are workload filters
 val filterNames: Set[String] =
   val backendVal    = backendFlag.getOrElse("")
+  val backendsVal   = args.indexOf("--backends")    match { case i if i >= 0 && i+1 < args.length => args(i+1); case _ => "" }
   val warmupVal     = args.indexOf("--warmup")      match { case i if i >= 0 && i+1 < args.length => args(i+1); case _ => "" }
   val warmupTimeVal = args.indexOf("--warmup-time") match { case i if i >= 0 && i+1 < args.length => args(i+1); case _ => "" }
   val repsVal       = args.indexOf("--reps")        match { case i if i >= 0 && i+1 < args.length => args(i+1); case _ => "" }
-  args.filterNot(a => a.startsWith("--") || a == backendVal || a == warmupVal || a == warmupTimeVal || a == repsVal).toSet
+  args.filterNot(a => a.startsWith("--") || a == backendVal || a == backendsVal || a == warmupVal || a == warmupTimeVal || a == repsVal).toSet
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -441,13 +460,31 @@ println()
 println("ScalaScript benchmark harness")
 println("=" * 60)
 
-val sscPath = if Files.exists(sscBin) then sscBin.toString
-             else sys.env.getOrElse("SSC", "ssc")
+// Pick the launcher by CAPABILITY, not by existence. `ssc help` exits 0 on the
+// standard tier too, so the old existence check happily selected a launcher that
+// rejects every `--backend` invocation this harness makes. Probe the real thing:
+// `--backend ssc bench --machine` on a trivial program must print a BENCH line.
+def canBench(bin: String): Boolean =
+  val probe = Paths.get(s"$root/bench/corpus/hello-world.ssc")
+  if !Files.exists(probe) then return Process(Seq(bin, "help")).!(ProcessLogger(_ => (), _ => ())) == 0
+  val buf = new java.io.ByteArrayOutputStream
+  val ps  = new java.io.PrintStream(buf, true)
+  try
+    Process(Seq(bin, "--backend", "ssc", "bench", "--machine", "--warmup", "0", "--reps", "1",
+                probe.toAbsolutePath.toString)).!(ProcessLogger(ps.println, _ => ()))
+    buf.toString.linesIterator.exists(_.startsWith("BENCH "))
+  catch case _: Throwable => false
 
-val sscCheck = Process(Seq(sscPath, "help")).!(ProcessLogger(_ => (), _ => ()))
-if sscCheck != 0 then
-  System.err.println(s"[ERROR] ssc not found at $sscPath. Build with `sbt cli/installBin` or set SSC env.")
-  sys.exit(1)
+val sscPath =
+  val fromEnv = sys.env.get("SSC").filter(canBench)
+  val fromBin = sscBinCandidates.filter(p => Files.exists(p)).map(_.toString).find(canBench)
+  fromEnv.orElse(fromBin).getOrElse {
+    val tried = (sys.env.get("SSC").toSeq ++ sscBinCandidates.map(_.toString)).mkString(", ")
+    System.err.println(s"[ERROR] no ssc launcher here can run `bench --backend`. Tried: $tried")
+    System.err.println(s"        `bench` is a TOOLS-tier command — build with `sbt installBin` so bin/ssc-tools exists,")
+    System.err.println(s"        or point SSC= at a launcher that has it.")
+    sys.exit(1)
+  }
 
 val corpusFiles = Files.list(corpusDir).iterator().asScala
   .filter(p => p.toString.endsWith(".ssc"))
@@ -488,6 +525,27 @@ val workloads = corpusFiles.map(_.getName.replaceAll("\\.ssc$", ""))
 val table = formatTable(workloads, byBackend.view.mapValues(_.toMap).toMap)
 println(table)
 println()
+
+// ── dead-lane detector (AGENTS.md "apparatus must COMPARE, never PRE-JUDGE") ──
+// `n/a` is the HONEST signal for a workload a backend genuinely cannot run (rust has
+// no LazyList, js has no LazyList.from). It is a LIE when the backend is broken: on
+// 2026-07-28 `ssc bench --backend v2` had been emitting nothing at all — its wrapper
+// calls System.nanoTime(), which the v2 native lane turned into an unhandled effect —
+// and every v2 sweep since had read as "unsupported" instead of "not measured".
+// A per-workload blank and a WHOLE-LANE blank are structurally different claims, so
+// they must not print the same character. Fail loud on the second one.
+val blanks = backends.map(b => b -> workloads.filter(n => byBackend(b).get(n).flatten.isEmpty))
+val deadLanes = blanks.collect { case (b, miss) if workloads.length >= 2 && miss.length == workloads.length => b }
+for (b, miss) <- blanks if miss.nonEmpty && miss.length < workloads.length do
+  println(s"note: $b produced no measurement for ${miss.length}/${workloads.length} workload(s): ${miss.mkString(", ")}")
+if deadLanes.nonEmpty then
+  System.err.println()
+  for b <- deadLanes do
+    System.err.println(s"[ERROR] backend '$b' produced NO measurement on ANY of the ${workloads.length} workloads.")
+    System.err.println(s"        That is a DEAD LANE, not an unsupported workload — the whole column is unmeasured, not slow.")
+    System.err.println(s"        Reproduce one case directly and read its output:")
+    System.err.println(s"          SSC_BENCH_DEBUG=1 $sscPath --backend $b bench ${corpusFiles.head.getAbsolutePath}")
+  System.exit(1)
 
 if writeBaseline then
   val ts      = java.time.LocalDate.now.toString
