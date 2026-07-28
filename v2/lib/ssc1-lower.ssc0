@@ -1880,11 +1880,106 @@ def wrapDfltBindings = (bindings, body) =>
       Pair("app", Pair(Pair("lam", Pair(Cons(name, Nil), wrapDfltBindings(t, body))),
         Cons(value, Nil))) }
   }
+-- NAMED arguments to a call whose callee has registered defaults (BUGS
+-- `standard-tier-named-arg-skip-default`). `expandDefaultCall` used to bail on any `narg`, and the
+-- label was then simply DROPPED further down (`stripNargs`, "best-effort positional lowering") — so
+-- `f("x", c = "C1")` on `def f(a, b = .., c = .., d = ..)` bound "C1" to **b** and returned
+-- `b=C1 c=C0 d=D0`, silently, at exit 0. Case-class construction already had the correct shape
+-- (`reorderByFieldsD`); plain defs did not.
+--
+-- Bind by NAME, then fill the rest: for each declared param take its named arg if one carries that
+-- label, else the next unconsumed POSITIONAL arg (Scala requires positionals first, and this keeps
+-- the mixed form working), else the registered default. `__nodflt__` in an unfilled slot means the
+-- call is genuinely missing a required argument — bail to the plain path rather than invent one.
+-- Values stay UNRESOLVED here because the caller resolves the whole expansion afterwards
+-- (`resolveE(expanded)`), exactly as the positional path relies on.
+def nargLabelOf = (a) =>
+  match a { case Pair(tag, d) =>
+    if #seq(tag, "narg") then (match d { case Pair(l, v) => l }) else "" }
+def nargPositionals = (args) =>
+  match args {
+    case Nil => Nil
+    case Cons(h, t) =>
+      if #seq(nargLabelOf(h), "") then Cons(h, nargPositionals(t)) else nargPositionals(t)
+  }
+def nargFor = (label, args) =>
+  match args {
+    case Nil => Pair("__none__", Nil)
+    case Cons(h, t) => if #seq(nargLabelOf(h), label) then Pair("__some__", nargVal(h)) else nargFor(label, t)
+  }
+def paramNamed = (nm, params) =>
+  match params { case Nil => false
+    case Cons(p, rest) => if #seq(p, nm) then true else paramNamed(nm, rest) }
+def nargLabelsDeclared = (args, params) =>
+  match args {
+    case Nil => true
+    case Cons(h, t) =>
+      let l = nargLabelOf(h) in
+      if #seq(l, "") then nargLabelsDeclared(t, params)
+      else if paramNamed(l, params) then nargLabelsDeclared(t, params)
+      else false
+  }
+def nargBindings = (params, dflts, pos, args) =>
+  match params {
+    case Nil => Pair("__ok__", Nil)
+    case Cons(p, prest) =>
+      match dflts {
+        case Nil => Pair("__bad__", Nil)
+        case Cons(d, drest) =>
+          match nargFor(p, args) {
+            case Pair(found, v) =>
+              if #seq(found, "__some__") then
+                match nargBindings(prest, drest, pos, args) {
+                  case Pair(st, rest) =>
+                    if #seq(st, "__ok__") then Pair("__ok__", Cons(Pair(p, v), rest)) else Pair("__bad__", Nil) }
+              else
+                match pos {
+                  case Cons(a, posRest) =>
+                    match nargBindings(prest, drest, posRest, args) {
+                      case Pair(st, rest) =>
+                        if #seq(st, "__ok__") then Pair("__ok__", Cons(Pair(p, a), rest)) else Pair("__bad__", Nil) }
+                  case Nil =>
+                    if dfltIsNone(d) then Pair("__bad__", Nil)
+                    else match nargBindings(prest, drest, Nil, args) {
+                      case Pair(st, rest) =>
+                        if #seq(st, "__ok__") then Pair("__ok__", Cons(Pair(p, d), rest)) else Pair("__bad__", Nil) }
+                }
+          }
+      }
+  }
+def expandNamedDefaultCall = (fn, nm, args) =>
+  match dfltRegLookup(nm, #cell.get(funcDefaultsCell)) {
+    case Pair(found, entry) =>
+      if #seq(found, "__none__") then Pair("__none__", Nil)
+      else match entry { case Pair(params, dflts) =>
+        if nargLabelsDeclared(args, params) then
+          match nargBindings(params, dflts, nargPositionals(args), args) {
+            case Pair(status, bindings) =>
+              if #seq(status, "__ok__") then
+                let fullCall = Pair("app", Pair(fn, dfltBindingVars(bindings))) in
+                Pair("__some__", wrapDfltBindings(bindings, fullCall))
+              else Pair("__none__", Nil)
+          }
+        else Pair("__none__", Nil) }
+  }
+-- `O.m(…)` is still a `sel` here — the callee is not mangled to `O_m` until resolveCallee, which runs
+-- AFTER this expansion — so the plain var/uid name lookup misses every object method. The defaults
+-- registry mirrors each member under its `O_`-prefixed name (aliasFuncDefault), so deriving the same
+-- mangled name is enough to find it. Used ONLY on the named-arg branch: the positional path already
+-- reaches object methods by another route, and widening it here could change what it emits.
+def selDfltName = (fn) =>
+  match fn { case Pair(ftag, fdata) =>
+    if #seq(ftag, "sel") then
+      match fdata { case Pair(obj, field) =>
+        match obj { case Pair(otag, odata) =>
+          if #seq(otag, "uid") then #sconcat(odata, #sconcat("_", field)) else "" } }
+    else "" }
 def expandDefaultCall = (fn, args) =>
   let nm = match fn { case Pair(ftag, fdata) =>
     if #seq(ftag, "var") then fdata else if #seq(ftag, "uid") then fdata else "" } in
-  if #seq(nm, "") then Pair("__none__", Nil)
-  else if hasNamedDfltArg(args) then Pair("__none__", Nil)
+  if hasNamedDfltArg(args) then
+    expandNamedDefaultCall(fn, (if #seq(nm, "") then selDfltName(fn) else nm), args)
+  else if #seq(nm, "") then Pair("__none__", Nil)
   else match dfltRegLookup(nm, #cell.get(funcDefaultsCell)) {
     case Pair(found, entry) =>
       if #seq(found, "__none__") then Pair("__none__", Nil)

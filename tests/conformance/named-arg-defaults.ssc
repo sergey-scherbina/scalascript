@@ -1,0 +1,43 @@
+#!/usr/bin/env ssc
+---
+name: named-arg-defaults
+description: a named argument for a defaulted parameter binds BY NAME, and the remaining parameters come from their defaults
+backends: [int, js, jvm]
+---
+
+# Named arguments bind by name, not by position
+
+`BUGS.md` `standard-tier-named-arg-skip-default`. Both self-hosted fronts dropped the label and
+lowered the value positionally, and they did it *differently*: F emitted a short application
+(`ssc: arity: 4 expected, 2 given`, loud) while the legacy front put the value in the **first
+omitted slot** (`b=C1 c=C0 d=D0`, silent, exit 0). The filed report also claimed that naming the
+FIRST defaulted parameter worked — re-measured 2026-07-28, it did not.
+
+Every line below is a shape the fix has to get right, and each one failed differently before it:
+name a middle parameter, name the last, name the first, name two, name two **out of order**, and
+the two shapes that always worked (no named args at all, and a fully positional call) as the guard
+that the ordinary paths were not disturbed.
+
+Object-method named args (`O.m(1, c = 9)`) are deliberately **absent**: the v1 interpreter — which
+is this suite's `int` golden — binds them to the wrong parameter too, so pinning the correct answer
+here would make the case red for the golden's own defect rather than for the compilers'. That
+divergence is filed separately as `v1-interp-object-method-named-arg-wrong-slot`, and the shape is
+covered against the self-hosted oracle in `specs/v2.2-p6.5-fsub.sh` (`narg_objm`).
+
+```scalascript
+def f(a: String, b: String = "B0", c: String = "C0", d: String = "D0"): String =
+  "b=" + b + " c=" + c + " d=" + d
+
+case class P(x: Int, y: Int = 2, z: Int = 3)
+
+println(f("x", c = "C1"))
+println(f("x", d = "D1"))
+println(f("x", b = "B1"))
+println(f("x", c = "C1", d = "D1"))
+println(f("x", d = "D1", b = "B1"))
+println(f("x"))
+println(f("x", "B2", "C2", "D2"))
+println(P(1, z = 9).y)
+println(P(1, z = 9).z)
+println(P(1).z)
+```

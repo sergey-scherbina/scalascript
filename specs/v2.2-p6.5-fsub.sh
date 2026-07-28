@@ -432,6 +432,37 @@ def g(): Int = 3
 println(f())
 println(g())'
 
+# NAMED arguments bound BY NAME, then the rest filled from defaults (BUGS
+# standard-tier-named-arg-skip-default). Both fronts used to get this wrong and get it wrong
+# DIFFERENTLY — F emitted a short app (`arity: 4 expected, 2 given`), the oracle stripped the label
+# and put the value in the first omitted slot — so the pair is what pins the fix on both sides.
+# `narg_first` is in deliberately: the filed report claimed naming the FIRST defaulted param worked,
+# and it did not.
+d narg_mid    'def f(a: String, b: String = "B0", c: String = "C0", d: String = "D0"): String =
+  "b=" + b + " c=" + c + " d=" + d
+println(f("x", c = "C1"))'
+d narg_last   'def f(a: String, b: String = "B0", c: String = "C0", d: String = "D0"): String =
+  "b=" + b + " c=" + c + " d=" + d
+println(f("x", d = "D1"))'
+d narg_first  'def f(a: String, b: String = "B0", c: String = "C0", d: String = "D0"): String =
+  "b=" + b + " c=" + c + " d=" + d
+println(f("x", b = "B1"))'
+d narg_two    'def f(a: String, b: String = "B0", c: String = "C0", d: String = "D0"): String =
+  "b=" + b + " c=" + c + " d=" + d
+println(f("x", c = "C1", d = "D1"))'
+d narg_swap   'def f(a: String, b: String = "B0", c: String = "C0", d: String = "D0"): String =
+  "b=" + b + " c=" + c + " d=" + d
+println(f("x", d = "D1", b = "B1"))'
+d narg_ctor   'case class P(x: Int, y: Int = 2, z: Int = 3)
+def main(): Int = P(1, z = 9).z'
+d narg_objm   'object O:
+  def m(a: Int, b: Int = 5, c: Int = 7): Int = a + b * 10 + c * 100
+def main(): Int = O.m(1, c = 9)'
+d narg_none   'def f(a: String, b: String = "B0", c: String = "C0"): String = "b=" + b + " c=" + c
+println(f("x"))'
+d narg_full   'def f(a: String, b: String = "B0", c: String = "C0"): String = "b=" + b + " c=" + c
+println(f("x", "B2", "C2"))'
+
 if [ "${1:-}" = "--self" ]; then
   echo "--- X1: F compiles its OWN source (TYPED fixpoint) ---"
   # Step 1 -- stage1 = F(F_src). In the TYPED regime this DIVERGES from ssc1-front(F_src) BY DESIGN

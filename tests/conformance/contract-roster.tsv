@@ -1,4 +1,4 @@
-# corpus-contract-roster-v1	baseline-sha256=d73cc059362c1aea218f39029387867af5cdba0477403003e1d528e1a91a62ec	roster-sha256=32ac72784751a47bbb74513542d66299dbe15fb7958c49caaee3732ee2ec678a
+# corpus-contract-roster-v1	baseline-sha256=d73cc059362c1aea218f39029387867af5cdba0477403003e1d528e1a91a62ec	roster-sha256=0ffdb0fd2e3c2a1eddcc68a23a5218edb1a1157c4040b994beac793fa43f8dbd
 _bug1_httpclient
 _bug1b
 _bug1c
@@ -203,6 +203,7 @@ money-multisection
 money-portable-v2
 multi-link-imports
 mutual-recursion
+named-arg-defaults
 nfc-ndef
 node-basic
 node-fs-read

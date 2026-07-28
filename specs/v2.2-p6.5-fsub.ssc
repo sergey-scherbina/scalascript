@@ -599,7 +599,12 @@ def emitMethod(nm, c, args, dq) = "(prim __method__ (lit (str " ++ dq ++ nm ++ d
 // existing parseArgL path unchanged (mg == "" or dfltGo false).
 def postMeth(c, nm, ts, env, cx) = if isCopyNamed(nm, tl(ts)) then parseCopyCall(c, tl(ts), env, cx) else postMethO(c, nm, objMangleName(c, nm, cx), tl(ts), env, cx)
 def objMangleName(c, nm, cx) = if isObjMember(globalNameOf(c), nm, cx) then globalNameOf(c) ++ "_" ++ nm else ""
-def postMethO(c, nm, mg, ts, env, cx) = if objDfltFires(mg, ts, env, cx) then objDfltCall(mg, ts, env, cx) else parseArgL(ts, env, cx) match { case (es, r) => postMethV(c, nm, mg, es, r, env, cx) }
+def postMethO(c, nm, mg, ts, env, cx) = if objDfltFires(mg, ts, env, cx) then objDfltCall(mg, ts, env, cx) else postMethN(c, nm, mg, ts, env, cx)
+// A NAMED arg to an object method takes the same by-name binding as a plain def (see nargGo);
+// without it `O.m(1, c = 9)` stripped the label and emitted a 2-arg app of the 3-param `O_m`.
+def postMethN(c, nm, mg, ts, env, cx) = if objNargFires(mg, ts, env, cx) then objNargCall(mg, ts, env, cx) else parseArgL(ts, env, cx) match { case (es, r) => postMethV(c, nm, mg, es, r, env, cx) }
+def objNargFires(mg, ts, env, cx) = if mg == "" then false else nargGo(mg, fst(scanArgs(ts)), env, cx)
+def objNargCall(mg, ts, env, cx) = scanArgs(ts) match { case (slices, rest) => (nargCall(mg, slices, env, cx), rest) }
 def objDfltFires(mg, ts, env, cx) = if mg == "" then false else dfltGo(mg, fst(scanArgs(ts)), env, cx)
 def objDfltCall(mg, ts, env, cx) = scanArgs(ts) match { case (slices, rest) => (synthCall(mg, dfltEntryPd(mg, cx), slices, env, cx), rest) }
 // E2c: an APPLIED object-method call `O.m(a, ..)` where `def m(.., xs: T*)` is a VARARG member (last
@@ -803,7 +808,8 @@ def parseCtorArgs(nm, ts, env, cx) = if nm == "List" then parseListLit(ts, env, 
 // call-site default synthesis as a def call — the innermost fullCall `(app (global Name) ..)` is exactly
 // ctorApp's non-builtin form. Under-applied + defaults → nested lambdas; else the plain ctorApp path.
 def parseCtorGen(nm, ts, env, cx) = parseCtorGenS(nm, scanArgs(ts), ts, env, cx)
-def parseCtorGenS(nm, scan, ts, env, cx) = scan match { case (slices, rest) => if dfltGo(nm, slices, env, cx) then (synthCall(nm, dfltEntryPd(nm, cx), slices, env, cx), rest) else parseCtorPlain(nm, ts, env, cx) }
+def parseCtorGenS(nm, scan, ts, env, cx) = scan match { case (slices, rest) => if dfltGo(nm, slices, env, cx) then (synthCall(nm, dfltEntryPd(nm, cx), slices, env, cx), rest) else parseCtorGenN(nm, slices, ts, rest, env, cx) }
+def parseCtorGenN(nm, slices, ts, rest, env, cx) = if nargGo(nm, slices, env, cx) then (nargCall(nm, slices, env, cx), rest) else parseCtorPlain(nm, ts, env, cx)
 def parseCtorPlain(nm, ts, env, cx) = parseArgs(ts, env, cx) match { case (args, r) => (ctorApp(nm, args, cx), r) }
 def parseListLit(ts, env, cx) = parseArgL(ts, env, cx) match { case (es, r) => (consChain(es), r) }
 // `Array(a, b, ..)` is a MUTABLE ArrayBuffer (ssc1-lower :2098): (app (global _arr_fill) <Cons-chain>).
@@ -889,7 +895,8 @@ def parseVarOrCallG(nm, ts, env, cx) = if isTok(hd(ts), 2, 21) then parseCall(nm
 // defaults seeing earlier params (oracle ssc1-lower expandDefaultCall :1883 → resolveE). `greet()` →
 // `(app (lam 1 (app (lam 1 (app (global greet) (local 1) (local 0))) <d1>)) <d0>)`. Otherwise the plain path.
 def parseCall(nm, ts, env, cx) = parseCallS(nm, scanArgs(ts), ts, env, cx)
-def parseCallS(nm, scan, ts, env, cx) = scan match { case (slices, rest) => if dfltGo(nm, slices, env, cx) then (synthCall(nm, dfltEntryPd(nm, cx), slices, env, cx), rest) else parseCallPlain(nm, ts, env, cx) }
+def parseCallS(nm, scan, ts, env, cx) = scan match { case (slices, rest) => if dfltGo(nm, slices, env, cx) then (synthCall(nm, dfltEntryPd(nm, cx), slices, env, cx), rest) else parseCallN(nm, slices, ts, rest, env, cx) }
+def parseCallN(nm, slices, ts, rest, env, cx) = if nargGo(nm, slices, env, cx) then (nargCall(nm, slices, env, cx), rest) else parseCallPlain(nm, ts, env, cx)
 def parseCallPlain(nm, ts, env, cx) = if hasUsingSig(nm, cx) then parseCallU(nm, ts, env, cx) else parseArgs(ts, env, cx) match { case (args, r) => (emitCallR(nm, calleeOf(nm, env, cx), args, cx), r) }
 // G4: a using-sig call collects args as a LIST so the count + first-arg type are recoverable. An explicit
 // `(using x)` second clause merges positionally (no injection); otherwise inject one given per using TC.
@@ -908,6 +915,39 @@ def dropL(n, xs) = if n <= 0 then xs else (xs match { case Nil => Nil case h :: 
 def takeL(n, xs) = if n <= 0 then Nil else (xs match { case Nil => Nil case h :: t => Cons(h, takeL(n - 1, t)) })
 def anyNamedSlice(slices) = slices match { case Nil => false case h :: t => if isNamedSlice(h) then true else anyNamedSlice(t) }
 def isNamedSlice(s) = if isEmpty(s) then false else (if fst(hd(s)) == 1 then (if isEmpty(tl(s)) then false else isTok(hd(tl(s)), 2, 20)) else false)
+// ── NAMED arguments to a defaulted def/ctor (BUGS standard-tier-named-arg-skip-default) ────────────
+// `dfltGo2` bails on `anyNamedSlice`, and parseArgExpr then STRIPS the label and lowers the value
+// POSITIONALLY — so `f("x", c = "C1")` on a 4-param def emitted a 2-arg app and died with
+// `arity: 4 expected, 2 given`. (The legacy oracle keeps the label but its lowerer bails too, and the
+// value silently lands in the FIRST omitted slot: `b=C1 c=C0 d=D0`. Same missing feature, one loud
+// and one silent.) A named arg has to be bound BY NAME and the remaining params filled from defaults.
+//
+// This is a SEPARATE decision from `dfltGo` on purpose: the enum-case path (`parseEnumCaseAppD`)
+// consumes a positional COUNT (`dropL(nprov, …)`), which a reordered call would falsify — leaving
+// `dfltGo` alone keeps that path byte-identical.
+//
+// assignSlots turns the call's slices into ONE SLOT PER PARAM, in param order: a named slice whose
+// label matches the param, else the next unconsumed positional slice, else the EMPTY slice, which
+// synthW1 reads as "evaluate this param's default". An empty slice is unambiguous — scanArgs never
+// produces an empty slice for an argument that is actually there.
+def nargGo(nm, slices, env, cx) = if lookup(nm, env) >= 0 then false else nargGoR(dfltEntryOf(nm, cx), slices)
+def nargGoR(entry, slices) = entry match { case (found, pd) => if found == "__some__" then nargGo2(pd, slices) else false }
+def nargGo2(pd, slices) = if anyNamedSlice(slices) then nargGo3(pd, slices) else false
+// Fire only when every label names a real param AND every unfilled param has a default — otherwise
+// fall through to the plain path, which keeps today's (wrong but unchanged) behaviour rather than
+// emitting something new for a call this cannot express.
+def nargGo3(pd, slices) = if allLabelsKnown(slices, pd) then slotsOk(assignSlots(pd, posSlices(slices), slices), pd) else false
+def allLabelsKnown(slices, pd) = slices match { case Nil => true case h :: t => if isNamedSlice(h) then (if pdHas(snd(hd(h)), pd) then allLabelsKnown(t, pd) else false) else allLabelsKnown(t, pd) }
+def pdHas(nm, pd) = pd match { case Nil => false case h :: t => if fst(h) == nm then true else pdHas(nm, t) }
+def slotsOk(slots, pd) = slots match { case Nil => true case s :: srest => pd match { case Nil => true case h :: prest => if isEmpty(s) then (if isEmpty(snd(h)) then false else slotsOk(srest, prest)) else slotsOk(srest, prest) } }
+def posSlices(slices) = slices match { case Nil => Nil case h :: t => if isNamedSlice(h) then posSlices(t) else Cons(h, posSlices(t)) }
+def namedSliceFor(pnm, slices) = slices match { case Nil => Nil case h :: t => if isNamedSlice(h) then (if snd(hd(h)) == pnm then h else namedSliceFor(pnm, t)) else namedSliceFor(pnm, t) }
+def assignSlots(pd, pos, slices) = pd match { case Nil => Nil case h :: t => assignSlot(fst(h), pos, slices) match { case (slot, pos2) => Cons(slot, assignSlots(t, pos2, slices)) } }
+def assignSlot(pnm, pos, slices) = assignSlot2(namedSliceFor(pnm, slices), pos)
+def assignSlot2(s, pos) = if isEmpty(s) then nextPos(pos) else (s, pos)
+def nextPos(pos) = pos match { case Nil => (Nil, Nil) case h :: t => (h, t) }
+def nargCall(nm, slices, env, cx) = nargCallP(nm, dfltEntryPd(nm, cx), slices, env, cx)
+def nargCallP(nm, pd, slices, env, cx) = synthCall(nm, pd, assignSlots(pd, posSlices(slices), slices), env, cx)
 // scanArgs (ts AFTER the `(`): -> ([argTokenSlice..], restAfterClose). Non-emitting; each slice is captured
 // to its top-level `,`/`)`. Byte-equivalent boundaries to parseArgs so the plain-path fallback is unchanged.
 def scanArgs(ts) = if isTok(hd(ts), 2, 22) then (Nil, tl(ts)) else scanArgsGo(ts)
@@ -923,7 +963,12 @@ def pdDflts(pd) = pd match { case Nil => Nil case h :: t => Cons(snd(h), pdDflts
 def fullCallStr(nm, k) = "(app (global " ++ nm ++ ")" ++ localsDown(k - 1) ++ ")"
 def localsDown(i) = if i < 0 then "" else " (local " ++ i ++ ")" ++ localsDown(i - 1)
 def synthWrap(nm, params, dflts, args, env, cx, full) = params match { case Nil => full case p :: prest => dflts match { case d :: drest => synthW1(nm, p, prest, d, drest, args, env, cx, full) } }
-def synthW1(nm, p, prest, d, drest, args, env, cx, full) = args match { case a :: arest => synthWE(nm, erase(fst(parseArgExpr(a, env, cx)), cx), p, prest, drest, arest, env, cx, full) case Nil => synthWE(nm, erase(fst(parseExpr(d, 0, env, cx)), cx), p, prest, drest, Nil, env, cx, full) }
+// An EMPTY slice means "this param was skipped — evaluate its default", which is what lets a MIDDLE
+// param be omitted by a named call (`f("x", d = "D1")`). scanArgs never yields an empty slice for an
+// argument that is present, so the marker cannot collide with a real one; a trailing-omission call
+// still arrives as a SHORT list and takes the `case Nil` arm exactly as before.
+def synthW1(nm, p, prest, d, drest, args, env, cx, full) = args match { case a :: arest => synthWA(nm, isEmpty(a), a, p, prest, d, drest, arest, env, cx, full) case Nil => synthWE(nm, erase(fst(parseExpr(d, 0, env, cx)), cx), p, prest, drest, Nil, env, cx, full) }
+def synthWA(nm, skipped, a, p, prest, d, drest, arest, env, cx, full) = if skipped then synthWE(nm, erase(fst(parseExpr(d, 0, env, cx)), cx), p, prest, drest, arest, env, cx, full) else synthWE(nm, erase(fst(parseArgExpr(a, env, cx)), cx), p, prest, drest, arest, env, cx, full)
 def synthWE(nm, vx, p, prest, drest, args, env, cx, full) = "(app (lam 1 " ++ synthWrap(nm, prest, drest, args, p :: env, cx, full) ++ ") " ++ vx ++ ")"
 // A bare `println()` (no args) special-cases to `(prim io.println (lit (str "")))` (ssc1-lower :2659-2662),
 // NOT `(app (global println))`. Any-arg println and every other nullary call keep the plain app form.

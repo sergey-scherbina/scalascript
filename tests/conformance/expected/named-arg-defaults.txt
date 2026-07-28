@@ -1,0 +1,10 @@
+b=B0 c=C1 d=D0
+b=B0 c=C0 d=D1
+b=B1 c=C0 d=D0
+b=B0 c=C1 d=D1
+b=B1 c=C0 d=D1
+b=B0 c=C0 d=D0
+b=B2 c=C2 d=D2
+2
+9
+3
