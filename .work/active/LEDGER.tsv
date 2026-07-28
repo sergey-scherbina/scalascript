@@ -1,3 +1,2 @@
-# generation: 198
+# generation: 199
 #slug	agent	started	items	paths
-claim-mutex-conflict-opaque	claude-code	2026-07-28T11:22:28Z	claim-mutex-control-conflict-in-ci	tests/coord/claim-mutex-conflict.sh
