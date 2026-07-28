@@ -1,0 +1,14 @@
+slug: corpus-contract-refresh-0728
+branch: feature/corpus-contract-refresh-0728
+agent: claude-code
+started: 2026-07-28T14:30:52Z
+heartbeat: 2026-07-28T14:30:52Z
+status: in-progress
+items: corpus-contract-refresh-freeze-0728
+paths: tests/conformance/corpus-baseline.tsv tests/conformance/contract-roster.tsv
+scope: |
+  Make the nightly Corpus Contract report a verdict again: classify the new cases, judge the
+  rozum-agent-streaming v2 FAIL->DIVERGE status change, then one full --update-baseline run.
+  See SPRINT "the last two red gates". NOT taking the F4 half: its F sources are held by the
+  LIVE v2-front-for-yield claim.
+next: reproduce baseline-sha256 first (compare-first), then classify, then refresh
