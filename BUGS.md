@@ -2489,7 +2489,12 @@ an owner decision rather than a patch.
 
 ## coroutine-demo-js-not-callable — the coroutine demo dies on the v1 JS backend
 
-**Status:** OPEN — **diagnosed to the line 2026-07-27 by opus**, fix blocked on territory (the v1 JS
+**Status:** **FIXED 2026-07-28** (`js-not-callable-unit`) — three layers: the extern shim shadowed
+`route`'s working implementation, `serveAsync` was implemented but unpublished, and
+`coroutineCancel` had no JS implementation at all. `examples/coroutine-demo.ssc` is now
+byte-identical on INT, JS and v2. Original report:
+
+**Was:** OPEN — **diagnosed to the line 2026-07-27 by opus**, fix blocked on territory (the v1 JS
 backend is inside `v1/runtime/**`, held by `corpus-gate-remaining-reds`).
 
 **Cause.** `not callable: ()` is `_show(undefined)`: an `extern def` whose JS binding resolved to
