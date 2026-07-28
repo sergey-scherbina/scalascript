@@ -1,0 +1,11 @@
+slug: host-ram-guard-in-repo
+branch: feature/host-ram-guard-in-repo
+agent: claude-code
+started: 2026-07-28T10:50:19Z
+heartbeat: 2026-07-28T10:50:19Z
+status: claimed-before-planning
+items: jvm-mem-guard-reads-the-wrong-signal launchd-build-agents-drift-from-the-repo HRG-0 HRG-1 HRG-2 HRG-3
+paths: scripts/build-ram-guard scripts/build-guards-install scripts/launchd tests/e2e/build-ram-guard docs/build-performance.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
