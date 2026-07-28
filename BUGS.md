@@ -1,8 +1,28 @@
 # Bug tracker
 
-## ssc1-front-annotation-before-case-class — an annotated top-level `case class` is `_err` on the legacy front
+## ssc1-front-annotation-before-declaration — an annotation on its own line is `_err` on the legacy front
 
-**Status:** OPEN (found 2026-07-28 by `v2-cluster-a-localize`). **Three corpus cases, one cause** —
+
+**Status:** **FIXED 2026-07-28** by `ssc1-front-annotation-case-class` (`3afe7fe7b`). The `@` branch
+of `parseOneStmt` skipped `@Name(args)` but not the statement separator the newline produces, so it
+then looked at a `;` instead of the annotated declaration. One extra `skipSemis`.
+
+**Renamed** from `…-before-case-class`: measured, `@inline` before a `def` failed identically, so it
+was never specific to `case class`.
+
+**Gate: `tests/e2e/ssc1-front-annotation.sh`, deliberately NOT a conformance case.** A conformance
+case was written first and thrown away after measuring it: it is green on the V2 lane **with and
+without** the fix, because that lane runs F and F never had this gap. A gate that cannot
+distinguish the two states is not a gate. The e2e asserts on the legacy front directly and greps
+the lowered IR for `_err`; A/B'd at 4-of-5 FAIL against the unfixed front and 5-of-5 ok with it,
+with the always-working same-line spelling green in both states so a fix cannot trade one for the
+other.
+
+**Result on the three cases:** no more `_err`. They now fail later at
+`unbound global: JsonCodec_derived` / `ObjectCodec_derived` — cluster B (typeddata, `backend: jvm`
+examples deriving from HOST Scala typeclasses), which is out of scope by design. The corpus
+contract on all three is GREEN.
+
 `graph-storage`, `graph-codecs`, `typed-object-codec`, all listed in `bugs-v2.md` cluster A as "a
 top-level construct emitted directly AFTER the Mirror block — not yet reduced to a minimal repro".
 It is not the Mirror block: it is the annotation.
