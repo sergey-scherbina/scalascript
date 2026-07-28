@@ -4973,23 +4973,28 @@ def executeDeleteCounted(dbBytes: ByteSlice, stmt: DeleteStmt): Either[String, (
         case Left(error) => Left(error.message)
         case Right(cursor) => collectRows(db, cursor) match
           case Left(error) => Left(error.message)
-          case Right(rows) => matchingRowids(db, rows, stmt.where, colNames, stmt.table) match
-            case Left(message) => Left(message)
-            case Right(victims) =>
-              val changed = listLenLong(victims)
-              if victims.isEmpty then Right((dbBytes, changed))
-              else
-                val infos = tableIndexInfos(db, stmt.table, colNames)
-                if infos.isEmpty then
-                  deleteRowidLoop(openMutablePager(dbBytes, pageSize, pageSize), root, victims, pageSize) match
+          case Right(rawRows) =>
+            // SQLite stores an INTEGER PRIMARY KEY field as NULL in the record; its logical value
+            // is the B-tree rowid. Correlated `table.ipk` and ordinary IPK predicates must bind that
+            // logical value, while an indexed rebuild should retain the original physical records.
+            val rows = ipkNormalizeRows(rawRows, tableIpkIndex(db, stmt.table))
+            matchingRowids(db, rows, stmt.where, colNames, stmt.table) match
+              case Left(message) => Left(message)
+              case Right(victims) =>
+                val changed = listLenLong(victims)
+                if victims.isEmpty then Right((dbBytes, changed))
+                else
+                  val infos = tableIndexInfos(db, stmt.table, colNames)
+                  if infos.isEmpty then
+                    deleteRowidLoop(openMutablePager(dbBytes, pageSize, pageSize), root, victims, pageSize) match
+                      case Left(message) => Left(message)
+                      case Right(pager) => mutableCommit(pager, 1L) match
+                        case Left(error) => Left(error.message)
+                        case Right(pc) => Right((pc.pager.image, changed))
+                  else if countTables(db) != 1 then Left("index maintenance on a multi-table database is not yet supported")
+                  else reindexTable(dbBytes, db, stmt.table, keepSqlRows(rawRows, colNames.length, victims), infos) match
                     case Left(message) => Left(message)
-                    case Right(pager) => mutableCommit(pager, 1L) match
-                      case Left(error) => Left(error.message)
-                      case Right(pc) => Right((pc.pager.image, changed))
-                else if countTables(db) != 1 then Left("index maintenance on a multi-table database is not yet supported")
-                else reindexTable(dbBytes, db, stmt.table, keepSqlRows(rows, colNames.length, victims), infos) match
-                  case Left(message) => Left(message)
-                  case Right(image) => Right((image, changed))
+                    case Right(image) => Right((image, changed))
 
 def executeDelete(dbBytes: ByteSlice, stmt: DeleteStmt): Either[String, ByteSlice] =
   executeDeleteCounted(dbBytes, stmt) match
