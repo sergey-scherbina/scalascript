@@ -1,5 +1,29 @@
 # Bug tracker
 
+## scljet-live-dml-does-not-reclaim-pages — SQL DELETE/UPDATE bypass reclaiming deletion
+
+**Status:** OPEN (found 2026-07-28 during SPRINT `SC-2a.1`;
+reporter: Codex production-completion audit; baseline `b6967a79f`).
+
+**Real-harness reproduction.** The INT and JS lanes of
+`tests/conformance/run.sh --only 'scljet-sql-live-reclaim' --no-memo` both
+produce freelist count 0 for a 512-byte, 24-row split tree after
+`DELETE FROM t WHERE id <= 20`; the direct `pagerDeleteRebalanced` fixture
+produces 10 and preserves rows 21 through 24. The same live baseline performs
+`UPDATE t SET v = v WHERE id <= 20` without exposing any reclaimed page.
+
+**Root cause / impact.** `deleteRowidLoop` and the delete phase of
+`applyUpdates` call `pagerDeleteBalanced`, which rewrites emptied leaves in
+place and never invokes the already-implemented underflow merge/freelist path.
+Long-running live SQL workloads therefore retain empty B-tree pages and cannot
+feed later free-page reuse.
+
+**Fix acceptance.** Route both live paths through a fail-closed
+`pagerDeleteRebalanced`; require the permanent INT+JS gate to observe
+DELETE pages/header/root/freelist `14/14/5/10`, exact survivors and change
+counts, plus an UPDATE reclaim result. Land strict staged-freelist validation
+before enabling the live helper.
+
 ## uniml-yaml-property-lexical-boundaries — tag/anchor delimiters are guessed without parser context
 
 **Status:** OPEN (found 2026-07-28 during the UPR-2a.2 corpus and grammar audit;
