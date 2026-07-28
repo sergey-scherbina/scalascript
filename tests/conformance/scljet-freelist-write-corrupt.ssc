@@ -14,7 +14,7 @@ graph size, trunk structure, duplication, unsupported file modes, and a caller
 page-size mismatch. The final positive case performs two reclaim batches before
 commit and proves read-your-writes.
 
-[ByteSlice, byteSliceCopyTo, byteSliceUpdated, writeU32Be, readU32Be, ByteRead, SqliteValue, SqlInteger, SqlText, buildTableDatabase, MutablePager, openMutablePager, mutableGet, mutablePut, pagerDeleteRebalanced](std/scljet/index.ssc)
+[ByteSlice, byteSliceCopyTo, byteSliceUpdated, writeU16Be, writeU32Be, readU32Be, ByteRead, lockBytePageNumber, SqliteValue, SqlInteger, SqlText, buildTableDatabase, MutablePager, openMutablePager, mutableGet, mutablePut, pagerDeleteRebalanced](std/scljet/index.ssc)
 
 ```scalascript
 def rowText(rowid: Int): String =
@@ -42,6 +42,9 @@ def copyAt(target: ByteSlice, offset: Int, source: ByteSlice): ByteSlice =
 def putU32(target: ByteSlice, offset: Int, value: Long): ByteSlice =
   copyAt(target, offset, writeU32Be(value))
 
+def putU16(target: ByteSlice, offset: Int, value: Long): ByteSlice =
+  copyAt(target, offset, writeU16Be(value))
+
 def putByte(target: ByteSlice, offset: Int, value: Int): ByteSlice =
   byteSliceUpdated(target, offset, value) match
     case Right(bytes) => bytes
@@ -61,6 +64,10 @@ def withHeaderByte(pager: MutablePager, offset: Int, value: Int): MutablePager =
 
 def withHeaderU32(pager: MutablePager, offset: Int, value: Long): MutablePager =
   mutablePut(pager, 1, putU32(pageAt(pager, 1), offset, value))
+
+def withPageCountTrust(pager: MutablePager, pages: Long, change: Long, validFor: Long): MutablePager =
+  val page1 = putU32(putU32(putU32(pageAt(pager, 1), 24, change), 28, pages), 92, validFor)
+  mutablePut(pager, 1, page1)
 
 def putLeaves(page: ByteSlice, leaves: List[Int]): ByteSlice =
   var remaining = leaves
@@ -88,6 +95,11 @@ def reject(label: String, pager: MutablePager, suppliedPageSize: Int): Unit =
       println(label + "=left stable=" + stable.toString)
     case Right(_) => println(label + "=RIGHT")
 
+def accept(label: String, pager: MutablePager): Unit =
+  pagerDeleteRebalanced(pager, 2, 999999L, 512) match
+    case Left(error) => println(label + "=ERROR:" + error.message)
+    case Right(_) => println(label + "=right")
+
 def deleteRange(pager: MutablePager, lo: Int, hi: Int): Either[String, MutablePager] =
   var current = pager
   var rowid = lo
@@ -106,6 +118,73 @@ def stagedCount(pager: MutablePager): Long =
     case Right(ByteRead(value, _)) => value
     case Left(_) => -1L
 
+def listHas(items: List[Int], wanted: Int): Boolean =
+  var remaining = items
+  var found = false
+  while remaining.nonEmpty && !found do
+    if remaining.head == wanted then found = true
+    remaining = remaining.tail
+  found
+
+def stagedFreePages(pager: MutablePager): List[Int] =
+  var trunk = readU32Be(pageAt(pager, 1), 32) match
+    case Right(ByteRead(value, _)) => value.toInt
+    case Left(_) => 0
+  var reversed: List[Int] = Nil
+  var guard = 0
+  while trunk != 0 && guard < 64 do
+    reversed = trunk :: reversed
+    val bytes = pageAt(pager, trunk)
+    val leaves = readU32Be(bytes, 4) match
+      case Right(ByteRead(value, _)) => value.toInt
+      case Left(_) => 0
+    var index = 0
+    while index < leaves do
+      readU32Be(bytes, 8 + index * 4) match
+        case Right(ByteRead(value, _)) => reversed = value.toInt :: reversed
+        case Left(_) => reversed = reversed
+      index = index + 1
+    trunk = readU32Be(bytes, 0) match
+      case Right(ByteRead(value, _)) => value.toInt
+      case Left(_) => 0
+    guard = guard + 1
+  reversed.reverse
+
+def firstNewPage(before: List[Int], after: List[Int]): Int =
+  var remaining = after
+  var found = 0
+  while remaining.nonEmpty && found == 0 do
+    if !listHas(before, remaining.head) then found = remaining.head
+    remaining = remaining.tail
+  found
+
+def poisonFutureFree(after20: MutablePager, after23: MutablePager): Option[MutablePager] =
+  val candidate = firstNewPage(stagedFreePages(after20), stagedFreePages(after23))
+  if candidate == 0 then None
+  else
+    val header = pageAt(after20, 1)
+    val head = readU32Be(header, 32) match
+      case Right(ByteRead(value, _)) => value.toInt
+      case Left(_) => 0
+    val count = stagedCount(after20)
+    val oldTrunk = pageAt(after20, head)
+    val leafCount = readU32Be(oldTrunk, 4) match
+      case Right(ByteRead(value, _)) => value.toInt
+      case Left(_) => 0
+    val newTrunk = putU32(putU32(oldTrunk, 4, (leafCount + 1).toLong),
+      8 + leafCount * 4, candidate.toLong)
+    val withLeaf = mutablePut(after20, head, newTrunk)
+    Some(mutablePut(withLeaf, 1, putU32(pageAt(withLeaf, 1), 36, count + 1L)))
+
+def rejectDeleteRange(label: String, pager: MutablePager): Unit =
+  val beforeImage = pager.image.toString
+  val beforePending = pager.pending.toString
+  deleteRange(pager, 21, 23) match
+    case Left(_) =>
+      val stable = pager.image.toString == beforeImage && pager.pending.toString == beforePending
+      println(label + "=left stable=" + stable.toString)
+    case Right(_) => println(label + "=RIGHT")
+
 buildTableDatabase(512, 1, 1, "t",
   "CREATE TABLE t(id INTEGER, v TEXT)", mkRows(24)) match
   case Left(error) => println("build-error=" + error.message)
@@ -113,6 +192,7 @@ buildTableDatabase(512, 1, 1, "t",
     val base = openMutablePager(image, 512, 512)
     reject("count-without-head", withHeader(base, 0L, 1L), 512)
     reject("head-without-count", withHeader(base, 14L, 0L), 512)
+    reject("short-staged-header", mutablePut(base, 1, zeroBytes(39)), 512)
     reject("head-out-of-range", withHeader(base, 15L, 1L), 512)
     reject("count-beyond-image", withHeader(base, 14L, 15L), 512)
 
@@ -124,6 +204,9 @@ buildTableDatabase(512, 1, 1, "t",
 
     val zeroLeaf = withTrunk(withHeader(base, 14L, 2L), 14, 0L, List(0))
     reject("zero-leaf", zeroLeaf, 512)
+
+    val outOfRangeLeaf = withTrunk(withHeader(base, 14L, 2L), 14, 0L, List(15))
+    reject("leaf-out-of-range", outOfRangeLeaf, 512)
 
     val cycle = withTrunk(withHeader(base, 14L, 1L), 14, 14L, Nil)
     reject("trunk-cycle", cycle, 512)
@@ -142,13 +225,38 @@ buildTableDatabase(512, 1, 1, "t",
     reject("short-staged-trunk", shortTrunk, 512)
 
     reject("page-one-head", withHeader(base, 1L, 1L), 512)
+
+    val lockPage = lockBytePageNumber(512).toInt
+    val sparseImage = ByteSlice(image.chunks, image.start, lockPage * 512)
+    val sparse = openMutablePager(putU32(sparseImage, 28, lockPage.toLong), 512, 512)
+    reject("lock-byte-page", withHeader(sparse, lockPage.toLong, 1L), 512)
+
     reject("reserved-bytes", withHeaderByte(base, 20, 1), 512)
     reject("auto-vacuum", withHeaderU32(base, 52, 1L), 512)
+    reject("incremental-vacuum", withHeaderU32(base, 64, 1L), 512)
+    reject("encoded-page-size", mutablePut(base, 1, putU16(pageAt(base, 1), 16, 1024L)), 512)
     reject("page-size-mismatch", base, 1024)
+
+    accept("untrusted-page-count", withPageCountTrust(base, 15L, 7L, 8L))
+    reject("trusted-count-over-capacity", withPageCountTrust(base, 15L, 7L, 7L), 512)
+    val stagedPage15 = mutablePut(base, 15, zeroBytes(512))
+    accept("trusted-staged-capacity", withPageCountTrust(stagedPage15, 15L, 7L, 7L))
 
     deleteRange(base, 1, 20) match
       case Left(message) => println("valid-staged=ERROR:" + message)
-      case Right(first) => deleteRange(first, 21, 22) match
+      case Right(first) => deleteRange(first, 21, 23) match
         case Left(message) => println("valid-staged=ERROR:" + message)
-        case Right(second) => println("valid-staged=right count=" + stagedCount(second).toString)
+        case Right(second) =>
+          println("valid-staged=right count=" + stagedCount(second).toString)
+          poisonFutureFree(first, second) match
+            case None => println("newly-freed-overlap=SETUP")
+            case Some(poisoned) => rejectDeleteRange("newly-freed-overlap", poisoned)
+
+    buildTableDatabase(512, 1, 1, "small",
+      "CREATE TABLE small(id INTEGER, v TEXT)",
+      List(List(SqlInteger(1L), SqlText("one")))) match
+      case Left(error) => println("root-leaf=BUILD:" + error.message)
+      case Right(smallImage) =>
+        val small = withHeader(openMutablePager(smallImage, 512, 512), 0L, 1L)
+        reject("root-leaf-head-count", small, 512)
 ```
