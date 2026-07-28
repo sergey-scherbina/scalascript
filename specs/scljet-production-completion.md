@@ -205,31 +205,33 @@ persisted queries, verifies expected index names, and requires
 `PRAGMA integrity_check = ok`. The live result is SC-1b 5/5 plus SC-1c 2/2,
 or 7/7 for the complete suite.
 
-The capability remains `subset`. Nested correlated scopes, correlated DML,
-subqueries in ON/HAVING/projection/ORDER, bare outer references and aliases,
-complete unknown-column resolution, and compiled/cached preparation remain
-open; the current validator reparses a typed-NULL form against the current
-transaction image rather than producing the full SC-4a prepared plan.
+The capability remains `subset`. Subqueries in
+ON/HAVING/projection/ORDER, bare outer references and aliases, complete
+recursive prepare-time scope/unknown-column resolution, and compiled/cached
+preparation remain open; the current validator reparses a typed-NULL form
+against the current transaction image rather than producing the full SC-4a
+prepared plan.
 
-Correlated DML closes as its own SC-1b follow-up. UPDATE and DELETE must use
-the same database-aware TRUE/FALSE/UNKNOWN plus explicit-error evaluation as
-SELECT, bind the mutation target as the outer table, and derive both the write
-set and `changes()` from one selected-rowid result. EXISTS, IN, and scalar
-forms must each affect the SQLite-3.51.0-pinned row, while a missing or
-malformed inner SELECT remains an error for empty outer input and for a
-short-circuited rowid miss. The compare-first
-`scljet-correlated-dml` gate must pass on INT and JS before this follow-up is
-closed.
+Correlated DML landed in `eaf238408`, with canonical physical-NULL-IPK DELETE
+normalization in `b24c785a0`. UPDATE and DELETE use the same database-aware
+TRUE/FALSE/UNKNOWN plus explicit-error evaluation as SELECT, bind the mutation
+target as the outer table, and derive both the write set and `changes()` from
+one selected-rowid result. EXISTS, IN, and scalar forms each affect the
+SQLite-3.51.0-pinned row, while a missing or malformed inner SELECT remains an
+error for empty outer input and for a short-circuited rowid miss. The
+fourteen-line compare-first `scljet-correlated-dml` gate passes on INT and JS,
+including a record whose INTEGER PRIMARY KEY field is physically NULL.
 
-Nested correlated scopes close as a separate SC-1b follow-up. A table declared
-by an inner SELECT shadows an equally named outer binding only within that
-SELECT scope, while a differently named inner query may still reference a
-visible grandparent table. Correlation detection and exact-value substitution
-must therefore walk a scope stack rather than applying one flat immediate-table
-set to every nested token. `scljet-sql-correlated-join` contains both the
-same-name shadowing failure and a legitimate grandparent-correlation control;
-both must pass on INT and JS. Alias support remains SC-8 grammar work and must
-not be conflated with scope resolution.
+Nested correlated scope closure landed in `3d971e8d8`. A table declared by an
+inner SELECT shadows an equally named outer binding only within that SELECT
+scope, while a differently named inner query may still reference a visible
+grandparent table. Correlation detection and exact-value substitution now walk
+an accumulated per-branch scope stack rather than applying one flat
+immediate-table set to every nested token. The twelve-line
+`scljet-sql-correlated-join` gate passes on INT and JS; EXISTS cases exercise
+substitution and IN cases directly exercise scoped correlation detection.
+Alias support remains SC-8 grammar work and is not conflated with scope
+resolution.
 
 Portable SC-1c landed in `f36f951ba`. SQL now reuses the physical index
 comparator instead of converting INTEGER values to binary64 or collapsing
@@ -237,7 +239,7 @@ same-class BLOB values. The SQLite-3.51.0-pinned
 `scljet-sql-value-compare` gate passes on INT and JS across relational
 filtering, mixed INTEGER/REAL signed-64 and 2^53 boundaries, bytewise BLOB
 equality/order, ORDER BY, DISTINCT, GROUP BY, two-table JOIN, and indexed
-predicates. The post-change `scljet-sql-* --no-memo` sweep is 56/56. The
+predicates. The post-change `scljet-sql-* --no-memo` sweep is 57/57. The
 live test from `3f5d8f6c1` additionally compares exact signed-64/2^53
 INTEGER/REAL boundaries and bytewise BLOB equality/order through unindexed and
 persisted-index paths, including aggregate, DISTINCT, JOIN, and ordering

@@ -1268,10 +1268,10 @@ multi-table, and error-phase behavior against Xerial sqlite-jdbc 3.45.3.0
 missing-table cases during prepare with the same semantic category; persisted
 queries and integrity also pass after an Xerial reopen. The complete live split
 is SC-1b 5/5 plus SC-1c 2/2. Status remains FIXED until reporter confirmation.
-The broader capability remains `subset`: nested correlated scopes, correlated
-DML, subqueries in ON/HAVING/projection/ORDER, bare outer references and
-aliases, full unknown-column resolution, and compiled/cached preparation are
-not yet complete.
+The broader capability remains `subset`: subqueries in
+ON/HAVING/projection/ORDER, bare outer references and aliases, complete
+recursive prepare-time scope/unknown-column resolution, and compiled/cached
+preparation are not yet complete.
 
 ## scljet-correlated-subquery-join-where-unsupported — joined outer rows bypass correlated evaluation
 
@@ -1295,11 +1295,13 @@ would be another partial implementation.
 
 **Fix:** `71d8a6f0e` replaces the Boolean joined filter with a shared
 `Either[String, Int]` condition path, binds every visible outer table, preserves
-LEFT/RIGHT NULL-extension, and applies direct inner-table shadowing. The
-eight-line `scljet-sql-correlated-join` oracle passes on INT and JS across
-single-, two-, and N-table contexts. The live differential adds nine named
-outcomes, preserves prepare/bind/execute phase plus semantic error category,
-and still passes Xerial reopen and integrity checks.
+LEFT/RIGHT NULL-extension, and applies direct inner-table shadowing. The later
+nested-scope closure expands `scljet-sql-correlated-join` to a twelve-line
+oracle; it passes on INT and JS across single-, two-, and N-table contexts,
+immediate and nested shadowing, and legitimate grandparent correlation. The
+live differential adds nine named outcomes, preserves prepare/bind/execute
+phase plus semantic error category, and still passes Xerial reopen and
+integrity checks.
 
 ## scljet-correlated-subquery-errors-swallowed — NOT turns subquery execution failure into TRUE
 
@@ -1353,9 +1355,10 @@ larger preparation contract.
 
 ## scljet-correlated-dml-predicates-ignored — UPDATE/DELETE turn correlated predicates into no-op
 
-**Status:** OPEN (found 2026-07-28 by `scljet-production-completion`;
+**Status:** FIXED (found 2026-07-28 by `scljet-production-completion`;
 reproduced from `71d19c6ef` in the real conformance harness on INT and emitted
-JS/Node, with successful outcomes pinned independently from SQLite 3.51.0).
+JS/Node, with successful outcomes pinned independently from SQLite 3.51.0;
+fixed in `eaf238408` and `b24c785a0`).
 
 **Real-harness reproduction.** The fail-first `scljet-correlated-dml` gate
 executes UPDATE and DELETE with correlated EXISTS, IN, and scalar predicates.
@@ -1375,12 +1378,22 @@ without the outer row. The mutation and affected-row-count paths must share one
 database-aware selection result; otherwise a fix to the write path alone would
 still return a false JDBC update count.
 
+**Fix:** `eaf238408` makes UPDATE targets visible to correlation detection,
+selects mutation rowids through the shared database-aware error channel, and
+feeds that one list to DELETE, both UPDATE branches, and `changes()`.
+`b24c785a0` additionally materializes a physical-NULL INTEGER PRIMARY KEY from
+the B-tree rowid before DELETE predicate binding while preserving raw records
+for indexed rebuilds. The fourteen-line `scljet-correlated-dml` oracle passes
+on INT and JS across UPDATE/DELETE × EXISTS/IN/scalar, missing/malformed
+preflight on empty and missed scans, affected-row counts, and a canonical
+physical-NULL-IPK delete.
+
 ## scljet-correlated-nested-same-name-shadowing — nested local table is replaced by outer binding
 
-**Status:** OPEN (found 2026-07-28 by independent
+**Status:** FIXED (found 2026-07-28 by independent
 `scljet-production-completion` review; reproduced from `71d19c6ef` through the
 assembled v1 harness on INT and emitted JS/Node, and compared with both SQLite
-CLI 3.51.0 and Xerial's embedded SQLite 3.45.3).
+CLI 3.51.0 and Xerial's embedded SQLite 3.45.3; fixed in `3d971e8d8`).
 
 **Real-harness reproduction.** With outer `t` rows whose `v` values are
 `1,999,2` and a non-empty `s`, run:
@@ -1398,6 +1411,14 @@ therefore mistaken for the grandparent binding. Resolution must track each
 SELECT scope recursively: blindly skipping all nested tokens would hide the
 bug but break legitimate grandparent correlation. Alias parsing is a separate,
 already declared open grammar capability and is not evidence for this defect.
+
+**Fix:** `3d971e8d8` recursively accumulates table names along each SELECT
+scope, applies the shadow set independently to sibling branches, and rebuilds
+nested token groups after exact outer-value substitution. The expanded
+twelve-line `scljet-sql-correlated-join` gate passes on INT and JS. Its EXISTS
+cases cover runtime substitution; its IN cases force correlation detection
+through the scoped walker. Same-name locals return all reference rows while
+the deliberately correlated grandparent controls retain their narrower result.
 
 ## scljet-sql-double-equals-parser-gap — WHERE rejects SQLite's `==` equality alias
 
