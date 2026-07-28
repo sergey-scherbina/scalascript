@@ -1,0 +1,107 @@
+---
+name: scljet-correlated-dml
+description: Correlated EXISTS, IN, and scalar predicates drive UPDATE/DELETE rows, counts, and errors
+backends: [int, js]
+---
+
+# SclJet correlated DML
+
+The successful outcomes and affected-row counts are pinned from SQLite 3.51.0.
+UPDATE and DELETE must evaluate a correlated EXISTS, IN, or scalar subquery
+against each candidate outer row. Invalid correlated subqueries remain errors
+when the outer table is empty or an earlier predicate rejects every row.
+
+[ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[executeMutation, executeMutationCounted, queryImage](std/scljet/sql.ssc)
+
+```scalascript
+def showValue(value: SqliteValue): String = value match
+  case SqlNull => "NULL"
+  case SqlInteger(x) => x.toString
+  case SqlText(x) => x
+  case _ => "?"
+
+def showRow(row: List[SqliteValue]): String = row match
+  case Nil => ""
+  case h :: Nil => showValue(h)
+  case h :: t => showValue(h) + "|" + showRow(t)
+
+def showRows(rows: List[List[SqliteValue]]): String = rows match
+  case Nil => "<empty>"
+  case h :: Nil => showRow(h)
+  case h :: t => showRow(h) + ";" + showRows(t)
+
+def mutate(db: ByteSlice, sql: String): ByteSlice =
+  executeMutation(db, sql) match
+    case Left(message) =>
+      println("setup=ERROR:" + message)
+      db
+    case Right(next) => next
+
+def counted(db: ByteSlice, label: String, sql: String): ByteSlice =
+  executeMutationCounted(db, sql) match
+    case Left(message) =>
+      println(label + "=ERROR:" + message)
+      db
+    case Right(result) =>
+      println(label + "=CHANGES:" + result.changes.toString)
+      result.image
+
+def dump(db: ByteSlice, label: String, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(message) => println(label + "=ERROR:" + message)
+    case Right(rows) => println(label + "=" + showRows(rows))
+
+val rows = List(
+  List(SqlInteger(1L), SqlInteger(10L), SqlText("a")),
+  List(SqlInteger(2L), SqlInteger(20L), SqlText("b")),
+  List(SqlInteger(3L), SqlInteger(30L), SqlText("c")),
+  List(SqlInteger(4L), SqlInteger(40L), SqlText("d")),
+  List(SqlInteger(5L), SqlInteger(50L), SqlText("e")),
+  List(SqlInteger(6L), SqlInteger(60L), SqlText("f"))
+)
+
+buildTableDatabase(512, 1, 1, "t",
+  "CREATE TABLE t(id INTEGER PRIMARY KEY, v INTEGER, note TEXT)", rows) match
+  case Left(error) => println("build=ERROR:" + error.message)
+  case Right(db0) =>
+    val db1 = mutate(db0, "CREATE TABLE s(owner INTEGER, x INTEGER)")
+    val db2 = mutate(db1,
+      "INSERT INTO s VALUES (1,10),(2,20),(3,30),(4,40),(5,50),(6,60)")
+
+    val db3 = counted(db2, "update-exists",
+      "UPDATE t SET note='exists' WHERE id=1 AND " +
+      "EXISTS (SELECT x FROM s WHERE owner=t.id AND x=t.v)")
+    val db4 = counted(db3, "update-in",
+      "UPDATE t SET note='in' WHERE id=2 AND " +
+      "v IN (SELECT x FROM s WHERE owner=t.id)")
+    val db5 = counted(db4, "update-scalar",
+      "UPDATE t SET note='scalar' WHERE id=3 AND " +
+      "v=(SELECT x FROM s WHERE owner=t.id)")
+    val db6 = counted(db5, "delete-exists",
+      "DELETE FROM t WHERE id=4 AND " +
+      "EXISTS (SELECT x FROM s WHERE owner=t.id AND x=t.v)")
+    val db7 = counted(db6, "delete-in",
+      "DELETE FROM t WHERE id=5 AND " +
+      "v IN (SELECT x FROM s WHERE owner=t.id)")
+    val db8 = counted(db7, "delete-scalar",
+      "DELETE FROM t WHERE id=6 AND " +
+      "v=(SELECT x FROM s WHERE owner=t.id)")
+    dump(db8, "rows-after-dml", "SELECT id,note FROM t ORDER BY id")
+
+    val db9 = counted(db8, "delete-missing",
+      "DELETE FROM t WHERE NOT EXISTS " +
+      "(SELECT x FROM missing WHERE missing.x=t.v)")
+    val db10 = counted(db9, "update-malformed",
+      "UPDATE t SET note='bad' WHERE EXISTS " +
+      "(SELECT , x FROM s WHERE owner=t.id)")
+    val db11 = mutate(db10,
+      "CREATE TABLE empty_outer(id INTEGER PRIMARY KEY, v INTEGER)")
+    val db12 = counted(db11, "empty-delete-missing",
+      "DELETE FROM empty_outer WHERE EXISTS " +
+      "(SELECT x FROM missing WHERE missing.x=empty_outer.v)")
+    val db13 = counted(db12, "miss-delete-missing",
+      "DELETE FROM t WHERE id=999 AND EXISTS " +
+      "(SELECT x FROM missing WHERE missing.x=t.v)")
+    dump(db13, "rows-after-errors", "SELECT id,note FROM t ORDER BY id")
+```
