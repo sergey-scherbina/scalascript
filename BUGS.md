@@ -1351,6 +1351,30 @@ cached prepared plan: unknown-column and nested-scope resolution remain
 partial, and execution still reparses the current image. SC-4a owns that
 larger preparation contract.
 
+## scljet-correlated-dml-predicates-ignored — UPDATE/DELETE turn correlated predicates into no-op
+
+**Status:** OPEN (found 2026-07-28 by `scljet-production-completion`;
+reproduced from `71d19c6ef` in the real conformance harness on INT and emitted
+JS/Node, with successful outcomes pinned independently from SQLite 3.51.0).
+
+**Real-harness reproduction.** The fail-first `scljet-correlated-dml` gate
+executes UPDATE and DELETE with correlated EXISTS, IN, and scalar predicates.
+All six statements should affect one row and report `changes=1`; both SclJet
+backends report `changes=0` and leave all rows unchanged. Missing-table and
+malformed subqueries should fail even for an empty outer table or an earlier
+`id=999` miss; all four cases instead return successful `changes=0`.
+
+**Root cause.** SELECT filtering now uses the database-aware
+`Either[String, Int]` correlated condition pipeline, but mutation selection
+still goes through Boolean `whereHolds` in `matchingRowids`,
+`buildUpdateEdits`, `updatedSqlRows`, and `matchedRowCount`. Those paths have
+neither an outer table binding nor an error channel. In addition,
+`resolveSubqueries` discovers depth-zero FROM/JOIN tables but not an UPDATE
+target, so correlated IN/scalar UPDATE subqueries can be prematurely evaluated
+without the outer row. The mutation and affected-row-count paths must share one
+database-aware selection result; otherwise a fix to the write path alone would
+still return a false JDBC update count.
+
 ## scljet-sql-double-equals-parser-gap — WHERE rejects SQLite's `==` equality alias
 
 **Status:** OPEN (found 2026-07-28 by `scljet-production-completion`;

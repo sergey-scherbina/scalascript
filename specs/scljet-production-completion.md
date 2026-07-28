@@ -211,6 +211,16 @@ complete unknown-column resolution, and compiled/cached preparation remain
 open; the current validator reparses a typed-NULL form against the current
 transaction image rather than producing the full SC-4a prepared plan.
 
+Correlated DML closes as its own SC-1b follow-up. UPDATE and DELETE must use
+the same database-aware TRUE/FALSE/UNKNOWN plus explicit-error evaluation as
+SELECT, bind the mutation target as the outer table, and derive both the write
+set and `changes()` from one selected-rowid result. EXISTS, IN, and scalar
+forms must each affect the SQLite-3.51.0-pinned row, while a missing or
+malformed inner SELECT remains an error for empty outer input and for a
+short-circuited rowid miss. The compare-first
+`scljet-correlated-dml` gate must pass on INT and JS before this follow-up is
+closed.
+
 Portable SC-1c landed in `f36f951ba`. SQL now reuses the physical index
 comparator instead of converting INTEGER values to binary64 or collapsing
 same-class BLOB values. The SQLite-3.51.0-pinned
