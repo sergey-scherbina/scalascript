@@ -40,8 +40,47 @@ object RunNativeV2:
         Thread.currentThread().interrupt()
         System.exit(1)
 
+  /** What the F-vs-legacy decision was for the last `compile` call.
+    *
+    *  Exists so `ssc info --front-report` can ASK for the decision instead of scraping it back out
+    *  of stderr. Measuring F's real coverage by running every corpus file and grepping the log cost
+    *  ~50 minutes for 330 files — a JVM start and a full program execution per file, to learn one
+    *  thing the compiler already knew before it executed anything.
+    *
+    *  A plain `var` because `compile` is already single-threaded-by-construction: it mutates
+    *  `ssc.Emit.globalsRef`. Do NOT parallelise `frontReport` in-process for the same reason —
+    *  parallelise across PROCESSES (see the note there). */
+  private[cli] final case class FrontDecision(kind: String, reason: String)
+  private[cli] var lastFrontDecision: FrontDecision = FrontDecision("F", "")
+
   private[cli] def compile(files: List[String]): NativeV2Compilation =
     compile(files, mutable = false)
+
+  /** One line per file: `<path>\t<F|GAP|BOTH-UNBOUND|ERROR>\t<reason>`.
+    *
+    *  Performs the front decision and STOPS — no execution, no JVM restart per file. That is the
+    *  whole speedup: the corpus census went from ~50 minutes to the cost of lowering alone, and the
+    *  slow tail (cases that start servers or sleep) disappears entirely because their bodies never
+    *  run.
+    *
+    *  Deliberately SEQUENTIAL. `compile` mutates global compiler state, so running files
+    *  concurrently in one JVM would race. Parallelise by splitting the file list across several
+    *  invocations — `xargs -P 8 -n 40 bin/ssc info --front-report` — which is safe and gets the rest
+    *  of the way. */
+  private[cli] def frontReport(args: List[String]): Unit =
+    val files = args.filter(a => !a.startsWith("--"))
+    files.foreach { file =>
+      lastFrontDecision = FrontDecision("F", "")
+      val decision =
+        try
+          compile(List(file))
+          lastFrontDecision
+        catch
+          case e: Throwable =>
+            val m = Option(e.getMessage).map(_.linesIterator.next()).getOrElse(e.getClass.getName)
+            FrontDecision("ERROR", m)
+      println(s"$file\t${decision.kind}\t${decision.reason}")
+    }
 
   private[cli] def compile(files: List[String], mutable: Boolean): NativeV2Compilation =
     val layout = nativeFrontLayout()
@@ -141,10 +180,13 @@ object RunNativeV2:
                 false
               catch case _: Throwable => true
             if !userErrorNotGap then
+              lastFrontDecision = FrontDecision("GAP", fFailure)
               val why = if fFailure.isEmpty then "" else s" [$fFailure]"
               System.err.println(
                 s"$FDelegationMarker ${sourceFiles.mkString(", ")}$why")
-            else if sys.env.contains("SSC_FRONT_TRACE") then
+            else
+              lastFrontDecision = FrontDecision("BOTH-UNBOUND", fFailure)
+            if userErrorNotGap && sys.env.contains("SSC_FRONT_TRACE") then
               // Still a delegation — double lowering, F's output discarded — just not F's fault.
               // Traced with its reason so the two categories can be counted separately; a plugin
               // `extern def` lands here, because BOTH fronts emit it as an unbound global.

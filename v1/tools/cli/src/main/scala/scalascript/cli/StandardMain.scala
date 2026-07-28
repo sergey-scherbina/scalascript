@@ -24,6 +24,9 @@ object StandardMain:
     case "run" :: rest                     => runNative(rest)
     case "build-jvm" :: rest               => NativeJvmArtifact.runCommand(rest)
     case "info" :: "--execution-plan" :: rest => printExecutionPlan(rest)
+    // Front decision only, no execution. Answers "did F actually compile this?" for a whole corpus
+    // without running any of it — see RunNativeV2.frontReport.
+    case "info" :: "--front-report" :: rest   => RunNativeV2.frontReport(rest)
     case file :: rest if file.endsWith(".ssc") => runNative(file :: rest)
     case Nil =>
       printHelp()
@@ -88,6 +91,7 @@ object StandardMain:
         |  ssc run [--native] [--bytecode] file.ssc [more.ssc ...] -- [args ...]
         |  ssc build-jvm file.ssc [more.ssc ...] -o app.jar
         |  ssc info --execution-plan [--bytecode]
+        |  ssc info --front-report file.ssc [more.ssc ...]
         |
         |The standard tier uses the self-hosted frontend/checker and v2 VM or
         |direct ASM. Legacy compiler-backed commands use the optional ssc-tools
