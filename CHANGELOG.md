@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-07-28 — scljet accepts SQLite's `==` equality alias
+
+`SELECT id FROM t WHERE v == 2` returned `QUERY-ERROR:expected an expression operand`. The SQL
+tokenizer emitted one token per `=` character, so `==` arrived as two `=` tokens — while
+`isCompareOp` and `compareValue` both already handled the string `"=="`, unreachably. Normalized
+in the tokenizer, which puts the alias into every path at once (scalar, WHERE/HAVING/ON,
+correlated scalar, index range) rather than teaching each one a second spelling; only adjacent
+characters merge, so `a = = b` stays the error it should be.
+
+New `tests/conformance/scljet-sql-double-equals.ssc` runs each query twice, once per spelling, on
+a scanned table and on an indexed one.
+
 ## 2026-07-28 — a failing native program now says what failed
 
 `bin/ssc run` is the default product command, so its uncaught-error output is the first thing a

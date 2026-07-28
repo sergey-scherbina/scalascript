@@ -2134,6 +2134,32 @@ the deliberately correlated grandparent controls retain their narrower result.
 
 ## scljet-sql-double-equals-parser-gap — WHERE rejects SQLite's `==` equality alias
 
+**Status: FIXED 2026-07-28** by `scljet-sql-double-equals`. Normalized in the TOKENIZER.
+
+**It was a LEXER gap, not a parser one — and that changes where the fix belongs.** `scljet/sql.ssc`
+emitted one token per `=` CHARACTER (`c == 61`), so `==` became TWO `=` tokens and the parser saw
+`v = = 2` -> `expected an expression operand`. The two places that already knew the alias —
+`isCompareOp` (:869) accepting the string `"=="`, and `compareValue` (:1376) normalizing it — were
+therefore UNREACHABLE. That is exactly the "internally inconsistent accepted operator set" the
+original report named: the handling existed, the token never did.
+
+**Fix.** `=` immediately followed by `=` consumes both characters and emits a single `=` token.
+Normalizing at the tokenizer is what gets the alias into every downstream path at once — scalar,
+WHERE/HAVING/ON, correlated scalar and index range. Emitting a `"=="` token instead would have
+fixed the scan path and silently left the INDEXED one behind, because `isSargOp` (:2401) and the
+index-range mapper (:4134) accept only `"="`. Only ADJACENT characters merge, so the fail-closed
+cases hold: `a = = b` with a space is still an error, and so are `!==` and `<==`.
+
+**Fail-first, measured** by reverting only `scljet/sql.ssc` and rebuilding: exactly the six `==`
+probes fail with the reported error, and every `=` / `<>` / `!=` / spaced line is byte-identical
+before and after — the case isolates the alias and nothing else.
+
+**Regression** `tests/conformance/scljet-sql-double-equals.ssc` runs each query TWICE, once per
+spelling, on a scanned table AND on an indexed one, and pins the spaced form as an error. INT + JS
+green; rostered with the baseline digest reproduced before the new `roster-sha256` was written.
+
+### Original report (kept for context)
+
 **Status:** OPEN (found 2026-07-28 by `scljet-production-completion`;
 reproduced on assembled `bin/lib/ssc.jar` from `b63206552` through
 `bin/ssc-tools run --v1`).
