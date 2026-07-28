@@ -2,10 +2,10 @@ slug: ir-fence-attrs-carry
 branch: feature/ir-fence-attrs-carry
 agent: opus
 started: 2026-07-28T02:28:14Z
-heartbeat: 2026-07-28T02:29:26Z
+heartbeat: 2026-07-28T02:32:24Z
 status: claimed-before-planning
 items: ir-normalize-drops-code-fence-attrs
-paths: v1/lang/ir/src/main/scala/scalascript/ir/Ir.scala v1/lang/core/src/main/scala/scalascript/transform/Normalize.scala v1/lang/core/src/main/scala/scalascript/transform/Denormalize.scala v1/lang/core/src/main/scala/scalascript/validate/CapabilityCheck.scala v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/InterpreterBackend.scala v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustGen.scala
+paths: v1/lang/ir/src/main/scala/scalascript/ir/Ir.scala v1/lang/core/src/main/scala/scalascript/transform/Normalize.scala v1/lang/core/src/main/scala/scalascript/transform/Denormalize.scala v1/lang/core/src/main/scala/scalascript/validate/CapabilityCheck.scala v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/InterpreterBackend.scala v1/runtime/backend/rust/src/main/scala/scalascript/codegen/rust/RustGen.scala v1/lang/core/src/test/scala/scalascript/transform/NormalizeRoundTripTest.scala
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
