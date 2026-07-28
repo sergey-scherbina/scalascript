@@ -2004,16 +2004,7 @@ def valItem1(nm, ts, cx) = parseExpr(ts, 0, Nil, cx) match { case (init, rest) =
 def exprItem(ts, cx) = parseExpr(ts, 0, Nil, cx) match { case (e, rest) => (("", erase(e, cx)), rest) }
 def walkTop(ts, cx) = walkTop0(skipSemisF(ts), cx)
 def walkTop0(ts, cx) = if isEmpty(ts) then (("", ""), 0) else walkTopStep(parseTopItem(ts, cx), cx)
-// Per-block auto-output (BUGS.md v2-native-multiblock-auto-output-missing). The native runner joins
-// every code fence into ONE source before the lexer runs, so "which statement ended a block" only
-// survives as the `__sscBlockEnd__` sentinel it emits after each fence. Consume it HERE, where the
-// item in front of it has just been parsed: the (def, entry) split parseTopItem already returns
-// means a DEFINITION has e == "" and is therefore never wrapped -- v1's rule, for free. Unit-ness
-// is a runtime property, so the Unit test lives in `__sscAuto__`, not in this decision.
-def isBlockEndHead(ts) = isWord(hd(ts), "__sscBlockEnd__")
-def autoWrapEntry(parts) = parts match { case (d, e) => (d, if e == "" then "" else "(app (global __sscAuto__) " ++ e ++ ")") }
-def walkTopStep(pr, cx) = pr match { case (parts, rest) => walkTopStep2(parts, skipSemisF(rest), cx) }
-def walkTopStep2(parts, rest, cx) = if isBlockEndHead(rest) then walkTopJoin(autoWrapEntry(parts), walkTop(tl(rest), cx)) else walkTopJoin(parts, walkTop(rest, cx))
+def walkTopStep(pr, cx) = pr match { case (parts, rest) => walkTopJoin(parts, walkTop(rest, cx)) }
 def walkTopJoin(parts, acc) = parts match { case (d, e) => acc match { case (accStrs, n) => walkTopJoin2(d, e, accStrs, n) } }
 def walkTopJoin2(d, e, accStrs, n) = accStrs match { case (dA, eA) => ((join2(d, dA), join2(e, eA)), if e == "" then n else n + 1) }
 def emitCCDecl(ts, cx) = collectCC1(tl(tl(ts))) match { case c :: r => (emitCC(c, cx), skipCCHead(tl(tl(ts)))) case _ => ("", Nil) }

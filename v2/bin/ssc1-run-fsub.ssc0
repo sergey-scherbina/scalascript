@@ -181,10 +181,7 @@ def sscFenceSource = (lang, source, heading, sqlIndex, firstSqlInSection) =>
   -- `@doc` marks a DOCUMENTATION block: parsed like any other, never lowered into the
   -- program (specs/ssc-doc-blocks.md). Checked before `isCode` so it wins for every tag.
   if fenceHasFlag(lang, "doc") then ""
-  -- Per-block auto-output (BUGS.md v2-native-multiblock-auto-output-missing): the block
-  -- boundary dies in the join below, so mark it while it still exists. F consumes the
-  -- sentinel in walkTop and wraps the statement in front of it -- see `__sscAuto__`.
-  else if isCode then #sconcat(source, "\n__sscBlockEnd__")
+  else if isCode then source
   else if #seq(token, "yaml") then
     #sconcat("val __yaml_", #sconcat(heading,
       #sconcat(" = __yamlSection__(", #sconcat(sscQuoteYamlString(source), ")"))))
@@ -749,11 +746,6 @@ def sscNativeArgs = (args) =>
 -- F splices into its output (P6.6b escape-free design), built via #sfromCodes so this driver has no
 -- `"`-in-a-string.
 def sscFsubSrcCell = #cell.new("")
-def sscAutoHelperSrc =
-  #sconcat("def __sscAuto__(x: Any): Unit =\n",
-  #sconcat("  x match\n",
-  #sconcat("    case _: Unit => ()\n",
-          "    case _ => println(x)\n\n")))
 def sscConcatSources = (paths) =>
   match paths {
     case Nil => ""
@@ -924,11 +916,7 @@ def main = () =>
           -- ran `A.ssc B.ssc` as B-then-A; concatenating orderedPaths preserves positional
           -- order while keeping imported modules' top-level val inits ahead of the root's
           -- bare expressions. `seen` still carries the dedup set for the content projection.
-          -- Prepend the per-block auto-output helper the `__sscBlockEnd__` sentinels resolve
-          -- to. Unit-ness is a RUNTIME property, exactly as in v1's `autoOutput`, so the test
-          -- is a type-ascription pattern rather than anything the front could decide.
-          -- `println` (not the debug renderer) is deliberate: it is what v1 prints.
-          let userSrc = #sconcat(sscAutoHelperSrc, sscConcatSources(orderedPaths)) in
+          let userSrc = sscConcatSources(orderedPaths) in
           let ir = sscFsubIr(userSrc) in
           if #cell.get(sscStructuralCell) then
             NativeCompilation(ir, sscParseFrontmatters(paths), sscParseContents(reverse(seen), paths), paths)

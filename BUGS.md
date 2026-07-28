@@ -1,5 +1,48 @@
 # Bug tracker
 
+## js-v2-unit-pattern-does-not-match-and-unit-literal-pattern-crashes — two Unit-pattern defects on the v2 JS codegen
+
+**Status:** OPEN (found 2026-07-28 by `v2-multiblock-auto-output`; the first one is what made a
+per-block auto-output attempt emit a bare `()` and get caught by the corpus as
+`deep-tail-recursion FAIL [JS/v2]`).
+
+**Reproduce** — one file, `bin/ssc-tools run-js --v2`:
+
+```scalascript
+def viaAscription(x: Any): String = x match
+  case _: Unit => "UNIT"
+  case _ => "OTHER"
+def viaLiteral(x: Any): String = x match
+  case () => "UNIT"
+  case _ => "OTHER"
+println("ascription-unit: " + viaAscription(println("")))
+println("literal-unit:    " + viaLiteral(println("")))
+```
+
+| pattern | native (VM/ASM) | JS/v2 |
+|---|---|---|
+| `case _: Unit =>` | `UNIT` | **`OTHER`** |
+| `case () =>` | `OTHER` | **crash** |
+
+**(a) `case _: Unit` does not match the unit value.** Native is the correct lane here — its
+`__isTag__` maps `UnitV` to the `"Unit"` tag deliberately. JS/v2 answers `OTHER`, so any code that
+discriminates on Unit silently takes the wrong branch instead of failing.
+
+**(b) `case ()` throws instead of not matching.** The emitted JS is
+
+```js
+$d_viaLiteral = function($t215){ … var $t217=$t216; switch($t217.t){ case "Tuple0":{ return "UNIT";} default:{return "OTHER";} } … };
+```
+
+and the unit value is `null` on this lane, so `$t217.t` throws
+`TypeError: Cannot read properties of null (reading 't')`. A pattern match must never crash on a
+value it simply does not match — the `switch` needs a null/unit guard before the `.t` read.
+
+**Related.** `v2-native-case-unit-pattern-matches-where-int-does-not` is the same question on the
+INT lane (INT also fails to match). Native is correct on all three comparisons; the two codegens
+disagree with it in different ways.
+
+
 ## v2-native-program-tail-quotes-strings — a program whose value is a String prints it with quotes
 
 **Status:** OPEN (found 2026-07-28 by `v2-multiblock-auto-output` while designing the per-block
@@ -6200,38 +6243,61 @@ real release installer behind a fake downloader/java: it proves the generated so
 **Status:** OPEN, still reproducing 2026-07-28. Found 2026-07-17 by `ci-red-main` after correcting
 the all-examples tools-command routing.
 
-**PARTIAL FIX 2026-07-28 by `v2-multiblock-auto-output` — the general case works; ONE sub-case
-remains.** Per-block auto-output now works on the native lane: the runner marks each code fence's
-end with a `__sscBlockEnd__` sentinel, F consumes it in `walkTop` and wraps the statement in front
-of it in `__sscAuto__`, and the runner prepends that helper. Gate
-`tests/conformance/multiblock-auto-output.ssc` is green on all four lanes, and the three
-auto-output blocks of `examples/content.ssc`, extracted on their own, are byte-identical to v1.
+**ATTEMPTED AND REVERTED 2026-07-28 by `v2-multiblock-auto-output` — the obvious design is
+DISPROVEN, and the constraint it fails is the useful part.** The implementation worked on the two
+lanes I first measured and was caught by the corpus on a third. Recording it so the next attempt
+starts from the real constraint rather than rediscovering it a fourth time.
 
-**The residual, measured to a 6-line repro: an auto-output block placed BEFORE a `render(...)`
-block still loses its value.** Order is the whole discriminator:
+**What was built.** The runner marks each code fence's end with a `__sscBlockEnd__` sentinel; F
+consumes it in `walkTop` and wraps the statement in front of it in a helper; the runner prepends
+that helper. This part is CORRECT and worth keeping: the `(def, entry)` split `parseTopItem`
+already returns means a definition has `e == ""` and is never wrapped, which is v1's rule for free,
+and the F self-fixpoint held (`specs/v2.2-p6.5-fsub.sh --self` 173 ok / 0 FAIL, stage1 == stage2
+byte-identical at 416,921 B vs a 416,071 B baseline).
 
-```
-block 1: println("explicit-before")   block 1: render(doc("=== X ===", "body"))
-         1 + 1                        block 2: 1 + 1
-block 2: render(doc("=== X ===", "body"))
-```
+**Why it was reverted.** Unit-ness is a runtime property, so the helper needs a runtime Unit test —
+and **no source-level Unit test is portable across the lanes that consume F's output.** Measured
+directly, one probe, two forms:
+
+| Unit test in `.ssc` source | native (VM/ASM) | JS/v2 codegen |
+|---|---|---|
+| `case _: Unit =>` | matches — correct | **does not match** |
+| `case () =>` | **does not match** | **crashes**: `TypeError: Cannot read properties of null (reading 't')` |
+
+So on JS/v2 the helper fell through to `println` and emitted a bare `()`. The corpus found it as
+`deep-tail-recursion FAIL [JS/v2] line 4: expected=<missing> got=()` — a lane I had not probed,
+which is exactly why the full corpus run happened before the push and why this never landed.
+
+**The constraint for the next attempt.** The auto-output decision must be a **primitive implemented
+per backend**, not a helper written in `.ssc`: F emits something like `(prim __autoOutput__ e)` and
+each consumer of F's IR implements it — `v2/src/Runtime.scala` for the VM and ASM lanes, and the
+v2 JS codegen for `JS/v2`. That is a cross-backend change and materially bigger than the runner+F
+edit above; it needs a claim covering `v2/src` and `v2/backend/js`, which
+`v2-multiblock-auto-output` did not have.
+
+**Two JS/v2 defects fell out of the same probe** and are worth their own entries if someone works
+that lane: `case _: Unit` does not match the unit value, and `case ()` compiles to a `switch` on
+`$t.t` against a `null` receiver and throws instead of not-matching.
+
+**The residual sub-case, still true and separately measured:** an auto-output block placed BEFORE a
+`render(...)` block loses its value while render-first matches v1 exactly (6-line repro below), so
+whatever fixes the Unit test still has this second thing to answer. `examples/content.ssc` is that
+shape.
+
+**Legacy runner deliberately not in scope.** `v2/bin/ssc1-run.ssc0` parses each file to statements
+rather than handing one source string to F, so a sentinel there would become an unbound identifier
+statement in the legacy front. F is the default lane.
+
+**The 6-line residual repro.** Order is the whole discriminator:
 
 | program | native | v1 |
 |---|---|---|
-| auto-output THEN render | `explicit-before`, `=== X ===`, `body` | `explicit-before`, **`2`**, `=== X ===`, `body` |
-| render THEN auto-output | `=== X ===`, `body`, `2` | `=== X ===`, `body`, `2` — **identical** |
+| block1 `println("explicit-before")` + `1 + 1`, block2 `render(doc("=== X ===", "body"))` | `explicit-before`, `=== X ===`, `body` | `explicit-before`, **`2`**, `=== X ===`, `body` |
+| block1 `render(...)`, block2 `1 + 1` | `=== X ===`, `body`, `2` | identical |
 
-So the wrapping itself is fine (the render-first program matches v1 exactly); something on the
-content/`render` path drops entry items that precede it. An explicit `println` in the same block
-SURVIVES, so it is the auto-output item specifically, not the block. `examples/content.ssc` is
-exactly this shape, which is why it still differs from v1 by those three lines. Next step is
-`entryItems3`/`nItems3` in `specs/v2.2-p6.5-fsub.ssc` and the `sscParseContents` projection in
-`v2/bin/ssc1-run-fsub.ssc0` — not the wrap, which is proven correct by the render-first case.
-
-**Legacy runner deliberately NOT changed.** `v2/bin/ssc1-run.ssc0` has a different downstream
-architecture (it parses each file to statements rather than handing one source string to F), so a
-sentinel there would become an unbound identifier statement in the legacy front. F is the default;
-the legacy path keeps today's behaviour.
+An explicit `println` in the same block SURVIVES, so it is the auto-output item specifically.
+Next step there is `entryItems3`/`nItems3` in `specs/v2.2-p6.5-fsub.ssc` and the `sscParseContents`
+projection in `v2/bin/ssc1-run-fsub.ssc0`.
 
 **SHARPER DIAGNOSIS 2026-07-28 (`v2-multiblock-auto-output`) — the machinery is not missing, it is
 per-PROGRAM instead of per-BLOCK.** The framing below ("omits all three") sends the reader looking
