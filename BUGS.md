@@ -1,5 +1,69 @@
 # Bug tracker
 
+## v2-native-program-tail-quotes-strings — a program whose value is a String prints it with quotes
+
+**Status:** OPEN (found 2026-07-28 by `v2-multiblock-auto-output` while designing the per-block
+auto-output fix). Two lines, no imports:
+
+```scalascript
+val s = "HELLO!"
+s
+```
+
+| lane | output |
+|---|---|
+| `bin/ssc run` (default) | **`"HELLO!"`** |
+| `bin/ssc-tools run --v1` | `HELLO!` |
+
+**Root cause.** The two lanes auto-output through renderers that disagree about strings.
+`V2Result.report` (`v1/tools/cli/src/main/scala/scalascript/cli/V2Result.scala:14`) ends in
+`println(ssc.Show.show(other))`, and `Show.show` renders `StrV(s)` as `"\"" + s + "\""` — quoting is
+correct for a *debug* rendering of a nested value, but this is the program's user-facing output.
+v1's `Interpreter.autoOutput` uses `Value.show`, which does not quote at this level. Note the
+program-tail path is the ONLY place this shows: an explicit `println(s)` is unquoted on both lanes.
+
+**Fix direction.** Make `V2Result.report`'s final arm render a top-level `StrV` bare (the value's own
+text) and keep `Show.show` for everything else, matching `autoOutput`. Then check whether the same
+split is needed for a `StrV` nested in a container — v1 quotes there and so should v2, so the change
+belongs at the top level only, not inside `Show.show`.
+
+**Relation.** `v2-native-multiblock-auto-output-missing` hides this for *fenced* documents once
+per-block wrapping lands, because a wrapped block tail prints through `println` rather than through
+`report`. A fenceless `.ssc` (whose whole body is one block) still goes through `report`, so this
+must be fixed on its own. Not taken by `v2-multiblock-auto-output`: that claim's paths are
+`specs/v2.2-p6.5-fsub.ssc` + `v2/bin/`, and this lives in the CLI.
+
+## v2-native-case-unit-pattern-matches-where-int-does-not — `case _: Unit` is true on native, false on INT
+
+**Status:** OPEN (found 2026-07-28 by `v2-multiblock-auto-output`). Six lines:
+
+```scalascript
+def f(x: Any): Unit =
+  x match
+    case _: Unit => ()
+    case _ => println(x)
+f(println("side"))
+```
+
+| lane | output |
+|---|---|
+| `bin/ssc run` (default) | `side` |
+| `bin/ssc-tools run --v1` | `side` then **`()`** |
+
+The argument is `Unit`. Native's `case _: Unit` matches it and prints nothing further; INT's does
+not match, falls through to the wildcard, and prints `()`.
+
+**Which one is right.** Native. `Unit` is an ordinary type and a type-ascription pattern on it
+should hold for the unit value — `Runtime.scala`'s `__isTag__` maps `UnitV` to the `"Unit"` tag
+deliberately. So this is an INT gap, and it matters more than it looks because **INT is the
+conformance suite's reference lane and the corpus contract's golden probe**: a case written around
+`case _: Unit` is graded against the lane that gets it wrong.
+
+**Fix direction.** v1's type-ascription pattern test needs the same `Unit` arm its `__isTag__`
+counterpart has. Same family as `v2-type-ascription-pattern` (the v2 side of this, fixed
+2026-07-10), just the other lane. Not taken here: this claim's paths do not include the v1
+interpreter.
+
 ## conformance-int-batch-false-fail-and-hidden-stderr — a case fails in the batch, passes everywhere else, and the reason is thrown away
 
 **Status:** OPEN, **NOT reproduced in isolation** (observed 2026-07-28 by `v2-native-error-diagnostic`
