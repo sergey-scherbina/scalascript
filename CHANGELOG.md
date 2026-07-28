@@ -1,5 +1,37 @@
 # Changelog
 
+## 2026-07-28 — the host OOM guard fires for the first time since it was written
+
+`~/.local/bin/jvm-mem-guard.sh` had been loaded every 20 s since 2026-07-21 and had **never taken a
+single action** — a 0-byte log across two OOM events, one of which force-rebooted the machine. Three
+measured defects: it gated on `kern.memorystatus_level` (93 % idle, 74 % mid-event, 62 % while the
+host held 630 MB of swap and an 11.3 GB compressor — a jetsam indicator, not a pressure gauge); its
+process regex missed the `ssc` and `node` forks that actually caused the 07-28 event; and it logged
+nothing when healthy, so silence and death looked identical.
+
+`scripts/build-ram-guard` replaces it, in the repo. It triggers on available RAM plus the **pageout
+rate** (measured 0 per 5 s healthy; the event moved it by 139,831) — a rate, because macOS never
+drains swap and an absolute trigger would stay hair-triggered for the rest of the uptime.
+`memorystatus_level` is still reported on every line and never triggers, so the divergence stays
+visible instead of being rediscovered a third time.
+
+It escalates instead of swinging once: orphaned builders (worktree deleted — no work lost) → idle
+sbt servers → the heaviest build JVM, and that last tier requires **both** low memory and active
+thrashing. Verified on the live host: T1 found 8 orphans, T2 found 7 idle servers, dry-run killed
+nothing.
+
+`scripts/build-guards-install` points launchd at the repo, so `git pull` updates the guards and
+there is no second copy to drift — it found and removed exactly that drift
+(`~/.local/bin/kill-stale-builders`, which predated `--idle` and ran once a day). The reaper is now
+hourly with `--idle 30 --kill`, and the always-on bloop daemon got the same periodic-GC flags as
+`.jvmopts`. Installed and confirmed live: the tick counter advanced 5 → 10 across 100 s of launchd
+ticks, error log 0 bytes.
+
+`tests/e2e/build-ram-guard-gate.sh` checks both directions — a guard that always fires is as useless
+as one that never does — and caught two real bugs while being written: a heartbeat modulo that
+emitted no lines at all when asked for one per tick, and an installer reporting a plist Label where
+it meant a program path.
+
 ## 2026-07-28 — `Mirror.fromProduct` works on the native lane, and the JS shaker stops deleting its constructor
 
 The last missing `Mirror` member evaluated to a `Stub` sentinel on the native lane. It is the one
