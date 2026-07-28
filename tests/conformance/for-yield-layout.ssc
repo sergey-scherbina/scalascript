@@ -1,0 +1,85 @@
+---
+name: for-yield-layout
+description: Braceless multi-line for/yield opens a layout block, in val and def-body position
+backends: [int, js, jvm, v2]
+---
+
+# Braceless multi-line `for … yield`
+
+`BUGS.md` `v2-front-for-yield-parse-gap`. `for` was not a layout opener on either
+self-hosted front, so `for` followed by a newline did not open a block: the indented
+generator lines sat at the *enclosing* block's indent and were glued onto the `for`
+line. The one-line and braced forms were never affected, because there `for` is followed
+by a token rather than a newline — which is also why the label "`for … yield` is broken"
+was too broad.
+
+The shapes that already worked — they are here so a fix cannot regress them.
+
+```scalascript
+val xs = List(1, 2, 3)
+val ys = List(10, 20)
+println(for x <- xs yield x * 2)
+println(for { a <- xs; b <- ys } yield a + b)
+```
+
+Braced multi-line, also previously fine.
+
+```scalascript
+val braced = for {
+  a <- xs
+  b <- ys
+} yield a + b
+println(braced)
+```
+
+Braceless multi-line in **`val` position**. This one produced the right answer only
+because the F front declined the file and the fallback recompiled it with the default
+front — a correct answer by accident, at the cost of a diagnostic on every run.
+
+```scalascript
+val single = for
+  x <- xs
+yield x * 2
+println(single)
+
+val double = for
+  a <- xs
+  b <- ys
+yield a + b
+println(double)
+```
+
+Braceless multi-line as a **`def` body** — the shape that failed outright, on *both*
+self-hosted fronts, with `structural CoreIR contains parser sentinel _err`.
+
+```scalascript
+def pairs(): List[Int] =
+  for
+    a <- xs
+    b <- ys
+  yield a + b
+println(pairs())
+
+def doubled(): List[Int] =
+  for
+    x <- xs
+  yield x * 2
+println(doubled())
+```
+
+A generator with a guard, and a `for`-`do` (no `yield`), both braceless and multi-line —
+`do` was already an opener, so this pins that adding `for` did not disturb it.
+
+```scalascript
+def evens(): List[Int] =
+  for
+    x <- List(1, 2, 3, 4)
+    if x % 2 == 0
+  yield x
+println(evens())
+
+for
+  x <- List(7, 8)
+do
+  println(x)
+```
