@@ -1690,6 +1690,15 @@ object Prims:
     // Atomic string+newline: concurrent actors printing at once must not interleave (else two
     // `println`s produce "abcd\n\n" instead of "ab\ncd\n"). Sync on the shared stream.
     case "io.println" => a => Console.out.synchronized { out(a(0), Console.out); Console.out.println() }; UnitV
+    // Per-block auto-output (BUGS.md v2-native-multiblock-auto-output-missing). F wraps each code
+    // block's tail expression in this, so the decision "is this Unit?" happens where it is a
+    // RUNTIME fact — exactly as in v1's `autoOutput`. It CANNOT be a helper written in .ssc: no
+    // source-level Unit test is portable across the lanes that consume F's output (`case _: Unit`
+    // matches here and not on the JS codegen; `case ()` matches on neither). Renders through the
+    // same `out` as io.println, NOT Show.show, which would quote a top-level string.
+    case "__autoOutput__" => a => a(0) match
+      case UnitV => UnitV
+      case v     => Console.out.synchronized { out(v, Console.out); Console.out.println() }; UnitV
     case "io.eprint"  => a => out(a(0), Console.err); UnitV
     case "io.args"   => _ => strList(Runtime.argv)
     case "io.nanoTime"  => _ => IntV(System.nanoTime())

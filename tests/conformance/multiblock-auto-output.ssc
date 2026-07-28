@@ -1,0 +1,42 @@
+---
+name: multiblock-auto-output
+description: The last non-Unit expression of EACH top-level code block is printed, in source order
+backends: [int, js, jvm, v2]
+---
+
+# Per-block auto-output
+
+`BUGS.md` `v2-native-multiblock-auto-output-missing`. A `.ssc` document's contract is
+that the last non-Unit expression **of each** top-level code block is printed. The
+native lane used to print the whole *program*'s final value instead, which made a
+single-block program look correct and silently dropped every earlier block's tail.
+
+First block — the tail is a non-Unit expression, so it prints.
+
+```scalascript
+val a = 2
+a
+```
+
+Second block — it sees the first block's `val`, proving the blocks still share one
+scope, and its own tail prints too.
+
+```scalascript
+val b = a * 10
+b
+```
+
+Third block — the tail is `Unit` (a `println` call), so nothing is auto-printed after
+the line it prints itself. This is what stops the fix from emitting a bare `()`.
+
+```scalascript
+println("explicit")
+```
+
+Fourth block — the tail is a *definition*, not an expression. Definitions are never
+auto-printed, and because this is the LAST block it also pins that the program-level
+value stays silent rather than double-printing an earlier block's tail.
+
+```scalascript
+def unused(n: Int): Int = n + 1
+```

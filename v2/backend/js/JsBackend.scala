@@ -402,6 +402,7 @@ object JsGen:
       case "fieldAt" => s"${a(0)}.f[Number(${a(1)})]"
       // IO
       case "io.println"  => s"$$println(${a(0)})"
+      case "__autoOutput__" => s"$$autoOutput(${a(0)})"
       case "io.print"    => s"$$print(${a(0)})"
       case "io.eprint"   => s"$$eprint(${a(0)})"
       case "io.args"     => s"$$ioArgs()"
@@ -928,6 +929,11 @@ function $showIO(v){
   return $bridgeShow(v);
 }
 function $println(v){ console.log($showIO(v)); return null; }
+// Per-block auto-output: silent on Unit, otherwise exactly $println. Unit is `null` on this
+// backend, which is why the test is a null check and not a pattern match — `case _: Unit`
+// does NOT match here (BUGS.md js-v2-unit-pattern-does-not-match-and-unit-literal-pattern-crashes),
+// and that is precisely why this decision is a primitive rather than a .ssc helper.
+function $autoOutput(v){ if (v === null || v === undefined) return null; console.log($showIO(v)); return null; }
 function $print(v){ process.stdout.write($showIO(v)); return null; }
 function $eprint(v){ process.stderr.write($showIO(v)+'\n'); return null; }
 function $ioArgs(){
