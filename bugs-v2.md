@@ -35,7 +35,7 @@ The message names no location, so each was pinned by dumping the IR and reading 
 | `wasm-matrix` | ✅ **FIXED 2026-07-28** (`v2-front-colon-trailing-lambda`) — was: **fewer-braces trailing lambda**: `matrix(a.length, cols): (i, j) =>` on the next indented line (`examples/wasm-matrix.ssc:25`) |
 | `quoted-macro-constfold`, `quoted-macro-interpreter` | **quoted-macro splice syntax**: `inline def label(x: Int): String = ${ labelImpl('x) }` (`:22`) |
 | `wasm-http` | ~~**`for … yield`** (`:38`)~~ — **CORRECTED 2026-07-28**: the for/yield gap is FIXED (`v2-front-for-yield`, layout opener; it was the braceless MULTI-LINE form only, not `for … yield` at large). Re-bisected after the fix: that fence now parses and the remaining `_err` is `getJson(url).foreach: body =>` at `:46` — **the fewer-braces trailing lambda, i.e. this table's `wasm-matrix` row.** This case belongs to that cluster, not its own. |
-| `graph-codecs`, `typed-object-codec` | a top-level construct emitted directly AFTER the Mirror block — not yet reduced to a minimal repro |
+| `graph-codecs`, `typed-object-codec`, `graph-storage` | ✅ **PINNED 2026-07-28** — not the Mirror block: an **annotation before a top-level `case class`** (`@graphLabel("M")` / bare `@key`), `_err` on the LEGACY front only, F parses all shapes. 3-line repro + 4-shape A/B in `BUGS.md` `ssc1-front-annotation-before-case-class`. |
 | `graph-storage`, `wasm-collections`, `wasm-scalascript` | not yet pinned individually; grouped here by symptom only |
 
 **Status: 4 of 9 pinned to a named construct, 5 grouped by symptom only.** Cheapest next step is a

@@ -1,5 +1,47 @@
 # Bug tracker
 
+## ssc1-front-annotation-before-case-class — an annotated top-level `case class` is `_err` on the legacy front
+
+**Status:** OPEN (found 2026-07-28 by `v2-cluster-a-localize`). **Three corpus cases, one cause** —
+`graph-storage`, `graph-codecs`, `typed-object-codec`, all listed in `bugs-v2.md` cluster A as "a
+top-level construct emitted directly AFTER the Mirror block — not yet reduced to a minimal repro".
+It is not the Mirror block: it is the annotation.
+
+**Minimal repro, three lines:**
+
+```scalascript
+@graphLabel("M")
+case class M(id: String)
+println("after")
+```
+
+| front | result |
+|---|---|
+| `v2/lib/ssc1-front.ssc0` (legacy/oracle) | **`_err`** |
+| `specs/v2.2-p6.5-fsub.ssc` (F, the default) | clean |
+
+**Narrowed by A/B, four shapes** — the annotation is the whole trigger, `derives` is irrelevant:
+
+| shape | legacy | F |
+|---|---|---|
+| `@graphLabel("M")` + `case class` | `_err` | clean |
+| `@key` + `case class` (annotation with NO arguments) | `_err` | clean |
+| `@graphLabel("M")` + `case class … derives JsonCodec` | `_err` | clean |
+| `case class … derives JsonCodec`, **no annotation** | clean | clean |
+
+All three corpus cases carry annotations before a `case class` (`graph-codecs` has 3), all three are
+`_err` on the legacy front only, and all three are clean under F.
+
+**Why it still breaks the default lane even though F is clean.** `bin/ssc run` rejects these files,
+so something on the default path still consults the legacy front — the checker pre-pass or the
+structural route. Worth confirming which, because it means F being able to parse a construct is not
+sufficient for the default lane to accept it.
+
+**Fix direction.** `ssc1-front`'s top-level item dispatch: an `@annotation` line before `case class`
+is not skipped/attached the way F does it. F's handling is the reference — it accepts all four
+shapes above.
+
+
 ## v2-json-number-keeps-trailing-zero — `jsonParse("2.0")` prints `2.0` on v2 and `2` on INT
 
 **Status:** OPEN — **needs a decision, not a patch** (found 2026-07-28 by `v2-diverge-triage` while
