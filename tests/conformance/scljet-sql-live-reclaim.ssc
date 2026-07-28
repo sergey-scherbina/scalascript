@@ -1,0 +1,67 @@
+---
+name: scljet-sql-live-reclaim
+description: Live SclJet DELETE and UPDATE route through reclaiming B-tree deletion
+backends: [int, js]
+---
+
+# SclJet live SQL reclaim
+
+The public SQL mutation path must use the same reclaiming delete primitive as the
+direct pager gate. Two independent 24-row split trees prove DELETE and UPDATE:
+DELETE keeps the file at 14 pages while returning ten emptied pages to the
+freelist; UPDATE performs its full delete phase before reinsertion and exposes
+the same reclaimed pages. The UPDATE EOF growth is deliberately transitional
+until SC-2a.2 consumes those pages during reinsertion.
+
+[ByteSlice, byteSliceGet, readU32Be, ByteRead, SqliteValue, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[executeMutationCounted, queryImage, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def rowText(rowid: Int): String =
+  "row-" + rowid.toString +
+  "-padding-to-make-it-a-couple-hundred-bytes-so-a-leaf-holds-only-a-few-rows-and-splits-quickly-abcdefghijklmnopqrstuvwxyz0123456789-abcdefghijklmnopqrstuvwxyz"
+
+def mkRows(n: Int): List[List[SqliteValue]] =
+  var i = 1
+  var reversed: List[List[SqliteValue]] = Nil
+  while i <= n do
+    reversed = List(SqlInteger(i.toLong), SqlText(rowText(i))) :: reversed
+    i = i + 1
+  reversed.reverse
+
+def u32At(image: ByteSlice, offset: Int): Long =
+  readU32Be(image, offset) match
+    case Right(ByteRead(value, _)) => value
+    case Left(_) => -1L
+
+def rootKind(image: ByteSlice): Int =
+  byteSliceGet(image, 512) match
+    case Right(value) => value
+    case Left(_) => -1
+
+def showRows(label: String, image: ByteSlice): Unit =
+  queryImage(image, "SELECT id FROM t ORDER BY id") match
+    case Left(message) => println(label + " rows=ERROR:" + message)
+    case Right(rows) => println(label + " rows=" + renderRows(rows).toString.replace("\n", ","))
+
+def runMutation(label: String, image: ByteSlice, sql: String): Unit =
+  executeMutationCounted(image, sql) match
+    case Left(message) => println(label + " error=" + message)
+    case Right(result) =>
+      val next = result.image
+      println(label + " changes=" + result.changes.toString)
+      println(label + " pages=" + (next.length / 512).toString +
+        " header=" + u32At(next, 28).toString +
+        " rootKind=" + rootKind(next).toString +
+        " freelist=" + u32At(next, 36).toString)
+      showRows(label, next)
+
+def buildAndRun(label: String, sql: String): Unit =
+  buildTableDatabase(512, 1, 1, "t",
+    "CREATE TABLE t(id INTEGER, v TEXT)", mkRows(24)) match
+    case Left(error) => println(label + " build-error=" + error.message)
+    case Right(image) => runMutation(label, image, sql)
+
+buildAndRun("delete", "DELETE FROM t WHERE id <= 20")
+buildAndRun("update", "UPDATE t SET v = v WHERE id <= 20")
+```

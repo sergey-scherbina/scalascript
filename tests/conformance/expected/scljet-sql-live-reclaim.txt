@@ -1,0 +1,6 @@
+delete changes=20
+delete pages=14 header=14 rootKind=5 freelist=10
+delete rows=21,22,23,24
+update changes=20
+update pages=25 header=25 rootKind=5 freelist=10
+update rows=1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24
