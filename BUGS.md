@@ -2442,7 +2442,21 @@ against the table) and `tests/conformance/scljet-update-ipk-moves-rowid.ssc` (sa
 
 ## ir-normalize-drops-code-fence-attrs — no SPI backend can see a fence attribute on a code block
 
-**Status:** OPEN — **by design today, and the design is the problem** (found 2026-07-27 by
+**Status:** FIXED for the CARRY (2026-07-28, `ir-fence-attrs-carry`, `63b9470c8`); **the ACT-ON-IT
+half is a declared follow-up.** `ir.Content.CodeBlock` now has `attrs`, `Normalize` passes the
+attributes it was already holding, and `Denormalize` restores them, so an SPI backend CAN now see
+`@side=server`. Pinned by a boundary test in `NormalizeRoundTripTest` that fails without the fix
+(`got attrs=List(Map())`); `core/test` 1151/0.
+
+**Still open, and deliberately not claimed here:** no backend yet ACTS on `side`, so a
+`@side=server` block is still emitted into the JS bundle — the difference is that the information
+now exists at the boundary instead of being unrepresentable. Asserting the acting-on behaviour in
+the carry test would have made it pass for a reason it does not verify.
+
+**Also unchanged, on purpose:** `ir.Content.EmbeddedBlock` still has no `attrs`. Foreign fences have
+attributes too, but that is a second slot on a second type with its own consumers.
+
+**Historical status:** OPEN — by design today, and the design is the problem (found 2026-07-27 by
 `corpus-gate-remaining-reds` while implementing `@doc`).
 
 **Symptom.** `@side=server` on a ```` ```scalascript ```` block is honoured by INT and ignored by
