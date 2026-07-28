@@ -54,6 +54,39 @@ breaches. Nothing else can see this class of defect.
 **Left open by this fix:** `ssc.bytecode.JvmByteGen$.gen` is at **7,052 / 8000 (88%)** — one `case`
 from silently un-JITing the whole bytecode emitter. Queued as slice 2 in
 `specs/v2-runtime-perf-vs-v1.md` §4.
+## js-jvm-codegen-in-fence-imports-not-followed — only the INT lane loads a module imported inside a fence
+
+**Status:** OPEN (found 2026-07-28 by `v2-native-import-graph` while fixing the native half,
+`v2-native-front-in-fence-imports-not-followed`). Declared `known-red: js,jvm` on
+`tests/conformance/native-import-in-fence.ssc`, so both lanes still RUN, still diff, and the
+declaration expires by itself the day they start passing.
+
+**Symptom.** The Markdown link form `[names](path.ssc)` is an import wherever it stands. Move it
+inside the ` ```scalascript ` fence and only the v1 interpreter still loads the module:
+
+| lane | in-fence import | same file, link ABOVE the fence |
+|---|---|---|
+| INT (`ssc-tools run --v1`) | PASS | PASS |
+| JS (`emit-js` + node) | **`ReferenceError: square is not defined`** | PASS |
+| JVM (`run-jvm`) | **`Not found: square`, `cube`, `factorial` (4 errors)** | PASS |
+| V2 (native) | PASS (fixed 2026-07-28) | PASS |
+
+**Reproduce.** `tests/conformance/native-import-in-fence.ssc` and `tests/conformance/modules.ssc`
+are the same program and differ only in where the link sits; run both through
+`tests/conformance/run.sh --only 'modules,native-import-in-fence' --no-memo`. `modules` is
+5/5 green; the in-fence twin is green on INT and V2 and red on JS and JVM.
+
+**Why it matters.** This is the same silent-divergence class the native bug was: a v1 codegen
+emits a program whose module graph is missing, and the first sign is an unbound name far from
+the import. It also means "v1 resolves in-fence imports fine" — the claim in the original native
+entry — is true only of the *interpreter*, not of the v1 codegen family.
+
+**Fix direction.** Whatever collects imports for `JsGen` / `JvmGen` has the same
+skip-to-closing-fence shape the native scanner had. The native fix is the reference: scan
+standalone link lines inside `scalascript`/`scala` fences, keep every other fence opaque, and use
+the same code/doc predicate the source collector uses so the two walks cannot disagree. Not taken
+by `v2-native-import-graph`: that claim's paths are `v2/bin/`, and this lives in the v1 tree.
+
 ## conformance-known-red-silently-ignored-on-v2 — the one lane that needs a declared red cannot have one
 
 **Status:** OPEN (found 2026-07-28 while triaging the dead `v2-actors-bounded-mailbox`
@@ -6578,9 +6611,60 @@ reserved address space, not committed memory, so 512m is cheap.
 
 ## v2-native-front-in-fence-imports-not-followed — the native lane silently ignores an import written inside a code fence
 
-**Status:** OPEN (compiler divergence). The **symptom** that made `v21-explicit-lanes-gate` red is
+**Status:** **FIXED 2026-07-28** by `v2-native-import-graph`. `sscScanLines` now carries the
+fence's scan mode: a `scalascript`/`scala` fence is TRANSPARENT (scanned exactly like prose,
+wrapped multi-line links included) and every other fence — `sql`/`yaml`/`bash`/`text` and any
+`@doc` block — stays OPAQUE. The code/doc predicate is the SAME one `sscFenceSource` uses to
+decide what is program text, so the scanner and the source collector cannot disagree about which
+fences are code; inside a code fence only a bare ` ``` ` closes it, matching `sscSourceLines`.
+Both runners changed — `v2/bin/ssc1-run.ssc0` and `v2/bin/ssc1-run-fsub.ssc0` (F, the default) —
+because they carried the identical scanner and editing one would have been a silent half-fix.
+
+**The measurement that mattered: this fix could not land alone.** Exact A/B (same build, same
+jar, only the staged tower swapped) on the program this entry opened with — the mcp discovery
+example with its imports moved back INSIDE the fence:
+
+| | result |
+|---|---|
+| before | `ssc: unhandled runtime effect: Transport.Spawn` |
+| after | `Tools (3):` + `echo` / `add` / `get_weather` |
+
+The same A/B over **all 35 sources in the tree that carry an in-fence import link** changed
+exactly ONE line, for the better: `tests/conformance/mcp-client-invoke` went from the lying
+`unhandled runtime effect: Transport.Spawn` to the honest `unbound global: mcpConnect` (that
+extern lives in the mcp provider, which the standard tier does not load).
+
+**But that probe set was scoped wrong, and it hid a real regression** — a lesson worth keeping:
+it enumerated files that *contain* the trigger, not files whose *module graph* the trigger can
+change. Computing the transitive graph both ways found the true regression set — exactly one
+file, `examples/agent-mcp-toolsource.ssc`, which reaches `std/agent.ssc` only through
+`std/agent-mcp.ssc`'s own in-fence import. It went `imported 3 MCP tools as agent tools` →
+`_err`, because **`std/agent.ssc` did not parse on the native front at all** — measured
+independently of this fix, through the out-of-fence path that was already followed:
+
+```
+[x](std/json.ssc)  → loaded      [x](std/http.ssc) → loaded      [x](std/agent.ssc) → _err
+```
+
+So the pre-fix "pass" was a false green: the example printed the right thing while running with
+a silently truncated module graph. The blocker was `v2-front-try-in-def-body-shapes-break` shape
+(c) (`postChatCompletionsOnce` and `postChatCompletionsStreamOnce` are both multi-statement
+braceless `try` bodies). Staging that fix into this build and re-measuring closed it:
+`std/agent.ssc` parses and `agent-mcp-toolsource` prints all three tools again — now with a
+complete graph. This fix therefore landed **after** that one, not before.
+
+**Also found by the compare-first gate, and filed separately:** v1's JsGen and JvmGen do not
+follow an in-fence import either — only the INT interpreter does. See
+`js-jvm-codegen-in-fence-imports-not-followed`; the new gate declares those two lanes known-red.
+
+**Gate.** `tests/conformance/native-import-in-fence.ssc` — the `modules.ssc` shape with the
+import link moved inside the fence, plus a second fence proving a later block still sees the
+module. RED on the V2 lane before the fix (`ssc: unbound global: square`), green after.
+
+**Original report follows.** The **symptom** that made `v21-explicit-lanes-gate` red was
 worked around (2026-07-16, `4b8d09377`+) by moving the two mcp examples' imports out of the fence;
-the underlying v1/native divergence below is NOT fixed. Found while closing the `ci-red-main` lane.
+the underlying v1/native divergence below was NOT fixed at that time. Found while closing the
+`ci-red-main` lane.
 
 **Symptom.** `bin/ssc-provider mcp run examples/mcp-client-discover.ssc` →
 `ssc: unhandled runtime effect: Transport.Spawn` (exit 1, no other output). Deeply misleading:
