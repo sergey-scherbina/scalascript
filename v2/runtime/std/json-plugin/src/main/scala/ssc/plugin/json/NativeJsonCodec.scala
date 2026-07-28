@@ -123,7 +123,13 @@ private[plugin] object NativeJsonCodec:
     case _ => throw new RuntimeException("invalid self-hosted JSON parser result")
 
   def toRaw(core: Value): Value = core match
-    case Value.DataV("JsonCoreNull", _) => Value.UnitV
+    // JSON `null` decodes to ssc `None`, not to Unit. The ENCODE side one screen up already maps
+    // `DataV("None", …)` -> NullCore, so decoding to `UnitV` made the pair asymmetric: `jsonParse
+    // ("null")` printed `()` on the native lane where INT — the conformance golden — prints `None`
+    // (tests/conformance/json-read.ssc line 5). It is also what the language says: the front lowers
+    // a literal `null` to `None` (K62.18), so a JSON null arriving as Unit is a value no ssc
+    // program can pattern-match as it would its own.
+    case Value.DataV("JsonCoreNull", _) => Value.DataV("None", Vector.empty)
     case Value.DataV("JsonCoreBool", Seq(Value.BoolV(boolean))) => Value.BoolV(boolean)
     case Value.DataV("JsonCoreNumber", Seq(Value.StrV(raw))) => rawNumber(raw)
     case Value.DataV("JsonCoreString", Seq(codeUnits)) => Value.StrV(decodeCodeUnits(codeUnits))

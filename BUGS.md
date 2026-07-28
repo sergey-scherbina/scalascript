@@ -1,5 +1,43 @@
 # Bug tracker
 
+## v2-json-number-keeps-trailing-zero — `jsonParse("2.0")` prints `2.0` on v2 and `2` on INT
+
+**Status:** OPEN — **needs a decision, not a patch** (found 2026-07-28 by `v2-diverge-triage` while
+reducing `json-read`'s DIVERGE; the sibling half, JSON `null`, was unambiguous and is fixed).
+
+**Measured** (real harness, fresh `sbt installBin`):
+
+| input | INT (`ssc-tools run --v1`) | v2 (`bin/ssc run --v2`) |
+|---|---|---|
+| `jsonParse("0.0")` | `0` | **`0.0`** |
+| `jsonParse("2.0")` | `2` | **`2.0`** |
+| `jsonParse("1.5")` | `1.5` | `1.5` — agree |
+| `jsonParse("7")` | `7` | `7` — agree |
+
+**It is NOT a Show difference.** `println(2.0)` prints `2` on BOTH lanes — ssc's own rendering of an
+integral Double drops the `.0`, and the two agree about that. The divergence is in what the native
+parser RETURNS: `NativeJsonCodec.rawNumber` maps any literal containing `.`/`e`/`E` to
+`Value.DecimalV(raw)` — a decimal that preserves the source text — while v1 yields a float.
+
+**Why this is a decision and not an obvious bug.** `DecimalV` is arguably the better answer: it does
+not round-trip a JSON number through binary64, so a payload with more precision than a Double can
+hold survives. Changing `rawNumber` to a float would fix the divergence and silently reintroduce
+that precision loss. But the current state has its own inconsistency: the SAME numeric value prints
+`2` when written as a literal and `2.0` when it arrives from JSON, inside one program on one lane.
+
+Three candidate resolutions, none free:
+1. `rawNumber` returns a float for values a Double represents exactly, `DecimalV` otherwise —
+   removes the divergence for the common case, keeps precision for the rest, and adds a
+   value-dependent type (two JSON documents differing only in magnitude give different types).
+2. Keep `DecimalV`, make its rendering follow ssc's numeric Show — consistent inside v2, still
+   diverges from INT until v1 changes too.
+3. Declare INT wrong (it loses `2.0` -> `2` information) and re-baseline. Honest but it moves the
+   golden, so it needs `json-read`'s expectation and every consumer re-checked.
+
+**Blast radius today:** one line of `tests/conformance/json-read.ssc` (line 8) — the whole remaining
+`json-read` DIVERGE — plus line 2 of `tests/conformance/expected/json-self-hosted-import.txt`, which
+already records `0.0` and is therefore consistent with whichever way this goes.
+
 ## corpus-contract-scljet-jdbc-v2-timeout — a correct case that does not fit its budget on a loaded runner
 
 **Status:** OPEN (found 2026-07-28 while making the nightly contract report a verdict again).
