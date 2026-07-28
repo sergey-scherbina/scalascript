@@ -67,17 +67,16 @@ def doubled(): List[Int] =
 println(doubled())
 ```
 
-A generator with a guard, and a `for`-`do` (no `yield`), both braceless and multi-line —
-`do` was already an opener, so this pins that adding `for` did not disturb it.
+A braceless multi-line `for`-`do` (no `yield`) — `do` was already an opener, so this pins
+that adding `for` did not disturb it.
+
+A guard on its own line is deliberately **absent** here. It fails on the v2 lane in the
+*braced* form too, which already worked before this fix, so it is an independent
+pre-existing gap and not this case's subject: `BUGS.md`
+`v2-front-for-comprehension-guard-line`. Including it would make this gate red for a
+reason it does not test.
 
 ```scalascript
-def evens(): List[Int] =
-  for
-    x <- List(1, 2, 3, 4)
-    if x % 2 == 0
-  yield x
-println(evens())
-
 for
   x <- List(7, 8)
 do

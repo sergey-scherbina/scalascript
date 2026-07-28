@@ -230,7 +230,17 @@ def isDoOpener(t) = if fst(t) == 1 then snd(t) == "do" else false
 def isWithOpener(t) = if fst(t) == 1 then snd(t) == "with" else false
 def isTryOpener(t) = if fst(t) == 1 then snd(t) == "try" else false
 def isFinOpener(t) = if fst(t) == 1 then snd(t) == "finally" else false
-def isLayoutOpener(t) = if isTok(t, 2, 20) then true else (if isTok(t, 2, 30) then true else (if isTok(t, 2, 3) then true else (if isTok(t, 2, 4) then true else (if isTok(t, 2, 5) then true else (if isDoOpener(t) then true else (if isTryOpener(t) then true else (if isFinOpener(t) then true else isWithOpener(t))))))))
+// `for` ⏎ <indented generators> ⏎ `yield e` opens one for exactly the same reason `try` did
+// (BUGS `v2-front-for-yield-parse-gap`). `for` is not in kwCode, so it lexes as an ident too.
+// Without this the generator lines sit at the ENCLOSING block's indent, nlStep3 returns
+// (Nil, stack), and they are GLUED onto the `for` line. In `val` position that made F decline
+// the whole FILE (`unbound global: (global x)`) and the F4a fallback silently recompiled it
+// with the default front — a right answer bought with a diagnostic on every run; as a `def`
+// BODY it produced `_err` outright. Fires only when `for` is immediately followed by NL, so
+// `for x <- xs yield e` and `for {` are untouched by construction. `yield` needs no arm: it
+// terminates the generator block by dedent and its own body follows on the same line.
+def isForOpener(t) = if fst(t) == 1 then snd(t) == "for" else false
+def isLayoutOpener(t) = if isTok(t, 2, 20) then true else (if isTok(t, 2, 30) then true else (if isTok(t, 2, 3) then true else (if isTok(t, 2, 4) then true else (if isTok(t, 2, 5) then true else (if isDoOpener(t) then true else (if isTryOpener(t) then true else (if isFinOpener(t) then true else (if isForOpener(t) then true else isWithOpener(t)))))))))
 def nlSemi(cont) = if cont then Nil else Cons((2, 52), Nil)
 def nlStep(v, stack, cont) = stack match { case Nil => (nlSemi(cont), stack) case top :: srest => nlStep1(v, top, stack, cont) }
 def nlStep1(v, top, stack, cont) = top match { case (tag, ind) => nlStep2(v, tag, ind, stack, cont) }
