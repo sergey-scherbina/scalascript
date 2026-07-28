@@ -3780,7 +3780,28 @@ jobs successfully, including the full Linux sbt test; `scripts/ci-status` return
 
 ## cli-command-System.exit-kills-the-test-fork — a whole CLASS of green-looking CI reds
 
-**Status:** OPEN as a class — but **no longer invisible** (2026-07-27). `scripts/detect-fork-exit`
+**Status:** FIXED as a class (2026-07-28, `cli-exit-reachability-guard`, `dcd00d1ab`). The class is now
+GATED, not merely detected: `tests/e2e/cli-exit-reachability-guard.sh` fails the build if any test can
+reach a CLI boundary that ends the process, and it runs in the validate job — part of the per-push
+verdict. `scripts/detect-fork-exit` remains the after-the-fact half; this is the before-the-fact half.
+
+**The class was already half-armed when the guard was written.** At object granularity 10 test-to-object
+pairs exist, so an object-level rule would have been red from birth and switched off within the day. At
+MEMBER granularity — direct exit calls plus a fixpoint over each object's own call edges — exactly one
+survived: `OAuthCliTest` called `OAuthCli.run` five times. Not fatal today, and that is precisely the
+point: `run` is `status` plus `if rc != 0 then sys.exit(rc)`, so whether it kills the fork depends on
+the ARGUMENTS at run time, and all five calls happen to take success paths. The suite was one added
+failure-path case away from the exact signature this entry describes. Moved to `status` (13/13
+unchanged), which gives the guard a zero baseline and makes it a gate rather than a tolerated warning.
+
+**Proven in three directions**, because a detector only ever observed staying quiet is not a detector:
+`--self-test` asserts it FIRES on a synthetic test calling `run` and STAYS QUIET on the same call
+against `status`; and reverting the real `OAuthCliTest` back to `run` makes it fire on the real file,
+naming it. Known bound, recorded rather than left implicit: reachability is intra-object — a
+cross-object call graph needs a real front end, and over-reaching produces the noise that gets guards
+disabled.
+
+**Historical status:** OPEN as a class — but **no longer invisible** (2026-07-27). `scripts/detect-fork-exit`
 recognises the signature (a fork-exit line with ZERO reported failures), explains what it means, and
 points at the suite that was running instead of at a failing assertion that does not exist. Wired
 into CI behind `if: failure()` so it speaks only in the situation it is about, and behind `|| true`
