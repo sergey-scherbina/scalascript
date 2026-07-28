@@ -1,4 +1,4 @@
-# generation: 141
+# generation: 142
 #slug	agent	started	items	paths
 conformance-guard-enforced	opus-orch	2026-07-28T03:00:00Z	conformance-guard-enforced	tests/conformance/run.sh scripts/conformance
 v2-f-compile-profile	codex	2026-07-27T20:27:42Z	V-6a	specs/v2-f-compile-profile.md
@@ -10,3 +10,4 @@ f-delegation-reason-census	claude-code	2026-07-28T01:36:17Z	f-validateNoReader-r
 v2-runtime-perf-vs-v1	claude-code	2026-07-28T01:58:16Z	v2-runtime-perf-vs-v1 v2rt-0-baseline v2rt-1 v2rt-2 v2rt-3 v2rt-4	v2/src v2/backend-jvm-bytecode v2/runtime/std/os-plugin bench specs/v2-runtime-perf-vs-v1.md docs/benchmarks.md tests/conformance/v2-system-clock.ssc tests/conformance/expected/v2-system-clock.txt SPRINT.md BACKLOG.md CHANGELOG.md
 build-ram-budget-and-speed	claude-code	2026-07-28T03:29:37Z	build-ram-overflow build-ci-speed BRB-0 BRB-1 BRB-2 BRB-3 BRB-4 BRB-5	.jvmopts scripts/build- scripts/sbtc scripts/kill-stale-builders scripts/new-worktree scripts/rm-worktree .github/workflows/ci.yml tests/e2e/build- docs/build-performance.md
 f-try-multistmt-def-body	claude-code	2026-07-28T03:30:52Z	v2-front-try-in-def-body-shapes-break-c f-try-multistmt-def-body	specs/v2.2-p6.5-fsub.ssc tests/conformance/try- tests/conformance/expected/try- BUGS.md SPRINT.md CHANGELOG.md
+v2-native-import-graph	claude-code	2026-07-28T03:32:06Z	v2-native-front-in-fence-imports-not-followed v2-native-scala-import-parse-only-noop	v2/bin/ tests/conformance/native-import tests/conformance/expected/native-import BUGS.md SPRINT.md CHANGELOG.md
