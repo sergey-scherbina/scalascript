@@ -124,9 +124,31 @@ awk -F '\t' '
 
 skip_re='(^|[^[:alnum:]_])serve([[:space:]]*\(|[[:space:]]*\{|[A-Z][[:alnum:]_]*[[:space:]]*\()|listen|WebServer|websocket|(^|[^[:alnum:]_])tui([^[:alnum:]_]|$)'
 nondet_re='^(sql-sqlite-file|uuid-v7|os-env|mcp-server-protected|oauth-mcp-full-stack|async-parallel-demo|distributed-word-count|graphql-client|v2-http-sql-demo)\.ssc$'
-ident=0; mismatch=0; bcerr=0; bothfail=0; skipped=0; vmerr=0; timedout=0; total=0
+ident=0; mismatch=0; bcerr=0; bothfail=0; skipped=0; vmerr=0; timedout=0; total=0; nogolden=0
+
+# Cases the GOLDEN cannot run, read from the corpus contract's own frozen baseline rather than from a
+# second opinion invented here. `corpus-baseline.tsv` marks a case `SKIP` when the INT lane — the
+# reference every other lane is judged against — could not execute it at all.
+#
+# WHY THIS MATTERS TO A PARITY SWEEP: this compares VM against BYTECODE. When BOTH fail, the two
+# lanes AGREE; there is no divergence. Whether that agreement is a defect depends entirely on
+# whether the program is supposed to run, and that question is already answered, frozen, and
+# reviewed in the baseline. Two gates over one corpus were disagreeing about it — the sweep called
+# `derived-route-clients.ssc` a strict failure while the contract had it marked SKIP (measured: its
+# INT lane dies with `Undefined: awaitClient`, so no lane has a working reference).
+#
+# This does NOT skip the comparison — both lanes still run and their exit codes are still recorded.
+# It only decides how to CLASSIFY an already-observed both-fail, which is the order AGENTS.md
+# requires. A both-fail on a case the golden CAN run stays a strict failure.
+golden_baseline="$ROOT/tests/conformance/corpus-baseline.tsv"
+no_golden_names=""
+[[ -f $golden_baseline ]] && no_golden_names="$(awk -F'\t' '$3 == "SKIP" { print $1 }' "$golden_baseline" 2>/dev/null || true)"
+declared_no_golden() { # <basename.ssc>
+  [[ -n $no_golden_names ]] || return 1
+  printf '%s\n' "$no_golden_names" | grep -qxF "${1%.ssc}"
+}
 delegated=0; provider_lane=0; target_lane=0
-mlist=''; elist=''; vlist=''; blist=''
+mlist=''; elist=''; vlist=''; blist=''; nglist=''
 
 record() {
   local file=$1 category=$2 vm_rc=$3 bc_rc=$4 detail=$5
@@ -240,9 +262,14 @@ while IFS= read -r f; do
     # the COUNT. CI run 30350792576 went red on exactly this: `both-fail: 1` after a 56-minute sweep,
     # with MISMATCH/BYTECODE-ERROR/VM-ERROR all listed and empty, and no way to learn WHICH case
     # without re-running the whole gate. A number without a name is not a diagnosis.
-    bothfail=$((bothfail + 1)); blist="$blist $b"
     detail=$(head -1 "$tmp/bc.err")
-    record "$b" both-fail "$vm_rc" "$bc_rc" "$detail"
+    if declared_no_golden "$b"; then
+      nogolden=$((nogolden + 1)); nglist="$nglist $b"
+      record "$b" both-fail-no-golden "$vm_rc" "$bc_rc" "$detail"
+    else
+      bothfail=$((bothfail + 1)); blist="$blist $b"
+      record "$b" both-fail "$vm_rc" "$bc_rc" "$detail"
+    fi
   elif [[ $bc_rc -ne 0 ]]; then
     bcerr=$((bcerr + 1)); elist="$elist $b"
     detail=$(head -1 "$tmp/bc.err")
@@ -259,11 +286,12 @@ while IFS= read -r f; do
   fi
 done < <(selected_files)
 
-echo "=== total: $total  identical: $ident  mismatch: $mismatch  bytecode-error: $bcerr  vm-error: $vmerr  both-fail: $bothfail  skipped: $skipped (timeout: $timedout)  delegated: $delegated (provider: $provider_lane target: $target_lane)"
+echo "=== total: $total  identical: $ident  mismatch: $mismatch  bytecode-error: $bcerr  vm-error: $vmerr  both-fail: $bothfail  no-golden: $nogolden  skipped: $skipped (timeout: $timedout)  delegated: $delegated (provider: $provider_lane target: $target_lane)"
 echo "MISMATCH:$mlist"
 echo "BYTECODE-ERROR:$elist"
 echo "VM-ERROR:$vlist"
 echo "BOTH-FAIL:$blist"
+echo "NO-GOLDEN:$nglist"
 echo "REPORT: $report"
 
 if [[ $strict -eq 1 && $((bothfail + mismatch + bcerr + vmerr)) -ne 0 ]]; then

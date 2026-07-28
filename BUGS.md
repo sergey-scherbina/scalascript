@@ -2,42 +2,54 @@
 
 ## negtc-both-fail-derived-route-clients — the one case keeping the release gate red
 
-**Status:** open. NOT mine to fix; filed with everything needed so its owner does not repeat the
-56-minute discovery. Named for the first time on 2026-07-28 (run 30359338193).
+**Status:** RESOLVED 2026-07-28 as a CLASSIFICATION, not a code fix — the case is genuinely
+un-runnable and the two gates disagreed about that.
 
-**What.** `tests/e2e/v21-negative-toolchain-release-gate.sh` fails `--strict` on exactly one case:
+**Measured, in seconds** (the sweep now takes `--only`, so this cost minutes rather than the
+56-minute gate):
 
 ```
-=== total: 214  identical: 65  mismatch: 0  bytecode-error: 0  vm-error: 0  both-fail: 1 …
-MISMATCH:
-BOTH-FAIL: derived-route-clients.ssc
+derived-route-clients.ssc  both-fail  vm_rc=1  bytecode_rc=1
+detail = ssc: unhandled runtime effect: Api.postApiTodos
 ```
 
-`both-fail` means the VM lane AND the bytecode lane both exited non-zero — so it is not a parity
-divergence, it is one program failing on both native lanes.
+`both-fail` means the VM and bytecode lanes AGREE — both fail. So it was never a parity divergence.
 
-**Until this run the red was unreadable.** `bc-parity-sweep` printed the COUNT and listed
-MISMATCH/BYTECODE-ERROR/VM-ERROR (all empty), with no list for the one category that was non-zero
-and the only one `--strict` fails on. Learning the name cost a full 56-minute gate run. Fixed in
-`8ab4f05a5` (`BOTH-FAIL:` list); this entry is the first output of that fix.
+**The golden cannot run it either, which is the whole point:**
 
-**It is NOT the Mirror-arity regression** (`sql-plugin-rowcodec-mirror-arity`), and that was checked
-rather than assumed:
-- `both-fail: 1` was already present on `e8c1d0c9f` (run 30350792576), and `dd56c4b8d` — the commit
-  that gave `Mirror` its fourth field — came **after** `e8c1d0c9f`;
-- `examples/derived-route-clients.ssc` derives through `RouteDeriver`, not `derives`/`Mirror`.
-
-So this is long-standing, not fallout from the 2026-07-28 Mirror work.
-
-**Cheapest reproduction** (minutes, not the 56-minute gate) — the sweep now takes `--only`:
-
-```bash
-scripts/sbtc "installBin"
-scripts/bc-parity-sweep --strict --only 'derived-route-clients*' --report /tmp/p.tsv
+```
+$ bin/ssc-tools run --v1 examples/derived-route-clients.ssc
+[ERROR] [line 6, col 15] Undefined: awaitClient
 ```
 
-The report's `detail` column carries the first line of the failing lane's stderr, which the summary
-does not print.
+The example demonstrates `apiClients:` derivation; its client block calls `awaitClient(Api.*)`
+against a server nobody starts, and `awaitClient` does not exist on the INT lane at all. It is not
+in `examples/run-all.sc`'s executable list and it is not a conformance case. And
+`tests/conformance/corpus-baseline.tsv` **already marked it `SKIP`** — the corpus contract had
+answered this question and frozen the answer; `bc-parity-sweep` simply did not read it.
+
+**Fix.** The sweep now classifies a both-fail whose case the golden is declared unable to run as
+`both-fail-no-golden`, reported in its own `NO-GOLDEN:` list and excluded from the `--strict`
+verdict. Both lanes still RUN and their exit codes and detail are still recorded — the comparison is
+performed and only the classification consults the declaration, which is the order AGENTS.md
+requires.
+
+Verified in BOTH directions, because a one-directional check would not distinguish this from a hole:
+
+| baseline declaration | category | `--strict` |
+|---|---|---|
+| present (as frozen) | `both-fail-no-golden`, `no-golden: 1` | exit 0 |
+| removed | `both-fail: 1` | **exit 1** |
+
+`tests/e2e/negtc-shard-gate.sh` pins the invariants: the set is read from `corpus-baseline.tsv` and
+never hand-maintained (the same reason `skipped-oversized-bytecode` avoids a per-example list),
+`strict` still counts `both-fail` and never counts `no-golden`, and no-golden cases are NAMED rather
+than only counted.
+
+**Left open deliberately:** `Api.postApiTodos` being an unhandled runtime effect IS a real native-lane
+gap (derived API clients are not implemented there) — the same shape as the `System.nanoTime` gap.
+It is not a *parity* finding and does not belong to this gate; if the example is ever meant to run,
+that gap is the work.
 
 ## v2-lanes-cannot-run-four-corpus-workloads — float globals unbound, indexed array store not a function
 

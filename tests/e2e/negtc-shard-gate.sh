@@ -97,6 +97,41 @@ if [ -f "$TMP/native-front-corpus.all" ] && [ -f "$TMP/bc-parity-sweep.all" ]; t
   fi
 fi
 
+# ── the no-golden classification must stay a CLASSIFICATION, not an allow-list ──
+# A both-fail means the two native lanes AGREE by both failing. Whether that agreement is a defect
+# depends on whether the program can run at all, and the corpus contract already answers that: it
+# marks a case SKIP when the INT lane — the golden — cannot execute it. `bc-parity-sweep` now reads
+# that declaration instead of calling such a case a strict failure.
+#
+# The danger is obvious and is what these assertions pin: this must never become a per-example
+# allow-list (the same thing `skipped-oversized-bytecode` deliberately avoided), and it must never
+# quietly widen to excuse a real both-fail.
+SWEEP="$ROOT/scripts/bc-parity-sweep"
+if [ -f "$SWEEP" ]; then
+  grep -q 'corpus-baseline.tsv' "$SWEEP" \
+    && ok "no-golden reads the corpus contract's frozen baseline, not a local list" \
+    || bad "bc-parity-sweep no longer reads corpus-baseline.tsv — the no-golden set must not be hand-maintained"
+
+  # The strict verdict must still count both-fail, and must NOT count no-golden.
+  strict_line="$(grep -n 'strict -eq 1' "$SWEEP" | head -1)"
+  case "$strict_line" in
+    *bothfail*) ok "strict still fails on an undeclared both-fail" ;;
+    *) bad "strict no longer counts both-fail: $strict_line" ;;
+  esac
+  case "$strict_line" in
+    *nogolden*) bad "strict counts no-golden — a declared-unrunnable case must not turn the gate red: $strict_line" ;;
+    *) ok "strict does not count no-golden" ;;
+  esac
+
+  # Reported on its own, never folded into `skipped`, or it becomes invisible.
+  grep -q 'no-golden: \$nogolden' "$SWEEP" \
+    && ok "no-golden is reported in the summary line" \
+    || bad "the summary no longer reports no-golden — a silent exclusion is how coverage disappears"
+  grep -q 'NO-GOLDEN:' "$SWEEP" \
+    && ok "no-golden cases are NAMED, not just counted" \
+    || bad "no NO-GOLDEN: list — a count without names is what made both-fail unactionable for weeks"
+fi
+
 # The release gate must REFUSE --shard, loudly. It runs the taxonomy + freeze after the sweeps, and
 # those compare against frozen WHOLE-CORPUS counts by exact equality — a partial report drifts every
 # metric, so a sharded run of that gate is red regardless of the tree's health. Accepting the flag
