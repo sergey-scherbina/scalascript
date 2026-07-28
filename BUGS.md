@@ -1,5 +1,79 @@
 # Bug tracker
 
+## ## bench-jvm-js-lanes-dead-silently — two whole benchmark columns were unmeasurable, and printed `n/a`
+
+**Status:** **FIXED 2026-07-28** (`bench-tier-dead-lanes`). Found while running a full 9-backend
+sweep for the first time since the v2 work.
+
+**The defect.** `ssc bench --backend jvm|js` shells out to `sscCmd` to run `emit-scala` / `emit-js`,
+and `sscCmd` resolved to `<ssc.lib.path>/bin/ssc` — the **standard-tier** launcher. Both commands
+are TOOLS-tier: the standard launcher answers `'emit-scala' requires the optional ScalaScript
+tools/compatibility tier` and exits non-zero. `timeJvm`/`timeJs` then hit
+`if emit.exitCode != 0 then return None` and the lane printed `n/a`.
+
+**Why it stayed hidden.** That early `return None` sits ABOVE the `catch` that honours
+`SSC_BENCH_DEBUG`, so even the debug switch printed nothing. And `n/a` is the *honest* output for a
+workload a backend genuinely cannot run (rust has no `LazyList`), so two structurally different
+claims — "unsupported" and "broken" — printed the same character. Same shape as the v2 column in
+`specs/v2-runtime-perf-vs-v1.md` §0, different cause. It presumably broke when the standard/tools
+tier split landed; `bench`'s launcher resolution was never updated.
+
+**Fix.** `sscCmd` prefers `bin/ssc-tools` and falls back to `bin/ssc`; every no-measurement path in
+`timeJvm`/`timeJs` now prints `bench: <backend> produced no measurement — <stage> failed: <reason>`
+on stderr, unconditionally. Verified: `jvm` 0.2752 ms/iter, `js` 18.1 ms/iter on `arith-loop`, both
+previously `n/a`.
+
+**Second, independent defect found by the new diagnostic** (this is what a loud lane buys): the
+generated bench wrapper used `x += 1` in its pre-warm and timing loops, and the JS backend cannot
+compile compound assignment (below). So even with the right launcher, every js measurement died —
+the harness was reporting its own incompatibility as the backend's `n/a`. The wrapper now spells
+those counters `x = x + 1`.
+
+## js-compound-assign-dispatches — `x += 1` compiles to a dynamic method call that always throws
+
+**Status:** OPEN (found 2026-07-28 by `bench-tier-dead-lanes`; filed, not fixed — the JS codegen
+paths belong to another lane).
+
+**Reproduce** — three lines:
+
+```scalascript
+var i = 0
+i += 1
+println(i)
+```
+
+| lane | result |
+|---|---|
+| INT (`ssc-tools run --v1`) | `1` |
+| JS (`ssc-tools run-js`) | `Error: Method not found: += on 0` |
+
+**Root cause.** `emit-js` emits `_dispatch(i, '+=', [1])` — the dynamic
+method-dispatch fallback — instead of `i = i + 1`. `_dispatch` has no `+=` entry, so it reaches
+`throw new Error('Method not found: ...)`. The operator is not compiled at all, it is *looked up*.
+
+**Impact beyond the repro:** any `.ssc` program using `+=`/`-=`/`*=` is silently JS-broken. It took
+down the entire `js` benchmark column because the bench wrapper itself used `+=`.
+
+## v2-source-backends-miss-autoOutput — `__autoOutput__` is unimplemented in both v2 source backends
+
+**Status:** OPEN (found 2026-07-28 by `bench-tier-dead-lanes`; filed, not fixed).
+
+Per-block auto-output is a prim each backend must implement (it cannot be a source-level pattern —
+Unit-ness is a runtime property whose representation differs per backend). It was implemented for
+the VM/bytecode lanes and **not** for the v2 source generators, so every program routed through
+them dies:
+
+| lane | failure |
+|---|---|
+| `v2-jvm` | `Exception in thread "main" java.lang.RuntimeException: unknown prim1: __autoOutput__` |
+| `v2-rust` | `panicked at main.rs: unimplemented prim: __autoOutput__` |
+
+**Reproduce:** `bin/ssc-tools --backend v2-jvm bench --machine bench/corpus/arith-loop.ssc`
+(add `SSC_BENCH_DEBUG=1`; without the fix above the failure was invisible).
+
+**Impact:** the `v2-jvm` and `v2-rust` benchmark columns are not "slow" or "unsupported" — they
+cannot run any program at all. This is the "fix every backend or it is a half-fix" shape.
+
 ## scljet-full-suite-int-lane-drops-one-case — exactly one INT case per full run produces no output at all
 
 **Status:** OPEN (found 2026-07-28 while A/B-ing the SC-2 candidate; not caused by it).

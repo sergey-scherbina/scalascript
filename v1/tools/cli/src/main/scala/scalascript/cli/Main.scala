@@ -7574,13 +7574,36 @@ final class BenchCmd extends CliCommand:
       System.err.println(s"bench: file not found: $path"); System.exit(1)
 
     // Find the ssc script: prefer ssc.lib.path (set by bin/ssc), then SSC env, then PATH.
+    //
+    // `ssc-tools` FIRST, and that ordering is the whole bug fix. The only thing this
+    // command is used for below is `emit-scala` / `emit-js`, and both are TOOLS-tier
+    // commands: the standard launcher answers them with "requires the optional
+    // ScalaScript tools/compatibility tier" and exits non-zero. `timeJvm`/`timeJs` then
+    // hit `if emit.exitCode != 0 then return None` and print `n/a` — so the `jvm` and
+    // `js` columns of every benchmark sweep read as "backend does not support this
+    // workload" when the truth was "the sweep asked the wrong launcher". Same failure
+    // shape as the v2 column in `specs/v2-runtime-perf-vs-v1.md` §0, different cause.
     val sscCmd: Seq[String] =
       sys.props.get("ssc.lib.path").flatMap { libPath =>
-        val script = java.nio.file.Paths.get(libPath).resolve("bin/ssc")
-        if java.nio.file.Files.isExecutable(script) then Some(Seq(script.toString))
-        else None
+        val root = java.nio.file.Paths.get(libPath)
+        Seq("bin/ssc-tools", "bin/ssc").map(root.resolve)
+          .find(java.nio.file.Files.isExecutable)
+          .map(p => Seq(p.toString))
       }.orElse(sys.env.get("SSC").map(s => Seq(s)))
        .getOrElse(Seq("ssc"))
+
+    /** A lane that produced no measurement must say WHY, on stderr, every time.
+     *
+     *  `n/a` is the honest answer for a workload a backend genuinely cannot run (rust has
+     *  no `LazyList`, js has no `LazyList.from`) and a LIE when the lane is broken — and
+     *  the two printed the same character. Nothing distinguishes them at a single
+     *  invocation, so instead of guessing, print the reason next to the `n/a` and let the
+     *  reader tell them apart. (The whole-column detector in `bench/run.sc` catches the
+     *  other half: a backend blank on EVERY workload is a dead lane and exits non-zero.) */
+    def benchLaneFailed(backend: String, stage: String, detail: String): None.type =
+      val trimmed = detail.linesIterator.filter(_.trim.nonEmpty).take(3).mkString(" | ")
+      System.err.println(s"bench: $backend produced no measurement — $stage failed: $trimmed")
+      None
 
     // Extract ScalaScript code from a Markdown fence (```scalascript...```) or return raw.
     def extractCode(content: String): String =
@@ -7740,14 +7763,19 @@ final class BenchCmd extends CliCommand:
              |  var _ssc_iw = 0
              |  while _ssc_iw < 50 do
              |    $sinkUpdate
-             |    _ssc_iw += 1""".stripMargin
+             |    _ssc_iw = _ssc_iw + 1""".stripMargin
         case None =>
-          s"var _ssc_w = 0\nwhile _ssc_w < $warmupN do\n  $sinkUpdate\n  _ssc_w += 1"
+          s"var _ssc_w = 0\nwhile _ssc_w < $warmupN do\n  $sinkUpdate\n  _ssc_w = _ssc_w + 1"
       s"""# bench-wrapper
          |
          |```scalascript
          |$code
          |
+         |// NOTE: the counters below say `x = x + 1`, never `x += 1`. The JS backend
+         |// compiles compound assignment to `_dispatch(x, '+=', [1])` and dies at run
+         |// time with "Method not found: += on 0" (BUGS.md js-compound-assign-dispatches),
+         |// so a `+=` HERE made every js measurement fail — the harness would have been
+         |// reporting its own incompatibility as the backend's `n/a`.
          |def _ssc_pfib(n: Int): Int = if n <= 1 then n else _ssc_pfib(n - 1) + _ssc_pfib(n - 2)
          |def _ssc_ptco(n: Int, a: Int): Int = if n <= 0 then a else _ssc_ptco(n - 1, a + n)
          |def _ssc_pwm(n: Int): Int = _ssc_pwm_i(n, 0)
@@ -7755,15 +7783,15 @@ final class BenchCmd extends CliCommand:
          |var _ssc_pi = 0
          |while _ssc_pi < 5 do
          |  _ssc_pfib(22)
-         |  _ssc_pi += 1
+         |  _ssc_pi = _ssc_pi + 1
          |var _ssc_pj = 0
          |while _ssc_pj < 10000 do
          |  _ssc_ptco(50, 0)
-         |  _ssc_pj += 1
+         |  _ssc_pj = _ssc_pj + 1
          |var _ssc_pk = 0
          |while _ssc_pk < 30000 do
          |  _ssc_pwm(5)
-         |  _ssc_pk += 1
+         |  _ssc_pk = _ssc_pk + 1
          |$sinkDecl
          |$warmupBlock
          |// Adaptive timed loop: double reps until the measured window is
@@ -7779,7 +7807,7 @@ final class BenchCmd extends CliCommand:
          |  var _ssc_r = 0
          |  while _ssc_r < _ssc_reps do
          |    $sinkUpdate
-         |    _ssc_r += 1
+         |    _ssc_r = _ssc_r + 1
          |  _ssc_ns = System.nanoTime() - _ssc_t0
          |  if _ssc_ns < 100_000_000L then _ssc_reps = _ssc_reps * 2
          |println(s"BENCH_MS: $${_ssc_ns.toDouble / (_ssc_reps * 1000000.0)}")
@@ -8072,7 +8100,8 @@ final class BenchCmd extends CliCommand:
       os.write.over(tmpSsc, wrapper)
       val emit = os.proc(sscCmd ++ Seq("emit-scala", tmpSsc.toString))
         .call(check = false, stdout = os.Pipe, stderr = os.Pipe)
-      if emit.exitCode != 0 then return None
+      if emit.exitCode != 0 then
+        return benchLaneFailed("jvm", s"${sscCmd.mkString(" ")} emit-scala", emit.err.text())
       val emittedSrc = new String(emit.out.bytes, "UTF-8")
       val fusedSrc   = fuseStreamChain(emittedSrc)
       os.write.over(tmpSc, fusedSrc)
@@ -8082,7 +8111,7 @@ final class BenchCmd extends CliCommand:
                         "--server=false",
                         tmpSc.toString)
         .call(check = false, stdout = os.Pipe, stderr = os.Pipe)
-      if run.exitCode != 0 then None
+      if run.exitCode != 0 then benchLaneFailed("jvm", "scala-cli run", run.err.text())
       else parseBenchMs(run.out.text())
 
     // emit-js → stable /tmp/*.cjs → node (compilation excluded from timing).
@@ -8092,11 +8121,12 @@ final class BenchCmd extends CliCommand:
       os.write.over(tmpSsc, wrapper)
       val emit = os.proc(sscCmd ++ Seq("emit-js", tmpSsc.toString))
         .call(check = false, stdout = os.Pipe, stderr = os.Pipe)
-      if emit.exitCode != 0 then return None
+      if emit.exitCode != 0 then
+        return benchLaneFailed("js", s"${sscCmd.mkString(" ")} emit-js", emit.err.text())
       os.write.over(tmpCjs, emit.out.bytes)
       val run = os.proc("node", tmpCjs.toString)
         .call(check = false, stdout = os.Pipe, stderr = os.Pipe)
-      if run.exitCode != 0 then None
+      if run.exitCode != 0 then benchLaneFailed("js", "node", run.err.text())
       else parseBenchMs(run.out.text())
 
     // Check tool availability for the selected backend.
