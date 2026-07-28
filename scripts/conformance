@@ -43,8 +43,15 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 run_conformance() {
   if [ -n "${SSC_CONFORMANCE_CMD:-}" ]; then
     bash -c "$SSC_CONFORMANCE_CMD" _ "$@"
+  elif [ -x "$here/tests/conformance/run.sh" ]; then
+    # Go through run.sh, not straight to run.sc: run.sh passes `--server=false`, without which
+    # scala-cli starts a bloop daemon that is adopted by launchd, sits at multi-GB and never exits.
+    # This wrapper used to invoke run.sc directly and therefore leaked exactly the daemon the other
+    # script exists to prevent — the two entrypoints each had HALF the protection. The marker stops
+    # run.sh from bouncing back here.
+    SSC_CONFORMANCE_GUARDED=1 "$here/tests/conformance/run.sh" "$@"
   elif [ -f "$here/tests/conformance/run.sc" ]; then
-    scala-cli "$here/tests/conformance/run.sc" "$@"
+    scala-cli --server=false "$here/tests/conformance/run.sc" "$@"
   else
     sbt "backendConformance/test"   # fallback: the sbt conformance project
   fi
