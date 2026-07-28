@@ -61,8 +61,31 @@ final class YamlOfficialCorpusSpec extends AnyFunSuite:
     assert(report.categoryRows.size == 33)
     assert(!report.categoryRows.exists(_.startsWith("family=")))
     assert(!report.isStrictGreen)
-    assert(report.failures.size == 290)
+    assert(report.failures.size == 276)
     YamlOfficialCorpusGate.requireCensus(report)
+  }
+
+  test("document-scoped tag handles and bare non-specific tags close the targeted corpus rows") {
+    val closed = Vector(
+      "52DL",
+      "5TYM",
+      "6CK3",
+      "6JWB",
+      "6WLZ",
+      "735Y",
+      "8MK2",
+      "9WXW",
+      "CC74",
+      "P76L",
+      "S4JQ",
+      "U3C3",
+      "UKK6/02",
+      "Z9M4",
+    )
+    val outcomes = report.outcomes.map(outcome => outcome.testCase.id -> outcome).toMap
+    closed.foreach { id =>
+      assert(outcomes(id).strictExact, YamlOfficialCorpusGate.renderFailureSafely(outcomes(id)))
+    }
   }
 
   test("same aggregate census with a different diagnostic is rejected") {

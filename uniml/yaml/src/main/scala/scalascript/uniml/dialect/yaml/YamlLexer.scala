@@ -140,7 +140,10 @@ private[yaml] object YamlLexer:
       else
         index += 1
         while index < input.length && !isSeparation(input.charAt(index)) && !isFlow(input.charAt(index)) do index += 1
-      val channel = if index == start + 1 then TokenChannel.Error else TokenChannel.Syntax
+      val bareNonSpecificTag = kind == "yaml.tag" && input.substring(start, index) == "!"
+      val channel =
+        if index == start + 1 && !bareNonSpecificTag then TokenChannel.Error
+        else TokenChannel.Syntax
       emitRange(start, index, kind, channel)
       if channel == TokenChannel.Error then
         val suffix = kind.stripPrefix("yaml.")

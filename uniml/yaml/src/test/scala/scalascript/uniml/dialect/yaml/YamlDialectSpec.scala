@@ -76,6 +76,59 @@ final class YamlDialectSpec extends AnyFunSuite:
     assert(result.roots.flatMap(UniNode.sourceTokens).exists(_.kind == "yaml.comment"))
   }
 
+  test("tag handles expand on scalars and collections and reset for every document") {
+    val text =
+      "%TAG !e! tag:example.com,2000:app/\n" +
+        "---\n" +
+        "custom: !e!tag%21 value\n" +
+        "unicode: !e!caf%C3%A9 coffee\n" +
+        "core: !!str text\n" +
+        "sequence: !!seq\n" +
+        "  - item\n" +
+        "mapping: !!map\n" +
+        "  key: value\n" +
+        "non-specific: ! value\n" +
+        "...\n" +
+        "%TAG ! tag:second.example/\n" +
+        "---\n" +
+        "!root second\n" +
+        "...\n" +
+        "---\n" +
+        "!root local\n"
+
+    val projection = Yaml.project(parse(text))
+    assert(!projection.diagnostics.exists(_.severity == Severity.Error), projection.diagnostics.mkString("\n"))
+    val documents = projection.value.get.asInstanceOf[YamlValue.Stream].documents
+    val first = documents.head.value.get.asInstanceOf[YamlValue.Mapping]
+    assert(first.entries(0).value.asInstanceOf[YamlValue.Scalar].tag.contains("tag:example.com,2000:app/tag!"))
+    assert(first.entries(1).value.asInstanceOf[YamlValue.Scalar].tag.contains("tag:example.com,2000:app/café"))
+    assert(first.entries(2).value.asInstanceOf[YamlValue.Scalar].tag.contains("tag:yaml.org,2002:str"))
+    assert(first.entries(3).value.asInstanceOf[YamlValue.Sequence].tag.contains("tag:yaml.org,2002:seq"))
+    assert(first.entries(4).value.asInstanceOf[YamlValue.Mapping].tag.contains("tag:yaml.org,2002:map"))
+    assert(first.entries(5).value.asInstanceOf[YamlValue.Scalar].tag.contains("!"))
+    assert(documents(1).value.get.asInstanceOf[YamlValue.Scalar].tag.contains("tag:second.example/root"))
+    assert(documents(2).value.get.asInstanceOf[YamlValue.Scalar].tag.contains("!root"))
+  }
+
+  test("tag directive and tag spelling errors are structured and fail projection") {
+    val duplicate =
+      "%TAG !e! tag:example.com,2000:first/\n" +
+        "%TAG !e! tag:example.com,2000:second/\n" +
+        "---\n" +
+        "!e!value text\n"
+    val duplicateProjection = Yaml.project(parse(duplicate))
+    assert(duplicateProjection.value.isEmpty)
+    assert(duplicateProjection.diagnostics.exists(_.code == "uniml.yaml.invalid-directive"))
+
+    val undefinedProjection = Yaml.project(parse("---\n!missing!value text\n"))
+    assert(undefinedProjection.value.isEmpty)
+    assert(undefinedProjection.diagnostics.exists(_.code == "uniml.yaml.invalid-tag"))
+
+    val malformedEscape = Yaml.project(parse("---\n!bad%QZ value\n"))
+    assert(malformedEscape.value.isEmpty)
+    assert(malformedEscape.diagnostics.exists(_.code == "uniml.yaml.invalid-tag"))
+  }
+
   test("empty streams, explicit keys, empty values, and compact mappings remain distinct") {
     val empty = projected(parse(""))
     assert(empty.documents.isEmpty)

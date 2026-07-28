@@ -28,6 +28,7 @@ private[yaml] object YamlSemanticParser:
     val lines = splitLines(input)
     var diagnostics: Vector[Diagnostic] = Vector.empty
     var index = 0
+    var tagEnvironment = YamlTagEnvironment.defaults
 
     def problem(
         code: String,
@@ -296,7 +297,13 @@ private[yaml] object YamlSemanticParser:
           val length = propertyLength(rest)
           val value = rest.take(length)
           if tag.nonEmpty then problem("uniml.yaml.invalid-tag", "a YAML node cannot have two tags", span)
-          tag = Some(value)
+          tag = Some(
+            tagEnvironment.expand(value) match
+              case Right(expanded) => expanded
+              case Left(message) =>
+                problem("uniml.yaml.invalid-tag", message, span)
+                value
+          )
           rest = rest.drop(length).trim
         else if rest.startsWith("&") then
           val length = propertyLength(rest)
@@ -414,9 +421,24 @@ private[yaml] object YamlSemanticParser:
     var documents: Vector[YamlDocument] = Vector.empty
     skipBlank()
     while index < lines.size do
+      tagEnvironment = YamlTagEnvironment.defaults
       var directives: Vector[YamlDirective] = Vector.empty
       while index < lines.size && clean(lines(index)).startsWith("%") do
-        directives = directives :+ parseDirective(lines(index))
+        val directive = parseDirective(lines(index))
+        directives = directives :+ directive
+        if directive.name == "TAG" then
+          YamlTagEnvironment.directiveParts(directive.value) match
+            case None =>
+              problem(
+                "uniml.yaml.invalid-directive",
+                "a %TAG directive requires exactly one handle and one prefix",
+                directive.span,
+              )
+            case Some((handle, prefix)) =>
+              tagEnvironment.register(handle, prefix) match
+                case Right(updated) => tagEnvironment = updated
+                case Left(message) =>
+                  problem("uniml.yaml.invalid-directive", message, directive.span)
         index += 1
         skipBlank()
 
