@@ -2143,7 +2143,7 @@ the deliberately correlated grandparent controls retain their narrower result.
 
 ## scljet-sql-double-equals-parser-gap — WHERE rejects SQLite's `==` equality alias
 
-**Status: FIXED 2026-07-28** by `scljet-sql-double-equals`. Normalized in the TOKENIZER.
+**Status: FIXED 2026-07-28** in `94873f54d` (`scljet-sql-double-equals`). Normalized in the TOKENIZER.
 
 **It was a LEXER gap, not a parser one — and that changes where the fix belongs.** `scljet/sql.ssc`
 emitted one token per `=` CHARACTER (`c == 61`), so `==` became TWO `=` tokens and the parser saw
