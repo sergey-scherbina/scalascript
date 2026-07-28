@@ -2,8 +2,8 @@
 
 ## uniml-yaml-bare-tag-uses-primary-handle — `%TAG !` rewrites the non-specific `!` tag
 
-**Status:** OPEN (found 2026-07-28 during independent UPR-2a.1 review; SPRINT
-`UPR-2a.1`).
+**Status:** FIXED 2026-07-28 in `3341a35a9` (found during independent
+UPR-2a.1 review; SPRINT `UPR-2a.1`).
 
 **Fail-first reproduction.**
 
@@ -18,15 +18,15 @@ At local feature commit `7ba41ae36`, semantic projection assigns
 the primary-handle override applies only to shorthands with a non-empty suffix.
 The source token itself remains lossless, so this is a semantic expansion defect.
 
-**Fix acceptance.** Add a JVM/Scala.js regression which proves the same document
-projects bare `!` as `!`, while `!name` still expands through the declared primary
-handle. Also pin exact source-token and expanded representation-tag spelling plus
-malformed-percent rejection before landing UPR-2a.1.
+**Fix and verification.** Expansion now recognizes bare `!` before consulting the
+primary handle. JVM and Scala.js regressions prove that `%TAG ! ...` expands
+`!name` while bare `!` remains `!`; the same suite pins raw tokens, expanded
+representation spelling, and malformed-percent rejection.
 
 ## uniml-yaml-bare-tag-missing-separation — `![...]` is accepted as a tagged collection
 
-**Status:** OPEN (found 2026-07-28 during independent UPR-2a.1 review; SPRINT
-`UPR-2a.1`).
+**Status:** FIXED 2026-07-28 in `3341a35a9` (found during independent
+UPR-2a.1 review; SPRINT `UPR-2a.1`).
 
 **Fail-first reproduction.**
 
@@ -39,14 +39,15 @@ checking the following source character. Because tag scanning stops before a flo
 indicator, both `![a]` and `!{a: b}` become complete, diagnostic-free projections.
 YAML requires separation between a bare non-specific tag property and its node.
 
-**Fix acceptance.** Add root and mapping-value JVM/Scala.js regressions. Bare `!`
-remains legal before whitespace, a line break, or end-of-input, while adjacency to
-`[`/`{` produces `uniml.yaml.invalid-tag` and no trusted projection.
+**Fix and verification.** The lexer now accepts bare `!` only before YAML
+separation or end-of-input. Root and mapping-value regressions on JVM and
+Scala.js reject adjacency to `[`/`{` with `uniml.yaml.invalid-tag`; a literal
+end-of-input case remains a valid non-specific tag.
 
 ## uniml-yaml-tag-percent-decoder-quadratic — legal long tags trigger repeated prefix copies
 
-**Status:** OPEN (found 2026-07-28 during independent UPR-2a.1 review; SPRINT
-`UPR-2a.1`).
+**Status:** FIXED 2026-07-28 in `3341a35a9` (found during independent
+UPR-2a.1 review; SPRINT `UPR-2a.1`).
 
 **Measured reproduction.** At local feature commit `7ba41ae36`,
 `YamlTagEnvironment.decodePercentEscapes` appends every literal/decoded code point
@@ -58,10 +59,12 @@ decoder took 2–11 ms. A source may contain many maximum-line tag spellings.
 **Impact.** The new semantic path introduces a bounded but exploitable CPU/allocation
 amplifier before the broader UPR-2d hardening slice.
 
-**Fix acceptance.** Validate and decode with portable chunk/code-point accumulation
-whose work is linear in input and decoded output size. Preserve opaque `%HH` in the
-representation tag, keep JVM/Scala.js parity, portable lint, and the official corpus
-delta unchanged.
+**Fix and verification.** Representation expansion now performs one monotone
+percent-syntax scan and preserves `%HH` verbatim. The separate parser-event view
+accumulates chunks/code points without repeated whole-prefix copies and preserves
+an opaque run unless the entire run is valid UTF-8. JVM/Scala.js suites, portable
+lint, the two-round build-isolation gate, and the exact 402-case corpus baseline
+all pass; two independent reviews accepted the linear portable path.
 
 ## uniml-yaml-corpus-6ck3-percent-oracle-conflict — pinned event contradicts YAML 1.2.2 tag preservation
 
@@ -80,6 +83,10 @@ tags in `YamlValue`. Isolate the decoded spelling to the typed parser-event
 compatibility view, never to public representation semantics or corpus
 preclassification. The unchanged 6CK3 event must still be reached by real parsing
 and comparison.
+
+**Mitigation landed.** `3341a35a9` implements that split globally and keeps 6CK3
+exact through real parsing/comparison. The tracker remains OPEN because the
+normative text/example conflict and upstream issue remain unresolved.
 
 ## v2-distributed-failure-retry — retry path degrades to Stub
 
@@ -204,7 +211,7 @@ that pre-collected table even though validation separately reports it.
 binding visible at each alias occurrence, retain the duplicate warning, reject forward aliases, and
 keep expansion/cycle/node limits bounded.
 
-## uniml-yaml-official-conformance-gap — YAML 1.2.2 strict corpus is 112/402
+## uniml-yaml-official-conformance-gap — YAML 1.2.2 strict corpus is 126/402
 
 **Status:** OPEN (accepted 2026-07-28 as UPR-2 from the pinned compare-first gate).
 
@@ -215,10 +222,16 @@ sbt -batch \
   "unimlYaml/Test/runMain scalascript.uniml.dialect.yaml.yamlOfficialCorpusStrict"
 ```
 
-The gate exits 1 after comparing all 402 cases: source/chunks are 402/402, validity is 210/402,
-semantics 128/402, strict 112/402, and 290 cases differ with zero crashes. All 94 upstream-invalid
-cases are event-red; the current AST post-walk always synthesizes balanced closing events and
-therefore cannot represent their official partial event prefixes.
+The starting gate compared all 402 cases at source/chunks 402/402, validity 210/402,
+semantics 128/402, strict 112/402, 290 differing cases, and zero crashes. UPR-2a.1
+(`3341a35a9`) moved the exact current census to validity 214/402, semantics 138/402,
+strict 126/402, actual errors 216, 276 differing cases, and zero crashes. Its frozen
+baseline SHA-256 is `7cd2d76efd0e26252097722ac1fb7d577936fb9f665ae6e852c811a9098123e3`;
+category SHA-256 is
+`25d786c1259235b820b550e58c67ef0c31e513771d226bc3ba60ed52d77fe5ad`.
+All 94 upstream-invalid cases remain event-red; the current AST post-walk always
+synthesizes balanced closing events and therefore cannot represent their official
+partial event prefixes.
 
 **Impact.** The safe M3 subset is lossless but is not production YAML 1.2.2 conformance.
 

@@ -325,7 +325,7 @@ self-parity test is not external conformance.
   - [ ] **UPR-2a lexical/directive layer.** Implement the YAML printable set, BOM rules, directive
         placement/scoping, `%YAML`/`%TAG` validation and handle expansion, tag URI/anchor/alias
         lexical rules, and the lexical/directive diagnostics promised by `specs/uniml-yaml.md`.
-    - [ ] **UPR-2a.1 document-scoped `%TAG` expansion.** Parse the two default handles and each
+    - [x] **UPR-2a.1 document-scoped `%TAG` expansion.** Parse the two default handles and each
           document's `%TAG` declarations, validate duplicates/undefined handles and percent escapes,
           reset declarations at document boundaries, and expand scalar/sequence/mapping tags in the
           semantic output consumed by the event trace. Keep the raw property spelling lossless in
@@ -341,6 +341,10 @@ self-parity test is not external conformance.
           must also remain a legal tag in `52DL`, `8MK2`, `S4JQ`, and `UKK6/02`; those event rows
           are already exact but lexer validity is red. Expected no-regression movement is semantics
           128→138, validity 210→214, strict 112→126, actual errors 220→216, and failures 290→276.
+          **Landed:** `3341a35a9`; the exact 402-case census reached all five targets with zero
+          crashes, JVM/Scala.js focused and full YAML suites passed, portable lint and the affected
+          conformance slice passed, and root/standalone products stayed isolated across two
+          no-clean transitions. Two independent read-only reviews returned GO.
     - [ ] **UPR-2a.2 tag/property lexical grammar.** Enforce the complete YAML 1.2.2
           `ns-uri-char`, `ns-tag-char`, local/global prefix, verbatim tag, expanded-URI,
           anchor, and alias spelling productions on JVM and Scala.js. Cover raw non-ASCII and

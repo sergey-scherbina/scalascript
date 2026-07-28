@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-07-28 — UniML YAML expands document-scoped tags without losing spelling
+
+YAML `%TAG` declarations now expand the default, primary, and named handles on
+scalars and collections and reset between documents. CST and public
+representation tags preserve exact `%HH` spelling, while the isolated
+parser-event view supplies the pinned suite's UTF-8 compatibility notation.
+Bare `!` remains non-specific under a primary-handle override and requires YAML
+separation; malformed triplets, duplicates, and undefined handles fail with
+structured diagnostics.
+
+The compare-first 402-case gate moved from 112 to 126 strict matches
+(validity 214, semantics 138, 276 remaining), with zero crashes. JVM and
+Scala.js focused/full YAML suites, portable lint, affected conformance, and the
+two-round root/standalone build gate pass; two independent reviews returned GO.
+Implementation and reviewed corrections landed through `3341a35a9`. Full
+tag/property grammar and the remaining YAML closure stay open in UPR-2a.2–e.
+
 ## 2026-07-28 — Actor-distributed retries preserve their partitions on SSC v2
 
 The shared map-reduce coordinator now retains ordinary and typed-wire retry
