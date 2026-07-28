@@ -251,7 +251,22 @@ symptom to anchor it.
 
 ## v2-serve-banner-missing — three corpus DIVERGEs, one cause: the native lane prints no server banner
 
-**Status:** OPEN (found 2026-07-28 by `corpus-contract-refresh-freeze` while re-measuring the v2
+
+**Status:** **FIXED 2026-07-28** by `v2-stub-apply-and-serve-banner` (`eb82bd18e`), option (1):
+the native serving host prints the same three-line banner. Contract-preserving — the three cases
+became PASS and no golden anywhere changed. `diff` of `examples/rozum-agent.ssc` native vs INT is
+now byte-identical, and the scoped contract run is 6/6 PASS cells with all three recorded as
+IMPROVEMENT over the frozen baseline.
+
+**A first attempt printed only on the BLOCKING path** and left all three DIVERGE. The reasoning
+was that "Ctrl+C to stop." cannot be true of an async serve — plausible, and wrong: those examples
+call `serveAsync(port)`, and the INT reference prints all three lines and then carries on, because
+v1's `serveAsync` runs `WebServer.start` on a background thread which prints before blocking.
+Corrected by diffing against INT instead of reasoning about what the banner ought to say.
+
+Option (2) — move the banner to stderr in both lanes — is filed separately as
+`v2-serve-banner-belongs-on-stderr`, with the measurement it must make first.
+
 baseline; these three were `FAIL` before `d11fd7a92` and are now `DIVERGE`, i.e. they RUN and only
 the output differs).
 
@@ -288,6 +303,23 @@ opportunistically** — check first whether the harness compares stderr as well
 does, moving the banner to stderr changes nothing and only churns the goldens.
 
 ## v2-list-apply-method-stub — `xs.apply(i)` is `Stub` on the native lane while `xs(i)` works
+
+
+**Status:** **FIXED 2026-07-28** by `v2-stub-apply-and-serve-banner` (`e34938737`). Two VM dispatch
+arms next to the existing Map/Array `apply` arms route a cons/nil receiver to `Prims.listIndex` —
+the SAME helper the `App` form uses, so the two spellings cannot drift, including the
+out-of-bounds message. A/B on one worktree, arm reverted and restored: `xs.apply(1)` went `Stub` →
+`20` while `xs(1)` stayed `20`.
+
+**Deliberately not fixed in the frontend**, which this entry's roadmap line warned about: lowering
+`.apply` to an application there breaks `object O { def apply(x) }`, whose `O.apply(1)` must reach
+the user's method. That shape was A/B'd and is unchanged — it fails identically before and after,
+and it fails LOUD, so it is a pre-existing gap now filed as `v2-object-apply-unbound`.
+
+**Gate:** `tests/conformance/list-apply-method.ssc` — literal and computed indices, a `String`
+list, and an index inside a HOF, since dispatch happens at run time and a constant-folded index
+would not exercise it. PASS on INT/JS/JVM/V2; the golden's first line is `10` where the pre-fix
+build printed `Stub`.
 
 **Status:** OPEN (found 2026-07-28 by `corpus-contract-refresh-freeze` while probing list indexing
 for a different fix).

@@ -147,12 +147,12 @@ own self-tests. These four are what that sweep surfaced and did not fix.
 taken together because they need the same build and the same corpus verification, and one full
 corpus run is ~35 min. Four corpus cases between them, two independent causes.
 
-- [ ] **SAB-1 (= V2-100-3) — `v2-list-apply-method-stub`.** `xs.apply(i)` evaluates to a `Stub`
+- [x] **SAB-1 (= V2-100-3) — DONE (`e34938737`).** `v2-list-apply-method-stub`: `xs.apply(i)` evaluates to a `Stub`
       sentinel while `xs(i)` works. The roadmap names the fix precisely: **one late VM arm**
       (`case (recv, "apply", args) => callValue(recv, args)`) in `v2/src/Runtime.scala`. ⚠️ It also
       names the trap: do **NOT** fix this in the front — that breaks `object O { def apply(x) }`.
       Gate: a conformance case asserting `xs.apply(i) == xs(i)` on INT and v2.
-- [ ] **SAB-2 (= V2-100-2) — `v2-serve-banner-missing`.** Three corpus DIVERGEs
+- [x] **SAB-2 (= V2-100-2) — DONE (`eb82bd18e`).** `v2-serve-banner-missing`: Three corpus DIVERGEs
       (`rozum-agent{,-pool,-streaming}`) with ONE cause: the program output is byte-identical and
       the whole difference is `WebServer.start`'s three-line banner, which the native serving path
       never prints. Take **option (1)** per the entry's recommendation — native prints the same
@@ -160,7 +160,7 @@ corpus run is ~35 min. Four corpus cases between them, two independent causes.
       anywhere changes. Option (2) (move the banner to stderr in both lanes) is the arguably
       better answer and is explicitly NOT to be done opportunistically: it rewrites every serving
       example's golden and needs its own claim. File it, don't do it.
-- [ ] **SAB-3 — verify.** Affected conformance slice, then the full corpus. ⚠️ Per the roadmap's
+- [x] **SAB-3 — verify. DONE.** Affected conformance slice, then the full corpus. ⚠️ Per the roadmap's
       closing warning: **compare OUTPUT against INT, never the exit code** — every v2 gap found
       today failed by evaluating to a `Stub` sentinel and continuing at exit 0.
 
@@ -262,10 +262,10 @@ So the honest number is **34 cases, not 43**, and 3 of the 34 collapse into one 
       building, and the tool refuses a scoped run, so a contended full run would just produce
       timeout flakes recorded as truth. The scoped probe above is the cheap substitute and needs
       no freeze write.
-- [ ] **V2-100-2 — `v2-serve-banner-missing`.** Three cases for one fix. Two options with a
+- [x] **V2-100-2 — `v2-serve-banner-missing`. DONE (`eb82bd18e`)** — option (1); the three cases are PASS and no golden changed. Option (2) filed as `v2-serve-banner-belongs-on-stderr`.**ORIGINAL:** Three cases for one fix. Two options with a
       recommendation are in the BUGS entry; take option (1) (native prints the same banner), and
       file option (2) rather than doing it opportunistically.
-- [ ] **V2-100-3 — `v2-list-apply-method-stub`.** `xs.apply(i)` -> `Stub` while `xs(i)` works. One
+- [x] **V2-100-3 — `v2-list-apply-method-stub`. DONE (`e34938737`)** — VM arm, not the front; the `object O { def apply }` shape A/B'd unchanged and filed as `v2-object-apply-unbound`. **ORIGINAL:** `xs.apply(i)` -> `Stub` while `xs(i)` works. One
       late VM arm (`case (recv, "apply", args) => callValue(recv, args)`); do NOT "fix" it in the
       front, that breaks `object O { def apply(x) }`.
 - [x] **V2-100-4 — `v2-mirror-fromproduct-stub`. DONE.** Mirror carries the ctor as a 4th field
