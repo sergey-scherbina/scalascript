@@ -2,10 +2,17 @@ slug: v2-native-error-diagnostic
 branch: feature/v2-native-error-diagnostic
 agent: claude-code
 started: 2026-07-28T04:46:14Z
-heartbeat: 2026-07-28T04:46:14Z
-status: claimed-before-planning
+heartbeat: 2026-07-28T04:53:11Z
+status: in-progress
 items: v2-native-uncaught-error-diagnostic-empty
 paths: v2/src/Runtime.scala tests/e2e/v2-error-diagnostic.sh v1/tools/cli/src/main/scala/scalascript/cli/StandardMain.scala BUGS.md SPRINT.md CHANGELOG.md
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  The DEFAULT product command said nothing useful for ANY uncaught error:
+  `throw new RuntimeException("the real message")` -> `ssc: SscThrow`, and `List(1,2,3)(9)` ->
+  `ssc: 9`. Two independent defects (SscThrow built with no message; Prims.listIndex delegating
+  its range check to Scala's List.apply) meeting at StandardMain's getMessage-or-class-name
+  printer. VED-0..VED-3 in SPRINT.md.
+done-so-far: fail-first gate tests/e2e/v2-error-diagnostic.sh proven RED 4/5 (bb5af199b), fix
+  landed on the branch (c1c960209), gate now 5 ok / 0 FAIL on both execution lanes; plugin
+  suites 6+10+5 green; try/effect/list conformance slice 11/11
+next: full corpus running for regression evidence, then push feature + docs + bookkeeping
