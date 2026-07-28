@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+#
+# build-guard — run a build command under a HOST-WIDE admission limit and a child heap cap.
+#
+# THE PROBLEM IT SOLVES
+# ---------------------
+# Every per-process memory cap in this repo is already sane: sbt server 4 GB (.jvmopts), forked test
+# JVMs 2 GB (build.sbt), conformance children 4 GB (scripts/conformance). What has never had a
+# ceiling is their SUM across parallel worktree agents. Twice that sum found the ceiling on its own:
+#
+#   2026-07-20  ~19 build JVMs, ~79 GB resident on a 36 GB host -> kernel watchdog force-reboot
+#   2026-07-28  three bare full-corpus conformance runs -> 139,831 pageouts, 526 MB swap
+#
+# `scripts/conformance` already fixed this for ONE entrypoint with an atomic-mkdir counting
+# semaphore. This is the same idea made general, with two differences that matter:
+#
+#   1. the slot count is DERIVED FROM HOST RAM instead of hardcoded, so the same script is correct
+#      on a 16 GB laptop and a 128 GB box; and
+#   2. a slot is only granted when the host actually has memory free right now. A free slot is not
+#      the same fact as free memory, and it was free memory that ran out.
+#
+# Usage:
+#   scripts/build-guard -- sbt test
+#   scripts/build-guard --slots 2 --xmx 3g -- ./install.sh --dev
+#   scripts/build-guard --print                 # show the computed budget and exit
+#
+# Env:
+#   SSC_BUILD_SLOTS       max concurrent guarded builds host-wide  (default: derived, see below)
+#   SSC_BUILD_XMX         heap cap appended for child JVMs         (default 2g)
+#   SSC_BUILD_SLOT_MB     RAM budgeted per slot, for the derivation (default 6144)
+#   SSC_BUILD_RESERVE_MB  RAM held back for the OS and everything else (default 8192)
+#   SSC_BUILD_MIN_FREE_MB refuse to start below this much available RAM (default 3072; 0 disables)
+#   SSC_BUILD_WAIT        seconds to wait for admission before giving up (default 1800)
+#   SSC_BUILD_NO_GUARD=1  bypass admission entirely (the heap cap still applies)
+#
+# Exit codes: the command's own, or 75 (EX_TEMPFAIL) if admission timed out.
+set -uo pipefail
+
+XMX="${SSC_BUILD_XMX:-2g}"
+SLOT_MB="${SSC_BUILD_SLOT_MB:-6144}"
+RESERVE_MB="${SSC_BUILD_RESERVE_MB:-8192}"
+MIN_FREE_MB="${SSC_BUILD_MIN_FREE_MB:-3072}"
+WAIT_SECS="${SSC_BUILD_WAIT:-1800}"
+STALE_SECS="${SSC_BUILD_STALE:-10800}"
+SEM_DIR="${SSC_BUILD_SEMDIR:-${TMPDIR:-/tmp}/ssc-build-sem}"
+print_only=0
+slots_override="${SSC_BUILD_SLOTS:-}"
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --slots) slots_override="$2"; shift 2 ;;
+    --xmx)   XMX="$2"; shift 2 ;;
+    --wait)  WAIT_SECS="$2"; shift 2 ;;
+    --print) print_only=1; shift ;;
+    -h|--help) sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --) shift; break ;;
+    *) break ;;
+  esac
+done
+
+host_mb() {
+  if [ "$(uname -s)" = "Darwin" ]; then echo $(( $(sysctl -n hw.memsize) / 1048576 ))
+  else echo $(( $(awk '/^MemTotal:/{print $2}' /proc/meminfo) / 1024 )); fi
+}
+
+# Available RAM, not "free". On macOS the honest figure is free + inactive + speculative +
+# purgeable: inactive/speculative pages are reclaimable on demand, and counting only `Pages free`
+# reads as an emergency on a perfectly healthy machine. `kern.memorystatus_level` is deliberately
+# NOT used here — MEASURED 2026-07-28, it reported a healthy 93 % while the host was doing 139,831
+# pageouts, which is precisely why jvm-mem-guard's log was empty through an OOM event.
+avail_mb() {
+  if [ "$(uname -s)" = "Darwin" ]; then
+    vm_stat 2>/dev/null | awk '
+      /page size of/       { for(i=1;i<=NF;i++) if($i=="of") ps=$(i+1) }
+      /^Pages free/        { gsub(/\./,"",$3); f=$3 }
+      /^Pages inactive/    { gsub(/\./,"",$3); i=$3 }
+      /^Pages speculative/ { gsub(/\./,"",$3); s=$3 }
+      /^Pages purgeable/   { gsub(/\./,"",$3); p=$3 }
+      END { printf "%d", (f+i+s+p) * ps / 1048576 }'
+  else
+    awk '/^MemAvailable:/{printf "%d", $2/1024}' /proc/meminfo
+  fi
+}
+
+HOST_MB=$(host_mb)
+if [ -n "$slots_override" ]; then
+  SLOTS="$slots_override"
+else
+  usable=$(( HOST_MB - RESERVE_MB ))
+  SLOTS=$(( usable / SLOT_MB ))
+  [ "$SLOTS" -lt 1 ] && SLOTS=1
+fi
+
+if [ "$print_only" -eq 1 ]; then
+  printf 'host_mb=%s reserve_mb=%s slot_mb=%s slots=%s xmx=%s min_free_mb=%s available_mb=%s semdir=%s\n' \
+    "$HOST_MB" "$RESERVE_MB" "$SLOT_MB" "$SLOTS" "$XMX" "$MIN_FREE_MB" "$(avail_mb)" "$SEM_DIR"
+  exit 0
+fi
+
+[ $# -gt 0 ] || { echo "build-guard: nothing to run (use: build-guard -- <command…>)" >&2; exit 2; }
+
+# Heap cap for children. APPENDED so it is the LAST -Xmx on the line and therefore the one the JVM
+# honours — that is what lets it beat a bigger -Xmx already sitting in an inherited JDK_JAVA_OPTIONS
+# (dev hosts carry -Xmx12g). A child that sets its own -Xmx on its command line still wins over
+# both, which is correct: the sbt server keeps its 4 GB from .jvmopts.
+export JDK_JAVA_OPTIONS="${JDK_JAVA_OPTIONS:-} -Xmx${XMX}"
+export JAVA_OPTS="${JAVA_OPTS:-} -Xmx${XMX}"
+
+SLOT=""
+release() { [ -n "$SLOT" ] && rm -rf "$SLOT" 2>/dev/null; return 0; }
+
+reap_stale() {
+  for s in "$SEM_DIR"/slot.*; do
+    [ -d "$s" ] || continue
+    owner="$(cat "$s/pid" 2>/dev/null || echo 0)"
+    mt="$(stat -f %m "$s" 2>/dev/null || stat -c %Y "$s" 2>/dev/null || echo 0)"
+    age=99999999; [ "$mt" != 0 ] && age=$(( $(date +%s) - mt ))
+    if { [ "$owner" != 0 ] && ! kill -0 "$owner" 2>/dev/null; } || [ "$age" -gt "$STALE_SECS" ]; then
+      rm -rf "$s" 2>/dev/null
+    fi
+  done
+  return 0
+}
+
+acquire() {
+  [ "${SSC_BUILD_NO_GUARD:-0}" = 1 ] && return 0
+  mkdir -p "$SEM_DIR" 2>/dev/null
+  deadline=$(( SECONDS + WAIT_SECS ))
+  said_waiting=0
+  while :; do
+    reap_stale
+    i=0
+    while [ "$i" -lt "$SLOTS" ]; do
+      if mkdir "$SEM_DIR/slot.$i" 2>/dev/null; then
+        SLOT="$SEM_DIR/slot.$i"; echo "$$" > "$SLOT/pid"
+        trap 'release' EXIT INT TERM
+        # A slot in hand is not memory in hand. Re-check availability now that we hold it, and if
+        # the host is genuinely short, give the slot back rather than sit on it while we wait —
+        # holding it would block a build that could have run when memory frees.
+        if [ "$MIN_FREE_MB" -gt 0 ]; then
+          a=$(avail_mb)
+          if [ "$a" -lt "$MIN_FREE_MB" ]; then
+            echo "build-guard: only ${a} MB available (need ${MIN_FREE_MB}) — yielding slot, waiting…" >&2
+            release; SLOT=""
+            sleep 10
+            [ "$SECONDS" -ge "$deadline" ] && return 75
+            continue 2
+          fi
+        fi
+        return 0
+      fi
+      i=$(( i + 1 ))
+    done
+    [ "$SECONDS" -ge "$deadline" ] && return 75
+    if [ "$said_waiting" -eq 0 ]; then
+      echo "build-guard: ${SLOTS} guarded build(s) already running host-wide (host ${HOST_MB} MB, ${SLOT_MB} MB/slot) — waiting…" >&2
+      echo "             bypass with SSC_BUILD_NO_GUARD=1, or watch with scripts/build-ram-report --watch 15" >&2
+      said_waiting=1
+    fi
+    sleep 5
+  done
+}
+
+acquire
+rc=$?
+if [ "$rc" -eq 75 ]; then
+  echo "build-guard: waited ${WAIT_SECS}s for admission and gave up (slots=${SLOTS})." >&2
+  echo "             Something is holding slots: scripts/build-ram-report ; scripts/kill-stale-builders --idle 30" >&2
+  exit 75
+fi
+
+# Never `exec`: exec replaces the process image and drops the EXIT trap, which leaks the slot
+# permanently (the same trap scripts/conformance documents). Run as a child, pass the status back.
+"$@"
+rc=$?
+exit "$rc"

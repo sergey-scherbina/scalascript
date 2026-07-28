@@ -1,13 +1,54 @@
 #!/usr/bin/env bash
 #
-# kill-stale-builders — stop sbt/bloop daemons whose working directory no longer
-# exists (deleted worktrees). Orphaned servers hold 2-3 GB RSS each and can
-# answer BSP with stale state (2026-07-06 audit: two dead-worktree sbt servers
-# held >5 GB). Detection: the process CWD via lsof — command lines don't
-# reliably contain the workspace path. Dry-run by default; --kill to act.
+# kill-stale-builders — stop build daemons that are holding RAM for nothing.
+#
+# Two kinds of "for nothing", and until 2026-07-28 only the first was handled:
+#
+#   ORPHANED  the daemon's working directory no longer exists (a removed worktree). Always safe to
+#             kill. Orphans hold 2-3 GB RSS each and can answer BSP with stale state (2026-07-06
+#             audit: two dead-worktree sbt servers held >5 GB).
+#   IDLE      the worktree is alive but nobody is building in it. MEASURED 2026-07-28: an sbt server
+#             sits at ~2.7 GB RSS after merely loading the build, and observed in the wild at 5.1 GB
+#             after real work. With 13 live worktrees the steady state is tens of GB of servers
+#             nobody is using. `.jvmopts` periodic GC now hands ~1.1 GB of that back per server, but
+#             the remaining ~1.5 GB only goes away when the server does.
+#
+# Idleness is measured as CPU TIME, not wall time: a daemon that has burned no measurable CPU across
+# the sample window is not compiling anything, whatever its age. That is the check that cannot
+# mistake a long compile for an idle server — which is why it is worth two samples rather than one.
+#
+# Detection of the working directory is via lsof: command lines do not reliably contain the
+# workspace path.
+#
+# Usage:
+#   scripts/kill-stale-builders                      # dry run: report orphans (unchanged default)
+#   scripts/kill-stale-builders --kill               # stop the orphans
+#   scripts/kill-stale-builders --idle 30            # ALSO report daemons idle for 30+ minutes
+#   scripts/kill-stale-builders --idle 30 --kill     # …and stop them
+#
+# `--idle` is opt-in on purpose: killing a live worktree's server is a bigger decision than killing
+# an orphan's, and the caller should have to say so. Nothing is lost either way — the next `sbt`
+# invocation starts a fresh server; it just pays the ~9-15 s build load again.
 set -euo pipefail
-mode="${1:---dry-run}"
-for pid in $(ps ax -o pid=,command= | grep -E "sbt-launch|bloop|sbt\.script" | grep -v grep | awk '{print $1}'); do
+
+mode="--dry-run"
+idle_min=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --kill)      mode="--kill"; shift ;;
+    --dry-run)   mode="--dry-run"; shift ;;
+    --idle)      idle_min="${2:?--idle needs minutes}"; shift 2 ;;
+    -h|--help)   sed -n '2,32p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "kill-stale-builders: unknown flag '$1' (try --help)" >&2; exit 2 ;;
+  esac
+done
+
+BUILD_RE="sbt-launch|bloop|sbt\.script|xsbt\.boot|sbt/standalone"
+pids=$(ps ax -o pid=,command= | grep -E "$BUILD_RE" | grep -v grep | awk '{print $1}' || true)
+
+# ── pass 1: orphans (cwd gone) ───────────────────────────────────────────────
+live=""
+for pid in $pids; do
   cwd=$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1)
   [ -z "$cwd" ] && continue
   if [ ! -d "$cwd" ]; then
@@ -17,6 +58,63 @@ for pid in $(ps ax -o pid=,command= | grep -E "sbt-launch|bloop|sbt\.script" | g
     else
       echo "STALE: pid=$pid cwd-gone=$cwd   (run with --kill to stop)"
     fi
+  else
+    live="$live $pid|$cwd"
+  fi
+done
+
+[ "$idle_min" -eq 0 ] && exit 0
+[ -n "$live" ] || exit 0
+
+# ── pass 2: idle (worktree alive, no CPU burned) ─────────────────────────────
+# ps prints CPU time as [[dd-]hh:]mm:ss.ss — reduce it to whole seconds.
+cpu_secs() {
+  ps -o time= -p "$1" 2>/dev/null | tr -d ' ' | awk '
+    { t=$0; d=0
+      if (t ~ /-/) { split(t,a,"-"); d=a[1]; t=a[2] }
+      n=split(t,p,":"); s=0
+      for (i=1;i<=n;i++) s = s*60 + int(p[i])
+      printf "%d", d*86400 + s }'
+}
+elapsed_secs() {
+  ps -o etime= -p "$1" 2>/dev/null | tr -d ' ' | awk '
+    { t=$0; d=0
+      if (t ~ /-/) { split(t,a,"-"); d=a[1]; t=a[2] }
+      n=split(t,p,":"); s=0
+      for (i=1;i<=n;i++) s = s*60 + int(p[i])
+      printf "%d", d*86400 + s }'
+}
+
+SAMPLE="${SSC_IDLE_SAMPLE_SECS:-20}"
+entries=""
+for entry in $live; do
+  pid=${entry%%|*}
+  entries="$entries $entry|$(cpu_secs "$pid")"
+done
+
+sleep "$SAMPLE"
+
+for entry in $entries; do
+  pid=${entry%%|*}
+  rest=${entry#*|}
+  cwd=${rest%|*}
+  before=${rest##*|}
+  after=$(cpu_secs "$pid")
+  [ -z "$after" ] && continue                       # exited on its own
+  [ "$after" -gt "$before" ] && continue            # burned CPU in the window: it is working
+
+  # No CPU in the window. ALSO require that it has been up longer than the idle threshold —
+  # a server started seconds ago, still waiting for its first command, looks identical otherwise.
+  up=$(elapsed_secs "$pid")
+  [ -z "$up" ] && continue
+  [ "$up" -lt $(( idle_min * 60 )) ] && continue
+
+  rss=$(( $(ps -o rss= -p "$pid" 2>/dev/null | tr -d ' ' || echo 0) / 1024 ))
+  if [ "$mode" = "--kill" ]; then
+    echo "killing idle builder $pid (${rss} MB, no CPU in ${SAMPLE}s, up $(( up / 60 ))m): $cwd"
+    kill "$pid" 2>/dev/null || true
+  else
+    echo "IDLE:  pid=$pid rss=${rss}MB up=$(( up / 60 ))m cwd=$cwd   (run with --kill to stop)"
   fi
 done
 exit 0

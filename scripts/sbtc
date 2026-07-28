@@ -5,4 +5,14 @@
 # just loading the 259-module build (measured 2026-07-06); the client reuses
 # the warm server and answers in <1 s. First call starts the server.
 # Usage: scripts/sbtc "v2FrontendBridge/testOnly ssc.bridge.V2ConformanceTest"
-exec sbt --client "$@"
+#
+# Routed through `scripts/build-guard` since 2026-07-28. sbt is the most-invoked heavy entrypoint in
+# the repo, so it is where a host-wide admission limit actually binds. On a 36 GB host that works out
+# to 4 concurrent guarded builds — well above normal use, so the common path just runs — and the
+# limit only bites during the pile-up that twice exhausted host RAM (specs/build-ram-budget.md).
+# A rule that depends on every agent remembering to type a wrapper is a wish; routing the tool
+# everyone already uses is the enforcement.
+#
+# Bypass for a deliberately unbounded run: SSC_BUILD_NO_GUARD=1 scripts/sbtc "…"
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec "$here/build-guard" -- sbt --client "$@"
