@@ -1,0 +1,11 @@
+slug: negtc-stale-override-wasm-http
+branch: feature/negtc-stale-override-wasm-http
+agent: claude-code
+started: 2026-07-28T18:39:57Z
+heartbeat: 2026-07-28T18:39:57Z
+status: claimed-before-planning
+items: negtc-stale-override-wasm-http NSO-1
+paths: tests/fixtures/v21-sentinel-taxonomy
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
