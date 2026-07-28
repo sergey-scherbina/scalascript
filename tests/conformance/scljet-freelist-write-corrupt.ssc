@@ -2,6 +2,7 @@
 name: scljet-freelist-write-corrupt
 description: Reclaiming writes validate the staged freelist graph and fail closed before mutation
 backends: [int, js]
+known-red: "int,js — fail-first for BUGS §scljet-write-freelist-errors-are-swallowed: the negative observables expect `left stable=true` (corrupt staged graph rejected before mutation) and main returns `RIGHT` for 16 of them, accepting the corruption. The candidate validators live on branch `feature/scljet-production-completion` at `ee382f3f5` and are unverified. Expires by itself when they land — a known-red that starts passing fails the suite."
 ---
 
 # SclJet mutable freelist corruption
