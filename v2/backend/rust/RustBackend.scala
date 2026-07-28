@@ -1327,6 +1327,12 @@ ${pad}    }));\n"""
         val cellN = fresh("c"); val valN = fresh("v")
         s"{ let $cellN = $a0; let $valN = as_int($a1); *as_lcell($cellN).borrow_mut() = $valN; V::Unit }"
       // I/O
+      // Per-block auto-output — see the note in JvmBackend. `v2-rust` panicked with
+      // `unimplemented prim: __autoOutput__` on every program without it. Unit prints
+      // nothing; anything else goes through the same v_println as io.println.
+      case "__autoOutput__" =>
+        val tmpN = fresh("ao")
+        s"{ let $tmpN = $a0; if !matches!($tmpN, V::Unit) { v_println($tmpN); } V::Unit }"
       case "io.print"    => s"{ v_print($a0); V::Unit }"
       case "io.println"  => s"{ v_println($a0); V::Unit }"
       case "io.eprint"   => s"{ eprint!(\"{{}}\", show(&$a0)); V::Unit }"

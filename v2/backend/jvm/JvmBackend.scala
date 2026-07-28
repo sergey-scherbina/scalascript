@@ -413,6 +413,15 @@ object R:
     case "__handler_dispatch_selected__" => ()
     case "__handler_dispatch_miss__" => throw new RuntimeException("match: no matching case")
     case "io.args"  => _strList(argv)
+    // Per-block auto-output. It is a PRIM rather than a source-level helper because
+    // "is this Unit?" is a runtime fact whose representation differs per backend — no
+    // `.ssc` pattern can test it portably. Every backend that consumes F's output must
+    // implement it; this one did not, so `v2-jvm` died with `unknown prim1: __autoOutput__`
+    // on EVERY program. Mirrors the VM arm in Runtime.scala: Unit prints nothing, anything
+    // else renders through the same `_out` as io.print, followed by a newline.
+    case "__autoOutput__" => a0 match
+      case () => ()
+      case v  => _out(v, Console.out); Console.out.println(); ()
     case "io.print" => _out(a0, Console.out); ()
     case "io.println"=> _out(a0, Console.out); Console.out.println(); ()
     case "io.eprint"=> _out(a0, Console.err); ()
