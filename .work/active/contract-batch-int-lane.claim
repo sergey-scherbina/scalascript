@@ -6,7 +6,7 @@ heartbeat: 2026-07-28T03:30:00Z
 status: claimed-before-planning
 direction: Corpus gate / cost
 items: contract-batch-int-lane
-paths: tests/conformance/contract.sc
+paths: tests/conformance/contract.sc specs/conformance-perf.md
 scope: |
   contract.sc's own header has carried this TODO since 2026-07-14: "add memo (F2) + batch lanes (F4)
   like run.sc". run.sc got batching; the corpus gate never did — and the gate is the one that could
