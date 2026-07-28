@@ -185,9 +185,9 @@ object Denormalize:
   private def content(c: ir.Content): ast.Content = c match
     case ir.Content.Prose(text, sp) =>
       ast.Content.Prose(text, sp.map(span))
-    case ir.Content.CodeBlock(source, _, sp) =>
+    case ir.Content.CodeBlock(source, _, sp, attrs) =>
       val tree = Parser.parseScalaSource(source)
-      ast.Content.CodeBlock(ast.Lang.ScalaScript, source, tree, sp.map(span))
+      ast.Content.CodeBlock(ast.Lang.ScalaScript, source, tree, sp.map(span), attrs = attrs)
     case ir.Content.EmbeddedBlock(language, source, sp, _) if ast.Lang.isParseable(language) =>
       val tree = Parser.parseScalaSource(source)
       ast.Content.CodeBlock(language, source, tree, sp.map(span))

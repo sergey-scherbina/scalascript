@@ -76,7 +76,7 @@ object CapabilityCheck:
       }
 
     def scanContent(c: ir.Content): Unit = c match
-      case ir.Content.CodeBlock(source, _, _) => scanSource(source)
+      case ir.Content.CodeBlock(source, _, _, _) => scanSource(source)
       case ir.Content.EmbeddedBlock(lang, _, _, _) if Lang.isXml(lang) =>
         // Fenced ```xml ... ``` blocks require Feature.Markup
         detected += Feature.Markup
@@ -238,7 +238,7 @@ object CapabilityCheck:
         i += 1
 
     def scanContent(c: ir.Content): Unit = c match
-      case ir.Content.CodeBlock(source, _, _) => scanSource(source)
+      case ir.Content.CodeBlock(source, _, _, _) => scanSource(source)
       case _                                  => ()
 
     def scanSection(s: ir.Section): Unit =

@@ -271,7 +271,7 @@ object Normalize:
         val bodyIr = tree.toList.map(t =>
           ast.ScalaNode.fold(t)(AstToIr.toIrExpr)
         )
-        ir.Content.CodeBlock(source = rewrittenSrc, body = bodyIr, span = sp.map(span))
+        ir.Content.CodeBlock(source = rewrittenSrc, body = bodyIr, span = sp.map(span), attrs = attrs)
       else
         // Stage 9+/A — all fenced tags (html, css, javascript, sql, xml,
         // transaction, scala, and third-party) route through the registry.

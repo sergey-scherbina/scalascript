@@ -478,7 +478,7 @@ object RustGen:
       section.subsections.exists(sectionDeclaresMain)
 
   private def contentDeclaresMain(c: ir.Content): Boolean = c match
-    case ir.Content.CodeBlock(source, _, _) => sourceHasMain(source)
+    case ir.Content.CodeBlock(source, _, _, _) => sourceHasMain(source)
     case _                                  => false
 
   /** A `@main` marker is recognised when it appears at column-zero or

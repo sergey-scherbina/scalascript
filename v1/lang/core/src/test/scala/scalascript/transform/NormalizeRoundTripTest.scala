@@ -63,3 +63,34 @@ class NormalizeRoundTripTest extends AnyFunSuite:
       val back   = readBinary[ir.NormalizedModule](bytes)
       assert(back == normal, s"MsgPack round-trip mismatch for $name")
   }
+
+  test("a fence attribute survives the SPI boundary (ir-normalize-drops-code-fence-attrs)"):
+    // `@side=server` was honoured by INT — which interprets the ast.Module directly and never crosses
+    // this boundary — and INVISIBLE to every SPI backend, because ir.Content.CodeBlock had no slot for
+    // it and Denormalize rebuilt the block without one. A block meant to be server-only was therefore
+    // emitted into the JS bundle. This pins the CARRY: the attribute must reach the IR and come back.
+    // It deliberately does NOT assert that any backend ACTS on `side` — that is the separate follow-up
+    // recorded in BUGS; asserting it here would make the test pass for a reason it does not verify.
+    val src =
+      """---
+        |name: fence-attr-carry
+        |---
+        |
+        |```scalascript @side=server
+        |def main(): Int = 42
+        |```
+        |""".stripMargin
+    val mod = Parser.parse(src)
+    val norm = Normalize(mod)
+    val irBlocks = norm.sections.flatMap(_.content).collect { case cb: ir.Content.CodeBlock => cb }
+    assert(irBlocks.nonEmpty, "expected at least one ir.Content.CodeBlock")
+    assert(
+      irBlocks.exists(_.attrs.get("side").contains("server")),
+      s"the IR dropped the fence attribute; got attrs=${irBlocks.map(_.attrs)}"
+    )
+    val back = Denormalize(norm)
+    val astBlocks = back.sections.flatMap(_.content).collect { case cb: scalascript.ast.Content.CodeBlock => cb }
+    assert(
+      astBlocks.exists(_.attrs.get("side").contains("server")),
+      s"the round trip dropped the fence attribute; got attrs=${astBlocks.map(_.attrs)}"
+    )

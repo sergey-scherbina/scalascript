@@ -87,7 +87,7 @@ class InterpreterBackend extends InteractiveBackend:
 class InterpreterSession(val interp: Interpreter) extends Session:
   def feed(block: ir.NormalizedBlock): CompileResult =
     block match
-      case ir.Content.CodeBlock(source, _, _) =>
+      case ir.Content.CodeBlock(source, _, _, _) =>
         interp.runSnippet(source)
         CompileResult.Executed("", "", 0)
       case other =>

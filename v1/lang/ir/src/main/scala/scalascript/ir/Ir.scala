@@ -278,7 +278,19 @@ enum Content derives ReadWriter:
   /** A `scalascript` / `ssc` fence — host embedded language.  Stored as
    *  source; backends re-parse via the scala-source plugin (Stage 9).
    *  Carries the parsed/normalised body once Stage 3 lowering lands. */
-  case CodeBlock(source: String, body: List[IrExpr] = Nil, span: Option[Span] = None)
+  /** `attrs` carries the fence-line `@key=value` markers across the SPI boundary. Without it a
+   *  `@side=server` block was honoured by INT — which interprets the `ast.Module` directly and never
+   *  crosses this boundary — and INVISIBLE to every SPI backend, so server-only code was emitted into
+   *  the JS bundle (BUGS `ir-normalize-drops-code-fence-attrs`). Trailing and defaulted, so the nine
+   *  construction sites and `derives ReadWriter` are unaffected; SQL's `db`/`side` stay promoted
+   *  fields on `SqlBlock` and are untouched. Carrying the attribute is not the same as ACTING on it:
+   *  a backend must still choose to honour `side`, which is the follow-up this does not do. */
+  case CodeBlock(
+    source: String,
+    body:   List[IrExpr]        = Nil,
+    span:   Option[Span]        = None,
+    attrs:  Map[String, String] = Map.empty
+  )
   /** A foreign-language fence (`html`, `css`, `scala`, future `wat`, …).
    *  Compiled by a SourceLanguage plugin (Stage 9).
    *  `evidence` carries optional structured type metadata produced by the
