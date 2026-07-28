@@ -199,3 +199,23 @@ Same command as §2. This is the "what is still worse than v1" answer; ratio is
   drops to the slower VM. Note that even at half that size it would still be over
   `HugeMethodLimit` and never JIT. Tracked as `BUGS.md scljet-jdbc-facade-bytecode-class-too-large`;
   worth revisiting under the same "emit smaller methods" heading as slice 2.
+
+## 5. What is NOT a slice — the honest limit of this approach
+
+After slice 1 the two largest remaining ratios on the product lane are `list-fold` (135× v1) and
+`vector-index` (50× v1 after slice 4). Neither is a defect with a fix hiding behind it, and saying
+so is more useful than opening a ticket that cannot be closed.
+
+Both reduce to the same thing: **v1 has a real JIT that compiles a whole loop to native code, and
+v2's bytecode lane calls into a generic runtime once per element.** `bench/corpus/list-fold`'s inner
+`xs.foreach(closure)` already walks the cons chain in place (`foreachConsOp` — there is no
+materialisation left to remove there), and its 0.894 ms is ~9 ns per element, which is roughly what
+a boxed closure call through a generic dispatcher costs. v1's 0.0066 ms is ~0.66 ns per element,
+which is what a JIT-compiled loop costs. The gap is architectural, not a bug.
+
+Closing it means giving v2 something v1 has: inline caching at prim/method sites, unboxed
+representations for the numeric paths, and loop-level compilation rather than per-node dispatch.
+That is a research-scale programme, and it should be priced and specced as one rather than
+attempted as another "slice". The profile-backed pieces that ARE slice-sized are queued as
+`v2rt-2` / `v2rt-6` in `SPRINT.md`, with their expected sizes stated up front so nobody starts one
+expecting the 10× that slice 1 produced.

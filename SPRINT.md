@@ -180,6 +180,25 @@ Full A/B, baseline and open slices: `specs/v2-runtime-perf-vs-v1.md`; bug record
       count it). Fix: `Prims.listIndex` / `Prims.listLength` walk the chain in place and fall back
       to the old spelling with the ORIGINAL receiver+index for any shape they do not recognise, so
       values and exceptions stay identical by construction. A/B pending.
+- [ ] **v2rt-6 — the bytecode lane resolves every primitive by STRING at run time.**
+      Profile-backed (`jdk.ExecutionSample` on `bin/ssc-tools --backend v2-bytecode bench
+      bench/corpus/vector-index.ssc`): `ssc.Emit$.prim2` 87+78 and `ssc.Emit$.fn` 68 samples —
+      together ~23% of the profile. Every generated prim site calls
+      `Emit.prim2(op, a, b)` → `fnCache.computeIfAbsent(op, …)` (String hash + bin walk) →
+      `fn(op)(a :: b :: Nil)` (**2 cons cells allocated per primitive operation**), and `prim2`
+      additionally does an `op == "global.reg"` String compare on every call.
+      `Prims.resolve1/resolve2/resolve3` already exist and return arity-specialised
+      `Fn1/Fn2/Fn3`, so the list is pure waste: cache `resolve2(op)` behind a null-object
+      sentinel (a CHM cannot store null and most ops legitimately have no 2-arity form, so the
+      MISS must be cached too or the slow path re-scans on every call) and call `f(a, b)`.
+      Keep the `global.reg` special case first — `Emit.registerGlobal` is not the same function
+      as `resolve2`'s `global.reg` arm, and that difference is not this slice's to change.
+      **Expected ~1.1×, not more** — the CHM lookup itself stays; only the allocation goes.
+      Sized before starting on purpose: the bigger version of this idea is resolving the prim
+      at EMIT time in `JvmByteGen` so the generated code calls a specialised static directly,
+      which is a real design change and should be priced separately.
+      ⚠️ `v2/jvm-runtime` is NOT in the `v2-runtime-perf-vs-v1` claim's paths — widen through
+      `scripts/coord-claim` (and the ledger row) before editing.
 - [ ] **v2rt-5 — is the VM's `FastCode` arithmetic recognizer still firing?** `BACKLOG.md`
       records the v2 VM at **0.000015 ms** on `arith-loop` after `v2-vm-*-fast-tier` landed
       (2026-07-09/10); it measures **73-75 ms** today. Two candidate explanations and they are
