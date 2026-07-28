@@ -2,7 +2,7 @@ slug: v2-auto-output-prim
 branch: feature/v2-auto-output-prim
 agent: claude-code
 started: 2026-07-28T07:00:05Z
-heartbeat: 2026-07-28T07:13:14Z
+heartbeat: 2026-07-28T07:40:14Z
 status: in-progress
 items: v2-native-multiblock-auto-output-missing
 paths: v2/src/Runtime.scala v2/backend/js specs/v2.2-p6.5-fsub.ssc v2/bin/ tests/conformance/multiblock-auto-output tests/conformance/expected/multiblock-auto-output BUGS.md SPRINT.md CHANGELOG.md
@@ -14,4 +14,7 @@ scope: |
 done-so-far: all four pieces implemented and committed on the branch. Gate PASS on INT/JS/JVM/V2;
   deep-tail-recursion PASS on JS/v2 (the exact cell that killed attempt one); F self-fixpoint
   173 ok / 0 FAIL, stage1 == stage2 byte-identical (416,911 B vs 416,071 B baseline)
-next: full corpus running; push feature+docs on green, then CI evidence and release
+next: LANDED 354807e64. Full corpus 328 passed / 1 failed — the 1 is scljet-wal-read on INT, the
+  known blank-batch artifact (passes byte-exactly in isolation; the INT lane does not execute the
+  changed code). Awaiting CI run 30339168784's four conformance shards + Examples smokes, then
+  release. Residual left open on purpose: auto-output BEFORE a render(...) block
