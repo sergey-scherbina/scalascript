@@ -1,2 +1,36 @@
+# JVM options for the sbt server of THIS checkout (sbt's readConfigFile skips #-comments).
+#
+# Read this before changing a number: the constraint here is not one server, it is thirteen.
+# Parallel agents keep one resident sbt server per worktree, and on 2026-07-20 nineteen build JVMs
+# held ~79 GB on a 36 GB host and the kernel watchdog force-rebooted the machine. Per-process caps
+# were all fine. The sum was not.
+
 -Xmx4G
 -XX:+UseG1GC
+
+# ── give idle memory BACK to the host (measured 2026-07-28, scripts/build-ram-idle-ab) ──────────
+# An sbt server holds its peak heap forever once it goes idle, because G1 only returns memory to the
+# OS at a full GC and an idle server never has one. JEP 346 periodic GC plus aggressive heap-free
+# ratios turns that dead weight back into host RAM.
+#
+#   arm                       idle RSS    committed heap
+#   baseline (no flags)        2698 MB         2108 MB     <- flat for 180 s, never returns a byte
+#   periodic GC @15 s          1578 MB         1160 MB     <- drops at T+30 s
+#   periodic GC @60 s          1553 MB         1158 MB     <- drops at T+120 s, SAME floor
+#
+# -1145 MB per idle server, -42 %. Across 13 live worktrees that is ~15 GB of a 36 GB host handed
+# back. Both intervals reach the identical floor, so 60 s is chosen over 15 s: it costs 4x fewer
+# idle full GCs for the same reclaim. Reproduce either arm with:
+#   scripts/build-ram-idle-ab baseline
+#   scripts/build-ram-idle-ab shrink "<flags>"
+#
+# `-XX:-G1PeriodicGCInvokesConcurrent` is the load-bearing one and is easy to drop by accident:
+# with the default (+) G1 runs a CONCURRENT cycle, which collects but does NOT resize the heap, so
+# the RSS never falls and the whole change measures as a no-op. The full GC is what shrinks.
+# `G1PeriodicGCSystemLoadThreshold=0` disables the load gate; periodic GC still only fires when no
+# GC happened during the interval, so an actively compiling server never pays for it.
+-XX:MinHeapFreeRatio=10
+-XX:MaxHeapFreeRatio=30
+-XX:G1PeriodicGCInterval=60000
+-XX:G1PeriodicGCSystemLoadThreshold=0
+-XX:-G1PeriodicGCInvokesConcurrent
