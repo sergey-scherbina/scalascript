@@ -21,6 +21,30 @@ proving a caught exception still binds its payload. Conformance could never have
 case is graded on stdout, and these programs produce none. `BUGS.md`
 `v2-native-uncaught-error-diagnostic-empty`.
 
+## 2026-07-28 — named arguments bind by name, not by position
+
+`f("x", c = "C1")` on `def f(a, b = …, c = …, d = …)` did not put `"C1"` in `c` on either
+self-hosted front. The default lane (F) stripped the label and emitted a short application —
+`ssc: arity: 4 expected, 2 given`; the legacy front stripped it and put the value in the FIRST
+omitted slot — `b=C1 c=C0 d=D0`, silently, at exit 0. Two halves of one missing feature: bind named
+args by name, then fill the remaining params from their defaults. Both are fixed, together, because
+the differential gate asserts the two fronts agree — a one-sided fix would only have turned a
+two-sided wrong answer into a reported divergence.
+
+Also corrected: the original report said naming the FIRST defaulted parameter worked. Re-measured,
+it did not; every named-arg call to a defaulted parameter was affected, plain defs, case-class
+constructors and object methods alike.
+
+Nine new differential cases (middle / last / first / two / out-of-order / ctor / object-method /
+no-named / fully-positional) and a cross-lane `tests/conformance/named-arg-defaults.ssc`. Gates:
+fsub 161 ok / 0 FAIL with the X1 fixpoint byte-identical, semantic golden 247/247, corpus-contract
+shard 0/8 124/130 PASS cells with zero regressions.
+
+Found while verifying: the v1 interpreter — the conformance `int` GOLDEN — mis-binds an object
+method's named arg (`O.m(1, c = 9)` → the value lands in `b`). The compilers are now right and the
+reference is wrong, so that shape is kept out of the cross-lane case and filed as
+`v1-interp-object-method-named-arg-wrong-slot`.
+
 ## 2026-07-28 — `derives` works on the JS lane that the gate actually runs
 
 `ssc emit-js` — the path the conformance JS lane uses (`emit-js` piped to node) — never emitted a

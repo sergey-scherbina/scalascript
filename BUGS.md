@@ -97,6 +97,43 @@ seconds of runner time, so it does not reintroduce the queue pressure the filter
 relieve, and it restores the property that broke here: **the commit that breaks a check is the
 commit the check reports on.**
 
+## v1-interp-object-method-named-arg-wrong-slot — the conformance GOLDEN binds an object method's named arg to the wrong parameter
+
+**Status:** OPEN (found 2026-07-28 by `f-named-arg-skips-default` while verifying that fix; not
+claimed — it is in the v1 interpreter, a different codebase from the self-hosted fronts that claim
+was scoped to).
+
+**Reproduction** (real harness, built `bin/`):
+
+```scalascript
+object O:
+  def m(a: Int, b: Int = 5, c: Int = 7): Int = a + b * 10 + c * 100
+println(O.m(1, c = 9))
+```
+
+| lane | result |
+|---|---|
+| `bin/ssc-tools run --v1` (the conformance `int` GOLDEN) | **791** — i.e. `c = 9` bound to **b** |
+| `bin/ssc run` (default, F front, after `f-named-arg-skips-default`) | 951 |
+| `SSC_FRONT=legacy bin/ssc run` (ssc1 oracle, same fix) | 951 |
+
+`951 = 1 + 5*10 + 9*100` is the Scala answer: `a = 1`, `b` takes its default `5`, `c = 9`. `791`
+is `b = 9, c = 7` — the value went to the first defaulted slot. A plain `def` (not an object
+member) is bound correctly by v1, so this is specific to the object-method path.
+
+**Why it matters more than one wrong number.** `int` is the golden every other lane in
+`tests/conformance/run.sc` and in the corpus contract is diffed against. For this shape the
+compilers are now RIGHT and the reference is WRONG, so a cross-lane case pinning the correct answer
+would go red for the golden's defect. That is why `tests/conformance/named-arg-defaults.ssc`
+deliberately omits object-method named args and says so, and the shape is covered against the
+self-hosted oracle in `specs/v2.2-p6.5-fsub.sh` (`narg_objm`) instead. **Do not "fix" the
+divergence by changing the compilers back** — fix the interpreter, then add the shape to the
+cross-lane case.
+
+**Where to look:** the v1 interpreter's call-binding for object members; a plain top-level `def`
+takes a different path and is correct, so the two disagree about how a named argument is matched
+once the receiver is an object.
+
 ## v2-native-uncaught-error-diagnostic-empty — every failing native program reports a diagnostic with no content
 
 **Status:** **FIXED 2026-07-28** by `v2-native-error-diagnostic` (`c1c960209`). Found the same day
@@ -9714,6 +9751,60 @@ green full `backendInterpreter/test`.
   missing capability rather than producing wrong output.
 
 ## standard-tier-named-arg-skip-default — `bin/ssc run` (self-hosted standard-tier pipeline) mis-binds a named arg for a non-first trailing defaulted param
+
+**Status: FIXED 2026-07-28** by `f-named-arg-skips-default`, on BOTH self-hosted fronts.
+
+**⚠️ TWO CORRECTIONS to the original report, both measured before any edit.**
+
+1. **"Naming defaulted params in order starting from the first one overridden works fine" is no
+   longer true** — `f("x", b = "B1")` fails identically. EVERY named-arg call to a defaulted
+   parameter is affected. Only all-positional and all-defaults calls work.
+2. **The default lane no longer fails silently — it fails LOUD**, and the silent version moved to
+   the legacy front. Re-measured 2026-07-28 on `def f(a: String, b: String = "B0",
+   c: String = "C0", d: String = "D0")`:
+
+| lane | `f("x", c = "C1")` |
+|---|---|
+| `bin/ssc run` (default, F front) | `ssc: arity: 4 expected, 2 given` — LOUD; correct programs do not run |
+| `SSC_FRONT=legacy bin/ssc run` (ssc1 oracle) | `b=C1 c=C0 d=D0` — SILENT wrong slot (the filed symptom) |
+| `bin/ssc-tools run --v1` (reference) | `b=B0 c=C1 d=D0` |
+| `bin/ssc-tools emit-js` + node | `b=B0 c=C1 d=D0` |
+
+**Root cause — two halves of one missing feature: bind named args by NAME, then fill the rest
+from defaults.**
+
+- **F** (`specs/v2.2-p6.5-fsub.ssc`): `dfltGo2` bails on `anyNamedSlice`, so default synthesis
+  never fires for a call carrying a named arg, and `parseArgExpr` then STRIPS the label and lowers
+  the value positionally → a short application. Fixed with a separate `nargGo` decision +
+  `assignSlots` (one slot per param: its named slice, else the next unconsumed positional, else
+  EMPTY) wired into `parseCallS`, `parseCtorGenS` and the object-method path. `synthW1` reads an
+  empty slot as "evaluate this param's default" — that is what lets a MIDDLE param be skipped.
+  `dfltGo` is left alone on purpose: the enum-case path consumes a positional COUNT
+  (`dropL(nprov, …)`) that a reordered call would falsify.
+- **Oracle** (`v2/lib/ssc1-lower.ssc0`): `expandDefaultCall` bailed on any `narg`, and the label
+  was then dropped by `stripNargs` ("best-effort positional lowering"), so the value landed in the
+  first omitted slot. Case-class construction already had the correct shape (`reorderByFieldsD`);
+  plain defs did not. Fixed with `expandNamedDefaultCall` + `nargBindings`. `O.m(…)` is still a
+  `sel` at that point — the callee is not mangled to `O_m` until `resolveCallee`, which runs
+  later — so the named branch derives the mangled name itself (`selDfltName`), which is the key
+  the defaults registry mirrors object members under.
+
+**Fixing only F was not an option:** the fsub differential gate asserts F is output-equivalent to
+the oracle, so a one-sided fix converts a two-sided wrong answer into a reported DIVERGE.
+
+**Gates.** `specs/v2.2-p6.5-fsub.sh --self`: 161 ok / 0 FAIL, X1 FIXPOINT stage1 == stage2
+byte-identical (416071 B). Nine new differential cases — middle / last / **first** / two /
+**out-of-order** / ctor / object-method / no-named / fully-positional — all `output == oracle`.
+`specs/v2.2-p6.5-semantic.sh check` 247/247 against the frozen goldens. New cross-lane case
+`tests/conformance/named-arg-defaults.ssc`, rostered with the baseline digest reproduced first.
+
+**Found while verifying, and filed separately:** the v1 interpreter mis-binds named args on OBJECT
+METHODS — see `v1-interp-object-method-named-arg-wrong-slot`. Both compilers are now correct there
+and the *reference* is wrong, which is why that shape is deliberately absent from the cross-lane
+conformance case (the `int` golden would be the thing failing) and is covered against the
+self-hosted oracle instead.
+
+### Original report (kept for context)
 
 **Status:** open (found 2026-07-13, claude-sonnet-5, while building `std-ui-select`
 (`specs/std-ui-select.md`, on top of `a0eb3b984`)). Not fixed in this task — out of
