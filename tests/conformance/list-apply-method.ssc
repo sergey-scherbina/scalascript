@@ -1,0 +1,33 @@
+---
+name: list-apply-method
+description: xs(i) and xs.apply(i) are the same operation and must agree on every lane
+backends: [int, js, jvm, v2]
+---
+
+# `xs(i)` and `xs.apply(i)`
+
+`BUGS.md` `v2-list-apply-method-stub`. Both spellings index the list. Only the first
+had a path on the native lane: the `App` form goes through the runtime's index helper,
+while the named form found no dispatch arm and fell through to the `Stub` breadcrumb —
+which does **not** raise, so the program printed `Stub` and exited 0. That is the
+recurring v2 shape: the missing member evaluates to a sentinel and the run keeps going,
+so a gate keying on exit status sees success. This case compares OUTPUT instead.
+
+```scalascript
+val xs = List(10, 20, 30)
+println(xs(0))
+println(xs.apply(0))
+println(xs(2))
+println(xs.apply(2))
+```
+
+The two spellings must also agree when the index is computed rather than literal, and
+inside a higher-order call — the dispatch happens at run time, so a constant-folded
+index would not exercise it.
+
+```scalascript
+val i = 1
+println(xs.apply(i))
+println(List("a", "b").apply(1))
+println(List(1, 2, 3).map(n => xs.apply(n - 1)).mkString(","))
+```

@@ -2431,6 +2431,19 @@ object Prims:
         case (DataV("Left",  _), "isLeft",  Nil) => BoolV(true)
         case (DataV("Right", Seq(v)), "toOption", Nil) => some(v)
         case (DataV("Left",  _), "toOption", Nil) => none
+        // ── List indexed access ──────────────────────────────────────────────────
+        // `xs(i)` and `xs.apply(i)` are the same operation and must agree. Only the
+        // first had a path: the App form indexes via Prims.listIndex, while the named
+        // form found no arm and fell through to the DataV("Stub", …) breadcrumb — which
+        // does NOT raise, so the program printed `Stub` and exited 0
+        // (BUGS.md v2-list-apply-method-stub). Routed to the SAME helper so the two
+        // spellings cannot drift, including the out-of-bounds message.
+        //
+        // Deliberately NOT fixed in the frontend: lowering `.apply` to an App there
+        // would break `object O { def apply(x) }`, whose `O.apply(1)` must dispatch to
+        // the user's method, not index the object.
+        case (lv @ DataV("Cons", _), "apply", List(IntV(i))) => Prims.listIndex(lv, i.toInt)
+        case (lv @ DataV("Nil", _),  "apply", List(IntV(i))) => Prims.listIndex(lv, i.toInt)
         // ── Map/HashMap ──────────────────────────────────────────────────────────
         case (MapV(m), "size", Nil) => IntV(m.size.toLong)
         case (MapV(m), "get", List(k)) => m.get(k).fold(none)(some)
