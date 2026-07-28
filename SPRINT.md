@@ -212,6 +212,45 @@ sit red for days looking quiet. Measured 2026-07-28:
       failing evidence.
 
 ---
+## 2026-07-28 — braceless multi-line `for … yield` is not a layout block (BOTH self-hosted fronts)
+
+**Active claim:** `v2-front-for-yield`. From `bugs-v2.md` cluster A, which listed `wasm-http` under
+"`for … yield`". That label is too broad — measured, plain `for … yield` works fine; the gap is one
+specific layout shape, and it is the **same family as the `try` fix** (`d11fd7a92`): a keyword that
+should open a layout block and does not.
+
+**Measured, native vs the INT reference:**
+
+| shape | native (F default) | `SSC_FRONT=legacy` | INT |
+|---|---|---|---|
+| one line: `for x <- xs yield e` | `List(2, 4)` | — | `List(2, 4)` |
+| braced multi-line: `for { … } yield e` | ok | — | ok |
+| **braceless multi-line, `val` position** | F DELEGATES (`unbound global: (global x)`), fallback prints the right answer at exit 0 | — | ok |
+| **braceless multi-line, `def` body** | **`_err`, hard fail** | **`_err` — identical** | ok |
+
+`SSC_FRONT=legacy` failing identically is the important half: this is **not** an F gap, it is in
+both self-hosted fronts, exactly like `try` was.
+
+**Root cause, located.** `isLayoutOpener` (`v2/lib/ssc1-front.ssc0:2939`) lists `then`/`else`/`do`/
+`yield`/`with`/`match` as `kw` openers and `try`/`finally` as `id` openers — but **not `for`**. So
+`for` ⏎ <indented generators> never opens a block: the generator lines sit at the ENCLOSING block's
+indent, where `nlStep` leaves the stack unchanged, and they get glued onto the `for` line. `yield`
+is already an opener, which is why the one-line and braced forms were never affected.
+
+The layout pass opens a block **only when the opener is immediately followed by NL**
+(`if #seq(k, "NL") then if prevOpener then …`), so adding `for` cannot touch `for x <- xs yield e`
+or `for {`, which are followed by a token rather than a newline.
+
+- [ ] **FY-1 — fail-first gate.** `tests/conformance/for-yield-layout.ssc`: all four shapes above,
+      in both `val` and `def`-body position, single and multi generator. Must be RED on the v2 lane
+      and green on INT before the fix.
+- [ ] **FY-2 — `for` becomes a layout opener in both fronts.** `v2/lib/ssc1-front.ssc0` and
+      `specs/v2.2-p6.5-fsub.ssc`. Editing one only is a silent half-fix — F is the default, and the
+      legacy front is the fallback that currently rescues the `val` shape.
+- [ ] **FY-3 — verify.** ⚠️ F compiles ITSELF: `specs/v2.2-p6.5-fsub.sh --self` must stay green
+      with a byte-identical stage1==stage2 fixpoint (baseline 173 ok / 0 FAIL). Then the affected
+      conformance slice and the full corpus. Also re-check `wasm-http`, the case that named this.
+
 
 ## 2026-07-28 — `v2-works-inventory` — answer "what does NOT work in v2", case by case
 
