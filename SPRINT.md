@@ -141,6 +141,29 @@ own self-tests. These four are what that sweep surfaced and did not fix.
       *Detail:* BUGS.md §`f-validateNoReader-rejects-plugin-externs`.
 
 ---
+## 2026-07-28 — two roadmap cases: `List.apply` -> Stub, and the missing serve banner
+
+**Active claim:** `v2-stub-apply-and-serve-banner` — ROADMAP items **V2-100-3** and **V2-100-2**,
+taken together because they need the same build and the same corpus verification, and one full
+corpus run is ~35 min. Four corpus cases between them, two independent causes.
+
+- [ ] **SAB-1 (= V2-100-3) — `v2-list-apply-method-stub`.** `xs.apply(i)` evaluates to a `Stub`
+      sentinel while `xs(i)` works. The roadmap names the fix precisely: **one late VM arm**
+      (`case (recv, "apply", args) => callValue(recv, args)`) in `v2/src/Runtime.scala`. ⚠️ It also
+      names the trap: do **NOT** fix this in the front — that breaks `object O { def apply(x) }`.
+      Gate: a conformance case asserting `xs.apply(i) == xs(i)` on INT and v2.
+- [ ] **SAB-2 (= V2-100-2) — `v2-serve-banner-missing`.** Three corpus DIVERGEs
+      (`rozum-agent{,-pool,-streaming}`) with ONE cause: the program output is byte-identical and
+      the whole difference is `WebServer.start`'s three-line banner, which the native serving path
+      never prints. Take **option (1)** per the entry's recommendation — native prints the same
+      banner — because it is contract-preserving: three DIVERGEs become PASS and no golden
+      anywhere changes. Option (2) (move the banner to stderr in both lanes) is the arguably
+      better answer and is explicitly NOT to be done opportunistically: it rewrites every serving
+      example's golden and needs its own claim. File it, don't do it.
+- [ ] **SAB-3 — verify.** Affected conformance slice, then the full corpus. ⚠️ Per the roadmap's
+      closing warning: **compare OUTPUT against INT, never the exit code** — every v2 gap found
+      today failed by evaluating to a `Stub` sentinel and continuing at exit 0.
+
 
 ## 2026-07-28 — "printed an error, exited 0" — reported, NOT reproducible, now guarded
 
@@ -172,7 +195,7 @@ which returns the last command's status):
 cannot verify it and would be guessing. Instead make the invariant permanent, which is the part
 that has lasting value and costs almost nothing.
 
-- [ ] **EXC-1 — gate the invariant.** Add to `tests/e2e/v2-error-diagnostic.sh`: for every probe
+- [x] **EXC-1 — gate the invariant. DONE** (`ef16f5e98`; mutation-tested).** Add to `tests/e2e/v2-error-diagnostic.sh`: for every probe
       that prints `ssc: …`, assert the exit code is non-zero, capturing `$?` directly. A future
       regression then fails loudly instead of reading as success. Prove the assertion can fail
       before trusting it.
