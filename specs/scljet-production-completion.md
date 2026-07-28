@@ -221,6 +221,16 @@ short-circuited rowid miss. The compare-first
 `scljet-correlated-dml` gate must pass on INT and JS before this follow-up is
 closed.
 
+Nested correlated scopes close as a separate SC-1b follow-up. A table declared
+by an inner SELECT shadows an equally named outer binding only within that
+SELECT scope, while a differently named inner query may still reference a
+visible grandparent table. Correlation detection and exact-value substitution
+must therefore walk a scope stack rather than applying one flat immediate-table
+set to every nested token. `scljet-sql-correlated-join` contains both the
+same-name shadowing failure and a legitimate grandparent-correlation control;
+both must pass on INT and JS. Alias support remains SC-8 grammar work and must
+not be conflated with scope resolution.
+
 Portable SC-1c landed in `f36f951ba`. SQL now reuses the physical index
 comparator instead of converting INTEGER values to binary64 or collapsing
 same-class BLOB values. The SQLite-3.51.0-pinned

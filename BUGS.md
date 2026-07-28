@@ -1375,6 +1375,30 @@ without the outer row. The mutation and affected-row-count paths must share one
 database-aware selection result; otherwise a fix to the write path alone would
 still return a false JDBC update count.
 
+## scljet-correlated-nested-same-name-shadowing — nested local table is replaced by outer binding
+
+**Status:** OPEN (found 2026-07-28 by independent
+`scljet-production-completion` review; reproduced from `71d19c6ef` through the
+assembled v1 harness on INT and emitted JS/Node, and compared with both SQLite
+CLI 3.51.0 and Xerial's embedded SQLite 3.45.3).
+
+**Real-harness reproduction.** With outer `t` rows whose `v` values are
+`1,999,2` and a non-empty `s`, run:
+`SELECT id FROM t WHERE EXISTS (SELECT 1 FROM s WHERE EXISTS
+(SELECT 1 FROM t WHERE t.v=999)) ORDER BY id`. The innermost `t` is local and
+contains `999`, so both reference pins return every outer id. SclJet returns
+only the outer row whose own `t.v` is `999`. A control whose innermost query
+uses a different table and deliberately references grandparent `t.v` currently
+matches both references and must remain green.
+
+**Root cause.** `referencesOuterTables` and `substituteOuterRefs` compute only
+the immediate subquery's depth-zero table set, then scan or rewrite every token
+inside all nested SELECTs with that one set. An innermost local `t.v` is
+therefore mistaken for the grandparent binding. Resolution must track each
+SELECT scope recursively: blindly skipping all nested tokens would hide the
+bug but break legitimate grandparent correlation. Alias parsing is a separate,
+already declared open grammar capability and is not evidence for this defect.
+
 ## scljet-sql-double-equals-parser-gap — WHERE rejects SQLite's `==` equality alias
 
 **Status:** OPEN (found 2026-07-28 by `scljet-production-completion`;
