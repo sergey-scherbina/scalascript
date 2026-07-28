@@ -1,0 +1,25 @@
+---
+name: conformance-v2-system-clock
+version: 1.0.0
+---
+
+# System clock builtins
+
+`System.nanoTime()` and `System.currentTimeMillis()` are core builtins on the v1
+interpreter. On the v2 native lane the front emits a method call on the bare
+`System` receiver, so the runtime must resolve `System.nanoTime` as a registered
+native — otherwise it performs an effect nobody handles and the program dies with
+`unhandled runtime effect: System.nanoTime`. That silently killed the entire
+`ssc bench --backend v2` lane, whose generated wrapper times itself this way.
+
+Values are non-deterministic, so assert only the invariants: elapsed monotonic
+time is non-negative, and wall-clock epoch millis are past 2020-01-01.
+
+```scalascript
+val t0 = System.nanoTime()
+val t1 = System.nanoTime()
+println(t1 - t0 >= 0)
+
+val millis = System.currentTimeMillis()
+println(millis > 1577836800000L)
+```

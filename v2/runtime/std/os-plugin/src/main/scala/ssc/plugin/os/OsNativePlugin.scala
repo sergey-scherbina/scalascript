@@ -62,6 +62,18 @@ final class OsNativePlugin extends NativePlugin:
     // Monotonic clock nanoseconds (System.nanoTime parity with the interp core
     // builtin). Used for job ids / elapsed timing; not wall-clock.
     native(context, "nanoTime") { _ => Value.IntV(System.nanoTime()) }
+    // The QUALIFIED spellings. `System.nanoTime()` is a core builtin on the v1
+    // interpreter, but on the native lane the front emits a method call on the
+    // bare `System` receiver: Runtime.methodOp sees DataV("System", []), finds no
+    // "System.nanoTime" native, and PERFORMS an effect nobody handles — the
+    // program dies with `unhandled runtime effect: System.nanoTime`. Registering
+    // the tag-qualified name is the same shape EffectRunnersNativePlugin uses for
+    // `Random.uuid`; methodOp checks V2PluginRegistry.lookup(s"$tag.$name")
+    // BEFORE it falls through to perform, so this resolves in place.
+    // Found by `ssc bench --backend v2`, whose generated wrapper times itself with
+    // System.nanoTime(): the whole v2 bench lane had been reporting `n/a` for this.
+    context.register("System.nanoTime") { _ => Value.IntV(System.nanoTime()) }
+    context.register("System.currentTimeMillis") { _ => Value.IntV(System.currentTimeMillis()) }
     native(context, "pathJoin") { args =>
       pathParts(args) match
         case Nil => Value.StrV(".")
