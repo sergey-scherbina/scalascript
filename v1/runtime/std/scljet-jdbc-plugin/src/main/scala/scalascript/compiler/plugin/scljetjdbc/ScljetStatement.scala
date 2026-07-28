@@ -145,14 +145,21 @@ final class PreparedStatementHandler(state: StatementState, connProxy: Connectio
       params.getOrElse(i.toLong, throw SQLException(s"scljet JDBC: parameter $i is not set"))
     }.toList
 
+  // sqlite3_bind_double stores NaN as SQL NULL. Mirror that at the JDBC
+  // boundary while keeping infinities as REAL values; the SQL layer then
+  // applies the normal affinity rules for the target column.
+  private def doubleToSql(value: Double): Value =
+    if java.lang.Double.isNaN(value) then ScljetEngine.sqlNull
+    else ScljetEngine.sqlReal(value)
+
   private def objectToSql(v: AnyRef): Value = v match
     case null                       => ScljetEngine.sqlNull
     case n: java.lang.Integer       => ScljetEngine.sqlInteger(n.longValue)
     case n: java.lang.Long          => ScljetEngine.sqlInteger(n.longValue)
     case n: java.lang.Short         => ScljetEngine.sqlInteger(n.longValue)
     case n: java.lang.Byte          => ScljetEngine.sqlInteger(n.longValue)
-    case n: java.lang.Double        => ScljetEngine.sqlReal(n.doubleValue)
-    case n: java.lang.Float         => ScljetEngine.sqlReal(n.doubleValue)
+    case n: java.lang.Double        => doubleToSql(n.doubleValue)
+    case n: java.lang.Float         => doubleToSql(n.doubleValue)
     case b: java.lang.Boolean       => ScljetEngine.sqlInteger(if b.booleanValue then 1L else 0L)
     case s: String                  => ScljetEngine.sqlText(s)
     case a: Array[Byte]             => ScljetEngine.sqlBlob(a)
@@ -162,7 +169,7 @@ final class PreparedStatementHandler(state: StatementState, connProxy: Connectio
   def dispatch(proxy: AnyRef, name: String, args: Array[AnyRef]): AnyRef = name match
     // Parameter setters
     case "setInt" | "setLong" | "setShort" | "setByte" => set(argInt(args, 0), ScljetEngine.sqlInteger(argLong(args, 1))); unit
-    case "setDouble" | "setFloat" => set(argInt(args, 0), ScljetEngine.sqlReal(argDouble(args, 1))); unit
+    case "setDouble" | "setFloat" => set(argInt(args, 0), doubleToSql(argDouble(args, 1))); unit
     case "setString" | "setNString" => set(argInt(args, 0), ScljetEngine.sqlText(argStr(args, 1))); unit
     case "setBoolean" => set(argInt(args, 0), ScljetEngine.sqlInteger(if argBool(args, 1) then 1L else 0L)); unit
     case "setBytes"   => set(argInt(args, 0), ScljetEngine.sqlBlob(args(1).asInstanceOf[Array[Byte]])); unit

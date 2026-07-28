@@ -4728,7 +4728,9 @@ def executeInsertRows(dbBytes: ByteSlice, stmt: InsertStmt, valueRows: List[List
                         case Left(error) => Left(error.message)
                         case Right(pc) => Right(pc.pager.image)
                   else if countTables(db) != 1 then Left("index maintenance on a multi-table database is not yet supported")
-                  else reindexTable(dbBytes, db, stmt.table, storageToSqlRows(rows, colNames.length) ++ newRows, infos)
+                  else sortRowsByRowid(storageToSqlRows(rows, colNames.length) ++ newRows) match
+                    case Left(message) => Left(message)
+                    case Right(ordered) => reindexTable(dbBytes, db, stmt.table, ordered, infos)
 
 // Rows to be inserted, as SqlRows with assigned sequential rowids (unlisted columns → NULL).
 def insertedSqlRows(valueRows: List[List[SqliteValue]], columns: List[String], colNames: List[String], startRowid: Long): List[SqlRow] =

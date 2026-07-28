@@ -52,6 +52,6 @@ max-auto=OK:1
 max-auto-valid=true
 -- indexed UPDATE shares coercion and keeps row order --
 indexed-text-real=OK:0
-indexed-insert-text-real=OK:10
+indexed-insert-reorder=OK:5
 indexed-invalid=ERR:datatype mismatch: INTEGER PRIMARY KEY must be assigned an integer
-indexed-rows=2|2|bob ; 9|9|ann ; 10|10|cam
+indexed-rows=2|2|bob ; 5|5|cam ; 9|9|ann

@@ -189,8 +189,12 @@ buildTableWithIndexDatabase(512, 1, 1, "emp",
   case Right(base) =>
     val moved = step(base, "indexed-text-real", "UPDATE emp SET id = ? WHERE id = 1",
       List(SqlText("9.0")))
-    val inserted = step(moved, "indexed-insert-text-real",
-      "INSERT INTO emp VALUES (?, 'cam')", List(SqlText("10.0")))
+    // Insert between the surviving rowids. The indexed rebuild receives
+    // existing rows followed by the new row, so this forces it to sort rather
+    // than accidentally passing because the statement happened to append the
+    // largest key.
+    val inserted = step(moved, "indexed-insert-reorder",
+      "INSERT INTO emp VALUES (?, 'cam')", List(SqlText("5.0")))
     val refused = step(inserted, "indexed-invalid", "UPDATE emp SET id = ? WHERE id = 9",
       List(SqlText("x")))
     dump(refused, "indexed-rows")
