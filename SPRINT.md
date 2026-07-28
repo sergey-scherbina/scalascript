@@ -21,16 +21,16 @@ that probe can only ever re-check cases the baseline ALREADY names — it is bli
 baseline calls PASS and that broke since. A list of "what does not work" has to come from a run
 over the WHOLE corpus, not over the previous list of failures.
 
-- [ ] **INV-1 — one full canonical run, with the freeze refresh.** `contract.sc --update-baseline`
+- [x] **INV-1 — DONE.** Full canonical run landed (`4d041ebe8`): 522 cases × int,js,v2, freeze refreshed (roster 522 names, baseline 156 rows). **v2 non-PASS = 39 of 522.** Original text: `contract.sc --update-baseline`
       over all 522 cases × lanes `int,js,v2`. This is CCR-1 and it finally has a quiet machine
       (load 4.8 vs the 8-35 that blocked it earlier). It produces the complete matrix AND clears
       the 48 unrostered cases that keep the gate exiting 1 for bookkeeping. `--update-baseline`
       refuses scoped/sharded runs on purpose, so this is the only shape that works.
-- [ ] **INV-2 — group the v2 failures by CAUSE.** Every fix so far collapsed many cases into one
+- [x] **INV-2 — DONE.** All 39 pinned to a first error and clustered into ~7 causes in `bugs-v2.md`. Original text: Every fix so far collapsed many cases into one
       cause (3 rozum examples = 1 banner; 43 baseline rows = ~34 real). Read the actual failure
       text per case, cluster, and write one entry per cause — not per case.
-- [ ] **INV-3 — fix what is unambiguous**, one worktree/branch per cause, gates per AGENTS.md.
-- [ ] **INV-4 — `bugs-v2.md` for what is NOT unambiguous**: needs a product decision, or two
+- [ ] **INV-3 — BLOCKED on a decision, deliberately.** The largest cluster (7 cases) turned out NOT to be a defect: they `derive` against HOST Scala typeclasses and 6 of 7 declare `backend: jvm`. And the contract does not honour the examples' own `backend:` key at all, so 10 of the 39 'v2 failures' are jvm/js-targeted examples. Fixing anything there before that call is made would be fixing the wrong thing. Original text:, one worktree/branch per cause, gates per AGENTS.md.
+- [x] **INV-4 — DONE**, `bugs-v2.md` landed with 5 open questions, the first being whether the contract should honour `backend:`. Original text: `bugs-v2.md` for what is NOT unambiguous**: needs a product decision, or two
       defensible fixes, or a golden that is itself wrong. Ends with a question for Sergiy.
 
 **⚠️ Method note, learned the hard way this day.** v2 fails by evaluating a missing member to a
