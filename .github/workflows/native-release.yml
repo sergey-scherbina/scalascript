@@ -69,9 +69,11 @@ jobs:
 
       - name: Build native binary, frontend data, and plugin host
         run: |
+          # Keep the hosted diagnostic runnable while build.sbt is owned by a
+          # different live claim. This replacement is idempotent and is
+          # removed after the shared defaults are repaired and re-qualified.
           sbt \
-            'set cli / graalVMNativeImageOptions -= "-J-Xmx8g"' \
-            'set cli / graalVMNativeImageOptions += "-J-Xmx5g"' \
+            'set cli / graalVMNativeImageOptions := (cli / graalVMNativeImageOptions).value.filterNot(opt => opt.startsWith("-H:ReflectionConfigurationFiles=") || opt.startsWith("-H:ResourceConfigurationFiles=") || opt == "--features=org.graalvm.home.HomeFinder" || opt.startsWith("-J-Xmx")) ++ Seq("-H:ReflectionConfigurationFiles=" + ((cli / baseDirectory).value / ".." / ".." / ".." / "native-image-configs" / "reflect-config.json").getCanonicalPath, "-H:ResourceConfigurationFiles=" + ((cli / baseDirectory).value / ".." / ".." / ".." / "native-image-configs" / "resource-config.json").getCanonicalPath, "-J-Xmx5g")' \
             "cli/installBin" \
             "cli/graalvm-native-image:packageBin" \
             "pluginHost/assembly"
