@@ -1225,15 +1225,17 @@ private[yaml] object YamlEventNormalization:
     case YamlValue.Alias(name) =>
       result += YamlNormalizedEvent("alias", value = Some(name))
 
-  private def normalizeActualTag(tag: String): String = tag match
-    case "!!str"   => "tag:yaml.org,2002:str"
-    case "!!null"  => "tag:yaml.org,2002:null"
-    case "!!bool"  => "tag:yaml.org,2002:bool"
-    case "!!int"   => "tag:yaml.org,2002:int"
-    case "!!float" => "tag:yaml.org,2002:float"
-    case value if value.startsWith("!<") && value.endsWith(">") =>
-      value.substring(2, value.length - 1)
-    case value => value
+  private def normalizeActualTag(tag: String): String =
+    val expanded = tag match
+      case "!!str"   => "tag:yaml.org,2002:str"
+      case "!!null"  => "tag:yaml.org,2002:null"
+      case "!!bool"  => "tag:yaml.org,2002:bool"
+      case "!!int"   => "tag:yaml.org,2002:int"
+      case "!!float" => "tag:yaml.org,2002:float"
+      case value if value.startsWith("!<") && value.endsWith(">") =>
+        value.substring(2, value.length - 1)
+      case value => value
+    YamlTagEnvironment.parserEventTag(expanded)
 
 private[yaml] object YamlCorpusText:
   def lines(value: String): Vector[String] =

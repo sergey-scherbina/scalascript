@@ -140,14 +140,21 @@ private[yaml] object YamlLexer:
       else
         index += 1
         while index < input.length && !isSeparation(input.charAt(index)) && !isFlow(input.charAt(index)) do index += 1
-      val bareNonSpecificTag = kind == "yaml.tag" && input.substring(start, index) == "!"
+      val bareNonSpecificTag =
+        kind == "yaml.tag" &&
+          input.substring(start, index) == "!" &&
+          (index == input.length || isSeparation(input.charAt(index)))
       val channel =
         if index == start + 1 && !bareNonSpecificTag then TokenChannel.Error
         else TokenChannel.Syntax
       emitRange(start, index, kind, channel)
       if channel == TokenChannel.Error then
         val suffix = kind.stripPrefix("yaml.")
-        report(s"uniml.yaml.invalid-$suffix", s"empty YAML $suffix", Severity.Error, tokensSpanLast())
+        val message =
+          if kind == "yaml.tag" && input.substring(start, index) == "!" then
+            "bare YAML tag requires separation before node content"
+          else s"empty YAML $suffix"
+        report(s"uniml.yaml.invalid-$suffix", message, Severity.Error, tokensSpanLast())
 
     def scanBlockHeader(style: Char): Unit =
       val start = index

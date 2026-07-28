@@ -82,6 +82,7 @@ final class YamlDialectSpec extends AnyFunSuite:
         "---\n" +
         "custom: !e!tag%21 value\n" +
         "unicode: !e!caf%C3%A9 coffee\n" +
+        "astral: !e!emoji%F0%9F%98%80 smile\n" +
         "core: !!str text\n" +
         "sequence: !!seq\n" +
         "  - item\n" +
@@ -96,18 +97,82 @@ final class YamlDialectSpec extends AnyFunSuite:
         "---\n" +
         "!root local\n"
 
-    val projection = Yaml.project(parse(text))
+    val result = parse(text)
+    val rawTags = result.roots.flatMap(UniNode.sourceTokens).filter(_.kind == "yaml.tag").map(_.lexeme)
+    assert(rawTags.contains("!e!tag%21"))
+    assert(rawTags.contains("!e!caf%C3%A9"))
+    assert(rawTags.contains("!e!emoji%F0%9F%98%80"))
+
+    val projection = Yaml.project(result)
     assert(!projection.diagnostics.exists(_.severity == Severity.Error), projection.diagnostics.mkString("\n"))
     val documents = projection.value.get.asInstanceOf[YamlValue.Stream].documents
     val first = documents.head.value.get.asInstanceOf[YamlValue.Mapping]
-    assert(first.entries(0).value.asInstanceOf[YamlValue.Scalar].tag.contains("tag:example.com,2000:app/tag!"))
-    assert(first.entries(1).value.asInstanceOf[YamlValue.Scalar].tag.contains("tag:example.com,2000:app/café"))
-    assert(first.entries(2).value.asInstanceOf[YamlValue.Scalar].tag.contains("tag:yaml.org,2002:str"))
-    assert(first.entries(3).value.asInstanceOf[YamlValue.Sequence].tag.contains("tag:yaml.org,2002:seq"))
-    assert(first.entries(4).value.asInstanceOf[YamlValue.Mapping].tag.contains("tag:yaml.org,2002:map"))
-    assert(first.entries(5).value.asInstanceOf[YamlValue.Scalar].tag.contains("!"))
+    assert(first.entries(0).value.asInstanceOf[YamlValue.Scalar].tag.contains("tag:example.com,2000:app/tag%21"))
+    assert(first.entries(1).value.asInstanceOf[YamlValue.Scalar].tag.contains("tag:example.com,2000:app/caf%C3%A9"))
+    assert(first.entries(2).value.asInstanceOf[YamlValue.Scalar].tag.contains("tag:example.com,2000:app/emoji%F0%9F%98%80"))
+    assert(first.entries(3).value.asInstanceOf[YamlValue.Scalar].tag.contains("tag:yaml.org,2002:str"))
+    assert(first.entries(4).value.asInstanceOf[YamlValue.Sequence].tag.contains("tag:yaml.org,2002:seq"))
+    assert(first.entries(5).value.asInstanceOf[YamlValue.Mapping].tag.contains("tag:yaml.org,2002:map"))
+    assert(first.entries(6).value.asInstanceOf[YamlValue.Scalar].tag.contains("!"))
     assert(documents(1).value.get.asInstanceOf[YamlValue.Scalar].tag.contains("tag:second.example/root"))
     assert(documents(2).value.get.asInstanceOf[YamlValue.Scalar].tag.contains("!root"))
+
+    assert(
+      YamlTagEnvironment.parserEventTag("tag:example.com,2000:app/tag%21") ==
+        "tag:example.com,2000:app/tag!",
+    )
+    assert(
+      YamlTagEnvironment.parserEventTag("tag:example.com,2000:app/caf%C3%A9") ==
+        "tag:example.com,2000:app/café",
+    )
+    assert(
+      YamlTagEnvironment.parserEventTag("tag:example.com,2000:app/emoji%F0%9F%98%80") ==
+        "tag:example.com,2000:app/emoji😀",
+    )
+
+    val escapedEnvironment =
+      YamlTagEnvironment.defaults
+        .register("!e!", "tag:example.com,2000:%2f")
+        .fold(message => fail(message), identity)
+    assert(
+      escapedEnvironment.expand("!e!suffix%2F") ==
+        Right("tag:example.com,2000:%2fsuffix%2F"),
+    )
+  }
+
+  test("bare non-specific tag ignores an overridden primary handle") {
+    val text =
+      "%TAG ! tag:example.com,2000:app/\n" +
+        "---\n" +
+        "expanded: !name one\n" +
+        "non-specific: ! two\n"
+
+    val projection = Yaml.project(parse(text))
+    assert(!projection.diagnostics.exists(_.severity == Severity.Error), projection.diagnostics.mkString("\n"))
+    val mapping = documentValue(projection.value.get.asInstanceOf[YamlValue.Stream]).asInstanceOf[YamlValue.Mapping]
+    assert(mapping.entries.head.value.asInstanceOf[YamlValue.Scalar].tag.contains("tag:example.com,2000:app/name"))
+    assert(mapping.entries(1).value.asInstanceOf[YamlValue.Scalar].tag.contains("!"))
+
+    val eofProjection = Yaml.project(parse("!"))
+    assert(!eofProjection.diagnostics.exists(_.severity == Severity.Error), eofProjection.diagnostics.mkString("\n"))
+    val eofValue = documentValue(eofProjection.value.get.asInstanceOf[YamlValue.Stream])
+    assert(eofValue.asInstanceOf[YamlValue.Scalar].tag.contains("!"))
+  }
+
+  test("bare non-specific tag requires separation before collection content") {
+    Vector(
+      "![a]\n",
+      "!{a: b}\n",
+      "key: ![a]\n",
+      "key: !{a: b}\n",
+    ).foreach { text =>
+      val result = parse(text)
+      assert(
+        result.diagnostics.exists(_.code == "uniml.yaml.invalid-tag"),
+        s"missing bare-tag separation diagnostic for $text",
+      )
+      assert(Yaml.project(result).value.isEmpty, s"trusted an adjacent bare tag in $text")
+    }
   }
 
   test("tag directive and tag spelling errors are structured and fail projection") {
@@ -124,9 +189,27 @@ final class YamlDialectSpec extends AnyFunSuite:
     assert(undefinedProjection.value.isEmpty)
     assert(undefinedProjection.diagnostics.exists(_.code == "uniml.yaml.invalid-tag"))
 
-    val malformedEscape = Yaml.project(parse("---\n!bad%QZ value\n"))
-    assert(malformedEscape.value.isEmpty)
-    assert(malformedEscape.diagnostics.exists(_.code == "uniml.yaml.invalid-tag"))
+    Vector("%", "%0", "%QZ", "%2g").foreach { escape =>
+      val malformedEscape = Yaml.project(parse(s"---\n!bad$escape value\n"))
+      assert(malformedEscape.value.isEmpty, s"accepted malformed tag escape $escape")
+      assert(
+        malformedEscape.diagnostics.exists(_.code == "uniml.yaml.invalid-tag"),
+        s"missing structured tag diagnostic for $escape",
+      )
+    }
+
+    Vector("%C0%AF", "%C3", "%ED%A0%80", "%F4%90%80%80").foreach { opaque =>
+      val projection = Yaml.project(parse(s"---\n!bytes$opaque value\n"))
+      assert(
+        !projection.diagnostics.exists(_.severity == Severity.Error),
+        s"rejected opaque percent octets $opaque: ${projection.diagnostics.mkString(", ")}",
+      )
+      val tag = documentValue(projection.value.get.asInstanceOf[YamlValue.Stream])
+        .asInstanceOf[YamlValue.Scalar]
+        .tag
+      assert(tag.contains(s"!bytes$opaque"))
+      assert(YamlTagEnvironment.parserEventTag(s"!bytes$opaque") == s"!bytes$opaque")
+    }
   }
 
   test("empty streams, explicit keys, empty values, and compact mappings remain distinct") {

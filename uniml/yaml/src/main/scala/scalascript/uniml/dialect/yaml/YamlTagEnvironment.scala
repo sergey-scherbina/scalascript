@@ -10,16 +10,19 @@ private[yaml] final case class YamlTagEnvironment(
     else if declared.contains(handle) then
       Left(s"duplicate YAML tag handle '$handle'")
     else
-      YamlTagEnvironment.decodePercentEscapes(rawPrefix) match
+      YamlTagEnvironment.validatePercentEscapes(rawPrefix) match
         case Left(message) => Left(s"invalid YAML tag prefix '$rawPrefix': $message")
-        case Right(prefix) =>
-          Right(copy(handles = handles + (handle -> prefix), declared = declared + handle))
+        case Right(_) =>
+          Right(copy(handles = handles + (handle -> rawPrefix), declared = declared + handle))
 
   def expand(rawTag: String): Either[String, String] =
-    if rawTag.startsWith("!<") then
+    if rawTag == "!" then Right("!")
+    else if rawTag.startsWith("!<") then
       if !rawTag.endsWith(">") || rawTag.length < 4 then
         Left(s"invalid verbatim YAML tag '$rawTag'")
-      else YamlTagEnvironment.decodePercentEscapes(rawTag.substring(2, rawTag.length - 1))
+      else
+        val spelling = rawTag.substring(2, rawTag.length - 1)
+        YamlTagEnvironment.validatePercentEscapes(spelling).map(_ => spelling)
     else if !rawTag.startsWith("!") then Left(s"invalid YAML tag '$rawTag'")
     else
       val namedEnd = rawTag.indexOf('!', 1)
@@ -32,9 +35,9 @@ private[yaml] final case class YamlTagEnvironment(
         handles.get(handle) match
           case None => Left(s"undefined YAML tag handle '$handle'")
           case Some(prefix) =>
-            YamlTagEnvironment.decodePercentEscapes(suffix) match
+            YamlTagEnvironment.validatePercentEscapes(suffix) match
               case Left(message) => Left(message)
-              case Right(decoded) => Right(prefix + decoded)
+              case Right(_)      => Right(prefix + suffix)
 
 private[yaml] object YamlTagEnvironment:
   val defaults: YamlTagEnvironment = YamlTagEnvironment(
@@ -57,45 +60,56 @@ private[yaml] object YamlTagEnvironment:
         value.last == '!' &&
         value.substring(1, value.length - 1).forall(isHandleChar)
 
-  private[yaml] def decodePercentEscapes(value: String): Either[String, String] =
-    var result = ""
+  private[yaml] def parserEventTag(value: String): String =
+    var pieces: Vector[String] = Vector.empty
+    var cursor = 0
+    while cursor < value.length do
+      val percent = value.indexOf('%', cursor)
+      if percent < 0 then
+        pieces = pieces :+ value.substring(cursor)
+        cursor = value.length
+      else
+        if percent > cursor then pieces = pieces :+ value.substring(cursor, percent)
+        cursor = percent
+        val encodedStart = cursor
+        var bytes: Vector[Int] = Vector.empty
+        while
+          cursor + 2 < value.length &&
+          value.charAt(cursor) == '%' &&
+          hexDigit(value.charAt(cursor + 1)) >= 0 &&
+          hexDigit(value.charAt(cursor + 2)) >= 0
+        do
+          bytes = bytes :+ (
+            hexDigit(value.charAt(cursor + 1)) * 16 +
+              hexDigit(value.charAt(cursor + 2))
+          )
+          cursor += 3
+        if bytes.isEmpty then
+          pieces = pieces :+ value.substring(cursor)
+          cursor = value.length
+        else
+          decodeUtf8(bytes) match
+            case Right(decoded) => pieces = pieces :+ decoded
+            case Left(_)        => pieces = pieces :+ value.substring(encodedStart, cursor)
+    pieces.mkString
+
+  private def validatePercentEscapes(value: String): Either[String, Unit] =
     var cursor = 0
     var error: Option[String] = None
     while cursor < value.length && error.isEmpty do
-      if value.charAt(cursor) != '%' then
-        val width =
-          if
-            isHighSurrogate(value.charAt(cursor)) &&
-            cursor + 1 < value.length &&
-            isLowSurrogate(value.charAt(cursor + 1))
-          then 2
-          else 1
-        if isSurrogate(value.charAt(cursor)) && width == 1 then
-          error = Some("unpaired UTF-16 surrogate")
-        else
-          result = result + value.substring(cursor, cursor + width)
-          cursor += width
+      if value.charAt(cursor) != '%' then cursor += 1
+      else if cursor + 2 >= value.length then error = Some("truncated percent escape")
       else
-        var bytes: Vector[Int] = Vector.empty
-        while cursor < value.length && value.charAt(cursor) == '%' && error.isEmpty do
-          if cursor + 2 >= value.length then error = Some("truncated percent escape")
-          else
-            val high = hexDigit(value.charAt(cursor + 1))
-            val low = hexDigit(value.charAt(cursor + 2))
-            if high < 0 || low < 0 then error = Some("non-hexadecimal percent escape")
-            else
-              bytes = bytes :+ (high * 16 + low)
-              cursor += 3
-        if error.isEmpty then
-          decodeUtf8(bytes) match
-            case Left(message) => error = Some(message)
-            case Right(decoded) => result = result + decoded
+        val high = hexDigit(value.charAt(cursor + 1))
+        val low = hexDigit(value.charAt(cursor + 2))
+        if high < 0 || low < 0 then error = Some("non-hexadecimal percent escape")
+        else cursor += 3
     error match
       case Some(message) => Left(message)
-      case None          => Right(result)
+      case None          => Right(())
 
   private def decodeUtf8(bytes: Vector[Int]): Either[String, String] =
-    var result = ""
+    var pieces: Vector[String] = Vector.empty
     var index = 0
     var error: Option[String] = None
     while index < bytes.size && error.isEmpty do
@@ -125,11 +139,11 @@ private[yaml] object YamlTagEnvironment:
             error = Some("UTF-8 sequence decodes to a surrogate")
           else if codePoint > 0x10ffff then error = Some("UTF-8 code point is out of range")
           else
-            result = result + codePointString(codePoint)
+            pieces = pieces :+ codePointString(codePoint)
             index += width
     error match
       case Some(message) => Left(message)
-      case None          => Right(result)
+      case None          => Right(pieces.mkString)
 
   private def words(value: String): Vector[String] =
     var result: Vector[String] = Vector.empty
@@ -161,6 +175,3 @@ private[yaml] object YamlTagEnvironment:
       value == '-'
 
   private def isWhitespace(value: Char): Boolean = value == ' ' || value == '\t'
-  private def isHighSurrogate(value: Char): Boolean = value >= '\ud800' && value <= '\udbff'
-  private def isLowSurrogate(value: Char): Boolean = value >= '\udc00' && value <= '\udfff'
-  private def isSurrogate(value: Char): Boolean = value >= '\ud800' && value <= '\udfff'
