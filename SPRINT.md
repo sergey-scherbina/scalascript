@@ -7323,6 +7323,22 @@ this is the `v2-native-conformance` / `uniml-portable` deep track, actively buil
   (sibling's scljet-SQL arc), NOT from the prelude — flag to the scljet owner.
 
 ### v2 lane — REMAINING CLUSTERS surveyed 2026-07-14 (55 non-PASS; all tractable ones CLOSED)
+
+> **RE-MEASURED 2026-07-28 by `v2-native-error-diagnostic` — two of these clusters are STALE.**
+> Checked before claiming any of them, which is the only reason the claim was not wasted:
+>
+> - **std-ui-\* (5): CLOSED.** `bin/ssc run tests/conformance/std-ui-{aggregator,extended,extended-b}.ssc`
+>   all print `true` on the native lane today. The blocker this note names — "needs a new
+>   `#io.fileExists` prim" — is also gone: `v2/src/Runtime.scala` has `#io.exists`. Do not
+>   re-derive the ImportResolver-fallback plan below; the cases pass.
+> - **typeddata codecs (6): still red, and still OUT OF SCOPE by design** — confirmed
+>   `unbound global: JsonCodec_derived` on `dataset-typed-mapping` and
+>   `distributed-dataset-codec`. `tests/conformance/V2-GAP.md` (2026-07-14) files these under
+>   "mechanical — register the plugin", which contradicts the paragraph below; **this paragraph
+>   is the correct one** (they are `backend: jvm` and `import scalascript.typeddata`). The
+>   registration pattern a future port would copy is
+>   `v2/runtime/std/sql-plugin/…/SqlNativePlugin.scala:225`, `native(context, "RowCodec_derived")`.
+
 The clean/tractable clusters are DONE this arc: json (4/5), content-toolkit (6/8), scljet-fence (+4).
 The remaining 55 are each a DEEP subsystem effort (surveyed + root-caused, none quick):
 - **typeddata codecs — JVM-ONLY (6)**: `unbound global: JsonCodec_derived/ObjectCodec_derived` on
