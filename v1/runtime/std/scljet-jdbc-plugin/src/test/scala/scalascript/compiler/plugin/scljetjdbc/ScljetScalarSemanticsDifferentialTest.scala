@@ -14,10 +14,10 @@ import scala.util.control.NonFatal
  *  checks the reference expectation. After the SclJet connection closes, real
  *  SQLite reruns the query matrix on the persisted file and checks integrity.
  *
- *  This green matrix does not classify known-red joined-outer correlated
- *  subqueries, correlated-subquery error propagation, or the `==` grammar
- *  alias. Those remain explicit BUGS/SC-8 work rather than "known failure"
- *  branches that could suppress a real comparison here.
+ *  This matrix does not classify the known-red `==` grammar alias. It remains
+ *  explicit SC-8 work rather than a "known failure" branch that could suppress
+ *  a real comparison here. Joined-outer correlated subqueries and correlated
+ *  subquery failures are compared directly below.
  */
 class ScljetScalarSemanticsDifferentialTest extends AnyFunSuite:
 
@@ -58,6 +58,9 @@ class ScljetScalarSemanticsDifferentialTest extends AnyFunSuite:
       if expectedRows.nonEmpty then expectedRows.head.count(_ == '|') + 1
       else 1
     QueryCase(name, sql, bind, Rows(columns, expectedRows.toList))
+
+  private def qf(name: String, sql: String, phase: String, category: String): QueryCase =
+    QueryCase(name, sql, noBind, Failed(phase, category))
 
   private def withTempDb(name: String)(body: java.nio.file.Path => Unit): Unit =
     val dir = java.nio.file.Files.createTempDirectory(s"scljet-scalar-$name-")
@@ -442,6 +445,73 @@ class ScljetScalarSemanticsDifferentialTest extends AnyFunSuite:
       val (sc, ref) = runBoth(db, runNullIndex)
       val (persisted, integrity) = reopenEvidence(db, fileCases)
       assertCompared(sc, ref, expected(cases), persisted, expected(fileCases), integrity)
+
+  // ── Correlated subqueries over joined outer rows ────────────────────────
+
+  private val correlatedJoinQueries: List[QueryCase] = List(
+    q("correlated-join-first-not-in",
+      "SELECT t.id FROM t LEFT JOIN u ON t.v = u.x " +
+        "WHERE t.v NOT IN (SELECT x FROM s WHERE owner = t.id) ORDER BY t.id",
+      "I:4"),
+    q("correlated-join-second-in",
+      "SELECT t.id, u.uid FROM t LEFT JOIN u ON t.v = u.x " +
+        "WHERE u.x IN (SELECT y FROM w WHERE y = u.x) ORDER BY t.id, u.uid",
+      "I:2|I:10"),
+    q("correlated-join3-middle-last-scalar",
+      "SELECT t.id, u.uid, w.wid FROM t " +
+        "LEFT JOIN u ON t.v = u.x LEFT JOIN w ON u.x = w.y " +
+        "WHERE w.y = (SELECT v FROM t WHERE v = u.x AND v = w.y) " +
+        "ORDER BY t.id, u.uid, w.wid",
+      "I:2|I:10|I:20"),
+    q("correlated-join3-null-extended-not-in",
+      "SELECT t.id, u.uid, w.wid FROM t " +
+        "LEFT JOIN u ON t.v = u.x LEFT JOIN w ON u.x = w.y " +
+        "WHERE w.y NOT IN (SELECT v FROM t WHERE v = w.y) " +
+        "ORDER BY t.id, u.uid, w.wid",
+      "I:1|N|N", "I:3|N|N", "I:4|N|N"),
+    q("correlated-right-null-extended-not-in",
+      "SELECT t.id, u.uid FROM t RIGHT JOIN u ON t.v = u.x " +
+        "WHERE t.v NOT IN (SELECT x FROM s WHERE owner = t.id) " +
+        "ORDER BY t.id, u.uid",
+      "N|I:11"),
+    q("correlated-shadow-in",
+      "SELECT t.id FROM t LEFT JOIN u ON t.v = u.x " +
+        "WHERE 11 IN (SELECT u.uid FROM u) ORDER BY t.id",
+      "I:1", "I:2", "I:3", "I:4"),
+    q("correlated-shadow-exists",
+      "SELECT t.id FROM t LEFT JOIN u ON t.v = u.x " +
+        "WHERE EXISTS (SELECT u.uid FROM u WHERE u.uid = 11) ORDER BY t.id",
+      "I:1", "I:2", "I:3", "I:4"),
+  )
+
+  private val correlatedJoinFailureQueries: List[QueryCase] = List(
+    qf("correlated-join-missing-table",
+      "SELECT t.id FROM t LEFT JOIN u ON t.v = u.x " +
+        "WHERE NOT EXISTS " +
+        "(SELECT x FROM missing WHERE missing.x = u.x) ORDER BY t.id",
+      "prepare", "no-such-table"),
+    qf("correlated-join-parse-error",
+      "SELECT t.id FROM t LEFT JOIN u ON t.v = u.x " +
+        "WHERE u.x IN (SELECT , y FROM w WHERE y = u.x) ORDER BY t.id",
+      "prepare", "syntax"),
+  )
+
+  private val correlatedJoinCases =
+    correlatedJoinQueries ++ correlatedJoinFailureQueries
+
+  private def runCorrelatedJoinCases(c: Connection): ScenarioOutcome =
+    try
+      setupNullFixture(c, indexed = false)
+      ScenarioOutcome("ok", observe(c, correlatedJoinCases))
+    catch case error: SQLException =>
+      ScenarioOutcome("setup:" + errorCategory(error), Nil)
+
+  test("correlated JOIN rows, shadowing, and failures match sqlite-jdbc without phase normalization"):
+    withTempDb("correlated-join"): db =>
+      val (sc, ref) = runBoth(db, runCorrelatedJoinCases)
+      val (persisted, integrity) = reopenEvidence(db, correlatedJoinCases)
+      assertCompared(sc, ref, expected(correlatedJoinCases),
+        persisted, expected(correlatedJoinCases), integrity)
 
   private def setupNullDmlFixture(c: Connection, indexed: Boolean): Unit =
     setupSql(c, "CREATE TABLE d(id INTEGER PRIMARY KEY, v INTEGER, note TEXT)")

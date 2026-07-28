@@ -1,0 +1,8 @@
+join-first-not-in=4
+join-second-in=2|10
+join-second-exists=2|10
+join3-middle-last-scalar=2|10|20
+join3-null-extended-not-in=1|NULL|NULL ; 3|NULL|NULL ; 4|NULL|NULL
+right-null-extended-not-in=NULL|11
+shadow-in=1 ; 2 ; 3 ; 4
+shadow-exists=1 ; 2 ; 3 ; 4

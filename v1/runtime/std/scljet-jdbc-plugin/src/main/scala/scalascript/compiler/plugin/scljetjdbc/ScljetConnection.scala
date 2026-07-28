@@ -146,6 +146,15 @@ final class ScljetConnectionState(
     val kw = leadingKeyword(sql)
     kw == "SELECT" || kw == "WITH"
 
+  /** Validate a SELECT against the current schema at PreparedStatement construction time.
+   *  Parameters are represented as typed NULLs only for parsing/name resolution; executeQuery
+   *  still binds the caller's real values and computes the rows. */
+  def prepareQuery(sql: String): Unit =
+    checkOpen()
+    val res = ScljetEngine.call("jdbcPrepareQuery", connValue, Value.StringV(sql))
+    ScljetEngine.unwrapEither(res, m => s"prepare failed: $m")
+    ()
+
   /** Does this statement generate a rowid `getGeneratedKeys` should report?
    *  Only row-inserting statements do — SQLite's `last_insert_rowid()` is
    *  unchanged by UPDATE/DELETE/DDL. */
@@ -177,6 +186,7 @@ final class ConnectionHandler(state: ScljetConnectionState) extends ProxyHandler
       val sql = argStr(args, 0)
       if args.length >= 3 && isInt(args, 1) && isInt(args, 2) then
         requireForwardReadOnly(argInt(args, 1), argInt(args, 2))
+      if state.isQuery(sql) then state.prepareQuery(sql)
       ScljetPreparedStatement.make(state, proxy.asInstanceOf[Connection], sql)
     case "setAutoCommit"        => state.setAutoCommit(argBool(args, 0)); unit
     case "getAutoCommit"        => boxB(state.autoCommit)

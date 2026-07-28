@@ -27,6 +27,7 @@ exports:
   - runSelectStmt
   - queryImage
   - queryImageParams
+  - validatePreparedQuery
   - bindParams
   - renderRows
   - renderReal
@@ -2204,7 +2205,7 @@ def filterRows(rows: List[StorageRecord], where: List[List[Condition]], colNames
     r = r.tail
   reverseStorage(accRev, Nil)
 
-// ── Correlated EXISTS: a WHERE containing a [NOT] EXISTS subquery, evaluated per outer row ──
+// ── Correlated subqueries: deferred until every visible outer row is bound ──
 def hasExistsCond(where: List[List[Condition]]): Boolean =
   var g = where
   var found = false
@@ -2218,10 +2219,67 @@ def hasExistsCond(where: List[List[Condition]]): Boolean =
 
 def exactValueToken(v: SqliteValue): Token = Token("bound", "", 0L, Some(v))
 
-// Replace qualified outer-table references (outerTable.col) in a subquery's tokens with the current
-// outer row's value (a bound literal token). Bare/other refs resolve to the inner table unchanged.
-def substituteOuterRefs(subTokens: List[Token], outerTable: String, colNames: List[String], rec: StorageRecord): List[Token] =
-  val ot = upperStr(outerTable)
+case class OuterBinding(tableName: String, colNames: List[String], rec: StorageRecord)
+
+def containsTableName(names: List[String], name: String): Boolean =
+  val target = upperStr(name)
+  var r = names
+  var found = false
+  while r.nonEmpty && !found do
+    if upperStr(r.head) == target then found = true
+    r = r.tail
+  found
+
+// Every depth-0 FROM/JOIN table in one SELECT scope. Aliases are not yet part of the parser, so the
+// declared table name is also the only qualifier that can shadow an outer binding.
+def depthZeroTableNames(toks: List[Token]): List[String] =
+  var r = toks
+  var depth = 0
+  var accRev: List[String] = Nil
+  while r.nonEmpty do
+    val t = r.head
+    if t.kind == "lparen" then depth = depth + 1
+    else if t.kind == "rparen" then depth = depth - 1
+    else if depth == 0 && (isKw(t, "FROM") || isKw(t, "JOIN")) then
+      if tkKind(r.tail) == "ident" then
+        val name = r.tail.head.text
+        if !containsTableName(accRev, name) then accRev = name :: accRev
+    r = r.tail
+  reverseStrings(accRev, Nil)
+
+// A qualifier is correlated only when it names a visible outer table and is not rebound by the
+// subquery's own FROM/JOIN scope. This prevents `outer ... JOIN u ... WHERE EXISTS(SELECT ... FROM
+// u)` from replacing the inner `u.*` with the joined outer row.
+def referencesOuterTables(innerToks: List[Token], outerTables: List[String]): Boolean =
+  val localTables = depthZeroTableNames(innerToks)
+  var r = innerToks
+  var found = false
+  while r.nonEmpty && !found do
+    val t = r.head
+    if t.kind == "ident" then
+      val dot = indexOfDot(t.text)
+      if dot >= 0 then
+        val qualifier = substr(t.text, 0, dot)
+        if containsTableName(outerTables, qualifier) && !containsTableName(localTables, qualifier) then found = true
+    r = r.tail
+  found
+
+def outerBindingValue(bindings: List[OuterBinding], tableName: String, colName: String): Option[SqliteValue] =
+  val target = upperStr(tableName)
+  var r = bindings
+  var result: Option[SqliteValue] = None
+  while r.nonEmpty && result.isEmpty do
+    val b = r.head
+    if upperStr(b.tableName) == target then
+      val known = upperStr(colName) == "ROWID" || columnIndex(b.colNames, colName) >= 0
+      if known then result = Some(rowValue(b.rec, b.colNames, colName))
+    r = r.tail
+  result
+
+// Replace qualified outer references with exact bound tokens. Bare names remain owned by the inner
+// query, and an identically named inner table shadows its outer binding.
+def substituteOuterRefs(subTokens: List[Token], bindings: List[OuterBinding]): List[Token] =
+  val localTables = depthZeroTableNames(subTokens)
   var r = subTokens
   var accRev: List[Token] = Nil
   while r.nonEmpty do
@@ -2230,44 +2288,66 @@ def substituteOuterRefs(subTokens: List[Token], outerTable: String, colNames: Li
       if t.kind == "ident" then
         val dot = indexOfDot(t.text)
         if dot < 0 then t
-        else if upperStr(substr(t.text, 0, dot)) != ot then t
         else
+          val tablePart = substr(t.text, 0, dot)
           val colPart = substr(t.text, dot + 1, t.text.length)
-          if columnIndex(colNames, colPart) < 0 then t
-          else exactValueToken(rowValue(rec, colNames, colPart))
+          if containsTableName(localTables, tablePart) then t
+          else outerBindingValue(bindings, tablePart, colPart) match
+            case None => t
+            case Some(value) => exactValueToken(value)
       else t
     accRev = repl :: accRev
     r = r.tail
   reverseTokens(accRev, Nil)
 
-// EXISTS: substitute the outer refs, run the subquery against the open db, true iff it returns a row.
-def existsHolds(db: ReadonlyDatabase, subTokens: List[Token], outerTable: String, colNames: List[String], rec: StorageRecord): Boolean =
-  val sub = substituteOuterRefs(subTokens, outerTable, colNames, rec)
-  parseSelect(sub) match
-    case Left(_) => false
-    case Right(stmt) =>
-      if stmt.table == "" then executeNoFrom(stmt) match
-        case Right(rows) => rows.nonEmpty
-        case Left(_) => false
-      else executeSelect(db, stmt) match
-        case Right(rows) => rows.nonEmpty
-        case Left(_) => false
+def validateSelectTables(db: ReadonlyDatabase, stmt: SelectStmt): Either[String, Unit] =
+  if stmt.table == "" then Right(())
+  else if findTable(db, stmt.table).isEmpty then Left("no such table: " + stmt.table)
+  else
+    var r = stmt.joins
+    var missing = ""
+    while r.nonEmpty && missing == "" do
+      if findTable(db, r.head.table).isEmpty then missing = r.head.table
+      r = r.tail
+    if missing == "" then Right(()) else Left("no such table: " + missing)
 
-// `col [NOT] IN (subquery)`: substitute the outer refs, run the subquery, and preserve
-// UNKNOWN from NULL membership until the outer WHERE boundary.
-def inSubqState(db: ReadonlyDatabase, cond: Condition, rec: StorageRecord, colNames: List[String], outerTable: String): Int =
-  val colVal = condLeftSingle(cond, rec, colNames)
-  val sub = substituteOuterRefs(cond.subTokens, outerTable, colNames, rec)
+// Parse and structurally validate a deferred subquery before the outer scan. SQLite resolves table
+// names during preparation, so a missing table or malformed SELECT is still an error when the outer
+// table is empty or a point/index seek finds no candidate row.
+def validateSubquery(db: ReadonlyDatabase, subTokens: List[Token], bindings: List[OuterBinding]): Either[String, Unit] =
+  val sub = substituteOuterRefs(subTokens, bindings)
   parseSelect(sub) match
-    case Left(_) => 0
-    case Right(stmt) =>
-      val rowsE = if stmt.table == "" then executeNoFrom(stmt) else executeSelect(db, stmt)
-      rowsE match
-        case Left(_) => 0
-        case Right(rows) => membershipState(colVal, firstColumn(rows))
+    case Left(message) => Left(message)
+    case Right(stmt) => validateSelectTables(db, stmt)
 
-def inSubqHolds(db: ReadonlyDatabase, cond: Condition, rec: StorageRecord, colNames: List[String], outerTable: String): Boolean =
-  inSubqState(db, cond, rec, colNames, outerTable) == 1
+def validateWhereSubqueries(db: ReadonlyDatabase, where: List[List[Condition]], bindings: List[OuterBinding]): Either[String, Unit] =
+  var groups = where
+  var error: Option[String] = None
+  while groups.nonEmpty && error.isEmpty do
+    var conditions = groups.head
+    while conditions.nonEmpty && error.isEmpty do
+      val cond = conditions.head
+      if cond.subTokens.nonEmpty then validateSubquery(db, cond.subTokens, bindings) match
+        case Left(message) => error = Some(message)
+        case Right(_) => error = error
+      conditions = conditions.tail
+    groups = groups.tail
+  error match
+    case Some(message) => Left(message)
+    case None => Right(())
+
+def correlatedSubqueryRows(db: ReadonlyDatabase, subTokens: List[Token], bindings: List[OuterBinding]): Either[String, List[List[SqliteValue]]] =
+  val sub = substituteOuterRefs(subTokens, bindings)
+  parseSelect(sub) match
+    case Left(message) => Left(message)
+    case Right(stmt) =>
+      if stmt.table == "" then executeNoFrom(stmt)
+      else executeSelect(db, stmt)
+
+def existsState(db: ReadonlyDatabase, subTokens: List[Token], bindings: List[OuterBinding]): Either[String, Int] =
+  correlatedSubqueryRows(db, subTokens, bindings) match
+    case Left(message) => Left(message)
+    case Right(rows) => Right(if rows.nonEmpty then 1 else 0)
 
 def isCmpOp(op: String): Boolean =
   op == "=" || op == "<>" || op == "!=" || op == "<" || op == "<=" || op == ">" || op == ">="
@@ -2278,66 +2358,78 @@ def scalarSubqValue(rows: List[List[SqliteValue]]): SqliteValue =
   else if rows.head.isEmpty then SqlNull
   else rows.head.head
 
-// `col <cmp> (subquery)`: substitute the outer refs, run the subquery, and compare
-// against its scalar result (NULL for an empty result).
-def scalarSubqState(db: ReadonlyDatabase, cond: Condition, rec: StorageRecord, colNames: List[String], outerTable: String): Int =
-  val colVal = condLeftSingle(cond, rec, colNames)
-  val sub = substituteOuterRefs(cond.subTokens, outerTable, colNames, rec)
-  parseSelect(sub) match
-    case Left(_) => 0
-    case Right(stmt) =>
-      val rowsE = if stmt.table == "" then executeNoFrom(stmt) else executeSelect(db, stmt)
-      rowsE match
-        case Left(_) => 0
-        case Right(rows) => comparisonState(cond.op, colVal, scalarSubqValue(rows))
+def inSubqState(db: ReadonlyDatabase, cond: Condition, leftValue: SqliteValue, bindings: List[OuterBinding]): Either[String, Int] =
+  correlatedSubqueryRows(db, cond.subTokens, bindings) match
+    case Left(message) => Left(message)
+    case Right(rows) => Right(membershipState(leftValue, firstColumn(rows)))
 
-def scalarSubqHolds(db: ReadonlyDatabase, cond: Condition, rec: StorageRecord, colNames: List[String], outerTable: String): Boolean =
-  scalarSubqState(db, cond, rec, colNames, outerTable) == 1
+def scalarSubqState(db: ReadonlyDatabase, cond: Condition, leftValue: SqliteValue, bindings: List[OuterBinding]): Either[String, Int] =
+  correlatedSubqueryRows(db, cond.subTokens, bindings) match
+    case Left(message) => Left(message)
+    case Right(rows) => Right(comparisonState(cond.op, leftValue, scalarSubqValue(rows)))
 
-def condStateCtx(db: ReadonlyDatabase, cond: Condition, rec: StorageRecord, colNames: List[String], outerTable: String): Int =
-  if cond.op == "exists" then
-    if existsHolds(db, cond.subTokens, outerTable, colNames, rec) then 1 else 0
-  else if cond.op == "notexists" then
-    if existsHolds(db, cond.subTokens, outerTable, colNames, rec) then 0 else 1
-  else if cond.op == "insubq" then inSubqState(db, cond, rec, colNames, outerTable)
-  else if cond.op == "notinsubq" then truthNotState(inSubqState(db, cond, rec, colNames, outerTable))
-  else if cond.subTokens.nonEmpty && isCmpOp(cond.op) then scalarSubqState(db, cond, rec, colNames, outerTable)
-  else condState(cond, rec, colNames)
+def boundCondState(db: ReadonlyDatabase, cond: Condition, leftValue: SqliteValue, rightValue: SqliteValue, bindings: List[OuterBinding]): Either[String, Int] =
+  if cond.op == "exists" then existsState(db, cond.subTokens, bindings)
+  else if cond.op == "notexists" then existsState(db, cond.subTokens, bindings) match
+    case Left(message) => Left(message)
+    case Right(state) => Right(truthNotState(state))
+  else if cond.op == "insubq" then inSubqState(db, cond, leftValue, bindings)
+  else if cond.op == "notinsubq" then inSubqState(db, cond, leftValue, bindings) match
+    case Left(message) => Left(message)
+    case Right(state) => Right(truthNotState(state))
+  else if cond.subTokens.nonEmpty && isCmpOp(cond.op) then scalarSubqState(db, cond, leftValue, bindings)
+  else Right(predState(cond, leftValue, rightValue))
 
-def condHoldsCtx(db: ReadonlyDatabase, cond: Condition, rec: StorageRecord, colNames: List[String], outerTable: String): Boolean =
-  condStateCtx(db, cond, rec, colNames, outerTable) == 1
+def singleBindings(outerTable: String, colNames: List[String], rec: StorageRecord): List[OuterBinding] =
+  OuterBinding(outerTable, colNames, rec) :: Nil
 
-def andGroupStateCtx(db: ReadonlyDatabase, group: List[Condition], rec: StorageRecord, colNames: List[String], outerTable: String): Int =
+def condStateCtx(db: ReadonlyDatabase, cond: Condition, rec: StorageRecord, colNames: List[String], outerTable: String): Either[String, Int] =
+  boundCondState(db, cond, condLeftSingle(cond, rec, colNames), condRightSingle(cond, rec, colNames),
+    singleBindings(outerTable, colNames, rec))
+
+def andGroupStateCtx(db: ReadonlyDatabase, group: List[Condition], rec: StorageRecord, colNames: List[String], outerTable: String): Either[String, Int] =
   var r = group
   var state = 1
-  while r.nonEmpty && state != 0 do
-    state = truthAndState(state, condStateCtx(db, r.head, rec, colNames, outerTable))
+  var error: Option[String] = None
+  while r.nonEmpty && state != 0 && error.isEmpty do
+    condStateCtx(db, r.head, rec, colNames, outerTable) match
+      case Left(message) => error = Some(message)
+      case Right(next) => state = truthAndState(state, next)
     r = r.tail
-  state
+  error match
+    case Some(message) => Left(message)
+    case None => Right(state)
 
-def andGroupHoldsCtx(db: ReadonlyDatabase, group: List[Condition], rec: StorageRecord, colNames: List[String], outerTable: String): Boolean =
-  andGroupStateCtx(db, group, rec, colNames, outerTable) == 1
-
-def whereStateCtx(db: ReadonlyDatabase, where: List[List[Condition]], rec: StorageRecord, colNames: List[String], outerTable: String): Int =
-  if where.isEmpty then 1
+def whereStateCtx(db: ReadonlyDatabase, where: List[List[Condition]], rec: StorageRecord, colNames: List[String], outerTable: String): Either[String, Int] =
+  if where.isEmpty then Right(1)
   else
     var r = where
     var state = 0
-    while r.nonEmpty && state != 1 do
-      state = truthOrState(state, andGroupStateCtx(db, r.head, rec, colNames, outerTable))
+    var error: Option[String] = None
+    while r.nonEmpty && state != 1 && error.isEmpty do
+      andGroupStateCtx(db, r.head, rec, colNames, outerTable) match
+        case Left(message) => error = Some(message)
+        case Right(next) => state = truthOrState(state, next)
       r = r.tail
-    state
+    error match
+      case Some(message) => Left(message)
+      case None => Right(state)
 
-def whereHoldsCtx(db: ReadonlyDatabase, where: List[List[Condition]], rec: StorageRecord, colNames: List[String], outerTable: String): Boolean =
-  whereStateCtx(db, where, rec, colNames, outerTable) == 1
-
-def filterRowsCtx(db: ReadonlyDatabase, rows: List[StorageRecord], where: List[List[Condition]], colNames: List[String], outerTable: String): List[StorageRecord] =
-  var r = rows
-  var accRev: List[StorageRecord] = Nil
-  while r.nonEmpty do
-    if whereHoldsCtx(db, where, r.head, colNames, outerTable) then accRev = r.head :: accRev
-    r = r.tail
-  reverseStorage(accRev, Nil)
+def filterRowsCtx(db: ReadonlyDatabase, rows: List[StorageRecord], where: List[List[Condition]], colNames: List[String], outerTable: String): Either[String, List[StorageRecord]] =
+  validateWhereSubqueries(db, where, singleBindings(outerTable, colNames, nullRow())) match
+    case Left(message) => Left(message)
+    case Right(_) =>
+      var r = rows
+      var accRev: List[StorageRecord] = Nil
+      var error: Option[String] = None
+      while r.nonEmpty && error.isEmpty do
+        whereStateCtx(db, where, r.head, colNames, outerTable) match
+          case Left(message) => error = Some(message)
+          case Right(state) => if state == 1 then accRev = r.head :: accRev
+        r = r.tail
+      error match
+        case Some(message) => Left(message)
+        case None => Right(reverseStorage(accRev, Nil))
 
 // Lexicographic comparison over the ORDER BY key list (per-key ASC/DESC).
 def recCompare(a: StorageRecord, b: StorageRecord, colNames: List[String], keys: List[OrderKey]): Int =
@@ -2535,35 +2627,45 @@ def joinCondRight(cond: Condition, recA: StorageRecord, colsA: List[String], tab
     case Some(e) => evalExprJoin(e, recA, colsA, tableA, recBOpt, colsB, tableB)
     case None => cond.value
 
-def joinCondState(cond: Condition, recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): Int =
-  predState(cond, joinCondLeft(cond, recA, colsA, tableA, recBOpt, colsB, tableB), joinCondRight(cond, recA, colsA, tableA, recBOpt, colsB, tableB))
+def joinBindings(recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): List[OuterBinding] =
+  val recB = recBOpt match
+    case Some(rec) => rec
+    case None => nullRow()
+  OuterBinding(tableA, colsA, recA) :: OuterBinding(tableB, colsB, recB) :: Nil
 
-def joinCondHolds(cond: Condition, recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): Boolean =
-  joinCondState(cond, recA, colsA, tableA, recBOpt, colsB, tableB) == 1
+def joinCondState(db: ReadonlyDatabase, cond: Condition, recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): Either[String, Int] =
+  boundCondState(db, cond,
+    joinCondLeft(cond, recA, colsA, tableA, recBOpt, colsB, tableB),
+    joinCondRight(cond, recA, colsA, tableA, recBOpt, colsB, tableB),
+    joinBindings(recA, colsA, tableA, recBOpt, colsB, tableB))
 
-def joinAndGroupState(group: List[Condition], recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): Int =
+def joinAndGroupState(db: ReadonlyDatabase, group: List[Condition], recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): Either[String, Int] =
   var r = group
   var state = 1
-  while r.nonEmpty && state != 0 do
-    state = truthAndState(state, joinCondState(r.head, recA, colsA, tableA, recBOpt, colsB, tableB))
+  var error: Option[String] = None
+  while r.nonEmpty && state != 0 && error.isEmpty do
+    joinCondState(db, r.head, recA, colsA, tableA, recBOpt, colsB, tableB) match
+      case Left(message) => error = Some(message)
+      case Right(next) => state = truthAndState(state, next)
     r = r.tail
-  state
+  error match
+    case Some(message) => Left(message)
+    case None => Right(state)
 
-def joinAndGroupHolds(group: List[Condition], recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): Boolean =
-  joinAndGroupState(group, recA, colsA, tableA, recBOpt, colsB, tableB) == 1
-
-def joinWhereState(where: List[List[Condition]], recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): Int =
-  if where.isEmpty then 1
+def joinWhereState(db: ReadonlyDatabase, where: List[List[Condition]], recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): Either[String, Int] =
+  if where.isEmpty then Right(1)
   else
     var r = where
     var state = 0
-    while r.nonEmpty && state != 1 do
-      state = truthOrState(state, joinAndGroupState(r.head, recA, colsA, tableA, recBOpt, colsB, tableB))
+    var error: Option[String] = None
+    while r.nonEmpty && state != 1 && error.isEmpty do
+      joinAndGroupState(db, r.head, recA, colsA, tableA, recBOpt, colsB, tableB) match
+        case Left(message) => error = Some(message)
+        case Right(next) => state = truthOrState(state, next)
       r = r.tail
-    state
-
-def joinWhereHolds(where: List[List[Condition]], recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String): Boolean =
-  joinWhereState(where, recA, colsA, tableA, recBOpt, colsB, tableB) == 1
+    error match
+      case Some(message) => Left(message)
+      case None => Right(state)
 
 def joinProjectRow(recA: StorageRecord, colsA: List[String], tableA: String, recBOpt: Option[StorageRecord], colsB: List[String], tableB: String, stmt: SelectStmt): List[SqliteValue] =
   var accRev: List[SqliteValue] = Nil
@@ -2867,6 +2969,57 @@ def mapPairGroups(groups: List[List[JoinPair]], projection: List[ProjItem], cols
     accRev = accRev.tail
   out
 
+def buildJoinPairs(db: ReadonlyDatabase, stmt: SelectStmt, spec: JoinSpec, colsA: List[String], rowsA: List[StorageRecord], colsB: List[String], rowsB: List[StorageRecord]): Either[String, List[JoinPair]] =
+  val noB: Option[StorageRecord] = None
+  validateWhereSubqueries(db, stmt.where,
+    joinBindings(nullRow(), colsA, stmt.table, noB, colsB, spec.table)) match
+    case Left(message) => Left(message)
+    case Right(_) =>
+      var ra = rowsA
+      var pairsRev: List[JoinPair] = Nil
+      var error: Option[String] = None
+      while ra.nonEmpty && error.isEmpty do
+        var rb = rowsB
+        var matched = false
+        while rb.nonEmpty && error.isEmpty do
+          val rbOpt: Option[StorageRecord] = Some(rb.head)
+          val lv = joinColValue(ra.head, colsA, stmt.table, rbOpt, colsB, spec.table, spec.leftCol)
+          val rv = joinColValue(ra.head, colsA, stmt.table, rbOpt, colsB, spec.table, spec.rightCol)
+          if comparisonState(spec.op, lv, rv) == 1 then
+            matched = true
+            joinWhereState(db, stmt.where, ra.head, colsA, stmt.table, rbOpt, colsB, spec.table) match
+              case Left(message) => error = Some(message)
+              case Right(state) => if state == 1 then pairsRev = JoinPair(ra.head, rbOpt) :: pairsRev
+          rb = rb.tail
+        if spec.leftOuter && !matched && error.isEmpty then
+          val noneB: Option[StorageRecord] = None
+          joinWhereState(db, stmt.where, ra.head, colsA, stmt.table, noneB, colsB, spec.table) match
+            case Left(message) => error = Some(message)
+            case Right(state) => if state == 1 then pairsRev = JoinPair(ra.head, noneB) :: pairsRev
+        ra = ra.tail
+      // RIGHT / FULL: keep each right-table row that no left row matched (on the ON), left side NULL.
+      if spec.rightOuter && error.isEmpty then
+        var rb2 = rowsB
+        while rb2.nonEmpty && error.isEmpty do
+          var ra2 = rowsA
+          var bMatched = false
+          while ra2.nonEmpty do
+            val rbOpt2: Option[StorageRecord] = Some(rb2.head)
+            val lv2 = joinColValue(ra2.head, colsA, stmt.table, rbOpt2, colsB, spec.table, spec.leftCol)
+            val rv2 = joinColValue(ra2.head, colsA, stmt.table, rbOpt2, colsB, spec.table, spec.rightCol)
+            if comparisonState(spec.op, lv2, rv2) == 1 then bMatched = true
+            ra2 = ra2.tail
+          if !bMatched then
+            val nullA = nullRow()
+            val rbOptN: Option[StorageRecord] = Some(rb2.head)
+            joinWhereState(db, stmt.where, nullA, colsA, stmt.table, rbOptN, colsB, spec.table) match
+              case Left(message) => error = Some(message)
+              case Right(state) => if state == 1 then pairsRev = JoinPair(nullA, rbOptN) :: pairsRev
+          rb2 = rb2.tail
+      error match
+        case Some(message) => Left(message)
+        case None => Right(reversePairs(pairsRev, Nil))
+
 def joinExecute(db: ReadonlyDatabase, stmt: SelectStmt, spec: JoinSpec): Either[String, List[List[SqliteValue]]] =
   joinTableRows(db, stmt.table) match
     case Left(message) => Left(message)
@@ -2877,61 +3030,26 @@ def joinExecute(db: ReadonlyDatabase, stmt: SelectStmt, spec: JoinSpec): Either[
         val rowsA = a._2
         val colsB = b._1
         val rowsB = b._2
-        var ra = rowsA
-        var pairsRev: List[JoinPair] = Nil
-        while ra.nonEmpty do
-          var rb = rowsB
-          var matched = false
-          while rb.nonEmpty do
-            val rbOpt: Option[StorageRecord] = Some(rb.head)
-            val lv = joinColValue(ra.head, colsA, stmt.table, rbOpt, colsB, spec.table, spec.leftCol)
-            val rv = joinColValue(ra.head, colsA, stmt.table, rbOpt, colsB, spec.table, spec.rightCol)
-            if comparisonState(spec.op, lv, rv) == 1 then
-              matched = true
-              if joinWhereHolds(stmt.where, ra.head, colsA, stmt.table, rbOpt, colsB, spec.table) then
-                pairsRev = JoinPair(ra.head, rbOpt) :: pairsRev
-            rb = rb.tail
-          if spec.leftOuter && !matched then
-            val noneB: Option[StorageRecord] = None
-            if joinWhereHolds(stmt.where, ra.head, colsA, stmt.table, noneB, colsB, spec.table) then
-              pairsRev = JoinPair(ra.head, noneB) :: pairsRev
-          ra = ra.tail
-        // RIGHT / FULL: keep each right-table row that no left row matched (on the ON), left side NULL.
-        if spec.rightOuter then
-          var rb2 = rowsB
-          while rb2.nonEmpty do
-            var ra2 = rowsA
-            var bMatched = false
-            while ra2.nonEmpty do
-              val rbOpt2: Option[StorageRecord] = Some(rb2.head)
-              val lv2 = joinColValue(ra2.head, colsA, stmt.table, rbOpt2, colsB, spec.table, spec.leftCol)
-              val rv2 = joinColValue(ra2.head, colsA, stmt.table, rbOpt2, colsB, spec.table, spec.rightCol)
-              if comparisonState(spec.op, lv2, rv2) == 1 then bMatched = true
-              ra2 = ra2.tail
-            if !bMatched then
-              val nullA = nullRow()
-              val rbOptN: Option[StorageRecord] = Some(rb2.head)
-              if joinWhereHolds(stmt.where, nullA, colsA, stmt.table, rbOptN, colsB, spec.table) then
-                pairsRev = JoinPair(nullA, rbOptN) :: pairsRev
-            rb2 = rb2.tail
-        val pairs = reversePairs(pairsRev, Nil)
-        if stmt.groupBy.nonEmpty then
-          val sortedForGroup = sortPairsBy(pairs, colsA, stmt.table, colsB, spec.table, groupKeysOf(stmt.groupBy))
-          val groups = filterPairGroups(partitionPairs(sortedForGroup, colsA, stmt.table, colsB, spec.table, stmt.groupBy), stmt.having, colsA, stmt.table, colsB, spec.table)
-          Right(limitValueRows(mapPairGroups(groups, stmt.projection, colsA, stmt.table, colsB, spec.table), stmt.limit, stmt.offset))
-        else if projHasAgg(stmt.projection) then Right(computeJoinAggregates(stmt.projection, pairs, colsA, stmt.table, colsB, spec.table) :: Nil)
-        else
-          var pp = if stmt.orderBy.isEmpty then pairs else sortPairsBy(pairs, colsA, stmt.table, colsB, spec.table, stmt.orderBy)
-          var resultRev: List[List[SqliteValue]] = Nil
-          while pp.nonEmpty do
-            resultRev = joinProjectRow(pp.head.recA, colsA, stmt.table, pp.head.recBOpt, colsB, spec.table, stmt) :: resultRev
-            pp = pp.tail
-          var out: List[List[SqliteValue]] = Nil
-          while resultRev.nonEmpty do
-            out = resultRev.head :: out
-            resultRev = resultRev.tail
-          val deduped = if stmt.distinct then dedupRows(out) else out
-          Right(limitValueRows(deduped, stmt.limit, stmt.offset))
+        buildJoinPairs(db, stmt, spec, colsA, rowsA, colsB, rowsB) match
+          case Left(message) => Left(message)
+          case Right(pairs) =>
+            if stmt.groupBy.nonEmpty then
+              val sortedForGroup = sortPairsBy(pairs, colsA, stmt.table, colsB, spec.table, groupKeysOf(stmt.groupBy))
+              val groups = filterPairGroups(partitionPairs(sortedForGroup, colsA, stmt.table, colsB, spec.table, stmt.groupBy), stmt.having, colsA, stmt.table, colsB, spec.table)
+              Right(limitValueRows(mapPairGroups(groups, stmt.projection, colsA, stmt.table, colsB, spec.table), stmt.limit, stmt.offset))
+            else if projHasAgg(stmt.projection) then Right(computeJoinAggregates(stmt.projection, pairs, colsA, stmt.table, colsB, spec.table) :: Nil)
+            else
+              var pp = if stmt.orderBy.isEmpty then pairs else sortPairsBy(pairs, colsA, stmt.table, colsB, spec.table, stmt.orderBy)
+              var resultRev: List[List[SqliteValue]] = Nil
+              while pp.nonEmpty do
+                resultRev = joinProjectRow(pp.head.recA, colsA, stmt.table, pp.head.recBOpt, colsB, spec.table, stmt) :: resultRev
+                pp = pp.tail
+              var out: List[List[SqliteValue]] = Nil
+              while resultRev.nonEmpty do
+                out = resultRev.head :: out
+                resultRev = resultRev.tail
+              val deduped = if stmt.distinct then dedupRows(out) else out
+              Right(limitValueRows(deduped, stmt.limit, stmt.offset))
 
 // ── N-table inner join (3+ tables): a general list-of-rows model ──
 // A joined row is a list of StorageRecords, one per table, parallel to `tables`. Column
@@ -3019,41 +3137,76 @@ def evalExprMulti(e: SxNode, joinRow: List[StorageRecord], tables: List[JoinTabl
   case SxAgg(_, _, _) => SqlNull
   case SxCase(operand, whens, elseExpr) => evalCaseMulti(operand, whens, elseExpr, joinRow, tables)
 
-def multiCondState(cond: Condition, joinRow: List[StorageRecord], tables: List[JoinTable]): Int =
+def multiBindings(joinRow: List[StorageRecord], tables: List[JoinTable]): List[OuterBinding] =
+  var rows = joinRow
+  var ts = tables
+  var accRev: List[OuterBinding] = Nil
+  while rows.nonEmpty && ts.nonEmpty do
+    accRev = OuterBinding(ts.head.tableName, ts.head.cols, rows.head) :: accRev
+    rows = rows.tail
+    ts = ts.tail
+  accRev.reverse
+
+def nullJoinRow(tables: List[JoinTable]): List[StorageRecord] =
+  var r = tables
+  var accRev: List[StorageRecord] = Nil
+  while r.nonEmpty do
+    accRev = nullRow() :: accRev
+    r = r.tail
+  accRev.reverse
+
+def multiCondState(db: ReadonlyDatabase, cond: Condition, joinRow: List[StorageRecord], tables: List[JoinTable]): Either[String, Int] =
   val lv = cond.leftExpr match
     case Some(e) => evalExprMulti(e, joinRow, tables)
     case None => multiColValue(joinRow, tables, cond.column)
   val rv = cond.rightExpr match
     case Some(e) => evalExprMulti(e, joinRow, tables)
     case None => cond.value
-  predState(cond, lv, rv)
+  boundCondState(db, cond, lv, rv, multiBindings(joinRow, tables))
 
-def multiCondHolds(cond: Condition, joinRow: List[StorageRecord], tables: List[JoinTable]): Boolean =
-  multiCondState(cond, joinRow, tables) == 1
-
-def multiAndGroupState(group: List[Condition], joinRow: List[StorageRecord], tables: List[JoinTable]): Int =
+def multiAndGroupState(db: ReadonlyDatabase, group: List[Condition], joinRow: List[StorageRecord], tables: List[JoinTable]): Either[String, Int] =
   var r = group
   var state = 1
-  while r.nonEmpty && state != 0 do
-    state = truthAndState(state, multiCondState(r.head, joinRow, tables))
+  var error: Option[String] = None
+  while r.nonEmpty && state != 0 && error.isEmpty do
+    multiCondState(db, r.head, joinRow, tables) match
+      case Left(message) => error = Some(message)
+      case Right(next) => state = truthAndState(state, next)
     r = r.tail
-  state
+  error match
+    case Some(message) => Left(message)
+    case None => Right(state)
 
-def multiAndGroup(group: List[Condition], joinRow: List[StorageRecord], tables: List[JoinTable]): Boolean =
-  multiAndGroupState(group, joinRow, tables) == 1
-
-def multiWhereState(where: List[List[Condition]], joinRow: List[StorageRecord], tables: List[JoinTable]): Int =
-  if where.isEmpty then 1
+def multiWhereState(db: ReadonlyDatabase, where: List[List[Condition]], joinRow: List[StorageRecord], tables: List[JoinTable]): Either[String, Int] =
+  if where.isEmpty then Right(1)
   else
     var r = where
     var state = 0
-    while r.nonEmpty && state != 1 do
-      state = truthOrState(state, multiAndGroupState(r.head, joinRow, tables))
+    var error: Option[String] = None
+    while r.nonEmpty && state != 1 && error.isEmpty do
+      multiAndGroupState(db, r.head, joinRow, tables) match
+        case Left(message) => error = Some(message)
+        case Right(next) => state = truthOrState(state, next)
       r = r.tail
-    state
+    error match
+      case Some(message) => Left(message)
+      case None => Right(state)
 
-def multiWhereHolds(where: List[List[Condition]], joinRow: List[StorageRecord], tables: List[JoinTable]): Boolean =
-  multiWhereState(where, joinRow, tables) == 1
+def filterMultiRows(db: ReadonlyDatabase, rows: List[List[StorageRecord]], where: List[List[Condition]], tables: List[JoinTable]): Either[String, List[List[StorageRecord]]] =
+  validateWhereSubqueries(db, where, multiBindings(nullJoinRow(tables), tables)) match
+    case Left(message) => Left(message)
+    case Right(_) =>
+      var r = rows
+      var keptRev: List[List[StorageRecord]] = Nil
+      var error: Option[String] = None
+      while r.nonEmpty && error.isEmpty do
+        multiWhereState(db, where, r.head, tables) match
+          case Left(message) => error = Some(message)
+          case Right(state) => if state == 1 then keptRev = r.head :: keptRev
+        r = r.tail
+      error match
+        case Some(message) => Left(message)
+        case None => Right(keptRev.reverse)
 
 // ON `leftCol op rightCol` over the bound tables.
 def onHolds(joinRow: List[StorageRecord], tables: List[JoinTable], spec: JoinSpec): Boolean =
@@ -3330,30 +3483,27 @@ def multiJoinExecute(db: ReadonlyDatabase, stmt: SelectStmt): Either[String, Lis
     case Left(message) => Left(message)
     case Right(tables) =>
       val allRows = buildJoinRows(tables, stmt.joins)
-      var jr = allRows
-      var keptRev: List[List[StorageRecord]] = Nil
-      while jr.nonEmpty do
-        if multiWhereHolds(stmt.where, jr.head, tables) then keptRev = jr.head :: keptRev
-        jr = jr.tail
-      val kept = keptRev.reverse
-      if stmt.groupBy.nonEmpty then
-        val groups = partitionMultiRows(sortMultiRows(kept, tables, groupKeysOf(stmt.groupBy)), tables, stmt.groupBy)
-        var g = groups
-        var rowsRev: List[List[SqliteValue]] = Nil
-        while g.nonEmpty do
-          if havingHoldsMulti(stmt.having, g.head, tables) then rowsRev = projectMultiGroupRow(g.head, tables, stmt) :: rowsRev
-          g = g.tail
-        Right(limitValueRows(rowsRev.reverse, stmt.limit, stmt.offset))
-      else if projHasAgg(stmt.projection) then Right(projectMultiGroupRow(kept, tables, stmt) :: Nil)
-      else
-        val ordered = if stmt.orderBy.isEmpty then kept else sortMultiRows(kept, tables, stmt.orderBy)
-        var r = ordered
-        var outRev: List[List[SqliteValue]] = Nil
-        while r.nonEmpty do
-          outRev = projectMultiRow(r.head, tables, stmt) :: outRev
-          r = r.tail
-        val deduped = if stmt.distinct then dedupRows(outRev.reverse) else outRev.reverse
-        Right(limitValueRows(deduped, stmt.limit, stmt.offset))
+      filterMultiRows(db, allRows, stmt.where, tables) match
+        case Left(message) => Left(message)
+        case Right(kept) =>
+          if stmt.groupBy.nonEmpty then
+            val groups = partitionMultiRows(sortMultiRows(kept, tables, groupKeysOf(stmt.groupBy)), tables, stmt.groupBy)
+            var g = groups
+            var rowsRev: List[List[SqliteValue]] = Nil
+            while g.nonEmpty do
+              if havingHoldsMulti(stmt.having, g.head, tables) then rowsRev = projectMultiGroupRow(g.head, tables, stmt) :: rowsRev
+              g = g.tail
+            Right(limitValueRows(rowsRev.reverse, stmt.limit, stmt.offset))
+          else if projHasAgg(stmt.projection) then Right(projectMultiGroupRow(kept, tables, stmt) :: Nil)
+          else
+            val ordered = if stmt.orderBy.isEmpty then kept else sortMultiRows(kept, tables, stmt.orderBy)
+            var r = ordered
+            var outRev: List[List[SqliteValue]] = Nil
+            while r.nonEmpty do
+              outRev = projectMultiRow(r.head, tables, stmt) :: outRev
+              r = r.tail
+            val deduped = if stmt.distinct then dedupRows(outRev.reverse) else outRev.reverse
+            Right(limitValueRows(deduped, stmt.limit, stmt.offset))
 
 def executeSelect(db: ReadonlyDatabase, stmt: SelectStmt): Either[String, List[List[SqliteValue]]] =
   if stmt.joins.isEmpty then executeSelectSingle(db, stmt)
@@ -3402,25 +3552,27 @@ def finishRows(db: ReadonlyDatabase, rows: List[StorageRecord], colNames: List[S
   // Materialise the rowid into the IPK column BEFORE filtering: WHERE/ORDER BY/aggregates all read
   // the record, so substituting only at projection time would leave `WHERE id = 7` matching nothing.
   val normalized = ipkNormalizeRows(rows, tableIpkIndex(db, stmt.table))
-  val filtered = filterRowsCtx(db, normalized, stmt.where, colNames, stmt.table)
-  if stmt.groupBy.nonEmpty then
-    val sortedForGroup = sortStorage(filtered, colNames, groupKeysOf(stmt.groupBy))
-    val groups = filterGroups(groupPartition(sortedForGroup, colNames, stmt.groupBy), stmt.having, colNames)
-    Right(limitValueRows(mapGroups(groups, colNames, stmt.projection), stmt.limit, stmt.offset))
-  else if projHasAgg(stmt.projection) then Right(projectGroupRow(filtered, colNames, stmt.projection) :: Nil)
-  else
-    val sorted = if stmt.orderBy.isEmpty then filtered else sortStorage(filtered, colNames, stmt.orderBy)
-    var r = sorted
-    var accRev: List[List[SqliteValue]] = Nil
-    while r.nonEmpty do
-      accRev = projectRow(r.head, colNames, stmt) :: accRev
-      r = r.tail
-    var projected: List[List[SqliteValue]] = Nil
-    while accRev.nonEmpty do
-      projected = accRev.head :: projected
-      accRev = accRev.tail
-    val deduped = if stmt.distinct then dedupRows(projected) else projected
-    Right(limitValueRows(deduped, stmt.limit, stmt.offset))
+  filterRowsCtx(db, normalized, stmt.where, colNames, stmt.table) match
+    case Left(message) => Left(message)
+    case Right(filtered) =>
+      if stmt.groupBy.nonEmpty then
+        val sortedForGroup = sortStorage(filtered, colNames, groupKeysOf(stmt.groupBy))
+        val groups = filterGroups(groupPartition(sortedForGroup, colNames, stmt.groupBy), stmt.having, colNames)
+        Right(limitValueRows(mapGroups(groups, colNames, stmt.projection), stmt.limit, stmt.offset))
+      else if projHasAgg(stmt.projection) then Right(projectGroupRow(filtered, colNames, stmt.projection) :: Nil)
+      else
+        val sorted = if stmt.orderBy.isEmpty then filtered else sortStorage(filtered, colNames, stmt.orderBy)
+        var r = sorted
+        var accRev: List[List[SqliteValue]] = Nil
+        while r.nonEmpty do
+          accRev = projectRow(r.head, colNames, stmt) :: accRev
+          r = r.tail
+        var projected: List[List[SqliteValue]] = Nil
+        while accRev.nonEmpty do
+          projected = accRev.head :: projected
+          accRev = accRev.tail
+        val deduped = if stmt.distinct then dedupRows(projected) else projected
+        Right(limitValueRows(deduped, stmt.limit, stmt.offset))
 
 def executeSelectFullScan(db: ReadonlyDatabase, cursor: ReadonlyBtreeCursor, stmt: SelectStmt, colNames: List[String]): Either[String, List[List[SqliteValue]]] =
   collectRows(db, cursor) match
@@ -3511,39 +3663,8 @@ def evalSubquery(dbBytes: ByteSlice, inner: List[Token]): Either[String, List[Sq
 def prevIsExists(prefixRev: List[Token]): Boolean =
   if prefixRev.isEmpty then false else isKw(prefixRev.head, "EXISTS")
 
-// The first top-level (depth-0) FROM table name in a token stream, or "" — the outer query's table.
-def firstFromTable(toks: List[Token]): String =
-  var r = toks
-  var depth = 0
-  var found = ""
-  while r.nonEmpty && found == "" do
-    val t = r.head
-    if t.kind == "lparen" then depth = depth + 1
-    else if t.kind == "rparen" then depth = depth - 1
-    else if depth == 0 && isKw(t, "FROM") then
-      if tkKind(r.tail) == "ident" then found = r.tail.head.text
-    r = r.tail
-  found
-
-// True iff a subquery's tokens contain a qualified reference to `outerTable` (outerTable.col) — i.e. it
-// is correlated and must be evaluated per outer row, not pre-resolved.
-def referencesOuterTable(innerToks: List[Token], outerTable: String): Boolean =
-  if outerTable == "" then false
-  else
-    val ot = upperStr(outerTable)
-    var r = innerToks
-    var found = false
-    while r.nonEmpty && !found do
-      val t = r.head
-      if t.kind == "ident" then
-        val dot = indexOfDot(t.text)
-        if dot >= 0 then
-          if upperStr(substr(t.text, 0, dot)) == ot then found = true
-      r = r.tail
-    found
-
 def resolveSubqueries(dbBytes: ByteSlice, toks: List[Token]): Either[String, List[Token]] =
-  val outerTable = firstFromTable(toks)
+  val outerTables = depthZeroTableNames(toks)
   var prefixRev: List[Token] = Nil
   var r = toks
   var atSpan = false
@@ -3555,7 +3676,7 @@ def resolveSubqueries(dbBytes: ByteSlice, toks: List[Token]): Either[String, Lis
       else splitParenGroup(r.tail) match
         case None => atSpan = true
         case Some(sp) =>
-          if referencesOuterTable(sp._1, outerTable) then
+          if referencesOuterTables(sp._1, outerTables) then
             prefixRev = r.head :: prefixRev
             r = r.tail
           else atSpan = true
@@ -3980,7 +4101,7 @@ def indexableConds(where: List[List[Condition]]): List[(String, IndexRange)] =
     while r.nonEmpty do
       val cond = r.head
       accRev =
-        if cond.leftExpr.isEmpty && cond.rightExpr.isEmpty then rangeOfCond(cond.op, cond.value, cond.values) match
+        if cond.subTokens.isEmpty && cond.leftExpr.isEmpty && cond.rightExpr.isEmpty then rangeOfCond(cond.op, cond.value, cond.values) match
           case Some(range) => (cond.column, range) :: accRev
           case None => accRev
         else accRev
@@ -4066,6 +4187,81 @@ def queryImageParams(dbBytes: ByteSlice, sql: String, params: List[SqliteValue])
         case Right(toks) => parseSelect(toks) match
           case Left(message) => Left(message)
           case Right(stmt) => runSelectStmt(dbBytes, stmt)
+
+def maxParamOrdinal(toks: List[Token]): Long =
+  var r = toks
+  var result = 0L
+  while r.nonEmpty do
+    if r.head.kind == "param" && r.head.num > result then result = r.head.num
+    r = r.tail
+  result
+
+def nullParams(count: Long): List[SqliteValue] =
+  var n = count
+  var acc: List[SqliteValue] = Nil
+  while n > 0L do
+    acc = SqlNull :: acc
+    n = n - 1L
+  acc
+
+def preparedSelectBindings(db: ReadonlyDatabase, stmt: SelectStmt): Either[String, List[OuterBinding]] =
+  var namesRev: List[String] = Nil
+  if stmt.table != "" then namesRev = stmt.table :: namesRev
+  var joins = stmt.joins
+  while joins.nonEmpty do
+    namesRev = joins.head.table :: namesRev
+    joins = joins.tail
+  var names = namesRev.reverse
+  var bindingsRev: List[OuterBinding] = Nil
+  var error: Option[String] = None
+  while names.nonEmpty && error.isEmpty do
+    val name = names.head
+    findTable(db, name) match
+      case None => error = Some("no such table: " + name)
+      case Some(entry) =>
+        val cols = entry.sql match
+          case Some(text) => tableColumns(cpToString(text.codePoints))
+          case None => Nil
+        bindingsRev = OuterBinding(name, cols, nullRow()) :: bindingsRev
+    names = names.tail
+  error match
+    case Some(message) => Left(message)
+    case None => Right(bindingsRev.reverse)
+
+def validatePreparedStmt(db: ReadonlyDatabase, stmt: SelectStmt): Either[String, Unit] =
+  validateSelectTables(db, stmt) match
+    case Left(message) => Left(message)
+    case Right(_) => preparedSelectBindings(db, stmt) match
+      case Left(message) => Left(message)
+      case Right(bindings) => validateWhereSubqueries(db, stmt.where, bindings)
+
+// Preparation binds every positional parameter to a typed NULL solely for parsing/name resolution;
+// the real values remain owned by PreparedStatement and are rebound at execute. Most supported
+// WHERE subqueries parse structurally without evaluation. A projection form that the current parser
+// only understands after the legacy non-correlated pre-pass falls back to that same pre-pass.
+def parsePreparedSelect(dbBytes: ByteSlice, toks: List[Token]): Either[String, SelectStmt] =
+  parseSelect(toks) match
+    case Right(stmt) => Right(stmt)
+    case Left(_) => resolveSubqueries(dbBytes, toks) match
+      case Left(message) => Left(message)
+      case Right(resolved) => parseSelect(resolved)
+
+/** Validate a SELECT at JDBC prepare time without scanning its outer rows.
+ *  This pins syntax, outer schema names, and every deferred WHERE subquery's immediate tables even
+ *  when the eventual outer scan/seek is empty. Execution still binds the caller's real parameters
+ *  and computes rows through queryImageParams. */
+def validatePreparedQuery(dbBytes: ByteSlice, sql: String): Either[String, Unit] =
+  tokenize(sql) match
+    case Left(message) => Left(message)
+    case Right(toks0) => bindParams(toks0, nullParams(maxParamOrdinal(toks0))) match
+      case Left(message) => Left(message)
+      case Right(toks) => parsePreparedSelect(dbBytes, toks) match
+        case Left(message) => Left(message)
+        case Right(stmt) =>
+          if stmt.table == "" then Right(())
+          else openReadonly(ImageVfs(dbBytes), "image.db", sqlOptions()) match
+            case Left(error) => Left(error.message)
+            case Right(db) => validatePreparedStmt(db, stmt)
 
 // ── DML: INSERT and DELETE through the balanced write path ──
 

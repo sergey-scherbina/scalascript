@@ -1,0 +1,96 @@
+---
+name: scljet-sql-correlated-join
+description: SclJet SQL — correlated subqueries see every bound JOIN row, including NULL-extended sides
+backends: [int, js]
+---
+
+# scljet — correlated subqueries over joined outer rows
+
+The expected rows are pinned from SQLite 3.51.0. The matrix separates
+two-table and N-table outer bindings, NULL extension, RIGHT JOIN, and
+same-name inner-table shadowing.
+
+[ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlText, buildTableDatabase](std/scljet/index.ssc)
+[executeMutation, queryImage](std/scljet/sql.ssc)
+
+```scalascript
+def showValue(v: SqliteValue): String = v match
+  case SqlNull => "NULL"
+  case SqlInteger(x) => x.toString
+  case SqlText(x) => x
+  case _ => "?"
+
+def showRow(row: List[SqliteValue]): String = row match
+  case Nil => ""
+  case h :: Nil => showValue(h)
+  case h :: t => showValue(h) + "|" + showRow(t)
+
+def showRows(rows: List[List[SqliteValue]]): String = rows match
+  case Nil => "(no rows)"
+  case h :: Nil => showRow(h)
+  case h :: t => showRow(h) + " ; " + showRows(t)
+
+def dump(image: ByteSlice, label: String, sql: String): Unit =
+  queryImage(image, sql) match
+    case Left(message) => println(label + "=QUERY-ERROR:" + message)
+    case Right(rows) => println(label + "=" + showRows(rows))
+
+def mutate(image: ByteSlice, sql: String): ByteSlice =
+  executeMutation(image, sql) match
+    case Left(message) =>
+      println("setup-error:" + message)
+      image
+    case Right(next) => next
+
+def addJoinTables(image: ByteSlice): ByteSlice =
+  val withU = mutate(image, "CREATE TABLE u(uid INTEGER PRIMARY KEY, x INTEGER)")
+  val withURows = mutate(withU, "INSERT INTO u VALUES (10, 2), (11, NULL)")
+  val withW = mutate(withURows, "CREATE TABLE w(wid INTEGER PRIMARY KEY, y INTEGER)")
+  val withWRows = mutate(withW, "INSERT INTO w VALUES (20, 2), (21, NULL)")
+  val withS = mutate(withWRows,
+    "CREATE TABLE s(sid INTEGER PRIMARY KEY, owner INTEGER, x INTEGER)")
+  mutate(withS,
+    "INSERT INTO s VALUES (30, 1, 1), (31, 2, 9), (32, 2, NULL), (33, 3, NULL)")
+
+val rows = List(
+  List(SqlInteger(1L), SqlInteger(1L), SqlText("a")),
+  List(SqlInteger(2L), SqlInteger(2L), SqlText("b")),
+  List(SqlInteger(3L), SqlNull, SqlNull),
+  List(SqlInteger(4L), SqlInteger(0L), SqlText("z"))
+)
+
+buildTableDatabase(512, 1, 1, "t",
+  "CREATE TABLE t(id INTEGER PRIMARY KEY, v INTEGER, note TEXT)", rows) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(base) =>
+    val image = addJoinTables(base)
+    dump(image, "join-first-not-in",
+      "SELECT t.id FROM t LEFT JOIN u ON t.v = u.x " +
+      "WHERE t.v NOT IN (SELECT x FROM s WHERE owner = t.id) ORDER BY t.id")
+    dump(image, "join-second-in",
+      "SELECT t.id, u.uid FROM t LEFT JOIN u ON t.v = u.x " +
+      "WHERE u.x IN (SELECT y FROM w WHERE y = u.x) ORDER BY t.id, u.uid")
+    dump(image, "join-second-exists",
+      "SELECT t.id, u.uid FROM t LEFT JOIN u ON t.v = u.x " +
+      "WHERE EXISTS (SELECT y FROM w WHERE y = u.x) ORDER BY t.id, u.uid")
+    dump(image, "join3-middle-last-scalar",
+      "SELECT t.id, u.uid, w.wid FROM t " +
+      "LEFT JOIN u ON t.v = u.x LEFT JOIN w ON u.x = w.y " +
+      "WHERE w.y = (SELECT v FROM t WHERE v = u.x AND v = w.y) " +
+      "ORDER BY t.id, u.uid, w.wid")
+    dump(image, "join3-null-extended-not-in",
+      "SELECT t.id, u.uid, w.wid FROM t " +
+      "LEFT JOIN u ON t.v = u.x LEFT JOIN w ON u.x = w.y " +
+      "WHERE w.y NOT IN (SELECT v FROM t WHERE v = w.y) " +
+      "ORDER BY t.id, u.uid, w.wid")
+    dump(image, "right-null-extended-not-in",
+      "SELECT t.id, u.uid FROM t RIGHT JOIN u ON t.v = u.x " +
+      "WHERE t.v NOT IN (SELECT x FROM s WHERE owner = t.id) " +
+      "ORDER BY t.id, u.uid")
+    dump(image, "shadow-in",
+      "SELECT t.id FROM t LEFT JOIN u ON t.v = u.x " +
+      "WHERE 11 IN (SELECT u.uid FROM u) ORDER BY t.id")
+    dump(image, "shadow-exists",
+      "SELECT t.id FROM t LEFT JOIN u ON t.v = u.x " +
+      "WHERE EXISTS (SELECT u.uid FROM u WHERE u.uid = 11) ORDER BY t.id")
+```

@@ -41,7 +41,7 @@ object ScljetEngine:
     """# scljet JDBC bridge bootstrap
       |
       |[ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, byteSliceToList, emptyDatabase, buildTableDatabase](index.ssc)
-      |[JdbcConnection, JdbcUpdate, JdbcResultSet, jdbcOpen, jdbcCurrent, jdbcSetAutoCommit, jdbcCommit, jdbcRollback, jdbcExecuteUpdate, jdbcExecuteUpdateParams, jdbcExecuteQuery, jdbcExecuteQueryParams, rsNext, rsHasRow, rsIsNull, rsGetLong, rsGetInt, rsGetDouble, rsGetString, rsGetBoolean, rsFindColumn, rsColumnCount, rsColumnLabel, rsRowCount](jdbc.ssc)
+      |[JdbcConnection, JdbcUpdate, JdbcResultSet, jdbcOpen, jdbcCurrent, jdbcSetAutoCommit, jdbcCommit, jdbcRollback, jdbcExecuteUpdate, jdbcExecuteUpdateParams, jdbcExecuteQuery, jdbcExecuteQueryParams, jdbcPrepareQuery, rsNext, rsHasRow, rsIsNull, rsGetLong, rsGetInt, rsGetDouble, rsGetString, rsGetBoolean, rsFindColumn, rsColumnCount, rsColumnLabel, rsRowCount](jdbc.ssc)
       |[SqliteAddress, AddressedValue, AddressPacket, parseAddress, renderAddress, addressRead, addressWrite, addressWriteAll](address.ssc)
       |""".stripMargin
 
@@ -51,7 +51,7 @@ object ScljetEngine:
     """# scljet JDBC bridge bootstrap
       |
       |[ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, byteSliceToList, emptyDatabase, buildTableDatabase](std/scljet/index.ssc)
-      |[JdbcConnection, JdbcUpdate, JdbcResultSet, jdbcOpen, jdbcCurrent, jdbcSetAutoCommit, jdbcCommit, jdbcRollback, jdbcExecuteUpdate, jdbcExecuteUpdateParams, jdbcExecuteQuery, jdbcExecuteQueryParams, rsNext, rsHasRow, rsIsNull, rsGetLong, rsGetInt, rsGetDouble, rsGetString, rsGetBoolean, rsFindColumn, rsColumnCount, rsColumnLabel, rsRowCount](std/scljet/jdbc.ssc)
+      |[JdbcConnection, JdbcUpdate, JdbcResultSet, jdbcOpen, jdbcCurrent, jdbcSetAutoCommit, jdbcCommit, jdbcRollback, jdbcExecuteUpdate, jdbcExecuteUpdateParams, jdbcExecuteQuery, jdbcExecuteQueryParams, jdbcPrepareQuery, rsNext, rsHasRow, rsIsNull, rsGetLong, rsGetInt, rsGetDouble, rsGetString, rsGetBoolean, rsFindColumn, rsColumnCount, rsColumnLabel, rsRowCount](std/scljet/jdbc.ssc)
       |[SqliteAddress, AddressedValue, AddressPacket, parseAddress, renderAddress, addressRead, addressWrite, addressWriteAll](std/scljet/address.ssc)
       |""".stripMargin
 

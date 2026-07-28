@@ -1,0 +1,82 @@
+---
+name: scljet-correlated-subquery-errors
+description: Correlated subquery parse and execution errors propagate through full-scan, rowid-seek, and index-seek SELECT paths
+backends: [int, js]
+---
+
+# SclJet correlated-subquery errors
+
+A correlated subquery is deferred until its outer row is known, but an error from parsing or
+executing that inner SELECT is still an error for the whole statement. It must not be converted to
+SQL FALSE (and then accidentally to TRUE by `NOT`). The missing-table cases below use SQLite's
+stable `no such table: missing` message. SQLite classifies the malformed `SELECT , x ...` cases as
+syntax errors; SclJet reports its native, stable `expected an expression operand` parser message.
+
+The access-path cases ensure that the shared row-finishing pipeline propagates the same error after
+a full scan, a rowid hit, and a secondary-index hit. Empty/missing-candidate cases lock SQLite's
+prepare-time behavior too: invalid referenced tables are rejected even when no outer row reaches
+predicate evaluation.
+
+[ByteSlice, SqliteValue, SqlInteger, buildTableDatabase](std/scljet/index.ssc)
+[queryImage, executeMutation, renderRows](std/scljet/sql.ssc)
+
+```scalascript
+def apply(db: ByteSlice, sql: String): ByteSlice =
+  executeMutation(db, sql) match
+    case Left(message) =>
+      println("setup-error:" + message)
+      db
+    case Right(next) => next
+
+def check(db: ByteSlice, label: String, sql: String): Unit =
+  queryImage(db, sql) match
+    case Left(message) => println(label + "=ERROR:" + message)
+    case Right(rows) =>
+      val rendered = renderRows(rows).toString.replace("\n", ";")
+      if rendered == "" then println(label + "=ROWS:<empty>")
+      else println(label + "=ROWS:" + rendered)
+
+buildTableDatabase(512, 1, 1, "t", "CREATE TABLE t(id INTEGER PRIMARY KEY, v INTEGER)",
+  List(List(SqlInteger(1L), SqlInteger(1L)))) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(db0) =>
+    val d1 = apply(db0, "DELETE FROM t")
+    val d2 = apply(d1, "INSERT INTO t VALUES (1,1),(2,2)")
+    val d3 = apply(d2, "CREATE TABLE s(owner INTEGER, x INTEGER)")
+    val d4 = apply(d3, "CREATE TABLE empty_outer(id INTEGER PRIMARY KEY, v INTEGER)")
+    val db = apply(d4, "CREATE INDEX idx_t_v ON t(v)")
+
+    check(db, "full-exists-exec",
+      "SELECT id FROM t WHERE EXISTS (SELECT x FROM missing WHERE missing.x=t.v) ORDER BY id")
+    check(db, "full-not-exists-exec",
+      "SELECT id FROM t WHERE NOT EXISTS (SELECT x FROM missing WHERE missing.x=t.v) ORDER BY id")
+    check(db, "full-in-exec",
+      "SELECT id FROM t WHERE v IN (SELECT x FROM missing WHERE missing.x=t.v) ORDER BY id")
+    check(db, "full-not-in-exec",
+      "SELECT id FROM t WHERE v NOT IN (SELECT x FROM missing WHERE missing.x=t.v) ORDER BY id")
+    check(db, "full-scalar-exec",
+      "SELECT id FROM t WHERE v = (SELECT x FROM missing WHERE missing.x=t.v) ORDER BY id")
+
+    check(db, "full-exists-parse",
+      "SELECT id FROM t WHERE EXISTS (SELECT , x FROM s WHERE s.owner=t.id) ORDER BY id")
+    check(db, "full-not-exists-parse",
+      "SELECT id FROM t WHERE NOT EXISTS (SELECT , x FROM s WHERE s.owner=t.id) ORDER BY id")
+    check(db, "full-in-parse",
+      "SELECT id FROM t WHERE v IN (SELECT , x FROM s WHERE s.owner=t.id) ORDER BY id")
+    check(db, "full-not-in-parse",
+      "SELECT id FROM t WHERE v NOT IN (SELECT , x FROM s WHERE s.owner=t.id) ORDER BY id")
+    check(db, "full-scalar-parse",
+      "SELECT id FROM t WHERE v = (SELECT , x FROM s WHERE s.owner=t.id) ORDER BY id")
+
+    check(db, "rowid-hit-exec",
+      "SELECT id FROM t WHERE id=1 AND NOT EXISTS (SELECT x FROM missing WHERE missing.x=t.v)")
+    check(db, "index-hit-exec",
+      "SELECT id FROM t WHERE v=1 AND NOT EXISTS (SELECT x FROM missing WHERE missing.x=t.v)")
+
+    check(db, "empty-outer-exec",
+      "SELECT id FROM empty_outer WHERE EXISTS (SELECT x FROM missing WHERE missing.x=empty_outer.v)")
+    check(db, "rowid-miss-exec",
+      "SELECT id FROM t WHERE id=999 AND EXISTS (SELECT x FROM missing WHERE missing.x=t.v)")
+    check(db, "index-miss-exec",
+      "SELECT id FROM t WHERE v=999 AND EXISTS (SELECT x FROM missing WHERE missing.x=t.v)")
+```

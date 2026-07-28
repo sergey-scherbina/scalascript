@@ -16,6 +16,7 @@ exports:
   - jdbcExecuteUpdateParams
   - jdbcExecuteQuery
   - jdbcExecuteQueryParams
+  - jdbcPrepareQuery
   - rsNext
   - rsHasRow
   - rsIsNull
@@ -45,7 +46,7 @@ autocommit rules and reports the affected-row count; `jdbcExecuteQuery*` returns
 value semantics (verified against reference sqlite3 through the SQL layer).
 
 [ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, byteSliceToList](index.ssc)
-[queryImageParams, executeMutationCountedParams, MutationResult, tokenize, parseSelect, bindParams, projItemNames, imageTableColumns, coerceText, SelectStmt](sql.ssc)
+[queryImageParams, validatePreparedQuery, executeMutationCountedParams, MutationResult, tokenize, parseSelect, bindParams, projItemNames, imageTableColumns, coerceText, SelectStmt](sql.ssc)
 
 ## Small parsing/list helpers
 
@@ -245,6 +246,11 @@ def resultLabels(image: ByteSlice, sql: String, params: List[SqliteValue], rows:
 
 def jdbcExecuteQuery(c: JdbcConnection, sql: String): Either[String, JdbcResultSet] =
   jdbcExecuteQueryParams(c, sql, Nil)
+
+// Preparation validates query syntax and schema/subquery names against the connection's current
+// image without consuming a result cursor. Real parameter values remain unbound until execute.
+def jdbcPrepareQuery(c: JdbcConnection, sql: String): Either[String, Unit] =
+  validatePreparedQuery(jdbcCurrent(c), sql)
 
 def jdbcExecuteQueryParams(c: JdbcConnection, sql: String, params: List[SqliteValue]): Either[String, JdbcResultSet] =
   val image = jdbcCurrent(c)
