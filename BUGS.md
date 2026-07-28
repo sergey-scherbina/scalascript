@@ -874,42 +874,42 @@ for the nearest run whose head is a DESCENDANT of it and report that explicitly 
 describes, made mechanical instead of manual.
 
 
-## semantic-gate-red-tkv2-typed-client-derived — the F golden gate is 247/248 on main, on BOTH fronts
+## semantic-gate-red-tkv2-typed-client-derived — a golden that encoded a DROPPED program
 
-**Status:** OPEN (found 2026-07-28 by `v2-board-and-f5b` while gating an unrelated F lexer fix).
-**Not front-specific and not caused by that fix** — see the isolation below.
+**Status:** FIXED (2026-07-28, `semantic-gate-tkv2-red`). Found 2026-07-28 by `v2-board-and-f5b`
+while gating an unrelated change; fixed under its own claim.
 
-**Symptom.** `specs/v2.2-p6.5-semantic.sh` reports:
+**Symptom.** `specs/v2.2-p6.5-semantic.sh` reported 247/248 with
+`tkv2-typed-client-derived: exit expected=0 got=1`, and the program failed identically under
+`SSC_FRONT=F` and `SSC_FRONT=legacy` with `ssc: unhandled runtime effect: Api.getApiItemsById`.
 
-```
-MATCH (F output == golden)  : 247 / 248
-MISMATCH (F output != golden): 1
-MISMATCH tkv2-typed-client-derived: exit expected=0 got=1
-```
+**Root cause — the red was the CONSEQUENCE OF A CORRECT FIX, and the stale artifact was the golden.**
+The program declares `backends: [js]` and consists of ` ```scalascript @side=server ` /
+` @side=client ` fences. Until `6b8965258` the native lane **discarded attributed fences entirely**,
+so this program extracted to nothing, "ran cleanly, produced nothing", and was frozen with a
+**0-byte golden and exit 0**. That fix made attributed fences code again — so the program finally
+ran, on a lane it never claimed to support, and failed. Nothing regressed: the gate had been green
+only because the program was being silently thrown away.
 
-Running the program directly gives the same result on either front:
+This is precisely the failure the gate's own header warns about — it promises that "an empty golden
+always means *ran cleanly, produced nothing*, never *failed*" — while a third possibility,
+*was discarded*, was indistinguishable from the first.
 
-```
-SSC_FRONT=F      bin/ssc run tests/conformance/tkv2-typed-client-derived.ssc
-SSC_FRONT=legacy bin/ssc run tests/conformance/tkv2-typed-client-derived.ssc
-  -> ssc: unhandled runtime effect: Api.getApiItemsById   (exit 1)
-```
+**Two hypotheses were tried and rejected before this one, both recorded so nobody repeats them:**
+(1) the OpAnf purity-registry fix (`c3841d01e`) re-enabling Op lifting — refuted, the program fails
+under `SSC_NO_OPANF=1` too, just with a different error; (2) an F-specific coverage gap — refuted,
+legacy fails identically.
 
-**Isolation (why this is not the block-comment fix).** The legacy front does not go through F's lexer
-at all, and it fails identically. Re-checked with the working tree stashed, i.e. on clean
-`origin/main`: legacy still fails the same way. SPRINT records this gate at **248/248 earlier the
-same day**, so something landed on `main` between those two measurements.
+**Fix.** Removed the stale golden (of the 12 empty goldens in the 248-program set, this was the ONLY
+one whose program declares a lane the gate does not run — the other 11 are legitimately empty), and
+added an `EXCL_LANE_NOT_DECLARED` exclusion to the freeze worker: a program whose front-matter
+`backends:` omits this lane can never be a golden for it. `EXCL_ORACLE_ERR` would catch it today,
+but the new rule catches it even while some other defect is silently swallowing the program — which
+is the case that actually occurred.
 
-**Why it matters.** This is a release gate for the self-hosting arc, and it is quietly red. The
-diagnostic is also a known-misleading one: `BUGS.md` already documents two other cases where
-`unhandled runtime effect` was the surface symptom of something else entirely (`WorkerProtocol.applyStage`,
-`Transport.Spawn`), so the effect name should not be taken at face value.
-
-**Next step:** bisect `origin/main` over today's commits with
-`specs/v2.2-p6.5-semantic.sh --only tkv2-typed-client-derived` (or the direct `bin/ssc run` above,
-which is faster and equivalent for this case), and check the effects/Op-lifting area first — a purity
-registry change landed today (`c3841d01e`, "OpAnf purity registry classified EVERY def as pure,
-disabling Op lifting"), which is adjacent to how an effect reaches its handler.
+**Verified:** gate GREEN at **247/247, 0 mismatches**; the guard classifies
+`tkv2-typed-client-derived` (`[js]`) as EXCLUDE and `scljet-mutate-update` / `markdown-html`
+(`[int, js]`) as KEEP.
 
 ## scljet-jdbc-nan-binding-diverges — PreparedStatement binds NaN as REAL instead of SQLite NULL
 

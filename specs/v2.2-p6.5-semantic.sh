@@ -164,6 +164,24 @@ cat > "$WORK/freeze_worker.sh" <<'WORKER'
 #!/usr/bin/env bash
 code="$1"; n=$(basename "$code" .code)
 ref="$WORK/ref/$n.ir"
+# A program that does not DECLARE this lane can never be a golden for it. Without this, a
+# `backends: [js]` case entered the set with an EMPTY golden — not because it ran cleanly and
+# printed nothing, but because the native lane was silently DROPPING its attributed
+# ```scalascript @side=… fences (fixed 2026-07-28, 6b8965258). The empty golden then encoded
+# "the program was discarded", which is exactly what this gate's header promises an empty golden
+# never means. When the fence bug was fixed the program finally ran, failed on a lane it never
+# claimed to support, and the gate went red for a CORRECT change.
+# The existing EXCL_ORACLE_ERR would catch it today; this catches it even while some other defect
+# is silently swallowing the program.
+src="$ROOT/tests/conformance/$n.ssc"
+if [ -f "$src" ]; then
+  decl=$(sed -n '1,12p' "$src" | sed -n 's/^backends:[[:space:]]*//p' | head -1)
+  case "$decl" in
+    "") : ;;                        # no declaration ⇒ runs everywhere, keep
+    *int*) : ;;                     # declares this lane, keep
+    *) echo "EXCL_LANE_NOT_DECLARED $n |backends=$decl"; exit 0 ;;
+  esac
+fi
 # oracle IR (fresh JVM). Empty ⇒ oracle itself produced nothing to run.
 ( cd "$V2" && java $JVM -jar "$JAR" run bin/_sem_refone.ssc0 "$code" 2>/dev/null ) > "$ref"
 [ -s "$ref" ] || { echo "EXCL_ORACLE_NOIR $n"; exit 0; }
@@ -239,6 +257,7 @@ case "$MODE" in
     fnc=$(grep -c '^EXCL_F_NOCOMPILE '     "$WORK/freeze.txt")
     fdis=$(grep -c '^EXCL_F_DISAGREE '     "$WORK/freeze.txt")
     olrg=$(grep -c '^EXCL_TOO_LARGE '      "$WORK/freeze.txt")
+    olane=$(grep -c '^EXCL_LANE_NOT_DECLARED ' "$WORK/freeze.txt")
     tot=$(ls "$WORK/code"/*.code | wc -l | tr -d ' ')
     nonempty=$(for f in "$GOLD"/*.out; do [ -s "$f" ] && echo x; done | wc -l | tr -d ' ')
     echo "─────────────────────────────────────────────────────────────────"
