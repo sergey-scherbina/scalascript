@@ -6,7 +6,7 @@ heartbeat: 2026-07-28T04:20:00Z
 status: in-progress
 done-so-far: all 6 slices landed c6c995ed7..8b731650f; both new gates green locally
 items: build-ram-overflow build-ci-speed BRB-0 BRB-1 BRB-2 BRB-3 BRB-4 BRB-5
-paths: .jvmopts scripts/build- scripts/sbtc scripts/kill-stale-builders scripts/new-worktree scripts/rm-worktree .github/workflows/ci.yml tests/e2e/build- docs/build-performance.md tests/conformance/run.sc
+paths: .jvmopts scripts/build- scripts/sbtc scripts/kill-stale-builders scripts/new-worktree scripts/rm-worktree .github/workflows/ci.yml tests/e2e/build- docs/build-performance.md tests/conformance/run.sc scripts/ci-status tests/e2e/ci-status-guard.sh
 scope: |
   Sergiy: "было переполнение памяти и они работают медленно" -- audit build/tests/conformance/
   benchmarks/CI for memory exhaustion and speed, fix both.
@@ -17,4 +17,4 @@ scope: |
   94,208 MB on a 36,864 MB host, incl. six ssc forks at the 9,216 MB ergonomic default (the
   launcher template sets no -Xmx). (3) Last 100 ci.yml runs: 83 cancelled, 4 failure, 0 success.
   (4) Conformance Suite 37.7 min, of which `Run conformance tests` 33.6 min (89%%).
-next: CI evidence for c2436f843 (run 30328187863), then release
+next: repair scripts/ci-status for the sharded job names, then release
