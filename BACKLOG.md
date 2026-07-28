@@ -29,12 +29,25 @@ own arc. None is speculative: every one has a measured number attached.
       took **58.1 min of the 75.6-min** `sbt` job (run 30305919516). It re-lowers the full corpus
       through F twice, and F is ~2-4× the legacy front. Same round-robin `--shard i/N` treatment as
       `run.sc` just got; the arithmetic is identical. Owner: the v21 release-gate arc.
-- [ ] **`ssc-launcher-has-no-Xmx`** — the `bin/ssc` launcher template in `build.sbt` passes `-Xss64m`
-      and **no `-Xmx`**, so every `ssc` fork takes the JVM's ergonomic ¼-of-RAM default. MEASURED
-      2026-07-28: six live forks each declaring **9,216 MB**, contributing to a 94 GB declared total
-      on a 36 GB host. `scripts/build-guard` caps them via `JDK_JAVA_OPTIONS` (they honour it
-      precisely because they set none), but the durable fix is an explicit, overridable `-Xmx` in the
-      template. Blocked only by `build.sbt` being held by `uniml-production-completion`.
+- [ ] **`ssc-fork-heap-entitlement`** — `bin/ssc` (launcher template in `build.sbt`) passes `-Xss64m`
+      and **no `-Xmx`**, so every fork takes the JVM's ergonomic ¼-of-RAM default = **9,216 MB** here,
+      and a contract run makes ~1,669 of them. MEASURED 2026-07-28: six live at once; one resident at
+      **8,090 MB**, 22 % of the host, while the machine was swapping.
+
+      **Do NOT just put a small `-Xmx` in the template** — that was this item's first framing and it
+      is wrong. `bin/ssc` is the PRODUCT launcher; a fixed low ceiling there is a product decision
+      that would OOM a legitimately large user program, and it would be verified against a corpus
+      that is not representative of user workloads. The harness path is already capped: both
+      `scripts/conformance` (4g) and `scripts/build-guard` (2g) cap forks through `JDK_JAVA_OPTIONS`,
+      which these forks honour *precisely because* they set no `-Xmx` of their own — adding one to the
+      template would BREAK that mechanism.
+
+      What is actually worth doing, in order: (1) find out what the 8,090 MB fork was — one fork at
+      8 GB among five at ~250 MB is an outlier, and if it is a runaway that is a bug, not a budget;
+      (2) measure real peak RSS across the corpus (`scripts/build-ram-report --watch` alongside a
+      full run) so any ceiling is chosen from data; (3) only then decide between an
+      `-XX:MaxRAMPercentage` default, an opt-in `SSC_XMX`, or leaving the product default alone and
+      relying on the harness caps that already exist.
 - [ ] **`test-fork-budget-has-no-host-wide-coordination`** — `build.sbt` declares
       `Tags.limit(Tags.Test, 4)` × `-Xmx2g` = 8 GB per worktree, per sbt server, with nothing
       coordinating across the ~13 of them. `build-guard` bounds how many *builds* start; it does not

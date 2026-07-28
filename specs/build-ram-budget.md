@@ -205,7 +205,10 @@ leaked them, exactly as AGENTS.md warns) were reaped with `scripts/kill-stale-bu
 **What did NOT improve, and why it is the right next item.** `DECLARED` stayed ~102 GB, because it is
 dominated by the uncapped `ssc` forks, one of which was resident at **8,090 MB** against its 9,216 MB
 ergonomic ceiling — a single conformance fork holding 22 % of the host. Bounding *that* is
-`ssc-launcher-has-no-Xmx` in `BACKLOG.md`, and this is the measurement that says it is the top one.
+`ssc-fork-heap-entitlement` in `BACKLOG.md`, and this is the measurement that says it is the top
+one — though note the fix is NOT simply an `-Xmx` in the template: these forks honour the harness's
+`JDK_JAVA_OPTIONS` cap precisely BECAUSE they set none, so adding one would break the mechanism that
+already works. That entry says what to measure first.
 
 ## 6. Known-remaining, deliberately not done here
 
