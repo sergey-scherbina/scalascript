@@ -18,7 +18,16 @@ final case class Call(clos: Value.ClosV, args: Array[Value]) extends Step  // a 
 final class RecoverableError(message: String) extends RuntimeException(message)
 
 /** A ScalaScript `throw e` — carries the thrown VALUE so `try … catch { case … }` can bind it. */
-final class SscThrow(val value: Value) extends RuntimeException
+final class SscThrow(val value: Value) extends RuntimeException:
+  /** The carried value IS the diagnostic. Without this, an uncaught `throw` reached the program
+    * boundary with a null message and `StandardMain`'s `getMessage`-or-class-name printed the
+    * literal string `SscThrow` — the thrown value, the only thing that means anything, was
+    * discarded (BUGS.md v2-native-uncaught-error-diagnostic-empty).
+    *
+    * Rendered LAZILY, in an override rather than as a constructor argument: `throw`/`catch` is
+    * also an ordinary control-flow path in this runtime, and a caught SscThrow must not pay to
+    * build a message nobody reads. */
+  override def getMessage: String = Show.show(value)
 
 /** A non-local `return e` — unwinds to the nearest enclosing `__with_return__` (a wrapped
  *  named-def body). Control flow, not an error: no stack trace, and user `try`/`catch`
@@ -3416,7 +3425,17 @@ object Prims:
 
   def listIndex(v: Value, i: Int): Value =
     val fast = if i >= 0 then consAt(v, i) else null
-    if fast != null then fast else unlistPub(v)(i)
+    if fast != null then fast
+    else
+      // The slow path also serves legitimate non-cons shapes (an ArrayBuffer tail), so it stays.
+      // What it must NOT do is hand the range check to Scala's `List.apply`, whose
+      // IndexOutOfBoundsException message is the bare index — `xs(9)` reported as `ssc: 9`, the
+      // whole diagnostic. Say what `listAt` and v1 already say
+      // (BUGS.md v2-native-uncaught-error-diagnostic-empty).
+      val xs = unlistPub(v)
+      if i < 0 || i >= xs.length then
+        sys.error(s"index $i out of bounds for list of length ${xs.length}")
+      else xs(i)
 
   /** `xs.length` / `xs.size` on a cons chain, counted in place.
    *
