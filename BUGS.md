@@ -1,5 +1,32 @@
 # Bug tracker
 
+## backend-check-mutual-recursion-drops-output — the Core IR parity gate is red on 3 of 4 generators
+
+**Status:** OPEN, **pre-existing** (found 2026-07-28 by `v2-backend-matrix-gaps` while verifying an
+unrelated change; **proven not caused by it** — the gate fails identically on a control build with
+that change reverted).
+
+`v2/backend/check.sh` runs every Core IR fixture through the v2 VM and each source generator and
+requires byte-identical output. `mutual-recursion` fails on **jvm, rust and wasm** — the expected
+line `1000` is simply absent from all three — while **js passes**:
+
+```
+FAIL mutual-recursion     jvm (expected vs got):
+1d0
+< 1000
+ok   mutual-recursion     js
+FAIL mutual-recursion     rust  … same
+FAIL mutual-recursion     wasm  … same   (wasm reuses the Rust generator)
+```
+
+**Reproduce:** `cd v2/backend && ./check.sh`.
+
+**Notes for whoever takes it.** The gate ends `FAILURES PRESENT` with a non-zero exit, so it is a
+loud red rather than a silent one — but it means this gate cannot currently certify a change to the
+JVM or Rust generators, which is how it was found. js passing while jvm+rust+wasm fail points at
+the two Scala-hosted generators rather than at the fixture or the VM. `wasm` shares the Rust
+generator, so it is likely one cause and not three.
+
 ## v2-array-indexed-store-silently-dropped — `a(i) = v` is parsed away, and the answer is wrong
 
 **Status:** OPEN — **diagnosed here, handed over deliberately** (the fix is in
