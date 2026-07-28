@@ -1,4 +1,5 @@
-# generation: 158
+# generation: 159
 #slug	agent	started	items	paths
 v2-native-import-graph	claude-code	2026-07-28T03:32:06Z	v2-native-front-in-fence-imports-not-followed v2-native-scala-import-parse-only-noop	v2/bin/ tests/conformance/native-import tests/conformance/expected/native-import BUGS.md SPRINT.md CHANGELOG.md
 js-derives-instance-undefined	claude-code	2026-07-28T04:21:55Z	js-lane-missing-derives-and-coroutinecancel-a4 js-derives-instance-undefined	v1/runtime/backend/js/src/main/scala/scalascript/codegen/ v1/runtime/backend/js/src/test tests/conformance/js-derives- tests/conformance/expected/js-derives- tests/conformance/lib/derives-schema.ssc tests/conformance/contract-roster.tsv BUGS.md SPRINT.md CHANGELOG.md
+v2-native-error-diagnostic	claude-code	2026-07-28T04:46:14Z	v2-native-uncaught-error-diagnostic-empty	v2/src/Runtime.scala tests/e2e/v2-error-diagnostic.sh v1/tools/cli/src/main/scala/scalascript/cli/StandardMain.scala BUGS.md SPRINT.md CHANGELOG.md

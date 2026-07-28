@@ -1,0 +1,11 @@
+slug: v2-native-error-diagnostic
+branch: feature/v2-native-error-diagnostic
+agent: claude-code
+started: 2026-07-28T04:46:14Z
+heartbeat: 2026-07-28T04:46:14Z
+status: claimed-before-planning
+items: v2-native-uncaught-error-diagnostic-empty
+paths: v2/src/Runtime.scala tests/e2e/v2-error-diagnostic.sh v1/tools/cli/src/main/scala/scalascript/cli/StandardMain.scala BUGS.md SPRINT.md CHANGELOG.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
