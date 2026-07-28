@@ -2253,22 +2253,41 @@ def depthZeroTableNames(toks: List[Token]): List[String] =
     r = r.tail
   reverseStrings(accRev, Nil)
 
-// A qualifier is correlated only when it names a visible outer table and is not rebound by the
-// subquery's own FROM/JOIN scope. This prevents `outer ... JOIN u ... WHERE EXISTS(SELECT ... FROM
-// u)` from replacing the inner `u.*` with the joined outer row.
-def referencesOuterTables(innerToks: List[Token], outerTables: List[String]): Boolean =
-  val localTables = depthZeroTableNames(innerToks)
+def mergeTableNames(inherited: List[String], local: List[String]): List[String] =
+  var out = inherited
+  var r = local
+  while r.nonEmpty do
+    if !containsTableName(out, r.head) then out = r.head :: out
+    r = r.tail
+  out
+
+// A qualifier is correlated only when it names a visible outer table and is not rebound by any
+// SELECT scope on the path to that token. Nested SELECTs recurse with the accumulated shadow set:
+// an inner local `t` blocks an outer `t`, while a nested query over `u` may still reference its
+// grandparent `t`.
+def referencesOuterTablesScoped(innerToks: List[Token], outerTables: List[String], inheritedShadowed: List[String]): Boolean =
+  val shadowed = mergeTableNames(inheritedShadowed, depthZeroTableNames(innerToks))
   var r = innerToks
   var found = false
   while r.nonEmpty && !found do
     val t = r.head
-    if t.kind == "ident" then
+    if t.kind == "lparen" && tkIsKw(r.tail, "SELECT") then
+      splitParenGroup(r.tail) match
+        case None => r = r.tail
+        case Some(sp) =>
+          found = referencesOuterTablesScoped(sp._1, outerTables, shadowed)
+          r = sp._2
+    else if t.kind == "ident" then
       val dot = indexOfDot(t.text)
       if dot >= 0 then
         val qualifier = substr(t.text, 0, dot)
-        if containsTableName(outerTables, qualifier) && !containsTableName(localTables, qualifier) then found = true
-    r = r.tail
+        if containsTableName(outerTables, qualifier) && !containsTableName(shadowed, qualifier) then found = true
+      r = r.tail
+    else r = r.tail
   found
+
+def referencesOuterTables(innerToks: List[Token], outerTables: List[String]): Boolean =
+  referencesOuterTablesScoped(innerToks, outerTables, Nil)
 
 def outerBindingValue(bindings: List[OuterBinding], tableName: String, colName: String): Option[SqliteValue] =
   val target = upperStr(tableName)
@@ -2282,29 +2301,52 @@ def outerBindingValue(bindings: List[OuterBinding], tableName: String, colName: 
     r = r.tail
   result
 
+// Add a forward token span to a reverse accumulator.
+def appendTokenSpanReverse(span: List[Token], accRev: List[Token]): List[Token] =
+  var r = span
+  var out = accRev
+  while r.nonEmpty do
+    out = r.head :: out
+    r = r.tail
+  out
+
 // Replace qualified outer references with exact bound tokens. Bare names remain owned by the inner
-// query, and an identically named inner table shadows its outer binding.
-def substituteOuterRefs(subTokens: List[Token], bindings: List[OuterBinding]): List[Token] =
-  val localTables = depthZeroTableNames(subTokens)
+// query. Each nested SELECT extends the shadow set with its own local tables, so same-name locals
+// stay local without suppressing legitimate references to a visible grandparent binding.
+def substituteOuterRefsScoped(subTokens: List[Token], bindings: List[OuterBinding], inheritedShadowed: List[String]): List[Token] =
+  val shadowed = mergeTableNames(inheritedShadowed, depthZeroTableNames(subTokens))
   var r = subTokens
   var accRev: List[Token] = Nil
   while r.nonEmpty do
     val t = r.head
-    val repl =
-      if t.kind == "ident" then
+    if t.kind == "lparen" && tkIsKw(r.tail, "SELECT") then
+      splitParenGroup(r.tail) match
+        case None =>
+          accRev = t :: accRev
+          r = r.tail
+        case Some(sp) =>
+          val replacedInner = substituteOuterRefsScoped(sp._1, bindings, shadowed)
+          val span = t :: (replacedInner ++ (Token("rparen", ")", 0L) :: Nil))
+          accRev = appendTokenSpanReverse(span, accRev)
+          r = sp._2
+    else
+      val repl = if t.kind == "ident" then
         val dot = indexOfDot(t.text)
         if dot < 0 then t
         else
           val tablePart = substr(t.text, 0, dot)
           val colPart = substr(t.text, dot + 1, t.text.length)
-          if containsTableName(localTables, tablePart) then t
+          if containsTableName(shadowed, tablePart) then t
           else outerBindingValue(bindings, tablePart, colPart) match
             case None => t
             case Some(value) => exactValueToken(value)
       else t
-    accRev = repl :: accRev
-    r = r.tail
+      accRev = repl :: accRev
+      r = r.tail
   reverseTokens(accRev, Nil)
+
+def substituteOuterRefs(subTokens: List[Token], bindings: List[OuterBinding]): List[Token] =
+  substituteOuterRefsScoped(subTokens, bindings, Nil)
 
 def validateSelectTables(db: ReadonlyDatabase, stmt: SelectStmt): Either[String, Unit] =
   if stmt.table == "" then Right(())
