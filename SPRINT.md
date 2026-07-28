@@ -9,6 +9,35 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## 2026-07-28 — `v2-works-inventory` — answer "what does NOT work in v2", case by case
+
+**Active claim:** `v2-works-inventory`. Sergiy: *"Сейчас задача чтобы v2 работал. Что это значит?
+… сначала найти и составить список того что в v2 не работает. Потом по каждому конкретному случаю
+разберись."* Unclear cases go to `bugs-v2.md` for discussion; everything lands on main.
+
+**Why the existing numbers are not the answer.** The frozen baseline lists 43 v2 non-PASS rows;
+re-probing exactly those rows on 2026-07-28 found 6 already PASS and 3 turned FAIL→DIVERGE. But
+that probe can only ever re-check cases the baseline ALREADY names — it is blind to a case that the
+baseline calls PASS and that broke since. A list of "what does not work" has to come from a run
+over the WHOLE corpus, not over the previous list of failures.
+
+- [ ] **INV-1 — one full canonical run, with the freeze refresh.** `contract.sc --update-baseline`
+      over all 522 cases × lanes `int,js,v2`. This is CCR-1 and it finally has a quiet machine
+      (load 4.8 vs the 8-35 that blocked it earlier). It produces the complete matrix AND clears
+      the 48 unrostered cases that keep the gate exiting 1 for bookkeeping. `--update-baseline`
+      refuses scoped/sharded runs on purpose, so this is the only shape that works.
+- [ ] **INV-2 — group the v2 failures by CAUSE.** Every fix so far collapsed many cases into one
+      cause (3 rozum examples = 1 banner; 43 baseline rows = ~34 real). Read the actual failure
+      text per case, cluster, and write one entry per cause — not per case.
+- [ ] **INV-3 — fix what is unambiguous**, one worktree/branch per cause, gates per AGENTS.md.
+- [ ] **INV-4 — `bugs-v2.md` for what is NOT unambiguous**: needs a product decision, or two
+      defensible fixes, or a golden that is itself wrong. Ends with a question for Sergiy.
+
+**⚠️ Method note, learned the hard way this day.** v2 fails by evaluating a missing member to a
+`Stub` SENTINEL and continuing at **exit 0** — `Mirror.isProduct`, `Mirror.fromProduct` and
+`List.apply` all did exactly that. So the inventory must compare OUTPUT against the INT lane; an
+exit-status check reports these as success.
+
 ## 2026-07-28 — four findings from the claim-triage sweep (Sergiy: "запиши все в спринт и делай по очереди")
 
 Queued together because they came out of one sweep, but they are **independent** — different
