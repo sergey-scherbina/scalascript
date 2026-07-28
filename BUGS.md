@@ -1,5 +1,51 @@
 # Bug tracker
 
+## ci-status-guard-desc-green-always-red — the CI-health job was red on its own self-test, not on the repo
+
+**Status:** FIXED 2026-07-28 in `083c78fd6`.
+
+**What it looked like.** `Validate ScalaScript` failed on **every** run, so the job that exists to
+report health was itself a permanent red — and it named a SHA that does not exist:
+
+```text
+ci-status-guard[desc-green]: expected exit=0 got=2
+CI UNKNOWN d684e68971c75ac11042f19f84fc32c1070fb064~5
+d684e68971c75ac11042f19f84fc32c1070fb064
+  reason: no push ci.yml run found for the exact SHA
+```
+
+The `~5` suffix is unresolved in the output, and the SHA is printed **twice, on two lines**. Both
+are the symptom.
+
+**Cause — two defects one line apart, neither in the production script.** `scripts/ci-status`
+already uses `rev-parse --verify` correctly; only the guard's fixture did not:
+
+```bash
+DESC_SHA="$(git rev-parse origin/main 2>/dev/null || git rev-parse HEAD)"
+ANC_SHA="$(git rev-parse "${DESC_SHA}~5" 2>/dev/null || echo "$DESC_SHA")"
+```
+
+1. `actions/checkout` clones at `fetch-depth: 1`, so `<tip>~5` does not exist in CI. Locally, with
+   full history, it always did — which is why this passed on every developer machine.
+2. **`git rev-parse` without `--verify` does not fail cleanly.** On an unresolvable revision it
+   ECHOES the argument to stdout *and* exits 128. So `||` did not replace the value, it **appended**
+   one: `ANC_SHA` became two lines. `ci-status` was then asked about the literal string `<sha>~5`.
+
+The second defect is the transferable one: `cmd 2>/dev/null || echo fallback` is only a fallback if
+`cmd` prints nothing on failure. `rev-parse` is a trap here; `--verify -q` is the fix.
+
+**Fix.** Build the pair with `git commit-tree` — two real commits with a real parent edge written
+straight into the object database: no refs, no index, no working tree, nothing to clean up, and no
+dependence on checkout depth. The ancestry stays real, which was the reason the original used real
+commits at all. Identity is passed by env because a CI checkout has no configured `user.email`.
+
+Three assertions were added so the fixture cannot degenerate quietly (both SHAs present and
+distinct, ancestry real, ancestry **not** symmetric — otherwise the `desc-none` negative proves
+nothing). **Both were verified to fire**, by collapsing the pair and by dropping the parent edge.
+
+**Evidence.** Reproduced on a `git clone --depth 1` of this repository, which reproduces CI exactly:
+red with the message above before, `ci-status-guard: PASS` after; full clone also PASS.
+
 ## js-treeshake-prunes-mirror-ctor — a Mirror's `fromProduct` calls a constructor the shaker deleted
 
 **Status: FIXED 2026-07-28** in `dd56c4b8d` (`v2-mirror-fromproduct`) — found while EXTENDING
