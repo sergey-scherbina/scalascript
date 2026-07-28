@@ -25,14 +25,25 @@ def repoRoot: os.Path =
 //   --no-memo disable the green-run memo cache (F2); also SSC_CONF_NO_MEMO=1.
 //   --warm-jvm opt into SSC_SCALACLI_SERVER=1 for run-jvm; default is serverless
 //             to avoid Bloop BSP/socket flakes in the production gate.
+//   --shard i/N run only this slice of the corpus, for a CI matrix (see below).
+//   --list    print the selected case names and exit without running anything.
 val cliArgs = args.filterNot(_ == "--").toList
 val onlyGlobs: List[String] =
   cliArgs.sliding(2).collectFirst { case List("--only", v) => v }.toList
     .flatMap(_.split(',').toList).map(_.trim).filter(_.nonEmpty)
 val noMemo: Boolean =
   cliArgs.contains("--no-memo") || sys.env.get("SSC_CONF_NO_MEMO").contains("1")
-val positional = cliArgs.filterNot(_.startsWith("--"))
-  .filterNot(a => cliArgs.indexOf(a) > 0 && cliArgs(cliArgs.indexOf(a) - 1) == "--only")
+val listOnly: Boolean = cliArgs.contains("--list")
+
+// Flags that consume the NEXT argument. Their value must not be mistaken for the positional
+// conformance directory — `--shard 0/4` would otherwise make `0/4` the corpus dir and the run would
+// silently test nothing. The old form used `cliArgs.indexOf(a)`, which resolves to the FIRST
+// occurrence of a repeated value and mis-classifies it; indexing the list positionally cannot.
+val valueFlags = Set("--only", "--shard")
+val positional = cliArgs.zipWithIndex
+  .filterNot { case (a, _) => a.startsWith("--") }
+  .filterNot { case (_, i) => i > 0 && valueFlags(cliArgs(i - 1)) }
+  .map(_._1)
 
 val dir: os.Path =
   positional.headOption match
@@ -46,7 +57,10 @@ val sscToolsBin = repoRoot / "bin" / "ssc-tools"
 // Requires the pre-built launcher. Build with `bash install.sh --dev`
 // (which produces cli/target/scala-3.8.3/ssc.jar via sbt-assembly and writes
 // bin/ssc as a tiny java -jar wrapper).
-if !os.exists(sscBin) || !os.exists(sscToolsBin) then
+// `--list` only enumerates the corpus, so it deliberately does NOT require a built launcher: that
+// is what lets the shard-partition gate run in the 34-second `Validate` CI job instead of behind a
+// 3.6-minute assembly.
+if !listOnly && (!os.exists(sscBin) || !os.exists(sscToolsBin)) then
   System.err.println(s"bin/ssc or bin/ssc-tools not found. Build them first: bash install.sh --dev")
   System.exit(2)
 
@@ -61,13 +75,54 @@ def globMatch(glob: String, name: String): Boolean =
     .replace("*", "\\E.*\\Q").replace("?", "\\E.\\Q") + "$").r
   rx.findFirstIn(name).isDefined
 
-val tests = os.list(dir)
+val selected = os.list(dir)
   .filter(_.ext == "ssc")
   .filter(t => onlyGlobs.isEmpty || onlyGlobs.exists(g => globMatch(g, t.baseName)))
   .sortBy(_.last)
 
+// `--shard i/N` — run only the cases whose index in the sorted list is ≡ i (mod N).
+//
+// WHY: this step is the whole per-push CI verdict path and it is the wall clock. MEASURED on run
+// 30305919516 (the last ci.yml run that reached completion): `Conformance Suite` 37.7 min, of which
+// `Run conformance tests` alone is 33.6 min — 89 %. Meanwhile the push interval on `main` is ~3-7
+// min, so one run at a time per concurrency group means almost every commit is superseded and
+// cancelled before it is ever tested: of the last 100 ci.yml runs, 83 cancelled, 4 failure, ZERO
+// success. Splitting one 33.6-min job into N jobs that run as a matrix turns the verdict path from
+// sum into max.
+//
+// ROUND-ROBIN (idx % N), not contiguous blocks — same convention as contract.sc, for the same
+// reason: the corpus is name-sorted and the slow cases cluster by name (all the `scljet-*` together,
+// all the `uniml-*` together), so contiguous blocks give wildly uneven shards.
+//
+// Each shard's pass/fail verdict is honest on its own slice, and N shards together are exactly the
+// corpus — `tests/e2e/build-conformance-shard-gate.sh` asserts that union property by byte-comparing
+// the concatenated shard listings against the unsharded one, rather than trusting the arithmetic.
+val shard: Option[(Int, Int)] =
+  cliArgs.sliding(2).collectFirst { case List("--shard", v) => v }.map { s =>
+    s.split('/').toList.map(_.trim.toIntOption) match
+      case List(Some(i), Some(n)) if n > 0 && i >= 0 && i < n => (i, n)
+      case _ =>
+        System.err.println(s"--shard expects i/N with 0 <= i < N (e.g. 0/4), got: '$s'")
+        System.exit(2)
+        (0, 1)
+  }
+
+val tests = shard match
+  case Some((i, n)) => selected.zipWithIndex.collect { case (t, idx) if idx % n == i => t }
+  case None         => selected
+
 if onlyGlobs.nonEmpty then
-  println(s"--only ${onlyGlobs.mkString(",")}: ${tests.length} matching case(s)")
+  println(s"--only ${onlyGlobs.mkString(",")}: ${selected.length} matching case(s)")
+shard.foreach { case (i, n) =>
+  println(s"--shard $i/$n: ${tests.length} of ${selected.length} case(s) in this slice")
+}
+
+// `--list` exists so the shard partition can be VERIFIED rather than assumed: the gate compares the
+// union of every shard's listing against the unsharded listing byte-for-byte. A sharding scheme that
+// silently drops a case is the worst possible bug in a correctness gate — it fails GREEN.
+if listOnly then
+  tests.foreach(t => println(t.baseName))
+  System.exit(0)
 
 val sep = "-" * 50
 var passed = 0

@@ -125,13 +125,55 @@ jobs:
       - name: Verify no test can reach an exiting CLI boundary
         run: tests/e2e/cli-exit-reachability-guard.sh --self-test
 
+      # Guards the sharding that the Conformance Suite matrix below depends on. It lives HERE, in
+      # the 34-second job, because `run.sc --list` enumerates the corpus without needing a built
+      # launcher — so the property gets checked on every push for seconds rather than behind a
+      # 3.6-minute assembly. A shard scheme that drops cases fails GREEN; this is the check that
+      # makes that impossible (AGENTS.md: build the gate before the feature).
+      - name: Verify conformance shards partition the corpus exactly
+        run: tests/e2e/build-conformance-shard-gate.sh 4
+
+      # The host RAM guards (scripts/build-guard, build-ram-report, kill-stale-builders) are what
+      # stand between parallel agents and a third OOM event. Each of their failure modes is silent —
+      # a semaphore that admits everyone, a heap cap that loses to an inherited -Xmx, a slot that
+      # leaks on failure — so they get a gate that observes real processes and real MaxHeapSize.
+      - name: Verify host build-RAM guards actually guard
+        run: tests/e2e/build-ram-budget-gate.sh
+
   conformance:
-    name: Conformance Suite
+    name: Conformance shard ${{ matrix.shard }}/4
     runs-on: ubuntu-latest
-    # 30m was too tight — the suite (conformance run + examples on 3 backends +
-    # `ssc check` over every example) grew past it and was killed mid-run. 45m
-    # gives headroom for runner variance without masking a real hang.
-    timeout-minutes: 45
+    # SHARDED 2026-07-28 (build-ram-budget-and-speed). This job IS the per-push verdict path, and it
+    # was the reason there was no verdict.
+    #
+    # MEASURED on run 30305919516 — the last ci.yml run that reached completion at all:
+    #   Conformance Suite         37.7 min
+    #     └ Run conformance tests 33.6 min   ← 89 % of the job, one sequential 345-case pass
+    # Measured alongside it: the push interval on `main` is ~3-7 min. GitHub keeps at most one
+    # pending run per concurrency group, so a 38-minute job means ~1 commit in 10 is ever tested and
+    # the rest are superseded. Of the last 100 ci.yml runs: 83 cancelled, 4 failure, 0 success.
+    # That is not a slow gate, it is an absent one — and `cancelled` reads as RED (MILESTONES.md),
+    # so the apparatus was manufacturing reds for commits that were fine.
+    #
+    # Four round-robin shards turn 33.6 min of sequential cases into ~8.5 min of parallel ones, so
+    # the verdict path goes ~37.7 -> ~13 min and roughly triples the fraction of commits that get a
+    # verdict. Round-robin (idx % 4), not contiguous blocks: the corpus is name-sorted and the slow
+    # cases cluster by name. The union property is not assumed — `tests/e2e/build-conformance-shard-gate.sh`
+    # in the Validate job byte-compares the union of the four shard listings against the unsharded
+    # one on every push.
+    #
+    # fail-fast: false so one red shard still lets the others report; a partial verdict is what made
+    # the corpus-contract timeout unreadable for 13 runs.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    # Was 45m for the whole unsharded suite. A shard is ~1/4 of the case cost plus the same fixed
+    # ~5 min of setup+assembly, so ~13 min expected. 25m is a guard with headroom, NOT the operating
+    # point — if a shard starts approaching it, look at per-case cost, do not raise this. Raising the
+    # cap instead of reading the growth is exactly how the corpus contract went 13 runs with zero
+    # green (see corpus-contract.yml).
+    timeout-minutes: 25
 
     steps:
       - name: Checkout
@@ -214,7 +256,7 @@ jobs:
       - name: Verify staged launcher bytes are reproducible
         run: tests/e2e/staged-launchers-clean.sh
 
-      - name: Run conformance tests
+      - name: Run conformance tests (shard ${{ matrix.shard }}/4)
         # Warm JVM lane (specs/conformance-perf.md F3): reuse one Bloop build
         # server across cases instead of a cold scalac start per case. The
         # per-case cold compile is the dominant conformance cost; the INT/JS
@@ -224,7 +266,95 @@ jobs:
         # back to the serverless (cold, more robust) default.
         env:
           SSC_CONF_WARM_JVM: '1'
-        run: scala-cli tests/conformance/run.sc
+        # The `--` is load-bearing: without it scala-cli claims `--shard` as its own flag and dies
+        # with "Unrecognized argument" before the script starts (the same trap documented in
+        # corpus-contract.yml).
+        run: scala-cli tests/conformance/run.sc -- --shard ${{ matrix.shard }}/4
+
+      # Save the classes/zinc cache ONLY when every step above succeeded, so a
+      # failed build can never poison later runs (the 200-run red streak cause).
+      #
+      # Only shard 0 writes. All four shards produce an equivalent build from the same SHA, and
+      # `actions/cache/save` on an existing key is a wasted upload of the same ~GB four times over;
+      # one writer also keeps the "never save a failed build" invariant easy to reason about.
+      - name: Save compiled classes (zinc)
+        if: success() && matrix.shard == 0
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            **/target/scala-*/classes
+            **/target/scala-*/test-classes
+            **/target/scala-*/zinc
+            **/target/streams
+          key: ${{ runner.os }}-classes-v2-conf-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}-${{ github.sha }}
+
+  # Everything the old single Conformance Suite job did BESIDES the corpus run. Split out for one
+  # reason: these steps are ~1 min of work that does not shard, and leaving them inside the matrix
+  # would have run them four times for no added coverage. As a sibling job they overlap the shards
+  # entirely, so they cost zero wall clock on the verdict path.
+  conformance-extras:
+    name: Examples and launcher smokes
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Scala CLI
+        uses: VirtusLab/scala-cli-setup@v1
+        with:
+          power: true
+          jvm: temurin:21
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup sbt
+        uses: sbt/setup-sbt@v1
+
+      - name: Verify dev installer worktree isolation
+        run: tests/e2e/install-worktree-submodule-guard.sh
+
+      - name: Cache Coursier/sbt
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/coursier
+            ~/.ivy2/cache
+            ~/.sbt
+          key: ${{ runner.os }}-sbt-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-sbt-
+
+      # Restore-only, sharing the conformance job's prefix: this job runs the same `install.sh --dev`
+      # invocation as the shards, so their zinc analyses ARE interchangeable (unlike the sbt job's —
+      # see the note on that job's restore step). It never SAVES, so it cannot poison the prefix.
+      - name: Restore compiled classes (zinc)
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            **/target/scala-*/classes
+            **/target/scala-*/test-classes
+            **/target/scala-*/zinc
+            **/target/streams
+          key: ${{ runner.os }}-classes-v2-conf-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-classes-v2-conf-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}-
+
+      - name: Build ssc launcher (sbt-assembly)
+        run: bash install.sh --dev
+
+      - name: Verify staged launcher bytes are reproducible
+        run: tests/e2e/staged-launchers-clean.sh
 
       - name: Integer-literal fail-open regression (assembled launchers, both backends)
         run: tests/e2e/int-literal-failopen-smoke.sh
@@ -238,19 +368,6 @@ jobs:
       - name: Type-check examples (ssc-tools check)
         run: |
           ./bin/ssc-tools check examples/*.ssc
-
-      # Save the classes/zinc cache ONLY when every step above succeeded, so a
-      # failed build can never poison later runs (the 200-run red streak cause).
-      - name: Save compiled classes (zinc)
-        if: success()
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            **/target/scala-*/classes
-            **/target/scala-*/test-classes
-            **/target/scala-*/zinc
-            **/target/streams
-          key: ${{ runner.os }}-classes-v2-conf-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}-${{ github.sha }}
 
   sbt:
     name: sbt — compile and test
