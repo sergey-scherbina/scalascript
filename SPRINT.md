@@ -281,7 +281,10 @@ strongest CI evidence actually available.
 
 ## 2026-07-27 — UniML production completion (Sergiy: "Реализуй всё. Доведи до продакшена")
 
-**Claim:** `uniml-production-completion`. **Normative execution contract:**
+**Claim: UNCLAIMED** — released 2026-07-28 in triage (heartbeat 2 h stale, no live
+process). Its finished work was **not** discarded: UPR-2a.2 was green in the worktree
+and is now landed as `74c722c13`, so a reclaimer starts at UPR-2b with a clean tree.
+**Normative execution contract:**
 [`specs/uniml-production.md`](specs/uniml-production.md). This section is the single entry point for
 the remaining UniML work; older unchecked UniML rows are evidence/history, not a second queue.
 
@@ -416,7 +419,14 @@ self-parity test is not external conformance.
           JVM/Scala.js corpus suites passed 19/19 each, full YAML passed 41/41 and 40/40, portable
           lint, affected conformance, and the two-round no-clean dual-build gate passed; three
           independent read-only audits returned implementation GO.
-    - [ ] **UPR-2a.2 tag/property lexical grammar.** Enforce the complete YAML 1.2.2
+    - [x] **UPR-2a.2 tag/property lexical grammar.** LANDED `74c722c13` (committed
+          2026-07-28 during triage: the work was finished and green in the claim's
+          worktree, only the commit was missing). Every pre-registered number below
+          was hit exactly — `216→218` / `214→216` / `137→138` / `125→126`, source and
+          chunks `402/402`, zero crashes, and `2SXE`/`LHL4`/`U99R` the only changed
+          rows. Re-verified before landing on both lanes: `unimlYaml/test` 54/54,
+          `unimlYamlJs/test` 53/53.
+          Enforce the complete YAML 1.2.2
           `ns-uri-char`, `ns-tag-char`, local/global prefix, verbatim tag, expanded-URI,
           anchor, and alias spelling productions on JVM and Scala.js. Cover raw non-ASCII and
           forbidden punctuation, empty suffix/verbatim forms, invalid global URIs, exact
