@@ -1014,8 +1014,11 @@ separate.
 
 **Fix:** `f36f951ba` exports the physical comparator through the public SclJet
 module and makes every SQL comparison path reuse it. Bytewise filter/order,
-DISTINCT, JOIN, and indexed cases pass on INT and JS; status remains FIXED
-pending the live sqlite-jdbc confirmation.
+DISTINCT, JOIN, and indexed cases pass on INT and JS. The compare-first live
+matrix in `3f5d8f6c1` also passes unindexed and persisted-index BLOB
+equality/order against Xerial sqlite-jdbc 3.45.3.0 (embedding SQLite 3.45.3),
+then reopens the file with Xerial and requires `PRAGMA integrity_check = ok`.
+Status remains FIXED until reporter confirmation.
 
 ## scljet-sql-numeric-comparison-rounds-through-double — INTEGER/REAL loses precision above 2^53
 
@@ -1037,8 +1040,11 @@ physical index behavior.
 
 **Fix:** `f36f951ba` removes the SQL-side binary64 conversion and delegates to
 the exact physical comparator. Mixed INTEGER/REAL filtering, ordering,
-DISTINCT, grouping, JOIN, and indexed boundary cases pass on INT and JS; status
-remains FIXED pending the live sqlite-jdbc confirmation.
+DISTINCT, grouping, JOIN, and indexed boundary cases pass on INT and JS. The
+compare-first live matrix in `3f5d8f6c1` confirms the >2^53 and signed-64
+boundaries through both unindexed and persisted-index paths against Xerial
+sqlite-jdbc 3.45.3.0 (embedding SQLite 3.45.3); the Xerial reopen and integrity
+checks also pass. Status remains FIXED until reporter confirmation.
 
 ## scljet-sql-null-three-valued-logic — scalar and IN predicates treat UNKNOWN as true/false
 
@@ -1068,9 +1074,14 @@ retaining total comparison for ORDER/GROUP/DISTINCT/index operations.
 
 **Fix:** `b63206552` adds a separate TRUE/FALSE/UNKNOWN predicate layer,
 NULL-aware IN/NOT IN, simple-CASE/HAVING/JOIN handling, exact bound subquery
-values, and indexed/unindexed plus DML coverage. The focused INT+JS gate passes;
-status remains FIXED rather than DONE until the live sqlite-jdbc comparison
-confirms the reporter matrix.
+values, and indexed/unindexed plus DML coverage. The focused INT+JS gate passes.
+The four SC-1b cases in the six-case compare-first live suite from `3f5d8f6c1`
+confirm the reporter defect families plus scalar, scan, join, subquery,
+CASE/HAVING, indexed residual, and real DML paths against Xerial sqlite-jdbc
+3.45.3.0 (embedding SQLite 3.45.3); persisted queries and integrity also pass
+after an Xerial reopen. Status remains FIXED until reporter confirmation. The
+separately tracked correlated JOIN context and error propagation gaps keep the
+broader capability at `subset`.
 
 ## scljet-correlated-subquery-join-where-unsupported — joined outer rows bypass correlated evaluation
 

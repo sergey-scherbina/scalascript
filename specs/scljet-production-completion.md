@@ -185,9 +185,20 @@ residual filtering, and UPDATE/DELETE. Non-correlated subquery substitution now
 preserves exact NULL/REAL/BLOB values and maps an empty scalar result to NULL.
 The same post-change run kept all 55 pre-existing `scljet-sql-*` cases green;
 the only red case was the deliberately fail-first SC-1c numeric/BLOB gate.
-The capability remains `subset`: live sqlite-jdbc comparison is still pending,
-and correlated subqueries in an outer join plus error propagation from
-correlated subqueries are separately tracked production gaps.
+Live comparison landed in `3f5d8f6c1`. The six-case
+`ScljetScalarSemanticsDifferentialTest` runs the statements independently
+through `jdbc:scljet:` and Xerial sqlite-jdbc 3.45.3.0 (embedding SQLite
+3.45.3), compares outcomes before classification, and covers scalar, scan,
+join, subquery, CASE/HAVING, LIMIT, indexed residual, and real
+indexed/unindexed UPDATE/DELETE paths. It then reopens the SclJet file through
+Xerial, reruns persisted queries, verifies the expected index names, and
+requires `PRAGMA integrity_check = ok`. The post-rebase SC-1b live result is
+4/4 (6/6 for the complete SC-1b/SC-1c suite), and the affected portable result
+is 2/2 on both INT and JS.
+The capability remains `subset` only because correlated subqueries in an outer
+join and error propagation from correlated subqueries are separately tracked
+production gaps; the original NULL/UNKNOWN reporter defect families are
+live-confirmed.
 
 Portable SC-1c landed in `f36f951ba`. SQL now reuses the physical index
 comparator instead of converting INTEGER values to binary64 or collapsing
@@ -196,9 +207,19 @@ same-class BLOB values. The SQLite-3.51.0-pinned
 filtering, mixed INTEGER/REAL signed-64 and 2^53 boundaries, bytewise BLOB
 equality/order, ORDER BY, DISTINCT, GROUP BY, two-table JOIN, and indexed
 predicates. The post-change `scljet-sql-* --no-memo` sweep is 56/56. The
-capability remains `subset` until the live sqlite-jdbc oracle runs; multi-level
-numeric/BLOB divider coverage and long-BLOB performance are explicit
-non-blocking follow-ups rather than claims made by this slice.
+live test from `3f5d8f6c1` additionally compares exact signed-64/2^53
+INTEGER/REAL boundaries and bytewise BLOB equality/order through unindexed and
+persisted-index paths, including aggregate, DISTINCT, JOIN, and ordering
+consumers. Its Xerial reopen and integrity checks pass, so
+`scalar-numeric-blob-comparison` is `implemented`; its live SC-1c result is 2/2.
+Multi-level numeric/BLOB divider stress and long-BLOB performance remain
+explicit non-blocking SC-11 qualification work rather than semantic gaps.
+
+The three oracle identities are deliberately separate: portable expectations
+record SQLite 3.51.0 behavior, the repository's current Xerial dependency
+is sqlite-jdbc 3.45.3.0 embedding SQLite core 3.45.3 for live JVM
+differentials, and the canonical file/SQL oracle remains SQLite 3.53.3. A green
+result from one pin is never relabelled as evidence from another.
 
 ### SC-2 — reclaim and reuse
 
