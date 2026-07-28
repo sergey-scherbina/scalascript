@@ -212,8 +212,8 @@ preparation remain open; the current validator reparses a typed-NULL form
 against the current transaction image rather than producing the full SC-4a
 prepared plan.
 
-Correlated DML landed in `eaf238408`, with canonical physical-NULL-IPK DELETE
-normalization in `b24c785a0`. UPDATE and DELETE use the same database-aware
+Correlated DML landed in `9d69c9f30`, with canonical physical-NULL-IPK DELETE
+normalization in `ecb9bac4c`. UPDATE and DELETE use the same database-aware
 TRUE/FALSE/UNKNOWN plus explicit-error evaluation as SELECT, bind the mutation
 target as the outer table, and derive both the write set and `changes()` from
 one selected-rowid result. EXISTS, IN, and scalar forms each affect the
@@ -222,7 +222,7 @@ error for empty outer input and for a short-circuited rowid miss. The
 fourteen-line compare-first `scljet-correlated-dml` gate passes on INT and JS,
 including a record whose INTEGER PRIMARY KEY field is physically NULL.
 
-Nested correlated scope closure landed in `3d971e8d8`. A table declared by an
+Nested correlated scope closure landed in `b6b810231`. A table declared by an
 inner SELECT shadows an equally named outer binding only within that SELECT
 scope, while a differently named inner query may still reference a visible
 grandparent table. Correlation detection and exact-value substitution now walk
