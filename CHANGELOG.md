@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-07-28 — `Mirror.fromProduct` works on the native lane, and the JS shaker stops deleting its constructor
+
+The last missing `Mirror` member evaluated to a `Stub` sentinel on the native lane. It is the one
+member that cannot be a constant — it has to CONSTRUCT the type — so the Mirror now carries the
+constructor as a fourth field, pre-shaped to take the argument list, and `fromProduct` is a single
+tag-level registration that applies it. Both self-hosted fronts, no VM change. The element reads
+deliberately use the application form `xs(k)` rather than `xs.apply(k)`, because the latter is
+itself unimplemented on that lane (`v2-list-apply-method-stub`).
+
+Extending the conformance case to cover it immediately failed on JS with `ReferenceError: P is not
+defined`: JsGen emits a mirror whose `fromProduct` closure calls the constructor, and the
+TreeShaker had pruned it — the only source mentions of the type are type positions, which the
+shaker skips by design. A product class of a Mirror-using module is now a reachability root. That
+is the second emitter-synthesized reference to bite the shaker in one day.
+
+Gates: fsub 173 ok / 0 FAIL with the X1 fixpoint byte-identical, semantic golden 247/247,
+`tests/conformance/v2-mirror-surface.ssc` green on INT, native, JS and JVM.
+
 ## 2026-07-28 — a program's result prints as output, not as a debug dump
 
 `ssc run` ended its successful-result path in `Show.show` — the *debug* rendering, which quotes

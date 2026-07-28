@@ -1,5 +1,44 @@
 # Bug tracker
 
+## js-treeshake-prunes-mirror-ctor — a Mirror's `fromProduct` calls a constructor the shaker deleted
+
+**Status: FIXED 2026-07-28** by `v2-mirror-fromproduct` (found while EXTENDING
+`tests/conformance/v2-mirror-surface.ssc` to cover `fromProduct` — the case was green before the
+new line, which is the point of adding it).
+
+**Reproduction, before the fix** (`emit-js` is what the conformance JS lane runs):
+
+```scalascript
+case class P(x: Int, s: String)
+val m = summon[Mirror.Of[P]]
+println(m.fromProduct(List(1, "hi")))
+```
+
+```
+ssc-tools emit-js  <case> | node   -> ReferenceError: P is not defined
+                                        at Object.fromProduct
+ssc-tools emit-js --no-tree-shake  -> P(1, hi)
+```
+
+`grep -c '^function P(' ` on the shaken bundle is **0** — the constructor is gone, while the mirror
+that calls it is still emitted.
+
+**Root cause.** JsGen emits `_sscMirror_<T>` for every product class of a module that mentions
+`Mirror`, and that mirror's `fromProduct` closure calls `T(...)`. The shaker cannot see that
+reference: it is created by the EMITTER, is not in the AST, and the only mentions of `T` in source
+are type positions (`summon[Mirror.Of[T]]`) which `collectNames` skips by design. Exactly the shape
+of the `derives` root fixed earlier the same day
+(`js-lane-missing-derives-and-coroutinecancel`), one step over — and it survived that fix because
+`derives` was made a root while plain `Mirror` use was not.
+
+**Fix.** A product class of a Mirror-using module is a reachability root. Gated on the module
+actually mentioning `Mirror` (mirroring JsGen's own `moduleUsesMirror`), so a module that never uses
+reflection shakes exactly as before; it can only ever KEEP code the emitter is about to reference.
+
+**Lesson worth keeping:** every emitter-synthesized reference is invisible to the shaker. Two of
+them have now bitten in one day. When adding an emitter that names a user symbol, add its root in
+the same change.
+
 ## v2-serve-banner-missing — three corpus DIVERGEs, one cause: the native lane prints no server banner
 
 **Status:** OPEN (found 2026-07-28 by `corpus-contract-refresh-freeze` while re-measuring the v2
@@ -75,6 +114,27 @@ lowers to a mangled `O_apply` global, and `O` itself is not applicable — the r
 So: VM, not front. `v2/src` was held by a live claim when this was found.
 
 ## v2-mirror-fromproduct-stub — the last missing `Mirror` member still evaluates to `Stub`
+
+**Status: FIXED 2026-07-28** by `v2-mirror-fromproduct`. The Mirror now carries the constructor as
+a FOURTH field, pre-shaped to take the argument list (`(xs) => T(xs(0), …)`), and `fromProduct` is
+one tag-level `__regmethod__` that applies it — so it needs no per-type method and no VM change.
+
+Two details that decided the shape:
+* the element reads use the APPLICATION form `xs(k)`, not `xs.apply(k)`, because the latter is
+  itself unimplemented on the native lane (`v2-list-apply-method-stub`) — using it would have made
+  this fix depend on that one;
+* a tagged method is invoked with `(self :: args)`, and in a `lam 2` the FIRST parameter is
+  `local 1`, so self = `local 1` and the list = `local 0`. Getting that backwards produces a
+  plausible-looking closure that fails only at call time.
+
+Both fronts, as always for the differential gate. Verified `P(1, hi)` and `Solo(true)` on INT,
+native, JS and JVM; fsub 173 ok / 0 FAIL with the X1 fixpoint byte-identical.
+
+Extending the conformance case for this immediately surfaced a SECOND defect on the JS lane —
+`js-treeshake-prunes-mirror-ctor` — which is the argument for pinning a real construction rather
+than just the metadata.
+
+### Original report (kept for context)
 
 **Status:** OPEN (found 2026-07-28 by `v2-mirror-isproduct-stub` while fixing the sibling member;
 filed rather than folded in, because it needs a different change).

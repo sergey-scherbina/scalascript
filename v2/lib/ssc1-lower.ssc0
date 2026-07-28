@@ -3918,10 +3918,21 @@ def derivedValueNames = (typeName, derives) =>
       Cons(derivedDefName(tc, typeName), derivedValueNames(typeName, rest))
   }
 
+-- The Mirror's FOURTH field is the type's constructor, pre-shaped to take the argument LIST:
+-- `(xs) => T(xs(0), …, xs(n-1))`. The front can build it because it knows the arity here, and the
+-- element reads use the APPLICATION form `xs(k)` — which is what `xs(k)` itself lowers to and is
+-- implemented on the VM — rather than `xs.apply(k)`, which is not
+-- (BUGS `v2-list-apply-method-stub`). `fromProduct` then just applies this field to its argument,
+-- which is why that member can be a single tag-level registration instead of one per type.
+def mirrorFromListArgs = (i, n) =>
+  if #i.ge(i, n) then Nil
+  else Cons(IrApp(IrLocal(0), Cons(IrLit(IrInt(i)), Nil)), mirrorFromListArgs(#i.add(i, 1), n))
+
 def lowerProductMetadata = (typeName, fieldNames, fieldTypes, derives) =>
+  let ctorFromList = IrLam(1, IrCtor(typeName, mirrorFromListArgs(0, lenL(fieldNames)))) in
   let mirror = IrCtor("Mirror",
     Cons(IrLit(IrStr(typeName)),
-      Cons(strListIr(fieldNames), Cons(strListIr(fieldTypes), Nil)))) in
+      Cons(strListIr(fieldNames), Cons(strListIr(fieldTypes), Cons(ctorFromList, Nil))))) in
   Cons(IrDef(mirrorDefName(typeName), mirror), Nil)
 
 -- Derived dictionaries are top-level immutable values, initialized in source
@@ -5227,6 +5238,10 @@ def caseFieldRegs = (order) =>
 -- Emitted ONCE, and only for a program that declares at least one case class, so a program without
 -- one lowers byte-identically to before. `label`/`elemLabels`/`elemTypes` are deliberately NOT
 -- registered: a tagged method would SHADOW the VM arms that already serve them correctly.
+-- `fromProduct` reads the ctor out of the Mirror's 4th field and applies it to the argument list.
+-- A tagged method is called with (self :: args), and in a `lam 2` the FIRST param is `local 1`, so
+-- self = local 1 and the list = local 0. `fieldAt` is the VM's positional reader, which already
+-- exists for any DataV — no new VM surface is needed for either member.
 def mirrorMethodRegs = (order) =>
   match order {
     case Nil => Nil
@@ -5234,7 +5249,15 @@ def mirrorMethodRegs = (order) =>
       Cons(IrPrim("__regmethod__",
             Cons(IrLit(IrStr("Mirror")),
               Cons(IrLit(IrStr("isProduct")),
-                Cons(IrLam(1, IrLit(IrBool(true))), Nil)))), Nil)
+                Cons(IrLam(1, IrLit(IrBool(true))), Nil)))),
+      Cons(IrPrim("__regmethod__",
+            Cons(IrLit(IrStr("Mirror")),
+              Cons(IrLit(IrStr("fromProduct")),
+                Cons(IrLam(2,
+                       IrApp(IrPrim("__method__",
+                               Cons(IrLit(IrStr("fieldAt")),
+                                 Cons(IrLocal(1), Cons(IrLit(IrInt(3)), Nil)))),
+                             Cons(IrLocal(0), Nil))), Nil)))), Nil))
   }
 
 -- Case-class BODY methods (caseMethodsCell = [Pair(tag, Pair(fields, defs))]).

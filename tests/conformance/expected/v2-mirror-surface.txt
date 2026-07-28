@@ -6,3 +6,5 @@ Solo
 List(only)
 true
 guard-taken
+P(1, hi)
+Solo(true)

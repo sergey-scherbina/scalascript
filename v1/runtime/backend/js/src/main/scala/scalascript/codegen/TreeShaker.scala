@@ -56,6 +56,17 @@ object TreeShaker:
     // Terms that run unconditionally at the top level (seeds for reachability).
     val sideEffects = mutable.ListBuffer.empty[Tree]
 
+    // JsGen emits a `_sscMirror_<T>` for EVERY product class of a module that mentions `Mirror`,
+    // and that mirror's `fromProduct` closure calls the constructor `T(...)`. The shaker cannot see
+    // that reference: it is created by the emitter, not present in the AST, and the only mentions of
+    // `T` in source are type positions (`summon[Mirror.Of[T]]`), which `collectNames` skips by
+    // design. So `T` was pruned and the bundle died with `ReferenceError: T is not defined` the
+    // moment `fromProduct` was called — sibling of the `derives` root below, one step over.
+    // Gated on the module actually mentioning `Mirror`, mirroring JsGen's own `moduleUsesMirror`, so
+    // a module that never uses reflection keeps shaking exactly as before.
+    var usesMirror = false
+    val productClasses = mutable.ListBuffer.empty[String]
+
     def collectStats(stats: List[Stat]): Unit =
       stats.foreach {
         case d: Defn.Def =>
@@ -79,6 +90,7 @@ object TreeShaker:
         case d: Defn.Class =>
           val name = d.name.value
           allDeclared += name
+          if d.mods.exists(_.isInstanceOf[Mod.Case]) then productClasses += name
           // Constructor + all method bodies are reachable when class is reachable
           val bodies = d.templ.body.stats.collect { case dd: Defn.Def => dd.body: Tree }
           declBodies(name) = bodies
@@ -169,6 +181,16 @@ object TreeShaker:
 
     def scanSection(section: Section): Unit =
       section.content.foreach {
+        case cb: Content.CodeBlock if cb.isProgramCode && cb.source.contains("Mirror") =>
+          usesMirror = true
+          cb.tree.foreach { node =>
+            ScalaNode.fold(node) {
+              case Source(stats)     => collectStats(stats); ()
+              case Term.Block(stats) => collectStats(stats); ()
+              case t: Term           => sideEffects += t; ()
+              case _                 => ()
+            }
+          }
         case cb: Content.CodeBlock if cb.isProgramCode =>
           cb.tree.foreach { node =>
             ScalaNode.fold(node) {
@@ -202,6 +224,9 @@ object TreeShaker:
 
     // Manifest exports
     exportedNames.foreach(enqueue)
+
+    // Product classes of a Mirror-using module — see the note above scanSection.
+    if usesMirror then productClasses.foreach(enqueue)
 
     // Side-effectful top-level terms: scan them for name references immediately
     // (they run unconditionally — their referenced names become reachable)

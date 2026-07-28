@@ -22,9 +22,11 @@ The three already-working members are pinned alongside `isProduct` on purpose: t
 arms, so getting it wrong would shadow the three that were fine. If a regression ever did that,
 this case shows it as three changed lines, not one.
 
-`fromProduct` is deliberately **absent**. It is the remaining hole in the same surface — still
-`Stub` on the native lane — and pinning it here would make the case fail for a gap that is filed,
-not fixed. See the BUGS entry.
+`fromProduct` is here too, as of the follow-up that closed it. It is the one member that cannot be
+a constant: it has to CONSTRUCT the type, so the Mirror carries the constructor as a fourth field
+(pre-shaped to take the argument list) and the tagged method just applies it. Pinning a build here
+is what proves that field survived — a Mirror that merely *reports* the right labels would still
+pass every other line in this case.
 
 ```scalascript
 case class P(x: Int, s: String)
@@ -44,4 +46,8 @@ println(ms.isProduct)
 
 // `isProduct` must be a real Bool, not a truthy sentinel: it has to drive an `if`.
 if mp.isProduct then println("guard-taken") else println("guard-missed")
+
+// `fromProduct` must build a real instance from the element list, for both arities.
+println(mp.fromProduct(List(1, "hi")))
+println(ms.fromProduct(List(true)))
 ```
