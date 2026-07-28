@@ -1398,7 +1398,12 @@ Focused tests passed 11/11, the hello/SClJet product gate passed, and
 
 ## f-block-comment-lexed-as-code — F has no block-comment support; doc comments become expressions
 
-**Status:** OPEN (found 2026-07-27 by `v2-board-and-f5b`). **F-front only**
+**Status:** FIXED (2026-07-27, landed `2adeef250`; status line corrected 2026-07-28 — it was left
+saying OPEN by the same agent that fixed it, which is the exact board-lying failure that agent spent
+the day correcting elsewhere). F's lexer gained `scanBlockEnd` + a `lexSlash` arm; three X1 gate
+cases (prose, BOUND-global words, inline) were proven to fail without it. Evidence level 3: full
+local conformance 309/0, X1 fixpoint byte-identical.
+Found 2026-07-27 by `v2-board-and-f5b`. **F-front only**
 (`specs/v2.2-p6.5-fsub.ssc`), and F is the DEFAULT native front.
 
 **Minimal reproduction — two lines** (a `/**` doc comment followed by any def):
@@ -2514,7 +2519,29 @@ splitting the golden probe from the lane budget (`--lane-timeout 90`, `afa5981a2
 correctness gate reporting perf as TIMEOUT noise. **That is mitigation, not a fix** — the ~7×
 remains.
 
-**Context.** The F4 flip was known to cost speed (the `f4-arc-closure` batch recorded "2-4× slower;
+**LOCALISED 2026-07-28 (`f-compile-cost-profile`, `specs/v2-f-compile-cost.md`).** Isolating the
+front phase (staged tower invoked directly, identical JVM flags for both runners) settles what the
+7× actually is:
+
+| | front F | front legacy |
+|---|---|---|
+| `examples/scljet-crud.ssc` | **25.72 s** | **1.28 s** |
+
+- **NOT the F4a fallback.** `SSC_FRONT_TRACE` reports **0 delegations** on this program — F lowers it
+  successfully and its output is accepted, so this is not double lowering. That explanation is dead.
+- **It SCALES rather than being a fixed startup tax:** `hello` (414 B source) is **4.2×**,
+  `scljet-crud` (2,115 B) is **13.5×**. A constant cost would show the ratio shrinking as work grows;
+  it does the opposite — which is why warming or caching cannot absorb it, and why a correct case
+  landed on the wrong side of a 30 s budget.
+- **The "recovery path" line below is WRONG and should not be relied on:** typed arithmetic was
+  measured at ~1% (`specs/v2-f5b-typed-ir-design.md` §"MEASURED PERF FINDING"). F5b's payoff is
+  kernel size and directness, not compile speed.
+
+Open next (V-6b): whether F itself belongs on the bytecode lane — but the `f5c` wins were NUMERIC
+while F is string/list-heavy, so qualify before investing. Given the cost is proportional, a
+super-linear step inside F may be the cheaper find.
+
+**Context (historical).** The F4 flip was known to cost speed (the `f4-arc-closure` batch recorded "2-4× slower;
 hello 0.8→1.5 s, scljet 8→32 s"), but nothing measured it against the corpus, so nobody knew it was
 already breaching a gate budget. `v2-f5b-typed-locals` (SPRINT Batch B) is the recovery path.
 ## portable-capsule-frame-unvalidated — the capsule's frame half escapes the fail-closed admission
