@@ -46,8 +46,20 @@ race() { # race <setup-fn>
 
   if git push -q origin main 2>/dev/null; then echo "pushed"; return; fi
   git fetch -q origin
-  if git rebase origin/main >/dev/null 2>&1; then echo "clean"
-  else git rebase --abort >/dev/null 2>&1 || true; echo "conflict"; fi
+  # `git rebase` gets the same identity as the commits above. Without it a runner with no
+  # configured `user.email` cannot replay a commit, and the rebase fails for a reason that has
+  # nothing to do with what this test measures.
+  local out rc
+  out="$(git "${G[@]}" rebase origin/main 2>&1)"; rc=$?
+  if [ "$rc" -eq 0 ]; then echo "clean"; return; fi
+  # A failed rebase is NOT automatically a claim collision. Bucketing every failure as "conflict"
+  # is why `Validate ScalaScript` could report `expected=clean got=conflict` while saying nothing
+  # about the cause — and it cut both ways: the MUTEX case EXPECTS "conflict", so any unrelated
+  # rebase failure made it pass for the wrong reason. Only unmerged paths are a real collision.
+  local unmerged; unmerged="$(git diff --name-only --diff-filter=U 2>/dev/null | tr '\n' ' ')"
+  git rebase --abort >/dev/null 2>&1 || true
+  if [ -n "${unmerged// /}" ]; then echo "conflict"
+  else echo "rebase-failed(rc=$rc): $(printf '%s' "$out" | grep -v '^$' | tail -1)"; fi
 }
 
 # ── CONTROL: one disjoint file per claim, no ledger ────────────────────────────
