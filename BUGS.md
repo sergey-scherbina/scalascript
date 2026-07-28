@@ -84,6 +84,39 @@ reflection shakes exactly as before; it can only ever KEEP code the emitter is a
 **Lesson worth keeping:** every emitter-synthesized reference is invisible to the shaker. Two of
 them have now bitten in one day. When adding an emitter that names a user symbol, add its root in
 the same change.
+## v2-native-error-printed-but-exit-zero — reported, NOT reproducible after the Mirror fix, now guarded
+
+**Status:** **NOT REPRODUCIBLE** on `origin/main` after `4f5ecf261`; the invariant is now gated so
+a return cannot be silent. Raised 2026-07-28 in rozum by the agent that fixed
+`v2-mirror-isproduct-stub`: *"that example EXITS 0 while printing its error, so an exit-status check
+sees success."*
+
+**Why it deserved a look even though the observable is gone.** This is the worst failure shape
+there is: every `if ssc run …; then`, every CI step, every script that checks a status reads a
+printed error as success. It is invisible to exactly the machinery meant to catch it.
+
+**Measured.** `examples/rozum-agent-schema-derived.ssc` now prints `Done / Derived posted. /
+Explicit posted. / 2` and exits 0 **correctly** — the `Stub("Mirror.isProduct")` reaching an `if`
+condition was the bug and it is fixed, so the trigger no longer exists. Ten shapes probed with the
+status captured directly (never through a pipe, which yields the last command's status):
+uncaught throw, unbound name, index-out-of-bounds, unbound qualified call, parse error, `10 / 0`,
+unresolved method in an `if` condition, unresolved method in a plain call, unresolved predicate on
+an Int, malformed `derives Mirror`. **All ten print `ssc: …` and exit 1.**
+
+**Decision.** No fix invented — the trigger is gone and a fix for an unreproducible failure is a
+guess. What lasts is the invariant: **if the run prints `ssc: <error>`, the exit code must be
+non-zero.** Six cases now assert it in `tests/e2e/v2-error-diagnostic.sh`, and the assertion is
+mutation-tested (injecting a runner that prints a diagnostic and returns 0 produces
+`FAIL … printed a diagnostic but exited 0`). Writing it also caught the classic trap in my own
+gate: `set -e` aborted the script the moment a probe exited non-zero — the expected outcome — so
+`rc=$?` never ran and the whole section silently vanished from the output. `set +e` around exactly
+those two lines.
+
+**Still open, deferred to BACKLOG with the reasoning:** auditing the *nested* runner paths (the
+ASM→VM link-time fallback and the F-delegation re-run) for a swallowed non-zero status. That is
+where a fail-open of this shape would most plausibly hide, but it is a real audit with no live
+symptom to anchor it.
+
 
 ## v2-serve-banner-missing — three corpus DIVERGEs, one cause: the native lane prints no server banner
 
@@ -358,6 +391,14 @@ scljet-wal:
 ```
 
 `<missing>`, not wrong — the case produced **no stdout at all** inside the batch JVM.
+
+**FOURTH OCCURRENCE 2026-07-28, reported independently in rozum by another agent** — and it is the
+strongest data point, because it is a different worktree, a different build and a much smaller
+selection: a no-memo `--only 'scljet-*'` sweep (116 cases) came back 115/1, the one failure being
+`scljet-wal-recover` FAIL [INT] with all three lines `<missing>` while PASS [JS]; standalone on the
+same binary it prints all three byte-identically. So the effect is NOT limited to the ~250-case
+full-corpus batch — 116 cases is enough to trigger it — and it is reproducible at the batch level
+across independent agents.
 
 **THIRD OCCURRENCE 2026-07-28:** `scljet-wal-read` again, on the `v2-program-tail-string-render` corpus run — a change confined to the v2 CLI's result printer, which the INT lane does not execute. Three sightings now, on three unrelated changes, always `<missing>` stdout in the big INT batch and always byte-exact in isolation. That is the batch, not the changes.
 

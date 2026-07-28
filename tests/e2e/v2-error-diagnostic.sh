@@ -112,6 +112,54 @@ else
   fail=$((fail + 1))
 fi
 
+# ── exit status must match the diagnostic ─────────────────────────────────────
+#
+# THE failure shape this guards: a run that PRINTS `ssc: <error>` and then exits 0. Every
+# `if ssc run …; then`, every CI step and every script that checks a status reads that as
+# success, so the error is reported to a human who is not looking and to no machine at all.
+# Raised in rozum 2026-07-28 against examples/rozum-agent-schema-derived.ssc, whose trigger
+# (a `Stub("Mirror.isProduct")` reaching an `if` condition) was fixed in 4f5ecf261 — so the
+# observable is gone and could not be reproduced on any of ten shapes. This asserts the
+# invariant so its return cannot be silent, which is the part worth keeping.
+#
+# `$?` is captured DIRECTLY, never through a pipe: `cmd | head` yields head's status and
+# would make this gate pass no matter what the runner did.
+exit_probe() {
+  local name="$1" src="$2"
+  printf '%s\n' "$src" > "$WORK/x_$name.ssc"
+  local out rc
+  # `set -e` would abort the script the moment the run exits non-zero -- which is the
+  # EXPECTED outcome here -- and `rc=$?` would never execute. Disable it across exactly
+  # the two lines that need the status. (The same trap the AGENTS.md measurement rule
+  # names: a check that dies under `set -e` prints nothing and reads as "no failure".)
+  set +e
+  out="$("$SSC" run "$WORK/x_$name.ssc" 2>&1 </dev/null)"
+  rc=$?
+  set -e
+  if [[ "$out" != *"ssc: "* ]]; then
+    echo "FAIL [exit/$name] expected the run to report an 'ssc: ' diagnostic; it did not"
+    echo "  got: ${out:-<empty>}"
+    fail=$((fail + 1))
+  elif [[ $rc -eq 0 ]]; then
+    echo "FAIL [exit/$name] printed a diagnostic but exited 0 — an exit-status check reads this as SUCCESS"
+    echo "  diagnostic: $(printf '%s' "$out" | head -1)"
+    echo "  expected:   non-zero exit;  got: $rc"
+    fail=$((fail + 1))
+  else
+    echo "ok   [exit/$name] rc=$rc $(printf '%s' "$out" | head -1 | cut -c1-64)"
+    pass=$((pass + 1))
+  fi
+}
+
+exit_probe uncaught-throw 'throw new RuntimeException("boom")'
+exit_probe unbound-name 'println(nosuchname())'
+exit_probe index-out-of-bounds 'println(List(1,2,3)(9))'
+exit_probe unbound-qualified 'println(NoSuchThing.method(1))'
+exit_probe divide-by-zero 'println(10 / 0)'
+exit_probe no-dispatch-in-if 'case class C(x: Int)
+val c = C(1)
+if c.noSuchMethod() then println("t") else println("f")'
+
 # ── program-tail rendering ──────────────────────────────────────────────────
 #
 # The program's tail is USER-FACING OUTPUT, not a debug dump. It used to render through

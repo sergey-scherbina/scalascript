@@ -5,6 +5,28 @@ Active pending work is in [SPRINT.md](SPRINT.md); ownership is authoritative onl
 through `.work/active/*.claim` on `origin/main`.
 Completed work is in [CHANGELOG.md](CHANGELOG.md).
 
+## nested-runner-exit-status-audit — does a swallowed status hide a fail-open?
+
+Deferred from `v2-cli-error-exit-code` (2026-07-28) with its reasoning, not dropped.
+
+The invariant "if the run prints `ssc: <error>` the exit code is non-zero" now holds on ten
+probed shapes and is gated in `tests/e2e/v2-error-diagnostic.sh`. What is NOT audited is the
+*nested* runner paths, which is where a violation would most plausibly hide:
+
+- the `--bytecode`/ASM **link-time fallback to the VM** (`RunNativeV2`, `noteBytecodeFallback`),
+- the **F-delegation re-run** with the default front (`noteFNestedBytecodeVm`, `fFailure`).
+
+Both catch a `Throwable` from an inner run, note it, and continue. If an inner run's failure is
+recorded as a note and the outer path then completes normally, the process can print a diagnostic
+and still exit 0 — the exact shape reported against `examples/rozum-agent-schema-derived.ssc`
+before `4f5ecf261` removed its trigger.
+
+**Why deferred rather than started:** there is no live symptom to anchor it, so it is an audit of
+two code paths plus constructing a program that fails only in the inner lane — real work, and
+speculative. **What would make it urgent:** any new sighting of a printed `ssc: …` with exit 0, or
+a CI step that passes while its log shows a diagnostic. The gate above is what would surface that.
+
+
 ## Open work — what's left (2026-06-15)
 
 This backlog was tidied 2026-06-15: completed milestones moved to `CHANGELOG.md` + git
