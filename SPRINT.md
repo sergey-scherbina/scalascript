@@ -324,7 +324,15 @@ self-parity test is not external conformance.
 - [ ] **UPR-2 — YAML 1.2.2 M3.1 full grammar and hardening.**
   - [ ] **UPR-2a lexical/directive layer.** Implement the YAML printable set, BOM rules, directive
         placement/scoping, `%YAML`/`%TAG` validation and handle expansion, tag URI/anchor/alias
-        lexical rules, and every stable diagnostic promised by `specs/uniml-yaml.md`.
+        lexical rules, and the lexical/directive diagnostics promised by `specs/uniml-yaml.md`.
+    - [ ] **UPR-2a.1 document-scoped `%TAG` expansion.** Parse the two default handles and each
+          document's `%TAG` declarations, validate duplicates/undefined handles and percent escapes,
+          reset declarations at document boundaries, and expand scalar/sequence/mapping tags in the
+          semantic output consumed by the event trace. Measured target cases are exactly `5TYM`,
+          `6CK3`, `6JWB`,
+          `6WLZ`, `735Y`, `9WXW`, `CC74`, `P76L`, `U3C3`, and `Z9M4`: all are currently
+          valid/valid with equal event counts and tag-only diffs. Expected no-regression movement is
+          semantics 128→138 and strict 112→122.
   - [ ] **UPR-2b scalar engine.** Implement multiline plain/single/double quoted folding, complete
         double-quoted escapes and escaped line breaks, literal/folded block indentation,
         more-indented lines, chomping, explicit indentation, and malformed-header recovery.

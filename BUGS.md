@@ -1,5 +1,67 @@
 # Bug tracker
 
+## uniml-yaml-projection-reorders-invalid-cst — semantic projection sorts tokens instead of validating source order
+
+**Status:** OPEN (found 2026-07-28 during UPR-2 architecture audit).
+
+**Reproduction.** `YamlProjection.project` flattens every CST root and calls
+`sortBy(_.id)` before rebuilding the source string. A caller-provided or composed `ParseResult`
+whose traversal order and token ids disagree is therefore silently reordered and reparsed instead
+of returning `uniml.yaml.projection-invalid-cst`.
+
+**Impact.** Projection can manufacture a semantic success from an invalid CST. The result hides the
+original tree/order defect, and anchor/directive meaning can change because YAML is source ordered.
+
+**Fix acceptance.** Add a fail-first projection test with disagreeing traversal/id order. Validate
+one source identity, unique ids, monotone spans, source slices, and traversal/source order; reject
+the invalid tree without sorting or reparsing it.
+
+## uniml-yaml-alias-resolution-last-wins — earlier aliases bind to a later duplicate anchor
+
+**Status:** OPEN (found 2026-07-28 during UPR-2 architecture audit).
+
+**Reproduction.** Parse and resolve:
+
+```yaml
+first: &slot one
+before: *slot
+second: &slot two
+after: *slot
+```
+
+`YamlProjection.collectAnchors` walks the whole document into one last-wins `Map` before cloning
+aliases, so both aliases resolve to `two`. The YAML serialization contract requires `before` to
+resolve to `one`; only `after` sees the replacement binding. A forward alias is likewise present in
+that pre-collected table even though validation separately reports it.
+
+**Impact.** `AliasPolicy.Resolve` changes source-order graph semantics around duplicate anchors.
+
+**Fix acceptance.** Add fail-first duplicate/forward-anchor tests. Resolve in source order with the
+binding visible at each alias occurrence, retain the duplicate warning, reject forward aliases, and
+keep expansion/cycle/node limits bounded.
+
+## uniml-yaml-official-conformance-gap — YAML 1.2.2 strict corpus is 112/402
+
+**Status:** OPEN (accepted 2026-07-28 as UPR-2 from the pinned compare-first gate).
+
+**Real-harness reproduction.**
+
+```bash
+sbt -batch \
+  "unimlYaml/Test/runMain scalascript.uniml.dialect.yaml.yamlOfficialCorpusStrict"
+```
+
+The gate exits 1 after comparing all 402 cases: source/chunks are 402/402, validity is 210/402,
+semantics 128/402, strict 112/402, and 290 cases differ with zero crashes. All 94 upstream-invalid
+cases are event-red; the current AST post-walk always synthesizes balanced closing events and
+therefore cannot represent their official partial event prefixes.
+
+**Impact.** The safe M3 subset is lossless but is not production YAML 1.2.2 conformance.
+
+**Fix acceptance.** Complete UPR-2a–e without exclusions: exact validity and normalized event
+semantics for all 402 cases on JVM and Scala.js, source/chunks 402/402, zero crashes, portable lint,
+Core Schema differential, standalone/root transition, and affected conformance green.
+
 ## v2-generator-provider — Dataset cannot consume the native Generator provider
 
 **Status:** OPEN (reported by the SSC v2 corpus audit; accepted 2026-07-28
