@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+#
+# build-ram-idle-ab — measure what an sbt server holds while IDLE, under a given set of JVM flags.
+#
+# The question this answers, and why it had to be measured rather than assumed (AGENTS.md:
+# "measurement apparatus must COMPARE, never PRE-JUDGE"): a resident sbt server keeps its peak heap
+# because G1 only returns memory to the OS at a full GC, and an idle server never has one. If that
+# is true here, JEP 346 periodic GC plus aggressive heap-free ratios should make an idle server give
+# the memory back — and 13 idle worktree servers stop being 60 GB of dead weight. If it is NOT true,
+# this prints that instead, and the flags do not land.
+#
+#   scripts/build-ram-idle-ab baseline
+#   scripts/build-ram-idle-ab shrink "-XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=30 …"
+#
+# Both arms: fresh server → load the build (the allocation event) → idle, sampling RSS + committed
+# heap every 15 s → shut down. Prints the full series, never just the endpoints, so a reader can see
+# whether a drop is a trend or a sample.
+set -uo pipefail
+
+arm="${1:?usage: build-ram-idle-ab <arm-name> [extra-jvm-flags]}"
+extra="${2:-}"
+IDLE_SECS="${SSC_AB_IDLE_SECS:-240}"
+STEP="${SSC_AB_STEP:-15}"
+
+WT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$WT"
+
+echo "── arm '$arm' in $WT"
+echo "   extra flags: ${extra:-<none>}"
+
+sbt --client shutdown >/dev/null 2>&1 || true
+sleep 2
+
+orig=$(cat .jvmopts 2>/dev/null || echo "")
+restore() {
+  printf '%s\n' "$orig" > .jvmopts
+  sbt --client shutdown >/dev/null 2>&1 || true
+}
+trap restore EXIT INT TERM
+
+{ printf '%s\n' "$orig"; for f in $extra; do printf '%s\n' "$f"; done; } > .jvmopts
+echo "   .jvmopts now: $(tr '\n' ' ' < .jvmopts)"
+
+echo "   loading the build (this is the allocation event)…"
+t0=$(date +%s)
+sbt --client "show name" >/dev/null 2>&1
+t1=$(date +%s)
+echo "   build loaded in $(( t1 - t0 ))s"
+
+pid=$(ps -axo pid=,args= | grep -E 'sbt-launch|xsbt\.boot|sbt/standalone' | grep -v grep |
+  while read -r p rest; do
+    c=$(lsof -a -p "$p" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1)
+    [ "$c" = "$WT" ] && { echo "$p"; break; }
+  done)
+[ -n "$pid" ] || { echo "   ✗ no sbt server found for $WT — cannot measure"; exit 1; }
+echo "   server pid=$pid"
+
+printf '\n   %6s %10s %12s %12s\n' T+s RSS_MB HEAP_USED_MB HEAP_CMTD_MB
+elapsed=0
+while [ "$elapsed" -le "$IDLE_SECS" ]; do
+  rss=$(ps -o rss= -p "$pid" 2>/dev/null | tr -d ' ')
+  [ -n "$rss" ] || { echo "   server exited at T+${elapsed}s"; break; }
+  info=$(jcmd "$pid" GC.heap_info 2>/dev/null | tr '\n' ' ')
+  used=$(printf '%s' "$info" | sed -n 's/.*total \([0-9]*\)K, used \([0-9]*\)K.*/\2/p')
+  cmtd=$(printf '%s' "$info" | sed -n 's/.*total \([0-9]*\)K, used \([0-9]*\)K.*/\1/p')
+  printf '   %6s %10s %12s %12s\n' "$elapsed" "$(( rss / 1024 ))" \
+    "$(( ${used:-0} / 1024 ))" "$(( ${cmtd:-0} / 1024 ))"
+  sleep "$STEP"
+  elapsed=$(( elapsed + STEP ))
+done
+
+echo
+echo "── arm '$arm' done; restoring .jvmopts and stopping the server"

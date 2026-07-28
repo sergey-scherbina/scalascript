@@ -1,0 +1,194 @@
+#!/usr/bin/env bash
+#
+# build-ram-report — what is this host's build tooling ACTUALLY committing to RAM, and who owns it?
+#
+# WHY THIS EXISTS (measured 2026-07-28)
+# ------------------------------------
+# Two memory-exhaustion events (2026-07-20 kernel panic; 2026-07-28 139,831 pageouts / 526 MB swap)
+# both had the same shape: no single JVM broke its own cap, the AGGREGATE across parallel worktree
+# agents had no ceiling — and nothing on the host could report that aggregate. `jvm-mem-guard`
+# watches `kern.memorystatus_level`, which stays high (93 on an idle host) while macOS compresses
+# and swaps, so its log was 0 bytes straight through the second event.
+#
+# You cannot bound a number nobody prints. This prints it:
+#
+#   RESIDENT  what the build tooling holds right now (sum of RSS)
+#   DECLARED  what it is ALLOWED to grow to (sum of each JVM's real MaxHeapSize)
+#   HOST      physical RAM
+#
+# DECLARED is the number that matters and the one that was never visible: 13 worktrees × (one 4 GB
+# sbt server + up to 4 × 2 GB forked test JVMs) declares ~156 GB on a 36 GB host. Every process is
+# individually well-behaved; the sum is a promise the machine cannot keep, and the machine finds out
+# by swapping.
+#
+# Usage:
+#   scripts/build-ram-report                 # one report, with per-process detail
+#   scripts/build-ram-report --gate          # exit 1 if DECLARED exceeds the overcommit budget
+#   scripts/build-ram-report --watch 15      # re-report every 15 s (Ctrl-C to stop)
+#   scripts/build-ram-report --brief         # totals only
+#   scripts/build-ram-report --fast          # skip jcmd/lsof (argv-only heap, no worktree column)
+#   scripts/build-ram-report --tsv           # machine-readable: one row per process, then TOTAL
+#
+# Env:
+#   SSC_BUILD_RAM_OVERCOMMIT   how many times host RAM the declared ceiling may reach before
+#                              --gate fails. Default 1.0 (= never promise more than you have).
+#
+# Exit codes: 0 ok · 1 --gate tripped (overcommit) · 2 usage.
+set -uo pipefail
+
+OVERCOMMIT="${SSC_BUILD_RAM_OVERCOMMIT:-1.0}"
+gate=0 watch=0 brief=0 fast=0 tsv=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --gate)   gate=1; shift ;;
+    --watch)  watch="${2:?--watch needs seconds}"; shift 2 ;;
+    --brief)  brief=1; shift ;;
+    --fast)   fast=1; shift ;;
+    --tsv)    tsv=1; brief=0; shift ;;
+    -h|--help) sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "build-ram-report: unknown flag '$1' (try --help)" >&2; exit 2 ;;
+  esac
+done
+
+# ── host facts ───────────────────────────────────────────────────────────────
+uname_s=$(uname -s)
+if [ "$uname_s" = "Darwin" ]; then
+  HOST_BYTES=$(sysctl -n hw.memsize)
+else
+  HOST_BYTES=$(( $(awk '/^MemTotal:/{print $2}' /proc/meminfo) * 1024 ))
+fi
+HOST_MB=$(( HOST_BYTES / 1048576 ))
+
+# Pressure signals. NOTE which one is load-bearing: swap/compressor move EARLY and are what the
+# 2026-07-28 event actually showed; `memorystatus_level` is a jetsam indicator that only collapses
+# once the machine is already in the death zone. Reporting both is the point — the divergence
+# between them IS the bug that let two OOM events go unreported.
+pressure() {
+  if [ "$uname_s" = "Darwin" ]; then
+    local swap used comp pageout level
+    swap=$(sysctl -n vm.swapusage 2>/dev/null || echo "")
+    used=$(printf '%s' "$swap" | sed -n 's/.*used = \([0-9.]*\)M.*/\1/p'); used="${used:-0}"
+    comp=$(vm_stat 2>/dev/null | sed -n 's/^Pages occupied by compressor: *\([0-9]*\)\./\1/p'); comp="${comp:-0}"
+    pageout=$(vm_stat 2>/dev/null | sed -n 's/^Pageouts: *\([0-9]*\)\./\1/p'); pageout="${pageout:-0}"
+    level=$(sysctl -n kern.memorystatus_level 2>/dev/null || echo "?")
+    printf 'swap_used_mb=%s compressor_mb=%s pageouts=%s memorystatus_level=%s%%' \
+      "${used%.*}" "$(( comp * 16384 / 1048576 ))" "$pageout" "$level"
+  else
+    local st su av
+    st=$(awk '/^SwapTotal:/{print int($2/1024)}' /proc/meminfo)
+    su=$(awk '/^SwapFree:/{f=$2} /^SwapTotal:/{t=$2} END{print int((t-f)/1024)}' /proc/meminfo)
+    av=$(awk '/^MemAvailable:/{print int($2/1024)}' /proc/meminfo)
+    printf 'swap_used_mb=%s swap_total_mb=%s mem_available_mb=%s' "$su" "$st" "$av"
+  fi
+}
+
+# ── which processes count as "build tooling" ────────────────────────────────
+# Deliberately WIDER than jvm-mem-guard's BUILD_RE, which missed exactly the processes behind the
+# 2026-07-28 event: the conformance runner's per-case `ssc` JVM forks and its `node` JS-lane forks
+# are not sbt, not bloop and not scala-cli, so a report built on that regex says the host is idle
+# while ~1600 cold JVMs go through it.
+classify() { # classify <args...>  → role, or empty when not build tooling
+  case "$1" in
+    *jvm-mem-guard*|*build-ram-report*|*grep*) return 1 ;;
+  esac
+  case "$1" in
+    *sbt.ForkMain*|*ForkMain*)                      echo "test-fork" ;;
+    *org.openjdk.jmh*|*jmh*Bench*)                  echo "jmh" ;;
+    *sbt-launch*|*xsbt.boot*|*sbt.script*|*sbt/standalone*|*sbt-launcher*) echo "sbt-server" ;;
+    *bloop*)                                        echo "bloop" ;;
+    *scala-cli*|*scala.cli*|*scalacli*)             echo "scala-cli" ;;
+    *scala.tools.nsc*|*dotty.tools.dotc*)           echo "scalac" ;;
+    *ssc.lib.path*|*ssc.jar*|*ssc-tools*)           echo "ssc-fork" ;;
+    *zinc*|*metals*|*BspServer*|*bsp-*)             echo "bsp" ;;
+    *scalascript*node*|*node*conformance*)          echo "node" ;;
+    *) return 1 ;;
+  esac
+}
+
+# Real heap ceiling. `ps` shows the ORIGINAL argv, so an -Xmx injected through JDK_JAVA_OPTIONS —
+# which is exactly how scripts/conformance and scripts/build-guard cap their children — is INVISIBLE
+# to an argv scan. Asking the JVM itself (`jcmd VM.flags`) is the only reading that reflects what is
+# actually in force; argv is the fallback, and the JVM's own default (¼ RAM) the last resort.
+max_heap_mb() { # max_heap_mb <pid> <args>
+  local pid="$1" args="$2" v
+  if [ "$fast" -eq 0 ] && command -v jcmd >/dev/null 2>&1; then
+    v=$(jcmd "$pid" VM.flags 2>/dev/null | tr ' ' '\n' | sed -n 's/^-XX:MaxHeapSize=\([0-9]*\)$/\1/p' | head -1)
+    if [ -n "$v" ] && [ "$v" -gt 0 ] 2>/dev/null; then echo $(( v / 1048576 )); return 0; fi
+  fi
+  v=$(printf '%s' "$args" | tr ' ' '\n' | sed -n 's/^-J\{0,1\}-\{0,1\}Xmx\([0-9]*[kKmMgG]\{0,1\}\)$/\1/p' | tail -1)
+  if [ -n "$v" ]; then
+    case "$v" in
+      *g|*G) echo $(( ${v%[gG]} * 1024 )) ;;
+      *m|*M) echo "${v%[mM]}" ;;
+      *k|*K) echo $(( ${v%[kK]} / 1024 )) ;;
+      *)     echo $(( v / 1048576 )) ;;
+    esac
+    return 0
+  fi
+  echo $(( HOST_MB / 4 ))          # JVM ergonomic default — the uncapped case, and the dangerous one
+}
+
+worktree_of() { # worktree_of <pid> → short name of the checkout this process is building
+  [ "$fast" -eq 1 ] && { echo "-"; return; }
+  local cwd
+  cwd=$(lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1)
+  [ -z "$cwd" ] && { echo "?"; return; }
+  [ -d "$cwd" ] || { echo "GONE:$(basename "$cwd")"; return; }
+  echo "$(basename "$cwd")"
+}
+
+report_once() {
+  local rows="" n=0 rss_total=0 declared_total=0
+
+  while IFS= read -r line; do
+    local pid rss args role heap wt
+    pid=${line%% *}; line=${line#* }
+    rss=${line%% *}; args=${line#* }
+    role=$(classify "$args") || continue
+    n=$(( n + 1 ))
+    heap=$(max_heap_mb "$pid" "$args")
+    wt=$(worktree_of "$pid")
+    rss_total=$(( rss_total + rss / 1024 ))
+    declared_total=$(( declared_total + heap ))
+    rows="${rows}${role}\t${pid}\t$(( rss / 1024 ))\t${heap}\t${wt}\n"
+  done < <(ps -axo pid=,rss=,args= 2>/dev/null | sed 's/^ *//;s/  */ /g')
+
+  local budget_mb over
+  budget_mb=$(awk -v h="$HOST_MB" -v o="$OVERCOMMIT" 'BEGIN{printf "%d", h*o}')
+  over=0; [ "$declared_total" -gt "$budget_mb" ] && over=1
+
+  if [ "$tsv" -eq 1 ]; then
+    printf 'role\tpid\trss_mb\tdeclared_mb\tworktree\n'
+    [ -n "$rows" ] && printf '%b' "$rows" | sort -k4,4 -rn
+    printf 'TOTAL\t-\t%s\t%s\thost_mb=%s\n' "$rss_total" "$declared_total" "$HOST_MB"
+    printf '# %s procs=%s overcommit_budget_mb=%s over=%s\n' "$(pressure)" "$n" "$budget_mb" "$over"
+  else
+    echo "── build RAM on $(hostname -s) ── $(date '+%Y-%m-%d %H:%M:%S')"
+    if [ "$brief" -eq 0 ] && [ -n "$rows" ]; then
+      printf '%-11s %8s %9s %10s  %s\n' ROLE PID RSS_MB XMX_MB WORKTREE
+      printf '%b' "$rows" | sort -k4,4 -rn |
+        awk -F'\t' '{printf "%-11s %8s %9s %10s  %s\n", $1, $2, $3, $4, $5}'
+    fi
+    printf '\n  processes : %d\n' "$n"
+    printf '  RESIDENT  : %6d MB  (what build tooling holds now)\n' "$rss_total"
+    printf '  DECLARED  : %6d MB  (what it may grow to — the number that overflows)\n' "$declared_total"
+    printf '  HOST      : %6d MB  (budget %s MB at overcommit %s)\n' "$HOST_MB" "$budget_mb" "$OVERCOMMIT"
+    printf '  pressure  : %s\n' "$(pressure)"
+    if [ "$over" -eq 1 ]; then
+      printf '\n  ⚠ OVERCOMMIT: declared %d MB > budget %d MB (by %d MB).\n' \
+        "$declared_total" "$budget_mb" "$(( declared_total - budget_mb ))"
+      printf '    Every process is within its own cap; the SUM is not. This is the exact state that\n'
+      printf '    preceded both OOM events. Shed with: scripts/kill-stale-builders --idle 30 --kill\n'
+    fi
+  fi
+  return "$over"
+}
+
+if [ "$watch" != 0 ]; then
+  while :; do report_once; echo; sleep "$watch"; done
+fi
+
+report_once
+rc=$?
+[ "$gate" -eq 1 ] && exit "$rc"
+exit 0
