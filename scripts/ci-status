@@ -319,12 +319,29 @@ fi
 # dropped one is RED rather than accidentally green. For any other workflow there is no such list,
 # and inventing one would be a guess: the rule there is that every job the run DID have succeeded.
 if [[ "$WORKFLOW" == "ci.yml" ]]; then
-  # These three are the PER-PUSH verdict and must always be green.
+  # These are the PER-PUSH verdict and must always be green.
+  #
+  # `Conformance Suite` became a 4-way shard MATRIX on 2026-07-28 (build-ram-budget-and-speed): the
+  # unsharded job was 37.7 min against a ~3-7 min push interval, so almost every run was superseded
+  # and cancelled — 83 of the last 100, with zero successes. Matrix jobs are named per instance
+  # (`Conformance shard 0/4` …), so the old single name no longer matches ANY job and this script
+  # would have reported `missing required job: Conformance Suite` on every future green run. That is
+  # the verdict tool contradicting the workflow it verifies — the same self-inflicted apparatus break
+  # the note below already records, and it very nearly shipped a second time.
+  #
+  # The width lives in ONE place here and is cross-checked against `.github/workflows/ci.yml` by
+  # `tests/e2e/ci-status-guard.sh` on every push, because duplicated state with no consistency check
+  # does not stay consistent (the same argument the claim-mutex pre-push hook makes about
+  # claim-vs-ledger drift).
+  conformance_shards="${SSC_CI_CONFORMANCE_SHARDS:-4}"
   required_jobs=(
     "Lint Markdown"
     "Validate ScalaScript"
-    "Conformance Suite"
+    "Examples and launcher smokes"
   )
+  for ((_shard = 0; _shard < conformance_shards; _shard++)); do
+    required_jobs+=("Conformance shard ${_shard}/${conformance_shards}")
+  done
   # `sbt — compile and test` is required only where it actually runs. It was moved off the push path
   # (ci.yml `if: github.event_name != 'push'`) because it takes 196 min against a 7-min mean code-push
   # interval, so at most 1 commit in 28 could reach a verdict (BUGS

@@ -52,7 +52,10 @@ if [[ "$args" == *" run list "* ]]; then
       status="completed"
       conclusion="failure"
       ;;
-    push-no-sbt|sched-no-sbt)
+    push-no-sbt|sched-no-sbt|one-shard-missing)
+      # `one-shard-missing` reports the RUN as successful on purpose: GitHub marks a run green when
+      # every job it actually ran passed, so a matrix instance that never got created leaves a green
+      # run with a hole in it. That is precisely the case ci-status must still call RED.
       status="completed"
       conclusion="success"
       ;;
@@ -75,20 +78,36 @@ if [[ "$args" == *" run list "* ]]; then
   exit 0
 fi
 
+shard_jobs() { # shard_jobs <status> <conclusion> — the 4-way conformance matrix, all alike
+  printf 'Examples and launcher smokes|%s|%s\n' "$1" "$2"
+  for i in 0 1 2 3; do printf 'Conformance shard %s/4|%s|%s\n' "$i" "$1" "$2"; done
+}
+
 if [[ "$args" == *" run view 42 "* ]]; then
   printf 'Lint Markdown|completed|success\n'
   printf 'Validate ScalaScript|completed|success\n'
   case "$mode" in
     green)
-      printf 'Conformance Suite|completed|success\n'
+      shard_jobs completed success
       printf 'sbt — compile and test|completed|success\n'
       ;;
     red)
-      printf 'Conformance Suite|completed|failure\n'
+      # Only shard 2 is red. That is deliberate: a matrix makes it possible for the verdict to hinge
+      # on ONE instance, and a check that only ever sees all-red or all-green cannot tell the
+      # difference between "every shard failed" and "the list is not really per-shard".
+      printf 'Examples and launcher smokes|completed|success\n'
+      printf 'Conformance shard 0/4|completed|success\n'
+      printf 'Conformance shard 1/4|completed|success\n'
+      printf 'Conformance shard 2/4|completed|failure\n'
+      printf 'Conformance shard 3/4|completed|success\n'
       printf 'sbt — compile and test|completed|cancelled\n'
       ;;
     pending)
-      printf 'Conformance Suite|in_progress|\n'
+      printf 'Examples and launcher smokes|completed|success\n'
+      printf 'Conformance shard 0/4|completed|success\n'
+      printf 'Conformance shard 1/4|completed|success\n'
+      printf 'Conformance shard 2/4|in_progress|\n'
+      printf 'Conformance shard 3/4|completed|success\n'
       printf 'sbt — compile and test|queued|\n'
       ;;
     missing)
@@ -96,8 +115,16 @@ if [[ "$args" == *" run view 42 "* ]]; then
       printf 'sbt — compile and test|completed|success\n'
       ;;
     push-no-sbt|sched-no-sbt)
-      # The shape a real push run now has: the three fast jobs and no sbt job at all.
-      printf 'Conformance Suite|completed|success\n'
+      # The shape a real push run now has: the fast jobs plus the four shards, and no sbt job.
+      shard_jobs completed success
+      ;;
+    one-shard-missing)
+      # A dropped MATRIX INSTANCE. Before sharding this could not happen; now it is the most likely
+      # way for the suite to silently shrink, so it gets its own case.
+      printf 'Examples and launcher smokes|completed|success\n'
+      printf 'Conformance shard 0/4|completed|success\n'
+      printf 'Conformance shard 1/4|completed|success\n'
+      printf 'Conformance shard 3/4|completed|success\n'
       ;;
     *)
       printf 'fake gh: unexpected view mode %s\n' "$mode" >&2
@@ -141,19 +168,22 @@ run_case() {
   done
 }
 
-run_case green 0 "CI GREEN $SHA" "Conformance Suite: completed/success"
+run_case green 0 "CI GREEN $SHA" "Conformance shard 0/4: completed/success"
 # Run as a SCHEDULED event so all four jobs are required — this case's second assertion is what pins
 # "cancelled is RED, not neutral", and sbt is only in the required set on non-push events.
-FAKE_CI_EVENT=schedule run_case red 1 "CI RED $SHA" "Conformance Suite: completed/failure" \
+FAKE_CI_EVENT=schedule run_case red 1 "CI RED $SHA" "Conformance shard 2/4: completed/failure" \
   "sbt — compile and test: completed/cancelled"
-run_case pending 2 "CI PENDING $SHA" "Conformance Suite: in_progress/pending"
-run_case missing 1 "CI RED $SHA" "missing required job: Conformance Suite"
+run_case pending 2 "CI PENDING $SHA" "Conformance shard 2/4: in_progress/pending"
+run_case missing 1 "CI RED $SHA" "missing required job: Conformance shard 0/4"
 # `sbt — compile and test` runs only on non-push events (ci.yml `if:`), because at 196 min against a
 # 7-min mean push interval at most 1 commit in 28 could ever reach a verdict (BUGS
 # ci-sbt-job-is-28x-the-code-push-interval). These two pin BOTH directions of that: absent-on-push is
 # legitimate, absent-on-schedule is still RED. Without the second case the first would silently excuse
 # a genuinely dropped sbt job.
-FAKE_CI_EVENT=push     run_case push-no-sbt  0 "CI GREEN $SHA" "Conformance Suite: completed/success"
+FAKE_CI_EVENT=push     run_case push-no-sbt  0 "CI GREEN $SHA" "Conformance shard 3/4: completed/success"
+# A dropped matrix INSTANCE must be RED. Sharding created this failure mode; without this
+# case a suite that quietly lost a quarter of the corpus would still report green.
+FAKE_CI_EVENT=push     run_case one-shard-missing 1 "CI RED $SHA" "missing required job: Conformance shard 2/4"
 FAKE_CI_EVENT=schedule run_case sched-no-sbt 1 "CI RED $SHA"   "missing required job: sbt — compile and test"
 run_case no-run 2 "CI UNKNOWN $SHA" "no push ci.yml run found"
 run_case gh-fail 2 "CI UNKNOWN $SHA" "gh run list failed"
@@ -201,11 +231,13 @@ if [[ "$args" == *" run view 77 "* ]]; then
 '
   printf 'Validate ScalaScript|completed|success
 '
+  printf 'Examples and launcher smokes|completed|success
+'
   case "$mode" in
-    desc-red) printf 'Conformance Suite|completed|failure
-' ;;
-    *)        printf 'Conformance Suite|completed|success
-' ;;
+    desc-red) for i in 0 1 2 3; do printf 'Conformance shard %s/4|completed|failure
+' "$i"; done ;;
+    *)        for i in 0 1 2 3; do printf 'Conformance shard %s/4|completed|success
+' "$i"; done ;;
   esac
   printf 'sbt — compile and test|completed|success
 '
@@ -528,6 +560,49 @@ if [[ "$missing_heartbeat_code" -ne 0 || "$missing_heartbeat_output" != *"$missi
   printf 'ci-status-guard[missing-heartbeat]: expected=%q got_output=%q exit=%s expected_branch=%s observed_branches=%q\n' \
     "$missing_heartbeat_expected" "$missing_heartbeat_output" "$missing_heartbeat_code" \
     "$CLAIM_BRANCH" "$observed_branches" >&2
+  exit 1
+fi
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# The required-job list is DUPLICATED state: `scripts/ci-status` names the jobs it demands, and
+# `.github/workflows/ci.yml` names the jobs that exist. Nothing checked that they agree, and on
+# 2026-07-28 they stopped agreeing the moment the conformance job became a matrix — the verdict tool
+# would have reported `missing required job` on every green run from then on. Duplicated state with
+# no consistency check does not stay consistent; this is that check.
+#
+# It compares against the WORKFLOW, not against a second copy of the expectation, so it fails when
+# someone renames a job or changes the matrix width without touching the verdict tool.
+CI_YML="$ROOT/.github/workflows/ci.yml"
+
+# Matrix width, straight from the workflow: `shard: [0, 1, 2, 3]` -> 4
+yml_shards="$(sed -n 's/^ *shard: *\[\(.*\)\] *$/\1/p' "$CI_YML" | head -1 | tr -cd ',' | wc -c | tr -d ' ')"
+yml_shards=$(( yml_shards + 1 ))
+status_shards="$(sed -n 's/^ *conformance_shards="\${SSC_CI_CONFORMANCE_SHARDS:-\([0-9]*\)}".*$/\1/p' \
+  "$ROOT/scripts/ci-status" | head -1)"
+if [[ "$yml_shards" != "$status_shards" ]]; then
+  printf 'ci-status-guard[shard-width-drift]: ci.yml declares %s conformance shards, scripts/ci-status requires %s.\n' \
+    "$yml_shards" "$status_shards" >&2
+  printf '  expected=%s got=%s — the verdict tool and the workflow must agree, or every run reports a missing job.\n' \
+    "$yml_shards" "$status_shards" >&2
+  exit 1
+fi
+
+# Every non-matrix job name ci-status requires must actually exist in the workflow.
+for required in "Lint Markdown" "Validate ScalaScript" "Examples and launcher smokes"; do
+  if ! grep -qF "name: $required" "$CI_YML"; then
+    printf 'ci-status-guard[job-name-drift]: scripts/ci-status requires a job named %q, but ci.yml has no such `name:`.\n' \
+      "$required" >&2
+    printf '  jobs declared in ci.yml:\n' >&2
+    sed -n 's/^ *name: \(.*\)$/    \1/p' "$CI_YML" | sort -u >&2
+    exit 1
+  fi
+done
+
+# And the matrix job's name template must still produce `Conformance shard <i>/<N>`.
+if ! grep -qF 'name: Conformance shard ${{ matrix.shard }}/4' "$CI_YML"; then
+  printf 'ci-status-guard[job-name-drift]: ci.yml no longer names the matrix job `Conformance shard ${{ matrix.shard }}/4`.\n' >&2
+  printf '  scripts/ci-status builds its required list from that exact shape; update both together.\n' >&2
   exit 1
 fi
 
