@@ -9,7 +9,14 @@ package ssc
 object Emit:
   // resolve is string-keyed and non-trivial — cache per op (hot: every prim site)
   private val fnCache = new java.util.concurrent.ConcurrentHashMap[String, List[Value] => Value]()
-  private def fn(op: String) = fnCache.computeIfAbsent(op, o => Prims.resolve(o))
+  // The mapper is a `val`, not a lambda written at the call site, and that is not style.
+  // A lambda literal passed to `computeIfAbsent` is constructed on EVERY call — the miss
+  // path runs once per op, the ALLOCATION runs once per prim invocation. A profile of
+  // `bench/corpus/float-loop` showed `Emit$$Lambda` at 440 allocation samples, level with
+  // the FloatV boxes. Hoisting costs nothing and removes an allocation per primitive.
+  private val mkFn: java.util.function.Function[String, List[Value] => Value] =
+    (o: String) => Prims.resolve(o)
+  private def fn(op: String) = fnCache.computeIfAbsent(op, mkFn)
 
   // ── Arity-specialised prim dispatch ─────────────────────────────────────────
   // `Prims.resolve1/2/3` exist precisely so a prim can be called without building a
@@ -37,12 +44,18 @@ object Emit:
   private val slot1 = new java.util.concurrent.ConcurrentHashMap[String, Slot[Prims.Fn1]]()
   private val slot2 = new java.util.concurrent.ConcurrentHashMap[String, Slot[Prims.Fn2]]()
   private val slot3 = new java.util.concurrent.ConcurrentHashMap[String, Slot[Prims.Fn3]]()
+  private val mkSlot1: java.util.function.Function[String, Slot[Prims.Fn1]] =
+    (o: String) => new Slot(Prims.resolve1(o).orNull, Prims.resolve(o))
+  private val mkSlot2: java.util.function.Function[String, Slot[Prims.Fn2]] =
+    (o: String) => new Slot(Prims.resolve2(o).orNull, Prims.resolve(o))
+  private val mkSlot3: java.util.function.Function[String, Slot[Prims.Fn3]] =
+    (o: String) => new Slot(Prims.resolve3(o).orNull, Prims.resolve(o))
   private def s1(op: String): Slot[Prims.Fn1] =
-    slot1.computeIfAbsent(op, o => new Slot(Prims.resolve1(o).orNull, Prims.resolve(o)))
+    slot1.computeIfAbsent(op, mkSlot1)
   private def s2(op: String): Slot[Prims.Fn2] =
-    slot2.computeIfAbsent(op, o => new Slot(Prims.resolve2(o).orNull, Prims.resolve(o)))
+    slot2.computeIfAbsent(op, mkSlot2)
   private def s3(op: String): Slot[Prims.Fn3] =
-    slot3.computeIfAbsent(op, o => new Slot(Prims.resolve3(o).orNull, Prims.resolve(o)))
+    slot3.computeIfAbsent(op, mkSlot3)
 
   /** Direct arithmetic — no resolve, no List, no StrV boxing of the op. */
   def arith(op: String, a: Value, b: Value): Value = Prims.arithFast(op, a, b)
