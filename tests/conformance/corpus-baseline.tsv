@@ -107,17 +107,9 @@ rest-api-fm	*	SKIP
 rest-jetty	*	SKIP
 rest-validate	v2	FAIL
 rozum-agent	js	FAIL
-rozum-agent	v2	DIVERGE
 rozum-agent-pool	js	FAIL
-rozum-agent-pool	v2	DIVERGE
 rozum-agent-schema-derived	js	TIMEOUT
-rozum-agent-schema-derived	v2	DIVERGE
 rozum-agent-streaming	js	FAIL
-rozum-agent-streaming	v2	DIVERGE
-scljet-freelist-write-corrupt	int	KNOWN-RED
-scljet-freelist-write-corrupt	js	KNOWN-RED
-scljet-sql-live-reclaim	int	KNOWN-RED
-scljet-sql-live-reclaim	js	KNOWN-RED
 seed-signal	*	SKIP
 spa-demo	*	SKIP
 sql-h2-quickstart	js	FAIL
@@ -132,7 +124,6 @@ traditional-payments	*	SKIP
 typed-object-codec	js	FAIL
 typed-object-codec	v2	FAIL
 typed-sql-crud	js	FAIL
-typed-sql-crud	v2	FAIL
 ui-fetch-json	js	FAIL
 uploads	*	SKIP
 uuid-v7	*	SKIP
