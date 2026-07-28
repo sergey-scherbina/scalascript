@@ -197,6 +197,103 @@ Semantic recursion is capped at 512 in addition to the VM's configurable core de
 synchronizes at a line break/document marker in block context or comma/closing delimiter in flow
 context.
 
+### M3.1 scanner and parser-state contract
+
+M3.1 replaces the line-oriented recognition shortcuts with one shared portable syntax scan and an
+explicit parser-state stack. The implementation is split as follows:
+
+- `YamlSyntax.scala` owns the code-point cursor, physical-line records, lexical classes, directive
+  and property spellings, scalar fragments, and exact source spans. It is the single lexical
+  authority used by CST token emission and semantic parsing.
+- `YamlLexer.scala` maps syntax records to source-backed `yaml.*` tokens. It does not re-guess
+  indicator context from individual `Char` values.
+- `YamlStructure.scala` receives source-ordered parser ranges. It may assign VM reframes but may not
+  infer YAML nesting from a per-line colon/dash heuristic.
+- `YamlSemanticParser.scala` consumes syntax records with explicit stream/document, block, flow,
+  property, scalar, and recovery frames.
+- `YamlSemanticEvents.scala` owns the ordered test-event-compatible trace described below. It has no
+  corpus data or expected-value knowledge.
+
+The cursor carries a UTF-16 index plus public code-point offset, line, and column. CR and LF are
+line breaks; CRLF performs one line transition while consuming two code-point offsets. A scanner
+must never split CRLF cursor state or a surrogate pair merely because the transport chunk ended.
+The YAML printable set is exactly tab, CR, LF, `U+0020..U+007E`, `U+0085`,
+`U+00A0..U+D7FF`, `U+E000..U+FFFD`, and `U+10000..U+10FFFF`. Other controls and unpaired
+surrogates produce `uniml.yaml.invalid-character`. A BOM is presentation only at a YAML-permitted
+stream/document boundary; elsewhere it is an error.
+
+Transport accumulation keeps an explicit immutable chunk sequence and running code-point/UTF-16
+sizes, rejects limits before joining, and materializes the bounded source at most once. Repeated
+`state + chunk` or another whole-prefix copy per input chunk is forbidden. The dialect adapter's
+hidden processor-state type may be generalized to carry this buffer; the public
+`Processor[S, I, O]` contract and parse result do not change.
+
+The parser stack, not indentation lookahead alone, decides whether `-`, `?`, `:`, `#`, flow
+delimiters, and scalar continuations are syntax. Required states cover:
+
+- directive prelude and document boundaries, including one `%YAML`, document-scoped `%TAG`
+  handles, duplicate/undefined handles, reserved directives, and the mandatory explicit start
+  following directives;
+- block sequence/mapping frames with required indentation, indentationless sequence entries,
+  compact/property-only nodes, explicit/complex keys, and empty keys/values;
+- flow sequence/mapping frames with pair/key/value/separator expectations and multiline
+  separation;
+- pending tag/anchor properties, which attach once to the following node;
+- all five scalar styles, including multiline quote folding and block-scalar
+  indentation/chomping.
+
+Recovery is deterministic and local. In block context it synchronizes at a same-or-lower-indented
+line or document marker; in flow context at a comma or the matching/outer closing delimiter.
+Skipped source is still emitted once as source-backed syntax/error tokens. CST construction
+continues after a recoverable error and never manufactures a successful semantic node from skipped
+text.
+
+### Ordered semantic event trace
+
+The official semantic observable is generated while parsing, not reconstructed afterward from
+`YamlValue`. The private result contains both the public projection tree and
+`Vector[YamlSemanticEvent]`. Events are emitted in source order:
+
+```text
+stream-start
+document-start
+mapping-start | sequence-start | scalar | alias
+mapping-end | sequence-end
+document-end
+stream-end
+```
+
+Start/scalar events retain the effective tag, anchor, scalar value/style where applicable. `%TAG`
+expansion uses the current document's handle table. Anchor declarations and alias lookup use source
+order; an alias never binds to a later declaration, and a duplicate anchor affects only later
+aliases.
+
+At the first `Error` or `Fatal` diagnostic, the semantic trace freezes at the events already
+observed. Recovery continues to produce the lossless partial CST and bounded diagnostics, but it
+cannot append speculative semantic events. This matches the official invalid-case `test.event`
+prefix without using expected-error markers to skip parsing. Warnings do not freeze the trace.
+Valid input must close every event frame and finish with `stream-end`.
+
+`YamlValue` remains the public projection. It is derived from the same successful parser frames,
+not reparsed from concatenated CST tokens. Projection validates source identity, monotone spans,
+unique token ids, and traversal/source order; it never sorts tokens to turn an invalid CST into an
+apparently valid source stream.
+
+### Baseline evolution
+
+The UPR-1 baseline is the immutable historical starting point. During UPR-2, each independently
+shippable grammar slice runs every official case first and produces a complete candidate row set.
+The checked-in live baseline may advance only in the same reviewed slice after:
+
+1. the old and new per-case rows are diffed;
+2. every changed row is attributed to that grammar behavior;
+3. source/chunk exactness remains 402/402 and crashes remain zero;
+4. validity/semantic/strict counts do not regress; and
+5. JVM and Scala.js produce byte-identical rows and category totals.
+
+Aggregate counts alone never authorize a baseline update. The final UPR-2 baseline is 402 strict
+matches; no expected-failure list or production-based preclassification is permitted.
+
 ## Scalar projection
 
 Projection separates presentation from resolution:
@@ -215,6 +312,11 @@ The CST records anchors/aliases without graph construction. Projection builds a 
 in source order. Duplicate anchor names replace the previous binding for later aliases as specified by
 YAML serialization semantics, with a warning because it is often accidental. An alias before any
 matching anchor is an error.
+
+Resolution walks the already parsed representation in source order and snapshots the binding visible
+at each alias occurrence. A document-wide last-wins table is forbidden: it would bind a preceding
+alias to a later duplicate declaration. Alias names remain the public preserved representation; the
+binding snapshot is private resolution state.
 
 Preserved projection can represent cycles/reuse. Resolved projection clones through a visiting set and
 counts expansions/nodes; cycle or limit failure returns diagnostics and no partially trusted expansion.

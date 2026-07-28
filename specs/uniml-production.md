@@ -201,6 +201,14 @@ M3.1 covers:
 YAML 1.1 implicit booleans/timestamps, arbitrary constructors, merge-key application semantics, and
 schema-specific object creation remain out.
 
+The production implementation is event-first. One portable syntax scan feeds both lossless CST
+tokens and an explicit-stack semantic parser; the official event trace is emitted in source order
+and freezes after the first error while CST recovery continues. Parser ranges, directive/tag-handle
+scope, and anchor bindings come from that state machine rather than per-line indicator heuristics.
+Projection validates existing token/source order and never repairs an invalid CST by sorting it.
+The detailed state, recovery, coordinate, and baseline-evolution contract is normative in
+[`uniml-yaml.md`](uniml-yaml.md).
+
 ### 5.3 CommonMark 0.31.2 and GFM 0.29
 
 The pinned CommonMark baseline is all 652 examples from 0.31.2 `spec.json`. A test-only
