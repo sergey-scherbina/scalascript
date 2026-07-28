@@ -653,7 +653,7 @@ conformance is 2/2, and both the bridge case and neighboring provider fixture
 compare exactly across default/legacy × VM/direct ASM (8/8 total routes).
 ## js-lane-missing-derives-and-coroutinecancel — two real gaps behind one confusing error
 
-**Status:** the **`derives` half is FIXED 2026-07-28** by `js-derives-instance-undefined`; (b)
+**Status:** the **`derives` half is FIXED 2026-07-28** in `c8168ef90` (`js-derives-instance-undefined`); (b)
 `coroutineCancel` was already fixed. What remains for
 `examples/rozum-agent-schema-derived.ssc` on the JS lane is a DIFFERENT gap, recorded at the
 bottom of this section.
