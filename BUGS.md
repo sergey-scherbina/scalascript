@@ -60,11 +60,12 @@ decoder took 2–11 ms. A source may contain many maximum-line tag spellings.
 amplifier before the broader UPR-2d hardening slice.
 
 **Fix and verification.** Representation expansion now performs one monotone
-percent-syntax scan and preserves `%HH` verbatim. The separate parser-event view
-accumulates chunks/code points without repeated whole-prefix copies and preserves
-an opaque run unless the entire run is valid UTF-8. JVM/Scala.js suites, portable
-lint, the two-round build-isolation gate, and the exact 402-case corpus baseline
-all pass; two independent reviews accepted the linear portable path.
+percent-syntax scan and preserves `%HH` verbatim. The temporary parser-event
+decoder was removed entirely by `024d80524`; the normative event path now reuses
+the preserved representation instead of allocating a second decoded spelling.
+JVM/Scala.js suites, portable lint, the two-round build-isolation gate, and the
+exact 402-case corpus baseline all pass; independent reviews accepted the linear
+portable path.
 
 ## uniml-yaml-corpus-6ck3-percent-oracle-conflict — pinned event contradicts YAML 1.2.2 tag preservation
 
@@ -95,6 +96,13 @@ Expected corrected census is semantics `137`, strict `125`, failures `277`, with
 validity `214`, actual errors `216`, source/chunks `402/402`, and zero crashes.
 The tracker remains OPEN after the local measurement repair because the normative
 text/example conflict and upstream issue remain unresolved.
+
+**Local measurement repair landed.** `024d80524` removes pre-comparison decoding
+from production, freezes the literal actual event, and adds a display-only
+post-compare classifier guarded by the exact 6CK3 mismatch. The 402-row diff
+changes only 6CK3; the corrected baseline/category SHA-256 values are
+`563ec95401acfb8fab062b11408b5be8e5397a61c5d54676fff04865170fff95` and
+`cc0d52c8f34207900a95afe6725d5f9a9265c1cb6ce10f6d82feb9bf21288c78`.
 
 ## v2-distributed-failure-retry — retry path degrades to Stub
 

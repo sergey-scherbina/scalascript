@@ -329,23 +329,25 @@ self-parity test is not external conformance.
           document's `%TAG` declarations, validate duplicates/undefined handles and percent escapes,
           reset declarations at document boundaries, and expand scalar/sequence/mapping tags in the
           semantic output consumed by the event trace. Keep the raw property spelling lossless in
-          the CST and expanded `YamlValue` representation tag, decode only the parser-event view as
-          valid UTF-8 for pinned event compatibility, preserve opaque non-UTF-8 `%HH` runs, and
-          reject only malformed percent-triplet syntax. The validator/normalizer must be linear in
-          the bounded spelling, without repeated string prefix copies.
+          the CST and expanded `YamlValue` representation tag, preserve every `%HH` triplet and its
+          hex case in the normative event observable, and reject only malformed percent-triplet
+          syntax. The validator must be linear in the bounded spelling, without repeated string
+          prefix copies. The pinned 6CK3 decoded oracle is compared literally and classified only
+          afterward by the measurement-correction sub-slice below.
           Bare non-specific `!` must remain `!` even when `%TAG ! ...` overrides the primary handle,
           and it is legal only before separation/end-of-input, never directly before `[` or `{`.
           Measured target cases are exactly `5TYM`,
           `6CK3`, `6JWB`, `6WLZ`, `735Y`, `9WXW`, `CC74`, `P76L`, `U3C3`, and `Z9M4`: all are
-          currently valid/valid with equal event counts and tag-only diffs. Bare non-specific `!`
+          were valid/valid with equal event counts and tag-only diffs before implementation. Bare non-specific `!`
           must also remain a legal tag in `52DL`, `8MK2`, `S4JQ`, and `UKK6/02`; those event rows
-          are already exact but lexer validity is red. Expected no-regression movement is semantics
-          128→138, validity 210→214, strict 112→126, actual errors 220→216, and failures 290→276.
+          were already exact but lexer validity was red. The originally measured movement was
+          semantics 128→138, validity 210→214, strict 112→126, actual errors 220→216, and failures
+          290→276; the compare-first correction below supersedes one manufactured 6CK3 pass.
           **Landed:** `3341a35a9`; the exact 402-case census reached all five targets with zero
           crashes, JVM/Scala.js focused and full YAML suites passed, portable lint and the affected
           conformance slice passed, and root/standalone products stayed isolated across two
           no-clean transitions. Two independent read-only reviews returned GO.
-    - [ ] **UPR-2a.1-measurement-correction — compare before the 6CK3 oracle
+    - [x] **UPR-2a.1-measurement-correction — compare before the 6CK3 oracle
           classification.** Remove percent decoding from the production tag model and from the
           actual side of the pinned `test.event` comparison. Compare the `%HH`-preserving expanded
           tag first; only afterward classify 6CK3 as the exact known
@@ -357,6 +359,14 @@ self-parity test is not external conformance.
           validity `214`, semantics `137`, strict `125`, actual errors `216`, failures `277`,
           source/chunks `402/402`, crashes `0`; regenerate the frozen row/category digests only
           after inspecting the full candidate diff.
+          **Landed:** `024d80524`; the fail-first test observed the old decoded actual, the full
+          candidate diff changed only 6CK3 plus its three derived category rows, and the frozen
+          baseline/category digests are
+          `563ec95401acfb8fab062b11408b5be8e5397a61c5d54676fff04865170fff95` /
+          `cc0d52c8f34207900a95afe6725d5f9a9265c1cb6ce10f6d82feb9bf21288c78`.
+          JVM/Scala.js corpus suites passed 19/19 each, full YAML passed 41/41 and 40/40, portable
+          lint, affected conformance, and the two-round no-clean dual-build gate passed; three
+          independent read-only audits returned implementation GO.
     - [ ] **UPR-2a.2 tag/property lexical grammar.** Enforce the complete YAML 1.2.2
           `ns-uri-char`, `ns-tag-char`, local/global prefix, verbatim tag, expanded-URI,
           anchor, and alias spelling productions on JVM and Scala.js. Cover raw non-ASCII and

@@ -1,20 +1,36 @@
 # Changelog
 
+## 2026-07-28 — UniML YAML corpus compares percent tags before classification
+
+The YAML corpus gate now compares `%HH`-preserving effective tags literally before
+classifying any known oracle conflict. Production no longer contains the temporary
+UTF-8 tag decoder. Pinned case 6CK3 remains an explicit event mismatch and is
+labelled `yaml/yaml-test-suite#9` only after comparison; that label cannot affect
+semantic or strict pass counts.
+
+The frozen 402-case census is now validity 214, semantics 137, strict 125, actual
+errors 216, and 277 remaining failures, with exact source/chunks and zero crashes.
+Only the 6CK3 row and its three category rows changed. JVM and Scala.js corpus/full
+YAML suites, portable lint, affected conformance, and the two-round root/standalone
+gate pass; three read-only audits returned implementation GO. Spec:
+`d18593b14`; implementation: `024d80524`; evidence: `34ff9437c`.
+
 ## 2026-07-28 — UniML YAML expands document-scoped tags without losing spelling
 
 YAML `%TAG` declarations now expand the default, primary, and named handles on
 scalars and collections and reset between documents. CST and public
-representation tags preserve exact `%HH` spelling, while the isolated
-parser-event view supplies the pinned suite's UTF-8 compatibility notation.
+representation/event tags preserve exact `%HH` spelling; the pinned 6CK3 decoded
+oracle is reported only as a post-comparison discrepancy.
 Bare `!` remains non-specific under a primary-handle override and requires YAML
 separation; malformed triplets, duplicates, and undefined handles fail with
 structured diagnostics.
 
-The compare-first 402-case gate moved from 112 to 126 strict matches
-(validity 214, semantics 138, 276 remaining), with zero crashes. JVM and
+After the measurement correction, the compare-first 402-case gate has 125 strict
+matches (validity 214, semantics 137, 277 remaining), with zero crashes. JVM and
 Scala.js focused/full YAML suites, portable lint, affected conformance, and the
 two-round root/standalone build gate pass; two independent reviews returned GO.
-Implementation and reviewed corrections landed through `3341a35a9`. Full
+Implementation and reviewed corrections landed through `3341a35a9` and
+`024d80524`. Full
 tag/property grammar and the remaining YAML closure stay open in UPR-2a.2–e.
 
 ## 2026-07-28 — Actor-distributed retries preserve their partitions on SSC v2
