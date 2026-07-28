@@ -199,14 +199,21 @@ Full A/B, baseline and open slices: `specs/v2-runtime-perf-vs-v1.md`; bug record
       which is a real design change and should be priced separately.
       ⚠️ `v2/jvm-runtime` is NOT in the `v2-runtime-perf-vs-v1` claim's paths — widen through
       `scripts/coord-claim` (and the ledger row) before editing.
-- [ ] **v2rt-5 — is the VM's `FastCode` arithmetic recognizer still firing?** `BACKLOG.md`
-      records the v2 VM at **0.000015 ms** on `arith-loop` after `v2-vm-*-fast-tier` landed
-      (2026-07-09/10); it measures **73-75 ms** today. Two candidate explanations and they are
-      very different facts: (a) the old number was a folded loop and the bench corpus has since
-      been anti-folded (`docs/bench/corpus-antifold.md`), or (b) the F front flip changed the
-      lowered shape so the recognizer no longer matches — i.e. the flip silently disabled the VM
-      fast paths. Cheap decisive probe: `SSC_FASTPATHS=off` on the same workload — if the number
-      does not move, the recognizer is not firing. Measure before assuming either.
+- [x] **v2rt-5 — ANSWERED, no action: there is no `FastCode` recognizer any more.** The question was
+      whether the VM's arithmetic fast paths stopped firing (`BACKLOG.md` records 0.000015 ms on
+      `arith-loop`; it measures 72 ms today). Neither candidate explanation was right. `CHANGELOG.md`
+      2026-07-23 (f5c-4): `object FastCode`, `SelfRecLL`, the closed-form loop JIT **and the
+      `SSC_FASTPATHS` instrument itself** were DELIBERATELY DELETED from `v2/src/Runtime.scala` once
+      the JVM-bytecode lane became the default execution backend and learned the numeric fast paths.
+      The `BACKLOG` number is pre-deletion history; 72 ms is the intended post-deletion reference-lane
+      cost.
+      ⚠️ **The probe named in the old entry cannot work** — `SSC_FASTPATHS` no longer exists, so
+      `SSC_FASTPATHS=off` is an ordinary unset variable and the A/B (72.3 vs 72.8) measures nothing
+      while looking like a clean null result. Caught by grepping for the toggle before trusting it.
+      ⚠️ **Two true numbers that look contradictory** — `CHANGELOG` says `--interpret` is "~5-12×
+      slower", the bench says 115×. Both are right: `CHANGELOG` measured `bin/ssc run` WALL time,
+      where compile+startup is shared between the lanes and dilutes the ratio; `./bench.sh` measures
+      compute-only inside a warm JVM. Name which one you mean when quoting either.
 
 ## 2026-07-27 — native release qualification
 
