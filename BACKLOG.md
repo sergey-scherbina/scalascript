@@ -47,6 +47,30 @@ sharding in CI (37.7 → ~13 min), and gates for both. Full measurements:
 Each item below was deliberately NOT done there — it sits in another agent's live claim, or is its
 own arc. None is speculative: every one has a measured number attached.
 
+- [ ] **`negtc-override-rows-are-a-treadmill`** — the negative-toolchain gate is now red for
+      BOOKKEEPING, not for regressions, and each round costs a ~46-minute run. Every failure unwound
+      on 2026-07-28 was the gate's hand-maintained data lagging a product that got BETTER:
+
+      | run | sentinel | run-ok | strict-fail | gate said |
+      |---|---|---|---|---|
+      | 30375095267 | 24 | 80 | 122 | `stale override: wasm-scalascript.ssc` |
+      | 30380264986 | 24 | 90 | 112 | (that row removed) |
+      | 30384832575 | 21 | 93 | 109 | `stale override: wasm-http.ssc` |
+
+      `run-ok` climbed 80 → 93 as front fixes landed (`9f6eb6e1f` for/yield layout, `3e3024991`
+      colon trailing lambda), and each improvement stranded another row in
+      `tests/fixtures/v21-sentinel-taxonomy/overrides.tsv`. Removing them one per CI cycle is a race
+      against a corpus that is improving faster than the loop closes.
+
+      BUGS.md `negtc-gate-self-maintaining` already made the count side self-maintaining by
+      auto-classifying instead of freezing exact numbers; the override rows are the part that stayed
+      manual. The same treatment applies: a row that no longer applies means a case IMPROVED, which
+      is never a reason to fail a release gate. Suggested shape — WARN on a stale override and keep
+      failing on an *unclassified* sentinel (the direction that actually protects the release), so
+      the gate reports drift without blocking on it.
+
+      NOT done here on purpose: that is a policy change to someone else's release gate, and the
+      honest call is the owner's, not a passing agent's.
 - [ ] **`negtc-gate-shard-reduce`** — the negative-toolchain gate is **58.1 min of a 75.6-min** CI
       job (77 %, run 30305919516). Sharding its two sweeps is the right lever and the plumbing is
       DONE: `scripts/native-front-corpus` and `scripts/bc-parity-sweep` both take `--shard i/N` and
