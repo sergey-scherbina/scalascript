@@ -352,7 +352,22 @@ dies with `ReferenceError: jObj is not defined` inside `agentSchemaProperties` �
 calls `jObj` from `std/json.ssc`, and the emitted JS namespace does not wire that TRANSITIVE import.
 Filed below as its own item.
 
-**(a-2) transitive imports are not wired between emitted JS namespaces.**
+**(a-2) RETRACTED — that diagnosis was wrong.** I read `jObj is not defined` off a MINIMAL fixture
+I had written myself, which imported `std/agent.ssc` but not `std/json.ssc`, and concluded that
+JsGen fails to wire transitive imports. The motivating example imports both, and once (a) was fixed
+it sailed past that point — so the fixture was under-imported, not the compiler. Recorded rather
+than deleted: the failure was mine, and the lesson is that a minimal repro can be minimal in the
+wrong dimension.
+
+**(a-3) the JS Mirror reported `Any` for every applied type — FIXED 2026-07-28.**
+`caseClassFieldTypesInModule` collected `pv.decltpe.collect { case Type.Name(t) => … }`, so simple
+types were recorded and EVERY applied type was silently dropped: `tags: List[String]` and
+`note: Option[String]` were absent from the map, and the Mirror emitted `"Any"` for them. That made
+`std/agent.ssc` reject its OWN derived schema — `unsupported field 'tags' type 'Any'` — a
+self-inflicted domain error with no hint that a compiler map was the source. Fixed by recording the
+full declared syntax; the consumer parses the bracket form (`isAgentListType`,
+`agentInnerType(clean, "List[")`), so full syntax is the contract. Safe for the numeric-width
+consumers: `Type.Name(n).syntax == n`, so simple types are unchanged and this only ADDS entries.
 `bin/ssc-tools run-js examples/rozum-agent-schema-derived.ssc` now reaches
 `ReferenceError: AgentSchema_PostTransaction is not defined` — the case declares
 `case class PostTransaction(...) derives AgentSchema` and `summon[AgentSchema[PostTransaction]]`.

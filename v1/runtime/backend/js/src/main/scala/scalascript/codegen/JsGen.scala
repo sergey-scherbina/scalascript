@@ -1512,8 +1512,20 @@ class JsGen(
     val result = scala.collection.mutable.Map.empty[String, Map[String, String]]
     def scanStats(stats: List[scala.meta.Stat]): Unit = stats.foreach {
       case d: Defn.Class if d.mods.exists(_.isInstanceOf[Mod.Case]) =>
+        // Record the FULL declared type, not just simple names. `collect { case Type.Name(t) => … }`
+        // silently dropped every applied type, so `tags: List[String]` and `note: Option[String]`
+        // were absent from the map and the Mirror emitted `"Any"` for them — which made
+        // `std/agent.ssc` reject its own derived schema with
+        // `unsupported field 'tags' type 'Any'`. Its `agentJsonSchemaForType` parses the bracket
+        // form (`isAgentListType` / `agentInnerType(clean, "List[")`), so the full syntax IS the
+        // contract, not a nicety.
+        //
+        // Safe for the other consumers, which compare against "Int"/"Long"/"Double"/"Float":
+        // `Type.Name(n).syntax == n`, so simple types are unchanged and this only ADDS entries that
+        // were previously missing — and an added `List[String]` matches none of those literals,
+        // which is exactly how an absent entry behaved.
         val fields = d.ctor.paramClauses.flatMap(_.values).flatMap { pv =>
-          pv.decltpe.collect { case Type.Name(t) => pv.name.value -> t }
+          pv.decltpe.map(t => pv.name.value -> t.syntax)
         }.toMap
         result(d.name.value) = fields
       case _ => ()
