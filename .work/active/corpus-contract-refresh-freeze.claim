@@ -1,0 +1,11 @@
+slug: corpus-contract-refresh-freeze
+branch: feature/corpus-contract-refresh-freeze
+agent: claude-code
+started: 2026-07-28T10:43:00Z
+heartbeat: 2026-07-28T10:43:00Z
+status: claimed-before-planning
+items: CCR-1 CCR-2 corpus-contract-roster-drift-48-cases
+paths: tests/conformance/corpus-baseline.tsv tests/conformance/contract-roster.tsv BUGS.md SPRINT.md CHANGELOG.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
