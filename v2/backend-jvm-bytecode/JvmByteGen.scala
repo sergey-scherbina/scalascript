@@ -1187,6 +1187,33 @@ object JvmByteGen:
         gen(r, ctx)
         mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "dcellAccum",
           s"(L$VAL;Ljava/lang/String;L$VAL;)L$VAL;", false)
+      case other => gen2(other, ctx, tail, handlerDispatchRoot)
+
+  /** Second half of [[gen]] — SPLIT FOR JIT SIZE, not for structure.
+   *
+   *  As one method `gen` compiled to **7,052 bytecodes**, 88% of HotSpot's
+   *  `-XX:HugeMethodLimit` (8000). Past that limit `-XX:+DontCompileHugeMethods` (on by
+   *  default) refuses to JIT-compile a method at all — silently, with no warning and no
+   *  behavioural difference — and this is the emitter for the DEFAULT execution lane. One
+   *  more `case` would have cost the whole bytecode backend its JIT, and no correctness
+   *  gate can see that; `ssc.Prims.__method__` sat over the limit for exactly that reason
+   *  until 2026-07-28 and cost 2.4-10.8x.
+   *
+   *  PURE SEQUENTIAL DECOMPOSITION: part one tries its arms in the original order and
+   *  falls through to here, so the first matching arm is still the one the single match
+   *  chose. Nothing reordered, nothing duplicated.
+   *
+   *  KEEP BOTH PARTS UNDER 8000 — `tests/e2e/v2-jit-size.sh` fails on a breach and prints
+   *  anything >= 6000 so the drift is visible first.
+   */
+  private def gen2(
+      t: Term,
+      ctx: Ctx,
+      tail: Boolean,
+      handlerDispatchRoot: Boolean
+  ): Unit =
+    val mv = ctx.mv
+    t match
       case t @ ArithB(aop, a, b) =>
         if genLongCmpValue(aop, a, b, ctx) then ()
         else if canLong(t) then
