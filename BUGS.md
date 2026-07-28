@@ -2370,7 +2370,74 @@ the job that would catch a scljet regression, and the 300-min `sbt` job is the l
 (Conformance / Validate / Lint) as the per-push verdict and run `sbt` on a schedule.
 
 
-## v2-front-try-in-def-body-shapes-break — `try`-as-a-def-body shapes break; (a)+(b) fixed, (c) OPEN
+## v2-front-try-in-def-body-shapes-break — `try`-as-a-def-body shapes break; (a)+(b)+(c) FIXED
+
+**Status: (c) FIXED 2026-07-28** by `f-try-multistmt-def-body` — together with the sibling
+`unbound global: try` this entry recorded for the legacy front, which turned out to be the same
+shape seen from the other side. Root cause, fix, and the before/after are below; the original
+report is kept verbatim under it.
+
+**ROOT CAUSE — `try` was not a LAYOUT OPENER, on BOTH self-hosted fronts.** `isLayoutOpener` (F:
+`specs/v2.2-p6.5-fsub.ssc`; oracle: `v2/lib/ssc1-front.ssc0:2920`) listed `=` `=>` `then` `else`
+`match` `do` `with`/`yield` and never `try`. So `try` ⏎ `<indented body>` emitted **neither a
+virtual `{` nor a `;`**: the indented lines sit at `v > ind` of the *enclosing* block, where the
+newline step returns the stack unchanged, so the body's statements were **glued onto the `try`
+line**. `parseExpr` then read `val` as a *variable reference*:
+
+```
+(def f (lam 0 (let ((global val)) (seq (prim cell.set (global @x) …      ← ssc1-front (oracle)
+(def f (lam 0 (let ((lit (int 0))) (seq (prim cell.set (global x__cell) … ← F
+```
+
+A single-expression body survived only because gluing ONE token changes nothing — which is exactly
+why (c) outlived (a) and (b), and why the corpus (single-expression only) never saw it.
+
+**Why the differential gate said MATCH while both sides were wrong.** `specs/v2.2-p6.5-fsub.sh`
+compares the `(rc, stdout)` tuple. Both fronts were broken and broken *differently*, and both died
+at rc=1 with empty stdout — a two-sided crash reads as agreement. This is the AGENTS.md
+"apparatus fails GREEN" pattern once more: the comparison was real, the *observable* was too
+coarse to separate "both correct" from "both dead". Fixing F alone would have converted it into a
+real DIVERGE against an oracle that is itself wrong, so the claim was widened and **both fronts
+were fixed**.
+
+**Three defects, one shape** (all in the fix):
+
+1. `isLayoutOpener` gains `try` **and `finally`**, in both fronts. Both lex as identifiers, not
+   keywords, so ssc1-front needed its own `id` arm next to the `kw` one. It fires only when the
+   keyword is immediately followed by NL, so `try {` and `try e catch …` on one line are untouched
+   by construction.
+2. ssc1-front `parseBlock`: `try` lexes as an `id`, so `try { … }` in **statement position**
+   matched the `name { block }` call-with-thunk rule and lowered to `try(() => body)`. That is the
+   `SSC_FRONT=legacy` → `ssc: unbound global: try` this entry already recorded for the braced def
+   body — same family, opposite end. New `isBlockArgCallName` excludes it.
+3. ssc1-front `parseArmBody`: `finally` is an arm boundary. With a *braceless* `catch`, the
+   arm-body statement loop swallowed the finally clause into the last arm —
+   `(let (-1) (app (global finally) …))`, i.e. `unbound global: finally` **and** a `__tryCatch__`
+   with no finally at all.
+
+**MEASURED before/after — real harness, `bin/ssc run` (default = F native front).** Fail-first was
+taken with the pre-fix binary, green with a fresh `sbt installBin`:
+
+| program | before | after |
+|---|---|---|
+| the 5-line repro below | `native frontend rejected incomplete parse …: _err`, rc=1 | `ok`, rc=0 |
+| `examples/rozum-agent.ssc` | same `_err` | runs (`Done` / `Posted the transaction.`) |
+| `examples/rozum-agent-pool.ssc` | same `_err` | runs |
+| `examples/rozum-agent-streaming.ssc` | same `_err` | runs |
+| `examples/rozum-agent-schema-derived.ssc` | same `_err` | **past the parse gap** → `if: condition not Bool: Stub("Mirror.isProduct")` (a different, already-filed gap — see `rozum-agent-schema-derived-js-and-v2-gaps`) |
+
+`SSC_FRONT=legacy ssc run --native` also prints `ok` on the repro, i.e. defect 2 is fixed too.
+
+**Gates.** `specs/v2.2-p6.5-fsub.sh --self`: 158 ok / 0 FAIL, X1 **FIXPOINT stage1 == stage2
+byte-identical** (410953 B) — `fsub.ssc` itself contains no `try`, so the self-compile is
+untouched by the change. Six new differential cases were added to that corpus and deliberately
+include the shape that always passed (`try_1stmt`) next to the one that never did
+(`try_multistmt`), because a corpus carrying only the former is what let this survive. New
+cross-lane regression case `tests/conformance/try-multistmt-body.ssc`.
+
+---
+
+### Original report (kept for context)
 
 **⚠️ SHAPE (c) IS STILL OPEN — found 2026-07-27 by `corpus-gate-remaining-reds`, AFTER (a)+(b)
 landed and verified against a build that contains them.** The differentiator is not where `catch`
@@ -2784,8 +2851,22 @@ output as the golden when a case has no `expected/` file, an INT that cannot run
 
 ## rozum-agent-schema-derived-js-and-v2-gaps — a newly-runnable example fails on both non-INT lanes
 
-**Status:** OPEN (found 2026-07-27 by `corpus-contract-shard-fix`; the same two entries the 07-17
-run had already reported — the last time the gate managed to finish before it started timing out).
+**Status:** OPEN — **but the v2 half is CLEARED, and what it was hiding is now visible** (updated
+2026-07-28 by `f-try-multistmt-def-body`). The predicted outcome held: fixing
+`v2-front-try-in-def-body-shapes-break` shape (c) removed the `_err` without touching this example.
+Measured on a fresh `sbt installBin`, `bin/ssc run examples/rozum-agent-schema-derived.ssc` now
+reaches **`ssc: if: condition not Bool: Stub("Mirror.isProduct")`** — i.e. the parse gap is gone and
+what remains on the v2 lane is the **derives/Mirror** gap, the same class as
+`js-lane-missing-derives-and-coroutinecancel`. Three sibling examples that the same parse gap had
+removed from the native lane (`rozum-agent`, `rozum-agent-pool`, `rozum-agent-streaming`) now run
+correctly there. The **JS half is untouched** and still the binding defect described below.
+
+Remaining work for this entry: (1) the JS `route` extern-binding defect, (2) the v2 `Mirror.isProduct`
+Stub. Neither is a parse problem any more.
+
+**Original status:** OPEN (found 2026-07-27 by `corpus-contract-shard-fix`; the same two entries the
+07-17 run had already reported — the last time the gate managed to finish before it started timing
+out).
 
 **Symptom** (`examples/rozum-agent-schema-derived.ssc`):
 
