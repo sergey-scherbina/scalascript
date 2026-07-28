@@ -135,6 +135,23 @@ scljet-wal:
 
 `<missing>`, not wrong — the case produced **no stdout at all** inside the batch JVM.
 
+**SECOND OCCURRENCE, 2026-07-28, same shape, different case in the same family.** A later full-corpus
+run (for `v2-auto-output-prim`) produced:
+
+```
+scljet-wal-read:
+  FAIL [INT]
+    line 1: expected=page2 from WAL frame: true, differs from base: true   got=<missing>
+    line 2: expected=page1 from base: true                                 got=<missing>
+  PASS [JS ]
+```
+
+`bin/ssc-tools run --v1 tests/conformance/scljet-wal-read.ssc` in isolation prints both lines
+byte-exactly. So this is not a one-off: it is the `scljet-wal*` family losing its stdout inside the
+~250-case INT batch specifically. Both observations are on changes that cannot touch the INT lane
+(a v2 runtime edit and a v2 codegen edit), which is further evidence the trigger is the batch
+itself. Whatever it is stays undiagnosable until the batch lane keeps stderr — see below.
+
 **What was tried, and passed every time** (same build, same staged `bin/`):
 
 | probe | result |
