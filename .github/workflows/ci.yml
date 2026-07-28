@@ -57,8 +57,20 @@ on:
 # `sbt` run sitting in the pending slot would be evicted by the next code push, which is exactly the
 # eviction this workflow already documents — and the long job would never reach a verdict again,
 # only now nightly instead of per-push.
+#
+# THIRD GROUP, added 2026-07-28: `workflow_dispatch` gets a group keyed by SHA, so a verdict can be
+# OBTAINED ON DEMAND. Until now dispatch shared the push group, which made it useless for the one
+# thing it is for — measured across a full working session, three separate runs carrying a specific
+# commit were each superseded and cancelled before starting a single job, and a manual dispatch would
+# have been evicted by the very next push exactly the same way. AGENTS.md §4c asks for the strongest
+# evidence you can get; with no obtainable verdict, level 1 was unreachable by construction and every
+# release-claim in that session had to say "level 3, local gates".
+#
+# Keyed by `github.sha`, not just the ref, so two dispatches for different commits do not evict each
+# other either. This does NOT change push behaviour: the queue policy above is a measured trade and
+# stays exactly as it was.
 concurrency:
-  group: ci-${{ github.ref }}-${{ github.event_name == 'schedule' && 'scheduled' || 'push' }}
+  group: ci-${{ github.ref }}-${{ github.event_name == 'schedule' && 'scheduled' || github.event_name == 'workflow_dispatch' && format('dispatch-{0}', github.sha) || 'push' }}
   cancel-in-progress: false
 
 jobs:
