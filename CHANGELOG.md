@@ -25,6 +25,29 @@ native lane), so every v2 benchmark column since that lane moved had been blank,
 New, because nothing else can see this class of defect: `scripts/bytecode-size-census` and
 `tests/e2e/v2-jit-size.sh --self-test`. Watch item they surface: `JvmByteGen.gen` at
 7,052/8000. Detail: `specs/v2-runtime-perf-vs-v1.md`, `BUGS.md v2-method-dispatch-never-jits`.
+## 2026-07-28 — the verdict tool follows the sharded conformance job, and stops lying about heartbeats
+
+Two apparatus repairs found while landing the CI sharding above, both of the same class: a check
+that disagreed with the thing it checks.
+
+`scripts/ci-status` required a job named `Conformance Suite`. The 4-way matrix renamed it, so from
+the next run onward the verdict tool would have reported `missing required job` on every GREEN run.
+`required_jobs` now derives the shard names from one width constant and includes the new
+`Examples and launcher smokes` job, and `tests/e2e/ci-status-guard.sh` cross-checks the list against
+`.github/workflows/ci.yml` itself — matrix width, every non-matrix name, and the name template — so
+the two cannot drift apart again. Its fixtures gained the two cases a matrix makes possible: a
+verdict hinging on ONE red shard, and a run GitHub marks green because every job it ran passed while
+a shard instance was never created (a quarter of the corpus silently untested, now RED).
+
+`tests/e2e/ci-status-guard.sh` was ALSO already red on `origin/main` before any of this, failing the
+per-push `Validate` job on every commit. `scripts/coord-status` raised the heartbeat staleness
+threshold 20m → 45m earlier the same day; the gate still asserted `age=1201s/20m
+reason=older-than-20m`, demanding a warning the code was correct not to emit. `BUGS.md`
+`heartbeat-threshold-stated-in-two-repos` had already de-duplicated two copies of that constant and
+added a single-source gate — it did not know about this third copy. The gate now READS the threshold
+and reason out of `scripts/coord-status` and derives its fixture as threshold+1, so there is no
+fourth copy to drift. `ci-status-guard: PASS`.
+
 ## 2026-07-28 — build/test/conformance/CI: bound the host RAM aggregate, shard the CI verdict path
 
 Sergiy: "было переполнение памяти и они работают медленно". Both halves were measured before
