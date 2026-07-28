@@ -177,28 +177,39 @@ Before schema work builds on it, scalar value semantics also need live different
 - the same comparator semantics drive filtering, ordering, DISTINCT, grouping, and index
   behavior.
 
-Portable SC-1b landed in `b63206552`. Its compare-first
-`scljet-sql-null-semantics` gate passes on INT and JS across scalar and simple
-CASE evaluation, WHERE/HAVING/ON boundaries, empty and NULL-bearing IN/NOT IN,
-non-correlated and correlated subqueries, two- and three-table joins, indexed
-residual filtering, and UPDATE/DELETE. Non-correlated subquery substitution now
-preserves exact NULL/REAL/BLOB values and maps an empty scalar result to NULL.
-The same post-change run kept all 55 pre-existing `scljet-sql-*` cases green;
-the only red case was the deliberately fail-first SC-1c numeric/BLOB gate.
-Live comparison landed in `3f5d8f6c1`. The six-case
-`ScljetScalarSemanticsDifferentialTest` runs the statements independently
-through `jdbc:scljet:` and Xerial sqlite-jdbc 3.45.3.0 (embedding SQLite
-3.45.3), compares outcomes before classification, and covers scalar, scan,
-join, subquery, CASE/HAVING, LIMIT, indexed residual, and real
-indexed/unindexed UPDATE/DELETE paths. It then reopens the SclJet file through
-Xerial, reruns persisted queries, verifies the expected index names, and
-requires `PRAGMA integrity_check = ok`. The post-rebase SC-1b live result is
-4/4 (6/6 for the complete SC-1b/SC-1c suite), and the affected portable result
-is 2/2 on both INT and JS.
-The capability remains `subset` only because correlated subqueries in an outer
-join and error propagation from correlated subqueries are separately tracked
-production gaps; the original NULL/UNKNOWN reporter defect families are
-live-confirmed.
+Portable SC-1b landed in `b63206552`, and correlated predicate closure landed
+in `71d8a6f0e`. The compare-first `scljet-sql-null-semantics`,
+`scljet-sql-correlated-join`, and `scljet-correlated-subquery-errors` gates pass
+on INT and JS across scalar and simple CASE evaluation, WHERE/HAVING/ON
+boundaries, empty and NULL-bearing IN/NOT IN, non-correlated and correlated
+subqueries, two- and N-table joins, indexed residual filtering, and
+UPDATE/DELETE. Every visible joined table is available to the correlated
+subquery, NULL-extended rows stay visible, a directly named inner table shadows
+the outer binding, and an explicit error channel plus unconditional structural
+preflight prevents empty inputs or index misses from swallowing malformed or
+missing subqueries. Non-correlated subquery substitution preserves exact
+NULL/REAL/BLOB values and maps an empty scalar result to NULL. The complete
+post-change `scljet-sql-* --no-memo` sweep is 57/57.
+
+Live comparison landed in `3f5d8f6c1` and was expanded in `71d8a6f0e`. The
+seven-test `ScljetScalarSemanticsDifferentialTest` runs statements
+independently through `jdbc:scljet:` and Xerial sqlite-jdbc 3.45.3.0
+(embedding SQLite 3.45.3), compares outcomes before classification, and covers
+scalar, scan, join, subquery, CASE/HAVING, LIMIT, indexed residual, real
+indexed/unindexed UPDATE/DELETE, and correlated multi-table paths. Its new
+correlated test has nine named outcomes, retains prepare/bind/execute phase and
+semantic error category without requiring unstable vendor message text, and
+confirms that both drivers reject the named malformed and missing-table cases
+during prepare. It then reopens the SclJet file through Xerial, reruns
+persisted queries, verifies expected index names, and requires
+`PRAGMA integrity_check = ok`. The live result is SC-1b 5/5 plus SC-1c 2/2,
+or 7/7 for the complete suite.
+
+The capability remains `subset`. Nested correlated scopes, correlated DML,
+subqueries in ON/HAVING/projection/ORDER, bare outer references and aliases,
+complete unknown-column resolution, and compiled/cached preparation remain
+open; the current validator reparses a typed-NULL form against the current
+transaction image rather than producing the full SC-4a prepared plan.
 
 Portable SC-1c landed in `f36f951ba`. SQL now reuses the physical index
 comparator instead of converting INTEGER values to binary64 or collapsing

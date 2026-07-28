@@ -1215,20 +1215,32 @@ retaining total comparison for ORDER/GROUP/DISTINCT/index operations.
 
 **Fix:** `b63206552` adds a separate TRUE/FALSE/UNKNOWN predicate layer,
 NULL-aware IN/NOT IN, simple-CASE/HAVING/JOIN handling, exact bound subquery
-values, and indexed/unindexed plus DML coverage. The focused INT+JS gate passes.
-The four SC-1b cases in the six-case compare-first live suite from `3f5d8f6c1`
-confirm the reporter defect families plus scalar, scan, join, subquery,
-CASE/HAVING, indexed residual, and real DML paths against Xerial sqlite-jdbc
-3.45.3.0 (embedding SQLite 3.45.3); persisted queries and integrity also pass
-after an Xerial reopen. Status remains FIXED until reporter confirmation. The
-separately tracked correlated JOIN context and error propagation gaps keep the
-broader capability at `subset`.
+values, and indexed/unindexed plus DML coverage. `71d8a6f0e` then closes the
+joined correlated context and error-propagation defects: every visible outer
+table is bound, NULL-extended rows stay visible, direct inner tables shadow
+outer names, and structural preflight carries subquery failures instead of
+turning them into FALSE. The focused `scljet-sql-null-semantics`,
+`scljet-sql-correlated-join`, and `scljet-correlated-subquery-errors` gates pass
+on INT and JS; the complete portable `scljet-sql-*` sweep is 57/57.
+
+The five SC-1b tests in the seven-test compare-first live suite confirm scalar,
+scan, join, subquery, CASE/HAVING, indexed residual, real DML, correlated
+multi-table, and error-phase behavior against Xerial sqlite-jdbc 3.45.3.0
+(embedding SQLite 3.45.3). SclJet and Xerial now reject the named malformed and
+missing-table cases during prepare with the same semantic category; persisted
+queries and integrity also pass after an Xerial reopen. The complete live split
+is SC-1b 5/5 plus SC-1c 2/2. Status remains FIXED until reporter confirmation.
+The broader capability remains `subset`: nested correlated scopes, correlated
+DML, subqueries in ON/HAVING/projection/ORDER, bare outer references and
+aliases, full unknown-column resolution, and compiled/cached preparation are
+not yet complete.
 
 ## scljet-correlated-subquery-join-where-unsupported — joined outer rows bypass correlated evaluation
 
-**Status:** OPEN (found 2026-07-28 by independent
+**Status:** FIXED (found 2026-07-28 by independent
 `scljet-production-completion` review; reproduced on assembled
-`bin/lib/ssc.jar` from `b63206552` through `bin/ssc-tools run --v1`).
+`bin/lib/ssc.jar` from `b63206552` through `bin/ssc-tools run --v1`; fixed in
+`71d8a6f0e`).
 
 **Real-harness reproduction.** On the SC-1b fixture, run
 `SELECT t.id FROM t LEFT JOIN u ON t.v=u.x WHERE t.v NOT IN
@@ -1243,11 +1255,20 @@ A fix needs joined-row substitution for every bound table plus two- and
 N-table fail-first gates; treating only the first table as the outer context
 would be another partial implementation.
 
+**Fix:** `71d8a6f0e` replaces the Boolean joined filter with a shared
+`Either[String, Int]` condition path, binds every visible outer table, preserves
+LEFT/RIGHT NULL-extension, and applies direct inner-table shadowing. The
+eight-line `scljet-sql-correlated-join` oracle passes on INT and JS across
+single-, two-, and N-table contexts. The live differential adds nine named
+outcomes, preserves prepare/bind/execute phase plus semantic error category,
+and still passes Xerial reopen and integrity checks.
+
 ## scljet-correlated-subquery-errors-swallowed — NOT turns subquery execution failure into TRUE
 
-**Status:** OPEN (found 2026-07-28 by independent
+**Status:** FIXED (found 2026-07-28 by independent
 `scljet-production-completion` review; reproduced on assembled
-`bin/lib/ssc.jar` from `b63206552` through `bin/ssc-tools run --v1`).
+`bin/lib/ssc.jar` from `b63206552` through `bin/ssc-tools run --v1`; fixed in
+`71d8a6f0e`).
 
 **Real-harness reproduction.** Run
 `SELECT id FROM t WHERE NOT EXISTS (SELECT x FROM missing WHERE
@@ -1260,6 +1281,37 @@ inside correlated IN and scalar subqueries are swallowed by the same path.
 The correlated state/filter pipeline must carry `Either[String, Int]` (or an
 equivalent explicit error channel) through query execution and never classify
 an execution error as SQL FALSE or UNKNOWN.
+
+**Fix:** `71d8a6f0e` propagates the explicit error channel through single-,
+two-, and N-table filters and performs unconditional structural preflight, so
+empty outer inputs, rowid/index misses, missing tables, and malformed
+EXISTS/IN/scalar subqueries cannot hide an error. All 15 outcomes in
+`scljet-correlated-subquery-errors` pass on INT and JS. The live differential
+compares phase and semantic category rather than unstable vendor message text.
+
+## scljet-jdbc-prepare-defers-query-errors — PreparedStatement accepts invalid correlated SELECT
+
+**Status:** FIXED (found 2026-07-28 by the live differential on `ac33456bc`
+plus the in-flight correlated fix; fixed in `71d8a6f0e`).
+
+**Real-harness reproduction.** Prepare joined SELECT statements containing a
+missing correlated subquery table or malformed correlated subquery through
+both `jdbc:scljet:` and Xerial sqlite-jdbc. Xerial rejects each statement
+during prepare; SclJet originally returned a `PreparedStatement` proxy and
+failed only on execute.
+
+**Root cause.** `ConnectionHandler.prepareStatement` constructed the proxy
+without invoking the parser or resolving the current schema. Query validation
+first happened inside `executeQuery`.
+
+**Fix:** `71d8a6f0e` adds `validatePreparedQuery`, binds typed NULL placeholders
+for the validation pass, reads the current transaction image, and validates
+query syntax plus named tables/subqueries before returning the JDBC proxy.
+The live differential now observes the same prepare phase and semantic
+category for the named cases. This is deliberately not a full compiled or
+cached prepared plan: unknown-column and nested-scope resolution remain
+partial, and execution still reparses the current image. SC-4a owns that
+larger preparation contract.
 
 ## scljet-sql-double-equals-parser-gap — WHERE rejects SQLite's `==` equality alias
 
