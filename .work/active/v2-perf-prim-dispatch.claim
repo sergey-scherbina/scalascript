@@ -1,0 +1,11 @@
+slug: v2-perf-prim-dispatch
+branch: feature/v2-perf-prim-dispatch
+agent: claude-code
+started: 2026-07-28T08:23:21Z
+heartbeat: 2026-07-28T08:23:21Z
+status: claimed-before-planning
+items: v2rt-1b v2rt-2 v2rt-6 v2-prim-dispatch-string-keyed
+paths: v2/src v2/jvm-runtime v2/backend-jvm-bytecode .github/workflows/ci.yml specs/v2-runtime-perf-vs-v1.md docs/benchmarks.md bench SPRINT.md CHANGELOG.md tests/e2e/v2-jit-size.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement

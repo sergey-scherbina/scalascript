@@ -1,4 +1,5 @@
-# generation: 174
+# generation: 175
 #slug	agent	started	items	paths
 v2-program-tail-string-render	claude-code	2026-07-28T08:11:36Z	v2-native-program-tail-quotes-strings	v1/tools/cli/src/main/scala/scalascript/cli/V2Result.scala tests/e2e/v2-error-diagnostic.sh BUGS.md SPRINT.md CHANGELOG.md
 bugs-try-attribution-stale	claude-code	2026-07-28T08:19:27Z	bugs-try-attribution-stale	BUGS.md
+v2-perf-prim-dispatch	claude-code	2026-07-28T08:23:21Z	v2rt-1b v2rt-2 v2rt-6 v2-prim-dispatch-string-keyed	v2/src v2/jvm-runtime v2/backend-jvm-bytecode .github/workflows/ci.yml specs/v2-runtime-perf-vs-v1.md docs/benchmarks.md bench SPRINT.md CHANGELOG.md tests/e2e/v2-jit-size.sh
