@@ -3504,7 +3504,7 @@ correctly there. The **JS half is untouched** and still the binding defect descr
 Remaining work for this entry: (1) the JS `route` extern-binding defect, (2) the v2 `Mirror.isProduct`
 Stub. Neither is a parse problem any more.
 
-**✅ v2 HALF NOW FIXED (2026-07-28, `v2-mirror-isproduct-stub`).** The `Stub("Mirror.isProduct")`
+**✅ v2 HALF NOW FIXED (2026-07-28, `4f5ecf261`, `v2-mirror-isproduct-stub`).** The `Stub("Mirror.isProduct")`
 below was the native `Mirror` implementing only three of its members; both fronts now register
 `isProduct` as a tagged method. Measured on a fresh `sbt installBin`: `bin/ssc run
 examples/rozum-agent-schema-derived.ssc` prints `Done / Derived posted. / Explicit posted. / 2` —
