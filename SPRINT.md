@@ -102,6 +102,54 @@ not edited here.
       inherited `-Xmx`, the shard union really covers the corpus, and `--gate` really fails on
       overcommit. Every assertion prints `expected=… got=…` on mismatch (AGENTS.md: a check that
       can fail silently will).
+## 2026-07-28 — v2 native import graph (Sergiy: "Исправляй оставшиеся проблемы в ssc v2")
+
+**Active claim:** `v2-native-import-graph`. Two OPEN `BUGS.md` entries, one root area: which
+`.ssc` modules the **default native lane** actually loads.
+`v2-native-front-in-fence-imports-not-followed` (an import written INSIDE a fence is silently
+dropped) and `v2-native-scala-import-parse-only-noop` (`import std.x.*` binds nothing).
+Both surface as `unbound global: …`, or worse, as the misleading
+`unhandled runtime effect: <Name>.<method>` when the unbound name is *called* qualified.
+
+**Measured before, this tree (`bin/ssc` staged 07-23), two files differing only in where the
+import link sits:**
+
+| program | `bin/ssc run` (native, F default) | `bin/ssc-tools run --v1` |
+|---|---|---|
+| `[greet](m.ssc)` ABOVE the fence | `hi` | `hi` |
+| `[greet](m.ssc)` INSIDE the ```scalascript fence | **`ssc: unbound global: greet`** | `hi` |
+
+Mechanism: `v2/bin/ssc1-run.ssc0` `sscScanLines` flips `inFence` on any ` ``` ` line and then
+skips **every** line to the closing fence, so no link inside a fence is ever collected as an
+import. The code parser separately treats the link as a parse-only no-op (correct — once the
+module is loaded, the names are globals). Both halves assumed in-fence links only ever name
+plugin externs; that is false for ordinary `.ssc` modules. `v2/bin/ssc1-run-fsub.ssc0` (the F
+runner, i.e. today's DEFAULT) carries the identical scanner.
+
+- [ ] **NIG-0 — pin the divergence with a fail-first conformance case.** Add
+      `tests/conformance/native-import-in-fence.ssc` (+ `expected/`): the `modules.ssc` shape
+      with the import link moved INSIDE the fence, `backends: [v2]` so the native lane runs.
+      Must be RED on the v2 lane and GREEN on INT/JS **before** the fix — record both.
+- [ ] **NIG-1 — follow standalone import links inside CODE fences only.** `sscScanLines` gains
+      the fence language: inside a `scalascript`/`scala` fence it scans standalone link lines
+      exactly as at top level; inside any other fence (`sql`, `yaml`, `bash`, `text`, …) it
+      keeps skipping, and a `@doc` fence stays excluded — it is documentation, not program.
+      Apply to BOTH `v2/bin/ssc1-run.ssc0` and `v2/bin/ssc1-run-fsub.ssc0` (they are copies;
+      an edit to one only is a silent half-fix, since F is the default runner).
+- [ ] **NIG-2 — measure the widened module graph, report honestly.** Following in-fence
+      imports pulls `v1/runtime/std/{mcp/client,mcp/server,agent-mcp,agent}.ssc` into the native
+      graph for the first time. `std/agent.ssc` is known to hit native-front parse gaps (one of
+      them — multi-statement `try` body — is live under the sibling claim
+      `f-try-multistmt-def-body`). Run the affected conformance slice + the mcp examples and
+      state exactly what improved, what still fails, and which failures belong to the parser,
+      not to this scanner. Do NOT edit `specs/v2.2-p6.5-fsub.ssc` (that claim owns it).
+- [ ] **NIG-3 — `import std.x.*` on the native lane: decide and implement the contract.**
+      Today the native front consumes a Scala-style import as a parse-only no-op, so
+      module-defined names stay unbound and a qualified call degrades into
+      `unhandled runtime effect: WorkerProtocol.applyStage`. Either resolve the package to its
+      module set, or reject it loudly — silently binding nothing is the one option ruled out.
+      Decide from what the resolver can actually see, write it into the BUGS entry, implement,
+      and gate it with a case in the same family as NIG-0.
 
 ## 2026-07-28 — v2 runtime performance vs v1 (Sergiy: "Улучши производительность рантайма ssc v2")
 
