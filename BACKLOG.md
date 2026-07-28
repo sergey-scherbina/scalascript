@@ -463,8 +463,9 @@ effects at the destination. The following extensions require separate designs an
       sequences after property-only nodes, additional complex-key forms, and strict block indentation
       recovery. Grow the pinned `yaml/yaml-test-suite` `data-2022-01-17` subset beyond the eight M3
       cases and keep JVM/Scala.js behavior identical. This is explicitly deferred from M3 rather than
-      silently counted as compatibility already delivered. The active compare-first 402-case plan is
-      UPR-1/UPR-2 in `SPRINT.md`; do not pick this stale backlog row independently.
+      silently counted as compatibility already delivered. The 402-case compare-first gate landed
+      in UPR-1; production grammar closure is active UPR-2 in `SPRINT.md`. Do not pick this stale
+      backlog row independently.
 
 - [x] **uniml-markdown-m41-conformance** — ✓ Landed (2026-07-13). Lazy paragraph continuation,
       tight/loose list classification and the full CommonMark HTML-block type table (1–7 with correct
@@ -486,8 +487,9 @@ effects at the destination. The following extensions require separate designs an
 - [x] **uniml-markdown-m41-entities** — ✓ Landed (2026-07-13). Expanded `MarkdownProjection`'s
       named-entity table to the full HTML4/XHTML set (~250: Latin-1 generated from its contiguous
       block, plus Greek/punctuation/arrow/math). Numeric decode + unknown-stays-literal unchanged.
-      Remaining HTML5-only names and the full 652-example semantic gate moved to active UPR-1/UPR-3
-      in `SPRINT.md` on 2026-07-27; M4.1's historical completion is not the final production label.
+      The full 652-example semantic gate landed in UPR-1; remaining HTML5-only names and grammar
+      closure are active UPR-3 in `SPRINT.md`. M4.1's historical completion is not the final
+      production label.
 
 ## SclJet interoperability follow-ups (2026-07-12)
 

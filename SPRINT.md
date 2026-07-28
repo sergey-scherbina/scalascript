@@ -270,7 +270,7 @@ self-parity test is not external conformance.
 
 ### Ordered production slices
 
-- [ ] **UPR-0 — freeze the production contract before implementation.**
+- [x] **UPR-0 — freeze the production contract before implementation.**
       Write and commit `specs/uniml-production.md`; reconcile the stale mutable `Processor[I,O]`
       prose in `specs/uniml.md` with the shipped immutable `Processor[S,I,O]`; reconcile
       `specs/uniml-yaml.md`, `specs/uniml-markdown.md`, and
@@ -281,32 +281,45 @@ self-parity test is not external conformance.
       section satisfies the old P6.22 "do not act without Sergiy" gate, but it does not waive any
       corpus/fixpoint gate. Ready when the specs name exact APIs, observable laws, corpora,
       security/resource limits, compatibility policy, paths, and release evidence.
+      **Landed:** `24255fe1a` freezes the production boundary and reconciles all four companion
+      specs.
 
-- [ ] **UPR-1 — build fail-closed external corpus gates before grammar changes.**
-  - [ ] **UPR-1a YAML corpus.** Vendor the exact `yaml/yaml-test-suite`
+- [x] **UPR-1 — build fail-closed external corpus gates before grammar changes.**
+  - [x] **UPR-1a YAML corpus.** Vendor the exact `yaml/yaml-test-suite`
         `data-2022-01-17` material with provenance + digest and all 402 `in.yaml` cases. Compare
         validity/error classification and normalized `test.event` semantics after first asserting
         exact CST source reconstruction. Keep a tiny explicit encoding-only exclusion manifest;
         no production-based preclassification.
-  - [ ] **UPR-1b CommonMark/GFM corpora.** Vendor CommonMark 0.31.2 `spec.json` (652 examples) and
+        **Landed:** `5daed9083`; 402/402 source and chunk reconstruction, 210 validity matches,
+        128 semantic matches, 112 strict passes, 290 expected strict failures, zero crashes.
+  - [x] **UPR-1b CommonMark/GFM corpora.** Vendor CommonMark 0.31.2 `spec.json` (652 examples) and
         the official GFM 0.29 extension cases with provenance + digest. Add a deterministic
         test-only semantic renderer and compare exact official output on JVM and Scala.js, in
         addition to losslessness/chunk invariance.
-  - [ ] **UPR-1c report.** Print per-section pass/fail totals and the full case diff; persist the
+        **Landed:** `68f84e90c`; 675 cases × 5 axes on JVM and Scala.js, 3,131 matches and 244
+        expected non-pass axes with identical full/non-pass/section digests.
+  - [x] **UPR-1c report.** Print per-section pass/fail totals and the full case diff; persist the
         red baseline in this section and the spec before fixing it. The gate must prove its own red
         path with a deliberately corrupted expectation.
-  - [ ] **UPR-1d exception isolation.** Close
+        **Landed:** exact case/axis rows and per-section reports ship with both corpora; the frozen
+        starting digests and expected-red semantics are recorded in `30e9b5424`.
+  - [x] **UPR-1d exception isolation.** Close
         `BUGS.md` `uniml-yaml-corpus-gate-exception-isolation` before landing UPR-1a: keep
         reconstruction hashing and full-row canonicalization inside explicit per-axis/per-case
         capture, preserve already collected observations, continue semantic/later-case evaluation
         after malformed UTF-16, and keep fatal VM errors propagating. Prove the old local commit
         fails the regression, then renew independent review and rerun the full UPR-1a matrix.
-  - [ ] **UPR-1e root/standalone build isolation.** Close
+        **Landed:** `70068fd7b`; fail-first malformed-UTF-16/fatal-error coverage is 17/17 on both
+        platforms and renewed independent review accepted it.
+  - [x] **UPR-1e root/standalone build isolation.** Close
         `BUGS.md` `uniml-root-standalone-target-cache-collision`: the prescribed root-build then
         standalone-build sequence must not share incompatible incremental products. Reproduce
         without `clean`, isolate the target/analysis collision, make products disjoint (or prove
         build definitions identical), and run root→standalone→root→standalone green before UPR-1
         can claim a production gate.
+        **Landed:** `3e52e6909`; all nine standalone targets are disjoint and the two-round no-clean
+        transition gate is green with zero second-round compilations. Both UPR-1 apparatus bugs
+        are recorded FIXED in `47df3d5af`.
 
 - [ ] **UPR-2 — YAML 1.2.2 M3.1 full grammar and hardening.**
   - [ ] **UPR-2a lexical/directive layer.** Implement the YAML printable set, BOM rules, directive

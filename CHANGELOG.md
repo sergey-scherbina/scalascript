@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-07-28 — UniML production contract and external corpus gates
+
+The accepted UniML production boundary is now executable and fail-closed. YAML pins all 402
+`yaml-test-suite` cases with full source/chunk/validity/event observables; CommonMark/GFM pins 675
+official cases across five axes on JVM and Scala.js. Their exact pre-fix baselines are persisted,
+strict gates are honestly red on 290 YAML cases and 244 Markdown axes, exception isolation has
+independent acceptance, and root/standalone Zinc products are disjoint with a two-round no-clean
+transition gate. This completes UPR-0/UPR-1; production grammar closure remains UPR-2/UPR-3.
+
 ## 2026-07-28 — Native coroutine provider queue state reconciled
 
 The `v2-coroutine-provider` SPRINT entry predated the implementation: it was
