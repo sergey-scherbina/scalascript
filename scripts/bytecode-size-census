@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+#
+# bytecode-size-census — list every JVM method whose bytecode exceeds a size threshold.
+#
+#   scripts/bytecode-size-census <classes-dir|jar> [threshold]
+#
+# WHY THIS EXISTS
+#
+# HotSpot ships `-XX:+DontCompileHugeMethods` ON by default: a method whose bytecode is
+# larger than `-XX:HugeMethodLimit` (8000) is NEVER JIT-compiled — neither C1 nor C2 — and
+# runs in the bytecode interpreter for the life of the process. There is no warning, no log
+# line, no exception, and no correctness signal of any kind. The only symptom is that the
+# code is ~10-100x slower than the identical logic split across smaller methods.
+#
+# On 2026-07-28 exactly one method in the v2 kernel was over the limit —
+# `Prims.resolveBuiltinRaw`'s `__method__` arm, 49,384 bytecodes, the single dispatch point
+# for EVERY non-arithmetic operation in every ScalaScript program. Splitting it into
+# sequential sub-8000 parts made the v2 runtime 2.4-10.8x faster across the bench corpus
+# (specs/v2-runtime-perf-vs-v1.md). Nothing in the test suite could see the problem, and
+# nothing would see it come back — which is what this tool and tests/e2e/v2-jit-size.sh are.
+#
+# HOW IT MEASURES
+#
+# `javap -c` prints one `<offset>: <mnemonic>` line per instruction; the last offset in a
+# method is its size in bytecodes (within one byte of it — the final instruction's own
+# length). A `lookupswitch`/`tableswitch` table also prints `<key>: <target>` lines whose
+# keys are arbitrary 32-bit ints (string-hash dispatch produces keys like 2138219813).
+# Requiring a lowercase mnemonic after the colon is what keeps those switch keys out of the
+# census; without that filter a hash key masquerades as a 2-billion-bytecode method and the
+# real answer is buried. Compare first, classify after.
+set -euo pipefail
+
+TARGET="${1:-}"
+THRESH="${2:-8000}"
+
+if [[ -z "$TARGET" ]]; then
+  cat >&2 <<'EOF'
+usage: scripts/bytecode-size-census <classes-dir|jar> [threshold]
+
+  Prints "<size>  <class> :: <method>" for every method at or above <threshold>
+  bytecodes, largest first. Prints nothing when none qualify. Default threshold is
+  8000 = HotSpot's HugeMethodLimit, above which a method is never JIT-compiled.
+EOF
+  exit 2
+fi
+
+if [[ ! -e "$TARGET" ]]; then
+  echo "bytecode-size-census: no such classes dir or jar: $TARGET" >&2
+  exit 2
+fi
+
+work="$(mktemp -d "${TMPDIR:-/tmp}/ssc-bcsize.XXXXXX")"
+trap 'rm -rf "$work"' EXIT
+
+if [[ -d "$TARGET" ]]; then
+  find "$TARGET" -name '*.class' -print0 | xargs -0 -n 60 javap -p -c 2>/dev/null > "$work/all.txt" || true
+else
+  unzip -o -q "$TARGET" -d "$work/x"
+  find "$work/x" -name '*.class' -print0 | xargs -0 -n 60 javap -p -c 2>/dev/null > "$work/all.txt" || true
+fi
+
+if [[ ! -s "$work/all.txt" ]]; then
+  echo "bytecode-size-census: $TARGET produced NO disassembly — nothing was measured." >&2
+  echo "  A silent empty census reads exactly like a clean one; refusing to report green." >&2
+  exit 2
+fi
+
+awk -v thresh="$THRESH" '
+  /^ *[0-9]+: [a-z]/ { off=$1; sub(/:$/,"",off); off=off+0; if (off > maxoff) maxoff=off; next }
+  /\(.*\);$/ && !/^ *[0-9]+:/ {
+     if (cur != "" && maxoff >= thresh) printf "%8d  %s :: %s\n", maxoff, curclass, cur
+     cur=$0; sub(/^ +/, "", cur); maxoff=0; next
+  }
+  /^[a-z ]*(class|interface) / {
+     curclass=$0; sub(/ *\{$/,"",curclass); sub(/^.*(class|interface) /,"",curclass); sub(/ .*$/,"",curclass)
+  }
+  END { if (cur != "" && maxoff >= thresh) printf "%8d  %s :: %s\n", maxoff, curclass, cur }
+' "$work/all.txt" | sort -rn

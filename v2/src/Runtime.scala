@@ -1756,6 +1756,35 @@ object Prims:
       val name = str(a, 0)
       val recv = a(1)
       val margs = a.drop(2).toList
+      methodDispatch1(recv, name, margs)
+    case _ => NotBuiltin
+
+  /** `__method__` dispatch — SPLIT INTO JIT-SIZED PARTS ON PURPOSE.
+   *
+   *  This match is the single dispatch point for every non-arithmetic operation in a
+   *  ScalaScript program (`xs.map`, `s.split`, `n.toInt`, `opt.getOrElse`, …). As ONE
+   *  method it compiled to **49,384 bytecodes** — 6x over HotSpot's `HugeMethodLimit`
+   *  (8000), so `DontCompileHugeMethods` silently refused to JIT it and every method
+   *  call in every v2 program ran in the bytecode INTERPRETER, forever.
+   *
+   *  Measured 2026-07-28 on `bench/corpus` (`./bench.sh --backends ssc,v2,v2-bytecode`):
+   *  v2 was 50-400x slower than the v1 interpreter on every workload that is not pure
+   *  scalar arithmetic (`literal-match` 188x, `list-fold` 141x, `vector-index` 394x),
+   *  while the pure-arith rows (`arith-loop`, `nested-loop`, `recursion-fib`) were at
+   *  parity or BETTER — because those never reach `__method__`. That split in the data
+   *  is what identified this method. It is the same failure mode `arithFast`/`arithOp`/
+   *  `arithRest` already documents (a2985d911 unified them and pattern-match-heavy went
+   *  23.6 -> 348 ms/iter).
+   *
+   *  The split is a PURE SEQUENTIAL DECOMPOSITION: part N tries its cases in the original
+   *  order and falls through to part N+1, so the first matching case is exactly the one
+   *  the single match would have chosen. Nothing is reordered, nothing is duplicated.
+   *
+   *  ⚠ KEEP EVERY PART UNDER 8000 BYTECODES. Growing one past the limit silently un-JITs
+   *  it again, and no correctness gate can see that. `specs/v2-runtime-perf-vs-v1.md`
+   *  carries the javap measurement; `tests/e2e/v2-method-dispatch-jit-size.sh` fails on breach.
+   */
+  private def methodDispatch1(recv: Value, name: String, margs: List[Value]): Value =
       (recv, name, margs) match
         // Free-monad lifting: a method ON an unresolved effect Op defers itself
         // into the op's continuation (sequencing through blocks without CPS):
@@ -1853,6 +1882,10 @@ object Prims:
         case (StrV(s), "toUpperCase", Nil)   => StrV(s.toUpperCase)
         case (StrV(s), "toLowerCase", Nil)   => StrV(s.toLowerCase)
         case (StrV(s), "reverse", Nil)       => StrV(s.reverse)
+        case _ => methodDispatch2(recv, name, margs)
+
+  private def methodDispatch2(recv: Value, name: String, margs: List[Value]): Value =
+      (recv, name, margs) match
         case (StrV(s), "split", List(StrV(d))) => {
           val parts = s.split(d, -1)
           val nilV: Value = DataV("Nil", IndexedSeq.empty)
@@ -1928,6 +1961,10 @@ object Prims:
         case (StrV(s), "padTo",       List(IntV(n), StrV(pad))) => StrV(s.padTo(n.toInt, pad.head))
         case (StrV(s), "stripPrefix", List(StrV(pfx))) => StrV(if s.startsWith(pfx) then s.substring(pfx.length) else s)
         case (StrV(s), "stripSuffix", List(StrV(sfx))) => StrV(if s.endsWith(sfx) then s.substring(0, s.length - sfx.length) else s)
+        case _ => methodDispatch3(recv, name, margs)
+
+  private def methodDispatch3(recv: Value, name: String, margs: List[Value]): Value =
+      (recv, name, margs) match
         case (StrV(s), "grouped",     List(IntV(n)))    => listOf(s.grouped(n.toInt).map(StrV(_)).toList)
         case (StrV(s), "linesIterator",  Nil)           => listOf(s.linesIterator.map(StrV(_)).toList)
         case (StrV(s), "linesWithSeparators", Nil)      => listOf(s.linesWithSeparators.map(StrV(_)).toList)
@@ -1976,6 +2013,10 @@ object Prims:
         case (BigV(n), "toLong",       Nil)            => IntV(n.toLong)
         case (BigV(n), "toDouble",     Nil)            => FloatV(n.toDouble)
         case (BigV(n), "toFloat",      Nil)            => FloatV(n.toDouble)
+        case _ => methodDispatch4(recv, name, margs)
+
+  private def methodDispatch4(recv: Value, name: String, margs: List[Value]): Value =
+      (recv, name, margs) match
         case (BigV(n), "toString",     Nil)            => StrV(n.toString)
         case (BigV(n), "toString",     List(IntV(r)))  => StrV(n.toString(r.toInt))
         case (BigV(n), "abs",          Nil)            => BigV(n.abs)
@@ -2047,6 +2088,10 @@ object Prims:
         // Array/Map HOFs — same effect-aware traversal as the list HOFs (a real
         // ArrayBuffer flows out of Array.fill since v2-array-companion-list;
         // busi hub folds over such tables at module load).
+        case _ => methodDispatch5(recv, name, margs)
+
+  private def methodDispatch5(recv: Value, name: String, margs: List[Value]): Value =
+      (recv, name, margs) match
         case (ForeignV(ab: collection.mutable.ArrayBuffer[?]), "foldLeft", List(z, fn: Value.ClosV)) =>
           foldThreadOp(ab.asInstanceOf[collection.mutable.ArrayBuffer[Value]].toList, z,
             (acc, x) => callClos(fn, Array(acc, x)))
@@ -2150,6 +2195,10 @@ object Prims:
         case (ls, "dropWhile", List(fn: Value.ClosV)) if isList(ls) =>
           listOf(unlist(ls).dropWhile(x => callClos(fn, Array(x)) == Value.BoolV(true)))
         case (ls, "flatten", Nil) if isList(ls) => listOf(unlist(ls).flatMap(unlist))
+        case _ => methodDispatch6(recv, name, margs)
+
+  private def methodDispatch6(recv: Value, name: String, margs: List[Value]): Value =
+      (recv, name, margs) match
         case (ls, "reverse", Nil) if isList(ls) => listOf(unlist(ls).reverse)
         case (ls, "distinct", Nil) if isList(ls) => listOf(unlist(ls).distinct)
         case (ls, "grouped", List(IntV(n))) if isList(ls) =>
@@ -2238,6 +2287,10 @@ object Prims:
           DataV("Stub", Vector.empty)  // stub tuple/field accessor
         case (DataV(tag, fields), n, Nil) if tag.startsWith("Tuple") && n.matches("_\\d+") =>
           fields(n.drop(1).toInt - 1)
+        case _ => methodDispatch7(recv, name, margs)
+
+  private def methodDispatch7(recv: Value, name: String, margs: List[Value]): Value =
+      (recv, name, margs) match
         case (DataV("Mirror", fields), "label", Nil)      => fields(0)
         case (DataV("Mirror", fields), "elemLabels", Nil) => fields(1)
         case (DataV("Mirror", fields), "elemTypes", Nil)  => fields(2)
@@ -2302,6 +2355,10 @@ object Prims:
         case (DataV("Some", _), "nonEmpty", Nil) => BoolV(true)
         case (DataV("None", _), "nonEmpty", Nil) => BoolV(false)
         // ── Either methods ───────────────────────────────────────────────────────
+        case _ => methodDispatch8(recv, name, margs)
+
+  private def methodDispatch8(recv: Value, name: String, margs: List[Value]): Value =
+      (recv, name, margs) match
         case (DataV("Bench", _), "opaque", List(v)) => v
         case (DataV("BenchObj", _), "opaque", List(v)) => v
         // Seq/List/Vector/Map companion-object factories (recv = DataV(compName, _))
@@ -2374,6 +2431,16 @@ object Prims:
           out.entries.update(k, v)
           out
         case (MapV(m), "contains", List(k)) => BoolV(m.contains(k))
+        case _ => methodDispatch9(recv, name, margs)
+
+  private def methodDispatch9(recv: Value, name: String, margs: List[Value]): Value =
+      // The plugin `__method__.<name>` handlers take the RAW builtin arg list. The
+      // dispatch parts receive it already destructured, so rebuild it here — exactly,
+      // not approximately: the caller built it as `StrV(name) :: recv :: args` and
+      // `str(a, 0)` already proved `a(0)` is that StrV, so this is the same list.
+      // Cold path only (no plugin handler = no allocation on the hot path).
+      val a: List[Value] = StrV(name) :: recv :: margs
+      (recv, name, margs) match
         case (MapV(m), "isEmpty", Nil) => BoolV(m.isEmpty)
         case (MapV(m), "nonEmpty", Nil) => BoolV(m.nonEmpty)
         case (MapV(m), "keys", Nil) => listOf(m.keys.toSeq)
@@ -2479,6 +2546,16 @@ object Prims:
         // ClosV receivers and the whole pipeline died on dispatch.
         case (f: ClosV, "andThen", List(g: ClosV)) =>
           ClosV(Runtime.emptyEnv, 1, env => Done(callClos(g, Array(callClos(f, Array(env.last))))))
+        case _ => methodDispatch10(recv, name, margs)
+
+  private def methodDispatch10(recv: Value, name: String, margs: List[Value]): Value =
+      // The plugin `__method__.<name>` handlers take the RAW builtin arg list. The
+      // dispatch parts receive it already destructured, so rebuild it here — exactly,
+      // not approximately: the caller built it as `StrV(name) :: recv :: args` and
+      // `str(a, 0)` already proved `a(0)` is that StrV, so this is the same list.
+      // Cold path only (no plugin handler = no allocation on the hot path).
+      val a: List[Value] = StrV(name) :: recv :: margs
+      (recv, name, margs) match
         case (f: ClosV, "compose", List(g: ClosV)) =>
           ClosV(Runtime.emptyEnv, 1, env => Done(callClos(f, Array(callClos(g, Array(env.last))))))
         // By-name field access on a case-class value reached through an UNTYPED path
@@ -2585,7 +2662,7 @@ object Prims:
                     eta
                   else
                     sys.error(s"__method__: no dispatch for .$name on ${Show.show(recv)}")
-    case _ => NotBuiltin
+
 
   private[ssc] def resolveBuiltin(op: String): Option[Fn] =
     val fn = resolveBuiltinRaw(op)
