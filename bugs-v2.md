@@ -48,7 +48,23 @@ those two cases, not a parser feature.
 
 ---
 
-## B — `derives` on the native lane: the derived instance is never defined — 7 cases
+## B — `derives` against a HOST typeclass in a `backend: jvm` example — 7 cases
+
+> **⚠️ CORRECTED after reduction. My first reading of this cluster was wrong** and is kept here
+> because the correction is the useful part. I assumed it was the native `derives` path failing —
+> the same shape fixed on the JS lane twice today. It is not. Two minimal repros, both on the
+> native lane, both **PASS**: `derives` against a typeclass in the SAME module, and `derives`
+> against one in an IMPORTED `.ssc` module. So the native `derives` path works.
+>
+> What these seven cases actually do is `derives JsonCodec` where `JsonCodec` is a **host Scala
+> type**, pulled in with `import scalascript.typeddata.{…}` from
+> `backend/typed-data/src/main/scala/scalascript/typeddata/JsonCodec.scala`. There is no
+> `JsonCodec_derived` global on the native lane because the typeclass is JVM code the native lane
+> does not link. **Six of the seven declare `backend: jvm` in their own front-matter.**
+>
+> So this is not a defect to fix — it is a case-selection question, see the box below.
+
+### Old (wrong) heading kept for the record: "the derived instance is never defined" — 7 cases
 
 | symptom | cases |
 |---|---|
@@ -158,7 +174,7 @@ other lanes, out of scope for this list.
 
 | cluster | cases | leverage |
 |---|---|---|
-| B — `derives` / `TC_derived` unbound | 7 | **one mechanism** — best next fix |
+| B — `derives` against a HOST typeclass, in `backend: jvm` examples | 7 | **not a defect** — case selection, see the box above |
 | A — parse rejections | 9 | ≥4 gaps; `quoted-macro` may not belong at all |
 | C — missing plugin globals | 9 | per-plugin; `htmlToPdfBase64` = 3 cases |
 | F — output diverges | 8 | 4 are one banner, already claimed |
@@ -166,18 +182,49 @@ other lanes, out of scope for this list.
 | E — F delegation | 2 | overlaps an existing census |
 | G — one-offs | 2 | one is a documented limitation |
 
-**39 cases, ~7 causes.** Fixing B and the banner would take v2 from 39 non-PASS to about 28 — and
-the four `_err` gaps in A are each the kind of one-construct parser fix that has landed four times
-today.
+**39 cases, ~7 causes — and 10 of the 39 are examples that declare they target another backend.**
+Honouring `backend:` would put the real v2 number at **29**. Of those 29, the four `_err` gaps in
+cluster A are each the kind of one-construct parser fix that has landed four times today, and the
+banner accounts for four more.
+
+---
+
+## ⭐ The finding that reframes the whole list: the contract ignores `backend:`
+
+`contract.sc` honours the front-matter keys `backends:` (the conformance lane gate) and
+`known-red:`. It does **not** read `backend:` — the key an *example* uses to declare which backend
+it targets. Measured: `grep -c 'backend:' tests/conformance/contract.sc` over that key is **0**.
+
+Consequence: an example that says `backend: jvm` is still executed on the v2 lane and counted as a
+v2 failure. **10 of the 39** failing cases declare a non-v2 target:
+
+| declared backend | cases |
+|---|---|
+| `backend: jvm` | `dataset-typed-mapping`, `distributed-dataset-codec`, `distributed-dataset-typed-helpers`, `distributed-dataset-wire-protocol`, `distributed-dataset-wire-shuffle`, `graph-codecs`, `object-store-jdbc`, `typed-object-codec` |
+| `backend: js` | `indexeddb-sync-client`, `sync-todo` |
+
+That also explains two entries in cluster A: `graph-codecs` and `typed-object-codec` are
+`backend: jvm` examples deriving against host typeclasses, so their `_err` is very likely the same
+host-import shape rather than a fourth parser gap.
+
+**If `backend:` were honoured, the honest v2 number would be 29, not 39** — and the remaining 29
+would all be cases that genuinely claim to run there.
+
+**❓ This is the first question, ahead of the others:** should the corpus contract skip a lane a case
+explicitly says it does not target? I did not change it — it moves the meaning of the gate for
+every lane at once, and that is your call, not a drive-by. If you say yes, it is a small change in
+`processCase` plus one full re-freeze.
 
 ## Open questions for Sergiy
 
-1. **Quoted macros on native** (`quoted-macro-constfold`, `quoted-macro-interpreter`) — supported
+1. **Should the contract honour `backend:`?** (see the box above — 10 of 39 cases). This one
+   changes the meaning of the number more than any fix.
+2. **Quoted macros on native** (`quoted-macro-constfold`, `quoted-macro-interpreter`) — supported
    surface, or v1-only? Determines "fix the parser" vs "gate the cases".
-2. **Which plugins must be native** (`htmlToPdfBase64`, `mcpServer`, `attr`, `Widget`,
+3. **Which plugins must be native** (`htmlToPdfBase64`, `mcpServer`, `attr`, `Widget`,
    `nfcCapabilities`, `validate`, `clusterOf`, `IndexedDb`, `Sync`)? Some look browser-shaped.
-3. **`content-introspection`** — the message says the limitation is by design. Gate it as
+4. **`content-introspection`** — the message says the limitation is by design. Gate it as
    `known-red` so the number reflects reality?
-4. **The banner** (`v2-serve-banner-missing`) — make native print it (contract-preserving), or move
+5. **The banner** (`v2-serve-banner-missing`) — make native print it (contract-preserving), or move
    it to stderr in both lanes (arguably right, but rewrites every serving example's golden)? Filed
    with both options; currently claimed by another agent.
