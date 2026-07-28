@@ -1,5 +1,56 @@
 # Bug tracker
 
+## v2-array-indexed-store-silently-dropped — `a(i) = v` is parsed away, and the answer is wrong
+
+**Status:** OPEN — **diagnosed here, handed over deliberately** (the fix is in
+`v2/lib/ssc1-front.ssc0`, held by the live `v2-front-for-yield` claim). Found 2026-07-28 by
+`v2-backend-matrix-gaps` while clearing category 1 of `specs/v2-vs-v1-backend-matrix.md`.
+
+**This is a CORRECTNESS bug, not a performance one.** It produces a wrong answer with no
+diagnostic on either v2 lane.
+
+```scalascript
+val a = Array(0, 0)
+a(1) = 7
+println(a(1))
+```
+
+| lane | result |
+|---|---|
+| INT (`ssc-tools run --v1`) | `7` |
+| JS (`ssc-tools run-js`) | `7` |
+| **v2** (`ssc run --v2`, and `--interpret`) | **`0`** — the store is discarded, exit 0, no message |
+
+Control: a plain `var x = …` reassignment works correctly on v2, so this is specifically an
+**indexed** store.
+
+**Root cause, located.** `v2/lib/ssc1-front.ssc0`, `parseExprOrAssign`:
+
+```
+let re = parseExpr(toks) in
+if kindIs("=", prT(re)) then
+  match prV(re) {
+    case Pair(ltag, ldata) =>
+      if #seq(ltag, "var") then  ... emit assign ...
+      else pr(mkSExpr(prV(re)), prT(re))     -- ← anything else: the `= rhs` is DROPPED
+  }
+```
+
+Only a bare `var` is accepted as an assignment target. For `a(1) = 7` the left side parses as an
+application, falls into the `else`, and the parser returns just that expression — the `= 7` is
+never consumed and never lowered. Nothing reports it.
+
+**Fix shape** (for whoever holds the file): accept an application on the left of `=` and lower it
+the way Scala defines it — `a(i) = v` is `a.update(i, v)`. **Both halves are needed**: the v2
+runtime dispatch has no `update` arm for `ForeignV(ArrayBuffer)` either (it has `length`,
+`isEmpty`, `nonEmpty`, `toList`, `foldLeft`, `map`, `foreach` and no store), so the front change
+alone will turn a silent wrong answer into a silent no-op. A runtime arm was written and reverted
+here precisely because it is unreachable until the front stops discarding the statement — landing
+it alone would have looked like a fix while changing nothing.
+
+**Impact:** `bench/corpus/array-update` cannot be measured on either v2 lane, and any `.ssc`
+program that writes into an array is silently wrong on the default lane.
+
 ## v2-front-drops-float-literal-suffix — `0d` / `1.5f` lex the suffix as an identifier
 
 **Status:** OPEN — **diagnosed here, handed over deliberately**. The fix belongs in
