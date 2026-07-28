@@ -458,6 +458,17 @@ The build uses those existing reflection and resource files directly.
 aborts feature registration and is removed rather than replaced with an
 unproven feature.
 
+While another live claim owns `build.sbt`, a diagnostic manual dispatch may
+normalize the effective workflow setting without changing the shared file. The
+single idempotent override removes every reflection/resource configuration
+option, the invalid `HomeFinder` feature, and every builder `-J-Xmx` option,
+then adds the two canonical repository-root configuration files and exactly
+one `-J-Xmx5g`. Running the same setting expression twice must produce the
+same option list. This permits the hosted matrix to expose later build/runtime
+defects without weakening the mutex, but it does not close the broken local
+build contract. Final NRQ acceptance still requires the shared defaults to be
+fixed, the temporary override to be removed, and a fresh manual matrix run.
+
 The native-image output name comes from the CLI project name,
 `scalascript-cli`. The workflow consumes that exact build output, then gives
 the copied direct-download artifact and archive entry their stable release
@@ -604,6 +615,8 @@ Implementation measurements through `origin/main@5ee331fc2`:
 Still open before dispatch: the shared `build.sbt` defaults point two config
 options at non-existent `v1/native-image-configs`, pass the non-`Feature`
 `org.graalvm.home.HomeFinder`, and are temporarily owned by the active
-`uniml-production-completion` claim. Once that path is released, repair the
-shared defaults, rerun the effective-setting gates, dispatch the manual
+`uniml-production-completion` claim. An idempotent workflow-only normalization
+may run an interim diagnostic matrix while that claim remains live. Once the
+path is released, repair the shared defaults, remove the temporary
+normalization, rerun the effective-setting gates, dispatch the final manual
 workflow, and record its exact run id, SHA, and job conclusions here.
