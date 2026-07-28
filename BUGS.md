@@ -2417,7 +2417,7 @@ the job that would catch a scljet regression, and the 300-min `sbt` job is the l
 
 ## v2-front-try-in-def-body-shapes-break — `try`-as-a-def-body shapes break; (a)+(b)+(c) FIXED
 
-**Status: (c) FIXED 2026-07-28** by `f-try-multistmt-def-body` — together with the sibling
+**Status: (c) FIXED 2026-07-28** in `d11fd7a92` (`f-try-multistmt-def-body`) — together with the sibling
 `unbound global: try` this entry recorded for the legacy front, which turned out to be the same
 shape seen from the other side. Root cause, fix, and the before/after are below; the original
 report is kept verbatim under it.
