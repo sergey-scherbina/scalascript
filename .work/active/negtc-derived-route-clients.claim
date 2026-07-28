@@ -1,0 +1,11 @@
+slug: negtc-derived-route-clients
+branch: feature/negtc-derived-route-clients
+agent: claude-code
+started: 2026-07-28T14:19:11Z
+heartbeat: 2026-07-28T14:19:11Z
+status: claimed-before-planning
+items: negtc-both-fail-derived-route-clients NDR-0 NDR-1
+paths: examples/derived-route-clients.ssc
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
