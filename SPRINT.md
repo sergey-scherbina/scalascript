@@ -9,6 +9,40 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## 2026-07-28 — fewer-braces `f(args): p =>` — the `:` is never consumed (both fronts)
+
+**Active claim:** `v2-front-colon-trailing-lambda`. Cluster A of `bugs-v2.md`; closes TWO corpus
+cases with one fix (`wasm-matrix` and `wasm-http` — the latter bisected to this construct after
+its for/yield gap was fixed).
+
+**Diagnosis already done and recorded** (`bugs-v2-open.md` OPEN-W1). Two hypotheses were disproven
+by measurement first: the handoff's (layout `declColon`) and mine. The real cause, from the lowered
+IR:
+
+```
+(let ((app (global ap) (lit (int 3))))      <- ap(3) becomes its own statement
+  (let ((app (global _err) (global i)))      <- `: (i)` becomes _err(i)
+    (app (global _err) (lam 0 … i * 2 …))))  <- the body lambda too
+```
+
+Layout is CORRECT — `=>` is already an opener, so the body is a proper `(lam 0 …)`. What is missing
+is that **`postfix` never consumes `:` as a trailing-argument introducer**: it knows `.`(31),
+`match`(5), `(`(21), `{`(28 → `postBlockArg`) and not `:`(34).
+
+- [ ] **CTL-1 — fail-first gate.** `tests/conformance/fewer-braces-colon.ssc`: the 9-line repro
+      plus the forms that must NOT change — `val x: Int = 5`, `case class P(a: Int):` with a body,
+      a type ascription in parens, and `e { body }` (the brace form that already works). RED on V2,
+      green on INT before the fix.
+- [ ] **CTL-2 — a `:` branch in `postfix`, BOTH fronts, guarded by a lambda lookahead.** F
+      `specs/v2.2-p6.5-fsub.ssc:539`; ssc1-front near its `trailing block argument` branch
+      (`:1487`). ⚠️ The guard is the whole risk: fire ONLY when what follows `:` is a lambda
+      (`(…) =>` or `id =>`), otherwise the branch eats type ascriptions and declaration-body
+      colons. Write the lookahead as its own helper so both fronts state the same rule.
+- [ ] **CTL-3 — verify.** F self-fixpoint (baseline 173 ok / 0 FAIL, byte-identical) — mandatory,
+      F compiles itself. Then the affected slice, `wasm-matrix` + `wasm-http`, and the full corpus.
+      ⚠️ Do not touch the tree while the corpus runs — that invalidated a run earlier today.
+
+
 ## 2026-07-28 — `v2-host-typeclass-derives` — the gap that `backend:` gating HIDES but does not fix
 
 **Not claimed.** Sergiy, on being shown that honouring `backend:` drops 10 cases out of the v2
