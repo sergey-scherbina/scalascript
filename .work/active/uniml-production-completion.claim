@@ -2,13 +2,13 @@ slug: uniml-production-completion
 branch: feature/uniml-production-completion
 agent: claude-code
 started: 2026-07-27T21:28:38Z
-heartbeat: 2026-07-28T01:01:06Z
+heartbeat: 2026-07-28T01:17:40Z
 status: in-progress
-items: uniml-yaml-m31-full-grammar uniml-markdown-html5-entities uniml-portable-5-binding uniml-m5-language-adapters uniml-m6-tooling v2.2-p6.22 scljet-address-uniml-u2-u3 uniml-production-release UPR-0 UPR-1a UPR-1b UPR-1c UPR-2 UPR-2a UPR-2a.1-measurement-correction UPR-2b UPR-2c UPR-2d UPR-2e uniml-yaml-corpus-6ck3-percent-oracle-conflict uniml-yaml-corpus-gate-exception-isolation uniml-root-standalone-target-cache-collision
+items: uniml-yaml-m31-full-grammar uniml-markdown-html5-entities uniml-portable-5-binding uniml-m5-language-adapters uniml-m6-tooling v2.2-p6.22 scljet-address-uniml-u2-u3 uniml-production-release UPR-0 UPR-1a UPR-1b UPR-1c UPR-2 UPR-2a UPR-2a.1-measurement-correction UPR-2a.2 UPR-2b UPR-2c UPR-2d UPR-2e uniml-yaml-property-lexical-boundaries uniml-yaml-corpus-6ck3-percent-oracle-conflict uniml-yaml-corpus-gate-exception-isolation uniml-root-standalone-target-cache-collision
 paths: SPRINT.md BACKLOG.md CHANGELOG.md BUGS.md MILESTONES.md README.md specs/uniml-production.md specs/uniml.md specs/uniml-yaml.md specs/uniml-markdown.md specs/v2.2-self-hosted-dialect.md uniml/corpus uniml/yaml/src/main uniml/yaml/src/test uniml/markdown/src/test uniml/project uniml/build.sbt build.sbt scripts/verify-uniml-dual-build
 scope: |
   UPR-0 and UPR-1 are landed. This scope now implements UPR-2: the full YAML 1.2.2 M3.1
   lexical/directive, scalar, structural, recovery, event, resource-limit, and cross-platform
   closure against the already-pinned compare-first 402-case corpus.
-done-so-far: UPR-0/UPR-1 and UPR-2a.1 landed; independent post-land audit found that 6CK3 percent decoding occurred before the official-event comparison and falsely added one semantic/strict pass
-next: queue and land the compare-first UPR-2a.1 measurement correction, then implement queued UPR-2a.2 tag/property lexical grammar
+done-so-far: UPR-0/UPR-1, UPR-2a.1, and its compare-first measurement correction landed; corrected YAML baseline is 125/402 strict with 6CK3 classified only after literal comparison
+next: commit the UPR-2a.2 tag/property lexical grammar spec, implement one portable property scanner, and verify the exact 2SXE/LHL4/U99R corpus delta
