@@ -61,7 +61,7 @@ final class YamlOfficialCorpusSpec extends AnyFunSuite:
     assert(report.categoryRows.size == 33)
     assert(!report.categoryRows.exists(_.startsWith("family=")))
     assert(!report.isStrictGreen)
-    assert(report.failures.size == 276)
+    assert(report.failures.size == 277)
     YamlOfficialCorpusGate.requireCensus(report)
   }
 
@@ -69,7 +69,6 @@ final class YamlOfficialCorpusSpec extends AnyFunSuite:
     val closed = Vector(
       "52DL",
       "5TYM",
-      "6CK3",
       "6JWB",
       "6WLZ",
       "735Y",
@@ -86,6 +85,33 @@ final class YamlOfficialCorpusSpec extends AnyFunSuite:
     closed.foreach { id =>
       assert(outcomes(id).strictExact, YamlOfficialCorpusGate.renderFailureSafely(outcomes(id)))
     }
+  }
+
+  test("6CK3 compares the normative percent-preserving tag before oracle classification") {
+    val outcome = report.outcomes.find(_.testCase.id == "6CK3").getOrElse(fail("missing 6CK3"))
+    val expectedTag = outcome.expectedEvents.flatMap(_.tag).find(_.contains("app/tag"))
+    val actualTag = outcome.actualEvents.flatMap(_.tag).find(_.contains("app/tag"))
+
+    assert(expectedTag.contains("tag:example.com,2000:app/tag!"))
+    assert(actualTag.contains("tag:example.com,2000:app/tag%21"))
+    assert(!outcome.semanticsExact)
+    assert(!outcome.strictExact)
+    assert(
+      outcome.postCompareClassification.contains(
+        "oracle-discrepancy yaml/yaml-test-suite#9 (%21 decoded to ! in pinned test.event)"
+      )
+    )
+    assert(
+      YamlOfficialCorpusGate.renderFailure(outcome)
+        .contains("classification=oracle-discrepancy yaml/yaml-test-suite#9")
+    )
+    assert(outcome.copy(sourceExact = false).postCompareClassification.isEmpty)
+    assert(
+      outcome
+        .copy(actualEvents = outcome.actualEvents :+ YamlNormalizedEvent("deliberate-drift"))
+        .postCompareClassification
+        .isEmpty
+    )
   }
 
   test("same aggregate census with a different diagnostic is rejected") {

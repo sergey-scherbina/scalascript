@@ -180,6 +180,8 @@ private[yaml] final case class YamlCorpusOutcome(
 
   def baselineAxisError: Option[String] = baselineRowCapture.error
   def semanticsExact: Boolean = semanticAxisError.isEmpty && expectedEvents == actualEvents
+  def postCompareClassification: Option[String] =
+    YamlKnownOracleDiscrepancies.classify(this)
   def validityExact: Boolean =
     validityObserved && expectedValid == actualValid
   def axisErrors: Vector[String] =
@@ -719,6 +721,9 @@ private[yaml] object YamlOfficialCorpusGate:
       lines += "  chunk expected=all bounded schedules equal whole actual=mismatch"
       outcome.chunkProblems.foreach(problem => lines += "  chunk diff=" + problem)
     if !outcome.semanticsExact then
+      outcome.postCompareClassification.foreach(value =>
+        lines += "  classification=" + value
+      )
       lines += "  events expected:"
       outcome.expectedEvents.zipWithIndex.foreach { pair =>
         lines += f"    ${pair._2}%03d - ${pair._1.display}"
@@ -1235,7 +1240,34 @@ private[yaml] object YamlEventNormalization:
       case value if value.startsWith("!<") && value.endsWith(">") =>
         value.substring(2, value.length - 1)
       case value => value
-    YamlTagEnvironment.parserEventTag(expanded)
+    expanded
+
+private[yaml] object YamlKnownOracleDiscrepancies:
+  private val PercentEscapeIssue =
+    "oracle-discrepancy yaml/yaml-test-suite#9 (%21 decoded to ! in pinned test.event)"
+
+  def classify(outcome: YamlCorpusOutcome): Option[String] =
+    if
+      outcome.testCase.id != "6CK3" ||
+      outcome.semanticsExact ||
+      outcome.semanticAxisError.nonEmpty ||
+      outcome.sourceAxisError.nonEmpty ||
+      outcome.outerAxisError.nonEmpty ||
+      !outcome.sourceExact ||
+      !outcome.chunkExact ||
+      !outcome.validityExact ||
+      outcome.expectedEvents.size != outcome.actualEvents.size
+    then None
+    else
+      val differences =
+        outcome.expectedEvents.zip(outcome.actualEvents).filter(pair => pair._1 != pair._2)
+      differences match
+        case Vector((expected, actual))
+            if expected.tag.contains("tag:example.com,2000:app/tag!") &&
+              actual.tag.contains("tag:example.com,2000:app/tag%21") &&
+              expected.copy(tag = actual.tag) == actual =>
+          Some(PercentEscapeIssue)
+        case _ => None
 
 private[yaml] object YamlCorpusText:
   def lines(value: String): Vector[String] =

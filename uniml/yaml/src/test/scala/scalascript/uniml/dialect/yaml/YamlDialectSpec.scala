@@ -117,19 +117,6 @@ final class YamlDialectSpec extends AnyFunSuite:
     assert(documents(1).value.get.asInstanceOf[YamlValue.Scalar].tag.contains("tag:second.example/root"))
     assert(documents(2).value.get.asInstanceOf[YamlValue.Scalar].tag.contains("!root"))
 
-    assert(
-      YamlTagEnvironment.parserEventTag("tag:example.com,2000:app/tag%21") ==
-        "tag:example.com,2000:app/tag!",
-    )
-    assert(
-      YamlTagEnvironment.parserEventTag("tag:example.com,2000:app/caf%C3%A9") ==
-        "tag:example.com,2000:app/café",
-    )
-    assert(
-      YamlTagEnvironment.parserEventTag("tag:example.com,2000:app/emoji%F0%9F%98%80") ==
-        "tag:example.com,2000:app/emoji😀",
-    )
-
     val escapedEnvironment =
       YamlTagEnvironment.defaults
         .register("!e!", "tag:example.com,2000:%2f")
@@ -208,7 +195,6 @@ final class YamlDialectSpec extends AnyFunSuite:
         .asInstanceOf[YamlValue.Scalar]
         .tag
       assert(tag.contains(s"!bytes$opaque"))
-      assert(YamlTagEnvironment.parserEventTag(s"!bytes$opaque") == s"!bytes$opaque")
     }
   }
 
