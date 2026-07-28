@@ -1,0 +1,74 @@
+name: Lint Markdown (docs-only)
+
+# WHY THIS EXISTS, and why it is a SECOND workflow rather than a move.
+#
+# `ci.yml` carries `paths-ignore: ['**.md', '.work/**']`, and GitHub skips a run only when EVERY
+# changed path matches — so a markdown-only commit produces NO run at all, including no
+# `Lint Markdown`. The one job that checks `.md` was the one job a `.md` change could not trigger.
+#
+# Measured, not theoretical (BUGS.md §lint-markdown-unreachable-from-markdown-commits):
+#   * `64a8a3339` was docs-only, introduced two hard tabs in `SPRINT.md:137`, and got no run.
+#   * The failure surfaced hours later on `9f136e21f`, an unrelated conformance commit, because
+#     `markdownlint '**/*.md'` lints the whole repository at whatever SHA happens to trigger it —
+#     so the check reported against a commit that neither caused it nor contained the path.
+#   * The repair `41541482d` was itself `.md`-only, so CI could not verify it either.
+#
+# REJECTED: moving the `lint` job out of `ci.yml` into here. It would have given exactly one lint
+# run per push instead of two on a mixed commit — but `scripts/ci-status` hard-codes a
+# `required_jobs` list that contains "Lint Markdown", and it reports a run that omits a required job
+# as RED. Moving the job would therefore have turned every future green `ci.yml` run into
+# `missing required job: Lint Markdown`, and `tests/e2e/ci-status-guard.sh` pins that behaviour.
+# Fixing the health tooling to un-break the health tooling is a bigger, riskier change than the
+# duplicate second of runner time it would save.
+#
+# CONSEQUENCE, stated so nobody reports it as a bug: a commit touching BOTH code and `.md` runs
+# markdownlint twice — once here, once in `ci.yml`. That is seconds, it cannot produce a
+# contradictory verdict (same command, same whole-repo scope), and it does not reintroduce the queue
+# pressure `paths-ignore` was added to relieve: this workflow has no build, no cache, no matrix.
+#
+# `paths-ignore` in `ci.yml` is deliberately left alone. Its measurement stands — 43 of 58
+# non-`[skip ci]` commits in one hour changed only `.md`/`.work/`, against an `sbt` job of 3h16m.
+
+on:
+  push:
+    branches: [main]
+    paths: ['**.md']
+  pull_request:
+    branches: [main]
+    paths: ['**.md']
+
+# Its own concurrency group, so a docs push can never evict a code run's pending slot — the
+# eviction `ci.yml` documents at length. `cancel-in-progress: true` is safe here precisely because
+# this job is seconds long and carries no evidence anyone waits on.
+concurrency:
+  group: lint-markdown-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint-markdown-docs-only:
+    # Deliberately NOT named "Lint Markdown": `scripts/ci-status` matches required jobs by exact
+    # name, and two differently-triggered jobs sharing one name is an ambiguity waiting to be
+    # mis-read by a human or a script.
+    name: Lint Markdown (docs-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install markdownlint-cli
+        run: npm install -g markdownlint-cli
+
+      # Byte-identical to the `ci.yml` step, on purpose: the two triggers must not be able to
+      # disagree about what "lint passes" means.
+      - name: Lint Markdown
+        run: markdownlint '**/*.md' --ignore node_modules
