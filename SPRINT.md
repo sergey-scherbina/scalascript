@@ -7230,10 +7230,23 @@ emits `def C(a) = IrCtor(C, [a])`; extend to `def C(a) = let y=a*2 in IrCtor(C, 
     partial/map/heterogeneous/shuffle neighbors exact 16/16.
 
 ### Actor features (medium; some timing-flaky)
-- [ ] **v2-actors-bounded-mailbox** — ACTIVE
-  (`feature/v2-actors-bounded-mailbox`): implement the existing
+- [ ] **v2-actors-bounded-mailbox** — UNCLAIMED (claim released 2026-07-28 in
+  triage: `codex`, heartbeat 2.7 h stale, no live process). Implement the existing
   `spawnBounded(capacity, Overflow.X, thunk)` contract in the sole native V2
   actors provider.
+  - **Triage note — the released session's only uncommitted change was
+    `backends: [jvm]` → `[jvm, v2]`, and it was reverted, not lost.** That is the
+    last bullet of this very task ("opt the corpus case into V2 **only after**
+    exact output"), attempted first. Re-measured on `89ed397f8`: JVM 1/1 PASS,
+    V2 `FAIL` at `unbound global: Overflow` — the gap is exactly as this entry
+    already describes, so nothing was learned by landing it and the gate would
+    have gone red without a declaration.
+  - **Blocked on a gate defect for the honest middle option.** Declaring the gap
+    with `known-red: v2 — …` does nothing: the V2 lane is the only one of six
+    that calls bare `check` instead of `checkLane`, so the declaration is parsed,
+    validated and then ignored. See BUGS.md
+    §`conformance-known-red-silently-ignored-on-v2`. Until that is fixed, opting
+    this case into V2 means an undeclared red; keep it at `backends: [jvm]`.
   - Run `actors-bounded-mailbox` unchanged on its declared JVM lane and through
     default/legacy × native VM/direct ASM; compare exact stdout/stderr/exit and
     repeat enough times to expose virtual-thread scheduling races.

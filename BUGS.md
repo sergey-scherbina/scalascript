@@ -1,5 +1,64 @@
 # Bug tracker
 
+## conformance-known-red-silently-ignored-on-v2 — the one lane that needs a declared red cannot have one
+
+**Status:** OPEN (found 2026-07-28 while triaging the dead `v2-actors-bounded-mailbox`
+claim; `tests/conformance/run.sc` is held by the live `build-ram-budget-and-speed`
+claim, so this is filed rather than fixed).
+
+**The defect.** `run.sc` checks six lanes. Five route through `checkLane`, which
+consults the `known-red:` map. The V2 VM lane does not:
+
+```scala
+checkLane("INT",   "int",    intOut, expected, knownRed)   // line 445
+checkLane("JS ",   "js",     jsOut,  expected, knownRed)   // line 456
+checkLane("JS/v2", "js-v2",  out,    expected, knownRed)   // line 466
+checkLane("JVM",   "jvm",    jvmOut, expected, knownRed)   // line 489
+checkLane("JVM/v2","jvm-v2", out,    expected, knownRed)   // line 499
+check    ("V2 ",             v2Out,  expected)             // line 511  ← no lane key, no knownRed
+```
+
+**Why it is worse than a missing feature: it is fail-open.** `parseKnownRed`
+happily parses, validates and returns `known-red: v2 — <reason>`. It enforces
+that a reason is present, exits 1 without one, and lowercases the lane. Nothing
+then consults the entry for `v2`. So a correct declaration is *accepted* and
+*ignored*, with no warning on any stream — the author's evidence that it worked
+would have to be a careful re-read of the lane's bucket in the output.
+
+**Real reproduction (measured, not reasoned).** Add `v2` to the backends of
+`tests/conformance/actors-bounded-mailbox.ssc` and declare the gap:
+
+```yaml
+backends: [jvm, v2]
+known-red: "v2 — native actors provider has no Overflow surface"
+```
+
+```text
+PASS [JVM]
+FAIL [V2 ]
+  line 3: expected=drop-newest: x  got=ssc: Actors scope failed: unbound global: Overflow
+Results: 0 passed, 1 failed out of 1 tests
+```
+
+Identical output with and without the declaration.
+
+**Consequence — this is why v2 corpus coverage stays low.** `run.sc`'s own
+documentation states the contract: *"a declared red is a visible red, a reroute
+is an invisible green"*, and a known-red **expires by itself** — if the lane
+starts passing, the suite fails and tells you to delete the declaration. For
+every lane but V2 an agent can therefore enable coverage for a known gap
+honestly. For V2 the only two options are an **undeclared red** (indistinguishable
+from a regression, and it reddens the nightly gate) or **leaving `v2` out of
+`backends:`** (invisible). The second is cheaper, so it is what happens — the
+gap then has no expiry and nothing notices when it closes.
+
+**Fix.** Route the V2 lane through `checkLane("V2 ", "v2", v2Out, expected,
+knownRed)` like the other five. Prove it red-then-green with the actors case
+above: declared → bucketed as known-red, suite green; then delete the
+declaration → suite red again. Add the stale-declaration direction too (a
+known-red `v2` on a case that passes must fail the suite), since that
+self-expiry is the property that makes the mechanism safe to use at all.
+
 ## scljet-write-freelist-errors-are-swallowed — reclaiming pager accepts corrupt staged graphs
 
 **Status:** OPEN (found 2026-07-28 during SPRINT `SC-2a.1`;
