@@ -1,5 +1,33 @@
 # Bug tracker
 
+## scljet-write-freelist-errors-are-swallowed — reclaiming pager accepts corrupt staged graphs
+
+**Status:** OPEN (found 2026-07-28 during SPRINT `SC-2a.1`;
+reporter: Codex production-completion audit; baseline `b6967a79f`).
+
+**Real-harness reproduction.** All 16 negative observables in
+`tests/conformance/run.sh --only 'scljet-freelist-write-corrupt' --no-memo`
+return `Right` on INT and JS. They include head/count disagreement, range and
+exact-count failures, out-of-range next/leaf pointers, a trunk cycle, duplicate
+and overlapping pages, an excessive leaf count, a short staged trunk, page 1,
+unsupported reserved-byte/auto-vacuum modes, and a caller page-size mismatch.
+The apparatus deliberately deletes through a different B-tree leaf from the
+staged trunk, so an eventual `Left` cannot be a proxy caused by corrupting the
+target data page.
+
+**Root cause / impact.** `readExistingFree` returns a plain `List[Int]`, maps
+every header/trunk read failure to an empty or partial graph, narrows unchecked
+u32 values to `Int`, and never verifies roles, cycles, duplicates, or the exact
+header count. `applyFreelist` also returns early for an empty newly-freed list.
+A direct staged-helper caller can therefore discard freelist metadata, overwrite
+page 1, or stage an out-of-range trunk that extends the database at commit.
+
+**Fix acceptance.** Validate the complete staged graph through an
+`Either[ByteError, ...]` preflight at every `pagerDeleteRebalanced` entry, reject
+unsupported layout modes and page-size disagreement, validate the union with
+newly freed pages, and prove two pre-commit reclaim batches read the staged
+header/trunks. Every negative case must fail before returning a changed pager.
+
 ## scljet-live-dml-does-not-reclaim-pages — SQL DELETE/UPDATE bypass reclaiming deletion
 
 **Status:** OPEN (found 2026-07-28 during SPRINT `SC-2a.1`;
