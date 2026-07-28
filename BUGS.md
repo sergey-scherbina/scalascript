@@ -1,5 +1,52 @@
 # Bug tracker
 
+## corpus-contract-scljet-jdbc-v2-timeout — a correct case that does not fit its budget on a loaded runner
+
+**Status:** OPEN (found 2026-07-28 while making the nightly contract report a verdict again).
+
+**What the gate says.** `Corpus Contract` run `30368982153`, shard 3/4:
+
+```text
+✗ 1 REGRESSION row(s) in rostered cases:
+    scljet-jdbc  v2  TIMEOUT
+```
+
+`scljet-jdbc` is not in the baseline, so this reads as a fresh regression.
+
+**It is not a code regression — measured.** The obvious suspect was SC-2 (`b9b060e6e`), which added
+freelist validation on *every* delete. A/B on `examples/scljet-jdbc.ssc`, v2 lane, same machine,
+same launcher, only the two `.ssc` files swapped:
+
+```text
+with SC-2:     26.03 s   exit 0, correct output
+without SC-2:  26.07 s   exit 0, correct output
+```
+
+Identical. The case is simply slow and *correct*, and it is slow for a reason already filed:
+`f-front-compile-cost-7x-on-scljet` — F is the default native front and costs ~7× on scljet cases.
+
+**So why TIMEOUT at a 90 s budget?** The two budgets are already separated deliberately
+(`--timeout` 30 s for the INT golden probe, `--lane-timeout` `max(90, timeout)` for lane
+comparison), the call sites are correct (`contract.sc:719` passes `laneTimeoutS`), and `runLane`
+even retries once on 124 so contention does not flap the gate. For this to time out **twice** at
+90 s, the runner has to be ~3.5× slower than a local Mac — which four shards of parallel JVMs on a
+shared 2-core runner can plausibly be.
+
+**Do not "fix" it by baselining it.** A `TIMEOUT` row would freeze a *correct* case as permanently
+non-PASS, and `contract.sc`'s own header says why that is corrosive: *"A correctness gate that
+reports perf as TIMEOUT noise trains people to ignore it — which is how this one died."*
+
+**Two honest options, in preference order.**
+
+1. Make the case fit: `f-front-compile-cost-7x-on-scljet` is the real cost. 26 s local for one
+   example is the defect; the budget is downstream of it.
+2. If the budget must move first, move it with a measurement attached — record the observed CI
+   wall-clock for this case (the run log does not print per-case timing today, which is its own
+   gap) and set `--lane-timeout` from that number, not from a guess.
+
+**Not attempted here** because it is neither the stale-baseline bookkeeping this claim took on nor
+a change I can justify without CI-side timing data.
+
 ## backend-check-mutual-recursion-drops-output — the Core IR parity gate is red on 3 of 4 generators
 
 **Status:** OPEN, **pre-existing** (found 2026-07-28 by `v2-backend-matrix-gaps` while verifying an
