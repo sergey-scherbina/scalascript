@@ -1,0 +1,13 @@
+slug: lint-markdown-own-trigger
+branch: feature/lint-markdown-own-trigger
+agent: claude-code
+started: 2026-07-28T12:00:55Z
+heartbeat: 2026-07-28T12:00:55Z
+status: in-progress
+items: lint-markdown-own-trigger
+paths: .github/workflows/lint-markdown.yml .github/workflows/ci.yml
+scope: |
+  Give Lint Markdown a trigger a .md change can reach. See SPRINT
+  "2026-07-28 — four findings from the claim-triage sweep" and
+  BUGS §lint-markdown-unreachable-from-markdown-commits.
+next: add a markdown-only workflow, verify it triggers and the code path does not double-lint
