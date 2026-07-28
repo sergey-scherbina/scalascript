@@ -169,7 +169,7 @@ modules the **default native lane** actually loads.
       `int-imported-module-mutable-registry-not-shared`, filed.
 - [ ] **NIG-2b — roster `native-import-in-fence` into the paired contract freeze. HANDED TO
       CCR-1.** Measured with a scoped contract run: `int PASS / js KNOWN-RED / v2 PASS`, so the
-      roster gains one name and the baseline gains `native-import-in-fence	js	KNOWN-RED`; both
+      roster gains one name and the baseline gains `native-import-in-fence` <TAB> `js` <TAB> `KNOWN-RED`; both
       digests must be recomputed over canonical-LF bodies, and the routine must reproduce the
       digests already recorded before it writes new ones (that is the compare-first check that it
       is the writer's routine). **Not blocked on knowledge — blocked on contention:**
