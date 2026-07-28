@@ -7104,16 +7104,16 @@ emits `def C(a) = IrCtor(C, [a])`; extend to `def C(a) = let y=a*2 in IrCtor(C, 
   pre-commit main); scljet is main's active M4 WIP, left untouched.
 
 ### Effects / runtime providers
-- [ ] **v2-distributed-failure-retry** — ACTIVE
-  (`feature/v2-distributed-failure-retry`): close the reported `Stub` in the
+- [x] **v2-distributed-failure-retry** — DONE 2026-07-28
+  (`a373460c3`, `ea21eb8a5`): closed the reported `Stub` in the
   faulty-worker retry path without misrepresenting the local-loopback provider
   as a remote failure detector.
   - Run `distributed-failure-retry` unchanged on its declared lane and through
     default/legacy × native VM/direct ASM. Compare exact stdout/stderr/exit
     before classifying the reported post-`Random.uuid` failure. Baseline
     (2026-07-28): JVM 1/1; V2 0/4 with identical exit-0 output
-    `failures: 0 / 11 / 12 / Stub / 15 / 16`, so one retry value is a
-    missed-dispatch breadcrumb rather than a reported partition failure.
+    `failures: 0 / 11 / 12 / Stub / 15 / 16`, so the failed two-element
+    partition is a missed-dispatch breadcrumb rather than a reported failure.
   - Reduce coordinator setup, faulty-worker receive/exit, `Cluster`
     construction, and `runDistributed(... retries = 1 ...)` independently to
     identify the first wrong observable and whether the native intrinsic is
@@ -7128,6 +7128,12 @@ emits `def C(a) = IrCtor(C, [a])`; extend to `def C(a) = let y=a*2 in IrCtor(C, 
   - Run distributed/actor plugin suites, focused retry + partial/map neighbors,
     and default/legacy × VM/direct ASM. Done when the original output agrees
     without a `Stub`, a fallback, or duplicate coordinator state.
+  - Result: the first wrong observable was the coordinator's
+    `List[(partitionId, partition)].toMap`, unsupported by V2 dynamic dispatch.
+    Ordinary and typed-wire lookups now use the portable `foldLeft` + `updated`
+    Map surface. The local-loopback provider remains unchanged. Retry is exact
+    4/4; full distributed corpus 6/6; actors/distributed plugins 4/4 and 5/5;
+    partial/map/heterogeneous/shuffle neighbors exact 16/16.
 
 ### Actor features (medium; some timing-flaky)
 - [ ] **v2-actors-bounded-mailbox** — `spawnBounded(n, Overflow.X, thunk)` + `Overflow` enum

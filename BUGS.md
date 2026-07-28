@@ -2,8 +2,9 @@
 
 ## v2-distributed-failure-retry — retry path degrades to Stub
 
-**Status:** OPEN (reported by the SSC v2 corpus audit; accepted 2026-07-28
-by `codex`, SPRINT `v2-distributed-failure-retry`).
+**Status:** FIXED 2026-07-28 in `ea21eb8a5` (regression `a373460c3`);
+reported by the SSC v2 corpus audit and accepted by `codex`, SPRINT
+`v2-distributed-failure-retry`.
 
 **Reported real-harness reproduction.**
 
@@ -14,15 +15,23 @@ bin/ssc run --native tests/conformance/distributed-failure-retry.ssc
 Fresh assembled baseline (2026-07-28): the declared JVM lane passes 1/1.
 Default/legacy × `--native`/`--bytecode` is 0/4 with identical exit-0 output:
 `failures: 0`, then `11`, `12`, `Stub`, `15`, `16`. The single breadcrumb
-replaces expected `14`; frontend and VM/direct-ASM are therefore ruled out,
-and the coordinator incorrectly accepts a missed dispatch as a successful
-retry result.
+replaces the failed partition's two expected values, `13` and `14`; frontend
+and VM/direct-ASM are therefore ruled out.
 
-**Fix acceptance.** The unchanged corpus case must print zero failures and
-the ordered values 11 through 16. Preserve the distinction in
-`specs/v2.1-native-distributed-loopback.md`: its deterministic local provider
-must not pretend to implement remote failure detection. If closing the case
-requires expanding that contract, update and commit the spec before code.
+**Root cause and fix.** The actor coordinator retained retry payloads with
+`List[(partitionId, partition)].toMap`. V2 has no dynamic `List.toMap`
+dispatch, so the lookup itself became `Stub`; the coordinator then sent that
+placeholder to a healthy worker and accepted its placeholder result as
+success. Both ordinary and typed-wire retry lookups now build a real portable
+Map through `foldLeft` + `updated`. State remains in the shared actor
+coordinator; the deterministic local-loopback provider and its no-remote-
+failure contract are unchanged.
+
+**Verification.** The unchanged corpus case prints zero failures and ordered
+values 11 through 16 on JVM and V2; default/legacy × VM/direct ASM is exact
+4/4. The full `distributed-*` slice is 6/6, actors-plugin is 4/4, distributed-
+plugin is 5/5, and the partial/map/heterogeneous/shuffle neighbors are exact
+16/16 across the same frontend/engine matrix.
 
 ## f-front-silent-delegation-hides-coverage-gaps — F is the default front, and 26 corpus cases were never compiled by it
 

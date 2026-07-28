@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-07-28 — Actor-distributed retries preserve their partitions on SSC v2
+
+The shared map-reduce coordinator now retains ordinary and typed-wire retry
+payloads through the portable `Map.updated` surface. A missing dynamic
+`List.toMap` dispatch had replaced the whole failed partition with `Stub`,
+which a healthy retry worker then returned as a false success. The local
+loopback provider remains deliberately free of remote-failure semantics.
+
+The unchanged cross-module regression passes on JVM and V2; default/legacy ×
+VM/direct ASM is exact 4/4. The full distributed slice is 6/6, actor and
+distributed provider suites are 4/4 and 5/5, and four neighboring distributed
+cases are exact 16/16. Implementation: `ea21eb8a5`; regression: `a373460c3`.
+
 ## 2026-07-28 — Dataset and Generator providers interoperate on SSC v2
 
 `Dataset.fromGenerator` now consumes the standard provider lazily through its
