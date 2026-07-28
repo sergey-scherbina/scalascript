@@ -1,5 +1,36 @@
 # Bug tracker
 
+## uniml-yaml-property-lexical-boundaries — tag/anchor delimiters are guessed without parser context
+
+**Status:** OPEN (found 2026-07-28 during the UPR-2a.2 corpus and grammar audit;
+SPRINT `UPR-2a.2`).
+
+**Real-harness reproduction.** On the corrected 402-case corpus baseline:
+
+- `2SXE` is valid but its legal `&a:` / `*a:` names are cut at `:` and produce
+  13 actual events instead of 10;
+- `LHL4` is expected-error but `!invalid{}tag` is accepted by splitting an
+  apparently complete tag from a following flow collection;
+- `U99R` is expected-error but block-context `!!str,` is accepted because comma
+  unconditionally terminates a property as if it were inside a flow collection.
+
+The same context-free rule rejects the legal property-only empty nodes `[!, x]`,
+`[!]`, and `{a: !}` even though bare `!` must still reject adjacent collection
+content such as `![x]` and `!{x: y}`.
+
+**Impact.** Lexer, semantic property splitting, and mapping-colon discovery use
+different delimiter heuristics. Legal anchor/tag spellings can change structure,
+invalid spellings can be silently reinterpreted as multiple nodes, and a fix for
+block input can overreject valid flow input.
+
+**Fix acceptance.** Introduce one JVM/Scala.js-portable property syntax scanner
+shared by lexical and semantic paths. Enforce the YAML 1.2.2 tag/anchor/alias
+character productions, exact `%HH` preservation, context-sensitive flow
+termination, and full expanded global-URI validation. The complete 402-row diff
+may change only `2SXE`, `LHL4`, and `U99R`; target census from the corrected
+baseline is actual errors `218`, validity `216`, semantics `138`, strict `126`,
+failures `276`, source/chunks `402/402`, and zero crashes.
+
 ## uniml-yaml-bare-tag-uses-primary-handle — `%TAG !` rewrites the non-specific `!` tag
 
 **Status:** FIXED 2026-07-28 in `3341a35a9` (found during independent
