@@ -1,5 +1,44 @@
 # Bug tracker
 
+## negtc-both-fail-derived-route-clients — the one case keeping the release gate red
+
+**Status:** open. NOT mine to fix; filed with everything needed so its owner does not repeat the
+56-minute discovery. Named for the first time on 2026-07-28 (run 30359338193).
+
+**What.** `tests/e2e/v21-negative-toolchain-release-gate.sh` fails `--strict` on exactly one case:
+
+```
+=== total: 214  identical: 65  mismatch: 0  bytecode-error: 0  vm-error: 0  both-fail: 1 …
+MISMATCH:
+BOTH-FAIL: derived-route-clients.ssc
+```
+
+`both-fail` means the VM lane AND the bytecode lane both exited non-zero — so it is not a parity
+divergence, it is one program failing on both native lanes.
+
+**Until this run the red was unreadable.** `bc-parity-sweep` printed the COUNT and listed
+MISMATCH/BYTECODE-ERROR/VM-ERROR (all empty), with no list for the one category that was non-zero
+and the only one `--strict` fails on. Learning the name cost a full 56-minute gate run. Fixed in
+`8ab4f05a5` (`BOTH-FAIL:` list); this entry is the first output of that fix.
+
+**It is NOT the Mirror-arity regression** (`sql-plugin-rowcodec-mirror-arity`), and that was checked
+rather than assumed:
+- `both-fail: 1` was already present on `e8c1d0c9f` (run 30350792576), and `dd56c4b8d` — the commit
+  that gave `Mirror` its fourth field — came **after** `e8c1d0c9f`;
+- `examples/derived-route-clients.ssc` derives through `RouteDeriver`, not `derives`/`Mirror`.
+
+So this is long-standing, not fallout from the 2026-07-28 Mirror work.
+
+**Cheapest reproduction** (minutes, not the 56-minute gate) — the sweep now takes `--only`:
+
+```bash
+scripts/sbtc "installBin"
+scripts/bc-parity-sweep --strict --only 'derived-route-clients*' --report /tmp/p.tsv
+```
+
+The report's `detail` column carries the first line of the failing lane's stderr, which the summary
+does not print.
+
 ## v2-lanes-cannot-run-four-corpus-workloads — float globals unbound, indexed array store not a function
 
 **Status:** OPEN (found 2026-07-28 by `bench-tier-dead-lanes` while building the first full
