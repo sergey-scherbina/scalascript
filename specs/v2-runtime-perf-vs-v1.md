@@ -219,3 +219,27 @@ That is a research-scale programme, and it should be priced and specced as one r
 attempted as another "slice". The profile-backed pieces that ARE slice-sized are queued as
 `v2rt-2` / `v2rt-6` in `SPRINT.md`, with their expected sizes stated up front so nobody starts one
 expecting the 10× that slice 1 produced.
+
+## 6. CI verdict for the landed slices (evidence record)
+
+The release-claim for `v2-runtime-perf-vs-v1` was written at evidence **level 3** (local gates)
+because no CI verdict existed yet. One arrived afterwards, so the record is corrected here rather
+than left standing at "pending".
+
+**Run [30329209595](https://github.com/sergey-scherbina/scalascript/actions/runs/30329209595),
+SHA `b7bd1e6d0` (both landed slices): `failure`.** Three jobs red, and **neither cause is this
+work** — attributed to specific foreign commits rather than argued away:
+
+| red job | cause | why it is not this work |
+|---|---|---|
+| `Conformance shard 0/4`, `1/4` | `scljet-freelist-write-corrupt` and `scljet-sql-live-reclaim` fail on the **INT and JS** lanes | Two brand-new sibling cases landed between this work's two local contract runs. They fail on the **v1 interpreter** and the JS backend, neither of which uses `v2/src/Runtime.scala`. The scljet agent has already declared them known-red on int/js in `9f136e21f`. |
+| `Validate ScalaScript` | `tests/e2e/ci-status-guard.sh` self-test: `[desc-green] expected exit=0 got=2`, "no push ci.yml run found for the exact SHA" | The guard's descendant-green scenario needs a green ancestor run to find, and there is none — 3 of the 5 CI runs around this one ended `cancelled` under churn (`BUGS.md ci-runs-cancelled-under-churn`). Nothing here touches `scripts/ci-status` or that guard. |
+
+**The part that is real evidence FOR the change, and is stronger than the level-3 statement it
+replaces:** the Conformance job — the job that would catch a v2 runtime regression — *ran* on this
+SHA, and its per-shard results are **79/80** and **81/82**, with the single failure in each being
+the sibling case above. So the conformance lane executed against these slices and found nothing
+attributable to them.
+
+`cancelled` is RED and so is `failure`; this section does not upgrade the claim to green. It
+records that a verdict exists, that it is red, and exactly whose red it is.
