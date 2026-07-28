@@ -51,7 +51,7 @@ own self-tests. These four are what that sweep surfaced and did not fix.
       double-lint. Verify with `markdownlint '**/*.md' --ignore node_modules` locally first
       (exit 0 today). *Detail:* BUGS.md §`lint-markdown-unreachable-from-markdown-commits`.
 
-- [ ] **conformance-known-red-v2-lane** — make `known-red:` actually work on the V2 lane.
+- [x] **conformance-known-red-v2-lane** — LANDED `895e5ecff`. Three probes: declared+failing -> suite green with `KNOWN-RED [V2 ]`; undeclared+failing -> red (so the first is not vacuous); declared+**passing** -> red with `STALE known-red` (self-expiry, the half that matters). `actors-bounded-mailbox` left at `backends: [jvm]` as the entry required. Original entry:
       *Why:* `tests/conformance/run.sc` checks six lanes; five call `checkLane(label, lane, …,
       knownRed)` and consult the map, the **V2 VM lane calls bare `check("V2 ", v2Out, expected)`**
       (~line 511 — no lane key, no map). `parseKnownRed` still parses, validates (exits 1 without a

@@ -781,9 +781,23 @@ by `v2-native-import-graph`: that claim's paths are `v2/bin/`, and this lives in
 
 ## conformance-known-red-silently-ignored-on-v2 — the one lane that needs a declared red cannot have one
 
-**Status:** OPEN (found 2026-07-28 while triaging the dead `v2-actors-bounded-mailbox`
-claim; `tests/conformance/run.sc` is held by the live `build-ram-budget-and-speed`
-claim, so this is filed rather than fixed).
+**Status:** FIXED 2026-07-28 in `895e5ecff` — the V2 lane now calls
+`checkLane("V2 ", "v2", v2Out, expected, knownRed)` like the other five.
+
+Proved with three probes rather than one, because the positive alone is vacuous:
+
+```text
+A  declared + failing lane   -> suite GREEN, "KNOWN-RED [V2 ] <reason>"
+B  same case, NO declaration -> suite RED,   "FAIL [V2 ]"
+C  declared + PASSING lane   -> suite RED,   "STALE known-red: this lane now PASSES"
+```
+
+C is the load-bearing one: self-expiry is what stops a known-red outliving its bug. Probes used
+`actors-bounded-mailbox` (v2 fails, `unbound global: Overflow`) and `case-class-body-methods`
+(v2 passes); both were restored, the commit touches `run.sc` only. Regression check: three
+v2-enabled cases still PASS on V2.
+
+Original report follows.
 
 **The defect.** `run.sc` checks six lanes. Five route through `checkLane`, which
 consults the `known-red:` map. The V2 VM lane does not:
