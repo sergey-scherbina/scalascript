@@ -9,6 +9,44 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## 2026-07-28 — the native lane's error diagnostics say nothing (Sergiy: "Исправляй оставшиеся проблемы в ssc v2")
+
+**Active claim:** `v2-native-error-diagnostic`. `BUGS.md`
+`v2-native-uncaught-error-diagnostic-empty`. This is not one program's problem: it is what the
+**default** lane prints for **any** uncaught error, so it is the first thing a user sees when
+anything goes wrong.
+
+**Measured before, real staged `bin/`:**
+
+| program | `bin/ssc run` (default ASM) | `--interpret` (VM) | `ssc-tools run --v1` |
+|---|---|---|---|
+| `throw new RuntimeException("the real message")` | **`ssc: SscThrow`** | `ssc: SscThrow` | `RuntimeException(the real message)` |
+| `List(1,2,3)(9)` | **`ssc: 9`** | `ssc: 9` | `[line 2, col 9] index 9 out of bounds for list of length 3` |
+
+Two independent defects meeting at one printer: `SscThrow` is built with no message so
+`StandardMain`'s `getMessage`-or-class-name falls through to the class name and the thrown VALUE
+is discarded; and `Prims.listIndex` falls through to Scala's `List.apply`, whose
+`IndexOutOfBoundsException` message is the bare index — while the sibling helper `listAt` right
+below it already raises an honest one.
+
+- [ ] **VED-0 — build the gate before the fix.** `tests/e2e/v2-error-diagnostic.sh`: run each
+      probe on the default lane AND `--interpret`, byte-compare stderr against the expected
+      text, and print `expected=… got=…` on mismatch (never a bare `[[ ]]`). Prove it RED
+      against the current binary first — a gate that has not been observed failing is a
+      hypothesis.
+- [ ] **VED-1 — `SscThrow` renders its value.** Override `getMessage` (not the constructor
+      argument) so `throw`/`catch`, which is also a control-flow path in this runtime, does not
+      pay to render a message nobody reads. Use `Show.show`, the same renderer the two lanes
+      already agree on for display.
+- [ ] **VED-2 — `listIndex` reports the bound.** On the slow path, check the range and raise
+      `index $i out of bounds for list of length $n`, matching what `listAt` and v1 already say.
+      Keep the non-cons (`ArrayBuffer` tail) shape working — that is a legitimate path, not an
+      error.
+- [ ] **VED-3 — verify.** Gate green on both lanes, affected conformance slice green, and a
+      spot-check that a *caught* exception still binds the same value (`try … catch` must be
+      unaffected: this changes the message, not the payload).
+
+
 ## 2026-07-28 — `js-derives-instance-undefined` — ✅ DONE (see CHANGELOG)
 
 Kept as the pointer only. `emit-js` (and therefore the conformance JS lane) never emitted a Mirror
