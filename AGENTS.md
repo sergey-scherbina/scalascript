@@ -53,9 +53,28 @@ Every piece of work, always, in this order:
 
    1. `scripts/ci-status --sha <landed-sha>` exit 0 — still the gold standard when you get it.
    2. Otherwise `gh run view <run> --json jobs`: name the **specific job that would catch
-      your change** (e.g. `Conformance Suite` for a conformance/engine change) and report its
-      conclusion. A green descendant run counts, with the `merge-base` named.
+      your change** (e.g. a `Conformance shard i/4` for a conformance/engine change) and report
+      its conclusion. A green descendant run counts, with the `merge-base` named.
    3. Otherwise your local gates, listed by name and result.
+
+   **Before settling for level 3, ASK FOR A RUN.** Since 2026-07-28 `workflow_dispatch` has its
+   own per-SHA concurrency group, so a dispatched run is never evicted by the next push:
+
+   ```bash
+   gh workflow run ci.yml --ref main
+   scripts/ci-status --sha <sha> --event any        # --event any: the run is not a push run
+   ```
+
+   This rung did not exist before, and its absence is why an entire working session had to close
+   every claim at "level 3": dispatch shared the push group, so three runs carrying specific
+   commits were superseded and cancelled before starting a single job, and a manual dispatch would
+   have been evicted exactly the same way. Level 1 was unreachable by construction, not by luck.
+
+   Two costs, stated rather than discovered: a dispatched run is not a push event, so the
+   `sbt — compile and test` job DOES run (~75 min) and `ci-status` requires it — if you only need
+   the per-push verdict, read the fast jobs' conclusions directly (level 2) instead of waiting for
+   the whole run. And a dispatch consumes runner budget that push runs are queued for, so use it
+   when you need a verdict, not as a habit.
 
    Two things stay non-negotiable: **`cancelled` is RED, never neutral**, and the
    release-claim must say **which of the three levels the evidence is** — never write
