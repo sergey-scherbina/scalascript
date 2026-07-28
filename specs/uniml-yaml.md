@@ -484,17 +484,28 @@ tests/conformance/run.sh --only '*yaml*'
 The originally published 402-case census reported validity `210→214`, semantics `128→138`, strict
 `112→126`, actual errors `220→216`, and failures `290→276`, with zero crashes. A post-land audit
 found that the actual tag was percent-decoded before equality, so this was not compare-first for
-6CK3: one semantic/strict pass was manufactured by the compatibility projection. The queued
-UPR-2a.1 measurement correction must re-freeze the baseline at expected semantics `137`, strict
-`125`, and failures `277`, with validity `214`, actual errors `216`, source/chunks `402/402`, zero
-crashes, and 6CK3 as the only changed row.
+6CK3: one semantic/strict pass was manufactured by the compatibility projection.
 
-The superseded post-slice baseline SHA-256 is
+The UPR-2a.1 measurement correction landed in `024d80524`. The fail-first corpus test observed the
+old actual tag as `tag:example.com,2000:app/tag!`; the corrected actual remains
+`tag:example.com,2000:app/tag%21`, compares unequal to the unchanged vendored event, and is only
+then classified as `oracle-discrepancy yaml/yaml-test-suite#9`. The production decoder was removed.
+Independent full-row review confirmed that 6CK3 is the only changed row and that only its
+`local-tag`, `spec`, and `tag` category rows move.
+
+The corrected census is validity `214`, semantics `137`, strict `125`, actual errors `216`, and
+failures `277`, with source/chunks `402/402` and zero crashes. Its baseline SHA-256 is
+`563ec95401acfb8fab062b11408b5be8e5397a61c5d54676fff04865170fff95`; its category SHA-256 is
+`cc0d52c8f34207900a95afe6725d5f9a9265c1cb6ce10f6d82feb9bf21288c78`. JVM and Scala.js corpus
+suites pass `19/19` each; full YAML suites pass `41/41` and `40/40`; portable lint, affected
+conformance, and the two-round root/standalone no-clean gate pass. Three independent read-only
+audits accepted the implementation and baseline.
+
+The superseded pre-correction baseline SHA-256 is
 `7cd2d76efd0e26252097722ac1fb7d577936fb9f665ae6e852c811a9098123e3`; its category SHA-256 is
 `25d786c1259235b820b550e58c67ef0c31e513771d226bc3ba60ed52d77fe5ad`; neither digest is evidence
-after the defect was identified. Two independent read-only reviews accepted the portable
-representation implementation, and a later normative audit found the comparison-layer defect.
-Full tag/property lexical grammar remains UPR-2a.2; this progress is not an M3.1 conformance claim.
+after the defect was identified. Full tag/property lexical grammar remains UPR-2a.2; this progress
+is not an M3.1 conformance claim.
 
 M3.1 is complete only when the three unchecked behavior rows above are checked from the full
 compare-first corpus and resource gates defined in
