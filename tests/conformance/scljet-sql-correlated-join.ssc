@@ -93,4 +93,12 @@ buildTableDatabase(512, 1, 1, "t",
     dump(image, "shadow-exists",
       "SELECT t.id FROM t LEFT JOIN u ON t.v = u.x " +
       "WHERE EXISTS (SELECT u.uid FROM u WHERE u.uid = 11) ORDER BY t.id")
+    dump(image, "nested-shadow",
+      "SELECT t.id FROM t WHERE EXISTS " +
+      "(SELECT 1 FROM s WHERE EXISTS (SELECT 1 FROM t WHERE t.v = 2)) " +
+      "ORDER BY t.id")
+    dump(image, "nested-grandparent-control",
+      "SELECT t.id FROM t WHERE EXISTS " +
+      "(SELECT 1 FROM s WHERE EXISTS (SELECT 1 FROM u WHERE u.x = t.v)) " +
+      "ORDER BY t.id")
 ```

@@ -6,3 +6,5 @@ join3-null-extended-not-in=1|NULL|NULL ; 3|NULL|NULL ; 4|NULL|NULL
 right-null-extended-not-in=NULL|11
 shadow-in=1 ; 2 ; 3 ; 4
 shadow-exists=1 ; 2 ; 3 ; 4
+nested-shadow=1 ; 2 ; 3 ; 4
+nested-grandparent-control=2
