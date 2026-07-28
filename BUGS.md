@@ -6243,61 +6243,57 @@ real release installer behind a fake downloader/java: it proves the generated so
 **Status:** OPEN, still reproducing 2026-07-28. Found 2026-07-17 by `ci-red-main` after correcting
 the all-examples tools-command routing.
 
-**ATTEMPTED AND REVERTED 2026-07-28 by `v2-multiblock-auto-output` — the obvious design is
-DISPROVEN, and the constraint it fails is the useful part.** The implementation worked on the two
-lanes I first measured and was caught by the corpus on a third. Recording it so the next attempt
-starts from the real constraint rather than rediscovering it a fourth time.
+**FIXED 2026-07-28 by `v2-auto-output-prim` — on the SECOND attempt.** Each top-level code block's
+last non-Unit expression prints again, in source order. The runner marks each code fence's end with
+a `__sscBlockEnd__` sentinel; F consumes it in `walkTop`, where the item in front of it has just
+been parsed, and wraps that item's entry expression in an `__autoOutput__` **primitive**; the VM/ASM
+runtime and the v2 JS codegen each implement that primitive. Wrapping EVERY block including the last
+is deliberate — the program's own final value then becomes Unit, so `V2Result.report` goes quiet and
+there is no double-print and no last-block special case.
 
-**What was built.** The runner marks each code fence's end with a `__sscBlockEnd__` sentinel; F
-consumes it in `walkTop` and wraps the statement in front of it in a helper; the runner prepends
-that helper. This part is CORRECT and worth keeping: the `(def, entry)` split `parseTopItem`
-already returns means a definition has `e == ""` and is never wrapped, which is v1's rule for free,
-and the F self-fixpoint held (`specs/v2.2-p6.5-fsub.sh --self` 173 ok / 0 FAIL, stage1 == stage2
-byte-identical at 416,921 B vs a 416,071 B baseline).
-
-**Why it was reverted.** Unit-ness is a runtime property, so the helper needs a runtime Unit test —
-and **no source-level Unit test is portable across the lanes that consume F's output.** Measured
-directly, one probe, two forms:
+**The first attempt is the useful part of this entry, so it stays recorded.** It shipped the same
+sentinel + `walkTop` machinery — which was correct, and whose F self-fixpoint held — but put the
+Unit test in a helper written in `.ssc`. That does not work, and the reason is worth keeping:
 
 | Unit test in `.ssc` source | native (VM/ASM) | JS/v2 codegen |
 |---|---|---|
 | `case _: Unit =>` | matches — correct | **does not match** |
 | `case () =>` | **does not match** | **crashes**: `TypeError: Cannot read properties of null (reading 't')` |
 
-So on JS/v2 the helper fell through to `println` and emitted a bare `()`. The corpus found it as
-`deep-tail-recursion FAIL [JS/v2] line 4: expected=<missing> got=()` — a lane I had not probed,
-which is exactly why the full corpus run happened before the push and why this never landed.
+So on JS/v2 the helper fell through to `println` and emitted a bare `()`. The full corpus caught it
+as `deep-tail-recursion FAIL [JS/v2] line 4: expected=<missing> got=()` — a lane the author had not
+probed by hand. **Unit-ness is a runtime property AND its representation differs per backend, so the
+decision has to be a primitive each backend implements, never a source-level pattern.** That is the
+whole difference between the reverted attempt and this fix.
 
-**The constraint for the next attempt.** The auto-output decision must be a **primitive implemented
-per backend**, not a helper written in `.ssc`: F emits something like `(prim __autoOutput__ e)` and
-each consumer of F's IR implements it — `v2/src/Runtime.scala` for the VM and ASM lanes, and the
-v2 JS codegen for `JS/v2`. That is a cross-backend change and materially bigger than the runner+F
-edit above; it needs a claim covering `v2/src` and `v2/backend/js`, which
-`v2-multiblock-auto-output` did not have.
+**Measured after:**
 
-**Two JS/v2 defects fell out of the same probe** and are worth their own entries if someone works
-that lane: `case _: Unit` does not match the unit value, and `case ()` compiles to a `switch` on
-`$t.t` against a `null` receiver and throws instead of not-matching.
+| program | before | after | v1 |
+|---|---|---|---|
+| two fences, `a` then `b = a * 10` | `20` | `2` then `20` | `2` then `20` |
+| `tests/conformance/multiblock-auto-output` | RED on V2 | PASS on INT/JS/JVM/V2 | — |
+| `deep-tail-recursion` on JS/v2 | attempt 1: `got=()` | PASS | — |
 
-**The residual sub-case, still true and separately measured:** an auto-output block placed BEFORE a
-`render(...)` block loses its value while render-first matches v1 exactly (6-line repro below), so
-whatever fixes the Unit test still has this second thing to answer. `examples/content.ssc` is that
-shape.
+Rendering goes through the `io.println` path, not `Show.show` — so a wrapped tail prints `HELLO!`
+like v1 rather than `"HELLO!"`. (A *fenceless* `.ssc` still goes through `report`, so
+`v2-native-program-tail-quotes-strings` remains open for that shape.)
 
-**Legacy runner deliberately not in scope.** `v2/bin/ssc1-run.ssc0` parses each file to statements
+**Gates:** `tests/conformance/multiblock-auto-output.ssc` (four blocks, one rule each: a non-Unit
+tail prints; a later block still sees an earlier block's `val`; a Unit tail stays silent so no bare
+`()`; a definition tail is not an expression and, being last, pins that the program value does not
+double-print), and `specs/v2.2-p6.5-fsub.sh --self` at 173 ok / 0 FAIL with stage1 == stage2
+byte-identical (416,911 B; pre-change baseline 173 ok / 0 FAIL at 416,071 B).
+
+**STILL OPEN, a separate sub-case:** an auto-output block placed BEFORE a `render(...)` block loses
+its value, while render-first matches v1 exactly — so the wrap is proven correct and something on
+the content/`render` path drops preceding entry items. An explicit `println` in the same block
+SURVIVES, so it is the auto-output item specifically. `examples/content.ssc` is that shape and still
+differs from v1 by its three values. Next step there is `entryItems3`/`nItems3` in
+`specs/v2.2-p6.5-fsub.ssc` and the `sscParseContents` projection in `v2/bin/ssc1-run-fsub.ssc0`.
+
+**Legacy runner deliberately unchanged.** `v2/bin/ssc1-run.ssc0` parses each file to statements
 rather than handing one source string to F, so a sentinel there would become an unbound identifier
 statement in the legacy front. F is the default lane.
-
-**The 6-line residual repro.** Order is the whole discriminator:
-
-| program | native | v1 |
-|---|---|---|
-| block1 `println("explicit-before")` + `1 + 1`, block2 `render(doc("=== X ===", "body"))` | `explicit-before`, `=== X ===`, `body` | `explicit-before`, **`2`**, `=== X ===`, `body` |
-| block1 `render(...)`, block2 `1 + 1` | `=== X ===`, `body`, `2` | identical |
-
-An explicit `println` in the same block SURVIVES, so it is the auto-output item specifically.
-Next step there is `entryItems3`/`nItems3` in `specs/v2.2-p6.5-fsub.ssc` and the `sscParseContents`
-projection in `v2/bin/ssc1-run-fsub.ssc0`.
 
 **SHARPER DIAGNOSIS 2026-07-28 (`v2-multiblock-auto-output`) — the machinery is not missing, it is
 per-PROGRAM instead of per-BLOCK.** The framing below ("omits all three") sends the reader looking

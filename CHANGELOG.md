@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-07-28 — every code block's tail prints again on the native lane
+
+A `.ssc` document's contract is that the last non-Unit expression **of each** top-level code block
+is printed. The native lane printed the whole *program*'s final value instead, so a single-block
+program was correct by coincidence of shape and every earlier block's tail silently vanished — two
+fences printed `20` where v1 prints `2` then `20`, and `examples/content.ssc` showed none of its
+three documented values.
+
+The block boundary dies in the source join, before the lexer runs, so it is marked while it still
+exists: the runner appends a sentinel after each code fence and F consumes it in `walkTop`, where
+the item in front of it has just been parsed. The definition/expression split the parser already
+returns gives v1's "definitions are never auto-printed" rule for free.
+
+The load-bearing detail is that the Unit test is an `__autoOutput__` **primitive implemented by each
+backend**, not a helper written in `.ssc`. A first attempt used a source-level pattern and the full
+corpus caught it on the v2 JS lane: `case _: Unit` matches on native and **not** on JS/v2, and
+`case ()` matches on neither and crashes there. Unit-ness is a runtime property whose representation
+differs per backend, so the decision cannot live in source. That attempt was reverted; this one
+ships the primitive in both the VM/ASM runtime and the v2 JS codegen. `BUGS.md`
+`v2-native-multiblock-auto-output-missing` records both, because the failed shape is the part worth
+remembering.
+
 ## 2026-07-28 — scljet accepts SQLite's `==` equality alias
 
 `SELECT id FROM t WHERE v == 2` returned `QUERY-ERROR:expected an expression operand`. The SQL
