@@ -3008,6 +3008,26 @@ cross-lane regression case `tests/conformance/try-multistmt-body.ssc`.
 
 ---
 
+### ⛔ SUPERSEDED — original report, kept only as history. Do not cite it as current state.
+
+**Everything below was written BEFORE the fix and is preserved verbatim, so it is written in the
+present tense and reads as if it were still true. It is not.** Re-measured on `origin/main`
+`e34916fcf` with a fresh `sbt installBin`, all three of its load-bearing claims are false:
+
+| what the report below says | state on 2026-07-28 after `d11fd7a92` |
+|---|---|
+| the 5-line repro yields `structural CoreIR contains parser sentinel _err` | prints `ok`, exit 0 |
+| importing `std/agent.ssc` is enough to reproduce it | prints `agent-import-ok`, exit 0 — the bisected trigger is clean |
+| "this is the root cause of `rozum-agent-schema-derived v2 FAIL`" | **no longer the cause.** That example now stops at `ssc: if: condition not Bool: Stub("Mirror.isProduct")` — the derives/Mirror gap in `rozum-agent-schema-derived-js-and-v2-gaps`, a different subsystem |
+| "Owner note … NOT taken by …" (implying a live claim) | the claim `f-try-multistmt-def-body` is **released**; the work landed in `d11fd7a92` |
+
+**⚠️ This section has already been used to wave a regression through** as "known, already-tracked
+front defect, held by another agent's active claim". It is neither known-as-this-cause nor held by
+anyone. A `rozum-agent-schema-derived` v2 failure seen today is **not** explained by this entry —
+attribute it to the Mirror/derives gap, or measure it, but do not close it against a fixed bug.
+Note also that the current failure exits **0** while printing its message, so an exit-status check
+reads it as success; that is `v2-native-error-diagnostic`'s lane, not this one.
+
 ### Original report (kept for context)
 
 **⚠️ SHAPE (c) IS STILL OPEN — found 2026-07-27 by `corpus-gate-remaining-reds`, AFTER (a)+(b)
@@ -3037,14 +3057,17 @@ A/B that isolates it exactly — only the `try` body changes:
 | **`val x = "ok"` then `x`** | same line | **`_err`** |
 | **`val x = "ok"` then `x`** | case body on next line | **`_err`** |
 
-**Why it matters right now.** This is the root cause of `rozum-agent-schema-derived v2 FAIL`, which
+**Why it matters right now.** *(SUPERSEDED — see the table above: as of `d11fd7a92` this is no
+longer the cause of that failure.)* This is the root cause of `rozum-agent-schema-derived v2 FAIL`, which
 the corpus contract has been reporting: the failure is not in that example at all — importing
 `std/agent.ssc` is enough, and `std/agent.ssc:385-391` (`postChatCompletionsOnce`) is exactly this
 shape. Bisected at top-level def boundaries to that function; `std/json.ssc` and `std/http.ssc`
 import clean. So one parser gap silently removes `std/agent.ssc` — and everything importing it —
 from the native lane.
 
-**Owner note.** The fix belongs in `specs/v2.2-p6.5-fsub.ssc` (the `parseHArms0`/`parseCatchPf`
+**Owner note.** *(SUPERSEDED — the fix landed in `d11fd7a92` and the claim is released; nothing
+here is unowned or in flight.)* The fix belongs in `specs/v2.2-p6.5-fsub.ssc` (the
+`parseHArms0`/`parseCatchPf`
 region that (b) already touched). NOT taken by `corpus-gate-remaining-reds`: that file had three
 fixes land in it today from another agent and `v2-try-misses-io-exceptions` is live in the same
 area — handing over the pin rather than racing on the same parser.
@@ -3434,6 +3457,20 @@ correctly there. The **JS half is untouched** and still the binding defect descr
 
 Remaining work for this entry: (1) the JS `route` extern-binding defect, (2) the v2 `Mirror.isProduct`
 Stub. Neither is a parse problem any more.
+
+**RE-CONFIRMED on `e34916fcf`** (2026-07-28, after `8f736ca8b` made the native scan follow in-fence
+imports — which changes this example's module graph, so the earlier measurement could not simply be
+assumed to still hold). Fresh `sbt installBin`, three probes: the 5-line `try` repro prints `ok`;
+importing `std/agent.ssc` alone prints `agent-import-ok`; the example itself still stops at
+`Stub("Mirror.isProduct")`. **It exits 0 while printing that** — so a gate keying on exit status
+reads this failure as success, which is `v2-native-error-diagnostic`'s lane and worth knowing before
+anyone reads a green exit code here as the example working.
+
+⚠️ **Do not attribute a v2 failure of this example to
+`v2-front-try-in-def-body-shapes-break`.** That bug is FIXED (`d11fd7a92`) and its claim released;
+its preserved original report is written in the present tense and has already been mis-cited once as
+a live, someone-else's-claim explanation for a regression here. That entry now carries a SUPERSEDED
+banner for exactly this reason.
 
 **Original status:** OPEN (found 2026-07-27 by `corpus-contract-shard-fix`; the same two entries the
 07-17 run had already reported — the last time the gate managed to finish before it started timing
