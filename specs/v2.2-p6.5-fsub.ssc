@@ -2257,11 +2257,21 @@ def countMethodsCls(reg) = reg match { case (cname, fd) => fd match { case (flds
 // MEASURED: 0 items -> (lit unit); exactly 1 -> that item BARE (no seq); >1 -> (seq i1 i2 ..).
 def regFields(cs, dq) = cs match { case Nil => "" case h :: t => join2(regField(h, dq), regFields(t, dq)) }
 def regField(c, dq) = "(prim __regfields__ (lit (str " ++ dq ++ ccName(c) ++ dq ++ ")) " ++ strList(fieldNamesOf(ccFields(c)), dq) ++ ")"
+// The native `Mirror` implements only THREE members — the VM has arms for `label`/`elemLabels`/
+// `elemTypes` and nothing else — so `m.isProduct` fell through to the ambient path, evaluated to
+// `Stub`, and the program carried on at exit 0. That is what stops `rozum-agent-schema-derived` on
+// the v2 lane (`std/agent.ssc:66` guards on `!m.isProduct`). Supplied from the FRONT, not by a
+// fourth VM arm: `__regmethod__` registers a tagged method that methodDispatch1 consults BEFORE the
+// hardcoded arms, so the surface completes with no VM change. Emitted ONCE and only when the
+// program declares a case class, so a case-class-free program stays byte-identical. `label` and
+// friends are deliberately NOT registered — that would SHADOW the arms already serving them.
+def mirrorRegs(cs, dq) = cs match { case Nil => "" case h :: t => "(prim __regmethod__ (lit (str " ++ dq ++ "Mirror" ++ dq ++ ")) (lit (str " ++ dq ++ "isProduct" ++ dq ++ ")) (lam 1 (lit true)))" }
+def nMirrorRegs(cs) = cs match { case Nil => 0 case h :: t => 1 }
 // entry = caseFieldRegs (ALL case classes first) ++ caseMethodRegs ++ doc-order val-sets/exprs ++ main
 // call (if any). ssc1-lower :5648 order: regfields (all classes), THEN regmethods (all classes), THEN docExprs.
 def mainItem(ts) = if hasMain(ts) then "(app (global main))" else ""
-def entryItems3(ts, cs, docEntry, dq, cms) = join2(regFields(cs, dq), join2(regMethods(cms, dq), join2(docEntry, mainItem(ts))))
-def nItems3(ts, cs, nDoc, cms) = dlen(cs) + countMethods(cms) + nDoc + (if hasMain(ts) then 1 else 0)
+def entryItems3(ts, cs, docEntry, dq, cms) = join2(regFields(cs, dq), join2(mirrorRegs(cs, dq), join2(regMethods(cms, dq), join2(docEntry, mainItem(ts)))))
+def nItems3(ts, cs, nDoc, cms) = dlen(cs) + nMirrorRegs(cs) + countMethods(cms) + nDoc + (if hasMain(ts) then 1 else 0)
 def entryBody3(ts, cs, docEntry, nDoc, dq, cms) = entryWrap(entryItems3(ts, cs, docEntry, dq, cms), nItems3(ts, cs, nDoc, cms))
 def entryWrap(items, n) = if n == 0 then "(lit unit)" else (if n == 1 then items else "(seq " ++ items ++ ")")
 

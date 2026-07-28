@@ -1,0 +1,8 @@
+P
+List(x, s)
+List(Int, String)
+true
+Solo
+List(only)
+true
+guard-taken

@@ -1,4 +1,4 @@
-# corpus-contract-roster-v1	baseline-sha256=d73cc059362c1aea218f39029387867af5cdba0477403003e1d528e1a91a62ec	roster-sha256=fb305723de64be0f8ecf6d4245323603cd3c07dbbd316b065b76f58d2cb32cbd
+# corpus-contract-roster-v1	baseline-sha256=d73cc059362c1aea218f39029387867af5cdba0477403003e1d528e1a91a62ec	roster-sha256=e5c1fe346a394a5c59abfe7d8806ad10c85458e04587b0d4e055fcf4e9cbde16
 _bug1_httpclient
 _bug1b
 _bug1c
@@ -432,6 +432,7 @@ ui-typed-json
 uploads
 user-request-shadow
 uuid-v7
+v2-mirror-surface
 v2-multiline-list-literal
 v2-native-result-unregistered-field
 v2-option-exists

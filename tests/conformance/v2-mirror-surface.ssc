@@ -1,0 +1,47 @@
+#!/usr/bin/env ssc
+---
+name: v2-mirror-surface
+description: the compiler-synthesized `Mirror` exposes the same members on every lane — in particular `isProduct`, which the native lane answered with `Stub`
+backends: [int, js, jvm]
+---
+
+# `Mirror` must answer the same on every lane
+
+`BUGS.md` `v2-mirror-isproduct-stub`. The native `Mirror` implemented exactly **three** members —
+the VM had arms for `label`, `elemLabels` and `elemTypes` and nothing else, and both self-hosted
+fronts emitted a matching three-field value. `m.isProduct` therefore fell through to the ambient
+plugin path and evaluated to **`Stub`** — and the program kept going and exited **0**.
+
+That is not an abstract gap: `std/agent.ssc:66` guards derivation with `if !m.isProduct then
+throw …`, so `examples/rozum-agent-schema-derived.ssc` died on `if: condition not Bool:
+Stub("Mirror.isProduct")`. A member that silently evaluates to a sentinel instead of failing is
+worse than a missing one — the `if` above it decided on a non-boolean.
+
+The three already-working members are pinned alongside `isProduct` on purpose: the fix registers
+`isProduct` as a *tagged method*, which `methodDispatch1` consults **before** the VM's hardcoded
+arms, so getting it wrong would shadow the three that were fine. If a regression ever did that,
+this case shows it as three changed lines, not one.
+
+`fromProduct` is deliberately **absent**. It is the remaining hole in the same surface — still
+`Stub` on the native lane — and pinning it here would make the case fail for a gap that is filed,
+not fixed. See the BUGS entry.
+
+```scalascript
+case class P(x: Int, s: String)
+case class Solo(only: Boolean)
+
+val mp = summon[Mirror.Of[P]]
+println(mp.label)
+println(mp.elemLabels)
+println(mp.elemTypes)
+println(mp.isProduct)
+
+// A second product, so the registration cannot be accidentally per-program-single-type.
+val ms = summon[Mirror.Of[Solo]]
+println(ms.label)
+println(ms.elemLabels)
+println(ms.isProduct)
+
+// `isProduct` must be a real Bool, not a truthy sentinel: it has to drive an `if`.
+if mp.isProduct then println("guard-taken") else println("guard-missed")
+```

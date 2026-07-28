@@ -5212,6 +5212,31 @@ def caseFieldRegs = (order) =>
              caseFieldRegs(rest)) }
   }
 
+-- The native `Mirror` implements only THREE of its members: Runtime.scala has arms for `label`,
+-- `elemLabels` and `elemTypes` and nothing else, so `m.isProduct` fell through to the ambient path
+-- and evaluated to `Stub` — and the program carried on, exiting 0. That is what stops
+-- `examples/rozum-agent-schema-derived.ssc` (`std/agent.ssc:66` guards on `!m.isProduct`) on the v2
+-- lane (BUGS `v2-mirror-isproduct-stub`).
+--
+-- Supplied from HERE rather than by a fourth arm in the VM: `__regmethod__` already registers a
+-- tagged method that `methodDispatch1` consults BEFORE the hardcoded arms (Runtime.scala:1815), so
+-- the front can complete the surface with no VM change. Every Mirror this lowerer emits is built
+-- from a case class, which is by definition a product — matching the v1 reference, where
+-- `isProduct` is `fieldNames.nonEmpty || typeFieldOrder.contains(typeName)`.
+--
+-- Emitted ONCE, and only for a program that declares at least one case class, so a program without
+-- one lowers byte-identically to before. `label`/`elemLabels`/`elemTypes` are deliberately NOT
+-- registered: a tagged method would SHADOW the VM arms that already serve them correctly.
+def mirrorMethodRegs = (order) =>
+  match order {
+    case Nil => Nil
+    case Cons(cc, rest) =>
+      Cons(IrPrim("__regmethod__",
+            Cons(IrLit(IrStr("Mirror")),
+              Cons(IrLit(IrStr("isProduct")),
+                Cons(IrLam(1, IrLit(IrBool(true))), Nil)))), Nil)
+  }
+
 -- Case-class BODY methods (caseMethodsCell = [Pair(tag, Pair(fields, defs))]).
 -- Each captured `def` becomes a `Tag_method(self, params…)` global whose body has
 -- the case-class fields bound from self (so bare field refs resolve as locals), and
@@ -5773,7 +5798,8 @@ def lowerProg = (stmts) =>
         }
     } in
   let entryExprs = appendL(caseFieldRegs(#cell.get(caseFieldOrderCell)),
-    appendL(caseMethodRegs(#cell.get(caseMethodsCell)), topExprs(stmts))) in
+    appendL(mirrorMethodRegs(#cell.get(caseFieldOrderCell)),
+    appendL(caseMethodRegs(#cell.get(caseMethodsCell)), topExprs(stmts)))) in
   let mainCall =
     if hasZeroArgMain(stmts) then Cons(IrApp(IrGlobal("main"), Nil), Nil)
     else Nil in
