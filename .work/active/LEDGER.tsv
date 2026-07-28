@@ -1,4 +1,4 @@
-# generation: 118
+# generation: 119
 #slug	agent	started	items	paths
 js-not-callable-unit	opus-orch	2026-07-28T00:55:00Z	js-not-callable-unit	v1/runtime/backend/js/** BUGS.md tests/conformance/js-not-callable-unit.ssc tests/conformance/expected/js-not-callable-unit.txt
 v2-f-compile-profile	codex	2026-07-27T20:27:42Z	V-6a	specs/v2-f-compile-profile.md
@@ -8,3 +8,4 @@ native-release-qualification	claude-code	2026-07-27T21:46:13Z	native-release-nev
 v2-actors-bounded-mailbox	codex	2026-07-28T00:38:45Z	v2-actors-bounded-mailbox	v2/runtime/std/actors-plugin/ tests/conformance/actors-bounded-mailbox.ssc tests/conformance/expected/actors-bounded-mailbox.txt specs/v2.1-native-actors-provider.md SPEC.md
 f-delegation-reason-census	claude-code	2026-07-28T01:36:17Z	f-validateNoReader-rejects-plugin-externs-measurement	v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala tests/e2e/f-front BUGS.md
 v2-runtime-perf-vs-v1	claude-code	2026-07-28T01:58:16Z	v2-runtime-perf-vs-v1 v2rt-0-baseline v2rt-1 v2rt-2 v2rt-3 v2rt-4	v2/src v2/backend-jvm-bytecode bench specs/v2-runtime-perf-vs-v1.md docs/benchmarks.md SPRINT.md BACKLOG.md CHANGELOG.md
+f-compile-cost-profile	opus	2026-07-28T01:58:21Z	f-front-compile-cost-7x-on-scljet V-6a	specs/v2-f-compile-cost.md
