@@ -132,15 +132,18 @@ modules the **default native lane** actually loads.
       the identical correct output on the native lane; entry updated with the probe rather than
       deleted. The same measurement found the divergence is now on **INT** —
       `int-imported-module-mutable-registry-not-shared`, filed.
-- [ ] **NIG-2b — roster `native-import-in-fence` into the paired contract freeze.** Measured with
-      a scoped run: `int PASS / js KNOWN-RED / v2 PASS`, so the roster gains one name and the
-      baseline gains `native-import-in-fence\tjs\tKNOWN-RED`; both digests must be recomputed
-      (canonical LF, and reproduce the recorded digests first — that is the compare-first check
-      that the routine is the writer's routine). **Blocked only on ownership:**
-      `tests/conformance/contract-roster.tsv` is held by `js-derives-instance-undefined`. The
-      contract is already red on `origin/main` for 48 unrostered cases
-      (`corpus-contract-roster-drift-48-cases`, CCR-1), so this case is one of a queue, not a new
-      breakage — CCR-1's full refreeze subsumes it if that lands first.
+- [ ] **NIG-2b — roster `native-import-in-fence` into the paired contract freeze. HANDED TO
+      CCR-1.** Measured with a scoped contract run: `int PASS / js KNOWN-RED / v2 PASS`, so the
+      roster gains one name and the baseline gains `native-import-in-fence	js	KNOWN-RED`; both
+      digests must be recomputed over canonical-LF bodies, and the routine must reproduce the
+      digests already recorded before it writes new ones (that is the compare-first check that it
+      is the writer's routine). **Not blocked on knowledge — blocked on contention:**
+      `tests/conformance/contract-roster.tsv` is a serialization point with a queue on it
+      (`js-derives-instance-undefined`, then `f-named-arg-skips-default`), and `origin/main` is
+      already red there for 48 unrostered cases. CCR-1's single full refreeze covers this case
+      along with the other 48; doing it as a 50th one-off edit would just add another round to
+      the queue. Whoever runs CCR-1 needs no extra information: the case is in the tree and its
+      cells are measured above.
 
 ## 2026-07-28 — v2 runtime performance vs v1 (Sergiy: "Улучши производительность рантайма ssc v2")
 
