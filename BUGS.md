@@ -43,38 +43,42 @@ INT lane (INT also fails to match). Native is correct on all three comparisons; 
 disagree with it in different ways.
 
 
-## v2-native-program-tail-quotes-strings — a program whose value is a String prints it with quotes
+## v2-native-program-tail-quotes-strings — a program's tail value printed as a debug dump, not as output
 
-**Status:** OPEN (found 2026-07-28 by `v2-multiblock-auto-output` while designing the per-block
-auto-output fix). Two lines, no imports:
+**Status:** **FIXED 2026-07-28** by `v2-program-tail-string-render`. Found 2026-07-28 by
+`v2-multiblock-auto-output` while designing the per-block auto-output fix.
 
-```scalascript
-val s = "HELLO!"
-s
-```
+**The divergence was WIDER than this entry first said.** It originally recorded "a String prints
+with quotes" and proposed fixing the top level only, "since v1 quotes a nested `StrV` and so should
+v2". **Measured, that guess was wrong** — v1 leaves nested strings bare here too:
 
-| lane | output |
-|---|---|
-| `bin/ssc run` (default) | **`"HELLO!"`** |
-| `bin/ssc-tools run --v1` | `HELLO!` |
+| program tail | native (before) | v1 reference | native (after) |
+|---|---|---|---|
+| `"HELLO!"` | `"HELLO!"` | `HELLO!` | `HELLO!` |
+| `List("a", "b")` | `List("a", "b")` | `List(a, b)` | `List(a, b)` |
+| `Some("x")` | `Some("x")` | `Some(x)` | `Some(x)` |
+| `Map("k" -> "v")` | `Map("k" -> "v")` | `Map(k -> v)` | `Map(k -> v)` |
+| `42` | `42` | `42` | `42` |
 
-**Root cause.** The two lanes auto-output through renderers that disagree about strings.
-`V2Result.report` (`v1/tools/cli/src/main/scala/scalascript/cli/V2Result.scala:14`) ends in
-`println(ssc.Show.show(other))`, and `Show.show` renders `StrV(s)` as `"\"" + s + "\""` — quoting is
-correct for a *debug* rendering of a nested value, but this is the program's user-facing output.
-v1's `Interpreter.autoOutput` uses `Value.show`, which does not quote at this level. Note the
-program-tail path is the ONLY place this shows: an explicit `println(s)` is unquoted on both lanes.
+**Root cause.** `V2Result.report` ended in `println(ssc.Show.show(other))`. `Show.show` is the
+*debug* rendering — correct for a nested value in a diagnostic, wrong for the program's user-facing
+output, and it quotes every string at every depth. v1's auto-output path does not.
 
-**Fix direction.** Make `V2Result.report`'s final arm render a top-level `StrV` bare (the value's own
-text) and keep `Show.show` for everything else, matching `autoOutput`. Then check whether the same
-split is needed for a `StrV` nested in a container — v1 quotes there and so should v2, so the change
-belongs at the top level only, not inside `Show.show`.
+**Fix.** One line: render through `ssc.Prims.display`, the renderer the kernel's own `println` uses
+(`anyStr` — "containers with UNQUOTED nested strings"), so the program tail and an explicit
+`println` of the same value now agree, and both agree with v1. An explicit `println` was already
+correct on both lanes; only the tail path was wrong.
 
-**Relation.** `v2-native-multiblock-auto-output-missing` hides this for *fenced* documents once
-per-block wrapping lands, because a wrapped block tail prints through `println` rather than through
-`report`. A fenceless `.ssc` (whose whole body is one block) still goes through `report`, so this
-must be fixed on its own. Not taken by `v2-multiblock-auto-output`: that claim's paths are
-`specs/v2.2-p6.5-fsub.ssc` + `v2/bin/`, and this lives in the CLI.
+**Gate.** Four cases in `tests/e2e/v2-error-diagnostic.sh`, each comparing the native tail against
+**`ssc-tools run --v1` on the same file** rather than against a hardcoded string, so the
+expectation cannot drift away from the reference. A/B'd: against the previous binary all four fail
+with expected/actual printed (`expected (v1): HELLO!` / `got (native): "HELLO!"`); against the fix
+all four pass.
+
+**Note for the auto-output work.** `v2-native-multiblock-auto-output-missing` routes *fenced*
+documents through `println` rather than through `report`, so it hid this for those files; a
+fenceless `.ssc` (whose whole body is one block) always went through `report`, which is why this
+needed its own fix.
 
 ## v2-native-case-unit-pattern-matches-where-int-does-not — `case _: Unit` is true on native, false on INT
 

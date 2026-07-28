@@ -112,6 +112,40 @@ else
   fail=$((fail + 1))
 fi
 
+# ── program-tail rendering ──────────────────────────────────────────────────
+#
+# The program's tail is USER-FACING OUTPUT, not a debug dump. It used to render through
+# `Show.show`, which quotes every string, so `"HELLO!"` came out with its quotes and
+# `List("a","b")` kept them on the elements too — while the v1 reference (what the
+# conformance goldens encode) prints them bare. BUGS.md
+# v2-native-program-tail-quotes-strings. Compared against v1 on the same file, so the
+# expectation cannot drift away from the reference.
+render_probe() {
+  local name="$1" src="$2"
+  printf '%s\n' "$src" > "$WORK/r_$name.ssc"
+  local got want
+  got="$("$SSC" run "$WORK/r_$name.ssc" 2>&1 </dev/null | head -1)"
+  want="$("$ROOT/bin/ssc-tools" run --v1 "$WORK/r_$name.ssc" 2>&1 </dev/null | head -1)"
+  if [[ "$got" == "$want" ]]; then
+    echo "ok   [render/$name] $got"
+    pass=$((pass + 1))
+  else
+    echo "FAIL [render/$name] the native tail does not render like the v1 reference"
+    echo "  expected (v1): $want"
+    echo "  got  (native): $got"
+    fail=$((fail + 1))
+  fi
+}
+
+render_probe bare-string 'val s = "HELLO!"
+s'
+render_probe list-of-strings 'val xs = List("a", "b")
+xs'
+render_probe option-of-string 'val o = Some("x")
+o'
+render_probe map-of-strings 'val m = Map("k" -> "v")
+m'
+
 echo
 echo "v2-error-diagnostic: $pass ok, $fail FAIL"
 [[ $fail -eq 0 ]]
