@@ -100,7 +100,7 @@ own self-tests. These four are what that sweep surfaced and did not fix.
       is the fail-first half of `v2-actors-bounded-mailbox`, not this task.
       *Detail:* BUGS.md §`conformance-known-red-silently-ignored-on-v2`.
 
-- [ ] **scljet-sc2-measure-and-decide** — measure the parked SC-2 candidate, then land it or park it explicitly.
+- [x] **scljet-sc2-measure-and-decide** — LANDED `b9b060e6e`. The gate proved the candidate: with it applied the suite failed both cases as `STALE known-red … this lane now PASSES` on all four lanes, so both declarations are deleted in that commit — self-expiry doing its job. **Four A/B cells were needed and I got it wrong twice first**: single-case passes with the candidate; the full suite fails one INT case *both with and without* it, on a DIFFERENT case each time. Filed as BUGS §`scljet-full-suite-int-lane-drops-one-case`. NB the landing commit's message lost a backticked token to shell substitution (`command not found: known-red:`) — cosmetic, not amended because main is shared. Original entry:
       *Why:* two conformance cases are currently **declared `known-red: int,js`** (`9f136e21f`) —
       `scljet-sql-live-reclaim` and `scljet-freelist-write-corrupt`. They are fail-first tests whose
       expectations pin POST-fix behaviour; the candidate fix exists but is unmeasured, so the honest

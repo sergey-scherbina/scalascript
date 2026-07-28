@@ -1,5 +1,39 @@
 # Bug tracker
 
+## scljet-full-suite-int-lane-drops-one-case — exactly one INT case per full run produces no output at all
+
+**Status:** OPEN (found 2026-07-28 while A/B-ing the SC-2 candidate; not caused by it).
+
+**Signature.** A full `scljet-*` run (116 cases) fails **exactly one** case on the INT lane, and
+every expected line reports `got=<missing>` — the child produced *zero* output, not wrong output:
+
+```text
+scljet-sql-real-literal:      FAIL [INT]   line 1: expected=… got=<missing>   (with the candidate)
+scljet-sql-right-full-join:   FAIL [INT]   line 1: expected=… got=<missing>   (clean main)
+```
+
+**It is a flake, and the evidence is that the case CHANGES.** Four cells, one variable each:
+
+| | single case | full suite (116) |
+|---|---|---|
+| SC-2 candidate | PASS (direct **and** via conformance) | 115/116 — `scljet-sql-real-literal` |
+| clean `main` | PASS | 115/116 — `scljet-sql-right-full-join` |
+
+Same count, same all-`<missing>` signature, **different case**, with and without the candidate. So
+it is neither the candidate nor either specific case; it is the INT lane dropping one child per
+long run.
+
+**Why this matters more than one flaky case.** `<missing>` is indistinguishable at the report level
+from "the program printed nothing on purpose", and it costs a full-suite run to see. It also
+misattributes: measured naively, it reads as "your change broke case X" — which is exactly the
+wrong conclusion I drew twice before filling in the fourth cell.
+
+**Next step for whoever takes it.** The INT lane calls `run(sscTools("run", "--v1", …))`, and unlike
+the JS/JVM lanes it does not route through `outputWithFailureContext(out, err, exitCode)` — so the
+child's **stderr and exit code are discarded**. Wire those in first; the report should say whether
+the child was OOM-killed, timed out, or exited non-zero. Diagnose only after the runner stops
+throwing the evidence away.
+
 ## sql-plugin-rowcodec-mirror-arity — a fourth Mirror field took the ASM release gate red
 
 **Status:** FIXED 2026-07-28. Found by `ci-dispatch-verdict-obtainable` while getting the first
