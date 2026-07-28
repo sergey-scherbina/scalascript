@@ -1,5 +1,31 @@
 # Changelog
 
+## 2026-07-28 — the v2 runtime never JIT-compiled a method call; it does now (2.4-10.8×)
+
+`ssc.Prims`'s `__method__` dispatch — the single dispatch point for every non-arithmetic
+operation in every ScalaScript program — was 49,384 bytecodes, 6.2× HotSpot's
+`HugeMethodLimit`. With `-XX:+DontCompileHugeMethods` on by default it was never compiled by
+C1 or C2 and ran in the bytecode interpreter for the life of every process. It fails green:
+no warning, no log line, no behavioural difference, so every correctness gate passed.
+
+Split into `methodDispatch1..10` — a pure sequential decomposition preserving case order,
+largest part 5,509. Measured with `./bench.sh --backends ssc,v2,v2-bytecode --reps 30`, both
+sides built in the same worktree: **2.4-10.8× faster on both v2 lanes** across every workload
+that dispatches methods (`string-split` 10.8×, `typeclass-fold` 10.8×, `literal-match` 8.4×,
+`vector-index` 6.6×, `map-ops` 4.4×), and unchanged within noise on the pure arithmetic that
+never reaches `__method__` — that null result is the control, and the unmodified v1 column
+bounds the noise.
+
+Getting there required fixing the apparatus first: `ssc bench --backend v2` had been printing
+nothing and exiting 0 (the wrapper's `System.nanoTime()` became an unhandled effect on the
+native lane), so every v2 benchmark column since that lane moved had been blank, not slow.
+`e9946f3ee` makes the clock resolve, `49f99d0db` makes a dead lane exit non-zero and adds
+`--backends a,b,c` for one-machine-state cross-tier tables.
+
+New, because nothing else can see this class of defect: `scripts/bytecode-size-census` and
+`tests/e2e/v2-jit-size.sh --self-test`. Watch item they surface: `JvmByteGen.gen` at
+7,052/8000. Detail: `specs/v2-runtime-perf-vs-v1.md`, `BUGS.md v2-method-dispatch-never-jits`.
+
 ## 2026-07-28 — UniML YAML corpus compares percent tags before classification
 
 The YAML corpus gate now compares `%HH`-preserving effective tags literally before

@@ -25,7 +25,16 @@ sweep since the bench lane moved to the native ssc1 front has therefore been bla
 not slow. This is the AGENTS.md "apparatus fails GREEN" pattern again: fixing the
 apparatus IS the work, and it comes first.
 
-- [ ] **v2rt-0a — un-break the v2 bench lane (the apparatus).** Register
+**THE SECOND ANSWER, once the apparatus worked: the v2 runtime never JIT-compiled a single
+method call.** `ssc.Prims`'s `__method__` dispatch — the one dispatch point for every
+non-arithmetic operation in every ScalaScript program — was **49,384 bytecodes**, 6.2× HotSpot's
+`HugeMethodLimit` (8000), so `-XX:+DontCompileHugeMethods` (on by default) refused to compile it
+and it ran interpreted forever. Splitting it into sequential sub-8000 parts bought **2.4-10.8×**
+on both v2 lanes, with the pure-arithmetic workloads unchanged exactly as the mechanism predicts.
+Full A/B, baseline and open slices: `specs/v2-runtime-perf-vs-v1.md`; bug record:
+`BUGS.md v2-method-dispatch-never-jits`.
+
+- [x] **v2rt-0a — un-break the v2 bench lane (the apparatus).** DONE `e9946f3ee`. Register
       `System.nanoTime` / `System.currentTimeMillis` as tag-qualified natives in
       `v2/runtime/std/os-plugin` (the `Random.uuid` pattern from
       `EffectRunnersNativePlugin.install`: `context.register("Tag.op")` is what
@@ -34,19 +43,42 @@ apparatus IS the work, and it comes first.
       problem — v1's interpreter has `System.nanoTime()` as a core builtin.
       Verify: `tests/conformance/v2-system-clock.ssc` (elapsed ns > 0, epoch
       millis > 2020) green on the INT and native lanes.
-- [ ] **v2rt-0b — make the dead lane LOUD, and add a joint column set.** `ssc bench`
+- [x] **v2rt-0b — make the dead lane LOUD, and add a joint column set.** DONE `49f99d0db`. `ssc bench`
       must exit non-zero with the failure text when a backend produced no
       measurement instead of silently printing nothing; `bench/run.sc` gains
       `--backends a,b,c` so v1-interp / v2-VM / v2-bytecode land in ONE table
       measured under one machine state (the two canned `--v2-*` modes cannot
       express `ssc,v2,v2-bytecode`).
-- [ ] **v2rt-0c — capture the v1-vs-v2 baseline.** Full corpus,
-      `./bench.sh --backends ssc,v2,v2-bytecode`, into `bench/BASELINE.md` +
-      `specs/v2-runtime-perf-vs-v1.md`. This is the "what do the benchmarks say"
-      answer and the before-side of every slice below.
-- [ ] **v2rt-1..4 — the optimisation slices.** Filled in from v2rt-0c, largest
-      honest v2-vs-v1 gap first, one profile-backed slice at a time. Each slice
-      names the `scripts/bench` command that produced its before/after numbers.
+- [x] **v2rt-0c — capture the v1-vs-v2 baseline.** DONE — `specs/v2-runtime-perf-vs-v1.md` §3,
+      13 workloads × {v1 interp, v2 VM, v2 bytecode} from
+      `./bench.sh --backends ssc,v2,v2-bytecode --reps 30`. Read the `v2-bytecode` column
+      when asking "is the product slow": that is the DEFAULT lane; `v2` is the `--interpret`
+      reference lane and is slower by design.
+- [x] **v2rt-1 — `__method__` dispatch never JIT-compiled.** DONE. `ssc.Prims.methodDispatch1..10`
+      (pure sequential decomposition, largest part 5,509) + `scripts/bytecode-size-census` +
+      `tests/e2e/v2-jit-size.sh --self-test`. Measured 2.4-10.8× on both lanes, null on the
+      arithmetic workloads that never reach `__method__` (that null IS the control).
+- [ ] **v2rt-1b — wire `tests/e2e/v2-jit-size.sh --self-test` into CI.** The gate exists,
+      self-tests both verdicts and passes locally, but `.github/workflows/ci.yml` was held by
+      the live `build-ram-budget-and-speed` claim when v2rt-1 landed, so it is NOT yet running
+      per push. Add it next to the other `tests/e2e/*` guard steps (it takes ~5 s). Until then
+      the guard only fires when someone runs it by hand — which is exactly how the 49,384-byte
+      method survived in the first place.
+- [ ] **v2rt-2 — split `ssc.bytecode.JvmByteGen$.gen` before it breaches.** It is at
+      **7,052 / 8000 (88%)** — one `case` from silently un-JITing the entire bytecode emitter,
+      which is the DEFAULT execution lane. Same sequential decomposition as `methodDispatch1..10`;
+      verify with `tests/e2e/v2-jit-size.sh` (it already prints this method as a watch item) and
+      an A/B on `./bench.sh --backends ssc,v2-bytecode --reps 30`. Preventive: expect ~no gain
+      today — the win is that the emitter cannot silently fall off the JIT later.
+- [ ] **v2rt-3 — `list-fold` / `hof-pipeline`: closure-call cost on the bytecode lane.**
+      `list-fold` is the ONE workload v2rt-1 did not move on the product lane (0.894 vs v1
+      0.0066 = **135×**, the largest remaining ratio), while its VM lane went 4.2× faster. So
+      the bytecode lane's `xs.foreach(closure)` path is bottlenecked on something other than
+      `__method__` size. Profile the emitted path first (`JDK_JAVA_OPTIONS=-XX:StartFlightRecording=…`
+      around `bin/ssc-tools --backend v2-bytecode bench …`), then propose. Do NOT guess.
+- [ ] **v2rt-4 — `vector-index`: 58.3 ms/iter, 65× v1, and an absolute outlier.** Both v2 lanes
+      sit at the same number after v2rt-1, so it is not lane-specific — it is in the shared
+      indexing path. Profile before proposing.
 
 ## 2026-07-27 — native release qualification
 
