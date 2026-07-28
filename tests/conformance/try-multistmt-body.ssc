@@ -1,0 +1,76 @@
+---
+name: try-multistmt-body
+description: a braceless `try` whose body has MORE THAN ONE statement — same-line catch, own-line catch, and a multi-statement finally
+backends: [int, jvm, js]
+---
+
+# `try` with a MULTI-STATEMENT braceless body
+
+`BUGS.md` `v2-front-try-in-def-body-shapes-break` shape (c). Shapes (a) and (b) were fixed and
+verified; this one survived them because the differentiator is not where `catch` sits — it is
+**how many statements the `try` body has**. A single-expression braceless body worked on every
+lane; add one `val` and the whole program was miscompiled.
+
+**Root cause, both self-hosted fronts:** `try` was not a **layout opener**. `try` ⏎
+`<indented body>` therefore emitted neither a virtual `{` nor a `;` — the indented lines sit at
+`v > ind` of the *enclosing* block, where the newline step returns the stack unchanged — so the
+body's statements were glued onto the `try` line and `val` parsed as a *variable reference*
+(`(let ((global val)) …)` on the legacy front, `(let ((lit (int 0))) …)` on F). One statement
+survived only because gluing a single token changes nothing.
+
+The case matters far beyond its own three functions: `std/agent.ssc`'s `postChatCompletionsOnce`
+is exactly this shape, so a single parser gap silently removed `std/agent.ssc` — and everything
+importing it — from the native lane.
+
+`stillHere()` at the bottom is load-bearing rather than decorative. The failure mode of this bug
+family is to leave the enclosing block open and **swallow the rest of the file**, so a regression
+shows up as the program printing *less*, not as a mismatched value.
+
+```scalascript
+// (1) multi-statement body, `catch` on the same line as the arm
+def divideMulti(a: Int, b: Int): String =
+  try
+    val q = a / b
+    val label = "q=" + q
+    label
+  catch case e: Throwable => "caught-same-line"
+
+// (2) multi-statement body, `catch` on its own line and the arm on the next
+def divideMultiNl(a: Int, b: Int): String =
+  try
+    val q = a / b
+    "q=" + q
+  catch
+    case e: Throwable => "caught-own-line"
+
+// (3) all three clauses braceless, and a MULTI-statement finally. `finally` had to become a
+// layout opener for the same reason as `try`; with `catch` braceless the arm parser also had to
+// learn that `finally` ends an arm, or it swallowed the finally clause into the last arm body.
+def withFinally(a: Int, b: Int): String =
+  try
+    val q = a / b
+    "q=" + q
+  catch
+    case e: Throwable => "caught-finally-shape"
+  finally
+    println("cleanup-a")
+    println("cleanup-b")
+
+// (4) the braced form as a def body, for the sibling gap in the same family: `try` lexes as an
+// identifier, so `try { … }` in STATEMENT position matched the `name { block }` call-with-thunk
+// rule and lowered to `try(() => body)` — the legacy front's `unbound global: try`.
+def divideBraced(a: Int, b: Int): String =
+  try { (a / b).toString } catch { case _ => "caught-braced" }
+
+def stillHere(): Int = 3
+
+println(divideMulti(10, 2))
+println(divideMulti(10, 0))
+println(divideMultiNl(10, 5))
+println(divideMultiNl(10, 0))
+println(withFinally(9, 3))
+println(withFinally(9, 0))
+println(divideBraced(8, 4))
+println(divideBraced(8, 0))
+println(stillHere())
+```

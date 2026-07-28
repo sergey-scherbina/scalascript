@@ -386,6 +386,51 @@ d enum_case_dflt 'enum E:
   case A
   case C(a: Int, b: Int = 7)
 def main(): Int = E.C(1) match { case E.C(p, q) => p + q case _ => 0 }'
+# try/catch/finally layout (BUGS v2-front-try-in-def-body-shapes-break). The differentiator is the
+# number of statements in the `try` body, so `try_1stmt` (which always passed) sits next to
+# `try_multistmt` — a corpus that only carried the single-expression shape is exactly why (c)
+# survived (a) and (b). `try_braced_stmt` covers the sibling gap on the ORACLE: `try` lexes as an
+# `id`, so `try { … }` in statement position used to match the `name { block }` call rule.
+d try_1stmt   'def f(): String =
+  try
+    "ok"
+  catch case e: Throwable => "caught"
+println(f())'
+d try_multistmt 'def f(): String =
+  try
+    val x = "ok"
+    x
+  catch case e: Throwable => "caught"
+println(f())'
+d try_multistmt_nl 'def f(): String =
+  try
+    val x = "ok"
+    x
+  catch
+    case e: Throwable => "caught"
+println(f())'
+d try_braced_stmt 'def w(x: Int): String =
+  try { (10 / x).toString } catch { case _ => "W" }
+println(w(0))
+println(w(5))'
+d try_catch_finally 'def f(x: Int): Int =
+  try
+    val a = 10 / x
+    a + 1
+  catch
+    case e: Throwable => 0 - 1
+  finally
+    println("done")
+println(f(5))
+println(f(0))'
+d try_then_def 'def f(): String =
+  try
+    val x = "a"
+    x
+  catch case e: Throwable => "b"
+def g(): Int = 3
+println(f())
+println(g())'
 
 if [ "${1:-}" = "--self" ]; then
   echo "--- X1: F compiles its OWN source (TYPED fixpoint) ---"

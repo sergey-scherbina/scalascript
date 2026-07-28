@@ -1223,6 +1223,13 @@ def parseAtom = (toks) =>
     else pr(mkVar("_err"), advance(toks))
   else pr(mkVar("_err"), advance(toks))
 
+-- `<id> { … }` in statement position is a call with a block argument (`fn { … }`,
+-- `handle { … } { … }`) — EXCEPT when the identifier is a KEYWORD that ssc1 happens to lex as
+-- an `id`. `try` is the only such spelling that can be followed by a `{`, and it must reach
+-- parseAtom's try/catch/finally branch instead.
+def isBlockArgCallName = (name, ts) =>
+  if kindIs("{", ts) then (if #seq(name, "try") then false else true) else false
+
 -- KC9+KC10: parseBlock — `{` already consumed; parse stmts until `}`
 -- Handles: val/var/def/while/assignment(id=)/expr stmts
 def parseBlock = (toks) =>
@@ -1291,7 +1298,13 @@ def parseBlock = (toks) =>
       if kindIs("=", ts3) then
         let r = parseExpr(advance(ts3)) in
         go(prT(r), Cons(Pair("assign", Pair(name, prV(r))), acc))
-      else if kindIs("{", ts3) then
+      -- `try` lexes as `id`, so `try { … } catch { … }` in STATEMENT position matched the
+      -- `name { block }` call-with-thunk rule below and lowered to `try(() => body)` — the
+      -- `unbound global: try` the legacy front reported for a braced try as a def body (BUGS
+      -- `v2-front-try-in-def-body-shapes-break`). It has to reach parseExpr → parseAtom, which
+      -- owns the `try`/`catch`/`finally` shape. Same for the virtual `{` the layout pass now
+      -- inserts after a braceless `try` ⏎.
+      else if isBlockArgCallName(name, ts3) then
         -- name { body }  →  name(arg): lambda-block or 0-arity thunk (T5.7)
         let rbArg = parseBlockArg(advance(ts3)) in
         let call = mkApp(Pair("var", name), Cons(prV(rbArg), Nil)) in
@@ -2049,6 +2062,12 @@ def parseArmBody = (toks) =>
     if kwIs("case", ts2) then pr(reverse(acc), ts)
     else if kindIs("}", ts2) then pr(reverse(acc), ts)
     else if kindIs("EOF", ts2) then pr(reverse(acc), ts)
+    -- `finally` is an arm boundary too: it can only ever continue the `try` that OWNS this
+    -- braceless `catch`, never start a statement (canStartLine already says so). Without this,
+    -- `catch case e => -1` NL `finally …` swallowed the finally clause INTO the last arm as a
+    -- second statement — `(let (-1) (app (global finally) …))`, i.e. `unbound global: finally`
+    -- and a __tryCatch__ with no finally at all.
+    else if #seq(tokVal(peek(ts2)), "finally") then pr(reverse(acc), ts)
     else
       let r = parseOneStmt(ts2) in
       go(prT(r), Cons(prV(r), acc)) in
@@ -2931,6 +2950,16 @@ def isLayoutOpener = (t) =>
        -- not NL, so no L block opens).
        else if #seq(v, "match") then true
        else false)
+    -- `try` / `finally` ⏎ <indented body> open one too. They lex as `id`, not `kw`, so this arm
+    -- is separate. Without it neither a virtual `{` nor a `;` was emitted — the indented lines sit
+    -- at `v > ind` of the ENCLOSING block, where nlStep returns the stack unchanged — so a
+    -- MULTI-statement `try` body was GLUED onto the `try` line and parseExpr read `val` as a
+    -- variable reference (`(let ((global val)) (seq (prim cell.set (global @x) …`). A single-
+    -- expression body survived only because gluing one token changes nothing. Fires only when the
+    -- keyword is immediately followed by NL, so `try {` and `try e catch …` on one line are
+    -- untouched. BUGS `v2-front-try-in-def-body-shapes-break` shape (c) — the same gap was in F.
+    else if #seq(k, "id") then
+      (if #seq(v, "try") then true else if #seq(v, "finally") then true else false)
     else false }
 
 def prependLayoutClose = (tag, closes) =>

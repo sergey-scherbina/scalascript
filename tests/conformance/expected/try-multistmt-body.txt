@@ -1,0 +1,13 @@
+q=5
+caught-same-line
+q=2
+caught-own-line
+cleanup-a
+cleanup-b
+q=3
+cleanup-a
+cleanup-b
+caught-finally-shape
+2
+caught-braced
+3
