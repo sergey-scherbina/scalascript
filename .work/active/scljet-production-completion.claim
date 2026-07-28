@@ -2,12 +2,12 @@ slug: scljet-production-completion
 branch: feature/scljet-production-completion
 agent: claude-code
 started: 2026-07-27T21:34:57Z
-heartbeat: 2026-07-28T01:30:48Z
+heartbeat: 2026-07-28T02:07:08Z
 status: in-progress
 items: scljet-production-completion scljet-ipk-update-numeric-affinity scljet-standalone-library scljet-reclaiming-dml scljet-portable-text-projection scljet-same-jvm-reference-lock-bridge scljet-m3-write-followups scljet-m4-sql-core scljet-m5-wal scljet-m6-sql-compat scljet-m7-extensibility scljet-m8-production-readiness
 paths: scljet/ specs/scljet.md specs/scljet- tests/conformance/scljet- tests/conformance/expected/scljet- tests/tools/scljet- tests/fixtures/scljet/ tests/e2e/scljet- v1/runtime/std/scljet-jdbc-plugin/ v2/runtime/std/scljet- examples/scljet- scripts/scljet- site/scljet.html docs/scljet.md
 scope: |
   Production-completion plan, feature spec, and fail-loud 48-capability inventory are landed.
   Execute the falsifiable SC-1..SC-11 slices in order, shipping each independently green slice.
-done-so-far: SC-1a landed at a00db1967/b39127f61; SC-1b at b63206552/71d8a6f0e with portable SQL 57/57 INT+JS and live 5/5; SC-1c at f36f951ba with live 2/2; evidence at 7fe1103c8
-next: reproduce and close remaining correlated DML/nested-scope gaps in the real harness, then begin SC-2 reclaim/reuse slices
+done-so-far: SC-1a at a00db1967/b39127f61; SC-1b/1c base at b63206552/f36f951ba/71d8a6f0e; correlated DML, physical IPK, and nested scopes landed through 548673ce0; portable SQL 57/57 INT+JS and live suite 7/7
+next: begin SC-2 reclaim/reuse by proving whether live DELETE/UPDATE routes through the balanced reclaim helper, then wire the first fail-first storage slice
