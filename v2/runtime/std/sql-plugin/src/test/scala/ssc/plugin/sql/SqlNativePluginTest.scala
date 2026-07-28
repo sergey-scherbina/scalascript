@@ -70,10 +70,16 @@ class SqlNativePluginTest extends AnyFunSuite:
   test("derived portable products support typed query insert update and bounded errors"):
     install("native-typed-sql")
     V2PluginRegistry.registerFieldNames("Todo", Vector("id", "text", "done"))
+    // FOUR fields, matching what both fronts emit since `dd56c4b8d` (the trailing one is the
+    // constructor used by `Mirror.fromProduct`). Every fixture here built the old THREE-field shape,
+    // which is precisely why this suite stayed green while every native typed-SQL build was dying on
+    // `RowCodec.derived expects Mirror metadata`. A fixture frozen at the old shape tests the old
+    // world, not this one.
     val mirror = Value.DataV("Mirror", Vector(
       Value.StrV("Todo"),
       list(Value.StrV("id"), Value.StrV("text"), Value.StrV("done")),
-      list(Value.StrV("Int"), Value.StrV("String"), Value.StrV("Boolean"))))
+      list(Value.StrV("Int"), Value.StrV("String"), Value.StrV("Boolean")),
+      Value.StrV("<ctor>")))
     val codec = call("RowCodec_derived", mirror)
     assert(codec.isInstanceOf[Value.DataV])
 

@@ -154,8 +154,16 @@ final class SqlNativePlugin extends NativePlugin:
         case SqlResult.UpdateCount(count) => Value.IntV(count.toLong)
 
     val rowCodecDerived: List[Value] => Value = args => args match
-      case List(mirror @ Value.DataV("Mirror", Seq(
-            Value.StrV(tag), fieldValues, typeValues))) =>
+      // Matches the first THREE fields and ignores any that follow, on purpose. A `Seq(a, b, c)`
+      // pattern here means "exactly three", and the Mirror is a GROWING structure: `dd56c4b8d` added
+      // a fourth field (the constructor, for `Mirror.fromProduct`) and this stopped matching, fell
+      // through to `case _`, and every native/ASM build of a typed-SQL program died with
+      //     RuntimeException: RowCodec.derived expects Mirror metadata
+      // That took the `compiler-free ASM artifact release gate` red on main (run 30358000052; it was
+      // green on e8c1d0c9f two hours earlier). This consumer needs tag/fields/types and nothing more,
+      // so it should not care what the Mirror grows next.
+      case List(mirror @ Value.DataV("Mirror",
+            Value.StrV(tag) +: fieldValues +: typeValues +: _)) =>
         val fields = stringList(fieldValues, "RowCodec.derived")
         val types = stringList(typeValues, "RowCodec.derived")
         if fields.length != types.length then

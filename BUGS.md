@@ -1,5 +1,47 @@
 # Bug tracker
 
+## sql-plugin-rowcodec-mirror-arity — a fourth Mirror field took the ASM release gate red
+
+**Status:** FIXED 2026-07-28. Found by `ci-dispatch-verdict-obtainable` while getting the first
+on-demand CI verdict; root cause conclusive, not inferred.
+
+**Symptom.** Every native/ASM build of a typed-SQL program died at runtime:
+
+```
+Exception in thread "main" java.lang.RuntimeException: RowCodec.derived expects Mirror metadata
+    at ssc.plugin.sql.SqlNativePlugin.$anonfun$16(SqlNativePlugin.scala:168)
+    at ssc.gen.Entry.entry(typed-sql-crud.ssc:25)
+```
+
+This took `ScalaScript 2.1 compiler-free ASM artifact release gate` red on `main` (run
+30358000052). It was **green two hours earlier** on `e8c1d0c9f`, which bounds the regression window
+precisely.
+
+**Root cause.** `SqlNativePlugin.rowCodecDerived` destructured the Mirror with
+
+```scala
+case List(mirror @ Value.DataV("Mirror", Seq(Value.StrV(tag), fieldValues, typeValues))) =>
+```
+
+`Seq(a, b, c)` means **exactly three**. `dd56c4b8d` ("Mirror.fromProduct on the native lane") gave
+the Mirror a **fourth** field — the constructor — in both fronts (`v2/lib/ssc1-lower.ssc0` and
+`specs/v2.2-p6.5-fsub.ssc`). The pattern stopped matching, fell through to `case _`, and threw.
+
+**Why no test caught it.** Both Mirror fixtures in `SqlNativePluginTest` construct the OLD
+three-field shape, so the suite stayed green while every production build was broken. A fixture
+frozen at the old shape tests the old world. This is the same class as the apparatus failures in
+`specs/build-ram-budget.md` §1: the check could not fail when the thing it checks did.
+
+**Fix.** The consumer needs tag/fields/types and nothing else, so it now matches the first three and
+ignores the rest (`Value.StrV(tag) +: fieldValues +: typeValues +: _`) — forward-compatible with
+whatever the Mirror grows next. One fixture updated to the current four-field shape.
+
+**Verified compare-first:** with the old pattern the updated test fails with exactly the production
+message (`RowCodec.derived expects Mirror metadata`, 3 succeeded / 1 failed); with the fix, 4/4 pass.
+
+**For the Mirror lane:** `SqlNativePlugin` was the only production consumer that destructured a
+Mirror by fixed arity (`grep -rn 'DataV("Mirror"' v1 v2` — one production site, two test sites).
+
 ## scljet-wal-recover flakes under parallel load — INT lane produces no output at all
 
 **Status:** open (found 2026-07-28 by `ssc-fork-heap-measurement`; not reported by a user).
