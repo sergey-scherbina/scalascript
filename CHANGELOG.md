@@ -64,6 +64,29 @@ heap cap beats an inherited `-Xmx12g` (real `MaxHeapSize` = 1024 MB), and a fail
 releases its slot. Residuals — the 58.1-min negative-toolchain gate, the launcher `-Xmx`, the
 out-of-repo launchd agents — are queued in `BACKLOG.md` with their measurements.
 
+## 2026-07-28 — `try` opens a layout block: a multi-statement `try` body compiles on the native lane
+
+`try` (and `finally`) were never **layout openers** in either self-hosted front, so
+`try` ⏎ `<indented body>` emitted neither a virtual `{` nor a `;` and a body with more than one
+statement was glued onto the `try` line — `val` then parsed as a *variable reference*. A
+single-expression body survived only because gluing one token changes nothing, which is why the
+shape outlived two earlier fixes to the same construct and why a corpus carrying only the
+single-expression form never saw it.
+
+Both fronts are fixed (`specs/v2.2-p6.5-fsub.ssc` and `v2/lib/ssc1-front.ssc0`), plus the two
+sibling defects the same bug entry had recorded separately: `try { … }` in statement position
+matched the `name { block }` call-with-thunk rule (the legacy front's `unbound global: try`), and a
+braceless `catch` arm swallowed the `finally` clause into its last arm.
+
+Measured on a fresh `sbt installBin`: `examples/rozum-agent.ssc`, `rozum-agent-pool.ssc` and
+`rozum-agent-streaming.ssc` went from `native frontend rejected incomplete parse … _err` to
+running; `rozum-agent-schema-derived.ssc` now clears the parse gap and stops at a separate,
+already-filed `Mirror.isProduct` derives gap. `std/agent.ssc` — and therefore every module
+importing it — is back on the native lane.
+
+Gates: fsub differential 158 ok / 0 FAIL with the X1 fixpoint byte-identical, semantic golden gate
+247/247, conformance `try-*` 3/3 across INT/JS/JVM/V2, scoped corpus contract 9/9 cells.
+
 ## 2026-07-28 — UniML YAML corpus compares percent tags before classification
 
 The YAML corpus gate now compares `%HH`-preserving effective tags literally before

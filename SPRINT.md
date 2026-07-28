@@ -9,45 +9,31 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-## 2026-07-28 — `f-try-multistmt-def-body` (BUGS `v2-front-try-in-def-body-shapes-break` shape (c))
+## 2026-07-28 — corpus contract: refresh the paired freeze (48 unrostered cases)
 
-**Active claim:** `f-try-multistmt-def-body`. A braceless `try` whose body has MORE THAN ONE
-statement is miscompiled — it is the root cause of `rozum-agent-schema-derived v2 FAIL`, because
-`std/agent.ssc:385-391` is exactly that shape, so importing `std/agent.ssc` removes the importer
-from the native lane.
+Filed by `f-try-multistmt-def-body`; **not claimed**. `BUGS.md`
+`corpus-contract-roster-drift-48-cases`. `contract-roster.tsv` has one commit ever
+(`fc5f07f28`); 48 cases have been added to the corpus since, and `contract.sc` exits 1 on any
+case absent from the roster — so the always-on differential gate is red on `origin/main` for
+bookkeeping, which is how a real regression gets to hide in the noise.
 
-**Root cause (MEASURED 2026-07-28, before any edit, on both fronts).** `try` is not a **layout
-opener**. `isLayoutOpener` (F: `specs/v2.2-p6.5-fsub.ssc`; oracle: `v2/lib/ssc1-front.ssc0:2920`)
-lists `=` `=>` `then` `else` `match` `do` `with`/`yield` — never `try`. So `try` ⏎ `<indented body>`
-opens NO block; the indented lines are `v > ind` of the *enclosing* block, which emits neither a
-virtual `{` nor a `;`, and the body's statements are glued onto the `try` line. `parseTry` then
-calls `parseExpr` on `val x = "ok" x catch …` and `val` parses as a *variable reference*:
+- [ ] **CCR-1 — one unsharded full-corpus `--update-baseline` run on a quiet machine.** It
+      rewrites the non-PASS matrix AND the roster together, and the tool already refuses to do it
+      from a scoped selection (`corpus-baseline-update-scoped-run-truncates`), so a shard or an
+      `--only` cannot substitute. Reproduce the drift list first (seconds, runs nothing):
+      `contract.sc -- --list | sort` vs `tail -n +2 contract-roster.tsv | sort`, then `comm -23`.
+      Names + counts are frozen in the BUGS entry, so the run can be checked against them.
+- [ ] **CCR-2 — classify, do not rubber-stamp.** Each of the 48 has to be looked at: a case that
+      is legitimately non-PASS on a lane belongs in the baseline with that status, not silently
+      absorbed as PASS. Several belong to claims that were live on 2026-07-28 (`scljet-*`,
+      `std-ui-native-*`, `v2-system-clock`) — coordinate rather than overwrite.
 
-```
-(def f (lam 0 (let ((global val)) (seq (prim cell.set (global @x) …    ← oracle, ssc1-front
-(def f (lam 0 (let ((lit (int 0))) (seq (prim cell.set (global x__cell) …  ← F
-```
+## 2026-07-28 — `f-try-multistmt-def-body` — ✅ DONE (see CHANGELOG)
 
-Both fronts are broken and broken *differently*, which is why the fsub differential gate calls it
-`MATCH`: it compares `(rc, stdout)` and both sides die at rc=1 with empty stdout. **The claim was
-widened to `v2/lib/ssc1-front.ssc0` for exactly this reason** — fixing F alone would turn a
-two-sided crash into a real DIVERGE against an oracle that is itself wrong.
-
-- [ ] **TRY-1 — `try` becomes a layout opener in F** (`specs/v2.2-p6.5-fsub.ssc`,
-      `isLayoutOpener`, mirroring `isDoOpener`: `try` lexes as kind 1, not a `kwCode` punct).
-      Only fires when `try` is immediately followed by NL, so `try {` and `try e catch …` are
-      untouched by construction. Verify: shape (c) prints `ok`; single-expression braceless `try`
-      still byte-identical.
-- [ ] **TRY-2 — the same one line in the ORACLE** (`v2/lib/ssc1-front.ssc0:2920` `isLayoutOpener`,
-      `kw`/`try` arm). Keeps the differential gate honest.
-- [ ] **TRY-3 — regression case** `tests/conformance/try-multistmt-body.ssc` + `expected/`:
-      multi-statement `try` body, both `catch`-same-line and `catch`-own-line, and a
-      multi-statement `finally`. Cross-lane (this is what pins INT vs native).
-- [ ] **TRY-4 — gates.** `specs/v2.2-p6.5-fsub.sh --self` (differential corpus + X1 FIXPOINT:
-      fsub.ssc has no `try`, so the fixpoint must stay byte-identical), plus a `d`-case for the
-      new shape; affected conformance slice.
-- [ ] **TRY-5 — close out.** `BUGS.md` shape (c) → FIXED with the SHA; re-check
-      `rozum-agent-schema-derived` on the v2 lane and update that entry with the measurement.
+Kept only as the pointer: BUGS `v2-front-try-in-def-body-shapes-break` shape (c) is FIXED,
+together with the two sibling defects the same entry recorded (`unbound global: try` on the legacy
+front, and a braceless `catch` arm swallowing `finally`). Root cause, the three defects, the
+measured before/after and the gate results live in that BUGS entry.
 
 ## 2026-07-28 — build/test/conformance/CI RAM budget + speed (Sergiy: "Было переполнение памяти и они работают медленно")
 

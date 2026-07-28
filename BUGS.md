@@ -165,6 +165,51 @@ DELETE pages/header/root/freelist `14/14/5/10`, exact survivors and change
 counts, plus an UPDATE reclaim result. Land strict staged-freelist validation
 before enabling the live helper.
 
+## corpus-contract-roster-drift-48-cases — the always-on differential gate exits 1 for bookkeeping, not for a regression
+
+**Status:** OPEN — **measured, not mine to fix** (found 2026-07-28 by `f-try-multistmt-def-body`
+while rostering one new conformance case; the cases span at least six live claims, so a single
+agent classifying all of them would be stepping on other people's work).
+
+**What was measured.** `tests/conformance/contract-roster.tsv` has exactly one commit
+(`fc5f07f28`, the freeze that introduced it). Since then **48 cases** were added to the corpus
+without a roster row. `contract.sc` treats "a case absent from the frozen roster" as RED and
+`System.exit(1)`s on it (contract.sc:788-820), so the Corpus Contract is currently red on
+`origin/main` for pure bookkeeping.
+
+Reproduce (seconds, runs nothing):
+
+```bash
+scala-cli --server=false tests/conformance/contract.sc -- --list | sort > /tmp/selected
+tail -n +2 tests/conformance/contract-roster.tsv | sort > /tmp/roster
+comm -23 /tmp/selected /tmp/roster          # 48 names; the reverse direction is EMPTY
+```
+
+The 48 (2026-07-28): `coroutine-demo`, `coroutine-native-lifecycle`,
+`distributed-callback-user-throw`, `durable-save-run`, `effects-handler`, `fence-attr-code`,
+`fence-doc-block`, `generator-callback-user-throw`, `int-literal`, `int-width`,
+`js-int-boundary-const-lambda`, `js-int-division-by-zero`, `json-self-hosted-import`,
+`list-combinators`, `map-ops`, `markdown-html`, 20 × `scljet-*`, 8 × `std-ui-native-*`,
+`try-catch-exception-delivery`, `try-catch-io-failure`, `v2-system-clock`,
+`w5-scala-fence-width-parity`.
+
+**Why it matters more than a stale file.** This is the SAME failure mode as
+`corpus-contract-never-green`, one step downstream. A gate that is red for a reason nobody acts on
+stops being read, and the next *real* regression lands inside that noise. The gate is not lying —
+it is honestly red — but the effect on behaviour is identical to a lie.
+
+**Not a licence to skip.** The remedy the tool itself prints is the right one: *classify each new
+case, then refresh the paired freeze with one full run* (`--update-baseline`, which rewrites the
+whole non-PASS matrix AND the roster, and which the tool already refuses to run on a scoped
+selection — `corpus-baseline-update-scoped-run-truncates`). That means one agent, one unsharded
+full-corpus run, on a quiet machine.
+
+**Already partly discharged:** `try-multistmt-body` was rostered by the finder with evidence
+(scoped contract run, 9/9 PASS cells on int/js/v2), and the digest arithmetic was verified by
+reproducing the recorded `baseline-sha256` before writing the new `roster-sha256`. The other 47 are
+untouched on purpose — each needs its own classification, and several belong to claims that are
+live right now.
+
 ## uniml-yaml-property-lexical-boundaries — tag/anchor delimiters are guessed without parser context
 
 **Status:** OPEN (found 2026-07-28 during the UPR-2a.2 corpus and grammar audit;
