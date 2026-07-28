@@ -43,8 +43,13 @@ So the honest number is **34 cases, not 43**, and 3 of the 34 collapse into one 
 - [ ] **V2-100-3 — `v2-list-apply-method-stub`.** `xs.apply(i)` -> `Stub` while `xs(i)` works. One
       late VM arm (`case (recv, "apply", args) => callValue(recv, args)`); do NOT "fix" it in the
       front, that breaks `object O { def apply(x) }`.
-- [ ] **V2-100-4 — `v2-mirror-fromproduct-stub`.** The last missing `Mirror` member. Design is in
-      the BUGS entry (Mirror carries the ctor as a 4th field + `__regmethod__`); both fronts.
+- [x] **V2-100-4 — `v2-mirror-fromproduct-stub`. DONE.** Mirror carries the ctor as a 4th field
+      (pre-shaped to take the argument list) + one tag-level `__regmethod__`; both fronts, no VM
+      change. Extending the conformance case for it immediately surfaced a SECOND defect —
+      `js-treeshake-prunes-mirror-ctor`, fixed in the same change: JsGen's mirror closure calls a
+      constructor the shaker had deleted, because emitter-synthesized references are invisible to
+      it. Twice in one day now — an emitter that names a user symbol must add its shaker root in
+      the same change.
 - [ ] **V2-100-5 — triage the remaining 31 by CAUSE, not by case.** The three fixes above already
       show the pattern: 43 rows collapsed into far fewer causes. Group the survivors
       (`wasm-*` x4, `std-ui-*`, `distributed-dataset-*` x4, `quoted-macro-*` x2, `graph-*`,
