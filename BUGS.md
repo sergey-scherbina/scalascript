@@ -669,6 +669,36 @@ unconditionally, moving the banner to stderr changes **nothing** observable and 
 goldens — so establish that before touching anything.
 
 
+**NEW EVIDENCE 2026-07-28 — the deferral now costs a RED RELEASE GATE, which it did not when it was
+filed.** `ScalaScript 2.1 standard-only negative toolchain release gate` fails on this, and it is
+the last red on that job after a chain of six unrelated ones was cleared:
+
+```
+v21-negative-toolchain-release-gate: http-server-provider (vm) MISMATCH (exit 0)
+  expected=$'203\npong:/ping'
+  got=$'ScalaScript web · http://localhost:35093/  (root: .)\n  (backend=fast)\nCtrl+C to stop.\n203\npong:/ping'
+```
+
+Note `exit 0` and the expected text present and correct — the banner is the entire difference, which
+is exactly this entry's argument. Runs 30384832575 and 30388521933 (per-push jobs all green in both).
+
+It had been failing SILENTLY: the assertion was a bare `[[ $(cmd) == … ]]` under `set -e`, which
+aborts printing nothing, and the whole section is unreachable while an earlier gate step fails. It
+became visible only once those steps were fixed and the assertions were made to print
+expected/got (`1cde350c7`, corrected to stdout-only in `364c3b228`).
+
+**Deliberately NOT worked around here.** Three options were considered:
+1. update the gate's expectation to include the banner — blesses stdout as contract and has to be
+   reverted when this entry is actioned;
+2. loosen the assertion to ignore a prefix — weakening a release gate to accommodate behaviour this
+   entry already calls wrong;
+3. move the banner to stderr — what this entry proposes, and the only one that leaves the gate
+   correct without blessing anything.
+
+(3) is the owner's call, not a passing agent's: this entry already assessed the blast radius across
+serving goldens, which is precisely the analysis a drive-by fix would skip. Raising the priority with
+the measurement rather than acting on it.
+
 ## scljet-wal-recover flakes under parallel load — INT lane produces no output at all
 
 **Status:** open (found 2026-07-28 by `ssc-fork-heap-measurement`; not reported by a user).
