@@ -250,6 +250,48 @@ For interpreting alloc samples: cross-check `jdk.ObjectAllocationSample`
 counts against `gc.alloc.rate.norm` — a sampler can over-attribute to a
 hot leaf, so deterministic numbers are the tie-breaker.
 
+## Bytecode size — the perf defect no profiler shows you
+
+```bash
+scripts/bytecode-size-census <classes-dir|jar> [threshold]   # default threshold 8000
+tests/e2e/v2-jit-size.sh --self-test                         # the gate, plus both its verdicts
+```
+
+HotSpot ships `-XX:+DontCompileHugeMethods` **on** by default: a method whose bytecode exceeds
+`-XX:HugeMethodLimit` (**8000**) is never compiled by C1 or C2 and runs in the bytecode
+interpreter for the life of the process. There is no warning, no log line, and no behavioural
+difference — the method is simply 10-100× slower than the identical logic split across smaller
+methods, forever.
+
+A JFR/JMH profile does **not** point at this. It shows the huge method as hot, which is what you
+already expected of a dispatch point; nothing in the sampled data says "and this one is
+interpreted". The census is what tells you, and it takes seconds.
+
+Measured 2026-07-28: `ssc.Prims`'s `__method__` arm — the single dispatch point for every
+non-arithmetic operation in every ScalaScript program — was 49,384 bytecodes. Splitting it into
+sequential sub-8000 parts made the v2 runtime **2.4-10.8× faster** across the bench corpus while
+the pure-arithmetic workloads (which never reach it) did not move.
+See `BUGS.md v2-method-dispatch-never-jits` and `specs/v2-runtime-perf-vs-v1.md`.
+
+Rule of thumb: run the census whenever a big `match` grows, and treat anything ≥6000 as a method
+that needs splitting *soon* rather than a number to watch.
+
+## Comparing v1 against v2 in one table
+
+```bash
+./bench.sh --backends ssc,v2,v2-bytecode --reps 30 <workloads…>
+```
+
+`--backends` exists because the canned `--v2-backends` / `--v2-bytecode` modes cannot express a
+mixed v1+v2 column set, and cross-tier claims are only meaningful when every column was measured
+under one machine state. Two things to keep straight when reading the result:
+
+- **`v2-bytecode` is the product lane** (`JvmByteGen` emits real JVM bytecode); plain `v2` is the
+  `--interpret` reference lane and is slower by design. A "v2 is slow" claim built on the `v2`
+  column alone is measuring the reference lane.
+- **Keep `ssc` in the column set as the noise control.** It is unaffected by v2 work, so its
+  drift between two runs bounds what counts as signal (typically ≤1.3×).
+
 ## Smoke + manifest
 
 - `scripts/bench smoke` runs **one** iteration of one bench

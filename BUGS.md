@@ -1,5 +1,59 @@
 # Bug tracker
 
+## v2-method-dispatch-never-jits — every method call in every v2 program ran interpreted, forever
+
+**Status:** **FIXED 2026-07-28** (`v2-runtime-perf-vs-v1`). Found by benchmarking the v2 runtime
+against v1 for the first time — the v2 bench lane had been dead and reporting `n/a`, so this had
+never been measurable. Full measurement + A/B: `specs/v2-runtime-perf-vs-v1.md`.
+
+**The defect.** HotSpot ships `-XX:+DontCompileHugeMethods` ON by default: a method whose bytecode
+exceeds `-XX:HugeMethodLimit` (8000) is never compiled by C1 or C2 and runs in the bytecode
+interpreter for the life of the process. `ssc.Prims.resolveBuiltinRaw`'s `__method__` arm — the
+single dispatch point for **every non-arithmetic operation in every ScalaScript program**
+(`xs.map`, `s.split`, `n.toInt`, `opt.getOrElse`, …) — compiled to **49,384 bytecodes, 6.2× the
+limit**. It was the only method in the v2 kernel over it; the next largest was `arithRest` at 5,235.
+
+**Why nobody saw it.** It fails GREEN in the strongest sense: no warning, no log line, no exception,
+and no observable behaviour difference at all. Every correctness gate passed the whole time. The
+only symptom was speed, and the v2 bench lane was printing `n/a` instead of numbers, so the speed
+was not being read either.
+
+**How it was identified** (the shape of the data, not a guess): workloads that never reach
+`__method__` (`arith-loop`, `nested-loop`, `recursion-fib`) sat at or near v1 parity while
+everything that dispatches methods was 20-400× slower than the v1 interpreter. A uniformly slow
+runtime cannot split that way. `javap -c` then named the method.
+
+**Reproduce** (either direction, on any build):
+
+```bash
+scripts/bytecode-size-census v2/src/target/scala-3.8.3/classes 8000   # empty = fixed
+./bench.sh --backends ssc,v2,v2-bytecode --reps 30 string-split literal-match vector-index arith-loop
+```
+
+**Fix.** `ssc.Prims.methodDispatch1..10` — a pure sequential decomposition: part N tries its cases
+in the original order and falls through to part N+1, so the first matching case is exactly the one
+the single match would have chosen. Nothing reordered, nothing duplicated. Largest part 5,509.
+
+**Measured effect** (`./bench.sh --backends ssc,v2,v2-bytecode --reps 30`, same worktree, both
+sides `sbt installBin`, differing only in `v2/src/Runtime.scala`; the unchanged `ssc` v1 column is
+the noise control at ≤1.3× drift):
+
+| | `string-split` | `typeclass-fold` | `literal-match` | `vector-index` | `map-ops` | `arith-loop` (control) |
+|---|---|---|---|---|---|---|
+| v2-bytecode before | 13.8 | 1.16 | 2.22 | 382.6 | 3.43 | 0.661 |
+| v2-bytecode after | 1.28 | 0.107 | 0.263 | 58.3 | 0.778 | 0.625 |
+| gain | **10.8×** | **10.8×** | **8.4×** | **6.6×** | **4.4×** | 1.06× (unchanged, as predicted) |
+
+2.4-10.8× across every dispatching workload on both lanes; unchanged within noise on the pure
+arithmetic that never reaches `__method__`.
+
+**Guard.** `tests/e2e/v2-jit-size.sh` (+ `--self-test`) fails on any v2 method over 8000 bytecodes
+and prints its size, and lists everything ≥6000 so drift toward the limit is visible before it
+breaches. Nothing else can see this class of defect.
+
+**Left open by this fix:** `ssc.bytecode.JvmByteGen$.gen` is at **7,052 / 8000 (88%)** — one `case`
+from silently un-JITing the whole bytecode emitter. Queued as slice 2 in
+`specs/v2-runtime-perf-vs-v1.md` §4.
 ## conformance-known-red-silently-ignored-on-v2 — the one lane that needs a declared red cannot have one
 
 **Status:** OPEN (found 2026-07-28 while triaging the dead `v2-actors-bounded-mailbox`
