@@ -1,7 +1,7 @@
-# generation: 184
+# generation: 185
 #slug	agent	started	items	paths
 v2-perf-prim-dispatch	claude-code	2026-07-28T08:23:21Z	v2rt-1b v2rt-2 v2rt-6 v2-prim-dispatch-string-keyed	v2/src v2/jvm-runtime v2/backend-jvm-bytecode .github/workflows/ci.yml specs/v2-runtime-perf-vs-v1.md docs/benchmarks.md bench SPRINT.md CHANGELOG.md tests/e2e/v2-jit-size.sh
 corpus-contract-refresh-freeze	claude-code	2026-07-28T10:43:00Z	CCR-1 CCR-2 corpus-contract-roster-drift-48-cases	tests/conformance/corpus-baseline.tsv tests/conformance/contract-roster.tsv BUGS.md SPRINT.md CHANGELOG.md
-v2-mirror-fromproduct	claude-code	2026-07-28T10:44:24Z	v2-mirror-fromproduct-stub	v2/lib/ssc1-lower.ssc0 specs/v2.2-p6.5-fsub.ssc specs/v2.2-p6.5-fsub.sh tests/conformance/v2-mirror- tests/conformance/expected/v2-mirror- BUGS.md SPRINT.md CHANGELOG.md
+v2-mirror-fromproduct	claude-code	2026-07-28T10:44:24Z	v2-mirror-fromproduct-stub js-treeshake-prunes-mirror-ctor	v2/lib/ssc1-lower.ssc0 specs/v2.2-p6.5-fsub.ssc specs/v2.2-p6.5-fsub.sh v1/runtime/backend/js/src/main/scala/scalascript/codegen/ tests/conformance/v2-mirror- tests/conformance/expected/v2-mirror- BUGS.md SPRINT.md CHANGELOG.md
 rozum-sweep-and-decision-strategy	claude-code	2026-07-28T10:49:55Z	rozum-sweep-when-idle agent-decision-strategy	AGENTS.md .agents/plugins SPRINT.md BACKLOG.md
 host-ram-guard-in-repo	claude-code	2026-07-28T10:50:19Z	jvm-mem-guard-reads-the-wrong-signal launchd-build-agents-drift-from-the-repo HRG-0 HRG-1 HRG-2 HRG-3	scripts/build-ram-guard scripts/build-guards-install scripts/launchd tests/e2e/build-ram-guard docs/build-performance.md
