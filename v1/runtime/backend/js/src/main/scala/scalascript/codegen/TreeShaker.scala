@@ -82,6 +82,24 @@ object TreeShaker:
           // Constructor + all method bodies are reachable when class is reachable
           val bodies = d.templ.body.stats.collect { case dd: Defn.Def => dd.body: Tree }
           declBodies(name) = bodies
+          // `case class T(…) derives TC` — JsGen unconditionally emits a Mirror for T and
+          // `_ssc_def_given("TC_T", () => TC.derived(_sscMirror_T))`, a GLOBAL side effect, exactly
+          // like the named-given registration handled below. Neither T nor TC need appear in any
+          // TERM position for that to be emitted: the only mentions are the `derives` clause and
+          // `summon[TC[T]]`, and `collectNames` deliberately skips `Type.Name` ("type references
+          // don't create JS-level dependencies") — which is true everywhere EXCEPT here. So the
+          // shaker pruned both, and the emitted registration referenced two names that no longer
+          // existed: `ReferenceError: TC is not defined` (BUGS
+          // `js-lane-missing-derives-and-coroutinecancel`). Seed them as side effects rather than
+          // un-skipping Type.Name, which would keep nearly everything.
+          // Stdlib structural derives (`derives Eq`) name nothing declared, so `enqueue` ignores
+          // them — this can only ever KEEP code that JsGen is about to reference.
+          if d.templ.derives.nonEmpty then
+            sideEffects += Term.Name(name)
+            d.templ.derives.foreach {
+              case Type.Name(tc) => sideEffects += Term.Name(tc)
+              case _             => ()
+            }
         case d: Defn.Object =>
           val name = d.name.value
           allDeclared += name

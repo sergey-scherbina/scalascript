@@ -1,0 +1,24 @@
+#!/usr/bin/env ssc
+---
+name: derives-schema
+exports:
+  - Labelled
+  - LabelledInstance
+---
+
+# A `derives`-able typeclass in ANOTHER module
+
+Exists so `js-derives-segmented` can pin the IMPORTED-typeclass scan path, which is a
+different code path from a typeclass declared in the importing module.
+
+```scalascript
+trait Labelled[A]:
+  def label(): String
+
+case class LabelledInstance(text: String) extends Labelled[Any]:
+  def label(): String = text
+
+object Labelled:
+  def derived(m: Mirror): Labelled[Any] =
+    LabelledInstance(m.label + "/" + m.elemLabels.length.toString)
+```

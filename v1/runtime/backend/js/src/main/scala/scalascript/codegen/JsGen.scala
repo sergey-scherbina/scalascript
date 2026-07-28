@@ -2173,6 +2173,17 @@ class JsGen(
       sb.append("    Console.print   = _print;\n")
       sb.append("  }\n")
       sb.append("}\n")
+    // arch-meta-v2-p5 Track A (A2) — SAME call, and the SAME position relative to the user
+    // blocks, as `genModule`. It was missing here, and this is the path `ssc emit-js` takes
+    // (`compileJsSegments` → `generateSegmented`), which is also the path the conformance JS lane
+    // runs (`run.sc`: `sscTools("emit-js", …)` piped to node). So NO module compiled through
+    // `emit-js` ever got a Mirror or a `derives` instance: `case class P(…) derives TC` plus
+    // `summon[TC[P]]` emitted a bare `TC_P` and died with `ReferenceError: TC_P is not defined`,
+    // while the very same file run through `run-js` (→ `genModule`) worked. Two entry points, one
+    // of which never got the feature — BUGS `js-lane-missing-derives-and-coroutinecancel`.
+    // It also fills `jsSyntheticGivenKeys`, which is what makes `genExpr` route the summon through
+    // `_resolveGiven` instead of emitting that bare name, so this single call fixes both halves.
+    emitMirrorAndDerives(module)
     module.sections.zipWithIndex.foreach { (section, index) =>
       walkSection(section, module.document.flatMap(_.sections.lift(index)))
     }

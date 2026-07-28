@@ -1,0 +1,50 @@
+#!/usr/bin/env ssc
+---
+name: js-derives-segmented
+description: a `derives` instance must exist on the SEGMENTED codegen path too — the one `emit-js` (and the conformance JS lane) actually uses
+backends: [int, js, jvm]
+---
+
+# `derives` must survive the SEGMENTED JS codegen path
+
+`BUGS.md` `js-lane-missing-derives-and-coroutinecancel`. `JsGen.genModule` called
+`emitMirrorAndDerives`; `JsGen.genModuleSegmented` did not. `ssc run-js` goes through the first
+and worked; `ssc emit-js` goes through the second — and so does the conformance JS lane, which
+runs `ssc-tools emit-js <case> | node`. Every module compiled that way got **no Mirror and no
+derived instance at all**, so `summon[TC[T]]` emitted a bare `TC_T` and the bundle died with
+`ReferenceError: TC_T is not defined`. Not the tree shaker: `--no-tree-shake` failed identically.
+
+Both scan paths are pinned, because only the second was ever suspected and they are different
+code:
+
+1. **same-module** typeclass — `object Tagged` with a `def derived` declared right here;
+2. **imported** typeclass — `Labelled`, from `./lib/derives-schema.ssc`, which reaches
+   `emitMirrorAndDerives` only via `importedTypeclassObjects`.
+
+The `elemLabels.length` in each derived value is what proves the *Mirror* was emitted too, not
+just some object under the right name: a Mirror that never got its labels would report `0`.
+
+The import sits ABOVE the fence on purpose: an import written *inside* a fence is a separate,
+still-open divergence (`BUGS.md` `v2-native-front-in-fence-imports-not-followed`), and this case
+must fail for its own reason or not at all.
+
+[Labelled, LabelledInstance](./lib/derives-schema.ssc)
+
+```scalascript
+trait Tagged[A]:
+  def tag(): String
+
+case class TaggedInstance(text: String) extends Tagged[Any]:
+  def tag(): String = text
+
+object Tagged:
+  def derived(m: Mirror): Tagged[Any] =
+    TaggedInstance(m.label + "#" + m.elemLabels.length.toString)
+
+case class Point(x: Int, y: Int) derives Tagged
+
+case class Person(name: String, age: Int, city: String) derives Labelled
+
+println(summon[Tagged[Point]].tag())
+println(summon[Labelled[Person]].label())
+```

@@ -1,4 +1,4 @@
-# corpus-contract-roster-v1	baseline-sha256=d73cc059362c1aea218f39029387867af5cdba0477403003e1d528e1a91a62ec	roster-sha256=b3594e20022dde5de97e6dec27c26bdf4dbf08dbfe7e546c8d5b8e234922b9be
+# corpus-contract-roster-v1	baseline-sha256=d73cc059362c1aea218f39029387867af5cdba0477403003e1d528e1a91a62ec	roster-sha256=32ac72784751a47bbb74513542d66299dbe15fb7958c49caaee3732ee2ec678a
 _bug1_httpclient
 _bug1b
 _bug1c
@@ -163,6 +163,7 @@ invoice-pdf
 js-applyunary-effect-cps
 js-cps-intrinsic-rewrite
 js-crypto-extern-standalone
+js-derives-segmented
 js-effect-multishot-long-fold
 js-generator-next-option
 js-glue-component
