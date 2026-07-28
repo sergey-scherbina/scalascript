@@ -52,7 +52,9 @@ and its behaviour is deliberately unchanged.
                      is what makes a workflow that is red every night, or that
                      has never run, impossible to miss.
 
-For ci.yml the four required jobs must each be green. For any other workflow
+For ci.yml the three per-push jobs (Lint, Validate, Conformance) must each be green;
+`sbt — compile and test` is additionally required on non-push runs, which is where it
+runs (see BUGS ci-sbt-job-is-28x-the-code-push-interval). For any other workflow
 the rule is simply that the run completed successfully AND every job in it
 succeeded — required-job lists are workflow-specific and inventing one for a
 workflow this script does not know would be a guess.
@@ -184,8 +186,8 @@ set +e
 run_payload="$(
   cd "$ROOT" && "$GH_BIN" "${list_args[@]}" \
     --limit 5 \
-    --json databaseId,headSha,status,conclusion,url \
-    --jq 'if length == 0 then empty else .[0] | "RUN_ID=\(.databaseId)\nRUN_SHA=\(.headSha)\nRUN_STATUS=\(.status)\nRUN_CONCLUSION=\(.conclusion // "")\nRUN_URL=\(.url)" end' \
+    --json databaseId,headSha,status,conclusion,url,event \
+    --jq 'if length == 0 then empty else .[0] | "RUN_ID=\(.databaseId)\nRUN_SHA=\(.headSha)\nRUN_STATUS=\(.status)\nRUN_CONCLUSION=\(.conclusion // "")\nRUN_URL=\(.url)\nRUN_EVENT=\(.event)" end' \
     2>&1
 )"
 run_code=$?
@@ -210,8 +212,8 @@ find_covering_descendant() { # -> sets run_payload/COVERED_BY, or returns 1
   local candidates head
   set +e
   candidates="$(cd "$ROOT" && "$GH_BIN" "${list_args_nocommit[@]}" --limit 40 \
-    --json databaseId,headSha,status,conclusion,url \
-    --jq '.[] | "\(.headSha)|\(.databaseId)|\(.status)|\(.conclusion // "")|\(.url)"' 2>/dev/null)"
+    --json databaseId,headSha,status,conclusion,url,event \
+    --jq '.[] | "\(.headSha)|\(.databaseId)|\(.status)|\(.conclusion // "")|\(.url)|\(.event)"' 2>/dev/null)"
   set -e
   [[ -n "$candidates" ]] || return 1
   # Oldest first: the NEAREST descendant is the most specific evidence. gh lists newest first.
@@ -226,13 +228,14 @@ find_covering_descendant() { # -> sets run_payload/COVERED_BY, or returns 1
     best_line="$line"
   done <<<"$candidates"
   [[ -n "$best_line" ]] || return 1
-  IFS='|' read -r d_sha d_id d_status d_concl d_url <<<"$best_line"
+  IFS='|' read -r d_sha d_id d_status d_concl d_url d_event <<<"$best_line"
   COVERED_BY="$d_sha"
   run_payload="RUN_ID=$d_id
 RUN_SHA=$d_sha
 RUN_STATUS=$d_status
 RUN_CONCLUSION=$d_concl
-RUN_URL=$d_url"
+RUN_URL=$d_url
+RUN_EVENT=$d_event"
   return 0
 }
 
@@ -256,6 +259,7 @@ run_sha=""
 run_status=""
 run_conclusion=""
 run_url=""
+run_event=""
 while IFS= read -r line; do
   case "$line" in
     RUN_ID=*) run_id="${line#RUN_ID=}" ;;
@@ -263,6 +267,7 @@ while IFS= read -r line; do
     RUN_STATUS=*) run_status="${line#RUN_STATUS=}" ;;
     RUN_CONCLUSION=*) run_conclusion="${line#RUN_CONCLUSION=}" ;;
     RUN_URL=*) run_url="${line#RUN_URL=}" ;;
+    RUN_EVENT=*) run_event="${line#RUN_EVENT=}" ;;
   esac
 done <<<"$run_payload"
 
@@ -314,12 +319,22 @@ fi
 # dropped one is RED rather than accidentally green. For any other workflow there is no such list,
 # and inventing one would be a guess: the rule there is that every job the run DID have succeeded.
 if [[ "$WORKFLOW" == "ci.yml" ]]; then
+  # These three are the PER-PUSH verdict and must always be green.
   required_jobs=(
     "Lint Markdown"
     "Validate ScalaScript"
     "Conformance Suite"
-    "sbt — compile and test"
   )
+  # `sbt — compile and test` is required only where it actually runs. It was moved off the push path
+  # (ci.yml `if: github.event_name != 'push'`) because it takes 196 min against a 7-min mean code-push
+  # interval, so at most 1 commit in 28 could reach a verdict (BUGS
+  # `ci-sbt-job-is-28x-the-code-push-interval`). Keeping it in this list for push runs would have made
+  # THIS script report every push RED — the verdict tool contradicting the workflow it verifies, which
+  # is the same self-inflicted apparatus break the project keeps paying for. Keyed off the RUN's own
+  # event, not the --event FILTER, so `--event any` landing on a push run does not produce a false red.
+  if [[ "$run_event" != "push" ]]; then
+    required_jobs+=("sbt — compile and test")
+  fi
 else
   required_jobs=()
   while IFS='|' read -r jname _jstatus _jconcl; do

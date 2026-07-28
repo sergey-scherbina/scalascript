@@ -52,6 +52,10 @@ if [[ "$args" == *" run list "* ]]; then
       status="completed"
       conclusion="failure"
       ;;
+    push-no-sbt|sched-no-sbt)
+      status="completed"
+      conclusion="success"
+      ;;
     green)
       status="completed"
       conclusion="success"
@@ -67,6 +71,7 @@ if [[ "$args" == *" run list "* ]]; then
   printf 'RUN_STATUS=%s\n' "$status"
   printf 'RUN_CONCLUSION=%s\n' "$conclusion"
   printf 'RUN_URL=https://example.invalid/actions/runs/42\n'
+  printf 'RUN_EVENT=%s\n' "${FAKE_CI_EVENT:-push}"
   exit 0
 fi
 
@@ -87,6 +92,11 @@ if [[ "$args" == *" run view 42 "* ]]; then
       printf 'sbt — compile and test|queued|\n'
       ;;
     missing)
+      # A job that is required on EVERY event, so this case keeps meaning what it always meant.
+      printf 'sbt — compile and test|completed|success\n'
+      ;;
+    push-no-sbt|sched-no-sbt)
+      # The shape a real push run now has: the three fast jobs and no sbt job at all.
       printf 'Conformance Suite|completed|success\n'
       ;;
     *)
@@ -132,10 +142,19 @@ run_case() {
 }
 
 run_case green 0 "CI GREEN $SHA" "Conformance Suite: completed/success"
-run_case red 1 "CI RED $SHA" "Conformance Suite: completed/failure" \
+# Run as a SCHEDULED event so all four jobs are required — this case's second assertion is what pins
+# "cancelled is RED, not neutral", and sbt is only in the required set on non-push events.
+FAKE_CI_EVENT=schedule run_case red 1 "CI RED $SHA" "Conformance Suite: completed/failure" \
   "sbt — compile and test: completed/cancelled"
 run_case pending 2 "CI PENDING $SHA" "Conformance Suite: in_progress/pending"
-run_case missing 1 "CI RED $SHA" "missing required job: sbt — compile and test"
+run_case missing 1 "CI RED $SHA" "missing required job: Conformance Suite"
+# `sbt — compile and test` runs only on non-push events (ci.yml `if:`), because at 196 min against a
+# 7-min mean push interval at most 1 commit in 28 could ever reach a verdict (BUGS
+# ci-sbt-job-is-28x-the-code-push-interval). These two pin BOTH directions of that: absent-on-push is
+# legitimate, absent-on-schedule is still RED. Without the second case the first would silently excuse
+# a genuinely dropped sbt job.
+FAKE_CI_EVENT=push     run_case push-no-sbt  0 "CI GREEN $SHA" "Conformance Suite: completed/success"
+FAKE_CI_EVENT=schedule run_case sched-no-sbt 1 "CI RED $SHA"   "missing required job: sbt — compile and test"
 run_case no-run 2 "CI UNKNOWN $SHA" "no push ci.yml run found"
 run_case gh-fail 2 "CI UNKNOWN $SHA" "gh run list failed"
 

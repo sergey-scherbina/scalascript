@@ -30,6 +30,10 @@ on:
     paths-ignore:
       - '**.md'
       - '.work/**'
+  # The `sbt` job runs HERE, not on push — see its `if:` and the arithmetic below.
+  schedule:
+    - cron: '0 */4 * * *'
+  workflow_dispatch:
 
 # Without this, CI could not deliver a verdict at all under the project's push rate.
 #
@@ -49,8 +53,12 @@ on:
 # The cost, stated plainly: intermediate commits get no verdict of their own. They get none today
 # either — they queue for hours and are then cancelled — so this trades a silent red for an explicit
 # supersede, which is what makes the green-descendant evidence ladder in AGENTS.md §4c usable.
+# The scheduled run gets its OWN group. Sharing one would defeat the whole change: a scheduled
+# `sbt` run sitting in the pending slot would be evicted by the next code push, which is exactly the
+# eviction this workflow already documents — and the long job would never reach a verdict again,
+# only now nightly instead of per-push.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }}-${{ github.event_name == 'schedule' && 'scheduled' || 'push' }}
   cancel-in-progress: false
 
 jobs:
@@ -244,6 +252,26 @@ jobs:
   sbt:
     name: sbt — compile and test
     runs-on: ubuntu-latest
+    # NOT on push. MEASURED 2026-07-28 over 6 hours on `main` (BUGS.md
+    # `ci-sbt-job-is-28x-the-code-push-interval`): 51 code pushes, mean interval 7 min, while this
+    # job takes 196 min — a ratio of 28. With GitHub's one-pending-run-per-group rule, at most 1
+    # commit in 28 could ever reach a verdict, so for the other 27 the per-push signal was not slow,
+    # it was ABSENT — and `cancelled` reads as RED (MILESTONES.md), so the apparatus was manufacturing
+    # reds for commits that were fine.
+    #
+    # Queue policy cannot fix that ratio; `paths-ignore` removed 74% of the load and left it
+    # unchanged, because it was never the docs commits. Either the verdict-carrying job gets shorter
+    # than the push interval, or the per-push verdict comes from jobs that already are: measured
+    # alongside it, Lint 28 s, Validate 34 s, Conformance Suite 38 min. Those three now ARE the
+    # per-push verdict; this one runs on the 4-hourly schedule and on demand.
+    #
+    # THE COST, stated plainly rather than buried: a push no longer carries `sbt test`. A unit-test
+    # regression now surfaces in the next scheduled batch, and attribution across ~28 intervening
+    # commits is harder than a per-push red would have been. That is the trade the arithmetic forces;
+    # the alternative on offer was not "per-push coverage" but "no verdict at all", which is what was
+    # actually happening. Re-measure the ratio if `sbt test` gets faster (BACKLOG
+    # `ci-crossbackend-differential-runtime`) — if it drops under the push interval, put it back.
+    if: github.event_name != 'push'
     # JOB-level cap. This must exceed (prior gates + the full `sbt test` phase). Raised
     # ahead of the F4 default-front flip (v2-f4-reflip, 2026-07-22): when F becomes the
     # default the negtc release gate re-lowers the corpus through the slower F front, so its
