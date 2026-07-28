@@ -139,6 +139,8 @@ scljet-wal:
 
 `<missing>`, not wrong — the case produced **no stdout at all** inside the batch JVM.
 
+**THIRD OCCURRENCE 2026-07-28:** `scljet-wal-read` again, on the `v2-program-tail-string-render` corpus run — a change confined to the v2 CLI's result printer, which the INT lane does not execute. Three sightings now, on three unrelated changes, always `<missing>` stdout in the big INT batch and always byte-exact in isolation. That is the batch, not the changes.
+
 **SECOND OCCURRENCE, 2026-07-28, same shape, different case in the same family.** A later full-corpus
 run (for `v2-auto-output-prim`) produced:
 
