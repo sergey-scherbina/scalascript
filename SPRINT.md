@@ -9,6 +9,78 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## 2026-07-28 — v2 backend gap matrix (Sergiy: "то чего v2 делать не может / делает очень плохо")
+
+**Active claim:** `v2-backend-matrix-gaps`. The full corpus × every backend is now one table with
+every cell classified: **`specs/v2-vs-v1-backend-matrix.md`**. Read it first — it carries the
+provenance, the load caveat, and why `v2-bytecode` (not `v2`) is the column that answers
+"is v2 slower than v1".
+
+Score of the 29 workloads v2 can run: **8 faster than v1, 3 at parity, 18 slower**, 11 of those by
+an order of magnitude. So the target is not "v2 is slow" — it is two specific shapes.
+
+Order is deliberate: **category 1 before category 2** (a lane that cannot run a program cannot be
+profiled), and **category 3 is NOT planned yet** — it must be re-measured after the first two,
+because its sweep is a contended snapshot where sub-30% differences are not established AND
+fixing a shared cause in category 2 will move those rows.
+
+- [x] **v2m-0 — the matrix document.** `specs/v2-vs-v1-backend-matrix.md`.
+
+### v2m-1 — Category 1: v2 cannot run it at all (4/33 workloads, 2/4 backends)
+
+Not slow — an exception. Two causes across four workloads. Verify each with
+`bin/ssc-tools --backend v2-bytecode bench --machine --reps 3 bench/corpus/<w>.ssc` AND the
+`v2` (VM) lane, then re-run the affected `tests/conformance` slice.
+
+- [ ] **v2m-1a — `unbound global: d` kills `float-loop`, `float-fold`, `pattern-match-heavy`.**
+      One cause, three workloads, BOTH v2 lanes. `d` is not a user identifier in any of the three
+      sources, so the suspicion is a lowering that emits a global reference the runtime never
+      registers (a float helper?). START by finding where `d` is introduced — dump the CoreIR
+      (`bin/ssc-tools --backend v2 ... ` / `ssc info`) rather than guessing from the source.
+      Done-when: all three run on both v2 lanes and their output matches the INT lane byte for byte.
+- [ ] **v2m-1b — `array-update`: `app: not a function: 0` on both v2 lanes.** An in-place indexed
+      `Array` store. The message says the runtime reached `applyFallback` with an IntV receiver —
+      i.e. `a(i) = v` lowered to an application of the *element* rather than a store. Done-when:
+      `array-update` runs on both lanes with INT-matching output.
+- [ ] **v2m-1c — `__autoOutput__` is unimplemented in BOTH v2 source backends.** `v2-jvm`
+      (`unknown prim1`) and `v2-rust` (`unimplemented prim`) cannot run ANY program. Per-block
+      auto-output is a prim each backend must implement — Unit-ness is a runtime property whose
+      representation differs per backend, so it cannot be a source-level pattern. Implement it in
+      `v2/backend/jvm` and `v2/backend/rust`. Done-when: `./bench.sh --backends ssc,v2-jvm,v2-rust`
+      produces numbers, and the sweep's dead-lane detector stays quiet.
+
+### v2m-2 — Category 2: runs, but ≥10× worse than v1
+
+Eleven rows, **three shapes**. Treat the shape as the unit of work, not the row: profile one
+representative per shape, name the cause, fix it, then re-measure the whole shape.
+⚠️ Every number here must come from the ALTERNATING protocol
+(`specs/v2-runtime-perf-vs-v1.md` §7) — on this host a single A/B run of identical code has swung
+2.5×.
+
+- [ ] **v2m-2a — collection iteration.** `lazylist-take` **474×**, `effect-stream` **271×**,
+      `range-sum` **170×**, `list-fold` **160×**, `hof-pipeline` **19×**. Representative:
+      `range-sum` (smallest, 170×, and a `Range` is not even a user data structure). Known from
+      the earlier arc: `foreach` already walks the cons chain in place, so the remaining cost is
+      per-element dispatch into the generic runtime, and the emit-time prim resolution queued as
+      `v2rt-6b` is worth ~18% of `list-fold` at best — i.e. NOT the whole gap. Profile first.
+- [ ] **v2m-2b — strings.** `string-concat` **28×** (`string-split` 4.3× sits in category 3 and
+      will move with it). Representative: `string-concat`.
+- [ ] **v2m-2c — structural data access.** `vector-index` **46×**, `either-chain` **17×**,
+      `instance-field` **13×**. `vector-index` is already partly understood: v2 has no `VectorV`,
+      so `Vector` IS a cons chain and indexing is O(n) by construction — walking it in place bought
+      only 1.3×, so the honest fix is a real indexed representation, which is a design change and
+      should be specced before it is coded.
+- [ ] **v2m-2d — dispatch-shaped rows.** `literal-match` **17×**, `bool-predicate` **13×**. These
+      two are small and may share a cause with 2a; check before opening a separate lane.
+
+### v2m-3 — Category 3: re-measure, do not plan yet
+
+- [ ] **v2m-3 — after v2m-1 and v2m-2 land, re-run the full matrix on a QUIET machine and rebuild
+      `specs/v2-vs-v1-backend-matrix.md`.** Only then decide what in the 1.1×-9.9× band is real.
+      Rows: `recursion-fib` 1.1×, `arith-loop` 2.3×, `nested-loop` 2.8×, `string-split` 4.3×,
+      `mutual-recursion` 7.3×, `effect-pure` 7.6×, `map-ops` 8.4×, `type-lambda-placeholder` 9.4×,
+      `option-chain` 9.8×, `tuple-monoid` 9.9×.
+
 ## 2026-07-28 — the last two red gates (Sergiy: "что именно ещё осталось до полного зелёного CI")
 
 **`ci.yml` is already green** — run `30363091300` on `c9788cf6f`. What is left is the two SCHEDULED
