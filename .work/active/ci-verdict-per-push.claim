@@ -2,10 +2,10 @@ slug: ci-verdict-per-push
 branch: feature/ci-verdict-per-push
 agent: opus
 started: 2026-07-28T02:09:43Z
-heartbeat: 2026-07-28T02:11:33Z
+heartbeat: 2026-07-28T02:17:25Z
 status: claimed-before-planning
 items: ci-sbt-job-is-28x-the-code-push-interval ci-runs-cancelled-under-churn
-paths: .github/workflows/ci.yml scripts/ci-status
+paths: .github/workflows/ci.yml scripts/ci-status tests/e2e/ci-status-guard.sh
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
