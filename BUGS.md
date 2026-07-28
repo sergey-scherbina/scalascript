@@ -47,10 +47,33 @@ commit the check reports on.**
 
 ## v2-native-uncaught-error-diagnostic-empty — every failing native program reports a diagnostic with no content
 
-**Status:** OPEN (found 2026-07-28 by `v2-native-import-graph` while probing the map-reduce
-fixture — the native lane answered `ssc: SscThrow` where v1 named the exception and its message).
-This is not one program's problem: it is what the **default** lane prints for **any** uncaught
-error, so it is the first thing a user sees when anything goes wrong.
+**Status:** **FIXED 2026-07-28** by `v2-native-error-diagnostic` (`c1c960209`). Found the same day
+by `v2-native-import-graph` while probing the map-reduce fixture — the native lane answered
+`ssc: SscThrow` where v1 named the exception and its message. This was not one program's problem:
+it is what the **default** lane printed for **any** uncaught error, so it was the first thing a
+user saw when anything went wrong.
+
+**After, both execution lanes:**
+
+```
+ssc: RuntimeException("the real message")
+ssc: index 9 out of bounds for list of length 3
+```
+
+**Fix.** (1) `SscThrow` overrides `getMessage` with `Show.show(value)` — an override rather than a
+constructor argument, because `throw`/`catch` is also an ordinary control-flow path in this
+runtime and a *caught* `SscThrow` must not pay to build a message nobody reads. (2)
+`Prims.listIndex` checks the range itself and raises what `listAt` and v1 already say, instead of
+handing the check to Scala's `List.apply`; the non-cons (`ArrayBuffer` tail) shape still goes
+through the same slow path.
+
+**Gate.** `tests/e2e/v2-error-diagnostic.sh` — every probe runs on BOTH execution lanes and prints
+`expected=… got=…` on mismatch; `--self-test` first asserts an impossible expectation so the
+comparison is proven capable of failing. Committed RED (4 of 5 cells) one commit before the fix.
+It also carries a **control**: a *caught* `RuntimeException` must still bind its message
+(`caught:inner`), which passed before and after — this changed the message, not the payload.
+Conformance cannot see this class of defect by construction: a case is graded on stdout against
+`expected/<name>.txt`, and these programs produce no stdout at all.
 
 **Measured, two four-line programs, real staged `bin/`:**
 
