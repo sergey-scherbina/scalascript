@@ -1,0 +1,11 @@
+slug: rozum-sweep-and-decision-strategy
+branch: feature/rozum-sweep-and-decision-strategy
+agent: claude-code
+started: 2026-07-28T10:49:55Z
+heartbeat: 2026-07-28T10:49:55Z
+status: claimed-before-planning
+items: rozum-sweep-when-idle agent-decision-strategy
+paths: AGENTS.md .agents/plugins SPRINT.md BACKLOG.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
