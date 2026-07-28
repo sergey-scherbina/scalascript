@@ -492,8 +492,17 @@ in `9f136e21f`.
 
 ## lint-markdown-unreachable-from-markdown-commits — the only job that lints `.md` cannot be triggered by a `.md` change
 
-**Status:** OPEN (found 2026-07-28 while repairing a red `Lint Markdown`; `.github/workflows/ci.yml`
-is held by the live `build-ram-budget-and-speed` claim, so this is filed rather than fixed).
+**Status:** FIXED 2026-07-28 in `680181feb` — a second workflow,
+`.github/workflows/lint-markdown.yml` (job `Lint Markdown (docs-only)`), triggered on
+`paths: ['**.md']`. `ci.yml` and its `paths-ignore` are untouched.
+
+**Why a second workflow and not a move.** Moving the job out of `ci.yml` would give exactly one
+lint run per push instead of two on a mixed commit — but `scripts/ci-status` hard-codes a
+`required_jobs` list containing `"Lint Markdown"` and reports a run that omits a required job as
+RED, and `tests/e2e/ci-status-guard.sh` pins that. The move would therefore have turned every
+future green `ci.yml` run into `missing required job: Lint Markdown`. Accepted consequence: a
+commit touching both code and `.md` lints twice — same command, same whole-repo scope, so the two
+cannot return contradictory verdicts.
 
 **The defect.** `ci.yml` now carries, for both `push` and `pull_request`:
 

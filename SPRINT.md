@@ -21,7 +21,21 @@ Context they all share: `main` reached its **first fully green CI run since 2026
 (`30354638253` on `4e57e7a60`, 651 commits later) once `Validate ScalaScript` stopped failing its
 own self-tests. These four are what that sweep surfaced and did not fix.
 
-- [ ] **lint-markdown-own-trigger** — give `Lint Markdown` a trigger a `.md` change can reach.
+- [x] **lint-markdown-own-trigger** — LANDED `680181feb`: `.github/workflows/lint-markdown.yml`,
+      job `Lint Markdown (docs-only)`, `on: push/pull_request paths: ['**.md']`, own concurrency
+      group, lint step byte-identical to `ci.yml`'s so the two triggers cannot drift.
+      **Done-when relaxed, deliberately, and here is why.** The entry below asked for "a code commit
+      still does not double-lint", which implied *moving* the job out of `ci.yml`. That is wrong:
+      `scripts/ci-status` hard-codes a `required_jobs` list containing `"Lint Markdown"` and reports
+      a run omitting a required job as RED, and `tests/e2e/ci-status-guard.sh` pins that behaviour —
+      so moving the job would have turned every future green `ci.yml` run into
+      `missing required job: Lint Markdown`. Added alongside instead. **Consequence accepted:** a
+      commit touching both code and `.md` lints twice (same command, same whole-repo scope, so they
+      cannot disagree; seconds of runner time, no build/cache/matrix). Un-breaking the health tooling
+      to save that second is the bigger and riskier change; parked, not forgotten — if it is ever
+      wanted, it is `required_jobs` in `scripts/ci-status` plus the guard's `missing` case that must
+      move first.
+      Original entry, kept for the reasoning:
       *Why:* `ci.yml` has `paths-ignore: ['**.md', '.work/**']`, and GitHub skips the run when
       EVERY changed path matches — so a markdown-only commit produces **no run at all**, including
       no `Lint Markdown`. The one job that checks `.md` is the one job a `.md` change cannot
