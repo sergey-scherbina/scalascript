@@ -68,13 +68,56 @@ source-aware call identity` — то есть ограничение **осоз�
 
 | кейс | конструкция | статус |
 |---|---|---|
-| `wasm-matrix` | fewer-braces trailing lambda: `matrix(a.length, cols): (i, j) =>` (`:25`) | **локализовано**, не чинено |
+| `wasm-matrix` | fewer-braces trailing lambda: `matrix(a.length, cols): (i, j) =>` (`:25`) | **локализовано + есть гипотеза фикса**, см. ниже |
 | `wasm-http` | `for … yield` (`:38`) | взято агентом `v2-front-for-yield` |
 | `quoted-macro-*` | сплайсы | см. 1.1 — сначала решение |
 | `graph-storage`, `wasm-collections`, `wasm-scalascript` | — | **не локализовано**; нужен побайтовый bisect каждого |
 
 `graph-codecs` и `typed-object-codec` выпали из этого списка: они `backend: jvm`, после
 `baa55cdb9` на v2 не гоняются.
+
+#### OPEN-W1 подробно: fewer-braces `f(args): p =>` — репро и гипотеза фикса
+
+Репро на 9 строк (v1 печатает `6 / 6`, натив отвергает файл):
+
+```scalascript
+def ap(n: Int)(f: Int => Int): Int = f(n)
+
+def useBrace(): Int = ap(3)((i) => i * 2)
+
+def useColon(): Int =
+  ap(3): (i) =>
+    i * 2
+
+println(useBrace())
+println(useColon())
+```
+
+**Гипотеза (НЕ проверена — файлы фронтов были заняты живым клеймом).** В layout-проходе
+`ssc1-front.ssc0` двоеточие уже умеет открывать блок, но только в голове декларации:
+
+```
+declColon = if #seq(k, ":") then (if inParenLike then false else inDeclHead) else false
+```
+
+Достаточно снять требование `inDeclHead` — то есть *любое* двоеточие вне скобок, оказавшееся
+последним токеном строки, открывает layout-блок:
+
+```
+declColon = if #seq(k, ":") then (if inParenLike then false else true) else false
+```
+
+Почему этого может хватить целиком: `prevOpener` смотрят только на NL, поэтому `val x: Int = 5` и
+`def f(x: Int): Int =` не затрагиваются — там после `:` на той же строке идёт тип. А виртуальную
+`{ (i) => i*2 }` дальше подхватит уже существующий путь `buildPostfix`, ветка `{`: *"trailing block
+argument: `e { body }` → `e(body)`, lambda-aware: `parseBlockArg` strips a `param =>` header"* —
+это ровно нужная форма.
+
+**Риск, который надо измерить:** двоеточие, которое честно завершает строку, но блоком не является
+(например, перенос длинной сигнатуры после `:`). Гейты `v2.2-p6.5-fsub.sh --self` (173 кейса +
+фикспойнт) и `v2.2-p6.5-semantic.sh check` (247 golden'ов) покажут это сразу.
+
+**Обязательно ОБА фронта** — дифференциальный гейт сравнивает F и оракул.
 
 **Метод, который работает** (применён 5 раз за день): скомпилировать файл через
 `java -jar <kernel> run v2/bin/ssc1-run.ssc0 <file>`, найти `(global _err)` в выданном IR и прочитать
