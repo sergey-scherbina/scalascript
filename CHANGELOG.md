@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-07-28 — a failing native program now says what failed
+
+`bin/ssc run` is the default product command, so its uncaught-error output is the first thing a
+user sees when anything goes wrong — and it said nothing. `throw new RuntimeException("the real
+message")` printed `ssc: SscThrow`; `List(1,2,3)(9)` printed `ssc: 9`. That was the whole
+diagnostic: not the operation, not the bound, not the line, just the index.
+
+Two independent defects met at one printer. `SscThrow` was constructed with no message, so
+`StandardMain`'s `getMessage`-or-class-name fell through to the class name and threw the carried
+value away; and `Prims.listIndex` handed its range check to Scala's `List.apply`, whose
+`IndexOutOfBoundsException` message is the bare index. Both are fixed — the first by a lazy
+`getMessage` override (a *caught* `SscThrow` must not pay to render a message nobody reads), the
+second by checking the range and saying what the sibling helper `listAt` and v1 already say.
+
+Now: `ssc: RuntimeException("the real message")` and
+`ssc: index 9 out of bounds for list of length 3`, on both execution lanes. The gate
+`tests/e2e/v2-error-diagnostic.sh` was committed RED one commit earlier and carries a control
+proving a caught exception still binds its payload. Conformance could never have caught this: a
+case is graded on stdout, and these programs produce none. `BUGS.md`
+`v2-native-uncaught-error-diagnostic-empty`.
+
 ## 2026-07-28 — `derives` works on the JS lane that the gate actually runs
 
 `ssc emit-js` — the path the conformance JS lane uses (`emit-js` piped to node) — never emitted a
