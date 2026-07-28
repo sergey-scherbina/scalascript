@@ -158,6 +158,12 @@ Every official case is executed before classification. A gate may classify an al
 failure, but no marker, expected-failure list, heuristic, empty projection, or known unsupported
 production may skip the comparison.
 
+Normalization may remove presentation detail only where the governing format declares the values
+equivalent. It must not rewrite the actual observable into the oracle spelling before equality is
+measured. A known upstream-oracle discrepancy is recorded only after the unchanged expected and
+normative actual values have compared unequal. An optional compatibility projection may be
+reported separately, but it cannot contribute to semantic or strict pass counts.
+
 On mismatch the gate prints:
 
 - corpus/version/case id and section;
@@ -184,6 +190,13 @@ cases. For representable cases:
 - normalized event semantics agree with `test.event`;
 - status and diagnostic severity are deterministic;
 - JVM and Scala.js results are identical.
+
+Effective YAML tags retain every `%HH` triplet and its hexadecimal case through CST, projection,
+and the normative event observable, as required by YAML 1.2.2 section 5.6. Pinned case `6CK3`
+contains the known `yaml/yaml-test-suite#9` conflict: its unchanged `test.event` decodes `%21` to
+`!`. The gate must compare those distinct spellings first and report the mismatch; a separately
+named test-suite-compatibility observation may explain the upstream spelling but is not a strict
+pass.
 
 M3.1 covers:
 

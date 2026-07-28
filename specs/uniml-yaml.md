@@ -269,18 +269,23 @@ spelling, including handle and `%HH` bytes. `YamlValue.tag` carries the expanded
 the handle is replaced by its prefix, while each percent escape and its hex-letter case remain
 exactly as presented, following YAML 1.2.2 section 5.6.
 
-The parser-event trace is a distinct lower-level observable. To match YAML 1.2.2 Example 6.26 and
-the pinned `yaml-test-suite` event notation, it decodes a contiguous `%HH` run only when the bytes
-form valid UTF-8; an opaque non-UTF-8 run remains percent-escaped. This compatibility view never
-changes the CST or `YamlValue`. Keeping representation tags separate from parser-event tags is
-intentional because the normative section 5.6 preservation rule and Example 6.26's decoded event
-spelling contradict each other (the conflict is also tracked upstream as
-`yaml/yaml-test-suite#9`).
+The parser-event trace carries the same effective representation tag. It does not decode,
+case-fold, or otherwise normalize `%HH`, because YAML 1.2.2 section 5.6 requires those characters
+to be preserved and compared exactly as presented. In particular, `%21` and `!` remain distinct
+before every corpus comparison.
+
+The pinned `yaml-test-suite` case `6CK3` contradicts that rule by decoding `%21` in its
+`test.event` spelling; the conflict is tracked upstream as `yaml/yaml-test-suite#9`. The gate keeps
+the vendored event unchanged, compares it to the normative actual event first, and then classifies
+that exact mismatch as an oracle discrepancy. A UTF-8-decoded test-suite-compatibility projection
+may exist only in test code as a separately named observation. It cannot replace the actual side
+of the comparison or contribute to semantic/strict pass counts.
 
 Only malformed percent-triplet syntax is a YAML error: `%`, `%0`, or a non-hexadecimal pair.
 Percent octets are otherwise opaque, so overlong, surrogate-valued, or out-of-range UTF-8 byte
-patterns remain valid representation-tag spelling. Validation and optional event normalization are
-linear in the bounded tag spelling; repeated whole-prefix concatenation is forbidden.
+patterns remain valid representation-tag spelling. Validation and any optional test-only
+compatibility observation are linear in the bounded tag spelling; repeated whole-prefix
+concatenation is forbidden.
 
 The bare `!` property is the non-specific tag, not a shorthand with an empty suffix. It remains
 exactly `!` even when a `%TAG ! ...` directive overrides the primary handle; only a non-empty
@@ -311,7 +316,9 @@ The checked-in live baseline may advance only in the same reviewed slice after:
 1. the old and new per-case rows are diffed;
 2. every changed row is attributed to that grammar behavior;
 3. source/chunk exactness remains 402/402 and crashes remain zero;
-4. validity/semantic/strict counts do not regress; and
+4. grammar changes do not regress validity/semantic/strict counts; an apparatus correction may
+   reduce a count only when the complete row diff proves that the old pass was manufactured by the
+   apparatus itself; and
 5. JVM and Scala.js produce byte-identical rows and category totals.
 
 Aggregate counts alone never authorize a baseline update. The final UPR-2 baseline is 402 strict
@@ -447,7 +454,7 @@ out-of-scope paragraph bound M3 honestly; they are the queued M3.1 hardening wor
 
 UPR-2a.1 landed in `3341a35a9` on 2026-07-28. Document-scoped `%TAG` handles now expand on
 scalar and collection nodes, reset between documents, preserve raw and representation `%HH`
-spellings, and expose the separately normalized parser-event compatibility view described above.
+spellings, and originally exposed a separately normalized parser-event compatibility view.
 Bare non-specific `!` remains independent of the primary handle and requires separation from flow
 collection content. Duplicate declarations, undefined handles, and malformed percent triplets
 produce structured diagnostics.
@@ -474,13 +481,20 @@ tests/conformance/run.sh --only '*yaml*'
 # 1/1 passed (memoized from the unchanged green case)
 ```
 
-The compare-first 402-case census moved without exclusions from validity `210→214`, semantics
-`128→138`, strict `112→126`, actual errors `220→216`, and failures `290→276`, with zero crashes.
-The frozen post-slice baseline SHA-256 is
+The originally published 402-case census reported validity `210→214`, semantics `128→138`, strict
+`112→126`, actual errors `220→216`, and failures `290→276`, with zero crashes. A post-land audit
+found that the actual tag was percent-decoded before equality, so this was not compare-first for
+6CK3: one semantic/strict pass was manufactured by the compatibility projection. The queued
+UPR-2a.1 measurement correction must re-freeze the baseline at expected semantics `137`, strict
+`125`, and failures `277`, with validity `214`, actual errors `216`, source/chunks `402/402`, zero
+crashes, and 6CK3 as the only changed row.
+
+The superseded post-slice baseline SHA-256 is
 `7cd2d76efd0e26252097722ac1fb7d577936fb9f665ae6e852c811a9098123e3`; its category SHA-256 is
-`25d786c1259235b820b550e58c67ef0c31e513771d226bc3ba60ed52d77fe5ad`. Two independent read-only
-reviews accepted the final JVM/Scala.js-portable implementation. Full tag/property lexical grammar
-remains UPR-2a.2; this progress is not an M3.1 conformance claim.
+`25d786c1259235b820b550e58c67ef0c31e513771d226bc3ba60ed52d77fe5ad`; neither digest is evidence
+after the defect was identified. Two independent read-only reviews accepted the portable
+representation implementation, and a later normative audit found the comparison-layer defect.
+Full tag/property lexical grammar remains UPR-2a.2; this progress is not an M3.1 conformance claim.
 
 M3.1 is complete only when the three unchecked behavior rows above are checked from the full
 compare-first corpus and resource gates defined in
