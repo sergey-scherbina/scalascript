@@ -173,9 +173,36 @@ the legacy front while appearing to measure F.
 **Not a duplicate of `v2-native-front-multiline-curried-def`** (FIXED 2026-07-18, `d0722478e`),
 which was about the second clause starting on a NEW LINE. This one is a single-line curried def.
 
-**Fix direction.** `parseDef` in `specs/v2.2-p6.5-fsub.ssc`: after the first parameter list, if the
-next token is `(`, keep consuming clauses and nest the lambdas. The legacy front already does this
-(it compiles the same file correctly), so its `parseDef` is the reference.
+**FIX DIRECTION, now measured rather than guessed** (attempted 2026-07-28 by `v2-front-curried-def`,
+**reverted** — the half-fix is worse than the bug, see below).
+
+It is **two halves, and the def half alone is harmful**:
+
+1. **The def.** `emitDefU` handles a second clause only when it is `(using …)`; a plain `(f: …)`
+   clause falls through to `skipToEq` and is dropped. Generalising it to consume any number of
+   `(params)` clauses is ~2 lines and makes F emit the oracle's shape,
+   `(def ap (lam 2 (app (local 0) (local 1))))`.
+2. **The call site, which is the part that is missing.** The oracle also FLATTENS the application:
+   it emits `(app (global ap) 3 (lam …))`, while F's `postfix` loop nests them as
+   `(app (app (global ap) 3) (lam …))`. This runtime has **no partial application** — with only
+   half 1 applied, `ap(3)(f)` dies at run time with `arity: 2 expected, 1 given`.
+
+**Measured, and this is why it was reverted:** with only half 1, the file goes from *"F declines,
+fallback compiles it, prints `6`"* to *"F accepts, program fails at run time"*. `front-report` flips
+`GAP` → `F`, which looks like progress and is a regression. Baseline restored and re-verified:
+`GAP` + `6`.
+
+**What half 2 needs.** Flattening `f(a)(b)` requires knowing the callee's TOTAL arity across
+clauses, and F's `cx` has no arity table — `collectRetTab` carries return types only. So the real
+work is a new pre-pass collecting per-def total arity (alongside `collectPlessDefs`), threading it
+through `mkCxE`, and having `postfix`'s `(`-branch append to the existing argument list instead of
+nesting when the callee is a known multi-clause def. Non-curried calls and genuine
+returns-a-function calls must stay nested, so the arity lookup is the discriminator, not a syntactic
+guess.
+
+**Gate note:** `tests/e2e/v2-front-coverage.sh` uses this bug as its `--self-test` anchor (a known
+GAP must still report GAP). Whoever fixes it must swap that anchor for another known gap, or the
+self-test starts failing for the right reason.
 
 
 ## corpus-contract-scljet-jdbc-v2-timeout — a correct case that does not fit its budget on a loaded runner
