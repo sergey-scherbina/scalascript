@@ -1,4 +1,3 @@
-# generation: 248
+# generation: 249
 #slug	agent	started	items	paths
 v2-backend-matrix-gaps	claude-code	2026-07-28T14:31:37Z	v2m-0-matrix-doc v2m-1-cannot-run v2m-1a-unbound-global-d v2m-1b-array-update v2m-1c-autooutput-source-backends v2m-2-order-of-magnitude v2m-3-recheck-after	v1/tools/cli/src/main/scala/scalascript/cli/Main.scala specs/v2-vs-v1-backend-matrix.md specs/v2-runtime-perf-vs-v1.md v2/src v2/backend v2/backend-jvm-bytecode v2/jvm-runtime bench SPRINT.md BACKLOG.md CHANGELOG.md BUGS.md docs/benchmarks.md tests/e2e/v2-jit-size.sh
-v2-front-colon-trailing-lambda	claude-code	2026-07-28T17:04:13Z	OPEN-W1 wasm-matrix-fewer-braces wasm-http-fewer-braces	specs/v2.2-p6.5-fsub.ssc v2/lib/ssc1-front.ssc0 tests/conformance/fewer-braces tests/conformance/expected/fewer-braces BUGS.md bugs-v2-open.md bugs-v2.md SPRINT.md CHANGELOG.md
