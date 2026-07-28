@@ -50,11 +50,21 @@ apparatus IS the work, and it comes first.
 
 ## 2026-07-27 — native release qualification
 
-**Active claim:** `native-release-qualification`. The native release workflow has
+**Claim RELEASED 2026-07-28 during triage** (heartbeat 2.7 h stale, worktree
+clean, nothing uncommitted). The native release workflow has
 never run: its only trigger is a publishing `v*.*.*` tag, so the current default
 F frontend/direct-ASM product stack has no release-path evidence on Linux x86_64,
 macOS arm64, or macOS x86_64. Visibility (`ci-status-all-workflows`) does not
 qualify artifacts; `NEVER-RUN` is the blocker this slice closes.
+
+> **Do not re-enter this task by "monitoring run 30316338197" — it is finished
+> and RED.** That was the released claim's `next:` step, and it had already
+> failed 2.7 h before the claim went silent, so the task was not blocked on a
+> pending result; it was blocked on an unread one. All three qualify legs died
+> in the sbt build compiling `testUtils` with an empty dependency classpath,
+> before `native-image` ran at all. Exact evidence, and the one diagnostic that
+> would explain it, are in BUGS.md §`native-release-unqualified-and-unrelocatable`.
+> Whoever reclaims this starts there, not at a new dispatch.
 
 - [ ] **NRQ-0 — specify a non-publishing release qualification contract.** Add
       `specs/native-release-qualification.md` before workflow code. A manual

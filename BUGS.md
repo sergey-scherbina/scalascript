@@ -1259,6 +1259,42 @@ feature. Publication remains tag-only, exact stable SemVer, serialized per ref,
 and create-only for a previously absent release. Record the successful run id,
 required job conclusions, and fix SHA here.
 
+**First hosted diagnostic run — MEASURED, red (2026-07-28, recorded during claim
+triage after the owning session went silent).** Run `30316338197` finished
+`failure` at 01:24Z. `Prove compare-first release refusals` passed; **all three
+qualify legs failed**, and `Publish qualified tag` was correctly skipped:
+
+```text
+success  Prove compare-first release refusals
+failure  Qualify ssc-linux-x86_64  on ubuntu-latest
+failure  Qualify ssc-macos-x86_64  on macos-15-intel
+failure  Qualify ssc-macos-arm64   on macos-latest
+skipped  Publish qualified tag
+```
+
+None of them reached `native-image`. All three died in the **sbt build step**,
+compiling `testUtils`, with an empty dependency classpath:
+
+```text
+[E008] v1/runtime/backend/test-utils/.../testkit/TestInterpreter.scala:3:19
+ 3 |import scalascript.backend.spi.Backend
+   |       value backend is not a member of scalascript
+ 4 |import scalascript.interpreter.{Interpreter, Value}
+   |       value interpreter is not a member of scalascript
+ 5 |import scalascript.parser.Parser
+   |       value parser is not a member of scalascript
+```
+
+`testUtils` declares `.dependsOn(backendSpi, backendInterpreter)` in `build.sbt`,
+and `build.sbt` has **no commits in the preceding 24 h** — so the source is not
+the defect and the module graph was not edited out from under it. The classpath
+was empty at compile time anyway. **Undiagnosed**; the next step is to reproduce
+`sbt "cli/installBin"` at that SHA with the workflow's `set
+cli / graalVMNativeImageOptions := …` prefix present and then absent, because
+that `set` is the one thing the release path does that no green CI job does.
+Until that is explained, `native-release` cannot qualify anything, and the
+earlier note "no release run exists yet" is superseded: one exists and it is red.
+
 ## scljet-sql-blob-comparison-collapses-values — all BLOBs compare equal
 
 **Status:** FIXED (found 2026-07-27 by `scljet-production-completion`; reproduced
