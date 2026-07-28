@@ -1,0 +1,31 @@
+slug: conformance-guard-enforced
+branch: feature/conformance-guard-enforced
+agent: opus-orch
+started: 2026-07-28T03:00:00Z
+heartbeat: 2026-07-28T03:00:00Z
+status: claimed-before-planning
+direction: Build hygiene / host RAM
+items: conformance-guard-enforced
+paths: tests/conformance/run.sh
+scope: |
+  Sergiy: a run died of memory exhaustion. Diagnosed, and the cause is mine.
+
+  `scripts/conformance` exists precisely for this and its own header states the failure mode:
+  run.sc spawns a subprocess PER CASE x 3 lanes, the JVM lane is a cold scala-cli compile each time,
+  and bare in ~15 parallel worktrees with uncapped forks (no -Xmx => ~1/4-RAM default, ~9 GB ceiling
+  each) the AGGREGATE saturates host RAM. AGENTS.md:101 names it the RAM-bounded entrypoint.
+
+  I called `tests/conformance/run.sh --no-memo` DIRECTLY, three times over the full corpus, while
+  siblings were building in their own worktrees. Bare run.sh takes no semaphore and caps no heap.
+  Measured aftermath: 139,831 pageouts and 526 MB swap in use, with the guard never firing (it sheds
+  BUILD JVMs, not conformance forks) and no jetsam kill — so nothing reported it; the machine just
+  swapped.
+
+  Fix, and it is the same argument I made for [skip ci] earlier today: a rule that depends on every
+  agent remembering it is a wish, not a rule. `tests/conformance/run.sh` re-execs itself through
+  `scripts/conformance` unless already inside it (a marker env var the wrapper exports), so the bare
+  path becomes the guarded path. Additive: the wrapper already forwards all args, and an explicit
+  opt-out stays available for anyone who genuinely wants it unbounded.
+
+  NOT changing: `scripts/conformance` itself, the semaphore design, or any runner behaviour.
+next: add the marker export to the wrapper, re-exec in run.sh, verify both paths and the opt-out
