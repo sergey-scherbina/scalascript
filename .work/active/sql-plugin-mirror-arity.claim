@@ -1,0 +1,11 @@
+slug: sql-plugin-mirror-arity
+branch: feature/sql-plugin-mirror-arity
+agent: claude-code
+started: 2026-07-28T12:29:11Z
+heartbeat: 2026-07-28T12:29:11Z
+status: claimed-before-planning
+items: sql-plugin-rowcodec-mirror-arity SPM-0
+paths: v2/runtime/std/sql-plugin
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
