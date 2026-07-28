@@ -7136,8 +7136,28 @@ emits `def C(a) = IrCtor(C, [a])`; extend to `def C(a) = let y=a*2 in IrCtor(C, 
     partial/map/heterogeneous/shuffle neighbors exact 16/16.
 
 ### Actor features (medium; some timing-flaky)
-- [ ] **v2-actors-bounded-mailbox** — `spawnBounded(n, Overflow.X, thunk)` + `Overflow` enum
-  (DropOldest/DropNewest/Block) bounded-mailbox with overflow strategy.
+- [ ] **v2-actors-bounded-mailbox** — ACTIVE
+  (`feature/v2-actors-bounded-mailbox`): implement the existing
+  `spawnBounded(capacity, Overflow.X, thunk)` contract in the sole native V2
+  actors provider.
+  - Run `actors-bounded-mailbox` unchanged on its declared JVM lane and through
+    default/legacy × native VM/direct ASM; compare exact stdout/stderr/exit and
+    repeat enough times to expose virtual-thread scheduling races.
+  - Update `specs/v2.1-native-actors-provider.md` before code: positive
+    capacity, `Block`, `DropOldest`, `DropNewest`, and the already-public
+    `Fail` strategy; dead-target and quiescence behavior; no compatibility
+    fallback or second scheduler.
+  - Add fail-first provider tests for all four strategies, validation, blocked
+    sender wake-up, and exact retained order. Reuse the existing mailbox and
+    run scope; preserve unbounded `spawn`, timeout, exit, supervision, and
+    typed-ref behavior.
+  - Implement one synchronized enqueue/dequeue boundary so overflow decisions
+    are atomic with receives. `Block` must wake when space opens or the target
+    dies; `Fail` must surface `mailbox_overflow` through `runActors`.
+  - Opt the existing corpus case into V2 only after exact output, then run the
+    actors provider suite, actor lifecycle/supervision/timer neighbors, and
+    default/legacy × VM/direct ASM. Done when repeated runs are stable and no
+    overflow path silently returns a placeholder.
 - [ ] **v2-actors-process-info** — `processInfo(pid)` (ProcessInfo record: mailboxSize/links) +
   `spawn_link`. TIMING-SENSITIVE: asserts `mailboxSize=2` before the worker consumes → needs a
   cooperative-scheduler ordering a thread-per-actor model can't guarantee; likely flaky.
