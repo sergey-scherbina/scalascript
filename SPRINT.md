@@ -7110,7 +7110,10 @@ emits `def C(a) = IrCtor(C, [a])`; extend to `def C(a) = let y=a*2 in IrCtor(C, 
   as a remote failure detector.
   - Run `distributed-failure-retry` unchanged on its declared lane and through
     default/legacy × native VM/direct ASM. Compare exact stdout/stderr/exit
-    before classifying the reported post-`Random.uuid` failure.
+    before classifying the reported post-`Random.uuid` failure. Baseline
+    (2026-07-28): JVM 1/1; V2 0/4 with identical exit-0 output
+    `failures: 0 / 11 / 12 / Stub / 15 / 16`, so one retry value is a
+    missed-dispatch breadcrumb rather than a reported partition failure.
   - Reduce coordinator setup, faulty-worker receive/exit, `Cluster`
     construction, and `runDistributed(... retries = 1 ...)` independently to
     identify the first wrong observable and whether the native intrinsic is

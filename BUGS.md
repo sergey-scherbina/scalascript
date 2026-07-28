@@ -11,10 +11,12 @@ by `codex`, SPRINT `v2-distributed-failure-retry`).
 bin/ssc run --native tests/conformance/distributed-failure-retry.ssc
 ```
 
-The reported V2 path advances past `Random.uuid`, then emits `Stub` while the
-faulty-worker partition should be retried on a healthy worker. Establish the
-fresh default/legacy × VM/direct-ASM output before assigning the defect to the
-actor coordinator, native distributed provider, or frontend dispatch.
+Fresh assembled baseline (2026-07-28): the declared JVM lane passes 1/1.
+Default/legacy × `--native`/`--bytecode` is 0/4 with identical exit-0 output:
+`failures: 0`, then `11`, `12`, `Stub`, `15`, `16`. The single breadcrumb
+replaces expected `14`; frontend and VM/direct-ASM are therefore ruled out,
+and the coordinator incorrectly accepts a missed dispatch as a successful
+retry result.
 
 **Fix acceptance.** The unchanged corpus case must print zero failures and
 the ordered values 11 through 16. Preserve the distinction in
