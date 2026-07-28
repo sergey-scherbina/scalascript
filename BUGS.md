@@ -1,5 +1,79 @@
 # Bug tracker
 
+## v2-serve-banner-missing — three corpus DIVERGEs, one cause: the native lane prints no server banner
+
+**Status:** OPEN (found 2026-07-28 by `corpus-contract-refresh-freeze` while re-measuring the v2
+baseline; these three were `FAIL` before `d11fd7a92` and are now `DIVERGE`, i.e. they RUN and only
+the output differs).
+
+**Measured** — `rozum-agent`, `rozum-agent-pool`, `rozum-agent-streaming`, INT vs the default lane:
+
+```
+INT                                  native
+ScalaScript web · http://localhost:19694/  (root: .)     (absent)
+  (backend=fast)                                         (absent)
+Ctrl+C to stop.                                          (absent)
+Done                                 Done
+Posted the transaction.              Posted the transaction.
+1                                    1
+```
+
+The PROGRAM output is byte-identical. The entire divergence is a three-line banner that
+`WebServer.start` prints to the interpreter's stdout
+(`v1/runtime/backend/interpreter-server/.../WebServer.scala:134-138`); the native lane serves
+through a different implementation that prints nothing.
+
+**Two fixes, and they are not equivalent — pick deliberately.**
+
+1. *Make the native lane print the same banner.* Contract-preserving: three DIVERGEs become PASS,
+   no golden anywhere changes, no other lane is touched. Low risk, but it propagates developer
+   chatter into program stdout on a second lane.
+2. *Move the banner to stderr in BOTH lanes.* Arguably the right answer — a server banner is not
+   program output, and putting it on stdout is what dragged it into the golden in the first place.
+   But it changes v1's observable contract and rewrites the golden of every serving example, so it
+   is not a drive-by: it needs its own claim and a full-corpus re-freeze.
+
+Recommendation: (1) now to clear the three cases, (2) filed as the real cleanup. **Do not do (2)
+opportunistically** — check first whether the harness compares stderr as well
+(`run.sc` builds its comparison with `outputWithFailureContext(out, err, exitCode)`), because if it
+does, moving the banner to stderr changes nothing and only churns the goldens.
+
+## v2-list-apply-method-stub — `xs.apply(i)` is `Stub` on the native lane while `xs(i)` works
+
+**Status:** OPEN (found 2026-07-28 by `corpus-contract-refresh-freeze` while probing list indexing
+for a different fix).
+
+**Reproduction** (real harness, fresh `sbt installBin`):
+
+```scalascript
+val xs = List(10, 20, 30)
+println(xs(1))
+println(xs.apply(1))
+```
+
+| lane | `xs(1)` | `xs.apply(1)` |
+|---|---|---|
+| `bin/ssc-tools run --v1` | `20` | `20` |
+| `bin/ssc run` (default, native) | `20` | **`Stub`** |
+
+**Root cause.** The two spellings lower differently and only one is implemented. Dumped IR:
+
+```
+xs(1)        -> (app (prim cell.get (global xs__cell)) (lit (int 1)))
+xs.apply(1)  -> (prim __method__ (lit (str "apply")) (prim cell.get (global xs__cell)) (lit (int 1)))
+```
+
+The application form is handled; `__method__("apply", <list>, i)` has no arm — `Runtime.scala` has
+`apply` arms for `MapV` and two `ForeignV` shapes and nothing else — so it falls through to the
+ambient path and yields a `Stub` sentinel, at exit 0. `.apply` is *by definition* application, so
+the two must agree for every receiver, closures included.
+
+**Where the fix goes.** A late fallback arm in the VM (`case (recv, "apply", args) => callValue(recv,
+args)`, after the Map/Foreign arms) is one line and covers every receiver. A front-side rewrite of
+`.apply(a)` into `(app recv a)` looks tempting but is WRONG in general: `object O { def apply(x) }`
+lowers to a mangled `O_apply` global, and `O` itself is not applicable — the rewrite would break it.
+So: VM, not front. `v2/src` was held by a live claim when this was found.
+
 ## v2-mirror-fromproduct-stub — the last missing `Mirror` member still evaluates to `Stub`
 
 **Status:** OPEN (found 2026-07-28 by `v2-mirror-isproduct-stub` while fixing the sibling member;

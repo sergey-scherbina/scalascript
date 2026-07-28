@@ -9,6 +9,54 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## 2026-07-28 — ROADMAP: what is actually left before "v2 works 100%"
+
+**Measured, not inherited** (`corpus-contract-refresh-freeze`, fresh `sbt installBin` on
+`origin/main`). The frozen baseline claimed **43** v2 non-PASS rows. Re-probing exactly those 43
+cases on lanes `int,v2` gives a different picture, which is why this list — not the baseline — is
+the roadmap:
+
+```
+scala-cli --server=false tests/conformance/contract.sc -- \
+  --only "$(awk -F'\t' '$2=="v2"{print $1}' tests/conformance/corpus-baseline.tsv | paste -sd, -)" \
+  --lanes int,v2 --workers 3
+```
+
+| bucket | count | meaning |
+|---|---|---|
+| already PASS, baseline stale | **6** | `dataset-from-generator`, `std-ui-aggregator`, `std-ui-extended{,-b,-c,-d}` |
+| FAIL -> DIVERGE (now RUN, output differs) | **3** | `rozum-agent{,-pool,-streaming}` — all three are ONE cause, `v2-serve-banner-missing` |
+| still non-PASS | **34** | the real remaining work |
+
+So the honest number is **34 cases, not 43**, and 3 of the 34 collapse into one banner fix.
+
+- [ ] **V2-100-1 — refresh the paired freeze (this is CCR-1, and it now has evidence).** One
+      unsharded full-corpus `--update-baseline` on a QUIET machine. It also clears the 48
+      unrostered cases (`corpus-contract-roster-drift-48-cases`) that keep the contract exiting 1
+      for bookkeeping. Deliberately NOT run on 2026-07-28: load average was 8-35 with four agents
+      building, and the tool refuses a scoped run, so a contended full run would just produce
+      timeout flakes recorded as truth. The scoped probe above is the cheap substitute and needs
+      no freeze write.
+- [ ] **V2-100-2 — `v2-serve-banner-missing`.** Three cases for one fix. Two options with a
+      recommendation are in the BUGS entry; take option (1) (native prints the same banner), and
+      file option (2) rather than doing it opportunistically.
+- [ ] **V2-100-3 — `v2-list-apply-method-stub`.** `xs.apply(i)` -> `Stub` while `xs(i)` works. One
+      late VM arm (`case (recv, "apply", args) => callValue(recv, args)`); do NOT "fix" it in the
+      front, that breaks `object O { def apply(x) }`.
+- [ ] **V2-100-4 — `v2-mirror-fromproduct-stub`.** The last missing `Mirror` member. Design is in
+      the BUGS entry (Mirror carries the ctor as a 4th field + `__regmethod__`); both fronts.
+- [ ] **V2-100-5 — triage the remaining 31 by CAUSE, not by case.** The three fixes above already
+      show the pattern: 43 rows collapsed into far fewer causes. Group the survivors
+      (`wasm-*` x4, `std-ui-*`, `distributed-dataset-*` x4, `quoted-macro-*` x2, `graph-*`,
+      `mcp-*`, `invoice-*`) and file one BUGS entry per cause before fixing anything, so the next
+      agent fixes causes rather than symptoms.
+
+**⚠️ Recurring shape, worth reading before starting any of these.** Every v2 gap found on
+2026-07-28 — `Mirror.isProduct`, `List.apply`, and the whole `try`/named-arg family — failed the
+same way: the missing member did not raise, it evaluated to a **`Stub` sentinel**, and the program
+continued at **exit 0**. `isProduct`'s sentinel then drove an `if`. A gate keying on exit status
+sees success. When probing v2, compare OUTPUT against INT; never trust the exit code.
+
 ## 2026-07-28 — `v2-mirror-isproduct-stub` — ✅ DONE (see CHANGELOG)
 
 Pointer only. The native `Mirror` implemented three of its members; `isProduct` evaluated to `Stub`
