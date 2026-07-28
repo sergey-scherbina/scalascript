@@ -37,6 +37,37 @@ Three candidate resolutions, none free:
 **Blast radius today:** one line of `tests/conformance/json-read.ssc` (line 8) — the whole remaining
 `json-read` DIVERGE — plus line 2 of `tests/conformance/expected/json-self-hosted-import.txt`, which
 already records `0.0` and is therefore consistent with whichever way this goes.
+## v2-front-curried-def-second-clause — F drops the second parameter clause of a curried `def`
+
+**Status:** OPEN (found 2026-07-28 by `v2-front-colon-trailing-lambda` while verifying that fix;
+**A/B'd against `origin/main` — byte-identical behaviour with that change reverted**, so it is
+pre-existing and independent).
+
+**Reproduce** — two lines:
+
+```scalascript
+def ap(n: Int)(f: Int => Int): Int = f(n)
+println(ap(3)((i) => i * 2))
+```
+
+F emits `(def ap (lam 1 (app (global f) (local 0))))` — a ONE-parameter lambda whose body applies
+`f` as a **free global**. The second clause `(f: Int => Int)` is gone, so F declines the file with
+`unbound global: (global f) is neither a top-level def nor an @-cell` and the F4a fallback
+recompiles it with the legacy front. Output is correct (`6`), at the cost of a diagnostic on every
+run and of F not being the front that compiled it.
+
+**Severity: moderate, and it hides.** Fails into the fallback rather than into an error, so it is
+invisible unless you read stderr — the same shape as the `val`-position half of
+`v2-front-for-yield-parse-gap`. It also means any corpus case using a curried `def` is measuring
+the legacy front while appearing to measure F.
+
+**Not a duplicate of `v2-native-front-multiline-curried-def`** (FIXED 2026-07-18, `d0722478e`),
+which was about the second clause starting on a NEW LINE. This one is a single-line curried def.
+
+**Fix direction.** `parseDef` in `specs/v2.2-p6.5-fsub.ssc`: after the first parameter list, if the
+next token is `(`, keep consuming clauses and nest the lambdas. The legacy front already does this
+(it compiles the same file correctly), so its `parseDef` is the reference.
+
 
 ## corpus-contract-scljet-jdbc-v2-timeout — a correct case that does not fit its budget on a loaded runner
 
