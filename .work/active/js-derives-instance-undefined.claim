@@ -1,0 +1,11 @@
+slug: js-derives-instance-undefined
+branch: feature/js-derives-instance-undefined
+agent: claude-code
+started: 2026-07-28T04:21:55Z
+heartbeat: 2026-07-28T04:21:55Z
+status: claimed-before-planning
+items: js-lane-missing-derives-and-coroutinecancel-a4 js-derives-instance-undefined
+paths: v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala v1/runtime/backend/js/src/test tests/conformance/js-derives- tests/conformance/expected/js-derives- BUGS.md SPRINT.md CHANGELOG.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
