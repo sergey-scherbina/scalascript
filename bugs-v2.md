@@ -34,7 +34,7 @@ The message names no location, so each was pinned by dumping the IR and reading 
 |---|---|
 | `wasm-matrix` | **fewer-braces trailing lambda**: `matrix(a.length, cols): (i, j) =>` on the next indented line (`examples/wasm-matrix.ssc:25`) |
 | `quoted-macro-constfold`, `quoted-macro-interpreter` | **quoted-macro splice syntax**: `inline def label(x: Int): String = ${ labelImpl('x) }` (`:22`) |
-| `wasm-http` | **`for … yield`** (`:38`) |
+| `wasm-http` | ~~**`for … yield`** (`:38`)~~ — **CORRECTED 2026-07-28**: the for/yield gap is FIXED (`v2-front-for-yield`, layout opener; it was the braceless MULTI-LINE form only, not `for … yield` at large). Re-bisected after the fix: that fence now parses and the remaining `_err` is `getJson(url).foreach: body =>` at `:46` — **the fewer-braces trailing lambda, i.e. this table's `wasm-matrix` row.** This case belongs to that cluster, not its own. |
 | `graph-codecs`, `typed-object-codec` | a top-level construct emitted directly AFTER the Mirror block — not yet reduced to a minimal repro |
 | `graph-storage`, `wasm-collections`, `wasm-scalascript` | not yet pinned individually; grouped here by symptom only |
 

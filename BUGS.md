@@ -281,6 +281,37 @@ the JS/JVM lanes it does not route through `outputWithFailureContext(out, err, e
 child's **stderr and exit code are discarded**. Wire those in first; the report should say whether
 the child was OOM-killed, timed out, or exited non-zero. Diagnose only after the runner stops
 throwing the evidence away.
+## v2-front-for-comprehension-guard-line — a guard on its own line is parsed as a generator
+
+**Status:** OPEN (found 2026-07-28 by `v2-front-for-yield` — it was MASKED until then: the whole
+enclosing shape produced `_err`, so the guard never got far enough to misbehave).
+
+**Symptom.** `ssc: __method__: no dispatch for .map on false` — the guard's boolean is being treated
+as the collection of a generator, so the desugarer calls `.map` on `false`.
+
+**Measured** — the discriminator is *one line vs its own line*, NOT braces:
+
+| shape | native | INT |
+|---|---|---|
+| one line: `for x <- xs if x % 2 == 0 yield x` | `List(2, 4)` | `List(2, 4)` |
+| **braced, guard on its own line** | **`.map on false`** | `List(2, 4)` |
+| **braceless, guard on its own line** | **`.map on false`** | `List(2, 4)` |
+| braceless, no guard | `List(1, 2, 3, 4)` | same |
+
+**Pre-existing, and A/B'd rather than assumed.** The braced form already worked before
+`v2-front-for-yield-parse-gap` was fixed, and the guard fails there identically — verified by
+reverting that fix, rebuilding, and re-running: `.map on false` on both sides. So it is independent
+of the layout-opener change and was simply invisible behind it.
+
+**Deliberately excluded from `tests/conformance/for-yield-layout.ssc`**, with a note in the case
+saying why: including it would make that gate red for a reason it does not test.
+
+**Fix direction.** The generator loop in `parseFor` treats every statement in the comprehension body
+as `pat <- expr`. A statement starting with `if` and containing no `<-` is a GUARD and must desugar
+to `.withFilter`/`.filter` on the accumulated source, not to a new generator. Both self-hosted
+fronts, presumably — the one-line path clearly has the guard branch already, so the gap is in the
+per-statement (layout-block) path.
+
 
 ## sql-plugin-rowcodec-mirror-arity — a fourth Mirror field took the ASM release gate red
 
