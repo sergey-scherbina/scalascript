@@ -108,7 +108,27 @@ qualify artifacts; `NEVER-RUN` is the blocker this slice closes.
 
 ## 2026-07-27 — SclJet production completion (Sergiy: "Реализуй всё по scljet")
 
-**Active claim:** `scljet-production-completion`. This is the one resume-cold entry point for
+**Claim: UNCLAIMED** — released 2026-07-28 in triage (heartbeat 1.8 h stale, no live
+process).
+
+> **Before reclaiming SC-2, look at branch `feature/scljet-production-completion`
+> commit `ee382f3f5` — it already contains a candidate implementation, UNVERIFIED.**
+> The released session's six finished commits are on main (`d36acd322`, re-measured
+> green before pushing: `scljet-sql-live-reclaim` and `scljet-freelist-write-corrupt`
+> both PASS on INT+JS). Its uncommitted SC-2 work is *not* on main and *not* thrown
+> away: freelist validation helpers plus `pagerDeleteRebalanced`, with
+> `deleteRowidLoop`/`applyUpdates` repointed at it, committed to the branch so a
+> checkout cannot destroy it.
+>
+> It is mid-slice **by construction**: the slice's own landed expectation
+> `expected/scljet-sql-live-reclaim.txt` pins the PRE-fix behaviour (`update
+> pages=25 … freelist=10` — the file grows, nothing is reused). If the candidate
+> works, that expectation has to move with it, and it is untouched. Run
+> `scripts/conformance tests/conformance --only 'scljet-*' --no-memo` first and
+> decide from the diff. No measurement was taken during triage: the conformance
+> semaphore was held by another live agent's full-corpus run.
+
+This is the one resume-cold entry point for
 the remaining SclJet program. The current **106/106** `scljet-*` conformance sweep proves the
 landed curated subset on INT+JS; it does **not** close the unchecked M3–M8 behavior gates in
 `specs/scljet.md`. In particular, the repository has correct pure image codecs/primitives for
