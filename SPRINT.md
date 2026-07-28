@@ -7160,6 +7160,13 @@ emits `def C(a) = IrCtor(C, [a])`; extend to `def C(a) = let y=a*2 in IrCtor(C, 
   - Run `actors-bounded-mailbox` unchanged on its declared JVM lane and through
     default/legacy × native VM/direct ASM; compare exact stdout/stderr/exit and
     repeat enough times to expose virtual-thread scheduling races.
+    Baseline on `3341a35a9`: the JVM lane is 1/1; all four V2 combinations
+    exit 1 with empty stdout and exact stderr
+    `ssc: Actors scope failed: unbound global: Overflow`. Native CoreIR selects
+    each `Overflow.X` from `(global Overflow)` before calling
+    `(global spawnBounded)`, so this is a provider ownership gap rather than a
+    frontend or scheduler result. Repeat scheduling checks resume after the
+    provider reaches the fixture.
   - Update `specs/v2.1-native-actors-provider.md` before code: positive
     capacity, `Block`, `DropOldest`, `DropNewest`, and the already-public
     `Fail` strategy; dead-target and quiescence behavior; no compatibility

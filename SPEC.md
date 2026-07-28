@@ -1248,6 +1248,7 @@ runActors {
 | Primitive | Description |
 |-----------|-------------|
 | `spawn { body }` | Create an actor, return its `Pid` |
+| `spawnBounded(capacity, overflow) { body }` | Create an actor whose positive-capacity FIFO mailbox applies `Overflow.Block`, `DropOldest`, `DropNewest`, or `Fail` when full |
 | `self()` | Current actor's `Pid` |
 | `pid ! msg` | Send message to `pid` |
 | `receive { case ... }` | Block until a matching message arrives |
@@ -1257,6 +1258,12 @@ runActors {
 
 Supervision: `link`ed actors receive EXIT signals; `trapExit = true` converts signals
 to messages. Actors are backed by virtual threads (JVM) or microtasks (JS/INT).
+
+Bounded-mailbox overflow is atomic with dequeue. `DropOldest` evicts the
+oldest queued message before enqueueing the new one, `DropNewest` discards the
+new one, `Block` suspends the sender until space opens (or the target dies),
+and `Fail` terminates the sender with reason `mailbox_overflow`. Ordinary
+`spawn` remains unbounded, and sends to a dead target remain silent no-ops.
 
 #### 7.8.1 Distributed Actors
 
