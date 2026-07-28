@@ -1,0 +1,11 @@
+slug: cli-exit-reachability-guard
+branch: feature/cli-exit-reachability-guard
+agent: opus
+started: 2026-07-28T02:19:25Z
+heartbeat: 2026-07-28T02:19:25Z
+status: claimed-before-planning
+items: cli-command-System.exit-kills-the-test-fork
+paths: tests/e2e/cli-exit-reachability-guard.sh .github/workflows/ci.yml
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
