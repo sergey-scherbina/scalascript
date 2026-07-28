@@ -143,18 +143,36 @@ PATH="$toolbin" SSC_NO_CDS=1 SSC="$slim/bin/ssc" BC_PARITY_TIMEOUT="${BC_PARITY_
   --report "$runtime_freeze_report" >/dev/null
 
 run_negative() { PATH="$toolbin" SSC_NO_CDS=1 "$slim/bin/ssc" "$@"; }
+
+# Every check prints its diff (AGENTS.md, "measurement apparatus must COMPARE, never PRE-JUDGE").
+#
+# These assertions used to be bare `[[ $(…) == … ]]` under `set -e`, which aborts the script with NO
+# OUTPUT AT ALL — the gate simply exited 1 after a silent gap. That is a documented, repeat offender
+# in this repo (BUGS `ci-testtimeout`; AGENTS.md lists it among the apparatus failures that cost
+# days), and it is worse here than anywhere: the whole section is unreachable while an earlier step
+# fails, so it can sit broken and unnoticed, then surface as a wordless red the day the earlier step
+# is fixed. That is exactly what happened on 2026-07-28.
+expect_run() { # expect_run <label> <expected> <cmd…>
+  local label=$1 want=$2 got rc; shift 2
+  got=$("$@" 2>&1) && rc=0 || rc=$?
+  if [[ $got != "$want" ]]; then
+    printf 'v21-negative-toolchain-release-gate: %s MISMATCH (exit %s)\n  expected=%q\n  got=%q\n' \
+      "$label" "$rc" "$want" "$got" >&2
+    exit 1
+  fi
+}
 json_expected=$'Ada\n2\ntrue\n1000.01\ntrue\n{"payload":[1,2]}\n[1,2,3]\n{"name":"A\\"B","on":true}'
-[[ $(run_negative run "$FIXTURES/json-provider.ssc") == "$json_expected" ]]
-[[ $(run_negative run --bytecode "$FIXTURES/json-provider.ssc") == "$json_expected" ]]
-[[ $(run_negative run "$FIXTURES/sql-provider.ssc") == $'1\n7\nAda\ntrue' ]]
-[[ $(run_negative run --bytecode "$FIXTURES/state-effect-provider.ssc") == $'17\n20\n2\n101\n101\n2' ]]
+expect_run "json-provider (vm)" "$json_expected" run_negative run "$FIXTURES/json-provider.ssc"
+expect_run "json-provider (bytecode)" "$json_expected" run_negative run --bytecode "$FIXTURES/json-provider.ssc"
+expect_run "sql-provider (vm)" $'1\n7\nAda\ntrue' run_negative run "$FIXTURES/sql-provider.ssc"
+expect_run "state-effect-provider (bytecode)" $'17\n20\n2\n101\n101\n2' run_negative run --bytecode "$FIXTURES/state-effect-provider.ssc"
 crypto_expected=$'signature valid: true\ntampered valid: false\nmalformed valid: false\nsignature matches vector: true\nround-trip valid: true'
-[[ $(run_negative run "$ROOT/examples/crypto-verify-demo.ssc") == "$crypto_expected" ]]
-[[ $(run_negative run --bytecode "$ROOT/examples/crypto-verify-demo.ssc") == "$crypto_expected" ]]
+expect_run "crypto-verify-demo (vm)" "$crypto_expected" run_negative run "$ROOT/examples/crypto-verify-demo.ssc"
+expect_run "crypto-verify-demo (bytecode)" "$crypto_expected" run_negative run --bytecode "$ROOT/examples/crypto-verify-demo.ssc"
 provider_smoke=pass
 port=$((32000 + ($$ % 10000)))
-[[ $(run_negative run "$FIXTURES/http-server-provider.ssc" -- "$port") == $'203\npong:/ping' ]]
-[[ $(run_negative run --bytecode "$FIXTURES/http-server-provider.ssc" -- "$((port + 1))") == $'203\npong:/ping' ]]
+expect_run "http-server-provider (vm)" $'203\npong:/ping' run_negative run "$FIXTURES/http-server-provider.ssc" -- "$port"
+expect_run "http-server-provider (bytecode)" $'203\npong:/ping' run_negative run --bytecode "$FIXTURES/http-server-provider.ssc" -- "$((port + 1))"
 server_smoke=pass
 
 frontend_total=$(awk -F '\t' 'NR > 1 {n++} END {print n+0}' "$native_report")

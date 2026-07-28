@@ -212,6 +212,28 @@ never hand-maintained (the same reason `skipped-oversized-bytecode` avoids a per
 `strict` still counts `both-fail` and never counts `no-golden`, and no-golden cases are NAMED rather
 than only counted.
 
+**Follow-up caught by the gate itself, worth keeping.** The first version named the bucket
+`both-fail-no-golden`, which matched neither `$2 == "both-fail"` nor `$2 ~ /^skipped-/` in the
+release gate's metric extraction. The freeze's ACCOUNTING CLOSURE — `identical + skipped + delegated
++ both-fail + mismatch + one-sided == frontend.total` — then failed with
+`parity accounting 213 != frontend.total 214`. The check did exactly the job its comment claims
+("catches any miscount/loss") and it caught mine. The bucket is now `skipped-no-golden` and
+increments both `nogolden` and `skipped`, following this script's existing idiom for a sub-kind of
+skip (`timedout++; skipped++`, reported as `skipped: N (timeout: M, no-golden: K)`).
+
+Verified against the real `scripts/v21-negative-toolchain-freeze` on synthesized reports carrying
+the CI numbers, all three states:
+
+| state | freeze verdict |
+|---|---|
+| original (`both-fail: 1`) | `parity.both-fail expected 0, got 1` |
+| first fix (`skipped: 133`) | `parity accounting 213 != frontend.total 214` |
+| current (`skipped: 134`) | **`PASS`** |
+
+Note what the first row says: the freeze had been demanding `parity.both-fail = 0` all along, with
+the comment "a real deterministic both-lane gap must be classified away". The classification above is
+what it was asking for.
+
 **Left open deliberately:** `Api.postApiTodos` being an unhandled runtime effect IS a real native-lane
 gap (derived API clients are not implemented there) — the same shape as the `System.nanoTime` gap.
 It is not a *parity* finding and does not belong to this gate; if the example is ever meant to run,

@@ -264,8 +264,16 @@ while IFS= read -r f; do
     # without re-running the whole gate. A number without a name is not a diagnosis.
     detail=$(head -1 "$tmp/bc.err")
     if declared_no_golden "$b"; then
-      nogolden=$((nogolden + 1)); nglist="$nglist $b"
-      record "$b" both-fail-no-golden "$vm_rc" "$bc_rc" "$detail"
+      # `skipped-no-golden`, and BOTH counters, following this script's existing idiom for a
+      # sub-kind of skip (`timedout++; skipped++`). The category prefix is load-bearing: the release
+      # gate buckets the report with `$2 ~ /^skipped-/` and then asserts an ACCOUNTING CLOSURE —
+      #     identical + skipped + delegated + both-fail + mismatch + one-sided == frontend.total
+      # A category matching none of those silently loses a case. It did: the first version of this
+      # called it `both-fail-no-golden`, the sum came to 213 against a corpus of 214, and the gate
+      # failed with "parity accounting 213 != frontend.total 214". The closure check did exactly the
+      # job its comment claims — it caught a miscount — and it caught mine.
+      nogolden=$((nogolden + 1)); skipped=$((skipped + 1)); nglist="$nglist $b"
+      record "$b" skipped-no-golden "$vm_rc" "$bc_rc" "$detail"
     else
       bothfail=$((bothfail + 1)); blist="$blist $b"
       record "$b" both-fail "$vm_rc" "$bc_rc" "$detail"
@@ -286,7 +294,7 @@ while IFS= read -r f; do
   fi
 done < <(selected_files)
 
-echo "=== total: $total  identical: $ident  mismatch: $mismatch  bytecode-error: $bcerr  vm-error: $vmerr  both-fail: $bothfail  no-golden: $nogolden  skipped: $skipped (timeout: $timedout)  delegated: $delegated (provider: $provider_lane target: $target_lane)"
+echo "=== total: $total  identical: $ident  mismatch: $mismatch  bytecode-error: $bcerr  vm-error: $vmerr  both-fail: $bothfail  skipped: $skipped (timeout: $timedout, no-golden: $nogolden)  delegated: $delegated (provider: $provider_lane target: $target_lane)"
 echo "MISMATCH:$mlist"
 echo "BYTECODE-ERROR:$elist"
 echo "VM-ERROR:$vlist"
