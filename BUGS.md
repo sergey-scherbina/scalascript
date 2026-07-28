@@ -1,5 +1,50 @@
 # Bug tracker
 
+## lint-markdown-unreachable-from-markdown-commits — the only job that lints `.md` cannot be triggered by a `.md` change
+
+**Status:** OPEN (found 2026-07-28 while repairing a red `Lint Markdown`; `.github/workflows/ci.yml`
+is held by the live `build-ram-budget-and-speed` claim, so this is filed rather than fixed).
+
+**The defect.** `ci.yml` now carries, for both `push` and `pull_request`:
+
+```yaml
+paths-ignore:
+  - '**.md'
+  - '.work/**'
+```
+
+GitHub skips the run when EVERY changed path matches. A **markdown-only commit therefore produces no
+run at all** — including no `Lint Markdown`. The job that exists to check `.md` is the one job a
+`.md` change can never reach.
+
+**Consequence, and it is not theoretical — it happened today.** `64a8a3339` was a docs-only commit
+(`docs: NIG-0/NIG-1/NIG-3 done in SPRINT + CHANGELOG`). It introduced two literal hard tabs into
+`SPRINT.md:137` and got no run. The breakage first surfaced hours later on `9f136e21f` — an
+unrelated conformance commit — because `markdownlint '**/*.md'` lints the whole repository at
+whatever SHA happens to trigger it:
+
+```text
+SPRINT.md:137:45 error MD010/no-hard-tabs Hard tabs [Column: 45]
+SPRINT.md:137:48 error MD010/no-hard-tabs Hard tabs [Column: 48]
+```
+
+So the failure is attributed to a commit that did not cause it and does not contain the offending
+path, and the commit that did cause it is reported green (in fact, reported nothing). The fix commit
+has the mirror-image problem: `41541482d` touches only `SPRINT.md`, so **the repair is equally
+unverifiable by CI** — it had to be checked by hand with the CI command
+(`markdownlint '**/*.md' --ignore node_modules`, exit 0) and will only be confirmed by the next
+unrelated code push.
+
+**Why the paths-ignore itself is still right.** Its measurement stands: 43 of 58 non-`[skip ci]`
+commits in one hour changed only `.md`/`.work/`, against an `sbt` job of 3h16m. The problem is not
+the filter, it is that one job's *input* is exactly the filter's exclusion set.
+
+**Fix direction.** Give `Lint Markdown` its own trigger rather than exempting it from the filter —
+a second workflow (or a `push` entry with `paths: ['**.md']`) that runs *only* markdownlint. It is
+seconds of runner time, so it does not reintroduce the queue pressure the filter was added to
+relieve, and it restores the property that broke here: **the commit that breaks a check is the
+commit the check reports on.**
+
 ## v2-native-uncaught-error-diagnostic-empty — every failing native program reports a diagnostic with no content
 
 **Status:** OPEN (found 2026-07-28 by `v2-native-import-graph` while probing the map-reduce
