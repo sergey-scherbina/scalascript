@@ -73,7 +73,7 @@ rows, applies the filter, and projects the result. `queryImage(dbBytes, sql)` op
 database image and returns the result rows; `renderRows` formats them like the sqlite3
 CLI (`a|b|c` per row, NULL blank) for differential testing.
 
-[ByteSlice, ByteError, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, ReadonlyDatabase, SchemaEntry, StorageRecord, DecodedRecord, RecordField, DecodedText, codePointsToString, RowidTableTree, RecordKeyTree, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly, ReadonlyCursorStep, ReadonlyBtreeCursor, SqliteError, SqliteOpenOptions, SqliteLimits, OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, encodeRecord, openMutablePager, mutableCommit, mutableGet, mutablePut, MutablePager, PagerCommit, pagerInsertBalanced, pagerDeleteBalanced, readLeafCells, leafInsertCell, rebuildLeafPage, LeafCell, byteSliceSlice, byteSliceToList, byteSliceGet, writeU32Be, IndexEntry, buildIndexTree, compareKeys, compareKeyList, sortIndexEntries, IndexTreeBytes, buildSingleTableIndexed, KeyedRawRow, SchemaIndex, SchemaTable, descendToLeaf, decodeVarint, VarintRead, decodeRecord, readU16Be, readU32Be, ByteRead](index.ssc)
+[ByteSlice, ByteError, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, SqlBlob, ReadonlyDatabase, SchemaEntry, StorageRecord, DecodedRecord, RecordField, DecodedText, codePointsToString, RowidTableTree, RecordKeyTree, openReadonly, openReadonlyRoot, readonlyFirst, readonlyNext, closeReadonly, ReadonlyCursorStep, ReadonlyBtreeCursor, SqliteError, SqliteOpenOptions, SqliteLimits, OpenReadOnly, StrictSqlite, JournalDelete, SyncFull, encodeRecord, openMutablePager, mutableCommit, mutableGet, mutablePut, MutablePager, PagerCommit, pagerInsertBalanced, pagerDeleteBalanced, pagerDeleteRebalanced, readLeafCells, leafInsertCell, rebuildLeafPage, LeafCell, byteSliceSlice, byteSliceToList, byteSliceGet, writeU32Be, IndexEntry, buildIndexTree, compareKeys, compareKeyList, sortIndexEntries, IndexTreeBytes, buildSingleTableIndexed, KeyedRawRow, SchemaIndex, SchemaTable, descendToLeaf, decodeVarint, VarintRead, decodeRecord, readU16Be, readU32Be, ByteRead](index.ssc)
 [ImageVfs, fieldValueAt](mutate.ssc)
 
 ```scalascript
@@ -4995,7 +4995,7 @@ def deleteRowidLoop(pager: MutablePager, root: Int, rowids: List[Long], pageSize
   var r = rowids
   var err: Option[String] = None
   while r.nonEmpty && err.isEmpty do
-    pagerDeleteBalanced(p, root, r.head, pageSize) match
+    pagerDeleteRebalanced(p, root, r.head, pageSize) match
       case Left(error) => err = Some(error.message)
       case Right(next) => p = next
     r = r.tail
@@ -5329,7 +5329,7 @@ def applyUpdates(pager: MutablePager, root: Int, edits: List[EditRow], pageSize:
   var r = edits
   var err: Option[String] = None
   while r.nonEmpty && err.isEmpty do
-    pagerDeleteBalanced(p, root, r.head.rowid, pageSize) match
+    pagerDeleteRebalanced(p, root, r.head.rowid, pageSize) match
       case Left(error) => err = Some(error.message)
       case Right(afterDelete) => p = afterDelete
     r = r.tail

@@ -2328,6 +2328,7 @@ def pagerDeleteBalanced(pager: MutablePager, rootPage: Int, rowid: Long, pageSiz
 
 case class FreeTrunk(page: Int, leaves: List[Int])
 case class FreelistBuilt(pager: MutablePager, head: Int, count: Int)
+case class MutableFreelistInfo(logicalPageCount: Long, head: Long, count: Long)
 case class DelState(pager: MutablePager, freedRev: List[Int])
 sealed trait DelOutcome
 case object DelKept extends DelOutcome
@@ -2364,40 +2365,194 @@ def freeLeafBytes(leaves: List[Int]): List[Int] =
     flbR = flbR.tail
   cellsFlatten(reverseCellList(flbAccRev, Nil))
 
-/** Walk the existing freelist trunk chain (over the STAGED image) and collect every
- *  free page (trunks + their leaves). Empty (count 0) freelist → Nil. Iteration is
- *  bounded by the header count so a corrupt chain cannot loop. */
-def readExistingFree(pager: MutablePager): List[Int] =
-  mutableGet(pager, 1) match
-    case Left(_) => Nil
-    case Right(refPage1) => readU32Be(refPage1, 32) match
-      case Left(_) => Nil
-      case Right(ByteRead(refHead, _)) => readU32Be(refPage1, 36) match
-        case Left(_) => Nil
-        case Right(ByteRead(refCount, _)) =>
-          var refAccRev: List[Int] = Nil
-          var refT = refHead.toInt
-          var refIters = 0
-          val refBudget = refCount.toInt + 2
-          while refT != 0 && refIters < refBudget do
-            refAccRev = refT :: refAccRev
-            mutableGet(pager, refT) match
-              case Left(_) => refT = 0
-              case Right(refTrunk) => readU32Be(refTrunk, 0) match
-                case Left(_) => refT = 0
-                case Right(ByteRead(refNext, _)) => readU32Be(refTrunk, 4) match
-                  case Left(_) => refT = 0
-                  case Right(ByteRead(refLc, _)) =>
-                    var refJ = 0
-                    val refLeafCount = refLc.toInt
-                    while refJ < refLeafCount do
-                      readU32Be(refTrunk, 8 + 4 * refJ) match
-                        case Left(_) => refJ = refLeafCount
-                        case Right(ByteRead(refLeaf, _)) => refAccRev = refLeaf.toInt :: refAccRev
-                      refJ = refJ + 1
-                    refT = refNext.toInt
-            refIters = refIters + 1
-          intReverse(refAccRev, Nil)
+def mutableFreelistFailure(message: String, offset: Int): ByteError =
+  ByteError("corrupt-freelist", message, offset)
+
+def mutableFreelistContains(pages: List[Int], page: Int): Boolean =
+  var mfcRemaining = pages
+  var mfcFound = false
+  while mfcRemaining.nonEmpty && !mfcFound do
+    if mfcRemaining.head == page then mfcFound = true
+    mfcRemaining = mfcRemaining.tail
+  mfcFound
+
+def mutableStagedCapacity(pager: MutablePager): Either[ByteError, Long] =
+  var mscCapacity = (pager.image.length / pager.pageSize).toLong
+  var mscPending = pager.pending
+  var mscFailure: Option[ByteError] = None
+  while mscPending.nonEmpty && mscFailure.isEmpty do
+    val mscChange = mscPending.head
+    if mscChange.pageNumber <= 0 then
+      mscFailure = Some(mutableFreelistFailure("staged page number must be positive", mscChange.pageNumber))
+    else if mscChange.page.length != pager.pageSize then
+      mscFailure = Some(mutableFreelistFailure("staged page has the wrong length", mscChange.pageNumber))
+    else if mscChange.pageNumber.toLong > mscCapacity then
+      mscCapacity = mscChange.pageNumber.toLong
+    mscPending = mscPending.tail
+  mscFailure match
+    case Some(error) => Left(error)
+    case None => Right(mscCapacity)
+
+def mutableFreelistInfo(pager: MutablePager): Either[ByteError, MutableFreelistInfo] =
+  if pager.pageSize <= 0 then
+    Left(mutableFreelistFailure("mutable pager page size must be positive", 16))
+  else if pager.image.length % pager.pageSize != 0 then
+    Left(mutableFreelistFailure("database image is not page-aligned", pager.image.length))
+  else mutableGet(pager, 1) match
+    case Left(error) => Left(error)
+    case Right(mfiPage1) =>
+      if mfiPage1.length != pager.pageSize then
+        Left(mutableFreelistFailure("staged database header page has the wrong length", 0))
+      else readU16Be(mfiPage1, 16) match
+        case Left(error) => Left(error)
+        case Right(ByteRead(mfiRawPageSize, _)) =>
+          val mfiHeaderPageSize = if mfiRawPageSize == 1L then 65536 else mfiRawPageSize.toInt
+          if mfiHeaderPageSize != pager.pageSize then
+            Left(mutableFreelistFailure("mutable pager page size disagrees with the database header", 16))
+          else byteSliceGet(mfiPage1, 20) match
+            case Left(error) => Left(error)
+            case Right(mfiReserved) =>
+              if mfiReserved != 0 then
+                Left(mutableFreelistFailure("reserved-byte databases are not writable yet", 20))
+              else readU32Be(mfiPage1, 52) match
+                case Left(error) => Left(error)
+                case Right(ByteRead(mfiLargestRoot, _)) =>
+                  if mfiLargestRoot != 0L then
+                    Left(mutableFreelistFailure("auto-vacuum databases are not writable yet", 52))
+                  else readU32Be(mfiPage1, 64) match
+                    case Left(error) => Left(error)
+                    case Right(ByteRead(mfiIncrementalVacuum, _)) =>
+                      if mfiIncrementalVacuum != 0L then
+                        Left(mutableFreelistFailure("incremental-vacuum databases are not writable yet", 64))
+                      else readU32Be(mfiPage1, 24) match
+                        case Left(error) => Left(error)
+                        case Right(ByteRead(mfiChangeCounter, _)) => readU32Be(mfiPage1, 28) match
+                          case Left(error) => Left(error)
+                          case Right(ByteRead(mfiHeaderPages, _)) => readU32Be(mfiPage1, 92) match
+                            case Left(error) => Left(error)
+                            case Right(ByteRead(mfiVersionValidFor, _)) => mutableStagedCapacity(pager) match
+                              case Left(error) => Left(error)
+                              case Right(mfiCapacity) =>
+                                val mfiHeaderTrusted = mfiHeaderPages != 0L && mfiChangeCounter == mfiVersionValidFor
+                                val mfiLogicalPages = if mfiHeaderTrusted then mfiHeaderPages else mfiCapacity
+                                if mfiLogicalPages <= 0L || mfiLogicalPages > 2147483647L then
+                                  Left(mutableFreelistFailure("logical database page count is outside the mutable pager range", 28))
+                                else if mfiLogicalPages > mfiCapacity then
+                                  Left(mutableFreelistFailure("logical database page count exceeds staged capacity", 28))
+                                else readU32Be(mfiPage1, 32) match
+                                  case Left(error) => Left(error)
+                                  case Right(ByteRead(mfiHead, _)) => readU32Be(mfiPage1, 36) match
+                                    case Left(error) => Left(error)
+                                    case Right(ByteRead(mfiCount, _)) =>
+                                      if mfiCount > mfiLogicalPages then
+                                        Left(mutableFreelistFailure("freelist count exceeds the logical database size", 36))
+                                      else if (mfiHead == 0L && mfiCount != 0L) || (mfiHead != 0L && mfiCount == 0L) then
+                                        Left(mutableFreelistFailure("freelist head and count disagree", 32))
+                                      else Right(MutableFreelistInfo(mfiLogicalPages, mfiHead, mfiCount))
+
+def mutableFreelistPage(pager: MutablePager, page: Long, logicalPageCount: Long, offset: Int): Either[ByteError, Int] =
+  val mfpLockBytePage = 1073741824L / pager.pageSize.toLong + 1L
+  if page <= 1L || page > logicalPageCount || page > 2147483647L then
+    Left(mutableFreelistFailure("freelist page is outside the logical database", offset))
+  else if page == mfpLockBytePage then
+    Left(mutableFreelistFailure("lock-byte page cannot appear on the freelist", offset))
+  else
+    val mfpPage = page.toInt
+    mutableGet(pager, mfpPage) match
+      case Left(_) => Left(mutableFreelistFailure("freelist page is absent from the staged image", offset))
+      case Right(mfpBytes) =>
+        if mfpBytes.length != pager.pageSize then
+          Left(mutableFreelistFailure("staged freelist page has the wrong length", offset))
+        else Right(mfpPage)
+
+/** Validate and walk the existing freelist trunk chain over the STAGED image.
+ *  Every referenced page is checked before its u32 page number is narrowed to
+ *  Int, one seen set covers trunks and leaves, and the enumerated graph must
+ *  match the header count exactly. */
+def readExistingFree(pager: MutablePager): Either[ByteError, List[Int]] =
+  mutableFreelistInfo(pager) match
+    case Left(error) => Left(error)
+    case Right(refInfo) =>
+      if refInfo.count == 0L then Right(Nil)
+      else
+        var refNext = refInfo.head
+        var refSeen: List[Int] = Nil
+        var refAccRev: List[Int] = Nil
+        var refFailure: Option[ByteError] = None
+        while refNext != 0L && refFailure.isEmpty do
+          mutableFreelistPage(pager, refNext, refInfo.logicalPageCount, 32) match
+            case Left(error) => refFailure = Some(error)
+            case Right(refTrunkPage) =>
+              if mutableFreelistContains(refSeen, refTrunkPage) then
+                refFailure = Some(mutableFreelistFailure("freelist trunk chain contains a cycle or duplicate", refTrunkPage))
+              else
+                refSeen = refTrunkPage :: refSeen
+                refAccRev = refTrunkPage :: refAccRev
+                if refSeen.length.toLong > refInfo.count then
+                  refFailure = Some(mutableFreelistFailure("freelist graph exceeds the header count", 36))
+                else mutableGet(pager, refTrunkPage) match
+                  case Left(error) => refFailure = Some(error)
+                  case Right(refTrunk) => readU32Be(refTrunk, 0) match
+                    case Left(error) => refFailure = Some(error)
+                    case Right(ByteRead(refFollowing, _)) => readU32Be(refTrunk, 4) match
+                      case Left(error) => refFailure = Some(error)
+                      case Right(ByteRead(refLeafCountLong, _)) =>
+                        val refMaxLeaves = pager.pageSize / 4 - 2
+                        if refLeafCountLong > refMaxLeaves.toLong then
+                          refFailure = Some(mutableFreelistFailure("freelist trunk has too many leaves", refTrunkPage))
+                        else
+                          var refLeafIndex = 0
+                          while refLeafIndex < refLeafCountLong.toInt && refFailure.isEmpty do
+                            val refLeafOffset = 8 + refLeafIndex * 4
+                            readU32Be(refTrunk, refLeafOffset) match
+                              case Left(error) => refFailure = Some(error)
+                              case Right(ByteRead(refLeafLong, _)) =>
+                                mutableFreelistPage(pager, refLeafLong, refInfo.logicalPageCount, refLeafOffset) match
+                                  case Left(error) => refFailure = Some(error)
+                                  case Right(refLeafPage) =>
+                                    if mutableFreelistContains(refSeen, refLeafPage) then
+                                      refFailure = Some(mutableFreelistFailure("freelist contains a duplicate or trunk/leaf overlap", refLeafPage))
+                                    else
+                                      refSeen = refLeafPage :: refSeen
+                                      refAccRev = refLeafPage :: refAccRev
+                                      if refSeen.length.toLong > refInfo.count then
+                                        refFailure = Some(mutableFreelistFailure("freelist graph exceeds the header count", 36))
+                            refLeafIndex = refLeafIndex + 1
+                          if refFailure.isEmpty then
+                            if refFollowing != 0L then
+                              mutableFreelistPage(pager, refFollowing, refInfo.logicalPageCount, 0) match
+                                case Left(error) => refFailure = Some(error)
+                                case Right(_) => refNext = refFollowing
+                            else refNext = 0L
+        refFailure match
+          case Some(error) => Left(error)
+          case None =>
+            if refSeen.length.toLong != refInfo.count then
+              Left(mutableFreelistFailure("freelist graph size disagrees with the header count", 36))
+            else Right(intReverse(refAccRev, Nil))
+
+def validateFreedPages(pager: MutablePager, existing: List[Int], freedRev: List[Int]): Either[ByteError, List[Int]] =
+  mutableFreelistInfo(pager) match
+    case Left(error) => Left(error)
+    case Right(vfpInfo) =>
+      var vfpSeen = existing
+      var vfpRemaining = intReverse(freedRev, Nil)
+      var vfpNewRev: List[Int] = Nil
+      var vfpFailure: Option[ByteError] = None
+      while vfpRemaining.nonEmpty && vfpFailure.isEmpty do
+        val vfpCandidate = vfpRemaining.head
+        mutableFreelistPage(pager, vfpCandidate.toLong, vfpInfo.logicalPageCount, vfpCandidate) match
+          case Left(error) => vfpFailure = Some(error)
+          case Right(vfpPage) =>
+            if mutableFreelistContains(vfpSeen, vfpPage) then
+              vfpFailure = Some(mutableFreelistFailure("newly freed page duplicates the staged freelist", vfpPage))
+            else
+              vfpSeen = vfpPage :: vfpSeen
+              vfpNewRev = vfpPage :: vfpNewRev
+        vfpRemaining = vfpRemaining.tail
+      vfpFailure match
+        case Some(error) => Left(error)
+        case None => Right(existing ++ intReverse(vfpNewRev, Nil))
 
 /** Lay `freePages` out as freelist trunk pages: the first page of each group is the
  *  trunk, the next up-to-`usableSize/4-2` pages are its leaves; trunks chain via
@@ -2444,12 +2599,17 @@ def patchFreelistHeader(pager: MutablePager, headPage: Int, count: Int): Either[
 
 /** Add the reclaimed pages (union with any existing freelist) and patch the header. */
 def applyFreelist(pager: MutablePager, freedRev: List[Int], pageSize: Int): Either[ByteError, MutablePager] =
-  if freedRev.isEmpty then Right(pager)
-  else
-    val afAll = readExistingFree(pager) ++ intReverse(freedRev, Nil)
-    buildFreelistTrunks(pager, afAll, pageSize) match
+  if pageSize != pager.pageSize then
+    Left(mutableFreelistFailure("caller page size disagrees with the mutable pager", 16))
+  else readExistingFree(pager) match
+    case Left(error) => Left(error)
+    case Right(afExisting) => validateFreedPages(pager, afExisting, freedRev) match
       case Left(error) => Left(error)
-      case Right(afBuilt) => patchFreelistHeader(afBuilt.pager, afBuilt.head, afBuilt.count)
+      case Right(afAll) =>
+        if freedRev.isEmpty then Right(pager)
+        else buildFreelistTrunks(pager, afAll, pageSize) match
+          case Left(error) => Left(error)
+          case Right(afBuilt) => patchFreelistHeader(afBuilt.pager, afBuilt.head, afBuilt.count)
 
 /** Descend `pageNumber` (an interior) toward `rowid`, delete it from the target leaf,
  *  and rebalance on the way up. Returns the threaded state plus this node's outcome:
@@ -2508,26 +2668,30 @@ def deleteInteriorNode(state: DelState, pageNumber: Int, rowid: Long, pageSize: 
  *  file length and header page count are unchanged; the freelist grows. Staged on the
  *  pager — commit with `mutableCommit`. `rootPage` is the table's root page (>= 2). */
 def pagerDeleteRebalanced(pager: MutablePager, rootPage: Int, rowid: Long, pageSize: Int): Either[ByteError, MutablePager] =
-  mutableGet(pager, rootPage) match
+  if pageSize != pager.pageSize then
+    Left(mutableFreelistFailure("caller page size disagrees with the mutable pager", 16))
+  else readExistingFree(pager) match
     case Left(error) => Left(error)
-    case Right(pdrRoot) =>
-      if pageKindAt(pdrRoot, hoff(rootPage)) == 13 then
-        readLeafCells(pdrRoot, hoff(rootPage)) match
-          case Left(error) => Left(error)
-          case Right(pdrCells) => rebuildLeafPage(leafDeleteCell(pdrCells, rowid), pageSize, hoff(rootPage)) match
+    case Right(_) => mutableGet(pager, rootPage) match
+      case Left(error) => Left(error)
+      case Right(pdrRoot) =>
+        if pageKindAt(pdrRoot, hoff(rootPage)) == 13 then
+          readLeafCells(pdrRoot, hoff(rootPage)) match
             case Left(error) => Left(error)
-            case Right(pdrBody) => ByteSlice.fromList(pdrBody) match
+            case Right(pdrCells) => rebuildLeafPage(leafDeleteCell(pdrCells, rowid), pageSize, hoff(rootPage)) match
               case Left(error) => Left(error)
-              case Right(pdrSlice) => Right(mutablePut(pager, rootPage, pdrSlice))
-      else deleteInteriorNode(DelState(pager, Nil), rootPage, rowid, pageSize, 0) match
-        case Left(error) => Left(error)
-        case Right(pdrPair) =>
-          val pdrState = pdrPair._1
-          pdrPair._2 match
-            case DelKept => applyFreelist(pdrState.pager, pdrState.freedRev, pageSize)
-            case DelCollapse(pdrChild) => mutableGet(pdrState.pager, pdrChild) match
-              case Left(error) => Left(error)
-              case Right(pdrChildContent) =>
-                applyFreelist(mutablePut(pdrState.pager, rootPage, pdrChildContent), pdrChild :: pdrState.freedRev, pageSize)
+              case Right(pdrBody) => ByteSlice.fromList(pdrBody) match
+                case Left(error) => Left(error)
+                case Right(pdrSlice) => Right(mutablePut(pager, rootPage, pdrSlice))
+        else deleteInteriorNode(DelState(pager, Nil), rootPage, rowid, pageSize, 0) match
+          case Left(error) => Left(error)
+          case Right(pdrPair) =>
+            val pdrState = pdrPair._1
+            pdrPair._2 match
+              case DelKept => applyFreelist(pdrState.pager, pdrState.freedRev, pageSize)
+              case DelCollapse(pdrChild) => mutableGet(pdrState.pager, pdrChild) match
+                case Left(error) => Left(error)
+                case Right(pdrChildContent) =>
+                  applyFreelist(mutablePut(pdrState.pager, rootPage, pdrChildContent), pdrChild :: pdrState.freedRev, pageSize)
 
 ```
