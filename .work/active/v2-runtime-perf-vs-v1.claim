@@ -2,10 +2,10 @@ slug: v2-runtime-perf-vs-v1
 branch: feature/v2-runtime-perf-vs-v1
 agent: claude-code
 started: 2026-07-28T01:58:16Z
-heartbeat: 2026-07-28T02:35:00Z
+heartbeat: 2026-07-28T03:35:00Z
 status: in-progress
-items: v2-runtime-perf-vs-v1 v2rt-0-baseline v2rt-1 v2rt-2 v2rt-3 v2rt-4
-paths: v2/src v2/backend-jvm-bytecode v2/runtime/std/os-plugin bench specs/v2-runtime-perf-vs-v1.md docs/benchmarks.md tests/conformance/v2-system-clock.ssc tests/conformance/expected/v2-system-clock.txt SPRINT.md BACKLOG.md CHANGELOG.md
+items: v2-runtime-perf-vs-v1 v2rt-0-baseline v2rt-1 v2rt-2 v2rt-3 v2rt-4 v2-method-dispatch-never-jits
+paths: v2/src v2/backend-jvm-bytecode v2/runtime/std/os-plugin bench specs/v2-runtime-perf-vs-v1.md docs/benchmarks.md tests/conformance/v2-system-clock.ssc tests/conformance/expected/v2-system-clock.txt tests/e2e/v2-jit-size scripts/bytecode-size-census BUGS.md SPRINT.md BACKLOG.md CHANGELOG.md
 scope: |
   Measure the v2 runtime (VM + JVM-bytecode lane) against the v1 interpreter on the
   wall-clock corpus, then close the largest gaps in the v2 VM.
@@ -19,4 +19,21 @@ scope: |
   same tag-qualified-global pattern as Random.uuid), then measure, then optimise.
 
   Path widening (2026-07-28): +v2/runtime/std/os-plugin and the conformance case for it.
-next: fix the dead bench lane, capture the v1-vs-v2 baseline, plan slices into SPRINT.md
+
+  SECOND FINDING (2026-07-28, re-verified independently with javap on
+  v2/src/target/scala-3.8.3/classes): the v2 kernel has exactly ONE method over
+  HotSpot's HugeMethodLimit — `ssc.Prims$.resolveBuiltinRaw$$anonfun$149`, the
+  `__method__` dispatch match, at **49,384 bytecodes** (6.2x the 8000 limit). With
+  -XX:-DontCompileHugeMethods on by default that method is NEVER JIT-compiled, so every
+  non-arithmetic operation in every v2 program runs in the bytecode interpreter. Next
+  largest in the kernel is arithRest at 5,235; `ssc.bytecode.JvmByteGen$.gen` is at
+  7,292 (91% of the limit) and is the next one to breach.
+
+  Resumed 2026-07-28T03:35Z after the previous session ended mid-slice (heartbeat was
+  57 min stale, no live process, uncommitted split in the worktree). Same agent id.
+
+  Path widening 2: +tests/e2e/v2-jit-size (the size gate), +scripts/bytecode-size-census
+  (the census tool the gate and any future slice reuse), +BUGS.md (record the huge-method
+  finding as a bug, per the bugs skill).
+next: finish + gate the __method__ split, A/B it on bench, then JvmByteGen.gen, then the
+  F-front compile cost (f-front-compile-cost-7x-on-scljet)
