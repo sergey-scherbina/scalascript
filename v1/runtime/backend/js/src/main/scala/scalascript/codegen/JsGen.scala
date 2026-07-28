@@ -1602,9 +1602,62 @@ class JsGen(
    *  the JVM `stdlibStructuralTCs`. */
   private val jsStdlibStructuralTCs: Set[String] = Set("Eq", "Show", "Hash", "Order")
 
+  /** Typeclass objects (`object T:` with a `def derived`) reachable from this module, INCLUDING
+   *  imported ones.
+   *
+   *  Whole-program by necessity, for the same reason the effect analysis above is: `derives` names
+   *  a typeclass that is very often defined in another file. `std/agent.ssc` declares
+   *  `object AgentSchema { def derived(m: Mirror) … }`, and a program writing
+   *  `case class PostTransaction(…) derives AgentSchema` got NO instance emitted, because this scan
+   *  only looked at the importing module. The summon site then emitted the bare name
+   *  `AgentSchema_PostTransaction` and the bundle died with `ReferenceError`
+   *  (BUGS.md `js-lane-missing-derives-and-coroutinecancel`).
+   *
+   *  Read-only and additive: it can only widen `userTCs`, so a module that already worked keeps
+   *  emitting exactly what it did. A module that fails to parse standalone is skipped — its
+   *  typeclasses stay unseen, which is the previous behaviour. `visited` guards diamonds/cycles. */
+  private def importedTypeclassObjects(module: Module): Set[String] =
+    val found   = scala.collection.mutable.Set.empty[String]
+    val visited = scala.collection.mutable.Set.empty[String]
+    def imports(s: Section): List[Content.Import] =
+      s.content.collect { case imp: Content.Import => imp } ++ s.subsections.flatMap(imports)
+    def resolve(path: String, dir: os.Path): Option[os.Path] =
+      val initial =
+        try scalascript.imports.ImportResolver.resolve(path, dir, moduleDeps, lockPath)
+        catch case _: Throwable => dir / os.RelPath(path)
+      if os.exists(initial) then Some(initial)
+      else resolveStdImportFromProjectTree(path, dir).filter(os.exists)
+    def walk(m: Module, dir: os.Path): Unit =
+      m.sections.flatMap(imports).foreach { imp =>
+        resolve(imp.path, dir) match
+          case Some(p) if visited.add(p.toString) =>
+            try
+              val child = scalascript.artifact.MacroCodegen.expand(scalascript.parser.Parser.parse(os.read(p)))
+              // DESCEND into objects, do not just look at the top level. A std module declares
+              // `package: std.agent` in its front-matter, and `Parser.wrapSectionInPackage` then
+              // nests every block inside `object std: object agent: …` — so the typeclass is at
+              // depth 2, and a top-level-only scan sees `object std` and nothing else. That is
+              // exactly why the first version of this fix appeared to change nothing.
+              def scan(stats: List[scala.meta.Stat]): Unit = stats.foreach {
+                case o: Defn.Object =>
+                  if o.templ.body.stats.exists {
+                       case dd: Defn.Def => dd.name.value == "derived"; case _ => false
+                     } then found += o.name.value
+                  scan(o.templ.body.stats)
+                case _ => ()
+              }
+              foreachTopStats(child) { stats => scan(stats) }
+              walk(child, p / os.up)
+            catch case _: Throwable => ()
+          case _ => ()
+      }
+    walk(module, baseDir.getOrElse(os.pwd))
+    found.toSet
+
   private def emitMirrorAndDerives(module: Module): Unit =
     val userTCs        = scala.collection.mutable.Set.empty[String]
     val productClasses = scala.collection.mutable.LinkedHashSet.empty[String]
+    userTCs ++= importedTypeclassObjects(module)
     foreachTopStats(module) { stats => stats.foreach {
       case o: Defn.Object if o.templ.body.stats.exists {
             case dd: Defn.Def => dd.name.value == "derived"; case _ => false

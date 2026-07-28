@@ -332,7 +332,27 @@ shim defects (`route`, then `serveAsync`) moved each failure forward to its real
 displacement is the diagnostic: an error that moves is a layer peeled, an error that stays is the
 same bug.
 
-**(a) `derives` / Mirror derivation is not emitted on JS.**
+**(a) `derives` against an IMPORTED typeclass — instance now emitted (2026-07-28); the case still
+fails one layer deeper.** `emitMirrorAndDerives` scanned only the importing module for
+`object T { def derived }`, so `case class P(...) derives AgentSchema` with `AgentSchema` living in
+`std/agent.ssc` produced NO instance, and the summon site emitted the bare name `AgentSchema_P`
+(the `_resolveGiven` route is taken only for keys the emitter registered). Fixed by scanning
+imported modules too — whole-program for the same reason the effect analysis in the same file
+already is.
+
+Two things that made the first attempt look like a no-op, both worth remembering:
+  1. the scan must DESCEND into objects — a std module declares `package: std.agent`, so
+     `wrapSectionInPackage` nests everything inside `object std: object agent: …` and the typeclass
+     sits at depth 2, invisible to a top-level scan;
+  2. `grep -c _ssc_def_given` counts the runtime helper's own DEFINITION, so "1 match" read as
+     "registered" when nothing was. Grep for the registration form, not the name.
+
+Remaining, and it is a different subsystem: with the instance emitted the derived code now RUNS and
+dies with `ReferenceError: jObj is not defined` inside `agentSchemaProperties` — `std/agent.ssc`
+calls `jObj` from `std/json.ssc`, and the emitted JS namespace does not wire that TRANSITIVE import.
+Filed below as its own item.
+
+**(a-2) transitive imports are not wired between emitted JS namespaces.**
 `bin/ssc-tools run-js examples/rozum-agent-schema-derived.ssc` now reaches
 `ReferenceError: AgentSchema_PostTransaction is not defined` — the case declares
 `case class PostTransaction(...) derives AgentSchema` and `summon[AgentSchema[PostTransaction]]`.
