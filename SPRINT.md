@@ -7102,7 +7102,9 @@ emits `def C(a) = IrCtor(C, [a])`; extend to `def C(a) = let y=a*2 in IrCtor(C, 
   without duplicating Generator state inside dataset-plugin.
   - Run `dataset-from-generator` unchanged through its declared lanes and
     default/legacy × native VM/direct ASM; compare output before classifying
-    the missing bridge.
+    the missing bridge. Baseline (2026-07-28): declared INT/JS/JVM 3/3;
+    assembled V2 0/4, with the exact same `Dataset.fromGenerator requires
+    the standard generator provider` exit-1 failure in every mode.
   - Reduce `fromGenerator` and `toGenerator` independently if the combined
     case fails, retaining lazy pull and ordered terminal behavior in the
     smallest real-harness fixture.

@@ -12,9 +12,11 @@ bin/ssc run --native tests/conformance/dataset-from-generator.ssc
 # Dataset.fromGenerator requires the standard generator provider
 ```
 
-The historical declared INT/JS/JVM lanes pass, but the case has not been
-opted into V2. Establish the fresh default/legacy × VM/direct-ASM baseline
-before deciding whether the report remains current.
+Fresh assembled baseline (2026-07-28): the declared INT/JS/JVM lanes pass
+3/3. V2 fails 0/4 in the exact default/legacy × `--native`/`--bytecode`
+matrix; every mode exits 1 with the same message above before any output.
+This isolates the defect to the missing provider bridge rather than frontend
+or VM/direct-ASM behavior.
 
 **Fix acceptance.** `Dataset.fromGenerator` must lazily consume the existing
 native Generator value and `Dataset.toGenerator` must return one owned by the
