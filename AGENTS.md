@@ -63,8 +63,53 @@ Every piece of work, always, in this order:
    `SPRINT.md` and fixed in the real failing job.
 5. **Release + clean up**: remove the claim, then `scripts/rm-worktree <name>`
    (kills the worktree's build daemons too).
+6. **SWEEP THE ROZUM ROOM — every time you finish an item and have nothing in
+   flight.** `meeting.wait_my_turn` (or `meeting.status`), scan for `@you` /
+   `@scalascript` and anything obviously yours, then **act on it or queue it into
+   `SPRINT.md` / `BACKLOG.md`** — never read a request and move on. Only then pick the
+   next item.
+
+   *Why this is step 6 and not a nicety (Sergiy, 2026-07-28):* an agent posted its
+   findings and hand-offs to the room and then stopped. Sergiy's question was the
+   whole argument — **"кто и когда там это увидит?"** A room only coordinates if
+   somebody reads it; posting is the cheap half. An agent that posts and never sweeps
+   has not handed anything off, it has written into a file nobody opens — and the
+   failure is invisible from the poster's side, which is exactly why this is a fixed
+   checkpoint instead of a judgement call. Empty room ⇒ one call wasted. Non-empty ⇒
+   you just avoided a duplicated task or a bug sitting unread for hours.
+   Detail: [`rozum`](.agents/plugins/rozum/commands/rozum.md) §"When to check the room".
 
 Details: §1 below, `specs/worktree-guardrail.md`.
+
+## MANDATORY: decide it yourself; park the alternatives on the board
+
+**Default to deciding. Asking is the exception.** Most forks that surface mid-task are
+choices you are competent to make, and stopping to ask converts minutes of work into
+hours of latency while the human answers with less context than you have right now.
+
+Rule of thumb: *if you can name a defensible default and the cost of being wrong is a
+revert, take the default and say so in the commit.*
+
+When the fork is real but the alternatives are heavy — do **not** block on it, and do
+**not** silently pick the biggest option:
+
+1. **Take the smallest defensible option now** — independently shippable, easy to
+   reverse.
+2. **Write the rejected alternatives into `SPRINT.md`** (natural next slice) or
+   **`BACKLOG.md`** (genuinely not now), each with its one-line trade-off and what
+   would make it the right call.
+3. **State the assumption** in the commit message and in your report, so the owner can
+   redirect cheaply.
+
+A parked alternative with its trade-off costs nothing and is there the day it becomes
+right. The same alternative held as "I should ask about this" is lost at the next
+reboot.
+
+**Still worth asking:** an irreversible or outward-facing action; a decision that would
+invalidate work already shipped; a genuine conflict between two stated instructions; or
+every-option-is-bad. Ask those **while continuing everything that does not depend on the
+answer** — a question that stops all work is the last resort, not the first.
+Detail: [`scrumban`](.agents/plugins/scrumban/commands/scrumban.md) §"decide".
 
 ## MANDATORY: required skills
 
@@ -158,9 +203,14 @@ so they bind even before you open the index:
   announce it in the room to the owning project.
 
 **rozum rules:** the `scalascript` room is the **default coordination channel** with
-busi. Sweep it **periodically, not constantly — when no other task is in flight**.
+busi. Sweep it **periodically, not constantly — when no other task is in flight**, and
+**MANDATORILY at the end of every finished item** (§THE WORKFLOW step 6): read it, then
+act on what is there or queue it — a post nobody reads is not coordination.
 Address with `@name` (agent/human) and `@project` (broadcast). Post `working:` before
 long offline work and `done:` on return.
+
+**scrumban decide-rule (non-negotiable):** default to deciding; park the alternatives on
+the board instead of blocking on a question. See §"MANDATORY: decide it yourself" above.
 
 **spec-dev rules (non-negotiable):**
 - Read `specs/jit-completeness.md` (or the relevant feature spec) before starting any implementation.
