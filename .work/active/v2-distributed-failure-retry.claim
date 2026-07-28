@@ -1,11 +1,13 @@
 slug: v2-distributed-failure-retry
 branch: feature/v2-distributed-failure-retry
-agent: claude-code
+agent: codex
 started: 2026-07-28T00:16:28Z
-heartbeat: 2026-07-28T00:16:28Z
-status: claimed-before-planning
+heartbeat: 2026-07-28T00:16:44Z
+status: in-progress
 items: v2-distributed-failure-retry
 paths: v2/runtime/std/distributed-plugin/ tests/conformance/distributed- tests/conformance/expected/distributed- tests/fixtures/v21-native/distributed-
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  Reproduce the distributed worker-failure/retry gap in the assembled V2 runtime, isolate the
+  provider dispatch defect, and close it without duplicating distributed state in core.
+done-so-far: claim landed and worktree created
+next: write the compare-first plan into SPRINT.md, then reproduce the existing corpus case
