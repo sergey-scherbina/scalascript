@@ -160,5 +160,14 @@ Same command as §2. This is the "what is still worse than v1" answer; ratio is
   Both lanes sit at the same number, so it is not lane-specific.
 - **Slice 2: `JvmByteGen.gen` at 88% of HugeMethodLimit.** Split it before it breaches, same
   sequential decomposition, gated by `tests/e2e/v2-jit-size.sh`.
-- **F-front compile cost** — `BUGS.md f-front-compile-cost-7x-on-scljet`. Separate axis (compile,
-  not runtime) and separately claimed; it is what makes `scljet-jdbc` exceed a 90 s lane budget.
+- **F-front compile cost** — `BUGS.md f-front-compile-cost-7x-on-scljet`, 25.72 s vs legacy 1.28 s
+  on `examples/scljet-crud.ssc`. **This may no longer be a separate axis.** `specs/v2-f-compile-cost.md`
+  records that F is an `.ssc` program *interpreted on the v2 VM*, and that its hot path is "lexing,
+  parsing and string concatenation" — i.e. exactly the `__method__`-dispatching shape slice 1 was
+  starving of the JIT, and `string-split` is the workload slice 1 moved most (10.7× on the VM lane).
+  So slice 1 predicts a large drop in F's compile time as a side effect.
+
+  **Prediction, to be measured with the front-isolation method in `specs/v2-f-compile-cost.md`
+  §Method (which measures both fronts in one run, so the ratio self-normalises across machine
+  state).** Recording it here BEFORE measuring, so a convenient result cannot be retro-fitted into
+  a prediction that was never made.
