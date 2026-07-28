@@ -113,6 +113,37 @@ rc2=$?
 eq "failing command's exit status is passed through" 3 "$rc1"
 eq "slot was released after failure (next acquire succeeds)" 0 "$rc2"
 
+# ── 4b. a GNU-shaped `stat` must not kill the guard ─────────────────────────
+# REGRESSION TEST for the bug that took this gate red on the first Linux runner it ever saw.
+# `stat -f` means "format" on BSD and "--file-system" on GNU, so `stat -f %m` SUCCEEDS on Linux and
+# prints text starting with "  File: …". That reached `$(( now - mt ))`, where bash treats a bare
+# word as a variable name, and `set -u` aborted the guard with "File: unbound variable".
+#
+# Every local run passed, because macOS `stat -f %m` really is mtime. So this simulates the other
+# platform instead of waiting for it: a fake `stat` first on PATH that behaves like GNU's. The point
+# is not the flag order (that is fixed) but that non-numeric output can never reach arithmetic.
+fake="$TMP/fakebin"; mkdir -p "$fake"
+cat > "$fake/stat" <<'FAKESTAT'
+#!/usr/bin/env bash
+# GNU-shaped: -c is the format flag; -f is --file-system and prints a "File:" block.
+if [ "${1:-}" = "-c" ]; then shift; shift; exit 0; fi   # succeed but print nothing (the nastier case)
+printf '  File: "%s"
+  ID: 0 Namelen: 255 Type: apfs
+' "${2:-/}"
+exit 0
+FAKESTAT
+chmod +x "$fake/stat"
+mkdir -p "$SSC_BUILD_SEMDIR/slot.0" 2>/dev/null
+echo 999999 > "$SSC_BUILD_SEMDIR/slot.0/pid"          # a dead owner, so reap_stale must inspect it
+out="$(PATH="$fake:$PATH" SSC_BUILD_MIN_FREE_MB=0 "$GUARD" --slots 2 --wait 20 -- true 2>&1)"; rc=$?
+rm -rf "$SSC_BUILD_SEMDIR/slot.0" 2>/dev/null
+if [ "$rc" -eq 0 ] && ! printf '%s' "$out" | grep -q 'unbound variable'; then
+  ok "a GNU-shaped stat does not crash the stale-slot reaper"
+else
+  bad "GNU-shaped stat broke the guard: expected=exit 0 and no 'unbound variable' got=exit $rc"
+  printf '    %s\n' "$(printf '%s' "$out" | head -3)"
+fi
+
 # ── 5. the overcommit check trips, and only when it should ──────────────────
 # Both directions. A gate that always passes and a gate that always fails are equally useless, and
 # only comparing both tells them apart.

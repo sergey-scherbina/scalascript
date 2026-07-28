@@ -122,7 +122,14 @@ build_pids() {
     grep -E "$BUILD_RE" | grep -v -e grep -e build-ram-guard -e jvm-mem-guard | awk '{print $1}'
 }
 cwd_of() { lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1; }
-rss_mb()  { echo $(( $(ps -o rss= -p "$1" 2>/dev/null | tr -d ' ' || echo 0) / 1024 )); }
+rss_mb() {
+  # `|| echo 0` is not enough: ps EXITS 0 with EMPTY output when the pid died between listing and
+  # reading, and `$(( / 1024 ))` is a syntax error rather than a zero. Same family as the `stat -f`
+  # crash that took this gate red on Linux — never let unvalidated command output reach `$(( ))`.
+  local v; v="$(ps -o rss= -p "$1" 2>/dev/null | tr -d ' ')"
+  case "$v" in ''|*[!0-9]*) v=0 ;; esac
+  echo $(( v / 1024 ))
+}
 cpu_secs() {
   ps -o time= -p "$1" 2>/dev/null | tr -d ' ' | awk '
     { t=$0; d=0; if (t ~ /-/) { split(t,a,"-"); d=a[1]; t=a[2] }
@@ -177,7 +184,9 @@ tier3_heaviest() { # -> count killed
             grep -v -e grep -e build-ram-guard | sort -k2,2 -rn | head -1)"
     [ -n "$line" ] || { log "T3 no build JVMs left to shed; available=$(available_mb)MB"; break; }
     pid="$(awk '{print $1}' <<<"$line")"
-    rss="$(( $(awk '{print $2}' <<<"$line") / 1024 ))"
+    rss="$(awk '{print $2}' <<<"$line")"
+    case "$rss" in ''|*[!0-9]*) rss=0 ;; esac
+    rss=$(( rss / 1024 ))
     kill_pid "$pid" T3-heaviest "rss=${rss}MB available=$(available_mb)MB" || break
     n=$((n+1))
     { [ "$DRY" = 1 ] || [ "$SELFTEST" = 1 ]; } && break     # one pass when not really killing

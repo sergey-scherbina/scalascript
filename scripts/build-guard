@@ -121,7 +121,20 @@ reap_stale() {
   for s in "$SEM_DIR"/slot.*; do
     [ -d "$s" ] || continue
     owner="$(cat "$s/pid" 2>/dev/null || echo 0)"
-    mt="$(stat -f %m "$s" 2>/dev/null || stat -c %Y "$s" 2>/dev/null || echo 0)"
+    # GNU stat FIRST, then BSD. The order was the Linux-only crash: `stat -f` on GNU means
+    # --file-system, not "format", so `stat -f %m` SUCCEEDS on Linux and prints a block starting
+    # "  File: …". That text reached the arithmetic below, where bash treats a bare word as a
+    # variable name, and `set -u` aborted the whole guard with
+    #     scripts/build-guard: line NNN: File: unbound variable
+    # It passed every local run (macOS `stat -f %m` really is mtime) and went red on the first CI
+    # runner it ever met — the local-green/CI-red shape AGENTS.md warns about.
+    #
+    # Order alone is NOT the fix. Never feed unvalidated command output into `$(( ))`: the numeric
+    # check below is what makes a surprising `stat` on some third platform degrade to "treat the
+    # slot as fresh" instead of killing the guard. tests/e2e/build-ram-budget-gate.sh reproduces the
+    # GNU shape with a fake `stat` on PATH, so this is caught on macOS too.
+    mt="$(stat -c %Y "$s" 2>/dev/null || stat -f %m "$s" 2>/dev/null || echo 0)"
+    case "$mt" in ''|*[!0-9]*) mt=0 ;; esac
     age=99999999; [ "$mt" != 0 ] && age=$(( $(date +%s) - mt ))
     if { [ "$owner" != 0 ] && ! kill -0 "$owner" 2>/dev/null; } || [ "$age" -gt "$STALE_SECS" ]; then
       rm -rf "$s" 2>/dev/null
