@@ -1,7 +1,6 @@
-# generation: 208
+# generation: 209
 #slug	agent	started	items	paths
 v2-stub-apply-and-serve-banner	claude-code	2026-07-28T11:49:46Z	V2-100-2 V2-100-3 v2-serve-banner-missing v2-list-apply-method-stub	v2/src/Runtime.scala v2/runtime/std/http-fast-plugin v2/runtime/std/http-plugin tests/conformance/list-apply tests/conformance/expected/list-apply BUGS.md SPRINT.md CHANGELOG.md
 v2-works-inventory	claude-code	2026-07-28T11:52:57Z	V2-100-1 V2-100-5 CCR-1 CCR-2 corpus-contract-roster-drift-48-cases	tests/conformance/corpus-baseline.tsv tests/conformance/contract-roster.tsv bugs-v2.md BUGS.md SPRINT.md CHANGELOG.md
 bench-tier-dead-lanes	claude-code	2026-07-28T11:53:16Z	bench-jvm-js-lanes-dead-silently v2rt-0b-per-invocation-half	v1/tools/cli/src/main/scala/scalascript/cli/Main.scala bench BUGS.md SPRINT.md docs/benchmarks.md
 conformance-known-red-v2-lane	claude-code	2026-07-28T12:04:40Z	conformance-known-red-v2-lane	tests/conformance/run.sc
-bc-parity-both-fail-unnamed	claude-code	2026-07-28T12:06:07Z	bc-parity-both-fail-unnamed BPF-0	scripts/bc-parity-sweep
