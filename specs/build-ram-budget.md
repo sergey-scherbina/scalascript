@@ -211,6 +211,42 @@ one — though note the fix is NOT simply an `-Xmx` in the template: these forks
 `JDK_JAVA_OPTIONS` cap precisely BECAUSE they set none, so adding one would break the mechanism that
 already works. That entry says what to measure first.
 
+## 5c. Measured: what an `ssc` fork actually uses (2026-07-28)
+
+`scripts/build-ram-peak` samples peak RSS per process while a command runs, so a cap can be chosen
+from data. Over a 121-case conformance slice (`--only 'scljet-*,uniml-*,json*' --no-memo`), 70
+processes sampled at 0.5 s:
+
+| | peak RSS |
+|---|---|
+| median process | 163 MB |
+| most `ssc` forks | 400-490 MB |
+| heaviest but one | 1,075 MB |
+| **heaviest** | **4,650 MB** |
+
+Against a **9,216 MB** ergonomic entitlement the typical fork is ~20x over-entitled — but the
+distribution has a long tail, and the tail is what a cap has to survive. The 4,650 MB fork ran under
+the 4 GB heap `scripts/conformance` imposes, and its RSS exceeded that heap by ~15 % (metaspace, code
+cache, `-Xss64m` stacks) — the same ~1.25x factor `SSC_BUILD_SLOT_MB` already budgets for.
+
+**What this changed:** `scripts/build-guard` shipped with a 2g child cap chosen by eye. That tail case
+says 2g is too tight, so it is now **4g**, matching `scripts/conformance` — one validated number
+instead of two guesses. A cap that is too low does not fail cleanly; it produces an
+`OutOfMemoryError` that surfaces later looking like an unrelated test failure.
+
+**What it did NOT change:** the launcher still sets no `-Xmx`, deliberately (§2). The measurement
+argues for capping at the harness, which is exactly where the caps already are.
+
+**Two things found on the way, both filed rather than swallowed:**
+
+- `scripts/build-ram-peak` itself compared peaks as **strings** in awk, so its summary reported
+  max=439 MB on a fixture whose true max was 488 MB — while the rows printed directly above it were
+  correct. Caught by running it against a fixture with a known answer, which is the habit §1 of this
+  spec is entirely about. Fixed with `+0`.
+- `scljet-wal-recover` failed in the measurement run with the INT lane emitting **no output at all**,
+  and passes in isolation both with and without a heap cap, with no `OutOfMemoryError` anywhere. Load
+  flakiness, not a cap regression — filed as `BUGS.md scljet-wal-recover`.
+
 ## 6. Known-remaining, deliberately not done here
 
 Queued in `BACKLOG.md`; each falls inside another agent's live claim or is a separate arc.
