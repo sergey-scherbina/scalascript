@@ -11,6 +11,39 @@ object Emit:
   private val fnCache = new java.util.concurrent.ConcurrentHashMap[String, List[Value] => Value]()
   private def fn(op: String) = fnCache.computeIfAbsent(op, o => Prims.resolve(o))
 
+  // ── Arity-specialised prim dispatch ─────────────────────────────────────────
+  // `Prims.resolve1/2/3` exist precisely so a prim can be called without building a
+  // List[Value] ("allocation-free fast paths … avoid creating a List[Value] for arg
+  // passing on the hot path" — their own comment). This surface, the one the GENERATED
+  // BYTECODE calls, was not using them: every prim site built `a :: b :: Nil` only to
+  // hand it to a function that destructures it again.
+  //
+  // Measured (2026-07-28, `bench/corpus/list-fold`, the worst v1 ratio on this lane):
+  // Emit.prim1 110 + Emit$.fn 53 + String.hashCode 40 of ~1,100 samples — ~18% of the
+  // profile is prim dispatch, on an op that is a compile-time constant in the bytecode.
+  //
+  // ONE lookup per prim, always. The first cut of this used a second cache consulted
+  // before `fnCache`, which made the MISS path do TWO hash lookups where it used to do
+  // one — and most ops ARE misses (every plugin prim, and everything `resolveN` does not
+  // list). Measured in one load window: `literal-match` gained 1.40x while `vector-index`
+  // lost 8% and `hof-pipeline` 4%. Paying a second lookup to save an allocation is not a
+  // trade; caching BOTH resolutions behind a single key is.
+  //
+  // `specialised` is null when the op has no arity-specialised form, so the null test —
+  // not a second map — selects the path. `general` is always populated: `Prims.resolve`
+  // never fails at resolve time (an unknown op resolves to a function that raises when
+  // CALLED), so filling it eagerly costs one resolve per distinct op, once.
+  private final class Slot[F](val specialised: F | Null, val general: List[Value] => Value)
+  private val slot1 = new java.util.concurrent.ConcurrentHashMap[String, Slot[Prims.Fn1]]()
+  private val slot2 = new java.util.concurrent.ConcurrentHashMap[String, Slot[Prims.Fn2]]()
+  private val slot3 = new java.util.concurrent.ConcurrentHashMap[String, Slot[Prims.Fn3]]()
+  private def s1(op: String): Slot[Prims.Fn1] =
+    slot1.computeIfAbsent(op, o => new Slot(Prims.resolve1(o).orNull, Prims.resolve(o)))
+  private def s2(op: String): Slot[Prims.Fn2] =
+    slot2.computeIfAbsent(op, o => new Slot(Prims.resolve2(o).orNull, Prims.resolve(o)))
+  private def s3(op: String): Slot[Prims.Fn3] =
+    slot3.computeIfAbsent(op, o => new Slot(Prims.resolve3(o).orNull, Prims.resolve(o)))
+
   /** Direct arithmetic — no resolve, no List, no StrV boxing of the op. */
   def arith(op: String, a: Value, b: Value): Value = Prims.arithFast(op, a, b)
 
@@ -65,15 +98,27 @@ object Emit:
     case other           => sys.error(s"dcellAccum: non-numeric result ${Show.show(other)}")
 
   def prim0(op: String): Value = fn(op)(Nil)
-  def prim1(op: String, a: Value): Value = fn(op)(a :: Nil)
+  def prim1(op: String, a: Value): Value =
+    val s = s1(op)
+    val f = s.specialised
+    if f != null then f(a) else s.general(a :: Nil)
   def prim2(op: String, a: Value, b: Value): Value =
     // global.reg is a COMPILER-internal prim (top-level val registration);
-    // in the bytecode lane it writes straight into the shared globals map.
+    // in the bytecode lane it writes straight into the shared globals map. This stays
+    // FIRST and is deliberately not delegated to `resolve2`'s `global.reg` arm: that arm
+    // calls V2PluginRegistry.registerGlobal, which is not the same function as the local
+    // registerGlobal below, and reconciling them is not this change's business.
     if op == "global.reg" then
       a match { case Value.StrV(n) => registerGlobal(n, b); case _ => () }
       Value.UnitV
-    else fn(op)(a :: b :: Nil)
-  def prim3(op: String, a: Value, b: Value, c: Value): Value = fn(op)(a :: b :: c :: Nil)
+    else
+      val s = s2(op)
+      val f = s.specialised
+      if f != null then f(a, b) else s.general(a :: b :: Nil)
+  def prim3(op: String, a: Value, b: Value, c: Value): Value =
+    val s = s3(op)
+    val f = s.specialised
+    if f != null then f(a, b, c) else s.general(a :: b :: c :: Nil)
   def primN(op: String, args: Array[Value]): Value = fn(op)(args.toList)
 
   /** Apply a closure/value to args (mirrors the VM's application semantics). */
