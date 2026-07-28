@@ -563,7 +563,17 @@ for test <- tests do
         true
       else
         val v2Out = run(ssc("run", "--v2", test.toString))
-        check("V2 ", v2Out, expected)
+        // `checkLane`, not `check`: this was the ONLY lane of the six calling bare `check`, so a
+        // `known-red: v2 — …` declaration was parsed, validated (parseKnownRed even exits 1 when the
+        // reason is missing), lowercased — and then never consulted. Accepted and ignored, with no
+        // warning on any stream. Measured: byte-identical FAIL output with and without it.
+        //
+        // The cost was structural, not cosmetic. Declaring a KNOWN v2 gap was impossible, so opting
+        // a case into `backends: [.., v2]` left only an undeclared red — indistinguishable from a
+        // regression, and it reddens the nightly gate — or leaving `v2` out entirely, which is
+        // invisible and never expires. Silence being cheaper is a standing reason v2 corpus
+        // coverage does not grow, while v2 self-hosting is stream 1 in MILESTONES.
+        checkLane("V2 ", "v2", v2Out, expected, knownRed)
 
     if intOk && jsOk && jsV2Ok && jvmOk && jvmV2Ok && v2Ok then
       passed += 1
