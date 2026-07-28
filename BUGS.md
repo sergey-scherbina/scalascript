@@ -678,8 +678,8 @@ disabling Op lifting"), which is adjacent to how an effect reaches its handler.
 
 ## scljet-jdbc-nan-binding-diverges — PreparedStatement binds NaN as REAL instead of SQLite NULL
 
-**Status:** OPEN (found 2026-07-28 by the independently reviewed live
-sqlite-jdbc SC-1a differential).
+**Status:** FIXED in `b39127f61` (found 2026-07-28 by the independently
+reviewed live sqlite-jdbc SC-1a differential).
 
 **Real-harness reproduction.** Bind `Double.NaN` with `setDouble` to the
 `INTEGER PRIMARY KEY` parameter of an INSERT. Pinned Xerial sqlite-jdbc
@@ -688,18 +688,19 @@ the next automatic rowid; `jdbc:scljet:` passes `SqlReal(NaN)` into IPK
 affinity and returns datatype mismatch. The compare-first matrix reports the
 phase/category difference and the missing row explicitly.
 
-**Root cause / required fix.** `PreparedStatementHandler` maps every
+**Root cause / fix.** `PreparedStatementHandler` mapped every
 `setDouble`, `setFloat`, boxed `Double`, and boxed `Float` directly to
-`SqlReal`. Its JDBC boundary must map NaN to `SqlNull`, while preserving
+`SqlReal`. Its JDBC boundary now maps NaN to `SqlNull`, while preserving
 positive and negative infinity as REAL values (which the IPK affinity layer
 then rejects). Keep the pure engine contract distinct: an explicitly
 constructed `SqlReal(NaN)` is still a non-integral REAL and must fail IPK
-coercion.
+coercion. The phase-aware compare-first matrix passes for all four JDBC binding
+routes and verifies the reference-persisted row.
 
 ## scljet-ipk-insert-indexed-out-of-order — indexed INSERT rebuild preserves statement order, not rowid order
 
-**Status:** OPEN (found 2026-07-28 by `scljet-production-completion` in the
-live sqlite-jdbc SC-1a differential).
+**Status:** FIXED in `b39127f61` (found 2026-07-28 by
+`scljet-production-completion` in the live sqlite-jdbc SC-1a differential).
 
 **Real-harness reproduction.** Through `jdbc:scljet:`, create one
 `INTEGER PRIMARY KEY` table plus an index, seed rowid 50, then execute prepared
@@ -708,13 +709,13 @@ The mutations report success, but the next
 `SELECT ... ORDER BY id` fails with `table rowids are not strictly increasing`.
 The same bound-value matrix succeeds through Xerial `jdbc:sqlite:`.
 
-**Root cause / required fix.** The indexed branch of `executeInsertRows`
-passes `existingRows ++ newRows` straight to `reindexTable`, which writes table
-cells in list order. The indexed UPDATE branch already documents and enforces
-the missing invariant with `sortRowsByRowid`; INSERT must use that same
-compare-first sort/duplicate backstop before rebuilding the table and its
-indexes. The live differential must then compare outcomes and rows with SQLite
-and run real `PRAGMA integrity_check` on the SclJet-written file.
+**Root cause / fix.** The indexed branch of `executeInsertRows` passed
+`existingRows ++ newRows` straight to `reindexTable`, which writes table cells
+in list order. INSERT now uses the same `sortRowsByRowid` ordering/duplicate
+backstop as indexed UPDATE before rebuilding the table and its indexes. The
+portable regression forces a new key between two existing keys on INT+JS; the
+live differential compares outcomes and rows with SQLite, reopens the
+SclJet-written file, and gets `PRAGMA integrity_check = ok`.
 
 ## scljet-sql-numeric-literal-grammar-gaps — signed VALUES, exponent, and hex literals are incomplete
 
@@ -738,8 +739,8 @@ vectors without changing the distinct TEXT-affinity grammar.
 
 **Status:** FIXED in `a00db1967` (found 2026-07-27 by
 `scljet-production-completion`; reproduced through the assembled v1 runner and
-real `jdbc:scljet:` driver). The fail-first INT+JS regression now passes; keep
-SC-1a open until its reference sqlite-jdbc matrix also passes.
+real `jdbc:scljet:` driver). The fail-first INT+JS regression and the
+post-rebase SC-1a sqlite-jdbc/file matrix now pass.
 
 **Real-harness reproduction.** From rowid 100,
 `UPDATE t SET id = 2e2 WHERE id = 100` moves the row to 2, while
@@ -767,8 +768,8 @@ may fail loud, but it may never partially execute.
 
 **Status:** FIXED in `a00db1967` (found 2026-07-27 by
 `scljet-production-completion`; reproduced through assembled INT and
-`jdbc:scljet:` paths). `scljet-ipk-numeric-affinity` is green on INT+JS; the
-reference sqlite-jdbc closure gate remains pending.
+`jdbc:scljet:` paths). `scljet-ipk-numeric-affinity` is green on INT+JS, and
+the reference sqlite-jdbc/file closure landed green in `b39127f61`.
 
 **Real-harness reproduction.** Bare decimal literal `9223372036854775808` in an
 IPK INSERT or UPDATE succeeds as rowid `-9223372036854775808`. Reference SQLite
@@ -792,7 +793,9 @@ pins all three.
 **Status:** FIXED in `a00db1967` (found 2026-07-27 by
 `scljet-production-completion`; static root cause confirmed against reference
 SQLite 3.51.0). Portable regressions cover negative-only and `Long.MaxValue`
-tables; the reference sqlite-jdbc closure gate remains pending.
+tables; the live sqlite-jdbc gate additionally covers an empty table and
+occupied positive fallback candidates, with reference file reopen and
+integrity green in `b39127f61`.
 
 **Reproduction.** With only rowid `-5`, `INSERT ... VALUES (NULL, ...)` chooses
 1 in SclJet but -4 in SQLite. With an existing `Long.MaxValue`, SclJet computes
@@ -1902,8 +1905,9 @@ the restriction.
 **Status:** FIXED in `a00db1967` (opened 2026-07-27 by
 `scljet-ipk-rowid`, expanded the same day by
 `scljet-production-completion` after assembled INSERT/UPDATE differential).
-The fail-first affinity matrix is green on INT+JS; keep the encompassing SC-1a
-item open until reference sqlite-jdbc rows and integrity also compare green.
+The fail-first affinity matrix is green on INT+JS; the independently reviewed
+live sqlite-jdbc matrix, reference row reopen, and integrity check closed SC-1a
+in `b39127f61`.
 
 **Symptom** (reference sqlite3 3.51.0 vs scljet, same statements on `emp(id INTEGER PRIMARY KEY, …)`):
 

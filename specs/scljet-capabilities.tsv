@@ -23,7 +23,7 @@ extension-disk-profile	open	m7-disk-profile	scljet/index.ssc	-	scljet-production
 production-ci-matrix	open	m8-ci-matrix	.github/workflows/ci.yml	-	scljet-production-completion
 production-benchmarks	open	m8-benchmarks	scripts/bench	-	scljet-production-completion
 provider-sqlite-cutover	approval-gated	m8-provider-cutover	specs/scljet.md	-	user-decision
-ipk-insert-update-affinity	subset	-	scljet/sql.ssc	tests/conformance/scljet-ipk-numeric-affinity.ssc	scljet-production-completion
+ipk-insert-update-affinity	implemented	-	scljet/sql.ssc,v1/runtime/std/scljet-jdbc-plugin/src/main/scala/scalascript/compiler/plugin/scljetjdbc/ScljetStatement.scala	tests/conformance/scljet-ipk-numeric-affinity.ssc,v1/runtime/std/scljet-jdbc-plugin/src/test/scala/scalascript/compiler/plugin/scljetjdbc/ScljetIpkAffinityDifferentialTest.scala	scljet-production-completion
 scalar-null-three-valued-logic	subset	-	scljet/sql.ssc	tests/conformance/scljet-sql-null-semantics.ssc	scljet-production-completion
 scalar-numeric-blob-comparison	subset	-	scljet/sql.ssc	tests/conformance/scljet-sql-value-compare.ssc	scljet-production-completion
 schema-shared-model	open	-	scljet/sql.ssc	-	scljet-production-completion
