@@ -179,6 +179,34 @@ for the corpus *directory*, which would have made a shard silently test nothing.
 It runs in the 34-second `Validate` job, not behind the 3.6-minute assembly, because `--list`
 enumerates the corpus without needing a built launcher.
 
+## 5b. Confirmed in the wild, same session (2026-07-28 06:26)
+
+Three hours of sibling-agent work later, with the changes live:
+
+**The periodic GC works on other agents' servers, not just the A/B rig.** Same PID, two observations:
+`sbt-server 43453` was **2,308 MB** at 05:57 and **33 MB** at 06:26. Two more sat at 50 MB and 35 MB.
+Before this change the floor for an sbt server that had loaded the build was ~2,700 MB.
+
+**And `memorystatus_level` still lies.** At that moment the host had **630 MB of swap in use and an
+11.3 GB compressor** — genuinely paging — while `kern.memorystatus_level` read **62 %**. Against
+`jvm-mem-guard`'s `REAP_PCT=25` fast path, that is "healthy": it would not have logged a line, in a
+state that is objectively worse than idle. This is the second independent observation of §1, now with
+swap actually in use rather than inferred after the fact.
+
+**The reaper's relief is measurable.** Two servers whose worktrees had been deleted (`rm-worktree`
+leaked them, exactly as AGENTS.md warns) were reaped with `scripts/kill-stale-builders --kill`:
+
+| | before | after |
+|---|---|---|
+| swap in use | 630 MB | **227 MB** |
+| compressor | 11,299 MB | **8,357 MB** |
+| `memorystatus_level` | 63 % | 71 % |
+
+**What did NOT improve, and why it is the right next item.** `DECLARED` stayed ~102 GB, because it is
+dominated by the uncapped `ssc` forks, one of which was resident at **8,090 MB** against its 9,216 MB
+ergonomic ceiling — a single conformance fork holding 22 % of the host. Bounding *that* is
+`ssc-launcher-has-no-Xmx` in `BACKLOG.md`, and this is the measurement that says it is the top one.
+
 ## 6. Known-remaining, deliberately not done here
 
 Queued in `BACKLOG.md`; each falls inside another agent's live claim or is a separate arc.
