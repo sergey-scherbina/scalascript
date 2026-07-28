@@ -218,8 +218,20 @@ def tokenize(sql: String): Either[String, List[Token]] =
       toksRev = Token("rparen", ")", 0L) :: toksRev
       i = i + 1
     else if c == 61 then
-      toksRev = Token("op", "=", 0L) :: toksRev
-      i = i + 1
+      // `==` is SQLite's equality alias. Normalize it HERE, to a single `=` token, rather than
+      // teaching each parser a second spelling: `=` was emitted one character at a time, so `==`
+      // became TWO `=` tokens and `WHERE v == 2` died with "expected an expression operand" while
+      // `isCompareOp` and `compareValue` both already handled the string `"=="` — unreachable code,
+      // the internally inconsistent operator set this bug is about. Downstream, `isSargOp` and the
+      // index-range mapper accept only `"="`, so emitting a `"=="` token would have fixed the scan
+      // path and silently left the INDEXED path behind. Only ADJACENT characters merge, so `a = = b`
+      // stays the error it should be.
+      if i + 1 < n && charCode(sql, i + 1) == 61 then
+        toksRev = Token("op", "=", 0L) :: toksRev
+        i = i + 2
+      else
+        toksRev = Token("op", "=", 0L) :: toksRev
+        i = i + 1
     else if c == 60 then
       // < , <= , <>
       if i + 1 < n && charCode(sql, i + 1) == 61 then

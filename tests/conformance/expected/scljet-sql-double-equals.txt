@@ -1,0 +1,16 @@
+scan-single=2 ; 3
+scan-double=2 ; 3
+scan-text-single=2 ; 4
+scan-text-double=2 ; 4
+scan-ne-angle=1 ; 4
+scan-ne-bang=1 ; 4
+scan-scalar-double=2 ; 3
+scan-spaced=QUERY-ERROR:expected an expression operand
+index-single=2 ; 3
+index-double=2 ; 3
+index-text-single=2 ; 4
+index-text-double=2 ; 4
+index-ne-angle=1 ; 4
+index-ne-bang=1 ; 4
+index-scalar-double=2 ; 3
+index-spaced=QUERY-ERROR:expected an expression operand

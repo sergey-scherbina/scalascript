@@ -1,4 +1,4 @@
-# corpus-contract-roster-v1	baseline-sha256=d73cc059362c1aea218f39029387867af5cdba0477403003e1d528e1a91a62ec	roster-sha256=0ffdb0fd2e3c2a1eddcc68a23a5218edb1a1157c4040b994beac793fa43f8dbd
+# corpus-contract-roster-v1	baseline-sha256=d73cc059362c1aea218f39029387867af5cdba0477403003e1d528e1a91a62ec	roster-sha256=fb305723de64be0f8ecf6d4245323603cd3c07dbbd316b065b76f58d2cb32cbd
 _bug1_httpclient
 _bug1b
 _bug1c
@@ -284,6 +284,7 @@ scljet-sql-create-index
 scljet-sql-create-table
 scljet-sql-distinct
 scljet-sql-dml
+scljet-sql-double-equals
 scljet-sql-drop-index
 scljet-sql-exists
 scljet-sql-expr

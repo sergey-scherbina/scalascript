@@ -1,0 +1,81 @@
+---
+name: scljet-sql-double-equals
+description: SclJet SQL — `==` is SQLite's equality alias and must behave exactly like `=` on the scanned AND the indexed path
+backends: [int, js]
+---
+
+# scljet — `==` is the same operator as `=`
+
+`BUGS.md` `scljet-sql-double-equals-parser-gap`. `SELECT id FROM t WHERE v == 2` returned
+`QUERY-ERROR:expected an expression operand` where SQLite 3.51.0 returns the row. It was a LEXER
+gap, not a parser one: `=` was emitted one character at a time, so `==` became two `=` tokens and
+the parser saw `v = = 2`. `isCompareOp` accepted the string `"=="` and `compareValue` normalized
+it — both unreachable, which is the "internally inconsistent accepted operator set" the report
+names.
+
+The alias is now normalized in the tokenizer, so it reaches every path at once. Two of those paths
+are pinned here because they are **different code**: a scanned table, and an INDEXED one whose
+`=` is turned into an index range by a mapper that only ever accepted the single-character
+spelling. Each query is run twice — once with `=`, once with `==` — and the pair must agree; a
+regression that broke one spelling would show as a mismatched pair, not as a missing line.
+
+`<>` and `!=` are here as the guard that the operator set is otherwise unchanged, and `x = = 2`
+(with a space) is here because only ADJACENT characters may merge — that one must stay an error.
+
+The imports sit ABOVE the fence, as in the sibling scljet cases: an import written *inside* a fence
+is only followed by the INT lane (`BUGS.md` `js-jvm-codegen-in-fence-imports-not-followed`), and
+this case must fail for its own reason or not at all.
+
+[ByteSlice, SqliteValue, SqlNull, SqlInteger, SqlReal, SqlText, buildTableDatabase, buildTableWithIndexDatabase](std/scljet/index.ssc)
+[queryImageParams](std/scljet/sql.ssc)
+
+```scalascript
+def showValue(v: SqliteValue): String = v match
+  case SqlNull => "NULL"
+  case SqlInteger(x) => x.toString
+  case SqlText(x) => x
+  case _ => "?"
+
+def showRow(row: List[SqliteValue]): String = row match
+  case Nil => ""
+  case h :: Nil => showValue(h)
+  case h :: t => showValue(h) + "|" + showRow(t)
+
+def showRows(rows: List[List[SqliteValue]]): String = rows match
+  case Nil => "(no rows)"
+  case h :: Nil => showRow(h)
+  case h :: t => showRow(h) + " ; " + showRows(t)
+
+def dump(image: ByteSlice, label: String, sql: String): Unit =
+  queryImageParams(image, sql, Nil) match
+    case Left(message) => println(label + "=QUERY-ERROR:" + message)
+    case Right(rows) => println(label + "=" + showRows(rows))
+
+def probes(image: ByteSlice, prefix: String): Unit =
+  dump(image, prefix + "-single", "SELECT id FROM cmp WHERE n = 20 ORDER BY id")
+  dump(image, prefix + "-double", "SELECT id FROM cmp WHERE n == 20 ORDER BY id")
+  dump(image, prefix + "-text-single", "SELECT id FROM cmp WHERE t = 'b' ORDER BY id")
+  dump(image, prefix + "-text-double", "SELECT id FROM cmp WHERE t == 'b' ORDER BY id")
+  dump(image, prefix + "-ne-angle", "SELECT id FROM cmp WHERE n <> 20 ORDER BY id")
+  dump(image, prefix + "-ne-bang", "SELECT id FROM cmp WHERE n != 20 ORDER BY id")
+  dump(image, prefix + "-scalar-double", "SELECT id FROM cmp WHERE (n == 20) = 1 ORDER BY id")
+  dump(image, prefix + "-spaced", "SELECT id FROM cmp WHERE n = = 20 ORDER BY id")
+
+val rows = List(
+  List(SqlInteger(1L), SqlInteger(10L), SqlText("a")),
+  List(SqlInteger(2L), SqlInteger(20L), SqlText("b")),
+  List(SqlInteger(3L), SqlInteger(20L), SqlText("c")),
+  List(SqlInteger(4L), SqlInteger(30L), SqlText("b"))
+)
+
+buildTableDatabase(512, 1, 1, "cmp",
+  "CREATE TABLE cmp(id INTEGER PRIMARY KEY, n, t TEXT)", rows) match
+  case Left(error) => println("build-error:" + error.message)
+  case Right(base) => probes(base, "scan")
+
+buildTableWithIndexDatabase(512, 1, 1, "cmp",
+  "CREATE TABLE cmp(id INTEGER PRIMARY KEY, n, t TEXT)",
+  "idx_n", "CREATE INDEX idx_n ON cmp(n)", List(1), rows) match
+  case Left(error) => println("indexed-build-error:" + error.message)
+  case Right(indexed) => probes(indexed, "index")
+```
