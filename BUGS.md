@@ -1,5 +1,93 @@
 # Bug tracker
 
+## v2-native-uncaught-error-diagnostic-empty — every failing native program reports a diagnostic with no content
+
+**Status:** OPEN (found 2026-07-28 by `v2-native-import-graph` while probing the map-reduce
+fixture — the native lane answered `ssc: SscThrow` where v1 named the exception and its message).
+This is not one program's problem: it is what the **default** lane prints for **any** uncaught
+error, so it is the first thing a user sees when anything goes wrong.
+
+**Measured, two four-line programs, real staged `bin/`:**
+
+```scalascript
+def boom(): Int = throw new RuntimeException("the real message")
+println(boom())
+```
+
+| lane | output |
+|---|---|
+| `bin/ssc run` (default, ASM) | **`ssc: SscThrow`** |
+| `bin/ssc run --interpret` (VM) | **`ssc: SscThrow`** |
+| `bin/ssc-tools run --v1` | `[ERROR] RuntimeException(the real message)` |
+
+```scalascript
+val xs = List(1,2,3)
+println(xs(9))
+```
+
+| lane | output |
+|---|---|
+| `bin/ssc run` (default, ASM) | **`ssc: 9`** |
+| `bin/ssc run --interpret` (VM) | **`ssc: 9`** |
+| `bin/ssc-tools run --v1` | `[ERROR] [line 2, col 9] index 9 out of bounds for list of length 3` |
+
+`ssc: 9` is the whole diagnostic. Not the operation, not the bound, not the line — the index.
+
+**Root cause, two independent defects that meet at the same printer.**
+
+1. `v2/src/Runtime.scala:21` — `final class SscThrow(val value: Value) extends RuntimeException`
+   is constructed with **no message** (`case "__throw__" => a => throw new SscThrow(a(0))`), so
+   `getMessage` is `null`. `StandardMain.scala:19` prints
+   `Option(error.getMessage).getOrElse(error.getClass.getSimpleName)` → the literal string
+   `SscThrow`. The user's thrown value — the only thing that carries meaning — is never rendered.
+2. `Prims.listIndex` (`v2/src/Runtime.scala:3417`) falls through to `unlistPub(v)(i)`, i.e. Scala's
+   `List.apply`, whose `IndexOutOfBoundsException` message is the bare index `"9"`. The sibling
+   helper `listAt` right below it already raises the honest
+   `sys.error(s"list index out of bounds: $i")` — that path is simply not the one taken.
+
+**Fix direction.** `SscThrow` should render its `value` as its message (`Show.show`/the parity
+display renderer, so the two lanes agree on how a thrown value prints), which fixes every
+`throw` at once and needs no change in the printer. `listIndex` should raise with the same shape
+`listAt` uses, including the length. Both belong in `v2/src/Runtime.scala`. A gate belongs with
+them: a conformance case cannot assert on stderr, so this wants
+`tests/e2e/` — compare-first, printing expected/actual on mismatch.
+
+## int-imported-module-mutable-registry-not-shared — a registry mutated by the importer stays empty
+
+**Status:** OPEN (found 2026-07-28 by `v2-native-import-graph` while re-measuring
+`v2-native-scala-import-parse-only-noop`; the native lane is the correct one here).
+
+**Symptom.** Registering into a mutable registry defined by an imported module has no effect on the
+v1 INTERPRETER, while the native and JS lanes both see the registration.
+
+**Reproduce** — four lines, no plugin, no Scala-style import:
+
+````markdown
+[NamedHandler, HandlerRegistry](std/mapreduce/handlers.ssc)
+
+```scalascript
+HandlerRegistry.clear()
+HandlerRegistry.register(NamedHandler("emit", (s: String) => List(s)))
+println(HandlerRegistry.registeredNames().length)
+```
+````
+
+| lane | result |
+|---|---|
+| `bin/ssc run` (native) | `1` |
+| `ssc-tools emit-js` + node | `1` |
+| `ssc-tools run --v1` (INT) | **`0`** |
+
+**Why it matters.** INT is the conformance suite's reference lane and the corpus contract's golden
+probe, so a case built on this pattern is graded against the one lane that gets it wrong. The
+larger fixture it was found in (`V2TuplePatternCliTest`'s map-reduce hoist) fails on INT for the
+same reason: `HandlerRegistry: no handler registered for 'emit'` after registering it.
+
+**Fix direction / relation.** Same family as
+`imported-builtin-native-runs-callback-in-defining-interpreter` — module-level mutable state and
+which interpreter instance owns it. Not taken by `v2-native-import-graph`: that claim's paths are
+`v2/bin/`, and this is the v1 interpreter.
+
 ## v2-method-dispatch-never-jits — every method call in every v2 program ran interpreted, forever
 
 **Status:** **FIXED 2026-07-28** (`v2-runtime-perf-vs-v1`). Found by benchmarking the v2 runtime
@@ -5630,7 +5718,31 @@ belongs to the `int`/`js`/JVM lanes, which is where its conformance already runs
 
 ## v2-native-scala-import-parse-only-noop — module-defined names stay unbound after `import std.*`
 
-**Status:** OPEN (found 2026-07-17 by `ci-red-main` after correcting
+**Status:** **NO LONGER REPRODUCES 2026-07-28**, measured by `v2-native-import-graph` (NIG-3) on
+`8f736ca8b`. Left here rather than deleted because the entry's diagnosis ("the native front's
+`parseOneStmt` consumes Scala-style imports as parse-only no-ops") is what someone would go fix,
+and it is no longer the observable.
+
+**What was measured.** The entry's own fixture, written twice — once with the Markdown link
+imports it recommends, once with the Scala-style import it says is broken — and run on both lanes:
+
+| program | `bin/ssc run` (native) | `ssc-tools run --v1` |
+|---|---|---|
+| `[NamedHandler, HandlerRegistry](std/mapreduce/handlers.ssc)` + `[…](std/mapreduce/distributed.ssc)` | `3` / `1` | `0`, then a handler-registry error |
+| `import std.mapreduce.*` | `3` / `1` | `0`, then a handler-registry error |
+
+Both import forms are now **identical** on the native lane and both produce the fixture's expected
+`3` / `1`. A narrower probe confirms the binding directly: `import std.mapreduce.*` then
+`Stage(List(MapOp("tag"))).ops.length` prints `1` on native and `1` on v1 — the module-defined
+`Stage` and `MapOp` resolve. The reported symptom
+(`ssc: unhandled runtime effect: WorkerProtocol.applyStage`) does not appear on any probe.
+
+**What the same measurement DID find — and it is the other lane.** In the fixture above the v1
+INTERPRETER is now the one that diverges: it prints `0` where native and JS print `1`. Minimal,
+four lines, no Scala-style import involved: see
+`int-imported-module-mutable-registry-not-shared` below.
+
+**Original report follows** (found 2026-07-17 by `ci-red-main` after correcting
 `V2TuplePatternCliTest` to use staged `bin/ssc`). The map-reduce fixture's Scala-style
 `import std.mapreduce.*` appears to make registry-backed names such as `HandlerRegistry` available,
 but does not load module-defined `WorkerProtocol`; the program prints its first expected line `3`
