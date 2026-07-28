@@ -1,6 +1,5 @@
-# generation: 130
+# generation: 131
 #slug	agent	started	items	paths
-js-not-callable-unit	opus-orch	2026-07-28T00:55:00Z	js-not-callable-unit	v1/runtime/backend/js/** BUGS.md tests/conformance/js-not-callable-unit.ssc tests/conformance/expected/js-not-callable-unit.txt
 v2-f-compile-profile	codex	2026-07-27T20:27:42Z	V-6a	specs/v2-f-compile-profile.md
 uniml-production-completion	claude-code	2026-07-27T21:28:38Z	uniml-yaml-m31-full-grammar uniml-markdown-html5-entities uniml-portable-5-binding uniml-m5-language-adapters uniml-m6-tooling v2.2-p6.22 scljet-address-uniml-u2-u3 uniml-production-release UPR-0 UPR-1a UPR-1b UPR-1c	SPRINT.md BACKLOG.md CHANGELOG.md MILESTONES.md README.md specs/uniml-production.md specs/uniml.md specs/uniml-yaml.md specs/uniml-markdown.md specs/v2.2-self-hosted-dialect.md uniml/corpus uniml/yaml/src/test uniml/markdown/src/test uniml/project uniml/build.sbt build.sbt
 scljet-production-completion	claude-code	2026-07-27T21:34:57Z	scljet-production-completion scljet-ipk-update-numeric-affinity scljet-standalone-library scljet-reclaiming-dml scljet-portable-text-projection scljet-same-jvm-reference-lock-bridge scljet-m3-write-followups scljet-m4-sql-core scljet-m5-wal scljet-m6-sql-compat scljet-m7-extensibility scljet-m8-production-readiness	scljet/ specs/scljet.md specs/scljet- tests/conformance/scljet- tests/conformance/expected/scljet- tests/tools/scljet- tests/fixtures/scljet/ tests/e2e/scljet- v1/runtime/std/scljet-jdbc-plugin/ v2/runtime/std/scljet- examples/scljet- scripts/scljet- site/scljet.html docs/scljet.md
