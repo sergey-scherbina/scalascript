@@ -266,6 +266,59 @@ the reused page. Corrupt freelist pointers/counts fail closed. A delete/insert w
 must plateau in page count once sufficient free pages exist, and rollback recovery must
 reconstruct the exact original image.
 
+#### SC-2a.1 — live reclaim and mutable freelist validation
+
+The first independently shippable slice changes both live SQL mutation routes from
+`pagerDeleteBalanced` to `pagerDeleteRebalanced`: DELETE uses it for every selected rowid,
+and UPDATE uses it for the complete delete phase before reinserting any replacement row.
+On the established 512-byte, 24-row split-tree fixture, `DELETE ... WHERE id <= 20` must
+therefore keep the physical and header page counts at 14, report 20 changes, leave ordered
+rowids 21 through 24, retain an interior root, and place exactly 10 pages on the freelist.
+The matching no-op UPDATE must report 20 changes, retain all ordered rows, and expose
+reclaimed pages even before reuse lands. Its temporary EOF size is not a final golden:
+SC-2a.2 must consume those pages and remove that growth.
+
+Reclaim reads the freelist from the `MutablePager` staged image, so a public pager helper
+cannot rely on the read-only open path having validated the base file. The mutable reader
+returns `Either[ByteError, List[Int]]` and rejects, without staging any change:
+
+- page-size mismatch, a short page/header/trunk, or a caller page size different from the
+  pager page size;
+- a head/count disagreement, a graph whose exact page count differs from the header, or a
+  count beyond the staged logical page bound;
+- page 1, zero, an out-of-range page, or the lock-byte page in any trunk/leaf role;
+- an excessive leaf count, a cycle, a repeated trunk or leaf, or trunk/leaf overlap;
+- non-zero reserved bytes or auto-vacuum until SC-2b implements usable-size and pointer-map
+  maintenance.
+
+All unsigned page numbers remain `Long` until after bounds validation. The reader uses one
+global seen set and validates the exact graph before `applyFreelist` combines it with newly
+freed pages. Newly freed pages receive the same bounds and uniqueness checks, including
+overlap with the existing graph. Validation also occurs when a delete frees no page, so
+direct staged-helper callers cannot bypass it through the root-leaf path or an empty
+`freedRev`. A second reclaim before commit must read the first reclaim's staged header and
+trunk pages.
+
+The permanent gates are split by observable:
+
+- `scljet-sql-live-reclaim` proves the real DELETE and UPDATE routes on INT and JS;
+- `scljet-freelist-write-corrupt` proves valid staged read-your-writes plus head/count,
+  range, role, count, cycle, duplication, truncation, reserved-byte, auto-vacuum, and
+  newly-freed-page failures. Every negative case must return `Left` before commit and leave
+  the input pager image and pending list unchanged.
+
+#### SC-2a.2 — checked reuse before physical EOF
+
+`mutableAllocate` keeps its existing physical-EOF meaning. A separate error-aware pager
+allocator validates the staged freelist, consumes a leaf first (or the head trunk when it
+has no leaves), decrements the header count, stages the owning trunk/header mutation, and
+returns the page number together with the updated pager. Only an empty validated graph
+falls back to EOF. Leaf splits, interior splits, and `balance_deeper` all request pages
+through that allocator. The database page-count header grows only for actual EOF pages;
+reuse keeps it flat. A mixed reclaim/insert workload must exercise both sibling split and
+root growth, decrease `freelist_count`, plateau `page_count`, pass the pinned reference
+`integrity_check`, and recover its exact pre-image through the rollback journal.
+
 This first reclaim/reuse gate is not storage completion. Canonical M3 additionally requires:
 
 - allocating and freeing overflow chains for incremental large TEXT/BLOB DML;
