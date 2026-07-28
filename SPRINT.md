@@ -9,6 +9,64 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## 2026-07-28 — per-block auto-output on the native lane (Sergiy: "Исправляй оставшиеся проблемы в ssc v2")
+
+**Active claim:** `v2-multiblock-auto-output`. `BUGS.md` `v2-native-multiblock-auto-output-missing`.
+A `.ssc` document's contract is that the last non-Unit expression **of each top-level code block**
+is printed. v1 does this per block; the native lane prints the whole program's final value once.
+
+**Measured before (three programs, one fence vs two, nothing else different):**
+
+| program | native | v1 |
+|---|---|---|
+| bare `.ssc`: `val x = 1 + 1` / `x` | `2` | `2` |
+| ONE fence | `2` | `2` |
+| TWO fences (`a` then `b = a * 10`) | **`20`** | **`2`** then **`20`** |
+
+`examples/content.ssc`: v1 prints `2`, `List(1, 4, 9, 16, 25)`, `HELLO!`; native prints none of
+them, because its last block ends in a Unit statement so the single program-level print is
+suppressed.
+
+**Where the information dies:** `sscConcatSources`/`sscAppendSource` in
+`v2/bin/ssc1-run-fsub.ssc0` (and `joinScalaScript` in the legacy runner) join every fence into ONE
+string with `"\n\n"` before the lexer runs. After the join, "which statement ended a block" is not
+recoverable by any later stage — so this cannot be fixed in the lowerer or the runtime, and a text
+heuristic ("last line at column 0") is not viable either: `examples/content.ssc` ends a block with
+`))` at column 0.
+
+**Design (chosen — record the rejected one too).** Marker + post-parse pass, because the block
+boundary must be consumed by the stage that has parsed the block:
+
+1. **Runner** emits a sentinel statement after each code fence's source, and prepends an
+   auto-output helper definition to the program. No new prim is needed:
+   `__isTag__(x, "Unit", -1)` is the Unit test and `#io.println` renders through the same display
+   renderer `Show.show` uses.
+2. **F** (`specs/v2.2-p6.5-fsub.ssc`) runs a pass over the parsed TOP-LEVEL statement list: for
+   each sentinel, if the immediately preceding statement is an expression (not a def/val/class),
+   replace it with `helper(expr)`; drop the sentinel. Definitions and Unit tails stay silent —
+   the Unit test is at runtime because Unit-ness is a runtime property, exactly as in v1.
+3. Wrapping **every** block including the last is deliberate: the program's own final value then
+   becomes Unit, so `V2Result.report` prints nothing and there is no double-print and no
+   last-block special case.
+
+*Rejected:* compiling each block separately and merging the IR — it has to answer how a later
+block still sees an earlier block's `val`, which the single-program join gives for free.
+
+- [ ] **MBA-0 — fail-first gate.** `tests/conformance/multiblock-auto-output.ssc`: two fences,
+      the first ending in a non-Unit expression, the second in a definition (so the program tail
+      is silent) plus a third fence with a Unit tail to prove Unit stays quiet. `backends:
+      [int, js, jvm, v2]`. Must be RED on V2 and green on INT before any edit.
+- [ ] **MBA-1 — runner: sentinel + helper.** Both `ssc1-run-fsub.ssc0` and `ssc1-run.ssc0` (they
+      are copies; editing one is a silent half-fix — F is the default runner).
+- [ ] **MBA-2 — F: the post-parse pass.** ⚠️ F compiles ITSELF: `specs/v2.2-p6.5-fsub.sh --self`
+      must stay green with a byte-identical stage1==stage2 fixpoint. Run it before and after.
+- [ ] **MBA-3 — verify.** Gate green; `examples/content.ssc` prints its three values in source
+      order; affected conformance slice; the F fixpoint gate; and an A/B over the corpus for
+      cases whose golden was written against the CURRENT one-value behaviour (a case whose
+      expected output omits an earlier block's tail will newly print it — those goldens are
+      wrong today, but each one must be looked at, not bulk-updated).
+
+
 ## 2026-07-28 — `f-named-arg-skips-default` — ✅ DONE (see CHANGELOG)
 
 Pointer only. Named args now bind BY NAME on both self-hosted fronts; the two corrections to the

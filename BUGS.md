@@ -6098,11 +6098,34 @@ real release installer behind a fake downloader/java: it proves the generated so
 
 ## v2-native-multiblock-auto-output-missing — standard native lane drops per-block non-Unit results
 
-**Status:** OPEN (found 2026-07-17 by `ci-red-main` after correcting the all-examples tools-command
-routing; diagnosis corrected before implementation). The partially corrected 17-example matrix is
-byte-identical on 16 files. For `examples/content.ssc`, v1 JS/JVM print the three documented
-auto-output values (`2`, `List(1, 4, 9, 16, 25)`, `HELLO!`) before the rendered document; standard
-v2 native omits all three.
+**Status:** OPEN, still reproducing 2026-07-28. Found 2026-07-17 by `ci-red-main` after correcting
+the all-examples tools-command routing.
+
+**SHARPER DIAGNOSIS 2026-07-28 (`v2-multiblock-auto-output`) — the machinery is not missing, it is
+per-PROGRAM instead of per-BLOCK.** The framing below ("omits all three") sends the reader looking
+for an absent feature. It is present, and exactly one value does print. Three-line A/B, one fence
+vs two, nothing else different:
+
+| program | native | v1 |
+|---|---|---|
+| bare `.ssc`: `val x = 1 + 1` / `x` | `2` | `2` |
+| ONE fence: `val a = 2` / `a` | `2` | `2` |
+| TWO fences: `val a = 2` / `a` ‖ `val b = a * 10` / `b` | **`20`** | **`2`** then **`20`** |
+
+So the native lane prints the **whole program's** final value, and single-block programs are right
+by coincidence of shape. The printer is `V2Result.report`
+(`v1/tools/cli/src/main/scala/scalascript/cli/V2Result.scala:5`): `UnitV` → nothing, otherwise
+`println(Show.show(v))` — structurally the same rule as v1's `autoOutput`, applied once at the
+program boundary instead of once per block. `examples/content.ssc` "omits all three" only because
+its final block ends in a `Unit` statement, so `report` prints nothing at all.
+
+**What that changes about the fix.** Wrap **every** code block's tail expression, including the
+last. Then the program's own final value becomes `Unit` and `V2Result.report` correctly prints
+nothing — no double-print, and no special case for the last block. The needed runtime pieces
+already exist and require **no change to `v2/src`**: `__isTag__(x, "Unit", -1)` is the Unit test
+(`Runtime.scala` maps `UnitV` to the `"Unit"` tag), and `#io.println` renders any value through
+the same display renderer `Show.show` uses. So an auto-output helper is expressible as an ordinary
+prepended definition rather than a new prim.
 
 **Real-harness repro.** Build the full distribution. `bin/ssc examples/content.ssc` is the v2 native
 standard lane and omits the values; `bin/ssc-tools run --v1`, `emit-js`+node, and `run-jvm` use the
