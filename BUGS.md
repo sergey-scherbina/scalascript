@@ -32,7 +32,6 @@ production-route policy in `BACKLOG.md` was decided on, and it cannot currently 
 lane at all.
 
 ## bench-jvm-js-lanes-dead-silently — two whole benchmark columns were unmeasurable, and printed `n/a`
-## bench-jvm-js-lanes-dead-silently — two whole benchmark columns were unmeasurable, and printed `n/a`
 
 **Status:** **FIXED 2026-07-28** (`bench-tier-dead-lanes`). Found while running a full 9-backend
 sweep for the first time since the v2 work.
