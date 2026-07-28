@@ -397,7 +397,7 @@ object Runtime:
         case _             => sys.error("app: array index must be Int")
     case lv @ Value.DataV("Cons" | "Nil", _) =>
       avs(0) match
-        case Value.IntV(i) => Done(Prims.unlistPub(lv)(i.toInt))
+        case Value.IntV(i) => Done(Prims.listIndex(lv, i.toInt))
         case _             => sys.error("app: list index must be Int")
     case Value.MapV(entries) => Done(entries(avs(0)))
     case Value.DataV("Stub", fs) => Done(Value.DataV("Stub", fs))
@@ -855,7 +855,7 @@ object Compiler:
                 case c: ClosV =>
                   val avs = new Array[Value](1); avs(0) = v0; Call(c, avs)
                 case lv @ (DataV("Cons", _) | DataV("Nil", _)) =>
-                  v0 match { case IntV(i) => Done(Prims.unlistPub(lv)(i.toInt)); case _ => sys.error("app: list index must be Int") }
+                  v0 match { case IntV(i) => Done(Prims.listIndex(lv, i.toInt)); case _ => sys.error("app: list index must be Int") }
                 case ForeignV(ab: collection.mutable.ArrayBuffer[?]) =>
                   v0 match { case IntV(i) => Done(ab.asInstanceOf[collection.mutable.ArrayBuffer[Value]](i.toInt)); case _ => sys.error("app: array index must be Int") }
                 case MapV(m) => Done(m(v0))
@@ -1418,7 +1418,7 @@ object Prims:
                   case fn: ClosV => callClos(fn, margs.toArray)
                   case lv @ (DataV("Cons", _) | DataV("Nil", _)) =>
                     margs.head match
-                      case IntV(ix) => unlistPub(lv)(ix.toInt)
+                      case IntV(ix) => listIndex(lv, ix.toInt)
                       case _ => DataV("Stub", Vector(StrV(s"$tag.$mname")))
                   case MapV(m) => m(margs.head)
                   case ForeignV(m: collection.mutable.Map[?, ?]) =>
@@ -2111,9 +2111,9 @@ object Prims:
               .map((k, v) => DataV("Tuple2", collection.immutable.ArraySeq(k, v))), z,
             (acc, x) => callClos(fn, Array(acc, x)))
         case (DataV("Nil", _), "length", Nil) | (DataV("Nil", _), "size", Nil) =>
-          IntV(unlist(recv).length.toLong)
+          IntV(listLength(recv).toLong)
         case (DataV("Cons", _), "length", Nil) | (DataV("Cons", _), "size", Nil) =>
-          IntV(unlist(recv).length.toLong)
+          IntV(listLength(recv).toLong)
         // Exception value (`try … catch { case e: RuntimeException => e.getMessage }`): the caught
         // value is DataV("<...>Exception"/"<...>Error", [message]); getMessage returns the message.
         case (DataV(tag, IndexedSeq(msg)), "getMessage", Nil)
@@ -2635,7 +2635,7 @@ object Prims:
                           // list indexing on the `users` field, map fields likewise
                           case lv @ (DataV("Cons", _) | DataV("Nil", _)) =>
                             margs.head match
-                              case IntV(ix) => unlistPub(lv)(ix.toInt)
+                              case IntV(ix) => listIndex(lv, ix.toInt)
                               case _ => DataV("Stub", Vector(StrV(s"$tag.$name")))
                           case MapV(m) => m(margs.head)
                           case ForeignV(m: collection.mutable.Map[?, ?]) =>
@@ -3396,6 +3396,43 @@ object Prims:
     acc
   private def strList(xs: Seq[String]): Value = listOf(xs.map(StrV(_)))
   private def unlist(v: Value): List[Value] = unlistPub(v)
+
+  /** `xs(i)` on a cons chain, WITHOUT materialising the chain.
+   *
+   *  Every indexed-read site used to spell this `unlistPub(lv)(i)`, which copies the WHOLE
+   *  chain into a `ListBuffer` and then into a `List` before indexing it — so one read costs
+   *  O(n) time AND O(n) allocation. v2 represents `Vector` as a cons chain, so `bench/corpus/
+   *  vector-index` (200k reads into a 16-element `Vector`) was paying ~32 allocations per read
+   *  to fetch one element.
+   *
+   *  Anything this walk does not recognise — a `ForeignV(ArrayBuffer)` tail, a chain shorter
+   *  than `i`, a negative index — falls back to `unlistPub(v)(i)` with the ORIGINAL receiver
+   *  and index, so the value returned and the exception thrown are identical to the old
+   *  spelling rather than merely similar. */
+  @annotation.tailrec
+  private def consAt(cur: Value, k: Int): Value = cur match
+    case DataV("Cons", Seq(h, t)) => if k == 0 then h else consAt(t, k - 1)
+    case _                        => null
+
+  def listIndex(v: Value, i: Int): Value =
+    val fast = if i >= 0 then consAt(v, i) else null
+    if fast != null then fast else unlistPub(v)(i)
+
+  /** `xs.length` / `xs.size` on a cons chain, counted in place.
+   *
+   *  Same defect as [[listIndex]]: `unlist(recv).length` built the entire list just to ask how
+   *  long it was. Non-cons shapes (an `ArrayBuffer` tail) still go through `unlistPub`, so the
+   *  answer is unchanged for them. */
+  def listLength(v: Value): Int =
+    var cur = v
+    var n = 0
+    while true do
+      cur match
+        case DataV("Cons", Seq(_, t)) => n += 1; cur = t
+        case DataV("Nil", _)          => return n
+        case other                    => return n + unlistPub(other).length
+    n
+
   def unlistPub(v: Value): List[Value] =
     val out = collection.mutable.ListBuffer.empty[Value]
     var cur = v
