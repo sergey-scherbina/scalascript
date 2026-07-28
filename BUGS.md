@@ -339,11 +339,21 @@ same bug.
 INT resolves it; the JS backend emits a reference to a derived instance it never defines. Note this
 is a *reference error*, not the `not callable` fail-open — the JS lane is at least loud here.
 
-**(b) `coroutineCancel` has no JS implementation.**
-`v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/async.mjs` defines
-`_coroutineCreate` (and resume/suspend), but there is no `coroutineCancel` anywhere under
-`js-runtime/`. `std/coroutine.ssc` exports it, so any program importing it and calling cancel dies
-with `not callable: ()`. `coroutine-demo` does exactly that.
+**(b) `coroutineCancel` has no JS implementation — FIXED 2026-07-28.** Implemented in
+`js-runtime/async.mjs` against the interpreter as the reference, not against intuition:
+`gen.return()` is the JS analogue of the interpreter's `thread.interrupt()` (it drives the generator
+to completion so a `finally` in the body still runs); a body never resumed has not started, because
+a JS generator does not execute until its first `next()` — which is what `coroutine-demo` asserts
+with `cancelled before start`; and a second cancel is a no-op, matching the interpreter, where it
+simply finds no handle to remove.
+
+Fixed alongside it: `_coroutineResume` said `coroutine already completed` where the interpreter says
+`coroutine already completed or cancelled`. The wording is CONTRACT — the program catches and prints
+it, and `tests/conformance/expected/coroutine-native-lifecycle.txt` pins that exact string. Verified
+that nothing depended on the old wording before changing it.
+
+**Result:** `examples/coroutine-demo.ssc` is now byte-identical on **INT, JS and v2**. That case
+began the day SKIPped on every lane by an import cycle.
 
 **Until they are closed,** neither example can pass the corpus contract on the `js` lane, and the
 honest way to say so is a `backends:` gate naming the reason — not a baseline row, which is for

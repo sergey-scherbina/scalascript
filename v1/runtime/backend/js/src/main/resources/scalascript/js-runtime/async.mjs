@@ -2271,8 +2271,31 @@ function _coroutineCreate(genFn) {
   return { _type: '_Coroutine', _gen: gen, _done: false };
 }
 
+// Cancel a coroutine. Mirrors the interpreter (CoroutineRuntime): the handle becomes unusable and
+// a later resume fails with the SAME message — `tests/conformance/expected/coroutine-native-
+// lifecycle.txt` contains that string, so it is contract, not a detail.
+//
+// `gen.return()` is the JS analogue of the interpreter's `thread.interrupt()`: it drives the
+// generator to completion so any `finally` in the body still runs. A body that was never resumed
+// has not started (a generator does not execute until its first `next()`), so cancelling before the
+// first resume leaves it unrun — which is what `examples/coroutine-demo.ssc` asserts with
+// `cancelled before start`.
+//
+// Cancelling twice is a no-op rather than an error, matching the interpreter, where the second
+// cancel simply finds no handle to remove.
+function coroutineCancel(co) {
+  if (!co || co._done) return undefined;
+  co._done = true;
+  try { if (co._gen && typeof co._gen.return === 'function') co._gen.return(undefined); }
+  catch (_e) { /* a throwing finally must not turn cancellation into a failure */ }
+  return undefined;
+}
+if (typeof globalThis !== 'undefined') globalThis.coroutineCancel = coroutineCancel;
+
 function _coroutineResume(co, input) {
-  if (co._done) throw new Error('coroutineResume: coroutine already completed');
+  // "or cancelled" is load-bearing: the interpreter raises exactly this text and the conformance
+  // golden pins it, so a JS-only wording would diverge the lanes on a caught-and-printed message.
+  if (co._done) throw new Error('coroutineResume: coroutine already completed or cancelled');
   let r;
   try { r = co._gen.next(input); }
   catch (e) { co._done = true; return Errored(e.message || String(e)); }
