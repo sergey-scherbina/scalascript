@@ -193,12 +193,45 @@ run_case gh-fail 2 "CI UNKNOWN $SHA" "gh run list failed"
 # a later docs commit therefore has no run of its own, and the old answer — CI UNKNOWN — was wrong
 # in the expensive direction: it says "unverified" about a commit that was fully tested.
 #
-# These cases use REAL commits from this repository, because the ancestry test is real `git
-# merge-base --is-ancestor`, not a string comparison. The negative case is the one that matters: a
-# run whose head is NOT a descendant must still be UNKNOWN, or the fallback would accept any recent
-# run as evidence for anything.
-DESC_SHA="$(git -C "$ROOT" rev-parse origin/main 2>/dev/null || git -C "$ROOT" rev-parse HEAD)"
-ANC_SHA="$(git -C "$ROOT" rev-parse "${DESC_SHA}~5" 2>/dev/null || echo "$DESC_SHA")"
+# These cases need REAL commits with a REAL parent edge, because `ci-status` answers with
+# `git merge-base --is-ancestor` against this repository, not a string comparison. The negative
+# case is the one that matters: a run whose head is NOT a descendant must still be UNKNOWN, or the
+# fallback would accept any recent run as evidence for anything.
+#
+# The pair is BUILT here rather than read out of the ambient history, and that is the fix for
+# `Validate ScalaScript` having been red on every CI run. It used to be:
+#
+#   DESC_SHA="$(git rev-parse origin/main 2>/dev/null || git rev-parse HEAD)"
+#   ANC_SHA="$(git rev-parse "${DESC_SHA}~5" 2>/dev/null || echo "$DESC_SHA")"
+#
+# `actions/checkout` clones with `fetch-depth: 1`, so `<tip>~5` does not exist in CI. And
+# `git rev-parse` WITHOUT `--verify` does not fail cleanly on an unresolvable revision: it ECHOES
+# the argument to stdout and exits 128. The `||` therefore APPENDED the fallback instead of
+# replacing it, and `ANC_SHA` became two lines — `<sha>~5` followed by `<sha>`. `ci-status` was
+# then asked about the literal string `<sha>~5`, which of course has no run:
+#
+#   ci-status-guard[desc-green]: expected exit=0 got=2
+#   CI UNKNOWN d684e68971c75ac11042f19f84fc32c1070fb064~5
+#
+# `commit-tree` writes two objects with an explicit parent edge straight into this repository's
+# object database: no refs, no index, no working tree, nothing to clean up, and — the point —
+# no dependence on how deep the checkout is. The identity is passed by env so the test does not
+# require a configured `user.email`, which a CI checkout does not have.
+GUARD_TREE="$(git -C "$ROOT" hash-object -t tree /dev/null)"
+ANC_SHA="$(GIT_AUTHOR_NAME=ci-status-guard GIT_AUTHOR_EMAIL=guard@invalid \
+           GIT_COMMITTER_NAME=ci-status-guard GIT_COMMITTER_EMAIL=guard@invalid \
+           git -C "$ROOT" commit-tree "$GUARD_TREE" -m 'ci-status-guard fixture: ancestor' </dev/null)"
+DESC_SHA="$(GIT_AUTHOR_NAME=ci-status-guard GIT_AUTHOR_EMAIL=guard@invalid \
+            GIT_COMMITTER_NAME=ci-status-guard GIT_COMMITTER_EMAIL=guard@invalid \
+            git -C "$ROOT" commit-tree "$GUARD_TREE" -p "$ANC_SHA" -m 'ci-status-guard fixture: descendant' </dev/null)"
+# Fail loudly rather than silently degenerating: if these ever collapsed to the same commit, or the
+# edge were not real, `desc-green` would pass for the wrong reason and `desc-none` would be vacuous.
+[[ -n "$ANC_SHA" && -n "$DESC_SHA" && "$ANC_SHA" != "$DESC_SHA" ]] \
+  || { printf 'ci-status-guard: could not build the ancestry fixture (anc=%q desc=%q)\n' "$ANC_SHA" "$DESC_SHA" >&2; exit 1; }
+git -C "$ROOT" merge-base --is-ancestor "$ANC_SHA" "$DESC_SHA" \
+  || { printf 'ci-status-guard: fixture ancestry is not real (%s is not an ancestor of %s)\n' "$ANC_SHA" "$DESC_SHA" >&2; exit 1; }
+git -C "$ROOT" merge-base --is-ancestor "$DESC_SHA" "$ANC_SHA" \
+  && { printf 'ci-status-guard: fixture ancestry is symmetric, so desc-none proves nothing\n' >&2; exit 1; } || true
 
 FAKE_DESC="$TMP/gh-desc"
 cat > "$FAKE_DESC" <<'FAKE_DESC_EOF'
