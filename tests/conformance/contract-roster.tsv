@@ -1,4 +1,4 @@
-# corpus-contract-roster-v1	baseline-sha256=d73cc059362c1aea218f39029387867af5cdba0477403003e1d528e1a91a62ec	roster-sha256=5644dba6de418a725e61a220769b03a33bf9698807ffa3ea3b545e1ceb887fea
+# corpus-contract-roster-v1	baseline-sha256=d73cc059362c1aea218f39029387867af5cdba0477403003e1d528e1a91a62ec	roster-sha256=b3594e20022dde5de97e6dec27c26bdf4dbf08dbfe7e546c8d5b8e234922b9be
 _bug1_httpclient
 _bug1b
 _bug1c
@@ -415,6 +415,7 @@ tls-smoke
 totp-shamir-demo
 traditional-payments
 traversal
+try-multistmt-body
 tuples
 type-ascription
 typeclass
