@@ -1,0 +1,73 @@
+---
+name: fewer-braces-colon
+description: "fewer-braces trailing lambda, and the colons that must NOT change"
+backends: [int, js, jvm, v2]
+---
+
+# fewer-braces trailing lambda
+
+`BUGS.md` `v2-front-colon-trailing-lambda`. Scala 3 lets a trailing lambda argument be
+introduced with `:` instead of braces. Neither self-hosted front consumed that `:`, so
+`f(x): p => body` lowered to three separate statements with `_err` where the argument
+should be — the file was rejected outright.
+
+The braced spelling, which always worked, and the colon spelling, which did not.
+
+```scalascript
+def ap(n: Int)(f: Int => Int): Int = f(n)
+def useBrace(): Int = ap(3)((i) => i * 2)
+def useColon(): Int =
+  ap(3): (i) =>
+    i * 2
+println(useBrace())
+println(useColon())
+```
+
+A single untupled parameter, and a two-parameter lambda — the shape `wasm-matrix` uses
+(`matrix(a.length, cols): (i, j) =>`).
+
+```scalascript
+def ap1(n: Int)(f: Int => Int): Int = f(n)
+def ap2(a: Int, b: Int)(f: (Int, Int) => Int): Int = f(a, b)
+def one(): Int =
+  ap1(5): i =>
+    i + 1
+def two(): Int =
+  ap2(2, 3): (i, j) =>
+    i * j
+println(one())
+println(two())
+```
+
+## Colons that must keep their meaning
+
+These are the reason the fix needs a lambda lookahead rather than "any `:` opens an
+argument". Each one is a colon that is **not** a trailing lambda.
+
+A type ascription on a `val`, a declaration-body colon with members, and a type
+annotation inside parens.
+
+```scalascript
+val annotated: Int = 5
+println(annotated)
+
+case class Boxed(a: Int):
+  def doubled(): Int = a * 2
+  def label(): String = "b"
+println(Boxed(4).doubled())
+println(Boxed(4).label())
+
+def typed(x: Int, y: String): String = y + x.toString
+println(typed(1, "n"))
+```
+
+A `given` body colon and a block-bodied method — both use `:` followed by a newline and
+must still open a declaration body, not swallow the next expression as an argument.
+
+```scalascript
+object Holder:
+  def compute(n: Int): Int =
+    val step = n + 1
+    step * 2
+println(Holder.compute(3))
+```
