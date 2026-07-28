@@ -1,0 +1,11 @@
+slug: v2-distributed-failure-retry
+branch: feature/v2-distributed-failure-retry
+agent: claude-code
+started: 2026-07-28T00:16:28Z
+heartbeat: 2026-07-28T00:16:28Z
+status: claimed-before-planning
+items: v2-distributed-failure-retry
+paths: v2/runtime/std/distributed-plugin/ tests/conformance/distributed- tests/conformance/expected/distributed- tests/fixtures/v21-native/distributed-
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
