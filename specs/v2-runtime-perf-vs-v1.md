@@ -286,3 +286,33 @@ same rows. **On a contended host, one A/B run is a hypothesis, not a measurement
 **What this rules out:** "the constant op cannot reach the String switch" is TRUE (the sizes prove
 it) and simultaneously does not matter. Whatever the arith frames cost, it is the arithmetic and
 the `IntV` boxing, not the dispatch. Do not re-attempt this without a new reason.
+
+## 8. Re-measured: the prim-dispatch change, under the alternating protocol
+
+§7's noise finding invalidated the evidence the prim-dispatch change (`74ba45ff0`) was landed on —
+it had been measured with single before/after runs — so it was re-measured the same way §7 was:
+three alternating rounds swapping only the staged `scalascript-v2-jvm-runtime` jar. Medians,
+v2-bytecode ms/iter:
+
+| workload | before | after | verdict |
+|---|---|---|---|
+| `literal-match` | 0.250 | 0.184 | **1.36× — real** (before 0.250/0.256/0.243, after 0.184/0.183 in the clean rounds; both sides tight) |
+| `vector-index` | 43.7 | 41.9 | +4% — noise |
+| `map-ops` | 0.722 | 0.695 | +4% — noise |
+| `list-fold` | 0.888 | 0.889 | 0% |
+
+**The change is confirmed and its real effect is LARGER than first claimed on the one workload that
+moves (1.36× vs the 1.25× in the commit message) — and the `vector-index` +12% and `list-fold` +5%
+that message also claimed were noise.** Both halves of that correction come from the same protocol;
+neither is a judgement call.
+
+Note `list-fold`: it is what motivated the change (its profile showed ~18% in String-keyed prim
+resolution) and it did not move at all. The allocation and the second lookup are gone; the hash
+lookup that remains is evidently what the 18% mostly was. Removing it needs the emit-time half —
+`JvmByteGen` resolving the constant op into a static slot filled in `<clinit>` — which is a real
+emitter change and, on this evidence, worth about that 18% at best.
+
+Kept rather than reverted, because unlike §7 it has a measured win on one workload, and because the
+design is better on its own terms independent of timing: one lookup instead of the two the first cut
+introduced, no `List` allocated per prim call, and the same arity-specialised resolvers the VM lane
+has always used — the two lanes now agree instead of diverging.
