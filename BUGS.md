@@ -1358,7 +1358,7 @@ larger preparation contract.
 **Status:** FIXED (found 2026-07-28 by `scljet-production-completion`;
 reproduced from `71d19c6ef` in the real conformance harness on INT and emitted
 JS/Node, with successful outcomes pinned independently from SQLite 3.51.0;
-fixed in `9d69c9f30` and `ecb9bac4c`).
+fixed in `8172f60f1` and `483bef42b`).
 
 **Real-harness reproduction.** The fail-first `scljet-correlated-dml` gate
 executes UPDATE and DELETE with correlated EXISTS, IN, and scalar predicates.
@@ -1378,10 +1378,10 @@ without the outer row. The mutation and affected-row-count paths must share one
 database-aware selection result; otherwise a fix to the write path alone would
 still return a false JDBC update count.
 
-**Fix:** `9d69c9f30` makes UPDATE targets visible to correlation detection,
+**Fix:** `8172f60f1` makes UPDATE targets visible to correlation detection,
 selects mutation rowids through the shared database-aware error channel, and
 feeds that one list to DELETE, both UPDATE branches, and `changes()`.
-`ecb9bac4c` additionally materializes a physical-NULL INTEGER PRIMARY KEY from
+`483bef42b` additionally materializes a physical-NULL INTEGER PRIMARY KEY from
 the B-tree rowid before DELETE predicate binding while preserving raw records
 for indexed rebuilds. The fourteen-line `scljet-correlated-dml` oracle passes
 on INT and JS across UPDATE/DELETE × EXISTS/IN/scalar, missing/malformed
@@ -1393,7 +1393,7 @@ physical-NULL-IPK delete.
 **Status:** FIXED (found 2026-07-28 by independent
 `scljet-production-completion` review; reproduced from `71d19c6ef` through the
 assembled v1 harness on INT and emitted JS/Node, and compared with both SQLite
-CLI 3.51.0 and Xerial's embedded SQLite 3.45.3; fixed in `b6b810231`).
+CLI 3.51.0 and Xerial's embedded SQLite 3.45.3; fixed in `4c6045266`).
 
 **Real-harness reproduction.** With outer `t` rows whose `v` values are
 `1,999,2` and a non-empty `s`, run:
@@ -1412,7 +1412,7 @@ SELECT scope recursively: blindly skipping all nested tokens would hide the
 bug but break legitimate grandparent correlation. Alias parsing is a separate,
 already declared open grammar capability and is not evidence for this defect.
 
-**Fix:** `b6b810231` recursively accumulates table names along each SELECT
+**Fix:** `4c6045266` recursively accumulates table names along each SELECT
 scope, applies the shadow set independently to sibling branches, and rebuilds
 nested token groups after exact outer-value substitution. The expanded
 twelve-line `scljet-sql-correlated-join` gate passes on INT and JS. Its EXISTS
