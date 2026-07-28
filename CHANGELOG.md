@@ -14,6 +14,26 @@ direction that turned out to be wrong (top-level-only, on the assumption that v1
 strings); measuring v1 first replaced a special case with a one-line swap. `BUGS.md`
 `v2-native-program-tail-quotes-strings`.
 
+## 2026-07-28 — the native `Mirror` answers `isProduct`, and a derived-schema example runs on v2
+
+The native `Mirror` implemented exactly three of its members — the VM had arms for `label`,
+`elemLabels` and `elemTypes`, and both self-hosted fronts emitted a matching three-field value. So
+`m.isProduct` fell through to the ambient plugin path and evaluated to a `Stub` sentinel; being a
+value rather than an error, it then drove `std/agent.ssc`'s `if !m.isProduct` and the program carried
+on at exit 0. That is what stopped `examples/rozum-agent-schema-derived.ssc` on the default lane.
+
+Both fronts now register `isProduct` as a tagged method via the existing `__regmethod__`, which the
+VM's dispatch consults before its hardcoded arms — so the surface completes with no VM change, which
+also kept the fix out of a file another agent held. Emitted once per program and only when the
+program declares a case class.
+
+`examples/rozum-agent-schema-derived.ssc` now prints `Done / Derived posted. / Explicit posted. / 2`
+on the default lane, byte-identical to the v1 reference. `fromProduct` is still `Stub` — measured to
+be off that example's path, and filed as `v2-mirror-fromproduct-stub` rather than folded in.
+
+Gates: fsub 173 ok / 0 FAIL with the X1 fixpoint byte-identical, semantic golden 247/247, new
+cross-lane `tests/conformance/v2-mirror-surface.ssc` on INT/JS/JVM.
+
 ## 2026-07-28 — every code block's tail prints again on the native lane
 
 A `.ssc` document's contract is that the last non-Unit expression **of each** top-level code block

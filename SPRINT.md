@@ -9,44 +9,13 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-## 2026-07-28 — `v2-mirror-isproduct-stub` (the v2 half of `rozum-agent-schema-derived-js-and-v2-gaps`)
+## 2026-07-28 — `v2-mirror-isproduct-stub` — ✅ DONE (see CHANGELOG)
 
-**Active claim:** `v2-mirror-isproduct-stub`. `examples/rozum-agent-schema-derived.ssc` on the
-default lane stops at `ssc: if: condition not Bool: Stub("Mirror.isProduct")` — **and exits 0**.
-
-**Root cause (MEASURED 2026-07-28, before any edit).** The native lane's `Mirror` implements
-exactly three members. `v2/src/Runtime.scala:2312-2314` has arms for `label`, `elemLabels`,
-`elemTypes` and nothing else; both fronts emit a matching 3-field value
-(`ssc1-lower lowerProductMetadata` -> `IrCtor("Mirror", [label, labels, types])`, F `emitMirror`
--> the same triple). `isProduct` and `fromProduct` therefore fall through to the ambient path and
-become `Stub`. Probe on a 4-line program:
-
-| member | v1 reference | native |
-|---|---|---|
-| `label` / `elemLabels` / `elemTypes` | `P` / `List(x, s)` / `List(Int, String)` | same |
-| `isProduct` | `true` | **`Stub`** |
-| `fromProduct(List(1, "hi"))` | `P(1, hi)` | **`Stub`** |
-
-**Where the fix goes, and why NOT the obvious place.** One VM arm next to the existing three would
-fix both fronts at once — but `v2/src` is held by `v2-perf-prim-dispatch` with a live heartbeat, so
-racing it is out. `__regmethod__(tag, name, closure)` already exists for exactly this: it registers
-a tagged method that `methodDispatch1` consults **before** the hardcoded arms
-(`Runtime.scala:1815`). So the fronts can supply the members with no VM change.
-
-- [ ] **MIR-1 — `isProduct` from both fronts.** Emit
-      `__regmethod__("Mirror", "isProduct", (self) => true)` into the entry prelude, once per
-      program and only when the program declares at least one case class (so a program with no
-      case classes stays byte-identical). Both `v2/lib/ssc1-lower.ssc0` (next to `caseFieldRegs`
-      / `caseMethodRegs`) and `specs/v2.2-p6.5-fsub.ssc` — the differential gate compares the two,
-      so a one-sided fix reads as a DIVERGE.
-- [ ] **MIR-2 — re-measure the example.** `isProduct` may only be the first Stub;
-      `std/agent.ssc:73` also calls `m.fromProduct(values)`. Decide MIR-3 on the measurement, not
-      on the assumption.
-- [ ] **MIR-3 — `fromProduct` if it is on the path.** Needs the Mirror to carry the ctor as a
-      4th field (a `(xs: List) => T(...)` lambda the front can build, since it knows the arity),
-      plus `__regmethod__("Mirror", "fromProduct", (self, xs) => …)`.
-- [ ] **MIR-4 — gates + close out.** fsub `--self` (corpus + X1 fixpoint), semantic golden,
-      `tests/conformance/v2-mirror-surface.ssc` cross-lane, rostered. BUGS entry updated.
+Pointer only. The native `Mirror` implemented three of its members; `isProduct` evaluated to `Stub`
+and then drove an `if`. Both fronts now register it as a tagged method (no VM change — `v2/src` was
+held). `examples/rozum-agent-schema-derived.ssc` is byte-identical to v1 on the default lane.
+MIR-3 (`fromProduct`) was measured OFF this example's path and filed as
+`v2-mirror-fromproduct-stub`.
 
 ## 2026-07-28 — the program tail rendered as a debug dump — ✅ DONE (`7e85d198a`)
 

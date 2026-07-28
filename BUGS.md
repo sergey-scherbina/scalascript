@@ -1,5 +1,45 @@
 # Bug tracker
 
+## v2-mirror-fromproduct-stub — the last missing `Mirror` member still evaluates to `Stub`
+
+**Status:** OPEN (found 2026-07-28 by `v2-mirror-isproduct-stub` while fixing the sibling member;
+filed rather than folded in, because it needs a different change).
+
+**Reproduction** (real harness, fresh `sbt installBin`):
+
+```scalascript
+case class P(x: Int, s: String)
+val m = summon[Mirror.Of[P]]
+println(m.fromProduct(List(1, "hi")))
+```
+
+| lane | result |
+|---|---|
+| `bin/ssc-tools run --v1` | `P(1, hi)` |
+| `bin/ssc run` (default, native) | **`Stub`** |
+
+**Why it is not the same fix as `isProduct`.** `isProduct` is a constant for every Mirror the
+fronts emit, so registering `(self) => true` as a tagged method completes it. `fromProduct` has to
+CONSTRUCT a `T`, which is per-type: the Mirror value would have to carry the constructor — a fourth
+field holding a `(xs: List) => T(xs(0), …)` lambda, which each front can build because it knows the
+arity — and then `__regmethod__("Mirror", "fromProduct", (self, xs) => …)` applies it. Both fronts
+again, since the differential gate compares them.
+
+**Not on the path of the motivating example.** Measured, not assumed:
+`examples/rozum-agent-schema-derived.ssc` runs clean on the default lane after the `isProduct` fix
+(`Done / Derived posted. / Explicit posted. / 2`, byte-identical to v1), even though
+`std/agent.ssc:73` contains a `m.fromProduct(values)` call — that call sits in the tool-args decoder
+and this example's flow does not reach it. So this is a real hole with no currently-failing
+consumer, which is exactly why it is filed with a repro instead of left as a note.
+
+**Deliberately absent from `tests/conformance/v2-mirror-surface.ssc`** — pinning it there would
+make that case fail for a gap that is filed, not fixed. Add it to that case in the same change that
+fixes this.
+
+**⚠️ Both halves shared one property worth remembering:** the missing member did not raise, it
+evaluated to a `Stub` sentinel, and the program continued at exit 0. `isProduct`'s sentinel then
+drove an `if`. A gate keying on exit status sees success.
+
 ## js-v2-unit-pattern-does-not-match-and-unit-literal-pattern-crashes — two Unit-pattern defects on the v2 JS codegen
 
 **Status:** OPEN (found 2026-07-28 by `v2-multiblock-auto-output`; the first one is what made a
@@ -3463,6 +3503,14 @@ correctly there. The **JS half is untouched** and still the binding defect descr
 
 Remaining work for this entry: (1) the JS `route` extern-binding defect, (2) the v2 `Mirror.isProduct`
 Stub. Neither is a parse problem any more.
+
+**✅ v2 HALF NOW FIXED (2026-07-28, `v2-mirror-isproduct-stub`).** The `Stub("Mirror.isProduct")`
+below was the native `Mirror` implementing only three of its members; both fronts now register
+`isProduct` as a tagged method. Measured on a fresh `sbt installBin`: `bin/ssc run
+examples/rozum-agent-schema-derived.ssc` prints `Done / Derived posted. / Explicit posted. / 2` —
+**byte-identical to the v1 reference**. `fromProduct` remains `Stub` but is NOT on this example's
+path (filed as `v2-mirror-fromproduct-stub`). **The JS half is still open** — the `route`
+extern-binding defect described below.
 
 **RE-CONFIRMED on `e34916fcf`** (2026-07-28, after `8f736ca8b` made the native scan follow in-fence
 imports — which changes this example's module graph, so the earlier measurement could not simply be
