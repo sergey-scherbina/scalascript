@@ -17,60 +17,39 @@ tokens and the two places that already normalized the alias were unreachable. De
 
 ## 2026-07-28 — per-block auto-output on the native lane (Sergiy: "Исправляй оставшиеся проблемы в ssc v2")
 
-**Active claim:** `v2-multiblock-auto-output`. `BUGS.md` `v2-native-multiblock-auto-output-missing`.
-A `.ssc` document's contract is that the last non-Unit expression **of each top-level code block**
-is printed. v1 does this per block; the native lane prints the whole program's final value once.
+**Claim `v2-multiblock-auto-output` — ATTEMPTED, DISPROVEN, REVERTED (`8191e53b5`). Released.**
+`BUGS.md` `v2-native-multiblock-auto-output-missing` stays OPEN and now carries the constraint the
+next attempt needs. Read that entry before re-planning; the summary is here.
 
-**Measured before (three programs, one fence vs two, nothing else different):**
+**What is now known (all measured, none of it needs re-deriving):**
 
-| program | native | v1 |
-|---|---|---|
-| bare `.ssc`: `val x = 1 + 1` / `x` | `2` | `2` |
-| ONE fence | `2` | `2` |
-| TWO fences (`a` then `b = a * 10`) | **`20`** | **`2`** then **`20`** |
+1. The machinery is not missing — it is per-PROGRAM instead of per-BLOCK. `V2Result.report` prints
+   the whole program's final value, so a single-block program is right by coincidence of shape.
+   Two fences printed `20`; v1 prints `2` then `20`.
+2. The runner+F half of the fix WORKS and is the right shape: a `__sscBlockEnd__` sentinel emitted
+   after each code fence, consumed in F's `walkTop` where the preceding item has just been parsed.
+   The `(def, entry)` split `parseTopItem` already returns gives v1's "definitions never print"
+   rule for free. F self-fixpoint held: 173 ok / 0 FAIL, stage1 == stage2 byte-identical
+   (416,921 B; baseline 173 ok / 0 FAIL at 416,071 B).
+3. **The blocker: no source-level Unit test is portable across the lanes that consume F's output.**
+   `case _: Unit` matches on native and NOT on JS/v2; `case ()` matches on neither and CRASHES on
+   JS/v2. So a helper written in `.ssc` cannot decide Unit-ness. The corpus caught this as
+   `deep-tail-recursion FAIL [JS/v2] line 4: expected=<missing> got=()`.
+4. Therefore the auto-output decision must be a **primitive implemented per backend** — F emits
+   `(prim __autoOutput__ e)`, and `v2/src/Runtime.scala` (VM + ASM) and the v2 JS codegen each
+   implement it. **A future claim must cover `v2/src` and `v2/backend/js`**, which this one did not.
+5. Separate residual, also measured: an auto-output block placed BEFORE a `render(...)` block loses
+   its value while render-first matches v1 exactly. `examples/content.ssc` is that shape. Whatever
+   fixes (4) still has to answer this.
 
-`examples/content.ssc`: v1 prints `2`, `List(1, 4, 9, 16, 25)`, `HELLO!`; native prints none of
-them, because its last block ends in a Unit statement so the single program-level print is
-suppressed.
-
-**Where the information dies:** `sscConcatSources`/`sscAppendSource` in
-`v2/bin/ssc1-run-fsub.ssc0` (and `joinScalaScript` in the legacy runner) join every fence into ONE
-string with `"\n\n"` before the lexer runs. After the join, "which statement ended a block" is not
-recoverable by any later stage — so this cannot be fixed in the lowerer or the runtime, and a text
-heuristic ("last line at column 0") is not viable either: `examples/content.ssc` ends a block with
-`))` at column 0.
-
-**Design (chosen — record the rejected one too).** Marker + post-parse pass, because the block
-boundary must be consumed by the stage that has parsed the block:
-
-1. **Runner** emits a sentinel statement after each code fence's source, and prepends an
-   auto-output helper definition to the program. No new prim is needed:
-   `__isTag__(x, "Unit", -1)` is the Unit test and `#io.println` renders through the same display
-   renderer `Show.show` uses.
-2. **F** (`specs/v2.2-p6.5-fsub.ssc`) runs a pass over the parsed TOP-LEVEL statement list: for
-   each sentinel, if the immediately preceding statement is an expression (not a def/val/class),
-   replace it with `helper(expr)`; drop the sentinel. Definitions and Unit tails stay silent —
-   the Unit test is at runtime because Unit-ness is a runtime property, exactly as in v1.
-3. Wrapping **every** block including the last is deliberate: the program's own final value then
-   becomes Unit, so `V2Result.report` prints nothing and there is no double-print and no
-   last-block special case.
-
-*Rejected:* compiling each block separately and merging the IR — it has to answer how a later
-block still sees an earlier block's `val`, which the single-program join gives for free.
-
-- [ ] **MBA-0 — fail-first gate.** `tests/conformance/multiblock-auto-output.ssc`: two fences,
-      the first ending in a non-Unit expression, the second in a definition (so the program tail
-      is silent) plus a third fence with a Unit tail to prove Unit stays quiet. `backends:
-      [int, js, jvm, v2]`. Must be RED on V2 and green on INT before any edit.
-- [ ] **MBA-1 — runner: sentinel + helper.** Both `ssc1-run-fsub.ssc0` and `ssc1-run.ssc0` (they
-      are copies; editing one is a silent half-fix — F is the default runner).
-- [ ] **MBA-2 — F: the post-parse pass.** ⚠️ F compiles ITSELF: `specs/v2.2-p6.5-fsub.sh --self`
-      must stay green with a byte-identical stage1==stage2 fixpoint. Run it before and after.
-- [ ] **MBA-3 — verify.** Gate green; `examples/content.ssc` prints its three values in source
-      order; affected conformance slice; the F fixpoint gate; and an A/B over the corpus for
-      cases whose golden was written against the CURRENT one-value behaviour (a case whose
-      expected output omits an earlier block's tail will newly print it — those goldens are
-      wrong today, but each one must be looked at, not bulk-updated).
+**The gate is written and proven red — re-add it, do not redesign it.** It was
+`tests/conformance/multiblock-auto-output.ssc`, four blocks pinning one rule each: a non-Unit tail
+prints; a later block still sees an earlier block's `val`; a Unit tail stays silent (no bare `()`);
+a definition tail is not an expression and, being last, pins that the program value does not
+double-print. Expected `2` / `20` / `explicit`. Measured RED on V2 (`line 1: expected=2
+got=explicit`) and green on INT/JS/JVM before any edit. It is NOT landed here for two reasons:
+a red v2 lane cannot be declared (`conformance-known-red-silently-ignored-on-v2`), and a new case
+makes the corpus contract red until rostered while CCR-1's refreeze is still pending.
 
 ## 2026-07-28 — `f-named-arg-skips-default` — ✅ DONE (see CHANGELOG)
 
