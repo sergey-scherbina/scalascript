@@ -1,5 +1,27 @@
 # Bug tracker
 
+## v2-distributed-failure-retry — retry path degrades to Stub
+
+**Status:** OPEN (reported by the SSC v2 corpus audit; accepted 2026-07-28
+by `codex`, SPRINT `v2-distributed-failure-retry`).
+
+**Reported real-harness reproduction.**
+
+```bash
+bin/ssc run --native tests/conformance/distributed-failure-retry.ssc
+```
+
+The reported V2 path advances past `Random.uuid`, then emits `Stub` while the
+faulty-worker partition should be retried on a healthy worker. Establish the
+fresh default/legacy × VM/direct-ASM output before assigning the defect to the
+actor coordinator, native distributed provider, or frontend dispatch.
+
+**Fix acceptance.** The unchanged corpus case must print zero failures and
+the ordered values 11 through 16. Preserve the distinction in
+`specs/v2.1-native-distributed-loopback.md`: its deterministic local provider
+must not pretend to implement remote failure detection. If closing the case
+requires expanding that contract, update and commit the spec before code.
+
 ## f-front-silent-delegation-hides-coverage-gaps — F is the default front, and 26 corpus cases were never compiled by it
 
 **Status:** **FIXED 2026-07-28** by opus (`f-front-silent-delegation`, `d900d00cf`) — the silence is

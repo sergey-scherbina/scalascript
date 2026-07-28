@@ -7104,8 +7104,27 @@ emits `def C(a) = IrCtor(C, [a])`; extend to `def C(a) = let y=a*2 in IrCtor(C, 
   pre-commit main); scljet is main's active M4 WIP, left untouched.
 
 ### Effects / runtime providers
-- [ ] **v2-distributed-failure-retry** — advances past `Random.uuid`, then emits `Stub` in the
-  kill-worker/retry path (failure-recovery dispatch gap).
+- [ ] **v2-distributed-failure-retry** — ACTIVE
+  (`feature/v2-distributed-failure-retry`): close the reported `Stub` in the
+  faulty-worker retry path without misrepresenting the local-loopback provider
+  as a remote failure detector.
+  - Run `distributed-failure-retry` unchanged on its declared lane and through
+    default/legacy × native VM/direct ASM. Compare exact stdout/stderr/exit
+    before classifying the reported post-`Random.uuid` failure.
+  - Reduce coordinator setup, faulty-worker receive/exit, `Cluster`
+    construction, and `runDistributed(... retries = 1 ...)` independently to
+    identify the first wrong observable and whether the native intrinsic is
+    reached.
+  - Reconcile the result with `specs/v2.1-native-distributed-loopback.md`
+    (remote failure/retry explicitly out of scope) and `specs/mapreduce.md`
+    (actor retry semantics). If behavior must expand, widen the claim and
+    commit the updated spec before implementation; do not make retries a
+    silently ignored argument.
+  - Add the smallest fail-first regression at the owning boundary and opt the
+    existing corpus case into V2 only after its checked-in output is exact.
+  - Run distributed/actor plugin suites, focused retry + partial/map neighbors,
+    and default/legacy × VM/direct ASM. Done when the original output agrees
+    without a `Stub`, a fallback, or duplicate coordinator state.
 
 ### Actor features (medium; some timing-flaky)
 - [ ] **v2-actors-bounded-mailbox** — `spawnBounded(n, Overflow.X, thunk)` + `Overflow` enum
