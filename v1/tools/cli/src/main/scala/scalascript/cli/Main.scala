@@ -7748,7 +7748,11 @@ final class BenchCmd extends CliCommand:
           returnTy match
             case "Int"     => (seedDecl + "var _ssc_sink: Long = 0L",   upd(s"_ssc_sink = _ssc_sink + $wc.toLong"), "_ssc_sink")
             case "Long"    => (seedDecl + "var _ssc_sink: Long = 0L",   upd(s"_ssc_sink = _ssc_sink + $wc"),        "_ssc_sink")
-            case "Double"  => (seedDecl + "var _ssc_sink: Double = 0d", upd(s"_ssc_sink = _ssc_sink + $wc"),        "_ssc_sink")
+            // `0.0`, never `0d`: the Scala Double suffix is not lexed by the self-hosted front
+            // (BUGS.md v2-front-drops-float-literal-suffix), so a `0d` here made the harness
+            // depend on a parser gap and reported it as the BACKEND failing to run three
+            // float workloads. The wrapper must not use anything a measured lane cannot parse.
+            case "Double"  => (seedDecl + "var _ssc_sink: Double = 0.0", upd(s"_ssc_sink = _ssc_sink + $wc"),        "_ssc_sink")
             case "Boolean" => (seedDecl + "var _ssc_sink: Long = 0L",   upd(s"_ssc_sink = _ssc_sink + (if $wc then 1L else 0L)"), "_ssc_sink")
             case _         => (seedDecl + "var _ssc_sink: Any = null",  upd(s"_ssc_sink = $wc"),                     "_ssc_sink")
       val warmupBlock = warmupTimeMs match

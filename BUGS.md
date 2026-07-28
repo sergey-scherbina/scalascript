@@ -1,5 +1,46 @@
 # Bug tracker
 
+## v2-front-drops-float-literal-suffix — `0d` / `1.5f` lex the suffix as an identifier
+
+**Status:** OPEN — **diagnosed here, handed over deliberately**. The fix belongs in
+`v2/lib/ssc1-front.ssc0`, which is held by the live `v2-front-for-yield` claim (its heartbeat reads
+stale but triage found a worktree and running processes, and its own last claim-update widened it
+to exactly that file). Found 2026-07-28 by `v2-backend-matrix-gaps`.
+
+**Reproduce** — two lines:
+
+```scalascript
+var x: Double = 0d
+println(x)
+```
+
+| lane | result |
+|---|---|
+| INT (`ssc-tools run --v1`) | `0` |
+| JS (`ssc-tools run-js`) | `0` |
+| **v2** (`ssc run --v2`) | **`ssc: unbound global: d`** |
+| v2, `SSC_FRONT=legacy` | same — so this is BOTH self-hosted fronts |
+
+`1.5f` fails the same way with `unbound global: f`. `10L` works.
+
+**Root cause, located.** `v2/lib/ssc1-front.ssc0`, the numeric-literal branch of `lexFrom`. It
+strips a trailing `L`/`l` on both the hex and decimal paths — with a comment that says exactly why:
+*"strip a trailing Long suffix L/l … without this the `L` lexed as a separate id → `unbound global:
+L`"*. `d`/`D`/`f`/`F` were never given the same treatment, so the digits lex as a number and the
+suffix lexes as an identifier.
+
+**Fix shape** (for whoever holds the file): mirror the `L` handling at the three emission points of
+that branch — the dot-float, the exponent-float, and the integer path — consuming a trailing
+`d`(100)/`D`(68)/`f`(102)/`F`(70) and, on the integer path, emitting a **`float`** token rather than
+an `int` one, since `0d` is a Double. Guard it with "the character after the suffix is not
+alphanumeric" so `0dx` does not silently lex as `0d` + `x`.
+
+**Impact, measured.** It is not just a literal-syntax gap: it took **three of 33 bench-corpus
+workloads out of the matrix as "v2 cannot run this"** — `float-loop`, `float-fold` and
+`pattern-match-heavy` — because the generated bench wrapper declared its Double sink as `0d`. The
+programs themselves run on v2 perfectly well. The wrapper has been changed to `0.0` so the matrix
+measures the backend rather than the parser, but the language gap is real and still open.
+
 ## negtc-both-fail-derived-route-clients — the one case keeping the release gate red
 
 **Status:** RESOLVED 2026-07-28 as a CLASSIFICATION, not a code fix — the case is genuinely

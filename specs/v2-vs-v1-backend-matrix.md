@@ -78,14 +78,22 @@ anything.
 
 | Item | Failure | Scope |
 |---|---|---|
-| `float-loop`, `float-fold`, `pattern-match-heavy` | `RuntimeException: unbound global: d` | both v2 lanes |
 | `array-update` | `RuntimeException: app: not a function: 0` | both v2 lanes |
 | backend `v2-jvm` | `RuntimeException: unknown prim1: __autoOutput__` | every program |
 | backend `v2-rust` | `panicked: unimplemented prim: __autoOutput__` | every program |
 
-**4 of 33 workloads, and 2 of the 4 v2 backends.** `pattern-match-heavy` matters more than its row
-suggests: it is one of the four rows `BACKLOG.md`'s v2 production-route policy was decided on, and
-it currently runs on neither v2 lane.
+**CORRECTED 2026-07-28, and the correction is the point.** This category originally listed three
+more workloads — `float-loop`, `float-fold`, `pattern-match-heavy` — under
+`RuntimeException: unbound global: d`. **They were misclassified: v2 runs all three fine.** The
+`d` was the *bench wrapper's* Double sink, spelled `0d`, and the self-hosted front does not lex the
+Scala float-literal suffix (`BUGS.md v2-front-drops-float-literal-suffix`). The harness was
+reporting its own parser dependency as the backend failing. Wrapper now says `0.0`.
+
+That makes this the THIRD apparatus defect found in one sweep, after the tier-mismatched launcher
+and the `+=` the JS backend cannot compile. The rule it keeps re-teaching: **a lane that reports
+"cannot run" has to be reproduced OUTSIDE the harness before the claim is believed.**
+
+Remaining: **1 of 33 workloads, and 2 of the 4 v2 backends.**
 
 Tracked: `BUGS.md v2-lanes-cannot-run-four-corpus-workloads`, `v2-source-backends-miss-autoOutput`.
 
@@ -93,6 +101,7 @@ Tracked: `BUGS.md v2-lanes-cannot-run-four-corpus-workloads`, `v2-source-backend
 
 | Workload | ssc | v2-bytecode | ratio | shape |
 |---|---:|---:|---:|---|
+| `pattern-match-heavy` | 0.072 | 43.3 | **601×** | ADT match over a list ⚑ |
 | `lazylist-take` | 0.086 | 40.8 | **474×** | lazy collection |
 | `effect-stream` | 0.041 | 11.1 | **271×** | lazy/effect stream |
 | `range-sum` | 0.0040 | 0.679 | **170×** | range iteration |
@@ -104,6 +113,17 @@ Tracked: `BUGS.md v2-lanes-cannot-run-four-corpus-workloads`, `v2-source-backend
 | `literal-match` | 0.011 | 0.184 | **17×** | match on literals |
 | `bool-predicate` | 0.0099 | 0.131 | **13×** | predicate calls |
 | `instance-field` | 0.401 | 5.24 | **13×** | field access |
+| `float-loop` | 1.45 | 92.0 | **63×** | float arithmetic loop ⚑ |
+| `float-fold` | 0.013 | 4.88 | **375×** | float list traversal ⚑ |
+
+⚑ = moved here from category 1 by the wrapper correction above; measured 2026-07-28 with
+`./bench.sh --backends ssc,v2,v2-bytecode --reps 10`.
+
+**`pattern-match-heavy` at 601× is now the worst row in the matrix**, and it is the row
+`BACKLOG.md`'s v2 production-route policy was decided on. `float-loop` at 63× is the other
+surprise: pure float arithmetic, which the bytecode lane was supposed to have closed — `arith-loop`
+(the Long twin) is only 2.3×. **That contrast is a lead: the numeric fast paths appear to cover
+Long and not Double.**
 
 Three shapes, not eleven: **iteration over collections** (lazylist, effect-stream, range-sum,
 list-fold, hof-pipeline), **strings**, and **structural data access** (instance-field,
