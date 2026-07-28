@@ -49,6 +49,34 @@ fallback and the F-delegation re-run) for a swallowed non-zero status. That is w
 of this shape would most plausibly hide, but it is a real audit, not a one-liner, and there is no
 live symptom to anchor it — so it is written down rather than started.
 
+## 2026-07-28 — the negative-toolchain gate is 77 % of the sbt job
+
+**Active claim:** `negtc-gate-shard`. Continues `build-ram-budget-and-speed` (which sharded the
+conformance job) down the same list Sergiy asked for.
+
+**MEASURED** (run 30305919516, the last ci.yml run to reach completion): `sbt — compile and test`
+75.6 min, of which `ScalaScript 2.1 standard-only negative toolchain release gate` is **58.1 min —
+77 %**. The gate itself is a 152-line wrapper; the time is in two full-corpus sweeps it calls,
+`scripts/native-front-corpus --standard` and `scripts/bc-parity-sweep --strict`, each re-lowering
+every example through F (the interpreted self-hosting front, ~2-4× the legacy front).
+
+- [ ] **NGS-0 — `--shard i/N` in both sweeps.** Identical shape in both scripts
+      (`for f in "$ROOT"/examples/*.ssc` + an `--only` glob filter), so one uniform change: index the
+      cases that survive `--only` and keep those ≡ i (mod N). Round-robin, not blocks — same reason as
+      `run.sc` and `contract.sc`: the corpus is name-sorted and slow cases cluster by name.
+- [ ] **NGS-1 — `--list` in both, and a gate that PROVES the partition.** Sharding a release gate has
+      one catastrophic failure mode and it fails GREEN: a scheme that drops cases reports success over
+      less than it claims. `tests/e2e/negtc-shard-gate.sh` byte-compares union(shards) against the
+      unsharded listing for BOTH sweeps, plus disjointness, balance, and rejection of an out-of-range
+      `i/N`. `--list` must not need a built tower, so the gate stays cheap.
+- [ ] **NGS-2 — the gate accepts and forwards `--shard`.** `tests/e2e/v21-negative-toolchain-release-gate.sh`
+      passes it through to both sweeps and names the slice in its report path, so shards do not
+      overwrite each other's TSV.
+
+**NOT in this claim:** the `ci.yml` matrix that would actually spend the win —
+`.github/workflows/ci.yml` is held by `v2-perf-prim-dispatch`. The scripts are the substantive part;
+wiring is ~10 lines of workflow and lands when that claim clears. Queued in `BACKLOG.md` so it is not
+lost if this session ends here.
 
 ## 2026-07-28 — ROADMAP: what is actually left before "v2 works 100%"
 

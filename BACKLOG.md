@@ -47,10 +47,23 @@ sharding in CI (37.7 → ~13 min), and gates for both. Full measurements:
 Each item below was deliberately NOT done there — it sits in another agent's live claim, or is its
 own arc. None is speculative: every one has a measured number attached.
 
-- [ ] **`ci-negtc-gate-is-77pct-of-the-sbt-job`** — `tests/e2e/v21-negative-toolchain-release-gate.sh`
-      took **58.1 min of the 75.6-min** `sbt` job (run 30305919516). It re-lowers the full corpus
-      through F twice, and F is ~2-4× the legacy front. Same round-robin `--shard i/N` treatment as
-      `run.sc` just got; the arithmetic is identical. Owner: the v21 release-gate arc.
+- [ ] **`negtc-gate-shard-reduce`** — the negative-toolchain gate is **58.1 min of a 75.6-min** CI
+      job (77 %, run 30305919516). Sharding its two sweeps is the right lever and the plumbing is
+      DONE: `scripts/native-front-corpus` and `scripts/bc-parity-sweep` both take `--shard i/N` and
+      `--list`, verified by `tests/e2e/negtc-shard-gate.sh` (214 cases → 54/54/53/53, union
+      byte-identical, both sweeps selecting the same corpus).
+
+      **What blocks spending the win, and it is not obvious:** after the sweeps the gate runs
+      `v21-sentinel-taxonomy` and `v21-runtime-taxonomy-freeze`, which compare against FROZEN
+      WHOLE-CORPUS counts *by exact equality* (`freeze drift: <metric>=N expected M`). A shard emits a
+      partial TSV, so every metric drifts and the gate goes red for reasons unrelated to the tree.
+      `tests/e2e/v21-negative-toolchain-release-gate.sh` therefore REFUSES `--shard` with that
+      explanation rather than accepting a flag that yields a confident wrong red.
+
+      The remaining work is a map/reduce split: N shard jobs each emitting a partial report, then ONE
+      reduce job that concatenates them and runs the taxonomy + freeze exactly once on the merged
+      TSV. That needs artifact passing between jobs in `.github/workflows/ci.yml`, which was held by
+      `v2-perf-prim-dispatch` when this landed. Expected once wired: ~58 → ~15 min.
 - [ ] **`ssc-fork-heap-entitlement`** — `bin/ssc` (launcher template in `build.sbt`) passes `-Xss64m`
       and **no `-Xmx`**, so every fork takes the JVM's ergonomic ¼-of-RAM default = **9,216 MB** here,
       and a contract run makes ~1,669 of them. MEASURED 2026-07-28: six live at once; one resident at

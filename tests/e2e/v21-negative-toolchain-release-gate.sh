@@ -6,6 +6,42 @@ ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
 FIXTURES="$ROOT/tests/fixtures/v21-native"
 report="$ROOT/target/v21-negative-toolchain-release.tsv"
 if [[ ${1:-} == --report && -n ${2:-} ]]; then report=$2; shift 2; fi
+
+# `--shard` is REFUSED here, deliberately and loudly, even though both sweeps this gate calls now
+# support it (2026-07-28, negtc-gate-shard).
+#
+# This gate is 58.1 min of a 75.6-min CI job — 77 % — and sharding the sweeps is exactly the right
+# lever. But it CANNOT be applied to the gate as it stands, and the failure would not be obvious:
+# after the two sweeps, the gate feeds their TSVs into v21-sentinel-taxonomy and
+# v21-runtime-taxonomy-freeze, which compare against FROZEN WHOLE-CORPUS counts by exact equality
+# ("freeze drift: <metric>=N expected M"). A shard produces a partial report, so every metric drifts
+# and the gate goes red for a reason that has nothing to do with the code under test.
+#
+# The correct shape is map/reduce — N shard jobs each emitting a partial TSV, then ONE reduce job
+# that concatenates them and runs the taxonomy + freeze on the merged report exactly once. That needs
+# a workflow change to pass artifacts between jobs, which is queued in BACKLOG.md as
+# `negtc-gate-shard-reduce`. Refusing with this message is better than accepting a flag that produces
+# a confident, wrong red.
+for arg in "$@"; do
+  if [[ $arg == --shard || $arg == --shard=* ]]; then
+    cat >&2 <<'REFUSE'
+v21-negative-toolchain-release-gate: --shard is not supported here, on purpose.
+
+The two sweeps this gate runs DO support --shard, and you can use them directly:
+  scripts/native-front-corpus --standard --ssc bin/ssc --shard 0/4 --report <path>
+  scripts/bc-parity-sweep --strict --shard 0/4 --report <path>
+
+But this gate then runs v21-sentinel-taxonomy and v21-runtime-taxonomy-freeze, which compare the
+sweep output against FROZEN WHOLE-CORPUS counts by exact equality. A partial report drifts every
+metric, so a sharded run of this gate is red no matter how healthy the tree is.
+
+Sharding it needs a map/reduce split (N shard jobs -> one reduce job that merges the TSVs and runs
+the taxonomy once). See BACKLOG.md `negtc-gate-shard-reduce`.
+REFUSE
+    exit 2
+  fi
+done
+
 [[ $# -eq 0 ]] || { echo 'usage: v21-negative-toolchain-release-gate.sh [--report FILE]' >&2; exit 2; }
 [[ -x $ROOT/bin/ssc && -d $ROOT/bin/lib/standard ]] || {
   echo 'v21-negative-toolchain-release-gate: run scripts/sbtc "installBin" first' >&2

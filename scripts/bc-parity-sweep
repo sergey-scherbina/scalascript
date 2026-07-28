@@ -25,9 +25,14 @@ usage: scripts/bc-parity-sweep [options]
   --timeout SEC    per-backend timeout (default: 45)
   --only GLOB      basename glob, e.g. 'hello*.ssc'
   --report PATH    TSV output path (default: temporary file)
+  --shard i/N      run only this slice of the corpus (round-robin by index), for a CI matrix
+  --list           print the selected case names and exit, running nothing
   --strict         fail on both-fail, mismatch, or one-sided backend error
 EOF
 }
+
+shard=""
+list_only=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -36,10 +41,56 @@ while [[ $# -gt 0 ]]; do
     --only)    only=$2; shift 2 ;;
     --report)  report=$2; shift 2 ;;
     --strict)  strict=1; shift ;;
+    --shard)   shard=$2; shift 2 ;;
+    --list)    list_only=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "bc-parity-sweep: unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
+
+# ── case selection: --only, --shard i/N, --list ──────────────────────────────
+# WHY SHARDING: this sweep is called by tests/e2e/v21-negative-toolchain-release-gate.sh, which
+# measured 58.1 min of a 75.6-min CI job (run 30305919516) — 77 % of it. Every example is re-lowered
+# through F, the interpreted self-hosting front, at ~2-4x the legacy front's cost.
+#
+# ROUND-ROBIN (idx % N), not contiguous blocks — same convention as run.sc and contract.sc, for the
+# same measured reason: the corpus is name-sorted and the slow cases cluster by name, so contiguous
+# blocks give wildly uneven shards.
+shard_i=0
+shard_n=1
+if [[ -n "$shard" ]]; then
+  if [[ "$shard" =~ ^([0-9]+)/([0-9]+)$ ]]; then
+    shard_i=${BASH_REMATCH[1]}; shard_n=${BASH_REMATCH[2]}
+  else
+    echo "bc-parity-sweep: --shard expects i/N (e.g. 0/4), got: '$shard'" >&2; exit 2
+  fi
+  if (( shard_n < 1 || shard_i >= shard_n )); then
+    echo "bc-parity-sweep: --shard expects 0 <= i < N, got: '$shard'" >&2; exit 2
+  fi
+fi
+
+# ONE definition of "which cases are in scope", used by both --list and the real sweep. Keeping two
+# copies in sync is the drift that this session has already had to repair twice (ci-status vs ci.yml,
+# and the heartbeat threshold in three places); a shard filter that disagrees with the listing would
+# make the partition gate prove something other than what runs.
+selected_files() {
+  local sel=0 f b
+  for f in "$ROOT"/examples/*.ssc; do
+    b=$(basename -- "$f")
+    case "$b" in $only) ;; *) continue ;; esac
+    sel=$((sel + 1))
+    if (( shard_n > 1 )) && (( (sel - 1) % shard_n != shard_i )); then continue; fi
+    printf '%s\n' "$f"
+  done
+}
+
+# --list deliberately runs BEFORE the staged-jar check below: enumerating the corpus needs no built
+# tower, which is what lets tests/e2e/negtc-shard-gate.sh verify the partition in seconds instead of
+# behind a full installBin.
+if (( list_only )); then
+  while IFS= read -r f; do basename -- "$f"; done < <(selected_files)
+  exit 0
+fi
 
 if [[ ! -x "$ssc" ]]; then
   echo "bc-parity-sweep: staged launcher not found: $ssc (run scripts/sbtc \"installBin\")" >&2
@@ -83,9 +134,8 @@ record() {
   printf '%s\t%s\t%s\t%s\t%s\n' "$file" "$category" "$vm_rc" "$bc_rc" "$detail" >> "$report"
 }
 
-for f in "$ROOT"/examples/*.ssc; do
+while IFS= read -r f; do
   b=$(basename -- "$f")
-  case "$b" in $only) ;; *) continue ;; esac
   total=$((total + 1))
 
   lane_row=$(awk -F '\t' -v file="$b" 'NR > 1 && $1 == file { print $3 "\t" $2 "\t" $4; exit }' "$explicit_manifest")
@@ -203,7 +253,7 @@ for f in "$ROOT"/examples/*.ssc; do
     mismatch=$((mismatch + 1)); mlist="$mlist $b"
     record "$b" mismatch "$vm_rc" "$bc_rc" 'stdout differs'
   fi
-done
+done < <(selected_files)
 
 echo "=== total: $total  identical: $ident  mismatch: $mismatch  bytecode-error: $bcerr  vm-error: $vmerr  both-fail: $bothfail  skipped: $skipped (timeout: $timedout)  delegated: $delegated (provider: $provider_lane target: $target_lane)"
 echo "MISMATCH:$mlist"
