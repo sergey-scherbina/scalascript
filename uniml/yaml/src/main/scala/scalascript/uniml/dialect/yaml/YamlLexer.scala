@@ -21,6 +21,16 @@ private[yaml] object YamlLexer:
     var atLineStart = true
     var firstContent = true
     var lastSpan: Option[SourceSpan] = None
+    var flowClosers: Vector[Char] = Vector.empty
+    var linePlainScalarActive = false
+    // Preserve the node context even while the legacy token stream splits block-plain punctuation.
+    var plainFlowDepth = 0
+    var lineIndent = 0
+    var lineSawValueIndicator = false
+    var lineHasValueContent = false
+    var lineValueStartedPlain = false
+    var plainContinuationIndent: Option[Int] = None
+    var inPlainContinuation = false
 
     def report(code: String, message: String, severity: Severity, span: SourceSpan): Unit =
       diagnostics = diagnostics :+ Diagnostic(code, message, severity, Some(span), Some(YamlDialect.id))
@@ -39,6 +49,15 @@ private[yaml] object YamlLexer:
       if kind != "yaml.indentation" && kind != "yaml.whitespace" then
         atLineStart = false
         if kind != "yaml.comment" && kind != "yaml.line-break" then firstContent = false
+      if channel == TokenChannel.Syntax || channel == TokenChannel.Error then
+        if kind == "yaml.value-indicator" then lineSawValueIndicator = true
+        else if lineSawValueIndicator &&
+            kind != "yaml.indentation" &&
+            kind != "yaml.whitespace" &&
+            kind != "yaml.comment" &&
+            kind != "yaml.line-break" then
+          if !lineHasValueContent then lineValueStartedPlain = kind == "yaml.scalar.plain"
+          lineHasValueContent = true
 
     def emitWidth(width: Int, kind: String, channel: TokenChannel): Unit =
       val start = index
@@ -70,10 +89,20 @@ private[yaml] object YamlLexer:
         )
 
     def scanBreak(): Unit =
+      val nextContinuationIndent =
+        Option.when(lineHasValueContent && lineValueStartedPlain)(lineIndent)
       val width = if input.charAt(index) == '\r' && index + 1 < input.length && input.charAt(index + 1) == '\n' then 2 else 1
       emitWidth(width, "yaml.line-break", TokenChannel.Trivia)
       atLineStart = true
       firstContent = true
+      linePlainScalarActive = false
+      plainFlowDepth = 0
+      lineIndent = 0
+      lineSawValueIndicator = false
+      lineHasValueContent = false
+      lineValueStartedPlain = false
+      plainContinuationIndent = nextContinuationIndent
+      inPlainContinuation = false
 
     def scanIndentation(): Unit =
       val start = index
@@ -83,6 +112,8 @@ private[yaml] object YamlLexer:
         index += 1
       emitRange(start, index, "yaml.indentation", if hasTab then TokenChannel.Error else TokenChannel.Trivia)
       val indentation = input.substring(start, index)
+      lineIndent = indentation.length
+      inPlainContinuation = plainContinuationIndent.exists(parent => indentation.length > parent)
       if hasTab then report("uniml.yaml.tab-indentation", "tabs are not allowed in YAML indentation", Severity.Error, tokensSpanLast())
       if indentation.length > limits.maxIndentation then
         report(
@@ -133,28 +164,38 @@ private[yaml] object YamlLexer:
 
     def scanProperty(kind: String): Unit =
       val start = index
-      if input.charAt(index) == '!' && index + 1 < input.length && input.charAt(index + 1) == '<' then
-        index += 2
-        while index < input.length && input.charAt(index) != '>' && !isBreak(input.charAt(index)) do index += 1
-        if index < input.length && input.charAt(index) == '>' then index += 1
-      else
-        index += 1
-        while index < input.length && !isSeparation(input.charAt(index)) && !isFlow(input.charAt(index)) do index += 1
-      val bareNonSpecificTag =
-        kind == "yaml.tag" &&
-          input.substring(start, index) == "!" &&
-          (index == input.length || isSeparation(input.charAt(index)))
+      val propertyKind = kind match
+        case "yaml.tag"    => YamlPropertyKind.Tag
+        case "yaml.anchor" => YamlPropertyKind.Anchor
+        case _             => YamlPropertyKind.Alias
+      val scanned = YamlPropertySyntax.scan(input, start, propertyKind)
+      index = scanned.end
+      val failure =
+        if inPlainContinuation then None
+        else YamlPropertySyntax.boundaryFailure(scanned, flowClosers.lastOption)
       val channel =
-        if index == start + 1 && !bareNonSpecificTag then TokenChannel.Error
-        else TokenChannel.Syntax
+        if failure.nonEmpty then TokenChannel.Error else TokenChannel.Syntax
       emitRange(start, index, kind, channel)
-      if channel == TokenChannel.Error then
+      failure.foreach { problem =>
         val suffix = kind.stripPrefix("yaml.")
-        val message =
-          if kind == "yaml.tag" && input.substring(start, index) == "!" then
-            "bare YAML tag requires separation before node content"
-          else s"empty YAML $suffix"
-        report(s"uniml.yaml.invalid-$suffix", message, Severity.Error, tokensSpanLast())
+        report(
+          s"uniml.yaml.invalid-$suffix",
+          s"invalid YAML $suffix at UTF-16 offset ${problem.offset}: ${problem.message}",
+          Severity.Error,
+          tokensSpanLast(),
+        )
+      }
+
+    def scanFlow(char: Char): Unit =
+      val preserveBlockPlain = linePlainScalarActive && plainFlowDepth == 0
+      emitWidth(1, flowKind(char), TokenChannel.Syntax)
+      char match
+        case '[' => flowClosers = flowClosers :+ ']'
+        case '{' => flowClosers = flowClosers :+ '}'
+        case ']' | '}' if flowClosers.lastOption.contains(char) =>
+          flowClosers = flowClosers.dropRight(1)
+        case _ => ()
+      if !preserveBlockPlain then linePlainScalarActive = false
 
     def scanBlockHeader(style: Char): Unit =
       val start = index
@@ -173,6 +214,8 @@ private[yaml] object YamlLexer:
         else index += 1
       if index == start then index += 1
       emitRange(start, index, "yaml.scalar.plain", TokenChannel.Syntax)
+      if !linePlainScalarActive then plainFlowDepth = flowClosers.size
+      linePlainScalarActive = true
       scalarLimit(start, index)
 
     def scanOne(): Unit =
@@ -186,12 +229,15 @@ private[yaml] object YamlLexer:
       else if char == '#' then scanToLineEnd("yaml.comment", TokenChannel.Comment)
       else if char == '\'' then scanSingleQuoted()
       else if char == '"' then scanDoubleQuoted()
+      else if linePlainScalarActive && (char == '!' || char == '&' || char == '*') then scanPlain()
       else if char == '!' then scanProperty("yaml.tag")
       else if char == '&' then scanProperty("yaml.anchor")
       else if char == '*' then scanProperty("yaml.alias")
       else if char == '|' || char == '>' then scanBlockHeader(char)
-      else if isFlow(char) then emitWidth(1, flowKind(char), TokenChannel.Syntax)
-      else if isBlockIndicator(char) then emitWidth(1, blockKind(char), TokenChannel.Syntax)
+      else if isFlow(char) then scanFlow(char)
+      else if isBlockIndicator(char) then
+        emitWidth(1, blockKind(char), TokenChannel.Syntax)
+        if char == ':' then linePlainScalarActive = false
       else scanPlain()
 
     def validateLines(): Unit =

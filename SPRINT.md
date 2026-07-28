@@ -430,6 +430,13 @@ self-parity test is not external conformance.
   - [ ] **UPR-2b scalar engine.** Implement multiline plain/single/double quoted folding, complete
         double-quoted escapes and escaped line breaks, literal/folded block indentation,
         more-indented lines, chomping, explicit indentation, and malformed-header recovery.
+        Regression seeds include official `7T8X`: `* bullet` inside folded block-scalar content
+        must be scalar text rather than an alias, and official `FBC9`: its continued plain-scalar
+        line beginning with `!` must remain scalar content. Also cover `!`/`&`/`*` at the beginning
+        of literal, folded, and multiline plain content lines, while a flow comma or trailing
+        comment must not carry plain-continuation state to a following node. Keep these multiline
+        cases out of UPR-2a.2 so its authenticated corpus transition remains exactly
+        `{2SXE,LHL4,U99R}`.
   - [ ] **UPR-2c structural grammar.** Replace heuristic indentation acceptance with strict
         block/dedent state; cover indentationless sequences, compact/property-only nodes,
         explicit/complex keys, flow pairs/collections, document streams, and deterministic local

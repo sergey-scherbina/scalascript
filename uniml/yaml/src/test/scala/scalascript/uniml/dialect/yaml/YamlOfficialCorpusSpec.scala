@@ -5,6 +5,39 @@ import scalascript.uniml.*
 
 final class YamlOfficialCorpusSpec extends AnyFunSuite:
   private lazy val report = YamlOfficialCorpusGate.evaluate()
+  private val previousBaselineSha256 =
+    "563ec95401acfb8fab062b11408b5be8e5397a61c5d54676fff04865170fff95"
+  private lazy val previousBaselineRows =
+    YamlOfficialCorpusBaseline.baselineRows.map { row =>
+      row.takeWhile(_ != '\t') match
+        case "2SXE" =>
+          replaceExactlyOnce(
+            row,
+            "\tevents.actual=10:eff3ea63a401bdc81e39879f8f16f3949ba692a1ddbf1d3ae4a7e89ee13ba9fc",
+            "\tevents.actual=13:2063932ed924c08744404e25a3dced62a685a54f3c4eaacf755f01cec9015dda",
+          )
+        case "LHL4" =>
+          replaceExactlyOnce(
+            replaceExactlyOnce(
+              row,
+              "\tstatus.actual=error\tstatus.completion=Incomplete\tdiagnostics=2:6907688faa44ad0607d823968971230a76b851451a0e1185f0c58bc1f4fb2d52",
+              "\tstatus.actual=valid\tstatus.completion=Complete\tdiagnostics=0:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            ),
+            "\tchunks=4:d8e9047fa9b4345370d302882a1d424be16b88a58f78972a9882cdce84f5cd8a",
+            "\tchunks=4:cf7a6b8d163f2a1dfcc36f0051924098eeecb15b2977c4b4e9a67a4dc667fd59",
+          )
+        case "U99R" =>
+          replaceExactlyOnce(
+            replaceExactlyOnce(
+              row,
+              "\tstatus.actual=error\tstatus.completion=Incomplete\tdiagnostics=2:6907688faa44ad0607d823968971230a76b851451a0e1185f0c58bc1f4fb2d52",
+              "\tstatus.actual=valid\tstatus.completion=Complete\tdiagnostics=0:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            ),
+            "\tchunks=4:014afa76dfb3dcdd1c1cb29b209fc98f15717883ac9b80338b8e1bf631fa5fb5",
+            "\tchunks=4:b0c6a449f7096fcd29e0d228832ff1922964fb6536ac429b53a3657292110cf6",
+          )
+        case _ => row
+    }
 
   test("pinned data, source metadata, license, categories, and SHA-256 constants are exact") {
     assert(YamlOfficialCorpusData.version == "data-2022-01-17")
@@ -61,7 +94,7 @@ final class YamlOfficialCorpusSpec extends AnyFunSuite:
     assert(report.categoryRows.size == 33)
     assert(!report.categoryRows.exists(_.startsWith("family=")))
     assert(!report.isStrictGreen)
-    assert(report.failures.size == 277)
+    assert(report.failures.size == 276)
     YamlOfficialCorpusGate.requireCensus(report)
   }
 
@@ -86,6 +119,50 @@ final class YamlOfficialCorpusSpec extends AnyFunSuite:
       assert(outcomes(id).strictExact, YamlOfficialCorpusGate.renderFailureSafely(outcomes(id)))
     }
   }
+
+  test("tag and property lexical grammar closes exactly the UPR-2a.2 corpus rows") {
+    val outcomes = report.outcomes.map(outcome => outcome.testCase.id -> outcome).toMap
+    assert(
+      YamlCorpusSha256.digestUtf8(previousBaselineRows.mkString("", "\n", "\n")) ==
+        previousBaselineSha256
+    )
+    val changedIds =
+      report.baselineRows
+        .zip(previousBaselineRows)
+        .collect { case (actual, expected) if actual != expected => actual.takeWhile(_ != '\t') }
+    assert(
+      changedIds == Vector("2SXE", "LHL4", "U99R"),
+      changedIds
+        .map { id =>
+          val outcome = outcomes(id)
+          s"$id status=${outcome.actualStatus}/${outcome.actualValid} " +
+            s"diagnostics=${outcome.diagnostics} events=${outcome.actualEvents.size}"
+        }
+        .mkString("\n"),
+    )
+    assert(outcomes("2SXE").strictExact, YamlOfficialCorpusGate.renderFailureSafely(outcomes("2SXE")))
+    Vector("LHL4", "U99R").foreach { id =>
+      val outcome = outcomes(id)
+      assert(outcome.validityExact, YamlOfficialCorpusGate.renderFailureSafely(outcome))
+      assert(!outcome.semanticsExact, id)
+      assert(!outcome.strictExact, id)
+    }
+
+    assert(report.census.actualErrors == 218)
+    assert(report.census.validityExact == 216)
+    assert(report.census.semanticsExact == 138)
+    assert(report.census.strictExact == 126)
+    assert(report.failures.size == 276)
+    assert(report.census.sourceExact == 402)
+    assert(report.census.chunkExact == 402)
+    assert(report.census.crashes == 0)
+  }
+
+  private def replaceExactlyOnce(row: String, current: String, previous: String): String =
+    val index = row.indexOf(current)
+    assert(index >= 0, s"missing current baseline fragment in ${row.takeWhile(_ != '\t')}: $current")
+    assert(index == row.lastIndexOf(current), s"duplicate baseline fragment: $current")
+    row.substring(0, index) + previous + row.substring(index + current.length)
 
   test("6CK3 compares the normative percent-preserving tag before oracle classification") {
     val outcome = report.outcomes.find(_.testCase.id == "6CK3").getOrElse(fail("missing 6CK3"))

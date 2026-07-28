@@ -221,9 +221,20 @@ private[yaml] object YamlSemanticParser:
         if rest.startsWith("[") then flowParse(rest, span, depth, isSequence = true)
         else if rest.startsWith("{") then flowParse(rest, span, depth, isSequence = false)
         else if rest.startsWith("*") then
-          val name = rest.drop(1).takeWhile(char => !isWs(char) && !",]}".contains(char))
-          if name.isEmpty then
-            problem("uniml.yaml.invalid-alias", "empty YAML alias", span)
+          val scanned = YamlPropertySyntax.scan(rest, 0, YamlPropertyKind.Alias)
+          val name = rest.substring(1, scanned.end)
+          val boundaryProblem = YamlPropertySyntax.boundaryFailure(scanned, None)
+          val trailing = rest.substring(scanned.end).trim
+          boundaryProblem.foreach(value =>
+            problem(
+              "uniml.yaml.invalid-alias",
+              s"invalid YAML alias at UTF-16 offset ${value.offset}: ${value.message}",
+              span,
+            )
+          )
+          if trailing.nonEmpty && name.nonEmpty && boundaryProblem.isEmpty then
+            problem("uniml.yaml.invalid-alias", "a YAML alias cannot have trailing node content", span)
+          if name.isEmpty || boundaryProblem.nonEmpty then
             nullValue(rest)
           else YamlValue.Alias(name)
         else if rest.startsWith("'") then quotedSingle(rest, span)
@@ -294,8 +305,15 @@ private[yaml] object YamlSemanticParser:
       var continue = true
       while continue && rest.nonEmpty do
         if rest.startsWith("!") then
-          val length = propertyLength(rest)
-          val value = rest.take(length)
+          val scanned = YamlPropertySyntax.scan(rest, 0, YamlPropertyKind.Tag)
+          val value = rest.substring(0, scanned.end)
+          YamlPropertySyntax.boundaryFailure(scanned, None).foreach { failure =>
+            problem(
+              "uniml.yaml.invalid-tag",
+              s"invalid YAML tag at UTF-16 offset ${failure.offset}: ${failure.message}",
+              span,
+            )
+          }
           if tag.nonEmpty then problem("uniml.yaml.invalid-tag", "a YAML node cannot have two tags", span)
           tag = Some(
             tagEnvironment.expand(value) match
@@ -304,14 +322,24 @@ private[yaml] object YamlSemanticParser:
                 problem("uniml.yaml.invalid-tag", message, span)
                 value
           )
-          rest = rest.drop(length).trim
+          rest = rest.substring(scanned.end)
+          if scanned.hadSeparation then rest = rest.trim
+          else continue = false
         else if rest.startsWith("&") then
-          val length = propertyLength(rest)
-          val value = rest.slice(1, length)
-          if value.isEmpty then problem("uniml.yaml.invalid-anchor", "empty YAML anchor", span)
+          val scanned = YamlPropertySyntax.scan(rest, 0, YamlPropertyKind.Anchor)
+          val value = rest.substring(1, scanned.end)
+          YamlPropertySyntax.boundaryFailure(scanned, None).foreach { failure =>
+            problem(
+              "uniml.yaml.invalid-anchor",
+              s"invalid YAML anchor at UTF-16 offset ${failure.offset}: ${failure.message}",
+              span,
+            )
+          }
           if anchor.nonEmpty then problem("uniml.yaml.invalid-anchor", "a YAML node cannot have two anchors", span)
           anchor = Some(value)
-          rest = rest.drop(length).trim
+          rest = rest.substring(scanned.end)
+          if scanned.hadSeparation then rest = rest.trim
+          else continue = false
         else continue = false
       Properties(tag, anchor) -> rest
 
@@ -364,10 +392,10 @@ private[yaml] object YamlSemanticParser:
               cursor += 1
             quotedDouble(text.substring(start, cursor), span)
           case '*' =>
-            cursor += 1
-            val nameStart = cursor
-            while cursor < text.length && !isWs(text.charAt(cursor)) && !",]}".contains(text.charAt(cursor)) do cursor += 1
-            YamlValue.Alias(text.substring(nameStart, cursor))
+            val scanned = YamlPropertySyntax.scan(text, cursor, YamlPropertyKind.Alias)
+            cursor = scanned.end
+            val name = text.substring(start + 1, scanned.end)
+            YamlValue.Alias(name)
           case _ =>
             while cursor < text.length && !",]}".contains(text.charAt(cursor)) &&
                 !(stopAtColon && text.charAt(cursor) == ':') do cursor += 1
@@ -403,7 +431,10 @@ private[yaml] object YamlSemanticParser:
           else
             cursor += 1
             skipSpaces()
-            val value = if cursor < text.length && text.charAt(cursor) != ',' && text.charAt(cursor) != '}' then parseNode() else nullValue("")
+            val value =
+              if cursor < text.length && text.charAt(cursor) != ',' && text.charAt(cursor) != '}' then
+                parseNode()
+              else nullValue("")
             entries = entries :+ YamlEntry(key, value, span)
             skipSpaces()
             if cursor < text.length && text.charAt(cursor) == ',' then
@@ -511,19 +542,19 @@ private[yaml] object YamlSemanticParser:
     var continue = true
     while continue && rest.nonEmpty do
       if rest.startsWith("!") then
-        val length = propertyLength(rest); tag = Some(rest.take(length)); rest = rest.drop(length).trim
+        val scanned = YamlPropertySyntax.scan(rest, 0, YamlPropertyKind.Tag)
+        tag = Some(rest.substring(0, scanned.end))
+        rest = rest.substring(scanned.end)
+        if scanned.hadSeparation then rest = rest.trim
+        else continue = false
       else if rest.startsWith("&") then
-        val length = propertyLength(rest); anchor = Some(rest.slice(1, length)); rest = rest.drop(length).trim
+        val scanned = YamlPropertySyntax.scan(rest, 0, YamlPropertyKind.Anchor)
+        anchor = Some(rest.substring(1, scanned.end))
+        rest = rest.substring(scanned.end)
+        if scanned.hadSeparation then rest = rest.trim
+        else continue = false
       else continue = false
     Properties(tag, anchor) -> rest
-
-  private def propertyLength(text: String): Int =
-    if text.startsWith("!<") then
-      val close = text.indexOf('>')
-      if close < 0 then text.length else close + 1
-    else
-      val separator = text.indexWhere(char => isWs(char) || "[]{},".contains(char))
-      if separator < 0 then text.length else separator
 
   private def normalizeTag(tag: String): String = tag match
     case "!!str"   => "tag:yaml.org,2002:str"
@@ -642,6 +673,13 @@ private[yaml] object YamlSemanticParser:
     var comment = -1
     while cursor < text.length && comment < 0 do
       text.charAt(cursor) match
+        case '!' | '&' | '*' if !single && !double =>
+          val kind = text.charAt(cursor) match
+            case '!' => YamlPropertyKind.Tag
+            case '&' => YamlPropertyKind.Anchor
+            case _   => YamlPropertyKind.Alias
+          val scanned = YamlPropertySyntax.scan(text, cursor, kind)
+          if scanned.end > cursor then cursor = scanned.end - 1
         case '\'' if !double =>
           if single && cursor + 1 < text.length && text.charAt(cursor + 1) == '\'' then cursor += 1
           else single = !single
@@ -658,6 +696,26 @@ private[yaml] object YamlSemanticParser:
     var flowDepth = 0
     var cursor = 0
     var found = -1
+    while cursor < text.length && isWs(text.charAt(cursor)) do cursor += 1
+    var scanningProperties = true
+    while scanningProperties && cursor < text.length do
+      val kind = text.charAt(cursor) match
+        case '!' => Some(YamlPropertyKind.Tag)
+        case '&' => Some(YamlPropertyKind.Anchor)
+        case '*' => Some(YamlPropertyKind.Alias)
+        case _   => None
+      kind match
+        case None => scanningProperties = false
+        case Some(propertyKind) =>
+          val scanned = YamlPropertySyntax.scan(text, cursor, propertyKind)
+          cursor = scanned.end
+          if scanned.hadSeparation then
+            while cursor < text.length && isWs(text.charAt(cursor)) do cursor += 1
+            scanningProperties =
+              propertyKind != YamlPropertyKind.Alias &&
+                cursor < text.length &&
+                (text.charAt(cursor) == '!' || text.charAt(cursor) == '&')
+          else scanningProperties = false
     while cursor < text.length && found < 0 do
       text.charAt(cursor) match
         case '\'' if !double => single = !single
