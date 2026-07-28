@@ -9,6 +9,45 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## 2026-07-28 — v2 runtime performance vs v1 (Sergiy: "Улучши производительность рантайма ssc v2")
+
+**Active claim:** `v2-runtime-perf-vs-v1`. Question asked: what do the benchmarks say
+about the v2 runtime, what is still worse than v1, queue those as tasks, then do them.
+
+**⚠️ THE FIRST ANSWER WAS: "the benchmarks say NOTHING."** `ssc bench --backend v2` and
+`--backend v2-bytecode` print nothing and exit **0**. The generated bench wrapper calls
+`System.nanoTime()`; on the v2 native lane `Runtime.methodOp` cannot resolve
+`DataV("System").nanoTime` and falls through to
+`PortableEffects.perform("System.nanoTime")` → unhandled runtime effect → the whole
+program dies before printing `BENCH_MS`, and `result.foreach(…)` in `BenchCmd` prints
+nothing on `None`, so `bench/run.sc` records a polite `n/a`. Every v2 column in every
+sweep since the bench lane moved to the native ssc1 front has therefore been blank,
+not slow. This is the AGENTS.md "apparatus fails GREEN" pattern again: fixing the
+apparatus IS the work, and it comes first.
+
+- [ ] **v2rt-0a — un-break the v2 bench lane (the apparatus).** Register
+      `System.nanoTime` / `System.currentTimeMillis` as tag-qualified natives in
+      `v2/runtime/std/os-plugin` (the `Random.uuid` pattern from
+      `EffectRunnersNativePlugin.install`: `context.register("Tag.op")` is what
+      `Runtime.methodOp`'s `DataV(effectTag, IndexedSeq())` arm looks up before it
+      performs an effect). This is a real v1→v2 parity gap, not only a bench
+      problem — v1's interpreter has `System.nanoTime()` as a core builtin.
+      Verify: `tests/conformance/v2-system-clock.ssc` (elapsed ns > 0, epoch
+      millis > 2020) green on the INT and native lanes.
+- [ ] **v2rt-0b — make the dead lane LOUD, and add a joint column set.** `ssc bench`
+      must exit non-zero with the failure text when a backend produced no
+      measurement instead of silently printing nothing; `bench/run.sc` gains
+      `--backends a,b,c` so v1-interp / v2-VM / v2-bytecode land in ONE table
+      measured under one machine state (the two canned `--v2-*` modes cannot
+      express `ssc,v2,v2-bytecode`).
+- [ ] **v2rt-0c — capture the v1-vs-v2 baseline.** Full corpus,
+      `./bench.sh --backends ssc,v2,v2-bytecode`, into `bench/BASELINE.md` +
+      `specs/v2-runtime-perf-vs-v1.md`. This is the "what do the benchmarks say"
+      answer and the before-side of every slice below.
+- [ ] **v2rt-1..4 — the optimisation slices.** Filled in from v2rt-0c, largest
+      honest v2-vs-v1 gap first, one profile-backed slice at a time. Each slice
+      names the `scripts/bench` command that produced its before/after numbers.
+
 ## 2026-07-27 — native release qualification
 
 **Active claim:** `native-release-qualification`. The native release workflow has
