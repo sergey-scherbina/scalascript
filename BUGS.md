@@ -78,15 +78,23 @@ be preserved and compared exactly as presented. The same specification's Example
 oracle therefore cannot share one tag string without violating one of the two
 contracts.
 
-**Fix acceptance.** Keep exact shorthand in CST and `%HH`-preserving handle-expanded
-tags in `YamlValue`. Isolate the decoded spelling to the typed parser-event
-compatibility view, never to public representation semantics or corpus
-preclassification. The unchanged 6CK3 event must still be reached by real parsing
-and comparison.
+**Measurement defect found after landing.** `3341a35a9` preserved the public
+representation but called `parserEventTag` on the actual event before comparison.
+That makes `%21` equal to `!`, collapses two normatively distinct tags, and falsely
+counts 6CK3 as a semantic/strict pass. This violates the project's compare-first
+measurement rule even though the vendored expectation itself was not changed.
 
-**Mitigation landed.** `3341a35a9` implements that split globally and keeps 6CK3
-exact through real parsing/comparison. The tracker remains OPEN because the
-normative text/example conflict and upstream issue remain unresolved.
+**Fix acceptance.** Keep exact shorthand in CST and `%HH`-preserving handle-expanded
+tags in `YamlValue`. Compare that normative actual event to the unchanged vendored
+event first. Only afterward classify the exact 6CK3 mismatch as
+`oracle-discrepancy yaml/yaml-test-suite#9`. Any decoded test-suite compatibility
+projection must be test-only, separately named, and unable to contribute to the
+existing semantics/strict counts. Fail-first coverage must distinguish `%21` from
+`!`; a full 402-case candidate diff must prove 6CK3 is the only changed row.
+Expected corrected census is semantics `137`, strict `125`, failures `277`, with
+validity `214`, actual errors `216`, source/chunks `402/402`, and zero crashes.
+The tracker remains OPEN after the local measurement repair because the normative
+text/example conflict and upstream issue remain unresolved.
 
 ## v2-distributed-failure-retry — retry path degrades to Stub
 

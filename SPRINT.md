@@ -345,11 +345,29 @@ self-parity test is not external conformance.
           crashes, JVM/Scala.js focused and full YAML suites passed, portable lint and the affected
           conformance slice passed, and root/standalone products stayed isolated across two
           no-clean transitions. Two independent read-only reviews returned GO.
+    - [ ] **UPR-2a.1-measurement-correction — compare before the 6CK3 oracle
+          classification.** Remove percent decoding from the production tag model and from the
+          actual side of the pinned `test.event` comparison. Compare the `%HH`-preserving expanded
+          tag first; only afterward classify 6CK3 as the exact known
+          `yaml/yaml-test-suite#9` oracle discrepancy. If the decoded spelling is retained, expose
+          it only as a named test-suite-compatibility observation which cannot contribute to the
+          existing semantics or strict pass counts. Add fail-first coverage proving `%21` and `!`
+          remain distinct before comparison, keep the vendored event unchanged, and verify that
+          6CK3 is the only changed corpus row. Expected corrected census before UPR-2a.2:
+          validity `214`, semantics `137`, strict `125`, actual errors `216`, failures `277`,
+          source/chunks `402/402`, crashes `0`; regenerate the frozen row/category digests only
+          after inspecting the full candidate diff.
     - [ ] **UPR-2a.2 tag/property lexical grammar.** Enforce the complete YAML 1.2.2
           `ns-uri-char`, `ns-tag-char`, local/global prefix, verbatim tag, expanded-URI,
           anchor, and alias spelling productions on JVM and Scala.js. Cover raw non-ASCII and
-          forbidden punctuation, empty suffix/verbatim forms, invalid global URIs, and exact
-          `%HH`/hex-case preservation without changing the reviewed UPR-2a.1 corpus delta.
+          forbidden punctuation, empty suffix/verbatim forms, invalid global URIs, exact
+          `%HH`/hex-case preservation, property-aware `:` detection, and flow-context-sensitive
+          property termination. The only authorized official-row changes are `2SXE`, `LHL4`, and
+          `U99R`; from the corrected baseline the bounded target is actual errors `216→218`,
+          validity `214→216`, semantics `137→138`, strict `125→126`, failures `277→276`, with
+          source/chunks `402/402` and zero crashes. `7FWL`, `W5VH`, `8XYN`, `Y2GN`, `WZ62`, and
+          every UPR-2a.1 target are explicit no-regression sentinels. Queue, rather than absorb,
+          later structural/event-recovery or alias-resolution defects discovered by this slice.
   - [ ] **UPR-2b scalar engine.** Implement multiline plain/single/double quoted folding, complete
         double-quoted escapes and escaped line breaks, literal/folded block indentation,
         more-indented lines, chomping, explicit indentation, and malformed-header recovery.
