@@ -1,5 +1,5 @@
-# generation: 162
+# generation: 163
 #slug	agent	started	items	paths
 v2-native-import-graph	claude-code	2026-07-28T03:32:06Z	v2-native-front-in-fence-imports-not-followed v2-native-scala-import-parse-only-noop	v2/bin/ tests/conformance/native-import tests/conformance/expected/native-import BUGS.md SPRINT.md CHANGELOG.md
 v2-native-error-diagnostic	claude-code	2026-07-28T04:46:14Z	v2-native-uncaught-error-diagnostic-empty	v2/src/Runtime.scala tests/e2e/v2-error-diagnostic.sh v1/tools/cli/src/main/scala/scalascript/cli/StandardMain.scala BUGS.md SPRINT.md CHANGELOG.md
-f-named-arg-skips-default	claude-code	2026-07-28T04:46:18Z	standard-tier-named-arg-skip-default f-named-arg-skips-default	specs/v2.2-p6.5-fsub.ssc specs/v2.2-p6.5-fsub.sh v2/lib/ssc1-front.ssc0 v2/lib/ssc1-lower.ssc0 tests/conformance/named-arg- tests/conformance/expected/named-arg- BUGS.md SPRINT.md CHANGELOG.md
+f-named-arg-skips-default	claude-code	2026-07-28T04:46:18Z	standard-tier-named-arg-skip-default f-named-arg-skips-default	specs/v2.2-p6.5-fsub.ssc specs/v2.2-p6.5-fsub.sh v2/lib/ssc1-front.ssc0 v2/lib/ssc1-lower.ssc0 tests/conformance/named-arg- tests/conformance/expected/named-arg- tests/conformance/contract-roster.tsv BUGS.md SPRINT.md CHANGELOG.md
