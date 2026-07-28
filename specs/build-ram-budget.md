@@ -93,8 +93,9 @@ at 6.9 GB, pageouts started. Second — `memorystatus_level` reads **74 %**. Hea
 would not have logged a line, exactly as it did not on 2026-07-28 03:00.
 
 `build-guard` caps these through `JDK_JAVA_OPTIONS`, which those forks *do* honour precisely because
-they set no `-Xmx` of their own. The durable fix is an explicit `-Xmx` in the launcher template; that
-file is `build.sbt`, held by another claim, so it is queued in `BACKLOG.md` rather than edited here.
+they set no `-Xmx` of their own — and that is exactly why the durable fix is **not** an `-Xmx` in the
+launcher template: adding one would beat `JDK_JAVA_OPTIONS` and break the cap that currently works.
+What to do instead, and what to measure first, is `ssc-fork-heap-entitlement` in `BACKLOG.md`.
 
 ## 3. Measured: idle servers never give the memory back — and now they do
 
