@@ -2,7 +2,7 @@ slug: v2-native-error-diagnostic
 branch: feature/v2-native-error-diagnostic
 agent: claude-code
 started: 2026-07-28T04:46:14Z
-heartbeat: 2026-07-28T04:53:11Z
+heartbeat: 2026-07-28T05:15:59Z
 status: in-progress
 items: v2-native-uncaught-error-diagnostic-empty
 paths: v2/src/Runtime.scala tests/e2e/v2-error-diagnostic.sh v1/tools/cli/src/main/scala/scalascript/cli/StandardMain.scala BUGS.md SPRINT.md CHANGELOG.md
@@ -12,7 +12,9 @@ scope: |
   `ssc: 9`. Two independent defects (SscThrow built with no message; Prims.listIndex delegating
   its range check to Scala's List.apply) meeting at StandardMain's getMessage-or-class-name
   printer. VED-0..VED-3 in SPRINT.md.
-done-so-far: fail-first gate tests/e2e/v2-error-diagnostic.sh proven RED 4/5 (bb5af199b), fix
+done-so-far: LANDED 591ec033e. fail-first gate tests/e2e/v2-error-diagnostic.sh proven RED 4/5 (bb5af199b), fix
   landed on the branch (c1c960209), gate now 5 ok / 0 FAIL on both execution lanes; plugin
   suites 6+10+5 green; try/effect/list conformance slice 11/11
-next: full corpus running for regression evidence, then push feature + docs + bookkeeping
+next: awaiting CI evidence on the landed SHA, then release. Full corpus done: 323/326, the
+  3 fails are foreign (2 declared known-red on main in 9f136e21f, 1 = scljet-wal, an INT BATCH
+  artifact that passes in isolation and in every targeted batch)
