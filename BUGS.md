@@ -1,5 +1,41 @@
 # Bug tracker
 
+## v2-front-for-yield-remaining-layouts — two of four `for`/`yield` layouts still miss F, one silently wrong
+
+**Status:** OPEN (found 2026-07-28 by `ssc1-front-annotation-case-class` while probing
+`wasm-scalascript`). **A/B'd against `cd14a97d5~1`: identical before and after that fix, so NOT a
+regression from it** — but it does mean the fix's reach is narrower than its commit message sounds,
+and the gate could not see the difference.
+
+**Four layouts, measured on the default lane:**
+
+| layout | F | result |
+|---|---|---|
+| `val r = for` ⏎ gens ⏎ `yield e` at **col 0** | ✅ compiles | `2` — correct |
+| `val r = for` ⏎ gens ⏎ **indented** `yield e` | ⚠️ compiles | **`__method__: no dispatch for .foreach on 1` — a WRONG program that runs** |
+| `val r =` ⏎ **indented** `for` ⏎ gens ⏎ `yield e` | declines | correct output via the F4a fallback |
+| `def f() =` ⏎ **indented** `for` ⏎ gens ⏎ `yield e` | declines | correct output via the F4a fallback |
+
+**Why the existing gate is blind to this.** `tests/conformance/for-yield-layout.ssc` compares
+OUTPUT, and rows 3–4 produce the *correct* output — the fallback recompiles them with the legacy
+front. So the case is green while F still cannot lower two of the four shapes. Row 4 is literally a
+shape that gate contains, and the gate passes. **An output gate cannot measure which front
+compiled the file**; that needs `ssc info --front-report` or the dualrun gate.
+
+**Row 2 is the serious one** and it is the shape this project cares most about: F emits a program
+that *runs* and is wrong, rather than failing. It is not new — it predates the layout-opener fix —
+but it is now the only one of the four that is silently wrong rather than loudly delegated.
+
+**Fix direction.** Rows 3–4: `for` as the first token of a layout block opened by `=` — the opener
+fires on the `=`, so `for` on the next line is inside that block and its own opener never runs.
+Row 2: `yield` indented to the same level as the generators is being absorbed INTO the generator
+list instead of closing it, so the comprehension desugars with the yield expression as a generator
+(hence `.foreach` on an Int).
+
+**Do not gate this with a conformance case alone** — see above. Pair it with
+`ssc info --front-report`, which answers "did F actually compile this file" directly.
+
+
 ## ssc1-front-annotation-before-declaration — an annotation on its own line is `_err` on the legacy front
 
 
