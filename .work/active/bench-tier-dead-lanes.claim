@@ -1,0 +1,11 @@
+slug: bench-tier-dead-lanes
+branch: feature/bench-tier-dead-lanes
+agent: claude-code
+started: 2026-07-28T11:53:16Z
+heartbeat: 2026-07-28T11:53:16Z
+status: claimed-before-planning
+items: bench-jvm-js-lanes-dead-silently v2rt-0b-per-invocation-half
+paths: v1/tools/cli/src/main/scala/scalascript/cli/Main.scala bench BUGS.md SPRINT.md docs/benchmarks.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
