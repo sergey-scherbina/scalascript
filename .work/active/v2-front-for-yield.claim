@@ -2,10 +2,10 @@ slug: v2-front-for-yield
 branch: feature/v2-front-for-yield
 agent: claude-code
 started: 2026-07-28T13:02:26Z
-heartbeat: 2026-07-28T13:02:26Z
-status: claimed-before-planning
+heartbeat: 2026-07-28T13:05:26Z
+status: in-progress
 items: v2-front-for-yield-parse-gap
-paths: specs/v2.2-p6.5-fsub.ssc tests/conformance/for-yield tests/conformance/expected/for-yield BUGS.md bugs-v2.md SPRINT.md CHANGELOG.md
+paths: specs/v2.2-p6.5-fsub.ssc v2/lib/ssc1-front.ssc0 tests/conformance/for-yield tests/conformance/expected/for-yield BUGS.md bugs-v2.md SPRINT.md CHANGELOG.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
