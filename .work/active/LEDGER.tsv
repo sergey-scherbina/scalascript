@@ -1,3 +1,4 @@
-# generation: 165
+# generation: 166
 #slug	agent	started	items	paths
 v2-native-error-diagnostic	claude-code	2026-07-28T04:46:14Z	v2-native-uncaught-error-diagnostic-empty	v2/src/Runtime.scala tests/e2e/v2-error-diagnostic.sh v1/tools/cli/src/main/scala/scalascript/cli/StandardMain.scala BUGS.md SPRINT.md CHANGELOG.md
+v2-multiblock-auto-output	claude-code	2026-07-28T05:20:38Z	v2-native-multiblock-auto-output-missing	specs/v2.2-p6.5-fsub.ssc v2/bin/ tests/conformance/multiblock-auto-output tests/conformance/expected/multiblock-auto-output BUGS.md SPRINT.md CHANGELOG.md
