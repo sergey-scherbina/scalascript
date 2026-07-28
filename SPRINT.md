@@ -9,6 +9,25 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## 2026-07-28 — the program tail rendered as a debug dump — ✅ DONE (`7e85d198a`)
+
+**Claim `v2-program-tail-string-render`.** `BUGS.md` `v2-native-program-tail-quotes-strings`.
+`V2Result.report` ended in `Show.show`, the DEBUG rendering, which quotes every string at every
+depth. The program's tail is user-facing output and v1 — what the conformance goldens encode —
+prints those strings bare. One-line swap to `ssc.Prims.display`, the renderer the kernel's own
+`println` already uses, so the tail and an explicit `println` of the same value now agree with
+each other and with v1.
+
+**The part worth carrying forward:** the entry's own recorded fix direction was WRONG. It said
+top-level-only and proposed keeping `Show.show` for nested values, on the guess that v1 quotes
+them. Measured: v1 prints `List(a, b)`, `Some(x)`, `Map(k -> v)` — bare at every depth. Checking
+the guess before implementing turned a special case into a one-line swap.
+
+Gate: four cases in `tests/e2e/v2-error-diagnostic.sh` that compare the native tail against
+`ssc-tools run --v1` **on the same file** rather than a hardcoded string, so the expectation cannot
+drift from the reference. A/B'd 4/4 red against the previous binary, 9 ok / 0 FAIL against the fix.
+
+
 ## 2026-07-28 — per-block auto-output, second attempt: a per-backend primitive
 
 **Claim `v2-auto-output-prim`. AOP-0..AOP-4 DONE** — `BUGS.md`

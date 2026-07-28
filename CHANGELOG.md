@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-07-28 — a program's result prints as output, not as a debug dump
+
+`ssc run` ended its successful-result path in `Show.show` — the *debug* rendering, which quotes
+every string at every depth. So a program whose value was `"HELLO!"` printed `"HELLO!"`, and one
+whose value was `List("a", "b")` printed `List("a", "b")`, while the v1 reference — what the
+conformance goldens encode — prints `HELLO!` and `List(a, b)`. An explicit `println` of the same
+value was already correct on both lanes; only the tail path disagreed, so the two did not even
+agree with each other.
+
+It now renders through the same display the kernel's `println` uses. The bug entry recorded a fix
+direction that turned out to be wrong (top-level-only, on the assumption that v1 quotes nested
+strings); measuring v1 first replaced a special case with a one-line swap. `BUGS.md`
+`v2-native-program-tail-quotes-strings`.
+
 ## 2026-07-28 — every code block's tail prints again on the native lane
 
 A `.ssc` document's contract is that the last non-Unit expression **of each** top-level code block
