@@ -9,6 +9,47 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## 2026-07-28 — `f-named-arg-skips-default` (BUGS `standard-tier-named-arg-skip-default`)
+
+**Active claim:** `f-named-arg-skips-default`. A named argument for a defaulted parameter is
+mis-handled on the DEFAULT lane. Filed 2026-07-13 as a silent wrong binding; re-measured today it
+is worse and broader than filed.
+
+**Measured 2026-07-28, before any edit** (`def f(a: String, b: String = "B0", c: String = "C0",
+d: String = "D0")`):
+
+| lane | `f("x", c = "C1")` |
+|---|---|
+| `bin/ssc run` (default, F front) | **`ssc: arity: 4 expected, 2 given`** — LOUD, correct programs do not run |
+| `SSC_FRONT=legacy bin/ssc run` (ssc1-front oracle) | **`b=C1 c=C0 d=D0`** — SILENT wrong slot (the originally filed symptom) |
+| `bin/ssc-tools run --v1` (reference) | `b=B0 c=C1 d=D0` |
+| `bin/ssc-tools emit-js` + node | `b=B0 c=C1 d=D0` |
+
+The filed entry says naming the FIRST defaulted param works — it does not any more: `f("x",
+b = "B1")` fails identically on F. Every named-arg call to a defaulted param is affected;
+all-positional and all-defaults calls are fine.
+
+**Root cause, both sides.** F: `dfltGo2` bails on `anyNamedSlice`, so default synthesis never fires
+for a call with a named arg, and `parseArgExpr` then STRIPS the label and lowers the value
+positionally → arity error. Oracle: `ssc1-front` keeps the label as an `narg` node, but
+`ssc1-lower`'s `expandDefaultCall` bails on `hasNamedDfltArg` and the label is dropped → the value
+lands in the first omitted slot. Two different halves of one missing feature: bind named args by
+NAME, then fill the rest from defaults.
+
+- [ ] **NA-1 — F: bind by name.** New `nargGo` decision + slot assignment (`assignSlots`) used by
+      `parseCallS`/`parseCtorGenS`, leaving `dfltGo` (and therefore the enum-case path, which
+      drops a positional COUNT) untouched. `synthW1` learns that an EMPTY slice means "use the
+      default", which is what lets a middle param be skipped.
+- [ ] **NA-2 — the ORACLE, same shape.** `ssc1-lower expandDefaultCall`: reorder `narg` args into
+      param order instead of bailing. Required, not optional: the fsub differential gate asserts
+      F is output-equivalent to the oracle, so fixing F alone turns a two-sided wrong answer into
+      a reported DIVERGE.
+- [ ] **NA-3 — gates.** `d` cases in `specs/v2.2-p6.5-fsub.sh` covering: name the first / a middle
+      / the last defaulted param, two out of order, and a fully-applied named call. Cross-lane
+      conformance case `tests/conformance/named-arg-defaults.ssc` (INT is the golden).
+- [ ] **NA-4 — close out.** BUGS entry: correct the "naming the first one works" claim, record both
+      root causes and the SHA.
+
 ## 2026-07-28 — the native lane's error diagnostics say nothing (Sergiy: "Исправляй оставшиеся проблемы в ssc v2")
 
 **Active claim:** `v2-native-error-diagnostic`. `BUGS.md`
