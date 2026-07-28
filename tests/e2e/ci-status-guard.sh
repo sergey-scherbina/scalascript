@@ -445,7 +445,30 @@ fi
 CLAIM_WT="$TMP/claim-wt"
 CLAIM_BRANCH="feature/ci-red-main-final-fixture-$$"
 FRESH_NOW_EPOCH=1784247000  # 2026-07-17T00:10:00Z
-STALE_NOW_EPOCH=1784247601  # 2026-07-17T00:20:01Z
+
+# The staleness threshold is READ FROM THE CODE THAT ENFORCES IT, never restated here.
+#
+# It was restated here, and on 2026-07-28 that cost a red gate: `scripts/coord-status` raised the
+# threshold 20m -> 45m (2700s) deliberately, this file still asserted `age=1201s/20m
+# reason=older-than-20m`, and 1201s stopped being stale. So `Verify exact-SHA CI status guard`
+# failed on EVERY push -- the Validate job red for an expectation that was simply out of date, which
+# is the same "apparatus lies" class the fixture exists to prevent. BUGS.md
+# `heartbeat-threshold-stated-in-two-repos` had already fixed two copies of this constant and added
+# `tests/coord/heartbeat-threshold-single-source.sh`; that gate reads the enforcing code, but did not
+# know about this THIRD copy. Deriving it is the only version that cannot drift again.
+STALE_THRESHOLD_SECS="$(sed -n 's/.*heartbeat_age_seconds" -gt \([0-9]*\) \].*/\1/p' \
+  "$ROOT/scripts/coord-status" | head -1)"
+STALE_REASON="$(sed -n 's/.*heartbeat_reason="\(older-than-[0-9]*m\)".*/\1/p' \
+  "$ROOT/scripts/coord-status" | head -1)"
+if [[ -z "$STALE_THRESHOLD_SECS" || -z "$STALE_REASON" ]]; then
+  printf 'ci-status-guard[threshold-unreadable]: could not read the staleness threshold from scripts/coord-status.\n' >&2
+  printf '  expected=a `-gt <secs>` test and an `older-than-<n>m` reason; got secs=%q reason=%q\n' \
+    "$STALE_THRESHOLD_SECS" "$STALE_REASON" >&2
+  exit 1
+fi
+# One second past the threshold: the smallest input that must be reported stale.
+STALE_AGE_SECS=$(( STALE_THRESHOLD_SECS + 1 ))
+STALE_NOW_EPOCH=$(( 1784246400 + STALE_AGE_SECS ))   # heartbeat is 2026-07-17T00:00:00Z = 1784246400
 git -C "$ROOT" worktree add -q -b "$CLAIM_BRANCH" "$CLAIM_WT" HEAD
 mkdir -p "$CLAIM_WT/.work/active"
 printf '%s\n' \
@@ -483,11 +506,11 @@ stale_output="$(FAKE_CI_MODE=red FAKE_EXPECT_SHA="$live_sha" SSC_CI_GH="$FAKE_GH
   "$ROOT/scripts/coord-status" --no-fetch 2>&1)"
 stale_code=$?
 set -e
-stale_expected="potentially stale heartbeat: ci-red-main (heartbeat=2026-07-17T00:00:00Z age=1201s/20m reason=older-than-20m branch=live:$CLAIM_BRANCH)"
+stale_expected="potentially stale heartbeat: ci-red-main (heartbeat=2026-07-17T00:00:00Z age=${STALE_AGE_SECS}s/$((STALE_AGE_SECS / 60))m reason=${STALE_REASON} branch=live:$CLAIM_BRANCH)"
 if [[ "$stale_code" -ne 0 || "$stale_output" != *"$stale_expected"* ]]; then
   observed_branches="$(git -C "$ROOT" worktree list --porcelain | sed -n 's/^branch refs\/heads\///p')"
   printf 'ci-status-guard[stale-heartbeat]: expected=%q got_output=%q exit=%s heartbeat=%s age=%ss expected_branch=%s observed_branches=%q\n' \
-    "$stale_expected" "$stale_output" "$stale_code" '2026-07-17T00:00:00Z' 1201 \
+    "$stale_expected" "$stale_output" "$stale_code" '2026-07-17T00:00:00Z' "$STALE_AGE_SECS" \
     "$CLAIM_BRANCH" "$observed_branches" >&2
   exit 1
 fi
