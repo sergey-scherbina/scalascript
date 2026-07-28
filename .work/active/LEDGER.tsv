@@ -1,3 +1,4 @@
-# generation: 173
+# generation: 174
 #slug	agent	started	items	paths
 v2-program-tail-string-render	claude-code	2026-07-28T08:11:36Z	v2-native-program-tail-quotes-strings	v1/tools/cli/src/main/scala/scalascript/cli/V2Result.scala tests/e2e/v2-error-diagnostic.sh BUGS.md SPRINT.md CHANGELOG.md
+bugs-try-attribution-stale	claude-code	2026-07-28T08:19:27Z	bugs-try-attribution-stale	BUGS.md
