@@ -1,0 +1,11 @@
+slug: v2-diverge-triage
+branch: feature/v2-diverge-triage
+agent: claude-code
+started: 2026-07-28T17:05:50Z
+heartbeat: 2026-07-28T17:05:50Z
+status: claimed-before-planning
+items: OPEN-W4 v2-diverge-content-tables v2-diverge-dsl-ast-builder v2-diverge-json-read
+paths: BUGS.md SPRINT.md CHANGELOG.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
