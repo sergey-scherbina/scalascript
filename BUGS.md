@@ -942,6 +942,19 @@ scljet-wal:
 
 `<missing>`, not wrong — the case produced **no stdout at all** inside the batch JVM.
 
+**SIXTH OCCURRENCE 2026-07-28 — and the first with a CONTROLLED contrast that isolates the batch
+itself.** `scljet-update-ipk-moves-rowid` FAIL [INT], all six lines `<missing>`, byte-exact in
+isolation. What makes this one decisive: **CI ran the same corpus on the same commit
+(`cd14a97d5`, run 30370607077) and all four Conformance shards passed.** Same code, same cases,
+same goldens — the only difference is that CI shards the corpus 4 ways and the local run does not.
+Combined with the 116-case scljet-only sweep that DID trigger it, size alone is not the whole
+story, but "sharded green / unsharded red on one SHA" is the cleanest evidence yet that the trigger
+is the batch process and not any change under test.
+
+**Practical consequence for anyone reading a local red:** before treating an INT `<missing>` as a
+regression, re-run that case standalone and check whether CI's shards were green on the same SHA.
+Five of the six sightings would have been mis-attributed to an unrelated change otherwise.
+
 **FOURTH OCCURRENCE 2026-07-28, reported independently in rozum by another agent** — and it is the
 strongest data point, because it is a different worktree, a different build and a much smaller
 selection: a no-memo `--only 'scljet-*'` sweep (116 cases) came back 115/1, the one failure being
