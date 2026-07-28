@@ -248,6 +248,77 @@ Skipped source is still emitted once as source-backed syntax/error tokens. CST c
 continues after a recoverable error and never manufactures a successful semantic node from skipped
 text.
 
+### Tag, anchor, and alias lexical grammar
+
+`YamlPropertySyntax.scala` is the portable lexical authority for node properties and aliases until
+the broader `YamlSyntax.scala` consolidation lands. `YamlLexer` and `YamlSemanticParser` must call
+the same scanner; neither may infer property ends independently with `indexWhere`, `trim`, or a
+per-character flow-delimiter shortcut. A scan records the kind, exact UTF-16 start/end, handle and
+suffix ranges where applicable, the observed boundary, whether separation occurred, and at most
+one spelling failure with its relative offset.
+
+The character productions are exact:
+
+- a tag handle is `!`, `!!`, or `!` + one or more ASCII letters/digits/hyphens + `!`;
+- `ns-uri-char` is one exact `%HH` triplet, an ASCII letter/digit/hyphen, or one of
+  `#;/?:@&=+$,_.!~*'()[]`;
+- `ns-tag-char` is `ns-uri-char` excluding raw `!`, `,`, `[`, and `]` (and the other flow
+  indicators `{`/`}`, which are not `ns-uri-char` in the first place);
+- a shorthand suffix contains one or more `ns-tag-char` units;
+- a local `%TAG` prefix is `!` followed by zero or more `ns-uri-char` units; a global prefix is one
+  `ns-tag-char` followed by zero or more `ns-uri-char` units;
+- a verbatim spelling is `!<` + one or more `ns-uri-char` units + `>`;
+- an anchor or alias name contains one or more `ns-anchor-char` units:
+  `ns-char` excluding `,`, `[`, `]`, `{`, and `}`. Here `ns-char` excludes space, tab, CR, LF,
+  and BOM; raw Unicode, `%`, `:`, `#`, `!`, quotes, `<`, and `>` are legal in a name.
+
+Raw non-ASCII is therefore legal in anchor/alias names but not in tag spelling. In a tag or `%TAG`
+prefix, a `%` consumes exactly two following hexadecimal digits. The triplet and its hex-letter
+case remain unchanged; percent bytes are opaque and are never decoded merely to validate a tag.
+`#` begins a comment only after separation, so `!foo#bar` and `&a#b` are complete spellings.
+
+Directive registration validates the YAML prefix production but does not invent a stricter
+“partial URI” grammar: YAML only recommends that a global prefix contain a scheme. On actual tag
+expansion, one bounded `prefix + suffix` result is produced after checking the combined size.
+Apart from the bare non-specific `!` property, an effective tag beginning with `!` is local. Every
+other effective tag, including a verbatim tag body, must match the RFC 3986 `URI` production with
+a scheme; fragment-bearing global tags remain legal. A verbatim local tag contains at least one
+character after its leading `!`; `!<!>` is the invalid non-specific tag, not a local verbatim tag.
+The portable validator recognizes
+`scheme ":" hier-part [ "?" query ] [ "#" fragment ]`, authority/user-info/host/port,
+IPv4, bracketed IPv6 or IPvFuture literals, path alternatives, `pchar`, and exact percent
+triplets. It performs no DNS lookup, scheme-specific interpretation, decoding, case folding, or
+normalization and does not use `java.net.URI`, a platform URL implementation, or regular
+expressions.
+
+A complete property normally ends at separation or end-of-input. Flow indicators can instead
+terminate a property-only empty node only when parser state is already inside the corresponding
+flow collection. Thus `[!!str, value]`, `[!, value]`, `[!]`, and `{key: !}` are legal; block input
+`- !!str, value` is not. An opening `[` or `{` never supplies the missing separation, so `![x]`,
+`!{x: y}`, `!foo[x]`, and `&a[x]` are errors. `:` remains part of a tag suffix or anchor/alias
+name; mapping-separator search must skip a complete property spelling, preserving such names as
+`&a:` and `*a:`.
+
+An alias is a complete node, not a property. It may end at separation/EOF or a legal flow boundary
+but cannot carry trailing scalar content or tag/anchor properties. A node may have at most one tag
+and one anchor, in either order. Empty aliases/anchors, malformed adjacency, duplicate properties,
+undefined handles, and invalid effective URIs produce the existing bounded
+`uniml.yaml.invalid-tag`, `uniml.yaml.invalid-anchor`, or `uniml.yaml.invalid-alias` diagnostics.
+
+UPR-2a.2 compares all 402 official cases before baseline replacement. From the corrected
+UPR-2a.1 baseline, the only authorized changed case ids are:
+
+- `2SXE`: legal colon-bearing anchor/alias names make the event observable exact;
+- `LHL4`: raw `{}` adjacency in `!invalid{}tag` changes actual validity to error;
+- `U99R`: a comma cannot terminate `!!str` in block context, changing actual validity to error.
+
+The exact bounded target is actual errors `218`, validity `216`, semantics `138`, strict `126`,
+failures `276`, source/chunks `402/402`, and zero crashes. `7FWL`, `8XYN`, `W5VH`, `Y2GN`, `WZ62`,
+all UPR-2a.1 target rows, exact `%2f`/`%2F` spelling, every chunk split through `%HH` and an astral
+anchor, and the JVM/Scala.js diagnostic/result rows are mandatory no-regression gates. Invalid-case
+event-prefix closure remains the later event-first/recovery slice; this lexical slice must not
+claim strict gains for `LHL4` or `U99R`.
+
 ### Ordered semantic event trace
 
 The official semantic observable is generated while parsing, not reconstructed afterward from
@@ -290,8 +361,9 @@ concatenation is forbidden.
 The bare `!` property is the non-specific tag, not a shorthand with an empty suffix. It remains
 exactly `!` even when a `%TAG ! ...` directive overrides the primary handle; only a non-empty
 primary-handle shorthand such as `!name` uses that declaration. Bare `!` must be followed by YAML
-separation or end-of-input. A flow indicator immediately after it (`![...]`, `!{...}`) is not
-silently reinterpreted as tagged collection content.
+separation, end-of-input, or a parser-approved flow boundary terminating a property-only empty
+node. An opening flow collection immediately after it (`![...]`, `!{...}`) is never such a
+boundary and is not silently reinterpreted as tagged collection content.
 
 Anchor declarations and alias lookup use source order; an alias never binds to a later declaration,
 and a duplicate anchor affects only later aliases.
