@@ -293,6 +293,22 @@ object Emit:
     case _ => Prims.methodOp(name, v, Nil)  // preserve length/size for exotic receivers
   def dataArity(v: Value): Int = v match { case Value.DataV(_, fs) => fs.length; case _ => -1 }
   def dataFields(v: Value): Array[Value] = v match { case Value.DataV(_, fs) => fs.toArray; case _ => Array.empty }
+
+  /** One field of a matched constructor, WITHOUT materialising the rest.
+   *
+   *  `dataFields` copies every field into a fresh `Array[Value]` (`fs.toArray`), and the
+   *  emitter called it once per successful constructor match purely to read the fields
+   *  back out by index. A profile of `bench/corpus/pattern-match-heavy` — the worst row
+   *  in `specs/v2-vs-v1-backend-matrix.md` at 601x the v1 interpreter — put `dataFields`
+   *  and its `toArray` at ~28% of samples: an allocation and an n-element copy per match,
+   *  to read n elements.
+   *
+   *  `DataV.fields` is an `IndexedSeq`, so indexing it is O(1) and allocates nothing.
+   *  `dataFields` itself stays: it is part of the static surface that already-persisted
+   *  direct-ASM artifacts link against. */
+  def dataField(v: Value, i: Int): Value = v match
+    case Value.DataV(_, fs) => fs(i)
+    case other              => sys.error(s"dataField: not a constructor value: ${Show.show(other)}")
   def matchFail(tag: String, ar: Int): Value = sys.error(s"match: no arm for $tag/$ar")
   def handlerMatchEnter(v: Value): Boolean = Runtime.handlerMatchEnter(v)
   def handlerMatchSelected(active: Boolean): Unit = Runtime.handlerMatchSelected(active)

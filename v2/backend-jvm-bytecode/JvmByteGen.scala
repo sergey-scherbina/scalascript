@@ -1346,15 +1346,17 @@ object JvmByteGen:
             mv.visitVarInsn(Opcodes.ILOAD, handlerDispatchSlot)
             mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "handlerMatchSelected", "(Z)V", false)
           // bind fields (in order → Local(0)=last field, VM extend semantics)
+          // Read each bound field straight off the scrutinee. This used to call
+          // `dataFields`, which copies EVERY field into a fresh Array[Value], and then
+          // AALOAD them back out — an allocation and an n-element copy per successful
+          // match, to read n elements. `pattern-match-heavy` spent ~28% of its profile
+          // there. `dataField` indexes the IndexedSeq in place; the binding ORDER is
+          // unchanged, so VM extend semantics (Local(0) = last field) still hold.
           if arm.arity > 0 then
-            mv.visitVarInsn(Opcodes.ALOAD, scrutSlot)
-            mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "dataFields", s"(L$VAL;)[L$VAL;", false)
-            val fieldsSlot = ctx.nextSlot; ctx.nextSlot += 1
-            mv.visitVarInsn(Opcodes.ASTORE, fieldsSlot)
             (0 until arm.arity).foreach { i =>
-              mv.visitVarInsn(Opcodes.ALOAD, fieldsSlot)
+              mv.visitVarInsn(Opcodes.ALOAD, scrutSlot)
               mv.visitLdcInsn(i)
-              mv.visitInsn(Opcodes.AALOAD)
+              mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "dataField", s"(L$VAL;I)L$VAL;", false)
               val s = ctx.push()
               mv.visitVarInsn(Opcodes.ASTORE, s)
             }
