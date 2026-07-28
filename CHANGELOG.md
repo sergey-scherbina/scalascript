@@ -17,6 +17,22 @@ The previously recorded root cause (a gap in the imported-typeclass scan) was wr
 corrected in place: a typeclass declared in the SAME module failed identically, so no import was
 involved. New cross-lane regression `tests/conformance/js-derives-segmented.ssc` pins both scan
 paths. Corpus contract green on a 9-case derives/Mirror slice.
+## 2026-07-28 — the native lane now follows an import written inside a code fence
+
+`[names](path.ssc)` is an import wherever it stands, but the native runner's scanner flipped into
+"skip to the closing fence" on any ` ``` ` line, so an in-fence link was never collected and every
+name the module exports stayed unbound. Only the v1 *interpreter* got this right; the native lane
+answered `unbound global: …`, or — when the unbound name was *called* qualified — the actively
+misleading `unhandled runtime effect: Transport.Spawn`. The scanner now carries the fence's scan
+mode, using the same code/doc predicate the source collector uses, so a `scalascript`/`scala`
+fence is transparent to the scan while `sql`/`yaml`/`text` and any `@doc` block stay opaque.
+
+Measured by swapping only the staged tower on one build: the bug report's own program went from
+`unhandled runtime effect: Transport.Spawn` to its three tools, and across all 35 sources in the
+tree carrying an in-fence import link, one line changed and it improved. The fix had to wait for
+`f-try-multistmt-def-body`: following these imports newly reaches `std/agent.ssc`, which the
+native front could not parse until then. Gate: `tests/conformance/native-import-in-fence.ssc`.
+`BUGS.md` `v2-native-front-in-fence-imports-not-followed`.
 
 ## 2026-07-28 — the v2 runtime never JIT-compiled a method call; it does now (2.4-10.8×)
 
