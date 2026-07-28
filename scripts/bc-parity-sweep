@@ -126,7 +126,7 @@ skip_re='(^|[^[:alnum:]_])serve([[:space:]]*\(|[[:space:]]*\{|[A-Z][[:alnum:]_]*
 nondet_re='^(sql-sqlite-file|uuid-v7|os-env|mcp-server-protected|oauth-mcp-full-stack|async-parallel-demo|distributed-word-count|graphql-client|v2-http-sql-demo)\.ssc$'
 ident=0; mismatch=0; bcerr=0; bothfail=0; skipped=0; vmerr=0; timedout=0; total=0
 delegated=0; provider_lane=0; target_lane=0
-mlist=''; elist=''; vlist=''
+mlist=''; elist=''; vlist=''; blist=''
 
 record() {
   local file=$1 category=$2 vm_rc=$3 bc_rc=$4 detail=$5
@@ -236,7 +236,11 @@ while IFS= read -r f; do
   fi
 
   if [[ $vm_rc -ne 0 && $bc_rc -ne 0 ]]; then
-    bothfail=$((bothfail + 1))
+    # `blist` exists because a `--strict` run FAILS on both-fail and, until 2026-07-28, printed only
+    # the COUNT. CI run 30350792576 went red on exactly this: `both-fail: 1` after a 56-minute sweep,
+    # with MISMATCH/BYTECODE-ERROR/VM-ERROR all listed and empty, and no way to learn WHICH case
+    # without re-running the whole gate. A number without a name is not a diagnosis.
+    bothfail=$((bothfail + 1)); blist="$blist $b"
     detail=$(head -1 "$tmp/bc.err")
     record "$b" both-fail "$vm_rc" "$bc_rc" "$detail"
   elif [[ $bc_rc -ne 0 ]]; then
@@ -259,6 +263,7 @@ echo "=== total: $total  identical: $ident  mismatch: $mismatch  bytecode-error:
 echo "MISMATCH:$mlist"
 echo "BYTECODE-ERROR:$elist"
 echo "VM-ERROR:$vlist"
+echo "BOTH-FAIL:$blist"
 echo "REPORT: $report"
 
 if [[ $strict -eq 1 && $((bothfail + mismatch + bcerr + vmerr)) -ne 0 ]]; then
