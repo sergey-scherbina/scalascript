@@ -484,18 +484,14 @@ Full A/B, baseline and open slices: `specs/v2-runtime-perf-vs-v1.md`; bug record
       (pure sequential decomposition, largest part 5,509) + `scripts/bytecode-size-census` +
       `tests/e2e/v2-jit-size.sh --self-test`. Measured 2.4-10.8× on both lanes, null on the
       arithmetic workloads that never reach `__method__` (that null IS the control).
-- [ ] **v2rt-1b — wire `tests/e2e/v2-jit-size.sh --self-test` into CI.** The gate exists,
-      self-tests both verdicts and passes locally, but `.github/workflows/ci.yml` was held by
-      the live `build-ram-budget-and-speed` claim when v2rt-1 landed, so it is NOT yet running
-      per push. Add it next to the other `tests/e2e/*` guard steps (it takes ~5 s). Until then
-      the guard only fires when someone runs it by hand — which is exactly how the 49,384-byte
-      method survived in the first place.
-- [ ] **v2rt-2 — split `ssc.bytecode.JvmByteGen$.gen` before it breaches.** It is at
-      **7,052 / 8000 (88%)** — one `case` from silently un-JITing the entire bytecode emitter,
-      which is the DEFAULT execution lane. Same sequential decomposition as `methodDispatch1..10`;
-      verify with `tests/e2e/v2-jit-size.sh` (it already prints this method as a watch item) and
-      an A/B on `./bench.sh --backends ssc,v2-bytecode --reps 30`. Preventive: expect ~no gain
-      today — the win is that the emitter cannot silently fall off the JIT later.
+- [x] **v2rt-1b — DONE.** `tests/e2e/v2-jit-size.sh --self-test` runs on every push, in the sbt
+      job right after `sbt compile cli/assembly installBin` (~5 s; it needs compiled v2 classes and
+      nothing else). Also unpinned the Scala version in its artifact discovery, which would have
+      globbed nothing and exited 2 the moment scalaVersion moved.
+- [x] **v2rt-2 — DONE.** `JvmByteGen.gen` **7,052 → 4,454 + `gen2` 2,303**, pure sequential
+      decomposition split at the `ArithB` arm. Preventive, no measurable gain expected or claimed;
+      the point is that the 2.4-10.8× already landed cannot silently evaporate when someone adds a
+      `case`. `v2-jit-size.sh` now reports no method ≥6000 in ANY v2 module.
 - [ ] **v2rt-3 — `list-fold` / `hof-pipeline`: closure-call cost on the bytecode lane.**
       `list-fold` is the ONE workload v2rt-1 did not move on the product lane (0.894 vs v1
       0.0066 = **135×**, the largest remaining ratio), while its VM lane went 4.2× faster. So
@@ -529,36 +525,26 @@ Measured entry facts, so a fresh agent does not re-derive them:
   churn. (Recorded because the bytecode plainly shows the allocation and the next reader will
   otherwise re-open it.)
 
-- [ ] **v2rt-7 — arity-specialised prim dispatch in `Emit`.** `Prims.resolve1/2/3` already exist
-      and their own comment says they are the "allocation-free fast paths … avoid creating a
-      List[Value] for arg passing on the hot path" — but `Emit`, the call surface the GENERATED
-      BYTECODE uses, does not use them: `prim1`/`prim2`/`prim3` all go through `fn(op)` and build
-      `a :: b :: Nil`. Cache the arity-specialised form behind a null-object sentinel (a CHM
-      cannot store null and most ops legitimately have no specialised form, so the MISS must be
-      cached or the slow path re-runs the whole `resolve1` match every call). Keep `prim2`'s
-      `global.reg` special case first — `Emit.registerGlobal` is not `resolve2`'s `global.reg` arm.
-      This removes the list allocation but NOT the hash lookup; measure before deciding whether
-      the emit-time half (a static per-op slot filled in `<clinit>`, which does remove it) is
-      worth the emitter change.
-- [ ] **v2rt-6 — the bytecode lane resolves every primitive by STRING at run time.**
-      Profile-backed (`jdk.ExecutionSample` on `bin/ssc-tools --backend v2-bytecode bench
-      bench/corpus/vector-index.ssc`): `ssc.Emit$.prim2` 87+78 and `ssc.Emit$.fn` 68 samples —
-      together ~23% of the profile. Every generated prim site calls
-      `Emit.prim2(op, a, b)` → `fnCache.computeIfAbsent(op, …)` (String hash + bin walk) →
-      `fn(op)(a :: b :: Nil)` (**2 cons cells allocated per primitive operation**), and `prim2`
-      additionally does an `op == "global.reg"` String compare on every call.
-      `Prims.resolve1/resolve2/resolve3` already exist and return arity-specialised
-      `Fn1/Fn2/Fn3`, so the list is pure waste: cache `resolve2(op)` behind a null-object
-      sentinel (a CHM cannot store null and most ops legitimately have no 2-arity form, so the
-      MISS must be cached too or the slow path re-scans on every call) and call `f(a, b)`.
-      Keep the `global.reg` special case first — `Emit.registerGlobal` is not the same function
-      as `resolve2`'s `global.reg` arm, and that difference is not this slice's to change.
-      **Expected ~1.1×, not more** — the CHM lookup itself stays; only the allocation goes.
-      Sized before starting on purpose: the bigger version of this idea is resolving the prim
-      at EMIT time in `JvmByteGen` so the generated code calls a specialised static directly,
-      which is a real design change and should be priced separately.
-      ⚠️ `v2/jvm-runtime` is NOT in the `v2-runtime-perf-vs-v1` claim's paths — widen through
-      `scripts/coord-claim` (and the ledger row) before editing.
+- [x] **v2rt-7 / v2rt-6 — DONE (they were the same item).** `Emit.prim1/2/3` use
+      `Prims.resolve1/2/3` — the arity-specialised resolvers the VM lane has always used — instead
+      of building `a :: b :: Nil` per call. **One** lookup, not two: the first cut put a second
+      cache in front of `fnCache`, so the MISS path (most ops) paid two hash lookups and
+      `vector-index` LOST 8%; both resolutions now live behind one key with a null test selecting
+      the path. Measured with three alternating rounds: **`literal-match` 1.36×**, everything else
+      within noise — including `list-fold`, which motivated it. See `specs/v2-runtime-perf-vs-v1.md`
+      §8. Removing the remaining hash lookup needs the emit-time half (`JvmByteGen` resolving the
+      constant op into a static slot filled in `<clinit>`), worth ~18% of `list-fold` at best.
+- [ ] **v2rt-6b — the emit-time half: resolve the constant op in `JvmByteGen`, not at run time.**
+      What v2rt-7 did NOT remove. Every generated prim site still calls
+      `Emit.primN(op, …)` → `computeIfAbsent(op, …)`: a String hash and bin walk per primitive
+      operation, for an op that is a compile-time constant in the emitted bytecode. `list-fold`'s
+      profile put `Emit.prim1` 110 + `Emit$.fn` 53 + `java.lang.String.hashCode` 40 at ~18% of
+      ~1,100 samples, and v2rt-7 (which removed only the allocation) moved `list-fold` **0%** —
+      so that ~18% is the lookup, and this is where it goes. Shape: `JvmByteGen` emits a static
+      slot per distinct op, filled in `<clinit>` from `Prims.resolve*`, and each site does a
+      `getstatic` + call. Real emitter work; ~18% of the worst workload is the honest ceiling.
+      ⚠️ Measure it with the ALTERNATING protocol (`specs/v2-runtime-perf-vs-v1.md` §7): on this
+      host a single A/B run of identical code has been seen to swing 2.5×.
 - [x] **v2rt-5 — ANSWERED, no action: there is no `FastCode` recognizer any more.** The question was
       whether the VM's arithmetic fast paths stopped firing (`BACKLOG.md` records 0.000015 ms on
       `arith-loop`; it measures 72 ms today). Neither candidate explanation was right. `CHANGELOG.md`
