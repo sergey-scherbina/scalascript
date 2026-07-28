@@ -1,0 +1,154 @@
+---
+name: scljet-freelist-write-corrupt
+description: Reclaiming writes validate the staged freelist graph and fail closed before mutation
+backends: [int, js]
+---
+
+# SclJet mutable freelist corruption
+
+`pagerDeleteRebalanced` is public and accepts a `MutablePager`, whose newest
+staged pages can differ from the base image. It must therefore validate the
+complete staged freelist before touching the B-tree, including calls which do
+not end up freeing a page. These cases cover header agreement, bounds, exact
+graph size, trunk structure, duplication, unsupported file modes, and a caller
+page-size mismatch. The final positive case performs two reclaim batches before
+commit and proves read-your-writes.
+
+[ByteSlice, byteSliceCopyTo, byteSliceUpdated, writeU32Be, readU32Be, ByteRead, SqliteValue, SqlInteger, SqlText, buildTableDatabase, MutablePager, openMutablePager, mutableGet, mutablePut, pagerDeleteRebalanced](std/scljet/index.ssc)
+
+```scalascript
+def rowText(rowid: Int): String =
+  "row-" + rowid.toString +
+  "-padding-to-make-it-a-couple-hundred-bytes-so-a-leaf-holds-only-a-few-rows-and-splits-quickly-abcdefghijklmnopqrstuvwxyz0123456789-abcdefghijklmnopqrstuvwxyz"
+
+def mkRows(n: Int): List[List[SqliteValue]] =
+  var i = 1
+  var reversed: List[List[SqliteValue]] = Nil
+  while i <= n do
+    reversed = List(SqlInteger(i.toLong), SqlText(rowText(i))) :: reversed
+    i = i + 1
+  reversed.reverse
+
+def zeroBytes(size: Int): ByteSlice =
+  ByteSlice.zeros(size) match
+    case Right(bytes) => bytes
+    case Left(_) => ByteSlice.empty
+
+def copyAt(target: ByteSlice, offset: Int, source: ByteSlice): ByteSlice =
+  byteSliceCopyTo(source, target, offset) match
+    case Right(bytes) => bytes
+    case Left(_) => target
+
+def putU32(target: ByteSlice, offset: Int, value: Long): ByteSlice =
+  copyAt(target, offset, writeU32Be(value))
+
+def putByte(target: ByteSlice, offset: Int, value: Int): ByteSlice =
+  byteSliceUpdated(target, offset, value) match
+    case Right(bytes) => bytes
+    case Left(_) => target
+
+def pageAt(pager: MutablePager, page: Int): ByteSlice =
+  mutableGet(pager, page) match
+    case Right(bytes) => bytes
+    case Left(_) => ByteSlice.empty
+
+def withHeader(pager: MutablePager, head: Long, count: Long): MutablePager =
+  val page1 = putU32(putU32(pageAt(pager, 1), 32, head), 36, count)
+  mutablePut(pager, 1, page1)
+
+def withHeaderByte(pager: MutablePager, offset: Int, value: Int): MutablePager =
+  mutablePut(pager, 1, putByte(pageAt(pager, 1), offset, value))
+
+def withHeaderU32(pager: MutablePager, offset: Int, value: Long): MutablePager =
+  mutablePut(pager, 1, putU32(pageAt(pager, 1), offset, value))
+
+def putLeaves(page: ByteSlice, leaves: List[Int]): ByteSlice =
+  var remaining = leaves
+  var offset = 8
+  var out = page
+  while remaining.nonEmpty do
+    out = putU32(out, offset, remaining.head.toLong)
+    offset = offset + 4
+    remaining = remaining.tail
+  out
+
+def withTrunk(pager: MutablePager, pageNumber: Int, next: Long, leaves: List[Int]): MutablePager =
+  val trunk = putLeaves(putU32(putU32(zeroBytes(512), 0, next), 4, leaves.length.toLong), leaves)
+  mutablePut(pager, pageNumber, trunk)
+
+def reject(label: String, pager: MutablePager, suppliedPageSize: Int): Unit =
+  val beforeImage = pager.image.toString
+  val beforePending = pager.pending.toString
+  // Rowid 1 descends through an early table leaf, while corrupt trunk fixtures
+  // use page 14. A Left must therefore come from freelist preflight rather than
+  // accidentally decoding the staged trunk as the target B-tree page.
+  pagerDeleteRebalanced(pager, 2, 1L, suppliedPageSize) match
+    case Left(_) =>
+      val stable = pager.image.toString == beforeImage && pager.pending.toString == beforePending
+      println(label + "=left stable=" + stable.toString)
+    case Right(_) => println(label + "=RIGHT")
+
+def deleteRange(pager: MutablePager, lo: Int, hi: Int): Either[String, MutablePager] =
+  var current = pager
+  var rowid = lo
+  var failure: Option[String] = None
+  while rowid <= hi && failure.isEmpty do
+    pagerDeleteRebalanced(current, 2, rowid.toLong, 512) match
+      case Left(error) => failure = Some(error.message)
+      case Right(next) => current = next
+    rowid = rowid + 1
+  failure match
+    case Some(message) => Left(message)
+    case None => Right(current)
+
+def stagedCount(pager: MutablePager): Long =
+  readU32Be(pageAt(pager, 1), 36) match
+    case Right(ByteRead(value, _)) => value
+    case Left(_) => -1L
+
+buildTableDatabase(512, 1, 1, "t",
+  "CREATE TABLE t(id INTEGER, v TEXT)", mkRows(24)) match
+  case Left(error) => println("build-error=" + error.message)
+  case Right(image) =>
+    val base = openMutablePager(image, 512, 512)
+    reject("count-without-head", withHeader(base, 0L, 1L), 512)
+    reject("head-without-count", withHeader(base, 14L, 0L), 512)
+    reject("head-out-of-range", withHeader(base, 15L, 1L), 512)
+    reject("count-beyond-image", withHeader(base, 14L, 15L), 512)
+
+    val countMismatch = withTrunk(withHeader(base, 14L, 2L), 14, 0L, Nil)
+    reject("graph-count-mismatch", countMismatch, 512)
+
+    val nextOut = withTrunk(withHeader(base, 14L, 1L), 14, 15L, Nil)
+    reject("next-out-of-range", nextOut, 512)
+
+    val zeroLeaf = withTrunk(withHeader(base, 14L, 2L), 14, 0L, List(0))
+    reject("zero-leaf", zeroLeaf, 512)
+
+    val cycle = withTrunk(withHeader(base, 14L, 1L), 14, 14L, Nil)
+    reject("trunk-cycle", cycle, 512)
+
+    val duplicate = withTrunk(withHeader(base, 14L, 3L), 14, 0L, List(13, 13))
+    reject("duplicate-leaf", duplicate, 512)
+
+    val overlap = withTrunk(withHeader(base, 14L, 2L), 14, 0L, List(14))
+    reject("trunk-leaf-overlap", overlap, 512)
+
+    val tooManyPage = putU32(zeroBytes(512), 4, 127L)
+    val tooMany = mutablePut(withHeader(base, 14L, 1L), 14, tooManyPage)
+    reject("excessive-leaf-count", tooMany, 512)
+
+    val shortTrunk = mutablePut(withHeader(base, 14L, 1L), 14, zeroBytes(4))
+    reject("short-staged-trunk", shortTrunk, 512)
+
+    reject("page-one-head", withHeader(base, 1L, 1L), 512)
+    reject("reserved-bytes", withHeaderByte(base, 20, 1), 512)
+    reject("auto-vacuum", withHeaderU32(base, 52, 1L), 512)
+    reject("page-size-mismatch", base, 1024)
+
+    deleteRange(base, 1, 20) match
+      case Left(message) => println("valid-staged=ERROR:" + message)
+      case Right(first) => deleteRange(first, 21, 22) match
+        case Left(message) => println("valid-staged=ERROR:" + message)
+        case Right(second) => println("valid-staged=right count=" + stagedCount(second).toString)
+```

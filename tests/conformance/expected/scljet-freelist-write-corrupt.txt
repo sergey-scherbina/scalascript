@@ -1,0 +1,17 @@
+count-without-head=left stable=true
+head-without-count=left stable=true
+head-out-of-range=left stable=true
+count-beyond-image=left stable=true
+graph-count-mismatch=left stable=true
+next-out-of-range=left stable=true
+zero-leaf=left stable=true
+trunk-cycle=left stable=true
+duplicate-leaf=left stable=true
+trunk-leaf-overlap=left stable=true
+excessive-leaf-count=left stable=true
+short-staged-trunk=left stable=true
+page-one-head=left stable=true
+reserved-bytes=left stable=true
+auto-vacuum=left stable=true
+page-size-mismatch=left stable=true
+valid-staged=right count=12
