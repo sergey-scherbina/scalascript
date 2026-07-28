@@ -91,6 +91,44 @@ its job. Watch with `scripts/build-ram-report --watch 15`.
 −1145 MB per idle server (−42 %), ~15 GB across 13 worktrees. An actively compiling server is
 unaffected: periodic GC only fires when no GC happened during the interval.
 
+## The host guard (installed from the repo)
+
+```bash
+scripts/build-ram-guard --explain          # current reading and which tier it selects
+scripts/build-ram-guard --self-test        # tier table + invariants, kills nothing
+scripts/build-guards-install --status
+scripts/build-guards-install --install     # dry-run by default; this edits launchd
+```
+
+Runs from launchd every 20 s. It escalates cheapest-to-lose first and stops as soon as the host
+recovers:
+
+| tier | what it kills | when |
+|---|---|---|
+| T1 | builders whose worktree was deleted | available < 8 GB **or** any thrashing |
+| T2 | idle sbt/bloop servers (no CPU in the sample) | still short after T1 |
+| T3 | the heaviest build JVM, repeatedly | available < 3 GB **and** actively paging |
+
+Only T3 can interrupt running work, and it needs **both** conditions — low memory alone is the false
+alarm that makes a guard untrustworthy enough to get disabled.
+
+**Two liveness signals, deliberately separate.** The action log
+(`~/Library/Logs/build-ram-guard.log`) records decisions; the state file
+(`$TMPDIR/ssc-build-ram-guard.state`) carries a tick counter that advances every run. The predecessor
+had neither, so its 0-byte log was indistinguishable from a dead process — and it *was* dead in
+effect for a week, across two OOM events. If you want to know whether the guard is alive right now:
+
+```bash
+cat "${TMPDIR}/ssc-build-ram-guard.state"   # "<pageouts> <tick>" — tick must advance every 20 s
+```
+
+**Do not diagnose memory pressure from `kern.memorystatus_level`.** Measured: 93 % idle, 74 %
+mid-event, 62 % while the host held 630 MB of swap and an 11.3 GB compressor. The guard reports it
+and never triggers on it.
+
+**The hourly reaper now uses `--idle 30 --kill`**, so an sbt server nobody has used for 30 minutes
+gets stopped. Nothing is lost — the next `sbt` starts a fresh one and pays the ~9-15 s build load.
+
 ## Fast local loops
 
 | want | command |
