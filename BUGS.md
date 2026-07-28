@@ -943,6 +943,47 @@ a silent wrong answer. The information needed to tell them apart exists — the 
 def` declarations, and the plugin registry — so the guard should accept *declared* externs and keep
 rejecting unknown names. Owner call, since it changes the F4a fallback contract.
 
+**MEASURED 2026-07-28 — the caveat above is now resolved, and the hypothesis holds.**
+Full corpus census via the new `ssc info --front-report` (`d684e6897`), 347 files,
+one decision per file, no execution:
+
+| decision | files | meaning |
+|---|---:|---|
+| `F` | 95 | F compiled it; no delegation |
+| `BOTH-UNBOUND` | 213 | both fronts emit the same unbound global — the mis-classification in this entry |
+| `GAP` | 33 | F's own coverage hole |
+| `ERROR` | 6 | 5 parse failures (`_err` sentinel), 1 malformed fence |
+
+So of the **246 delegations, 213 — 87% — are not F's fault at all**, and F's real
+coverage hole is **33 files (~10% of the corpus)**, not 246. The entry called the
+extern class "a strong candidate for the dominant delegation cause"; it is the
+dominant cause, by a wide margin.
+
+**One extern accounts for over half of it.** Grouping the 213 by the unbound name:
+
+```text
+115  jvmVfsOpen        ← the exact `extern def` this entry names (scljet/jvm-vfs.ssc)
+ 19  runActors
+  7  self
+  7  sc
+  7  jsonCoreParseTolerant
+  5  element
+  5  __yamlSection__
+```
+
+`jvmVfsOpen` alone is 115/213 (54%) of the mis-classified delegations and 33% of
+the whole corpus. Accepting *declared* externs — the fix direction already written
+above — would move roughly 213 files from "delegated" to "F", changing F's measured
+breadth from 95/341 (28%) to ~308/341 (90%) **without touching F itself**. That
+reframes the remaining work: the 33 `GAP` files are the actual F breadth backlog,
+and their causes are already grouped (`q` ×6, `handle` ×6, `html` ×4, `summon` ×3,
+`effect` ×3, `x` ×3, then singles).
+
+Method note: the census ran in two parts from two worktrees (the first was
+interrupted at 145/347 when its worktree was removed mid-run), so absolute paths in
+the raw rows differ. Classification is per-file and unaffected. Reproduce with
+`ls tests/conformance/*.ssc | xargs bin/ssc info --front-report`.
+
 ---
 
 ## MEASURED, NOT YET EXPLAINED — the non-extern residue
