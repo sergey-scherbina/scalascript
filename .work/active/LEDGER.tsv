@@ -1,3 +1,4 @@
-# generation: 196
+# generation: 197
 #slug	agent	started	items	paths
 ssc-fork-heap-measurement	claude-code	2026-07-28T11:08:11Z	ssc-fork-heap-entitlement SFH-0 SFH-1	scripts/build-guard scripts/build-ram-peak tests/e2e/build-fork-heap
+claim-mutex-conflict-opaque	claude-code	2026-07-28T11:22:28Z	claim-mutex-control-conflict-in-ci	tests/coord/claim-mutex-conflict.sh
