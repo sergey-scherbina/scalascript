@@ -9,6 +9,54 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## 2026-07-28 — `v2-host-typeclass-derives` — the gap that `backend:` gating HIDES but does not fix
+
+**Not claimed.** Sergiy, on being shown that honouring `backend:` drops 10 cases out of the v2
+failure count: *"Это нужно исправить тоже."* Correct — `baa55cdb9` made the NUMBER honest; it did
+not make the programs run. This entry exists so that gating can never be mistaken for fixing.
+
+**What was measured (2026-07-28, full corpus).** Ten cases declare a non-v2 target and fail on v2:
+
+| declared | cases | symptom on v2 |
+|---|---|---|
+| `backend: jvm` | `dataset-typed-mapping`, `distributed-dataset-codec`, `distributed-dataset-typed-helpers`, `distributed-dataset-wire-protocol`, `distributed-dataset-wire-shuffle`, `graph-codecs`, `object-store-jdbc`, `typed-object-codec` | `ssc: unbound global: JsonCodec_derived` / `ObjectCodec_derived` |
+| `backend: js` | `indexeddb-sync-client`, `sync-todo` | `unhandled runtime effect: IndexedDb.store` / `Sync.put` |
+
+**Root cause of the jvm eight — pinned, and it is NOT the `derives` machinery.** Two minimal repros
+on the native lane both PASS: `derives` against a typeclass in the SAME module, and against one in
+an imported `.ssc` module. These cases instead write
+
+```scala
+import scalascript.typeddata.{DatasetCodec, JsonCodec, JsonValue}
+case class Metric(id: String, amount: Int, tags: List[String]) derives JsonCodec
+```
+
+where `JsonCodec` is **host Scala code**
+(`backend/typed-data/src/main/scala/scalascript/typeddata/JsonCodec.scala`). The native lane does
+not link JVM classes, so the `TC_derived` global its initializer calls does not exist. The `js` two
+are the same shape one layer down: a host capability the native host does not provide.
+
+**Two directions, and this is the decision to make first.**
+
+1. **Give the native lane a bridge to host typeclasses** — a way for `derives TC` to resolve `TC`
+   from a registered host plugin instead of an emitted global. Widest fix; also the one that makes
+   `import scalascript.*` mean something on v2 generally. Unknown size; touches the plugin host.
+2. **Port the typeclasses these examples need into `.ssc`** so they stop being host-only. Narrow
+   and predictable, but it is per-typeclass work and only fixes the cases we port.
+
+Direction (2) is cheap enough to pilot on ONE typeclass (`JsonCodec`, which alone accounts for five
+of the eight) and would answer whether (1) is worth it.
+
+- [ ] **HTD-1 — decide (1) vs (2)**, ideally by piloting `JsonCodec` under (2) and measuring how
+      much of the five it actually recovers.
+- [ ] **HTD-2 — do NOT let the `backend:` gate be the answer.** `baa55cdb9` stops these from being
+      *counted* against v2; a case that is gated out is still a program that does not run on v2.
+      When this is fixed, the gate keeps working — the cases simply start passing on the lane they
+      declare.
+- [ ] **HTD-3 — the `backend: js` two** (`IndexedDb`, `Sync`) — same question as `bugs-v2-open.md`
+      §1.2 (which capabilities must exist natively at all). Answer that first; these may be
+      legitimately browser-only.
+
 ## 2026-07-28 — v2 backend gap matrix (Sergiy: "то чего v2 делать не может / делает очень плохо")
 
 **Active claim:** `v2-backend-matrix-gaps`. The full corpus × every backend is now one table with
