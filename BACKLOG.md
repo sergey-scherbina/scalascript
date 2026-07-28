@@ -53,6 +53,18 @@ own arc. None is speculative: every one has a measured number attached.
       hourly, with `--idle 30 --kill`. Separately,
       `~/Library/LaunchAgents/bloop.compilation.daemon.plist` pins the always-on bloop daemon at
       `JDK_JAVA_OPTIONS=-Xmx12g` and should carry the same periodic-GC flags as `.jvmopts`.
+- [ ] **`bench-bypasses-the-build-guard`** — `scripts/bench` invokes bare `sbt` (lines 106/150/186),
+      not `scripts/sbtc`, so benchmark runs are the one heavy entrypoint with no host-wide admission
+      control. The JMH forks themselves are already well behaved (`build.sbt` pins
+      `Jmh / javaOptions := -Xmx4g -XX:+UseG1GC`, with a comment saying exactly why: "bench + bloop
+      together exceed physical RAM on a 36GB machine") — the gap is the *aggregate*: a bench started
+      while three siblings are compiling runs under memory pressure, and **a JMH number taken under
+      swap is not a measurement**, which matters because AGENTS.md requires baselines be recorded
+      from `scripts/bench`. Fix is one line per call site (`scripts/build-guard -- sbt …`), but
+      `tests/e2e/bench-wrapper-gate.sh` byte-compares the emitted command string, so the two must
+      change together. NOT done in `build-ram-budget-and-speed`: `scripts/bench` is unclaimed but the
+      bench lane is being actively repaired under `v2-runtime-perf-vs-v1`, and editing underneath a
+      live claim is the collision the mutex exists to prevent.
 - [ ] **`ci-concurrency-still-supersedes-most-commits`** — sharding takes the verdict path from 37.7
       to ~13 min against a ~3-7 min push interval, so it roughly triples the fraction of commits that
       get a verdict but does not reach one-per-push. Re-measure the cancelled/success ratio after
