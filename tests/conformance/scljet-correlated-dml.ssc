@@ -104,4 +104,20 @@ buildTableDatabase(512, 1, 1, "t",
       "DELETE FROM t WHERE id=999 AND EXISTS " +
       "(SELECT x FROM missing WHERE missing.x=t.v)")
     dump(db13, "rows-after-errors", "SELECT id,note FROM t ORDER BY id")
+
+val canonicalIpkRows = List(
+  List(SqlNull, SqlInteger(10L), SqlText("a")),
+  List(SqlNull, SqlInteger(20L), SqlText("b"))
+)
+
+buildTableDatabase(512, 1, 1, "p",
+  "CREATE TABLE p(id INTEGER PRIMARY KEY, v INTEGER, note TEXT)", canonicalIpkRows) match
+  case Left(error) => println("ipk-build=ERROR:" + error.message)
+  case Right(db0) =>
+    val db1 = mutate(db0, "CREATE TABLE ps(owner INTEGER, x INTEGER)")
+    val db2 = mutate(db1, "INSERT INTO ps VALUES (1,10),(2,20)")
+    val db3 = counted(db2, "delete-physical-null-ipk",
+      "DELETE FROM p WHERE id=1 AND " +
+      "EXISTS (SELECT x FROM ps WHERE owner=p.id AND x=p.v)")
+    dump(db3, "rows-after-ipk-delete", "SELECT id,note FROM p ORDER BY id")
 ```

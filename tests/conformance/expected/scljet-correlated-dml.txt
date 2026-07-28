@@ -10,3 +10,5 @@ update-malformed=ERROR:expected an expression operand
 empty-delete-missing=ERROR:no such table: missing
 miss-delete-missing=ERROR:no such table: missing
 rows-after-errors=1|exists;2|in;3|scalar
+delete-physical-null-ipk=CHANGES:1
+rows-after-ipk-delete=2|b
