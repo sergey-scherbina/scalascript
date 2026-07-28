@@ -9,6 +9,54 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## 2026-07-28 — per-block auto-output, second attempt: a per-backend primitive
+
+**Active claim:** `v2-auto-output-prim`. `BUGS.md` `v2-native-multiblock-auto-output-missing`.
+The first attempt (`v2-multiblock-auto-output`) is REVERTED and its entry carries the full
+diagnosis — read it, do not re-derive. This slice implements the one thing that attempt proved is
+required.
+
+**Why the first attempt failed, in one line:** the auto-output decision needs a runtime Unit test,
+and no source-level Unit test is portable across the lanes that consume F's output
+(`case _: Unit` matches on native and not on JS/v2; `case ()` matches on neither and CRASHES on
+JS/v2). So the decision cannot live in a `.ssc` helper — it has to be a primitive each backend
+implements.
+
+**Reused verbatim from the reverted attempt** (it was correct, and its F self-fixpoint held at
+173 ok / 0 FAIL, stage1 == stage2 byte-identical): the `__sscBlockEnd__` sentinel emitted after
+each CODE fence by `ssc1-run-fsub.ssc0`, and F consuming it in `walkTop` where the item in front of
+it has just been parsed. The `(def, entry)` split `parseTopItem` already returns gives v1's
+"definitions never print" rule for free. The diff is in git at `d66fd38ab`.
+
+- [ ] **AOP-0 — the gate, on the BRANCH until green.** Re-add
+      `tests/conformance/multiblock-auto-output.ssc` (four blocks: non-Unit tail prints; a later
+      block still sees an earlier `val`; a Unit tail stays silent; a definition tail is not an
+      expression and, being last, pins that the program value does not double-print). Expected
+      `2` / `20` / `explicit`. **Do NOT push it while it is red** — that is the mistake the first
+      attempt made, and `known-red:` is silently ignored on the V2 lane
+      (`conformance-known-red-silently-ignored-on-v2`), so a v2 red cannot even be declared.
+- [ ] **AOP-1 — `__autoOutput__` in the VM/ASM runtime.** `v2/src/Runtime.scala`: `UnitV` → `UnitV`
+      (silent), anything else → exactly what `io.println` does (`out(v, Console.out)` + newline),
+      so a wrapped tail renders identically to an explicit `println` and NOT through `Show.show`,
+      which quotes a top-level string.
+- [ ] **AOP-2 — the same primitive in the v2 JS codegen.** `v2/backend/js/JsBackend.scala`
+      `genPrim` + a `$autoOutput` runtime helper next to `$println`. Unit is `null` on this
+      backend, so the test is `v === null`; rendering goes through `$showIO`, the same helper
+      `$println` uses.
+- [ ] **AOP-3 — runner + F, emitting the prim.** Restore `d66fd38ab`'s runner/F halves, with F
+      emitting `(prim __autoOutput__ e)` instead of a global call, and drop the `.ssc` helper the
+      runner used to prepend — it is what the portability failure was about.
+- [ ] **AOP-4 — verify, and on the lane that caught it last time.** Gate green on INT/JS/JVM/V2;
+      F self-fixpoint `specs/v2.2-p6.5-fsub.sh --self` (baseline 173 ok / 0 FAIL, byte-identical);
+      and the FULL corpus, which must include `deep-tail-recursion` on **JS/v2** — that is the cell
+      that failed last time (`line 4: expected=<missing> got=()`) and the reason this attempt
+      exists. A corpus run that does not reach it proves nothing.
+
+**Known residual, out of scope here:** an auto-output block placed BEFORE a `render(...)` block
+still loses its value while render-first matches v1 exactly. `examples/content.ssc` is that shape,
+so it will still differ from v1 by three lines after this slice. Repro is in the BUGS entry.
+
+
 ## 2026-07-28 — `scljet-sql-double-equals` — ✅ DONE (see CHANGELOG)
 
 Pointer only. It was a LEXER gap: `=` was emitted one character at a time, so `==` became two
