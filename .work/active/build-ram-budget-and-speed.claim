@@ -2,9 +2,9 @@ slug: build-ram-budget-and-speed
 branch: feature/build-ram-budget-and-speed
 agent: claude-code
 started: 2026-07-28T03:29:37Z
-heartbeat: 2026-07-28T04:20:00Z
+heartbeat: 2026-07-28T04:30:00Z
 status: in-progress
-done-so-far: all 6 slices landed c6c995ed7..8b731650f; both new gates green locally
+done-so-far: BRB-0..BRB-5 landed c6c995ed7..HEAD, plus two apparatus repairs found on the way (scripts/ci-status followed the job rename; ci-status-guard's heartbeat threshold was a stale third copy and had been reddening Validate on EVERY push). Local gates green: build-conformance-shard-gate 0, build-ram-budget-gate 0, ci-status-guard 0 (was 1), conformance json* 5/5 and sharded 3+2, sbtc end-to-end 1.06s.
 items: build-ram-overflow build-ci-speed BRB-0 BRB-1 BRB-2 BRB-3 BRB-4 BRB-5
 paths: .jvmopts scripts/build- scripts/sbtc scripts/kill-stale-builders scripts/new-worktree scripts/rm-worktree .github/workflows/ci.yml tests/e2e/build- docs/build-performance.md tests/conformance/run.sc scripts/ci-status tests/e2e/ci-status-guard.sh
 scope: |
@@ -17,4 +17,4 @@ scope: |
   94,208 MB on a 36,864 MB host, incl. six ssc forks at the 9,216 MB ergonomic default (the
   launcher template sets no -Xmx). (3) Last 100 ci.yml runs: 83 cancelled, 4 failure, 0 success.
   (4) Conformance Suite 37.7 min, of which `Run conformance tests` 33.6 min (89%%).
-next: repair scripts/ci-status for the sharded job names, then release
+next: CI evidence unobtainable under churn (0 successes in 100+ runs, mine cancelled twice) -> release at AGENTS.md 4c evidence LEVEL 3 (local gates, named above).
