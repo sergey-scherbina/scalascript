@@ -36,6 +36,26 @@ where `JsonCodec` is **host Scala code**
 not link JVM classes, so the `TC_derived` global its initializer calls does not exist. The `js` two
 are the same shape one layer down: a host capability the native host does not provide.
 
+**⚠️ MEASURED 2026-07-28, and it rules one direction almost out.** `JsonCodec.derived` is not a
+function the native lane could call — it is
+
+```scala
+inline given derived[A](using mirror: Mirror.Of[A]): JsonCodec[A] =
+  inline mirror match
+    case product: Mirror.ProductOf[A] => derivedProduct[A](using product)
+    case sum: Mirror.SumOf[A] => derivedSum[A](using sum)
+```
+
+i.e. **Scala 3 compile-time metaprogramming** (`inline given` + `summonInline` + `erasedValue`;
+7 such constructs in that one file). `ObjectCodec.derived` is the same shape. There is no runtime
+entry point to register, so "bridge the host typeclass into the native plugin registry" is not a
+small adapter — it means REIMPLEMENTING the derivation at runtime against the ssc `Mirror`.
+
+That is not hypothetical work: `std/agent.ssc` already does exactly this in `.ssc` — a
+`def derived(m: Mirror)` that reads `m.elemLabels` / `m.elemTypes` and builds an instance. It is the
+only `.ssc` typeclass in the tree that does, and it is the proof the shape works on the native lane
+(it is what `v2-mirror-isproduct-stub` / `-fromproduct` were fixed for).
+
 **Two directions, and this is the decision to make first.**
 
 1. **Give the native lane a bridge to host typeclasses** — a way for `derives TC` to resolve `TC`
@@ -47,8 +67,13 @@ are the same shape one layer down: a host capability the native host does not pr
 Direction (2) is cheap enough to pilot on ONE typeclass (`JsonCodec`, which alone accounts for five
 of the eight) and would answer whether (1) is worth it.
 
-- [ ] **HTD-1 — decide (1) vs (2)**, ideally by piloting `JsonCodec` under (2) and measuring how
-      much of the five it actually recovers.
+- [ ] **HTD-1 — decide (1) vs (2).** The measurement above pushes toward (2): a runtime
+      `def derived(m: Mirror)` in `.ssc`, modelled on `std/agent.ssc`'s `AgentSchema`. Pilot on
+      `JsonCodec` — it alone accounts for five of the eight cases. **But this is a product call, not
+      a mechanical one:** these examples are demos of the HOST typed-data API on the JVM backend, so
+      pointing them at an `.ssc` typeclass changes what they demonstrate. The alternative is to
+      accept that they are jvm-only (which `baa55cdb9` already records honestly) and write NEW `.ssc`
+      cases to cover codec derivation on v2.
 - [ ] **HTD-2 — do NOT let the `backend:` gate be the answer.** `baa55cdb9` stops these from being
       *counted* against v2; a case that is gated out is still a program that does not run on v2.
       When this is fixed, the gate keeps working — the cases simply start passing on the lane they
