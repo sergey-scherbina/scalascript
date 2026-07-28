@@ -164,6 +164,18 @@ representative per shape, name the cause, fix it, then re-measure the whole shap
       `arithFast`/`Emit.arith`/`Emit.prim2`/`Emit.s2`. These are the architectural items from
       `specs/v2-runtime-perf-vs-v1.md` §5 (unboxed numerics, avoiding per-call allocation) — spec
       before coding, and do not expect a slice-sized win.
+- [ ] **v2m-2f — the `__method__` split is a LINEAR SCAN, and that cost is mine.** Profiling
+      `lazylist-take` shows `methodDispatch2..6` in the hot path (39 samples across the parts): a
+      call served by part 5 fails to match through parts 1-4 first. The split was worth 2.4-10.8×
+      because the alternative was never being JIT-compiled at all, so this is a trade that paid —
+      but it is now the cost, and it falls hardest on receivers handled LATE (Map, ClosV, plugin
+      dispatch) while strings and lists sit early and pay little.
+      Shape: dispatch on the receiver's KIND first (one match on `recv` selecting the part), then
+      run that part's cases. ⚠️ The invariant that must not break is first-match-wins across the
+      WHOLE original ordering — a kind-indexed jump is only safe if every case for a given kind
+      lives in exactly one part, which is NOT true today (list cases span 5 and 6, DataV spans 7
+      and 8). So this needs a census of which kinds appear in which part BEFORE any reordering,
+      and the corpus contract as the gate. Do not eyeball it.
 - [ ] **v2m-2a — collection iteration.** `lazylist-take` **474×**, `effect-stream` **271×**,
       `range-sum` **170×**, `list-fold` **160×**, `hof-pipeline` **19×**. Representative:
       `range-sum` (smallest, 170×, and a `Range` is not even a user data structure). Known from
