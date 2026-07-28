@@ -1,3 +1,4 @@
-# generation: 194
+# generation: 195
 #slug	agent	started	items	paths
 v2-perf-prim-dispatch	claude-code	2026-07-28T08:23:21Z	v2rt-1b v2rt-2 v2rt-6 v2-prim-dispatch-string-keyed	v2/src v2/jvm-runtime v2/backend-jvm-bytecode .github/workflows/ci.yml specs/v2-runtime-perf-vs-v1.md docs/benchmarks.md bench SPRINT.md CHANGELOG.md tests/e2e/v2-jit-size.sh
+ssc-fork-heap-measurement	claude-code	2026-07-28T11:08:11Z	ssc-fork-heap-entitlement SFH-0 SFH-1	scripts/build-guard scripts/build-ram-peak tests/e2e/build-fork-heap
