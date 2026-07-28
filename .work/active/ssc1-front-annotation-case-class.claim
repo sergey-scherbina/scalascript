@@ -2,10 +2,10 @@ slug: ssc1-front-annotation-case-class
 branch: feature/ssc1-front-annotation-case-class
 agent: claude-code
 started: 2026-07-28T18:19:55Z
-heartbeat: 2026-07-28T18:19:55Z
+heartbeat: 2026-07-28T18:24:35Z
 status: claimed-before-planning
 items: ssc1-front-annotation-before-case-class graph-storage graph-codecs typed-object-codec
-paths: v2/lib/ssc1-front.ssc0 tests/conformance/annotated-case-class tests/conformance/expected/annotated-case-class BUGS.md bugs-v2.md SPRINT.md CHANGELOG.md
+paths: v2/lib/ssc1-front.ssc0 tests/e2e/ssc1-front-annotation.sh BUGS.md bugs-v2.md SPRINT.md CHANGELOG.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
