@@ -63,6 +63,27 @@ private[httpfast] final class NioNativeHttpServerHost(context: NativePluginConte
 
   def serve(port: Int, asynchronous: Boolean): Unit =
     start(port)
+    // The same three-line startup banner v1's WebServer.start prints
+    // (interpreter-server/.../WebServer.scala). Without it the native lane's stdout
+    // differed from INT's on every serving example while the PROGRAM output was
+    // byte-identical -- three corpus DIVERGEs for one missing banner
+    // (BUGS.md v2-serve-banner-missing).
+    //
+    // Printed on BOTH paths, because that is what v1 does and matching it is the whole
+    // point. Measured, not assumed: `examples/rozum-agent.ssc` calls `serveAsync(port)`
+    // and the INT reference still prints all three lines and then carries on to `Done`
+    // -- v1's serveAsync runs WebServer.start on a background thread, which prints the
+    // banner before blocking. A first attempt here guarded on `!asynchronous` reasoning
+    // that "Ctrl+C to stop." cannot be true of an async serve; the three cases stayed
+    // DIVERGE, because the reference prints it anyway.
+    //
+    // `root: .` is not a placeholder -- this host serves relative to the process CWD and
+    // has no configurable root, so `.` is the honest value. Scheme is always http: the
+    // TLS entry points on this plugin throw rather than serve.
+    Console.out.println(s"ScalaScript web · http://localhost:$boundPort/  (root: .)")
+    Console.out.println("  (backend=fast)")
+    Console.out.println("Ctrl+C to stop.")
+    Console.out.flush()
     if !asynchronous then stopped.await()
 
   private def start(port: Int): Unit = synchronized {
