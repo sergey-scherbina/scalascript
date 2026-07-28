@@ -122,6 +122,9 @@ jobs:
       - name: Verify claim guards refuse overlap and out-of-scope commits
         run: tests/coord/claim-hooks.sh
 
+      - name: Verify no test can reach an exiting CLI boundary
+        run: tests/e2e/cli-exit-reachability-guard.sh --self-test
+
   conformance:
     name: Conformance Suite
     runs-on: ubuntu-latest

@@ -17,6 +17,14 @@ import scalascript.oauth.*
  *  avoided those paths for exactly that reason — the defect had shaped the tests around itself, so
  *  the untested paths were precisely the ones that could expose it.  The cases below are the ones
  *  that were impossible before. */
+/** Calls `status` rather than `run` throughout. They differ by exactly one line — `run` is
+ *  `status` plus `if rc != 0 then sys.exit(rc)` — so the observable output is identical, but `run`
+ *  can END THE FORKED TEST JVM. Whether it does depends on the ARGUMENTS, which no static check can
+ *  decide, so a suite calling `run` is one added failure-path case away from the silent-fork-exit
+ *  signature: "Tests: succeeded N, failed 0" followed by `ForkMain failed with exit code`, with the
+ *  killed case never appearing in the report at all. That is BUGS
+ *  `cli-command-System.exit-kills-the-test-fork`, and this file is the one place in the tree that was
+ *  still reaching an exiting boundary — pinned now by tests/e2e/cli-exit-reachability-guard.sh. */
 class OAuthCliTest extends AnyFunSuite with Matchers:
 
   /** Capture stdout while running `thunk`. */
@@ -36,7 +44,7 @@ class OAuthCliTest extends AnyFunSuite with Matchers:
 
   test("mint: prints a valid HS256 JWT"):
     val out = captureStdout {
-      OAuthCli.run(List("mint", "k" * 40, "alice", "read", "write"))
+      OAuthCli.status(List("mint", "k" * 40, "alice", "read", "write"))
     }
     val token = out.trim
     token.split('.').length shouldBe 3
@@ -54,7 +62,7 @@ class OAuthCliTest extends AnyFunSuite with Matchers:
     System.setErr(errPs)
     val out = try
       Console.withErr(errPs) {
-        captureStdout { OAuthCli.run(List("mint", "short", "alice")) }
+        captureStdout { OAuthCli.status(List("mint", "short", "alice")) }
       }
     finally System.setErr(prevSysErr)
     errPs.flush()
@@ -67,7 +75,7 @@ class OAuthCliTest extends AnyFunSuite with Matchers:
     val token = OAuth.issueHmacToken("k" * 40, "bob", Set("read"), 3600L,
       issuer = Some("https://x"), clientId = Some("c1"))
     val out = captureStdout {
-      OAuthCli.run(List("introspect", "k" * 40, token))
+      OAuthCli.status(List("introspect", "k" * 40, token))
     }
     val js = ujson.read(out)
     js("sub").str       shouldBe "bob"
@@ -78,7 +86,7 @@ class OAuthCliTest extends AnyFunSuite with Matchers:
   // ─── help / unknown ───────────────────────────────────────────────
 
   test("help: prints usage to stdout"):
-    val out = captureStdout { OAuthCli.run(List("help")) }
+    val out = captureStdout { OAuthCli.status(List("help")) }
     out should include ("ssc oauth")
     out should include ("discover")
     out should include ("jwks")
@@ -87,7 +95,7 @@ class OAuthCliTest extends AnyFunSuite with Matchers:
     out should include ("introspect")
 
   test("no args: prints usage"):
-    val out = captureStdout { OAuthCli.run(Nil) }
+    val out = captureStdout { OAuthCli.status(Nil) }
     out should include ("ssc oauth")
 
   // ─── failure paths: a status, not a dead JVM ──────────────────────
