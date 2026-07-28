@@ -1,0 +1,11 @@
+slug: build-guard-linux-portability
+branch: feature/build-guard-linux-portability
+agent: claude-code
+started: 2026-07-28T12:01:17Z
+heartbeat: 2026-07-28T12:01:17Z
+status: claimed-before-planning
+items: build-ram-budget-gate-red-on-linux BGL-0 BGL-1
+paths: scripts/build-guard scripts/build-ram-guard tests/e2e/build-ram-budget-gate.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
