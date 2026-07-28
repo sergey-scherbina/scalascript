@@ -2,7 +2,6 @@
 name: scljet-sql-live-reclaim
 description: Live SclJet DELETE and UPDATE route through reclaiming B-tree deletion
 backends: [int, js]
-known-red: "int,js — fail-first for SPRINT SC-2: these expectations pin the POST-fix reclaim (`update pages=25 … freelist=10`), and main still grows the file instead of reusing pages (`pages=14 … freelist=0`). The candidate fix lives on branch `feature/scljet-production-completion` at `ee382f3f5` and is unverified. Expires by itself when SC-2 lands — a known-red that starts passing fails the suite."
 ---
 
 # SclJet live SQL reclaim
