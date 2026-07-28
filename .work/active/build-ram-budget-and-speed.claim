@@ -1,0 +1,11 @@
+slug: build-ram-budget-and-speed
+branch: feature/build-ram-budget-and-speed
+agent: claude-code
+started: 2026-07-28T03:29:37Z
+heartbeat: 2026-07-28T03:29:37Z
+status: claimed-before-planning
+items: build-ram-overflow build-ci-speed BRB-0 BRB-1 BRB-2 BRB-3 BRB-4 BRB-5
+paths: .jvmopts scripts/build- scripts/sbtc scripts/kill-stale-builders scripts/new-worktree scripts/rm-worktree .github/workflows/ci.yml tests/e2e/build- docs/build-performance.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
