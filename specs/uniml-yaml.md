@@ -445,6 +445,43 @@ documents. The official subset pins eight valid presentation cases from `yaml/ya
 classes with SnakeYAML Engine 2.9. The unchecked grammar/lexical behavior items and explicit
 out-of-scope paragraph bound M3 honestly; they are the queued M3.1 hardening work, not hidden claims.
 
+UPR-2a.1 landed in `3341a35a9` on 2026-07-28. Document-scoped `%TAG` handles now expand on
+scalar and collection nodes, reset between documents, preserve raw and representation `%HH`
+spellings, and expose the separately normalized parser-event compatibility view described above.
+Bare non-specific `!` remains independent of the primary handle and requires separation from flow
+collection content. Duplicate declarations, undefined handles, and malformed percent triplets
+produce structured diagnostics.
+
+Verification for that slice:
+
+```text
+YamlDialectSpec
+# JVM: 21/21 passed; Scala.js: 21/21 passed
+
+YamlOfficialCorpusSpec
+# JVM: 18/18 passed; Scala.js: 18/18 passed
+
+full YAML suites
+# JVM: 40/40 passed; Scala.js: 39/39 passed
+
+uniml/lint-portable-subset.sh
+# passed
+
+scripts/verify-uniml-dual-build
+# root and standalone products remained isolated across two no-clean transitions
+
+tests/conformance/run.sh --only '*yaml*'
+# 1/1 passed (memoized from the unchanged green case)
+```
+
+The compare-first 402-case census moved without exclusions from validity `210→214`, semantics
+`128→138`, strict `112→126`, actual errors `220→216`, and failures `290→276`, with zero crashes.
+The frozen post-slice baseline SHA-256 is
+`7cd2d76efd0e26252097722ac1fb7d577936fb9f665ae6e852c811a9098123e3`; its category SHA-256 is
+`25d786c1259235b820b550e58c67ef0c31e513771d226bc3ba60ed52d77fe5ad`. Two independent read-only
+reviews accepted the final JVM/Scala.js-portable implementation. Full tag/property lexical grammar
+remains UPR-2a.2; this progress is not an M3.1 conformance claim.
+
 M3.1 is complete only when the three unchecked behavior rows above are checked from the full
 compare-first corpus and resource gates defined in
 [`uniml-production.md`](uniml-production.md). The eight-case M3 subset remains useful regression
