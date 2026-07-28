@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-07-28 — Dataset and Generator providers interoperate on SSC v2
+
+`Dataset.fromGenerator` now consumes the standard provider lazily through its
+portable `next` method, while `Dataset.toGenerator` delegates production to the
+registered `generator`/`suspend` globals. Generator remains the sole owner of
+runtime state; no core intrinsic, duplicate queue, new SPI, or build dependency
+was added.
+
+The fail-first Dataset suite moved from 4/6 to 6/6 and Generator remains 10/10.
+The existing round-trip conformance case now runs on V2, and it plus the
+neighboring provider fixture compare exactly on default/legacy × VM/direct ASM.
+Implementation: `2f5bb135b`; regression: `e583c4203`.
+
 ## 2026-07-28 — UniML production contract and external corpus gates
 
 The accepted UniML production boundary is now executable and fail-closed. YAML pins all 402

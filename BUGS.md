@@ -114,8 +114,9 @@ Core Schema differential, standalone/root transition, and affected conformance g
 
 ## v2-generator-provider — Dataset cannot consume the native Generator provider
 
-**Status:** OPEN (reported by the SSC v2 corpus audit; accepted 2026-07-28
-by `codex`, SPRINT `v2-generator-provider`).
+**Status:** **DONE 2026-07-28** by `codex` (`2f5bb135b`; regression
+`e583c4203`; reported by the SSC v2 corpus audit, SPRINT
+`v2-generator-provider`).
 
 **Reported real-harness reproduction.**
 
@@ -135,6 +136,16 @@ native Generator value and `Dataset.toGenerator` must return one owned by the
 same provider. Pin both directions at the real plugin boundary, preserve
 ordered output, and avoid a duplicate generator implementation in
 dataset-plugin.
+
+**Root cause and verification.** The Dataset provider still contained explicit
+placeholder throws even though the Generator provider already exposed the
+portable `next`, `generator`, and `suspend` surface. Dataset now drains `next`
+only when a terminal evaluates and resolves `generator`/`suspend` lazily
+through the existing plugin context; Generator remains the sole owner of
+queue, backpressure, cancellation, and suspend state. The Dataset suite moved
+from the expected fail-first 4/6 to 6/6, Generator remains 10/10, focused
+conformance is 2/2, and both the bridge case and neighboring provider fixture
+compare exactly across default/legacy × VM/direct ASM (8/8 total routes).
 
 ## v2-callback-exc-parity-followups — distributed/generator callbacks rewrap user throws
 
