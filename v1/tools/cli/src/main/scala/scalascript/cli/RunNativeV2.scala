@@ -95,6 +95,12 @@ object RunNativeV2:
         lowerNative(runner, layout.stdRoot, layout.installRoot, sourceFiles, canonicalFiles, mutableFlag, fsub)
       val structural = layout.fsubSrc match
         case Some(_) =>
+          // Keep WHY F was rejected, not just THAT it was. `validateNoReader` names the offending
+          // global, and that name is the difference between "F cannot compile this construct" and
+          // "the program calls a plugin extern, which F is punished for and the legacy front is not"
+          // (BUGS f-validateNoReader-rejects-plugin-externs). Without it the delegation census can
+          // count both as the same thing, which is exactly the caveat that entry asks not to repeat.
+          var fFailure: String = ""
           val fResult =
             try
               val s = lowerWith(layout.runner, layout.fsubSrc)
@@ -103,7 +109,9 @@ object RunNativeV2:
             catch
               case failure: FNestedBytecodeFailure =>
                 throw failure.original
-              case _: Throwable => None
+              case e: Throwable =>
+                fFailure = Option(e.getMessage).map(_.linesIterator.next()).getOrElse(e.getClass.getName)
+                None
           fResult.getOrElse {
             val viaDefault = lowerWith(layout.defaultRunner, None)
             // ANNOUNCE a real coverage gap; stay quiet for a user error.
@@ -133,11 +141,16 @@ object RunNativeV2:
                 false
               catch case _: Throwable => true
             if !userErrorNotGap then
+              val why = if fFailure.isEmpty then "" else s" [$fFailure]"
               System.err.println(
-                s"$FDelegationMarker ${sourceFiles.mkString(", ")}")
+                s"$FDelegationMarker ${sourceFiles.mkString(", ")}$why")
             else if sys.env.contains("SSC_FRONT_TRACE") then
+              // Still a delegation — double lowering, F's output discarded — just not F's fault.
+              // Traced with its reason so the two categories can be counted separately; a plugin
+              // `extern def` lands here, because BOTH fronts emit it as an unbound global.
+              val why = if fFailure.isEmpty then "" else s" [$fFailure]"
               System.err.println(
-                s"[SSC_FRONT=F] delegated on a user-error sentinel (not an F gap): ${sourceFiles.mkString(", ")}")
+                s"[SSC_FRONT=F] delegated, both fronts unbound (not an F gap): ${sourceFiles.mkString(", ")}$why")
             viaDefault
           }
         case None =>
