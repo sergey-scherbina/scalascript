@@ -1,5 +1,57 @@
 # Bug tracker
 
+## conformance-int-batch-false-fail-and-hidden-stderr — a case fails in the batch, passes everywhere else, and the reason is thrown away
+
+**Status:** OPEN, **NOT reproduced in isolation** (observed 2026-07-28 by `v2-native-error-diagnostic`
+in a full 350-case local corpus run). Filed because the *second* half — the batch lane discarding
+stderr — is what makes the first half undiagnosable, and that part is certain.
+
+**Observed.** Full corpus, `tests/conformance/run.sh` on a build of `591ec033e`'s parent:
+
+```
+scljet-wal:
+  FAIL [INT]
+    line 1: expected=db wal-mode bytes 18,19: 2,2   got=<missing>
+    line 2: expected=frames: 1, wal bytes: 568      got=<missing>
+    line 3: expected=wal fingerprint: 2992441423 2922794968  got=<missing>
+  PASS [JS ]
+```
+
+`<missing>`, not wrong — the case produced **no stdout at all** inside the batch JVM.
+
+**What was tried, and passed every time** (same build, same staged `bin/`):
+
+| probe | result |
+|---|---|
+| `bin/ssc-tools run --v1 tests/conformance/scljet-wal.ssc` (isolation) | byte-identical to the golden |
+| `run-batch` with 2 innocuous cases before it | correct |
+| `run-batch` after `scljet-freelist-write-corrupt` (a currently-red case) | correct |
+| `run-batch` after BOTH currently-red scljet cases | correct, and stderr empty |
+| `run-batch` over the whole `scljet-wal*` + `scljet-readonly-pager-btree` family | correct |
+
+So the trigger is something about the ~250-case batch that a 3–5 case batch does not reproduce —
+accumulated process state, a file left by an earlier case, or a limit. **Not** the two red scljet
+cases on their own.
+
+**The part that is certain, and the reason this is filed.** `batchLane`
+(`tests/conformance/run.sc:443`) calls `run-batch` with `stderr = os.Pipe` and passes only
+`res.out.text()` to `splitBatch`. **Stderr is dropped on the floor.** A case that dies inside the
+batch JVM therefore reports as "expected X, got `<missing>`" with its actual error — the one line
+that would explain it — discarded. The individual-run path does the opposite: `outputWithFailureContext`
+deliberately folds stderr and the exit code into the compared text.
+
+**Fix direction.** Make the batch lane keep stderr the way the individual path does: attribute it
+per case (the `<<<SSC-BATCH-CASE:` delimiter is already emitted on stdout, so the runner needs the
+same marker on stderr, or a per-case capture), and fold it into the compared output. Then re-run
+the full corpus and the `scljet-wal` cell will state its own cause instead of `<missing>`. This is
+the AGENTS.md apparatus rule in its inverted form: a gate that fails **loudly but blankly** trains
+readers to skip it, exactly as a gate that passes blankly does.
+
+**Independent of the change it was found under:** `v2-native-error-diagnostic` edits
+`v2/src/Runtime.scala`, which the INT lane (v1's interpreter) does not execute. The same corpus run
+was otherwise 323 passed / 3 failed, the other two being cases already declared known-red on `main`
+in `9f136e21f`.
+
 ## lint-markdown-unreachable-from-markdown-commits — the only job that lints `.md` cannot be triggered by a `.md` change
 
 **Status:** OPEN (found 2026-07-28 while repairing a red `Lint Markdown`; `.github/workflows/ci.yml`
