@@ -101,4 +101,12 @@ buildTableDatabase(512, 1, 1, "t",
       "SELECT t.id FROM t WHERE EXISTS " +
       "(SELECT 1 FROM s WHERE EXISTS (SELECT 1 FROM u WHERE u.x = t.v)) " +
       "ORDER BY t.id")
+    dump(image, "nested-in-shadow",
+      "SELECT t.id FROM t WHERE t.id IN " +
+      "(SELECT owner FROM s WHERE EXISTS (SELECT 1 FROM t WHERE t.v = 2)) " +
+      "ORDER BY t.id")
+    dump(image, "nested-in-grandparent-control",
+      "SELECT t.id FROM t WHERE t.id IN " +
+      "(SELECT owner FROM s WHERE EXISTS (SELECT 1 FROM u WHERE u.x = t.v)) " +
+      "ORDER BY t.id")
 ```

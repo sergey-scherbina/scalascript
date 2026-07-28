@@ -8,3 +8,5 @@ shadow-in=1 ; 2 ; 3 ; 4
 shadow-exists=1 ; 2 ; 3 ; 4
 nested-shadow=1 ; 2 ; 3 ; 4
 nested-grandparent-control=2
+nested-in-shadow=1 ; 2 ; 3
+nested-in-grandparent-control=2
