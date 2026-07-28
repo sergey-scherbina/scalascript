@@ -1,0 +1,11 @@
+slug: v2-cli-error-exit-code
+branch: feature/v2-cli-error-exit-code
+agent: claude-code
+started: 2026-07-28T10:54:59Z
+heartbeat: 2026-07-28T10:54:59Z
+status: claimed-before-planning
+items: v2-native-error-printed-but-exit-zero
+paths: v1/tools/cli/src/main/scala/scalascript/cli/StandardMain.scala v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala v1/tools/cli/src/main/scala/scalascript/cli/V2Result.scala tests/e2e/v2-error-diagnostic.sh BUGS.md SPRINT.md CHANGELOG.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
