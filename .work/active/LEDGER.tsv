@@ -1,2 +1,3 @@
-# generation: 199
+# generation: 200
 #slug	agent	started	items	paths
+v2-stub-apply-and-serve-banner	claude-code	2026-07-28T11:49:46Z	V2-100-2 V2-100-3 v2-serve-banner-missing v2-list-apply-method-stub	v2/src/Runtime.scala v2/runtime/std/http-fast-plugin v2/runtime/std/http-plugin tests/conformance/list-apply tests/conformance/expected/list-apply BUGS.md SPRINT.md CHANGELOG.md
