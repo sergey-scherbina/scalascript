@@ -9,6 +9,47 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## 2026-07-28 — "printed an error, exited 0" — reported, NOT reproducible, now guarded
+
+**Active claim:** `v2-cli-error-exit-code`. Raised in rozum by the agent that fixed
+`v2-mirror-isproduct-stub`: *"that example EXITS 0 while printing its error, so an exit-status
+check sees success. That is `@v2-native-error-diagnostic`'s lane."* Correct concern, and it is the
+worst failure shape there is — every `if ssc run …; then` and every CI step reads success.
+
+**Measured on `origin/main` after `4f5ecf261`: the trigger is gone and the invariant holds on every
+shape I can construct.** `examples/rozum-agent-schema-derived.ssc` now prints `Done / Derived
+posted. / Explicit posted. / 2` and exits 0 *correctly* — the `Stub("Mirror.isProduct")` that drove
+it was the bug, and it is fixed. Ten probes, exit code captured directly (not through a pipe,
+which returns the last command's status):
+
+| program | rc | first line |
+|---|---|---|
+| `throw new RuntimeException("boom")` | 1 | `ssc: RuntimeException("boom")` |
+| unbound name | 1 | `ssc: unbound global: nosuchname` |
+| `List(1,2,3)(9)` | 1 | `ssc: index 9 out of bounds for list of length 3` |
+| unbound qualified call | 1 | `ssc: unhandled runtime effect: NoSuchThing.method` |
+| parse error | 1 | `ssc: native frontend rejected incomplete parse …` |
+| `10 / 0` | 1 | `ssc: / by zero` |
+| unresolved method in an `if` condition | 1 | `ssc: __method__: no dispatch for .noSuchMethod on C(1)` |
+| unresolved method, plain call | 1 | same |
+| unresolved predicate on Int | 1 | `ssc: __method__: no dispatch for .bogusPredicate on 42` |
+| bad `derives Mirror` | 1 | `ssc: unbound global: Mirror_derived` |
+
+**Decision (per AGENTS.md §decide):** do NOT invent a fix for a trigger that no longer exists — I
+cannot verify it and would be guessing. Instead make the invariant permanent, which is the part
+that has lasting value and costs almost nothing.
+
+- [ ] **EXC-1 — gate the invariant.** Add to `tests/e2e/v2-error-diagnostic.sh`: for every probe
+      that prints `ssc: …`, assert the exit code is non-zero, capturing `$?` directly. A future
+      regression then fails loudly instead of reading as success. Prove the assertion can fail
+      before trusting it.
+
+**Deferred, deliberately (BACKLOG):** auditing every *nested* runner path (the ASM→VM link-time
+fallback and the F-delegation re-run) for a swallowed non-zero status. That is where a fail-open
+of this shape would most plausibly hide, but it is a real audit, not a one-liner, and there is no
+live symptom to anchor it — so it is written down rather than started.
+
+
 ## 2026-07-28 — ROADMAP: what is actually left before "v2 works 100%"
 
 **Measured, not inherited** (`corpus-contract-refresh-freeze`, fresh `sbt installBin` on
