@@ -1,6 +1,38 @@
 # Bug tracker
 
-## ## bench-jvm-js-lanes-dead-silently — two whole benchmark columns were unmeasurable, and printed `n/a`
+## v2-lanes-cannot-run-four-corpus-workloads — float globals unbound, indexed array store not a function
+
+**Status:** OPEN (found 2026-07-28 by `bench-tier-dead-lanes` while building the first full
+cross-backend table since the v2 work; filed, not fixed).
+
+BOTH v2 lanes — the VM and the DEFAULT bytecode lane — fail outright on **4 of 33** bench-corpus
+workloads. They had been printing `n/a`, i.e. reading as "unsupported", because the v2 lanes
+swallowed their exception unless `SSC_BENCH_DEBUG` was set. That is now unconditional, so:
+
+| workload | failure (both `v2` and `v2-bytecode`) |
+|---|---|
+| `float-loop` | `RuntimeException: unbound global: d` |
+| `float-fold` | `RuntimeException: unbound global: d` |
+| `pattern-match-heavy` | `RuntimeException: unbound global: d` |
+| `array-update` | `RuntimeException: app: not a function: 0` |
+
+Two causes, not four: three float-heavy workloads share one unbound global `d`, and the fourth is
+an indexed array store.
+
+**Reproduce:**
+
+```bash
+bin/ssc-tools --backend v2-bytecode bench --machine --reps 3 bench/corpus/float-loop.ssc
+bin/ssc-tools --backend v2-bytecode bench --machine --reps 3 bench/corpus/array-update.ssc
+```
+
+**Why it matters beyond the benchmark:** these are ordinary programs — a float accumulation loop and
+an in-place `Array` update. `pattern-match-heavy` in particular is one of the four rows the v2
+production-route policy in `BACKLOG.md` was decided on, and it cannot currently run on either v2
+lane at all.
+
+## bench-jvm-js-lanes-dead-silently — two whole benchmark columns were unmeasurable, and printed `n/a`
+## bench-jvm-js-lanes-dead-silently — two whole benchmark columns were unmeasurable, and printed `n/a`
 
 **Status:** **FIXED 2026-07-28** (`bench-tier-dead-lanes`). Found while running a full 9-backend
 sweep for the first time since the v2 work.

@@ -7883,8 +7883,8 @@ final class BenchCmd extends CliCommand:
           )
         }
       catch case e: Throwable =>
+        benchLaneFailed("v2", "execution", s"${e.getClass.getSimpleName}: ${e.getMessage}")
         if System.getenv("SSC_BENCH_DEBUG") != null then
-          System.err.println(s"[timeV2] ${e.getClass.getSimpleName}: ${e.getMessage}")
           e.getStackTrace.take(6).foreach(f => System.err.println(s"[timeV2]   at $f"))
       parseBenchMs(outBuf.toString("UTF-8"))
 
@@ -7917,8 +7917,8 @@ final class BenchCmd extends CliCommand:
             case other                  => println(_root_.ssc.Show.show(other))
         }
       catch case e: Throwable =>
+        benchLaneFailed("v2-bytecode", "execution", s"${e.getClass.getSimpleName}: ${e.getMessage}")
         if System.getenv("SSC_BENCH_DEBUG") != null then
-          System.err.println(s"[timeV2Bytecode] ${e.getClass.getSimpleName}: ${e.getMessage}")
           e.getStackTrace.take(6).foreach(f => System.err.println(s"[timeV2Bytecode]   at $f"))
       parseBenchMs(outBuf.toString("UTF-8"))
 
