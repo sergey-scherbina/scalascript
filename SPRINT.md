@@ -324,6 +324,43 @@ modules the **default native lane** actually loads.
       the queue. Whoever runs CCR-1 needs no extra information: the case is in the tree and its
       cells are measured above.
 
+## 2026-07-28 — the host OOM guard actually fires (Sergiy: "есть ещё что делать?" → всё, по порядку)
+
+**Active claim:** `host-ram-guard-in-repo`. Follows `build-ram-budget-and-speed`, which measured the
+problem but only DOCUMENTED this half of it.
+
+**The standing fact this closes:** `~/.local/bin/jvm-mem-guard.sh` is loaded, runs every 20 s, and
+has **never executed a single action** — log 0 bytes since 2026-07-21, across two OOM events, one of
+which force-rebooted the machine. It gates on `kern.memorystatus_level >= 25`; that sysctl measured
+**93 % idle, 74 % mid-event, 62 % while the host held 630 MB of swap and an 11.3 GB compressor**.
+It is a jetsam indicator, not a pressure gauge. So the host currently has NO working protection
+against a repeat of the 2026-07-20 kernel panic.
+
+Two more, both verified 2026-07-28: launchd runs a **copy** at `~/.local/bin/kill-stale-builders`
+which has now **drifted** from the repo (it predates `--idle`, and runs once a day at 03:00); and
+`bloop.compilation.daemon.plist` pins an always-on daemon at `-Xmx12g` with none of the periodic-GC
+flags that `.jvmopts` just gained.
+
+- [ ] **HRG-0 — pick the trigger from data, not from a sysctl name.** Measured: pageouts is a
+      cumulative counter reading **delta 0/5 s on a healthy host** and 139,831 during the event, and
+      `available` (free+inactive+speculative+purgeable) is 17 GB healthy. Those two are the signal;
+      `memorystatus_level` stays REPORTED but never TRIGGERS, so the divergence stays visible.
+- [ ] **HRG-1 — `scripts/build-ram-guard`, in the repo, with an escalation ladder.** The old guard
+      had one action: kill the heaviest build JVM. That is both too blunt (it can kill an agent's
+      active compile) and too narrow (its regex misses the `ssc`/`node` forks that caused the 07-28
+      event). Ladder instead: orphaned builders (worktree deleted — always safe) → idle sbt servers
+      (no CPU in the sample window) → heaviest build JVM, and only that last tier requires genuine
+      emergency (low available AND active pageout rate).
+- [ ] **HRG-2 — it must never be silent again.** Every tick logs its decision, including healthy
+      ones (rate-limited). "The log is empty" must mean "the guard is not running", never
+      "everything was fine" — that ambiguity is the entire reason this went unnoticed for a week.
+- [ ] **HRG-3 — install from the repo, and end the copy drift.** `scripts/build-guards-install`
+      writes launchd plists that point at the REPO files, adds `--idle` and an hourly interval to the
+      reaper, and gives the bloop daemon the same periodic-GC flags as `.jvmopts`. Gate:
+      `tests/e2e/build-ram-guard-gate.sh` proves the tier selection on synthetic pressure, that
+      dry-run kills nothing, that the ladder order holds, and that the installed plists reference
+      paths that exist in the repo.
+
 ## 2026-07-28 — v2 runtime performance vs v1 (Sergiy: "Улучши производительность рантайма ssc v2")
 
 **Active claim:** `v2-runtime-perf-vs-v1`. Question asked: what do the benchmarks say

@@ -1,0 +1,195 @@
+#!/usr/bin/env bash
+#
+# build-guards-install — point this machine's launchd agents at the REPO's guards.
+#
+# WHY: on 2026-07-28 all three host-level guards were found broken or drifting, and every one of the
+# failures was possible only because the thing launchd runs is not the thing in git:
+#
+#   com.sergiy.jvm-mem-guard          runs ~/.local/bin/jvm-mem-guard.sh — outside version control,
+#                                     gates on kern.memorystatus_level (measured 62-93 % straight
+#                                     through two OOM events), log 0 bytes for a week. Superseded by
+#                                     scripts/build-ram-guard.
+#   io.scalascript.kill-stale-builders runs a COPY at ~/.local/bin/kill-stale-builders. It was
+#                                     byte-identical when it was made and has since drifted — the
+#                                     copy predates `--idle`, and it fires once a day at 03:00.
+#   bloop.compilation.daemon          always-on daemon pinned at -Xmx12g with none of the periodic-GC
+#                                     flags .jvmopts gained, so it never returns idle memory.
+#
+# Every plist this writes references a path INSIDE the repo checkout, so `git pull` updates the
+# guards and there is no second copy to drift.
+#
+# Usage:
+#   scripts/build-guards-install --dry-run    # print exactly what would change (default)
+#   scripts/build-guards-install --install
+#   scripts/build-guards-install --uninstall  # remove our agents; does not restore the old one
+#   scripts/build-guards-install --status
+#
+# Deliberately dry-run by default: this edits the user's launchd configuration, which persists
+# across reboots and outlives any single session.
+set -uo pipefail
+
+MODE="--dry-run"
+case "${1:-}" in
+  --install|--uninstall|--status|--dry-run) MODE="$1" ;;
+  "") : ;;
+  -h|--help) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  *) echo "build-guards-install: unknown flag '$1'" >&2; exit 2 ;;
+esac
+
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Never install from a worktree: worktrees are deleted routinely, and a launchd agent pointing at a
+# deleted path is a guard that silently stops existing — the same class of failure as all three
+# above. Resolve to the main checkout.
+MAIN="$(git -C "$REPO" worktree list 2>/dev/null | head -1 | awk '{print $1}')"
+[ -n "$MAIN" ] && REPO="$MAIN"
+
+AGENTS="$HOME/Library/LaunchAgents"
+GUARD_LABEL="io.scalascript.build-ram-guard"
+REAPER_LABEL="io.scalascript.kill-stale-builders"
+OLD_LABEL="com.sergiy.jvm-mem-guard"
+BLOOP_PLIST="$AGENTS/bloop.compilation.daemon.plist"
+
+GC_FLAGS="-XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=30 -XX:G1PeriodicGCInterval=60000 -XX:G1PeriodicGCSystemLoadThreshold=0 -XX:-G1PeriodicGCInvokesConcurrent"
+
+say() { printf '%s\n' "$*"; }
+act() { [ "$MODE" = "--install" ] || [ "$MODE" = "--uninstall" ]; }
+
+plist_guard() {
+  cat <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>${GUARD_LABEL}</string>
+  <key>ProgramArguments</key><array>
+    <string>/bin/bash</string><string>${REPO}/scripts/build-ram-guard</string>
+  </array>
+  <!-- 20 s: the 2026-07-20 JetsamEvent -> panic window was about 5 minutes, so this leaves ample
+       room to shed load first. A healthy tick is two vm_stat reads and an exit, so it is cheap. -->
+  <key>StartInterval</key><integer>20</integer>
+  <key>RunAtLoad</key><true/>
+  <key>ProcessType</key><string>Background</string>
+  <key>LowPriorityIO</key><true/>
+  <key>Nice</key><integer>5</integer>
+  <key>StandardErrorPath</key><string>${HOME}/Library/Logs/build-ram-guard.err</string>
+</dict></plist>
+EOF
+}
+
+plist_reaper() {
+  cat <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>${REAPER_LABEL}</string>
+  <key>ProgramArguments</key><array>
+    <string>/bin/bash</string><string>${REPO}/scripts/kill-stale-builders</string>
+    <string>--idle</string><string>30</string><string>--kill</string>
+  </array>
+  <!-- Hourly, not daily-at-03:00. Idle servers accumulate all day: measured 2026-07-28, eight
+       orphaned and seven idle sbt servers at one moment. A once-a-day sweep reclaims them long
+       after the contention they caused. -->
+  <key>StartInterval</key><integer>3600</integer>
+  <key>RunAtLoad</key><false/>
+  <key>ProcessType</key><string>Background</string>
+  <key>LowPriorityIO</key><true/>
+  <key>StandardOutPath</key><string>${HOME}/Library/Logs/kill-stale-builders.log</string>
+  <key>StandardErrorPath</key><string>${HOME}/Library/Logs/kill-stale-builders.log</string>
+</dict></plist>
+EOF
+}
+
+status() {
+  say "── repo: $REPO"
+  for l in "$GUARD_LABEL" "$REAPER_LABEL" "$OLD_LABEL" bloop.compilation.daemon; do
+    printf '  %-38s %s\n' "$l" "$(launchctl list 2>/dev/null | awk -v L="$l" '$3==L{print "loaded (last exit "$2")"}' | head -1 || true)"
+  done
+  say "  build-ram-guard log: $(ls -la "$HOME/Library/Logs/build-ram-guard.log" 2>/dev/null || echo '(none yet)')"
+  if [ -f "$BLOOP_PLIST" ]; then
+    grep -q 'G1PeriodicGCInterval' "$BLOOP_PLIST" \
+      && say "  bloop daemon: periodic GC PRESENT" \
+      || say "  bloop daemon: periodic GC ABSENT (holds idle heap forever)"
+  fi
+}
+
+case "$MODE" in
+  --status) status; exit 0 ;;
+  --uninstall)
+    for l in "$GUARD_LABEL" "$REAPER_LABEL"; do
+      launchctl unload "$AGENTS/$l.plist" 2>/dev/null
+      rm -f "$AGENTS/$l.plist"
+      say "removed $l"
+    done
+    exit 0 ;;
+esac
+
+say "── build guards → $REPO  (mode: $MODE)"
+
+# 1. the memory guard
+say "1. ${GUARD_LABEL} → ${REPO}/scripts/build-ram-guard (every 20 s)"
+if act; then
+  plist_guard > "$AGENTS/$GUARD_LABEL.plist"
+  launchctl unload "$AGENTS/$GUARD_LABEL.plist" 2>/dev/null
+  launchctl load   "$AGENTS/$GUARD_LABEL.plist" 2>/dev/null && say "   loaded"
+fi
+
+# 2. retire the guard that never fired
+say "2. retire ${OLD_LABEL} (wrong signal; log 0 bytes across two OOM events)"
+if act; then
+  launchctl unload "$AGENTS/$OLD_LABEL.plist" 2>/dev/null
+  # Renamed, not deleted: it is the historical record of what was tried, and undoing this should not
+  # require reconstructing a file from a commit message.
+  [ -f "$AGENTS/$OLD_LABEL.plist" ] && mv "$AGENTS/$OLD_LABEL.plist" "$AGENTS/$OLD_LABEL.plist.superseded-by-build-ram-guard"
+  say "   unloaded and renamed to .superseded-by-build-ram-guard"
+fi
+
+# 3. the reaper, from the repo, hourly, with --idle
+say "3. ${REAPER_LABEL} → ${REPO}/scripts/kill-stale-builders --idle 30 --kill (hourly)"
+if [ -f "$AGENTS/$REAPER_LABEL.plist" ]; then
+  # Only absolute paths: the Label element is also `…kill-stale-builders` and matched first, which
+  # made this report the label as if it were the program path.
+  cur="$(sed -n 's|.*<string>\(/[^<]*kill-stale-builders\)</string>.*|\1|p' "$AGENTS/$REAPER_LABEL.plist" | head -1)"
+  if [ -n "$cur" ] && [ "$cur" != "$REPO/scripts/kill-stale-builders" ]; then
+    say "   was: $cur"
+    if [ -f "$cur" ] && ! diff -q "$cur" "$REPO/scripts/kill-stale-builders" >/dev/null 2>&1; then
+      say "   ⚠ that copy has DRIFTED from the repo — this is the drift being removed"
+    fi
+  fi
+fi
+if act; then
+  plist_reaper > "$AGENTS/$REAPER_LABEL.plist"
+  launchctl unload "$AGENTS/$REAPER_LABEL.plist" 2>/dev/null
+  launchctl load   "$AGENTS/$REAPER_LABEL.plist" 2>/dev/null && say "   loaded"
+fi
+
+# 4. periodic GC for the always-on bloop daemon
+say "4. bloop.compilation.daemon: add periodic GC so it returns idle heap"
+if [ ! -f "$BLOOP_PLIST" ]; then
+  say "   (not installed on this machine — skipping)"
+elif grep -q 'G1PeriodicGCInterval' "$BLOOP_PLIST"; then
+  say "   already present — nothing to do"
+else
+  say "   -Xmx12g stays (lowering it risks OOM on a large compile); adding:"
+  say "     $GC_FLAGS"
+  if act; then
+    cp "$BLOOP_PLIST" "$BLOOP_PLIST.bak-before-periodic-gc"
+    # Append to the existing JDK_JAVA_OPTIONS string rather than replacing it: -Xmx12g and
+    # ConcGCThreads=2 are someone's deliberate choices and are not this change's to overwrite.
+    python3 - "$BLOOP_PLIST" "$GC_FLAGS" <<'PY'
+import re, sys
+p, flags = sys.argv[1], sys.argv[2]
+s = open(p).read()
+def add(m):
+    return m.group(0) if flags.split()[0] in m.group(1) else m.group(0).replace(m.group(1), m.group(1) + " " + flags)
+s2 = re.sub(r'<string>(-Xmx[^<]*)</string>', add, s, count=1)
+open(p, "w").write(s2)
+PY
+    say "   patched (backup: $(basename "$BLOOP_PLIST").bak-before-periodic-gc)"
+    launchctl unload "$BLOOP_PLIST" 2>/dev/null
+    launchctl load   "$BLOOP_PLIST" 2>/dev/null && say "   reloaded"
+  fi
+fi
+
+echo
+if act; then status; else
+  say "This was a DRY RUN — nothing changed. Apply with: scripts/build-guards-install --install"
+fi
