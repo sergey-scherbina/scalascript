@@ -1,5 +1,86 @@
 # Bug tracker
 
+## uniml-yaml-bare-tag-uses-primary-handle — `%TAG !` rewrites the non-specific `!` tag
+
+**Status:** OPEN (found 2026-07-28 during independent UPR-2a.1 review; SPRINT
+`UPR-2a.1`).
+
+**Fail-first reproduction.**
+
+```yaml
+%TAG ! tag:example.com,2000:app/
+---
+! value
+```
+
+At local feature commit `7ba41ae36`, semantic projection assigns
+`tag:example.com,2000:app/`. YAML 1.2.2 defines bare `!` as the non-specific tag;
+the primary-handle override applies only to shorthands with a non-empty suffix.
+The source token itself remains lossless, so this is a semantic expansion defect.
+
+**Fix acceptance.** Add a JVM/Scala.js regression which proves the same document
+projects bare `!` as `!`, while `!name` still expands through the declared primary
+handle. Also pin exact source-token and expanded representation-tag spelling plus
+malformed-percent rejection before landing UPR-2a.1.
+
+## uniml-yaml-bare-tag-missing-separation — `![...]` is accepted as a tagged collection
+
+**Status:** OPEN (found 2026-07-28 during independent UPR-2a.1 review; SPRINT
+`UPR-2a.1`).
+
+**Fail-first reproduction.**
+
+```yaml
+![a]
+```
+
+The UPR-2a.1 lexer relaxation treats the one-character `!` token as legal without
+checking the following source character. Because tag scanning stops before a flow
+indicator, both `![a]` and `!{a: b}` become complete, diagnostic-free projections.
+YAML requires separation between a bare non-specific tag property and its node.
+
+**Fix acceptance.** Add root and mapping-value JVM/Scala.js regressions. Bare `!`
+remains legal before whitespace, a line break, or end-of-input, while adjacency to
+`[`/`{` produces `uniml.yaml.invalid-tag` and no trusted projection.
+
+## uniml-yaml-tag-percent-decoder-quadratic — legal long tags trigger repeated prefix copies
+
+**Status:** OPEN (found 2026-07-28 during independent UPR-2a.1 review; SPRINT
+`UPR-2a.1`).
+
+**Measured reproduction.** At local feature commit `7ba41ae36`,
+`YamlTagEnvironment.decodePercentEscapes` appends every literal/decoded code point
+with `result = result + piece`. On JDK 21, projecting otherwise equivalent primary
+tags took approximately 314 ms at 128 KiB, 830 ms at 256 KiB, 3.19 s at 512 KiB,
+and 12.17 s at 1,000,000 characters; an undefined-handle control which skipped the
+decoder took 2–11 ms. A source may contain many maximum-line tag spellings.
+
+**Impact.** The new semantic path introduces a bounded but exploitable CPU/allocation
+amplifier before the broader UPR-2d hardening slice.
+
+**Fix acceptance.** Validate and decode with portable chunk/code-point accumulation
+whose work is linear in input and decoded output size. Preserve opaque `%HH` in the
+representation tag, keep JVM/Scala.js parity, portable lint, and the official corpus
+delta unchanged.
+
+## uniml-yaml-corpus-6ck3-percent-oracle-conflict — pinned event contradicts YAML 1.2.2 tag preservation
+
+**Status:** OPEN (found 2026-07-28 during independent UPR-2a.1 review; upstream
+`yaml/yaml-test-suite#9` remains open).
+
+**Reproduction.** YAML 1.2.2 section 5.6 requires percent-escaped tag characters to
+be preserved and compared exactly as presented. The same specification's Example
+6.26, copied into pinned case `6CK3`, expects `!e!tag%21` as parser event
+`<tag:example.com,2000:app/tag!>`. The public representation and the official event
+oracle therefore cannot share one tag string without violating one of the two
+contracts.
+
+**Fix acceptance.** Keep exact shorthand in CST and `%HH`-preserving handle-expanded
+tags in `YamlValue`. Isolate the decoded spelling to the typed parser-event
+compatibility view, never to public representation semantics or corpus
+preclassification. The unchanged 6CK3 event must still be reached by real parsing
+and comparison.
+
 ## v2-distributed-failure-retry — retry path degrades to Stub
 
 **Status:** FIXED 2026-07-28 in `ea21eb8a5` (regression `a373460c3`);

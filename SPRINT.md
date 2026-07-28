@@ -328,12 +328,24 @@ self-parity test is not external conformance.
     - [ ] **UPR-2a.1 document-scoped `%TAG` expansion.** Parse the two default handles and each
           document's `%TAG` declarations, validate duplicates/undefined handles and percent escapes,
           reset declarations at document boundaries, and expand scalar/sequence/mapping tags in the
-          semantic output consumed by the event trace. Measured target cases are exactly `5TYM`,
+          semantic output consumed by the event trace. Keep the raw property spelling lossless in
+          the CST and expanded `YamlValue` representation tag, decode only the parser-event view as
+          valid UTF-8 for pinned event compatibility, preserve opaque non-UTF-8 `%HH` runs, and
+          reject only malformed percent-triplet syntax. The validator/normalizer must be linear in
+          the bounded spelling, without repeated string prefix copies.
+          Bare non-specific `!` must remain `!` even when `%TAG ! ...` overrides the primary handle,
+          and it is legal only before separation/end-of-input, never directly before `[` or `{`.
+          Measured target cases are exactly `5TYM`,
           `6CK3`, `6JWB`, `6WLZ`, `735Y`, `9WXW`, `CC74`, `P76L`, `U3C3`, and `Z9M4`: all are
           currently valid/valid with equal event counts and tag-only diffs. Bare non-specific `!`
           must also remain a legal tag in `52DL`, `8MK2`, `S4JQ`, and `UKK6/02`; those event rows
           are already exact but lexer validity is red. Expected no-regression movement is semantics
           128→138, validity 210→214, strict 112→126, actual errors 220→216, and failures 290→276.
+    - [ ] **UPR-2a.2 tag/property lexical grammar.** Enforce the complete YAML 1.2.2
+          `ns-uri-char`, `ns-tag-char`, local/global prefix, verbatim tag, expanded-URI,
+          anchor, and alias spelling productions on JVM and Scala.js. Cover raw non-ASCII and
+          forbidden punctuation, empty suffix/verbatim forms, invalid global URIs, and exact
+          `%HH`/hex-case preservation without changing the reviewed UPR-2a.1 corpus delta.
   - [ ] **UPR-2b scalar engine.** Implement multiline plain/single/double quoted folding, complete
         double-quoted escapes and escaped line breaks, literal/folded block indentation,
         more-indented lines, chomping, explicit indentation, and malformed-header recovery.

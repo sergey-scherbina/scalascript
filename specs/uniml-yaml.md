@@ -264,9 +264,32 @@ stream-end
 ```
 
 Start/scalar events retain the effective tag, anchor, scalar value/style where applicable. `%TAG`
-expansion uses the current document's handle table. Anchor declarations and alias lookup use source
-order; an alias never binds to a later declaration, and a duplicate anchor affects only later
-aliases.
+expansion uses the current document's handle table. The lossless CST retains the exact tag-property
+spelling, including handle and `%HH` bytes. `YamlValue.tag` carries the expanded representation tag:
+the handle is replaced by its prefix, while each percent escape and its hex-letter case remain
+exactly as presented, following YAML 1.2.2 section 5.6.
+
+The parser-event trace is a distinct lower-level observable. To match YAML 1.2.2 Example 6.26 and
+the pinned `yaml-test-suite` event notation, it decodes a contiguous `%HH` run only when the bytes
+form valid UTF-8; an opaque non-UTF-8 run remains percent-escaped. This compatibility view never
+changes the CST or `YamlValue`. Keeping representation tags separate from parser-event tags is
+intentional because the normative section 5.6 preservation rule and Example 6.26's decoded event
+spelling contradict each other (the conflict is also tracked upstream as
+`yaml/yaml-test-suite#9`).
+
+Only malformed percent-triplet syntax is a YAML error: `%`, `%0`, or a non-hexadecimal pair.
+Percent octets are otherwise opaque, so overlong, surrogate-valued, or out-of-range UTF-8 byte
+patterns remain valid representation-tag spelling. Validation and optional event normalization are
+linear in the bounded tag spelling; repeated whole-prefix concatenation is forbidden.
+
+The bare `!` property is the non-specific tag, not a shorthand with an empty suffix. It remains
+exactly `!` even when a `%TAG ! ...` directive overrides the primary handle; only a non-empty
+primary-handle shorthand such as `!name` uses that declaration. Bare `!` must be followed by YAML
+separation or end-of-input. A flow indicator immediately after it (`![...]`, `!{...}`) is not
+silently reinterpreted as tagged collection content.
+
+Anchor declarations and alias lookup use source order; an alias never binds to a later declaration,
+and a duplicate anchor affects only later aliases.
 
 At the first `Error` or `Fatal` diagnostic, the semantic trace freezes at the events already
 observed. Recovery continues to produce the lossless partial CST and bounded diagnostics, but it
