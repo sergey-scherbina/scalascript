@@ -105,17 +105,37 @@ Not slow — an exception. Two causes across four workloads. Verify each with
 `bin/ssc-tools --backend v2-bytecode bench --machine --reps 3 bench/corpus/<w>.ssc` AND the
 `v2` (VM) lane, then re-run the affected `tests/conformance` slice.
 
-- [ ] **v2m-1a — `unbound global: d` kills `float-loop`, `float-fold`, `pattern-match-heavy`.**
+- [x] **v2m-1a — DONE, and it was NOT v2.** The three workloads run on v2 perfectly well; the `d`
+      was the *bench wrapper's* Double sink spelled `0d`, and the self-hosted front does not lex the
+      Scala float-literal suffix. Wrapper now says `0.0`; all three measure. The language gap is
+      real and filed as `BUGS.md v2-front-drops-float-literal-suffix` with the cause located (the
+      lexer strips `L`/`l` and never got `d`/`D`/`f`/`F`) — handed to the live claim on that file.
+      **Third apparatus defect in one sweep; the matrix now carries the rule: reproduce a
+      "cannot run" claim OUTSIDE the harness before believing it.** ORIGINAL ENTRY:
       One cause, three workloads, BOTH v2 lanes. `d` is not a user identifier in any of the three
       sources, so the suspicion is a lowering that emits a global reference the runtime never
       registers (a float helper?). START by finding where `d` is introduced — dump the CoreIR
       (`bin/ssc-tools --backend v2 ... ` / `ssc info`) rather than guessing from the source.
       Done-when: all three run on both v2 lanes and their output matches the INT lane byte for byte.
-- [ ] **v2m-1b — `array-update`: `app: not a function: 0` on both v2 lanes.** An in-place indexed
+- [ ] **v2m-1b — DIAGNOSED, handed over.** Not `app: not a function` at all: `parseExprOrAssign`
+      in `v2/lib/ssc1-front.ssc0` accepts only a bare `var` on the left of `=`, so `a(1) = 7` parses
+      as the expression `a(1)` and the `= 7` is silently discarded. **A correctness bug**: prints
+      `7` on INT and JS, `0` on both v2 lanes, exit 0, no message. Filed as
+      `BUGS.md v2-array-indexed-store-silently-dropped` with the fix shape and the note that BOTH
+      halves are needed (the runtime has no `update` arm for `ForeignV(ArrayBuffer)` either — I
+      wrote one, could not reach it, and reverted it). Blocked on the live claim holding that file.
+      ORIGINAL ENTRY: An in-place indexed
       `Array` store. The message says the runtime reached `applyFallback` with an IntV receiver —
       i.e. `a(i) = v` lowered to an application of the *element* rather than a store. Done-when:
       `array-update` runs on both lanes with INT-matching output.
-- [ ] **v2m-1c — `__autoOutput__` is unimplemented in BOTH v2 source backends.** `v2-jvm`
+- [x] **v2m-1c — DONE.** Implemented in `v2/backend/jvm` and `v2/backend/rust`, mirroring the VM
+      arm. Both backends went from running NOTHING to measuring: `v2-jvm` 0.276 on `arith-loop`
+      (parity with the v1 interpreter), `v2-rust` 0.000047. Narrower gaps remain underneath
+      (`list-fold`, `literal-match` still blank on one or both) — separate holes, now visible.
+      ⚠️ `v2/backend/check.sh` is PRE-EXISTING red on jvm/rust/wasm (`mutual-recursion` loses its
+      output; proven not caused by this change via a control build) — filed as
+      `BUGS.md backend-check-mutual-recursion-drops-output`, and it means that gate cannot
+      currently certify generator changes. ORIGINAL ENTRY: `v2-jvm`
       (`unknown prim1`) and `v2-rust` (`unimplemented prim`) cannot run ANY program. Per-block
       auto-output is a prim each backend must implement — Unit-ness is a runtime property whose
       representation differs per backend, so it cannot be a source-level pattern. Implement it in
@@ -130,6 +150,20 @@ representative per shape, name the cause, fix it, then re-measure the whole shap
 (`specs/v2-runtime-perf-vs-v1.md` §7) — on this host a single A/B run of identical code has swung
 2.5×.
 
+- [x] **v2m-2 (first slice) — DONE: the per-match field array.** `Emit.dataFields` copied every
+      field into a fresh `Array[Value]` on every successful constructor match, purely so the
+      emitter could read them back by index — ~28% of `pattern-match-heavy`'s profile. New
+      `Emit.dataField(v, i)` indexes the `IndexedSeq` in place. Alternating medians:
+      `pattern-match-heavy` 31.7 → 26.4 (**1.20×**), `either-chain` 0.138 → 0.118 (**1.17×**),
+      `option-chain` flat. Note the discipline point: single runs said 1.7×, and a frame at 28% of
+      a profile bought 20% — the profile located the right code and overstated the prize.
+- [ ] **v2m-2e — what `pattern-match-heavy` spends its time on NOW (still 447×, still the worst).**
+      Re-profiled after the above; the shape changed and the next causes are allocation, not
+      dispatch: **`ssc.Value[]` 953 alloc samples** (an env array per call — `Runtime.extend`) and
+      **`ssc.Value$FloatV` 471** (a box per float result). CPU is then spread over
+      `arithFast`/`Emit.arith`/`Emit.prim2`/`Emit.s2`. These are the architectural items from
+      `specs/v2-runtime-perf-vs-v1.md` §5 (unboxed numerics, avoiding per-call allocation) — spec
+      before coding, and do not expect a slice-sized win.
 - [ ] **v2m-2a — collection iteration.** `lazylist-take` **474×**, `effect-stream` **271×**,
       `range-sum` **170×**, `list-fold` **160×**, `hof-pipeline` **19×**. Representative:
       `range-sum` (smallest, 170×, and a `Range` is not even a user data structure). Known from
