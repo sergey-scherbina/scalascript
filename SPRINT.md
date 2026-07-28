@@ -78,7 +78,22 @@ Full A/B, baseline and open slices: `specs/v2-runtime-perf-vs-v1.md`; bug record
       around `bin/ssc-tools --backend v2-bytecode bench …`), then propose. Do NOT guess.
 - [ ] **v2rt-4 — `vector-index`: 58.3 ms/iter, 65× v1, and an absolute outlier.** Both v2 lanes
       sit at the same number after v2rt-1, so it is not lane-specific — it is in the shared
-      indexing path. Profile before proposing.
+      indexing path. **LOCALISED by reading the code, not guessing:** v2 has no `VectorV`, so
+      `Vector` IS a `DataV("Cons"/"Nil")` chain, and every indexed read spelled
+      `unlistPub(lv)(i)` — which copies the WHOLE chain into a `ListBuffer` and then a `List`
+      before indexing it. One read of a 16-element `Vector` therefore cost ~32 allocations, ×200k
+      reads. `xs.length`/`xs.size` had the same defect (`unlist(recv).length` builds the list to
+      count it). Fix: `Prims.listIndex` / `Prims.listLength` walk the chain in place and fall back
+      to the old spelling with the ORIGINAL receiver+index for any shape they do not recognise, so
+      values and exceptions stay identical by construction. A/B pending.
+- [ ] **v2rt-5 — is the VM's `FastCode` arithmetic recognizer still firing?** `BACKLOG.md`
+      records the v2 VM at **0.000015 ms** on `arith-loop` after `v2-vm-*-fast-tier` landed
+      (2026-07-09/10); it measures **73-75 ms** today. Two candidate explanations and they are
+      very different facts: (a) the old number was a folded loop and the bench corpus has since
+      been anti-folded (`docs/bench/corpus-antifold.md`), or (b) the F front flip changed the
+      lowered shape so the recognizer no longer matches — i.e. the flip silently disabled the VM
+      fast paths. Cheap decisive probe: `SSC_FASTPATHS=off` on the same workload — if the number
+      does not move, the recognizer is not firing. Measure before assuming either.
 
 ## 2026-07-27 — native release qualification
 
