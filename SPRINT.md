@@ -9,6 +9,65 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## 2026-07-28 — the last two red gates (Sergiy: "что именно ещё осталось до полного зелёного CI")
+
+**`ci.yml` is already green** — run `30363091300` on `c9788cf6f`. What is left is the two SCHEDULED
+gates, which is exactly the class MILESTONES warns about: nothing automated reads them, so they can
+sit red for days looking quiet. Measured 2026-07-28:
+
+| workflow | latest real verdict | why |
+|---|---|---|
+| `CI` | ✅ success `30363091300` | — |
+| `Lint Markdown (docs-only)` | ✅ success | — |
+| `Pages` | ✅ success | — |
+| `Corpus Contract` | ❌ failure `30334389306` | stale baseline + unclassified cases |
+| `F4 Front Swap Gates` | ❌ failure `30337665226` | 4 genuine F disagreements |
+
+- [ ] **corpus-contract-refresh-freeze-0728** — make the nightly corpus contract report a verdict again.
+      *Why:* it is bookkeeping, not a defect — the gate is doing its job and nobody has answered it.
+      *What it is asking for, exactly* (shard 0 of 4; other shards similar):
+      ```text
+      ↕ 1 NON-PASS STATUS CHANGE:   rozum-agent-streaming  v2  FAIL → DIVERGE
+      △ 4 IMPROVEMENT(S)/stale baseline — now PASS, still in baseline:
+          dataset-from-generator  js      dataset-from-generator  v2
+          std-ui-aggregator       v2      std-ui-extended-d       v2
+        → re-run with --update-baseline to record the closed gaps
+      + new cases needing classification, then refresh the paired freeze with one full run
+      ```
+      *How:* classify the new cases FIRST, then one full run with `--update-baseline`; the baseline
+      and the roster freeze are paired, so a half-refresh leaves it red for a different reason.
+      `FAIL → DIVERGE` on `rozum-agent-streaming v2` is a status change, not an improvement —
+      decide what it is before recording it, or the refresh launders a regression into the baseline.
+      *Gotcha:* `tests/conformance/corpus-baseline.tsv` + `contract-roster.tsv` are the contended
+      files; they were UNCLAIMED at 2026-07-28T13:4x but two nearby claims list them, so re-check
+      before starting. Reproduce `baseline-sha256` BEFORE writing a new one — that is the
+      compare-first check that the refresh routine is the writer's routine.
+      *Done-when:* one `Corpus Contract` run reaches `success` (all 4 shards).
+
+- [ ] **f4-lib-variant-disagreements** — close the 4 F-vs-legacy disagreements the F4 gate reports.
+      *Why:* these are `orc=0 frc=1` — the legacy front returns 0 where **F returns 1**. Not
+      cosmetic: F is the default front, so each is a program that works on legacy and fails on the
+      front that actually runs.
+      *The four:*
+      ```text
+      std-ui-native-backticked-id-lib     std-ui-native-html-lambda-lib
+      std-ui-native-pair-lib              wc-card
+      ```
+      *Lead worth checking first:* three carry the `-lib` suffix, and their NON-lib siblings are
+      recorded FIXED in BUGS — `v2-native-backticked-identifier`, `v2-native-html-interpolator-parse`,
+      `v2-std-ui-closure-pair-match`. So the likely shape is one root cause: the fix landed on the
+      path without a library import and not on the path with one. Confirm before assuming — if it
+      is one cause, this is one fix and not four.
+      *How:* the gate itself states the two legal outcomes — **fix F**, or add each to the manifest
+      with a bucket (`GAP`/`OUT`/`DEFERRED`) *after confirming which it is*. Do not bucket to get
+      green; a bucket is a claim about the case, and `orc=0 frc=1` on a default-front program is a
+      strong prior for "fix F".
+      *Done-when:* `F4 classify + dual-run` reports `green = 0 genuine-FAIL`.
+      *Detail:* `specs/v2.2-p6.5-classify.expected` is the manifest; run `30337665226` is the
+      failing evidence.
+
+---
+
 ## 2026-07-28 — `v2-works-inventory` — answer "what does NOT work in v2", case by case
 
 **Active claim:** `v2-works-inventory`. Sergiy: *"Сейчас задача чтобы v2 работал. Что это значит?
