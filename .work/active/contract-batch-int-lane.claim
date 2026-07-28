@@ -1,0 +1,42 @@
+slug: contract-batch-int-lane
+branch: feature/contract-batch-int-lane
+agent: opus-orch
+started: 2026-07-28T03:30:00Z
+heartbeat: 2026-07-28T03:30:00Z
+status: claimed-before-planning
+direction: Corpus gate / cost
+items: contract-batch-int-lane
+paths: tests/conformance/contract.sc
+scope: |
+  contract.sc's own header has carried this TODO since 2026-07-14: "add memo (F2) + batch lanes (F4)
+  like run.sc". run.sc got batching; the corpus gate never did — and the gate is the one that could
+  not reach a verdict for 13 runs.
+
+  MEASURED cost of one gate run, in cold JVM starts:
+    INT ~699  (214 example cases x2 for the determinism check + ~271 conformance cases with a golden)
+    JS   485
+    v2   485
+    total ~1669
+  Batching INT alone removes ~699 of them. That is the same cost that produced both the 60-minute
+  timeout and the host memory pressure Sergiy had to kill by hand.
+
+  SCOPE — INT ONLY, deliberately:
+   - `run-batch --v1` dispatches the SAME `run --v1` path per file, just in one JVM, so the lane's
+     meaning is unchanged.
+   - JS would mean swapping `run-js` for `emit-js | node`. That REDEFINES what the lane tests, and a
+     correctness gate is the wrong place to do that quietly.
+   - v2 cannot be batched at all today: `run-batch` exists only on `ssc-tools`, and the gate's v2
+     lane is `bin/ssc run --v2` (StandardMain), which has no such command. Separate task.
+
+  SEMANTICS — batch accelerates PASS, never classifies failure. Classification uses the exit code
+  (124 -> TIMEOUT, non-zero -> FAIL) and a batch gives one process for many cases, so: if a case's
+  batched output equals the golden it is PASS; anything else — different output, missing section, a
+  case that called exit() and killed the batch — falls through to the existing per-case run and is
+  classified exactly as today. No classification rule changes.
+
+  KNOWN RISK, stated not hidden: one JVM means cross-case state (globals, plugin registry) can leak,
+  so a batched PASS is marginally weaker evidence than an isolated one. run.sc has accepted that
+  trade since F4; this records it rather than inheriting it silently, and `--no-batch` /
+  SSC_CONTRACT_NO_BATCH=1 turn it off for a run that must be isolated.
+next: port BATCH_MARK/splitBatch/batchLane from run.sc, wire golden() + the int lane, verify a
+  batched run and a --no-batch run agree case-for-case
