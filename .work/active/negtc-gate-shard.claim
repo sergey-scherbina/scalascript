@@ -1,0 +1,11 @@
+slug: negtc-gate-shard
+branch: feature/negtc-gate-shard
+agent: claude-code
+started: 2026-07-28T11:01:08Z
+heartbeat: 2026-07-28T11:01:08Z
+status: claimed-before-planning
+items: ci-negtc-gate-is-77pct-of-the-sbt-job NGS-0 NGS-1 NGS-2
+paths: scripts/native-front-corpus scripts/bc-parity-sweep tests/e2e/v21-negative-toolchain-release-gate.sh tests/e2e/negtc-shard
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement

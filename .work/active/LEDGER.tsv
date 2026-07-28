@@ -1,5 +1,6 @@
-# generation: 190
+# generation: 191
 #slug	agent	started	items	paths
 v2-perf-prim-dispatch	claude-code	2026-07-28T08:23:21Z	v2rt-1b v2rt-2 v2rt-6 v2-prim-dispatch-string-keyed	v2/src v2/jvm-runtime v2/backend-jvm-bytecode .github/workflows/ci.yml specs/v2-runtime-perf-vs-v1.md docs/benchmarks.md bench SPRINT.md CHANGELOG.md tests/e2e/v2-jit-size.sh
 v2-cli-error-exit-code	claude-code	2026-07-28T10:54:59Z	v2-native-error-printed-but-exit-zero	v1/tools/cli/src/main/scala/scalascript/cli/StandardMain.scala v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala v1/tools/cli/src/main/scala/scalascript/cli/V2Result.scala tests/e2e/v2-error-diagnostic.sh BUGS.md SPRINT.md CHANGELOG.md
 ci-status-guard-desc-green	claude-code	2026-07-28T10:57:04Z	ci-status-guard-desc-green-always-red	tests/e2e/ci-status-guard.sh scripts/ci-status
+negtc-gate-shard	claude-code	2026-07-28T11:01:08Z	ci-negtc-gate-is-77pct-of-the-sbt-job NGS-0 NGS-1 NGS-2	scripts/native-front-corpus scripts/bc-parity-sweep tests/e2e/v21-negative-toolchain-release-gate.sh tests/e2e/negtc-shard
