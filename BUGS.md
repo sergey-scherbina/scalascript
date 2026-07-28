@@ -6200,6 +6200,39 @@ real release installer behind a fake downloader/java: it proves the generated so
 **Status:** OPEN, still reproducing 2026-07-28. Found 2026-07-17 by `ci-red-main` after correcting
 the all-examples tools-command routing.
 
+**PARTIAL FIX 2026-07-28 by `v2-multiblock-auto-output` — the general case works; ONE sub-case
+remains.** Per-block auto-output now works on the native lane: the runner marks each code fence's
+end with a `__sscBlockEnd__` sentinel, F consumes it in `walkTop` and wraps the statement in front
+of it in `__sscAuto__`, and the runner prepends that helper. Gate
+`tests/conformance/multiblock-auto-output.ssc` is green on all four lanes, and the three
+auto-output blocks of `examples/content.ssc`, extracted on their own, are byte-identical to v1.
+
+**The residual, measured to a 6-line repro: an auto-output block placed BEFORE a `render(...)`
+block still loses its value.** Order is the whole discriminator:
+
+```
+block 1: println("explicit-before")   block 1: render(doc("=== X ===", "body"))
+         1 + 1                        block 2: 1 + 1
+block 2: render(doc("=== X ===", "body"))
+```
+
+| program | native | v1 |
+|---|---|---|
+| auto-output THEN render | `explicit-before`, `=== X ===`, `body` | `explicit-before`, **`2`**, `=== X ===`, `body` |
+| render THEN auto-output | `=== X ===`, `body`, `2` | `=== X ===`, `body`, `2` — **identical** |
+
+So the wrapping itself is fine (the render-first program matches v1 exactly); something on the
+content/`render` path drops entry items that precede it. An explicit `println` in the same block
+SURVIVES, so it is the auto-output item specifically, not the block. `examples/content.ssc` is
+exactly this shape, which is why it still differs from v1 by those three lines. Next step is
+`entryItems3`/`nItems3` in `specs/v2.2-p6.5-fsub.ssc` and the `sscParseContents` projection in
+`v2/bin/ssc1-run-fsub.ssc0` — not the wrap, which is proven correct by the render-first case.
+
+**Legacy runner deliberately NOT changed.** `v2/bin/ssc1-run.ssc0` has a different downstream
+architecture (it parses each file to statements rather than handing one source string to F), so a
+sentinel there would become an unbound identifier statement in the legacy front. F is the default;
+the legacy path keeps today's behaviour.
+
 **SHARPER DIAGNOSIS 2026-07-28 (`v2-multiblock-auto-output`) — the machinery is not missing, it is
 per-PROGRAM instead of per-BLOCK.** The framing below ("omits all three") sends the reader looking
 for an absent feature. It is present, and exactly one value does print. Three-line A/B, one fence
