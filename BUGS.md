@@ -9752,7 +9752,7 @@ green full `backendInterpreter/test`.
 
 ## standard-tier-named-arg-skip-default — `bin/ssc run` (self-hosted standard-tier pipeline) mis-binds a named arg for a non-first trailing defaulted param
 
-**Status: FIXED 2026-07-28** by `f-named-arg-skips-default`, on BOTH self-hosted fronts.
+**Status: FIXED 2026-07-28** in `b61a78b24` (`f-named-arg-skips-default`), on BOTH self-hosted fronts.
 
 **⚠️ TWO CORRECTIONS to the original report, both measured before any edit.**
 
