@@ -1,5 +1,4 @@
-# generation: 222
+# generation: 223
 #slug	agent	started	items	paths
 bench-tier-dead-lanes	claude-code	2026-07-28T11:53:16Z	bench-jvm-js-lanes-dead-silently v2rt-0b-per-invocation-half	v1/tools/cli/src/main/scala/scalascript/cli/Main.scala bench BUGS.md SPRINT.md docs/benchmarks.md
 v2-front-for-yield	claude-code	2026-07-28T13:02:26Z	v2-front-for-yield-parse-gap	specs/v2.2-p6.5-fsub.ssc v2/lib/ssc1-front.ssc0 tests/conformance/for-yield tests/conformance/expected/for-yield BUGS.md bugs-v2.md SPRINT.md CHANGELOG.md
-negtc-derived-route-clients	claude-code	2026-07-28T14:19:11Z	negtc-both-fail-derived-route-clients NDR-0 NDR-1	examples/derived-route-clients.ssc scripts/bc-parity-sweep tests/e2e/negtc-shard-gate.sh
