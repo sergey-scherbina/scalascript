@@ -9,6 +9,31 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## 2026-07-28 — `scljet-sql-double-equals` (BUGS `scljet-sql-double-equals-parser-gap`)
+
+**Active claim:** `scljet-sql-double-equals`. `SELECT id FROM t WHERE v == 2` returns
+`QUERY-ERROR:expected an expression operand`; SQLite 3.51.0 returns the row. `==` is SQLite's
+equality alias.
+
+**Root cause (read before editing, 2026-07-28).** It is a LEXER gap, not a parser one. The
+tokenizer emits one token per `=` character (`scljet/sql.ssc:220`, `c == 61`), so `==` becomes TWO
+`=` tokens and the parser sees `v = = 2`. `isCompareOp` (:869) accepts the string `"=="` and
+`compareValue` (:1376) normalizes it — both are UNREACHABLE, which is exactly the "internally
+inconsistent accepted operator set" the report names.
+
+- [ ] **SC8-1 — normalize at the LEXER.** `=` followed immediately by `=` consumes both characters
+      and emits a single `op` `"="`. That is what makes the alias work in every downstream path at
+      once — scalar, WHERE/HAVING/ON, correlated scalar, index range — instead of requiring each to
+      learn a second spelling (`isSargOp` at :2401 and the index-range mapper at :4134 accept only
+      `"="`, so a `"=="` token would still be missed by them).
+- [ ] **SC8-2 — fail-closed coverage.** `= =` with a space must STILL be an error (only adjacent
+      characters merge), and `!==` / `<==` must stay errors.
+- [ ] **SC8-3 — regression case** `tests/conformance/scljet-sql-double-equals.ssc` + `expected/`:
+      `==` vs `=` on a scanned table AND on an INDEXED one (the index-range path is a different
+      code path), plus `<>`/`!=` as the guard that the operator set is unchanged. Roster it.
+- [ ] **SC8-4 — close out.** BUGS entry → FIXED with the SHA; note the now-reachable
+      `isCompareOp`/`compareValue` alias handling.
+
 ## 2026-07-28 — per-block auto-output on the native lane (Sergiy: "Исправляй оставшиеся проблемы в ssc v2")
 
 **Active claim:** `v2-multiblock-auto-output`. `BUGS.md` `v2-native-multiblock-auto-output-missing`.
@@ -65,7 +90,6 @@ block still sees an earlier block's `val`, which the single-program join gives f
       cases whose golden was written against the CURRENT one-value behaviour (a case whose
       expected output omits an earlier block's tail will newly print it — those goldens are
       wrong today, but each one must be looked at, not bulk-updated).
-
 
 ## 2026-07-28 — `f-named-arg-skips-default` — ✅ DONE (see CHANGELOG)
 
