@@ -2,9 +2,11 @@ package ssc.plugin.dataset
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
+import java.util.concurrent.atomic.AtomicInteger
 import org.scalatest.funsuite.AnyFunSuite
+import scala.collection.mutable
 import ssc.{Done, Prims, Runtime, V2PluginRegistry, Value}
-import ssc.plugin.NativePluginHost
+import ssc.plugin.{NativePlugin, NativePluginContext, NativePluginHost}
 
 final class DatasetNativePluginTest extends AnyFunSuite:
   private def install(): Unit =
@@ -25,13 +27,90 @@ final class DatasetNativePluginTest extends AnyFunSuite:
   private def function(arity: Int)(fn: List[Value] => Value): Value =
     Value.ClosV(Runtime.emptyEnv, arity, env => Done(fn(env.toList)))
 
+  private def valueList(values: IterableOnce[Value]): Value =
+    val items = Vector.from(values)
+    items.reverseIterator.foldLeft[Value](Value.DataV("Nil", Vector.empty)) {
+      (tail, item) => Value.DataV("Cons", Vector(item, tail))
+    }
+
   private def list(values: Range): Value =
-    var result: Value = Value.DataV("Nil", Vector.empty)
-    values.reverseIterator.foreach(value => result = Value.DataV("Cons", Vector(Value.IntV(value), result)))
-    result
+    valueList(values.iterator.map(Value.IntV(_)))
 
   private def ints(value: Value): List[Long] =
     Prims.unlistPub(value).map { case Value.IntV(number) => number; case other => fail(s"not Int: $other") }
+
+  private final class PullGenerator(
+      values: Vector[Value],
+      pulls: () => Unit = () => ()) extends Value.NamedMethodObj:
+    private var index = 0
+
+    def underlying: AnyRef = this
+
+    private def next(): Value =
+      pulls()
+      if index < values.length then
+        val value = values(index)
+        index += 1
+        Value.DataV("Some", Vector(value))
+      else Value.DataV("None", Vector.empty)
+
+    def getField(name: String): Option[Value] = name match
+      case "next" => Some(function(0)(_ => next()))
+      case "toList" => Some(function(0) { _ =>
+        val remaining = values.drop(index)
+        index = values.length
+        valueList(remaining)
+      })
+      case _ => None
+
+  private final class ProbeGeneratorProvider extends NativePlugin:
+    def id: String = "59-generator-probe"
+
+    def install(context: NativePluginContext): Unit =
+      val target = new ThreadLocal[mutable.ArrayBuffer[Value]]()
+      context.registerGlobal("generator", 1) {
+        case body :: Nil =>
+          val emitted = mutable.ArrayBuffer.empty[Value]
+          target.set(emitted)
+          try context.invoke(body, Nil)
+          finally target.remove()
+          Value.ForeignV(PullGenerator(emitted.toVector))
+        case _ => throw new IllegalArgumentException("generator(body)")
+      }
+      context.registerGlobal("suspend", 1) {
+        case value :: Nil =>
+          val emitted = target.get()
+          if emitted == null then
+            throw new IllegalStateException("suspend outside generator body")
+          emitted += value
+          Value.UnitV
+        case _ => throw new IllegalArgumentException("suspend(value)")
+      }
+
+  test("fromGenerator is lazy and drains the standard next protocol in order") {
+    install()
+    val pulls = AtomicInteger(0)
+    val generator = Value.ForeignV(PullGenerator(
+      Vector(Value.IntV(3), Value.IntV(1), Value.IntV(2)),
+      () => pulls.incrementAndGet()))
+    val dataset = static("fromGenerator", generator)
+    assert(pulls.get() == 0)
+    assert(ints(call(dataset, "collect")) == List(3, 1, 2))
+    assert(pulls.get() == 4)
+  }
+
+  test("toGenerator delegates materialized values to the installed generator provider") {
+    NativePluginHost.installProviders(List(DatasetNativePlugin(), ProbeGeneratorProvider()))
+    val dataset = call(
+      static("of", Value.IntV(1), Value.IntV(2), Value.IntV(3)),
+      "map",
+      function(1) {
+        case Value.IntV(value) :: Nil => Value.IntV(value * 10)
+        case other => fail(s"unexpected map arguments: $other")
+      })
+    val generator = call(dataset, "toGenerator")
+    assert(ints(call(generator, "toList")) == List(10, 20, 30))
+  }
 
   test("lazy transformations and terminals preserve deterministic order") {
     install()

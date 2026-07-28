@@ -1,6 +1,7 @@
 ---
 name: dataset-from-generator
 requires: Feature.Dataset
+backends: [int, js, jvm, v2]
 ---
 
 # Dataset — fromGenerator and toGenerator
