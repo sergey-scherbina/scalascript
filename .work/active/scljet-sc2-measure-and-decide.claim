@@ -1,0 +1,13 @@
+slug: scljet-sc2-measure-and-decide
+branch: feature/scljet-sc2-measure-and-decide
+agent: claude-code
+started: 2026-07-28T12:12:29Z
+heartbeat: 2026-07-28T12:12:29Z
+status: in-progress
+items: scljet-sc2-measure-and-decide
+paths: scljet/ tests/conformance/scljet- tests/conformance/expected/scljet-
+scope: |
+  Measure the parked SC-2 candidate (branch feature/scljet-production-completion @ ee382f3f5),
+  then land it or record why not. Two conformance cases are currently declared known-red on
+  int/js pending exactly this. See SPRINT "four findings from the claim-triage sweep".
+next: run scljet-* against the candidate, compare with the main baseline, decide from the diff
