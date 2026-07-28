@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-07-28 — `derives` works on the JS lane that the gate actually runs
+
+`ssc emit-js` — the path the conformance JS lane uses (`emit-js` piped to node) — never emitted a
+Mirror or a `derives` instance. `JsGen.genModuleSegmented` did not call `emitMirrorAndDerives`
+(only `genModule` did, which is why `run-js` worked and every hand-check looked fine), and the
+TreeShaker pruned the typeclass object and the derived case class because their only mentions are
+type positions and the `derives` clause, which `collectNames` skips by design. Either defect alone
+produced `ReferenceError: TC_T is not defined` at runtime.
+
+Both are fixed: the segmented path emits the same block at the same point as `genModule`, and a
+`derives` clause is now a reachability root — the same treatment a named given's `_ssc_givens`
+registration already had.
+
+The previously recorded root cause (a gap in the imported-typeclass scan) was wrong and has been
+corrected in place: a typeclass declared in the SAME module failed identically, so no import was
+involved. New cross-lane regression `tests/conformance/js-derives-segmented.ssc` pins both scan
+paths. Corpus contract green on a 9-case derives/Mirror slice.
+
 ## 2026-07-28 — the v2 runtime never JIT-compiled a method call; it does now (2.4-10.8×)
 
 `ssc.Prims`'s `__method__` dispatch — the single dispatch point for every non-arithmetic

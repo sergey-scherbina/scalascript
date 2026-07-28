@@ -653,9 +653,57 @@ conformance is 2/2, and both the bridge case and neighboring provider fixture
 compare exactly across default/legacy × VM/direct ASM (8/8 total routes).
 ## js-lane-missing-derives-and-coroutinecancel — two real gaps behind one confusing error
 
-**Status:** OPEN (found 2026-07-28 by `js-not-callable-unit`, after two shim defects were fixed out
-from in front of them). Both are missing JS-lane capability, not codegen bugs — filed as work, not
-papered over.
+**Status:** the **`derives` half is FIXED 2026-07-28** by `js-derives-instance-undefined`; (b)
+`coroutineCancel` was already fixed. What remains for
+`examples/rozum-agent-schema-derived.ssc` on the JS lane is a DIFFERENT gap, recorded at the
+bottom of this section.
+
+**⚠️ THE RECORDED ROOT CAUSE WAS WRONG, and the correction is the useful part.** Everything below
+under (a)/(a-3) reads the residual `ReferenceError: AgentSchema_PostTransaction is not defined` as
+a gap in the *imported-typeclass scan*. It is not — the A/B that shows it needs no import at all,
+because a typeclass declared in the SAME module failed identically:
+
+| command | result |
+|---|---|
+| `ssc-tools run --v1 same.ssc` | `P` |
+| `ssc-tools run-js same.ssc` | `P` |
+| `ssc-tools emit-js same.ssc \| node` | `ReferenceError: MySchema_P is not defined` |
+| `ssc-tools emit-js --no-tree-shake same.ssc \| node` | identical — so not only the shaker |
+
+**Two defects, both on the `emit-js` side, either one sufficient to break the case:**
+
+1. `JsGen.genModuleSegmented` **never called `emitMirrorAndDerives`**; `genModule` did (:1169).
+   `run-js` → `compileViaBackend` → `generate` → `genModule` (worked); `emit-js` →
+   `compileJsSegments` → `generateSegmented` → `genModuleSegmented` (no Mirror, no
+   `_ssc_def_given`, not even the `arch-meta-v2-p5` header line). That call also populates
+   `jsSyntheticGivenKeys`, which is what routes a summon through `_resolveGiven` instead of the
+   bare `TC_T` name — so restoring it fixes both halves of the symptom.
+2. `TreeShaker` pruned the typeclass object **and** the derived case class. `collectNames` skips
+   `Type.Name` ("type references don't create JS-level dependencies") — true everywhere except
+   here: with `case class T(…) derives TC` plus `summon[TC[T]]`, the only mentions of `T` and `TC`
+   are type positions and the `derives` clause. A `derives` clause is now a reachability root,
+   exactly as a named given's `_ssc_givens` registration already was.
+
+**Why it survived a fix that was already aimed at it:** every hand-check used `run-js`, and the
+conformance JS lane runs `sscTools("emit-js", …)` piped to node — i.e. the broken path. Two entry
+points into the same codegen, one of which never got the feature, and no gate comparing them. The
+new regression `tests/conformance/js-derives-segmented.ssc` pins BOTH scan paths (same-module and
+imported typeclass) because they are different code and only the second was ever suspected;
+`elemLabels.length` inside each derived value proves the Mirror was emitted too, not just an object
+under the right name. INT / JS / JVM all `Point#2` / `Person/3`; fail-first taken with the pre-fix
+binary. Corpus contract green on a 9-case derives/Mirror slice (11 PASS cells, 12 baseline rows
+matched).
+
+**What is STILL open for `examples/rozum-agent-schema-derived.ssc` on JS** (measured 2026-07-28,
+after the fix): the `ReferenceError` is gone and `_ssc_def_given("AgentSchema_PostTransaction", …)`
+is emitted, but the bundle then **produces no output and never exits** (`node < bundle` → rc=124 at
+90 s, 0 bytes on stdout AND stderr), where INT prints six lines and returns. That is a
+server/async-lifecycle divergence, not a derives one — the error moved, which by this entry's own
+rule means a layer was peeled. Not filed as fixed, and not swept into a `backends:` gate.
+
+**Original status:** OPEN (found 2026-07-28 by `js-not-callable-unit`, after two shim defects were
+fixed out from in front of them). Both are missing JS-lane capability, not codegen bugs — filed as
+work, not papered over.
 
 **How they were hiding.** `examples/rozum-agent-schema-derived.ssc` and `examples/coroutine-demo.ssc`
 both failed with a byte-identical `Error: not callable: ()`, which names nothing. Fixing the two

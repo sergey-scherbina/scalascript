@@ -9,46 +9,13 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
-## 2026-07-28 — `js-derives-instance-undefined` (`emit-js` never emits Mirror/derives; `run-js` does)
+## 2026-07-28 — `js-derives-instance-undefined` — ✅ DONE (see CHANGELOG)
 
-**Active claim:** `js-derives-instance-undefined`. BUGS
-`js-lane-missing-derives-and-coroutinecancel` item (a) residual —
-`ReferenceError: AgentSchema_PostTransaction is not defined` from
-`examples/rozum-agent-schema-derived.ssc` on the JS lane.
-
-**Root cause (MEASURED 2026-07-28, before any edit — and it is NOT what the entry assumed).**
-The entry read this as a gap in the imported-typeclass scan. It is not: `JsGen.genModule`
-(line 1169) calls `emitMirrorAndDerives(module)`, and **`JsGen.genModuleSegmented` never does**.
-
-- `ssc-tools run-js`  → `compileViaBackend("js")` → `JsGen.generate` → `genModule` → **works**
-- `ssc-tools emit-js` → `compileJsSegments` → `JsGen.generateSegmented` → `genModuleSegmented`
-  → **no `_sscMirror_*`, no `_ssc_def_given`, not even the `arch-meta-v2-p5` header line**
-
-A/B that isolates it, with the typeclass in the SAME module (so no import is involved at all):
-
-| command | result |
-|---|---|
-| `ssc-tools run --v1 same.ssc` | `P` |
-| `ssc-tools run-js same.ssc` | `P` |
-| `ssc-tools emit-js same.ssc \| node` | `ReferenceError: MySchema_P is not defined` |
-| `ssc-tools emit-js --no-tree-shake same.ssc \| node` | same — so it is not the tree shaker |
-
-**Why nobody saw it**: the conformance JS lane runs `sscTools("emit-js", …)` piped to `node`
-(`run.sc`), i.e. exactly the broken path, while every hand-check used `run-js`. Two entry points,
-one of which never got the feature — the AGENTS.md "second lane built without its gate" shape.
-
-- [ ] **JSD-1 — call `emitMirrorAndDerives(module)` from `genModuleSegmented`**, at the point that
-      mirrors `genModule`: after the `needsAsyncSeg` IIFE preamble, before the section walk. It
-      also populates `jsSyntheticGivenKeys`, which is what routes a summon through `_resolveGiven`
-      instead of emitting the bare `TC_T` name — so one call fixes both halves.
-- [ ] **JSD-2 — regression case** `tests/conformance/js-derives-segmented.ssc` + `expected/`.
-      Must be a `derives` against a typeclass in the SAME module AND one imported from another
-      module, because those are different scan paths and only the second was ever suspected.
-      Roster it (`contract-roster.tsv` + recomputed `roster-sha256`) or the corpus contract exits 1.
-- [ ] **JSD-3 — check the other `generateSegmented` consumers** (`emit-spa`, `run --mode client`,
-      `AutoViewEntry`) — they take the same path and therefore had the same gap.
-- [ ] **JSD-4 — close out.** `examples/rozum-agent-schema-derived.ssc` past the ReferenceError on
-      the JS lane; update the BUGS entry with the real root cause (the recorded one is wrong).
+Kept as the pointer only. `emit-js` (and therefore the conformance JS lane) never emitted a Mirror
+or a `derives` instance, because `JsGen.genModuleSegmented` did not call `emitMirrorAndDerives` and
+the TreeShaker pruned both the typeclass and the derived class. Root cause, the corrected
+diagnosis, and the remaining (different) JS gap for `rozum-agent-schema-derived` are in the
+`js-lane-missing-derives-and-coroutinecancel` BUGS entry.
 
 ## 2026-07-28 — corpus contract: refresh the paired freeze (48 unrostered cases)
 
