@@ -67,7 +67,16 @@ interpreter.
 ## conformance-int-batch-false-fail-and-hidden-stderr — a case fails in the batch, passes everywhere else, and the reason is thrown away
 
 **Status:** OPEN, **NOT reproduced in isolation** (observed 2026-07-28 by `v2-native-error-diagnostic`
-in a full 350-case local corpus run). Filed because the *second* half — the batch lane discarding
+in a full 350-case local corpus run).
+
+**SECOND INDEPENDENT OBSERVATION, 2026-07-28** (`scljet-sql-double-equals`, different worktree,
+different build): a no-memo `run.sh --only 'scljet-*'` sweep — 116 cases — came back
+`115 passed, 1 failed`, and the one failure was **`scljet-wal-recover` FAIL [INT] with all three
+lines `<missing>`**, i.e. EMPTY output, while `PASS [JS]`. Run standalone on the same binary it
+prints all three lines byte-identically to `expected/`. Same batch neighbourhood as the first
+observation (which names `scljet-wal`), same shape: empty INT output, no reason retained. So the
+first half is not a one-off either — it is reproducible at the batch level and only there. Anyone
+sweeping scljet should re-run a lone INT failure standalone before believing it. Filed because the *second* half — the batch lane discarding
 stderr — is what makes the first half undiagnosable, and that part is certain.
 
 **Observed.** Full corpus, `tests/conformance/run.sh` on a build of `591ec033e`'s parent:
