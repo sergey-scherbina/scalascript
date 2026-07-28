@@ -948,6 +948,16 @@ function serve(port, _tlsCfg) {
 function serveAsync(port, _tlsCfg) {
   return _ssc_http_serve(port, _tlsCfg);
 }
+// Publish it the way `http-server.mjs` publishes `route`. Without this the function above is
+// unreachable from a program that imports `std/http.ssc`: the `extern def serveAsync` shim in
+// JsGen looks for `_ssc_ui_serveAsync`, an intrinsic rename, then `globalThis.serveAsync` — and
+// binding NONE of them it emits `undefined`, which throws `not callable: ()` at the call site with
+// nothing naming `serveAsync`. That is what made `examples/rozum-agent-schema-derived.ssc` fail on
+// the JS lane while a complete, correct implementation sat right here.
+// See BUGS.md `js-extern-shim-shadows-globalthis-implementation`.
+// Only `serveAsync`. `stop` is deliberately NOT published: browsers already define
+// `window.stop()`, so putting ours on `globalThis` would clobber a standard API.
+if (typeof globalThis !== 'undefined') globalThis.serveAsync = serveAsync;
 
 function stop() {
   if (_activeServer) { _activeServer.close(); _activeServer = null; }

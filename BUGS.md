@@ -320,6 +320,34 @@ queue, backpressure, cancellation, and suspend state. The Dataset suite moved
 from the expected fail-first 4/6 to 6/6, Generator remains 10/10, focused
 conformance is 2/2, and both the bridge case and neighboring provider fixture
 compare exactly across default/legacy × VM/direct ASM (8/8 total routes).
+## js-lane-missing-derives-and-coroutinecancel — two real gaps behind one confusing error
+
+**Status:** OPEN (found 2026-07-28 by `js-not-callable-unit`, after two shim defects were fixed out
+from in front of them). Both are missing JS-lane capability, not codegen bugs — filed as work, not
+papered over.
+
+**How they were hiding.** `examples/rozum-agent-schema-derived.ssc` and `examples/coroutine-demo.ssc`
+both failed with a byte-identical `Error: not callable: ()`, which names nothing. Fixing the two
+shim defects (`route`, then `serveAsync`) moved each failure forward to its real cause. The
+displacement is the diagnostic: an error that moves is a layer peeled, an error that stays is the
+same bug.
+
+**(a) `derives` / Mirror derivation is not emitted on JS.**
+`bin/ssc-tools run-js examples/rozum-agent-schema-derived.ssc` now reaches
+`ReferenceError: AgentSchema_PostTransaction is not defined` — the case declares
+`case class PostTransaction(...) derives AgentSchema` and `summon[AgentSchema[PostTransaction]]`.
+INT resolves it; the JS backend emits a reference to a derived instance it never defines. Note this
+is a *reference error*, not the `not callable` fail-open — the JS lane is at least loud here.
+
+**(b) `coroutineCancel` has no JS implementation.**
+`v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/async.mjs` defines
+`_coroutineCreate` (and resume/suspend), but there is no `coroutineCancel` anywhere under
+`js-runtime/`. `std/coroutine.ssc` exports it, so any program importing it and calling cancel dies
+with `not callable: ()`. `coroutine-demo` does exactly that.
+
+**Until they are closed,** neither example can pass the corpus contract on the `js` lane, and the
+honest way to say so is a `backends:` gate naming the reason — not a baseline row, which is for
+known gaps in things that DO run.
 
 ## v2-callback-exc-parity-followups — distributed/generator callbacks rewrap user throws
 
