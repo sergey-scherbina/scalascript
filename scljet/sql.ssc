@@ -2230,8 +2230,10 @@ def containsTableName(names: List[String], name: String): Boolean =
     r = r.tail
   found
 
-// Every depth-0 FROM/JOIN table in one SELECT scope. Aliases are not yet part of the parser, so the
-// declared table name is also the only qualifier that can shadow an outer binding.
+// Every depth-0 FROM/JOIN table in one SELECT scope, plus an UPDATE target for mutation
+// correlation. DELETE already declares its target through `DELETE FROM`. Aliases are not yet part
+// of the parser, so the declared table name is also the only qualifier that can shadow an outer
+// binding.
 def depthZeroTableNames(toks: List[Token]): List[String] =
   var r = toks
   var depth = 0
@@ -2240,6 +2242,10 @@ def depthZeroTableNames(toks: List[Token]): List[String] =
     val t = r.head
     if t.kind == "lparen" then depth = depth + 1
     else if t.kind == "rparen" then depth = depth - 1
+    else if depth == 0 && isKw(t, "UPDATE") then
+      if tkKind(r.tail) == "ident" then
+        val name = r.tail.head.text
+        if !containsTableName(accRev, name) then accRev = name :: accRev
     else if depth == 0 && (isKw(t, "FROM") || isKw(t, "JOIN")) then
       if tkKind(r.tail) == "ident" then
         val name = r.tail.head.text
@@ -4398,20 +4404,22 @@ def parseDelete(toks: List[Token]): Either[String, DeleteStmt] =
           if wpair._2.nonEmpty then Left("unexpected trailing tokens after DELETE")
           else Right(DeleteStmt(afterFrom.head.text, wpair._1))
 
-def matchingRowids(rows: List[StorageRecord], where: List[List[Condition]], colNames: List[String]): List[Long] =
-  var r = rows
-  var accRev: List[Long] = Nil
-  while r.nonEmpty do
-    if whereHolds(where, r.head, colNames) then
-      r.head.rowid match
-        case Some(id) => accRev = id :: accRev
-        case None => accRev = accRev
-    r = r.tail
-  var out: List[Long] = Nil
-  while accRev.nonEmpty do
-    out = accRev.head :: out
-    accRev = accRev.tail
-  out
+def matchingRowids(db: ReadonlyDatabase, rows: List[StorageRecord], where: List[List[Condition]], colNames: List[String], outerTable: String): Either[String, List[Long]] =
+  filterRowsCtx(db, rows, where, colNames, outerTable) match
+    case Left(message) => Left(message)
+    case Right(selected) =>
+      var r = selected
+      var accRev: List[Long] = Nil
+      while r.nonEmpty do
+        r.head.rowid match
+          case Some(id) => accRev = id :: accRev
+          case None => accRev = accRev
+        r = r.tail
+      var out: List[Long] = Nil
+      while accRev.nonEmpty do
+        out = accRev.head :: out
+        accRev = accRev.tail
+      Right(out)
 
 // The column names of a table in an image (from its CREATE TABLE), for result metadata labels.
 def imageTableColumns(dbBytes: ByteSlice, table: String): Either[String, List[String]] =
@@ -4953,7 +4961,7 @@ def deleteRowidLoop(pager: MutablePager, root: Int, rowids: List[Long], pageSize
     case Some(message) => Left(message)
     case None => Right(p)
 
-def executeDelete(dbBytes: ByteSlice, stmt: DeleteStmt): Either[String, ByteSlice] =
+def executeDeleteCounted(dbBytes: ByteSlice, stmt: DeleteStmt): Either[String, (ByteSlice, Long)] =
   tableContext(dbBytes, stmt.table) match
     case Left(message) => Left(message)
     case Right(ctx) =>
@@ -4965,19 +4973,28 @@ def executeDelete(dbBytes: ByteSlice, stmt: DeleteStmt): Either[String, ByteSlic
         case Left(error) => Left(error.message)
         case Right(cursor) => collectRows(db, cursor) match
           case Left(error) => Left(error.message)
-          case Right(rows) =>
-            val victims = matchingRowids(rows, stmt.where, colNames)
-            if victims.isEmpty then Right(dbBytes)
-            else
-              val infos = tableIndexInfos(db, stmt.table, colNames)
-              if infos.isEmpty then
-                deleteRowidLoop(openMutablePager(dbBytes, pageSize, pageSize), root, victims, pageSize) match
+          case Right(rows) => matchingRowids(db, rows, stmt.where, colNames, stmt.table) match
+            case Left(message) => Left(message)
+            case Right(victims) =>
+              val changed = listLenLong(victims)
+              if victims.isEmpty then Right((dbBytes, changed))
+              else
+                val infos = tableIndexInfos(db, stmt.table, colNames)
+                if infos.isEmpty then
+                  deleteRowidLoop(openMutablePager(dbBytes, pageSize, pageSize), root, victims, pageSize) match
+                    case Left(message) => Left(message)
+                    case Right(pager) => mutableCommit(pager, 1L) match
+                      case Left(error) => Left(error.message)
+                      case Right(pc) => Right((pc.pager.image, changed))
+                else if countTables(db) != 1 then Left("index maintenance on a multi-table database is not yet supported")
+                else reindexTable(dbBytes, db, stmt.table, keepSqlRows(rows, colNames.length, victims), infos) match
                   case Left(message) => Left(message)
-                  case Right(pager) => mutableCommit(pager, 1L) match
-                    case Left(error) => Left(error.message)
-                    case Right(pc) => Right(pc.pager.image)
-              else if countTables(db) != 1 then Left("index maintenance on a multi-table database is not yet supported")
-              else reindexTable(dbBytes, db, stmt.table, keepSqlRows(rows, colNames.length, victims), infos)
+                  case Right(image) => Right((image, changed))
+
+def executeDelete(dbBytes: ByteSlice, stmt: DeleteStmt): Either[String, ByteSlice] =
+  executeDeleteCounted(dbBytes, stmt) match
+    case Left(message) => Left(message)
+    case Right(result) => Right(result._1)
 
 def longInList(x: Long, xs: List[Long]): Boolean =
   var r = xs
@@ -5231,14 +5248,17 @@ def editSources(edits: List[EditRow]): List[Long] =
     r = r.tail
   accRev.reverse
 
-/** Build (old rowid, target rowid, new record) for every row the WHERE selects. */
-def buildUpdateEdits(rows: List[StorageRecord], colNames: List[String], stmt: UpdateStmt, ipkIdx: Int): Either[String, List[EditRow]] =
+/** Build (old rowid, target rowid, new record) for every selected rowid. */
+def buildUpdateEdits(rows: List[StorageRecord], colNames: List[String], stmt: UpdateStmt, ipkIdx: Int, selectedRowids: List[Long]): Either[String, List[EditRow]] =
   var r = rows
   var accRev: List[EditRow] = Nil
   var err: Option[String] = None
   while r.nonEmpty && err.isEmpty do
     val rec = r.head
-    if whereHolds(stmt.where, rec, colNames) then
+    val matched = rec.rowid match
+      case Some(id) => longInList(id, selectedRowids)
+      case None => false
+    if matched then
       val newValues = applyAssignments(extractValues(rec, colNames.length), colNames, stmt.assignments)
       rec.rowid match
         case Some(id) => targetRowidOf(newValues, ipkIdx, id) match
@@ -5277,7 +5297,7 @@ def applyUpdates(pager: MutablePager, root: Int, edits: List[EditRow], pageSize:
     case Some(message) => Left(message)
     case None => Right(p)
 
-def executeUpdate(dbBytes: ByteSlice, stmt: UpdateStmt): Either[String, ByteSlice] =
+def executeUpdateCounted(dbBytes: ByteSlice, stmt: UpdateStmt): Either[String, (ByteSlice, Long)] =
   tableContext(dbBytes, stmt.table) match
     case Left(message) => Left(message)
     case Right(ctx) =>
@@ -5296,33 +5316,45 @@ def executeUpdate(dbBytes: ByteSlice, stmt: UpdateStmt): Either[String, ByteSlic
             // matched nothing whenever the stored field disagreed with the rowid, which is precisely
             // the state an IPK table is normally in (SQLite stores the IPK field as NULL).
             val rows = ipkNormalizeRows(rawRows, ipkIdx)
-            val infos = tableIndexInfos(db, stmt.table, colNames)
-            if infos.isEmpty then buildUpdateEdits(rows, colNames, stmt, ipkIdx) match
+            matchingRowids(db, rows, stmt.where, colNames, stmt.table) match
               case Left(message) => Left(message)
-              case Right(edits) =>
-                if edits.isEmpty then Right(dbBytes)
-                else ipkMoveConflict(edits, rows) match
-                  case Some(message) => Left(message)
-                  case None => applyUpdates(openMutablePager(dbBytes, pageSize, pageSize), root, edits, pageSize) match
-                    case Left(message) => Left(message)
-                    case Right(pager) => mutableCommit(pager, 1L) match
-                      case Left(error) => Left(error.message)
-                      case Right(pc) => Right(pc.pager.image)
-            else if countTables(db) != 1 then Left("index maintenance on a multi-table database is not yet supported")
-            // The indexed path needs the same two guarantees the b-tree gives the unindexed one for
-            // free, because reindexTable never calls leafInsertCell: the SAME collision policy
-            // (buildUpdateEdits + ipkMoveConflict — run here only to check, so both paths reject a
-            // statement with identical wording), and ROWID ORDER, since reindexTable writes cells in
-            // list order and a moved row that kept its position yields a corrupt b-tree.
-            else buildUpdateEdits(rows, colNames, stmt, ipkIdx) match
-              case Left(message) => Left(message)
-              case Right(edits) => ipkMoveConflict(edits, rows) match
-                case Some(message) => Left(message)
-                case None => updatedSqlRows(rows, colNames, stmt, ipkIdx) match
+              case Right(selectedRowids) =>
+                val changed = listLenLong(selectedRowids)
+                val infos = tableIndexInfos(db, stmt.table, colNames)
+                if infos.isEmpty then buildUpdateEdits(rows, colNames, stmt, ipkIdx, selectedRowids) match
                   case Left(message) => Left(message)
-                  case Right(sqlRows) => sortRowsByRowid(sqlRows) match
-                    case Left(message) => Left(message)
-                    case Right(ordered) => reindexTable(dbBytes, db, stmt.table, ordered, infos)
+                  case Right(edits) =>
+                    if edits.isEmpty then Right((dbBytes, changed))
+                    else ipkMoveConflict(edits, rows) match
+                      case Some(message) => Left(message)
+                      case None => applyUpdates(openMutablePager(dbBytes, pageSize, pageSize), root, edits, pageSize) match
+                        case Left(message) => Left(message)
+                        case Right(pager) => mutableCommit(pager, 1L) match
+                          case Left(error) => Left(error.message)
+                          case Right(pc) => Right((pc.pager.image, changed))
+                else if countTables(db) != 1 then Left("index maintenance on a multi-table database is not yet supported")
+                // The indexed path needs the same two guarantees the b-tree gives the unindexed one
+                // for free, because reindexTable never calls leafInsertCell: the SAME collision
+                // policy (buildUpdateEdits + ipkMoveConflict — run here only to check, so both paths
+                // reject a statement with identical wording), and ROWID ORDER, since reindexTable
+                // writes cells in list order and a moved row that kept its position yields a corrupt
+                // b-tree.
+                else buildUpdateEdits(rows, colNames, stmt, ipkIdx, selectedRowids) match
+                  case Left(message) => Left(message)
+                  case Right(edits) => ipkMoveConflict(edits, rows) match
+                    case Some(message) => Left(message)
+                    case None => updatedSqlRows(rows, colNames, stmt, ipkIdx, selectedRowids) match
+                      case Left(message) => Left(message)
+                      case Right(sqlRows) => sortRowsByRowid(sqlRows) match
+                        case Left(message) => Left(message)
+                        case Right(ordered) => reindexTable(dbBytes, db, stmt.table, ordered, infos) match
+                          case Left(message) => Left(message)
+                          case Right(image) => Right((image, changed))
+
+def executeUpdate(dbBytes: ByteSlice, stmt: UpdateStmt): Either[String, ByteSlice] =
+  executeUpdateCounted(dbBytes, stmt) match
+    case Left(message) => Left(message)
+    case Right(result) => Right(result._1)
 
 /** Re-sort rows into strictly ascending rowid order for the indexed rebuild.
  *
@@ -5367,7 +5399,7 @@ def sortRowsByRowid(rows: List[SqlRow]): Either[String, List[SqlRow]] =
 // The indexed path rebuilds the table from these rows, so an IPK assignment must land here as a new
 // KEY too — otherwise the same statement would move the row on an unindexed table and silently not
 // move it on an indexed one.
-def updatedSqlRows(rows: List[StorageRecord], colNames: List[String], stmt: UpdateStmt, ipkIdx: Int): Either[String, List[SqlRow]] =
+def updatedSqlRows(rows: List[StorageRecord], colNames: List[String], stmt: UpdateStmt, ipkIdx: Int, selectedRowids: List[Long]): Either[String, List[SqlRow]] =
   var r = rows
   var accRev: List[SqlRow] = Nil
   var err: Option[String] = None
@@ -5377,7 +5409,7 @@ def updatedSqlRows(rows: List[StorageRecord], colNames: List[String], stmt: Upda
       case Some(id) => id
       case None => 0L
     val vals = extractValues(rec, colNames.length)
-    val matched = whereHolds(stmt.where, rec, colNames)
+    val matched = longInList(rowid, selectedRowids)
     val newVals = if matched then applyAssignments(vals, colNames, stmt.assignments) else vals
     val target = if matched then targetRowidOf(newVals, ipkIdx, rowid) else Right(rowid)
     target match
@@ -5742,10 +5774,9 @@ def executeMutation(dbBytes: ByteSlice, sql: String): Either[String, ByteSlice] 
 
 // ── Counted mutation (JDBC executeUpdate needs the affected-row count + last INSERT rowid) ──
 // Same dispatch as executeMutation, but each statement also yields how many rows it changed and,
-// for INSERT, the highest rowid assigned. CREATE/DROP → changes = 0. The counts are derived from a
-// read pass over the affected table (the executors already act on exactly these rows): INSERT →
-// #value-tuples, DELETE/UPDATE → #rows matching WHERE (matching sqlite's `changes()`), so the numbers
-// agree with the mutation without threading a count through the large executor bodies.
+// for INSERT, the highest rowid assigned. CREATE/DROP → changes = 0. INSERT counts value tuples;
+// DELETE/UPDATE compute one database-aware selected-rowid list and use it for both the write set and
+// the returned count, so correlated predicates and errors cannot diverge from sqlite `changes()`.
 case class MutationResult(image: ByteSlice, changes: Long, lastInsertRowid: Long)
 
 // Long-valued list length, accumulated from a 0L seed so JS stays on BigInt (never mixes with a
@@ -5765,23 +5796,6 @@ def valueRowsLenLong(xs: List[List[SqliteValue]]): Long =
     n = n + 1L
     r = r.tail
   n
-
-// Current rows + column names for a table (a read pass, used only to count affected rows).
-def tableRowsForCount(dbBytes: ByteSlice, table: String): Either[String, (List[StorageRecord], List[String])] =
-  tableContext(dbBytes, table) match
-    case Left(message) => Left(message)
-    case Right(ctx) =>
-      openReadonlyRoot(ctx._1, ctx._2.toLong, RowidTableTree) match
-        case Left(error) => Left(error.message)
-        case Right(cursor) => collectRows(ctx._1, cursor) match
-          case Left(error) => Left(error.message)
-          case Right(rows) => Right((rows, ctx._3))
-
-// #rows matching a DELETE/UPDATE WHERE (rows matched = sqlite `changes()`), from the pre-mutation image.
-def matchedRowCount(dbBytes: ByteSlice, table: String, where: List[List[Condition]]): Either[String, Long] =
-  tableRowsForCount(dbBytes, table) match
-    case Left(message) => Left(message)
-    case Right(rc) => Right(listLenLong(matchingRowids(rc._1, where, rc._2)))
 
 // The last rowid of an assigned insert batch (the batch is never empty at the call site).
 def lastRowidOf(rows: List[SqlRow]): Long =
@@ -5852,18 +5866,14 @@ def executeMutationCountedParams(dbBytes: ByteSlice, sql: String, params: List[S
             case Right(cr) => Right(MutationResult(image, cr._1, cr._2))
       else if isKw(toks.head, "DELETE") then parseDelete(toks) match
         case Left(message) => Left(message)
-        case Right(stmt) => matchedRowCount(dbBytes, stmt.table, stmt.where) match
+        case Right(stmt) => executeDeleteCounted(dbBytes, stmt) match
           case Left(message) => Left(message)
-          case Right(n) => executeDelete(dbBytes, stmt) match
-            case Left(message) => Left(message)
-            case Right(image) => Right(MutationResult(image, n, 0L))
+          case Right(result) => Right(MutationResult(result._1, result._2, 0L))
       else if isKw(toks.head, "UPDATE") then parseUpdate(toks) match
         case Left(message) => Left(message)
-        case Right(stmt) => matchedRowCount(dbBytes, stmt.table, stmt.where) match
+        case Right(stmt) => executeUpdateCounted(dbBytes, stmt) match
           case Left(message) => Left(message)
-          case Right(n) => executeUpdate(dbBytes, stmt) match
-            case Left(message) => Left(message)
-            case Right(image) => Right(MutationResult(image, n, 0L))
+          case Right(result) => Right(MutationResult(result._1, result._2, 0L))
       else if isKw(toks.head, "DROP") then parseDropIndex(toks) match
         case Left(message) => Left(message)
         case Right(indexName) => executeDropIndex(dbBytes, indexName) match
