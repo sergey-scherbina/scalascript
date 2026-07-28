@@ -1,0 +1,11 @@
+slug: v2-runtime-perf-vs-v1
+branch: feature/v2-runtime-perf-vs-v1
+agent: claude-code
+started: 2026-07-28T01:58:16Z
+heartbeat: 2026-07-28T01:58:16Z
+status: claimed-before-planning
+items: v2-runtime-perf-vs-v1 v2rt-0-baseline v2rt-1 v2rt-2 v2rt-3 v2rt-4
+paths: v2/src v2/backend-jvm-bytecode bench specs/v2-runtime-perf-vs-v1.md docs/benchmarks.md SPRINT.md BACKLOG.md CHANGELOG.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
