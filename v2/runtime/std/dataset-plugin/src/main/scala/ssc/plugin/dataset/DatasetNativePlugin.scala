@@ -151,6 +151,36 @@ final class DatasetNativePlugin extends NativePlugin:
     case Value.ForeignV(dataset: DatasetValue) => dataset.plan
     case _ => throw new IllegalArgumentException(s"Dataset.$operation expects another Dataset")
 
+  private def drainGenerator(generator: Value, context: NativePluginContext): Vector[Value] =
+    val next = generator match
+      case Value.ForeignV(value: Value.NamedMethodObj) =>
+        value.getField("next").getOrElse(
+          throw new IllegalArgumentException("Dataset.fromGenerator expects Generator.next()"))
+      case _ =>
+        throw new IllegalArgumentException("Dataset.fromGenerator expects a Generator")
+    val values = Vector.newBuilder[Value]
+    var running = true
+    while running do
+      invoke(context, next) match
+        case Value.DataV("Some", IndexedSeq(value)) => values += value
+        case Value.DataV("None", fields) if fields.isEmpty => running = false
+        case value => throw new IllegalArgumentException(
+          s"Dataset.fromGenerator: next() returned ${Prims.display(value)}")
+    values.result()
+
+  private def streamGenerator(values: Vector[Value], context: NativePluginContext): Value =
+    def global(name: String): Value =
+      context.resolveGlobal(name).getOrElse(
+        throw new IllegalArgumentException(
+          "Dataset.toGenerator requires the standard generator provider"))
+    val generator = global("generator")
+    val suspend = global("suspend")
+    val body = closure(0) { _ =>
+      values.foreach(value => invoke(context, suspend, value))
+      Value.UnitV
+    }
+    invoke(context, generator, body)
+
   private final class DatasetValue(val plan: Plan, context: NativePluginContext)
       extends Value.NamedMethodObj:
     private def append(stage: Stage): Value = dataset(plan.copy(stages = plan.stages :+ stage), context)
@@ -314,9 +344,7 @@ final class DatasetNativePlugin extends NativePlugin:
           Value.UnitV
         case _ => throw new IllegalArgumentException("Dataset.saveToFile(path)")
       })
-      case "fromGenerator" | "toGenerator" => Some(closure(-1) { _ =>
-        throw new IllegalArgumentException(s"Dataset.$name requires the standard generator provider")
-      })
+      case "toGenerator" => Some(closure(0)(_ => streamGenerator(values, context)))
       case _ => None
 
   def install(context: NativePluginContext): Unit =
@@ -332,6 +360,8 @@ final class DatasetNativePlugin extends NativePlugin:
             .iterator.map(Value.StrV(_): Value).toVector), context)
       case _ => throw new IllegalArgumentException("Dataset.fromFile(path)")
     }
-    context.register("Dataset.fromGenerator") { _ =>
-      throw new IllegalArgumentException("Dataset.fromGenerator requires the standard generator provider")
+    context.register("Dataset.fromGenerator") {
+      case generator :: Nil =>
+        dataset(Plan(() => drainGenerator(generator, context)), context)
+      case _ => throw new IllegalArgumentException("Dataset.fromGenerator(generator)")
     }
