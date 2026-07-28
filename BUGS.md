@@ -1,5 +1,55 @@
 # Bug tracker
 
+## f-front-silent-delegation-hides-coverage-gaps — F is the default front, and 26 corpus cases were never compiled by it
+
+**Status:** **FIXED 2026-07-28** by opus (`f-front-silent-delegation`, `d900d00cf`) — the silence is
+fixed and the gap is now measured. The 26 gaps themselves are F work, listed below rather than
+guessed at.
+
+**What was wrong.** F is the DEFAULT native front. When it cannot lower a file, `RunNativeV2`
+transparently re-lowers through the legacy front and uses that result. That is correct — nothing has
+executed yet, so there is no double side effect — but it was announced only under `SSC_FRONT_TRACE`,
+an env var nobody sets. Fine while F was opt-IN staging; as the DEFAULT it means every F coverage
+gap looks like plain success at the CLI, and **any corpus run driven through `bin/ssc` measures the
+LEGACY front for those programs while reporting them as F.** Same shape as the `--bytecode` fallback:
+a silent fallback turns a differential measurement into a self-comparison.
+
+**MEASURED, which is the point of fixing the silence: 26 of 329** conformance cases, about 8 percent,
+delegate. They were passing, and they were passing on the other compiler:
+
+`dsl-multi-pass`, `effect-deep-handler-state`, `effect-imported-handler`, `effect-multiarg-op`, `effect-transitive-handler`, `effects-handler`, `effects`, `for-comprehensions`, `head-field-effect-shadow`, `indent-block-statements`, `indent-config-format`, `js-applyunary-effect-cps`, `js-effect-multishot-long-fold`, `js-parser-combinator-choice`, `markdown-html`, `parsing-error-node`, `parsing-parse-all`, `parsing-recover-until`, `standard-scala-multifence`, `std-foldable-traversable`, `std-index`, `std-semigroup-monoid`, `tagless-context-bounds`, `v2-self-hosted-markdown-core`, `v2-self-hosted-parser-fuzz`, `v2-self-hosted-yaml-core`
+
+The clustering is itself the finding — **9 of the 26 are effects** (`effect-*`, `effects*`,
+`js-*-effect-*`, `head-field-effect-shadow`), plus 3 parsing, 3 `v2-self-hosted-*` and 3 `std-*`.
+Any statement of the form "F covers N of the corpus" made before today is overstated by these.
+
+**The condition is the whole design, and getting it wrong is easy.** The fallback fires for two
+unrelated reasons, because an F gap and a user error both surface as an unbound global:
+`undefinedThing()` routes through exactly the path a construct F cannot lower does. Announcing both
+would print a compiler-internals line under every typo — and a message that appears when nothing is
+wrong is one people filter out within a day, taking the real signal with it. So it announces only
+when the DEFAULT front SUCCEEDED where F failed, tested by running the default front's program
+through the very check F failed.
+
+**The first condition was wrong and the gate caught it before it landed.** Checking for `_err*`
+sentinels was not enough: a plain `undefinedThing()` is an ordinary unbound global, not a sentinel,
+so every typo still printed the coverage-gap line. A one-sided gate, "the marker appears", would
+have passed and shipped it. Visible in the measurement too — `actors-bounded-mailbox` announced
+under the wrong condition and correctly stopped once both fronts were compared.
+
+**Gate.** `tests/e2e/f-front-delegation-visible.sh`, three sides: a file F compiles prints nothing,
+a user typo delegates SILENTLY, a real gap announces. It also asserts the marker string still
+matches the one the runner emits, so a rewording fails there instead of quietly switching the
+measurement off. 3/3.
+
+**Reproduce the census:**
+
+```bash
+for f in tests/conformance/*.ssc; do
+  bin/ssc run "$f" 2>&1 >/dev/null | grep -qF 'F did not lower this file' && basename "$f"
+done
+```
+
 ## uniml-yaml-projection-reorders-invalid-cst — semantic projection sorts tokens instead of validating source order
 
 **Status:** OPEN (found 2026-07-28 during UPR-2 architecture audit).
