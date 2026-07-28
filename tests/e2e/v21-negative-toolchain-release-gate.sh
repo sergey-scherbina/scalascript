@@ -153,13 +153,26 @@ run_negative() { PATH="$toolbin" SSC_NO_CDS=1 "$slim/bin/ssc" "$@"; }
 # fails, so it can sit broken and unnoticed, then surface as a wordless red the day the earlier step
 # is fixed. That is exactly what happened on 2026-07-28.
 expect_run() { # expect_run <label> <expected> <cmd…>
-  local label=$1 want=$2 got rc; shift 2
-  got=$("$@" 2>&1) && rc=0 || rc=$?
+  local label=$1 want=$2 got rc errfile; shift 2
+  errfile=$(mktemp)
+  # STDOUT ONLY for the comparison — stderr is captured separately, for the message.
+  #
+  # The first version of this helper compared `$("$@" 2>&1)`, which QUIETLY CHANGED WHAT THESE
+  # ASSERTIONS ASSERT: the bare `[[ $(cmd) == … ]]` it replaced captured stdout alone. The job was to
+  # make a silent check loud, not to make it stricter. It went red on the very next run —
+  #   http-server-provider (vm): expected $'203\npong:/ping'
+  #                              got      $'ScalaScript web · http://…\nCtrl+C to stop.\n203\npong:/ping'
+  # — the program had exited 0 with exactly the right stdout, and the server's startup banner on
+  # stderr was the whole difference. Diagnostics must observe more than the assertion does, never
+  # less and never differently.
+  got=$("$@" 2>"$errfile") && rc=0 || rc=$?
   if [[ $got != "$want" ]]; then
-    printf 'v21-negative-toolchain-release-gate: %s MISMATCH (exit %s)\n  expected=%q\n  got=%q\n' \
-      "$label" "$rc" "$want" "$got" >&2
+    printf 'v21-negative-toolchain-release-gate: %s MISMATCH (exit %s)\n  expected=%q\n  got=%q\n  stderr=%q\n' \
+      "$label" "$rc" "$want" "$got" "$(head -c 2000 "$errfile")" >&2
+    rm -f "$errfile"
     exit 1
   fi
+  rm -f "$errfile"
 }
 json_expected=$'Ada\n2\ntrue\n1000.01\ntrue\n{"payload":[1,2]}\n[1,2,3]\n{"name":"A\\"B","on":true}'
 expect_run "json-provider (vm)" "$json_expected" run_negative run "$FIXTURES/json-provider.ssc"
