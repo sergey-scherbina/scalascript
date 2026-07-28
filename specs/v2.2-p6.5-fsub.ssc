@@ -536,12 +536,28 @@ def mkInterpPfx(w, code) = if w == "md" then eNode("(prim __mdStrip__ " ++ code 
 // F5b: the receiver arrives as a NODE; the post* machinery is string-based (it inspects the receiver's
 // emitted prefix), so erase c before each post* and wrap the string result back into a node. A receiver
 // with NO postfix op keeps its structured node (`(c, ts)`), so a bare atom/operator stays structured.
-def postfix(pr, env, cx) = pr match { case (c, ts) => if isTok(hd(ts), 2, 31) then postfix(wrapE(postDot(erase(c, cx), tl(ts), env, cx)), env, cx) else (if isTok(hd(ts), 2, 5) then postfix(wrapE(parseMatch(erase(c, cx), tl(ts), env, cx)), env, cx) else (if isTok(hd(ts), 2, 21) then postfix(wrapE(postApp(erase(c, cx), tl(ts), env, cx)), env, cx) else (if isTok(hd(ts), 2, 28) then postfix(wrapE(postBlockArg(erase(c, cx), tl(ts), env, cx)), env, cx) else (c, ts)))) }
+def postfix(pr, env, cx) = pr match { case (c, ts) => if isTok(hd(ts), 2, 31) then postfix(wrapE(postDot(erase(c, cx), tl(ts), env, cx)), env, cx) else (if isTok(hd(ts), 2, 5) then postfix(wrapE(parseMatch(erase(c, cx), tl(ts), env, cx)), env, cx) else (if isTok(hd(ts), 2, 21) then postfix(wrapE(postApp(erase(c, cx), tl(ts), env, cx)), env, cx) else (if isTok(hd(ts), 2, 28) then postfix(wrapE(postBlockArg(erase(c, cx), tl(ts), env, cx)), env, cx) else (if isColonLamArg(ts) then postfix(wrapE(postColonArg(erase(c, cx), tl(ts), env, cx)), env, cx) else (c, ts))))) }
 // Trailing block-argument application: `f { block }` -> `(app f (lam 0 <block>))` and `f(args) { block }`
 // -> `(app (app f args) (lam 0 <block>))` (measured — actors runActors{..}, httpClient(url){..}). The
 // block is a by-name thunk (lam 0); its env is unchanged (arity 0 adds no binders). Reuses parseBlock,
 // so a multi-statement block body lowers via the L2c let-chain. `.match {..}` is handled BEFORE this.
 def postBlockArg(c, ts, env, cx) = parseBlock(ts, env, cx) match { case (b, r) => (blockArgApp(c, b), r) }
+// fewer-braces trailing lambda: `f(args): p => body` == `f(args) { p => body }` (Scala 3). The `:`
+// was never consumed by postfix, so the call, the parameter list and the body lowered as THREE
+// statements with `(global _err)` where the argument belonged, and the file was rejected
+// (BUGS `v2-front-colon-trailing-lambda`). Layout needs no change — `=>` is already an opener, so
+// the indented body is already a `(lam …)` by the time we get here; only the `:` was unclaimed.
+//
+// THE GUARD IS THE WHOLE RISK. A `:` is far more often an ascription (`val x: Int`, `(x: Int)`) or a
+// declaration-body opener (`case class P(a):` ⏎ members). So this fires ONLY when a lambda header
+// demonstrably follows: `id =>` or `( … ) =>` with parens balanced. Anything else leaves the `:` to
+// whoever owns it, exactly as before.
+def isArrowAfterParen(ts, d) = if isEmpty(ts) then false else (if isTok(hd(ts), 2, 21) then isArrowAfterParen(tl(ts), d + 1) else (if isTok(hd(ts), 2, 22) then (if d == 0 then isTok(hd(tl(ts)), 2, 30) else isArrowAfterParen(tl(ts), d - 1)) else isArrowAfterParen(tl(ts), d)))
+def isLamAhead(ts) = if isTok(hd(ts), 2, 21) then isArrowAfterParen(tl(ts), 0) else (if fst(hd(ts)) == 1 then isTok(hd(tl(ts)), 2, 30) else false)
+def isColonLamArg(ts) = if isTok(hd(ts), 2, 34) then isLamAhead(tl(ts)) else false
+// The argument is an ordinary expression by this point; blockArgApp already knows to pass a `(lam …)`
+// straight through rather than wrapping it in a by-name thunk, which is exactly what is wanted here.
+def postColonArg(c, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => (blockArgApp(c, erase(e, cx)), r) }
 // When the block IS a lambda (`f { x => body }`), the lambda is the argument directly — NOT wrapped in
 // a `(lam 0 ..)` thunk (measured). A plain block (`run { stmts }`) becomes the by-name thunk `(lam 0 ..)`.
 def blockArgApp(c, b) = if startsW(b, "(lam ") then "(app " ++ c ++ " " ++ b ++ ")" else "(app " ++ c ++ " (lam 0 " ++ b ++ "))"

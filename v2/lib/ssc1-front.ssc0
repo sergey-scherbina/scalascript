@@ -1495,7 +1495,33 @@ def buildPostfix = (e, toks) =>
       let rArms = parseMatchArms(ts2) in
       buildPostfix(mkMatch(e, prV(rArms)), prT(rArms))
     else pr(e, toks)
+  else if isColonLamArg(toks) then
+    let rColon = parseExpr(advance(toks)) in
+    buildPostfix(mkApp(e, Cons(prV(rColon), Nil)), prT(rColon))
   else pr(e, toks)
+
+-- fewer-braces trailing lambda: `f(args): p => body` == `f(args) { p => body }` (Scala 3).
+-- buildPostfix knew `.`, `(`, `{` and `match` but not `:`, so the call, the parameter list and
+-- the body lowered as THREE statements with `_err` where the argument belonged and the file was
+-- rejected. Layout needs no change -- `=>` is already an opener, so the indented body is already
+-- a lambda by the time we get here; only the `:` was unclaimed.
+-- BUGS `v2-front-colon-trailing-lambda`.
+--
+-- THE GUARD IS THE WHOLE RISK. A `:` is far more often an ascription (`val x: Int`, `(x: Int)`) or
+-- a declaration-body opener (`case class P(a):` + members). Fire ONLY when a lambda header
+-- demonstrably follows: `id =>`, or `( … ) =>` with parens balanced. Anything else leaves the `:`
+-- to whoever owns it, exactly as before.
+def isArrowAfterParen = (toks, d) =>
+  if #seq(tokKind(peek(toks)), "EOF") then false
+  else if kindIs("(", toks) then isArrowAfterParen(advance(toks), #i.add(d, 1))
+  else if kindIs(")", toks) then
+    (if #i.eq(d, 0) then kindIs("=>", advance(toks)) else isArrowAfterParen(advance(toks), #i.sub(d, 1)))
+  else isArrowAfterParen(advance(toks), d)
+def isLamAhead = (toks) =>
+  if kindIs("(", toks) then isArrowAfterParen(advance(toks), 0)
+  else if #seq(tokKind(peek(toks)), "id") then kindIs("=>", advance(toks))
+  else false
+def isColonLamArg = (toks) => if kindIs(":", toks) then isLamAhead(advance(toks)) else false
 
 def parsePostfix = (toks) =>
   let r = parseAtom(toks) in buildPostfix(prV(r), prT(r))
