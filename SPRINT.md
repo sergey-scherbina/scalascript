@@ -9,6 +9,96 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## 2026-07-28 — four findings from the claim-triage sweep (Sergiy: "запиши все в спринт и делай по очереди")
+
+Queued together because they came out of one sweep, but they are **independent** — different
+paths, no shared state, any order works. Being run **sequentially, one claim at a time**, with
+long measurements overlapped in the background: three of the four touch `tests/conformance/` or
+`.github/`, and the claim overlap guard matches by path prefix, so holding two of these claims at
+once would trip it against my own claim.
+
+Context they all share: `main` reached its **first fully green CI run since 2026-07-27T16:31**
+(`30354638253` on `4e57e7a60`, 651 commits later) once `Validate ScalaScript` stopped failing its
+own self-tests. These four are what that sweep surfaced and did not fix.
+
+- [ ] **lint-markdown-own-trigger** — give `Lint Markdown` a trigger a `.md` change can reach.
+      *Why:* `ci.yml` has `paths-ignore: ['**.md', '.work/**']`, and GitHub skips the run when
+      EVERY changed path matches — so a markdown-only commit produces **no run at all**, including
+      no `Lint Markdown`. The one job that checks `.md` is the one job a `.md` change cannot
+      trigger. Not theoretical: `64a8a3339` (docs-only) introduced hard tabs in `SPRINT.md:137`
+      with no run; the failure surfaced hours later on unrelated conformance commit `9f136e21f`
+      because `markdownlint '**/*.md'` lints the whole repo at whatever SHA triggers it; and the
+      repair `41541482d` was itself `.md`-only, so it could not be verified by CI either.
+      *How:* a second workflow (or a `push`/`pull_request` entry with `paths: ['**.md']`) running
+      **only** markdownlint. Seconds of runner time, so it does not reintroduce the queue pressure
+      `paths-ignore` was added to relieve. Do NOT weaken `paths-ignore` itself — its measurement
+      stands (43 of 58 non-`[skip ci]` commits in one hour changed only `.md`/`.work/`).
+      *Done-when:* a `.md`-only commit produces a run that lints, and a code commit still does not
+      double-lint. Verify with `markdownlint '**/*.md' --ignore node_modules` locally first
+      (exit 0 today). *Detail:* BUGS.md §`lint-markdown-unreachable-from-markdown-commits`.
+
+- [ ] **conformance-known-red-v2-lane** — make `known-red:` actually work on the V2 lane.
+      *Why:* `tests/conformance/run.sc` checks six lanes; five call `checkLane(label, lane, …,
+      knownRed)` and consult the map, the **V2 VM lane calls bare `check("V2 ", v2Out, expected)`**
+      (~line 511 — no lane key, no map). `parseKnownRed` still parses, validates (exits 1 without a
+      reason) and lowercases a `known-red: v2 — …` declaration, and **nobody ever consults it**:
+      accepted, then ignored, no warning on any stream. Measured — identical FAIL output with and
+      without the declaration. Consequence is structural, not cosmetic: enabling `backends: [.., v2]`
+      for a *known* gap leaves only an undeclared red (indistinguishable from a regression) or
+      leaving `v2` out (invisible, never expires). Silence is cheaper, so silence wins — a standing
+      reason v2 corpus coverage stays low, while v2 self-hosting is stream 1 in MILESTONES.
+      *How:* `checkLane("V2 ", "v2", v2Out, expected, knownRed)`.
+      *Done-when:* proven **red-then-green** on a real case — declare `known-red: "v2 — …"` on
+      `tests/conformance/actors-bounded-mailbox.ssc` with `backends: [jvm, v2]` (it fails with
+      `ssc: Actors scope failed: unbound global: Overflow`), suite green; delete the declaration,
+      suite red again. **And prove the stale direction**: a `known-red: v2` on a case that PASSES
+      must FAIL the suite — that self-expiry is the only thing that makes the mechanism safe to use.
+      *Gotcha:* leave the actors case at `backends: [jvm]` when done unless SC-2 lands — enabling it
+      is the fail-first half of `v2-actors-bounded-mailbox`, not this task.
+      *Detail:* BUGS.md §`conformance-known-red-silently-ignored-on-v2`.
+
+- [ ] **scljet-sc2-measure-and-decide** — measure the parked SC-2 candidate, then land it or park it explicitly.
+      *Why:* two conformance cases are currently **declared `known-red: int,js`** (`9f136e21f`) —
+      `scljet-sql-live-reclaim` and `scljet-freelist-write-corrupt`. They are fail-first tests whose
+      expectations pin POST-fix behaviour; the candidate fix exists but is unmeasured, so the honest
+      state is a declared red rather than shipped-unverified storage-engine code.
+      *Baseline:* on `main` the reclaim case gives `update pages=14 … freelist=0` (file grows,
+      nothing reused) against an expected `pages=25 … freelist=10`; the freelist case returns
+      `RIGHT` for 16 negative observables that expect `left stable=true`.
+      *How:* the candidate is branch `feature/scljet-production-completion` @ **`ee382f3f5`** —
+      freelist validators (`mutableFreelistInfo`, `mutableStagedCapacity`, `readExistingFree`,
+      `validateFreedPages`) plus `pagerDeleteRebalanced`, with `deleteRowidLoop`/`applyUpdates`
+      repointed at it. Run `scripts/conformance tests/conformance --only 'scljet-*' --no-memo`
+      FIRST and decide from the diff. It is ~340 unverified lines in a storage engine — do not
+      green a red test by shipping it unmeasured.
+      *Done-when:* either it lands and **both `known-red` declarations are deleted** (the suite
+      forces this — a known-red that starts passing fails the run), or the measurement says why not
+      and that goes in BUGS. *Gotcha:* the conformance semaphore is host-wide `MAX=1`; a sibling's
+      full-corpus run will block you. `SSC_CONFORMANCE_NO_GUARD=1` with a small `SSC_TEST_XMX` is
+      the documented opt-out for a handful of cases.
+
+- [ ] **f-accept-declared-externs** — stop counting a legitimate `extern def` as an F coverage gap.
+      *Why, MEASURED:* full-corpus census (347 files, `ssc info --front-report`, `d684e6897`) —
+      **95 `F` / 213 `BOTH-UNBOUND` / 33 `GAP` / 6 `ERROR`**. So of 246 delegations, **213 (87%) are
+      cases where BOTH fronts emit the same unbound global** and F is punished for what legacy does
+      identically and is never validated for. `jvmVfsOpen` ALONE is 115 of the 213 (33% of the
+      corpus). Accepting *declared* externs would move F's measured breadth **28% → ~90% without
+      touching F**, and leaves the real backlog at 33 files (`q`×6, `handle`×6, `html`×4, `summon`×3,
+      `effect`×3, `x`×3, then singles).
+      *How:* `RunNativeV2.validateNoReader` currently accepts a global only via
+      `defNames.contains(g) || g.startsWith("@")`. Accept names the program **declares** as
+      `extern def`, keep rejecting unknown ones. **Do NOT simply loosen the check** — it exists
+      because genuine F gaps also surface as unbound globals, and loosening trades a loud delegation
+      for a silent wrong answer.
+      *Gotcha / scope:* this changes the **F4a delegate-fallback contract**, which BUGS flags as an
+      owner call; Sergiy approved queueing it here on 2026-07-28. Land it behind measurement: re-run
+      the census after and expect `F` ≈ 308, `BOTH-UNBOUND` ≈ 0, `GAP` unchanged at 33 — if `GAP`
+      moves, the check was loosened too far and that is the failure mode to catch.
+      *Done-when:* census numbers as above + full conformance no worse than baseline.
+      *Detail:* BUGS.md §`f-validateNoReader-rejects-plugin-externs`.
+
+---
+
 ## 2026-07-28 — "printed an error, exited 0" — reported, NOT reproducible, now guarded
 
 **Active claim:** `v2-cli-error-exit-code`. Raised in rozum by the agent that fixed
