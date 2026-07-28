@@ -72,13 +72,13 @@ fi
 # ── locate the built v2 artifacts ─────────────────────────────────────────────────────────
 # Prefer sbt's class output (present after any `sbt v2Core/compile`); fall back to the staged
 # jars that `sbt installBin` writes. Never pass without having measured something.
+# Glob the Scala version rather than pinning it: a bumped scalaVersion would otherwise
+# leave this finding nothing and exiting 2 in CI — loud, but for the wrong reason.
 TARGETS=()
-for d in \
-  "$ROOT/v2/src/target/scala-3.8.3/classes" \
-  "$ROOT/v2/backend-jvm-bytecode/target/scala-3.8.3/classes" \
-  "$ROOT/v2/jvm-runtime/target/scala-3.8.3/classes"
-do
-  [[ -d "$d" ]] && TARGETS+=("$d")
+for m in src backend-jvm-bytecode jvm-runtime; do
+  for d in "$ROOT/v2/$m"/target/scala-*/classes; do
+    [[ -d "$d" ]] && TARGETS+=("$d")
+  done
 done
 if [[ ${#TARGETS[@]} -eq 0 ]]; then
   while IFS= read -r j; do TARGETS+=("$j"); done \

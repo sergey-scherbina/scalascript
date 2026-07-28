@@ -501,6 +501,17 @@ jobs:
       - name: Compile and assemble ssc.jar
         run: sbt compile cli/assembly installBin
 
+      # Runs HERE, right after the build, because it needs compiled v2 classes and nothing
+      # else. It is ~5 seconds. A method whose bytecode passes -XX:HugeMethodLimit (8000) is
+      # never JIT-compiled by HotSpot and runs interpreted forever, with no warning and no
+      # behavioural difference — so NO correctness gate can see it, and none did: `Prims`'s
+      # `__method__` dispatch sat at 49,384 bytecodes until 2026-07-28, making every method
+      # call in every ScalaScript program interpreted. Splitting it was worth 2.4-10.8x.
+      # --self-test asserts both verdicts (fires on a huge method, quiet on a small one),
+      # because a detector only ever observed staying quiet is not a detector.
+      - name: v2 runtime stays under HotSpot's HugeMethodLimit
+        run: tests/e2e/v2-jit-size.sh --self-test
+
       - name: ScalaScript 2.1 compiler-free ASM artifact release gate
         run: tests/e2e/v21-build-jvm-release-gate.sh --report target/v21-build-jvm-release.tsv
 
