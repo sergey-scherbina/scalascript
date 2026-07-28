@@ -9,6 +9,74 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## 2026-07-28 — build/test/conformance/CI RAM budget + speed (Sergiy: "Было переполнение памяти и они работают медленно")
+
+**Active claim:** `build-ram-budget-and-speed`. Spec: `specs/build-ram-budget.md`.
+**ALL SIX SLICES LANDED 2026-07-28** — results in `CHANGELOG.md`, operator page
+`docs/build-performance.md`, residuals (with their measurements) in `BACKLOG.md`.
+
+**MEASURED FIRST — the four facts this work is built on (2026-07-28 03:2x UTC):**
+
+1. **The host OOM guard has never fired, and it cannot.** `~/.local/bin/jvm-mem-guard.sh`
+   (launchd `com.sergiy.jvm-mem-guard`, every 20 s) fast-paths out on
+   `kern.memorystatus_level >= 25`. Its log is **0 bytes since 2026-07-21 06:17** — including
+   through the 2026-07-28 03:00 event that recorded **139,831 pageouts / 526 MB swap**.
+   macOS keeps `memorystatus_level` high (93 on an idle host) while it compresses and swaps,
+   so the guard's one cheap sysctl reads "healthy" the whole way down. Its `BUILD_RE` also
+   does not match the processes that caused that event (`java … -jar bin/ssc.jar` conformance
+   forks, `node` JS-lane forks), so even at critical it would shed the wrong things.
+   *This is the AGENTS.md "apparatus fails GREEN" pattern: the ceiling we believed in is a no-op.*
+2. **Nothing bounds the AGGREGATE declared heap.** Per worktree: sbt server `-Xmx4G`
+   (`.jvmopts`) + up to 4 forked test JVMs × `-Xmx2g` (`build.sbt` `Tags.limit(Tags.Test, 4)`)
+   = **12 GB of declared ceiling per worktree**. 13 live worktrees ⇒ ~156 GB declared on a
+   **36 GB** host, plus a launchd bloop daemon pinned at `-Xmx12g`. Per-process caps are all
+   sane; their sum has no ceiling and no reporter.
+3. **CI delivers no verdict at all.** Last 100 `ci.yml` runs: **83 cancelled, 4 failure,
+   0 success, 13 unfinished.** Not "slow" — absent.
+4. **Where the CI wall time is** (run 30305919516, the last one that ran to completion):
+   `Conformance Suite` **37.7 min**, of which `Run conformance tests` is **33.6 min (89 %)**;
+   `sbt — compile and test` **75.6 min**, of which the negative-toolchain gate is **58.1 min (77 %)**.
+
+**Non-goals / left to their owners:** `build.sbt` (held by `uniml-production-completion`),
+`tests/conformance/run.sh` + `scripts/conformance` (held by `conformance-guard-enforced`),
+`bench/` + `docs/benchmarks.md` (held by `v2-runtime-perf-vs-v1`), and the 58-min
+negative-toolchain gate (`tests/e2e/v21-*`). Findings against those are queued in `BACKLOG.md`,
+not edited here.
+
+- [x] **BRB-0 — the apparatus first: `scripts/build-ram-report`.** Nothing on this host can
+      answer "how much build RAM is committed right now, by whom". Report every build process
+      (sbt server / bloop / scala-cli / forked test JVM / `ssc` run fork / node), its RSS, its
+      **declared `-Xmx`**, and its worktree; total resident vs total declared vs host RAM; plus
+      swap-in-use, compressor size and pageout count. `--gate` exits non-zero on overcommit so it
+      can be used as a check, not just a printout. Verify: run it while a build is up and confirm
+      it attributes each process to the right worktree.
+- [x] **BRB-1 — make idle build JVMs give memory back (`.jvmopts`).** Hypothesis to MEASURE
+      before landing: an idle sbt server holds its peak heap because G1 only returns memory at a
+      full GC that never comes. JEP 346 (`-XX:G1PeriodicGCInterval`) plus
+      `-XX:MinHeapFreeRatio`/`-XX:MaxHeapFreeRatio` makes an idle server shrink. A/B with
+      `scripts/build-ram-report`, same build, same command, RSS sampled over 5 idle minutes.
+      **Land only if measured.** If it does not shrink, record the negative result in the spec
+      and move to BRB-2 (this is the `contract-batch-int-lane` discipline).
+- [x] **BRB-2 — host-wide admission control: `scripts/build-guard`.** Generalize what
+      `scripts/conformance` already does for one entrypoint: an atomic-mkdir counting semaphore in
+      a shared dir, sized from **host RAM ÷ per-slot budget** rather than a hardcoded constant, and
+      a last-wins `-Xmx` appended to `JDK_JAVA_OPTIONS`/`JAVA_OPTS`. `scripts/sbtc` routes through
+      it, so the common path is the guarded path. Opt-out stays available.
+- [x] **BRB-3 — reap idle daemons, not just orphaned ones (`scripts/kill-stale-builders`).**
+      Today it only kills builders whose worktree CWD is gone, and launchd runs it once a day at
+      03:00. Add `--idle <minutes>` (no CPU time accumulated in the window ⇒ safe to stop) and an
+      hourly launchd interval, pointed at the **repo** copy so `~/.local/bin` cannot drift.
+- [x] **BRB-4 — shard the 33.6-min CI conformance step.** `tests/conformance/run.sc` gains
+      `--shard i/N` (round-robin by index, same convention as `contract.sc`), and `ci.yml` runs the
+      conformance job as a 4-way matrix with the non-conformance smokes moved to their own parallel
+      job. Expected 37.7 min → ~12 min on the per-push verdict path. Verify locally, compare-first:
+      the **union of the 4 shards must equal the unsharded case list exactly** — print the diff.
+- [x] **BRB-5 — gate it: `tests/e2e/build-ram-budget-gate.sh`.** Prove the pieces actually
+      hold: the semaphore really bounds concurrency, the heap cap really wins over a larger
+      inherited `-Xmx`, the shard union really covers the corpus, and `--gate` really fails on
+      overcommit. Every assertion prints `expected=… got=…` on mismatch (AGENTS.md: a check that
+      can fail silently will).
+
 ## 2026-07-28 — v2 runtime performance vs v1 (Sergiy: "Улучши производительность рантайма ssc v2")
 
 **Active claim:** `v2-runtime-perf-vs-v1`. Question asked: what do the benchmarks say

@@ -25,6 +25,44 @@ native lane), so every v2 benchmark column since that lane moved had been blank,
 New, because nothing else can see this class of defect: `scripts/bytecode-size-census` and
 `tests/e2e/v2-jit-size.sh --self-test`. Watch item they surface: `JvmByteGen.gen` at
 7,052/8000. Detail: `specs/v2-runtime-perf-vs-v1.md`, `BUGS.md v2-method-dispatch-never-jits`.
+## 2026-07-28 — build/test/conformance/CI: bound the host RAM aggregate, shard the CI verdict path
+
+Sergiy: "было переполнение памяти и они работают медленно". Both halves were measured before
+anything was changed; full detail in `specs/build-ram-budget.md`, operator page in
+`docs/build-performance.md`.
+
+**The memory ceiling did not exist.** `jvm-mem-guard` fast-paths out on `kern.memorystatus_level`,
+which measured **93 %** on an idle host and **74 %** mid-event — its log is **0 bytes since
+2026-07-21**, spanning an OOM event with 139,831 pageouts and 526 MB swap. `scripts/build-ram-report`
+now prints the number nobody could see: RESIDENT vs DECLARED vs HOST per build process, attributed to
+its worktree, with swap/compressor/pageouts. It caught the failure mode live during this work —
+**94,208 MB declared on a 36,864 MB host**, including six `ssc` forks each entitled to 9,216 MB
+because the launcher template sets no `-Xmx`.
+
+**Idle sbt servers now give memory back.** Measured with `scripts/build-ram-idle-ab`: baseline
+2698 MB idle RSS, flat for 180 s; with JEP 346 periodic GC, **1553 MB** — −1145 MB per server (−42 %),
+~15 GB across 13 worktrees. `-XX:-G1PeriodicGCInvokesConcurrent` is load-bearing: the default
+concurrent cycle collects but does not resize, and the change measures as a no-op without it.
+
+**Admission control.** `scripts/build-guard` bounds concurrent guarded builds host-wide, with slots
+*derived from host RAM* ((36−8)/6 = 4 here) rather than hardcoded, and refuses to start while
+available memory is short — yielding its slot rather than holding it. `scripts/sbtc` routes through
+it. `kill-stale-builders` gains `--idle <min>`, reaping daemons in *live* worktrees nobody is
+building in (CPU time across a sample window, so a long compile is never mistaken for idle).
+
+**CI was not slow, it was absent:** of the last 100 `ci.yml` runs, **83 cancelled, 4 failure, 0
+success**. `Run conformance tests` was 33.6 min of a 37.7-min job against a ~3-7 min push interval.
+`run.sc` gains `--shard i/N` (round-robin) and `--list`; `ci.yml` runs conformance as a 4-way matrix
+with the non-sharding steps split into a sibling job — **37.7 → ~13 min**. Fixed on the way: the
+positional filter used `indexOf`, which would have read `0/4` as the corpus *directory* and produced
+a green run over an empty corpus.
+
+**Both are gated.** `tests/e2e/build-conformance-shard-gate.sh` byte-compares `union(shards)` against
+the unsharded listing (345 → 87/86/86/86, exact) plus disjointness, balance and out-of-range
+rejection; `tests/e2e/build-ram-budget-gate.sh` proves the semaphore serializes real processes, the
+heap cap beats an inherited `-Xmx12g` (real `MaxHeapSize` = 1024 MB), and a failing command still
+releases its slot. Residuals — the 58.1-min negative-toolchain gate, the launcher `-Xmx`, the
+out-of-repo launchd agents — are queued in `BACKLOG.md` with their measurements.
 
 ## 2026-07-28 — UniML YAML corpus compares percent tags before classification
 

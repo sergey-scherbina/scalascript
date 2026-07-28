@@ -101,6 +101,25 @@ MAIN=$(git worktree list | head -1 | awk '{print $1}')
   RAM-bounded entrypoint: `scripts/conformance`.
 - Forked test JVMs default to `-Xmx2g` (override `SSC_TEST_XMX`); do NOT rely
   on `JDK_JAVA_OPTIONS` for test heaps.
+- **Host RAM is a SHARED budget across all your sibling agents, and it has run
+  out twice** (2026-07-20 kernel panic; 2026-07-28 139,831 pageouts). Every
+  per-process cap is fine — the *sum* is what overflows, and until 2026-07-28
+  nothing printed that sum. When the machine feels slow, or before starting
+  anything heavy:
+
+  ```bash
+  scripts/build-ram-report              # RESIDENT vs DECLARED vs HOST, per worktree
+  scripts/kill-stale-builders --idle 30 # daemons nobody is building in (dry run; --kill to act)
+  ```
+
+  `scripts/sbtc` already routes through `scripts/build-guard`, which admits at
+  most `(HOST − 8 GB) / 6 GB` concurrent guarded builds host-wide. If it says
+  *"N guarded build(s) already running — waiting…"*, that is the guard working,
+  not a hang. Do **not** diagnose memory pressure from
+  `kern.memorystatus_level`: measured, it reads 74–93 % straight through an OOM
+  event, which is why `jvm-mem-guard`'s log is empty. Read `compressor_mb` and
+  `pageouts` instead. Full page: [`docs/build-performance.md`](docs/build-performance.md);
+  measurements: [`specs/build-ram-budget.md`](specs/build-ram-budget.md).
 
 
 ### The skills (read on demand)

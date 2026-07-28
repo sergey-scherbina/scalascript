@@ -15,6 +15,51 @@ Status hygiene (2026-06-23): open `[ ]` rows below are intentionally still open,
 explicitly `BLOCKED` or `DEFERRED` product/external-decision items. History-only / wontfix notes
 are plain bullets without checkboxes so agents do not claim them as build work.
 
+## build/CI RAM + speed — residuals from `build-ram-budget-and-speed` (2026-07-28)
+
+Landed there: `.jvmopts` periodic GC (−1145 MB per idle sbt server, measured), `scripts/build-guard`
+host-wide admission, `scripts/build-ram-report`, `kill-stale-builders --idle`, 4-way conformance
+sharding in CI (37.7 → ~13 min), and gates for both. Full measurements:
+[`specs/build-ram-budget.md`](specs/build-ram-budget.md).
+
+Each item below was deliberately NOT done there — it sits in another agent's live claim, or is its
+own arc. None is speculative: every one has a measured number attached.
+
+- [ ] **`ci-negtc-gate-is-77pct-of-the-sbt-job`** — `tests/e2e/v21-negative-toolchain-release-gate.sh`
+      took **58.1 min of the 75.6-min** `sbt` job (run 30305919516). It re-lowers the full corpus
+      through F twice, and F is ~2-4× the legacy front. Same round-robin `--shard i/N` treatment as
+      `run.sc` just got; the arithmetic is identical. Owner: the v21 release-gate arc.
+- [ ] **`ssc-launcher-has-no-Xmx`** — the `bin/ssc` launcher template in `build.sbt` passes `-Xss64m`
+      and **no `-Xmx`**, so every `ssc` fork takes the JVM's ergonomic ¼-of-RAM default. MEASURED
+      2026-07-28: six live forks each declaring **9,216 MB**, contributing to a 94 GB declared total
+      on a 36 GB host. `scripts/build-guard` caps them via `JDK_JAVA_OPTIONS` (they honour it
+      precisely because they set none), but the durable fix is an explicit, overridable `-Xmx` in the
+      template. Blocked only by `build.sbt` being held by `uniml-production-completion`.
+- [ ] **`test-fork-budget-has-no-host-wide-coordination`** — `build.sbt` declares
+      `Tags.limit(Tags.Test, 4)` × `-Xmx2g` = 8 GB per worktree, per sbt server, with nothing
+      coordinating across the ~13 of them. `build-guard` bounds how many *builds* start; it does not
+      bound forks within one. Consider deriving the tag limit from host RAM the way `build-guard`
+      derives its slots. Same `build.sbt` block.
+- [ ] **`jvm-mem-guard-reads-the-wrong-signal`** — `~/.local/bin/jvm-mem-guard.sh` (launchd, every
+      20 s) fast-paths out on `kern.memorystatus_level >= 25`. MEASURED: that sysctl read **93 %** on
+      an idle host and **74 %** mid-event; its log is **0 bytes since 2026-07-21**, spanning an OOM
+      event with 139,831 pageouts. Its `BUILD_RE` also misses `ssc`/`node` forks — the processes that
+      actually caused that event. Move the script **into the repo**, switch the trigger to available
+      memory + swap + compressor (what `scripts/build-ram-report` already computes), and widen the
+      target set. It is outside version control today, which is why nobody noticed.
+- [ ] **`launchd-build-agents-drift-from-the-repo`** — `~/Library/LaunchAgents/io.scalascript.kill-stale-builders.plist`
+      runs a **copy** at `~/.local/bin/kill-stale-builders` (byte-identical today; it will not stay
+      so) once a day at 03:00, and cannot pick up the new `--idle`. Point launchd at the repo file,
+      hourly, with `--idle 30 --kill`. Separately,
+      `~/Library/LaunchAgents/bloop.compilation.daemon.plist` pins the always-on bloop daemon at
+      `JDK_JAVA_OPTIONS=-Xmx12g` and should carry the same periodic-GC flags as `.jvmopts`.
+- [ ] **`ci-concurrency-still-supersedes-most-commits`** — sharding takes the verdict path from 37.7
+      to ~13 min against a ~3-7 min push interval, so it roughly triples the fraction of commits that
+      get a verdict but does not reach one-per-push. Re-measure the cancelled/success ratio after
+      this lands (it was 83/0 of 100), then decide between a merge queue, per-SHA concurrency groups
+      with a cheaper job set, or accepting the green-descendant ladder in AGENTS.md §4c as the
+      permanent answer. Decide with the new numbers, not these.
+
 ## v2-f4-flip — ✓ LANDED (2026-07-23, `56d7d705f`) — F is the DEFAULT native front
 
 `F` (`specs/v2.2-p6.5-fsub.ssc`) is now the default native lowerer: `RunNativeV2.frontIsF` is opt-OUT
