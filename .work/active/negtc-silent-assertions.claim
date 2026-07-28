@@ -1,0 +1,11 @@
+slug: negtc-silent-assertions
+branch: feature/negtc-silent-assertions
+agent: claude-code
+started: 2026-07-28T15:43:51Z
+heartbeat: 2026-07-28T15:43:51Z
+status: claimed-before-planning
+items: negtc-negative-assertions-fail-silently NSA-0
+paths: tests/e2e/v21-negative-toolchain-release-gate.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement

@@ -1,5 +1,6 @@
-# generation: 233
+# generation: 234
 #slug	agent	started	items	paths
 corpus-contract-refresh-0728	claude-code	2026-07-28T14:30:52Z	corpus-contract-refresh-freeze-0728	tests/conformance/corpus-baseline.tsv tests/conformance/contract-roster.tsv
 v2-backend-matrix-gaps	claude-code	2026-07-28T14:31:37Z	v2m-0-matrix-doc v2m-1-cannot-run v2m-1a-unbound-global-d v2m-1b-array-update v2m-1c-autooutput-source-backends v2m-2-order-of-magnitude v2m-3-recheck-after	v1/tools/cli/src/main/scala/scalascript/cli/Main.scala specs/v2-vs-v1-backend-matrix.md specs/v2-runtime-perf-vs-v1.md v2/src v2/backend v2/backend-jvm-bytecode v2/jvm-runtime bench SPRINT.md BACKLOG.md CHANGELOG.md BUGS.md docs/benchmarks.md tests/e2e/v2-jit-size.sh
 v2-front-fewer-braces-and-lib-variants	claude-code	2026-07-28T15:37:47Z	OPEN-W1 wasm-matrix-fewer-braces f4-lib-variant-disagreements	specs/v2.2-p6.5-fsub.ssc v2/lib/ssc1-front.ssc0 tests/conformance/fewer-braces tests/conformance/expected/fewer-braces BUGS.md bugs-v2-open.md SPRINT.md CHANGELOG.md
+negtc-silent-assertions	claude-code	2026-07-28T15:43:51Z	negtc-negative-assertions-fail-silently NSA-0	tests/e2e/v21-negative-toolchain-release-gate.sh
