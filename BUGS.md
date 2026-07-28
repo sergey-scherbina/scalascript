@@ -2,7 +2,7 @@
 
 ## js-treeshake-prunes-mirror-ctor — a Mirror's `fromProduct` calls a constructor the shaker deleted
 
-**Status: FIXED 2026-07-28** by `v2-mirror-fromproduct` (found while EXTENDING
+**Status: FIXED 2026-07-28** in `dd56c4b8d` (`v2-mirror-fromproduct`) — found while EXTENDING
 `tests/conformance/v2-mirror-surface.ssc` to cover `fromProduct` — the case was green before the
 new line, which is the point of adding it).
 
@@ -115,7 +115,7 @@ So: VM, not front. `v2/src` was held by a live claim when this was found.
 
 ## v2-mirror-fromproduct-stub — the last missing `Mirror` member still evaluates to `Stub`
 
-**Status: FIXED 2026-07-28** by `v2-mirror-fromproduct`. The Mirror now carries the constructor as
+**Status: FIXED 2026-07-28** in `dd56c4b8d` (`v2-mirror-fromproduct`). The Mirror now carries the constructor as
 a FOURTH field, pre-shaped to take the argument list (`(xs) => T(xs(0), …)`), and `fromProduct` is
 one tag-level `__regmethod__` that applies it — so it needs no per-type method and no VM change.
 
