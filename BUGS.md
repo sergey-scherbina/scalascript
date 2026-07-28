@@ -2,7 +2,18 @@
 
 ## v2-front-for-yield-remaining-layouts — two of four `for`/`yield` layouts still miss F, one silently wrong
 
-**Status:** OPEN (found 2026-07-28 by `ssc1-front-annotation-case-class` while probing
+
+**Status:** **FIXED 2026-07-28** by `v2-front-for-yield-layouts`. `yield` joins `catch`/`finally`
+in `canStartLineId`/`isContId`: it can never START a statement, it CONTINUES the `for` above it.
+All four layouts now compile under F and match the INT reference — including the one that used to
+compile into a program that ran and was wrong.
+
+**Gate: `tests/e2e/v2-front-coverage.sh`, asserting on the `ssc info --front-report` COLUMN rather
+than on output** — because output cannot see this class: when F declines, the F4a fallback
+recompiles with the legacy front and the program prints the right answer. The pre-existing
+`tests/conformance/for-yield-layout.ssc` contains the def-body layout and was green throughout.
+A/B'd 2-of-6 FAIL against the unfixed front; its `--self-test` requires a known GAP to report GAP.
+
 `wasm-scalascript`). **A/B'd against `cd14a97d5~1`: identical before and after that fix, so NOT a
 regression from it** — but it does mean the fix's reach is narrower than its commit message sounds,
 and the gate could not see the difference.
