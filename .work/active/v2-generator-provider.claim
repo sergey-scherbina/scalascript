@@ -2,12 +2,12 @@ slug: v2-generator-provider
 branch: feature/v2-generator-provider
 agent: codex
 started: 2026-07-27T23:56:39Z
-heartbeat: 2026-07-28T00:00:30Z
+heartbeat: 2026-07-28T00:12:56Z
 status: in-progress
 items: v2-generator-provider
 paths: v2/runtime/std/dataset-plugin/ v2/runtime/std/generator-plugin/ tests/conformance/dataset-from-generator.ssc tests/conformance/expected/dataset-from-generator.txt tests/fixtures/v21-native/generator-provider.ssc
 scope: |
   Reproduce Dataset.fromGenerator/toGenerator on assembled V2, identify the bridge contract between
   the dataset and generator plugins, and fix or close the provider item without duplicating runtime state.
-done-so-far: compare-first plan and BUGS entry landed; worktree rebased
-next: reproduce dataset-from-generator in the assembled V1/V2 VM/ASM matrix
+done-so-far: bridge and fail-first tests landed through 2f5bb135b; local gates green
+next: close BUGS/SPRINT/CHANGELOG, inspect CI evidence, then release the claim
