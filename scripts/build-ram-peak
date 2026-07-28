@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+#
+# build-ram-peak — sample the PEAK RSS of every build/ssc process while a command runs.
+#
+# THE QUESTION IT ANSWERS
+# ----------------------
+# `bin/ssc` sets no `-Xmx`, so every fork is entitled to the JVM's ergonomic ¼ of RAM — 9,216 MB on
+# this host, and a corpus contract run makes ~1,669 forks. Measured 2026-07-28, one was resident at
+# 8,090 MB. That is an ENTITLEMENT, not a need, and the two get confused: the harness caps
+# (scripts/conformance at 4g, scripts/build-guard at 2g) are only safe if real cases fit under them.
+#
+# A cap that is too low does not fail loudly — it turns a passing case into an OutOfMemoryError that
+# reads like a test failure, somewhere else, later. So before trusting a cap, measure what the
+# corpus actually uses:
+#
+#   scripts/build-ram-peak -- tests/conformance/run.sh --only 'scljet-*' --no-memo
+#
+# Prints, per process role, the peak RSS observed and which command owned it, plus the overall p50 /
+# p95 / max across sampled processes.
+#
+# Sampling is every SSC_PEAK_INTERVAL seconds (default 0.5). It CANNOT see a spike shorter than the
+# interval — that limitation is printed with the results rather than left for the reader to assume
+# away, because an under-reported peak is exactly how a too-low cap gets chosen.
+set -uo pipefail
+
+INTERVAL="${SSC_PEAK_INTERVAL:-0.5}"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --interval) INTERVAL="$2"; shift 2 ;;
+    -h|--help) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --) shift; break ;;
+    *) break ;;
+  esac
+done
+[ $# -gt 0 ] || { echo "build-ram-peak: nothing to run (use: build-ram-peak -- <command…>)" >&2; exit 2; }
+
+TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+PEAKS="$TMP/peaks"; : > "$PEAKS"
+
+# Same classification as scripts/build-ram-report, deliberately: two tools disagreeing about what
+# counts as a build process would make their numbers incomparable.
+RE='sbt-launch|xsbt\.boot|sbt\.script|sbt/standalone|bloop|scala-cli|scalacli|scala\.cli|ForkMain|zinc|metals|BspServer|ssc\.lib\.path|ssc\.jar|ssc-tools|org\.openjdk\.jmh|node'
+
+sampler() {
+  while :; do
+    ps -axo pid=,rss=,args= 2>/dev/null | grep -E "$RE" | grep -v -e grep -e build-ram-peak |
+      while read -r pid rss rest; do
+        printf '%s\t%s\t%s\n' "$pid" "$rss" "${rest:0:70}"
+      done >> "$PEAKS"
+    sleep "$INTERVAL"
+  done
+}
+
+sampler & SAMPLER=$!
+"$@"; rc=$?
+kill "$SAMPLER" 2>/dev/null; wait "$SAMPLER" 2>/dev/null
+
+echo
+echo "── peak RSS per process (sampled every ${INTERVAL}s)"
+if [ ! -s "$PEAKS" ]; then
+  echo "  no build processes observed — did the command spawn any?"
+  exit "$rc"
+fi
+
+# Max per PID, then the distribution across PIDs. Per-PID max is the number that matters: a cap must
+# hold for the WORST case, not the average one.
+#
+# Rows and summary are kept in SEPARATE streams on purpose. Piping both through one `sort -rn` (the
+# first version of this) re-ordered the summary lines too, printing p95 above p50 — a small thing
+# that makes a reader distrust every other number on the page.
+sort -k1,1n -k2,2rn "$PEAKS" | awk -F'\t' -v rows="$TMP/rows" '
+  !seen[$1]++ {
+    printf "%8.0f MB  pid=%-7s %s\n", $2/1024, $1, $3 > rows
+    peaks[n++] = $2 + 0      # +0 forces NUMERIC comparison in the sort below
+  }
+  END {
+    if (n == 0) exit
+    # Without the `+0` above, awk compared these as STRINGS and the summary disagreed with the rows
+    # it printed directly above it -- caught by a fixture where the true max was 488 MB and the
+    # summary claimed 439. A measurement tool that quietly reports the wrong maximum is worse than
+    # no measurement: the whole point of this number is to choose a heap cap from it.
+    for (i = 0; i < n; i++)
+      for (j = i+1; j < n; j++)
+        if (peaks[j] + 0 < peaks[i] + 0) { t=peaks[i]; peaks[i]=peaks[j]; peaks[j]=t }
+    printf "\n  processes sampled : %d\n", n
+    printf "  p50 peak RSS      : %.0f MB\n", peaks[int(n*0.50)]/1024
+    printf "  p95 peak RSS      : %.0f MB\n", peaks[int(n*0.95)]/1024
+    printf "  max peak RSS      : %.0f MB\n", peaks[n-1]/1024
+  }' > "$TMP/summary"
+sort -rn -k1 "$TMP/rows" 2>/dev/null | head -30
+cat "$TMP/summary"
+
+cat <<EOF
+
+  NOTE: sampled at ${INTERVAL}s, so a spike shorter than that is invisible here. Treat these as a
+  LOWER bound on the true peak, and leave headroom when choosing a cap from them.
+EOF
+exit "$rc"

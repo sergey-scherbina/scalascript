@@ -26,7 +26,7 @@
 #
 # Env:
 #   SSC_BUILD_SLOTS       max concurrent guarded builds host-wide  (default: derived, see below)
-#   SSC_BUILD_XMX         heap cap appended for child JVMs         (default 2g)
+#   SSC_BUILD_XMX         heap cap appended for child JVMs         (default 4g, MEASURED)
 #   SSC_BUILD_SLOT_MB     RAM budgeted per slot, for the derivation (default 6144)
 #   SSC_BUILD_RESERVE_MB  RAM held back for the OS and everything else (default 8192)
 #   SSC_BUILD_MIN_FREE_MB refuse to start below this much available RAM (default 3072; 0 disables)
@@ -36,7 +36,15 @@
 # Exit codes: the command's own, or 75 (EX_TEMPFAIL) if admission timed out.
 set -uo pipefail
 
-XMX="${SSC_BUILD_XMX:-2g}"
+# 4g, not the 2g this shipped with. MEASURED 2026-07-28 with scripts/build-ram-peak over a 121-case
+# conformance slice (scljet/uniml/json): most `ssc` forks peak at 400-490 MB and the median process is
+# 163 MB, but ONE fork reached 4,650 MB RSS under the 4 GB heap that scripts/conformance imposes.
+# A 2g default would have squeezed that case hard, and the failure mode of a too-low cap is not a
+# clean error -- it is an OutOfMemoryError that surfaces as an unrelated-looking test failure later.
+# Matching scripts/conformance's long-standing 4g keeps one empirically-validated number instead of
+# two guesses. Note RSS exceeded the heap cap by ~15 % (metaspace, code cache, -Xss64m stacks), which
+# is the same ~1.25x factor SSC_BUILD_SLOT_MB already budgets for.
+XMX="${SSC_BUILD_XMX:-4g}"
 SLOT_MB="${SSC_BUILD_SLOT_MB:-6144}"
 RESERVE_MB="${SSC_BUILD_RESERVE_MB:-8192}"
 MIN_FREE_MB="${SSC_BUILD_MIN_FREE_MB:-3072}"

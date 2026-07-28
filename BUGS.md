@@ -1,5 +1,43 @@
 # Bug tracker
 
+## scljet-wal-recover flakes under parallel load — INT lane produces no output at all
+
+**Status:** open (found 2026-07-28 by `ssc-fork-heap-measurement`; not reported by a user).
+
+**Symptom.** In a 121-case run (`--only 'scljet-*,uniml-*,json*' --no-memo`) with ~70 concurrent
+build processes on the host, `scljet-wal-recover` failed on the **INT lane only**, with every
+expected line `got=<missing>` — i.e. the lane produced NO output, not wrong output. The JS lane
+passed in the same run.
+
+```
+scljet-wal-recover:
+  FAIL [INT]
+    line 1: expected=frames: 2, dbSize: 2  got=<missing>
+    line 2: expected=page2 latest=ccc: true, page1 from base: true  got=<missing>
+    line 3: expected=corrupt frame dropped: true  got=<missing>
+```
+
+**It is NOT a memory-cap regression, and that was checked before filing.** Compare-first, same case,
+both ways:
+
+```
+JDK_JAVA_OPTIONS=-Xmx2g tests/conformance/run.sh --only 'scljet-wal-recover' --no-memo   -> 1 passed
+                        tests/conformance/run.sh --only 'scljet-wal-recover' --no-memo   -> 1 passed
+```
+
+It passes in isolation under a heap cap and without one. No `OutOfMemoryError` appears anywhere in
+the failing run's output (0 matches). So the trigger is concurrency/load, not heap.
+
+**Why it matters.** `<missing>` output on a WAL *recovery* test is the shape a timeout or a killed
+subprocess makes, and a recovery test that silently produces nothing under load is exactly the case
+you least want to be flaky. It also makes the corpus non-deterministic under CI contention, where a
+red is supposed to mean a real regression.
+
+**Next step for whoever picks this up:** re-run the 121-case slice a few times to establish the
+flake rate, then capture the INT lane's stderr for the failing attempt (the runner reports
+`<missing>` without saying whether the process timed out, crashed, or exited 0 silently — that
+distinction is the whole diagnosis). Owner lane: `scljet-*`.
+
 ## ci-status-guard-desc-green-always-red — the CI-health job was red on its own self-test, not on the repo
 
 **Status:** FIXED 2026-07-28 in `083c78fd6`.
