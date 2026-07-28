@@ -624,6 +624,33 @@ def parseBackends(src: String): Option[Set[String]] =
         else None
       }
 
+/** `backend: <name>` — the singular front-matter key an EXAMPLE uses to declare which backend it
+ *  targets. Distinct from `backends:` (the plural conformance-lane gate) and, until now, not read
+ *  here at all: every case ran on every lane regardless of what it said about itself.
+ *
+ *  Measured 2026-07-28 on the full corpus: **10 of the 39 v2 non-PASS cases declared a non-v2
+ *  target** — eight `backend: jvm` (they `derive` against HOST Scala typeclasses imported with
+ *  `import scalascript.typeddata.…`, which the native lane does not link, so `TC_derived` is
+ *  unbound) and two `backend: js`. Counting those against v2 says "v2 is broken" about programs
+ *  that never claimed to run on v2. Honouring the key moves the honest v2 number from 39 to 29.
+ *
+ *  Mapping is deliberately CONSERVATIVE and fails OPEN — an unrecognised value gates nothing, so a
+ *  typo or a new backend name can never silently drop a lane from the comparison. `spark` is the
+ *  20-case majority and maps to no lane here, so it gates nothing either: those cases keep running
+ *  exactly as before, which is the point of not guessing.
+ *
+ *  `int` is always kept: it is the golden source (`golden()` runs it when there is no expected
+ *  file), so removing it would leave the case with nothing to diff against. */
+def parseTargetBackend(src: String): Option[Set[String]] =
+  frontmatter(src).find(_.startsWith("backend:")).flatMap { line =>
+    line.stripPrefix("backend:").trim match
+      case "jvm"                  => Some(Set("int", "jvm"))
+      case "js"                   => Some(Set("int", "js"))
+      case "v2" | "native"        => Some(Set("int", "v2"))
+      case "int" | "interpreter"  => Some(Set("int"))
+      case _                      => None   // unknown/other (e.g. `spark`) — gate nothing
+  }
+
 def laneCmd(lane: String, file: os.Path): Seq[String] = lane match
   case "int" => Seq(sscToolsBin.toString, "run", "--v1", file.toString)
   case "js"  => Seq(sscToolsBin.toString, "run-js", file.toString)
@@ -680,8 +707,12 @@ def processCase(c: Case): (String, Either[String, Map[String, String]]) =
   golden(c) match
     case Left(reason) => (c.name, Left(reason))
     case Right(g) =>
+      // Effective gate = the plural `backends:` conformance gate AND the singular `backend:`
+      // target declaration. Both are optional; a case that declares neither runs on every lane, as
+      // before.
+      val target = parseTargetBackend(src)
       val row =
-        for lane <- lanes if gate.forall(_.contains(lane)) yield
+        for lane <- lanes if gate.forall(_.contains(lane)) && target.forall(_.contains(lane)) yield
           // For an expected-file golden we still diff INT; for a live golden INT == golden.
           if lane == "int" && c.expected.isEmpty then lane -> "PASS"
           else
