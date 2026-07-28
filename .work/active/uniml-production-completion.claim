@@ -2,14 +2,13 @@ slug: uniml-production-completion
 branch: feature/uniml-production-completion
 agent: claude-code
 started: 2026-07-27T21:28:38Z
-heartbeat: 2026-07-27T23:51:53Z
+heartbeat: 2026-07-28T00:00:41Z
 status: in-progress
-items: uniml-yaml-m31-full-grammar uniml-markdown-html5-entities uniml-portable-5-binding uniml-m5-language-adapters uniml-m6-tooling v2.2-p6.22 scljet-address-uniml-u2-u3 uniml-production-release UPR-0 UPR-1a UPR-1b UPR-1c uniml-yaml-corpus-gate-exception-isolation uniml-root-standalone-target-cache-collision
-paths: SPRINT.md BACKLOG.md CHANGELOG.md BUGS.md MILESTONES.md README.md specs/uniml-production.md specs/uniml.md specs/uniml-yaml.md specs/uniml-markdown.md specs/v2.2-self-hosted-dialect.md uniml/corpus uniml/yaml/src/test uniml/markdown/src/test uniml/project uniml/build.sbt build.sbt scripts/verify-uniml-dual-build
+items: uniml-yaml-m31-full-grammar uniml-markdown-html5-entities uniml-portable-5-binding uniml-m5-language-adapters uniml-m6-tooling v2.2-p6.22 scljet-address-uniml-u2-u3 uniml-production-release UPR-0 UPR-1a UPR-1b UPR-1c UPR-2 UPR-2a UPR-2b UPR-2c UPR-2d UPR-2e uniml-yaml-corpus-gate-exception-isolation uniml-root-standalone-target-cache-collision
+paths: SPRINT.md BACKLOG.md CHANGELOG.md BUGS.md MILESTONES.md README.md specs/uniml-production.md specs/uniml.md specs/uniml-yaml.md specs/uniml-markdown.md specs/v2.2-self-hosted-dialect.md uniml/corpus uniml/yaml/src/main uniml/yaml/src/test uniml/markdown/src/test uniml/project uniml/build.sbt build.sbt scripts/verify-uniml-dual-build
 scope: |
-  The production contract and full UPR-0..UPR-9 queue are committed. This scope now implements
-  UPR-1 only: pinned official YAML/CommonMark/GFM corpus data, deterministic generators, and
-  compare-first conformance gates that establish and print the red semantic baseline before any
-  grammar fix. No parser production sources are in scope yet.
-done-so-far: UPR-1a YAML corpus + accepted exception isolation landed at 70068fd7b; nine standalone Zinc namespaces + two-round transition gate landed at 3e52e6909
-next: mark both apparatus bugs fixed, land independently accepted CommonMark/GFM corpus, then persist the measured UPR-1 red baselines
+  UPR-0 and UPR-1 are landed. This scope now implements UPR-2: the full YAML 1.2.2 M3.1
+  lexical/directive, scalar, structural, recovery, event, resource-limit, and cross-platform
+  closure against the already-pinned compare-first 402-case corpus.
+done-so-far: UPR-0/UPR-1 closed through d89a4045b; YAML and Markdown exact red baselines, exception isolation, and root/standalone build isolation are landed
+next: commit the UPR-2 parser/event architecture update, then implement the smallest independently green official-corpus slices
