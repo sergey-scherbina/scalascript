@@ -5,6 +5,34 @@ Active pending work is in [SPRINT.md](SPRINT.md); ownership is authoritative onl
 through `.work/active/*.claim` on `origin/main`.
 Completed work is in [CHANGELOG.md](CHANGELOG.md).
 
+## v1-subtraction-endgame — retire v1 by measurement, not by feel (OWNER CALL)
+
+Parked here rather than in SPRINT because the *order* of subtraction is Sergiy's decision, not an
+agent's. What an agent can contribute is the measurement, and it is already done.
+
+**v1 is 302 210 lines / 1428 files; v2 is 70 844 / 304 — 4.3×.** The reason this is worth
+re-opening now: the delegation counter has been overstating the blocker for months. Full-corpus
+census on 2026-07-28 (`ssc info --front-report`, `d684e6897`), 347 files:
+
+```text
+ 95  F            F compiled it
+213  BOTH-UNBOUND both fronts emit the same unbound global — NOT F's fault
+ 33  GAP          F's own coverage hole
+  6  ERROR        5 parse sentinels, 1 malformed fence
+```
+
+So **87 % of delegations are not an F gap at all**, and one extern — `jvmVfsOpen` — is 115 of the
+213. Accepting *declared* externs in `RunNativeV2.validateNoReader` would move F's measured breadth
+**28 % → ~90 % without touching F** (that change is its own SPRINT item, `f-accept-declared-externs`,
+and it alters the F4a fallback contract — also an owner call).
+
+**The honest size of the remaining blocker is 33 files, not 246.** Their causes are already grouped
+in BUGS `f-validateNoReader-rejects-plugin-externs`: `q`×6, `handle`×6, `html`×4, `summon`×3,
+`effect`×3, `x`×3, then singles.
+
+Not proposing an order here. Proposing that the decision be taken against 33, which is a different
+conversation from 246.
+
 ## nested-runner-exit-status-audit — does a swallowed status hide a fail-open?
 
 Deferred from `v2-cli-error-exit-code` (2026-07-28) with its reasoning, not dropped.

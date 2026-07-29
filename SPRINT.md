@@ -59,6 +59,74 @@ overridden):
       prose into per-cause BUGS.md entries and delete the file.
 
 
+## 2026-07-29 — architecture: lighter, more modular, more reliable (Sergiy: "запиши и сделай")
+
+**Sibling, not duplicate:** `bugs-index-machine-readable` above collapses the multiple sources of
+truth inside **`BUGS.md`**. This section collapses them inside the **gate freezes**. Same disease,
+different organ — do not merge the two, and do not let one close the other.
+
+**Measured 2026-07-29, so the size of the problem is not a matter of taste:**
+
+| | |
+|---|---|
+| sbt modules | **261**, `build.sbt` 4868 lines |
+| v1 vs v2 | **302 210** lines / 1428 files **vs** 70 844 / 304 — v1 is **4.3×** v2 |
+| gates | 100 `tests/e2e/*.sh`, 41 `scripts/`, 60 `ci.yml` steps, 6 workflows |
+| places one "expected to fail" fact can live | **4 files + case front-matter (232 cases)** |
+| conformance lanes | 6 |
+| largest files | `Main.scala` **8467**, `JsGen` 5763, `AsmJitBackend` 5131, `EvalRuntime` 5075 |
+
+**The structural defect, stated once:** the same fact — *"this case is expected to fail"* — is
+recorded in `known-red:` front-matter, `corpus-baseline.tsv`, `contract-roster.tsv`, and the negtc
+`overrides.tsv`, and **nothing checks them against each other**. `contract.sc` knows about
+front-matter and baseline; *no tool at all* knows about `overrides.tsv`. It cost two incidents on
+2026-07-28 alone:
+
+1. SC-2 landed → `known-red:` deleted from two cases → **conformance green, corpus contract red**,
+   because the paired baseline rows stayed.
+2. `wasm-scalascript` dropped from the baseline → the stale twin in `overrides.tsv` kept the
+   **`sbt — compile and test`** job red (`stale or reclassified override row`).
+
+Both are the shape already recorded as [[project_v2_field_index_registry_family]]: duplicated state
+with no invariant. Fix the invariant first, the format later.
+
+- [ ] **ARCH-1 — cross-freeze consistency gate. Cheapest, highest yield, no design decision needed.**
+      *Do NOT change any format yet.* Add `tests/e2e/freeze-consistency-gate.sh` that loads all four
+      freezes plus the front-matter and fails when they disagree about the same case:
+      a `known-red:` lane with no paired baseline row (and vice versa); an `overrides.tsv` row for a
+      case the corpus baseline says passes; a roster/baseline name mismatch. **Prove it RED first**
+      by re-introducing either of the two incidents above — a gate that cannot see them is
+      decoration ([[feedback_output_gate_cannot_see_which_front]]).
+      *Done-when:* both 2026-07-28 incidents are reproduced red by the gate, then green on `main`.
+      *Then, and only then:* consider making baseline/roster/overrides **derived** artifacts with
+      front-matter as the single declaration.
+
+- [ ] **ARCH-2 — one lane contract.** Six lanes do not behave alike, and every difference has been
+      a bug. `checkLane` vs bare `check` meant `known-red: v2` was parsed, validated and then
+      ignored (fixed `895e5ecff`). The INT lane still calls `run(sscTools(...))` and **discards the
+      child's stderr and exit code**, unlike JS/JVM which go through
+      `outputWithFailureContext(out, err, rc)` — which is why a dropped child reads as
+      `got=<missing>` and gets misattributed to whatever change is in flight
+      (BUGS `scljet-full-suite-int-lane-drops-one-case`).
+      *How:* one signature for all six — `(out, err, rc) -> verdict`, known-red aware, failure
+      context attached. *Done-when:* the INT lane reports *why* a child produced nothing, and no
+      lane can be added without going through it.
+
+- [ ] **ARCH-3 — break up the four giants, smallest first.** Not cosmetics: a method over 8000
+      bytecodes is **never JIT-compiled** ([[feedback_hugemethodlimit_silent_no_jit]]) and that
+      already cost 2.4–10.8× in the v2 runtime. `Main.scala` at 8467 lines is not a CLI — it also
+      holds the front decision, the delegation fallback and `validateNoReader`.
+      *Order:* extract the front-decision/delegation surface out of `Main.scala` first (it is the
+      part other tasks keep needing to touch), then `EvalRuntime`, then `JsGen`, then
+      `AsmJitBackend`. One extraction per commit, conformance green between each.
+      *Gotcha:* `Main.scala` is frequently claimed; check the LEDGER before starting.
+
+- [ ] **ARCH-4 — a gate must distinguish the two states, or be deleted.** 100 e2e scripts is
+      surface area, not coverage. Introduce the rule and apply it: a gate is kept only if
+      red-then-green is demonstrated (revert the fix, gate FAILS, with the number in the commit).
+      *First pass, no deletions yet:* inventory which of the 100 have ever failed, and which cannot
+      fail by construction. Delete/repair in later slices, evidence in hand.
+
 ## 2026-07-28 — fewer-braces `f(args): p =>` — the `:` is never consumed (both fronts)
 
 **Active claim:** `v2-front-colon-trailing-lambda`. Cluster A of `bugs-v2.md`; closes TWO corpus
