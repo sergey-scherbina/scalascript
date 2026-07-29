@@ -9,6 +9,56 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## 2026-07-29 — one machine-readable bug index (Sergiy: "уберём множественность источников и неоднозначность")
+
+**Active claim:** `bugs-index-machine-readable`. Spec: `specs/bugs-index.md`.
+
+**Measured, and the numbers are why this is worth doing:**
+
+| | |
+|---|---|
+| entries in `BUGS.md` | 614 |
+| **with no `Status:` line at all** | **108 (18%)** — invisible to every query |
+| words meaning "closed": `FIXED` / `DONE` / `RESOLVED` | 332 / 67 / 3 |
+| one-off freeform statuses (`STALE`, `LARGELY`, `MECHANISM`, `ENGINE`, `NO`, …) | 10 |
+| entries with two `Status:` lines | 1 — so that was NOT the systemic problem I first assumed |
+
+The consequence is concrete: every agent writes its own `awk` over the prose and they disagree.
+That happened on 2026-07-28 when Sergiy asked for the list of remaining work and my query silently
+omitted 108 entries.
+
+- [ ] **BSI-1 — schema + gate, gate proven RED first.** `specs/bugs-index.md` defines a header in
+      an HTML comment (renders as nothing, parses trivially): `status: open|fixed|wontfix|duplicate
+      |unknown`, `lane:`, `area:`, `fixed-in: <sha>` (required when fixed), `gate:`,
+      `duplicate-of:`. `tests/e2e/bugs-index-gate.sh` enforces: every `## ` entry has a header, the
+      status is in the enum, `fixed` implies a `fixed-in` sha that resolves, slugs are unique.
+- [ ] **BSI-2 — migrate all 614 in ONE atomic commit.** `scripts/bugs-index-migrate` derives the
+      header from each entry's existing prose. **⚠️ Coordinate first:** `BUGS.md` is SHARED (the
+      overlap guard deliberately never blocks on it), so a bulk rewrite silently conflicts with
+      whoever is appending. Announced in rozum; wait for `v2-backend-matrix-gaps` to release before
+      running it.
+- [ ] **BSI-3 — `scripts/bugs-report`.** Derives the v2 view (and any lane/area view) from the
+      headers live, so it cannot drift the way `bugs-v2.md` already has — that file still says
+      "39 of 522" while several of those are closed.
+- [ ] **BSI-4 — make it stick.** The rule goes in `AGENTS.md` and the `bugs` skill: a new entry
+      without a valid header fails the gate. Also the prose rule that bit twice on 2026-07-28 —
+      the original report is KEPT but under `**Original report (superseded YYYY-MM-DD):**` and in
+      the past tense, so a grep cannot land on a stale sentence written in the present.
+
+**Two decisions taken rather than asked** (Sergiy left them to me; recorded so they can be
+overridden):
+1. The 108 statusless entries migrate as `status: unknown`, not hand-classified now. Hand
+   classification is hours at low confidence; `unknown` is queryable and gets resolved as each is
+   touched. Classification queued below.
+2. `bugs-v2.md` is NOT deleted in this pass. Phase 1 gives it a banner saying its numbers decay and
+   points at `scripts/bugs-report`. Phase 2 (queued) folds its per-cluster prose into BUGS.md
+   entries and removes the file — deleting human-written analysis for the sake of a principle is
+   not a trade worth making blind.
+
+- [ ] **BSI-5 (queued follow-up)** — classify the `unknown` entries; fold `bugs-v2.md`'s cluster
+      prose into per-cause BUGS.md entries and delete the file.
+
+
 ## 2026-07-28 — fewer-braces `f(args): p =>` — the `:` is never consumed (both fronts)
 
 **Active claim:** `v2-front-colon-trailing-lambda`. Cluster A of `bugs-v2.md`; closes TWO corpus
