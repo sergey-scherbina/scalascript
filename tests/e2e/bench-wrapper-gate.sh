@@ -68,3 +68,24 @@ expected_list="$(printf '%s\n' \
 [[ "$got_list" == "$expected_list" ]] || fail_compare 'list output' "$expected_list" "$got_list"
 
 printf 'bench-wrapper-gate: compiler/profile routing + combined unique list PASS\n'
+
+# ── every sbt invocation must go through the host-wide guard ─────────────────
+# The assertions above prove the sbt ARGUMENTS are right; they cannot see WHO runs sbt, because the
+# fake `sbt` on PATH is reached either way. That gap matters: AGENTS.md requires perf baselines be
+# recorded from this wrapper, and a bench run against a swapping host still produces a number — so an
+# unguarded bench turns a degraded number into a RECORDED one. `build.sbt` already caps the JMH fork
+# itself (`Jmh / javaOptions := -Xmx4g`, commented "bench + bloop together exceed physical RAM on a
+# 36GB machine"); what `scripts/build-guard` bounds is the AGGREGATE across parallel agents, which is
+# what actually exhausted the host twice (specs/build-ram-budget.md).
+bare_sbt=$(grep -nE '^[[:space:]]*sbt[[:space:]]' "$ROOT/scripts/bench" || true)
+if [[ -n "$bare_sbt" ]]; then
+  printf 'bench-wrapper-gate: scripts/bench invokes sbt directly, bypassing the build guard\n' >&2
+  printf 'expected=every sbt call routed through guarded_sbt\ngot=%s\n' "$bare_sbt" >&2
+  exit 1
+fi
+if ! grep -q 'build-guard' "$ROOT/scripts/bench"; then
+  printf 'bench-wrapper-gate: scripts/bench no longer references build-guard\n' >&2
+  printf 'expected=guarded_sbt routing through scripts/build-guard\ngot=<no reference>\n' >&2
+  exit 1
+fi
+printf 'bench-wrapper-gate: every sbt invocation is routed through build-guard PASS\n'

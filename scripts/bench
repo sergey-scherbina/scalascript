@@ -97,13 +97,27 @@ esac
 
 # Class-scoped JMH pattern. `.*Class.*pat.*` is permissive on both ends so
 # `interp_X` / `jvmGen_X` prefixes inside the class match a bare workload
+# Every sbt invocation in this script goes through `scripts/build-guard`, which takes a host-wide
+# admission slot and caps child heaps (specs/build-ram-budget.md).
+#
+# This is not tidiness, it is measurement validity. The JMH forks themselves were already capped
+# (build.sbt pins `Jmh / javaOptions := -Xmx4g`, with a comment saying why: "bench + bloop together
+# exceed physical RAM on a 36GB machine") — what had no ceiling was the AGGREGATE. A bench started
+# while three sibling agents are compiling runs against a swapping host, and **a JMH number taken
+# under swap is not a measurement**. AGENTS.md requires baselines be recorded from `scripts/bench`,
+# so a silently-degraded number here becomes a recorded one.
+#
+# The guard is generous (4 concurrent builds on a 36 GB host), so the common path just runs. Bypass
+# with SSC_BUILD_NO_GUARD=1.
+guarded_sbt() { "$ROOT/scripts/build-guard" -- sbt "$@"; }
+
 # name like `arithLoop`.
 jmh_run() {
   local project="$1"; shift
   local cls="$1"; shift
   local regex=".*${cls}.*${pat}.*"
   local options=(-wi "$WI" -i "$MI" -f "$F" "$@")
-  sbt "${project}/Jmh/run ${options[*]} ${regex}"
+  guarded_sbt "${project}/Jmh/run ${options[*]} ${regex}"
 }
 
 require_pat() {
@@ -147,7 +161,7 @@ case "$cmd" in
   smoke)
     # Absolute path: JMH forks run in the subproject baseDirectory, so a
     # relative `bench/...` would resolve under runtime/backend/interpreter-bench.
-    sbt "interpreterBench/Jmh/run -wi 1 -i 1 -f 1 -rff ${ROOT}/bench/jmh-smoke.json -rf json .*InterpreterBench.arithLoop.*"
+    guarded_sbt "interpreterBench/Jmh/run -wi 1 -i 1 -f 1 -rff ${ROOT}/bench/jmh-smoke.json -rf json .*InterpreterBench.arithLoop.*"
     ;;
 
   wall)
@@ -183,7 +197,7 @@ case "$cmd" in
     ;;
 
   list)
-    sbt 'interpreterBench/Jmh/run -lp .*' 'compilerBench/Jmh/run -lp .*' 2>/dev/null | \
+    guarded_sbt 'interpreterBench/Jmh/run -lp .*' 'compilerBench/Jmh/run -lp .*' 2>/dev/null | \
       grep -E 'scalascript\.bench\.' | sort -u
     ;;
 
