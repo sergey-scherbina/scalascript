@@ -86,7 +86,14 @@ first matching sentence, so the first matching sentence has to be true today.
 
 - every `## ` entry has a header comment;
 - `status` / `lane` / `area` are present and in their enums;
-- `status: fixed` carries a `fixed-in` sha that `git cat-file` resolves, or the literal `unrecorded`;
+- `status: fixed` carries a `fixed-in` that LOOKS like a sha (7-40 lowercase hex, and not all
+  digits — an 11-digit CI run id matches the hex class perfectly, and three were in this file), or
+  the literal `unrecorded`;
+- and, **only in a full clone**, that the sha actually resolves. CI checks out with `fetch-depth: 1`,
+  where `git cat-file` sees no commit but the tip: wired naively, the gate reported 319 of 320 valid
+  shas as unresolvable and turned `main` red on its first CI run (30484689408). It now detects a
+  shallow clone, checks shape only, and SAYS SO in its output — a gate whose verdict depends on
+  clone depth is worse than no gate, but one that quietly checks less is worse still;
 - `status: duplicate` carries a `duplicate-of` naming an entry that exists;
 - slugs are unique.
 

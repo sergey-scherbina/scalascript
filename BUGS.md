@@ -1,6 +1,9 @@
 # Bug tracker
 
 ## sbt-test-7-failures-first-visible-2026-07-29 — `sbt test` ran to completion for the first time in weeks
+<!-- status: open
+     lane: native
+     area: front -->
 
 **Status:** open, 3 clusters, filed for their owners. Found by `serve-banner-to-stderr`: fixing the
 negative-toolchain gate let the `sbt` job reach `Test via sbt`, which had been unreachable behind it.

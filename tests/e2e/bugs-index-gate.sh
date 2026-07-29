@@ -30,6 +30,13 @@ path = pathlib.Path(sys.argv[1])
 text = path.read_text()
 lines = text.split("\n")
 
+# RESOLUTION requires history this checkout may not have. CI clones with fetch-depth: 1, where
+# `git cat-file` cannot see any commit but the tip — measured on run 30484689408, that reported
+# 319 of 320 valid shas as "does not resolve" and turned main red. A gate whose verdict depends on
+# clone depth is not a gate, so resolution is checked only where it CAN be, and said out loud.
+SHALLOW = subprocess.run(["git", "rev-parse", "--is-shallow-repository"],
+                         capture_output=True, text=True).stdout.strip() == "true"
+
 STATUS = {"open", "fixed", "wontfix", "duplicate", "unknown"}
 LANE   = {"native","int","js","jvm","v2-jvm","v2-rust","apparatus","multi","n/a"}
 AREA   = {"front","runtime","codegen","cli","conformance","build","docs","plugin","other"}
@@ -70,16 +77,25 @@ for head, body in entries:
         if not sha:
             problems.append((slug, "status: fixed requires `fixed-in: <sha>`"))
         elif sha != "unrecorded":
-            r = subprocess.run(["git", "cat-file", "-e", sha + "^{commit}"],
-                               capture_output=True)
-            if r.returncode != 0:
-                problems.append((slug, f"fixed-in `{sha}` does not resolve to a commit"))
+            # SHAPE is checked everywhere. `isdigit` is not pedantry: an 11-digit CI run id
+            # matches [0-9a-f]{7,40} perfectly, and three of them were sitting in this file
+            # as `fixed-in` values until the migration verified them.
+            if not re.fullmatch(r"[0-9a-f]{7,40}", sha) or sha.isdigit():
+                problems.append((slug, f"fixed-in `{sha}` is not a commit sha"))
+            elif not SHALLOW:
+                r = subprocess.run(["git", "cat-file", "-e", sha + "^{commit}"],
+                                   capture_output=True)
+                if r.returncode != 0:
+                    problems.append((slug, f"fixed-in `{sha}` does not resolve to a commit"))
     if st == "duplicate" and not fields.get("duplicate-of"):
         problems.append((slug, "status: duplicate requires `duplicate-of: <slug>`"))
 
 for s, n in slugs.items():
     if n > 1: problems.append((s, f"slug appears {n} times — slugs must be unique"))
 
+if SHALLOW:
+    print("note: shallow clone — `fixed-in` checked for SHAPE only; run in a full clone to verify "
+          "each sha resolves.")
 print(f"entries: {len(entries)}   problems: {len(problems)}")
 for s, why in problems[:25]:
     print(f"  FAIL [{s[:56]}] {why}")
@@ -111,6 +127,12 @@ if [[ "${1:-}" == "--self-test" ]]; then
 <!-- status: fixed
      lane: int
      area: runtime -->
+
+## bad-fixed-not-a-sha — fixed-in is a CI run id, not a sha
+<!-- status: fixed
+     lane: int
+     area: runtime
+     fixed-in: 30484689408 -->
 BAD
   out="$(run_check "$TMP")"; rc=$?
   echo "$out"
@@ -118,12 +140,12 @@ BAD
   if [[ $rc -eq 0 ]]; then
     echo "SELF-TEST FAILED: the malformed fixture passed — this gate proves nothing"; exit 1
   fi
-  for want in "no header comment" "not in" "requires"; do
+  for want in "no header comment" "not in" "requires" "is not a commit sha"; do
     if ! printf '%s' "$out" | grep -q "$want"; then
       echo "SELF-TEST FAILED: expected a problem mentioning '$want'"; exit 1
     fi
   done
-  echo "--- self-test ok (3 planted defects all caught); checking $FILE ---"
+  echo "--- self-test ok (4 planted defects all caught); checking $FILE ---"
 fi
 
 run_check "$FILE"
