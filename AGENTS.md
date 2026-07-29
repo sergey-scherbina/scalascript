@@ -211,8 +211,34 @@ so they bind even before you open the index:
 
 **bugs rules (non-negotiable):**
 - Every bug — reported by busi in the rozum room, or found by you — gets a `BUGS.md`
-  entry (status + how-to-reproduce + reporter/`seqN` + SHA + notes). Status flows
-  `open → needs-info → fixed → done`; close only when the reporter confirms.
+  entry, and it **must carry the machine-readable header** defined in
+  [`specs/bugs-index.md`](specs/bugs-index.md). `tests/e2e/bugs-index-gate.sh` refuses an
+  entry without one:
+
+  ```markdown
+  ## <slug> — <one line>
+  <!-- status: open        · open|fixed|wontfix|duplicate|unknown
+       lane: native        · native|int|js|jvm|v2-jvm|v2-rust|apparatus|multi|n/a
+       area: front         · front|runtime|codegen|cli|conformance|build|docs|plugin|other
+       gate: tests/e2e/…   · what would catch a regression; `none` if there is not one yet
+       fixed-in: <sha> -->   · required when status: fixed
+  ```
+
+  The prose still carries repro / reporter / root cause — the header exists so a QUERY
+  never has to read prose.
+- **`done` is not a status.** This rule used to read `open → needs-info → fixed → done`,
+  and that is exactly why the file ended up with three words for one state (measured
+  2026-07-29: `FIXED` 332, `DONE` 67, `RESOLVED` 3, plus ten one-off freeform ones, and
+  **108 of 614 entries with no status at all**). Closed is **`fixed`**; "the reporter has
+  not confirmed yet" is `confirmed: no`, which is a different question from whether the
+  defect is still present.
+- **Do not grep the prose for status — run `scripts/bugs-report`.** Hand-rolled queries
+  over prose disagreed with each other; on 2026-07-28 one silently omitted 108 entries
+  and missed every `DONE` while answering a direct question about remaining work.
+  `scripts/bugs-report --status open --lane native`, `--v2`, `--no-gate`.
+- A superseded report is **kept but demoted**: `### Original report (superseded YYYY-MM-DD)`,
+  in the past tense. Twice on 2026-07-28 a preserved present-tense report was read as
+  current truth — once a regression was waved through on it.
 - Reproduce from the reporter's minimal repro **in the real harness / assembled jar**,
   not `ssc run`/`runMain` (which can disable the JIT via classpath and hide the bug).
   A wrong "your binary is stale" reply once had to be retracted for exactly this.
