@@ -1,4 +1,4 @@
-# corpus-contract-roster-v1	baseline-sha256=a9eb5997a9f903c6f8fb9077289be07202d74fb56d667adeddb12cd9476cc31b	roster-sha256=629581e6f04ed1adf2fb616624b9ec14a978981858183ae0c77f63c0b443e39c
+# corpus-contract-roster-v1	baseline-sha256=29ca0b14c158e6ecfa90fd86f377a6b8167ef7c464862a3bb094899560d04743	roster-sha256=c7a81925d7ad72be81477a44c123b85236dbcad254c5b5e0be47feb8ee5360e2
 _bug1_httpclient
 _bug1b
 _bug1c
@@ -132,6 +132,7 @@ fence-attr-code
 fence-doc-block
 fenceless-bare-code
 fetch-auth
+fewer-braces-colon
 fn-typed-field
 for-comprehensions
 for-yield-layout
@@ -473,6 +474,7 @@ try-catch-io-failure
 try-multistmt-body
 tuples
 type-ascription
+type-ascription-unit
 typeclass
 typeclass-extension
 typed-data
