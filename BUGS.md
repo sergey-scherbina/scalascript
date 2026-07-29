@@ -1,5 +1,47 @@
 # Bug tracker
 
+## v2-optin-provider-cases — cases that need an OPT-IN provider are run on the standard launcher and counted as v2 failures
+
+**Status:** OPEN — **measured; this is a case-selection gap, not a v2 defect** (found 2026-07-29 by
+`v2-optin-provider-cases` while working the plugin-globals cluster of `bugs-v2.md`).
+
+**The evidence is build.sbt's own words.** `v2/runtime/providers/pdf-plugin` is declared:
+
+> *"Explicit, opt-in PDF provider. Its renderer/parser dependencies are staged under
+> `bin/lib/providers/pdf` and never enter the standard launcher graph."*
+
+There is a separate launcher for exactly this — `bin/ssc-provider <name> run <file>` — and
+`bin/lib/providers/` currently holds **five**: `graph-rdf4j`, `mcp`, `nfc`, `pdf`, `swift`.
+
+**Measured, both directions:**
+
+```
+bin/ssc run --v2      examples/invoice-pdf.ssc   -> ssc: unbound global: htmlToPdfBase64
+bin/ssc-provider pdf run examples/invoice-pdf.ssc -> renders, rc=0
+```
+
+So the three PDF cases (`invoice-email`, `invoice-pdf`, `pdf-extract-demo`) do not fail because v2
+is broken. They fail because the corpus contract runs every case with `bin/ssc`, which deliberately
+excludes the provider's heavy third-party deps (PDFBox, openhtmltopdf, jsoup).
+
+**Same shape as `backend:`, which was fixed in `baa55cdb9`** — the contract executed cases on lanes
+they never claimed. Here it executes them with a launcher they cannot run under. Both make the v2
+number describe something other than v2.
+
+**Why this is not a one-line follow-up.** Unlike `backend:`, the affected cases carry NO marker to
+honour: `examples/invoice-pdf.ssc` has no front-matter at all. A fix therefore needs BOTH
+(a) a declaration on the cases — the corpus already has a `requires:` key that `run.sc` honours via
+its `backendFeatures` table, so extending that rather than inventing a second key is the obvious
+route — and (b) `contract.sc` reading it, exactly as it now reads `backend:`.
+
+**Not all of cluster C is this.** Verified: `bin/ssc-provider mcp run examples/mcp-agent.ssc` STILL
+fails with `unbound global: mcpServer`, so the two MCP cases are a different problem even though
+`mcp` is also a provider. `nfc-ndef` (provider `nfc`) is untested. Do not assume the whole cluster
+collapses into this one — it is 3 confirmed, up to 6 candidates.
+
+**Effect on the number:** if these are excluded the way `backend:` cases now are, the honest v2
+count drops by at least 3 more.
+
 ## v2-infix-extension-operator-stringifies — `a ++ b` on a user type silently becomes a STRING
 
 **Status:** OPEN — **diagnosed to the line, and a one-sided fix is NOT safe** (found 2026-07-29 by
