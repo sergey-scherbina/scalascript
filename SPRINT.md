@@ -90,7 +90,7 @@ front-matter and baseline; *no tool at all* knows about `overrides.tsv`. It cost
 Both are the shape already recorded as [[project_v2_field_index_registry_family]]: duplicated state
 with no invariant. Fix the invariant first, the format later.
 
-- [ ] **ARCH-1 — cross-freeze consistency gate. Cheapest, highest yield, no design decision needed.**
+- [x] **ARCH-1 — cross-freeze consistency gate.** LANDED `c20158d84`. Proven RED in all four directions (declaration without row, row without declaration, orphaned `overrides.tsv` row, and the reverse), each restoring to PASS on clean main. A false positive was designed out BEFORE writing it: four cases declare `known-red: jvm` with no baseline row, which is CORRECT because the contract's default lane set is int/js/v2 — so the gate reads `canonicalLanes` out of `contract.sc` rather than copying the list, which would have made it a fifth source of truth. Original entry:
       *Do NOT change any format yet.* Add `tests/e2e/freeze-consistency-gate.sh` that loads all four
       freezes plus the front-matter and fails when they disagree about the same case:
       a `known-red:` lane with no paired baseline row (and vice versa); an `overrides.tsv` row for a
