@@ -1,5 +1,52 @@
 # Bug tracker
 
+## v1-interpreter-hot-path-never-jits — the INT lane's core dispatch is over HotSpot's limit
+
+**Status:** OPEN (found 2026-07-29 by censusing v1 for the first time; gate landed alongside, the
+splits are the remaining work).
+
+**`-XX:+DontCompileHugeMethods` is on by default and a method over `-XX:HugeMethodLimit` (8000
+bytecodes) is NEVER JIT-compiled** — not C1, not C2. It runs in the bytecode interpreter for the
+life of the process, with no warning and no correctness signal. In v2 this exact defect cost
+**2.4–10.8×** until `Prims.__method__` was split, which is why `tests/e2e/v2-jit-size.sh` exists.
+
+**That gate scans `v2/{src,backend-jvm-bytecode,jvm-runtime}` only.** Nobody pointed it at v1 — the
+tree that is **4.3× larger** (302 210 lines vs 70 844). First census, 73 class dirs:
+
+| bytecodes | method | on the hot path? |
+|---:|---|---|
+| 28036 | `ActorScheduler.handleActorOp` | every actor op |
+| 24984 | `JsGen.genExpr` | every JS emission |
+| 21114 | `DispatchRuntime$.infix2` | **every INT method call** |
+| 16346 | `RustCodeWalk$.renderTerm` | every Rust emission |
+| 15330 | `EvalRuntime$.evalCore` | **every INT term** |
+| 14696 | `DispatchRuntime$.dispatchList` | **every INT list op** |
+| 9839 | `DispatchRuntime$.dispatchString` | **every INT string op** |
+
+Four of the seven are the interpreter's core dispatch: every conformance INT case, every
+`ssc run`, and every benchmark of the v1 interpreter goes through methods that HotSpot has
+permanently refused to compile. They are 1.2–3.5× over the limit.
+
+**This reframes a measurement that has been quoted for months.** `f-front-compile-cost-7x-on-scljet`
+and the general "the interpreter is slow" numbers were all taken against a hot path that cannot be
+JIT-compiled. Whatever the true cost of F is, it has been measured on top of this.
+
+**Gate landed, deliberately NOT hard-failing.** `tests/e2e/v1-jit-size.sh` freezes these seven by
+name and size: it fails on an EIGHTH, on any frozen method that GROWS, and — self-expiring, like a
+`known-red:` — on any frozen method that no longer appears, so the exemption list can only shrink.
+Seven pre-existing offenders cannot be fixed in the commit that adds the gate, and a gate that is
+red on arrival is disabled within a day.
+
+**Not attempted here:** the splits themselves. Each is a hot-path change in a 5000-line file and
+wants its own before/after benchmark, with the alternating-A/B discipline
+(`feedback_contended_host_needs_alternating_ab`) because a single run on a loaded host manufactures
+impressive numbers. Suggested order — `infix2`, `evalCore`, `dispatchList`, `dispatchString` first,
+since they are the ones every INT case pays.
+
+**Note on the file-size intuition:** `Main.scala` is the largest file in the repository (8467 lines)
+and has **no** over-limit method. Size of file is not the signal; size of method is. An earlier plan
+to split `Main.scala` first would have spent a day on the wrong target.
+
 ## rozum-agent-family-v2-diverges-again — four cases that were PASS hours ago now DIVERGE
 
 **Status:** OPEN, **not caused by the claim that found it** (`v2-backend-matrix-gaps`, 2026-07-29).

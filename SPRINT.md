@@ -112,7 +112,7 @@ with no invariant. Fix the invariant first, the format later.
       context attached. *Done-when:* the INT lane reports *why* a child produced nothing, and no
       lane can be added without going through it.
 
-- [ ] **ARCH-3 — break up the four giants, smallest first.** Not cosmetics: a method over 8000
+- [~] **ARCH-3 — RE-SCOPED BY MEASUREMENT; gate landed, splits remain.** The premise was right (the JIT limit) but the targets were wrong. `v2-jit-size.sh` scans v2 only; censusing v1 for the first time found **seven** methods over 8000 bytecodes, four of them the interpreter's core dispatch that every INT case runs through — `infix2` 21114, `evalCore` 15330, `dispatchList` 14696, `dispatchString` 9839, plus `handleActorOp` 28036, `genExpr` 24984, `renderTerm` 16346. **`Main.scala`, which this entry named as the first target, has NO over-limit method** — size of file is not the signal, size of method is. Landed `tests/e2e/v1-jit-size.sh` with a frozen debt list that fails on an eighth, on growth, and on a frozen entry that no longer applies (so it can only shrink). BUGS §`v1-interpreter-hot-path-never-jits`. **Remaining:** the splits themselves, each with an alternating before/after A/B — start with the four dispatch methods. Original entry: Not cosmetics: a method over 8000
       bytecodes is **never JIT-compiled** ([[feedback_hugemethodlimit_silent_no_jit]]) and that
       already cost 2.4–10.8× in the v2 runtime. `Main.scala` at 8467 lines is not a CLI — it also
       holds the front decision, the delegation fallback and `validateNoReader`.
