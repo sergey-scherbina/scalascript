@@ -1,0 +1,53 @@
+---
+name: type-ascription-unit
+description: "case _: Unit matches the unit value, and it must mean the same on every lane"
+backends: [int, js, jvm, v2]
+---
+
+# `case _: Unit`
+
+`BUGS.md` `v2-native-case-unit-pattern-matches-where-int-does-not`. `Unit` is an ordinary
+type and a type-ascription pattern on it holds for the unit value. The native lane already
+agreed — its type-test table maps the unit value to the `Unit` tag — while INT and JS both
+fell through to the wildcard, because their tables listed every scalar type *except* this
+one and ended in a catch-all `false`.
+
+That the two disagreed matters more than the pattern itself: **INT is this suite's
+reference lane**, so any case written around `case _: Unit` was being graded against the
+lane that got it wrong.
+
+```scalascript
+def kind(x: Any): String = x match
+  case _: Unit => "unit"
+  case _: Int => "int"
+  case _ => "other"
+
+println(kind(()))
+println(kind(5))
+println(kind("s"))
+```
+
+A function whose body ends in `println` returns unit, so the pattern has to hold for a
+*computed* unit as well as the `()` literal — that is the shape the defect was found in
+(a `match` on the result of a side-effecting call, which then printed `()` on INT and
+nothing on native).
+
+```scalascript
+def side(): Unit = println("effect")
+
+def f(x: Any): Unit =
+  x match
+    case _: Unit => ()
+    case _ => println(x)
+
+f(side())
+println("after")
+```
+
+The wildcard must still win for everything that is not unit, or "fixed" would just mean
+the arm swallowed every scrutinee.
+
+```scalascript
+val xs = List((), 1, "a", true)
+println(xs.map(x => kind(x)).mkString(","))
+```

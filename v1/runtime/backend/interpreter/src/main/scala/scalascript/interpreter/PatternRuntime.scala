@@ -1323,6 +1323,11 @@ private[interpreter] object PatternRuntime:
               while p != null && !ok do { ok = p == typeName; p = interp.parentTypes.getOrElse(p, null) }
               ok
             }
+          // `Unit` is an ordinary type and `case _: Unit` holds for the unit value —
+          // the JVM and native lanes both agree, and this table's omission made INT
+          // (the conformance reference lane) the odd one out: the pattern fell through
+          // to the catch-all `false` below and the wildcard arm ran instead.
+          case Value.UnitV      => typeName == "Unit"
           // IntV represents both Int and Long (stored as JVM Long internally).
           case _: Value.IntV    => typeName == "Int" || typeName == "Long"
           case _: Value.DoubleV => typeName == "Double" || typeName == "Float" || typeName == "Number"

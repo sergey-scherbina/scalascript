@@ -760,6 +760,11 @@ private[codegen] trait JsGenCpsCodegen:
         case "Int" | "Long" | "Double" | "Float" | "Number" =>
           s"(typeof $scrutVar === 'number')"
         case "Boolean" => s"(typeof $scrutVar === 'boolean')"
+        // The unit value is `undefined` here (a unit-returning function falls off its
+        // end), and `null` stays a distinct value, so this test does not conflate the
+        // two. Without the arm `case _: Unit` fell to the `_type === 'Unit'` branch
+        // below, which is false for every primitive — INT had the same hole.
+        case "Unit"    => s"($scrutVar === undefined)"
         case "RuntimeException" | "Exception" | "Throwable" =>
           s"($scrutVar instanceof Error || ($scrutVar && $scrutVar._type === '$typeName'))"
         case ""        => "true"    // unknown type — fall through
