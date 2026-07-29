@@ -1610,6 +1610,14 @@ def compoundBaseOp = (toks) =>
   else if opIs("&&=", toks) then "&&"
   else ""
 
+-- Append one element to the end of a list. No such helper existed in this file; the
+-- indexed-assignment lowering below is its only caller.
+def snocArg = (xs, x) =>
+  match xs {
+    case Nil => Cons(x, Nil)
+    case Cons(h, t) => Cons(h, snocArg(t, x))
+  }
+
 def finishAssignment = (r) =>
   if kindIs("=", prT(r)) then
     match prV(r) { case Pair(tag, data) =>
@@ -1622,6 +1630,18 @@ def finishAssignment = (r) =>
         match data { case Pair(objE, fieldN) =>
           let rr = parseExpr(advance(prT(r))) in
           pr(Pair("sel_assign", Pair(objE, Pair(fieldN, prV(rr)))), prT(rr))
+        }
+      -- `a(i) = rhs` — an indexed store, which Scala defines as `a.update(i, rhs)`.
+      -- This arm belongs HERE, beside `var` and `sel`: this is the one place every
+      -- route into assignment parsing passes through. Without it the left side stayed
+      -- the EXPRESSION `a(i)`, the `= rhs` was never consumed and never lowered, and the
+      -- store vanished with no diagnostic — `Array(0,0); a(1)=7; println(a(1))` printed 7
+      -- on INT and JS and 0 on both v2 lanes. A wrong answer, not a crash.
+      -- BUGS `v2-array-indexed-store-silently-dropped`.
+      else if #seq(tag, "app") then
+        match data { case Pair(f, args) =>
+          let rr = parseExpr(advance(prT(r))) in
+          pr(mkApp(mkSel(f, "update"), snocArg(args, prV(rr))), prT(rr))
         }
       else r
     }

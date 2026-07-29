@@ -2103,6 +2103,14 @@ object Prims:
           BoolV(ab.nonEmpty)
         case (ForeignV(ab: collection.mutable.ArrayBuffer[?]), "toList", Nil) =>
           listOf(ab.asInstanceOf[collection.mutable.ArrayBuffer[Value]].toList)
+        // `a(i) = v`. Scala desugars an indexed store to `a.update(i, v)`, and the front now
+        // lowers it that way — before that it dropped the statement entirely, so this arm had
+        // nothing to receive and was deliberately NOT landed on its own: it would have looked
+        // like a fix while changing nothing. Both halves are required and this is the second.
+        // BUGS `v2-array-indexed-store-silently-dropped`.
+        case (ForeignV(ab: collection.mutable.ArrayBuffer[?]), "update", List(IntV(i), v)) =>
+          ab.asInstanceOf[collection.mutable.ArrayBuffer[Value]].update(i.toInt, v)
+          UnitV
         // Array/Map HOFs — same effect-aware traversal as the list HOFs (a real
         // ArrayBuffer flows out of Array.fill since v2-array-companion-list;
         // busi hub folds over such tables at module load).

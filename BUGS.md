@@ -630,6 +630,38 @@ generator, so it is likely one cause and not three.
      lane: int
      area: front -->
 
+**HALF FIXED 2026-07-29 (`v2-backend-matrix-gaps`). The DEFAULT front still has it — do not close.**
+
+| front | `Array(0,0); a(1)=7; println(a(1))` |
+|---|---|
+| `SSC_FRONT=legacy` | **7** — fixed |
+| `SSC_FRONT=F` (the DEFAULT) | **0** — still silently dropped |
+
+Fixed on the legacy path by adding the `app` arm to `finishAssignment` in
+`v2/lib/ssc1-front.ssc0`, beside the existing `var` and `sel` arms — that is the one place every
+route into assignment parsing passes through — plus the `ForeignV(ArrayBuffer)` `update` arm in
+`Prims` that the lowering now reaches. Both halves were required; the runtime arm alone had been
+written and reverted earlier precisely because it was unreachable.
+
+**Why F is not fixed here, and exactly where it is.** F is a separate self-hosted parser
+(`specs/v2.2-p6.5-fsub.ssc`, staged as `tower/bin/fsub.ssc`) with its own, narrower rule:
+
+```
+def isAssignHead(ts) = if fst(hd(ts)) == 1 then isAssignOp(hd(tl(ts))) else false   // :1156
+```
+
+It requires the FIRST token to be an identifier and the SECOND to be `=`. For `a(1) = 7` the second
+token is `(`, so the statement is not an assignment head at all; it falls to `parseExpr`, which
+stops at `=` and drops the rest. Same defect, different code, and it needs a postfix-then-`=` path
+rather than a two-token peek. F emits S-expression strings (a method call is
+`(app (global _sel_<name>) recv args…)`), so the arm must be built where the receiver and index
+arguments are still separate values, not recovered from an already-emitted string.
+
+**This is the "fix BOTH fronts or it is a half-fix" shape** that `project_two_front_bug_pairs_0728`
+records — met live: the legacy fix looked complete and correct, and the default front was still
+wrong.
+
+
 **Status:** OPEN — **diagnosed here, handed over deliberately** (the fix is in
 `v2/lib/ssc1-front.ssc0`, held by the live `v2-front-for-yield` claim). Found 2026-07-28 by
 `v2-backend-matrix-gaps` while clearing category 1 of `specs/v2-vs-v1-backend-matrix.md`.
