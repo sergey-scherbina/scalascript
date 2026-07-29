@@ -112,14 +112,14 @@ own arc. None is speculative: every one has a measured number attached.
       coordinating across the ~13 of them. `build-guard` bounds how many *builds* start; it does not
       bound forks within one. Consider deriving the tag limit from host RAM the way `build-guard`
       derives its slots. Same `build.sbt` block.
-- [ ] **`jvm-mem-guard-reads-the-wrong-signal`** — `~/.local/bin/jvm-mem-guard.sh` (launchd, every
+- [x] **`jvm-mem-guard-reads-the-wrong-signal`** — ✅ **DONE 2026-07-28** (`scripts/build-ram-guard`, installed). Triggers on available RAM + pageout RATE, never on `memorystatus_level`; escalates orphaned → idle → heaviest, with the last tier requiring both low memory and active thrashing. VERIFIED LIVE: launchd tick counter at 5,193 and the log carries **106 lines** including real action entries (`recovered after T1`) — its predecessor's log was 0 bytes for a week across two OOM events. — `~/.local/bin/jvm-mem-guard.sh` (launchd, every
       20 s) fast-paths out on `kern.memorystatus_level >= 25`. MEASURED: that sysctl read **93 %** on
       an idle host and **74 %** mid-event; its log is **0 bytes since 2026-07-21**, spanning an OOM
       event with 139,831 pageouts. Its `BUILD_RE` also misses `ssc`/`node` forks — the processes that
       actually caused that event. Move the script **into the repo**, switch the trigger to available
       memory + swap + compressor (what `scripts/build-ram-report` already computes), and widen the
       target set. It is outside version control today, which is why nobody noticed.
-- [ ] **`launchd-build-agents-drift-from-the-repo`** — `~/Library/LaunchAgents/io.scalascript.kill-stale-builders.plist`
+- [x] **`launchd-build-agents-drift-from-the-repo`** — ✅ **DONE 2026-07-28** (`scripts/build-guards-install`). VERIFIED: both agents now execute `/Users/sergiy/work/my/scalascript/scripts/…` from the checkout, the drifted `~/.local/bin` copy is out of the loop, the reaper runs hourly with `--idle 30 --kill`, the superseded guard is renamed `.superseded-by-build-ram-guard`, and the bloop daemon carries the periodic-GC flags. — `~/Library/LaunchAgents/io.scalascript.kill-stale-builders.plist`
       runs a **copy** at `~/.local/bin/kill-stale-builders` (byte-identical today; it will not stay
       so) once a day at 03:00, and cannot pick up the new `--idle`. Point launchd at the repo file,
       hourly, with `--idle 30 --kill`. Separately,
