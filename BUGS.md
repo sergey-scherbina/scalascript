@@ -1,5 +1,42 @@
 # Bug tracker
 
+## v2-doc-only-file-rejected-by-three-gates — a fence-less `.ssc` is a no-op by design, and the native lane refuses it three times over
+
+**Status:** OPEN — **diagnosed through three layers; a partial fix only moves the error** (found
+2026-07-29 by `v2-cluster-c-triage` while reducing `deploy`'s `checker exit 2`).
+
+**The design says this file is fine.** `feedback_ssc_fences_by_design` (2026-07-09): *"doc-only =
+no-op + stderr note"*. `examples/deploy.ssc` contains **zero** `scalascript` fences, and the v1
+interpreter agrees — `bin/ssc-tools run --v1 examples/deploy.ssc` exits **0**.
+
+The native lane refuses it, and refuses it again after each fix:
+
+| gate | location | behaviour | after fixing the one above |
+|---|---|---|---|
+| 1. checker | `v2/bin/ssc1-check-run.ssc0:49` | `eprint("no scalascript blocks"); exit(2)` -> `ssc: checker exit 2` | — |
+| 2. checker/CLI contract | same file + `RunNativeV2.scala:117` | exiting 0 is not enough: the CLI requires stdout to be exactly `OK`, else `ssc: checker exit 0` | reached after 1 |
+| 3. runner | `v2/bin/ssc1-run.ssc0:504`, `ssc1-run-fsub.ssc0` (2 sites) | `eprint(...); exit(1)` -> `ssc: native frontend exited with 1` | reached after 2 |
+| 4. structural ABI | `RunNativeV2` | `invalid native frontend structural ABI: content root identities [] do not match roots [...]` — an empty program has no content root | reached after 3 |
+
+I implemented 1-3 (checker exits 0 and prints `OK`; both runners emit an empty program instead of
+`exit 1`) and **reverted them**: each fix simply surfaced the next gate, and gate 4 lives in
+`RunNativeV2`, so a fix that stops at 3 leaves `deploy` failing with a *different* message — no
+better than before, while changing behaviour for every doc-only file without the fsub/semantic
+gates having been run.
+
+**What a complete fix needs.** All four layers agreeing that "no code" is a valid program:
+1. `ssc1-check-run.ssc0` — print `OK`, exit 0 (the stderr note stays).
+2. both runners — lower to an EMPTY program (`Pair(Nil, seen)`, an idiom already used in those
+   files) instead of `exit 1`.
+3. `RunNativeV2` — accept an empty content-root identity set when the program is empty, rather than
+   demanding identities match the source roots.
+Then re-run `specs/v2.2-p6.5-fsub.sh --self` and `v2.2-p6.5-semantic.sh check`, because 2 changes
+the shared runners.
+
+**Worth noting for whoever takes it:** the three gates duplicate the same policy decision in three
+places and disagree with the reference and with the written design. That is the actual defect —
+`deploy` is just the case that exposed it.
+
 ## v2-optin-provider-cases — cases that need an OPT-IN provider are run on the standard launcher and counted as v2 failures
 
 **Status: FIXED 2026-07-29** for the three PDF cases, with **no code change** — they now declare
