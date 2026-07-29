@@ -1,6 +1,5 @@
-# generation: 276
+# generation: 277
 #slug	agent	started	items	paths
 v2-backend-matrix-gaps	claude-code	2026-07-28T14:31:37Z	v2m-serve-banner-stream-parity v2m-2g-handler-lam-marking v2m-0-matrix-doc v2m-1-cannot-run v2m-1a-unbound-global-d v2m-1b-array-update v2m-1c-autooutput-source-backends v2m-2-order-of-magnitude v2m-3-recheck-after	v1/runtime/backend/interpreter-server/src/main/scala/scalascript/server/WebServer.scala tests/conformance/expected/tkv2-pwa.txt v2/lib specs/v2-handler-lam-marking.md v1/tools/cli/src/main/scala/scalascript/cli/Main.scala specs/v2-vs-v1-backend-matrix.md specs/v2-runtime-perf-vs-v1.md v2/src v2/backend v2/backend-jvm-bytecode v2/jvm-runtime bench SPRINT.md BACKLOG.md CHANGELOG.md BUGS.md docs/benchmarks.md tests/e2e/v2-jit-size.sh
 bugs-index-machine-readable	claude-code	2026-07-29T15:53:53Z	bugs-index-schema bugs-index-gate bugs-report-tool	tests/e2e/bugs-index-gate.sh scripts/bugs-index-migrate scripts/bugs-report specs/bugs-index.md .agents/plugins BUGS.md bugs-v2.md AGENTS.md SPRINT.md CHANGELOG.md
 v1-jit-size-gate	claude-code	2026-07-29T17:17:33Z	ARCH-3	tests/e2e/v1-jit-size.sh
-v2-provider-cases-gate	claude-code	2026-07-29T18:31:19Z	v2-optin-provider-cases-gate	tests/conformance/contract.sc examples/invoice-pdf.ssc examples/invoice-email.ssc examples/pdf-extract-demo.ssc tests/conformance/corpus-baseline.tsv tests/conformance/contract-roster.tsv BUGS.md SPRINT.md CHANGELOG.md
