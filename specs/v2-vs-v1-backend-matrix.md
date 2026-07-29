@@ -219,3 +219,38 @@ is thrown away before the emitter sees the term. The fix is to carry that fact i
 the `Lam`, or a distinct node) rather than re-deriving it from shape in the backend. That is an IR
 change and needs a spec and cross-front agreement, so it is queued rather than attempted:
 `SPRINT.md v2m-2g`.
+
+### MEASURED NEGATIVE: skipping the two single-kind dispatch parts
+
+A profile of `lazylist-take` (the worst ratio in the matrix) put **665 of ~2,500 samples ≈ 25%**
+inside `methodDispatch2..7` — the linear fall-through of the `__method__` split. Its receiver is a
+`ForeignV` served by part 9, so it walks seven parts to get there.
+
+A mechanical census (script over the arm patterns, not by eye) established that exactly two parts
+are single-kind and therefore provably skippable: part 2 is 41 arms = 40 `StrV` + one `case _`,
+part 7 is 41 = 40 `DataV` + one `case _`. Every other part is mixed, and parts 5/6/10 carry
+bare-variable receivers with guards that can match anything.
+
+Both were given a kind guard that bails to the next part when the receiver cannot match — exactly
+what running the part would have done, so semantics are preserved by construction.
+
+**Result: nothing.** Three alternating rounds, medians normalised against the unchanged v1 column:
+
+| workload | ratio before | ratio after | |
+|---|---:|---:|---|
+| `lazylist-take` | 421 | 410 | 1.03× |
+| `map-ops` | — | — | 1.05× |
+| `string-split` | 5.80 | 5.64 | 1.03× |
+
+All inside the noise band. **Reverted** — a change that removes work but not time, while adding a
+maintenance hazard ("keep the part single-kind or the guard silently skips arms"), is not worth
+carrying.
+
+**What this teaches about the profile, and it is the second time today:** a frame holding 25% of
+samples did not hold 25% of the time. Failed type tests inside those parts are evidently near-free
+once JIT-compiled — the samples land there because that is where the *thread* is, not because that
+is where the *cost* is. The `dataFields` slice earlier showed the same discount (28% of profile →
+20% gain). Treat a hot frame as a place to look, never as a size of prize.
+
+The census itself is kept in `SPRINT.md v2m-2f` — it is the prerequisite for any future
+kind-indexed dispatch, and it cost more to produce than the guards did.
