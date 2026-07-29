@@ -1,5 +1,58 @@
 # Bug tracker
 
+## v2-infix-extension-operator-stringifies — `a ++ b` on a user type silently becomes a STRING
+
+**Status:** OPEN — **diagnosed to the line, and a one-sided fix is NOT safe** (found 2026-07-29 by
+`v2-content-and-dsl-diverge` while reducing `dsl-ast-builder`'s DIVERGE).
+
+**Reproduction** (real harness; `std/dsl/pretty.ssc` declares `extension (l: Doc) def ++` / `def /`):
+
+```scalascript
+[DocText, DocBeside, text](std/dsl/pretty.ssc)
+val x = text("AA") ++ text("BB")
+println(x)
+```
+
+| form | INT | v2 |
+|---|---|---|
+| `a ++ b` (INFIX) | `DocBeside(DocText(AA), DocText(BB))` | **`DocText(AA)DocText(BB)`** — a String |
+| `a.++(b)` (EXPLICIT) | `DocBeside(…)` | `DocBeside(…)` — correct |
+
+The explicit method form already dispatches correctly, so this is purely the INFIX lowering. It is
+the whole of `dsl-ast-builder`'s divergence: `render(doc)` loses `module example`, `val x = 42` and
+`  val y = x + 1`, because the document was never built — it was stringified.
+
+**Root cause, exact.** `ssc1-lower` lowers infix `++` to `IrPrim("__arith__", ["++", l, r])`, and the
+runtime's `__arith__` has a generic arm `case "++" => StrV(x.toString + y.toString)`. The mechanism
+to do better ALREADY EXISTS — `__arithExt__(op, l, r, ext)` keeps primitive operands primitive and
+otherwise calls the extension closure — but the lowerer emits it for **`|` only**, and the note
+there says the other operators "keep the established numeric-first behavior". For a non-numeric
+receiver that is not numeric-first, it is simply wrong.
+
+**⚠️ Why the obvious one-line fix is WRONG — measured, not predicted.** Extending the
+`isExtensionMethod(op)` guard to `++` and `/` in `ssc1-lower` does fix the case… and BREAKS string
+concatenation in any program that declares such an extension:
+
+```
+"[" + render(a) + "]"   ->   DocBeside(DocBeside([, AA), ])
+```
+
+because `+` is upgraded to `++` by the KC5-micro string rule, and `__arithExt__`'s `primitiveWins`
+guard only keeps **numeric** operands primitive — strings fall through to the extension. Reverted
+for that reason; a fix that trades one silent wrong answer for another is not a fix.
+
+**What a complete fix needs — two parts that must land together:**
+1. `v2/src/Runtime.scala`, `__arithExt__`: `primitiveWins` must also be true when the operands are
+   STRINGS (and for `++`, lists), not only numbers. It is a few characters at the `if op == "|"`
+   chain.
+2. `v2/lib/ssc1-lower.ssc0`: extend the existing `isExtensionMethod(op)` branch from `|` to `++`
+   and `/`.
+3. And, as always for the differential gate, the same in `specs/v2.2-p6.5-fsub.ssc` — note F emits
+   **no** `__arithExt__` at all today, so F needs the mechanism added, not just widened.
+
+Part (1) is in `v2/src`, which was held by a live claim (`v2-backend-matrix-gaps`) when this was
+found, which is why this is filed complete rather than half-landed.
+
 ## v1-interpreter-hot-path-never-jits — the INT lane's core dispatch is over HotSpot's limit
 
 **Status:** OPEN (found 2026-07-29 by censusing v1 for the first time; gate landed alongside, the
