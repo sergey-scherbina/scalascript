@@ -28,7 +28,7 @@ object PortableEffects:
 
   def perform(label: String, args: List[Value]): Value =
     val identity = ClosV(Runtime.emptyEnv, 1, env => Done(env.last))
-    DataV("Op", Vector(StrV(label), packArgs(args), identity))
+    DataV("Op", collection.immutable.ArraySeq(StrV(label), packArgs(args), identity))
 
   private def operationLabel(effectId: String, operationName: String): String =
     s"$effectId.$operationName"
@@ -52,7 +52,7 @@ object PortableEffects:
             Done(Prims.runClos1(env(0).asInstanceOf[ClosV], env.last))
           else rejected(operation)
         )
-        DataV("Op", Vector(StrV(label), argument, guarded))
+        DataV("Op", collection.immutable.ArraySeq(StrV(label), argument, guarded))
       case other => other
 
   def performOneShot(effectId: String, operationName: String, args: List[Value]): Value =
@@ -80,7 +80,7 @@ object PortableEffects:
     case HandlerDispatch.Suspended(label, argument, continue) =>
       val resume = ClosV(Runtime.emptyEnv, 1, env =>
         Done(foldDispatch(continue(env.last), onUnhandled)))
-      DataV("Op", Vector(label, argument, resume))
+      DataV("Op", collection.immutable.ArraySeq(label, argument, resume))
 
   private def operationName(label: String): String =
     val dot = label.lastIndexOf('.')
@@ -105,7 +105,7 @@ object PortableEffects:
   private val resumeIdentity = ClosV(Runtime.emptyEnv, 1, env => Done(env.last))
 
   private def deferredResume(nextComputation: Value, handler: Value): Value =
-    DataV("Op", Vector(
+    DataV("Op", collection.immutable.ArraySeq(
       StrV(resumeLabel),
       ForeignV(new ResumeRequest(resumeCapability, nextComputation, handler)),
       resumeIdentity,
@@ -179,7 +179,7 @@ object PortableEffects:
                     // Preserve the exact argument and base continuation/gate.
                     // The deep resume wrapper reaches that continuation first,
                     // then reinstalls this handler through the private driver.
-                    DataV("Op", Vector(StrV(label), argument, resume)),
+                    DataV("Op", collection.immutable.ArraySeq(StrV(label), argument, resume)),
                 )
                 handlingComputation = false
               case DataV("Op", fields) =>

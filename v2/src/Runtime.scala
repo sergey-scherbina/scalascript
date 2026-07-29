@@ -371,7 +371,7 @@ object Runtime:
         val r = Prims.runClos1(env2(0).asInstanceOf[Value.ClosV], env2.last)
         Done(letThreadOp(r, use))
       })
-      Value.DataV("Op", Vector(l, a, k2))
+      Value.DataV("Op", collection.immutable.ArraySeq(l, a, k2))
     case v => use(v)
 
   def seqThreadOp(op: Value, rest: () => Value): Value = op match
@@ -381,7 +381,7 @@ object Runtime:
         val r = Prims.runClos1(env2(0).asInstanceOf[Value.ClosV], env2.last)
         Done(seqThreadOp(r, rest))
       })
-      Value.DataV("Op", Vector(l, a, k2))
+      Value.DataV("Op", collection.immutable.ArraySeq(l, a, k2))
     case _ => rest()
 
   def applyFallback(v: Value, avs: Array[Value]): Step = v match
@@ -393,7 +393,7 @@ object Runtime:
           case c: Value.ClosV => Call(c, avs)
           case other => applyFallback(other, avs)
       })
-      Done(Value.DataV("Op", Vector(l, a, k2)))
+      Done(Value.DataV("Op", collection.immutable.ArraySeq(l, a, k2)))
     case Value.ForeignV(nmo: Value.NamedMethodObj) =>
       nmo.getField("apply") match
         case Some(c: Value.ClosV) => Call(c, avs)
@@ -807,7 +807,7 @@ object Compiler:
                   case Some(d) => d(env)
                   case None => Done(sys.error(s"match: no arm for ${Show.show(other)}"))
             })
-            Done(DataV("Op", Vector(l, a, k2)))
+            Done(DataV("Op", collection.immutable.ArraySeq(l, a, k2)))
           case DataV(tag, fs) =>
             armMap.get((tag, fs.length)) match
               case Some(body) =>
@@ -1810,7 +1810,7 @@ object Prims:
         case (DataV("Op", IndexedSeq(l, ag, k)), _, _) =>
           val k2 = ClosV(Array[Value](k), 1, env2 =>
             Done(methodOp(name, runClos1(env2(0).asInstanceOf[ClosV], env2.last), margs)))
-          DataV("Op", Vector(l, ag, k2))
+          DataV("Op", collection.immutable.ArraySeq(l, ag, k2))
         case (value @ DataV(tag, _), method, args)
             if V2PluginRegistry.lookupTaggedMethod(tag, method).isDefined =>
           V2PluginRegistry.lookupTaggedMethod(tag, method).get(value :: args)
@@ -2300,7 +2300,7 @@ object Prims:
             val resumed = Runtime.run(kc.code, if kc.env.isEmpty then Array(env2.last) else Runtime.extend(kc.env, Array(env2.last)))
             Done(resolve("__method__")(StrV(mname) :: resumed :: margs))
           })
-          DataV("Op", Vector(l, arg, k2))
+          DataV("Op", collection.immutable.ArraySeq(l, arg, k2))
         case (DataV("Stub", _), n, _) if n.matches("_\\d+") || n == "fieldAt" =>
           DataV("Stub", Vector.empty)  // stub tuple/field accessor
         case (DataV(tag, fields), n, Nil) if tag.startsWith("Tuple") && n.matches("_\\d+") =>
@@ -2802,14 +2802,14 @@ object Prims:
         val resumed = Runtime.run(kc.code, if kc.env.isEmpty then Array(env2.last) else Runtime.extend(kc.env, Array(env2.last)))
         Done(arithOp(op, resumed, r))
       })
-      DataV("Op", Vector(lb, arg, k2))
+      DataV("Op", collection.immutable.ArraySeq(lb, arg, k2))
     case (_, DataV("Op", IndexedSeq(rb, arg, k))) =>
       val kc = k.asInstanceOf[ClosV]
       val k2 = ClosV(Runtime.emptyEnv, 1, env2 => {
         val resumed = Runtime.run(kc.code, if kc.env.isEmpty then Array(env2.last) else Runtime.extend(kc.env, Array(env2.last)))
         Done(arithOp(op, l, resumed))
       })
-      DataV("Op", Vector(rb, arg, k2))
+      DataV("Op", collection.immutable.ArraySeq(rb, arg, k2))
     case (DataV("Cons" | "Nil", _), _) if op == "-" =>
       listOf(unlistPub(l).filterNot(_ == r))
     // Map + (k -> v): copy-on-write over the insertion-ordered MapV so the
@@ -2843,14 +2843,14 @@ object Prims:
         val resumed = Runtime.run(kc.code, if kc.env.isEmpty then Array(env2.last) else Runtime.extend(kc.env, Array(env2.last)))
         Done(arithOp(op, resumed, r))
       })
-      DataV("Op", Vector(lb, arg, k2))
+      DataV("Op", collection.immutable.ArraySeq(lb, arg, k2))
     case (_, DataV("Op", IndexedSeq(rb, arg, k))) =>
       val kc = k.asInstanceOf[ClosV]
       val k2 = ClosV(Runtime.emptyEnv, 1, env2 => {
         val resumed = Runtime.run(kc.code, if kc.env.isEmpty then Array(env2.last) else Runtime.extend(kc.env, Array(env2.last)))
         Done(arithOp(op, l, resumed))
       })
-      DataV("Op", Vector(rb, arg, k2))
+      DataV("Op", collection.immutable.ArraySeq(rb, arg, k2))
     // Everything else (char comparisons, list/tuple/Map/BigDecimal/actor cases,
     // generic fallback) lives in arithRest: keeping THIS method small keeps it
     // JIT-compilable and inlinable into hot loops — the a2985d911 unification
@@ -3210,7 +3210,7 @@ object Prims:
   def liftOverOp(op: Value, use: Value => Value): Value = op match
     case DataV("Op", IndexedSeq(l, a, k)) =>
       val kc = k.asInstanceOf[ClosV]
-      DataV("Op", Vector(l, a, ClosV(Runtime.emptyEnv, 1, env2 => {
+      DataV("Op", collection.immutable.ArraySeq(l, a, ClosV(Runtime.emptyEnv, 1, env2 => {
         val resumed = Runtime.run(kc.code, if kc.env.isEmpty then Array(env2.last) else Runtime.extend(kc.env, Array(env2.last)))
         Done(resumed match { case op2 @ DataV("Op", _) => liftOverOp(op2, use); case r => use(r) })
       })))
