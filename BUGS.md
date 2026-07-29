@@ -1437,9 +1437,16 @@ documents through `println` rather than through `report`, so it hid this for tho
 fenceless `.ssc` (whose whole body is one block) always went through `report`, which is why this
 needed its own fix.
 
-## v2-native-case-unit-pattern-matches-where-int-does-not — `case _: Unit` is true on native, false on INT
+## v2-native-case-unit-pattern-matches-where-int-does-not — `case _: Unit` was true on native, false on INT and JS
+<!-- status: fixed
+     lane: multi
+     area: runtime
+     fixed-in: c3490e939
+     gate: tests/conformance/type-ascription-unit.ssc -->
 
-**Status:** OPEN (found 2026-07-28 by `v2-multiblock-auto-output`). Six lines:
+**Fixed 2026-07-29.** `Unit` is an ordinary type and `case _: Unit` holds for the unit value. Both
+the interpreter's and the JS backend's type-test tables listed every scalar type *except* this one
+and ended in a catch-all `false`, so the pattern fell through to the wildcard arm.
 
 ```scalascript
 def f(x: Any): Unit =
@@ -1449,24 +1456,69 @@ def f(x: Any): Unit =
 f(println("side"))
 ```
 
-| lane | output |
-|---|---|
-| `bin/ssc run` (default) | `side` |
-| `bin/ssc-tools run --v1` | `side` then **`()`** |
+| lane | before | after |
+|---|---|---|
+| `bin/ssc run` (native, default) | `side` | `side` |
+| `ssc-tools run-jvm` | `side` | `side` |
+| `ssc-tools run --v1` (INT) | `side` then **`()`** | `side` |
+| JS via `emit-js` | `side` then **`()`** | `side` |
 
-The argument is `Unit`. Native's `case _: Unit` matches it and prints nothing further; INT's does
-not match, falls through to the wildcard, and prints `()`.
+**Scope was wider than this entry first said.** It was filed as "an INT gap"; measuring all four
+lanes showed **JS had the same hole**. That is the part that mattered: INT and JS are the two lanes
+the conformance suite *grades* with — INT is its reference — while native and JVM are the two that
+were right. So any case written around `case _: Unit` was being checked against the lanes that got
+it wrong, and a native-vs-INT diff would have been read as a native defect.
 
-**Which one is right.** Native. `Unit` is an ordinary type and a type-ascription pattern on it
-should hold for the unit value — `Runtime.scala`'s `__isTag__` maps `UnitV` to the `"Unit"` tag
-deliberately. So this is an INT gap, and it matters more than it looks because **INT is the
-conformance suite's reference lane and the corpus contract's golden probe**: a case written around
-`case _: Unit` is graded against the lane that gets it wrong.
+One arm each: `UnitV => typeName == "Unit"` in `PatternRuntime.scala`, `Unit => v === undefined` in
+`JsGenCpsCodegen.scala` (unit is `undefined` in the JS lane and `null` stays distinct, so the test
+does not conflate the two).
 
-**Fix direction.** v1's type-ascription pattern test needs the same `Unit` arm its `__isTag__`
-counterpart has. Same family as `v2-type-ascription-pattern` (the v2 side of this, fixed
-2026-07-10), just the other lane. Not taken here: this claim's paths do not include the v1
-interpreter.
+**A/B.** Against `tests/conformance/type-ascription-unit.ssc`: before, INT and JS differ from
+`expected/` on 3 of 6 lines; after, all four lanes print it byte-for-byte. Native and JVM printed it
+byte-for-byte both times — which is what establishes `expected/` as the right answer rather than my
+reading of it.
+
+## type-ascription-tuple-and-set-arms-missing — `case _: Tuple2` and `case _: Set` do not hold
+<!-- status: open
+     lane: multi
+     area: runtime
+     gate: none -->
+
+**Found 2026-07-29** by the probe written for the entry above — same table, same shape, not fixed in
+the same change because each needs its own decision about what the type name should mean.
+
+```scalascript
+def isTuple(x: Any): String = x match
+  case _: Tuple2 => "yes"
+  case _ => "no"
+def isSet(x: Any): String = x match
+  case _: Set => "yes"
+  case _ => "no"
+println(isTuple((1, 2)))
+println(isSet(Set(1, 2)))
+```
+
+| | native | INT | JS | Scala says |
+|---|---|---|---|---|
+| `case _: Tuple2` on `(1, 2)` | **yes** | no | no | yes |
+| `case _: Set` on `Set(1, 2)` | no | no | no | yes |
+
+Two different problems in one table:
+
+- **Tuple is a lane divergence** and therefore the more urgent one. Native gets it right for free —
+  it represents a tuple as `DataV("Tuple2", …)`, so the ordinary nominal test already matches —
+  while `Value.TupleV` and the JS array form have no arm. Fixing it needs a decision on arity:
+  `case _: Tuple2` must be false for a 3-tuple, so the arm has to compare against
+  `Tuple${elems.length}` rather than a prefix, and `Product` (which all tuples are) should probably
+  be accepted too.
+- **Set is a uniform gap.** All three lanes agree, so nothing diverges and no golden is at risk —
+  but all three disagree with Scala. `Value.SetV` is simply missing from the same list that already
+  carries `ListV`/`VectorV`/`MapV`. Cheapest of the two, and the arm is one line
+  (`typeName == "Set" || typeName == "Iterable"`).
+
+The uniform case is worth stating explicitly because it is invisible to every differential gate we
+have: a cross-lane sweep compares lanes to *each other*, so a gap all lanes share reads as green.
+This one only surfaced because the probe asked what Scala does.
 
 ## conformance-int-batch-false-fail-and-hidden-stderr — a case fails in the batch, passes everywhere else, and the reason is thrown away
 

@@ -1,5 +1,32 @@
 # Changelog
 
+## 2026-07-29 — `case _: Unit`, and the two lanes conformance grades with
+
+`Unit` is an ordinary type, and `case _: Unit` holds for the unit value. The interpreter and the
+JS backend both listed every scalar type *except* this one in their type-test tables and ended in
+a catch-all `false`, so the pattern fell through to the wildcard arm. One arm each fixes it.
+
+The reason this was worth chasing is not the pattern. It is **which** lanes were wrong: native and
+JVM — the two that execute — were already right, while INT and JS were not, and those are the two
+the conformance suite grades with (INT is its reference lane). A case written around `case _: Unit`
+was being checked against the lanes that misunderstood it, and a native-vs-INT diff would have been
+read as a native defect. The gate is `tests/conformance/type-ascription-unit.ssc`: before the fix
+INT and JS differ from `expected/` on 3 of 6 lines, after it all four lanes print the file
+byte-for-byte — and native and JVM printed it byte-for-byte *both* times, which is what makes
+`expected/` the measured answer rather than one reading of the spec.
+
+Freeze upkeep in the same change, because the `Corpus Contract` nightly was RED and one cause was
+ours: `fewer-braces-colon`, added on 07-28, was never rostered. **A new case is contract-RED even
+when every observed cell passes**, and nothing local says so — `run.sh` covers
+`tests/conformance/*.ssc` (334 cases) while the contract covers those *plus* `examples/*.ssc` (525).
+Adding a conformance case is a two-file change. Three expired baseline rows went with it
+(`wasm-collections`/`-http`/`-matrix`, v2 FAIL → PASS), verified locally rather than taken from CI's
+word — with the caveat that all three are doc-only files whose golden is empty, so their PASS means
+both lanes correctly did nothing.
+
+`BUGS.md` `v2-native-case-unit-pattern-matches-where-int-does-not`. Two adjacent gaps the same probe
+found are filed, not fixed: `type-ascription-tuple-and-set-arms-missing`.
+
 ## 2026-07-28 — two v2 roadmap cases closed: `xs.apply(i)` and the missing serve banner
 
 `xs(i)` and `xs.apply(i)` are the same operation, but only the first had a path on the native lane.
