@@ -18884,7 +18884,7 @@ same launcher; every fail was a real engine gap). One entry per cause:
   (`scripts/kill-stale-builders --kill`), and macOS Xcode `strings` silently failing on JVM
   `.class` files (use `grep -ac` / `unzip -p … | grep -ac` instead).
 
-## jvmgen-block-call-empty-parens — original report (was `open`, 2026-07-07)
+### Original report (superseded 2026-07-07)
 
 - **Found by:** claude (tkv2-components slice), via the full-corpus A/B: 4 tests
   (signals, effects, rest-validate, distributed-map) fail the JVM lane in any FRESH

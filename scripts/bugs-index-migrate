@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+"""bugs-index-migrate — add the machine-readable header to every BUGS.md entry.
+
+Spec: specs/bugs-index.md.  Derives each header from the entry's EXISTING prose; never deletes or
+rewrites prose.  Idempotent: an entry that already has a header is left alone.
+
+    scripts/bugs-index-migrate --dry-run          # distribution only, writes nothing
+    scripts/bugs-index-migrate --in-place         # rewrite BUGS.md
+    scripts/bugs-index-migrate --file X --out Y   # operate on a copy
+
+The mapping is deliberately conservative.  Anything the prose does not clearly say becomes
+`unknown` rather than a guess — the whole point is that a query can no longer silently omit an
+entry, not that every entry gets a confident label.
+"""
+import argparse, pathlib, re, subprocess, sys
+
+STATUS_CLOSED = re.compile(r"^\W*(fixed|done|resolved)\b", re.I)
+STATUS_OPEN   = re.compile(r"^\W*open\b", re.I)
+STATUS_WONT   = re.compile(r"^\W*(wontfix|won't fix|not-a-bug|not a bug|by design)\b", re.I)
+STATUS_DUP    = re.compile(r"^\W*duplicate\b", re.I)
+SHA           = re.compile(r"`([0-9a-f]{7,40})`")
+AWAITING      = re.compile(r"await|waiting|unconfirmed|pending confirmation", re.I)
+
+LANE_HINTS = [
+    ("v2-jvm", ("v2-jvm", "v2 jvm source", "jvm source gen")),
+    ("v2-rust", ("v2-rust", "v2 rust")),
+    ("js",   ("jsgen", "emit-js", "js lane", "javascript", "node")),
+    ("jvm",  ("jvmgen", "run-jvm", "jvm lane", "bytecode lane")),
+    ("int",  ("int lane", "interpreter", "run --v1", "v1 interp")),
+    ("native", ("native lane", "native front", "bin/ssc run", "fsub", "ssc1-front", " f front", "v2 ")),
+    ("apparatus", ("conformance", "corpus contract", "ci ", "gate", "harness", "bench", "claim", "ledger")),
+]
+AREA_HINTS = [
+    ("front", ("parse", "_err", "front", "lexer", "layout", "fsub", "ssc1-front")),
+    ("codegen", ("jsgen", "jvmgen", "codegen", "emit", "bytecode")),
+    ("runtime", ("runtime", "prim", "dispatch", "stub", "value", "effect")),
+    ("cli", ("cli", "launcher", "bin/ssc", "standardmain")),
+    ("conformance", ("conformance", "corpus", "contract", "golden", "baseline", "roster")),
+    ("build", ("build", "sbt", "installbin", "ram", "daemon", "workflow", "ci")),
+    ("plugin", ("plugin", "provider", "intrinsic")),
+    ("docs", ("docs", "readme", "markdownlint", "agents.md")),
+]
+
+
+def classify(slug: str, body: str):
+    head = body[:1400]
+    m = re.search(r"\*\*Status:\*\*\s*(.{0,160})", head, re.S)
+    raw = " ".join(m.group(1).split()) if m else ""
+
+    if not raw:                          status = "unknown"
+    elif STATUS_DUP.match(raw):          status = "duplicate"
+    elif STATUS_WONT.match(raw):         status = "wontfix"
+    elif STATUS_CLOSED.match(raw):       status = "fixed"
+    elif STATUS_OPEN.match(raw):         status = "open"
+    else:                                status = "unknown"
+
+    fixed_in = None
+    if status == "fixed":
+        # Candidates in prose order. VERIFY each against git rather than trusting the shape:
+        # CI run ids are 11 digits and match a naive [0-9a-f]{7,40}, and shas from the plugins
+        # submodule do not resolve here. An unverifiable candidate becomes `unrecorded`, which
+        # is the honest answer — somebody fixed it, we just cannot name the commit.
+        fixed_in = "unrecorded"
+        for cand in [m.group(1) for m in SHA.finditer(raw)] + [m.group(1) for m in SHA.finditer(head)]:
+            if cand.isdigit():
+                continue
+            if subprocess.run(["git", "cat-file", "-e", cand + "^{commit}"],
+                              capture_output=True).returncode == 0:
+                fixed_in = cand
+                break
+
+    hay = (slug + " " + head).lower()
+    lane = next((n for n, keys in LANE_HINTS if any(k in hay for k in keys)), "multi")
+    area = next((n for n, keys in AREA_HINTS if any(k in hay for k in keys)), "other")
+
+    gate = None
+    g = re.search(r"(tests/(?:e2e|conformance)/[A-Za-z0-9_.\-/]+)", head)
+    if g: gate = g.group(1)
+
+    confirmed_no = status == "fixed" and bool(AWAITING.search(raw))
+    return status, lane, area, fixed_in, gate, confirmed_no
+
+
+def render(status, lane, area, fixed_in, gate, confirmed_no):
+    out = [f"<!-- status: {status}", f"     lane: {lane}", f"     area: {area}"]
+    if fixed_in:    out.append(f"     fixed-in: {fixed_in}")
+    if confirmed_no: out.append("     confirmed: no")
+    if gate:        out.append(f"     gate: {gate}")
+    out[-1] += " -->"
+    return "\n".join(out)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--file", default="BUGS.md")
+    ap.add_argument("--out")
+    ap.add_argument("--in-place", action="store_true")
+    ap.add_argument("--dry-run", action="store_true")
+    a = ap.parse_args()
+
+    src = pathlib.Path(a.file)
+    lines = src.read_text().split("\n")
+
+    out, i, stats, touched, already = [], 0, {}, 0, 0
+    while i < len(lines):
+        ln = lines[i]
+        out.append(ln)
+        if ln.startswith("## "):
+            slug = ln[3:].split("—")[0].strip().split()[0] if len(ln) > 3 else "?"
+            j = i + 1
+            body = "\n".join(lines[i + 1: i + 60])
+            if re.match(r"\s*<!--", lines[j] if j < len(lines) else ""):
+                already += 1
+            else:
+                st, lane, area, fx, gate, cn = classify(slug, body)
+                out.append(render(st, lane, area, fx, gate, cn))
+                stats[st] = stats.get(st, 0) + 1
+                touched += 1
+        i += 1
+
+    print(f"entries touched: {touched}   already had a header: {already}")
+    for k in sorted(stats): print(f"  {k:10} {stats[k]}")
+    if a.dry_run:
+        print("(dry run — nothing written)")
+        return 0
+
+    dest = pathlib.Path(a.out) if a.out else (src if a.in_place else None)
+    if dest is None:
+        print("refusing to write without --in-place or --out", file=sys.stderr); return 2
+    dest.write_text("\n".join(out))
+    print(f"wrote {dest}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
