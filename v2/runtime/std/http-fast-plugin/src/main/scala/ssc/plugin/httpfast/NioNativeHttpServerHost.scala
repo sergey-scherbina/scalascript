@@ -80,10 +80,24 @@ private[httpfast] final class NioNativeHttpServerHost(context: NativePluginConte
     // `root: .` is not a placeholder -- this host serves relative to the process CWD and
     // has no configurable root, so `.` is the honest value. Scheme is always http: the
     // TLS entry points on this plugin throw rather than serve.
-    Console.out.println(s"ScalaScript web · http://localhost:$boundPort/  (root: .)")
-    Console.out.println("  (backend=fast)")
-    Console.out.println("Ctrl+C to stop.")
-    Console.out.flush()
+    // STDERR, not stdout: a startup banner is developer chatter, not program output, so it must not
+    // be part of any observable contract (BUGS `v2-serve-banner-belongs-on-stderr`).
+    //
+    // It being on stdout was a real, measured cost rather than a style point: it took the
+    // `ScalaScript 2.1 standard-only negative toolchain release gate` red, because that gate asserts
+    // a serving program's output and got the banner prepended to it —
+    //   expected=$'203\npong:/ping'
+    //   got=$'ScalaScript web · http://localhost:35141/ …\nCtrl+C to stop.\n203\npong:/ping'
+    // with exit 0 and the expected text present and correct. The banner was the entire difference.
+    //
+    // Safe on this lane, and that was checked rather than assumed: `tests/conformance/run.sc`
+    // compares ONLY stdout on success (`outputWithFailureContext`: `if exitCode == 0 then out`), and
+    // no v2-lane golden contains the banner — the single golden that does, `tkv2-pwa.txt`, is
+    // `backends: [int]` and is produced by v1's WebServer, which this does not touch.
+    Console.err.println(s"ScalaScript web · http://localhost:$boundPort/  (root: .)")
+    Console.err.println("  (backend=fast)")
+    Console.err.println("Ctrl+C to stop.")
+    Console.err.flush()
     if !asynchronous then stopped.await()
 
   private def start(port: Int): Unit = synchronized {

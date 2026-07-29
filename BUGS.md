@@ -737,6 +737,42 @@ expected/got (`1cde350c7`, corrected to stdout-only in `364c3b228`).
 serving goldens, which is precisely the analysis a drive-by fix would skip. Raising the priority with
 the measurement rather than acting on it.
 
+**RESOLVED for the v2 lane 2026-07-29 — and the deferral's premise was wrong.**
+
+The reason this was deferred was an assumed blast radius: "it rewrites the golden of every serving
+example and needs its own claim plus a full-corpus re-freeze". Measured, that is not what it costs:
+
+```
+$ grep -rl 'ScalaScript web ·' tests/conformance/expected/ examples/
+tests/conformance/expected/tkv2-pwa.txt          # exactly ONE
+```
+
+One golden, because the other serving examples are skipped by the runner as un-runnable standalone,
+so the banner never reached their goldens.
+
+The precondition this entry asked for was also checked, and it came out the *other* way:
+`outputWithFailureContext` is `if exitCode == 0 then out` — stdout ONLY on success, stderr folded in
+only as failure context. So moving the banner is NOT observationally neutral; it is exactly what
+removes it from the compared text.
+
+Fixed on the v2 lane (`NioNativeHttpServerHost`: `Console.out` → `Console.err`). Verified with the
+real launcher against the exact assertion that was failing:
+
+```
+stdout: $'203\npong:/ping'      # byte-identical to the gate's expectation
+stderr: ScalaScript web · … / (backend=fast) / Ctrl+C to stop.
+```
+
+Conformance unaffected: `tkv2-pwa` still PASSES (it is `backends: [int]`, produced by v1's
+`WebServer`, untouched), and the serving/http slice is 2 passed / 0 failed.
+
+**STILL OPEN: the v1 lane.** `WebServer.start(port, root, log)` uses `log` for the banner and for
+nothing else; the CLI passes `System.out` at `v1/tools/cli/.../Main.scala:566`, so one word there
+(`System.out` → `System.err`) completes it. NOT done here because that file is held by the
+`v2-backend-matrix-gaps` claim — it is a one-line change waiting on a claim, not on a difficulty.
+Note that doing it *will* require dropping the three banner lines from `tkv2-pwa.txt`, which also
+removes a hardcoded port number (`localhost:18631`) from a golden — a latent flake in its own right.
+
 ## scljet-wal-recover flakes under parallel load — INT lane produces no output at all
 
 **Status:** open (found 2026-07-28 by `ssc-fork-heap-measurement`; not reported by a user).
