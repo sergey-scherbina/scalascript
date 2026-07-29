@@ -583,37 +583,57 @@ cannot run any program at all. This is the "fix every backend or it is a half-fi
 
 ## scljet-full-suite-int-lane-drops-one-case — exactly one INT case per full run produces no output at all
 
-**Status:** OPEN (found 2026-07-28 while A/B-ing the SC-2 candidate; not caused by it).
+**Status:** FIXED 2026-07-29 in `tests/conformance/run.sc` (ARCH-2). Root cause found; the original
+diagnosis in this entry was WRONG and is corrected below.
 
-**Signature.** A full `scljet-*` run (116 cases) fails **exactly one** case on the INT lane, and
-every expected line reports `got=<missing>` — the child produced *zero* output, not wrong output:
+**Signature.** A full run failed exactly one INT case with every line `got=<missing>` — zero output,
+not wrong output — and the case CHANGED between runs (`scljet-sql-real-literal` once,
+`scljet-sql-right-full-join` another), with and without an unrelated change, 115/116 each time.
+
+**What I first wrote here was wrong.** This entry claimed *"the INT lane calls `run(sscTools(...))`
+and, unlike the JS/JVM lanes, does not route through `outputWithFailureContext`, so the child's
+stderr and exit code are discarded."* That is false: `run(cmd)` **does** call
+`outputWithFailureContext`. Reading the helper instead of trusting the note is what found the real
+cause.
+
+**The real cause: a truncated batch is used as if it were data.** The INT and JS lanes do not spawn
+a process per case — `batchLane` runs the whole corpus in ONE JVM via `ssc-tools run-batch`, whose
+documented contract is:
+
+> the marker line is written to STDOUT and flushed **before** each case … a case that calls `exit()`
+> terminates the JVM (unavoidable) — consumers must fall back to per-case runs **for files missing
+> from the batch output**.
+
+When that JVM dies mid-case (OOM-kill under a loaded runner, `exit()`, anything), the marker for the
+in-flight case has already been flushed and nothing follows it. `splitBatch` therefore yields
+`sections(case) = ""` — **present and empty, not missing**. The call site
+`intBatch.getOrElse(name, run(...))` finds the key, never takes the fallback, and hands the emptiness
+to the comparison as though the program had genuinely printed nothing. The letter of the contract was
+honoured; its intent was missed. `batchLane` also passed `check = false` and never read `res.err`, so
+neither the exit code nor the child's stderr reached anyone.
+
+That explains every observed property: exactly ONE case (the JVM dies once), always the in-flight one,
+a different case each run (whichever met the limit), all-`<missing>` output, and passing when run
+alone.
+
+**Fix.** `batchLane` now inspects the exit code. On a non-zero exit it drops the LAST marked case
+from the map — the one that was in flight — so it falls back to its own per-case run, which goes
+through `run(...)` and therefore reports `<exit:N>` plus stderr. Only the last section is distrusted,
+so cases whose expected output is legitimately empty are not forced onto the slow path. The batch's
+stderr tail is printed too, so the next occurrence says WHY.
+
+**Proven red-then-green** with a deterministic reproduction rather than by waiting for the flake: a
+wrapper around `bin/ssc-tools` truncates `run-batch` output after the second marker and exits 137.
 
 ```text
-scljet-sql-real-literal:      FAIL [INT]   line 1: expected=… got=<missing>   (with the candidate)
-scljet-sql-right-full-join:   FAIL [INT]   line 1: expected=… got=<missing>   (clean main)
+old code:  coroutine-basic FAIL [INT]  line 1: expected=Yielded(1) got=<missing>   3 passed, 2 failed
+new code:  [batch] run-batch exited 137 — distrusting the in-flight case
+           'coroutine-basic'; it will be re-run on its own                          5 passed, 0 failed
 ```
 
-**It is a flake, and the evidence is that the case CHANGES.** Four cells, one variable each:
+Unwrapped control run: 5/5, no `[batch]` line, no regression. Both batch lanes (INT and JS) are
+covered — the reproduction tripped each.
 
-| | single case | full suite (116) |
-|---|---|---|
-| SC-2 candidate | PASS (direct **and** via conformance) | 115/116 — `scljet-sql-real-literal` |
-| clean `main` | PASS | 115/116 — `scljet-sql-right-full-join` |
-
-Same count, same all-`<missing>` signature, **different case**, with and without the candidate. So
-it is neither the candidate nor either specific case; it is the INT lane dropping one child per
-long run.
-
-**Why this matters more than one flaky case.** `<missing>` is indistinguishable at the report level
-from "the program printed nothing on purpose", and it costs a full-suite run to see. It also
-misattributes: measured naively, it reads as "your change broke case X" — which is exactly the
-wrong conclusion I drew twice before filling in the fourth cell.
-
-**Next step for whoever takes it.** The INT lane calls `run(sscTools("run", "--v1", …))`, and unlike
-the JS/JVM lanes it does not route through `outputWithFailureContext(out, err, exitCode)` — so the
-child's **stderr and exit code are discarded**. Wire those in first; the report should say whether
-the child was OOM-killed, timed out, or exited non-zero. Diagnose only after the runner stops
-throwing the evidence away.
 ## v2-front-for-comprehension-guard-line — a guard on its own line is parsed as a generator
 
 **Status:** OPEN (found 2026-07-28 by `v2-front-for-yield` — it was MASKED until then: the whole

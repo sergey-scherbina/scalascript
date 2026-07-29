@@ -441,12 +441,45 @@ def splitBatch(out: String): Map[String, String] =
 val noBatch: Boolean =
   cliArgs.contains("--no-batch") || sys.env.get("SSC_CONF_NO_BATCH").contains("1")
 
+/** Name on the LAST marker line, i.e. the case that was IN FLIGHT when the batch JVM stopped. */
+def lastMarkedCase(out: String): Option[String] =
+  out.linesIterator.filter(_.startsWith(BATCH_MARK))
+    .map(_.stripPrefix(BATCH_MARK).trim).filter(_.nonEmpty).toList.lastOption
+
 def batchLane(launcher: os.Path, extra: Seq[String], eligible: List[Meta]): Map[String, String] =
   if noBatch || eligible.length < 3 then Map.empty
   else
     val cmd = Seq(launcher.toString, "run-batch", "--delim", BATCH_MARK) ++ extra ++ eligible.map(_.test.toString)
     val res = os.proc(cmd).call(stdin = "", stderr = os.Pipe, check = false)
-    splitBatch(res.out.text())
+    val sections = splitBatch(res.out.text())
+    if res.exitCode == 0 then sections
+    else
+      // The batch JVM did not exit cleanly, and `run-batch`'s contract says the marker is flushed
+      // BEFORE each case. So the last marked case was mid-execution when the JVM died, and its
+      // section is TRUNCATED — usually to nothing at all.
+      //
+      // That empty section is the whole bug behind BUGS `scljet-full-suite-int-lane-drops-one-case`:
+      // a full run dropped exactly one INT case per run, always with every line reported as
+      // `got=<missing>`, and always a DIFFERENT case. `run-batch`'s contract already told consumers
+      // to "fall back to per-case runs for files missing from the batch output" — but a case killed
+      // mid-flight is not MISSING, it is PRESENT AND EMPTY, so `intBatch.getOrElse(name, …)` found
+      // the key, never took the fallback, and handed the emptiness to the comparison as if the
+      // program had genuinely printed nothing. The letter of the contract was honoured and its
+      // intent was missed.
+      //
+      // Dropping the key restores the intent: absent means "run this one on its own", which goes
+      // through `run(...)` and therefore carries `<exit:N>` plus stderr — so the next occurrence
+      // says WHY the child produced nothing instead of blaming whatever change is in flight.
+      //
+      // Only the last section is distrusted, deliberately: cases whose expected output is
+      // legitimately empty must not be forced onto the slow path on every run.
+      val inFlight = lastMarkedCase(res.out.text())
+      val err = res.err.text().stripTrailing()
+      System.err.println(
+        s"[batch] run-batch exited ${res.exitCode} — distrusting the in-flight case" +
+          inFlight.map(n => s" '$n'").getOrElse("") + "; it will be re-run on its own." +
+          (if err.isEmpty then "" else s"\n[batch] stderr: ${err.linesIterator.toList.takeRight(3).mkString("\n[batch] ")}"))
+      inFlight.fold(sections)(sections - _)
 
 val runnable   = metas.filter(m => m.pending.isEmpty && m.expected.isDefined && !m.memoHit)
 val intBatch   = batchLane(sscToolsBin, Seq("--v1"), runnable.filter(metaSupports(_, "int")))
