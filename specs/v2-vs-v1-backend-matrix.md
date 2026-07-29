@@ -254,3 +254,30 @@ is where the *cost* is. The `dataFields` slice earlier showed the same discount 
 
 The census itself is kept in `SPRINT.md v2m-2f` — it is the prerequisite for any future
 kind-indexed dispatch, and it cost more to produce than the guards did.
+
+### Marginal, kept: `ArraySeq` instead of `Vector` for effect-Op fields
+
+Every performed effect reifies as `DataV("Op", <3 fields>)`, and all 16 sites built those fields
+with `Vector(l, a, k)` — `IterableFactory.apply(Seq)` → `Vector$.from`, i.e. a varargs `Object[]`,
+an intermediate Seq and the Vector: three allocations per operation. A profile of `effect-stream`
+put `Vector$.from` + `IterableFactory.apply` at 109 samples and `Object[]` at 186 allocation
+samples.
+
+Alternating medians, v2-bytecode ms/iter:
+
+| workload | before | after | |
+|---|---:|---:|---|
+| `effect-stream` | 4.93 | 4.58 | 1.08× (ranges partly overlap) |
+| `effect-multishot` | 0.494 | 0.480 | 1.03× |
+| `effect-oneshot` | 0.000545 | 0.000533 | 1.02× |
+
+**This is the same magnitude at which the dispatch kind-guards were REVERTED, so the difference has
+to be stated rather than assumed.** The guards carried a correctness footgun — a future non-`StrV`
+arm added to part 2 would have been silently skipped, and only a comment stood between that and a
+wrong answer. This change cannot acquire an invariant to violate: `ArraySeq` and `Vector` are both
+`IndexedSeq`, Seq equality is element-wise across implementations, and the file already spells
+constructor fields this way in 29 other places. It is strictly less allocation with nothing to
+maintain, so it stays — but it is recorded as **marginal, not as a win**.
+
+If a future reader wants a rule out of the pair: revert a no-gain change when carrying it costs
+future attention; keep it when it costs none.
