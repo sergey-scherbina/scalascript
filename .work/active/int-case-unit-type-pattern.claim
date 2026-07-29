@@ -2,10 +2,10 @@ slug: int-case-unit-type-pattern
 branch: feature/int-case-unit-type-pattern
 agent: claude-code
 started: 2026-07-29T18:42:00Z
-heartbeat: 2026-07-29T18:53:39Z
+heartbeat: 2026-07-29T19:39:17Z
 status: claimed-before-planning
-items: v2-native-case-unit-pattern-matches-where-int-does-not
-paths: v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/PatternRuntime.scala v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGenCpsCodegen.scala tests/conformance/contract-roster.tsv tests/conformance/corpus-baseline.tsv tests/conformance/type-ascription-unit.ssc tests/conformance/expected/type-ascription-unit.txt BUGS.md SPRINT.md CHANGELOG.md
+items: v2-native-case-unit-pattern-matches-where-int-does-not type-ascription-tuple-and-set-arms-missing
+paths: v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/PatternRuntime.scala v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGenCpsCodegen.scala tests/conformance/contract-roster.tsv tests/conformance/corpus-baseline.tsv tests/conformance/type-ascription-unit.ssc tests/conformance/type-ascription-tuple.ssc tests/conformance/expected/type-ascription-tuple.txt tests/conformance/expected/type-ascription-unit.txt BUGS.md SPRINT.md CHANGELOG.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
