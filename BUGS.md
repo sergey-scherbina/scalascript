@@ -37,6 +37,25 @@ the shared runners.
 places and disagree with the reference and with the written design. That is the actual defect —
 `deploy` is just the case that exposed it.
 
+## v2-nfc-case-runs-only-under-its-provider — `nfc-ndef` fails on EVERY standard lane, including INT
+
+**Status:** OPEN — measured 2026-07-29 by `v2-cluster-c-triage`; **not the same as the PDF three**.
+
+| lane | result |
+|---|---|
+| `ssc-tools run --v1` (INT — the contract's GOLDEN) | **FAIL** |
+| `ssc-tools run-js` | FAIL |
+| `bin/ssc run --v2` | FAIL |
+| `bin/ssc-provider nfc run` | **ok** |
+
+The PDF cases could declare `backends: [int]` because INT genuinely runs them. This one cannot:
+**no standard lane runs it at all**, so there is no honest `backends:` list to write. It belongs
+either in `tests/conformance/corpus-skip.txt` on the documented provider-only grounds, or the corpus
+needs a way to say "this case is exercised by `bin/ssc-provider <name>`, not by any lane" — which is
+the same gap `v2-optin-provider-cases` describes, one step further.
+
+**Do not "fix" it by making INT the declared lane** — INT fails too, so that would freeze a red.
+
 ## v2-optin-provider-cases — cases that need an OPT-IN provider are run on the standard launcher and counted as v2 failures
 
 **Status: FIXED 2026-07-29** for the three PDF cases, with **no code change** — they now declare
