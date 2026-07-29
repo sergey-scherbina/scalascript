@@ -1,0 +1,11 @@
+slug: bugs-stale-status-line
+branch: feature/bugs-stale-status-line
+agent: claude-code
+started: 2026-07-29T15:33:26Z
+heartbeat: 2026-07-29T15:33:26Z
+status: claimed-before-planning
+items: v2-native-multiblock-auto-output-stale-status
+paths: BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
