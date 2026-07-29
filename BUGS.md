@@ -1,5 +1,64 @@
 # Bug tracker
 
+## sbt-test-7-failures-first-visible-2026-07-29 — `sbt test` ran to completion for the first time in weeks
+
+**Status:** open, 3 clusters, filed for their owners. Found by `serve-banner-to-stderr`: fixing the
+negative-toolchain gate let the `sbt` job reach `Test via sbt`, which had been unreachable behind it.
+Run 30468925065 (`4b2f65a96`), 207 min, **7 failed of several thousand**, suite ran to completion —
+this is not a timeout.
+
+The per-push jobs were green in the same run (Lint, Validate, 4 conformance shards, Examples), so
+none of this is on the per-push verdict path.
+
+### Cluster 1 — Swift backend, 4 tests. LIKELY FALLOUT FROM `dd56c4b8d` (Mirror).
+
+```
+java.lang.IllegalArgumentException: swift backend: unsupported primitive '__regmethod__'
+  at ssc.swift.SwiftBackend$.fail(SwiftBackend.scala:436)
+```
+
+Failing: `run package uses the real Swift toolchain`, `emit writes deterministic v2 AppCore packages
+for macOS and iOS`, `build accepts v2 lane flags in positional-independent order`, `checked top-level
+metadata forces SwiftUI mode and rejects nested or empty bundle ids`.
+
+`git log -S'__regmethod__' -- v2/lib/ssc1-lower.ssc0 specs/v2.2-p6.5-fsub.ssc` points at **dd56c4b8d**
+("`Mirror.fromProduct` on the native lane"), whose message states `fromProduct` is "one tag-level
+`__regmethod__`". So a new primitive reached a backend that does not implement it. **Same family as
+`sql-plugin-rowcodec-mirror-arity`**, which that commit also broke and which is fixed — a Mirror
+change has now bitten two consumers, so the third question worth asking is which others exist.
+
+Owner: `v2/backend` is held by the `v2-backend-matrix-gaps` claim.
+
+### Cluster 2 — JS runtime helper missing at execution, 2 tests.
+
+```
+ReferenceError: _charCodeOrNull is not defined        (x3 in one assertion)
+  "[ERR:…]" did not equal "[1:hello,2:world,3:done]"  (JsGenTypedRouteClientTest.scala:643)
+```
+
+Failing: `JS typed route clients encode and decode through generated codecs`, `JS SSE runtime
+delivers events and close() stops the stream`.
+
+**What is already ruled out**, so the next person does not repeat it:
+- the helper IS defined — `v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/core-dispatch.mjs:18`;
+- `JsGen.scala:233` appends `JsRuntimeCoreDispatch` **unconditionally**, commented "CoreDispatch +
+  CoreCollections are always included";
+- it is NOT the TreeShaker pruning it: the shaker walks AST declarations of user code, not the
+  runtime prelude text (checked — it has no handling for runtime functions).
+
+So the open question is precise: **the failing path must assemble its JS without going through that
+always-include site.** `JsGen` emits `_charCodeOrNull(...)` as synthesized text at three places
+(lines 3045, 3441, 3450), so any assembly that omits core-dispatch produces exactly this
+ReferenceError. Start at how `JsGenTypedRouteClientTest` builds the bundle it executes.
+
+`JsGen.scala` and `TreeShaker.scala` are unclaimed as of filing.
+
+### Cluster 3 — v2 companion dispatch on the JS lane, 1 test.
+
+`run-js --v2 dispatches an imported explicit companion (__mk_method_obj__)`. Not investigated; the
+name suggests the same emitter-synthesized-symbol family as cluster 2 and as `dd56c4b8d`'s own note
+("this is the SECOND emitter-synthesized reference to bite the shaker today").
+
 ## v2-doc-only-file-rejected-by-three-gates — a fence-less `.ssc` is a no-op by design, and the native lane refuses it three times over
 <!-- status: open
      lane: int
