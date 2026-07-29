@@ -1,0 +1,15 @@
+slug: one-lane-contract
+branch: feature/one-lane-contract
+agent: claude-code
+started: 2026-07-29T16:59:20Z
+heartbeat: 2026-07-29T16:59:20Z
+status: in-progress
+items: ARCH-2
+paths: tests/conformance/run.sc
+scope: |
+  ARCH-2: all six conformance lanes through ONE signature (out, err, rc) -> verdict.
+  Today INT and V2 call run(...) and DISCARD the child's stderr/exit code, while JS/JVM go
+  through outputWithFailureContext — which is why a dropped INT child reads as got=<missing>
+  and gets misattributed. Every lane difference so far has been a bug.
+  See SPRINT "architecture: lighter, more modular, more reliable".
+next: read all six call sites, unify, prove the INT lane now reports WHY a child produced nothing
