@@ -1,5 +1,37 @@
 # Bug tracker
 
+## rozum-agent-family-v2-diverges-again — four cases that were PASS hours ago now DIVERGE
+
+**Status:** OPEN, **not caused by the claim that found it** (`v2-backend-matrix-gaps`, 2026-07-29).
+Proven by control build, not assumed: the same four cases diverge identically with that claim's
+change reverted (staged jar + tower swapped back).
+
+`rozum-agent`, `rozum-agent-pool`, `rozum-agent-schema-derived`, `rozum-agent-streaming` are all
+**`v2 DIVERGE`** — they run to exit 0 and produce output that differs from the INT golden.
+
+**They have flip-flopped three times today**, which is the reason this is filed rather than
+shrugged at:
+
+| when | state |
+|---|---|
+| earlier 2026-07-28 | `v2 FAIL` (crash — the `try` multi-statement parser gap) |
+| after that parser fix | `v2 DIVERGE` (ran, wrong output) |
+| ~2 h before this entry | **`v2 PASS`** — recorded as IMPROVEMENTs, and someone tightened the baseline accordingly (baseline 108 → 100) |
+| now | **`v2 DIVERGE`** again, and therefore counted as REGRESSIONs against that tightened baseline |
+
+**Reproduce:**
+
+```bash
+scala-cli --server=false tests/conformance/contract.sc -- --lanes int,v2 \
+  --only 'rozum-agent,rozum-agent-pool,rozum-agent-schema-derived,rozum-agent-streaming'
+```
+
+**For whoever takes it.** All four import `std/agent.ssc`, so this is one cause and not four. The
+window is narrow — between the two full-corpus runs of 2026-07-29 — so `git log origin/main` over
+that span should name it quickly. Note that the baseline was tightened while they were passing, so
+the gate is now correctly red rather than newly broken: a re-baseline would HIDE this, and is the
+wrong response.
+
 ## v2-front-for-yield-remaining-layouts — two of four `for`/`yield` layouts still miss F, one silently wrong
 
 
