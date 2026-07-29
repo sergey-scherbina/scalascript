@@ -101,7 +101,7 @@ with no invariant. Fix the invariant first, the format later.
       *Then, and only then:* consider making baseline/roster/overrides **derived** artifacts with
       front-matter as the single declaration.
 
-- [ ] **ARCH-2 — one lane contract.** Six lanes do not behave alike, and every difference has been
+- [x] **ARCH-2 — one lane contract.** LANDED `35aae7041`, and it found a ROOT CAUSE rather than the cosmetic unification I scoped: `batchLane` treated a TRUNCATED batch as data. `run-batch` flushes its marker BEFORE each case, so a JVM that dies mid-case leaves the section PRESENT AND EMPTY — not missing — and `getOrElse` therefore never took the documented fallback. That is the whole of BUGS `scljet-full-suite-int-lane-drops-one-case`, now closed. My original premise in that entry ("the INT lane discards stderr/exit code unlike JS/JVM") was WRONG — `run()` already calls `outputWithFailureContext`; reading the helper instead of trusting my own note is what found it. Proven red-then-green with a deterministic truncating wrapper (exit 137), not by waiting for the flake. Original entry: Six lanes do not behave alike, and every difference has been
       a bug. `checkLane` vs bare `check` meant `known-red: v2` was parsed, validated and then
       ignored (fixed `895e5ecff`). The INT lane still calls `run(sscTools(...))` and **discards the
       child's stderr and exit code**, unlike JS/JVM which go through
