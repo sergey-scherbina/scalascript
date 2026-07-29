@@ -121,7 +121,7 @@ with no invariant. Fix the invariant first, the format later.
       `AsmJitBackend`. One extraction per commit, conformance green between each.
       *Gotcha:* `Main.scala` is frequently claimed; check the LEDGER before starting.
 
-- [ ] **ARCH-4 — a gate must distinguish the two states, or be deleted.** 100 e2e scripts is
+- [x] **ARCH-4 — CORRECTED BY MEASUREMENT, then landed.** My framing here — *"100 e2e scripts is surface area, not coverage"* — was rhetoric, and the measurement is milder and more useful. Across 102 gates: **63** already report name/expected/got, **19** mixed, **10** assert only through bare `[[ ]]`, **10** are smoke-only, and **ZERO are incapable of failing**. The two suspects (`ssc1-front-annotation.sh`, `v2-front-coverage.sh`) have no `set -e` but end with `[[ $fail -eq 0 ]]` — a script's status IS its last command's, and they print a summary first, so that idiom is correct. Landed `tests/e2e/lib/assert.sh` (named assertions) + `tests/e2e/silent-assertion-gate.sh` freezing today's 10 so the list can only shrink. **Did NOT convert any of the 10**: each needs a built launcher or a fixture server I cannot run here, and converting a working gate I cannot execute risks breaking it for a demo — the helper is proven by its own self-test instead. Conversions remain as frozen debt. Original entry:
       surface area, not coverage. Introduce the rule and apply it: a gate is kept only if
       red-then-green is demonstrated (revert the fix, gate FAILS, with the number in the commit).
       *First pass, no deletions yet:* inventory which of the 100 have ever failed, and which cannot
