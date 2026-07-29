@@ -1,0 +1,11 @@
+slug: bugs-index-machine-readable
+branch: feature/bugs-index-machine-readable
+agent: claude-code
+started: 2026-07-29T15:53:53Z
+heartbeat: 2026-07-29T15:53:53Z
+status: claimed-before-planning
+items: bugs-index-schema bugs-index-gate bugs-report-tool
+paths: tests/e2e/bugs-index-gate.sh scripts/bugs-index-migrate scripts/bugs-report specs/bugs-index.md BUGS.md bugs-v2.md AGENTS.md SPRINT.md CHANGELOG.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
