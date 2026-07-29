@@ -248,6 +248,17 @@ representative per shape, name the cause, fix it, then re-measure the whole shap
       `arithFast`/`Emit.arith`/`Emit.prim2`/`Emit.s2`. These are the architectural items from
       `specs/v2-runtime-perf-vs-v1.md` §5 (unboxed numerics, avoiding per-call allocation) — spec
       before coding, and do not expect a slice-sized win.
+- [ ] **v2m-2g — ordinary matching lambdas pay effect-handler bookkeeping.** `HandlerDispatchShape.isRoot`
+      classifies ANY 1-arg lambda whose body matches on its own parameter as a handler-dispatch root,
+      so every `case` lambda is built with `Emit.handlerClos` and pays, per invocation: a ThreadLocal
+      get, two allocations, a list cons, and a try/finally restore. Visible as
+      `withHandlerDispatchInvocation` at 36 samples in `range-sum`, a program with no effects at all.
+      ⚠️ **The obvious narrowing is already REFUTED** — dropping the shape arm and keeping only
+      `containsDecisionMarker` fails `effects` and `effects-handler` on v2 (measured, reverted). The
+      shape arm is load-bearing because a genuine handler does not always carry the markers.
+      A real fix carries the fact from the FRONT (which knows it is lowering a `handle`) in the IR,
+      instead of re-deriving it from shape in the backend — an IR change, so: spec first, cross-front
+      agreement, then code. Detail in `specs/v2-vs-v1-backend-matrix.md`.
 - [ ] **v2m-2f — the `__method__` split is a LINEAR SCAN, and that cost is mine.** Profiling
       `lazylist-take` shows `methodDispatch2..6` in the hot path (39 samples across the parts): a
       call served by part 5 fails to match through parts 1-4 first. The split was worth 2.4-10.8×

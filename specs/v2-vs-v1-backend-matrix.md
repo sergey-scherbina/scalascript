@@ -172,3 +172,50 @@ magnitude). The honest summary is not "v2 is slower than v1" but **"v2 has a dif
 effects, typeclasses, type-lambdas and startup are where it wins; anything that walks a collection,
 a string, or an object's fields element-by-element through the generic runtime is where it loses.
 Arithmetic and recursion are already at parity, which is what the bytecode lane bought.
+
+## Category 2 findings — a cause located, and a fix that was tried and refuted
+
+### Every 1-arg matching lambda pays effect-handler bookkeeping
+
+`bench/corpus/range-sum` is `(0 until 50).map(i => i * i).foldLeft(0)((a, b) => a + b)` — no
+effects, no handlers anywhere in the program. Its profile nevertheless shows
+`Runtime.withHandlerDispatchInvocation` at **36 samples**, which per call does a ThreadLocal get,
+allocates a `HandlerDispatchInvocation` **and** a fresh `Object`, conses onto a list, and runs the
+body inside a `try/finally` that restores the ThreadLocal.
+
+Located in `HandlerDispatchShape.isRoot` (`v2/src/CoreIR.scala`):
+
+```scala
+def isRoot(arity: Int, body: Term): Boolean =
+  arity == 1 && (body match
+    case Term.Match(Term.Local(0), _, _) => true          // ← any `x => x match { … }`
+    case other                           => containsDecisionMarker(other))
+```
+
+The first arm classifies **any one-argument lambda whose body matches on its own parameter** as a
+handler-dispatch root. That is one of the most ordinary shapes in ScalaScript — every `case` lambda,
+every partial function, every `xs.map(x => x match …)` — and each one is then built with
+`Emit.handlerClos` instead of `Emit.clos` and pays the bookkeeping above on every invocation.
+
+### The obvious narrowing is REFUTED — do not repeat it
+
+Tried: drop the shape arm and keep only `containsDecisionMarker`, which tests for the actual
+handler-dispatch primitives.
+
+```
+tests/conformance/contract.sc --lanes int,v2 --only 'effect*,handler*,control*,coroutine*,resume*'
+  → 2 REGRESSIONS: effects v2 FAIL, effects-handler v2 FAIL
+```
+
+Reverted; effects are 12/12 again. **The shape arm is load-bearing**: a genuine handler does not
+always carry the decision markers, and the shape is what catches those. So the over-classification
+cannot be fixed by making the *predicate* smarter about the same information.
+
+### What a real fix would need
+
+The information that distinguishes "this lambda is a handler arm" from "this lambda happens to
+match on its argument" exists in the FRONT, which knows it is lowering a `handle` construct — and
+is thrown away before the emitter sees the term. The fix is to carry that fact in the IR (a flag on
+the `Lam`, or a distinct node) rather than re-deriving it from shape in the backend. That is an IR
+change and needs a spec and cross-front agreement, so it is queued rather than attempted:
+`SPRINT.md v2m-2g`.
