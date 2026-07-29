@@ -331,7 +331,20 @@ representative per shape, name the cause, fix it, then re-measure the whole shap
       A real fix carries the fact from the FRONT (which knows it is lowering a `handle`) in the IR,
       instead of re-deriving it from shape in the backend — an IR change, so: spec first, cross-front
       agreement, then code. Detail in `specs/v2-vs-v1-backend-matrix.md`.
-- [ ] **v2m-2f — the `__method__` split is a LINEAR SCAN, and that cost is mine.** Profiling
+- [~] **v2m-2f — PARTLY DONE: the two single-kind parts are now skipped.** The census this entry
+      demanded was done MECHANICALLY (a script over the arm patterns, not by eye), and it says:
+      part 2 is 41 arms = 40 `StrV` + one `case _`; part 7 is 41 arms = 40 `DataV` + one `case _`.
+      Every other part is mixed, and parts 5/6/10 carry many bare-variable receivers with guards
+      (`case (ls, …) if isList(ls)`) that can match anything — so only those two are provably
+      skippable. Both now bail to the next part when the receiver kind cannot match, which is
+      exactly what running them would have done.
+      Motivation was measured, not assumed: `lazylist-take` (the worst ratio in the matrix, and a
+      `ForeignV` receiver served by part 9) spent **665 of ~2,500 profile samples ≈ 25%** inside
+      `methodDispatch2..7` failing to match.
+      ⚠️ The guards are only sound while those parts stay single-kind — the comments say so at the
+      site. REMAINING: the mixed parts still scan linearly; closing that needs the kind-indexed
+      dispatch this entry originally described, and the census above is its prerequisite.
+      ORIGINAL: Profiling
       `lazylist-take` shows `methodDispatch2..6` in the hot path (39 samples across the parts): a
       call served by part 5 fails to match through parts 1-4 first. The split was worth 2.4-10.8×
       because the alternative was never being JIT-compiled at all, so this is a trade that paid —
