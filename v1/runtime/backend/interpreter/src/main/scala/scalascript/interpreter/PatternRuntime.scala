@@ -1339,6 +1339,12 @@ private[interpreter] object PatternRuntime:
           case _: Value.ArrayV  => typeName == "Array"
           case _: Value.OptionV => typeName == "Option"
           case _: Value.MapV    => typeName == "Map"
+          // Arity is part of the name: `case _: Tuple2[?, ?]` must be FALSE for a
+          // 3-tuple, so this compares the whole `TupleN` rather than a `Tuple`
+          // prefix. The native lane gets the same answer for free — it represents a
+          // tuple as `DataV("Tuple2", …)`, so its nominal test already matched, which
+          // is how the two lanes came to disagree.
+          case Value.TupleV(es) => typeName == s"Tuple${es.length}"
           case _                => false
         if matches then matchPat(inner, scrutinee, env, interp) else null
     case Pat.Alternative(lhs, rhs) =>

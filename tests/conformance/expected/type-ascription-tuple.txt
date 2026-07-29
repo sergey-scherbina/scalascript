@@ -1,0 +1,5 @@
+pair
+triple
+other
+other
+pair,triple,other,other

@@ -767,6 +767,14 @@ private[codegen] trait JsGenCpsCodegen:
         case "Unit"    => s"($scrutVar === undefined)"
         case "RuntimeException" | "Exception" | "Throwable" =>
           s"($scrutVar instanceof Error || ($scrutVar && $scrutVar._type === '$typeName'))"
+        // A tuple IS a JS array here, so `Array.isArray` alone would also accept a
+        // two-element List. The emitter already tags tuples — `Object.assign([1,2],
+        // {_isTuple: true})` — precisely so the two can be told apart, and this is the
+        // read side of that tag. Arity is part of the name: `Tuple2[?, ?]` must be
+        // false for a 3-tuple, so the length is compared, not just the marker.
+        case tn if tn.startsWith("Tuple") && tn.length > 5 && tn.drop(5).forall(_.isDigit) =>
+          s"(Array.isArray($scrutVar) && $scrutVar._isTuple === true && " +
+            s"$scrutVar.length === ${tn.drop(5)})"
         case ""        => "true"    // unknown type — fall through
         case _ =>
           caseClassTagMap.get(typeName) match

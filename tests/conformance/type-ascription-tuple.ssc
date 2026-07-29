@@ -1,0 +1,43 @@
+---
+name: type-ascription-tuple
+description: "case _: TupleN matches a tuple of that arity and nothing else, on every lane"
+backends: [int, js, jvm, v2]
+---
+
+# `case _: TupleN`
+
+`BUGS.md` `type-ascription-tuple-and-set-arms-missing`. Sibling of `type-ascription-unit`: the
+same two type-test tables had no arm for tuples, so the pattern fell through to the wildcard on
+INT and JS while the native lane matched it — native represents a tuple as `DataV("Tuple2", …)`,
+so its ordinary nominal test already worked.
+
+```scalascript
+def kind(x: Any): String = x match
+  case _: Tuple2[?, ?] => "pair"
+  case _: Tuple3[?, ?, ?] => "triple"
+  case _ => "other"
+
+println(kind((1, 2)))
+println(kind((1, 2, 3)))
+println(kind(List(1, 2)))
+println(kind("ab"))
+```
+
+The type parameters are not decoration. Bare `case _: Tuple2` is a **compile error** in Scala 3 —
+`Missing type parameter for [T1, T2] =>> (T1, T2)` — so the JVM lane, which is the only lane that
+runs real Scala and is therefore the oracle here, cannot even build it. The wildcard spelling is
+what all four lanes accept; INT and JS see the same `Tuple2` name either way, since the pattern
+arrives as a `Type.Apply` whose head is what the test reads.
+
+Arity is the part worth pinning down: `case _: Tuple2[?, ?]` must be **false** for a 3-tuple, so
+the test cannot be a prefix match on the name. The line above that prints `triple` for a 3-tuple is
+what distinguishes a correct arm from one that matches any tuple at all.
+
+A two-element `List` must not match either. That is not hypothetical on the JS lane, where a tuple
+*is* a JS array — it carries an `_isTuple` marker precisely so the two can be told apart, and the
+`List(1, 2)` line above is what proves the marker is being consulted.
+
+```scalascript
+val xs = List((1, 2), (1, 2, 3), List(4, 5), 7)
+println(xs.map(x => kind(x)).mkString(","))
+```
