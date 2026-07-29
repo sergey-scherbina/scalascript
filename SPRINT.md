@@ -356,6 +356,14 @@ representative per shape, name the cause, fix it, then re-measure the whole shap
       lives in exactly one part, which is NOT true today (list cases span 5 and 6, DataV spans 7
       and 8). So this needs a census of which kinds appear in which part BEFORE any reordering,
       and the corpus contract as the gate. Do not eyeball it.
+- [ ] **v2m-3b — REBUILD the matrix before planning anything else in category 2.** Its category-2
+      numbers are now stale DOWNWARD by an unknown amount, and by more than one row. Measured
+      incidentally: `effect-stream` reads **271×** in the table and is **115×** today
+      (11.1 → 4.70 ms), because `v2m-2g` moved it — `runStream` IS a handler, so its arms were
+      paying the per-call bookkeeping, and a fix aimed at `range-sum` moved a row nobody measured.
+      Same likely applies to other handler-shaped rows. Rebuilding one cell at a time invites
+      exactly the error this board keeps making, so: one full sweep on a quiet machine, then
+      re-derive the categories from it. Prerequisite for v2m-2a/2e and for category 3.
 - [ ] **v2m-2a — collection iteration.** `lazylist-take` **474×**, `effect-stream` **271×**,
       `range-sum` **170×**, `list-fold` **160×**, `hof-pipeline` **19×**. Representative:
       `range-sum` (smallest, 170×, and a `Range` is not even a user data structure). Known from
