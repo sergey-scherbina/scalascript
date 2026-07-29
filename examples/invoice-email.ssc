@@ -1,3 +1,16 @@
+---
+name: invoice-email
+description: Invoice e-mail whose body is rendered to PDF via the OPT-IN pdf provider
+# `std.pdf` lives in an EXPLICIT, OPT-IN provider: build.sbt stages
+# v2/runtime/providers/pdf-plugin under bin/lib/providers/pdf and its renderer deps
+# (PDFBox, openhtmltopdf, jsoup) "never enter the standard launcher graph". So this case
+# runs under `bin/ssc-provider pdf run` and under the v1 interpreter, and CANNOT run under
+# `bin/ssc` / emit-js / run-jvm. Measured 2026-07-29: int=ok, js/jvm/v2=fail, and
+# `bin/ssc-provider pdf run` renders at rc=0. Declaring the lanes stops the corpus contract
+# counting a deliberate packaging boundary as a v2 defect (BUGS v2-optin-provider-cases).
+backends: [int]
+---
+
 # Invoice email
 
 ```scalascript

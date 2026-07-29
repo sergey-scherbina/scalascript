@@ -2,8 +2,19 @@
 
 ## v2-optin-provider-cases — cases that need an OPT-IN provider are run on the standard launcher and counted as v2 failures
 
-**Status:** OPEN — **measured; this is a case-selection gap, not a v2 defect** (found 2026-07-29 by
-`v2-optin-provider-cases` while working the plugin-globals cluster of `bugs-v2.md`).
+**Status: FIXED 2026-07-29** for the three PDF cases, with **no code change** — they now declare
+`backends: [int]`, the gate the contract already honours. Measured per lane first
+(`int=ok, js=FAIL, jvm=FAIL, v2=FAIL` for all three), so the declaration states what is true rather
+than what is convenient, and the reason is written into each file's front-matter next to it.
+Verified: `--only 'invoice-pdf,invoice-email,pdf-extract-demo,hello'` yields **6 lane cells instead
+of 12**, all PASS, contract GREEN — the three contribute `int` only.
+
+Deliberately NOT invented: a new `provider:` front-matter key. `backends:` already expresses "this
+case runs on these lanes", the contract already reads it, and a second key would be a second thing
+to keep in step. The MCP/NFC candidates below are still open and may not need one either.
+
+**Original status:** OPEN — **measured; this is a case-selection gap, not a v2 defect** (found
+2026-07-29 by `v2-optin-provider-cases` while working the plugin-globals cluster of `bugs-v2.md`).
 
 **The evidence is build.sbt's own words.** `v2/runtime/providers/pdf-plugin` is declared:
 
