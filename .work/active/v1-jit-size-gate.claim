@@ -1,0 +1,16 @@
+slug: v1-jit-size-gate
+branch: feature/v1-jit-size-gate
+agent: claude-code
+started: 2026-07-29T17:17:33Z
+heartbeat: 2026-07-29T17:17:33Z
+status: in-progress
+items: ARCH-3
+paths: tests/e2e/v1-jit-size.sh
+scope: |
+  ARCH-3, re-scoped by measurement. The v2-jit-size gate covers only v2/. Censused v1 with the
+  same script: SEVEN methods over HotSpot's 8000-bytecode HugeMethodLimit, including the
+  interpreter's core dispatch (infix2 21114, evalCore 15330, dispatchList 14696,
+  dispatchString 9839) which every INT conformance case runs through. Never JIT-compiled.
+  Add the gate for v1 with a frozen debt list so it catches NEW ones, and file the finding.
+  Main.scala — the file I had planned to split first — has NO over-limit method.
+next: gate + freeze + BUGS entry; splitting the methods is separate, measured work
