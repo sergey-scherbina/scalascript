@@ -1,7 +1,7 @@
 # v2m-2g — mark handler arms in the front, stop guessing them in the backend
 
-Status: **spec** (written before the code, per `AGENTS.md`). Implementation follows in the same
-claim, `v2-backend-matrix-gaps`.
+Status: **LANDED** 2026-07-29 (`v2-backend-matrix-gaps`). Written before the code, per `AGENTS.md`;
+results appended at the bottom.
 
 ## The problem, measured
 
@@ -119,3 +119,40 @@ One edit reaches both fronts: `ssc1-lower.ssc0` is the SHARED lowering, used by 
 - A measured before/after on `range-sum` and `hof-pipeline` by the alternating protocol, reported
   as medians — including if the answer is "no effect", in which case the change is reverted and
   recorded as refuted like the narrowing above.
+
+
+## Result
+
+Implemented in the order this spec required, verified at each step.
+
+**Step 1 — the direct path marks its arms.** Effect/handler/control/coroutine slice on `int,v2`:
+**20/20, contract GREEN**. Behaviour-preserving, established before touching the predicate.
+
+**Step 2 — `isRoot` drops the shape arm.** Same slice: **20/20, GREEN**. The narrowing that failed
+before this work now holds, which is the causal claim of this spec confirmed: it was never that the
+predicate was wrong, it was that the front withheld the fact on one of its two paths.
+
+**Only the SELECTED marker was added.** Reading both implementations, as required rather than
+inferring from the general path: `handlerDispatchSelected` → `handlerMatchSelected(active)`, which
+does nothing when no dispatch is active — safe. `handlerDispatchMiss` **raises** when none is
+active, so it is not interchangeable with the direct path's existing absent-default behaviour and
+was left alone.
+
+**Structural done-when:** `withHandlerDispatchInvocation` in a `range-sum` profile: **36 samples →
+0**. A program with no effects no longer runs any handler bookkeeping at all.
+
+**Timing, three ALTERNATING rounds** swapping only the staged v2-core jar and tower lowering,
+medians, v2-bytecode ms/iter. The unchanged v1 control held to ±2% across all six runs — the
+quietest measurement of this arc:
+
+| workload | before | after | |
+|---|---:|---:|---|
+| `range-sum` | 0.495 | 0.400 | **1.24×** |
+| `hof-pipeline` | 0.146 | 0.121 | **1.21×** |
+| `literal-match` | 0.175 | 0.173 | flat |
+
+Complete separation on both movers: the worst `after` round (0.407) beat the best `before` round
+(0.474). `literal-match` not moving is consistent — its lambda is not a match-on-its-own-argument,
+so it never paid the toll.
+
+One edit reached both fronts, as designed: `ssc1-lower.ssc0` is the shared lowering.

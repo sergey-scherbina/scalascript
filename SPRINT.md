@@ -316,7 +316,11 @@ representative per shape, name the cause, fix it, then re-measure the whole shap
       `arithFast`/`Emit.arith`/`Emit.prim2`/`Emit.s2`. These are the architectural items from
       `specs/v2-runtime-perf-vs-v1.md` §5 (unboxed numerics, avoiding per-call allocation) — spec
       before coding, and do not expect a slice-sized win.
-- [ ] **v2m-2g — ordinary matching lambdas pay effect-handler bookkeeping.** `HandlerDispatchShape.isRoot`
+- [x] **v2m-2g — DONE.** Ordinary matching lambdas no longer pay effect-handler bookkeeping. Front
+      marks handler arms on BOTH lowering paths; backend predicate narrowed to markers-only.
+      `range-sum` **1.24×**, `hof-pipeline` **1.21×** (alternating medians, complete separation);
+      `withHandlerDispatchInvocation` 36 profile samples → 0. Effects 20/20 GREEN after each step.
+      Full write-up incl. the refuted first attempt: `specs/v2-handler-lam-marking.md`. ORIGINAL: `HandlerDispatchShape.isRoot`
       classifies ANY 1-arg lambda whose body matches on its own parameter as a handler-dispatch root,
       so every `case` lambda is built with `Emit.handlerClos` and pays, per invocation: a ThreadLocal
       get, two allocations, a list cons, and a try/finally restore. Visible as
