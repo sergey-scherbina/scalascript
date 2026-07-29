@@ -1,0 +1,11 @@
+slug: serve-banner-to-stderr
+branch: feature/serve-banner-to-stderr
+agent: claude-code
+started: 2026-07-29T15:59:37Z
+heartbeat: 2026-07-29T15:59:37Z
+status: claimed-before-planning
+items: v2-serve-banner-belongs-on-stderr SBS-0
+paths: v1/runtime/backend/interpreter-server/src/main/scala/scalascript/server/WebServer.scala v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala tests/conformance/expected/tkv2-pwa.txt
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
