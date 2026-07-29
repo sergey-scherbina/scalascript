@@ -1,0 +1,11 @@
+slug: v2-cluster-c-triage
+branch: feature/v2-cluster-c-triage
+agent: claude-code
+started: 2026-07-29T18:37:30Z
+heartbeat: 2026-07-29T18:37:30Z
+status: claimed-before-planning
+items: v2-cluster-c-nfc v2-cluster-c-mcp v2-deploy-checker-exit2
+paths: examples/nfc-ndef.ssc BUGS.md SPRINT.md CHANGELOG.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
