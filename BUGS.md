@@ -1,6 +1,9 @@
 # Bug tracker
 
 ## v2-doc-only-file-rejected-by-three-gates — a fence-less `.ssc` is a no-op by design, and the native lane refuses it three times over
+<!-- status: open
+     lane: int
+     area: front -->
 
 **Status:** OPEN — **diagnosed through three layers; a partial fix only moves the error** (found
 2026-07-29 by `v2-cluster-c-triage` while reducing `deploy`'s `checker exit 2`).
@@ -38,6 +41,10 @@ places and disagree with the reference and with the written design. That is the 
 `deploy` is just the case that exposed it.
 
 ## v2-nfc-case-runs-only-under-its-provider — `nfc-ndef` fails on EVERY standard lane, including INT
+<!-- status: open
+     lane: int
+     area: front
+     gate: tests/conformance/corpus-skip.txt -->
 
 **Status:** OPEN — measured 2026-07-29 by `v2-cluster-c-triage`; **not the same as the PDF three**.
 
@@ -57,6 +64,9 @@ the same gap `v2-optin-provider-cases` describes, one step further.
 **Do not "fix" it by making INT the declared lane** — INT fails too, so that would freeze a red.
 
 ## v2-optin-provider-cases — cases that need an OPT-IN provider are run on the standard launcher and counted as v2 failures
+<!-- status: unknown
+     lane: native
+     area: front -->
 
 **Status: FIXED 2026-07-29** for the three PDF cases, with **no code change** — they now declare
 `backends: [int]`, the gate the contract already honours. Measured per lane first
@@ -110,6 +120,9 @@ collapses into this one — it is 3 confirmed, up to 6 candidates.
 count drops by at least 3 more.
 
 ## v2-infix-extension-operator-stringifies — `a ++ b` on a user type silently becomes a STRING
+<!-- status: open
+     lane: native
+     area: codegen -->
 
 **Status:** OPEN — **diagnosed to the line, and a one-sided fix is NOT safe** (found 2026-07-29 by
 `v2-content-and-dsl-diverge` while reducing `dsl-ast-builder`'s DIVERGE).
@@ -163,6 +176,10 @@ Part (1) is in `v2/src`, which was held by a live claim (`v2-backend-matrix-gaps
 found, which is why this is filed complete rather than half-landed.
 
 ## v1-interpreter-hot-path-never-jits — the INT lane's core dispatch is over HotSpot's limit
+<!-- status: open
+     lane: js
+     area: codegen
+     gate: tests/e2e/v2-jit-size.sh -->
 
 **Status:** OPEN (found 2026-07-29 by censusing v1 for the first time; gate landed alongside, the
 splits are the remaining work).
@@ -210,6 +227,10 @@ and has **no** over-limit method. Size of file is not the signal; size of method
 to split `Main.scala` first would have spent a day on the wrong target.
 
 ## rozum-agent-family-v2-diverges-again — four cases that were PASS hours ago now DIVERGE
+<!-- status: open
+     lane: native
+     area: front
+     gate: tests/conformance/contract.sc -->
 
 **Status:** OPEN, **not caused by the claim that found it** (`v2-backend-matrix-gaps`, 2026-07-29).
 Proven by control build, not assumed: the same four cases diverge identically with that claim's
@@ -242,6 +263,11 @@ the gate is now correctly red rather than newly broken: a re-baseline would HIDE
 wrong response.
 
 ## v2-front-for-yield-remaining-layouts — two of four `for`/`yield` layouts still miss F, one silently wrong
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: unrecorded
+     gate: tests/e2e/v2-front-coverage.sh -->
 
 
 **Status:** **FIXED 2026-07-28** by `v2-front-for-yield-layouts`. `yield` joins `catch`/`finally`
@@ -289,6 +315,11 @@ list instead of closing it, so the comprehension desugars with the yield express
 
 
 ## ssc1-front-annotation-before-declaration — an annotation on its own line is `_err` on the legacy front
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: 3afe7fe7b
+     gate: tests/e2e/ssc1-front-annotation.sh -->
 
 
 **Status:** **FIXED 2026-07-28** by `ssc1-front-annotation-case-class` (`3afe7fe7b`). The `@` branch
@@ -351,6 +382,9 @@ shapes above.
 
 
 ## v2-json-number-keeps-trailing-zero — `jsonParse("2.0")` prints `2.0` on v2 and `2` on INT
+<!-- status: open
+     lane: int
+     area: front -->
 
 **Status:** OPEN — **needs a decision, not a patch** (found 2026-07-28 by `v2-diverge-triage` while
 reducing `json-read`'s DIVERGE; the sibling half, JSON `null`, was unambiguous and is fixed).
@@ -388,6 +422,9 @@ Three candidate resolutions, none free:
 `json-read` DIVERGE — plus line 2 of `tests/conformance/expected/json-self-hosted-import.txt`, which
 already records `0.0` and is therefore consistent with whichever way this goes.
 ## v2-front-curried-def-second-clause — F drops the second parameter clause of a curried `def`
+<!-- status: open
+     lane: multi
+     area: front -->
 
 **Status:** OPEN (found 2026-07-28 by `v2-front-colon-trailing-lambda` while verifying that fix;
 **A/B'd against `origin/main` — byte-identical behaviour with that change reverted**, so it is
@@ -447,6 +484,9 @@ self-test starts failing for the right reason.
 
 
 ## corpus-contract-scljet-jdbc-v2-timeout — a correct case that does not fit its budget on a loaded runner
+<!-- status: open
+     lane: native
+     area: front -->
 
 **Status:** OPEN (found 2026-07-28 while making the nightly contract report a verdict again).
 
@@ -494,6 +534,9 @@ reports perf as TIMEOUT noise trains people to ignore it — which is how this o
 a change I can justify without CI-side timing data.
 
 ## backend-check-mutual-recursion-drops-output — the Core IR parity gate is red on 3 of 4 generators
+<!-- status: open
+     lane: native
+     area: front -->
 
 **Status:** OPEN, **pre-existing** (found 2026-07-28 by `v2-backend-matrix-gaps` while verifying an
 unrelated change; **proven not caused by it** — the gate fails identically on a control build with
@@ -521,6 +564,9 @@ the two Scala-hosted generators rather than at the fixture or the VM. `wasm` sha
 generator, so it is likely one cause and not three.
 
 ## v2-array-indexed-store-silently-dropped — `a(i) = v` is parsed away, and the answer is wrong
+<!-- status: open
+     lane: int
+     area: front -->
 
 **Status:** OPEN — **diagnosed here, handed over deliberately** (the fix is in
 `v2/lib/ssc1-front.ssc0`, held by the live `v2-front-for-yield` claim). Found 2026-07-28 by
@@ -572,6 +618,9 @@ it alone would have looked like a fix while changing nothing.
 program that writes into an array is silently wrong on the default lane.
 
 ## v2-front-drops-float-literal-suffix — `0d` / `1.5f` lex the suffix as an identifier
+<!-- status: open
+     lane: int
+     area: front -->
 
 **Status:** OPEN — **diagnosed here, handed over deliberately**. The fix belongs in
 `v2/lib/ssc1-front.ssc0`, which is held by the live `v2-front-for-yield` claim (its heartbeat reads
@@ -613,6 +662,11 @@ programs themselves run on v2 perfectly well. The wrapper has been changed to `0
 measures the backend rather than the parser, but the language gap is real and still open.
 
 ## negtc-both-fail-derived-route-clients — the one case keeping the release gate red
+<!-- status: fixed
+     lane: jvm
+     area: codegen
+     fixed-in: unrecorded
+     gate: tests/conformance/corpus-baseline.tsv -->
 
 **Status:** RESOLVED 2026-07-28 as a CLASSIFICATION, not a code fix — the case is genuinely
 un-runnable and the two gates disagreed about that.
@@ -686,6 +740,9 @@ It is not a *parity* finding and does not belong to this gate; if the example is
 that gap is the work.
 
 ## v2-lanes-cannot-run-four-corpus-workloads — float globals unbound, indexed array store not a function
+<!-- status: open
+     lane: jvm
+     area: codegen -->
 
 **Status:** OPEN (found 2026-07-28 by `bench-tier-dead-lanes` while building the first full
 cross-backend table since the v2 work; filed, not fixed).
@@ -717,6 +774,10 @@ production-route policy in `BACKLOG.md` was decided on, and it cannot currently 
 lane at all.
 
 ## bench-jvm-js-lanes-dead-silently — two whole benchmark columns were unmeasurable, and printed `n/a`
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: unrecorded -->
 
 **Status:** **FIXED 2026-07-28** (`bench-tier-dead-lanes`). Found while running a full 9-backend
 sweep for the first time since the v2 work.
@@ -746,6 +807,9 @@ the harness was reporting its own incompatibility as the backend's `n/a`. The wr
 those counters `x = x + 1`.
 
 ## js-compound-assign-dispatches — `x += 1` compiles to a dynamic method call that always throws
+<!-- status: open
+     lane: v2-jvm
+     area: codegen -->
 
 **Status:** OPEN (found 2026-07-28 by `bench-tier-dead-lanes`; filed, not fixed — the JS codegen
 paths belong to another lane).
@@ -771,6 +835,10 @@ method-dispatch fallback — instead of `i = i + 1`. `_dispatch` has no `+=` ent
 down the entire `js` benchmark column because the bench wrapper itself used `+=`.
 
 ## v2-source-backends-miss-autoOutput — `__autoOutput__` is unimplemented in both v2 source backends
+<!-- status: open
+     lane: v2-jvm
+     area: codegen
+     gate: tests/conformance/run.sc -->
 
 **Status:** OPEN (found 2026-07-28 by `bench-tier-dead-lanes`; filed, not fixed).
 
@@ -791,6 +859,11 @@ them dies:
 cannot run any program at all. This is the "fix every backend or it is a half-fix" shape.
 
 ## scljet-full-suite-int-lane-drops-one-case — exactly one INT case per full run produces no output at all
+<!-- status: fixed
+     lane: js
+     area: conformance
+     fixed-in: unrecorded
+     gate: tests/conformance/run.sc -->
 
 **Status:** FIXED 2026-07-29 in `tests/conformance/run.sc` (ARCH-2). Root cause found; the original
 diagnosis in this entry was WRONG and is corrected below.
@@ -844,6 +917,10 @@ Unwrapped control run: 5/5, no `[batch]` line, no regression. Both batch lanes (
 covered — the reproduction tripped each.
 
 ## v2-front-for-comprehension-guard-line — a guard on its own line is parsed as a generator
+<!-- status: open
+     lane: apparatus
+     area: front
+     gate: tests/conformance/for-yield-layout.ssc -->
 
 **Status:** OPEN (found 2026-07-28 by `v2-front-for-yield` — it was MASKED until then: the whole
 enclosing shape produced `_err`, so the guard never got far enough to misbehave).
@@ -876,6 +953,10 @@ per-statement (layout-block) path.
 
 
 ## sql-plugin-rowcodec-mirror-arity — a fourth Mirror field took the ASM release gate red
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: e8c1d0c9f -->
 
 **Status:** FIXED 2026-07-28. Found by `ci-dispatch-verdict-obtainable` while getting the first
 on-demand CI verdict; root cause conclusive, not inferred.
@@ -917,6 +998,9 @@ message (`RowCodec.derived expects Mirror metadata`, 3 succeeded / 1 failed); wi
 **For the Mirror lane:** `SqlNativePlugin` was the only production consumer that destructured a
 Mirror by fixed arity (`grep -rn 'DataV("Mirror"' v1 v2` — one production site, two test sites).
 ## v2-object-apply-unbound — `object O { def apply(x) }` is unbound on the native lane
+<!-- status: open
+     lane: int
+     area: front -->
 
 **Status:** OPEN (found 2026-07-28 by `v2-stub-apply-and-serve-banner` while verifying that the
 `List.apply` fix did NOT break the shape the roadmap warned about). Pre-existing — A/B'd against a
@@ -952,6 +1036,10 @@ suspicion is that the object itself is never registered as a global when its onl
 `apply`, not that `apply` dispatch is missing.
 
 ## v2-serve-banner-belongs-on-stderr — a server banner is not program output
+<!-- status: open
+     lane: apparatus
+     area: runtime
+     gate: tests/conformance/run.sc -->
 
 **Status:** OPEN, **deliberately deferred** (filed 2026-07-28 by `v2-stub-apply-and-serve-banner`
 as option (2) of `v2-serve-banner-missing`, which took option (1)).
@@ -1035,6 +1123,10 @@ Note that doing it *will* require dropping the three banner lines from `tkv2-pwa
 removes a hardcoded port number (`localhost:18631`) from a golden — a latent flake in its own right.
 
 ## scljet-wal-recover flakes under parallel load — INT lane produces no output at all
+<!-- status: open
+     lane: js
+     area: conformance
+     gate: tests/conformance/run.sh -->
 
 **Status:** open (found 2026-07-28 by `ssc-fork-heap-measurement`; not reported by a user).
 
@@ -1073,6 +1165,10 @@ flake rate, then capture the INT lane's stderr for the failing attempt (the runn
 distinction is the whole diagnosis). Owner lane: `scljet-*`.
 
 ## ci-status-guard-desc-green-always-red — the CI-health job was red on its own self-test, not on the repo
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: 083c78fd6 -->
 
 **Status:** FIXED 2026-07-28 in `083c78fd6`.
 
@@ -1119,6 +1215,10 @@ nothing). **Both were verified to fire**, by collapsing the pair and by dropping
 red with the message above before, `ci-status-guard: PASS` after; full clone also PASS.
 
 ## js-treeshake-prunes-mirror-ctor — a Mirror's `fromProduct` calls a constructor the shaker deleted
+<!-- status: unknown
+     lane: js
+     area: codegen
+     gate: tests/conformance/v2-mirror-surface.ssc -->
 
 **Status: FIXED 2026-07-28** in `dd56c4b8d` (`v2-mirror-fromproduct`) — found while EXTENDING
 `tests/conformance/v2-mirror-surface.ssc` to cover `fromProduct` — the case was green before the
@@ -1157,6 +1257,9 @@ reflection shakes exactly as before; it can only ever KEEP code the emitter is a
 them have now bitten in one day. When adding an emitter that names a user symbol, add its root in
 the same change.
 ## v2-native-error-printed-but-exit-zero — reported, NOT reproducible after the Mirror fix, now guarded
+<!-- status: unknown
+     lane: apparatus
+     area: front -->
 
 **Status:** **NOT REPRODUCIBLE** on `origin/main` after `4f5ecf261`; the invariant is now gated so
 a return cannot be silent. Raised 2026-07-28 in rozum by the agent that fixed
@@ -1191,6 +1294,10 @@ symptom to anchor it.
 
 
 ## v2-serve-banner-missing — three corpus DIVERGEs, one cause: the native lane prints no server banner
+<!-- status: fixed
+     lane: multi
+     area: runtime
+     fixed-in: eb82bd18e -->
 
 
 **Status:** **FIXED 2026-07-28** by `v2-stub-apply-and-serve-banner` (`eb82bd18e`), option (1):
@@ -1244,6 +1351,11 @@ opportunistically** — check first whether the harness compares stderr as well
 does, moving the banner to stderr changes nothing and only churns the goldens.
 
 ## v2-list-apply-method-stub — `xs.apply(i)` is `Stub` on the native lane while `xs(i)` works
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: e34938737
+     gate: tests/conformance/list-apply-method.ssc -->
 
 
 **Status:** **FIXED 2026-07-28** by `v2-stub-apply-and-serve-banner` (`e34938737`). Two VM dispatch
@@ -1297,6 +1409,9 @@ lowers to a mangled `O_apply` global, and `O` itself is not applicable — the r
 So: VM, not front. `v2/src` was held by a live claim when this was found.
 
 ## v2-mirror-fromproduct-stub — the last missing `Mirror` member still evaluates to `Stub`
+<!-- status: open
+     lane: js
+     area: front -->
 
 **Status: FIXED 2026-07-28** in `dd56c4b8d` (`v2-mirror-fromproduct`). The Mirror now carries the constructor as
 a FOURTH field, pre-shaped to take the argument list (`(xs) => T(xs(0), …)`), and `fromProduct` is
@@ -1358,6 +1473,9 @@ evaluated to a `Stub` sentinel, and the program continued at exit 0. `isProduct`
 drove an `if`. A gate keying on exit status sees success.
 
 ## js-v2-unit-pattern-does-not-match-and-unit-literal-pattern-crashes — two Unit-pattern defects on the v2 JS codegen
+<!-- status: open
+     lane: native
+     area: codegen -->
 
 **Status:** OPEN (found 2026-07-28 by `v2-multiblock-auto-output`; the first one is what made a
 per-block auto-output attempt emit a bare `()` and get caught by the corpus as
@@ -1401,6 +1519,10 @@ disagree with it in different ways.
 
 
 ## v2-native-program-tail-quotes-strings — a program's tail value printed as a debug dump, not as output
+<!-- status: fixed
+     lane: multi
+     area: runtime
+     fixed-in: unrecorded -->
 
 **Status:** **FIXED 2026-07-28** by `v2-program-tail-string-render`. Found 2026-07-28 by
 `v2-multiblock-auto-output` while designing the per-block auto-output fix.
@@ -1521,6 +1643,10 @@ have: a cross-lane sweep compares lanes to *each other*, so a gap all lanes shar
 This one only surfaced because the probe asked what Scala does.
 
 ## conformance-int-batch-false-fail-and-hidden-stderr — a case fails in the batch, passes everywhere else, and the reason is thrown away
+<!-- status: open
+     lane: apparatus
+     area: conformance
+     gate: tests/conformance/run.sh -->
 
 **Status:** OPEN, **NOT reproduced in isolation** (observed 2026-07-28 by `v2-native-error-diagnostic`
 in a full 350-case local corpus run).
@@ -1622,6 +1748,11 @@ was otherwise 323 passed / 3 failed, the other two being cases already declared 
 in `9f136e21f`.
 
 ## lint-markdown-unreachable-from-markdown-commits — the only job that lints `.md` cannot be triggered by a `.md` change
+<!-- status: fixed
+     lane: multi
+     area: build
+     fixed-in: 680181feb
+     gate: tests/e2e/ci-status-guard.sh -->
 
 **Status:** FIXED 2026-07-28 in `680181feb` — a second workflow,
 `.github/workflows/lint-markdown.yml` (job `Lint Markdown (docs-only)`), triggered on
@@ -1676,6 +1807,10 @@ relieve, and it restores the property that broke here: **the commit that breaks 
 commit the check reports on.**
 
 ## v1-interp-object-method-named-arg-wrong-slot — the conformance GOLDEN binds an object method's named arg to the wrong parameter
+<!-- status: open
+     lane: int
+     area: front
+     gate: tests/conformance/run.sc -->
 
 **Status:** OPEN (found 2026-07-28 by `f-named-arg-skips-default` while verifying that fix; not
 claimed — it is in the v1 interpreter, a different codebase from the self-hosted fronts that claim
@@ -1713,6 +1848,11 @@ takes a different path and is correct, so the two disagree about how a named arg
 once the receiver is an object.
 
 ## v2-native-uncaught-error-diagnostic-empty — every failing native program reports a diagnostic with no content
+<!-- status: fixed
+     lane: native
+     area: runtime
+     fixed-in: c1c960209
+     gate: tests/e2e/v2-error-diagnostic.sh -->
 
 **Status:** **FIXED 2026-07-28** by `v2-native-error-diagnostic` (`c1c960209`). Found the same day
 by `v2-native-import-graph` while probing the map-reduce fixture — the native lane answered
@@ -1788,6 +1928,9 @@ them: a conformance case cannot assert on stderr, so this wants
 `tests/e2e/` — compare-first, printing expected/actual on mismatch.
 
 ## int-imported-module-mutable-registry-not-shared — a registry mutated by the importer stays empty
+<!-- status: open
+     lane: js
+     area: front -->
 
 **Status:** OPEN (found 2026-07-28 by `v2-native-import-graph` while re-measuring
 `v2-native-scala-import-parse-only-noop`; the native lane is the correct one here).
@@ -1824,6 +1967,10 @@ which interpreter instance owns it. Not taken by `v2-native-import-graph`: that 
 `v2/bin/`, and this is the v1 interpreter.
 
 ## v2-method-dispatch-never-jits — every method call in every v2 program ran interpreted, forever
+<!-- status: fixed
+     lane: int
+     area: codegen
+     fixed-in: unrecorded -->
 
 **Status:** **FIXED 2026-07-28** (`v2-runtime-perf-vs-v1`). Found by benchmarking the v2 runtime
 against v1 for the first time — the v2 bench lane had been dead and reporting `n/a`, so this had
@@ -1878,6 +2025,10 @@ breaches. Nothing else can see this class of defect.
 from silently un-JITing the whole bytecode emitter. Queued as slice 2 in
 `specs/v2-runtime-perf-vs-v1.md` §4.
 ## js-jvm-codegen-in-fence-imports-not-followed — only the INT lane loads a module imported inside a fence
+<!-- status: open
+     lane: js
+     area: front
+     gate: tests/conformance/native-import-in-fence.ssc -->
 
 **Status:** OPEN (found 2026-07-28 by `v2-native-import-graph` while fixing the native half,
 `v2-native-front-in-fence-imports-not-followed`). Declared `known-red: js,jvm` on
@@ -1911,6 +2062,10 @@ the same code/doc predicate the source collector uses so the two walks cannot di
 by `v2-native-import-graph`: that claim's paths are `v2/bin/`, and this lives in the v1 tree.
 
 ## conformance-known-red-silently-ignored-on-v2 — the one lane that needs a declared red cannot have one
+<!-- status: fixed
+     lane: native
+     area: conformance
+     fixed-in: 895e5ecff -->
 
 **Status:** FIXED 2026-07-28 in `895e5ecff` — the V2 lane now calls
 `checkLane("V2 ", "v2", v2Out, expected, knownRed)` like the other five.
@@ -1984,6 +2139,10 @@ known-red `v2` on a case that passes must fail the suite), since that
 self-expiry is the property that makes the mechanism safe to use at all.
 
 ## scljet-write-freelist-errors-are-swallowed — reclaiming pager accepts corrupt staged graphs
+<!-- status: open
+     lane: apparatus
+     area: front
+     gate: tests/conformance/run.sh -->
 
 **Status:** OPEN (found 2026-07-28 during SPRINT `SC-2a.1`;
 reporter: Codex production-completion audit; baseline `b6967a79f`).
@@ -2012,6 +2171,10 @@ newly freed pages, and prove two pre-commit reclaim batches read the staged
 header/trunks. Every negative case must fail before returning a changed pager.
 
 ## scljet-live-dml-does-not-reclaim-pages — SQL DELETE/UPDATE bypass reclaiming deletion
+<!-- status: open
+     lane: js
+     area: conformance
+     gate: tests/conformance/run.sh -->
 
 **Status:** OPEN (found 2026-07-28 during SPRINT `SC-2a.1`;
 reporter: Codex production-completion audit; baseline `b6967a79f`).
@@ -2036,6 +2199,10 @@ counts, plus an UPDATE reclaim result. Land strict staged-freelist validation
 before enabling the live helper.
 
 ## corpus-contract-roster-drift-48-cases — the always-on differential gate exits 1 for bookkeeping, not for a regression
+<!-- status: open
+     lane: apparatus
+     area: runtime
+     gate: tests/conformance/contract-roster.tsv -->
 
 **Status:** OPEN — **measured, not mine to fix** (found 2026-07-28 by `f-try-multistmt-def-body`
 while rostering one new conformance case; the cases span at least six live claims, so a single
@@ -2081,6 +2248,9 @@ untouched on purpose — each needs its own classification, and several belong t
 live right now.
 
 ## uniml-yaml-property-lexical-boundaries — tag/anchor delimiters are guessed without parser context
+<!-- status: open
+     lane: js
+     area: front -->
 
 **Status:** OPEN (found 2026-07-28 during the UPR-2a.2 corpus and grammar audit;
 SPRINT `UPR-2a.2`).
@@ -2112,6 +2282,10 @@ baseline is actual errors `218`, validity `216`, semantics `138`, strict `126`,
 failures `276`, source/chunks `402/402`, and zero crashes.
 
 ## uniml-yaml-bare-tag-uses-primary-handle — `%TAG !` rewrites the non-specific `!` tag
+<!-- status: fixed
+     lane: js
+     area: front
+     fixed-in: 3341a35a9 -->
 
 **Status:** FIXED 2026-07-28 in `3341a35a9` (found during independent
 UPR-2a.1 review; SPRINT `UPR-2a.1`).
@@ -2135,6 +2309,10 @@ primary handle. JVM and Scala.js regressions prove that `%TAG ! ...` expands
 representation spelling, and malformed-percent rejection.
 
 ## uniml-yaml-bare-tag-missing-separation — `![...]` is accepted as a tagged collection
+<!-- status: fixed
+     lane: js
+     area: front
+     fixed-in: 3341a35a9 -->
 
 **Status:** FIXED 2026-07-28 in `3341a35a9` (found during independent
 UPR-2a.1 review; SPRINT `UPR-2a.1`).
@@ -2156,6 +2334,10 @@ Scala.js reject adjacency to `[`/`{` with `uniml.yaml.invalid-tag`; a literal
 end-of-input case remains a valid non-specific tag.
 
 ## uniml-yaml-tag-percent-decoder-quadratic — legal long tags trigger repeated prefix copies
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: 3341a35a9 -->
 
 **Status:** FIXED 2026-07-28 in `3341a35a9` (found during independent
 UPR-2a.1 review; SPRINT `UPR-2a.1`).
@@ -2179,6 +2361,9 @@ exact 402-case corpus baseline all pass; independent reviews accepted the linear
 portable path.
 
 ## uniml-yaml-corpus-6ck3-percent-oracle-conflict — pinned event contradicts YAML 1.2.2 tag preservation
+<!-- status: open
+     lane: multi
+     area: front -->
 
 **Status:** OPEN (found 2026-07-28 during independent UPR-2a.1 review; upstream
 `yaml/yaml-test-suite#9` remains open).
@@ -2216,6 +2401,11 @@ changes only 6CK3; the corrected baseline/category SHA-256 values are
 `cc0d52c8f34207900a95afe6725d5f9a9265c1cb6ce10f6d82feb9bf21288c78`.
 
 ## v2-distributed-failure-retry — retry path degrades to Stub
+<!-- status: fixed
+     lane: jvm
+     area: front
+     fixed-in: ea21eb8a5
+     gate: tests/conformance/distributed-failure-retry.ssc -->
 
 **Status:** FIXED 2026-07-28 in `ea21eb8a5` (regression `a373460c3`);
 reported by the SSC v2 corpus audit and accepted by `codex`, SPRINT
@@ -2249,6 +2439,10 @@ plugin is 5/5, and the partial/map/heterogeneous/shuffle neighbors are exact
 16/16 across the same frontend/engine matrix.
 
 ## f-front-silent-delegation-hides-coverage-gaps — F is the default front, and 26 corpus cases were never compiled by it
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: d900d00cf -->
 
 **Status:** **FIXED 2026-07-28** by opus (`f-front-silent-delegation`, `d900d00cf`) — the silence is
 fixed and the gap is now measured. The 26 gaps themselves are F work, listed below rather than
@@ -2299,6 +2493,9 @@ done
 ```
 
 ## uniml-yaml-projection-reorders-invalid-cst — semantic projection sorts tokens instead of validating source order
+<!-- status: open
+     lane: multi
+     area: front -->
 
 **Status:** OPEN (found 2026-07-28 during UPR-2 architecture audit).
 
@@ -2315,6 +2512,9 @@ one source identity, unique ids, monotone spans, source slices, and traversal/so
 the invalid tree without sorting or reparsing it.
 
 ## uniml-yaml-alias-resolution-last-wins — earlier aliases bind to a later duplicate anchor
+<!-- status: open
+     lane: js
+     area: front -->
 
 **Status:** OPEN (found 2026-07-28 during UPR-2 architecture audit).
 
@@ -2339,6 +2539,9 @@ binding visible at each alias occurrence, retain the duplicate warning, reject f
 keep expansion/cycle/node limits bounded.
 
 ## uniml-yaml-official-conformance-gap — YAML 1.2.2 strict corpus is 126/402
+<!-- status: open
+     lane: apparatus
+     area: conformance -->
 
 **Status:** OPEN (accepted 2026-07-28 as UPR-2 from the pinned compare-first gate).
 
@@ -2367,6 +2570,11 @@ semantics for all 402 cases on JVM and Scala.js, source/chunks 402/402, zero cra
 Core Schema differential, standalone/root transition, and affected conformance green.
 
 ## v2-generator-provider — Dataset cannot consume the native Generator provider
+<!-- status: fixed
+     lane: jvm
+     area: front
+     fixed-in: 2f5bb135b
+     gate: tests/conformance/dataset-from-generator.ssc -->
 
 **Status:** **DONE 2026-07-28** by `codex` (`2f5bb135b`; regression
 `e583c4203`; reported by the SSC v2 corpus audit, SPRINT
@@ -2401,6 +2609,9 @@ from the expected fail-first 4/6 to 6/6, Generator remains 10/10, focused
 conformance is 2/2, and both the bridge case and neighboring provider fixture
 compare exactly across default/legacy × VM/direct ASM (8/8 total routes).
 ## js-lane-missing-derives-and-coroutinecancel — two real gaps behind one confusing error
+<!-- status: unknown
+     lane: js
+     area: codegen -->
 
 **Status:** the **`derives` half is FIXED 2026-07-28** in `c8168ef90` (`js-derives-instance-undefined`); (b)
 `coroutineCancel` was already fixed. What remains for
@@ -2523,6 +2734,11 @@ honest way to say so is a `backends:` gate naming the reason — not a baseline 
 known gaps in things that DO run.
 
 ## v2-callback-exc-parity-followups — distributed/generator callbacks rewrap user throws
+<!-- status: fixed
+     lane: native
+     area: runtime
+     fixed-in: 218e7c527
+     gate: tests/conformance/run.sh -->
 
 **Status:** **DONE 2026-07-28** by `codex` (`218e7c527`; found by the SSC
 v2 parity audit and re-confirmed in the exact assembled harness, SPRINT
@@ -2560,6 +2776,11 @@ direct ASM, and V2 VM. Default/legacy × native VM/direct ASM also compare
 exactly; the neighboring distributed/generator conformance slice is 8/8.
 
 ## coord-status-ledger-invalid-marker — the required claim ledger is reported as an invalid marker
+<!-- status: fixed
+     lane: apparatus
+     area: conformance
+     fixed-in: cfcdae1ab
+     confirmed: no -->
 
 **Status:** **FIXED 2026-07-28** in `cfcdae1ab` (reported by the production-readiness coordination
 audit; baseline `d900d00cf9`, awaiting reporter confirmation).
@@ -2583,6 +2804,10 @@ passed with only `rogue.tsv` plus its exact repair command. All four `tests/coor
 the live `scripts/coord-status --no-fetch` invalid-marker section now prints `none`.
 
 ## uniml-root-standalone-target-cache-collision — prescribed root→standalone verification corrupts UniML compilation state
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     fixed-in: 3e52e6909 -->
 
 **Status:** FIXED in `3e52e6909` (found 2026-07-28 while qualifying UPR-1 after the root
 JVM/Scala.js suites were green).
@@ -2626,6 +2851,10 @@ root YAML/Markdown JVM+Scala.js → standalone aggregate twice; all four transit
 second round compiled zero sources. Independent review accepted the isolation and transition gate.
 
 ## uniml-yaml-corpus-gate-exception-isolation — post-capture hashing can erase observed axes
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: 70068fd7b -->
 
 **Status:** FIXED in `70068fd7b` (found 2026-07-28 by the independent
 `uniml_code_test_audit` sub-review while qualifying UPR-1a). The affected gate existed only in the
@@ -2660,6 +2889,10 @@ remained expected-red on exactly 290 cases with unchanged baseline/category dige
 the standalone build, affected conformance, and renewed independent acceptance all passed.
 
 ## f-validateNoReader-rejects-plugin-externs — the F-vs-legacy guard counts a legitimate `extern def` as a coverage gap
+<!-- status: open
+     lane: apparatus
+     area: front
+     gate: tests/conformance/scljet-mutate-update.ssc -->
 
 **Status:** OPEN (found 2026-07-28 by `v2-board-and-f5b` while measuring why F still delegates).
 Affects `RunNativeV2.validateNoReader`, i.e. the F4a delegate-fallback decision — not F itself.
@@ -2736,6 +2969,10 @@ the raw rows differ. Classification is per-file and unaffected. Reproduce with
 ---
 
 ## MEASURED, NOT YET EXPLAINED — the non-extern residue
+<!-- status: fixed
+     lane: js
+     area: runtime
+     fixed-in: unrecorded -->
 
 For the same program, after the block-comment fix, 53 unbound globals remain. `jvmVfs*` are the
 externs above. The rest — `error ×6`, `leftChild ×4`, `seen ×2`, `cellPtr ×2`, `refTrunk ×2` — are
@@ -2751,6 +2988,10 @@ here only so the next person does not spend the same two attempts on it. Start f
 and bisect it down, rather than from a plausible-looking shape.
 
 ## js-extern-shim-shadows-globalthis-implementation — the shim bound `undefined` over a working runtime function
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: unrecorded -->
 
 **Status:** **FIXED 2026-07-28** by `js-not-callable-unit`.
 
@@ -2788,6 +3029,10 @@ not); the third is a missing feature. Both are JS-runtime surface questions, not
 are left open rather than papered over.
 
 ## heartbeat-threshold-stated-in-two-repos — AGENTS.md and the multi-agent skill can drift apart
+<!-- status: fixed
+     lane: apparatus
+     area: plugin
+     fixed-in: unrecorded -->
 
 **Status:** **FIXED 2026-07-28** by opus (`heartbeat-threshold-drift-gate`) — gate landed here, and
 the submodule copy corrected in its own repo (commit `242501d` in `agent-plugins`, **local, not
@@ -2836,6 +3081,9 @@ this claim does not own. Someone with the submodule in scope should update it, o
 skill should stop restating the number and point at `scripts/coord-status` as the single source.
 
 ## ci-sbt-job-is-28x-the-code-push-interval — the arithmetic no queue policy can fix
+<!-- status: open
+     lane: apparatus
+     area: runtime -->
 
 **Status:** OPEN — **measurement, handed to whoever owns the `sbt` job** (2026-07-28,
 `ci-bookkeeping-floods-verdicts`). Not mine to fix: job structure and `timeout-minutes` belong to
@@ -2866,6 +3114,10 @@ schedule") is not one option among several; it is the only shape that fits the a
 making the tests faster. A scheduled `sbt` still catches everything, just later and in batches.
 
 ## v2-native-backticked-identifier — quoted keyword parameters corrupt native parsing
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: c4e4d3a33 -->
 
 **Status:** **DONE 2026-07-28** by `codex` (`c4e4d3a33`; found and
 re-confirmed in the same assembled exact-output harness while continuing
@@ -2905,6 +3157,11 @@ VM/direct ASM and PASS on INT/JS/JVM. All five original std-ui roots compare
 exactly on the same four native routes and remain 5/5 on INT/JS/JVM.
 
 ## v2-native-std-ui-scope-global — V2 standard runtime omits the CSS scoping helper
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: unrecorded
+     gate: tests/conformance/std-ui-aggregator.ssc -->
 
 **Status:** **DONE 2026-07-28** by `codex` (`757212871`; found and
 re-confirmed in the same assembled exact-output harness while verifying the
@@ -2942,6 +3199,11 @@ exact on default/legacy × VM/direct ASM; the declared INT/JS/JVM lanes remain
 green.
 
 ## v2-native-html-interpolator-parse — self-hosted frontend emits `_err` for built-in `html` strings
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: a04239fdc
+     gate: tests/conformance/std-ui-diag-html-root.ssc -->
 
 **Status:** **DONE 2026-07-28** by `codex` (`a04239fdc`; found and
 re-confirmed in the same assembled exact-output harness while reducing
@@ -2989,6 +3251,11 @@ on default/legacy × VM/direct ASM and PASS on INT/JS/JVM; the five original
 std-ui roots also compare exactly.
 
 ## v2-std-ui-closure-pair-match — native self-hosted frontend crashes after resolving the aggregator
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: 9509190dd
+     gate: tests/conformance/std-ui-aggregator.ssc -->
 
 **Status:** **DONE 2026-07-28** by `codex` (`9509190dd`, full closure
 confirmed at `c4e4d3a33`; found and re-confirmed in the same assembled
@@ -3033,6 +3300,11 @@ five-root closure now matches every checked-in expected output on both native
 engines with both frontends and remains 5/5 on INT/JS/JVM.
 
 ## v2-std-ui-imports-stale-after-tests-move — five fixtures still target the old conformance location
+<!-- status: fixed
+     lane: native
+     area: codegen
+     fixed-in: 29c6cc249
+     gate: tests/conformance/std-ui-aggregator.ssc -->
 
 **Status:** **DONE 2026-07-28** by `codex` (`29c6cc249`, full native closure
 confirmed at `c4e4d3a33`; found and re-confirmed in the same assembled
@@ -3065,6 +3337,10 @@ fixture was introduced and expected output stayed unchanged.
 default/legacy × native VM/direct ASM.
 
 ## ci-status-sha-misses-commits-covered-by-a-later-tip — a code commit can be TESTED and still report "no run"
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     fixed-in: unrecorded -->
 
 **Status:** **FIXED 2026-07-28** by opus (`ci-status-descendant-fallback`). Found 2026-07-28 by
 `ci-bookkeeping-floods-verdicts` while verifying the `paths-ignore` change on live traffic; not
@@ -3117,6 +3393,10 @@ describes, made mechanical instead of manual.
 
 
 ## semantic-gate-red-tkv2-typed-client-derived — a golden that encoded a DROPPED program
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: 6b8965258 -->
 
 **Status:** FIXED (2026-07-28, `semantic-gate-tkv2-red`). Found 2026-07-28 by `v2-board-and-f5b`
 while gating an unrelated change; fixed under its own claim.
@@ -3154,6 +3434,10 @@ is the case that actually occurred.
 (`[int, js]`) as KEEP.
 
 ## scljet-jdbc-nan-binding-diverges — PreparedStatement binds NaN as REAL instead of SQLite NULL
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: b39127f61 -->
 
 **Status:** FIXED in `b39127f61` (found 2026-07-28 by the independently
 reviewed live sqlite-jdbc SC-1a differential).
@@ -3175,6 +3459,10 @@ coercion. The phase-aware compare-first matrix passes for all four JDBC binding
 routes and verifies the reference-persisted row.
 
 ## scljet-ipk-insert-indexed-out-of-order — indexed INSERT rebuild preserves statement order, not rowid order
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: b39127f61 -->
 
 **Status:** FIXED in `b39127f61` (found 2026-07-28 by
 `scljet-production-completion` in the live sqlite-jdbc SC-1a differential).
@@ -3195,6 +3483,9 @@ live differential compares outcomes and rows with SQLite, reopens the
 SclJet-written file, and gets `PRAGMA integrity_check = ok`.
 
 ## scljet-sql-numeric-literal-grammar-gaps — signed VALUES, exponent, and hex literals are incomplete
+<!-- status: open
+     lane: apparatus
+     area: front -->
 
 **Status:** OPEN (found 2026-07-27 by `scljet-production-completion` while
 running the assembled IPK-affinity matrix). This is a declared SC-8 grammar
@@ -3213,6 +3504,10 @@ full SQLite signed decimal/exponent/hex source-literal grammar and differential
 vectors without changing the distinct TEXT-affinity grammar.
 
 ## scljet-update-ignores-unconsumed-numeric-tail — mutation parsers can execute a recognized prefix
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: a00db1967 -->
 
 **Status:** FIXED in `a00db1967` (found 2026-07-27 by
 `scljet-production-completion`; reproduced through the assembled v1 runner and
@@ -3242,6 +3537,10 @@ mutable pager; SC-8 then implements the missing literal families. A syntax gap
 may fail loud, but it may never partially execute.
 
 ## scljet-sql-integer-literal-overflow-wraps-rowid — decimal 2^63 becomes Long.MinValue
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: a00db1967 -->
 
 **Status:** FIXED in `a00db1967` (found 2026-07-27 by
 `scljet-production-completion`; reproduced through assembled INT and
@@ -3266,6 +3565,11 @@ reclassifying the unsigned magnitude as REAL must still fold exactly
 pins all three.
 
 ## scljet-auto-rowid-negative-and-max-boundaries — allocation starts at zero and wraps at Long.MaxValue
+<!-- status: fixed
+     lane: native
+     area: codegen
+     fixed-in: a00db1967
+     gate: tests/conformance/json-read.ssc -->
 
 **Status:** FIXED in `a00db1967` (found 2026-07-27 by
 `scljet-production-completion`; static root cause confirmed against reference
@@ -3284,6 +3588,11 @@ table separately, and `assignInsertRowids` increments unchecked. SC-1a must use
 the true signed maximum, start an empty table at 1, and choose an unused
 positive fallback when the maximum cannot be incremented.
 ## v2-json-read-native-representation-parity — native JSON read differs from established output
+<!-- status: fixed
+     lane: int
+     area: codegen
+     fixed-in: 1edd8cd6c
+     gate: tests/conformance/json-read.ssc -->
 
 **Status:** DONE — fixture/gate defect fixed by `1edd8cd6c` (found and
 confirmed 2026-07-27 by `codex` while working SPRINT
@@ -3337,6 +3646,9 @@ its output is byte-identical through native VM, direct ASM, and
 3/3 on INT/JS/JVM, and `v21-self-hosted-json-cutover-smoke.sh` passes.
 
 ## native-release-unqualified-and-unrelocatable — release workflow cannot prove a runnable v2 artifact
+<!-- status: open
+     lane: native
+     area: front -->
 
 **Status:** OPEN (found 2026-07-27 by `native-release-qualification` against
 `origin/main@6919b46db`; no release run exists yet).
@@ -3413,6 +3725,10 @@ Until that is explained, `native-release` cannot qualify anything, and the
 earlier note "no release run exists yet" is superseded: one exists and it is red.
 
 ## scljet-sql-blob-comparison-collapses-values — all BLOBs compare equal
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: 9d96146b3 -->
 
 **Status:** FIXED (found 2026-07-27 by `scljet-production-completion`; reproduced
 on assembled `bin/lib/ssc.jar` from `9d96146b3` through both
@@ -3440,6 +3756,10 @@ then reopens the file with Xerial and requires `PRAGMA integrity_check = ok`.
 Status remains FIXED until reporter confirmation.
 
 ## scljet-sql-numeric-comparison-rounds-through-double — INTEGER/REAL loses precision above 2^53
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: 9d96146b3 -->
 
 **Status:** FIXED (found 2026-07-27 by `scljet-production-completion`; reproduced
 on assembled `bin/lib/ssc.jar` from `9d96146b3` through both
@@ -3466,6 +3786,10 @@ sqlite-jdbc 3.45.3.0 (embedding SQLite 3.45.3); the Xerial reopen and integrity
 checks also pass. Status remains FIXED until reporter confirmation.
 
 ## scljet-sql-null-three-valued-logic — scalar and IN predicates treat UNKNOWN as true/false
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: 9d96146b3 -->
 
 **Status:** FIXED (found 2026-07-27 by `scljet-production-completion`; reproduced
 on assembled `bin/lib/ssc.jar` from `9d96146b3` through both
@@ -3514,6 +3838,10 @@ recursive prepare-time scope/unknown-column resolution, and compiled/cached
 preparation are not yet complete.
 
 ## scljet-correlated-subquery-join-where-unsupported — joined outer rows bypass correlated evaluation
+<!-- status: fixed
+     lane: int
+     area: runtime
+     fixed-in: b63206552 -->
 
 **Status:** FIXED (found 2026-07-28 by independent
 `scljet-production-completion` review; reproduced on assembled
@@ -3544,6 +3872,10 @@ phase plus semantic error category, and still passes Xerial reopen and
 integrity checks.
 
 ## scljet-correlated-subquery-errors-swallowed — NOT turns subquery execution failure into TRUE
+<!-- status: fixed
+     lane: int
+     area: front
+     fixed-in: b63206552 -->
 
 **Status:** FIXED (found 2026-07-28 by independent
 `scljet-production-completion` review; reproduced on assembled
@@ -3570,6 +3902,10 @@ EXISTS/IN/scalar subqueries cannot hide an error. All 15 outcomes in
 compares phase and semantic category rather than unstable vendor message text.
 
 ## scljet-jdbc-prepare-defers-query-errors — PreparedStatement accepts invalid correlated SELECT
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: ac33456bc -->
 
 **Status:** FIXED (found 2026-07-28 by the live differential on `ac33456bc`
 plus the in-flight correlated fix; fixed in `71d8a6f0e`).
@@ -3594,6 +3930,10 @@ partial, and execution still reparses the current image. SC-4a owns that
 larger preparation contract.
 
 ## scljet-correlated-dml-predicates-ignored — UPDATE/DELETE turn correlated predicates into no-op
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: 71d19c6ef -->
 
 **Status:** FIXED (found 2026-07-28 by `scljet-production-completion`;
 reproduced from `71d19c6ef` in the real conformance harness on INT and emitted
@@ -3629,6 +3969,10 @@ preflight on empty and missed scans, affected-row counts, and a canonical
 physical-NULL-IPK delete.
 
 ## scljet-correlated-nested-same-name-shadowing — nested local table is replaced by outer binding
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: 71d19c6ef -->
 
 **Status:** FIXED (found 2026-07-28 by independent
 `scljet-production-completion` review; reproduced from `71d19c6ef` through the
@@ -3661,6 +4005,9 @@ through the scoped walker. Same-name locals return all reference rows while
 the deliberately correlated grandparent controls retain their narrower result.
 
 ## scljet-sql-double-equals-parser-gap — WHERE rejects SQLite's `==` equality alias
+<!-- status: unknown
+     lane: multi
+     area: front -->
 
 **Status: FIXED 2026-07-28** in `94873f54d` (`scljet-sql-double-equals`). Normalized in the TOKENIZER.
 
@@ -3703,6 +4050,11 @@ normalize the alias consistently in scalar, WHERE/HAVING/ON, correlated scalar,
 and index-range paths, with complete-token fail-closed coverage.
 
 ## v2-f-small-vm-admission-loads-asm — F admission classification breaks VM backend isolation
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: 15b99b5ee
+     gate: tests/e2e/v21-plugin-backend-isolation-smoke.sh -->
 
 **Status:** DONE (found 2026-07-27 by `codex` while verifying unlanded
 `15b99b5ee`; fixed in `389b36e0f`). The reporter confirmed the fix by rerunning
@@ -3732,6 +4084,10 @@ Focused tests passed 11/11, the hello/SClJet product gate passed, and
 `v21-plugin-backend-isolation-smoke.sh` now passes.
 
 ## f-block-comment-lexed-as-code — F has no block-comment support; doc comments become expressions
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: 2adeef250 -->
 
 **Status:** FIXED (2026-07-27, landed `2adeef250`; status line corrected 2026-07-28 — it was left
 saying OPEN by the same agent that fixed it, which is the exact board-lying failure that agent spent
@@ -3804,6 +4160,10 @@ BOTH a gate case whose comment holds prose AND one whose comment holds bound-glo
 (`map`, `filter`), so the fail-open direction is pinned too.
 
 ## markdownlint-bugs-lane-labels — repository markdownlint is red on prose syntax
+<!-- status: fixed
+     lane: js
+     area: front
+     fixed-in: ffb7b4695 -->
 
 **Status:** **FIXED 2026-07-27** in `ffb7b4695` (reporter confirmation
 pending). Found by Codex while running the exact CI markdownlint command for
@@ -3834,6 +4194,10 @@ named local gates are the full-repository markdownlint command (exit 0),
 `git diff --check` (exit 0), and `arithmetic` conformance (1/1).
 
 ## corpus-contract-doc-mislabels-v2-lane — operator spec sends triage to the wrong architecture
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: 2a796b258 -->
 
 **Status:** **FIXED 2026-07-27** in `2a796b258` (reporter confirmation
 pending). Found by Codex while reconciling the E7 gate docs at `fc5f07f28`.
@@ -3860,6 +4224,10 @@ the stale `laneCmd` comment, and the remaining retired-bridge comments in
 architecture check.
 
 ## corpus-contract-usage-missing-arg-separator — documented commands do not reach the script
+<!-- status: fixed
+     lane: apparatus
+     area: codegen
+     fixed-in: fc5f07f28 -->
 
 **Status:** **FIXED 2026-07-27** in `fc5f07f28`, with the operator forms
 verified and documented in `2a796b258` (reporter confirmation pending). Found
@@ -3875,6 +4243,10 @@ Add the load-bearing `--` to all commands that pass Corpus Contract options and
 pin the exact working forms in both operator docs.
 
 ## corpus-contract-skip-transition-false-improvement — runnable-but-failing is called PASS
+<!-- status: fixed
+     lane: apparatus
+     area: codegen
+     fixed-in: fc5f07f28 -->
 
 **Status:** **FIXED 2026-07-27** in `fc5f07f28` (reporter confirmation
 pending). Found by Codex re-review on `a7ef5749c`.
@@ -3895,6 +4267,11 @@ and zero-eligible-cell transitions do not claim improvement. Synthetic tests
 cover all three branches.
 
 ## corpus-contract-shards-miss-removals — every production shard suppresses coverage loss
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: fc5f07f28
+     gate: tests/conformance/contract.sc -->
 
 **Status:** **FIXED 2026-07-27** in `fc5f07f28` (reporter confirmation
 pending). Found by Codex re-review on `a7ef5749c`.
@@ -3914,6 +4291,11 @@ global removal inference. A synthetic/selection check proves a shard sees a
 removed roster case.
 
 ## corpus-contract-zero-evidence-green — an empty selection can pass without comparing anything
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: fc5f07f28
+     gate: tests/conformance/contract.sc -->
 
 **Status:** **FIXED 2026-07-27** in `fc5f07f28` (reporter confirmation
 pending). Found by Codex review on `e124cc20f`.
@@ -3936,6 +4318,10 @@ enumeration operation, not evidence. Regression checks must assert the exact
 exit-2 diagnostic so a different early failure cannot masquerade as the fix.
 
 ## corpus-contract-delta-false-improvements — unobserved lanes and status changes look improved
+<!-- status: fixed
+     lane: multi
+     area: conformance
+     fixed-in: fc5f07f28 -->
 
 **Status:** **FIXED 2026-07-27** in `fc5f07f28` (reporter confirmation
 pending). Found by Codex review on `e124cc20f`.
@@ -3959,6 +4345,10 @@ tests cover `FAIL → DIVERGE`, `KNOWN-RED → FAIL`, an unobserved lane, and a
 real improvement.
 
 ## corpus-contract-freeze-digest-unbound — roster edits do not invalidate the paired freeze
+<!-- status: fixed
+     lane: apparatus
+     area: conformance
+     fixed-in: fc5f07f28 -->
 
 **Status:** **FIXED 2026-07-27** in `fc5f07f28` (reporter confirmation
 pending). Found by Codex review on `e124cc20f`.
@@ -3982,6 +4372,11 @@ unknown/untrimmed baseline lanes that would otherwise remain permanently
 outside every observed scope.
 
 ## claim-ledger-claimfile-scope-drift — inconsistent claim metadata makes the overlap guard fail open
+<!-- status: fixed
+     lane: int
+     area: runtime
+     fixed-in: 0fade8820
+     gate: tests/conformance/corpus-baseline.tsv -->
 
 **Status:** **FIXED 2026-07-27** by opus (`claim-metadata-consistency`). Found 2026-07-27 by Codex
 while claiming SPRINT E7; observed at `0fade8820` / `540f0ba52`.
@@ -4036,6 +4431,11 @@ rejected; a matching pair remains accepted. Do not merely repair today's row —
 that would hide the mechanism.
 
 ## corpus-baseline-update-scoped-run-truncates — `--update-baseline` can erase out-of-scope rows
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: fc5f07f28
+     gate: tests/conformance/contract.sc -->
 
 **Status:** **FIXED 2026-07-27** in `fc5f07f28` (reporter confirmation
 pending). Found by Codex on `540f0ba52`.
@@ -4067,6 +4467,10 @@ exits 2 with the exact unsafe scope in the diagnostic. Pin the cheap negative
 control with `--list` so no built toolchain or corpus execution is required.
 
 ## parser-package-wrap-drops-fence-attrs — a `package:` module silently loses EVERY fence attribute
+<!-- status: fixed
+     lane: int
+     area: front
+     fixed-in: unrecorded -->
 
 **Status:** **FIXED 2026-07-27** by `corpus-gate-remaining-reds` (one argument). Found while
 implementing `@doc`: the feature worked on a plain file and did nothing in `std/coroutine.ssc`.
@@ -4092,6 +4496,10 @@ blocks, and the modules that use those do not declare a `package:`. It took a ne
 literate `std/` modules DO use to hit the combination.
 
 ## imported-builtin-native-runs-callback-in-defining-interpreter — an imported builtin runs your closure in the WRONG scope
+<!-- status: fixed
+     lane: int
+     area: runtime
+     fixed-in: unrecorded -->
 
 **Status:** **FIXED 2026-07-27** by `corpus-gate-remaining-reds`. Filed first as
 `coroutine-started-after-resume-int-vs-v2` (one wrong flag); the flag turned out to be the visible
@@ -4136,6 +4544,10 @@ so **INT was never held to it**. Widened to `[int, jvm, v2]` as part of this fix
 suite was the affected slice, not a slice of it.
 
 ## coroutine-started-after-resume-int-vs-v2 — INT and the native lane disagree on a coroutine's started flag
+<!-- status: fixed
+     lane: js
+     area: conformance
+     fixed-in: 57d107739 -->
 
 **Status:** **FIXED** — see `imported-builtin-native-runs-callback-in-defining-interpreter` above,
 which is the actual defect this was a symptom of. Original report below.
@@ -4157,6 +4569,10 @@ by a 9-line prefix that INT printed and v2 did not
 against `specs/` before changing either — the flag is observable API.
 
 ## js-int-boundary-const-lambda — JS `Int` normalization assigns to immutable typed-lambda bindings
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: 57d107739 -->
 
 **Status:** FIXED 2026-07-27 in `57d107739` (found by exact-SHA CI run `30286311782`,
 `Conformance Suite` job `90044864452`, at `35a70f095`; regression introduced by `b672b0d41`).
@@ -4195,6 +4611,11 @@ zero skips), including the original Char widening and String/ordinary-Int contro
 the named local gates above are green and no job for the fixed SHA had reported red.
 
 ## v2-native-front-drops-attributed-code-fence — the DEFAULT lane silently discards any ```scalascript fence carrying an attribute
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: unrecorded
+     gate: tests/conformance/fen -->
 
 **Status:** **FIXED 2026-07-27** by `corpus-gate-remaining-reds`. Was high severity: silent code loss
 on the default execution path. Found while scoping the doc-block decision — the decision question is
@@ -4268,6 +4689,10 @@ implemented explicitly in every lane AFTER this bug is fixed, or the doc-block f
 built on an accident. See `specs/ssc-doc-blocks.md`.
 
 ## ci-status-blind-to-non-ci-workflows — the tool agents trust for a verdict could not see 4 of 5 workflows
+<!-- status: fixed
+     lane: multi
+     area: front
+     fixed-in: unrecorded -->
 
 **Status:** **FIXED 2026-07-27** by opus (`ci-status-all-workflows`). Found while looking for work
 after the bug list ran dry — this was not on the board, and that is the point: the check that would
@@ -4317,6 +4742,9 @@ NEVER-RUN` and each workflow's real verdict on one line.
 `corpus-contract-*` claims. This entry only makes it impossible to keep missing.
 
 ## ci-runs-cancelled-under-churn — most commits get no verdict, and `cancelled` is RED
+<!-- status: unknown
+     lane: apparatus
+     area: build -->
 
 **Status:** **MECHANISM ESTABLISHED, fix landed 2026-07-27** (opus, `ci-queue-concurrency`,
 `2f7052ba3`) — **verification deliberately still pending, see the criterion at the end.** Originally
@@ -4401,6 +4829,9 @@ the job that would catch a scljet regression, and the 300-min `sbt` job is the l
 
 
 ## v2-front-try-in-def-body-shapes-break — `try`-as-a-def-body shapes break; (a)+(b)+(c) FIXED
+<!-- status: unknown
+     lane: native
+     area: front -->
 
 **Status: (c) FIXED 2026-07-28** in `d11fd7a92` (`f-try-multistmt-def-body`) — together with the sibling
 `unbound global: try` this entry recorded for the legacy front, which turned out to be the same
@@ -4628,6 +5059,11 @@ exception-delivery kernel bug. The conformance case `tests/conformance/try-catch
 documents both shapes as deliberately absent so it pins delivery rather than layout.
 
 ## js-int-division-by-zero-yields-infinity — `10 / 0` is `Infinity` on the JS lane instead of throwing
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: unrecorded
+     gate: tests/conformance/js-int-division-by-zero.ssc -->
 
 **Status:** **FIXED 2026-07-27** by opus (`js-int-div-by-zero`, `2079f466a..f21a9428b`). JsGen
 emitted `Math.trunc(a / b)`, and `Math.trunc(Infinity)` is `Infinity` — nothing threw, so no `catch`
@@ -4667,6 +5103,10 @@ the restriction.
 
 
 ## scljet-ipk-update-numeric-affinity — INSERT auto-assigns invalid IPKs and UPDATE refuses valid affinity
+<!-- status: fixed
+     lane: multi
+     area: runtime
+     fixed-in: a00db1967 -->
 
 **Status:** FIXED in `a00db1967` (opened 2026-07-27 by
 `scljet-ipk-rowid`, expanded the same day by
@@ -4716,6 +5156,10 @@ collisions, and indexed paths.
 
 
 ## scljet-ipk-move-indexed-corrupts-btree — an IPK move on an INDEXED table wrote an out-of-order b-tree
+<!-- status: fixed
+     lane: multi
+     area: build
+     fixed-in: 9cb9865e1 -->
 
 **Status:** FIXED (2026-07-27, `scljet-ipk-rowid`, commit `9cb9865e1`). Found the same day by
 `scljet-ipk-rowid` while cross-checking the freshly landed IPK-move fix (`4a20a50b7`) against the
@@ -4762,6 +5206,10 @@ against the table) and `tests/conformance/scljet-update-ipk-moves-rowid.ssc` (sa
 + JS).
 
 ## ir-normalize-drops-code-fence-attrs — no SPI backend can see a fence attribute on a code block
+<!-- status: fixed
+     lane: apparatus
+     area: codegen
+     fixed-in: 63b9470c8 -->
 
 **Status:** FIXED for the CARRY (2026-07-28, `ir-fence-attrs-carry`, `63b9470c8`); **the ACT-ON-IT
 half is a declared follow-up.** `ir.Content.CodeBlock` now has `attrs`, `Normalize` passes the
@@ -4797,6 +5245,10 @@ map on `ir.Content.CodeBlock`; that is a format change (`SsccFormat` V3 writes I
 filed rather than fixed here.
 
 ## literate-import-executes-example-blocks — importing a literate module RUNS its documentation examples on INT, not on v2
+<!-- status: fixed
+     lane: native
+     area: runtime
+     fixed-in: unrecorded -->
 
 **Status:** **RESOLVED 2026-07-27** by the `@doc` feature (Sergiy's decision, `specs/ssc-doc-blocks.md`)
 — the divergence is gone, and the mechanism that caused it is now expressible rather than implicit.
@@ -4823,6 +5275,10 @@ should bind names, not print; INT is arguably right: a `.ssc` document IS its bl
 an owner decision rather than a patch.
 
 ## coroutine-demo-js-not-callable — the coroutine demo dies on the v1 JS backend
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: unrecorded -->
 
 **Status:** **FIXED 2026-07-28** (`js-not-callable-unit`) — three layers: the extern shim shadowed
 `route`'s working implementation, `serveAsync` was implemented but unpublished, and
@@ -4863,6 +5319,10 @@ not a value that survives until someone calls it and gets `not callable: ()` wit
 message.
 
 ## coroutine-demo-import-cycle-on-interpreter — `examples/coroutine-demo.ssc` cannot run on the INT lane
+<!-- status: fixed
+     lane: int
+     area: runtime
+     fixed-in: unrecorded -->
 
 **Status:** FIXED (2026-07-27, `corpus-gate-remaining-reds`) by removing the three self-imports from
 `v1/runtime/std/coroutine.ssc`. Found 2026-07-27 by `corpus-contract-shard-fix` in the corpus
@@ -4903,6 +5363,9 @@ output as the golden when a case has no `expected/` file, an INT that cannot run
 **every** lane — so this single defect removed the whole coroutine demo from differential coverage.
 
 ## rozum-agent-schema-derived-js-and-v2-gaps — a newly-runnable example fails on both non-INT lanes
+<!-- status: open
+     lane: native
+     area: front -->
 
 **Status:** OPEN — **but the v2 half is CLEARED, and what it was hiding is now visible** (updated
 2026-07-28 by `f-try-multistmt-def-body`). The predicted outcome held: fixing
@@ -4980,6 +5443,9 @@ be filed (this entry) either way. Pin the `_err` sentinel to a concrete construc
 v2 side.
 
 ## f-front-compile-cost-7x-on-scljet — F as the default front pushes correct cases past gate budgets
+<!-- status: open
+     lane: native
+     area: front -->
 
 **Status:** OPEN, but **2.5× smaller than filed** — re-measured 2026-07-28 after
 `v2-method-dispatch-never-jits` was fixed (`197ae13ab`). Filed as a PERF finding: output is correct
@@ -5048,6 +5514,10 @@ super-linear step inside F may be the cheaper find.
 hello 0.8→1.5 s, scljet 8→32 s"), but nothing measured it against the corpus, so nobody knew it was
 already breaching a gate budget. `v2-f5b-typed-locals` (SPRINT Batch B) is the recovery path.
 ## portable-capsule-frame-unvalidated — the capsule's frame half escapes the fail-closed admission
+<!-- status: fixed
+     lane: js
+     area: front
+     fixed-in: unrecorded -->
 
 **Status:** **FIXED 2026-07-27** by opus (`portable-nominal-frame`, landed `7edee1a51..2050eeafc`).
 `Capsule.validateFrame` admits exactly the first-order value terms a frame may contain — `Lit`, or
@@ -5106,6 +5576,10 @@ is that the case is too slow to gate, and the cost itself is the thing to fix. (
 carries `scljet-jdbc-facade-bytecode-class-too-large`, so it may be two problems stacked.)
 
 ## bytecode-opanf-purity-registry-marks-every-def-pure — effect Ops leak into `if` conditions on the DEFAULT execution lane
+<!-- status: open
+     lane: int
+     area: front
+     gate: tests/conformance/head-field-effect-shadow.ssc -->
 
 **Status:** OPEN → fix in flight (2026-07-27, `corpus-contract-shard-fix`). Found by the corpus
 contract the first time it was able to finish a run — see `corpus-contract-never-green` below for why
@@ -5165,6 +5639,10 @@ path. It sat on `main` for 5 days because the gate that watches exactly this cou
 `__method__` / `effect.perform*` are in it, so effectful defs are correctly impure again.
 
 ## corpus-contract-never-green — the always-on differential gate produced ZERO verdicts in 13 runs
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: 0c626d348 -->
 
 **Status:** FIXED (2026-07-27, `corpus-contract-shard-fix`: `0c626d348` mechanism, `3b2b98f96`
 matrix, `e8214a277` separator). Filed because the *detection* failure is the durable lesson, not the
@@ -5192,6 +5670,11 @@ baseline to 1/N). Workflow runs 4 shards, `fail-fast: false`. `MILESTONES.md` §
 a scheduled workflow reported `cancelled` is RED.
 
 ## f-case-object-drops-program — F silently lowers a top-level `case object` to `0`, dropping the rest of the program
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: 35331f1c7
+     gate: tests/e2e/v21-slim-distribution-gate.sh -->
 
 **Status:** FIXED (2026-07-23, `35331f1c7`) by `opus` under the
 `flip-sbt-suite-under-F` claim. Verified: X1 fixpoint stage1==stage2 byte-identical (406008 B), semantic
@@ -5224,6 +5707,10 @@ walk resumes at the next statement. `fsub.ssc` uses no `case object`, so the X1 
 `case object Jvm` + `println("hi")` prints `0` under F, `hi` under legacy.
 
 ## jdk-backend-accept-teardown-race — uncaught `RejectedExecutionException` on `jdk-backend-accept` thread at teardown
+<!-- status: fixed
+     lane: int
+     area: runtime
+     fixed-in: unrecorded -->
 
 **Status:** FIXED (2026-07-27, `post-f4-board-reconcile`). Found 2026-07-23 by opus while fixing
 `wsproxy-teardown-race` — a sibling of that race in a *different* subsystem (the JDK HTTP
@@ -5282,6 +5769,10 @@ e.g. add to the catch at `JdkServerBackend.scala:110-112`:
 (and best-effort `client.close()`). Deferred: separate subsystem, not the ws-proxy-conn race.
 
 ## f-native-multi-file-positional-args-reversed — `ssc run --native A.ssc B.ssc` runs files in REVERSE order under F
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: fa19761c2 -->
 
 **Status:** FIXED 2026-07-23 by opus (`fa19761c2`). Root cause: F's native runner
 (`v2/bin/ssc1-run-fsub.ssc0`) re-lowers the multi-file closure from a source string it rebuilds with
@@ -5345,6 +5836,10 @@ correcting it to post-order matched legacy. See Status above.)
 </details>
 
 ## ci-vthread-carrier-starvation-hang — `Test via sbt` hangs to its 200-min timeout under CI load
+<!-- status: fixed
+     lane: multi
+     area: runtime
+     fixed-in: unrecorded -->
 
 **Status:** FIXED 2026-07-22 by opus (build.sbt `-Djdk.virtualThreadScheduler.parallelism=16`). A major
 contributor to the long-running ci-red-main saga: the `sbt — compile and test` job intermittently HANGS
@@ -5374,6 +5869,11 @@ liveness hazard if carriers are ever exhausted — a bounded `poll`/`offer` with
 convert a future hang into a re-runnable failure; and JDK 24 removes `synchronized` pinning entirely.
 
 ## v21-explicit-lanes-gate-swift-em-dash-red — JVM launcher stdout is locale-dependent (non-ASCII → `?` on CI)
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: 54eae3197
+     gate: tests/e2e/v21-explicit-lanes-gate.sh -->
 
 **Status:** FIXED (`54eae3197`, 2026-07-22). Last remaining CI-baseline red (the sbt
 `ScalaScript 2.1 explicit provider and target lanes` step, `tests/e2e/v21-explicit-lanes-gate.sh`).
@@ -5403,6 +5903,10 @@ helpers (its bare `[[ ]]`/`grep`/`cmp`/redirected-run checks exited 1 printing N
 silent-gate anti-pattern AGENTS.md warns about, and why this needed a manual Docker bisect).
 
 ## durable-save-run-verifier-red — effect verifier mis-flags a def that fully handles its own effect
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: af46212c3 -->
 
 **Status:** FIXED (`durable-save-run-verifier-red`, 2026-07-22). Pre-existing CI Conformance red
 since `examples/durable-save-run.ssc` landed (`af46212c3`) — the `ssc-tools check examples/*.ssc`
@@ -5443,6 +5947,10 @@ EffectAnalysisVerifierTest green (incl. the existing "still flags a real leak" t
 typer test packages 302/302.
 
 ## scljet-unique-index-not-supported — `CREATE UNIQUE INDEX` is rejected and uniqueness is not modelled
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: 50d2ca5bc -->
 
 **Status:** FIXED `50d2ca5bc` (landed 2026-07-22; reporter confirmation pending). Found
 2026-07-16 by the `scljet-ipk-rowid` differential lane; claimed by Codex on 2026-07-22 as
@@ -5482,6 +5990,9 @@ on INT+JS; `scljetJdbcPlugin/test` 63/63 in 6 suites; sqlite-jdbc matches the th
 paths and reference `PRAGMA integrity_check` returns `ok` for the SclJet-written REAL/BLOB file.
 
 ## f-bytecode-default-switch-int64-ci-red — RESOLVED: NOT-A-BUG (misattribution; v2-bytecode is int64-exact, the CI divergence lines were the v1-codegen KNOWN-RED)
+<!-- status: wontfix
+     lane: js
+     area: codegen -->
 
 **Status:** NOT-A-BUG / MISATTRIBUTION — **RESOLVED 2026-07-22 by opus** (`bytecode-int64-verify-fix`).
 Hypothesis (b) below is CONFIRMED decisively: there is **no v2-bytecode int64 wrap**. The CI Conformance
@@ -5567,6 +6078,11 @@ sweep + a hand-picked slice) to catch any *other* out-of-corpus regression, but 
 Do NOT edit `RunNativeV2.frontIsF` (sibling-owned).
 
 ## f-int-literal-overflow-fails-open — F wraps out-of-range 64-bit integer literals instead of rejecting
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: 180f16fcb
+     gate: tests/e2e/int-literal-failopen-smoke.sh -->
 
 **Status:** FIXED `180f16fcb` (`v2-f4-reflip`, 2026-07-22). F's lexer now range-checks decimal literals and
 fails CLOSED, mirroring `ssc1-lower`. Root cause: F's `scanNumV` accumulated `acc*10 + d`, which silently
@@ -5591,6 +6107,11 @@ Old front / v1: all three `failed closed (exit 1)`. Smoke: 3 checks FAILED under
 **Fix (future F arc):** F must range-check integer literals during lowering and fail closed on 64-bit overflow, mirroring `ssc1-lower`. Do NOT edit `specs/v2.2-p6.5-fsub.ssc` here — sibling-owned; this is a separate future arc. Blocks re-attempting the F4 default-front flip.
 
 ## f-native-out-of-corpus-smoke-regressions — F fails on out-of-corpus native e2e smokes the corpus sweep can't see
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: f02100097
+     gate: tests/e2e/v21-native-md-interpolator-smoke.sh -->
 
 **Status:** FIXED (both regressions cleared; confirmed by the landed flip). Found 2026-07-22 by opus
 during the `v2-f4-reflip` re-flip verification, which was HALTED as a result — ①② landed, F stayed
@@ -5696,6 +6217,10 @@ markdown-content block renders the interpolated pieces). Coordinate on `fsub.ssc
 f-stmt-partial-function-block lanes). See `specs/v2-language-surface.md` §7.
 
 ## f-string-literal-pattern-not-data — F match/case-lambda rejects a string-literal pattern
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: unrecorded -->
 
 **Status:** FIXED 2026-07-22 by opus. F-front (`specs/v2.2-p6.5-fsub.ssc`) only. Affected BOTH a regular
 `x match { case "s" => .. }` and a `f { case "s" => .. }` case-lambda.
@@ -5722,6 +6247,10 @@ and `parseGenArm`) to cover string/other scalar literal patterns, lowering them 
 value-equality arm like the oracle. Verify the repro on F + fixpoint byte-identical + semantic unchanged.
 
 ## f-stmt-partial-function-block-dropped — F mishandles a `f { case … }` partial-function block arg
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: 9898b4e67 -->
 
 **Status:** FIXED 2026-07-22 by opus (`9898b4e67`). F-front (`specs/v2.2-p6.5-fsub.ssc`) only. Root
 cause of the actors-pingpong / actors-typed-remote-spawn / auth-demo divergence on F.
@@ -5780,6 +6309,11 @@ sweep loses the actors-pingpong / actors-typed-remote-spawn / auth-demo residual
 `fsub.ssc` (shared with v2-f5-kernel-shrink / v2-f4-flip lanes). See `specs/f-ambient-prelude-drop-in.md`.
 
 ## scljet-js-conformance-stale-prebuilt-jar-after-symlink-drop — dropped compat symlink breaks scljet JS emit against the pre-built bin/lib jar
+<!-- status: fixed
+     lane: js
+     area: front
+     fixed-in: 638b4f610
+     gate: tests/conformance/run.sh -->
 
 **Status:** DONE 2026-07-21 (`638b4f610`, `v21-negtc-red-triage`). Restoring the
 `v1/runtime/std/scljet → ../../../scljet` symlink — which the same commit did to fix the v21 gate red —
@@ -5815,6 +6349,10 @@ a jar rebuild is mandatory after the symlink drop) so `KEY FACTS: bin/ssc + ssc-
 stays true for the JS lane.
 
 ## v2-coroutine-example-tools-check-resolution — runnable native demo fails static check
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: 3cb6209a4 -->
 
 **Status:** DONE (2026-07-21, fix `3cb6209a4`, verification/spec `e2bad7262`; found and confirmed by
 codex-q4 in exact-SHA CI run `29858870257` and the same assembled checker path locally; reported with
@@ -5836,6 +6374,11 @@ all-examples assembled checker commands pass; provider tests remain 9/9, focused
 step is the real-path regression and still fails if the link is removed.
 
 ## v21-scljet-vfs-standard-gate-inventory-drift — staged provider JARs evade one gate and break another
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: c6cf03634
+     gate: tests/e2e/v21-plugin-backend-isolation-smoke.sh -->
 
 **Status:** DONE (2026-07-21, `c6cf03634`; found and confirmed by codex-q4 in the real final
 provider-isolation gate; reported with root cause to `@scalascript` / `@claude-code` in Rozum;
@@ -5858,6 +6401,10 @@ closed-layout smoke (27 roots / 129 edges / 43 classified JARs / 0 violations), 
 and native plugin boundary all pass in the staged distribution.
 
 ## v1-jvm-coroutine-generic-surface — generated runtime rejects the public typed API
+<!-- status: open
+     lane: jvm
+     area: codegen
+     gate: tests/conformance/coroutine-basic.ssc -->
 
 **Status:** OPEN (found 2026-07-21 by codex-q4 while enabling additive native-bytecode
 conformance; deferred outside native-provider Q4 to `BACKLOG.md`).
@@ -5875,6 +6422,11 @@ that compatibility lowering is fixed, coroutine conformance must still run and d
 an expiring `known-red` while the additive native VM and direct-ASM lanes compare normally.
 
 ## coroutine-error-conformance-null-proxy — native lane cannot validate the intended body failure
+<!-- status: fixed
+     lane: native
+     area: codegen
+     fixed-in: b8fd4a31c
+     gate: tests/conformance/coroutine-error.ssc -->
 
 **Status:** DONE (2026-07-21, `b8fd4a31c`; found and confirmed by codex-q4 in the real assembled
 VM/direct-ASM paths; SPRINT Q4.3).
@@ -5891,6 +6443,11 @@ focused conformance compares every selected lane with one expected output and pa
 lifecycle case additionally passes direct ASM while printing the separate v1 JVM codegen known-red.
 
 ## coroutine-contract-doc-drift — normative and feature specs disagree with the shipped surface
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: 6a9f434e4
+     gate: tests/conformance/run.sh -->
 
 **Status:** DONE (2026-07-21, contract `6a9f434e4`, verification `54ebca43d`; found and confirmed by
 codex-q4 while specifying `v2-native-coroutine-provider`; SPRINT Q4.1/Q4.4).
@@ -5908,6 +6465,10 @@ semantics, and one shared Generator/Coroutine `suspend` owner. The feature spec 
 markdownlint and `tests/conformance/run.sh --only 'coroutine-*'` pass.
 
 ## coroutine-demo-readme-link-missing — README points to an absent runnable example
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: b8fd4a31c -->
 
 **Status:** DONE (2026-07-21, example `b8fd4a31c`, docs `bfc893d99`; found and confirmed by codex-q4
 while specifying `v2-native-coroutine-provider`; SPRINT Q4.3).
@@ -5923,6 +6484,10 @@ direct ASM, and a freshly built `build-jvm` JAR; README, User Guide, and the fea
 same checked-in file.
 
 ## bench-compile-wrapper-hides-real-compiler-benches — compile measurements cannot start
+<!-- status: fixed
+     lane: int
+     area: front
+     fixed-in: 5aee0cd35 -->
 
 **Status:** DONE (2026-07-21, `5aee0cd35`; found and confirmed through the real wrapper by codex while
 starting Q2 measured optimization).
@@ -5953,6 +6518,10 @@ numbers prove routing only and are not the Q2 optimization baseline. The regress
 `v2-*` conformance slice (11/11) passed.
 
 ## f-imported-caseclass-default-arg-synth — F front missed defaulted params on OBJECT-METHOD calls
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: b1b72415e -->
 
 **Status:** FIXED (2026-07-21, `b1b72415e`; f-caseclass-default-arg). ROOT CAUSE RE-PINNED by live
 trace — the miss is NOT about *imported case-class ctors*: those synthesize correctly on F, local and
@@ -5982,6 +6551,11 @@ FIXPOINT (fsub.sh --self) stage1==stage2 byte-identical (369 543 B); fsub corpus
 `f-object-method-varargs` and `f-operator-extension-dispatch` below.
 
 ## f-object-method-varargs — F has no vararg collapse for object methods
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: unrecorded
+     gate: tests/conformance/mcp-types.ssc -->
 
 **Status:** FIXED 029a454b8 (2026-07-21). F-lane only (found 2026-07-21 by f-caseclass-default-arg;
 unmasked once the object-method default-arg fix let mcp-types run past `Resource.text`). Distinct from
@@ -6009,6 +6583,10 @@ mcp-types ran past the vararg call but still diverged — `Transport.Http(8080)`
 default-arg gap on the QUALIFIED ctor path). This was the LAST v2-F4 dualrun residual; now closed.
 
 ## f-enum-case-default-arg-qualified — F skipped trailing defaults on the QUALIFIED enum-case ctor path
+<!-- status: fixed
+     lane: js
+     area: front
+     fixed-in: 886df94fe -->
 
 **Status:** FIXED (2026-07-21, `886df94fe`; f-caseclass-default-arg family). F-lane only. This was the
 **last remaining v2-F4 dualrun residual** (`mcp-types`); the residual set 10→1→0 across 2026-07-21.
@@ -6041,6 +6619,10 @@ byte-identical (385 827 B) with the new `d enum_case_dflt` tower case; semantic.
 `specs/v2.2-p6.5-dualrun.expected`).
 
 ## f-operator-extension-dispatch — F treats `++`/`/` extension operators as builtin infix ops
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: 5b9940422 -->
 
 **Status:** FIXED 2026-07-21 (dsl-ast-builder crash resolved; F now byte-identical to the default front).
 F-lane only. The BUGS.md title was a MIS-DIAGNOSIS — see root cause below.
@@ -6074,6 +6656,10 @@ dispatches non-numeric operands at Runtime.scala:2734). That must land in BOTH s
 F==default; filed as a follow-up (not required for the dualrun GAP, which is now EQUAL).
 
 ## f-extension-instance-dispatcher-arity — F miscompiles a same-named extension method across 2 instances
+<!-- status: fixed
+     lane: apparatus
+     area: codegen
+     fixed-in: bcfc47ec8 -->
 
 **Status:** FIXED for the standalone+given collision class (2026-07-21). Root cause was a NAME COLLISION:
 a standalone `extension` method `m` was emitted as the bare global `m`, colliding with the bare `m`
@@ -6147,6 +6733,10 @@ tagless-sealed-dispatch (rc=0 SILENT-WRONG, lines 8-9), tagless-multi-file (`ari
 — EXPOSED once the extension-member fix removed its unbound-global fallback).
 
 ## f-litdoc-runtime-error-2 — litdoc fails `ssc: 2` on the F native front only
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: unrecorded -->
 
 **Status:** FIXED (2026-07-21, `f-litdoc`). Root cause: single-argument `String.substring(from)`.
 F's `emitPrimMeth` (specs/v2.2-p6.5-fsub.ssc) emitted `(prim sslice recv from)` — only 2 args — for a
@@ -6169,6 +6759,10 @@ default lanes (INT/JS/JVM) were already green. Note: F's IR still diverges from 
 benign typed `+`/`++` string-concat op (F5b regime, by design) — output-equivalent, not byte-identical.
 
 ## swiftui-real-fixture-swift-without-swiftui — Linux `swift` is not a SwiftUI capability
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     fixed-in: c278b4b37 -->
 
 **Status:** DONE (2026-07-21, `c278b4b37`; exact containing SHA `1f5e55b44`, run
 `29805732016`; found and confirmed by codex while closing F7 exact CI). Earlier run `29775034983`
@@ -6193,6 +6787,11 @@ runs. The complete v2 gate is 644 ok / 0 FAIL and shared `v2-*` conformance is 1
 jobs successfully, including the full Linux sbt test; `scripts/ci-status` returned 0.
 
 ## cli-command-System.exit-kills-the-test-fork — a whole CLASS of green-looking CI reds
+<!-- status: fixed
+     lane: apparatus
+     area: cli
+     fixed-in: dcd00d1ab
+     gate: tests/e2e/cli-exit-reachability-guard.sh -->
 
 **Status:** FIXED as a class (2026-07-28, `cli-exit-reachability-guard`, `dcd00d1ab`). The class is now
 GATED, not merely detected: `tests/e2e/cli-exit-reachability-guard.sh` fails the build if any test can
@@ -6294,6 +6893,10 @@ reported failure.
 failing fixture produces a reported test failure rather than a silent fork exit.
 
 ## v2-native-import-wildcard-drops-ssc-case-classes — `import std.x.*` misses pure-`.ssc` definitions
+<!-- status: fixed
+     lane: js
+     area: front
+     fixed-in: 452677b73 -->
 
 **Status:** FIXED 2026-07-20 by `ci-native-front-defects` (`452677b73`). `V2CaseClassMethodCliTest`
 "std mapreduce Cluster.close executes without a stub under default v2 runner" verified green on BOTH
@@ -6364,6 +6967,10 @@ brings `Cluster`/`ClusterError`/`Dataset` into scope on the native front (and v1
 green without switching to the markdown-link form.
 
 ## v2-native-receive-bare-var-catchall — `receive { case msg => … }` misses on the native front
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: ede7efaa0 -->
 
 **Status:** FIXED 2026-07-20 by `ci-native-front-defects` (`ede7efaa0`). `V2ActorCliTest`
 "default and --v2 deliver sendAfter actor timers" verified green.
@@ -6416,6 +7023,10 @@ in how `{ case <bareVar> => … }` handler blocks register their wildcard case (
 delivers the message; `V2ActorCliTest` goes green.
 
 ## v1-cluster-bully-no-convergence-over-ws — multi-node Bully election does not converge to lex-greatest
+<!-- status: fixed
+     lane: js
+     area: front
+     fixed-in: da63bb96a -->
 
 **Status:** FIXED 2026-07-20 by `ci-cluster-bully`. Root cause was the WS *transport*, not the
 Bully/election logic. All 7 multi-node cluster tests now pass (verified by running them and observing
@@ -6470,6 +7081,10 @@ quorum=3 → minority leaderless, majority elects node-e; healing → node-e on 
 `REMOTE_SPAWN_OK`). No regression: `httpFastEngine/test` 43/43, cluster CLI suites green.
 
 ## cli-cluster-election-timing-flake-under-ci-load — snapshot-based WS cluster tests flake in CI
+<!-- status: fixed
+     lane: js
+     area: runtime
+     fixed-in: 15280bb8b -->
 
 **Status:** FIXED (mitigated) 2026-07-21 by `ci-last-red` (`15280bb8b`). Root cause is timing, not
 logic — the Bully convergence itself is correct (see `v1-cluster-bully-no-convergence-over-ws` above).
@@ -6500,6 +7115,10 @@ real processes are non-deterministic by nature; the robust long-term shape is to
 tests to the status-polling pattern of `ClusterBullyStatusConvergenceTest`.
 
 ## js-char-into-int-param — a `Char` passed into an `Int` parameter stays boxed on the v1 JS backend
+<!-- status: fixed
+     lane: js
+     area: front
+     fixed-in: b672b0d41 -->
 
 **Status:** FIXED 2026-07-27 in `b672b0d41` (found 2026-07-20 while building
 `std/markdown-html.ssc` for the docs site). Exact-SHA CI subsequently exposed the separate
@@ -6560,6 +7179,10 @@ consumer is widened and green:
 `tests/conformance/run.sh --only 'markdown-html' --no-memo` → PASS INT + PASS JS.
 
 ## frontend-tui-fetch-refresh-static-after-bootstrap — refresh ticks redraw stale fetched content
+<!-- status: fixed
+     lane: multi
+     area: front
+     fixed-in: 6c6fcf21b -->
 
 **Status:** FIXED 2026-07-20 by `frontend-tui-fetch-refresh` (`6c6fcf21b`). Found while
 implementing rozum `ucc-poc-msglist`.
@@ -6590,6 +7213,10 @@ a failed refresh against a local HTTP server; it observes exactly three requests
 successful second body. `frontendTui/test` passes 36/36, including all emitted-Cargo smokes.
 
 ## jvmgen-forked-e2e-wire-core-unpublished-snapshot — clean CI cannot resolve generated scripts
+<!-- status: fixed
+     lane: jvm
+     area: front
+     fixed-in: 2e097848b -->
 
 **Status:** FIXED 2026-07-20 by `frontend-tui-fetch-refresh` (`2e097848b`). Found only after the
 extended exact-SHA run reached the complete `sbt test` tail.
@@ -6621,6 +7248,10 @@ the three exact CI failures pass 3/3; the complete affected suites pass 4/4 and 
 `frontendTui/test` remains 36/36.
 
 ## ci-testtimeout — "Test via sbt" CI budget expires (cumulative runtime, NOT a WS hang)
+<!-- status: fixed
+     lane: js
+     area: cli
+     fixed-in: e25faeb79 -->
 
 **Status:** FIXED 2026-07-20 by `ci-testtimeout`, with the final job/step budget correction in
 `e25faeb79`. Root cause diagnosed from the CI logs themselves.
@@ -6673,6 +7304,11 @@ cross-backend differential suites (warm/pooled scala-cli compile, or shard the s
 phase back under ~60 min without losing the interp==JVM==JS coverage.
 
 ## ssc0c-multifile-uselib-ir-divergence — self-hosted compiler disagrees with the Scala seed across an import
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: 3056aa3b8
+     confirmed: no -->
 
 **Status:** FIXED 2026-07-19 by `v2-f7-internal-gate` (`3056aa3b8`; awaiting full F7 exact-SHA CI).
 Found by the 2026-07-18 v2-state audit at `358facd8e`; re-measured after both the compiler and gate moved.
@@ -6713,6 +7349,11 @@ streams are not success. The persistent two-file fixture and `uselib` compare ex
 2866/2866 bytes; `CONF_FAST=1 bash v2/conformance/check.sh` exits 0 with 408 ok / 0 FAIL.
 
 ## ssc0c-string-escape-divergence — self-hosted lexer preserves escapes that the Scala seed decodes
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: 3056aa3b8
+     confirmed: no -->
 
 **Status:** FIXED 2026-07-19 by `v2-f7-internal-gate` (`3056aa3b8`; awaiting full F7 exact-SHA CI).
 Found while aligning the exact compiler-output line terminator on the working tree based on `a985605e2`.
@@ -6743,6 +7384,11 @@ into code units exactly like the Scala seed. The imported regression contains al
 22844/22844 and 27669/27669 bytes.
 
 ## f5-buildjvm-artifact-missing-relocated-jars — `build-jvm` jars NoClassDefFoundError after F5 kernel-slimming
+<!-- status: fixed
+     lane: v2-jvm
+     area: codegen
+     fixed-in: 0681d1f08
+     gate: tests/e2e/v21-build-jvm-release-gate.sh -->
 
 **Status:** FIXED 2026-07-19 (`v2-f5-buildjvm-fix`, commit fixing `NativeJvmArtifact.scala`). Found by the
 coordinator on CI run `0681d1f08` (the `ScalaScript 2.1 compiler-free ASM artifact release gate` went red).
@@ -6770,6 +7416,11 @@ next failure once Emit is fixed). `bin/ssc run`/`--bytecode` green does NOT cove
 
 
 ## scljet-js-large-page-byteslice-recursion-overflow — a 4096-byte page overflows the JS stack on a byte-slice update
+<!-- status: fixed
+     lane: js
+     area: runtime
+     fixed-in: unrecorded
+     gate: tests/conformance/scljet-large-page.ssc -->
 
 **Status:** **FIXED 2026-07-27** by opus (`scljet-js-copyloop-stack`). `copyLoop` is now iterative
 (the var/while idiom `collectBytes` in the same file already used for this exact reason), so a
@@ -6808,6 +7459,9 @@ conformance use 512-byte pages (as the existing scljet cases already do). Filed 
 
 
 ## scljet-jdbc-facade-bytecode-class-too-large — the JDBC-facade examples overflow the JVM class-size limit on the bytecode lane
+<!-- status: open
+     lane: native
+     area: codegen -->
 
 **Status:** OPEN as a capacity gap — but **it stopped being invisible 2026-07-27** (opus,
 `v2-bytecode-lane-silent-downgrade`, `af4725ed9`). The v2 JVM bytecode backend still emits one
@@ -6877,6 +7531,9 @@ tracked here).
 
 
 ## p65-fsub-toplevel-val-infinite-loop — F (P6.5 subset compiler) hangs on a top-level `val`
+<!-- status: unknown
+     lane: native
+     area: front -->
 
 **Status:** **STALE — CLOSED 2026-07-27 by opus (`p65-toplevel-val-stale`) on measurement, not on a
 fix of mine.** F gained top-level statement support in a later F3 breadth slice and the hang is gone;
@@ -6928,6 +7585,10 @@ favour of the real top-level-statement slice.
 
 
 ## v2-native-front-rejects-jdbc-facade — `scljet/jdbc.ssc` fails to parse on the native front
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: unrecorded -->
 
 **Status:** **FIXED (2026-07-18, `native-front-run-gaps`)** — the root cause was the `while (paren) do`
 parse bug below; fixing the `while`-condition parse in `ssc1-front.ssc0` unblocked the whole façade.
@@ -6972,6 +7633,10 @@ scoped `backends: [int, js]` until the parser fix lands.
 
 
 ## scljet-update-ipk-column-silently-ignored — `UPDATE t SET <ipk> = …` does nothing, and reports success
+<!-- status: fixed
+     lane: multi
+     area: runtime
+     fixed-in: unrecorded -->
 
 **Status:** **FIXED 2026-07-27** by opus (`v2-f5b-typed-locals` batch C), together with its sibling
 `scljet-update-ipk-does-not-move-rowid` — they are one defect seen from two angles, so they were
@@ -7012,6 +7677,11 @@ cell; `scljet/address.ssc` therefore resolves the address before writing and ref
 not exist, rather than changing the engine's SQL semantics.
 
 ## v1-interp-int-literal-above-2^31-becomes-null — the INT conformance REFERENCE silently prints `null`
+<!-- status: fixed
+     lane: int
+     area: front
+     fixed-in: 5b71ad2f6
+     gate: tests/conformance/int-width.ssc -->
 
 **Status:** FIXED `5b71ad2f6` (`int-literal-failopen`). Found 2026-07-17 by
 `int-width-conformance` while writing `tests/conformance/int-width.ssc`. Not reported by anyone —
@@ -7067,6 +7737,10 @@ in-range literals so it tests the width contract rather than this bug. If this i
 can be simplified — but do not simplify it before then.
 
 ## v2-native-min64-literal-prints-0 — `println(-9223372036854775808)` gives `0`, silently
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: 5b71ad2f6 -->
 
 **Status:** FIXED `5b71ad2f6` (`int-literal-failopen`). Found 2026-07-17 by
 `int-width-conformance`. Original SHA `cb35fffa6`, real harness (`bin/ssc run`, jar from
@@ -7105,6 +7779,10 @@ and must print. Scala 3 special-cases exactly this literal.
 
 
 ## newfront-scala-spike-jvm-test-links-on-js — shared filesystem suite breaks Scala.js
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: aca439fcc -->
 
 **Status:** FIXED (2026-07-17, `ci-last-red`, coordinated with the stale `v3-newfront-p1-toplevel`
 owner in rozum; no objection). `ScalaSpikeSpec.scala` moved out of the shared crossProject test dir
@@ -7133,6 +7811,10 @@ the linker. This overlaps the stale clean newfront claim; `ci-red-main` records 
 owner fix but does not edit it without takeover authority.
 
 ## scljet-jdbc-stable-spi-import-regression — JDBC plugin bypasses the stable value surface
+<!-- status: fixed
+     lane: int
+     area: runtime
+     fixed-in: aca439fcc -->
 
 **Status:** RESOLVED via crystallization exemption (2026-07-19, `v1-crystallize-green`,
 Sergiy-authorized). Originally raised by `ci-red-main` (reconfirmed 2026-07-17 in the real aggregate
@@ -7162,6 +7844,11 @@ plugin ever stops importing `scalascript.interpreter`, the exemption fails and m
 the real migration to `scalascript-plugin-api` — this exemption is valid ONLY while v1 stays frozen.
 
 ## coord-status-ignores-heartbeat-age — old claims with live worktrees look current
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: 52e1d0814
+     confirmed: no -->
 
 **Status:** FIXED (2026-07-17, `52e1d0814`; awaiting exact-SHA CI confirmation). Found by
 `ci-red-main` at `5d932f6a4`. Project coordination rules
@@ -7191,6 +7878,11 @@ five old claims with exact timestamp, seconds/minutes, reason, and live/missing 
 the current `ci-red-main` claim fresh. Shell syntax, the complete gate, and focused conformance pass.
 
 ## coord-status-stopword-slug-false-stale — live claim is reported as stale
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: 8ad5f4d1e
+     confirmed: no -->
 
 **Status:** FIXED (2026-07-17, `8ad5f4d1e`; awaiting exact-SHA CI confirmation). Found by
 `ci-red-main` at `39feb9cc3`. A fresh authoritative
@@ -7221,6 +7913,11 @@ print the expected branch and observed branches. The gate passes and cleans its 
 the real current claim now reports `no stale-looking claims`.
 
 ## ci-example-typecheck-uses-compiler-free-launcher — green examples fail at the workflow command
+<!-- status: fixed
+     lane: apparatus
+     area: cli
+     fixed-in: a421d9077
+     confirmed: no -->
 
 **Status:** FIXED (2026-07-17, `a421d9077`; awaiting exact-SHA CI confirmation). Found by
 `ci-red-main` in Linux run `29549382274`, SHA `d5492a129`. The conformance job passes the full
@@ -7246,6 +7943,12 @@ complete examples glob successfully (documented warnings only). The two actor le
 cases remain 2/2 across INT/JS/JVM before push.
 
 ## jvm-actor-electleader-omits-leader-history — JVM disagrees with INT/JS on accepted self claim
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: 34685277c
+     confirmed: no
+     gate: tests/conformance/run.sc -->
 
 **Status:** FIXED (2026-07-17, JVM runtime `34685277c`, activated oracle `f403cb952`; awaiting
 exact-SHA CI confirmation). Found by `ci-red-main` while activating the previously empty
@@ -7279,6 +7982,11 @@ installed INT/JS/JVM outputs are byte-identical for both leader cases; the force
 passes 2/2 with all three lanes.
 
 ## js-actor-stop-cps-emits-unbound-call — completed actor body crashes on raw `stop()`
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: 4a4425f68
+     confirmed: no -->
 
 **Status:** FIXED (2026-07-17, `4a4425f68`; awaiting exact-SHA CI confirmation). Found by
 `ci-red-main` while adding the faithful Long-timer Node regression. The generated bundle
@@ -7299,6 +8007,12 @@ JVM-codegen + JS-codegen Bully matrix passes 1/1 with zero cancellations, and
 
 
 ## actor-leader-conformance-has-no-expected — tracked leader cases always skip
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: f403cb952
+     confirmed: no
+     gate: tests/conformance/run.sh -->
 
 **Status:** FIXED (2026-07-17, `f403cb952`; awaiting exact-SHA CI confirmation). Found by
 `ci-red-main` while selecting the affected gate for the multi-backend actor failure.
@@ -7323,6 +8037,11 @@ for each rather than the former 0/0 skips.
 
 
 ## cluster-multibackend-js-actor-mixes-bigint-number — generated node dies before Bully convergence
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: 4a4425f68
+     confirmed: no -->
 
 **Status:** FIXED (2026-07-17, runtime `4a4425f68`, staged matrix `74ab54c90`; awaiting exact-SHA
 CI confirmation). Found by `ci-red-main` during SPRINT 5r's separate staged audit.
@@ -7361,6 +8080,11 @@ converges on `node-bbb`, and `actors-supervision` passes INT/JS/JVM.
 
 
 ## jvm-bytecode-sibling-tests-ignore-installed-cli — thirteen assertions cancel before comparison
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: 11a9e80e2
+     confirmed: no -->
 
 **Status:** FIXED (2026-07-17, `11a9e80e2`; awaiting CI confirmation). Found by `ci-red-main` while
 auditing the Linux test tail after `JvmBytecodeRuntimeSeparationTest` was repaired. With the current
@@ -7417,6 +8141,10 @@ runtime-separation plus facade regressions are 12/12, and `dataset-parallel-jvm`
 
 
 ## swiftui-real-fixture-system-exit-hides-failure — compiler error kills the forked test JVM
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: unrecorded -->
 
 **Status:** FIXED (2026-07-20, `frontend-tui-fetch-refresh`). Found by `ci-red-main` in Linux run
 `29545769651`, job `87777659720`, and reproduced again by exact run `29728630760`. Under
@@ -7440,6 +8168,10 @@ select reconciliation 1/1.
 
 
 ## scljet-vfs-exclusive-lock-subprocess-exits-linux — official SQLite does not wait on host lock
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     fixed-in: unrecorded -->
 
 **Status:** FIXED (2026-07-18, `scljet-xprocess-lock`). It was a **test bug, not a lock-interop bug** —
 the cross-process lock protocol in `SclJetJvmVfsHost.scala` is correct and needed no change. Root cause:
@@ -7467,6 +8199,10 @@ Deterministic: `busy_timeout` (30 s) ≫ the 2 s window, and the query cannot re
 
 
 ## swift-renderer-inventory-missing-shipped-tag — backend inventory omits a lowerer tag
+<!-- status: fixed
+     lane: multi
+     area: front
+     fixed-in: unrecorded -->
 
 **Status:** FIXED (2026-07-18, `swift-renderer-port`). The web lowerer had gained
 `element("select")`/`element("option")` (2026-07-13) and CSS `flex-wrap` (2026-07-14) with no Swift
@@ -7490,6 +8226,10 @@ on Linux.
 
 
 ## newfront-scala-spike-fixture-paths-linux — tracked C_min and output root depend on host CWD
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: unrecorded -->
 
 **Status:** FIXED (2026-07-17, `ci-last-red`, coordinated with the stale `v3-newfront-p1-toplevel`
 owner). Both failures were CWD/host-path assumptions in the (now JVM-only) `ScalaSpikeSpec`, not
@@ -7515,6 +8255,11 @@ records both exact failures and waits for that lane to land; no concurrent test/
 
 
 ## registry-seed-test-cwd-cancel — tracked packages.yaml validation silently skips on Linux CI
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: a99973c16
+     confirmed: no -->
 
 **Status:** FIXED (2026-07-17, `a99973c16`; awaiting CI confirmation). Found by `ci-red-main` in
 Linux run `29545769651`, SHA `893bf2632`, job `87777659720`. `RegistrySchemaTest` cancelled
@@ -7541,6 +8286,11 @@ and passes; focused cross-backend conformance stays green.
 
 
 ## jvm-bytecode-runtime-tests-ignore-installed-drivers — five CI assertions cancel before comparing
+<!-- status: fixed
+     lane: apparatus
+     area: codegen
+     fixed-in: 1c109e49e
+     confirmed: no -->
 
 **Status:** FIXED (2026-07-17, `1c109e49e`; awaiting CI confirmation). Found by `ci-red-main` in
 Linux run `29545769651`, SHA `893bf2632`, job `87777659720`.
@@ -7588,6 +8338,10 @@ extend this apparatus fix only where a cancellation reproduces.
 
 
 ## v2-native-jvmvfs-externs-unbound — host-file I/O intrinsics are invisible to the native tier
+<!-- status: fixed
+     lane: int
+     area: runtime
+     fixed-in: 6131e17a3 -->
 
 **Status:** **FIXED (2026-07-17, `6131e17a3`)** — new `v2/runtime/std/scljet-vfs-plugin`
 (`ScljetVfsNativePlugin`) registers the 21 `jvmVfs*` natives on the native SPI. **All 9
@@ -7626,6 +8380,9 @@ belongs to the `int`/`js`/JVM lanes, which is where its conformance already runs
 
 
 ## v2-native-scala-import-parse-only-noop — module-defined names stay unbound after `import std.*`
+<!-- status: unknown
+     lane: int
+     area: front -->
 
 **Status:** **NO LONGER REPRODUCES 2026-07-28**, measured by `v2-native-import-graph` (NIG-3) on
 `8f736ca8b`. Left here rather than deleted because the entry's diagnosis ("the native front's
@@ -7675,6 +8432,11 @@ uses the affected Scala-style import and needs a future real-harness audit.
 
 
 ## ci-sbt-outer-timeout-cancels-bounded-test-step — job budget expires before the suite can report
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     fixed-in: 90c5599dc
+     confirmed: no -->
 
 **Status:** FIXED (revised 2026-07-17 in `884832696`; awaiting Linux confirmation). The first fix
 `90c5599dc` raised only the outer cap; completed Linux run `29545769651` then proved the 60-minute
@@ -7711,6 +8473,11 @@ closes confirmation.
 
 
 ## v2-tuple-pattern-cli-tests-bypass-staged-distribution — four tests abort on unset library path
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: e9567c555
+     confirmed: no -->
 
 **Status:** FIXED (2026-07-17, `e9567c555`; awaiting CI confirmation). Found by `ci-red-main` in
 completed Linux run `29544412767`, SHA `73407430457effd61bb96307c4bb41c6d3df3179`, job
@@ -7738,6 +8505,11 @@ links. The complete suite is 4/4 on rebased current bits; focused `tuples` passe
 
 
 ## standalone-install-fixture-stale-java-command — test rejects the release launcher's stack flag
+<!-- status: fixed
+     lane: native
+     area: codegen
+     fixed-in: 5bde29d37
+     confirmed: no -->
 
 **Status:** FIXED (2026-07-17, `5bde29d37`; awaiting CI confirmation). Confirmed by `ci-red-main`
 with the focused current-source suite. `StandaloneInstallFixturesTest` failed 1/2 because it required
@@ -7760,6 +8532,10 @@ real release installer behind a fake downloader/java: it proves the generated so
 
 
 ## v2-native-multiblock-auto-output-missing — standard native lane drops per-block non-Unit results
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: 354807e64 -->
 
 **Status:** **FIXED 2026-07-28** by `v2-auto-output-prim` (`354807e64`), on the second attempt —
 detail below. Originally found 2026-07-17 by `ci-red-main` after correcting the all-examples
@@ -7881,6 +8657,12 @@ codegens. Green v1 parity will not close this v2 user-facing bug.
 
 
 ## v21-slim-distribution-gate-silent-assertions — Linux gate exits 1 with no failed check or diff
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: 68ff5dacd
+     confirmed: no
+     gate: tests/e2e/v21-slim-distribution-gate.sh -->
 
 **Status:** FIXED (2026-07-17, `68ff5dacd`; awaiting its queued Linux run `29548820854`). Found by
 `ci-red-main` in run `29547476776`, SHA `0018dbf0c`, job `sbt — compile and test`. The release and
@@ -7909,6 +8691,11 @@ queued, so Linux confirmation of the apparatus itself remains pending.
 
 
 ## examples-run-all-standard-launcher-tools-command — all JS/JVM example lanes call forbidden commands
+<!-- status: fixed
+     lane: js
+     area: front
+     fixed-in: ef335ee2c
+     confirmed: no -->
 
 **Status:** FIXED (2026-07-17, routing `ef335ee2c` + same-frontend correction `aea328279`; awaiting
 CI confirmation). Found by `ci-red-main` in run `29547121050`, SHA `1e6ccb394`. The conformance
@@ -7935,6 +8722,12 @@ byte-identical output on all three lanes; the v2 gap remains independently open.
 
 
 ## ci-status-fixture-accepts-invalid-jq — fake-gh green hid a real CLI parse failure
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: c43d8f523
+     confirmed: no
+     gate: tests/e2e/ci-status-guard.sh -->
 
 **Status:** FIXED (2026-07-17, `c43d8f523`; awaiting final CI confirmation). Found by
 `ci-red-main` before the exact-SHA guard landed. The new fixture matrix passed 6/6, but the first
@@ -7959,6 +8752,11 @@ green is never used as release evidence again.
 
 
 ## v2-js-regfields-unimplemented — installed `run-js --v2` crashes before a case-class program starts
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: 2f23fd9ec
+     confirmed: no -->
 
 **Status:** FIXED 2026-07-17 in `2f23fd9ec` (awaiting CI confirmation). Found by making
 `V2JsLaneCliTest` use the real installed launcher.
@@ -7984,6 +8782,12 @@ both pass; `V2JsLaneCliTest` is 3/3.
 test passes, and a direct backend unit test prevents the primitive from falling through to `$prim`.
 
 ## dataset-from-generator-js-compound-assign-dispatch — generated JS calls method `+=` on a number
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: 1e6ccb394
+     confirmed: no
+     gate: tests/conformance/run.sh -->
 
 **Status:** FIXED 2026-07-17 in `1e6ccb394` (awaiting CI confirmation). Reproduced by
 `ci-red-main` from `origin/main` `771b67d45`. This is
@@ -8015,6 +8819,11 @@ asserts that mutable generator state increments numerically instead of method-di
 the full CI conformance job is green.
 
 ## install-dev-rewrites-tracked-ssc-launcher — successful staging leaves the checkout dirty
+<!-- status: fixed
+     lane: apparatus
+     area: cli
+     fixed-in: b829c8264
+     confirmed: no -->
 
 **Status:** FIXED (2026-07-17, `b829c8264`; awaiting Sergiy confirmation). Found by `ci-red-main`
 immediately after the worktree-isolation fix `0018dbf0c`. This was a generator-authority drift: the
@@ -8041,6 +8850,11 @@ full install and both focused conformance cases pass.
 
 
 ## install-dev-initializes-skills-submodule-inside-worktree — documented local build violates the worktree contract
+<!-- status: fixed
+     lane: apparatus
+     area: cli
+     fixed-in: 0018dbf0c
+     confirmed: no -->
 
 **Status:** FIXED (2026-07-17, `0018dbf0c`; awaiting Sergiy confirmation). Found by `ci-red-main` on
 `origin/main` `771b67d45`. This was a
@@ -8068,6 +8882,9 @@ runs in CI. The exact documented `bash install.sh --dev` command then completed 
 from the feature worktree; both focused JavaScript conformance cases remained green on INT/JS/JVM.
 
 ## v2-native-charAt-toString-yields-code — `charAt(i).toString` renders the character CODE on v2-native → every uppercase keyword breaks
+<!-- status: unknown
+     lane: int
+     area: front -->
 
 **Status:** **ENGINE SIDE FIXED (2026-07-17, `46f09ad29`)** — scljet no longer uses the ambiguous
 idiom, and the SQL engine now runs on the default `bin/ssc run` (23/24 scljet conformance cases,
@@ -8128,6 +8945,10 @@ failure — AGENTS.md's "reproduce in the real harness" applies to the lane's bi
 
 
 ## busi-v1-lane-runtime-regressions — four imported owner adapters fail on the 3666-based v1 runtime
+<!-- status: fixed
+     lane: int
+     area: front
+     fixed-in: 25a2bfebc -->
 
 **Status:** done (2026-07-16; confirmed by busi on the assembled derived pin). Both the production
 v2 lane and documented `--v1` rollback lane are green.
@@ -8185,6 +9006,10 @@ matrix: `make v2-web-e2e-v1` 9/9 in 4.4 minutes and `make v2-web-e2e-v2` 9/9 in 
 
 
 ## v2-native-double-toLong-noop — `Double.toLong` is a no-op on v2-native → any Long op on the result explodes
+<!-- status: fixed
+     lane: int
+     area: front
+     fixed-in: 3b0ddea92 -->
 
 **Status:** **FIXED (2026-07-17, `3b0ddea92`)** — `v2/lib/ssc1-lower.ssc0` now routes `toLong` to
 the shared runtime method table like its neighbours `toInt`/`toDouble`, so the receiver decides.
@@ -8246,6 +9071,11 @@ the **v1 interp** (`No method 'toDouble' on Double`) but works on v2-native — 
 completeness gap of the same family as `interp-collection-stdlib-completeness-gaps`.
 
 ## scljet-insert-null-literal-rejected — `INSERT … VALUES (…, NULL, …)` is rejected; `UPDATE … SET x = NULL` works
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: unrecorded
+     gate: tests/conformance/scljet-insert-null.ssc -->
 
 **Status:** **FIXED 2026-07-27** by opus (`v2-f5b-typed-locals` batch C). The reporter's hypothesis was
 right — INSERT's value list reads literals with `litValue`, which knew `num`/`str`/`real`/`bound` but
@@ -8300,6 +9130,10 @@ existing tests never needed the literal form. `conformance scljet-address-read` 
 detour in a comment; switch it back to `VALUES (…, NULL)` when this is fixed.
 
 ## coreir-abi-int-width-declared-i32-actually-i64 — the v3 descriptor tells every foreign host that `Int` is 32-bit, when it is 64-bit
+<!-- status: fixed
+     lane: multi
+     area: runtime
+     fixed-in: 9c49438d4 -->
 
 **Status:** FIXED — `9c49438d4` (spec `4bdd5e986`, docs `ccc47efe1`), on `origin/main` 2026-07-17 (agent `int64-abi`). Sergiy decided **option (A)**
 on 2026-07-16: `Int` → `I64`, make the descriptor truthful. Raised 2026-07-16 by `coreir-contract`,
@@ -8373,6 +9207,10 @@ plus an explicit implemented narrowing ABI). **Sergiy chose (A)**, with (C) expl
 the contract change was announced in the rozum `scalascript` room before landing.
 
 ## coreir-compiler-unbounded-depth — a deep-but-well-formed capsule overflows the COMPILER at ~depth 500 on a 1m stack
+<!-- status: fixed
+     lane: multi
+     area: runtime
+     fixed-in: unrecorded -->
 
 **Status:** FIXED 2026-07-20 by `coreir-compiler-depth` (reprioritized by Sergiy the same day, after
 being deferred earlier that day). Found 2026-07-16 by `coreir-contract` while bounding the *reader*.
@@ -8462,6 +9300,9 @@ documented `sscx` 512m-stack launcher for stack-heavy tower generators. That res
 but intentionally does not change this bug's status or claim to protect adversarial capsules.
 
 ## irbin-v2bin-codec-fails-open — the deferred binary codec narrows BigInt, loses -0.0, and turns unknown tags into strings
+<!-- status: unknown
+     lane: multi
+     area: front -->
 
 **Status:** **3 of 4 FIXED 2026-07-27** by opus (`irbin-fail-open`, `cb8ad2863`); two sub-defects
 remain and are marked below.
@@ -8507,6 +9348,11 @@ binary codec cannot round-trip a bytes literal that the canonical codec now enco
 
 
 ## run-js-v2-always-exits-1 — `run-js --v2` returns exit 1 on success, for every program
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: 8333cf97a
+     confirmed: no -->
 
 **Status:** FIXED 2026-07-17 in `8333cf97a` (awaiting CI confirmation). It blocked conformance
 `deep-tail-recursion` (`FAIL [JS]`, `line 4: expected=<missing> got=<exit:1>`), one of the last two
@@ -8567,6 +9413,10 @@ unlikely. Suspect a `System.exit` reached via a path not yet traced (a shutdown 
 it in a `finally`; what the DEFAULT handler does was not checked and is the next thing to look at).
 
 ## v2-zero-arg-unknown-method-fails-open — a typo'd zero-argument method silently returns garbage instead of erroring
+<!-- status: fixed
+     lane: native
+     area: codegen
+     fixed-in: unrecorded -->
 
 **Status:** FIXED 2026-07-16 (`__method0__`, see "Fix" below) for every **applied** zero-arg call
 (`recv.name()`) on all three v2 lanes (native / `--bytecode` / `build-jvm`). A **bare** selection
@@ -8663,6 +9513,10 @@ silently returns nothing for single-file greps — it will make you "prove" that
 not exist. Use `/usr/bin/grep`.
 
 ## tower-thread-hardcoded-64m-stack — `run --bytecode` StackOverflowErrors on big programs, and `-Xss` cannot help
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: unrecorded -->
 
 **Status:** FIXED (2026-07-16, `RunNativeV2.scala` tower stack 64m → 512m). Found by running
 `v21-negative-toolchain-release-gate.sh` locally — a CI step that had **never once run**, because
@@ -8707,6 +9561,11 @@ that 256k must not starve the compiler that gets them there (tried it; the gate 
 reserved address space, not committed memory, so 512m is cheap.
 
 ## v2-native-front-in-fence-imports-not-followed — the native lane silently ignores an import written inside a code fence
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: unrecorded
+     gate: tests/conformance/mcp-client-invoke -->
 
 **Status:** **FIXED 2026-07-28** by `v2-native-import-graph`. `sscScanLines` now carries the
 fence's scan mode: a `scalascript`/`scala` fence is TRANSPARENT (scanned exactly like prose,
@@ -8809,6 +9668,10 @@ and is blocked on those gaps. Queued in SPRINT; a green `main` came first.
 `v1/runtime/std/agent.ssc`.
 
 ## v2-native-front-multiline-curried-def — a curried `def` whose second clause starts on a new line is mis-parsed
+<!-- status: fixed
+     lane: int
+     area: front
+     fixed-in: d0722478e -->
 
 **Status:** FIXED 2026-07-18 by `native-front-run-gaps` (`d0722478e`; claim released in
 `e0a1c8e6f`). Found 2026-07-16 while probing why `std/agent.ssc` would not parse on the native front.
@@ -8836,6 +9699,9 @@ drop just that separator. A `;` followed by anything else still ends the signatu
 the same-line form remains green, and `std/agent.ssc` advances to the independent `try`/`catch` gap.
 
 ## v2-native-front-try-catch — `try` / `catch` does not work on the native front
+<!-- status: unknown
+     lane: native
+     area: front -->
 
 **Status:** **LAYER 2 FIXED 2026-07-27** by opus (`bugs-native-front-trycatch`) — the entry below
 called it "not diagnosed"; it is now diagnosed to the line and fixed.
@@ -8926,6 +9792,12 @@ is not even reached for the braced form. Diagnose before patching. This is featu
 one-liner — it blocks `v2-native-front-in-fence-imports-not-followed` above.
 
 ## cli-launcher-default-stack-platform-dependent — every `scljet-*` case fails on Linux and passes on macOS
+<!-- status: fixed
+     lane: js
+     area: runtime
+     fixed-in: unrecorded
+     confirmed: no
+     gate: tests/conformance/scljet-byte-codec.ssc -->
 
 **Status:** FIXED (2026-07-16, `build.sbt` installBin launcher templates + regenerated `bin/ssc`),
 awaiting the CI run that proves it. Found while investigating why `origin/main` CI was red.
@@ -8972,6 +9844,9 @@ genuinely green while CI was genuinely red — and nobody was reading CI. `origi
 consecutive red runs, zero green**. See `ci-red-main` in SPRINT.
 
 ## descriptor-v3-nested-owner-identity-leak — nested private identities under non-object owners fall back external
+<!-- status: open
+     lane: multi
+     area: runtime -->
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
 exact frozen checkpoint `0cb46c3cd`; local correction `f4d4c01ec`, landing SHA
@@ -9011,6 +9886,9 @@ passes 82/82 and full core passes 1132/1132; keep `open` until fresh review and
 landing.
 
 ## descriptor-v3-body-local-effect-evidence — raw effect scan makes descriptors depend on method bodies
+<!-- status: open
+     lane: apparatus
+     area: runtime -->
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
 exact frozen checkpoint `0cb46c3cd`; local correction `ff0e2580b`, landing SHA
@@ -9049,6 +9927,9 @@ effect vectors are green; focused producer passes 82/82 and forced effect
 conformance passes 9/9. Keep `open` until fresh review and landing.
 
 ## descriptor-v3-effect-sentinel-duplicate-collision — injected and user effect markers coexist
+<!-- status: open
+     lane: apparatus
+     area: front -->
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
 exact frozen checkpoint `0cb46c3cd`; local correction `ff0e2580b`, landing SHA
@@ -9086,6 +9967,9 @@ and unexpected-unsupported vectors are green; focused producer passes 82/82.
 Keep `open` until fresh review and landing.
 
 ## descriptor-v3-import-identity-laundering — selected/imported aliases bypass canonical identity resolution
+<!-- status: open
+     lane: multi
+     area: runtime -->
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
 exact frozen checkpoint `0cb46c3cd`; local correction `f4d4c01ec`, landing SHA
@@ -9127,6 +10011,9 @@ source-order controls are green; focused producer passes 82/82. Keep `open` unti
 fresh review and landing.
 
 ## descriptor-v3-import-witness-omission — retained carrier import mutations evade correspondence
+<!-- status: open
+     lane: apparatus
+     area: front -->
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
 exact frozen checkpoint `0cb46c3cd`; local correction `c55ac86e9`, landing SHA
@@ -9161,6 +10048,9 @@ shape. The faithful carrier mutation is green and all later focused/full gates
 remain green. Keep `open` until fresh review and landing.
 
 ## descriptor-v3-nominal-derives-early-loss — derives and early initializers disappear from nominal APIs
+<!-- status: open
+     lane: apparatus
+     area: front -->
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
 frozen checkpoint `4cd2a4aaa` (rebased as `05e498a72`); fix SHA pending.
@@ -9199,6 +10089,9 @@ conformance passes 2/2 modules/import-dir plus 9/9 effect cases. Status remains
 SHA on `origin/main`.
 
 ## descriptor-v3-dual-effect-evidence-mismatch — preprocessing hides effect/object carrier disagreement
+<!-- status: open
+     lane: multi
+     area: front -->
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
 frozen checkpoint `4cd2a4aaa` (rebased as `05e498a72`); fix SHA pending.
@@ -9243,6 +10136,9 @@ Status remains `open` until fresh independent approval and landing; the local
 commit is not a fix SHA on `origin/main`.
 
 ## descriptor-v3-imported-builtin-shadow — imports are ignored before bare builtin projection
+<!-- status: open
+     lane: apparatus
+     area: runtime -->
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent review of
 frozen checkpoint `4cd2a4aaa` (rebased as `05e498a72`); fix SHA pending.
@@ -9284,6 +10180,9 @@ remains `open` until fresh independent approval and landing; the local commit is
 not a fix SHA on `origin/main`.
 
 ## descriptor-v3-array-byte-component-shadow — bytes shortcut ignores the `Byte` identity
+<!-- status: open
+     lane: multi
+     area: codegen -->
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent rereview of
 frozen checkpoint `8a8886557` (rebased as `28535c87d`); fix SHA pending.
@@ -9314,6 +10213,9 @@ artifact ABI 73/73, and affected conformance 2/2 are green. Status remains `open
 until fresh independent approval and landing on `origin/main`.
 
 ## descriptor-v3-codeblock-source-bypass — documentless modules skip source/AST correspondence
+<!-- status: open
+     lane: multi
+     area: front -->
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent rereview of
 frozen checkpoint `8a8886557` (rebased as `28535c87d`); fix SHA pending.
@@ -9347,6 +10249,9 @@ source against the stored AST. Focused producer 46/46, descriptor 27/27, core
 are green. Status remains `open` until fresh independent approval and landing.
 
 ## descriptor-v3-package-wrapper-header-forgery — wrapper names match while wrapper semantics differ
+<!-- status: open
+     lane: multi
+     area: conformance -->
 
 **Status:** open (2026-07-15). Reported as P1 by the fresh independent rereview of
 frozen checkpoint `8a8886557` (rebased as `28535c87d`); fix SHA pending.
@@ -9375,6 +10280,9 @@ artifact ABI 73/73, and affected conformance 2/2 are green. Status remains `open
 until fresh independent approval and landing.
 
 ## descriptor-v3-mutable-export-loss — exported val and var collapse to one immutable descriptor
+<!-- status: open
+     lane: apparatus
+     area: runtime -->
 
 **Status:** open (2026-07-15). Reported by the independent Slice B frozen-checkpoint
 re-review; affected pre-integration commit `0f60205c5` (rebased as `59ca2898f`);
@@ -9403,6 +10311,9 @@ affected conformance 2/2 are green. Status stays `open` until fresh independent
 approval and landing on `origin/main`.
 
 ## descriptor-v3-nonpublic-local-type-leak — private local types fall back to external names
+<!-- status: open
+     lane: multi
+     area: runtime -->
 
 **Status:** open (2026-07-15). Reported by the independent Slice B frozen-checkpoint
 re-review; affected pre-integration commit `0f60205c5` (rebased as `59ca2898f`);
@@ -9440,6 +10351,9 @@ local effect. Focused producer 46/46, descriptor 27/27, core 1092/1092, interop
 `open` until fresh independent approval and landing on `origin/main`.
 
 ## descriptor-v3-source-ast-correspondence-tamper — count-only retained-source check accepts stale declarations
+<!-- status: open
+     lane: multi
+     area: front -->
 
 **Status:** open (2026-07-15). Reported by the independent Slice B frozen-checkpoint
 re-review; affected pre-integration commit `0f60205c5` (rebased as `59ca2898f`);
@@ -9477,6 +10391,9 @@ artifact ABI 73/73, and affected conformance 2/2 are green. Status stays `open`
 until fresh independent approval and landing on `origin/main`.
 
 ## scala-direct-polymorphic-value-select — moved structural apply retains `<none>`
+<!-- status: open
+     lane: multi
+     area: runtime -->
 
 **Status:** open; remediation is green in feature commit `b6d2cd262` on frozen
 `origin/main` base `6603e6c29`, but fresh independent review and the landing SHA
@@ -9515,6 +10432,9 @@ affected conformance is 5/5. Keep this entry open until rereview approves and th
 fix lands.
 
 ## scala-direct-captured-type-owner — captured A keeps a stale prefix owner
+<!-- status: open
+     lane: multi
+     area: codegen -->
 
 **Status:** open; remediation is green in feature commit `a8f321d5c`, but fresh
 independent review and the landing SHA are pending. Reported as P1 by the fresh
@@ -9552,6 +10472,9 @@ consumer executes their direct and explicit forms and prints `42` for each. Thes
 cases are part of the clean 21/21 semantics suite and the 109/109 full leaf gate.
 
 ## scala-direct-moved-term-type-owner — moved RHS and suffix symbols keep stale owners
+<!-- status: open
+     lane: multi
+     area: cli -->
 
 **Status:** open; remediation is green in feature commit `a8f321d5c`, but fresh
 independent review and the landing SHA are pending. Reported as P1 by the fresh
@@ -9589,6 +10512,9 @@ stable unsupported diagnostic. These cases are green in feature commit
 `a8f321d5c`, the clean focused 47/47 gate, and the full 109/109 leaf gate.
 
 ## scala-direct-contextual-forward-reference — prefix cloning breaks lazy givens
+<!-- status: open
+     lane: multi
+     area: runtime -->
 
 **Status:** open; remediation is green in feature commit `a8f321d5c`, but fresh
 independent review and the landing SHA are pending. Reported as P1 by the fresh
@@ -9622,6 +10548,9 @@ the packaged consumer. The regression is green in feature commit `a8f321d5c`, th
 clean 21/21 semantics suite, and the full 109/109 leaf gate.
 
 ## scala-direct-nested-reset-prompt-marker — outer marker survives in eager nested-reset prompt
+<!-- status: open
+     lane: multi
+     area: cli -->
 
 **Status:** open; remediation remains green at feature checkpoint `a8f321d5c`, but
 a fresh independent review and the landing SHA are pending. Reported by the root
@@ -9665,6 +10594,9 @@ conformance 5/5 are green. Keep this entry open until rereview approves and the
 fix lands.
 
 ## scala-direct-boundary-break-escape — boundary break can outlive its delimiter
+<!-- status: open
+     lane: multi
+     area: runtime -->
 
 **Status:** open; behavior and the missing alias/provenance regressions are green at
 feature checkpoint `a8f321d5c`, but fresh independent review and the landing SHA
@@ -9697,6 +10629,9 @@ package/catalog/conformance gate is green. Keep this entry open until rereview
 approves and the fix lands.
 
 ## scala-direct-transparent-inline-position — wrapper diagnostic points at reset
+<!-- status: open
+     lane: multi
+     area: runtime -->
 
 **Status:** open; remediation remains green at feature checkpoint `a8f321d5c`, but
 a fresh independent review and the landing SHA are pending. Reported as P1 by the
@@ -9723,6 +10658,9 @@ Both pass in the 21/21 clean diagnostic suite; keep this entry open until rerevi
 approves and the fix lands.
 
 ## scala-direct-nested-shift-body-marker — direct marker survives inside ShiftBody
+<!-- status: open
+     lane: multi
+     area: codegen -->
 
 **Status:** open; remediation remains green at feature checkpoint `a8f321d5c`, but
 a fresh independent review and the landing SHA are pending. Reported as P1 by the
@@ -9750,6 +10688,9 @@ families pass across the 16/16 semantics and 21/21 diagnostics suites; keep this
 entry open until rereview approves and the fix lands.
 
 ## scala-direct-dependent-prefix-type-owner — freshened values retain stale type refs
+<!-- status: open
+     lane: multi
+     area: codegen -->
 
 **Status:** open; remediation remains green at feature checkpoint `a8f321d5c`, but
 a fresh independent review and the landing SHA are pending. Reported as P1 by the
@@ -9782,6 +10723,9 @@ polymorphic case. Focused suites pass 37/37 and the full leaf passes 99/99; keep
 this entry open until rereview approves and the fix lands.
 
 ## scala-direct-inline-wrapper-owner-escape — inline marker wrapper loses bindings and provenance
+<!-- status: open
+     lane: js
+     area: runtime -->
 
 **Status:** open; remediation and regression are green on the feature branch
 (2026-07-15), but fresh independent rereview and the landing SHA are pending.
@@ -9809,6 +10753,9 @@ side-effectful wrapper regression passes in the 16/16 clean-compiled diagnostic
 suite; keep this entry open until rereview approves and the fix lands.
 
 ## scala-direct-lazy-marker-eager — lazy marker initializer is lowered eagerly
+<!-- status: open
+     lane: multi
+     area: runtime -->
 
 **Status:** open; remediation and regressions are green on the feature branch
 (2026-07-15), but fresh independent rereview and the landing SHA are pending.
@@ -9834,6 +10781,9 @@ without forcing it. Both regressions pass in the 16/16 clean-compiled diagnostic
 suite; keep this entry open until rereview approves and the fix lands.
 
 ## scala-direct-prefix-owner-split — local declarations lose ownership across capture
+<!-- status: open
+     lane: multi
+     area: runtime -->
 
 **Status:** open; remediation and regressions are green on the feature branch
 (2026-07-15), but fresh independent rereview and the landing SHA are pending.
@@ -9865,6 +10815,9 @@ with exact diagnostics. The expanded semantics suite passes 14/14 and diagnostic
 and the fix lands.
 
 ## scala-direct-deferred-nonlocal-return — OPEN / fix planned (2026-07-15, Codex)
+<!-- status: open
+     lane: js
+     area: runtime -->
 
 **Status:** open; implementation and regressions are green on the feature branch,
 but fresh independent rereview and the landing SHA are pending. Found by Codex
@@ -9894,6 +10847,9 @@ packaged-JAR example compiles and runs. Keep this entry open until rereview
 approves and the fix lands.
 
 ## js-control-direct-packed-local-dev-dependency — tarball escapes to repository sibling
+<!-- status: open
+     lane: js
+     area: build -->
 
 **Status:** open; repair candidate `9baf6d2bf` is fully locally verified and awaits
 fresh independent review and landing. Reported as P1 by the fresh
@@ -9933,6 +10889,9 @@ Direct package tests pass 39/39; its exact pack, explicit control 31/31, catalog
 open until landing and a new independent reviewer confirmation.
 
 ## js-control-direct-import-equals-bypass — runtime marker require evades fail-closed import scan
+<!-- status: open
+     lane: js
+     area: codegen -->
 
 **Status:** open; repair candidate `fabad7d84` is fully locally verified and awaits
 fresh independent review and landing. Reported as P1 by the fresh
@@ -9961,6 +10920,9 @@ packed-CLI CommonJS/Node10 regressions are green under both verbatim modes; the 
 direct package passes 38/38.
 
 ## js-control-direct-type-export-runtime-link — erased export retains dev-only module link
+<!-- status: open
+     lane: js
+     area: codegen -->
 
 **Status:** open; repair candidate `fabad7d84` is fully locally verified and awaits
 fresh independent review and landing. Reported as P1 by the fresh
@@ -9989,6 +10951,9 @@ modes retain the original `.d.ts`, and packed production runs without the marker
 package; the full direct package passes 38/38.
 
 ## js-control-direct-mixed-type-import-invalid-js — marker erasure leaves TypeScript syntax
+<!-- status: open
+     lane: js
+     area: codegen -->
 
 **Status:** open; repair candidate `fabad7d84` is fully locally verified and awaits
 fresh independent review and landing. Reported as P1 by the fresh
@@ -10017,6 +10982,9 @@ source. Both verbatim modes pass real packed-CLI `node --check`, `.d.ts`, and
 production-without-marker regressions; the full direct package passes 38/38.
 
 ## js-control-direct-type-only-export-false-positive — erased exports are rejected
+<!-- status: open
+     lane: js
+     area: codegen -->
 
 **Status:** open; repair candidate `ec95c4c65` is locally verified and awaits fresh
 independent review plus landing. Reported as P1 by independent rereview of exact
@@ -10043,6 +11011,9 @@ without a diagnostic; a shadowed local runtime export remains ordinary. Direct
 package tests pass 35/35.
 
 ## js-control-direct-marker-shorthand-export-survivor — owned values evade scanning
+<!-- status: open
+     lane: js
+     area: codegen -->
 
 **Status:** open; repair candidate `ec95c4c65` is locally verified and awaits fresh
 independent review plus landing. Reported as P1 by independent rereview of exact
@@ -10070,6 +11041,9 @@ assignment-initializer shorthand, and local/source aliases each get exactly one
 file-atomic diagnostic with unchanged ignored-diagnostic emit.
 
 ## js-control-direct-shorthand-value-symbol-capture — property symbol hides suffix capture
+<!-- status: open
+     lane: multi
+     area: runtime -->
 
 **Status:** open; repair candidate `ec95c4c65` is locally verified and awaits fresh
 independent review plus landing. Reported as P1 by independent rereview of exact
@@ -10098,6 +11072,9 @@ initializer regressions now select `later`, emit one capture diagnostic, and ret
 the untouched file when diagnostics are ignored.
 
 ## js-control-direct-prefix-tdz-binding-escape — moved suffix exposes an outer binding
+<!-- status: open
+     lane: js
+     area: codegen -->
 
 **Status:** open; repair candidate `4c6b8e2a9` is locally verified and awaits fresh
 independent review plus landing. Confirmed by parent adversarial pre-rereview on
@@ -10127,6 +11104,9 @@ the first crossing value reference, preserves type-only/shadowed references, and
 keeps ignored-diagnostic emit file-atomic. Direct package tests pass 31/31.
 
 ## js-control-direct-import-only-eval-erasure — unused marker removal changes direct-eval scope
+<!-- status: open
+     lane: apparatus
+     area: codegen -->
 
 **Status:** open; repair candidate `4c6b8e2a9` is locally verified and awaits fresh
 independent review plus landing. Found by parent adversarial pre-rereview on
@@ -10152,6 +11132,9 @@ now scans every selected file, retains the original import on diagnostic, and ha
 executing regression proving that `eval("typeof direct")` still observes `"object"`.
 
 ## js-control-direct-typescript-version-ungated — unsupported compiler APIs are accepted
+<!-- status: open
+     lane: apparatus
+     area: cli -->
 
 **Status:** open; cumulative repair candidate `c19d42401` is locally verified and
 awaits fresh independent review plus landing. Reported as P2 on 2026-07-15 by the
@@ -10174,6 +11157,9 @@ both programmatic and CLI entrypoints on `versionMajorMinor === "5.9"`, with 5.9
 as the qualification pin and deterministic rejection tests outside that line.
 
 ## js-control-direct-wrapped-marker-receiver-missed — transparent TS wrappers evade ownership
+<!-- status: open
+     lane: js
+     area: codegen -->
 
 **Status:** open; cumulative repair candidate `c19d42401` is locally verified and
 awaits fresh independent review plus landing. Reported as P2 on 2026-07-15 by the
@@ -10196,6 +11182,9 @@ assertions before exact checker-symbol matching; positive and negative wrapper
 regressions prove that no owned marker call survives a clean emit.
 
 ## js-control-direct-consumer-typescript-resolution — CLI resolves the tool's compiler, not the consumer's
+<!-- status: open
+     lane: js
+     area: runtime -->
 
 **Status:** open; cumulative repair candidate `c19d42401` is locally verified and
 awaits fresh independent review plus landing. Reported as P1 on 2026-07-15 by the
@@ -10221,6 +11210,9 @@ directory or cwd, never falls back to the store/global environment, and exercise
 both present and missing consumer compilers through the packed installed bin.
 
 ## js-control-direct-marker-import-survives-emit — build-time marker becomes a production dependency
+<!-- status: open
+     lane: js
+     area: codegen -->
 
 **Status:** open; cumulative repair candidate `c19d42401` is locally verified and
 awaits fresh independent review plus landing. Reported as P1 on 2026-07-15 by the
@@ -10246,6 +11238,9 @@ unrelated imports intact, and runs packed production output without the direct
 package.
 
 ## js-control-direct-cli-symlink-noop — installed npm bin exits successfully without compiling
+<!-- status: open
+     lane: js
+     area: codegen -->
 
 **Status:** open; cumulative repair candidate `c19d42401` is locally verified and
 awaits fresh independent review plus landing. Reported as P1 on 2026-07-15 by the
@@ -10269,6 +11264,9 @@ identity with explicit missing/unreadable handling; the exact packed `.bin` now
 compiles and invalid options fail non-zero.
 
 ## js-control-direct-eval-capture-unsound — direct eval can observe rewritten lexical frames
+<!-- status: open
+     lane: apparatus
+     area: codegen -->
 
 **Status:** open; cumulative repair candidate `c19d42401` plus selected-file closure
 `4c6b8e2a9` are locally verified and await fresh independent review plus landing.
@@ -10293,6 +11291,9 @@ and cancels every rewrite in that selected file; the follow-up extends the same 
 to import-only erasure while leaving indirect eval and `Function` global-only.
 
 ## js-control-direct-js-marker-binding-semantics — lowering erases const/let declaration behavior
+<!-- status: open
+     lane: js
+     area: runtime -->
 
 **Status:** open; cumulative repair candidate `c19d42401` is locally verified and
 awaits fresh independent review plus landing. Reported as P1 on 2026-07-15 by the
@@ -10316,6 +11317,9 @@ uses a collision-safe resume parameter followed by the original authored
 declaration; real JavaScript const/let/mutation/collision tests are green.
 
 ## js-control-direct-forward-lexical-capture — shift body escapes declarations moved into the suffix
+<!-- status: open
+     lane: multi
+     area: codegen -->
 
 **Status:** open; cumulative repair candidate `c19d42401` with marker-layer closure
 `4c6b8e2a9` is locally verified and awaits fresh independent review plus landing.
@@ -10343,6 +11347,10 @@ layer, including nested syntax, while retaining type-only, preceding, and shadow
 cases.
 
 ## scljet-ipk-rowid-alias-not-substituted — reading a REAL SQLite file returns 0 for every `INTEGER PRIMARY KEY`
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: 14f4da4ac -->
 
 **Status:** **FIXED (2026-07-16)** — `14f4da4ac` (read substitution) + `2fc0a0fd1`
 (`lastInsertRowid`). Found 2026-07-15 by `scljet-jdbc-j4-introspection` while probing whether the
@@ -10457,6 +11465,10 @@ reference driver", which pins the parts that DO hold. Related engine gaps found 
 `INSERT INTO t SELECT …` is not parsed ("expected VALUES").
 
 ## scljet-update-ipk-does-not-move-rowid — `UPDATE t SET <ipk>=N` rewrites the column but leaves the rowid
+<!-- status: fixed
+     lane: multi
+     area: runtime
+     fixed-in: unrecorded -->
 
 **Status:** **FIXED 2026-07-27** by opus (`v2-f5b-typed-locals` batch C). An `INTEGER PRIMARY KEY`
 assignment now MOVES the row, as the reporter's "fix sketch" prescribed. Implementation
@@ -10524,6 +11536,10 @@ duplicate `INTEGER PRIMARY KEY` does today via `leafInsertCell`. Also update any
 which store the rowid as their tail.
 
 ## interp-collection-stdlib-completeness-gaps — common List/String/math methods missing on the v1 interp
+<!-- status: fixed
+     lane: int
+     area: front
+     fixed-in: unrecorded -->
 
 **Status:** FIXED (2026-07-15) — first batch. Surfaced by the v2-vs-v1 differential
 (sprint #16) as `No method …` errors on the v1 interpreter (`ssc-tools run --v1`), the conformance
@@ -10544,6 +11560,10 @@ takes no radix; `intrinsics/Core.scala` + an `Integer` object in `BuiltinsRuntim
 (Left/Right = `InstanceV(_, "value" -> v)`).
 
 ## v2-native-string-map-filter-char-methods — `String.map`/`.filter` + char methods on v2-native
+<!-- status: fixed
+     lane: int
+     area: runtime
+     fixed-in: unrecorded -->
 
 **Status:** FIXED (2026-07-15, `v2/src/Runtime.scala`). `"abc".map(...)`/`.filter(...)` threw `no dispatch
 for .map on "abc"` on `bin/ssc run` (v2 native), and char methods on an iterated char (`c.toUpper`,
@@ -10561,6 +11581,10 @@ v2 vs `List(98,99,100)` on v1 — char→int-in-range arithmetic can't be told f
 Remaining separate gap: `String.padTo` on v2-native.
 
 ## js-control-packed-readme-broken-spec-link — npm README links outside payload
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: cf8f96200 -->
 
 **Status:** done in reachable `origin/main` landing `cf8f96200`; the independent
 rereviewer confirmed the packed README contract link. Reported as P2 on 2026-07-15
@@ -10581,6 +11605,10 @@ link, and rejects an escaping or absent relative target. The exact five-entry pa
 remains unchanged in shape.
 
 ## js-control-runtime-opacity-forgeable — public values leak and clone private authority
+<!-- status: fixed
+     lane: js
+     area: runtime
+     fixed-in: 0d0ffcfd3 -->
 
 **Status:** done in `0d0ffcfd3`; confirmed closed by independent second
 pre-integration review. Originally reported as P1 on 2026-07-15; affected pre-land
@@ -10607,6 +11635,10 @@ inspection, and rejection of constructor calls, prototype grafts, operation clon
 and forged prompts. The complete package suite passes 30/30.
 
 ## js-control-npm-license-omitted — package tarball lacks Apache license
+<!-- status: fixed
+     lane: multi
+     area: build
+     fixed-in: 0d0ffcfd3 -->
 
 **Status:** done in `0d0ffcfd3`; confirmed closed by independent second
 pre-integration review. Originally reported as a P2 packaging defect on
@@ -10628,6 +11660,10 @@ files; `npm pack --dry-run --json` reports exactly five entries, including the
 10,837-byte `LICENSE`, with no bundled dependency.
 
 ## js-control-prompt-key-extraction-never — invariant answer type breaks PromptKeyOf
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: 0d0ffcfd3 -->
 
 **Status:** done in `0d0ffcfd3`; confirmed closed by independent second
 pre-integration review. Originally reported as P1 on 2026-07-15; affected pre-land
@@ -10647,6 +11683,10 @@ while nested-prompt incompatibility, answer invariance, and forged-prompt negati
 gates remain green.
 
 ## js-control-effect-owner-type-collision — descriptor ID is mistaken for owner identity
+<!-- status: fixed
+     lane: multi
+     area: runtime
+     fixed-in: cf8f96200 -->
 
 **Status:** done in reachable `origin/main` landing `cf8f96200`; the independent
 rereviewer confirmed both inferred and explicit union-owner rejection. Reopened as
@@ -10680,6 +11720,9 @@ reject both inference-only and explicit-generic union owners, while stable named
 owner reuse remains positive. `npm run typecheck` passes all original fixtures and
 the exact cast-free second-review repros.
 ## descriptor-v3-nominal-surface-loss — strict pre-body projection drops public nominal semantics
+<!-- status: open
+     lane: apparatus
+     area: runtime -->
 
 **Status:** open (2026-07-15). Reported by the independent Slice B re-review
 (`/root/descriptor_b_rereview`); fix SHA pending.
@@ -10709,6 +11752,9 @@ affected conformance 2/2 are green. Status remains `open` until fresh independen
 approval and landing on `origin/main`.
 
 ## descriptor-v3-effect-header-evidence-misbinding — comments and same-name objects corrupt effect evidence
+<!-- status: open
+     lane: multi
+     area: runtime -->
 
 **Status:** open (2026-07-15). Reported by the independent Slice B re-review
 (`/root/descriptor_b_rereview`); fix SHA pending.
@@ -10737,6 +11783,9 @@ artifact ABI 73/73, and affected conformance 2/2 are green. Status remains `open
 until fresh independent approval and landing on `origin/main`.
 
 ## descriptor-v3-lost-ast-container-fail-open — retained declarations can project as an empty API
+<!-- status: open
+     lane: apparatus
+     area: front -->
 
 **Status:** open (2026-07-15). Reported by the independent Slice B re-review
 (`/root/descriptor_b_rereview`); fix SHA pending.
@@ -10762,6 +11811,11 @@ Status remains `open` until fresh independent approval and landing on
 `origin/main`.
 
 ## jvm-bytegen-letrec-env-clobber — FIXED / awaiting confirmation (2026-07-15, Codex)
+<!-- status: fixed
+     lane: multi
+     area: codegen
+     fixed-in: 956b42539
+     confirmed: no -->
 
 **Status:** fixed in `956b42539`; awaiting reporter confirmation. Found by the
 stack-safety focused VM/direct-ASM vector while qualifying effectful `While`
@@ -10795,6 +11849,10 @@ non-tail-`LetRec` outer-local regression and the 20,000-iteration effectful
 exact `100000`, `100000`, `20007`, `20000`.
 
 ## v2-native-toDouble-toFloat-noop — `.toDouble`/`.toFloat` dropped by the native frontend → integer division
+<!-- status: fixed
+     lane: int
+     area: front
+     fixed-in: unrecorded -->
 
 **Status:** FIXED (2026-07-15, `v2/lib/ssc1-lower.ssc0`). Found by the v2-vs-v1 differential
 (task #16): `List(1,2,3,4,5,6).sum.toDouble / xs.length` printed `3` on `bin/ssc run` (v2
@@ -10810,6 +11868,10 @@ correct → the bug was purely the native frontend lowering. Verified via native
 `21.toDouble/6` → `3.5`, `7.toDouble/2` → `3.5`; conformance 640ok.
 
 ## interp-string-interp-open-bracket-in-nested-string — `[` in a string literal inside `${…}` mangles the interpolation
+<!-- status: fixed
+     lane: int
+     area: front
+     fixed-in: unrecorded -->
 
 **Status:** FIXED (2026-07-15, `Parser.scala` `preprocessListLiterals`). ROOT CAUSE (not
 what the original report guessed): NOT the interpreter or scalameta, but the `.ssc`
@@ -10831,6 +11893,11 @@ that also skip strings non-interpolation-awarely (`preprocessBraceCharLiterals`,
 could have an analogous latent issue — not observed, left as-is.
 
 ## control-interop-residual-forwarding-absent — FIXED / awaiting confirmation (2026-07-15, Codex)
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: d764c2ebe
+     confirmed: no -->
 
 **Status:** fixed in `d764c2ebe`, with self-hosted frontend qualification in
 `84ad12651` and selected-only total-handler hardening in `9273ae0f6`; awaiting
@@ -10862,6 +11929,11 @@ checks are green. Full evidence is recorded in
 `specs/control-residual-forwarding.md`.
 
 ## swift-effect-handler-implicit-return-fallback — FIXED / awaiting confirmation (2026-07-15, Codex)
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: f21abfcc8
+     confirmed: no -->
 
 **Status:** fixed in `f21abfcc8`; awaiting confirmation. Found by the real Swift
 checked-source regression while implementing the portable one-shot guard.
@@ -10893,6 +11965,11 @@ and JVM VM/direct ASM. Swift focused tests, native effect e2e, `installBin`, and
 fresh affected conformance (6/6) pass.
 
 ## v21-stage2-gate-ignores-symlinked-std-sources — FIXED / awaiting confirmation (2026-07-15, Codex)
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: 13b29852e
+     confirmed: no -->
 
 **Status:** fixed in `13b29852e`; awaiting reporter confirmation. Found while
 running the mandatory self-hosted fixed-point gate for `control-one-shot-guard`.
@@ -10919,6 +11996,11 @@ source manifest, matching `installBin`. After a fresh install on current `main`,
 131 compiler-image files, and `compiler.image.source-exact=true`.
 
 ## scala-control-api-v1-placement — FIXED / awaiting confirmation (2026-07-14, Sergiy)
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: 9b477a128
+     confirmed: no -->
 
 **Status:** fixed in `9b477a128`; awaiting reporter confirmation. Reported by
 Sergiy immediately after the Tier-1 implementation landed.
@@ -10947,6 +12029,11 @@ production dependency checks, focused conformance 10/10, and the independent
 interop harness 9/9 measurable axes.
 
 ## scala3-control-operation-key-snapshot — FIXED / awaiting confirmation (2026-07-14, Codex)
+<!-- status: fixed
+     lane: js
+     area: runtime
+     fixed-in: 528d73af3
+     confirmed: no -->
 
 **Status:** fixed in `528d73af3`; awaiting reporter confirmation. Found during the final
 black-box review of the uncommitted `scala3ControlApi` reference model; reported
@@ -10971,6 +12058,11 @@ Regression tests cover a null key, a changing getter read exactly once, and an
 operation id owned by another descriptor; the full 39-test suite is green.
 
 ## scala3-control-effect-key-row-elimination — FIXED / awaiting confirmation (2026-07-14, Codex)
+<!-- status: fixed
+     lane: multi
+     area: runtime
+     fixed-in: 528d73af3
+     confirmed: no -->
 
 **Status:** fixed in `528d73af3`; awaiting reporter confirmation. Found by the `api_type_design`
 implementation audit against the uncommitted `scala3ControlApi` reference model;
@@ -10994,6 +12086,11 @@ reject `Nothing`, generic-wrapper, and union-key narrowing; runtime regressions 
 same-owner equivalence and distinct-owner forwarding. The full 39-test suite is green.
 
 ## scala3-control-capability-jvm-visibility — FIXED / awaiting confirmation (2026-07-14, Codex)
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: 528d73af3
+     confirmed: no -->
 
 **Status:** fixed in `528d73af3`; awaiting reporter confirmation. Found by `api_type_design` with
 `javap -public` against the uncommitted leaf; reported by codex-interop in the
@@ -11016,6 +12113,10 @@ inventory is an executable test and reports no unguarded request, prompt, key,
 resumption gate, authority issuer, or successful saved-continuation constructor.
 
 ## scala3-control-shift-row-widening — DONE (2026-07-14, Codex)
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: 06b4e4be1 -->
 
 **Status:** done in `06b4e4be1` (tier-1 API type-safety blocker). Found by the
 `prompt_source_design` delegated compile audit while implementing the ABI landed at
@@ -11039,6 +12140,10 @@ Scala 3.8.3 compile probes accept ordinary/nested prompt use and reject the old
 positive and negative probes after the spec correction.
 
 ## control-interop-runsh-installbin-task-name — FIXED (2026-07-14, claude)
+<!-- status: fixed
+     lane: native
+     area: runtime
+     fixed-in: unrecorded -->
 
 **Status:** fixed in the `control-interop-runsh-installbin-doc` landing; reported by
 codex-interop (rozum #interoperability, 2026-07-14).
@@ -11054,6 +12159,10 @@ compare with README line 25.
 matching the README; the runner is otherwise unaffected (string only).
 
 ## control-interop-harness-rust-multishot-drift — FIXED (2026-07-14, claude)
+<!-- status: fixed
+     lane: int
+     area: runtime
+     fixed-in: cbdc4791a -->
 
 **Status:** fixed in the `control-vectors-audit-followup` landing; reported by
 codex-interop in rozum (#interoperability, 2026-07-14) while auditing the
@@ -11070,6 +12179,11 @@ comment line.
 v2 JS still lacks `effect.*`; harness 9/9 measurable-now still green.
 
 ## control-interop-portable-vm-oneshot-guard-absent — FIXED / awaiting confirmation (2026-07-14, claude)
+<!-- status: fixed
+     lane: int
+     area: front
+     fixed-in: cbdc4791a
+     confirmed: no -->
 
 **Status:** fixed in `cbdc4791a`; awaiting reporter confirmation. Formerly tracked
 as pending conformance axis 21, now promoted to the measurable suite. Reported by
@@ -11105,6 +12219,11 @@ were tracked and closed independently and do not reopen this original portable-
 VM guard bug.
 
 ## control-interop-effect-recursion-stack-unsafe — FIXED / awaiting confirmation (2026-07-14, claude)
+<!-- status: fixed
+     lane: apparatus
+     area: codegen
+     fixed-in: 3de5020c5
+     confirmed: no -->
 
 **Status:** fixed by the shared driver in `3de5020c5` and completed by JVM
 lowering fixes in `956b42539`; awaiting reporter confirmation. Reported by
@@ -11168,6 +12287,10 @@ pass 39/39; installed VM and direct ASM both return exact `100000`, `100000`,
 `specs/control-effect-stack-safety.md`.
 
 ## spec-grammar-schema-links — FIXED (2026-07-14, Codex)
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: 96fc5adfb -->
 
 **Status:** fixed in `96fc5adfb`; found while mechanically checking local links
 after the bidirectional-control update to canonical `SPEC.md`.
@@ -11183,6 +12306,10 @@ schema only at the `v1/lang/` paths.
 both destinations exist and the changed documentation passes Markdown lint.
 
 ## backlog-active-queue-link — FIXED (2026-07-14, Codex)
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: 37c1a69c8 -->
 
 **Status:** fixed in `37c1a69c8`; found by `final_control_spec_audit` while
 verifying local links in the bidirectional-control planning slice.
@@ -11199,6 +12326,10 @@ repository's binding workflow and `SPRINT.md` define the active queue as
 and the target-existence check pass.
 
 ## control-companion-relative-links — FIXED (2026-07-14, Codex)
+<!-- status: fixed
+     lane: multi
+     area: runtime
+     fixed-in: 96fc5adfb -->
 
 **Status:** fixed in `96fc5adfb`; found by `final_control_spec_audit` while
 checking the Scala 3 bidirectional-control companion documents.
@@ -11215,6 +12346,10 @@ while the corresponding `docs/` paths exist.
 exist, the changed companion/control links resolve, and Markdown lint passes.
 
 ## spec-effect-example-platform-type — FIXED (2026-07-14, Codex)
+<!-- status: fixed
+     lane: int
+     area: runtime
+     fixed-in: 96fc5adfb -->
 
 **Status:** fixed in `96fc5adfb`; found during the architecture audit, observed
 at `93962e590`.
@@ -11234,6 +12369,10 @@ spec separately requires `std.*`, plugin, annotation, or backend-fence isolation
 platform work. This was documentation-only; no runtime behavior changed.
 
 ## interp-boolean-operators-no-short-circuit — `&&`/`||` evaluate both operands in the interpreter
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: 14d707653 -->
 
 **Status:** FIXED 2026-07-15 (`EvalRuntime.scala`, commit `14d707653`). `Term.ApplyInfix`
 for `&&`/`||` is now intercepted BEFORE the general infix case (which eagerly evaluated
@@ -11266,6 +12405,9 @@ returns -1 past end and `tkKind`/`tkIsKw` return ""/false on `Nil` — remain co
 are no longer required for short-circuit safety.)
 
 ## coreir-canonical-codec-contract — canonical encoder/decoder violates the frozen wire contract
+<!-- status: open
+     lane: native
+     area: codegen -->
 
 **Status:** open (found 2026-07-14, Codex + `audit_coreir_control`, while validating
 CoreIR as the persisted `SavedContinuation` capsule format; observed at `638d3f5fe`).
@@ -11302,6 +12444,9 @@ across the seed and every loader. This design task does not opportunistically ch
 format; status remains open until that slice lands and is verified.
 
 ## coreir-spec-node-inventory-drift — frozen CoreIR spec omits canonical `While` and `Seq`
+<!-- status: open
+     lane: js
+     area: front -->
 
 **Status:** open (found 2026-07-14, Codex, during the Scala 3 bidirectional-control
 architecture audit; observed at `3ae003279`; introduced by at least `975f8dce4`).
@@ -11331,6 +12476,10 @@ It must not add a continuation-specific CoreIR node. This task only records the 
 status remains open until the dedicated reconciliation is implemented and verified.
 
 ## js-imported-def-int-division-loses-truncation — FIXED (2026-07-14, opus)
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: unrecorded -->
 
 **Status:** FIXED. Root cause was NOT the emission path — it was NAME-KEYED evidence
 pollution: intVars/longVars/numericVars are keyed by param NAME and populated globally
@@ -11364,6 +12513,9 @@ graph. (Found via the портируем DIVERGE sweep; the contract's js column
 
 
 ## custom-jsemitter-signal-list-literal — `StaticJsEmitter.jsLiteral` can't encode a List-valued signal registered from an event handler
+<!-- status: open
+     lane: native
+     area: front -->
 
 **Status:** open (found 2026-07-13, claude-sonnet-5, while building the
 `select-from-signal` slice, `specs/std-ui-select.md` § "Reactive options
@@ -11418,6 +12570,9 @@ underlying reason — its `contracts: Signal[List[Contract]]` referenced by a
 as its own follow-up, not attempted here.
 
 ## JS examples differential sweep — 2026-07-13 (opus)
+<!-- status: unknown
+     lane: js
+     area: front -->
 
 Ran an INT-vs-JS differential over the top-level examples corpus (205 cases:
 `ssc-tools run --v1` golden vs `run-js`). Result: 55 PASS, 11 DIVERGE, 44 JS-FAIL,
@@ -11490,6 +12645,9 @@ green full `backendInterpreter/test`.
   missing capability rather than producing wrong output.
 
 ## standard-tier-named-arg-skip-default — `bin/ssc run` (self-hosted standard-tier pipeline) mis-binds a named arg for a non-first trailing defaulted param
+<!-- status: unknown
+     lane: js
+     area: front -->
 
 **Status: FIXED 2026-07-28** in `b61a78b24` (`f-named-arg-skips-default`), on BOTH self-hosted fronts.
 
@@ -11629,6 +12787,10 @@ and not (as far as verified) busi's production build path.
 smoke assertion, asserting the repro above matches `bin/ssc-tools run`'s output.
 
 ## v2-bridged-ui-emit-name-collision — `emit` resolves to the streams plugin, not the UI plugin, on `run --v2`
+<!-- status: fixed
+     lane: int
+     area: front
+     fixed-in: unrecorded -->
 
 **Status:** FIXED (2026-07-13, opus, Option 1 — mirror the native lane's UI-plugin
 ownership of the internal name). `PluginBridge.loadAll`'s plugin loop has per-plugin
@@ -11672,6 +12834,10 @@ NOT BLOCKING: `appcore-nativeui.ssc` runs end-to-end on `--native` (its real lan
 </details>
 
 ## v2-bridged-ui-signal-id-field — std/ui `signal(...).id` crashes on the bridged VM lane
+<!-- status: fixed
+     lane: int
+     area: front
+     fixed-in: unrecorded -->
 
 **Status:** FIXED (2026-07-13, opus). `signal(name, default)` builds a
 `scalascript.frontend.ReactiveSignal` whose `id` (its stable cross-backend name) is the
@@ -11706,6 +12872,10 @@ to the FrontendBridge/plugin-bridge owner: make the bridged std/ui signal's Name
 resolve `id` (and the other declared `NativeUiSignal` fields), mirroring the native ui-plugin.
 
 ## v2-swift-at-global-cell-vivification — mutated signals crash "unbound global: @x"
+<!-- status: fixed
+     lane: int
+     area: front
+     fixed-in: unrecorded -->
 
 **Status:** FIXED (2026-07-13, opus); found running the native-UI example apps
 end-to-end on the Swift lane (continues the busi-app frontier). A `val x = Signal(0)`
@@ -11722,6 +12892,10 @@ auto-vivified cell like the interpreter. `v2SwiftBackend/test` green (2 new test
 authorizes `@`-cells; real-swift auto-vivify).
 
 ## interp-tco-tail-call-in-match — NOT A BUG (investigated 2026-07-13)
+<!-- status: fixed
+     lane: int
+     area: codegen
+     fixed-in: unrecorded -->
 
 Claimed during m3d that "the interpreter does not TCO a tail self-call nested
 inside a `match`". **Rigorously disproven** — the interpreter TCOs tail self-calls
@@ -11746,6 +12920,10 @@ branches and the original non-accumulator `encodeRowCellsWithRowid`
 commit message repeats the wrong claim; disregard it.)
 
 ## interp-jit-nested-match-duplicate-var — a nested `match` binding the same value-type miscompiles on the JIT
+<!-- status: fixed
+     lane: multi
+     area: codegen
+     fixed-in: unrecorded -->
 
 **Status:** FIXED (2026-07-15, `JavacJitBackend.scala`). Two independent codegen
 defects, both surfaced by a `match` nested inside another match's arm:
@@ -11800,6 +12978,10 @@ two same-subtype casts — see `integerOf`/`textOf` used by `compareKeys` in
 </details>
 
 ## interp-if-then-no-else-after-while — a bare `if cond then stmt` before a return is skipped
+<!-- status: fixed
+     lane: int
+     area: runtime
+     fixed-in: unrecorded -->
 
 **Status:** FIXED (2026-07-13, opus). ROOT CAUSE: a statement-position control-flow term
 (an `if`/`while`/`match` with a NESTED `var X = e` assignment) evaluated via `step`'s
@@ -11853,6 +13035,10 @@ position. Needs a fix in the interpreter's block/if lowering.
 </details>
 
 ## js-effect-multishot-in-while-loop — multi-shot effect handled inside a `while` crashes on JS
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: unrecorded -->
 
 **Status:** FIXED (2026-07-13, opus). Root cause was NOT the `while` and NOT multi-shot
 itself — it was the **Long accumulator** in the fold `total = total + all.foldLeft(0L)((acc,
@@ -11873,6 +13059,9 @@ both `run-js` and `run --v1`; new conformance `js-effect-multishot-long-fold` [i
 full `backendInterpreter/test` **1828 pass, 0 failed** (was 1827 pass + this 1 fail).
 
 ## js-userspace-long-arith-native-operator-mixes-bigint — CONFIRMED / worked-around (2026-07-14, opus)
+<!-- status: unknown
+     lane: multi
+     area: codegen -->
 
 **Status:** WORKED AROUND in userspace (`scljet/sql.ssc` `arithValue`). When a plain (non-effectful)
 `def` does Long arithmetic like `val x = f(a); val y = f(b); x * y` and the compiler cannot *prove*
@@ -11893,6 +13082,10 @@ x.toDouble` accumulation (as AVG does), not a bare `x.toDouble`. Verified: confo
 helper returns, or emit `_arith` for any not-provably-Int operand as the non-CPS path already does).
 
 ## interp-var-scope-leak-across-calls — a callee's `var` clobbers a caller's live `var` of the same name
+<!-- status: fixed
+     lane: int
+     area: runtime
+     fixed-in: unrecorded -->
 
 **Status:** FIXED (2026-07-13, opus). `var` decl/assign dual-write to the module-global
 `interp.globals` (keyed by name, load-bearing so a `while` body's fresh env sees mutations)
@@ -11974,6 +13167,10 @@ workaround stands: unique `var` names down each call chain.
 </details>
 
 ## js-caseclass-body-method-params-dropped — JS drops case-class body methods that take parameters
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: 8204d588a -->
 
 **Status:** FIXED (2026-07-13, opus). `8204d588a`.
 
@@ -12006,6 +13203,10 @@ passes `[JS]` (scljet now 6/6 on JS); JsGen suite 242/242; full conformance
 then run under node — pre-fix it threw at the first `_dispatch(vfs, 'fullPath', …)`.
 
 ## js-char-int-eq-namescope-collision — Char `==` Int miscompiles to strict `===` on JS
+<!-- status: fixed
+     lane: js
+     area: front
+     fixed-in: d034e2798 -->
 
 **Status:** FIXED (2026-07-13, opus); found by opus via a full conformance sweep
 (`json-deep-import` FAIL [JS]). Latent pre-existing JsGen bug, EXPOSED for std/json
@@ -12027,6 +13228,11 @@ same-named leaked param evidence (applied at all 4 val/var binding sites in
 numeric, so it stays in intVars).
 
 ## native-front-nativeui-site-annotation — anonymous computedSignal/eqSignal collide on `ssc run`
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: dc9814521
+     confirmed: no -->
 
 **Status:** fixed (2026-07-12, `dc9814521`), awaiting Sergiy confirmation; found while
 migrating rozum's control center (`clients/control/center.ssc`, 20+ computedSignals) to the
@@ -12056,6 +13262,10 @@ latest v2.
   std-ui conformance (7) all green.
 
 ## native-front-curried-vararg-and-attrs-map — native `ssc run` broke curried/vararg calls + Map attrs
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: unrecorded -->
 
 **Status:** fixed (2026-07-13); the vararg packing needed a follow-up correction (opus) —
 see Fix item 1. Found bringing rozum's control center up on the latest native frontend
@@ -12101,6 +13311,11 @@ see Fix item 1. Found bringing rozum's control center up on the latest native fr
   SSR-emitting. Track these for a fully SPA-complete standalone native `ssc run`.
 
 ## scljet-freelist-recursive-stack-overflow — valid large freelist crashes the interpreter
+<!-- status: fixed
+     lane: int
+     area: runtime
+     fixed-in: 7399fad95
+     confirmed: no -->
 
 **Status:** fixed (2026-07-12, `7399fad95`), awaiting Sergiy confirmation;
 found by codex in the pinned SclJet M2d SQLite 3.53.3 corpus.
@@ -12129,6 +13344,11 @@ found by codex in the pinned SclJet M2d SQLite 3.53.3 corpus.
   6/6.
 
 ## v1-js-scljet-readonly-leaf-depth — valid two-level B-tree fails common-depth validation
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: unrecorded
+     gate: tests/conformance/scljet-readonly-btree-pure.ssc -->
 
 **Status:** FIXED (2026-07-12, opus). SHARED root cause with
 v1-js-scljet-shm-lock-divergence: a field-less `case object` lowered to a bare
@@ -12159,6 +13379,11 @@ JavaScript capability probe.
   three-line pure cursor golden exact on interpreter/VM/ASM/Node.
 
 ## scljet-readonly-close-imported-selector — facade close selects the wrong pager handle
+<!-- status: fixed
+     lane: int
+     area: front
+     fixed-in: c281958bd
+     confirmed: no -->
 
 **Status:** fixed (2026-07-12, `c281958bd`), awaiting Sergiy confirmation;
 found by codex during the SclJet M2c assembled JVM VFS example.
@@ -12181,6 +13406,10 @@ found by codex during the SclJet M2c assembled JVM VFS example.
   requires public `closeReadonly` to return `Right(())`, and verifies deletion.
 
 ## portable-codepoint-string-construction — v1 lacks Int.toChar, v2 renders Char numerically
+<!-- status: fixed
+     lane: int
+     area: front
+     fixed-in: unrecorded -->
 
 **Status:** FIXED for INT/JVM/JS/v2-VM/v2-native (2026-07-12, opus); the broader
 portable UTF-16 text API from checked code points (Done-when) remains a design item.
@@ -12208,6 +13437,11 @@ larger change, tracked under the Done-when text API).
   native targets, with malformed-sequence policy owned by the caller.
 
 ## scljet-oracle-pin-stale — spec called SQLite 3.53.0 current after 3.53.3
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: 7a6e2e70a
+     confirmed: no -->
 
 **Status:** fixed (2026-07-12, `7a6e2e70a`), awaiting Sergiy confirmation;
 found by codex while validating primary sources for the SclJet M2 read-only
@@ -12223,6 +13457,10 @@ specification.
   `d4c0e51e...d782c62`, requires compile options per fixture, and makes future
   oracle upgrades explicit. The M2d corpus gate must use the same source id.
 ## v2-frontend-scljet-memory-vfs-state-dispatch — full bridge gate rejects String.state
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: fe4dfb0ae -->
 
 **Status:** done (2026-07-12, `fe4dfb0ae`); found and confirmed by codex in the
 Swift NativeUi final release repeat after SclJet M1 landed; reported to
@@ -12247,6 +13485,11 @@ Swift NativeUi final release repeat after SclJet M1 landed; reported to
   passes 200/200 with 39 intentional ignores; the separate imported-receiver
   implementation gap remains tracked independently.
 ## v2-js-imported-method-object-primitive — SclJet stops at __mk_method_obj__
+<!-- status: fixed
+     lane: js
+     area: front
+     fixed-in: unrecorded
+     gate: tests/conformance/scljet-byte-codec.ssc -->
 
 **Status:** FIXED (2026-07-12, opus). The v2 JS backend (`v2/backend/js/JsBackend.scala`)
 had no `genPrim` case for the `__mk_method_obj__` CoreIR primitive (emitted by
@@ -12267,6 +13510,11 @@ v1-js-long-precision-and-bitops — which are out of scope for this bug.)
   `unimplemented primitive: __mk_method_obj__`.
 
 ## v1-js-scljet-shm-lock-divergence — two shared owners are rejected
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: unrecorded
+     gate: tests/conformance/scljet-memory-vfs.ssc -->
 
 **Status:** FIXED (2026-07-12, opus). SHARED root cause + fix with
 v1-js-scljet-readonly-leaf-depth (field-less `case object` → bare `{}` → all
@@ -12289,6 +13537,10 @@ differential after byte updates became portable.
   memory-VFS golden are exact on Node.
 
 ## v1-js-long-precision-and-bitops — SQLite 64-bit codecs are not exact
+<!-- status: fixed
+     lane: js
+     area: front
+     fixed-in: unrecorded -->
 
 **Status:** FIXED (2026-07-13, opus). Approach A (Long-only): represent ssc `Long`
 as a JS **BigInt** (`Lit.Long` → `${v}n`) — the SclJet codecs type every 64-bit value
@@ -12340,6 +13592,10 @@ differential.
   are identical on Node.
 
 ## v1-js-imported-int-division-loses-type — byte chunk index becomes fractional
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: unrecorded -->
 
 **Status:** FIXED (2026-07-12, opus). Root cause: JsGen only emits truncating
 integer division (`Math.trunc(a / b)`) when it can statically prove both operands
@@ -12375,6 +13631,12 @@ companion and list-pattern lowering were repaired.
   without source-level rewrites.
 
 ## v1-js-list-pattern-array-mismatch — Cons/Nil reject emitted List literals
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: 830c0db27
+     confirmed: no
+     gate: tests/conformance/scljet-byte-codec.ssc -->
 
 **Status:** fixed (2026-07-12, `830c0db27`), awaiting Sergiy confirmation;
 found by codex after the SclJet explicit-companion JS fix allowed the byte-codec
@@ -12394,6 +13656,12 @@ program to begin execution.
   differences are tracked independently above.
 
 ## v1-js-case-companion-duplicate-declaration — imported companion redeclares ByteSlice
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: 830c0db27
+     confirmed: no
+     gate: tests/conformance/scljet-byte-codec.ssc -->
 
 **Status:** fixed (2026-07-12, `830c0db27`), awaiting Sergiy confirmation;
 found by codex while running the SclJet M1 cross-backend verification.
@@ -12414,6 +13682,11 @@ found by codex while running the SclJet M1 cross-backend verification.
   duplicate `ByteSlice` binding.
 
 ## scljet-vfs-plugin-not-packaged — installBin registry/package list diverged
+<!-- status: fixed
+     lane: int
+     area: conformance
+     fixed-in: 2a594b870
+     confirmed: no -->
 
 **Status:** fixed (2026-07-12, `2a594b870`), awaiting Sergiy confirmation;
 found by codex in the real assembled-distribution gate for SclJet M1.
@@ -12428,6 +13701,11 @@ found by codex in the real assembled-distribution gate for SclJet M1.
   27 essential plugins including `scljet-vfs-plugin.sscpkg`, the assembled JVM
   example autoloads it, and SclJet conformance is 3/3.
 ## v21-scljet-jvm-vfs-unclassified-lane — new explicit tools example became both-fail
+<!-- status: fixed
+     lane: int
+     area: conformance
+     fixed-in: 5cd86bf1c
+     confirmed: no -->
 
 **Status:** fixed (2026-07-12, `5cd86bf1c`), awaiting Sergiy confirmation;
 found by codex when the strict zero-gap freeze caught the concurrently landed
@@ -12449,6 +13727,11 @@ found by codex when the strict zero-gap freeze caught the concurrently landed
   The final 200-row ordinary and negative reports contain no parity gaps.
 
 ## v21-scljet-readonly-unclassified-lane — new read-only JVM example became both-fail
+<!-- status: fixed
+     lane: js
+     area: front
+     fixed-in: 2b61b6611
+     confirmed: no -->
 
 **Status:** fixed (2026-07-12, `2b61b6611`), awaiting Sergiy confirmation;
 found by codex when `examples/scljet-readonly.ssc` landed during the final
@@ -12465,6 +13748,11 @@ found by codex when `examples/scljet-readonly.ssc` landed during the final
   with zero ordinary and negative parity gaps; SclJet conformance is 6/6.
 
 ## uniml-yaml-property-only-node — anchor/tag-only value lost its nested node
+<!-- status: fixed
+     lane: js
+     area: front
+     fixed-in: c9f599589
+     confirmed: no -->
 
 **Status:** fixed (2026-07-12, `c9f599589`), awaiting Sergiy confirmation;
 found by codex while extending the UniML YAML alias-cycle verification after
@@ -12484,6 +13772,12 @@ found by codex while extending the UniML YAML alias-cycle verification after
   and Scala.js, including nested mapping/sequence anchors, mutual cycles, and both
   alias-expansion budgets.
 ## v21-negative-freeze-smoke-stale-frontend-mutation — drift test became a no-op
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: 65d0db5e5
+     confirmed: no
+     gate: tests/e2e/v21-negative-toolchain-release-gate-smoke.sh -->
 
 **Status:** fixed (2026-07-12, `65d0db5e5`), awaiting Sergiy confirmation;
 found by codex while reconciling the 197-row release freeze after
@@ -12503,6 +13797,12 @@ found by codex while reconciling the 197-row release freeze after
   every synthetic count/membership drift is rejected.
 
 ## v21-unhandled-effect-smoke-x402-launcher — bridge assertion used standard `ssc`
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: 3e90be0e7
+     confirmed: no
+     gate: tests/e2e/v21-unhandled-effect-smoke.sh -->
 
 **Status:** fixed (2026-07-12, `3e90be0e7`), awaiting Sergiy confirmation;
 found by codex while verifying the direct-ASM effect fix for
@@ -12522,6 +13822,11 @@ found by codex while verifying the direct-ASM effect fix for
   final consolidated release gate pass.
 
 ## v21-asm-top-val-effect-leak — direct ASM stores and prints an unhandled effect
+<!-- status: fixed
+     lane: native
+     area: codegen
+     fixed-in: 3e90be0e7
+     confirmed: no -->
 
 **Status:** fixed (2026-07-12, `3e90be0e7`), awaiting Sergiy confirmation;
 found by codex in the consolidated v2.1 release gate while closing
@@ -12544,6 +13849,11 @@ found by codex in the consolidated v2.1 release gate while closing
   gate pass with no raw effect output.
 
 ## v21-empty-runtime-taxonomy-total — zero-row summary printed a blank total
+<!-- status: fixed
+     lane: int
+     area: front
+     fixed-in: 0efc3dd75
+     confirmed: no -->
 
 **Status:** fixed (2026-07-12, `0efc3dd75`), awaiting Sergiy confirmation;
 found by codex in the zero-`both-fail` negative release gate.
@@ -12556,6 +13866,11 @@ found by codex in the zero-`both-fail` negative release gate.
 - **Fix/result:** the summary now prints `total + 0`; the exact zero-row
   runtime taxonomy freeze and its synthetic smoke remain green.
 ## v2-frontend-tkv2-pwa-fast-provider-missing — unit classpath contradicts assembled default
+<!-- status: fixed
+     lane: int
+     area: front
+     fixed-in: 3a87eb29c
+     confirmed: no -->
 
 **Status:** fixed (2026-07-12, `3a87eb29c`), awaiting Sergiy confirmation;
 found by codex during the Swift NativeUi release gate and reported in the
@@ -12576,6 +13891,11 @@ found by codex during the Swift NativeUi release gate and reported in the
 - **Fix/result:** the test-only dependency now exposes the shipped fast provider;
   isolated tkv2 PWA and the pre-SclJet full bridge suite are green.
 ## jvm-swiftui-row-path-invalid-escape — generated Scala emits `"\."`
+<!-- status: fixed
+     lane: jvm
+     area: codegen
+     fixed-in: 236a02de2
+     confirmed: no -->
 
 **Status:** fixed (2026-07-12, `236a02de2`), awaiting Sergiy confirmation;
 found by codex in the combined Swift CLI release gate and corrected in the
@@ -12596,6 +13916,12 @@ found by codex in the combined Swift CLI release gate and corrected in the
   generated-source assertion and fresh combined 54-test Swift CLI set pass.
 
 ## v2-swift-e2e-standard-launcher-stale — assembled scripts invoke the wrong tier
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: b3a4cea28
+     confirmed: no
+     gate: tests/e2e/v2-swift-cli.sh -->
 
 **Status:** fixed (2026-07-12, `b3a4cea28`), awaiting Sergiy confirmation;
 found by codex after fresh `installBin` and reported in the `scalascript` Rozum
@@ -12615,6 +13941,11 @@ room.
   gates pass without expanding StandardMain.
 
 ## v2-money-portable-native-front-arity — standard native release gate exits before allocation
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: b4b574c68
+     gate: tests/conformance/run.sh -->
 
 **Status:** done (2026-07-12, `b4b574c68`); found and confirmed by codex in the
 Swift NativeUi combined conformance gate and coordinated in the `scalascript`
@@ -12646,6 +13977,10 @@ Rozum room.
   28-case combined no-memo gate is 28/28, and native-entry smoke passes.
 
 ## js-ssc-ui-jsonvalue-duplicate — two `_ssc_ui_jsonValue` in the assembled JS runtime
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: 1ecbc80ca -->
 
 **Status:** FIXED (2026-07-12, opus). Root cause: `1ecbc80ca` (2026-07-11 17:53)
 added a 3-arg row-validator `_ssc_ui_jsonValue(value, operation, seen)` to
@@ -12686,6 +14021,10 @@ independent of that fix (which is Scala-only).
   `jsonValue` intrinsic impl as `_ssc_ui_jsonValue`.
 
 ## v2-imported-receiver-methods-not-linked — native imports cannot execute receiver operations
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: 2df8f6e3c -->
 
 **Status:** FIXED (2026-07-13, opus) — was TWO independent gaps, NOT an import bug
 (both reproduce same-file):
@@ -12722,6 +14061,10 @@ independent of that fix (which is Scala-only).
   case class with a body method, reads receiver fields, and produces non-`Stub` output.
 
 ## v1-explicit-companion-shadows-case-constructor — later case-class construction resolves to the companion value
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: 422a5b7c8 -->
 
 **Status:** fixed (2026-07-12, opus) — see git; conformance companion-case-class-order + 73 binding unit tests green.
 module is unblocked by routing construction through a helper declared before
@@ -12739,6 +14082,11 @@ the explicit companion.
   explicit companion and can construct from a later ordinary function and
   method without helper-order sensitivity.
 ## wasm-emitter-js-import-name-mismatch — generated JS cannot find emitted module
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: 422a5b7c8
+     confirmed: no -->
 
 **Status:** fixed (2026-07-12, `422a5b7c8`), awaiting Sergiy confirmation;
 found by codex while retiring the v2.1 WASM `both-fail` target row.
@@ -12759,6 +14107,11 @@ found by codex while retiring the v2.1 WASM `both-fail` target row.
   output, while the HTTP example compiles to a valid module/JS pair and is not
   executed against the public URL. The focused backend suite is 40/40.
 ## v2-swift-nativeui-standard-pipeline-parity — real Swift cannot run standard lower/serve + locale/JSON
+<!-- status: fixed
+     lane: apparatus
+     area: codegen
+     fixed-in: 11f1e68dc
+     confirmed: no -->
 
 **Status:** fixed (2026-07-12, `11f1e68dc`), awaiting `brave-newt` / Sergiy
 confirmation; reported by `claude-code` / `brave-newt` in the `scalascript`
@@ -12877,6 +14230,10 @@ Rozum room from busi's production-shaped fixture and accepted by
   iPhone 16 Pro Simulator. `tkv2-*` conformance is 12/12.
 
 ## v2-httpclient-curried-extern-unbound — curried top-level `extern def` doesn't bind as a global on `ssc run`
+<!-- status: fixed
+     lane: int
+     area: runtime
+     fixed-in: unrecorded -->
 **Status:** FIXED (2026-07-12, opus). The v2 VM + native lanes were already fixed by the v2.1
 native-curried-closures work (8df3e63a6/d85a1e903); the remaining failure was the **v1 interpreter**
 lane. Root cause: `httpClient(base){ block }` is not a plugin-native intrinsic — it's an eval-time
@@ -12914,6 +14271,12 @@ acceptance e2e test to native `.ssc`. Not blocking (single-param http externs wo
   plugin native so `httpClient(base){block}` runs the block; a conformance/probe covers it.
 
 ## v21-module-gate-misses-jca-provider — derived JRE omits Ed25519 module
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: 43fded0f9
+     confirmed: no
+     gate: tests/e2e/v21-negative-toolchain-release-gate.sh -->
 
 **Status:** fixed (2026-07-12, `43fded0f9`), awaiting Sergiy confirmation;
 found by codex in the standard-only negative release gate.
@@ -12936,6 +14299,11 @@ found by codex in the standard-only negative release gate.
   the consolidated release gate passes.
 
 ## v21-native-sql-fence-token-activates-client-code — SQL token parsing widened code fences
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: e3632db14
+     confirmed: no -->
 
 **Status:** fixed (2026-07-12, `e3632db14`), awaiting Sergiy confirmation;
 found by codex in the full SQL-fence release gate before push.
@@ -12960,6 +14328,11 @@ found by codex in the full SQL-fence release gate before push.
   release gate reaches the required 52/14 classification.
 
 ## v21-native-typed-sql-crud-missing — standard provider lacks typed Db writes/read
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: 50d01a136
+     confirmed: no -->
 
 **Status:** fixed (2026-07-12, implementation `50d01a136`, taxonomy
 `f92ca4fcb`, boundaries `333d0a9bd`), awaiting Sergiy confirmation; accepted
@@ -12985,6 +14358,11 @@ from the final TI-8.2d runtime taxonomy and owned by codex.
   taxonomy reaches zero blocking rows.
 
 ## v21-native-sql-fence-binding-missing — SQL section result is not native
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: 97c7d3e00
+     confirmed: no -->
 
 **Status:** fixed (2026-07-12, implementation `97c7d3e00`, taxonomy
 `721490e99`, side correction `e3632db14`), awaiting Sergiy confirmation;
@@ -13011,6 +14389,11 @@ accepted from the final TI-8.2d runtime taxonomy and owned by codex.
   typed CRUD blocker remaining.
 
 ## v21-native-tuple-lambda-destructuring — collection callbacks expect two arguments
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: 12d3d9cf2
+     confirmed: no -->
 
 **Status:** fixed (2026-07-12, language `12d3d9cf2`, taxonomy `06a518685`),
 awaiting Sergiy confirmation; found by codex after parameterless-def value
@@ -13035,6 +14418,11 @@ semantics advanced the mini-language pipeline report.
   five blockers and zero mismatch/one-sided rows.
 
 ## v21-native-focus-optics-unlowered — Focus/Prism remain globals
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: a3d5abde0
+     confirmed: no -->
 
 **Status:** fixed (2026-07-12, frontend/provider `a3d5abde0`, artifact
 `16a4b9f8f`, taxonomy `5557ddf61`), awaiting Sergiy confirmation; found by
@@ -13058,6 +14446,11 @@ codex in TI-8.2d3m audit.
   zero language-runtime rows and two remaining SQL-provider blockers.
 
 ## v21-native-named-copy-labels-dropped — case-class copy overrides by position
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: d01d2e9f1
+     confirmed: no -->
 
 **Status:** fixed (2026-07-12, `d01d2e9f1`), awaiting Sergiy confirmation;
 found by codex in TI-8.2d3m audit.
@@ -13079,6 +14472,11 @@ found by codex in TI-8.2d3m audit.
   three blockers because the independently tracked Focus/Prism gap remains.
 
 ## v21-native-direct-do-unlowered — direct[M] remains an unbound call
+<!-- status: fixed
+     lane: js
+     area: front
+     fixed-in: e8065f02b
+     confirmed: no -->
 
 **Status:** fixed (2026-07-12, language `e8065f02b`, taxonomy `602c91cb2`),
 awaiting Sergiy confirmation; found by codex in TI-8.2d3m audit.
@@ -13099,6 +14497,11 @@ awaiting Sergiy confirmation; found by codex in TI-8.2d3m audit.
   50/16 with three blockers and zero mismatch/one-sided rows.
 
 ## v21-native-derives-mirror-unsynthesized — product evidence is absent
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: db97ad954
+     confirmed: no -->
 
 **Status:** fixed (2026-07-12, language `db97ad954`, taxonomy `151fd65b1`),
 awaiting Sergiy confirmation; found by codex in TI-8.2d3m audit.
@@ -13118,6 +14521,11 @@ awaiting Sergiy confirmation; found by codex in TI-8.2d3m audit.
   public VM/ASM/build-jvm output are exact; release is 49/17 with four blockers.
 
 ## v21-native-parameterless-def-value — nullary method is passed as a function
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: 12d3d9cf2
+     confirmed: no -->
 
 **Status:** fixed (2026-07-12, language `12d3d9cf2`, taxonomy `06a518685`),
 awaiting Sergiy confirmation; found by codex in TI-8.2d3m audit.
@@ -13139,6 +14547,11 @@ awaiting Sergiy confirmation; found by codex in TI-8.2d3m audit.
   public lines are exact on VM/ASM/build-jvm.
 
 ## v21-native-graph-provider-missing — standard Graph facade has no core-free owner
+<!-- status: fixed
+     lane: jvm
+     area: front
+     fixed-in: eb69124e2
+     confirmed: no -->
 
 **Status:** fixed (2026-07-12, provider `eb69124e2`, taxonomy `ff42d5d57`),
 awaiting Sergiy confirmation; found by codex while continuing the TI-8.2d3
@@ -13168,6 +14581,11 @@ blocking taxonomy after distributed local-loopback landed.
   identical / 19 both-fail / 6 blockers with zero mismatch/one-sided rows.
 
 ## v21-native-tuple-field-patterns — tuple literal/typed fields are unchecked
+<!-- status: fixed
+     lane: native
+     area: codegen
+     fixed-in: 2b87c57df
+     confirmed: no -->
 
 **Status:** fixed (2026-07-12, language `2b87c57df`, taxonomy `e0e7e98c3`),
 awaiting Sergiy confirmation; found by codex after binding the distributed
@@ -13199,6 +14617,11 @@ registry provider ABI.
   VM/ASM/build-jvm; the full release gate and conformance 11/11 pass.
 
 ## v21-native-distributed-loopback-provider-missing — NamedHandler is absent from standard runtime
+<!-- status: fixed
+     lane: apparatus
+     area: codegen
+     fixed-in: 31d730c1e
+     confirmed: no -->
 
 **Status:** fixed (2026-07-12, provider `31d730c1e`, language `2b87c57df`,
 taxonomy `e0e7e98c3`), awaiting Sergiy confirmation; found by codex after the
@@ -13235,6 +14658,11 @@ core-free Actors slice landed while continuing TI-8.2d3.
   distributed taxonomy rows are retired.
 
 ## v21-native-actors-provider-missing — runActors is absent from standard native runtime
+<!-- status: fixed
+     lane: apparatus
+     area: codegen
+     fixed-in: 289b828b9
+     confirmed: no -->
 
 **Status:** fixed (2026-07-12, provider `289b828b9`, language/runtime
 `ac30dd778`, taxonomy `2230ebc8a`), awaiting Sergiy confirmation; found by
@@ -13280,6 +14708,11 @@ codex after Async landed while continuing TI-8.2d3.
   and the complete release gate passes.
 
 ## v21-native-async-provider-missing — runAsync is absent from standard native runtime
+<!-- status: fixed
+     lane: apparatus
+     area: codegen
+     fixed-in: 4a5caa0ae
+     confirmed: no -->
 
 **Status:** fixed (2026-07-12, `4a5caa0ae`, taxonomy `7ac63130d`), awaiting
 Sergiy confirmation; found by codex after the Generator provider landed while
@@ -13309,6 +14742,11 @@ continuing TI-8.2d3.
   to 12 blockers / 24 total.
 
 ## v21-native-generator-provider-missing — generator is absent from standard native runtime
+<!-- status: fixed
+     lane: apparatus
+     area: codegen
+     fixed-in: fa265325f
+     confirmed: no -->
 
 **Status:** fixed (2026-07-11, `fa265325f`, taxonomy `6f3c398e5`), awaiting
 Sergiy confirmation; found by codex while continuing TI-8.2d3 after the Dataset
@@ -13338,6 +14776,11 @@ provider landed.
   13 blockers / 25 total and the release gate is ready.
 
 ## v21-native-dataset-provider-missing — standard Dataset calls escape as effects
+<!-- status: fixed
+     lane: apparatus
+     area: codegen
+     fixed-in: 17cee1805
+     confirmed: no -->
 
 **Status:** fixed (2026-07-11, `17cee1805`, taxonomy `9feff81a8`), awaiting
 Sergiy confirmation; found by codex while starting queued TI-8.2d3g.
@@ -13376,6 +14819,11 @@ Sergiy confirmation; found by codex while starting queued TI-8.2d3g.
   mismatch/one-sided rows, and 14 remaining blockers.
 
 ## v21-native-doc-nested-render — nested documents leak the runtime tag
+<!-- status: fixed
+     lane: apparatus
+     area: codegen
+     fixed-in: fe279650d
+     confirmed: no -->
 
 **Status:** fixed (2026-07-11, `fe279650d`), awaiting Sergiy confirmation;
 found by codex when native `md` unblocked the complete public
@@ -13405,6 +14853,11 @@ found by codex when native `md` unblocked the complete public
   standard/slim/JRE/build-jvm gates pass; no-memo conformance is 17/17.
 
 ## v21-native-md-interpolator-unbound — self-hosted front misses the built-in prefix
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: 50715b7a3
+     confirmed: no -->
 
 **Status:** fixed (2026-07-11, `50715b7a3`), awaiting Sergiy confirmation;
 found by codex while closing the native content-helper cutover.
@@ -13435,6 +14888,11 @@ found by codex while closing the native content-helper cutover.
   rises to 47, standard parity is 36/30/129 with no mismatch/one-sided row,
   runtime blockers fall to 18, and affected conformance is 17/17.
 ## v21-native-sql-recovery-parser-sentinel — loaded recovery source leaves `_err`
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: 1bf9c7c06
+     confirmed: no -->
 
 **Status:** fixed (2026-07-11, `1bf9c7c06`), awaiting Sergiy confirmation; found by codex after fixing the wrapped-import
 loss exposed the complete `dsl-sql-recovery.ssc` module closure.
@@ -13463,6 +14921,11 @@ loss exposed the complete `dsl-sql-recovery.ssc` module closure.
   VM/ASM; consolidated release and fresh conformance 11/11 pass.
 
 ## v21-native-multiline-markdown-import-dropped — std parser companion stays unloaded
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: 96a1fa9dc
+     confirmed: no -->
 
 **Status:** fixed (2026-07-11, `96a1fa9dc`), awaiting Sergiy confirmation; found by codex while reproducing the queued
 TI-8.2d2x `dsl-sql-recovery.ssc` blocker in the installed standard tier.
@@ -13491,6 +14954,11 @@ TI-8.2d2x `dsl-sql-recovery.ssc` blocker in the installed standard tier.
   closure loads exactly and all release gates pass.
 
 ## v2-swift-core-stale-testing-command — spec names an absent e2e script
+<!-- status: fixed
+     lane: js
+     area: runtime
+     fixed-in: 7e4b2e563
+     gate: tests/e2e/v2-swift-core.sh -->
 
 **Status:** done (2026-07-11, `7e4b2e563`); found by codex during final spec verification.
 
@@ -13504,6 +14972,11 @@ TI-8.2d2x `dsl-sql-recovery.ssc` blocker in the installed standard tier.
   assembled scripts; no absent command remains in the release procedure.
 
 ## tkv2-js-duplicate-nodecrypto — generated JS declares `_nodeCrypto` twice
+<!-- status: fixed
+     lane: js
+     area: runtime
+     fixed-in: aab53ab3c
+     gate: tests/conformance/run.sh -->
 
 **Status:** done (2026-07-11, `aab53ab3c`); found by codex in the mandatory no-memo
 `tkv2-*` landing gate for Apple distribution round 2 after rebasing current
@@ -13529,6 +15002,10 @@ TI-8.2d2x `dsl-sql-recovery.ssc` blocker in the installed standard tier.
   isolated INT+JS execution passes, and the assembled no-memo corpus is 12/12.
 
 ## v21-native-reactive-ctor-bypasses-provider — fresh install loses subscriptions
+<!-- status: fixed
+     lane: native
+     area: codegen
+     fixed-in: 04b7f5fd1 -->
 
 **Status:** done (2026-07-11, VM `04b7f5fd1`, ASM `8cf29ede2`); found by codex when the native `doc`/`render` slice reran the
 full plugin and `build-jvm` gates from a clean current-source installation.
@@ -13552,6 +15029,10 @@ full plugin and `build-jvm` gates from a clean current-source installation.
   and affected conformance is 17/17.
 
 ## v21-native-doc-render-unbound — standard native host omits core content helpers
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: 5b6bb6b5d -->
 
 **Status:** done (2026-07-11, through `5b6bb6b5d`); found by codex while isolating the `examples/content.ssc`
 cutover blocker.
@@ -13579,6 +15060,11 @@ cutover blocker.
   conformance 17/17 all pass.
 
 ## v21-native-dynamic-bigint-tostring — selected conversion is Int-only
+<!-- status: fixed
+     lane: apparatus
+     area: codegen
+     fixed-in: e2511c6ad
+     gate: tests/conformance/content-linked-namespaces.ssc -->
 
 **Status:** done (2026-07-11, `e2511c6ad`); found by codex after the native structural
 content provider exposed the next failure in `content-linked-namespaces.ssc`.
@@ -13600,6 +15086,11 @@ content provider exposed the next failure in `content-linked-namespaces.ssc`.
   corpus/parity sweep pass; runtime successes improve from 44 to 45.
 
 ## v21-coreir-curried-closure-underapplication — nested parameter lists fail at runtime
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: e23bff273
+     confirmed: no -->
 
 **Status:** fixed (2026-07-11, `e23bff273`), awaiting Sergiy confirmation; found by codex while advancing the installed
 `algebraic-effects.ssc` VM/direct-ASM regression after removing hidden
@@ -13628,6 +15119,11 @@ multi-effect CPS.
   and the consolidated release gate plus fresh conformance 11/11 pass.
 
 ## v21-native-multi-effect-hidden-cps — declared operation gains a hidden argument
+<!-- status: fixed
+     lane: apparatus
+     area: codegen
+     fixed-in: 2a66b1221
+     confirmed: no -->
 
 **Status:** fixed (2026-07-11, `2a66b1221`), awaiting Sergiy confirmation; found by codex while running the installed
 VM/direct-ASM regression for TI-8.2d2w2 standard effect runners.
@@ -13654,6 +15150,11 @@ VM/direct-ASM regression for TI-8.2d2w2 standard effect runners.
   example, consolidated release gate, and fresh conformance 11/11 all pass.
 
 ## v21-runtime-taxonomy-stale-after-front-fixes — reviewed blockers lag parity
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: 05454dd1c
+     confirmed: no -->
 
 **Status:** fixed (2026-07-11, `05454dd1c`), awaiting Sergiy confirmation; found by codex while running the exhaustive
 post-rebase release gate for pure native content binding.
@@ -13673,6 +15174,12 @@ post-rebase release gate for pure native content binding.
   focused and distribution gates are green.
 
 ## v21-build-jvm-content-path-nondeterminism — content.bin leaks source roots
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: 82d27b896
+     confirmed: no
+     gate: tests/e2e/v21-build-jvm-release-gate.sh -->
 
 **Status:** fixed (2026-07-11, `82d27b896`), awaiting Sergiy confirmation; found by codex in the exhaustive post-effect
 release gate after the structural content provider landed.
@@ -13690,6 +15197,12 @@ release gate after the structural content provider landed.
   the full build-jvm reproducibility gate and exhaustive release gate pass.
 
 ## v21-native-http-request-source-arity — canonical Request omits provider fields
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: 794cb6e7c
+     confirmed: no
+     gate: tests/e2e/v21-native-entry-smoke.sh -->
 
 **Status:** fixed (2026-07-11, `794cb6e7c`), awaiting Sergiy confirmation; found by codex after fixing extern-class layout
 ownership and rerunning the installed native-entry gate.
@@ -13706,6 +15219,10 @@ ownership and rerunning the installed native-entry gate.
   retain the provider's established order, make the installed server fixture
   exact again, and rerun native-entry, release, and fresh conformance gates.
 ## v2-swift-distribution-authority-gaps — signed routes can rebuild or select an unverified product
+<!-- status: fixed
+     lane: jvm
+     area: front
+     fixed-in: c75f49fe2 -->
 
 **Status:** done (2026-07-11, through `c75f49fe2`); reported by `nativeui-reviewer` in the
 `scalascript` Rozum room during the `v2-swiftui-apple-distribution-adapters`
@@ -13760,6 +15277,11 @@ pre-code audit at 22:07–22:08, after unsigned Xcode closure `1ff9b2e76`.
   fastlane lanes. `nativeui-reviewer` confirmed round 3; Swift is 43/43, the
   combined CLI matrix 53/53, assembled e2e passes, and `tkv2-*` is 12/12.
 ## v21-native-extern-class-members-escape — abstract fields become parser sentinels
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: fd36ee87e
+     confirmed: no -->
 
 **Status:** fixed (2026-07-11, `fd36ee87e`), awaiting Sergiy confirmation; found by codex in the exhaustive post-effect
 release gate after the content-provider main rebase.
@@ -13778,6 +15300,11 @@ release gate after the content-provider main rebase.
   gate before retiring any effect taxonomy row.
 
 ## v21-content-bind-copy-lane-divergence — structural copy is not portable
+<!-- status: fixed
+     lane: native
+     area: runtime
+     fixed-in: 208ec4c60
+     gate: tests/conformance/run.sh -->
 
 **Status:** done (2026-07-11, `208ec4c60`); found by codex while running the required
 `content-tables` INT/JS/JVM conformance after moving `contentBind` to pure
@@ -13802,6 +15329,11 @@ ScalaScript.
   deterministic `build-jvm` artifact emits the same recursive binding output.
 
 ## v21-native-explicit-effect-handler-erasure — declarations and handlers disappear
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: 4c0435f4b
+     confirmed: no -->
 
 **Status:** fixed (2026-07-11, `4c0435f4b`), awaiting Sergiy confirmation; found by codex while reducing the reviewed
 `effects.ssc` standard-language/runtime blocker on the installed compiler-free
@@ -13828,6 +15360,11 @@ binary.
   is allowed.
 
 ## v21-native-content-markdown-error-swallowed — malformed roots become empty content
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: b6fe50ef2
+     gate: tests/e2e/v21-self-hosted-markdown-frontend-smoke.sh -->
 
 **Status:** done (2026-07-11, `b6fe50ef2`); found by codex in the consolidated
 self-hosted release gate while verifying the new structural content projection.
@@ -13854,6 +15391,11 @@ self-hosted release gate while verifying the new structural content projection.
   rebase; affected conformance is 16/16, and the fix is on `origin/main`.
 
 ## v2-swift-ios-run-unbounded-error — domain source leaks a JVM stack trace
+<!-- status: fixed
+     lane: native
+     area: codegen
+     fixed-in: 08735b15a
+     gate: tests/e2e/v2-swift-cli.sh -->
 
 **Status:** done (2026-07-11, `08735b15a`); found by codex in the assembled
 `tests/e2e/v2-swift-cli.sh` gate after the Xcode application route was enabled.
@@ -13875,6 +15417,11 @@ self-hosted release gate while verifying the new structural content projection.
   retries v1.
 
 ## tkv2-pwa-stale-default-backend — expected output pins retired JDK default
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: b060951ce
+     gate: tests/conformance/run.sh -->
 
 **Status:** done (2026-07-11, `b060951ce`); found by codex while running the mandatory
 `tkv2-*` landing gate for `v2-swiftui-xcode-project`.
@@ -13895,6 +15442,10 @@ self-hosted release gate while verifying the new structural content projection.
   after the final rebase; all eight functional PWA assertions remain exact.
 
 ## v21-runtime-taxonomy-stale-http-mount — resolved standard row still blocks freeze
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: 77da8e8e2 -->
 
 **Status:** done (2026-07-11, taxonomy `77da8e8e2`); found by codex while
 joining the fresh 195-row typeclass release report to the reviewed runtime
@@ -13917,6 +15468,10 @@ taxonomy. Provider implementation already landed in `608d63425`.
   diagnostic remains visible in the native-front report.
 
 ## v21-native-typeclass-dictionary-sentinel — explicit dictionaries lose members
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: 8822fa710 -->
 
 **Status:** fixed (2026-07-11, implementation `8822fa710`, regression
 `0b596a075`, taxonomy `77da8e8e2`); found by codex while reducing the reviewed
@@ -13945,6 +15500,9 @@ taxonomy. Provider implementation already landed in `608d63425`.
   mismatch/one-sided rows, and fresh conformance 11/11.
 
 ## v2-swift-xcode-contract-gaps — application metadata and product authority are ambiguous
+<!-- status: unknown
+     lane: jvm
+     area: front -->
 
 **Status:** CORE FIXED by swift-sibling work since the report; only the signed
 distribution-adapter slice remains (feature-scale). Verified end-to-end (opus, 07-13,
@@ -14008,6 +15566,10 @@ adapter (feature-scale, swift specialists). _Original report:_ reported by `nati
   adapter routing tests, full affected suites, and reviewer confirmation.
 
 ## v2-trusted-html-isolation-contract-gaps — first WKWebView plan leaves stale and navigation authority ambiguous
+<!-- status: fixed
+     lane: apparatus
+     area: conformance
+     fixed-in: 7cc1ff978 -->
 
 **Status:** done (2026-07-11, `7cc1ff978`); reported by `nativeui-reviewer` in the
 `scalascript` Rozum room during the read-only design checkpoint for SPRINT plan
@@ -14081,6 +15643,10 @@ adapter (feature-scale, swift specialists). _Original report:_ reported by `nati
   backend 41/41 and `tkv2-*` 12/12 are green.
 
 ## v2-native-table-urlprotocol-harness-race — strict action probe mutates shared Set concurrently
+<!-- status: fixed
+     lane: apparatus
+     area: cli
+     fixed-in: 400931f68 -->
 
 **Status:** done (2026-07-11, `400931f68`); found by codex in the mandatory
 post-rebase six-test rerun and confirmed fixed by `nativeui-reviewer` in the
@@ -14108,6 +15674,10 @@ post-rebase six-test rerun and confirmed fixed by `nativeui-reviewer` in the
   6/6, and full backend 40/40.
 
 ## v2-swiftui-ios16-onchange-availability — generated renderer requires iOS 17 accidentally
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: d54d02126 -->
 
 **Status:** done (2026-07-11, `d54d02126`); found by codex in the real iOS
 Simulator strict typecheck and confirmed fixed by `nativeui-reviewer` in the
@@ -14132,6 +15702,10 @@ Simulator strict typecheck and confirmed fixed by `nativeui-reviewer` in the
   is 40/40.
 
 ## v2-native-table-model-contract-gaps — first Apple model draft diverges at four strict seams
+<!-- status: fixed
+     lane: multi
+     area: front
+     fixed-in: d54d02126 -->
 
 **Status:** done (2026-07-11, `d54d02126`); found by
 `apple_table_impl_map` during the read-only implementation audit and confirmed
@@ -14198,6 +15772,10 @@ fixed by `nativeui-reviewer` in the `scalascript` Rozum room after three rounds.
   40/40, including generated macOS execution and iOS 16 strict typecheck.
 
 ## v2-native-table-payload-validator-drift — row payload descriptors validate differently by adapter
+<!-- status: fixed
+     lane: native
+     area: runtime
+     fixed-in: 1ecbc80ca -->
 
 **Status:** done (2026-07-11, `1ecbc80ca`); reported and confirmed by
 `nativeui-reviewer` in the `scalascript` Rozum room after three review rounds.
@@ -14224,6 +15802,10 @@ fixed by `nativeui-reviewer` in the `scalascript` Rozum room after three rounds.
   v2 14/14, fetch 12/12, Swift 34/34, and CLI 6/6.
 
 ## v2-native-table-request-url-untested — Swift URL resolver and CLI routing lack executable coverage
+<!-- status: fixed
+     lane: apparatus
+     area: codegen
+     fixed-in: 1ecbc80ca -->
 
 **Status:** done (2026-07-11, `1ecbc80ca`); reported and confirmed by
 `nativeui-reviewer` in the `scalascript` Rozum room after executable review.
@@ -14244,6 +15826,10 @@ fixed by `nativeui-reviewer` in the `scalascript` Rozum room after three rounds.
   configuration. Swift 34/34 and CLI 6/6 passed before the reviewer APPROVE.
 
 ## v2-native-table-rowkey-adapter-drop — non-default row identity is silently lost outside Swift
+<!-- status: fixed
+     lane: apparatus
+     area: codegen
+     fixed-in: 1ecbc80ca -->
 
 **Status:** done (2026-07-11, `1ecbc80ca`); reported and confirmed by
 `nativeui-reviewer` in the `scalascript` Rozum room after three review rounds.
@@ -14267,6 +15853,10 @@ fixed by `nativeui-reviewer` in the `scalascript` Rozum room after three rounds.
   35/35, and Rust 261/261 include executable invalid-key matrices.
 
 ## v2-native-table-five-field-registry-drift — v2 field layout disagrees with constructed ABI value
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: 1ecbc80ca -->
 
 **Status:** done (2026-07-11, `1ecbc80ca`); reported and confirmed by
 `nativeui-reviewer` in the `scalascript` Rozum room.
@@ -14283,6 +15873,10 @@ fixed by `nativeui-reviewer` in the `scalascript` Rozum room after three rounds.
   exact five-field layout; `v2NativeUiPlugin/test` passes 14/14.
 
 ## bridge-v2tov1-openapi-oom — imported OpenAPI conversion exhausts the heap
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: 2f3994b31 -->
 
 **Status:** done (2026-07-11, `2f3994b31`); reported and confirmed by busi
 against the published runtime.
@@ -14315,6 +15909,10 @@ against the published runtime.
   claimed hf-6 standard-tier provider cutover, not this bridge change.
 
 ## v21-functional-vm-asm-mkstring-parity — functional demo diverges on final dispatch
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: 4c5254eed -->
 
 **Status:** done (2026-07-11, `4c5254eed`); found and confirmed by codex
 during the post-`PMapped` full strict parity sweep.
@@ -14339,6 +15937,10 @@ during the post-`PMapped` full strict parity sweep.
   mismatch/one-sided rows; runtime blockers fall to 28.
 
 ## v21-native-parser-dsl-stub-values — parser DSLs exit successfully with placeholders
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: 9d5f13f95 -->
 
 **Status:** fixed (2026-07-11); found by codex while validating the clean
 `PMapped/2` assembly result against the compatibility frontend. Fixes:
@@ -14379,6 +15981,10 @@ during the post-`PMapped` full strict parity sweep.
   zero mismatch or one-sided runtime rows.
 
 ## fast-http-session-cookie — successful setSession response loses Set-Cookie
+<!-- status: fixed
+     lane: apparatus
+     area: cli
+     fixed-in: d202d2abf -->
 
 **Status:** fixed (2026-07-11); reported and confirmed by busi immediately
 after pinning the hf-7 `--v2` fast backend. Fix commit: `d202d2abf`.
@@ -14406,6 +16012,10 @@ after pinning the hf-7 `--v2` fast backend. Fix commit: `d202d2abf`.
   check, and canonical busi fast-backend Chromium 6/6 in 1.9 minutes.
 
 ## v2-swiftui-persisted-stale-wrapper-disposal — disposed wrapper can write disk or crash
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: 0ade8bf7c -->
 
 **Status:** done (2026-07-11, `0ade8bf7c`); reported and confirmed fixed by `nativeui-reviewer` in the
 `scalascript` Rozum review of the persisted/online Apple slice.
@@ -14429,6 +16039,10 @@ after pinning the hf-7 `--v2` fast backend. Fix commit: `d202d2abf`.
   without mutation, while a fresh reinserted wrapper commits normally.
 
 ## v2-swiftui-online-component-scope-split — onlineSignal is not process-wide
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: 0ade8bf7c -->
 
 **Status:** done (2026-07-11, `0ade8bf7c`); reported and confirmed fixed by `nativeui-reviewer` in the
 `scalascript` Rozum review of the persisted/online Apple slice.
@@ -14449,6 +16063,10 @@ after pinning the hf-7 `--v2` fast backend. Fix commit: `d202d2abf`.
   target monitor.
 
 ## v2-swiftui-persisted-cell-dependent-journal — persisted writes can miss UserDefaults
+<!-- status: fixed
+     lane: apparatus
+     area: other
+     fixed-in: 0ade8bf7c -->
 
 **Status:** done (2026-07-11, `0ade8bf7c`); reported and confirmed fixed by `nativeui-reviewer` in the
 `scalascript` Rozum review of the persisted/online Apple slice.
@@ -14471,6 +16089,10 @@ after pinning the hf-7 `--v2` fast backend. Fix commit: `d202d2abf`.
   restores on abort/rollback, and writes independently of rendered cells.
 
 ## v2-swiftui-online-stale-monitor-generation — cancelled callback can mutate a restarted monitor
+<!-- status: fixed
+     lane: apparatus
+     area: other
+     fixed-in: 0ade8bf7c -->
 
 **Status:** done (2026-07-11, `0ade8bf7c`); reported and confirmed fixed by `nativeui-reviewer` in the
 `scalascript` Rozum review of the persisted/online Apple slice.
@@ -14488,6 +16110,10 @@ after pinning the hf-7 `--v2` fast backend. Fix commit: `d202d2abf`.
   UUID token invalidated before cancel; only the current token may publish.
 
 ## v2-swiftui-online-derived-owner-gap — computed online readers do not own monitoring
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     fixed-in: 0ade8bf7c -->
 
 **Status:** done (2026-07-11, `0ade8bf7c`); reported and confirmed fixed by `nativeui-reviewer` in the
 `scalascript` Rozum review of the persisted/online Apple slice.
@@ -14506,6 +16132,11 @@ after pinning the hf-7 `--v2` fast backend. Fix commit: `d202d2abf`.
   computed-only subscriber starts and stops the shared monitor correctly.
 
 ## v2-swiftui-persisted-wrong-type-corruption — rejected write can corrupt Host memory
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: 0ade8bf7c
+     gate: tests/e2e/v21-native-entry-smoke.sh -->
 
 **Status:** done (2026-07-11, `0ade8bf7c`); reported and confirmed fixed by `nativeui-reviewer` in the
 `scalascript` Rozum review of the persisted/online Apple slice.
@@ -14523,6 +16154,11 @@ after pinning the hf-7 `--v2` fast backend. Fix commit: `d202d2abf`.
   side-effect failure, leaving memory and defaults unchanged.
 
 ## v21-storage-container-print-gates — release fixtures expect obsolete quoted children
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: befc249d4
+     gate: tests/e2e/v21-native-entry-smoke.sh -->
 
 **Status:** done (2026-07-11, `befc249d4`; release confirmation
 `d503cf856`); found and confirmed by codex in the mandatory post-rebase
@@ -14544,6 +16180,11 @@ container printing with the parity renderer.
   build-jvm smoke/release, slim, JRE, and fresh conformance all pass.
 
 ## v21-http-fast-standard-tier-cutover — standard image lost its HTTP provider
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: d503cf856
+     gate: tests/e2e/v21-native-plugin-boundary-smoke.sh -->
 
 **Status:** done (2026-07-11, `d503cf856`); found and confirmed by codex while
 running the v2.1 release gates after the HTTP-fast default swap (`67158c185`).
@@ -14575,6 +16216,10 @@ running the v2.1 release gates after the HTTP-fast default swap (`67158c185`).
   gates and the quick consolidated self-hosted-core release gate pass.
 
 ## http-handler-concurrent-interpreter-entry — accepted durable fact can disappear
+<!-- status: fixed
+     lane: int
+     area: front
+     fixed-in: 1f7ea78d7 -->
 
 **Status:** fixed (2026-07-11); reported by busi's personal-Vault canonical
 browser E2E. Fix commit: `1f7ea78d7`.
@@ -14608,6 +16253,10 @@ browser E2E. Fix commit: `1f7ea78d7`.
   a deadlock. The gate must preserve concurrent safe reads.
 
 ## v21-json-parser-pmapped-match — JSON DSL reaches an unhandled `PMapped/2`
+<!-- status: fixed
+     lane: js
+     area: front
+     fixed-in: 5b16df6df -->
 
 **Status:** done (2026-07-11; regression `5b16df6df`, taxonomy
 `06a1ae9bb`); found and confirmed by codex after native `case object` support
@@ -14631,6 +16280,10 @@ advanced `dsl-json-parser.ssc` beyond `unbound global: NoContext`.
   separate owners.
 
 ## v21-k62-flat-tuple-pattern-regression — flat tuple values keep nested `Pair` patterns
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: 7f6821856 -->
 
 **Status:** done (2026-07-11, `7f6821856`); found and confirmed by codex in the
 mandatory native-entry gate after K62.20 (`28061083a`) changed tuple
@@ -14655,6 +16308,10 @@ expressions of arity three or greater to flat `TupleN` values.
   conformance 11/11 pass.
 
 ## v21-imports-tuple2-collection-match — imported collection pipeline rejects `Tuple2/2`
+<!-- status: fixed
+     lane: int
+     area: front
+     fixed-in: 7a4cc0c00 -->
 
 **Status:** FIXED (verified 2026-07-12, opus) — already resolved on main by
 `579679058` "fix(v2.1): match imported two-element tuples" (+ `7a4cc0c00` rendering),
@@ -14681,6 +16338,10 @@ now byte-identical across `ssc-tools run --v1` / `ssc-standard run --native` /
   language-runtime taxonomy rows only after all release gates pass.
 
 ## v21-yaml-unit-global — native layout parser emits an unbound `Unit` value
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: aef599a80 -->
 
 **Status:** done (2026-07-11, `aef599a80`); found and confirmed by codex after symbolic extension dispatch
 advanced `dsl-yaml-like.ssc` beyond the former numeric `PChar(10)` failure.
@@ -14705,6 +16366,10 @@ advanced `dsl-yaml-like.ssc` beyond the former numeric `PChar(10)` failure.
   identically to the separately tracked parser-context arity gap.
 
 ## v21-yaml-parser-context-arity — YAML parser calls a nullary value with one argument
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: 878474b8d -->
 
 **Status:** done (2026-07-11, `878474b8d`); found and confirmed by codex after the typed-pattern boundary
 fix advanced `dsl-yaml-like.ssc` beyond the false `Unit` global.
@@ -14733,6 +16398,10 @@ fix advanced `dsl-yaml-like.ssc` beyond the false `Unit` global.
   identically to the already tracked `PMapped/2` gap.
 
 ## v21-case-object-no-context-unbound — native frontend drops `case object`
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: 500ba1668 -->
 
 **Status:** done (2026-07-11, `500ba1668`, taxonomy `9411ebf0e`); found and
 confirmed by codex after imported extension dispatch advanced
@@ -14756,6 +16425,10 @@ confirmed by codex after imported extension dispatch advanced
   gate and fresh conformance 11/11 pass.
 
 ## v21-symbolic-extension-infix-precedence — `Parser.|` becomes numeric `i.or`
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: 4a336ddec -->
 
 **Status:** done (2026-07-11, `4a336ddec`); found and confirmed by codex after
 imported extension dispatch advanced calculator/YAML-like parser examples
@@ -14779,6 +16452,10 @@ beyond `PRegex/1`.
   conformance 11/11 pass.
 
 ## v21-match-pregex-constructor — extension body captures the following top-level def
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: f7ff66a1f -->
 
 **Status:** done (2026-07-11, `f7ff66a1f`, taxonomy `4feb715ea`);
 found and confirmed by codex after the layout-object fix advanced all three
@@ -14820,6 +16497,10 @@ parser-combinator examples past their missing owned members.
   separately above.
 
 ## v21-layout-object-members-unprefixed — colon object loses its first member and owner prefix
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: afe902ec8 -->
 
 **Status:** done (2026-07-11, `afe902ec8`, property completion
 `b703a6bf0`); found and confirmed by codex while selecting the next
@@ -14850,6 +16531,11 @@ toolchain-independence runtime blocker after core-free YAML.
   `PRegex/1` failure is tracked above.
 
 ## v2-swiftui-fetch-wrapper-silent-default — non-text fetch bindings render an empty value
+<!-- status: fixed
+     lane: js
+     area: runtime
+     fixed-in: 70bee065d
+     confirmed: no -->
 
 **Status:** fixed (2026-07-11, `70bee065d`), awaiting Sergiy confirmation; found by `nativeui-reviewer` in the third
 read-only SwiftUI store/renderer review in Rozum.
@@ -14865,6 +16551,11 @@ read-only SwiftUI store/renderer review in Rozum.
   may expose the empty fetch default.
 
 ## v2-swiftui-unsourced-malformed-seams — malformed nodes and events lose site provenance
+<!-- status: fixed
+     lane: apparatus
+     area: codegen
+     fixed-in: 70bee065d
+     confirmed: no -->
 
 **Status:** fixed (2026-07-11, `70bee065d`), awaiting Sergiy confirmation; found by `nativeui-reviewer` in the third
 read-only SwiftUI store/renderer review in Rozum.
@@ -14895,6 +16586,11 @@ read-only SwiftUI store/renderer review in Rozum.
   String or signal. Recursive validation is cycle-safe by `SscFields` identity.
 
 ## v2-swiftui-shipped-inventory-semantic-loss — accepted tags/styles render different semantics
+<!-- status: fixed
+     lane: js
+     area: runtime
+     fixed-in: 70bee065d
+     confirmed: no -->
 
 **Status:** fixed (2026-07-11, `70bee065d`), awaiting Sergiy confirmation; found by `nativeui-reviewer` in the third
 read-only SwiftUI store/renderer review in Rozum.
@@ -14924,6 +16620,11 @@ read-only SwiftUI store/renderer review in Rozum.
   then apply the explicit override.
 
 ## v2-swiftui-owner-hint-closure-clone-leak — node identity mutates ABI and retains refresh tombstones
+<!-- status: fixed
+     lane: js
+     area: conformance
+     fixed-in: 70bee065d
+     confirmed: no -->
 
 **Status:** fixed (2026-07-11, `70bee065d`), awaiting Sergiy confirmation; found by `nativeui-reviewer` in the third
 read-only SwiftUI store/renderer review in Rozum.
@@ -14942,6 +16643,11 @@ read-only SwiftUI store/renderer review in Rozum.
   refresh, failed rollback, and committed delete.
 
 ## v2-swiftui-owner-hint-fifo-swap — reversed tree construction exchanges repeated-site state
+<!-- status: fixed
+     lane: js
+     area: runtime
+     fixed-in: 70bee065d
+     confirmed: no -->
 
 **Status:** fixed (2026-07-11, `70bee065d`), awaiting Sergiy confirmation; found by `nativeui-reviewer` in the second
 read-only SwiftUI store/renderer review in Rozum.
@@ -14958,6 +16664,11 @@ read-only SwiftUI store/renderer review in Rozum.
   covering move and fresh reinsertion.
 
 ## v2-swiftui-keyed-store-rollback-publication — failed provisional render leaks revisions
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: 70bee065d
+     confirmed: no -->
 
 **Status:** fixed (2026-07-11, `70bee065d`), awaiting Sergiy confirmation; found by `nativeui-reviewer` in the second
 read-only SwiftUI store/renderer review in Rozum.
@@ -14972,6 +16683,11 @@ read-only SwiftUI store/renderer review in Rozum.
   write-then-throw with unchanged value/revision/cache/dependencies and clean
   subsequent reconcile.
 ## v21-native-zero-arg-println-arity — blank println fails before later statements
+<!-- status: fixed
+     lane: jvm
+     area: front
+     fixed-in: e74241f5e
+     confirmed: no -->
 
 **Status:** fixed (2026-07-11, `e74241f5e`), awaiting Sergiy confirmation;
 found by codex while running the new core-free YAML provider against
@@ -14992,6 +16708,11 @@ found by codex while running the new core-free YAML provider against
   example advances to its independent fenced-section boundary, and fresh
   affected conformance passes 11/11.
 ## v21-parity-backends-list-ignored — JS-only examples run on the standard JVM lane
+<!-- status: fixed
+     lane: js
+     area: front
+     fixed-in: d4c953b9c
+     confirmed: no -->
 
 **Status:** fixed (2026-07-11, `d4c953b9c`), awaiting Sergiy confirmation;
 found by codex while starting the TI-8.2d4 example/config blocker sweep.
@@ -15016,6 +16737,11 @@ found by codex while starting the TI-8.2d4 example/config blocker sweep.
   parity is 21/45/129 with zero mismatch or one-sided error.
 
 ## v21-native-reactive-effect-parsed-as-declaration — top-level effects disappear
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: dae51ecab
+     confirmed: no -->
 
 **Status:** fixed (2026-07-11, `dae51ecab`), awaiting Sergiy confirmation;
 found by codex while gating the core-free reactive provider.
@@ -15041,6 +16767,11 @@ found by codex while gating the core-free reactive provider.
   build-jvm; algebraic `effects` conformance is green on all four lanes.
 
 ## v2-swift-session-sticky-callback-failure — one caught render error poisons the retained runtime
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: 70bee065d
+     confirmed: no -->
 
 **Status:** fixed (2026-07-11, `70bee065d`), awaiting Sergiy confirmation; found by codex in the executable Swift keyed
 rollback probe and announced to `@scalascript` /
@@ -15061,6 +16792,9 @@ rollback probe and announced to `@scalascript` /
   plus same-session keyed rollback/recovery under real Swift.
 
 ## v2-swiftui-fake-native-fallbacks — deferred semantics render misleading content
+<!-- status: unknown
+     lane: multi
+     area: runtime -->
 
 **Reactive-attribute slice landed (opus, 2026-07-13).** `renderElement` bound only 3
 reactive (signal-bound) attributes — `style`/`value`/`checked` — so ANY other
@@ -15132,6 +16866,11 @@ read-only Apple store/renderer review in Rozum.
   sourced Unsupported until the complete async lifecycle slice.
 
 ## v2-swiftui-keyed-owner-lifecycle — deleted keys retain and resurrect component state
+<!-- status: fixed
+     lane: js
+     area: other
+     fixed-in: 70bee065d
+     confirmed: no -->
 
 **Status:** fixed (2026-07-11, `70bee065d`), awaiting Sergiy confirmation; found by `nativeui-reviewer` during the first
 read-only Apple store/renderer review in Rozum.
@@ -15152,6 +16891,11 @@ read-only Apple store/renderer review in Rozum.
   insert/move/update/delete/reinsert/rollback probes.
 
 ## v2-swiftui-unobserved-signal-read — dynamic nodes do not rerender
+<!-- status: fixed
+     lane: js
+     area: runtime
+     fixed-in: 70bee065d
+     confirmed: no -->
 
 **Status:** fixed (2026-07-11, `70bee065d`), awaiting Sergiy confirmation; found by `nativeui-reviewer` during the first
 read-only Apple store/renderer review in Rozum.
@@ -15168,6 +16912,11 @@ read-only Apple store/renderer review in Rozum.
   plus real SwiftUI typecheck.
 
 ## v2-swiftui-dependent-double-publish — one dependency write advances a computed cell twice
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: 70bee065d
+     confirmed: no -->
 
 **Status:** fixed (2026-07-11, `70bee065d`), awaiting Sergiy confirmation; found by codex while implementing the generated
 SwiftUI observation store, announced to `@scalascript` /
@@ -15188,6 +16937,11 @@ SwiftUI observation store, announced to `@scalascript` /
   landing the store slice.
 
 ## v21-native-dynamic-toint-dropped — selected String conversion vanishes
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: 63ab041a6
+     confirmed: no -->
 
 **Status:** fixed (2026-07-11, `63ab041a6`), awaiting Sergiy confirmation;
 found by codex while the new core-free Storage provider advanced
@@ -15214,6 +16968,10 @@ found by codex while the new core-free Storage provider advanced
   pass; keep this entry `fixed` until Sergiy confirms.
 
 ## v2-swift-nativeui-descriptor-proof — debug root summary hides ABI field drift
+<!-- status: fixed
+     lane: apparatus
+     area: codegen
+     fixed-in: 9ef73ac81 -->
 
 **Status:** fixed (2026-07-11, `9ef73ac81`); found by `nativeui-reviewer` in Rozum during the
 uncommitted Swift AppCore ABI-v1 review.
@@ -15231,6 +16989,10 @@ uncommitted Swift AppCore ABI-v1 review.
   and trusted HTML; the reviewer approved the final diff.
 
 ## v2-swift-nativeui-duplicate-root-source — diagnostic omits both source refs
+<!-- status: fixed
+     lane: apparatus
+     area: codegen
+     fixed-in: 9ef73ac81 -->
 
 **Status:** fixed (2026-07-11, `9ef73ac81`); found by `nativeui-reviewer` in Rozum during the
 uncommitted Swift AppCore ABI-v1 review.
@@ -15245,6 +17007,10 @@ uncommitted Swift AppCore ABI-v1 review.
   exact file/line/column/source-operation refs.
 
 ## v2-swift-nativeui-mobile-css-regex — valid shipped override is rejected
+<!-- status: fixed
+     lane: apparatus
+     area: codegen
+     fixed-in: 9ef73ac81 -->
 
 **Status:** fixed (2026-07-11, `9ef73ac81`); found by `nativeui-reviewer` in Rozum during the
 uncommitted Swift AppCore ABI-v1 review.
@@ -15260,6 +17026,10 @@ uncommitted Swift AppCore ABI-v1 review.
   retains the root and a one-character near miss becomes sourced Unsupported.
 
 ## v2-swift-nativeui-flat-name-detection — domain globals trigger UI mode
+<!-- status: fixed
+     lane: apparatus
+     area: codegen
+     fixed-in: 9ef73ac81 -->
 
 **Status:** fixed (2026-07-11, `9ef73ac81`); found by `nativeui-reviewer` in Rozum during the
 uncommitted Swift AppCore ABI-v1 review.
@@ -15276,6 +17046,10 @@ uncommitted Swift AppCore ABI-v1 review.
   program definitions; a user `signal` remains a normal host-free Swift package.
 
 ## v2-swift-nativeui-evaluation-rollback — arbitrary failure cannot reuse session
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: 9ef73ac81 -->
 
 **Status:** fixed (2026-07-11, `9ef73ac81`); found by `nativeui-reviewer` in Rozum during the
 uncommitted Swift AppCore ABI-v1 review.
@@ -15298,6 +17072,10 @@ uncommitted Swift AppCore ABI-v1 review.
   then the same host accepts a conflicting-default signal and clean root.
 
 ## v2-swift-nativeui-root-session-lifetime — extracted ABI loses callbacks/store
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: 9ef73ac81 -->
 
 **Status:** fixed (2026-07-11, `9ef73ac81`); found by `nativeui-reviewer` in Rozum during the
 uncommitted Swift AppCore ABI-v1 review.
@@ -15322,6 +17100,10 @@ uncommitted Swift AppCore ABI-v1 review.
   short-arity fetch action through the still-live root `emptyHeaders` signal.
 
 ## v21-runtime-taxonomy-ui-remote-table-stale — successful UI row remains blocked
+<!-- status: fixed
+     lane: native
+     area: runtime
+     fixed-in: 4cdca959c -->
 
 **Status:** fixed (2026-07-11, `4cdca959c`); found by codex in the full
 post-NativeUi v2.1 release gate after `ui-remote-table.ssc` moved from both-fail
@@ -15341,6 +17123,11 @@ to identical; waiting for Sergiy confirmation before `done`.
   portable gates, and fresh 11/11 conformance pass.
 
 ## v21-native-serve-ownership-conflict — NativeUi duplicates HTTP `serve`
+<!-- status: fixed
+     lane: native
+     area: runtime
+     fixed-in: 727c806e8
+     confirmed: no -->
 
 **Status:** fixed (2026-07-11, `727c806e8`); found by codex while re-running the
 native release gates after rebasing onto NativeUi runtime commit `1f3ca3962`;
@@ -15365,6 +17152,11 @@ waiting for Sergiy confirmation before `done`.
   providers without conflict.
 
 ## v21-list-mkstring-capture — separator slot points at the source list
+<!-- status: fixed
+     lane: apparatus
+     area: cli
+     fixed-in: 23fddc6a2
+     confirmed: no -->
 
 **Status:** fixed (2026-07-11, `23fddc6a2`); found by codex when nested-pattern
 fallback made `typed-data.ssc` execute through its Adults section; waiting for
@@ -15389,6 +17181,11 @@ Sergiy confirmation before `done`.
   fresh 11/11 conformance pass.
 
 ## v21-parity-mixed-scala-fence — native math exposes one-sided compiler surface
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: ee8467442
+     confirmed: no -->
 
 **Status:** fixed (2026-07-11, `ee8467442`); found by codex while implementing
 TI-8.2d2i, waiting for Sergiy confirmation before `done`.
@@ -15414,6 +17211,10 @@ TI-8.2d2i, waiting for Sergiy confirmation before `done`.
   confirms.
 
 ## v2-nativeui-rust-component-scope-proof — Rust adapter lacks a real compiler gate
+<!-- status: fixed
+     lane: apparatus
+     area: codegen
+     fixed-in: 1f3ca3962 -->
 
 **Status:** fixed (2026-07-11, `1f3ca3962`); found by `nativeui-reviewer` in Rozum while
 reviewing the uncommitted NativeUi ABI-v1 migration.
@@ -15429,6 +17230,10 @@ reviewing the uncommitted NativeUi ABI-v1 migration.
   in Rozum; keep `fixed` until Sergiy confirms.
 
 ## v2-nativeui-transitive-native-provenance — childCtx rebind can replace user NativeFnV
+<!-- status: fixed
+     lane: apparatus
+     area: plugin
+     fixed-in: 1f3ca3962 -->
 
 **Status:** fixed (2026-07-11, `1f3ca3962`); found by `nativeui-reviewer` in Rozum while
 reviewing the `componentScope` compatibility fix.
@@ -15445,6 +17250,10 @@ reviewing the `componentScope` compatibility fix.
   regression is preserved, and the SHA is reported in Rozum.
 
 ## v2-nativeui-keyed-scope-ownership — JVM ABI lacks transactional keyed lifecycle
+<!-- status: fixed
+     lane: apparatus
+     area: plugin
+     fixed-in: 1f3ca3962 -->
 
 **Status:** fixed (2026-07-11, `1f3ca3962`); found by `nativeui-reviewer` in Rozum against the
 frozen first JVM NativeUi gate.
@@ -15470,6 +17279,10 @@ frozen first JVM NativeUi gate.
   reviewer approves.
 
 ## v2-nativeui-root-transaction — failed Apple extraction leaks root/runtime state
+<!-- status: fixed
+     lane: multi
+     area: conformance
+     fixed-in: 1f3ca3962 -->
 
 **Status:** fixed (2026-07-11, `1f3ca3962`); found by `nativeui-reviewer` in Rozum.
 
@@ -15488,6 +17301,10 @@ frozen first JVM NativeUi gate.
   zero/duplicate/evaluation-error tests prove rollback.
 
 ## v2-nativeui-descriptor-contract — public UI descriptors diverge from ABI-v1
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: 1f3ca3962 -->
 
 **Status:** fixed (2026-07-11, `1f3ca3962`); found by `nativeui-reviewer` in Rozum.
 
@@ -15504,6 +17321,10 @@ frozen first JVM NativeUi gate.
 - **Done-when:** focused tests plus `std-ui-jobpanel` and toolkit conformance pass.
 
 ## v2-nativeui-portable-graph — canonicalization/equality can leak host values or miscompare cycles
+<!-- status: fixed
+     lane: multi
+     area: front
+     fixed-in: 1f3ca3962 -->
 
 **Status:** fixed (2026-07-11, `1f3ca3962`); found by `nativeui-reviewer` in Rozum.
 
@@ -15524,6 +17345,11 @@ frozen first JVM NativeUi gate.
 - **Done-when:** adversarial cycle/reorder negatives, nested ForeignV paths,
   closure non-mutation, and every descriptor family are green.
 ## v21-layout-given-after-abstract-def — abstract return type consumes the next given
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: 2a223d060
+     confirmed: no -->
 
 **Status:** fixed (2026-07-11, `2a223d060`); found by codex while implementing
 TI-8.2d2h, waiting for Sergiy confirmation before `done`.
@@ -15555,6 +17381,11 @@ TI-8.2d2h, waiting for Sergiy confirmation before `done`.
   green. Keep `fixed` until Sergiy confirms.
 
 ## v2-nativeui-component-scope-compat — new scope extern is unbound in legacy INT/JS lanes
+<!-- status: fixed
+     lane: int
+     area: runtime
+     fixed-in: 1f3ca3962
+     gate: tests/conformance/run.sh -->
 
 **Status:** fixed (2026-07-11, `1f3ca3962`); found by codex while verifying the atomic
 NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
@@ -15593,6 +17424,11 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
   reported in Rozum. Keep `fixed` until Sergiy confirms.
 
 ## v21-parity-external-http-flake — live httpbin makes VM/ASM parity one-sided
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: 2769bc479
+     confirmed: no -->
 
 **Status:** fixed (2026-07-11, `2769bc479`); found by codex while verifying
 native extension dispatch, waiting for Sergiy confirmation before `done`.
@@ -15618,6 +17454,11 @@ native extension dispatch, waiting for Sergiy confirmation before `done`.
   one-sided rows, and keep the entry `fixed` until Sergiy confirms.
 
 ## v2-swift-global-reg — generated Swift rejected ordinary top-level values
+<!-- status: fixed
+     lane: native
+     area: runtime
+     fixed-in: 0174796ef
+     confirmed: no -->
 
 **Status:** fixed (2026-07-11, `0174796ef`); found by codex while running the
 new user-facing Swift AppCore example, waiting for Sergiy confirmation before
@@ -15641,6 +17482,11 @@ new user-facing Swift AppCore example, waiting for Sergiy confirmation before
   confirms ordinary top-level values in the Swift workflow.
 
 ## v21-runtime-taxonomy-content-owner — content extern gaps assigned to module linker
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: 6b736d078
+     confirmed: no -->
 
 **Status:** fixed (2026-07-11, `6b736d078`); found by codex while starting
 TI-8.2d2 from the real `target/v21-runtime-taxonomy-current.tsv` report at
@@ -15665,6 +17511,11 @@ TI-8.2d2 from the real `target/v21-runtime-taxonomy-current.tsv` report at
   affected conformance. Keep `fixed` until Sergiy confirms the taxonomy.
 
 ## v21-standard-markdown-abi-packaging — slim launcher omits structural Markdown ABI class
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: 36d5ef3b6
+     confirmed: no -->
 
 **Status:** fixed (2026-07-11, `36d5ef3b6`); found by codex while verifying the
 self-hosted Markdown frontend cutover, waiting for Sergiy confirmation before
@@ -15689,6 +17540,11 @@ self-hosted Markdown frontend cutover, waiting for Sergiy confirmation before
   Keep `fixed` until Sergiy confirms the assembled distribution.
 
 ## v21-sentinel-taxonomy-parity-success — parser sentinel becomes unclassified when both lanes exit zero
+<!-- status: fixed
+     lane: js
+     area: front
+     fixed-in: 07c1d9b55
+     confirmed: no -->
 
 **Status:** fixed (2026-07-10, `07c1d9b55`); found by codex while verifying
 TI-8.2c2i, waiting for Sergiy confirmation before `done`.
@@ -15723,6 +17579,10 @@ TI-8.2c2i, waiting for Sergiy confirmation before `done`.
   green. Keep `fixed` until Sergiy confirms the release-gate behavior.
 
 ## v2-swiftui-event-increment-overflow-readonly — ordinary event dispatch can trap or lose source
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: f062a9184 -->
 
 **Status:** done (2026-07-11; fixed in `f062a9184`, `9ae1a130b`, and
 `12fae35e7`; `nativeui-reviewer` confirmed with APPROVE in the `scalascript`
@@ -15747,6 +17607,10 @@ Rozum room).
   reporter confirms it.
 
 ## v2-swiftui-keyed-fetch-metadata-stale — surviving fetch keeps its first request descriptor
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     fixed-in: 5c0b38ad9 -->
 
 **Status:** done (2026-07-11; fixed in `5c0b38ad9`, `068e8b62d`, and
 `03f2f1fcf`; `nativeui-reviewer` confirmed with final APPROVE in the
@@ -15775,6 +17639,10 @@ Rozum room).
   reporter confirms the regression.
 
 ## v2-swiftui-surviving-owner-action-task-leak — removed action can finish under a surviving keyed owner
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: 5c0b38ad9 -->
 
 **Status:** done (2026-07-11; fixed in `5c0b38ad9`, `068e8b62d`, and
 `03f2f1fcf`; `nativeui-reviewer` confirmed with final APPROVE in the
@@ -15809,6 +17677,9 @@ Rozum room).
   the Rozum reporter confirms the regression.
 
 ## v2-swift-swiftui-native — v2 has no proven native Swift/SwiftUI path for macOS and iOS
+<!-- status: unknown
+     lane: native
+     area: front -->
 
 **Status:** CLI/BUILD LAYER FIXED by swift-sibling work since the report; the SwiftUI
 run/simulator/device/signing half remains (feature-scale). Verified (opus, 07-13, Swift
@@ -15946,6 +17817,11 @@ reported by Sergiy in the Codex session.
   open, owned by the `v2-swift-swiftui-native` claim.
 
 ## v2-http-json-renderer-test-contract — native HTTP test omits the required self-hosted renderer
+<!-- status: fixed
+     lane: apparatus
+     area: conformance
+     fixed-in: ff3a52eba
+     confirmed: no -->
 
 **Status:** fixed (2026-07-10, `ff3a52eba`); waiting for reporter confirmation
 before `done`. Found by codex while verifying the portable Decimal/JSON/HTTP
@@ -15970,6 +17846,12 @@ boundary; regression source `ed945466d`.
   `v2NativeHttpPlugin/test` 4/4 passed in the final 94-test focused gate.
 
 ## v2-bigint-dynamic-arith-money — std/money allocation feeds Unit to an if condition on v2
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: ff3a52eba
+     confirmed: no
+     gate: tests/conformance/run.sh -->
 
 **Status:** fixed (2026-07-10, `ff3a52eba`); waiting for reporter confirmation
 before `done`. Found by codex in assembled conformance while implementing
@@ -15995,6 +17877,11 @@ before `done`. Found by codex in assembled conformance while implementing
   passed 6/6 including unchanged `std/money.allocate` behavior.
 
 ## v21-standard-index-vm-asm-divergence — index example fails VM and succeeds with malformed ASM output
+<!-- status: fixed
+     lane: apparatus
+     area: codegen
+     fixed-in: 86a2de03a
+     confirmed: no -->
 
 **Status:** fixed (2026-07-10, `86a2de03a`); waiting for human confirmation
 before `done`.
@@ -16028,6 +17915,11 @@ before `done`.
   simple interpolation remains green, and affected conformance is 8/8.
 
 ## v21-standard-direct-asm-recursion-stack — direct ASM lacks the VM recursion trampoline
+<!-- status: fixed
+     lane: apparatus
+     area: codegen
+     fixed-in: 3153fb2db
+     confirmed: no -->
 
 **Status:** fixed (2026-07-10, `3153fb2db`); waiting for human confirmation
 before `done`.
@@ -16063,6 +17955,11 @@ before `done`.
   standard, slim, JRE-module, artifact, and affected conformance gates pass.
 
 ## v21-standard-ui-fetch-json-vm-arity — native VM rejects a five-argument UI helper accepted by ASM
+<!-- status: fixed
+     lane: apparatus
+     area: codegen
+     fixed-in: d6b9ae9ce
+     confirmed: no -->
 
 **Status:** fixed (2026-07-10, `d6b9ae9ce`); waiting for human confirmation
 before `done`.
@@ -16092,6 +17989,11 @@ before `done`.
   conformance gates all pass.
 
 ## v21-native-front-dsl-pair-match-crash — valid tuple pattern aborts the self-hosted frontend
+<!-- status: fixed
+     lane: js
+     area: front
+     fixed-in: d4513cb8a
+     confirmed: no -->
 
 **Status:** fixed (2026-07-10, `d4513cb8a`, diagnostic gate
 `ac441ef62`); waiting for human confirmation before `done`.
@@ -16123,6 +18025,11 @@ before `done`.
   DSL surface syntax is tracked by TI-8.2c, not this crash bug.
 
 ## v21-native-front-missing-ui-table-import — corpus import closure references a deleted std module
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: d4513cb8a
+     confirmed: no -->
 
 **Status:** fixed (2026-07-10, `d4513cb8a`, diagnostic gate
 `ac441ef62`); waiting for human confirmation before `done`.
@@ -16147,6 +18054,12 @@ before `done`.
   non-code document.
 
 ## v21-standard-h2-java-compiler-edge — slim gate misses compiler classes inside dependency JARs
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: e4cd55b36
+     confirmed: no
+     gate: tests/e2e/v21-slim-distribution-gate.sh -->
 
 **Status:** fixed (2026-07-10, `e4cd55b36`); waiting for human confirmation
 before `done`.
@@ -16189,6 +18102,10 @@ before `done`.
   advanced the reproducible baseline. Affected conformance is 8/8.
 
 ## ui-fetch-get-offline-rejection — managed SPA GET rejects as an unhandled promise offline
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: a0d45ad44 -->
 
 **Status:** done (2026-07-10, fix `a0d45ad44`, reporter confirmation in busi
 `77399254`).
@@ -16226,6 +18143,11 @@ before `done`.
   only remaining URL-less inspector-frame error was unrelated.
 
 ## v21-native-bytecode-vm-prepass-state — direct ASM run depends on VM compilation side effects
+<!-- status: fixed
+     lane: native
+     area: codegen
+     fixed-in: e4f16baaf
+     confirmed: no -->
 
 **Status:** fixed (2026-07-10, `e4f16baaf`); waiting for human confirmation
 before `done`.
@@ -16260,6 +18182,11 @@ before `done`.
   affected conformance 8/8.
 
 ## v21-build-jvm-import-source-identity-gap — artifact metadata omits resolved imports
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: e4f16baaf
+     confirmed: no -->
 
 **Status:** fixed (2026-07-10, `e4f16baaf`); waiting for human confirmation
 before `done`.
@@ -16293,6 +18220,12 @@ before `done`.
   `42`; two base builds remain byte-identical; artifact/conformance gates pass.
 
 ## v2-frontendbridge-sqlite-timeout — SQLite conformance exceeds the 15-second bridge-test limit
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: b55811bf9
+     confirmed: no
+     gate: tests/conformance/v2-db-url-scheme-not-jdbc.ssc -->
 
 **Status:** fixed (2026-07-12, `b55811bf9`), awaiting Sergiy confirmation.
 
@@ -16317,6 +18250,11 @@ before `done`.
   selection issue.
 
 ## v21-native-front-eager-plugin-val — plugin-backed top-level `val` runs before earlier statements
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: 5db137a20
+     confirmed: no -->
 
 **Status:** fixed (2026-07-10, `5db137a20`); waiting for human confirmation
 before `done`.
@@ -16357,6 +18295,11 @@ before `done`.
   without frontend/checker timeout or crash.
 
 ## v21-native-front-prefix-postfix-precedence — `!exists(path)` applies the call after prefix `!`
+<!-- status: fixed
+     lane: js
+     area: front
+     fixed-in: 6e8464ea8
+     confirmed: no -->
 
 **Status:** fixed (2026-07-10, `6e8464ea8`); waiting for human confirmation
 before `done`.
@@ -16389,6 +18332,11 @@ before `done`.
   conformance 8/8.
 
 ## v2-run-plugin-temp-tree-leak — RunV2 leaves extracted plugin JAR trees
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: 0ccecb44d
+     confirmed: no -->
 
 **Status:** fixed (2026-07-10, `0ccecb44d`); waiting for human confirmation
 before `done`.
@@ -16418,6 +18366,11 @@ before `done`.
   `ssc-v2-plugins*` survivors; affected `v2-*` conformance 8/8.
 
 ## sscpkg-loader-temp-tree-leak — every CLI process leaves extracted plugin directories
+<!-- status: fixed
+     lane: native
+     area: cli
+     fixed-in: 784ac95d3
+     confirmed: no -->
 
 **Status:** fixed (2026-07-10, `784ac95d3`); waiting for human confirmation
 before `done`.
@@ -16453,6 +18406,11 @@ before `done`.
   --check`.
 
 ## v2-bytecode-x402-unhandled-op-success — bytecode lane exits 0 with unresolved `Wallets.metaMask` op
+<!-- status: fixed
+     lane: jvm
+     area: front
+     fixed-in: 7192cd6e4
+     confirmed: no -->
 
 **Status:** fixed (2026-07-10, `7192cd6e4`); waiting for human confirmation
 before `done`.
@@ -16491,6 +18449,11 @@ before `done`.
   affected `v2-*` conformance 8/8.
 
 ## v21-native-front-prose-self-import-loop — raw link scan follows prose links as module imports
+<!-- status: fixed
+     lane: js
+     area: front
+     fixed-in: 0ccecb44d
+     confirmed: no -->
 
 **Status:** fixed (2026-07-10, `0ccecb44d`); waiting for human confirmation
 before `done`.
@@ -16527,6 +18490,11 @@ before `done`.
   affected `v2-*` conformance 8/8.
 
 ## v2-type-ascription-pattern-no-op — `case _: T =>` silently matched everything (type test dropped)
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: unrecorded
+     confirmed: no -->
 
 **Status:** fixed (2026-07-10); waiting for human confirmation before `done`.
 
@@ -16566,6 +18534,11 @@ before `done`.
   — missing files/env/DB — no pattern-match regressions), up from 154/8.
 
 ## v2-jvm-backend-echo-macos — shell `echo "$text"` can corrupt generated/source text on macOS
+<!-- status: fixed
+     lane: v2-jvm
+     area: runtime
+     fixed-in: a4f7662be
+     confirmed: no -->
 
 **Status:** fixed (2026-07-10, `a4f7662be`); waiting for external
 confirmation only if a macOS reporter rechecks the helper paths.
@@ -16595,6 +18568,10 @@ confirmation only if a macOS reporter rechecks the helper paths.
   --no-memo` (1/1 across INT/JS/JVM), and `git diff --check`.
 
 ## v2-scala-cli-stack-option-wrappers — v2 shell wrappers used rejected `-J-Xss512m`
+<!-- status: fixed
+     lane: v2-jvm
+     area: runtime
+     fixed-in: a4f7662be -->
 
 **Status:** fixed (2026-07-10, `a4f7662be`).
 
@@ -16609,6 +18586,12 @@ confirmation only if a macOS reporter rechecks the helper paths.
 - **Verified:** same wrapper gates as `v2-jvm-backend-echo-macos` above.
 
 ## ssr-forsignal-duplicate-attrs - SSR `ForSignal` fallback duplicated static attrs
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: bb5342f08
+     confirmed: no
+     gate: tests/conformance/run.sh -->
 
 **Status:** fixed (2026-07-10, source fix `bb5342f08`; regression
 `4291a7239`); waiting for human confirmation before `done`.
@@ -16634,6 +18617,11 @@ confirmation only if a macOS reporter rechecks the helper paths.
   --no-memo` passes 1/1 after staging a fresh CLI in the worktree.
 
 ## tkv2-spa-i18n-serve-intrinsic-shadow — emitted custom SPA calls bare `serve` instead of imported `serve__ssc`
+<!-- status: fixed
+     lane: js
+     area: front
+     fixed-in: 7e5d55e4f
+     confirmed: no -->
 
 **Status:** fixed (2026-07-10, `7e5d55e4f`); waiting for human confirmation
 before `done`.
@@ -16662,6 +18650,12 @@ before `done`.
   10/10; `git diff --check` passes.
 
 ## v2-indent-conformance-demos-skipped — indent demo cases are skipped by conformance but fail directly
+<!-- status: fixed
+     lane: jvm
+     area: front
+     fixed-in: 886502d64
+     confirmed: no
+     gate: tests/conformance/indent-config-format.ssc -->
 
 **Status:** fixed (2026-07-10, demo fix `886502d64`, conformance lane
 `bcffa0019`); waiting for human confirmation before `done`.
@@ -16694,6 +18688,11 @@ before `done`.
   passes 3/3; `git diff --check` passes.
 
 ## v2-dsl-yaml-tuple-accessor — `pair._2` on a parser result hits fieldAt OOB (long-standing, NOT a fresh regression)
+<!-- status: fixed
+     lane: js
+     area: front
+     fixed-in: 4def0c749
+     confirmed: no -->
 
 **Status:** fixed (2026-07-10, code fix `4def0c749`); waiting for human or
 external reporter confirmation before `done`.
@@ -16740,6 +18739,11 @@ commit SHA until the reporter confirms, then they can be trimmed.
 | `done` | reporter confirmed fixed (safe to trim) |
 
 ## v2-serve-view-frontend-default — serve(view,port) crashes 'swiftui native-only' instead of serving the web SPA
+<!-- status: fixed
+     lane: v2-rust
+     area: front
+     fixed-in: unrecorded
+     gate: tests/e2e/serve-view-frontend-v2-smoke.sh. -->
 
 **Status:** FIXED 2026-07-10 — on `--v2`, `serve(view, port)` for any UI-serving
 program crashed `the active frontend backend 'swiftui' is native-only` instead of
@@ -16755,6 +18759,9 @@ Verified: content-introspection + datatable-static-spa serve `frontend=react` on
 (matching v1); corpus 154/8. Gate: tests/e2e/serve-view-frontend-v2-smoke.sh. Fixed by lucky-perch.
 
 ## v2-rust-recursion-tco-bench-fold — `fixed` (2026-07-09)
+<!-- status: unknown
+     lane: v2-jvm
+     area: codegen -->
 
 - **Found by:** codex during `v2-source-backend-production-perf-sweep`.
 - **Repro:** after `scripts/sbtc "installBin"` on current `origin/main`, run
@@ -16786,6 +18793,9 @@ Verified: content-introspection + datatable-static-spa serve `frontend=react` on
 - **Status:** fixed; waiting for human confirmation before `done`.
 
 ## v2-rust-bench-zero-input-helper-fold — `fixed` (2026-07-09)
+<!-- status: unknown
+     lane: v2-rust
+     area: codegen -->
 
 - **Found by:** codex while implementing
   `v2-source-rust-recursion-fib-perf`.
@@ -16819,6 +18829,11 @@ Verified: content-introspection + datatable-static-spa serve `frontend=react` on
 - **Status:** fixed; waiting for human confirmation before `done`.
 
 ## v2-scripts-bench-mktemp-template — `fixed` (2026-07-09)
+<!-- status: fixed
+     lane: native
+     area: codegen
+     fixed-in: ed680a585
+     confirmed: no -->
 
 - **Found by:** codex while verifying `v2-backend-check-ssc1c-wrapper-app-lit`.
 - **Repro:** run two `v2/scripts/bench.sh` instances concurrently, for example
@@ -16838,6 +18853,9 @@ Verified: content-introspection + datatable-static-spa serve `frontend=react` on
 - **Status:** fixed; waiting for human confirmation before `done`.
 
 ## v2-bytecode-param-long-nontail-self-loop — `fixed` (2026-07-09)
+<!-- status: unknown
+     lane: jvm
+     area: front -->
 
 - **Found by:** codex while rerunning final gates for
   `v2-source-jvm-recursion-fib-perf` after rebasing onto `origin/main`.
@@ -16863,6 +18881,11 @@ Verified: content-introspection + datatable-static-spa serve `frontend=react` on
 - **Status:** fixed; waiting for human confirmation before `done`.
 
 ## v2-money-decimal-regression — money amounts became Int (Decimal shadowed by payments Money companion)
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: d255f18f8
+     gate: tests/conformance/v2-user-type-shadows-function-ctor.ssc. -->
 
 **Status:** FIXED 2026-07-09 — busi's v2 domain sweep dropped 61/61 → 25/61 after
 bumping past `d255f18f8` (feat(v2): bridge payments examples surface). That commit
@@ -16879,6 +18902,9 @@ restored to 61/61; corpus 154/8 (payments examples still green). Reported by bus
 (fable, n=105); fixed by lucky-perch. Pin: tests/conformance/v2-user-type-shadows-function-ctor.ssc.
 
 ## v2-backend-check-ssc1c-wrapper-app-lit — `fixed` (2026-07-09)
+<!-- status: unknown
+     lane: apparatus
+     area: codegen -->
 
 - **Found by:** codex while verifying the `v2-source-jvm-recursion-fib-perf`
   source-backend slice.
@@ -16922,6 +18948,10 @@ restored to 61/61; corpus 154/8 (payments examples still green). Reported by bus
 - **Status:** fixed; waiting for human confirmation before `done`.
 
 ## green-main-conformance-7fail — `fixed` (2026-07-09)
+<!-- status: unknown
+     lane: native
+     area: codegen
+     gate: tests/conformance/run.sh -->
 
 - **Found by:** codex, while closing the `p4-bc-unboxed-arith` bytecode perf
   slice. The affected bytecode/arithmetic gate is green, but the broader default
@@ -17008,6 +19038,10 @@ restored to 61/61; corpus 154/8 (payments examples still green). Reported by bus
 - **Status:** fixed; waiting for human confirmation before `done`.
 
 ## v2-jvm-user-request-shadow — `fixed` (2026-07-09)
+<!-- status: unknown
+     lane: v2-jvm
+     area: codegen
+     gate: tests/conformance/user-request-shadow.ssc -->
 
 - **Found by:** codex, during the final `unmask-payments-bridge` affected
   conformance gate after the sibling `user-request-collision` fix landed.
@@ -17042,6 +19076,10 @@ restored to 61/61; corpus 154/8 (payments examples still green). Reported by bus
 - **Status:** fixed; waiting for human confirmation before `done`.
 
 ## v2-multiline-list-literal-desugar — `fixed` (2026-07-09)
+<!-- status: unknown
+     lane: native
+     area: front
+     gate: tests/conformance/v2-multiline-list-literal.ssc. -->
 
 `bin/ssc --v2` crashed with scala.meta `illegal start of simple expression`
 on any fence containing a MULTI-LINE `[ … ]` list literal (bracket opens a
@@ -17060,6 +19098,9 @@ whole corpus still resolves its multi-line std-imports). Pinned by
 tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
 
 ## v2-payments-bankrails-op-stub-leaks - `fixed` (2026-07-09)
+<!-- status: unknown
+     lane: native
+     area: runtime -->
 
 - **Found by:** codex, during the v2 production unmasking loop after standard
   `scala` fences became runnable.
@@ -17109,6 +19150,9 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
 - **Status:** fixed; waiting for human confirmation before `done`.
 
 ## v2-xslt-transform-empty-output — `fixed` (2026-07-09)
+<!-- status: unknown
+     lane: int
+     area: front -->
 
 - **Found by:** codex, during the v2 production unmasking loop.
 - **Repro:** from a clean worktree, stage the CLI with
@@ -17141,6 +19185,9 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
 - **Status:** fixed; waiting for human confirmation before `done`.
 
 ## v2-serve-noop-minimalctx — `fixed` (2026-07-09)
+<!-- status: unknown
+     lane: native
+     area: front -->
 
 - **Found by:** busi (rozum 07-09 n=24): hub boots on --v2 (banner + pairing code)
   but serve() never binds — no listener, curl 000.
@@ -17163,6 +19210,9 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
 - **Ladder:** busi drives the full storefront+money loop on --v2 next.
 
 ## v2-vm-effect-handlers-regression — `fixed` (2026-07-09)
+<!-- status: unknown
+     lane: native
+     area: runtime -->
 
 - **Found by:** codex, while verifying `v2-vm-production-jit-gate` after
   rebasing on current `origin/main`.
@@ -17200,6 +19250,9 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
 - **Status:** fixed; waiting for human/reporter confirmation before `done`.
 
 ## v2-source-backend-bridge-bench-prims — `fixed` (2026-07-09)
+<!-- status: unknown
+     lane: v2-jvm
+     area: front -->
 
 - **Found by:** codex, while implementing `v2-backend-performance-harness`.
 - **Repro:** stage `bin/ssc`, then run
@@ -17229,6 +19282,11 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
 - **Status:** fixed; waiting for human confirmation before `done`.
 
 ## scripts-bench-wall-all-na — `fixed` (2026-07-09)
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: 966a530e6
+     confirmed: no -->
 
 - **Found by:** codex, while measuring `v2-prod-performance-gate-baseline`.
 - **Repro:** after staging `bin/ssc`, run `scripts/bench wall` from the repo
@@ -17254,6 +19312,10 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
 - **Status:** fixed; waiting for human confirmation before `done`.
 
 ## jvm-artifact-cache-codegen-invalidation — `fixed` (2026-07-09)
+<!-- status: unknown
+     lane: jvm
+     area: codegen
+     gate: tests/conformance/litdoc.ssc -->
 
 - **Found by:** codex, while fixing `v2-litdoc-js-jvm-backend-lanes`.
 - **Repro:** generate a `.scjvm` artifact for a fixture, change JVM codegen
@@ -17280,6 +19342,9 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
 - **Status:** fixed; waiting for reporter/human confirmation before `done`.
 
 ## v2-stream-family-output-parity — `fixed` (2026-07-09)
+<!-- status: unknown
+     lane: native
+     area: cli -->
 
 - **Found by:** codex, in the valid full production parity sweep after
   `v2-v1-side-mismatch-classification`.
@@ -17345,6 +19410,9 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
 - **Status:** fixed; awaiting any external confirmation before trimming.
 
 ## v2-output-parity-temp-write-fail-fast — `fixed` (2026-07-09)
+<!-- status: unknown
+     lane: native
+     area: runtime -->
 
 - **Found by:** codex, while re-running the full v2 output-parity sweep during
   `v2-v1-side-mismatch-classification`.
@@ -17374,6 +19442,9 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
 - **Status:** fixed; awaiting any external confirmation before trimming.
 
 ## v2-v1-side-mismatch-classification — `fixed` (2026-07-09)
+<!-- status: unknown
+     lane: native
+     area: front -->
 
 - **Found by:** codex, during the v2 production output-parity loop after
   `v2-scala-fence-multiblock-parity`.
@@ -17405,6 +19476,9 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
 - **Status:** fixed; awaiting any external confirmation before trimming.
 
 ## v2-scala-fence-multiblock-parity — `fixed` (2026-07-09)
+<!-- status: unknown
+     lane: native
+     area: front -->
 
 - **Found by:** codex, during the v2 production output-parity loop after
   `v2-mcp-oauth-secret-nondet-parity`.
@@ -17465,6 +19539,10 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
 - **Status:** fixed; awaiting any external confirmation before trimming.
 
 ## v2-mcp-oauth-secret-nondet-parity — `fixed` (2026-07-09)
+<!-- status: unknown
+     lane: native
+     area: front
+     gate: tests/conformance/run.sh -->
 
 - **Found by:** codex, during the v2 production output-parity loop after
   `v2-os-env-nondet-parity`.
@@ -17490,6 +19568,10 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
   with 5 nondet skips across 195 examples.
 
 ## v2-os-env-nondet-parity — `fixed` (2026-07-09)
+<!-- status: unknown
+     lane: native
+     area: runtime
+     gate: tests/conformance/std-os.ssc -->
 
 - **Found by:** codex, during the v2 production output-parity loop after
   `v2-async-parallel-timing-parity`.
@@ -17516,6 +19598,10 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
   skips across 195 examples.
 
 ## v2-async-parallel-timing-parity — `fixed` (2026-07-09)
+<!-- status: unknown
+     lane: native
+     area: runtime
+     gate: tests/conformance/run.sh -->
 
 - **Found by:** codex, during the v2 production output-parity loop after
   `v2-graph-neo4j-foreign-parity`.
@@ -17541,6 +19627,9 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
   examples.
 
 ## v2-graph-neo4j-foreign-parity — `fixed` (2026-07-09)
+<!-- status: unknown
+     lane: int
+     area: runtime -->
 
 - **Found by:** codex, during the post-split production output-parity refresh.
 - **Repro:** after `scripts/sbtc "installBin"`, run
@@ -17578,6 +19667,10 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
   examples.
 
 ## jvmgen-litdoc-mapped-string-mkstring — `fixed` (2026-07-09)
+<!-- status: unknown
+     lane: js
+     area: front
+     gate: tests/conformance/litdoc.ssc -->
 
 - **Found by:** codex, while enabling `tests/conformance/litdoc.ssc` expected
   output during `v2-litdoc-inline-bold-parity`.
@@ -17607,6 +19700,10 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
 - **Status:** fixed; awaiting any external confirmation before trimming.
 
 ## v2-litdoc-inline-bold-parity — `fixed` (2026-07-09)
+<!-- status: unknown
+     lane: js
+     area: codegen
+     gate: tests/conformance/litdoc.ssc -->
 
 - **Found by:** codex, while verifying `v2-arith-unification` against the
   litdoc real harness.
@@ -17637,6 +19734,9 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
   `bin/ssc run --v2 tests/conformance/litdoc.ssc` diff is empty.
 
 ## v2-arith-dispatch-split — `fixed` (2026-07-09)
+<!-- status: unknown
+     lane: native
+     area: runtime -->
 
 - **Found by:** codex, while promoting BACKLOG `v2-arith-unification` for v2
   production readiness.
@@ -17674,6 +19774,9 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
   arith/map data line agrees.
 
 ## v2-cluster-stdlib-import-gap — `fixed` (2026-07-09)
+<!-- status: unknown
+     lane: js
+     area: runtime -->
 
 - **Found by:** codex, after `cdd032f03` fixed standard `scala` fence
   extraction during `v2-parity-current-errors`.
@@ -17709,6 +19812,9 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
   `64/98 identical · 11 mismatch · 0 v2-error · 23 v1-only`.
 
 ## v2-standard-scala-fences-skipped — `fixed` (2026-07-09)
+<!-- status: unknown
+     lane: js
+     area: front -->
 
 - **Found by:** codex, during `v2-parity-current-errors` full output-parity
   refresh.
@@ -17752,6 +19858,9 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
   `v2-cluster-stdlib-import-gap`; that is tracked as a separate bug.
 
 ## route-deriver-path-param-unit-client — `fixed` (2026-07-09)
+<!-- status: unknown
+     lane: js
+     area: front -->
 
 - **Found by:** codex, during `tkv2-typed-client` prep.
 - **Repro:** with no explicit `apiClients:` front matter, derive a client from
@@ -17786,6 +19895,10 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
   gates are recorded here.
 
 ## std-auth-webauthn-signature-drift — `fixed` (2026-07-09)
+<!-- status: unknown
+     lane: apparatus
+     area: runtime
+     gate: tests/conformance/webauthn-server-verify.ssc -->
 
 - **Found by:** codex, during `tkv2-webauthn` spec/implementation prep.
 - **Repro:** compare `v1/runtime/std/auth.ssc` declarations with the existing
@@ -17820,6 +19933,9 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
   conformance call shapes agree; fixed SHA and gates are recorded here.
 
 ## v2-case-class-instance-methods-stub — `fixed` (2026-07-08)
+<!-- status: unknown
+     lane: js
+     area: front -->
 
 - **Found by:** codex, during `p3-connectnode-node-sim` verification.
 - **Repro:** after `scripts/sbtc "installBin"`, run a `.ssc` program that
@@ -17862,6 +19978,9 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
   `data-types,lenses,optional,traversal,fn-typed-field` passed 4/4.
 
 ## v2-mapreduce-handler-registry-tuple-lookup — `fixed` (2026-07-08)
+<!-- status: unknown
+     lane: js
+     area: runtime -->
 
 - **Found by:** codex, during `p3-connectnode-node-sim` implementation after
   adding the local loopback map-reduce worker helper.
@@ -17911,6 +20030,9 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
   passed 6/6.
 
 ## v2-vm-effect-handlers-return-raw-op — `fixed` (2026-07-08)
+<!-- status: unknown
+     lane: native
+     area: runtime -->
 
 - **Found by:** codex, during `p4-rust-wasm-lanes` full
   `./v2/conformance/check.sh` after list/float expectation realignment.
@@ -17944,6 +20066,9 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
   composition` pass; full `./v2/conformance/check.sh` is green.
 
 ## v2-ssc0-target-display-drift — `fixed` (2026-07-08)
+<!-- status: unknown
+     lane: js
+     area: codegen -->
 
 - **Found by:** codex, during `p4-rust-wasm-lanes` baseline.
 - **Repro:** from a fresh worktree with Rust and Node available, run
@@ -17979,6 +20104,9 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
   top-level cases, so Rust/WASM coverage is the v2 gate.
 
 ## v2-ssc0-rust-float-literal-emits-int — `fixed` (2026-07-08)
+<!-- status: unknown
+     lane: apparatus
+     area: codegen -->
 
 - **Found by:** codex, during `p4-rust-wasm-lanes` baseline.
 - **Repro:** run `./v2/conformance/check.sh` and inspect the diagnostics log.
@@ -18007,6 +20135,9 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
   green.
 
 ## v2-run-cli-argv-not-forwarded — `fixed` (2026-07-08)
+<!-- status: unknown
+     lane: native
+     area: codegen -->
 
 - **Found by:** codex, during `p4-js-lane-bridge` direct argv smoke.
 - **Repro:** after `scripts/sbtc "installBin"`, run a temp `.ssc`:
@@ -18038,6 +20169,9 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
   assembled-CLI smoke `*V2RunArgvCliTest *V2JsLaneCliTest`.
 
 ## root-test-cli-spark-submit-dry-run-deps — `fixed` (2026-07-08)
+<!-- status: unknown
+     lane: apparatus
+     area: front -->
 
 - **Found by:** codex, during `green-main-full-sbt-test-gating` focused
   `scripts/sbtc "cli/test"` after the Electron fork-exit blocker was fixed.
@@ -18065,6 +20199,9 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
   bounded root `scripts/sbtc "test"` (elapsed 1668s, success).
 
 ## root-test-cli-toolkit-electron-duplicate-seqmap — `fixed` (2026-07-08)
+<!-- status: unknown
+     lane: apparatus
+     area: codegen -->
 
 - **Found by:** codex, during `green-main-full-sbt-test-gating` focused
   `scripts/sbtc "cli/test"` after the Electron fork-exit blocker was fixed.
@@ -18096,6 +20233,9 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
   bounded root `scripts/sbtc "test"` (elapsed 1668s, success).
 
 ## root-test-cli-fork-exit-after-green — `fixed` (2026-07-08)
+<!-- status: unknown
+     lane: apparatus
+     area: codegen -->
 
 - **Found by:** codex, during `green-main-full-sbt-test-gating` root
   `scripts/sbtc "test"` after bounded sbt Test concurrency was added.
@@ -18128,6 +20268,9 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
   bounded root `scripts/sbtc "test"` (elapsed 1668s, success).
 
 ## root-test-js-rowpost-runtime-contract — `fixed` (2026-07-08)
+<!-- status: unknown
+     lane: js
+     area: codegen -->
 
 - **Found by:** codex, during `green-main-full-sbt-test-gating` root
   `scripts/sbtc "test"` after bounded sbt Test concurrency was added.
@@ -18159,6 +20302,9 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
   success).
 
 ## root-test-sbt-aggregate-heap-oom — `fixed` (2026-07-08)
+<!-- status: unknown
+     lane: js
+     area: conformance -->
 
 - **Found by:** codex, during `green-main-full-sbt-test-gating` root retest
   after v2 `V2ConformanceTest` was green and pushed through `ab37c7d0b`.
@@ -18195,6 +20341,10 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
   `[success] elapsed: 1668 s (0:27:48.0)`.
 
 ## v2-busi-testsweep-gaps batch — `fixed` (2026-07-08)
+<!-- status: unknown
+     lane: native
+     area: runtime
+     gate: tests/conformance/var-topdef-shared.ssc -->
 
 Seven root causes closed working busi tests/v2 47/61 → 61/61 on --v2 (v1 = 61/61
 same launcher; every fail was a real engine gap). One entry per cause:
@@ -18247,6 +20397,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
   fall back to the registered ContentImportedModules documents. Killed
   content_toolkit.
 ## root-test-v2-conformance-toolkit-regressions — `fixed` (2026-07-08)
+<!-- status: unknown
+     lane: native
+     area: runtime -->
 
 - **Found by:** codex, during `green-main-full-sbt-test-gating` full root
   `scripts/sbtc "test"` after the sealed-extension and cluster blockers were fixed.
@@ -18310,6 +20463,10 @@ same launcher; every fail was a real engine gap). One entry per cause:
   in this `V2ConformanceTest` root entry.
 
 ## root-test-stable-spi-os-plugin-import — `fixed` (2026-07-08)
+<!-- status: unknown
+     lane: int
+     area: runtime
+     gate: tests/conformance/run.sh -->
 
 - **Found by:** codex, during the same full root `scripts/sbtc "test"` gate.
 - **Repro observed in root gate:** `StableSpiEnforcementTest` failed
@@ -18330,6 +20487,10 @@ same launcher; every fail was a real engine gap). One entry per cause:
   1/1 green.
 
 ## root-test-verify-default-srcdir-parent-scan — `fixed` (2026-07-08)
+<!-- status: unknown
+     lane: apparatus
+     area: runtime
+     gate: tests/conformance/run.sh -->
 
 - **Found by:** codex, during the same full root `scripts/sbtc "test"` gate.
 - **Repro observed in root gate:** `VerifyCliTest` cases such as
@@ -18353,6 +20514,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
   green.
 
 ## v2-actors-sendafter-cli-default-noop — `fixed` (2026-07-08)
+<!-- status: unknown
+     lane: native
+     area: runtime -->
 
 - **Found by:** codex, while fixing `root-test-cluster-cli-runtime-readiness`.
 - **Repro:** after `scripts/sbtc "cli/assembly"`, run a fat-jar script containing
@@ -18385,6 +20549,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
   assembled `v1/tools/cli/.../ssc.jar`).
 
 ## root-test-cluster-cli-runtime-readiness — `fixed` (2026-07-08)
+<!-- status: unknown
+     lane: js
+     area: codegen -->
 
 - **Found by:** codex, during `green-main-full-sbt-test-gating` root
   `scripts/sbtc "test"` after the bytecode split-runtime and Scala.js npm
@@ -18424,6 +20591,11 @@ same launcher; every fail was a real engine gap). One entry per cause:
   0 failed**).
 
 ## root-test-command-registry-other-category — `fixed` (2026-07-08)
+<!-- status: fixed
+     lane: apparatus
+     area: codegen
+     fixed-in: 631ed8052
+     gate: tests/conformance/run.sh -->
 
 - **Found by:** codex, during `green-main-full-sbt-test-gating` root
   `scripts/sbtc "test"` after the bytecode split-runtime and Scala.js npm
@@ -18449,6 +20621,10 @@ same launcher; every fail was a real engine gap). One entry per cause:
   --no-memo` (**1/1 green**).
 
 ## root-test-sealed-extension-option-dispatch — `fixed` (2026-07-08)
+<!-- status: fixed
+     lane: int
+     area: codegen
+     fixed-in: 1e503de04 -->
 
 - **Found by:** codex, during `green-main-full-sbt-test-gating` root
   `scripts/sbtc "test"` after the bytecode split-runtime and Scala.js npm
@@ -18479,6 +20655,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
   --no-memo` (**5/5 green** on INT/JS/JVM).
 
 ## v2-args-global-shadowed-by-native — `fixed` (2026-07-08)
+<!-- status: unknown
+     lane: apparatus
+     area: runtime -->
 
 - **Found by:** claude-fable-5, unmasked while testing OpAnf (entry below): the
   If-cond Let-wrap re-routed `if args.length > 0` from the length FastCode (whose
@@ -18499,6 +20678,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
   generic dispatch; dataset-word-count PASSES honestly (not via `0L` tolerance).
 
 ## v2-op-arg-lifting — `fixed` (2026-07-08)
+<!-- status: unknown
+     lane: native
+     area: runtime -->
 
 - **Found by:** claude-fable-5, working busi's ledger repro past the append/2 fix.
 - **Symptom:** a strict call (user fn OR native) with an unresolved effect `Op` as an
@@ -18545,6 +20727,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
   conformance 123/123.
 
 ## v1-jvm-state-threaded-handler-codegen — `fixed` (2026-07-12, opus)
+<!-- status: unknown
+     lane: jvm
+     area: codegen -->
 
 - **Root cause (refined 2026-07-12, opus) — THREE layers, all Any-typing of the
   deep-handler in JVM codegen:**
@@ -18575,6 +20760,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
   idiom on the JVM lane (that's why it was never seen).
 
 ## v2-effect-multiarg-op — `fixed` (2026-07-08)
+<!-- status: unknown
+     lane: native
+     area: runtime -->
 
 - **Found by:** busi agent (rozum `scalascript` room, 2026-07-08 seq31), while bumping
   busi to scalascript pin `0a6358787` with `v2-prod-default-switch` active.
@@ -18602,6 +20790,11 @@ same launcher; every fail was a real engine gap). One entry per cause:
   v2-op-arg-lifting for ledger.ssc at least).
 
 ## conformance-int-std-semigroup-monoid — `fixed` (2026-07-08)
+<!-- status: fixed
+     lane: int
+     area: cli
+     fixed-in: e571fd3ae
+     gate: tests/conformance/run.sh -->
 
 - **Found by:** codex, during full `green-main-conformance-gating` after the
   `.scjvm` cache invalidation fix.
@@ -18627,6 +20820,11 @@ same launcher; every fail was a real engine gap). One entry per cause:
   (**1/1 green** across INT/JS/JVM).
 
 ## jvm-scjvm-cache-codegen-version — `fixed` (2026-07-08)
+<!-- status: fixed
+     lane: jvm
+     area: codegen
+     fixed-in: 322ee868f
+     gate: tests/conformance/.ssc-artifacts/std-ui-extended.scjvm -->
 
 - **Found by:** codex, while fixing `conformance-jvm-std-ui-generated-braces`.
 - **Repro:** keep a stale generated artifact such as
@@ -18653,6 +20851,11 @@ same launcher; every fail was a real engine gap). One entry per cause:
   (**5/5 green**).
 
 ## conformance-int-variables-while-update — `fixed` (2026-07-08)
+<!-- status: fixed
+     lane: jvm
+     area: cli
+     fixed-in: 4e67a2f41
+     gate: tests/conformance/run.sh -->
 
 - **Found by:** codex, during full `green-main-conformance-gating`.
 - **Repro:** after `scripts/sbtc "installBin"`,
@@ -18672,6 +20875,11 @@ same launcher; every fail was a real engine gap). One entry per cause:
   `tests/conformance/run.sh --only 'variables' --no-memo` (**1/1 green**).
 
 ## conformance-jvm-std-ui-generated-braces — `fixed` (2026-07-08)
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: 9bd6cb87d
+     gate: tests/conformance/std-ui-extended.ssc -->
 
 - **Found by:** codex, during full `green-main-conformance-gating`.
 - **Repro:** after `scripts/sbtc "installBin"`,
@@ -18695,6 +20903,11 @@ same launcher; every fail was a real engine gap). One entry per cause:
   (**5/5 green**).
 
 ## conformance-std-typeclass-int-jvm-gaps — `fixed` (2026-07-08)
+<!-- status: fixed
+     lane: jvm
+     area: codegen
+     fixed-in: f92d147b0
+     gate: tests/conformance/std-index.ssc -->
 
 - **Found by:** codex, during full `green-main-conformance-gating`.
 - **Repro:** after `scripts/sbtc "installBin"`, run either
@@ -18723,6 +20936,11 @@ same launcher; every fail was a real engine gap). One entry per cause:
   (**6/6 green**).
 
 ## conformance-int-sql-block-scope — `fixed` (2026-07-08)
+<!-- status: fixed
+     lane: int
+     area: front
+     fixed-in: c31389b25
+     gate: tests/conformance/sql-basic.ssc -->
 
 - **Found by:** codex, during full `green-main-conformance-gating`.
 - **Repro:** after `scripts/sbtc "installBin"`,
@@ -18745,6 +20963,11 @@ same launcher; every fail was a real engine gap). One entry per cause:
   (**2/2 green**).
 
 ## conformance-js-product-show-synthetic-tag — `fixed` (2026-07-08)
+<!-- status: fixed
+     lane: native
+     area: runtime
+     fixed-in: 4e8cbb635
+     gate: tests/conformance/prisms.ssc -->
 
 - **Found by:** codex, during full `green-main-conformance-gating`.
 - **Repro:** after `scripts/sbtc "installBin"`,
@@ -18764,6 +20987,11 @@ same launcher; every fail was a real engine gap). One entry per cause:
   (**4/4 green**).
 
 ## conformance-js-json-stringify-missing-global — `fixed` (2026-07-08)
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: 718d04027
+     gate: tests/conformance/json-read.ssc -->
 
 - **Found by:** codex, during full `green-main-conformance-gating`.
 - **Repro:** after `scripts/sbtc "installBin"`,
@@ -18779,6 +21007,10 @@ same launcher; every fail was a real engine gap). One entry per cause:
   `tests/conformance/run.sh --only 'json-read' --no-memo` (**1/1 green**).
 
 ## conformance-jvm-cps-local-unit-effect-cast — `fixed` (2026-07-08)
+<!-- status: unknown
+     lane: js
+     area: codegen
+     gate: tests/conformance/run.sh -->
 
 - **Found by:** codex, while refreshing `green-main-conformance-gating`.
 - **Repro:** after `scripts/sbtc "installBin"`,
@@ -18800,6 +21032,10 @@ same launcher; every fail was a real engine gap). One entry per cause:
   passes 6/6.
 
 ## conformance-jvm-cps-any-typing-and-effect-args — `fixed` (2026-07-08)
+<!-- status: unknown
+     lane: js
+     area: codegen
+     gate: tests/conformance/run.sh -->
 
 - **Found by:** codex, while refreshing `green-main-conformance-gating`.
 - **Repro:** after `scripts/sbtc "installBin"`,
@@ -18826,6 +21062,10 @@ same launcher; every fail was a real engine gap). One entry per cause:
   pass.
 
 ## conformance-effects-choose-one-shot — `fixed` (2026-07-08)
+<!-- status: unknown
+     lane: int
+     area: runtime
+     gate: tests/conformance/effects.ssc -->
 
 - **Found by:** codex, while refreshing `green-main-conformance-gating`.
 - **Repro:** after `scripts/sbtc "installBin"`,
@@ -18844,6 +21084,10 @@ same launcher; every fail was a real engine gap). One entry per cause:
   `scripts/conformance -- --only 'effects' --no-memo` passes INT/JS/JVM.
 
 ## conformance-actors-exit-os-shadow — `fixed` (2026-07-08)
+<!-- status: unknown
+     lane: int
+     area: runtime
+     gate: tests/conformance/actors-supervision.ssc -->
 
 - **Found by:** codex, while refreshing `green-main-conformance-gating`.
 - **Repro:** after `scripts/sbtc "installBin"`,
@@ -18866,6 +21110,10 @@ same launcher; every fail was a real engine gap). One entry per cause:
   `scripts/conformance -- --only 'actors-supervision' --no-memo` passes INT/JS/JVM.
 
 ## conformance-http-client-external-httpbin — `fixed` (2026-07-08)
+<!-- status: unknown
+     lane: js
+     area: front
+     gate: tests/conformance/http-client.ssc -->
 
 - **Found by:** codex, while refreshing `green-main-conformance-gating`.
 - **Repro:** after `scripts/sbtc "installBin"`,
@@ -18881,6 +21129,10 @@ same launcher; every fail was a real engine gap). One entry per cause:
   `PENDING` and exits green without hanging.
 
 ## conformance-parsing-int-empty-output — `fixed` (2026-07-08)
+<!-- status: unknown
+     lane: js
+     area: front
+     gate: tests/conformance/run.sc -->
 
 - **Found by:** codex, while running a neighbor conformance slice for
   `v2-prod-js-dsl-conformance`.
@@ -18911,6 +21163,10 @@ same launcher; every fail was a real engine gap). One entry per cause:
   files.
 
 ## conformance-dsl-multi-pass-js — `fixed` (2026-07-08)
+<!-- status: unknown
+     lane: jvm
+     area: front
+     gate: tests/conformance/run.sc -->
 
 - **Found by:** codex, while verifying the docs-only `v2-prod-corpus-scope` slice.
 - **Repro:**
@@ -18940,6 +21196,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
   INT-only failures are tracked separately as `conformance-parsing-int-empty-output`.
 
 ## v2-rozum-schema-streaming-parity — `fixed` (2026-07-08)
+<!-- status: unknown
+     lane: int
+     area: runtime -->
 
 - **Found by:** codex, during the v2 production parity loop after
   `v2-quoted-macro-interpreter-parity` was fixed.
@@ -18978,6 +21237,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
   0 v2-error · 16 v1-only**.
 
 ## v2-quoted-macro-interpreter-parity — `fixed` (2026-07-08)
+<!-- status: unknown
+     lane: int
+     area: front -->
 
 - **Found by:** codex, during the v2 production parity sweep after content-toolkit
   section parity was fixed.
@@ -19014,6 +21276,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
   **58/81 identical · 7 mismatch · 0 v2-error · 16 v1-only**.
 
 ## v2-content-toolkit-section-parity — `fixed` (2026-07-08)
+<!-- status: unknown
+     lane: js
+     area: front -->
 
 - **Found by:** codex, during `v2-prod-post-p3-baseline` full-corpus production
   parity verification.
@@ -19046,6 +21311,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
   **0 v2-error** and now measures **57/81 identical · 8 mismatch · 16 v1-only**.
 
 ## v2-invoice-email-nondet — `fixed` (2026-07-08)
+<!-- status: unknown
+     lane: native
+     area: cli -->
 
 - **Found by:** codex, during `v2-prod-plugin-boundary` full-corpus production parity
   verification.
@@ -19071,6 +21339,10 @@ same launcher; every fail was a real engine gap). One entry per cause:
   conformance case to run.
 
 ## v2-list-unlist-stack-overflow — `fixed` (2026-07-08)
+<!-- status: unknown
+     lane: native
+     area: runtime
+     gate: tests/conformance/run.sc -->
 
 - **Found by:** codex, during `v2-prod-plugin-boundary` production parity work.
 - **Symptom:** `examples/dataset-parallel-sum.ssc` was the only remaining full-parity
@@ -19090,6 +21362,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
   has **0 v2-error**; full corpus has **0 v2-error**.
 
 ## v2-content-document-context — `fixed` (2026-07-08)
+<!-- status: unknown
+     lane: js
+     area: front -->
 
 - **Found by:** codex, during the `v2-production-readiness` output-parity baseline.
 - **Symptom:** `ssc run --v2` produced non-v1 output for structured Markdown content
@@ -19116,6 +21391,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
   10 mismatch · 1 v2-error · 23 v1-only**.
 
 ## plugin-lazyload-extern-imports — `fixed` (2026-07-07)
+<!-- status: unknown
+     lane: int
+     area: front -->
 
 - **Found by:** claude (tkv2-pwa-adopt slice) — the stock `examples/pwa/pwa-demo.ssc`
   fails on clean origin/main.
@@ -19142,6 +21420,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
   `PwaPluginTest` covers the generators.
 
 ## bytecode-shared-runtime-routes-unbound — `fixed` (2026-07-07)
+<!-- status: unknown
+     lane: jvm
+     area: codegen -->
 
 - **Found by:** claude (green-main takeover), unmasked by fixing EmitScalaFacadeCliTest's missing
   `-Dssc.lib.path` (the CompilerLoader env error hid it).
@@ -19166,6 +21447,10 @@ same launcher; every fail was a real engine gap). One entry per cause:
   `tests/conformance/run.sh --only 'std-semigroup-monoid' --no-memo`.
 
 ## scalajs-jsenv-run-terminated — `fixed` (2026-07-07)
+<!-- status: unknown
+     lane: js
+     area: conformance
+     gate: tests/conformance/run.sh -->
 
 - **Found by:** claude (green-main takeover), root `sbt test` + serial retest.
 - **Symptom:** Scala.js test modules (walletVaultEncryptedJs, walletStrategyErc4337Js,
@@ -19187,6 +21472,10 @@ same launcher; every fail was a real engine gap). One entry per cause:
   `payments/crypto/noble-js/node_modules` previously failed before the fix.
 
 ## scjvm-artifact-cache-ignores-compiler-version — `fixed` (2026-07-07)
+<!-- status: fixed
+     lane: jvm
+     area: codegen
+     fixed-in: 322ee868f -->
 
 - **Found by:** claude (green-main takeover), while fixing jvmgen-block-call-empty-parens: after
   rebuilding `bin/ssc` with a codegen fix, `ssc run-jvm` kept producing byte-identical BROKEN output.
@@ -19207,6 +21496,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
   cache-invalidation fix.
 
 ## jvmgen-block-call-empty-parens — `fixed` (2026-07-07)
+<!-- status: unknown
+     lane: jvm
+     area: front -->
 
 - **Fixed by:** claude (green-main takeover), SHA: see `fix(jvm): conformance JVM-lane...` on main.
   Peeling the symptom exposed THREE stacked root causes; all four tests now PASS
@@ -19254,6 +21546,10 @@ same launcher; every fail was a real engine gap). One entry per cause:
   in any corpus run executed from the main checkout.
 
 ## jsgen-signal-type-import-vs-preamble — `fixed` (2026-07-07)
+<!-- status: unknown
+     lane: js
+     area: codegen
+     gate: tests/conformance/tkv2-component.ssc -->
 
 - **Found by:** claude (tkv2-components slice) — first .ssc module importing the opaque
   `Signal` TYPE from `std/ui/primitives.ssc` and emitting to JS.
@@ -19269,6 +21565,10 @@ same launcher; every fail was a real engine gap). One entry per cause:
   `std/ui/component.ssc`, INT==JS).
 
 ## jsgen-reserved-param-body-rename — `fixed` (2026-07-07)
+<!-- status: unknown
+     lane: js
+     area: codegen
+     gate: tests/conformance/tkv2-component.ssc -->
 
 - **Found by:** claude (tkv2-components slice) — `std/ui/component.ssc`'s
   `ctxSignal(ctx, name, default)` parameter named `default`.
@@ -19284,6 +21584,10 @@ same launcher; every fail was a real engine gap). One entry per cause:
   param, INT==JS).
 
 ## green-main-full-sbt-test-gating — `fixed` (2026-07-07)
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: cea0c3aed -->
 
 - **Found by:** codex, while verifying the `plugin-cli-oslib-shadow` fix.
 - **Symptom:** after the `PluginCliTest` compile blocker is fixed, the root
@@ -19343,6 +21647,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
   (`[success] elapsed: 1668 s (0:27:48.0)`).
 
 ## plugin-cli-oslib-shadow — `fixed` (2026-07-07)
+<!-- status: unknown
+     lane: native
+     area: cli -->
 
 - **Found by:** codex, while stabilizing the red `origin/main` CI run
   `28832706348`.
@@ -19364,6 +21671,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
   (8/8).
 
 ## v2-cellset-flc-corruption — `fixed` (2026-07-05)
+<!-- status: unknown
+     lane: native
+     area: runtime -->
 
 - **Found by:** claude (v2-recursion-opt slice), via `map-ops` regressing to
   `SKIP(no-main)` in the v2 bench sweep.
@@ -19385,6 +21695,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
   program had engaged the corrupt path.
 
 ## v2-conformance-empty-output-flake — `fixed` (2026-07-01)
+<!-- status: unknown
+     lane: native
+     area: conformance -->
 
 - **Found by:** codex, while continuing K49 after the K48 multi-op typed handler work.
 - **Symptom:** `cd v2 && ./conformance/check.sh` can report a contiguous block of unrelated
@@ -19406,6 +21719,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
   KC7, a final full run with the KC7 tests also passed (`final exit=0`).
 
 ## js-spa-hashchange-bridge-sync — `fixed` (2026-06-29)
+<!-- status: unknown
+     lane: js
+     area: codegen -->
 
 - **Reported by:** Sergiy, from the rozum Unified Control Center (`clients/control/control-center-live.ssc`).
 - **Symptom:** clicking a hash-route navigation control changed `location.hash`, but the visible SPA route did
@@ -19425,6 +21741,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
   branches toggle. Also re-ran `SpaComputedBodyBridgeTest` to cover the adjacent computed-to-bridge path.
 
 ## v2-conformance-echo-backticks — `fixed` (2026-06-29)
+<!-- status: unknown
+     lane: native
+     area: front -->
 
 - **Found by:** codex, while running full `v2/conformance/check.sh` for K46 async/actor breadth.
 - **Symptom:** the conformance assertions were green, but the harness printed shell noise such as
@@ -19439,6 +21758,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
   with captured stdout/stderr checked for `FAIL` and `command not found` (none present).
 
 ## parser-trysplitparse-quadratic-hang — `fixed` (2026-06-28)
+<!-- status: unknown
+     lane: multi
+     area: front -->
 
 - **Found by:** busi (phone-demo hub). A `/api/issue` route used `given` as a local val name: `val given = req.form.getOrElse("number", ""); val number = if given.length > 0 then given else …`. Loading the ~3500-line `demo_server.ssc` pegged one core at ~100% CPU and never bound (>90s); the *same* code in a tiny file instead fast-failed with `illegal start of definition`. (busi originally mis-attributed this to the `if <param> then <param> else …` shape and to a `View[Int]` — both red herrings; the trigger is purely the identifier name.)
 - **Root cause:** `given` is a Scala-3 soft keyword, so scalameta rejects it as an identifier → in `Parser.parseScalaWithDiagnostic` BOTH the Source-mode parse and the `{…}` Term-mode parse fail → the `trySplitParse` fallback runs. That fallback tried EVERY split point (`lines.length - 1 to 1 by -1`), each re-parsing an O(N)-line `prefix` as `Source` plus a `suffix` as `Term`. For a large block that is O(N) parses over O(N)-line prefixes = **O(N²)** total. Confirmed size-driven, not single-parse-exponential: a 1010-line block ≈ 6s, a ~3500-line block ≈ 90s; a `jstack` mid-hang showed `main` in `Parser$.trySplitParse$…` → `…prefix.parse[Source]` → scalameta `argumentExprsInParens` recursion.
@@ -19448,6 +21770,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
 - **Note:** verified against this branch's base (`origin/main` @ ce0554245) — `trySplitParse` is byte-identical to the commit busi pins (72d0196f3), where it was first reproduced + the fix built/tested. busi keeps its own workaround (no `given` val, `getOrElse` auto-number) so it is unaffected; this lands the parser-robustness fix for everyone.
 
 ## jsgen-emitjs-capability-standalone — `fixed` (2026-06-22)
+<!-- status: unknown
+     lane: js
+     area: front -->
 
 - **Found by:** busi (deep-offline browser/Node bundle) — the standalone-bundle frontier after `jsgen-emitjs-effect-handler`: `inbox`/`ksef`/`repo*` (clock) and the crypto path failed under raw `ssc emit-js | node`, while the JIT path (`SSC_JIT_BACKEND=js`) was green.
 - **Symptom (two distinct bugs):**
@@ -19460,6 +21785,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
 - **Still open (separate):** `auth.ssc` standalone needs Node WebAuthn impls (`webauthnChallenge`/`webauthnVerify*` are identity-`RuntimeCall` host externs with no `_webauthn*` preamble). `jsgen-toplevel-name-vs-preamble` (#5, general preamble-shadow) also still open.
 
 ## rust-index-read-moves-noncopy — `fixed` (2026-06-22)
+<!-- status: unknown
+     lane: multi
+     area: codegen -->
 
 - **Found by:** mellow-shrew (self), via an end-to-end `cargo run` smoke against the just-landed rust-web-toolkit follow-ons (`origin/main` @ d0141a1d4). The `backendRust` unit suite is string-match only (no `cargo` compile), so it missed a generated-Rust move error.
 - **Symptom:** an index *read* on a non-Copy element sequence panicked the Rust compiler, not the program — `error[E0507]: cannot move out of index of Vec<String>`. Minimal repro:
@@ -19475,6 +21803,10 @@ same launcher; every fail was a real engine gap). One entry per cause:
 - **Follow-up (filed in BACKLOG):** the rust backend has no `cargo`-compile coverage in its unit suite — this whole bug class (move/borrow errors in valid-looking generated Rust) is invisible to string-match tests.
 
 ## jsgen-emitjs-effect-handler — `fixed` (2026-06-22)
+<!-- status: unknown
+     lane: js
+     area: codegen
+     gate: tests/conformance/effect-import -->
 
 - **Found by:** busi (deep-offline browser bundle) — blocker #3 of 5 in `src/v2/specs/lf-1-browser-bundle.md`. Only the raw `emit-js` standalone path was affected; the JIT path (`SSC_JIT_BACKEND=js`) was always green.
 - **Symptom:** raw `emit-js` of code using an effect + deep handler (an effectful `query` that folds over `Eff.read`, run inside a `handle`) failed at runtime — `TypeError: arr.reduce is not a function`, or `Unhandled effect: …`.
@@ -19490,6 +21822,10 @@ same launcher; every fail was a real engine gap). One entry per cause:
 - **New frontier exposed (next):** `ksef.ssc`/`inbox.ssc`/`repo*` now reach runtime and hit `ReferenceError: nowMillis is not defined` / `not callable: ()` — the `nowMillis` clock capability (`JsCapabilities`: `QualifiedName("nowMillis") -> RuntimeCall("Date.now")`) is wired on the JIT path but not emitted into the raw `emit-js` preamble; `auth.ssc` hits a similar crypto-capability gap. **This overlaps the active `core-min-clock-env-migrate` (Clock/Env→plugin) work and is left for that stream / a follow-up.** Standalone emit-js+node sweep: **85/113 conformance + 13/21 busi v2 domain files** pass; the rest are clock/crypto capability gaps + infra (actors/cluster/distributed/sql).
 
 ## jsgen-toplevel-name-vs-preamble — `fixed` (2026-06-22)
+<!-- status: unknown
+     lane: js
+     area: front
+     gate: tests/conformance/mcp-types.ssc -->
 
 - **Found by:** busi (deep-offline browser bundle) — blocker #5 of 5 in `src/v2/specs/lf-1-browser-bundle.md`.
 - **Symptom:** a top-level user binding named exactly like a preamble helper (e.g. `val scope = …` vs the runtime's user-facing `function scope(scopeName)` for CSS scoping, SPEC §8.4) emits a colliding top-level `const scope = …` → `SyntaxError: Identifier 'scope' has already been declared` under `node --check`. Other preamble names (`doc`, `escape`, `assert`, `List`, `Decimal`, …) can collide the same way.
@@ -19526,6 +21862,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
   intentionally skipped by fixture frontmatter).
 
 ## jsgen-fn-typed-field-autoinvoke — `fixed` (2026-06-22)
+<!-- status: unknown
+     lane: js
+     area: codegen -->
 
 - **Found by:** busi (deep-offline browser bundle) — facet of blocker #4 of 5 in `src/v2/specs/lf-1-browser-bundle.md` ("a generic `View.step` fold reaches syntax-valid JS but the `step` field is not callable").
 - **Symptom:** a case-class field whose value is a function (e.g. `View.step: (S, Int) => S`), passed as a *value* to a HOF (`xs.foldLeft(v.init)(v.step)`), threw `TypeError: fn is not a function` on the JS backend. A direct call `v.step(1, 2)` worked; only the eta/value position failed. interp + JVM were correct.
@@ -19535,6 +21874,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
 - **Guard:** `tests/conformance/fn-typed-field.ssc` (variadic field as value) + `tests/conformance/json-value.ssc` (genuine zero-arg method auto-invoke), INT==JS==JVM. busi `make v2-test-js` + `CrossBackendPropertyTest`/`MoneyCrossBackendTest`/`CustomDerivesMirrorCrossBackendTest` green; `tests/v2/qr.ssc` now runs as a raw `emit-js` standalone bundle.
 
 ## jsgen-dup-enum-global — `fixed` (2026-06-22)
+<!-- status: unknown
+     lane: js
+     area: codegen -->
 
 - **Found by:** busi (deep-offline browser bundle) — blocker #2 of 5 in `src/v2/specs/lf-1-browser-bundle.md` ("emit-js / emit-spa for tests/v2/local_journal.ssc fails syntax checks with duplicate global `Pending` declarations from ObligationStatus.Pending and DeferredActionStatus.Pending").
 - **Symptom:** two enums (in the same file or different modules) that share a *parameterless* case name each emitted a top-level global `const <Case> = {_type:'<Case>', _tag:N}`; child generators share the global scope, so the bundle had a duplicate `const` and Node rejected it: `SyntaxError: Identifier 'Pending' has already been declared`. `SSC_JIT_BACKEND=js` was fine; only raw `emit-js`/`emit-spa` failed (`node --check`).
@@ -19543,6 +21885,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
 - **Guard:** `tests/conformance/enum-shared-casename.ssc` (+expected) — two enums with a shared `Pending` case; within-enum equality + `.values.size` identical on INT/JS/JVM (cross-enum equality is intentionally NOT asserted: after dedup the JS objects are shared, which never matters in well-typed code). `EnumCrossBackendTest` 3/3; busi `tests/v2/local_journal.ssc` emit-js now passes `node --check`.
 
 ## jvm-multishot-result-type — `fixed` (2026-06-21, `39b7c665f`)
+<!-- status: unknown
+     lane: apparatus
+     area: codegen -->
 
 - **Found by:** benchmark perf-divergence sweep (`./bench.sh`), accepted from `SPRINT.md`.
 - **SHA at filing:** `0ee00a29f` (`feature/jvm-multishot-result-type` worktree, after
@@ -19569,6 +21914,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
   (was `n/a`); `./bench.sh effect-oneshot --backend jvm` = 0.160 ms/iter (same root cause).
 
 ## asm-jit-effect-pathology — `fixed` (2026-06-21, `0d5e03b87`)
+<!-- status: unknown
+     lane: int
+     area: codegen -->
 
 - **Found by:** benchmark perf-divergence sweep (`./bench.sh`), accepted from `SPRINT.md`.
 - **Symptom:** the synthetic `ssc-asm` backend (`SSC_JIT_BACKEND=asm`) is orders of magnitude slower than
@@ -19589,6 +21937,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
   = 0.032 ms/iter (was 9.46 ms/iter in the accepted repro).
 
 ## rust-foreach-list-realloc — `fixed` (2026-06-21, `abbc98eee`)
+<!-- status: unknown
+     lane: apparatus
+     area: codegen -->
 
 - **Found by:** benchmark perf-divergence sweep (`./bench.sh`), accepted from `SPRINT.md`.
 - **Symptom:** Rust codegen re-inlines a top-level collection `val` at each use site instead of referencing
@@ -19608,6 +21959,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
   improved `list-fold` 0.153→0.044 ms and `pattern-match-heavy` 4.16→1.37 ms.
 
 ## effect-op-trailing-comment — `fixed` (2026-06-20)
+<!-- status: unknown
+     lane: js
+     area: front -->
 
 - **Found by:** busi (building the v2 KSeF inbound port `effect Ksef`).
 - **Symptom:** a trailing `//` line-comment on an effect operation's declaration silently broke the
@@ -19623,6 +21977,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
   existing effect/parser tests green; real-harness repro now returns the handler's value, not a throw.
 
 ## jsgen-module-section-scope — `fixed` (2026-06-22)
+<!-- status: unknown
+     lane: js
+     area: codegen -->
 
 - **Found by:** busi (deep-offline browser bundle) — the #1 raw `emit-js` full-bundle blocker codex recorded in `src/v2/specs/lf-1-browser-bundle.md` ("importing `std/money.ssc` fails at runtime with `Currency` not initialized before `defaultCurrencies`").
 - **Symptom:** any program that `emit-js`'d a markdown module split across sections (e.g. `std/money`, whose `Currency`/`Money` constructors are under one heading and `defaultCurrencies`/`currencyOf` under another) threw on Node — `ReferenceError: Currency is not defined`, or (when reached via the import binding) `not callable: ()`. `SSC_JIT_BACKEND=js` (the JIT path) was fine; only raw `emit-js`/`run-js` failed.
@@ -19631,42 +21988,63 @@ same launcher; every fail was a real engine gap). One entry per cause:
 - **Guard:** `tests/conformance/money-multisection.ssc` (+ `expected/money-multisection.txt`) — imports `std/money`, calls `currencyOf` (which reaches `Currency` via `defaultCurrencies` and via its `getOrElse` fallback); runs identically on INT/JS/JVM. `MoneyCrossBackendTest` "money.ssc — JS output matches the interpreter" + busi `make v2-test-js` (full v2 core on JS) stay green.
 
 ## collection-ctor-aliases — `fixed` (2026-06-15)
+<!-- status: unknown
+     lane: js
+     area: codegen -->
 
 - **Found by:** a collections survey (prompted by a "do we only have List/Map?" question).
 - **Symptom:** despite the user guide listing `Seq`/`List`/`Vector`/`Set`/`Array`/`Map`, the interpreter only had `List`/`Map`/`Set` companions — `Seq(1,2,3)`, `Vector(...)`, `Array(...)`, `IndexedSeq(...)` all threw `Undefined: Seq` (etc.); `.toVector`/`.toSeq`/`.toIndexedSeq` and `Map.toSeq` were also missing. (JVM, real Scala, was fine.)
 - **FIXED (2026-06-15):** the interpreter backs every sequence type with a single `ListV` (JS with arrays), so `Seq`/`Vector`/`Array`/`IndexedSeq`/`Iterable`/`LazyList` companions now alias `List`'s (`BuiltinsRuntime`), JsGen emits those constructors as arrays, and `toList`/`toSeq`/`toVector`/`toIndexedSeq`/`toArray`/`toIterable` are identity conversions on List + Map (interp `dispatchList`/`dispatchMap`, JS array/Map `_dispatch`). On the **JVM backend** each stays its REAL Scala type (raw emit — `Vector(1,2,3)` → a real `Vector`, etc.); a guard asserts JvmGen preserves the companion call so a future change can't silently collapse them to List. Guard: `CrossBackendPropertyTest` "Seq/Vector/Array constructors + conversions cross-backend" (9 shapes incl. LazyList, interp == JS == JVM). Caveat: off-JVM these are NOT distinct runtime types (Vector/Array = List/array, `LazyList` is eager — an infinite LazyList won't work off-JVM). Available collections: List, Map, Set, Seq, Vector, Array, IndexedSeq, Iterable, LazyList, plus Option, Either, Tuple, Range.
 
 ## jsgen-enum-payload-extract — `fixed` (2026-06-15)
+<!-- status: unknown
+     lane: js
+     area: codegen -->
 
 - **Found by:** `CrossBackendPropertyTest` (wave-6 enum probes).
 - **Symptom:** matching an `enum` case WITH a payload bound the wrong value on JS — `enum Shape: case Circle(r: Int); … case Circle(r) => …` bound `r` to the case's `_tag` (0/1), not the field. `area(Circle(2)) + area(Square(3))` gave `1` instead of `21`; interp + JVM correct. `genPattern`'s Extract used field NAMES from `caseClassFieldsByType` when known, else the positional `Object.values(scrut).slice(1)[i]` — but enum cases carry an extra `_tag` field, and `caseClassFieldsByType` was populated only for `Defn.Class`, not enum cases, so `slice(1)[0]` returned `_tag`.
 - **FIXED (2026-06-15):** `caseClassFieldsInModule` now also indexes `Defn.Enum` cases (name → field list), so enum-case Extract binds by field name. Guard: `CrossBackendPropertyTest` "enum payload, collect, Option.fold cross-backend" (enum-payload-match + enum-nullary).
 
 ## interp-collect-partial / jsgen-collect-partial — `fixed` (2026-06-15)
+<!-- status: unknown
+     lane: js
+     area: codegen -->
 
 - **Found by:** `CrossBackendPropertyTest` (wave-6 collection probes).
 - **Symptom:** `xs.collect { case x if x % 2 == 0 => x * 10 }` (a partial function with a guard) threw `Match failure: 1` in the INTERPRETER (it called the PF as a total function), and on JS threw `Method not found: collect` (no `collect` in the array `_dispatch`); JVM correct. `collect` must SKIP elements the PF isn't defined on.
 - **FIXED (2026-06-15):** interp — a `collectStep` helper catches the located "Match failure" and skips (reusing the existing `None`-skip path). JS — added a `collect` array-dispatch case that calls the element fn and skips when it throws a "Match failure" (the emitted PF closure's no-match error). Guard: `CrossBackendPropertyTest` collect-guard.
 
 ## jsgen-option-fold-curried — `fixed` (2026-06-15)
+<!-- status: unknown
+     lane: js
+     area: codegen -->
 
 - **Found by:** `CrossBackendPropertyTest` (wave-6 Option probes).
 - **Symptom:** `Some(5).fold(0)(x => x * 2)` failed on JS — the curried `Option.fold(ifEmpty)(f)` was absent from the `_Some`/`_None` dispatch (only `Either.fold(fa, fb)` uncurried was present). interp + JVM correct.
 - **FIXED (2026-06-15):** added `fold` to the JS Option dispatch — `_Some`: `(f) => f(value)`, `_None`: `(f) => ifEmpty` — handling the curried second clause. Also added `exists`/`forall` and fixed `Some.contains` to use structural `_eq`. Guard: `CrossBackendPropertyTest` option-fold-some/-none.
 
 ## xbackend-range-by-step — `fixed` (2026-06-15)
+<!-- status: unknown
+     lane: js
+     area: codegen -->
 
 - **Found by:** `CrossBackendPropertyTest` (wave-6/7).
 - **Symptom:** `(0 to 10 by 2)` — a Range with a `by` step — threw on interp (`No method 'by' on List`) and on JS; JVM correct. interp + JS materialize a Range as a List/array, which had no `by`; the JS `by` infix also fell to an invalid `(range by step)` emission.
 - **FIXED (2026-06-15):** `by(step)` keeps every step-th element of the materialized range — added to interp `dispatchList`/`dispatchList1` and the JS array `_dispatch`; JsGen now emits the `by` infix as `_dispatch(range, 'by', [step])`. Guard: `CrossBackendPropertyTest` "ranges, collection + string method gaps cross-backend" (range-by-sum/-until).
 
 ## jsgen-collection-method-gaps / jsgen-string-padto — `fixed` (2026-06-15)
+<!-- status: unknown
+     lane: js
+     area: codegen -->
 
 - **Found by:** `CrossBackendPropertyTest` (wave-7).
 - **Symptom:** several stdlib methods were missing from the JS `_dispatch` (and one from interp), failing with `Method not found` / `No method`: `List.scanLeft`/`scanRight`/`indexWhere`, tuple `.swap`, `String.padTo`; interp also lacked `indexWhere`. interp + JVM (or JVM alone) were correct.
 - **FIXED (2026-06-15):** added JS array dispatch `scanLeft`(curried)/`scanRight`/`indexWhere`/`swap`, JS string `padTo` (Char arg arrives as a char-code number), and interp `indexWhere` (`dispatchList`). Guard: `CrossBackendPropertyTest` string-pad / list-scanleft / list-indexwhere / tuple-swap.
 
 ## interp-js-string-map-nonchar — `fixed (interp + js)`
+<!-- status: unknown
+     lane: multi
+     area: runtime -->
 
 - **Found by:** `CrossBackendPropertyTest` (wave-7).
 - **Symptom:** `"abc".map(c => c.toInt).sum` threw (`No method 'sum'`) on interp + JS — mapping a String's chars to a NON-Char value should yield a `Seq[Int]` (then `.sum`), but interp/JS `String.map` rebuild a String. JVM correct (294).
@@ -19675,30 +22053,45 @@ same launcher; every fail was a real engine gap). One entry per cause:
 - **Residual (minor, by design):** a char *literal*'s `.toInt` (`'5'.toInt` → 5 on JS vs 53 on interp/JVM) still diverges — char literals stay JS strings to avoid touching literal-pattern codegen (which compares with `===`, not `_eq`). The actionable bug (`String.map(nonChar)` + iterated-`Char` methods) is closed; literal coercion is left as a separate, lower-value follow-up.
 
 ## jvmgen-autooutput-after-classdef — `fixed` (2026-06-15)
+<!-- status: unknown
+     lane: js
+     area: front -->
 
 - **Found by:** `CrossBackendPropertyTest` (wave-5 case-class probes).
 - **Symptom:** a JVM program with a top-level `case class` (or trait/object) followed by ANY auto-output/expression statement printed NOTHING — `case class P(x: Int)\nprintln(if P(1) == P(1) then 10 else 0)` produced empty output; interp + JS correct. `wrapAutoOutput` emitted a bare `{ … }` block, and `case class P(x: Int)` on one line followed by `{ … }` on the next is parsed by Scala as **P's body template**, so the statement was swallowed (never run).
 - **FIXED (2026-06-15):** `wrapAutoOutput` now emits `locally { … }` (an unambiguous method call) instead of a bare `{ … }`, so the block can't attach to a preceding definition. Guard: `CrossBackendPropertyTest` "collections, case-class equality, num+string cross-backend" (caseclass-eq/-ne/-output).
 
 ## jsgen-structural-equality — `fixed` (2026-06-15)
+<!-- status: unknown
+     lane: js
+     area: codegen -->
 
 - **Found by:** `CrossBackendPropertyTest` (wave-5 case-class probes).
 - **Symptom:** `==` on the JS backend used JS reference equality (`===`), so two structurally-equal case-class instances / tuples / Lists compared unequal — `P(1) == P(1)` → `false`; interp + JVM correct.
 - **FIXED (2026-06-15):** added a `_eq(a, b)` deep-structural-equality runtime helper (arrays elementwise, objects by `_type` + own keys, primitives by `===`) and routed `_arith('==' / '!=', …)` through it. Also used for Set dedup. Guard: `CrossBackendPropertyTest` caseclass-eq/-ne, tuple-eq.
 
 ## jsgen-set-constructor — `fixed` (2026-06-15)
+<!-- status: unknown
+     lane: js
+     area: codegen -->
 
 - **Found by:** `CrossBackendPropertyTest` (wave-5 Set probes).
 - **Symptom:** `Set(1, 2, 3)` failed on JS with `TypeError: Constructor Set requires 'new'` — JsGen had `Map`/`List` constructor cases but no `Set`, so `Set(...)` fell through to the JS global `Set`.
 - **FIXED (2026-06-15):** added a `Set(...)` / `Set[T](...)` case emitting `_setOf(...)` — a runtime helper that builds a structurally-deduplicated array, so the existing array `_dispatch` methods (`size`/`toList`/`sorted`/`contains`/…) apply. Guard: `CrossBackendPropertyTest` set-dedup-ops, set-contains.
 
 ## interp-num-string-concat — `fixed` (2026-06-15)
+<!-- status: unknown
+     lane: js
+     area: codegen -->
 
 - **Found by:** `CrossBackendPropertyTest` (wave-5 Map probes).
 - **Symptom:** `6 + "_"` (a number `+` a String — Scala's `any2stringadd`) threw in the interpreter (`No method '+' on IntV`); JS + JVM correct. interp's `Int + …` only handled numeric operands.
 - **FIXED (2026-06-15):** `dispatchInt` / `dispatchInt1` now concatenate when the `+` operand is a `StringV` (`n.toString + s`). Guard: `CrossBackendPropertyTest` num-string-concat.
 
 ## js-supertype-typetest — `fixed` (2026-06-15)
+<!-- status: unknown
+     lane: js
+     area: codegen -->
 
 - **Found by:** busi (UI session). A `cardWithHeader(header)` card title rendered on **no**
   screen in the SPA — money, compliance, and the new UA ФОП cockpit alike — while the card
@@ -19739,18 +22132,27 @@ same launcher; every fail was a real engine gap). One entry per cause:
   ```
 
 ## jsgen-collection-dispatch-gaps — `fixed` (2026-06-15)
+<!-- status: unknown
+     lane: js
+     area: codegen -->
 
 - **Found by:** `CrossBackendPropertyTest` (wave-4 collection-HOF probes).
 - **Symptom:** `xs.sortWith((a,b) => a < b)`, `xs.sorted`, `xs.partition(p)` fail on the JS backend (node) — they were simply MISSING from the `_dispatch` runtime method table (`JsRuntimePart2b.scala`); interp + JVM correct. `val (a, b) = xs.partition(…)` then also failed for lack of `partition`.
 - **FIXED (2026-06-15):** added `sortWith` (`lt(a,b)?-1:lt(b,a)?1:0`), `sorted`, `partition` (→ `[yes, no]`), and `span` to the JS `_dispatch` array-method table. The `val (a, b) = …` tuple destructuring already works (`genPatDestructure`). Guard: `CrossBackendPropertyTest` "collection HOFs and pattern matching cross-backend".
 
 ## jsgen-match-guard-bind — `fixed` (2026-06-15)
+<!-- status: unknown
+     lane: js
+     area: codegen -->
 
 - **Found by:** `CrossBackendPropertyTest` (wave-4 pattern-match probes).
 - **Symptom:** a `match` with a case GUARD (`case x if x < 0 => …`) fails on the JS backend (node syntax error); interp + JVM correct. `genMatchAsStmts` and the coroutine `genGenStmt` match dropped `c.cond` entirely, so a guarded `case x if …` got pattern-cond `"true"` and was treated as a catch-all mid-chain → malformed `{ … } else if (…)` JS. (`genReceiveMatcher` ANDed the guard but evaluated it with the pattern bindings out of scope.)
 - **FIXED (2026-06-15):** all three JS match paths now fold the guard into the arm condition via an IIFE that scopes the pattern bindings: `(cond) && (() => { <bindings>; return (<guard>); })()`. Guarded arms are no longer mistaken for catch-alls (the switch fast-path also excludes them since the cond is no longer `"true"`). Guard: `CrossBackendPropertyTest` "collection HOFs and pattern matching cross-backend" (match-guard-bind shape).
 
 ## interp-monadic-forcomp — `fixed` (2026-06-15)
+<!-- status: unknown
+     lane: int
+     area: codegen -->
 
 - **Found by:** `CrossBackendPropertyTest` (wave-4 comprehension probes).
 - **Symptom:** a `for`-comprehension over `Option` / `Either` (non-`List` monad) threw **in the interpreter**; JS + JVM were correct.
@@ -19759,16 +22161,25 @@ same launcher; every fail was a real engine gap). One entry per cause:
 - **FIXED (2026-06-15):** made `PatternRuntime.evalForYield` monad-polymorphic. When a generator's evaluated value is NOT a `ListV` (and the pattern is irrefutable + the tail is all simple generators), it desugars to `recv.flatMap(pat => <rest>)` / `recv.map(pat => body)` dispatched on the actual value via `DispatchRuntime.dispatch1` + a `NativeFnV` closure — exactly what the JS/JVM backends emit. `List` keeps its allocation-light fast path; guards / refutable patterns over a non-List monad fall through unchanged. Guard: `CrossBackendPropertyTest` "monadic for-comprehension cross-backend" (option some/none, either right/left, single-generator, + a List regression — interp == JS == JVM).
 
 ## xbackend-wave4-jvm-transient — `wontfix` (2026-06-15, not reproduced)
+<!-- status: unknown
+     lane: js
+     area: codegen -->
 
 - Two wave-4 shapes (`xs.zip(ys).map((a,b)=>a+b).sum`, `(1,(2,3)) match { case (a,(b,c)) => … }`) reported a JVM `scala-cli failed` ONCE, but did NOT reproduce on a clean re-run (interp == JS == JVM all green). The original failure coincided with two contending `sbt`/`scala-cli` processes corrupting temp compiles. Kept as cross-backend guards in "collection HOFs and pattern matching cross-backend"; no code change.
 
 ## jvmgen-js-curried-partial — `fixed` (2026-06-15)
+<!-- status: unknown
+     lane: js
+     area: codegen -->
 
 - **Found by:** `CrossBackendPropertyTest` (main-path edge-case probes).
 - **Symptom:** PARTIAL application of a curried def fails on the **JS backend** (`not callable: NaN`); interp + JVM are correct. `def add(a: Int)(b: Int) = a + b; val f = add(3); f(4)` — JsGen flattens curried params to `function add(a, b)`, so `add(3)` runs the body with `b === undefined` → `3 + undefined` = `NaN`. FULL application `add(1)(2)` works (it arrives flattened as `add(1, 2)`); only under-applied calls break. Reproduced for 2- and 3-clause defs.
 - **FIXED (2026-06-15):** added a `_curry(fn, arity, args)` JS runtime helper (accumulates args, applies when arity reached) and an auto-curry guard at the top of plain multi-clause def emission: `if (arguments.length < N) return _curry(fname, N, arguments);`. Only emitted for multi-clause defs with no defaults / using / context-bounds; single-clause defs and full applications are unaffected (arity already reached). Guard: `CrossBackendPropertyTest` "curried partial application cross-backend" (2-/3-clause, full + partial, interp == JS == JVM).
 
 ## effect-perform-in-fordo — `fixed` (2026-06-15)
+<!-- status: unknown
+     lane: js
+     area: codegen -->
 
 - **Found by:** `CrossBackendPropertyTest` (effects-in-HOF/loop probes).
 - **Symptom:** an effect op performed inside a `for i <- 0 until n do …` loop diverged across all three backends. interp was CORRECT; **JVM** failed scala-cli (`None of the overloaded alternatives of method + in class Int` — `acc + Counter.tick()` where `tick()` is the Any `_perform`), and **JS** printed garbage (`0[object Object][object Object]…`). The `while`-loop form of the same program works on all backends (dedicated CPS while-trampoline); the `for … do` → `foreach(i => …)` desugar did NOT CPS-thread the effect in the closure body. `.map` / `.foldLeft` closures DO thread effects — only `foreach`-from-`for-do` was broken.
@@ -19789,6 +22200,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
   ```
 
 ## jvmgen-handle-result-mainpath — `fixed` (2026-06-15, all contexts incl. Any-taint propagation)
+<!-- status: unknown
+     lane: jvm
+     area: codegen -->
 
 - **Found by:** `CrossBackendPropertyTest` (effect-result × main-path composition probes).
 - **Symptom:** a `val r = handle(...)` (Any-typed `_handle` result) used in a NON-arithmetic main-path
@@ -19802,6 +22216,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
   - tuple-accessor arithmetic `val t = (r, r+1); t._1 + t._2` — added `anyTypedVals`, a superset of `handleResultVals` populated by Any-taint PROPAGATION: an untyped val whose rhs references an Any-typed val (`val t = (r, r+1)`) is itself Any-typed. The routing predicates now key off `anyTypedVals`, and the arith-operand check also recognizes `Select(anyTypedVal, _)` (so `t._1 + t._2` lowers to `_binOp`). Only ever non-empty for effect programs (seeded by `handleResultVals`), so pure code is unaffected. Guard: `result-in-list-sum` + `result-in-tuple` added to the composition test (interp == JS == JVM).
 
 ## agent-streaming-test-port-collision — `fixed` (2026-06-15, 26dae7699)
+<!-- status: unknown
+     lane: jvm
+     area: codegen -->
 
 - **Found by:** codex during `rozum-agent-endpoint-pool` regression check.
 - **SHA at filing:** `2334d0be4` (feature worktree).
@@ -19820,6 +22237,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
 ---
 
 ## jvmgen-handle-result-arith — `fixed` (2026-06-15)
+<!-- status: unknown
+     lane: jvm
+     area: codegen -->
 
 - **Found by:** `CrossBackendPropertyTest` (new effect-composition shapes — handle result fed into main-path arithmetic).
 - **Symptom:** using a `val` bound to `handle(...)` as an operand of an arithmetic/comparison infix fails JVM scala-cli with `value * is not a member of Any`. `handle(...)` lowers to `_handle(...)` (returns `Any`), so `val r = handle(...){…}; println(r * 2 + base)` emits `r * 2` raw on the Any-typed result, which Scala 3 rejects. interp + JS run it fine.
@@ -19830,6 +22250,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
 ---
 
 ## interp-returnclause-effect-in-while — `fixed` (2026-06-15)
+<!-- status: unknown
+     lane: int
+     area: codegen -->
 
 - **Found by:** `CrossBackendPropertyTest` diagnostic (return-clause shape localization).
 - **Symptom:** a deep return-clause handler over a program that performs an effect inside a `while` loop threw **in the interpreter** with `Unhandled effect: Log.emit (no handler in scope)`, even for a single iteration. **JS and JVM both produce the correct result.** This made the property test's case-7 (return-clause) shape vacuous: interp threw → seed skipped → JS/JVM never compared.
@@ -19855,6 +22278,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
 ---
 
 ## jvmgen-returnclause-effect-in-recursion — `fixed` (2026-06-15)
+<!-- status: unknown
+     lane: js
+     area: codegen -->
 
 - **Found by:** `CrossBackendPropertyTest` diagnostic (return-clause shape localization).
 - **Symptom:** a return-clause handler over a **recursive** effectful function fails JVM scala-cli compilation: `Found: (_t3 : Any) / Required: Int`. **interp and JS both produce the correct result.**
@@ -19881,6 +22307,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
 ---
 
 ## jvmgen-multishot-handle-result-any — `fixed` (2026-06-15, 23a33c976)
+<!-- status: unknown
+     lane: jvm
+     area: codegen -->
 
 - **Found by:** `CrossBackendPropertyTest` (its multi-shot effect shape).
 - **Symptom:** a method call on the result of `handle(...)` fails JVM scala-cli with e.g. `value sum is not a member of Any` — `handle(...)` lowers to `_handle(...)` which returns `Any`, so `val all = handle(prog()){…}; all.sum` (typical for a multi-shot handler whose result is a `List`) doesn't type-check. interp + JS (dynamically typed) run it fine.
@@ -19890,6 +22319,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
 ---
 
 ## jvmgen-effect-handler-arg-arith — `fixed` (2026-06-15, 7c843b121)
+<!-- status: unknown
+     lane: jvm
+     area: codegen -->
 
 - **Found by:** `CrossBackendPropertyTest` (its broadened multi-arg / arithmetic effect handlers).
 - **Symptom:** a handler that does arithmetic on op-args, e.g. `case Combine.mix(a, b, resume) =>
@@ -19907,6 +22339,9 @@ same launcher; every fail was a real engine gap). One entry per cause:
 ---
 
 ## jvmgen-handle-in-arg-position — `fixed` (2026-06-15, 91fc574f5)
+<!-- status: unknown
+     lane: jvm
+     area: codegen -->
 
 - **Found by:** `CrossBackendPropertyTest` (xbackend-property-equivalence — the generated
   cross-backend differential, found this on its first effects run).
@@ -19944,6 +22379,9 @@ println(r)` → works.
 ---
 
 ## interp-import-cycle-stackoverflow — `fixed` (2026-06-14)
+<!-- status: unknown
+     lane: int
+     area: runtime -->
 
 - **Reported:** busi (`@busi-claude-code`), during the busi `p5` `dispatch.ssc`
   decomposition (the facade re-export / strict-DAG work).
@@ -19971,6 +22409,9 @@ println(r)` → works.
 - **Landed:** (this branch → origin/main).
 
 ## interp-cons-in-effect-handler — `fixed` (example) (2026-06-13, `721ee62b9`)
+<!-- status: unknown
+     lane: multi
+     area: front -->
 
 - **FINAL diagnosis (two earlier mis-diagnoses corrected):** NOT a `::` bug and NOT a
   "resume result not forced to ListV" bug. `resume(())` **correctly** returns the
@@ -19991,6 +22432,9 @@ println(r)` → works.
   (parser + typer + interp + 4 backends) — out of scope; noted in BACKLOG.
 
 ## interp-parameterized-effect-decl — `fixed` (2026-06-13, `2a818e45c`)
+<!-- status: unknown
+     lane: int
+     area: front -->
 
 - **Fixed:** `Parser.effectLinePat` (the regex that rewrites `effect Name:` →
   `object Name { … }`) had no type-param clause after the name, so `effect State[S]:` /
@@ -20001,6 +22445,9 @@ println(r)` → works.
   Parser, so all backends benefit. Regress: `StdEffectsTest` (`effect Box[T]:` decl + handle).
 
 ## interp-effect-multishot-in-subsection — `fixed` (2026-06-13, `2a818e45c`)
+<!-- status: unknown
+     lane: int
+     area: codegen -->
 
 - **CORRECTION:** filed as `interp-effect-multishot-cross-section-leak` — that "global state
   leaks from an earlier one-shot `handle`" diagnosis was **wrong**. Real cause: `multiShotEffects`
@@ -20016,6 +22463,9 @@ println(r)` → works.
   blocks recursively.
 
 ## interp-toString-on-collection — `fixed` (2026-06-13, `225aacc18`)
+<!-- status: unknown
+     lane: int
+     area: codegen -->
 
 - **Fixed:** intercept `toString` (0-arg) at the top of `DispatchRuntime.dispatch`
   (alongside the `asInstanceOf` early-return) → render via `Value.show`, the canonical
@@ -20042,6 +22492,9 @@ println(r)` → works.
   Check Map/Set/tuple/Option/Either too. Cross-backend regression.
 
 ## interp-typed-data-not-callable (a.k.a. bare-fn-ref auto-invoke) — `fixed` (2026-06-13, `175c01d72`)
+<!-- status: unknown
+     lane: js
+     area: codegen -->
 
 - **Root cause (narrowed):** NOT a rare typed-data construct — it was the common
   `xs.foreach(println)` idiom. Normalize rewrote **every** bare `println` → `Console.println`
@@ -20059,6 +22512,9 @@ println(r)` → works.
   JS codegen + interp suites green.
 
 ## js-self-handling-cps-fn-not-run — `fixed` (2026-06-12)
+<!-- status: unknown
+     lane: js
+     area: codegen -->
 
 - **Fixed:** `JsGen.runIfEffectful` wraps a non-CPS-context call to an effectful
   function in `_run`, so a self-handling CPS fn's lazy `_FlatMap` resolves at the
@@ -20102,6 +22558,9 @@ println(r)` → works.
   `genCpsApply`). HIGH-ish risk — gate on the full effect suite + node tests.
 
 ## interp-module-loader-dedup — `done` (busi confirmed, rozum seq-137)
+<!-- status: unknown
+     lane: int
+     area: runtime -->
 
 - **Reported:** busi (`@busi-claude-code`), rozum `scalascript` seq-132 (2026-06-12).
 - **Symptom:** interpreting (not `ssc check`) an entry that imports a large module via
@@ -20128,6 +22587,11 @@ println(r)` → works.
   green, ph-2 domain-module split unblocked (rozum seq-137). **Closed.**
 
 ## v2-arith-split-jit-size — `fixed` (2026-07-09)
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: unrecorded
+     gate: tests/conformance/head-field-shadow.ssc -->
 
 - **Found by:** claude-fable-5 while gating the head-field fix: pattern-match-heavy
   at ~354 ms/iter on clean origin/main vs 23.6 the evening before (15×). Bisected
@@ -20143,6 +22607,11 @@ println(r)` → works.
   5.12 — all at baseline. FrontendBridgeTest 25/25 (incl. the unification tests).
 
 ## v2-head-field-dispatch-shadow — a case-class field named `head` (non-zero index) breaks List.head
+<!-- status: fixed
+     lane: native
+     area: runtime
+     fixed-in: unrecorded
+     gate: tests/conformance/head-field-shadow.ssc -->
 
 **Status:** FIXED 2026-07-09 (was OPEN; guarded by tests/conformance/head-field-shadow.ssc).
 **Fix:** the 3-arg `fieldAt(recv, idx, name)` now resolves by the RECEIVER's own
@@ -20166,6 +22635,11 @@ Likely general: any builtin member name (head/tail/name/…) reused as a non-fir
 Found+minimized 2026-07-09 by busi (fable) while attempting the v2 hub conformance pass.
 
 ## v2-db-url-scheme-not-jdbc — `databases:` front-matter parser only recognizes `jdbc:`-prefixed URLs
+<!-- status: fixed
+     lane: js
+     area: front
+     fixed-in: unrecorded
+     gate: tests/conformance/v2-db-url-scheme-not-jdbc.ssc -->
 
 **Status:** FIXED 2026-07-09 (1e43ba347) — registerDb normalizes sqlite:/h2:/postgres(ql)/mysql to jdbc:; guarded by
 tests/conformance/v2-db-url-scheme-not-jdbc.ssc)
@@ -20188,6 +22662,11 @@ instead of hardcoding `jdbc:`.
 Found+minimized 2026-07-09 by busi (fable).
 
 ## v2-native-result-unregistered-field — fieldAt crashes on a native result whose case class isn't imported
+<!-- status: fixed
+     lane: int
+     area: front
+     fixed-in: unrecorded
+     gate: tests/conformance/v2-native-result-unregistered-field.ssc -->
 
 **Status:** FIXED 2026-07-09 (793922d00) — fieldAt named 3-arg routes through methodOp/__method__ (handles ForeignV/NamedMethodObj); guarded by
 tests/conformance/v2-native-result-unregistered-field.ssc)
@@ -20228,6 +22707,11 @@ regardless of whether that case class was locally registered.
 Found+minimized 2026-07-09 by busi (fable).
 
 ## v2-route-params-stub — req.params(name) always returns Stub on v2
+<!-- status: fixed
+     lane: int
+     area: front
+     fixed-in: unrecorded
+     gate: tests/e2e/route-params-v2-smoke.sh -->
 
 **Status:** FIXED 2026-07-09 — `req.params`/`req.query` (and `bearerToken`/
 `jwtClaims`/`basicAuth`) are runtime-INJECTED by the server
@@ -20305,6 +22789,11 @@ Found+minimized 2026-07-09 by busi (fable) while running the full JDG
 money-loop simulator cycle.
 
 ## v2-user-type-shadows-plugin-type — a user case class named "Request" (or any plugin-owned tag) has its fields clobbered on v2
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: d5f9ce486
+     gate: tests/conformance/v2-user-type-shadows-plugin-type.ssc -->
 
 **Status:** FIXED 2026-07-09 (8feeda99f) — the conditional-Request-lock +
 snapshot/restore revert. Verified: the conformance repro passes (r1/task),
@@ -20360,6 +22849,11 @@ this. Found+minimized 2026-07-09 by busi (fable), same day as the
 route-params-stub fix.
 
 ## v2-option-exists — Option.exists is unimplemented on v2
+<!-- status: fixed
+     lane: native
+     area: runtime
+     fixed-in: unrecorded
+     gate: tests/conformance/v2-option-exists.ssc -->
 
 **Status:** FIXED 2026-07-09 — the v2 VM Option method dispatch
 (Runtime.scala) had map/flatMap/filter/foreach/fold/orElse/getOrElse but was
@@ -20395,6 +22889,11 @@ to HTTP or money-loop — it should be one of the highest-priority items to
 close for v2 parity given how common the pattern is.
 
 ## v2-req-form-stub-in-hub — req.form(name) returns Stub inside busi's real hub.ssc (isolated minimization did NOT reproduce)
+<!-- status: fixed
+     lane: apparatus
+     area: front
+     fixed-in: unrecorded
+     gate: tests/e2e/req-type-collision-v2-smoke.sh. -->
 
 **Status:** FIXED 2026-07-09 (renamed root cause: **v2-req-form-type-collision**).
 MINIMIZED: the hub imports TWO different `Request` types — `std/http.ssc`
@@ -20455,6 +22954,11 @@ need a different bisection approach, e.g. commenting out route
 registrations in blocks).
 
 ## v2-read-gigs-handle-leak — GigSource.fetch handle{} effect leaks unhandled inside busi's real hub.ssc/mcp.ssc (isolated minimization did NOT reproduce)
+<!-- status: fixed
+     lane: native
+     area: runtime
+     fixed-in: dd42da430
+     confirmed: no -->
 
 **Status:** FIXED 2026-07-09 in `dd42da430` and `615ed5f8f`; awaiting
 reporter confirmation on busi's next pinned ScalaScript update. The original
@@ -20552,6 +23056,11 @@ that a small dispatcher didn't capture. Found 2026-07-09 by busi (fable),
 same session as `v2-req-form-type-collision`.
 
 ## v2-string-split-limit-overload — String.split(delimiter, limit) unimplemented on v2 (CAUSED A REAL PRODUCTION OUTAGE)
+<!-- status: fixed
+     lane: apparatus
+     area: runtime
+     fixed-in: unrecorded
+     gate: tests/conformance/v2-string-split-limit- -->
 
 **Status:** FIXED 2026-07-10 — `Runtime.scala`'s `String` method dispatch had
 `(StrV(s), "split", List(StrV(d)))` (one-arg) but no two-arg case. Added a

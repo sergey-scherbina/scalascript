@@ -93,10 +93,11 @@ first matching sentence, so the first matching sentence has to be true today.
 Without it this decays again — the state above is what "just keep it tidy by hand" produced over
 the life of the file.
 
-**Wiring, deliberately staged.** CI lists its e2e scripts explicitly (no directory auto-discovery),
-so this gate landing before the migration does NOT turn `main` red — it simply is not run yet. It
-gets added to `.github/workflows/ci.yml` in the same change that migrates the entries, once the
-gate is green on the real file. A red gate on `main` is a broken shared suite, not discipline.
+**Wired 2026-07-29**, in the same commit that migrated the entries — deliberately not before.
+CI lists its e2e scripts explicitly (no directory auto-discovery), so the gate could land first and
+simply not run; putting it in `ci.yml` while 618 entries still lacked headers would have left the
+shared suite red, which is a broken suite and not discipline. It runs with `--self-test`, so each
+CI run also proves the gate can still fail.
 
 ## Querying
 

@@ -128,6 +128,13 @@ jobs:
       - name: Verify the freezes agree about the same case
         run: tests/e2e/freeze-consistency-gate.sh
 
+      # Seconds long. The tracker's status used to live in prose, and hand-tidying is exactly what
+      # produced 108 entries with no status at all and three words for "closed" — so the invariant
+      # is enforced here rather than trusted. --self-test first: a gate nobody has seen fail is a
+      # hypothesis, and this one plants three defects and requires all three to be caught.
+      - name: Verify every BUGS.md entry has a valid machine-readable header
+        run: tests/e2e/bugs-index-gate.sh --self-test
+
       - name: Verify standalone release installer launcher
         run: tests/e2e/release-installer-launcher.sh
 
