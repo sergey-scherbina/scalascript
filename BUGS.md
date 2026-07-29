@@ -7412,10 +7412,11 @@ real release installer behind a fake downloader/java: it proves the generated so
 
 ## v2-native-multiblock-auto-output-missing — standard native lane drops per-block non-Unit results
 
-**Status:** OPEN, still reproducing 2026-07-28. Found 2026-07-17 by `ci-red-main` after correcting
-the all-examples tools-command routing.
+**Status:** **FIXED 2026-07-28** by `v2-auto-output-prim` (`354807e64`), on the second attempt —
+detail below. Originally found 2026-07-17 by `ci-red-main` after correcting the all-examples
+tools-command routing; that report is preserved further down, in the past tense.
 
-**FIXED 2026-07-28 by `v2-auto-output-prim` — on the SECOND attempt.** Each top-level code block's
+**FIXED — on the SECOND attempt.** Each top-level code block's
 last non-Unit expression prints again, in source order. The runner marks each code fence's end with
 a `__sscBlockEnd__` sentinel; F consumes it in `walkTop`, where the item in front of it has just
 been parsed, and wraps that item's entry expression in an `__autoOutput__` **primitive**; the VM/ASM
