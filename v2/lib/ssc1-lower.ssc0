@@ -3736,7 +3736,16 @@ def handlerMarkedArms = (eventName, arms, skipFallback) =>
 -- once-evaluated scrutinee Let: the lambda parameter already IS Local(0).
 -- Pattern fields extend the runtime environment directly, so their body scope
 -- is fields ++ the original lambda scope (no phantom scrutinee binder).
-def lowerDirectHandlerMatch = (scope, arms) =>
+--
+-- Arm bodies carry `__handler_dispatch_selected__` here for the same reason the
+-- general path's handlerMarkedArms does. Without it this path produced a handler
+-- lambda that is byte-for-byte an ordinary `x => x match { … }`, so the BACKEND had
+-- to guess handler-ness from that shape — and consequently charged every ordinary
+-- matching lambda a ThreadLocal, two allocations and a try/finally per call.
+-- specs/v2-handler-lam-marking.md. Only the SELECTED marker is added: the miss
+-- marker raises when no dispatch is active, so it is not interchangeable with the
+-- absent-default behaviour this path already has.
+def lowerDirectHandlerMatch = (scope, eventName, arms) =>
   let rec procArms = (armsLeft, irAcc, defAcc) =>
     match armsLeft {
       case Nil => Pair(irAcc, defAcc)
@@ -3747,13 +3756,16 @@ def lowerDirectHandlerMatch = (scope, arms) =>
               match pdata { case Pair(ctorName, fields) =>
                 let armScope = appendL(revL(fldBinders(fields)), scope) in
                 let armBody = dischargeObs(
-                  fldObligations(fields, lenL(fields)), armScope, body) in
+                  fldObligations(fields, lenL(fields)), armScope,
+                  handlerSelectedBody(eventName, body)) in
                 procArms(rest,
                   appendL(irAcc, ctorPatternArms(ctorName, lenL(fields), armBody)),
                   defAcc) }
             else if #seq(ptag, "vpat") then
-              procArms(rest, irAcc, Some(lowerE(scope, body)))
-            else procArms(rest, irAcc, Some(lowerE(scope, body))) } }
+              procArms(rest, irAcc,
+                Some(lowerE(scope, handlerSelectedBody(eventName, body))))
+            else procArms(rest, irAcc,
+              Some(lowerE(scope, handlerSelectedBody(eventName, body)))) } }
     } in
   match procArms(arms, Nil, None) {
     case Pair(irArms, defOpt) => IrMatch(IrLocal(0), irArms, defOpt)
@@ -3773,7 +3785,7 @@ def lowerHandlerMatch = (scope, eventName, arms) =>
   if general then
     lowerMatch(scope, Pair("var", eventName),
       handlerMarkedArms(eventName, arms, hasCatchAll(flatArms)))
-  else lowerDirectHandlerMatch(scope, flatArms)
+  else lowerDirectHandlerMatch(scope, eventName, flatArms)
 
 def lowerMatch = (scope, scrutinee, arms) =>
   let eIr = lowerE(scope, scrutinee) in

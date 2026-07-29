@@ -46,10 +46,22 @@ private[ssc] object HandlerDispatchShape:
   val SelectedPrimitive = "__handler_dispatch_selected__"
   val MissPrimitive = "__handler_dispatch_miss__"
 
+  /** A handler-dispatch root is now identified by the MARKER the front puts there, not by
+   *  the shape of the term.
+   *
+   *  The shape test used to be `arity == 1 && body is Match(Local(0), …)`, which is also the
+   *  shape of every ordinary `x => x match { … }` — so each of those was built with
+   *  `Emit.handlerClos` and paid a ThreadLocal read, two allocations, a list cons and a
+   *  try/finally on EVERY call. `bench/corpus/range-sum`, a program with no effects at all,
+   *  spent 36 profile samples in that bookkeeping.
+   *
+   *  It could not simply be deleted: `lowerHandlerMatch`'s DIRECT path (plain constructor
+   *  arms) emitted no markers, so genuine handlers written that way were recognised only by
+   *  shape — dropping the arm alone failed `effects` and `effects-handler` on v2. The front
+   *  now marks both paths (`v2/lib/ssc1-lower.ssc0`), which is what makes this safe.
+   *  specs/v2-handler-lam-marking.md. */
   def isRoot(arity: Int, body: Term): Boolean =
-    arity == 1 && (body match
-      case Term.Match(Term.Local(0), _, _) => true
-      case other                           => containsDecisionMarker(other))
+    arity == 1 && containsDecisionMarker(body)
 
   private def containsDecisionMarker(term: Term): Boolean = term match
     case Term.Prim(SelectedPrimitive, _) => true
