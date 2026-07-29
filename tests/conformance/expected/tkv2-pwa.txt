@@ -1,6 +1,3 @@
-ScalaScript web · http://localhost:18631/  (root: .)
-  (backend=fast)
-Ctrl+C to stop.
 true
 true
 true

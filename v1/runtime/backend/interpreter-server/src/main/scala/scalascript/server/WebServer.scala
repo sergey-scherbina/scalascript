@@ -131,11 +131,21 @@ object WebServer:
     onBound()
 
     val scheme = if useTls then "https" else "http"
-    log.println(s"ScalaScript web · $scheme://localhost:${backend.localPort}/  (root: $root)")
+    // STDERR, not `log`, and not because of style. `log` is the INTERPRETER'S PROGRAM OUTPUT
+    // stream (`Interpreter.out`, i.e. System.out) — the serve intrinsic passes it straight in —
+    // so these three lines were being written into the observable output of every serving
+    // program. The v2 http-fast plugin already prints them to stderr
+    // (NioNativeHttpServerHost, for its own measured reason: a release gate went red because
+    // the banner was prepended to a program's asserted output). That left the two lanes
+    // disagreeing by exactly these three lines, which is what `contract.sc` reported as
+    // `rozum-agent{,-pool,-schema-derived,-streaming} v2 DIVERGE`: its golden for a case with
+    // no `expected/` file is the LIVE INT stdout. A banner is developer chatter, not program
+    // output. BUGS `v2-serve-banner-belongs-on-stderr`.
+    System.err.println(s"ScalaScript web · $scheme://localhost:${backend.localPort}/  (root: $root)")
     val _feName = scalascript.frontend.FrontendFrameworks.selectedName
     val _feInfo = _feName.map(n => s", frontend=$n").getOrElse("")
-    log.println(s"  (backend=${backend.name}$_feInfo)")
-    log.println("Ctrl+C to stop.")
+    System.err.println(s"  (backend=${backend.name}$_feInfo)")
+    System.err.println("Ctrl+C to stop.")
     latch.await()
 
   /** Build a POJO `Response` for the no-route-matched fallback path:
