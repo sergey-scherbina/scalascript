@@ -17,7 +17,6 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 | task | module | claim | state | notes |
 |---|---|---|---|---|
-| `v1-json-two-contradictory-number-policies` | `v1/lang` | `json-number-policy` | in progress | `jsonParse` disagrees with itself on numbers; JS is a third policy |
 | `bugs-per-module` / `backlog-per-module` / `sprint-hierarchical` | *(repo-wide)* | `work-tracking-per-module` | in progress | this split; rules in AGENTS.md + the two skills |
 
 ## How a task gets onto this board
