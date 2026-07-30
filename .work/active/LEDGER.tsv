@@ -1,4 +1,3 @@
-# generation: 497
+# generation: 498
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
-smoke-budget-from-a-distribution	claude-code	2026-07-30T21:10:21Z	smoke-budget-set-from-one-sample	file:scripts/smoke-ci.ssc file:.github/workflows/smoke.yml file:README.md file:scripts/BACKLOG.md file:scripts/SPRINT.md
