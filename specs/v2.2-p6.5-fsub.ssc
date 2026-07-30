@@ -71,7 +71,14 @@ def lexStr(s, i, n, j) = Cons((4, s.substring(i + 1, j)), lex(s, j + 1, n))
 // as token kind 8; parseAtom1 escapes the raw content on emit so it byte-matches `#coreir.encode`.strLit.
 // A leading `"` is a triple ONLY when the next two chars are also `"`; else it is a regular/empty string.
 def isTriple(s, i, n) = if atEnd(i + 2, n) then false else (if s.charAt(i + 1) == 34 then s.charAt(i + 2) == 34 else false)
-def lexStrOrTriple(s, i, n) = if isTriple(s, i, n) then lexTriple(s, i, n, scanTriple(s, i + 3, n)) else lexStr(s, i, n, scanStr(s, i + 1, n))
+def lexStrOrTriple(s, i, n) = if isTriple(s, i, n) then lexTriple(s, i, n, tripleEnd(s, scanTriple(s, i + 3, n), n)) else lexStr(s, i, n, scanStr(s, i + 1, n))
+// Scala closes a triple-quoted string on the LAST three quotes of a run, so the content keeps
+// the extras: `"""a="b""""` is the string `a="b"`. scanTriple stops at the FIRST of the run,
+// which truncated the content AND left a stray `"` that opened a new string and desynced the
+// lexer for the rest of the file — `val a = """aria-busy="true""""` then made the NEXT line's
+// `"x"` lex as code and F rejected the file with `unbound global: (global x)`.
+// (F4 `std-ui-native-pair-lib`; 4-line repro in BUGS `f-triple-quote-run-truncates`.)
+def tripleEnd(s, i, n) = if atEnd(i + 3, n) then i else (if s.charAt(i + 3) == 34 then tripleEnd(s, i + 1, n) else i)
 // scanTriple returns the index of the FIRST of the closing `"""` (or the end if unterminated).
 def scanTriple(s, i, n) = if atEnd(i, n) then i else (if s.charAt(i) == 34 then scanTriple2(s, i, n) else scanTriple(s, i + 1, n))
 def scanTriple2(s, i, n) = if atEnd(i + 1, n) then i + 1 else (if s.charAt(i + 1) == 34 then scanTriple3(s, i, n) else scanTriple(s, i + 1, n))
