@@ -1,6 +1,6 @@
 # Inbox — my open tasks that are NOT performance
 
-`TASK/b2-perfomance.md` holds the speed work. This file holds everything else I have open, grouped
+`TASK/v2-perfomance.md` holds the speed work. This file holds everything else I have open, grouped
 by the categories I would propose. **I did not assign `b<N>` numbers** — the category policy is
 being written and the numbering is not mine to invent. Each group below is a candidate category;
 rename, merge or renumber freely.
@@ -88,7 +88,7 @@ between BUGS files touches several module claims at once.
 `v1/runtime/backend/jvm/BUGS.md` — OPEN. It is really **two front bugs (A-1 and B-1) plus a bench
 wrapper defect that is already fixed**. It should be re-pointed at those two and closed as an
 umbrella, so nobody re-investigates it as a fifth thing. **This is what "reproduce a cannot-run
-claim outside the harness" caught** — see the house rules in `b2-perfomance.md`.
+claim outside the harness" caught** — see the house rules in `v2-perfomance.md`.
 
 ---
 

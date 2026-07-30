@@ -1,8 +1,12 @@
-# b2 — performance
+# v2 — performance
 
 Everything I know that is a **speed** problem. Correctness defects found while measuring are NOT
 here even when a benchmark is what found them — they are in `TASK/inbox-uncategorised.md`, waiting
 for the category policy to assign them a number.
+
+Slice IDs are `v2-perf-N`. One row (`v2-perf-10`) is a **v1** defect; it is carried here because it
+is the same defect class as the v2 one I already fixed and the same gate finds it — when this file
+is split per policy, that row goes wherever v1 performance goes.
 
 **Read first:** `specs/v2-vs-v1-backend-matrix.md` (the measured table and its categories) and
 `specs/v2-runtime-perf-vs-v1.md` §7 (the measurement protocol — it is not optional here, see
@@ -16,7 +20,7 @@ design.
 
 ## Cause located, fix specified — start here
 
-### b2-1 · The Double numeric tier is built and never wired up
+### v2-perf-1 · The Double numeric tier is built and never wired up
 **`float-fold` 315× · `float-loop` 54×** — against `arith-loop` (the Long twin) at **2.4×**.
 
 `v2/lib/ssc1-lower.ssc0`, the `var` case (~:4038), reads
@@ -30,7 +34,7 @@ gets a GENERIC cell and boxes on every read and write: 841 `FloatV` allocation s
 Needs: an `isFloatLitExpr`; a `dcell.new` branch with its own scope marker; a Double twin at each
 `@@`-marker read/write site (:2575, :2870, :4094). Target is the Long ratio (2.4×), not zero.
 
-### b2-2 · Every primitive is resolved by STRING at run time
+### v2-perf-2 · Every primitive is resolved by STRING at run time
 `Emit.prim1` + `Emit$.s1` + `CHM.computeIfAbsent` ≈ 600 CPU samples on `float-loop`, ~18% of
 `list-fold`'s profile. The op is a compile-time constant in the emitted bytecode.
 
@@ -39,7 +43,7 @@ Half of this is already done (`Emit.prim1/2/3` no longer build a `List` per call
 distinct op, filled in `<clinit>`. **Ceiling ~18% of the worst workload** — stated so nobody starts
 it expecting more.
 
-### b2-3 · `Vector` is a cons chain, so indexing is O(n) by construction
+### v2-perf-3 · `Vector` is a cons chain, so indexing is O(n) by construction
 **`vector-index` 46×.** v2 has no `VectorV`. Walking the chain in place instead of materialising it
 bought only 1.3× (landed); the honest fix is a real indexed representation, which is a design
 change and needs a spec before code.
@@ -48,13 +52,13 @@ change and needs a spec before code.
 
 ## Measured, cause known, no fix specified yet
 
-### b2-4 · Allocation is what is left on the worst rows
+### v2-perf-4 · Allocation is what is left on the worst rows
 **`pattern-match-heavy` 381×.** After the per-match field array was removed (1.20×), a re-profile
 shows the remaining cost is allocation, not dispatch: **`Value[]` 1507** samples (an env array per
 call, `Runtime.extend`) and **`FloatV` 841** (a box per number). This is the architectural layer —
-see b2-9.
+see v2-perf-9.
 
-### b2-5 · The `__method__` split is a linear scan
+### v2-perf-5 · The `__method__` split is a linear scan
 `lazylist-take` spends **665 of ~2500 samples (~25%)** in `methodDispatch2..7` failing to match:
 its `ForeignV` receiver is served by part 9, so it walks seven parts to get there.
 
@@ -65,7 +69,7 @@ guards that can match anything. **Guarding those two was implemented, measured a
 REVERTED** (see "Refuted"). Kind-indexed dispatch over the mixed parts is the remaining idea; the
 census is its prerequisite and is preserved in `v2/BACKLOG.md v2m-2f`.
 
-### b2-6 · Collections, strings, predicates — the remaining ≥10× rows
+### v2-perf-6 · Collections, strings, predicates — the remaining ≥10× rows
 `lazylist-take` 395× · `list-fold` 146× · `range-sum` 113× · `map-ops` 28× · `hof-pipeline` 27× ·
 `bool-predicate` 25× · `literal-match` 18× · `string-concat` 12×.
 
@@ -73,7 +77,7 @@ census is its prerequisite and is preserved in `v2/BACKLOG.md v2m-2f`.
 type that way. `list-fold`'s `foreach` already walks the cons chain in place; there is no
 materialisation left to remove there.
 
-### b2-7 · Category 3 has never been analysed
+### v2-perf-7 · Category 3 has never been analysed
 `tuple-monoid` 9.1× · `type-lambda-placeholder` 8.8× · `instance-field` 7.5× · `either-chain` 6.9× ·
 `option-chain` 6.8× · `effect-pure` 6.8× · `mutual-recursion` 6.3× · `string-split` 5.2× ·
 `nested-loop` 5.1× · `arith-loop` 2.4× · `recursion-fib` 1.0×.
@@ -86,14 +90,14 @@ load, i.e. worse, not better. Do not treat the old numbers as a baseline.
 
 ## Compile-time, not run-time
 
-### b2-8 · The F front costs ~2.8× over legacy
+### v2-perf-8 · The F front costs ~2.8× over legacy
 `examples/scljet-crud.ssc`: F 11.40 s vs legacy 4.08 s. Was 6.8× — it fell to 2.8× as a side effect
 of the `__method__` JIT fix, because F is an `.ssc` program interpreted on that runtime.
 
 `specs/v2-f-compile-cost.md` Result 2 (the cost SCALES with program size, so a super-linear step
 inside F is the likely remainder) has **not** been retested since. `scljet-jdbc` is still 27.9 s.
 
-### b2-8b · `scljet-jdbc`'s generated bytecode exceeds the JVM's 64 KB method limit
+### v2-perf-8b · `scljet-jdbc`'s generated bytecode exceeds the JVM's 64 KB method limit
 It prints `--bytecode fell back to the VM lane [class-size-limit] (MethodTooLargeException)` and
 silently runs on the slower lane. Same "emit smaller methods" family as the JIT-size work. Tracked
 as `v2/BUGS.md scljet-jdbc-facade-bytecode-class-too-large`.
@@ -102,8 +106,8 @@ as `v2/BUGS.md scljet-jdbc-facade-bytecode-class-too-large`.
 
 ## Not a slice — a programme
 
-### b2-9 · v1 JIT-compiles loops; v2 calls a generic runtime per element
-This is the honest shape of the biggest remaining ratios (b2-4, b2-6). Closing it means giving v2
+### v2-perf-9 · v1 JIT-compiles loops; v2 calls a generic runtime per element
+This is the honest shape of the biggest remaining ratios (v2-perf-4, v2-perf-6). Closing it means giving v2
 what v1 has: inline caching at prim/method sites, unboxed representations on the numeric paths, and
 loop-level compilation rather than per-node dispatch. It should be **specced and priced as a
 programme**, not attempted as another slice. `specs/v2-vs-v1-backend-matrix.md` §5.
@@ -112,7 +116,7 @@ programme**, not attempted as another slice. `specs/v2-vs-v1-backend-matrix.md` 
 
 ## v1, same defect class
 
-### b2-10 · Six v1 methods are over HotSpot's `HugeMethodLimit`
+### v2-perf-10 · Six v1 methods are over HotSpot's `HugeMethodLimit`
 Someone else's entry (`v1/runtime/backend/js/BUGS.md v1-interpreter-hot-path-never-jits`), listed
 here because it is the same defect I fixed in v2 and the same gate finds it:
 `ActorScheduler.handleActorOp` 28036, `JsGen.genExpr` 24984, `RustCodeWalk.renderTerm` 16346,
