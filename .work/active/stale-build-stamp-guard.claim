@@ -2,10 +2,10 @@ slug: stale-build-stamp-guard
 branch: feature/stale-build-stamp-guard
 agent: claude-code
 started: 2026-07-30T04:35:28Z
-heartbeat: 2026-07-30T04:35:28Z
+heartbeat: 2026-07-30T06:02:41Z
 status: claimed-before-planning
 items: stale-build-silently-used-for-measurement
-paths: build.sbt bin/ssc tests/conformance/run.sc tests/conformance/contract.sc BUGS.md SPRINT.md CHANGELOG.md
+paths: build.sbt bin/ssc tests/conformance/run.sc tests/conformance/run.sh tests/conformance/contract.sc BUGS.md SPRINT.md CHANGELOG.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
