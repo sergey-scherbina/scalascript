@@ -1,0 +1,171 @@
+#!/usr/bin/env python3
+"""work-split — split the flat SPRINT.md / BACKLOG.md into per-module files.
+
+Spec: specs/work-tracking-layout.md.
+
+    scripts/work-split --dry-run       # routing table only, writes nothing
+    scripts/work-split --apply
+
+Sections are moved VERBATIM and whole. A `## ` section in these files is a narrative — a dated
+heading, the measurement that motivated it, then its slices — so splitting one apart would destroy
+the only context a later reader has. Nothing is summarised and nothing is dropped; `--dry-run`
+prints the routing and the audit refuses to write if a section would be lost.
+
+Routing is by KEYWORD IN THE HEADING, not by paths in the body, for the reason measured on the bug
+split: a body names the gate and the harness far more often than its own subsystem, so path
+frequency routes almost everything to `tests/`.
+
+Where a section goes:
+  * still has `- [ ]` items  ->  that module's BACKLOG.md  (unstarted work is backlog by definition)
+  * no `- [ ]` left          ->  SPRINT-ARCHIVE.md at the root (finished narrative; CHANGELOG.md
+                                 carries the outcomes, this keeps the reasoning)
+"""
+import argparse, collections, pathlib, re, sys
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+# First match wins, so order matters: the more specific project names come before `v2`, which is
+# otherwise mentioned in almost every heading on this project.
+RULES = [
+    ("scljet",            ["scljet"]),
+    ("uniml",             ["uniml"]),
+    ("tests/conformance", ["corpus", "conformance", "skip", "freeze", "roster", "golden"]),
+    ("payments",          ["crypto/finance", "wallet", "blockchain", "x402", "payment"]),
+    ("scripts",           ["ci-red", "ci is red", "negative-toolchain", "sbt job", "bug index",
+                           "claim-triage", "coordination", "release qualification", "installer",
+                           "red gates", "build/ci", "ram +", "ram budget"]),
+    ("v1/lang",           ["jsonparse", "json number", "number policy", "parser", "lexer"]),
+    ("v1/runtime/backend/js",          ["jsgen", "js lane", "js backend", "staticjsemitter",
+                                        "custom-backend"]),
+    ("v1/runtime/backend/interpreter", ["interpreter", "interp "]),
+    ("v2",                ["v2", "native", "f5", "p65", "self-hosting", "swift", "nativeui",
+                           "standard-tier",
+                           "fewer-braces", "for … yield", "asm", "jit", "front"]),
+]
+ROOT_MODULE = "."
+
+TITLES = {
+    "payments": "Payments, wallet and chain SPI", "scljet": "SclJet", "uniml": "UniML", "v2": "v2 — the self-hosted compiler",
+    "tests/conformance": "Conformance corpus and its freeze",
+    "scripts": "Build, CI and coordination tooling",
+    "v1/lang": "v1 language core", "v1/runtime/backend/js": "JS backend",
+    "v1/runtime/backend/interpreter": "Interpreter",
+}
+
+
+def module_for(heading: str) -> str:
+    h = heading.lower()
+    for mod, keys in RULES:
+        if any(k in h for k in keys):
+            return mod
+    return ROOT_MODULE
+
+
+def sections(text: str):
+    pre, out, cur, buf = [], [], None, []
+    for ln in text.split("\n"):
+        if ln.startswith("## "):
+            if cur is None:
+                pre = buf[:]
+            else:
+                out.append((cur, "\n".join(buf)))
+            cur, buf = ln, []
+        else:
+            buf.append(ln)
+    if cur is None:
+        pre = buf[:]
+    else:
+        out.append((cur, "\n".join(buf)))
+    return "\n".join(pre), out
+
+
+def header(kind: str, mod: str) -> str:
+    what = TITLES.get(mod, mod)
+    if kind == "BACKLOG":
+        return (f"# {what} — backlog\n\n"
+                f"Can-wait and not-yet-started work whose code lives in `{mod}/`. When an item is\n"
+                f"picked up it moves to `{mod}/SPRINT.md` as `[~]` and gets a row on the root board —\n"
+                f"in the same commit as the claim. Layout: `specs/work-tracking-layout.md`.\n\n"
+                f"Sections below were carried over whole from the flat root `SPRINT.md`/`BACKLOG.md`,\n"
+                f"verbatim, on 2026-07-30.\n")
+    return (f"# {what} — sprint\n\n"
+            f"This module's queue. **Two states, and there is no third:**\n\n"
+            f"    - [~] SLUG — one line      in progress\n"
+            f"    - [x] SLUG — one line      done\n\n"
+            f"Anything not being worked on belongs in `{mod}/BACKLOG.md`, not here — a queue with a\n"
+            f"\"planned\" state just becomes a second backlog. A task being worked on also has a row on\n"
+            f"the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written\n"
+            f"in one commit. Layout: `specs/work-tracking-layout.md`.\n")
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--apply", action="store_true")
+    a = ap.parse_args()
+    if not (a.dry_run or a.apply):
+        print("pick --dry-run or --apply", file=sys.stderr)
+        return 2
+
+    routed = collections.defaultdict(list)   # (module, kind) -> [(heading, body)]
+    archive = []
+    counts = collections.Counter()
+    for name in ("SPRINT.md", "BACKLOG.md"):
+        src = ROOT / name
+        if not src.exists():
+            continue
+        _pre, secs = sections(src.read_text())
+        counts[name] = len(secs)
+        for head, body in secs:
+            if "- [ ]" in body:
+                routed[(module_for(head), "BACKLOG")].append((head, body))
+            else:
+                archive.append((name, head, body))
+
+    print("sections in:", dict(counts))
+    print(f"\nrouted (still have unstarted items):")
+    for (mod, kind), rows in sorted(routed.items(), key=lambda kv: -len(kv[1])):
+        opens = sum(r[1].count("- [ ]") for r in rows)
+        print(f"  {len(rows):3} sections, {opens:4} open items  ->  {mod}/{kind}.md")
+    print(f"\narchive (nothing unstarted left): {len(archive)} sections -> SPRINT-ARCHIVE.md")
+
+    total_in = sum(counts.values())
+    total_out = sum(len(v) for v in routed.values()) + len(archive)
+    print(f"\naudit: {total_in} in, {total_out} out", "OK" if total_in == total_out else "MISMATCH")
+    if total_in != total_out:
+        return 2
+    if a.dry_run:
+        print("(dry run — nothing written)")
+        return 0
+
+    for (mod, kind), rows in routed.items():
+        d = ROOT / mod if mod != ROOT_MODULE else ROOT
+        if not d.is_dir():
+            print(f"REFUSING: {mod} is not a directory", file=sys.stderr)
+            return 2
+        body = "".join(f"\n{h}\n{b.rstrip()}\n" for h, b in rows)
+        (d / f"{kind}.md").write_text(header(kind, mod) + body)
+        print(f"wrote {mod}/{kind}.md")
+        # A module with a backlog gets an (empty) sprint queue, so the two-state rule is written
+        # down where the next person will look for it.
+        sp = d / "SPRINT.md"
+        if mod != ROOT_MODULE and not sp.exists():
+            sp.write_text(header("SPRINT", mod) + "\n_Nothing in progress._\n")
+            print(f"wrote {mod}/SPRINT.md")
+
+    arch = ROOT / "SPRINT-ARCHIVE.md"
+    arch.write_text(
+        "# Sprint archive\n\n"
+        "Sections carried over from the flat root `SPRINT.md` / `BACKLOG.md` on 2026-07-30, verbatim,\n"
+        "with **no unstarted items left in them**. Kept rather than deleted because `CHANGELOG.md`\n"
+        "records outcomes while these record the REASONING and the measurements that produced them —\n"
+        "and several of those measurements are the only evidence for why a thing is the way it is.\n\n"
+        "Live work is in the per-module `SPRINT.md` / `BACKLOG.md` files and on the root board; see\n"
+        "`specs/work-tracking-layout.md`.\n"
+        + "".join(f"\n{h}\n{b.rstrip()}\n" for _src, h, b in archive))
+    print(f"wrote SPRINT-ARCHIVE.md ({len(archive)} sections)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

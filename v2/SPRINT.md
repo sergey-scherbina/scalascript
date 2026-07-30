@@ -1,8 +1,17 @@
 # ssc 2.0 — Sprint (active task queue)
 
-Self-contained queue for the isolated **`v2/`** subproject (separate from the repo-root
-`SPRINT.md`, which serves ssc 1.0). Milestone view: [`ROADMAP.md`](ROADMAP.md). Pipeline:
-`ssc0 → ir → ssc(VM) → cpu`. Work each slice in its own worktree off `origin/main`.
+Self-contained queue for the **`v2/`** subproject. This file is the pattern the whole repo now
+follows — see [`../specs/work-tracking-layout.md`](../specs/work-tracking-layout.md): every module
+has its own sprint and backlog, and the repo-root `SPRINT.md` is a BOARD of what is in flight
+rather than a second queue.
+
+**Two states in this file, and no third:** `[~]` in progress, `[x]` done. Not-started work belongs
+in [`BACKLOG.md`](BACKLOG.md) — the `[ ]` items still below predate that rule; move one to the
+backlog (or start it as `[~]`) when you next touch its section, rather than in one sweep that would
+lose the reasoning around them.
+
+Milestone view: [`ROADMAP.md`](ROADMAP.md). Pipeline: `ssc0 → ir → ssc(VM) → cpu`. Work each slice
+in its own worktree off `origin/main`.
 
 ## Done
 

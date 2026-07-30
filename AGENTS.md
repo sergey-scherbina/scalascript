@@ -23,8 +23,22 @@ Every piece of work, always, in this order:
    planning. On 2026-07-27 two agents claimed the same work 2 minutes apart in exactly that gap,
    and a third did a task another agent already held. A claim is one cheap, revocable commit;
    planning is minutes. Full diagnosis and the guards: [`specs/claim-mutex.md`](specs/claim-mutex.md).
-2. **Then plan → SPRINT.md.** Write ALL planned slices as `[ ]` items in
-   SPRINT.md *before* coding. Then execute them one at a time, checking off.
+2. **Then plan → the MODULE's `SPRINT.md`, and put the task on the ROOT board.** Both, in
+   ONE commit, at the same moment as the claim — a board row without a claim is a lie, and
+   a claim without a board row is invisible work. Layout:
+   [`specs/work-tracking-layout.md`](specs/work-tracking-layout.md).
+
+   - **module `SPRINT.md`** (e.g. `v2/SPRINT.md`) is a QUEUE with exactly two states:
+     `[~]` in progress, `[x]` done. There is no "planned" state — anything not being
+     worked on lives in that module's `BACKLOG.md`. A queue with a planned state becomes a
+     second backlog, which is what the old flat `SPRINT.md` had turned into.
+   - **root `SPRINT.md`** is THE BOARD and the only global work file: one row per task
+     actually in flight — `| task | module | claim | state | notes |` — added before work
+     starts and removed when the claim is released. It answers *what is happening right
+     now*; the module file answers *what is queued for this module*.
+
+   Same split for backlogs: each module has its own `BACKLOG.md`, and the root one is for
+   cross-module or not-yet-scoped items only.
 3. **Work in a WORKTREE** on a `feature/<slug>` branch off `origin/main` —
    `scripts/new-worktree <slug>`. Never feature-edit the shared main checkout
    (a pre-commit hook refuses it; only `.work/` coordination commits are
@@ -190,7 +204,7 @@ MAIN=$(git worktree list | head -1 | awk '{print $1}')
 
 | Skill | When |
 |---|---|
-| [`scrumban`](.agents/plugins/scrumban/commands/scrumban.md) | **Always** — write the plan into `SPRINT.md`/`BACKLOG.md` before you execute; triage discovered work (SPRINT if urgent/critical/easy/needs-a-check, else BACKLOG). |
+| [`scrumban`](.agents/plugins/scrumban/commands/scrumban.md) | **Always** — write the plan into the MODULE's `SPRINT.md`/`BACKLOG.md` before you execute, and put the in-flight task on the root board; triage discovered work (module SPRINT if urgent/critical/easy/needs-a-check, else that module's BACKLOG). |
 | [`bugs`](.agents/plugins/bugs/commands/bugs.md) | Any bug (reported by busi in rozum, or found by you): track in `BUGS.md`, work the fix loop, reproduce in the **real harness**. |
 | [`rozum`](.agents/plugins/rozum/commands/rozum.md) | Coordinating with `busi` (and the human) in the `scalascript` rozum room — the default coordination channel. |
 | [`spec-dev`](.agents/plugins/spec-dev/commands/spec-dev.md) | Every feature / non-trivial change: `specs/<slug>.md` first, commit, implement against it. |
@@ -201,19 +215,44 @@ The skills below are **non-negotiable on this project** — their rules are inli
 so they bind even before you open the index:
 
 **scrumban rules (non-negotiable):**
-- **Write the plan before you execute it.** Before starting a task, write it into
-  `SPRINT.md` (do-soon) or `BACKLOG.md` (can-wait) with enough "what + how" that a
-  fresh agent — or you after a reboot mid-task — can finish it without you.
+- **Write the plan before you execute it**, with enough "what + how" that a fresh agent —
+  or you after a reboot mid-task — can finish it without you.
+- **Which file: the module's, not the root's.** Work on `v2/` is planned in `v2/SPRINT.md`
+  and queued in `v2/BACKLOG.md`. The ROOT `SPRINT.md` is the board of what is in flight
+  (one row per live claim); the root `BACKLOG.md` is for cross-module or unscoped items
+  only. Layout and the exact columns:
+  [`specs/work-tracking-layout.md`](specs/work-tracking-layout.md).
+- **Two states in a module sprint, not three:** `[~]` in progress, `[x]` done. Not-started
+  work is a BACKLOG item, not a sprint item.
 - Queue follow-ups/deferrals the moment you decide them; never carry them only in
   context. A reboot between "decide" and "finish" orphans unrecorded work.
-- **Triage a problem the moment you find it:** SPRINT if urgent/critical/easy/just-
-  needs-a-check; BACKLOG if not-urgent + not-critical + hard/unclear-but-maybe-useful.
+- **Triage a problem the moment you find it:** the module's SPRINT if
+  urgent/critical/easy/just-needs-a-check; that module's BACKLOG if not-urgent +
+  not-critical + hard/unclear-but-maybe-useful.
 
 **bugs rules (non-negotiable):**
-- Every bug — reported by busi in the rozum room, or found by you — gets a `BUGS.md`
-  entry, and it **must carry the machine-readable header** defined in
-  [`specs/bugs-index.md`](specs/bugs-index.md). `tests/e2e/bugs-index-gate.sh` refuses an
-  entry without one:
+- **A bug goes in the BUGS.md of the module that owns the FIX** — not the root one, not
+  where the symptom shows, not where its gate lives. Layout and the routing table:
+  [`specs/work-tracking-layout.md`](specs/work-tracking-layout.md). Short version, keyed on
+  the entry's own `lane:`:
+
+  | `lane:` | file |
+  |---|---|
+  | `int` | `v1/runtime/backend/interpreter/BUGS.md` |
+  | `js` | `v1/runtime/backend/js/BUGS.md` |
+  | `jvm` | `v1/runtime/backend/jvm/BUGS.md` |
+  | `native` · `v2-jvm` · `v2-rust` | `v2/BUGS.md` |
+  | `apparatus` (+`area: conformance` / `build`) | `tests/BUGS.md` (`tests/conformance/` / `scripts/`) |
+  | `multi` · `n/a` | root `BUGS.md` — genuinely more than one implementation, NOT a leftovers bin |
+
+  The root file is for defects no single module owns. Putting a module's bug there is the
+  thing this split exists to stop: before it, one 630-entry file meant every agent edited
+  the same path (hence `BUGS.md` being declared SHARED, i.e. the overlap guard cannot help
+  you) and a module's own state was unreadable from inside the module.
+- Every bug — reported by busi in the rozum room, or found by you — gets an entry, and it
+  **must carry the machine-readable header** defined in
+  [`specs/bugs-index.md`](specs/bugs-index.md). `tests/e2e/bugs-index-gate.sh` walks EVERY
+  `BUGS.md` and refuses an entry without one:
 
   ```markdown
   ## <slug> — <one line>
@@ -232,7 +271,12 @@ so they bind even before you open the index:
   **108 of 614 entries with no status at all**). Closed is **`fixed`**; "the reporter has
   not confirmed yet" is `confirmed: no`, which is a different question from whether the
   defect is still present.
-- **Do not grep the prose for status — run `scripts/bugs-report`.** Hand-rolled queries
+- **Do not widen the `lane:` / `area:` enums to fit an entry.** Both were caught within an
+  hour of the split: a sibling wrote `lane: v2` (the enum's name for that lane is `native`)
+  and `area: tooling` (it is `cli`). Fix the entry. Two names for one thing is exactly the
+  `FIXED`/`DONE`/`RESOLVED` drift the header was introduced to end.
+- **Do not grep the prose for status — run `scripts/bugs-report`** (it walks every file and
+  takes `--module`).** Hand-rolled queries
   over prose disagreed with each other; on 2026-07-28 one silently omitted 108 entries
   and missed every `DONE` while answering a direct question about remaining work.
   `scripts/bugs-report --status open --lane native`, `--v2`, `--no-gate`.

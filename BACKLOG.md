@@ -1,189 +1,4582 @@
-# Backlog
+# . — backlog
 
-Open and planned milestones — what still needs to be done.
-Active pending work is in [SPRINT.md](SPRINT.md); ownership is authoritative only
-through `.work/active/*.claim` on `origin/main`.
-Completed work is in [CHANGELOG.md](CHANGELOG.md).
+Can-wait and not-yet-started work whose code lives in `./`. When an item is
+picked up it moves to `./SPRINT.md` as `[~]` and gets a row on the root board —
+in the same commit as the claim. Layout: `specs/work-tracking-layout.md`.
 
-## v1-subtraction-endgame — retire v1 by measurement, not by feel (OWNER CALL)
+Sections below were carried over whole from the flat root `SPRINT.md`/`BACKLOG.md`,
+verbatim, on 2026-07-30.
 
-Parked here rather than in SPRINT because the *order* of subtraction is Sergiy's decision, not an
-agent's. What an agent can contribute is the measurement, and it is already done.
+## 2026-07-27 — Sergiy's decisions, and the two arcs they unblock
 
-**v1 is 302 210 lines / 1428 files; v2 is 70 844 / 304 — 4.3×.** The reason this is worth
-re-opening now: the delegation counter has been overstating the blocker for months. Full-corpus
-census on 2026-07-28 (`ssc info --front-report`, `d684e6897`), 347 files:
+Answered this session: **portable-capsule-integrity → (c)**, **vector 26 D1 → a distinct
+`TooLateToCancel`**, **D4 → cancellation checked first**, **AGENTS.md §4c → relaxed**. D2/D3/D5 were
+not named; this agent's recommendations were taken and are marked ASSUMED in
+`specs/durable-cancellation-open-decisions.md` — cheap to revisit before the oracle text freezes,
+not after. §4c is already relaxed (three-level evidence ladder; `cancelled` stays RED and the claim
+must say WHICH level it has). Remaining work, in the order the decisions imply:
 
-```text
- 95  F            F compiled it
-213  BOTH-UNBOUND both fronts emit the same unbound global — NOT F's fault
- 33  GAP          F's own coverage hole
-  6  ERROR        5 parse sentinels, 1 malformed fence
-```
+- [x] **F1 — DONE** (`f19499d65..173cba71e`). Envelope v1→v2 with the host lane's HMAC seal +
+      audience/tenant/budget; gate `portable-capsule.sh` 36/36 including the pair that makes it
+      mean something — the same frame edit REJECTED under a key and still RUNNING unkeyed.
+      Original scope: Give the VM Portable capsule the host lane's
+      seal: HMAC signature + audience / tenant / quota, envelope v1 → v2. Host side is
+      `v2/host/scala/control/.../DurableCapsule.scala`; VM side `v2/src/Capsule.scala` (today: v1,
+      code-only `resume-digest`). **Keep both existing guards** — E2's `validateFrame` and E3's
+      Fx-closed run check are orthogonal and the seal replaces neither. The committed fixture
+      `v2/conformance/fixtures/fx-open.portable` is pinned to the current envelope, so re-freeze or
+      version-pin it in the same commit. Gate: `v2/conformance/portable-capsule.sh` (25 lines today)
+      plus a new tamper case — a capsule whose FRAME was edited must now be REJECTED, which is the
+      thing (c) buys and the current 111-vs-17 line documents as accepted.
+- [x] **F2 — DONE** (`4a1ae5ca6..33bd98b29`), durable 24/26 → 25/26. Four slices; Scala 165/165
+      (incl. 200 rounds of two-thread contention where the loser must NAME the winner), JS 71/71,
+      vectors 29/29. Flip on `scala-explicit` only — the JS lane is not a qualified conformance
+      lane, and claiming it would have been bending. Original scope: The transition table is decided (see the spec's
+      DECIDED section). Host-only (`structured`) on both lanes, oracle demonstrating
+      cancel-then-resume → `Cancelled`, resume-then-cancel → **`TooLateToCancel`**,
+      reusable-cancel-blocks-run → `Cancelled`, idempotent-cancel → `Cancelled`. Two new §13 rows
+      (`Cancelled`, `TooLateToCancel`) + their boundary projections; cancellation checked FIRST in
+      the §11.1 admission order. Takes durable to **25/26**. ⚠️ Do not flip by bending the
+      realization to the pending's wording — that is the failure mode this arc was warned about.
+- [x] **F3 — DONE** (`d0e5a6bf6..3814f0b7c`), durable **26/26, pending directory EMPTY**. A
+      non-JVM admitter (`v2/host/js/portable-admitter`) admits AND runs a JVM-frozen capsule; the
+      gate freezes FRESH bytes each run rather than trusting a committed fixture, and the lane
+      SKIPS loudly when it cannot. int64 parity including two's-complement wrap. Original scope: Second admitting backend, built against the SEALED format.
+      Scouting notes are in Batch E's E4 item (the JS control host is the ExactArtifact lane, NOT a
+      candidate; `Int` is 64-bit so a JS admitter needs BigInt). Building it before F1 means writing
+      it twice.
 
-So **87 % of delegations are not an F gap at all**, and one extern — `jvmVfsOpen` — is 115 of the
-213. Accepting *declared* externs in `RunNativeV2.validateNoReader` would move F's measured breadth
-**28 % → ~90 % without touching F** (that change is its own SPRINT item, `f-accept-declared-externs`,
-and it alters the F4a fallback contract — also an owner call).
+**Batch E — vector 15 (Portable CodeMode) FULL ARC — Sergiy chose "всё, включая второй бэкенд"
+(2026-07-27).** This is the only path that actually flips vector 15 and takes durable to 25/26;
+it is a multi-session arc, not a slice. Staging is already fixed by `specs/portable-save-region.md`
+§6 — follow it, do not re-plan it. Slices 1 + 1a are LANDED (`SaveRegion.reify` explicit slots;
+`reifyAuto` free-outer-variable liveness + depth-aware de-Bruijn rewrite). Remaining, in order —
+each is independently landable and each must keep `v2/conformance/portable-capsule.sh` PASS:
 
-**The honest size of the remaining blocker is 33 files, not 246.** Their causes are already grouped
-in BUGS `f-validateNoReader-rejects-plugin-externs`: `q`×6, `handle`×6, `html`×4, `summon`×3,
-`effect`×3, `x`×3, then singles.
+- [x] **E1 — DONE (slice 2, global closure).** `SaveRegion.globalsOf` + `closeGlobals` compute the
+      transitive closure over the source `defs`, returned in the **source program's own relative
+      order** (that order is what made the program valid; re-sorting could break a mutual
+      reference), with a name marked reached BEFORE its body is scanned so recursion terminates.
+      A root naming no def is a LOUD error. New `reifyAuto(region, defs)` / `reify(slots, lam, defs)`
+      overloads (the 1-arg forms keep slice-1 behaviour) + `ssc freeze-region-global`.
+      **Gate `v2/conformance/portable-capsule.sh` PASS, 14/14** — including the three new lines that
+      make it mean something: `quad`+`dbl` travel transitively, `unused` does NOT (selects, not
+      dumps), fresh-process runs give 17/9, and deleting a carried def from the bytes is **rejected
+      at admission** rather than run with a missing global. Original scope: Today `reifyAuto` returns `Program(Nil, entry)`, so a region
+      body that calls a user `def` produces an unbound `Global` and `Reader.validate` fail-closes.
+      Collect the `Term.Global` names reachable from the rewritten body, take their **transitive**
+      closure over the source program's `defs`, and emit them as `resume.defs` in dependency order.
+      Watch: a global whose body is itself a `Lam` capturing nothing is fine (defs are closed by
+      construction); a *missing* name must stay a loud error, never a silent drop — that is the
+      fail-closed property `Reader.validate` exists to give. Verify: extend
+      `v2/conformance/portable-capsule.sh` with a region calling a def that calls another def,
+      frozen in one JVM and run in a second (the existing 42/45 + tamper-rejected cases stay green).
+- [x] **E2 — DONE for the nominal half; the byte-format alignment is split out (see below).**
+      Slice 3 has to answer "what may a frame contain" before it can allow non-scalar slots — and
+      answering it uncovered a fail-open: `Capsule.decode` validated the resume program and its
+      digest but took the **frame** as an arbitrary `Term` and spliced it into the driver.
+      **Measured (BUGS `portable-capsule-frame-unvalidated`):** a frame carrying `(global dbl)` was
+      admitted and injected a real closure into the resume (E1 now carries the reached defs, so the
+      target exists); `(local 0)` reached `Compiler.compile` and died with
+      `ArrayIndexOutOfBoundsException` instead of a diagnostic. Fixed with `Capsule.validateFrame`
+      — a frame is DATA: literals and constructors recursively, everything else rejected naming the
+      node (`Lam` too: a lambda is a value at runtime but *code* in the bytes). That definition is
+      exactly what admits nominal slots, so the guard and the feature are the same change:
+      `frameOfTerms` + `ssc freeze-region-nominal` carry `Pair(3,4)` as a slot and the resume
+      destructures it with an ordinary `Match`.
+      **Gates:** `portable-capsule.sh` **21/21 PASS** — including `data-only frame edit still runs`
+      (111), which is what keeps the three rejection lines honest: without it a blanket "any frame
+      edit fails" would pass them for the wrong reason. Semantic **248/248 GREEN, MISMATCH 0**.
+      **NOT done, split out on purpose:** the §9.1/§9.3 **byte-format alignment** with the host
+      `DurableCodec` (cross-lane frame identity, not just cross-process). It ran into a
+      format-level question that is the owner's, not a slice's — the VM capsule has no integrity
+      seal over its data half while the host lane has HMAC format v3 — now queued as
+      `BACKLOG.md portable-capsule-integrity` with three options and a recommendation. **E4's N→M
+      matrix is what makes that difference observable, so decide it before E4.** Original scope: Non-scalar frame slots through the §9.1/§9.3 codecs;
+      align the VM frame with the host `DurableCodec` byte format so the frame is cross-lane
+      identical, not merely cross-process. This is what makes E4's N→M meaningful.
+- [x] **E3 — DONE, and the queued premise was wrong.** This slice was queued as "needs a local CPS
+      of the region"; **measured, it needed none.** An Fx-CLOSED region (perform AND handler inside)
+      already reified and ran machine-less — `50` in a fresh process, with the frame slot read from
+      *inside* the handler lambda. The effect prims are ordinary `Prim`s (`Runtime.scala:1231` →
+      `PortableEffects.eval`) and a plain `Lam(1,…)` handler is always `Matched`, so the existing
+      pass covers it. **Writing the CPS pass first would have been weeks of work for a problem that
+      did not exist** — the measurement cost ten minutes.
+      What the measurement DID find is the opposite defect: the **Fx-OPEN** case was fail-open — a
+      region performing with no handler froze happily and the resume returned
+      `Op("E.get", 8, <closure>)`, i.e. a LIVE continuation handed to a runner with no machine and
+      no handlers. Refused now in two places: `assertFxClosed` at reify time (a `handle` protects
+      its computation only, not its own handler body; a call to a performing def counts at the call
+      site) and `Capsule.run` at run time for foreign capsules — the latter pinned by a committed
+      fixture `v2/conformance/fixtures/fx-open.portable` frozen by the pre-guard build, because the
+      current tool can no longer produce one. Gate `portable-capsule.sh` **25/25 PASS**.
+      Out of scope (unchanged): an effect whose handler is OUTSIDE the region = whole-program CPS.
+      Original scope: A region whose body performs effects handled INSIDE the
+      region (`Fx` closed, §11.3). Needs a local CPS of the region only — NOT whole-program CPS
+      (explicit non-goal in the spec §7). The VM's runtime continuation is a live `ClosV`, which
+      §10.2 forbids serializing; that is why the pass is syntactic.
+- [ ] **E4 — slice 5, second admitting backend + the flip.** ⚠️ **Scouted 2026-07-27 — read this
+      before picking a target.** The JS control host (`v2/host/js/control`) is **not** a candidate:
+      its README states it "does not depend on CoreIR, a compiler, a backend, or a runtime" — it is
+      the **ExactArtifact** lane (the machine stays per-host; only frame/id/ABI travel). Portable is
+      the opposite: the resume PROGRAM travels, so a second *admitting* backend must actually be a
+      small CoreIR admitter. Concretely it needs, all matching the JVM one byte-for-byte:
+      (a) a reader for the canonical S-expr envelope + program; (b) `validate`'s scope rules
+      (locals in range; a global is a def of the same program or an `@`-cell — E1 relies on this);
+      (c) the SHA-256 resume digest with the SAME domain separator `ssc-portable-capsule-v1\0`;
+      (d) `validateFrame` (E2) and the Fx-closed run guard (E3) — a second backend that omits these
+      re-opens the holes on its own lane; (e) an evaluator for the node set a resume actually uses
+      (`Lit/Local/Global/Lam/App/Prim/Let/LetRec/If/Ctor/Match/Seq`) plus the effect prims.
+      **The trap that already cost this project a revert: `Int` is 64-bit.** A JS admitter must use
+      `BigInt`, not `number`, or `2^31`/`max64`/`2^53+1` diverge — exactly the int64 class that
+      reverted the bytecode-default switch once (`specs/v2-f5c-typed-bytecode.md` §8).
+      **Settle `BACKLOG.md portable-capsule-integrity` FIRST** — the N→M matrix freezes goldens on
+      whatever a capsule is promised to guarantee, and the two lanes currently disagree.
+      Original scope: A non-JVM runtime that admits and runs
+      the Portable capsule, giving §14.4 its N→M cross product. **Only after this does vector 15
+      flip** — and only if the realization matches the pending's stated mechanism. ⚠️ Do NOT flip by
+      bending the realization to the pending text; that is the BENDING failure mode the durable arc
+      has already been warned about once.
 
-Not proposing an order here. Proposing that the decision be taken against 33, which is a different
-conversation from 246.
+**Batch D — DONE as a decision, 2026-07-27.** Sergiy answered both:
+- **vec 26** — did NOT ratify the proposal wholesale; asked to see the disputed points first.
+  Delivered `specs/durable-cancellation-open-decisions.md` (`6f3015d50`): five forks with their
+  downstream cost and a recommendation each — D1 resume-then-cancel reported as `AlreadyResumed`
+  (collapses two facts, in tension with §13 non-collapsibility), D2 in-flight runs not stopped,
+  D3 `cancellationStatus` not in the capsule, D4 the unspecified expired-AND-cancelled tie,
+  D5 naming/ABI. **Vector 26 stays `pending-spec` until he answers those five.** Do not implement.
+- **vec 15** — chose the FULL arc including the second backend → queued as Batch E above.
 
-## nested-runner-exit-status-audit — does a swallowed status hide a fail-open?
+**Batch E — `corpus-contract-shard-fix` (the broken measuring apparatus; claimed 2026-07-27).**
+Not in Batches A-D and not on anybody's board: **the `Corpus Contract` nightly has NEVER produced a
+green verdict.** Added `48110001c` (2026-07-14) as *"the always-on differential gate for the v2
+migration"* / *"strangler-fig safety net"*; since then **13 runs = 3 `failure` (07-15..07-17) + 10
+`cancelled` (07-18..07-27), 0 `success`.** The `cancelled` ones are **not** hangs — they are the
+`timeout-minutes: 60` wall: run `30244286812` (today, `56d7d705f`) logged `… 350/485` at
+`07:53:40` and was killed at `07:55:17`. Measured rate from that log: 25 cases per ~2.5 min early,
+per ~7.2 min late (≈9.6 s/case mean, ≈17 s/case in the tail) ⇒ the full 485 needs **~95-100 min**,
+not the *"~415 cases … ~25 min"* the workflow header still claims. Two compounding causes: the
+corpus grew (383 → 485 cases) and the per-case cost grew (F-default is 2-4× slower per Batch B).
 
-Deferred from `v2-cli-error-exit-code` (2026-07-28) with its reasoning, not dropped.
+Why it went unnoticed for 12 days is the point: **GitHub reports a job timeout as `cancelled`, not
+`failure`** — so `gh run list` reads as "someone cancelled it", the repo's own red-CI radar ignores
+it, and the whole F4 front-flip therefore landed *without* its main differential net. We caught
+those regressions by hand instead (`case-object`, multi-file order, md-interpolator) — exactly the
+work this gate exists to do. This is the recorded `measurement-must-compare-not-prejudge` failure
+mode in its purest form: the apparatus that establishes trust was itself untested and looked benign.
 
-The invariant "if the run prints `ssc: <error>` the exit code is non-zero" now holds on ten
-probed shapes and is gated in `tests/e2e/v2-error-diagnostic.sh`. What is NOT audited is the
-*nested* runner paths, which is where a violation would most plausibly hide:
+- [x] **E1 — DONE: `--shard i/N` in `tests/conformance/contract.sc`.** Round-robin (`idx % N == i`) over
+      the already-sorted/deduped `cases` list, NOT contiguous blocks: the corpus is name-sorted and
+      the slow cases cluster, so blocks would give wildly uneven shards. The baseline compare is
+      **already subset-safe** (`inScope` filters the baseline down to `ranNames`), so a shard gates
+      honestly against its own slice with no other change. **Guard: `--update-baseline` must REFUSE
+      to run under `--shard`** — it rewrites the whole file from `current`, so a sharded update would
+      silently truncate the baseline to 1/N of it. Exit 2 with a message.
+- [x] **E2 — DONE: `corpus-contract.yml` → 4-way matrix.** `strategy: matrix: shard: [0,1,2,3]` +
+      `fail-fast: false`, each job `scala-cli tests/conformance/contract.sc --shard ${{ }}/4`.
+      Budget per shard ≈ 6 min setup + ~24 min cases ≈ 30 min, inside the (kept) 60-min guard.
+      Update the stale header comment with the measured numbers instead of the 2026-07-14 estimate.
+- [x] **E3 — DONE: prove the partition locally before pushing.** Assert the N shards are disjoint and
+      their union is exactly the unsharded case list (a shard bug silently shrinks coverage while
+      every shard reports GREEN — the same class of lie as the timeout). Cheap check: run each shard
+      with `--lanes int --only '<small glob>'`-scale sampling and compare name sets.
+- [x] **E4 (original plan — outcome recorded in the E4 entry immediately below).** Prediction held:
+      the gate came back RED, and both cases named here showed up in it. Original text:
+      `workflow_dispatch` on the landed SHA.
+      The gate will almost certainly come back RED — the last run that *finished* (07-17,
+      `29559215512`) reported 2 regressions + 2 improvements, all baseline drift on
+      `rozum-agent-schema-derived` (SKIP → runnable, then FAIL on js+v2) and `dataset-from-generator`
+      (js now PASS), and 10 more days of corpus churn have landed since. Triage each entry as
+      REGRESSION (fix or file in `BUGS.md`) vs closed-gap (record via `--update-baseline`, unsharded).
+      **Do not `--update-baseline` a regression away.**
+- [x] **E4 — DONE: first verdict obtained and triaged.** Run `30281019432` (on `e8214a277`) is the
+      first time this gate ever finished: 4 shards, **20-23 min each** against the 60-min guard, all
+      `failure` — i.e. an actual verdict instead of a `cancelled`. Totals: **PASS 879/968 cells,
+      78 SKIP cases, 14 non-PASS-not-in-baseline, 2 improvements.** Every one of the 14 was triaged
+      by hand in the real harness (never from the gate's own label):
 
-- the `--bytecode`/ASM **link-time fallback to the VM** (`RunNativeV2`, `noteBytecodeFallback`),
-- the **F-delegation re-run** with the default front (`noteFNestedBytecodeVm`, `fFailure`).
-
-Both catch a `Throwable` from an inner run, note it, and continue. If an inner run's failure is
-recorded as a note and the outer path then completes normally, the process can print a diagnostic
-and still exit 0 — the exact shape reported against `examples/rozum-agent-schema-derived.ssc`
-before `4f5ecf261` removed its trigger.
-
-**Why deferred rather than started:** there is no live symptom to anchor it, so it is an audit of
-two code paths plus constructing a program that fails only in the inner lane — real work, and
-speculative. **What would make it urgent:** any new sighting of a printed `ssc: …` with exit 0, or
-a CI step that passes while its log shows a diagnostic. The gate above is what would surface that.
-
-
-## Open work — what's left (2026-06-15)
-
-This backlog was tidied 2026-06-15: completed milestones moved to `CHANGELOG.md` + git
-history; only sections with open `[ ]` items remain below. The full detailed history of the
-55 archived milestones is recoverable from git (`git log -p BACKLOG.md`).
-
-Status hygiene (2026-06-23): open `[ ]` rows below are intentionally still open, but many are
-explicitly `BLOCKED` or `DEFERRED` product/external-decision items. History-only / wontfix notes
-are plain bullets without checkboxes so agents do not claim them as build work.
-
-## build/CI RAM + speed — residuals from `build-ram-budget-and-speed` (2026-07-28)
-
-Landed there: `.jvmopts` periodic GC (−1145 MB per idle sbt server, measured), `scripts/build-guard`
-host-wide admission, `scripts/build-ram-report`, `kill-stale-builders --idle`, 4-way conformance
-sharding in CI (37.7 → ~13 min), and gates for both. Full measurements:
-[`specs/build-ram-budget.md`](specs/build-ram-budget.md).
-
-Each item below was deliberately NOT done there — it sits in another agent's live claim, or is its
-own arc. None is speculative: every one has a measured number attached.
-
-- [ ] **`negtc-override-rows-are-a-treadmill`** — the negative-toolchain gate is now red for
-      BOOKKEEPING, not for regressions, and each round costs a ~46-minute run. Every failure unwound
-      on 2026-07-28 was the gate's hand-maintained data lagging a product that got BETTER:
-
-      | run | sentinel | run-ok | strict-fail | gate said |
-      |---|---|---|---|---|
-      | 30375095267 | 24 | 80 | 122 | `stale override: wasm-scalascript.ssc` |
-      | 30380264986 | 24 | 90 | 112 | (that row removed) |
-      | 30384832575 | 21 | 93 | 109 | `stale override: wasm-http.ssc` |
-
-      `run-ok` climbed 80 → 93 as front fixes landed (`9f6eb6e1f` for/yield layout, `3e3024991`
-      colon trailing lambda), and each improvement stranded another row in
-      `tests/fixtures/v21-sentinel-taxonomy/overrides.tsv`. Removing them one per CI cycle is a race
-      against a corpus that is improving faster than the loop closes.
-
-      BUGS.md `negtc-gate-self-maintaining` already made the count side self-maintaining by
-      auto-classifying instead of freezing exact numbers; the override rows are the part that stayed
-      manual. The same treatment applies: a row that no longer applies means a case IMPROVED, which
-      is never a reason to fail a release gate. Suggested shape — WARN on a stale override and keep
-      failing on an *unclassified* sentinel (the direction that actually protects the release), so
-      the gate reports drift without blocking on it.
-
-      NOT done here on purpose: that is a policy change to someone else's release gate, and the
-      honest call is the owner's, not a passing agent's.
-- [~] **`negtc-gate-shard-reduce`** — **gate side DONE 2026-07-30; only the `ci.yml` wiring is left
-      (that file is in another live claim).**
-
-      The gate now has the two modes the split needs: `--sweeps-only --shard i/N --native-out A
-      --parity-out B` (map: only the sweeps over one slice) and `--reduce --native-in A --parity-in B`
-      (skips the sweeps, runs taxonomy + freeze + assertions + metrics once on merged reports).
-      `scripts/negtc-merge-reports` merges the shards with one header, a refusal on a duplicated case,
-      and sorted rows so the merged bytes do not depend on which shard finished first.
-
-      `--strict` is deliberately NOT passed in map mode: a shard's strict verdict would be about a
-      slice. Strictness belongs to the merged whole.
-
-      Proven, not asserted — `tests/e2e/negtc-mapreduce-gate.sh`: map+merge over N shards is
-      byte-identical to one unsharded sweep (9 real cases), plus the merge invariants both ways.
-
-      ⚠️ **That gate caught itself passing vacuously on its first run**: "0 rows, byte-identical",
-      exit 0, because `bc-parity-sweep`'s `--only` is a shell `case` pattern whose `|`-alternation form
-      selects NOTHING. It now refuses to pass when the comparison covers fewer than N rows. Remember
-      it when writing the workflow — **a shard that selects nothing is green.**
-
-      REMAINING: an N-way matrix running `--sweeps-only` + artifact upload, then one `needs:` job that
-      downloads, merges and runs `--reduce`. Expected ~58 -> ~15 min.
-- [ ] **`ssc-fork-heap-entitlement`** — `bin/ssc` (launcher template in `build.sbt`) passes `-Xss64m`
-      and **no `-Xmx`**, so every fork takes the JVM's ergonomic ¼-of-RAM default = **9,216 MB** here,
-      and a contract run makes ~1,669 of them. MEASURED 2026-07-28: six live at once; one resident at
-      **8,090 MB**, 22 % of the host, while the machine was swapping.
-
-      **Do NOT just put a small `-Xmx` in the template** — that was this item's first framing and it
-      is wrong. `bin/ssc` is the PRODUCT launcher; a fixed low ceiling there is a product decision
-      that would OOM a legitimately large user program, and it would be verified against a corpus
-      that is not representative of user workloads. The harness path is already capped: both
-      `scripts/conformance` (4g) and `scripts/build-guard` (2g) cap forks through `JDK_JAVA_OPTIONS`,
-      which these forks honour *precisely because* they set no `-Xmx` of their own — adding one to the
-      template would BREAK that mechanism.
-
-      What is actually worth doing, in order: (1) find out what the 8,090 MB fork was — one fork at
-      8 GB among five at ~250 MB is an outlier, and if it is a runaway that is a bug, not a budget;
-      (2) measure real peak RSS across the corpus (`scripts/build-ram-report --watch` alongside a
-      full run) so any ceiling is chosen from data; (3) only then decide between an
-      `-XX:MaxRAMPercentage` default, an opt-in `SSC_XMX`, or leaving the product default alone and
-      relying on the harness caps that already exist.
-- [~] **`test-fork-budget-has-no-host-wide-coordination`** — **partially measured 2026-07-30; the
-      default was deliberately NOT changed.**
-
-      `build.sbt` declares `Tags.limit(Tags.Test, 4)` × `-Xmx2g` = 8 GB per worktree. Measured what a
-      forked test JVM actually uses, by diffing the JVM set during a forced `core/test` run:
-
-      | | peak RSS |
+      | entry | verdict |
       |---|---|
-      | forked test JVMs (`core`, 6 observed) | **126-203 MB** |
-      | declared per fork | 2048 MB |
+      | `head-field-effect-shadow v2 FAIL` | **REAL correctness regression** → fixed `c3841d01e` (see BUGS `bytecode-opanf-purity-registry-marks-every-def-pure`) |
+      | 7× `scljet-* v2 TIMEOUT` | **NOT correctness** — F compile cost: `scljet-crud` 28.2 s under F vs 4.16 s legacy, identical output, against a 30 s budget → BUGS `f-front-compile-cost-7x-on-scljet` + lane budget split `afa5981a2` |
+      | `scljet-write-deep-btree js`, `scljet-balance-delete-merge int` TIMEOUT | CI contention (4.7 s / 13.0 s locally, rc 0) → same budget split |
+      | `int-width js DIVERGE` | **NOT a regression** — a DECLARED `known-red:` the contract could not see → `afa5981a2` teaches it the front-matter `run.sc` already honoured |
+      | `coroutine-demo * SKIP` | **REAL bug** (`Import cycle detected: coroutine.ssc → coroutine.ssc`) AND a gate artifact: the case was added 07-21, after the 07-17 freeze, so "was PASS in the baseline" was false → BUGS `coroutine-demo-import-cycle-on-interpreter` |
+      | `rozum-agent-schema-derived js+v2 FAIL` | two real lane gaps on a newly-runnable case → BUGS `rozum-agent-schema-derived-js-and-v2-gaps` |
+      | `dataset-from-generator js` (improvement) | genuine closed gap → belongs in the baseline |
+      | `rozum-agent-schema-derived *` (improvement) | case became runnable on int |
 
-      ~10x over-declared *for that project*. **Not acted on, on purpose:** a cap has to survive the
-      TAIL, not the median, and `core` is among the lightest suites. The heavy ones are the
-      cross-backend differential suites (`CrossBackendPropertyTest` and siblings), which spawn
-      `scala-cli` children per generated program — those are what must be measured before the default
-      moves. This is the same shape as `ssc-fork-heap-entitlement` (median 163 MB, tail 4,650 MB) and
-      as `build-guard`'s own guessed 2g, which a single tail case proved too small.
+      **Baseline deliberately NOT updated yet.** Three of these are real bugs; recording them would
+      be exactly the "update-baseline a regression away" this task exists to prevent. The baseline
+      update comes after the next run, and only for the entries proven to be documented state
+      (`int-width js KNOWN-RED`, `dataset-from-generator js`).
 
-      **Two traps found while measuring, both worth knowing before repeating it:**
-      1. **sbt SKIPS up-to-date tests.** Repeated `core/test` invocations were no-ops, so the
-         observation window was empty and it looked as though `Test / fork := true` did not fork.
-         `show core/Test/fork` says `true`; the forks are simply absent when nothing needs running.
-         Force a real run (touch a test source) before sampling.
-      2. `grep ForkMain` **matches your own command line.** The pattern appears in the invoking
-         shell's argv, so it reports 1-2 MB "JVMs" that are your own `zsh -c`. Build the literal at
-         runtime, or diff the JVM pid set instead — which is what finally worked.
+- [x] **E6 — DONE, and the decision is NOT to update the baseline.** Final run `30285845478` (on
+      `30f9a2f03`, all fixes live, corpus now 487): **shard 2/4 reports `✓ contract GREEN`** — the
+      first green shard this gate has ever produced — and the whole matrix is down from **14
+      non-PASS to 5**, every one accounted for:
 
-      Host-wide coordination across worktrees (the item's actual title) remains unaddressed and is the
-      hard part: `Tags.limit` bounds forks within ONE sbt server, and N servers do not see each other.
-- [ ] **saved-continuation-once-policy** — add an explicitly selected one-shot workflow mode
-      with a linearizable cross-machine claim. The mode must be chosen before any reusable run
-      (or use a distinct saved type); crash after claim is terminal `Unknown`, and the guarantee
-      is at-most-one body start, never exactly-once external effects.
-- [ ] **saved-continuation-version-migration** — opt-in, audited migrations between compatible
-      CoreIR/control ABI, frame, codec, and plugin versions. Base behavior rejects a mismatch and
-      retains/loads the exact artifact when the payload is not a fully portable capsule.
-- [ ] **saved-continuation-durable-state-graph** — extend the baseline immutable/codec-safe
-      captured graph with richer explicit alias-preserving codecs for selected cyclic mutable
-      state. The base `DurableRef` contract remains available for explicit resolvers; neither
-      mechanism infers serialization of arbitrary host objects or live resources.
-- [ ] **saved-continuation-effect-delivery** — optional idempotency keys, outcome persistence,
-      transactional outbox/inbox, and effect journals for applications that need stronger delivery
-      protocols. These remain application/runtime protocols, not a claim that continuation resume
-      itself makes external effects exactly once.
+      | remaining entry | what it is |
+      |---|---|
+      | `coroutine-demo * SKIP` | **open bug** `coroutine-demo-import-cycle-on-interpreter` |
+      | `rozum-agent-schema-derived js FAIL` + `v2 FAIL` | **open bug** `rozum-agent-schema-derived-js-and-v2-gaps` |
+      | `int-width js KNOWN-RED` | declared red, now correctly bucketed (was reported as a regression before `afa5981a2`) |
+      | `scljet-jdbc v2 TIMEOUT` | the one survivor of the 9 timeouts — the largest scljet case still exceeds even the 90 s lane budget under F (see `f-front-compile-cost-7x-on-scljet`, and it also carries `scljet-jdbc-facade-bytecode-class-too-large`) |
+      | *(improvements)* `dataset-from-generator js`, `rozum-agent-schema-derived *` | genuine closed gap / case became runnable |
+
+      **Why no `--update-baseline`.** Two of the five are open bugs, and `--update-baseline` is
+      all-or-nothing — it rewrites the whole matrix from the current run, so there is no way to
+      record the documented rows without also recording the bugs. **A gate that is red because two
+      filed bugs are open is a gate working correctly.** The way to green here is to fix them, not to
+      re-freeze the baseline around them. Re-baseline only when `coroutine-demo` and
+      `rozum-agent-schema-derived` are fixed (or the latter is skipped on *non-hermetic* grounds,
+      which is a judgement about the case, not about the gate) — and do it UNSHARDED.
+
+      Confirmed in CI on the full corpus along the way: `head-field-effect-shadow v2 FAIL` is gone
+      after `c3841d01e` (run `30282931604`), and the timeout set is provably contention-flaky — run 3
+      surfaced `scljet-write-index-deep js TIMEOUT`, which run 2 did not, on identical code.
+
+- [x] **E7 — DONE: paired freeze distinguishes NEW from REGRESSION (found while triaging E4).** The
+      baseline records only NON-PASS entries, so a case added after the freeze that is non-PASS looks
+      identical to a case that regressed — `coroutine-demo` was reported as a regression on exactly
+      that confusion. `contract-roster.tsv` now freezes every name beside the non-PASS rows and binds
+      both halves with canonical SHA-256, so NEW, regression, improvement, status change, and removal
+      are evidence-backed classifications. **Landed 2026-07-27 as
+      `corpus-contract-baseline-roster`: implementation `fc5f07f28`, operator docs
+      `2a796b258`.** Plan/spec:
+      `specs/corpus-contract-baseline-roster.md`.
+      - [x] **E7.1 — freeze the selected-case universe beside the failure rows.** Add sorted,
+            unique `tests/conformance/contract-roster.tsv`, paired by SHA-256 to both the
+            canonical-LF baseline serialization and its own canonical-LF roster body. Seed it
+            from the commit that produced the current baseline, not from current HEAD — otherwise
+            the motivating post-freeze `coroutine-demo` would be mislabeled REGRESSION again.
+      - [x] **E7.2 — classify from evidence, not absence.** A non-PASS for a rostered case that has
+            no baseline row is REGRESSED; a case absent from the roster is NEW whether it currently
+            passes or fails. Any unfiltered run, including a production shard, reports
+            removed/stale names from the complete pre-shard `selected` universe; only `--only`
+            suppresses global removal inference.
+      - [x] **E7.3 — close the other partial-update holes found during the read.** Reject
+            `--update-baseline` under `--only`, `--shard`, `--list`, or a non-canonical lane set
+            (BUGS `corpus-baseline-update-scoped-run-truncates`). A full update rewrites the
+            baseline+roster pair and its digest together.
+      - [x] **E7.4 — prove the classifier fails loudly.** A lightweight self-test must distinguish a
+            synthetic NEW red case from an existing-case regression, report a new PASS case so the
+            roster cannot silently age, retain true improvement detection, reject baseline and
+            roster-body digest mismatches plus malformed metadata, and prove scoped baseline
+            updates exit 2. Then run the real roster check and an affected Corpus Contract slice.
+            Do not hand-edit `corpus-baseline.tsv`: the live
+            `corpus-gate-remaining-reds` claim owns its re-baseline.
+      - [x] **E7.5 — classify by observed cell key, not whole-row absence.** Fix BUGS
+            `corpus-contract-delta-false-improvements`: `FAIL → DIVERGE` and
+            `KNOWN-RED → FAIL` are status changes only; a backend-excluded lane is unobserved, not
+            improved. A frozen red is an improvement only when that exact cell ran and now passes.
+            A frozen wildcard SKIP improves only if the case becomes runnable and every observed
+            eligible cell passes.
+      - [x] **E7.6 — refuse zero-evidence green.** Fix BUGS
+            `corpus-contract-zero-evidence-green`: validate option arity/values, reject empty or
+            duplicate/unknown lane lists, and exit 2 when a normal gate selects zero cases or
+            observes zero case cells. Assertions must check the diagnostic, not just the exit code.
+      - [x] **E7.7 — make operator commands executable as written.** Fix BUGS
+            `corpus-contract-usage-missing-arg-separator`: every scala-cli example that passes
+            contract options includes the required `--` separator; run the displayed self-test
+            and slice forms verbatim.
+      - [x] **E7.8 — document the lane that production actually executes.** Fix BUGS
+            `corpus-contract-doc-mislabels-v2-lane`: `bin/ssc run --v2` is the
+            standard/native `RunNativeV2` tier and defaults to direct ASM
+            (`bytecode=true`, link-time VM fallback), not the VM-only retired bridge.
+            `ssc-tools run --v2` now uses the same native front with
+            `bytecode=false`; correct the operator docs plus stale inline comments and
+            pin `bin/ssc info --execution-plan --v2` as the architecture check.
+      **Verification:** initial roster 465 sorted/unique names; self-test 29/29;
+      14/14 CLI refusal diagnostics; real `arithmetic,int-width` slice labels only
+      `int-width` as NEW; production-form shard GREEN; conformance 2/2 with both v2
+      cells PASS and only the two declared v1 known-red cells. **CI evidence level
+      3:** exact-SHA run `30307158170` for `9975a0c0c` was `cancelled` with zero
+      jobs (RED/no verdict); release uses the named local gates above.
+
+- [x] **E8 — DONE: restore the repository markdownlint gate.** Fix BUGS
+      `markdownlint-bugs-lane-labels`: two existing `BUGS.md` lane summaries use
+      adjacent `[INT][JS][JVM]` text (MD052), and the TSV example in
+      `specs/claim-mutex.md` uses eight invisible hard tabs (MD010). Render the lane
+      summaries as inline code and the delimiters as explicit `<TAB>` markers, then run
+      the exact CI command `markdownlint '**/*.md' --ignore node_modules`; do not
+      disable either rule.
+      **Landed:** `ffb7b4695`. Exact full-repository A/B is 10 diagnostics before
+      versus 0 after; MD052/MD010 remain enabled. Mandatory `arithmetic`
+      conformance is 1/1 with INT, JS, and JVM all passing.
+      **CI evidence level 3:** exact-SHA run `30307690766` for `90745ec27`
+      remained `pending` with zero jobs at release (no CI verdict); release uses
+      full-repository markdownlint, `git diff --check`, and the 1/1 conformance
+      slice as its named local gates.
+
+- [x] **E5 — DONE: make a timeout impossible to misread as benign.** After E2 the gate fits its budget,
+      but the *detection* hole stays: any future budget breach reappears as `cancelled`. Cheapest
+      honest fix — record the hazard in `MILESTONES.md` §Health next to the CI-radar note so the next
+      status sweep counts `cancelled` as red for scheduled workflows.
+
+## control-interoperability — target-neutral control ABI plus mandatory host/runner milestones (2026-07-14, Sergiy)
+
+Goal: implement [`specs/control-interoperability.md`](specs/control-interoperability.md)
+once, then expose it through native typed bidirectional value-and-call bridges for
+Scala/JVM, JavaScript/TypeScript, Rust, and Swift, plus independently qualified
+portable runners (including WASM/WASI). Pure values, effects, handlers, multi-prompt
+`shift`/`reset`, callbacks, mixed tail calls, and saved continuations retain one
+observable semantics across every lane. Host profiles never put platform types into
+CoreIR or become semantic owners; runner delivery order is selected by measured
+readiness, while all four host families and the N→M matrix remain mandatory.
+
+Durable control uses the simple reusable **save/run** idiom, not replay:
+`continuation.save(): Eff[Save,SavedContinuation.Aux[A,Fx,R]]` freezes a compiler-managed continuation;
+every admitted `saved.run(value)` invokes its resume entry once directly at the capture point. The
+prefix is never re-executed; the suffix then follows its own effects/loops/multi-shot behavior. The
+opaque transport envelope contains either a portable closed CoreIR resume program
+`(FrozenFrame,input) => Eff` plus a separately hashed frame, or exact-artifact
+`target + toolchain + artifactDigest + resumePointId + frame` state for managed host
+code. `CodeMode` is independent from `FrameGate`: exact artifacts never rescue raw
+foreign values or live resources. Atomic one-shot workflow execution remains an
+optional policy, not the default continuation semantics.
+
+### Specification and contract freeze
+
+> **GATE LIFTED 2026-07-16 — Sergiy's call, on measured evidence.** These three items (and, behind
+> them, `save()`/`run()` and `control-interop-examples`) waited on "the UniML P6.5 literal-fixed-point
+> sequence `F1 → F2/F3 → L1 → X1` green and frozen". **X1 now holds and was verified independently
+> by the coordinator, twice, from a clean `scala-cli --power package v2/src --assembly` build:**
+> `specs/v2.2-p6.5-fsub.sh --self` → **89 ok / 0 FAIL, exit 0**; `F(F_src) == ssc1-front(F_src)`
+> byte-identical (79,667 B); `stage1 == stage2` byte-identical; the self-produced compiler C1 is
+> byte-identical to the reference and its IR runs → 120.
+>
+> **Read the boundary before you rely on this.** The fixpoint is REAL but SCOPE-BOUNDED: `F` compiles
+> the subset `S` that `F` is itself written in — **not** all of ScalaScript. Still outside S:
+> given/summon dict-passing, enums, extensions, for-comprehensions, `var`/`while`, string
+> interpolation, the prelude-selector table, the List-var registry. (Case classes landed as X1h.)
+> P6.5 stays `[~]`, not `[x]`, and its HONEST BOUNDARY note is the authority — re-read it, don't
+> infer scope from the word "fixpoint". Sergiy's rationale for lifting anyway: X1 proves the Core IR
+> byte contract is stable and self-consistent, which is exactly what these items depend on; P6.5
+> breadth grows in parallel and re-proves `--self` on every slice.
+>
+> **Unblock order (do not skip):** these three → `save()`/`run()` → `control-interop-examples`.
+
+- [x] **coreir-canonical-contract-reconcile — ✓ LANDED 2026-07-16** (`69f3ad4d3`/`06f55e621`/`7bcb6d87a`) — reconcile the frozen-count/no-loop claims in
+  `v2/specs/10-core-ir.md` with the current canonical Reader/Writer and `CoreIR.scala`, which already
+  serialize `While` and `Seq`. Pin one canonical node/value inventory before freezing the capsule
+  encoding; this is documentation/contract drift, not permission to add a continuation node. After
+  landing, re-run and re-freeze the literal stage1==stage2 fixed point against the reconciled bytes.
+
+  **MEASURED BASELINE (2026-07-16, before any change — reproduce before trusting):**
+  `scala-cli --power package v2/src --assembly -o /tmp/ssc.jar`; then
+  `SSC_JAR=/tmp/ssc.jar V2_DIR=<repo>/v2 ./specs/v2.2-p6.5-fsub.sh --self` → **89 ok / 0 FAIL, exit 0**;
+  fixpoint `stage1 == stage2` = **79,667 B**, sha256 `c5d9b5ed034d81a446f60dbe3b8dab15dcb910bbf318b6bfc01e4f63769c8f81`.
+  **De-risking measurement:** that 79,667 B corpus contains **zero `(float …)` and zero `(bytes …)`
+  constants** — so the float/`-0.0`/`IrBytes` codec fixes provably cannot move the fixpoint. Verified
+  by `grep -c float stage1.ir` = 0 on a work dir preserved from the script.
+
+  **The drift, measured (not read off the source):**
+  | Claim in spec | Reality in `v2/src/CoreIR.scala` |
+  |---|---|
+  | `10-core-ir.md` header: "node set (11 nodes) are frozen" | `enum Term` has **13** cases (adds `While`, `Seq`) |
+  | `10-core-ir.md` §3: "**`Seq a b` is dropped**" | `Term.Seq(terms)` exists, Reader head `seq`, Writer emits `(seq …)` |
+  | `10-core-ir.md` inv.7: "**no loop node is needed** in Core IR" | `Term.While(cond, body)`, Reader head `while`, Writer emits `(while …)` |
+  | `12-ir-format.md` grammar: `term := lit \| local \| … \| prim` | no `while`/`seq` production, though both round-trip |
+
+  Both `While` and `Seq` are documented in-source as **optimizations** (no trampoline bounce / no
+  Let-binding overhead), not new semantics — reconcile them as such. NOT permission to add a
+  continuation node (§9 "Explicitly NOT in Core IR" stands).
+
+  - [x] **R1 — pin ONE inventory.** Reconcile `10-core-ir.md` (11→13 nodes, retract "Seq is dropped",
+    restate inv.7 as "TCO makes a loop node unnecessary *for semantics*; `While` is a permitted
+    optimization node with `LetRec`-equivalent meaning") + `12-ir-format.md` (add `while`/`seq`
+    grammar + canonicalization). Value domain stays **10 shapes** (verified: matches `Value` — no drift).
+  - [x] **R2 — make the inventory machine-checked (gate BEFORE feature, AGENTS.md §measurement).**
+    A drift test asserting spec inventory == `Term`/`Const` enum cases == Reader heads == Writer cases.
+    Docs drifted silently for ~3 weeks precisely because nothing compared them. Prints want/got/diff.
+  - [x] **R3 — re-run + re-freeze** the literal fixed point; docs-only ⇒ bytes MUST NOT move (89/0, 79,667 B).
+
+  **RESULT.** `specs/coreir-inventory-gate.sh` (new) compares 6 sources — the pinned block, `enum Term`,
+  `enum Const`, Reader heads, Writer heads, IrEncode/IrDecode tags — **10/10 green**. Inventory pinned at
+  **13 nodes / 7 constants** in `10-core-ir.md` §3.2; §3.1 explains why `While`/`Seq` are legitimate
+  (exact semantics-preserving desugarings) and why that is **not** a precedent for a continuation node.
+  Fixpoint re-run: **89 ok / 0 FAIL, 79,667 B, output byte-identical to baseline**.
+  *Also found and reconciled, beyond the brief:* §2's "Ten shapes" undercounts — the evaluator has 14
+  `Value` subclasses = the 10 semantic ones + 3 private `Foreign` representations
+  (`MapV`/`LongCellV`/`DoubleCellV`, already covered by `Foreign`'s "hash map, growable array, mutable
+  cell") + **`DecimalV`, a genuine 11th shape** (language-visible via 11 `dec.*` prims). `Decimal` is
+  deliberately **not** capsule-encodable (no `Const` case), which is why the value domain is 11 while the
+  constant inventory is 7 — different questions, and conflating them is what let "ten shapes" survive.
+  *Apparatus note:* the gate's FIRST run reported 6 failures of which **4 were the gate's own fault**
+  (order-sensitivity + a regex scooping up `arm`, a sub-form). Same ratio as the `newfront-diff.sh`
+  incident. Fixed the apparatus before believing it; reasoning kept in the script's comments.
+
+- [x] **coreir-canonical-codec-hardening — ✓ FULLY LANDED 2026-07-17** (`69f3ad4d3` H1/H2/H6/H7; `644543cf5` **H4/H5**; H3 doc-only) — make the canonical codec match its contract before it is
+  used for untrusted persisted capsules: preserve floating-point bit identity including `-0.0`, add
+  `IrBytes` encode parity, reconcile `coreir.encode`'s promised Bytes with its actual String, provide
+  the specified text/bytes decode path, validate symbols/closed globals/arities, and enforce bounded
+  decoding. Add encode/decode/canonicalization vectors for every node and constant, then re-run the
+  literal fixed point. Canonical Reader/Writer remains kernel-owned.
+
+  **⚠️ THE LANDMINE (measured — do not skip).** `Writer.floatStr` is **not** an IR-only function. It is
+  shared by `f->str` (`Runtime.scala:2560,4217`), `FloatV.toString` (`:3039`), Float↔String concat
+  (`:4011,4015`) and **`Show`** (`:4408,4655` — program output). Collapsing whole doubles (`2.0`→`"2"`)
+  there is **deliberate v1 output parity** (see the comment at `:4008`; cf. the scljet `0.0.toString`→`"0"`
+  gotcha). Measured in the real runtime: `f->str 2.0` = `2`, `f->str 7.5` = `7.5`, `f->str -0.0` = `0`.
+  ⇒ **Fix by SPLITTING a new IR-only `Writer.floatLit` from `floatStr`; never "fix" `floatStr` itself.**
+  A run-ir-only gate would NOT catch that regression (memory: changing shared VM `Show` once broke ~28
+  mira JS/Rust checks that run-ir-only gates masked; the catch is full `v2/conformance/check.sh`).
+
+  **Contract violations, each measured end-to-end:**
+  1. `coreir.encode(IrFloat(-0.0))` → `(lit (float 0))` → decodes to **+0.0**. Bit identity lost.
+     `12-ir-format.md` §Tokens is explicit: "Negative zero is `-0.0`".
+  2. Integral floats emit `(float 2)`, but §Tokens requires FLOAT "always containing a `.` or an
+     exponent". Value still round-trips (the `float` tag disambiguates), so this is *form* drift.
+  3. `IrEncode.const` has **no `IrBytes` case** (`Runtime.scala:4573-4580`) though `IrDecode.constant`
+     has one (`:4635`) and `Const.CBytes`/Reader/Writer all support bytes ⇒ `coreir.encode` of a bytes
+     literal dies with `sys.error("bad const")`. Asymmetric codec.
+  4. `10-core-ir.md` §5 promises `coreir.encode v`→**`Bytes`**; `Runtime.scala:2919` returns **`StrV`**.
+  5. `coreir.decode` is **not registered as a prim at all** (only `coreir.encode`/`coreir.eval` exist);
+     §5 itself admits "Still deferred at the kernel level: `coreir.decode`". `12-ir-format.md` promises
+     `encode ∘ decode = canonicalize` — currently unimplementable from `.ssc`.
+  6. **Fail-open decoding** (this codec is for **untrusted** capsules — fail-open here is a security
+     property, not a nicety): `Reader.parseHex` accepts odd-length hex (`"abc"`→2 bytes) and `parseInt`
+     accepts `+1`/`-1`/uppercase; `(local -1)`/`(lam -1 …)`/`(arm T -1 …)` accepted (spec: NAT);
+     `readAtom` accepts any non-delimiter run as SYMBOL (spec: `[A-Za-z_][A-Za-z0-9_.]*`); `letrec`
+     accepts non-`Lam` bindings (spec §4: "bindings must be Lam"); unbound `(global g)` accepted;
+     `Reader.P.sexpr()` is **unboundedly recursive** ⇒ a deeply-nested hostile capsule is a
+     StackOverflowError, not a diagnostic (note `v2.2-p6.5-fsub.sh` already needs `-Xss512m`; and CI
+     runs a 1m default stack where macOS gives 2m — the exact shape of the 192-run CI red).
+
+  - [x] **H1 — float bit identity.** New IR-only `Writer.floatLit` per §12 (`-0.0`, always `.`/exp,
+    specials `nan`/`inf`/`-inf`, else shortest round-trip). Used by `Writer.const` + `IrEncode.const`
+    ONLY. `floatStr` untouched. Verify: full `v2/conformance/check.sh`, not just run-ir.
+  - [x] **H2 — `IrBytes` encode parity** in `IrEncode.const` (`(bytes)` empty / lowercase hex).
+  - [x] **H3 — reconcile encode's Bytes-vs-String.** ✓ *spec reconciled to reality (`coreir.encode`→`Str`); the rejected alternative is recorded in `10-core-ir.md` §5.* Format is canonical **text** (§12 v1). Land as:
+    spec says `coreir.encode v`→`Str` (canonical S-expr text; UTF-8 via `str->utf8`). Changing the prim
+    to return `Bytes` would break every existing caller (`lib/ssct-emit.ssc0`, `bin/mirac.ssc0`, the
+    p6.5 driver) for no gain — record that as the rejected alternative.
+  - [x] **H4 — the specified decode path. ✓ DONE 2026-07-17 (`644543cf5`).** `coreir.decode : Str|Bytes -> IrProg`
+    is registered (`Runtime.scala`), backed by new `IrToData` (Data-level mirror of `IrDecode`) over the
+    kernel `Reader`. `encode ∘ decode = canonicalize` and `decode ∘ encode = id` are now expressible from
+    `.ssc`; `specs/coreir-codec-vectors.sh` round-trips all 13 nodes + 7 constants (incl. `-0.0`/`nan`/`inf`/
+    bytes) through decode and pins the canonicalize property on a lenient/commented program. Kernel-owned.
+  - [x] **H5 — ✓ DONE 2026-07-17 (`644543cf5`). Reader fails CLOSED** (`CoreIR.scala`). Strict `NAT`/`INT`/`HEX`
+    token parsers reject `(local -1)`, `(int +1)`/`(int 01)`, `(lam +1 …)`, `(arm T -1 …)`, odd/signed/non-hex
+    `(bytes …)`. New `Reader.validate` (run on every `parseProgram`) scope-checks every de Bruijn `Local` in
+    range, requires `letrec` bindings to be `Lam`, and rejects unbound globals (closed = a top-level def or an
+    `@`-cell). Each rejection names the offending node. **Measured RED-before / GREEN-after:** the vectors are
+    47/47 on the pre-fix kernel, 94/0 after. Keystone: an unbound global in a never-evaluated branch used to
+    run clean; now rejected at decode. Global-closedness verified low-risk: the 79,853 B self-hosted compiler
+    IR has 254 defs / 208 globals with **zero** unbound; full `check.sh` shows no regression.
+
+  **EXECUTION PLAN (agent coreir-codec-h4h5, 2026-07-17) — decisions pinned so a fresh agent resumes cold:**
+  - **Where H5 lives:** kernel-owned `Reader` in `v2/src/CoreIR.scala`. Wire a `Validator` into
+    `Reader.parseProgram` so it runs on EVERY decode (the untrusted-capsule entry point: `run-ir`,
+    `coreir.decode`). Strict token parsers (`natOf`/`intOf`/`bigOf`/`hexOf`) replace the lenient
+    `i.toInt`/`a.toInt`/`n.toLong`/`grouped(2)` in `toTerm`/`toArm`/`toConst`.
+  - **Scope model (verified against `Runtime.scala` compiler + `10-core-ir.md` §4):** de Bruijn
+    depth. entry & each Def body start depth 0. `Local(i)`: `0<=i<depth`. `Lam(ar,b)`: body at
+    `depth+ar`. `Let(rhs,body)`: rhs(i) at `depth+i`, body at `depth+len` (let* sequential). `LetRec`:
+    each lam & body at `depth+len` (all mutually visible), each binding MUST be `Lam`. `Match`: scrut &
+    default at depth, arm body at `depth+arm.arity`. `App/If/Ctor/Prim/While/Seq`: subterms at depth.
+  - **NAT** = `0|[1-9][0-9]*` (local idx, lam arity, arm arity); **INT** = `-?`NAT no `-0` (int/big
+    literal); **HEX** = even-length `[0-9a-fA-F]`. All reject `+`, negatives-where-NAT, garbage.
+  - **Global-closedness DECISION (measured, not guessed):** reject `Global(g)` unless `g` is a
+    top-level `Def` name OR starts with `@` (mirrors the runtime's own resolve fallback at
+    `Runtime.scala:1016`; the kernel Reader cannot see the plugin registry). MEASURED SAFE: the
+    79,853 B self-hosted compiler IR has 254 defs / 208 globals and **every global is a def** (0
+    unbound); the 7 `.coreir` fixtures likewise. The native front's plugin-`Global` programs go
+    through `Lower`→`Compiler` directly, NOT `parseProgram`, so they are not on this path. Full
+    `check.sh` is the final guard — if any run-ir program legitimately references a plugin global,
+    scope this down and record it OPEN rather than break the corpus.
+  - **H4:** new `IrToData` object in `Runtime.scala` (mirror of `IrDecode`: `Program -> IrProg` Data
+    value), then prim `coreir.decode : Str|Bytes -> IrProg` = `IrToData.program(Reader.parseProgram(text))`
+    where `Bytes` is decoded UTF-8. Property from `.ssc`: `encode(decode(t)) == canonicalize(t)` and
+    `decode(encode(x))` reconstructs `x`. Add both to `specs/coreir-codec-vectors.sh` (round-trip every
+    node+const incl. floats `-0.0`/`nan`/`inf` and bytes; rejection vector per fail-open).
+  - [x] **H6 — bounded decoding.** ✓ *reader half only — see the note below.* Depth + node-count + input-size limits; iterative or depth-capped
+    reader. Hostile input ⇒ diagnostic, never StackOverflowError. Must hold on a **1m** stack (CI), not
+    just a macOS 2m default — test with an explicit small `-Xss`, or the gate lies exactly like the
+    192-run CI red did.
+  - [x] **H7 — vectors for EVERY node and constant** (13 nodes × encode/decode/canonicalize + all 7
+    consts + the negative/hostile cases above). Every vector prints name/want/got/diff — never bare
+    `[[ $(…) == "$want" ]]` under `set -e` (that gate prints nothing and has been red for days before).
+  - [x] **H8 — re-run the literal fixed point** (expect unchanged 89/0, 79,667 B — corpus has no
+    float/bytes consts; if it moves, STOP and coordinate with p65-fixpoint + newfront).
+
+  **RESULT (measured, every gate actually run).**
+  - `coreir.encode(-0.0)` → `(lit (float -0.0))` (was `(float 0)` → decoded as `+0.0`). `-0.0` and `0.0`
+    now encode **differently**, and the sign survives the reader — witnessed by `1/-0.0 = -inf` vs
+    `1/0.0 = inf`, because `-0.0 == 0.0` is true in IEEE-754 so `f.eq` cannot tell them apart.
+  - Fixed by **splitting** an IR-only `Writer.floatLit` from `Writer.floatStr`. `floatStr` is shared with
+    `f->str`/`.toString`/concat/`Show`, where `2.0`→`"2"` is deliberate v1 parity — verified unchanged
+    before *and* after. Editing `floatStr` would have regressed program output corpus-wide and the
+    run-ir-only fixpoint gate would **not** have caught it (the corpus has zero float constants).
+  - `coreir.encode` of a bytes literal used to **crash** ("bad const"); now `(bytes 4869)` / `(bytes)`.
+    `IrEncode.const` renders through the kernel-owned `Writer.const`, so the duplication that let this
+    drift is gone.
+  - Bounded decoding: a 300 KB **well-formed** depth-50000 capsule was a `StackOverflowError` at `-Xss1m`;
+    now a diagnostic. `Reader.MaxDepth` = 1000 (`-Dssc.coreir.maxDepth=N`), ~40× headroom — measured, real
+    IR is shallow: the X1 fixpoint's own IR is depth **25**, fixtures 6-12.
+  - **Gates:** inventory 10/10 · codec vectors **43/43** · fixpoint **89 ok / 0 FAIL, 79,667 B,
+    byte-identical to baseline** · full `v2/conformance/check.sh` **639 ok / 3 FAIL — all 3 pre-existing**,
+    proven by running the suite on a *pristine `origin/main` worktree* (identical 639/3 and an identical
+    ok-set). `ssc0c uselib.ssc0 ir differs` is **not** a regression from this work.
+  - **H4/H5 UPDATE (2026-07-17, `644543cf5`).** H5 fail-open class CLOSED: the reader now rejects
+    `(local -1)`, out-of-range locals, `(lam +1 …)`/`(arm T -1 …)`, `(int +1)`/`(int 01)`,
+    odd-length/signed/non-hex `(bytes …)`, non-`Lam` `letrec` bindings, and unbound globals — each with a
+    node-naming diagnostic (`Reader.validate` + strict token parsers, run on every `parseProgram`). H4:
+    `coreir.decode` registered (`IrToData`). **NOT closed** (recorded, not papered over): (1) the
+    SYMBOL-charset check on `op`/`tag`/`name` is deliberately NOT enforced — real prim ops (`f->str`,
+    `str->utf8`, `i->big`) contain `->` and are not `[A-Za-z_][A-Za-z0-9_.]*`, so validating them against
+    the spec's SYMBOL regex would reject the corpus; the grammar's `op := SYMBOL` is itself drift.
+    (2) the `Compiler.valuePositionsNeedEffectThreading`/`FastCode.tryFC` unbounded-recursion overflow at
+    ~depth 500 on `-Xss1m` (`BUGS.md` → `coreir-compiler-unbounded-depth`) is a *compiler*, not *reader*,
+    bound and still open — the capsule path is not fully DoS-safe until it lands.
+- [~] **numeric-width-reconciliation — LANDED 2026-07-17 (option A); one slice deferred, see below** (Sergiy's call,
+  asked with all three options + their costs on the table; raised by coreir-contract, who correctly
+  refused to choose unilaterally) — retain source `Int`/`Long`
+  width evidence and implement canonical public `I32`/`I64` semantics over the current signed
+  wrapping-64 CoreIR value. Add per-backend wrap/round-trip/overload vectors and reject legacy
+  ambiguous exports; this is semantic lowering work, not descriptor-only mapping.
+
+  **THE DECISION — (A) `Int` → `I64`.** Make the descriptor truthful to the measured semantics.
+  NOT (B) (making surface `Int` genuinely 32-bit — rejected: it contradicts the frozen
+  `10-core-ir.md` §2 value domain, `Int = Long` v1 parity, and measured behaviour, and would force a
+  Core IR version bump across every backend and the whole corpus). NOT (C) as a whole for now (I64
+  plus a fully-implemented narrowing ABI) — (A) is (C)'s first slice, so (C) stays reachable and is
+  not foreclosed; do not delete its analysis above.
+  **What (A) obliges you to do, and it is the whole difficulty:** once `Int` and `Long` both map to
+  `I64` they are **indistinguishable in the descriptor**, so overload IDs collide unless the source
+  spelling is retained separately — that is exactly what "retain source `Int`/`Long` width evidence"
+  means, and it is not optional garnish. Also flips 6 live expectations
+  (`PreBodyApiDescriptorProducerTest.scala:100,130,132,136,267,1212`) and **re-hashes every
+  descriptor** (`AbiPrimitive` feeds the frozen Slice A `apiHash`) — a deliberate contract change,
+  so land it as such: announce in rozum, and do not bundle it with unrelated work.
+
+  **THE CONTRADICTION (measured 2026-07-16, in the real runtime — not read off source):**
+  `v1/lang/core/src/main/scala/scalascript/artifact/PreBodyApiDescriptorProducer.scala:2066` maps
+  source `Int` → `AbiPrimitive.I32`, and `:2067` maps `Long` → `I64`. But **ssc `Int` is 64-bit**:
+  ```
+  java -jar /tmp/ssc.jar run  #  (#i.add(2147483647, 1))          => 2147483648        <- did NOT wrap at 32
+  #                              (#i.add(9223372036854775807, 1)) => -9223372036854775808 <- DID wrap at 64
+  ```
+  Corroborated by `v2/specs/10-core-ir.md` §2 ("`Int` is 64-bit two's-complement, wrapping (matches
+  `ssc 1.0`'s `Int = Long`)") and the durable memory note `project_interp_int64_and_entrypoint.md`
+  ("ssc Int is 64-bit"). ⇒ **The descriptor currently tells every foreign host (JS/TS, Rust, Swift,
+  WASM-WASI) that an ssc `Int` is 32 bits when it is 64.** A host marshalling per the descriptor
+  silently truncates any value > 2^31−1 **at the ABI boundary** — a fail-open of exactly the kind the
+  descriptor exists to prevent, and it is the *interop* surface, so it is cross-language.
+
+  **Why this is NOT a unilateral fix:** `Int → I32` is not dead code — it is asserted by live tests
+  (`PreBodyApiDescriptorProducerTest.scala:100,130,132,136,267,1212`), and `AbiPrimitive` is part of
+  the **frozen Slice A schema** feeding `apiHash`. Changing the mapping changes the meaning and the
+  hash of every descriptor ever emitted. That is a contract change and needs Sergiy's call.
+
+  **The three options (pick one before any code):**
+  - **(A) `Int` → `I64` — truthful to measured semantics.** `Int`/`Long` both become `I64` and are
+    indistinguishable in the descriptor ⇒ needs separate retained source-spelling width evidence to
+    keep overload IDs distinct (this is what "retain source `Int`/`Long` width evidence" reads as).
+    Flips the 6 test expectations above; re-hashes every descriptor. *Cheapest that stops the lie.*
+  - **(B) Make surface `Int` genuinely 32-bit.** Matches Scala and makes the existing descriptor
+    correct retroactively, but contradicts the **frozen** `10-core-ir.md` §2 value domain, the
+    `Int = Long` v1 parity, and measured behavior; blast radius across every backend + the whole
+    corpus. Would be a Core IR **version bump (v2)** per `10-core-ir.md`'s own freeze rule.
+  - **(C) `Int` → `I64` public, with an explicit narrowing ABI.** Where a host genuinely wants 32-bit
+    it becomes an explicit, *implemented* wrap/checked-narrow at the boundary (real semantic lowering,
+    per the item's own "not descriptor-only mapping"), and ambiguous legacy exports are rejected.
+    *Most faithful to the item text; most work.*
+  My read: the item text ("over the current signed wrapping-64 CoreIR value", "reject legacy ambiguous
+  exports", "not descriptor-only mapping") points at **(C)**, with **(A)** as its first slice. But
+  (B) is a coherent reading of "canonical public I32 semantics" too, so I am not choosing.
+  Tracked as a live fail-open in `BUGS.md` (`coreir-abi-int-width-declared-i32-actually-i64`).
+
+  **EXECUTION (agent `int64-abi`, 2026-07-17).** Spec: [`specs/numeric-width-reconciliation.md`](specs/numeric-width-reconciliation.md).
+  Baselines measured in a clean worktree BEFORE any change: P6.5 fixpoint **89 ok / 0 FAIL**,
+  `stage1 == stage2` byte-identical at **79,667 B**; producer suite green. The descriptor leaf is
+  outside `v2/src` ⇒ the fixpoint bytes MUST NOT move; if they do, stop and coordinate with P6.5.
+
+  **COLLISION PROVEN, not assumed** (bare one-line mapping flip, nothing else changed, probe
+  `def widen(value: Int)` / `def widen(value: Long)`): before flip overloadIds `dde22763…` vs
+  `922b20fa…` (distinct only because `I32 != I64`); after flip →
+  `DUPLICATE_SYMBOL_ID at $.symbols: ssc:symbol:v1:5ddf0353…`. Note it fails **closed** (the factory
+  rejects the module) rather than silently merging overloads — but `Int`/`Long` overloads become
+  unexportable, so the bare flip is not a fix. Width evidence is mandatory.
+
+  **DESIGN:** `AbiType.Primitive(value: AbiPrimitive, declaredWidth: Option[NumericWidthEvidence] = None)`
+  + `enum NumericWidthEvidence: case DeclaredInt, DeclaredLong`. `value` = the **wire width** (the
+  marshalling contract; hosts read this alone and are correct). `declaredWidth` = the **source
+  spelling**, evidence only — it keeps identity exact and is where (C)'s narrowing binds.
+  `AbiPrimitive` keeps all 9 cases; `I32` becomes unreachable from ssc source and is RESERVED for (C).
+
+  Slices:
+  - [x] **width evidence retained pre-body** — `Int -> Primitive(I64, Some(DeclaredInt))`,
+    `Long -> Primitive(I64, Some(DeclaredLong))` in `PreBodyApiDescriptorProducer:2066-2067`;
+    evidence survives `Normalization.abiType`/`TypeWire.identityType` (both pass `Primitive` through
+    whole) ⇒ overload IDs stay distinct.
+  - [x] **public I32/I64 semantics** — `I64` = 64-bit two's-complement wrapping, identical to the
+    Core IR value domain. NOTE: under (A) there is deliberately **no wrap to implement at the
+    boundary** — every ssc integer is I64 end to end, so nothing narrows. A "real wrap at the
+    boundary" belongs to (C)'s narrowing ABI; inventing one here would be the same guess in the
+    other direction. Validator invariants instead (fail-closed): evidence ⇒ `value ∈ {I32,I64}`
+    (`INVALID_NUMERIC_WIDTH_EVIDENCE`); `value ∈ {I32,I64}` ⇒ evidence (`AMBIGUOUS_NUMERIC_WIDTH`).
+  - [x] **reject legacy ambiguous exports** — falls out of the above + `exactObject`: a legacy
+    `{"tag":"Primitive","value":…}` fails loudly `SCHEMA_MISMATCH … missing=[declaredWidth]`
+    instead of defaulting to `Long`.
+  - [ ] **per-backend vectors — SCOPE CORRECTED, measured 2026-07-17.** The item assumed machinery
+    that **does not exist**: there is NO code anywhere mapping `AbiPrimitive`/`AbiType` to a host
+    type — no binding generator, no FFI emitter, no marshaller for JS/TS, Rust, Swift or WASM-WASI
+    (`v2/host/` has only `js/` + `scala/`; `js/control/index.d.ts` is control-only, no numeric
+    bridge). `tests/interop-conformance` is control-law/stdout-oracle shaped (TSV has no width or
+    backend column, runner knows 4 hard-coded adapters) and all 5 generated host lanes are
+    `pending`/adapter `none`. Swift + WASM-WASI have **no spec'd numeric mapping at all** to write
+    against. ⇒ A cross-language "vector" here would exercise nothing and pass vacuously — exactly
+    the apparatus-that-reports-green failure AGENTS.md §"measurement apparatus" bans. Honest split:
+    - [x] vectors at the seam that REALLY exists (producer + codec round-trip + overload identity),
+      each carrying a **negative control** that proves the check fails on a truncating 32-bit
+      mapping — a vector that can't fail is not a vector.
+    - [~] the per-host numeric contract as a **pinned table** (boundary 2^31-1, overflow32 2^31,
+      max64, min64) each host must satisfy WHEN its lane lands. **PARTIAL, honestly:** the table is
+      pinned in `NumericWidthAbiVectorTest` ("host carriers … 64-bit capable in every required
+      profile") and the per-host mapping is now written into all five profile specs (Swift and
+      WASM-WASI had none and were authored). **NOT done:** no record was added to
+      `tests/interop-conformance/pending/`, because that catalogue's schema is control-law shaped
+      (`law/capabilities/phase/expectedExit/expectedStream/oracle` — no width or backend column) and
+      its runner knows only 4 hard-coded adapters. Adding numeric vectors there means extending the
+      TSV schema **and** `run.sh`, which is the sibling harness's contract, not mine to change
+      mid-flight. **Do this when the first host lane stops being `pending`/adapter `none`** — until
+      then a row there would execute nothing.
+  - [x] **fix the specs this change makes FALSE** — `specs/scala3-bidirectional-control.md:402-404`
+    states "ScalaScript source Int and Long map to canonical I32 and I64"; that is now a lie.
+    `specs/javascript-typescript-bidirectional-control.md:480-482` already says "I64 | bigint;
+    conversion through number rejects" + prohibits representing I64 as `number` — under (A) this now
+    binds ssc `Int` too, i.e. **JS hosts must marshal an ssc `Int` as `bigint`, never `number`**.
+    That is a real, user-visible consequence and must be written down.
+  - [x] **re-run the literal fixed point** — stayed **89 ok / 0 FAIL** at **79,667 B**; the gate's
+    whole output is byte-identical to the pre-change baseline, so the contract did not move.
+
+  **LANDED 2026-07-17** — spec `4bdd5e986`, feature `9c49438d4`, docs `ccc47efe1`, bookkeeping `b40a0f9ae`. Verified:
+  producer 83/83, descriptor 32/32, `core/test` 1138/1138, interop 36/36, plugin-profile 23/23,
+  conformance `modules*,import-dir*` 2/2 on INT/JS/JVM, P6.5 89 ok / 0 FAIL @ 79,667 B.
+  The new vectors were proven non-vacuous (reintroducing `Int -> I32` reddens all 5 with
+  `vector overflow32: … changed the value from 2147483648 to -2147483648`; a validator sabotage
+  probe reddens the 3 rejection controls). BUGS entry → FIXED.
+
+  **WHAT REMAINS (why this item is `[~]` and not `[x]`):** only the interop-conformance `pending/`
+  record above, which is blocked on a host lane existing at all. **(C) is untouched and reachable**
+  — `AbiPrimitive.I32` is still in the frozen schema, is now unreachable from ssc source, and
+  `declaredWidth` is exactly the node a narrowing contract binds to. Nothing here forecloses it.
+
+### Common ABI and portable semantic baseline
+
+- [ ] **ssc-api-descriptor-v3** — replace best-effort string-only interop signatures with an additive,
+  versioned pre-body `ApiDescriptor`, post-body `ControlSummary`, and post-link `ArtifactManifest`:
+  canonical types/generics/effect rows, callback convention + invocation/escape/thread policy,
+  prompt metadata, stable overload IDs/JVM entrypoints, `apiHash`, control/save/tail summaries,
+  `programDigest`, `artifactDigest`, and dependency-profile binding. Preserve old `.scim` meanings.
+  Resume-cold slices are frozen in [`specs/ssc-api-descriptor-v3.md`](specs/ssc-api-descriptor-v3.md):
+  - [x] **A — canonical descriptor leaf + additive carrier (landed 2026-07-15):** target-neutral
+    `v2/interop/descriptor`, bounded canonical JSON/SHA-256 identities and validation, checked
+    factories for all three phase records, and only a defaulted opaque `apiDescriptorV3` JSON
+    payload on legacy `.scim` (`286de7cee`). Verified: descriptor 27/27, artifact ABI 73/73,
+    core 1046/1046, interop 36/36, leaf has no project dependencies, and affected conformance
+    `modules*,import-dir*` is 2/2 on interpreter/JS/JVM. Slices B/C/D remain open below.
+  - [ ] **B — pre-body producers:** project declarations/real width evidence into v3 before body
+    compilation; reject ambiguous/dynamic managed exports and never parse legacy `tpe` to invent v3.
+    - [ ] Reject retained declaration source whose parsed section AST was lost; preserve the
+      reviewer repro that copies a valid module with `sections = Nil`.
+    - [ ] Make effect-header evidence comment/string invariant and bind it to the exact lexical
+      effect owner/order; an ordinary same-name object must never steal another effect's header.
+    - [ ] Close nominal losslessness gaps for trait constructors/self types, template exports,
+      and constructor `val`/`var` accessors until receiver/member metadata can represent them.
+    - [ ] Replace `PreBodyApiDescriptorProducer.topLevelStats` count-only pairing with exact
+      per-block declaration-header correspondence between canonically reparsed retained source
+      and the stored section AST. Ignore bodies/comments, but reject the reviewer's tamper where
+      retained `effect Real:` is paired with a stale AST still containing `read`; require one
+      exact package-wrapper chain, normalize placeholder aliases on both sides, and keep stale
+      body/RHS/default-expression-only edits descriptor/hash invariant. Explicitly witness every
+      current ScalaMeta definition form whose header can survive parsing (`GivenAlias`, template
+      `Given`, extension groups, and macros included); a product-prefix-only fallback is not exact,
+      and unknown future definition forms must compare conservatively rather than accepting a
+      changed header.
+    - [ ] Make every manifest package wrapper exact/plain before unwrapping: the expected name and
+      singleton child are insufficient if the stored object has modifiers, parents/inits, derives,
+      self type, or any other non-body header state. Preserve a faithful stored
+      `object demo extends Serializable: object api: ...` versus retained plain-source repro and
+      reject it at the section/block path.
+    - [ ] Treat parseable executable `ast.Content.CodeBlock.source` as mandatory retained evidence,
+      including when `module.document = None`; reparse it and unwrap manifest wrappers as required
+      before comparing body-erased headers with the stored tree. If both document and code-block
+      sources exist, verify both against the stored AST and fail closed on semantic header
+      disagreement; only after agreement prefer document source for effect-header evidence, else
+      use the code-block source. Regress the documentless packaged stale-source case and dual-source
+      disagreement without breaking stale body/RHS/default-expression invariance.
+    - [ ] Index every known local type/alias with effective owner visibility. A public signature
+      resolving to a private/internal local owner or alias must fail `UNSUPPORTED_PUBLIC_TYPE`
+      before external `AbiType.Named` fallback or callback classification; regress relative and
+      absolute `private Hidden.T`, an `@internal` callback alias both directly and through a
+      public wrapper alias, a private local `Array` shadowing the `Array[Byte]` fast path, and a
+      qualified private local effect row. The built-in bytes fast path applies only when no lexical
+      local `Array` exists: a public local `Array` follows ordinary local-constructor projection,
+      while a known non-public local `Array` rejects before the fast path.
+    - [ ] Gate the `Array[Byte]` → primitive `Bytes` shortcut on lexical resolution of both
+      components, not spelling alone. A binder named `Array` or `Byte`, and any known local
+      `Array`/`Byte`, shadows the built-ins; non-public locals reject normally, while public/bound
+      components take ordinary projection and never become `Bytes`. Regress generic `Byte`, private
+      and `@internal` local `Byte`, and public local `Byte`, preserving both existing local-`Array`
+      cases and the real built-in bytes positive.
+    - [ ] Reject selected public/exported `Defn.Var` with
+      `UNSUPPORTED_PUBLIC_DECLARATION` until an additive descriptor revision represents
+      mutability. Keep equivalent `val` positive and do not change the frozen Slice A schema.
+    - Baseline: focused producer suite is `18/25` green; the seven new faithful regressions
+      fail as 1 lost-AST + 2 effect-evidence + 4 nominal-surface cases before the fix.
+      The first correction checkpoint restored all `25/25`; the second frozen-checkpoint
+      re-review then found the three fail-open classes above (four faithful new regressions,
+      because non-public local resolution needs qualified-owner and alias cases). Red
+      baseline from `scripts/sbtc "core/testOnly
+      scalascript.artifact.PreBodyApiDescriptorProducerTest"` is exactly `25/29`:
+      all prior regressions pass and each new faithful repro fails by returning `Right`.
+    - Frozen local checkpoint after the second corrections: implementation `abf6d909a` on
+      `origin/main@b1e93d0f9`; focused producer 38/38, descriptor 27/27, core 1084/1084,
+      interop 36/36, `ir/test` success, and affected `modules*,import-dir*` conformance 2/2.
+      Keep all three BUGS entries `open` and this slice unchecked until a fresh independent
+      read-only review returns APPROVE; do not push/release this checkpoint beforehand.
+    - Fresh rereview of frozen `8a8886557`/rebased `28535c87d`: REJECT, no P0 and three new P1
+      classes above. The 38/38 suite did not cover package-wrapper header forgery, documentless or
+      dual retained-source evidence, or the `Byte` side of `Array[Byte]` shadowing. Keep all six
+      descriptor BUGS entries `open`; update the spec before implementation, then add faithful red
+      vectors and preserve every earlier regression.
+    - Third-review red baseline (`387a10384`): exact focused result 39/46, with seven failures
+      returning `Right` — 1 non-plain wrapper, 2 code-block/document source-evidence, and 4
+      Array/Byte binder-or-local shadowing tests. All prior 38 regressions plus the new unshadowed
+      built-in `Array[Byte]` positive pass.
+    - Third-correction local checkpoint: implementation `72e6a2897`, spec verification
+      `7fde36cf9`, rebased on `origin/main@790366a9d`. Focused producer 46/46,
+      descriptor 27/27, core 1092/1092, interop 36/36, `ir/test` success, artifact ABI
+      73/73, and affected `modules*,import-dir*` conformance 2/2 are green. All nine
+      Slice B BUGS entries remain `open`, and Slice B remains unchecked until a fresh
+      independent read-only review approves the clean checkpoint; do not push/release first.
+    - Fresh review of exact frozen `4cd2a4aaa` (rebased as `05e498a72`): REJECT, no
+      P0 and three P1 fail-open classes. The reviewer confirmed the previous wrapper,
+      mandatory CodeBlock-source, and Array/Byte binder/local fixes, but found that
+      imports still bypass every bare builtin resolution, raw effect evidence can
+      disagree across dual carriers after preprocessing, and derives/early template
+      headers are absent from both correspondence and nominal losslessness gates.
+    - Fourth-correction resume-cold plan (spec-update before tests/code):
+      1. collect source-ordered import scope in `projectStat`; before every bare builtin
+         mapping, fail closed for direct, rename-to-name, or wildcard imports unless an
+         exclusion/rename-away proves the name unavailable. Cover both Array/Byte,
+         representative Int/List, qualified positives, platform isolation, stable paths;
+      2. compare a raw semantic effect-evidence witness for CodeBlock and Document
+         carriers before selecting effect source: effect/object kind, name/order,
+         multiplicity, and unsupported generic/parent shape matter; line offsets do not.
+         Because package wrapping otherwise erases an empty effect's origin, retain only
+         reserved `private type` parser sentinels (never runtime values/API members), reject
+         a packaged ordinary-object sentinel collision, and prove EffectAnalysis/backends remain
+         unchanged. Cover empty effect/object, multi/ordinary, stale dual carriers,
+         documentless safety, focused parser/analysis tests, and effect conformance;
+      3. include `Template.derives` and `earlyClause` in exact header witnesses and
+         reject them on real public nominal class/trait/enum/object declarations until
+         representable. Cover direct parseable forms plus stale carrier mismatches.
+      Record the exact red baseline, preserve all prior vectors, run focused + descriptor/
+      core/interop/IR/ABI + `modules*,import-dir*` conformance, spec-verify/bookkeeping,
+      rebase current origin at a clean checkpoint, then request a new independent review.
+      Keep all 12 Slice B BUGS `open`; never push/release before APPROVE.
+    - Fourth-review red baseline (`f08ab9943`): focused producer is exactly 50/60,
+      with 10 failures — 5 import-resolution, 2 raw effect-evidence, and 3 derives/
+      early correspondence/losslessness. All previous 46 regressions plus new
+      rename-away/unimport, qualified-name, plain/multi, line-offset, unsupported-
+      effect-shape, and direct early-clause positives are green. Implement all three
+      spec gaps before changing these expectations.
+    - Fourth-correction local checkpoint: implementation `43d41e88d`, spec
+      verification `38597ae85`, rebased on `origin/main@f63714680`. Focused
+      producer/parser/effect tests pass 75/75 (producer 63/63), descriptor 27/27,
+      core 1111/1111, interop 36/36, `ir/test` succeeds, artifact ABI 73/73, and
+      affected conformance passes 2/2 modules/import-dir plus 9/9 effect cases.
+      All 12 Slice B BUGS remain `open`, every Slice B task marker remains unchecked,
+      and the claim stays active until a fresh independent read-only review returns
+      APPROVE; do not push/release this checkpoint first.
+    - Fifth-review of exact frozen `0cb46c3cd`: REJECT, no P0, five P1 families,
+      and no standalone P2. The reviewer confirmed the fourth correction's
+      derives/early, direct-import ordering, raw effect/object comparison, and
+      architecture: the canonical model remains only in `v2/interop/descriptor`,
+      with the v1/lang core compatibility producer depending one-way on it.
+    - Fifth-correction resume-cold plan (recorded before rebasing or coding):
+      1. include exact ordered `Import` semantics in declaration correspondence.
+         Preserve importer plus direct/rename/wildcard/unimport/given selector shape
+         and lexical owner/order, so stored AST, CodeBlock, and optional Document
+         cannot disagree on an import that changes projection;
+      2. replace partial `ImportScope` handling with one source-ordered lexical
+         identity resolver for bare names, selected types, importer qualifiers,
+         chained aliases, and callback alias classification. Detect cycles,
+         conflicts, wildcards, exclusions, platform roots, and private/local
+         identities after expansion. Faithful repros: `java.{lang as jl}` then
+         `jl.String`; chained `jl.{Integer as Int}`; imported local function alias
+         must receive conservative callback policy;
+      3. validate effect origin sentinels by exact count and canonical private-type
+         shape. Reject user duplicates or malformed `__effectDecl__` and
+         `__effectUnsupportedShape__` markers in Document-backed and documentless
+         packaged modules before filtering them from the public/runtime surface;
+      4. make raw effect evidence declaration-scope-aware and reuse that single
+         validated model in `bindEffectHeaders`. A local effect written only inside
+         an exported method body is body evidence and must not change descriptor
+         success/bytes/hash; retain genuine top-level effect binding;
+      5. recursively inventory local types, aliases, and effects under class, trait,
+         enum, and object owners with inherited effective visibility and owner
+         representability. `private class Hidden { type T }` followed by public
+         `Hidden.T` must reject before external-name fallback.
+      Before implementation, update/commit the normative feature spec; then add
+      faithful regressions and record the exact red baseline. Preserve all previous
+      vectors and run focused producer/parser/effect tests, descriptor 27/27, full
+      core 1111+, interop 36/36, IR, ABI 73/73, modules/import-dir conformance, and
+      forced effect conformance. Keep all 17 Slice B BUGS `open`, every Slice B task
+      marker unchecked, and never push/release before a new independent APPROVE.
+    - Fifth-review red baseline (`c1f57d99f`): focused producer is exactly 63/70.
+      Seven new tests fail — one ordered-import witness, three unified-resolver
+      cases (selected platform alias, chained platform alias, imported callback),
+      one duplicate sentinel, one body-local effect, and one nested nominal-owner
+      inventory — while all previous 63 producer regressions remain green.
+    - Resolver/inventory audit addendum (must be covered before the next freeze):
+      preserve the active source-ordered `ImportScope` on every transparent alias
+      declaration; use the same leading-qualifier expansion for selected local
+      callbacks and imported local effect rows; fail closed on wildcard-selected
+      prefixes and imported private identities; include abstract `Decl.Type` in the
+      recursive identity inventory; reject public class receiver-owned identities
+      and nested objects below a nonrepresentable nominal owner; retain a positive
+      public-object namespace control. A known local owner with an unknown member
+      must not silently fall back to an external identity.
+    - Audit-hardening regression checkpoint (`e7069ad59`) after the isolated import-
+      witness fix: focused producer is exactly `66/78`. Twelve tests remain red:
+      the six original resolver/effect/inventory failures plus alias import-snapshot,
+      selected local callback prefix, selected imported effect, wildcard selected
+      prefix, receiver-owned/abstract nominal identities, and known-owner/unknown-
+      member fallback. The imported-private identity and public-object namespace
+      controls are already green and must stay green.
+    - Effect-hardening checkpoint (`2bdb4114e`) after resolver/inventory repair:
+      focused producer is exactly `77/82`. Five tests remain red: duplicate canonical
+      declaration marker, malformed/non-type reserved collision, unsupported marker
+      on an ordinary object, body-local-only header, and a body-local same-name header
+      preceding a genuine top-level effect. A plain effect carrying an unexpected
+      unsupported-shape marker already fails and remains a control.
+    - Fifth-correction post-rebase checkpoint on `origin/main@6603e6c29`:
+      implementation commits `c55ac86e9` (exact import witness), `f4d4c01ec`
+      (unified resolver + recursive inventory), and `ff0e2580b` (exact sentinels +
+      single declaration-scope effect binding). Focused producer/parser/effect
+      passes 94/94 (82/8/4); descriptor
+      27/27, core 1132/1132, interop 36/36, IR success, ABI 73/73; modules/import-
+      dir conformance 2/2 and forced non-memoized effect conformance 9/9. Next:
+      commit this open-ledger/spec verification, freeze the resulting exact clean
+      head, then request a fresh independent read-only review. Do not push/release
+      and do not close any of the 17 Slice B BUGS beforehand.
+    - Done when the focused regressions and affected core/interop/conformance gates pass and a
+      fresh independent read-only review returns APPROVE with no P1/P2 blocker.
+  - [ ] **C — post-body summaries:** extract managed/foreign/tail edges, save sites, frame schemas,
+    and barriers; cross-check callback `ManagedControl` claims.
+  - [ ] **D — post-link manifests and consumers:** populate target entrypoints and exact program,
+    artifact, runtime, control, and dependency-profile digests; switch facades/admission/runners to
+    v3 with explicit legacy fallback only for ordinary non-managed interop.
+- [x] **control-semantic-vectors** — add target-neutral vectors for nested/fresh prompts, nearest-match
+  `reset`, zero/one/many resume, deep handler reinstall, residual effects, mutation (control copied;
+  heap shared), stack safety, cancellation, managed-boundary negatives, and exact diagnostics. Run the
+  same vectors on explicit API, v2 VM/direct ASM, generated JVM, JS, Rust, WASM, and Swift as those
+  portable lanes become available, plus the managed Scala direct-style lane. Landed 2026-07-15:
+  one validated 26-vector/9-lane catalog; portable VM and ASM pass 13/13 exact process vectors each,
+  explicit Scala passes 17 semantic vectors plus coverage (18/18), the whole control leaf is 57/57,
+  and nine malformed/omitted/lane-substitution regressions are rejected. Future direct/generated host lanes,
+  durable vectors 10--17, and cancellation 26 remain visibly phased rather than counted green.
+
+### ScalaScript lowering and Scala/JVM host profile
+
+Planning, descriptors, reference API, and semantic vectors may proceed now. Changes to the v2
+frontend/lowering, canonical CoreIR codec/loader, or any byte-affecting kernel contract begin only
+after the active UniML P6.5 literal-fixed-point sequence `F1 → F2/F3 → L1 → X1` is green and frozen;
+every later compiler/kernel change re-runs the literal fixed point.
+
+- [ ] **ssc-shift-reset-lowering** — add compiler-known `std.control` typing and outer lowering of
+  direct `reset`/`shift` regions to the existing `Pure | Op(..., reusable-k)` protocol, either through
+  `Ctor`/`Lam` or the equivalent stable generic `effect.*` Prim ABI. Direct syntax needs a compiler-known
+  capture boundary because current compatibility handlers see only inline bodies; this is not a
+  semantic restriction on first-class explicit `Eff` values or the explicit reset fold.
+- [ ] **scala3-control-macros** — publish `_3` inline macros for local direct-style `reset` regions;
+  lower to the same explicit ABI and reject a `shift` crossing an untransformed callback/resource
+  frame. Preserve exact source positions and make explicit-vs-macro differential tests mandatory.
+  Resume-cold M1 contract: [`specs/scala3-control-macros.md`](specs/scala3-control-macros.md).
+  Keep the existing `scala3ControlApi` / `scalascript-control_3` artifact; add
+  `scalascript.control.direct.{Scope,reset,shift}`, transform only bounded lexical ANF sequences into
+  explicit `reset`/`shift`/`flatMap`/`pure`, and fail closed with `UNMANAGED_CAPTURE`,
+  `CAPTURE_BARRIER`, or `DIRECT_STYLE_UNSUPPORTED`. Done-when the `scala-direct` adapter executes the
+  applicable shared vectors, the full control leaf/package/POM gates pass, exported source signatures expose
+  no quotes/runtime type, and the compiler-required macro implementation remains private at Scala source
+  level. M1 nested resets lower only their own matching markers; a marker targeting
+  an outer scope across a nested reset is rejected until the compiler-plugin tier can preserve the
+  residual outer control row explicitly. Accordingly the direct lane claims vector 18/23 `shift-reset`;
+  vector 22 also requires `prompt-isolation` and remains explicit/plugin evidence. Current pre-review
+  checkpoint: the bounded lexical transform emits only the existing explicit API; seventeen direct
+  semantic tests, twenty-two exact diagnostic tests, and source-access guards pass inside the 101/101
+  control leaf. The validated
+  `scala-direct` lane runs vectors 18/23 plus coverage (3/3) with explicit differential oracles; package,
+  POM, packaged-JAR runnable example, and five-case affected conformance gates are green. The tracked
+  `scala-direct-deferred-nonlocal-return` gap now rejects external returns before they move under
+  `Eff.defer` while preserving a return local to a nested method. Independent review of `fa992fd92`
+  rejected three additional P1 families; complete these in order:
+  - [x] Clone/rebind strict prefix `val`/`var`/`given` symbols across each capture, including
+    destructuring synthetic binds, values used by `ShiftBody`, and values between sequential shifts;
+    prove a local multi-shot mutable cell is shared. Fail closed for crossing local method/class/type
+    and lazy declarations until M1 models their ownership/state explicitly.
+  - [x] Keep a marker in a lazy initializer behind exact `CAPTURE_BARRIER`, and reject
+    binding/provenance-bearing inline wrappers with stable `DIRECT_STYLE_UNSUPPORTED` at the marker
+    before any wrapper prompt or body side effect can run.
+  - [ ] **Fresh-rereview remediation (`ec4eb279e`, four P1 families; resume cold):**
+    update `specs/scala3-control-macros.md` first, then change only the existing Scala host leaf.
+    Preserve the already-green 14 semantic + 16 diagnostic regressions and complete these in order:
+    - [x] Rebind dependent/singleton references in cloned prefix `ValDef.tpt.tpe` as well as term
+      trees, supporting the common local `freshPrompt` / `Prompt[scope.Key, R]` flow across capture.
+      Audit `var`, parameterless `given`, and destructuring dependencies; any type shape that cannot
+      be rebound soundly must fail closed with stable `DIRECT_STYLE_UNSUPPORTED`, never raw E007 or
+      quote-owner output.
+    - [x] Inspect the otherwise-opaque rank-2 `ShiftBody` for a surviving exact `direct.shift` and
+      reject that nested marker at its call site. Ordinary explicit `Eff`/`shift` code and a nested
+      managed `direct.reset` remain legal and need positive regressions.
+    - [x] Report a transparent-inline expansion at the nearest provenance-bearing `Inlined.call`
+      wrapper invocation, with exact message/line/column; keep the separately compiled unexpanded-
+      inline application path unchanged and covered.
+    - [x] Reject every `scala.util.boundary.break` in M1 before `Eff.defer`/continuation movement,
+      with stable direct diagnostics in pure-prefix and captured-suffix shapes. Returns local to a
+      nested method remain accepted; M1 conservatively treats all boundary breaks as outside scope.
+    - [x] Narrow the nested-managed-`direct.reset` exception in the enclosing `ShiftBody` audit:
+      inspect its eager prompt/other call arguments and reject an exact outer-scope `direct.shift`
+      there, but leave the nested reset's managed body/inline expansion to its own transform.
+      Add the exact negative regression and retain positive regressions for an ordinary nested
+      managed reset body and explicit `scalascript.control.shift`; update the spec before code.
+      Landed on the feature branch in `fdde23d93`; clean focused suites pass 39/39 and the rebuilt
+      packaged consumer reports the exact direct diagnostic instead of raw owner output.
+    - [x] Run clean focused semantic/diagnostic tests, then
+      `scripts/sbtc "scala3ControlApi/test;scala3ControlApi/packageBin;scala3ControlApi/makePom"`,
+      packaged-JAR consumer/example, catalog validation 26/9, negatives 9/9, direct lane 3/3,
+      `tests/conformance/run.sh --only 'effect*,effects*'`, Markdown checks, and `git diff --check`.
+      Update spec checkboxes/results, leave the five BUGS entries open pending approval/landing,
+      refresh SPRINT/CHANGELOG counts in separate docs/bookkeeping commits, rebase only at a clean
+      checkpoint, repeat critical gates, and freeze for a new independent review. Do not push/release.
+      Final clean checkpoint is based on `origin/main` `76f9706cf`: focused suites pass 39/39,
+      the full leaf/package/POM pass 101/101, packaged positive and exact-negative consumers are
+      green, catalog validation is 26 vectors/9 lanes, negatives are 9/9, direct is 3/3, and
+      affected conformance is 5/5. Markdown and diff checks are the final freeze gate.
+  - [x] Fresh independent read-only rereview of frozen checkpoint `708dec2f1`. Expanded direct semantics
+    (17/17), diagnostics after clean compile (22/22), full leaf/package/POM (101/101), catalog validation
+    (26/9), negatives (9/9), direct lane (3/3), affected conformance (5/5), and packaged-JAR compile/run
+    were green, but review rejected the checkpoint with three P1 owner-safety gaps and P2 regression/
+    bookkeeping gaps. Do not mark M1 done or push.
+  - [ ] **Post-`708dec2f1` owner remediation (three P1 + P2; resume cold):** update and commit
+    `specs/scala3-control-macros.md` before code, then change only
+    `v2/host/scala/control` (`scala3ControlApi`, `scalascript-control_3`). Preserve the explicit ABI;
+    do not touch v1, CoreIR, UniML, backends, CLI, seed, or self-hosting. Complete in order:
+    - [x] Rebind the captured result type `A` through the active prefix replacements before opening
+      it with `asType` or typing the moved rank-2 body. Support both `owner.type` and
+      `Prompt[inner.Key, Int]` captured values, with packaged direct-vs-explicit results of `42`;
+      otherwise fail closed at the marker, never raw E007/owner² output.
+    - [x] Audit every owner-bearing type in moved prefix RHS and captured-suffix terms, including
+      nested lambda/result symbols. Support `val f: () => owner.type = () => owner` across capture
+      in both prefix and suffix declaration shapes, or reject an unrepresentable graph before code
+      construction with stable `DIRECT_STYLE_UNSUPPORTED`; add packaged explicit differentials.
+    - [x] Make supported crossing contextual values two-phase: allocate all fresh `ValDef` symbols
+      before moving RHS trees, then move with the complete replacement map. Preserve compiler
+      `Given`/`Lazy` flags and accept unused forward/mutual parameterless givens whose explicit
+      equivalent prints `42`; fail closed only for an actually unsupported dependent type cycle.
+    - [x] Commit exact diagnostic regressions for `scala.util.boundary.break` through an imported
+      method alias, explicit label application, module alias, and transparent-inline provenance.
+      Correct over-broad dependent-owner completion wording in the feature spec and CHANGELOG.
+    - [x] Run clean focused semantics/diagnostics, full
+      `scala3ControlApi/test;scala3ControlApi/packageBin;scala3ControlApi/makePom`, packaged positive
+      and negative consumers, catalog validation 26/9, negatives 9/9, direct lane 3/3, affected
+      conformance 5/5, Markdown, and diff checks. Update spec verification/results and BUGS/SPRINT/
+      CHANGELOG in separate commits, rebase only while clean, repeat critical gates, freeze an exact
+      clean head, and require another independent review. Do not push or release the claim. Gotcha:
+      after changing a macro implementation, incremental `typeCheckErrors` test compilation can retain
+      the prior macro class and report an obsolete primary column; use `scala3ControlApi/clean` before
+      freezing exact diagnostic evidence.
+      Owner remediation is implemented in `a8f321d5c` on `origin/main` base `f4e860ed7`:
+      clean focused suites pass 47/47 (21 semantics, 26 diagnostics), the full leaf/package/POM pass
+      109/109, packaged positive consumers print the expected general output and eight differential
+      `42` values, and the packaged negative reports stable `DIRECT_STYLE_UNSUPPORTED`. The POM has
+      only the Scala library in production scope; catalog validation is 26 vectors/9 lanes, validator
+      negatives are 9/9, `scala-direct` is 3/3, and affected conformance is 5/5. Markdown/diff checks
+      are the final freeze gate. Keep this remediation item and M1 itself pending until a fresh
+      independent review approves; do not push or release the claim.
+  - [ ] **Post-`408f23c11` strict-polymorphic-value remediation (P1; resume cold):** fresh
+    independent review rejected the `f4e860ed7..408f23c11` candidate. A real Scala CLI 3.8.3
+    consumer compiled only against the packaged control JAR declares
+    `val identity: [A] => A => A = [A] => (a: A) => a` before capture and calls
+    `identity[Int](2)` in the suffix. Direct source fails at that call with raw typer output
+    `undefined: identity.<none> ... TermRef(... val <none>)` twice; the explicit equivalent runs
+    and prints `42`. Preserve the accepted strict-value grammar or reject a genuinely unsupported
+    graph with stable `DIRECT_STYLE_UNSUPPORTED`; never leak a compiler crash. Complete in order:
+    - [x] Update and commit `specs/scala3-control-macros.md` before code with structural-select
+      resolution and closed `MethodType`/`PolyType`/`ParamRef` binder invariants.
+    - [x] Add the faithful red direct-vs-explicit regression plus adjacent monomorphic structural
+      apply, prefix/suffix polymorphic calls, explicit `.apply[Int]`, owner-dependent nested generic
+      polyfunctions, and `ParamRef`-only result/bounds coverage.
+    - [x] Resolve structural selections through the transformed qualifier/member graph. Preserve a
+      self-contained binder graph atomically, rebind only graphs that depend on replaced owners, and
+      fail closed for an owner-dependent nested polyfunction that Quotes cannot represent soundly.
+    - [x] Run clean focused semantics/diagnostics, full leaf/package/POM, packaged positive and
+      negative consumers, catalog 26/9 + negatives 9/9 + direct 3/3, affected conformance 5/5,
+      Markdown, and diff checks. Rebase only from a clean checkpoint, repeat critical gates, freeze
+      an exact base/head for a new independent reviewer, and do not push or release the claim.
+      Implementation `b6d2cd262` is green on `origin/main` base `6603e6c29`: clean focused suites
+      pass 51/51 (24 semantics and 27 diagnostics), the full leaf/package/POM passes 113/113, and
+      the packaged Scala CLI 3.8.3 positive consumer prints fourteen differential `42` values. The
+      packaged negative reports stable `DIRECT_STYLE_UNSUPPORTED`; the POM has only the Scala
+      library in production scope. Catalog validation is 26 vectors/9 lanes, validator negatives
+      are 9/9, `scala-direct` is 3/3, and affected conformance is 5/5. Keep this remediation item and
+      M1 pending until a fresh independent review approves; do not push or release the claim.
+- [ ] **scala3-control-plugin** — publish a `CrossVersion.full` compiler plugin for cross-method CPS,
+  managed callback propagation, effect metadata, and generated ABI entrypoints. Precompiled Scala/Java
+  code remains callable but is a deterministic control-capture barrier while active on the stack.
+
+### Mandatory host and runner profiles (delivery order by measured readiness)
+
+- [ ] **javascript-typescript-control-host-runner** — deliver the ESM/npm + `.d.ts`
+  typed bidirectional value/call bridge, explicit `Eff`, managed source transform,
+  callback/event-loop policies, static-SCC dispatcher, init-free exact bundle runner,
+  and hardened dynamic portable runner from
+  `specs/javascript-typescript-bidirectional-control.md`. Promise/async/generators
+  remain adapters or barriers; I64 uses `bigint`.
+  - [x] **Explicit local control slice + two review rounds (2026-07-15)** — the
+    compiler-independent `@scalascript/control` leaf is reachable on `origin/main`
+    as landing `cf8f96200`. It rejects inferred/explicit union owners, publishes a
+    canonical non-broken contract link, and includes the owner, prompt,
+    WeakMap/constructor-authority, and Apache-license hardening. Package tests pass
+    31/31 including all 17 applicable catalog vectors; TypeScript,
+    1,000,000-bind/state and 100,000-operation stress, exact five-file pack
+    (11,059/42,353 bytes), markdown/node checks, and affected conformance 5/5 are
+    green. Independent rereview confirmed both second-review bugs closed; their
+    `BUGS.md` entries are `done`.
+  - [ ] **Remaining host/runner profile** — generated facades and typed value/call
+    bridges, managed source transformation and callback policies, mixed-language
+    SCC dispatch, exact and portable runners, and shared lane wiring.
+    - [ ] **T1 — closed synchronous lexical direct transform (`javascript-typescript-control-direct`).**
+      Specify and ship the zero-runtime-side-effect package `v2/host/js/control-direct`
+      (`@scalascript/control-direct`, transformer subpath `/transform`, CLI
+      `ssc-control-tsc`) that lowers the bounded grammar
+      `direct.reset(prompt, () => { ... const/let x = direct.shift(prompt, body) ... })`
+      into the existing explicit `@scalascript/control` `Eff/reset/shift/flatMap` ABI.
+      This slice is deliberately local and closed (`Fx = never`): preserve exact-import
+      ownership, lexical shadowing, nearest resets, true shift, prompt isolation,
+      prefix-once/suffix-per-resume, sequential markers, and shared local mutable heap;
+      reject all asynchronous/generator and capture-barrier shapes with stable
+      `JS_DIRECT_*` codes and source spans. Use the TypeScript compiler API as the
+      established syntax/binding authority when it is already available, keep the
+      published package free of production dependencies, and leave descriptors,
+      CoreIR/frontends, runners, lane registration, and the rest of the host profile
+      open. Resume from `specs/javascript-typescript-control-direct.md`; done when its
+      behavior checklist is verified, catalog 18/22/23/24 differentials and negative
+      syntax/import/source-map/type-diagnostic/package tests are green, the existing
+      explicit package remains 31/31 plus typecheck, exact npm packs are audited, and
+      affected `effect*,effects*` conformance passes. Keep code, docs, spec verification,
+      and bookkeeping in separate commits and require an independent read-only review
+      before integration.
+      - [x] **REJECT repair: forward/own lexical capture.** Frozen review snapshot
+        `f6fa34fac` emits a shift body outside the `.flatMap` frame that owns later
+        declarations, so a saved nested closure reading `const later = 42` throws
+        `ReferenceError`. Specify fail-closed ownership for every symbol declared by
+        the marker itself or its continuation suffix, detect uses recursively through
+        nested closures with checker symbol identity, and add forward/own/shadowing plus
+        declaration-initializer order regressions. Track in
+        `BUGS.md#js-control-direct-forward-lexical-capture`. Implemented in cumulative
+        repair `c19d42401`; marker-layer generalization is in `4c6b8e2a9`.
+      - [x] **Pre-rereview repair: prefix TDZ/outer-binding escape.** Cumulative
+        repair `c19d42401` checked only the shift body: a pure prefix read of a later block
+        binding is left outside the generated continuation and can resolve to an
+        outer name instead of throwing from the original TDZ (`99`/`141` reproduced,
+        no direct diagnostic). For each marker, scan its layer's prefix statements
+        plus shift body against own/later declaration symbols, ignoring type-only and
+        genuinely shadowed references; cover real `.js` with `checkJs: false` and
+        file-atomic ignored-diagnostic emit. Track in
+        `BUGS.md#js-control-direct-prefix-tdz-binding-escape`. Implemented and covered
+        by real-JavaScript plus type-only regressions in `4c6b8e2a9`.
+      - [x] **REJECT repair: preserve JavaScript marker declarations.** Lower each
+        accepted `const`/`let x = direct.shift(...)` to a collision-safe fresh resume
+        parameter followed by the original declaration kind initialized from that
+        parameter; do not use `x` itself as the callback parameter. Verify real `.js`
+        input under `allowJs: true, checkJs: false`, const assignment behavior, let
+        mutation, a fresh-name collision, and source maps. Track in
+        `BUGS.md#js-control-direct-js-marker-binding-semantics`. Implemented in
+        `c19d42401`.
+      - [x] **REJECT repair: file-wide intrinsic direct-eval barrier.** In every file
+        selected for transformation, reject direct `eval(...)` even at top level or in
+        nested closures and even through parentheses/`as`/non-null/type-assertion
+        wrappers; emit no JavaScript for that file. Normatively allow indirect eval and
+        `Function` as global-only JavaScript operations, then test each accepted and
+        rejected form with stable spans. Track in
+        `BUGS.md#js-control-direct-eval-capture-unsound`. Implemented in
+        `c19d42401`, with the selected-file closure completed by `4c6b8e2a9`.
+      - [x] **Pre-rereview repair: import-only direct eval.** Repair `c19d42401`
+        removes an unused named marker import even with no marker call, but gates eval
+        scanning on `filesWithMarkerCalls`; `eval("typeof direct")` therefore observes
+        a changed lexical environment. Gate intrinsic direct eval on every candidate
+        file rewrite (including import-only erasure), retain eval-free unused-import
+        removal, and prove diagnostic + file-atomic ignored-diagnostic emit. Track in
+        `BUGS.md#js-control-direct-import-only-eval-erasure`. Implemented and covered
+        by an executing import-only regression in `4c6b8e2a9`.
+      - [x] **REJECT repair: real installed npm bin.** Replace the raw
+        `import.meta.url === pathToFileURL(argv[1])` guard with deterministic realpath
+        entry detection, including missing/unreadable argv handling. Build a tarball,
+        install it in a fresh consumer, invoke exactly
+        `node_modules/.bin/ssc-control-tsc`, and prove successful emit plus non-zero
+        invalid-option failure. Track in `BUGS.md#js-control-direct-cli-symlink-noop`.
+        Implemented in `c19d42401`.
+      - [x] **REJECT repair: erase the build-time marker import safely.** Require every
+        value use of each exact named `direct` binding to be a successfully transformed
+        marker call; diagnose survivors. Remove only completed marker specifiers and an
+        import declaration only when it becomes empty, preserving unrelated bindings
+        and imports. Run emitted production JavaScript with control runtime installed
+        but no control-direct package. Track in
+        `BUGS.md#js-control-direct-marker-import-survives-emit`. Implemented in
+        `c19d42401`.
+      - [x] **REJECT repair: consumer-owned TypeScript resolution.** Resolve the CLI
+        compiler via Node `createRequire` from the explicit project/config directory or
+        cwd, never from the extracted tool store and never from a global fallback. The
+        packed installed-bin fixture keeps TypeScript only in consumer `node_modules`;
+        a twin fixture without it must fail actionably. Track in
+        `BUGS.md#js-control-direct-consumer-typescript-resolution`. Implemented in
+        `c19d42401`.
+      - [x] **REJECT repair: transparent marker wrappers.** Recursively unwrap only
+        parentheses, `as`, non-null, and type assertions for exact checker-symbol
+        ownership, covering `(direct).reset`, `direct!.reset`, and
+        `(direct as typeof direct).reset` plus corresponding shift/negative forms.
+        Emitted JavaScript must contain no owned marker call. Track in
+        `BUGS.md#js-control-direct-wrapped-marker-receiver-missed`. Implemented in
+        `c19d42401`.
+      - [x] **REJECT repair: supported TypeScript API gate.** Pin the accepted compiler
+        API line in the feature contract, enforce it before programmatic/CLI transform,
+        and test both TypeScript 5.9.x acceptance and deterministic rejection outside
+        that line without adding a bundled/production compiler. Track in
+        `BUGS.md#js-control-direct-typescript-version-ungated`. Implemented in
+        `c19d42401`.
+      - [x] **Rereview repair: shorthand value-symbol capture.** Frozen reviewed HEAD
+        `c4377fabb` asks `checker.getSymbolAtLocation` for an identifier inside a
+        `ShorthandPropertyAssignment`, which returns the property symbol rather than
+        the referenced lexical value. A shift body such as `({ later }).later` can
+        therefore capture a suffix `const later = 42` and fail at runtime. Specify and
+        centralize runtime-value symbol resolution with
+        `checker.getShorthandAssignmentValueSymbol`, preserve ordinary/shadowed/type-
+        only identities, and cover shorthand plus assignment-initializer syntax where
+        TypeScript exposes it. Track in
+        `BUGS.md#js-control-direct-shorthand-value-symbol-capture`. Implemented in
+        `ec95c4c65`; real-JavaScript property and assignment-initializer regressions
+        prove one stable capture diagnostic and unchanged ignored-diagnostic emit.
+      - [x] **Rereview repair: surviving marker shorthand/local exports.** Runtime
+        shorthand `{ direct }` and local exports `export { direct }` or
+        `export { direct as alias }` currently evade owned-marker value scanning; the
+        import may then be erased while emitted code keeps an unbound value/export.
+        Reuse one central runtime-value symbol resolver, including
+        `getExportSpecifierLocalTargetSymbol` for local export aliases, diagnose each
+        surviving owned value once as `JS_DIRECT_UNSUPPORTED`, and cancel every rewrite
+        in the file. Track in
+        `BUGS.md#js-control-direct-marker-shorthand-export-survivor`. Implemented in
+        `ec95c4c65`; shorthand/assignment and local/source export aliases each produce
+        exactly one file-atomic diagnostic.
+      - [x] **Rereview repair: erased type-only exports.** The fail-closed re-export
+        scan currently rejects valid erased forms: local
+        `export type { direct as Marker }`, direct
+        `export type { direct } from "@scalascript/control-direct"`, and inline
+        `export { type direct } from ...`. Specify these as type-only/non-runtime uses,
+        preserve their normal TypeScript erasure without a direct diagnostic, and add
+        positive tests alongside runtime export aliases and shadowing. Track in
+        `BUGS.md#js-control-direct-type-only-export-false-positive`. Implemented in
+        `ec95c4c65`; five local/source declaration/specifier spellings erase normally,
+        and a shadowed local runtime export remains ordinary.
+      - [x] **Fresh-rereview P1: mixed type-only marker imports must stay valid JavaScript.**
+        Exact reviewed HEAD `71ae452ea5` (current rebased equivalent `82aee139a`)
+        rewrites a mixed import such as
+        `import { direct, type DirectMarkerContractError as ErrorType } from
+        "@scalascript/control-direct"` after TypeScript has performed its normal
+        type erasure. Removing `direct` can leave `import { type ErrorType }`, which
+        the packed CLI reports as success but `node --check` rejects. Define separate
+        JavaScript/declaration channels: JavaScript rewriting discards type-only
+        specifiers while retaining ordinary runtime values; declaration emit observes
+        the original import. Prove both `verbatimModuleSyntax` modes through the real
+        packed CLI, JavaScript syntax validation, and emitted `.d.ts`. Track in
+        `BUGS.md#js-control-direct-mixed-type-import-invalid-js`. Implemented in
+        `fabad7d84`; both verbatim modes pass packed-CLI syntax, declaration, and
+        production-without-marker checks.
+      - [x] **Fresh-rereview P1: erased source exports must not retain a runtime module
+        link.** With `verbatimModuleSyntax: true`, specifier-level
+        `export { type direct as Marker } from "@scalascript/control-direct"` can emit
+        `export {} from "@scalascript/control-direct"`; production then resolves the
+        dev-only package and fails with `ERR_MODULE_NOT_FOUND`. Select exact-module
+        type-only source exports for JavaScript normalization, remove an empty linked
+        export, preserve mixed ordinary runtime specifiers, and leave declaration emit
+        unchanged. Cover aliases, mixed lists, both verbatim modes, packed CLI syntax,
+        production execution without the marker package, and `.d.ts`. Track in
+        `BUGS.md#js-control-direct-type-export-runtime-link`. Implemented in
+        `fabad7d84`; pure aliases lose the linked JavaScript export, mixed runtime
+        specifiers remain, and declaration emit retains both.
+      - [x] **Fresh-rereview P1: external `import = require` must follow marker import
+        ownership.** Under CommonJS/Node10,
+        `import markers = require("@scalascript/control-direct")` bypasses the existing
+        default/namespace-import fail-closed scan and can survive as a runtime require.
+        Detect exact external-module `ImportEqualsDeclaration` syntax, reject every
+        runtime form once with stable `JS_DIRECT_UNSUPPORTED`, and cancel the complete
+        JavaScript rewrite. Normatively allow `import type markers = require(...)`
+        because it is erased, while declaration emit remains TypeScript-owned. Cover
+        used and unused runtime forms, the erased type-only form, ignored-diagnostic
+        file atomicity, and the real packed CLI in CommonJS/Node10. Track in
+        `BUGS.md#js-control-direct-import-equals-bypass`. Implemented in `fabad7d84`;
+        runtime used/unused forms receive one stable diagnostic while type-only forms
+        emit no require edge and retain `.d.ts` under both verbatim modes.
+      - [x] **Fresh-rereview P1: the exact tarball must not publish repository-local
+        dependency edges.** Exact reviewed range `445f7faf7..d66ed988df` includes
+        `devDependencies["@scalascript/control"] = "file:../control"` inside the
+        eight-file tarball manifest. Extracting that tarball outside the repository
+        and running ordinary `npm install --ignore-scripts` creates a dangling local
+        control link (or otherwise depends on the absent sibling); importing it fails
+        with `ERR_MODULE_NOT_FOUND`. Specify a self-contained manifest: keep the
+        qualified TypeScript tool pin, forbid `file:`, `link:`, `workspace:`, absolute,
+        and relative-local dependency specifications in every dependency/tooling map,
+        and retain the no production/peer dependency decision. Add a regression that
+        reads `package/package.json` from the exact tarball, then extracts and installs
+        it at a clean boundary with no sibling. Move local control resolution to test
+        fixtures/TypeScript paths or test-created symlinks and regenerate the lock
+        mechanically. Track in
+        `BUGS.md#js-control-direct-packed-local-dev-dependency`. Implemented in
+        `9baf6d2bf`: the manifest/lock contain only TypeScript 5.9.3, local
+        compiler/runtime tests use explicit paths/symlinks, and the 39th package test
+        exact-packs, extracts, ordinary-installs, and self-imports without a sibling.
+      - [ ] **Repair-cycle closure.** After spec-first and code commits, update package
+        README/project docs, run direct package tests+typecheck+node checks+exact pack,
+        existing explicit control 31/31+typecheck, catalog positive/negative validators,
+        and `tests/conformance/run.sh --only 'effect*,effects*'`. Then fix stale explicit
+        control bookkeeping to reachable landing `cf8f96200`, mark its two confirmed
+        review bugs `done`, freeze a clean HEAD, and obtain a fresh independent APPROVE
+        before any push or claim release. All local gates and spec verification are
+        green at `abfcb03e6`: direct 35/35 and exact eight-file pack
+        (14,909/56,527 bytes), explicit control 31/31 and exact five-file pack,
+        catalog 26/9, negative validator 9/9, and conformance 5/5. The next fresh
+        review rejected exact `71ae452ea5` on three emit-channel P1s. Cumulative
+        repair `fabad7d84` on current base `6603e6c29` is fully green: direct 38/38 plus
+        exact eight-file pack (15,423/59,187 bytes), explicit control 31/31 plus
+        exact five-file pack (11,059/42,353 bytes), catalog 26/9, negative validator
+        9/9, and conformance 5/5. Only fresh independent APPROVE and subsequent
+        landing remained. The following fresh review rejected exact range
+        `445f7faf7..d66ed988df` on the packed local dev-dependency P1. Fourth repair
+        `9baf6d2bf` on current base `6603e6c29` is fully green: direct 39/39 plus
+        exact eight-file pack (15,618/59,636 bytes), explicit control 31/31 plus
+        exact five-file pack (11,059/42,353 bytes), catalog 26/9, negative validator
+        9/9, and conformance 5/5. Only fresh independent APPROVE and subsequent
+        landing remain.
+- [ ] **rust-control-host-runner** — deliver the Cargo host facade, stable-Rust
+  explicit `Eff`, proc-macro/generated state machines, ownership/borrow/RAII barrier
+  checks, typed mixed-SCC dispatcher, target/toolchain-pinned exact runner, and
+  hardened portable runner from `specs/rust-bidirectional-control.md`. `Future`,
+  `FnOnce`, borrows, pointers, and active `Drop` frames never become reusable/durable.
+- [ ] **swift-control-host-runner** — deliver the SwiftPM facade, explicit `SscEff`,
+  generated managed state machine, actor/`Sendable`/affinity policies, mixed-SCC
+  dispatcher, installed/signed init-free exact entry, and a hardened portable runner
+  where platform policy permits, per `specs/swift-bidirectional-control.md`.
+- [ ] **wasm-wasi-control-runner** — qualify the runner-only profile in
+  `specs/wasm-wasi-control-runner.md`: bounded atomic admission, explicit
+  WASI/WIT capability imports, stackless portable CoreIR execution, fresh memory per
+  run, and rejection of `_start`, linear-memory/table/ref/resource snapshots. This
+  does not claim a host SDK.
+
+Each host milestone is independently shippable but none is optional. Passing an
+existing AOT backend suite proves code generation only, not the typed host bridge or
+dynamic saved-capsule runner.
+
+### Bidirectional modules, build graph, and TCO
+
+- [ ] **scala-to-ssc-exports** — support explicitly selected typed Scala exports (provisional surface
+  `@sscExport`) by emitting the shared descriptor plus JVM glue and generated `.ssc` declarations.
+  Portable signatures import naturally; Scala/JVM-only types require an explicit adapter/codec or
+  backend-specific boundary and never weaken the platform-type ban in portable `.ssc`.
+- [ ] **ssc-to-scala-effectful-exports** — generalize natural-FQN/JAR facades so pure exports expose
+  host-native Scala types and effectful exports expose the public `Eff` ABI. `Future`/`Either`/throwing
+  forms are terminal runner adapters only; remove the thunk/catch-by-class-name and actor stubs from
+  the correctness path.
+- [ ] **mixed-build-interface-first** — extend sbt/scala-cli integration to extract both interface sets,
+  generate facades/stubs, compile bodies, and link one managed runtime scope. Start with a module DAG;
+  reserve a two-phase interface graph for later same-module Scala↔SSC source cycles.
+- [ ] **mixed-global-tail-scc** — build a typed mixed-language call graph and rewrite instrumented
+  Scala↔SSC tail SCCs through a JVM tail-call ABI/dispatcher. Keep this ABI separate from `Eff/Op`;
+  every SCC member/direct edge must be instrumented and the generated `TailStep` never leaks `Any`.
+  Indirect/virtual/foreign/finalizer edges are deterministic barriers. Verify 1e6-depth two- and
+  three-function alternating-language recursion with no unbounded JVM stack.
+
+### Reusable continuation save/run — common capsule, then profile runners
+
+- [~] **saved-continuation-format** — after X1/CoreIR reconciliation, define the versioned self-hosted
+  envelope + durable-frame codec/verifier with independent axes
+  `CodeMode = Portable | ExactArtifact` and `FrameGate = Savable | Unsavable`:
+  **PART 1 LANDED 2026-07-21 (`0c815910d`, claim `durable-frame-codec`):** the canonical §9.1
+  durable-frame BYTE codec `DurableCodec[S]` (reference row) — scalars incl. f64 bit-identity +
+  pair/either/list/imap over a deterministic, bounded, self-delimiting big-endian format;
+  `snapshot = decode∘encode`; `DurableBytes` immutable; exact/bounded decode with typed
+  `DurableDecodeError`. Spec `specs/durable-frame-codec.md`; control suite 124/124 + ABI gate.
+  **PART 2 LANDED 2026-07-22 (`eed2fc010`, claim `durable-capsule-envelope`):** the capsule ENVELOPE
+  + resume points — `DurableCapsule` (versioned header + domain-separated SHA-256 `frameDigest`,
+  encoded via Part 1 combinators; inert `decode` per §9.2) and `ResumePoint`
+  (`define`/`savable`/`freeze`/`restore`). `freeze→encode→decode→restore→run` round-trips; `restore`
+  admits — rejecting stale version / cross-point id / tampered frame with typed `CapsuleRejected` —
+  then rebinds to the `ExactArtifact`-bound machine (never travels as bytes) and returns a reusable
+  `SavedContinuation`. Spec `specs/durable-capsule-envelope.md`; control suite 132/132 + ABI gate.
+  **JS-LANE CODEC MIRROR LANDED 2026-07-22 (claim `durable-frame-codec-js`):** the Part 1 frame codec
+  now exists on the JS lane (`v2/host/js/control`), byte-identical to Scala — verified by a shared
+  GOLDEN hex table asserted on BOTH lanes (Scala `DurableCodecTest` + JS `control.test.js`). Reconciled
+  the one cross-lane divergence: NaN normalizes to canonical `0x7ff8000000000000` on both lanes
+  (a JS `Number` can't round-trip a NaN payload; signed-zero/finite/inf bits stay exact). Scala
+  133/133, JS 39/39. Spec `specs/durable-frame-codec.md` §4a.
+  **JS-LANE CAPSULE MIRROR LANDED 2026-07-22 (claim `durable-capsule-envelope-js`):** `DurableCapsule`
+  + `ResumePoint` + `CapsuleRejected` now on the JS lane, envelope byte-identical to Scala. The frame
+  digest uses a self-contained SYNC SHA-256 (package stays import-free/zero-dep; parallel to Scala's
+  `MessageDigest`). Cross-lane proof: both lanes assert one shared GOLDEN capsule hex (id `cell`,
+  state 100) whose embedded digest was computed independently by Node crypto — so the match validates
+  the hand-rolled SHA-256 == Node crypto == Java MessageDigest. Scala 134/134, JS 45/45. Spec
+  `specs/durable-capsule-envelope.md` §5a. **BOTH host lanes now have full durable parity (codec + capsule).**
+  **PART 3a LANDED 2026-07-22 (`durable-ref` claim): `DurableRef` + real `Restore` effect.** Added
+  `DurableRef[A]` (§9.2 inert reference: providerId + opaque bytes) + `DurableRef.codec[A]`, and turned
+  `Restore` from a phantom marker into a REAL row — `Restore.Resolve[A]` op + `Restore.resolve` +
+  `Restore.withResolver(resolver)` (resolves post-admission, once per resolve, per-run independent).
+  Decode stays inert (a capsule frame containing a ref contacts no resource); `admitLocally` fails loudly
+  if a run resolves with no provider. Scala reference row; control suite 139/139 + ABI gate. Spec
+  `specs/durable-ref.md`. **JS MIRROR LANDED 2026-07-22 (`durable-ref-js`): `DurableRef` + real
+  `Restore` now on the JS lane too (JS 50/50) — BOTH host lanes at full durable parity.**
+  **CANONICAL-KEY MAP CODEC LANDED 2026-07-22 (`durable-map-codec`, both lanes):** `DurableCodec.map[K,V]`
+  sorts entries by unsigned-lexicographic key-encoding so bytes are insertion-order-independent (§9.1);
+  decode rejects non-ascending keys. Shared golden hex on both lanes proves cross-lane canonical
+  identity. Scala 142/142, JS 53/53. **§9.1 baseline value algebra complete.**
+  **NOMINAL VERSIONED-SCHEMA CODEC LANDED 2026-07-22 (`durable-nominal-schema`, both lanes):**
+  `DurableCodec.schema(schemaId, version, codec)` prefixes `string(schemaId) ++ int(version)` before
+  the wrapped codec's bytes and rejects, on decode, a value written under a different name/version
+  with a typed `DurableDecodeError` (byte-identical messages both lanes). Shared golden hex
+  (`schema("Point",1,pair(int,int)).encode((3,4))` = `00000005506f696e74000000010000000300000004`)
+  proves cross-lane identity. Scala 146/146, JS 57/57, ABI 6/6. Spec `specs/durable-nominal-schema.md`.
+  **This closes §9.1's "immutable nominal … data with versioned schema identity".**
+  **REMAINING (Part 3b+):** the `Portable` CoreIR resume-program payload (this is v2/native — the
+  CoreIR-free leaf can't host it); signature/audience/tenant + capability policy for `DurableRef`;
+  a dynamic id→resume-point registry; graph codecs (§9.3);
+  `RunOutcomeUnknown`; Rust/Swift lanes (don't exist yet). The runners consume the capsule.
+  `Portable(resumeCodeDigest, closed Program((frame,input)=>Eff))` or
+  `ExactArtifact(artifactDigest,target,resumePointId)`, both with `FrozenFrame`, A/R codec schemas,
+  exact resolver/plugin implementation profile, lifecycle, bounded policy,
+  domain-separated hashes, and signature. `DurableRef` decodes inertly and resolves
+  only as a typed post-admission effect. The
+  exact-artifact form is not required to decode into CoreIR. Canonical CoreIR encoding stays
+  kernel-owned; no Java serialization or application-visible frame bytes.
+- [ ] **continuation-exact-artifact-runner-jvm** — implement the practical managed-JVM path first:
+  compiler-generated resume point + codec-safe transitive frame + exact JAR/runtime bundle binding;
+  run in a fresh/on-demand exact-artifact runner without calling `main` or effectful/static application
+  initialization. Provider references use expiry/removal; inline exact-artifact values require finite
+  `notAfter` so retention is bounded.
+- [~] **continuation-save-run** — implement `continuation.save()` as typed
+  `Eff[Save,SavedContinuation.Aux[A,Fx,R]]` plus reusable local/remote `saved.run(value)`. Each run
+  decodes an isolated frame, freshens captured prompt ids, and invokes the resume entry once; no prefix
+  or automatic admitted-run retry. External redelivery is a distinct run; post-admission disconnect is
+  `RunOutcomeUnknown`. Remote residual effects require a closed row or explicit authenticated
+  `RemoteRunEnvironment[Fx]`. One-shot sources remain one-shot.
+  **IN-PROCESS KEYSTONE LANDED 2026-07-21 (`329f18758`, scala-explicit lane):** new public
+  `Continuation.savable(state, machine, codec: DurableValue[S])` builder + authority-guarded
+  `SavedContinuation.Reusable`; `save()` snapshots and returns a reusable value, `run()` re-snapshots
+  an independent frame per admitted run (§8.2), resumes once at the capture point, multi-shot, no
+  prefix replay; `Restore.admitLocally` discharges the in-process `Restore` row. Unmanaged/codec-less
+  stay `Rejected`. Spec `specs/durable-continuation-save-run.md`; control suite 117/117 + ABI gate.
+  **REMAINING:** prompt-id alpha-renaming per run (no prompts captured in the keystone state-machine
+  case yet — needs the shift/reset capture path); byte-frame decode (needs `saved-continuation-format`);
+  remote `saved.run` + `RemoteRunEnvironment[Fx]` + `RunOutcomeUnknown` (needs a runner). Those ride on
+  the format/runner slices below.
+- [ ] **portable-coreir-capsule-runner-jvm** — after the exact-artifact proof, closure-convert/link a
+  state-abstracted `(FrozenFrame,input)=>Eff` CoreIR resume Program, materialize every application
+  Global, and run the packed capsule on a generic managed-JVM CoreIR runner with no application JAR.
+  Reject target-specific/unavailable plugin profiles. This establishes the first
+  dynamic row; JS/TS, Rust, Swift, and WASM/WASI dynamic rows are mandatory profile
+  milestones above rather than optional backlog work.
+- [ ] **continuation-artifact-retention** — keep exact JAR/runtime bundles addressable only while a
+  provider-backed identity/finite inline lease may still run; start a compatible exact-artifact runner
+  on demand. Packed portable capsules pin no application artifact. No base cross-version frame
+  migration, effect journal, automatic retry, or exactly-once external-effect claim.
+
+### End-to-end completion gates
+
+- [ ] **control-interop-nxm-matrix** — for Scala/JVM, JS/TS, Rust, and Swift,
+  prove host `reset`→SSC `shift`, SSC `reset`→managed host `shift`, capture on one
+  side/resume on the other, host→SSC→host→SSC callback ping-pong, handlers
+  written on either side, separate compilation, mixed TCO, and every portable
+  producer N→qualified runner M direction. Include save→network transfer→remote run,
+  save→process restart→many runs, concurrent multi-shot runs with isolated captured data, repeated
+  suffix effects, true-shift-vs-shift0, prompt isolation, wrong ABI/A-R-codec/plugin/artifact,
+  exact-runner no-main/initializer replay, capture/transitive-mutable-global barriers,
+  pre-admission unavailable vs post-admission unknown, residual remote handler placement,
+  missing resolver vs unavailable resource, raw foreign rejection, one-shot-source
+  rejection, lifecycle expiry/revocation, signature/quota, and tampered/cross-tenant
+  rejection. The portable-VM is the reference evidence row; it does not own laws.
+- [~] **control-interop-examples** — PARTIAL 2026-07-22 (`control-interop-example-save-run` claim):
+  the **runnable same-process save→run example landed** — `examples/durable-save-run.ssc` captures a
+  reusable continuation via `multi effect` and runs it several times with a prefix counter proving the
+  prefix fires exactly once (no replay). Validated on BOTH the interpreter and native `.ssc` lanes;
+  wired into `ExamplesSmokeTest`. This is the honest same-process demonstration using the EXISTING
+  multi-shot `resume` (the semantic core of save/run). **VECTORS 14/17 FLIPPED to `specified` 2026-07-22
+  (`ssc-save-run-vectors` claim, `5777a3fad`):** avoided bending by using a distinct `.ssc`
+  `SavedContinuation` VALUE with `.run(...)` (a case class over the reusable `resume`), NOT a bare
+  returned function — probes pass byte-exact on portable-vm + portable-asm (15/15 each), JS host lane
+  runs them through the real `Continuation.savable`/`save`/`run` (control.test.js 59/59, oracle 10,20 /
+  10,20,1), Scala lane unaffected (scala-explicit lacks `durable-save` cap). run.sh catalog PASS.
+  **SCALA HOST LANE SYMMETRY DONE (`ssc-save-run-vectors-scala`):** scala-explicit now advertises
+  `durable-save,no-replay` and `SemanticVectorConformanceTest` covers 14/17 through the reference
+  library — all three applicable lanes (process portable-vm/asm, JS host, Scala host) now cover
+  durable save/run. **SHIFT/RESET GAP CLOSED (`ssc-shift-reset-vectors`):** the `.ssc` process lanes
+  (portable-vm/asm) now cover the multi-prompt delimited-control vectors 18/22/23 (1007/7/11), realized
+  natively via algebraic effects with deep handlers — nested `handle`s = nested resets (18), distinct
+  effects = distinct prompts (22), `resume` reinstalls the handler = shift-not-shift0 (23). `lanes.tsv`
+  advertises `shift-reset,prompt-isolation` on both process lanes; run.sh catalog PASS, portable-vm/asm
+  18/18. **ADMISSION VECTOR 11 FLIPPED (`durable-admission-resolver`):** `missing-resolver-reject`
+  pending-codec→specified — `ResumePoint.define(...requiredResolvers)` + `restore(capsule,
+  availableResolvers)` reject an absent resolver ATOMICALLY at admission with typed
+  `CapsuleRejected(kind=MissingDependency)`; both host lanes. **VECTOR 12 FLIPPED
+  (`durable-capsule-abi-manifest`):** capsule format bumped 1→2 with an `ArtifactProfile` manifest
+  (`codecAbiVersion`+`artifactAbiId`+`requiredDependencies`) a resume point pins at freeze; `restore`
+  now emits distinct `CapsuleRejected` kinds `CodecMismatch`/`AbiMismatch`/`MissingDependency` (+ the
+  integrity ones); golden capsule hex regenerated byte-identical both lanes. **VECTOR 10 FLIPPED
+  (`durable-frame-gate-barrier`):** the §8.3 FrameGate `Unsavable` side — `DurableValue.unsavable(failure)`
+  builds evidence whose `captureBarrier` carries a `CaptureFailure`; `savable(...).save()` consults it and
+  rejects with `Save.Rejected(CaptureFailure.CaptureBarrier)` instead of a capsule, so a raw foreign
+  frame never spills. `raw-foreignv-reject` pending-codec→specified (host-only, `structured`, oracle
+  `CaptureBarrier`); distinct from vector 25's `UnmanagedCapture` (state IS captured, frame is not
+  durable); both host lanes; catalog negative meta-test repointed 10→13. **VECTOR 13 FLIPPED
+  (`durable-signature-quota`):** the §11.1-step-2 security envelope. Capsule format bumped 2→3 with an
+  `AdmissionPolicy` (`audience`+`tenant`+`requiredBudget`+`signingKey`) a resume point pins at freeze;
+  `freeze` signs the canonical body with a hand-rolled **HMAC-SHA256** (`ssc-capsule-sig-v1\0` domain,
+  key never in the capsule), and `restore(...availableBudget)` emits two new `CapsuleRejected` kinds —
+  `TamperedCapsule` (missing/forged signature or wrong audience/tenant) and `ResourceLimit` (declared
+  budget > available), checked after integrity and before codec/ABI. `signature-quota-negative`
+  pending-codec→specified (host-only, `structured`, oracle `TamperedCapsule|ResourceLimit`); both host
+  lanes (Scala MessageDigest-HMAC == JS hand-rolled HMAC, golden hex regenerated +20 trailing bytes);
+  catalog negative meta-test repointed 13→15. **VECTOR 16 FLIPPED (`durable-concurrent-multishot`):**
+  concurrent-multi-shot on the **Scala host lane only**. One immutable saved capsule is `run()` 100×
+  CONCURRENTLY (100 threads released together via `CountDownLatch`) against a machine that mutates its
+  own decoded frame; each result is independent (`1000+i`), proving the per-run `codec.snapshot` frame
+  reconstruction has zero cross-run interference — no new runtime needed. Host-lane-only: the
+  `concurrency` cap (added to `scala-explicit`) is structurally unavailable on single-threaded JS, so
+  `control.test.js` now filters its coverage by a `jsUnsupportedCapabilities` set and asserts the skip
+  is justified + pinned (`["16"]`), NOT silent. `concurrent-multi-shot` pending-codec→specified
+  (host-only, `structured`, oracle `100-independent-runs`); verified deterministic across repeated
+  runs. Now **24/26 vectors specified** (Scala 153/153, JS 64/64, ABI 6/6, catalog PASS 26/9, validator
+  negatives 9/9). **CROSS-HOST ExactArtifact FOUNDATION landed (`durable-crosshost-capability`, does NOT
+  flip vector 15):** a canonical `cross-host` capsule (timesTen machine, int frame, format v3) is FROZEN
+  to byte-identical bytes by both host lanes AND decoded+restored+run by both (Scala CrossHostResumeTest
+  + JS control.test.js `7→70/3→30`), closing the JVM↔JS N→M cross product transitively (§14.3 item 9,
+  §14.4) — the axis the whole DurableValue model exists to enable. ExactArtifact CodeMode (machine held
+  per host; only frame/id/ABI travel); `pending/15` updated. Scala 155/155, JS 66/66. STILL OPEN (2):
+  **15** (Portable CodeMode; the ExactArtifact half is done, AND the VM now has a Portable fresh-process
+  foundation — `run-capsule` (`durable`... claim `portable-run-capsule`): `v2/src/Capsule.scala` +
+  `ssc freeze-capsule`/`run-capsule` run a capsule whose resume PROGRAM travels as closed CoreIR bytes,
+  admitted+run in a SEPARATE process holding no machine, digest-verified; `v2/conformance/portable-capsule.sh`
+  PASS (freeze in one JVM, run in another → 42/45, tamper rejected). **§10.2 GENERATION pass, first slice
+  LANDED (`portable-save-region`):** `v2/src/SaveRegion.scala` closure-converts a compiler-declared
+  saveable region into a GENERATED closed resume Program (frame tuple + `Lam(2,...)` that destructures it
+  + applies the region lambda); `ssc freeze-region` → reified capsule runs machine-less → 19/10;
+  `specs/portable-save-region.md` design (staged straight-line→effectful→2nd-backend). VM effects =
+  runtime `ClosV` continuations → pass works on a SYNTACTIC region, not whole-program CPS. **Slice 2
+  AUTO-LIVENESS LANDED (`portable-region-liveness`):** `SaveRegion.reifyAuto` DERIVES the frame slots from
+  a free-outer-variable analysis of `(input)=>body` + a depth-aware de-Bruijn rewrite folding free refs
+  into frame-tuple reads (verified on a nested-lambda region → 23/11); `ssc freeze-region-auto`. STILL NOT
+  FLIPPED: first-order scalars; global closure (defs→resume.defs) + effectful regions + a 2nd admitting
+  backend for §14.4 N→M remain),
+  **26** (cancellation — `pending-spec`, DELIBERATELY owner-unspecified:
+  the pending record forbids inventing the race/report/diagnostic rules — needs the semantic owner to
+  freeze them, not a harness flip). **NON-BINDING PROPOSAL drafted for 26**
+  (`specs/durable-cancellation-proposal.md`, claim `durable-cancellation-proposal`): recommended answers
+  to all three open questions (cancel-vs-resume race modelled on the atomic one-shot claim; cancelled
+  reusable → new typed `Cancelled` admission failure distinct from `ExpiredOrRevoked`/`AlreadyResumed`;
+  `CANCELLED` boundary projection; in-flight interrupt left out of base contract as target-specific).
+  Flips nothing; `pending/26` points at it; awaits owner ratify/amend/reject. Parallel: a v2/native
+  Portable-runner exploration for 15 is scoping the CoreIR resume-program-payload build.
+  Original blocked note (now superseded)
+  preserved: BLOCKED, do not start: every one of its three
+  deliverables is gated on work that does not exist yet. Measured 2026-07-16 on
+  `0891ed8cf` with the assembled `bin/ssc` and `tests/interop-conformance/run.sh --list`
+  (re-measure, don't trust this line). Ship runnable ScalaScript typed multi-prompt
+  shift/reset and save→run-twice examples with a prefix counter proving no replay,
+  plus one ordinary managed callback example for each qualified host profile. Run
+  through assembled package/artifact paths and link from the common/profile specs.
+  - **`.ssc` shift/reset — no surface exists.** `freshPrompt`/`reset`/`shift`/`save`
+    are each `ssc: unbound global` on the assembled launcher; no `.ssc` library
+    defines them (`v1/runtime/std/monad-control.ssc` is monadic loop combinators, not
+    delimited control). `lanes.tsv` gives `portable-vm`/`portable-asm` no `shift-reset`
+    capability, so vectors 18/22/23 print `UNSUPPORTED missing: shift-reset`. The
+    `.ssc` control surface is `effect`/`handle`/`resume` only — spec §4.3's
+    `freshPrompt`/`reset`/`shift` is explicitly *"conceptually provides"*, i.e. design,
+    not implementation.
+  - **save→run-twice + prefix counter — impossible on EVERY lane, by design.** No lane
+    advertises `durable-save`/`no-replay`. Vectors `14-durable-save-run-same-process`
+    and `17-no-prefix-main-replay` are `pending-codec` on all 9 lanes *including*
+    `scala-explicit`. Vector 17's pending file already specifies exactly this task's
+    prefix-counter obligation; its `needs:` is `save()/run() + ExactArtifact init-free
+    resume entry`. No `SavedContinuation` is constructible on any profile: Scala's
+    `Continuation.save()` always performs `Save.Rejected(CaptureFailure.UnmanagedCapture)`
+    (`Save` has *only* the `Rejected` operation), JS `index.js:315/344` does the same, and
+    `SavedContinuation.Authority` is commented *"Reserved for post-X1 library-owned
+    successful save plans."* Spec §2.4 forbids the implementation until the P6.5
+    `F1→F2/F3→L1→X1` fixed point is green and frozen — the same X1 gate that already
+    blocks the three `coreir-*`/`numeric-width` items at the top of this section.
+  - **"each qualified host profile" — the set is empty.** `jvm-generated`,
+    `js-generated`, `rust-generated`, `wasm-generated`, `swift-generated` are all
+    `pending`/"not qualified" in `lanes.tsv`. `specs/scala3-bidirectional-control.md`
+    says *"explicit Tier 1 and lexical macro M1 implemented; remaining host profile
+    planned"*; `docs/user-guide.md` says the JS package *"does not yet claim the complete
+    JavaScript/TypeScript host profile."* Per spec §5.1 neither is a complete host claim.
+    The landed Scala/JS control work is host-language (Scala/JS) library surface, not
+    `.ssc`-callable, so AGENTS.md §3a's `examples/` rule does not bite it; both already
+    carry surface examples (`ControlApiExample.scala`, the two package READMEs).
+  - **Unblock order:** P6.5 X1 green/frozen → `coreir-canonical-contract-reconcile` +
+    `coreir-canonical-codec-hardening` → DurableValue codec + `save()`/`run()` → then
+    vectors 14/17 flip from `pending-codec` and this item becomes writable. Requalify a
+    host lane in `lanes.tsv` before promising per-profile callback examples. Rewrite this
+    item to match whatever actually lands; do not bend an example around the gap.
+  - Found while investigating: `v2-zero-arg-unknown-method-fails-open` (BUGS.md) — an
+    unknown zero-arg method silently returns `<closure>`/`Stub` and exits 0 on the default
+    native lane while v1 errors correctly. This is why a `.ssc` `resume.save()` attempt
+    *looks* like it runs. Fix it before trusting any example as evidence.
+- [ ] **host-sdk-feature-coverage** — derive a CI-enforced matrix from existing
+  feature/capability/module metadata. Every portable ScalaScript capability declares,
+  for Scala/JVM, JS/TS, Rust, and Swift, one exposure form: native API, generated
+  facade, managed transform, tooling-only, or target-specific. “Unavailable” is
+  permitted only with a normative target-inapplicable reason; it cannot waive a
+  portable runtime/library capability. Reuse existing `emit-lib` pilots rather than
+  building parallel hand-maintained standard libraries.
+
+## security-hardening — toolchain audit findings (2026-07-11, Sergiy: "аудит секюрити … запиши все проблемы в спеку и в спринт и исправь")
+
+Spec: `specs/security-hardening.md`. Report artifact:
+`https://claude.ai/code/artifact/e069a55c-a49f-4aac-bc68-4077e4d88d1b`.
+Defensive audit of fs/process/http-client/http-server+json/codegen+cache across all
+backends. Structural defenses (no-shell exec, TLS verify, escaped codegen literals) verified
+sound. `✎` = in code shipped this session. Fix order + full exploit/fix per finding in the spec.
+
+### Batch A — "your turf" — ✓ LANDED (rust 7d1d854d4 · jvm 1caace5f3 · json c7f116e45)
+- [x] **H3 ✎ httpClient scope bypass** — `resolve()` now joins base+raw as a leading-`/` path
+      (blocks `@`-userinfo host re-point); absolute only on `http://`/`https://`. VERIFIED cargo.
+- [x] **H6 Rust deleteFile recursive** — `remove_file` only; no `remove_dir_all`.
+- [x] **M3 ✎ Rust redirect SSRF** — `.redirects(0)` (unified with JVM/interp).
+- [x] **M4 ✎ exec honours opts.timeout** — `waitFor(t,MS)` + `destroyForcibly()`; ALSO required
+      draining stdout on a thread (inline `.mkString` blocked for the child's full lifetime and
+      defeated the timeout). VERIFIED scala-cli: sleep-5 killed at ~312ms, code=-1.
+- [x] **M5 ✎ JVM exec stderr deadlock** — drain BOTH stdout+stderr on daemon threads. VERIFIED:
+      200KB stderr flood drains in ~14ms, no deadlock.
+- [x] **M8 ✎ native jsonQuote parity** — escapes all `c<0x20 || c>0x7e` as `\uXXXX`.
+- [x] **M9 ✎ Rust overall timeout** — AgentBuilder `.timeout(timeout)`.
+- [x] **L2 ✎ Rust header CRLF** — skip header k/v containing `\r`/`\n`.
+- [x] follow-up: H3 join + M9 stream-timeout mirrored to OutboundClients/HttpIntrinsics/ws-server;
+      H5 JVM config → ThreadLocal. LANDED ef7fd23e7. (M3 JS redirect deferred — manual mode = opaque resp.)
+
+### Batch B — cross-backend one-liners
+- [x] **M6 JS exec exitCode masking** — `status!=null ? status : (signal||error?-1:0)`. LANDED 473bf2d71.
+- [x] **M11 static-file prefix traversal** — `target.toPath.startsWith(rootDir.toPath)`. LANDED 473bf2d71.
+- [x] **L6 OpenApiGenerator.jsonEscape** — delegates to `jsonStr` (−outer quotes). LANDED 46e2aa06c.
+- [x] **L5 escapers omit newline** — JsGen → `jsStringLit`; JvmGenStringUtils adds `\n\r\t`. LANDED 46e2aa06c.
+
+### Batch C — decisions made (2026-07-12, "делай автономно"); executing in order
+Chosen approaches (autonomous — non-breaking defaults):
+- **H2**: opt-in env flag `SSC_HTTP_BLOCK_INTERNAL=1` (default OFF = no behavior change). When set,
+  after URL resolve, block hosts resolving to loopback/link-local/site-local/any-local
+  (JVM+interp via `InetAddress`, catches DNS→internal; Rust via `to_socket_addrs`; JS literal+localhost).
+- **H4**: NO key mgmt — reject a cached artifact whose `.ssc-artifacts` dir is group/other-writable
+  (treat as stale → regenerate from source). Cheap, no secrets. Full HMAC signing → BACKLOG.
+- **M1/M2**: default body caps (16 MB request on legacy JDK serve via counted read; 10 MB response on
+  JVM/interp/JS clients via bounded read). Env `SSC_HTTP_MAX_BODY` overrides.
+- **L1**: cap retries at 10; exponential backoff (delay·2^attempt) + ±20% jitter.
+- **L3**: add `inheritEnv: Boolean = true` to ProcessOptions; `false` clears child env first.
+- **M10 / L8 / M3-JS → BACKLOG**: confined-fs API (new externs, own spec), shared conformance suite,
+  and JS manual-redirect (opaque-response) each need their own slice; do the M10 doc-warning inline.
+
+- [x] **H1 SSR XSS** — `signals.mjs` `_ssc_json_html_safe` escapes `<>&`/U+2028/2029 to `\uXXXX`
+      before inlining into `<script>` (both renderPage + serve). LANDED fc8cbce00. VERIFIED node.
+- [x] **H2 SSRF guard** — opt-in `SSC_HTTP_BLOCK_INTERNAL=1`; JVM/interp InetAddress (catches
+      DNS→internal), Rust to_socket_addrs, JS literal+localhost. LANDED 81ba4efce. VERIFIED all 3
+      (127.0.0.1/localhost/10.x/169.254.169.254 blocked on, external+off allowed).
+      interp HttpIntrinsics also wired (shared resolveAndGuard). All 4 backends done.
+- [~] **H4 cache integrity** — DONE (cheap half): isJvmStale/isJsStale reject a group/other-writable
+      `.ssc-artifacts` dir → regenerate from source. LANDED (see git). VERIFIED 755/775/777.
+      → BACKLOG: full HMAC signing of `.scjvm`/`.scjs`/`classBundle` with an install-private key.
+- [x] **H5 JVM outbound global vars** — base/timeout/retries/delay → `ThreadLocal`. LANDED ef7fd23e7.
+- [x] **M1 request-body cap** — readBoundedBody (counted, aborts mid-stream; fixes chunked bypass) + 16MB default. LANDED (git). VERIFIED 150 http-server tests green.
+- [x] **M2 response-body cap** — JVM+interp ofInputStream+bounded read (10MB, SSC_HTTP_MAX_BODY); Rust already 10MB. LANDED (git). JS lane too (byte-counted reader). ALL 4 BACKENDS.
+- [x] **M7 secure temp files** — Rust `create_new`+pid/nanos / JS `'wx' 0o600`+randomBytes. LANDED a2b11223b.
+      (Bonus 921a5da7c: fixed BorrowedArgIntrinsics so &str fs/path intrinsics compile on Rust — E0308.)
+- [~] **M10 confined fs variants** — INLINE PART DONE 2026-07-13: `std.fs.resolveWithin(root, rel)`
+      (pure ssc, cross-backend) lexically normalises `rel` (drops `.`, pops `..`) and rejects `..`
+      escapes + absolute paths so the result stays under `root`; the raw helpers are now documented as
+      trusted-input-only. Conformance `fs-confined` PASSES INT/JS/JVM. (Found+fixed a real correctness
+      bug the shallow int cases missed — `..` popped the wrong stack element with `:+`-append; fixed to
+      prepend+reverse. Also avoided a `case h :: t =>` binder the JS backend mis-binds.)
+      → BACKLOG (full API): symlink-safe confinement needs an OS `realPath`/NOFOLLOW extern (JVM
+      toRealPath / Node realpathSync / Rust canonicalize) + `readFileWithin`/`readBytesWithin`.
+      INVESTIGATED 2026-07-13 (tried to add the read wrappers): each is blocked by a SEPARATE
+      pre-existing codegen bug, so they can't land cross-backend cleanly yet:
+        · `readBytesWithin` (`List[Int]`): v1 JVM/JS mis-type `readBytes`'s `List[Long]` return vs the
+          `List[Int]` annotation — the int-2 ssc-Int→Long gap. CONFIRMED the DECIDED resolution works:
+          `run --bytecode` (v2, natively 64-bit) reads `List[Int]` correctly (verified 2/104). So this
+          wrapper is v2-codegen-only until v2 is the default codegen — NOT a v1-fixable item.
+        · `readFileWithin` (`Option[String]`, no Int): compiles+runs on INT+JVM but the JS backend
+          binds the imported def to `()` → "not callable" at runtime (a std-def-import codegen bug,
+          distinct from Int→Long). Reverted; not landed.
+        · Bonus find: importing TWO `std.fs` members via separate `[x](std/fs.ssc)` links fails on the
+          v1 JVM codegen (`value writeFile is not a member`); a single link + direct intrinsic calls
+          works. Pre-existing literate-import codegen bug.
+      resolveWithin (the lexical primitive, `5786aac4a`) is landed + all-lanes-green; document remains.
+- [x] **L1 retry backoff/cap** — cap 10 + exp backoff·2^n ±20% jitter, all 4 clients. LANDED (git).
+- [x] **L3 env-scrub** — ProcessOptions.inheritEnv (JVM codegen + std/process.ssc). LANDED (git). VERIFIED scrub. + M5 interp-exec deadlock completed. (interp/Rust/JS opts-wiring → BACKLOG)
+- [x] **L4 mkdir TOCTOU** — Rust+JVM create directly, tolerate AlreadyExists. LANDED a2b11223b.
+- [ ] **L8 cross-backend conformance** — shared suite pinning identical fs/process/http semantics.
+
+## Active tasks
+
+### ▶ ci-green-final (2026-07-10, Sergiy: "занеси в спринт и делай") — the last 2 CI reds
+
+After the CI-green sweep (jsgen `__ssc`, facade installBin, pickIosSimulator,
+Conformance timeout, Lint tabs, graph-edge-display, tkv2 skip, my own
+type-ascription-conformance backends:[int]) two reds remain. Both are REAL
+(not paper-over-able). See [[project_ci_green_sweep_0710]] for full diagnosis.
+
+**A. money-Currency (sbt job — `v2 Currency companion remains compatible`) — BOUNDED, doing first.**
+The payments-bridge Currency companion features aren't wired on v2 alongside the
+std/money.ssc case class. Validatable against the full money/payments suite.
+- [x] **cur-1 arity-ctor-routing** ✓ — FrontendBridge ~2217: route `Currency(1-arg)` →
+      companion global (`currencyV`, fills scale/symbol defaults the case class
+      lacks); `Currency(3-arg)` → std Ctor; `Money(2-arg)` == case arity → Ctor
+      (v2-money-decimal-regression fix preserved). Condition:
+      `functionConstructors(name) && (!userCaseClasses(name) || args.length != fieldRegistry(name).length)`.
+- [x] **cur-2 companion-statics** ✓ — `Currency.USD`/`.EUR`/… companion constants
+      (from payments `currencyV`) aren't implemented on v2 (fail even via `bin/ssc
+      run`; `Currency.USD` compiles to a zero-arg ctor `DataV("USD",[])`). Register
+      them + route `Currency.<CODE>` select on a functionConstructor to the constant.
+- [x] **cur-3 validate+land** ✓ FrontendBridgeTest 47/0, V2ConformanceTest 104/0, money smoke (Decimal preserved, shorthand+statics+3-arg) — FrontendBridgeTest (Currency green) + FULL
+      money/payments suite (NO 61→25 cascade) + V2ConformanceTest, then land.
+
+**B. int-width (Conformance job — `deep-tail-recursion`) — LARGE, language-semantics.**
+- [x] **int-2v2 RESOLVED via v2-routing (2026-07-10, 70d8b0b25)** ✓ — text-rewrite of v1
+      codegen proven net-negative (84→11 best, synthetic-Int boxing irreducible, scalameta
+      `.transform` is a Scala-2.13 macro absent in Scala 3). The v2 pipeline (CoreIR) is
+      NATIVELY 64-bit (run --bytecode / run --v2 / run-js --v2 all → 5000050000). Added a
+      `codegen: v2` frontmatter opt-in to conformance run.sc: such a case runs its JVM lane
+      via `run --bytecode` and JS via `run-js --v2` (INT stays interpreter). deep-tail-recursion
+      opts in → PASS on all 3 backends; only codegen:v2 cases affected, 0 regressions. FIRST
+      slice of the v1→v2 codegen migration; more cases can opt in as v2 codegen coverage grows.
+ssc `Int` is documented 64-bit and the interpreter + v2 VM honor it, but JS AND
+JVM codegen treat Int as 32-bit UNIVERSALLY (measured: non-TCO `100000*100000` →
+JS `1410065408` = mod 2^32; JVM emits Scala's 32-bit `Int`). Huge blast radius
+(interop, perf, every numeric test, output formatting) — NOT a bolt-on.
+- [x] **int-1 decision** ✓ Sergiy chose **Option A: Int is 64-bit everywhere** (honor
+      the spec/interpreter; codegen must stop treating Int as Scala's 32-bit Int).
+      MECHANISM CONFIRMED: JVM + JS(scala.js) codegen are pass-through — `def f(n: Int)`
+      emits verbatim Scala `Int` (32-bit); `xs.length` (scala.Int) used directly. So the
+      fix = ssc `Int` → Scala `Long` in emitted code + boundary conversions.
+- [ ] **int-2a type-rewrite** — emit ssc `Int` type annotations as Scala `Long`
+      (`def f(n: Int): Int` → `def f(n: Long): Long`), Int literals widen (Scala allows
+      `5` for a Long param). Find the JVM-codegen type-emission point (pass-through vs
+      IR pass at JvmGen ~3750). **BLOCKER FOUND:** JVM emission is heavy TEXT-SLICE
+      pass-through (`out.append(src.substring(...))`, scalameta `.syntax` verbatim) —
+      there is NO clean type-emission point; `Int` flows as raw text in dozens of
+      places. int-2a requires either re-architecting emission to AST-render (not
+      text-slice) OR a fragile whole-output text rewrite (Int appears in strings,
+      comments, identifiers, runtime preamble). Major re-architecture, multi-session.
+- [x] **int-2b BREAKTHROUGH — the given-conversion design (2026-07-10)** ✓ The stdlib-Int
+      boundary (the CRUX) is bridged AUTOMATICALLY by one conversion, NOT a multi-week
+      type-aware pass. `Int→Long` widens automatically; the one missing direction
+      `Long→scala.Int` is supplied by emitting ONCE before the user blocks:
+      `import scala.language.implicitConversions` + `given _sscLongToInt: Conversion[Long,
+      scala.Int] = _.toInt`. Fires only on a real mismatch → the (already-compiling)
+      preamble is untouched. Naive `\bInt\b`→Long ALONE = 70/84; **+given = MEASURED
+      84 fails → 11.** deep-tail-recursion JVM → 5000050000; content-introspection passes.
+- [x] **int-2c consistency (SUPERSEDED — text-rewrite proven net-negative, best 84→11)** — see int-2v2 below
+- [ ] **_int-2c-orig_ — close the last 10 JVM (generic/inferred)** — the given bridges
+      VALUES but not TYPE CONSTRUCTORS (`List[Long]` vs `List[Int]` invariance, `Int=>Int`
+      vs `Long=>Long`) nor runtime BOXING (`generator[Int]`→`[Long]` but inferred `var i=1`
+      stays Int → Integer boxed → `unboxToLong` CCE). ROOT = PARTIAL rewrite: I rewrite
+      explicit `Int` but Scala INFERS `Int` for `var i=1`, `List(1,2,3)`. FIX = also
+      rewrite integer LITERALS `N`→`NL` (so inference yields Long) — regex must skip
+      decimals/hex/exponents/already-`L`. With types+literals+given CONSISTENT, generic
+      pipelines box Long uniformly. Iterate to 0 JVM regressions.
+- [ ] **int-2d JS lane** — JsGen→scala.js is a SEPARATE emission (JsGen.genModuleSegmented
+      scala segments). Apply the same given + Int/literal rewrite there so deep-tail-recursion
+      passes on JS too (it needs all 3 backends green).
+- [ ] **int-2e validate+land per-stage** — FULL conformance (int/js/jvm) ≤ baseline (0 net
+      regressions) BEFORE each push. Only push net-positive stages. deep-tail-recursion green
+      on all 3 = done. WIP on feature/int64b (given+rewrite, ff8e90fc2, 84→11).
+
+### ▶ v1→v2 codegen migration — BASELINE + SCOPE REFRAMING (2026-07-13, chosen path A for Int→Long)
+- [~] **v2-codegen-migration-baseline** — measured the v2 bytecode lane (`ssc run --bytecode`) over the
+      whole conformance corpus vs `expected/`: **99 PASS / 76 FAIL / 20 SKIP**. KEY REFRAMING: making
+      v2 the default codegen (which resolves Int→Long, since CoreIR is natively 64-bit) is NOT an
+      Int→Long task — it is **v2-codegen FEATURE COMPLETENESS**. The 76 fails are dominated by v2
+      feature gaps, NOT Int: ~33 feature-ish (actors/http/ws/effect/distributed/ui/sql/…), and of the
+      ~40 first-order fails the clusters are:
+        · typeclass / tagless (~12: tagless-*, std-functor/monad/monaderror/selective/bifunctor/
+          semigroup-monoid, typeclass-extension) → v2 emits `__missing_tc_<Cls>` unbound global.
+        · case-class body methods (case-class-body-methods: no-arg `base.size()` → falls through to a
+          plugin-bridge `DataV("Stub")`, while `base.get(i)` works — a v2 method-dispatch gap for
+          empty-param-list methods).
+        · self-hosted std intrinsics on v2 (json-read → "jsonParse is self-hosted; import std/json.ssc").
+        · optics/datasets/content-projection/html-dsl each their own gap.
+      ⇒ The Int→Long *benefit* of v2 is incidental; the *cost* is closing ~76 v2 feature gaps, i.e. the
+      whole v2 codegen project (multi-quarter). DECISION NEEDED: commit to v2-feature-completeness one
+      class at a time (biggest lever = typeclass/given dispatch, ~12 cases), OR accept the documented v1
+      Int-32-bit limitation + `codegen: v2` opt-in for the rare 64-bit-Int case (current: 1 case,
+      deep-tail-recursion). Sweep artifact: scratch `sweep_v2bc.txt`.
+  - [ ] **A1-typeclass-resolution** (chosen 2026-07-13; biggest lever ~12 cases) — FULLY SCOPED +
+        DESIGNED, kernel change deferred to a deliberate pass. Gap is in the v2 SELF-HOSTED lowering
+        `v2/lib/ssc1-lower.ssc0` (rebuild: edit source → `installBin` → tower copy):
+          · buildGivenTable (:454) registers givens as (TC, TypeName)→name — Semigroup[Int]→intSum,
+            [String]→stringConcat, [List]→listConcat ARE registered with types. buildSigTable (:511)
+            maps a fn with `__tc_X` params → its TC list. So registration is FINE.
+          · buildGivenArgs (:628) resolves `findGiven(tc, typeOfExpr(firstArg))` then falls back to
+            findAnyGiven (:565, first-match). THE BUG: `typeOfExpr` (:618) is LITERAL-ONLY (returns "?"
+            for `List(1,2,3)`), and for `combineAll[A](xs: List[A])(using Semigroup[A])` the given is for
+            the ELEMENT type A, not the arg's own type. So the direct lookup returns "?"→None→
+            findAnyGiven picks intSum for EVERYTHING → the "0"/garbage output + `__missing_tc_` when a
+            TC has no given at all (combineAllOption).
+        FIX (bounded, additive — only fires where the current lookup already yields "?"/None, so low
+        kernel-regression risk): (1) extend `typeOfExpr` to return "List" for an "app" expr whose fn is
+        `var "List"` (else keep "?"); (2) in buildGivenArgs, when `findGiven(tc, argType)` is None AND
+        firstArg is a `List(...)` app, retry `findGiven(tc, typeOfExpr(firstElement))` (the element
+        type) before falling to findAnyGiven. Handles both direct `show(42)` (argType "Int") and
+        `combineAll(List[X])` (element type) without full HM. VERIFY: v2 bytecode sweep (99→?) MUST not
+        regress any of the current 99 pass + should recover the semigroup/monoid/functor cluster; run
+        the v2 kernel test suite too (self-hosted lowering is correctness-critical for ALL v2 codegen).
+        NON-general (documented limitation): nested/other containers (Option[A], Map) still need real
+        unification — a later slice. AST note: calls are tag "app" (:88); List(...) is an app of var
+        "List"; element extraction = first arg of that app.
+        ATTEMPTED 2026-07-13 (the buildGivenArgs element-fallback above) → INEFFECTIVE, REVERTED. Root
+        is DEEPER + MULTI-SITE: `combineAll`'s dict is resolved TYPE-BLIND at `computeActiveCtx` (:585)
+        — `findGiven(tc, "*")` (only matches wildcard-typed givens) → falls to `findAnyGiven` → the
+        FIRST given (intSum) for EVERYTHING. So `combineAll(List(...))` always gets intSum regardless of
+        element type (int case passes by luck; string/list give the "0"/garbage; a TC with no given at
+        all → `__missing_tc_`). The call-site `buildGivenArgs` fix never bites because the dict is
+        already bound blind at the def/ctx level. A CORRECT fix must thread the concrete element/arg
+        type from the CALL SITE into the dict selection at BOTH `computeActiveCtx` and the call-site
+        injection (i.e. real type-directed resolution / light unification), not a single-site heuristic.
+        That is a genuine multi-session type-inference slice — the "biggest lever" but also the deepest;
+        needs a deliberate design pass on the whole given-dict flow in ssc1-lower.ssc0, not a bolt-on.
+        A1-CONT (deliberate pass, 2026-07-13) → hit the ARCHITECTURAL wall, reverted. Implemented the
+        3-part fix (typeOfExpr List; buildGivenArgs element-type selection; computeActiveCtx → param
+        name). Result: `__tc_Monoid_empty` UNBOUND. ROOT ARCHITECTURE: v2 typeclass dispatch is fully
+        STATIC — a given instance is a set of GLOBALS (`intSum_combine`, `intSum_empty`, …) and a method
+        call lowers to `<given>_<method>` resolved at COMPILE time. There is NO runtime dictionary: a
+        ctx param is not a value carrying methods, so mapping it to the param name yields
+        `__tc_<Cls>_<method>` globals that don't exist. And a polymorphic `combineAll` body is lowered
+        ONCE while the needed instance depends on the CALL — static `<given>_<method>` dispatch cannot
+        bridge that. The current code "works" for the int case only because `computeActiveCtx` blindly
+        binds the FIRST instance (intSum). ⇒ Correct polymorphic typeclass dispatch requires either
+        (a) MONOMORPHISATION (emit a specialised `combineAll_<T>` per instantiation with the instance
+        baked in) or (b) RUNTIME DICTIONARIES (pass the instance's methods as values; lower method
+        access to field/value access, not a mangled global). BOTH are MAJOR v2-lowering architecture
+        changes, not a patch — a dedicated design+build effort. This diagnostic pass pinned the exact
+        wall; no code landed (kernel reverted clean).
+  - [ ] **A1-mono (chosen 2026-07-13) — DESIGN DONE, build is the next dedicated effort** →
+        `specs/v2-typeclass-monomorphization.md`. Decision: MONOMORPHISATION over runtime dicts (fits
+        the static `<given>_<method>` model, REUSES `computeActiveCtx` — emit one specialised copy of
+        the polymorphic body per needed instance, each lowered with active ctx = the CONCRETE instance;
+        rewrite calls to `f$<instanceKey>(args)`). Phased plan in the spec: Collect (call sites →
+        (fn,instance) set, by the List-element type rule) → Emit (specialised defs, memoised) → Rewrite
+        → Transitivity (worklist to fixpoint). Fallback = today's first-instance for unknown types (no
+        regression). VERIFY: v2 bytecode sweep must hold 99 + recover the ~12 typeclass cluster; land
+        per-slice (direct case first, then transitivity), revert on any regression.
+    - [x] **A1-mono SLICE 1 (inline typeclass fns)** `4a6ba79d4` — DONE. monoInstanceFor (call-site
+          rewrite → `fn__mono__instance`, instance by List[A]-element type) + emitMonoDefs (re-lower the
+          fn body with active ctx = the CONCRETE instance, so `summon[TC].m` → `<instance>_m`) +
+          typeOfExpr List. Ctx param kept (unused) → arity unchanged. v2 bytecode 99→102, 0 regressions.
+          CORRECTNESS FIX `21c11c7ae` — the mono hook is in lowerE (post-resolveE), where `List(1,2,3)`
+          is already `ctorap(Cons, [1, …])`, NOT `app(var "List")`; the helpers now read the ctorap/Cons
+          form (element = head of the outer Cons). VERIFIED the pass ACTUALLY FIRES inline now:
+          `combineAll[A: Monoid](List(1,2,3))`→6 (intSum), `List("a","b","c")`→"abc" (stringConcat,
+          correctly selected — was "0abc"). (The +3 sweep cases predate this fix; the mono is now
+          genuinely functional for INLINE typeclass fns.)
+    - [x] **A1-mono SLICE 2 (imported typeclass fns + TC subtyping)** `599ab81b8`/`e9ffd4ee6` — DONE.
+          The "imports are the blocker" theory (prev bullet) was WRONG: a PROBE showed mono ALREADY
+          fires for the imported `combineAll` (its sig/def ARE visible to lowerProg via the shared
+          globals). The two real gaps, now fixed:
+          (1) List[elem] instance key — typeOfExpr recurses into the `ctorap(Cons,..)` head so the key
+              is "List[Int]" not bare "List", so combineAll specialises per element type.
+          (2) Typeclass/trait SUBTYPING for context bounds — `combineAllOption[A: Semigroup]` needs a
+              Semigroup[A] but std only has `given intSum: Monoid[Int]` (Monoid extends Semigroup). New
+              shared `tcExtendsCell` (ssc1-front captures `trait Child extends Parent` at the trait-parse
+              hook, header-bounded scan) + buildGivenTable emits each given under its TC AND every
+              ancestor TC (tcAncestors/givenEntriesFor). std-semigroup-monoid now 6/6.
+          VERIFIED: v2 bytecode sweep 102 → 103, 0 regressions. REMAINING (each falls back to today's
+          behaviour = no regression until done): transitivity (follow calls inside specialised bodies to
+          a fixpoint), multi-ctx-param mono, non-List containers (Option[A], Map) via real unification.
+    - [x] **A1-mono SLICE 3 (chained bounds + TC-correct summon dispatch)** `3e772f6b2` — DONE.
+          Made `tagless-context-bounds` pass 7/7 via three fixes (v2 bytecode sweep 103 → 104, 0 regr):
+          (1) CHAINED context bounds `[A: Monoid: Pretty]` — ssc1-front parseTypeParams read only the
+              FIRST bound per type var, silently dropping the rest (no `__tc_Pretty` param). Now a
+              readBounds loop reads all chained `: TC` bounds.
+          (2) summon[TC].method / .field respect the EXPLICIT TC — both sites resolved to
+              `firstActiveGiven` (the first active ctx instance), a silent miscompile in any 2+-given
+              body (`summon[Pretty[A]].pretty` → `intSum_pretty`). Summon receiver now carries its TC as
+              a `summon_tc` node; dispatch resolves it via lookupActiveCtx (fallback firstActiveGiven).
+          (3) summon-as-value `val m = summon[TC[A]]` — a given is a set of globals, not a value. New
+              block-local summon-alias registry (summonAliasCell): the val registers m→tc in resolveBlock,
+              m.method/m.field dispatch via active ctx, lowerBlock drops the vestigial binding, reset per
+              def. An escaping summon value lowers to a loud `__summon_value_<TC>` (no silent miscompile).
+    - [x] **A1-mono SLICE 4 (extension-method instance dispatch)** `9cdb260ca`/`99e63dbb4` — DONE.
+          `extension … def m` in a `given g: TC[T] with …` body is emitted prefixed `g_m`, but the call
+          `recv.m(args)` uses the BARE `m` (__methodOrExt__) → with 2+ instances no `m` bound → Stub.
+          Fixes: (a) collectExtensionMethods now DESCENDS into given bodies (else `recv.m` misroutes to
+          __method__); (b) new dispatch pass — collectExtDispatch records [method→(typeHead, g_method,
+          arity)] per given body, emitExtDispatchers emits a bare `m` dispatcher
+          `if <recv is T1> then g1_m(…) else … else <fallback>` (orTagTests + extTypeTags built-in tag
+          table); (c) a method with BOTH a top-level ext AND given-body instances gets its top-level
+          impl mangled to `m__ext_default` and the dispatcher falls back to it (handleError: Either
+          top-level + Option given). v2 bytecode sweep +4: typeclass-extension, std-functor-applicative-
+          monad, std-selective, tagless-sealed-dispatch. 0 regressions.
+    - [x] **A1-mono SLICE 5 (named `using` param auto-resolution)** `a36f886b4` — DONE. Named
+          `using s: Show[A]` params were parsed (type discarded) and appended after regular params, but
+          ctxTCsOf only saw `__tc_TC` params → no injection → "arity: 2N expected, N given". Now:
+          ssc1-front parseUsingParams captures each using param's TC head (skipTypeAnnot advancement —
+          readTypeStr over-read past the depth-0 `,`), parseDef registers (defName→([tcHead],fullCount))
+          in shared usingSigCell; ssc1-lower injectGivens appends buildUsingGivenArgs at the END (ctx
+          givens still prepend), guarded by `len(args) < fullCount` so explicit `(using x)` isn't
+          double-injected. → **tagless-resolution 5/5**. sweep 109→112 (+ 2 flaky scljet-write), 0 regr.
+    - [x] **A1-mono SLICE 6 (higher-kinded type params + extension-after in given body)** `7a78f09cb`/
+          `1ea4f1720` — DONE. Closed the last two tagless cases, both PARSER bugs (not the checker/lowering):
+          - `tagless-program` → `def f[F[_]](…)` mis-parsed: parseTypeParams read tyvar `F` then stopped
+            at the INNER `]` of `[_]`, misaligning the signature → spurious tuple the Mira checker rejected
+            ("cannot unify Tuple with non-Tuple"). Fix: skipTypeArgs over a higher-kinded param's own
+            `[_]`/`[_,_]` before the bound/comma (unchanged for simple params + chained bounds).
+          - `tagless-multi-file` → a regular `def` AFTER an `extension` group in a `given … with` body was
+            dropped: parseObj closed the given at the extension's virtual E-frame `}` (an extension closes
+            `} extension_end`, the given closes bare `}`). Fix: on `}`, peek extension_end → reset
+            extensionParams, keep the marker, continue the body.
+    - [x] **✅ ENTIRE tagless/typeclass/functor conformance cluster GREEN (12/12)** on the v2 bytecode lane:
+          std-semigroup-monoid, tagless-context-bounds, typeclass-extension, std-functor-applicative-monad,
+          std-selective, tagless-sealed-dispatch, tagless-resolution, tagless-program, tagless-multi-file,
+          tagless-direct-syntax, + **std-bifunctor, std-monaderror** (`027250d4d`): extTypeTags("Tuple2")→
+          ["Pair","Tuple2"] (tuple literal is IrCtor("Pair"), runtime ops make DataV("Tuple2")) and
+          firstTypeArg extracts the container type from a multi-param TC (`MonadError[Option,Unit]`→Option,
+          was taking the whole "Option, Unit" → None fell to the Either impl → "no arm for None"). v2
+          bytecode sweep 102 → 117 across the session, 0 real regressions.
+          Backlog (not blocking any conformance case): mono transitivity, multi-ctx-param mono, non-tuple
+          multi-arg containers (Map).
+    - [x] **v2-bytecode effect threading over curried collection methods** `bb8b0230c` — `perform().foldLeft(z)(f)`
+          failed "no arm for Op/3": the self-hosted CURRIED `_sel_foldLeft` (IrLam(2,IrLam(1,…)))'s inner
+          go-match runs on a Local holding the Op, but the bytecode backend only A-normalizes/threads Op
+          scrutinees when `mayOp` is true, and `mayOp(Local)`=false (single helpers like `_sel_map` don't
+          hit this). Fix: route foldLeft/foldRight through runtime `__method__` (its methodOp threads an Op
+          receiver, Runtime:2728; handles List/ArrayBuffer/Map). → effect-imported-handler,
+          effect-transitive-handler. sweep 117 → 119, 0 regr.
+    - [ ] **v2-bytecode effects REMAINING** (head-field-effect-shadow, coroutine-basic/error,
+          js-applyunary-effect-cps) — perform in ARGUMENT position (`scoredGigs(GigSource.fetch())`, then
+          `if gigs.isEmpty`) leaks a raw Op; the bytecode backend threads Ops only in Match/Let/Seq
+          scrutinee + receiver/arith/fn positions, NOT function-argument position. LESSON: applying
+          `OpAnf.lift` (the v1-bridge arg-lifting pass) to the whole self-hosted program via runBytecode
+          REGRESSED the working effect cases — the self-hosted lane (like the Mira lane OpAnf excludes)
+          passes Ops to functions legitimately (resume/handle), so blanket arg-lifting forwards Ops past
+          their handlers. Needs SELECTIVE arg-lifting (only unresolved-perform args to non-handler
+          consumers) = effect analysis. Reverted.
+    - [x] **fenceless bare .ssc on the native checker** `29a96effc` — a heading-less .ssc with no
+          ```scalascript fences is code in full ("код целиком"). The RUNNER (ssc1-run sscProgramSource)
+          already handled it, but the CHECKER (ssc1-check-run) extracted only fenced blocks → "no
+          scalascript blocks" → rejected before the runner ran. Fix: mira-md.bareCodeFallback (whole body
+          past shebang+front-matter when heading-less; doc-only when headings present). → fenceless-bare-
+          code, parenless-def-value, user-request-shadow, predef-notimplemented (last needed a sibling's
+          `notImplemented` fix `b77862d7f` too). v2 bytecode sweep 119 → 122, 0 regr.
+    - [x] **exception subsystem — try/catch/finally + throw on the native lane** `50bf0f89c` — the native
+          lane had NO exception support (`throw` → plugin global `__throw__` unbound on native; `try`/
+          `catch` didn't parse). Added: (front) `try BODY catch {case…} [finally F]` → prim
+          __tryCatch__/__tryCatchFinally__ (thunks + PF over the caught value); `throw e` → prim __throw__;
+          `catch`/`finally` as continuation tokens (isCont/canStartLine) so multi-line `try{}`\n`catch{}`
+          doesn't split. (Runtime/Prims) SscThrow(value); __tryCatch__ catches SscThrow (→ thrown value)
+          and host RuntimeException (→ DataV("RuntimeException",[msg])); getMessage on exception DataVs;
+          finally runs unconditionally. (lower) exception ctor prelude defs so `new RuntimeException(m)` →
+          DataV. → **dataset-agg, http-client** (sweep 122 → 124, 0 regr). LIMIT: a brace-less indented
+          def body `def f =\n try{}\n catch{}` still splits (layout).
+          - `tagless-program` → `TYPEERR: cannot unify Tuple with non-Tuple` (typer/tuple, distinct).
+    - [x] **optics — .index/.at + rendering + mixed-arg copy** `982ea9952` — (1) OpticsNativePlugin
+          step/setPath/modifyAll gained OIndex(i) (bounds-checked List) + OAt(k) (Map key) — get/set/
+          modify now work; (2) the optic renders its source path (`Lens(_.x)`), and Show.show consults a
+          NamedMethodObj's `_show` before `<foreign>`; (3) mixed positional+named `.copy(10, z=99)` encodes
+          positionals as `#i` (was stripping labels → z applied to y). → optic-polish, optics-index-at,
+          signal-id-bridged (sweep 126→129).
+    - [x] **actors — supervision + cluster/phi + scientific floats** `7ad97307e`/`c78268db1` — added the
+          Erlang supervision layer (link/monitor/trapExit/exit → Exit/Down propagation; propagate BEFORE
+          `dead` so quiescence can't end the scope early; queue.offer not put; io.println made atomic for
+          concurrent actors) + single-node cluster stubs (joinCluster/broadcastHealth no-op, clusterIsDown
+          ⇒false, phiOf⇒+Inf, isSuspect⇒true) + scientific-notation float lexing (`1.0e100`). → actors-
+          supervision, actors-cluster-discovery, actors-cluster-isdown, actors-phi-accrual (sweep 129→136).
+          NOTE: actors-supervision is virtual-thread-heavy — passes serially; can flake under 8-way parallel
+          sweep CPU contention (the official runner is serial).
+
+### ▶ ssc-toolkit-v2 (2026-07-07, owner-directed via busi: the busi SPA must move React→ScalaScript)
+
+Requirements source: busi `src/v2/specs/frontend-on-scalascript.md` (owner 2026-07-06). busi is the
+**conformance target** — toolkit v2 is done when busi's `App.tsx` (99 pieces of state, ~91 form
+interactions, offline-first PWA, WebAuthn, 4 locales) is expressible in `.ssc`. Design + full slice
+detail: **[`specs/ssc-toolkit-v2.md`](specs/ssc-toolkit-v2.md)**. Additive over `std/ui` — no breaking
+changes for existing consumers (rozum control-center, busi server pages). Every slice ships
+conformance cases (INT==JS) and runs the affected-slice conformance before push (AGENTS.md 4b).
+
+- [x] **tkv2-components** ✓ DONE 2026-07-07 — `std/ui/component.ssc`: `component(kind, key)(Ctx => N)`
+      + `ctxSignal` → `<kind>__<key>__<name>` (SANITIZED — emitter contract: signal ids must be JS
+      identifiers `[A-Za-z_][A-Za-z0-9_]*`; React derives useState var names from them, so `/`
+      separators are rejected at emit). `childCtx` nesting; pure .ssc. Disposal DEFERRED to
+      tkv2-keyed-for (tree is built once today). Conformance `tkv2-component` INT==JS; example
+      `component-demo` browser-driven. Fixed 2 JsGen bugs en route (BUGS.md: Signal-import-vs-preamble,
+      reserved-word param body rename). GOTCHA for later slices: char comparisons + regex replaceAll
+      diverge between lanes — sanitize with substring+contains (see ctxClean).
+- [x] **tkv2-offline** ✓ DONE 2026-07-07 — `std/ui/offline.ssc`: `localStorageGet/Set/Remove` +
+      `onlineSignal()` + `persistedSignal(name, default)` externs (frontend-plugin JVM lowering:
+      per-process map + constant-true; signals.mjs `_ssc_ui_*` shims: real localStorage/navigator.onLine
+      in-browser, mem-map/true on Node). ALSO: interp dispatch for `sig.get()`/`sig.set(v)` on
+      ReactiveSignal (JS-lane parity) — makes ui-signal BEHAVIOR conformance-testable INT==JS for all
+      future slices. Conformance `tkv2-offline`; browser-driven via emit-spa (type → localStorage →
+      reload restores → offline badge flips). GOTCHAS: persist via effect-subscription, NOT a set-wrapper
+      (DOM/fetch write through `_signalSet` by id, bypassing the object's .set — caught in the real
+      browser, invisible to the Node conformance run); use `window.localStorage`, not the bare global
+      (Node 26 defines a warning getter). `fetchOrLocal` DEFERRED to the busi-home slice (needs the
+      fetch machinery + a local compute fn — design it against the real screen, not speculatively).
+- [x] **tkv2-forms** ✓ DONE 2026-07-07 — `std/ui/form.ssc`: `FieldSpec` data-DSL (required/min/max/
+      pattern — pure `validateField`, same rules every backend) + `form(ctx, specs)` (drafts =
+      component-scoped signals) + `fieldError`/`formErrors`/`formValid` (computed, live) +
+      `formField`/`submitGate` widgets. ALSO: `String.matches` added to the JS lane (anchored,
+      Scala full-match semantics; guard `string-matches` INT==JS==JVM); interp `computedSignal`/
+      `eqSignal` now RECOMPUTE ON READ (JS read-freshness parity → reactive derived state is
+      conformance-testable). Conformance `tkv2-forms` INT==JS; form-demo browser-driven (live
+      errors, gate opens/closes). GOTCHAS: `.toMap` on List-of-pairs isn't dispatched on interp
+      (use foldLeft+updated); JsGen capability detection reads the ENTRY file only — every new
+      std/ui module must register its API names in the hasUiHelpers list or import-only usage
+      emits without signals.mjs; SPA drivers must assert page.innerText (textContent includes
+      script source + display:none branches). DEFERRED: touched-state (errors show from start),
+      submit busy/error tri-state (needs an onFailure fetch effect).
+- [x] **tkv2-spa-pipeline** ✓ DONE 2026-07-07 — audited: `emit-spa --frontend custom` output has
+      ZERO external script/link/import tags (offline-demo + form-demo bundles); the only http(s)
+      strings are inert jwt-auth endpoint constants riding the serve→HtmlDsl→Jwt capability chain
+      (tree-shake candidate, size-only). Production path documented in user-guide §17.9; all
+      toolkit-v2 primitives already verified on this path (slices 1–3 browser drives).
+- [x] **tkv2-pwa-adopt** ✓ DONE 2026-07-07 (code+tests; .ssc drive PENDING on
+      plugin-lazyload-extern-imports) — `std/pwa.ssc` extended: `cacheVersion` (cache-name bump +
+      activate cleanup), `networkFirst` (fresh-online/cached-offline read routes; never list write
+      routes), `offlineHtml` (navigation fallback page), `maskableIcon`. Everything busi's
+      hand-written `http/pwa.ssc` does. PwaPluginTest 4/4 (generators); conformance `tkv2-pwa`
+      written but `pending:` — FOUND pre-existing regression: lazy-loaded plugin externs
+      (smtp/tcp/pwa) are dead from .ssc on main (BUGS.md plugin-lazyload-extern-imports; stock
+      pwa-demo example fails). busi-side adoption happens at the migration pilot (needs a pin bump).
+- [x] **tkv2-busi-home-conformance** ✓ DONE 2026-07-07 — `tkv2-busi-home` corpus case (INT==JS):
+      busi-shaped obligation ids → per-card instance-scoped expand; income form (digits/date
+      patterns) with live gate; persisted home payload surviving the reload shape; onlineSignal.
+      Browser twin `examples/frontend/busi-home-demo` driven via emit-spa (only the toggled card
+      expands; Record appears on valid form). GOTCHA found+fixed in form.ssc: a computed thunk
+      invoked from ANOTHER module's context doesn't resolve this module's globals (load-order/
+      global-resolution trap) — bind module functions to local vals before closing over them.
+- [x] **tkv2-keyed-for** ✓ DONE 2026-07-09 — `forKeyed(items, key)(render)` landed for the
+      JsGen/custom browser runtime (`ea79e003a`; docs `8b9c47e25`, `f129df583`): std/ui node
+      + primitive, `_ForKeyed` render marker, scoped `_ssc_ui_mount` binder for dynamically
+      inserted rows, keyed reconcile by direct child `data-ssc-key`, JVM/interpreter static
+      fallback, conformance case, and `examples/frontend/keyed-for-demo`. Gates:
+      `backendInterpreter/testOnly scalascript.JsGenStdImportTest scalascript.JsRuntimeKeyedForTest`
+      (43/43), affected module compiles, `tests/conformance/run.sh --only 'tkv2-keyed-for'
+      --no-memo`, and `bin/ssc emit-spa --frontend custom examples/frontend/keyed-for-demo/keyed-for-demo.ssc`.
+      Note: same-key item value changes intentionally do not re-render in this slice.
+- [x] **tkv2-webauthn** ✓ DONE 2026-07-09 — browser `navigator.credentials.create/get`
+      actions (register/assert) for the production `emit-spa --frontend custom` path.
+      Feature `e61a89b4c`, docs `6801d977c`: `std/ui/webauthn.ssc` exports
+      `webauthnRegister` / `webauthnAssert` EventHandlers, `signals.mjs` runs the
+      begin -> browser credential -> complete ceremony with base64url payloads and
+      caller headers, off-browser fallbacks report a clear unavailable error, and
+      the adjacent `std/auth.ssc` WebAuthn declaration drift is fixed.
+      Active plan 2026-07-09 (`feature/tkv2-webauthn` / codex):
+      - [x] Spec first in `specs/tkv2-webauthn.md`, then commit/push it before implementation.
+      - [x] Add UI-facing WebAuthn EventHandler externs in `std/ui/webauthn.ssc`, not to core:
+            `webauthnRegister(beginUrl, completeUrl, rpName, result, error, headers, timeoutMs,
+            userVerification)` and `webauthnAssert(beginUrl, completeUrl, result, error, headers,
+            timeoutMs, userVerification)`.
+      - [x] Implement the browser/custom runtime in `signals.mjs`: POST begin JSON, call
+            `navigator.credentials.create/get`, base64url-encode browser ArrayBuffers, POST complete JSON,
+            write response text into `result`, and write user-visible failures into `error`.
+      - [x] Keep Node/interpreter behavior deterministic: off-browser handler creation is allowed, but
+            invoking it reports a clear "WebAuthn unavailable" error instead of silently succeeding.
+      - [x] Fix the adjacent std-auth WebAuthn declaration drift recorded in `BUGS.md`
+            (`std-auth-webauthn-signature-drift`): declarations must match the existing JVM/JS runtime
+            implementations and examples.
+      - [x] Add focused runtime tests with stubbed `navigator.credentials` and `fetch`, plus a conformance
+            API smoke case. Gate before push with targeted Scala tests, affected compiles,
+            `tests/conformance/run.sh --only 'tkv2-webauthn,webauthn-server-verify' --no-memo`, and an
+            `emit-spa --frontend custom` smoke of the new example.
+      Gates: affected compiles green; `backendInterpreter/testOnly
+      scalascript.JsRuntimeWebAuthnClientTest scalascript.JsGenStdImportTest` green (43 tests);
+      conformance `tkv2-webauthn,webauthn-server-verify` green (2/2, INT+JS pass);
+      `bin/ssc emit-spa --frontend custom examples/frontend/webauthn-toolkit-demo/webauthn-toolkit-demo.ssc`
+      emitted the expected WebAuthn browser runtime markers. Gotcha recorded in
+      `specs/tkv2-webauthn.md`: stale local `bin/ssc` required `scripts/sbtc "installBin"`
+      before real-harness conformance.
+- [x] **tkv2-typed-client** — DONE 2026-07-09 (`4656f9629`): route-derived
+      `.ssc` API clients now produce callable path-param methods. `RouteDeriver`
+      defaults no-body/no-param endpoints to `Unit`, one no-body path param to
+      `String`, multiple no-body path params to `Any`, and body methods to
+      `Any`, while explicit `apiClients:` metadata and existing validation
+      warnings remain unchanged. Browser JS clients now accept the derived
+      input and substitute it into the `fetch` path; JVM/Swing sees the same
+      metadata and emits callable in-process methods. Gates: `RouteDeriverTest`
+      16/16; `JsGenTypedRouteClientTest` + `JvmGenTypedRouteClientTest` 57/57;
+      affected compiles; `installBin`; conformance `tkv2-typed-client-derived`
+      1/1 JS; `emit-js` and `emit-spa --frontend custom --server-url` smokes for
+      `examples/derived-route-clients.ssc`. Gotcha: CLI/conformance use
+      installed `bin/ssc`, so run `scripts/sbtc "installBin"` after
+      RouteDeriver/codegen changes.
+      Original: route-derived `.ssc` API client; browser transport = fetch, JVM =
+      existing in-process transport (fullstack spec phases 0–5).
+      Active plan 2026-07-09 (`feature/tkv2-typed-client` / codex):
+      - [x] Claim/worktree created; stale `bin/ssc` gotcha re-confirmed and fixed locally with
+            `scripts/sbtc "installBin"` before CLI smoke.
+      - [x] Spec first in `specs/tkv2-typed-client.md` and bug ledger entry
+            `route-deriver-path-param-unit-client` in `BUGS.md`, then commit/push before code.
+      - [x] Fix `RouteDeriver.makeEndpoint`: no explicit `apiClients:` and no typed handler evidence
+            should derive `String` for one non-body path parameter, `Any` for multiple non-body path
+            parameters, `Unit` only when no body and no path params; body methods stay `Any`.
+      - [x] Add/adjust tests: `RouteDeriverTest` for route/mount/routes path-param defaults;
+            `JsGenTypedRouteClientTest` Node harness proving derived `Api.get...("42")` fetches
+            `/api/.../42`; `JvmGenTypedRouteClientTest` proving Swing/JVM emits callable derived
+            methods over in-process transport.
+      - [x] Add a JS-only conformance smoke `tkv2-typed-client-derived` with stubbed `fetch` and
+            `awaitClient(Api.get...("42"))`; update `examples/derived-route-clients.ssc` so the
+            no-manual-`apiClients:` example is actually browser-callable.
+      - [x] Docs/bookkeeping: update `specs/typed-route-clients.md`, `specs/ssc-toolkit-v2.md`,
+            README/user-guide/example index as needed, then mark BUGS/SPRINT/CHANGELOG done.
+      Done-when: targeted core/codegen tests pass, affected compiles pass, conformance
+      `tests/conformance/run.sh --only 'tkv2-typed-client-derived' --no-memo` passes, and
+      `bin/ssc emit-spa --frontend custom --server-url http://server.example:49155 <example>`
+      contains a derived `Api` client whose path-param method accepts an input argument.
+- [x] **tkv2-theme-css-vars** ✓ DONE 2026-07-07 (taken out of order — small) — `cssVariables(t: Theme)`
+      in theme.ssc: the theme as `:root { --ssc-* }` custom properties; one ssc value drives toolkit
+      AND hand-kept CSS. Conformance `tkv2-theme-css-vars` INT==JS.
+
+### Local model session help (2026-07-07)
+
+- [x] **qwen-rozum-session** — help Sergiy start a local `rozum` chat session with a Qwen 3.6 model.
+      Why: user wants an actionable on-machine launch path, not compiler work.
+      How: inspect existing repo docs/scripts/examples for `rozum` gateway/client commands and Qwen/OpenAI-compatible model configuration; avoid code changes unless a missing script/doc is discovered and explicitly needed. Verify commands with non-destructive `--help`/status/list checks first, then provide the minimal terminal sequence. If the requested exact model name is not present locally, explain the likely model id/config place and how to list/install it.
+      Done-when: Sergiy has concrete commands for starting the model backend/gateway and opening a `rozum` chat/session, plus any prerequisites or unknowns called out.
+      Result: `rozum` and `ollama` are installed; meeting daemon is running with rooms including
+      `scalascript`; no shared gateway is running. The exact installed Qwen 3.6 model is
+      `mlx-community:Qwen3.6-35B-A3B-4bit-DWQ` (19 GiB on disk). Verified launch shape from
+      `USER_MANUAL.md`: start gateway on `8089`, run `rozum meetings participant --gateway-url
+      http://127.0.0.1:8089/v1`, then attach with `rozum meetings attach --room <room>`.
+      Current dry-run refuses Qwen3.6: even `--n-ctx 4096 --min-free-ram-gb 0` needs 21.84 GiB
+      available vs 21.45 GiB, short ~0.4 GiB; with normal margin it is short ~2.35 GiB.
+      `mlx-community:Qwen3-4B-4bit` dry-run passes and can be used as a small-model smoke.
+
+### Green main recovery (2026-07-06, user asked to finish the stabilization)
+
+- [x] **green-main-crypto-ci** — restore `origin/main` to a buildable state before more v2 feature work.
+      Why: the latest CI push is red in markdownlint, `sbt compile cli/assembly`, and conformance; v2 parity
+      work is hard to trust while the main branch cannot assemble the launcher.
+      How: first fix the concrete compile blocker in `payments/crypto/bouncycastle/BouncyCastleBackend.scala`
+      by adapting it to the current portable crypto APIs (`ChaCha20Poly1305.seal/open`,
+      `X25519.derivePublicKey/sharedSecret`, random private key generation). Then run targeted compile for
+      `cryptoBouncycastle` and the affected crypto tests; if compile is green, re-check `sbt compile cli/assembly`
+      with an explicit worktree `cd`. After code is green, triage whether CI conformance failures are downstream
+      of the failed launcher or a separate runner issue, and record any remaining follow-up separately.
+      Done-when: `cd <worktree> && sbt "cryptoBouncycastle/compile"` passes; broader compile/assembly is either
+      green or has a newly diagnosed next blocker recorded here.
+      Result: fixed the compile blocker by replacing the wildcard `scalascript.crypto.*` import in
+      `BouncyCastleBackend.scala` with explicit SPI imports, so unqualified `ChaCha20Poly1305` and `X25519`
+      resolve to the JVM/BouncyCastle package helpers again. Verified:
+      `sbt "cryptoBouncycastle/compile"`, `sbt "cryptoBouncycastle/test"` (55/55), and
+      `sbt "compile" "cli/assembly"` all pass in `/Users/sergiy/work/my/scalascript-wt-finish-green-main`.
+
+- [x] **green-main-conformance-gating** — DONE 2026-07-08 (`3008b2677`):
+      full default conformance is green with
+      `tests/conformance/run.sh --no-memo` => **122 passed, 0 failed out of
+      122 tests (+2 pending)**. Pending cases are intentional metadata gates:
+      `http-client` (external httpbin.org dependency) and `sql-browser-basic`
+      (needs npm install in the JS lane, pinned by its capture test). This slice
+      fixed the deterministic blockers found after the original 102/20 baseline:
+      actors/effects INT, JVM CPS cluster/distributed/effect cases, JS std/json
+      intrinsic targets, JS product rendering, INT SQL block scope, std
+      typeclass INT/JVM aggregate gaps, JVM std-ui generated braces, stale
+      `.scjvm` codegen cache invalidation, INT while assignment order, and INT
+      Semigroup-via-Monoid given resolution.
+      ORIGINAL PLAN: fix the remaining CI conformance failures separately from the crypto
+      compile blocker. Repro from the same worktree after `bash install.sh --dev`:
+      `scripts/conformance -- --no-memo` starts running but shows multiple pre-existing non-crypto clusters:
+      INT actor/cluster tests print empty output while JS/JVM pass; JVM-only cluster/distributed/effect-imported
+      tests print empty output; `http-client` returns `0`/empty and then stalls on a network-adjacent section.
+      A single-case check `scripts/conformance -- --only js-crypto-extern-standalone --no-memo` also fails INT
+      because `crypto-plugin.sscpkg` is staged under `bin/lib/compiler/plugin-available/` (advanced, opt-in),
+      while the test is marked `backends: [int, js]`. Decide per case whether to auto-load the plugin, add an
+      explicit plugin flag to the runner, or narrow/pending the conformance case to the backend it actually
+      validates. 2026-07-07 targeted check: `scripts/conformance -- --only mcp-types` passes INT but JS fails
+      with `SyntaxError: Identifier 'args' has already been declared` because the fixture's `val args` collides
+      with the JS preamble `function args()` (tracked in BUGS.md `jsgen-toplevel-name-vs-preamble`). Narrow fix:
+      rename that fixture local to `mcpArgs` so the MCP conformance case is not blocked by the known unrelated
+      JS top-level-name bug; done in `2e1f2c287`, and
+      `scripts/conformance -- --only mcp-types --no-memo` now passes INT/JS. Done-when: CI conformance job no longer expects environment-gated or opt-in-plugin behavior
+      from the default `bin/ssc` launcher.
+      UPDATE 2026-07-08 (`conformance-http-client-external-httpbin`): current
+      `scripts/conformance -- --only 'http-client' --no-memo` returned five INT
+      `503` statuses from live `https://httpbin.org` and then stalled in the JS
+      lane. Reclassified this fixture with `pending:` because default conformance
+      must not depend on an external network service. Follow-up: replace it with a
+      local deterministic HTTP fixture before re-enabling. Remaining fresh
+      deterministic failures after the p3-remaining-ten landing: `actors-supervision`
+      INT, `effects` INT, `effect-transitive-handler` JVM, and JVM-only
+      `cluster-connect` / `distributed-failure-*` / `distributed-heterogeneous` /
+      `distributed-shuffle`.
+      UPDATE 2026-07-08 (`conformance-actors-exit-os-shadow`,
+      `conformance-effects-choose-one-shot`): INT cluster fixed in two shippable
+      slices. `actors-supervision` root cause was lazy os-plugin `exit(code)`
+      shadowing the core actor `exit(pid, reason)`; fix `96bf969ed` preserves the
+      previous native fallback and makes OS `exit` report a usage mismatch for
+      non-code arguments. `effects` root cause was a conformance source bug:
+      `Choose` was declared one-shot despite the expected multi-shot handler; fix
+      `edda7c5d3` declares `multi effect Choose`. Verification:
+      `backendInterpreterPluginTests/testOnly scalascript.ActorSupervisionTest`,
+      direct `bin/ssc run --v1` checks, and
+      `scripts/conformance -- --only 'actors-supervision' --no-memo` /
+      `scripts/conformance -- --only 'effects' --no-memo` pass INT/JS/JVM.
+      Remaining known failures in this claim are JVM-only generated-Scala compile
+      errors: `effect-transitive-handler` and the cluster/distributed cases where
+      local values are inferred/emitted as `Any`.
+      UPDATE 2026-07-08 (`conformance-jvm-cps-any-typing-and-effect-args`,
+      `conformance-jvm-cps-local-unit-effect-cast`): fixed the remaining
+      deterministic JVM-only slice in `df7cfb613`. Root causes: CPS continuations
+      widened untyped vals from known constructors/defs to `Any`; effectful lambdas
+      nested under call argument clauses could bypass CPS emission; and local
+      actor-loop defs declared `Unit` cast unresolved `receive` computations to
+      `Unit`, causing workers to exit before health-check replies. Verification:
+      `scripts/sbtc "backendInterpreter/compile"`, `scripts/sbtc "installBin"`,
+      direct `bin/ssc run-jvm tests/conformance/cluster-connect.ssc` prints
+      `unhealthy nodes: 0`, and
+      `tests/conformance/run.sh --only 'cluster-connect,distributed-failure-*,distributed-heterogeneous,distributed-shuffle,effect-transitive-handler' --no-memo`
+      passes **6/6**. Next: run the full default conformance gate with the
+      serverless wrapper and either mark this item done or record any newly exposed
+      blockers before release.
+      FULL-GATE BASELINE 2026-07-08: after `scripts/sbtc "installBin"` and the
+      landed JVM CPS fix, `tests/conformance/run.sh --no-memo` reports
+      **102 passed, 20 failed out of 122 tests (+2 pending)**. New blockers are
+      recorded in `BUGS.md`: `conformance-js-json-stringify-missing-global`,
+      `conformance-js-product-show-synthetic-tag`,
+      `conformance-int-sql-block-scope`,
+      `conformance-std-typeclass-int-jvm-gaps`,
+      `conformance-jvm-std-ui-generated-braces`, and
+      `conformance-int-variables-while-update`.
+      Active-claim subslice plan, do not claim separately while
+      `green-main-conformance-gating` is active:
+      - [x] **conformance-js-json-stringify-missing-global** — smallest JS-only
+            crash: `bin/ssc run-js tests/conformance/json-read.ssc` fails with
+            `ReferenceError: jsonStringify is not defined`. Fix the JS global/import
+            path or std-json JS intrinsic registration; verify with
+            `tests/conformance/run.sh --only 'json-read' --no-memo`.
+            FIXED 2026-07-08 in `718d04027`: JS JSON intrinsics now target the
+            existing `_ssc_ui_jsonStringify` / `_ssc_ui_jsonValue` runtime helpers
+            instead of undefined bare globals, and `JsGenStdImportTest` covers the
+            bare intrinsic path. Verification: `scripts/sbtc "backendInterpreter/testOnly scalascript.JsGenStdImportTest"`,
+            `scripts/sbtc "installBin"`, direct `bin/ssc run-js tests/conformance/json-read.ssc`,
+            and `tests/conformance/run.sh --only 'json-read' --no-memo` (**1/1 green**).
+      - [x] **conformance-js-product-show-synthetic-tag** — JS product rendering
+            includes ADT/case-class synthetic tag indexes, breaking `prisms`,
+            `optic-polish`, `optics-index-at`, and `optional`. Verify with
+            `tests/conformance/run.sh --only 'prisms,optic-polish,optics-index-at,optional' --no-memo`.
+            FIXED 2026-07-08 in `4e8cbb635`: JS runtime `_show` skips internal
+            `_tag`, and positional `.copy(...)` skips `_type`/`_tag` when mapping
+            arguments over product fields. Direct JS repros for `prisms` and
+            `optic-polish` now match expected output; the affected conformance
+            slice is **4/4 green**.
+      - [x] **conformance-int-sql-block-scope** — INT SQL interpolation cannot see
+            preceding Scala block vals (`newId`); verify `sql-basic,sql-transaction`.
+            FIXED 2026-07-08 in `c31389b25`: `Denormalize` now re-parses parseable
+            embedded `scala`/`ssc`/`scalascript` blocks after the CLI
+            `Normalize -> Denormalize` backend path, so the interpreter executes the
+            preceding Scala block and SQL bind expressions see its globals.
+            Verification: `scripts/sbtc "sqlPlugin/testOnly scalascript.compiler.plugin.sql.SqlPluginInterpreterTest"`,
+            `scripts/sbtc "installBin"`, direct `bin/ssc run --v1` for
+            `sql-basic` and `sql-transaction`, and
+            `tests/conformance/run.sh --only 'sql-basic,sql-transaction' --no-memo`
+            (**2/2 green**).
+      - [x] **conformance-std-typeclass-int-jvm-gaps** — INT `std-index` stack
+            overflows after two lines; JVM typeclass aggregate imports miss exported
+            helpers/`Left`/`Right`; verify `std-*` typeclass cases.
+            FIXED 2026-07-08 in `f92d147b0` / `7328e35db`: INT dispatch now
+            prefers real built-in members over same-named imported extensions,
+            preventing `Option.map` recursion in std typeclass helpers. JVM
+            codegen records imported type/extension metadata even across
+            de-duplicated imports, imports standalone top-level extensions,
+            preserves re-export provenance for std/index aggregate names, hoists
+            uppercase type specs from mixed std imports into `object std`, and
+            lowers explicit contextual instance args to Scala `(using ...)`
+            calls. Std typeclass manifests now export/import their type names
+            explicitly for strict import resolution. Verification:
+            `scripts/sbtc "backendJvm/compile"`,
+            `scripts/sbtc "backendInterpreter/testOnly scalascript.JsGenUsingTest"`,
+            `scripts/sbtc "installBin"`, direct INT/JVM repros, and
+            `tests/conformance/run.sh --only 'std-functor-applicative-monad,std-foldable-traversable,std-index,std-bifunctor,std-monaderror,std-selective' --no-memo`
+            (**6/6 green**).
+      - [x] **conformance-jvm-std-ui-generated-braces** — JVM `std-ui-extended*`
+            generated Scala has an unmatched brace/EOF; inspect imported UI
+            component object emission.
+            FIXED 2026-07-08 in `9bd6cb87d`: `JvmGen` now preserves
+            triple-quoted JavaScript/CSS literals while converting `object X:`
+            blocks and while merging duplicate package/object blocks, so braces
+            inside imported UI strings no longer close Scala objects early. The
+            regression covers both a minimal duplicate-object source and the real
+            `tests/conformance/std-ui-extended.ssc` directory import. Verification:
+            `scripts/sbtc "backendInterpreter/testOnly scalascript.JsGenUsingTest"`
+            (**14/14 green**); direct
+            `bin/ssc run-jvm tests/conformance/std-ui-extended.ssc` after forced
+            regeneration of stale local `std-ui*.scjvm`; and
+            `tests/conformance/run.sh --only 'std-ui-aggregator,std-ui-extended*' --no-memo`
+            (**5/5 green**). Follow-up cache invalidation risk tracked separately
+            as `jvm-scjvm-cache-codegen-version`.
+      - [x] **conformance-int-variables-while-update** — INT `variables` prints
+            `sum=10` for the first while loop; inspect mutable var read-after-write
+            inside interpreter while sequencing.
+            FIXED 2026-07-08 in `4e67a2f41`: the closed-form while optimizer now
+            bails when an accumulator RHS reads a counter that was assigned earlier
+            in the same loop body, preserving ScalaScript's sequential assignment
+            order. This keeps `x = x + 1; sum = sum + x` on the sequential loop path
+            so `sum` sees the post-update `x`. Verification:
+            `scripts/sbtc 'backendInterpreter/testOnly scalascript.SscVmTest -- -z "closed-form"'`
+            (**6/6 green**); `scripts/sbtc "installBin"`; direct
+            `bin/ssc run --v1 tests/conformance/variables.ssc`; and
+            `tests/conformance/run.sh --only 'variables' --no-memo`
+            (**1/1 green**).
+      - [x] **jvm-scjvm-cache-codegen-version** — production cache follow-up found
+            while fixing std-ui: `run-jvm` reused source-fresh `.scjvm` artifacts
+            emitted by an older JVM backend, so the assembled CLI kept failing until
+            `tests/conformance/.ssc-artifacts/std-ui*.scjvm` was removed. Tracked in
+            `BUGS.md`. Done-when `.scjvm` freshness accounts for compiler/backend
+            codegen version (or an equivalent invalidation signal) and a CLI
+            regression proves stale source-fresh artifacts regenerate after the
+            version changes.
+            FIXED 2026-07-08 in `322ee868f`: JVM `.scjvm` artifacts now carry a
+            `codegenVersion` cache key set by `JvmArtifactIO`, and
+            `ModuleGraph.isJvmStale` invalidates source-fresh artifacts whose
+            codegen key is missing or old. Legacy artifacts remain ABI-readable
+            and regenerate instead of being reused. Verification:
+            `scripts/sbtc "core/testOnly scalascript.artifact.ModuleGraphTest"`
+            (**15/15 green**), `scripts/sbtc "cli/testOnly scalascript.cli.VerifyCliTest"`
+            (**7/7 green**), `scripts/sbtc "installBin"`, and
+            `tests/conformance/run.sh --only 'std-ui-aggregator,std-ui-extended*' --no-memo`
+            (**5/5 green**). Next: run full default conformance with the
+            serverless wrapper and either mark `green-main-conformance-gating`
+            complete or record the next blocker before releasing the claim.
+      FULL-GATE UPDATE 2026-07-08: after `322ee868f` / `4463a6117`,
+      `tests/conformance/run.sh --no-memo` reports **121 passed, 1 failed out of
+      122 tests (+2 pending)**. The only remaining blocker is
+      `std-semigroup-monoid`, failing only on INT with expected lines 4-6
+      missing (`Some(24)`, `42`, `foo`) while JS/JVM pass. Tracked in `BUGS.md`
+      as `conformance-int-std-semigroup-monoid`.
+      - [x] **conformance-int-std-semigroup-monoid** — final full-gate blocker:
+            reproduce with `bin/ssc run --v1 tests/conformance/std-semigroup-monoid.ssc`
+            and `tests/conformance/run.sh --only 'std-semigroup-monoid' --no-memo`;
+            inspect INT handling of std Semigroup/Monoid givens/extensions or
+            imported typeclass dispatch; add a focused interpreter/std regression.
+            Done-when direct INT output includes all expected lines, the targeted
+            conformance slice is green across enabled backends, and the full
+            default conformance gate is rerun.
+            FIXED 2026-07-08 in `e571fd3ae`: INT concrete/parametric given
+            registration now exposes parent typeclass aliases through
+            `parentTypes`, so a `Monoid[Int]` given also satisfies a
+            `Semigroup[Int]` demand. Root cause: `combineAllOption[A: Semigroup]`
+            failed after the first three lines because `intSum` was only
+            registered as `Monoid[Int]`; JS/JVM inherited Scala's subtype
+            evidence behavior. Verification: direct
+            `bin/ssc run --v1 tests/conformance/std-semigroup-monoid.ssc`;
+            `scripts/sbtc "backendInterpreter/testOnly scalascript.FinalTaglessConformanceTest scalascript.GivenUsingTest"`
+            (**17/17 green**); and
+            `tests/conformance/run.sh --only 'std-semigroup-monoid' --no-memo`
+            (**1/1 green**). Next: rerun full default conformance; if green,
+            mark `green-main-conformance-gating` complete and release the claim.
+      FINAL GATE 2026-07-08: `tests/conformance/run.sh --no-memo` reports
+      **122 passed, 0 failed out of 122 tests (+2 pending)**. No deterministic
+      conformance blockers remain in this claim.
+
+- [x] **green-main-full-sbt-test-gating** — fix the root `sbt "test"` gate after the
+      `PluginCliTest` compile blocker. Repro: `cd /Users/sergiy/work/my/scalascript-wt-finish-green-main &&
+      sbt "test"`. The first run hit a transient Scala 3 compiler crash in `clientEvm/Test/compile`;
+      targeted `clientEvm/Test/compile` passed immediately. The second full run completed in 29:08 and
+      confirmed `PluginCliTest` passes, but failed unrelated suites: `CrossBackendIntrinsicParityTest`
+      (`webauthnConfigureStore`/`webauthnStoreRemove` JS-only drift; fixed in `8dfd2989e`),
+      `JvmGenSwingRuntimeTest` (local helper resolved repo root as `v1`, fixed in `395e8aab3`),
+      `StableSpiEnforcementTest` (`tcp-plugin` imported `scalascript.interpreter.Value` from a
+      value-surface plugin; fixed in `484d56101`), `AgentConformanceTest` (`Address already in use`
+      in `beforeAll`, fixed in `eae491e11`), plus
+      Scala.js `loadedTestFrameworks` fallout after a Node non-zero exit. Remaining targeted blockers
+      reproduced on 2026-07-07:
+      `backendWasm/testOnly scalascript.codegen.WasmBackendTest` has 7 effectful-WASM failures
+      (handler/resume, effectful `String*` mains, arithmetic/HOF effect bodies, cross-module effects);
+      `v2PluginBridge/testOnly ssc.bridge.PluginBridgeTest` had one value-shape failure in
+      `loadBackend` (`Long` vs `DataValue.IntV`, fixed in `7e2650e2c`); and
+      `v2FrontendBridge/testOnly ssc.bridge.V2ConformanceTest` had one `mcp-types` failure
+      (`user.name` blank; missing-field validation printed `no error`, fixed in `2e1f2c287`).
+      Next slice: fix WASM effects, then re-check the Scala.js fallout, and only then rerun root `sbt "test"`.
+      **2026-07-07 session ledger (claude takeover after codex stalled):** WASM effects FIXED
+      (adopted codex's in-flight preserveTotalEffectfulReturnTypes, backendWasm 48/48, 9f04f8a29);
+      jvmgen-block-call-empty-parens 3-bug chain FIXED (7bc09fffa — see BUGS.md, all 4 JVM-lane
+      conformance repros green + SwiftUI 118/118 + JvmGen/Effect 193/193); runActors fat-jar
+      family FIXED (a36e74fa0: cli dependsOn actorsPlugin + ActorInterp lazy-load seam —
+      MultiNodeClusterTest 0/4→4/4, full cli/test 18-fail→5-fail); EmitScalaFacadeCliTest harness
+      FIXED (bce70aaeb: -Dssc.lib.path derivation). REMAINING, precisely diagnosed in BUGS.md:
+      `bytecode-shared-runtime-routes-unbound` (genRuntime gating emits _routes refs without defs —
+      blocks the 5 facade tests + compile-jvm --bytecode) and `scalajs-jsenv-run-terminated`
+      (node-26 jsEnv, 6 JS test modules, serial + CI). Root `sbt test` after those two = the gate.
+      ACTIVE CLAIM PLAN 2026-07-08 (`green-main-full-sbt-test-gating` / codex):
+      - [x] **bytecode-shared-runtime-routes-unbound** — fixed in `83fc339e2`. Reproduced with
+            `scripts/sbtc "cli/testOnly *EmitScalaFacadeCliTest"` from this worktree;
+            root cause was split `JvmGen.genRuntime` omitting `stubServeRuntime` when
+            `Serve` was absent even though the always-included common/effects runtime
+            references `_routes`, `route`, `onWebSocket`, and `_httpDoRequest`.
+            Verified `backendInterpreter/testOnly scalascript.JvmGenRuntimeSeparationTest`,
+            `installBin`, `cli/assembly`, `cli/testOnly *EmitScalaFacadeCliTest`, and
+            `tests/conformance/run.sh --only 'std-semigroup-monoid' --no-memo`.
+      - [x] **scalajs-jsenv-run-terminated** — fixed in `1da48bfd5`. Serial repro
+            `scripts/sbtc "cryptoNobleJs/test"` resolved to Node `MODULE_NOT_FOUND`
+            for `@noble/ciphers/aes` because npm deps were never installed in clean
+            worktrees/CI. Added idempotent `npmInstallForScalaJsTest` and wired it
+            into `Test / loadedTestFrameworks` for `cryptoNobleJs`,
+            `walletVaultEncryptedJs`, `walletStrategyErc4337Js`,
+            `blockchainEvmAbiJs`, `walletConnectJs`, and `markupNode`.
+            Verified those six suites plus `tests/conformance/run.sh --only
+            'std-semigroup-monoid' --no-memo`.
+      ROOT RETEST 2026-07-08: started `scripts/sbtc "test"` from
+      `/Users/sergiy/work/my/scalascript-wt-green-main-full-sbt-test-gating`.
+      The PTY session was lost before the final sbt summary, so do not treat this
+      as the authoritative complete failure list. Observed root-gate blockers were
+      recorded in `BUGS.md` and must be reproduced targeted before coding:
+      - [x] **root-test-command-registry-other-category** — fixed in `631ed8052`.
+            Root cause: `VersionCmd` used the unclassified fallback-style
+            category `Other`; `version` now appears under the existing `Help`
+            bucket, preserving the registry test that catches future commands
+            without explicit help grouping. Verified
+            `scripts/sbtc "cli/testOnly scalascript.cli.CommandRegistryTest"`
+            (**8/8 green**) and `tests/conformance/run.sh --only
+            'std-semigroup-monoid' --no-memo` (**1/1 green**).
+            Original repro: deterministic-looking
+            `CommandRegistryTest` failure: `every command category is in the help
+            ordering` reports `List("Other")`. First repro/fix because it is a
+            narrow CLI test and not entangled with cluster timing:
+            `scripts/sbtc "cli/testOnly scalascript.cli.CommandRegistryTest"`.
+      - [x] **root-test-sealed-extension-option-dispatch** — fixed in `1e503de04`.
+            Root cause: built-in `Option.orElse` accepted any single argument, so
+            `Some(42).orElse(0)` returned the built-in receiver `Some(42)` before
+            the user extension `def orElse(default: A): A` could run. Built-in
+            `orElse` now handles only Option-valued alternatives; non-Option
+            defaults fall through to extension dispatch. Verified
+            `scripts/sbtc "backendInterpreter/testOnly scalascript.SealedExtensionDispatchTest"`
+            (**4/4 green**), the filtered `InterpreterTest` built-in-priority /
+            `option orElse` slice, and `tests/conformance/run.sh --only
+            'option,optional,typeclass-extension,std-functor-applicative-monad,std-monaderror'
+            --no-memo` (**5/5 green** on INT/JS/JVM). Original repro:
+            `SealedExtensionDispatchTest` expected `42\n99`, got `Some(42)\n99`
+            for the `Some` case.
+      - [x] **root-test-cluster-cli-runtime-readiness** — fixed in `da63bb96a`.
+            Root cause: after the v2 default switch, these v1 actor-cluster
+            integration tests spawned node fixtures with `java -jar ssc.jar
+            <node.ssc>`, so the node scripts ran on v2/default. Minimal fat-jar
+            repro showed `sendAfter` actor flows print under `--v1` but exit 0
+            with no delayed message under default/`--v2`; the v2 gap is tracked
+            separately as `v2-actors-sendafter-cli-default-noop`. Harness fix:
+            node fixture subprocesses now pass explicit `--v1`; CLI subcommands
+            (`cluster status`, `cluster drain`, `cluster step-down`, etc.) still
+            run normally against those nodes. Verified the expanded cluster
+            slice `scripts/sbtc "cli/testOnly scalascript.cli.ClusterStepDownCliTest
+            scalascript.cli.ClusterStatusCliTest scalascript.cli.ClusterAuthCliTest
+            scalascript.cli.MultiNodeClusterTest scalascript.cli.ClusterBullyStatusConvergenceTest
+            scalascript.cli.PartitionHealingTest scalascript.cli.SingletonFailoverTest
+            scalascript.cli.ClusterDrainCliTest scalascript.cli.ClusterEventsCliTest
+            scalascript.cli.PartitionTest"` (**13/13 green**) and
+            `tests/conformance/run.sh --only 'actors*,cluster-connect,distributed*'
+            --no-memo` (**14 passed, 0 failed**). Original repro: cluster CLI/runtime
+            family: `ClusterStepDownCliTest`, `ClusterStatusCliTest`,
+            `ClusterAuthCliTest`, `MultiNodeClusterTest`,
+            `ClusterBullyStatusConvergenceTest`, `PartitionHealingTest`, and
+            `SingletonFailoverTest` showed node bind/readiness/leader marker
+            failures. Repro the family after the two narrow failures:
+            `scripts/sbtc "cli/testOnly scalascript.cli.ClusterStepDownCliTest scalascript.cli.ClusterStatusCliTest scalascript.cli.ClusterAuthCliTest scalascript.cli.MultiNodeClusterTest scalascript.cli.ClusterBullyStatusConvergenceTest scalascript.cli.PartitionHealingTest scalascript.cli.SingletonFailoverTest"`.
+      Done-when: run root `scripts/sbtc "test"` after both fixed slices are on the branch;
+      if green, mark this gate done and release the claim. If red, record the next deterministic
+      blocker in BUGS.md + SPRINT before fixing it.
+      - [x] **root-test-v2-array-companion-foreign-sum** — fixed in
+            `f6e6383ac`. New deterministic
+            `V2ConformanceTest` blocker discovered after rebasing the jobpanel
+            fix onto `origin/main@9e48204e5`: full
+            `scripts/sbtc "v2FrontendBridge/testOnly ssc.bridge.V2ConformanceTest"`
+            fails only `array-companion-statics` with
+            `RuntimeException: __method__: no dispatch for .sum on <foreign>`.
+            Targeted repro first: `scripts/sbtc "v2FrontendBridge/testOnly
+            ssc.bridge.V2ConformanceTest -- -z array-companion-statics"` plus
+            `tests/conformance/run.sh --only 'array-companion-statics' --no-memo`.
+            Root cause: Array companion statics now intentionally return real
+            `ForeignV(ArrayBuffer)` values for mutable arrays, but collection
+            methods still only accepted Cons/Nil lists. Runtime fix: treat
+            ArrayBuffer as list-like for read-only collection dispatch. Gates:
+            targeted `array-companion-statics`, affected conformance, and full
+            `V2ConformanceTest` are green.
+      - [x] **root-test-sbt-aggregate-heap-oom** — root
+            `scripts/sbtc "test"` on `origin/main@c9d300335` is now blocked by
+            sbt/JVM heap stability, not a known deterministic v2 conformance
+            failure. The run progressed through many suites, then printed
+            repeated `OutOfMemoryError: Java heap space` from `pool-453`
+            threads; the sbt JVM was non-responsive to `jcmd`, Ctrl-C did not
+            stop it, SIGTERM only removed 47 node children, and SIGKILL was
+            required. Work loop: identify whether this is root aggregate
+            parallelism, Scala.js jsEnv node fan-out, or one leaking module; try
+            bounded root-equivalent test invocation / focused module groups; then
+            encode the stable production gate command or build setting. Done-when:
+            a root-equivalent gate completes without heap OOM/hung sbt JVM and
+            the command/result are recorded.
+            Progress 2026-07-08 (uncommitted): a global sbt
+            `Tags.Test` concurrency cap, env-overridable via
+            `SSC_SBT_TEST_CONCURRENCY` and defaulting to 4, made the next root
+            `scripts/sbtc "test"` complete in about 27m32s without the prior
+            OOM/hung sbt JVM symptom. It still exited 1 because two later
+            deterministic/root-runner blockers surfaced; fix those next, then
+            rerun the root gate before marking this item fixed.
+      - [x] **root-test-js-rowpost-runtime-contract** — new backendInterpreter
+            blocker from the bounded root gate. Repro in root stream:
+            `scalascript.JsGenStdImportTest` case `JS signal runtime defines the
+            std/ui row-data natives` failed because generated JS did not contain
+            `_RowPost` body payload resolution
+            `body: resolvePayload(r, act.bodyField)`. Work loop: run focused
+            `scripts/sbtc "backendInterpreter/testOnly scalascript.JsGenStdImportTest -- -z row-data"`;
+            inspect `_RowPost`/`resolvePayload` runtime generation; either
+            restore the real row POST body resolver or update the assertion if
+            current code is semantically equivalent. Done-when: focused
+            `JsGenStdImportTest` is green plus affected std/ui conformance.
+      - [x] **root-test-cli-fork-exit-after-green** — new CLI aggregate blocker
+            from the bounded root gate. Repro in root stream: `cli / Test / test`
+            reported all CLI tests passed (488 succeeded, 0 failed, 19 canceled),
+            then sbt failed because the forked `sbt.ForkMain` JVM exited 1.
+            Work loop: reproduce with focused `cli/testOnly` suites starting
+            from the last emitted CLI suite, then widen to `cli/test`; inspect
+            late JVM/process cleanup and generated `v1/tools/cli/ssc-storage.json`
+            rather than masking the fork exit. Done-when: `scripts/sbtc
+            "cli/test"` exits 0 and the final root-equivalent gate no longer
+            reports the CLI task failure.
+            Progress 2026-07-08 (uncommitted): focused
+            `ElectronJvmRestCliTest` is green with fork exit 0 after updating
+            stale fake-Electron greps for the typed-route client signatures and
+            fetch retry loop. Full `cli/test` no longer shows the old after-green
+            fork exit; it now reports ordinary assertion failures below.
+      - [x] **root-test-cli-toolkit-electron-duplicate-seqmap** — new full
+            `cli/test` blocker after the fork-exit fix. Focused repro:
+            `scripts/sbtc "cli/testOnly scalascript.cli.ToolkitElectronSmokeTest"`.
+            Full-run symptom: Electron renderer throws
+            `Uncaught SyntaxError: Identifier '_seqMap' has already been declared`,
+            causing `SMOKE_FAIL initial render missing`. Work loop: inspect the
+            generated toolkit Electron bundle and deduplicate/scope repeated JS
+            helper preamble emission so `_seqMap` is declared once. Done-when:
+            focused smoke test is green and full `cli/test` no longer reports it.
+      - [x] **root-test-cli-spark-submit-dry-run-deps** — new full `cli/test`
+            blocker after the fork-exit fix. Focused repro:
+            `scripts/sbtc "cli/testOnly scalascript.cli.SubmitCommandTest"`.
+            Failures: dry-run output no longer contains
+            `org.apache.spark::spark-core:4.0.0` for the default Spark version
+            nor `spark-core:3.5.1` for `--spark-version 3.5.1`. Work loop:
+            inspect current `submit` dry-run output/contract; either restore the
+            dependency strings/options or update the stale test expectations if
+            the dependency surface intentionally moved. Done-when: focused
+            `SubmitCommandTest` is green and full `cli/test` no longer reports it.
+      Result 2026-07-08 (`cea0c3aed`): root gate is green. Fixes included a
+      bounded root Test concurrency cap (`SSC_SBT_TEST_CONCURRENCY`, default 4),
+      strict-mode-safe JS runtime helper emission for Electron/browser bundles,
+      repeat-safe typed JSON facade bindings, updated typed route client smoke
+      assertions, sharper `_RowPost` payload-resolver assertions, and Spark
+      submit dry-run assertions against the generated package source. Verified:
+      `scripts/sbtc "cli/test"` (554 succeeded, 29 canceled, 0 failed),
+      `tests/conformance/run.sh --only
+      'collections,dataset-from-file,dataset-shape,json-*,std-ui-*,tkv2-*'
+      --no-memo` (19/19), and bounded root `scripts/sbtc "test"` (`[success]`
+      elapsed 1668s / 0:27:48.0).
+
+- [x] **green-main-plugin-cli-oslib-shadow** — fix the remaining `sbt test` CI blocker in
+      `v1/tools/cli/src/test/scala/scalascript/plugin/PluginCliTest.scala`.
+      Repro: `cd /Users/sergiy/work/my/scalascript-wt-finish-green-main && sbt "cli/Test/compile"` fails with
+      `type Path is not a member of scalascript.compiler.plugin.os` plus missing `temp`, `read`, `write`,
+      `makeDir`, etc. Root cause hypothesis: the test is in package `scalascript.compiler.plugin`, where the
+      local `scalascript.compiler.plugin.os` package shadows os-lib's root `os` package. Qualify os-lib as
+      `_root_.os` (or an explicit alias) inside the test, then rerun `cli/Test/compile` and the affected
+      `cli/testOnly scalascript.compiler.plugin.PluginCliTest`. Done-when: the CI `sbt - compile and test`
+      job no longer fails at `PluginCliTest.scala` test compilation.
+      Result: fixed in `6d133361a` by qualifying os-lib as `_root_.os` inside `PluginCliTest`, avoiding the
+      local `scalascript.compiler.plugin.os` package shadow. Verified:
+      `sbt "cli/Test/compile"` and
+      `sbt "cli/testOnly scalascript.compiler.plugin.PluginCliTest"` (8/8).
+
+- [x] **green-main-markdownlint-policy** — make the Markdown lint job match the repository's actual historical
+      documentation style instead of failing on legacy board/spec/changelog formatting. Current CI fails before
+      useful validation on rules already violated broadly (`MD007`, `MD009`, `MD011`, `MD012`, `MD014`, `MD022`,
+      `MD026`, `MD029`, `MD034`, `MD037`, `MD038`, `MD050`, `MD058`). Update `.markdownlint.json` rather than
+      mass-reformatting durable project history. Done-when: `markdownlint '**/*.md' --ignore node_modules`
+      exits 0 locally.
+      Result: disabled the legacy-violated rules in `.markdownlint.json`; verified locally with
+      `npx --yes markdownlint-cli '**/*.md' --ignore node_modules` (exit 0).
+
+### Workflow polish (2026-07-06, Sergiy approved proposals 1-2)
+
+- [x] **ws-1 workflow-verify-step**: THE WORKFLOW gains step 4b — run the affected
+      conformance slice (`run.sc --only`) before every push; now cheap enough to require.
+- [x] **ws-2 nightly-sanitizer** — installed (LaunchAgent io.scalascript.kill-stale-builders, daily 03:00, script copied to ~/.local/bin so any repo branch state is fine; kickstart-verified exit 0): scripts/install-build-sanitizer (idempotent crontab
+      entry, 03:00 daily `kill-stale-builders --kill`) + installed on this host.
+
+
+### Build-perf wave 2 (2026-07-06, Sergiy: "зроби усе що можеш")
+
+- [x] **bp2-1 agents-workflow-banner**: AGENTS.md top-of-file THE WORKFLOW section
+      (plan→sprint, worktree, claim, push-to-main, cleanup). (this commit)
+- [x] **bp2-2 f4-batch-runner** — DONE (run-batch cmd; INT one-JVM, JS one-emit-JVM; identical results batched vs not on 22 cases; 6-case slice 36.1->15.2s with warm JVM lane default): `ssc run-batch --delim <s> <files…>` (one JVM runs many
+      cases, delimiter-separated output) + run.sc uses it for the INT lane (one JVM instead
+      of 193); JS lane: emit all sources in the same batch JVM, execute per-case in ONE
+      node process via vm contexts. Measure before/after on a 20-case slice.
+- [x] **bp2-3 env-heap-cleanup** — DONE (-Xmx12g removed from ~/.zshenv, backup kept): remove -Xmx12g from JDK_JAVA_OPTIONS in ~/.zshenv
+      (backup kept); build-level heaps are explicit since bp-1.
+- [ ] **bp2-4 ci-test-shard** — DEFERRED with verdict: hand-partitioning 259 modules is brittle and untestable locally; bp-5 classes-cache + pipelining (-25%) already cut CI compile; revisit only if CI wall-time still hurts after those land: split the CI `sbt test` job into parallel matrix shards
+      by module groups.
+- [x] **bp2-5 pipelining-measure** — MEASURED: clean cli-chain compile 34.5s WITH vs 46.3s WITHOUT usePipelining (-25% wall, CPU util 745% vs 577%); flag stays ON: one clean-compile A/B timing for usePipelining
+      (document the number; revert flag if it turns out negative).
+- [x] **bp2-6 exportjars-scope** — INVESTIGATED, NO CHANGE: warm touch-recompile loop through the 20-module chain is 13.2s with jars; toggling the flag invalidates zinc (A/B misleading); jar packaging is not the dominant term: measure whether ThisBuild/exportJars
+      actually costs in the dev loop; scope or document.
+- [x] **bp2-7 worktree-warm-targets** — INVESTIGATED, NEGATIVE: zinc analysis is absolute-path-bound — copied targets recompile anyway (57 modules, 34s = same as cold-with-pipelining). New-worktree cold cost is acceptable post-pipelining; do NOT build target-copying: zinc analysis stores absolute
+      paths — verify whether target-copy into a new worktree survives; document verdict.
+
+### Build-perf + conformance-perf sprint (2026-07-06, Sergiy directive: "запиши у спринт і зроби")
+
+Build optimization (from the 2026-07-06 build audit: 259 modules, ~8s/31s CPU per cold sbt -batch
+invocation, JDK_JAVA_OPTIONS=-Xmx12g inherited by every forked JVM, 2 orphaned sbt servers at 2.5GB
+each, CI recompiles all modules, v2 parity harness rebuilds v2.jar per run):
+
+- [x] **bp-1 test-heap-default** (= BACKLOG conformance-test-heap-default L1): explicit env-gated
+      `-Xmx` for forked test JVMs in build.sbt (`SSC_TEST_XMX`, default 2g) so tests stop inheriting
+      the ambient 12g; JMH/proguard pins stay. Verify: v2FrontendBridge suite green under 2g.
+- [x] **bp-2 pipelining**: `ThisBuild / usePipelining := true` (sbt 1.10 + Scala 3.8 support it);
+      verify full compile + suite; revert if zinc misbehaves.
+- [x] **bp-3 worktree-server-hygiene**: scripts/new-worktree (and a new scripts/rm-worktree) kill the
+      worktree's sbt server on removal; add scripts/kill-stale-builders for orphans.
+- [x] **bp-4 v2-jar-cache**: v2/backend/check.sh caches v2.jar keyed by hash of v2/src/*.scala
+      (skip scala-cli --assembly when unchanged).
+- [x] **bp-5 ci-class-cache**: ci.yml caches **/target (classes+zinc) keyed by SHA with restore-keys
+      so PR builds recompile only changed modules.
+- [x] **bp-6 sbt-client-docs**: AGENTS.md note + scripts/sbtc thin-client helper (8s -> <1s per command).
+
+Conformance-PERF (BACKLOG items, specs/conformance-perf.md):
+
+- [x] **cp-1 conformance-affected-only (F1)**: `run.sc --only <glob|files>` so the fix-test loop runs
+      just touched cases; full corpus stays for CI.
+- [x] **cp-2 conformance-memoize (F2)**: skip cases whose (input, ssc.jar hash, expected) is unchanged
+      since last green (cache file under target/); `--no-memo` escape hatch.
+- [x] **cp-3 conformance-warm-runner (F3 subset)**: JVM lane compiles через warm bloop server instead
+      of cold `--server=false` scala-cli per case; INT lane stays bin/ssc (already one JVM per case).
+- [x] **cp-4** covered by bp-1 (same L1 item).
+
+
+### ▶ v1→v2 migration (2026-07-03 — planned, not started)
+Spec: `specs/v1-to-v2-migration.md`
+
+Three phases — execute in order, each phase gated by the previous:
+
+- [x] **Phase 1: restructure** — DONE 2026-07-03. `git mv lang/ → v1/lang/`, `runtime/ → v1/runtime/`,
+      `tools/ → v1/tools/`. Updated `.in(file("..."))` paths in `build.sbt` (75 entries). Also updated
+      `install.sh`, `scripts/runtime-bench.sh`, `tests/perf/{coldstart,serverrss}/run.sh`, and 3 CI
+      workflows. `sbt compile` green, `ssc run examples/hello.ssc` prints `Hello, World!`.
+- [x] **Phase 2a: v2 sbt module** — DONE 2026-07-03. Added `lazy val v2Core = project.in(file("v2/src"))` to `build.sbt`; added `v2Core` to root aggregate. `sbt "v2Core/compile"` green (5 sources, 4 s). `//> using` scala-cli directives in `v2/src/project.scala` are valid Scala comments, silently ignored by sbt.
+- [x] **Phase 2b: v1-plugin bridge** — DONE 2026-07-03. `V2PluginRegistry` added to `v2/src/Runtime.scala`
+      (fallback in `Prims.resolve` before throwing). `v2/plugin-bridge/` sbt module created;
+      `PluginBridge.loadAll()` ServiceLoader-discovers v1 `Backend` plugins, extracts `NativeImpl`
+      intrinsics, translates `v2Value ↔ v1Value` (scalars + DataV/InstanceV/List/Option/Tuple),
+      registers wrapped handlers with `V2PluginRegistry`. 22 tests green. Non-bridgeable: `InlineCode`,
+      `RuntimeCall` (compile-time only), `BlockForm` effect runners (deferred). Spec original description
+      (shift/reset SPI) is a later phase; this bridges the existing NativeImpl surface first.
+- [x] **Phase 2c: v2 JVM backend** — DONE 2026-07-03; TCO fixed 2026-07-03.
+      `v2/backend/jvm/JvmBackend.scala`: reads Core IR (S-expression text), emits a self-contained
+      Scala 3 source file. When compiled with `scalac` and run with `java`, produces byte-identical
+      output to `ssc run-ir`. 29/29 pass (all conformance + all 23 v2 examples incl. `tco.coreir`
+      — 1M tail calls complete without stack overflow via `@tailrec def`). Preamble handles all
+      Core IR constructs + full prim set. TCO: global self-tail-recursive defs → `@tailrec def`;
+      single-lam LetRec self-tail-calls → `@tailrec def`; mutual LetRec → closure vars (no trampoline).
+- [x] **Phase 2c: v2 JS backend** — DONE 2026-07-03. `v2/backend/js/JsBackend.scala`:
+      reads Core IR S-expr, emits a self-contained .js file. Trampoline TCO ($tco/$c),
+      full prim set, ADTs as {t,f}, cells as arrays, maps as wrappers. All 5 conformance
+      fixtures + 15 kc examples pass (output identical to ssc run-ir); 100k-deep TCO ok.
+- [x] **Phase 2c: v2 Rust backend** — DONE 2026-07-03. `v2/backend/rust/RustBackend.scala`:
+      Core IR → self-contained Rust source via `scala-cli run v2/backend/rust/`. 29/31 bench corpus
+      pass (2 failures are pre-existing ssc1c IR bugs that also fail the v2 VM). Key: forward-ref
+      cells (`__fwd`) for all global Lam defs (self/mutual recursion), 256MB thread for deep
+      tail recursion, `v_sconcat` handles any Data++Data (Pair++Pair→Tuple4).
+- [x] **Phase 2d: full checklist** — DONE 2026-07-03. Verification pass results:
+      • JVM: 5/5 conformance (fact/letrec/map/tco/thunk), 3/3 bench corpus (arith-loop/recursion-fib/list-fold) — PASS. TCO verified (tco.coreir = 500000500000 without stack overflow).
+      • JS: 5/5 conformance, 2/2 bench corpus (arith-loop/recursion-fib) — PASS. Trampoline TCO correct.
+      • Rust: 29/31 bench corpus PASS. 2 failures = known ssc1c IR bugs (bool-predicate/@count global, mutual-recursion) — both also fail the v2 VM. See BACKLOG: v2-ssc1c-globals-bug.
+      • sbt v2Core/compile: SUCCESS (5 sources, 4 s).
+      GOTCHA: macOS `echo` processes `\n` as a real newline (unlike Linux). Use `program > file` (redirect) or `printf '%s\n' "$var"` when writing backend output to files. The generated Scala/Rust code contains literal `\n` in preamble strings; `echo "$VAR"` corrupts them silently.
+- [x] **Phase 3: switch** — RECONCILED 2026-07-09: the actual CLI default switch
+      landed in `v2-prod-default-switch` (`719943f40`, `d2ba78c0a`,
+      `89a38f1e3`) and the stale duplicate queue row `p4-default-flip` was
+      closed on 2026-07-08. Plain `ssc run <file>` defaults to v2; `ssc run
+      --v1 <file>` remains the rollback path; `ssc run --v2 <file>` remains the
+      explicit force flag. Historical planning notes below are kept for context.
+      Original:
+      CLI default → v2; `ssc --v1` escape hatch retained.
+      - [x] **`ssc run --v2` flag** DONE 2026-07-05 (`RunV2.scala`, `feature/v2-cli-run-flag`): additive
+        preview flag routing a source through the v1 frontend → FrontendBridge → v2 VM (default runner
+        unchanged). `ssc run --v2 examples/hello.ssc` == v1 output. Makes v1-vs-v2 output parity checkable
+        from the CLI; the eventual default-switch builds on this.
+      - **OUTPUT-PARITY FINDING (for Track 4 / conformance):** `examples/algebraic-effects.ssc` exits 0 on
+        v2 (PASS in the exit-0 coverage harness) but prints DIFFERENT output than v1 (v2: `List() / 1 / …`
+        vs v1: `0 / 10 / 11 / List(11,21,…) / done / (42,…)`). The 96.4% exit-0 coverage OVERSTATES real
+        compat; the Phase-3 gate needs an **output-equality** check. First concrete effects-semantics gap
+        found this way — a v2 VM effects divergence, not a bridge/flag bug (the flag mirrors `bridgeCli`).
+
+### ▶ v2 full compatibility (2026-07-03 — Track 1 through 5)
+Spec: `specs/v2-full-compat.md`
+Goal: v2 handles ALL v1 programs with full language features + performance parity.
+Phase 3 (CLI switch) is gated on this entire track completing.
+
+**Track 1 — v1 IrExpr → Core IR (foundation — do first)**
+- [x] **T1.1: FrontendBridge** — DONE 2026-07-03. `v2/frontend-bridge/` sbt module created.
+      `FrontendBridge.scala`: scalameta → Core IR via de Bruijn scope (List[String]), convertExpr/convertMatch/convertPat.
+      `ModuleBridge.scala`: walks Module sections → scalameta stats → FrontendBridge.
+      BridgeCli `run`/`run-module`/`emit` commands.
+      Gate met: unit tests (12 pass) + examples via `sbt "v2FrontendBridge/run run-module"`.
+- [x] **T1.2: NormalizedModule → Program** — DONE (ModuleBridge.convert). Gate met: hello.ssc runs.
+- [x] **T1.3: CLI wiring** — DONE via BridgeCli `run-module`. Gate met: `sbt "v2FrontendBridge/run run-module examples/hello.ssc"` prints `Hello, World!`.
+- [x] **T1.4: Examples verification (core language)** — DONE 2026-07-03 (2a828e9f1).
+      Pure-language examples passing: hello, functional, enums, data-types, typed-data, bitwise-operators, extensions, default-params.
+      Key fixes: extension methods (Defn.ExtensionGroup), for-do loops (Term.For), nested ctor patterns (flat flattenPattern/shiftLocals),
+      `->` operator, String+Int concat, String*Int repeat, __isTag__ prim, __unsupported__ global.
+      Plugin-dependent examples (effects, actors, async, algebra, dsl-*-with-std-imports): EXPECTED FAIL (require T2.1+).
+      Remaining pure-language items: algebraic-effects.ssc (needs `handle` keyword), generators.ssc (generators plugin).
+      Gate: 8/8 pure language examples pass; 0 unexpected failures.
+
+**Track 2 — Plugin parity**
+- [x] **T2.1: BlockForm effects** — DONE 2026-07-04. All 7 effect plugins (Logger/State/
+      Random/Clock/Env/Retry/Cache) wired to v2 via V2EffectContext ThreadLocal + PluginBridge.
+      Three fixes needed: (1) FastCode global-lookup paths bypass V2PluginRegistry → added
+      lookupGlobal fallback to all 3 paths; (2) FrontendBridge emitted block args as eager
+      Seq → added Lam(0) thunk wrap for statement blocks (lambdas detected by
+      `Block(List(Function|AnonFn))` heuristic); (3) `__arith__` unknown-op catch-all for
+      `effect Logger:` declaration prims. Gate: runLogger+runLoggerToList+runState all correct.
+- [x] **T2.2: HTTP/SQL intrinsics** — DONE 2026-07-04. httpPlugin+sqlPlugin added to
+      v2PluginBridge deps; NativeImpl registration now also registers as v2 global ClosV
+      (env-as-arglist) so App(Global(name), args) resolves correctly. Fixed raw-arg
+      conversion: NativeImpl expects unwrapped primitives (String/Long/Boolean) not v1 Value
+      objects — added v2ToRaw/rawToV2 helpers (mirrors Interpreter.unwrapValueAsAny).
+      Gate: `httpGet("https://httpbin.org/get")` returns HTTP 200 Response with JSON body.
+- [x] **T2.3: Actors (spike)** — DONE 2026-07-04. VirtualThread-per-actor model implemented in
+      PluginBridge: spawn/receive/self/exit/runActors registered as v2 globals; `!` wired via
+      __arith__ → actor.send. Fixes: (1) v2 Match non-DataV scrutinees fall through to default arm
+      instead of erroring (needed for `case s: String => ...` on StrV); (2) @timeout cell registered
+      as ForeignV so cell.set works; new FastCode path in Runtime.scala also needed lookupGlobal
+      fallback; (3) exit() needs dead flag (interrupt alone races with LinkedBlockingQueue.take if msg
+      already present); (4) 2-arg globals (exit) need arity=2 (v2 App is non-curried n-arg).
+      Gate: examples/actors-pingpong.ssc passes all checks (ping-pong, timeout-None, timeout-Some,
+      exit+ignored message, done).
+
+**Track 3 — Performance parity**
+- [x] **T3.1: Baseline benchmarks** — DONE 2026-07-03. All 22 bench programs run through v2 bridge.
+      Key correctness fixes in this session: vector-index (list O(n) indexed access), array-update
+      (Array factory + ForeignV apply), map-ops (Map.updated/getOrElse/apply), streams-pipeline
+      (Bench.opaque identity stub + Range.to list), lazylist-take (LazyList stored as ForeignV Scala LazyList),
+      typeclass-monoid (Bench.opaque), Either/Option methods, Int.toInt/toLong.
+      typeclass-fold: DEFERRED (requires summon[T] typeclass dict-passing — T2 scope).
+
+      | program          | v1 (ms)  | v2 bridge (ms) | ratio |
+      |------------------|----------|----------------|-------|
+      | arith-loop       | 0.244    | 6.1            | 25×   |
+      | nested-loop      | 0.256    | 31.6           | 123×  |
+      | recursion-fib    | 1.22     | 257            | 211×  |
+      | list-fold        | ~0.5     | 16.5           | 33×   |
+      | recursion-tco    | ~0.5     | 10.9           | 22×   |
+      | mutual-recursion | ~1       | 81.2           | 81×   |
+      | string-concat    | ~1       | 13.6           | 14×   |
+      | hof-pipeline     | ~0.1     | 0.93           | 9×    |
+      | pattern-match    | ~2       | 194            | 97×   |
+      | literal-match    | ~0.3     | 2.4            | 8×    |
+      | option-chain     | ~0.1     | 2.8            | 28×   |
+      | either-chain     | ~0.1     | 3.2            | 32×   |
+      | range-sum        | ~0.1     | 1.2            | 12×   |
+      | tuple-monoid     | ~0.5     | 407            | 814×  |
+      | vector-index     | 1.14     | 258            | 226×  |
+      | bool-predicate   | ~0.1     | 1.8            | 18×   |
+      | map-ops          | ~0.3     | 2.7            | 9×    |
+      | array-update     | ~4       | 347            | 87×   |
+      | instance-field   | ~0.5     | 8.4            | 17×   |
+      | streams-pipeline | ~0.02    | 0.20           | 10×   |
+      | typeclass-monoid | ~0.01    | 0.07           | 7×    |
+      | lazylist-take    | ~1.5     | 181            | 121×  |
+
+      Top gaps: tuple-monoid 814× (++ creates new tuples via trampoline), recursion-fib 211× (each call
+      traverses trampoline), vector-index 226× (O(n) list traversal instead of O(1)), array-update 87×
+      (each a(idx)=x is __assign__ → ArrayBuffer update — could FastCode), nested-loop 123×, lazylist-take 121×.
+      Root cause: v2 FastCode is ~25-100× slower than v1 JIT for arithmetic loops (JVM lambda call overhead
+      vs JIT-compiled bytecode); no v2 JIT yet.
+      Gate: baselines recorded ✓. Top gaps identified.
+- [x] **T3.2a: FastCode phase 1** — DONE 2026-07-04. `ClosV.fcEntry` (direct body call, no trampoline
+      Done alloc per call), `tryFCValue` (Float-safe arm body FC via `Prims.arithOp` instead of FLC-first),
+      `tryFC(Match)` (full arm dispatch: armMap O(1) lookup, field binding, avoids Done allocs from match),
+      `tryFLC(App)` uses `fcEntry` (direct call when callee is simple), `cell.set resolveArg` with compile-time
+      fcEntry fast path + pre-allocated sharedArgEnv (safe: bodyFC is synchronous, no trampoline).
+      Results (v1 baseline → v2 before → v2 after):
+      | program          | v1 (ms) | v2 before | v2 after | ratio |
+      |------------------|---------|-----------|----------|-------|
+      | pattern-match    | ~2      | 194       | ~22      | 11×   |
+      | instance-field   | ~0.5    | 8.4       | ~3       | 6×    |
+      | list-fold        | ~0.5    | 16.5      | ~1.4     | 2.8×  |
+      | recursion-tco    | ~0.5    | 10.9      | ~2.5     | 5×    |
+      | nested-loop      | 0.256   | 31.6      | ~20      | 78×   |
+      | mutual-recursion | ~1      | 81.2      | ~18      | 18×   |
+      | tuple-monoid     | ~0.5    | 407       | ~15      | 30×   |
+      GOTCHA: sharedArgEnv unsafe in tryFLC(App) for Runtime.run path (trampoline aliases env=argEnv,
+      recursive fns corrupt it) — use `.clone()` or fresh array for the fcEntry=None branch.
+      GOTCHA: tryFC(While) regressed nested-loop 19.6→22ms despite fewer allocs (JVM JIT unfavorable
+      code shape) — left reverted.
+      Gate: T3.2 ongoing. Still above 5× on several programs.
+- [x] **T3.2b: FastCode phase 2** — INVESTIGATED 2026-07-04; architecturally blocked for numeric benchmarks.
+      Progress (committed 53b39b05a, 8b62517ae):
+      - DataV.fields: Vector→IndexedSeq + ArraySeq hot paths: tuple-monoid 26→22ms (~15%).
+      - tryFC(While) case: nested while loops FC-compilable (nested-loop unchanged, inner FC dominates).
+      - Carrier opt in tryFCMutual (dead code, pass 1b was removed — direct JVM frames > trampoline).
+      Current state (v2 FC interpreter vs v1):
+        arith-loop: ~5ms vs 0.244ms = 21× | nested-loop: ~35ms vs 0.256ms = 137×
+        tuple-monoid: ~22ms vs 2.06ms = 10.7× | mutual-recursion: ~31ms vs 1.35ms = 23×
+      ROOT CAUSE: FC interpreter closure dispatch ~10ns/op vs v1 JIT ~0.5ns/op; fundamentally
+      blocked until v2 has a bytecode JIT backend. Remaining gap analysis:
+      - tuple-monoid: needs Let scalarization (detect Ctor++Ctor Let binding, inline field accesses
+        bypassing DataV creation entirely); no-tuple baseline 14ms → target ~14ms = 6.8×.
+      - mutual-recursion: trampoline already optimal (pass 1b re-enabling was 4% slower — 1001 JVM
+        frames > trampoline with EA). No practical fix without JIT.
+      - arith-loop/nested-loop: LongCellV dispatch overhead; needs JIT.
+      T3.2b gate (5× max) NOT achievable without v2 JIT. Closing as investigated.
+- [x] **T3.3: v2 JVM backend quality** — DONE 2026-07-04; Long-cell specialization ships.
+      Fixes: safeName() appends 'x' to trailing-_ identifiers (Scala3 parse error);
+      `__arith__` added to prim3 dispatch; Long-cell specialization (lcell.new(intLit) →
+      `var name: Long`, lcell.get/set → direct read/assign, __arith__(Long,Long) → inline).
+      MEASUREMENT: arith-loop before=43ms/op, after=0.53ms/op = 80× speedup; within 2× of
+      native Scala (0.6ms/op). Gate (within 2× of v1 JVM backend) ACHIEVED for arithmetic loops.
+      Conformance fixtures (fact=120, tco=500000500000) still correct.
+      Non-arithmetic programs (using __method__ dispatch) still go through prim dispatch.
+- [x] **T3.4: v2 Rust backend ownership/perf** — FULLY COMPLETE 2026-07-05
+      Phase 1 (feature/v2-rust-ownership-perf): (1) Data(Rc<str>, Rc<Vec<V>>) ADT deep-copy fix:
+      list-fold 140.8→8.2ms (17×); (2) SelfRecNative fn(i64)->i64: recursion-fib 107.5→1.37ms (78×).
+      Phase 2 (feature/v2-rust-backend-ownership): LCell direct-ownership + inline arith:
+      (a) lcell.new not captured by Lam → `let mut name: i64` (no Rc<RefCell> overhead);
+      (b) lcell.get/set on longVar → direct i64 read/assign; (c) while condition inline
+      (genBoolExpr) + assignment (genIntExpr) avoid all V boxing; (d) genStmt for While body
+      and Seq intermediates eliminates V::Unit creation in hot loops.
+      Result: arith-loop 100M iters: v2=16ms vs v1-native=16ms (1.0× — gate MET).
+      All 8 fixtures × 3 backends GREEN (feature/v2-rust-backend-ownership, merged 55be1ea94).
+
+**Track 4 — Full compatibility verification**
+- [x] **T4.1: All examples** — UPDATED 2026-07-05: **176/178 PASS (98.9%)** via
+      `feature/v2-frontend-bridge` merge (merged 7277dfaa0).
+      Previous: 129/178 (72.5%); added OIDC batch stubs (discoverAs/exchangeAuthorizationCode/
+      http.parseUrl/makeLocalhostGetResp), Mirror.Of[X] synthesis, Defn.Object→__mk_method_obj__,
+      general typeclass derivation (Tc.derived(mirror)), mcpConnect fake client,
+      String.take/drop/takeRight/dropRight in Runtime, OidcHelpers.findByIssuer,
+      userInfo fallback to first user, BatchCli resetState() per example.
+      Remaining 2 FAIL: x402-cardano*.ssc — eager `throw RuntimeException(...)` before `getOrElse`
+      evaluates; requires real Blockfrost API keys (unfixable without real credentials or CT semantics change).
+      Gate (0 failures): deferred — 2 unresolvable external-API examples are hard floor.
+- [x] **T4.x measurement slice** — DONE 2026-07-05 (`feature/v2-t4-verification`):
+      compat-coverage RE-RUN: **176/178 = 98.9%** (was 129/178) — the content-toolkit,
+      Spark/Dataset-dispatch and plugin-method clusters are all FIXED; the only 2 FAILs
+      are environmental (missing BLOCKFROST keys). `v2/compat-baseline.md` updated.
+      Server-shaped examples (x402-server, ws-chat, webauthn-demo) PASS under the
+      bridge, partially covering T4.3's intent.
+- [x] **T4.2: Stdlib plugins** — DONE 2026-07-05. All `v1/runtime/std/*.ssc` files are
+      library modules (YAML frontmatter + exports, no standalone executables). Their plugin
+      behavior is exercised by the 176/178 passing BatchCli examples (actors, http, auth,
+      effects, content, crypto, etc.). The 40 failures in `backendInterpreterPluginTests/test`
+      are pre-existing v1-interpreter Scala tests (not `.ssc`). Gate (0 stdlib-related .ssc
+      failures under v2): MET — no stdlib library broke the bridge examples.
+- [x] **T4.3: Full application** — DONE 2026-07-05. `examples/v2-http-sql-demo.ssc`:
+      HTTP client (httpGet → status=200) + H2 in-process SQL (CREATE TABLE, 3 INSERTs,
+      SELECT with row iteration) both work end-to-end under v2 bridge.
+      Key fixes: (1) `__method__` dispatch for DataV singleton objects (Db, Http) now
+      checks `V2PluginRegistry.lookup("Tag.method")` BEFORE effect-Op fallthrough —
+      Db.execute/Db.query were silently returning lazy Free-monad Ops; (2) FrontendBridge
+      `parseDatabasesFromFrontmatter` registers H2 connections from YAML frontmatter;
+      (3) v1→v2 InstanceV field ordering uses registered field-name order (Response.status
+      at index 0); (4) H2 returns uppercase column names — demo uses `row("ID")`/`row("MSG")`.
+      GOTCHA: `__method__("Op", IndexedSeq())` (empty-field DataV) was the effect-Op path;
+      plugin singletons also have empty fields — fix is registry-first lookup.
+      Output: `SQL results: 1: Hello from v2! / 2: SQL works... / 3: H2...`; HTTP status: 200.
+- [~] **T4.4: Conformance suite** — INSTRUMENT BUILT + BASELINED 2026-07-05
+      (`feature/v2-t44-conf2`, adopting orphaned in-flight work from
+      `.worktrees/feature/v2-t44-conformance`): **V2ConformanceTest** runs
+      `tests/conformance/*.ssc` through FrontendBridge → v2 VM and diffs stdout against
+      `tests/conformance/expected/` — TRUE output-equality (vs the batch runner's
+      exit-0). BASELINE: **22/58 succeeded**, 36 failed, 57 skip-listed (actors/async/
+      dataset/network). Failure clusters (self-describing via breadcrumbs):
+      default-params (unbound default exprs), tuple extension methods
+      (Tuple2.bimap/leftMap/rightMap), effects output shape, json-*/optics/parsing/sql
+      std families. NEXT: work the clusters largest-first; also merged: DataV FIELD
+      access dispatch (function-typed fields callable) before the Stub fallback.
+      Run: `sbt "v2FrontendBridge/testOnly ssc.bridge.V2ConformanceTest"`.
+      **UPDATE 2026-07-05 (Sergiy relay): score 94/138 → 103/138 (+9).** All 35 remaining failures are
+      **plugin-gated** (no v2 bridge registered for the feature): actors, cluster, distributed, coroutines,
+      html-dsl, http-client, node, rest-validate, mcp-client.
+      **WAVE 6 (2026-07-05, PR #73 merged):** batch-conformance fixes forward-ported to main — all string
+      interpolators as concat (html/sql/f), qualified ctor fillDefaults, object val/method CDefs,
+      Signal[T]→ClosV, scope/raw/attr stubs.
+      - [x] **v2-conf-pure-gated** — DONE 2026-07-06 (`feature/v2-conf-pure-gated`, PR #75).
+        **html-dsl**: full tag DSL in PluginBridge (div/p/ul/li/a/h1-h6/em/strong/nav/img/hr + void tags);
+        `attr` NamedMethodObj with cls/id/href/title/src/alt/… + `:=` AttrKey operator; `raw(s)`;
+        v1Show `_Raw` DataV pass-through. Runtime: `:=` in `__arith__` dispatches via `NamedMethodObj.getField`;
+        tuple-spreading in map/flatMap for 2-param lambdas `(a, b) => …` on tuple lists.
+        **rest-validate**: thread-local error accumulator via `validate { }` + requireString/requireRange/
+        requireRangeDouble/requireOneOf; `reqLookup` reads case-class fields via `lookupFieldNames`.
+        Conformance: 59→60/61 (mcp-types pre-existing); skipSet −2. (webauthn-server-verify was already passing.)
+      - [ ] **v2-conf-env-gated** (NOT this slice) — actors/cluster/distributed/coroutines/http-client/ws/tls:
+        environmental (non-daemon threads hang the JVM, or need real network/multi-node). Needs the v2 actor
+        runtime + network bridging; a sibling/env concern, deliberately deferred here.
+      - [x] **t44-pr72-summon-using-integration** — DONE 2026-07-07 (salvage merge of PR #72).
+        VERDICT after full review: the branch's summon/using layer (`__rt_summon__`/`__reg_given__`/cb-params)
+        was a PARALLEL EARLIER implementation of main's landed dict-passing (`defContextBounds`/
+        `givenByTcHead`/`__resolve_given__`) — main won every overlapping hunk (all 31 FrontendBridge
+        conflicts → main; branch's DataV-based optics stripped as dead vs main's PluginBridge optics).
+        Salvaged: String `indexOf`/`lastIndexOf` char+from overloads, `matchPrefix`, char-predicate
+        `filter/forall/exists`, `__match_fail__` prelude def + prim (was an UNBOUND global — failed
+        matches crashed with an opaque unknown-global error), batch-path `V2EffectContext.peek`
+        alignment, Show pretty List/Tuple. Gate: V2ConformanceTest 63/3-preexisting-tkv2 — identical
+        to pure origin/main; v2PluginBridge 22/22.
+### ▶▶ v2-replaces-v1 — remaining work to close the true output-parity gap (2026-07-06)
+
+TRUE parity is **11/47 ≈ 23%** (not the exit-0 96%), per `v2/output-parity-baseline.md`. Roadmap to raise it,
+prioritised by leverage. Verify each with `SSC="bin/ssc" scripts/v2-output-parity --all` after `sbt installBin`.
+
+- [x] **v2 parity fixes — 7 landed 2026-07-06, parity 11→16/46 (23%→35%).** FrontendBridge (`feature/v2-main-entry`)
+      + VM (`feature/v2-foldlt-double`).
+  - [x] **VM: tryFLC-over-Double corruption (broad correctness).** `tryFLC` reads a `Local` optimistically as
+    Long and returns `0L` for a `FloatV`; unguarded fast paths therefore corrupted Doubles: ordering `<`/`>`
+    inside a fold/loop compared `0<0`→false (foldLeft over Doubles returned the LAST element — min/max broken,
+    `imports`), and `__arith__` Double `/` compiled `0L/0L`→`ArithmeticException` (`dsl-ast-builder`). Guarded
+    both fast paths with `flcProvablyLong`; Double operands fall back to the general Double-aware ops. This is
+    broad — any Double reduction/comparison/division in a loop across the whole corpus.
+  - [x] **user `def main()` wins over html tag globals** (main/label/title/form/…) — was shadowed; broke every
+    `def main()`-entry + `def label(…)`-style program (`_Raw("<main></main>")` / `_Raw("<label>…")`). data-types ✅.
+  - [x] **`main()` called even alongside top-level stmts** (entry was either/or). default-params ✅.
+  - [x] **Mirror.elemTypes real field types** (String/Int) not `Any`. custom-derives-mirror ✅.
+  - [x] v2 now invokes user `def main()` — was skipped because the html `<main>` tag plugin-global shadowed
+    it (FrontendBridge:784 collision-skip); excepted `main`. `def main()=println(x)` now runs on v2. Fixes
+    every `def main()`-entry program that had ONLY the entry-invocation bug.
+  - [x] `default-params` **FIXED** — the entry logic was either/or: `if entryStmts.nonEmpty ... else if main`,
+    so a program with BOTH top-level defs (case-class/enum default params emit entry stmts) AND `def main()`
+    never called main(). Now always appends the `main()` call after entry stmts (v1 semantics). default-params
+    byte-identical v1==v2.
+- [x] **real v2-only V2-ERROR gaps** RECONCILED 2026-07-09 — stale 2026-07-06 list;
+  the current production gate after `cdd032f03` + `70969362f` has **0 v2-error**:
+  `64/98 identical · 11 mismatch · 0 v2-error · 23 v1-only`
+  (26 both-fail, 36 true-server, 33 backend-lane, 2 nondet, 195 total).
+  Historical list was: `content-form-submit`,
+  `content-live-rows`, `content-slot`, `ui-fetch-json` (FrontendBridge parser: `'=>' expected but '('`),
+  `ui-remote-table`, `graph-codecs`, `typed-object-codec` (codec/derives), `object-store-jdbc`,
+  `spark-schema-mapping` (Op-execution — sibling `corpus-tails`), `uuid-v7` (uuid native, non-det).
+- [x] **17 mismatches** RECONCILED 2026-07-09 — stale 2026-07-06 bucket;
+  the current full gate has 11 mismatches, none currently classified as a new
+  v2-error blocker in this slice: `async-parallel-demo`, `distributed-streams`,
+  `dsl-calc-parser`, `effects`, `graph-neo4j-storage`, `lang-split`,
+  `mcp-server-protected`, `oauth-mcp-full-stack`, `os-env`, `scala-js-demo`,
+  `streams`. Historical bucket was: SQL/Spark/content/rails `Stub`/`Op`
+  (sibling corpus-tails), effects shape, derives/mirror (`String|Int`→`Any|Any`),
+  quoted macros (`TermSplicedMacroExprImpl`), `validate` language form.
+- Coordination: `PluginBridge` html-dsl/rest-validate is claude-sonnet-4-6 (`v2-conf-pure-gated`); Op-execution
+  is `corpus-tails`. I own FrontendBridge entry/parser/derives + the harness.
+
+- [~] **v2-plugin-native-registration** (Option B — split from `v2-corpus-tails`; holds `PluginBridge.scala`) —
+      register plugin natives the PluginBridge ServiceLoader loop skips (`BuiltinsRuntime` builtins /
+      `RuntimeCall` / `InlineCode`) so `unbound global` examples run on v2.
+      - [x] **filesystem builtins DONE 2026-07-06** (`registerFsBuiltins`): mkdirs/mkdir/writeFile/appendFile/
+        readFile/deleteFile/exists/listDir. `fs-roundtrip` v2-error→MATCH (parity 27→28/52); conformance 59/59.
+      - **Remaining are NOT simple native registration (engine/bridge, hand to corpus-tails owner):**
+        `validate {}` is a language special form (EvalRuntime/Typer special-case) → needs FrontendBridge
+        desugaring; html-dsl needs the `attr` DSL + `renderTag` port; `uuidV7` is non-deterministic (no parity
+        win). PluginBridge released after this — corpus-tails may resume it.
+- [x] **v2-output-parity-full-corpus** (Option C) DONE 2026-07-06 — `scripts/v2-output-parity --all` sweeps all 193
+      examples (auto-skips 130 server/actor/dataset). **Authoritative: 30/63 = 48% output-identical** (22 mismatch,
+      11 v2-error). See `v2/output-parity-baseline.md`. The real "does v2 replace v1?" number vs 96.4% exit-0.
+- [x] **v2-parity-current-errors** DONE 2026-07-09 — refreshed the production
+      output-parity gate after toolkit-v2 completion, fixed the two deterministic
+      v2-error layers exposed by the fresh sweep, and reconciled stale broad rows.
+      Current gate: `64/98 identical · 11 mismatch · 0 v2-error · 23 v1-only`
+      (26 both-fail, 36 true-server, 33 backend-lane, 2 nondet, 195 total).
+      Active plan 2026-07-09 (`feature/v2-parity-current-errors` / codex):
+      - [x] Restage the CLI in this worktree with `scripts/sbtc "installBin"`
+            because `scripts/v2-output-parity` uses `bin/ssc`.
+      - [x] Run `PARITY_TIMEOUT=45 SSC="bin/ssc" scripts/v2-output-parity --all`
+            and record the exact counts in `v2/output-parity-baseline.md` and
+            `specs/v2-full-compat.md`.
+            Fresh result before fixing: `62/93 identical · 7 mismatch ·
+            6 v2-error · 18 v1-only` (31 both-fail, 36 true-server,
+            33 backend-lane, 2 nondet, 195 total). The cleanup path is canceled:
+            all six v2-error rows are standard-`scala`-fence examples skipped
+            by v2 (`BUGS.md` `v2-standard-scala-fences-skipped`).
+      - [x] If the gate still has 0 v2-error and only the already-classified
+            non-blocker mismatches, mark the stale broad SPRINT rows
+            `real v2-only V2-ERROR gaps`, `17 mismatches`, and the superseded
+            full-corpus duplicate as reconciled/superseded with the fresh
+            counts. Done above with the 2026-07-09 full gate counts.
+      - [x] If a new v2-error or clear v2-regression mismatch appears, stop the
+            cleanup path, file a `BUGS.md` entry with the exact repro, and fix
+            the first narrow deterministic blocker with affected conformance.
+            Finding: `v2-standard-scala-fences-skipped` filed; fix the standard
+            Scala fence extraction first.
+      - [x] Fix `FrontendBridge.extractCode` / source extraction so standard
+            `scala` fences that are the document's runnable source are included
+            in the v2 program, without re-enabling illustrative Scala snippets
+            in mixed ScalaScript docs. Landed in `cdd032f03`.
+      - [x] Add focused regression coverage: a minimal markdown `scala` fence
+            through `FrontendBridge.convertSource`, plus a real-harness CLI or
+            parity check for `examples/cluster-capability.ssc`.
+            Gates before push: `v2FrontendBridge/testOnly ssc.bridge.FrontendBridgeTest`
+            (17/17), `tests/conformance/run.sh --only 'standard-scala-fence' --no-memo`
+            (INT/JS/JVM pass), `scripts/sbtc "installBin"`, and a minimal
+            real-harness `bin/ssc run --v1/--v2` standard-`scala`-fence repro.
+      - [x] Re-run targeted parity for the six affected standard-Scala-fence
+            examples after `cdd032f03`. Result: `1/6 identical · 4 mismatch ·
+            1 v2-error`; `graph-storage.ssc` now matches, `cluster-capability.ssc`
+            reaches a distinct `unbound global: clusterOf` v2 error, and the
+            other four now produce non-empty v2 output mismatches instead of
+            silent empty programs.
+      - [x] Fix the newly exposed `v2-cluster-stdlib-import-gap`
+            (`BUGS.md`): inspect `runtime/std/cluster/index.ssc` import/export
+            lowering, reproduce through `bin/ssc run --v2 examples/cluster-capability.ssc`,
+            add focused import-boundary regression coverage, and make the
+            targeted parity row match. Landed in `70969362f`; the root cause was
+            missing v2 actor-cluster globals plus `__methodOrExt__` falling back
+            to the shadowing case-class method global before plugin method dispatch.
+      - [x] Re-run the full output-parity gate and record the new counts in
+            `v2/output-parity-baseline.md` and `specs/v2-full-compat.md`.
+            Result after `installBin`: `64/98 identical · 11 mismatch ·
+            0 v2-error · 23 v1-only` (26 both-fail, 36 true-server,
+            33 backend-lane, 2 nondet, 195 total).
+      - [x] Update `CHANGELOG.md` and release the claim/worktree.
+            CHANGELOG is updated in the bookkeeping commit; claim/worktree release
+            follows after this commit lands.
+      Done-when: the board no longer advertises stale old parity blockers and
+      the current production gate is either green-by-scope or has a concrete
+      bug/fix commit for the first newly exposed blocker.
+- [x] **~~v2-output-parity-full-corpus~~ (superseded)** — RECONCILED 2026-07-09:
+      the full-corpus harness shipped earlier as `v2-output-parity-harness` and
+      the current production gate was refreshed by `v2-parity-current-errors`.
+      Latest recorded gate after `installBin`: `64/98 identical · 11 mismatch ·
+      0 v2-error · 23 v1-only` across 195 examples; see
+      `v2/output-parity-baseline.md` and `specs/v2-full-compat.md`.
+      Original:
+      extend `scripts/v2-output-parity` to the full 193
+      examples with server/actor timeout handling for the authoritative "N/193 output-identical" number
+      (current sample: 28/52 terminating). Does NOT touch PluginBridge.
+- [x] **v2-output-parity-harness** DONE 2026-07-05 (`scripts/v2-output-parity`, `feature/v2-conf-pure-gated`) —
+      runs each example on v1 (`ssc run`) AND v2 (`ssc run --v2`) and diffs stdout → per-example MATCH/
+      MISMATCH/V2-ERROR + parity %. Point `$SSC` at an assembled `ssc` for a fast full-corpus run.
+      **RE-MEASURE 2026-07-06 — still 27/52** after conformance 22→59/59 GREEN + batch 144→154/193: the
+      conformance/exit-0 gates did NOT move real `examples/` output-parity. `v2/output-parity-baseline.md`
+      now has per-example v2-error ROOT CAUSES for the `v2-corpus-tails` owner (unbound `uuidV7`/`mkdirs`/`ws`
+      plugin natives; `ui-fetch-json` parser gap; `index` path bug; default-params + jdbc/spark silent-empty).
+      Suggest gating corpus-tails on this harness, not just exit-0/conformance.
+      **FULL SWEEP 2026-07-05 — 52 terminating examples: 27/52 = 52% output-identical** (16 mismatch,
+      9 v2-error). Details + divergence clusters in `v2/output-parity-baseline.md`. The exit-0 coverage
+      (96.4%) massively overstates real compat. Biggest lever: SQL/Spark/content/rails plugin natives return
+      `Stub`/`Op` on v2 instead of executing. Also: effects shape, derives/mirror (`String|Int`→`Any|Any`),
+      quoted macros unsupported, 9 empty-output errors. (`os-env`/`uuid-v7` mismatches are v2-fine, not bugs.)
+      Runner: `sbt installBin` now stages the v2 classes (since `cli dependsOn v2FrontendBridge`), so
+      **`bin/ssc run --v2` works natively** — use `SSC="bin/ssc" scripts/v2-output-parity …` for fast sweeps.
+      **First sample (4 pure examples): 2/4 identical.** Surfaced two real v2 output divergences (exit-0 but
+      wrong output — the gap the 96.4% coverage hides): `algebraic-effects` (effects output shape) and
+      **`custom-derives-mirror`** (v1 prints union `String|Int`, v2 widens to `Any|Any` — a derives/mirror
+      type-handling bug). Both are v2-VM/bridge semantics for Track-4 conformance to fix. NEXT: assemble `ssc`
+      and run the full 193-corpus for the authoritative "N/193 output-identical" number.
+
+**Track 4 (cont.) — T4.4 conformance waves**
+      WAVE 1 DONE 2026-07-05 (`feature/v2-t44-clusters`): given-nested extensions with
+      per-name RECEIVER-TAG dispatch (Bifunctor[Tuple2] vs [Either] coexist); v1Show
+      display parity for bridged println (tuples/(a,b), List(...), raw strings,
+      integral doubles); **ALL-fences entry semantics** — suite 22 → **32/58**.
+      HONESTY CORRECTION: first-fence-only had inflated batch coverage; full-fence
+      honest = **152/193** (see compat-baseline.md). The ~32 newly-honest batch fails +
+      26 suite fails = the visible next queue (json/optics/parsing/sql/effects
+      clusters). WAVE 2 (2026-07-05): **applyFallback SHIPPED** — bridged v1 facade
+      objects (NamedMethodObj: json wrapJson etc.) are applicable via their `apply`
+      field at all 7 App sites; json-value: crash → near-identical output (remaining:
+      rendering a facade's INNER value as `Map(k -> v)` inside containers — add a
+      `raw`-field-aware branch to v1Show). WAVE 3 (2026-07-05): **default-params SHIPPED**
+      (raw-term registry + call-site wrapper Lam/Let so defaults see earlier params;
+      suite 33/58). WAVE 4 (2026-07-05): **optics SHIPPED** — Focus
+      path-lens extraction from lambda AST (fields/.some/.index/.at) + NamedMethodObj
+      optic runtime + variant Prisms; lenses/optional/prisms PASS (suite **36/58**).
+      WAVE 5: OPTICS CLUSTER COMPLETE (5/5 — runtime .copy positional/mixed
+      by ACTUAL tag, field-application s.users(1), optic labels via _show; suite
+      **39/58**). WAVE 6: PARSING CLUSTER COMPLETE (multi-line imports joined; as-pattern/named/
+      typed catch-alls -> general chain; PHANTOM WILDCARD BINDING removed — a fake "_"
+      shifted default-arm bodies by one, the -1 AIOOBE class; entry-val hoisting guard;
+      method-obj globals win over zero-arg Ctor; matchPrefix intrinsic; suite **42/58**,
+      corpus 153/193). WAVE 7: CONTEXT-BOUND DICTIONARY PASSING (trailing __tc_ params, explicit-instance
+      passthrough, __resolve_given__ witness tables, tc-hierarchy walk) + extension
+      SELF-RECURSION fix (member beats extension inside impl bodies — std monad
+      instances hung). std-semigroup/index/functor + tagless-context-bounds PASS;
+      suite **46/58**. WAVE 8 (2026-07-05/06): **T4.4 COMPLETE — suite 59/59 GREEN** (was 22). using-clauses,
+      Free-monad Op lifting (effects x3 without CPS), String.toInt kernel parity,
+      facade raw display + LinkedHashMap order, direct vars, Enum.values, object-method
+      defaults/varargs, REAL try/catch (BridgeThrow carries the value), qualified case
+      patterns, sql/transaction fenced blocks (JDBC H2, fail-soft drivers). Corpus
+      155/193 (record). Regression discipline: full-history bisection worktree; two
+      systemic fixes (Op application lift; lossless Signal round-trip). Remaining:
+      optic-polish (runtime `.copy` on DataV), parsing/sql/effects clusters, v1Show
+      facade-INNER rendering (json-value's last line).
+- [~] **v2-bridge-last-gaps** — PARTIAL 2026-07-05 (2 waves): **trapExit + link/monitor
+      SHIPPED** (full Erlang supervision surface on the VirtualThread mailbox model:
+      bidirectional links kill-or-message, monitors get Down(reason); death fires on
+      completion/crash/kill) + **mapreduce stdlib AUTO-INJECT** (v1 auto-available
+      symbols; index.ssc chain pulls the family). The 3 distributed examples now run
+      DEEP into the real stdlib and fail further along: word-count at a String+Int `-`
+      inside the mapreduce code (suspect: a bridged field/method returning String where
+      Int expected — find via arithOp breadcrumb); wire-protocol/shuffle at
+      `expected a list, got Stub` (an unbridged `__method__` on a data value hits the
+      batch Stub fallback — identify the method, bridge it). STILL OPEN: (b)
+      `registerBehavior` typed-actor registry; (d) Dataset typed codecs (`Op/3`).
+      WAVE 3 (2026-07-05 evening): **ambient effect ops (Random.uuid/int/double,
+      Clock.now/nanos) + asInstanceOf identity + Stub/arith breadcrumbs SHIPPED** —
+      join/log-aggregation/streams PASS; every remaining failure is self-describing.
+      SHARPENED ROOT: all 6 remaining real FAILs are ONE surface — unbridged
+      Dataset/typed-data plugin methods (DatasetCodec.*, DatasetWire.*,
+      DistributedDataset.runShuffle, WorkerProtocol .collect/.toList) fall to the
+      free-monad Op sentinel → Stub chains. RESOLVED 2026-07-05 night
+      (`feature/v2-typeddata-bridge`): probing against the REAL v1 interpreter showed
+      the whole remaining set is OUT OF PARITY SCOPE — the 4 dataset files are
+      `backend: jvm` codegen examples (v1 does NOT interpret them), word-count and
+      actors-typed-remote-spawn fail on the v1 interpreter too, pg/x402 are env-gated.
+      **v1-INTERPRETER PARITY REACHED on the examples corpus.** Optional follow-up
+      track (not parity): run the `backend: jvm` examples through the Phase-2c JVM
+      source generator with the typed-data jars.
+      Batch counts: FIXED 2026-07-05 night — per-file registry snapshot/restore in batchCli; deterministic 184/193.
+- [x] **T4.5: hang-list ELIMINATED** — DONE 2026-07-05 (`feature/v2-t45-hanglist`).
+      All 16 entries terminate (probe with per-file forked watchdog); the true batch
+      killer was a bridged v1 `exit` (System.exit) shadowing the actor exit. Fixed:
+      `Runtime.exitHandler` hook (batchCli intercepts; exit-0 = PASS), polymorphic
+      variadic exit (actorRef → kill actor; code → hook), registerActors() last in
+      loadAll. **Coverage: 186/193 = 96.4% of the FULL corpus, zero skips** (was
+      176/178 + 16 skipped). Remaining 5 real FAILs: registerBehavior, trapExit ×2,
+      runDistributed, Dataset Op/3.
+
+**Track 5 — ssc1c fixes**
+- [x] **T5.1: @count/@sum bug** — DONE. TWO independent root causes, one per pipeline,
+      both fixed:
+      (a) 2026-07-04, FrontendBridge pipeline: Rust backend eagerly evaluated
+      `prim __math_obj__` at startup (`def math = prim __math_obj__` prelude) → `panic!`;
+      fix = lazy stub closure in RustBackend.
+      (b) 2026-07-05, ssc1c pipeline (`feature/v2-ssc1c-globals-bug`): the
+      expression-position `"assign"` case in `lowerE` (`v2/lib/ssc1-lower.ssc0`) only
+      looked up `@name` — it missed `@@name` LongCell vars (introduced by
+      v2-arith-loop-jit), and `lookupVar`'s IrGlobal fallback then emitted a bogus
+      `(global @count)` (byte-verified in the emitted IR). Statement-position assigns were
+      correct; only assigns inside `if`-then branches (expression position) broke. Fix
+      mirrors the statement-position logic (`lookupVarOpt` on `@@name` → `lcell.set`,
+      else `@name` → `cell.set`).
+      Gate met on the ssc1c pipeline: bool-predicate (243) + mutual-recursion (1000)
+      correct on VM + JVM + JS + Rust (see `v2/backend/check.sh`); conformance green.
+- [x] **T5.2: JS backend 64-bit ints (BigInt)** — DONE 2026-07-05, found while verifying
+      T5.1: `v2/backend/js/JsBackend.scala` emitted plain JS numbers for `i.*`, so any
+      program with real 64-bit overflow — the corpus LCG anti-fold idiom — silently
+      computed WRONG values on JS (bool-predicate: 6 instead of 243; arith-loop/
+      recursion-fib stay under 2^53 so Phase 2d missed it). Fix: ints are BigInt
+      end-to-end (literals `Nn`; `i.add/sub/mul/neg/shl` wrapped in `BigInt.asIntN(64,…)`;
+      shift counts masked `&63n`; string/array index sites bridged via `Number(…)`;
+      `slen`/`scodeAt`/`arr.len`/`scmp`/`map.size` return BigInt; conversions
+      `i->str`/`i->f`/`f->i`/`i->big`/`big->i`/`big->f`/`big->str`/`f->str`/`tagOf`/`arity`
+      added — they previously hit the `$prim` throw; `$strToI`/`$sfromCodes` fixed;
+      match-error `JSON.stringify` → `$show` since stringify throws on BigInt).
+      NOTE: JS bench numbers will regress (BigInt is slower than doubles) — correctness
+      first; a hybrid small-int fast mode is a future perf item.
+      Also fixed: `backend/js/project.scala` lacked `//> using file ../../src/CoreIR.scala`
+      (JsBackend only compiled when extra sources were passed by hand).
+- [x] **T5.3: backend parity harness** — DONE 2026-07-05: `v2/backend/check.sh` runs every
+      `conformance/*.coreir` + the bool-predicate/mutual-recursion IRs through
+      run-ir vs JVM vs JS vs Rust; outputs must be byte-identical. ALL GREEN
+      (7 fixtures × 3 backends). (Phase 2c/2d verification was manual — nothing guarded
+      the three generators until now.) Three more generator bugs it caught, all fixed:
+      (a) the Rust backend never printed a non-Unit entry result (VM `Main.out`
+      semantics; bench programs print explicitly so 29/31 hid it) — added
+      `show_entry` (strings quoted) + entry match; (b) `tco.coreir` (1M non-TCO frames)
+      overflowed the 256MB thread — stack bumped to a 2GB virtual reservation; real
+      trampoline TCO queued as **v2-rust-backend-tco** in BACKLOG; (c) post-merge with
+      the 2026-07-04 T3.3 Long-cell specialization: JvmBackend emitted bare `_asLong(...)`
+      at generated top level but the helper was `private` inside `object R` — ssc1c-emitted
+      `i.add` prims on Long-cell vars (vs FrontendBridge's inlined `__arith__`) exposed it;
+      top-level `_asLong` added to the preamble.
+- [x] **T5.4: VM sconcat fast-path regression** — DONE 2026-07-05, found chasing the last
+      bench SKIP: `string-concat` crashed the VM with `sconcat: bad types` — the
+      `Prims.resolve2` fast path (added by v2-arith-loop-jit) shadowed the general prim
+      table's lenient `sconcat` (`anyStr(a)+anyStr(b)` coercion, i.e. `"item-" + n`) with
+      a strict Str+Str-only version. Fast path now mirrors the general table. bench.sh
+      masked the crash as `SKIP(no-main)` — with T5.1+T5.4 the corpus is a true **31/31**
+      (string-concat = 188890 verified on VM + JS + Rust).
+- [x] **T5.5: kc5 type-error conformance probe was wrong** — DONE 2026-07-05 (pre-existing
+      FAIL on origin/main, the ONLY red conformance check): the probe used `1 + "a"`, which
+      is LEGAL Scala (string concat "1a") and KC5-micro correctly lowers it to sconcat, so
+      ssc1c rightly does not reject it. Probe changed to a genuinely ill-typed `1 - "a"`
+      (checker: `- requires Int right operand`). conformance now fully green: 634 ok / 0 FAIL.
+
+**Track 6 — WASM unblock (new 2026-07-05)**
+- [x] **v2-wasm-unblock** — ✅ DONE 2026-07-05 (`feature/v2-wasm-unblock`): `rustup target add
+      wasm32-wasip1` installed; `v2/ssc0-wasm` launcher (Rust backend + Node built-in WASI
+      host, `v2/scripts/run-wasi.mjs`); quicksort byte-identical to VM, tco = 1e6 tail calls
+      in constant stack, Mira programs work via the same target; toolchain-gated conformance
+      checks added. The historically-only-open v2 language backlog item is CLOSED. Original
+      plan below: — `rustup` is now present in this environment. Try
+      `rustup target add wasm32-wasip1`; if it installs, the v2 Rust backend output can
+      target WASM (v2/ROADMAP K3 "reuse the Rust backend"). Runtime: check `wasmtime`/
+      `wasmer`; if absent, Node's built-in WASI (`node:wasi`) is a candidate host.
+      Gate: one conformance program (e.g. quicksort.ssc0) compiled via
+      `ssc0-rust → rustc --target wasm32-wasip1` runs under a WASI host with output
+      identical to the VM.
+
+**Track 7 — empirical baseline + coverage instrument + correctness bugs (addendum 2026-07-05)**
+> Grounding for Tracks 1/4/5 from a two-agent audit of the *current* state (ran the real
+> `examples/*.ssc` corpus through ssc1; audited plugin-bridge + JVM backend). Three findings:
+> - **Measured baseline.** The self-hosted **ssc1** frontend runs **1 of 194** real
+>   `examples/*.ssc` cleanly (only `hello.ssc`). It is a *toy-example runner*, not a v1 runtime.
+>   (This is the ssc1 path — the **FrontendBridge** path of Track 1 is the compat road and is now
+>   far ahead: T1–T2 DONE, 8/8 pure-language examples.)
+> - **Strategic confirmation.** Do **not** grow ssc1's parser to chase example coverage — that is
+>   Track 1's job. ssc1/Track 5 is for the pure self-hosted story only (a `.ssc` on all 3 backends
+>   with no JVM v1 tree). Keep the two goals separate so neither agent duplicates the other.
+> - **plugin-bridge is a scaffold, not E2E-functional** on its own; Track 2 wired the real path
+>   (BlockForm effects + HTTP/SQL) through FrontendBridge instead.
+
+- [x] **T7.1: compat-coverage harness + baseline snapshot** — DONE 2026-07-05.
+      `scripts/v2-compat-coverage` wraps `ssc.bridge.batchCli` (one JVM, whole corpus) → PASS/FAIL
+      + coverage %. Baseline committed in `v2/compat-baseline.md`. **Post Track-1+2 baseline: 129/178
+      ran = 72.5% (129/194 = 66.5% of the corpus)** — up from 1/194 (0.5%) via the ssc1 path. The 49
+      fails: ~7 environmental (no network/keys), ~42 real, clustered in content-toolkit run-context
+      (~10), Spark/Dataset free-monad (~8), and plugin-object method dispatch (Graph/SQL/vault).
+      FOLLOW-UP (next slices, ranked in the baseline doc): content-toolkit context → Dataset executor
+      → method-dispatch breadth. Harness enhancement: diff stdout vs v1 (output-equality, not just exit).
+- [x] **T5.6: numeric-poly i.* prims everywhere** — DONE 2026-07-05
+      (`feature/v2-ssc1-float-toplevel`). The VM's general table was already numeric-
+      polymorphic (numBin/numCmp); the resolve2 fast paths and all THREE source
+      generators were inconsistent patchworks (`7.5 / 2.5` crashed `expected Int`;
+      i.le/ge/gt/eq Int-only). Aligned: VM resolve2 + resolve1 i.neg; Rust v_i* 4-case
+      poly; JVM div/mod/neg via _numBinI; JS $n* helpers (bigint wrapped / float
+      number math, $show Scala-style floats). New floatnum.coreir fixture (parity 8×3
+      GREEN) + examples/kc-float.ssc gate via ssc1c. The sconcat/T5.4 lesson,
+      systematically applied.
+- [x] **T5.7: ssc1 top-level statements** — DONE 2026-07-05 (same branch).
+      lowerProg now collects top-level expression statements in document order into the
+      entry (Seq(exprs…, main() if present)); top-level `val (a, b) = e` (tuppat) emits
+      value defs ($vd + _sel__K accessors). Prelude `_sel_until`/`_sel_to` rewritten
+      TAIL-recursively (old shape stack-overflowed on `(1 to 10000)`); `_sel_toList`
+      added. Parser: `parseBlockArg` parses `{ (a, b) => stmts… }` lambda-header-FIRST
+      (val/def stmts inside block-lambda bodies work; foldLeft block-args were 0-arity
+      thunks → arity crash); plain top-level val consumes trailing block args.
+      GATE MET: examples/recursion.ssc prints all 13 outputs via ssc1 (Collatz 871/178,
+      100k-deep mutual recursion, destructuring val, block-lambda, interpolation).
+      conformance 639 ok / 0 FAIL; bench 31/31; parity 8×3 GREEN.
+
+
+### ▶ agent-sdk P3b + conformance (2026-07-03 — roadmap #2 next slice)
+Remaining work on agent-sdk-remainder: MCP round-trip test + mock gateway + golden transcripts.
+Spec: `specs/agent-sdk.md`. The MCP bridge (`runtime/std/agent-mcp.ssc`) is done in both directions;
+what's missing is an end-to-end test that runs both sides.
+
+- [x] **agent-mcp-roundtrip-test** — DONE 2026-07-03. `AgentMcpRoundTripTest.scala` (3 tests, all
+      green): contentJson round-trip, isError propagation, multiple tools. In-process
+      LinkedBlockingQueue transport; mirrors McpEndToEndTest. Spec: `specs/agent-mcp-roundtrip.md`.
+- [x] **agent-mock-gateway** — DONE 2026-07-05. `AgentConformanceTest.scala`: a fake gateway
+      (in-process HttpServer) replays a recorded FIFO sequence of model responses; 3 golden
+      transcripts (tool-use loop, multi-turn, error path) assert run STRUCTURE. 3/3 green. No
+      `agent.ssc` change needed — the loop's only seam is the endpoint URL, so the mock is a Scala
+      test fixture (the spec's suggested `ModelClient` injection seam does not exist; not invented
+      for a test). Complements the content-keyed `AgentSdkInterpreterTest`; adds the multi-turn case.
+
+### ▶ v2 bench performance (2026-07-03 — slow programs in v2 VM) [arith-loop DONE]
+v2 bench shows several programs 100-500× slower than the main interpreter. Target the biggest gaps
+with ssc1c optimizations (better IR generation) or v2 VM fast-paths.
+
+- [x] **v2-arith-loop-jit** — `arith-loop` 258ms → 17ms (15× speedup, < 20ms target ✓).
+      Root cause: tight counter loop in v2 VM does 20+ JVM allocations/iter (Done boxing, IntV boxing,
+      env-array extension per letrec bounce). Fixes implemented end-to-end:
+      1. `Term.While` + `Term.Seq` in CoreIR — Java while-loop, no trampoline per iter; Seq = same env for all terms.
+      2. `IrWhile`/`IrSeq` in `ssc1-lower.ssc0` — replaces letrec-based while; assign chains use IrSeq (no _blk_ env extension).
+      3. `FastCode`/`FastLongCode` in Runtime.scala — Value-returning closures (no Done boxing); FLC = Env => Long (no IntV boxing for cond/body).
+      4. `LongCellV(var v: Long)` in Value — mutable long cell; `lcell.new/get/set` primitives; `@@name` scope prefix for int-lit vars.
+      5. `resolve1/2/3` in Prims — avoids `List[Value]` alloc for 1/2/3-arg prims.
+      6. Empty App fast-path: `Call(c, emptyEnv)` instead of `toArray` on empty list.
+      **Result:** arith-loop 258ms → ~15-17ms; nested-loop similarly under 20ms.
+- [x] **v2-recursion-opt** — DONE 2026-07-05 (`feature/v2-recursion-opt`).
+      **recursion-fib 65.7 → 8.2 ms = 8.0×** (same flags BENCH_WARMUP=10 REPS=15, same
+      machine state, A/B vs origin/main). Design: **SelfRecLL** (`v2/src/Runtime.scala`) —
+      an arity-1 self-recursive def whose body is pure Int arithmetic over `Local(0)`,
+      Int literals and DIRECT self-calls in NON-TAIL (operand) position compiles to a
+      plain JVM `Long => Long` (zero allocation, no trampoline/Done/global-lookup per
+      call; knot tied via a captured var). A bare tail-position self-call BAILS — tail
+      recursion keeps the trampoline's constant-stack TCO (Core IR invariant 7);
+      recursion-tco is unaffected. Non-Int args fall back to the generally-compiled body.
+      Covers `i.*` and `__arith__` shapes + the ssc1c `<=`-desugar (`if (i.eq..) true
+      (i.lt..)` Bool-ifs in `goB`). Wired in `compileWithGlobals` pass 1 (both `code`
+      and `fcEntry`). Verification: conformance 634 ok / 0 FAIL; `backend/check.sh` 7×3
+      ALL GREEN; bench corpus **31/31 no SKIP**; 10 var-heavy programs byte-compared
+      old-vs-new (identical outside the map-ops fix below).
+      **BONUS — critical corruption fix found en route** (BUGS.md
+      `v2-cellset-flc-corruption`): the FastCode phase-1/2 batch (2026-07-04) made
+      `tryFLC` optimistic (App/cell.get/arr.get/fieldAt/Local coerce non-Int → 0L),
+      which broke the `cell.set` FLC fast path's "tryFLC fails for non-Int" assumption —
+      `m = m.updated(k, v)` stored `IntV(0)` over a Map (map-ops crashed
+      `expected Map, got 0`; silent corruption possible in the general case). Fix:
+      `flcProvablyLong` structural gate — `cell.set` takes the FLC path only for
+      provably-Long bodies. map-ops restored: 124750 correct, 0.56 ms.
+- [x] **v2-pattern-match-opt** — RE-SCOPED + CLOSED 2026-07-05. Fresh baseline
+      **82–88 ms** (was 362 pre-FastCode; the old number is obsolete). Source is
+      Float-typed (`area(s): Double`, `var total = 0.0`) → the Long-cell/FLC tier and
+      SelfRecLL cannot apply; remaining cost is diffuse (closure foreach dispatch +
+      match arm dispatch + FloatV boxing + generic-cell read/write per element), which
+      is exactly the ~10 ns/op FC-dispatch floor T3.2b measured — JIT-gated. The one
+      concrete non-JIT lever is a symmetric **Float-cell specialization tier**
+      (`dcell.*` analog of LongCellV/FLC) — queued in BACKLOG as
+      **v2-float-cell-fastpath** (cross-cutting: kernel prims + ssc1c lowering + all 3
+      backend generators must learn dcell.*).
+
+### ▶ rust-tui-toolkit (2026-06-23, with Sergiy — "делай вариант [полный транспайл .ssc → Rust]")
+Make `computedSignal` (and any thunk) run LIVE in the terminal by routing std/ui through the Rust codegen
+backend (RustCodeWalk) — the rust-web-toolkit path where computedSignal is already a re-runnable Rust closure —
+and rendering the `View` to **ratatui** instead of HTML/SSR. Spec **[`specs/rust-tui-toolkit.md`](specs/rust-tui-toolkit.md)**
+(grounded: reuses the import inliner + signal store + computed closures; obstacle = HTML-collapsed Rust `View`;
+seam = `BackendOptions.extra("uiTarget"->"tui")`). The terminal analog of rust-web-toolkit (was S1-S5).
+
+- [x] **rust-tui-1-seam-render** ✓ DONE 2026-06-23 (RustGenTuiToolkitTest 3/3 incl. cargo smoke: computed value renders in terminal) — — thread `uiTarget` into `RustGen` (gating sites :54/:128/:161/:362); minimal
+      `TuiRs` (`_tui_render(View)→ratatui`: Text/Fragment/Element core tags → Paragraph/Layout; read
+      `data-ssc-text` from `ssc_signals()`); `serve`→`_tui_run` (draw-once snapshot). **Gate:** a
+      `serve(lower(vstack(heading,text,signalText(computedSignal(...))),theme),0)` `.ssc` transpiles via
+      RustCodeWalk and `cargo run` (SSC_TUI_SNAPSHOT) prints the computed value. Proves transpile→ratatui e2e.
+- [x] **rust-tui-2-event-loop** ✓ DONE 2026-06-23 (cargo test: button activate → ssc_recompute_all → frame shows recomputed value; computedSignal LIVE in terminal) — — crossterm loop + focus ring over `data-ssc-*` + Enter→action→`ssc_recompute_all`→
+      redraw. **Gate:** counter+computedSignal; cargo test feeds the key, computed text changes (LIVE).
+- [x] **rust-tui-3-tag-mapping** ✓ DONE 2026-06-23 (flex-direction:row→horizontal Layout, CSS color/background/font-weight→ratatui fg/bg/bold; cargo test asserts hstack side-by-side) — — CSS flex/gap parse + all std/ui chrome (card/badge/divider/input/toggle/show)
+      + focus highlight + colors. **Gate:** rozum-meeting-style toolkit renders faithfully.
+- [x] **rust-tui-4-fetch-datatable** ✓ DONE 2026-06-23 (intrinsic overlay -> tui.rs ureq fetch + serde_json rowsPath drill + ratatui Table; cargo test fetches a live {data:[...]} envelope + renders rows) — — Rust runtimes for fetchUrlSignal/fetchRowsSource/staticRowsSource +
+      rowsOf envelope drill + `_tui_data_table_view` (fetch→Table). (Absent on the Rust path entirely today.)
+      **Gate:** remoteTable renders fetched rows vs a local server.
+- [x] **rust-tui-5-converge** ✓ DONE 2026-06-23 (new `ssc tui`/`run-tui` live runner + `run --frontend tui` routes to the rust-codegen path via TuiRunner, cargo fallback to interpreter; CLI test asserts the emit yields the ratatui crate) — — point `frontend: tui` / `--frontend tui` at this path (supersede the static
+      emitter for dynamic apps) or unify the two pipelines.
+
+Driven by the agreed roadmap (BACKLOG.md → "Roadmap — agreed priority order, 2026-06-17").
+Work top-to-bottom, one major theme at a time. **Maven/centralized publication is LAST.**
+
+### ▶ frontend-tui (ratatui) backend (2026-06-23, with Sergiy — "мы ведём всю компиляторную сторону сами. Оформляй спеку, вноси в спринт и делай все что нужно")
+Scalascript-side half of the rozum **Unified Control Center** (`rozum:docs/specs/unified-control-center.md`):
+the one missing render backend so a single `std/ui` Tk `.ssc` app compiles to a **terminal UI** (ratatui) as
+well as web/desktop. We own the **entire compiler side** (operator decision). Full plan + the 3 answered
+questions (backend selection / focus-keyboard / ownership) + lowering table: **[`specs/frontend-tui-ratatui.md`](specs/frontend-tui-ratatui.md)**.
+Route = `emitNative` (the Swing/JavaFX native pattern), emitting a self-contained ratatui+crossterm Rust crate
+(NOT via RustCodeWalk). Each slice gate = emitted crate `cargo build`s + a ratatui `TestBackend` buffer
+snapshot matches (assume(cargo)-gated, like `RustGenCargoSmokeTest`). Drive top-to-bottom.
+
+- [x] **frontend-tui-0-scaffold** ✓ DONE 2026-06-23 — new sbt module `frontendTui` (`frontend/tui`) +
+      `TuiFrameworkBackend extends FrontendFrameworkSpi` (`name="tui"`, `emit` throws, `emitNative` → minimal
+      buildable crate via `TuiEmitter`) + `META-INF/services` + `Platform.Terminal` & `AppFormat.RatatuiApp`
+      added to `frontend/core` (additive) + registered in build.sbt `allFrontends`. **Gate met:**
+      `frontendTui/test` 8/8 incl. `TuiCargoSmokeTest` (assume(cargo): emitted crate `cargo run`s, ratatui 0.29
+      headless `TestBackend`, prints `ssc-tui: ok`); sibling frontend backends recompile clean. CLI
+      `--frontend tui` native-emit wiring deferred (selection already works via `-Dscalascript.frontend=tui` /
+      front-matter / inline).
+- [x] **frontend-tui-1-static-layout** ✓ DONE 2026-06-23 — `TuiEmitter` lowers the static `View` IR to a
+      recursive `render_root`: `Column/Fragment/For`→vertical `Layout` (measured `Length`), `Row`→horizontal
+      (`Ratio(1,n)`), `Text/SignalText/TextNode`→`Paragraph`, `Divider`→top-border `Block`, `Spacer`→blank rows,
+      `Stack/ScrollView/Styled` pass-through, `Show/ShowSignal` static-eval; interactive nodes render as static
+      text (events → slice 3); Style mapping deferred. **Gate met:** `frontendTui/test` 18/18 — 10 fast
+      `TuiEmitterTest` + `TuiCargoSmokeTest` (assume(cargo)) renders heading+text+divider+row, buffer snapshot
+      has laid-out text + row children side-by-side.
+- [x] **frontend-tui-2-signals-redraw** ✓ DONE 2026-06-23 — emitted crate holds a runtime signal store
+      (`HashMap<String,Value>` + `Value` S/I/B) seeded from the View tree; `render_root(frame,area,signals)`
+      reads `SignalText`/`Toggle`/`TextInput` from it and `ShowSignal`→runtime `if sig_truthy(...)`; `main` runs a
+      crossterm loop (raw mode + alt screen → draw → `event::poll` → quit on q/Esc) via ratatui's crossterm
+      re-export; headless `SSC_TUI_SNAPSHOT` path for CI. **Gate met:** `frontendTui/test` 20/20 — cargo smoke
+      builds the loop crate, renders a signal-bound frame headlessly, AND `cargo test` runs a generated
+      `reactive_rerender` proving a signal mutation re-renders.
+- [x] **frontend-tui-3-focus-events** ✓ DONE 2026-06-23 — document-order focus ring (`FOCUS_COUNT`,
+      `is_text_input`, `focus_mark`), `handle_key` (Tab/↓ + Shift-Tab/↑, Enter/Space→`activate`, typing→
+      `type_char`, Backspace, Esc/`q`→quit), generated `activate`/`type_char`/`backspace` match arms; declarative
+      `EventHandler`s (`SetSignalLiteral`/`IncrementSignal`/`ToggleSignal` + `TextInput` `InputChange`) mutate the
+      store, `Simple`/`WithEvent`→no-op; `render_root(...,focus)` shows the focus marker. **Gate met:**
+      `frontendTui/test` 21/21 — cargo smoke builds an interactive crate (signal+button+text-input) and
+      `cargo test` runs generated `event_handlers_run`/`text_input_typing`/`tab_moves_focus`/`reactive_rerender`.
+      (UCC PoC step 2: composer.) Follow-ups: `A11y.focusOrder` seeding + hidden-`ShowSignal`-branch focus skip.
+- [x] **frontend-tui-4-table-routing** ✓ DONE 2026-06-23 — `DataTable(StaticRows)`→ratatui `Table` (header from
+      column titles, cells from row `fieldPath`); `TabBar`→focusable tab headers (`Set(current,idx)` activation) +
+      runtime `match sig_int(current)` content; `NavigationStack`→runtime `match sig(current).as_str()` routes;
+      `sig_int` accessor added; `Badge/Spinner/Pill/Tag` already render as text via std/ui lowering. **Gate met:**
+      `frontendTui/test` 25/25 — 3 fast emitter cases + a 2nd cargo smoke building `TabBar[DataTable,…]` (snapshot
+      shows active `[Rooms]` + table header + rows). (UCC PoC step 3.) Follow-ups: hidden-tab focus skip,
+      ForModel/EditableCell, Sheet/AlertDialog overlays.
+- [x] **frontend-tui-5-fetch-binding** ✓ DONE 2026-06-23 — `collectFetches` finds every `FetchUrlSignal`
+      (a `ReactiveSignal[String]` carrying a URL) in `SignalText`/`DataTable.Remote`/`ModelView`; emits
+      `fetch_text(url)` (blocking `ureq` GET) + `bootstrap(signals)` populating each at startup (before first
+      render, both snapshot + interactive); a fetch-bound `SignalText` then renders the body. `ureq` added to
+      Cargo.toml only when the app fetches. **Gate met:** `frontendTui/test` 28/28 — 2 fast emitter cases + a
+      3rd cargo smoke that starts a local JDK `HttpServer`, builds a crate bound to it, and asserts the snapshot
+      shows the fetched body. This is the seam the rozum control-API binds to over HTTP. Follow-up: dynamic
+      `DataTable.Remote` rows + typed-model views from fetched JSON (needs `serde_json`).
+
+  **▶ frontend-tui MILESTONE COMPLETE (slices 0–5).** The ratatui terminal-UI backend lowers the full `View`
+  IR; rozum can author its control center as one `std/ui` `.ssc` app and compile it to a terminal binary,
+  retiring the hand-written `crates/rozum-meeting/src/tui`. Spec `specs/frontend-tui-ratatui.md`. Open
+  follow-ups (not blocking): Style/Theme colors, A11y.focusOrder seeding, typed-model dynamic tables,
+  Sheet/AlertDialog overlays, CLI `--frontend tui` native-emit flag.
+
+### ▶ Crypto/finance roadmap (2026-06-23, with Sergiy — "да хочу. все хочу. … внеси все это в спринт или в беклог")
+Sergiy asked to queue the whole forward-looking crypto/blockchain/identity/payments brainstorm. Plan + per-item
+"what / why / where / benefit" + slices: **[`docs/crypto-finance-roadmap.md`](docs/crypto-finance-roadmap.md)**
+(explainer) + **[`specs/crypto-finance-roadmap.md`](specs/crypto-finance-roadmap.md)** (engineering plan). The
+near-term, codeable-now slices are below; the larger/later epics are in `BACKLOG.md` → "Crypto/finance roadmap —
+later epics". Every slice follows **reference → seam → gate → native** (the FROST template). Recommended order is
+foundations first (Blake2b + JS-HD) → make three chains backend-agnostic (highest architectural value).
+
+- [x] **crypto-spi-blake2b** ✓ DONE 2026-06-23 — added `Blake2b224`/`Blake2b256` to `HashAlgo`
+      (`payments/crypto/spi/shared/.../HashAlgo.scala`); implement in `bouncycastle` (`Blake2bDigest`) +
+      `noble-js` (`@noble/hashes/blake2b`); add a pure-Scala `Blake2b` reference fallback (mirrors FROST's
+      `Sha512`). **Why:** Blake2b is the one hash missing from the SPI (Keccak-256 + RIPEMD-160 already there);
+      it's Cardano's last direct-BouncyCastle dependency. **Gate:** RFC 7693 vectors + Cardano address fixtures
+      match across both backends + the reference. Unblocks `chains-backend-agnostic` (Cardano).
+
+- [x] **noble-js-hd-derivation** ✓ DONE 2026-06-23 — implemented `deriveMaster`/`deriveChild` in
+      `payments/crypto/noble-js` (they currently THROW "not yet implemented on Scala.js") via `@scure/bip32` /
+      HMAC-SHA512, for secp256k1 + Ed25519 (SLIP-0010). **Why:** without BIP-32 HD on JS, wallets + chain
+      adapters sign on JVM but not in-browser. **Gate:** byte-for-byte equal to the BouncyCastle backend for the
+      existing JVM HD fixtures (BIP-32 + SLIP-0010 vectors).
+
+- [x] **chains-backend-agnostic** ✓ COMPLETE 2026-06-23 (all 3 slices) — route Cardano/Bitcoin/Cosmos crypto
+      through the `CryptoBackend` SPI instead of importing `org.bouncycastle.*` directly, then make each a
+      crossProject (currently all three are JVM-only `project`s). **Why:** this is the only crypto path still
+      bypassing the SPI, and the sole reason these three are JVM-only + carry a heavy dep. The "FROST move",
+      repeated → 3 chains gain JS + shed BouncyCastle.
+      - [x] Slice 1 (Cardano) ✓ DONE 2026-06-23 — `CardanoAddress` Blake2b-224 + `CardanoChainAdapter.txBodyHash`
+        Blake2b-256 now use the portable `scalascript.crypto.Blake2b` reference (zero `org.bouncycastle` in
+        `src/main`). `blockchainCardano` → `crossProject(JVM, JS)` `CrossType.Full`: the portable address / CBOR /
+        Blake2b / tx-type core moved to `shared/` (cross-compiles to JS); the Blockfrost-backed adapter stays in
+        `jvm/` (sttp4 + Future I/O). New `CardanoPortableTest` (shared, no `CryptoBackend`) pins byte-exact CIP-19
+        address goldens + RFC 7693 BLAKE2b vectors + tx-body-hash + bech32 + CBOR roundtrips → **JVM 42 / JS 19
+        green**, proving browser-wallet bytes are byte-identical to the JVM. HD-on-JS already covered by
+        `noble-js-hd-derivation`. Downstream `x402*Cardano*` consumers recompile clean (`.jvm` keeps the id).
+      - [x] Slice 2 (Bitcoin) ✓ DONE 2026-06-23 — Sergiy chose "port secp256k1 from scratch" over routing
+        through the SPI (Bitcoin also needs Taproot/Schnorr BIP-340/341, which no generic sign/hash SPI can
+        express). Built a full **from-scratch portable secp256k1 stack** in `crypto-spi/shared` (no
+        `org.bouncycastle`, identical JVM+JS): `Sha256`/`Ripemd160`/`HmacSha256` (NIST/RFC vectors),
+        `Secp256k1Group` (Jacobian, multiples-of-G table), `Secp256k1Ecdsa` (RFC-6979 + low-S DER — the d=1
+        vector reproduced byte-exact, **resolving the low-S gotcha**), `Secp256k1Schnorr` (BIP-340 vector 1
+        byte-exact + BIP-341 Taproot tweak). `BitcoinCrypto` rewritten as a thin shim over it; `blockchainBitcoin`
+        → `CrossType.Pure` crossProject (adapter is stub-only, so the WHOLE module — addresses/ECDSA/PSBT/Taproot
+        — cross-compiles, no shared/jvm split). cryptoBouncycastle dep dropped. **JVM 45 / JS 45 green** + 38
+        portable-stack vectors JVM+JS. Downstream walletVaultLedgerBitcoin recompiles clean. The portable
+        secp256k1 is **reusable for Slice 3 (Cosmos)**.
+      - [x] Slice 3 (Cosmos) ✓ DONE 2026-06-23 — `CosmosCrypto` + `CosmosSignDoc` rewritten as thin shims over
+        the portable stack (secp256k1 via `Secp256k1Ecdsa`, RIPEMD-160 via `Ripemd160`, **Ed25519 via the new
+        portable RFC-8032 `Ed25519`** built on the relocated `Ed25519Group`/`Sha512`). `blockchainCosmos` →
+        `CrossType.Full` crossProject (Full, not Pure, because the `ServiceLoader` discovery test is JVM-only →
+        moved to `jvm/src/test`; `META-INF/services` registration moved to `jvm/src/main/resources`). cosmos
+        test de-BouncyCastled (Ed25519 pubkey via `deriveEd25519PublicKey`). cryptoBouncycastle dep dropped.
+        **JVM 41 / JS 40 green** (Amino sign-doc, secp256k1 + Ed25519 sign/verify, addresses — all byte-identical
+        cross-platform).
+      - **Gate (all): ✓ MET** — all three chains: per-chain tests green on JVM **and** newly pass on JS; zero
+        `org.bouncycastle` code in any `src/main`. **chains-backend-agnostic COMPLETE (Cardano + Bitcoin +
+        Cosmos).** Byproduct: a full portable from-scratch crypto stack in `crypto-spi/shared` (SHA-256/512,
+        RIPEMD-160, HMAC-SHA256, secp256k1 ECDSA+Schnorr+Taproot, Ed25519) reusable by any chain/wallet on JS.
+
+- [x] **client-solana-rpc** ✓ DONE 2026-06-23 — new `payments/client/solana` (`clientSolana`): typed
+      `SolanaClient` (sttp4 JSON-RPC: getBalance/getLatestBlockhash/getTokenAccountsByOwner/getTransaction/
+      sendTransaction/getAccountInfo + raw `rpc`) mirroring `clientEvm`, PLUS the deliverable — `Solana.chainContext(config)`
+      returns a turnkey `ChainContext` so callers stop hand-rolling one (`SolanaChainContext` wraps a
+      `SolanaClient`; `rpcCall` returns the raw result envelope the adapter unwraps). **Gate MET:** a mock-RPC
+      build→sign→broadcast through `SolanaChainAdapter` + the turnkey context (signing with the portable
+      `crypto.Ed25519`) — asserts getLatestBlockhash + sendTransaction fire and a base64 tx (sig64+message) is
+      submitted; config/shape parity with clientEvm; a devnet-gated live test (getLatestBlockhash/getBalance,
+      cancels if offline) — ran green against live Solana devnet. `clientSolana` 5/5. main deps blockchainSpi;
+      test deps blockchainSolana + cryptoSpi (% Test). Added to root aggregate. No `examples/` dir — followed the
+      clientEvm precedent (mock test + reachability-gated live test = the runnable example).
+
+- [x] **frost-secp256k1** ✓ DONE 2026-06-23 — FROST threshold Schnorr on secp256k1 producing **standard BIP-340**
+      signatures, in `FrostSecp256k1` (cryptoFrost/shared), built directly on the portable `Secp256k1Group` +
+      `Secp256k1Schnorr` from chains-backend-agnostic. Trusted-dealer Shamir over the scalar field `n` (even-`y`
+      group key forced at keygen) + two-round signing (per-signer binding via SHA-256, aggregate nonce `R` forced
+      even-`y` with per-signer nonce flip, BIP-340 tagged-hash challenge, Lagrange-weighted partials). **Gate MET:**
+      every `t`-of-`n` aggregate verifies under the standard BIP-340 verifier `Secp256k1Schnorr.verify` (2-of-3 all
+      subsets, 3-of-5, 5-of-5, 1-of-1, over-quorum) — **cryptoFrost JVM 27 / JS 13 green**, plus a 600-run random
+      soak (0 failures). In-process quorum (matches `FrostSign`); the networked transport is the separate
+      `frost-distributed-transport` slice. **Also fixed a latent origin/main regression**: the new
+      `scalascript.crypto.Ed25519` (added in the Cosmos slice) shadowed BouncyCastle's `object Ed25519` via
+      `import scalascript.crypto.*`, breaking `cryptoBouncycastle` compile (uncaught — that module wasn't
+      recompiled then); renamed the BC helper → `BcEd25519`. cryptoBouncycastle 52 green. GOTCHA: BIP-340
+      `Secp256k1Schnorr.verify` REQUIRES a 32-byte message — short test strings silently return false (not a sig
+      bug); always sign a 32-byte hash.
+
+- [x] **frost-distributed-transport** ✓ DONE 2026-06-23 (protocol + in-process transport; network binding noted) —
+      refactored `FrostSecp256k1` signing into composable rounds (`commit`/`prepare`/`partial`/`aggregate`;
+      `thresholdSign` reimplemented on top, so in-process and distributed paths are byte-identical) and added
+      `FrostDistributedSigning`: a `Participant` holds exactly ONE share (`private`, no accessor — never leaves the
+      host); a `Coordinator` (`coordinate`) holds the group key + signer set but **no shares**, driving round 1
+      (public commitments) → public package → round 2 (public partials) → aggregate over a `Transport`
+      abstraction. `LocalTransport` runs participants in-process (the no-co-location simulation). **Gate MET:** a
+      `t`-of-`n` distributed run produces a valid BIP-340 signature (2-of-3 all subsets, 3-of-5, 5-of-5);
+      byte-identical to the in-process path for the same nonces; only public data (33-byte commitments + partial
+      scalars, never a share) crosses the transport (asserted via a recording transport). cryptoFrost JVM 39 / JS
+      25. **Concrete HTTP transport DONE 2026-06-24** (walletVaultMpcFrost): `FrostParticipantServer` (JDK
+      HttpServer, one share/host, `/round1` `/round2` `/health`) + `DistributedFrostSigningClient` (share-free
+      coordinator over HTTP/JSON) → multi-host distributed FROST-Ed25519, verified under standard Ed25519, plugged
+      into `McpVault` = **threshold-custody-wallet DONE** (BACKLOG). WS/actor transport = same protocol, different
+      pipe. **Also hardened the pre-existing `shamir-secret-backup` tamper test** (single-byte high/padding flips
+      are truncation-masked by design → corrupt the whole share).
+
+- [x] **totp-hotp** ✓ DONE 2026-06-23 — HOTP (RFC 4226, counter) + TOTP (RFC 6238, time) in `Totp`
+      (cryptoSpi/shared), fully PORTABLE (no SPI backend): added portable `Sha1` (FIPS 180) + generic `Hmac`
+      (sha1/sha256/sha512) to crypto-spi/shared, then HOTP dynamic-truncation + TOTP time-step + a
+      `validate(window=±1)` skew check. Configurable digits + SHA-1/256/512 (`Totp.Algo`). **Gate MET:** byte-exact
+      RFC 4226 App. D (HOTP counters 0-9) + RFC 6238 App. B (TOTP 8-digit, SHA-1/256/512 at 6 timestamps) + FIPS
+      SHA-1 + RFC 2202 HMAC-SHA1 vectors. cryptoSpi JVM 51 / JS 51. (SHA-1 is collision-broken — included ONLY for
+      these legacy HMAC standards, documented as such.) **Now exposed to `.ssc`** (2026-06-24) via the crypto
+      plugin: `hotp`/`totp`/`totpValidate` intrinsics in `CryptoIntrinsics` (secret as base64, algo
+      SHA1/256/512); RFC-vector tests through the interpreter + `examples/totp-shamir-demo.ssc`.
+
+- [x] **shamir-secret-backup** ✓ DONE 2026-06-23 — `ShamirSecretSharing` (cryptoFrost/shared): `t`-of-`n` split /
+      recover of ARBITRARY byte secrets (seed phrases, keys, blobs) over the prime field `GF(2^255−19)`
+      (`Ed25519Group.P`), generalizing FROST's single-element Shamir. Length-prefixed secret → 31-byte chunks
+      (`< 2^248 < p`), each split by an independent degree-`(t-1)` polynomial; shares = `id ‖ 32-byte-per-chunk`.
+      `recover` is total (truncates each reconstructed chunk to 31 bytes — raw Shamir has no integrity check, so
+      `<t`/tampered shares yield a wrong value, not the secret). **Gate MET:** round-trips across sizes
+      (0/1/16/31/32/33/64/100/256 B) × thresholds (1-of-1…5-of-5); every t-subset recovers the same secret;
+      `<t` reveals nothing; tampered → wrong. cryptoFrost JVM 34 / JS 20. NOT SLIP-0039 wire-compatible
+      (SLIP-0039 = GF(256)+mnemonics; this is the prime-field generalization the roadmap asked for). **Now
+      exposed to `.ssc`** (2026-06-24) via the crypto plugin: `shamirSplit`/`shamirRecover` intrinsics (secret +
+      shares as base64, shares space-separated); round-trip tests through the interpreter +
+      `examples/totp-shamir-demo.ssc`.
+
+### ▶ JVM / interp perf (2026-07-02 — "JVM, interp perf -> sprint")
+
+- [x] **jit-value-class-names** — ALREADY IN MAIN (commit `2a563020c`, branch `feature/jit-class-names-fix`).
+      AsmJitBackend + JavacJitBackend updated for value-unification: scalar leaves in `DataValue$XxxV`,
+      container types in `Value$package$Value$XxxV`, `Value` union erases to `java/lang/Object`.
+      JitClasspathTest probe updated to reference `DataValue.class`. 1878 backendInterpreter tests pass.
+
+- [x] **recursionFib-perf** — FLOOR CONFIRMED. `JavacJitBackend.tryCompile` (Phase C) already compiles
+      `def fib(n)` body to JVM bytecode via javac → static `long fib(long)` method; HotSpot JIT-compiles
+      that further to native code. The 1.193 ms/op IS the compiled floor for binary-recursive fib(30)
+      (~2.7M recursive calls as native JVM). Phase C delivered 23.8× over tree-walk (was ~28 ms).
+      No further improvement feasible without changing algorithm semantics. Verdict: floor, not a JIT gap.
+
+- [x] **jit-cast-isinstanceof-fix** ✓ DONE 2026-07-03 (feature/jit-cast-isinstanceof-fix) — fixed silent
+      exception in `asInstanceOf[WhileLongRunFn]` cast after `cls.getConstructor().newInstance()` in all 8
+      JIT compile sites (4 in `JavacJitBackend`, 4 in `AsmJitBackend`). Root cause: Scala 3 catches an
+      exception silently when `asInstanceOf` follows `newInstance()` in certain class-loader contexts; fix
+      splits into `isInstanceOf` check before the cast. Confirmed with `ssc.jit.bytecode=off` bench:
+      `multiVal` 12ms (interpreter) → 0.59ms (JIT) = 20× speedup. Poly closed form done next.
+
+- [x] **interp-poly-closed-form** ✓ DONE 2026-07-03 (f7b243288, feature/interp-poly-closed-form → main) —
+      `walkQuadPoly` + `tryExtractPolyAddend` + inline-poly fast path in `tryClosedFormPolyLoop`.
+      Peels `acc` from left-assoc `acc + X1 + X2 + …` chains, sums `walkQuadPoly` coefficients, then
+      computes `Σ a2*(S+j*stp)^2 + a1*(S+j*stp) + a0` in O(1) BigInt. `multiVal` bench: was 0.59ms (JIT)
+      → effectively 0 (O(1) closed form). `PolyClosedFormTest` 7/7 differential tests green. Also catches
+      linear inline addends. `JitLintTest` updated (linear acc now closed-form not JIT path). 189/189 pass.
+
+### ▶ Promoted to active by Sergiy (2026-06-23 — "все эти задачи внеси в спринт")
+Sergiy explicitly OVERRODE the deferred/backlog status of these four — they are now active sprint work, to be
+done (each is genuinely codeable; the external parts are called out). Drive top-to-bottom.
+
+- [x] **coremin-actors-codemove** ✓ DONE 2026-07-02 (4578c8e4f, feature/actors-plugin-move → main) — ActorScheduler.scala (2846 lines) + ActorClusterRoutes.scala extracted to actors-plugin; ActorInterp.scala slimmed 2956 → 98 lines (provider/session + host bridge only); MissingActorRuntimeProvider default (clear error if plugin not loaded); 23 actor/cluster tests moved to backendInterpreterPluginTests (install ActorsInterpreterPlugin); backendInterpreterPluginTests 839 pass; all actor suites 66/0 green.
+~~- [ ] **coremin-actors-codemove** (stale — superseded by [x] above; full scope done 2026-07-02)~~
+
+- [x] **theme-a-stable-plugin-spi — Phase 3 (versioning)** ✓ DONE 2026-07-02 (a3b3f6d31, feature/stable-spi-phase3-load-compat → main) — load-time API compat check COMPLETE: `Backend.pluginApiVersion: String = "1.0.0"` (default; third-party plugins override with `PluginApiVersion.Current` at build time); `BackendRegistry` warns on incompatible `pluginApiVersion` for in-process + `.sscpkg` loads (non-fatal, mirrors `spiVersion` pattern); `PluginManifest` + `SscpkgManifest` gain optional `pluginApiVersion` field; `PluginApiVersionCompatTest` 7/0 + `PluginManifestTest` 7/0 + core 1033/0 + pluginApi 22/0 all green. Phase 3 FULLY COMPLETE (migration + signature lock + compat check).
+
+- [~] **remote-package-registry** (Tier 3 strategic — unlocks the 3rd-party plugin ecosystem) — the local story
+      is done (`~/.scalascript/registry.yaml` + `pkg:` resolver + `ssc install`, `.sscpkg`). **Slice 1 DONE
+      2026-06-23:** the registry protocol + reference server — `RemoteRegistry` (`Entry(id,version,sha256,desc)`
+      + JSON index wire format + `compareVersions` + `sha256Hex`) and `FileRegistry` (directory-backed catalog:
+      publish [immutable releases] / search / resolve [exact or latest] / versions / fetch [checksum-verified]).
+      `RemoteRegistryTest` 7/0. Greenfield/additive. Spec `specs/arch-build-registry.md` §6b. Follow-up slices
+      below (do gradually, one at a time). EXTERNAL (deploy, not code): host `registry.scalascript.io`.
+      **RECONCILE NOTE 2026-06-23 (probed existing infra):** the registry CLIENT already exists more fully than
+      slice 1 assumed — `RegistryClient` fetches+caches `packages.yaml` from a configurable URL, and `ssc search`
+      + `ssc install` + `LocalRegistry` consume it; `ssc publish` is TAKEN (app-store upload). So the real gap is
+      the SERVER/publish side, and `FileRegistry` must speak the client's **`packages.yaml`** format (not its own
+      `index.json`). Slices corrected accordingly:
+  - [x] **registry-packages-yaml-bridge** (slice 2) ✓ DONE 2026-06-23 — `FileRegistry.exportPackagesYaml(baseUrl)`
+        / `writePackagesYaml` project the catalog into the client `LocalRegistry.Entry` `packages.yaml` shape
+        (id→url+version+description, one entry per id at its latest version, `url`→stored artifact), so the
+        EXISTING `RegistryClient`/`ssc search`/`ssc install` consume a `FileRegistry`-served dir unchanged; the
+        richer `index.json` (sha256/all-versions) stays the publish-side record. Test round-trips through
+        `LocalRegistry.parseFile`/`resolve`. `RemoteRegistryTest` 8/0.
+  - [x] **registry-publish-cmd** (slice 3) ✓ DONE 2026-06-23 — `ssc plugin registry publish <pkg.sscpkg>
+        [--registry <dir>] [--base-url <url>] [--description <t>]` (the existing `ssc plugin registry` subcommand
+        group — not `ssc publish`, which is app-store). New `SscpkgLoader.loadManifest` (manifest-only) reads
+        id/version; calls `FileRegistry.publish` (content + index.json) + `writePackagesYaml`. Round-trip tested
+        (temp `.sscpkg` → loadManifest → publish → fetch → client `LocalRegistry.resolve`). `RemoteRegistryTest`
+        9/0; cli compiles.
+  - [x] **registry-http-server** (slice 4) ✓ DONE 2026-06-23 — `RegistryHttpServer` (JDK `com.sun.net.httpserver`,
+        dependency-free): `GET /packages.yaml` + `GET /packages/<id>/<version>.sscpkg` + `POST /publish/<id>/<version>`;
+        auto-derives its self-referencing base URL from the bound port; loopback by default. In-process round-trip
+        test (`java.net.http.HttpClient`). `RegistryHttpServerTest`+`RemoteRegistryTest` 10/0.
+  - [x] **registry-publish-auth** (slice 5) ✓ DONE 2026-06-23 — `RegistryHttpServer` optional
+        `publishTokens: Set[String]`: non-empty ⇒ `POST /publish` needs `Authorization: Bearer <token>` (else
+        401); empty ⇒ open (dev default); GET reads stay public. `RegistryHttpServerTest` 2/0.
+        **→ remote-package-registry CODE COMPLETE** (slices 1-5: protocol + `FileRegistry` + `packages.yaml`
+        bridge + `ssc plugin registry publish` + HTTP server + auth). Only EXTERNAL deploy (host the domain + TLS)
+        remains — the `[~]` parent stays open on that deploy step alone.
+
+- [x] **FROST-Ed25519** ✓ DONE (slices 1–8 all complete — threshold Ed25519 signing — wallet MPC stack) — **FEASIBILITY PROBED + PLANNED INTO
+      SUB-SLICES 2026-06-23.** FROST = flexible round-optimized Schnorr threshold signatures over Ed25519, as a
+      self-contained `walletVaultMpcFrost` variant (the existing `walletVaultMpc*` are REMOTE/external-provider
+      clients — Fireblocks/Coinbase/Lit/Zengo — not in-house threshold crypto, so FROST is the first). **KEY
+      FINDING:** the codebase exposes NO usable Ed25519 GROUP operations — `payments/crypto/bouncycastle/Ed25519.scala`
+      is high-level sign/verify only (BC `Ed25519Signer`); FROST needs scalar field (mod L), point add, base+arbitrary
+      scalar mult, encode/decode. So **do NOT hand-roll curve math** (correctness-critical) — add a vetted group-ops
+      library (e.g. `cafe.cryptography:ed25519-elisabeth`, pure-Java Edwards-point + Scalar arithmetic). Correctness
+      gate throughout: a FROST signature MUST verify under the EXISTING standard verifier (`Ed25519.verify`) against
+      the group public key. Substantial multi-session crypto — do as discrete green sub-slices, one at a time:
+  - [x] **frost-groupops** (slice 1) ✓ DONE 2026-06-23 — FROM-SCRATCH (Sergiy's call, no new dep). New
+        `cryptoFrost` module (`payments/crypto/frost`, pure; BC test-only). `Ed25519Group` = RFC 8032 reference
+        group arithmetic (BigInteger): field mod 2^255-19, twisted-Edwards extended-coord add, scalar mult,
+        encode/decode, base point B, order L, scalar field, `secretScalar`. `Ed25519GroupTest` 6/0 incl. the
+        gate — generated pubkeys match BouncyCastle Ed25519 bit-for-bit (25 random seeds). Spec `specs/frost-ed25519.md`.
+  - [x] **frost-keygen** (slice 2) ✓ DONE 2026-06-23 — `FrostKeygen`: trusted-dealer `t`-of-`n` Shamir over the
+        scalar field (degree-(t-1) poly, shares `(id,f(id))`, group key `B·sk`) + Feldman VSS commitments `B·a_j`
+        (`verifyShare`) + Lagrange `reconstruct` at x=0; `generateFrom` (explicit coeffs) for determinism + as the
+        DKG building block. `FrostKeygenTest` 4/0 (cryptoFrost 10/0): t-subsets recover sk + match group key; <t
+        don't; VSS accepts good / rejects tampered shares.
+  - [x] **frost-signing + frost-aggregate-verify** (slices 3+4) ✓ DONE 2026-06-23 (combined — signing isn't
+        verifiable until aggregation yields a checkable signature). `FrostSign`: round1 nonces `(d,e)`+commitments
+        `(D,E)`; `ρ_i=SHA512(domain‖id‖msg‖commits) mod L`; `R=Σ(D_i+ρ_i·E_i)`; `c=SHA512(R‖A‖msg) mod L`;
+        `z_i=d_i+ρ_i·e_i+λ_i·c·s_i`; aggregate → 64-byte `encode(R)‖scalarLE(z)`. **GATE PASSED:** `FrostSignTest`
+        4/0 (cryptoFrost 14/0) — 2-of-3 AND every 3-of-5 subset verifies under BouncyCastle Ed25519; tampered
+        partial + wrong message rejected. **FROST-Ed25519 functionally complete** (group ops + keygen + signing).
+  - [x] **frost-ops-seam** (slice 5) ✓ DONE 2026-06-23 — the substitution mechanism. `Ed25519Ops` trait (point
+        ops + scalar field + `secretScalar` + `sha512`) with `Ed25519Ops.Reference` (pure `Ed25519Group` + JDK
+        SHA-512) as DEFAULT + registry (`current`/`register`/`reset`). `FrostKeygen`/`FrostSign` route ONLY through
+        `Ed25519Ops.current` (incl. SHA-512 — no direct `java.security`), so a native backend substitutes
+        transparently. Behaviour-preserving (14 prior tests pass through the seam) + a substitution test (a
+        registered spy backend IS exercised by keygen+sign; reset restores reference). cryptoFrost 16/0.
+  - [~] **frost-crossbuild** (slice 6) — make the REFERENCE FROST compile+run on JS. PROBE: the JVM-only deps
+        are `java.security` SHA-512 AND `java.security.SecureRandom` (Scala.js 1.20 has neither). Split:
+    - [x] **6a portable SHA-512** ✓ DONE 2026-06-23 — pure-Scala `Sha512` (Long-based, FIPS 180-4); routed
+          `Ed25519Ops.Reference.sha512` + `Ed25519Group.secretScalar` through it; **removed `java.security` from
+          hashing**. `Sha512Test` (abc/empty FIPS vectors + matches `java.security` across padding boundaries);
+          cryptoFrost 19/0.
+    - [x] **6b RNG via seam** ✓ DONE 2026-06-23 — `Ed25519Ops.randomBytes(n)`/`randomScalar()` (Reference = JVM
+          `SecureRandom`). `FrostKeygen.generate`/`FrostSign.round1` dropped their `rng: SecureRandom` params and
+          source from `Ed25519Ops.current` → FROST logic is fully `java.security`-free (only the JVM default's
+          `randomBytes` uses it; 6c splits per-platform) AND the RNG is a substitutable primitive. cryptoFrost 19/0.
+    - [x] **6c crossProject** ✓ DONE 2026-06-23 — `cryptoFrost` is a `crossProject(JVM,JS)`; reference (Ed25519
+          math + own SHA-512 + keygen + signing + seam) is pure → compiles+RUNS on JS. `PlatformEntropy` per-platform
+          (JVM `SecureRandom` / JS WebCrypto). Shared tests run on BOTH: **JS 6/6 on Node** (incl. `generate(3,5)`
+          via WebCrypto + the substitution test), JVM 19/0 (BC/java.security tests in `jvm/`). **→ FROST
+          cross-platform story COMPLETE: one reference, identical on JVM + JS, native RNG, transparent substitution.**
+  - [x] **frost-native-backend** (slice 7) ✓ DONE 2026-06-23 — `CryptoBackedEd25519Ops`: an `Ed25519Ops` backend
+        delegating SHA-512 + RNG to the project's `CryptoBackend` SPI (BC/JVM, noble/JS), group math stays the
+        reference. `cryptoFrost dependsOn cryptoSpi` (no external dep). Verified (JVM 20/0): BC SHA-512 == our
+        reference SHA-512; a BC-backed 2-of-3 FROST signature verifies under BouncyCastle Ed25519; JS still 6/0
+        (bridge cross-compiles). Closes the loop — portable reference + transparent substitution down to the crypto provider.
+  - [x] **frost-vault-integration** (slice 8) ✓ DONE 2026-06-23 — FROST wired into the wallet stack as an
+        in-house threshold provider. `FrostSigningClient extends RemoteSigningClient` runs the FROST 2-round
+        protocol locally over a `FrostQuorum` (instead of an external TSS service), plugging straight into the
+        existing `McpVault` (kind=Mpc) delegate seam whose own doc already names "FROST for Ed25519" — so a
+        threshold wallet is just `McpVault("…", new FrostSigningClient(Seq(quorum)))`, no new `Vault` impl. New
+        module `walletVaultMpcFrost` dependsOn `walletVaultMpc` + `cryptoFrost` (BC test-only). Verified 3/0:
+        vault unlock → getSigner(Ed25519) → sign → 64-byte sig verifies under standard BouncyCastle Ed25519
+        (distinct subsets); non-Ed25519/unknown-account/sub-threshold rejected. **Closes the FROST track
+        (slices 1–8).** Remaining FROST refinements (constant-time field, full DKG, distributed transport,
+        JS @noble mirror) are future work, not slices.
+
+### ▶ Autonomous queue (2026-06-23, with Sergiy — "все кроме мавена — в спринт и делай")
+When the clean autonomous coremin slices ran out (value-unification is sibling-active; NFC/wallet-ws are
+device/browser-blocked; Maven publish is explicit-go only), Sergiy directed: queue everything except Maven
+and execute autonomously. In priority order:
+
+**▶▶ stable-SPI Phase 3 — FULL breakdown (2026-06-23, Sergiy: "делай Phase 3 автономно … заноси в спринт
+сразу всё, потом делай постепенно").** GOAL: the **28** plugin `*Intrinsics.scala` that `import
+scalascript.interpreter.{Value, InterpretError, Computation, …}` depend ONLY on the stable
+`scalascript-plugin-api`, so a core/interpreter refactor (or a third-party plugin) can't break them, and the
+build can reject any plugin jar containing `scalascript/interpreter/`. **PROBED FINDING:**
+`PluginValue`/`PluginComputation` are opaque `Any` with NO accessors; `evalLegacy`'s own doc says full
+Value-decoupling is "v2.x". So import-removal is GATED on a **Value-surface in the stable API** — it does NOT
+come from `evalLegacy` (which only decouples the *context*). Cycle-checked: `pluginApi → core` is acyclic
+(core deps = `valueData, backendSpi, …`, not pluginApi). Do gradually, one plugin/small-batch per slice, each
+validated + pushed:
+- [x] **p3-foundation** ✓ DONE 2026-06-23 — `scalascript-plugin-api` now `dependsOn(core)` (acyclic seam);
+      `PluginValue` exposes stable extractors (`asString/asInt/asDouble/asBool/asChar/asList/asTuple/asMap/
+      asOption`) + constructors (`string/int/double/bool/char/list/tuple/map/some/none/unit`) + `show`, backed
+      by the interpreter `Value`; `PluginError` builds the real `InterpretError` + `raise(msg)`. PROOF:
+      `mime-plugin` migrated off `scalascript.interpreter` end-to-end. `pluginApi/test` 14/0, `mimePlugin/test`
+      4/0, `PluginExamplesSmokeTest` 1/0. The surface may need a few more accessors as later batches surface new
+      shapes — extend `PluginValue` as needed.
+  ~~- [ ] p3-foundation (original)~~ — expose a stable Value-surface through
+      `scalascript-plugin-api` so plugins stop importing `scalascript.interpreter.Value`. DESIGN (decided):
+      `pluginApi` gains a `core` dep = the ONE controlled seam (moves the coupling 28→1; opaque `PluginValue` +
+      stable extractors/constructors keep the plugin ABI stable even as core's `Value` repr changes — e.g.
+      value-unification). Add to `PluginValue`: extractors `asString/asInt/asDouble/asBool/asChar/asList/asTuple/
+      asMap/asOption` + constructors `string/int/double/bool/list/tuple/map/unit/some/none` + `show`; keep
+      `PluginError(msg)` (= InterpretError) + `PluginComputation.pure`. Stable bridges for the non-Value imports:
+      `JsonParser`/`jsonToJson` → `JsonCodec` (exists) or a parser bridge; `OAuthBridge` (mcp/oauth) → a
+      capability/stable surface. PROOF in this slice: migrate `mime-plugin` (simplest) end-to-end off
+      `scalascript.interpreter`. VERIFY: `pluginApi` compiles with the core dep (no cycle); mime compiles with no
+      `scalascript.interpreter` import + its tests green.
+- [x] **p3-batch-A** ✓ DONE 2026-06-23 — ALL 10 migrated off scalascript.interpreter: mime/pdf/fs/crypto/payment-request/nfc/auth/fetch/graph/yaml (tests green). Surface complete: full Value-surface + extractor objects (Str/Num/Dbl/Bool/Chr/Lst/Tpl/Inst/Opt/Big/MapVal/Foreign/NativeFn) + foreign/nullV/isUnitOrNull/showAny/isRuntimeValue + asInstance via effectiveFields. Recipe mature (stateful line-aware swap; mid-line .collect{case}; strip pattern type-tests; bare Value types; OptionV-ctor->some/option; structural store->PluginValue+wrap; showAny for Value-vs-native).
+      **BREAKTHROUGH 2026-06-23 — the hard problem is solved.** The blocker on the pattern-matching plugins:
+      they use `Value.StringV(x)` etc. BOTH as constructors AND as `case` PATTERNS, and `PluginValue` (opaque)
+      can't be pattern-matched. SOLUTION: added **extractor objects** to `PluginValue` — `Str/Num/Dbl/Bool/Chr/
+      Lst/Tpl/Inst/Opt/Big/MapVal/Foreign/NativeFn` (each `unapply(v: Any)`), plus `foreign`/`nullV`/`isUnitOrNull`.
+      Now `args match { case List(Str(label), Bool(p)) => … }` works without importing `Value`. Migration recipe
+      (proven on payment-request): **line-aware** swap — on `case` lines (left of `=>`) use the extractors
+      (`Value.StringV`→`Str`), elsewhere use constructors (`Value.StringV`→`PluginValue.string`); `.asInstanceOf
+      [Value]`→`.asInstanceOf[PluginValue]`; `Map[String, Value]`→`Map[String, PluginValue]`; `throw
+      InterpretError`→`PluginError.raise`. **`Value.Foreign(tn, handle: Any)` IS exposable** (generic host-object
+      wrapper, not interpreter-internal) — so fetch is NOT blocked, just Foreign-heavy.
+      REMAINING (yaml only — last batch-A): **auth** (heavy: MapV/OptionV/Instance), **graph/yaml**
+      (also move internal `Value` store to `PluginValue`/`Any`)
+      RECIPE REFINEMENTS (from auth): the line-aware script must also handle (a) MID-LINE patterns in
+      `.collect { case (Str(k), Str(v)) => … }` (not only line-start `case`), and (b) bare `Value` TYPE
+      annotations (`Option[Value]`/`: Value`/`[Value]`) → `PluginValue` (the `Value.`-only residual check
+      misses them).
+- [x] **p3-batch-B** ✓ DONE (all 7: ws/pwa/json + oauth/dstreams/graphql/streams — giants done in p3-giants)
+- [x] **p3-batch-C** ✓ DONE (all 10: uuid/os/request/smtp/sql/remote/frontend + mcp/content — giants done in p3-giants)
+- [x] **p3-giants** ✓ DONE — all migrated; `actors` is a PERMANENT exemption (interpreter-only runtime provider). All ctx is covered by EXISTING caps — big-but-mechanical value/NativeFnV
+      passes PLUS one bridge each. Per-plugin scope:
+  - **http** ✓ DONE (4 unit + 58 integration tests: MountHandler/TypedHandler/HttpClient/TypedRpcBinary).
+        jsonToJson → `jsonEncode`; the `TypedHandlerWrapper.wrapIfTyped` coupling → new `PluginValue.wrapTypedHandler`
+        seam + `funArity` (FunV param count for the mount static/handler shape check); globalsView was just
+        `Map.empty`. 21 NativeFnV → `nativeFn`. All 33 ctx methods were already on HttpCap&WsCap&Storage&Mount.
+  - **dstreams** ✓ DONE (59 tests). Internal Value-DAG engine (136 InstanceV, 56 NativeFnV, 11 `.fields`/`.typeName`
+        sites). New PluginApi accessors: `pv.field(name)`, `pv.typeNameOf`, `InstAny` extractor (binds a whole
+        instance value, replacing `case x: Value.InstanceV`). `.fields.get`→`.field`, `Inst`/`InstAny`/`Lst`/`Str`
+        extractors, all 56 `Computation.pureFn`→`nativeFn`. ctx (featureGet/Set, invokeCallback, registerRoute) on caps.
+  - **oauth** ✓ DONE (4 unit + 58 integration: McpOAuthBridge/OAuthGuard/OAuthRsa/OAuthScript/Oidc/OAuthAuthServer).
+        5-file web (OAuthIntrinsics 334 + OAuthHttp + OidcHttp + OAuthClientIntrinsics + OidcHelpers) migrated together;
+        `OAuthBridge` (1-field ConcurrentHashMap) RELOCATED lang/core/interpreter → `scalascript.plugin.api.OAuthBridge`
+        (core only defined it; mcp + the test reference it indirectly). ujson.Value protected via `(?<![A-Za-z.])`
+        anchored regex; shared `Value`-typed helpers (toStringSet/resolveAuthServer) retyped to `Any`.
+  - **mcp** ✓ DONE (2 unit + 184 integration: 30 Mcp* test files incl McpOAuthBridge/McpHttpBidi/McpBidiSampling).
+        Single file (1508 loc, 87 NativeFnV, 151 StringV, 72 ujson). OAuthBridge already moved; ctx on caps; the 4
+        `: Value.InstanceV` were return types (→ `PluginValue`). ujson.Value protected via anchored regex; `Mcp`
+        value helpers (valueToStringList/valueToJson/valueToAuthResult) retyped to `Any`.
+  - **streams** ✓ DONE (88 tests). dstreams' sibling — same recipe; extra: 26 `.asInstanceOf[Value]`→`[PluginValue]`
+        (valid no-op cast, PluginValue erases to Any), OptionV/TupleV unfold inspection → `Opt`/`asTuple`, NativeFnV
+        type-tests → `Fn`, Foreign signal patterns → `Foreign`. GOTCHA: the `X: Value.InstanceV`→`InstAny(X)` regex
+        also hit a def PARAM (revert to `X: PluginValue`); stripping `case X: Value` ascriptions can shadow a
+        following catch-all (restore with an `isRuntimeValue` guard).
+  - **content** ✓ DONE (29 tests). Largest (2144 loc), no Computation/NativeFnV (pure value construction).
+        NEW accessors: `pv.fields` (whole field map), `PluginValue.orderedInstance` (array-backed field ORDER —
+        content nodes are read positionally via `inst.fieldNames`, a behavioral bug caught by tests). GOTCHAS:
+        the AST `ast.ContentValue.*` ADT (137 uses) collides with `Value.*` replaces → anchor every regex with
+        `(?<![A-Za-z])`; the `InstAny`/`: Value` regexes also hit DEF PARAMS (revert to `: PluginValue`).
+  - **graphql** ✓ DONE (162 tests, incl GraphQLSubscriptionTest). 2-file web; carrier case classes
+        (`GraphQLResolvers`/`ScalarCodec`/`GraphQLFederationEntities`) hold `AnyRef` (NOT `Any`).
+        ROOT CAUSE of the earlier "blocker": `GraphQLSubscriptionTest` asserts `res.subscription("e") eq fn`;
+        with an `Any` carrier `res.subscription("e")` is statically `Any` (no `.eq`), so scalatest's `assert`
+        macro routes it through its `Equalizer` implicit and casts the WRAPPER to `AnyRef` — comparing the
+        wrapper, not the value (always false). `AnyRef` carrier → `.eq` is direct reference equality, like the
+        original `Map[String, Value]` (`Value = DataValue|ValueRest` is `<: AnyRef`). NOT a scalac bug; the
+        debug-println "passes" were my explicit `.asInstanceOf[AnyRef]` casts bypassing the Equalizer. anchored
+        regex protects `ujson.Value`; `valueToJava`/`addResolver`/`byType`/`entities` retyped to AnyRef.
+  - **actors** — PERMANENT exemption (correct, not unfinished). Interpreter-only runtime PROVIDER
+        (`intrinsics = Map.empty`); its `ActorRuntimeProvider` SPI is interpreter-coupled BY DESIGN —
+        `ActorRuntimeHost` traffics in `Computation`/`Value`/`Env`/`scala.meta.Case`, and the SPI doc says
+        actors "cannot use the host-neutral `BlockForm` SPI without leaking interpreter internals". No
+        host-neutral form exists to migrate to. `StableSpiEnforcementTest` exempts it; the stale-exemption
+        guard keeps the allowlist honest.
+- [x] **p3-enforce** ✓ DONE — BUILD CHECK: `StableSpiEnforcementTest` (backendInterpreterPluginTests) scans every
+      `runtime/std/*-plugin/src/main` and fails if a value-surface plugin references `scalascript.interpreter`;
+      a second test guards against STALE exemptions. Exemption: `actors-plugin` (runtime provider) only — graphql now migrated. The 27 migrations are locked in. REMAINING:
+      `PluginNative.evalLegacy` stays (still the legitimate untyped `(ctx, args)=>Any` entry the migrated plugins
+      use — bodies are clean, so it's no longer "transitional"; only its scaladoc's "may use Value.*" note is now
+      stale). Bytecode-level jar scan + the graphql/actors special cases are the only open items.
+      STATUS: 27/28 plugins clean (batch-A 10 + ws/pwa/json + uuid/os/request/smtp/
+      sql/remote/frontend/http/dstreams/streams/content/oauth/mcp/graphql). PluginApi seam now exposes: nativeFn/callFn, Fn/isCallable, jsonEncode/
+      jsonFacade/fromHostAny/parseJson/lookupKey, decimal/asDecimal/Dec, funArity/wrapTypedHandler, field/typeNameOf/
+      InstAny, fields/orderedInstance, OAuthBridge(relocated). Remaining: actors only (runtime-provider — permanent exemption is the right call). 27/28 value-surface
+      migrations COMPLETE; graphql resolved (carrier must be AnyRef not Any, for scalatest eq).
+
+In priority order:
+- [x] **autonomous-hardening** ✓ DONE 2026-06-23 — broad sweep of the coremin-affected surface (cli
+      `ExamplesSmokeTest` + interpreter `StdEffectsTest`/`InterpreterTest`/`Actor*`/`*Effect*`/`Stream*`):
+      **all green, 2/0 + 338/0, no new breakages.** The one real stale-example breakage (`algebraic-effects.ssc`
+      ran `Undefined: runState` in the no-plugin cli smoke) was already caught+fixed in the advanced-optin turn.
+      So the effect extractions + prelude minimization did not leave other regressions in the high-signal areas.
+      (Did NOT run the ~20-min scala-cli `CrossBackendPropertyTest` — that's a codegen-vs-interp regression
+      catcher, orthogonal to the coremin churn; siblings exercise it.)
+- **coremin-actors-codemove** → PROMOTED to active 2026-06-23 (Sergiy "внеси в спринт") — see the "Promoted to
+      active" queue at the top of Active tasks. (Probe context retained there: atomic ~3500-LOC move of
+      `ActorInterp`+`ActorGlobals`+`ActorWireProtocol`, `private[interpreter]`-coupled via the `ActorRuntimeProvider`
+      seam; prefer lifting the touched core internals into a typed seam, then moving the file.)
+- [x] **strategic-theme-survey** ✓ DONE 2026-06-23 — surveyed BACKLOG strategic themes: the audit shows
+      Themes A/E/F/H/J are ALREADY BUILT (FFI = `GlueClasspathRegistry`/`GlueJsPreambleRegistry` landed;
+      modularity = `SsclibManifest` landed; stable-SPI Phases 1+2 landed). The only open strategic item is
+      `remote-package-registry` (registry.scalascript.io), explicitly DEMAND-DRIVEN (build when a real external
+      plugin author needs it — needs hosting/domain, not codeable autonomously). So no greenfield strategic
+      slice is ready. Maven publication stays EXCLUDED per Sergiy.
+- [x] **advanced-example-check-ux** ✓ DONE 2026-06-23 — concrete follow-up to advanced-optin: the 7 examples
+      using advanced-plugin names (`x402-*`→payments, `oauth`/`oidc`→oauth) now `ssc check`-flag unless the
+      plugin is added (verified: `undefined name: DefaultSyncBackend/basicRequest`). Added a uniform "Advanced
+      plugin" note to each pointing at `--plugin`. Fence-lint + cli smoke 2/0.
+- [x] **check-autoload-plugin-by-import** ✓ DONE 2026-06-23 (Sergiy: build it) — `ssc check` now auto-resolves
+      advanced names when the file imports the plugin's namespace, no manual `--plugin`. SHIPPED: SPI
+      `Backend.providesImports: List[String] = Nil`; payments→`scalascript.x402`, oauth→`scalascript.oauth`+
+      `scalascript.oidc`, spark→`scalascript.spark` declare it. `importPrefixesOf(module)` extracts import refs
+      from the ```scalascript code-block trees (`scala.meta.Import.importers.ref.syntax`) + doc-level
+      `Content.Import`; `BackendRegistry.importMatchedPreludeSymbols(prefixes, availableDirs)` scans
+      `lib/compiler/plugin-available` `.sscpkg` packages with a THROWAWAY `URLClassLoader` (non-matching plugins
+      never committed to the runtime) and folds in matching `preludeSymbols`. Wired into `ssc check` (Main ~5293)
+      AND `check-with-iface`; `-Dscalascript.pluginAvailableDir=` override for tests/custom layouts.
+      **Verified end-to-end** against the real staged `payments-plugin.sscpkg`: `ssc check examples/x402-client.ssc`
+      → `OK` (was `undefined DefaultSyncBackend/basicRequest`); still errors without the dir; `hello.ssc` unaffected
+      (import-gated). `CheckAutoloadImportTest` 3/0, plugin-tests 712/0, cli smoke 2/0. The 7 advanced-example notes
+      were updated to reflect the auto-detection. GOTCHA: Scala 3 nested comments — `/*` inside a `/** */` opens a
+      nested comment (bit me in a test doc-string).
+
+- [x] **board-spec-hygiene** ✓ DONE 2026-06-23 — reconciled stale core-min/polyglot board/spec wording.
+      Updated `specs/polyglot-libraries.md` to the 2026-06-23 landed state, removed future-looking optics
+      follow-ups from completed SPRINT entries now that JS/JVM/Rust/Java optics all ship, clarified that
+      advanced opt-in prelude cleanup landed after `coremin-hybrid-split`, and changed old block-form template
+      notes from "next work" to historical "later landed" wording. No code changed; active `core-min-value-unification`
+      claim/worktree untouched.
+- [x] **backlog-hygiene** ✓ DONE 2026-06-23 — docs-only classification pass for stale BACKLOG open items.
+      Added a status-hygiene note to `BACKLOG.md`; marked `@wasmExport/@wasmImport` out-of-scope by design;
+      converted history-only perf rows (`hof-glue-jit-compile`, `vectorize-pure-loop`, `direct-style-eval`) and
+      `demand-driven-from-busi` to non-checkbox notes; consolidated duplicate `registry.scalascript.io` under
+      `remote-package-registry`; and labelled the remaining intentional `[ ]` rows as `BLOCKED` or `DEFERRED`
+      where appropriate. No code changed; active value-unification work untouched.
+
+### ▶ Unblocked & claimable now (2026-06-22 eve, with Sergiy — "занеси в спринт всё что не заблокировано")
+
+These need NO design decision — claimable immediately, in priority/tractability order. Full blueprints
+live in the `polyglot-phase2-optics-allhosts` entry below (Task B = cross-language reuse, proven on the JS
+slice). Each is one host of the optics-library packaging, individually claimable.
+
+- [x] **polyglot-optics-board-hygiene** ✓ DONE 2026-06-22 — reconciled stale optics packaging entries at the top of `SPRINT.md`.
+      **How:** compare the open `emit-lib-cli` / `polyglot-optics-jvm` entries here with the later completed
+      `optics-emit-lib-cli`, `optics-jvm-facade`, `polyglot-optics-rust`, and `polyglot-optics-java` entries
+      plus `CHANGELOG.md`; mark stale duplicates as done/superseded instead of letting agents re-claim already
+      landed work. Do not touch implementation. **Verify:** grep shows no open `[ ]` optics packaging duplicate
+      remains in the top claimable queue; active claims are unchanged.
+- [x] **emit-lib-cli** ✓ SUPERSEDED/DONE 2026-06-22 — duplicate of the later `optics-emit-lib-cli` entry:
+      `ssc emit-lib --host js --feature optics -o <dir>` is already user-reachable through `EmitLibCmd`
+      (`EmitLibCmdTest` 2/2, README/user-guide updated).
+- [x] **polyglot-optics-jvm** ✓ SUPERSEDED/DONE 2026-06-22 — duplicate of the later `optics-jvm-facade`
+      entry: `emit-lib --host jvm` already emits the native Scala optics library with a compiled smoke and
+      golden API coverage.
+- [x] **polyglot-optics-rust** ✓ DONE 2026-06-22 (`f13427d4b`, mellow-shrew) — `RustLibPackager`
+      (counterpart of Js/JvmLibPackager) emits a dependency-free `ssc-optics` Rust crate (Cargo.toml +
+      src/lib.rs + README) via `emit-lib --host rust --feature optics`. lib.rs = faithful dynamic port of
+      the JS/JVM optics over a `Value` enum (Obj/Arr/Opt/Str/Int/Bool/Null + `_type` sums): Lens/Optional/
+      Traversal/Prism + steps field/index/at/some/each. `RustLibPackagerTest` 4/4: golden (file-set + API +
+      dep-free) + a Rust-toolchain-gated cargo smoke (writes the crate + an integration test exercising all
+      4 optics + `cargo test` — the emitted Rust compiles AND behaves). user-guide + README updated. 3rd of
+      4 optics hosts; Java landed next, so all four hosts now ship.
+- [x] **polyglot-optics-java** ✓ DONE 2026-06-22 (`09e174612`, mellow-shrew) — `JavaLibPackager` emits a
+      dependency-free `ssc-optics` Java/Maven project (pom.xml + Optics.java + README) via `emit-lib --host
+      java`. Optics.java = faithful Java 17 port over dynamic `Object` (Map/List/Optional/`_type` sums):
+      Lens/Optional_/Traversal/Prism + steps. `JavaLibPackagerTest` 5/5: golden + emit-lib layout + a
+      javac-gated compile/run smoke (exercises all 4 optics → 5/9/10/false/[1, 2]/true/false). **ALL FOUR
+      optics hosts now ship: JS (npm) + JVM (sbt) + Rust (cargo) + Java (maven) — Task B optics COMPLETE.**
+
+### ▶ JS-runtime + polyglot follow-ups (2026-06-22 eve, with Sergiy — "запиши в спринт все эти задачи и делай автономно")
+
+Queued after the JS `.mjs`-resource cleanup + rename. Drive top-to-bottom (tractability order).
+
+- [x] **optics-emit-lib-cli** ✓ DONE 2026-06-22 — `ssc emit-lib --host js --feature optics -o <dir>` writes the
+      `@scalascript/optics` npm package (package.json + index.mjs + optics.d.ts) from `JsLibPackager`. New
+      `EmitLibCmd` registered via the ServiceLoader `CliCommand` SPI; `EmitLibCmdTest` 2/2; README CLI row +
+      user-guide section. The optics packager is now user-reachable (was test-only). More host/feature combos
+      follow the same shape (see `optics-jvm-facade`).
+- [x] **jvm-rust-runtime-resources** ✓ DONE 2026-06-22 (JVM + Rust; §3 #8 closed all backends) — mirror the JS `.mjs`-resource cleanup (polyglot §3 #8) for JVM
+      (`JvmGenRuntimeSources`) + Rust (`RustRuntimeTemplates`). **PROBED 2026-06-22 (bright-quail) — NOT a clean
+      mechanical copy like JS; more involved:**
+      • **JVM** `JvmGenRuntimeSources.scala` (3656 lines): 13 runtime strings, each
+        `JvmGenRuntimeCache.memo("key"): """|…|""".stripMargin` — plain (NOT interpolated) but **margin-based**,
+        and lazily memo-cached. Migratable: strip the `|` margins → write the post-`stripMargin` content to a
+        resource (a `.scala`-fragment file), replace body with `memo("key"): JvmRuntimeResource.load("key")`.
+        Byte-identity = `stripMargin` output == resource (NOT a verbatim source copy like JS). Needs a new
+        `JvmRuntimeResource` loader.
+      • **Rust** `RustRuntimeTemplates.scala` (1570 lines): ~17 `stripMargin` strings (migratable, same shape) +
+        **1 `s"""` INTERPOLATED** template (computed at runtime — CANNOT move to a static resource; leave it).
+        Needs a `RustRuntimeResource` loader.
+      • Scope: feasible + bounded per backend, but each string needs `stripMargin`-output verification and the
+        win is smaller than JS (the `|`-margin source is already editable; gain = a real `.scala`/`.rs` file with
+        no margin noise + lint/highlight). Do JVM and Rust as **separate slices**. NOT a one-shot mechanical
+        sweep — budget per-backend. Spec: extend `specs/js-runtime-resources.md`.
+- [x] **optics-jvm-facade** ✓ DONE 2026-06-22 (emit-lib --host jvm; native Scala optics lib, scala-cli-compiled; Rust crate + Java facade + typed/macro optics remain) — Phase 2 next host (`specs/polyglot-libraries.md` §4/§6): publish optics as a JVM
+      jar facade + golden API-signature test. Optics has no `.ssc` defs (AST-level) → author a thin Scala facade
+      object `Ssc.Optics` (or a `.ssc` facade) over the same 4 optic shapes; reuse `FacadeGenerator`/`ssc link
+      --emit-scala-facade`/`JarCommands`. Golden: mirror the JS `optics.d.ts` golden with a Scala signature golden.
+      Rust crate and Java facade later followed the same packager shape; all four optics hosts now ship.
+- [x] **rust-multishot-unbounded** ✓ DONE 2026-06-23 — **Tier-3 UNBOUNDED (recursion)**: a `multi effect`
+      performed inside recursion (dynamic depth) lowers via a Free-monad `MComp` builder (`fn __comp`) +
+      multi-shot interpreter (`fn __run`, `resume(v)`→`__run(k(Value::from(v)))`, re-invokable `Rc<dyn Fn>`);
+      runtime `MComp`+`and_then` in `runtime/effect.rs`. Recursive Amb `program(2)` → `4`, cargo-run;
+      `backendRust` 252/0. + recursive/nested effectful-call reborrow fix (`&mut *_eff`). **Multi-shot effects
+      on Rust are now COMPLETE for realistic programs** (Tier-1 List/Option, Tier-2 static-nested, Tier-3
+      unbounded recursion). Follow-ups (additive, no consumer): loop-form unbounded, op-args/multi-op in Tier-3.
+- [x] **rust-effects-multishot-r6** ✓ ACTIONABLE SCOPE DONE 2026-06-22 — bounded Rust multi-shot support is done:
+      Tier-1 List (`effect-multishot` bench now runs on rust), Tier-1 Option, and Tier-2 static-depth general
+      handlers all landed and cargo-ran (`RustGenMultiShotTest`: List, Option, 1-flip Amb, 2-nested-flip Amb).
+      Unbounded **recursion** later landed too (`rust-multishot-unbounded`, 2026-06-23, Free-monad MComp); only
+      the *loop* form (vs recursion) remains additive with no current consumer. No Rust code in this closeout.
+- [x] **rust-multishot-r6-closeout** ✓ DONE 2026-06-22 — docs-only closeout for R.6 after bounded Rust multi-shot
+      slices landed. Updated the detailed `rust-effects-multishot-r6` SPRINT entry to actionable-scope done and
+      replaced the obsolete BACKLOG wording that said the Rust bench was unavailable; the only deferred work is unbounded
+      perform-in-loop / explicit trampoline, with no current consumer.
+- [x] **rust-multishot-board-reconcile** ✓ DONE 2026-06-22 — docs-only cleanup after R.6 Tier-2 nested/static-depth landed.
+      The older open `[ ] rust-effects-multishot-r6` entry later in `SPRINT.md` is stale/duplicative: Tier-1 List,
+      Tier-1 Option, and Tier-2 static-depth are all done; only unbounded perform-in-loop remains, explicitly
+      additive with no current consumer. Marked the duplicate open entry as superseded by the detailed `[~]`
+      status above; no Rust code touched. Verify: `rg -n "^- \\[ \\] \\*\\*rust-effects-multishot-r6" SPRINT.md`
+      returns no matches.
+
+### ▶ Newly queued (2026-06-22, with Sergiy — "бери все эти задачи если других нет, заноси в спринт")
+
+Queued after closing rust-web-toolkit follow-ons + fixing the index-read move bug it shipped.
+
+- [x] **worktree-guardrail** ✓ DONE 2026-06-22 (`bffef3447`, mellow-shrew, with Sergiy) — structural fix so
+      feature commits can't land in the shared `main` checkout again (root cause of the parked-feature-branch
+      mess: a prior session committed rust-web-toolkit directly in shared main instead of a worktree, partly
+      due to the `EnterWorktree` false-positive, claude-code #27881). **`.githooks/pre-commit`** blocks a
+      non-`.work/` commit when in the main checkout (`git-dir==git-common-dir`) OR on branch `main`; feature
+      worktrees unaffected; `--no-verify` escape hatch. **`scripts/new-worktree <name>`** = external-path
+      worktree recipe (NOT under `.worktrees/`, which siblings prune). **`scripts/setup-hooks`** sets
+      `core.hooksPath`. Spec `specs/worktree-guardrail.md`; `scripts/test-worktree-guardrail` 5/5.
+      **ACTIVATED** on the shared repo (`core.hooksPath=.githooks`) + verified live: a feature commit in
+      shared main is refused, a `.work/` coordination commit passes. (Other clones: run `scripts/setup-hooks`
+      once; worktrees off current `origin/main` already carry `.githooks/`.)
+
+- [x] **rust-cargo-smoke-coverage** ✓ DONE 2026-06-22 (`2c8032a5c`, mellow-shrew) — `RustGenCargoSmokeTest`:
+      a Rust-toolchain-gated suite (`assume(cargoAvailable)` — probes `cargo --version` directly, since
+      `backendRust` doesn't depend on the CLI's `RustToolchain`) that emits a feature-exercising program
+      to a temp crate, `cargo run`s it, and asserts real stdout. Covers collection ops (take/drop/
+      takeRight/dropRight/sorted/distinct/sum), string ops (replace/startsWith/endsWith/contains), and
+      the `Vec<String>` index-read regression (E0507). Closes the move/borrow/type bug class the
+      string-match suite can't see. `backendRust` 236/0. BACKLOG `rust-backend-cargo-smoke-coverage` landed.
+
+- [x] **metaprogramming-v2-track-c2** ✓ DONE 2026-06-22 (mellow-shrew, with Sergiy — CONSERVATIVE slice).
+      Probed first: the full ambition (Typer over expanded code + map errors to `.ssc` positions) is a real
+      trap — both expanders flatten trees→string→re-parse (positions destroyed; a position map would have to
+      be built inside 4 hand-written char-scanners) AND full inference over expanded macro-runtime constructs
+      risks false positives (confirmed; spec deferred it for good reason). Built the SAFE slice instead:
+      `MacroCodegen.expansionTypeWarnings` (wired into `ssc check` `checkOneFile`) catches a macro/inline
+      **expansion** that references an undefined name (source type-checks, expansion doesn't). **Zero false
+      positives** via a pre/post `Reference to undefined name` DIFF (machinery cancels; user's own undefined
+      names stay with the normal check); warning-only; file-level (no position map); excludes builtins/stripped
+      names/`_`-helpers; never breaks `ssc check`. Reach is bounded by the strict Typer's position-sensitive
+      undefined-name check (val-rhs/bare-stmt). `MacroCodegenTest` +5 (broken→1, valid const-fold/direct-quote/
+      interpreter→0, no-op→0); core artifact+typer 496/0; verified end-to-end via `ssc check`. Spec
+      `specs/arch-metaprogramming-v2.md` C2 updated. DEFERRED still: precise positions + full-inference recheck.
+
+### ▶ emit-js whole-program effect analysis (2026-06-22, with Sergiy — "берись, запиши в спринт, напиши спеку, и делай") — busi-reported #3, transitive piece
+
+Closes the last open piece of the emit-js effect-handler cluster (BUGS.md
+`jsgen-emitjs-effect-handler`; #1/#2/#4 done, #3 core done on `6def53541`, #5
+documented). Spec: **`specs/emitjs-effect-whole-program.md`**. The per-module
+`EffectAnalysis` doesn't see effects reachable through a 3+-level import chain
+(busi: `ledger.accountBalance` → `journal.query` → `Journal`), so a function
+calling a transitively-imported effectful function isn't CPS-lowered and its Free
+value leaks at runtime. Raw `emit-js` of such a program throws on Node; the JIT
+path is fine.
+
+- [x] **emitjs-effect-whole-program** ✓ DONE 2026-06-22 — busi `ledger.ssc` (+ obligation/plan/payment/gate/income) now run end-to-end as raw `emit-js` standalone bundles on Node; guard `tests/conformance/effect-transitive-handler.ssc` (3-level, INT==JS==JVM); busi `make v2-test`+`v2-test-js` + cross-backend green. (1) `JsGen.analyzeEffects` collects trees
+      recursively across the import graph (reuse `genImport`'s resolution; parse
+      once; visited-set for cycles) and runs `EffectAnalysis.analyze` on the union;
+      (2) `effectOps`/`effectfulFuns`/`multiShotEffects` become shared constructor
+      params threaded to child gens (like `topLevelConsts`), populated once by the
+      entry gen's whole-program pre-pass; (3) drop the now-redundant per-`genImport`
+      `analyzeEffects`+merge. Guard: `tests/conformance/effect-transitive-handler.ssc`
+      (3-level, INT==JS==JVM) + `ssc emit-js tests/v2/ledger.ssc | node` runs e2e +
+      `CrossBackendPropertyTest`/conformance/busi `make v2-test`+`v2-test-js` green.
+
+- [x] **emitjs-standalone-frontiers** ✓ DONE 2026-06-22 (claude-code, `fix/js-standalone-frontiers`) —
+      closes the three remaining busi standalone-bundle frontiers recorded under
+      `jsgen-emitjs-effect-handler` so `tests/v2/{trust,qr}.ssc` now run end-to-end as raw
+      `emit-js | node` bundles and `ksef.ssc` passes `node --check`. Three JS-codegen fixes +
+      one refinement: (1) `Term.ApplyUnary` CPS-lowers an effectful operand (`!x`/`-x`) via
+      `_bind` instead of `_run`-wrapping it outside the handler (fixes `trust.ssc`); (2) `_dispatch`
+      routes `Array.fill/tabulate/range/empty` to the `List` companion since `Array(...)` emits a
+      bare native-constructor value (fixes `qr.ssc`); (3) the 14 std/fs file-ops are seeded into
+      `declaredBindings` so importing them never re-emits a colliding top-level `const readFile`
+      (fixes `ksef.ssc` syntax); (4) refined the `fn-typed-field` `_dispatch` guard from a blanket
+      "_type instance → return field as-is" to a precise variadic-lambda check, so genuine zero-arg
+      methods (`JsonValue.asString`) auto-invoke again (`json-value` FAIL→PASS). Guards:
+      `tests/conformance/{js-applyunary-effect-cps,array-companion-statics}.ssc` + the existing
+      `fn-typed-field`/`json-value`. **Before/after emit-js+node sweep over all 113 conformance
+      tests: zero PASS→FAIL regressions** (82→85 PASS); busi `make v2-test`+`v2-test-js` green
+      (26 files, both backends).
+
+- [x] **emitjs-standalone-capability** ✓ DONE 2026-06-22 (claude-code) — the follow-on frontier:
+      emit `nowMillis` (clock) + crypto capabilities into the raw `emit-js` standalone bundle so
+      `inbox`/`ksef`/`repo*` run under `ssc emit-js | node`. Two bugs (see BUGS.md
+      `jsgen-emitjs-capability-standalone`): (1) a `RuntimeCall` intrinsic (`nowMillis`→`Date.now`)
+      reached via the CPS path wasn't rewritten — `genCpsApply` now applies it (new helper
+      `intrinsicRuntimeTarget`); (2) a `std/crypto` extern (`sha256`) bound to the `undefined` host
+      stub and shadowed its `_sha256` intrinsic — `genObjectAsExpr` now falls back to the intrinsic
+      target (guarded by `typeof` + `target != fname` so std/auth's identity webauthn externs don't
+      self-reference→TDZ). Standalone emit-js+node sweep **13/21 → 20/21** v2 domain files; guards
+      `tests/conformance/{js-cps-intrinsic-rewrite,js-crypto-extern-standalone}.ssc` (INT==JS);
+      before/after conformance sweep **zero PASS→FAIL** (84→84); busi `make v2-test`+`v2-test-js`
+      green. **Remaining:** `auth.ssc` standalone needs Node WebAuthn impls (host-only externs, no
+      `_webauthn*` preamble) — a separate feature, not a capability-emission gap.
+
+### ▶ Core-minimization + polyglot-libraries program (2026-06-22, with Sergiy — "минимизировать ядро всех рантаймов и компиляторов, все вынести в библиотеки и плагины" + "сделать все переиспользуемым со всех рантаймов — из скалы, джавы, джаваскрипт, раста — в виде библиотек, сначала написать спеку")
+
+Two complementary directives, ONE program. **Design spec written: `specs/polyglot-libraries.md`**
+(grounded in a full core-vs-plugin extraction analysis). A self-contained module is the unit of reuse:
+extract a feature behind the SPI (A) → publish it as a per-host library (B) is the same artifact.
+
+**DECIDED DIRECTION (2026-06-22, with Sergiy — "вынести в плагины всё что возможно"; spec §7a):**
+**B→A (enabler-first)**; language forms + hot-path stdlib stay core **forever**; **hybrid** distribution
+(essential plugins bundled, advanced opt-in via `pkg:`). Task sequence:
+
+- [x] **coremin-prelude-spi** ✓ KEYSTONE DONE 2026-06-22 (`0ef0bde11`, mellow-shrew) — the SPI hook so a
+      plugin declares its check-time public symbols WITH type-signatures and `ssc check` resolves AND
+      type-checks calls to them, no hardcoded core list. Decided shape: names+full signatures. Reuse, don't
+      invent: `ExportedSymbol` already encodes typed symbols; `InterfaceScope.parseSType`/`parseKind`
+      (made `private[scalascript]`) invert `SType.show`. **`Backend.preludeSymbols: List[ExportedSymbol]`**
+      (chose the flat symbol list over a full `ModuleInterface` wrapper — no magic/abiVersion/sourceHash
+      boilerplate); Typer gains a `preludeSymbols` ctor param → `createPrelude` defines each with its declared
+      type (not the untyped `variadic`); `ssc check` (`Main.scala`) collects
+      `BackendRegistry.inProcess.flatMap(_.preludeSymbols)` + threads it in; `pluginBuiltins` (names-only) kept
+      as fallback. Additive/no-op when empty. Proof `TyperPreludeSymbolsTest` (without→undefined; with→resolves;
+      declared type flows — return-mismatch flagged, correct call passes); typer+artifact 499/0. Spec
+      `specs/core-min-prelude-spi.md`. NOTE: hook lives at the Typer/`check` layer only (codegen backends are a
+      separate concern).
+- [x] **sprint-stale-open-items-reconcile** ✓ DONE 2026-06-22 — reconciled stale open items that are already superseded/done.
+      **How:** mark `coremin-prelude-migrate-ORIG` as superseded by the immediately preceding
+      `coremin-prelude-migrate` finding, and mark `polyglot-phase2-optics-allhosts` as complete because
+      JS/JVM/Rust/Java optics hosts now all ship (`optics-emit-lib-cli`, `optics-jvm-facade`,
+      `polyglot-optics-rust`, `polyglot-optics-java`). Do not change code. Leave genuinely open items
+      (`coremin-actors-migrate`, `coremin-hybrid-split`, `core-min-phase3plus`, etc.) untouched.
+      **Verify:** grep shows no open `[ ]` entries for `coremin-prelude-migrate-ORIG` or
+      `polyglot-phase2-optics-allhosts`; active claims remain unchanged.
+- [x] **coremin-prelude-migrate** ✓ ACTIONABLE SCOPE DONE 2026-06-22 — bundled-effect runner prelude migration is complete: 16 bundled-effect runner names moved from the hardcoded Typer prelude into plugin `preludeSymbols`, and the unused typed `runnerType2` helper was removed. This closes the safe actionable scope for this item. Remaining prelude work is split into separate items: advanced/non-bundled `pluginObjects`/`pluginBuiltins` strict opt-in via complete plugin `preludeSymbols`, plus Stream/Actors runner extraction.
+  **UPDATE 2026-06-22: finding (2) partially DISPROVED for VARIADIC runner names.** `runRandom` (proof, `754139832`) + a batch of 6 more (`runRetry`/`runRetryNoSleep`/`runCache`/`runCacheBypass`/`runClock`/`runEnv`) now migrate cleanly off `effectBuiltins` into their plugins' `preludeSymbols` — a variadic block-form runner needs NO effect-type to travel (it types as `def … : Any`), so it does NOT wait on `coremin-effecthandlers-spi`. **7 bundled-effect runner names now off the core prelude; locked by `PreludeMigratedRunnersTest` (668/0).** STILL blocked: the NON-bundled `pluginObjects`/`pluginBuiltins` names (→ `coremin-hybrid-split`). Remaining bundled variadic runner candidates: audit `effectBuiltins` for any not-yet-migrated (e.g. `runStorage`/`runTx`/`runActors`/`runAsync` — only if their plugin is default-bundled AND the keyword is variadic).
+  **UPDATE-2 2026-06-22: finding (2) FULLY DISPROVED for bundled runners — even the TYPED ones migrate.** `runRandomSeeded`/`runClockAt`/`runEnvWith` (formerly `runnerType2` `s.define`s) are now in their plugins' `preludeSymbols` too. The unlock: the typer does **NOT enforce effect discharge** (no "unhandled effect" diagnostic anywhere in `lang/core/.../typer/`), so the runner's `! Eff` row is tracked-but-not-checked → declaring the name `Any` is sufficient for `ssc check`; the interpreter resolves the runner via the plugin's block-form, not the typer type. So typed runners do NOT wait on `coremin-effecthandlers-spi` after all. **Production-soundness CONFIRMED:** `installBin` stages all of `allPlugins` (effect plugins included) onto the shipped classpath, so `BackendRegistry.inProcess.flatMap(_.preludeSymbols)` loads them in the real `ssc check` (the `cli/run` compile classpath lacking them is a dev-only artifact). **10 bundled-effect runner names now off the core prelude** (`runRandom` + 6 variadic + 3 typed); `PreludeMigratedRunnersTest` 671/0.
+  **UPDATE-3 2026-06-22: SWEEP COMPLETE — the last 6 bundled runners migrated.** `runLogger`/`runLoggerJson`/`runLoggerToList` (logger-plugin), `runState` (state-plugin), `runHttp`/`runHttpStub` (http-plugin) are now in their plugins' `preludeSymbols`; the now-unused typed `runnerType2` prelude helper was removed (`runnerType` stays for `runStream`). **16 bundled-effect runner names total are off the core prelude; only `runStream` remains** (owned by `coremin-stream-migrate`). Verified runtime-unaffected: `StdEffectsTest` runs `runHttp`/`runState`/… end-to-end (15/0). `PreludeMigratedRunnersTest` locks all 15 migrated runners (677/0). **This sub-thread of `coremin-prelude-migrate` (bundled effect runners) is now DONE.** Remaining prelude work is entirely on the OTHER two axes: NON-bundled `pluginObjects`/`pluginBuiltins` names (→ `coremin-hybrid-split`) and the Stream/Actors runners (entangled, separate SPI additions).
+  **UPDATE-4 2026-06-23: runStream prelude name MIGRATED — the runner prelude axis is now 100% (`coremin-stream-prelude-migrate`).** `runStream` + the `Stream` object moved from the hardcoded Typer prelude into `StreamsInterpreterPlugin.preludeSymbols` (`ExportedSymbol("runStream","runStream","def","Any")` + `("Stream","Stream","object","Any")`); the now-dead `runnerType`/`bodyWithEff` typer helpers were removed (core compiles strict `-Werror`). This is the **prelude-name** axis only — Stream's RUNTIME (Free-monad driver + `tryStreamEmitWhileFast` FastTier + `installStreamGlobal`) stays in core per `coremin-stream-migrate` (a `BlockForm` only sees `SpiValue`, no AST). streams-plugin is bundled (installBin stages it; META-INF/services Backend provider) → production `ssc check` resolves via `BackendRegistry.inProcess`. `PreludeMigratedRunnersTest` now locks 16 runners incl. `runStream` (16/16). **NO effect-runner name is hardcoded in the core Typer prelude anymore.** (Pre-existing unrelated failure observed: `StreamsPluginInterpreterTest` "runStream result supports runForeach" — `var buf` captured in `runForeach` loses the first emission; fails on clean origin/main too → filed separately as a runtime var-capture bug, NOT introduced here.)
+  **UPDATE-5 2026-06-23: ACTORS keyword set + ADVANCED-OPTIN prelude names DONE — the prelude is now fully minimized.** (a) actors-prelude (`2d9b02588`): ~55 actor/process/cluster keywords → `ActorsInterpreterPlugin.preludeSymbols`. (b) advanced-optin (Sergiy chose "strict opt-in for advanced names"): the hardcoded `pluginObjects`/`pluginBuiltins` PLUGIN-owned names moved to their owning plugins' `preludeSymbols` by tier — essential (Source→streams, setHttpServerBackend→ws, http→http; auto-loaded, no UX change), advanced (oauth/oidc→oauth, Wallets/X402*/Cardano*/PaymentConfig/DefaultSyncBackend/basicRequest→payments, spark/PipelineModel→SparkBackend; resolve only via `--plugin` = strict opt-in). `pluginObjects` deleted; `pluginBuiltins` 21→11 (only interpreter-core globals Async/Await/Signal/Future/Storage + stdlib-.ssc HandlerRegistry/Cluster/ShuffleStage/Stage/runDistributed/runDistributedShuffle remain — no owning compiled plugin). `AdvancedOptInPreludeTest` (710/0). **Caught+fixed a PRE-EXISTING regression**: `algebraic-effects.ssc` (uses runState/runLogger/… = extracted plugins) was still in the cli core-smoke `runnableExamples` (no plugins) → failed at runtime `Undefined: runState` since the first effect extraction; moved it to `PluginExamplesSmokeTest`. **The Typer prelude `effectBuiltins` (language forms + not-yet-extracted runners runAsync/runAuthWith/runStorage/runTx/httpClient/async-primitives + test helpers) and `pluginBuiltins` (11 core/stdlib names) are now the irreducible hardcoded remainder** — everything plugin-owned is declared by its plugin. LESSON: run the cli `ExamplesSmokeTest` after ANY effect extraction (effect examples become plugin-backed, the cli smoke interp has no plugins).
+- [x] **coremin-prelude-board-closeout** ✓ DONE 2026-06-22 — docs-only closeout for `coremin-prelude-migrate`
+      after UPDATE-3. Marked the actionable scope done, kept future work explicit under the advanced strict
+      opt-in and Stream/Actors entries, and added the `CHANGELOG.md` note. No Typer/plugin code changed.
+      **Verify:** grep shows no open `[~] coremin-prelude-migrate` and no open
+      `[ ] coremin-prelude-board-closeout`; conflict-marker grep is clean.
+- [x] **coremin-prelude-migrate-ORIG** ✓ SUPERSEDED 2026-06-22 — original blind-migration plan is superseded
+      by the `coremin-prelude-migrate` finding above. The original blocker framing is now stale:
+      `coremin-hybrid-split` landed, bundled-effect runner typing proved unnecessary for plugin
+      `preludeSymbols`, and the remaining prelude work belongs to separate advanced strict opt-in and
+      Stream/Actors tasks. Do not re-claim this original plan as-is.
+- [x] **coremin-http-migrate** ✓ DONE 2026-06-22 (`f8f9ac4d3`, mellow-shrew) — the Http effect runner
+      (`runHttp` real I/O + `runHttpStub(routes)` stub) extracted from interpreter core into the
+      already-bundled `http-plugin`'s `blockForms` — 8th effect off core. Two new SPI capabilities:
+      `BlockContext.makeRecord` (handler replies with a `Response` record) + `BlockContext.featureLocal`
+      (handler reads the base-url/timeout/retry config the core `httpClient(baseUrl)` form sets).
+      `HttpEffectRunner` ports the java.net request logic (Option-based). Removed from core: EvalRuntime
+      cases + 2 `reservedApplyHeads` + `EffectHandlers.httpRun`/`doHttpRequest`. `httpClient(baseUrl)` setter
+      stays core by design. Tests moved StdEffectsTest→HttpEffectPluginTest (4/4, lazy ServiceLoader);
+      StdEffectsTest 15/15. NOTE follow-up: `Interpreter.mkHttpCtx` now dead (minor cleanup).
+
+- [x] **coremin-actors-board-reconcile** ✓ DONE 2026-06-22 — collapsed duplicate open `coremin-actors-migrate` entries.
+      **How:** keep one actionable actors item that states the real blocker (scheduler/message-loop seam)
+      and mark the older duplicate as superseded; do not touch code or claim the actual actors migration.
+      **Verify:** grep shows exactly one open `[ ] **coremin-actors-migrate**` in `SPRINT.md`.
+- [x] **coremin-actors-migrate** ✓ SUPERSEDED 2026-06-22 — duplicate of the more precise
+      `coremin-actors-migrate (A, entangled)` item below; keep that one as the single open actors entry.
+- [x] **coremin-effecthandlers-spi** ✓ RECONCILED → SUBSUMED 2026-06-22 (mellow-shrew). The "3rd keystone
+      hook" turned out already covered by the **block-form SPI** (the 1st keystone): a plugin owns a custom
+      effect's `Perform` resolution via `Backend.blockForms` (`BlockForm.effectName` + `EffectHandler.reply`),
+      dispatched through the core `runWithHandler` trampoline — proven by **8 effects** migrated this way
+      (Logger/Random/Clock/Env/State/Retry/Cache/Http). The capability set is complete: stateful per-op reply,
+      config args (`newHandler`), closure-apply (`applyFn`), record-build (`makeRecord`), feature-local-read
+      (`featureLocal`), result-combination (`result`), stdout (`out`). No separate hook needed.
+- [x] **coremin-stream-migrate** ✓ ACTIONABLE SCOPE CLOSED 2026-06-22 — investigated and deliberately deferred; the Stream effect stays in core for now because extraction is low-ROI without a clean consumer for new SPI.
+      `runStream` has a **FastTier** (`tryStreamEmitWhileFast`, AST-level `while … Stream.emit` bypass of the
+      Free-monad trampoline — zero-FlatMap fast path) that is interp-internal and CANNOT move to a plugin
+      (a `BlockForm` only sees `SpiValue` replies, no AST). So a migration is necessarily *partial*: the
+      ~40-line `streamRun` handler could move (it'd need a new trampoline **terminate-signal** SPI for
+      `Stream.complete/error` short-circuit + `BlockContext.callGlobal` for `Source.from`), but the
+      `runStream` case + FastTier + `installStreamGlobal` stay in core. ~40 lines shrunk for real complexity +
+      a shared-trampoline change → not worth it. The two new SPI capabilities (terminate-signal + callGlobal)
+      are designed + validated (runWithHandler: a resolver returning `Pure(term)` abandons the body) — add
+      them only when a clean consumer appears. No code changed for this closeout.
+- [x] **coremin-actors-migrate** ✓ DONE (superseded by coremin-actors-codemove, 4578c8e4f) — provider seam + prelude migration + session slice all landed 2026-06-22/23; the "optional hard code-move" was completed by the dedicated `coremin-actors-codemove` task (2026-07-02). Full history:
+      `specs/coremin-actors-plugin.md` (`6538c10c6`) defines the interpreter-local actor runtime seam.
+      `ea898ca82` adds `ActorRuntimeProvider` / `ActorRuntimeHost`; `ActorInterp.actorInterp` now dispatches
+      through `CoreActorRuntimeProvider`, which delegates to the existing core scheduler, so behavior is unchanged.
+      `539105e3c` adds the essential bundled `runtime/std/actors-plugin` skeleton, ServiceLoader descriptor,
+      provider installation via `ActorRuntimeProviderBackend`, actor `preludeSymbols`, and
+      `ActorsPluginProviderTest` (2/0). `cli/installBin` passed and now stages 26 essential `.sscpkg` files
+      plus 13 advanced.
+      Verified: `backendInterpreter/compile` passed; actor targeted suites
+      (`ActorSupervisionTest`, `ActorStopOutsideTest`, `ActorGroupTest`, `ActorDistributedTest`) passed 29/0
+      (ScalaTest printed a reporter `InterruptedException`, but sbt finished `[success]`).
+      **PRELUDE-NAMES SLICE DONE 2026-06-23 (this session):** the ~55-name actor/process/cluster keyword set
+      (`runActors` + spawn/self/send/receive/timeout/recvFrom + membership/leader/gossip/config/drain/metric +
+      timers) is now removed from the Typer `effectBuiltins` and DECLARED in `ActorsInterpreterPlugin.preludeSymbols`
+      (bundled → production `ssc check` resolves via `BackendRegistry.inProcess`; runtime stays in core via the
+      seam, so `spawn`/`self`/… still resolve through `ActorInterp`/`ActorGlobals`). Verified runtime-unaffected:
+      `ActorDistributedTest`+`ActorBinaryWsTest` 53/0; `ActorsPreludeMigrationTest` locks a representative name per
+      category; typer 196/0, plugin-tests 693/0. `effectBuiltins` now holds only language forms + the not-yet-bundled
+      runners (runAsync/runAuthWith/runStorage/runTx/httpClient/async primitives) + test helpers.
+      **SESSION-SEAM SLICE DONE 2026-06-23:** `ActorRuntimeProvider` now opens a per-host
+      `ActorRuntimeSession`; `ActorInterp` lazily caches one session per `Interpreter` and clears it when a
+      replacement provider is installed. This records the state ownership boundary before any future runtime code
+      move, without moving scheduler code today. Verified:
+      `cd /Users/sergiy/work/my/scalascript-wt-core-min-phase3plus && sbt "actorsPlugin/compile" "backendInterpreter/compile" "backendInterpreterPluginTests/testOnly scalascript.ActorsPluginProviderTest"`
+      passed 3/0, and `cd /Users/sergiy/work/my/scalascript-wt-core-min-phase3plus && sbt "backendInterpreter/testOnly scalascript.ActorSupervisionTest scalascript.ActorStopOutsideTest scalascript.ActorGroupTest scalascript.ActorDistributedTest scalascript.ActorBinaryWsTest"`
+      passed 53/0 (known ScalaTest reporter `InterruptedException`, sbt `[success]`).
+      **Remaining (the hard code-move, optional):** move `ActorRuntime`, scheduler loop, `handleActorOp`, and
+      cluster/event drains behind the provider into `runtime/std/actors-plugin`; keep `receive` syntax capture in
+      core. **Gotcha:** do not store actor/cluster mutable state on the ServiceLoader backend singleton; today's
+      state is per `Interpreter`, so the move slice needs per-host/per-interpreter state ownership. This code-move is
+      a large interpreter-internal refactor with NO user-visible change (the seam already lets the runtime live
+      either side); deferred as low-ROI like Stream. **Net: the coremin prelude + extraction program is at its
+      practical end — all bundled effects + actor names off core, hybrid-split done; only the optional Stream/Actors
+      interpreter-internal code-moves remain, both deliberately deferred.**
+- [x] **coremin-hybrid-split** ✓ DONE 2026-06-22 (codex) — no-domain hybrid plugin distribution slice.
+      `PluginSpec` now carries an essential/advanced tier; `installBin` stages 25 essential bundled
+      `.sscpkg` files in `bin/lib/compiler/plugins` (auto-loaded) and 13 advanced bundled `.sscpkg`
+      files in `bin/lib/compiler/plugin-available` (opt-in via `ssc --plugin <path>` or
+      `ssc plugin install <path>`). No registry domain or hosting required. This slice deliberately did NOT remove
+      Typer hardcoded advanced compatibility names; that strict opt-in prelude cleanup later landed in
+      `advanced-optin` (2026-06-23). Verification: `cd /Users/sergiy/work/my/scalascript-wt-coremin-hybrid-split && sbt "cli/compile"` passed in 82s; `cd /Users/sergiy/work/my/scalascript-wt-coremin-hybrid-split && sbt "cli/installBin"` passed and produced the two directories/counts above. Bonus guardrail: `installBin` now fails if the explicit `pluginPkgs` list is missing or duplicating an `allPlugins` id; this caught and fixed the pre-existing omission of `fs`/`os`/`yaml` from staged `.sscpkg` files.
+
+- [x] **polyglot-libraries-spec** ✓ SPEC CLOSED 2026-06-22 — `specs/polyglot-libraries.md` now reflects that the
+      original draft has implementation slices landed. It unifies A (minimize core) + B (cross-language reuse);
+      the original baseline found ~6–7.5K LOC of feature code still baked into interpreter core, but since then
+      the block-form SPI, typed `SpiValue`, plugin `preludeSymbols`, multiple effect migrations, JS runtime-resource
+      extraction, and no-domain bundled plugin distribution split have landed. Remaining implementation work is
+      tracked by separate active/deferred items (`coremin-actors-migrate` optional hard code-move,
+      `core-min-value-unification` deep value refactor).
+- [x] **core-min-phase1-logger-keystone** (A — the SPI keystone) ✓ KEYSTONE PROVEN END-TO-END 2026-06-22. The
+      block-form + effect-handler plugin SPI now works: a plugin can contribute a `keyword { body }` effect-runner
+      and the interpreter dispatches to it. 5 increments on origin/main: (1) `c2eec8d3c` generic effect trampoline
+      `EffectHandlers.runWithHandler`; (2) `f2d8b5304` SPI contract `BlockForm`/`EffectHandler`/`BlockContext`;
+      (3) `7dc508c3b` made it **type-safe** — a host-neutral `SpiValue` ADT instead of `Any` (per Sergiy's review);
+      (4) `af58335bc` interp wiring — `valueToSpi`/`spiToValue`, a `_blockForms` registry populated by
+      `installPlugins`/`ensurePluginsLoaded`, and an `EvalRuntime` generic block-form case; (5) `0a578ab88` **proof**:
+      `reservedApplyHeads` fast-path also excludes `interp.blockForms` names so a plugin keyword reaches the
+      dispatch (empty until a plugin loads → plugin-free scripts unchanged). `BlockFormSpiTest`: a `runTally { }`
+      plugin block-form + stateful handler → `25`, Int args/replies round-tripped `Value↔SpiValue`. **No
+      regression** (StdEffectsTest 48/0, InterpreterTest 141/0). Historical follow-up status: the template was
+      used for Logger/Random/Clock/Env/State/Retry/Cache/Http; actors use the separate provider/session seam
+      because they own a scheduler rather than a simple block-form handler.
+- [x] **core-min-logger-migrate** (A) — ✓ DONE 2026-06-22 (`0353e51ae`). Logger fully extracted from
+      interpreter core into `runtime/std/logger-effect-plugin` (`LoggerEffectPlugin extends Backend` with
+      `blockForms = Map(runLogger→text, runLoggerJson→json, runLoggerToList→collect-with-`result`-tuple)`,
+      handlers over `SpiValue`/`ctx.out`) + `META-INF/services/scalascript.backend.spi.Backend`; build.sbt wired
+      via the `allPlugins` registry (`PluginSpec("logger", …)` → auto aggregate + `installBin` + plugin-tests
+      classpath). Removed from core: 3 `runLogger*` cases + the 3 names in `reservedApplyHeads` (`EvalRuntime`),
+      `loggerRun`/`loggerToListRun`/`loggerJsonStr` (`EffectHandlers`; generic `runWithHandler` stays). The 4
+      Logger tests moved `StdEffectsTest`→`LoggerPluginTest` (`interpreter-plugin-tests`) and run with NO
+      `installPlugins` — proving production lazy-ServiceLoader dispatch. Verified: StdEffectsTest+InterpreterTest
+      **185 green**, LoggerPluginTest+BlockFormSpiTest **7 green**. This became the reusable template for the
+      later Random/Clock/Env/State/Retry/Cache/Http plugin migrations; actors use the separate scheduler seam.
+- [x] **core-min-random-migrate** (A) — ✓ DONE 2026-06-22 (`2d525ea59`). Random extracted to
+      `runtime/std/random-effect-plugin` (`RandomEffectPlugin`; one `RandomBlockForm` registered under both
+      `runRandom` and `runRandomSeeded`; per-block `java.util.Random`, replies over `SpiValue` —
+      nextInt/nextDouble/uuid/pick, `pick` round-trips arbitrary list elements via `SpiValue.Opaque`). **This
+      slice GENERALIZED the block-form SPI to CONFIG ARGS** — `keyword(config…){body}`, not just `keyword{body}`:
+      `dispatchBlockForm` now evaluates leading config terms → `newHandler(ctx, cfgArgs)` (the seed). Added the
+      generic *curried* block-form cases in `EvalRuntime` (loaded + lazy-load mirror), placed AFTER all hardcoded
+      curried special-forms (runClockAt/runEnvWith/httpClient/…) so they only catch genuinely-unmatched applies.
+      Removed core `randomRun` + 2 cases + 2 `reservedApplyHeads` names. Tests moved
+      `StdEffectsTest`→`RandomPluginTest` (no `installPlugins`). Verified: StdEffectsTest+InterpreterTest **179
+      green**, RandomPluginTest+LoggerPluginTest+BlockFormSpiTest **13 green** + full-suite sweep.
+- [x] **core-min-clock-env-migrate** (A) — ✓ DONE 2026-06-22. Clock + Env extracted to
+      `clock-effect-plugin` + `env-effect-plugin` (one effect = one library). Both curried-config siblings, so
+      they REUSE the config-args SPI path from `core-min-random-migrate` with ZERO new dispatch machinery:
+      `runClockAt(t0)` → `newHandler` reads frozen-ms; `runEnvWith(map)` → reads the overlay (exercises the
+      SPI's `MapV` config path). `ClockBlockForm`/`EnvBlockForm` registered under both plain+curried keywords;
+      handlers reply over `SpiValue` (Clock now/nowIso/sleep, frozen=no-op; Env get/set/required with per-block
+      mutable overlay + real-`getenv` fallback). Removed core `clockRun`/`envRun` + 4 cases + 4
+      `reservedApplyHeads` names. Tests moved `StdEffectsTest`→`ClockPluginTest`+`EnvPluginTest`. Verified:
+      interpreter **169 green**, full plugin-tests **647 green** (1 env-gated cancel). FOUR effects are now
+      plugins: Logger, Random, Clock, Env.
+- [x] **core-min-state-migrate** (A) — ✓ DONE 2026-06-22. State extracted to `state-effect-plugin`. State is
+      the first NON-pure-reply effect: `State.modify(f)` must *apply a ScalaScript closure*, which the
+      pure-reply SPI couldn't do. **Grew the SPI by exactly one capability — `BlockContext.applyFn(fn, args)`**
+      (defaulted to throw → backward-compatible; the interpreter overrides it, routing back through
+      `callValue` + synchronous `Computation.run`, parity with the old `callValue1`). `StateBlockForm` under
+      `runState`; `newHandler` takes the initial state (config arg); get/set/modify reply over `SpiValue`;
+      the `result` hook returns `(finalState, bodyResult)`. Removed core `stateRun` + case + `reservedApplyHeads`
+      name. Tests `StdEffectsTest`→`StatePluginTest`. Verified: interpreter **165 green**, full plugin-tests
+      **651 green** (1 env cancel). **FIVE effects now plugins: Logger, Random, Clock, Env, State.** Probed and
+      recorded: the REMAINING runners (Retry/Cache/Http/Actors) also need interp callbacks — Retry/Cache via
+      `applyFn` (thunks); Http additionally needs to construct a `Response` record (no `SpiValue` record case
+      yet → would need a `BlockContext.makeRecord` or an Opaque-instance helper); Actors need the message loop.
+- [x] **core-min-retry-cache-migrate** (A) — ✓ DONE 2026-06-22. Retry + Cache extracted to `retry-effect-plugin` +
+      `cache-effect-plugin`, copying the State template (both re-invoke the body thunk via `BlockContext.applyFn`).
+      `RetryBlockForm(sleep)` under `runRetry`/`runRetryNoSleep`; `CacheBlockForm(bypass)` under
+      `runCache`/`runCacheBypass`. The Cache TTL store moved into the plugin (process-local `object CacheStore`,
+      was `interp._cacheStore`); per-block `bypass` replaces the `_cacheBypass` ThreadLocal (each block's handler
+      carries it; trampoline dynamic-scope == ThreadLocal). Removed from core: 4 `EvalRuntime` cases + 4
+      `reservedApplyHeads` names; `EffectHandlers.retryRun`/`cacheRun`; `Interpreter._cacheStore`/`_cacheBypass`.
+      Wired into `allPlugins` (auto aggregate + plugin-tests classpath) + the explicit `pluginPkgs` installBin list.
+      Tests moved `StdEffectsTest`→`RetryPluginTest`(3)+`CachePluginTest`(2) (no `installPlugins`, lazy dispatch).
+      Verified: plugin-tests **656/0** (1 env-gated cancel) + InterpreterTest+StdEffectsTest **160/0**. **SEVEN
+      effects now plugins: Logger, Random, Clock, Env, State, Retry, Cache.** NOTE: emitters (`Retry`/`Cache`
+      globals in `StdEffectsRuntime`) stay in core per the State precedent — only the heavy handlers move.
+- [x] **polyglot-phase2-optics-allhosts** ✓ DONE 2026-06-22 — per-host optics library packaging now ships for
+      all four hosts: JS/npm (`optics-emit-lib-cli`), JVM/Scala (`optics-jvm-facade`), Rust/cargo
+      (`polyglot-optics-rust`), and Java/Maven (`polyglot-optics-java`). Spec §4 + §6. Historical blueprint:
+      • Optics is **NOT** a `.ssc` module or named intrinsics — it's AST-level: `Focus[T](_.a.b)`
+        (`EvalRuntime.scala:4591`→`OpticsRuntime.evalFocus`) + `Prism[Outer,Variant]` (`:4318`→`buildPrism`); JS at
+        `JsGen.scala:4542`/`3746`, runtime `JsRuntimeOptics.scala` gated by `Capability.Optics`. **There is no
+        exported symbol table to read — the public facade must be AUTHORED.** The canonical contract is the 4 synth
+        optic shapes: Lens(get/set/modify/andThen), Optional(getOption/set/modify/andThen),
+        Traversal(getAll/modify/set/andThen), Prism(getOption/reverseGet/set/modify/andThen) — IDENTICAL between
+        `OpticsRuntime` (interp/JVM) and `JsRuntimeOptics` (JS). `PathStep`=Field/Some/Each/Index/AtKey.
+      • Packaging infra TODAY: `ssc package --lib` (`SsclibPackaging.scala`) emits a `.ssclib` SOURCE zip (NOT a
+        host artifact). `emit-js`/`emit-rust`/`emit-scala` emit programs. `ssc link --backend jvm --bytecode
+        --emit-scala-facade` (`FacadeGenerator`) is the closest jar/facade path. **Spec §4's `emit-rust --lib` is
+        FICTIONAL** — Rust lib mode = "module has no `@main`" (`RustGen.scala:62` → `renderLibRs()`/`src/lib.rs`,
+        Cargo `[lib]`, golden-tested in `RustGenRuntimeFilesTest`/`RustGenCargoTomlTest`).
+      • Per-host state: **JS = most tractable** (runtime exists+gated; only need ESM wrapper + `package.json` +
+        hand-written `.d.ts`; no new codegen). **JVM** = facade/link-to-jar exists but optics has no compilable
+        `.ssc` defs → author a thin facade. **Rust** = lib-crate skeleton exists but optic `pub fn` codegen is
+        GREENFIELD. **Java** = fully greenfield (`JavaFacadeEmitter` + value-mapping seam). Golden pattern: mirror
+        `RustGenCargoTomlTest` exact-string asserts, or `WireGoldenVectorTest` table.
+      • **First slice = JS optics npm package**: call `JsGen.generateRuntime(Set(Capability.Optics,Core))`, wrap as
+        ESM re-exporting `makeLens/makeOptional/makeTraversal/makePrism`, emit `package.json` + curated `optics.d.ts`
+        (the 4 shapes above); golden test asserts the `.d.ts` + exported symbols. Then JVM/Rust/Java follow the
+        same packager shape. Rank to ship: JS → JVM → Rust → Java.
+      • **✓ JS SLICE LANDED 2026-06-22** — `JsLibPackager` (in `backendJs`) emits the `@scalascript/optics` npm
+        ESM package (`package.json` + `index.mjs` + curated `optics.d.ts`); bundles the `JsRuntimeOptics` `_make*`
+        factories + only the `_None`/`_Some`/`_isMap` deps (HAMT narrowed to native `Map` at the edge) + step
+        builders; re-exports stable `makeLens/makeOptional/makeTraversal/makePrism/Some/None/field/index/at/some/each`.
+        `JsLibPackagerTest` 5/5 incl. a node ESM smoke that imports the generated package + exercises all 4 optics.
+        The `.d.ts` is the frozen API golden. **Later slices all landed:** (a) user-reachable
+        `emit-lib --host js --feature optics -o <dir>` via `EmitLibCmd`; (b) JVM facade jar; (c) Rust crate;
+        (d) Java facade. Golden API-signature tests now cover each host.
+- [x] **js-runtime-resources** ✓ DONE 2026-06-22 (optics pilot) — first slice of polyglot-libraries §3 #8:
+      move JS backend runtime fragments out of big Scala string constants into real `.mjs` resource files
+      (lintable / `node --check`-able / editor-friendly). `JsRuntimeResource.load(name)` reads + caches a
+      classpath resource under `/scalascript/js-runtime/`; `JsRuntimeOptics` is now a thin wrapper
+      (`load("optics.mjs")`) keeping its `val X: String` API → call sites + emitted JS unchanged, verified
+      **byte-identical** (7555B, `diff`-empty; `JsLibPackager` golden+node-smoke unchanged). `JsRuntimeResourceTest`
+      5/5. Spec `specs/js-runtime-resources.md`. **✓ REST DONE 2026-06-22 (js-runtime-resources-rest):** the
+      remaining 17 fragments (`Part1a`–`d`, `Part2a/2b`, `AsyncA/B`, `Signals`, `Dataset`, `IndexedDb`,
+      `BrowserPatch`, `Graphql`, `Mcp`, `McpBrowser`, `Payment`, `V14Effects`) all migrated — `diff`-verified
+      byte-identical, backendJs compiles, 65 JS codegen tests green. **§3 #8 closed for JS** (all 18 fragments
+      now `.mjs`; the `JsRuntime`/`JsRuntimeAsync` aggregators in `JsGen.scala` stay computed). FOLLOW-UPS: same
+      pattern for JVM/Rust runtime strings; optional `tsc --checkJs`/`eslint` CI gate (needs JSDoc first).
+- [x] **rust-effects-multishot-r6** ✓ SUPERSEDED 2026-06-22 — duplicate of the detailed `[~] rust-effects-multishot-r6`
+      status above. Tier-1 List, Tier-1 Option, and Tier-2 static-depth are done; remaining unbounded
+      perform-in-loop is additive with no current consumer. ORIGINAL: multi-shot algebraic effects on Rust (resume invoked
+      more than once, e.g. NonDet `{1,2}×{10,20}`). One-shot handle/resume already SHIPPED (`a87afba34`, tagless-
+      final, no trampoline). lucky-otter flagged multi-shot as out-of-scope/hard: needs an `FnMut` continuation
+      that can be re-invoked — the tagless-final one-shot lowering (`resume(v)`→`v` tail-substitution) can't express
+      it. RESEARCH slice: probe whether a captured-closure continuation (`Box<dyn FnMut>`) or a CPS/defunctionalized
+      re-entry is tractable in `RustCodeWalk`'s handle lowering; if not bounded, SCOPE DOWN + document the blocker
+      in `specs/rust-effects.md` §R.6 and BACKLOG. Spec `specs/rust-effects.md`. Lower confidence than the other two.
+- [x] **core-min-phase3plus** ✓ ACTIONABLE SCOPE DONE 2026-06-23 — the practical core-min/polyglot Phase 3+
+      queue has landed or been split into sharper items. Landed: Logger/Random/Clock/Env/State/Retry/Cache/Http
+      effect runners moved to plugins; JS/JVM/Rust runtime resources moved out of backend string blobs where
+      bounded; optics ships as native JS/JVM/Rust/Java host libraries via `emit-lib`; bundled prelude names are
+      minimized (`runStream`/`Stream`, actors keyword set, and advanced/essential plugin-owned names now come from
+      plugin `preludeSymbols`); actors have a provider + per-interpreter session seam. Not closed here:
+      `core-min-value-unification` stays as its own deep refactor, and the hard Stream/Actors interpreter-internal
+      code moves stay deferred/optional because they have low ROI without a new consumer.
+- [x] **core-min-value-unification** ✓ SCALARS-ONLY SCOPE DONE 2026-06-23 — **SPEC + Slices 1-6 LANDED**
+      (`specs/value-unification.md`), on two complementary tracks. PROBED the real surface: **4387
+      `Value.<Case>` sites across 46 files**; `Value` = sealed trait co-defined with `Computation`/`Env`/
+      `FrameMap` (circular) + perf pools; the SPI conversion was lossless via `Opaque` EXCEPT `Char`→`StrV`
+      and `Vector`→`ListV` (coerced). **Structural blockers found:** a sealed trait can't be split across
+      modules, and data cases can't `extend` a core type if they must live *below* core (a `DataValue extends
+      Value` marker is the WRONG direction) → end-state = standalone low-module `DataValue` enum + `Value =
+      DataValue | carriers`, `type SpiValue = DataValue`, conversion deleted. NO early slice deletes duplication
+      (payoff lands at the final merge), so the work is a sequence of safe always-green slices.
+      **Track A — SpiValue completion:** added `SpiValue.CharV`/`VectorV` so the SPI boundary is LOSSLESS for
+      all immutable data cases (mutable `Array` + case instances stay `Opaque`, correct); `SpiValueDataRoundTripTest`,
+      plugin-tests 712/0. **Track B — disentangle `Value.scala`:** extracted `Computation`+runtime signals →
+      `Computation.scala` and `Env`/`FrameMap`/`MutableEnvView` → `Env.scala` (byte-identical, zero-behavior;
+      InterpreterTest 158/0, effects 33/0, closure/pattern/tuple 186/0). **Slice 3 spike DONE 2026-06-23:**
+      validated `type Value = DataValue | Callable` (union) + `export DataValue.*` from `object Value` — existing
+      `Value.IntV(n)` construct + `case Value.IntV(n)` patterns compile unchanged, DataValue lives below core,
+      exhaustiveness preserved under -Werror (rejected: `DataValue extends Value` marker; bare union w/o export).
+      **SCOPE DECISION 2026-06-23 (Sergiy): SCALARS-ONLY — full merge OFF the table.** The container/closure
+      obstacle: the interp stores closures INSIDE containers (`List(() => 10)` = `ListV(List(FunV))`), so a
+      fully-merged low data type would force closures-as-`Opaque` → a cast on the HOT function-dispatch path
+      (perf regression Sergiy declined). So only the scalar leaves are shared; containers + carriers stay core;
+      the conversion shrinks (scalars→identity) but is NOT deleted. **Slice 4 DONE 2026-06-23:** flipped `Value`
+      to a union `type Value = DataValue | ValueRest` — `DataValue` (new enum, `DataValue.scala`) = 9 scalar
+      leaves; `ValueRest` (sealed) = 14 container/instance/carrier cases; `object Value` re-exports scalars via
+      `export DataValue.*` so all ~4387 sites are UNCHANGED. Astonishingly clean: the ONLY friction was one
+      `java.util.Arrays.sort` over a union array (→ `Array[AnyRef]` cast); exhaustiveness preserved. Verified
+      core+backendInterpreter+all plugins+server+dap compile; core/test 1019/0, plugin-tests 712/0, broad
+      interp/value/effects 218/0, numeric/collection/JIT 77/0 (~2026 green). **Slice 5 DONE:** moved `DataValue`
+      to a new low leaf module `lang/value-data` (below core+backendSpi). **Slice 6 DONE:** `SpiValue` is now
+      `type SpiValue = DataValue | SpiRest` — scalar leaves are the SAME shared `DataValue` classes (SpiRest =
+      SPI-private containers + Opaque; `object SpiValue` re-exports `DataValue` w/ `StringV as StrV`, so the 9
+      plugins + all `SpiValue.*` sites are unchanged); `valueToSpi`/`spiToValue` convert scalars by IDENTITY.
+      **✅ SCALARS-ONLY UNIFICATION COMPLETE** — one shared set of scalar classes across `Value` + `SpiValue`;
+      the scalar half of the conversion is gone; the container half stays by design (closure-bearing obstacle).
+      plugin-tests 712/0, round-trip+effects+numeric 183/0. The actionable scope of this task is now CLOSED
+      (full merge deliberately off — perf). Original goal/notes below (NOTE: the "delete the conversion / one
+      type" end-state is SUPERSEDED by the scalars-only decision — the container half is correct to keep).
+      <br>**Goal (original):** collapse the duplication
+      between the interpreter's `Value` and the SPI's `SpiValue` into ONE value type. Today they're separate by
+      necessity: `interpreter.Value` (in `core`) is entangled with *execution* — `FunV(closure: Env)`,
+      `NativeFnV(f: List[Value] => Computation)`, mutable `InstanceV`, `type Env = Map[String, Value]` — and
+      `backendSpi` (which `core` depends on, not vice versa) can't reference it, so the boundary uses the
+      host-neutral `SpiValue` (+ a `Value↔SpiValue` conversion). **Goal:** un-entangle `Value` from execution —
+      split the *pure-data* cases (`Int/Double/Str/Bool/Char/Unit/List/Vector/Array/Map/Tuple/Option/Instance`)
+      from the *runtime-carrier* cases (closures/native-fns hold an `Env`/`Computation`), moving closures +
+      `Computation` out of the `Value` ADT into a separate runtime structure. Then the data ADT can live in a
+      low shared module and **be** `SpiValue` — one value type across interp + SPI + host libraries (Task B),
+      deleting the conversion. **Caveat (why it's LATER):** it's a deep refactor touching every `Value` match in
+      the interpreter (DispatchRuntime/PatternRuntime/EvalRuntime), and it still privileges the interpreter's
+      shape, so it's lower-priority than the keystone extractions; the current `SpiValue` (= the safe data
+      subset) is correct in the meantime. **Verify:** full interp suite green; `Value↔SpiValue` conversion gone;
+      no `Env`/`Computation` reachable from the SPI value type.
+
+### ▶ Prioritized build queue (2026-06-18, with Sergiy — "внеси всё и делай автономно")
+
+The genuine remaining **autonomously-actionable** build work, in priority order. Drive top-to-bottom,
+one theme at a time, per-feature worktrees + claims. Everything below the queue is either history (`[x]`)
+or blocked/deferred (kept for record, NOT actionable now — see "Excluded from the sprint").
+
+> **Status 2026-06-18 (autonomous pass):** queue worked top-to-bottom. #1 meta-v2-track-c —
+> verified already complete (no build). #2 sbt-plugin dep-resolution — ✓ built + tested (residuals
+> design-/Maven-gated). #3 wasm-effects — **effectively COMPLETE**: arithmetic (2a) + `_dispatch`
+> collection-HOFs (2b) + multi-shot (2c) + cross-module (2d) all built + run-verified on node (36 tests);
+> `@main` args/non-Unit edge later closed by `wasm-main-edge` (40 tests). #4 build-registry-phase4 — assessed, no concrete target → no
+> action. Then `sscBackends` cross-build ✓ DONE (user picked spec open-Q #2 → parallel outputs in one
+> `compile`; scripted `cross-build/`). **What remains is Maven-gated only:** Maven Central + Plugin Portal
+> publication (LAST, explicit-go). No bounded autonomous build work left.
+
+### ▶ Quality / perf queue (2026-06-20, with Sergiy — "все эти задачи занеси в спринт и начинай делать")
+
+After the perf series (foldLeft VM compile + typeclass-fold memo) micro-throughput is at the floor. The
+next autonomously-actionable work is quality + unmeasured-axis perf, priority order. Drive top-to-bottom,
+per-feature worktrees + claims.
+
+> **Status 2026-06-20 (queue worked top-to-bottom — ALL DONE):** #1 real-workload-perf ✓ all three axes:
+> (a) cold-start AppCDS −51% + harness, (b)+(c) steady-state server RSS+GC harness (~195 MB STABLE, no leak).
+> #2 xbackend full+CI ✓ generator already broad (12 kinds) + wired into CI. #3 xbackend-test-hardening ✓
+> `runCaptured` hang-proof runner. #4 rust-web-toolkit ✓ verified essentially complete + shipped the one
+> bounded deferred slice (set/toggle client wiring); rest is browser/rozum-driven. **Queue fully resolved.**
+> Follow-ups also DONE 2026-06-20 (per "сделай всё кроме maven"): **xbackend hang-proof sweep** — converted
+> all 17 deadlock-risk (both-streams) subprocess-test files to `ProcTestUtil.runOrThrow`/`runCaptured` (the
+> 22 single-stream `redirectErrorStream` files are deadlock-safe + behaviour-subtle → left as-is, standard
+> set for new tests); 54 converted tests run green. **Server leak-hunt** — 4-min sustained-load run:
+> definitively no leak (RSS peaked 205 MB, *ended 80 MB* as the JVM reclaimed heap; GC light/steady). **Only
+> Maven publication (gated, excluded) + rozum/browser-driven rust refinements remain.**
+
+### ▶ Rust-web computed-signal queue (2026-06-20, with Sergiy — "делай всё, заноси в спринт и делай")
+
+The rust-web S5 refinements turned out to be autonomously buildable + curl/cargo-verifiable (set/toggle,
+SSE, computed-read compile+SSR all DONE). Remaining, priority order:
+
+- [x] **computed-live-recompute** ✓ DONE 2026-06-20 — computed signals are now fully reactive. Moved the
+      signal store to `value.rs` (so `signal_value` can read it) + a computed-closure registry +
+      `ssc_register_computed`/`ssc_recompute_all`; `_ui_computed_signal` is a re-runnable `Fn` returning a
+      NAMED signal; `/__ssc/push` recomputes before broadcasting (SSE). **Verified cargo+curl:** push a dep →
+      the computed signal auto-updates (`{"__c0":"fr"}` → `{"__c0":"de"}`). `backendRust` 224/0.
+- [x] **computed-typed-reads** ✓ DONE 2026-06-20 — `collectLocalSignals` carries the element type; the apply
+      emits `.parse::<i64>()`/`.parse::<f64>()` for `Signal[Int]`/`[Double]`, `.show()` for String. Verified:
+      `signal("n", 10)` + `n() + 5` → `15`. `backendRust` 225/0.
+- [x] **direct-WS** ✓ DONE 2026-06-20 — a `serve(view)` program also exposes a WS signal endpoint on
+      `port + 1` for external clients (rozum bridge), bidirectional + sharing the SSE store/broadcast/recompute.
+      `ssc_ws_serve` (accept_async) sends state on connect, streams updates, and an incoming `name=value` frame
+      sets+recomputes. **Verified cargo + raw-WS client (python):** WS-push `locale=de` → `{"__c0":"de"}`.
+      `backendRust` 226/0. **rust-web S5 now FULLY COMPLETE** (set/toggle, SSE, computed compile+SSR + live
+      recompute, typed reads, direct-WS — all built + cargo/curl/WS-verified).
+
+### ▶ Benchmark perf-divergence queue (2026-06-21, with Sergiy — "разбирайся в чем дела — в jit? В codegen? В bench?")
+
+The big per-workload outliers from the same `./bench.sh` sweep, each ROOT-CAUSED by hand (emit + read the
+generated code / toggle the JIT). Verdict per case: **codegen**, **jit**, or **bench** (intentional anti-fold).
+
+- [x] **asm-jit-effect-pathology** (JIT) ✓ DONE 2026-06-21 — `ssc-asm` `effect-oneshot` **9.46 → 0.032
+      ms/iter**, now effectively matching default `ssc` (0.025 ms/iter). Root cause: Javac bytecode JIT lowered
+      active one-shot tail-resume effect ops through `JitGlobals.resolveEffectLong*`, but ASM `walkLong` did
+      not, so `Bump.tick().toLong` bailed out to the slow effect trampoline. Fix `0d5e03b87`: ASM mirrors the
+      resolver lowering and treats resolved effect calls as Long-shaped for `.toLong`/`.toInt`. Verified with
+      `AsmEffectJitTest`, `EffectOneShotFastPathTest`, `JitLintTest` (85/85), `sbt -no-colors cli/installBin`,
+      and `./bench.sh effect-oneshot --backend ssc{,-asm}`.
+- [x] **js-tuple-monoid-alloc** (CODEGEN) ✓ DONE 2026-06-21 — **`js` `tuple-monoid` 7.40 → 2.60 ms (2.85×)**,
+      no longer the slowest cell. Two general JsGen fixes: (1) `t._N` on a statically-known tuple lowers to a
+      direct `t[N-1]` array read (new `tupleVars` tracking + `isTupleExpr`), skipping the megamorphic
+      `_dispatch(t,'_N',[])`; case classes never match `isTupleExpr` so their Product `._N` is untouched.
+      (2) a tuple-LITERAL concat `(a,b) ++ (c,d)` flattens into ONE `Object.assign([a,b,c,d],{_isTuple:true})`
+      instead of `_tupleConcat(Object.assign(..),Object.assign(..))` (3 allocs → 1); a variable operand still
+      uses `_tupleConcat`. **Verified:** 281 JS unit tests green; interp == js on tuple flatten/`._N`/show/eq.
+      NOT done (left): native `+` for the `_arith('+')` on tuple-element reads (needs tuple-element type
+      tracking) — lower value. The `s` LCG interp/js delta in this workload is the separate 64-bit-Long-on-JS
+      precision limitation, not a tuple bug.
+- NOTE (no task — **bench**, intentional): rust `arith-loop` **1.52 ms (4.7× jvm)** is largely the harness's
+      anti-fold — `run.sc` wraps every rust closure body + per-iter reassignment in `std::hint::black_box(...)`,
+      blocking LLVM loop optimization (the comment at `run.sc:176` even tunes this so rust "stops looking 3–4×
+      slower"). Not a codegen bug; leave as-is unless we want a lighter rust anti-fold.
+
+### ▶ Benchmark backend-gap queue (2026-06-21, with Sergiy — "Запиши в спринт все n/a")
+
+Every `n/a` from a full `./bench.sh` sweep (31 workloads × ssc/ssc-asm/jvm/js/rust), each VERIFIED by hand
+against the current toolchain (the corpus comments were stale). The bench measures time only (no correctness
+check — that's `CrossBackendPropertyTest`, green); `n/a` = that backend's emit/build/run failed.
+
+- [x] **rust-effects-handle-resume** (R.4.2, ONE-SHOT) ✓ DONE 2026-06-22 — **`effect-oneshot` n/a → 0.0020 ms
+      on rust** (the fastest backend on it). Custom algebraic effects with explicit `handle`/`resume` now
+      compile + run on rust via **tagless-final traits** (per `specs/rust-effects.md §10`), NOT the Free-monad
+      CPS port the old `rust-backend.md §R.4` implied — so the `while`-loop case needs **no trampoline** (the
+      loop runs directly; `Bump.tick()` is `_eff.tick()`). 3 gaps implemented: (1) a custom `effect E:` object
+      emits a `trait ${E}Effect` with required methods (`collectEffectOps` + `renderTaglessEffectsRs`); (2)
+      `Eff.op(args)` → `_eff.op(args)`; (3) `handle(body){ case Eff.op(binders, resume) => arm }` → a handler
+      `struct __H_E; impl ${E}Effect for __H_E { fn op(&mut self, binders) -> ret { <resume(v)⇒v> } }` +
+      `{ let mut _eff = __H_E; <body> }`. **Verified:** minimal probe cargo-builds → `10`; the real
+      `effect-oneshot.ssc` workload → `962` (== interp/jvm); `backendRust` 230/0 + 3 new `RustGenR44Test`
+      cases. **Remaining (R.6 follow-up, NOT this task): multi-shot.** `effect-multishot` stays `n/a` — its
+      `opts.flatMap(opt => resume(opt))` calls `resume` many times, which a single trait-method return can't
+      model (needs FnMut continuation re-invocation); it fails cargo cleanly (out of scope by design).
+- [x] **jvm-multishot-result-type** ✓ DONE 2026-06-21 — `effect-multishot` was `n/a` on **jvm** because
+      CPS def emission widened total handled-effect wrappers from their declared result type to `Any`:
+      `def workload(seed: Long): Long` emitted as `def workload(seed: Long): Any`, and the bench wrapper's
+      typed sink failed with `Found: Any; Required: Long`. Fix (`39b7c665f`): keep declared non-effect-row
+      result types at CPS def boundaries and cast the final CPS result there; effect-row defs (`A ! Eff`)
+      still return `Any` so handlers can unwrap Free computations. Guard: `JvmGenEffectsRuntimeTest`
+      `addLong(workload(0L))` e2e. **Verified:** `backendInterpreter/testOnly scalascript.JvmGenEffectsRuntimeTest`
+      34/34; `sbt -no-colors cli/installBin`; `./bench.sh effect-multishot --backend jvm` `n/a` -> 0.075 ms.
+- [x] **rust-either-chain-closure-type** (E0282) ✓ DONE 2026-06-21 — `either-chain` was `n/a` on **rust**
+      (`cargo build` → `error[E0282]: type annotations needed` because the chained `match match match …`
+      emitted each Either arm as `(move |x| { … })(v)`, whose closure param type rustc couldn't infer). Fix:
+      a new `inlineArm` lowers a 1-param Either map/flatMap/fold arm to a `{ let x = v; body }` block instead
+      of an immediately-applied closure — the `let` flows `x`'s type straight from `v`. Function-reference args
+      keep `(f)(v)`. **Verified:** `cargo build` green; interp == rust (`R=632`); `./bench.sh either-chain
+      --backend rust` n/a → **0.0040 ms**; `backendRust` 229/0 + a new `RustGenR23Test` E0282 regression test.
+- [x] **bench-stale-jvm-na-hygiene** ✓ DONE 2026-06-21 — the stale JVM `n/a` was not a cache issue; it shared
+      the `jvm-multishot-result-type` root cause. Total CPS wrappers declared as `Long` emitted as `Any`, so
+      the bench sink rejected both `effect-oneshot` and `effect-multishot`. Corpus comments were refreshed.
+      **Verified:** `./bench.sh effect-oneshot --backend jvm` = 0.160 ms; `./bench.sh effect-multishot --backend jvm`
+      = 0.075 ms; `./bench.sh effect-oneshot effect-multishot --backend js` = 0.347 / 0.224 ms.
+
+### ▶ Improvement queue (2026-06-20, with Sergiy — "занеси все в спринт и делай")
+
+Fresh do-soon queue after rust-web S5 closed. Work top-to-bottom, one claim/worktree per slice. Maven Central
+publication remains explicit-go only; the registry work below is intentionally domain-independent first.
+
+- [x] **wasm-main-edge** ✓ DONE 2026-06-20 — closed the last WASM effects tail. Effectful WASM now derives
+      the user `@main` from the AST, preserves a single Scala 3 `@main` parameter clause (including
+      `String*` splicing), discards non-`Unit` returns in the synthetic wrapper, and rejects raw
+      `Array[String]` `@main` args with a clear "use `String*`" diagnostic. **Verified:**
+      `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/wasm-main-edge && sbt "backendWasm/testOnly scalascript.codegen.WasmBackendTest"`
+      → 40/40 green. Gotcha recorded in `specs/wasm-main-edge.md`: Scala.js ES-module launcher argument
+      delivery is out of scope; a direct Node probe supplies empty `String*` args.
+- [x] **stable-plugin-spi-p3** ✓ DONE 2026-06-21 — completed one small Phase 3 SPI cleanup slice:
+      `bench-plugin` now implements `Bench.opaque` through `PluginNative.eval` / `PluginValue` instead of
+      importing `scalascript.interpreter.Value` directly. Added `BenchIntrinsicsTest` to lock identity
+      behavior (including empty args -> `Unit`) and to scan `bench-plugin/src/main` for direct interpreter
+      imports so this slice does not regress. **Verified:** `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/stable-plugin-spi-p3 && sbt -no-colors "benchPlugin/test; pluginApi/test; benchPlugin/checkPluginBoundary"`
+      → `BenchIntrinsicsTest` 2/2 green, `PluginApiTest` 14/14 green, `benchPlugin/checkPluginBoundary` green.
+- [x] **js-char-wrapper-string-map** ✓ DONE 2026-06-21 — added a JS `_Char` box (`JsRuntimePart2a`):
+      `valueOf`→code point, `toString`→1-char string (so concat/arith/`_show` coerce). Iterated chars
+      (`map`/`filter`/`foreach`/`flatMap`/`charAt`/`head`/`last`/`toList`/`forall`/`exists`/`count`) box;
+      `String.map` returns a String only when every result is a `_Char`, else a Seq (mirrors `strMapResult`).
+      `_dispatch` got a `_Char` branch mirroring the interp `dispatchChar` (`toInt`→code, `isDigit`/`toUpper`/
+      `asDigit`/…); `_eq` bridges `_Char` ↔ 1-char String literal and ↔ Int. `CrossBackendPropertyTest`
+      "String.map char vs non-char" now asserts interp == JS == JVM (+ a char-method map/filter case).
+      **Verified:** 280 JS unit tests green (23 suites, 0 fail); String.map + string-method-gaps cross-backend
+      green on all 3 backends; direct node probe matches interp byte-for-byte. Residual (BUGS.md): a char
+      *literal*'s `.toInt` (`'5'.toInt`) still diverges (literals stay strings to avoid literal-pattern
+      `===` codegen) — separate, lower-value follow-up.
+- [x] **rust-web-example** ✓ DONE 2026-06-21 (a55e101f2) — added `examples/rust/web-signals.ssc`
+      (signal + computedSignal + signalText + serve), emit-rust + `cargo build` green, binary serves SSR and
+      `/__ssc/push?name=locale&value=de` recomputes the computed signal (`{"__c0":"fr"}` → `{"__c0":"de"}`).
+      Building it (vs the string-match tests, which never cargo-build) surfaced + fixed **two real bugs**:
+      (1) computed move-closure use-after-move (cargo E0382) — `renderClosure` now clone-captures read signal
+      locals; new regression test, backendRust 228/0; (2) docs showed `POST /__ssc/push -d` but the endpoint
+      reads query params `?name=&value=` — corrected example + rust-backend.md + user-guide.md.
+- [x] **real-workload-perf** (roadmap-next #1) ✓ DONE 2026-06-20 (all three axes). **(a) cold-start:**
+      `tests/perf/coldstart/` + AppCDS in `bin/ssc`/`install.sh` → **378 → 182 ms (−51%)**, peak RSS −32%.
+      **(b)+(c) steady-state RSS + GC:** `tests/perf/serverrss/` boots a real server under load → interp
+      server **~195 MB RSS, STABLE** (no leak), light GC (~41 pauses/27 ms). Long minutes-scale leak-hunt
+      left to demand (`secs=300+`). BACKLOG `real-workload-perf`.
+- [x] **xbackend-property-equivalence (full + CI)** ✓ DONE 2026-06-20 — broaden was already complete (12
+      kinds incl. effects/Option/Either/closures/nested; node leg 74 programs / 0 skipped) so the work was
+      reconciling that + **wiring into CI**: added Node.js setup to the `sbt` job so the interp==JS
+      differential now runs in CI (it was skipping). Made hang-safe first (next item). BACKLOG `xbackend-property-equivalence`.
+- [x] **xbackend-test-hardening** ✓ DONE 2026-06-20 — root cause was NOT bloop per se: `runProc` read
+      subprocess streams with blocking `mkString` BEFORE the bounded `awaitExit`, so a wedged child parked
+      the read forever (and could pipe-buffer-deadlock). Fixed via `ProcTestUtil.runCaptured` (threaded
+      stream drain + hard timeout that actually fires); `ProcTestUtilTest` proves a `sleep 60`@2s returns
+      <15s + a stderr flood doesn't deadlock. `CrossBackendPropertyTest.runProc` delegates. (~9 other test
+      files share the old antipattern but run fixed small programs — follow-up sweep, lower risk.)
+- [x] **rust-web-toolkit finish** ✓ VERIFIED ESSENTIALLY COMPLETE 2026-06-20 (the "~56 cargo errors" was
+      badly stale). Checked against the authoritative signal: **`backendRust` 221/0**, **`RustGenWebToolkitTest`
+      17/17** green. Per `specs/rust-web-toolkit.md`: cargo `build` of the std/ui crate is **290 → 0** (whole
+      toolkit compiles on Rust), **S4** named/curried args DONE, **S5a** (SSR initial value) + **S5b.1** (local
+      client reactivity) + **S5b.2 A/B/C** (generic push / rozum bridge / computed-derived) all DELIVERED at
+      poll-transport depth. **REMAINING = explicitly-deferred refinements**, NOT bounded build work: SSE/WS
+      streaming transport, client recompute of computed signals, set/toggle/show client wiring, direct-WS
+      client. All are **browser-dependent** (can't verify autonomously without a browser) and **rozum-driven**
+      (spec method: "drive from the target … ultimately `rozum-web.ssc`"). Hand back to the rozum driver; do
+      NOT push speculative client-JS refinements onto `feature/rust-web-toolkit` (rozum's active branch).
+
+
+- [x] **meta-v2-track-c** ✓ DONE 2026-06-18 (verified, no build needed) — Track C is COMPLETE. C1
+      (multi-clause inline) ✓ done 2026-06-18. C2's high-value slice ✓ already done + wired:
+      `MacroCodegen.codegenWarnings(module)` is computed in `ssc check` (`Main.scala:5265`, merged into
+      `CheckResult.errors:5267`) and warns up-front on interpreter-only macros that can't compile to JVM/JS —
+      `MacroCodegenTest` 6/6 green. The remaining C2 ambition (run the Typer over *arbitrary* macro-expanded
+      source, map type-errors to `.ssc` positions) is **DEFERRED by design** in the spec: needs a position
+      map (re-parse loses positions) + risks false positives (Typer may not grok expanded macro-runtime
+      constructs), niche audience — low ROI vs the codegen warning that covers the real failure mode. Building
+      it now = busywork against the spec's own judgment. **→ Next pick: sbt-plugin-finish.**
+- [x] **board-meta-v2-reconcile** ✓ DONE 2026-06-21 — removed stale meta-v2 Track C/C2 "still open"
+      guidance from the board.
+      **How:** reconcile `SPRINT.md`'s later `[~] metaprogramming-v2` paragraph and `BACKLOG.md` roadmap text
+      with the authoritative `meta-v2-track-c` done entry plus `specs/arch-metaprogramming-v2.md` §4b, which
+      says the remaining arbitrary post-expansion re-typecheck ambition is deferred by design. Keep the
+      historical spec rationale; change only active queue/backlog wording so future agents do not pick C2 as
+      buildable work. **Verify:** targeted grep now leaves only spec/history/deferred wording; active
+      `SPRINT.md`/`BACKLOG.md` guidance no longer presents C2 as buildable work.
+- [~] **sbt-plugin-finish** (roadmap #4, Phase 5) — **dep-resolution ✓ DONE 2026-06-18**: the concrete
+      actionable Phase 5 slice. `SscFrontMatter` lifts `.ssc` front-matter `dependencies:` `dep:` Maven
+      coords into `sscManagedDependencies` → `libraryDependencies` (Java `%`, Scala-cross `%%`, local paths
+      ignored); scripted `dep-resolution/` + full scripted suite green (9). Spec §3h/Phase 5 reconciled.
+      **`sscBackends` cross-build ✓ DONE 2026-06-18** (user picked spec open-Q #2 → design A = parallel
+      outputs in one `compile`): `sscBackends: Seq[String]` (default `Seq(sscBackend)`); `sscCompile` forks
+      `ssc build --backend <b>` per backend — single = flat dir (backward-compat), multiple = per-backend
+      subdirs. Scripted `cross-build/`; full suite green (10). RESIDUALS (NOT done): (a) LSP/BSP "polish" —
+      `BspIntegration`/`sscBspSetup` already landed Phase 4, no concrete remaining deliverable; (b) Maven
+      Central publish + Plugin Portal — Maven-gated (LAST). So the only buildable remainder here is
+      Maven-gated.
+- [x] **wasm-effects** ✓ COMPLETE 2026-06-20 — additive, wasm-only.
+      **arithmetic ✓ DONE (slice 2a):** `_binOp` (+`_bigIntOp`/`_bigDecOp`) — `a + b`/`sum * 2` over effect-op
+      results link + run (test → 40). **`_dispatch` ✓ DONE (slice 2b):** collection HOFs on `Any` —
+      `xs.map(..).filter(..).head` in a handler links + runs (test → 6); copied the pure subset of `_dispatch`
+      + `_seqX`/`_seq`/`_isFree`, reflection fallback → clear error. **multi-shot ✓ DONE (slice 2c):** did NOT
+      need a `_handle` rewrite (probe disproved it) — just the pure `_anyFlatMap` helper + a `usesEffects` fix
+      to recognise `multi effect Foo:`; NonDet `{1,2}×{10,20}` runs on node (test → 4). **cross-module ✓ DONE
+      (slice 2d, no code change):** an imported `effect` already works — `generateUserOnly` resolves imports via
+      `baseDir`; run test → `hello\nworld`. **`@main` args/non-Unit edge ✓ DONE (wasm-main-edge):** effectful
+      `@main` wrappers preserve Scala 3 main parameter clauses, discard non-Unit returns, and reject invalid raw
+      `Array[String]` args clearly. **Complete:** common + advanced cases all run; `WasmBackendTest` 40/40 green.
+      BACKLOG `wasm-effects`.
+- [x] **build-registry-phase4** ✓ ASSESSED → no action 2026-06-18 (demand-driven). Surveyed the ~24
+      `*Registry` classes: they are domain-distinct (Preprocessor / Interpolator / Backend / Capability /
+      Route / Command / GlueClasspath / GlueJsPreamble / …), each registering a different kind of thing —
+      **not** a duplicated template. The closest pairs (`Glue*`, `Interpolator*`) are small and cohesive;
+      consolidating them would be speculative refactoring, exactly what the spec's "only where they remove
+      real duplication" guard rules out. No concrete duplication target → no build. Revisit only if one
+      appears. (Phases 1–2 landed; Phase 3 moot/load-bearing.)
+
+---
+
+- [x] **rust-web-toolkit** (external driver: rozum) — bring the declarative std/ui toolkit
+      (`vstack/heading/text` → `lower(theme)` → `View` → `serve(view, port)`), which works on JVM,
+      up on the **Rust** backend via an HTML/SSR binding (operator path A; native GUI rejected as
+      too costly). **DONE 2026-06-19:** I1 `s"…${expr}…"` splices + S1a HTML/SSR View primitives
+      (`element/textNode/fragment` → `runtime/ui.rs`, gated) + S1b `renderHtml` SSR — `textNode`/
+      `fragment` compile AND run end-to-end (`renderHtml(...)` → escaped HTML via `ssc run-rust`).
+      `backendRust` 211/0. + S1c `element` (`->` → tuple; non-empty `Map(k->v)` → HashMap-insert;
+      `_ui_element` key-sorted attrs) — `renderHtml(element("div",Map("class"->"root"),…))` →
+      `<div class="root" …>…</div>` end-to-end, `backendRust` 212/0. + S2 `serve(view, port)` SSR
+      overload (`_ui_serve` in `http.rs`, gated on uiUsage) — `curl :8099` → SSR'd HTML, proven
+      end-to-end, `backendRust` 214/0. + S1d void elements (`<meta>` self-close) + **capstone
+      `examples/ssr-page.ssc`**: full nested HTML page built from primitives → `ssc build-rust` →
+      `curl :8123` returns the SSR'd page. **The Rust-SSR web goal is reachable today via primitives.**
+      + **S3 (a–k) the std/ui library now CODEGEN-transpiles** (import inliner + block exprs +
+      partial fns + patterns + placeholder `_`-lambdas + varargs type + `++`/try/null + struct
+      field types + String-match `.as_str()` + opaque-type mapping + signal SSR stubs). Cascade:
+      codegen 28→11→6→3→**0**; cargo 290→170→108→70→**56**. **REMAINING:** a finicky cargo
+      type-reconciliation tail (~56: TkNode/i64 + String/Value + struct-field i64 + curried-vararg
+      **call-site** `vec![]` wrapping + `defaultTheme` val) — converging, multi-session. Then S4
+      named/curried args · S5 signal reactivity (stubs are static-only). Spec `specs/rust-web-toolkit.md`.
+      **✓ CLOSED 2026-06-22:** S1–S5 all landed on `origin/main` (S4 named/curried args + omitted-default
+      fill; S5 SSR + local client + server-push + SSE/direct-WS + computed live recompute + typed signal
+      reads — see CHANGELOG 2026-06-19/06-20). The driving use case `examples/rozum-meeting.ssc` builds to a
+      binary and SSRs over hyper. General Rust-backend follow-ons (Vec `take/drop/sorted/distinct`, String
+      `.replace`, http prefix-routing/no-store/POST-body/MIME, indexable `split/toList`) landed on main via
+      `rwt-followons` (613c2bb21, `backendRust` 233/0). The `feature/rust-web-toolkit` branch is rozum's own.
+
+- [x] **agent-sdk-remainder** ✓ DONE 2026-06-17 (actionable scope) — consolidated `specs/agent-sdk.md`
+      + **P3a MCP bridge both directions** (`runtime/std/agent-mcp.ssc`: `serveAgentToolsMcp` +
+      `mcpToolSource`; examples `agent-mcp-{server,toolsource}.ssc`; all `ssc check` OK). Loop
+      conformance already covered by `AgentSdkInterpreterTest`. DEFERRED (reasons in spec): bridge
+      round-trip test (heavy jvm/js infra for thin glue), golden transcripts, P3b embedded (blocked
+      on rozum `rozum-embed`). spec `specs/agent-sdk.md`. → **Next: package-registry.**
+
+- [x] **package-registry** (roadmap #3) ✓ DONE 2026-06-17 — found ALREADY BUILT (spec was stale):
+      `ssc search`/`info`/`add` over `RegistryClient` (URL-priority + 1h-TTL cache + `--refresh`) +
+      seed `registry/packages.yaml`. spec `specs/arch-registry.md` reconciled. Added the minor
+      `--offline` flag (cached-only search, `RegistryClient.loadOffline()`). REMAINING (external only):
+      the `scalascript/registry` GitHub repo + Pages HTML + validate/publish CI.
+
+- [x] **sbt-plugin-finish** ✓ ACTIONABLE SCOPE DONE 2026-06-18 — this duplicate open marker was stale.
+      Front-matter `dependencies:` → Coursier and `sscBackends` cross-build are done + scripted-tested;
+      LSP/BSP Phase 4 already landed with no concrete remaining deliverable. Publishing the plugin artifact
+      itself is the deferred Maven Central / sbt Plugin Portal step and remains excluded from autonomous work.
+
+- [x] **metaprogramming-v2** ✓ ACTIONABLE SCOPE DONE 2026-06-21 — AUDIT 2026-06-17: NOT a from-scratch build. All three
+      phases have working bases (P3 Linker `inlineTable`/`expandInlineSource`; P4 `${impl('x)}` + direct
+      `'{ $x+1 }` + interp parity + `MacroImpl` IR; P5 runtime `Mirror` + user `derived(m: Mirror)`).
+      PROGRESS: **Track A** (P5 cross-backend derives conformance) ✓ DONE (A1a/b/c + A2 + A3,
+      2026-06-17; only deferred edge cases remain — sum-type/enum mirrors, generics, mixed-derives clauses).
+      **Track B** (P4 const-folding `Expr.asValue match`): **B1 + B2 ✓ DONE 2026-06-18** (interp splice
+      unwraps `Expr(v)`; `Linker.expandMacroSource` const-folds literal args to the `Some` branch, else the
+      `None` direct quote; `LinkerRewriteTest` +7 / `InlineDerivesTest`; `examples/quoted-macro-constfold.ssc`).
+      **B3 ✓ DONE 2026-06-18 — JVM + JS** (was blocked — quoted macros were interpreter-only): the
+      `macro-codegen-backends` pass (`MacroCodegen.expand`, hooked into `JvmGen` + `JsGen` generate entry
+      points) expands + strips macros pre-codegen, no-op for macro-free modules;
+      `QuotedMacroJvmConformanceTest` (scala-cli) + `QuotedMacroJsConformanceTest` (node) match interp.
+      **Track B is complete (B1+B2+B3).** **Track C:** C1 (multi-clause inline) ✓ DONE 2026-06-18
+      (curry tail clauses into the body — no scanner/wire change); C2's practical backend guard is already
+      wired through `MacroCodegen.codegenWarnings`, and the broader arbitrary post-expansion re-typecheck +
+      source-positioned-error ambition is deferred by design (position-map requirement + false-positive risk).
+      No bounded autonomous meta-v2 build slice remains on the board.
+
+### Tier 2 — AUDIT 2026-06-17: most "themes" are already BUILT (specs stale)
+
+While pulling these in I audited each against the code — and like agent-sdk + package-registry,
+most are already implemented; the specs/BACKLOG were stale. So Tier 2 is mostly **reconcile +
+verify residuals**, NOT from-scratch builds:
+
+**RECONCILED 2026-06-18 (`tier2-spec-reconcile`)** — verified each theme against the code:
+- [x] **theme-f-dsl-platform-hooks** — spec Status already accurate ("implemented through Phase 4",
+      `InterpolatorRegistry`). No change needed.
+- [x] **theme-h-library-modularity** — spec Status already accurate ("implemented through Phase 6",
+      `SsclibManifest`). No change needed.
+- [x] **theme-j-lightweight-ffi** — ✓ DONE: `@jvm`/`@js` (Phases 1–4) + `@rust` + **`@wasm`** all wired.
+      The WASM backend exists (`runtime/backend/wasm`, Scala.js → `.wasm`); `WasmGen` lowers `@wasm("expr")`
+      externs to a `def` (2026-06-18, `WasmBackendTest`). Only `@wasmExport`/`@wasmImport` (raw WASM ABI)
+      stay out of scope **by design** (the Scala.js path owns the ABI). The "no WASM backend wiring" note
+      was stale.
+- [~] **theme-a-stable-plugin-spi** — Phases 1+2 landed (stable surface exists). Residual = **Phase 3 versioned
+      stable API module → PROMOTED to active 2026-06-23** (Sergiy "внеси в спринт"); see the "Promoted to active"
+      queue at the top of Active tasks.
+- [x] **ssc-new-audit** ✓ DONE 2026-06-19 — verified and tightened the local `ssc new` /
+      standalone-install surface without touching Maven/publication. Fixed `NewProject.create` to best-effort
+      `git init -q`; fixed `ssc new` usage to list all bundled templates; made root `install.sh` match docs
+      (`./install.sh` prints standalone Coursier/Homebrew/curl guidance, `./install.sh --dev` runs monorepo
+      staging); clarified `specs/arch-ssc-new.md` (plugin template intentionally has no `project/plugins.sbt`;
+      live channel publication remains deferred); updated the old benchmark note to use `install.sh --dev`.
+      Added tests for all six templates, output-dir aliases, placeholder-free rendering, git-init, and release
+      fixtures. Verify: `cd /Users/sergiy/work/my/scalascript/.worktrees/feature/ssc-new-audit && sbt
+      "cli/testOnly scalascript.cli.NewProjectTest scalascript.cli.StandaloneInstallFixturesTest"` → 8/8 green.
+- [x] **board-ledger-hygiene** ✓ DONE 2026-06-19 — docs-only cleanup. Marked the duplicate
+      `sbt-plugin-finish` open item as actionable-scope done/Maven-gated, and removed three stale
+      `Status: open` lines inside fixed `BUGS.md` entries (`jvmgen-multishot-handle-result-any`,
+      `jvmgen-handle-in-arg-position`, `js-self-handling-cps-fn-not-run`). Verify:
+      `git grep -n "\*\*Status:\*\* open\|Status: open" -- BUGS.md` → no matches, and
+      `git grep -n "^- \[ \] \*\*sbt-plugin-finish" -- SPRINT.md` → no matches.
+- [x] **theme-b-build-registry-consolidation** — Phase 3 is **MOOT** (triaged 2026-06-18):
+      `PluginManifest`/`LocalRegistry` are the **implementation** the facade is built on (not removable
+      wrappers — `BackendRegistry` uses `PluginManifest`; `ImportResolver`/`PluginCommands` use
+      `LocalRegistry`), and `isStdPluginInterpreterTest` is already gone. Nothing to remove. OPTIONAL
+      Phase 4 (family registries) remains, demand-driven.
+- [x] **module-graph-grouping** — ✓ INVESTIGATED → leave-as-is (2026-06-18, `docs/module-graph-findings.md`):
+      197 modules; the per-impl module IS the SPI boundary; grouping either collapses it or is a no-op on
+      the graph. No action.
+- [ ] **std-nfc-packager-adapters** — BLOCKED autonomously: needs real iOS/Android/Web-NFC packager
+      integration + device/browser harnesses. Native platform follow-up; can't verify without targets.
+- [ ] **wallet-browser-ws-itest** — BLOCKED autonomously: real browser-WebSocket integration; full run
+      needs a browser.
+
+**Genuine remaining BUILD work** (across Tiers): no bounded autonomous build slice is currently ready here.
+The old sbt-plugin build pieces are done and publication is Maven-gated; build-registry Phase 3 is moot and
+Phase 4 is demand-driven; meta-v2 Tracks A/B/C are actionable-scope done with only deferred edge cases. The
+small residuals above are blocked by real browser/device/external inputs. See BACKLOG "Roadmap reality check".
+
+### Excluded from the sprint (deferred / blocked — stay in BACKLOG, NOT actionable now)
+
+- **Maven Central + sbt Plugin Portal** (roadmap #8 / Theme C) — LAST, explicit-go only.
+- **direct-style-eval** — DEFERRED, data-disproven ("do not start").
+- **hof-glue-jit-compile**, **vectorize-pure-loop** — deferred perf (sub-15% ceiling / speculative SIMD).
+- **agent P3b embedded transport** — blocked on rozum shipping the `rozum-embed` crate.
+- **WalletConnect project-ID** — blocked on an external decision.
+- **Hardware-wallet Vault (Ledger)**, **MPC Vault** — need real hardware / external SDKs; can't verify autonomously.
+
 ## Control and mixed-build extensions deferred from the base milestone (2026-07-14)
 
 The first milestone deliberately keeps answer types stable, builds a module DAG, supports only
@@ -203,1380 +4596,3 @@ effects at the destination. The following extensions require separate designs an
 - [ ] **saved-continuation-distributed-residual-forwarding** — optionally route an unhandled residual
       `Op` from a remote runner back to the originating caller/handler. The base remote API instead
       requires a closed effect row or an authenticated destination `RemoteRunEnvironment[Fx]`.
-
-## Standard-tier compiler correctness (2026-07-13)
-
-- [ ] **standard-tier-named-arg-skip-default** — `bin/ssc run` (default, and
-      `--v2` explicitly) — the self-hosted "standard tier" pipeline, a
-      *different* codebase area from `v1/runtime/backend/interpreter` — mis-
-      binds a named argument to the FIRST defaulted parameter instead of the
-      actual named one, whenever a call names a trailing defaulted param
-      other than the first while skipping an earlier one (e.g. `f(a, c =
-      "C1")` where `b`/`c`/`d` all default — binds `C1` to `b`, not `c`).
-      Silent wrong value, not a crash. Verified NOT to affect `bin/ssc-tools
-      run` (v1), `bin/ssc-tools run --v2`, or `bin/ssc-tools emit-js` — i.e.
-      not this repo's own `tests/conformance/run.sh` / `StdUiSmokeTest.scala`
-      harness. See `BUGS.md` § `standard-tier-named-arg-skip-default` for the
-      full repro/lane matrix. Found 2026-07-13 building `std-ui-select`
-      (`specs/std-ui-select.md`); worked around there (examples/docs always
-      name every trailing param from the first one overridden onward) but
-      not fixed — likely bites any `.ssc` author who calls a multi-default
-      function/constructor the natural way via plain `bin/ssc run`. Worth a
-      dedicated fix + regression test given how common "skip the middle
-      default" call shapes are, and given the standard tier is the
-      forward-looking default (no `--v1` fallback exists on `bin/ssc`
-      itself).
-
-## Custom-backend (StaticJsEmitter) correctness (2026-07-13)
-
-- [ ] **custom-jsemitter-signal-list-literal** — `frontend/custom/StaticJsEmitter.scala`'s
-      `jsLiteral` (`registerSignal`, called from `compileEventHandler`) has no
-      `List`/`Seq` (or `InstanceV`) case — only bare scalars. Any program
-      where a `Signal[List[_]]` (of scalars or case-class instances) is
-      referenced by an event handler crashes `ssc run` (both the default
-      v2-VM/`custom`-frontend path and `--v1`) at startup, before serving
-      anything. Not new — already affects the previously-shipped
-      `examples/frontend/keyed-for-demo/keyed-for-demo.ssc` the same way
-      (its own docstring's `ssc run` instructions are currently stale).
-      `emit-js`/`emit-spa` (the production static-compile pipeline) are
-      unaffected. Found 2026-07-13 building `select-from-signal`
-      (`specs/std-ui-select.md` § "Reactive options (selectFrom)"); not
-      fixed there — see `BUGS.md` § `custom-jsemitter-signal-list-literal`
-      for the full repro. A real fix means teaching `jsLiteral` to
-      recursively encode `List`/`InstanceV`/`Map` values.
-
-## Swift backend hardening (2026-07-13)
-
-- [ ] **v2-swift-machine-deep-nontail-stack** — `Machine.evaluate`/`runTerm`/
-      `value` (`v2/backend/swift/.../SwiftRuntime.scala`'s embedded Swift
-      source) recurse on native Swift call frames per non-tail Prim/App
-      argument. A single Term nested >~1300-1500 levels deep in one non-tail
-      chain (e.g. `(i.add 1 (i.add 1 (i.add 1 ...)))`) genuinely stack-
-      overflows at runtime (SIGSEGV; confirmed via a real macOS crash report,
-      "Thread stack size exceeded due to excessive recursion"). Found
-      2026-07-13 while picking a safe depth for the
-      `v2-swift-coreir-sexpr-embed` regression test — previously unreachable
-      because the OLD codegen (whole Program as one nested Swift literal)
-      could never even COMPILE a term this deep (hit Swift's 256
-      structure-nesting compile-time limit first, well before runtime).
-      Real business logic essentially never nests one non-tail expression
-      chain this deep, so this is not believed to block busi's real
-      `app.ssc` — not urgent. Eventual fix needs the evaluator to stop
-      relying on the native call stack for non-tail argument evaluation
-      (an explicit heap-allocated work stack or CPS transform), mirroring
-      how the JVM/JS backends presumably already handle (or bound) this.
-
-## UniML conformance hardening (2026-07-12)
-
-- [~] **uniml-yaml-m31-full-grammar — CLAIMED / MOVED TO SPRINT 2026-07-27.** Extend the safe M3
-      YAML 1.2.2 profile through the remaining
-      grammar/lexical productions: multiline single/double-quoted folding and continuation escapes,
-      every printable/noncharacter restriction, `%TAG` handle expansion/validation, indentationless
-      sequences after property-only nodes, additional complex-key forms, and strict block indentation
-      recovery. Grow the pinned `yaml/yaml-test-suite` `data-2022-01-17` subset beyond the eight M3
-      cases and keep JVM/Scala.js behavior identical. This is explicitly deferred from M3 rather than
-      silently counted as compatibility already delivered. The 402-case compare-first gate landed
-      in UPR-1; production grammar closure is active UPR-2 in `SPRINT.md`. Do not pick this stale
-      backlog row independently.
-
-- [x] **uniml-markdown-m41-conformance** — ✓ Landed (2026-07-13). Lazy paragraph continuation,
-      tight/loose list classification and the full CommonMark HTML-block type table (1–7 with correct
-      start/end conditions) all implemented and tested (leaf 30/30 JVM+JS); the example corpus was
-      grown (curated 34 + ~70 adversarial edge cases). Remaining tail (multi-line inline spans across
-      a continuation marker; deep/mixed container nesting) is tracked in `uniml-markdown-m41-tail`.
-- [x] **uniml-markdown-m41-tail** — ✓ Landed (2026-07-13). Paragraphs are buffered as per-line
-      segments so continuation markers (`> `, list indents) are emitted as trivia at their source
-      position instead of leaking into inline text; multi-line emphasis/links now resolve cleanly
-      across a marker. Deep/mixed container nesting (nested quotes/lists, quote-in-list, list-in-quote,
-      lazy continuation into a nested quote) is correct. Leaf 32/32 JVM+JS. UniML Markdown M4 + all
-      M4.1 follow-ups are now complete; only the exotic HTML5-only entity long-tail remains deferred.
-- [x] **uniml-markdown-m41-doccontent-bridge** — ✓ Landed (2026-07-13). `unimlMarkdownBridge`
-      (JVM-only, depends on `core` + the Markdown leaf) projects a compatible `MarkdownDocument` into
-      `DocumentContent` (headings→sections, paragraphs/lists/images/tables→content blocks,
-      fences→embedded), differential-tested against `Parser.buildDocumentContent`, reporting model
-      loss for block quotes, thematic breaks, raw HTML, definitions, hard/soft-break distinction,
-      task state, inline images and strikethrough. 11 tests green. The leaf does not depend on it.
-- [x] **uniml-markdown-m41-entities** — ✓ Landed (2026-07-13). Expanded `MarkdownProjection`'s
-      named-entity table to the full HTML4/XHTML set (~250: Latin-1 generated from its contiguous
-      block, plus Greek/punctuation/arrow/math). Numeric decode + unknown-stays-literal unchanged.
-      The full 652-example semantic gate landed in UPR-1; remaining HTML5-only names and grammar
-      closure are active UPR-3 in `SPRINT.md`. M4.1's historical completion is not the final
-      production label.
-
-## SclJet interoperability follow-ups (2026-07-12)
-
-- [~] **scljet-standalone-library** — DONE 2026-07-13 via a compatibility symlink;
-      resolver-native decoupling remains. Spec: `specs/scljet-standalone-library.md`.
-      SclJet source now lives at the repo-root **`scljet/`** (standalone, not under
-      `v1/`); `v1/runtime/std/scljet` is a symlink to it, so `installBin`'s glob and
-      every `std/`-import resolver (interpreter `ImportResolver`, native/JS loaders)
-      find it unchanged. Verified: `scljet-*` 11/11 on `[int, js]`, native `ssc run`,
-      and a non-scljet std case still green. REMAINING polish: drop the symlink by
-      teaching the resolvers a first-class library root — build.sbt `installBin`
-      (stage from `scljet/` directly), `ImportResolver`
-      (`v1/lang/core/.../imports/ImportResolver.scala`), the native/JS +
-      `check-stdlib-interface-load` loaders (`Main.scala`) — all mapping `std/scljet`
-      → `scljet/`. Needs FULL conformance + native + JS verification.
-      ⚠️ **Attempted 2026-07-21 (`65a9a7e8a`) and REVERTED (`638b4f610`).** The drop
-      taught only the Scala `ImportResolver` + `installBin` staging, but MISSED the
-      self-hosted native front's own ssc-land resolver: `v2/bin/ssc1-run.ssc0`
-      `sscStdRoot` (and its `ssc1-run-fsub.ssc0` sibling) resolves a `std/…` import
-      against `SSC_STD` (unset in the v21 gate) or the `v1/runtime/` fallback, reading
-      REAL FILES FROM THE SOURCE TREE — never the staged `bin/lib`. With the symlink
-      gone, all 13 `examples/scljet-*.ssc` front-errored (`NoSuchFileException
-      v1/runtime/std/scljet/index.ssc`), dropping the v21 negative-toolchain gate's
-      `frontend.ok` 208→198 (below floor 200; CI 29862386090). LESSON: the symlink
-      cannot go until `ssc1-run.ssc0`'s `sscStdRoot` (both variants) gains a
-      first-class scljet root (repo-root `scljet/`) AND the v21 gate is re-measured
-      green (`tests/e2e/v21-negative-toolchain-release-gate.sh`, `frontend.ok≥208`).
-
-
-- [ ] **scljet-m3-write-followups** — edge cases beyond the m3b–m3d write path
-      (`scljet/write.ssc`). `SqlReal` record encoding is DONE
-      (2026-07-13): `encodeReal` decomposes a Double into IEEE-754 binary64 by
-      normalizing to `[1,2)` (exact powers-of-two arithmetic) — byte-exact vs
-      `struct.pack('>d')` for 1.5/-2.5/3.14159/0/100/0.1/1e20/-0.001, reads back
-      through a real DB, int/VM/ASM/fallback/JS (subnormals/non-finite out of
-      scope). Cell-overflow (single-leaf) is DONE (2026-07-13):
-      `buildOverflowTableDatabase` keeps each cell's local portion on the leaf
-      (SQLite `localPayloadBytes` formula) and spills the remainder onto a chain
-      of `[u32 next][content]` overflow pages — byte-exact vs reference SQLite,
-      `integrity_check` ok, reads back exact, int==js (conformance
-      `scljet-write-overflow`). Multi-leaf overflow is DONE too (2026-07-13):
-      `buildOverflowBtreeDatabase` packs rows into leaves (and a table-interior
-      root) like `buildTableDatabase` while spilling overflowing cells onto chains
-      appended after the leaves — a two-pass build (probe to fix the leaf count,
-      then number the overflow pages from `3+L`); byte-exact vs reference SQLite,
-      byte-identical to `buildTableDatabase` for non-overflow input, int==js
-      (conformance `scljet-write-btree-overflow`). Arbitrary-depth (3+ level)
-      trees are DONE too (2026-07-13): `buildDeepTableDatabase` stacks interior
-      levels bottom-up until a single-page root, numbering pages top-down so each
-      node's children sit in a known contiguous range — verified on a real
-      3-level tree (80 pages, `integrity_check` ok, depth 3, all rows exact),
-      byte-identical to `buildTableDatabase` for a two-level tree, int==js
-      (conformance `scljet-write-deep-btree`, fingerprinted since the file exceeds
-      the byte-list size). This required making the page assembly iterative
-      (`cellsFlatten`/`buildLeafPages`) — see the byteslice-zeros item below.
-      Deep + overflow together is DONE too (2026-07-13):
-      `buildDeepOverflowTableDatabase` builds a tree of any depth whose oversized
-      rows also spill onto chains numbered after the whole tree (two-pass: fix the
-      tree shape from placeholder cells, then number overflow from `2+T`) —
-      verified on an 88-page 3-level tree with overflow chains (integrity_check ok,
-      depth 3, all rows exact), int==js (conformance `scljet-write-deep-overflow`).
-      The bulk-build write matrix (single/multi-table × small/overflow ×
-      2-level/deep) is now complete. The explicit-rowid writer `buildKeyedDatabase`
-      is DONE too (2026-07-13): rows carry their OWN (strictly ascending, gapped)
-      rowids — preserved across a rewrite instead of renumbered 1..n — composing
-      with overflow and any depth; verified rowids `[10,25,100,500,1000]` read back
-      exact incl. a 1016-char overflow row, int==js (conformance
-      `scljet-write-keyed`). This is the write-side foundation for m3f. Row DELETE
-      is DONE (2026-07-13): `mutate.ssc` `deleteRowids`/`keepRowids` open the DB
-      read-only over its own bytes (`ImageVfs`), read each surviving row as its raw
-      record payload (`reconstructRecordBytes` from the reader's `DecodedRecord` —
-      no value/text round-trip), and rebuild via `buildFromRawSchema` preserving
-      the raw `sqlite_schema` record and original rowids. Verified vs reference
-      `integrity_check` incl. an overflow row, int==js (conformance
-      `scljet-mutate-delete`). Row UPDATE is DONE too (2026-07-13):
-      `updateRowValues` re-encodes ONLY the changed row from a caller-supplied
-      `List[SqliteValue]` (the new value is given, not decoded — so NO
-      code-point→String needed; my earlier note here was wrong) and passes the
-      rest through as raw records; verified updating a row to a 1016-char overflow
-      value, int==js (conformance `scljet-mutate-update`). Row INSERT is DONE too
-      (2026-07-14): `insertRow` adds a row at an explicit rowid kept in ascending
-      order (`insertSorted`; errors on a duplicate rowid), existing rows pass
-      through raw; verified middle-insert, append, duplicate rejection, and an
-      inserted 1016-char overflow value, int==js (conformance
-      `scljet-mutate-insert`). `mutate.ssc` now does the full row-level CRUD
-      (insert/delete/keep/update) on an existing DB. Multi-table WRITE is DONE
-      (2026-07-14): `buildMultiTableDatabase` lays out several rowid tables in one
-      file — page 1 = `sqlite_schema` with a CREATE TABLE entry per table (each with
-      its own root page), then each table's B-tree in declaration order (interiors
-      built root-page-relative via `buildTableTreeAt`/`buildInteriorLevels`);
-      verified 3 tables incl. a multi-leaf table at a non-page-2 root, all read back
-      exact, int==js (conformance `scljet-write-multitable`). Multi-table MUTATE is
-      DONE too (2026-07-14): `mutate.ssc` `deleteRowidsInTable`/`updateRowInTable`
-      (+ `readAllTables`) read every table (raw schema record + raw rows), modify
-      the one at a given index, and rebuild via write.ssc `buildMultiTableRaw` —
-      which reassigns root pages and re-encodes each schema record's rootpage field
-      (`patchSchemaRootpage`, keeping name/tbl_name/sql byte-for-byte, so no text is
-      decoded to a String). Verified deleting/updating one table of three, others
-      preserved, int==js (conformance `scljet-multitable-mutate`). Index WRITE is
-      DONE (2026-07-14): `buildTableWithIndexDatabase` writes a rowid table plus a
-      single-leaf index B-tree (page kind 10) of `(column, rowid)` records sorted by
-      `(value, rowid)` — reference `integrity_check` cross-validates the index
-      against the table AND the query planner uses it (`SEARCH t USING INDEX idx`),
-      int==js (conformance `scljet-write-index`). Text-column index keys work too
-      (2026-07-14): `compareKeys`/`valueClass` sort by SQLite storage class then
-      numeric / BINARY-text order (String `<`, ASCII/BMP-exact), so an index on a
-      TEXT column validates and the planner uses it (conformance
-      `scljet-write-index-text`). Multi-column (composite) index keys work too
-      (2026-07-14): `buildTableWithIndexDatabase` takes `keyColumns: List[Int]`,
-      records are `[keycols…, rowid]` sorted lexicographically (`compareKeyList`);
-      a two-column index validates and the planner uses it for `a=? AND b=?`
-      (conformance `scljet-write-index-composite`; single-column via `List(col)` is
-      byte-identical). Multi-leaf indexes work too (2026-07-14): when the entries
-      exceed one leaf, `packIndexTree` packs them into leaves with a PROMOTED
-      separator entry between each pair (the separator lives in the interior, not a
-      leaf — unlike a table interior which copies a rowid), and `buildIndexTree`
-      builds an index-interior root (page kind 2) over the leaves
-      (`buildInteriorPageKind`/`indexInteriorCell`); verified a 100-row two-leaf
-      index — reference integrity_check cross-validates it and the planner uses it
-      (conformance `scljet-write-index-multileaf`); single-leaf stays byte-identical.
-      Index maintenance on mutate is DONE (2026-07-14): `mutate.ssc`
-      `deleteRowidsIndexed`/`updateRowIndexed` (via `rebuildIndexed` + write.ssc
-      `buildTableWithIndexRaw`) read a table+index DB's rows, apply the edit, and
-      rebuild BOTH the table and the index from the surviving rows so the index
-      never goes stale — reference `integrity_check`'s index cross-check passes
-      after delete AND update; the caller supplies the key columns
-      (conformance `scljet-index-mutate`). TEXT-key index maintenance works too
-      (2026-07-14): `fieldToValue` rebuilds a text key from its code points
-      (`codepointsToString` via `Int.toChar` — which works now, contrary to the old
-      note), so a TEXT index stays consistent on delete/update (conformance
-      `scljet-index-mutate-text`). The m3e CORE — transactional in-place
-      page write — is DONE (2026-07-14): `journal.ssc` `writePagesJournaled` journals
-      the pre-images of the pages about to change, overwrites them in place, and
-      returns the mutated database + rollback journal; `applyRollbackJournal` undoes
-      it, so a crash before commit is recoverable (conformance
-      `scljet-journal-write`, verified differs+restores int==js). 3+-level indexes are
-      DONE too (2026-07-14): `buildIndexTree` stacks kind-2 interior levels bottom-up
-      until a single-page root (`packIdxLevel`/`buildIdxLevels`) — a genuine 3-level
-      index (interior level itself overflows) verified on 3000 rows, `integrity_check`
-      cross-validates it, the planner uses `SEARCH … USING COVERING INDEX`, depth 3,
-      int==js (conformance `scljet-write-index-deep`). The full mutable pager is DONE
-      too (2026-07-14): `journal.ssc` `MutablePager` (dirty-page set + atomic journaled
-      `mutableCommit`/`mutableRollback`), `write.ssc` cell-level leaf edits
-      (`leafInsertCell`/`leafDeleteCell`/`leafUpdateCell`) and incremental `balance()`
-      on insert/delete (`pagerInsertBalanced` splits leaves + grows the tree via
-      `balanceDeeper`; `pagerDeleteBalanced` rewrites the leaf) — all wired into the
-      SQL engine's DML (`sql.ssc` INSERT/DELETE/UPDATE=delete+reinsert); conformance
-      `scljet-pager-mutate`, `scljet-cell-inplace`, `scljet-balance-insert`. Spec:
-      `specs/scljet-mutable-pager.md`. Merge/rebalance on delete underflow is DONE too
-      (2026-07-21): `write.ssc` `pagerDeleteRebalanced` reclaims an emptied non-root
-      leaf onto the freelist (page-1 bytes 32..39 + trunk pages, `buildFreelistTrunks`/
-      `patchFreelistHeader`) and collapses an interior dropping to one child
-      (`balance_shallower` — root page kept, interior→leaf); file length + header page
-      count unchanged, freelist grows. Only empty nodes are reclaimed (dividers dropped,
-      never rewritten). Verified vs reference SQLite 3.53.3: `integrity_check` ok and
-      `freelist_count` matches after a partial delete (10 pages freed) AND a root
-      collapse (12 freed, root→leaf); the journal recovers the original image after a
-      merge (crash-safe); int==js (conformance `scljet-balance-delete-merge`). The whole
-      m3 write matrix + in-place mutable pager is now complete. (JIT codegen bug found on
-      the way — BUGS.md `interp-jit-nested-match-duplicate-var`.)
-
-- [ ] **scljet-reclaiming-dml** — wire the reclaiming delete into the live SQL engine.
-      `sql.ssc` DELETE currently uses `pagerDeleteBalanced` (non-reclaiming); switching
-      `deleteRowidLoop` to `pagerDeleteRebalanced` makes DELETE return pages to the
-      freelist, but is only a net win when paired with **free-page reuse on INSERT**
-      (`pagerInsertBalanced`/`mutableAllocate` currently always allocate at EOF, ignoring
-      the freelist) — otherwise a delete-then-insert workload bloats. Do both together:
-      teach allocation to pop a page off the freelist (updating header bytes 32..39 +
-      trunk) before extending at EOF, then flip the DELETE path. Gate: no `scljet-sql-*`
-      golden shifts except intended byte-state changes; `integrity_check` ok across a
-      mixed insert/delete workload; int==js. Primitive + freelist writer already exist
-      (`specs/scljet-mutable-pager.md`).
-
-- [x] **scljet-byteslice-zeros-js-recursion** — DONE 2026-07-13. The core list
-      helpers in `scljet/bytes.ssc` were made iterative (`while`+`var`, not linear
-      recursion): `zerosList` (`ByteSlice.zeros`), `validateBytes`/`buildChunks`
-      (`ByteSlice.fromList`), and `collectBytes` (`byteSliceToList`). The v1
-      interpreter TCO'd these, but the JS backend does not, so they overflowed
-      node's stack for large byte lists (`RangeError: Maximum call stack size
-      exceeded`) — blocking full-size empty-DB writes and any 3+-level / large
-      table on JS. Now a 40 KB three-level DB builds and round-trips identically on
-      `[int, js]` (conformance `scljet-write-deep-btree`), and all 14 scljet cases
-      stay green `--no-memo` on both backends. NB the interpreter-side var-scope
-      leak (BUGS.md `interp-var-scope-leak-across-calls`) means the new iterative
-      helpers use uniquely-prefixed var names.
-
-- [x] **scljet-m2d-hardening-overflow-traversal** — ✓ Landed (2026-07-21). The last
-      M2d corpus-hardening item. Three byte-mutations of `overflow-thresholds.db`'s
-      `p = 1100` two-page overflow chain (page 11 → 12) are pinned corrupt fixtures —
-      `next` → 0 (truncated), → 99 (out of range), → 11 (self-loop) — added to
-      `generate.py corruptions()` (full regen byte-identical). `openReadonly` accepts
-      all three; they fail only during traversal. New `tests/tools/scljet-corrupt-traverse.ssc`
-      walks every user table and pins the diagnostics (`corrupt-traversal-errors.txt`),
-      wired into `scljet-m2-corpus-smoke.sh` (default/asm/fallback tiers green).
-      Cross-backend parity via conformance `scljet-overflow-traversal-corrupt`
-      (`[int, js]`), which rebuilds the chain in memory and adds the length-short
-      `overflow page is truncated` case (unreachable on disk). scljet-* 100/100 INT+JS.
-
-- [ ] **scljet-portable-text-projection** — specify and implement a general
-      target-neutral `code points/UTF-16 units -> String` construction API, then
-      project SclJet `DecodedText` to `SqlText` without a host/JSON decoder.
-      Current real-harness repro is in `BUGS.md`: v1 lacks `Int.toChar`, while
-      v2 renders dynamic chars as decimal numbers. Keep raw encoded bytes as the
-      SQLite GIGO source of truth and prove interpreter/VM/ASM/JS parity before
-      the M4 value API depends on this projection.
-
-- [x] **scljet-js-m1-parity** — DONE 2026-07-13. All 6 scljet conformance cases
-      now pass `[JS]` and are declared `backends: [int, js]` (CI-locks the parity).
-      Two findings: (1) the byte-codec/page-record/memory-VFS/cursor "diverges on
-      JS" reports were all **stale-binary artifacts** — the fixes had landed in
-      `70dfb5a1f` and later (always rebuild `installBin` before re-checking JS
-      codegen). (2) `scljet-readonly-pager-btree` exposed a real JsGen bug —
-      case-class body methods **with parameters** were dropped (only zero-param
-      registered), so `_dispatch(vfs, 'fullPath', …)` threw
-      `Method not found: fullPath on FixtureVfs`; fixed in JsGen (`BUGS.md`
-      `js-caseclass-body-method-params-dropped`). Remaining scljet JS work is only
-      the v2 self-hosted path's `__mk_method_obj__` import primitive (`BUGS.md`
-      `v2-js-imported-method-object-primitive`) — tracked with the v2 work.
-
-- [ ] **scljet-same-jvm-reference-lock-bridge** — before SclJet may replace the
-      existing `sqlite:` provider, make SclJet locks conflict with an official
-      native SQLite/Xerial connection running in the same JVM. POSIX record
-      locks are process-owned, so `FileChannel` plus the SclJet-local canonical-
-      path coordinator only covers SclJet↔SclJet in-process and reference SQLite
-      across processes. Evaluate a small lock-broker process first; a native
-      bridge into SQLite's per-process inode lock table is the alternative.
-      Done when rollback and WAL contention tests mix both implementations in
-      one JVM without unsafe simultaneous writers.
-
-## ScalaScript 2.1 native provider parity follow-ups (2026-07-10)
-
-TI-5's representative Scalameta-free boundary is complete; these full-surface
-parity slices are intentionally non-blocking for the artifact/packaging cutover:
-
-- [ ] **v1-jvm-coroutine-generic-surface** — make JvmGen's generated coroutine runtime preserve
-      the public `Coroutine[Y, R, T]` type surface instead of exposing erased
-      `coroutineCreate(() => Any)` / `suspend(Any): Any`. Baseline:
-      `bin/ssc-tools run-jvm tests/conformance/coroutine-basic.ssc` rejects explicit type arguments
-      and infers two-way resume values as `Any`; tracked in `BUGS.md`. This is compatibility-tier
-      lowering work, not part of the core-free native-provider Q4 slice. Done when the historical
-      JVM lane passes the same coroutine conformance output and its temporary `known-red` is removed.
-- [ ] **v21-native-http-advanced** — native middleware/CORS/gzip, TLS,
-      streaming responses, SSE, uploads, WebSockets, and static UI serving;
-      replace each current bounded unavailable diagnostic with a tested host
-      hook, never a compatibility fallback.
-- [ ] **v21-native-sql-advanced** — typed `Db.insert/update`, PostgreSQL
-      LISTEN/NOTIFY, and native lowering of fenced `sql`/`transaction` blocks.
-- [ ] **v21-native-ui-advanced** — framework SPA generation, `serve(view)`,
-      keyed/fetch/data-table actions, storage/WebAuthn, and desktop/mobile
-      renderers without `frontendCore`.
-- [ ] **v21-native-effects-remaining** — Random, Clock, Env, Retry, and Cache
-      providers over `NativePluginContext.withEffect`, without v1
-      `BlockForm`/`SpiValue` adapters. Logger, State, Stream, and Async are now
-      core-free standard providers.
-- [ ] **v21-native-generator-dataset-bridge** — define a provider-neutral
-      factory/pull contract so `Dataset.fromGenerator` and `Dataset.toGenerator`
-      compose without either provider depending on the other's implementation.
-      Until then both directions must remain bounded explicit errors, never a
-      compatibility value or transparent fallback.
-- [ ] **v21-native-actors-advanced** — add provider-owned network transport,
-      discovery/cluster membership, links/monitors, supervision trees, durable
-      mailboxes, and timer APIs on top of the core-free local actor contract.
-      Keep these surfaces explicit until implemented; never route the standard
-      launcher through the v1 actor scheduler or compatibility bridge.
-- [ ] **v21-native-distributed-advanced** — add explicit provider-owned remote
-      workers, network transport, discovery/membership, failure detection,
-      retry/partial-result semantics, durable queues, and deployed named-handler
-      agreement on top of the deterministic local-loopback MapReduce contract.
-      Never serialize closures or route the standard launcher through the v1
-      actor scheduler/compatibility bridge.
-
-## ssc-toolkit-v2 P2 follow-ups (2026-07-07) — see `specs/ssc-toolkit-v2.md`
-
-Queued behind the SPRINT tkv2-* slices (P0/P1). Requirements source: busi
-`src/v2/specs/frontend-on-scalascript.md`.
-
-- **tkv2-dev-loop** — ✓ Already satisfied / verified (2026-07-10):
-      `ssc serve file.ssc` dispatches to `watch`; server-mode watch starts the
-      port once and headlessly reloads the route table on saves; `watch-bench`
-      measures the same reload path on a temp copy. Verification gates:
-      CLI focused tests 11/11 (watch-cycle p50 5ms / max 8ms), `installBin`,
-      real `bin/ssc watch-bench --cycles 2 --target-ms 1000 --require-target
-      examples/rest-api.ssc` server-mode smoke (warm 433ms, hot max 42ms),
-      and `tkv2-*` conformance 11/11.
-- **tkv2-tri-state** — ✓ Landed (2026-07-10, `10273703c`): loading/empty/error
-      helper for fetched views (busi P2-10), scoped as pure `.ssc`
-      `std.ui.state` helpers over existing signals.
-- **tkv2-raw-html** — ✓ Landed (2026-07-10, `bb5342f08`):
-      `rawHtml(html: String): TkNode` now injects trusted raw markup through a
-      toolkit-owned sentinel handled by the custom SPA runtime and SSR; `rawText`
-      remains escaped text. Static `std/ui` SPA modules also force the Signals/UI
-      runtime so toolkit primitives are present even without explicit
-      `signal(...)` calls.
-- **tkv2-spa-i18n-parity** — ✓ Landed (2026-07-10, `7e5d55e4f`):
-      custom emitted SPA now respects the collision-renamed
-      `std.ui.primitives.serve` import (`serve__ssc`) instead of dispatching a
-      bare `serve` intrinsic, and the i18n demo live-switches EN/RU/UK/PL/EN in
-      jsdom over the production custom browser runtime.
-
-## v1→v2 migration follow-ups (2026-07-03)
-
-- [ ] **v2-imported-receiver-methods-not-linked** (2026-07-12) — native
-      self-hosted imports lose extension receiver shape (`row []`) and emit
-      `Stub` for real case-class method bodies. Add a multi-file VM/ASM
-      regression and preserve/link both receiver operation forms.
-
-- [x] **v1-explicit-companion-shadows-case-constructor** — DONE (git): Defn.Object preserves the ctor as `apply`; Defn.Class merges ctor into an existing companion. Order-independent. Conformance companion-case-class-order.
-      interpreter sometimes resolves `CaseClass(...)` to an explicit companion
-      value in later imported functions/methods. Reproduce cross-module and make
-      generated constructor dispatch independent of declaration order.
-
-- [x] **v1-args-native-method-gap** — DONE (git): dispatch auto-calls a parameterless
-      plugin-native receiver + re-dispatches (gated on pluginNativeNames). Verified
-      args.length / cwd.startsWith. Bare-value position (println(args)) still open (separate).
-
-- **v2-arith-unification** (2026-07-08) — ✓ Landed (2026-07-09,
-      `a2985d911`): TWO diverged arith implementations:
-      `Prims.arithOp` (full: Op-lifting, Map+(k->v), char comparisons, Cons-minus) used
-      when the op name is a LITERAL, vs the resolve-table `__arith__` entry (weaker,
-      string-concat fallback) for non-literal names. The busi litdoc bug was exactly this
-      divergence (BUGS.md v2-arith-table-divergence). Map+Tuple2 was patched into the
-      table; the honest fix is delegation (table entry → Prims.arithOp) after auditing
-      the table-only cases (actor `!`, BigDecimal) into arithOp. Same lesson as T5.4:
-      "a fast path stricter than the general table silently diverges".
-      `resolve("__arith__")` is now a thin delegate to `Prims.arithOp`; focused
-      non-literal CoreIR regressions cover Map+Tuple2, char-code comparisons,
-      Decimal, actor-send, and unknown declaration fallback behavior.
-
-- [x] **v1-jvm-state-threaded-handler-codegen** — DONE (2026-07-12, opus, see git):
-      run-jvm now compiles + runs the deep-handler state-threading idiom (3 layers of
-      Any-typing fixed — lambda param types + Any-value-as-function casts at
-      `resume(())(x)` and `threaded(0)`). Conformance `effect-deep-handler-state`
-      PASS on INT/JS/JVM; effects/async/actor/generator suites green.
-
-- [x] **v2-ssc1c-globals-bug** — ✓ Landed (2026-07-05). Root cause: `lowerE`'s
-      expression-position `"assign"` case missed `@@name` LongCell vars → bogus
-      `(global @count)`. Fixed in `v2/lib/ssc1-lower.ssc0`; bool-predicate +
-      mutual-recursion now correct on VM/JVM/JS/Rust. See SPRINT T5.1 and
-      `v2/backend/check.sh` (new parity harness).
-- [x] **v2-float-cell-fastpath** — INVESTIGATED + CLOSED 2026-07-05 (probe before build):
-      a 3M-iteration float-accumulation loop already runs at **11 ns/iter** (33 ms/op)
-      through the existing Float-safe FC lane (`tryFCValue`/`arithOp`) — the T3.2b
-      FC-dispatch floor. A dcell/FDC tier (kernel prim + ssc1c lowering + 3 generators)
-      would buy at most 2–3× on synthetic micros; pattern-match-heavy — the original
-      motivation — is closure/match-dispatch bound and would NOT move. Not worth the
-      cross-cutting churn; the real lever remains a v2 JIT backend (T3.2b conclusion).
-- [x] **v2-rust-backend-tco** — ✓ Landed (2026-07-05). Step-trampoline port from the
-      ssc0-level backend: `Step::Val|Bounce`, `call_fn` loop, `genTail` emitter for tail
-      positions. Stack back to 256MB; tco.coreir (1M tail calls) PROVEN at a 1MB stack.
-      Parity 8×3 GREEN; 4 corpus programs byte-match the VM.
-- [x] **v2-js-backend-smallint-fastmode** — ✓ Landed (2026-07-05) as an opt-in flag:
-      `--ints=number` on the JS generator (plain JS numbers; arith-loop ~6×, fib ~3×
-      faster in node). Default stays exact BigInt — number mode is wrong for 64-bit
-      wrap-around programs (bool-predicate 6≠243, demonstrated). A future typed-IR
-      selective lowering could pick the mode per-value automatically.
-- **v2-jvm-backend-echo-macos** — ✓ Landed (2026-07-10, `a4f7662be`):
-      verified that `v2/backend/check.sh` already uses direct redirects for
-      generated JVM/JS/Rust sources, then fixed the remaining live helper
-      hazards by replacing source/IR `echo "$..."` pipes in `v2/scripts/bench.sh`
-      and `v2/ssc1` with `printf '%s\n'`. The same verification found and fixed
-      stale Scala CLI `-J-Xss512m` usage in `v2/ssc`, `v2/ssc0c`, and `v2/ssc1`
-      by switching to `--java-opt=-Xss512m`. Gates: backend source smoke
-      (`fact` x JVM/JS/Rust), wrapper smokes, `installBin`, `litdoc`
-      conformance 1/1, and `git diff --check`.
-- **v2-backend-check-ssc1c-wrapper-app-lit** (2026-07-09) — ✓ Landed
-      (2026-07-09, `043039b61`): `v2/backend/check.sh bool` and
-      `v2/backend/check.sh mutual-recursion` are restored as source-backend
-      parity gates. Root cause: `indent2braces.py` converted
-      `while i < 1000 do` to unparenthesized `while i < 1000 { ... }`, while
-      ssc1c expects `while (cond) body`, producing app-lit CoreIR. The converter
-      now emits parenthesized while conditions; backend `bool`, `mutual-recursion`,
-      `tco`, `letrec`, and affected conformance are green.
-- [x] **v2-litdoc-js-jvm-backend-lanes** ✓ Landed 2026-07-09 (`782f07438`) —
-      `tests/conformance/litdoc.ssc` now runs across INT/JS/JVM. Landed fixes:
-      JS runtime-colliding top-level user `val`/`var` bindings are renamed,
-      JS `String.split` uses regex semantics, JVM omits the `doc` helper when
-      user code owns top-level `doc`, and JVM no-arg `.mkString()` rewrites to
-      parameterless Scala `.mkString`.
-- [x] **v2-backend-performance-harness** — ✓ Landed (2026-07-09) in
-      `01d9abf32`/`677969e1a`: `scripts/bench v2-backends [workload]` and
-      `./bench.sh --v2-backends ...` now time the same corpus rows through v2
-      VM, v2 JVM source backend, and v2 Rust source backend. The harness closed
-      the measurement gap only; it did not close the Phase-3 backend performance
-      thresholds.
-- [x] **v2-source-backend-production-perf-gates** — ✓ Landed (2026-07-09,
-      `1e7598394` closing slice): use the new
-      `scripts/bench v2-backends` baseline to close the Phase-3 v2 JVM/Rust
-      source backend performance gates. Current bounded local numbers are
-      mixed: `v2-jvm` is excellent on `arith-loop` but slow on
-      `recursion-fib`, while `v2-rust` is slow on all four probe rows
-      (`arith-loop` 65.9 ms, `pattern-match-heavy` 304.2 ms,
-      `recursion-fib` 221.2 ms, `recursion-tco` 12.1 ms). Scope the next
-      slice to one backend/workload family at a time, using
-      `scripts/bench v2-backends <workload>` as the before/after command.
-      Progress 2026-07-09: the `v2-source-jvm-recursion-fib-perf` slice closes
-      the JVM source `recursion-fib` row with Long-specialized recursive global
-      helpers: default `scripts/bench v2-backends recursion-fib` moved
-      `v2-jvm` from 67.5 ms to 1.37 ms. The broader item remains open for Rust
-      source performance and other workload-family rows.
-      Progress 2026-07-09: the `v2-source-rust-recursion-fib-perf` slice closes
-      the Rust source `recursion-fib` row with Long-specialized recursive global
-      helpers plus benchmark-only v2-rust anti-folding:
-      `scripts/bench v2-backends recursion-fib` moved `v2-rust` from
-      226.7 ms to 1.44 ms (`v2=6.03 ms`, `v2-jvm=1.25 ms`). The broader item
-      remains open for other Rust/source workload-family rows.
-      Progress 2026-07-09: the `v2-source-backend-production-perf-sweep` slice
-      measured the remaining rows after the recursion-fib fixes. Fresh public
-      rows: `arith-loop` => `v2=0.000016 ms`, `v2-jvm=0.267 ms`,
-      `v2-rust=0.000025 ms`; `recursion-tco` initially exposed a false
-      `v2-rust=0.000000 ms` LLVM fold, fixed by benchmark-only tail-recursive
-      anti-folding, and now reports `v2=0.279 ms`, `v2-jvm=3.11 ms`,
-      `v2-rust=0.721 ms`; `pattern-match-heavy` remains the largest real Rust
-      source blocker at `v2=14.8 ms`, `v2-jvm=10.7 ms`, `v2-rust=318.2 ms`.
-      Next recommended slice: `v2-source-rust-pattern-match-heavy-perf`. Also
-      track `v2-jvm recursion-tco=3.11 ms` as a smaller JVM source-backend gap.
-      Progress 2026-07-09: the `v2-source-rust-pattern-match-heavy-perf`
-      slice closes the Rust source `pattern-match-heavy` row with structural
-      Float helpers and a static top-level-list reduction path:
-      `scripts/bench v2-backends pattern-match-heavy` moved `v2-rust` from
-      319.1 ms to 0.278 ms (`v2=15.6 ms`, `v2-jvm=10.6 ms`). Rust source rows
-      are no longer the blocker in the four-row source-backend sweep. The
-      remaining recommended source-backend slice is
-      `v2-source-jvm-recursion-tco-perf` (`v2-jvm=3.20 ms` in the regression
-      row from this slice).
-      Progress 2026-07-09: the `v2-source-jvm-recursion-tco-perf` slice closes
-      the remaining JVM source `recursion-tco` row by prioritizing proven Long
-      helpers over boxed direct tail-recursive methods:
-      `scripts/bench v2-backends recursion-tco` moved `v2-jvm` from 3.09 ms to
-      0.027 ms (`v2=0.253 ms`, `v2-rust=0.658 ms`). Fresh sweep/regression rows
-      in the closing worktree: `arith-loop` => `v2=0.000016 ms`,
-      `v2-jvm=0.267 ms`, `v2-rust=0.000026 ms`; `recursion-fib` =>
-      `v2=11.0 ms`, `v2-jvm=1.71 ms`, `v2-rust=1.53 ms`;
-      `pattern-match-heavy` => `v2=14.0 ms`, `v2-jvm=10.7 ms`,
-      `v2-rust=0.265 ms`. Known JVM/Rust source-backend performance rows are
-      closed; continue production-performance work under the separate
-      `v2-vm-production-jit-gate`.
-- **v2-vm-production-jit-gate** — ✓ Closed (2026-07-10) as route-policy gate;
-      implementation slices landed across 2026-07-09 and 2026-07-10:
-      three narrow VM slices have shipped. The first recognized the exact
-      bridge-lowered local Long-cell summation loop from
-      `bench/corpus/arith-loop.ssc`, moving the v2 VM row from 9.91 ms to
-      0.000018 ms. The second (`v2-vm-pattern-match-heavy-fast-tier`) reused
-      scratch env arrays for compact arithmetic-only `Match` fast arms,
-      moving `pattern-match-heavy` from 35.1 ms to 16.4-17.0 ms. The third
-      (`v2-vm-foreach-match-boundary`) evaluates supported inline `foreach`
-      lambda bodies against a virtual appended element instead of allocating
-      `Runtime.appendOne(env, elem)` per list element, moving the single-row
-      `pattern-match-heavy` v2 result from 18.2 ms to 14.4 ms. The overall
-      Phase-3 v2 VM production-performance gate remains open: the latest
-      bounded four-row probe still shows `pattern-match-heavy` at 15.2 ms
-      vs `ssc` 0.058 ms, `recursion-fib` at 5.80 ms vs 1.18 ms, and
-      `recursion-tco` at 0.272 ms vs 0.031 ms. Keep closing this as one
-      workload-family slice at a time; after these local VM hand paths, the
-      next slice should be profile-backed and likely move toward broader
-      bytecode-JIT/source-backend gate work rather than speculative new
-      `FastCode` cases.
-      Progress 2026-07-09: `v2-bytecode-production-gate-sweep` measured the
-      existing JVM bytecode lane against the four representative rows. It is a
-      strong production route for recursion (`recursion-fib`: `v2=5.89 ms`,
-      `v2-bytecode=1.16 ms`; `recursion-tco`: `v2=0.258 ms`,
-      `v2-bytecode=0.028 ms`) but not a universal default
-      (`arith-loop`: `v2=0.000015 ms`, `v2-bytecode=0.609 ms`;
-      `pattern-match-heavy`: `v2=13.7 ms`, `v2-bytecode=19.3 ms`). Current
-      source-route comparison keeps `pattern-match-heavy` best on v2 Rust
-      (`v2-rust=0.266 ms`) while pure VM/bytecode remain far behind. Next
-      concrete blocker: a profile/inspection-backed `pattern-match-heavy`
-      production slice; avoid another speculative VM `FastCode` recognizer
-      without measured evidence.
-      Progress 2026-07-10: `v2-pattern-match-heavy-production-profile`
-      closed that concrete blocker for the VM route. The recognized structural
-      shape is a static top-level list `foreach` accumulating a Float cell with
-      a pure one-arg Float global. The VM now precomputes the pure per-element
-      Float additions once and runs the hot loop as unboxed Double additions;
-      the fallback test proves impure globals still execute per element.
-      `scripts/bench v2-bytecode pattern-match-heavy` moved the VM row from
-      `v2=14.6 ms` to `v2=0.266 ms` (`v2-bytecode=19.3 ms`), and
-      `scripts/bench v2-backends pattern-match-heavy` now reports
-      `v2=0.266 ms`, `v2-jvm=10.9 ms`, `v2-rust=0.265 ms`. Next
-      recommended production slice: rerun the bounded four-row route gate and
-      record which rows should default to VM, bytecode, JVM source, or Rust
-      source before declaring the v2 production route policy closed.
-      Progress 2026-07-10: `v2-four-row-route-policy-sweep` closed the
-      representative public-route policy gate without code changes. Fresh
-      rows: bytecode wins recursion (`recursion-fib` `1.19 ms`,
-      `recursion-tco` `0.028 ms`) but regresses scalar/pattern rows
-      (`arith-loop` `0.595 ms`, `pattern-match-heavy` `19.4 ms`); JVM source
-      is the best TCO route (`0.027 ms`) but not pattern-heavy (`10.9 ms`);
-      Rust source ties VM on scalar/pattern rows (`arith-loop` `0.000026 ms`,
-      `pattern-match-heavy` `0.269 ms`) but not recursion. Global default
-      stays VM because no single non-VM route improves all four rows. The
-      production policy is explicit route selection by workload/deployment
-      family: bytecode/JVM source for recursion, VM/Rust source for
-      scalar/pattern-heavy. Pure-VM recursion remains a known non-default
-      performance gap only if a deployment forbids bytecode/source routes.
-      Reconcile verification (2026-07-10): `scripts/sbtc "installBin"`,
-      `scripts/bench v2-backends pattern-match-heavy` (`v2=0.266 ms`,
-      `v2-jvm=10.4 ms`, `v2-rust=0.293 ms`), and
-      `tests/conformance/run.sh --only 'list-companion' --no-memo` 1/1
-      passed. `v2-auto-route-selector` remains a can-wait follow-up, not a
-      production blocker while explicit public route flags are available.
-- [ ] **v2-auto-route-selector** — can-wait follow-up after the manual route
-      policy: design and implement a conservative program-shape/profile-based
-      selector that can choose VM, bytecode, JVM source, or Rust source per
-      workload family. This is not a v2 production blocker while the public
-      route flags are available; do not pick it ahead of correctness or
-      packaging blockers.
-
-## Conformance test performance (2026-07-06) — see `specs/conformance-perf.md`
-
-The conformance suite is expensive: `tests/conformance/run.sc` spawns a subprocess per case × 3 lanes
-(INT/JS/JVM), the JVM lane a **cold scala-cli Scala-3 compile each time**; run bare in ~15 parallel
-worktrees with uncapped forked test JVMs the aggregate saturates host RAM (it starved a co-tenant rozum
-GPU run). Shipped: `scripts/conformance` (opt-in, additive) bounds concurrent runs host-wide + caps child
-JVM heap — adopt it as the default conformance command (README updated). Remaining, ordered by value —
-each needs scala-cli to implement + verify, so an owning ScalaScript agent should claim it:
-
-- [x] **conformance-affected-only** — DONE 2026-07-06 (`run.sc --only`, measured 1 case = 8.8s). — `run.sc --only <glob|files>` (+ a change→case index) so the
-  fix→test loop runs just the touched cases, not the full 193. BIGGEST iteration-speed win and it's the
-  agents' OWN loop that speeds up. Full corpus stays for CI. (specs/conformance-perf.md F1)
-- [x] **conformance-memoize** — DONE 2026-07-06 (green-run memo, re-run 0.43s ~20x; --no-memo escape). — skip a case whose `(input .ssc, ssc/compiler version, expected)` hash is
-  unchanged since the last green run. (F2)
-- [x] **conformance-warm-runner** — DONE 2026-07-06 (F3 subset: SSC_SCALACLI_SERVER=1 warm bloop for run-jvm, 5.4->2.8s/case; full resident-JVM F4 still open). — replace cold fork-per-run with a resident warm JVM (compiler loaded +
-  JIT-warmed); reuse one warm compiler for the JVM lane instead of a cold scala-cli compile per case;
-  `conformance / Test / fork := false` if pure. (F3/F4)
-- [x] **conformance-test-heap-default** — DONE 2026-07-06 (build.sbt SSC_TEST_XMX default 2g). — give forked test JVMs a sane env-gated default `-Xmx` in
-  `build.sbt` (currently uncapped → ~9 GB default) instead of relying on the wrapper. Measure real peak
-  first. (L1)
-
-## Crypto/finance roadmap — later epics (2026-06-23, with Sergiy)
-
-The larger / later items of the crypto/blockchain/identity/payments roadmap. Near-term codeable slices are in
-`SPRINT.md` → "Crypto/finance roadmap". Full plan + per-item "what / why / where / benefit":
-**[`docs/crypto-finance-roadmap.md`](docs/crypto-finance-roadmap.md)** (explainer) +
-**[`specs/crypto-finance-roadmap.md`](specs/crypto-finance-roadmap.md)** (engineering plan). All follow the
-**reference → seam → gate → native** FROST template. Grouped here so the area isn't scattered.
-
-**Track 1 — chains & currencies (deeper):**
-- [~] **crypto-spi-pure-references** — pure-Scala references for Keccak-256, Blake2b, RIPEMD-160, secp256k1
-      scalar/point math, `register`-able as the SPI fallback so each primitive runs with no native provider
-      (deepens `crypto-spi-blake2b`). Gate: bit-for-bit vs BouncyCastle/`@noble` over RFC vectors + random inputs.
-      **ALL FOUR REFERENCES NOW EXIST:** Blake2b / RIPEMD-160 / secp256k1 (+ SHA-256/512, Ed25519) landed with
-      `chains-backend-agnostic`; **Keccak-256 added 2026-07-05** (`Keccak256.scala` in `crypto-spi/shared`,
-      pure Keccak-f[1600] sponge, Ethereum pad 0x01) — bit-for-bit vs BouncyCastle over rate-boundary + multi-
-      block inputs, JVM+JS byte-identical. **P-256 added 2026-07-05** (`P256Group.scala` + `P256Ecdsa.scala`,
-      a=-3 Jacobian curve + ECDSA) — byte-for-byte vs BouncyCastle. **REMAINING:** a `register`-able
-      pure-reference `CryptoBackend` that wires them all as the SPI fallback so primitives run with no
-      native provider.
-- [ ] **chains-new-adapters** (epic) — a `ChainAdapter` per new chain: Aptos / Sui / Stellar / XRPL / Polkadot
-      (Ed25519 or secp256k1 + tidy encoding). "Mostly another adapter" once the primitive is in the SPI.
-      **Polkadot is BLOCKED on an sr25519 (Schnorrkel) reference** — `Curve.Sr25519` is enumerated but
-      unimplemented. Gate: address derivation + a signed-tx fixture per chain.
-
-**Track 2 — threshold & MPC (heavier, after `frost-secp256k1`):**
-- [ ] **musig2** — Bitcoin n-of-n as a single on-chain key; MuSig2 2-round aggregation over the secp256k1
-      Schnorr base from `frost-secp256k1`. Gate: aggregated sig verifies as an ordinary BIP-340 single-key sig;
-      BIP-327 vectors.
-- [ ] **threshold-ecdsa** (heaviest — genuinely multi-round MPC, NOT "implement a trait") — GG/Lindell
-      threshold ECDSA (Paillier/OT) for legacy Bitcoin/Ethereum (ECDSA) addresses. Own module; reuses only the
-      Shamir/Lagrange base. Gate: output verifies as standard ECDSA vs a reference for random t-of-n.
-- [ ] **vrf-bls** — VRF (RFC 9381 ECVRF) for leader-election/lottery randomness; BLS aggregate signatures over
-      **BLS12-381** (`Curve.Bls12_381` enumerated, unimplemented → **BLOCKED on a pairing-friendly-curve
-      reference**). Gate: VRF + BLS aggregate verify and match RFC/IETF vectors.
-
-**Track 3 — identity & token services (clusters):**
-- [~] **webauthn-server-verify** — server-side passkey assertion verification (P-256/Ed25519 verify + CBOR
-      attestation), closing the loop with our existing client-assertion path (ERC-4337 passkey owner). Gate:
-      W3C WebAuthn vectors + round-trip with our own client assertions.
-      **Assertion-verify core DONE 2026-07-05** (`WebAuthnVerify.scala` in `crypto-spi/shared`): COSE_Key
-      parse (EC2/P-256 → ES256, OKP/Ed25519 → EdDSA) via `Cbor` + signature check over
-      `authenticatorData ‖ SHA-256(clientDataJSON)` (ES256 DER via `P256Ecdsa`, EdDSA raw via `Ed25519`),
-      round-trip + tamper/wrong-key rejection, JVM+JS. **REMAINING:** registration/attestation-statement
-      verification (packed/tpm/…) and the caller-side policy checks (challenge/origin/rpIdHash/UP-UV/signCount).
-- [~] **token-formats** — PASETO / JWT / COSE token sign+verify over the crypto SPI (COSE pairs with
-      webauthn-server-verify). Gate: RFC 7519 (JWT) / PASETO / RFC 8152 (COSE) vectors.
-      **JWS/JWT DONE 2026-07-05** (`Jws.scala` + `Jwt` in `crypto-spi/shared`): portable compact JWS
-      (RFC 7515) sign+verify for **HS256** (HmacSha256) and **EdDSA** (Ed25519) on the portable crypto
-      primitives — byte-exact vs RFC 7515 A.1 + RFC 8037 A.4, JVM+JS, with constant-time MAC compare and
-      tamper/malformed-token rejection.
-      **PASETO v4.public DONE 2026-07-05** (`PasetoV4.scala` in `crypto-spi/shared`): portable
-      `v4.public` sign+verify (Ed25519 over PAE), footer + implicit-assertion binding, version/purpose/
-      tamper rejection — PAE pinned to the PASETO spec vectors + verified against the official `v4.json`
-      "4-S-1" public key, JVM+JS.
-      **COSE_Sign1 EdDSA DONE 2026-07-05** (`Cbor.scala` + `CoseSign1.scala` in `crypto-spi/shared`):
-      a minimal portable CBOR codec (gated by RFC 8949 Appendix A) + COSE_Sign1 (RFC 8152/9052) sign+verify
-      with EdDSA (`alg -8`), external-AAD binding, alg/tamper rejection — round-tripped under the RFC 8037
-      key, JVM+JS. Unblocks `webauthn-server-verify` (COSE structures now available).
-      **JWS ES256K DONE 2026-07-05** (`Secp256k1Ecdsa.derToRaw`/`rawToDer` + `Jws.signES256K`/`verifyES256K`
-      + `Jwt.es256k`): ECDSA secp256k1 + SHA-256 with the fixed 64-byte R‖S encoding — byte-for-byte equal
-      to the BouncyCastle secp256k1 backend (both RFC-6979 + low-S), JVM+JS.
-      **COSE ES256K DONE 2026-07-05** (`CoseSign1.signES256K`/`verifyES256K`, protected `{1:-47}`):
-      COSE_Sign1 now covers EdDSA + ES256K over the same R‖S helper, with an authenticated alg guard
-      (cross-alg confusion rejected), round-tripped JVM+JS.
-      **Portable P-256 reference DONE 2026-07-05** (`P256Group.scala` + `P256Ecdsa.scala` in
-      `crypto-spi/shared`): NIST P-256 group (a=-3 Jacobian doubling) + ECDSA (RFC-6979 + SHA-256, DER +
-      64-byte R‖S) — byte-for-byte equal to the BouncyCastle P-256 backend (derivePublic + verify interop),
-      JVM+JS. **Unblocks ES256** (`Curve.P256` no longer BouncyCastle-only) and `webauthn-server-verify`.
-      **ES256 DONE 2026-07-05** (`Jws.signES256`/`verifyES256` + `Jwt.es256`; `CoseSign1.signES256`/
-      `verifyES256`, COSE alg `-7` / protected `{1:-7}`): ECDSA P-256 + SHA-256, 64-byte R‖S — the JWS path
-      **verifies the published RFC 7515 A.3 ES256 token**, COSE round-trips with the authenticated alg guard,
-      JVM+JS. token-formats now covers JWS HS256/EdDSA/ES256K/ES256, PASETO v4.public, and COSE_Sign1
-      EdDSA/ES256K/ES256.
-      **COSE_Encrypt0 DONE 2026-07-05** (`CoseEncrypt0.scala`, RFC 8152 §5.2, alg 24 ChaCha20-Poly1305
-      over `Cbor` + `ChaCha20Poly1305`): encrypt/decrypt with the `Enc_structure` AAD + `{5:iv}` header,
-      round-trip + tamper/wrong-key/wrong-AAD rejection, JVM+JS — COSE now covers sign (COSE_Sign1) and
-      encrypt (COSE_Encrypt0). **REMAINING:** PASETO **v4.local** (XChaCha20 + keyed BLAKE2b — extend
-      `ChaCha20Poly1305` with HChaCha20 + add keyed `Blake2b`); multi-recipient COSE_Encrypt.
-- [~] **noise-protocol** — Noise handshake patterns over the existing X25519 + ChaCha20-Poly1305 primitives
-      (short hop — WalletConnect already uses them). Gate: Noise spec vectors (XX, IK).
-      Primitives portable: `ChaCha20Poly1305.scala` (RFC 8439) + `X25519.scala` (RFC 7748) +
-      `HkdfSha256.scala` (RFC 5869), byte-exact, JVM+JS.
-      **Noise 11 patterns DONE 2026-07-05** (N/NN/NK/NX/XN/XX/XK/KK/IN/IK/IX; `Noise.scala`): a pattern-driven engine (CipherState +
-      SymmetricState + HandshakeState, pre-message support + the `e s ee es se ss` tokens) over the
-      25519/ChaChaPoly/SHA256 suite. Built-in `NN` (unauthenticated), `XX` (mutual auth), and `IK`
-      (initiator pre-knows the responder static — WireGuard/Lightning style). Functional gate per pattern:
-      a full handshake derives matching transport keys, the auth semantics hold (NN: no statics; XX/IK:
-      mutual), encrypted transport round-trips both ways, and a tampered message fails auth — JVM+JS.
-      **REMAINING:** more patterns (NK/XK/…) + a byte-exact check against the cacophony/snow Noise
-      test-vectors. The same primitives still unblock `age-encryption`; PASETO **v4.local** additionally
-      needs keyed BLAKE2b (the XChaCha20 extended-nonce variant now exists — `ChaCha20Poly1305.xseal`/
-      `xopen` + `hchacha20`, draft-irtf-cfrg-xchacha, 2026-07-05).
-- [~] **did-vc** (epic) — did:key / did:web resolvers + Verifiable Credential signing (JSON-LD or JWT) over the
-      crypto SPI; a whole decentralized-identity stack. Gate: W3C DID/VC test suites.
-      **did:key DONE 2026-07-05** (`DidKey.scala` + a portable `Base58` btc codec in `crypto-spi/shared`):
-      encode + resolve for Ed25519 (multicodec `0xed01` → `did:key:z6Mk…`) and compressed P-256 (`0x1200`
-      → `did:key:zDn…`), matching the W3C did:key registry prefixes; base58 hand-vectors + round-trip, JVM+JS.
-      With the JWS layer, JWT-VC issuance is now within reach. **REMAINING:** did:web resolver; VC data
-      model (JWT-VC / JSON-LD) signing + verification; W3C DID/VC test-suite conformance.
-- [ ] **age-encryption** — encrypt-to-public-key: age (X25519 + ChaCha20) first, PGP interop only if demanded.
-      Gate: age reference vectors; round-trip with the `age` CLI.
-
-**Track 4 — "invent our own" products:**
-- [x] **threshold-custody-wallet** ✓ DONE 2026-06-24 — composed `cryptoFrost` (FROST-Ed25519) +
-      `walletVaultMpcFrost` + an HTTP transport into a working distributed threshold-custody wallet.
-      `FrostParticipantServer` (JDK `HttpServer`, holds ONE share, exposes `/round1` `/round2` `/health`) +
-      `DistributedFrostSigningClient` (a `RemoteSigningClient` coordinator holding the group key + participant
-      URLs but **no shares**, runs the 2-round protocol over HTTP/JSON and aggregates a standard Ed25519
-      signature). **Gate MET:** a multi-host test (each share on its own localhost port = its own "host") signs
-      with no co-located shares and the sig verifies under standard Ed25519 (2-of-3, 3-of-5); it drops straight
-      into `McpVault` (unlock→getSigner→sign) — the threshold-custody-wallet end to end; `health()` is false when
-      `<t` participants are reachable. walletVaultMpcFrost 8/0. Transport is HTTP/JSON; a WS or actor-cluster
-      transport is the same protocol over a different pipe (bodies unchanged). No new deps (JDK http + ujson).
-- [x] **micropayment-own-scheme** ✓ DONE 2026-06-24 — **PayWord hash-chain** scheme (`payments/micropayment/
-      hashchain`, `ChannelKind.HashChain`): a from-scratch off-chain scheme over the portable crypto — one
-      Ed25519-signed commitment at open (payer authorizes the chain tip `wₙ = SHA256ⁿ(seed)`), then **signature-free
-      per-payment preimage reveals** (`w₍ₙ₋ᵤ₎`, verified with one SHA-256, no round-trip). `HashChain` (crypto) +
-      `HashChainChannel` (MicropaymentChannel: pay reveals, receive verifies vs tip / incrementally, settle redeems
-      the deepest reveal) + `HashChainProvider` (ChannelProvider). **Gate MET:** open→pay→receive→settle lifecycle +
-      signed-commitment verify, forged-preimage / replay / over-capacity / non-multiple rejection, and the
-      deepest-reveal-proves-cumulative property (payee may skip intermediates). 7/7; all other micropayment
-      consumers recompile clean (ChannelKind addition safe). Settlement is off-chain accounting + the redemption
-      proof (deepest preimage + signed commitment) — parity with the probabilistic provider's deferred on-chain
-      claim.
-- [ ] **distributed-infra** (speculative) — reference-first oracle/attestation, content-addressed storage, and
-      gossip/CRDT layers over the actor/cluster substrate + crypto SPI. Gate: per-component correctness + a
-      cluster integration test.
-
-## Roadmap — agreed priority order (2026-06-17, with Sergiy) — ⚠️ SUPERSEDED 2026-07-16
-
-> **HISTORY, NOT THE CURRENT DIRECTION.** This order (agent-sdk → package-registry →
-> sbt-plugin → …) described mid-June. Since then the work has been the three streams in
-> `MILESTONES.md` §"Where we are going" — v2 self-hosting, dogfood (scljet/uniml), control/interop
-> — confirmed with Sergiy on 2026-07-16. The entries below stay for their findings and their
-> still-open follow-ups, which remain valid work; they are just **not** what to pick next.
-> Do not start a theme from this list without asking.
-
-Drive top-to-bottom, one major theme at a time. **Maven/centralized publication is dead
-last — after everything else.**
-
-1. **payments-reorg** ✓ DONE 2026-06-17 — all 24 payment-domain interp plugins moved under
-   `payments/` (hybrid: `payments/processors/{spi,stripe,…}` for the 21 providers + SPI;
-   `payments/crypto/plugin` + `payments/payment-request/plugin` next to their libs). Build-config
-   only (git mv + `file()` paths); packages/services/val-names/aggregate/PluginSpec unchanged →
-   user `.ssc` untouched. 5 slices, all compiled; sepa 71 / stripe 23 / crypto 58 tests green;
-   installBin stages all plugins; 0 payment dirs left in runtime/std. spec `specs/payments-reorg.md`.
-   **→ Next theme: agent-sdk-remainder (#2).**
-2. **agent-sdk-remainder** (MINE) — the generic LLM-agent SDK is ~P0–P2 built
-   (`runtime/std/agent.ssc`; specs `rozum-agent-{endpoint-pool,schema-derivation,streaming}`;
-   4 interp test suites; 5 examples). Remaining: **P3** (embedded transport + MCP-server
-   framework so external agents can drive an app), a **consolidated scalascript-side
-   `specs/agent-sdk.md`** (mirroring rozum's `docs/specs/agent-sdk.md` + `integration.md` —
-   the 3-contract model: ModelClient/AgentLoop/ToolRegistry/SchemaDerivation/EndpointPool/
-   Transcript), and broader **conformance** (mock gateway + golden transcripts + live rozum).
-   Coordinate via claims — core is shared with the rozum/busi effort.
-   **Progress 2026-06-17:** ✓ consolidated `specs/agent-sdk.md` (P0–P2 confirmed shipped).
-   ✓ **P3a MCP bridge COMPLETE (both directions)** — `runtime/std/agent-mcp.ssc`:
-   `serveAgentToolsMcp(tools, transport)` (expose AgentTools over `mcpServer`) +
-   `mcpToolSource(client)` (wrap an MCP server's tools as AgentTools; JSON→Map via the existing
-   `jsonParse` intrinsic surfaced as a local extern; jvm/js only). Examples
-   `agent-mcp-{server,toolsource}.ssc`; module + both examples `ssc check` OK; pushed. The two
-   `ToolResult` types never meet by name → no collision. **Remaining:** (b) round-trip test
-   (server+client; needs an MCP transport workable in a jvm/js test — Http is JS-only, Stdio blocks;
-   mirror `McpEndToEndTest`); (c) conformance (mock gateway + golden transcripts). P3b Embedded =
-   deferred (needs rozum `rozum-embed`).
-3. **package-registry** ✓ DONE 2026-06-20 (CLI + no-domain static registry) — `ssc search`/`info`/`add`
-   over `RegistryClient` (URL-priority + 1h-TTL cache + `--refresh` + `--offline`) + seed
-   `registry/packages.yaml`; generated `registry/site/` serves `packages.yaml`, HTML, search JSON, and
-   per-package JSON through GitHub Pages project URL
-   `https://sergey-scherbina.github.io/scalascript/`. spec `specs/arch-registry.md` reconciled. REMAINING:
-   optional custom-domain alias (`registry.scalascript.io`) and cross-repo/community governance.
-4. **sbt-plugin-finish** ✓ ACTIONABLE SCOPE DONE — `specs/arch-sbt-plugin.md` build surface is closed:
-   front-matter `dependencies:`→Coursier and cross-build targets (`sscBackends`) landed; LSP/BSP polish has
-   no concrete remaining deliverable. Publication of the plugin itself is part of the deferred Maven step.
-5. **metaprogramming-v2** ✓ ACTIONABLE SCOPE DONE — `specs/arch-metaprogramming-v2.md`. AUDIT 2026-06-17: NOT from-scratch.
-   All three phases have working bases (P3 Linker inline expansion; P4 `${impl('x)}`+`'{…}`+interp
-   parity+`MacroImpl` IR; P5 runtime `Mirror`+user `derived(m: Mirror)`). **Track A** ✓ DONE (P5 cross-backend
-   derives conformance — A1a/b/c+A2+A3, 2026-06-17; deferred edge cases only), **B** (P4 const-fold:
-   **B1+B2 ✓ DONE 2026-06-18**, **B3 ✓ DONE 2026-06-18 — JVM + JS** via `macro-codegen-backends`
-   (`MacroCodegen.expand`); Track B complete), **C** ✓ ACTIONABLE SCOPE DONE (C1 multi-clause inline +
-   C2's practical backend warning guard via `MacroCodegen.codegenWarnings`). The broader arbitrary
-   post-expansion re-typecheck + source-positioned-error ambition is deferred by design (position-map
-   requirement + false-positive risk), not current build work.
-
-   *(macro-codegen-backends ✓ DONE 2026-06-18 — JVM + JS; moved to CHANGELOG. The default
-   `emit`/`build`/`run` path does not use the Linker — `JvmGen`/`JsGen` inline imports at the
-   source/tree level and rely on scalac's own `inline`; the `MacroCodegen.expand` pre-codegen pass
-   handles macros for both backends.)*
-
-   *(macro-crossmodule ✓ DONE 2026-06-18 — JVM (Approach B, `expandUnits`+`expandMacrosInBlocks`) + JS
-   (Approach A entry-hook over local `.ssc` imports + `genImport` strip); moved to CHANGELOG. Follow-up:
-   transitive cross-module macros on JS — the `genImport` strip uses no `baseDir`, so an imported module
-   that itself calls a macro from its own imports isn't handled. Rare.)*
-6. **deferred perf** — **CLOSED 2026-06-18 (re-measured; see the resolved entries below).**
-   `hof-glue-jit-compile` → DEFERRED to the dual-bank `LExpr` VM roadmap (the only remaining lever is whole-fn
-   JIT of `combineAll`, gated on that VM + `using`/given JIT support). `vectorize-pure-loop` → WONTFIX-until a
-   non-polynomial hot-loop workload appears (targets already bypass the loop via Gauss). `direct-style-eval`
-   → WONTFIX (data-disproven: `Pure` ≈16% alloc, dispatch ≈66% which it doesn't touch; 1261-site migration).
-7. **other extensibility themes** — **AUDIT 2026-06-17: most are already BUILT; specs were stale.**
-   A (Plugin SPI — `BackendRegistry` exists), E (`ssc new`/install — verified 2026-06-19: all bundled
-   templates + standalone fixtures covered locally; live publication remains deferred), F (DSL hooks — spec
-   "implemented through Phase 4", `InterpolatorRegistry`), H (library modularity — spec "implemented
-   through Phase 6", `SsclibManifest`), J (FFI — `GlueClasspathRegistry`/`GlueJsPreambleRegistry` +
-   `@jvm`/`@js` + `examples/js-glue-component.ssc`; spec stale at "planned"). **Action: reconcile these
-   specs/BACKLOG to reality + verify any residual — NOT a from-scratch build.** **B** (build-time
-   registry consolidation): Phases 1 AND 2 BOTH landed 2026-05-29 (spec confirms — `PluginRegistry`/
-   `PluginMeta`/`PluginSource` + `BackendRegistry` facade + `SubprocessPlugin` + `RemotePluginInstaller`
-   + `BackendRegistryTest`). **Phase 3 is MOOT (reconciled 2026-06-18):** `PluginManifest`/`LocalRegistry`
-   are NOT removable "deprecated wrappers" — they are the **implementation** the facade is built ON
-   (`BackendRegistry` uses `PluginManifest` for `manifestCache`/`defaultSearchPaths`; `ImportResolver` +
-   `PluginCommands` use `LocalRegistry.resolve`/`loadAll` for the `~/.scalascript/registry.yaml`
-   download-URL flow). There is nothing to "remove" — they're load-bearing. `isStdPluginInterpreterTest`
-   is already gone. So Phase 3 = no action. OPTIONAL Phase 4 (family registries, "only where they remove
-   real duplication") remains, demand-driven.
-8. **arch-distribution-p3 / Maven Central + sbt Plugin Portal** — **LAST**, only on explicit go.
-
-> **Roadmap reality check (2026-06-21):** the codebase is well ahead of these specs/BACKLOG entries —
-> agent-sdk-remainder and package-registry were both found already built, and the audit shows A/E/F/H/J
-> are largely built too. The previously listed autonomous build slices are now reconciled:
-> `sbt-plugin-finish` dep-resolution/cross-build landed and publication is Maven-gated; build-registry
-> Phase 3 is moot and Phase 4 is demand-driven; `metaprogramming-v2` Tracks A/B/C are actionable-scope done,
-> with only explicitly deferred edge cases. Remaining work is now product/external (domain/governance/
-> publication, browser/device harnesses, hardware, or a concrete demand signal), not an unclaimed
-> "just build it" queue.
-
-- [x] **v2-jvm-tco-manual** ✓ Landed (2026-07-09, `7f58b1516`) — source JVM
-      backend now emits a conservative local `while` dispatcher for eligible
-      mutual-tail `LetRec` groups; unsafe groups keep the closure-var fallback.
-      Deep even/odd `mutual-tco.coreir` runs stack-safe and the full
-      `./v2/conformance/check.sh` gate passed.
-
-## Architecture Review follow-ups (2026-06-14)
-
-Whole-project architecture survey (231 sbt modules, ~145K LOC main Scala). The project is
-mature and low-debt (only 6 TODO/FIXME files, 21 "not yet supported"); these are *refinements*,
-not blockers — hence BACKLOG, not SPRINT. Ordered by leverage/tractability. **#1 is the
-recommended first pick** (bounded, measurable, compounds with the perf work).
-
-- [x] **module-graph-grouping** ✓ INVESTIGATED → leave-as-is (2026-06-18, `docs/module-graph-findings.md`).
-      197 `lazy val` module defs; thin SPI families (wallet 42, payments 35, walletVault 18, blockchain 13,
-      x402 13). Conclusion: the per-impl module boundary **is** the SPI boundary — grouping the families
-      either collapses it (shared package/service/artifact, can't take one impl) or is a no-op on the build
-      graph (sbt `aggregate` only reduces typing). There is no consolidation that shrinks the graph AND
-      keeps the boundaries, which the item's own constraint requires. The cold-build cost is the price of
-      the deliberate "one module per SPI impl" design (cf. payments-reorg). **No action**; if a specific
-      family is later found to have *true* code duplication, factor the shared part into one library module
-      the impls depend on (targeted refactor, not family grouping).
-
-- **remote-package-registry** → MOVED TO SPRINT 2026-06-23 (Sergiy "внеси в спринт"; active queue). Local
-      story done (`~/.scalascript/registry.yaml` + `pkg:` resolver + `ssc install` + `.sscpkg`); the remote half
-      (registry protocol + `ssc publish`/`search` + remote `pkg:` against a configurable endpoint, testable vs a
-      local/mock server) is now active work. Public hosting (`registry.scalascript.io`) is a separate deploy step.
-
-- [x] **rust-backend-cargo-smoke-coverage** ✓ Landed (2026-06-22, `2c8032a5c`, mellow-shrew) — added
-      `RustGenCargoSmokeTest`: a Rust-toolchain-gated (`assume(cargoAvailable)` — probes `cargo --version`
-      directly, since `backendRust` doesn't depend on the CLI's `RustToolchain`) suite that emits a
-      feature-exercising program to a temp crate, `cargo run`s it, and asserts real stdout. Covers
-      collection ops (take/drop/takeRight/dropRight/sorted/distinct/sum), string ops (replace/startsWith/
-      endsWith/contains), and the `Vec<String>` index-read regression (E0507). Kept out of the fast
-      string-match path; toolchain-less CI skips cleanly. `backendRust` 236/0. Closes the move/borrow/type
-      bug class that string-match tests can't see. (http end-to-end coverage left as a future extension —
-      needs a port/client, heavier than the pure collection/string program.)
-
-## Native Platform follow-ups
-
-- [ ] **std-nfc-packager-adapters** (BLOCKED: real packagers/device-browser harnesses) — Consume
-      `scalascript.frontend.NativePlatformRequirements` in the SwiftUI/iOS,
-      Android, and Web/PWA packagers, then implement real `std.nfc` read/write
-      adapters where those targets exist. HOW: keep `runtime/std/nfc.ssc`
-      unchanged; make native package generation use `Capability.NfcNdef` to
-      emit Info.plist/entitlement, AndroidManifest, and Web permission/model
-      declarations; add real device/browser harnesses for `readNdef()` and
-      `writeNdef()`; check off the remaining hardware/manifest behavior items
-      in `specs/std-nfc.md`. Deferred from `std-nfc-native-adapters` because
-      the repo currently has the NFC API and requirements contract but no
-      complete Android/Web-NFC packager integration path.
-
-## WASM backend
-
-The WASM backend (`runtime/backend/wasm`, Scala.js → `.wasm` via `scala-cli --js-emit-wasm`) now
-handles `@wasm` externs, local `.ssc` import inlining, and quoted macros (2026-06-18). What remains:
-
-- [x] **wasm-effects** — algebraic effects / handlers on WASM. **COMPLETE 2026-06-20.** **FIRST SLICE ✓ DONE 2026-06-18 — effects
-      compile AND run on wasm.** The approach (probe-proven): `JvmGen.generateUserOnly` (CPS-lowered code,
-      *without* the 300 KB JVM preamble — that preamble's `Thread`/`java.nio` parts are what crash the
-      Scala.js linker) + a minimal **Scala.js-linkable effect runtime** (`WasmEffectRuntime` =
-      `_Computation`/`_bind`/`_perform`/`_run`/`_handle`/`_handleWithReturn`, the pure-Scala subset of
-      `JvmGenRuntimeSources`) emitted in `package _ssc_runtime`, + a re-added `@main` (generateUserOnly
-      strips it). `backendWasm` now `dependsOn backendJvm`. Verified: `WasmBackendTest` compiles an effect
-      program to a valid `.wasm` AND runs it via node (handler + resume → `hello\nworld`).
-      **arithmetic ✓ DONE 2026-06-18 (slice 2a):** `_binOp` (+ `_bigIntOp`/`_bigDecOp`, all pure-Scala /
-      Scala.js-linkable) added to `WasmEffectRuntime`; a probe showed `a + b` over `Any`-typed effect-op
-      results lowers to `_binOp` — programs doing arithmetic in/around handlers now link + run (test
-      'effects with arithmetic in body RUN on wasm' → 40). **`_dispatch` ✓ DONE 2026-06-18 (slice 2b):**
-      collection/method calls on `Any` (e.g. `xs.map(..).filter(..).head` in a handler) lower to `_dispatch`;
-      added the pure-Scala subset of `_dispatch` + its CPS-aware `_seqMap/_seqFlatMap/_seqFilter/_seqForeach/
-      _seqExists/_seqForall/_seqCount/_seqFind/_seqFoldLeft` (+ `_seq`/`_isFree`) to `WasmEffectRuntime` —
-      the JVM `getClass.getMethods…invoke` reflection `case _` (which the Scala.js linker rejects) is
-      replaced by a clear error. Covers List/String/Option/Map/Set/numeric incl. sortBy/sorted. Test 'effects
-      with collection HOFs in body RUN on wasm' → 6. **multi-shot ✓ DONE 2026-06-18 (slice 2c):** did NOT need
-      a `_handle` rewrite (the wasm `_handle`'s `resume = (v) => interp(fn(v))` already supports repeated
-      resume — same structure as the JVM one). A probe showed the canonical `opts.flatMap(o => resume(o))`
-      handler lowers to `_anyFlatMap` + `_dispatch(all,"length")`; only `_anyFlatMap` was missing — added it
-      (pure-Scala). Also fixed `usesEffects` to recognise the `multi effect Foo:` form (it keyed on a leading
-      `effect`, so multi-shot modules skipped CPS lowering and hit scala-cli raw). Test 'multi-shot effects RUN
-      on wasm' (NonDet `{1,2}×{10,20}`) → 4. **cross-module ✓ DONE 2026-06-18 (slice 2d, no code change):** an
-      `effect` declared in an imported `.ssc` and only handled in the consumer already works — `generateUserOnly`
-      resolves local imports via `baseDir` and lowers the whole graph (`object Log` + `_perform` + inlined
-      `shout()`), and `collectSource` inlines the decl so `usesEffects` routes to the effect path. Verified by a
-      run test 'cross-module effects RUN on wasm' (lib.ssc declares + performs, consumer handles) → `hello\nworld`.
-      **`@main` args/non-Unit edge ✓ DONE 2026-06-20 (`wasm-main-edge`):** effectful WASM derives the user
-      `@main` from the AST, preserves a single Scala 3 main parameter clause (including `String*` splicing),
-      discards non-Unit returns in the synthetic wrapper, and rejects raw `Array[String]` args before scala-cli
-      with a clear diagnostic. **Complete for wasm — common + advanced cases all run** (40 `WasmBackendTest`);
-      any dynamic method outside the linkable `_dispatch` subset now errors clearly (was a reflection call on JVM).
-      All additive, wasm-only.
-- [x] **`@wasmExport` / `@wasmImport`** ✓ OUT OF SCOPE BY DESIGN — raw WASM ABI export/import would need a
-      direct-emit wasm backend, not the current Scala.js-owned wasm path. Do not treat this as claimable
-      backlog without a new backend decision.
-
-## Interpreter Performance — Open Targets
-
-Baselines from `scripts/bench interp` run 2026-06-04 (Javac JIT backend, `-wi 3 -i 5 -f 1`).
-
-- [x] **hof-glue-jit-compile** — **RESOLVED 2026-06-19 with WORKING CODE + MEASUREMENT (not just analysis).
-      Slice A SHIPPED to main default-on** (`LITER*` opcodes + `VmCompiler.tryCompileFoldLeft`; compiles a
-      `List[Int].foldLeft` so it no longer bails the whole enclosing function; kill-switch `SSC_JIT_FOLDLEFT=0`;
-      `JitFoldLeftTest` 17 differential tests + full interp suite 1878 green WITH IT ON). **No measured perf
-      win** (interp `foldLeftReusing`/while-JIT already optimize the hot parts) — shipped per decision as a
-      capability. **The typeclass case (`typeclassFoldMacro`) IS now sped up — ~19% — but via a SAFE
-      interpreter memo, not the VM Slice C** (2026-06-19): a JFR profile showed the cost is ~79% evalCore
-      tree-walk of the `summon[M].empty`/`summon[M].combine` sub-expressions, re-evaluated per call. So
-      `evalFusedFoldLeft` memoizes the evaluated `(empty, combine)` per call-site keyed by given identity —
-      repeat calls skip those sub-expressions. **DEFAULT-ON** (kill-switch `-Dssc.jit.foldtc=0`) — assumes a
-      lawful, referentially-transparent monoid `empty`. `JitFoldTcTest` 8 differential tests (incl. polymorphic
-      two-given soundness) + full interp suite green WITH IT ON (1839 tests, excl. infra-flaky cross-backend);
-      typeclassFoldMacro 1.794 → 1.453 ms/op. The full VM Slice C (type-method opcode +
-      hot-path using-guard relaxation) stays unbuilt — disproportionate, and the interp memo gets most of the
-      win safely. Detail in `specs/jit-foldleft-compile.md`.
-- [x] ~~**hof-glue-jit-compile** (superseded note)~~ — **RESOLVED 2026-06-19 with WORKING CODE + MEASUREMENT.**
-      Slice A (inline-lambda `foldLeft` VM compilation) was BUILT + VERIFIED (`LITER*` opcodes +
-      `VmCompiler.tryCompileFoldLeft`, flag-gated off-by-default; `JitFoldLeftTest` 12 differential tests +
-      1873 interp green) and kept on branch `feature/jit-foldleft-a` (commit `4be211177`), NOT merged —
-      because the **measurement showed no win**: `foldLeftLambda` 0.004→0.003 ms/op (within ±0.001 noise),
-      since the plain-lambda fold is already fast via `foldLeftReusing`. The only slow case
-      (`typeclassFoldMacro` 1.14 ms) needs Slice C, which tracing proved is disproportionate: generic
-      `List[A]` (ref-domain fold, no safe unbox), a *type-method* combine (`lookupTypeMethod`/`invokeTypeMethod`,
-      new opcode, still a dispatch per element even compiled), + relaxing the type-gate and the
-      `usingParams.isEmpty` guards on the hottest call path (`CallRuntime` 137/239/257/284/632). A large
-      multi-site hot-path change for a synthetic-bench bounded win — NOT pursued. Detail/build-log in
-      `specs/jit-foldleft-compile.md`. Revisit only if a real runtime-typeclass-fold hot loop appears.
-- [x] ~~**hof-glue-jit-compile** (prior design note)~~ — **DESIGNED + BUILD-READY 2026-06-19 (`specs/jit-foldleft-compile.md`).**
-      Mapped the full "JIT-compile `combineAll`/`foldLeft`" lever against the real VM code: 6 interlocking
-      pieces in dependency order, with a safe-first build order (Slice A = inline-lambda `foldLeft`, flag-gated
-      off-by-default, differential-tested, measurable on a new `foldLeftLambda` bench → zero given/type-method
-      risk; Slice B = `using`+`summon` plumbing; Slice C = type-method `.empty`/`.combine` opcodes → the
-      `typeclassFoldMacro` win). KEY de-risking finding: the `using` arg is RESOLVED + APPENDED to the args
-      array before invoke (`CallRuntime.bindArgs` ~430), so a compiled `combineAll` just gets the monoid as a
-      trailing ref param. HARD WRINKLE: `summon[M].combine`/`.empty` are NOT InstanceV fields — they resolve
-      via `lookupTypeMethod(typeName, name)` (DispatchRuntime:3180) + `invokeTypeMethod` (binds `this`+fields),
-      so the per-element call is a type-method invocation needing a new `TMLOOKUP` opcode, not a bare CALLREF.
-      Deliberately NOT one-shot: the JIT is on every hot path (silent-wrong-result risk), and the payoff is a
-      synthetic bench (1.14 ms → ~0.1–0.3 ms). Next: build Slice A as a focused effort. (Prior history below.)
-- [x] ~~**hof-glue-jit-compile** (history)~~ — **RESOLVED 2026-06-18 → DEFERRED to the dual-bank `LExpr` VM roadmap
-      (closed; stop re-investigating in isolation).** Re-measured on current main: `typeclassFoldMacro` =
-      **1.142 ms/op** vs `typeclassFold` = **0.005 ms/op** — the statically-typed fold fully JITs; the 228×
-      gap is purely the macro version's per-call given/summon glue. The −10.5% fused fast-path is intact and
-      `foldLeftReusing` (CallRuntime:212) already runs the fold as a native loop calling the bytecode-JIT'd
-      `combine` per element, so loop+combine are fast. The ONLY remaining lever is whole-function JIT of
-      `combineAll`, needing List-iteration opcodes in SscVm + a `foldLeft` recognizer in VmCompiler +
-      `using`-param/given-member-access support in the JIT — a large architectural effort gated on the
-      dual-bank `LExpr` VM work, risky (JIT is on every hot path). Big win is *possible* but it rides that VM
-      roadmap; NOT a bounded slice. History below.
-- **hof-glue-jit-compile** (history only; not claimable) — deep; reframed from `hof-dispatch-cpu-devirt`, investigated
-      2026-06-13) — **PARTIAL interp slice landed 2026-06-13** (fused curried
-      `List.foldLeft(z)(g)` fast-path in `evalApplyGeneral`: `typeclassFoldMacro` 1.259 → 1.127
-      ms/op, **−10.5%**; `FusedFoldLeftTest`). The **full lever is still open.**
-      `typeclassFoldMacro` (`combineAll[A: Monoid]` = `xs.foldLeft(empty)(combine)`, 300×).
-      Investigation (spec `direct-style-eval-spec.md` §11.3) proved there is **no targeted
-      ≥15% *devirt* win**: the inner `combine` is already bytecode-JIT'd (JIT on/off = 1.26 vs
-      3.80 ms, 3×), and a fresh JFR CPU profile shows **78% leaf = `evalCore`** self-time (the
-      megamorphic `term match`), with *no* devirtualizable callee — `trackPos` no-op and a
-      `FunV` JIT-Entry cache (kill the `synchronized` `entryFor` lookup) both measured **0%**.
-      The cost is the 300× tree-walk of `combineAll`'s HOF glue (the `foldLeft` Apply + the two
-      `summon[Monoid[A]].{empty,combine}` Selects); the fused fast-path shaved the `foldLeft`
-      dispatch portion (−10.5%) but the body is still re-interpreted 300×. The remaining lever
-      is **compiling that glue**: `combineAll` bails the bytecode/VM JIT on the `foldLeft` HOF
-      call (`call:no-compilable-target`, `VmCompiler.scala:521`). Closing it needs List-iteration
-      opcodes in `SscVm` + a `foldLeft`-intrinsic recognizer in `VmCompiler` reusing the existing
-      `CALLREF` opcode (the dual-bank `LExpr` roadmap, `project_dual_bank_lexpr`) so a
-      `foldLeft`-with-a-runtime-monoid compiles to a tight loop. Large architectural effort, not
-      a slice. A/B with `scripts/bench interp typeclassFoldMacro` (wall-clock).
-      **Re-confirmed 2026-06-17 (perf-followups):** `CallRuntime.foldLeftReusing` ALREADY runs the
-      fold as a native Scala `while` over a single reused `ReusableFrame2`, calling the
-      bytecode-JIT'd `combine` per element (`JitRuntime.tryRun2`, CallRuntime.scala:221) — so the
-      loop AND the combine are already fast. The residual is purely `combineAll`'s PER-CALL glue,
-      tree-walked once per call: resolving the `using Monoid[A]` given + the two `summon`-member
-      Selects + the `foldLeft` Apply dispatch. The only remaining lever is whole-function JIT of
-      `combineAll` itself — which additionally needs **`using`-param + given-member-access support
-      in the JIT** (not just a foldLeft recognizer). Confirmed DEFER: too large + too risky (JIT is
-      on every hot path) for the ≤15% ceiling; revisit only with the dual-bank `LExpr` VM work.
-
-- [x] **vectorize-pure-loop** — **RESOLVED 2026-06-18 → WONTFIX-until-a-motivating-workload (closed).**
-      Confirmed on current main: `jdk.incubator.vector`/`LongVector` is referenced **nowhere** (truly
-      unstarted), and `pureCallSum*` are computed by the Gauss closed-form in `walkLinearPoly`
-      (EvalRuntime:1835/1872) — they **bypass the loop entirely**, so SIMD would help them 0%. There is no
-      non-polynomial hot-loop benchmark that motivates it, and the cost (incubator `--add-modules`, ABI
-      churn, tail-loop handling) is real. Do NOT build speculatively; revisit ONLY if a concrete
-      non-polynomial pure-arithmetic hot loop appears as a real workload. Original sketch below.
-- **vectorize-pure-loop** (history only; not claimable) — Use `jdk.incubator.vector.LongVector` inside
-      `tryCompileWhileLong` to batch 4–8 lanes when the body is pure arithmetic
-      on the counter. Expected 4–8× speedup on `pureCallSumIf` (if the recognized
-      grammar for `walkLinearPoly` is extended) and similar shapes. `pureCallSum*`
-      are now at the algebraic floor via Gauss; vector would help non-polynomial
-      cases. Caveats: `--add-modules jdk.incubator.vector`, JDK incubator ABI
-      churn, tail-loop handling for non-aligned N. Revisit after extending the
-      closed-form recognizer or when a concrete non-polynomial bench motivates it.
-
-## Quality / Contracts / Type System
-
-These items come from the 2026-05-30 project-state review. They are intentionally
-ordered to reduce risk: spec and hygiene first, broad implementation only after
-the contracts are explicit.
-
-- [x] **direct-style-eval** — **RESOLVED 2026-06-18 → WONTFIX (closed; data-disproven, do not start).**
-      Re-confirmed on current main: `Computation.Pure` is constructed at **1261 sites** (even larger than the
-      earlier ~530 estimate), and the allocation split is unchanged — `Pure` ≈16%, dispatch machinery ≈66%,
-      which a direct-style `eval(...): Value` migration **does not touch**. So the wall-clock ceiling is below
-      the ≥15% gate against a 1200-site, high-risk migration. The win these shapes want is JIT/devirt, not
-      direct-style. Do NOT start without a real workload where `Pure` dominates a *tree-walked* path. Original
-      below.
-- **direct-style-eval** (history only; data-disproven, not claimable) — migrate `eval(...): Computation`
-      to direct-style `eval(...): Value` to kill per-call `Pure` allocation. **Re-validated
-      2026-06-13** (`specs/direct-style-eval-spec.md` §11.1): on the representative tree-walked
-      workload `Computation.Pure` is only ~16% of allocation; the dispatch machinery (~66%)
-      dominates and `evalDirect` doesn't touch it, so the wall-clock ceiling is below the ≥15%
-      gate against a 530-site, high-risk migration. **Do NOT start** without a real workload
-      where `Pure` dominates a *tree-walked* path. The win these shapes actually want is
-      `hof-dispatch-devirt` (SPRINT) — pursue that instead.
-
-## Architecture & Extensibility Roadmap (v1.x–v2.x)
-
-Cross-cutting improvements to make ScalaScript easier to extend, consume, and
-distribute — identified in the 2026-05-28 architectural review.  Ten themes
-(A–J), roughly ordered by impact and risk.  Companion plan:
-`~/.claude/plans/glowing-swinging-river.md`.
-
-### Theme C — Distribution ecosystem (multi-channel, not Maven-only)
-
-- [ ] **arch-distribution-p3** (DEFERRED: explicit publication go required) — First-party Maven Central publication
-  (deferred; not queued):
-  `project/Publishing.scala`; `io.scalascript` group ID unified; publish
-  `scalascript-core`, `scalascript-runtime`, `sbt-scalascript` on tag push;
-  sbt Plugin Portal registration. Deferred until Sergiy explicitly asks to
-  publish to Maven Central, sbt Plugin Portal, or other official centralized
-  repositories.  Spec: `specs/arch-distribution.md §5 Phase 3`.
-
-### Theme D — sbt-scalascript plugin completion
-
-### Theme E — `ssc new` + standalone installation
-
-### Theme B — Build-time registry consolidation
-
-### Theme A — Stable Plugin SPI
-
-### Theme F — DSL platform hooks
-
-### Theme H — Library Modularity
-
-Identified 2026-05-28. Six concrete gaps in the library system: no multi-file
-pure-ScalaScript package format, no transitive dep propagation, no access
-control, namespace collision risk, no API lifecycle annotations, no versioning
-enforcement.  Full analysis in `specs/arch-library-modularity.md`.
-
-### Theme I — Package Registry (discoverability)
-
-Identified 2026-05-28. Without a registry the ecosystem cannot grow: users
-cannot find libraries, authors cannot reach users.  Current solution: in-repo
-catalog + GitHub Pages project site, zero server infrastructure, PR-based
-publishing. Custom domain/governance can layer on later.
-Full spec: `specs/arch-registry.md`.
-
-### Theme J — Lightweight FFI (@jvm / @js + glue.jar)
-
-Identified 2026-05-28. Community libraries cannot call Java or JS APIs today —
-only `std/` plugins can.  Two-tier FFI closes the gap without requiring a full
-`BackendRegistry` plugin.  Full spec: `specs/arch-ffi.md`.
-
-### Theme G — Metaprogramming v2.x (deferred)
-
----
-
-## Blockchain SPI — chain abstraction for x402 + wallet
-
-Spec in [`specs/blockchain-spi.md`](specs/blockchain-spi.md). Defines a
-shared chain-abstraction layer (`ChainAdapter` / `ChainId` / `Asset`
-/ `TypedData` / `recover` / queries) consumed by both `wallet-*` and
-`x402-*`. Sits above a lower-level `crypto-spi` (BouncyCastle on JVM,
-`@noble/curves` on Scala.js).
-
-Fixes four concrete bugs in current x402:
-
-- `EvmFacilitator.verify` never checks the signature
-  (`x402-facilitator-evm/.../EvmFacilitator.scala:23-38`)
-- `EvmFacilitator.settle` returns `0x00…00` as stub tx hash
-  (`:40-43`)
-- Hand-coded `0x70a08231` selector for `balanceOf` (`:32`)
-- x402-client SHA-256 stubs (companion fix in
-  [`specs/wallet-spi.md`](specs/wallet-spi.md))
-
-### Phase 0 — Spec ✓ Landed (2026-05-19)
-
-### Phase 1 — SPI + crypto + blockchain-evm minimum + x402 facilitator verify fix ✓ Landed (2026-05-19)
-
-  - [ ] `EvmFacilitator.tokenBalance` to use blockchain-evm typed
-        proxy — deferred to Phase 2 (depends on full ABI codec)
-### Phase 2 — blockchain-evm full ChainAdapter + real x402 settle ✓ Landed (2026-05-19)
-
-Shipped as four slices: RLP+broadcast (29344e6), ABI codec
-(3679e68), typed Erc20 proxy + event decoder (a97e7e6), real
-relayer-backed x402 settle (cbec71c). ~40 new tests, full Phase 1
-regression test green.
-
-  - [ ] End-to-end Anvil integration test deferred — mock-RPC test
-        exercises the exact JSON-RPC sequence an Anvil node would
-        receive; real network round-trip is a follow-on slice.
-
-### Phase 3 — blockchain-solana ✓ Landed (2026-05-20)
-
-### Phase 4 — Scala.js CryptoBackend ✓ Landed (2026-05-20)
-
-### Phase 5 — blockchain-bitcoin ✓ Landed (2026-05-27)
-
-### Phase 6 — blockchain-cardano + x402 Cardano facilitator ✓ Landed (2026-05-20)
-
-### Phase 7 — blockchain-cosmos ✓ Landed (2026-05-27)
-
----
-
-## Wallet SPI — Scala.js cross-compile ✓ Sprint complete (2026-05-20)
-
-Spec in [`specs/wallet-spi-scalajs.md`](specs/wallet-spi-scalajs.md).
-Six-stage migration that takes the wallet-spi track from JVM-only to
-JVM + Scala.js so the same SPI artefacts power browser PWA wallets,
-in-page dApp connectors (EIP-1193 / WalletConnect / Solana Wallet
-Standard), and the x402 client in a browser context. Builds on the
-existing wallet-spi (§ "Wallet SPI — key management + dApp
-connectivity") which lands the JVM side first.
-
-### Stage 1 — Plugin setup + cross-compile wallet-spi ✓ Landed (2026-05-20)
-
-### Stage 2 — Scala.js CryptoBackend (crypto-noble-js) ✓ Landed (2026-05-20)
-
-Resolves the `Scala.js registry pattern` open question
-([`specs/wallet-spi.md`](specs/wallet-spi.md) §11.1) — first impl module
-that registers itself through the Stage 1 cross-platform
-`object CryptoBackend.register(...)`.
-
-### Stage 3 — Strategy + connector cross-compile ✓ Landed (2026-05-20)
-
-### Stage 4 — `wallet-strategy-erc4337` cross-compile ✓ Landed (2026-05-20)
-
-### Stage 5 — `wallet-vault-encrypted` cross-compile ✓ Landed (2026-05-20)
-
-Stage 5a — light up the deferred KDF + AEAD primitives in
-`crypto-noble-js`:
-
-### Stage 6 — `wallet-connect` cross-compile ✓ Landed (2026-05-20)
-
-Stage 6a — extend `CryptoBackend` SPI with the primitives WC needs
-(additive only — no existing-method breakage):
-
-- [ ] **Real browser-WebSocket integration testing** (BLOCKED: real browser + WalletConnect relay/project) — JS tests
-      currently mock `BrowserWebSocket` (Node has no native
-      `WebSocket` in the test runtime).  Live integration against
-      `wss://relay.walletconnect.com` lands in the future PWA-wallet
-      sprint that surfaces WC v2 in an actual browser.
-
-Sprint closure: every wallet-spi-track module that has a JS-relevant
-surface now cross-compiles JVM + Scala.js.  All future
-`CryptoBackend` implementations are mandated to implement
-ChaCha20-Poly1305, X25519, and the Stage 5 AEAD / KDF set in
-addition to the original signing / hash / KDF surface — see
-[`specs/wallet-spi-scalajs.md`](specs/wallet-spi-scalajs.md) §6 for
-the full SPI checklist a new backend has to cover.
-
----
-
-## Wallet SPI — key management + dApp connectivity
-
-Spec in [`specs/wallet-spi.md`](specs/wallet-spi.md). Sits above
-blockchain-spi. Two extension axes: key management (`Vault` /
-`RawSigner` / `AccountStrategy`) and dApp connectivity
-(`DappConnector`: EIP-1193, Wallet Standard, WalletConnect v2).
-
-Replaces the SHA-256 stub in `x402-client.PrivateKeyWallet` with real
-secp256k1 ECDSA via an adapter shim — x402's public API is unchanged.
-
-### Phase 1 — Skeleton SPI + EOA strategy + x402-client shim ✓ Landed (2026-05-19)
-
-Landed in tandem with blockchain-spi Phase 1.
-
-### Phase 2 — Encrypted Vault ✓ Landed JVM + Scala.js core (2026-05-20)
-
-### Phase 3 — DappConnector EIP-1193 ✓ Scaffold landed (2026-05-20)
-
-### Phase 4 — DappConnector WalletConnect v2 (scaffold landed 2026-05-20)
-
-- [ ] **WC project-ID open question** (DEFERRED deployment config) — still pending; the transport
-      accepts a `projectId` argument on both platforms but CI does
-      not yet provision one. To resolve before first production
-      deployment.
-
-### Phase 5 — Solana DappConnector ✓ Landed (2026-05-27)
-
-### Phase 6 — ERC-4337 SmartAccountStrategy ✓ Landed (2026-05-20)
-
-### Phase 7 — Hardware wallet Vault (Ledger multi-chain)
-
-Architecture in [`specs/wallet-spi.md`](specs/wallet-spi.md) §5.1. One
-device, one seed, per-chain on-device apps; the Vault routes
-`getSigner(curve, path)` to the right active app and surfaces
-`AppSwitchRequired` to the host when the user must change apps.
-
-### Phase 8 — MPC Vault
-
-- **FROST-Ed25519** → MOVED TO SPRINT 2026-06-23 (Sergiy "внеси в спринт"; active queue). Threshold Ed25519
-      (FROST) signing as a `walletVaultMpcFrost` variant is now active work. (Other future MPC variants stay
-      deferred until a concrete use case/partner.)
-
----
-
-## Strategic-review proposals (2026-06-15)
-
-The feature roadmap is built out (729/740 done, 127 conformance cases, ~70 property/fuzz suites,
-comprehensive docs). These are the higher-leverage *productization/hardening/enablement* directions.
-The two active ones are in SPRINT (`compile-time-at-scale`, `xbackend-property-equivalence`).
-
-- [x] **real-workload-perf** ✓ DONE 2026-06-20 (all three axes have harnesses + baselines) —
-      micro-throughput is at floor; this is the real-workload axis.
-      **(a) cold-start ✓ DONE 2026-06-20:** built `tests/perf/coldstart/` (pure-bash harness, no
-      scala-cli/bloop → can't hang) measuring fresh `ssc run` wall-clock + peak RSS. Baseline ~378 ms /
-      167 MB (JVM boot ~36 ms + classloading the 88 MB fat jar dominate). **Cut shipped:** AppCDS in
-      `bin/ssc` + `install.sh` (`-XX:+AutoCreateSharedArchive`, auto-created first run, no build step,
-      CDS-only — NOT TieredStopAtLevel which would hurt long-running `ssc serve`) → **378 → 182 ms (−51%)
-      + peak RSS 167 → 114 MB (−32%)**; opt out `SSC_NO_CDS=1`. GraalVM native binary needs no CDS.
-      **(b) steady-state RSS + (c) GC under load ✓ DONE 2026-06-20:** built `tests/perf/serverrss/` (boots
-      a real `health-defaults.ssc` server on the JVM interp at `-Xmx512m` + GC log, drives concurrent load,
-      samples RSS, reports footprint + start→end drift (leak signal) + GC pauses/time; pure bash, reliable
-      teardown). Baseline (20s/4 loops, JDK 21): the interp server settles at **~195 MB RSS, STABLE** —
-      ramps ~184→~195 MB then plateaus (no leak), **light GC** (~41 short pauses / 27 ms). Verdict flips to
-      GROWING if drift >20%. **All three axes now have harnesses + baselines.** Complements
-      `compile-time-at-scale` (the remaining unmeasured axis). Genuine open follow-up: a *long* (minutes)
-      leak-hunt run is left to demand (the harness supports `secs=300+`).
-- [x] **xbackend-property-equivalence (full suite)** ✓ DONE 2026-06-20. **Broaden:** already complete —
-      the generator is at **12 kinds** incl. arith/List/match/enum/String/case-class/Option/Either/closures/
-      nested-coll/string-ops/**effects** (the "REMAINING" list was stale); node leg verified 74 programs,
-      interp==JS, 0 skipped. **CI-wired:** the `sbt` CI job had only Java+sbt so `CrossBackendPropertyTest`
-      SKIPPED (assume node/scala-cli) — added Node.js setup so the interp==JS differential now runs in CI.
-      **Made CI-safe first** (see `xbackend-test-hardening`): `ProcTestUtil.runCaptured` gives the subprocess
-      runner a hard timeout that actually fires + deadlock-free stream draining, so a wedged scala-cli/node
-      fails fast instead of hanging the job. The interp==JVM(scala-cli) leg stays gated (Conformance job
-      covers it). Definitive cross-backend guarantee now standing in CI.
-- [x] **registry.scalascript.io (remote package registry)** ✓ DUPLICATE — consolidated into the
-      `remote-package-registry` item above. Keep the concrete registry-domain discussion there.
-- **demand-driven-from-busi** (ongoing signal, not a claimable task) — the `busi` rozum channel is the live
-      testbed and the highest-signal priority source; it is currently quiet. Proactively building one
-      comprehensive real app (or asking busi what's painful) surfaces the gaps that matter more than any
-      speculative backlog item. Keep sweeping the room per the rozum skill.
-
-## Completed milestones — archived 2026-06-15 (detail in CHANGELOG.md + git history)
-
-- Language Surface — Markdown Frontend from Content
-- Codegen-time perf — jvmGen ~100× slower than jsGen (survey 2026-06-14)
-- JS Codegen Performance
-- Conformance Fixes — cross-backend gaps (2026-06-02)
-- Tooling
-- UUID Library — v1.65
-- Crypto primitives — v1.66 ✓ DONE
-- Codebase Maintenance / Architecture Hygiene
-- Exact Numerics — BigInt, Decimal, Money (v1.64 ✓ DONE — all phases landed 2026-06; verified 2026-06-14)
-- Distributed Runtime (v1.63 planned)
-- Distributed Wire Protocol (v1.62 planned)
-- Compiler extensibility roadmap
-- Recommended implementation sequence
-- v0.7 — Reusable libraries and packaging
-- v0.13 — Component theming variants
-- v1.12 — Typed Algebraic Effects
-- v1.51 — Streams with Backpressure
-- v1.52 — Deploy to Hostings, Clouds & Kubernetes-like Environments
-- v1.53 — Traditional Payment Processors
-- v1.60 — Tuple Monoid ✓ Landed 2026-05-28
-- v1.61 — Performance & Memory Optimization
-- Interpreter performance — next phases (post VM 2a)
-- v1.55 — First-class XML / Generic Markup
-- v2.1 — Distributed Streams (Beam-style)
-- v2.0 — Separate compilation of modules
-- Interpreter ergonomics — carried over from v1.1
-- Known issues / latent flakes
-- CLI — native binary (GraalVM native-image)
-- Optimization and modularity roadmap
-- Scala ↔ ScalaScript interop — Tiers 1 + 2 landed
-- Next wave — post-v1.24 plan
-- Beyond
-- Speculative — Smart contracts backend
-- Speculative — Apache Spark backend
-- v1.26 — `sql` fenced code blocks (JDBC)
-- v1.27 — browser-side SQL (sql.js / DuckDB-Wasm)
-- Infrastructure clients — general-purpose ScalaScript libraries
-- x402 — HTTP payment protocol
-- MCP × x402 × Wallet — agentic payments
-- Micropayment Platform — channel-based fee amortisation for microtransactions
-- v1.30 — `@side=client|server` for SQL blocks in full-stack modules
-- OpenAPI 3.1
-- GraphQL
-- v1.48 — SwiftUI Native Frontend (iOS + macOS)
-- v1.48.1 — `ssc run` one-command wrapper for SwiftUI targets
-- v1.48.2 — `ssc run --target ios` (iOS Simulator)
-- v1.48.3 — `ssc run --target ios --device` (real device via ios-deploy)
-- v1.48.4 — `ssc package --target ios` → distributable .ipa
-- v1.48.5 — `ssc publish --target ios` (TestFlight + App Store via fastlane)
-- v1.49 — macOS distribution: notarize + DMG + Mac App Store
-- v1.65 — `ssc emit --frontend swiftui` pathway ✓ Landed 2026-06-02
-- v1.66 — SwiftUI typed JSON models (`@model` + `FetchJsonSignal`)
-- Backend-specific fenced blocks + platform-type ban
-- std.fs / std.os / std.process — filesystem, OS & process abstraction
-- Requested by busi (real testbed) — 2026-06-09
-
-## Rust multi-shot effects (R.6) — unbounded loop-depth follow-up (2026-06-22)
-
-Bounded Rust multi-shot support has landed: Tier-1 List (`effect-multishot` bench), Tier-1 Option, and
-Tier-2 static-depth general handlers all cargo-run. The deferred remainder is narrower: support a `perform`
-inside a loop or other shape where the number of continuation nests is not statically known. That likely needs
-the explicit defunctionalized trampoline sketched in `specs/rust-effects.md §11`. No current benchmark/example
-requires it; keep it in BACKLOG until a real consumer appears.
-
-## security-hardening follow-ups (2026-07-12) — from specs/security-hardening.md
-
-The implementable audit findings landed (see CHANGELOG / git `security-hardening`).
-These remain, each needing its own slice:
-- **M10 confined-fs API** — `readFileWithin(root, path)` family (normalize + startsWith(root) +
-  NOFOLLOW) as new externs across backends; raw fs helpers stay trusted-input-only. Needs a spec.
-- **H4-full artifact signing** — HMAC/sign `.scjvm`/`.scjs`/`classBundle` with an install-private
-  key (cheap dir-permission half already landed).
-- **L8 cross-backend conformance** — shared suite pinning identical fs/process/http semantics
-  (deleteFile, redirects, timeout, cwd/env, listDir order) across JVM/JS/Rust/interp.
-(M2-JS + M3-JS both done — JS client now matches JVM/interp/Rust on redirects + body cap.)
-  (manual mode returns an opaque response; needs a response.url host re-check).
-- **exec opts-wiring (Rust/JS)** — interp DONE (git). Rust `_exec<O>` is generic (needs codegen special-case to read struct fields); JS needs Option/Map unwrapping in the runtime. Both remain.
-  wire them so M4/L3 apply on those lanes too.
