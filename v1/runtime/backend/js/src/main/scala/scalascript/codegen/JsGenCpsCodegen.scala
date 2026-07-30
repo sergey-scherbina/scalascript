@@ -738,15 +738,42 @@ private[codegen] trait JsGenCpsCodegen:
       ("true", List(n.value -> scrutVar))
 
     case lit: Lit =>
+      // Every literal kind this misses becomes `undefined`, so the emitted test is
+      // `scrut === undefined` — the case does not error, it silently FALLS THROUGH.
+      // `Lit.Char` was missing, so `case '*' =>` never matched on js while `'*' == '*'` stayed true.
+      // The interpreter had the identical hole in `PatternRuntime.compileLit` (`NullV` instead of
+      // `undefined`), and fixing that one is what exposed this one: `dsl-calc-parser`'s LIVE golden
+      // moved to int's now-correct output and js became the divergent lane.
+      // A Char is a 1-char STRING in emitted JS — `Lit.Char` in expression position (`JsGen.scala:4195`)
+      // emits exactly that — so comparing against the same form is consistent by construction.
+      // (int-char-literal-pattern-never-matches.)
       val litJs = lit match
         case Lit.Int(v)     => v.toString
         case Lit.Long(v)    => v.toString
         case Lit.Double(v)  => v.toString
-        case Lit.String(v)  => "\"" + v.replace("\"", "\\\"") + "\""
+        case Lit.Float(v)   => v.toString
+        // escapeJsString, not a hand-written subset: a `"`-only escaper here is the THIRD partial copy
+        // of that chain, and the second one is what produced `jsgen-char-literal-escape` — a pattern on
+        // a string containing a newline emitted unparseable JS.
+        case Lit.String(v)  => "\"" + escapeJsString(v) + "\""
+        case Lit.Char(v)    => "\"" + escapeJsString(v.toString) + "\""
         case Lit.Boolean(v) => v.toString
+        case Lit.Unit()     => "undefined"   // matches Lit.Unit in expression position
         case Lit.Null()     => "null"
         case _              => "undefined"
-      (s"$scrutVar === $litJs", Nil)
+      lit match
+        // A Char needs the runtime's NORMALISING equality, not `===`. On js a Char has two
+        // representations — a 1-char string from a literal, a code-point NUMBER from `charAt` and
+        // friends (hence `_charCodeOrNull` in the extension guards) — and `===` equates only the first
+        // with the emitted literal. `==` already works (`s.charAt(1) == '*'` is true) because it goes
+        // through `_eq`, so the pattern uses the same thing.
+        //
+        // ⚠️ Worth knowing why this needed a second round: the first fix used `===` and a minimal probe
+        // (`cls('*')`) passed, because a literal scrutinee has the SAME representation by construction.
+        // A probe that builds its own input cannot detect a representation mismatch — only the real
+        // case, whose Char came out of a parser, could. (int-char-literal-pattern-never-matches.)
+        case _: Lit.Char => (s"_eq($scrutVar, $litJs)", Nil)
+        case _           => (s"$scrutVar === $litJs", Nil)
 
     case Pat.Typed(inner, tpe) =>
       // Emit a type-test guard for union-type narrowing: `case s: String =>`.

@@ -5703,7 +5703,11 @@ class JsGen(
   )
 
   /** Escape a string value for a JS string literal (double-quoted). */
-  private def escapeJsString(s: String): String =
+  // `private[codegen]`, not `private`: the pattern path in JsGenCpsCodegen needs the SAME escaper.
+  // It had its own `"`-only copy, which is the third partial copy of this chain — and the second one is
+  // what produced `jsgen-char-literal-escape`, where a `'\n'` emitted unparseable JS. Sharing beats a
+  // fourth copy. (int-char-literal-pattern-never-matches.)
+  private[codegen] def escapeJsString(s: String): String =
     s.replace("\\", "\\\\")
      .replace("\"", "\\\"")
      .replace("\n", "\\n")

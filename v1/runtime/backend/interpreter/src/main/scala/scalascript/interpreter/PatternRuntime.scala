@@ -344,12 +344,24 @@ private[interpreter] object PatternRuntime:
           case Value.BoolV(b) => b
           case _              => false
 
+  // Every literal kind this misses compiles to `NullV`, which equals nothing — so the pattern does not
+  // error, it silently FALLS THROUGH to the next case. `Lit.Char` was missing, so `case '*' =>` never
+  // matched while `'*' == '*'` stayed true, which is exactly what hid it: a Char-dispatching parser
+  // looks healthy right up to the point where every branch quietly takes its fallback.
+  //
+  // Measured via `dsl-calc-parser`, whose frozen golden had recorded the WRONG answer (`1 + 2 => 1` —
+  // the operator dropped by `case _ => acc`) and therefore recorded the CORRECT v2 output as the
+  // divergence. `Lit.Unit` and `Lit.Float` sat in the same hole and are named here too.
+  // (int-char-literal-pattern-never-matches.)
   private def compileLit(lit: Lit): Value = lit match
     case Lit.Int(v)     => Value.intV(v.toLong)
     case Lit.Long(v)    => Value.intV(v)
     case Lit.String(v)  => Value.StringV(v)
     case Lit.Boolean(v) => Value.boolV(v)
     case Lit.Double(v)  => Value.doubleV(v.toString.toDouble)
+    case Lit.Float(v)   => Value.doubleV(v.toString.toDouble)
+    case Lit.Char(v)    => Value.charV(v)
+    case Lit.Unit()     => Value.UnitV
     case Lit.Null()     => Value.NullV
     case _              => Value.NullV
 

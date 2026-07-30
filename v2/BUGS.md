@@ -281,6 +281,41 @@ escaper.
 node-then-render pass has to reproduce the same escaping at the leaves, including `Code` content and
 `mdhHref` on destinations. That constraint is also what makes the refactor verifiable.
 
+## content-current-section-native-unavailable — `contentCurrentSection()` throws by design on native, and `content-introspection` is red because of it
+<!-- status: open
+     lane: native
+     area: runtime
+     gate: tests/conformance/content-introspection.ssc -->
+
+**Filed 2026-07-30** by `content-current-section-native-unavailable`. The freeze carries
+`content-introspection v2 FAIL` with no explanation anywhere; this is the explanation.
+
+`ContentNativePlugin` (`v2/runtime/std/content-plugin/.../ContentNativePlugin.scala:506`):
+
+```scala
+native(context, "contentCurrentSection", 0) { _ =>
+  throw new IllegalStateException(
+    "contentCurrentSection() is unavailable on native 2.1 without source-aware call identity")
+}
+```
+
+The throw is UNCONDITIONAL, so the case can never pass on v2 as written — `content-introspection.ssc`
+calls `contentCurrentSection()` and prints `here.id`. This is a declared limitation, not an accidental
+break, and it had simply never been written down where the red row could be traced to it.
+
+**What "source-aware call identity" means concretely.** The call has to know which SECTION it appears in.
+The front already walks sections to collect fenced blocks, so the obvious shape is a lowering-time
+rewrite: a `contentCurrentSection()` inside section `S` becomes `contentSection("S")`. That makes it a
+front change, not a runtime one — the plugin cannot recover the answer at runtime because the information
+is gone by then.
+
+**Two honest options, and the case should stop being an unexplained red either way:**
+1. implement the rewrite in the front, and the case passes on v2;
+2. declare the case `backends:` without v2 (or known-red with THIS slug as the reason), so the row states
+   a known limitation instead of looking like an ordinary defect.
+
+Not started: (1) is a front feature and (2) moves the freeze, which another claim holds.
+
 ## v2-char-is-an-int — a Char literal IS its code point on the v2 lane, in `println`, `toString` and concatenation
 <!-- status: open
      lane: native

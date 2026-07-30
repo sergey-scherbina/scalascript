@@ -7,6 +7,81 @@ grepping for status.
 
 Newest first.
 
+## int-char-literal-pattern-never-matches — `case '*' =>` silently fell through, so every Char-dispatching parser took its fallback
+<!-- status: fixed
+     lane: int
+     area: runtime
+     fixed-in: unrecorded
+     gate: v1/runtime/backend/interpreter/src/test/scala/scalascript/CharLiteralPatternTest.scala -->
+
+**FIXED 2026-07-30.** `PatternRuntime.compileLit` had no `Lit.Char` arm, and its default produced
+`Value.NullV` — which equals nothing. So a Char literal PATTERN did not error, it silently fell through
+to the next case.
+
+```scalascript
+def classify(c: Any): String = c match
+  case '*' => "star"
+  case '+' => "plus"
+  case _   => "other"
+```
+
+| call | int before | int after | v2 |
+|---|---|---|---|
+| `classify('*')` | **`other`** | `star` | `star` |
+| `classify('+')` | **`other`** | `plus` | `plus` |
+| `classify('z')` | `other` | `other` | `other` |
+| `'*' == '*'` | `true` | `true` | `true` |
+
+**Equality worked, which is precisely what hid it.** A lexer or operator-dispatching parser looks healthy —
+comparisons behave — right up to the point where every branch quietly takes its fallback and the result is
+merely *wrong*, not broken.
+
+**How it surfaced, and why that matters.** `dsl-calc-parser` was recorded in the freeze as
+`dsl-calc-parser v2 DIVERGE`, i.e. as a v2 defect. It was not. That case folds over operator Chars
+(`case '+' => CalcAdd(acc, …)` … `case _ => acc`), so on int every operator was dropped and the frozen
+LIVE golden had recorded `1 + 2 => 1`. v2 matched correctly and was therefore the lane flagged as
+divergent. Second time in one day that the corpus golden encoded an int defect and blamed v2 — the other
+was `v1-json-two-contradictory-number-policies`.
+
+After the fix int prints `1 + 2 => 1 + 2`. v2 still differs on that case, but now against a CORRECT golden
+and for an unrelated reason ([[v2-infix-extension-operator-stringifies]]: `++` on a Doc stringifies).
+
+**`Lit.Unit` and `Lit.Float` were in the same hole** and are now named explicitly. The default arm is kept,
+so any literal kind still unnamed continues to fail this way — a silent fall-through is a poor default, and
+worth revisiting if a third kind ever turns up.
+
+**Blast radius, measured before landing:** exactly ONE file in the whole tree uses a Char literal pattern
+(`examples/dsl-calc-parser.ssc`) — checked with an alternation-aware grep across
+`tests/conformance`, `examples`, `v1/runtime/std`, `v2` and `specs`, including `.ssc0` tower sources. That
+case has no `expected/` file, so its golden is live and no frozen golden moves.
+
+**The js lane had the SAME hole, and fixing int is what exposed it.** `JsGenCpsCodegen.scala`'s
+literal-pattern arm had no `Lit.Char` either, and its default emitted `scrut === undefined` — the same
+silent fall-through with a different sentinel. Because `dsl-calc-parser`'s golden is LIVE, int's corrected
+output immediately made js the divergent lane, and the contract reported
+`dsl-calc-parser js DIVERGE` as a regression I had introduced. Both lanes are fixed here; v2 was right all
+along.
+
+⚠️ **The js half needed two rounds, and the reason is worth more than the fix.** The first attempt compared
+with `===` and a minimal probe passed:
+
+```scalascript
+def cls(c: Any): String = c match { case '*' => "star"; case _ => "other" }
+println(cls('*'))          // "star" — passed
+println(cls("a*b".charAt(1)))   // "other" — still broken
+```
+
+A Char has TWO representations on js: a 1-char string from a literal, and a code-point NUMBER from
+`charAt` and friends (which is why `_charCodeOrNull` exists in the extension guards). `===` equates only
+the first with the emitted literal. A probe that constructs its own input cannot detect a representation
+mismatch — the literal's representation matches by construction — so only the real case, whose Char came
+out of a parser, could show it. The fix uses the runtime's normalising `_eq`, which `==` already used
+(`"a*b".charAt(1) == '*'` was true throughout).
+
+Also collapses the THIRD partial copy of the JS string escaper: the pattern path had its own `"`-only
+version, and the second such copy is what produced [[jsgen-char-literal-escape]]. `escapeJsString` is now
+`private[codegen]` so the pattern path shares it rather than becoming a fourth.
+
 ## v1-interpreter-hot-path-never-jits — the INT lane's core dispatch is over HotSpot's limit
 <!-- status: open
      lane: int
