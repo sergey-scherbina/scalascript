@@ -1,4 +1,5 @@
-# generation: 342
+# generation: 343
 #slug	agent	started	items	paths
 jsgen-char-escape	claude-code	2026-07-30T06:45:00Z	jsgen-char-literal-escape	v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala tests/conformance/char-literal-escapes.ssc tests/conformance/expected/char-literal-escapes.txt SPRINT.md specs/v2-char-is-an-int.md
 ci-status-guard-selftest-red	claude-code	2026-07-30T07:01:34Z	validate-job-red-on-ci-status-guard-selftest	tests/e2e/ci-status-guard.sh tests/BUGS.md
+coord-policy-and-shared-boards	claude-code	2026-07-30T07:04:12Z	claim-granularity-policy shared-bookkeeping-per-module	file:.githooks/pre-push file:AGENTS.md file:specs/claim-mutex.md file:tests/coord/claim-scope-hierarchy.sh
