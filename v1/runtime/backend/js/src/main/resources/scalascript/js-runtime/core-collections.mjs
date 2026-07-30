@@ -535,7 +535,7 @@ function _registerExt(method, fn, type) {
 // nulls become _None (matches Option literals), arrays stay arrays.
 function _jsonConvert(v) {
   if (v === null || v === undefined) return _None;
-  // A _Decimal produced by _jsonNumberReviver is a runtime SCALAR, not a JSON object. Without
+  // A _Decimal produced by _jsonParseExact is a runtime SCALAR, not a JSON object. Without
   // this guard the `typeof v === 'object'` branch below turns it into a Map of its internal
   // fields — the same shape of bug as boxing a _Char and then walking it as a container.
   if (v && v._type === '_Decimal') return v;
@@ -549,33 +549,164 @@ function _jsonConvert(v) {
 }
 
 // A fractional/exponent JSON number becomes an EXACT _Decimal, matching the interpreter
-// (JsonParser.parseNumber) and v2 (NativeJsonCodec.rawNumber). `JSON.parse` alone cannot do this:
-// it turns `0.10` into the Number 0.1, destroying the source text before ssc ever sees it. The
-// ES2025 reviver `context.source` hands us the ORIGINAL literal, which is the only way to know
-// `0.10` from `0.1`.
+// (JsonParser.parseNumber), the JVM lane (RestRuntime._JsonParser.parseNumber) and v2
+// (NativeJsonCodec.rawNumber). `JSON.parse` alone cannot do this: it turns `0.10` into the Number
+// 0.1, destroying the source text before ssc ever sees it.
 //
-// Falls back to the plain Number whenever exactness is not achievable — a host without
-// source-text access, or a literal `Decimal(…)` cannot express. That keeps the OLD behaviour for
-// those cases instead of erroring, and every fallback path was checked to still agree with the
-// interpreter on the corpus's own inputs.
+// This was FIRST done with the ES2025 reviver's `context.source`, which hands over the original
+// literal. That worked — on a new enough host. Node 20 does not have it, the reviver fell back to
+// the lossy Number, and the fallback was described as "keeps today's behaviour instead of erroring".
+// But today's behaviour had become the WRONG answer, so the fallback did not preserve compatibility:
+// it made exactness depend on the host. `json-read` PASSED on a local Node 26 and FAILED in CI,
+// where every workflow pins `node-version: '20'` — and `>=20` is the floor the shipped
+// `package.json`s declare, so that is a SUPPORTED host printing a different number for the same
+// program. Bumping CI's Node would have greened the golden while leaving the divergence in place.
+//
+// So: one path, no host feature detection, and `_jsonNumberReviver` is gone. `JSON.parse` survives
+// only where it PROVABLY agrees — text containing no `.`, `e` or `E` anywhere has no fractional or
+// exponent literal to be exact about, so its numbers are the same numbers.
+//
+// Positional matching was considered and rejected: pre-scanning the literals and consuming them in
+// reviver order does not work, because JS reorders integer-like object keys ({"2":…,"1":…} is
+// visited "1" then "2"), so reviver order is not source order.
 // (v1-json-two-contradictory-number-policies.)
-function _jsonNumberReviver(k, v, context) {
-  if (typeof v !== 'number') return v;
-  const src = context && context.source;
-  if (typeof src !== 'string' || !/[.eE]/.test(src)) return v;
-  try {
-    const m = /^([^eE]+)(?:[eE]([+-]?\d+))?$/.exec(src.trim());
-    if (!m) return v;
-    const d = Decimal(m[1]);
-    // BigDecimal("0.10e1") is unscaled 10 at scale 2-1=1 -> "1.0". Shifting the scale by the
-    // exponent reproduces that exactly; building from the Number would give "1".
-    return m[2] === undefined ? d : _mkDec(d.u, d.s - Number(m[2]));
-  } catch (e) { return v; }
+function _jsonParseExact(src) {
+  let pos = 0;
+  const len = src.length;
+  const fail = (msg) => { throw new SyntaxError('jsonParse: ' + msg + ' at position ' + pos); };
+  const skipWs = () => {
+    while (pos < len) {
+      const c = src[pos];
+      if (c === ' ' || c === '\t' || c === '\n' || c === '\r') pos++; else break;
+    }
+  };
+  const isDigit = (c) => c >= '0' && c <= '9';
+
+  const parseString = () => {
+    if (src[pos] !== '"') fail("expected '\"'");
+    pos++;
+    let out = '';
+    for (;;) {
+      if (pos >= len) fail('unterminated string');
+      const c = src[pos];
+      if (c === '"') { pos++; return out; }
+      if (c === '\\') {
+        pos++;
+        if (pos >= len) fail('dangling escape');
+        const e = src[pos++];
+        if      (e === '"')  out += '"';
+        else if (e === '\\') out += '\\';
+        else if (e === '/')  out += '/';
+        else if (e === 'n')  out += '\n';
+        else if (e === 'r')  out += '\r';
+        else if (e === 't')  out += '\t';
+        else if (e === 'b')  out += '\b';
+        else if (e === 'f')  out += '\f';
+        else if (e === 'u') {
+          const hex = src.slice(pos, pos + 4);
+          if (!/^[0-9a-fA-F]{4}$/.test(hex)) fail('short unicode escape');
+          out += String.fromCharCode(parseInt(hex, 16));
+          pos += 4;
+        } else fail("bad escape '\\" + e + "'");
+      } else if (c < ' ') fail('unescaped control character in string');
+      else { out += c; pos++; }
+    }
+  };
+
+  const parseNumber = () => {
+    const start = pos;
+    if (src[pos] === '-') pos++;
+    while (pos < len && isDigit(src[pos])) pos++;
+    let exact = false;
+    if (src[pos] === '.') { exact = true; pos++; while (pos < len && isDigit(src[pos])) pos++; }
+    if (src[pos] === 'e' || src[pos] === 'E') {
+      exact = true; pos++;
+      if (src[pos] === '+' || src[pos] === '-') pos++;
+      while (pos < len && isDigit(src[pos])) pos++;
+    }
+    const text = src.slice(start, pos);
+    if (!/^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(text)) fail('bad number ' + JSON.stringify(text));
+    // An integer stays exactly what `JSON.parse` produced — a Number. Only the fractional and
+    // exponent forms change, so this parser is not a second integer policy.
+    if (!exact) return Number(text);
+    try {
+      const m = /^([^eE]+)(?:[eE]([+-]?\d+))?$/.exec(text);
+      const d = Decimal(m[1]);
+      // BigDecimal("0.10e1") is unscaled 10 at scale 2-1=1 -> "1.0". Shifting the scale by the
+      // exponent reproduces that exactly; building from the Number would give "1".
+      return m[2] === undefined ? d : _mkDec(d.u, d.s - Number(m[2]));
+    } catch (e) {
+      // Not expressible as a Decimal (a scale past what the representation allows). Degrade to the
+      // old Number rather than erroring, matching the interpreter's overflow fallback.
+      return Number(text);
+    }
+  };
+
+  const parseValue = () => {
+    skipWs();
+    if (pos >= len) fail('unexpected end of input');
+    const c = src[pos];
+    if (c === '"') return parseString();
+    if (c === 't') { if (!src.startsWith('true',  pos)) fail("expected 'true'");  pos += 4; return true;  }
+    if (c === 'f') { if (!src.startsWith('false', pos)) fail("expected 'false'"); pos += 5; return false; }
+    if (c === 'n') { if (!src.startsWith('null',  pos)) fail("expected 'null'");  pos += 4; return null;  }
+    if (c === '[') {
+      pos++; skipWs();
+      const items = [];
+      if (src[pos] === ']') { pos++; return items; }
+      for (;;) {
+        items.push(parseValue());
+        skipWs();
+        if (pos >= len) fail('unterminated array');
+        if (src[pos] === ',') { pos++; skipWs(); continue; }
+        if (src[pos] === ']') { pos++; return items; }
+        fail("expected ',' or ']'");
+      }
+    }
+    if (c === '{') {
+      pos++; skipWs();
+      const obj = {};
+      if (src[pos] === '}') { pos++; return obj; }
+      for (;;) {
+        skipWs();
+        const k = parseString();
+        skipWs();
+        if (src[pos] !== ':') fail("expected ':'");
+        pos++;
+        const v = parseValue();
+        // `obj.__proto__ = v` hits Object.prototype's SETTER and creates no own property, where
+        // `JSON.parse` creates one — so the key would silently vanish from `Object.keys`. Every
+        // other key takes the plain assignment, which is also what keeps property ORDER identical
+        // to JSON.parse's (integer-like keys first, ascending); this parser must not quietly
+        // reorder object keys relative to the path it replaces.
+        if (k === '__proto__') Object.defineProperty(obj, k, { value: v, writable: true, enumerable: true, configurable: true });
+        else obj[k] = v;
+        skipWs();
+        if (pos >= len) fail('unterminated object');
+        if (src[pos] === ',') { pos++; continue; }
+        if (src[pos] === '}') { pos++; return obj; }
+        fail("expected ',' or '}'");
+      }
+    }
+    if (c === '-' || isDigit(c)) return parseNumber();
+    fail('unexpected character ' + JSON.stringify(c));
+  };
+
+  const v = parseValue();
+  skipWs();
+  if (pos < len) fail('trailing data');
+  return v;
+}
+
+// The raw (pre-`_jsonConvert`) parse, shared by `jsonParse` and the HTTP request-body decode in
+// http-server.mjs so a body's numbers obey the same policy as an explicit `jsonParse`.
+function _jsonParseRaw(s) {
+  return /[.eE]/.test(s) ? _jsonParseExact(s) : JSON.parse(s);
 }
 
 function jsonParse(s) {
-  try { return _jsonConvert(JSON.parse(s, _jsonNumberReviver)); }
-  catch (e) { throw new Error('jsonParse: ' + e.message); }
+  try { return _jsonConvert(_jsonParseRaw(s)); }
+  catch (e) { throw new Error(String(e.message).startsWith('jsonParse: ') ? e.message : 'jsonParse: ' + e.message); }
 }
 
 // Named with the `_ssc_ui_` extern convention (JsGen maps every `extern def`

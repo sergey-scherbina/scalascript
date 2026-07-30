@@ -157,12 +157,40 @@ not preserve compatibility — it makes exactness depend on the host:
 would turn the golden green while leaving a supported host printing a different number — the
 apparatus would stop reporting the defect without the defect being gone. Not done.
 
-The fix belongs in `core-collections.mjs` (held by another claim at the time of writing) and is
-one path instead of two: a small exact JSON parser that produces `_Decimal` directly, with
-`_jsonNumberReviver` deleted. `JSON.parse` may stay as a fast path only under
-`!/[.eE]/.test(s)`, where the text provably contains no fractional literal and both paths agree.
-Positional matching of pre-scanned literals does NOT work: JS reorders integer-like object keys, so
-reviver order is not source order.
+FIXED, one path instead of two: `_jsonParseExact` in `core-collections.mjs` is a small
+recursive-descent JSON parser that produces `_Decimal` directly, and `_jsonNumberReviver` is gone.
+`JSON.parse` survives only under `!/[.eE]/.test(s)` — text with no `.`, `e` or `E` anywhere has no
+fractional or exponent literal to be exact about, so its numbers are the same numbers and the fast
+path provably agrees. Both call sites go through it (`jsonParse` and `_mkRequest`'s body decode in
+`http-server.mjs`), and integers are still whatever `JSON.parse` produced, so this is not a second
+integer policy.
+
+Positional matching of pre-scanned literals was considered and rejected: JS orders integer-like own
+keys numerically, so `{"2":…,"1":…}` is visited `"1"` then `"2"` and reviver order is not source
+order.
+
+Two details that are easy to get wrong when replacing `JSON.parse` and that the gate below pins:
+`obj.__proto__ = v` hits `Object.prototype`'s setter and creates NO own property (so the key
+vanishes from `Object.keys`), and object key ORDER must stay JS's, not the source's.
+
+### The gate: `tests/e2e/json-number-policy-js-gate.sh`
+
+Sub-second, no build, runs on whatever node is present. It asserts exactness directly, so an old
+host fails it immediately instead of the divergence surfacing as one red cell in a 25-minute sharded
+conformance job on a lane that looks unrelated.
+
+The part worth copying elsewhere: the gate EMULATES a host without source text by stripping the
+third argument from the reviver it forwards, and re-runs every exactness case. That converts "works
+on my node" from an untestable property into an ordinary assertion. Verified by mutation — an
+implementation that reads `context.source` without ever using the name `_jsonNumberReviver` passes
+every plain exactness case on Node 26 and fails 6 cases in that block. Five mutations checked in
+total: helper renamed -> exit 3 with a message naming the helper; reviver reintroduced -> exit 3;
+numbers made lossy -> 9 failures; object keys sorted -> the key-order check fires; source-text
+implementation -> the host-emulation block fires.
+
+NOT DONE, handed over: the one-line wiring into `.github/workflows/ci.yml`'s Validate job.
+`ci.yml` is held by another claim. Until it is wired, the gate exists and passes but nothing runs it
+on a push — the exact hole this whole section is about, so it should not stay open long.
 
 ### What to take from this
 
