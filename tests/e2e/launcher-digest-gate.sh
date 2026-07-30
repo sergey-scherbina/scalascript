@@ -112,10 +112,18 @@ excluded_case claim-churn .work/digest-probe.txt \
 # The per-module BOARDS, which live INSIDE included trees and are the most-edited files here: 37 of
 # the last 200 commits touched nothing but boards and `.work/`. Without these two the cache would
 # miss on most of the traffic it exists to serve.
+# Both fixtures must be TRACKED boards. `>>` to a missing path CREATES it, so a typo'd or moved
+# board would silently downgrade these cases into "an untracked file with an excluded name does not
+# move the digest" — true, weaker, and indistinguishable from the real assertion. Cost me one stray
+# `v1/BUGS.md` in a worktree while writing this.
+for board in scripts/SPRINT.md v2/BUGS.md; do
+  ( cd "$WT" && git ls-files --error-unmatch "$board" ) >/dev/null 2>&1 \
+    || fail board-fixture-missing "$board is not a tracked file, so the exclusion case below would test nothing"
+done
 excluded_case module-board-sprint scripts/SPRINT.md \
   bash -c 'printf "\n- [ ] launcher-digest-gate probe\n" >> scripts/SPRINT.md'
-excluded_case module-board-bugs v1/BUGS.md \
-  bash -c 'printf "\nlauncher-digest-gate probe\n" >> v1/BUGS.md'
+excluded_case module-board-bugs v2/BUGS.md \
+  bash -c 'printf "\nlauncher-digest-gate probe\n" >> v2/BUGS.md'
 
 # The PREMISE of excluding those names: none of them is ever a packaged resource. Checked against the
 # tree rather than asserted in a comment, so the day someone adds `templates/foo/BUGS.md` to the cli
