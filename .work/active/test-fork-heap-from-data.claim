@@ -1,0 +1,11 @@
+slug: test-fork-heap-from-data
+branch: feature/test-fork-heap-from-data
+agent: claude-code
+started: 2026-07-30T03:42:24Z
+heartbeat: 2026-07-30T03:42:24Z
+status: claimed-before-planning
+items: test-fork-budget-has-no-host-wide-coordination TFH-0 TFH-1
+paths: build.sbt
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
