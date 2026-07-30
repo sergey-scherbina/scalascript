@@ -39,9 +39,10 @@ GAP	effect-deep-handler-state	effects arc — deep handler state; unbound global
 GAP	js-effect-multishot-long-fold	effects arc — multishot continuation; unbound global in F IR
 GAP	durable-save-run	effects arc — multishot reusable continuation (multi effect + resume run-many); raw F does not lower it (unbound global in F IR), same class as js-effect-multishot-long-fold. Product-level F4a delegate-fallback re-lowers correctly (verified: run(1)=10/prefix 1×) so SSC_FRONT=F is never worse.
 GAP	extensions	extension-methods arc — needs layout E/EB/X frames (§4.2); F drops the receiver, inner def `go` unbound
-GAP	for-comprehensions	for-comprehension desugaring incomplete — F IR references unbound (global x)
 GAP	standard-scala-multifence	multi-fence — F compiles one fence only; cross-fence def `f` unbound
 GAP	scala-js-demo	scala-fence / multi-construct — cross-fence def `merge` unbound
 GAP	dsl-multi-pass	multi-pass DSL — cross-section def `check` unbound
 GAP	wasm-primes	wasm backend program — F IR references unbound (global _)
 GAP	wasm-sorting	wasm backend program — F emits invalid IR
+GAP	fewer-braces-colon	curried parameter lists — F binds only the FIRST `(params)` group, so a second-group param is emitted as a global: `def ap(n: Int)(f: Int => Int) = f(n)` gives `unbound global: (global f)`. 2-line repro; the same def with ONE param list lowers fine. F4a delegate-fallback re-lowers it correctly (verified: prints 6), so SSC_FRONT=F is never worse. Fix needs NESTED lambdas `(lam 1 (lam 1 …))` to match the call shape `(app (app f a) b)` — flattening the def to arity N+M the way the `using` clause does was tried and FAILS with `arity: 2 expected, 1 given`.
+GAP	wasm-matrix	curried parameter lists — same cause as fewer-braces-colon: `def matrix(rows: Int, cols: Int)(f: (Int,Int) => Double)`. NOTE the error names `f`, which is ALSO an interpolator prefix — the `f"$v%6.1f"` on line 32 is a red herring and now lowers fine on F.
