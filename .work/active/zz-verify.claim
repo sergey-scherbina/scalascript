@@ -1,0 +1,11 @@
+slug: zz-verify
+branch: feature/zz-verify
+agent: claude-code
+started: 2026-07-30T07:42:23Z
+heartbeat: 2026-07-30T07:42:23Z
+status: claimed-before-planning
+items: zz
+paths: file:zz/x.txt
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
