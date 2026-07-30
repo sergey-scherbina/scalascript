@@ -5,7 +5,7 @@ started: 2026-07-30T08:14:25Z
 heartbeat: 2026-07-30T08:14:25Z
 status: claimed-before-planning
 items: route-task-inbox-to-module-boards backlog-perf-entries-unheaded
-paths: file:TASK/v2-perfomance.md file:TASK/inbox-uncategorised.md
+paths: file:TASK/v2-perfomance.md file:TASK/inbox-uncategorised.md file:scripts/task-views
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
