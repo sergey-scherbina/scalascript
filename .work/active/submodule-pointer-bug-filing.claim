@@ -1,0 +1,11 @@
+slug: submodule-pointer-bug-filing
+branch: feature/submodule-pointer-bug-filing
+agent: claude-code
+started: 2026-07-30T11:14:34Z
+heartbeat: 2026-07-30T11:14:34Z
+status: claimed-before-planning
+items: submodule-pointer-not-a-real-commit
+paths: file:scripts/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
