@@ -1,5 +1,34 @@
 # Changelog
 
+## 2026-07-30 — the F4 Front Swap gate is green, and F learned three things
+
+`classify`: 0 unexpected disagreements. `dualrun`: 45/45 EQUAL, 0 DIVERGE, and the X1 typed
+fixpoint stays **byte-identical at 428,060 bytes** — the self-compile invariant survived every
+change. The gate had been red on 4 cases; two more arrived while the work was in flight.
+
+The board's lead said "likely one root cause". It was **three**, and finding that out mattered:
+treating them as one would have hidden two gaps behind the first fix. All three were identified by
+asking the compiler — `bin/ssc info --front-report <abs-path>` — rather than reading sources.
+
+**Fixed in F:** the `html` interpolator and its `raw(x)` escape hatch, which lowers to
+`(ctor _Raw x)` as data so `__htmlEscape__` can tell it from a string (3 cases); triple-quoted
+strings now close on the LAST three quotes of a run, where before a literal ending in a quote
+truncated its content AND left a stray quote that desynced the lexer for the rest of the file
+(1 case); and `f"…"` printf interpolation, a genuine gap that turned out not to be the cause of
+the two cases it was aimed at.
+
+**Bucketed as GAP after confirming, which is the outcome the gate offers:** `fewer-braces-colon`
+and `wasm-matrix` share one cause — F binds only the first `(params)` group, so a curried
+parameter is emitted as a global. Both delegate correctly through F4a, so F is never worse than
+the default front. The manifest carries a 2-line repro and the approach that does NOT work:
+flattening the def to arity N+M the way the `using` clause does fails with
+`arity: 2 expected, 1 given`, because the call site emits `(app (app f a) b)`.
+
+Two attempts were reverted on the way, both for the same reason — they made a program worse while
+making a counter better. Hooking `html` in the LEXER bypassed the parser-level prefix path F
+already had and turned a correct delegation into `<closure>`; flattening curried defs produced an
+arity error where there had been a working fallback.
+
 ## 2026-07-30 — the reference lane bound named args to the wrong parameter
 
 `O.m(1, c = 9)` gave `791` on the `int` lane — `c = 9` landed in `b`. `DispatchRuntime.dispatch*`
