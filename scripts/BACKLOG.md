@@ -1053,3 +1053,20 @@ own arc. None is speculative: every one has a measured number attached.
       transactional outbox/inbox, and effect journals for applications that need stronger delivery
       protocols. These remain application/runtime protocols, not a claim that continuation resume
       itself makes external effects exactly once.
+
+## smoke CI — the remaining gap between the suite and the job
+
+- [ ] **smoke-ci-launcher-build-dominates-the-job** — the smoke SUITE is 250 s (CI-measured, run
+      30545125102) but the JOB is 9.4 min: ~5.2 min of it is runner setup plus
+      `install.sh --dev` (sbt-assembly), which the suite needs because the runner is a `.ssc`
+      program executing on the v2 native lane. The push interval on `main` under several parallel
+      agents is ~3-7 min, so a 9.4-min job still gets superseded while PENDING more often than it
+      completes — measured right after the switch to `cancel-in-progress: false`: one success, four
+      superseded. That is a large improvement on the 0-in-100 it replaced, and it is not the target.
+      Candidates, cheapest first: cache the STAGED LAUNCHER (`bin/lib`) keyed on the SHAs of the
+      sources that produce it, so an unchanged compiler is downloaded rather than rebuilt; split the
+      suite so the ~145 s of shell gates run in a job with no build at all and only the corpus slice
+      waits for the launcher; or accept the build and shorten the slice. The first keeps all the
+      coverage and is the only one that does.
+      Do NOT "fix" this by raising `SSC_SMOKE_BUDGET` — the budget governs the suite, and the suite
+      is already inside it. The job is what is long.
