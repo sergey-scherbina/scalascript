@@ -15,16 +15,34 @@
 # "the push was rejected" means someone else moved first and your plan may now be wrong.
 set -euo pipefail
 
-slug=""; items=""; paths=""; agent="${SSC_AGENT_ID:-claude-code}"
+slug=""; items=""; paths=""; broad=""; agent="${SSC_AGENT_ID:-claude-code}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --items) items="$2"; shift 2 ;;
     --paths) paths="$2"; shift 2 ;;
+    --broad) broad="$2"; shift 2 ;;
     --agent) agent="$2"; shift 2 ;;
     -*) echo "unknown flag: $1" >&2; exit 2 ;;
     *) slug="$1"; shift ;;
   esac
 done
+
+# A subtree reservation must justify itself. Unprefixed paths are grandfathered so nothing that
+# exists today breaks, but anything written as mod:/repo: from now on states why.
+needs_broad=""
+for sc in $paths; do
+  case "$sc" in
+    repo:*|repo) needs_broad="$needs_broad repo:" ;;
+    mod:*)       needs_broad="$needs_broad $sc" ;;
+  esac
+done
+if [ -n "$needs_broad" ] && [ -z "$broad" ]; then
+  printf 'refusing: these scopes reserve whole subtrees and need --broad "<reason>":\n' >&2
+  for sc in $needs_broad; do printf '  %s\n' "$sc" >&2; done
+  printf '\nA subtree is often 1000+ files. Measured 2026-07-30: one claim reserved 1777 and 9\n' >&2
+  printf 'changed in two days. Prefer file: scopes, or say why the subtree is needed.\n' >&2
+  exit 2
+fi
 
 if [ -z "$slug" ] || [ -z "$items" ] || [ -z "$paths" ]; then
   cat >&2 <<'EOF'
@@ -32,7 +50,15 @@ usage: scripts/coord-claim <slug> --items "<id> …" --paths "<prefix> …" [--a
 
   --items  SPRINT item ids and/or BUGS slugs — the WORK, not the name. This is what lets the
            pre-push guard notice a rival claim under a different slug.
-  --paths  path prefixes this claim may touch; the pre-commit guard holds you to them.
+  --paths  scopes this claim may touch, each optionally LEVEL-PREFIXED
+           (specs/claim-mutex.md §Hierarchy):
+             file:<path>   exactly one file      — prefer this; it is what lets others work nearby
+             mod:<path>    a module subtree      — requires --broad "<reason>"
+             repo:         the whole repository  — requires --broad, and is almost never right
+             <path>        unprefixed = mod:<path>, unchanged from before
+           Measured 2026-07-30: one claim reserved 1777 files and 9 of them changed in two days.
+           A subtree is 1000+ files; asking for one costs a sentence.
+  --broad  justification required by any mod:/repo: scope.
 
 Claim FIRST, then plan: a claim is one cheap revocable commit, while planning takes minutes, and
 that gap is the whole race window.
@@ -70,7 +96,7 @@ started: ${ts}
 heartbeat: ${ts}
 status: claimed-before-planning
 items: ${items}
-paths: ${paths}
+paths: ${paths}${broad:+\nbroad: ${broad}}
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement

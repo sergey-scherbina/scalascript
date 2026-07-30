@@ -157,6 +157,85 @@ cheap, revocable commit; a plan is minutes. Claiming first collapses the race wi
 a single push, and losing the race becomes a normal, automatic outcome (re-read, pick again) instead
 of discovering a duplicate hours later.
 
+
+## Hierarchy — scope levels (2026-07-30)
+
+A scope in `paths:` may carry a **level prefix**. The levels exist so that ownership can be stated at
+the granularity the work actually has, instead of forcing every claim up to whole-directory size.
+
+| scope | meaning | guard |
+|---|---|---|
+| `repo:` | the whole repository | conflicts with everything |
+| `mod:<path>` | a module subtree | conflicts with any overlapping subtree; needs `broad:` |
+| `file:<path>` | exactly one file | conflicts only with the same file, or with an owner who **holds** it |
+| `<path>` | legacy, unprefixed | identical to `mod:<path>` — nothing that exists today changes meaning |
+
+Module paths are the ones in [`work-tracking-layout.md`](work-tracking-layout.md), deliberately: one
+hierarchy for bookkeeping and claims, not two that can disagree.
+
+### Why, measured
+
+One live claim on 2026-07-30 reserved six directories:
+
+```text
+v2/src                   1109 files reserved,  3 changed in two days
+v2/backend                387 reserved,        2 changed
+bench                     113 reserved,        0 changed
+v2/backend-jvm-bytecode    83 reserved,        1 changed
+v2/jvm-runtime             56 reserved,        1 changed
+v2/lib                     29 reserved,        2 changed
+                         ----                ---
+                         1777 reserved,        9 changed   → 99.4% dead weight
+```
+
+⚠ **The honest caveat, and it bounds what this change is allowed to do.** Both refusals that claim
+produced were **correct** — the file wanted, `v2/lib/ssc1-front.ssc0`, genuinely is one of the two
+that changed. So this is not about undoing false refusals that happened. It is about the 1768 files
+that would refuse someone else for nothing. The mutex therefore does not weaken.
+
+### `owner_holds_file` — the whole of the new permission, and it is fail-closed
+
+A `file:` scope inside someone's `mod:` is admitted **only** when that owner has neither *declared*
+nor *modified* the file:
+
+- **declared** — the file appears verbatim among the owner's scopes;
+- **modified** — dirty in the owner's worktree, or changed on their branch (or on `main`) since their
+  claim's `started`.
+
+Anything undecidable answers **held**, i.e. refuses: worktree absent, timestamp unreadable, git
+error. If no commit precedes `started`, the base falls back to the root commit — "everything ever
+counts as touched" — which can only add refusals.
+
+The race is closed by the layers that already exist: the guard re-checks at push time, and the
+`# generation:` line in `LEDGER.tsv` serialises two claims that are racing.
+
+### Contentious cases go to the room, not to a unilateral decision
+
+Whenever two claims genuinely want the same scope — or an agent believes a broad claim is
+over-reserving — that is a **conflict of interest and belongs in the rozum room**, not in a
+`--no-verify` push and not in a silent release of someone else's claim. On 2026-07-30 a claim's
+heartbeat read 638 minutes stale while its last commit was 56 seconds old; releasing it on the
+heartbeat alone would have destroyed live work. The room is how that gets asked instead of guessed.
+
+### Verification
+
+`tests/coord/claim-scope-hierarchy.sh` asserts every level in BOTH directions, because a gate that
+only shows the new permission working proves nothing about the mutex still holding:
+
+```text
+declared file vs same file                          → refused
+declared file vs OTHER file                         → admitted
+repo-level owner blocks a file                      → refused
+module owner vs module                              → refused
+file inside a module the owner has NOT touched      → ADMITTED   ← the point of the change
+file inside a module the owner HAS touched          → refused
+owner worktree ABSENT (undecidable)                 → refused    ← fail-closed
+```
+
+That fifth line failed on the first implementation — the permission did not actually work, because
+`--before "$started"` found no commit and the fail-closed branch fired. Caught by the gate, not by
+reading the code.
+
 ## Explicit non-goal
 
 **Overlap is not banned — accidental overlap is.** The 2026-07-27 duplicate is exactly what caught a

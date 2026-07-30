@@ -100,6 +100,52 @@ is_shared_bookkeeping() {
 
 # Rule 1 — a claim this push touches must agree with its own ledger row.
 drift=""
+# ── scope-level helpers (specs/claim-mutex.md §Hierarchy) ──────────────────────────────────────
+# A scope is `<level>:<path>`, or a bare path meaning the legacy subtree level.
+scope_level() {
+  case "$1" in
+    repo:*|repo) printf 'repo' ;;
+    mod:*)       printf 'mod'  ;;
+    file:*)      printf 'file' ;;
+    *)           printf 'mod'  ;;   # unprefixed = subtree, exactly the pre-2026-07-30 meaning
+  esac
+}
+scope_path() {
+  local v="${1#repo:}"; v="${v#mod:}"; v="${v#file:}"
+  while [ "${v%\*}" != "$v" ]; do v="${v%\*}"; done   # normalise trailing globs
+  printf '%s' "${v%/}"
+}
+
+# Does the broad claim `$1` (whose scopes are `$2`) actually hold file `$3`?
+#
+# Declared: the file appears verbatim among its scopes.
+# Modified: its worktree has the file dirty, or its branch changed the file since the claim started.
+#
+# FAIL-CLOSED. If the owner's worktree is absent, or its start timestamp cannot be read, or git
+# errors, the answer is YES (held) — an undecidable case must refuse, never admit. Weakening the
+# mutex to gain parallelism is how two agents end up doing the same work, which is the whole thing
+# specs/claim-mutex.md exists to stop.
+owner_holds_file() {
+  local slug="$1" scopes="$2" want="$3" wt started base
+  for sc in $scopes; do
+    [ "$(scope_path "$sc")" = "$want" ] && return 0      # declared explicitly
+  done
+  wt="$(dirname "$(git rev-parse --show-toplevel)")/$(basename "$(git rev-parse --show-toplevel)" | sed 's/-wt-.*//')-wt-$slug"
+  [ -d "$wt" ] || return 0                               # cannot look ⇒ refuse
+  git -C "$wt" status --porcelain -- "$want" 2>/dev/null | grep -q . && return 0
+  started="$(field "$remote_tip:.work/active/$slug.claim" started 2>/dev/null)"
+  [ -n "$started" ] || return 0                          # cannot date it ⇒ refuse
+  base="$(git rev-list -1 --before="$started" origin/main 2>/dev/null)"
+  # No commit precedes the claim's start (a very old or hand-written timestamp): fall back to the
+  # root commit, i.e. "everything ever" counts as touched. Conservative on purpose — it can only
+  # ADD refusals, never remove one.
+  [ -n "$base" ] || base="$(git rev-list --max-parents=0 origin/main 2>/dev/null | tail -1)"
+  [ -n "$base" ] || return 0
+  git -C "$wt" diff --name-only "$base"..HEAD -- "$want" 2>/dev/null | grep -q . && return 0
+  git diff --name-only "$base"..origin/main -- "$want" 2>/dev/null | grep -q . && return 0
+  return 1                                               # neither declared nor touched ⇒ admit
+}
+
 for new in $incoming; do
   new_slug=$(basename "$new" .claim)
   c_items=$(field "$local_tip:$new" items | norm)
@@ -161,16 +207,56 @@ for new in $incoming; do
         [ "$i" = "$j" ] && problems="$problems\n  item '$i' is already claimed by '$old_slug'"
       done
     done
-    # Prefix containment in either direction: scljet/ vs scljet/sql.ssc overlap.
-    # Trailing globs are normalised away first, so `scljet/**` and `scljet/` mean the same thing.
+    # ── Scope comparison, LEVEL-AWARE ────────────────────────────────────────────────────────────
+    #
+    # A scope may carry a level prefix (specs/claim-mutex.md §Hierarchy):
+    #   repo:            the whole repository
+    #   mod:<path>       a module subtree — requires a `broad:` justification in the claim
+    #   file:<path>      exactly one file
+    #   <path>           legacy, unprefixed: treated as a subtree, exactly as before
+    #
+    # WHY THE LEVELS EXIST, measured 2026-07-30 on a single live claim:
+    #
+    #     v2/src 1109 files reserved / 3 changed in two days      v2/backend  387 / 2
+    #     bench   113 / 0     v2/backend-jvm-bytecode  83 / 1     v2/jvm-runtime 56 / 1
+    #     v2/lib   29 / 2                            total 1777 reserved, 9 changed  → 99.4% dead
+    #
+    # ⚠ And the honest caveat, because it decides what this change may and may not do: BOTH blocks
+    # that claim caused were CORRECT — the file wanted (`v2/lib/ssc1-front.ssc0`) is genuinely one of
+    # the 2 that changed. So this is not about undoing false refusals that happened; it is about the
+    # 1768 files that would refuse someone else for nothing. The mutex therefore must not weaken:
+    # a narrower scope is admitted only when the broad owner has NOT declared and has NOT touched it,
+    # and anything undecidable stays REFUSED.
     for p in $new_paths; do
-      while [ "${p%\*}" != "$p" ]; do p="${p%\*}"; done
-      is_shared_bookkeeping "$p" && continue
+      p_lvl=$(scope_level "$p"); p_path=$(scope_path "$p")
+      is_shared_bookkeeping "$p_path" && continue
       for q in $old_paths; do
-        while [ "${q%\*}" != "$q" ]; do q="${q%\*}"; done
-        is_shared_bookkeeping "$q" && continue
-        case "$p" in "$q"*) problems="$problems\n  path '$p' falls inside '$q', claimed by '$old_slug'" ;; esac
-        case "$q" in "$p"*) [ "$p" = "$q" ] || problems="$problems\n  path '$p' contains '$q', claimed by '$old_slug'" ;; esac
+        q_lvl=$(scope_level "$q"); q_path=$(scope_path "$q")
+        is_shared_bookkeeping "$q_path" && continue
+
+        # Same path at any level, or either side claiming the whole repo: always a conflict.
+        if [ "$p_lvl" = repo ] || [ "$q_lvl" = repo ] || [ "$p_path" = "$q_path" ]; then
+          [ "$p_path" = "$q_path" ] && [ "$p_lvl" = file ] && [ "$q_lvl" = file ] \
+            && problems="$problems\n  file '$p_path' is already claimed by '$old_slug'" \
+            || problems="$problems\n  scope '$p' conflicts with '$q', claimed by '$old_slug'"
+          continue
+        fi
+
+        # A FILE inside someone's MODULE: admitted only if that owner neither declared nor touched it.
+        if [ "$p_lvl" = file ] && [ "$q_lvl" != file ]; then
+          case "$p_path" in "$q_path"/*|"$q_path"*)
+            if owner_holds_file "$old_slug" "$old_paths" "$p_path"; then
+              problems="$problems\n  file '$p_path' is inside '$q' AND '$old_slug' has it declared-or-modified"
+            else
+              warnings="$warnings\n  note: '$p_path' is inside '$q' ('$old_slug') but that claim has neither declared nor modified it — admitted as a co-tenant file scope"
+            fi ;;
+          esac
+          continue
+        fi
+
+        # Everything else keeps the original prefix-containment rule in both directions.
+        case "$p_path" in "$q_path"*) problems="$problems\n  path '$p_path' falls inside '$q_path', claimed by '$old_slug'" ;; esac
+        case "$q_path" in "$p_path"*) [ "$p_path" = "$q_path" ] || problems="$problems\n  path '$p_path' contains '$q_path', claimed by '$old_slug'" ;; esac
       done
     done
   done
