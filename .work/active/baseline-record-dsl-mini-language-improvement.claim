@@ -1,0 +1,11 @@
+slug: baseline-record-dsl-mini-language-improvement
+branch: feature/baseline-record-dsl-mini-language-improvement
+agent: claude-code
+started: 2026-07-30T13:48:59Z
+heartbeat: 2026-07-30T13:48:59Z
+status: claimed-before-planning
+items: corpus-baseline-stale-skip-row-for-dsl-mini-language
+paths: file:tests/conformance/corpus-baseline.tsv
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
