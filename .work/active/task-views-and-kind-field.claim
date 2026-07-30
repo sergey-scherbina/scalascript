@@ -5,7 +5,7 @@ started: 2026-07-30T07:21:03Z
 heartbeat: 2026-07-30T07:21:03Z
 status: claimed-before-planning
 items: task-dir-ungated backlog-outside-the-index kind-field-and-generated-views
-paths: file:specs/bugs-index.md file:scripts/bugs-report file:scripts/task-views file:tests/e2e/task-views-gate.sh file:TASK/v2-perfomance.md file:TASK/inbox-uncategorised.md
+paths: file:specs/bugs-index.md file:scripts/bugs-report file:scripts/task-views file:tests/e2e/task-views-gate.sh file:TASK/v2-perfomance.md file:TASK/inbox-uncategorised.md file:.githooks/pre-commit file:tests/coord/claim-scope-precommit.sh file:.github/workflows/ci.yml
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
