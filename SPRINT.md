@@ -471,7 +471,29 @@ sit red for days looking quiet. Measured 2026-07-28:
       std-ui-native-backticked-id-lib     std-ui-native-html-lambda-lib
       std-ui-native-pair-lib              wc-card
       ```
-      *Lead worth checking first:* three carry the `-lib` suffix, and their NON-lib siblings are
+      *ANSWERED 2026-07-30 — the lead was half right: it is TWO causes, not one and not four.*
+      Asked the compiler instead of guessing (`bin/ssc info --front-report <abs-path>`, one file per
+      invocation — it mis-resolves a multi-file relative invocation):
+      ```text
+      std-ui-native-backticked-id-lib   GAP  unbound global: (global html)
+      std-ui-native-html-lambda-lib     GAP  unbound global: (global html)
+      wc-card                           GAP  unbound global: (global html)
+      std-ui-native-pair-lib            GAP  unbound global: (global x)     <- DIFFERENT
+      ```
+      **Cause A (3 cases): F cannot lower the `html` string interpolator.** `html` is not an
+      `extern def` anywhere in `std` — it is an interpolator, and F emits a reference to
+      `(global html)` that `validateNoReader` then rejects. The `-lib` files are the LIBRARIES that
+      CONTAIN the interpolator; their "fixed" non-lib siblings are only CONSUMERS
+      (`println(HtmlList.render(...))`) and never touch it — which is exactly why those bugs read as
+      closed while this stayed open.
+      **Cause B (1 case): `std-ui-native-pair-lib` has no `html` at all** — it is a tuple
+      destructuring bound from an if/else, with a defaulted param and a nested `val`, and F reports
+      an unbound `(global x)` that does not appear in the source, so F is synthesising a binder it
+      then cannot resolve. Separate investigation.
+      **Verdict: fix F, do not bucket.** Both are `orc=0 frc=1` on real programs that legacy
+      compiles; neither is out-of-scope-by-design. Cause A is the bigger prize — an interpolator is
+      not an edge case.
+      *Original lead (kept — it was the right question to ask):* three carry the `-lib` suffix, and their NON-lib siblings are
       recorded FIXED in BUGS — `v2-native-backticked-identifier`, `v2-native-html-interpolator-parse`,
       `v2-std-ui-closure-pair-match`. So the likely shape is one root cause: the fix landed on the
       path without a library import and not on the path with one. Confirm before assuming — if it
