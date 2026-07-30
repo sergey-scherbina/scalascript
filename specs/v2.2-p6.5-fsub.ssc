@@ -363,6 +363,12 @@ def emitInt(v) = "(lit (int " ++ v ++ "))"
 def emitFloat(t) = "(lit (float " ++ t ++ "))"
 def emitStr(v, dq) = "(lit (str " ++ dq ++ v ++ dq ++ "))"
 def emitArithS(sym, l, r, dq) = "(prim __arith__ (lit (str " ++ dq ++ sym ++ dq ++ ")) " ++ l ++ " " ++ r ++ ")"
+// Part 3 of `v2-infix-extension-operator-stringifies`: when a user extension of the operator's name is
+// in scope, INFIX must route through __arithExt__ so the VM can call it for non-primitive operands.
+// `(global <sym>)` with the RAW name is the same form emitMethodCall already uses for __methodOrExt__
+// (:778) — F does not mangle extension globals. The legacy lowerer emits the identical shape
+// (ssc1-lower.ssc0:2699), and the VM contract is Runtime.scala:1439.
+def emitArithExtS(sym, l, r, dq) = "(prim __arithExt__ (lit (str " ++ dq ++ sym ++ dq ++ ")) " ++ l ++ " " ++ r ++ " (global " ++ sym ++ "))"
 // -- F5b Stage 1 typed emission (was: everything through __arith__/__eq__). By inferred operand type,
 // emit i.*/big.*/sconcat/seq; fall back to __arith__/__eq__ when unresolved (hybrid IR is fine). The
 // overloaded operators (+ ++ - on lists/sets/maps/tuples/chars) stay DYNAMIC unless the operand type
@@ -380,10 +386,10 @@ def emitArith(k, l, r, dq) = if k == 23 then emitPlus(l, r, dq) else emitArithT(
 // structural form for the pattern-match callers (scrutinee is always an untyped (local N) -> "?" -> __eq__).
 def emitEq(l, r) = "(prim __eq__ " ++ l ++ " " ++ r ++ ")"
 def emitEqT(l, r, dq) = if isIntCode(l) then (if isIntCode(r) then emitPrimBin("i.eq", l, r) else emitEq(l, r)) else (if isStrCode(l, dq) then (if isStrCode(r, dq) then emitPrimBin("seq", l, r) else emitEq(l, r)) else (if isBigCode(l) then (if isBigCode(r) then emitPrimBin("big.eq", l, r) else emitEq(l, r)) else emitEq(l, r)))
-def emitPP(l, r, dq) = if isStrCode(l, dq) then emitSconcat(l, r) else emitArithS("++", l, r, dq)
+def emitPP(l, r, dq, cx) = if isStrCode(l, dq) then emitSconcat(l, r) else (if isExtMethod("++", cx) then emitArithExtS("++", l, r, dq) else emitArithS("++", l, r, dq))
 def emitIf(c, t, e) = "(if " ++ c ++ " " ++ t ++ " " ++ e ++ ")"
 def emitPrimBin(nm, l, r) = "(prim " ++ nm ++ " " ++ l ++ " " ++ r ++ ")"
-def emitBin(k, l, r, dq) = if k == 57 then "(ctor Pair " ++ l ++ " " ++ r ++ ")" else (if k == 49 then "(ctor Cons " ++ l ++ " " ++ r ++ ")" else (if k == 48 then emitPP(l, r, dq) else (if k == 44 then emitEqT(l, r, dq) else (if k == 45 then emitIf(emitEqT(l, r, dq), "(lit false)", "(lit true)") else (if k == 46 then emitIf(l, r, "(lit false)") else (if k == 47 then emitIf(l, "(lit true)", r) else (if k == 61 then emitArithS(":+", l, r, dq) else (if k == 62 then emitPrimBin("i.and", l, r) else (if k == 63 then emitPrimBin("i.or", l, r) else (if k == 64 then emitPrimBin("i.xor", l, r) else (if k == 65 then emitPrimBin("i.shl", l, r) else (if k == 66 then emitPrimBin("i.shr", l, r) else (if k == 67 then emitPrimBin("i.ushr", l, r) else emitArith(k, l, r, dq))))))))))))))
+def emitBin(k, l, r, dq, cx) = if k == 57 then "(ctor Pair " ++ l ++ " " ++ r ++ ")" else (if k == 49 then "(ctor Cons " ++ l ++ " " ++ r ++ ")" else (if k == 48 then emitPP(l, r, dq, cx) else (if k == 44 then emitEqT(l, r, dq) else (if k == 45 then emitIf(emitEqT(l, r, dq), "(lit false)", "(lit true)") else (if k == 46 then emitIf(l, r, "(lit false)") else (if k == 47 then emitIf(l, "(lit true)", r) else (if k == 61 then emitArithS(":+", l, r, dq) else (if k == 62 then emitPrimBin("i.and", l, r) else (if k == 63 then emitPrimBin("i.or", l, r) else (if k == 64 then emitPrimBin("i.xor", l, r) else (if k == 65 then emitPrimBin("i.shl", l, r) else (if k == 66 then emitPrimBin("i.shr", l, r) else (if k == 67 then emitPrimBin("i.ushr", l, r) else emitArith(k, l, r, dq))))))))))))))
 // -- F5b Stage 1b: bare-variable (param) type recovery from env ----------------------------------
 // A bare `(local N)` operand carries no IR-prefix type, but env[N] does when the param was declared
 // `Int`/`String`/`BigInt` (parseParam embeds `name:Type`). climbStep already holds env, so it maps the
@@ -416,13 +422,13 @@ def lookupRet(nm, tab) = tab match { case Nil => "?" case h :: t => if fst(h) ==
 def isNumTag(t) = if t == "I" then true else t == "F"
 // tag-keyed mirrors of emitBin/emitPP/emitEqT/emitArith/emitPlus/emitArithT — byte-identical for untyped
 // operands (tag = prefixTag). Only the type-DEPENDENT arms differ; type-agnostic arms delegate as-is.
-def emitBinT(k, l, r, lt, rt, dq) = if k == 57 then "(ctor Pair " ++ l ++ " " ++ r ++ ")" else (if k == 49 then "(ctor Cons " ++ l ++ " " ++ r ++ ")" else (if k == 48 then emitPPt(l, r, lt, dq) else (if k == 44 then emitEqTt(l, r, lt, rt, dq) else (if k == 45 then emitIf(emitEqTt(l, r, lt, rt, dq), "(lit false)", "(lit true)") else (if k == 46 then emitIf(l, r, "(lit false)") else (if k == 47 then emitIf(l, "(lit true)", r) else (if k == 61 then emitArithS(":+", l, r, dq) else (if k == 62 then emitPrimBin("i.and", l, r) else (if k == 63 then emitPrimBin("i.or", l, r) else (if k == 64 then emitPrimBin("i.xor", l, r) else (if k == 65 then emitPrimBin("i.shl", l, r) else (if k == 66 then emitPrimBin("i.shr", l, r) else (if k == 67 then emitPrimBin("i.ushr", l, r) else emitArithTg(k, l, r, lt, rt, dq))))))))))))))
-def emitPPt(l, r, lt, dq) = if lt == "S" then emitSconcat(l, r) else emitArithS("++", l, r, dq)
+def emitBinT(k, l, r, lt, rt, dq, cx) = if k == 57 then "(ctor Pair " ++ l ++ " " ++ r ++ ")" else (if k == 49 then "(ctor Cons " ++ l ++ " " ++ r ++ ")" else (if k == 48 then emitPPt(l, r, lt, dq, cx) else (if k == 44 then emitEqTt(l, r, lt, rt, dq) else (if k == 45 then emitIf(emitEqTt(l, r, lt, rt, dq), "(lit false)", "(lit true)") else (if k == 46 then emitIf(l, r, "(lit false)") else (if k == 47 then emitIf(l, "(lit true)", r) else (if k == 61 then emitArithS(":+", l, r, dq) else (if k == 62 then emitPrimBin("i.and", l, r) else (if k == 63 then emitPrimBin("i.or", l, r) else (if k == 64 then emitPrimBin("i.xor", l, r) else (if k == 65 then emitPrimBin("i.shl", l, r) else (if k == 66 then emitPrimBin("i.shr", l, r) else (if k == 67 then emitPrimBin("i.ushr", l, r) else emitArithTg(k, l, r, lt, rt, dq))))))))))))))
+def emitPPt(l, r, lt, dq, cx) = if lt == "S" then emitSconcat(l, r) else (if isExtMethod("++", cx) then emitArithExtS("++", l, r, dq) else emitArithS("++", l, r, dq))
 def emitEqTt(l, r, lt, rt, dq) = if lt == "I" then (if rt == "I" then emitPrimBin("i.eq", l, r) else emitEq(l, r)) else (if lt == "S" then (if rt == "S" then emitPrimBin("seq", l, r) else emitEq(l, r)) else (if lt == "B" then (if rt == "B" then emitPrimBin("big.eq", l, r) else emitEq(l, r)) else emitEq(l, r)))
 def emitArithTg(k, l, r, lt, rt, dq) = if k == 23 then emitPlusT(l, r, lt, rt, dq) else emitArithTT(k, l, r, lt, rt, dq)
 def emitPlusT(l, r, lt, rt, dq) = if lt == "S" then emitSconcat(l, r) else (if isNumTag(lt) then (if isNumTag(rt) then emitPrimBin("i.add", l, r) else (if rt == "S" then emitSconcat(l, r) else emitArithS("+", l, r, dq))) else (if lt == "B" then (if rt == "B" then emitPrimBin("big.add", l, r) else emitArithS("+", l, r, dq)) else emitArithS("+", l, r, dq)))
 def emitArithTT(k, l, r, lt, rt, dq) = if isNumTag(lt) then (if isNumTag(rt) then emitPrimBin(intPrimK(k), l, r) else emitArithS(arithSym(k), l, r, dq)) else (if lt == "B" then (if rt == "B" then emitPrimBin(bigPrimK(k), l, r) else emitArithS(arithSym(k), l, r, dq)) else emitArithS(arithSym(k), l, r, dq))
-def emitBinTop(k, l, r, env, cx) = emitBinT(k, l, r, operandTag(l, env, cx), operandTag(r, env, cx), dqOf(cx))
+def emitBinTop(k, l, r, env, cx) = emitBinT(k, l, r, operandTag(l, env, cx), operandTag(r, env, cx), dqOf(cx), cx)
 // Scala's precedence-by-first-character, restricted to the operators the subset uses.
 def binPrec(t) = if fst(t) == 2 then binPrecK(snd(t)) else 0
 // bitwise prec (left-assoc; F prec 5 is the ONLY right-assoc slot so bitwise ops avoid it): `&`(62)=4,

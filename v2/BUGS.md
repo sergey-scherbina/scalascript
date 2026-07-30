@@ -725,8 +725,38 @@ does NOT turn `"[" + render(a) + "]"` into a Doc — the exact regression that g
 reverted. Verified both directions on the same build. Conformance `dsl*,content*,std-ui*,string*,
 list*,collection*,parser*` on int,v2: 72/76, contract GREEN.
 
-**Part 3 — what F needs, now that it has been looked at.** F does know about extensions
-(`extMethods` lives in its context `cx`, :445), but the `++` emitters do not receive it:
+**Part 3 — RE-DIAGNOSED 2026-07-30 (`f-infix-ext-part3`). The description below was the right shape and
+the WRONG blocker.** Threading `cx` into the `++` emitters is done and landed; it changes nothing, because
+the guard it enables is always false. Established by instrumenting F, not by reading it:
+
+| experiment | result | what it rules out |
+|---|---|---|
+| put a bogus `MARKER` global in `emitPPt` | F DECLINES: `unbound global: MARKER` | `emitPPt` IS on the live path — my code runs |
+| emit `__arithExt__` unconditionally | F DECLINES: **`unbound global: (global ++) is neither a top-level def nor an @-cell`** | the emitted SHAPE is right (it matches `ssc1-lower.ssc0:2699` and `Runtime.scala:1439`); what is missing is the global |
+| keep the `isExtMethod("++", cx)` guard | no decline, still stringifies | **`isExtMethod("++", cx)` is FALSE** |
+
+**So the real blocker: an OPERATOR-named extension member is not recorded in `extMethods`.** That single
+fact explains every observation at once — the explicit `.++()` form works because it goes through ordinary
+method dispatch (`emitMethodCall1`), which does not consult that table; infix `++` therefore falls to
+`__arith__` and stringifies; my guard never fires; and forcing `__arithExt__` dies on `(global ++)` because
+no top-level def was emitted for a member F never recognised as one. Corroborating measurement from the
+same day: an ALPHANUMERIC extension member (`andThen` on a `Pass` alias) DOES work on v2 — so the machinery
+is fine and only operator names are lost.
+
+The collection path to fix is `collectEMs` / `collectTopEMs` (`:1772`, `:1783`), which walk tokens looking
+for `isTok(hd(ts), 2, 1)` (the `def` keyword) and take the NEXT token as the name. An operator name is
+evidently not surviving that step. ⚠️ Whoever picks this up: instrument, do not read — three plausible
+readings were wrong here, and each experiment above cost one rebuild and settled one question.
+
+**What IS landed:** `emitArithExtS` plus `cx` threaded through `emitBin`/`emitBinT` into `emitPP`/`emitPPt`,
+using the same `(global <rawName>)` form `emitMethodCall` already uses for `__methodOrExt__` (`:778`). Both
+the typed and untyped mirrors were changed together, because the file documents them as byte-identical.
+Verified SAFE, not effective: the `--self` gate is 173/173 with **X1 FIXPOINT stage1 == stage2
+byte-identical (434995 bytes)**, and the string trap (`"[" + mid + "]"` -> `[mid]`) still holds on both int
+and v2.
+
+**Historical (still accurate) description of the plumbing:** F does know about extensions
+(`extMethods` lives in its context `cx`, :445), but the `++` emitters did not receive it:
 
 ```
 def emitPP(l, r, dq)      = if isStrCode(l, dq) then emitSconcat(l, r) else emitArithS("++", …)   // :367
