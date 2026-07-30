@@ -1,0 +1,11 @@
+slug: policy-single-file
+branch: feature/policy-single-file
+agent: claude-code
+started: 2026-07-30T07:46:09Z
+heartbeat: 2026-07-30T07:46:09Z
+status: claimed-before-planning
+items: policy-scattered-across-four-docs policy-single-source-gate
+paths: file:POLICY.md file:README.md file:tests/e2e/policy-single-source.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
