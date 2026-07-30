@@ -44,6 +44,10 @@ freeze does record, and it is invisible in the PASS-cell count because those cel
       underlying runtime shape at extension-REGISTRATION time, or widen the receiver's type name at
       dispatch. Shared by every lane, so it wants a fail-first test per alias shape (function, tuple,
       collection) rather than a spot fix for `Pass`. Unblocks `dsl-mini-language`.
+      ⚠️ **Both candidate fix sites were held when this was filed** — registration at
+      `StatRuntime.scala:582` (claim `v1-interp-object-named-arg-slot`) and dispatch at
+      `DispatchRuntime.scala:79` / `:3898` (claim `infix2-jit-split`). Checked, not assumed; that is why
+      it is queued rather than attempted. Re-check ownership before starting.
 - [ ] **SKIP-4 — refresh the freeze for SKIP-2's four improvements** (now SIX: + `dsl-sql-recovery`,
       `dsl-yaml-like`). Blocked only by ownership:
       `corpus-baseline.tsv` / `contract-roster.tsv` are held by `v1-interp-object-named-arg-slot`.
