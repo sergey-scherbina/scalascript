@@ -1250,14 +1250,13 @@ private[interpreter] object PatternRuntime:
     case Pat.Wildcard()  => env
     case Pat.Var(name)   => FrameMap.one(name.value, scrutinee, env)
     case lit: Lit =>
-      val litV: Value = lit match
-        case Lit.Int(v)     => Value.intV(v.toLong)
-        case Lit.Long(v)    => Value.intV(v)
-        case Lit.String(v)  => Value.StringV(v)
-        case Lit.Boolean(v) => Value.boolV(v)
-        case Lit.Double(v)  => Value.doubleV(v.toString.toDouble)
-        case Lit.Null()     => Value.NullV
-        case _              => Value.NullV
+      // `compileLit`, not a second copy of it. This arm had its own inline mapping with no `Lit.Char`,
+      // so a Char literal NESTED in a pattern — `case Some((l, '+', r)) =>` — silently fell through
+      // even after `compileLit` itself was fixed: the bare-literal path and the nested path had
+      // drifted apart. Measured on `dsl-mini-language`, whose `parseExpr` dispatches exactly that way,
+      // so every operator was dropped and the whole expression fell through to "cannot parse atom".
+      // (int-char-literal-pattern-never-matches.)
+      val litV: Value = compileLit(lit)
       if litV == scrutinee then env else null
     case Pat.Tuple(pats) =>
       scrutinee match

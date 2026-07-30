@@ -382,10 +382,39 @@ cells BEFORE freezing anything.
 **Do NOT "fix" this by degrading v2** to match the golden. That was the shape the original entry
 leaned toward, and it would trade away exactness that v1's own source says is required.
 
-## int-extension-on-function-type-alias-does-not-dispatch — `extension (p: Pass[A,B])` never fires, because the receiver is a `FunV` at runtime
-<!-- status: open
+## int-extension-on-function-type-alias-does-not-dispatch — `extension (p: Pass[A,B])` never fired, because the receiver is a `FunV` at runtime
+<!-- status: fixed
      lane: int
-     area: runtime -->
+     area: runtime
+     fixed-in: unrecorded
+     gate: v1/runtime/backend/interpreter/src/test/scala/scalascript/ExtensionOnAliasDispatchTest.scala -->
+
+**FIXED 2026-07-30.** The seam: registration takes the receiver's type name from the SYNTAX
+(`StatRuntime`: `Pass[A, B]` -> `"Pass"`), dispatch derives it from the runtime VALUE
+(`DispatchRuntime.extensionDispatch`), and a function value matches no nominal case there, so it becomes
+`"Any"`. `extensions("Pass")` existed and `extensions("Any")` was looked up.
+
+`Interpreter` now carries `functionTypeAliases` — the names of `type X = …` aliases whose right-hand side
+is a function type, recorded by the `Defn.Type` arm that previously dropped them. An extension whose
+receiver is such an alias (or a function type written out) files under `"Any"` as well, which is where
+dispatch will look. Nominal receivers are untouched: they keep their own key and are matched first, and a
+test asserts exactly that with two extensions sharing a method name.
+
+⚠️ **A SECOND defect of the same family had to be fixed for the case to work, and it is the fourth
+instance of one pattern today.** `PatternRuntime` held a second, INLINE copy of `compileLit` (line 1252)
+serving NESTED patterns, and it had no `Lit.Char` either — so `case Some((l, '+', r)) =>` still fell
+through silently after `compileLit` itself was fixed. The bare-literal path and the nested path had
+drifted. Now routed through `compileLit`. See [[int-char-literal-pattern-never-matches]].
+
+**Measured on `dsl-mini-language`**, which both defects blocked: it was a corpus SKIP (int exited
+non-zero), and int now produces the correct output while **v2 PASSES against it**. Before, int dropped
+every operator and reported `cannot parse atom` on a whole expression, while v2 computed `result: 23`
+correctly — the fifth case today where the interpreter was the wrong lane.
+
+js still diverges on that case for an unrelated reason, filed as
+[[js-pass-error-not-formatted-by-its-module-function]].
+
+**Original report (superseded 2026-07-30):**
 
 **Status:** OPEN. Found 2026-07-30 by `skip-triage-golden-lane` after `91c326d1f` let the import
 resolve — the export error was masking this one.

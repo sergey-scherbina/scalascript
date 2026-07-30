@@ -579,8 +579,23 @@ private[interpreter] object StatRuntime:
             val methodParams = mparamVals.map(_.name.value)
             // Receiver param has no default; method params keep theirs.
             val methodDefaults: List[Option[Term]] = None :: mparamVals.map(_.default)
-            interp.extensions.getOrElseUpdate(recvTypeName, mutable.HashMap.empty)(defn.name.value) =
-              Value.FunV(recvName :: methodParams, defn.body, envView, "", methodDefaults)
+            val fn = Value.FunV(recvName :: methodParams, defn.body, envView, "", methodDefaults)
+            interp.extensions.getOrElseUpdate(recvTypeName, mutable.HashMap.empty)(defn.name.value) = fn
+            // A receiver declared as a function-type ALIAS (or as a function type outright) also files
+            // under "Any", which is what `extensionDispatch` computes for a `FunV`. Registration reads
+            // the syntax, dispatch reads the value, and this is the seam between them. Nominal
+            // receivers are unaffected: they keep their own key and are matched before "Any" is ever
+            // consulted. (int-extension-on-function-type-alias-does-not-dispatch.)
+            val recvIsFunction = recvParam.decltpe match
+              case Some(_: Type.Function)        => true
+              case Some(_: Type.ContextFunction) => true
+              case Some(Type.Name(n))            => interp.functionTypeAliases.contains(n)
+              case Some(ta: Type.Apply)          => ta.tpe match
+                case Type.Name(n) => interp.functionTypeAliases.contains(n)
+                case _            => false
+              case _                             => false
+            if recvIsFunction then
+              interp.extensions.getOrElseUpdate("Any", mutable.HashMap.empty)(defn.name.value) = fn
           d.body match
             case defn: Defn.Def    => registerDef(defn)
             case Term.Block(stats) => stats.foreach { case defn: Defn.Def => registerDef(defn); case _ => () }
@@ -628,7 +643,17 @@ private[interpreter] object StatRuntime:
     case imp: Import =>
       runDottedModuleImports(imp, interp)
 
-    case _ => () // type aliases, other imports, exports, etc.
+    // A plain `type X = …` has no runtime value, so it stays erased — but when its right-hand side is a
+    // FUNCTION type we remember the NAME. Extension dispatch cannot name a function value (it yields
+    // "Any"), so registration needs to know that `Fn` in `extension (f: Fn)` denotes one.
+    // (int-extension-on-function-type-alias-does-not-dispatch.)
+    case d: Defn.Type =>
+      d.body match
+        case _: Type.Function       => interp.functionTypeAliases += d.name.value
+        case _: Type.ContextFunction => interp.functionTypeAliases += d.name.value
+        case _                      => ()
+
+    case _ => () // other type aliases, other imports, exports, etc.
 
   /** Flatten a dotted `import` reference (`std.mapreduce.cluster`) to its segments. */
   private def importRefSegments(ref: Term): List[String] = ref match

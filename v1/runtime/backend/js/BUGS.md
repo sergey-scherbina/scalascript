@@ -7,6 +7,30 @@ grepping for status.
 
 Newest first.
 
+## js-pass-error-not-formatted-by-its-module-function — a `PassError` prints its raw record instead of `[phase] message`
+<!-- status: open
+     lane: js
+     area: codegen
+     gate: examples/dsl-mini-language.ssc -->
+
+**Found 2026-07-30** by `int-ext-on-alias-dispatch`, after two interpreter fixes let `dsl-mini-language`
+run at all. int and v2 now agree; js is the only lane that differs, and only in formatting:
+
+```
+int / v2   [name-resolve] undefined variable: z
+js         PassError(name-resolve, undefined variable: z, <unknown>, 0, 0)
+```
+
+So the case reaches the same result on js and then renders it with the DEFAULT record `toString` instead
+of `std/dsl/passes.ssc`'s `formatReport`. The likely shape, given what the same module already exposed
+today: a function from an imported module is not being reached on js, the way
+[[js-imported-extension-method-not-dispatched]] was not — that one was an extension emitted outside its
+module's IIFE. Worth checking whether `formatReport` (a plain `def`, not an extension) hits a different
+version of the same scope problem before assuming it is a `Show`/`toString` issue.
+
+**Not fixed here on purpose:** it is a different cause from the two interpreter defects that surfaced it,
+and folding it in would have made a three-lane claim out of a one-lane fix.
+
 ## js-unused-val-drops-side-effecting-call — `val unused = eff()` elides the call, side effect and all
 <!-- status: open
      lane: js

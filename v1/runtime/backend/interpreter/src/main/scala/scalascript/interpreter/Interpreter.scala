@@ -148,6 +148,14 @@ class Interpreter(
   // Concrete type → declared parent type (from `extends` clause).  Used by
   // extensionDispatch to find extension methods registered on a sealed parent.
   private[interpreter] val parentTypes  = mutable.Map.empty[String, String]
+  /** Type-alias names whose right-hand side is a FUNCTION type (`type Fn = Int => Int`).
+   *
+   *  Extension registration takes the receiver's type name from the SYNTAX, while dispatch derives it
+   *  from the runtime VALUE — and a function value has no nominal type, so it becomes `"Any"`. An
+   *  extension on such an alias registered under the alias name and was never found. Recording the
+   *  aliases lets registration ALSO file the method where dispatch will look.
+   *  (int-extension-on-function-type-alias-does-not-dispatch.) */
+  private[interpreter] val functionTypeAliases = mutable.Set.empty[String]
   // Methods declared inside a `class` / `case class` body, keyed by type name.
   // Stored separately from instance fields so `show` and pattern matching see
   // only data fields.
