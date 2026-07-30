@@ -1,5 +1,11 @@
 # What does NOT work in v2 — the measured list
 
+> **Hand-written analysis, and its NUMBERS DECAY.** This file is commentary, not the
+> tracker. The live answer is `scripts/bugs-report --module v2` (or `--v2` for the lane
+> view), which reads the machine-readable headers in `v2/BUGS.md`; a count typed into prose
+> is right on the day it is typed and wrong by the next fix. Moved here from the repo root
+> on 2026-07-30 when bugs were split per module — `specs/work-tracking-layout.md`.
+
 **Measured 2026-07-28** on `origin/main` with a fresh `sbt installBin`, by one full canonical run:
 
 ```bash

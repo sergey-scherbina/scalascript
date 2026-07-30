@@ -1,8 +1,10 @@
 # The bug index — one source, one machine-readable header
 
-`BUGS.md` is the single source of truth for what is broken. This spec defines the one part of an
-entry that is **parsed** rather than read, so that every agent asking "what is still open" gets the
-same answer.
+The `BUGS.md` files are the single source of truth for what is broken. **There is one per module,
+in the module** — where the files live and how an entry is routed to one is
+[`work-tracking-layout.md`](work-tracking-layout.md). THIS spec defines the one part of an entry that
+is **parsed** rather than read, so that every agent asking "what is still open" gets the same
+answer.
 
 ## Why this exists
 
@@ -114,9 +116,11 @@ CI run also proves the gate can still fail.
 scripts/bugs-report                  # counts by status
 scripts/bugs-report --status open    # every open entry
 scripts/bugs-report --lane native --status open
-scripts/bugs-report --v2             # the v2 view that bugs-v2.md snapshots by hand
+scripts/bugs-report --v2             # the v2 lane view
+scripts/bugs-report --module v2      # everything in v2/BUGS.md
 ```
 
-`bugs-v2.md` remains as human analysis, but its **numbers decay** — it still reports a count taken
-before several of those entries were closed. Treat `scripts/bugs-report` as the live answer and
-that file as commentary.
+It walks every `BUGS.md`, which is why `--module` exists. `v2/bugs-analysis.md` (was `bugs-v2.md` at
+the root) remains as human analysis, but its **numbers decay** — it still reports a count taken
+before several of those entries were closed. Treat `scripts/bugs-report` as the live answer and that
+file as commentary; it now carries a banner saying so.

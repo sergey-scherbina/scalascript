@@ -1,5 +1,11 @@
 # v2 — НЕРЕШЁННОЕ: что требует отдельного разбора
 
+> **Hand-written analysis, and its NUMBERS DECAY.** This file is commentary, not the
+> tracker. The live answer is `scripts/bugs-report --module v2` (or `--v2` for the lane
+> view), which reads the machine-readable headers in `v2/BUGS.md`; a count typed into prose
+> is right on the day it is typed and wrong by the next fix. Moved here from the repo root
+> on 2026-07-30 when bugs were split per module — `specs/work-tracking-layout.md`.
+
 Отдельный список, о котором просил Sergiy: сюда вынесено то, что **не** удалось закрыть сразу —
 либо нужно решение, либо нужна отдельная работа. Полная измеренная картина и как она получена —
 в [`bugs-v2.md`](bugs-v2.md).
