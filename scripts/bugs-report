@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""bugs-report — answer "what is open" from BUGS.md's headers, so nobody writes another awk.
+"""bugs-report — answer "what is open" from every BUGS.md's headers, so nobody writes another awk.
 
-Spec: specs/bugs-index.md.
+Specs: specs/work-tracking-layout.md (where the files live), specs/bugs-index.md (the header).
 
-    scripts/bugs-report                          # counts by status
-    scripts/bugs-report --status open            # every open entry
+    scripts/bugs-report                          # counts by status, and per module
+    scripts/bugs-report --status open            # every open entry, module-tagged
+    scripts/bugs-report --module v2 --status open
     scripts/bugs-report --status open --lane native
     scripts/bugs-report --area front --status open
     scripts/bugs-report --v2                     # the v2 view (native + v2-jvm + v2-rust lanes)
@@ -17,6 +18,39 @@ hand-rolled query over it disagreed with the others.
 import argparse, pathlib, re, sys
 
 FIELD = re.compile(r"([a-z-]+)\s*:\s*([^\n]+)")
+
+
+# The bug files, in module order. Discovered rather than listed: a module gets a file when it has
+# something to record, so a hard-coded list would silently miss the next one.
+SEARCH = ["BUGS.md", "*/BUGS.md", "*/*/BUGS.md", "*/*/*/BUGS.md", "*/*/*/*/BUGS.md"]
+SKIP_DIRS = {"target", "node_modules", ".git", ".scala-build", "releases", "scratch"}
+
+
+def bug_files(root):
+    """Every BUGS.md, once. `runtime` is a SYMLINK to `v1/runtime`, so a naive glob finds three of
+    these files twice and the totals come out 885 instead of 630 — a bug this tool reported about
+    itself on the first run. Skip any path that walks through a symlinked directory, and dedupe on
+    the resolved path as a second net."""
+    seen, out = set(), []
+    for pat in SEARCH:
+        for p in sorted(root.glob(pat)):
+            if any(part in SKIP_DIRS for part in p.parts):
+                continue
+            rel = p.relative_to(root)
+            if any((root / pathlib.Path(*rel.parts[:i + 1])).is_symlink()
+                   for i in range(len(rel.parts) - 1)):
+                continue
+            key = p.resolve()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(p)
+    return out
+
+
+def module_of(root, p):
+    rel = p.relative_to(root).parent.as_posix()
+    return "." if rel == "" else rel
 
 
 def load(path):
@@ -39,7 +73,8 @@ def load(path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--file", default=str(pathlib.Path(__file__).resolve().parent.parent / "BUGS.md"))
+    ap.add_argument("--file", help="a single BUGS.md instead of every one")
+    ap.add_argument("--module", help="restrict to one module path, e.g. v2 or v1/runtime/backend/js")
     ap.add_argument("--status")
     ap.add_argument("--lane")
     ap.add_argument("--area")
@@ -48,7 +83,18 @@ def main():
     ap.add_argument("--count", action="store_true")
     a = ap.parse_args()
 
-    rows = load(a.file)
+    root = pathlib.Path(__file__).resolve().parent.parent
+    files = [pathlib.Path(a.file)] if a.file else bug_files(root)
+    rows, per_module = [], {}
+    for f in files:
+        mod = module_of(root, f) if not a.file else module_of(root, f.resolve())
+        rs = load(f)
+        for r in rs:
+            r["module"] = mod
+        per_module[mod] = rs
+        rows.extend(rs)
+    if a.module:
+        rows = [r for r in rows if r["module"] == a.module]
     missing = [r for r in rows if "status" not in r]
 
     sel = rows
@@ -61,7 +107,7 @@ def main():
     if not (a.status or a.lane or a.area or a.v2 or a.no_gate):
         by = {}
         for r in rows: by[r.get("status", "MISSING-HEADER")] = by.get(r.get("status", "MISSING-HEADER"), 0) + 1
-        print(f"{len(rows)} entries in {pathlib.Path(a.file).name}\n")
+        print(f"{len(rows)} entries across {len(files)} file(s)\n")
         for k in sorted(by, key=lambda k: -by[k]): print(f"  {k:16} {by[k]}")
         opens = [r for r in rows if r.get("status") == "open"]
         lanes, areas = {}, {}
@@ -70,6 +116,12 @@ def main():
             areas[r.get("area", "?")] = areas.get(r.get("area", "?"), 0) + 1
         print(f"\n  open by lane: " + ", ".join(f"{k}={v}" for k, v in sorted(lanes.items(), key=lambda x: -x[1])))
         print(f"  open by area: " + ", ".join(f"{k}={v}" for k, v in sorted(areas.items(), key=lambda x: -x[1])))
+        print("\n  per module (open / total):")
+        for mod in sorted(per_module, key=lambda m: -len(per_module[m])):
+            rs = [r for r in per_module[mod] if not a.module or mod == a.module]
+            if not rs: continue
+            o = sum(1 for r in rs if r.get("status") == "open")
+            print(f"    {o:4} / {len(rs):4}   {mod}/BUGS.md")
         nog = [r for r in opens if r.get("gate") in (None, "none")]
         print(f"\n  open with NO gate named: {len(nog)} of {len(opens)}")
         if missing:
@@ -80,7 +132,8 @@ def main():
         print(len(sel)); return 0
     for r in sel:
         g = r.get("gate", "-")
-        print(f"{r.get('status','?'):8} {r.get('lane','?'):9} {r.get('area','?'):12} {r['slug'][:52]:54} {g}")
+        print(f"{r.get('status','?'):8} {r.get('module','?'):32} {r.get('lane','?'):9} "
+              f"{r.get('area','?'):12} {r['slug'][:48]:50} {g}")
     print(f"\n{len(sel)} entr{'y' if len(sel)==1 else 'ies'}", file=sys.stderr)
     return 0
 

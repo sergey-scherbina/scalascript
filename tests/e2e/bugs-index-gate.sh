@@ -20,14 +20,27 @@ cd "$ROOT"
 
 TARGET="${1:-}"
 [[ "$TARGET" == "--self-test" ]] && TARGET=""
-FILE="${BUGS_FILE:-$ROOT/BUGS.md}"
+
+# Every BUGS.md, not just the root one — bugs live in the module that owns the fix
+# (specs/work-tracking-layout.md). `runtime` is a SYMLINK to `v1/runtime`, so the find below prunes
+# symlinked directories: without that, three files are visited twice and the entry count comes out
+# 885 instead of 630. BUGS_FILE=<path> narrows to one file.
+if [[ -n "${BUGS_FILE:-}" ]]; then
+  FILES=("$BUGS_FILE")
+else
+  FILES=()
+  while IFS= read -r f; do FILES+=("$f"); done < <(
+    find "$ROOT" -name BUGS.md -not -path '*/target/*' -not -path '*/.git/*' \
+         -not -path '*/node_modules/*' -not -path '*/.scala-build/*' -type f -print 2>/dev/null | sort
+  )
+fi
 
 run_check() {
-  python3 - "$1" <<'PY'
+  python3 - "$@" <<'PY'
 import re, subprocess, sys, pathlib
 
-path = pathlib.Path(sys.argv[1])
-text = path.read_text()
+paths = [pathlib.Path(p) for p in sys.argv[1:]]
+text = "\n".join(p.read_text() for p in paths)
 lines = text.split("\n")
 
 # RESOLUTION requires history this checkout may not have. CI clones with fetch-depth: 1, where
@@ -90,13 +103,15 @@ for head, body in entries:
     if st == "duplicate" and not fields.get("duplicate-of"):
         problems.append((slug, "status: duplicate requires `duplicate-of: <slug>`"))
 
+# Uniqueness is checked across the CONCATENATION of every file, not per file: after the split a
+# slug could otherwise exist twice in two modules and each file would look fine on its own.
 for s, n in slugs.items():
-    if n > 1: problems.append((s, f"slug appears {n} times — slugs must be unique"))
+    if n > 1: problems.append((s, f"slug appears {n} times — slugs must be unique across all BUGS.md"))
 
 if SHALLOW:
     print("note: shallow clone — `fixed-in` checked for SHAPE only; run in a full clone to verify "
           "each sha resolves.")
-print(f"entries: {len(entries)}   problems: {len(problems)}")
+print(f"files: {len(paths)}   entries: {len(entries)}   problems: {len(problems)}")
 for s, why in problems[:25]:
     print(f"  FAIL [{s[:56]}] {why}")
 if len(problems) > 25:
@@ -145,10 +160,10 @@ BAD
       echo "SELF-TEST FAILED: expected a problem mentioning '$want'"; exit 1
     fi
   done
-  echo "--- self-test ok (4 planted defects all caught); checking $FILE ---"
+  echo "--- self-test ok (4 planted defects all caught); checking ${#FILES[@]} file(s) ---"
 fi
 
-run_check "$FILE"
+run_check "${FILES[@]}"
 rc=$?
 if [[ $rc -eq 0 ]]; then echo "bugs-index-gate: OK"; else echo "bugs-index-gate: FAIL"; fi
 exit $rc

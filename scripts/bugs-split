@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+"""bugs-split — route root BUGS.md entries into per-module BUGS.md files.
+
+Spec: specs/work-tracking-layout.md.
+
+    scripts/bugs-split --dry-run          # distribution only, writes nothing
+    scripts/bugs-split --apply            # write the module files and rewrite the root
+
+Routes on the `lane:` header, NOT on paths mentioned in the prose. Measured 2026-07-30: routing by
+most-frequently-mentioned path sends everything to `tests/conformance`, because an entry names its
+GATE — 109 of 630 mention a conformance case while only a handful are defects in the corpus itself.
+The lane says which implementation misbehaves, which is the module where the fix goes.
+
+Prose is copied verbatim. Nothing is summarised, reordered or dropped: an entry ends up in exactly
+one file, and the gate then enforces that slugs stay unique across all of them.
+"""
+import argparse, collections, pathlib, re, sys
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+LANE_MODULE = {
+    "int":      "v1/runtime/backend/interpreter",
+    "js":       "v1/runtime/backend/js",
+    "jvm":      "v1/runtime/backend/jvm",
+    "native":   "v2",
+    "v2-jvm":   "v2",
+    "v2-rust":  "v2",
+}
+# `multi` / `n/a` / anything unrecognised stays at the root: the root is the nearest common
+# ancestor of more than one module, not a leftovers bin.
+ROOT_MODULE = "."
+
+HEADER_TITLES = {
+    "v1/runtime/backend/interpreter": "Interpreter (`int` lane) — bugs",
+    "v1/runtime/backend/js":          "JS backend (`js` lane) — bugs",
+    "v1/runtime/backend/jvm":         "JVM backend (`jvm` lane) — bugs",
+    "v2":                             "v2 — the self-hosted compiler — bugs",
+    "tests":                          "Test harness — bugs",
+    "tests/conformance":              "Conformance corpus and its freeze — bugs",
+    "scripts":                        "Build, CI and coordination tooling — bugs",
+}
+
+
+def module_for(lane: str, area: str) -> str:
+    if lane == "apparatus":
+        if area == "conformance":
+            return "tests/conformance"
+        if area == "build":
+            return "scripts"
+        return "tests"
+    return LANE_MODULE.get(lane, ROOT_MODULE)
+
+
+def parse(text: str):
+    """[(slug, heading_line, body_text, fields)] in file order."""
+    lines = text.split("\n")
+    preamble, out, cur, buf = [], [], None, []
+    for ln in lines:
+        if ln.startswith("## "):
+            if cur is None:
+                preamble = buf[:]
+            else:
+                out.append((cur, "\n".join(buf)))
+            cur, buf = ln, []
+        else:
+            buf.append(ln)
+    if cur is not None:
+        out.append((cur, "\n".join(buf)))
+    else:
+        preamble = buf[:]
+    entries = []
+    for head, body in out:
+        m = re.match(r"\s*<!--(.*?)-->", body, re.S)
+        fields = dict(re.findall(r"([a-z-]+)\s*:\s*([^\n]+)", m.group(1))) if m else {}
+        fields = {k: v.strip() for k, v in fields.items()}
+        slug = head[3:].split("—")[0].strip().split()[0] if len(head) > 3 else "?"
+        entries.append((slug, head, body, fields))
+    return "\n".join(preamble), entries
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--file", default=str(ROOT / "BUGS.md"))
+    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--apply", action="store_true")
+    a = ap.parse_args()
+    if not (a.dry_run or a.apply):
+        print("pick --dry-run or --apply", file=sys.stderr)
+        return 2
+
+    src = pathlib.Path(a.file)
+    preamble, entries = parse(src.read_text())
+
+    buckets = collections.OrderedDict()
+    for slug, head, body, f in entries:
+        mod = module_for(f.get("lane", ""), f.get("area", ""))
+        buckets.setdefault(mod, []).append((slug, head, body, f))
+
+    total = len(entries)
+    print(f"{total} entries -> {len(buckets)} files\n")
+    for mod, rows in sorted(buckets.items(), key=lambda kv: -len(kv[1])):
+        opens = sum(1 for _, _, _, f in rows if f.get("status") == "open")
+        print(f"  {len(rows):4}  ({opens:3} open)  {mod}/BUGS.md")
+
+    dupes = [s for s, n in collections.Counter(e[0] for e in entries).items() if n > 1]
+    if dupes:
+        print(f"\nREFUSING: {len(dupes)} duplicate slug(s): {dupes[:5]}", file=sys.stderr)
+        return 2
+
+    if a.dry_run:
+        print("\n(dry run — nothing written)")
+        return 0
+
+    for mod, rows in buckets.items():
+        if mod == ROOT_MODULE:
+            continue
+        d = ROOT / mod
+        if not d.is_dir():
+            print(f"REFUSING: {mod} is not a directory", file=sys.stderr)
+            return 2
+        title = HEADER_TITLES.get(mod, f"{mod} — bugs")
+        head = (
+            f"# {title}\n\n"
+            f"Scope: defects whose FIX goes in `{mod}/`. Layout and routing rules:\n"
+            f"`specs/work-tracking-layout.md`. Entry format (the header is parsed, the prose is not):\n"
+            f"`specs/bugs-index.md`. Query with `scripts/bugs-report --module {mod}`, never by\n"
+            f"grepping for status.\n\n"
+            f"Newest first.\n"
+        )
+        body = "".join(f"\n{h}\n{b.rstrip()}\n" for _, h, b, _ in rows)
+        (d / "BUGS.md").write_text(head + body)
+        print(f"wrote {mod}/BUGS.md  ({len(rows)} entries)")
+
+    root_rows = buckets.get(ROOT_MODULE, [])
+    root_head = (
+        "# Cross-module bugs\n\n"
+        "Per-module bug files live in the modules — see `specs/work-tracking-layout.md` for the\n"
+        "layout and `specs/bugs-index.md` for the entry format. **This file holds only entries that\n"
+        "no single module owns**: the same defect present in more than one implementation, where the\n"
+        "root is the nearest common ancestor. It is not a leftovers bin — if an entry here turns out\n"
+        "to be one module's, move it and change its `lane:`.\n\n"
+        "Query across every file at once:\n\n"
+        "```sh\n"
+        "scripts/bugs-report                        # counts by status, per module\n"
+        "scripts/bugs-report --module v2 --status open\n"
+        "scripts/bugs-report --no-gate              # open entries with no regression gate named\n"
+        "```\n\n"
+        "Newest first.\n"
+    )
+    root_body = "".join(f"\n{h}\n{b.rstrip()}\n" for _, h, b, _ in root_rows)
+    src.write_text(root_head + root_body)
+    print(f"wrote {src.name}  ({len(root_rows)} cross-module entries)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
