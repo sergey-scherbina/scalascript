@@ -1,0 +1,11 @@
+slug: jvm-lane-never-calls-main
+branch: feature/jvm-lane-never-calls-main
+agent: claude-code
+started: 2026-07-30T08:47:02Z
+heartbeat: 2026-07-30T08:47:02Z
+status: claimed-before-planning
+items: jvm-lane-never-calls-def-main-exits-0-with-no-output
+paths: file:v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGen.scala
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
