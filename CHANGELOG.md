@@ -24,6 +24,24 @@ conformance case widened to run on both lanes against one expected output, plus 
 three failure modes a corpus case cannot express (a stream larger than a pipe buffer, a timeout, env
 scrubbing).
 
+**CI measured three things local runs could not**, and each was fixed rather than accommodated. The
+corpus slice cost 233.9 s on a hosted runner against 68 s here, so the first run failed its own budget
+guard at 378.5 s with all 17 checks green — fixed by reusing one Bloop server across the slice
+(`SSC_CONF_WARM_JVM=1`, what the conformance job already did), not by raising the number. And
+`cancel-in-progress: true` gave four cancelled runs and zero verdicts, reproducing at small scale the
+exact failure this work exists to fix; `false` (what `ci.yml` had already settled on) means a started
+run always finishes. Final: **17/17 green, 250.2 s of 330 s, job 9.4 min** (run 30545125102).
+
+**The verdict tool nearly contradicted the workflow it verifies — for the third time.**
+`scripts/ci-status` demanded `Validate ScalaScript`, four `Conformance shard i/4` and
+`Examples and launcher smokes` from every push run, and those had just been gated off push. Every
+future GREEN push run would have been reported `missing required job`. Its required-job list is a COPY
+of the workflow's job set, and the two existing comments in that function record the same shape
+happening twice before. The new guard invariant compares BEHAVIOUR — the jobs `ci.yml` gates off push
+against the `missing required job:` lines the tool actually emits — because a parse of its source
+would drift the same way the list did. The default query also moved to smoke.yml: left on ci.yml it
+would have answered "the markdown linted" in the same words as before.
+
 **The accounting had to be argued with twice.** The first version of the corpus lane parse counted
 KNOWN-RED as neither pass nor fail, making a deliberately-red lane invisible — worse than either
 choice. And an early measurement claimed only 3 of 13 slice cases exercised the JVM lane; the check
