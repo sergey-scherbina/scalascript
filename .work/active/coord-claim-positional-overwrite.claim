@@ -1,0 +1,11 @@
+slug: coord-claim-positional-overwrite
+branch: feature/coord-claim-positional-overwrite
+agent: claude-code
+started: 2026-07-30T09:18:54Z
+heartbeat: 2026-07-30T09:18:54Z
+status: claimed-before-planning
+items: coord-claim-second-positional-overwrites-slug
+paths: file:scripts/coord-claim file:tests/coord/coord-claim-runs.sh scripts/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
