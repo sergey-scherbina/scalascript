@@ -1,0 +1,11 @@
+slug: policy-and-performance-skills
+branch: feature/policy-and-performance-skills
+agent: claude-code
+started: 2026-07-30T10:34:07Z
+heartbeat: 2026-07-30T10:34:07Z
+status: claimed-before-planning
+items: policy-skill-generic performance-skill-bench-history
+paths: file:.agents/plugins file:AGENTS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
