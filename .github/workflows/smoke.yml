@@ -61,6 +61,32 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # MEASURED on the first green run (30545125102): the job was 9.4 min, of which the SUITE was
+      # 4.2 min and setup + `install.sh --dev` was ~5.2 min. The build is the larger half and most of
+      # the time it rebuilds a byte-identical toolchain: measured 2026-07-28, 43 of 58 run-creating
+      # commits in one hour touched only `.md` or `.work/`, none of which can reach a staged jar.
+      #
+      # The digest is a content hash of everything that CAN reach it. Its path list is an EXCLUSION
+      # list, and scripts/launcher-input-digest explains at length why: an inclusion list that misses
+      # one compiler source restores the previous commit's toolchain from cache, runs the whole suite
+      # with it, and reports GREEN about code it never executed — with no symptom at all.
+      - name: Launcher input digest
+        id: launcher
+        run: |
+          digest="$(scripts/launcher-input-digest)"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "launcher inputs: $digest"
+
+      # NO `restore-keys`, and that is the point. A prefix fallback would happily restore a toolchain
+      # built from DIFFERENT inputs, which is precisely the stale-launcher failure above. Exact key
+      # or miss.
+      - name: Restore staged toolchain
+        id: toolchain
+        uses: actions/cache/restore@v4
+        with:
+          path: bin
+          key: ${{ runner.os }}-toolchain-v1-${{ steps.launcher.outputs.digest }}
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -78,10 +104,14 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      # sbt and its caches are only needed to BUILD. On a hit they are pure setup cost for a step
+      # that will not run.
       - name: Setup sbt
+        if: steps.toolchain.outputs.cache-hit != 'true'
         uses: sbt/setup-sbt@v1
 
       - name: Cache Coursier/sbt
+        if: steps.toolchain.outputs.cache-hit != 'true'
         uses: actions/cache@v4
         with:
           path: |
@@ -98,6 +128,7 @@ jobs:
       # jobs compile with different sbt invocations, so their zinc analyses are not interchangeable
       # and sharing a cache re-creates the poison.
       - name: Restore compiled classes (zinc)
+        if: steps.toolchain.outputs.cache-hit != 'true'
         uses: actions/cache/restore@v4
         with:
           path: |
@@ -112,13 +143,47 @@ jobs:
       # The runner is a `.ssc` program executing on the v2 native lane, so the launcher is not an
       # optimisation here — it is the interpreter of the suite.
       - name: Build ssc launcher (sbt-assembly)
+        if: steps.toolchain.outputs.cache-hit != 'true'
         run: bash install.sh --dev
+
+      # `/bin/` is gitignored but `bin/ssc` is TRACKED, so a restored cache writes over a tracked
+      # file. On a correct hit it is byte-identical (the launcher template lives in build.sbt, which
+      # is an included input, so a changed template means a changed digest means a miss) — but
+      # "should be identical" is the kind of assumption that is worth one `git status`.
+      - name: Verify the restored toolchain left the tree clean
+        if: steps.toolchain.outputs.cache-hit == 'true'
+        run: |
+          if [[ -n "$(git status --porcelain bin)" ]]; then
+            echo "The restored toolchain differs from the tracked bin/ files:" >&2
+            git status --porcelain bin >&2
+            echo "A cache entry keyed on the launcher inputs should not be able to do this." >&2
+            exit 1
+          fi
+          echo "restored toolchain matches the tracked bin/ files"
+
+      # Save on a MISS only. On a hit the entry already exists under this exact key, and re-uploading
+      # ~180 MB to overwrite it with itself is pure cost. Gated on success so a build that died
+      # half-way can never publish a partial staging under a key that claims to be complete — the
+      # same rule the zinc cache below learned the hard way (200+ red runs from one poisoned entry).
+      #
+      # DELIBERATELY BEFORE the suite runs, which looks like a violation of that rule and is not. The
+      # rule is "never cache a failed BUILD"; `success()` here means every step up to and including
+      # `install.sh --dev` passed, so the staging is complete. The suite that follows tests the
+      # REPOSITORY, not the staging — a red gate says nothing about whether these jars are the right
+      # jars. Saving after the suite would throw away a perfectly good toolchain because an unrelated
+      # check went red, and make the next run pay 3.5 min to rebuild the identical bytes.
+      - name: Save staged toolchain
+        if: success() && steps.toolchain.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: bin
+          key: ${{ runner.os }}-toolchain-v1-${{ steps.launcher.outputs.digest }}
 
       - name: Run the smoke suite
         run: scripts/smoke-ci
 
       - name: Save compiled classes (zinc)
-        if: success()
+        if: success() && steps.toolchain.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
