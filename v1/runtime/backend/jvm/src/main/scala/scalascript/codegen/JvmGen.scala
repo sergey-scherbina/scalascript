@@ -637,7 +637,58 @@ class JvmGen(
     val braced    = colonObjectsToBraces(withUi).stripTrailing()
     val hoisted   = hoistSscImportsIntoObjectStd(braced)
     val merged    = mergeDuplicatePackageObjects(hoisted)
-    fixedHead + merged + "\n"
+    fixedHead + merged + mainInvocation(blocks, merged) + "\n"
+
+  /** The trailing `main()` call, or `""`.
+   *
+   *  A zero-parameter top-level `def main` is the program's entrypoint on every other lane: the
+   *  interpreter invokes it, and `JsGen` emits `if (typeof main === 'function') { main(); }` at the
+   *  end of the module (`JsGen.scala:1172`, guarded by the same `hasMain && !mainCalled`). JvmGen had
+   *  no notion of an entrypoint at all, so it emitted the `def` and nothing called it: a program
+   *  whose whole body is `def main() = …` printed NOTHING and exited 0.
+   *
+   *  Exit 0 with no output is the worst shape this can take — nothing to grep, no stack trace, and
+   *  a golden-diff that reads as "the program produced no lines" rather than "the program never
+   *  ran". `char-literal-escapes` is the corpus case that surfaced it. It is not a coincidence that
+   *  it took this long: of the four corpus cases written with `def main`, the other three declare
+   *  `backends: [int]` or `[int, js]`, so the corpus had been steering around this lane rather than
+   *  failing on it.
+   *
+   *  TWO conditions, deliberately. The structural half asks the parsed blocks whether a top-level
+   *  zero-arg `main` is defined and not already called — same question JsGen asks. The textual half
+   *  then requires that the def really did land at column 0 in the FINAL source, after the
+   *  package-object unwrapping and merging above have moved things around. Without it, a `main`
+   *  nested inside an emitted `object` would get a call that cannot resolve, turning a silent
+   *  no-output program into a compile error — a different failure, not a fix.
+   *
+   *  NOT the `--bytecode` / `build-jvm` path: `generateUserOnlyWithLineMap` feeds an ASM pipeline
+   *  that picks its entrypoint separately, and a bare call appended there would run at class-init
+   *  time. If that path has the same gap it needs its own fix, in its own terms. */
+  private def mainInvocation(blocks: List[JvmGen.Block], emitted: String): String =
+    var defines = false
+    var called  = false
+    blocks.foreach { b =>
+      ScalaNode.fold(b.node) { tree =>
+        val stats = tree match
+          case s: Source     => s.stats
+          case t: Term.Block => t.stats
+          case other: Stat   => List(other)
+          case _             => Nil
+        stats.foreach {
+          case d: Defn.Def
+              if d.name.value == "main" &&
+                 d.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values).isEmpty =>
+            defines = true
+          // An explicit `main()` (or bare `main`) already at top level — don't call it twice.
+          case Term.Apply.After_4_6_0(Term.Name("main"), _) => called = true
+          case Term.Name("main")                            => called = true
+          case _                                            => ()
+        }
+      }
+    }
+    val atTopLevel = emitted.linesIterator.exists(l => l.startsWith("def main(") || l.startsWith("def main:"))
+    if defines && !called && atTopLevel then "\n\n// entrypoint: `def main()` is the program body (parity with the interpreter and JsGen)\nmain()"
+    else ""
 
   /** Merge multiple `object X { object Y { ... } }` declarations sharing
    *  the same outer chain into one — needed when several inlined imports
