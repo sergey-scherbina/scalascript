@@ -1,0 +1,11 @@
+slug: v2-perf-1-dcell-in-f
+branch: feature/v2-perf-1-dcell-in-f
+agent: claude-code
+started: 2026-07-30T11:22:02Z
+heartbeat: 2026-07-30T11:22:02Z
+status: claimed-before-planning
+items: v2-perf-1-double-tier-unwired
+paths: file:specs/v2.2-p6.5-fsub.ssc file:bench/history.tsv file:TASK/v2-perfomance.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
