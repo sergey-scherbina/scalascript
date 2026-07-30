@@ -24,8 +24,25 @@ Adding a conformance case is a two-file change. Three expired baseline rows went
 word — with the caveat that all three are doc-only files whose golden is empty, so their PASS means
 both lanes correctly did nothing.
 
-`BUGS.md` `v2-native-case-unit-pattern-matches-where-int-does-not`. Two adjacent gaps the same probe
-found are filed, not fixed: `type-ascription-tuple-and-set-arms-missing`.
+`case _: TupleN` went the same way an hour later, in the same two tables. Native was already right
+(a tuple is `DataV("Tuple2", …)` there, so the nominal test matched); INT and JS had no arm. Two
+details are deliberate and each has a line in the gate that would catch it: arity is part of the
+name, so `Tuple2[?, ?]` is FALSE for a 3-tuple rather than matching a `Tuple` prefix; and on the JS
+lane a tuple *is* an array, so the arm reads the `_isTuple` marker the emitter already writes
+instead of accepting any two-element array — a two-element `List` must not match.
+
+That fix also corrected a claim we had already written down. The bug entry said "Scala says yes" for
+bare `case _: Tuple2`; Scala 3 says it is a compile error (`Missing type parameter for [T1, T2]`),
+and the JVM lane refused to build the first draft of the gate. The JVM lane is the only one running
+real Scala, which makes it the oracle for "what should this do" — asking it costs one command.
+
+`case _: Set` stays open on purpose: native gets it wrong too, so fixing only INT and JS would
+*create* a divergence where all three lanes currently agree with each other. Also worth naming: that
+gap is invisible to every differential gate here, because a cross-lane sweep compares lanes to each
+other and a gap they all share reads as green.
+
+`BUGS.md` `v2-native-case-unit-pattern-matches-where-int-does-not`,
+`type-ascription-tuple-and-set-arms-missing`.
 
 ## 2026-07-28 — two v2 roadmap cases closed: `xs.apply(i)` and the missing serve banner
 

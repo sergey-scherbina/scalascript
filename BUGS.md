@@ -1694,47 +1694,49 @@ does not conflate the two).
 byte-for-byte both times — which is what establishes `expected/` as the right answer rather than my
 reading of it.
 
-## type-ascription-tuple-and-set-arms-missing — `case _: Tuple2` and `case _: Set` do not hold
+## type-ascription-tuple-and-set-arms-missing — `case _: Set` does not hold on any lane
 <!-- status: open
      lane: multi
      area: runtime
      gate: none -->
 
-**Found 2026-07-29** by the probe written for the entry above — same table, same shape, not fixed in
-the same change because each needs its own decision about what the type name should mean.
+**Tuple half FIXED 2026-07-29 in 7939f4c9e** (gate `tests/conformance/type-ascription-tuple.ssc`).
+**Set half still OPEN**, deliberately — see below. Found by the probe written for
+[[v2-native-case-unit-pattern-matches-where-int-does-not]]; same two type-test tables, same missing
+arm.
 
 ```scalascript
-def isTuple(x: Any): String = x match
-  case _: Tuple2 => "yes"
-  case _ => "no"
-def isSet(x: Any): String = x match
-  case _: Set => "yes"
-  case _ => "no"
-println(isTuple((1, 2)))
-println(isSet(Set(1, 2)))
+def kind(x: Any): String = x match
+  case _: Tuple2[?, ?] => "pair"
+  case _: Set[?] => "set"
+  case _ => "other"
 ```
 
-| | native | INT | JS | Scala says |
+| | native | JVM (real Scala) | INT | JS |
 |---|---|---|---|---|
-| `case _: Tuple2` on `(1, 2)` | **yes** | no | no | yes |
-| `case _: Set` on `Set(1, 2)` | no | no | no | yes |
+| `case _: Tuple2[?, ?]` on `(1, 2)` | yes | yes | **no → yes** | **no → yes** |
+| `case _: Tuple2[?, ?]` on `(1, 2, 3)` | no | no | no | no |
+| `case _: Set[?]` on `Set(1, 2)` | **no** | yes | **no** | **no** |
 
-Two different problems in one table:
+**Correction to this entry's first version.** It said "Scala says yes" for bare `case _: Tuple2`.
+It does not: that spelling is a *compile error* in Scala 3 — `Missing type parameter for
+[T1, T2] =>> (T1, T2)` — and the JVM lane refused to build the first draft of the gate. The claim
+holds for `Tuple2[?, ?]`, which is what the corrected table and the gate now use. Worth keeping the
+mistake visible: the JVM lane is the only lane that runs real Scala, so it is the oracle for "what
+should this do", and consulting it is cheap.
 
-- **Tuple is a lane divergence** and therefore the more urgent one. Native gets it right for free —
-  it represents a tuple as `DataV("Tuple2", …)`, so the ordinary nominal test already matches —
-  while `Value.TupleV` and the JS array form have no arm. Fixing it needs a decision on arity:
-  `case _: Tuple2` must be false for a 3-tuple, so the arm has to compare against
-  `Tuple${elems.length}` rather than a prefix, and `Product` (which all tuples are) should probably
-  be accepted too.
-- **Set is a uniform gap.** All three lanes agree, so nothing diverges and no golden is at risk —
-  but all three disagree with Scala. `Value.SetV` is simply missing from the same list that already
-  carries `ListV`/`VectorV`/`MapV`. Cheapest of the two, and the arm is one line
-  (`typeName == "Set" || typeName == "Iterable"`).
+**Why the Set half is still open, rather than being one more line in the same commit.** Native gets
+`case _: Set` wrong too. Fixing only INT and JS would *create* a lane divergence where all three
+currently at least agree with each other — trading a uniform gap for a differential one, which is
+strictly worse for a suite that grades by comparing lanes. The native table lives in `v2/src`
+(`Runtime.scala`'s `__isTag__` primitive arm), held by another claim at the time. The fix is one arm
+per lane: `Value.SetV => typeName == "Set" || typeName == "Iterable"`, the JS `_type`/marker
+equivalent, and the `SetV` case in the native primitive table — all three together or none.
 
-The uniform case is worth stating explicitly because it is invisible to every differential gate we
-have: a cross-lane sweep compares lanes to *each other*, so a gap all lanes share reads as green.
-This one only surfaced because the probe asked what Scala does.
+**The Set half is invisible to every differential gate we own**, which is the part worth
+remembering: a cross-lane sweep compares lanes to *each other*, so a gap all three share reads as
+green. It surfaced only because the probe asked what the JVM lane does instead of what another
+self-hosted lane does.
 
 ## conformance-int-batch-false-fail-and-hidden-stderr — a case fails in the batch, passes everywhere else, and the reason is thrown away
 <!-- status: open
