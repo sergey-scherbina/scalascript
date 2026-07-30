@@ -7,6 +7,40 @@ grepping for status.
 
 Newest first.
 
+## coord-claim-second-positional-overwrites-slug — an unquoted `--items A B` claimed under a name the caller never typed
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     fixed-in: unrecorded
+     gate: tests/coord/coord-claim-runs.sh -->
+
+**FIXED 2026-07-30**, reported by Sergiy after I hit it.
+
+`--items` and `--paths` each take exactly ONE argument — the usage line documents them as quoted lists
+(`--items "<id> …"`). Written unquoted, the extra words stay positional, and the old catch-all was:
+
+```bash
+*) slug="$1"; shift ;;
+```
+
+No "already set" check, so the LAST bare word won. `coord-claim v2-diverge-dsl-parsers --items A B`
+therefore assigned `slug=v2-diverge-dsl-parsers`, then overwrote it with `B` — creating
+`.work/active/B.claim` with `items: A`, printing `✓ claimed B`, and exiting 0.
+
+**Why it is worth a fix rather than a note in the usage text.** The tool did the right-looking thing: a
+claim WAS created, the push succeeded, the ledger row matched. The only signal was a slug the caller never
+typed, in a line that normally scrolls past. That is the same failure shape as the `$root` outage in
+`bfbc42fe6` — quiet wrongness — except this one leaves a claim under the wrong name, which is precisely
+what the mutex is supposed to make impossible to get wrong by accident.
+
+**Fix:** a second positional argument is refused, naming both candidates and showing the quoted form.
+
+**Gate:** `tests/coord/coord-claim-runs.sh` gained five checks — refused, no claim under the stray word, no
+half-written claim under the intended slug, the message mentions quoting, and it names both candidates.
+Proven fail-first by pointing the gate's own `COORD_CLAIM` override at the pre-fix copy: four checks fail,
+and the decisive one is `it did NOT create a claim named after the stray word` -> **got=yes**, i.e. the lab
+reproduces the incident rather than merely describing it.
+
 ## install-sh-exits-0-when-sbt-project-load-fails — a build that produced nothing reported success
 <!-- status: open
      lane: apparatus

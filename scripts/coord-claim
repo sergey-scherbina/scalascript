@@ -23,7 +23,22 @@ while [ $# -gt 0 ]; do
     --broad) broad="$2"; shift 2 ;;
     --agent) agent="$2"; shift 2 ;;
     -*) echo "unknown flag: $1" >&2; exit 2 ;;
-    *) slug="$1"; shift ;;
+    # A SECOND bare word is refused instead of winning. `--items` and `--paths` each take exactly one
+    # argument — a quoted list — so writing `--items A B` unquoted leaves `B` as a positional, and the
+    # old catch-all assigned it over the slug with no complaint: last bare word won.
+    #
+    # Measured 2026-07-30: `coord-claim v2-diverge-dsl-parsers --items A B` created a claim named after
+    # B. It printed `✓ claimed <B>` and exited 0, so the only signal was a slug the caller never typed.
+    # Same failure shape as the `$root` outage in `bfbc42fe6`: the tool did the wrong thing quietly.
+    *) if [ -n "$slug" ]; then
+         printf 'refusing: two positional arguments — slug "%s", then "%s".\n' "$slug" "$1" >&2
+         printf '\n--items and --paths take ONE argument each, so a multi-value list must be QUOTED:\n' >&2
+         printf '  scripts/coord-claim %s --items "id-one id-two" --paths "file:a file:b"\n' "$slug" >&2
+         printf '\nUnquoted, the extra words become positionals and the last one used to overwrite the\n' >&2
+         printf 'slug — a claim under a name you did not choose is worse than a refusal.\n' >&2
+         exit 2
+       fi
+       slug="$1"; shift ;;
   esac
 done
 

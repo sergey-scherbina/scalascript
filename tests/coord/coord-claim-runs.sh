@@ -78,6 +78,26 @@ check "pushed to origin" \
 #   the commit touches SPRINT.md, and the row names the claim, and a second run does not duplicate it.
 # Stating the absent coverage beats a commented-out assertion nobody reads.
 
+# An UNQUOTED multi-value list must be refused, not silently renamed. `--items` takes one argument,
+# so `--items A B` leaves `B` as a positional; the catch-all used to assign it over the slug and the
+# tool exited 0, printing `✓ claimed B`. Measured 2026-07-30 — a real claim landed under a name the
+# caller never typed, and the only clue was that printed slug.
+#
+# Run it in a subshell with its own cwd so a stray success cannot disturb the checks above.
+un_out=$(SSC_AGENT_ID=labtest bash "$TOOL" wanted-slug \
+           --items I1 I2 --paths "file:v2/kernel.ssc" 2>&1) && un_rc=0 || un_rc=$?
+
+check "an unquoted multi-value --items is REFUSED, not silently renamed" \
+      refused "$([ "$un_rc" -ne 0 ] && echo refused || echo accepted)"
+check "it did NOT create a claim named after the stray word" \
+      no "$([ -f .work/active/I2.claim ] && echo yes || echo no)"
+check "it did NOT create the wanted claim either (nothing half-done)" \
+      no "$([ -f .work/active/wanted-slug.claim ] && echo yes || echo no)"
+check "the refusal explains the quoting" \
+      yes "$(printf '%s' "$un_out" | grep -qi 'quoted' && echo yes || echo no)"
+check "the refusal names BOTH candidates so the caller can see what happened" \
+      yes "$(printf '%s' "$un_out" | grep -q 'wanted-slug' && printf '%s' "$un_out" | grep -q 'I2' && echo yes || echo no)"
+
 # The guardrail exemption itself, since it is what unblocks the above. Staged in the MAIN checkout:
 # SPRINT.md must pass and an ordinary file must still be refused, or the guard has stopped being a
 # guard.
