@@ -95,5 +95,31 @@ jobs:
       # The `--` is load-bearing: without it scala-cli claims `--shard` as its own flag
       # and dies with "Unrecognized argument" before the script starts. The pre-shard
       # command passed no script arguments at all, so this separator was never needed here.
+      # `--lane-timeout 240`, raised from the script's 90 s default for THIS host only.
+      #
+      # Run 30542056391 reported `scljet-jdbc  v2  TIMEOUT` — the single slowest v2-lane case, and
+      # the only timeout in its shard; the other scljet cases in the same shard passed, so this is a
+      # case sitting just past the budget, not a systematic hang. MEASURED locally on an idle
+      # many-core host:
+      #
+      #   examples/scljet-jdbc.ssc, v2 lane:  25 s under F (default),  10 s under SSC_FRONT=legacy
+      #   v2 stdout is BYTE-IDENTICAL to the int lane (19 lines, rc 0 on both)
+      #
+      # That last line is why raising the ceiling is the right move rather than a cover-up: with a
+      # sufficient budget the row becomes PASS, not DIVERGE. The case is correct; only the budget was
+      # wrong for this host. A GitHub runner has 2 cores and `contract.sc` derives
+      # `workers = min(4, max(2, cores - 2)) = 2`, so two JVM-heavy F-front compiles share two cores —
+      # and the harness only reports TIMEOUT after the case exceeds the budget TWICE (it retries once
+      # on 124), so 90 s was being missed twice over.
+      #
+      # A timeout is a CEILING, not a sleep: nothing pays for it while cases finish in time. 240 is
+      # chosen so the known-correct slowest case cannot flap, NOT as a measured runtime — if a case
+      # ever approaches it, that is the perf item firing and the answer is to read the per-case cost,
+      # not to raise this again (the same discipline `ci.yml` states about its job timeout).
+      #
+      # The real item is unchanged and stays visible: `f-front-compile-cost-7x-on-scljet`. The script's
+      # own comment at `contract.sc:125-134` already argues this separation — a correctness gate that
+      # reports perf as TIMEOUT noise trains people to ignore it, which is how this gate died once
+      # before (seven scljet cases reported as false `v2 TIMEOUT` regressions in run 30281019432).
       - name: Run corpus contract (shard ${{ matrix.shard }}/4)
-        run: scala-cli tests/conformance/contract.sc -- --shard ${{ matrix.shard }}/4
+        run: scala-cli tests/conformance/contract.sc -- --shard ${{ matrix.shard }}/4 --lane-timeout 240
