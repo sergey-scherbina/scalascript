@@ -747,6 +747,76 @@ cells BEFORE freezing anything.
 
 **Do NOT "fix" this by degrading v2** to match the golden. That was the shape the original entry
 leaned toward, and it would trade away exactness that v1's own source says is required.
+## std-import-resolver-blind-to-type-alias-and-extension — `[Pass](std/dsl/passes.ssc)` says "not found" for a name the module defines and exports
+<!-- status: open
+     lane: int
+     area: front -->
+
+**Status:** OPEN. Found 2026-07-30 by `skip-triage-golden-lane` while probing all 77 corpus SKIPs.
+Full triage in `specs/skip-triage.md`.
+
+**Reproduce — a one-line consumer against the real std modules:**
+
+```scalascript
+[Pass](std/dsl/passes.ssc)
+def main() = println("imported-ok")
+```
+-> `[ERROR] 'Pass' not found in std/dsl/passes.ssc`
+
+`Pass` is defined at `std/dsl/passes.ssc:33` (`type Pass[A, B] = A => Either[List[PassError], B]`) and
+IS listed in that module's `exports:`. Same for `ParseErrors` (`std/parsing/recovery.ssc:132`) and for
+`withIndent` (`std/parsing/layout.ssc:210`, a `def` inside `extension [A](p: Parser[A])`).
+
+**Isolated to two declaration shapes** — a probe module exporting one of each:
+
+| shape | importable |
+|---|---|
+| `def` | yes |
+| `def` with default arguments | yes |
+| `case class` | yes |
+| **`type X = ...` alias** | **NO** |
+| **`def` inside `extension`** | **NO** |
+
+Neither shape has a backend dependency — both are pure `.ssc`. This is not the `extern`/intrinsic
+case (see `std-ui-fetchUrlSignalTo-declared-never-implemented`): `mcpConnect`, `fetchUrlSignal`,
+`seedSignal` and `textNode` are all `extern def`s that import fine.
+
+**Why it is worth more than three cases.** It blocks `dsl-mini-language`, `dsl-sql-recovery` and
+`dsl-yaml-like` on the GOLDEN lane, and a case that cannot produce a golden is SKIPped for EVERY
+lane — so these are three cases where v2 currently has no verdict at all. Fixing the resolver is the
+cheapest item on `specs/skip-triage.md`'s list because it needs no freeze change to land.
+
+**Not yet localized to a file.** The resolver lives on the v1 import path (`TransitiveImportHelper`
+and friends); the failing check is whatever builds a module's exported-symbol table, which evidently
+walks `def`/`class` declarations only.
+
+## std-ui-fetchUrlSignalTo-declared-never-implemented — a std primitive that exists only as documentation
+<!-- status: open
+     lane: multi
+     area: runtime -->
+
+**Status:** OPEN. Found 2026-07-30 by `skip-triage-golden-lane`.
+
+`std/ui/primitives.ssc:185` declares `extern def fetchUrlSignalTo(...)` with a nine-line doc comment
+explaining how it differs from `fetchUrlSignal`, and lists it in `exports:` (line 31). It has **zero**
+registrations in the entire tree:
+
+* absent from the interpreter's `FetchIntrinsics` (`v1/runtime/std/fetch-plugin/...`)
+* absent from the JS allow-list at `v1/runtime/backend/js/.../JsGen.scala:1406`
+* absent from `RustTuiIntrinsics`
+
+Its sibling `fetchUrlSignal`, declared nine lines above with the SAME `extern def` shape and the same
+`headers: Signal[String] = emptyHeaders` default, has three registrations and imports fine. So this
+is not about `extern` and not about default arguments — the symbol does not exist on any backend,
+including the JS one its own comment describes.
+
+**Blocks** `control-center-live` on every lane (hence a corpus SKIP, which hides v2 too).
+
+**Two honest fixes, pick one:** implement it (at minimum for JS, which is where a
+`Signal[String]`-valued URL means anything), or delete the declaration and its `exports:` entry so
+the module stops advertising a primitive that isn't there. Leaving it is the one option that keeps
+lying.
+
 ## v1-json-two-contradictory-number-policies — `jsonParse` truncates fractional numbers to binary64 while v1's own JSON core promises exactness
 <!-- status: open
      lane: int

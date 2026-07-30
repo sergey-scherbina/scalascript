@@ -9,6 +9,52 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## 2026-07-30 — the 77 corpus SKIPs: 15% of the corpus where v2 has NO verdict (Sergiy: "цель — получить работающий 100% ssc v2")
+
+Measured, not estimated: `specs/skip-triage.md` probes all 77 on the golden lane from a fresh build.
+A SKIP is not "one red lane" — `contract.sc:690` establishes the golden BEFORE the `backends:` gate,
+so a case int cannot run is dropped for EVERY lane. 77/528 is larger than the 30 v2 non-PASS rows the
+freeze does record, and it is invisible in the PASS-cell count because those cells never exist.
+
+- [x] **SKIP-1 — probe all 77 on the golden lane and bucket by measured cause.** Done;
+      `specs/skip-triage.md`. 21 servers (SKIP correct, permanent) · 25 provider `Undefined: <Name>` ·
+      11 std-module symbol gaps (the only bug class that is v1's own fault) · 2 genuinely
+      nondeterministic · 18 assorted.
+- [x] **SKIP-2 — `std/mcp` export lists (`9b758d807`).** 4 cases now run on the golden lane with real
+      output, stable across two runs: `mcp-server-tool`, `mcp-server-tools`, `mcp-server-resource`,
+      `agent-mcp-server`. v1's own `std/agent-mcp.ssc:26` was one of the broken consumers.
+- [ ] **SKIP-3 — the import resolver is blind to `type` aliases and `extension` methods.**
+      `std-import-resolver-blind-to-type-alias-and-extension`. Cheapest item on the list: no freeze
+      change to land, and it un-skips `dsl-mini-language`, `dsl-sql-recovery`, `dsl-yaml-like` — three
+      PURE-COMPUTE cases, i.e. three new v2 verdicts. Not yet localized to a file: find whatever
+      builds a module's exported-symbol table and teach it these two shapes. Prove it fail-first with
+      the one-line consumer in the bug entry.
+- [ ] **SKIP-4 — refresh the freeze for SKIP-2's four improvements.** Blocked only by ownership:
+      `corpus-baseline.tsv` / `contract-roster.tsv` are held by `v1-interp-object-named-arg-slot`.
+      Should land in ONE commit naming SKIP-2.
+- [ ] **SKIP-5 — `fetchUrlSignalTo`: implement it or delete the declaration.**
+      `std-ui-fetchUrlSignalTo-declared-never-implemented`. Declared, exported, documented, zero
+      registrations anywhere. Leaving it is the only option that keeps lying.
+- [ ] **SKIP-6 — let a case DECLARE it cannot produce a golden.** ~46 cases (21 servers + 25
+      provider) pay a 30 s golden probe TWICE per full run to re-prove the already-known. Needs a
+      front-matter key `contract.sc` honours; `contract.sc` was held by another claim, so this is
+      queued rather than attempted.
+- [ ] **SKIP-7 — `sys` and `mutable` in the Undefined bucket.** Unlike the provider names around
+      them these read like Scala-standard (`sys.exit`, `scala.collection.mutable`), so they may be a
+      real gap rather than a by-design absence. 5 cases. Triage before assuming.
+
+## 2026-07-30 — jsonParse's number policy: v1 contradicts itself, and v2 was RIGHT
+
+- [ ] **JSON-1 — `v1-json-two-contradictory-number-policies`, needs Sergiy's go.** `JsonParser.scala:93`
+      parses every fractional JSON number to binary64, so the GOLDEN lane turns `0.10` into `0.1`,
+      `1.50` into `1.5`, and a 34-digit decimal into `0.1`. `V1JsonCore.scala:127` does the exact
+      `BigDecimal` thing and its comment says *"never a lossy `Double`"*; v2 agrees with THAT one. The
+      fix is one line, but that parser also reads HTTP bodies, JWT claims and session cookies, so it
+      moves the golden corpus-wide. Order of work is fixed: change it, run the FULL corpus, report the
+      changed cells, and only THEN decide about freezing.
+      **Do not resolve it by making v2 lossy to match** — that was the original entry's leaning and it
+      trades away exactness v1's own source says is required.
+
 ## 2026-07-30 — heartbeat liveness: code fixed, the two prose copies still say the old rule
 
 `c24ca1c08` + gate `0c7bba624` (`heartbeat-liveness-from-git`, released). BUGS
