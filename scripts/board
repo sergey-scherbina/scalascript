@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+#
+# board — print the "In flight" table from `.work/active/`, which is where it already lives.
+#
+# WHY THIS EXISTS. The table in SPRINT.md is a DERIVED VIEW of the claims, and every column comes
+# from a field the claim file already carries:
+#
+#     task    ← items (first)      module  ← paths      claim ← slug
+#     state   ← status             notes   ← next
+#
+# Storing it twice is the whole problem. Measured 2026-07-30: 4 live claims and 1 row (75% of work
+# invisible); reconciled by hand four times in one hour and red again within minutes each time,
+# because claims appear faster than manual edits land. The automation that would have fixed it was
+# blocked — `.githooks/pre-commit` refuses paths outside `.work/` in the shared checkout, and the
+# board is `SPRINT.md` at the repo root — and the attempt to add it broke `coord-claim` on main.
+#
+# This is the same shape as the four "expected to fail" freezes diagnosed the same morning:
+# duplicated state with no invariant. There the copies were independent, so a consistency gate was
+# the fix. HERE one copy is fully derivable from the other, so the fix is not a better gate — it is
+# not keeping the second copy.
+#
+# Usage:
+#   scripts/board              markdown table, ready to paste or redirect into SPRINT.md
+#   scripts/board --check      exit 1 if SPRINT.md's table differs from the generated one
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+mode="${1:-print}"
+LEDGER="${SSC_LEDGER:-$ROOT/.work/active/LEDGER.tsv}"
+ACTIVE="${SSC_ACTIVE:-$ROOT/.work/active}"
+BOARD="${SSC_BOARD:-$ROOT/SPRINT.md}"
+
+generate() {
+  printf '| task | module | claim | state | notes |\n|---|---|---|---|---|\n'
+  awk -F'\t' 'NR>2 && $1 != "" && $1 !~ /^#/ {print $1}' "$LEDGER" | sort -u | while read -r slug; do
+    f="$ACTIVE/$slug.claim"
+    [ -f "$f" ] || continue
+    items=$(sed -n 's/^items: *//p' "$f" | head -1)
+    paths=$(sed -n 's/^paths: *//p' "$f" | head -1)
+    status=$(sed -n 's/^status: *//p' "$f" | head -1)
+    next=$(sed -n 's/^next: *//p' "$f" | head -1)
+    task=${items%% *}
+    module=$(SSC_PATHS="$paths" python3 -c '
+import os
+MODULES = ["v1/runtime/backend/interpreter","v1/runtime/backend/js","v1/runtime/backend/jvm",
+           "v1/lang","tests/conformance","tests","scripts","uniml","scljet","v2","std","specs"]
+BOOK = {"SPRINT.md","BACKLOG.md","BUGS.md","CHANGELOG.md","MILESTONES.md","README.md"}
+def bare(s):
+    for p in ("repo:","mod:","file:"):
+        if s.startswith(p): return s[len(p):]
+    return s
+real = [bare(p) for p in os.environ["SSC_PATHS"].split() if os.path.basename(bare(p)) not in BOOK]
+mods = {next((m for m in MODULES if p == m or p.startswith(m + "/")), None) for p in real}
+print("`%s`" % mods.pop() if len(mods) == 1 and None not in mods else "*(repo-wide)*")')
+    # a claim that never got planned says so, rather than pretending to be "in progress"
+    state=$status; [ "$state" = "claimed-before-planning" ] && state="claimed (unplanned)"
+    printf '| `%s` | %s | `%s` | %s | %s |\n' "$task" "$module" "$slug" "$state" "${next:0:70}"
+  done
+}
+
+case "$mode" in
+  --check)
+    # Read to the next heading, not to the first blank line: a row appended AFTER the blank is still
+    # in the In-flight section and still a lie. The gate caught that — the first version called it
+    # "in sync" with a stray row present.
+    have=$(sed -n '/^## In flight/,/^## /p' "$BOARD" | grep -E '^\|' || true)
+    want=$(generate)
+    if [ "$have" = "$want" ]; then echo "board: in sync with .work/active/"; exit 0; fi
+    echo "board: SPRINT.md's table does NOT match .work/active/" >&2
+    diff <(printf '%s\n' "$have") <(printf '%s\n' "$want") >&2 || true
+    echo "" >&2
+    echo "  regenerate: scripts/board  (and paste, until the pre-commit guard lets a tool write it)" >&2
+    exit 1 ;;
+  print) generate ;;
+  *) echo "usage: scripts/board [--check]" >&2; exit 2 ;;
+esac
