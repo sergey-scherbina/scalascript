@@ -1,4 +1,3 @@
-# generation: 495
+# generation: 496
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
-smoke-launcher-cache	claude-code	2026-07-30T20:07:19Z	smoke-ci-launcher-build-dominates-the-job	file:scripts/launcher-input-digest file:build.sbt file:scripts/smoke-ci file:.github/workflows/smoke.yml file:tests/e2e/launcher-digest-gate.sh file:scripts/BACKLOG.md file:scripts/SPRINT.md file:scripts/smoke-ci.ssc file:AGENTS.md file:POLICY.md file:README.md file:bin/ssc file:scripts/BUGS.md
