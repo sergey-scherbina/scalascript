@@ -1,0 +1,11 @@
+slug: smoke-ci
+branch: feature/smoke-ci
+agent: claude-code
+started: 2026-07-30T11:24:35Z
+heartbeat: 2026-07-30T11:24:35Z
+status: claimed-before-planning
+items: smoke-ci-in-ssc
+paths: file:scripts/smoke-ci.ssc file:scripts/smoke-ci file:.github/workflows/smoke.yml file:.github/workflows/ci.yml file:scripts/full-ci
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
