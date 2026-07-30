@@ -1,5 +1,6 @@
-# generation: 388
+# generation: 389
 #slug	agent	started	items	paths
 json-number-policy-js-jvm-lanes	claude-code	2026-07-30T08:30:02Z	json-number-policy-js-and-jvm-lanes-still-lossy	file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/RestRuntime.scala file:v1/runtime/http-server/jvm/src/test/scala/scalascript/server/jvm/JsonTest.scala file:specs/json-number-policy.md file:tests/conformance/expected/json-read.txt
 f-array-indexed-store	claude-code	2026-07-30T08:46:54Z	v2-array-indexed-store-silently-dropped	file:specs/v2.2-p6.5-fsub.ssc file:tests/conformance/array-indexed-store.ssc file:tests/conformance/expected/array-indexed-store.txt file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv file:v2/BUGS.md
 jvm-lane-never-calls-main	claude-code	2026-07-30T08:47:02Z	jvm-lane-never-calls-def-main-exits-0-with-no-output	file:v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGen.scala
+content-current-section-native-unavailable	claude-code	2026-07-30T08:59:39Z	v2-diverge-dsl-calc-parser	v2/BUGS.md tests/conformance/BUGS.md
