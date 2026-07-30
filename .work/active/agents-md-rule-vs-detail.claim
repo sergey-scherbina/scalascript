@@ -1,0 +1,11 @@
+slug: agents-md-rule-vs-detail
+branch: feature/agents-md-rule-vs-detail
+agent: claude-code
+started: 2026-07-30T09:20:08Z
+heartbeat: 2026-07-30T09:20:08Z
+status: claimed-before-planning
+items: agents-md-paraphrases-policy
+paths: file:AGENTS.md file:POLICY.md file:tests/e2e/policy-single-source.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
