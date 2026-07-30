@@ -8,6 +8,14 @@
 > (`P-3.5`) so they can be cited. This file is the working brief: build commands, sbt and
 > worktree mechanics, architecture rules, and the detail behind each rule. Where the two
 > overlap, `POLICY.md` is the source.
+>
+> `POLICY.md` is this project's instantiation of the generic
+> [`policy`](.agents/plugins/policy/commands/policy.md) skill — Part A is the rules, Part B is
+> the slots a project fills in. Read the skill when a rule is unclear or you are about to
+> change one; read `POLICY.md` for what this repo actually decided. Performance work has its
+> own discipline in [`performance`](.agents/plugins/performance/commands/performance.md):
+> measure with the alternating A/B protocol, record every run in the history, pick the next
+> task from the ratio table.
 
 ## ⚡ THE WORKFLOW — mechanics for [`POLICY.md`](POLICY.md) §P-1
 
