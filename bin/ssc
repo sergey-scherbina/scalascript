@@ -7,10 +7,33 @@ if [[ "${SSC_NO_BUILD_CHECK:-}" != "1" ]]; then
     _SSC_BUILT="$(<"$_SSC_STAMP")"
     _SSC_HEAD="$(git -C "$_SSC_ROOT" rev-parse HEAD 2>/dev/null || true)"
     if [[ -n "$_SSC_HEAD" && -n "$_SSC_BUILT" && "$_SSC_HEAD" != "$_SSC_BUILT" ]]; then
-      echo "ssc: STALE BUILD — this toolchain was built from ${_SSC_BUILT:0:9}, but" \
-           "$_SSC_ROOT is now at ${_SSC_HEAD:0:9}. Anything you measure with it is the" \
-           "old code. Rebuild: (cd \"$_SSC_ROOT\" && ./install.sh --dev)." \
-           "Silence: SSC_NO_BUILD_CHECK=1" >&2
+      # The sha moved. That is NOT the same as the toolchain being stale: a commit that
+      # touched only docs or .work/ produces byte-identical jars, and warning "anything
+      # you measure with it is the old code" about identical code is a false alarm agents
+      # learn to ignore. bin/lib/.build-digest is a CONTENT digest of the build's inputs
+      # (scripts/launcher-input-digest), so it answers the question the sha only
+      # approximates.
+      #
+      # Computed ONLY here, inside the mismatch branch. It costs ~180 ms, and `ssc` is
+      # invoked once per conformance case — paying it on every run would add ~a minute to
+      # the suite to answer a question that is already answered by the cheap comparison
+      # above in the common case.
+      _SSC_DIGEST_FILE="$_SSC_BIN/lib/.build-digest"
+      _SSC_DIGEST_TOOL="$_SSC_ROOT/scripts/launcher-input-digest"
+      _SSC_STALE=1
+      if [[ -r "$_SSC_DIGEST_FILE" && -x "$_SSC_DIGEST_TOOL" ]]; then
+        _SSC_BUILT_DIGEST="$(<"$_SSC_DIGEST_FILE")"
+        _SSC_NOW_DIGEST="$("$_SSC_DIGEST_TOOL" 2>/dev/null || true)"
+        if [[ -n "$_SSC_NOW_DIGEST" && "$_SSC_BUILT_DIGEST" == "$_SSC_NOW_DIGEST" ]]; then
+          _SSC_STALE=0
+        fi
+      fi
+      if [[ "$_SSC_STALE" == "1" ]]; then
+        echo "ssc: STALE BUILD — this toolchain was built from ${_SSC_BUILT:0:9}, but" \
+             "$_SSC_ROOT is now at ${_SSC_HEAD:0:9}, and its sources differ. Anything you" \
+             "measure with it is the old code. Rebuild: (cd \"$_SSC_ROOT\" && ./install.sh --dev)." \
+             "Silence: SSC_NO_BUILD_CHECK=1" >&2
+      fi
     fi
   elif [[ -d "$_SSC_BIN/lib" ]]; then
     echo "ssc: this toolchain has no build stamp, so its age cannot be checked —" \
