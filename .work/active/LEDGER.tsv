@@ -1,7 +1,5 @@
-# generation: 419
+# generation: 420
 #slug	agent	started	items	paths
 lint-md-config-and-tabs	claude-code	2026-07-30T09:18:59Z	lint-markdown-red-on-tsv-in-code-fence lint-ignore-misses-nested-node-modules	file:.markdownlint.json file:.github/workflows/lint-markdown.yml
-front-unit-literal-pattern	claude-code	2026-07-30T11:04:54Z	unit-literal-pattern-diverges-two-lanes-against-two	file:specs/v2.2-p6.5-fsub.ssc file:v2/lib/ssc1-front.ssc0 file:tests/conformance/unit-literal-pattern.ssc file:tests/conformance/expected/unit-literal-pattern.txt file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv file:v2/BUGS.md
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
-submodule-pointer-bug-filing	claude-code	2026-07-30T11:14:34Z	submodule-pointer-not-a-real-commit	file:scripts/BUGS.md
 json-js-host-dependent-exactness	claude-code	2026-07-30T11:16:37Z	json-js-exactness-depends-on-node-version	file:v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/core-collections.mjs file:v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/http-server.mjs file:specs/json-number-policy.md file:tests/e2e/json-number-policy-js-gate.sh
