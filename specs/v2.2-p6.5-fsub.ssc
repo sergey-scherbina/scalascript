@@ -167,11 +167,20 @@ def lexNum(s, i, n) = if isHexPfx(s, i, n) then lexHex(s, i, n) else lexNum1(s, 
 // A trailing `L`/`l` Long suffix is stripped (the oracle emits `(lit (int N))` for `5L`), so `1L` lexes
 // as the int 1, not int 1 + a stray uid `L` (which cascaded into a mis-parse across the scljet cluster).
 def longEnd(s, e, n) = if atEnd(e, n) then e else (if s.charAt(e) == 76 then e + 1 else (if s.charAt(e) == 108 then e + 1 else e))
+// A trailing Double/Float suffix — `0d`, `2.5D`, `1.5f`, `3F` — is consumed the same way `longEnd`
+// consumes `L`/`l`. Without it the digits lex as a number and the suffix lexes as a separate uid, so
+// `val x: Double = 0d` died with `unbound global: d` on BOTH self-hosted fronts. Guarded on "the next
+// character is not alphanumeric", so `0dx` still lexes as `0` + `dx` instead of silently becoming
+// `0d` + `x`. BUGS `v2-front-drops-float-literal-suffix`.
+def isFloatSfx(c) = if c == 100 then true else (if c == 68 then true else (if c == 102 then true else c == 70))
+def floatEnd(s, e, n) = if atEnd(e, n) then e else (if isFloatSfx(s.charAt(e)) then floatEnd2(s, e, n) else e)
+def floatEnd2(s, e, n) = if atEnd(e + 1, n) then e + 1 else (if isAlnum(s.charAt(e + 1)) then e else e + 1)
 def lexNum1(s, i, n, e) = if isFloatDot(s, e, n) then lexFloat(s, i, n, scanNumE(s, e + 1, n)) else lexNum2(s, i, n, e)
 // Decimal int: kind 0 carries the value as today for every IN-RANGE literal (byte-identical); an
 // OUT-OF-RANGE literal becomes kind 11 carrying the raw digits so parseAtom1/parseNeg fail it closed.
-def lexNum2(s, i, n, e) = if scanNumOv(s, i, n, 0, false) then Cons((11, scanNumStr(s, i, n)), lex(s, longEnd(s, e, n), n)) else Cons((0, scanNumV(s, i, n, 0)), lex(s, longEnd(s, e, n), n))
-def lexFloat(s, i, n, fe) = Cons((5, s.substring(i, fe)), lex(s, fe, n))
+def lexNum2(s, i, n, e) = if floatEnd(s, e, n) > e then lexFloat(s, i, n, e) else lexNum3(s, i, n, e)
+def lexNum3(s, i, n, e) = if scanNumOv(s, i, n, 0, false) then Cons((11, scanNumStr(s, i, n)), lex(s, longEnd(s, e, n), n)) else Cons((0, scanNumV(s, i, n, 0)), lex(s, longEnd(s, e, n), n))
+def lexFloat(s, i, n, fe) = Cons((5, s.substring(i, fe)), lex(s, floatEnd(s, fe, n), n))
 // `%` (modulo, code 56) — same precedence class as `*`/`/` (ssc1-front opPrec :1439), symbol "%".
 // `^`=64 (bitwise xor, infix) and `~`=68 (bitwise not, prefix) reach here via lexOp1; both were DROPPED.
 // A source `;` (char 59) is a statement separator → token 52 (same as a layout-inserted `;`); the oracle

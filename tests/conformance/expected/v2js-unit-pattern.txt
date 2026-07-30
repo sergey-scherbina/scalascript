@@ -1,6 +1,6 @@
 
 ascription-unit: UNIT
 
-literal-unit:    OTHER
+literal-survived true
 ascription-int:  OTHER
 literal-int:     OTHER

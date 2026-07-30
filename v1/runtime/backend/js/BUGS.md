@@ -7,6 +7,42 @@ grepping for status.
 
 Newest first.
 
+## js-unused-val-drops-side-effecting-call — `val unused = eff()` elides the call, side effect and all
+<!-- status: open
+     lane: js
+     area: codegen
+     gate: none -->
+
+**Found 2026-07-30**, isolated to six lines, while repairing a conformance case that had quietly
+stopped testing anything because of it.
+
+```scalascript
+def eff(): String =
+  println("SIDE-EFFECT")
+  "r"
+val unused = eff()
+println("end")
+```
+
+| lane | output |
+|---|---|
+| INT | `SIDE-EFFECT` then `end` |
+| native | `SIDE-EFFECT` then `end` |
+| **js** | **`end` only** |
+
+The binding is unused, so the JS lane drops it — **and the call with it.** Eliding a call is only
+sound when the call is pure, and nothing here establishes that; `eff` prints.
+
+**Why it is worse than one missing line.** A test that calls something for its effect and binds the
+result to a name it does not use is a normal shape, and on this lane that test silently stops
+executing the thing it is testing. That is exactly how it was found: `v2js-unit-pattern` gates a
+CRASH by calling the pattern that used to crash, and with the result bound to an unused `val` the
+call vanished on JS — a green lane that ran none of the code it was written for. The case now uses
+the value (`.length > 0`) to defeat the elision, which is a workaround in the test, not a fix here.
+
+**Where to look:** whatever prunes unused local bindings in `JsGen` — the decision needs an
+effect check on the initialiser, or it must simply not drop initialisers that are calls.
+
 ## js-imported-extension-method-not-dispatched — an extension body is hoisted OUT of its module's scope, so its free names are undefined
 <!-- status: open
      lane: js

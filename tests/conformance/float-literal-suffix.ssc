@@ -1,0 +1,42 @@
+---
+name: float-literal-suffix
+description: "0d / 2.5D / 1.5f / 3F lex as numbers, not as a number followed by an identifier"
+backends: [int, js, jvm, v2]
+---
+
+# A trailing `d` / `D` / `f` / `F` belongs to the literal
+
+`BUGS.md` `v2-front-drops-float-literal-suffix`. Both self-hosted fronts stripped a trailing `L`/`l`
+Long suffix — each with a comment explaining that without it the `L` lexed as a separate identifier
+and the program died with `unbound global: L`. The Double/Float suffixes never got the same
+treatment, so `val x: Double = 0d` failed with **`unbound global: d`** on the default front and on
+the legacy one alike.
+
+Not only a syntax gap: it took **three of 33 bench-corpus workloads out of the v2 matrix** as "v2
+cannot run this", because the generated wrapper declared its Double sink as `0d`. The programs
+themselves always ran.
+
+```scalascript
+val a: Double = 0d
+val b: Double = 2.5d
+val c: Double = 1.5f
+val e: Double = 3D
+val g: Long = 10L
+val h: Double = 0.5
+val i: Double = 1.0e2
+val j: Double = 1e2
+println(a)
+println(b)
+println(c)
+println(e)
+println(g)
+println(h)
+println(i)
+println(j)
+```
+
+`10L` and the plain `0.5` are the guard that the existing paths were not disturbed: the Long suffix
+had always worked, and a suffix-less float must not start consuming the letter after it. The two
+exponent forms cover the third emission point in the lexer — `1.0e2` reaches it through the
+dot-float branch and `1e2` through the exponent branch, and a fix wired into only one of them leaves
+the other dropping the suffix.

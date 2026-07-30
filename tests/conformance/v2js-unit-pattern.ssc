@@ -3,7 +3,6 @@ name: v2js-unit-pattern
 description: "a Unit scrutinee: case _: Unit holds, and case () does not CRASH"
 backends: [int, js, v2]
 also-codegen: v2
-known-red: "js — v1 JS answers UNIT for `case ()` where int and native answer OTHER; see BUGS.md unit-literal-pattern-diverges-two-lanes-against-two. Declared rather than excluded so the JS/v2 lane THIS CASE EXISTS TO GATE keeps running."
 
 ---
 
@@ -30,31 +29,31 @@ def viaLiteral(x: Any): String = x match
   case _ => "OTHER"
 
 println("ascription-unit: " + viaAscription(println("")))
-println("literal-unit:    " + viaLiteral(println("")))
+val n = viaLiteral(println("")).length
+println("literal-survived " + (n > 0))
 println("ascription-int:  " + viaAscription(5))
 println("literal-int:     " + viaLiteral(5))
 ```
 
-**`jvm` and `js` are deliberately absent, and the reason is a second defect this case cannot pin.**
-Measured on all five lanes, `case ()` splits them two against two:
+**The `case ()` ANSWER is deliberately not pinned here — only that it does not crash.** It is
+still a live cross-lane divergence, and the lanes moved under this case once already: it was filed
+as two-against-two, then `dc4cf56b5` fixed literal patterns on `int`, and my frozen `OTHER` became
+the corpus regression. Measured now:
 
 | lane | `case ()` on the unit value |
 |---|---|
-| `jvm` (real Scala) | `UNIT` |
-| `js` (v1 backend) | `UNIT` |
-| `int` | `OTHER` |
-| native / v2 | `OTHER` |
-| v2 JS | crashed; now `OTHER` |
+| `jvm` (real Scala) · `js` · `int` | `UNIT` — the right answer |
+| native / v2 · v2 JS | `OTHER` |
 
-So `UNIT` is the right answer and half the lanes give it. That is a real cross-lane divergence, filed
-as `unit-literal-pattern-diverges-two-lanes-against-two`, and fixing it means touching pattern
-lowering on the lanes that are wrong — a different change from this one, with goldens at stake.
-`js` is therefore DECLARED KNOWN-RED rather than excluded, and that distinction is the point: taking
-it out of `backends:` also removes the **`JS/v2` lane, which is the one this case exists to gate** —
-`also-codegen: v2` runs the v2 codegen through the js lane's declaration. A case that stops
-exercising the code it was written for is worse than no case, so the divergent lane keeps running
-and diffing under its own bucket. `jvm` stays out because the v2 codegen has no jvm-side variant
-here to gate.
+Pinning either answer makes this case red on lanes it was never about. So the unit-literal match is
+CALLED — which is what would crash — and the line after it is what the golden checks. A crash aborts
+before `literal-survived` prints, on every lane, without anyone having to agree about `UNIT`.
+`unit-literal-pattern-diverges-two-lanes-against-two` owns the answer.
+
+The result is USED (`.length > 0`, true for both `UNIT` and `OTHER`) rather than bound to an unused
+`val`. That is not style: bound to an unused `val`, the whole call — **and the `println` side effect
+inside it** — is elided on the JS lane, so the crash this case exists to catch would never be
+reached there. Found while writing this line; filed as `js-unused-val-drops-side-effecting-call`.
 
 This case pins: **no crash, and agreement with the lane the v2 JS codegen is supposed to mirror.**
 

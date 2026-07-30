@@ -1,4 +1,4 @@
-# corpus-contract-roster-v1	baseline-sha256=2c86b2378053d6fcd271c18282511720e35164927910d4f6701aef45b4332d36	roster-sha256=dca339d025f6ddbcdb0a979a9b95adc76401197255f6b5603bef93185500c45e
+# corpus-contract-roster-v1	baseline-sha256=1fa33fa75000a746bcff5de7514ec97a128fc3eaf3632e2eef4aac868c380aeb	roster-sha256=594cdb94b36f0d14fd1149ae79f040f3dc73318c79df0fe63f029171b917d5d8
 _bug1_httpclient
 _bug1b
 _bug1c
@@ -135,6 +135,7 @@ fence-doc-block
 fenceless-bare-code
 fetch-auth
 fewer-braces-colon
+float-literal-suffix
 fn-typed-field
 for-comprehensions
 for-yield-layout

@@ -49,6 +49,27 @@ def isLower    = (c) => if #i.lt(c, 97) then false else #i.le(c, 122)
 def isUpper    = (c) => if #i.lt(c, 65) then false else #i.le(c, 90)
 def isAlpha    = (c) => if isLower(c) then true else isUpper(c)
 def isAlphaNum = (c) => if isAlpha(c) then true else if isDigit(c) then true else #i.eq(c, 95)
+-- Trailing Double/Float suffix on a numeric literal: `0d`, `2.5D`, `1.5f`, `3F`. The `L`/`l` Long
+-- suffix has been stripped since forever (see lexFrom); d/D/f/F never were, so the digits lexed as a
+-- number and the suffix lexed as a separate identifier -> `unbound global: d`. It is not only a
+-- syntax gap: it took three bench workloads out of the v2 matrix because the generated wrapper
+-- declared its Double sink as `0d`. BUGS `v2-front-drops-float-literal-suffix`.
+-- Guarded on "the next character is not alphanumeric" so `0dx` keeps lexing as `0` + `dx` rather
+-- than silently becoming `0d` + `x`.
+def isFloatSuffix = (c) =>
+  if #i.eq(c, 100) then true
+  else if #i.eq(c, 68) then true
+  else if #i.eq(c, 102) then true
+  else if #i.eq(c, 70) then true
+  else false
+def floatSuffixEnd = (s, e) =>
+  if #i.lt(e, slen(s)) then
+    if isFloatSuffix(sget(s, e)) then
+      if #i.lt(#i.add(e, 1), slen(s)) then
+        if isAlphaNum(sget(s, #i.add(e, 1))) then e else #i.add(e, 1)
+      else #i.add(e, 1)
+    else e
+  else e
 -- K62.6c-indent: newline (10) / CR (13) are NO LONGER whitespace — the lexer emits
 -- an `NL <indent>` token at each line break so the layout pass can reconstruct
 -- brace-less indented blocks. Only space (32) / tab (9) are inline whitespace.
@@ -343,12 +364,12 @@ def lexFrom = (s, i) =>
       if nextDotIsFloat then
         let e2 = scanDecEnd(s, #i.add(e, 1)) in
         let e3 = scanExponent(s, e2) in       -- optional scientific exponent (`1.0e100`)
-        Cons(mkTok("float", stripNumericSeparators(#sslice(s, i2, e3))), lexFrom(s, e3))
+        Cons(mkTok("float", stripNumericSeparators(#sslice(s, i2, e3))), lexFrom(s, floatSuffixEnd(s, e3)))
       else
       -- `1e10` (no decimal point) is still a float in Scala.
       let eExp = scanExponent(s, e) in
       if #i.gt(eExp, e) then
-        Cons(mkTok("float", stripNumericSeparators(#sslice(s, i2, eExp))), lexFrom(s, eExp))
+        Cons(mkTok("float", stripNumericSeparators(#sslice(s, i2, eExp))), lexFrom(s, floatSuffixEnd(s, eExp)))
       else
       -- strip Long suffix L/l (e.g. 0L, 2862933555777941757L)
       let eL = if #i.lt(e, slen(s)) then
@@ -357,6 +378,10 @@ def lexFrom = (s, i) =>
         else if #i.eq(lc, 108) then #i.add(e, 1)
         else e
       else e in
+      let eF = floatSuffixEnd(s, e) in
+      if #i.gt(eF, e) then
+        Cons(mkTok("float", stripNumericSeparators(#sslice(s, i2, e))), lexFrom(s, eF))
+      else
       Cons(mkTok("int", stripNumericSeparators(#sslice(s, i2, e))), lexFrom(s, eL))
     else if #i.eq(c, 34) then
       if #i.eq(n, 34) then

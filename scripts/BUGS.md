@@ -7,6 +7,52 @@ grepping for status.
 
 Newest first.
 
+## coord-release-drops-the-evidence-level — the tool swallows its own flags, and AGENTS.md requires that field
+<!-- status: open
+     lane: apparatus
+     area: build
+     gate: none -->
+
+**Found 2026-07-30** on the first real use of `scripts/coord-release`.
+
+```
+$ scripts/coord-release v2js-unit-pattern --level 3 --note "contract green"
+$ git log -1 --format=%s
+release-claim: v2js-unit-pattern — --level [skip ci]
+```
+
+`--level` landed in the message as a literal; the `3` and the `--note` vanished. Cosmetic on its own
+— but **AGENTS.md §4c requires a release-claim to say which of the three evidence levels it has**,
+and never to write "green" for a run that produced no verdict. A tool that silently drops that field
+turns a required statement into an optional one, and the release record is where the next agent looks
+to decide whether a thing is trustworthy.
+
+Suggested shape: parse the flags, or **refuse without `--level`**. The second is stronger — it makes
+forgetting impossible rather than merely discouraged.
+
+## module-sprint-item-written-by-nobody — two of the three artefacts are automated, so the third is forgotten by construction
+<!-- status: open
+     lane: apparatus
+     area: build
+     gate: none -->
+
+**Found 2026-07-30**, in the same session that automated the second artefact.
+
+`specs/work-tracking-layout.md` says a task appears in THREE places in one commit: the claim, the row
+on the root board, and `[~]` in that module's `SPRINT.md`. `coord-claim` writes the claim and the
+board row; `scripts/board` now derives the board from `.work/active/`. **Nobody writes the module
+item** — `coord-release` even prints "STILL BY HAND: mark the finished item `[x]` in its module
+SPRINT.md", and checking two of my own finished claims, the `[~]` had never been written either.
+
+This is the same argument that justified automating the board row: a step that depends on every agent
+remembering it is a wish, not a rule. Two options, and the second looks better on this project's
+evidence — generated state has not drifted here, hand-maintained state has:
+
+1. `coord-claim` / `coord-release` write the module item too (the module is derivable from
+   `tests/fixtures/modules.tsv`);
+2. the module sprint becomes DERIVED from the claims, exactly as the root board now is, and `[~]`/`[x]`
+   stop being written by hand at all.
+
 ## coord-bookkeeping-needs-a-claim — the per-module split made FILING A BUG require a claim, and mid-migration nobody could file at all
 <!-- status: open
      lane: apparatus
