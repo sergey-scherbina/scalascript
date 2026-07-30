@@ -7,6 +7,35 @@ in the same commit as the claim. Layout: `specs/work-tracking-layout.md`.
 Sections below were carried over whole from the flat root `SPRINT.md`/`BACKLOG.md`,
 verbatim, on 2026-07-30.
 
+## agents-md-paraphrases-policy — four MANDATORY sections restate rules that now live in POLICY.md
+<!-- status: open
+     lane: n/a
+     area: docs
+     kind: apparatus
+     gate: tests/e2e/policy-single-source.sh -->
+
+**Status:** OPEN, filed 2026-07-30 by the agent that created the duplication, deliberately rather
+than leaving it implied by a green gate.
+
+`POLICY.md` is the single source for the process rules and the five entry points now link to it.
+But four `## MANDATORY` sections in `AGENTS.md` — THE WORKFLOW, "decide it yourself", the room, and
+narrowest-scope — still **paraphrase** P-1, P-4, P-5 and P-2.
+
+**The gate cannot see this, by construction.** `policy-single-source.sh` pins verbatim phrases;
+deciding whether two paragraphs state the same rule is not mechanical, and a keyword heuristic
+there would be the same mistake that made `area:` read `front` for 256 of 621 entries. So the gate
+is green and the duplication is real — exactly the shape this repository keeps paying for, which is
+why it is written down instead of trusted to memory.
+
+**Why it was not just done.** `AGENTS.md` carries detail that `POLICY.md` deliberately does not:
+the three-level CI evidence ladder, the conformance-before-push commands, the sbt and worktree
+mechanics. Cutting the sections wholesale would lose it. The work is to separate rule from detail
+line by line, leave the detail, and replace each rule statement with a pointer — a surgical edit of
+a file every agent reads, and worth its own task and its own review.
+
+**Done means:** each of the four sections states no rule of its own, only mechanics plus a `P-n`
+citation; and a reader who follows only `AGENTS.md` still ends up able to do the work.
+
 ## 2026-07-27 — Sergiy's decisions, and the two arcs they unblock
 
 Answered this session: **portable-capsule-integrity → (c)**, **vector 26 D1 → a distinct
