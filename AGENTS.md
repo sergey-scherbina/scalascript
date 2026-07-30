@@ -52,7 +52,11 @@ The affected slice costs seconds, so a push without it is not acceptable. Full c
 **The rule — what counts as evidence and what a release must say about it — is
 [`POLICY.md`](POLICY.md) §P-6.7.** How to obtain each level:
 
-1. `scripts/ci-status --sha <landed-sha>` exit 0 — the gold standard when you get it.
+1. `scripts/ci-status --sha <landed-sha>` exit 0 — the gold standard when you get it. Since
+   2026-07-30 that asks about **`smoke.yml`**, which is where the per-push verdict lives: 17 checks
+   plus a corpus slice, ~5 min, the same `scripts/smoke-ci` you run locally before pushing. The full
+   suite is `--workflow ci.yml` (schedule / PR / dispatch); on a push, `ci.yml` is `Lint Markdown`
+   alone, so a green `ci.yml` push run is NOT a verdict about your code.
 2. `gh run view <run> --json jobs` — name the **specific job that would catch your change** (e.g. a
    `Conformance shard i/4` for a conformance change) and report its conclusion. A green descendant
    run counts, with the `merge-base` named.
@@ -70,10 +74,16 @@ That rung did not exist before, and its absence is why an entire session closed 
 level 3: dispatch shared the push group, so runs carrying specific commits were superseded before
 starting a single job. Level 1 was unreachable by construction, not by luck.
 
-Two costs, stated rather than discovered: a dispatched run is not a push event, so the
-`sbt — compile and test` job DOES run (~75 min) and `ci-status` requires it — if you only need the
-per-push verdict, read the fast jobs' conclusions directly (level 2). And a dispatch consumes
-runner budget that push runs are queued for: use it when you need a verdict, not as a habit.
+Two costs, stated rather than discovered: a dispatched `ci.yml` run is not a push event, so
+`Validate`, the four conformance shards, `Examples and launcher smokes` and `sbt — compile and test`
+(~75 min) all run and `ci-status --workflow ci.yml` requires every one of them — if you only need the
+per-push verdict, `scripts/ci-status --sha <sha>` (smoke.yml) is the cheap answer, or read the
+specific job's conclusion directly (level 2). And a dispatch consumes runner budget that push runs
+are queued for: use it when you need a verdict, not as a habit.
+
+Before pushing at all, run `scripts/smoke-ci` locally. It is the same runner GitHub will run, so a
+local green is the first real evidence you can get and it costs ~5 min — and it fails on a launcher
+built from a different commit rather than measuring the wrong bytes.
 
 Red is recorded in the module's `BUGS.md` and fixed in the real failing job.
 

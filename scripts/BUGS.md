@@ -7,36 +7,6 @@ grepping for status.
 
 Newest first.
 
-## lint-never-runs-on-a-markdown-only-push — the markdown linter is excluded by `paths-ignore`
-<!-- status: open
-     lane: apparatus
-     area: build
-     gate: none -->
-
-**Found 2026-07-30**, while moving the other `ci.yml` jobs off the push path (smoke-ci). Not
-introduced by that change — it has been true since `paths-ignore` was added on 2026-07-28.
-
-`ci.yml`'s push trigger carries `paths-ignore: ['**.md', '.work/**']`, and `lint` is now the only job
-left on push. GitHub skips the whole run when EVERY changed path matches, so a commit that touches
-only markdown skips the run — which means **the markdown linter never runs on the commits it exists to
-check**. It runs only when a code change happens to ride along.
-
-The `paths-ignore` was measured and correct for its purpose: 43 of 58 run-creating commits in one hour
-changed only `.md` or `.work/`, against an `sbt` job taking 3h16m. The blind spot is that the one job
-whose input IS markdown was left behind the same filter.
-
-Two candidate fixes, neither taken here because this is not smoke-ci's scope and the trade is a real
-one:
-
-  - move `lint` into `smoke.yml`, which has no `paths-ignore` — but that duplicates the markdownlint
-    invocation in two workflows, and a lint command that exists twice drifts;
-  - give `lint` its own workflow triggered on `paths: ['**.md']`, which is the inverse filter and
-    costs ~0.5 min per doc commit.
-
-Not urgent: markdown lint failures are cosmetic and the scheduled run still catches them within four
-hours. Recorded because it is the same shape as `corpus-contract` — a check that structurally cannot
-see the thing it is checking, reporting green.
-
 ## submodule-pointer-not-a-real-commit — main records a `.agents/plugins` commit that does not exist
 <!-- status: open
      lane: apparatus

@@ -26,9 +26,14 @@ set -euo pipefail
 mode="${FAKE_CI_MODE:?}"
 args=" $* "
 expected_sha="${FAKE_EXPECT_SHA:-abc123abc123abc123abc123abc123abc123abc1}"
+# Which workflow this case is modelling. The DEFAULT is smoke.yml, because that is what
+# `scripts/ci-status` with no arguments now asks about (the per-push verdict moved there on
+# 2026-07-30). The ci.yml cases below set this explicitly AND pass `--workflow ci.yml`, so the two
+# halves of every case agree about what is being simulated.
+wf="${FAKE_CI_WORKFLOW:-smoke.yml}"
 
 if [[ "$args" == *" run list "* ]]; then
-  for required in "--workflow ci.yml" "--branch main" "--event push" \
+  for required in "--workflow $wf" "--branch main" "--event push" \
                   "--commit $expected_sha"; do
     if [[ "$args" != *" $required "* ]]; then
       printf 'fake gh: missing exact-run filter %s in args: %s\n' "$required" "$*" >&2
@@ -49,6 +54,14 @@ if [[ "$args" == *" run list "* ]]; then
       conclusion=""
       ;;
     red|missing)
+      status="completed"
+      conclusion="failure"
+      ;;
+    smoke-green|smoke-missing|push-lint-only)
+      status="completed"
+      conclusion="success"
+      ;;
+    smoke-red)
       status="completed"
       conclusion="failure"
       ;;
@@ -84,8 +97,27 @@ shard_jobs() { # shard_jobs <status> <conclusion> — the 4-way conformance matr
 }
 
 if [[ "$args" == *" run view 42 "* ]]; then
+  # smoke.yml has exactly ONE job, and ci-status judges it by the generic rule (every job in the run
+  # succeeded) rather than a hard-coded name — so a rename of that job cannot make the verdict tool
+  # stale, which is the failure mode the ci.yml branch has had three times.
+  if [[ "$wf" == "smoke.yml" ]]; then
+    case "$mode" in
+      smoke-green)   printf 'smoke — the fast repo-wide suite|completed|success\n' ;;
+      smoke-red)     printf 'smoke — the fast repo-wide suite|completed|failure\n' ;;
+      pending)       printf 'smoke — the fast repo-wide suite|in_progress|\n' ;;
+      red)           printf 'smoke — the fast repo-wide suite|completed|failure\n' ;;
+      smoke-missing) : ;;   # a run that started no job at all
+      *)             printf 'smoke — the fast repo-wide suite|completed|success\n' ;;
+    esac
+    exit 0
+  fi
+
+  # Lint is in every ci.yml run. Validate is NOT: since 2026-07-30 it carries
+  # `if: github.event_name != 'push'`, so emitting it unconditionally would have made
+  # `push-lint-only` a fixture that contradicts its own name — it would have proved a push run is
+  # green WITH Validate present, which is not the shape being tested.
   printf 'Lint Markdown|completed|success\n'
-  printf 'Validate ScalaScript|completed|success\n'
+  [[ "$mode" == "push-lint-only" ]] || printf 'Validate ScalaScript|completed|success\n'
   case "$mode" in
     green)
       shard_jobs completed success
@@ -115,8 +147,17 @@ if [[ "$args" == *" run view 42 "* ]]; then
       printf 'sbt — compile and test|completed|success\n'
       ;;
     push-no-sbt|sched-no-sbt)
-      # The shape a real push run now has: the fast jobs plus the four shards, and no sbt job.
+      # Was "the shape a real push run has". Since 2026-07-30 it is the shape a SCHEDULED run has;
+      # kept for the sbt-absence pair below, which still needs a run carrying everything but sbt.
       shard_jobs completed success
+      ;;
+    push-lint-only)
+      # THE shape a real ci.yml PUSH run has since 2026-07-30 (smoke-ci): Validate, the four shards
+      # and Examples each carry `if: github.event_name != 'push'`, so `Lint Markdown` is the only job
+      # in the run. Nothing extra is printed here — the two lines above this `case` already emitted
+      # Lint and Validate, so this branch deliberately adds none, and the case asserts GREEN. If
+      # ci-status ever demands a non-push job on a push run again, this case goes red.
+      :
       ;;
     one-shard-missing)
       # A dropped MATRIX INSTANCE. Before sharding this could not happen; now it is the most likely
@@ -146,9 +187,14 @@ run_case() {
 
   local output
   local code
+  local wf_args=()
+  # `CASE_WF` selects which workflow the case is about. Unset = the DEFAULT no-argument query, which
+  # is smoke.yml since 2026-07-30. `CASE_WF=ci.yml` asks the old question explicitly, and passes the
+  # same name to the fake so the simulated run has ci.yml's job shape rather than smoke's.
+  [[ -n "${CASE_WF:-}" ]] && wf_args=(--workflow "$CASE_WF")
   set +e
-  output="$(FAKE_CI_MODE="$mode" SSC_CI_GH="$FAKE_GH" \
-    "$ROOT/scripts/ci-status" --sha "$SHA" 2>&1)"
+  output="$(FAKE_CI_MODE="$mode" SSC_CI_GH="$FAKE_GH" FAKE_CI_WORKFLOW="${CASE_WF:-smoke.yml}" \
+    "$ROOT/scripts/ci-status" --sha "$SHA" "${wf_args[@]}" 2>&1)"
   code=$?
   set -e
 
@@ -168,25 +214,47 @@ run_case() {
   done
 }
 
-run_case green 0 "CI GREEN $SHA" "Conformance shard 0/4: completed/success"
-# Run as a SCHEDULED event so all four jobs are required — this case's second assertion is what pins
-# "cancelled is RED, not neutral", and sbt is only in the required set on non-push events.
-FAKE_CI_EVENT=schedule run_case red 1 "CI RED $SHA" "Conformance shard 2/4: completed/failure" \
+# ── the DEFAULT query: smoke.yml, the per-push verdict since 2026-07-30 ────────────────────────
+# Both directions, because a one-sided check cannot tell "judged the run's own jobs" from "recognised
+# nothing and defaulted to pass" — the same argument the corpus-contract cases below make.
+run_case smoke-green 0 "CI GREEN $SHA" "smoke — the fast repo-wide suite: completed/success"
+run_case smoke-red   1 "CI RED $SHA"   "smoke — the fast repo-wide suite: completed/failure"
+run_case pending     2 "CI PENDING $SHA"
+# A smoke run that started NO job is evidence of nothing, not "green because nothing failed".
+run_case smoke-missing 1 "CI RED $SHA" "ZERO jobs"
+# The headline must name the workflow it actually asked about. When the default was ci.yml and the
+# per-push verdict silently moved, this line is what tells a reader which question was answered.
+run_case no-run  2 "CI UNKNOWN $SHA" "no push smoke.yml run found"
+run_case gh-fail 2 "CI UNKNOWN $SHA" "gh run list failed"
+
+# ── ci.yml: the full-suite question, now asked explicitly ──────────────────────────────────────
+# Every case below runs as a SCHEDULED event, because that is where Validate / the four Conformance
+# shards / Examples / sbt actually run. Asserting them on a `push` run would be asserting the bug
+# this commit fixes.
+CASE_WF=ci.yml FAKE_CI_EVENT=schedule run_case green 0 "CI GREEN $SHA" "Conformance shard 0/4: completed/success"
+# The second assertion pins "cancelled is RED, not neutral".
+CASE_WF=ci.yml FAKE_CI_EVENT=schedule run_case red 1 "CI RED $SHA" "Conformance shard 2/4: completed/failure" \
   "sbt — compile and test: completed/cancelled"
-run_case pending 2 "CI PENDING $SHA" "Conformance shard 2/4: in_progress/pending"
-run_case missing 1 "CI RED $SHA" "missing required job: Conformance shard 0/4"
+CASE_WF=ci.yml FAKE_CI_EVENT=schedule run_case pending 2 "CI PENDING $SHA" "Conformance shard 2/4: in_progress/pending"
+CASE_WF=ci.yml FAKE_CI_EVENT=schedule run_case missing 1 "CI RED $SHA" "missing required job: Conformance shard 0/4"
+# THE CASE THIS COMMIT EXISTS FOR. A real ci.yml PUSH run now contains `Lint Markdown` and nothing
+# else. Requiring Validate/Conformance/Examples there made the verdict tool report `missing required
+# job` on every future green push run — the tool contradicting the workflow it verifies, for the third
+# time in this one function. Green here, and RED on the schedule (next case), pins both directions:
+# absent-on-push is legitimate, absent-on-schedule is still a dropped job.
+CASE_WF=ci.yml FAKE_CI_EVENT=push     run_case push-lint-only 0 "CI GREEN $SHA" "Lint Markdown: completed/success"
+CASE_WF=ci.yml FAKE_CI_EVENT=schedule run_case push-lint-only 1 "CI RED $SHA" "missing required job: Validate ScalaScript"
 # `sbt — compile and test` runs only on non-push events (ci.yml `if:`), because at 196 min against a
 # 7-min mean push interval at most 1 commit in 28 could ever reach a verdict (BUGS
 # ci-sbt-job-is-28x-the-code-push-interval). These two pin BOTH directions of that: absent-on-push is
 # legitimate, absent-on-schedule is still RED. Without the second case the first would silently excuse
 # a genuinely dropped sbt job.
-FAKE_CI_EVENT=push     run_case push-no-sbt  0 "CI GREEN $SHA" "Conformance shard 3/4: completed/success"
+CASE_WF=ci.yml FAKE_CI_EVENT=push     run_case push-no-sbt  0 "CI GREEN $SHA" "Lint Markdown: completed/success"
 # A dropped matrix INSTANCE must be RED. Sharding created this failure mode; without this
 # case a suite that quietly lost a quarter of the corpus would still report green.
-FAKE_CI_EVENT=push     run_case one-shard-missing 1 "CI RED $SHA" "missing required job: Conformance shard 2/4"
-FAKE_CI_EVENT=schedule run_case sched-no-sbt 1 "CI RED $SHA"   "missing required job: sbt — compile and test"
-run_case no-run 2 "CI UNKNOWN $SHA" "no push ci.yml run found"
-run_case gh-fail 2 "CI UNKNOWN $SHA" "gh run list failed"
+CASE_WF=ci.yml FAKE_CI_EVENT=schedule run_case one-shard-missing 1 "CI RED $SHA" "missing required job: Conformance shard 2/4"
+CASE_WF=ci.yml FAKE_CI_EVENT=schedule run_case sched-no-sbt 1 "CI RED $SHA"   "missing required job: sbt — compile and test"
+CASE_WF=ci.yml run_case no-run 2 "CI UNKNOWN $SHA" "no push ci.yml run found"
 
 # ── descendant coverage (BUGS ci-status-sha-misses-commits-covered-by-a-later-tip) ─────────────
 # GitHub creates ONE run per PUSH, attributed to the push's TIP. A code commit pushed together with
@@ -753,6 +821,85 @@ done
 if ! grep -qF 'name: Conformance shard ${{ matrix.shard }}/4' "$CI_YML"; then
   printf 'ci-status-guard[job-name-drift]: ci.yml no longer names the matrix job `Conformance shard ${{ matrix.shard }}/4`.\n' >&2
   printf '  scripts/ci-status builds its required list from that exact shape; update both together.\n' >&2
+  exit 1
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# THE INVARIANT THAT WAS MISSING, and it cost a live regression on 2026-07-30.
+#
+# `scripts/ci-status` keeps a required-job list; `ci.yml` decides per JOB, via `if:`, which events it
+# runs on. Nothing compared the two. The three existing drift checks below compare NAMES — they would
+# not have noticed that `Validate ScalaScript` had stopped running on push while ci-status still
+# demanded it there, because the name was still in the file. Every future green push run would have
+# been reported `missing required job`.
+#
+# This compares BEHAVIOUR, not two parses:
+#   * ci.yml side  — the job names whose body carries `if: github.event_name != 'push'`.
+#   * ci-status side — the `missing required job:` lines it actually emits for a run containing only
+#     `Lint Markdown`, once as `schedule` and once as `push`.
+# Those two sets must be equal on schedule, and the push set must be empty. Deriving the tool's side
+# by RUNNING it is the part that matters: a parse of its source would drift the same way the list did.
+job_names_gated_off_push() {
+  awk '
+    /^  [a-z0-9_-]+:[[:space:]]*$/ { job = $1; name[job] = ""; gated[job] = 0; next }
+    job != "" && /^    name:/      { sub(/^    name:[[:space:]]*/, ""); name[job] = $0; next }
+    job != "" && /^    if:[[:space:]]*github\.event_name[[:space:]]*!=[[:space:]]*.push./ { gated[job] = 1; next }
+    END { for (j in gated) if (gated[j] && name[j] != "") print name[j] }
+  ' "$CI_YML" |
+  while IFS= read -r n; do
+    # Expand the matrix template the same way ci.yml does.
+    if [[ "$n" == *'${{ matrix.shard }}'* ]]; then
+      for i in $(seq 0 $((yml_shards - 1))); do printf '%s\n' "${n//\$\{\{ matrix.shard \}\}/$i}"; done
+    else
+      printf '%s\n' "$n"
+    fi
+  done | LC_ALL=C sort -u
+}
+
+missing_jobs_for_event() { # missing_jobs_for_event <event>
+  # `ci-status` exits 1 when it reports RED, which is the WHOLE POINT of the schedule call — and under
+  # `set -euo pipefail` that non-zero head of the pipeline aborted this script with no output at all.
+  # Exactly the silent-assertion shape this file's own fixtures exist to prevent, so the exit code is
+  # captured explicitly instead of leaking into control flow.
+  local out
+  set +e
+  out="$(FAKE_CI_MODE=push-lint-only FAKE_CI_EVENT="$1" FAKE_CI_WORKFLOW=ci.yml SSC_CI_GH="$FAKE_GH" \
+    "$ROOT/scripts/ci-status" --sha "$SHA" --workflow ci.yml 2>&1)"
+  set -e
+  printf '%s\n' "$out" | sed -n 's/^  missing required job: //p' | LC_ALL=C sort -u
+}
+
+gated_expected="$(job_names_gated_off_push)"
+gated_observed="$(missing_jobs_for_event schedule)"
+if [[ -z "$gated_expected" ]]; then
+  printf 'ci-status-guard[event-gating]: found NO ci.yml job carrying `if: github.event_name != '"'"'push'"'"''"'"'.\n' >&2
+  printf '  Either the extraction broke, or the gating was removed. An empty expected set makes this\n' >&2
+  printf '  comparison vacuous, so it is a failure rather than a pass.\n' >&2
+  exit 1
+fi
+if [[ "$gated_expected" != "$gated_observed" ]]; then
+  printf 'ci-status-guard[event-gating]: ci.yml gates these jobs off push, ci-status requires these on schedule.\n' >&2
+  printf '  gated in ci.yml   =%s\n' "$(printf '%s' "$gated_expected" | tr '\n' '|')" >&2
+  printf '  required by tool  =%s\n' "$(printf '%s' "$gated_observed" | tr '\n' '|')" >&2
+  printf '  A job gated off push must be required on non-push events and NOT on push. Update both together.\n' >&2
+  exit 1
+fi
+
+push_missing="$(missing_jobs_for_event push)"
+if [[ -n "$push_missing" ]]; then
+  printf 'ci-status-guard[event-gating]: on a PUSH run carrying only `Lint Markdown`, ci-status still demands:\n' >&2
+  printf '    %s\n' "$push_missing" >&2
+  printf '  Every one of those is gated off push in ci.yml, so this reports `missing required job` on\n' >&2
+  printf '  every green push run — the verdict tool contradicting the workflow it verifies.\n' >&2
+  exit 1
+fi
+
+# The default query must name a workflow that EXISTS. Pointing the per-push verdict at a file that is
+# not there would answer `CI UNKNOWN` forever, which reads as "not verified yet" rather than "broken".
+default_wf="$(sed -n 's/^WORKFLOW="\(.*\)"$/\1/p' "$ROOT/scripts/ci-status" | head -1)"
+if [[ ! -f "$ROOT/.github/workflows/$default_wf" ]]; then
+  printf 'ci-status-guard[default-workflow]: scripts/ci-status defaults to %q, which does not exist in .github/workflows/.\n' \
+    "$default_wf" >&2
   exit 1
 fi
 

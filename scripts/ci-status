@@ -15,7 +15,13 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GH_BIN="${SSC_CI_GH:-gh}"
 SHA=""
-WORKFLOW="ci.yml"
+# The PER-PUSH VERDICT workflow. Was `ci.yml` until 2026-07-30, when the jobs that made a push
+# verdict moved to `smoke.yml` and `ci.yml`'s push runs shrank to `Lint Markdown` alone. Leaving the
+# default at ci.yml would have made the no-argument answer — the one AGENTS.md §4c asks for, and the
+# one every release-claim quotes — mean "the markdown linted", printed with the same words as before.
+# A weaker claim wearing the old label is the apparatus-lies-green shape this repo keeps paying for.
+# `--workflow ci.yml` still asks the old question, and `--all-workflows` still sees everything.
+WORKFLOW="smoke.yml"
 EVENT="push"
 BRANCH="main"
 LATEST=0
@@ -28,11 +34,12 @@ usage() {
 Usage: scripts/ci-status [--sha GIT_SHA] [--workflow FILE] [--event E|any]
                          [--branch B] [--latest] [--all-workflows]
 
-Default (no arguments): the push-triggered ci.yml run for exactly one commit,
-using the locally fetched origin/main commit. This is the AGENTS.md §4c check
-and its behaviour is deliberately unchanged.
+Default (no arguments): the push-triggered smoke.yml run for exactly one commit,
+using the locally fetched origin/main commit. This is the AGENTS.md §4c check.
+It was ci.yml until 2026-07-30; smoke.yml is where the per-push verdict now
+lives, and ci.yml on push is only `Lint Markdown`.
 
-  --workflow FILE    workflow file to query (default: ci.yml)
+  --workflow FILE    workflow file to query (default: smoke.yml)
   --event E          trigger to filter on; `any` disables the filter. A
                      SCHEDULED workflow has no push run, so `--event any` (or
                      --latest) is the only way to see it at all.
@@ -52,12 +59,13 @@ and its behaviour is deliberately unchanged.
                      is what makes a workflow that is red every night, or that
                      has never run, impossible to miss.
 
-For ci.yml the three per-push jobs (Lint, Validate, Conformance) must each be green;
-`sbt — compile and test` is additionally required on non-push runs, which is where it
-runs (see BUGS ci-sbt-job-is-28x-the-code-push-interval). For any other workflow
-the rule is simply that the run completed successfully AND every job in it
-succeeded — required-job lists are workflow-specific and inventing one for a
-workflow this script does not know would be a guess.
+For ci.yml, `Lint Markdown` is required on every event and Validate / the four
+Conformance shards / Examples-and-launcher-smokes / sbt are required only on
+non-push events, because that is where each of them runs. For any other workflow —
+smoke.yml included — the rule is simply that the run completed successfully AND
+every job in it succeeded. That is deliberately NOT a hard-coded list: a
+required-job list is a copy of the workflow's job set, and this function has three
+separate comments about a green run being reported red because the copy went stale.
 
 Exit codes:
   0  run completed and all required jobs succeeded
@@ -244,8 +252,11 @@ if [[ -z "$run_payload" && "$EXACT_ONLY" -eq 0 && "$LATEST" -eq 0 ]]; then
 fi
 
 if [[ -z "$run_payload" ]]; then
-  if [[ "$WORKFLOW" == "ci.yml" && "$EVENT" == "push" && "$LATEST" -eq 0 ]]; then
-    unknown "no push ci.yml run found for the exact SHA"
+  # The per-push query gets its own wording regardless of WHICH workflow carries the verdict. This
+  # said `ci.yml` literally until 2026-07-30, when the default became smoke.yml — at which point the
+  # sentence would have named a workflow the script had not queried.
+  if [[ "$EVENT" == "push" && "$LATEST" -eq 0 ]]; then
+    unknown "no push $WORKFLOW run found for the exact SHA"
   fi
   scope="$WORKFLOW (event=$EVENT, branch=$BRANCH)"
   if [[ "$LATEST" -eq 1 ]]; then
@@ -334,14 +345,27 @@ if [[ "$WORKFLOW" == "ci.yml" ]]; then
   # does not stay consistent (the same argument the claim-mutex pre-push hook makes about
   # claim-vs-ledger drift).
   conformance_shards="${SSC_CI_CONFORMANCE_SHARDS:-4}"
-  required_jobs=(
-    "Lint Markdown"
-    "Validate ScalaScript"
-    "Examples and launcher smokes"
-  )
-  for ((_shard = 0; _shard < conformance_shards; _shard++)); do
-    required_jobs+=("Conformance shard ${_shard}/${conformance_shards}")
-  done
+  # `Lint Markdown` is the only ci.yml job that still runs on a push. On 2026-07-30 (smoke-ci)
+  # `Validate ScalaScript`, the four `Conformance shard i/4` jobs and `Examples and launcher smokes`
+  # each got `if: github.event_name != 'push'`, because the push path was 13.4 min against a ~3-7 min
+  # push interval and 83 of the last 100 runs were cancelled. The per-push verdict moved to
+  # `smoke.yml`.
+  #
+  # Requiring them on push runs would make THIS script report `missing required job` on every future
+  # green push run — the verdict tool contradicting the workflow it verifies. That has now nearly
+  # shipped three times in this one function (Conformance Suite -> shard matrix, sbt, and this), so
+  # the shape is worth naming: a required-job list is a COPY of the workflow's job set, and every time
+  # the workflow's set changes by event, this copy has to learn the same condition.
+  required_jobs=("Lint Markdown")
+  if [[ "$run_event" != "push" ]]; then
+    required_jobs+=(
+      "Validate ScalaScript"
+      "Examples and launcher smokes"
+    )
+    for ((_shard = 0; _shard < conformance_shards; _shard++)); do
+      required_jobs+=("Conformance shard ${_shard}/${conformance_shards}")
+    done
+  fi
   # `sbt — compile and test` is required only where it actually runs. It was moved off the push path
   # (ci.yml `if: github.event_name != 'push'`) because it takes 196 min against a 7-min mean code-push
   # interval, so at most 1 commit in 28 could reach a verdict (BUGS
