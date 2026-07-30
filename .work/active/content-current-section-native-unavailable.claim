@@ -2,10 +2,10 @@ slug: content-current-section-native-unavailable
 branch: feature/content-current-section-native-unavailable
 agent: claude-code
 started: 2026-07-30T08:59:39Z
-heartbeat: 2026-07-30T09:00:22Z
+heartbeat: 2026-07-30T09:03:11Z
 status: in-progress
-items: content-current-section-native-unavailable v2-diverge-dsl-calc-parser
-paths: v2/BUGS.md tests/conformance/BUGS.md
+items: content-current-section-native-unavailable v2-diverge-dsl-calc-parser int-char-literal-pattern-never-matches
+paths: v2/BUGS.md tests/conformance/BUGS.md v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/PatternRuntime.scala v1/runtime/backend/interpreter/src/test/scala/scalascript/CharLiteralPatternTest.scala v1/runtime/backend/interpreter/BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
