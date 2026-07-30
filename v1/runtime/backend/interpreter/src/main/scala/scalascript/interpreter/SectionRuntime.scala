@@ -330,6 +330,31 @@ private[interpreter] object SectionRuntime:
       }.toSet ++ section.subsections.iterator.flatMap(loop).toSet
     m.sections.iterator.flatMap(loop).toSet
 
+  /** `type X = …` alias names declared anywhere in a module.
+   *
+   *  A type alias has NO runtime value — `StatRuntime` drops non-opaque `Defn.Type` on the floor
+   *  (`case _ => () // type aliases, …`) because the interpreter erases types. So `lookupExport`
+   *  can never find one, and naming an alias in an import list raised
+   *  `'Pass' not found in std/dsl/passes.ssc` for a name that module both DEFINES (line 33) and
+   *  lists in its `exports:`. The JS/JVM backends inline imports wholesale and never noticed.
+   *
+   *  Read off the child's AST rather than recorded during execution: the alternative is a set
+   *  maintained in `StatRuntime`, which another claim holds, and the AST is already parsed here.
+   *  (skip-77-hides-v2-coverage / std-import-resolver-blind-to-type-alias-and-extension.) */
+  private def moduleTypeAliasNames(m: Module): Set[String] =
+    def loop(section: Section): Set[String] =
+      section.content.iterator.flatMap {
+        // `Tree.collect` walks the WHOLE subtree, which is load-bearing: a module that declares
+        // `package: std.dsl` is parsed with its statements wrapped in `object std { object dsl { … } }`,
+        // so the alias is never a top-level stat. Matching only top-level stats found nothing for
+        // every real std module (measured: `stats=List(Defn.Object)`) while appearing to work on a
+        // package-less fixture — the kind of green that is really a hole.
+        case cb: Content.CodeBlock if cb.isProgramCode =>
+          cb.tree.iterator.flatMap(t => t.tree.collect { case d: Defn.Type => d.name.value })
+        case _ => Iterator.empty
+      }.toSet ++ section.subsections.iterator.flatMap(loop).toSet
+    m.sections.iterator.flatMap(loop).toSet
+
   // True if the module already calls a UI render entry (`serve`/`emit`/`mount`/`serveAsync`)
   // at top level. Used by the `def view()` convention (Interpreter.autoRunView) to NOT
   // auto-render when the module renders itself explicitly.
@@ -488,6 +513,24 @@ private[interpreter] object SectionRuntime:
             case inst: Value.InstanceV if inst.typeName.contains('[') =>
               if !interp.globals.contains(inst.typeName) then interp.globals(inst.typeName) = inst
             case _ => ()
+        // Two exported shapes carry no importable VALUE, so `lookupExport` legitimately returns
+        // None for them and the import must still succeed:
+        //
+        //   * a `type X = …` alias — erased, nothing to bind;
+        //   * a method declared inside `extension (r: T)` — it belongs to the TYPE, not to the
+        //     module scope, and `child.exportedExtensions` is copied wholesale a few lines below
+        //     regardless of the binding list. So the name was already going to work at the call
+        //     site; only naming it in the brackets failed.
+        //
+        // Both were listed in their module's `exports:` and both raised `'X' not found in M`.
+        // Measured on the golden lane: `Pass` (std/dsl/passes.ssc:33, alias), `ParseErrors`
+        // (std/parsing/recovery.ssc:132, alias), `withIndent` (std/parsing/layout.ssc:210,
+        // extension) — three corpus cases that, because a case with no golden is SKIPped on EVERY
+        // lane, were hiding v2 as well as int.
+        // (std-import-resolver-blind-to-type-alias-and-extension.)
+        case None
+            if child.exportedExtensions.keysIterator.exists(_._2 == sourceName)
+              || moduleTypeAliasNames(childModule).contains(sourceName) => ()
         case None    => throw InterpretError(s"'$sourceName' not found in ${imp.path}")
     child.exportedExtensions.foreach { case ((typeName, method), fn) =>
       interp.extensions.getOrElseUpdate(typeName, mutable.HashMap.empty)(method) = fn
