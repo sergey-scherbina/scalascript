@@ -1,0 +1,11 @@
+slug: set-type-ascription
+branch: feature/set-type-ascription
+agent: claude-code
+started: 2026-07-30T13:10:54Z
+heartbeat: 2026-07-30T13:10:54Z
+status: claimed-before-planning
+items: type-ascription-tuple-and-set-arms-missing
+paths: file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/PatternRuntime.scala file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGenCpsCodegen.scala file:v2/src/Runtime.scala file:tests/conformance/type-ascription-set.ssc file:tests/conformance/expected/type-ascription-set.txt file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv file:BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
