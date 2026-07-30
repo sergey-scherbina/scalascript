@@ -1,0 +1,173 @@
+#!/usr/bin/env python3
+"""board-ownership-check — is each bug filed in the module that owns its code?
+
+    scripts/board-ownership-check                  # report; non-zero on a NEW misfiling
+    scripts/board-ownership-check --list           # every misfiling, baseline or not
+    scripts/board-ownership-check --update-baseline
+
+WHY. `specs/work-tracking-layout.md` routes an entry to a module board by its `lane:` field (plus
+`area:` for the apparatus lanes). Both fields were assigned by a first-match keyword heuristic
+(`scripts/bugs-index-migrate`: LANE_HINTS / AREA_HINTS), so the routing input is a guess about prose.
+The partition itself is clean — measured, zero slugs in two boards — but nothing checks that a board
+holds bugs about ITS OWN code.
+
+It does not. Measured 2026-07-30 by this script over 631 entries: 48 name a source path at all, and
+24 of those (50 %) sit in a board that owns none of it. Examples that need no argument:
+
+    v2-method-dispatch-never-jits        -> v2/src/Runtime.scala      filed in v1/runtime/backend/interpreter/
+    v2-array-indexed-store-silently-…    -> v2/lib/ssc1-front.ssc0    filed in v1/runtime/backend/interpreter/
+
+A per-module board whose contents are about another module gives the wrong answer to the one question
+it exists to answer — "what is broken here" — and it gives it silently.
+
+HOW IT AVOIDS BECOMING NOISE. 24 existing misfilings would make a strict check red on arrival and
+therefore ignored. So the known set is frozen in `tests/fixtures/board-ownership-baseline.tsv` and only
+a NEW misfiling fails. The baseline is also checked in the other direction: a row that is no longer
+misfiled is reported as stale, the same self-maintaining shape as
+`tests/fixtures/v21-sentinel-taxonomy/overrides.tsv` — where a stale row cost two CI cycles to notice.
+
+WHAT COUNTS AS "THE CODE". Only source paths: a defect's REPRO is not its location. `tests/`,
+`examples/`, `expected/` and `*/src/test/` are excluded.
+
+The numbers above are the ones THIS SCRIPT produces, and they are not the ones a first ad-hoc pass
+produced — that pass counted `examples/` and `tests/conformance/` corpus files as locations and
+reported 74 %, then counting `.ssc` files and `src/test/` gave 59 %. Each round of tightening lowered
+it. Quoting an earlier, looser figure in this docstring would be the same defect this repo has been
+paying for all week: a comment asserting something the code no longer does.
+"""
+import argparse
+import pathlib
+import re
+import subprocess
+import sys
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+BASELINE = ROOT / "tests" / "fixtures" / "board-ownership-baseline.tsv"
+
+# A path that names where code LIVES. Requires a source-ish suffix or a /src/ segment, so prose like
+# "tests/conformance/foo.ssc" (a repro) cannot masquerade as a location.
+SRC = re.compile(r"\b((?:v1|v2|scripts|uniml|scljet)/[A-Za-z0-9_.\-/]*"
+                 r"(?:\.scala|\.ssc0|\.mjs|\.py|/src/[A-Za-z0-9_.\-/]+))\b")
+# Two kinds of exclusion, and they need different anchoring — the first version used `.match()` for
+# all of them, so `/src/test/` in the MIDDLE of a path never matched and test files were counted as
+# "where the code lives". They are not.
+NOT_SRC_PREFIX = re.compile(r"^(tests|examples)/")
+NOT_SRC_ANYWHERE = re.compile(r"/src/test/|/expected/|expected/")
+
+
+def is_source(p):
+    return not NOT_SRC_PREFIX.match(p) and not NOT_SRC_ANYWHERE.search(p)
+
+
+def boards():
+    out = subprocess.run(
+        ["find", str(ROOT), "-name", "BUGS.md", "-not", "-path", "*/target/*",
+         "-not", "-path", "*/.git/*"], capture_output=True, text=True).stdout.split()
+    return sorted(pathlib.Path(p) for p in out)
+
+
+def scan():
+    """-> (misfiled, owned, unlocatable) where misfiled is [(slug, board_dir, path)]"""
+    misfiled, owned, unlocatable = [], 0, 0
+    for b in boards():
+        d = b.parent.relative_to(ROOT)
+        d = "" if str(d) == "." else str(d)
+        for e in re.split(r"\n(?=## )", b.read_text(errors="replace")):
+            m = re.match(r"## ([^\s—]+)", e)
+            if not m or "<!-- status:" not in e:
+                continue
+            paths = [p for p in SRC.findall(e[:2500]) if is_source(p)]
+            if not paths:
+                unlocatable += 1
+                continue
+            # The root board is cross-module BY DESIGN (work-tracking-layout.md), so it owns anything.
+            if d == "" or any(p.startswith(d + "/") for p in paths):
+                owned += 1
+            else:
+                misfiled.append((m.group(1), d, paths[0]))
+    return misfiled, owned, unlocatable
+
+
+def load_baseline():
+    if not BASELINE.exists():
+        return {}
+    out = {}
+    for line in BASELINE.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split("\t")
+        if len(parts) < 2:
+            sys.exit(f"board-ownership-check: malformed baseline row: {line!r}")
+        out[parts[0]] = parts[1]
+    return out
+
+
+def write_baseline(misfiled):
+    hdr = (
+        "# slug\tboard\tsource-path-it-actually-names\n"
+        "#\n"
+        "# Bugs filed in a module board that does NOT own their code. Frozen so that a NEW misfiling\n"
+        "# fails while the existing ones do not block anyone — a check that is red on arrival gets\n"
+        "# ignored, and an ignored check is worse than none.\n"
+        "#\n"
+        "# Routing is by `lane:` (specs/work-tracking-layout.md), and `lane` came from a keyword\n"
+        "# heuristic, which is why these exist. Fixing one means MOVING the entry to the owning\n"
+        "# module's board and deleting its row here; the check reports rows that are no longer\n"
+        "# misfiled, so a stale row cannot sit unnoticed.\n")
+    with BASELINE.open("w") as f:
+        f.write(hdr)
+        for slug, board, path in sorted(misfiled):
+            f.write(f"{slug}\t{board}\t{path}\n")
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--list", action="store_true")
+    ap.add_argument("--update-baseline", action="store_true")
+    a = ap.parse_args()
+
+    misfiled, owned, unlocatable = scan()
+
+    if a.update_baseline:
+        write_baseline(misfiled)
+        print(f"board-ownership-check: baseline written with {len(misfiled)} known misfiling(s)")
+        return 0
+
+    total = len(misfiled) + owned + unlocatable
+    print(f"entries with a header            : {total}")
+    print(f"  name a source path             : {len(misfiled) + owned}")
+    print(f"    board OWNS that source       : {owned}")
+    print(f"    board does NOT own it        : {len(misfiled)}")
+    print(f"  name no source path            : {unlocatable}")
+
+    base = load_baseline()
+    new = [m for m in misfiled if m[0] not in base]
+    current = {m[0] for m in misfiled}
+    stale = [s for s in base if s not in current]
+
+    if a.list:
+        print("\nall misfilings:")
+        for slug, board, path in sorted(misfiled):
+            mark = "NEW " if slug not in base else "    "
+            print(f"  {mark}{slug[:52]:54s} board={board:32s} -> {path}")
+
+    rc = 0
+    if new:
+        print(f"\n✗ {len(new)} NEW misfiling(s) — file the entry in the module that owns the code,")
+        print("  or move the code, or record it with --update-baseline and say why:")
+        for slug, board, path in sorted(new):
+            print(f"    {slug[:52]:54s} board={board:32s} -> {path}")
+        rc = 1
+    if stale:
+        print(f"\n⚠ {len(stale)} baseline row(s) no longer misfiled — delete them:")
+        for s in sorted(stale):
+            print(f"    {s}")
+        rc = 1
+    if rc == 0:
+        print(f"\n✓ no new misfilings ({len(base)} known, frozen)")
+    return rc
+
+
+if __name__ == "__main__":
+    sys.exit(main())

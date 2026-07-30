@@ -115,6 +115,25 @@ else
   ok "an unmapped path is reported, not guessed"
 fi
 
+# ── 7. each module board holds bugs about ITS OWN code ──────────────────────
+# `specs/work-tracking-layout.md` routes an entry to a board by its `lane:` field, and `lane` came from
+# a keyword heuristic (`bugs-index-migrate`, LANE_HINTS). So the partition is clean — zero slugs in two
+# boards — while the ROUTING input is a guess about prose. Measured: of the 48 entries that name a
+# source path, 24 sit in a board owning none of it, e.g. `v2-method-dispatch-never-jits`
+# (v2/src/Runtime.scala) filed under v1/runtime/backend/interpreter/.
+#
+# The 24 are frozen, so this only fails on a NEW one — a check that is red on arrival gets ignored,
+# and an ignored check is worse than none. It also reports baseline rows that are no longer misfiled,
+# because a stale row cost two CI cycles to notice the last time (the sentinel overrides).
+if [ -x "$ROOT/scripts/board-ownership-check" ]; then
+  if out=$("$ROOT/scripts/board-ownership-check" 2>&1); then
+    ok "no bug is newly filed in a board that does not own its code"
+  else
+    bad "a bug is filed in a board that does not own its code, or a baseline row went stale:"
+    printf '%s\n' "$out" | sed -n '/NEW misfiling\|no longer misfiled/,$p' | head -12 | sed 's/^/    /'
+  fi
+fi
+
 echo
 [ "$fail" -eq 0 ] && { echo "✓ path→area map gate PASSED"; exit 0; }
 echo "✗ path→area map gate FAILED"; exit 1

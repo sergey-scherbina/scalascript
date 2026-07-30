@@ -1,0 +1,34 @@
+# slug	board	source-path-it-actually-names
+#
+# Bugs filed in a module board that does NOT own their code. Frozen so that a NEW misfiling
+# fails while the existing ones do not block anyone — a check that is red on arrival gets
+# ignored, and an ignored check is worse than none.
+#
+# Routing is by `lane:` (specs/work-tracking-layout.md), and `lane` came from a keyword
+# heuristic, which is why these exist. Fixing one means MOVING the entry to the owning
+# module's board and deleting its row here; the check reports rows that are no longer
+# misfiled, so a stale row cannot sit unnoticed.
+coreir-spec-node-inventory-drift	v1/runtime/backend/js	v2/src/CoreIR.scala
+durable-save-run-verifier-red	tests	v1/lang/core/src/main/scala/scalascript/transform/EffectAnalysis.scala
+newfront-scala-spike-jvm-test-links-on-js	tests	uniml/core/src/test-jvm/scala
+portable-capsule-frame-unvalidated	v1/runtime/backend/js	v2/src/Capsule.scala
+portable-codepoint-string-construction	v1/runtime/backend/interpreter	v2/src/Runtime.scala
+standard-tier-named-arg-skip-default	v1/runtime/backend/js	v2/lib/ssc1-lower.ssc0
+std-auth-webauthn-signature-drift	tests	v1/runtime/std/auth-plugin/.../AuthIntrinsics.scala
+v1-json-two-contradictory-number-policies	v1/runtime/backend/interpreter	v1/lang/core/src/main/scala/scalascript/interpreter/JsonParser.scala
+v2-array-indexed-store-silently-dropped	v1/runtime/backend/interpreter	v2/lib/ssc1-front.ssc0
+v2-backend-check-ssc1c-wrapper-app-lit	tests	v2/backend/jvm/JvmBackend.scala
+v2-bridged-ui-signal-id-field	v1/runtime/backend/interpreter	v2/src/Runtime.scala
+v2-db-url-scheme-not-jdbc	v1/runtime/backend/js	v2/frontend-bridge/.../FrontendBridge.scala
+v2-doc-only-file-rejected-by-three-gates	v1/runtime/backend/interpreter	v2/bin/ssc1-check-run.ssc0
+v2-front-drops-float-literal-suffix	v1/runtime/backend/interpreter	v2/lib/ssc1-front.ssc0
+v2-js-imported-method-object-primitive	v1/runtime/backend/js	v2/backend/js/JsBackend.scala
+v2-method-dispatch-never-jits	v1/runtime/backend/interpreter	v2/src/Runtime.scala
+v2-native-charAt-toString-yields-code	v1/runtime/backend/interpreter	v2/lib/ssc1-lower.ssc0
+v2-native-double-toLong-noop	v1/runtime/backend/interpreter	v2/lib/ssc1-lower.ssc0
+v2-native-string-map-filter-char-methods	v1/runtime/backend/interpreter	v2/src/Runtime.scala
+v2-native-toDouble-toFloat-noop	v1/runtime/backend/interpreter	v2/lib/ssc1-lower.ssc0
+v2-ssc0-rust-float-literal-emits-int	tests	v2/lib/backend-rust-gen.ssc0
+v2-ssc0-target-display-drift	v1/runtime/backend/js	v2/lib/backend-js-gen.ssc0
+v2-swift-at-global-cell-vivification	v1/runtime/backend/interpreter	v2/src/Runtime.scala
+v21-native-front-prose-self-import-loop	v1/runtime/backend/js	v2/bin/ssc1-run.ssc0

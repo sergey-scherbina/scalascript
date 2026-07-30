@@ -80,6 +80,18 @@ case "$branch" in
         esac
         ok=0
         for p in $claim_paths; do
+          # Strip the scope LEVEL prefix before comparing (specs/claim-mutex.md §Hierarchy).
+          #
+          # Layer 2 (pre-push) learned `repo:` / `mod:` / `file:` on 2026-07-30; this layer did not, so
+          # it compared the literal `file:scripts/foo` against the staged path `scripts/foo` and
+          # refused. The new scope level could therefore be CLAIMED and could pass the overlap guard,
+          # but nothing could be COMMITTED under it — the finest granularity was the one that did not
+          # work, which is the opposite of the intent. Found by the first claim to use `file:`.
+          #
+          # Same shape as the note further up about shared bookkeeping: that exemption lived in this
+          # layer and not in layer 2, and four finished items sat un-ticked because of it. Duplicated
+          # logic needs the same vocabulary on both sides, or it is not one guard but two.
+          p="${p#repo:}"; p="${p#mod:}"; p="${p#file:}"
           # Declared paths are PREFIXES; tolerate a trailing glob people write out of habit
           # (`scljet/**` and `scljet/` must mean the same thing, or the guard fires on its own author).
           while [ "${p%\*}" != "$p" ]; do p="${p%\*}"; done
