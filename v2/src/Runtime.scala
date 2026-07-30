@@ -1447,9 +1447,21 @@ object Prims:
           // not valid bitwise values and, when an extension is in scope, must
           // reach that extension just like ADTs do. Other ambiguous arithmetic
           // operators keep the established numeric-first behavior.
+          // A STRING pair is primitive too, and leaving it out is what made the obvious
+          // one-line fix wrong. Widening the lowerer's extension set to `++`/`/` without
+          // this turns `"[" + render(a) + "]"` into `DocBeside(DocBeside([, AA), ])`,
+          // because the KC5-micro string rule upgrades `+` to `++` and the string operands
+          // then fell through to the user's Doc extension. One silent wrong answer traded
+          // for another. Lists are primitive for `++` for the same reason: `xs ++ ys` on
+          // two lists is concatenation, not a user extension.
+          // BUGS `v2-infix-extension-operator-stringifies`.
+          val str  = (v: Value) => v.isInstanceOf[StrV]
+          val list = (v: Value) => v match { case DataV("Cons" | "Nil", _) => true; case _ => false }
           val primitiveWins =
             if op == "|" then a(1).isInstanceOf[IntV] && a(2).isInstanceOf[IntV]
-            else num(a(1)) && num(a(2))
+            else (num(a(1)) && num(a(2)))
+              || (str(a(1)) && str(a(2)))
+              || (op == "++" && list(a(1)) && list(a(2)))
           if primitiveWins then arithOp(op, a(1), a(2))
           else callClos(ext, Array(a(1), a(2)))
         case _ => sys.error("__arithExt__: bad args")

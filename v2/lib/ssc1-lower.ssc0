@@ -2660,7 +2660,12 @@ def lowerE = (scope, rawExpr) =>
                 if #seq(op, "+")  then IrPrim("__arith__", Cons(IrLit(IrStr("+")), Cons(lv, Cons(rv, Nil))))
                 else if #seq(op, "-")  then IrPrim("__arith__", Cons(IrLit(IrStr("-")), Cons(lv, Cons(rv, Nil))))
                 else if #seq(op, "*")  then IrPrim("__arith__", Cons(IrLit(IrStr("*")), Cons(lv, Cons(rv, Nil))))
-                else if #seq(op, "/")  then IrPrim("__arith__", Cons(IrLit(IrStr("/")), Cons(lv, Cons(rv, Nil))))
+                else if #seq(op, "/")  then
+                  if isExtensionMethod("/") then
+                  IrPrim("__arithExt__",
+                    Cons(IrLit(IrStr("/")),
+                      Cons(lv, Cons(rv, Cons(IrGlobal("/"), Nil)))))
+                  else IrPrim("__arith__", Cons(IrLit(IrStr("/")), Cons(lv, Cons(rv, Nil))))
                 else if #seq(op, "%")  then IrPrim("__arith__", Cons(IrLit(IrStr("%")), Cons(lv, Cons(rv, Nil))))
                 -- K62.16: ==/!= lower to the STRUCTURAL __eq__ prim, not i.eq. i.eq's VM
                 -- compile path (Runtime.scala:1725) coerces operands via asInt, so string
@@ -2670,7 +2675,20 @@ def lowerE = (scope, rawExpr) =>
                 -- correct general interpreter) — measured conformance-neutral.
                 else if #seq(op, "==") then IrPrim("__eq__", Cons(lv, Cons(rv, Nil)))
                 else if #seq(op, "<")  then IrPrim("__arith__", Cons(IrLit(IrStr("<")), Cons(lv, Cons(rv, Nil))))
-                else if #seq(op, "++") then IrPrim("__arith__", Cons(IrLit(IrStr("++")), Cons(lv, Cons(rv, Nil))))
+                -- `++` and `/` route through __arithExt__ when a user extension of that name is in
+                -- scope, exactly as `|` already does. Without it `a ++ b` on a user type hit
+                -- __arith__'s generic `case "++" => StrV(x.toString + y.toString)` and the value
+                -- was SILENTLY STRINGIFIED — `text("AA") ++ text("BB")` printed
+                -- `DocText(AA)DocText(BB)` on v2 and the correct DocBeside on INT.
+                -- The runtime's primitiveWins had to learn strings/lists in the same change or
+                -- this trades one silent wrong answer for another.
+                -- BUGS `v2-infix-extension-operator-stringifies`.
+                else if #seq(op, "++") then
+                  if isExtensionMethod("++") then
+                  IrPrim("__arithExt__",
+                    Cons(IrLit(IrStr("++")),
+                      Cons(lv, Cons(rv, Cons(IrGlobal("++"), Nil)))))
+                  else IrPrim("__arith__", Cons(IrLit(IrStr("++")), Cons(lv, Cons(rv, Nil))))
                 else if #seq(op, ":+") then
                   IrPrim("__arith__", Cons(IrLit(IrStr(":+")), Cons(lv, Cons(rv, Nil))))
                 else if #seq(op, "::")  then IrCtor("Cons", Cons(lv, Cons(rv, Nil)))

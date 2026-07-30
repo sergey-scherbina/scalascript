@@ -207,8 +207,35 @@ count drops by at least 3 more.
      lane: native
      area: codegen -->
 
-**Status:** OPEN — **diagnosed to the line, and a one-sided fix is NOT safe** (found 2026-07-29 by
-`v2-content-and-dsl-diverge` while reducing `dsl-ast-builder`'s DIVERGE).
+**Status:** **PARTS 1+2 LANDED 2026-07-30** (`v2-backend-matrix-gaps`) — correct on
+`SSC_FRONT=legacy`. **Part 3 (F, the DEFAULT front) is still open — do not close.** Found
+2026-07-29 by `v2-content-and-dsl-diverge` while reducing `dsl-ast-builder`'s DIVERGE.
+
+| form | INT | v2 legacy | v2 **F (default)** |
+|---|---|---|---|
+| `text("AA") ++ text("BB")` | `DocBeside(…)` | **`DocBeside(…)`** ✓ | `DocText(AA)DocText(BB)` ✗ |
+| `"[" + s + "]"` (the trap) | `[mid]` | **`[mid]`** ✓ | `[mid]` ✓ |
+
+Parts 1+2 landed together, which is what makes them safe: `primitiveWins` in `__arithExt__` now
+also keeps STRING pairs (and, for `++`, list pairs) primitive, so widening the lowerer to `++`/`/`
+does NOT turn `"[" + render(a) + "]"` into a Doc — the exact regression that got the first attempt
+reverted. Verified both directions on the same build. Conformance `dsl*,content*,std-ui*,string*,
+list*,collection*,parser*` on int,v2: 72/76, contract GREEN.
+
+**Part 3 — what F needs, now that it has been looked at.** F does know about extensions
+(`extMethods` lives in its context `cx`, :445), but the `++` emitters do not receive it:
+
+```
+def emitPP(l, r, dq)      = if isStrCode(l, dq) then emitSconcat(l, r) else emitArithS("++", …)   // :367
+def emitPPt(l, r, lt, dq) = if lt == "S"        then emitSconcat(l, r) else emitArithS("++", …)   // :404
+```
+
+So the work is threading `cx` (or just the extMethods list) through `emitBin`/`emitBinT` into
+`emitPP`/`emitPPt`, then emitting `(prim __arithExt__ (lit (str "++")) L R (global ++))` when the
+name is an extension method. ⚠️ F self-compiles byte-identically as a hard invariant, so this must
+be verified against the C_min/X1 fixpoints, not only conformance.
+
+**Historical note on the original diagnosis** (kept — it is what made parts 1+2 land correctly):
 
 **Reproduction** (real harness; `std/dsl/pretty.ssc` declares `extension (l: Doc) def ++` / `def /`):
 
