@@ -1,0 +1,156 @@
+#!/usr/bin/env python3
+"""area-of — which area owns this path?
+
+    scripts/area-of v1/runtime/backend/js/src/.../JsGen.scala      -> codegen
+    scripts/area-of --stdin < list-of-paths                        -> one area per line
+    scripts/area-of --audit                                        -> disagreement with BUGS.md
+
+WHY: `BUGS.md` has an `area:` field, and `specs/bugs-index.md` validates it against an enum, but the
+VALUES were assigned by a first-match keyword heuristic over the slug plus the first 1400 characters
+of the body (`scripts/bugs-index-migrate`, AREA_HINTS). `front` is first in that list and its keys
+include `parse`, `_err` and `front`, so it wins for almost any prose — 256 of 621 entries. So the
+axis you would group by is not a classification; it is a word-frequency artefact.
+
+A code path, unlike prose, is checkable: a defect in `.../codegen/JsGen.scala` belongs to codegen no
+matter which words describe it. This resolves a path to an area by LONGEST PREFIX from
+`tests/fixtures/areas.tsv`.
+
+`--audit` does not "fix" anything. It reports how often the heuristic's area disagrees with the path
+the entry itself names, which is the measurement needed before deciding whether to re-derive the
+field. Reporting the disagreement is the point; silently replacing one guess with another is not.
+
+Exit: 0 ok · 2 usage/unresolved (with the path named).
+"""
+import argparse
+import pathlib
+import re
+import sys
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+MAP = ROOT / "tests" / "fixtures" / "areas.tsv"
+# Deliberately the same enum as specs/bugs-index.md. Two files may disagree about which area a bug
+# is in; they must not disagree about what the areas ARE.
+ENUM = {"front", "runtime", "codegen", "cli", "conformance", "build", "docs", "plugin", "other"}
+
+
+def load():
+    if not MAP.exists():
+        sys.exit(f"area-of: missing {MAP}")
+    rows = []
+    for n, line in enumerate(MAP.read_text().splitlines(), 1):
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split("\t")
+        if len(parts) != 2:
+            sys.exit(f"area-of: {MAP}:{n}: expected 'prefix<TAB>area', got: {line!r}")
+        prefix, area = parts[0].strip(), parts[1].strip()
+        if area not in ENUM:
+            sys.exit(f"area-of: {MAP}:{n}: area {area!r} is not in the enum {sorted(ENUM)}")
+        rows.append((prefix, area))
+    # Longest prefix first, so lookup is a plain scan and the file's own row order cannot change the
+    # answer. An ordering-sensitive mapping is a mapping two readers will disagree about.
+    rows.sort(key=lambda r: len(r[0]), reverse=True)
+    return rows
+
+
+def area_of(path, rows):
+    p = path.lstrip("./")
+    for prefix, area in rows:
+        if p == prefix or p.startswith(prefix + "/") or p.startswith(prefix):
+            return area
+    return None
+
+
+def audit(rows):
+    """How many entries can be LOCATED from their own text?
+
+    This deliberately does not report an "agreement rate" with the `area:` field. The first version
+    did, and the number was meaningless in both directions: `area:` is a keyword guess, and deriving
+    a rival value from "some path in the prose" is another guess — a bug names its GATE and its REPRO
+    long before it names the file that is broken, so a path-based proxy classified almost everything
+    as `conformance`. Comparing two guesses produces a confident number about nothing.
+
+    What is solid, and what this measures: whether an entry names a SOURCE path at all. If it does,
+    `area-of` answers authoritatively. If it names only tests, or nothing, then no tool can place it
+    and the only fix is for the entry to say where the defect lives.
+    """
+    bugs = ROOT / "BUGS.md"
+    if not bugs.exists():
+        sys.exit("area-of --audit: no BUGS.md")
+    entries = re.split(r"\n(?=## )", bugs.read_text(errors="replace"))
+    path_re = re.compile(
+        r"\b((?:v1|v2|tests|scripts|examples|uniml|scljet|docs|specs)/[A-Za-z0-9_.\-/]+"
+        r"|build\.sbt)\b"
+    )
+    located = test_only = unlocatable = 0
+    open_unlocatable = []
+    for e in entries:
+        m = re.match(r"## ([^\s—]+)", e)
+        hm = re.search(r"<!--\s*status:\s*(\w+)", e)
+        if not m or not hm:
+            continue
+        slug, status = m.group(1), hm.group(1)
+        found = path_re.findall(e[:2000])
+        src = [q for q in found
+               if not re.match(r"(tests|examples|docs|specs)/", q) and area_of(q, rows)]
+        if src:
+            located += 1
+        elif any(area_of(q, rows) for q in found):
+            test_only += 1
+            if status == "open":
+                open_unlocatable.append((slug, "names only tests/gates"))
+        else:
+            unlocatable += 1
+            if status == "open":
+                open_unlocatable.append((slug, "names no path at all"))
+
+    total = located + test_only + unlocatable
+    print(f"entries with a parsed header      : {total}")
+    print(f"  name a SOURCE path (locatable)  : {located}")
+    print(f"  name only tests / gates         : {test_only}")
+    print(f"  name no known path at all       : {unlocatable}")
+    pct = 100 * (test_only + unlocatable) / total if total else 0
+    print(f"\n{test_only + unlocatable} of {total} ({pct:.0f}%) cannot be placed in an area from their own text.")
+    print("That is why the `area:` field is a keyword guess: there is nothing better in the entry to")
+    print("derive it from. The fix is forward-looking — new entries should name the code path.")
+    if open_unlocatable:
+        print(f"\nOPEN entries that cannot be placed ({len(open_unlocatable)}); first 15:")
+        for slug, why in open_unlocatable[:15]:
+            print(f"  {slug[:56]:58s} {why}")
+    return 0
+
+
+def main():
+    ap = argparse.ArgumentParser(add_help=True)
+    ap.add_argument("paths", nargs="*")
+    ap.add_argument("--stdin", action="store_true")
+    ap.add_argument("--audit", action="store_true")
+    ap.add_argument("--quiet", action="store_true", help="print the area only, no path column")
+    a = ap.parse_args()
+    rows = load()
+
+    if a.audit:
+        sys.exit(audit(rows))
+
+    paths = list(a.paths)
+    if a.stdin:
+        paths += [l.strip() for l in sys.stdin if l.strip()]
+    if not paths:
+        ap.print_usage()
+        sys.exit(2)
+
+    rc = 0
+    for p in paths:
+        area = area_of(p, rows)
+        if area is None:
+            print(f"area-of: unresolved path (add a prefix to {MAP.relative_to(ROOT)}): {p}",
+                  file=sys.stderr)
+            rc = 2
+            continue
+        print(area if a.quiet else f"{area}\t{p}")
+    sys.exit(rc)
+
+
+if __name__ == "__main__":
+    main()

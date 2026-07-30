@@ -45,7 +45,8 @@ the same duplication one level up, now about the RULE rather than the number.
 ## sbt-test-7-failures-first-visible-2026-07-29 — `sbt test` ran to completion for the first time in weeks
 <!-- status: open
      lane: native
-     area: front -->
+     area: front
+     gate: tests/e2e/v21-negative-toolchain-release-gate.sh -->
 
 **Status:** open, 3 clusters, filed for their owners. Found by `serve-banner-to-stderr`: fixing the
 negative-toolchain gate let the `sbt` job reach `Test via sbt`, which had been unreachable behind it.
@@ -1139,8 +1140,9 @@ per-statement (layout-block) path.
 ## sql-plugin-rowcodec-mirror-arity — a fourth Mirror field took the ASM release gate red
 <!-- status: fixed
      lane: native
-     area: front
-     fixed-in: e8c1d0c9f -->
+     area: plugin
+     fixed-in: 0ee779b8d
+     gate: v2/runtime/std/sql-plugin -->
 
 **Status:** FIXED 2026-07-28. Found by `ci-dispatch-verdict-obtainable` while getting the first
 on-demand CI verdict; root cause conclusive, not inferred.

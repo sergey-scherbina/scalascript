@@ -1,0 +1,64 @@
+# path prefix -> area.  LONGEST PREFIX WINS, so specific rows may precede general ones in any order.
+#
+# WHY THIS FILE EXISTS: `BUGS.md` carries an `area:` field, but its values were assigned by a
+# first-match keyword heuristic over the slug plus the first 1400 characters of the body
+# (`scripts/bugs-index-migrate`, AREA_HINTS). `front` is first in that list and its keys include
+# `parse`, `_err` and `front`, so it wins for almost any text — 256 of 621 entries. The field is
+# therefore validated against an enum but not derived from anything checkable.
+#
+# A code path IS checkable: a defect in `.../codegen/JsGen.scala` is codegen, whatever words its
+# description happens to contain. This file is that mapping, and `scripts/area-of` reads it.
+#
+# The areas are exactly the enum in specs/bugs-index.md — deliberately not extended, so the two
+# cannot disagree about what an area IS even while they disagree about which one a bug belongs to.
+#
+# prefix	area
+v1/lang	front
+v2/lib	front
+v2/src	runtime
+v2/jvm-runtime	runtime
+v1/runtime/backend/interpreter	runtime
+v1/runtime/backend/js	codegen
+v1/runtime/backend/jvm	codegen
+v1/runtime/backend/rust	codegen
+v1/runtime/backend/wasm	codegen
+v1/runtime/backend/css	codegen
+v1/runtime/backend/html	codegen
+v2/backend	codegen
+v2/backend-jvm-bytecode	codegen
+v1/runtime/std	plugin
+v2/runtime/std	plugin
+v2/plugin-spi	plugin
+v1/runtime	runtime
+v2/runtime	runtime
+v2/host	runtime
+v2/interop	runtime
+v2/nativeui	runtime
+v1/tools/cli	cli
+v1/tools	build
+v2/bin	cli
+bin	cli
+tests/conformance	conformance
+v2/conformance	conformance
+tests/e2e	conformance
+tests/coord	build
+tests/fixtures	conformance
+tests/tools	conformance
+# Added because the gate's TOTALITY check caught them missing — on its own author, which is the
+# point of walking the tree instead of listing directories by hand.
+tests/bench	conformance
+tests/perf	conformance
+tests/interop-conformance	conformance
+examples	conformance
+v2/examples	conformance
+uniml	front
+scljet	plugin
+build.sbt	build
+project	build
+scripts	build
+v2/scripts	build
+.github	build
+docs	docs
+specs	docs
+v2/specs	docs
+site	docs
