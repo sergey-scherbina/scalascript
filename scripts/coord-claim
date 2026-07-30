@@ -114,48 +114,20 @@ open(p, "w").write("\n".join(lines) + "\n")
 PY
 
 git add "$claim" "$ledger"
-# ── the board row, in the SAME commit as the claim ────────────────────────────────────────────
+# THE BOARD ROW IS NOT WRITTEN HERE, and that is a blocker, not a decision.
 #
-# SPRINT.md's contract says step 3 happens "in ONE commit" with the claim, and calls a claim without
-# a row "invisible work". Nothing wrote the row, so the contract was unenforceable by construction:
-# measured 2026-07-30, 4 live claims and 1 board row — 75% invisible, and two of those were mine.
-# A rule that depends on every agent remembering it is a wish, not a rule.
+# SPRINT.md's contract wants the row in THIS commit. I implemented it and had to take it back out:
+# `.githooks/pre-commit` refuses any staged path outside `.work/` in the shared checkout, and the
+# board is `SPRINT.md` at the repo root. So the row cannot be written by the tool that must run
+# there. Two bugs came out of the attempt and both are worth remembering:
+#   * the first version referenced `$root`, a variable this script does not have — coord-claim died
+#     with `unbound variable` AFTER staging the claim, leaving a half-state on main;
+#   * with that fixed it simply hit the guard, i.e. the design was blocked all along.
 #
-# The module column is derived from the claim's scopes: the longest module prefix from
-# specs/work-tracking-layout.md that covers ALL of them, else *(repo-wide)*. Bookkeeping files are
-# ignored when deriving it — every claim touches a board, and letting that decide the module would
-# label everything `scripts`.
-SLUG="$slug" ITEMS="$items" PATHS="$paths" python3 - "$root/SPRINT.md" <<'PY_ROW'
-import os, sys, re
-board = sys.argv[1]
-slug, items, paths = os.environ["SLUG"], os.environ["ITEMS"], os.environ["PATHS"]
-MODULES = ["v1/runtime/backend/interpreter", "v1/runtime/backend/js", "v1/runtime/backend/jvm",
-           "v1/lang", "tests/conformance", "tests", "scripts", "uniml", "scljet", "v2", "std"]
-BOOK = {"SPRINT.md", "BACKLOG.md", "BUGS.md", "CHANGELOG.md", "MILESTONES.md", "README.md"}
-
-def bare(scope):
-    for pre in ("repo:", "mod:", "file:"):
-        if scope.startswith(pre): return scope[len(pre):]
-    return scope
-
-real = [bare(p) for p in paths.split() if os.path.basename(bare(p)) not in BOOK]
-mods = set()
-for p in real:
-    hit = next((m for m in MODULES if p == m or p.startswith(m + "/")), None)
-    mods.add(hit)
-module = f"`{mods.pop()}`" if len(mods) == 1 and None not in mods else "*(repo-wide)*"
-
-row = f"| `{items.split()[0]}` | {module} | `{slug}` | in progress | claimed by scripts/coord-claim |" + "\n"
-text = open(board).read()
-if f"`{slug}`" in text:
-    sys.exit(0)                                  # idempotent: re-running must not duplicate a row
-m = re.search(r"(^\|---[^\n]*\n)", text, re.M)
-if not m:
-    sys.stderr.write("coord-claim: no board table found in SPRINT.md; row not written\n")
-    sys.exit(0)                                  # never block a claim on board shape
-open(board, "w").write(text[:m.end()] + row + text[m.end():])
-PY_ROW
-git add SPRINT.md 2>/dev/null || true
+# The fix belongs in `.githooks/pre-commit` — the board IS coordination state and should be exempt
+# alongside `.work/` — and that file is held by another claim, so it is raised in the rozum room
+# rather than taken. Until then `tests/coord/board-claim-parity.sh` reports the drift and the row is
+# added by hand.
 
 git commit -q -m "claim: ${slug} (${items}) [skip ci]"
 

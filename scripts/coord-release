@@ -24,10 +24,14 @@ claim=".work/active/${slug}.claim"
 [ -f "$claim" ] || { echo "coord-release: no such claim: $claim" >&2; exit 2; }
 git rm -q "$claim"
 
-SLUG="$slug" python3 - .work/active/LEDGER.tsv SPRINT.md <<'PY_REL'
+# Only `.work/` is touched here: `.githooks/pre-commit` refuses any staged path outside it in the
+# shared checkout, and this must run there. So the BOARD ROW IS NOT REMOVED — the reminder below
+# says so out loud rather than leaving a lie behind. Fixing the guard to exempt the board (it is
+# coordination state) is raised in the rozum room; the file belongs to another claim.
+SLUG="$slug" python3 - .work/active/LEDGER.tsv <<'PY_REL'
 import os, sys
 slug = os.environ["SLUG"]
-ledger, board = sys.argv[1], sys.argv[2]
+ledger = sys.argv[1]
 
 lines = open(ledger).read().rstrip("\n").split("\n")
 out = []
@@ -39,19 +43,18 @@ for l in lines:
     else:
         out.append(l)
 open(ledger, "w").write("\n".join(out) + "\n")
-
-text = open(board).read().split("\n")
-kept = [l for l in text if not (l.startswith("| ") and ("`%s`" % slug) in l)]
-open(board, "w").write("\n".join(kept))
 PY_REL
 
-git add .work/active/LEDGER.tsv SPRINT.md
+git add .work/active/LEDGER.tsv
 msg="release-claim: ${slug}"
 [ -n "$extra" ] && msg="${msg} — ${extra}"
 git commit -q -m "${msg} [skip ci]"
 if git push -q origin main; then
-  echo "✓ released ${slug}: claim, ledger row and board row, one commit"
-  echo "  remember: mark the finished item [x] in its module SPRINT.md — this tool will not guess which"
+  echo "✓ released ${slug}: claim file and ledger row, one commit"
+  echo "  STILL BY HAND (pre-commit refuses non-.work/ paths in the shared checkout):"
+  echo "    - delete the ${slug} row from SPRINT.md"
+  echo "    - mark the finished item [x] in its module SPRINT.md"
+  echo "  tests/coord/board-claim-parity.sh will fail until the row is gone."
 else
   echo "coord-release: push refused; main moved. Re-run after: git fetch && git merge --ff-only origin/main" >&2
   exit 1
