@@ -1,9 +1,9 @@
-# generation: 426
+# generation: 427
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
 json-js-host-dependent-exactness	claude-code	2026-07-30T11:16:37Z	json-js-exactness-depends-on-node-version	file:v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/core-collections.mjs file:v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/http-server.mjs file:specs/json-number-policy.md file:tests/e2e/json-number-policy-js-gate.sh
 pre-push-judges-working-tree	claude-code	2026-07-30T11:22:01Z	pre-push-refuses-on-an-unrelated-dirty-file	file:.githooks/pre-push file:tests/coord/claim-hooks.sh file:tests/BUGS.md
 v2-perf-1-dcell-in-f	claude-code	2026-07-30T11:22:02Z	v2-perf-1-double-tier-unwired	file:specs/v2.2-p6.5-fsub.ssc file:bench/history.tsv file:TASK/v2-perfomance.md
-int-zero-arg-all-defaults	claude-code	2026-07-30T11:22:17Z	v1-interp-zero-arg-call-to-all-defaulted-object-method-returns-a-closure	file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/CallRuntime.scala file:tests/conformance/zero-arg-all-defaults.ssc file:tests/conformance/expected/zero-arg-all-defaults.txt file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv file:v1/runtime/backend/interpreter/BUGS.md
+int-zero-arg-all-defaults	claude-code	2026-07-30T11:22:17Z	v1-interp-zero-arg-call-to-all-defaulted-object-method-returns-a-closure	file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/CallRuntime.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/EvalRuntime.scala file:tests/conformance/zero-arg-all-defaults.ssc file:tests/conformance/expected/zero-arg-all-defaults.txt file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv file:v1/runtime/backend/interpreter/BUGS.md
 pre-push-judges-working-tree	claude-code	2026-07-30T11:22:21Z	pre-push-refuses-on-an-unrelated-dirty-file	file:.githooks/pre-push file:tests/coord/claim-hooks.sh file:tests/BUGS.md
 smoke-ci	claude-code	2026-07-30T11:24:35Z	smoke-ci-in-ssc	file:scripts/smoke-ci.ssc file:scripts/smoke-ci file:.github/workflows/smoke.yml file:.github/workflows/ci.yml file:scripts/full-ci

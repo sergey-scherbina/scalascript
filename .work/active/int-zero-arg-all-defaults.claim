@@ -2,10 +2,10 @@ slug: int-zero-arg-all-defaults
 branch: feature/int-zero-arg-all-defaults
 agent: claude-code
 started: 2026-07-30T11:22:17Z
-heartbeat: 2026-07-30T11:22:17Z
+heartbeat: 2026-07-30T11:25:03Z
 status: claimed-before-planning
 items: v1-interp-zero-arg-call-to-all-defaulted-object-method-returns-a-closure
-paths: file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/CallRuntime.scala file:tests/conformance/zero-arg-all-defaults.ssc file:tests/conformance/expected/zero-arg-all-defaults.txt file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv file:v1/runtime/backend/interpreter/BUGS.md
+paths: file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/CallRuntime.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/EvalRuntime.scala file:tests/conformance/zero-arg-all-defaults.ssc file:tests/conformance/expected/zero-arg-all-defaults.txt file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv file:v1/runtime/backend/interpreter/BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
