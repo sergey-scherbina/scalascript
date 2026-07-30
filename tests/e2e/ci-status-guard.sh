@@ -477,6 +477,32 @@ fi
 # branch metadata remains an exact observable and must win before legacy slug matching.
 CLAIM_WT="$TMP/claim-wt"
 CLAIM_BRANCH="feature/ci-red-main-final-fixture-$$"
+# The slug is UNIQUE per run, and that is load-bearing too.
+#
+# The fixture used the literal slug `ci-red-main`, which is a REAL claim on origin/main. The
+# commit-activity rule also consults `git log origin/main -- .work/active/<slug>.claim`, and the real
+# file was last touched 2026-07-19 — AFTER the 2026-07-17 NOW this test injects. So the fixture
+# inherited a stranger's history, the age went negative, clamped to 0, and the claim read as live no
+# matter how its own commits were dated. Same failure mode as the undated commit above, different
+# source: a fixture must own every input its assertion depends on.
+# Every token must still be filtered out by `significant_tokens` — that is the premise of this
+# case. `ci` is under 3 chars, `red`/`main`/`test` are stopwords and a bare number is dropped, so
+# the legacy slug heuristic finds nothing and the declared branch is the only observable left.
+# `fixture` would NOT be filtered, which is why the slug is not simply the branch name.
+FIXTURE_SLUG="ci-red-main-test-$$"
+FIXTURE_CLAIM=".work/active/$FIXTURE_SLUG.claim"
+if git -C "$ROOT" cat-file -e "origin/main:$FIXTURE_CLAIM" 2>/dev/null; then
+  printf 'ci-status-guard: fixture slug %s already exists on origin/main; it must be unused\n' \
+    "$FIXTURE_SLUG" >&2
+  exit 1
+fi
+# Every fixture commit is dated BEFORE the injected NOW. `coord-status` treats a branch commit
+# newer than the staleness window as proof the claim is live and then IGNORES the heartbeat —
+# correct, since commits are not hand-maintained. But an UNDATED fixture commit lands at real
+# wall-clock, which is in the FUTURE relative to the injected 2026-07-17 now; the age goes
+# negative, clamps to 0, and every claim reads as "live, last commit 0m ago". The
+# stale-heartbeat case then asserted an outcome the code was right not to produce.
+FIXTURE_DATE='2026-07-16T00:00:00Z'
 FRESH_NOW_EPOCH=1784247000  # 2026-07-17T00:10:00Z
 
 # The staleness threshold is READ FROM THE CODE THAT ENFORCES IT, never restated here.
@@ -505,17 +531,30 @@ STALE_NOW_EPOCH=$(( 1784246400 + STALE_AGE_SECS ))   # heartbeat is 2026-07-17T0
 git -C "$ROOT" worktree add -q -b "$CLAIM_BRANCH" "$CLAIM_WT" HEAD
 mkdir -p "$CLAIM_WT/.work/active"
 printf '%s\n' \
-  'claim: ci-red-main' \
+  "claim: $FIXTURE_SLUG" \
   "branch: $CLAIM_BRANCH" \
   'agent: fixture' \
   'heartbeat: 2026-07-17T00:00:00Z' \
   'status: in-progress' \
   'done-so-far: fixture' \
   'next: verify exact branch matching' \
-  > "$CLAIM_WT/.work/active/ci-red-main.claim"
-git -C "$CLAIM_WT" add .work/active/ci-red-main.claim
+  > "$CLAIM_WT/$FIXTURE_CLAIM"
+git -C "$CLAIM_WT" add "$FIXTURE_CLAIM"
+# The commit is DATED, and that is now load-bearing.
+#
+# `coord-status` gained a rule: a claim whose branch has a commit newer than the staleness window is
+# "live by COMMIT activity" and its heartbeat field is ignored — commits are stronger evidence than a
+# field somebody forgot to bump, so the rule is right. But this fixture committed at wall-clock NOW
+# while injecting a NOW of 2026-07-17, so its commit was permanently "0m ago" and the claim was
+# always live. The stale-heartbeat case then asserted an outcome the code was correct not to produce,
+# and `Verify exact-SHA CI status guard` went red on every push.
+#
+# Dating the commit a day before the injected NOW puts it outside the activity window, so the
+# heartbeat is what decides — which is what this case is for. The commit-activity rule gets its own
+# case below, so both halves of the new behaviour are pinned instead of one being an accident.
 GIT_AUTHOR_NAME=fixture GIT_AUTHOR_EMAIL=fixture@example.invalid \
 GIT_COMMITTER_NAME=fixture GIT_COMMITTER_EMAIL=fixture@example.invalid \
+GIT_AUTHOR_DATE="$FIXTURE_DATE" GIT_COMMITTER_DATE="$FIXTURE_DATE" \
   git -C "$CLAIM_WT" commit -q -m 'test: live zero-token claim fixture'
 
 live_sha="$(git -C "$CLAIM_WT" rev-parse HEAD)"
@@ -525,8 +564,8 @@ live_output="$(FAKE_CI_MODE=red FAKE_EXPECT_SHA="$live_sha" SSC_CI_GH="$FAKE_GH"
   "$ROOT/scripts/coord-status" --no-fetch 2>&1)"
 live_code=$?
 set -e
-if [[ "$live_code" -ne 0 || "$live_output" == *"maybe stale: ci-red-main"* ||
-      "$live_output" == *"potentially stale heartbeat: ci-red-main"* ]]; then
+if [[ "$live_code" -ne 0 || "$live_output" == *"maybe stale: $FIXTURE_SLUG"* ||
+      "$live_output" == *"potentially stale heartbeat: $FIXTURE_SLUG"* ]]; then
   observed_branches="$(git -C "$ROOT" worktree list --porcelain | sed -n 's/^branch refs\/heads\///p')"
   printf 'ci-status-guard[live-claim]: expected=live got=stale exit=%s heartbeat=%s age=%ss expected_branch=%s observed_branches=%q\n%s\n' \
     "$live_code" '2026-07-17T00:00:00Z' 600 "$CLAIM_BRANCH" "$observed_branches" "$live_output" >&2
@@ -539,7 +578,7 @@ stale_output="$(FAKE_CI_MODE=red FAKE_EXPECT_SHA="$live_sha" SSC_CI_GH="$FAKE_GH
   "$ROOT/scripts/coord-status" --no-fetch 2>&1)"
 stale_code=$?
 set -e
-stale_expected="potentially stale heartbeat: ci-red-main (heartbeat=2026-07-17T00:00:00Z age=${STALE_AGE_SECS}s/$((STALE_AGE_SECS / 60))m reason=${STALE_REASON} branch=live:$CLAIM_BRANCH)"
+stale_expected="potentially stale heartbeat: $FIXTURE_SLUG (heartbeat=2026-07-17T00:00:00Z age=${STALE_AGE_SECS}s/$((STALE_AGE_SECS / 60))m reason=${STALE_REASON} branch=live:$CLAIM_BRANCH)"
 if [[ "$stale_code" -ne 0 || "$stale_output" != *"$stale_expected"* ]]; then
   observed_branches="$(git -C "$ROOT" worktree list --porcelain | sed -n 's/^branch refs\/heads\///p')"
   printf 'ci-status-guard[stale-heartbeat]: expected=%q got_output=%q exit=%s heartbeat=%s age=%ss expected_branch=%s observed_branches=%q\n' \
@@ -550,11 +589,12 @@ fi
 
 missing_branch="feature/ci-red-main-missing-fixture-$$"
 sed "s|^branch: .*|branch: $missing_branch|" \
-  "$CLAIM_WT/.work/active/ci-red-main.claim" > "$TMP/missing.claim"
-mv "$TMP/missing.claim" "$CLAIM_WT/.work/active/ci-red-main.claim"
-git -C "$CLAIM_WT" add .work/active/ci-red-main.claim
+  "$CLAIM_WT/$FIXTURE_CLAIM" > "$TMP/missing.claim"
+mv "$TMP/missing.claim" "$CLAIM_WT/$FIXTURE_CLAIM"
+git -C "$CLAIM_WT" add "$FIXTURE_CLAIM"
 GIT_AUTHOR_NAME=fixture GIT_AUTHOR_EMAIL=fixture@example.invalid \
 GIT_COMMITTER_NAME=fixture GIT_COMMITTER_EMAIL=fixture@example.invalid \
+GIT_AUTHOR_DATE="$FIXTURE_DATE" GIT_COMMITTER_DATE="$FIXTURE_DATE" \
   git -C "$CLAIM_WT" commit -q -m 'test: missing zero-token claim fixture'
 
 missing_sha="$(git -C "$CLAIM_WT" rev-parse HEAD)"
@@ -564,8 +604,8 @@ missing_output="$(FAKE_CI_MODE=red FAKE_EXPECT_SHA="$missing_sha" SSC_CI_GH="$FA
   "$ROOT/scripts/coord-status" --no-fetch 2>&1)"
 missing_code=$?
 set -e
-if [[ "$missing_code" -ne 0 || "$missing_output" != *"maybe stale: ci-red-main"* ||
-      "$missing_output" == *"potentially stale heartbeat: ci-red-main"* ]]; then
+if [[ "$missing_code" -ne 0 || "$missing_output" != *"maybe stale: $FIXTURE_SLUG"* ||
+      "$missing_output" == *"potentially stale heartbeat: $FIXTURE_SLUG"* ]]; then
   observed_branches="$(git -C "$ROOT" worktree list --porcelain | sed -n 's/^branch refs\/heads\///p')"
   printf 'ci-status-guard[missing-claim]: expected=missing-worktree got=other exit=%s heartbeat=%s age=%ss expected_branch=%s observed_branches=%q\n%s\n' \
     "$missing_code" '2026-07-17T00:00:00Z' 600 "$missing_branch" "$observed_branches" "$missing_output" >&2
@@ -574,11 +614,12 @@ fi
 
 sed -e "s|^branch: .*|branch: $CLAIM_BRANCH|" \
     -e 's|^heartbeat: .*|heartbeat: not-a-time|' \
-  "$CLAIM_WT/.work/active/ci-red-main.claim" > "$TMP/invalid-heartbeat.claim"
-mv "$TMP/invalid-heartbeat.claim" "$CLAIM_WT/.work/active/ci-red-main.claim"
-git -C "$CLAIM_WT" add .work/active/ci-red-main.claim
+  "$CLAIM_WT/$FIXTURE_CLAIM" > "$TMP/invalid-heartbeat.claim"
+mv "$TMP/invalid-heartbeat.claim" "$CLAIM_WT/$FIXTURE_CLAIM"
+git -C "$CLAIM_WT" add "$FIXTURE_CLAIM"
 GIT_AUTHOR_NAME=fixture GIT_AUTHOR_EMAIL=fixture@example.invalid \
 GIT_COMMITTER_NAME=fixture GIT_COMMITTER_EMAIL=fixture@example.invalid \
+GIT_AUTHOR_DATE="$FIXTURE_DATE" GIT_COMMITTER_DATE="$FIXTURE_DATE" \
   git -C "$CLAIM_WT" commit -q -m 'test: invalid claim heartbeat fixture'
 
 invalid_sha="$(git -C "$CLAIM_WT" rev-parse HEAD)"
@@ -588,7 +629,7 @@ invalid_output="$(FAKE_CI_MODE=red FAKE_EXPECT_SHA="$invalid_sha" SSC_CI_GH="$FA
   "$ROOT/scripts/coord-status" --no-fetch 2>&1)"
 invalid_code=$?
 set -e
-invalid_expected="potentially stale heartbeat: ci-red-main (heartbeat=not-a-time age=unknown reason=invalid branch=live:$CLAIM_BRANCH)"
+invalid_expected="potentially stale heartbeat: $FIXTURE_SLUG (heartbeat=not-a-time age=unknown reason=invalid branch=live:$CLAIM_BRANCH)"
 if [[ "$invalid_code" -ne 0 || "$invalid_output" != *"$invalid_expected"* ]]; then
   observed_branches="$(git -C "$ROOT" worktree list --porcelain | sed -n 's/^branch refs\/heads\///p')"
   printf 'ci-status-guard[invalid-heartbeat]: expected=%q got_output=%q exit=%s expected_branch=%s observed_branches=%q\n' \
@@ -596,11 +637,12 @@ if [[ "$invalid_code" -ne 0 || "$invalid_output" != *"$invalid_expected"* ]]; th
   exit 1
 fi
 
-sed '/^heartbeat:/d' "$CLAIM_WT/.work/active/ci-red-main.claim" > "$TMP/missing-heartbeat.claim"
-mv "$TMP/missing-heartbeat.claim" "$CLAIM_WT/.work/active/ci-red-main.claim"
-git -C "$CLAIM_WT" add .work/active/ci-red-main.claim
+sed '/^heartbeat:/d' "$CLAIM_WT/$FIXTURE_CLAIM" > "$TMP/missing-heartbeat.claim"
+mv "$TMP/missing-heartbeat.claim" "$CLAIM_WT/$FIXTURE_CLAIM"
+git -C "$CLAIM_WT" add "$FIXTURE_CLAIM"
 GIT_AUTHOR_NAME=fixture GIT_AUTHOR_EMAIL=fixture@example.invalid \
 GIT_COMMITTER_NAME=fixture GIT_COMMITTER_EMAIL=fixture@example.invalid \
+GIT_AUTHOR_DATE="$FIXTURE_DATE" GIT_COMMITTER_DATE="$FIXTURE_DATE" \
   git -C "$CLAIM_WT" commit -q -m 'test: missing claim heartbeat fixture'
 
 missing_heartbeat_sha="$(git -C "$CLAIM_WT" rev-parse HEAD)"
@@ -610,12 +652,64 @@ missing_heartbeat_output="$(FAKE_CI_MODE=red FAKE_EXPECT_SHA="$missing_heartbeat
   "$ROOT/scripts/coord-status" --no-fetch 2>&1)"
 missing_heartbeat_code=$?
 set -e
-missing_heartbeat_expected="potentially stale heartbeat: ci-red-main (heartbeat=missing age=unknown reason=missing branch=live:$CLAIM_BRANCH)"
+missing_heartbeat_expected="potentially stale heartbeat: $FIXTURE_SLUG (heartbeat=missing age=unknown reason=missing branch=live:$CLAIM_BRANCH)"
 if [[ "$missing_heartbeat_code" -ne 0 || "$missing_heartbeat_output" != *"$missing_heartbeat_expected"* ]]; then
   observed_branches="$(git -C "$ROOT" worktree list --porcelain | sed -n 's/^branch refs\/heads\///p')"
   printf 'ci-status-guard[missing-heartbeat]: expected=%q got_output=%q exit=%s expected_branch=%s observed_branches=%q\n' \
     "$missing_heartbeat_expected" "$missing_heartbeat_output" "$missing_heartbeat_code" \
     "$CLAIM_BRANCH" "$observed_branches" >&2
+  exit 1
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# The OTHER half of the same rule: a stale heartbeat FIELD next to a RECENT COMMIT is not a stale
+# claim, and `coord-status` says so instead of reporting it.
+#
+# This case exists because the rule was landed untested and then silently ate the stale-heartbeat
+# assertion above: the fixture's commits carried real wall-clock dates while the test injected a NOW
+# of 2026-07-17, so every fixture commit was permanently in the future, clamped to "0m ago", and
+# every claim read as live. The assertion that was supposed to observe staleness could not fail for
+# the right reason — it failed for this one, on every push. A rule with no case of its own is a rule
+# whose regressions land as someone else's mysterious failure.
+#
+# Same claim, same stale heartbeat, one commit inside the window. The heartbeat-stale case above and
+# this one now differ ONLY in the commit date, so each pins exactly one branch of the decision.
+git -C "$CLAIM_WT" checkout -q "$CLAIM_BRANCH" 2>/dev/null || true
+ACTIVE_DATE="@$(( STALE_NOW_EPOCH - 60 ))"   # 1 min before the injected NOW: well inside 45 min
+GIT_AUTHOR_NAME=fixture GIT_AUTHOR_EMAIL=fixture@example.invalid \
+GIT_COMMITTER_NAME=fixture GIT_COMMITTER_EMAIL=fixture@example.invalid \
+GIT_AUTHOR_DATE="$ACTIVE_DATE" GIT_COMMITTER_DATE="$ACTIVE_DATE" \
+  git -C "$CLAIM_WT" commit -q --allow-empty -m 'test: recent commit under a stale heartbeat'
+
+# Restore the stale-but-parseable heartbeat the earlier cases used; the previous case deleted it,
+# and `reason=missing` would take a different branch than the one under test.
+printf '%s\n' \
+  "claim: $FIXTURE_SLUG" \
+  "branch: $CLAIM_BRANCH" \
+  'agent: fixture' \
+  'heartbeat: 2026-07-17T00:00:00Z' \
+  'status: in-progress' \
+  'done-so-far: fixture' \
+  'next: verify commit activity overrides a stale heartbeat field' \
+  > "$CLAIM_WT/$FIXTURE_CLAIM"
+git -C "$CLAIM_WT" add "$FIXTURE_CLAIM"
+GIT_AUTHOR_NAME=fixture GIT_AUTHOR_EMAIL=fixture@example.invalid \
+GIT_COMMITTER_NAME=fixture GIT_COMMITTER_EMAIL=fixture@example.invalid \
+GIT_AUTHOR_DATE="$ACTIVE_DATE" GIT_COMMITTER_DATE="$ACTIVE_DATE" \
+  git -C "$CLAIM_WT" commit -q -m 'test: stale heartbeat field, live by commit activity'
+
+active_sha="$(git -C "$CLAIM_WT" rev-parse HEAD)"
+set +e
+active_output="$(FAKE_CI_MODE=red FAKE_EXPECT_SHA="$active_sha" SSC_CI_GH="$FAKE_GH" \
+  SSC_COORD_REF="$active_sha" SSC_COORD_NOW_EPOCH="$STALE_NOW_EPOCH" \
+  "$ROOT/scripts/coord-status" --no-fetch 2>&1)"
+active_code=$?
+set -e
+active_expected="live by COMMIT activity (stale heartbeat field, ignored): $FIXTURE_SLUG"
+if [[ "$active_code" -ne 0 || "$active_output" != *"$active_expected"* ||
+      "$active_output" == *"potentially stale heartbeat: $FIXTURE_SLUG"* ]]; then
+  printf 'ci-status-guard[commit-activity]: expected=%q and NO stale report, got_output=%q exit=%s\n' \
+    "$active_expected" "$active_output" "$active_code" >&2
   exit 1
 fi
 
