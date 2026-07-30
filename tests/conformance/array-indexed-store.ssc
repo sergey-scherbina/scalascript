@@ -1,0 +1,53 @@
+---
+name: array-indexed-store
+description: "a(i) = v stores, on every lane and from every statement position"
+backends: [int, js, jvm, v2]
+---
+
+# `a(i) = v` is `a.update(i, v)`
+
+`BUGS.md` `v2-array-indexed-store-silently-dropped`. Scala defines an indexed store as
+`a.update(i, v)`. Both self-hosted fronts failed to parse it and **dropped the store with no
+diagnostic** — a wrong answer, not a crash, which is the failure shape this project treats as the
+most expensive kind.
+
+The two fronts failed for different reasons in different code, which is why the fix took two
+commits: the legacy front reached assignment parsing and had no `app` arm there, while F's
+assignment head is a two-token peek (identifier, then `=`), so `a(1) = 7` was never an assignment
+head at all — the second token is `(`. It fell to expression parsing, which stops at `=` and
+discards the rest.
+The statement positions matter independently: F consults its head test in five places, and a fix
+wired into one of them leaves the others silently dropping stores. A `def` body and a block
+sequence are separate paths from the top level.
+
+A computed index and a computed value, so the arm cannot be passing by folding literals — and a
+second store to the same slot, so it is a real mutable cell rather than a fresh array each time.
+
+```scalascript
+val top = Array(0, 0, 0)
+top(1) = 7
+println(top(0))
+println(top(1))
+println(top(2))
+def inDef(): Int =
+  val a = Array(0, 0)
+  a(1) = 5
+  a(1)
+
+def inSeq(): Int =
+  val a = Array(0, 0)
+  a(0) = 1
+  a(1) = 2
+  a(0) + a(1)
+
+println(inDef())
+println(inSeq())
+def computed(): Int =
+  val a = Array(0, 0, 0)
+  val i = 1 + 1
+  a(i) = 3 * 4
+  a(i) = a(i) + 1
+  a(i)
+
+println(computed())
+```

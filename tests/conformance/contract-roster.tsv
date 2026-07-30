@@ -1,4 +1,4 @@
-# corpus-contract-roster-v1	baseline-sha256=d85eafafe774020e5760956818c6a357a692690e3f8e167de63d740f39f0f556	roster-sha256=ae5ded30ca5117ff099bcacd3811740dbc332968557dfbd9939db25ec50f9377
+# corpus-contract-roster-v1	baseline-sha256=2c86b2378053d6fcd271c18282511720e35164927910d4f6701aef45b4332d36	roster-sha256=dca339d025f6ddbcdb0a979a9b95adc76401197255f6b5603bef93185500c45e
 _bug1_httpclient
 _bug1b
 _bug1c
@@ -28,6 +28,7 @@ agent-mcp-toolsource
 algebraic-effects
 arithmetic
 array-companion-statics
+array-indexed-store
 async
 async-demo
 async-parallel
