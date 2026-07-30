@@ -202,7 +202,10 @@ function _mkRequest(req, params, bodyBuf) {
   // failure or empty body.  Same shape as the interpreter / JVM
   // backends; handlers decide whether to short-circuit with a 400.
   const json = (body && body.length > 0)
-    ? (() => { try { return _Some(_jsonConvert(JSON.parse(body))); } catch (e) { return _None; } })()
+    // Same reviver as jsonParse: a request body's fractional numbers must be exact decimals here
+    // too, or the JVM/interpreter and JS lanes disagree about an amount that arrived over HTTP.
+    // (v1-json-two-contradictory-number-policies.)
+    ? (() => { try { return _Some(_jsonConvert(JSON.parse(body, _jsonNumberReviver))); } catch (e) { return _None; } })()
     : _None;
   return {
     _type:   'Request',

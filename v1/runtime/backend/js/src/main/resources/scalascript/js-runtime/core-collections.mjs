@@ -523,6 +523,10 @@ function _registerExt(method, fn, type) {
 // nulls become _None (matches Option literals), arrays stay arrays.
 function _jsonConvert(v) {
   if (v === null || v === undefined) return _None;
+  // A _Decimal produced by _jsonNumberReviver is a runtime SCALAR, not a JSON object. Without
+  // this guard the `typeof v === 'object'` branch below turns it into a Map of its internal
+  // fields — the same shape of bug as boxing a _Char and then walking it as a container.
+  if (v && v._type === '_Decimal') return v;
   if (Array.isArray(v)) return v.map(_jsonConvert);
   if (typeof v === 'object') {
     const m = new Map();
@@ -532,8 +536,33 @@ function _jsonConvert(v) {
   return v;
 }
 
+// A fractional/exponent JSON number becomes an EXACT _Decimal, matching the interpreter
+// (JsonParser.parseNumber) and v2 (NativeJsonCodec.rawNumber). `JSON.parse` alone cannot do this:
+// it turns `0.10` into the Number 0.1, destroying the source text before ssc ever sees it. The
+// ES2025 reviver `context.source` hands us the ORIGINAL literal, which is the only way to know
+// `0.10` from `0.1`.
+//
+// Falls back to the plain Number whenever exactness is not achievable — a host without
+// source-text access, or a literal `Decimal(…)` cannot express. That keeps the OLD behaviour for
+// those cases instead of erroring, and every fallback path was checked to still agree with the
+// interpreter on the corpus's own inputs.
+// (v1-json-two-contradictory-number-policies.)
+function _jsonNumberReviver(k, v, context) {
+  if (typeof v !== 'number') return v;
+  const src = context && context.source;
+  if (typeof src !== 'string' || !/[.eE]/.test(src)) return v;
+  try {
+    const m = /^([^eE]+)(?:[eE]([+-]?\d+))?$/.exec(src.trim());
+    if (!m) return v;
+    const d = Decimal(m[1]);
+    // BigDecimal("0.10e1") is unscaled 10 at scale 2-1=1 -> "1.0". Shifting the scale by the
+    // exponent reproduces that exactly; building from the Number would give "1".
+    return m[2] === undefined ? d : _mkDec(d.u, d.s - Number(m[2]));
+  } catch (e) { return v; }
+}
+
 function jsonParse(s) {
-  try { return _jsonConvert(JSON.parse(s)); }
+  try { return _jsonConvert(JSON.parse(s, _jsonNumberReviver)); }
   catch (e) { throw new Error('jsonParse: ' + e.message); }
 }
 

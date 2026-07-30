@@ -90,7 +90,24 @@ object JsonParser:
         if pos < len && (src.charAt(pos) == '+' || src.charAt(pos) == '-') then pos += 1
         while pos < len && { val c = src.charAt(pos); c >= '0' && c <= '9' } do pos += 1
       val s = src.substring(start, pos)
-      if isDouble then Value.doubleV(s.toDouble)
+      // A fractional/exponent JSON number becomes an EXACT decimal, not a binary64 double.
+      //
+      // This is the policy v1's own JSON core already states — `V1JsonCore.rawNumber` builds a
+      // `BigDecimal` and its comment says "exact `Decimal` (lossless money), never a lossy
+      // `Double`" — and the one v2's `NativeJsonCodec.rawNumber` implements. This site was the
+      // dissenter, and since `jsonParse` routes here through `PluginApi.parseJson`, the corpus
+      // GOLDEN recorded the lossy answer: `0.10` read back as `0.1`, `1.50` as `1.5`, and a
+      // 34-significant-digit decimal collapsed to `0.1`. That matters beyond display, because the
+      // same parser reads HTTP request bodies (`InterpreterHttpHandler`, `TypedHandlerWrapper`) and
+      // actor wire messages (`ActorScheduler`) — an amount arriving as JSON was going through
+      // binary64 on the lane the whole corpus treats as ground truth.
+      // (v1-json-two-contradictory-number-policies.)
+      //
+      // On overflow fall back to the OLD double path rather than to V1JsonCore's `BigDecimal("0.0")`:
+      // a pathological exponent should degrade to the previous behaviour, not silently become zero.
+      if isDouble then
+        try Value.DecimalV(BigDecimal(s))
+        catch case _: RuntimeException => Value.doubleV(s.toDouble)
       else
         try Value.intV(s.toLong)
         catch case _: NumberFormatException => Value.doubleV(s.toDouble)

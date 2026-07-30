@@ -78,14 +78,23 @@ def wrapJson(inner: Value): Value =
   val asStringFn = Value.NativeFnV("JsonValue.asString", Computation.pureFn(_ => inner match
     case Value.StringV(s) => Value.StringV(s)
     case other            => typedFail("asString", other)))
+  // The DecimalV cases are required now that a fractional JSON number parses to an EXACT decimal
+  // (JsonParser.parseNumber): `v("score").asDouble` on `0.875` arrives here as a DecimalV, and an
+  // accessor whose whole job is "give me a double" must not reject the shape the parser produces.
+  // Measured as `json-value`'s int FAIL. The sibling implementations already convert —
+  // `JsonIntrinsics.scala:150` (`case Dec(b) => double(b.toDouble)`) and v2's
+  // `JsonNativePlugin.scala:90`; this core path was the one left behind.
+  // (v1-json-two-contradictory-number-policies.)
   val asIntFn = Value.NativeFnV("JsonValue.asInt", Computation.pureFn(_ => inner match
-    case n: Value.IntV    => n
-    case Value.DoubleV(d) => Value.intV(d.toLong)
-    case other            => typedFail("asInt", other)))
+    case n: Value.IntV     => n
+    case Value.DoubleV(d)  => Value.intV(d.toLong)
+    case Value.DecimalV(d) => Value.intV(d.toLong)
+    case other             => typedFail("asInt", other)))
   val asDoubleFn = Value.NativeFnV("JsonValue.asDouble", Computation.pureFn(_ => inner match
-    case d: Value.DoubleV => d
-    case Value.IntV(n)    => Value.doubleV(n.toDouble)
-    case other            => typedFail("asDouble", other)))
+    case d: Value.DoubleV  => d
+    case Value.IntV(n)     => Value.doubleV(n.toDouble)
+    case Value.DecimalV(d) => Value.doubleV(d.toDouble)
+    case other             => typedFail("asDouble", other)))
   val asBoolFn = Value.NativeFnV("JsonValue.asBool", Computation.pureFn(_ => inner match
     case b: Value.BoolV => b
     case other          => typedFail("asBool", other)))

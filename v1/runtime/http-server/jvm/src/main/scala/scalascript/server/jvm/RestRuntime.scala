@@ -405,16 +405,26 @@ class JsonValue(val raw: Any):
   def asString: String = raw match
     case s: String => s
     case other     => throw new RuntimeException("JsonValue.asString: expected string but got " + _show(other))
+  // The decimal cases are not optional: a fractional JSON number is now parsed as an EXACT decimal
+  // (JsonParser.parseNumber), so `v("score").asDouble` on `0.875` reaches here holding a BigDecimal.
+  // Without them the accessor whose entire job is "give me a double" rejects the very shape the
+  // parser produces — measured as `json-value`'s int FAIL. v2's equivalent already converts
+  // (JsonNativePlugin.scala:90 `decimal.map(_.doubleValue())`).
+  // (v1-json-two-contradictory-number-policies.)
   def asInt: Long = raw match
     case n: Long   => n
     case n: Int    => n.toLong
     case n: Double => n.toLong
+    case d: BigDecimal            => d.toLong
+    case d: java.math.BigDecimal  => d.longValue
     case other     => throw new RuntimeException("JsonValue.asInt: expected int but got " + _show(other))
   def asLong: Long = asInt
   def asDouble: Double = raw match
     case n: Double => n
     case n: Long   => n.toDouble
     case n: Int    => n.toDouble
+    case d: BigDecimal            => d.toDouble
+    case d: java.math.BigDecimal  => d.doubleValue
     case other     => throw new RuntimeException("JsonValue.asDouble: expected double but got " + _show(other))
   def asBool: Boolean = raw match
     case b: Boolean => b
