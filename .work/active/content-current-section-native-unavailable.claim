@@ -2,9 +2,9 @@ slug: content-current-section-native-unavailable
 branch: feature/content-current-section-native-unavailable
 agent: claude-code
 started: 2026-07-30T08:59:39Z
-heartbeat: 2026-07-30T08:59:39Z
-status: claimed-before-planning
-items: v2-diverge-dsl-calc-parser
+heartbeat: 2026-07-30T09:00:22Z
+status: in-progress
+items: content-current-section-native-unavailable v2-diverge-dsl-calc-parser
 paths: v2/BUGS.md tests/conformance/BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
