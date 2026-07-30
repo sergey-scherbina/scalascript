@@ -5256,57 +5256,32 @@ tests/conformance/v2-db-url-scheme-not-jdbc.ssc`. Fix candidate: recognize
 instead of hardcoding `jdbc:`.
 Found+minimized 2026-07-09 by busi (fable).
 
-## js-passerror-tostring-not-used — an imported case class's `override def toString` is ignored on js, in `dsl-mini-language` only
-<!-- status: open
+## js-passerror-tostring-not-used — DUPLICATE of js-pass-error-not-formatted-by-its-module-function
+<!-- status: fixed
+     fixed-in: 4b92ac864
      lane: js
-     area: front
-     gate: scala-cli tests/conformance/contract.sc -->
+     area: front -->
 
-**Filed 2026-07-30 from a `Corpus Contract` regression row, with the narrowing attempts that FAILED
-recorded, so the next reader does not inherit a hypothesis as if it were a finding.**
+**Filed and closed the same day, by two agents, from opposite ends.** I filed this from the
+`dsl-mini-language  js  DIVERGE` row in Corpus Contract run 30542056391 and spent the narrowing effort
+before checking `git log` on the suspect file — `4b92ac864` had already fixed it, 47 minutes earlier,
+while I was reducing. The operational lesson, worth more than the entry: **before narrowing a bug from
+a nightly run, `git log -S` the suspected file — the run can be an hour stale.** Checking claims and
+heartbeats is not the same check.
 
-Run 30542056391 shard 1/4 reports `dsl-mini-language  js  DIVERGE`. Reproduced locally at
-`17ea85565`, `ssc-tools run` vs `run-js` on `examples/dsl-mini-language.ssc` — both exit 0, three
-lines differ, and all three are the same shape:
+Verified independently against a build of current `main`: `dsl-mini-language` int == js on stdout, the
+contract row is closed.
 
-```
-int: [name-resolve] undefined variable: z
-js:  PassError(name-resolve, undefined variable: z, <unknown>, 0, 0)
-```
+**One measurement from the reduction is kept because it is not in the other entry — the
+discriminator is a SINGLE LINE.** Bisecting `std/dsl/passes.ssc` down: the trigger is the front-matter
+`package:` declaration. Remove that one line and the `override def toString` is honoured; keep it and
+the js lane prints the raw record. A local case class was always fine, which is what kept it hidden.
+Three earlier reduction attempts (same-file case class, explicit `.toString`, an imported module via a
+relative `[..](./x.ssc)` link with the same default arguments and branching body) ALL rendered
+correctly on both lanes — so any test that exercises one emission path proves nothing about the other.
 
-`PassError` (`v1/runtime/std/dsl/passes.ssc:36-45`) declares `override def toString`, and the example
-calls it EXPLICITLY (`es.foreach(e => println(e.toString))`, lines 234/240/246/252). The js lane
-renders the default data shape instead — note the defaults `<unknown>, 0, 0` are present, so
-construction and default-argument filling both worked; only the `toString` override is unused.
-
-**NOT the JSON change.** The case contains no `json` reference, and the divergence is in case-class
-text rendering, which `jsonParse`'s rewrite (`17ea85565`) cannot reach.
-
-**It is also NOT yet reduced.** Three attempts, each a smaller candidate trigger, ALL rendered
-correctly on BOTH lanes — so the real trigger is narrower than any of them:
-
-| attempt | result |
-|---|---|
-| case class + `override def toString`, same file, printed via `println(p)` | both lanes print the DATA shape (`P(x, 1)`) — so an implicit `println` ignores the override on int too, which is a separate question and not this bug |
-| same, printed via explicit `p.toString` and `foreach(e => println(e.toString))` | both lanes correct (`[x/1]`) |
-| case class in an IMPORTED module (`[mod](./mod.ssc)`), with default args and a branching `toString` mirroring `PassError` exactly | both lanes correct |
-
-So the difference lies in something the reduction did not copy — candidates in order of cheapness:
-`passes.ssc` is reached as a `std/dsl/passes.ssc` path import rather than a relative `[..](./x.ssc)`
-link; the value crosses a `Pass[A, B] = A => Either[List[PassError], B]` type alias and a
-`Left(List(...))`; the pipeline goes through the `recover` / `traceAll` combinators. Start by
-importing the real `passes.ssc` and printing one hand-built `PassError`.
-
-**Almost certainly the same family as `js-imported-extension-method-not-dispatched`** (live claim
-`js-ext-module-scope`, same file) — an imported member not dispatched on js. Whoever holds that claim
-should check whether one fix covers both before treating them as two.
-
-**Why it surfaced now, which is not a product regression.** `contract.sc` SKIPs a case with no
-`expected/` file when the int lane times out, exits nonzero, or is non-deterministic
-(`contract.sc:693-703`). `dsl-mini-language`'s frozen baseline row is `* SKIP`; its int lane now exits
-0 locally, so the case RUNS and its latent js cell is compared for the first time. The CI-speed and
-RAM work earlier the same day is the plausible enabler. Either fix the js defect or re-freeze the row
-from `* SKIP` to `js DIVERGE` — the contract classifies "was SKIP, now has a non-PASS cell" as a
-regression row by design, so leaving it undecided keeps the nightly red.
-
-Sibling row in the same shard, unrelated and NOT diagnosed here: `scljet-jdbc  v2  TIMEOUT`.
+**The fix shipped without a test**, and the only thing that had ever noticed the defect was a corpus
+row `contract.sc` was SKIPping. Gate added: `JsPackagedBodyMethodTest` (in the interpreter module's
+tests, where `JsGen` is already unit-tested, so no freeze file is touched). It asserts the
+`_registerExt('toString', …, 'PassError')` registration on the top-level path, on the `package:` path,
+and — the shape that made the bug possible — that the two paths AGREE.
