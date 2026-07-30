@@ -1,5 +1,36 @@
 # Changelog
 
+## 2026-07-30 — the push path is a 5-minute suite again, and it is written in ScalaScript
+
+`ci.yml` had not produced a green run since 2026-07-27T16:31. The reason was arithmetic, not defects:
+13.4 min wall clock and ~64 runner-minutes per push against a `main` push interval of ~3-7 min, with
+GitHub keeping one pending run per group. Of the last 100 runs: **83 cancelled, 4 failure, 0 success**
+— and `cancelled` reads as RED, so the apparatus was manufacturing reds for commits that were fine.
+
+The per-push verdict is now `scripts/smoke-ci`: **17 checks plus a 13-case corpus slice, 203 s of an
+enforced 300 s budget.** The same runner runs locally before a push and on GitHub after one, so what
+GitHub says about a commit is what the machine that made it already said. `validate`, `conformance`
+and `conformance-extras` moved to the schedule/PR/dispatch path (`sbt` had already moved on 07-28);
+the full suite is replayable on demand with `scripts/full-ci`, which READS the step list out of
+`ci.yml` rather than keeping a copy that would drift.
+
+Two things worth keeping:
+
+**Dogfooding found a hole nothing else could.** The runner is a `.ssc` program executing on the v2
+native lane. A CI runner is subprocesses and nothing else — and `exec` turned out not to exist on that
+lane. `std/process.ssc` declares the extern and int, js, jvm and rust all implemented it, so every
+other lane could shell out and the DEFAULT one printed `unbound global: exec`. Fixed, with the
+conformance case widened to run on both lanes against one expected output, plus unit tests for the
+three failure modes a corpus case cannot express (a stream larger than a pipe buffer, a timeout, env
+scrubbing).
+
+**The accounting had to be argued with twice.** The first version of the corpus lane parse counted
+KNOWN-RED as neither pass nor fail, making a deliberately-red lane invisible — worse than either
+choice. And an early measurement claimed only 3 of 13 slice cases exercised the JVM lane; the check
+that produced that number had a `|| echo` fallback that quietly supplied a default for every case with
+no `backends:` line, i.e. it reported its own guess as data. The real coverage is 13 int / 12 js /
+11 jvm / 4 v2.
+
 ## 2026-07-30 — the F4 Front Swap gate is green, and F learned three things
 
 `classify`: 0 unexpected disagreements. `dualrun`: 45/45 EQUAL, 0 DIVERGE, and the X1 typed
