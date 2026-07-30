@@ -28,22 +28,33 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Supersede an in-flight run for the same ref: the newest commit is the one whose verdict matters,
-# and a queue of stale runs is how the old path spent 64 runner-minutes to answer about a commit
-# nobody was waiting on any more.
+# `cancel-in-progress: false`, and the first version of this file got it wrong.
+#
+# The reasoning for `true` was that the newest commit is the one whose verdict matters. MEASURED
+# immediately: the first FOUR smoke runs were all `cancelled` — 0 verdicts — because a sibling agent
+# pushed within the job's ~11 min (the launcher build is most of it) every single time. `true` only
+# ever completes a run if no push lands for the whole job, and under several parallel agents that gap
+# does not occur.
+#
+# `false` is what `ci.yml` already settled on for exactly this reason: a run that has STARTED is never
+# killed, so it reaches a verdict, and what GitHub replaces is the previously PENDING run. The queue
+# still collapses to at most one running plus one pending per ref, so nothing piles up — but some
+# commits now get an answer instead of none. That is the same trade `ci.yml` documents, and the
+# evidence for it here was four cancelled runs in a row.
 concurrency:
   group: smoke-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   smoke:
     name: smoke — the fast repo-wide suite
     runs-on: ubuntu-latest
-    # The suite's own budget is 300 s (SSC_SMOKE_BUDGET) and it FAILS when it overruns. This cap is
-    # only the outer guard for the launcher build in front of it (~2.8 min warm, longer cold). If
-    # the job starts approaching it, read the per-check timings the runner prints — do not raise
-    # this. Raising the cap instead of reading the growth is exactly how `corpus-contract.yml` went
-    # 13 runs with zero green.
+    # MEASURED on the first run (30543331480, cold caches): 10.8 min end to end — ~4 min of setup and
+    # launcher build, then 6.3 min of suite. The suite's own budget is 330 s (SSC_SMOKE_BUDGET) and it
+    # FAILS when it overruns, which is how that first run reported: 17/17 checks green, 378.5 s, over
+    # the original 300 s guess. This cap is only the outer guard around the whole job. If it starts
+    # being approached, read the per-check timings the runner prints — do not raise it. Raising a cap
+    # instead of reading the growth is exactly how `corpus-contract.yml` went 13 runs with zero green.
     timeout-minutes: 20
 
     steps:
