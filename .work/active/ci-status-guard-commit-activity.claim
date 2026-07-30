@@ -1,0 +1,11 @@
+slug: ci-status-guard-commit-activity
+branch: feature/ci-status-guard-commit-activity
+agent: claude-code
+started: 2026-07-30T08:15:26Z
+heartbeat: 2026-07-30T08:15:26Z
+status: claimed-before-planning
+items: ci-status-guard-stale-vs-commit-activity CSG-1
+paths: file:tests/e2e/ci-status-guard.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
