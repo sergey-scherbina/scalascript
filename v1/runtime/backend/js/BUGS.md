@@ -7,11 +7,43 @@ grepping for status.
 
 Newest first.
 
-## js-pass-error-not-formatted-by-its-module-function — a `PassError` prints its raw record instead of `[phase] message`
-<!-- status: open
+## js-pass-error-not-formatted-by-its-module-function — a case class from a PACKAGED module lost its body methods, so `toString` printed the raw record
+<!-- status: fixed
      lane: js
      area: codegen
+     fixed-in: unrecorded
      gate: examples/dsl-mini-language.ssc -->
+
+**FIXED 2026-07-30**, and it was not a formatting bug — it was HALF THE EMITTER MISSING.
+
+JsGen compiles a case class's body methods (`override def toString`, a trait method implemented on the
+class) into `_registerExt('method', …, 'Type')` so `_dispatch` finds them via
+`_extensions['Type:method']`. That compilation existed ONLY on the top-level path. `genObjectAsExpr` — the
+path every module with `package:` front-matter goes through, i.e. every std module — had no body-method
+compilation at all.
+
+Measured directly, same declaration in both positions:
+
+| `case class E(…)` with `override def toString` | `_registerExt('toString'` in the emitted JS |
+|---|---|
+| declared locally | **1** |
+| imported from a `package:` module | **0** |
+
+So `PassError` printed `PassError(name-resolve, undefined variable: z, <unknown>, 0, 0)` where int and v2
+both print `[name-resolve] undefined variable: z`. **A local case class worked, which is exactly what kept
+this hidden** — the feature looked present.
+
+**Fixed by EXTRACTING a shared helper, not by copying the arm.** `caseClassBodyMethodRegistrations` returns
+the lines, because the two callers place them differently (top level writes to `sb`; `genObjectAsExpr`
+collects into `decls`). Copying would have set up the next drift, which is the failure this session hit
+four separate times — the JS string escaper twice, the markdown inline scanner, and the literal-pattern
+compiler.
+
+**Outcome:** `dsl-mini-language` goes from a corpus SKIP with no verdict on any lane to int golden +
+**js PASS** + **v2 PASS**. Full three-lane corpus: 1034/1082 PASS cells, **zero regressions**, one
+improvement — this case.
+
+**Original report (superseded 2026-07-30):**
 
 **Found 2026-07-30** by `int-ext-on-alias-dispatch`, after two interpreter fixes let `dsl-mini-language`
 run at all. int and v2 now agree; js is the only lane that differs, and only in formatting:

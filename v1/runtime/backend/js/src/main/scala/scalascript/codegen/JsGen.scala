@@ -2893,24 +2893,7 @@ class JsGen(
       // redeclaration of a lambda param is a JS syntax error).  Curried methods
       // (>1 param clause) are left unregistered — their calling convention would
       // not match `_dispatch`'s flat argument array.
-      d.templ.body.stats.foreach {
-        case meth: Defn.Def
-            if meth.paramClauseGroups.flatMap(_.paramClauses).filterNot(_.mod.nonEmpty).sizeIs <= 1 =>
-          val methName    = meth.name.value
-          val methParamVals = meth.paramClauseGroups.flatMap(_.paramClauses)
-            .filterNot(_.mod.nonEmpty).flatMap(_.values)
-          val methParams  = methParamVals.map(_.name.value)
-          // A parameter that is a JS reserved word (e.g. `delete`) must be
-          // renamed in both the lambda header and the body (`delete` -> `delete_p`).
-          val methRenames = paramRenameMap(methParams)
-          val fields      = params.filterNot(methParams.contains)
-          val destructure = if fields.isEmpty then "" else s"const {${fields.mkString(", ")}} = _self; "
-          val recv        = ("_self" :: methParams.map(safeJsParam)).mkString(", ")
-          val bodyJs      = withParamRenames(methRenames)(genExpr(meth.body))
-          val guards      = intParamGuardLines(methParamVals).mkString(" ")
-          line(s"_registerExt('$methName', ($recv) => { $destructure$guards return $bodyJs; }, '$typeName');")
-        case _ => ()
-      }
+      caseClassBodyMethodRegistrations(typeName, params, d.templ.body.stats).foreach(line)
 
     case d: Defn.Object =>
       val objName = emittedName(d.name.value)
@@ -3078,6 +3061,47 @@ class JsGen(
     val regType = if recvType == "Any" then "null" else s"'$recvType'"
     line(s"_registerExt('${defn.name.value}', ($recvName, ...args) => $fnName($recvName, ...args), $regType);")
 
+  /** `_registerExt` lines for a case class's BODY methods — `override def toString`, or a trait method
+   *  implemented on the class — so `_dispatch` finds them via `_extensions['Type:method']`.
+   *
+   *  Returned rather than emitted, because the two callers put them in different places: the top-level
+   *  path writes lines to `sb`, while `genObjectAsExpr` collects members into `decls` that only become
+   *  the module IIFE at the end.
+   *
+   *  ⚠️ This exists as a shared helper because the packaged path had NO body-method compilation at all:
+   *  a case class declared inside a `package:` module — i.e. every std module — lost its `toString`
+   *  override on the js lane, silently, and printed the raw record instead. Measured on
+   *  `dsl-mini-language`: `PassError(name-resolve, undefined variable: z, <unknown>, 0, 0)` where int and
+   *  v2 both print `[name-resolve] undefined variable: z`. A local case class was fine, which is exactly
+   *  what kept it hidden. Copying the logic into the second path would have set up the next drift, which
+   *  is the failure this session hit four times.
+   *  (js-pass-error-not-formatted-by-its-module-function.)
+   *
+   *  Both zero-param methods and methods with a single (non-implicit) parameter clause register as
+   *  `(_self, p1, …) => { const {fields} = _self; return body; }`. A method parameter that shadows a
+   *  field is NOT re-destructured (a `const` redeclaration of a lambda param is a JS syntax error).
+   *  Curried methods (>1 param clause) are left unregistered — their calling convention would not match
+   *  `_dispatch`'s flat argument array. */
+  private def caseClassBodyMethodRegistrations(
+      typeName: String, params: Seq[String], stats: List[Stat]): List[String] =
+    stats.collect {
+      case meth: Defn.Def
+          if meth.paramClauseGroups.flatMap(_.paramClauses).filterNot(_.mod.nonEmpty).sizeIs <= 1 =>
+        val methName      = meth.name.value
+        val methParamVals = meth.paramClauseGroups.flatMap(_.paramClauses)
+          .filterNot(_.mod.nonEmpty).flatMap(_.values)
+        val methParams  = methParamVals.map(_.name.value)
+        // A parameter that is a JS reserved word (e.g. `delete`) must be renamed in both the lambda
+        // header and the body (`delete` -> `delete_p`).
+        val methRenames = paramRenameMap(methParams)
+        val fields      = params.filterNot(methParams.contains)
+        val destructure = if fields.isEmpty then "" else s"const {${fields.mkString(", ")}} = _self; "
+        val recv        = ("_self" :: methParams.map(safeJsParam)).mkString(", ")
+        val bodyJs      = withParamRenames(methRenames)(genExpr(meth.body))
+        val guards      = intParamGuardLines(methParamVals).mkString(" ")
+        s"_registerExt('$methName', ($recv) => { $destructure$guards return $bodyJs; }, '$typeName');"
+    }
+
   /** Emit a Scala `Defn.Object` as a JS expression — an IIFE that
    *  declares each member as a local const and returns them as an
    *  object literal.  Used both at top level (`const X = (iife)()`)
@@ -3235,6 +3259,8 @@ class JsGen(
         val tagField  = caseClassTagMap.get(typeName).map(t => s"_tag: $t, ").getOrElse("")
         decls += s"function $typeName($paramsStr) ${intParamReturnBody(paramVals, s"{_type: '$typeName', ${tagField}$fields}")}"
         decls += jsTypedJsonRegisterProduct(typeName, params, typeName)
+        // Body methods, which this path used to drop entirely — see the helper's comment.
+        decls ++= caseClassBodyMethodRegistrations(typeName, params, d.templ.body.stats)
         names += typeName
       case d: Defn.Enum =>
         val enumName = d.name.value
