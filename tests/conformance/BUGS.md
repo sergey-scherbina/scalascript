@@ -29,6 +29,59 @@ Fix is a scoped `--update-baseline` for the improved rows plus a roster pass for
 cases — but note `corpus-baseline-update-scoped-run-truncates`: a scoped update can erase
 out-of-scope rows, so the two interact and the order matters.
 
+## update-baseline-under-load-freezes-a-skip — a busy host turns a working case into a PERMANENT SKIP, on every lane
+<!-- status: open
+     lane: apparatus
+     area: conformance
+     gate: none -->
+
+**Found 2026-07-30** by `v2-content-inlines`, in its own `--update-baseline` output. Adjacent to
+[[corpus-contract-baseline-stale-after-improvements]] but a different failure: that one is the freeze
+recording results WORSE than the code produces; this one is a refresh recording a case as UNMEASURABLE
+when it is not. Caught only because
+the diff was read line by line before committing.
+
+**What happened.** The refresh produced two changed rows. One was the expected improvement. The other was
+
+```
+-rozum-agent-schema-derived	js	TIMEOUT
++rozum-agent-schema-derived	*	SKIP
+```
+
+A `*  SKIP` row means the case is dropped for **every** lane, because `contract.sc:690` establishes the
+golden from the int lane BEFORE the `backends:` gate. So that single row would have removed a case from
+int, js and v2 coverage at once — permanently, and silently, since a SKIP is a legitimate-looking row.
+
+**It was an artifact of the run's own load.** Measured on a quiet host afterwards:
+
+| check | result |
+|---|---|
+| `ssc-tools run --v1` twice | rc=0 both times, identical output |
+| scoped contract run for the case | 2/3 PASS cells, **contract GREEN** against the OLD row |
+| `run-js`, timed | 90 s wall at **4 % CPU** — it hangs, so `js TIMEOUT` is the true row |
+
+The golden probe gets 30 s and the corpus runs cases in parallel, so a full `--update-baseline` competes
+with itself. Any case near the probe budget can lose that race, and the loser is recorded as SKIP.
+
+**Why this is worse than a flapping verdict.** A flap between `PASS` and `FAIL` is visible and gets
+investigated. A flap into `SKIP` looks like a decision someone made, reads as "this case cannot run", and
+suppresses all three lanes at once. Nothing in the pipeline distinguishes "int cannot run this" from "int
+did not get enough CPU this time".
+
+**Directions, cheapest first:**
+1. `--update-baseline` should refuse to write a NEW `* SKIP` row for a case that previously had a lane
+   verdict, and print what it would have written. Turning a measured case into an unmeasured one deserves
+   a deliberate act, exactly like a golden move.
+2. Give the golden probe a larger budget than a lane run rather than a smaller one — it gates every lane,
+   so it is the least appropriate place to be stingy.
+3. Record the host's load alongside the freeze, so a suspicious refresh can be re-judged later.
+
+**Workaround that worked, for anyone hitting this before it is fixed:** hand-correct the row and recompute
+the digests. The baseline file has no header and is plain sorted rows; canonicalisation is
+`lines.mkString("\n") + "\n"` in UTF-8; `baseline-sha256` covers the baseline's lines and `roster-sha256`
+the roster's NAME lines only, both stored in the roster header. The contract validates both before doing
+anything else, so an incorrect digest fails loudly rather than silently — which is what makes the manual
+route safe.
 
 ## conformance-int-batch-false-fail-and-hidden-stderr — a case fails in the batch, passes everywhere else, and the reason is thrown away
 <!-- status: open
