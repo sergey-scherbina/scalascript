@@ -490,6 +490,24 @@ sit red for days looking quiet. Measured 2026-07-28:
       destructuring bound from an if/else, with a defaulted param and a nested `val`, and F reports
       an unbound `(global x)` that does not appear in the source, so F is synthesising a binder it
       then cannot resolve. Separate investigation.
+      *ATTEMPTED AND REVERTED 2026-07-30 — read this before trying cause A again.*
+      Taught F to lex `html"…"` as its own interp token and desugar substitutions through
+      `__htmlEscape__`, mirroring legacy's `buildHtmlInterp`. It WORKED on the narrow probe
+      (`html"<p>${v}</p>"` with `v = &<>"x` produced `<p>&amp;&lt;&gt;&quot;x</p>`, byte-identical to
+      INT) and moved 2 of the 4 gate cases from GAP to F. **It was still reverted, because it made
+      things worse where it mattered:** `std-ui-native-html-lambda` (the CONSUMER) went from correct
+      output to **`<closure>`**. Before the change F declined the library and delegated to legacy,
+      which is correct; after it, F compiled the file and produced a wrong answer. Trading a working
+      fallback for a silent wrong result is a regression even though the gate counter improves.
+      **What the next attempt must start from:** F ALREADY HAS a prefixed-interpolator mechanism —
+      `interpPfxNode` / `mkInterpPfx` (:546) — which my lexer change bypassed by intercepting
+      `html"` earlier. Extend THAT path, do not add a second one.
+      ⚠️ Two traps confirmed by measurement, both cheap to hit again:
+      token kind **7 is the layout NEWLINE** (`lexNL2` :53, `layoutTok` :273) — using it made
+      `parseAtom1` read every newline as an interpolation and F failed compiling ITSELF with
+      `__arith__: unknown op > for String+Int`; 9/10/11 are also taken, 12 is free. And `wc-card`
+      has a SECOND gap behind `html` (`unbound global: (global root)`), so cause A alone was never
+      going to fix all three.
       **Verdict: fix F, do not bucket.** Both are `orc=0 frc=1` on real programs that legacy
       compiles; neither is out-of-scope-by-design. Cause A is the bigger prize — an interpolator is
       not an edge case.
