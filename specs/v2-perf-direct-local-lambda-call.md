@@ -1,0 +1,146 @@
+# Direct call for a lambda bound to a local — v2 bytecode lane
+
+> Status: SPEC, not implemented. Required before code because this changes the core bytecode
+> generator on the default execution lane. Task: `TASK/v2-perfomance.md` §v2-perf-6b.
+> Rules: [`POLICY.md`](../POLICY.md) P-1.4, P-6.1.
+
+## The defect, measured
+
+`val f = (x: Int) => …; f(i)` — a lambda bound to a local and invoked directly — costs **48.7 ns
+per call** on the v2 bytecode lane. The same closure invoked by `foreach` costs **7.1 ns**, and a
+top-level `def` reached by `INVOKESTATIC` costs **11.2 ns**. Medians of three rounds, 100 000
+invocations each, alternating protocol.
+
+As a corpus row (`bench/corpus/lambda-call.ssc`, added 2026-07-30 before any fix):
+
+```
+lambda-call    ssc 0.0029    v2-bytecode 5.03    ratio 1734x
+```
+
+**That is the worst row in the corpus**, ahead of `lazylist-take` at 566×. It was invisible until
+the row existed: every other higher-order workload passes its lambda as an *argument* to a
+collection method, which is a different and far cheaper path. Real code writes the direct shape
+constantly.
+
+## Why it is slow — supported by two readings, and NOT by two others
+
+`JvmByteGen` has three application arms: `App(Global g)` with a known method → `INVOKESTATIC`; the
+self/mutual-tail arms; and everything else → `gen(f); genArray(args); Emit.app; Emit.unroll`. The
+direct lambda call lands in the last one.
+
+`-XX:+PrintCompilation` on a 3 000 000-iteration run:
+
+```
+3098   2  ssc.Emit$::app (273 bytes)
+3145   4  ssc.Emit$::app (273 bytes)                <- tier 4 (C2): hot
+3098   2  ssc.Emit$::app (273 bytes)  made not entrant
+3110   2  ssc.Emit$::clos$$anonfun$1 (20 bytes)     <- the Emit.clos forwarder
+```
+
+`Emit.app` is hot enough for C2, is compiled **as a root rather than inlined into the call site**,
+is **under** `FreqInlineSize` (273 < 325) so size is not the blocker, and **deoptimises** — the
+signature of a call site whose speculative profile was invalidated. One shared static funnel,
+reached from every generated call site, whose internal `Runtime.run(c.code, …)` sees every closure
+shape in the program.
+
+`foreach` escapes this because `Runtime.callClos` is private to `Runtime` and inlines into the
+`foreach` arm, where `fn.code` sees few shapes.
+
+**Two hypotheses were tested and killed before this one, and they must not be retried:**
+
+1. *The `Runtime.run` + forwarder + `extend` wrapper is the cost.* **No** — `callClos` is
+   `Runtime.run(fn.code, extend(fn.env, args))`, i.e. the same wrapper, and it is the 7.1 ns path.
+   Both pay it. A fast arm inside `Emit.app` would speed up both equally.
+2. *It is the allocation, or the closure body.* **No** — the slower probe allocates ONE closure and
+   calls it 100 000 times while the faster allocates 10 000; and `foreach(x => { sum = 7L })`
+   measured cheaper than `foreach(x => { })`, i.e. the body is inside the noise.
+
+So the fix must make the **call site** monomorphic. Nothing else has survived contact with a
+measurement.
+
+## The change
+
+### C-1 · Remember which local holds which compiled lambda
+
+`Ctx` already carries `localTailTargets: Map[Int, (String, Int)]`, De Bruijn index → (method,
+arity), but it is populated **only for `LetRec` groups** (`JvmByteGen.scala:1010`, `:1056`). A plain
+`Let` whose right-hand side is a `Lam` is not in it.
+
+Add a sibling map for that case. Key it by **JVM slot**, not by De Bruijn index: slots are stable
+within a method, whereas the De Bruijn index of the same binding changes with depth, and
+`ctx.slotFor(i)` already converts one to the other (`:163`).
+
+Populate it in the pure-`Let` arm (`:975`), which already does `gen(r, ctx); val slot = ctx.push();
+ASTORE slot`. When `r` is a `Term.Lam(ar, _)`, record `slot -> (method, ar)`. The method name is
+minted inside the `Lam` arm (`:917`, `ctx.g.freshLam()`), so it must be handed back — the smallest
+way is for the `Lam` arm to leave it in a one-slot `ctx` field that the `Let` arm reads immediately
+after `gen(r, ctx)` and then clears.
+
+**Only the pure-`Let` arm.** The effectful `Let` materialises a frame, and a local there is not a
+JVM slot.
+
+### C-2 · A direct-call arm for `App(Local i)`
+
+Before the generic `case Term.App(f, args)`, add:
+
+```
+case Term.App(Term.Local(i), args)
+    if !tail && i < ctx.slotDepth &&
+       ctx.localLamSlots.get(ctx.slotFor(i)).exists(_._2 == args.length) =>
+```
+
+emitting:
+
+```
+ALOAD slot                                  the ClosV
+INVOKESTATIC Emit.closEnv (Value)->Value[]  its captured env          ← NEW helper
+genArray(args)
+INVOKESTATIC Emit.extendArr ([Value,[Value)->[Value]                  ← see C-3
+INVOKESTATIC <Gen>.<m> ([Value)->Value      the lambda's compiled body
+INVOKESTATIC Emit.unroll (Value)->Value
+```
+
+`tail` is excluded deliberately: the tail case already has an arm (`:1257`) that returns a `Bounce`,
+and mixing the two would break the trampoline's constant-stack guarantee.
+
+### C-3 · The helper, and the one thing that makes this non-trivial
+
+A direct `INVOKESTATIC` needs `captured ++ args` as its env, and **`captured` is not available
+statically** — it lives inside the `ClosV` sitting in the slot. Hence `Emit.closEnv(v: Value):
+Array[Value]`, returning `v.asInstanceOf[Value.ClosV].env`, plus an `extend` reachable from
+generated code (`Runtime.extend` at `Runtime.scala:465` takes `(Env, Array[Value])`; confirm `Env`
+is `Array[Value]` and expose it under a stable name if it is not).
+
+`closEnv` must be **fail-fast, not fail-soft**: if the slot does not hold a `ClosV` the generator's
+assumption is wrong and the program must die loudly at that point. A fallback to `Emit.app` there
+would hide a miscompilation as a performance mystery.
+
+## Correctness argument, and where it could be wrong
+
+The arm is safe iff the slot provably holds the closure the `Let` bound. It does when: the binding
+is a `val` (locals in this scheme are single-assignment slots), the RHS is a syntactic `Lam` (not a
+value that merely happens to be a closure), and no rebinding or shadowing intervenes — shadowing
+allocates a *new* slot, so the map key changes with it.
+
+**The risk this spec exists to bound:** an arm that fires when the slot holds something else emits a
+call into an unrelated method body. That is silent miscompilation, not a crash. Hence C-3's
+fail-fast and the gate below.
+
+## Verification — in this order
+
+1. **Prove the arm is LIVE before measuring.** Rename the emitted target to a nonexistent method:
+   `bench/corpus/lambda-call.ssc` must die; a `def`-call program must keep working. *An inert change
+   measures as "no gain" and reads as "the theory was wrong" — that already happened once on this
+   task and cost two days.*
+2. **`foreach`-shaped rows must NOT move.** `list-fold`, `hof-pipeline`, `range-sum`,
+   `lazylist-take` take the other path. If they move, the arm is firing where it should not.
+3. Conformance: the affected slice, plus `tests/e2e/v2-front-coverage.sh` and the X1 fixpoint
+   (`specs/v2.2-p6.5-fsub.sh --self`, needs `SSC_JAR=<assembly>` and `V2_DIR`).
+4. **Alternating A/B, three rounds, swapping only the built jar** — this change is compiled Scala,
+   so both arms need a build; keep the BEFORE jar rather than rebuilding it per round.
+
+**Expected size:** 48.7 → about 11 ns, the `def` floor already measured, i.e. **~4×** on
+`lambda-call`. **Disqualifying evidence:** if the arm is live and `lambda-call` does not move, the
+megamorphic reading is wrong too, and the remaining candidate is that the cost is inside the
+lambda's own compiled body rather than at the call — measure the same lambda called through a
+`def` wrapper to separate them.

@@ -291,6 +291,11 @@ the compiled method of the lambda it holds — but it is populated **only for `L
 (`:1010`, `:1056`), so a plain `Let` with a `Lam` right-hand side is not in it. Extending it is the
 shape of the fix.
 
+**Specced: [`specs/v2-perf-direct-local-lambda-call.md`](../specs/v2-perf-direct-local-lambda-call.md)** —
+the two changed sites, the new `Emit.closEnv` helper, the correctness argument, and the
+verification order (prove the arm LIVE first; `foreach` rows must NOT move). Required before code
+because it changes the core bytecode generator on the default lane.
+
 ⚠ **The catch:** a direct `INVOKESTATIC` to the lambda's method needs `captured ++ args` as its env,
 and `captured` lives inside the `ClosV` in the local slot — it is not available statically. So the
 arm must load the slot, take the closure's env, `extend` it with the args, and call the method. That
