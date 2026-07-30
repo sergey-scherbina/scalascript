@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+#
+# launcher-input-digest — a content digest of everything that can affect the staged toolchain
+# (`bin/lib`), so a build can be SKIPPED when nothing that feeds it has changed.
+#
+# WHY NOT THE HEAD SHA. `bin/lib/.build-stamp` records the commit HEAD was at, and both `bin/ssc` and
+# `scripts/smoke-ci` compare against it. That is wrong in both directions: a commit touching only
+# `SPRINT.md` makes a byte-identical toolchain read as STALE (so CI rebuilds ~3.5 min for nothing,
+# and an agent is told to rebuild before measuring), while nothing at all is gained in the other
+# direction, because a commit that DOES change the compiler changes the SHA anyway. The question the
+# guard actually wants to ask is "was this built from the same inputs as the tree in front of me".
+#
+# THE LIST IS INVERTED ON PURPOSE, and this is the load-bearing design decision.
+#
+# The obvious implementation enumerates the paths that DO feed the build — build.sbt, project/, v1/,
+# v2/, and whichever of the ~250 sbt projects `cli` transitively depends on. Miss one and the digest
+# is stable across a change to a compiler source: CI restores a stale toolchain from cache, runs the
+# suite with the PREVIOUS commit's compiler, and reports a green verdict about code it never
+# executed. That is the single worst failure this repository has (`feedback: the apparatus lies
+# green`), and it would be invisible.
+#
+# So the list below is what provably CANNOT affect the compiled bytes — documentation, boards,
+# claims, the corpus, workflows. Miss an entry here and the digest changes when it did not have to:
+# the cost is one unnecessary rebuild. **An error in an exclusion list costs time; an error in an
+# inclusion list costs correctness.** Everything not named below is INCLUDED, including directories
+# that do not exist yet.
+#
+# Usage:
+#   scripts/launcher-input-digest           print the digest
+#   scripts/launcher-input-digest --explain print what went into it, one line per input
+
+set -euo pipefail
+
+ROOT="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
+cd "$ROOT"
+
+# Top-level entries that cannot reach the compiled toolchain.
+#
+#   .work        claim files and the ledger
+#   .github      workflow definitions — they invoke the build, they are not an input to it
+#   .agents      the skills submodule
+#   TASK docs site specs        prose
+#   bench releases scratch      outputs and scratch space
+#   bin          the STAGED OUTPUT itself; including it would make the digest self-referential
+#   examples tests               corpus and samples — read at RUN time, never compiled into bin/lib
+#
+# `tests/` is the one worth justifying: the conformance corpus is data the launcher READS, not code
+# it contains, so changing a `.ssc` case cannot change a staged jar. `v1/runtime/std/*.ssc` is the
+# same kind of data — but it lives under `v1/`, which stays INCLUDED, because separating the two
+# would mean reasoning about which files under a compiled tree are data. That reasoning is exactly
+# the inclusion-list mistake this design avoids, and the cost of not making it is a rebuild.
+EXCLUDE=(.work .github .agents TASK docs site specs bench releases scratch bin examples tests)
+
+is_excluded() {
+  local candidate="$1" excluded
+  for excluded in "${EXCLUDE[@]}"; do
+    [[ "$candidate" == "$excluded" ]] && return 0
+  done
+  # Root-level markdown: AGENTS.md, CHANGELOG.md, README.md, the boards.
+  [[ "$candidate" == *.md ]] && return 0
+  return 1
+}
+
+included=()
+while IFS=$'\t' read -r _meta path; do
+  is_excluded "$path" || included+=("$path")
+done < <(git ls-tree HEAD)
+
+if [[ ${#included[@]} -eq 0 ]]; then
+  echo "launcher-input-digest: no included top-level paths — refusing to emit a digest over nothing." >&2
+  echo "  A digest of an empty input set is stable forever, which would pin a stale toolchain." >&2
+  exit 1
+fi
+
+inputs() {
+  # Committed state: one tree/blob hash per included top-level entry. Non-recursive, so this is a
+  # handful of hashes rather than a walk of every file, and a tree hash already covers everything
+  # beneath it.
+  git ls-tree HEAD -- "${included[@]}"
+
+  # Uncommitted TRACKED changes, staged or not. Without this a dirty worktree digests as its HEAD
+  # and the guard would call a toolchain current while the source it was built from is edited —
+  # which is the local-development case the stamp exists for.
+  git diff HEAD -- "${included[@]}"
+
+  # Untracked files under included paths. A brand-new .scala source is invisible to both commands
+  # above, and it is exactly the shape of "I added a file and the build did not pick it up".
+  local untracked
+  while IFS= read -r untracked; do
+    [[ -n "$untracked" ]] || continue
+    printf 'untracked %s ' "$untracked"
+    git hash-object "$untracked"
+  done < <(git ls-files --others --exclude-standard -- "${included[@]}")
+}
+
+if [[ "${1:-}" == "--explain" ]]; then
+  printf 'included top-level paths (%s):\n' "${#included[@]}"
+  printf '  %s\n' "${included[@]}"
+  printf 'excluded: %s + root *.md\n' "${EXCLUDE[*]}"
+  printf 'digest inputs:\n'
+  inputs | sed 's/^/  /'
+  exit 0
+fi
+
+inputs | shasum -a 256 | cut -d' ' -f1

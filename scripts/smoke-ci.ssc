@@ -98,6 +98,11 @@ val suite = List(
   Check("tests", "silent-assertions-frozen", "tests/e2e/silent-assertion-gate.sh", List(), 120000),
   Check("tests", "ci-status-guard", "tests/e2e/ci-status-guard.sh", List(), 120000),
   Check("tests", "no-test-reaches-an-exiting-cli", "tests/e2e/cli-exit-reachability-guard.sh", List("--self-test"), 180000),
+  // CI skips the ~3.5 min launcher build when this digest says the toolchain's inputs are unchanged.
+  // If the digest ever stops noticing a compiler source, the suite runs on the PREVIOUS commit's
+  // compiler and reports green about code it never executed — no symptom, better timings, wrong
+  // verdict. That makes it a check the push path has to carry itself.
+  Check("tests", "launcher-input-digest", "tests/e2e/launcher-digest-gate.sh", List(), 240000),
 
   // ── scripts — the coordination tooling parallel agents depend on being correct, plus the host
   //    RAM guards that stand between parallel agents and another OOM event.

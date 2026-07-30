@@ -26,6 +26,7 @@ cd "$ROOT"
 
 LAUNCHER="$ROOT/bin/ssc"
 STAMP="$ROOT/bin/lib/.build-stamp"
+DIGEST="$ROOT/bin/lib/.build-digest"
 
 # The runner needs a launcher, and a STALE launcher is worse than none: it would run the suite with
 # the previous commit's compiler and report a verdict about code that is not in the tree. `bin/ssc`
@@ -37,15 +38,41 @@ if [[ ! -x "$LAUNCHER" ]]; then
   exit 1
 fi
 
-if [[ "${SSC_SMOKE_ALLOW_STALE:-}" != "1" && -r "$STAMP" ]]; then
-  built="$(<"$STAMP")"
-  head="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)"
-  if [[ -n "$built" && -n "$head" && "$built" != "$head" ]]; then
-    echo "smoke-ci: the launcher was built from ${built:0:9} but HEAD is ${head:0:9}." >&2
-    echo "A verdict from a stale toolchain is a verdict about the wrong code. Rebuild:" >&2
-    echo "  ./install.sh --dev" >&2
-    echo "(Override for a deliberate A/B: SSC_SMOKE_ALLOW_STALE=1)" >&2
-    exit 1
+# The check is on the launcher's INPUTS, not on which commit is checked out.
+#
+# It was `.build-stamp` (the HEAD sha) and that was wrong in the expensive direction: a commit
+# touching only `SPRINT.md` produces a byte-identical toolchain, and the guard called it stale — so
+# every docs commit forced a ~3.5 min rebuild in CI and told an agent to rebuild before measuring.
+# `.build-digest` (scripts/launcher-input-digest) hashes everything that can reach the staged bytes,
+# so it says "different" exactly when the toolchain really is.
+#
+# The sha stamp remains the FALLBACK, for a launcher staged before the digest existed or built
+# somewhere git was unavailable. Falling back to a stricter check is safe; the reverse would not be.
+if [[ "${SSC_SMOKE_ALLOW_STALE:-}" != "1" ]]; then
+  if [[ -r "$DIGEST" ]]; then
+    built_digest="$(<"$DIGEST")"
+    want_digest="$("$ROOT/scripts/launcher-input-digest" 2>/dev/null || true)"
+    if [[ -n "$built_digest" && -n "$want_digest" && "$built_digest" != "$want_digest" ]]; then
+      echo "smoke-ci: the launcher was built from different sources than this tree." >&2
+      echo "  staged inputs: ${built_digest:0:12}" >&2
+      echo "  this tree:     ${want_digest:0:12}" >&2
+      echo "A verdict from a stale toolchain is a verdict about the wrong code. Rebuild:" >&2
+      echo "  ./install.sh --dev" >&2
+      echo "(Override for a deliberate A/B: SSC_SMOKE_ALLOW_STALE=1)" >&2
+      echo "(What changed: scripts/launcher-input-digest --explain)" >&2
+      exit 1
+    fi
+  elif [[ -r "$STAMP" ]]; then
+    built="$(<"$STAMP")"
+    head="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)"
+    if [[ -n "$built" && -n "$head" && "$built" != "$head" ]]; then
+      echo "smoke-ci: the launcher was built from ${built:0:9} but HEAD is ${head:0:9}," >&2
+      echo "and it carries no bin/lib/.build-digest, so the SHA is all there is to compare." >&2
+      echo "A verdict from a stale toolchain is a verdict about the wrong code. Rebuild:" >&2
+      echo "  ./install.sh --dev" >&2
+      echo "(Override for a deliberate A/B: SSC_SMOKE_ALLOW_STALE=1)" >&2
+      exit 1
+    fi
   fi
 fi
 

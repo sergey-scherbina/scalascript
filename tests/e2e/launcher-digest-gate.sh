@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+#
+# launcher-digest-gate — proves `scripts/launcher-input-digest` reacts to the things that change the
+# staged toolchain and ignores the things that cannot, and that `scripts/smoke-ci` actually consumes
+# it.
+#
+# WHY THIS GATE IS NOT OPTIONAL. The digest exists so CI can SKIP a ~3.5 min launcher build on a
+# cache hit. If it fails to notice a change to a compiler source, CI restores the previous commit's
+# toolchain, runs the whole suite with it, and reports GREEN about code it never executed. There is
+# no symptom: every check passes, the timings look better, and the verdict is about the wrong bytes.
+# That is the most expensive failure shape in this repository, so the property gets a gate rather
+# than an argument.
+#
+# The two directions are NOT equally important and the gate says so:
+#   * a change under an INCLUDED path MUST change the digest        — correctness
+#   * a change under an EXCLUDED path MUST NOT change the digest    — the whole benefit
+# Only the first can cause a wrong verdict. If you are ever tempted to weaken one, weaken the second.
+#
+# Every mutation happens in a THROWAWAY WORKTREE at HEAD, never in the checkout you are sitting in:
+# a gate that edits tracked files in place and then restores them is one failed assertion away from
+# leaving someone else's work modified.
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/ssc-launcher-digest.XXXXXX")"
+WT="$TMP/wt"
+
+cleanup() {
+  git -C "$ROOT" worktree remove --force "$WT" >/dev/null 2>&1 || true
+  rm -rf "$TMP"
+}
+trap cleanup EXIT
+
+git -C "$ROOT" worktree add --detach -q "$WT" HEAD
+
+# The worktree is at HEAD; the SCRIPTS under test come from the checkout this gate was invoked from.
+# Otherwise a gate run before committing would silently test the previous version of the very files
+# it exists to check — and would fail outright the first time, when they are not in HEAD at all.
+# In CI the checkout is clean, so the two are the same bytes.
+cp "$ROOT/scripts/launcher-input-digest" "$WT/scripts/launcher-input-digest"
+cp "$ROOT/scripts/smoke-ci"              "$WT/scripts/smoke-ci"
+chmod +x "$WT/scripts/launcher-input-digest" "$WT/scripts/smoke-ci"
+
+DIGEST="$WT/scripts/launcher-input-digest"
+digest() { "$DIGEST"; }
+
+fail() { printf 'launcher-digest-gate[%s]: %s\n' "$1" "$2" >&2; exit 1; }
+
+base="$(digest)"
+[[ -n "$base" ]] || fail bootstrap "the digest is empty"
+
+# ── determinism ───────────────────────────────────────────────────────────────
+# A digest that varies between two identical runs would look like "the sources changed" on every
+# build and quietly disable the cache — the benign direction, but it would also make every other
+# assertion here meaningless.
+again="$(digest)"
+[[ "$base" == "$again" ]] || fail determinism "two runs over an unchanged tree disagree: $base vs $again"
+
+# ── CORRECTNESS: an included path must move the digest ────────────────────────
+# One representative per kind of input, because they reach the digest by different code paths:
+# a tracked edit via `git diff`, a new file via `git ls-files --others`, and the build definition
+# itself, which is neither a compiler source nor a script.
+included_case() { # included_case <label> <relative-path> <mutation-command…>
+  local label="$1" path="$2"; shift 2
+  ( cd "$WT" && "$@" )
+  local after; after="$(digest)"
+  [[ "$after" != "$base" ]] || fail "$label" \
+    "changing $path did NOT change the digest — a build would be SKIPPED for a changed toolchain, and the suite would report a verdict about the previous commit's compiler"
+  ( cd "$WT" && git checkout -q -- "$path" 2>/dev/null || rm -f "$WT/$path" )
+  local restored; restored="$(digest)"
+  [[ "$restored" == "$base" ]] || fail "$label" "restoring $path did not restore the digest ($restored vs $base)"
+}
+
+included_case tracked-compiler-source v2/src/Runtime.scala \
+  bash -c 'printf "\n// launcher-digest-gate probe\n" >> v2/src/Runtime.scala'
+included_case tracked-v1-source v1/lang/core/src/main/scala/scalascript/parser/PreprocessorRegistry.scala \
+  bash -c 'printf "\n// launcher-digest-gate probe\n" >> v1/lang/core/src/main/scala/scalascript/parser/PreprocessorRegistry.scala'
+included_case build-definition build.sbt \
+  bash -c 'printf "\n// launcher-digest-gate probe\n" >> build.sbt'
+included_case untracked-new-source v1/lang/core/src/main/scala/__digest_probe.scala \
+  bash -c 'printf "class DigestProbe\n" > v1/lang/core/src/main/scala/__digest_probe.scala'
+
+# ── BENEFIT: an excluded path must not move the digest ────────────────────────
+# This is what buys the cache hit. A docs or board commit is the majority of this repository's
+# traffic (measured 2026-07-28: 43 of 58 run-creating commits in one hour touched only `.md` or
+# `.work/`), and rebuilding a byte-identical toolchain for each of them is the cost being removed.
+excluded_case() { # excluded_case <label> <relative-path> <mutation-command…>
+  local label="$1" path="$2"; shift 2
+  ( cd "$WT" && "$@" )
+  local after; after="$(digest)"
+  [[ "$after" == "$base" ]] || fail "$label" \
+    "changing $path changed the digest, so a commit that cannot affect the toolchain still forces a rebuild"
+  ( cd "$WT" && git checkout -q -- "$path" 2>/dev/null || rm -f "$WT/$path" )
+}
+
+excluded_case root-markdown CHANGELOG.md \
+  bash -c 'printf "\nlauncher-digest-gate probe\n" >> CHANGELOG.md'
+excluded_case conformance-corpus tests/conformance/arithmetic.ssc \
+  bash -c 'printf "\nlauncher-digest-gate probe\n" >> tests/conformance/arithmetic.ssc'
+excluded_case workflow .github/workflows/smoke.yml \
+  bash -c 'printf "\n# launcher-digest-gate probe\n" >> .github/workflows/smoke.yml'
+excluded_case claim-churn .work/digest-probe.txt \
+  bash -c 'printf "probe\n" > .work/digest-probe.txt'
+
+# ── the guard must actually CONSUME the digest ────────────────────────────────
+# The digest being correct is worth nothing if `scripts/smoke-ci` does not read it. These two run the
+# wrapper against a staged `bin/lib` that the test constructs, so the assertion is about the guard's
+# behaviour rather than about whatever launcher happens to be installed.
+mkdir -p "$WT/bin/lib"
+printf '#!/bin/sh\nexit 0\n' > "$WT/bin/ssc"
+chmod +x "$WT/bin/ssc"
+
+printf '%s\n' "$base" > "$WT/bin/lib/.build-digest"
+set +e
+agree_out="$(cd "$WT" && SSC_SMOKE_BUDGET=1 ./scripts/smoke-ci --list 2>&1)"
+agree_code=$?
+set -e
+if [[ "$agree_code" -ne 0 ]]; then
+  fail guard-accepts "a MATCHING digest was rejected (exit $agree_code):
+$agree_out"
+fi
+
+printf '%s\n' "0000000000000000000000000000000000000000000000000000000000000000" \
+  > "$WT/bin/lib/.build-digest"
+set +e
+reject_out="$(cd "$WT" && ./scripts/smoke-ci --list 2>&1)"
+reject_code=$?
+set -e
+if [[ "$reject_code" -eq 0 || "$reject_out" != *"different sources than this tree"* ]]; then
+  fail guard-rejects "a MISMATCHED digest was accepted (exit $reject_code):
+$reject_out"
+fi
+
+# And the override still works, or a deliberate A/B becomes impossible.
+set +e
+override_out="$(cd "$WT" && SSC_SMOKE_ALLOW_STALE=1 ./scripts/smoke-ci --list 2>&1)"
+override_code=$?
+set -e
+[[ "$override_code" -eq 0 ]] || fail guard-override "SSC_SMOKE_ALLOW_STALE=1 did not bypass the check (exit $override_code):
+$override_out"
+
+# ── the fallback: a launcher staged before the digest existed ─────────────────
+# Deleting `.build-digest` must fall back to the SHA stamp rather than silently accepting anything.
+rm -f "$WT/bin/lib/.build-digest"
+printf '%s\n' "0000000000000000000000000000000000000000" > "$WT/bin/lib/.build-stamp"
+set +e
+fallback_out="$(cd "$WT" && ./scripts/smoke-ci --list 2>&1)"
+fallback_code=$?
+set -e
+if [[ "$fallback_code" -eq 0 || "$fallback_out" != *"no bin/lib/.build-digest"* ]]; then
+  fail guard-fallback "with no digest and a mismatched stamp the guard did not fall back (exit $fallback_code):
+$fallback_out"
+fi
+
+printf 'launcher-digest-gate: PASS\n'

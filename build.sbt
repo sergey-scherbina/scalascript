@@ -1878,6 +1878,24 @@ lazy val cli = project
         IO.write(libDir / ".build-stamp", headSha + "\n")
         log.info("bin/lib/.build-stamp  " + headSha.take(9))
       }
+      // The CONTENT digest of everything that can affect these staged bytes, written next to the
+      // SHA stamp. The stamp answers "which commit was checked out", which is wrong in both
+      // directions: a docs-only commit makes a byte-identical toolchain read as STALE, so CI rebuilt
+      // ~3.5 min for nothing and agents were told to rebuild before measuring. The digest answers
+      // "were these built from the same inputs as the tree in front of me", which is the question
+      // the guards actually want. See scripts/launcher-input-digest for why its path list is an
+      // EXCLUSION list — an inclusion list that misses a compiler source pins a stale toolchain and
+      // reports a green verdict about code it never ran.
+      //
+      // Best-effort: no git, no digest, and the consumers fall back to the SHA stamp. Written LAST,
+      // like the stamp, so a half-finished install leaves neither.
+      val inputDigest =
+        try { scala.sys.process.Process(Seq("scripts/launcher-input-digest"), root).!!.trim }
+        catch { case _: Throwable => "" }
+      if (inputDigest.nonEmpty) {
+        IO.write(libDir / ".build-digest", inputDigest + "\n")
+        log.info("bin/lib/.build-digest " + inputDigest.take(12))
+      }
       log.info(s"bin/lib/ssc.jar  (${appJar.length / 1024} KB)")
       // compiler-driver JAR → lib/compiler/jars/
       val driverJar = (compilerDriver / Compile / packageBin).value
