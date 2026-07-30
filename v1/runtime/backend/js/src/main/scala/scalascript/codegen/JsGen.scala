@@ -4184,11 +4184,15 @@ class JsGen(
     case Lit.Long(v)    => s"${v}n"
     case Lit.Double(v)  => v.toString
     case Lit.Float(v)   => v.toString
-    case Lit.String(v)  =>
-      // Escape for JS string literal
-      "\"" + v.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t") + "\""
+    // Both literal arms go through the SAME escaper. They used not to: this arm carried the chain
+    // inline and the Char arm below carried a hand-written subset, so the two drifted and the Char
+    // arm escaped only the double quote. A `'\n'` then landed as a real newline inside a JS string
+    // literal and the emitted program failed to PARSE — `SyntaxError`, before running a line. Sharing
+    // `escapeJsString` removes the drift instead of patching one copy.
+    // (jsgen-char-literal-escape.)
+    case Lit.String(v)  => "\"" + escapeJsString(v) + "\""
     case Lit.Boolean(v) => v.toString
-    case Lit.Char(v)    => "\"" + v.toString.replace("\"", "\\\"") + "\""
+    case Lit.Char(v)    => "\"" + escapeJsString(v.toString) + "\""
     case Lit.Unit()     => "undefined"
     case Lit.Null()     => "null"
 
@@ -5491,7 +5495,10 @@ class JsGen(
 
   private def extractPathSteps(body: Term, isBase: Term => Boolean): Option[List[String]] =
     def jsLit(lit: Lit): Option[String] = lit match
-      case Lit.String(v)  => Some("\"" + v.replace("\\", "\\\\").replace("\"", "\\\"") + "\"")
+      // The third copy of the escaper, and the last partial one — it handled only `\\` and `"`.
+      // Field-path strings are unlikely to carry a newline, but a partial copy is how the Char arm
+      // drifted in the first place. (jsgen-char-literal-escape.)
+      case Lit.String(v)  => Some("\"" + escapeJsString(v) + "\"")
       case Lit.Int(v)     => Some(v.toString)
       case Lit.Long(v)    => Some(v.toString)
       case Lit.Double(v)  => Some(v.toString)

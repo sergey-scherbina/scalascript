@@ -1,0 +1,43 @@
+---
+name: conformance-char-literal-escapes
+---
+
+# Escaped `Char` literals must survive every backend
+
+A `Char` literal carrying an escape (`'\n'`, `'\t'`, `'\r'`, `'\\'`, `'"'`) has to reach
+the generated code as an ESCAPE, not as the raw control character. On the JS lane it
+did not: `JsGen`'s `Lit.Char` arm escaped only the double quote, so `'\n'` was written
+into a JS string literal as a real newline and the emitted program failed to PARSE —
+`SyntaxError: Invalid or unexpected token`, before any of it ran.
+
+That made every consumer of `std/parsing/layout` unusable on js, because
+`layout.ssc:67` computes a column with `before.lastIndexOf('\n')`. It stayed invisible
+while `dsl-yaml-like` was a corpus SKIP. (`jsgen-char-literal-escape`.)
+
+The `Char`-as-argument positions below are the ones that broke; the `String` literals
+alongside them are the control — `Lit.String` always carried the full escape chain, and
+this case fails if either arm regresses.
+
+```scalascript
+def main() =
+  // Char literal as an argument — the position that produced invalid JS.
+  println("a\nb".lastIndexOf('\n'))
+  println("a\tb".indexOf('\t'))
+  println("a\\b".indexOf('\\'))
+  println("a\"b".indexOf('"'))
+  println("a\rb".indexOf('\r'))
+
+  // Char literal as a value, and compared.
+  val nl = '\n'
+  println(nl == '\n')
+
+  // Deliberately NOT `println('x')`: v2 renders a bare Char literal as its code point (`120`),
+  // because on that lane a Char literal IS an Int — measured in `specs/v2-char-is-an-int.md`. That
+  // is a separate defect with a separate fix, and folding it in here would leave this case red for a
+  // reason that has nothing to do with the escaping it exists to gate.
+
+  // String literals with the same escapes — the control side.
+  println("x\ty".length)
+  println("x\ny".length)
+  println("q\\r".length)
+```
