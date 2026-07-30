@@ -146,11 +146,34 @@ since they are the ones every INT case pays.
 and has **no** over-limit method. Size of file is not the signal; size of method is. An earlier plan
 to split `Main.scala` first would have spent a day on the wrong target.
 
-## v1-interp-zero-arg-call-to-all-defaulted-object-method-returns-a-closure — `V.one()` prints `<function(1)>`
-<!-- status: open
+## v1-interp-zero-arg-call-to-all-defaulted-object-method-returns-a-closure — `V.one()` printed `<function(1)>`
+<!-- status: fixed
      lane: int
      area: runtime
-     gate: none -->
+     fixed-in: b7916b6f7
+     gate: tests/conformance/zero-arg-all-defaults.ssc -->
+
+**Fixed 2026-07-30.** An object's members are FIELDS of its instance, and a field holding a function
+was only called when it had NO parameters (`DispatchRuntime:3398`). A top-level `def` and a CLASS
+method with the identical signature were correct — only object members took the field path.
+
+**THE FIX IS NOT WHERE THE BUG IS, and measuring said so before any code changed.** The parenless
+spelling was measured on three lanes first:
+
+| | `V.one` (no parens) |
+|---|---|
+| INT | `<function(1)>` |
+| native | `<closure>` |
+| JVM (real Scala) | a lambda |
+
+All three agree it is a function VALUE. By the time a member reaches `dispatch`, `V.one` and
+`V.one()` are the same call with an empty argument list — repairing it there would have changed both
+and broken behaviour every lane agrees on. The empty list is visible one level up, in `EvalRuntime`'s
+explicit-`()` branch, and that is where the decision now lives.
+
+The predicate refuses `using` params and any parameter without a default, so it can only turn an
+incomplete call into a complete one — never alter a call that was already valid. The gate guards both
+directions: `V.none()`, `V.req(6)` and `plainOne()` are the paths that already worked.
 
 **Found 2026-07-30** by the probe for [[v1-interp-object-method-named-arg-wrong-slot]]; same
 object-vs-plain split, different symptom, so filed separately rather than folded into that fix.
