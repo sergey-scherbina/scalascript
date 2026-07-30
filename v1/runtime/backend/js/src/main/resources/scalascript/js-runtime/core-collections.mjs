@@ -479,16 +479,28 @@ function _dispatch(obj, method, args) {
   // Functor[Option].map).  Fall back to the older method-only registry
   // for extensions whose receiver type isn't known statically.
   const _ext_t = _typeOf(obj);
+  let _firstExtError = undefined;
   if (typeof _extensions !== 'undefined') {
     const typed = _extensions[_ext_t + ':' + method];
     if (typed) return typed(obj, ...args);
     if (_extensions[method]) {
       const fns = _extensions[method];
+      // Remember the FIRST failure. The untyped registry has to try each candidate — that is how a
+      // method registered for several receiver types resolves — but discarding the errors turned every
+      // genuine failure INSIDE an extension body into `Method not found`, naming the wrong symbol.
+      // Measured 2026-07-30: a `ReferenceError: PWithIndent is not defined` inside `withIndent` was
+      // swallowed, reported as `Method not found: withIndent`, and that error was then swallowed AGAIN
+      // one level up and reported as `Method not found: parseLayoutWith`. The true cause was two
+      // symbols and two levels away from what the message said.
+      // (js-imported-extension-method-not-dispatched.)
       for (const fn of fns) {
-        try { return fn(obj, ...args); } catch(e) { /* try next */ }
+        try { return fn(obj, ...args); } catch(e) { if (_firstExtError === undefined) _firstExtError = e; }
       }
     }
   }
+  if (_firstExtError !== undefined)
+    throw new Error('Method not found: ' + method + ' on ' + _show(obj) +
+      ' — a candidate threw: ' + (_firstExtError && _firstExtError.message ? _firstExtError.message : _firstExtError));
   throw new Error('Method not found: ' + method + ' on ' + _show(obj));
 }
 

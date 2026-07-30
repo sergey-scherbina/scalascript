@@ -7,11 +7,61 @@ grepping for status.
 
 Newest first.
 
-## js-imported-extension-method-not-dispatched — `Method not found` for an extension method that arrived through a module import
+## js-imported-extension-method-not-dispatched — an extension body is hoisted OUT of its module's scope, so its free names are undefined
 <!-- status: open
      lane: js
      area: codegen
      gate: none -->
+
+**RE-DIAGNOSED 2026-07-30 — my own first diagnosis was wrong, and wrong about the mechanism, not just
+the wording.** It said the js lane "does not dispatch an extension method that came in through a module
+import". Dispatch works fine. Three checks killed that story:
+
+| check | result |
+|---|---|
+| is `_registerExt('parseLayoutWith', …)` emitted? | **yes**, and 21 extensions register in total |
+| does it come before the call site? | yes |
+| does `_dispatch` have an untyped fallback? | yes — typed key, then every candidate in `_extensions[method]` |
+
+So the method IS found and IS called. It **throws**, and the fallback's `catch` discarded the error.
+
+**The real cause, two symbols and two levels away from the message.** Patching the emitted JS to log what
+the fallback swallowed:
+
+```
+[SWALLOWED] withIndent:        ReferenceError: PWithIndent is not defined
+[SWALLOWED] parseLayoutWith:   Error: Method not found: withIndent on PChoice(…)
+```
+
+`withIndent` is an extension in `std/parsing/layout.ssc` whose body constructs `PWithIndent`. JsGen emits
+an extension as a TOP-LEVEL function (`_ext_Parser_withIndent`) whose body keeps the module's names
+UNQUALIFIED — but the only module names that exist at top level are the ones the CONSUMER named in its
+import list, each emitted as `const <name> = std.parsing.<name>;`. Verified 1:1: the consumer imports
+`PSameIndent` (which gets a const) and not `PWithIndent` (which does not), and `PWithIndent` lives only
+inside the module's IIFE.
+
+**So the determinant is the consumer's import list, not the module's `exports:`** — which means adding
+`PWithIndent` to the module's exports is correct for consistency (`withIndent` constructs it and its two
+siblings are exported) but does NOT fix this: no consumer should have to import a module's internals to
+make that module's own extension work.
+
+**Three candidate fixes, in increasing order of correctness:**
+1. emit `const <name> = <pkg>.<name>;` for every name an extension body references, not only for the
+   imported subset — smallest change, but adds top-level bindings the consumer did not ask for and can
+   collide with the consumer's own names exactly as the current scheme can;
+2. emit the extension function INSIDE the module's IIFE and call the global `_registerExt` from there —
+   the closure then captures the module scope, which is what the interpreter effectively does;
+3. qualify the module's names inside extension bodies (`std.parsing.PWithIndent`), which needs the package
+   prefix available at extension-emission time.
+
+(2) looks right and is close to how `_registerExt` already works — the registration is a global side
+effect, so it does not need the function to be global.
+
+**Half of the pair is FIXED:** the swallowing is gone. `_dispatch` now remembers the first candidate error
+and reports it, so the message names the real cause instead of hiding it. That is what turned this from a
+two-hour trace into a one-line read.
+
+**Original report (superseded 2026-07-30):**
 
 **Found 2026-07-30** by `jsgen-char-escape`: with [[jsgen-char-literal-escape]] fixed, `dsl-yaml-like`
 stops failing to PARSE on js and fails one step later.

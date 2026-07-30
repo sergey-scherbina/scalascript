@@ -16,6 +16,14 @@ exports:
   - columnOf
   - PSameIndent
   - PDeeperIndent
+  # PWithIndent is the third member of the same family and its omission was an oversight: `withIndent`
+  # (the module's own exported extension) CONSTRUCTS it. On the interpreter that resolves anyway, but
+  # JsGen hoists an extension body to top level while leaving its free names unqualified, and only
+  # EXPORTED names get a top-level `const` — so `withIndent` on js died with
+  # `ReferenceError: PWithIndent is not defined`. Same for LayoutRest, which `runLayout` returns.
+  # (js-imported-extension-method-not-dispatched.)
+  - PWithIndent
+  - LayoutRest
   - runLayout
   - parseLayout
   - parseLayoutWith

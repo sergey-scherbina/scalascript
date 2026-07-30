@@ -298,6 +298,29 @@ passed as an argument.
 concatenation rows show the value has already lost its identity by then. It needs a Char-shaped value in
 the v2 runtime, or a compile-time marker that survives into `Show`/`toString`/`+`.
 
+**ROOT CAUSE FOUND 2026-07-30 (`js-import-extension-dispatch`, while sizing this) — it is the Core IR, not
+a renderer.** `v2/src/CoreIR.scala:8`:
+
+```scala
+enum Const:
+  case CUnit
+  case CBool(b: Boolean)
+  case CInt(n: Long)
+  case CBig(n: BigInt)
+  case CFloat(d: Double)
+  case CStr(s: String)
+  case CBytes(b: Vector[Byte])
+```
+
+There is **no Char constant**, so a Char literal has nowhere to go except `CInt`, and every backend that
+matches on `Const` sees an Int. That reframes the fix: it is a change to a FROZEN contract with its own
+inventory gate (`specs/coreir-inventory-gate.sh`), plus the reader/writer, the codec, and every backend
+that pattern-matches `Const` — JVM bytecode, JS, Rust, Swift.
+
+**Which means this is a decision, not a patch.** Either add `CChar` and carry it through all of that, or
+decide deliberately that ssc's Char is an Int on v2 and make `Show`/`toString`/`+` agree by carrying a
+compile-time marker instead. Sizing it was worth more than starting it.
+
 **Not gated yet, on purpose.** `tests/conformance/char-literal-escapes.ssc` deliberately omits the bare
 `println('x')` line — including it would leave that case red for a reason unrelated to the escaping it
 exists to gate. A fix here should bring its own case.
