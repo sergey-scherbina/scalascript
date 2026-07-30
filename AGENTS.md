@@ -1137,10 +1137,23 @@ Key invariants:
   duplication is the target here, not intentional cross-checking.
 - Files in `.work/active/` without `.claim` suffix are invalid markers — report or repair before starting
 - Never assume a claim is yours; read the `agent:` field first
-- Heartbeat > 45 min = potentially orphaned; run `/multi-agent triage <slug>` before touching
+- **A stale heartbeat FIELD is not a stale claim. COMMIT ACTIVITY decides.** A claim is a candidate
+  for triage only when BOTH signals are cold: the `heartbeat` field older than 45 minutes (or
+  missing) **AND** no commit for the claim inside that same window — neither its branch tip (local or
+  remote) nor the claim file. Fresh commits mean LIVE, whatever the field says. `scripts/coord-status` applies this already and prints
+  `live by COMMIT activity (stale heartbeat field, ignored)` — read that line as "do not touch".
+  Only when BOTH signals are cold is the claim a candidate: then run
+  `/multi-agent triage <slug>` before touching anything.
+  (Measured 2026-07-30: `v2-backend-matrix-gaps` carried a **10.7-hour-old** field while landing 13
+  commits in the hour it was reported stale. It was triaged as orphaned twice, and only a manual
+  `git log` stopped an edit landing in a file that agent was actively working in. BUGS
+  `heartbeat-stale-while-active`.)
 - Heartbeat on a **material status change**, not as running commentary. The threshold is a floor,
   not a target: a claim that is alive and unchanged does not need a commit every few minutes.
   (Raised from 20 min on 2026-07-28 — 202 of 253 commits in one 6-hour window carried no code.)
+  **Do not "fix" a stale field by heartbeating more often** — that is what the 2026-07-28 raise
+  exists to prevent. Commits you are making anyway are the liveness signal; the field is only for an
+  agent with nothing to commit yet (planning, a long build).
 
 Quick reference:
 - `scripts/coord-claim <slug> --items … --paths …` — claim (preferred; keeps the ledger correct)
