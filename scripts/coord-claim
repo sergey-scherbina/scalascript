@@ -114,6 +114,49 @@ open(p, "w").write("\n".join(lines) + "\n")
 PY
 
 git add "$claim" "$ledger"
+# ── the board row, in the SAME commit as the claim ────────────────────────────────────────────
+#
+# SPRINT.md's contract says step 3 happens "in ONE commit" with the claim, and calls a claim without
+# a row "invisible work". Nothing wrote the row, so the contract was unenforceable by construction:
+# measured 2026-07-30, 4 live claims and 1 board row — 75% invisible, and two of those were mine.
+# A rule that depends on every agent remembering it is a wish, not a rule.
+#
+# The module column is derived from the claim's scopes: the longest module prefix from
+# specs/work-tracking-layout.md that covers ALL of them, else *(repo-wide)*. Bookkeeping files are
+# ignored when deriving it — every claim touches a board, and letting that decide the module would
+# label everything `scripts`.
+SLUG="$slug" ITEMS="$items" PATHS="$paths" python3 - "$root/SPRINT.md" <<'PY_ROW'
+import os, sys, re
+board = sys.argv[1]
+slug, items, paths = os.environ["SLUG"], os.environ["ITEMS"], os.environ["PATHS"]
+MODULES = ["v1/runtime/backend/interpreter", "v1/runtime/backend/js", "v1/runtime/backend/jvm",
+           "v1/lang", "tests/conformance", "tests", "scripts", "uniml", "scljet", "v2", "std"]
+BOOK = {"SPRINT.md", "BACKLOG.md", "BUGS.md", "CHANGELOG.md", "MILESTONES.md", "README.md"}
+
+def bare(scope):
+    for pre in ("repo:", "mod:", "file:"):
+        if scope.startswith(pre): return scope[len(pre):]
+    return scope
+
+real = [bare(p) for p in paths.split() if os.path.basename(bare(p)) not in BOOK]
+mods = set()
+for p in real:
+    hit = next((m for m in MODULES if p == m or p.startswith(m + "/")), None)
+    mods.add(hit)
+module = f"`{mods.pop()}`" if len(mods) == 1 and None not in mods else "*(repo-wide)*"
+
+row = f"| `{items.split()[0]}` | {module} | `{slug}` | in progress | claimed by scripts/coord-claim |" + "\n"
+text = open(board).read()
+if f"`{slug}`" in text:
+    sys.exit(0)                                  # idempotent: re-running must not duplicate a row
+m = re.search(r"(^\|---[^\n]*\n)", text, re.M)
+if not m:
+    sys.stderr.write("coord-claim: no board table found in SPRINT.md; row not written\n")
+    sys.exit(0)                                  # never block a claim on board shape
+open(board, "w").write(text[:m.end()] + row + text[m.end():])
+PY_ROW
+git add SPRINT.md 2>/dev/null || true
+
 git commit -q -m "claim: ${slug} (${items}) [skip ci]"
 
 # Keep the push output. Swallowing it (the old `2>/dev/null`) meant an OVERLAP refusal from the

@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+#
+# coord-release <slug> [-m "<extra message>"] — the missing counterpart to coord-claim.
+#
+# Step 5 of the board contract ("mark [x], delete the row, release the claim") was four manual edits
+# in three files, and half-finished releases are why `.work/active/` and SPRINT.md drift. Measured
+# 2026-07-30 before this existed: 4 live claims, 1 board row. This does all of it in ONE commit, the
+# same way coord-claim now writes the row in one.
+#
+# Deliberately does NOT touch module SPRINT.md `[~]`→`[x]`: which item finished is a judgement the
+# tool cannot make (a claim carries several), and guessing would put false `[x]` marks in a file
+# people trust. It prints the reminder instead.
+set -euo pipefail
+slug="${1:-}"; extra="${2:-}"
+[ -n "$slug" ] || { echo 'usage: scripts/coord-release <slug> ["<why / what landed>"]' >&2; exit 2; }
+
+root="$(git rev-parse --show-toplevel)"
+[ -d "$root/.git" ] || { echo 'coord-release: run from the SHARED checkout, not a worktree' >&2; exit 2; }
+cd "$root"
+git diff --quiet && git diff --cached --quiet || { echo 'coord-release: working tree is dirty' >&2; exit 2; }
+git fetch -q origin && git merge --ff-only -q origin/main
+
+claim=".work/active/${slug}.claim"
+[ -f "$claim" ] || { echo "coord-release: no such claim: $claim" >&2; exit 2; }
+git rm -q "$claim"
+
+SLUG="$slug" python3 - .work/active/LEDGER.tsv SPRINT.md <<'PY_REL'
+import os, sys
+slug = os.environ["SLUG"]
+ledger, board = sys.argv[1], sys.argv[2]
+
+lines = open(ledger).read().rstrip("\n").split("\n")
+out = []
+for l in lines:
+    if l.startswith("# generation:"):
+        out.append("# generation: %d" % (int(l.split(":")[1]) + 1))
+    elif l.startswith(slug + "\t"):
+        continue
+    else:
+        out.append(l)
+open(ledger, "w").write("\n".join(out) + "\n")
+
+text = open(board).read().split("\n")
+kept = [l for l in text if not (l.startswith("| ") and ("`%s`" % slug) in l)]
+open(board, "w").write("\n".join(kept))
+PY_REL
+
+git add .work/active/LEDGER.tsv SPRINT.md
+msg="release-claim: ${slug}"
+[ -n "$extra" ] && msg="${msg} — ${extra}"
+git commit -q -m "${msg} [skip ci]"
+if git push -q origin main; then
+  echo "✓ released ${slug}: claim, ledger row and board row, one commit"
+  echo "  remember: mark the finished item [x] in its module SPRINT.md — this tool will not guess which"
+else
+  echo "coord-release: push refused; main moved. Re-run after: git fetch && git merge --ff-only origin/main" >&2
+  exit 1
+fi

@@ -17,6 +17,9 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 | task | module | claim | state | notes |
 |---|---|---|---|---|
+| `board-row-not-written-by-tool` | *(unrecorded)* | `board-claim-parity` | in progress | row added by board-claim-parity; claim predates the tool |
+| `jsgen-char-literal-escape` | *(unrecorded)* | `jsgen-char-escape` | in progress | row added by board-claim-parity; claim predates the tool |
+| `rozum-room-policy-in-skills` | *(unrecorded)* | `room-policy-and-module-table` | in progress | row added by board-claim-parity; claim predates the tool |
 | `claim-granularity-policy` + `shared-bookkeeping-per-module` | *(repo-wide)* | `coord-policy-and-shared-boards` | in progress | room policy + scope levels into AGENTS.md; module boards shared again |
 
 ## How a task gets onto this board
