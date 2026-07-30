@@ -384,6 +384,27 @@ desc_case desc-none  "$ANC_SHA"  "$DESC_SHA" 2 - "CI UNKNOWN"
 # fallback rather than from some unrelated path.
 desc_case desc-green "$DESC_SHA" "$ANC_SHA" 2 --exact-only "CI UNKNOWN"
 
+# An ABBREVIATED --sha must resolve to the full commit before anything compares it. GitHub returns
+# 40-char head SHAs and the exact-match test is a string comparison, so `--sha <9 chars>` matched
+# nothing, fell through to the descendant fallback, and announced
+# `CI GREEN (descendant) … covered by: <the same commit> — this commit has no run of its own`
+# about a commit that had a run of its own. Green either way; the sentence was false, and a
+# release-claim quoting it would be repeating a claim about the wrong relationship.
+#
+# This uses the REAL fixture commit built above, because an abbreviation can only be expanded against
+# an object this repository actually has — the 40-char fake SHA the cases above use is not one.
+set +e
+abbrev_out="$(FAKE_CI_MODE=smoke-green FAKE_EXPECT_SHA="$DESC_SHA" SSC_CI_GH="$FAKE_GH" \
+  "$ROOT/scripts/ci-status" --sha "${DESC_SHA:0:9}" 2>&1)"
+abbrev_code=$?
+set -e
+if [[ "$abbrev_code" -ne 0 || "$abbrev_out" != *"CI GREEN $DESC_SHA"* || "$abbrev_out" == *"(descendant)"* ]]; then
+  printf 'ci-status-guard[abbrev-sha]: expected an EXACT green for the full SHA, got exit=%s:\n%s\n' \
+    "$abbrev_code" "$abbrev_out" >&2
+  printf '  requested=%s expanded-to=%s\n' "${DESC_SHA:0:9}" "$DESC_SHA" >&2
+  exit 1
+fi
+
 # A run with ZERO jobs is a run that never started one — today, queue eviction or a concurrency
 # supersede. It must NOT be reported as "the workflow dropped four required jobs", which sends the
 # reader after a config problem that does not exist. Observed on the real run 30310314697.

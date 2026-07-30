@@ -121,6 +121,15 @@ if [[ -z "$SHA" ]]; then
     printf '  reason: origin/main is unavailable; fetch the remote first\n'
     exit 2
   fi
+else
+  # EXPAND an abbreviated `--sha`. GitHub returns full 40-char head SHAs, and the exact-match test is
+  # a string comparison — so `--sha 4b92ac864` never matched its own run, fell through to the
+  # descendant fallback, and reported `CI GREEN (descendant) … covered by: 4b92ac864dd3… — this commit
+  # has no run of its own` about the commit that DID have a run of its own. Green either way, but the
+  # sentence is false, and a release-claim quoting it would be repeating a claim about the wrong
+  # relationship. Left unexpanded if git cannot resolve it: a SHA this repository has never seen is
+  # still a legitimate thing to ask GitHub about.
+  SHA="$(git -C "$ROOT" rev-parse --verify "${SHA}^{commit}" 2>/dev/null || printf '%s' "$SHA")"
 fi
 
 unknown() {
