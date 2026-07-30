@@ -192,6 +192,13 @@ bin/http.ssc
 
 > Full categorized index of all docs: **[docs/README.md](docs/README.md)**.
 
+**Working on this repository**
+
+| | |
+|---|---|
+| **[POLICY.md](POLICY.md)** | **The single source for how work is managed here** — claiming, boards, where an entry is recorded, what goes to the coordination room, what a gate has to prove. Rules are numbered (`P-3.5`) so they can be cited. Read this before your first commit. |
+| [AGENTS.md](AGENTS.md) | The working brief: build commands, sbt/worktree mechanics, architecture rules. Process rules live in `POLICY.md`. |
+
 **Getting started**
 
 | | |
