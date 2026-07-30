@@ -293,14 +293,31 @@ The same primitive as cluster 1's Swift failure (`unsupported primitive '__regme
 not "Swift, JS and companion-dispatch"; it is **one primitive with no implementation**, surfacing
 wherever a backend meets it.
 
-**Verified by grep, repo-wide, excluding `.md` and `target/`:** `__regmethod__` occurs ONLY in the two
-lowerers — `v2/lib/ssc1-lower.ssc0` and `specs/v2.2-p6.5-fsub.ssc` — plus one salvage patch. No
-backend directory contains it: not `v2/backend/js`, not `v2/backend/swift`, not `v2/backend/rust`, not
-`v2/backend-jvm-bytecode`, and not `v2/src`.
+**⚠ CORRECTED 2026-07-30 — my own grep was wrong, and so was the conclusion built on it.**
 
-So both fronts EMIT a primitive that nothing implements by that name. That predicts the rust and wasm
-backends fail identically the moment a program reaches it, and it means the failure count understates
-the blast radius — it is bounded by which backends currently get exercised, not by which are affected.
+I reported that `__regmethod__` "occurs ONLY in the two lowerers" and concluded that "the primitive
+has no implementation at all and the Mirror work is unfinished rather than merely unported". Both
+claims are false. `grep` skips `v2/src/Runtime.scala` unless given `-a` — it reads as binary — and
+that file is exactly where the implementation lives:
+
+```
+v2/src/Runtime.scala:1691:    case "__regmethod__" => a =>
+```
+
+The trap is written down in my own notes, and I walked into it anyway and then built a severity
+claim on top of it. Re-measured with `grep -a`:
+
+| primitive | v2/src (VM) | backend/js | backend/swift | backend/rust | backend-jvm-bytecode |
+|---|---|---|---|---|---|
+| `__method__` (its sibling) | 15 files | 2 | 3 | — | — |
+| `__regmethod__` | **implemented** | missing | missing | missing | missing |
+
+**So this is a PORTABILITY GAP, not unfinished work.** `__method__` was carried to the source
+backends; `__regmethod__`, added later by the Mirror change, was not. The failures stand exactly as
+reported — Swift and v2-JS both die on it, and rust/wasm are predicted to do the same — but the fix
+is to port one primitive the way its sibling already was, which is a smaller and far better-defined
+job than "the Mirror work is incomplete" would have sent someone looking for.
+
 
 Introduced by `dd56c4b8d` ("`Mirror.fromProduct` on the native lane"), whose message states
 `fromProduct` is "one tag-level `__regmethod__`". **That commit has now broken three consumers:**
