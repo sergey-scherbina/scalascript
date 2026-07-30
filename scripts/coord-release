@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# coord-release <slug> [-m "<extra message>"] — the missing counterpart to coord-claim.
+# coord-release <slug> --level <1|2|3> [--note "<what landed>"] — the counterpart to coord-claim.
 #
 # Step 5 of the board contract ("mark [x], delete the row, release the claim") was four manual edits
 # in three files, and half-finished releases are why `.work/active/` and SPRINT.md drift. Measured
@@ -10,9 +10,64 @@
 # Deliberately does NOT touch module SPRINT.md `[~]`→`[x]`: which item finished is a judgement the
 # tool cannot make (a claim carries several), and guessing would put false `[x]` marks in a file
 # people trust. It prints the reminder instead.
+#
+# `--level` is REQUIRED, and that is the point rather than an inconvenience. POLICY.md §P-6.7 says a
+# release "must NAME which level of evidence it actually has"; before this, the flags were never
+# parsed at all — `slug="$1"; extra="$2"` — so
+#
+#   scripts/coord-release <slug> --level 3 --note "contract green"
+#
+# put the literal string `--level` into the message and silently dropped the `3` and the note
+# entirely. A required field that a tool quietly discards is an optional field, and the release
+# record is exactly where the next agent looks to decide whether a result can be trusted. Refusing
+# without it makes forgetting impossible instead of merely discouraged.
+#
+# The old positional form (`coord-release <slug> "<note>"`) still works so existing habits do not
+# break — but it too now requires `--level`.
 set -euo pipefail
-slug="${1:-}"; extra="${2:-}"
-[ -n "$slug" ] || { echo 'usage: scripts/coord-release <slug> ["<why / what landed>"]' >&2; exit 2; }
+
+usage() {
+  cat >&2 <<'USAGE'
+usage: scripts/coord-release <slug> --level <1|2|3> [--note "<what landed>"]
+       scripts/coord-release <slug> --level <1|2|3> "<what landed>"
+
+  --level  which CI evidence this release actually has (POLICY.md §P-6.7):
+             1  scripts/ci-status --sha <landed-sha> exit 0
+             2  the specific job that would catch this change, green — name it in --note
+             3  local gates only — list them by name in --note
+           `cancelled` is RED, never neutral, and never write "green" for a run with no verdict.
+USAGE
+}
+
+slug=""; extra=""; level=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --level)
+      [ $# -ge 2 ] || { echo 'coord-release: --level needs a value' >&2; usage; exit 2; }
+      level="$2"; shift 2 ;;
+    --note)
+      [ $# -ge 2 ] || { echo 'coord-release: --note needs a value' >&2; usage; exit 2; }
+      extra="$2"; shift 2 ;;
+    # Fail CLOSED on anything unrecognised. Swallowing an unknown flag into the message is the
+    # defect this rewrite exists to remove; a typo'd flag must stop the release, not decorate it.
+    --*)
+      printf 'coord-release: unknown option: %s\n' "$1" >&2; usage; exit 2 ;;
+    *)
+      if [ -z "$slug" ]; then slug="$1"
+      elif [ -z "$extra" ]; then extra="$1"
+      else printf 'coord-release: unexpected argument: %s\n' "$1" >&2; usage; exit 2
+      fi
+      shift ;;
+  esac
+done
+
+[ -n "$slug" ] || { usage; exit 2; }
+case "$level" in
+  1|2|3) : ;;
+  "")  echo 'coord-release: --level is required (POLICY.md §P-6.7: a release must NAME its evidence level)' >&2
+       usage; exit 2 ;;
+  *)   printf 'coord-release: --level must be 1, 2 or 3, got %q\n' "$level" >&2; usage; exit 2 ;;
+esac
 
 root="$(git rev-parse --show-toplevel)"
 [ -d "$root/.git" ] || { echo 'coord-release: run from the SHARED checkout, not a worktree' >&2; exit 2; }
@@ -46,7 +101,9 @@ open(ledger, "w").write("\n".join(out) + "\n")
 PY_REL
 
 git add .work/active/LEDGER.tsv
-msg="release-claim: ${slug}"
+# The level is IN the message, in a fixed position, so the record is greppable rather than prose to
+# be re-read: `git log --grep='release-claim:' ` shows every release with the evidence it claimed.
+msg="release-claim: ${slug} [evidence: level ${level}]"
 [ -n "$extra" ] && msg="${msg} — ${extra}"
 git commit -q -m "${msg} [skip ci]"
 if git push -q origin main; then

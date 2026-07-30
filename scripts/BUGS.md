@@ -72,7 +72,7 @@ by the `smoke-launcher-cache` claim; at ~2 s it belongs there, and the current s
 runs it — which is the same hole this entry is about.
 
 ## coord-release-drops-the-evidence-level — the tool swallows its own flags, and AGENTS.md requires that field
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
      gate: none -->
@@ -93,6 +93,25 @@ to decide whether a thing is trustworthy.
 
 Suggested shape: parse the flags, or **refuse without `--level`**. The second is stronger — it makes
 forgetting impossible rather than merely discouraged.
+
+**FIXED 2026-07-30 — both, since the second needs the first.** `coord-release` now parses
+`--level <1|2|3>` and `--note "<text>"`, REQUIRES `--level` (the refusal cites §P-6.7 and prints the
+three levels), fails CLOSED on an unknown flag instead of decorating the message with it, and keeps
+the old positional-note form working so existing habits do not break. The level lands in a fixed
+position — `release-claim: <slug> [evidence: level N] — <note>` — so the record is greppable:
+`git log --grep='release-claim:'` now shows every release with the evidence it claimed.
+
+Gate: `tests/coord/coord-release-evidence-level.sh`, a lab with a fake origin running the REAL
+script (the `coord-claim-runs.sh` idiom — a text-inspecting test in this family once passed against a
+tool that aborted on line 128). Against the OLD tool it fails **14 of its checks** and reproduces the
+report's message verbatim: `release-claim: flagform — --level [skip ci]`.
+
+⚠️ Worth copying: the first version of that gate had **two checks passing for the wrong reason**.
+`--level 9 is refused` and `an unknown flag is refused` were green against the old tool — not because
+it refused anything, but because the previous case had already consumed the claim and it exited 2
+with `no such claim`. Same exit code, different reason, indistinguishable from a real pass. Found by
+running the gate against the old tool and reading WHICH checks passed rather than counting them; the
+fix is a fresh claim per case, and the failure count went 10 → 14.
 
 ## module-sprint-item-written-by-nobody — two of the three artefacts are automated, so the third is forgotten by construction
 <!-- status: open
