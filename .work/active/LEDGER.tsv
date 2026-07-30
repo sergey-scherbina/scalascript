@@ -1,6 +1,7 @@
-# generation: 465
+# generation: 466
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
 smoke-ci	claude-code	2026-07-30T11:24:35Z	smoke-ci-in-ssc	file:scripts/smoke-ci.ssc file:scripts/smoke-ci file:.github/workflows/smoke.yml file:.github/workflows/ci.yml file:scripts/full-ci file:v2/runtime/std/os-plugin/src/main/scala/ssc/plugin/os/OsNativePlugin.scala file:v2/runtime/std/os-plugin/src/test/scala/ssc/plugin/os/OsNativePluginTest.scala file:tests/conformance/std-process-import.ssc file:scripts/SPRINT.md file:scripts/BUGS.md file:CHANGELOG.md file:scripts/ci-status file:tests/e2e/ci-status-guard.sh file:AGENTS.md
 f-infix-ext-part3	claude-code	2026-07-30T13:10:38Z	v2-infix-extension-operator-stringifies	file:specs/v2.2-p6.5-fsub.ssc file:v2/BUGS.md
 set-type-ascription	claude-code	2026-07-30T13:10:54Z	type-ascription-tuple-and-set-arms-missing	file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/PatternRuntime.scala file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGenCpsCodegen.scala file:v2/src/Runtime.scala file:tests/conformance/type-ascription-set.ssc file:tests/conformance/expected/type-ascription-set.txt file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv file:BUGS.md
+v2-perf-6-conclude	claude-code	2026-07-30T13:16:05Z	v2-perf-6-collection-closure-cluster	file:TASK/v2-perfomance.md

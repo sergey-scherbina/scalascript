@@ -1,0 +1,11 @@
+slug: v2-perf-6-conclude
+branch: feature/v2-perf-6-conclude
+agent: claude-code
+started: 2026-07-30T13:16:05Z
+heartbeat: 2026-07-30T13:16:05Z
+status: claimed-before-planning
+items: v2-perf-6-collection-closure-cluster
+paths: file:TASK/v2-perfomance.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
