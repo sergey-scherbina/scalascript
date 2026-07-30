@@ -1,0 +1,62 @@
+---
+name: v2js-unit-pattern
+description: "a Unit scrutinee: case _: Unit holds, and case () does not CRASH"
+backends: [int, js, v2]
+also-codegen: v2
+known-red: "js — v1 JS answers UNIT for `case ()` where int and native answer OTHER; see BUGS.md unit-literal-pattern-diverges-two-lanes-against-two. Declared rather than excluded so the JS/v2 lane THIS CASE EXISTS TO GATE keeps running."
+
+---
+
+# A Unit scrutinee on the v2 JS codegen
+
+`BUGS.md` `js-v2-unit-pattern-does-not-match-and-unit-literal-pattern-crashes`. Two defects, one
+scrutinee. The unit value is `null` on the v2 JS lane, and the emitted matcher read `.t` off it
+unconditionally, so `case () =>` raised
+`TypeError: Cannot read properties of null (reading 't')` — **a pattern match crashing on a value it
+simply does not match.** The same unguarded read was in both "no arm matched" error messages, so the
+diagnostic for a failed match crashed too, precisely where a diagnostic was wanted.
+
+Separately, `$isTag` began `!!(v && …)`, and `null` is falsy, so `case _: Unit` could never hold.
+Same shape as the interpreter and the v1 JS backend, both fixed earlier the same day: a type-test
+table listing every type *except* this one.
+
+```scalascript
+def viaAscription(x: Any): String = x match
+  case _: Unit => "UNIT"
+  case _ => "OTHER"
+
+def viaLiteral(x: Any): String = x match
+  case () => "UNIT"
+  case _ => "OTHER"
+
+println("ascription-unit: " + viaAscription(println("")))
+println("literal-unit:    " + viaLiteral(println("")))
+println("ascription-int:  " + viaAscription(5))
+println("literal-int:     " + viaLiteral(5))
+```
+
+**`jvm` and `js` are deliberately absent, and the reason is a second defect this case cannot pin.**
+Measured on all five lanes, `case ()` splits them two against two:
+
+| lane | `case ()` on the unit value |
+|---|---|
+| `jvm` (real Scala) | `UNIT` |
+| `js` (v1 backend) | `UNIT` |
+| `int` | `OTHER` |
+| native / v2 | `OTHER` |
+| v2 JS | crashed; now `OTHER` |
+
+So `UNIT` is the right answer and half the lanes give it. That is a real cross-lane divergence, filed
+as `unit-literal-pattern-diverges-two-lanes-against-two`, and fixing it means touching pattern
+lowering on the lanes that are wrong — a different change from this one, with goldens at stake.
+`js` is therefore DECLARED KNOWN-RED rather than excluded, and that distinction is the point: taking
+it out of `backends:` also removes the **`JS/v2` lane, which is the one this case exists to gate** —
+`also-codegen: v2` runs the v2 codegen through the js lane's declaration. A case that stops
+exercising the code it was written for is worse than no case, so the divergent lane keeps running
+and diffing under its own bucket. `jvm` stays out because the v2 codegen has no jvm-side variant
+here to gate.
+
+This case pins: **no crash, and agreement with the lane the v2 JS codegen is supposed to mirror.**
+
+The two non-unit lines are the guard that the fix did not make everything match: a `null`-safe read
+must still let an ordinary scrutinee reach the ordinary arms.

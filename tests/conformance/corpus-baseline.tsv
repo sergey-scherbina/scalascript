@@ -105,6 +105,7 @@ typed-sql-crud	js	FAIL
 ui-fetch-json	js	FAIL
 uploads	*	SKIP
 uuid-v7	*	SKIP
+v2js-unit-pattern	js	KNOWN-RED
 validation-demo	*	SKIP
 wallet-mpc-fireblocks	*	SKIP
 webauthn-demo	*	SKIP

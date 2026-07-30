@@ -261,6 +261,7 @@ object JsGen:
 
   private def genMatch(scrut: Term, arms: List[Arm], default: Option[Term], scope: Scope, tco: Boolean): String =
     val sv  = fresh()
+    val tv = fresh()
     val scrutJs = genE(scrut, scope, tco = false)
     val armCases = arms.map { arm =>
       val fvars = freshN(arm.arity)
@@ -276,10 +277,15 @@ object JsGen:
         // uncovered event tag as Unhandled (partial-function semantics) and
         // re-emit the Op to an outer handler, instead of crashing.
         val mv = fresh()
-        s"var $mv=new Error('match: no arm for '+$sv.t+' ('+$$show($sv)+')'); $mv.$$sscHandlerMiss=true; throw $mv;"
-      case None    => s"throw new Error('match: no arm for '+$sv.t+' ('+$$show($sv)+')');"
+        s"var $mv=new Error('match: no arm for '+$tv+' ('+$$show($sv)+')'); $mv.$$sscHandlerMiss=true; throw $mv;"
+      case None    => s"throw new Error('match: no arm for '+$tv+' ('+$$show($sv)+')');"
       case Some(d) => s"return ${genE(d, scope, tco)};"
-    s"(function(){ var $sv=$scrutJs; switch($sv.t){ $armCases default:{$defaultJs} } })()"
+    // Read the tag ONCE, null-safely. The unit value is `null` on this lane, so `$sv.t` threw
+    // `TypeError: Cannot read properties of null` for `case () =>` — a pattern match crashing on a
+    // value it simply does not match. The same read was in both no-arm error messages, so the
+    // diagnostic for "nothing matched" also crashed, exactly where the diagnostic was needed.
+    s"(function(){ var $sv=$scrutJs; var $tv=($sv==null?undefined:$sv.t); " +
+      s"switch($tv){ $armCases default:{$defaultJs} } })()"
 
   // ── Primitives ───────────────────────────────────────────────────────────────
 
@@ -612,7 +618,13 @@ function $eq(a,b){
   }
   return false;
 }
-function $isTag(v,tag,arity){ return !!(v&&v.t===tag&&v.f&&v.f.length===Number(arity)); }
+function $isTag(v,tag,arity){
+  // The unit value is `null` here, so the old `!!(v&&...)` answered false for `case _: Unit` on
+  // every lane that has one — the interpreter, the JS backend and this one each shipped a
+  // type-test table listing every type EXCEPT Unit. Native and the JVM were right all along.
+  if(v==null) return tag==='Unit'&&Number(arity)<=0;
+  return !!(v.t===tag&&v.f&&v.f.length===Number(arity));
+}
 // Value ordering — mirrors Runtime.scala valueLessThan (scalars + tuples lexicographic).
 function $lt(x,y){
   if(typeof x==='bigint'&&typeof y==='bigint') return x<y;
