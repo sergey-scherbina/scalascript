@@ -1,0 +1,57 @@
+# Benchmark run history — append-only. See .agents/plugins/performance/commands/performance.md §2.
+#
+# One row per (run, workload, lane-pair). Append; NEVER rewrite a row. A history you correct in
+# place cannot show a regression that was later fixed, and that pattern is a bug signature.
+#
+# date        ISO day of the run
+# sha         the commit measured. A number without a commit is not evidence.
+# load        1-minute host load average AT THE RUN. The single most common cause of a row
+#             moving, and without it every cross-session comparison is guesswork. Record it;
+#             do not wait for a quiet machine.
+# workload    corpus file, without .ssc
+# lane        which lane the `ms` column measured
+# ref_lane    what `ref_ms` measured — the divisor
+# ms          median ms/iter for `lane`
+# ref_ms      median ms/iter for `ref_lane`
+# ratio       ms / ref_ms. The only column comparable across hosts and sessions.
+# note        free text. The one place to write "measured under a sibling build", which is what
+#             makes a future reader distrust the right row.
+#
+# ⚠ Rows below dated 2026-07-29 and earlier are BACK-FILLED from
+#   specs/v2-vs-v1-backend-matrix.md, which is where measurement was recorded before this file
+#   existed. They carry the load figure that sweep reported. They are evidence of the same
+#   quality as the spec, no better.
+#
+date	sha	load	workload	lane	ref_lane	ms	ref_ms	ratio	note
+2026-07-29	unrecorded	1.8	float-fold	v2-bytecode	ssc	unrecorded	unrecorded	315	back-filled from specs/v2-vs-v1-backend-matrix.md; quiet host
+2026-07-29	unrecorded	1.8	float-loop	v2-bytecode	ssc	unrecorded	unrecorded	54	back-filled; the Double twin of arith-loop
+2026-07-29	unrecorded	1.8	arith-loop	v2-bytecode	ssc	unrecorded	unrecorded	2.4	back-filled; the Long twin — this is the target for float-loop
+2026-07-29	unrecorded	1.8	lazylist-take	v2-bytecode	ssc	unrecorded	unrecorded	395	back-filled
+2026-07-29	unrecorded	1.8	pattern-match-heavy	v2-bytecode	ssc	unrecorded	unrecorded	381	back-filled
+2026-07-29	unrecorded	1.8	effect-stream	v2-bytecode	ssc	unrecorded	unrecorded	269	back-filled
+2026-07-29	unrecorded	1.8	list-fold	v2-bytecode	ssc	unrecorded	unrecorded	146	back-filled
+2026-07-29	unrecorded	1.8	range-sum	v2-bytecode	ssc	unrecorded	unrecorded	113	back-filled
+2026-07-29	unrecorded	1.8	vector-index	v2-bytecode	ssc	unrecorded	unrecorded	46	back-filled; no VectorV — O(n) by construction
+2026-07-29	unrecorded	1.8	map-ops	v2-bytecode	ssc	unrecorded	unrecorded	28	back-filled
+2026-07-29	unrecorded	1.8	hof-pipeline	v2-bytecode	ssc	unrecorded	unrecorded	27	back-filled
+2026-07-29	unrecorded	1.8	bool-predicate	v2-bytecode	ssc	unrecorded	unrecorded	25	back-filled
+2026-07-29	unrecorded	1.8	literal-match	v2-bytecode	ssc	unrecorded	unrecorded	18	back-filled
+2026-07-29	unrecorded	1.8	string-concat	v2-bytecode	ssc	unrecorded	unrecorded	12	back-filled
+2026-07-29	unrecorded	1.8	tuple-monoid	v2-bytecode	ssc	unrecorded	unrecorded	9.1	back-filled; category 3
+2026-07-29	unrecorded	1.8	type-lambda-placeholder	v2-bytecode	ssc	unrecorded	unrecorded	8.8	back-filled; category 3
+2026-07-29	unrecorded	1.8	instance-field	v2-bytecode	ssc	unrecorded	unrecorded	7.5	back-filled; category 3
+2026-07-29	unrecorded	1.8	either-chain	v2-bytecode	ssc	unrecorded	unrecorded	6.9	back-filled; category 3
+2026-07-29	unrecorded	1.8	option-chain	v2-bytecode	ssc	unrecorded	unrecorded	6.8	back-filled; category 3
+2026-07-29	unrecorded	1.8	effect-pure	v2-bytecode	ssc	unrecorded	unrecorded	6.8	back-filled; category 3
+2026-07-29	unrecorded	1.8	mutual-recursion	v2-bytecode	ssc	unrecorded	unrecorded	6.3	back-filled; category 3
+2026-07-29	unrecorded	1.8	string-split	v2-bytecode	ssc	unrecorded	unrecorded	5.2	back-filled; category 3
+2026-07-29	unrecorded	1.8	nested-loop	v2-bytecode	ssc	unrecorded	unrecorded	5.1	back-filled; category 3. Read 2.8 under load 5.7 — contention COMPRESSES ratios
+2026-07-29	unrecorded	1.8	recursion-fib	v2-bytecode	ssc	unrecorded	unrecorded	1.0	back-filled; parity. The best evidence we have about what the good shape looks like
+2026-07-30	51d15eda9	26	arith-loop	v2-bytecode	ssc	1.10	0.698	1.6	BEFORE v2-perf-1. Long twin. First same-session measured row in this file
+2026-07-30	51d15eda9	26	float-loop	v2-bytecode	ssc	109.8	2.84	38.7	BEFORE v2-perf-1. Double twin — 24x worse than its Long sibling
+#
+# 2026-07-30 — the two rows above are a BEFORE with no matching AFTER, on purpose. The change they
+# were taken for (wiring dcell in v2/lib/ssc1-lower.ssc0) turned out to be INERT: the branch is
+# never executed on the default front, proven by swapping the primitive for a nonexistent name and
+# watching the program still succeed. Reverted unmeasured. The real emitter is the F front —
+# specs/v2.2-p6.5-fsub.ssc parseBlockVarBind. See TASK/v2-perfomance.md v2-perf-1.

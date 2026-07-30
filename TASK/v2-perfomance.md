@@ -51,18 +51,49 @@ someone needs to query at that level.
 ## Cause located, fix specified — start here
 
 ### v2-perf-1 · The Double numeric tier is built and never wired up
-**`float-fold` 315× · `float-loop` 54×** — against `arith-loop` (the Long twin) at **2.4×**.
 
-`v2/lib/ssc1-lower.ssc0`, the `var` case (~:4038), reads
-`if isIntLitExpr(expr) then lcell.new … else cell.new …`. There is no Double arm, so a `Double` var
-gets a GENERIC cell and boxes on every read and write: 841 `FloatV` allocation samples on
-`float-loop`, plus ~600 CPU samples in the string-keyed `cell.get`/`cell.set` path.
+**`float-loop` 38.7× · `arith-loop` (the Long twin) 1.6×** — measured same-session 2026-07-30 at
+load 26 (`bench/history.tsv`). The 315×/54×/2.4× figures this entry used to quote were back-filled
+from a different session and must not be compared against these.
 
-`Prims.dcell.new/get/set`, `Emit.dcellAccum` (written as the deliberate twin of `lcellAccum`) and
-`JvmByteGen.canDouble/genDouble` **all already exist**. `grep -c dcell v2/lib/ssc1-lower.ssc0` → **0**.
+The tier itself is real: `Prims.dcell.new/get/set` + `DoubleCellV` (`v2/src/Runtime.scala:1675`),
+`Emit.dcellAccum`, `JvmByteGen.canDouble/genDouble` (28 hits). **A `var x: Double` still gets a
+generic boxed cell**, so every read and write allocates a `FloatV`.
 
-Needs: an `isFloatLitExpr`; a `dcell.new` branch with its own scope marker; a Double twin at each
-`@@`-marker read/write site (:2575, :2870, :4094). Target is the Long ratio (2.4×), not zero.
+**⛔ CORRECTED 2026-07-30 — the fix does NOT go where this entry said.** It named
+`v2/lib/ssc1-lower.ssc0` :4067. That was wrong, and wrong in a way that would have been invisible:
+
+- I wrote the `dcell.new` arm there, staged it into the built toolchain, and it produced correct
+  output — **and was never executed.** Proven by replacing `dcell.new` with a nonexistent primitive
+  and watching the program still succeed. The same probe shows the **`lcell` arm beside it is also
+  never reached**, on either lane, ascribed or not, top-level or inside a `def`. That branch is
+  dead code for the default front.
+- The live emitter is **the F front itself**: `specs/v2.2-p6.5-fsub.ssc:1258-1262`.
+  `parseBlockVarBind` tests `isIntLitCode(init)` — `startsW(s, "(lit (int ")` — and routes to
+  `parseBlockVarLc` (`lcell.new`, scope `@@name`) or `parseBlockVarC` (boxed, `@name`). A Double
+  init is `(lit (float …))`, so it always takes the boxed arm.
+
+**The actual fix**, and it is small:
+
+```
+def isFloatLitCode(s) = startsW(s, "(lit (float ")
+def parseBlockVarDc(nm, init, r, env, cx) =            -- twin of parseBlockVarLc
+  parseBlock(r, ("@@@" ++ nm) :: env, cx) match { case (b, rr) =>
+    ("(let ((prim dcell.new " ++ init ++ ")) " ++ b ++ ")", rr) }
+```
+…plus the `@@@` tier in the read and assign routing (`calleeOf` / `emitAssign`), which is where the
+work actually is — those currently know `@@` and `@` only.
+
+**And do BOTH fronts.** The legacy front has its own copy of this decision; a fix in F alone is a
+half-fix, which is the standing failure mode here.
+
+**Expected size, stated before starting:** `float-loop` toward the Long twin's **1.6×**, i.e. ~20×
+on that workload. **Disqualifying evidence:** if the ratio stays above ~10× after `dcell` is
+provably emitted, boxing is not the dominant cost and the theory is wrong.
+
+**Verify the branch is LIVE before measuring.** Swap the emitted primitive for a nonexistent name;
+the program MUST fail. An inert change measures as "no gain" and gets read as "the theory is wrong"
+— that is how this entry pointed at the wrong file for two days.
 
 ### v2-perf-2 · Every primitive is resolved by STRING at run time
 `Emit.prim1` + `Emit$.s1` + `CHM.computeIfAbsent` ≈ 600 CPU samples on `float-loop`, ~18% of
