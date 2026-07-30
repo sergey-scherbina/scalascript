@@ -144,6 +144,63 @@ every-option-is-bad. Ask those **while continuing everything that does not depen
 answer** — a question that stops all work is the last resort, not the first.
 Detail: [`scrumban`](.agents/plugins/scrumban/commands/scrumban.md) §"decide".
 
+## MANDATORY: contested questions go to the rozum room `scalascript` (Sergiy, 2026-07-30)
+
+**One room: `scalascript`.** Every potentially contentious question, and every conflict of
+interest, is raised there. Not resolved unilaterally, not worked around, not deferred to a
+commit message nobody will read in time.
+
+This is the complement to the section above, not a contradiction of it. *Decide it yourself*
+governs choices that are yours to make. This governs choices that are **someone else's, or
+shared**:
+
+- **Another agent's claim is in your way.** Say so in the room. Do **not** `git push
+  --no-verify`, and do **not** release their claim. A heartbeat is not liveness: on
+  2026-07-30 a claim read **638 minutes stale while its last commit was 56 seconds old** —
+  releasing it on the heartbeat alone would have destroyed live work. Check the last commit
+  and the worktree, then ask.
+- **You believe a claim over-reserves.** Measured the same day: one claim held **1777 files
+  and 9 of them changed in two days**. That is worth raising — and note that both refusals it
+  produced were nonetheless *correct*, so raise it as a question, not an accusation.
+- **Two defensible answers and the choice affects others.** Name both, say which you would
+  take, and keep working on everything that does not depend on the answer.
+- **You are about to change a shared contract** — the claim protocol, the board format, a
+  gate everyone depends on, a freeze others write to.
+
+**Mechanics.** `mcp__rozum__meeting_submit` to post; `meeting_wait_my_turn` for the
+authoritative delta. Keep it short, lead with the measurement, and state what you will do if
+nobody answers — a question with no default attached blocks you, and blocking is what this is
+meant to avoid. Announce `working:` when you start something non-trivial and `done:`/`blocked:`
+when you stop, so siblings can see the board without reading it.
+
+**Do not open a second room** for a sub-topic. One room is the point: a conflict is only
+visible if everyone is looking at the same place.
+
+## MANDATORY: claim the narrowest scope that covers the work (2026-07-30)
+
+Claims carry a **level prefix** (`specs/claim-mutex.md` §Hierarchy), and the level is the unit
+of ownership:
+
+```text
+file:<path>   exactly one file      — the default; it is what lets others work nearby
+mod:<path>    a module subtree      — scripts/coord-claim REFUSES it without --broad "<reason>"
+repo:         everything            — same requirement, and almost never right
+<path>        unprefixed = mod:<path>, unchanged
+```
+
+A module is **both** a unit of code and a unit of ownership, so do not read `mod:` as "this
+area is mine": it is an *edit lock*. Holding a subtree to signal stewardship blocks 1000+ files
+to protect the two you are editing.
+
+Bookkeeping files — `SPRINT.md`, `BACKLOG.md`, `BUGS.md`, `CHANGELOG.md`, `MILESTONES.md`,
+`README.md` — are **shared at every level**, root and per-module alike. Never list one in a
+claim; the guard exempts them by basename precisely so that appending to a board can never be
+refused.
+
+A `file:` scope inside someone else's `mod:` is admitted when that owner has neither declared
+nor modified it. Everything undecidable refuses. If you think a refusal is wrong, that is a
+conflict of interest — see the room, above.
+
 ## MANDATORY: required skills
 
 All skills live in the **`.agents/plugins/` submodule** (the

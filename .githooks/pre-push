@@ -92,7 +92,20 @@ live=$(git ls-tree -r --name-only "$remote_tip" -- .work/active/ 2>/dev/null | g
 # cleanly. The overlap guard is for WORK, not for the notebook the work is recorded in — an item
 # claimed twice is still caught by `items:`, which is the check that actually matters.
 is_shared_bookkeeping() {
-  case "$1" in
+  # Match the BASENAME, not the whole scope. The per-module split (specs/work-tracking-layout.md)
+  # moved bookkeeping into `v2/SPRINT.md`, `scripts/BACKLOG.md`, `tests/conformance/BUGS.md` and so
+  # on — and this function used to compare bare basenames against the FULL scope string, so it
+  # exempted only the ROOT files. Every module board silently became an ordinary claimable path.
+  #
+  # That is the exact serialisation the shared set exists to prevent, restored one level down:
+  # work-tracking-layout.md says the root files had to be shared "precisely because a per-file mutex
+  # would serialise the whole project", and a module board inherits that property the moment it
+  # becomes where work is written. Measured 2026-07-30: a live claim held `scripts/BACKLOG.md`, so a
+  # second agent could not even record that it was blocked.
+  #
+  # A bookkeeping file is append-mostly by many agents BY DESIGN. A rebase conflict there is cheap;
+  # a refusal is not.
+  case "${1##*/}" in
     SPRINT.md|BACKLOG.md|CHANGELOG.md|BUGS.md|MILESTONES.md|README.md) return 0 ;;
     *) return 1 ;;
   esac

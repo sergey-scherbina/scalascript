@@ -103,5 +103,23 @@ check "file inside a module the owner HAS touched → refused" refused "$(verdic
 setup 'mod:v2/lib' no; rm -rf "$LAB/A-wt-owner"
 check "owner worktree ABSENT → fail-closed, refused" refused "$(verdict 'file:v2/lib/a.ssc0')"
 
+
+# ── module bookkeeping files are SHARED, like the root ones ──────────────────────────────────────
+# Regression guard for the per-module split: before 2026-07-30 `is_shared_bookkeeping` compared bare
+# basenames against the whole scope, so only root SPRINT/BACKLOG/… were exempt and every module
+# board became claimable — i.e. serialised. Asserted in both directions so the exemption cannot
+# quietly swallow real paths.
+setup 'file:scripts/BACKLOG.md' no
+check "module BACKLOG.md is shared → admitted" admitted "$(verdict 'file:scripts/BACKLOG.md')"
+
+setup 'file:v2/SPRINT.md' no
+check "module SPRINT.md is shared → admitted" admitted "$(verdict 'file:v2/SPRINT.md')"
+
+setup 'file:v2/lib/a.ssc0' no
+check "a NON-bookkeeping file is still exclusive" refused "$(verdict 'file:v2/lib/a.ssc0')"
+
+setup 'file:scripts/BACKLOG.md' no
+check "same-name file elsewhere is not confused for a real path" admitted "$(verdict 'file:tests/BACKLOG.md')"
+
 if [ "$fail" -ne 0 ]; then printf '\nclaim-scope-hierarchy: FAIL\n' >&2; exit 1; fi
 printf 'claim-scope-hierarchy: PASS\n'

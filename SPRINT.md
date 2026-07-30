@@ -17,7 +17,7 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 | task | module | claim | state | notes |
 |---|---|---|---|---|
-| `bugs-per-module` / `backlog-per-module` / `sprint-hierarchical` | *(repo-wide)* | `work-tracking-per-module` | in progress | this split; rules in AGENTS.md + the two skills |
+| `claim-granularity-policy` + `shared-bookkeeping-per-module` | *(repo-wide)* | `coord-policy-and-shared-boards` | in progress | room policy + scope levels into AGENTS.md; module boards shared again |
 
 ## How a task gets onto this board
 
