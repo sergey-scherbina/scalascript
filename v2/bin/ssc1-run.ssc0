@@ -500,9 +500,18 @@ def sscLoadRoot = (rawPath, seen) =>
   let bytes = #io.readFile(path) in
   let fileStr = #utf8->str(bytes) in
   let src = sscProgramSource(fileStr) in
+  -- A DOC-ONLY .ssc is a legitimate no-op, not an error (`feedback_ssc_fences_by_design`:
+  -- "doc-only = no-op + stderr note"); v1 exits 0 on examples/deploy.ssc, which has ZERO
+  -- `scalascript` fences. Keep the stderr note, then take the SAME path as a normal file: an empty
+  -- source parses to an empty statement list and the file's CONTENT module is still produced —
+  -- which the structural ABI requires, since it checks content root identities against the source
+  -- roots. Short-circuiting to an empty program instead only trades `exit 1` for an ABI error.
   if #i.eq(slen(src), 0) then
     let z = #io.eprint(#sconcat("ssc1-run: no scalascript blocks found: ", #sconcat(path, "\n"))) in
-    #io.exit(1)
+    let stmts = parse(src) in
+    match sscLoadImps(sscImports(fileStr), sscDir(path), Cons(path, seen)) {
+      case Pair(impDefs, seen2) => Pair(sscApp(impDefs, stmts), seen2)
+    }
   else
     let stmts = parse(src) in
     match sscLoadImps(sscImports(fileStr), sscDir(path), Cons(path, seen)) {

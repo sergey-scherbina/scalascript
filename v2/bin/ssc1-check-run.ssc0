@@ -47,8 +47,15 @@ def main = () =>
       -- Fences optional: a heading-less .ssc with no code fences IS code in full ("код целиком").
       let src = if #i.eq(slen(fenced), 0) then bareCodeFallback(fileStr) else fenced in
       if #i.eq(slen(src), 0) then
+        -- A DOC-ONLY .ssc is a legitimate no-op, not an error (`feedback_ssc_fences_by_design`:
+        -- "doc-only = no-op + stderr note"), and v1 exits 0 on examples/deploy.ssc. Report the same
+        -- `OK` the checked path reports — RunNativeV2 treats anything other than exactly "OK" on
+        -- stdout as a failure, so exiting 0 alone still surfaced as `ssc: checker exit 0`. The note
+        -- stays on stderr, so nothing becomes silent; only the STATUS changes, to match both the
+        -- written design and the reference lane.
         let z = #io.eprint("no scalascript blocks\n") in
-        #io.exit(2)
+        let y = #io.print("OK") in
+        #io.exit(0)
       else
         let stmts = parse(src) in
         -- Mutable `var` class field without --mutable: surface the specific,

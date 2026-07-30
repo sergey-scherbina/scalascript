@@ -67,8 +67,29 @@ name suggests the same emitter-synthesized-symbol family as cluster 2 and as `dd
      lane: int
      area: front -->
 
-**Status:** OPEN — **diagnosed through three layers; a partial fix only moves the error** (found
-2026-07-29 by `v2-cluster-c-triage` while reducing `deploy`'s `checker exit 2`).
+**Status: FIXED 2026-07-30** by `v2-doc-only-noop`. `bin/ssc run --v2 examples/deploy.ssc` now exits
+**0** with stdout byte-identical to the v1 reference (both empty).
+
+**What the fix had to get right, and what the first attempt got wrong.** Yesterday's reverted attempt
+made the runners short-circuit to an EMPTY program — and that is exactly what surfaced layer 4: an
+empty program emits no CONTENT module, and the structural ABI checks content root identities against
+the source roots (`NativeV2Structural.scala:56`). A doc-only file is not a program-less file, it is a
+file whose program is empty and whose CONTENT is the point. So the runners now keep the stderr note
+and take the SAME path as any other file — an empty source parses to an empty statement list and the
+content module is still produced. Layer 4 then needs no change at all.
+
+Landed:
+* `ssc1-check-run.ssc0` — prints the same `OK` the checked path prints and exits 0 (exiting 0 alone
+  was not enough: `RunNativeV2` treats any stdout other than exactly `OK` as a failure, which is why
+  the intermediate state said `ssc: checker exit 0`);
+* `ssc1-run.ssc0` + `ssc1-run-fsub.ssc0` (all 3 sites) — note on stderr, then the normal path.
+
+Gates: `specs/v2.2-p6.5-fsub.sh --self` 173 ok / 0 FAIL with the X1 fixpoint byte-identical
+(421342 B); `v2.2-p6.5-semantic.sh check` 247/247 — both load-bearing here because the shared runners
+changed; `run.sh --only 'fence-doc-block,fence-attr-code,hello'` green; `hello` still runs on v2.
+
+**Original status:** OPEN — **diagnosed through three layers; a partial fix only moves the error**
+(found 2026-07-29 by `v2-cluster-c-triage` while reducing `deploy`'s `checker exit 2`).
 
 **The design says this file is fine.** `feedback_ssc_fences_by_design` (2026-07-09): *"doc-only =
 no-op + stderr note"*. `examples/deploy.ssc` contains **zero** `scalascript` fences, and the v1
