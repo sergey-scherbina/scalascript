@@ -673,7 +673,11 @@ def laneCmd(lane: String, file: os.Path): Seq[String] = lane match
 def runLane(lane: String, file: os.Path, budgetS: Int = timeoutS): (String, Int) =
   def once(): (String, Int) =
     val cmd = Seq("timeout", budgetS.toString) ++ laneCmd(lane, file)
-    val r = os.proc(cmd).call(stdin = "", stderr = os.Pipe, check = false)
+    // The launcher's stale-build check costs one `git rev-parse` (~11 ms); this harness spawns a
+    // JVM per case per lane, so it opts out. In CI the tree is AT head and the check would never
+    // fire anyway — the saving is the subprocess, not the warning.
+    val r = os.proc(cmd).call(stdin = "", stderr = os.Pipe, check = false,
+                              env = Map("SSC_NO_BUILD_CHECK" -> "1"))
     (r.out.text().stripTrailing(), r.exitCode)
   val res = once()
   if res._2 == 124 then once() else res

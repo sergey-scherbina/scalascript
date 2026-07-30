@@ -3,6 +3,12 @@ set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# The launchers warn when their build is older than HEAD; this suite spawns a JVM per case per lane,
+# and each check is one `git rev-parse` (~11 ms). Inherited by every child, so run.sc's seven spawn
+# sites are covered here rather than one at a time. Only the subprocess is saved: a tree at HEAD
+# never prints the warning anyway.
+export SSC_NO_BUILD_CHECK=1
+
 # Route the BARE invocation through the RAM-bounded entrypoint, so the guarded path is the only path.
 #
 # WHY, measured 2026-07-28: this script caps nothing. run.sc spawns a subprocess per case x 3 lanes,

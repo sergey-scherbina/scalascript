@@ -1777,11 +1777,44 @@ lazy val cli = project
       // (its expected `GPI hop: DEUTDEFF — ACCC` em-dash printed as `?` on Linux CI
       // while passing on UTF-8-locale developer macs). Pinning UTF-8 makes output
       // byte-identical everywhere; ASCII output is unchanged (UTF-8 ⊇ ASCII).
+      // Stale-build warning, injected into every launcher.
+      //
+      // A launcher pins `ssc.lib.path` to its OWN tree, so `bin/` is necessarily per-tree and that
+      // is right. What is missing is any signal that the tree has MOVED PAST the build: nothing
+      // compares `bin/lib` to HEAD, `bin/ssc` is tracked so a checkout looks equipped, and the
+      // staleness lives entirely in ignored `bin/lib`. Measured 2026-07-30: the shared checkout's
+      // jar was SEVEN DAYS behind HEAD, and a measurement taken with it reported a defect on a lane
+      // that never had it — the fix's own bug report had to be corrected.
+      //
+      // Cost: one `git rev-parse`, measured at 11 ms. Harnesses that spawn a JVM per case set
+      // SSC_NO_BUILD_CHECK=1 (see tests/conformance/run.sc, contract.sc); an interactive probe pays
+      // it, which is the population that gets this wrong. Deliberately NOT gated on a tty: agents
+      // run with pipes, so a tty test would be silent for exactly the case this exists for.
+      val buildCheckSnippet =
+        """|if [[ "${SSC_NO_BUILD_CHECK:-}" != "1" ]]; then
+           |  _SSC_STAMP="$_SSC_BIN/lib/.build-stamp"
+           |  if [[ -r "$_SSC_STAMP" ]]; then
+           |    _SSC_BUILT="$(<"$_SSC_STAMP")"
+           |    _SSC_HEAD="$(git -C "$_SSC_ROOT" rev-parse HEAD 2>/dev/null || true)"
+           |    if [[ -n "$_SSC_HEAD" && -n "$_SSC_BUILT" && "$_SSC_HEAD" != "$_SSC_BUILT" ]]; then
+           |      echo "ssc: STALE BUILD — this toolchain was built from ${_SSC_BUILT:0:9}, but" \
+           |           "$_SSC_ROOT is now at ${_SSC_HEAD:0:9}. Anything you measure with it is the" \
+           |           "old code. Rebuild: (cd \"$_SSC_ROOT\" && ./install.sh --dev)." \
+           |           "Silence: SSC_NO_BUILD_CHECK=1" >&2
+           |    fi
+           |  elif [[ -d "$_SSC_BIN/lib" ]]; then
+           |    echo "ssc: this toolchain has no build stamp, so its age cannot be checked —" \
+           |         "rebuild if you are about to measure anything" >&2
+           |  fi
+           |fi
+           |""".stripMargin
+
       val standardLauncherScript =
         """#!/usr/bin/env bash
           |_SSC_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
           |_SSC_ROOT="$(dirname "$_SSC_BIN")"
-          |_SSC_CDS_ARGS=()
+          |""".stripMargin + buildCheckSnippet +
+        """|_SSC_CDS_ARGS=()
           |if [[ "${SSC_NO_CDS:-}" != "1" ]]; then
           |  _SSC_CACHE="${SSC_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/scalascript}"
           |  if mkdir -p "$_SSC_CACHE" 2>/dev/null; then
@@ -1804,7 +1837,8 @@ lazy val cli = project
         """#!/usr/bin/env bash
           |_SSC_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
           |_SSC_ROOT="$(dirname "$_SSC_BIN")"
-          |exec java -Xss"${SSC_XSS:-64m}" -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 -Dssc.lib.path="$_SSC_ROOT" \
+          |""".stripMargin + buildCheckSnippet +
+        """|exec java -Xss"${SSC_XSS:-64m}" -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 -Dssc.lib.path="$_SSC_ROOT" \
           |  -cp "$_SSC_BIN/lib/jars/*:$_SSC_BIN/lib/ssc.jar" \
           |  scalascript.cli.ssc "$@"
           |""".stripMargin)
@@ -1815,7 +1849,8 @@ lazy val cli = project
           |set -euo pipefail
           |_SSC_BIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
           |_SSC_ROOT="$(dirname "$_SSC_BIN")"
-          |_SSC_PROVIDER="${1:-}"
+          |""".stripMargin + buildCheckSnippet +
+        """|_SSC_PROVIDER="${1:-}"
           |if [[ ! "$_SSC_PROVIDER" =~ ^[A-Za-z0-9._-]+$ ]]; then
           |  echo 'usage: ssc-provider PROVIDER run [--bytecode] file.ssc [-- args...]' >&2
           |  exit 2
@@ -1831,6 +1866,18 @@ lazy val cli = project
           |  scalascript.cli.StandardMain "$@"
           |""".stripMargin)
       providerLauncher.setExecutable(true, false)
+      // The stamp the launchers compare against. Written LAST of the launcher work so a build that
+      // died half-way leaves no stamp — "no stamp" warns too, which is the honest state for a
+      // partial install. `git` failing (tarball, no git) leaves it unwritten rather than wrong.
+      // NB: build.sbt is Scala 2.12 — no `then`, no braceless `catch case`. The first cut used
+      // Scala 3 syntax here and sbt refused to load the project.
+      val headSha =
+        try { scala.sys.process.Process(Seq("git", "-C", root.getAbsolutePath, "rev-parse", "HEAD")).!!.trim }
+        catch { case _: Throwable => "" }
+      if (headSha.nonEmpty) {
+        IO.write(libDir / ".build-stamp", headSha + "\n")
+        log.info("bin/lib/.build-stamp  " + headSha.take(9))
+      }
       log.info(s"bin/lib/ssc.jar  (${appJar.length / 1024} KB)")
       // compiler-driver JAR → lib/compiler/jars/
       val driverJar = (compilerDriver / Compile / packageBin).value
