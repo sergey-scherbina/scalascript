@@ -79,8 +79,29 @@ Alternating A/B, three rounds, only the staged front swapped between arms; media
    front — showed the identical failure. Without it I would have reverted a 44× win because of
    somebody else's red test.
 
-**Still open, and it is the other half:** the legacy front has its own copy of this decision and
-still boxes. Same shape, `v2/lib/ssc1-front.ssc0`. A fix in F alone is a half-fix.
+**Verified by the strongest gate available, after landing:** `specs/v2.2-p6.5-fsub.sh --self` —
+**X1 FIXPOINT green, stage1 == stage2 byte-identical, 434 338 B**, and `C1` output-equivalent to the
+reference. F compiles its own source with the change in it.
+
+*The `--front-report` route reports `ERROR TYPEERR: in def parsePatAtom1` — **pre-existing**, the
+identical error on the pre-change front. That command is not the self-compile gate; the harness
+above is, it needs `SSC_JAR=<assembly>` (`scala-cli --power package v2/src --assembly`) and
+`V2_DIR`, and it takes minutes rather than the 5 s the profile spec quotes for a warm self-compile.*
+
+**Still open — the other half, and its location is now known exactly.** The legacy front does NOT
+emit its own cells: it goes through `v2/lib/ssc1-lower.ssc0`, and **that lowerer's `lcell` arm IS
+live under `SSC_FRONT=legacy`** (probe: rename `lcell.new`, the legacy program dies, the default
+front does not). So the fix is the lowerer edit, mirroring what landed in F:
+
+- `isFloatLitExpr` beside `isIntLitExpr`;
+- a `dcell.new` arm in the `var` case with marker `@@@`;
+- a Double arm at the read site and BOTH write sites, tried before `@@`.
+
+⚠️ **The trap, hit twice:** these three sites nest inside `let … in`, and a closing brace placed by
+counting depth lands after the wrong `}`. The write site inside `let setExpr = … in` needs its brace
+**before** the ` in`, not after the enclosing match. First attempt parsed and then failed at run
+time with `match: no arm for IrLocal/1` — a silent mis-nesting, not a parse error. Verify with the
+probe AND run an Int program: my broken version broke *both* fronts, not just legacy.
 
 ### v2-perf-2 · Every primitive is resolved by STRING at run time
 `Emit.prim1` + `Emit$.s1` + `CHM.computeIfAbsent` ≈ 600 CPU samples on `float-loop`, ~18% of

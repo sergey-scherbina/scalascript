@@ -61,3 +61,8 @@ date	sha	load	workload	lane	ref_lane	ms	ref_ms	ratio	note
 2026-07-30	a132bf090	9.7	float-loop	v2-bytecode	ssc	67.9	1.28	53	BEFORE dcell-in-F (median of 67.3/67.9/71.5)
 2026-07-30	a132bf090	9.7	float-loop	v2-bytecode	ssc	1.53	1.27	1.2	AFTER dcell-in-F (median of 1.96/1.53/0.901) — 44x on the lane, now FASTER than the Long twin
 2026-07-30	a132bf090	9.7	arith-loop	v2-bytecode	ssc	0.612	0.277	2.2	CONTROL, unchanged across both arms (0.601/0.624/0.591 vs 0.619/0.612/0.593)
+#
+# 2026-07-30 post-landing verification: specs/v2.2-p6.5-fsub.sh --self — X1 FIXPOINT green,
+# stage1 == stage2 byte-identical 434338 B. The `ssc info --front-report` TYPEERR on parsePatAtom1
+# is PRE-EXISTING: the identical error on the pre-change front. Controls decided three separate
+# questions today; none of the three reds were caused by the change.
