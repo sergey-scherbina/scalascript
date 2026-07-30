@@ -3629,11 +3629,89 @@ private[interpreter] object DispatchRuntime:
 
   /** Infix fast path: rhs already extracted. args is created lazily (rhs :: Nil) only in the
    *  fallback dispatch path, so arithmetic/comparison fast paths pay zero allocation. */
+  // ── infix2 is split into op-group helpers, and the reason is a hard JVM limit ─────────────────
+  //
+  // `-XX:+DontCompileHugeMethods` is ON by default and a method whose bytecode exceeds
+  // `-XX:HugeMethodLimit` (8000) is NEVER JIT-compiled — not C1, not C2. It runs in the bytecode
+  // interpreter for the life of the process, with no warning of any kind. Measured 2026-07-29,
+  // `infix2` was 21114 bytecodes — 2.6x over — and EVERY infix operation in the v1 interpreter
+  // goes through it. The same defect in v2 (`Prims.__method__`, 49384) cost 2.4-10.8x once fixed.
+  // See BUGS `v1-interpreter-hot-path-never-jits` and `tests/e2e/v1-jit-size.sh`.
+  //
+  // The op-group branches are moved VERBATIM: each inner `(lhs, rhs) match` keeps its own arms and
+  // its own fallback (or absence of one) exactly as before, so behaviour cannot shift. The only new
+  // logic is the outer dispatcher, and its op lists are exactly the ones extracted. The helpers
+  // carry a defensive `case _ => dispatch(...)` that mirrors the original outer default and is
+  // unreachable through `infix2`.
+  //
+  // Grouping follows bytecode weight rather than taste: the numeric tower (`+ - * / %`) and the
+  // comparisons (`== != < > <= >=`) are where the mass is; the remaining ten ops are ~50 lines and
+  // stay inline.
   def infix2(lhs: Value, op: String, rhs: Value, env: Env, interp: Interpreter): Computation =
     val nf = numericFast(lhs, op, rhs)
     if nf != null then return nf
     // Dispatch on op first — Scala 3 compiles this to a hashCode-based O(1) switch
     // rather than the previous O(N) linear scan through 40 tuple-match cases.
+    op match
+      case "+" | "-" | "*" | "/" | "%"          => infix2Arith(lhs, op, rhs, env, interp)
+      case "==" | "!=" | "<" | ">" | "<=" | ">=" => infix2Compare(lhs, op, rhs, env, interp)
+      case "&&" => (lhs, rhs) match
+        case (Value.BoolV(a), Value.BoolV(b)) => Computation.pureBool(a && b)
+        case _                                => dispatch(lhs, op, rhs :: Nil, env, interp)
+      case "||" => (lhs, rhs) match
+        case (Value.BoolV(a), Value.BoolV(b)) => Computation.pureBool(a || b)
+        case _                                => dispatch(lhs, op, rhs :: Nil, env, interp)
+      case "::" => rhs match
+        case Value.ListV(ls) => Pure(Value.ListV(lhs :: ls))
+        case _               => dispatch(lhs, op, rhs :: Nil, env, interp)
+      case "++" => (lhs, rhs) match
+        case (Value.ListV(a), Value.ListV(b)) =>
+          if b.isEmpty then Pure(lhs)
+          else if a.isEmpty then Pure(rhs)
+          else Pure(Value.ListV(a ++ b))
+        case (Value.SetV(a), Value.SetV(b))       => Pure(Value.SetV(a ++ b))
+        case (Value.SetV(a), Value.ListV(b))      => Pure(Value.SetV(a ++ b.toSet))
+        case (Value.MapV(a),    Value.MapV(b))    => Pure(Value.MapV(a ++ b))
+        case (Value.TupleV(as), Value.TupleV(bs)) => Pure(Value.TupleV(as ++ bs))
+        case (Value.TupleV(_),  Value.UnitV)      => Pure(lhs)
+        case (Value.TupleV(as), _)                => Pure(Value.TupleV(as :+ rhs))
+        case (Value.UnitV,      Value.TupleV(_))  => Pure(rhs)
+        case (Value.UnitV,      Value.UnitV)      => Computation.PureUnit
+        case (Value.UnitV,      _)                => Pure(rhs)
+        case (_,                Value.TupleV(bs)) => Pure(Value.TupleV(lhs :: bs))
+        case (_,                Value.UnitV)      => Pure(lhs)
+        case _ =>
+          val ext = extensionDispatch(lhs, "++", rhs :: Nil, env, interp)
+          if ext != null then ext else Pure(Value.TupleV(lhs :: rhs :: Nil))
+      case ":::" => (lhs, rhs) match
+        case (Value.ListV(a), Value.ListV(b)) =>
+          if b.isEmpty then Pure(lhs)
+          else if a.isEmpty then Pure(rhs)
+          else Pure(Value.ListV(a ++ b))
+        case _ => dispatch(lhs, op, rhs :: Nil, env, interp)
+      case ":+" => lhs match
+        case Value.ListV(ls) => Pure(Value.ListV(ls :+ rhs))
+        case _               => dispatch(lhs, op, rhs :: Nil, env, interp)
+      case "+:" => rhs match
+        case Value.ListV(ls) => Pure(Value.ListV(lhs +: ls))
+        case _               => dispatch(lhs, op, rhs :: Nil, env, interp)
+      case "->" => Pure(Value.TupleV(lhs :: rhs :: Nil))
+      case "!" => lhs match
+        case pid @ Value.InstanceV("Pid", _) => Perform("Actor", "send", pid :: rhs :: Nil)
+        case _                               => dispatch(lhs, op, rhs :: Nil, env, interp)
+      case ":=" => lhs match
+        case inst @ Value.InstanceV("AttrKey", _) =>
+          val effF = instanceFieldsMap(inst)
+          val nv = effF.getOrElse("name", null)
+          val name = if nv == null then "" else Value.show(nv)
+          Pure(Value.InstanceV("Attr", new IMap.Map2(
+            "name",  Value.StringV(name),
+            "value", Value.StringV(Value.show(rhs))
+          )))
+        case _ => dispatch(lhs, op, rhs :: Nil, env, interp)
+      case _ => dispatch(lhs, op, rhs :: Nil, env, interp)
+
+  private def infix2Arith(lhs: Value, op: String, rhs: Value, env: Env, interp: Interpreter): Computation =
     op match
       case "+" => (lhs, rhs) match
         case (Value.IntV(a),    Value.IntV(b))    => Computation.pureIntV(a + b)
@@ -3707,6 +3785,15 @@ private[interpreter] object DispatchRuntime:
         case (Value.BigIntV(a), Value.IntV(b))    => Pure(Value.BigIntV(a % BigInt(b)))
         case (Value.IntV(a),    Value.BigIntV(b)) => Pure(Value.BigIntV(BigInt(a) % b))
         case _                              => dispatch(lhs, op, rhs :: Nil, env, interp)
+      case _ => dispatch(lhs, op, rhs :: Nil, env, interp)
+
+  private def infix2Compare(lhs: Value, op: String, rhs: Value, env: Env, interp: Interpreter): Computation =
+    op match
+      case "==" | "!=" => infix2Eq(lhs, op, rhs, env, interp)
+      case _           => infix2Ord(lhs, op, rhs, env, interp)
+
+  private def infix2Eq(lhs: Value, op: String, rhs: Value, env: Env, interp: Interpreter): Computation =
+    op match
       case "==" => (lhs, rhs) match
         case (Value.BigIntV(a), Value.IntV(b))     => Computation.pureBool(a == BigInt(b))
         case (Value.IntV(a),    Value.BigIntV(b))  => Computation.pureBool(BigInt(a) == b)
@@ -3730,6 +3817,10 @@ private[interpreter] object DispatchRuntime:
         case (l: Value.ListV, v: Value.VectorV) => Computation.pureBool(l.items != v.items)
         case (v: Value.VectorV, l: Value.ListV) => Computation.pureBool(v.items != l.items)
         case _                                     => Computation.pureBool(lhs != rhs)
+      case _ => dispatch(lhs, op, rhs :: Nil, env, interp)
+
+  private def infix2Ord(lhs: Value, op: String, rhs: Value, env: Env, interp: Interpreter): Computation =
+    op match
       case "<" => (lhs, rhs) match
         case (Value.IntV(a),    Value.IntV(b))    => Computation.pureBool(a < b)
         case (Value.DoubleV(a), Value.DoubleV(b)) => Computation.pureBool(a < b)
@@ -3790,60 +3881,6 @@ private[interpreter] object DispatchRuntime:
         case (Value.DecimalV(a), Value.BigIntV(b))  => Computation.pureBool(a >= BigDecimal(b))
         case (Value.BigIntV(a),  Value.DecimalV(b)) => Computation.pureBool(BigDecimal(a) >= b)
         case _                                    => dispatch(lhs, op, rhs :: Nil, env, interp)
-      case "&&" => (lhs, rhs) match
-        case (Value.BoolV(a), Value.BoolV(b)) => Computation.pureBool(a && b)
-        case _                                => dispatch(lhs, op, rhs :: Nil, env, interp)
-      case "||" => (lhs, rhs) match
-        case (Value.BoolV(a), Value.BoolV(b)) => Computation.pureBool(a || b)
-        case _                                => dispatch(lhs, op, rhs :: Nil, env, interp)
-      case "::" => rhs match
-        case Value.ListV(ls) => Pure(Value.ListV(lhs :: ls))
-        case _               => dispatch(lhs, op, rhs :: Nil, env, interp)
-      case "++" => (lhs, rhs) match
-        case (Value.ListV(a), Value.ListV(b)) =>
-          if b.isEmpty then Pure(lhs)
-          else if a.isEmpty then Pure(rhs)
-          else Pure(Value.ListV(a ++ b))
-        case (Value.SetV(a), Value.SetV(b))       => Pure(Value.SetV(a ++ b))
-        case (Value.SetV(a), Value.ListV(b))      => Pure(Value.SetV(a ++ b.toSet))
-        case (Value.MapV(a),    Value.MapV(b))    => Pure(Value.MapV(a ++ b))
-        case (Value.TupleV(as), Value.TupleV(bs)) => Pure(Value.TupleV(as ++ bs))
-        case (Value.TupleV(_),  Value.UnitV)      => Pure(lhs)
-        case (Value.TupleV(as), _)                => Pure(Value.TupleV(as :+ rhs))
-        case (Value.UnitV,      Value.TupleV(_))  => Pure(rhs)
-        case (Value.UnitV,      Value.UnitV)      => Computation.PureUnit
-        case (Value.UnitV,      _)                => Pure(rhs)
-        case (_,                Value.TupleV(bs)) => Pure(Value.TupleV(lhs :: bs))
-        case (_,                Value.UnitV)      => Pure(lhs)
-        case _ =>
-          val ext = extensionDispatch(lhs, "++", rhs :: Nil, env, interp)
-          if ext != null then ext else Pure(Value.TupleV(lhs :: rhs :: Nil))
-      case ":::" => (lhs, rhs) match
-        case (Value.ListV(a), Value.ListV(b)) =>
-          if b.isEmpty then Pure(lhs)
-          else if a.isEmpty then Pure(rhs)
-          else Pure(Value.ListV(a ++ b))
-        case _ => dispatch(lhs, op, rhs :: Nil, env, interp)
-      case ":+" => lhs match
-        case Value.ListV(ls) => Pure(Value.ListV(ls :+ rhs))
-        case _               => dispatch(lhs, op, rhs :: Nil, env, interp)
-      case "+:" => rhs match
-        case Value.ListV(ls) => Pure(Value.ListV(lhs +: ls))
-        case _               => dispatch(lhs, op, rhs :: Nil, env, interp)
-      case "->" => Pure(Value.TupleV(lhs :: rhs :: Nil))
-      case "!" => lhs match
-        case pid @ Value.InstanceV("Pid", _) => Perform("Actor", "send", pid :: rhs :: Nil)
-        case _                               => dispatch(lhs, op, rhs :: Nil, env, interp)
-      case ":=" => lhs match
-        case inst @ Value.InstanceV("AttrKey", _) =>
-          val effF = instanceFieldsMap(inst)
-          val nv = effF.getOrElse("name", null)
-          val name = if nv == null then "" else Value.show(nv)
-          Pure(Value.InstanceV("Attr", new IMap.Map2(
-            "name",  Value.StringV(name),
-            "value", Value.StringV(Value.show(rhs))
-          )))
-        case _ => dispatch(lhs, op, rhs :: Nil, env, interp)
       case _ => dispatch(lhs, op, rhs :: Nil, env, interp)
 
   private def extensionDispatch(recv: Value, method: String, args: List[Value], env: Env, interp: Interpreter): Computation | Null =

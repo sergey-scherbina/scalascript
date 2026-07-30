@@ -458,15 +458,27 @@ tree that is **4.3× larger** (302 210 lines vs 70 844). First census, 73 class 
 |---:|---|---|
 | 28036 | `ActorScheduler.handleActorOp` | every actor op |
 | 24984 | `JsGen.genExpr` | every JS emission |
-| 21114 | `DispatchRuntime$.infix2` | **every INT method call** |
+| ~~21114~~ **SPLIT** | `DispatchRuntime$.infix2` → 2473 + Arith 7555 + Ord 7136 + Eq 2035 | 18.8% faster with the interpreter JIT off; neutral with it on |
 | 16346 | `RustCodeWalk$.renderTerm` | every Rust emission |
 | 15330 | `EvalRuntime$.evalCore` | **every INT term** |
 | 14696 | `DispatchRuntime$.dispatchList` | **every INT list op** |
 | 9839 | `DispatchRuntime$.dispatchString` | **every INT string op** |
 
-Four of the seven are the interpreter's core dispatch: every conformance INT case, every
-`ssc run`, and every benchmark of the v1 interpreter goes through methods that HotSpot has
-permanently refused to compile. They are 1.2–3.5× over the limit.
+**⚠ CORRECTION 2026-07-30 — I overstated the impact here, and the measurement says so.** This entry
+originally claimed *"every conformance INT case, every `ssc run`, and every benchmark of the v1
+interpreter goes through methods HotSpot has permanently refused to compile"*, and that it *"reframes
+numbers quoted for months"*. Both are wrong, for two reasons found while splitting `infix2`:
+
+1. **`numericFast` short-circuits the hot arithmetic.** It handles `Int`/`Double` for
+   `+ - * / % < > <= >=` and returns before `infix2`'s body is ever entered. It is a small separate
+   method and JITs fine.
+2. **The v1 interpreter has its own bytecode JIT that bypasses these methods on hot loops.** Measured
+   on an equality-heavy 3M-iteration loop: **0.72 s with it on, 18.03 s with `SSC_JIT_BYTECODE=off`
+   — 25×.** Hot loops never reach `infix2` at all.
+
+So an over-limit method here is a real JIT blocker on the paths that reach it, but "every INT case
+pays" is false and the F-cost numbers are NOT invalidated. The census flags a hazard; it does not by
+itself establish a hot cost.
 
 **This reframes a measurement that has been quoted for months.** `f-front-compile-cost-7x-on-scljet`
 and the general "the interpreter is slow" numbers were all taken against a hot path that cannot be

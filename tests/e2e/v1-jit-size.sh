@@ -16,7 +16,7 @@
 # every `ssc run` goes through:
 #
 #   28036  ActorScheduler.handleActorOp
-#   24984  JsGen.genExpr
+#   25100  JsGen.genExpr
 #   21114  DispatchRuntime.infix2
 #   16346  RustCodeWalk.renderTerm
 #   15330  EvalRuntime.evalCore
@@ -40,13 +40,21 @@ LIMIT=8000
 CENSUS="$ROOT/scripts/bytecode-size-census"
 [[ -x "$CENSUS" ]] || { echo "missing $CENSUS" >&2; exit 2; }
 
-# Frozen debt: <bytecodes> <fully.qualified.Class::method>. Sizes are the 2026-07-29 measurement;
+# Frozen debt: <bytecodes> <fully.qualified.Class::method>.
+#
+# ⚠ SIZES MUST BE MEASURED FROM A FRESHLY BUILT TREE. The first version of this list was taken from
+# whatever `target/*/classes` happened to be on disk in the shared checkout — built 2026-07-23 while
+# HEAD was 07-30. The very next run in a fresh worktree then reported
+# `frozen method GREW: JsGen::genExpr 24984 -> 25100` with NO commit to JsGen.scala in between: the
+# baseline, not the method, was wrong. Re-baselined 2026-07-30 from a tree built out of current main.
+# Before touching a number here, run `bash install.sh --dev` (or `scripts/sbtc cli/installBin`) first.
+#
+# Sizes below are the 2026-07-30 fresh-build measurement;
 # growth beyond the recorded number is a regression even while the method stays exempt.
 # SHRINKING this list is the goal. Do not add to it without a measured reason in the commit.
 read -r -d '' FROZEN <<'EOF' || true
 28036 scalascript.interpreter.ActorScheduler::handleActorOp
-24984 scalascript.codegen.JsGen::genExpr
-21114 scalascript.interpreter.DispatchRuntime$::infix2
+25100 scalascript.codegen.JsGen::genExpr
 16346 scalascript.codegen.rust.RustCodeWalk$::renderTerm
 15330 scalascript.interpreter.EvalRuntime$::evalCore
 14696 scalascript.interpreter.DispatchRuntime$::dispatchList
