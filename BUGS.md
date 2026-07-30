@@ -1,5 +1,35 @@
 # Bug tracker
 
+## install-sh-exits-0-when-sbt-project-load-fails — a build that produced nothing reported success
+<!-- status: open
+     lane: apparatus
+     area: build
+     gate: none -->
+
+**Found 2026-07-30** while adding the stale-build stamp. I put Scala 3 syntax (`then`, braceless
+`catch case`) into `build.sbt`, which is **Scala 2.12**. sbt refused to load the project:
+
+```
+[error] [.../build.sbt]:1874: illegal start of simple expression
+[warn] Project loading failed: (r)etry, (q)uit, (l)ast, or (i)gnore? (default: r)
+```
+
+It got EOF on that prompt, and **`./install.sh --dev` exited 0**. No launchers were written, no
+`bin/lib` at all — and the script said success.
+
+I noticed only because I grepped the produced artifact instead of trusting the exit code. Anyone who
+trusts it gets something worse than a failed build: `bin/ssc` is TRACKED, so a checkout still has a
+launcher, `git status` stays clean, and the next command runs **whatever was in `bin/lib` before** —
+i.e. a silent fall back to an older toolchain, which is precisely the class of failure the stamp was
+being added to close.
+
+**Where to look.** `install.sh --dev` invokes sbt and does not propagate its exit status; the
+interactive `Project loading failed:` prompt on EOF is the specific shape that escapes, because sbt
+exits 0 after choosing the default. Two things to fix, not one: pass `-batch` (or set
+`onLoadFailure`) so the prompt cannot appear, AND check the status. Better still, assert the artifact
+exists afterwards — `bin/lib/.build-stamp` now makes that a one-line check, and an exit code is a
+claim while a produced file is evidence.
+
 ## js-class-method-named-arg-nan — a named arg to a CLASS method is `NaN` on the JS lane
 <!-- status: open
      lane: js
