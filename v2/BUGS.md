@@ -7,7 +7,7 @@ grepping for status.
 
 Newest first.
 
-## unit-literal-pattern-diverges-two-lanes-against-two — `case ()` matches on jvm and js, not on int and native
+## unit-literal-pattern-diverges-two-lanes-against-two — `case ()` matches on jvm, js and int, not on the native lanes
 <!-- status: open
      lane: multi
      area: front
@@ -26,9 +26,15 @@ println(viaLiteral(println("")))
 |---|---|
 | `jvm` (real Scala) | **`UNIT`** ← the right answer |
 | `js` (v1 backend) | **`UNIT`** |
-| `int` | `OTHER` |
+| `int` | `OTHER` → **`UNIT`** since `dc4cf56b5` |
 | native / v2 | `OTHER` |
 | v2 JS | crashed with `TypeError`; now `OTHER` |
+
+**Narrowed 2026-07-30.** `dc4cf56b5` fixed literal patterns on `int` (it was chasing Char literals),
+so the split is no longer two-against-two: **three lanes are right and the two self-hosted ones are
+wrong.** That commit also turned my own `v2js-unit-pattern` golden into the corpus regression, because
+it had frozen `OTHER` — the case now pins that the match does not CRASH rather than what it answers,
+since the lanes have already moved under it once.
 
 **Two lanes against two, and the correct answer is the minority position among the self-hosted
 lanes.** `()` is the unit value, so a literal pattern on it must hold; the JVM lane runs real Scala
@@ -97,10 +103,17 @@ an in-place `Array` update. `pattern-match-heavy` in particular is one of the fo
 production-route policy in `BACKLOG.md` was decided on, and it cannot currently run on either v2
 lane at all.
 
-## v2-front-drops-float-literal-suffix — `0d` / `1.5f` lex the suffix as an identifier
-<!-- status: open
+## v2-front-drops-float-literal-suffix — `0d` / `1.5f` lexed the suffix as an identifier
+<!-- status: fixed
      lane: native
-     area: front -->
+     area: front
+     fixed-in: 75ba129b6
+     gate: tests/conformance/float-literal-suffix.ssc -->
+
+**Fixed 2026-07-30 on BOTH fronts.** Fixpoint green (432123 bytes), contract green (1026/1075), the
+gate passes INT, JS, JVM and V2. The root cause was not a missed case but a missed GENERALISATION:
+both fronts already stripped `L`/`l` **with a comment explaining why**, and the identical reasoning
+was never applied to `d`/`D`/`f`/`F`.
 
 **Status:** OPEN — **diagnosed here, handed over deliberately**. The fix belongs in
 `v2/lib/ssc1-front.ssc0`, which is held by the live `v2-front-for-yield` claim (its heartbeat reads
