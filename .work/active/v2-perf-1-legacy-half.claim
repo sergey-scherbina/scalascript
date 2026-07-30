@@ -1,0 +1,11 @@
+slug: v2-perf-1-legacy-half
+branch: feature/v2-perf-1-legacy-half
+agent: claude-code
+started: 2026-07-30T11:41:46Z
+heartbeat: 2026-07-30T11:41:46Z
+status: claimed-before-planning
+items: v2-perf-1-double-tier-legacy-front
+paths: file:v2/lib/ssc1-lower.ssc0
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
