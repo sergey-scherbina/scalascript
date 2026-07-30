@@ -4,12 +4,21 @@ version: 1.0.0
 description: v1.20.2 std/parsing — indentation-aware (layout-sensitive) parsing built on ParserContext
 package: std.parsing
 exports:
+  # The six names after `line` are defined in this module and were simply missing from the list, so
+  # `dsl-yaml-like`'s import (examples/dsl-yaml-like.ssc:40) could not resolve them. Same shape as the
+  # std/mcp omission fixed in 9b758d807. (skip-77-hides-v2-coverage.)
   - IndentContext
   - withIndent
   - sameIndent
   - deeperIndent
   - block
   - line
+  - columnOf
+  - PSameIndent
+  - PDeeperIndent
+  - runLayout
+  - parseLayout
+  - parseLayoutWith
 ---
 
 # `std/parsing/layout` — indentation-aware parsing
