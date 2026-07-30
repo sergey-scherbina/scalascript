@@ -17,7 +17,6 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 | task | module | claim | state | notes |
 |---|---|---|---|---|
-| `task-dir-ungated` | *(unrecorded)* | `task-views-and-kind-field` | in progress | row added by board-claim-parity; claim predates the tool |
 | `board-row-not-written-by-tool` | *(unrecorded)* | `board-claim-parity` | in progress | row added by board-claim-parity; claim predates the tool |
 | `jsgen-char-literal-escape` | *(unrecorded)* | `jsgen-char-escape` | in progress | row added by board-claim-parity; claim predates the tool |
 | `rozum-room-policy-in-skills` | *(unrecorded)* | `room-policy-and-module-table` | in progress | row added by board-claim-parity; claim predates the tool |
