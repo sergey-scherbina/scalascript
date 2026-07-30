@@ -4,12 +4,30 @@ version: 0.2.0
 description: MCP server primitives — mcpServer builder + serveMcp launcher. Wraps @modelcontextprotocol/sdk on JS and io.modelcontextprotocol:sdk on JVM. Not available on interpreter or scalajs-spa. Transport.Http (SSE) supported on JS since v0.2.0.
 package: std.mcp
 exports:
+  # Every name this module imports from ./types.ssc is re-exported. The list used to carry only
+  # Tool / Transport / requireString, so a consumer had to reach past this module into
+  # ./types.ssc for the REST of the same API — and v1's own std/agent-mcp.ssc:26 does not: it
+  # imports `Content` from here and failed to resolve it. Types that appear in the signatures
+  # below (ToolResult, ResourceResult, PromptResult) are not optional for a caller: you cannot
+  # write a handler without naming them. (skip-77-hides-v2-coverage.)
   - McpServer
   - mcpServer
   - serveMcp
   - Tool
+  - Resource
+  - Prompt
   - Transport
+  - Content
+  - Message
+  - Role
+  - ToolResult
+  - ResourceResult
+  - PromptResult
+  - McpError
   - requireString
+  - requireInt
+  - requireDouble
+  - requireBool
 ---
 
 # `std.mcp.server`

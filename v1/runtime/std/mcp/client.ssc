@@ -4,12 +4,21 @@ version: 0.1.0
 description: MCP client primitives — mcpConnect + McpClient. Wraps @modelcontextprotocol/sdk on JS and io.modelcontextprotocol:sdk on JVM. Not available on interpreter or scalajs-spa.
 package: std.mcp
 exports:
+  # As in server.ssc: re-export the names imported from ./types.ssc, so a client consumer does
+  # not have to import the same API from two modules. `Transport` is the one that was measured
+  # missing (mcp-client-invoke), the rest are its siblings in the same import.
   - McpClient
   - ToolDescriptor
   - ResourceDescriptor
   - PromptDescriptor
   - ArgSpec
   - mcpConnect
+  - Transport
+  - Content
+  - ToolResult
+  - ResourceResult
+  - PromptResult
+  - McpError
 ---
 
 # `std.mcp.client`
