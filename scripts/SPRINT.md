@@ -17,6 +17,9 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
   `scripts/smoke-ci` and `bin/ssc`'s STALE warning now ask about INPUTS instead of the HEAD sha — so
   a docs-only commit stops claiming the toolchain is stale. Gated by
   `tests/e2e/launcher-digest-gate.sh`, A/B'd in both directions, and in the smoke suite.
+  The exclusion is by BOARD NAME, never by `.md` extension: `src/main/resources/templates/*/README.md`
+  is packaged into the jar, so an extension rule would have dropped a real build input — the gate
+  pins that case, and the two board fixtures must be tracked files or it refuses to run.
   Also documented at last: POLICY.md P-1.4 (the rule), AGENTS.md "Before the push" (the mechanics),
   README.md "Running the tests" (for humans).
 
