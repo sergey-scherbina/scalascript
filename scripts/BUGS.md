@@ -7,6 +7,40 @@ grepping for status.
 
 Newest first.
 
+## coord-bookkeeping-needs-a-claim — the per-module split made FILING A BUG require a claim, and mid-migration nobody could file at all
+<!-- status: open
+     lane: apparatus
+     area: build
+     gate: none -->
+
+**Found 2026-07-30** by hitting it twice in a row, in a session that produced fourteen entries.
+
+The claim scope guard exempts the shared bookkeeping files by BARE NAME — `SPRINT.md`, `BACKLOG.md`,
+`BUGS.md`, `CHANGELOG.md`, `MILESTONES.md`, `README.md`. The per-module split (`5612b3d0c`) moved every bug
+entry into `<module>/BUGS.md`, and those paths do not match that list. Consequences, both measured:
+
+1. **Filing any bug now needs a claim widening.** `git add v1/runtime/backend/js/BUGS.md` is refused as
+   "outside what claim … declared", so recording a finding costs a claim round-trip that recording it in
+   the old flat file did not.
+2. **During the migration itself, no js/jvm/v2 bug could be filed by anyone**, because the migrating claim
+   held every `BUGS.md` in the repo at once. Two findings had to be parked in `specs/` instead
+   (`specs/json-number-policy.md`, `specs/v2-char-is-an-int.md`) and routed into entries hours later, after
+   that claim released.
+
+**Why it reads as an oversight rather than a decision:** the guard prints *"SPRINT.md / BACKLOG.md /
+CHANGELOG.md / BUGS.md … are SHARED and are never an overlap — if one of those is in the list above, this
+hook has a bug."* It says the intent plainly; the pattern just no longer matches where the files live.
+
+**Two ways to close it:**
+1. match on the BASENAME (or `*/BUGS.md`), which restores the stated intent for the new layout;
+2. or state in `specs/work-tracking-layout.md` that bug filing is claimed work now, and accept the
+   round-trip — defensible, but it should be written down rather than discovered.
+
+A related shape, worth deciding together: `SPRINT.md` is exempt as SHARED, yet the shared-main pre-commit
+guard refuses anything outside `.work/`, so `coord-claim`'s own "claim and board row in ONE commit" contract
+was unimplementable from the main checkout. That was found the same day (`bfbc42fe6`, backed out in
+`0c8237e60`) and is the same disagreement between two guards about what counts as bookkeeping.
+
 ## coord-claim-second-positional-overwrites-slug — an unquoted `--items A B` claimed under a name the caller never typed
 <!-- status: fixed
      lane: apparatus

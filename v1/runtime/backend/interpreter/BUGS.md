@@ -391,12 +391,29 @@ fail-first test per alias shape (function / tuple / collection), not a spot fix 
 **Blocks** `dsl-mini-language` (a corpus SKIP, so it hides v2 and js too). Its two siblings
 `dsl-sql-recovery` and `dsl-yaml-like` are now closed.
 
-## std-import-resolver-blind-to-type-alias-and-extension — `[Pass](std/dsl/passes.ssc)` says "not found" for a name the module defines and exports
-<!-- status: open
+## std-import-resolver-blind-to-type-alias-and-extension — `[Pass](std/dsl/passes.ssc)` said "not found" for a name the module defines and exports
+<!-- status: fixed
      lane: int
-     area: front -->
+     area: front
+     fixed-in: 91c326d1f
+     gate: v1/runtime/backend/interpreter/src/test/scala/scalascript/ModuleImportTypeAliasExtensionTest.scala -->
 
-**Status:** OPEN. Found 2026-07-30 by `skip-triage-golden-lane` while probing all 77 corpus SKIPs.
+**FIXED 2026-07-30** (`91c326d1f`). Both shapes — a `type` alias and a method declared inside `extension`
+— can now be named in an import list. An alias is erased so there is nothing to bind; an extension method
+belongs to the TYPE and `exportedExtensions` was already copied wholesale, so only NAMING it failed.
+
+⚠️ The AST walk has to be `Tree.collect` over the whole subtree, not a top-level-stat match: a module with
+`package:` in its front-matter is parsed with its statements wrapped in `object`s, so the alias is never a
+top-level stat. The first version returned `Set()` for every REAL std module while passing against a
+package-less test fixture — a hole in my own fixture, found by instrumenting the helper rather than reading
+it. `moduleTopLevelDefNames` right above it still has that blind spot.
+
+Measured outcome: `dsl-sql-recovery` and `dsl-yaml-like` now run on the golden lane (the latter after six
+further missing exports in `std/parsing/layout.ssc`), so both stopped being corpus SKIPs — which hides
+every lane, not just int. `dsl-mini-language` advanced to a different defect,
+[[int-extension-on-function-type-alias-does-not-dispatch]].
+
+**Original report (superseded 2026-07-30):** OPEN. Found 2026-07-30 by `skip-triage-golden-lane` while probing all 77 corpus SKIPs.
 Full triage in `specs/skip-triage.md`.
 
 **Reproduce — a one-line consumer against the real std modules:**
@@ -434,10 +451,28 @@ cheapest item on `specs/skip-triage.md`'s list because it needs no freeze change
 and friends); the failing check is whatever builds a module's exported-symbol table, which evidently
 walks `def`/`class` declarations only.
 
-## v1-json-two-contradictory-number-policies — `jsonParse` truncates fractional numbers to binary64 while v1's own JSON core promises exactness
-<!-- status: open
+## v1-json-two-contradictory-number-policies — `jsonParse` truncated fractional numbers to binary64 while v1's own JSON core promised exactness
+<!-- status: fixed
      lane: int
-     area: runtime -->
+     area: runtime
+     fixed-in: 56b2b3e5d
+     gate: tests/conformance/json-read.ssc -->
+
+**FIXED 2026-07-30** (`56b2b3e5d`), approved by Sergiy. There turned out to be THREE policies, not two —
+the JS backend was a second lossy site — so fixing only `JsonParser.scala:93` would have moved
+`json-read`'s divergence from the v2 column to the js column and looked like progress. Both lossy sites
+were fixed; int, js and v2 now agree byte-for-byte on ten number probes including `0.10`, `1.50` and a
+34-significant-digit decimal.
+
+Full-corpus evidence: an int-only run first bounded the blast radius to exactly 2 of 527 cases, both then
+fixed (`json-read`'s frozen lossy `0` -> `0.0`; `json-value`'s `asDouble` rejecting a Decimal). The
+three-lane run then reported `json-read v2 DIVERGE` -> PASS and zero json-related regressions.
+
+Remaining cost, deliberate and documented in `specs/json-number-policy.md`: `Decimal ⊕ Double` is an error
+by design (exact-numerics §4.3), so mixing a parsed JSON number with a Double LITERAL now raises for
+`+`/`>` and makes `== 1.5` return `false` SILENTLY. That last row is the one a reviewer should weigh.
+
+**Original report (superseded 2026-07-30):**
 
 **Status:** OPEN — **needs Sergiy's go**, because the fix moves the corpus GOLDEN. Found 2026-07-30 by
 `skip-triage-golden-lane` while reducing `json-read`'s DIVERGE; full measurement and the both-lanes
