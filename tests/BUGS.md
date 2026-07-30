@@ -7,6 +7,55 @@ grepping for status.
 
 Newest first.
 
+## ci-status-guard-selftest-two-stacked-defects — `Validate ScalaScript` is red on the guard's OWN self-test, twice over
+<!-- status: open
+     lane: apparatus
+     area: build
+     gate: tests/e2e/ci-status-guard.sh -->
+
+**Found 2026-07-30.** `Validate ScalaScript` fails on every push at
+`tests/e2e/ci-status-guard.sh`. Nothing in the repository is broken — the guard's own fixtures are.
+While it is red **no agent can obtain level-1 evidence for anything**, which is the currency this
+project releases work on; two of my claims closed at level 3 today for exactly this reason.
+
+**Defect 1 — the fixture slug collides with a REAL claim, and a negative age is clamped to zero.**
+
+`coord-status` rightly treats a stale heartbeat FIELD as live when the owner committed recently
+(`live by COMMIT activity (stale heartbeat field, ignored)`), taking the newest of the fixture branch
+tip **and** `git log -1 origin/main -- .work/active/<slug>.claim`. The fixture calls itself
+`ci-red-main`, and a real claim by that name was committed on main:
+
+```
+real   .work/active/ci-red-main.claim   last touched  epoch 1784468534  (2026-07-19)
+test   SSC_COORD_NOW_EPOCH (pinned)                   epoch 1784249101  (2026-07-17 + 45m)
+```
+
+Real history is **newer than the test's pinned fake now**, so `activity_age_seconds` is negative,
+`coord-status` clamps negative to 0, the claim reads as "last commit 0m ago" forever, and the
+assertion the test exists to make is unreachable. Not flaky — deterministically dead since that
+claim landed.
+
+The clamp is the part worth fixing in the tool rather than the fixture: **a commit dated after
+"now" is a clock or fixture anomaly, and reporting it as "just committed" is the least safe reading
+available.** `scripts/coord-status:446`.
+
+**Defect 2 — `invalid-heartbeat` fails too, and it was hidden behind defect 1.** With defect 1's
+assertion neutralised in a scratch copy of the file from `origin/main`, the run gets past
+`missing-claim` (which passes) and dies at `invalid-heartbeat`. Same file, same shape as
+2026-07-28's finding about this very job: **stacked defects in a job's own self-tests, where the
+first hides the second.** Not diagnosed further.
+
+**What I tried, and why it is not landed.** Dating the fixture commits before the pinned clock, plus
+renaming the fixture slug so it cannot collide, does fix defect 1 — measured. But the rename makes
+`missing-claim` fail, a case that passes today, so it trades one red for another and I reverted it.
+
+**The fix I would try next, for whoever owns this** (`scripts/coord-status` is another live claim's,
+which is the other reason I stopped): stop hardcoding `2026-07-17T00:00:00Z`. Derive the fixture's
+heartbeat and its commit dates from the REAL current time — heartbeat at `now - (threshold + 1)`,
+commit dates the same, `SSC_COORD_NOW_EPOCH=now`. Then the fixture is stale by both signals, the real
+claim's history is 11 days old and cannot rescue it, no rename is needed, and nothing depends on a
+literal date drifting past real history again.
+
 ## heartbeat-stale-while-active — the staleness check called a committing agent orphaned
 <!-- status: unknown
      lane: apparatus
