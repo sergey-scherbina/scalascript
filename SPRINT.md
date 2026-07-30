@@ -19,7 +19,14 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
       now outranks the hand-maintained field, inside the SAME 45-min window, and a claim kept alive
       that way names its stale field instead of hiding the divergence. Gated four ways, fail-first
       proven against `c24ca1c08~1`.
-- [ ] **HBL-2 — the prose copies still present heartbeat age as the VERDICT.** Both were held by
+- [x] **HBL-2 — DONE** (`6e0c67a60`). AGENTS.md + the skill (submodule `0864835` -> `75a28e1`) now
+      require BOTH signals cold before triage, and the skill's table gained a `Last commit` column
+      whose first row is unconditional. Two traps worth remembering, both hit and both recorded in
+      the commit: the pointer had to be bumped from the commit main ALREADY referenced, because
+      submodule `main` did not contain it and bumping there would have dropped the 20->45 threshold
+      fix; and my first AGENTS.md rewrite silently downgraded
+      `heartbeat-threshold-single-source` to "states no staleness threshold" — a coverage loss that
+      passed green until I diffed the gate's output against the pre-edit file. Original text: Both were held by
       other claims when HBL-1 landed, so they were left alone rather than edited around:
       * `AGENTS.md:1140` — "Heartbeat > 45 min = potentially orphaned" → should read that commit
         activity on the claim's branch overrides a stale field, and that `scripts/coord-status`
