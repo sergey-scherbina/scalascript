@@ -88,6 +88,25 @@ shared extension dispatch, so it is filed rather than patched here.
 
 **Net: 6 of the 77 closed** — 4 from the std/mcp exports plus these two.
 
+### What the 6 actually buy on the v2 lane — measured, not assumed
+
+Un-skipping a case gives it a VERDICT; it does not promise a pass. Measured on all six:
+
+| case | int | v2 |
+|---|---|---|
+| `dsl-sql-recovery` | rc=0 | **PASS** |
+| `dsl-yaml-like` | rc=0 | **PASS** |
+| `mcp-server-tool` | rc=0 | FAIL — `ssc: unbound global: mcpServer` |
+| `mcp-server-tools` | rc=0 | FAIL — same |
+| `mcp-server-resource` | rc=0 | FAIL — same |
+| `agent-mcp-server` | rc=0 | FAIL — same |
+
+So the freeze gains **2 real v2 passes and 4 v2 FAIL rows**. The 4 FAILs are one cause: the native
+runtime has no `mcpServer` binding, i.e. no MCP server provider is registered on the v2 lane — the
+same class as the opt-in-provider cases, now visible instead of hidden. That is the point of removing
+a SKIP: a FAIL row you can act on beats a blind spot you cannot see.
+
+
 ### 3c. `fetchUrlSignalTo` is declared, exported, documented — and implemented nowhere — OPEN
 
 `std/ui/primitives.ssc:185` declares it with a nine-line doc comment. It has **zero** registrations

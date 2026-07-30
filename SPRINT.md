@@ -36,6 +36,10 @@ freeze does record, and it is invisible in the PASS-cell count because those cel
       PURE-COMPUTE cases, i.e. three new v2 verdicts. Not yet localized to a file: find whatever
       builds a module's exported-symbol table and teach it these two shapes. Prove it fail-first with
       the one-line consumer in the bug entry.
+- [ ] **SKIP-9 — the 4 un-skipped mcp cases FAIL on v2 with `unbound global: mcpServer`.** Measured
+      once they became visible: the native runtime registers no MCP server provider. Same class as the
+      opt-in-provider cases. Either register it on the v2 lane or declare these cases' lanes honestly —
+      but not by putting the SKIP back.
 - [ ] **SKIP-8 — `int-extension-on-function-type-alias-does-not-dispatch`.** Resolve an alias to its
       underlying runtime shape at extension-REGISTRATION time, or widen the receiver's type name at
       dispatch. Shared by every lane, so it wants a fail-first test per alias shape (function, tuple,
