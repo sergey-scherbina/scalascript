@@ -63,13 +63,25 @@ else bad "an out-of-enum area would pass unnoticed"
 fi
 
 # ── 3. TOTAL — every real code directory resolves ───────────────────────────
-# Walked from the tree, not from a list here: a hand-written list of directories is one more copy of
-# state that drifts. New top-level code must either resolve or make this gate say so.
+# Walked from GIT, not from a list here and not from the filesystem.
+#
+# A hand-written list of directories is one more copy of state that drifts, so listing is right — but
+# listing the FILESYSTEM was wrong, and it took two false failures to see it: `v2/frontend-bridge` and
+# `v2/plugin-bridge` appeared unmapped while containing nothing but `target/` build output (0 tracked
+# files each). A gate that demands an area for generated directories fails for a reason its author
+# cannot fix by mapping anything real.
+#
+# `git ls-files` is the honest set: it is exactly the code that exists, it excludes build output by
+# construction, and it needs no ignore-list of its own to maintain.
 unresolved=""
 while IFS= read -r d; do
   case "$d" in */target/*|*/.git/*|*node_modules*) continue ;; esac
   "$AREA" --quiet "$d" >/dev/null 2>&1 || unresolved="$unresolved $d"
-done < <(cd "$ROOT" && ls -d v1/*/ v2/*/ tests/*/ 2>/dev/null | sed 's:/$::')
+# NF>2, so `$1/$2` is guaranteed to be a DIRECTORY. With NF>1 a top-level file such as
+# `tests/BUGS.md` was emitted as if it were a directory and demanded an area — the assertion below
+# says "directory", and it has to mean it.
+done < <(cd "$ROOT" && git ls-files v1 v2 tests 2>/dev/null |
+           awk -F/ 'NF>2 {print $1"/"$2}' | LC_ALL=C sort -u)
 if [ -z "${unresolved// /}" ]; then
   ok "every v1/* v2/* tests/* directory resolves to an area"
 else
