@@ -55,3 +55,9 @@ date	sha	load	workload	lane	ref_lane	ms	ref_ms	ratio	note
 # never executed on the default front, proven by swapping the primitive for a nonexistent name and
 # watching the program still succeed. Reverted unmeasured. The real emitter is the F front —
 # specs/v2.2-p6.5-fsub.ssc parseBlockVarBind. See TASK/v2-perfomance.md v2-perf-1.
+#
+# 2026-07-30 v2-perf-1 — dcell wired in the F front. Alternating A/B, 3 rounds, only the staged
+# front swapped between arms. BEFORE medians 67.9 / 0.612, AFTER medians 1.53 / 0.612.
+2026-07-30	a132bf090	9.7	float-loop	v2-bytecode	ssc	67.9	1.28	53	BEFORE dcell-in-F (median of 67.3/67.9/71.5)
+2026-07-30	a132bf090	9.7	float-loop	v2-bytecode	ssc	1.53	1.27	1.2	AFTER dcell-in-F (median of 1.96/1.53/0.901) — 44x on the lane, now FASTER than the Long twin
+2026-07-30	a132bf090	9.7	arith-loop	v2-bytecode	ssc	0.612	0.277	2.2	CONTROL, unchanged across both arms (0.601/0.624/0.591 vs 0.619/0.612/0.593)

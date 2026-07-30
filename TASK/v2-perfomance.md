@@ -50,50 +50,37 @@ someone needs to query at that level.
 
 ## Cause located, fix specified — start here
 
-### v2-perf-1 · The Double numeric tier is built and never wired up
+### v2-perf-1 · The Double numeric tier — WIRED, 44× measured (2026-07-30)
 
-**`float-loop` 38.7× · `arith-loop` (the Long twin) 1.6×** — measured same-session 2026-07-30 at
-load 26 (`bench/history.tsv`). The 315×/54×/2.4× figures this entry used to quote were back-filled
-from a different session and must not be compared against these.
+**DONE.** `float-loop` on the product lane: **67.9 → 1.53 ms/iter**, ratio vs `ssc` **53× → 1.2×**.
+It is now *faster* than its Long twin `arith-loop` (2.2×), which was the target.
 
-The tier itself is real: `Prims.dcell.new/get/set` + `DoubleCellV` (`v2/src/Runtime.scala:1675`),
-`Emit.dcellAccum`, `JvmByteGen.canDouble/genDouble` (28 hits). **A `var x: Double` still gets a
-generic boxed cell**, so every read and write allocates a `FloatV`.
+| | BEFORE | AFTER |
+|---|---|---|
+| `float-loop` v2-bytecode | 67.3 / **67.9** / 71.5 | 1.96 / **1.53** / 0.901 |
+| `arith-loop` (control) | 0.601 / **0.612** / 0.624 | 0.619 / **0.612** / 0.593 |
 
-**⛔ CORRECTED 2026-07-30 — the fix does NOT go where this entry said.** It named
-`v2/lib/ssc1-lower.ssc0` :4067. That was wrong, and wrong in a way that would have been invisible:
+Alternating A/B, three rounds, only the staged front swapped between arms; medians in bold; load
+8–13. The control does not move, which is what makes the 44× a result rather than a reading.
 
-- I wrote the `dcell.new` arm there, staged it into the built toolchain, and it produced correct
-  output — **and was never executed.** Proven by replacing `dcell.new` with a nonexistent primitive
-  and watching the program still succeed. The same probe shows the **`lcell` arm beside it is also
-  never reached**, on either lane, ascribed or not, top-level or inside a `def`. That branch is
-  dead code for the default front.
-- The live emitter is **the F front itself**: `specs/v2.2-p6.5-fsub.ssc:1258-1262`.
-  `parseBlockVarBind` tests `isIntLitCode(init)` — `startsW(s, "(lit (int ")` — and routes to
-  `parseBlockVarLc` (`lcell.new`, scope `@@name`) or `parseBlockVarC` (boxed, `@name`). A Double
-  init is `(lit (float …))`, so it always takes the boxed arm.
+**The fix was five lines in `specs/v2.2-p6.5-fsub.ssc`** — `isFloatLitCode`, `parseBlockVarDc` and
+`parseDBlockVarDc` (twins of the `Lc` pair), plus the `@@@` tier in `calleeOf`, `emitAssign` and
+`notEnvVar`. The `dcell` runtime (`DoubleCellV`, `dcell.new/get/set`, `Emit.dcellAccum`,
+`JvmByteGen.canDouble/genDouble`) already existed; nothing there had to change.
 
-**The actual fix**, and it is small:
+**Two things this cost that are worth more than the 44×:**
 
-```
-def isFloatLitCode(s) = startsW(s, "(lit (float ")
-def parseBlockVarDc(nm, init, r, env, cx) =            -- twin of parseBlockVarLc
-  parseBlock(r, ("@@@" ++ nm) :: env, cx) match { case (b, rr) =>
-    ("(let ((prim dcell.new " ++ init ++ ")) " ++ b ++ ")", rr) }
-```
-…plus the `@@@` tier in the read and assign routing (`calleeOf` / `emitAssign`), which is where the
-work actually is — those currently know `@@` and `@` only.
+1. **The entry pointed at the wrong file for two days.** It named `v2/lib/ssc1-lower.ssc0`. I wrote
+   the arm there, it produced correct output, and it never ran — the `lcell` arm beside it is dead
+   code too. Caught by swapping the emitted primitive for a nonexistent name and watching the
+   program still succeed. **Do that probe before measuring anything**: an inert change measures as
+   "no gain" and reads as "the theory was wrong".
+2. **The conformance slice was already red.** Building the control — the same case on the BEFORE
+   front — showed the identical failure. Without it I would have reverted a 44× win because of
+   somebody else's red test.
 
-**And do BOTH fronts.** The legacy front has its own copy of this decision; a fix in F alone is a
-half-fix, which is the standing failure mode here.
-
-**Expected size, stated before starting:** `float-loop` toward the Long twin's **1.6×**, i.e. ~20×
-on that workload. **Disqualifying evidence:** if the ratio stays above ~10× after `dcell` is
-provably emitted, boxing is not the dominant cost and the theory is wrong.
-
-**Verify the branch is LIVE before measuring.** Swap the emitted primitive for a nonexistent name;
-the program MUST fail. An inert change measures as "no gain" and gets read as "the theory is wrong"
-— that is how this entry pointed at the wrong file for two days.
+**Still open, and it is the other half:** the legacy front has its own copy of this decision and
+still boxes. Same shape, `v2/lib/ssc1-front.ssc0`. A fix in F alone is a half-fix.
 
 ### v2-perf-2 · Every primitive is resolved by STRING at run time
 `Emit.prim1` + `Emit$.s1` + `CHM.computeIfAbsent` ≈ 600 CPU samples on `float-loop`, ~18% of
