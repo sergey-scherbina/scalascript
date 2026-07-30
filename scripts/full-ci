@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+#
+# full-ci — run the FULL suite locally: every `run:` step of `.github/workflows/ci.yml`, in order.
+#
+# WHY THIS EXISTS. The full suite came off the push path on 2026-07-30 (see
+# `.github/workflows/smoke.yml` for the arithmetic). It is not gone — `ci.yml` still runs it on the
+# 4-hourly schedule, on PRs and on `workflow_dispatch` — but "on the schedule" is not a thing you can
+# invoke while you are holding a change in your hand. This is that invocation.
+#
+# IT DOES NOT RESTATE THE STEPS. It reads them out of `ci.yml`, because a local copy of the CI step
+# list is a second source of truth that drifts, and a `full-ci` that runs a stale approximation of CI
+# is worse than none: it would report green for a suite nobody ran. The workflow stays the single
+# source; this replays it.
+#
+# WHAT IT CANNOT REPLAY, said out loud rather than skipped quietly: `uses:` steps (checkout, JDK/Node
+# setup, the caches). Those are runner provisioning, and your machine either has the toolchain or the
+# steps below fail on their own. Every skipped step is PRINTED, because a runner that silently drops
+# work is how a partial pass gets read as a full one.
+#
+# Usage:
+#   scripts/full-ci                 every job, in workflow order
+#   scripts/full-ci validate        one job
+#   scripts/full-ci --list          print the plan without running it
+#   scripts/full-ci --shard 2       one value of `${{ matrix.shard }}` (default: the whole matrix,
+#                                   read from the workflow, in sequence)
+
+set -euo pipefail
+
+ROOT="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
+cd "$ROOT"
+
+WORKFLOW=".github/workflows/ci.yml"
+
+if ! command -v yq >/dev/null 2>&1; then
+  cat >&2 <<'EOF'
+full-ci: needs `yq` to read .github/workflows/ci.yml.
+
+  brew install yq        # or: https://github.com/mikefarah/yq
+
+The alternative was to keep the step list in this script too, which is the duplicated-state shape
+this repo keeps paying for — a hand-copied list goes stale and then reports green for a suite that
+does not match CI. Reading the workflow is the point.
+EOF
+  exit 1
+fi
+
+LIST_ONLY=0
+SHARD=""
+JOBS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --list)  LIST_ONLY=1; shift ;;
+    --shard) SHARD="${2:?--shard needs a value like 0/4}"; shift 2 ;;
+    -h|--help) sed -n '2,30p' "$0" >&2; exit 0 ;;
+    -*) echo "full-ci: unknown option $1" >&2; exit 1 ;;
+    *)  JOBS+=("$1"); shift ;;
+  esac
+done
+
+if [[ ${#JOBS[@]} -eq 0 ]]; then
+  mapfile -t JOBS < <(yq -r '.jobs | keys | .[]' "$WORKFLOW")
+fi
+
+
+failed=()
+skipped=()
+started_all=$SECONDS
+
+for job in "${JOBS[@]}"; do
+  job_name="$(yq -r ".jobs.\"$job\".name // \"$job\"" "$WORKFLOW")"
+  echo
+  echo "══ $job — $job_name"
+
+  # The matrix values come from the WORKFLOW, never from a copy here. They are bare indices (`0 1 2
+  # 3`) and the `/4` in the step command is literal — writing `0/4` into the substitution instead
+  # produced `--shard 0/4/4`, which run.sc would have taken as a corpus directory. Default: the whole
+  # matrix in sequence, which is the whole corpus, because the four shards are a partition (asserted
+  # on every push by tests/e2e/build-conformance-shard-gate.sh).
+  shards=()
+  if [[ -n "$SHARD" ]]; then
+    shards=("$SHARD")
+  else
+    while IFS= read -r value; do
+      [[ -n "$value" && "$value" != "null" ]] && shards+=("$value")
+    done < <(yq -r ".jobs.\"$job\".strategy.matrix.shard // [] | .[]" "$WORKFLOW" 2>/dev/null)
+  fi
+  [[ ${#shards[@]} -eq 0 ]] && shards=("")
+
+  # `uses:` steps, named so a partial replay is never mistaken for a full one.
+  while IFS= read -r step; do
+    [[ -z "$step" || "$step" == "null" ]] && continue
+    skipped+=("$job: $step")
+    echo "   -- skipped (runner provisioning): $step"
+  done < <(yq -r ".jobs.\"$job\".steps[] | select(has(\"uses\")) | .name // .uses" "$WORKFLOW")
+
+  n_steps="$(yq -r ".jobs.\"$job\".steps | map(select(has(\"run\"))) | length" "$WORKFLOW")"
+  if [[ "$n_steps" == "0" ]]; then
+    echo "   !! no runnable steps extracted for '$job'."
+    echo "      Either the job genuinely has none, or the extraction broke against a workflow edit."
+    echo "      Treating it as a FAILURE rather than a pass: a plan of zero steps is not a green run."
+    failed+=("$job: no runnable steps extracted")
+    continue
+  fi
+
+  for i in $(seq 0 $((n_steps - 1))); do
+    name="$(yq -r ".jobs.\"$job\".steps | map(select(has(\"run\")))[$i].name // \"(unnamed)\"" "$WORKFLOW")"
+    cmd="$(yq -r ".jobs.\"$job\".steps | map(select(has(\"run\")))[$i].run" "$WORKFLOW")"
+    # Step-level `env:` as `k=v` lines, fed to the step through `env`.
+    # `.env // {} | to_entries` emits a bare `=` for a step with NO env, so require a key before the
+    # `=`. Passing `=` to `env` is not an error, it is a silently-set empty variable name.
+    envs=()
+    while IFS= read -r pair; do
+      [[ "$pair" == ?*=* ]] && envs+=("$pair")
+    done < <(yq -r ".jobs.\"$job\".steps | map(select(has(\"run\")))[$i].env // {} | to_entries | .[] | \"\(.key)=\(.value)\"" "$WORKFLOW")
+
+    for shard in "${shards[@]}"; do
+      step_cmd="${cmd//\$\{\{ matrix.shard \}\}/$shard}"
+      label="$name"
+      [[ "$cmd" == *'matrix.shard'* ]] && label="$name [shard $shard]"
+
+      if [[ $LIST_ONLY -eq 1 ]]; then
+        printf '   %s\n' "$label"
+        [[ ${#envs[@]} -gt 0 ]] && printf '      env %s\n' "${envs[@]}"
+        printf '      $ %s\n' "$step_cmd"
+      else
+        echo
+        echo "   ▸ $label"
+        started=$SECONDS
+        if env "${envs[@]}" bash -eo pipefail -c "$step_cmd"; then
+          echo "   ✓ $label  ($((SECONDS - started))s)"
+        else
+          echo "   ✗ $label  ($((SECONDS - started))s)"
+          failed+=("$job: $label")
+        fi
+      fi
+
+      # Only iterate shards for steps that actually use one.
+      [[ "$cmd" == *'matrix.shard'* ]] || break
+    done
+  done
+done
+
+[[ $LIST_ONLY -eq 1 ]] && exit 0
+
+echo
+echo "══ full-ci — $((SECONDS - started_all))s"
+if [[ ${#skipped[@]} -gt 0 ]]; then
+  echo "   ${#skipped[@]} step(s) skipped as runner provisioning (listed above)."
+fi
+if [[ ${#failed[@]} -gt 0 ]]; then
+  echo "   FAILED:"
+  printf '     %s\n' "${failed[@]}"
+  exit 1
+fi
+echo "   all replayed steps passed."

@@ -1,0 +1,303 @@
+---
+name: smoke-ci
+version: 1.0.0
+---
+
+# smoke-ci — the fast repo-wide suite
+
+This is the suite that runs on **every push**, locally (`scripts/smoke-ci`, from the pre-push hook)
+and on GitHub (`.github/workflows/smoke.yml`) — the same runner, the same checks, in that order.
+The full suite still exists; it moved off the push path to `scripts/full-ci` and the nightly.
+
+## Why the push path needed to shrink
+
+Measured on the last `ci.yml` runs that reached completion: **13.4 min wall clock, ~64 runner-
+minutes** per push, against a `main` push interval of ~3–7 min. GitHub keeps one pending run per
+concurrency group, so most commits were superseded before they were ever tested — of the last 100
+`ci.yml` runs, 83 `cancelled`, 4 `failure`, 0 `success`. That is not a slow gate, it is an absent
+one, and `cancelled` reads as RED, so the apparatus was also manufacturing reds for commits that
+were fine.
+
+A suite that finishes inside the push interval gives a verdict on **every** commit. That is worth
+more than a suite that covers everything and is read for none of them.
+
+## What is in it, and why these
+
+Two axes, both deliberate:
+
+- **Breadth** — one check per module of the hierarchy in `tests/fixtures/modules.tsv`, so no module
+  can go dark. The module list is READ from that file, not restated here: a check naming a module
+  that does not exist is a hard error, which is what keeps this file from becoming a second copy of
+  the hierarchy.
+- **Criticality** — within a module, the checks that have actually caught something. Every gate
+  below is here because it once failed on a real defect, not because it was cheap to add.
+
+The corpus slice is one `run.sc` invocation over cases chosen the same way: `char-literal-escapes`
+(a Char pattern that matched nothing and silently froze a parser corpus case), `arithmetic` and
+`int-width` (Int is 64-bit and an overflow once failed open), `effects` (the one case that declares
+all four backends, so a single case exercises int/js/jvm/v2), `std-process-import` (the native tier
+had no `exec` at all until 2026-07-30), and one representative per subproject.
+
+## Why this runner is written in `.ssc`
+
+It runs on the v2 native lane, so the compiler under test is what executes the suite. That is not
+decoration: writing it is what surfaced the missing `exec` native — `std/process.ssc` declares the
+extern and int, js, jvm and rust all implemented it, so every other lane could shell out and the
+DEFAULT one could not. A CI runner is subprocesses and nothing else, so the gap had nowhere to hide.
+
+## Accounting
+
+Per-check timings, aggregated per module, with a hard total budget (`SSC_SMOKE_BUDGET`, default
+300 s). The budget is enforced, not documented — this file is where the push path stops being
+allowed to grow silently, and a run that overruns it fails even when every check passed.
+
+The corpus slice's own result is attributed per LANE and folded into the module totals through the
+`lanes` column of `tests/fixtures/modules.tsv`, so `int`/`js`/`jvm`/`v2` land on the modules that
+own them rather than all on `tests/conformance`.
+
+```scalascript
+[exec, ProcessOptions, ProcessResult](std/process.ssc)
+[readFile](std/fs.ssc)
+[args, envOrElse, exit](std/os.ssc)
+
+// ── The suite ────────────────────────────────────────────────────────────────
+//
+// `module` MUST be a row in tests/fixtures/modules.tsv. `timeoutMs` is a runaway guard, not an
+// expectation: a check that approaches it is a check to look at, never a number to raise.
+
+case class Check(module: String, name: String, cmd: String, argv: List[String], timeoutMs: Int)
+
+// One `run.sc` pass. Cases are comma-separated globs; keep this list short and keep every entry
+// justified in the prose above — an unexplained case is one nobody will dare delete later.
+val corpusSlice =
+  "arithmetic,int-width,char-literal-escapes,pattern-matching,collections,strings," +
+  "higher-order-functions,effects,tagless-program,json-value,std-process-import," +
+  "js-int-division-by-zero,scljet-sql-select"
+
+val suite = List(
+  // ── `.` — cross-module: the freezes and process rules every other gate leans on.
+  Check(".", "freeze-consistency", "tests/e2e/freeze-consistency-gate.sh", List(), 120000),
+  Check(".", "policy-single-source", "tests/e2e/policy-single-source.sh", List("--self-test"), 120000),
+  Check(".", "bugs-index", "tests/e2e/bugs-index-gate.sh", List("--self-test"), 120000),
+  Check(".", "task-views", "tests/e2e/task-views-gate.sh", List("--self-test"), 120000),
+  Check(".", "frontmatter", "scala-cli",
+        List("--server=false", "./v1/tools/scripts/validate-frontmatter.scala"), 300000),
+
+  // ── tests — the apparatus. A sharding scheme that drops cases fails GREEN, so it is checked
+  //    here, where `run.sc --list` enumerates the corpus without needing a built launcher.
+  Check("tests", "conformance-shards-partition", "tests/e2e/build-conformance-shard-gate.sh", List("4"), 180000),
+  Check("tests", "silent-assertions-frozen", "tests/e2e/silent-assertion-gate.sh", List(), 120000),
+  Check("tests", "ci-status-guard", "tests/e2e/ci-status-guard.sh", List(), 120000),
+  Check("tests", "no-test-reaches-an-exiting-cli", "tests/e2e/cli-exit-reachability-guard.sh", List("--self-test"), 180000),
+
+  // ── scripts — the coordination tooling parallel agents depend on being correct, plus the host
+  //    RAM guards that stand between parallel agents and another OOM event.
+  Check("scripts", "claim-mutex", "tests/coord/claim-mutex-conflict.sh", List(), 180000),
+  Check("scripts", "claim-scope-hierarchy", "tests/coord/claim-scope-hierarchy.sh", List(), 180000),
+  Check("scripts", "claim-hooks-refuse-overlap", "tests/coord/claim-hooks.sh", List(), 180000),
+  Check("scripts", "board-generated", "tests/coord/board-generated.sh", List(), 180000),
+  Check("scripts", "bench-wrapper-routing", "tests/e2e/bench-wrapper-gate.sh", List(), 120000),
+  Check("scripts", "release-installer-launcher", "tests/e2e/release-installer-launcher.sh", List(), 180000),
+  Check("scripts", "build-ram-guards-guard", "tests/e2e/build-ram-budget-gate.sh", List(), 180000),
+
+  // ── tests/conformance — the product. One pass, several lanes; see `laneModule` for where the
+  //    per-lane results are booked.
+  Check("tests/conformance", "corpus-breadth-slice", "scala-cli",
+        List("tests/conformance/run.sc", "--", "--only", corpusSlice, "--no-memo"), 600000)
+)
+
+// ── The module hierarchy, read rather than restated ───────────────────────────
+
+def tsvRows(): List[List[String]] =
+  readFile("tests/fixtures/modules.tsv").split("\n")
+    .filter(line => line.length > 0 && !line.startsWith("#"))
+    .map(line => line.split("\t"))
+
+def declaredModules(): List[String] = tsvRows().map(row => row(0))
+
+// run.sc prints one verdict line per lane, labelled `[INT]`, `[JS ]`, `[JS/v2]`, `[JVM]`,
+// `[JVM/v2]`, `[V2 ]`. Book each against the module that owns that backend. The v2-front lanes
+// (`JS/v2`, `JVM/v2`, `V2`) all belong to `v2` — the thing under test there is the front, not the
+// backend it emits for.
+def laneModule(label: String): String =
+  val lane = label.trim
+  if lane == "INT" then "v1/runtime/backend/interpreter"
+  else if lane == "JS" then "v1/runtime/backend/js"
+  else if lane == "JVM" then "v1/runtime/backend/jvm"
+  else "v2"
+
+// ── Formatting ───────────────────────────────────────────────────────────────
+
+def deciseconds(nanos: Int): Int = nanos / 100000000
+
+def showSeconds(tenths: Int): String =
+  (tenths / 10).toString() + "." + (tenths % 10).toString() + "s"
+
+def pad(text: String, width: Int): String =
+  var out = text
+  while out.length < width do
+    out = out + " "
+  out
+
+def lastLines(text: String, keep: Int): List[String] =
+  val lines = text.split("\n").filter(line => line.trim().length > 0)
+  val skip = if lines.length > keep then lines.length - keep else 0
+  lines.drop(skip)
+
+// ── Running ──────────────────────────────────────────────────────────────────
+
+case class Outcome(module: String, name: String, ok: Boolean, tenths: Int,
+                   stdout: String, stderr: String)
+
+def runCheck(check: Check): Outcome =
+  val startedAt = System.nanoTime()
+  // A command that cannot be STARTED (renamed script, lost +x bit) throws out of `exec`. Left
+  // uncaught it kills the runner on check 1 of 10 — non-zero, so not fail-open, but it reports one
+  // unexplained line instead of nine other verdicts. Book it as this check's failure and continue.
+  val result =
+    try exec(check.cmd, check.argv, ProcessOptions(None, Map(), Some(check.timeoutMs), true))
+    catch case e => ProcessResult("", "could not run `" + check.cmd + "`: " + e.toString(), 127)
+  val elapsed = deciseconds(System.nanoTime() - startedAt)
+  Outcome(check.module, check.name, result.exitCode == 0, elapsed, result.stdout, result.stderr)
+
+// A lane tally the harness never printed is NOT zero failures — it is an unreadable harness. The
+// corpus check therefore fails when it produced no lane lines at all, rather than reporting a
+// silent all-green over nothing (`feedback: pre-judging instead of comparing`).
+//
+// KNOWN-RED gets its OWN bucket rather than being folded into either side. It is a declared,
+// self-expiring exception: counted as a pass it would hide a lane that is red on purpose, and
+// counted as a failure it would make the suite permanently red. Left out of both — which is what
+// the first version of this parse did — it becomes invisible, which is the worst of the three.
+case class LaneTally(module: String, pass: Int, knownRed: Int, fail: Int)
+
+def laneVerdicts(stdout: String): List[List[String]] =
+  stdout.split("\n")
+    .map(line => line.trim())
+    .filter(line => line.startsWith("PASS [") || line.startsWith("FAIL [") ||
+                    line.startsWith("DIVERGE [") || line.startsWith("KNOWN-RED ["))
+    .map(line =>
+      val open = line.indexOf("[")
+      val close = line.indexOf("]")
+      List(line.substring(0, open).trim(), line.substring(open + 1, close)))
+
+def tallyFor(module: String, verdicts: List[List[String]]): LaneTally =
+  val mine = verdicts.filter(v => laneModule(v(1)) == module)
+  LaneTally(module,
+            mine.filter(v => v(0) == "PASS").length,
+            mine.filter(v => v(0) == "KNOWN-RED").length,
+            mine.filter(v => v(0) != "PASS" && v(0) != "KNOWN-RED").length)
+
+def showTally(tally: LaneTally): String =
+  var text = tally.pass.toString() + " pass"
+  if tally.knownRed > 0 then text = text + ", " + tally.knownRed.toString() + " known-red"
+  if tally.fail > 0 then text = text + ", " + tally.fail.toString() + " FAIL"
+  text
+
+// ── main ─────────────────────────────────────────────────────────────────────
+
+def main() =
+  val argv = args
+  val listOnly = argv.contains("--list")
+  val budgetSeconds = envOrElse("SSC_SMOKE_BUDGET", "300").toInt()
+  val modules = declaredModules()
+
+  // The hierarchy check comes FIRST: a suite that silently drops a check because its module name
+  // drifted is worse than no suite, because it still reports green.
+  val unknown = suite.filter(check => !modules.contains(check.module))
+  if unknown.length > 0 then
+    println("smoke-ci: check(s) name a module that is not in tests/fixtures/modules.tsv:")
+    unknown.foreach(check => println("  " + check.name + " -> " + check.module))
+    println("The module list is the source of module identity. Add the module there, or fix the name.")
+    exit(1)
+
+  if listOnly then
+    println("smoke-ci — " + suite.length.toString() + " checks, budget " +
+            budgetSeconds.toString() + "s")
+    suite.foreach(check =>
+      println("  " + pad(check.module, 34) + check.name + "  (" + check.cmd + ")"))
+    exit(0)
+
+  println("smoke-ci — " + suite.length.toString() + " checks across " +
+          modules.length.toString() + " declared modules, budget " +
+          budgetSeconds.toString() + "s")
+  println("")
+
+  var outcomes = List[Outcome]()
+  var lastModule = ""
+  suite.foreach(check =>
+    if check.module != lastModule then
+      println(check.module)
+      lastModule = check.module
+    val outcome = runCheck(check)
+    val mark = if outcome.ok then "  ok   " else "  FAIL "
+    println(mark + pad(outcome.name, 34) + showSeconds(outcome.tenths))
+    if !outcome.ok then
+      lastLines(outcome.stdout, 8).foreach(line => println("         | " + line))
+      lastLines(outcome.stderr, 8).foreach(line => println("         | " + line))
+    outcomes = outcomes ++ List(outcome))
+
+  // ── Per-module rollup: the top-level accounting ─────────────────────────────
+  //
+  // Two kinds of row, because the suite has two kinds of coverage. Modules with their own gates
+  // are booked by check; the backend modules are booked by the corpus lane they own. Both roll up
+  // into the single verdict below, which is the number anyone reading a CI log actually needs.
+  println("")
+  println("by module")
+  modules.foreach(module =>
+    val mine = outcomes.filter(o => o.module == module)
+    if mine.length > 0 then
+      val green = mine.filter(o => o.ok).length
+      val spent = mine.map(o => o.tenths).foldLeft(0)((a, b) => a + b)
+      println("  " + pad(module, 34) + green.toString() + "/" + mine.length.toString() +
+              " checks   " + showSeconds(spent)))
+
+  val corpus = outcomes.filter(o => o.name == "corpus-breadth-slice")
+  var laneReadable = true
+  var laneFailures = 0
+  if corpus.length > 0 then
+    val verdicts = laneVerdicts(corpus(0).stdout)
+    if verdicts.length == 0 then
+      laneReadable = false
+      println("  corpus lanes: UNREADABLE — run.sc printed no `PASS [lane]` lines. The harness")
+      println("  output format changed, or the run died before any case reported. Not green.")
+    else
+      List("v1/runtime/backend/interpreter", "v1/runtime/backend/js",
+           "v1/runtime/backend/jvm", "v2").foreach(module =>
+        val tally = tallyFor(module, verdicts)
+        laneFailures = laneFailures + tally.fail
+        if tally.pass + tally.knownRed + tally.fail > 0 then
+          println("  " + pad(module, 34) + showTally(tally) + "   (corpus lanes)"))
+
+  // ── Verdict ─────────────────────────────────────────────────────────────────
+  val failed = outcomes.filter(o => !o.ok)
+  val totalTenths = outcomes.map(o => o.tenths).foldLeft(0)((a, b) => a + b)
+  val overBudget = totalTenths > budgetSeconds * 10
+
+  println("")
+  println("checks: " + (outcomes.length - failed.length).toString() + "/" +
+          outcomes.length.toString() + " green    " +
+          showSeconds(totalTenths) + " of " + budgetSeconds.toString() + "s budget")
+
+  if failed.length > 0 then
+    println("")
+    println("FAILED:")
+    failed.foreach(o => println("  " + o.module + "  " + o.name))
+  if overBudget then
+    println("")
+    println("OVER BUDGET — the push path is what this suite exists to keep short. Cut a check or")
+    println("make one faster; raising SSC_SMOKE_BUDGET is how the old 13.4-minute path happened.")
+    println("If EVERY check inflated together, that is host contention, not a slow suite: this host")
+    println("cannot give a verdict about the push path right now. Check the load before editing.")
+  if !laneReadable then
+    println("")
+    println("CORPUS LANE OUTPUT UNREADABLE — see above.")
+  // Independent of run.sc's exit code on purpose. If the harness ever prints a FAIL lane and still
+  // exits 0, the check above reads green — a fail-open harness is the one failure mode a smoke
+  // suite must not inherit, so the lane lines get their own say in the verdict.
+  if laneFailures > 0 then
+    println("")
+    println("CORPUS LANE FAILURES: " + laneFailures.toString() +
+            " — reported by the lane lines even though the check itself did not fail.")
+
+  if failed.length > 0 || overBudget || !laneReadable || laneFailures > 0 then exit(1) else exit(0)
+```

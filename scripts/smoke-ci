@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+#
+# smoke-ci — the fast repo-wide suite. Runs LOCALLY before a push and on GitHub after one, from the
+# same runner (`scripts/smoke-ci.ssc`) over the same checks, so the two cannot drift apart.
+#
+# WHY THIS EXISTS. The push path was 13.4 min wall clock / ~64 runner-minutes against a `main` push
+# interval of ~3-7 min. GitHub keeps one pending run per concurrency group, so of the last 100
+# `ci.yml` runs: 83 cancelled, 4 failure, 0 success. A suite that cannot finish inside the push
+# interval does not give a verdict on most commits — and `cancelled` reads as RED, so it was also
+# manufacturing reds for commits that were fine. The full suite still exists; it moved to
+# `scripts/full-ci` and the nightly, off the push path.
+#
+# The runner is written in `.ssc` and executes on the v2 native lane, so the compiler under test is
+# what runs the suite. That is what surfaced the missing `exec` native (2026-07-30): every lane but
+# the DEFAULT one could shell out.
+#
+# Usage:
+#   scripts/smoke-ci              run the suite (exit 1 on any failure or budget overrun)
+#   scripts/smoke-ci --list       print the suite without running it
+#   SSC_SMOKE_BUDGET=600 …        raise the total budget — read the note in smoke-ci.ssc first
+
+set -euo pipefail
+
+ROOT="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
+cd "$ROOT"
+
+LAUNCHER="$ROOT/bin/ssc"
+STAMP="$ROOT/bin/lib/.build-stamp"
+
+# The runner needs a launcher, and a STALE launcher is worse than none: it would run the suite with
+# the previous commit's compiler and report a verdict about code that is not in the tree. `bin/ssc`
+# warns about this on stderr; here it is a hard precondition, because a CI verdict is exactly the
+# thing that must not be about the wrong bytes.
+if [[ ! -x "$LAUNCHER" ]]; then
+  echo "smoke-ci: no launcher at bin/ssc — build one first:" >&2
+  echo "  ./install.sh --dev" >&2
+  exit 1
+fi
+
+if [[ "${SSC_SMOKE_ALLOW_STALE:-}" != "1" && -r "$STAMP" ]]; then
+  built="$(<"$STAMP")"
+  head="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)"
+  if [[ -n "$built" && -n "$head" && "$built" != "$head" ]]; then
+    echo "smoke-ci: the launcher was built from ${built:0:9} but HEAD is ${head:0:9}." >&2
+    echo "A verdict from a stale toolchain is a verdict about the wrong code. Rebuild:" >&2
+    echo "  ./install.sh --dev" >&2
+    echo "(Override for a deliberate A/B: SSC_SMOKE_ALLOW_STALE=1)" >&2
+    exit 1
+  fi
+fi
+
+# `--` is load-bearing: without it the launcher claims `--list` as its own option and dies with
+# "unknown standard run option" before the script starts.
+exec "$LAUNCHER" run "$ROOT/scripts/smoke-ci.ssc" -- "$@"
