@@ -7,6 +7,44 @@ grepping for status.
 
 Newest first.
 
+## submodule-pointer-not-a-real-commit — main records a `.agents/plugins` commit that does not exist
+<!-- status: open
+     lane: apparatus
+     area: build
+     gate: none -->
+
+**Found 2026-07-30.** `git submodule update` fails for everyone, the working tree stays permanently
+dirty, and `scripts/coord-release` refuses to run because of it — so this blocks releasing any claim,
+not just the submodule.
+
+```
+main records:      fe840592b21ca4e2f9d0aa8d69b5a3a9a2ff5ba0
+actually on origin: fe84059ec273af52bef87dcbf5409f69262c5d80   (refs/heads/main of the plugins repo)
+
+$ git submodule update --init .agents/plugins
+fatal: remote error: upload-pack: not our ref fe840592b21ca4e2f9d0aa8d69b5a3a9a2ff5ba0
+```
+
+Both start with **`fe84059`**. The 40-character SHA was not taken from the repository — it was
+extended by hand (or by something) from the 7-character abbreviation and diverged after it. The
+bump commit is `8b9470e62` ("submodule: bump plugins to fe84059"), and its message describes exactly
+the content of the real `fe84059ec`, so the intent is not in question — only the recorded bytes are
+wrong.
+
+**The reusable lesson, and it is about the command rather than this incident.**
+`git update-index --cacheinfo 160000,<sha>,<path>` accepts **any** 40-character string and does not
+check that the commit exists, in the submodule or anywhere. That is how a fabricated SHA reaches
+`main` silently. It is the standard way to bump a pointer without a submodule checkout — I used it
+three times myself today — and it is safe only when the SHA comes from
+`$(git -C <submodule> rev-parse HEAD)`. An abbreviation is fatal.
+
+**Gate worth having** (none exists): assert every gitlink in the tree resolves to a commit that its
+submodule's remote actually has. One `git ls-remote` per submodule, seconds, and it would have caught
+this before the push instead of after it reached everybody.
+
+**Not fixed here.** `.agents/plugins` is held by the live `plugins-registration-bump` claim — the same
+agent that made the bump. Reported in the room with both SHAs and the one-line repair.
+
 ## coord-release-drops-the-evidence-level — the tool swallows its own flags, and AGENTS.md requires that field
 <!-- status: open
      lane: apparatus
