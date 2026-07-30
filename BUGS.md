@@ -941,6 +941,42 @@ FEATURE, not dead weight, and deleting the declaration would discard a deliberat
 stays a SKIP either way — the value here is that `std/ui/primitives.ssc` stops advertising a primitive
 that does not exist on any backend. Wants its own slice; sized, not started.
 
+## run-jvm-silent-success — `ssc-tools run-jvm` prints nothing and exits 0, including for a file that does not exist
+<!-- status: open
+     lane: jvm
+     area: tooling -->
+
+**Status:** OPEN, low priority — that lane is already documented as NON-CONFORMING and *"slated for
+deletion with the v1 hybrid tier"* (`Main.scala:3088`). Filed because a silent `exit 0` is the one
+failure shape this repo treats as always worth recording. Found 2026-07-30 by `json-number-policy`
+while checking whether the jvm lane needed the same number-policy fix.
+
+**Reproduce — two runs, both `exit 0`, both with no stdout at all:**
+
+```
+$ printf 'def main() = println(1+1)\n' > tests/conformance/_t.ssc
+$ ssc-tools run-jvm tests/conformance/_t.ssc ; echo EXIT=$?
+EXIT=0                                    # no "2"
+
+$ ssc-tools run-jvm /does/not/exist.ssc ; echo EXIT=$?
+Error: File not found: /does/not/exist.ssc
+EXIT=0                                    # says Error, exits 0
+```
+
+**Not caused by a stale build and not local to one worktree:** identical on a freshly built worktree
+and on the shared main checkout. Checked before filing.
+
+**Why nothing caught it.** `contract.sc`'s default lanes are `int,js,v2`; `jvm` is opt-in
+(`--lanes int,js,jvm`). If it were ever switched on, `laneCmd("jvm")` is exactly the command above, so
+every case would compare EMPTY output against its golden — the whole lane would read as DIVERGE rather
+than as "the lane is broken".
+
+**Two separable defects, and the second is the one that matters regardless of deletion plans:**
+1. no program output (the lane compiles via `scala-cli` and something in that path yields nothing);
+2. **`exit 0` on `File not found`** — a fail-open in argument handling, independent of the backend.
+
+Fixing (2) alone is cheap and stops the lane from lying about its own invocation.
+
 ## v1-json-two-contradictory-number-policies — `jsonParse` truncates fractional numbers to binary64 while v1's own JSON core promises exactness
 <!-- status: open
      lane: int
