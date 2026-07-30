@@ -219,7 +219,43 @@ look at the call. `ssc info` is not the dumper — it inspects `.scim`/`.scir` a
 right route (the bench harness has a `v2CoreIr()` helper; `bin/ssc1-run.ssc0` runs IR) before
 spending anything on a profiler.
 
-**Where this entry stands: the WHAT is measured and solid — 48.7 ns against 7.1 ns for the same
+**Reading (1) is KILLED, by `-XX:+PrintCompilation`.** The probe does reach `Emit.app`:
+
+```
+3097   2  ssc.Emit::app (9 bytes)
+3098   2  ssc.Emit$::app (273 bytes)
+3110   2  ssc.Emit$::clos$$anonfun$1 (20 bytes)     ← the forwarder Emit.clos installs
+3145   4  ssc.Emit$::app (273 bytes)                ← tier 4, i.e. C2, i.e. HOT
+3098   2  ssc.Emit$::app (273 bytes)   made not entrant
+```
+
+Three things follow, and together they support the megamorphic story that `PrintInlining` alone
+did not:
+
+- `Emit.app` is reached and is **hot enough for C2**;
+- it is compiled **as a root, not inlined into the generated call site** — and at 273 bytes it is
+  *under* `FreqInlineSize` (325), so size is not the blocker;
+- **`made not entrant`** — it deoptimised, which is the signature of a call site whose speculative
+  profile was invalidated.
+
+So one shared static `Emit.app`, reached from every generated call site in the program, with an
+internal `Runtime.run(c.code, …)` that sees every closure shape in the program. `foreach` escapes
+this because `callClos` is a private method inside `Runtime`, inlinable into the `foreach` arm,
+where `fn.code` sees few shapes.
+
+**The fix that follows, and it does NOT touch the value representation** (unlike the refuted one):
+in `JvmByteGen`, `App(Local i)` where local `i` is bound by a `Let` whose right-hand side is a
+`Lam` — exactly the `val f = (x) => …; f(i)` shape — can emit a **direct call to that lambda's
+compiled method**, the way `App(Global g)` already does for a known def. The generic funnel then
+serves only genuinely unknown callees.
+
+**Expected size:** 48.7 → about 11 ns, the `def` floor already measured, i.e. **~4×** on the
+lambda-call rows. **Disqualifying evidence:** if `hof-pipeline` and `bool-predicate` do not
+actually contain this shape — a lambda bound to a local and called directly — then the fix is
+correct but hits nothing, and the cluster's cost is elsewhere. **Check the corpus sources for the
+shape before writing the arm.**
+
+**Where this entry stands: the WHAT is measured and solid**Where this entry stands: the WHAT is measured and solid — 48.7 ns against 7.1 ns for the same
 closure, reproduced over three rounds — and the WHY is unknown.** Two hypotheses have been written
 down and killed here (wrapper cost; then, weakly, megamorphic inlining). That is the honest state,
 and the measurement is worth more than either dead hypothesis: any fix must move 48.7 toward 11.
