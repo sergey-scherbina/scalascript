@@ -38,12 +38,16 @@ docs() {
     | grep -v '^specs/.*-archive' || true
 }
 
+# A pin goes STALE when the rule is legitimately rewritten — P-3.5 changed the same day this
+# gate landed, when the board became generated instead of hand-written, and the gate said
+# `phrase not found at all` within the minute. That verdict is deliberately distinct from
+# `stated in N places`: one means the gate is out of date, the other means the repo is.
 # rule-id<TAB>phrase that must be unique. Phrases are chosen to be distinctive enough that an
 # accidental match is implausible, and short enough to survive reflowing.
 PINS=$(cat <<'EOF'
 P-2.3	are shared at **every** level, root and per-module
 P-3.2	An entry belongs to the module where the FIX goes
-P-3.5	claim is a lie; a claim without a row is invisible work
+P-3.5	The in-flight board is GENERATED
 P-3.6	Subtype is a FIELD, never a second directory
 P-4.1	Default to deciding; asking is the exception
 P-6.1	A gate nobody has seen fail is a
