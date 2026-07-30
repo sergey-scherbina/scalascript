@@ -1,5 +1,5 @@
-# generation: 340
+# generation: 341
 #slug	agent	started	items	paths
 jsgen-char-escape	claude-code	2026-07-30T06:45:00Z	jsgen-char-literal-escape	v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala tests/conformance/char-literal-escapes.ssc tests/conformance/expected/char-literal-escapes.txt SPRINT.md specs/v2-char-is-an-int.md
-board-ownership-check	claude-code	2026-07-30T06:58:45Z	board-module-ownership-unchecked BOC-0 BOC-1	file:scripts/board-ownership-check file:tests/fixtures/board-ownership-baseline.tsv file:tests/e2e/area-map-gate.sh
+board-ownership-check	claude-code	2026-07-30T06:58:45Z	board-module-ownership-unchecked BOC-0 BOC-1	file:scripts/board-ownership-check file:tests/fixtures/board-ownership-baseline.tsv file:tests/e2e/area-map-gate.sh file:.githooks/pre-commit
 ci-status-guard-selftest-red	claude-code	2026-07-30T07:01:34Z	validate-job-red-on-ci-status-guard-selftest	tests/e2e/ci-status-guard.sh tests/BUGS.md
