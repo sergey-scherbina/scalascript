@@ -8,7 +8,8 @@ grepping for status.
 Newest first.
 
 ## submodule-pointer-not-a-real-commit — main records a `.agents/plugins` commit that does not exist
-<!-- status: open
+<!-- status: fixed
+     fixed-in: d5149ee32
      lane: apparatus
      area: build
      gate: none -->
@@ -38,12 +39,37 @@ check that the commit exists, in the submodule or anywhere. That is how a fabric
 three times myself today — and it is safe only when the SHA comes from
 `$(git -C <submodule> rev-parse HEAD)`. An abbreviation is fatal.
 
-**Gate worth having** (none exists): assert every gitlink in the tree resolves to a commit that its
-submodule's remote actually has. One `git ls-remote` per submodule, seconds, and it would have caught
-this before the push instead of after it reached everybody.
+**Gate: `tests/e2e/submodule-gitlink-resolves.sh`** (added 2026-07-30). Every mode-160000 entry in
+the INDEX is probed with `git fetch --depth 1 <url> <sha>` into a scratch repo. 2.2 s for the whole
+run including its self-test.
 
-**Not fixed here.** `.agents/plugins` is held by the live `plugins-registration-bump` claim — the same
-agent that made the bump. Reported in the room with both SHAs and the one-line repair.
+Two alternatives were rejected for a measured reason each, so nobody re-litigates them:
+`git ls-remote <url> <sha>` matches only REF TIPS, so a legitimate pointer at a non-tip commit would
+fail it; and `git -C <sub> cat-file -e` needs the submodule checked out, which **CI does not do** —
+no workflow passes `submodules:` to `actions/checkout`, so an object-store check would have verified
+nothing there while looking green. The fetch probe is the same request `git submodule update` makes,
+so it fails exactly when the real operation would.
+
+Verified against this incident's own two SHAs, in both directions:
+
+```
+fe840592b…  ->  fatal: remote error: upload-pack: not our ref     (the fabricated one)
+fe84059ec…  ->  fetched                                           (the real one)
+```
+
+and mutation-checked by REPRODUCING the outage — `git update-index --cacheinfo 160000,fe840592b…`
+puts the tree back into the 2026-07-30 state, and the gate exits 1 naming the path, the SHA, the
+remote, and the repair (derived from `git -C <path> rev-parse origin/HEAD`, never typed). Its
+`--self-test` proves the probe can fail before trusting it to pass: it flips one hex digit of the
+recorded SHA — well-formed, only its existence differs — and asserts the refusal, then asserts the
+real SHA is accepted.
+
+**The pointer itself was repaired by `d5149ee32`**, so the dirty-tree/`coord-release` blockage is over.
+
+**NOT DONE, handed over:** wiring the gate into a workflow. `scripts/smoke-ci` (the push path) is held
+by the `smoke-launcher-cache` claim; at ~2 s it belongs there, and the current smoke budget has room
+(a green run measured 259.3 s of 330 s). Until it is wired, the gate exists and passes but nothing
+runs it — which is the same hole this entry is about.
 
 ## coord-release-drops-the-evidence-level — the tool swallows its own flags, and AGENTS.md requires that field
 <!-- status: open
