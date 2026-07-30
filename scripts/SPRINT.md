@@ -10,6 +10,16 @@ Anything not being worked on belongs in `scripts/BACKLOG.md`, not here — a que
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [x] **smoke-ci-launcher-build-dominates-the-job** — CI now SKIPS the ~3.5 min launcher build when
+  nothing that feeds it changed. `scripts/launcher-input-digest` hashes the build's inputs (an
+  EXCLUSION list, so a mistake costs a rebuild rather than a stale toolchain); `installBin` writes it
+  to `bin/lib/.build-digest`; `smoke.yml` keys a `bin/` cache on it with NO restore-keys; and both
+  `scripts/smoke-ci` and `bin/ssc`'s STALE warning now ask about INPUTS instead of the HEAD sha — so
+  a docs-only commit stops claiming the toolchain is stale. Gated by
+  `tests/e2e/launcher-digest-gate.sh`, A/B'd in both directions, and in the smoke suite.
+  Also documented at last: POLICY.md P-1.4 (the rule), AGENTS.md "Before the push" (the mechanics),
+  README.md "Running the tests" (for humans).
+
 - [x] **smoke-ci-in-ssc** — the push path is `scripts/smoke-ci`: 17 checks + a 13-case corpus slice,
   written in `.ssc` and run on the v2 native lane, with a per-module rollup and an enforced budget.
   Same runner locally and on GitHub (`.github/workflows/smoke.yml`); `validate`/`conformance`/
