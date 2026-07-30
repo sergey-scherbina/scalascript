@@ -251,7 +251,8 @@ fronts, presumably — the one-line path clearly has the guard branch already, s
 per-statement (layout-block) path.
 
 ## v2-serve-banner-belongs-on-stderr — a server banner is not program output
-<!-- status: open
+<!-- status: fixed
+     fixed-in: 84bab666e
      lane: apparatus
      area: runtime
      gate: tests/conformance/run.sc -->
@@ -352,6 +353,21 @@ three uses in `WebServer.scala` — so the parameter should be retired and the b
 `System.err` unconditionally. That touches `WebServer.scala` plus every caller
 (`Main.scala`, `ReplCommands.scala`, `InterpreterServerSupportImpl.scala`), which is why it is filed
 rather than smuggled into a one-word change.
+
+**CLOSED 2026-07-30 by `84bab666e`** ("the startup banner goes to stderr on BOTH lanes"), verified by
+reading the code rather than by trusting this entry: the three banner lines are
+`System.err.println` at `WebServer.scala:144-148`, so the program-facing path this entry called "the
+one that matters more" is done. Recording it because a stale OPEN sends the next agent to retire a
+parameter that no longer needs retiring.
+
+The prescription above is now WRONG in its premise and should not be followed: `log` no longer
+carries the banner, so it is not dead. Its remaining uses in `InterpreterHttpHandler` are all
+EXCEPTION diagnostics — `Error: …`, `WS upgrade handler error: …`, `WS handler error: …` (lines 120,
+152, 334-379). Whether those belong on stderr too is a real question, but a different and much
+smaller one: they fire only on a thrown exception, so unlike the banner they are not in the output of
+every serving program. Filed as its own line rather than folded in here, since the argument that
+carried this entry ("a banner is developer chatter, not program output") does not transfer unchanged
+to a handler's error report — a program may legitimately want to see that.
 
 ## ci-status-guard-desc-green-always-red — the CI-health job was red on its own self-test, not on the repo
 <!-- status: fixed

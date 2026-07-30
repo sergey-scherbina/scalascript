@@ -460,6 +460,13 @@ object JsGen:
         // can read (v2-js-imported-method-object-primitive).
         val argsJs = args.map(a => genE(a, scope, tco = false)).mkString(",")
         s"$$mkMethodObj([$argsJs])"
+      case "__regmethod__" =>
+        // (tag, methodName, closure) — see $regMethod. Unlike __regfields__ this is NOT a no-op on
+        // this backend: the closure is the method's only implementation, so dropping it left
+        // `unimplemented primitive: __regmethod__` at runtime (v2/BUGS.md cluster 3) for every
+        // program the native front lowers a Mirror or a case-class body method into.
+        val argsJs = args.map(a => genE(a, scope, tco = false)).mkString(",")
+        s"$$regMethod($argsJs)"
       case "__regfields__" =>
         // The native lowerer emits field-name metadata for the portable VM's
         // untyped by-name dispatch. JS case-class selections are already lowered
@@ -618,6 +625,13 @@ function $eq(a,b){
   }
   return false;
 }
+// Tagged methods registered by the native front's `__regmethod__` (Runtime.scala:1691 is the
+// portable VM's arm). A case-class body method, or a member the lowerer supplies rather than the
+// backend — `Mirror.isProduct` / `Mirror.fromProduct` are emitted this way by
+// `ssc1-lower.ssc0:mirrorMethodRegs` precisely so completing the Mirror surface needs no backend
+// change. Keyed tag + name; the VM calls the closure with (self :: args) and so does $method.
+var $tagged={};
+function $regMethod(tag,name,fn){ $tagged[tag+' '+name]=fn; return null; }
 function $isTag(v,tag,arity){
   // The unit value is `null` here, so the old `!!(v&&...)` answered false for `case _: Unit` on
   // every lane that has one — the interpreter, the JS backend and this one each shipped a
@@ -710,6 +724,14 @@ function $method(name,recv){
       if(typeof f==='function'){ if(args.length===0&&f.length>0) return f; return $c(f,args); }
       if(args.length===0) return f;
     }
+  }
+  // Registered tagged methods win over every hardcoded arm below, matching the VM, where
+  // methodDispatch1 consults lookupTaggedMethod BEFORE its own table (Runtime.scala:1815). The order
+  // is the point: a body method whose name collides with a field or a built-in must still be the
+  // one that runs, or the front cannot override anything.
+  if(recv&&recv.t!==undefined){
+    var $tm=$tagged[recv.t+' '+name];
+    if($tm!==undefined) return $c($tm,[recv].concat(args));
   }
   if(name==='asInstanceOf') return recv;
   if(/^_\d+$/.test(name)&&recv&&recv.f) return recv.f[Number(name.substring(1))-1];

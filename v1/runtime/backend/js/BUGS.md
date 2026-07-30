@@ -5223,3 +5223,58 @@ tests/conformance/v2-db-url-scheme-not-jdbc.ssc`. Fix candidate: recognize
 `sqlite:` (and ideally any scheme, deferring validity to the JDBC driver)
 instead of hardcoding `jdbc:`.
 Found+minimized 2026-07-09 by busi (fable).
+
+## js-passerror-tostring-not-used — an imported case class's `override def toString` is ignored on js, in `dsl-mini-language` only
+<!-- status: open
+     lane: js
+     area: front
+     gate: scala-cli tests/conformance/contract.sc -->
+
+**Filed 2026-07-30 from a `Corpus Contract` regression row, with the narrowing attempts that FAILED
+recorded, so the next reader does not inherit a hypothesis as if it were a finding.**
+
+Run 30542056391 shard 1/4 reports `dsl-mini-language  js  DIVERGE`. Reproduced locally at
+`17ea85565`, `ssc-tools run` vs `run-js` on `examples/dsl-mini-language.ssc` — both exit 0, three
+lines differ, and all three are the same shape:
+
+```
+int: [name-resolve] undefined variable: z
+js:  PassError(name-resolve, undefined variable: z, <unknown>, 0, 0)
+```
+
+`PassError` (`v1/runtime/std/dsl/passes.ssc:36-45`) declares `override def toString`, and the example
+calls it EXPLICITLY (`es.foreach(e => println(e.toString))`, lines 234/240/246/252). The js lane
+renders the default data shape instead — note the defaults `<unknown>, 0, 0` are present, so
+construction and default-argument filling both worked; only the `toString` override is unused.
+
+**NOT the JSON change.** The case contains no `json` reference, and the divergence is in case-class
+text rendering, which `jsonParse`'s rewrite (`17ea85565`) cannot reach.
+
+**It is also NOT yet reduced.** Three attempts, each a smaller candidate trigger, ALL rendered
+correctly on BOTH lanes — so the real trigger is narrower than any of them:
+
+| attempt | result |
+|---|---|
+| case class + `override def toString`, same file, printed via `println(p)` | both lanes print the DATA shape (`P(x, 1)`) — so an implicit `println` ignores the override on int too, which is a separate question and not this bug |
+| same, printed via explicit `p.toString` and `foreach(e => println(e.toString))` | both lanes correct (`[x/1]`) |
+| case class in an IMPORTED module (`[mod](./mod.ssc)`), with default args and a branching `toString` mirroring `PassError` exactly | both lanes correct |
+
+So the difference lies in something the reduction did not copy — candidates in order of cheapness:
+`passes.ssc` is reached as a `std/dsl/passes.ssc` path import rather than a relative `[..](./x.ssc)`
+link; the value crosses a `Pass[A, B] = A => Either[List[PassError], B]` type alias and a
+`Left(List(...))`; the pipeline goes through the `recover` / `traceAll` combinators. Start by
+importing the real `passes.ssc` and printing one hand-built `PassError`.
+
+**Almost certainly the same family as `js-imported-extension-method-not-dispatched`** (live claim
+`js-ext-module-scope`, same file) — an imported member not dispatched on js. Whoever holds that claim
+should check whether one fix covers both before treating them as two.
+
+**Why it surfaced now, which is not a product regression.** `contract.sc` SKIPs a case with no
+`expected/` file when the int lane times out, exits nonzero, or is non-deterministic
+(`contract.sc:693-703`). `dsl-mini-language`'s frozen baseline row is `* SKIP`; its int lane now exits
+0 locally, so the case RUNS and its latent js cell is compared for the first time. The CI-speed and
+RAM work earlier the same day is the plausible enabler. Either fix the js defect or re-freeze the row
+from `* SKIP` to `js DIVERGE` — the contract classifies "was SKIP, now has a non-PASS cell" as a
+regression row by design, so leaving it undecided keeps the nightly red.
+
+Sibling row in the same shard, unrelated and NOT diagnosed here: `scljet-jdbc  v2  TIMEOUT`.

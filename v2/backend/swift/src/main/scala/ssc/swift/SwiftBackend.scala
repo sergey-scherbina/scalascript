@@ -139,6 +139,14 @@ object SwiftBackend:
     "io.print", "io.println", "io.nanoTime", "io.args", "global.reg",
     // native-front lowering emits these where FrontendBridge lowered differently
     "str->i", "str.split", "__eq__", "__throw__", "__tryCatch__", "__regfields__",
+    // __regmethod__ registers a tagged method whose closure IS the implementation — see
+    // SwiftRuntime. Its absence here is what produced `unsupported primitive '__regmethod__'`
+    // the moment the lowerer started completing the Mirror surface through it.
+    "__regmethod__",
+    // __autoOutput__ is the per-block tail-expression output the front wraps every block in, so a
+    // program only avoids it by having no block tail at all. Missing here was the NEXT failure after
+    // __regmethod__ in the same four tests — one portability gap, two primitives deep.
+    "__autoOutput__",
   )
 
   def generate(

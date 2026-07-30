@@ -608,7 +608,8 @@ claim on top of it. Re-measured with `grep -a`:
 | primitive | v2/src (VM) | backend/js | backend/swift | backend/rust | backend-jvm-bytecode |
 |---|---|---|---|---|---|
 | `__method__` (its sibling) | 15 files | 2 | 3 | — | — |
-| `__regmethod__` | **implemented** | missing | missing | missing | missing |
+| `__regmethod__` | **implemented** | **ported 2026-07-30** | **ported 2026-07-30** | missing | missing |
+| `__autoOutput__` | **implemented** | implemented | **ported 2026-07-30** | implemented | — |
 
 **So this is a PORTABILITY GAP, not unfinished work.** `__method__` was carried to the source
 backends; `__regmethod__`, added later by the Mirror change, was not. The failures stand exactly as
@@ -624,11 +625,29 @@ lowering change that adds a primitive has to add it to every backend that can se
 backends out of scope — the same rule `dd56c4b8d`'s own message states about shaker roots
 ("the symbol must add its shaker root in the same change").
 
-**Left to the owner (`v2/backend` and `v2/lib` are both in the `v2-backend-matrix-gaps` claim):** one
-question decides the fix — does the native VM implement it under a different mechanism (a generic
-prim table built by concatenation, say), or does the native lane simply never reach it? If the
-latter, the primitive has no implementation at all and the Mirror work is unfinished rather than
-merely unported.
+**FIXED 2026-07-30** (`v2-regmethod-js-swift`) — and the portability gap was **two** primitives deep,
+not one.
+
+`__regmethod__` is now implemented on both source backends, mirroring the VM including the DISPATCH
+ORDER, which is the part that matters: `methodDispatch1` consults `lookupTaggedMethod` BEFORE its own
+table (`Runtime.scala:1815`), so a registered body method whose name collides with a field or a
+built-in still wins. Ported that way in `JsBackend` (`$tagged` + `$regMethod`, consulted right after
+the `$mo` method-object check) and in `SwiftRuntime` (`taggedMethods`, consulted before the
+`fieldLayouts` name selection). Both call the closure with `(self :: args)`, as the VM does.
+
+Mutation-checked on the js side: remove the codegen arm and `V2JsLaneCliTest` fails with exactly
+`unimplemented primitive: __regmethod__`; with it, 3/3.
+
+**Then the same four Swift tests failed on `__autoOutput__`** — the next primitive the front emits
+that this backend never learned. So instead of fixing it and re-running, the unsupported-primitive
+refusal was temporarily turned into a COLLECTOR (`System.err.println` instead of `fail`) and the suite
+run once: that yields the complete list in one pass rather than one primitive per 12-minute cycle.
+Recommended whenever a validator fails fast on the first miss.
+
+The census that "one primitive with no implementation" was built on is worth correcting twice over:
+grepping the LOWERERS for emitted primitive names answers "what could be emitted", not "what this
+program emits", and a regex over `supportedPrimitives` misses the entries referenced as Scala
+constants (`HandlerDispatchShape.*`) — it reported 31 missing names where the real answer was 2.
 
 ## v2-optin-provider-cases — cases that need an OPT-IN provider are run on the standard launcher and counted as v2 failures
 <!-- status: unknown

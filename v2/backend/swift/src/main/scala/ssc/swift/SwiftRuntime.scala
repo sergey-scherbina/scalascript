@@ -534,6 +534,11 @@ private final class Machine {
     private var globals: [String: SscValue] = [:]
     private var failure: SscPendingFailure?
     private var jsonRenderer: SscClosure?
+    // Tagged methods registered by the native front's `__regmethod__`: a case-class body method, or
+    // a member the LOWERER supplies instead of this runtime — `Mirror.isProduct` / `fromProduct` are
+    // emitted that way by `ssc1-lower.ssc0:mirrorMethodRegs` so completing the Mirror surface needs
+    // no backend arm. Keyed tag + "#" + name, matching this file's other tag-keyed table.
+    private var taggedMethods: [String: SscClosure] = [:]
     private var evaluatingProgram = false
 
     init(_ program: SscProgram, nativeUiHost: SscRuntimeExtension? = nil) {
@@ -1218,6 +1223,14 @@ private final class Machine {
             fatalError("__unary__: unsupported operation \(op)")
         case "io.print": Swift.print(sscPlain(args[0]), terminator: ""); return .unit
         case "io.println": Swift.print(sscPlain(args[0])); return .unit
+        // Per-block auto-output: the front wraps each code block's tail expression in this, so the
+        // decision "is this Unit?" happens where it is a RUNTIME fact (Runtime.scala:1711). Renders
+        // through sscPlain, the same as io.println and NOT through Show, which would quote a
+        // top-level string.
+        case "__autoOutput__":
+            if case .unit = args[0] { return .unit }
+            Swift.print(sscPlain(args[0]))
+            return .unit
         case "io.nanoTime": return .int(Int64(bitPattern: DispatchTime.now().uptimeNanoseconds))
         case "io.args": return listValue(CommandLine.arguments.dropFirst().map(SscValue.string))
         case "global.reg": globals[string(args, 0)] = args[1]; return .unit
@@ -1252,6 +1265,17 @@ private final class Machine {
         case "__regfields__":
             // Field name→index is resolved by the frontend (fieldAt is index-based), so
             // the Swift runtime has no by-name registry to populate: a no-op.
+            return .unit
+        case "__regmethod__":
+            // (tag, methodName, closure). Unlike __regfields__ this cannot be a no-op: the closure
+            // is the method's ONLY implementation, so ignoring it made every program whose front
+            // lowers a Mirror or a case-class body method die with
+            // `swift backend: unsupported primitive '__regmethod__'` (v2/BUGS.md cluster 1).
+            guard args.count >= 3, case let .closure(fn) = args[2] else {
+                recordFailure(SscRuntimeFailure(description: "__regmethod__: expected (tag, name, closure)"))
+                return .unit
+            }
+            taggedMethods["\(string(args, 0))#\(string(args, 1))"] = fn
             return .unit
         default: fatalError("swift runtime: unsupported primitive '\(operation)'")
         }
@@ -1372,6 +1396,14 @@ private final class Machine {
         }
         if case .data("Op", _) = receiver {
             return liftOperation(receiver) { [weak self] resumed in self!.method(name, resumed, args) }
+        }
+        // A registered tagged method wins over the field-name selection below and over every
+        // hardcoded arm, matching the VM, where methodDispatch1 consults lookupTaggedMethod BEFORE
+        // its own table (Runtime.scala:1815). The order is the point: a body method whose name
+        // collides with a field must still be the one that runs, or the front cannot override
+        // anything. Called with (self :: args), as the VM calls it.
+        if case let .data(tag, _) = receiver, let registered = taggedMethods["\(tag)#\(name)"] {
+            return call(registered, [receiver] + args)
         }
         if case let .data(tag, fields) = receiver,
            let names = program.fieldLayouts["\(tag)#\(fields.count)"],
