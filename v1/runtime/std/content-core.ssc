@@ -155,9 +155,69 @@ def contentHeadingId(title: String, attrs: Map[String, Any]): String = contentAt
   case Some(value) => value
   case None => contentSlug(title)
 
+// ── inline markdown inside a text run ────────────────────────────────────────
+//
+// The block parser splits a run only on `${…}` (markdownInlines), so everything else arrives as one
+// MarkdownText. That is why the v2 lane used to render `**$19**` and `[buy](/buy)` LITERALLY while the
+// int lane, which goes through the UniML bridge, produced Strong/Link nodes — and why the Strong /
+// Emphasis / Link arms of v2's content plugin were dead code in practice.
+// (v2-content-inlines-never-parsed.)
+//
+// The scanning rules are deliberately the SAME as `markdown-html.ssc:95` (`markdownInlineHtml`):
+// same marker precedence, and the same fallback of emitting an unclosed marker as literal text and
+// carrying on. That scanner emits HTML STRINGS, which is why it cannot be reused to build nodes; the
+// two are kept behaviourally identical here by construction, and unifying them onto one node scanner
+// is filed separately rather than left as silent duplication.
+//
+// No `++`: this module runs inside the v2 tower, and list `++` there goes through the infix-extension
+// path that `v2-infix-extension-operator-stringifies` is filed against. Everything below conses.
+def contentMinPos(a: Int, b: Int): Int =
+  if a < 0 then b else if b < 0 then a else if a < b then a else b
+
+def contentConcatNodes(nodes: List[Any], rest: List[Any]): List[Any] = nodes match
+  case Nil => rest
+  case Cons(head, tail) => head :: contentConcatNodes(tail, rest)
+
+def contentTextThen(before: String, rest: List[Any]): List[Any] =
+  if before.length == 0 then rest else Text(before) :: rest
+
+def contentInlineNodes(text: String): List[Any] =
+  val code = text.indexOf("`")
+  val strong = text.indexOf("**")
+  val emphasis = text.indexOf("*")
+  val link = text.indexOf("[")
+  val first = contentMinPos(contentMinPos(code, strong), contentMinPos(emphasis, link))
+  if first < 0 then contentTextThen(text, Nil)
+  else
+    val before = text.substring(0, first)
+    if first == code then
+      val close = text.indexOf("`", first + 1)
+      if close < 0 then contentTextThen(before, Text("`") :: contentInlineNodes(text.substring(first + 1)))
+      else contentTextThen(before,
+        Code(text.substring(first + 1, close)) :: contentInlineNodes(text.substring(close + 1)))
+    else if first == strong then
+      val close = text.indexOf("**", first + 2)
+      if close < 0 then contentTextThen(before, Text("**") :: contentInlineNodes(text.substring(first + 2)))
+      else contentTextThen(before,
+        Strong(contentInlineNodes(text.substring(first + 2, close))) ::
+          contentInlineNodes(text.substring(close + 2)))
+    else if first == emphasis then
+      val close = text.indexOf("*", first + 1)
+      if close < 0 then contentTextThen(before, Text("*") :: contentInlineNodes(text.substring(first + 1)))
+      else contentTextThen(before,
+        Emphasis(contentInlineNodes(text.substring(first + 1, close))) ::
+          contentInlineNodes(text.substring(close + 1)))
+    else
+      val mid = text.indexOf("](", first)
+      val close = if mid < 0 then -1 else text.indexOf(")", mid + 2)
+      if close < 0 then contentTextThen(before, Text("[") :: contentInlineNodes(text.substring(first + 1)))
+      else contentTextThen(before,
+        Link(contentInlineNodes(text.substring(first + 1, mid)), text.substring(mid + 2, close), None) ::
+          contentInlineNodes(text.substring(close + 1)))
+
 def contentInlines(values: List[Any]): List[Any] = values match
   case Nil => Nil
-  case Cons(MarkdownText(value), tail) => Text(value) :: contentInlines(tail)
+  case Cons(MarkdownText(value), tail) => contentConcatNodes(contentInlineNodes(value), contentInlines(tail))
   case Cons(MarkdownExpr(source), tail) => Expr(source) :: contentInlines(tail)
   case Cons(_, tail) => contentInlines(tail)
 
