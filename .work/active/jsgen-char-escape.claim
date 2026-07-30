@@ -2,10 +2,10 @@ slug: jsgen-char-escape
 branch: feature/jsgen-char-escape
 agent: claude-code
 started: 2026-07-30T06:45:00Z
-heartbeat: 2026-07-30T06:45:00Z
-status: claimed-before-planning
+heartbeat: 2026-07-30T06:49:34Z
+status: in-progress
 items: jsgen-char-literal-escape
-paths: v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala tests/conformance/char-literal-escapes.ssc tests/conformance/expected/char-literal-escapes.txt SPRINT.md
+paths: v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala tests/conformance/char-literal-escapes.ssc tests/conformance/expected/char-literal-escapes.txt SPRINT.md specs/v2-char-is-an-int.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
