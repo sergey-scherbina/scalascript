@@ -735,8 +735,43 @@ does NOT turn `"[" + render(a) + "]"` into a Doc — the exact regression that g
 reverted. Verified both directions on the same build. Conformance `dsl*,content*,std-ui*,string*,
 list*,collection*,parser*` on int,v2: 72/76, contract GREEN.
 
-**Part 3 — RE-DIAGNOSED 2026-07-30 (`f-infix-ext-part3`). The description below was the right shape and
-the WRONG blocker.** Threading `cx` into the `++` emitters is done and landed; it changes nothing, because
+**PART 3 DONE 2026-07-30 (`f-ext-operator-name-collection`). F is now at PARITY with the legacy front.**
+
+Root cause, one fact behind three symptoms: in F's token stream a kind-1 token (identifier) carries the
+NAME as a string, while a kind-2 token (operator) carries a numeric CODE. All three extension walkers took
+`snd(tok)` directly, so `def ++` contributed the number 48 — to `extMethods` (hence `isExtMethod("++")`
+false), to the top-level def name (hence `unbound global: (global ++)` when the emission was forced), and
+to the top-level collector. One shared helper `extMemberName` fixes all three.
+
+Unknown operator codes map to `""` deliberately: reusing the neighbouring `arithSym`, whose catch-all is
+`">="`, would have silently registered the WRONG operator as an extension method.
+
+A second step was needed because `std/dsl/pretty.ssc` declares BOTH `def ++` and `def /`: `++` travels the
+concat path (`emitPPt`) and `/` the arith path (`emitArithTT`), so fixing only the first left half the
+document stringified and `dsl-ast-builder` still dropped `module example` / `val x = 42`. The arith
+fallback now routes an extension-named operator the same way; both numeric branches are untouched.
+
+MEASURED:
+* `dsl-ast-builder` v2 **DIVERGE -> PASS**.
+* `dsl-calc-parser` still differs, and that is NOT this bug: **F and `SSC_FRONT=legacy` now produce
+  byte-identical output on it**, which is what parity means. The residue is a rendering defect present on
+  both v2 fronts and belongs to the runtime, not the front.
+* the string trap that got the FIRST attempt at this bug reverted (`"[" + mid + "]"` -> `[mid]`) holds on
+  int and v2.
+
+GATES (a front change cannot be judged by conformance alone):
+* `--self`: 173 ok / 0 mismatches, **X1 FIXPOINT stage1 == stage2 byte-identical (435861 bytes)**.
+* semantic: **247 / 247** frozen goldens match, 0 mismatches.
+* conformance `dsl-*,content-*,std-ui-*,string-*,list-*,collection-*,parser-*`: 116/119 PASS cells, zero
+  regressions, one improvement.
+
+⚠️ Method note, because three plausible READINGS of this code were wrong before instrumenting settled it:
+planting a bogus global proved the emitter was on the live path; forcing `__arithExt__` proved the shape was
+right and the GLOBAL missing; keeping the guard proved `isExtMethod` was false. Each experiment cost one
+rebuild and eliminated one hypothesis. Also: when F declines, the fallback prints the CORRECT answer, so
+every one of those experiments looked like a pass on stdout — only stderr named the front.
+
+**Superseded diagnosis (2026-07-30, `f-infix-ext-part3`) — kept because it is how the blocker was found:** Threading `cx` into the `++` emitters is done and landed; it changes nothing, because
 the guard it enables is always false. Established by instrumenting F, not by reading it:
 
 | experiment | result | what it rules out |
