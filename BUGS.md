@@ -254,14 +254,44 @@ does not conflate the two).
 byte-for-byte both times — which is what establishes `expected/` as the right answer rather than my
 reading of it.
 
-## type-ascription-tuple-and-set-arms-missing — `case _: Set` does not hold on any lane
+## type-ascription-tuple-and-set-arms-missing — `case _: Set` cannot be answered on two lanes: Set is not a type there
 <!-- status: open
      lane: multi
      area: runtime
-     gate: none -->
+     gate: tests/conformance/type-ascription-set.ssc -->
 
 **Tuple half FIXED 2026-07-29 in 7939f4c9e** (gate `tests/conformance/type-ascription-tuple.ssc`).
-**Set half still OPEN**, deliberately — see below. Found by the probe written for
+**Set half FIXED on `int` 2026-07-30 in 84c3b2cc7** — and NOT fixable the same way on two lanes,
+because this entry's premise was wrong.
+
+Measured across all four lanes and all three containers, rather than on the Set-only probe this
+entry was filed from:
+
+| container | `jvm` (oracle) | `int` | native / `v2` | `js` |
+|---|---|---|---|---|
+| `Set(1,2)` | `set` | `other` → **`set`** | `other` | `other` |
+| `Map("a"->1)` | `map` | `map` | `map` | **`other`** |
+| `List(1,2)` | `list` | `list` | **`other`** | **`other`** |
+
+It called this a *uniform* gap where the self-hosted lanes agree. **They do not**, and the reason two
+of them answer `other` is not a missing arm:
+
+- on the native lane **`Set(1, 2)` prints `List(1, 2)`** — a Set *is* a List there;
+- on the JS lane `List(...)` is `[...args]`, and `_setOf(...)` returns a plain array too.
+
+So on two of four lanes `Set` is not a distinct runtime value and there is nothing to test for.
+An arm there would assert that a List is a Set — a wrong answer replacing an honest one. This is a
+**representation gap, not a table gap**: different size of work, different owner.
+
+Three separable pieces remain, so they can be picked up separately:
+
+1. **`js` answers `other` for `Map`** although a Map IS distinguishable there (`_hamtOf`). A genuine
+   table gap and the cheapest thing left in this entry.
+2. **native answers `other` for `List`**, which is representable (`DataV("Cons"/"Nil")`) — also a
+   table gap, but in the DataV branch rather than the primitive one.
+3. **`Set` on native and `js` needs a distinct representation** before the question means anything.
+
+**Original report (superseded 2026-07-30), Set half:** Found by the probe written for
 [[v2-native-case-unit-pattern-matches-where-int-does-not]]; same two type-test tables, same missing
 arm.
 
