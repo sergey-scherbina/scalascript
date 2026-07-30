@@ -563,7 +563,12 @@ final class ServeCmd extends CliCommand:
         val port = args.headOption.flatMap(_.toIntOption).getOrElse(8080)
         val dir  = args.drop(1).headOption.getOrElse(".")
         printComponentUrls("static server", "0.0.0.0", port, backendUrl = None)
-        scalascript.server.WebServer.start(port, dir, System.out)
+        // System.err, not System.out: `WebServer.start`'s `log` parameter carries ONLY its
+        // three-line startup banner (verified — those are its only three uses), and a banner is
+        // developer chatter, not program output (BUGS `v2-serve-banner-belongs-on-stderr`). The v2
+        // lane was moved in `fdb239e34` after the banner on stdout took the negative-toolchain
+        // release gate red; this is the v1 half of the same entry.
+        scalascript.server.WebServer.start(port, dir, System.err)
 
 /** `ssc render <file> [path]` — runs the .ssc file in headless mode
  *  (skipping the blocking `serve(port)` call), then invokes the

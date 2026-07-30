@@ -274,6 +274,22 @@ nothing else; the CLI passes `System.out` at `v1/tools/cli/.../Main.scala:566`, 
 Note that doing it *will* require dropping the three banner lines from `tkv2-pwa.txt`, which also
 removes a hardcoded port number (`localhost:18631`) from a golden — a latent flake in its own right.
 
+**v1 CLI half done 2026-07-30** (`ssc serve` now passes `System.err`). **The program-facing path is
+NOT done, and it is the one that matters more** — recording it so the entry is not mistaken for
+closed:
+
+An `.ssc` program calling `serve()` reaches `WebServer.start` through
+`Interpreter.scala` → `InterpreterServerSupport.startServer(..., Interpreter.this.out, ...)`, i.e.
+the banner is written to **the interpreter's own stdout — the program's output contract**. Nothing
+captures it today (the serving conformance cases are skipped, and `tkv2-pwa` went through the v2 fast
+backend, fixed in `fdb239e34`), so this is latent rather than active.
+
+The clean fix is one level up and wider than the CLI: `log` carries ONLY the banner — those are its
+three uses in `WebServer.scala` — so the parameter should be retired and the banner printed to
+`System.err` unconditionally. That touches `WebServer.scala` plus every caller
+(`Main.scala`, `ReplCommands.scala`, `InterpreterServerSupportImpl.scala`), which is why it is filed
+rather than smuggled into a one-word change.
+
 ## ci-status-guard-desc-green-always-red — the CI-health job was red on its own self-test, not on the repo
 <!-- status: fixed
      lane: apparatus
