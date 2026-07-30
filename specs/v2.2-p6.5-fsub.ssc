@@ -540,7 +540,7 @@ def isInterpApp(w, rest) = if isEmpty(rest) then false else (if isInterpPfx(w) t
 // path: the narrow probe escaped correctly but `items.map(it => html"…")` compiled to
 // `<closure>`, i.e. F stopped delegating and started producing a wrong answer. Reverted.
 // The gap it closes: 3 of the 4 F4 disagreements were `unbound global: (global html)`.
-def isInterpPfx(w) = if w == "md" then true else (if w == "html" then true else w == "raw")
+def isInterpPfx(w) = if w == "md" then true else (if w == "html" then true else (if w == "f" then true else w == "raw"))
 def interpTokIs(tk) = if fst(tk) == 4 then true else fst(tk) == 8
 // A triple token carries RAW content (verbatim newlines); escape it to Core-IR string form (escTriple:
 // newline→\n, "→\", \→\\) BEFORE splitting on `$`, so the literal pieces are already escaped (like
@@ -551,7 +551,37 @@ def interpRaw(tk, cx) = if fst(tk) == 8 then escTripleStr(snd(tk), cx) else snd(
 // SUBSTITUTION and leave literal chunks alone — so the flag has to reach the splitter, it
 // cannot be applied to the finished code. Mirrors legacy htmlPartToExpr.
 def escOfPfx(w) = if w == "html" then 1 else 0
-def interpPfxNode(w, tk, env, cx) = mkInterpPfx(w, erase(parseInterpE(interpRaw(tk, cx), env, cx, escOfPfx(w)), cx))
+def interpPfxNode(w, tk, env, cx) = if w == "f" then parseFInterp(interpRaw(tk, cx), env, cx) else mkInterpPfx(w, erase(parseInterpE(interpRaw(tk, cx), env, cx, escOfPfx(w)), cx))
+// `f"…"` — printf-style interpolation. Legacy emits
+// (prim __fInterpolate__ lit0 spec1 arg1 lit1 spec2 arg2 lit2 …): a LEADING literal, then one
+// (spec, arg, following-literal) triple per substitution, where the spec is split off the FRONT
+// of the literal that follows the substitution (ssc1-front goFArgs/splitFFormatPrefix :899/:914).
+// A substitution with no `%spec` after it gets "%s". F had none of this, so `f"…"` emitted
+// `(global f)` and validateNoReader rejected the file — both remaining F4 disagreements
+// (fewer-braces-colon, wasm-matrix, e.g. `f"$v%6.1f"`) were this one gap.
+def parseFInterp(content, env, cx) = eNode("(prim __fInterpolate__ " ++ fLead(content, 0, 0, content.length, env, cx) ++ ")")
+def fLead(s, i, start, n, env, cx) = if atEnd(i, n) then emitStr(s.substring(start, i), dqOf(cx)) else (if s.charAt(i) == 36 then emitStr(s.substring(start, i), dqOf(cx)) ++ fSubs(s, i, n, env, cx) else fLead(s, i + 1, start, n, env, cx))
+def fSubs(s, i, n, env, cx) = fSub1(s, i + 1, n, env, cx)
+def fSub1(s, k, n, env, cx) = if s.charAt(k) == 123 then fBrace(s, k, n, env, cx) else fBare(s, k, n, env, cx)
+def fBrace(s, k, n, env, cx) = fBrace1(s, k + 1, findBrace(s, k + 1, n, 1), n, env, cx)
+def fBrace1(s, k, close, n, env, cx) = fAfter(interpExpr(s.substring(k, close), env, cx), close + 1, s, n, env, cx)
+def fBare(s, k, n, env, cx) = fBare1(s, k, scanId(s, k, n), n, env, cx)
+def fBare1(s, k, e, n, env, cx) = fAfter(interpExpr(s.substring(k, e), env, cx), e, s, n, env, cx)
+// The literal that follows the substitution runs to the next `$` (or the end); its head may carry
+// the format spec, which belongs to the substitution just emitted.
+def fAfter(argCode, j, s, n, env, cx) = fAfter1(argCode, j, fLitEnd(s, j, n), s, n, env, cx)
+def fLitEnd(s, j, n) = if atEnd(j, n) then j else (if s.charAt(j) == 36 then j else fLitEnd(s, j + 1, n))
+def fAfter1(argCode, j, e, s, n, env, cx) = fAfter2(argCode, j, e, fSpecLen(s, j, e), s, n, env, cx)
+def fAfter2(argCode, j, e, sl, s, n, env, cx) = " " ++ fSpecStr(s, j, sl, cx) ++ " " ++ argCode ++ " " ++ emitStr(s.substring(j + sl, e), dqOf(cx)) ++ fTail(s, e, n, env, cx)
+def fSpecStr(s, j, sl, cx) = if sl == 0 then emitStr("%s", dqOf(cx)) else emitStr(s.substring(j, j + sl), dqOf(cx))
+def fTail(s, e, n, env, cx) = if atEnd(e, n) then "" else fSubs(s, e, n, env, cx)
+// `%` flags width [.prec] letter — the length of a valid spec at j, else 0 (then "%s" is used).
+def isFmtFlagC(c) = if c == 45 then true else (if c == 35 then true else (if c == 43 then true else (if c == 32 then true else (if c == 48 then true else (if c == 44 then true else (if c == 40 then true else c == 60))))))
+def fSpecFlags(s, k, e) = if atEnd(k, e) then k else (if isFmtFlagC(s.charAt(k)) then fSpecFlags(s, k + 1, e) else k)
+def fSpecDigits(s, k, e) = if atEnd(k, e) then k else (if isDig(s.charAt(k)) then fSpecDigits(s, k + 1, e) else k)
+def fSpecPrec(s, k, e) = if atEnd(k, e) then k else (if s.charAt(k) == 46 then fSpecDigits(s, k + 1, e) else k)
+def fSpecLen(s, j, e) = if atEnd(j, e) then 0 else (if s.charAt(j) == 37 then fSpecLen2(s, fSpecPrec(s, fSpecDigits(s, fSpecFlags(s, j + 1, e), e), e), j, e) else 0)
+def fSpecLen2(s, t, j, e) = if atEnd(t, e) then 0 else (if isLet(s.charAt(t)) then t + 1 - j else 0)
 def mkInterpPfx(w, code) = if w == "md" then eNode("(prim __mdStrip__ " ++ code ++ ")") else eNode(code)
 // -- postfix method calls ---------------------------------------------------------------------
 // `.charAt` -> scodeAt and `.substring` -> sslice UNCONDITIONALLY, but `.length` is receiver-
