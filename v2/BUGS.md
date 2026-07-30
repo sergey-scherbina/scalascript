@@ -2031,7 +2031,8 @@ v2 side.
 ## f-front-compile-cost-7x-on-scljet — F as the default front pushes correct cases past gate budgets
 <!-- status: open
      lane: native
-     area: front -->
+     area: front
+     kind: perf -->
 
 **Status:** OPEN, but **2.5× smaller than filed** — re-measured 2026-07-28 after
 `v2-method-dispatch-never-jits` was fixed (`197ae13ab`). Filed as a PERF finding: output is correct
@@ -2740,7 +2741,8 @@ next failure once Emit is fixed). `bin/ssc run`/`--bytecode` green does NOT cove
 ## scljet-jdbc-facade-bytecode-class-too-large — the JDBC-facade examples overflow the JVM class-size limit on the bytecode lane
 <!-- status: open
      lane: native
-     area: codegen -->
+     area: codegen
+     kind: perf -->
 
 **Status:** OPEN as a capacity gap — but **it stopped being invisible 2026-07-27** (opus,
 `v2-bytecode-lane-silent-downgrade`, `af4725ed9`). The v2 JVM bytecode backend still emits one

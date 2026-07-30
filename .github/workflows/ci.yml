@@ -135,6 +135,12 @@ jobs:
       - name: Verify every BUGS.md entry has a valid machine-readable header
         run: tests/e2e/bugs-index-gate.sh --self-test
 
+      # A TASK/ document is prose with a GENERATED index in it. Without this the index becomes a
+      # stale second copy of the boards, which is the whole objection to per-type files. --self-test
+      # because a golden diff over zero regions passes forever and proves nothing.
+      - name: Verify TASK/ generated regions agree with the module boards
+        run: tests/e2e/task-views-gate.sh --self-test
+
       - name: Verify standalone release installer launcher
         run: tests/e2e/release-installer-launcher.sh
 

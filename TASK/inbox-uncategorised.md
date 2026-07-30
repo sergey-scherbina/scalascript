@@ -77,7 +77,7 @@ Four of my reports landed in modules that do not own them:
 |---|---|---|
 | `v2-array-indexed-store-silently-dropped` | `v1/runtime/backend/interpreter/` | v2 front |
 | `v2-front-drops-float-literal-suffix` | `v1/runtime/backend/interpreter/` | v2 front |
-| `v1-interpreter-hot-path-never-jits` | `v1/runtime/backend/js/` | v1 interpreter |
+| ~~`v1-interpreter-hot-path-never-jits`~~ | ~~`v1/runtime/backend/js/`~~ | **moved 2026-07-30** by `room-policy-and-module-table` |
 | `v2-lanes-cannot-run-four-corpus-workloads` | `v1/runtime/backend/jvm/` | v2 |
 
 They were filed where the *symptom* surfaced, which is exactly what `specs/work-tracking-layout.md`

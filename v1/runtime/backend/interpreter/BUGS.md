@@ -11,7 +11,8 @@ Newest first.
 <!-- status: open
      lane: int
      area: codegen
-     gate: tests/e2e/v2-jit-size.sh -->
+     gate: tests/e2e/v2-jit-size.sh
+     kind: perf -->
 
 **Status:** OPEN (found 2026-07-29 by censusing v1 for the first time; gate landed alongside, the
 splits are the remaining work).

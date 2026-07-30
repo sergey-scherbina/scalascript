@@ -55,8 +55,43 @@ GitHub and parses with one regex.
 | `area` | always | `front` · `runtime` · `codegen` · `cli` · `conformance` · `build` · `docs` · `plugin` · `other` |
 | `fixed-in` | when `status: fixed` | a commit sha that resolves in this repository, or `unrecorded` |
 | `gate` | recommended | the path that would catch a regression; `none` if there is not one yet |
+| `kind` | optional, defaults to `bug` | `bug` · `perf` · `feature` · `regression` · `apparatus` · `programme` |
 | `duplicate-of` | when `status: duplicate` | the slug this duplicates |
 | `confirmed` | optional | `no` — fixed but the reporter has not confirmed. **Not a separate status.** |
+
+### `kind` — the subtype axis, as a field and not as a directory
+
+Sergiy asked (2026-07-30) for work to be granulated by TYPE as well as by module, naming
+`TASK/v2-performance.md`. The field is that request; `scripts/task-views` is the file.
+
+**Why a field rather than a second directory tree.** The module axis is clean *because it is single
+and derivable from where the fix goes*. A second axis in the filesystem gives
+"a v2 performance defect in v2-core" two plausible homes — at which point "no slug appears on two
+boards" stops holding, and "on neither board" becomes possible. That is not hypothetical: the first
+hand-written `TASK/v2-perfomance.md` already contained one entry (six v1 methods over
+`HugeMethodLimit`) that is a **v1** defect in a file named v2, with no correct home in that scheme.
+
+`kind` is queryable and combinable, which a filename is not:
+
+```sh
+scripts/bugs-report --kind perf --module v2 --status open
+scripts/task-views --check                      # the TASK/ documents, regenerated and diffed
+```
+
+**Why it is optional and defaults to `bug`.** Back-filling 635 entries automatically would repeat
+the mistake `area:` already made: its values were extracted from prose word frequency, and 256 of
+621 came out `front` because `parse`, `_err` and `front` appear in almost any report. Ordering of
+authority, agreed in the room 2026-07-30: `fixed-in` (a resolvable sha) > a human-declared field >
+keyword extraction (**never**). Nothing derives `kind` reliably, so it is declared when an entry is
+written or next touched, and the default is stated rather than guessed.
+
+**The deficit this field does not fix, and which the tool now prints.** `--kind perf` over `BUGS.md`
+alone answered 3 of 12 known performance items — the other 9 are prose in a `BACKLOG.md`, which has
+no header schema at all. Measured 2026-07-30: **635 BUGS entries are queryable and 280 work records
+are not (31%)** — 56 unheaded backlog entries and 224 sprint items. A filter that reads one of three
+board types looks complete and is not, so `bugs-report` prints that coverage line in its default
+summary, and warns on `--kind` specifically. Giving backlog entries the same header is the fix; it
+is queued, not done.
 
 ### One word for closed
 

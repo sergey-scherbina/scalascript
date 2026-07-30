@@ -26,13 +26,19 @@ SEARCH = ["BUGS.md", "*/BUGS.md", "*/*/BUGS.md", "*/*/*/BUGS.md", "*/*/*/*/BUGS.
 SKIP_DIRS = {"target", "node_modules", ".git", ".scala-build", "releases", "scratch"}
 
 
-def bug_files(root):
+def board_files(root, name):
+    """Same discovery, for any board name. `BACKLOG.md` is read only for entries that carry a
+    header — see `index_coverage` for why the ones that do not are counted out loud."""
+    return bug_files(root, name)
+
+
+def bug_files(root, name="BUGS.md"):
     """Every BUGS.md, once. `runtime` is a SYMLINK to `v1/runtime`, so a naive glob finds three of
     these files twice and the totals come out 885 instead of 630 — a bug this tool reported about
     itself on the first run. Skip any path that walks through a symlinked directory, and dedupe on
     the resolved path as a second net."""
     seen, out = set(), []
-    for pat in SEARCH:
+    for pat in [s.replace("BUGS.md", name) for s in SEARCH]:
         for p in sorted(root.glob(pat)):
             if any(part in SKIP_DIRS for part in p.parts):
                 continue
@@ -71,6 +77,43 @@ def load(path):
     return out
 
 
+def all_rows(root, sources=("BUGS.md", "BACKLOG.md")):
+    """Every headed entry on every board, module-tagged. Shared with `scripts/task-views` so a
+    generated view and a query can never be reading different sets."""
+    rows = []
+    for name in sources:
+        for f in board_files(root, name):
+            mod = module_of(root, f)
+            for r in load(f):
+                if name != "BUGS.md" and "status" not in r:
+                    continue  # unheaded backlog prose — counted by index_coverage, not selected
+                r["module"], r["source"] = mod, name
+                rows.append(r)
+    return rows
+
+
+def index_coverage(root):
+    """How much of the recorded work the header index can actually see.
+
+    This exists because of a specific near-miss: `--kind perf` would have returned 3 of 12 known
+    performance items — the other 9 are prose in a BACKLOG.md — and printed nothing to say so. A
+    filter that silently reads one of three board types looks complete and is not. So the deficit
+    is printed in the default summary whether or not anyone asks for it."""
+    n_bugs = len(all_rows(root, ("BUGS.md",)))
+    backlog_total = backlog_headed = 0
+    for f in board_files(root, "BACKLOG.md"):
+        for r in load(f):
+            backlog_total += 1
+            backlog_headed += "status" in r
+    sprint = 0
+    for f in board_files(root, "SPRINT.md"):
+        sprint += sum(1 for ln in f.read_text().split("\n") if re.match(r"\s*- \[", ln))
+    unindexed = (backlog_total - backlog_headed) + sprint
+    return {"bugs": n_bugs, "backlog_total": backlog_total, "backlog_headed": backlog_headed,
+            "sprint": sprint, "unindexed": unindexed,
+            "total": n_bugs + backlog_total + sprint}
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--file", help="a single BUGS.md instead of every one")
@@ -78,20 +121,28 @@ def main():
     ap.add_argument("--status")
     ap.add_argument("--lane")
     ap.add_argument("--area")
+    ap.add_argument("--kind", help="bug (default when the field is absent) · perf · feature · "
+                                   "regression · apparatus · programme")
+    ap.add_argument("--source", choices=("bugs", "all"), default="bugs",
+                    help="'bugs' (default, unchanged) reads BUGS.md only; 'all' also reads headed "
+                         "BACKLOG.md entries")
     ap.add_argument("--v2", action="store_true", help="lanes native, v2-jvm, v2-rust")
     ap.add_argument("--no-gate", action="store_true", help="only entries naming no gate")
     ap.add_argument("--count", action="store_true")
     a = ap.parse_args()
 
     root = pathlib.Path(__file__).resolve().parent.parent
-    files = [pathlib.Path(a.file)] if a.file else bug_files(root)
+    names = ("BUGS.md",) if a.source == "bugs" else ("BUGS.md", "BACKLOG.md")
+    files = [pathlib.Path(a.file)] if a.file else [f for n in names for f in board_files(root, n)]
     rows, per_module = [], {}
     for f in files:
         mod = module_of(root, f) if not a.file else module_of(root, f.resolve())
         rs = load(f)
+        if f.name != "BUGS.md":
+            rs = [r for r in rs if "status" in r]  # unheaded prose is counted, not selected
         for r in rs:
-            r["module"] = mod
-        per_module[mod] = rs
+            r["module"], r["source"] = mod, f.name
+        per_module.setdefault(mod, []).extend(rs)
         rows.extend(rs)
     if a.module:
         rows = [r for r in rows if r["module"] == a.module]
@@ -101,10 +152,21 @@ def main():
     if a.status: sel = [r for r in sel if r.get("status") == a.status]
     if a.lane:   sel = [r for r in sel if r.get("lane") == a.lane]
     if a.area:   sel = [r for r in sel if r.get("area") == a.area]
+    # An entry with no `kind:` is a bug — that is what every one of the 635 existing entries is,
+    # and back-filling the field from prose is the mistake `area:` already made (256 of 621 came
+    # out `front` because the word is common). The default is stated, not inferred.
+    if a.kind:   sel = [r for r in sel if r.get("kind", "bug") == a.kind]
     if a.v2:     sel = [r for r in sel if r.get("lane") in ("native", "v2-jvm", "v2-rust")]
     if a.no_gate: sel = [r for r in sel if r.get("gate") in (None, "none")]
 
-    if not (a.status or a.lane or a.area or a.v2 or a.no_gate):
+    if a.kind and a.source == "bugs":
+        cov = index_coverage(root)
+        if cov["backlog_total"] - cov["backlog_headed"]:
+            print(f"note: --kind read BUGS.md only. {cov['backlog_total'] - cov['backlog_headed']} "
+                  f"BACKLOG entries carry no header and are NOT in this answer "
+                  f"(--source all reads the headed ones).", file=sys.stderr)
+
+    if not (a.status or a.lane or a.area or a.kind or a.v2 or a.no_gate):
         by = {}
         for r in rows: by[r.get("status", "MISSING-HEADER")] = by.get(r.get("status", "MISSING-HEADER"), 0) + 1
         print(f"{len(rows)} entries across {len(files)} file(s)\n")
@@ -124,6 +186,13 @@ def main():
             print(f"    {o:4} / {len(rs):4}   {mod}/BUGS.md")
         nog = [r for r in opens if r.get("gate") in (None, "none")]
         print(f"\n  open with NO gate named: {len(nog)} of {len(opens)}")
+        cov = index_coverage(root)
+        pct = 100 * cov["unindexed"] / cov["total"] if cov["total"] else 0
+        print(f"\n  index coverage: {cov['bugs']} BUGS entries queryable · "
+              f"{cov['unindexed']} work records are NOT ({pct:.0f}% of {cov['total']})")
+        print(f"    {cov['backlog_total'] - cov['backlog_headed']:4} BACKLOG entries with no header"
+              f"   ({cov['backlog_headed']} have one, read with --source all)")
+        print(f"    {cov['sprint']:4} SPRINT items (no header schema exists for these)")
         if missing:
             print(f"\n  ⚠ {len(missing)} entries have no header — run tests/e2e/bugs-index-gate.sh")
         return 0

@@ -73,9 +73,20 @@ case "$branch" in
       staged=$(git diff --cached --name-only)
       outside=""
       for f in $staged; do
-        case "$f" in
+        # Match the BASENAME, not the whole path. Third time this exact drift has bitten: layer 2
+        # (pre-push) was fixed on 2026-07-30 (301202efc) after the per-module split turned every
+        # `v2/SPRINT.md`, `scripts/BACKLOG.md`, `tests/conformance/BUGS.md` into an ordinary
+        # claimable path — and this layer kept comparing bare basenames against the full path, so
+        # `v2/BUGS.md` was still exclusive HERE while shared THERE. Found by an agent who could
+        # claim narrowly, pass the overlap guard, and then not commit a one-line `kind:` tag.
+        #
+        # The comment below already says why: duplicated logic needs the same vocabulary on both
+        # sides, or it is not one guard but two. Both sides now key on the basename.
+        case "${f##*/}" in
           # Shared bookkeeping / coordination — every task touches these by design.
           SPRINT.md|BACKLOG.md|CHANGELOG.md|BUGS.md|MILESTONES.md|AGENTS.md|README.md) continue ;;
+        esac
+        case "$f" in
           .work/*|specs/*) continue ;;
         esac
         ok=0

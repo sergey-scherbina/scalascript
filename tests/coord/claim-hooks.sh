@@ -197,6 +197,20 @@ check "allows a staged path inside them" \
 setup
 check "allows the shared bookkeeping set" \
       "allow" "$(try_commit scljet-ipk CHANGELOG.md)"
+# The per-module split (specs/work-tracking-layout.md) moved bookkeeping OUT of the root, and both
+# hook layers exempt it by name. Layer 2 was fixed on 2026-07-30 to match the basename; layer 3 was
+# not, so `v2/BUGS.md` was shared at push time and exclusive at commit time — and every case above
+# uses a ROOT file, so the whole suite was blind to it. These two are the module-level twins.
+setup
+check "allows a MODULE board (v2/BUGS.md), not just the root one" \
+      "allow" "$(try_commit scljet-ipk v2/BUGS.md)"
+setup
+check "allows a nested module board (tests/conformance/SPRINT.md)" \
+      "allow" "$(try_commit scljet-ipk tests/conformance/SPRINT.md)"
+# …and the exemption must stay a whitelist, not "any path ending in .md".
+setup
+check "a non-bookkeeping file in the same directory is still refused" \
+      "refuse" "$(try_commit scljet-ipk v2/NOTES.md)"
 setup
 check "allows a branch with no claim at all (backward compatible)" \
       "allow" "$(try_commit unclaimed-lane v2/kernel.ssc)"
