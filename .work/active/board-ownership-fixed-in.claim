@@ -1,0 +1,11 @@
+slug: board-ownership-fixed-in
+branch: feature/board-ownership-fixed-in
+agent: claude-code
+started: 2026-07-30T07:15:30Z
+heartbeat: 2026-07-30T07:15:30Z
+status: claimed-before-planning
+items: board-routing-signal-fixed-in BRF-0
+paths: file:scripts/board-ownership-check file:tests/fixtures/board-ownership-baseline.tsv
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement

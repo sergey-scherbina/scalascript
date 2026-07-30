@@ -1,4 +1,5 @@
-# generation: 347
+# generation: 348
 #slug	agent	started	items	paths
 jsgen-char-escape	claude-code	2026-07-30T06:45:00Z	jsgen-char-literal-escape	v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala tests/conformance/char-literal-escapes.ssc tests/conformance/expected/char-literal-escapes.txt SPRINT.md specs/v2-char-is-an-int.md tests/conformance/corpus-baseline.tsv tests/conformance/contract-roster.tsv v2/BUGS.md v1/runtime/backend/js/BUGS.md
 coord-policy-and-shared-boards	claude-code	2026-07-30T07:04:12Z	claim-granularity-policy shared-bookkeeping-per-module	file:.githooks/pre-push file:AGENTS.md file:specs/claim-mutex.md file:tests/coord/claim-scope-hierarchy.sh
+board-ownership-fixed-in	claude-code	2026-07-30T07:15:30Z	board-routing-signal-fixed-in BRF-0	file:scripts/board-ownership-check file:tests/fixtures/board-ownership-baseline.tsv
