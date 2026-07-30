@@ -786,7 +786,7 @@ code. Useful knobs:
 
 | | |
 |---|---|
-| `SSC_SMOKE_BUDGET=<seconds>` | raise the time budget (default 330) |
+| `SSC_SMOKE_BUDGET=<seconds>` | raise the time budget (default 420) |
 | `SSC_SMOKE_ALLOW_STALE=1` | skip the toolchain freshness check, for a deliberate A/B |
 
 **The full suite**, on demand, is `scripts/full-ci` (needs [`yq`](https://github.com/mikefarah/yq)).

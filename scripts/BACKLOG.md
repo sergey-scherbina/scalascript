@@ -1070,3 +1070,15 @@ own arc. None is speculative: every one has a measured number attached.
       coverage and is the only one that does.
       Do NOT "fix" this by raising `SSC_SMOKE_BUDGET` — the budget governs the suite, and the suite
       is already inside it. The job is what is long.
+
+- [ ] **smoke-corpus-slice-dominates-and-varies** — `corpus-breadth-slice` is ~50 % of the smoke
+      suite and its cost swings ±25 % between GitHub runs (115.5 s, 175.2 s, 233.9 s pre-warm-JVM),
+      which is what forced the budget from 300 → 330 → 420 s. The budget can only sit above the
+      spread; narrowing the spread is the real fix. Look at: how much of it is `scala-cli`
+      compiling `run.sc` on every invocation (a fixed cost paid once per suite, not per case), and
+      whether the 13-case slice can keep its breadth with fewer JVM-lane cases — the JVM lane is v1
+      legacy and pays a compile per case even warm. Also `conformance-shards-partition` at 49 s runs
+      `run.sc --list` five times for a property that needs one enumeration.
+      Do not "fix" this by trimming cases blind: each one in the slice is justified in the prose at
+      the top of `scripts/smoke-ci.ssc`, and dropping breadth to buy seconds is the trade this suite
+      exists to avoid.

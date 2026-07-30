@@ -10,6 +10,13 @@ Anything not being worked on belongs in `scripts/BACKLOG.md`, not here — a que
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [x] **smoke-budget-set-from-one-sample** — the 330 s budget was fitted to a single CI observation
+  (250.2 s) and went red at 338.6 s with all 18 checks green. The dominant check, the corpus slice,
+  varies ±25 % between runs on a shared runner (115.5 / 175.2 / 233.9 s). Budget → 420 s, sized above
+  the observed spread, with the three-row history in `scripts/smoke-ci.ssc` so nobody re-derives it.
+  P-6.6 applies to budgets too: one measurement is a hypothesis. Follow-up on narrowing the spread
+  rather than widening the cap: `scripts/BACKLOG.md` → smoke-corpus-slice-dominates-and-varies.
+
 - [x] **smoke-ci-launcher-build-dominates-the-job** — CI now SKIPS the ~3.5 min launcher build when
   nothing that feeds it changed. `scripts/launcher-input-digest` hashes the build's inputs (an
   EXCLUSION list, so a mistake costs a rebuild rather than a stale toolchain); `installBin` writes it

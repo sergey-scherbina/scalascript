@@ -48,16 +48,29 @@ DEFAULT one could not. A CI runner is subprocesses and nothing else, so the gap 
 ## Accounting
 
 Per-check timings, aggregated per module, with a hard total budget (`SSC_SMOKE_BUDGET`, default
-330 s). The budget is enforced, not documented — this file is where the push path stops being allowed
+420 s). The budget is enforced, not documented — this file is where the push path stops being allowed
 to grow silently, and a run that overruns it fails even when every check passed.
 
-**330 s is a MEASURED number, and the measurement had to be taken on a GitHub runner.** The first CI
-run reported all 17 checks green and **378.5 s** against the original 300 s guess — the corpus slice
-alone cost 233.9 s there against 68–98 s locally, because a hosted runner has fewer and slower cores
-than the dev machine the guess came from. The fix was to make the suite faster (warm JVM lane, see the
-corpus check below), not to raise the number to fit: ~285 s expected, 330 s cap, ~15% headroom. If a
-future run overruns this, read the per-check timings before touching the number — that is the whole
-point of printing them.
+**420 s is sized on a DISTRIBUTION, not on one sample, and getting that wrong cost two red runs.**
+
+The history is worth keeping, because each number was honestly derived and two of them were still
+wrong:
+
+| | suite | note |
+|---|---|---|
+| 300 s | 378.5 s | guessed from local timings; RED. A hosted runner has fewer, slower cores — the corpus slice was 233.9 s there against 68 s locally |
+| 330 s | 250.2 s | after `SSC_CONF_WARM_JVM=1` cut the slice to 115.5 s; GREEN, and the cap was set from that single observation |
+| 330 s | 338.6 s | 18/18 green, RED on the budget alone. The slice was 175.2 s that run — the SAME suite, +60 s |
+
+The third row is the lesson: the dominant check varies by ±25 % between runs on a shared runner, so a
+cap fitted to one sample encodes that sample's luck. POLICY P-6.6 says one measurement is a
+hypothesis; a budget is a measurement like any other. 420 s sits above the observed maximum with room
+for the spread, which is what lets it keep doing its actual job — catching STRUCTURAL growth, a check
+someone added or a check that got slower — instead of flapping on runner noise.
+
+When a run overruns THIS, read the per-check timings before touching the number; that is the whole
+point of printing them. Uniform inflation across every check is a loaded host, not a slow suite. One
+check that grew is the signal this budget exists for.
 
 The corpus slice's own result is attributed per LANE and folded into the module totals through the
 `lanes` column of `tests/fixtures/modules.tsv`, so `int`/`js`/`jvm`/`v2` land on the modules that
@@ -219,7 +232,7 @@ def showTally(tally: LaneTally): String =
 def main() =
   val argv = args
   val listOnly = argv.contains("--list")
-  val budgetSeconds = envOrElse("SSC_SMOKE_BUDGET", "330").toInt()
+  val budgetSeconds = envOrElse("SSC_SMOKE_BUDGET", "420").toInt()
   val modules = declaredModules()
 
   // The hierarchy check comes FIRST: a suite that silently drops a check because its module name
