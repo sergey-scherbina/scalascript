@@ -430,11 +430,29 @@ been parsed, v2's `inlineText` would print `buy` (it drops the href, unlike v1).
 echoing raw text happens to reproduce the source. Any consumer that walks the inline tree (a UI
 renderer, a toolkit section) sees a flat string.
 
-**Where it lives.** The front emits a fully structured `DocumentContent` — `NativeV2Structural`
-only VALIDATES it (`decodeContentModule` -> `validateDocument`, `NativeV2Structural.scala:97-133`).
-So the inline parsing must be added where the front builds content blocks, i.e. in `v2/lib` /
-`specs/v2.2-p6.5-fsub.ssc`. Both were held by claim `v2-backend-matrix-gaps` at the time of writing,
-which is why this is diagnosed and filed rather than fixed.
+**Where it lives — CORRECTED 2026-07-30, the first answer was wrong twice over.**
+
+The original text said the fix belongs in `v2/lib` / `specs/v2.2-p6.5-fsub.ssc`, held by
+`v2-backend-matrix-gaps`. Neither is true. Traced properly:
+
+`v2/bin/ssc1-run.ssc0:693` builds `NativeCompilation(ir, sscParseFrontmatters(paths),
+sscParseContents(...), paths)`, and `sscParseContents` (`:652`) executes **`std/content-core.ssc`** —
+the markdown-to-content conversion is written in ScalaScript itself, not in the front. `v2/lib` contains
+no content emitter at all (`grep -a` for `Paragraph`/`Markdown` across `v2/lib/*.ssc0` finds only
+unrelated comments), and `NativeV2Structural` only validates what arrives.
+
+**The two exact lines, both in unclaimed `.ssc` files:**
+
+1. `v1/runtime/std/markdown-core.ssc:308` — `markdownInlines` splits the text on `${…}` expressions
+   ONLY (`markdownInlineExpr`); everything else becomes a single `MarkdownText`. It never looks for
+   `**bold**`, `*em*`, `` `code` `` or `[label](href)`.
+2. `v1/runtime/std/content-core.ssc:158` — `contentInlines` maps `MarkdownText` and `MarkdownExpr` and
+   **silently drops every other node** (`case Cons(_, tail) => contentInlines(tail)`). That arm is dead
+   today precisely because (1) never produces anything else.
+
+So the v2 lane's inline markdown support is expression interpolation and nothing more. Both files are
+plain `.ssc` and were unclaimed when this was corrected, so the work is available — it is a feature-sized
+addition to a ScalaScript-level parser, not a front change.
 
 **Reference implementation to mirror:** `MarkdownDocContent.scala:135-160` (the UniML bridge v1 uses)
 maps table cells and paragraphs through `mapInlines`; and v1's plain-text rules are
