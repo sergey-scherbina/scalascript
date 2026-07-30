@@ -1,5 +1,47 @@
 # Bug tracker
 
+## heartbeat-stale-while-active — the staleness check called a committing agent orphaned
+
+**Status: FIXED 2026-07-30** in `c24ca1c08`, gated by
+`tests/coord/claim-activity-overrides-heartbeat.sh` (`0c7bba624`).
+
+**Observed.** `v2-backend-matrix-gaps` carried `heartbeat: 2026-07-29T17:12:00Z` while committing to
+`main` every few minutes — **13 commits in the very hour** `scripts/coord-status` reported it as
+`potentially stale heartbeat` (field age 10.7 h). I triaged it as orphaned **twice** and only a
+manual `git log` on its branch stopped me editing `v2/src` underneath an agent actively working
+there. A second claim, `int-case-unit-type-pattern`, was in the same state (field 507 min old, last
+commit 26 min ago).
+
+**Why the field was not at fault.** AGENTS.md tells agents to heartbeat on a **material status
+change, not as running commentary**, and the threshold was raised 20 → 45 min on 2026-07-28 for
+exactly that reason: 202 of 253 commits in one 6-hour window carried no code. So "heartbeat more
+often" is the wrong prescription — it would undo that fix and re-flood the log. The defect was that
+the check treated a hand-maintained field as the ONLY evidence of life, while the cheapest and most
+reliable evidence — commits — sat unread in git.
+
+**Fix.** `claim_activity_epoch` takes the newest of the claim branch's tip (local *and* remote) and
+the last commit touching `.work/active/<slug>.claim`; a claim with commit activity inside the same
+45-minute window is reported live, **naming its stale field** rather than silently ignoring it. The
+field still matters for an agent with nothing to commit yet (planning, a long build) — it just stops
+being the only evidence.
+
+**Verified on the live board, both directions in ONE run** — which is the comparison the old check
+could not make at all:
+
+```
+live by COMMIT activity (stale heartbeat field, ignored): int-case-unit-type-pattern
+    (heartbeat age 507m, last commit 26m ago)
+potentially stale heartbeat: bugs-index-machine-readable
+    (heartbeat age 518m, no commit inside the threshold)
+```
+
+**Still to do — the prose copies.** `AGENTS.md:1140` and the multi-agent skill's triage table both
+still present heartbeat age as the verdict. They are not wrong so much as incomplete, and both were
+held by other claims (`AGENTS.md` by `bugs-index-machine-readable`; the skill lives in the
+`.agents/plugins` submodule). Queued in SPRINT as `HBL-2`. Note
+`heartbeat-threshold-stated-in-two-repos` already pins the NUMBER across all three copies — this is
+the same duplication one level up, now about the RULE rather than the number.
+
 ## sbt-test-7-failures-first-visible-2026-07-29 — `sbt test` ran to completion for the first time in weeks
 <!-- status: open
      lane: native

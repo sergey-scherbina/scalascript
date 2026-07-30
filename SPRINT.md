@@ -9,6 +9,27 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 
 ---
 
+## 2026-07-30 — heartbeat liveness: code fixed, the two prose copies still say the old rule
+
+`c24ca1c08` + gate `0c7bba624` (`heartbeat-liveness-from-git`, released). BUGS
+`heartbeat-stale-while-active`: `coord-status` called a committing agent orphaned — measured on
+`v2-backend-matrix-gaps`, heartbeat 10.7 h old while landing 13 commits in that same hour.
+
+- [x] **HBL-1 — DONE.** Commit evidence (branch tip local+remote, plus the claim file's last touch)
+      now outranks the hand-maintained field, inside the SAME 45-min window, and a claim kept alive
+      that way names its stale field instead of hiding the divergence. Gated four ways, fail-first
+      proven against `c24ca1c08~1`.
+- [ ] **HBL-2 — the prose copies still present heartbeat age as the VERDICT.** Both were held by
+      other claims when HBL-1 landed, so they were left alone rather than edited around:
+      * `AGENTS.md:1140` — "Heartbeat > 45 min = potentially orphaned" → should read that commit
+        activity on the claim's branch overrides a stale field, and that `scripts/coord-status`
+        already applies this.
+      * the multi-agent skill's triage table (`.agents/plugins` **submodule**) — its rows key on
+        "Heartbeat age" alone; needs a "last commit on the claim's branch" column, because an agent
+        reading only the skill will still declare a live claim dead. Submodule change + pointer bump.
+      Do NOT "fix" this by telling agents to heartbeat more often: the 20→45 min raise on 2026-07-28
+      exists because 202 of 253 commits in a 6-hour window carried no code.
+
 ## 2026-07-29 — one machine-readable bug index (Sergiy: "уберём множественность источников и неоднозначность")
 
 **Active claim:** `bugs-index-machine-readable`. Spec: `specs/bugs-index.md`.
