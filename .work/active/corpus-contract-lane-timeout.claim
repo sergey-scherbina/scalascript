@@ -1,0 +1,11 @@
+slug: corpus-contract-lane-timeout
+branch: feature/corpus-contract-lane-timeout
+agent: claude-code
+started: 2026-07-30T13:18:09Z
+heartbeat: 2026-07-30T13:18:09Z
+status: claimed-before-planning
+items: corpus-contract-v2-lane-timeout-too-tight-for-the-f-front
+paths: file:.github/workflows/corpus-contract.yml
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
