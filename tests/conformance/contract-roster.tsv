@@ -1,4 +1,4 @@
-# corpus-contract-roster-v1	baseline-sha256=5057582c09340d59149fbb80c4761efec1e19a70c50b368b501d1a8788af831f	roster-sha256=6d66ecd4a1ccd668e7a26ddf7b6258af8d48f55ed02322b92a991fd92a5ccce1
+# corpus-contract-roster-v1	baseline-sha256=25391426260840385494de8636ae9bb34c582ac15035870bf9440bd8ab7f3bb0	roster-sha256=870425400ff0ffbe056ef042b49284d9cd2e7fb41970b509b22daef2dc77f776
 _bug1_httpclient
 _bug1b
 _bug1c
@@ -44,6 +44,7 @@ bitwise-operators
 bureau-demo
 case-class-body-methods
 case-classes
+char-literal-escapes
 cluster-capability
 cluster-connect
 collections
