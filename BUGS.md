@@ -747,6 +747,56 @@ cells BEFORE freezing anything.
 
 **Do NOT "fix" this by degrading v2** to match the golden. That was the shape the original entry
 leaned toward, and it would trade away exactness that v1's own source says is required.
+## v2-content-inlines-never-parsed — v2 stores each block's raw markdown as ONE `Text` inline, so `contentPlainText` leaks syntax
+<!-- status: open
+     lane: v2
+     area: front -->
+
+**Status:** OPEN. Found 2026-07-30 by `skip-triage-golden-lane` while reducing `content-tables`' v2
+DIVERGE. **Referenced by `d2349fe99`'s message, which is why this entry exists** — that commit fixed
+the OTHER half (canonical attr order) and pointed here for the rest.
+
+**Also corrects the record:** the earlier note that "v2 emits 1 line vs 23" for `content-tables` is
+STALE. Measured from a fresh worktree build, v2 emits all 21 lines and 6 differed; `d2349fe99` closed
+2, and the remaining 4 are all this bug.
+
+**Reproduce** — a paragraph and a table cell, both with inline markup:
+
+```
+<!-- @meta id=para -->
+A **bold** and a [buy](/buy) and `code` and *em*.
+```
+
+| lane | `contentPlainText` |
+|---|---|
+| int (golden) | `A bold and a buy (/buy) and \`code\` and em.` |
+| v2 | `A **bold** and a [buy](/buy) and \`code\` and *em*.` |
+
+Same for table cells: golden `b | buy (/buy)`, v2 `**b** | [buy](/buy)`.
+
+**It is NOT a rendering bug in the plugin.** `ContentNativePlugin.inlineText` (`:118-123`) already
+handles `Strong`/`Emphasis`/`Link` correctly. The tree it receives simply has no such nodes: each
+block's whole source text arrives as a single `Text` inline. Proof by elimination — if the `Link` HAD
+been parsed, v2's `inlineText` would print `buy` (it drops the href, unlike v1). It prints
+`[buy](/buy)`, which is neither v1's answer nor v2's own parsed-Link answer, so nothing was parsed.
+
+**Consequence beyond one case:** v2's `Strong`/`Emphasis`/`Link`/`Code` arms in BOTH `inlineText` and
+`inlineMarkdown` are dead code in practice, and `contentToMarkdown` only looks right by accident —
+echoing raw text happens to reproduce the source. Any consumer that walks the inline tree (a UI
+renderer, a toolkit section) sees a flat string.
+
+**Where it lives.** The front emits a fully structured `DocumentContent` — `NativeV2Structural`
+only VALIDATES it (`decodeContentModule` -> `validateDocument`, `NativeV2Structural.scala:97-133`).
+So the inline parsing must be added where the front builds content blocks, i.e. in `v2/lib` /
+`specs/v2.2-p6.5-fsub.ssc`. Both were held by claim `v2-backend-matrix-gaps` at the time of writing,
+which is why this is diagnosed and filed rather than fixed.
+
+**Reference implementation to mirror:** `MarkdownDocContent.scala:135-160` (the UniML bridge v1 uses)
+maps table cells and paragraphs through `mapInlines`; and v1's plain-text rules are
+`ContentIntrinsics.inlinePlainText:1500-1517` — note `Code` keeps its backticks and `Link` renders as
+`label (href)`, which v2's `inlineText` does NOT do today. **So fixing the parse alone is not enough:**
+v2's `Link` arm must also append ` (href)` or `content-tables` will trade one diff for another.
+
 ## int-extension-on-function-type-alias-does-not-dispatch — `extension (p: Pass[A,B])` never fires, because the receiver is a `FunV` at runtime
 <!-- status: open
      lane: int
