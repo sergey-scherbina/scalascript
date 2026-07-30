@@ -211,18 +211,24 @@ final class ContentNativePlugin extends NativePlugin:
         Some("---\n" + yamlMapLines(entries, 0).mkString("\n") + "\n---")
       case _ => None
 
+  // Both renderers below emit v1's CANONICAL order, not the attrs map's insertion order.
+  // v1 reaches here from an unordered `Map`, so it has to sort to be deterministic at all
+  // (ContentIntrinsics.metadataDirective:1735 sorts every key; fenceAttrTokens:1741 puts `id`
+  // first and sorts the rest). v2 carries a LinkedHashMap, so SOURCE order is already
+  // deterministic — which is exactly why the divergence hid: v2 was stable, just stable at a
+  // different answer, and `headingAttrs` above sorts while these two did not.
+  // (v2-content-attr-order-not-canonical.)
   private def metadataPrefix(value: Value): String =
-    val entries = attrEntries(value)
+    val entries = attrEntries(value).sortBy(_._1)
     if entries.isEmpty then ""
     else s"<!-- @meta ${entries.map { case (key, text) => s"$key=$text" }.mkString(" ")} -->\n"
 
   private def fenceAttrs(value: Value): String =
     val entries = attrEntries(value)
-    if entries.isEmpty then ""
-    else entries.map {
-      case ("id", text) => s"@id=$text"
-      case (key, text) => s"@$key=$text"
-    }.mkString(" ", " ", "")
+    val id = entries.collectFirst { case ("id", text) => s"@id=$text" }
+    val rest = entries.filterNot(_._1 == "id").sortBy(_._1).map { case (key, text) => s"@$key=$text" }
+    val tokens = id.toList ++ rest
+    if tokens.isEmpty then "" else tokens.mkString(" ", " ", "")
 
   private def plainBlock(value: Value): String = value match
     case Value.DataV("Paragraph", IndexedSeq(inlines, _)) => unlist(inlines).map(inlineText).mkString
