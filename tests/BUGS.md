@@ -7,6 +7,69 @@ grepping for status.
 
 Newest first.
 
+## shared-main-is-one-working-tree-for-every-agent — bookkeeping pushes from it are flaky, and `git push` can report success while pushing nothing
+<!-- status: open
+     lane: apparatus
+     area: other
+     gate: none -->
+
+**Found 2026-07-30** across four attempts to land ONE two-file claim-release commit. Not a theory — each
+symptom below was observed, and the last two cost real work.
+
+Every agent runs `scripts/coord-claim` / `coord-release` in the SAME shared checkout, so `.git/index`,
+`HEAD` and the working tree are shared state with no locking above git's own.
+
+| observed | consequence |
+|---|---|
+| another agent committed into the checkout mid-operation | my `git commit --amend` landed on THEIR commit, and my release commit vanished from local `main` |
+| `.git/index.lock` present from another agent's git | `coord-claim` aborted with "Another git process seems to be running" |
+| `git push` printed success | **nothing was pushed** — the claim file was still on origin |
+| `git push` refused over `file '.agents/plugins' is already claimed` | my commit contained two `.work/` files and no claim; see below |
+
+**The rule this produces, and it is cheap:** verify a release against the remote, never against the push
+output — `git ls-tree origin/main .work/active/`. I now do this after every release and it has caught a
+silent no-op once already.
+
+**About that last refusal — a narrowing, not a diagnosis.** I first told the room that
+`.githooks/pre-push:148` judges ownership from "the working tree". That was WRONG and I retracted it:
+`owner_holds_file()` inspects the OWNER's worktree, which is a reasonable "is that agent editing this file"
+heuristic, and in my case it never ran because `plugins-registration-bump` declares `file:.agents/plugins`
+explicitly. The refusal comes from the `$new_items` / `$new_paths` loops, which validate an INCOMING claim —
+yet my commit added no claim file. The remaining explanation is that pushing shared `main` can carry ANOTHER
+agent's claim commit inside `remote_tip..local_tip`, so the guard validates a foreign claim and refuses a
+push the pusher cannot fix. **Unproven.** To settle it: instrument `incoming` in the hook and push twice from
+shared main while another agent claims something.
+
+I deliberately did not change the mutex on an unproven reading. Weakening it to gain convenience is how two
+agents end up doing the same work, which is what `specs/claim-mutex.md` exists to prevent.
+
+## backend-jvm-cases-have-no-verdict-on-any-backend-they-name — `backend: jvm` now gates a case to INT alone
+<!-- status: open
+     lane: apparatus
+     area: conformance
+     gate: none -->
+
+**Found 2026-07-30** while refreshing the paired freeze, and recorded here because it was previously only in
+a commit message.
+
+`parseTargetBackend("jvm")` yields `{int, jvm}` (`contract.sc:647`), and the contract's default lanes are
+`int,js,v2`. The intersection is **`{int}`**. So the eight cases declaring `backend: jvm` —
+`dataset-typed-mapping`, `distributed-dataset-{codec,typed-helpers,wire-protocol,wire-shuffle}`,
+`graph-codecs`, `object-store-jdbc`, `typed-object-codec` — are measured on the interpreter only, and have no
+verdict at all on the backend they name.
+
+That is worse than it sounds in combination with the jvm lane's own state: `run-jvm` printed nothing and
+exited 0 for `println(1+1)` when this was found (`run-jvm-silent-success`, since fixed by
+`jvm-lane-never-calls-main`). So even switching `jvm` into the default lanes would have reported every case
+as DIVERGE-by-empty-output rather than as a broken lane.
+
+**It also explains ~20 rows that vanished from the freeze**, which could easily read as fixes: refreshing the
+baseline after `baa55cdb9` (contract honours `backend:`) removed the js/v2 rows of those cases. They were not
+fixed — they stopped being measured. Worth stating in the layout spec either way.
+
+**Decide, do not patch:** either put `jvm` in the default lanes now that the lane runs, or say plainly that
+`backend: jvm` means int-only today so nobody reads those green rows as backend coverage.
+
 ## ci-status-guard-selftest-two-stacked-defects — `Validate ScalaScript` is red on the guard's OWN self-test, twice over
 <!-- status: open
      lane: apparatus
