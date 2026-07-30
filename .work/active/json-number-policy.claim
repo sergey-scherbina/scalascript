@@ -2,10 +2,10 @@ slug: json-number-policy
 branch: feature/json-number-policy
 agent: claude-code
 started: 2026-07-30T05:50:31Z
-heartbeat: 2026-07-30T05:50:31Z
-status: claimed-before-planning
+heartbeat: 2026-07-30T06:00:39Z
+status: in-progress
 items: v1-json-two-contradictory-number-policies
-paths: v1/lang/core/src/main/scala/scalascript/interpreter/JsonParser.scala specs/json-number-policy.md BUGS.md SPRINT.md CHANGELOG.md
+paths: v1/lang/core/src/main/scala/scalascript/interpreter/JsonParser.scala specs/json-number-policy.md BUGS.md SPRINT.md CHANGELOG.md v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/core-collections.mjs v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/http-server.mjs tests/conformance/expected/json-read.txt
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: after the corpus run, rebuild with the js reviver and confirm all three lanes agree
