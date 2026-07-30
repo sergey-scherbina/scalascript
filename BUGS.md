@@ -1,6 +1,79 @@
 # Bug tracker
 
+## js-class-method-named-arg-nan — a named arg to a CLASS method is `NaN` on the JS lane
+<!-- status: open
+     lane: js
+     area: codegen
+     gate: none -->
+
+**Found 2026-07-30** while fixing [[v1-interp-object-method-named-arg-wrong-slot]]. Object methods
+are fine on every lane now; **class** methods are not, on JS only.
+
+```scalascript
+class K:
+  def m(a: Int, b: Int = 5, c: Int = 7): Int = a + b * 10 + c * 100
+
+case class P(x: Int, y: Int = 2):
+  def shift(dx: Int = x, dy: Int = 0): String = (x + dx).toString + "/" + (y + dy).toString
+
+println(K().m(1, c = 9))
+println(P(5).shift(dy = 1))
+```
+
+| | INT | JS | JVM (real Scala) |
+|---|---|---|---|
+| `K().m(1, c = 9)` | 951 | **`NaN`** | 951 |
+| `P(5).shift(dy = 1)` | 10/3 | **`6/NaN`** | 10/3 |
+
+`NaN` rather than a wrong number, so the value reaching the parameter is `undefined` — the emitted
+call passes the named argument in a slot the callee does not read, and arithmetic on `undefined`
+gives `NaN`. The second row shows it is not only the ORDER: `dy = 1` also loses its value, and the
+`dx` default (which reads the field `x`) is not applied either.
+
+This is why `tests/conformance/named-arg-defaults.ssc` covers object methods but **not** class
+methods — the case would pin a divergence rather than a behaviour. INT and JVM agree, so JS is the
+odd lane and the JVM answer is the target.
+
+## v1-interp-zero-arg-call-to-all-defaulted-object-method-returns-a-closure — `V.one()` prints `<function(1)>`
+<!-- status: open
+     lane: int
+     area: runtime
+     gate: none -->
+
+**Found 2026-07-30** by the probe for [[v1-interp-object-method-named-arg-wrong-slot]]; same
+object-vs-plain split, different symptom, so filed separately rather than folded into that fix.
+
+```scalascript
+object V:
+  def one(a: Int = 3): Int = a
+  def two(a: Int = 3, b: Int = 4): Int = a * 10 + b
+def plainOne(a: Int = 3): Int = a
+println(V.one())
+println(V.two())
+println(plainOne())
+```
+
+| | INT | native | JS |
+|---|---|---|---|
+| `V.one()` | **`<function(1)>`** | 3 | 3 |
+| `V.two()` | **`<function(2)>`** | 34 | 34 |
+| `plainOne()` (not a member) | 3 | 3 | 3 |
+
+Calling an object method with NO arguments when every parameter has a default returns the partial
+closure instead of applying the defaults. A plain top-level `def` with the identical signature is
+correct, which is the same asymmetry as the named-arg defect: the member path and the plain path
+disagree about default filling.
+
+**Where to look.** `CallRuntime.callFun`'s default-filling block is guarded by
+`tupledArgs.nonEmpty && tupledArgs.length < f.params.length`, so the ZERO-argument case never enters
+it. Whatever fills defaults for a plain `def` is reached differently. NOT fixed alongside the
+named-arg change on purpose: that change is confined to the path where a name is present, and this
+one has no named args at all, so a single commit would have made the A/B unreadable.
+
 ## heartbeat-stale-while-active — the staleness check called a committing agent orphaned
+<!-- status: unknown
+     lane: apparatus
+     area: docs -->
 
 **Status: FIXED 2026-07-30** in `c24ca1c08`, gated by
 `tests/coord/claim-activity-overrides-heartbeat.sh` (`0c7bba624`).
