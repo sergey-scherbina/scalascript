@@ -5,7 +5,7 @@ started: 2026-07-30T03:42:24Z
 heartbeat: 2026-07-30T03:42:24Z
 status: claimed-before-planning
 items: test-fork-budget-has-no-host-wide-coordination TFH-0 TFH-1
-paths: build.sbt
+paths: build.sbt scripts/build-ram-peak
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: fix the sampler's loose classifier (it counted Electron node helpers), then measure
