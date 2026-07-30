@@ -233,3 +233,36 @@ maintain, so it stays — but it is recorded as **marginal, not as a win**.
 
 If a future reader wants a rule out of the pair: revert a no-gain change when carrying it costs
 future attention; keep it when it costs none.
+
+### LOCATED: the entire Double numeric fast-path tier is built and never wired up
+
+`float-fold` **315×** and `float-loop` **54×**, against `arith-loop` — their Long twin — at
+**2.4×**. The cause is one branch in the SHARED lowering, `v2/lib/ssc1-lower.ssc0` (`var` case,
+~:4038):
+
+```
+if isIntLitExpr(expr) then
+  -- Integer literal init: use long cell (no IntV boxing per store)
+  IrPrim("lcell.new", …)      scope marker "@@name"
+else
+  IrPrim("cell.new", …)       scope marker "@name"     ← everything else, incl. a Double literal
+```
+
+There is no Double branch, so `var sum: Double = 0.0` gets a GENERIC cell and every read and write
+boxes. Measured on `float-loop`: **841 `FloatV` allocation samples** and 256 `ForeignV`, with
+`Emit.prim1` + `Emit$.s1` + `CHM.computeIfAbsent` at ~600 CPU samples — the generic
+string-keyed `cell.get`/`cell.set` path, once per iteration. The Long twin never enters it.
+
+**The Double tier already exists everywhere else.** `Prims` implements `dcell.new`, `dcell.get`,
+`dcell.set`; `Emit` has `dcellAccum` (the unboxed fused accumulator, written as the deliberate twin
+of `lcellAccum`); `JvmByteGen` has `canDouble`/`genDouble`/`DArithB`. And **`grep -c dcell
+v2/lib/ssc1-lower.ssc0` returns 0** — nothing ever emits any of it. An entire numeric tier was
+built, tested against its Long sibling, and left unreachable.
+
+**What wiring it needs** (not a one-liner, and the reason it is queued rather than rushed):
+an `isFloatLitExpr` predicate; a `dcell.new` branch with its own scope marker; and a Double twin at
+each site that currently special-cases the `@@` (lcell) marker on read/write — `ssc1-lower.ssc0`
+:2575, :2870, :4094. Verify with the effects/collections conformance slices plus an ALTERNATING A/B
+on `float-loop` and `float-fold`, and expect the Long ratio (2.4×) as the target, not zero.
+
+Queued as `SPRINT.md v2m-2h`. It is the largest single lead the rebuilt matrix produced.

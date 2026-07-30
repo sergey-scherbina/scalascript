@@ -368,6 +368,20 @@ representative per shape, name the cause, fix it, then re-measure the whole shap
       those two say the numeric fast paths cover Long and NOT Double: the most concrete open lead.
       Also: `nested-loop` is 5.1× here against 2.8× under load — parts of category 3 were flattered
       by contention, not improved.
+- [ ] **v2m-2h — wire up the Double numeric tier; it is built and unreachable.** `float-fold`
+      **315×** and `float-loop` **54×** vs `arith-loop` (the Long twin) at **2.4×**. Cause located
+      in the SHARED lowering `v2/lib/ssc1-lower.ssc0` (`var` case ~:4038): the branch reads
+      `if isIntLitExpr(expr) then lcell.new … else cell.new …`, with no Double arm — so a
+      `Double` var gets a GENERIC cell and boxes on every read and write (841 `FloatV` alloc
+      samples on `float-loop`, plus ~600 CPU samples in the string-keyed `cell.get`/`cell.set`
+      path).
+      **`Prims.dcell.new/get/set`, `Emit.dcellAccum` and `JvmByteGen.canDouble/genDouble` all
+      already exist** — `grep -c dcell v2/lib/ssc1-lower.ssc0` is **0**. The tier was built as the
+      deliberate twin of the Long one and never emitted.
+      Needs: an `isFloatLitExpr`; a `dcell.new` branch with its own scope marker; a Double twin at
+      each `@@`-marker read/write site (:2575, :2870, :4094). Gate with the collections/effects
+      conformance slices and an ALTERNATING A/B on both float rows. Target is the Long ratio
+      (2.4×), not zero.
 - [ ] **v2m-2a — collection iteration.** `lazylist-take` **474×**, `effect-stream` **271×**,
       `range-sum` **170×**, `list-fold` **160×**, `hof-pipeline` **19×**. Representative:
       `range-sum` (smallest, 170×, and a `Range` is not even a user data structure). Known from
