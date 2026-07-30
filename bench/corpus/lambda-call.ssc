@@ -1,0 +1,28 @@
+# lambda-call
+
+A lambda bound to a local `val` and invoked directly — the shape real code writes
+constantly (`val f = …; f(x)`) and the one **no other corpus row contains**: every
+other higher-order workload passes its lambda as an ARGUMENT to a collection method,
+which takes a different and much faster runtime path.
+
+Measured 2026-07-30 on the v2 bytecode lane, 100k invocations each, medians of 3 rounds:
+
+| what is called | ns / call |
+|---|---|
+| closure invoked by `foreach` | 7.1 |
+| top-level `def` (`INVOKESTATIC`) | 11.2 |
+| **this shape** | **48.7** |
+
+Without this row the defect is invisible to the benchmark and any fix for it is
+unprotected against regression. See `TASK/v2-perfomance.md` v2-perf-6b.
+
+```scalascript
+def workload(): Long =
+  val f = (x: Int) => 0L
+  var sum = 0L
+  var i = 0
+  while i < 100000 do
+    sum = sum + f(i)
+    i = i + 1
+  sum
+```

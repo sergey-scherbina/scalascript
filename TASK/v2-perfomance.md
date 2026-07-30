@@ -277,8 +277,30 @@ The 48.7 ns measurement stands on its own and deserves its own entry, because **
 `val f = …; f(x)` constantly even though this benchmark corpus never does.** Cause supported by two
 readings (above): one shared static `Emit.app` funnel, hot at C2, compiled as a root rather than
 inlined, deoptimising. Fix: the `App(Local i)`-bound-to-a-`Lam` direct-call arm in `JvmByteGen`.
-**Expected size ~4× on that shape; expected size on the benchmark corpus: ZERO.** Whoever picks it
-up should add a corpus row for the shape first, or the win will be invisible and unprotected.
+**Expected size ~4× on that shape.** The corpus row now exists — `bench/corpus/lambda-call.ssc`,
+added before any fix, because a win nothing measures is unprotected. Its first reading:
+
+    lambda-call    ssc 0.0029    v2-bytecode 5.03    ratio 1734x
+
+**That makes it the WORST row in the corpus**, ahead of `lazylist-take` at 566×. It was invisible
+for exactly one reason: nothing measured the shape.
+
+**Implementation, and the catch that shapes it.** `JvmByteGen` already has the machinery in the
+neighbouring case: `ctx.localTailTargets: Map[Int, (String, Int)]` maps a local's De Bruijn index to
+the compiled method of the lambda it holds — but it is populated **only for `LetRec` groups**
+(`:1010`, `:1056`), so a plain `Let` with a `Lam` right-hand side is not in it. Extending it is the
+shape of the fix.
+
+⚠ **The catch:** a direct `INVOKESTATIC` to the lambda's method needs `captured ++ args` as its env,
+and `captured` lives inside the `ClosV` in the local slot — it is not available statically. So the
+arm must load the slot, take the closure's env, `extend` it with the args, and call the method. That
+still skips `Emit.app`'s dispatch, `Runtime.run`'s `Done`/`Call` protocol and one `unroll`, and —
+the part that matters, per the `foreach` comparison — it makes the **call site monomorphic**, which
+is what `foreach` gets for free and the shared funnel cannot have.
+
+**Verify the arm is LIVE before measuring** (rename the emitted target; the lambda-call program must
+die while a `def`-call program keeps working), and re-check that `foreach`-shaped rows do not move —
+they take the other path and should be untouched.
 
 **Method note, since this entry is now the clearest instance of it on the project.** Three
 hypotheses, three disqualifying tests written down BEFORE the work, three fires, zero lines of

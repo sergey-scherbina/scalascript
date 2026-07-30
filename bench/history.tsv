@@ -78,3 +78,4 @@ date	sha	load	workload	lane	ref_lane	ms	ref_ms	ratio	note
 2026-07-30	a0de9b43d	18	probe-foreach-empty-closure	v2-bytecode	-	0.712	-	-	7.1 ns/call — closure invoked BY foreach
 2026-07-30	a0de9b43d	18	probe-defcall	v2-bytecode	-	1.12	-	-	11.2 ns/call — top-level def, INVOKESTATIC
 2026-07-30	a0de9b43d	18	probe-lambdacall	v2-bytecode	-	4.87	-	-	48.7 ns/call — local `val f = (x) => …; f(i)`
+2026-07-30	88042e175	12	lambda-call	v2-bytecode	ssc	5.03	0.0029	1734	NEW corpus row for v2-perf-6b — worst row in the corpus; the shape was previously unmeasured
