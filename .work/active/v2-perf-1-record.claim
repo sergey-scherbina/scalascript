@@ -1,0 +1,11 @@
+slug: v2-perf-1-record
+branch: feature/v2-perf-1-record
+agent: claude-code
+started: 2026-07-30T11:51:17Z
+heartbeat: 2026-07-30T11:51:17Z
+status: claimed-before-planning
+items: v2-perf-1-record-x1-and-legacy-recipe
+paths: file:TASK/v2-perfomance.md file:bench/history.tsv
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
