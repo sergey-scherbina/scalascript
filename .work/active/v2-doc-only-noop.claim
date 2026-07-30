@@ -1,0 +1,11 @@
+slug: v2-doc-only-noop
+branch: feature/v2-doc-only-noop
+agent: claude-code
+started: 2026-07-30T03:41:41Z
+heartbeat: 2026-07-30T03:41:41Z
+status: claimed-before-planning
+items: v2-doc-only-file-rejected-by-three-gates
+paths: v2/bin/ v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala BUGS.md SPRINT.md CHANGELOG.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
