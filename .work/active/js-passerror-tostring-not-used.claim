@@ -5,7 +5,7 @@ started: 2026-07-30T13:05:13Z
 heartbeat: 2026-07-30T13:05:13Z
 status: claimed-before-planning
 items: js-imported-case-class-tostring-override-ignored
-paths: file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:v1/runtime/backend/js/BUGS.md
+paths: file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:v1/runtime/backend/js/BUGS.md file:v1/runtime/backend/interpreter/src/test/scala/scalascript/JsPackagedBodyMethodTest.scala
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
