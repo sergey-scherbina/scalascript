@@ -9,203 +9,116 @@
 > worktree mechanics, architecture rules, and the detail behind each rule. Where the two
 > overlap, `POLICY.md` is the source.
 
-## ⚡ THE WORKFLOW (non-negotiable — Sergiy, 2026-07-06)
+## ⚡ THE WORKFLOW — mechanics for [`POLICY.md`](POLICY.md) §P-1
 
-Every piece of work, always, in this order:
+**The rules are P-1.1 … P-1.6 and are not restated here.** This section is the commands and the
+judgement calls that `POLICY.md` deliberately leaves out.
 
-1. **CLAIM FIRST — before planning, not after** (changed 2026-07-27, see below):
+```bash
+scripts/coord-claim <slug> --items "<SPRINT ids / BUGS slugs>" --paths "file:<path> …"  # P-1.1
+scripts/new-worktree <slug>                                                            # P-1.3
+tests/conformance/run.sh --only '<globs>'                                              # P-1.4
+scripts/coord-release <slug> && scripts/rm-worktree <slug>                             # P-1.5
+```
 
-   ```bash
-   scripts/coord-claim <slug> --items "<SPRINT ids / BUGS slugs>" --paths "<path prefixes>"
-   ```
+`--items` is the WORK, not the name: it is what lets the overlap guard notice a rival claim filed
+under a *different slug*. `--paths` is what you may touch, enforced at commit time. A rejected push
+means someone moved first — **re-read the queue, do not blindly rebase**, because your plan may now
+be wrong.
 
-   From the **main checkout**. This writes `.work/active/<slug>.claim`, adds its line to
-   `.work/active/LEDGER.tsv`, bumps the ledger's generation counter and pushes — one commit.
-   `items:` and `paths:` are what make the claim mean something: `items` is the WORK (so a rival
-   claim under a *different slug* is detectable) and `paths` is what you may touch (enforced at
-   commit time). Push rejected ⇒ someone moved first ⇒ **re-read the queue**, don't blindly rebase.
+### Planning (P-1.2), and why there are two sprint files
 
-   *Why this moved to step 1:* claiming after planning leaves a race window as long as your
-   planning. On 2026-07-27 two agents claimed the same work 2 minutes apart in exactly that gap,
-   and a third did a task another agent already held. A claim is one cheap, revocable commit;
-   planning is minutes. Full diagnosis and the guards: [`specs/claim-mutex.md`](specs/claim-mutex.md).
-2. **Then plan → the MODULE's `SPRINT.md`, and put the task on the ROOT board.** Both, in
-   ONE commit, at the same moment as the claim — a board row without a claim is a lie, and
-   a claim without a board row is invisible work. Layout:
-   [`specs/work-tracking-layout.md`](specs/work-tracking-layout.md).
+- **module `SPRINT.md`** (e.g. `v2/SPRINT.md`) is a QUEUE with exactly two states: `[~]` in
+  progress, `[x]` done. Anything else lives in that module's `BACKLOG.md`.
+- **the root `SPRINT.md`** is the in-flight board, and it is GENERATED — `scripts/board`. Do not
+  hand-write a row (P-3.5).
 
-   - **module `SPRINT.md`** (e.g. `v2/SPRINT.md`) is a QUEUE with exactly two states:
-     `[~]` in progress, `[x]` done. There is no "planned" state — anything not being
-     worked on lives in that module's `BACKLOG.md`. A queue with a planned state becomes a
-     second backlog, which is what the old flat `SPRINT.md` had turned into.
-   - **root `SPRINT.md`** is THE BOARD and the only global work file: one row per task
-     actually in flight — `| task | module | claim | state | notes |` — added before work
-     starts and removed when the claim is released. It answers *what is happening right
-     now*; the module file answers *what is queued for this module*.
+### Conformance before the push (P-1.4)
 
-   Same split for backlogs: each module has its own `BACKLOG.md`, and the root one is for
-   cross-module or not-yet-scoped items only.
-3. **Work in a WORKTREE** on a `feature/<slug>` branch off `origin/main` —
-   `scripts/new-worktree <slug>`. Never feature-edit the shared main checkout
-   (a pre-commit hook refuses it; only `.work/` coordination commits are
-   allowed there). Branch name must match the claim slug — that is how the scope
-   guard finds your claim. Commits outside your claim's `paths:` are refused;
-   widen the claim (and let the overlap guard check it) rather than working around it.
-4. **Push each finished piece straight to `origin/main`**
-   (`git push origin <branch>:main`, rebase on rejection) — small commits,
-   feature and docs/bookkeeping separated. Verify (suite/corpus) BEFORE the push.
-   4b. **Conformance before push**: run the affected slice —
-   `tests/conformance/run.sh --only '<globs>'` (serverless wrapper — never spawns a bloop
-   daemon; memoized green runs
-   skip; JVM lane is serverless by default; use `--warm-jvm` only for local
-   speed probes). It costs seconds now, so a push without
-   at least the affected-slice run is not acceptable. Full corpus stays for CI.
-   4c. **CI evidence before release** — RELAXED 2026-07-27 by Sergiy. The old rule
-   ("exit 0 on `scripts/ci-status --sha <landed-sha>` is the only green verdict; pending
-   keeps the claim open") became unsatisfiable at four parallel agents: measured
-   2026-07-27, **6 of 14 runs on main ended `cancelled`** with an 8-deep queue and the
-   oldest runs `in_progress` for 80+ min, so most commits never get a verdict at all
-   (`BUGS.md` `ci-runs-cancelled-under-churn`). A rule nobody can satisfy is not a gate —
-   it just moves the lying somewhere else.
+`tests/conformance/run.sh` is a serverless wrapper: it never spawns a bloop daemon, memoized green
+runs skip, and the JVM lane is serverless by default (`--warm-jvm` is for local speed probes only).
+The affected slice costs seconds, so a push without it is not acceptable. Full corpus stays for CI.
 
-   **The rule now:** before releasing a claim, obtain and STATE the strongest evidence you
-   actually have, in this order:
+### CI evidence before a release — the three levels (P-6.7)
 
-   1. `scripts/ci-status --sha <landed-sha>` exit 0 — still the gold standard when you get it.
-   2. Otherwise `gh run view <run> --json jobs`: name the **specific job that would catch
-      your change** (e.g. a `Conformance shard i/4` for a conformance/engine change) and report
-      its conclusion. A green descendant run counts, with the `merge-base` named.
-   3. Otherwise your local gates, listed by name and result.
+**The rule — what counts as evidence and what a release must say about it — is
+[`POLICY.md`](POLICY.md) §P-6.7.** How to obtain each level:
 
-   **Before settling for level 3, ASK FOR A RUN.** Since 2026-07-28 `workflow_dispatch` has its
-   own per-SHA concurrency group, so a dispatched run is never evicted by the next push:
+1. `scripts/ci-status --sha <landed-sha>` exit 0 — the gold standard when you get it.
+2. `gh run view <run> --json jobs` — name the **specific job that would catch your change** (e.g. a
+   `Conformance shard i/4` for a conformance change) and report its conclusion. A green descendant
+   run counts, with the `merge-base` named.
+3. Your local gates, listed by name and result.
 
-   ```bash
-   gh workflow run ci.yml --ref main
-   scripts/ci-status --sha <sha> --event any        # --event any: the run is not a push run
-   ```
+**Before settling for level 3, ASK FOR A RUN.** Since 2026-07-28 `workflow_dispatch` has its own
+per-SHA concurrency group, so a dispatched run is never evicted by the next push:
 
-   This rung did not exist before, and its absence is why an entire working session had to close
-   every claim at "level 3": dispatch shared the push group, so three runs carrying specific
-   commits were superseded and cancelled before starting a single job, and a manual dispatch would
-   have been evicted exactly the same way. Level 1 was unreachable by construction, not by luck.
+```bash
+gh workflow run ci.yml --ref main
+scripts/ci-status --sha <sha> --event any        # --event any: the run is not a push run
+```
 
-   Two costs, stated rather than discovered: a dispatched run is not a push event, so the
-   `sbt — compile and test` job DOES run (~75 min) and `ci-status` requires it — if you only need
-   the per-push verdict, read the fast jobs' conclusions directly (level 2) instead of waiting for
-   the whole run. And a dispatch consumes runner budget that push runs are queued for, so use it
-   when you need a verdict, not as a habit.
+That rung did not exist before, and its absence is why an entire session closed every claim at
+level 3: dispatch shared the push group, so runs carrying specific commits were superseded before
+starting a single job. Level 1 was unreachable by construction, not by luck.
 
-   Two things stay non-negotiable: **`cancelled` is RED, never neutral**, and the
-   release-claim must say **which of the three levels the evidence is** — never write
-   "green" for a run that did not produce one. Red is still recorded in `BUGS.md` +
-   `SPRINT.md` and fixed in the real failing job.
-5. **Release + clean up**: remove the claim, then `scripts/rm-worktree <name>`
-   (kills the worktree's build daemons too).
-6. **SWEEP THE ROZUM ROOM — every time you finish an item and have nothing in
-   flight.** `meeting.wait_my_turn` (or `meeting.status`), scan for `@you` /
-   `@scalascript` and anything obviously yours, then **act on it or queue it into
-   `SPRINT.md` / `BACKLOG.md`** — never read a request and move on. Only then pick the
-   next item.
+Two costs, stated rather than discovered: a dispatched run is not a push event, so the
+`sbt — compile and test` job DOES run (~75 min) and `ci-status` requires it — if you only need the
+per-push verdict, read the fast jobs' conclusions directly (level 2). And a dispatch consumes
+runner budget that push runs are queued for: use it when you need a verdict, not as a habit.
 
-   *Why this is step 6 and not a nicety (Sergiy, 2026-07-28):* an agent posted its
-   findings and hand-offs to the room and then stopped. Sergiy's question was the
-   whole argument — **"кто и когда там это увидит?"** A room only coordinates if
-   somebody reads it; posting is the cheap half. An agent that posts and never sweeps
-   has not handed anything off, it has written into a file nobody opens — and the
-   failure is invisible from the poster's side, which is exactly why this is a fixed
-   checkpoint instead of a judgement call. Empty room ⇒ one call wasted. Non-empty ⇒
-   you just avoided a duplicated task or a bug sitting unread for hours.
-   Detail: [`rozum`](.agents/plugins/rozum/commands/rozum.md) §"When to check the room".
+Red is recorded in the module's `BUGS.md` and fixed in the real failing job.
 
-Details: §1 below, `specs/worktree-guardrail.md`.
+Details: §"Workflow for parallel agents" below, [`specs/worktree-guardrail.md`](specs/worktree-guardrail.md).
 
-## MANDATORY: decide it yourself; park the alternatives on the board
+## Deciding: [`POLICY.md`](POLICY.md) §P-4
 
-**Default to deciding. Asking is the exception.** Most forks that surface mid-task are
-choices you are competent to make, and stopping to ask converts minutes of work into
-hours of latency while the human answers with less context than you have right now.
+The rules — default to deciding, park the alternatives with their trade-offs, and the short list of
+things still worth asking — are **P-4.1 … P-4.3**. Not restated here.
 
-Rule of thumb: *if you can name a defensible default and the cost of being wrong is a
-revert, take the default and say so in the commit.*
+The part that is not a rule, and the reason the section used to be this long: *a parked alternative
+with its trade-off costs nothing and is there the day it becomes right; the same alternative held
+as "I should ask about this" is lost at the next reboot.*
 
-When the fork is real but the alternatives are heavy — do **not** block on it, and do
-**not** silently pick the biggest option:
-
-1. **Take the smallest defensible option now** — independently shippable, easy to
-   reverse.
-2. **Write the rejected alternatives into `SPRINT.md`** (natural next slice) or
-   **`BACKLOG.md`** (genuinely not now), each with its one-line trade-off and what
-   would make it the right call.
-3. **State the assumption** in the commit message and in your report, so the owner can
-   redirect cheaply.
-
-A parked alternative with its trade-off costs nothing and is there the day it becomes
-right. The same alternative held as "I should ask about this" is lost at the next
-reboot.
-
-**Still worth asking:** an irreversible or outward-facing action; a decision that would
-invalidate work already shipped; a genuine conflict between two stated instructions; or
-every-option-is-bad. Ask those **while continuing everything that does not depend on the
-answer** — a question that stops all work is the last resort, not the first.
 Detail: [`scrumban`](.agents/plugins/scrumban/commands/scrumban.md) §"decide".
 
-## MANDATORY: contested questions go to the rozum room `scalascript` (Sergiy, 2026-07-30)
+## The rozum room: [`POLICY.md`](POLICY.md) §P-5
 
-**One room: `scalascript`.** Every potentially contentious question, and every conflict of
-interest, is raised there. Not resolved unilaterally, not worked around, not deferred to a
-commit message nobody will read in time.
+One room, `scalascript`. What belongs there, what does not, and the duty to READ it and not only
+write to it are **P-5.1 … P-5.5**. Not restated here.
 
-This is the complement to the section above, not a contradiction of it. *Decide it yourself*
-governs choices that are yours to make. This governs choices that are **someone else's, or
-shared**:
+**Mechanics, which are this file's half:**
 
-- **Another agent's claim is in your way.** Say so in the room. Do **not** `git push
-  --no-verify`, and do **not** release their claim. A heartbeat is not liveness: on
-  2026-07-30 a claim read **638 minutes stale while its last commit was 56 seconds old** —
-  releasing it on the heartbeat alone would have destroyed live work. Check the last commit
-  and the worktree, then ask.
-- **You believe a claim over-reserves.** Measured the same day: one claim held **1777 files
-  and 9 of them changed in two days**. That is worth raising — and note that both refusals it
-  produced were nonetheless *correct*, so raise it as a question, not an accusation.
-- **Two defensible answers and the choice affects others.** Name both, say which you would
-  take, and keep working on everything that does not depend on the answer.
-- **You are about to change a shared contract** — the claim protocol, the board format, a
-  gate everyone depends on, a freeze others write to.
+```
+mcp__rozum__meeting_submit      post
+mcp__rozum__meeting_wait_my_turn  the authoritative delta (25 s long-poll)
+rozum meetings inbox --as <handle>   messages addressed to you
+```
 
-**Mechanics.** `mcp__rozum__meeting_submit` to post; `meeting_wait_my_turn` for the
-authoritative delta. Keep it short, lead with the measurement, and state what you will do if
-nobody answers — a question with no default attached blocks you, and blocking is what this is
-meant to avoid. Announce `working:` when you start something non-trivial and `done:`/`blocked:`
-when you stop, so siblings can see the board without reading it.
+Announce `working:` when you start something non-trivial and `done:` / `blocked:` when you stop, so
+a sibling can see the board without reading it. Lead with the measurement; keep it short. Agents are
+addressed by CLAIM SLUG (`@some-slug`) — if you hold no claim, say which handle to reply to, or your
+question has no address.
 
-**Do not open a second room** for a sub-topic. One room is the point: a conflict is only
-visible if everyone is looking at the same place.
+Detail: [`rozum`](.agents/plugins/rozum/commands/rozum.md).
 
-## MANDATORY: claim the narrowest scope that covers the work (2026-07-30)
+## Claim scope: [`POLICY.md`](POLICY.md) §P-2
 
-Claims carry a **level prefix** (`specs/claim-mutex.md` §Hierarchy), and the level is the unit
-of ownership:
+Narrowest scope that covers the work, `mod:` is an edit lock rather than stewardship, bookkeeping
+files are never claimed, and widening is a normal move — **P-2.1 … P-2.5**. Not restated here.
+
+**The syntax, which is this file's half:**
 
 ```text
-file:<path>   exactly one file      — the default; it is what lets others work nearby
+file:<path>   exactly one file      — the default
 mod:<path>    a module subtree      — scripts/coord-claim REFUSES it without --broad "<reason>"
 repo:         everything            — same requirement, and almost never right
 <path>        unprefixed = mod:<path>, unchanged
 ```
 
-A module is **both** a unit of code and a unit of ownership, so do not read `mod:` as "this
-area is mine": it is an *edit lock*. Holding a subtree to signal stewardship blocks 1000+ files
-to protect the two you are editing.
-
-Bookkeeping files — `SPRINT.md`, `BACKLOG.md`, `BUGS.md`, `CHANGELOG.md`, `MILESTONES.md`,
-`README.md` — are **shared at every level**, root and per-module alike. Never list one in a
-claim; the guard exempts them by basename precisely so that appending to a board can never be
-refused.
-
-A `file:` scope inside someone else's `mod:` is admitted when that owner has neither declared
-nor modified it. Everything undecidable refuses. If you think a refusal is wrong, that is a
-conflict of interest — see the room, above.
+Widening means editing **both** copies of the scope — `.work/active/<slug>.claim` and its
+`LEDGER.tsv` row — and pushing; the guard refuses if they disagree. Mechanism and the measurements
+behind the levels: [`specs/claim-mutex.md`](specs/claim-mutex.md) §Hierarchy.
 
 ## MANDATORY: required skills
 
@@ -733,35 +646,13 @@ Existing specs to mirror in style:
 [`specs/x402.md`](specs/x402.md),
 [`specs/runtime-server-strategic-plan.md`](specs/runtime-server-strategic-plan.md).
 
-## Workflow for parallel agents
+## Workflow for parallel agents — mechanics for [`POLICY.md`](POLICY.md) §P-1.3
 
-Multiple agents run independently in parallel, each in its own worktree.
-To stay out of each other's way — five rules, all mandatory:
+Many agents run at once, each in its own worktree. **Where work may happen, and what the shared
+`main` checkout may be used for, is [`POLICY.md`](POLICY.md) §P-1.3.** Below is how to get into a
+worktree when the tooling will not, and how to check what the neighbours are doing.
 
-### 1. One agent = one worktree = one branch
-
-`EnterWorktree(<descriptive-name>)` on a `feature/<name>` branch off
-`origin/main`. All edits, commits, and `sbt compile` / `sbt test` runs
-happen inside that worktree.  **Never edit, commit, or run tests
-directly on `main`** — in this repo other agents are essentially
-always running in parallel, and they will switch the shared checkout's
-HEAD, stash your uncommitted state, and `git clean` your untracked
-files (it has happened repeatedly).  Even "small" changes to `AGENTS.md`
-/ `BACKLOG.md` / a one-line bug fix go through a worktree on a
-feature branch.
-
-The shared `main` checkout is only ever for three things:
-
-1. Reading state (`git log`, `git status`, file viewing).
-2. Fast-forward merge of *your* `feature/<name>` branch into `main`
-   followed immediately by `git push origin main` (Rule 3).  No
-   stops, no edits in between.
-3. Coordination operations that must be visible on `origin/main`:
-   task claims, claim releases, pause/resume files, and local `main`
-   synchronization.  These operations stage only the coordination file
-   they are changing and never touch sibling dirty work in shared `main`.
-
-#### When EnterWorktree is unavailable — create one manually
+### 1. When `EnterWorktree` is unavailable
 
 `EnterWorktree` may be rejected with "Must not already be in a worktree"
 even when the session's `Primary working directory` is not a real git
@@ -1058,8 +949,8 @@ run this checklist **before** merging:
 
 #### 3a. Update documentation
 
-Every user-facing feature must ship with matching doc updates in the same
-push.  Four places to check:
+**When a doc update is required, and how it is committed, is [`POLICY.md`](POLICY.md) §P-1.4.**
+Which doc to touch:
 
 | Doc | When to update |
 |-----|---------------|
@@ -1067,12 +958,6 @@ push.  Four places to check:
 | `docs/user-guide.md` | New block type, new front-matter key, new CLI flag, new API — add a subsection under the relevant section |
 | `docs/tutorial.md` | Feature changes a pattern users follow step-by-step — update the relevant tutorial |
 | `docs/<feature>.md` | Feature has its own spec doc — keep it in sync with what was actually built (see "Keep the spec in sync" above) |
-
-A feature with no doc update is **incomplete** — treat it the same as a
-failing test.
-
-**MANDATORY: doc updates go in their own separate commit** (not mixed with
-feature code).  Example:
 
 ```bash
 git commit -m "docs(<slug>): update user-guide + spec for <feature>"
@@ -1229,38 +1114,29 @@ See the `/multi-agent` skill for the full protocol (claim, heartbeat, triage, re
 
 Skill location: `.agents/plugins/multi-agent/commands/multi-agent.md` (in main repo — use `$MAIN` from above).
 
-Key invariants:
-- Claim from the **main checkout** (`$MAIN`) only — never from a worktree
-- **Claim BEFORE planning, via `scripts/coord-claim`** — see §THE WORKFLOW step 1 and
-  [`specs/claim-mutex.md`](specs/claim-mutex.md). Hand-writing a claim file skips the
-  `LEDGER.tsv` generation bump, which is the thing that makes two concurrent claims collide
-  instead of silently auto-merging.
-- A claim is valid only when `.work/active/<slug>.claim` is visible on `origin/main`
-- **Declare `items:` and `paths:`.** The old check compared slug *filenames*, so the same work
-  under two different slugs was invisible to it — that is precisely how 2026-07-27 went wrong.
-  `items` is compared by the pre-push overlap guard, `paths` by the pre-commit scope guard.
-- **Deliberately re-checking another agent's landed result is legitimate** — claim it as
-  `verify-<slug>` with the same `items`, which the overlap guard allows on purpose. Accidental
-  duplication is the target here, not intentional cross-checking.
-- Files in `.work/active/` without `.claim` suffix are invalid markers — report or repair before starting
-- Never assume a claim is yours; read the `agent:` field first
-- **A stale heartbeat FIELD is not a stale claim. COMMIT ACTIVITY decides.** A claim is a candidate
-  for triage only when BOTH signals are cold: the `heartbeat` field older than 45 minutes (or
-  missing) **AND** no commit for the claim inside that same window — neither its branch tip (local or
-  remote) nor the claim file. Fresh commits mean LIVE, whatever the field says. `scripts/coord-status` applies this already and prints
-  `live by COMMIT activity (stale heartbeat field, ignored)` — read that line as "do not touch".
-  Only when BOTH signals are cold is the claim a candidate: then run
-  `/multi-agent triage <slug>` before touching anything.
-  (Measured 2026-07-30: `v2-backend-matrix-gaps` carried a **10.7-hour-old** field while landing 13
-  commits in the hour it was reported stale. It was triaged as orphaned twice, and only a manual
-  `git log` stopped an edit landing in a file that agent was actively working in. BUGS
+**The rules are [`POLICY.md`](POLICY.md) §P-2** — claim from the main checkout before planning via
+`scripts/coord-claim` (P-1.1, P-2.4b); a claim counts when it is on `origin/main`; declare `items:`
+and `paths:`; `verify-<slug>` for a deliberate cross-check (P-2.4c); a stale heartbeat is not
+liveness (P-2.5). Not restated here.
+
+**Operational detail, which is this file's half:**
+
+- **The 45-minute rule, and it needs BOTH signals cold.** A claim is a triage candidate only when
+  the `heartbeat` field is older than 45 min (or missing) **AND** no commit for it landed in that
+  window — neither the branch tip, local or remote, nor the claim file. `scripts/coord-status`
+  applies this and prints `live by COMMIT activity (stale heartbeat field, ignored)`; read that
+  line as *do not touch*. Only when both are cold, run `/multi-agent triage <slug>`.
+  (Measured 2026-07-30: a claim carried a **10.7-hour-old** field while landing 13 commits in the
+  hour it was reported stale. It was triaged as orphaned twice, and a manual `git log` is what
+  stopped an edit landing in a file that agent was actively working in. BUGS
   `heartbeat-stale-while-active`.)
-- Heartbeat on a **material status change**, not as running commentary. The threshold is a floor,
-  not a target: a claim that is alive and unchanged does not need a commit every few minutes.
-  (Raised from 20 min on 2026-07-28 — 202 of 253 commits in one 6-hour window carried no code.)
-  **Do not "fix" a stale field by heartbeating more often** — that is what the 2026-07-28 raise
-  exists to prevent. Commits you are making anyway are the liveness signal; the field is only for an
-  agent with nothing to commit yet (planning, a long build).
+- **Heartbeat on a material status change, not as running commentary.** The threshold is a floor,
+  not a target. Raised from 20 min on 2026-07-28 — 202 of 253 commits in one 6-hour window carried
+  no code. **Do not "fix" a stale field by heartbeating more often**: the commits you are making
+  anyway are the liveness signal, and the field is only for an agent with nothing to commit yet
+  (planning, a long build).
+- Files in `.work/active/` without a `.claim` suffix are invalid markers — report or repair before
+  starting. Never assume a claim is yours: read the `agent:` field first.
 
 Quick reference:
 - `scripts/coord-claim <slug> --items … --paths …` — claim (preferred; keeps the ledger correct)

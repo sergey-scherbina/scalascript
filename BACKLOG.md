@@ -8,14 +8,33 @@ Sections below were carried over whole from the flat root `SPRINT.md`/`BACKLOG.m
 verbatim, on 2026-07-30.
 
 ## agents-md-paraphrases-policy — four MANDATORY sections restate rules that now live in POLICY.md
-<!-- status: open
+<!-- status: fixed
      lane: n/a
      area: docs
      kind: apparatus
+     fixed-in: unrecorded
      gate: tests/e2e/policy-single-source.sh -->
 
-**Status:** OPEN, filed 2026-07-30 by the agent that created the duplication, deliberately rather
-than leaving it implied by a green gate.
+**Status:** FIXED 2026-07-30, same day it was filed. Six sections separated line by line; nothing
+lost, verified probe by probe. `fixed-in: unrecorded` because the commit is this one.
+
+**How the separation was decided, since "rule vs detail" is not self-evident:**
+
+- A **rule** says what you must do. It moved to `POLICY.md`, or was already there.
+- **Detail** is the command, the flag, the failure mode, the measurement. It stayed.
+- A **citation names the SUBJECT, not the content.** "When a doc update is required is P-1.4" is a
+  signpost; "a feature with no doc update is incomplete — see P-1.4" is a second copy wearing a
+  link. The first draft of three citations did the latter and was rewritten.
+
+**Six rules existed ONLY in `AGENTS.md` and were moved INTO `POLICY.md` rather than dropped** —
+this was the risk in the task and the reason it was done as its own change: the shared checkout's
+three permitted uses (P-1.3), a claim counts when it is on `origin/main` (P-2.4b), `verify-<slug>`
+is legitimate (P-2.4c), `cancelled` is RED and a release names its evidence level (P-6.7), and docs
+ship with the feature (P-1.4).
+
+`AGENTS.md` 1333 → 1215 lines. The gate cannot prove a paraphrase is gone, so the check was manual
+and by probe: every distinctive phrase from the old sections still resolves in one file or the
+other.
 
 `POLICY.md` is the single source for the process rules and the five entry points now link to it.
 But four `## MANDATORY` sections in `AGENTS.md` — THE WORKFLOW, "decide it yourself", the room, and

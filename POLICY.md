@@ -25,8 +25,15 @@ Every piece of work, always, in this order. Detail: [`AGENTS.md`](AGENTS.md) §T
 2. **Plan into the module's `SPRINT.md`, and put a row on the root board** — see P-3.
 3. **Work in a worktree** on `feature/<slug>` off `origin/main` (`scripts/new-worktree <slug>`).
    The branch name must match the claim slug: that is how the scope guard finds your claim.
+   **The shared `main` checkout is for exactly three things** — reading state, fast-forwarding your
+   own branch into it, and coordination commits that must be visible on `origin/main`. Nothing
+   else, including a one-line doc fix: siblings switch its HEAD and `git clean` your untracked
+   files, and they have.
 4. **Verify, then push straight to `origin/main`.** Small commits, feature separated from
    bookkeeping. The affected conformance slice runs *before* the push, not after.
+   **A user-facing feature ships with its doc update in the SAME push.** A feature with no doc
+   update is incomplete — treat it exactly as a failing test. Docs go in their own commit, not
+   mixed into the feature one.
 5. **Release and clean up** — `scripts/coord-release <slug>`, then `scripts/rm-worktree <name>`.
 6. **Sweep the room** (P-5) every time you finish an item and have nothing in flight.
 
@@ -48,6 +55,14 @@ Detail and proofs: [`specs/claim-mutex.md`](specs/claim-mutex.md).
   before reading the code; 27 widenings were recorded repo-wide in one day. Widen and let the
   overlap guard check it — do **not** work around the scope guard. Both copies of the scope
   (`.claim` and `LEDGER.tsv`) must be updated together; the guard refuses if they disagree.
+- **P-2.4b · A claim exists when it is visible on `origin/main`, not when you write the file.**
+  Hand-writing `.work/active/<slug>.claim` skips the `LEDGER.tsv` generation bump, and that bump is
+  the entire mutex: without it two concurrent claims write disjoint files and auto-merge, so
+  neither agent learns the other exists. Use `scripts/coord-claim`.
+- **P-2.4c · Deliberately re-checking another agent's landed result is legitimate.** Claim it as
+  `verify-<slug>` with the same `items` — the overlap guard admits that on purpose. Accidental
+  duplication is what the mutex targets; an intentional cross-check found a live b-tree corruption
+  on 2026-07-27.
 - **P-2.5 · A refusal you believe is wrong is a conflict of interest.** Take it to the room (P-5).
   Never `git push --no-verify`, never release someone else's claim. A stale heartbeat is not
   liveness: a claim once read 638 minutes stale while its last commit was 56 seconds old.
@@ -146,6 +161,11 @@ Detail: [`AGENTS.md`](AGENTS.md) §"measurement apparatus must COMPARE, never PR
 - **P-6.5 · State the expected size before starting, and record refuted attempts.** Three plausible
   optimisations were implemented, measured and reverted this month; without the record they get
   retried, because all three look obviously right.
+- **P-6.7 · `cancelled` is RED, never neutral**, and a release must NAME which level of evidence it
+  actually has: (1) `scripts/ci-status` exit 0, (2) the specific job that would catch this change,
+  green, (3) local gates by name. Never write "green" for a run that produced no verdict. The
+  ladder exists because level 1 became unreachable under churn — 6 of 14 runs on main ended
+  `cancelled` — and a rule nobody can satisfy does not gate, it relocates the lying.
 - **P-6.6 · One measurement is a hypothesis.** On a contended host an A/B of *identical* code has
   swung **2.5×**. Alternate before/after rounds and compare medians; never compare a fresh number
   against a stale table.
