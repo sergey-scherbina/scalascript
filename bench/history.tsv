@@ -72,3 +72,9 @@ date	sha	load	workload	lane	ref_lane	ms	ref_ms	ratio	note
 2026-07-30	aedf19814	5.6	float-loop	v2-bytecode-legacy	ssc	61.4	1.27	48	BEFORE dcell-in-lowerer (median of 61.4/64.9/58.6)
 2026-07-30	aedf19814	5.6	float-loop	v2-bytecode-legacy	ssc	1.24	1.25	1.0	AFTER dcell-in-lowerer (median of 1.24/1.05/1.59) — 50x, parity with ssc
 2026-07-30	aedf19814	5.6	arith-loop	v2-bytecode-legacy	ssc	0.603	0.271	2.2	CONTROL, unchanged (0.602/0.603/0.614 vs 0.605/0.595/0.582)
+#
+# 2026-07-30 v2-perf-6 DECOMPOSITION probes (throwaway corpus files, since removed). Same 100k
+# call count in each; only the call SHAPE varies. Medians of 3 rounds, load 16-22.
+2026-07-30	a0de9b43d	18	probe-foreach-empty-closure	v2-bytecode	-	0.712	-	-	7.1 ns/call — closure invoked BY foreach
+2026-07-30	a0de9b43d	18	probe-defcall	v2-bytecode	-	1.12	-	-	11.2 ns/call — top-level def, INVOKESTATIC
+2026-07-30	a0de9b43d	18	probe-lambdacall	v2-bytecode	-	4.87	-	-	48.7 ns/call — local `val f = (x) => …; f(i)`

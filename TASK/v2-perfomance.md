@@ -139,43 +139,49 @@ guards that can match anything. **Guarding those two was implemented, measured a
 REVERTED** (see "Refuted"). Kind-indexed dispatch over the mixed parts is the remaining idea; the
 census is its prerequisite and is preserved in `v2/BACKLOG.md v2m-2f`.
 
-### v2-perf-6 · The collection + per-element-closure cluster — the next real target
+### v2-perf-6 · LOCATED — a lambda in a local `val` costs 7× the same lambda in `foreach`
 
-**Re-derived 2026-07-30 from the full sweep** (33 rows in `bench/history.tsv`, load 35 — ratios are
-compressed, compare within that sweep). Sorted, the cluster is most of the top of the table:
+**Measured 2026-07-30 by decomposition, not by profiling.** Three throwaway corpus probes, the same
+100 000 invocations in each, only the call SHAPE varying. Medians of three rounds:
 
-`lazylist-take` 566× · `effect-stream` 303× · `range-sum` 144× · `pattern-match-heavy` 130× ·
-`list-fold` 115× · `float-fold` 72× · `array-update` 55× · `vector-index` 47× · `hof-pipeline` 28×
+| what is called | ms / 100k | ns per call |
+|---|---|---|
+| closure invoked **by `foreach`** | 0.712 | **7.1** |
+| top-level `def` (`INVOKESTATIC`) | 1.12 | **11.2** |
+| local `val f = (x) => …` then `f(i)` | 4.87 | **48.7** |
 
-**These are one cluster, and the twin that isolates it is `list-fold` against `arith-loop`.** Same
-arithmetic, different iteration shape — `xs.foreach(x => { sum = sum + x })` versus a raw `while`:
+Two things fall out, and the second was not what this entry predicted.
 
-    list-fold  per element   v2  18.4 ns    ssc  0.16 ns
-    arith-loop per iteration v2   1.0 ns    ssc  0.39 ns
-    ------------------------------------------------------
-    the foreach + closure machinery costs v2 ~17 ns PER ELEMENT on top of the arithmetic
+**1. The closure BODY is nearly free.** `xs.foreach(x => { })` costs 0.888 against `list-fold`'s
+0.915 on the same host — **97% of a `foreach` element is the invocation**, not the arithmetic and
+not the cell write. So the earlier candidate "boxing of the element" is **refuted**.
 
-That is the number to attack, and it is why the numeric-tier fix did not rescue `float-fold`: its
-cell is fixed now, its 72× residue is this. `range-sum` is the same story through
-`(0 until 50).map(…).foldLeft(…)`.
+**2. The expensive shape is a lambda held in a local, called directly** — 48.7 ns, seven times the
+same closure driven by `foreach` and four times a plain `def`. That is the idiomatic higher-order
+shape, and it is what `hof-pipeline` (28×) and `bool-predicate` (14×) are made of.
 
-**What is already known and must not be redone:** `foreach` walks the cons chain in place (landed,
-1.3×); the per-match field array is gone (1.20×); the `__method__` split is JIT-compilable (2.4–10.8×).
-The remaining 17 ns is *per closure invocation* — a profile in the earlier round put `Value[]` at
-**1507 samples**, an env array allocated per call in `Runtime.extend`.
+**The cause, read off the code rather than guessed.** `JvmByteGen` has three arms:
+`App(Global g)` with a known method → `INVOKESTATIC`; the self/mutual-tail arms; and everything
+else → the generic `gen(f); genArray(args); Emit.app; Emit.unroll`. `Emit.app` on a `ClosV` does
+`Runtime.run(c.code, Runtime.extend(c.env, args))`, and `c.code` for a compiled lambda is the
+forwarder `Emit.clos` installs: `env => Done(unroll(fn.call(env)))`.
 
-**Before starting, decide which of these it is** — they need different fixes and the profile
-distinguishes them:
-1. env array allocation per closure call → reuse/stack-allocate the frame;
-2. generic dispatch at the call site → inline caching;
-3. boxing of the element → a typed element path, the collection twin of what `dcell` just did.
+So one direct call to compiled code is paid for as: an env array from `extend`, `Runtime.run`'s
+`Done`/`Call` protocol, the forwarding lambda, and **two** `unroll`s — one inside the forwarder and
+one at the call site. The compiled body is reached; the wrapper around it is the 38 ns.
 
-**Expected size:** if (1) dominates, the arithmetic floor says the ceiling is roughly 18 → 2 ns,
-i.e. ~9× on `list-fold` and its family. **Disqualifying evidence:** a profile where `Value[]`/
-`extend` is not the top allocation site — then it is (2) or (3) and this estimate is void.
+**The fix shape:** let a `ClosV` built by `Emit.clos` retain its `LamFn`, and give `Emit.app` a
+fast arm that calls it directly with the extended env, skipping `Runtime.run` and one `unroll`.
+It touches the core value representation, so it wants a spec before code.
 
-**Do not start from the profile's biggest frame.** Twice on this project a fat frame did not pay
-out by its weight (28% → 20%, 25% → nothing). Pick by the twin comparison above, then confirm.
+**Expected size:** 48.7 → about 11 ns, the `def` floor, i.e. **~4×** on lambda-call-heavy rows.
+**Disqualifying evidence:** if `foreach` at 7.1 ns does NOT already take such a direct path, then
+the wrapper is not the difference and this reading is wrong — check how `foreach` invokes its
+argument before writing any code.
+
+**Refuted here, do not retry:** "boxing of the element" (the empty-body probe closes it) and
+"start from the profile's biggest frame" (the decomposition found this without a profiler, after
+two earlier profiles mis-sized their frames).
 
 ### v2-perf-7 · Category 3 has never been analysed
 `tuple-monoid` 9.1× · `type-lambda-placeholder` 8.8× · `instance-field` 7.5× · `either-chain` 6.9× ·
