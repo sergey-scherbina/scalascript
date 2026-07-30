@@ -171,6 +171,36 @@ it alone would have looked like a fix while changing nothing.
 **Impact:** `bench/corpus/array-update` cannot be measured on either v2 lane, and any `.ssc`
 program that writes into an array is silently wrong on the default lane.
 
+## markdown-inline-scanner-duplicated — two inline scanners over the same grammar, one emitting HTML and one emitting nodes
+<!-- status: open
+     lane: multi
+     area: runtime
+     gate: none -->
+
+**Filed 2026-07-30** by `v2-content-inlines` as the deliberate residue of its own fix, rather than left as
+silent duplication.
+
+Two scanners now cover the same grammar — code / strong / emphasis / link, with an unclosed marker falling
+back to literal text:
+
+| site | produces |
+|---|---|
+| `v1/runtime/std/markdown-html.ssc:95` `markdownInlineHtml` | an HTML **string** |
+| `v1/runtime/std/content-core.ssc` `contentInlineNodes` | inline **nodes** |
+
+The second exists because the first cannot be reused: it escapes and emits markup as it scans, so there is
+no tree to hand to `contentInlines`.
+
+**Why close it rather than tolerate it.** The same shape — a helper written inline and a hand-written
+subset a few lines away — is exactly what produced `jsgen-char-literal-escape`, where the copies drifted
+and one silently emitted invalid JS. Two copies of a *parser* have more room to drift than two copies of an
+escaper.
+
+**Direction:** make `markdownInlineHtml` a renderer over the node scanner. The hard constraint is that
+`markdown-html`'s frozen golden must stay BYTE-IDENTICAL — the current scanner escapes as it goes, so a
+node-then-render pass has to reproduce the same escaping at the leaves, including `Code` content and
+`mdhHref` on destinations. That constraint is also what makes the refactor verifiable.
+
 ## v2-char-is-an-int — a Char literal IS its code point on the v2 lane, in `println`, `toString` and concatenation
 <!-- status: open
      lane: native
@@ -573,12 +603,35 @@ sufficient for the default lane to accept it.
 is not skipped/attached the way F does it. F's handling is the reference — it accepts all four
 shapes above.
 
-## v2-content-inlines-never-parsed — v2 stores each block's raw markdown as ONE `Text` inline, so `contentPlainText` leaks syntax
-<!-- status: open
+## v2-content-inlines-never-parsed — v2 stored each block's raw markdown as ONE `Text` inline, so `contentPlainText` leaked syntax
+<!-- status: fixed
      lane: native
-     area: front -->
+     area: runtime
+     fixed-in: b602a044e
+     gate: tests/conformance/content-tables.ssc -->
 
-**Status:** OPEN. Found 2026-07-30 by `skip-triage-golden-lane` while reducing `content-tables`' v2
+**FIXED 2026-07-30** in two commits, and the second was only reachable because of the first:
+
+* `abaccde91` — `content-core.ssc` gained an inline scanner, so a text run is split into
+  `Strong`/`Emphasis`/`Code`/`Link`/`Text` nodes instead of arriving whole. Rules are deliberately
+  identical to `markdown-html.ssc:95` (`markdownInlineHtml`): same marker precedence, same "unclosed
+  marker becomes literal text" fallback.
+* `b602a044e` — parsing those nodes exposed two arms of v2's renderer that had been wrong all along and
+  were UNREACHABLE before: `Code` was lumped in with `Text` (losing its backticks) and `Link` dropped the
+  href. v1's `ContentIntrinsics.inlinePlainText:1500-1517` is the specification here, because the frozen
+  goldens come from that lane.
+
+`content-tables` on v2: 6 differing lines when this started, 4 after the canonical attr-order fix
+(`d2349fe99`), 2 after the scanner, **0 now**. Contract over all 12 `content-*` cases plus `markdown-html`
+and the two `backends: [v2]` markdown-core cases, all three lanes: 39/40 PASS, one improvement, zero
+regressions. `v2NativeContentPlugin/test`: 4/4.
+
+**Blast radius was chosen, not lucky.** The block parser already splits `${…}`, so the remaining text
+chunks need no expression handling and `markdown-core.ssc` / `markdown-html.ssc` stayed untouched — which
+is why `markdown-html`'s frozen golden and the two `v2`-only markdown-core cases were never at risk.
+Residue filed as [[markdown-inline-scanner-duplicated]].
+
+**Original report (superseded 2026-07-30):** OPEN. Found 2026-07-30 by `skip-triage-golden-lane` while reducing `content-tables`' v2
 DIVERGE. **Referenced by `d2349fe99`'s message, which is why this entry exists** — that commit fixed
 the OTHER half (canonical attr order) and pointed here for the rest.
 
