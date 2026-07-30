@@ -5,30 +5,42 @@ Planned and queued work lives in the per-module `SPRINT.md` / `BACKLOG.md`; see
 [`specs/work-tracking-layout.md`](specs/work-tracking-layout.md) for the layout and
 [`SPRINT-ARCHIVE.md`](SPRINT-ARCHIVE.md) for the 85 finished sections this file used to carry.
 
-A row appears here **in the same commit as the claim**, and disappears when the claim is released. A
-board row without a live `.work/active/<slug>.claim` is a lie; a claim without a board row is
-invisible work. Both directions have cost real duplicated effort on this project, which is why they
-are written together rather than "kept in sync".
+**The in-flight list is GENERATED, not maintained.** `.work/active/` is the source of truth — it is
+already the mutex, already written by `scripts/coord-claim`, and every column of the old table came
+from a field the claim file carries (`items` → task, `paths` → module, `slug` → claim,
+`status` → state, `next` → notes).
+
+```sh
+scripts/board            # who is working on what, right now
+scripts/board --check    # exit 1 if some copy of the table has drifted
+```
+
+Keeping a second copy cost, on 2026-07-30 alone: four live claims against one row (**75 % of the
+work invisible**), four manual reconciliations in one hour that were red again within minutes
+because claims land faster than hand edits, a gate whose only job was to watch the drift, and a
+`coord-claim` broken on `main` by the attempt to automate the copy. A generated view has nowhere
+for any of that to happen.
 
 **Loop control** — pause: push `.work/paused` to `origin/main`; resume: remove it and push.
 Start: tell the agent "go" / "работай". Status: ask "status" / "статус".
 
 ## In flight
 
-| task | module | claim | state | notes |
-|---|---|---|---|---|
-| `board-row-not-written-by-tool` | *(unrecorded)* | `board-claim-parity` | in progress | row added by board-claim-parity; claim predates the tool |
-| `claim-granularity-policy` + `shared-bookkeeping-per-module` | *(repo-wide)* | `coord-policy-and-shared-boards` | in progress | room policy + scope levels into AGENTS.md; module boards shared again |
+Run `scripts/board`. Nothing is listed here on purpose — a table in this file would be a second copy
+of `.work/active/`, which is exactly what was removed.
 
 ## How a task gets onto this board
 
 1. Pick an item from a module `BACKLOG.md` or a module `BUGS.md`.
 2. `scripts/coord-claim <slug> --items ... --paths ...` — the claim is the mutex and it comes
    **first**, before planning, because planning takes minutes and that gap is the whole race window.
-3. In ONE commit: add the row here, and mark the item `[~]` in that module's `SPRINT.md`.
+3. Mark the item `[~]` in that module's `SPRINT.md`. **There is no row to add here** — the claim
+   already put you on the board.
 4. Work in a worktree (`scripts/new-worktree <slug>`), never in the shared checkout.
-5. Mark the module item `[x]`, delete the row here, release the claim.
+5. Mark the module item `[x]`, then `scripts/coord-release <slug>`.
 
-Step 3 is deliberately one commit. Two commits is how the board and `.work/active/` drift, and a
-board nobody trusts is worse than no board — the state it is meant to make cheap to read (who is
-touching what, right now) is exactly the state agents get wrong when they guess.
+What now needs maintaining by hand is the claim itself, and the measurement says it currently is
+not: on 2026-07-30 **all seven live claims still read `status: claimed-before-planning` with
+`next: plan the task into SPRINT.md`**. Claiming before planning is deliberate and right, but nobody
+updates it afterwards — so the `state` column carried no information at all. Update `status:` when
+you start and keep `next:` current; the generated view can only be as good as the claims.

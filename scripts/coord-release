@@ -24,10 +24,10 @@ claim=".work/active/${slug}.claim"
 [ -f "$claim" ] || { echo "coord-release: no such claim: $claim" >&2; exit 2; }
 git rm -q "$claim"
 
-# Only `.work/` is touched here: `.githooks/pre-commit` refuses any staged path outside it in the
-# shared checkout, and this must run there. So the BOARD ROW IS NOT REMOVED — the reminder below
-# says so out loud rather than leaving a lie behind. Fixing the guard to exempt the board (it is
-# coordination state) is raised in the rozum room; the file belongs to another claim.
+# Only `.work/` is touched, and that is now sufficient: removing the claim removes it from the
+# generated board too. `.githooks/pre-commit` refuses paths outside `.work/` in the shared checkout,
+# which used to block deleting the hand-written row — generating the board dissolved that blocker
+# rather than needing it negotiated away.
 SLUG="$slug" python3 - .work/active/LEDGER.tsv <<'PY_REL'
 import os, sys
 slug = os.environ["SLUG"]
@@ -51,10 +51,8 @@ msg="release-claim: ${slug}"
 git commit -q -m "${msg} [skip ci]"
 if git push -q origin main; then
   echo "✓ released ${slug}: claim file and ledger row, one commit"
-  echo "  STILL BY HAND (pre-commit refuses non-.work/ paths in the shared checkout):"
-  echo "    - delete the ${slug} row from SPRINT.md"
-  echo "    - mark the finished item [x] in its module SPRINT.md"
-  echo "  tests/coord/board-claim-parity.sh will fail until the row is gone."
+  echo "  STILL BY HAND: mark the finished item [x] in its module SPRINT.md"
+  echo "  (nothing to do for the in-flight list — scripts/board derives it from .work/active/)"
 else
   echo "coord-release: push refused; main moved. Re-run after: git fetch && git merge --ff-only origin/main" >&2
   exit 1

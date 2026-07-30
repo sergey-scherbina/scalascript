@@ -114,20 +114,11 @@ open(p, "w").write("\n".join(lines) + "\n")
 PY
 
 git add "$claim" "$ledger"
-# THE BOARD ROW IS NOT WRITTEN HERE, and that is a blocker, not a decision.
-#
-# SPRINT.md's contract wants the row in THIS commit. I implemented it and had to take it back out:
-# `.githooks/pre-commit` refuses any staged path outside `.work/` in the shared checkout, and the
-# board is `SPRINT.md` at the repo root. So the row cannot be written by the tool that must run
-# there. Two bugs came out of the attempt and both are worth remembering:
-#   * the first version referenced `$root`, a variable this script does not have — coord-claim died
-#     with `unbound variable` AFTER staging the claim, leaving a half-state on main;
-#   * with that fixed it simply hit the guard, i.e. the design was blocked all along.
-#
-# The fix belongs in `.githooks/pre-commit` — the board IS coordination state and should be exempt
-# alongside `.work/` — and that file is held by another claim, so it is raised in the rozum room
-# rather than taken. Until then `tests/coord/board-claim-parity.sh` reports the drift and the row is
-# added by hand.
+# No board row is written, and that is no longer a gap: the in-flight list is GENERATED from
+# `.work/active/` by `scripts/board`. THIS CLAIM IS THE BOARD ENTRY. A second copy in SPRINT.md is
+# what cost 75% invisible work, a gate to watch the drift, and — when I tried to automate the copy —
+# a coord-claim that aborted AFTER staging and left half-written claims for other agents. Keep
+# `status:` and `next:` current instead; they are the only part a tool cannot derive.
 
 git commit -q -m "claim: ${slug} (${items}) [skip ci]"
 
