@@ -115,11 +115,18 @@ final class ContentNativePlugin extends NativePlugin:
       current.flatMap(contentMap).flatMap(_.get(Value.StrV(part)))
     }
 
+  // Rules mirror v1's `ContentIntrinsics.inlinePlainText:1500-1517` exactly, because the frozen goldens
+  // come from that lane: `Code` KEEPS its backticks, and a `Link` renders as `label (href)`. Both arms
+  // were wrong here, and neither was measurable until `content-core.ssc` started producing Code/Link
+  // nodes at all — before that every block arrived as a single Text run, so these were dead code.
+  // (v2-content-inlines-never-parsed.)
   private def inlineText(value: Value): String = value match
-    case Value.DataV("Text" | "Code", IndexedSeq(Value.StrV(text))) => text
+    case Value.DataV("Text", IndexedSeq(Value.StrV(text))) => text
+    case Value.DataV("Code", IndexedSeq(Value.StrV(text))) => "`" + text + "`"
     case Value.DataV("Expr", IndexedSeq(Value.StrV(source))) => "${" + source + "}"
     case Value.DataV("Emphasis" | "Strong", IndexedSeq(children)) => unlist(children).map(inlineText).mkString
-    case Value.DataV("Link", IndexedSeq(label, _, _)) => unlist(label).map(inlineText).mkString
+    case Value.DataV("Link", IndexedSeq(label, Value.StrV(href), _)) =>
+      unlist(label).map(inlineText).mkString + " (" + href + ")"
     case _ => ""
 
   private def inlineMarkdown(value: Value): String = value match
