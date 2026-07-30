@@ -28,8 +28,20 @@ on_main_branch=0
 [ "$branch" = "main" ] && on_main_branch=1
 
 if [ "$in_main_checkout" -eq 1 ] || [ "$on_main_branch" -eq 1 ]; then
-  # Anything staged outside .work/ is feature work and must not land here.
-  offending=$(git diff --cached --name-only | grep -v '^\.work/' || true)
+  # Anything staged outside the coordination set is feature work and must not land here.
+  #
+  # `SPRINT.md` joined `.work/` on 2026-07-30, and it is not a loosening. The board is coordination
+  # state with the same lifetime as a claim — SPRINT.md's own contract says the row is written "in
+  # ONE commit" with it, and `tests/coord/board-claim-parity.sh` enforces the pair. But
+  # `scripts/coord-claim` must run in the shared main checkout, so this guard made the contract
+  # literally unsatisfiable by the sanctioned tool: the row-writing code was implemented, hit this
+  # refusal, and was BACKED OUT again (`0c8237e60`) with the note that the fix belongs here.
+  #
+  # Narrow on purpose: only the root board. CHANGELOG.md, BUGS.md and the module boards stay
+  # refused here, because those are written while doing the work — i.e. from a worktree — and this
+  # guard is the thing that keeps feature work out of the shared checkout. The claim-scope guard
+  # further down treats bookkeeping differently and correctly; the two are separate questions.
+  offending=$(git diff --cached --name-only | grep -v '^\.work/' | grep -vx 'SPRINT.md' || true)
   if [ -n "$offending" ]; then
     where="the shared main checkout"
     [ "$in_main_checkout" -eq 1 ] || where="branch 'main'"
