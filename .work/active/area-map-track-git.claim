@@ -1,0 +1,11 @@
+slug: area-map-track-git
+branch: feature/area-map-track-git
+agent: claude-code
+started: 2026-07-30T07:04:30Z
+heartbeat: 2026-07-30T07:04:30Z
+status: claimed-before-planning
+items: area-map-walks-build-output AMG-1
+paths: file:tests/e2e/area-map-gate.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
