@@ -1,0 +1,11 @@
+slug: smoke-budget-from-a-distribution
+branch: feature/smoke-budget-from-a-distribution
+agent: claude-code
+started: 2026-07-30T21:10:21Z
+heartbeat: 2026-07-30T21:10:21Z
+status: claimed-before-planning
+items: smoke-budget-set-from-one-sample
+paths: file:scripts/smoke-ci.ssc file:.github/workflows/smoke.yml file:README.md file:scripts/BACKLOG.md file:scripts/SPRINT.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
