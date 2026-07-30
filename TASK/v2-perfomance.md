@@ -249,20 +249,47 @@ in `JvmByteGen`, `App(Local i)` where local `i` is bound by a `Let` whose right-
 compiled method**, the way `App(Global g)` already does for a known def. The generic funnel then
 serves only genuinely unknown callees.
 
-**Expected size:** 48.7 → about 11 ns, the `def` floor already measured, i.e. **~4×** on the
-lambda-call rows. **Disqualifying evidence:** if `hof-pipeline` and `bool-predicate` do not
-actually contain this shape — a lambda bound to a local and called directly — then the fix is
-correct but hits nothing, and the cluster's cost is elsewhere. **Check the corpus sources for the
-shape before writing the arm.**
+**⛔ AND THAT TEST FIRED TOO — the fix would be correct and hit nothing.** The corpus rows do not
+contain the shape:
 
-**Where this entry stands: the WHAT is measured and solid**Where this entry stands: the WHAT is measured and solid — 48.7 ns against 7.1 ns for the same
-closure, reproduced over three rounds — and the WHY is unknown.** Two hypotheses have been written
-down and killed here (wrapper cost; then, weakly, megamorphic inlining). That is the honest state,
-and the measurement is worth more than either dead hypothesis: any fix must move 48.7 toward 11.
+    hof-pipeline   xs.map(x => x * 2).filter(x => x % 3 == 0).foldLeft(0)((a, b) => a + b)
+    range-sum      (0 until 50).map(i => i * i).foldLeft(0)((a, b) => a + b)
+    list-fold      xs.foreach(x => { sum = sum + x })
+    lazylist-take  LazyList.from(start).map(x => x * 2).take(8).sum
 
-**Refuted here, do not retry:** "boxing of the element" (the empty-body probe closes it) and
-"start from the profile's biggest frame" (the decomposition found this without a profiler, after
-two earlier profiles mis-sized their frames).
+Every one passes its lambda as an ARGUMENT to a collection method, which is the `__method__` /
+`callClos` route — **the 7.1 ns one**. Not one binds a lambda to a local and calls it. So the
+`App(Local i)` direct-call arm was not written either.
+
+### What this leaves, and it is the real conclusion
+
+**The cluster is not a defect with a fix. It is the architecture line.** Per element, v2 pays
+~7 ns for a generic closure invocation through the runtime; `ssc` pays **0.16 ns**, because v1
+compiles the whole `foreach` loop to native code with the closure fused into it. The gap is not a
+wrapper, not a funnel, and not a missing fast arm — three separate hypotheses to that effect were
+written down here and killed, each before it cost any code. It is that **v2 invokes a runtime value
+per element where v1 compiled the loop.** That is `v2-perf-9`, and it should be specced and priced
+as a programme.
+
+### Split out: `v2-perf-6b` — a lambda in a local costs 4× a `def`, and it IS a real defect
+
+The 48.7 ns measurement stands on its own and deserves its own entry, because **real code does
+`val f = …; f(x)` constantly even though this benchmark corpus never does.** Cause supported by two
+readings (above): one shared static `Emit.app` funnel, hot at C2, compiled as a root rather than
+inlined, deoptimising. Fix: the `App(Local i)`-bound-to-a-`Lam` direct-call arm in `JvmByteGen`.
+**Expected size ~4× on that shape; expected size on the benchmark corpus: ZERO.** Whoever picks it
+up should add a corpus row for the shape first, or the win will be invisible and unprotected.
+
+**Method note, since this entry is now the clearest instance of it on the project.** Three
+hypotheses, three disqualifying tests written down BEFORE the work, three fires, zero lines of
+wrong code:
+
+1. *the wrapper costs the 38 ns* → killed by reading `callClos`: both paths pay it;
+2. *megamorphic inlining* → not confirmed by `PrintInlining`, then SUPPORTED by
+   `PrintCompilation` (root compile + `made not entrant`);
+3. *the fix will help the slow rows* → killed by grepping the corpus for the shape.
+
+The measurement — 48.7 against 7.1 against 11.2 ns — outlived all three.
 
 ### v2-perf-7 · Category 3 has never been analysed
 `tuple-monoid` 9.1× · `type-lambda-placeholder` 8.8× · `instance-field` 7.5× · `either-chain` 6.9× ·
