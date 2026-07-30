@@ -1,0 +1,43 @@
+---
+name: type-ascription-set
+description: "case _: Set / Map / List hold for their own container on the lanes that have one"
+backends: [int, jvm]
+---
+
+# `case _: Set[?]`, `case _: Map[?, ?]`, `case _: List[?]`
+
+`BUGS.md` `type-ascription-tuple-and-set-arms-missing`. The interpreter's type-test table listed
+`List`, `Vector`, `Array`, `Option` and `Map` — and not `Set`, so `case _: Set[?]` fell to the
+wildcard. Same shape as the `Unit` and `TupleN` arms fixed earlier the same day: a table naming every
+type except one.
+
+```scalascript
+def kind(x: Any): String = x match
+  case _: Set[?] => "set"
+  case _: Map[?, ?] => "map"
+  case _: List[?] => "list"
+  case _ => "other"
+
+println(kind(Set(1, 2)))
+println(kind(Map("a" -> 1)))
+println(kind(List(1, 2)))
+println(kind(7))
+```
+
+**`js` and `v2` are absent for a reason that is NOT a missing arm, and this is the useful half.**
+Measured on all four lanes before writing any code:
+
+| | `jvm` (real Scala) | `int` | native / `v2` | `js` |
+|---|---|---|---|---|
+| `Set(1,2)` | `set` | `other` → **`set`** | `other` | `other` |
+| `Map("a"->1)` | `map` | `map` | `map` | `other` |
+| `List(1,2)` | `list` | `list` | `other` | `other` |
+
+On the native lane **`Set(1, 2)` prints `List(1, 2)`** — a Set *is* a List there. On the JS lane
+`List(...)` and `_setOf(...)` both produce a plain array. So on two of the four lanes the question
+has no answer to give: adding an arm would make them claim a List is a Set, which is worse than
+answering `other`. That is a representation gap, not a table gap, and it is filed as such rather
+than papered over here.
+
+`Map` and the `7` line are the guards: Map already worked on the lane being changed, and a
+non-container must still reach the wildcard.

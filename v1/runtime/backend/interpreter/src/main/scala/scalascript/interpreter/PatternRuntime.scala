@@ -1350,6 +1350,12 @@ private[interpreter] object PatternRuntime:
           case _: Value.ArrayV  => typeName == "Array"
           case _: Value.OptionV => typeName == "Option"
           case _: Value.MapV    => typeName == "Map"
+          // The interpreter is the ONLY lane with a distinct Set value, so it is the only one where
+          // this question has an answer. Measured 2026-07-30: on the native lane `Set(1,2)` prints
+          // `List(1, 2)` and on the JS lane both `List(...)` and `_setOf(...)` are plain arrays — Set
+          // is not a separate type there, so `case _: Set` cannot be answered without inventing one.
+          // BUGS `type-ascription-tuple-and-set-arms-missing`.
+          case _: Value.SetV    => typeName == "Set" || typeName == "Iterable"
           // Arity is part of the name: `case _: Tuple2[?, ?]` must be FALSE for a
           // 3-tuple, so this compares the whole `TupleN` rather than a `Tuple`
           // prefix. The native lane gets the same answer for free — it represents a
