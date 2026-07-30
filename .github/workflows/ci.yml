@@ -100,6 +100,15 @@ jobs:
   validate:
     name: Validate ScalaScript
     runs-on: ubuntu-latest
+    # NOT on push since 2026-07-30 (smoke-ci). The per-push verdict now comes from
+    # `.github/workflows/smoke.yml`, which runs `scripts/smoke-ci` — the same runner the pre-push
+    # hook runs locally. This job stays for the schedule, PRs and on-demand dispatch, where a run
+    # is allowed to take as long as it needs.
+    if: github.event_name != 'push'
+    # Every gate this job runs is also in the smoke suite (scripts/smoke-ci.ssc), which is what
+    # made taking it off push safe rather than a coverage cut: the list of what runs on a push lives
+    # in ONE place now, and it is that file. The one step not carried over is the three `test -f`
+    # example-file checks, which the examples pass in `conformance-extras` covers.
     timeout-minutes: 15
 
     steps:
@@ -205,6 +214,11 @@ jobs:
     #
     # fail-fast: false so one red shard still lets the others report; a partial verdict is what made
     # the corpus-contract timeout unreadable for 13 runs.
+    # NOT on push since 2026-07-30 (smoke-ci). The per-push verdict now comes from
+    # `.github/workflows/smoke.yml`, which runs `scripts/smoke-ci` — the same runner the pre-push
+    # hook runs locally. This job stays for the schedule, PRs and on-demand dispatch, where a run
+    # is allowed to take as long as it needs.
+    if: github.event_name != 'push'
     strategy:
       fail-fast: false
       matrix:
@@ -336,6 +350,11 @@ jobs:
   conformance-extras:
     name: Examples and launcher smokes
     runs-on: ubuntu-latest
+    # NOT on push since 2026-07-30 (smoke-ci). MEASURED at 13.4 min, the single longest job on the
+    # old push path. The examples-on-three-backends pass and the launcher smokes are exactly the
+    # coverage a 5-minute suite cannot carry, so they move to the schedule and `scripts/full-ci`
+    # rather than being trimmed until they fit.
+    if: github.event_name != 'push'
     timeout-minutes: 20
 
     steps:

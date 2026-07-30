@@ -1,0 +1,118 @@
+# The per-push verdict.
+#
+# WHY THIS WORKFLOW EXISTS. `ci.yml` was the push path and it could not give a verdict on most
+# commits. MEASURED over the last runs that reached completion at all: 13.4 min wall clock and
+# ~64 runner-minutes per push, against a `main` push interval of ~3-7 min. GitHub keeps one pending
+# run per concurrency group, so of the last 100 `ci.yml` runs: 83 cancelled, 4 failure, 0 success —
+# and `cancelled` reads as RED (MILESTONES.md), so the apparatus was manufacturing reds for commits
+# that were fine. The `sbt` job had already been moved off push for the same arithmetic on
+# 2026-07-28 (a 28:1 ratio, BUGS.md `ci-sbt-job-is-28x-the-code-push-interval`); this finishes that
+# move for the conformance jobs.
+#
+# The suite it runs is `scripts/smoke-ci`, the SAME runner and the same checks that the local
+# pre-push hook runs. That symmetry is the point: what GitHub says about a push is what the machine
+# that made it already said.
+#
+# WHAT THIS COSTS, stated plainly rather than buried. A push no longer carries the full 363-case
+# corpus, the examples-on-three-backends pass, or the launcher smokes. Those move to `ci.yml` on the
+# schedule and to `scripts/full-ci` on demand. A regression outside the smoke slice now surfaces in
+# the next scheduled batch, with attribution across the intervening commits. That is the trade the
+# arithmetic forces; the alternative on offer was not "full coverage per push" but "no verdict at
+# all", which is what was actually happening.
+name: Smoke
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Supersede an in-flight run for the same ref: the newest commit is the one whose verdict matters,
+# and a queue of stale runs is how the old path spent 64 runner-minutes to answer about a commit
+# nobody was waiting on any more.
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: smoke — the fast repo-wide suite
+    runs-on: ubuntu-latest
+    # The suite's own budget is 300 s (SSC_SMOKE_BUDGET) and it FAILS when it overruns. This cap is
+    # only the outer guard for the launcher build in front of it (~2.8 min warm, longer cold). If
+    # the job starts approaching it, read the per-check timings the runner prints — do not raise
+    # this. Raising the cap instead of reading the growth is exactly how `corpus-contract.yml` went
+    # 13 runs with zero green.
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Scala CLI
+        uses: VirtusLab/scala-cli-setup@v1
+        with:
+          power: true
+          jvm: temurin:21
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup sbt
+        uses: sbt/setup-sbt@v1
+
+      - name: Cache Coursier/sbt
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/coursier
+            ~/.ivy2/cache
+            ~/.sbt
+          key: ${{ runner.os }}-sbt-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-sbt-
+
+      # RESTORE-ONLY, with the save at the end gated on success. The old unified cache re-saved even
+      # when the build FAILED, so one partial build poisoned zinc for 200+ red runs (see the same
+      # note in ci.yml). Per-job prefix `-v2-smoke-`, disjoint from `-v2-conf-` and `-v2-sbt-`: those
+      # jobs compile with different sbt invocations, so their zinc analyses are not interchangeable
+      # and sharing a cache re-creates the poison.
+      - name: Restore compiled classes (zinc)
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            **/target/scala-*/classes
+            **/target/scala-*/test-classes
+            **/target/scala-*/zinc
+            **/target/streams
+          key: ${{ runner.os }}-classes-v2-smoke-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-classes-v2-smoke-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}-
+
+      # The runner is a `.ssc` program executing on the v2 native lane, so the launcher is not an
+      # optimisation here — it is the interpreter of the suite.
+      - name: Build ssc launcher (sbt-assembly)
+        run: bash install.sh --dev
+
+      - name: Run the smoke suite
+        run: scripts/smoke-ci
+
+      - name: Save compiled classes (zinc)
+        if: success()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            **/target/scala-*/classes
+            **/target/scala-*/test-classes
+            **/target/scala-*/zinc
+            **/target/streams
+          key: ${{ runner.os }}-classes-v2-smoke-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}-${{ github.sha }}
