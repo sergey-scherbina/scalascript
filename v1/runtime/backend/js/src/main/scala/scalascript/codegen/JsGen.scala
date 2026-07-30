@@ -2512,6 +2512,13 @@ class JsGen(
           loopHoistBuf = savedBuf
           newBuf.foreach { (k, v) => line(s"const $k = $v;") }
           line(s"while ($condJs) { $bodyJs; }")
+        // An ASSIGNMENT is Unit in Scala, so its value must not be auto-printed. `var r = …; r = expr`
+        // as the last statement of a block was wrapped in the `_auto` printer and dumped the assigned
+        // value — `dsl-yaml-like` emitted a `PChoice(…)` parser tree on js that int does not print.
+        // It was invisible until `js-imported-extension-method-not-dispatched` was fixed, because the
+        // program used to die before reaching this line. (js-toplevel-assignment-auto-printed.)
+        case t: Term.Assign if isLast && topLevel =>
+          line(s"${genExpr(t)};")
         case t: Term if isLast && topLevel =>
           // Track main() calls; auto-output non-unit last expression
           t match
@@ -3260,8 +3267,29 @@ class JsGen(
         decls += s"const $enumName = { $members${sep}values: [${nullary.mkString(", ")}] };"
         names += enumName
       case eg: Defn.ExtensionGroup =>
-        // Top-level extension groups inside packages register into _extensions (global).
+        // Emit the extension INSIDE this IIFE, not after it.
+        //
+        // `genStat` writes straight to `sb`, while every other member of this object goes into
+        // `decls` and only becomes the IIFE body at the end — so an extension group landed AFTER the
+        // `})()` that closes the module's scope. Its body keeps the module's names unqualified, and
+        // the only ones that exist at top level are those a CONSUMER named in its import list, each
+        // emitted as `const <name> = <pkg>.<name>;`. Anything else was simply out of scope.
+        //
+        // Measured 2026-07-30: `std/parsing/layout.ssc`'s own exported `withIndent` constructs
+        // `PWithIndent`, which is declared inside the IIFE, so `dsl-yaml-like` died on js with
+        // `ReferenceError: PWithIndent is not defined` — and `_dispatch`'s fallback then reported it
+        // as `Method not found: withIndent`, two symbols away from the cause. The emitted text was
+        // literally `})());\nfunction _ext_Parser_withIndent(…)`.
+        //
+        // Registration stays global because `_registerExt` is a global function — it does not need
+        // the function to be global, only reachable. Capturing by offset is the same trick
+        // `compileJsSegments` uses (`sb.substring(ssStart)`).
+        // (js-imported-extension-method-not-dispatched.)
+        val extMark = sb.length
         genStat(eg)
+        val extEmitted = sb.substring(extMark)
+        sb.setLength(extMark)
+        if extEmitted.trim.nonEmpty then decls += extEmitted.trim
       case gd: Defn.Given =>
         // Extension groups inside givens register into _extensions (global side-effect).
         gd.templ.body.stats.foreach {

@@ -43,11 +43,42 @@ the value (`.length > 0`) to defeat the elision, which is a workaround in the te
 **Where to look:** whatever prunes unused local bindings in `JsGen` — the decision needs an
 effect check on the initialiser, or it must simply not drop initialisers that are calls.
 
-## js-imported-extension-method-not-dispatched — an extension body is hoisted OUT of its module's scope, so its free names are undefined
-<!-- status: open
+## js-imported-extension-method-not-dispatched — an extension body was hoisted OUT of its module's scope, so its free names were undefined
+<!-- status: fixed
      lane: js
      area: codegen
-     gate: none -->
+     fixed-in: unrecorded
+     gate: examples/dsl-yaml-like.ssc -->
+
+**FIXED 2026-07-30.** `genObjectAsExpr` collects every object member into `decls`, which only becomes the
+IIFE body at the end — but an extension group went through `genStat`, which writes straight to `sb`. So the
+extension landed AFTER the `})()` that closes the module's scope. The emitted text was literally
+
+```
+… return { …, runLayout }; })(); return { parsing }; })());
+function _ext_Parser_withIndent(p, n) { … return _call(PWithIndent, p, n); }
+```
+
+and `PWithIndent` is declared INSIDE that IIFE. The only module names visible at top level are the ones a
+CONSUMER named in its import list (each emitted as `const <name> = <pkg>.<name>;`), so anything else was out
+of scope — which is why no consumer's import list should have been able to affect whether a module's own
+extension works.
+
+The extension is now emitted into `decls`, i.e. inside the IIFE, captured by offset the same way
+`compileJsSegments` does (`sb.substring(ssStart)`). Registration stays global because `_registerExt` is a
+global function: it needs the function reachable, not global.
+
+**Measured:** `dsl-yaml-like` on js goes from `ReferenceError: PWithIndent is not defined` (surfacing as
+`Method not found: withIndent`) to **byte-identical to the int lane**.
+
+⚠️ It took TWO more defects to get there, each masked by the previous one — worth stating because the chain
+is the interesting part:
+1. `_dispatch`'s untyped fallback swallowed the ReferenceError and reported `Method not found`, naming a
+   symbol two levels from the cause. Fixed first, which is what made the real error readable.
+2. with the scope fixed, the case still diverged by two extra lines: a top-level ASSIGNMENT was being
+   auto-printed. Filed and fixed as [[js-toplevel-assignment-auto-printed]].
+
+**Original report (superseded 2026-07-30):**
 
 **RE-DIAGNOSED 2026-07-30 — my own first diagnosis was wrong, and wrong about the mechanism, not just
 the wording.** It said the js lane "does not dispatch an extension method that came in through a module
@@ -116,6 +147,33 @@ to dispatch. The js lane inlines imports, so its failure mode differs — but it
 family rather than as this one case.
 
 **Blocks** `dsl-yaml-like` on js (int and v2 both PASS it).
+
+## js-toplevel-assignment-auto-printed — `r = expr` as a block's last statement printed its value; an assignment is Unit
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: unrecorded
+     gate: examples/dsl-yaml-like.ssc -->
+
+**FIXED 2026-07-30.** JsGen auto-prints the value of a top-level block's last expression
+(`{ const _auto = …; if (_auto !== undefined …) _println(_show(_auto)); }`). A `Term.Assign` was going
+through that path, so
+
+```scalascript
+var yamlValueRef: Parser[Any] = Parser.fail("…")
+…
+yamlValueRef = scalarValue | yamlMapping | yamlSeq     // last statement of its block
+```
+
+dumped a `PChoice(PChoice(PMapped(…), …), …)` parser tree on js that the int lane does not print. An
+assignment evaluates to Unit in Scala, so printing its value is wrong on any lane.
+
+**Found only because another fix unmasked it.** The program used to die earlier with
+`ReferenceError: PWithIndent is not defined`
+([[js-imported-extension-method-not-dispatched]]), so the extra output had never been reachable. Third time
+in one day that fixing one defect exposed the next — worth expecting rather than being surprised by.
+
+`Term.Assign` now emits as a plain statement. `dsl-yaml-like` on js became byte-identical to int.
 
 ## jsgen-char-literal-escape — an escaped Char literal was emitted RAW, so the generated JS did not parse
 <!-- status: fixed
