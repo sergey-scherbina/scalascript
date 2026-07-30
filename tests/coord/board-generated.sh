@@ -32,8 +32,14 @@ check "two modules → repo-wide"                   '*(repo-wide)*' "$(col 'mixe
 check "bookkeeping paths ignored when deriving"   '`v2`'          "$(col 'bookish')"
 check "nested module wins over its parent"        '`tests/conformance`' "$(col 'unplan')"
 
+# Superseded by POLICY.md P-3.7: the column used to render `status:` directly. It now reports what is
+# OBSERVED and keeps the self-report as a parenthetical, so a stale one reads AS stale.
 st=$(gen | awk -F'|' '$4 ~ /unplan/ {gsub(/^ +| +$/,"",$5); print $5}')
-check "unplanned claim says so, not 'in progress'" "claimed (unplanned)" "$st"
+check "self-report is a parenthetical, not the state" "no worktree (claimed-before-planning)" "$st"
+
+add nowt in-progress item-nowt "file:v2/lib/a.ssc0" "x"
+st=$(gen | awk -F'|' '$4 ~ /nowt/ {gsub(/^ +| +$/,"",$5); print $5}')
+check "no worktree → says so, with the stale self-report shown" "no worktree (in-progress)" "$st"
 
 # ── --check must catch drift in BOTH directions ─────────────────────────────────────────────────
 gen > "$LAB/table.md"

@@ -69,15 +69,32 @@ Detail: [`specs/work-tracking-layout.md`](specs/work-tracking-layout.md) (layout
 - **P-3.4 · Module `SPRINT.md` is a queue with two states**, `[~]` in progress and `[x]` done.
   There is no "planned" — that is what the backlog is. A queue with a planned state becomes a
   second backlog.
-- **P-3.5 · The root `SPRINT.md` is THE BOARD**, the only global work file: one row per task in
-  flight, written when the claim is written and removed when it is released. **A row without a
-  claim is a lie; a claim without a row is invisible work.** Measured 2026-07-30: 4 live claims,
-  1 row — 75% invisible. Enforced by `tests/coord/board-claim-parity.sh`, not by memory.
-- **P-3.6 · Subtype is a FIELD, never a second directory.** `kind: bug|perf|feature|regression|
+- **P-3.5 · The in-flight board is GENERATED — `scripts/board`, never a hand-written table.**
+  `.work/active/` is the source of truth; it is already the mutex and already written by
+  `scripts/coord-claim`, and every column derives from a field the claim carries (`items` → task,
+  `paths` → module, activity → state, `next` → notes). The root `SPRINT.md` holds a pointer.
+  *Superseded rule, kept because the reason matters:* until 2026-07-30 this required a row written
+  with the claim and removed with the release, enforced by a parity gate. The rule was right and
+  **unfollowable — nothing wrote the row**. Measured that day: 4 live claims, 1 row (75 % invisible);
+  four manual reconciliations in one hour, each red again within minutes; and the attempt to automate
+  the copy broke `coord-claim` on `main`, aborting after it had staged and leaving half-written
+  claims for two other agents. Two copies of one fact cannot be kept honest by a gate when one is
+  derivable.
+- **P-3.6 · Maintain the CLAIM, not the board.** The generated view is only as good as
+  `.work/active/`, so `status:` and `next:` are what must be kept current — set `status: in-progress`
+  when you start. Measured 2026-07-30: all seven live claims still read `claimed-before-planning`.
+  Claiming before planning is deliberate (P-2) and right; never updating it afterwards is what made
+  the old `state` column carry nothing.
+- **P-3.7 · Liveness is OBSERVED, never self-reported.** `scripts/board` reads the newest commit on
+  the claim's branch, uncommitted files in its worktree, and whether the worktree exists — not
+  `status:`, and never `heartbeat:`. Twice on 2026-07-30 a claim read hundreds of minutes stale by
+  heartbeat while its last commit was under a minute old. **Before touching a foreign claim, look at
+  its branch and its worktree**, then take it to the room (P-5).
+- **P-3.8 · Subtype is a FIELD, never a second directory.** `kind: bug|perf|feature|regression|
   apparatus|programme` on the entry; per-type documents under `TASK/` carry a **generated** index
   (`scripts/task-views`) and hand-written analysis around it. A second axis in the filesystem gives
   an entry two plausible homes, and then "no duplicate slugs" stops holding and "in neither" starts.
-- **P-3.7 · Never grep for status.** Query the header (`scripts/bugs-report`). Prose produced three
+- **P-3.9 · Never grep for status.** Query the header (`scripts/bugs-report`). Prose produced three
   synonyms for "closed" and 108 entries with none.
 
 ## P-4 · Deciding
@@ -117,7 +134,7 @@ Detail: [`AGENTS.md`](AGENTS.md) §"measurement apparatus must COMPARE, never PR
   put the red count in the commit ("2 of 6 FAIL unfixed"). A gate nobody has seen fail is a
   hypothesis.
 - **P-6.2 · A gate about a TOOL must RUN that tool.** Checking the tool's output files covers
-  neither a crash nor a syntax error. `board-claim-parity.sh` was proven red in both directions and
+  neither a crash nor a syntax error. `board-claim-parity.sh` (deleted with the table it watched) was proven red in both directions and
   stayed green while `coord-claim` aborted with `unbound variable` for every agent on main — it read
   the files the tool writes and never executed it.
 - **P-6.3 · A filter must say what it did not read.** `--kind perf` answered 3 of 12 items and

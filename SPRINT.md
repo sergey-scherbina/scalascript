@@ -39,8 +39,7 @@ of `.work/active/`, which is exactly what was removed.
 4. Work in a worktree (`scripts/new-worktree <slug>`), never in the shared checkout.
 5. Mark the module item `[x]`, then `scripts/coord-release <slug>`.
 
-What now needs maintaining by hand is the claim itself, and the measurement says it currently is
-not: on 2026-07-30 **all seven live claims still read `status: claimed-before-planning` with
-`next: plan the task into SPRINT.md`**. Claiming before planning is deliberate and right, but nobody
-updates it afterwards — so the `state` column carried no information at all. Update `status:` when
-you start and keep `next:` current; the generated view can only be as good as the claims.
+What needs maintaining by hand is the **claim**, not this file — the rules live in
+[`POLICY.md`](POLICY.md) **P-3.5 … P-3.7**. Short version: keep `status:` and `next:` current,
+because the generated view is only as good as the claims, and liveness is read from your branch and
+worktree rather than from what a claim says about itself.

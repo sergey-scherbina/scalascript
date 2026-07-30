@@ -31,6 +31,34 @@ LEDGER="${SSC_LEDGER:-$ROOT/.work/active/LEDGER.tsv}"
 ACTIVE="${SSC_ACTIVE:-$ROOT/.work/active}"
 BOARD="${SSC_BOARD:-$ROOT/SPRINT.md}"
 
+# ── state is OBSERVED, not self-reported (POLICY.md P-3.7) ───────────────────────────────────────
+# `status:` is written once and forgotten — measured 2026-07-30, all seven live claims still read
+# `claimed-before-planning`. And `heartbeat:` is worse than uninformative: twice that day a claim
+# read hundreds of minutes stale while its last commit was under a minute old, and releasing it on
+# that reading would have destroyed live work. So the column comes from things nobody must remember
+# to update — the newest commit on the branch, uncommitted files, whether the worktree exists — and
+# the declared status is kept only as a parenthetical, so a stale self-report reads AS stale.
+ago() {
+  local d=$(( $(date +%s) - $1 ))
+  if   [ "$d" -lt 90 ];     then printf '%ds' "$d"
+  elif [ "$d" -lt 5400 ];   then printf '%dm' $(( d / 60 ))
+  elif [ "$d" -lt 172800 ]; then printf '%dh' $(( d / 3600 ))
+  else                           printf '%dd' $(( d / 86400 )); fi
+}
+activity() { # activity <slug> <declared-status>
+  local slug="$1" declared="$2" wt last dirty note="" shared
+  # $ROOT inside a worktree is ALREADY `…-wt-<something>`; recover the shared root first. Getting
+  # this wrong reports "no worktree" for every claim including the caller's own — how it was caught.
+  shared="$(dirname "$ROOT")/$(basename "$ROOT" | sed 's/-wt-.*//')"
+  wt="$shared-wt-$slug"
+  [ -d "$wt" ] || { printf 'no worktree (%s)' "$declared"; return; }
+  last=$(git -C "$wt" log -1 --format=%ct 2>/dev/null || echo '')
+  dirty=$(git -C "$wt" status --porcelain 2>/dev/null | grep -c . || true)
+  [ "${dirty:-0}" -gt 0 ] && note=", ${dirty} dirty"
+  if [ -n "$last" ]; then printf 'commit %s ago%s' "$(ago "$last")" "$note"
+  else                    printf 'worktree, no commits%s' "$note"; fi
+}
+
 generate() {
   printf '| task | module | claim | state | notes |\n|---|---|---|---|---|\n'
   awk -F'\t' 'NR>2 && $1 != "" && $1 !~ /^#/ {print $1}' "$LEDGER" | sort -u | while read -r slug; do
@@ -53,9 +81,7 @@ def bare(s):
 real = [bare(p) for p in os.environ["SSC_PATHS"].split() if os.path.basename(bare(p)) not in BOOK]
 mods = {next((m for m in MODULES if p == m or p.startswith(m + "/")), None) for p in real}
 print("`%s`" % mods.pop() if len(mods) == 1 and None not in mods else "*(repo-wide)*")')
-    # a claim that never got planned says so, rather than pretending to be "in progress"
-    state=$status; [ "$state" = "claimed-before-planning" ] && state="claimed (unplanned)"
-    printf '| `%s` | %s | `%s` | %s | %s |\n' "$task" "$module" "$slug" "$state" "${next:0:70}"
+    printf '| `%s` | %s | `%s` | %s | %s |\n' "$task" "$module" "$slug" "$(activity "$slug" "$status")" "${next:0:70}"
   done
 }
 
