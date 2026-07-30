@@ -611,6 +611,16 @@ claim on top of it. Re-measured with `grep -a`:
 | `__regmethod__` | **implemented** | **ported 2026-07-30** | **ported 2026-07-30** | missing | missing |
 | `__autoOutput__` | **implemented** | implemented | **ported 2026-07-30** | implemented | — |
 
+**The two remaining `missing` cells are a DESIGN task, not a port — measured, so nobody estimates
+them as "same as js/swift".** The js and swift backends already had `__regfields__`, i.e. a
+registration surface and a general `__method__` dispatch to hang a tagged method off; adding
+`__regmethod__` there was ~20 lines each. `rust` and `jvm-bytecode` have neither: their `__method__`
+hits are point pattern-matches on specific method NAMES (`RustBackend` special-cases `toLong`/`toInt`
+and `foreach` and otherwise falls through to `as_int`/generic emission), not a dispatch that could
+consult a registry. So porting `__regmethod__` there means first giving those runtimes a tagged-method
+registry and a general dispatch — and there is currently no failing test driving it, which is why it
+is recorded here rather than done opportunistically.
+
 **So this is a PORTABILITY GAP, not unfinished work.** `__method__` was carried to the source
 backends; `__regmethod__`, added later by the Mirror change, was not. The failures stand exactly as
 reported — Swift and v2-JS both die on it, and rust/wasm are predicted to do the same — but the fix
