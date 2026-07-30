@@ -5,7 +5,7 @@ started: 2026-07-30T06:23:47Z
 heartbeat: 2026-07-30T06:23:47Z
 status: claimed-before-planning
 items: claim-scope-hierarchy claim-granularity-policy
-paths: specs/claim-mutex.md scripts/coord-claim tests/coord/claim-scope-hierarchy.sh
+paths: specs/claim-mutex.md scripts/coord-claim .githooks/pre-push tests/coord/claim-scope-hierarchy.sh
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
