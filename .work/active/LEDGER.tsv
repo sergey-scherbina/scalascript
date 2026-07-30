@@ -1,7 +1,6 @@
-# generation: 442
+# generation: 443
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
 smoke-ci	claude-code	2026-07-30T11:24:35Z	smoke-ci-in-ssc	file:scripts/smoke-ci.ssc file:scripts/smoke-ci file:.github/workflows/smoke.yml file:.github/workflows/ci.yml file:scripts/full-ci file:v2/runtime/std/os-plugin/src/main/scala/ssc/plugin/os/OsNativePlugin.scala file:v2/runtime/std/os-plugin/src/test/scala/ssc/plugin/os/OsNativePluginTest.scala file:tests/conformance/std-process-import.ssc
-int-ext-on-alias-dispatch	claude-code	2026-07-30T11:28:50Z	int-extension-on-function-type-alias-does-not-dispatch	file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/StatRuntime.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/DispatchRuntime.scala file:v1/runtime/backend/interpreter/BUGS.md file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/Interpreter.scala file:v1/runtime/backend/interpreter/src/test/scala/scalascript/ExtensionOnAliasDispatchTest.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/PatternRuntime.scala file:v1/runtime/backend/js/BUGS.md
 v2-regmethod-js-swift	claude-code	2026-07-30T11:29:20Z	v2-regmethod-primitive-unimplemented-on-js-and-swift	file:v2/backend/js/JsBackend.scala file:v2/backend/swift/src/main/scala/ssc/swift/SwiftBackend.scala file:v2/backend/swift/src/main/scala/ssc/swift/SwiftRuntime.scala file:v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGen.scala
 v2-perf-1-legacy	claude-code	2026-07-30T12:01:56Z	v2-perf-1-double-tier-legacy-front	file:v2/lib/ssc1-lower.ssc0
