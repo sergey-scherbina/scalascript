@@ -234,6 +234,14 @@ private def _toJsonValue(v: Any): String = v match
   case b: Boolean        => b.toString
   case n: (Int | Long | Short | Byte)  => n.toString
   case d: (Double | Float)             => d.toString
+  // Exact decimals must serialise as NUMBERS. Without these arms a parsed `0.10` reaches the
+  // `case other` fallback at the bottom and comes back out as the STRING `"0.10"` — a round-trip
+  // that changes the JSON type. `toPlainString`, not `toString`, to match the int lane's
+  // `V1JsonCore.toCore` (`case Dec(b) => numberCore(b.bigDecimal.toPlainString)`); `toString` would
+  // emit `1E+40` where the ground-truth lane emits the plain digits.
+  // (v1-json-two-contradictory-number-policies.)
+  case d: BigDecimal                   => d.bigDecimal.toPlainString
+  case d: java.math.BigDecimal         => d.toPlainString
   case s: String         => _jsonQuote(s)
   case c: Char           => _jsonQuote(c.toString)
   case None              => "null"
@@ -259,7 +267,7 @@ private def _toJsonValue(v: Any): String = v match
 
 // JSON read side — hand-rolled recursive-descent parser.  Returns
 // Map[String, Any] for objects, List[Any] for arrays, Long for
-// integers, Double for fractional / exponent numbers, String for
+// integers, exact BigDecimal for fractional / exponent numbers, String for
 // strings, Boolean for booleans, None for JSON null.  Mirrors the
 // interpreter / JS backends bit-for-bit.
 private class _JsonParseException(msg: String) extends RuntimeException(msg)
@@ -326,7 +334,21 @@ private class _JsonParser(src: String):
       if pos < len && (src.charAt(pos) == '+' || src.charAt(pos) == '-') then pos += 1
       while pos < len && { val c = src.charAt(pos); c >= '0' && c <= '9' } do pos += 1
     val s = src.substring(start, pos)
-    if isDouble then s.toDouble
+    // A fractional/exponent JSON number becomes an EXACT decimal, not a binary64 double — the same
+    // policy as `JsonParser.parseNumber` (int lane, the corpus's ground truth) and v2's
+    // `NativeJsonCodec.rawNumber`. Mirrored down to the overflow fallback: a pathological exponent
+    // degrades to the OLD double path rather than to a silent zero.
+    //
+    // This site was missed when the policy was unified in 6596c1c52. That census listed four
+    // implementations and fixed the two lossy ones; `jsonParse` on the JVM lane routes HERE
+    // (`jsonParse` -> `_fromJson` -> this parser), so it stayed binary64 and `json-read`'s golden
+    // line 8 went red on the JVM lane the moment int moved to `0.0`. The accessors twenty lines
+    // below were taught to ACCEPT a BigDecimal by that same commit, which is the tell: the fix
+    // prepared this file to receive a shape its own parser never produced.
+    // (v1-json-two-contradictory-number-policies.)
+    if isDouble then
+      try BigDecimal(s)
+      catch case _: RuntimeException => s.toDouble
     else try s.toLong catch case _: NumberFormatException => s.toDouble
   def parseValue(): Any =
     skipWs()

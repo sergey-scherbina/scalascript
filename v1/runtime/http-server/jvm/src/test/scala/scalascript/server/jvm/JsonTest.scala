@@ -84,10 +84,66 @@ class JsonTest extends AnyFunSuite with Matchers:
     jsonParse("\"a\\\\b\"") shouldBe "a\\b"
   }
 
-  test("jsonParse — numbers as Long when integral, Double when fractional") {
+  // ── the number policy (v1-json-two-contradictory-number-policies) ──────────
+  //
+  // This block is the reason the JVM lane was the FIFTH site to disagree about JSON numbers. The
+  // policy was unified across the interpreter, v2 and the JS runtime, and this file was where the
+  // JVM half would have been caught — but its only number test asserted `jsonParse("3.14") shouldBe
+  // 3.14`, which passes under EITHER policy: `BigDecimal.equals` compares numerically against a
+  // Double, so a lossy binary64 and an exact decimal are indistinguishable to it. The assertion
+  // could not fail, so the drift landed and surfaced as a red conformance golden instead.
+  //
+  // These tests assert the TYPE and the EXACT digits, which is what the policy is actually about.
+
+  test("jsonParse — integers stay Long") {
     jsonParse("42")     shouldBe 42L
-    jsonParse("3.14")   shouldBe 3.14
     jsonParse("-7")     shouldBe -7L
+    jsonParse("0")      shouldBe 0L
+  }
+
+  test("jsonParse — a fractional number is an EXACT decimal, not a binary64 double") {
+    // The type, stated on its own: the numeric `shouldBe` above cannot distinguish these.
+    jsonParse("3.14")   .getClass.getName should include ("BigDecimal")
+    jsonParse("42")     .getClass.getName should not include ("BigDecimal")
+
+    // Trailing zeros SURVIVE — the property binary64 cannot represent at all, and the one the
+    // corpus golden records (`json-read` line 8).
+    String.valueOf(jsonParse("0.0"))  shouldBe "0.0"
+    String.valueOf(jsonParse("0.10")) shouldBe "0.10"
+    String.valueOf(jsonParse("1.50")) shouldBe "1.50"
+
+    // Digits beyond a double's 17 significant ones are kept rather than rounded away.
+    String.valueOf(jsonParse("0.1000000000000000055511151231257827")) shouldBe
+      "0.1000000000000000055511151231257827"
+
+    // An exponent shifts the SCALE, matching BigDecimal("0.10e1").toString rather than the
+    // double's "1" — same rule as the interpreter's JsonParser and v2's NativeJsonCodec.
+    String.valueOf(jsonParse("0.10e1")) shouldBe "1.0"
+    String.valueOf(jsonParse("1e2"))    shouldBe "1E+2"
+  }
+
+  test("jsonParse — a pathological exponent degrades to the old double path, not to zero") {
+    // `BigDecimal` rejects an exponent whose scale would overflow Int — MEASURED, not assumed:
+    // `1e2147483648` is FINE (scale = Int.MinValue exactly), `1e2147483649` is the first that
+    // throws. The interpreter falls back to the double path there (`JsonParser.parseNumber`) rather
+    // than to V1JsonCore's silent `BigDecimal("0.0")`, because a number that cannot be represented
+    // exactly must not read back as zero.
+    String.valueOf(jsonParse("1e2147483648")) shouldBe "1E+2147483648"   // still exact
+    val huge = jsonParse("1e2147483649")
+    huge shouldBe a [java.lang.Double]
+    huge.asInstanceOf[Double].isInfinite shouldBe true
+  }
+
+  test("jsonStringify — an exact decimal serialises as a NUMBER, in plain digits") {
+    // Without a BigDecimal arm in `_toJsonValue` these reach the `case other` fallback and come
+    // back QUOTED, so a parse/stringify round-trip silently changes the JSON type.
+    jsonStringify(jsonParse("0.10"))  shouldBe "0.10"
+    jsonStringify(jsonParse("1.50"))  shouldBe "1.50"
+    jsonStringify(BigDecimal("0.0"))  shouldBe "0.0"
+    // `toPlainString`, not `toString`: the int lane's V1JsonCore emits plain digits, and `1E+40`
+    // on one lane against `10000…0` on another is the same disagreement in a new place.
+    jsonStringify(BigDecimal("1e40")) shouldBe "1" + "0" * 40
+    jsonStringify(new java.math.BigDecimal("2.50")) shouldBe "2.50"
   }
 
   // ── JsonValue typed accessors ────────────────────────────────
