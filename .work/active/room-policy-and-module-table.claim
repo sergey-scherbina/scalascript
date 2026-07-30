@@ -1,0 +1,11 @@
+slug: room-policy-and-module-table
+branch: feature/room-policy-and-module-table
+agent: claude-code
+started: 2026-07-30T07:17:12Z
+heartbeat: 2026-07-30T07:17:12Z
+status: claimed-before-planning
+items: rozum-room-policy-in-skills modules-table-machine-readable bugs-misrouted-by-symptom
+paths: .agents/plugins specs/work-tracking-layout.md tests/fixtures/modules.tsv scripts/bugs-split scripts/work-split v1/runtime/backend/interpreter/BUGS.md v1/runtime/backend/js/BUGS.md v1/runtime/backend/jvm/BUGS.md v2/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
