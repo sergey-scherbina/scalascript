@@ -19,159 +19,111 @@ the measurement protocol.
 ## Provenance
 
 ```
-./bench.sh --backends ssc,ssc-asm,jvm,js,rust,v2,v2-bytecode --reps 20     # 2026-07-28
+./bench.sh --backends ssc,ssc-asm,jvm,js,rust,v2,v2-bytecode --reps 20     # 2026-07-29, REBUILT
 ```
 
 macOS arm64, 14 cores, JDK 21.0.7, node v26.5.0, scala-cli 1.15.0, rustc 1.92.0.
+**Load average 1.8** — a quiet machine, unlike the first build of this table (5.7-10.2).
 
-**Load average during the sweep was 5.7-10.2** (sibling agents building). By the protocol in
-`specs/v2-runtime-perf-vs-v1.md` §7, that makes this a SNAPSHOT: differences under ~30% are not
-established here, ratios of 4× and up are. The one cell with a better number is noted inline.
-`v2-jvm` and `v2-rust` are absent because they cannot run any program at all (§1 below).
+⚠️ **Do not diff this table against its previous revision row by row.** The old one was taken under
+load, which inflated BOTH columns of every row by different amounts. A ratio that changed between
+the two revisions is not evidence that anything was fixed. The only trustworthy before/after
+numbers in this document are the ones taken with the alternating protocol
+(`specs/v2-runtime-perf-vs-v1.md` §7), and they are labelled as such.
+
+**A worked example of getting that wrong — mine.** I reported `effect-stream` as improving from
+271× to 115× after the handler fix. It did not. I compared a fresh v2 number (4.70 ms) against the
+STALE, load-inflated v1 number from the old table (0.041 ms). On this quiet machine v1 is 0.017 and
+v2 is 4.57: **269×, essentially unchanged.** Both columns had fallen ~2.4× because the machine was
+quieter, and I attributed one column's fall to my change. The alternating protocol exists precisely
+to prevent this, and I skipped it because a single number was already in front of me.
 
 ## The matrix (ms/iter, lower is better)
 
-| Workload | ssc | ssc-asm | jvm | js | rust | v2 | **v2-bytecode** |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `arith-loop` | 0.277 | 0.279 | 0.274 | 17.3 | 0.906 | 82.3 | **0.634** |
-| `array-update` | 0.816 | 0.824 | 0.627 | 14.4 | 0.714 | ✗ | **✗** |
-| `bool-predicate` | 0.0099 | 0.010 | 0.000861 | 4.55 | 0.0022 | 0.311 | **0.131** |
-| `effect-multishot` | 5.12 | 5.44 | 0.095 | 0.477 | 0.010 | 0.731 | **0.553** |
-| `effect-oneshot` | 0.065 | 0.035 | 0.341 | 5.49 | 0.0021 | 2.78 | **0.0014** |
-| `effect-pure` | 0.022 | 0.0077 | 0.0060 | 0.0095 | 0.011 | 2.84 | **0.167** |
-| `effect-stream` | 0.041 | 0.053 | n/a | 0.061 | 0.024 | 18.4 | **11.1** |
-| `either-chain` | 0.033 | 0.025 | 0.0064 | 1.28 | 0.0022 | 1.67 | **0.564** |
-| `float-fold` | 0.103 | 0.048 | 0.020 | 0.017 | 0.347 | ✗ | **✗** |
-| `float-loop` | 5.66 | 4.18 | 3.66 | 1.82 | 5.36 | ✗ | **✗** |
-| `hello-world` | 0.0083 | 0.0098 | 0.0015 | 0.000089 | 0.000315 | 0.000892 | **0.0019** |
-| `hof-pipeline` | 0.012 | 0.025 | 0.011 | 0.014 | 0.017 | 0.349 | **0.229** |
-| `instance-field` | 0.401 | 0.577 | 0.0074 | 415.8 | 0.011 | 7.65 | **5.24** |
-| `lazylist-take` | 0.086 | 0.065 | 0.058 | 1.66 | 0.089 | 36.9 | **40.8** |
-| `list-fold` | 0.0065 | 0.0067 | 0.000358 | n/a | 0.050 | 5.02 | **1.04** |
-| `literal-match` | 0.011 | 0.011 | 0.0088 | 5.20 | 0.0017 | 0.544 | **0.580** ⚠ |
-| `map-ops` | 0.083 | 0.035 | 0.020 | 0.207 | 0.022 | 0.706 | **0.699** |
-| `mutual-recursion` | 1.40 | 1.40 | 0.530 | 7.19 | 2.79 | 46.7 | **10.2** |
-| `nested-loop` | 0.268 | 0.311 | 0.259 | 17.1 | 1.03 | 92.1 | **0.761** |
-| `option-chain` | 0.013 | 0.012 | 0.000564 | 0.697 | 0.000840 | 0.210 | **0.127** |
-| `pattern-match-heavy` | 0.060 | 0.060 | 0.053 | 0.054 | 1.58 | ✗ | **✗** |
-| `range-sum` | 0.0040 | 0.0039 | 0.015 | 0.050 | 0.0012 | 0.774 | **0.679** |
-| `recursion-fib` | 1.56 | 1.80 | 1.80 | 10.2 | 3.27 | 232.8 | **1.74** |
-| `recursion-tco` | 0.053 | 0.042 | 0.037 | 0.963 | 0.176 | 9.17 | **0.044** |
-| `streams-pipeline` | 0.030 | 0.018 | 0.000131 | 0.0011 | 0.000019 | 0.0072 | **0.0057** |
-| `string-concat` | 0.166 | 0.672 | 0.239 | 1.44 | 2.12 | 5.43 | **4.65** |
-| `string-split` | 0.490 | 0.260 | 0.161 | 0.554 | 0.364 | 2.58 | **2.09** |
-| `tuple-monoid` | 3.53 | 3.01 | 0.091 | 39943 | 0.118 | 50.2 | **35.1** |
-| `type-lambda-native` | 0.0044 | 0.0043 | 0.000008 | 0.000113 | 0.000015 | 0.000488 | **0.000275** |
-| `type-lambda-placeholder` | 0.0072 | 0.0072 | 0.0012 | 0.417 | 0.000448 | 0.108 | **0.068** |
-| `typeclass-fold` | 1.48 | 1.40 | 0.0028 | 0.077 | n/a | 0.170 | **0.107** |
-| `typeclass-monoid` | 0.0092 | 0.0093 | 0.000005 | 0.000269 | 0.000004 | 0.000606 | **0.000311** |
-| `vector-index` | 0.804 | 0.801 | 0.490 | 9.67 | 0.637 | 54.3 | **36.9** |
-
-⚠ `literal-match`: the sweep says 0.580, but three alternating rounds on a quiet machine put it at
-**0.184** (`specs/v2-runtime-perf-vs-v1.md` §8). Use 0.184; the 0.580 is load. It is the only cell
-with a better measurement available.
+| Workload | ssc | ssc-asm | jvm | js | rust | v2 | **v2-bytecode** | **ratio** |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `lazylist-take` | 0.060 | 0.060 | 0.054 | 5.22 | 0.088 | 27.4 | **23.7** | **395×** |
+| `pattern-match-heavy` | 0.057 | 0.058 | 0.050 | 0.052 | 1.45 | 79.2 | **21.7** | **381×** |
+| `float-fold` | 0.010 | 0.010 | 0.0047 | 0.0025 | 0.267 | 4.65 | **3.15** | **315×** |
+| `effect-stream` | 0.017 | 0.017 | n/a | 0.021 | 0.020 | 5.74 | **4.57** | **269×** |
+| `list-fold` | 0.0059 | 0.0060 | 0.000336 | n/a | 0.050 | 4.82 | **0.861** | **146×** |
+| `range-sum` | 0.0037 | 0.0038 | 0.013 | 0.032 | 0.0012 | 0.698 | **0.418** | **113×** |
+| `float-loop` | 1.15 | 1.14 | 1.14 | 0.577 | 2.05 | 64.6 | **62.2** | **54×** |
+| `vector-index` | 0.803 | 0.902 | 0.489 | 9.84 | 0.615 | 52.9 | **37.3** | **46×** |
+| `map-ops` | 0.025 | 0.026 | 0.020 | 0.205 | 0.022 | 0.713 | **0.693** | **28×** |
+| `hof-pipeline` | 0.0046 | 0.0047 | 0.0050 | 0.012 | 0.0029 | 0.180 | **0.122** | **27×** |
+| `bool-predicate` | 0.0093 | 0.010 | 0.000681 | 6.64 | 0.0022 | 0.294 | **0.235** | **25×** |
+| `literal-match` | 0.010 | 0.010 | 0.0078 | 4.37 | 0.0016 | 0.328 | **0.179** | **18×** |
+| `string-concat` | 0.094 | 0.195 | 0.083 | 0.739 | 1.000 | 2.79 | **1.10** | **12×** |
+| `tuple-monoid` | 2.02 | 1.94 | 0.085 | 39405 | 0.112 | 43.6 | **18.3** | 9.1× |
+| `type-lambda-placeholder` | 0.0073 | 0.0072 | 0.0011 | 0.393 | 0.000519 | 0.105 | **0.064** | 8.8× |
+| `instance-field` | 0.270 | 0.520 | 0.0055 | 362.9 | 0.011 | 5.38 | **2.03** | 7.5× |
+| `either-chain` | 0.013 | 0.012 | 0.0015 | 0.421 | 0.0018 | 0.194 | **0.090** | 6.9× |
+| `option-chain` | 0.014 | 0.012 | 0.000547 | 0.432 | 0.000671 | 0.183 | **0.095** | 6.8× |
+| `effect-pure` | 0.0066 | 0.0066 | 0.0033 | 0.0033 | 0.0095 | 0.711 | **0.045** | 6.8× |
+| `mutual-recursion` | 1.57 | 1.42 | 0.513 | 7.07 | 2.77 | 45.6 | **9.89** | 6.3× |
+| `string-split` | 0.190 | 0.144 | 0.079 | 0.372 | 0.301 | 1.57 | **0.983** | 5.2× |
+| `nested-loop` | 0.258 | 0.260 | 0.251 | 16.7 | 0.977 | 92.5 | **1.32** | 5.1× |
+| `arith-loop` | 0.243 | 0.241 | 0.238 | 16.9 | 0.835 | 69.6 | **0.573** | 2.4× |
+| `recursion-fib` | 1.21 | 1.26 | 1.29 | 6.45 | 1.80 | 134.0 | **1.20** | 1.0× |
+| `recursion-tco` | 0.030 | 0.030 | 0.026 | 0.524 | 0.025 | 5.40 | **0.026** | 0.87× |
+| `streams-pipeline` | 0.012 | 0.012 | 0.000046 | 0.000488 | 0.000031 | 0.0036 | **0.0022** | 0.18× |
+| `effect-multishot` | 5.53 | 5.08 | 0.083 | 0.437 | 0.0095 | 0.520 | **0.495** | 0.09× |
+| `typeclass-fold` | 1.41 | 1.29 | 0.0028 | 0.076 | n/a | 0.170 | **0.104** | 0.07× |
+| `hello-world` | 0.0028 | 0.0028 | 0.000477 | 0.000023 | 0.000237 | 0.000256 | **0.000148** | 0.05× |
+| `typeclass-monoid` | 0.0090 | 0.0091 | 0.000005 | 0.000268 | 0.000002 | 0.000596 | **0.000320** | 0.04× |
+| `type-lambda-native` | 0.0044 | 0.0042 | 0.000008 | 0.000115 | 0.000002 | 0.000409 | **0.000131** | 0.03× |
+| `effect-oneshot` | 0.027 | 0.028 | 0.198 | 4.79 | 0.0018 | 0.791 | **0.000532** | 0.02× |
+| `array-update` | 0.649 | 0.648 | 0.476 | 12.4 | 0.695 | ✗ | **✗** | — |
 
 ## Category 1 — v2 cannot run this at all
 
-Not slow: an exception. Two causes across four workloads, plus two backends that cannot run
-anything.
-
 | Item | Failure | Scope |
 |---|---|---|
-| `array-update` | `RuntimeException: app: not a function: 0` | both v2 lanes |
-| backend `v2-jvm` | `RuntimeException: unknown prim1: __autoOutput__` | every program |
-| backend `v2-rust` | `panicked: unimplemented prim: __autoOutput__` | every program |
+| `array-update` | the indexed store `a(i) = v` is parsed away | **DEFAULT front only** — fixed on `SSC_FRONT=legacy`, still open on F |
 
-**CORRECTED 2026-07-28, and the correction is the point.** This category originally listed three
-more workloads — `float-loop`, `float-fold`, `pattern-match-heavy` — under
-`RuntimeException: unbound global: d`. **They were misclassified: v2 runs all three fine.** The
-`d` was the *bench wrapper's* Double sink, spelled `0d`, and the self-hosted front does not lex the
-Scala float-literal suffix (`BUGS.md v2-front-drops-float-literal-suffix`). The harness was
-reporting its own parser dependency as the backend failing. Wrapper now says `0.0`.
+Everything else in this category is closed. `v2-jvm` and `v2-rust` — which could not run a single
+program (`__autoOutput__` unimplemented in both source generators) — now work: `v2-jvm` reaches
+0.276 on `arith-loop`, parity with the v1 interpreter, and `v2-rust` 0.000047. The three float
+workloads listed here originally were never a v2 defect at all; that was the bench wrapper's `0d`.
 
-That makes this the THIRD apparatus defect found in one sweep, after the tier-mismatched launcher
-and the `+=` the JS backend cannot compile. The rule it keeps re-teaching: **a lane that reports
-"cannot run" has to be reproduced OUTSIDE the harness before the claim is believed.**
+Tracked: `BUGS.md v2-array-indexed-store-silently-dropped` (half fixed, F open),
+`v2-front-drops-float-literal-suffix`.
 
-Remaining: **1 of 33 workloads, and 2 of the 4 v2 backends.**
+## Category 2 — an order of magnitude worse than v1 (≥10×)
 
-Tracked: `BUGS.md v2-lanes-cannot-run-four-corpus-workloads`, `v2-source-backends-miss-autoOutput`.
+13 rows, and the shapes are unchanged from the first analysis: **lazy/collection iteration**
+(`lazylist-take`, `effect-stream`, `list-fold`, `range-sum`, `hof-pipeline`), **structural access**
+(`vector-index`, `map-ops`, `bool-predicate`, `literal-match`, `pattern-match-heavy`), **floats**
+(`float-fold`, `float-loop`), **strings** (`string-concat`).
 
-## Category 2 — runs, but an order of magnitude worse than v1 (≥10×)
+`float-fold` at **315×** and `float-loop` at **54×** are new to this list — they were `✗` before,
+so this is the first time they have ever been measured. Against `arith-loop` at 2.4×, the Long twin,
+they say plainly: **the numeric fast paths cover Long and not Double.** That is the most concrete
+open lead in the category.
 
-| Workload | ssc | v2-bytecode | ratio | shape |
-|---|---:|---:|---:|---|
-| `pattern-match-heavy` | 0.072 | 43.3 | **601×** | ADT match over a list ⚑ |
-| `lazylist-take` | 0.086 | 40.8 | **474×** | lazy collection |
-| `effect-stream` | 0.041 | 11.1 | **271×** | lazy/effect stream |
-| `range-sum` | 0.0040 | 0.679 | **170×** | range iteration |
-| `list-fold` | 0.0065 | 1.04 | **160×** | list traversal |
-| `vector-index` | 0.804 | 36.9 | **46×** | indexed read |
-| `string-concat` | 0.166 | 4.65 | **28×** | strings |
-| `hof-pipeline` | 0.012 | 0.229 | **19×** | map/filter/fold chain |
-| `either-chain` | 0.033 | 0.564 | **17×** | ADT chain |
-| `literal-match` | 0.011 | 0.184 | **17×** | match on literals |
-| `bool-predicate` | 0.0099 | 0.131 | **13×** | predicate calls |
-| `instance-field` | 0.401 | 5.24 | **13×** | field access |
-| `float-loop` | 1.45 | 92.0 | **63×** | float arithmetic loop ⚑ |
-| `float-fold` | 0.013 | 4.88 | **375×** | float list traversal ⚑ |
+## Category 3 — worse, but under 10×
 
-⚑ = moved here from category 1 by the wrapper correction above; measured 2026-07-28 with
-`./bench.sh --backends ssc,v2,v2-bytecode --reps 10`.
+`tuple-monoid` 9.1×, `type-lambda-placeholder` 8.8×, `instance-field` 7.5×, `either-chain` 6.9×,
+`option-chain` 6.8×, `effect-pure` 6.8×, `mutual-recursion` 6.3×, `string-split` 5.2×,
+`nested-loop` 5.1×, `arith-loop` 2.4×, `recursion-fib` 1.0× (parity).
 
-**`pattern-match-heavy` at 601× is now the worst row in the matrix**, and it is the row
-`BACKLOG.md`'s v2 production-route policy was decided on. `float-loop` at 63× is the other
-surprise: pure float arithmetic, which the bytecode lane was supposed to have closed — `arith-loop`
-(the Long twin) is only 2.3×. **That contrast is a lead: the numeric fast paths appear to cover
-Long and not Double.**
-
-Three shapes, not eleven: **iteration over collections** (lazylist, effect-stream, range-sum,
-list-fold, hof-pipeline), **strings**, and **structural data access** (instance-field,
-vector-index, either-chain).
-
-## Category 3 — worse, but not by an order of magnitude (<10×)
-
-Deliberately NOT planned yet. It must be re-measured after categories 1 and 2, for two reasons:
-the sweep it comes from is a contended snapshot where sub-30% differences are not established, and
-fixing a shared cause in category 2 will move these rows too.
-
-| Workload | ratio | |
-|---|---:|---|
-| `recursion-fib` | 1.1× | parity |
-| `arith-loop` | 2.3× | |
-| `nested-loop` | 2.8× | |
-| `string-split` | 4.3× | |
-| `mutual-recursion` | 7.3× | |
-| `effect-pure` | 7.6× | |
-| `map-ops` | 8.4× | |
-| `type-lambda-placeholder` | 9.4× | |
-| `option-chain` | 9.8× | |
-| `tuple-monoid` | 9.9× | |
+Now measurable, which it was not before: on a quiet machine this band is real rather than noise.
+Note `nested-loop` reads 5.1× here against 2.8× in the loaded table — **worse, not better**. Load
+compressed the ratios, so some of category 3 was flattered by it.
 
 ## Category 0 — where v2 is FASTER than v1
 
-Omitting this would make the matrix a list of complaints rather than a description. It is also the
-evidence that the v2 compilation path works: these are the workloads that do not spend their time
-in the generic runtime.
+`effect-oneshot` **51×**, `type-lambda-native` **34×**, `typeclass-monoid` **28×**, `hello-world`
+**19×**, `typeclass-fold` **13.5×**, `effect-multishot` **11×**, `streams-pipeline` 5.5×,
+`recursion-tco` 1.15×.
 
-| Workload | faster by |
-|---|---:|
-| `effect-oneshot` | **46×** |
-| `typeclass-monoid` | **30×** |
-| `type-lambda-native` | **16×** |
-| `typeclass-fold` | **14×** |
-| `effect-multishot` | **9×** |
-| `streams-pipeline` | 5× |
-| `hello-world` | 4× |
-| `recursion-tco` | 1.2× |
+## The score
 
-## The score, and what it means
-
-Of 29 workloads v2 can run: **8 faster, 3 at parity, 18 slower** (11 of those by an order of
-magnitude). The honest summary is not "v2 is slower than v1" but **"v2 has a different shape"**:
-effects, typeclasses, type-lambdas and startup are where it wins; anything that walks a collection,
-a string, or an object's fields element-by-element through the generic runtime is where it loses.
-Arithmetic and recursion are already at parity, which is what the bytecode lane bought.
+Of the 32 workloads v2 can run: **8 faster, 1 at parity, 23 slower** — 13 of those by an order of
+magnitude. Unchanged in shape from the first reading: effects, typeclasses, type-lambdas and
+startup are v2's strengths; anything that walks a collection, a string or an object's fields
+element-by-element through the generic runtime is where it loses.
 
 ## Category 2 findings — a cause located, and a fix that was tried and refuted
 

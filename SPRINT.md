@@ -356,14 +356,18 @@ representative per shape, name the cause, fix it, then re-measure the whole shap
       lives in exactly one part, which is NOT true today (list cases span 5 and 6, DataV spans 7
       and 8). So this needs a census of which kinds appear in which part BEFORE any reordering,
       and the corpus contract as the gate. Do not eyeball it.
-- [ ] **v2m-3b — REBUILD the matrix before planning anything else in category 2.** Its category-2
-      numbers are now stale DOWNWARD by an unknown amount, and by more than one row. Measured
-      incidentally: `effect-stream` reads **271×** in the table and is **115×** today
-      (11.1 → 4.70 ms), because `v2m-2g` moved it — `runStream` IS a handler, so its arms were
-      paying the per-call bookkeeping, and a fix aimed at `range-sum` moved a row nobody measured.
-      Same likely applies to other handler-shaped rows. Rebuilding one cell at a time invites
-      exactly the error this board keeps making, so: one full sweep on a quiet machine, then
-      re-derive the categories from it. Prerequisite for v2m-2a/2e and for category 3.
+- [x] **v2m-3b — DONE, and it corrected me.** Full sweep on a quiet machine (load 1.8);
+      `specs/v2-vs-v1-backend-matrix.md` rebuilt with fresh numbers and re-derived categories.
+      **My claim that `effect-stream` improved 271× → 115× was WRONG**: I compared a fresh v2
+      number against the stale load-inflated v1 number from the old table. On matched numbers it is
+      **269×, unchanged** — both columns had fallen ~2.4× because the machine was quieter. The
+      alternating protocol exists to prevent exactly this and I skipped it because a number was
+      already in front of me.
+      Category 2 is now **13 rows**, with two of them measured for the FIRST time (`float-fold`
+      **315×**, `float-loop` **54×** — previously `✗`). Against `arith-loop` at 2.4×, its Long twin,
+      those two say the numeric fast paths cover Long and NOT Double: the most concrete open lead.
+      Also: `nested-loop` is 5.1× here against 2.8× under load — parts of category 3 were flattered
+      by contention, not improved.
 - [ ] **v2m-2a — collection iteration.** `lazylist-take` **474×**, `effect-stream` **271×**,
       `range-sum` **170×**, `list-fold` **160×**, `hof-pipeline` **19×**. Representative:
       `range-sum` (smallest, 170×, and a `Range` is not even a user data structure). Known from
