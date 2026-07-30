@@ -1,0 +1,11 @@
+slug: board-route-purity-entry
+branch: feature/board-route-purity-entry
+agent: claude-code
+started: 2026-07-30T12:28:35Z
+heartbeat: 2026-07-30T12:28:35Z
+status: claimed-before-planning
+items: bytecode-opanf-purity-registry-marks-every-def-pure-routing
+paths: file:v1/runtime/backend/interpreter/BUGS.md file:v2/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
