@@ -105,6 +105,42 @@ ReferenceError. Start at how `JsGenTypedRouteClientTest` builds the bundle it ex
 name suggests the same emitter-synthesized-symbol family as cluster 2 and as `dd56c4b8d`'s own note
 ("this is the SECOND emitter-synthesized reference to bite the shaker today").
 
+### CORRECTION 2026-07-30 — clusters 1 and 3 are ONE cause, and it is bigger than either
+
+Cluster 3's test is *named* for `__mk_method_obj__`, which is what it was originally written to
+regress. It no longer fails on that. Its actual error, from run 30468925065:
+
+```
+Error: unimplemented primitive: __regmethod__
+    at $prim (/tmp/ssc-native-js-….cjs:644:32)
+```
+
+The same primitive as cluster 1's Swift failure (`unsupported primitive '__regmethod__'`). So this is
+not "Swift, JS and companion-dispatch"; it is **one primitive with no implementation**, surfacing
+wherever a backend meets it.
+
+**Verified by grep, repo-wide, excluding `.md` and `target/`:** `__regmethod__` occurs ONLY in the two
+lowerers — `v2/lib/ssc1-lower.ssc0` and `specs/v2.2-p6.5-fsub.ssc` — plus one salvage patch. No
+backend directory contains it: not `v2/backend/js`, not `v2/backend/swift`, not `v2/backend/rust`, not
+`v2/backend-jvm-bytecode`, and not `v2/src`.
+
+So both fronts EMIT a primitive that nothing implements by that name. That predicts the rust and wasm
+backends fail identically the moment a program reaches it, and it means the failure count understates
+the blast radius — it is bounded by which backends currently get exercised, not by which are affected.
+
+Introduced by `dd56c4b8d` ("`Mirror.fromProduct` on the native lane"), whose message states
+`fromProduct` is "one tag-level `__regmethod__`". **That commit has now broken three consumers:**
+`sql-plugin` (Mirror arity, fixed in `0ee779b8d`), the Swift backend, and the v2 JS backend. A
+lowering change that adds a primitive has to add it to every backend that can see it, or declare the
+backends out of scope — the same rule `dd56c4b8d`'s own message states about shaker roots
+("the symbol must add its shaker root in the same change").
+
+**Left to the owner (`v2/backend` and `v2/lib` are both in the `v2-backend-matrix-gaps` claim):** one
+question decides the fix — does the native VM implement it under a different mechanism (a generic
+prim table built by concatenation, say), or does the native lane simply never reach it? If the
+latter, the primitive has no implementation at all and the Mirror work is unfinished rather than
+merely unported.
+
 ## v2-doc-only-file-rejected-by-three-gates — a fence-less `.ssc` is a no-op by design, and the native lane refuses it three times over
 <!-- status: open
      lane: int
