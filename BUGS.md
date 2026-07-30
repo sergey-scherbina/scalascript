@@ -695,6 +695,95 @@ Three candidate resolutions, none free:
 **Blast radius today:** one line of `tests/conformance/json-read.ssc` (line 8) — the whole remaining
 `json-read` DIVERGE — plus line 2 of `tests/conformance/expected/json-self-hosted-import.txt`, which
 already records `0.0` and is therefore consistent with whichever way this goes.
+
+---
+
+**ADDENDUM 2026-07-30 (`skip-triage-golden-lane`) — MEASURED, and it reverses the premise: v2 is the
+CORRECT lane here, and INT's loss is not limited to the `.0` suffix.**
+
+The entry above reads the divergence as a display quirk about integral values (`2.0` vs `2`). It is
+much bigger than that. Same fresh worktree build, both lanes, `println(jsonParse(x))`:
+
+| input | INT (`ssc-tools run --v1`) | v2 (`bin/ssc run --v2`) |
+|---|---|---|
+| `0.10` | `0.1` | `0.10` |
+| `1.50` | `1.5` | `1.50` |
+| `0.1000000000000000055511151231257827` | **`0.1`** | full 34 digits preserved |
+| `1e2`, `1.0e2` | `100` | `100` — agree |
+
+INT does not merely drop a trailing `.0`. It parses every fractional JSON number into a **binary
+Double**, so `0.10` and `0.1` become indistinguishable and a payload carrying more precision than
+binary64 holds is silently truncated. That is the exact defect the money-safety comment in v1's own
+JSON core says must not happen.
+
+**Root cause — v1 contains TWO CONTRADICTORY JSON number policies, and `jsonParse` uses the lossy
+one:**
+
+| site | policy |
+|---|---|
+| `v1/lang/core/src/main/scala/scalascript/interpreter/JsonParser.scala:93` | `if isDouble then Value.doubleV(s.toDouble)` — **lossy binary64** |
+| `v1/runtime/std/json-plugin/.../V1JsonCore.scala:127` | exact `BigDecimal`, with the comment *"never a lossy `Double`"* |
+| `v2/runtime/std/json-plugin/.../NativeJsonCodec.scala:223` | exact decimal — **agrees with V1JsonCore** |
+
+`jsonParse` reaches the lossy site through `PluginApi.parseJson` ->
+`scalascript.interpreter.JsonParser.parse` (`PluginApi.scala:63`), NOT through `V1JsonCore`. So v2
+matches v1's DOCUMENTED and INTENDED policy while the frozen golden records v1's other, undocumented
+one. The DIVERGE is two v1 policies disagreeing with each other, surfaced through v2.
+
+**What this does to the three options above:**
+* Option 1 (float when exactly representable) is now clearly WRONG — it keeps destroying `0.10` and
+  `1.50`, which are exactly representable as decimals and are the money case the design cares about.
+* Option 2 changes nothing about the precision loss.
+* **Option 3 is the correct direction** and is stronger than it looked: it is not "declare INT wrong"
+  against v1's intent, it is making `jsonParse` obey the policy v1's own JSON core already states.
+
+**Why it is still not landed here:** the fix is one line at `JsonParser.scala:93`, but that parser is
+also the request/JWT/session JSON reader, so it moves the GOLDEN for every case that prints or
+computes on a parsed fractional number. Moving the golden is exactly the thing the corpus contract
+exists to make deliberate. Filed as its own bug
+(`v1-json-two-contradictory-number-policies`) and queued in SPRINT.md with a
+measurement-first plan: make the change, run the FULL corpus, and report the exact list of changed
+cells BEFORE freezing anything.
+
+**Do NOT "fix" this by degrading v2** to match the golden. That was the shape the original entry
+leaned toward, and it would trade away exactness that v1's own source says is required.
+## v1-json-two-contradictory-number-policies — `jsonParse` truncates fractional numbers to binary64 while v1's own JSON core promises exactness
+<!-- status: open
+     lane: int
+     area: runtime -->
+
+**Status:** OPEN — **needs Sergiy's go**, because the fix moves the corpus GOLDEN. Found 2026-07-30 by
+`skip-triage-golden-lane` while reducing `json-read`'s DIVERGE; full measurement and the both-lanes
+table live in the ADDENDUM to `v2-json-number-keeps-trailing-zero`.
+
+**The contradiction, in v1 alone** (no v2 involved):
+
+| site | policy |
+|---|---|
+| `v1/lang/core/src/main/scala/scalascript/interpreter/JsonParser.scala:93` | `if isDouble then Value.doubleV(s.toDouble)` — lossy binary64 |
+| `v1/runtime/std/json-plugin/src/main/scala/scalascript/compiler/plugin/json/V1JsonCore.scala:127` | exact `BigDecimal`, commented *"never a lossy `Double`"* |
+
+`jsonParse` routes to the FIRST one (`PluginApi.parseJson` -> `JsonParser.parse`,
+`PluginApi.scala:63`). Measured consequence on the golden lane: `jsonParse("0.10")` prints `0.1`,
+`jsonParse("1.50")` prints `1.5`, and a 34-significant-digit decimal collapses to `0.1`.
+
+**Why it matters beyond cosmetics.** This parser is not only `jsonParse`'s: it is the reader behind
+HTTP request bodies, JWT claims and session cookies. Any amount that arrives as JSON and is then
+compared or summed is going through binary64 on the lane the whole corpus treats as ground truth.
+
+**Fix is one line, blast radius is not.** Making line 93 produce an exact decimal aligns `jsonParse`
+with `V1JsonCore` and with v2 — but it changes output for every frozen case that prints a parsed
+fractional number, and the corpus contract deliberately makes moving the golden a decision rather
+than a side effect.
+
+**Required order of work** (do not reorder — the point is to know the cost before paying it):
+1. Change `JsonParser.scala:93` in a worktree; rebuild.
+2. Run the FULL corpus contract and report the exact list of changed cells.
+3. Only then decide whether to re-freeze, and freeze in ONE commit that names this bug.
+
+**Do not** resolve this by making v2 lossy to match. See the ADDENDUM for why that direction is
+wrong.
+
 ## v2-front-curried-def-second-clause — F drops the second parameter clause of a curried `def`
 <!-- status: open
      lane: multi
