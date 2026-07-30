@@ -66,3 +66,9 @@ date	sha	load	workload	lane	ref_lane	ms	ref_ms	ratio	note
 # stage1 == stage2 byte-identical 434338 B. The `ssc info --front-report` TYPEERR on parsePatAtom1
 # is PRE-EXISTING: the identical error on the pre-change front. Controls decided three separate
 # questions today; none of the three reds were caused by the change.
+#
+# 2026-07-30 v2-perf-1 LEGACY half — dcell wired in v2/lib/ssc1-lower.ssc0, measured with
+# SSC_FRONT=legacy. Alternating A/B, 3 rounds, only the staged lowerer swapped.
+2026-07-30	aedf19814	5.6	float-loop	v2-bytecode-legacy	ssc	61.4	1.27	48	BEFORE dcell-in-lowerer (median of 61.4/64.9/58.6)
+2026-07-30	aedf19814	5.6	float-loop	v2-bytecode-legacy	ssc	1.24	1.25	1.0	AFTER dcell-in-lowerer (median of 1.24/1.05/1.59) — 50x, parity with ssc
+2026-07-30	aedf19814	5.6	arith-loop	v2-bytecode-legacy	ssc	0.603	0.271	2.2	CONTROL, unchanged (0.602/0.603/0.614 vs 0.605/0.595/0.582)

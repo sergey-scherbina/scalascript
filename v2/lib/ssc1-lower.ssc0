@@ -66,6 +66,12 @@ def isIntLitExpr = (expr) =>
     case Pair(etag, edata) => #seq(etag, "int")
   }
 
+-- Double twin. This lowerer is what the LEGACY front lowers through; F emits its own cells.
+def isFloatLitExpr = (expr) =>
+  match expr {
+    case Pair(etag, edata) => #seq(etag, "float")
+  }
+
 -- Check if a name is a registered array/vector variable
 def isArrVar = (name) =>
   let rec go = (xs) =>
@@ -2572,6 +2578,10 @@ def lowerE = (scope, rawExpr) =>
         match plain {
           case IrGlobal(gname) =>
             -- Check long cell (@@) first, then regular cell (@)
+            let ddName = #sconcat("@@@", data) in
+            match lookupVarOpt(scope, ddName) {
+              case Some(dcellRef) => IrPrim("dcell.get", Cons(dcellRef, Nil))
+              case None =>
             let llName = #sconcat("@@", data) in
             match lookupVarOpt(scope, llName) {
               case Some(lcellRef) => IrPrim("lcell.get", Cons(lcellRef, Nil))
@@ -2620,6 +2630,7 @@ def lowerE = (scope, rawExpr) =>
                         Cons(lookupVar(scope, "__self"), Nil))
                     else IrGlobal(data)
                 }
+            }
             }
           case IrLocal(li) => IrLocal(li)
         }
@@ -2885,6 +2896,10 @@ def lowerE = (scope, rawExpr) =>
                        Cons(lookupVar(scope, "__self"), Nil)),
                   Cons(lowerE(scope, expr), Nil)))
             else
+            let ddName = #sconcat("@@@", name) in
+            match lookupVarOpt(scope, ddName) {
+              case Some(dcellRef) => IrPrim("dcell.set", Cons(dcellRef, Cons(lowerE(scope, expr), Nil)))
+              case None =>
             let llName = #sconcat("@@", name) in
             match lookupVarOpt(scope, llName) {
               case Some(lcellRef) =>
@@ -2903,6 +2918,7 @@ def lowerE = (scope, rawExpr) =>
                         #sconcat(name, "__cell"))), Cons(lowerE(scope, expr), Nil)))
                     else IrPrim("cell.set", Cons(lookupVar(scope, cellName), Cons(lowerE(scope, expr), Nil)))
                 }
+            }
             }
         }
       else
@@ -4068,6 +4084,9 @@ def lowerBlock = (scope, stmts) =>
                   -- Integer literal init: use long cell (no IntV boxing per store)
                   let lcellExpr = IrPrim("lcell.new", Cons(lowerE(scope, expr), Nil)) in
                   IrLet(Cons(lcellExpr, Nil), lowerBlock(Cons(#sconcat("@@", name), scope), rest))
+                else if isFloatLitExpr(expr) then
+                  let dcellExpr = IrPrim("dcell.new", Cons(lowerE(scope, expr), Nil)) in
+                  IrLet(Cons(dcellExpr, Nil), lowerBlock(Cons(#sconcat("@@@", name), scope), rest))
                 else
                   let cellExpr = IrPrim("cell.new", Cons(lowerE(scope, expr), Nil)) in
                   IrLet(Cons(cellExpr, Nil), lowerBlock(Cons(#sconcat("@", name), scope), rest))
@@ -4109,6 +4128,10 @@ def lowerBlock = (scope, stmts) =>
                              Cons(lookupVar(scope, "__self"), Nil)),
                         Cons(lowerE(scope, expr), Nil)))
                   else
+                  let ddName = #sconcat("@@@", name) in
+                  match lookupVarOpt(scope, ddName) {
+                    case Some(dcellRef) => IrPrim("dcell.set", Cons(dcellRef, Cons(lowerE(scope, expr), Nil)))
+                    case None =>
                   let llName = #sconcat("@@", name) in
                   match lookupVarOpt(scope, llName) {
                   case Some(lcellRef) =>
@@ -4128,7 +4151,8 @@ def lowerBlock = (scope, stmts) =>
                             #sconcat(name, "__cell"))), Cons(lowerE(scope, expr), Nil)))
                         else IrPrim("cell.set", Cons(lookupVar(scope, cellName), Cons(lowerE(scope, expr), Nil)))
                     }
-                } in
+                }
+                  } in
                 match rest {
                   case Nil => setExpr
                   case _ => IrSeq(Cons(setExpr, Cons(lowerBlock(scope, rest), Nil)))

@@ -88,20 +88,21 @@ identical error on the pre-change front. That command is not the self-compile ga
 above is, it needs `SSC_JAR=<assembly>` (`scala-cli --power package v2/src --assembly`) and
 `V2_DIR`, and it takes minutes rather than the 5 s the profile spec quotes for a warm self-compile.*
 
-**Still open — the other half, and its location is now known exactly.** The legacy front does NOT
-emit its own cells: it goes through `v2/lib/ssc1-lower.ssc0`, and **that lowerer's `lcell` arm IS
-live under `SSC_FRONT=legacy`** (probe: rename `lcell.new`, the legacy program dies, the default
-front does not). So the fix is the lowerer edit, mirroring what landed in F:
+**BOTH HALVES DONE.** The legacy front lowers through `v2/lib/ssc1-lower.ssc0`, and that arm is
+live under `SSC_FRONT=legacy` only. Same five sites, same shape. Measured on that lane, alternating
+A/B, three rounds: **61.4 → 1.24 ms/iter, 50×**, control 0.603 → 0.595 unmoved. Parity with `ssc`.
 
-- `isFloatLitExpr` beside `isIntLitExpr`;
-- a `dcell.new` arm in the `var` case with marker `@@@`;
-- a Double arm at the read site and BOTH write sites, tried before `@@`.
+*Method note worth reusing:* the brace trap in this file is gone by construction — find the WHOLE
+brace-balanced `match` expression and wrap it, rather than inserting a `}` at a computed line. That
+still let one bug through that a balance check cannot see: the first wrap swallowed the
+`let llName = … in` binding, leaving the inner match referencing an unbound name. **Balance the
+structure mechanically, then READ it.**
 
-⚠️ **The trap, hit twice:** these three sites nest inside `let … in`, and a closing brace placed by
-counting depth lands after the wrong `}`. The write site inside `let setExpr = … in` needs its brace
-**before** the ` in`, not after the enclosing match. First attempt parsed and then failed at run
-time with `match: no arm for IrLocal/1` — a silent mis-nesting, not a parse error. Verify with the
-probe AND run an Int program: my broken version broke *both* fronts, not just legacy.
+**What did NOT come along, and it is the next question.** The full sweep after the F half shows
+`float-fold` **315× → 72×** — it improved by ~4× for free, but did not reach parity the way
+`float-loop` did. Same `var sum: Double = 0.0`, so the cell is fixed; the residue is the rest of
+its shape (`xs.foreach(x => { sum = sum + x })` — a closure per element over a `List[Double]`).
+That puts it in the collection/closure cluster, not the numeric-tier one. See v2-perf-6.
 
 ### v2-perf-2 · Every primitive is resolved by STRING at run time
 `Emit.prim1` + `Emit$.s1` + `CHM.computeIfAbsent` ≈ 600 CPU samples on `float-loop`, ~18% of
