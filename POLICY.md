@@ -30,7 +30,9 @@ Every piece of work, always, in this order. Detail: [`AGENTS.md`](AGENTS.md) §T
    else, including a one-line doc fix: siblings switch its HEAD and `git clean` your untracked
    files, and they have.
 4. **Verify, then push straight to `origin/main`.** Small commits, feature separated from
-   bookkeeping. The affected conformance slice runs *before* the push, not after.
+   bookkeeping. **Run `scripts/smoke-ci` before the push** — it is the same suite GitHub runs on the
+   push, so a red there is a red you were going to get anyway, five minutes earlier and with the
+   failing check named. The affected conformance slice runs *before* the push too, not after.
    **A user-facing feature ships with its doc update in the SAME push.** A feature with no doc
    update is incomplete — treat it exactly as a failing test. Docs go in their own commit, not
    mixed into the feature one.

@@ -761,6 +761,50 @@ ssc watch-bench --cycles 10 --target-ms 100 --require-target examples/rest-api.s
 The command reports warm-up, p50, and max cycle times. `--require-target`
 turns the target into a non-zero exit condition for local performance gates.
 
+## Running the tests
+
+**One command, before every push:**
+
+```bash
+scripts/smoke-ci                # the pre-push suite, ~3-4 min
+scripts/smoke-ci --list         # show what it runs, without running it
+```
+
+This is the *same* suite GitHub runs on the push (`.github/workflows/smoke.yml` executes this exact
+script), so a red locally is a red you were going to get anyway — earlier, and with the failing check
+named. Exit 0 is green; exit 1 means a check failed **or** the run exceeded its time budget. Output is
+per-check timings plus a per-module rollup, and the corpus slice's results are broken down by backend
+lane.
+
+The runner itself is written in ScalaScript — [`scripts/smoke-ci.ssc`](scripts/smoke-ci.ssc), executed
+on the v2 native lane, so the compiler under test runs the suite. That file's header explains what is
+in the suite and why each check earns its place; adding a check means editing it.
+
+It **refuses to run against a launcher built from different sources than your working tree** and tells
+you to `./install.sh --dev`, because a verdict from a stale toolchain is a verdict about the wrong
+code. Useful knobs:
+
+| | |
+|---|---|
+| `SSC_SMOKE_BUDGET=<seconds>` | raise the time budget (default 330) |
+| `SSC_SMOKE_ALLOW_STALE=1` | skip the toolchain freshness check, for a deliberate A/B |
+
+**The full suite**, on demand, is `scripts/full-ci` (needs [`yq`](https://github.com/mikefarah/yq)).
+It reads its steps straight out of `.github/workflows/ci.yml` rather than keeping a copy, so it cannot
+drift from what CI does:
+
+```bash
+scripts/full-ci                 # every job, in workflow order
+scripts/full-ci validate        # one job
+scripts/full-ci --list          # the plan, without running it
+```
+
+On GitHub, `smoke.yml` runs on every push; the full `ci.yml` runs on pull requests, on a 4-hourly
+schedule, and on demand (`gh workflow run ci.yml --ref main`). Check a verdict with
+`scripts/ci-status --sha <sha>`.
+
+The sections below cover the individual suites the two runners are built from.
+
 ## End-to-end smoke
 
 `e2e/rest-smoke.sc` boots `examples/rest-api.ssc` through each of the three

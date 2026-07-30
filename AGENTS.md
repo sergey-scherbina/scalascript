@@ -41,11 +41,36 @@ be wrong.
 - **the root `SPRINT.md`** is the in-flight board, and it is GENERATED — `scripts/board`. Do not
   hand-write a row (P-3.5).
 
-### Conformance before the push (P-1.4)
+### Before the push (P-1.4) — `scripts/smoke-ci`, then the affected conformance slice
 
-`tests/conformance/run.sh` is a serverless wrapper: it never spawns a bloop daemon, memoized green
-runs skip, and the JVM lane is serverless by default (`--warm-jvm` is for local speed probes only).
-The affected slice costs seconds, so a push without it is not acceptable. Full corpus stays for CI.
+```bash
+scripts/smoke-ci              # THE pre-push suite, ~3-4 min
+scripts/smoke-ci --list       # what it will run, without running it
+scripts/full-ci               # the whole CI suite locally, on demand (needs `yq`)
+scripts/full-ci validate      # one job of it
+```
+
+**`scripts/smoke-ci` is the same runner GitHub executes on your push** (`.github/workflows/smoke.yml`
+runs this exact script), so a red locally is a red you were going to get anyway — five minutes
+earlier, with the failing check named and the last lines of its output printed. Exit 0 means green;
+exit 1 means a check failed OR the suite went over its time budget. It prints per-check timings and a
+per-module rollup, so "which module did I slow down" is answerable from the output alone.
+
+It **refuses to run against a launcher built from different sources than your tree** and tells you to
+`./install.sh --dev`. That is deliberate: a verdict from a stale toolchain is a verdict about the
+wrong code. `SSC_SMOKE_ALLOW_STALE=1` overrides it for a deliberate A/B; `SSC_SMOKE_BUDGET=<seconds>`
+raises the time budget, which you should not need — if every check inflated together, the host is
+loaded and the number is not the problem.
+
+What is IN it and why each check is there: read the prose at the top of
+[`scripts/smoke-ci.ssc`](scripts/smoke-ci.ssc). The suite is written in `.ssc` and runs on the v2
+native lane, so the compiler under test executes the suite. Adding a check means editing that file;
+its `module` field must name a row in `tests/fixtures/modules.tsv` or the runner refuses to start.
+
+The conformance part: `tests/conformance/run.sh` is a serverless wrapper — it never spawns a bloop
+daemon, memoized green runs skip, and the JVM lane is serverless by default (`--warm-jvm` is for
+local speed probes only). The affected slice costs seconds, so a push without it is not acceptable.
+Full corpus stays for CI.
 
 ### CI evidence before a release — the three levels (P-6.7)
 
