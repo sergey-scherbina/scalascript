@@ -2,10 +2,10 @@ slug: v2-content-inlines
 branch: feature/v2-content-inlines
 agent: claude-code
 started: 2026-07-30T07:43:19Z
-heartbeat: 2026-07-30T07:47:26Z
+heartbeat: 2026-07-30T08:17:36Z
 status: in-progress
 items: v2-content-inlines-never-parsed
-paths: v1/runtime/std/markdown-core.ssc v1/runtime/std/content-core.ssc v1/runtime/std/markdown-html.ssc v2/BUGS.md SPRINT.md v2/runtime/std/content-plugin
+paths: v1/runtime/std/markdown-core.ssc v1/runtime/std/content-core.ssc v1/runtime/std/markdown-html.ssc v2/BUGS.md SPRINT.md v2/runtime/std/content-plugin tests/conformance/BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
