@@ -73,9 +73,10 @@ runs it — which is the same hole this entry is about.
 
 ## coord-release-drops-the-evidence-level — the tool swallows its own flags, and AGENTS.md requires that field
 <!-- status: fixed
+     fixed-in: f7e1e687e
      lane: apparatus
      area: build
-     gate: none -->
+     gate: tests/coord/coord-release-evidence-level.sh -->
 
 **Found 2026-07-30** on the first real use of `scripts/coord-release`.
 
