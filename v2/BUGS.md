@@ -8,12 +8,28 @@ grepping for status.
 Newest first.
 
 ## v2-lanes-cannot-run-four-corpus-workloads — float globals unbound, indexed array store not a function
-<!-- status: open
+<!-- status: duplicate
      lane: native
-     area: codegen -->
+     area: codegen
+     kind: perf
+     duplicate-of: v2-front-drops-float-literal-suffix -->
 
-**Status:** OPEN (found 2026-07-28 by `bench-tier-dead-lanes` while building the first full
-cross-backend table since the v2 work; filed, not fixed).
+**Status:** CLOSED as a DUPLICATE 2026-07-30 — it is an UMBRELLA over two entries that already
+exist, plus one defect that is already fixed. Kept because the measurement in it is worth reading;
+do not investigate it as a fifth thing.
+
+| the four dead workloads | actually |
+|---|---|
+| two float workloads, "globals unbound" | `v2-front-drops-float-literal-suffix` — the `0d`/`1.5f` suffix lexes as an identifier |
+| indexed array store "not a function" | `v2-array-indexed-store-silently-dropped` — F still drops `a(i) = v` |
+| the remaining lane failures | the bench wrapper's own `0d` sink, **fixed** |
+
+**The lesson is the reason this stayed open for two days.** Three of these sat in the "v2 cannot do
+this at all" category because the harness said so. Reproducing one OUTSIDE the harness took a
+minute and showed the harness was the defect. `POLICY.md` P-6.3.
+
+**Original status (superseded 2026-07-30):** OPEN (found 2026-07-28 by `bench-tier-dead-lanes`
+while building the first full cross-backend table since the v2 work; filed, not fixed).
 
 BOTH v2 lanes — the VM and the DEFAULT bytecode lane — fail outright on **4 of 33** bench-corpus
 workloads. They had been printing `n/a`, i.e. reading as "unsupported", because the v2 lanes

@@ -113,7 +113,31 @@ of the eight) and would answer whether (1) is worth it.
       §1.2 (which capabilities must exist natively at all). Answer that first; these may be
       legitimately browser-only.
 
-## 2026-07-28 — v2 backend gap matrix (Sergiy: "то чего v2 делать не может / делает очень плохо")
+## f-curried-parameter-lists — `def f(a)(b)` needs nested lambdas, and flattening is REFUTED (2026-07-30)
+<!-- status: open
+     lane: native
+     area: front
+     kind: feature
+     gate: none -->
+
+F does not lower a curried `def`. The obvious fix — flatten the clauses into one arity — **was
+tried and is wrong**: call sites emit `(app (app f a) b)`, so a flattened `def` fails with
+`arity: 2 expected, 1 given`. The correct shape is nested lambdas, one per clause.
+
+Recorded because the refuted attempt is the expensive part: it looks obviously right, and the
+failure only shows at a call site, not at the definition. Routed here rather than to a BUGS board
+because F has never supported this — it is missing coverage, not a regression.
+
+## v2-backend-gap-matrix — what v2 cannot do, and what it does far worse than v1 (2026-07-28)
+<!-- status: open
+     lane: native
+     area: runtime
+     kind: perf
+     gate: none -->
+
+*Slices `v2m-1`…`v2m-3` are bullets below, not separate entries: the header is at SECTION
+granularity, so `--kind perf` finds this work but cannot count the slices. Stated rather than
+implied — see `TASK/v2-perfomance.md`.*
 
 **Active claim:** `v2-backend-matrix-gaps`. The full corpus × every backend is now one table with
 every cell classified: **`specs/v2-vs-v1-backend-matrix.md`**. Read it first — it carries the
@@ -441,7 +465,12 @@ modules the **default native lane** actually loads.
       the queue. Whoever runs CCR-1 needs no extra information: the case is in the tree and its
       cells are measured above.
 
-## 2026-07-28 — v2 runtime performance vs v1 (Sergiy: "Улучши производительность рантайма ssc v2")
+## v2-runtime-perf-vs-v1 — the runtime measured against v1, and the queue that came out of it (2026-07-28)
+<!-- status: open
+     lane: native
+     area: runtime
+     kind: perf
+     gate: tests/e2e/v2-jit-size.sh -->
 
 **Active claim:** `v2-runtime-perf-vs-v1`. Question asked: what do the benchmarks say
 about the v2 runtime, what is still worse than v1, queue those as tasks, then do them.
@@ -515,7 +544,12 @@ Full A/B, baseline and open slices: `specs/v2-runtime-perf-vs-v1.md`; bug record
       to the old spelling with the ORIGINAL receiver+index for any shape they do not recognise, so
       values and exceptions stay identical by construction. A/B pending.
 
-## 2026-07-28 — v2 perf, batch 2 (claim `v2-perf-prim-dispatch`)
+## v2-perf-prim-dispatch — primitive resolution and allocation, the batch-2 slices (2026-07-28)
+<!-- status: open
+     lane: native
+     area: runtime
+     kind: perf
+     gate: none -->
 
 Measured entry facts, so a fresh agent does not re-derive them:
 

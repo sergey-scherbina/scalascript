@@ -7,6 +7,29 @@ grepping for status.
 
 Newest first.
 
+## corpus-contract-baseline-stale-after-improvements — the freeze records worse results than the code produces
+<!-- status: open
+     lane: apparatus
+     area: conformance
+     kind: apparatus
+     gate: tests/conformance/contract.sc -->
+
+**Status:** OPEN, filed 2026-07-30 while building the v2-vs-v1 backend matrix; not fixed.
+
+Three `wasm-*` rows have IMPROVED since the baseline was frozen, and the corpus has cases with no
+baseline row at all. Neither shows up as a failure, because the contract compares against the
+frozen value and an improvement is not a mismatch it reports.
+
+**Why this matters more than the three rows.** A baseline that records a worse result than the code
+produces makes the NEXT regression invisible: the case can degrade all the way back to the frozen
+value and still pass. The gate is green over a window it cannot see into, which is the same defect
+class as a filter that reads one of three board types (`POLICY.md` P-6.3).
+
+Fix is a scoped `--update-baseline` for the improved rows plus a roster pass for the unrostered
+cases — but note `corpus-baseline-update-scoped-run-truncates`: a scoped update can erase
+out-of-scope rows, so the two interact and the order matters.
+
+
 ## conformance-int-batch-false-fail-and-hidden-stderr — a case fails in the batch, passes everywhere else, and the reason is thrown away
 <!-- status: open
      lane: apparatus

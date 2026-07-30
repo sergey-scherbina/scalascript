@@ -28,6 +28,10 @@ exact failure this project keeps re-finding — a view that is green because it 
 """
 import argparse, difflib, pathlib, re, sys
 
+# Importing `bugs-report` as a module would otherwise drop `scripts/__pycache__/` into the
+# working tree on every run — untracked debris that the claim-scope guard then refuses, since
+# it is a path no claim declares. A tool must not make the repository dirty just by being run.
+sys.dont_write_bytecode = True
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from importlib.machinery import SourceFileLoader
 
