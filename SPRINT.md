@@ -19,7 +19,6 @@ Start: tell the agent "go" / "работай". Status: ask "status" / "стат�
 |---|---|---|---|---|
 | `board-row-not-written-by-tool` | *(unrecorded)* | `board-claim-parity` | in progress | row added by board-claim-parity; claim predates the tool |
 | `claim-granularity-policy` + `shared-bookkeeping-per-module` | *(repo-wide)* | `coord-policy-and-shared-boards` | in progress | room policy + scope levels into AGENTS.md; module boards shared again |
-| `kind-field-and-generated-views` + `task-dir-ungated` + `backlog-outside-the-index` | `scripts/`, `specs/`, `TASK/` | `task-views-and-kind-field` | in progress | `kind:` as a field, `TASK/*.md` as generated views; 280 of 915 work records are outside the index |
 
 ## How a task gets onto this board
 
