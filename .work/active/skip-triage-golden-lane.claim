@@ -1,0 +1,11 @@
+slug: skip-triage-golden-lane
+branch: feature/skip-triage-golden-lane
+agent: claude-code
+started: 2026-07-30T04:43:08Z
+heartbeat: 2026-07-30T04:43:08Z
+status: claimed-before-planning
+items: skip-77-hides-v2-coverage
+paths: specs/skip-triage.md examples BUGS.md SPRINT.md CHANGELOG.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
