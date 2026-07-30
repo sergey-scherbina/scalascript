@@ -1,5 +1,34 @@
 # Changelog
 
+## 2026-07-30 — the reference lane bound named args to the wrong parameter
+
+`O.m(1, c = 9)` gave `791` on the `int` lane — `c = 9` landed in `b`. `DispatchRuntime.dispatch*`
+takes a positional list, so the method-call path dropped the label and the value fell into the first
+parameter that had a default; a plain `def` was never affected because it goes through
+`callValueNamed`. This is the lane every other lane is diffed against, so the reference was grading
+the compilers' correct answer as wrong, and `tests/conformance/named-arg-defaults.ssc` had a
+paragraph explaining which shapes it could not cover because of it. That paragraph is now about
+class methods only.
+
+Fixed by reordering before dispatch, not by calling the method directly — the receiver still has to
+go through `DispatchRuntime`, which is what binds an instance's fields around a class-method body.
+
+Two things this cost, both worth stating. **The bug report's own table was wrong**: it recorded the
+native lane as also giving `791`, measured with a `bin/` from the shared checkout that turned out to
+be seven days behind HEAD. Rebuilt at current main, native gives `951` and always did — so the
+launchers now carry a stale-build warning, because nothing in the toolchain said the build was old.
+**And the fix's first cut introduced a crash**: a default that reads a field (`dx: Int = x`) raised
+`Undefined: x` where it had previously printed a wrong number. The probe caught it, the receiver's
+fields went into scope for default evaluation, and that shape became correct rather than merely
+non-crashing.
+
+Two adjacent gaps are filed rather than folded in: `js-class-method-named-arg-nan` (a named arg to a
+class method is `NaN` on JS) and
+`v1-interp-zero-arg-call-to-all-defaulted-object-method-returns-a-closure` (`V.one()` prints
+`<function(1)>`). Neither involves the path this change touches.
+
+`BUGS.md` `v1-interp-object-method-named-arg-wrong-slot`.
+
 ## 2026-07-29 — `case _: Unit`, and the two lanes conformance grades with
 
 `Unit` is an ordinary type, and `case _: Unit` holds for the unit value. The interpreter and the

@@ -2204,17 +2204,16 @@ seconds of runner time, so it does not reintroduce the queue pressure the filter
 relieve, and it restores the property that broke here: **the commit that breaks a check is the
 commit the check reports on.**
 
-## v1-interp-object-method-named-arg-wrong-slot — the conformance GOLDEN binds an object method's named arg to the wrong parameter
-<!-- status: open
+## v1-interp-object-method-named-arg-wrong-slot — a method's named arg bound to the wrong parameter
+<!-- status: fixed
      lane: int
-     area: front
-     gate: tests/conformance/run.sc -->
+     area: runtime
+     fixed-in: 17d854036
+     gate: tests/conformance/named-arg-defaults.ssc -->
 
-**Status:** OPEN (found 2026-07-28 by `f-named-arg-skips-default` while verifying that fix; not
-claimed — it is in the v1 interpreter, a different codebase from the self-hosted fronts that claim
-was scoped to).
-
-**Reproduction** (real harness, built `bin/`):
+**Fixed 2026-07-30.** `DispatchRuntime.dispatch*` takes a POSITIONAL list, and the method-call path
+fed it `case Term.Assign(_, rhs) => eval(rhs, …)`: the label was dropped and the value fell into the
+first parameter that had a default. A plain `def` never had this — it goes through `callValueNamed`.
 
 ```scalascript
 object O:
@@ -2222,28 +2221,40 @@ object O:
 println(O.m(1, c = 9))
 ```
 
-| lane | result |
-|---|---|
-| `bin/ssc-tools run --v1` (the conformance `int` GOLDEN) | **791** — i.e. `c = 9` bound to **b** |
-| `bin/ssc run` (default, F front, after `f-named-arg-skips-default`) | 951 |
-| `SSC_FRONT=legacy bin/ssc run` (ssc1 oracle, same fix) | 951 |
+| probe | INT before | INT after | JVM (real Scala) |
+|---|---|---|---|
+| `O.m(1, c = 9)` | **791** | 951 | 951 |
+| `O.m(a = 1, c = 9)` | **791** | 951 | 951 |
+| `V.two(b = 1, a = 2)` | **102** | 201 | 201 |
+| `P(5).shift(dy = 1)` | **6/2** | 10/3 | 10/3 |
+| `plain(1, c = 9)` | 951 | 951 | 951 |
 
-`951 = 1 + 5*10 + 9*100` is the Scala answer: `a = 1`, `b` takes its default `5`, `c = 9`. `791`
-is `b = 9, c = 7` — the value went to the first defaulted slot. A plain `def` (not an object
-member) is bound correctly by v1, so this is specific to the object-method path.
+**This entry's own table was wrong, and the reason is worth more than the fix.** It reported native
+as also giving 791. That measurement came from the `bin/` in the shared checkout, which was **seven
+days behind HEAD**; rebuilt in a worktree at current main, native gives 951 and always did. Nothing
+in the toolchain says a build is old — filed and fixed as `stale-build-silently-used-for-measurement`.
 
-**Why it matters more than one wrong number.** `int` is the golden every other lane in
-`tests/conformance/run.sc` and in the corpus contract is diffed against. For this shape the
-compilers are now RIGHT and the reference is WRONG, so a cross-lane case pinning the correct answer
-would go red for the golden's defect. That is why `tests/conformance/named-arg-defaults.ssc`
-deliberately omits object-method named args and says so, and the shape is covered against the
-self-hosted oracle in `specs/v2.2-p6.5-fsub.sh` (`narg_objm`) instead. **Do not "fix" the
-divergence by changing the compilers back** — fix the interpreter, then add the shape to the
-cross-lane case.
+**Fix shape.** Reorder BEFORE dispatch rather than calling the method directly: the receiver still
+has to go through `DispatchRuntime`, which is what binds an instance's fields around a class-method
+body. `CallRuntime.methodFunFor` recovers the target `FunV` (object members are fields of the
+`InstanceV`; class methods live in `interp.typeMethods` — the same two lookups
+`dispatchInstanceFallback` makes) and `positionalizeNamed` builds the complete positional list,
+filling omitted params from defaults. It returns null — caller keeps the old behaviour instead of
+guessing — for `using` params, varargs, an unknown name, more positionals than free slots, or a
+required param left unfilled.
 
-**Where to look:** the v1 interpreter's call-binding for object members; a plain top-level `def`
-takes a different path and is correct, so the two disagree about how a named argument is matched
-once the receiver is an object.
+**A regression the fix introduced and the probe caught.** `P(5).shift(dy = 1)`, whose default reads
+a field (`dx: Int = x`), began CRASHING with `Undefined: x` where it had merely printed the wrong
+`6/2` — defaults were being evaluated without the receiver's fields in scope. With them the shape
+does not just stop crashing, it becomes correct. A failure to evaluate a default now falls back
+rather than raising, and nothing is swallowed: a genuinely broken default still raises from the
+ordinary positional path.
+
+**Gate.** `tests/conformance/named-arg-defaults.ssc` gains the seven object-method shapes it had
+deliberately omitted, all three lanes agreeing byte-for-byte. CLASS-method shapes stay out, with the
+reason in the case: they are `NaN` on JS ([[js-class-method-named-arg-nan]]), so pinning them would
+record a divergence rather than a behaviour. Full contract GREEN, 1004/1045 PASS cells, zero
+regressions.
 
 ## v2-native-uncaught-error-diagnostic-empty — every failing native program reports a diagnostic with no content
 <!-- status: fixed
