@@ -11,16 +11,18 @@ WHY. `specs/work-tracking-layout.md` routes an entry to a module board by its `l
 The partition itself is clean — measured, zero slugs in two boards — but nothing checks that a board
 holds bugs about ITS OWN code.
 
-It does not. Measured 2026-07-30 by this script over 631 entries: 48 name a source path at all, and
-24 of those (50 %) sit in a board that owns none of it. Examples that need no argument:
+It does not. Measured 2026-07-30 over 632 entries, using `fixed-in:` where it exists and prose only
+as a fallback: 235 can be located, and 153 of those sit in a board that owns none of their code —
+131 of those verdicts resting on a commit SHA rather than on prose. Examples that need no argument:
 
-    v2-method-dispatch-never-jits        -> v2/src/Runtime.scala      filed in v1/runtime/backend/interpreter/
-    v2-array-indexed-store-silently-…    -> v2/lib/ssc1-front.ssc0    filed in v1/runtime/backend/interpreter/
+    v2-native-double-toLong-noop   lane: int, board v1/runtime/backend/interpreter/,
+                                   fix landed entirely in v2/lib/ssc1-lower.ssc0
+    v2-method-dispatch-never-jits  -> v2/src/Runtime.scala, filed in v1/runtime/backend/interpreter/
 
 A per-module board whose contents are about another module gives the wrong answer to the one question
 it exists to answer — "what is broken here" — and it gives it silently.
 
-HOW IT AVOIDS BECOMING NOISE. 24 existing misfilings would make a strict check red on arrival and
+HOW IT AVOIDS BECOMING NOISE. 153 existing misfilings would make a strict check red on arrival and
 therefore ignored. So the known set is frozen in `tests/fixtures/board-ownership-baseline.tsv` and only
 a NEW misfiling fails. The baseline is also checked in the other direction: a row that is no longer
 misfiled is reported as stale, the same self-maintaining shape as
@@ -66,8 +68,34 @@ def boards():
     return sorted(pathlib.Path(p) for p in out)
 
 
+def fix_paths(sha, cache={}):
+    """Source files a `fixed-in:` commit touched — the one EXACT routing signal there is.
+
+    `specs/work-tracking-layout.md` routes by `lane:`, and that field came from a keyword heuristic,
+    which is how 24 entries ended up in boards owning none of their code. It also, correctly, rejects
+    routing by "the most frequently mentioned path": an entry names its GATE far more often than the
+    file that is broken, so prose sends everything to tests/conformance.
+
+    `fixed-in:` is neither. It is where the fix actually landed, and git can be asked. Measured
+    2026-07-30: 391 entries carry one and 216 resolve to a commit touching source.
+
+    Test sources are excluded: a fix that only edits a test is a regression test, not the location of
+    the defect.
+    """
+    if sha in cache:
+        return cache[sha]
+    r = subprocess.run(["git", "show", "--format=", "--name-only", sha],
+                       capture_output=True, text=True, cwd=ROOT)
+    out = []
+    if r.returncode == 0:
+        out = [f for f in r.stdout.split()
+               if re.search(r"\.(scala|ssc0|mjs|py)$", f) and "/src/test/" not in f]
+    cache[sha] = out
+    return out
+
+
 def scan():
-    """-> (misfiled, owned, unlocatable) where misfiled is [(slug, board_dir, path)]"""
+    """-> (misfiled, owned, unlocatable) where misfiled is [(slug, board_dir, path, signal)]"""
     misfiled, owned, unlocatable = [], 0, 0
     for b in boards():
         d = b.parent.relative_to(ROOT)
@@ -76,7 +104,16 @@ def scan():
             m = re.match(r"## ([^\s—]+)", e)
             if not m or "<!-- status:" not in e:
                 continue
-            paths = [p for p in SRC.findall(e[:2500]) if is_source(p)]
+            # EXACT signal first, prose only as a fallback. Mixing them would hide the difference
+            # between "we know" and "we inferred", and this file's whole argument is that the two
+            # must not be confused.
+            fx = re.search(r"fixed-in:\s*([0-9a-f]{7,40})", e)
+            signal = "prose"
+            paths = fix_paths(fx.group(1)) if fx else []
+            if paths:
+                signal = "fixed-in"
+            else:
+                paths = [p for p in SRC.findall(e[:2500]) if is_source(p)]
             if not paths:
                 unlocatable += 1
                 continue
@@ -84,7 +121,7 @@ def scan():
             if d == "" or any(p.startswith(d + "/") for p in paths):
                 owned += 1
             else:
-                misfiled.append((m.group(1), d, paths[0]))
+                misfiled.append((m.group(1), d, paths[0], signal))
     return misfiled, owned, unlocatable
 
 
@@ -107,7 +144,9 @@ def write_baseline(misfiled):
     hdr = (
         "# slug\tboard\tsource-path-it-actually-names\n"
         "#\n"
-        "# Bugs filed in a module board that does NOT own their code. Frozen so that a NEW misfiling\n"
+        "# Bugs filed in a module board that does NOT own their code, with the SIGNAL each verdict\n"
+        "# rests on: `fixed-in` means a commit SHA said so and is exact; `prose` means the entry named\n"
+        "# a source path in its text and is weaker. Frozen so that a NEW misfiling\n"
         "# fails while the existing ones do not block anyone — a check that is red on arrival gets\n"
         "# ignored, and an ignored check is worse than none.\n"
         "#\n"
@@ -117,8 +156,8 @@ def write_baseline(misfiled):
         "# misfiled, so a stale row cannot sit unnoticed.\n")
     with BASELINE.open("w") as f:
         f.write(hdr)
-        for slug, board, path in sorted(misfiled):
-            f.write(f"{slug}\t{board}\t{path}\n")
+        for slug, board, path, signal in sorted(misfiled):
+            f.write(f"{slug}\t{board}\t{path}\t{signal}\n")
 
 
 def main():
@@ -140,6 +179,8 @@ def main():
     print(f"    board OWNS that source       : {owned}")
     print(f"    board does NOT own it        : {len(misfiled)}")
     print(f"  name no source path            : {unlocatable}")
+    exact = sum(1 for m in misfiled if m[3] == "fixed-in")
+    print(f"  of the misfilings, decided by a fixed-in SHA (exact): {exact} of {len(misfiled)}")
 
     base = load_baseline()
     new = [m for m in misfiled if m[0] not in base]
@@ -148,16 +189,16 @@ def main():
 
     if a.list:
         print("\nall misfilings:")
-        for slug, board, path in sorted(misfiled):
+        for slug, board, path, signal in sorted(misfiled):
             mark = "NEW " if slug not in base else "    "
-            print(f"  {mark}{slug[:52]:54s} board={board:32s} -> {path}")
+            print(f"  {mark}{slug[:52]:54s} board={board:26s} [{signal:8s}] -> {path}")
 
     rc = 0
     if new:
         print(f"\n✗ {len(new)} NEW misfiling(s) — file the entry in the module that owns the code,")
         print("  or move the code, or record it with --update-baseline and say why:")
-        for slug, board, path in sorted(new):
-            print(f"    {slug[:52]:54s} board={board:32s} -> {path}")
+        for slug, board, path, signal in sorted(new):
+            print(f"    {slug[:52]:54s} board={board:26s} [{signal:8s}] -> {path}")
         rc = 1
     if stale:
         print(f"\n⚠ {len(stale)} baseline row(s) no longer misfiled — delete them:")

@@ -1,6 +1,8 @@
 # slug	board	source-path-it-actually-names
 #
-# Bugs filed in a module board that does NOT own their code. Frozen so that a NEW misfiling
+# Bugs filed in a module board that does NOT own their code, with the SIGNAL each verdict
+# rests on: `fixed-in` means a commit SHA said so and is exact; `prose` means the entry named
+# a source path in its text and is weaker. Frozen so that a NEW misfiling
 # fails while the existing ones do not block anyone — a check that is red on arrival gets
 # ignored, and an ignored check is worse than none.
 #
@@ -8,27 +10,156 @@
 # heuristic, which is why these exist. Fixing one means MOVING the entry to the owning
 # module's board and deleting its row here; the check reports rows that are no longer
 # misfiled, so a stale row cannot sit unnoticed.
-coreir-spec-node-inventory-drift	v1/runtime/backend/js	v2/src/CoreIR.scala
-durable-save-run-verifier-red	tests	v1/lang/core/src/main/scala/scalascript/transform/EffectAnalysis.scala
-newfront-scala-spike-jvm-test-links-on-js	tests	uniml/core/src/test-jvm/scala
-portable-capsule-frame-unvalidated	v1/runtime/backend/js	v2/src/Capsule.scala
-portable-codepoint-string-construction	v1/runtime/backend/interpreter	v2/src/Runtime.scala
-standard-tier-named-arg-skip-default	v1/runtime/backend/js	v2/lib/ssc1-lower.ssc0
-std-auth-webauthn-signature-drift	tests	v1/runtime/std/auth-plugin/.../AuthIntrinsics.scala
-v1-json-two-contradictory-number-policies	v1/runtime/backend/interpreter	v1/lang/core/src/main/scala/scalascript/interpreter/JsonParser.scala
-v2-array-indexed-store-silently-dropped	v1/runtime/backend/interpreter	v2/lib/ssc1-front.ssc0
-v2-backend-check-ssc1c-wrapper-app-lit	tests	v2/backend/jvm/JvmBackend.scala
-v2-bridged-ui-signal-id-field	v1/runtime/backend/interpreter	v2/src/Runtime.scala
-v2-db-url-scheme-not-jdbc	v1/runtime/backend/js	v2/frontend-bridge/.../FrontendBridge.scala
-v2-doc-only-file-rejected-by-three-gates	v1/runtime/backend/interpreter	v2/bin/ssc1-check-run.ssc0
-v2-front-drops-float-literal-suffix	v1/runtime/backend/interpreter	v2/lib/ssc1-front.ssc0
-v2-js-imported-method-object-primitive	v1/runtime/backend/js	v2/backend/js/JsBackend.scala
-v2-method-dispatch-never-jits	v1/runtime/backend/interpreter	v2/src/Runtime.scala
-v2-native-charAt-toString-yields-code	v1/runtime/backend/interpreter	v2/lib/ssc1-lower.ssc0
-v2-native-double-toLong-noop	v1/runtime/backend/interpreter	v2/lib/ssc1-lower.ssc0
-v2-native-string-map-filter-char-methods	v1/runtime/backend/interpreter	v2/src/Runtime.scala
-v2-native-toDouble-toFloat-noop	v1/runtime/backend/interpreter	v2/lib/ssc1-lower.ssc0
-v2-ssc0-rust-float-literal-emits-int	tests	v2/lib/backend-rust-gen.ssc0
-v2-ssc0-target-display-drift	v1/runtime/backend/js	v2/lib/backend-js-gen.ssc0
-v2-swift-at-global-cell-vivification	v1/runtime/backend/interpreter	v2/src/Runtime.scala
-v21-native-front-prose-self-import-loop	v1/runtime/backend/js	v2/bin/ssc1-run.ssc0
+busi-v1-lane-runtime-regressions	v1/runtime/backend/interpreter	v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGenContentEmit.scala	fixed-in
+conformance-int-sql-block-scope	v1/runtime/backend/interpreter	v1/lang/core/src/main/scala/scalascript/transform/Denormalize.scala	fixed-in
+conformance-int-variables-while-update	v1/runtime/backend/jvm	v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/EvalRuntime.scala	fixed-in
+conformance-js-product-show-synthetic-tag	v2	v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/core-dispatch.mjs	fixed-in
+conformance-jvm-std-ui-generated-braces	v1/runtime/backend/js	v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGen.scala	fixed-in
+conformance-std-typeclass-int-jvm-gaps	v1/runtime/backend/jvm	v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/DispatchRuntime.scala	fixed-in
+control-interop-effect-recursion-stack-unsafe	tests	v1/tools/cli/src/main/scala/scalascript/cli/Main.scala	fixed-in
+control-interop-harness-rust-multishot-drift	v1/runtime/backend/interpreter	v1/tools/cli/src/main/scala/scalascript/cli/Main.scala	fixed-in
+control-interop-portable-vm-oneshot-guard-absent	v1/runtime/backend/interpreter	v1/tools/cli/src/main/scala/scalascript/cli/Main.scala	fixed-in
+control-interop-residual-forwarding-absent	tests	v2/backend-jvm-bytecode/JvmByteGen.scala	fixed-in
+coreir-spec-node-inventory-drift	v1/runtime/backend/js	v2/src/CoreIR.scala	prose
+corpus-contract-doc-mislabels-v2-lane	v2	v1/tools/cli/src/main/scala/scalascript/cli/Main.scala	fixed-in
+durable-save-run-verifier-red	tests	v1/lang/core/src/main/scala/scalascript/transform/EffectAnalysis.scala	prose
+f-front-silent-delegation-hides-coverage-gaps	v2	v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala	fixed-in
+fast-http-session-cookie	tests	v1/runtime/http-server/common/src/main/scala/scalascript/server/RequestBuilder.scala	fixed-in
+http-handler-concurrent-interpreter-entry	v1/runtime/backend/interpreter	v1/runtime/backend/interpreter-server/src/main/scala/scalascript/server/InterpreterExecutionGate.scala	fixed-in
+interp-boolean-operators-no-short-circuit	v1/runtime/backend/js	v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/EvalRuntime.scala	fixed-in
+ir-normalize-drops-code-fence-attrs	tests	v1/lang/core/src/main/scala/scalascript/transform/Denormalize.scala	fixed-in
+jvm-bytecode-sibling-tests-ignore-installed-cli	tests	v1/tools/cli/src/main/scala/scalascript/cli/CompilerLoader.scala	fixed-in
+jvm-scjvm-cache-codegen-version	v1/runtime/backend/jvm	v1/lang/core/src/main/scala/scalascript/artifact/JvmArtifactIO.scala	fixed-in
+native-front-nativeui-site-annotation	v2	v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala	fixed-in
+newfront-scala-spike-jvm-test-links-on-js	tests	uniml/core/src/test-jvm/scala	prose
+portable-capsule-frame-unvalidated	v1/runtime/backend/js	v2/src/Capsule.scala	prose
+portable-codepoint-string-construction	v1/runtime/backend/interpreter	v2/src/Runtime.scala	prose
+root-test-command-registry-other-category	tests	v1/tools/cli/src/main/scala/scalascript/cli/VersionCmd.scala	fixed-in
+run-js-v2-always-exits-1	v1/runtime/backend/js	v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala	fixed-in
+scala3-control-capability-jvm-visibility	tests	v1/lang/control-api/src/main/scala/scalascript/control/Continuation.scala	fixed-in
+scala3-control-operation-key-snapshot	v1/runtime/backend/js	v1/lang/control-api/src/main/scala/scalascript/control/Continuation.scala	fixed-in
+scjvm-artifact-cache-ignores-compiler-version	v1/runtime/backend/jvm	v1/lang/core/src/main/scala/scalascript/artifact/JvmArtifactIO.scala	fixed-in
+scljet-ipk-insert-indexed-out-of-order	tests	v1/runtime/std/scljet-jdbc-plugin/src/main/scala/scalascript/compiler/plugin/scljetjdbc/ScljetStatement.scala	fixed-in
+scljet-jdbc-nan-binding-diverges	tests	v1/runtime/std/scljet-jdbc-plugin/src/main/scala/scalascript/compiler/plugin/scljetjdbc/ScljetStatement.scala	fixed-in
+scljet-vfs-plugin-not-packaged	v1/runtime/backend/interpreter	v1/runtime/std/scljet-vfs-plugin/src/main/scala/scalascript/compiler/plugin/scljet/SclJetJvmVfsHost.scala	fixed-in
+ssc0c-multifile-uselib-ir-divergence	tests	v2/bin/ssc0c.ssc0	fixed-in
+sscpkg-loader-temp-tree-leak	v2	v1/lang/core/src/main/scala/scalascript/compiler/plugin/SscpkgLoader.scala	fixed-in
+ssr-forsignal-duplicate-attrs	tests	frontend/custom/src/main/scala/scalascript/frontend/custom/StaticJsEmitter.scala	fixed-in
+standard-tier-named-arg-skip-default	v1/runtime/backend/js	v2/lib/ssc1-lower.ssc0	prose
+std-auth-webauthn-signature-drift	tests	v1/runtime/std/auth-plugin/.../AuthIntrinsics.scala	prose
+swift-effect-handler-implicit-return-fallback	tests	v2/backend/swift/src/main/scala/ssc/swift/SwiftRuntime.scala	fixed-in
+ui-fetch-get-offline-rejection	tests	v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/signals.mjs	fixed-in
+uniml-yaml-bare-tag-missing-separation	v1/runtime/backend/js	uniml/yaml/src/main/scala/scalascript/uniml/dialect/yaml/YamlLexer.scala	fixed-in
+uniml-yaml-bare-tag-uses-primary-handle	v1/runtime/backend/js	uniml/yaml/src/main/scala/scalascript/uniml/dialect/yaml/YamlLexer.scala	fixed-in
+uniml-yaml-property-only-node	v1/runtime/backend/js	v1/lang/uniml-yaml/src/main/scala/scalascript/uniml/dialect/yaml/YamlSemanticParser.scala	fixed-in
+uniml-yaml-tag-percent-decoder-quadratic	tests	uniml/yaml/src/main/scala/scalascript/uniml/dialect/yaml/YamlLexer.scala	fixed-in
+v1-explicit-companion-shadows-case-constructor	v1/runtime/backend/js	v1/runtime/backend/wasm/src/main/scala/scalascript/codegen/WasmBackend.scala	fixed-in
+v1-interp-int-literal-above-2^31-becomes-null	v1/runtime/backend/interpreter	v1/lang/core/src/main/scala/scalascript/parser/Parser.scala	fixed-in
+v1-json-two-contradictory-number-policies	v1/runtime/backend/interpreter	v1/lang/core/src/main/scala/scalascript/interpreter/JsonParser.scala	prose
+v2-array-indexed-store-silently-dropped	v1/runtime/backend/interpreter	v2/lib/ssc1-front.ssc0	prose
+v2-backend-check-ssc1c-wrapper-app-lit	tests	v2/backend/jvm/JvmBackend.scala	prose
+v2-bigint-dynamic-arith-money	tests	v2/plugin-bridge/src/main/scala/ssc/bridge/PluginBridge.scala	fixed-in
+v2-bridged-ui-signal-id-field	v1/runtime/backend/interpreter	v2/src/Runtime.scala	prose
+v2-bytecode-x402-unhandled-op-success	v1/runtime/backend/jvm	v1/tools/cli/src/main/scala/scalascript/cli/RunV2.scala	fixed-in
+v2-db-url-scheme-not-jdbc	v1/runtime/backend/js	v2/frontend-bridge/.../FrontendBridge.scala	prose
+v2-doc-only-file-rejected-by-three-gates	v1/runtime/backend/interpreter	v2/bin/ssc1-check-run.ssc0	prose
+v2-f-small-vm-admission-loads-asm	tests	v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala	fixed-in
+v2-front-drops-float-literal-suffix	v1/runtime/backend/interpreter	v2/lib/ssc1-front.ssc0	prose
+v2-frontendbridge-sqlite-timeout	tests	v2/plugin-bridge/src/main/scala/ssc/bridge/PluginBridge.scala	fixed-in
+v2-generator-provider	v1/runtime/backend/jvm	v2/runtime/std/dataset-plugin/src/main/scala/ssc/plugin/dataset/DatasetNativePlugin.scala	fixed-in
+v2-http-json-renderer-test-contract	tests/conformance	v2/plugin-bridge/src/main/scala/ssc/bridge/PluginBridge.scala	fixed-in
+v2-js-imported-method-object-primitive	v1/runtime/backend/js	v2/backend/js/JsBackend.scala	prose
+v2-js-regfields-unimplemented	v1/runtime/backend/js	v2/backend/js/JsBackend.scala	fixed-in
+v2-list-apply-method-stub	tests	v2/src/Runtime.scala	fixed-in
+v2-method-dispatch-never-jits	v1/runtime/backend/interpreter	v2/src/Runtime.scala	prose
+v2-native-charAt-toString-yields-code	v1/runtime/backend/interpreter	v2/lib/ssc1-lower.ssc0	prose
+v2-native-double-toLong-noop	v1/runtime/backend/interpreter	v2/lib/ssc1-lower.ssc0	fixed-in
+v2-native-front-multiline-curried-def	v1/runtime/backend/interpreter	v2/lib/ssc1-front.ssc0	fixed-in
+v2-native-import-wildcard-drops-ssc-case-classes	v1/runtime/backend/js	v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/StatRuntime.scala	fixed-in
+v2-native-jvmvfs-externs-unbound	v1/runtime/backend/interpreter	v1/runtime/std/scljet-vfs-host/src/main/scala/scalascript/compiler/plugin/scljet/SclJetJvmVfsHost.scala	fixed-in
+v2-native-string-map-filter-char-methods	v1/runtime/backend/interpreter	v2/src/Runtime.scala	prose
+v2-native-table-request-url-untested	tests	frontend/tui/src/main/scala/scalascript/frontend/tui/TuiEmitter.scala	fixed-in
+v2-native-table-rowkey-adapter-drop	tests	frontend/tui/src/main/scala/scalascript/frontend/tui/TuiEmitter.scala	fixed-in
+v2-native-toDouble-toFloat-noop	v1/runtime/backend/interpreter	v2/lib/ssc1-lower.ssc0	prose
+v2-nativeui-descriptor-contract	tests	v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/SectionRuntime.scala	fixed-in
+v2-nativeui-keyed-scope-ownership	tests	v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/SectionRuntime.scala	fixed-in
+v2-nativeui-rust-component-scope-proof	tests	v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/SectionRuntime.scala	fixed-in
+v2-nativeui-transitive-native-provenance	tests	v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/SectionRuntime.scala	fixed-in
+v2-ssc0-rust-float-literal-emits-int	tests	v2/lib/backend-rust-gen.ssc0	prose
+v2-ssc0-target-display-drift	v1/runtime/backend/js	v2/lib/backend-js-gen.ssc0	prose
+v2-swift-at-global-cell-vivification	v1/runtime/backend/interpreter	v2/src/Runtime.scala	prose
+v2-swift-ios-run-unbounded-error	v2	v1/tools/cli/src/main/scala/scalascript/cli/Main.scala	fixed-in
+v2-swift-nativeui-descriptor-proof	tests	v1/tools/cli/src/main/scala/scalascript/cli/SwiftV2Commands.scala	fixed-in
+v2-swift-nativeui-duplicate-root-source	tests	v1/tools/cli/src/main/scala/scalascript/cli/SwiftV2Commands.scala	fixed-in
+v2-swift-nativeui-evaluation-rollback	tests	v1/tools/cli/src/main/scala/scalascript/cli/SwiftV2Commands.scala	fixed-in
+v2-swift-nativeui-flat-name-detection	tests	v1/tools/cli/src/main/scala/scalascript/cli/SwiftV2Commands.scala	fixed-in
+v2-swift-nativeui-mobile-css-regex	tests	v1/tools/cli/src/main/scala/scalascript/cli/SwiftV2Commands.scala	fixed-in
+v2-swift-nativeui-root-session-lifetime	tests	v1/tools/cli/src/main/scala/scalascript/cli/SwiftV2Commands.scala	fixed-in
+v2-swift-session-sticky-callback-failure	tests	v2/backend/swift/src/main/scala/ssc/swift/SwiftBackend.scala	fixed-in
+v2-swiftui-dependent-double-publish	tests	v2/backend/swift/src/main/scala/ssc/swift/SwiftBackend.scala	fixed-in
+v2-swiftui-event-increment-overflow-readonly	tests	v2/backend/swift/src/main/scala/ssc/swift/SwiftNativeUiApple.scala	fixed-in
+v2-swiftui-fetch-wrapper-silent-default	v1/runtime/backend/js	v2/backend/swift/src/main/scala/ssc/swift/SwiftBackend.scala	fixed-in
+v2-swiftui-ios16-onchange-availability	tests	v2/backend/swift/src/main/scala/ssc/swift/SwiftNativeUiApple.scala	fixed-in
+v2-swiftui-keyed-fetch-metadata-stale	scripts	v2/backend/swift/src/main/scala/ssc/swift/SwiftNativeUiApple.scala	fixed-in
+v2-swiftui-keyed-owner-lifecycle	v1/runtime/backend/js	v2/backend/swift/src/main/scala/ssc/swift/SwiftBackend.scala	fixed-in
+v2-swiftui-online-component-scope-split	tests	v2/backend/swift/src/main/scala/ssc/swift/SwiftBackend.scala	fixed-in
+v2-swiftui-online-derived-owner-gap	scripts	v2/backend/swift/src/main/scala/ssc/swift/SwiftBackend.scala	fixed-in
+v2-swiftui-online-stale-monitor-generation	tests	v2/backend/swift/src/main/scala/ssc/swift/SwiftBackend.scala	fixed-in
+v2-swiftui-owner-hint-closure-clone-leak	v1/runtime/backend/js	v2/backend/swift/src/main/scala/ssc/swift/SwiftBackend.scala	fixed-in
+v2-swiftui-owner-hint-fifo-swap	v1/runtime/backend/js	v2/backend/swift/src/main/scala/ssc/swift/SwiftBackend.scala	fixed-in
+v2-swiftui-persisted-cell-dependent-journal	tests	v2/backend/swift/src/main/scala/ssc/swift/SwiftBackend.scala	fixed-in
+v2-swiftui-persisted-stale-wrapper-disposal	tests	v2/backend/swift/src/main/scala/ssc/swift/SwiftBackend.scala	fixed-in
+v2-swiftui-persisted-wrong-type-corruption	tests	v2/backend/swift/src/main/scala/ssc/swift/SwiftBackend.scala	fixed-in
+v2-swiftui-shipped-inventory-semantic-loss	v1/runtime/backend/js	v2/backend/swift/src/main/scala/ssc/swift/SwiftBackend.scala	fixed-in
+v2-swiftui-surviving-owner-action-task-leak	tests	v2/backend/swift/src/main/scala/ssc/swift/SwiftNativeUiApple.scala	fixed-in
+v2-swiftui-unobserved-signal-read	v1/runtime/backend/js	v2/backend/swift/src/main/scala/ssc/swift/SwiftBackend.scala	fixed-in
+v2-swiftui-unsourced-malformed-seams	tests	v2/backend/swift/src/main/scala/ssc/swift/SwiftBackend.scala	fixed-in
+v2-trusted-html-isolation-contract-gaps	tests/conformance	v2/backend/swift/src/main/scala/ssc/swift/SwiftNativeUiApple.scala	fixed-in
+v2-user-type-shadows-plugin-type	tests	v2/src/Runtime.scala	fixed-in
+v21-build-jvm-content-path-nondeterminism	tests	v1/tools/cli/src/main/scala/scalascript/cli/NativeJvmArtifact.scala	fixed-in
+v21-build-jvm-import-source-identity-gap	tests	v1/tools/cli/src/main/scala/scalascript/cli/NativeJvmArtifact.scala	fixed-in
+v21-case-object-no-context-unbound	tests	v2/bin/ssc1-run.ssc0	fixed-in
+v21-coreir-curried-closure-underapplication	tests	v2/lib/ssc1-lower.ssc0	fixed-in
+v21-functional-vm-asm-mkstring-parity	tests	v2/src/Runtime.scala	fixed-in
+v21-http-fast-standard-tier-cutover	tests	v1/tools/cli/src/main/scala/scalascript/cli/NativeJvmArtifact.scala	fixed-in
+v21-imports-tuple2-collection-match	v1/runtime/backend/interpreter	v2/src/Runtime.scala	fixed-in
+v21-layout-given-after-abstract-def	tests	v2/lib/ssc1-front.ssc0	fixed-in
+v21-layout-object-members-unprefixed	tests	v2/lib/ssc1-front.ssc0	fixed-in
+v21-list-mkstring-capture	tests	v2/lib/ssc1-lower.ssc0	fixed-in
+v21-match-pregex-constructor	tests	v2/bin/ssc1-run.ssc0	fixed-in
+v21-native-actors-provider-missing	tests	v1/tools/cli/src/main/scala/scalascript/cli/NativeJvmArtifact.scala	fixed-in
+v21-native-async-provider-missing	tests	v1/tools/cli/src/main/scala/scalascript/cli/NativeJvmArtifact.scala	fixed-in
+v21-native-content-markdown-error-swallowed	tests	v1/tools/cli/src/main/scala/scalascript/cli/NativeV2Structural.scala	fixed-in
+v21-native-dataset-provider-missing	tests	v1/tools/cli/src/main/scala/scalascript/cli/NativeJvmArtifact.scala	fixed-in
+v21-native-derives-mirror-unsynthesized	tests	v2/lib/ssc1-front.ssc0	fixed-in
+v21-native-direct-do-unlowered	v1/runtime/backend/js	v2/lib/ssc1-check.ssc0	fixed-in
+v21-native-distributed-loopback-provider-missing	tests	v1/tools/cli/src/main/scala/scalascript/cli/NativeJvmArtifact.scala	fixed-in
+v21-native-doc-nested-render	tests	v2/runtime/std/host-plugin/src/main/scala/ssc/plugin/host/HostNativePlugin.scala	fixed-in
+v21-native-dynamic-bigint-tostring	tests	v2/lib/ssc1-lower.ssc0	fixed-in
+v21-native-explicit-effect-handler-erasure	tests	v2/bin/ssc1-run.ssc0	fixed-in
+v21-native-extern-class-members-escape	tests	v2/lib/ssc1-front.ssc0	fixed-in
+v21-native-focus-optics-unlowered	tests	v2/lib/ssc1-check.ssc0	fixed-in
+v21-native-front-dsl-pair-match-crash	v1/runtime/backend/js	v2/lib/ssc1-front.ssc0	fixed-in
+v21-native-front-missing-ui-table-import	tests	v2/lib/ssc1-front.ssc0	fixed-in
+v21-native-front-prefix-postfix-precedence	v1/runtime/backend/js	v2/lib/ssc1-front.ssc0	fixed-in
+v21-native-front-prose-self-import-loop	v1/runtime/backend/js	v1/tools/cli/src/main/scala/scalascript/cli/Main.scala	fixed-in
+v21-native-generator-provider-missing	tests	v1/tools/cli/src/main/scala/scalascript/cli/NativeJvmArtifact.scala	fixed-in
+v21-native-graph-provider-missing	v1/runtime/backend/jvm	v1/tools/cli/src/main/scala/scalascript/cli/NativeJvmArtifact.scala	fixed-in
+v21-native-multi-effect-hidden-cps	tests	v1/tools/cli/src/main/scala/scalascript/cli/NativeJvmArtifact.scala	fixed-in
+v21-native-multiline-markdown-import-dropped	tests	v2/bin/ssc1-run.ssc0	fixed-in
+v21-native-named-copy-labels-dropped	tests	v2/lib/ssc1-lower.ssc0	fixed-in
+v21-native-parameterless-def-value	tests	v2/lib/ssc1-check.ssc0	fixed-in
+v21-native-sql-fence-binding-missing	tests	v2/bin/ssc1-run.ssc0	fixed-in
+v21-native-sql-fence-token-activates-client-code	tests	v2/bin/ssc1-run.ssc0	fixed-in
+v21-native-tuple-lambda-destructuring	tests	v2/lib/ssc1-check.ssc0	fixed-in
+v21-native-typed-sql-crud-missing	tests	v2/lib/ssc1-front.ssc0	fixed-in
+v21-native-zero-arg-println-arity	v1/runtime/backend/jvm	v2/lib/ssc1-lower.ssc0	fixed-in
+v21-parity-mixed-scala-fence	tests	v2/lib/ssc1-lower.ssc0	fixed-in
+v21-standard-direct-asm-recursion-stack	tests	v2/backend-jvm-bytecode/JvmByteGen.scala	fixed-in
+v21-standard-index-vm-asm-divergence	tests	v2/lib/ssc1-front.ssc0	fixed-in
+v21-standard-markdown-abi-packaging	tests	v1/tools/cli/src/main/scala/scalascript/cli/NativeV2Structural.scala	fixed-in
+v21-standard-ui-fetch-json-vm-arity	tests	v2/lib/ssc1-front.ssc0	fixed-in
+v21-symbolic-extension-infix-precedence	tests	v2/lib/ssc1-lower.ssc0	fixed-in
+v21-yaml-parser-context-arity	tests	v2/lib/ssc1-front.ssc0	fixed-in
+v21-yaml-unit-global	tests	v2/lib/ssc1-front.ssc0	fixed-in
+wasm-emitter-js-import-name-mismatch	v1/runtime/backend/js	v1/runtime/backend/wasm/src/main/scala/scalascript/codegen/WasmBackend.scala	fixed-in
