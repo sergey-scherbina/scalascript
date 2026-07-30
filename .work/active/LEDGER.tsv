@@ -1,7 +1,6 @@
-# generation: 363
+# generation: 364
 #slug	agent	started	items	paths
 coord-policy-and-shared-boards	claude-code	2026-07-30T07:04:12Z	claim-granularity-policy shared-bookkeeping-per-module	file:.githooks/pre-push file:AGENTS.md file:specs/claim-mutex.md file:tests/coord/claim-scope-hierarchy.sh
-board-claim-parity	claude-code	2026-07-30T07:18:39Z	board-row-not-written-by-tool board-claim-parity-gate coord-release-tool	file:scripts/coord-claim file:scripts/coord-release file:tests/coord/board-claim-parity.sh
 task-views-and-kind-field	claude-code	2026-07-30T07:21:03Z	task-dir-ungated backlog-outside-the-index kind-field-and-generated-views	file:specs/bugs-index.md file:scripts/bugs-report file:scripts/task-views file:tests/e2e/task-views-gate.sh file:TASK/v2-perfomance.md file:TASK/inbox-uncategorised.md file:.githooks/pre-commit file:tests/coord/claim-hooks.sh file:tests/coord/coord-claim-runs.sh file:.github/workflows/ci.yml
 v2js-unit-pattern	claude-code	2026-07-30T07:43:14Z	js-v2-unit-pattern-does-not-match-and-unit-literal-pattern-crashes	file:v2/backend/js/JsBackend.scala file:tests/conformance/v2js-unit-pattern.ssc file:tests/conformance/expected/v2js-unit-pattern.txt file:tests/conformance/contract-roster.tsv file:v2/BUGS.md
 v2-content-inlines	claude-code	2026-07-30T07:43:19Z	v2-content-inlines-never-parsed	v1/runtime/std/markdown-core.ssc v1/runtime/std/content-core.ssc v1/runtime/std/markdown-html.ssc v2/BUGS.md SPRINT.md v2/runtime/std/content-plugin
