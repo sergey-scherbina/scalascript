@@ -924,10 +924,22 @@ including the JS one its own comment describes.
 
 **Blocks** `control-center-live` on every lane (hence a corpus SKIP, which hides v2 too).
 
-**Two honest fixes, pick one:** implement it (at minimum for JS, which is where a
-`Signal[String]`-valued URL means anything), or delete the declaration and its `exports:` entry so
-the module stops advertising a primitive that isn't there. Leaving it is the one option that keeps
-lying.
+**FIX DIRECTION SETTLED 2026-07-30 — implement it; do NOT delete the declaration.** Its WRITE-side
+twin is fully shipped: `fetchActionTo(method, urlSig, body, onSuccessTick[, headers])` has an
+interpreter intrinsic (`FetchIntrinsics.scala:147`) and JS runtime support (`signals.mjs:558`, `:1282`
+— it resolves its URL from a signal at click time). The doc comment here calls `fetchUrlSignalTo`
+"the read-side counterpart of fetchActionTo", and that counterpart exists. So this is an UNFINISHED
+FEATURE, not dead weight, and deleting the declaration would discard a deliberate half of a pair.
+
+**Three sites, mirroring the two neighbours it sits between:**
+1. `FetchIntrinsics.scala` — an entry next to `fetchUrlSignal` (:47) that reads the URL from a signal
+   the way `fetchActionTo` (:147) does.
+2. `JsGen.scala:1406` — add the name to the emit allow-list.
+3. `signals.mjs` — re-fetch when the URL signal changes, the read-side mirror of the `:1282` block.
+
+**No corpus gain, and that is not a reason to skip it.** `control-center-live` also binds a port, so it
+stays a SKIP either way — the value here is that `std/ui/primitives.ssc` stops advertising a primitive
+that does not exist on any backend. Wants its own slice; sized, not started.
 
 ## v1-json-two-contradictory-number-policies — `jsonParse` truncates fractional numbers to binary64 while v1's own JSON core promises exactness
 <!-- status: open
