@@ -1,6 +1,5 @@
-# generation: 382
+# generation: 383
 #slug	agent	started	items	paths
-board-shows-observed-activity	claude-code	2026-07-30T08:25:07Z	board-state-column-is-self-reported	file:scripts/board file:tests/coord/board-generated.sh file:POLICY.md
 policy-pointers	claude-code	2026-07-30T08:28:40Z	policy-entry-points-unlinked policy-gate-not-in-ci	file:AGENTS.md file:specs/claim-mutex.md file:specs/work-tracking-layout.md file:.github/workflows/ci.yml
 js-import-extension-dispatch	claude-code	2026-07-30T08:30:00Z	js-imported-extension-method-not-dispatched	v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala v1/runtime/backend/js/BUGS.md v2/BUGS.md
 json-number-policy-js-jvm-lanes	claude-code	2026-07-30T08:30:02Z	json-number-policy-js-and-jvm-lanes-still-lossy	file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/RestRuntime.scala file:v1/runtime/std/js-runtime/core-collections.mjs file:specs/json-number-policy.md file:tests/conformance/expected/json-read.txt
