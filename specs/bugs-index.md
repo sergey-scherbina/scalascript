@@ -1,5 +1,8 @@
 # The bug index — one source, one machine-readable header
 
+Process rules — where an entry is recorded, who owns it, what a gate must prove — are in
+[`POLICY.md`](../POLICY.md). This spec is the header SCHEMA and the evidence behind it.
+
 The `BUGS.md` files are the single source of truth for what is broken. **There is one per module,
 in the module** — where the files live and how an entry is routed to one is
 [`work-tracking-layout.md`](work-tracking-layout.md). THIS spec defines the one part of an entry that
