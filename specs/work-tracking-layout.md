@@ -1,5 +1,8 @@
 # Work tracking: one file per module, one board on top
 
+> **The RULES about where work is recorded are [`POLICY.md`](../POLICY.md) §P-3.** This spec is
+> the LAYOUT, the module table and the measurements behind them.
+
 Bugs, backlog and sprint live **in the module they belong to**. There is exactly one file that is
 global, and it is the active sprint board.
 

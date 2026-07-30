@@ -3,6 +3,10 @@
 > Status: implemented 2026-07-27. Companion to
 > [`specs/worktree-guardrail.md`](worktree-guardrail.md), which guards *where* work happens; this
 > one guards *who owns it*.
+>
+> **The RULES about claiming are [`POLICY.md`](../POLICY.md) §P-2.** This spec is the MECHANISM
+> and the EVIDENCE: the three layers, `owner_holds_file`, the measurements each rule came from,
+> and the verification table. Change a rule in `POLICY.md`, not here.
 
 ## The problem, measured
 

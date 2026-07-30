@@ -141,6 +141,13 @@ jobs:
       - name: Verify TASK/ generated regions agree with the module boards
         run: tests/e2e/task-views-gate.sh --self-test
 
+      # POLICY.md is the single source for the process rules; the specs keep mechanism and evidence.
+      # This catches the two things that are decidable — a rule copied verbatim into a second
+      # document, and an entry point that stopped linking here. It cannot detect a paraphrase, and
+      # says so in its own header rather than implying otherwise.
+      - name: Verify each process rule is stated in POLICY.md and nowhere else
+        run: tests/e2e/policy-single-source.sh --self-test
+
       - name: Verify standalone release installer launcher
         run: tests/e2e/release-installer-launcher.sh
 

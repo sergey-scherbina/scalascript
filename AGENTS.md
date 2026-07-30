@@ -2,6 +2,12 @@
 
 > This file is the durable memory of pre-code design decisions.
 > Every new Claude Code session should read it first.
+>
+> **The process RULES are in [`POLICY.md`](POLICY.md)** — claiming, boards, where an entry is
+> recorded, what goes to the coordination room, what a gate has to prove. They are numbered
+> (`P-3.5`) so they can be cited. This file is the working brief: build commands, sbt and
+> worktree mechanics, architecture rules, and the detail behind each rule. Where the two
+> overlap, `POLICY.md` is the source.
 
 ## ⚡ THE WORKFLOW (non-negotiable — Sergiy, 2026-07-06)
 
