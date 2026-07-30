@@ -5,7 +5,7 @@ started: 2026-07-30T08:30:02Z
 heartbeat: 2026-07-30T08:30:02Z
 status: claimed-before-planning
 items: json-number-policy-js-and-jvm-lanes-still-lossy
-paths: file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/RestRuntime.scala file:v1/runtime/std/js-runtime/core-collections.mjs file:specs/json-number-policy.md file:tests/conformance/expected/json-read.txt
+paths: file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/RestRuntime.scala file:specs/json-number-policy.md file:tests/conformance/expected/json-read.txt
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
