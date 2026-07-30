@@ -2,10 +2,10 @@ slug: work-tracking-per-module
 branch: feature/work-tracking-per-module
 agent: claude-code
 started: 2026-07-30T06:07:07Z
-heartbeat: 2026-07-30T06:07:07Z
+heartbeat: 2026-07-30T06:12:47Z
 status: claimed-before-planning
 items: bugs-per-module backlog-per-module sprint-hierarchical
-paths: specs/work-tracking-layout.md scripts/bugs-report scripts/bugs-split tests/e2e/bugs-index-gate.sh specs/bugs-index.md AGENTS.md .agents/plugins BUGS.md BACKLOG.md SPRINT.md bugs-v2.md bugs-v2-open.md CHANGELOG.md
+paths: specs/work-tracking-layout.md scripts/bugs-report scripts/bugs-split tests/e2e/bugs-index-gate.sh specs/bugs-index.md AGENTS.md .agents/plugins BUGS.md tests/BUGS.md tests/conformance/BUGS.md scripts/BUGS.md v2/BUGS.md v1/runtime/backend/js/BUGS.md v1/runtime/backend/interpreter/BUGS.md v1/runtime/backend/jvm/BUGS.md BACKLOG.md SPRINT.md bugs-v2.md bugs-v2-open.md CHANGELOG.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
