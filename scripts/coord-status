@@ -135,6 +135,45 @@ claim_declared_branch_is_live() {
   printf '%s\n' "$live_keys" | grep -Fxq "$claim_branch"
 }
 
+# Newest COMMIT timestamp that proves this claim's owner was alive: its branch tip (local or
+# remote) and the last commit that touched the claim file itself. Both come free from git and
+# CANNOT be forgotten the way the hand-maintained `heartbeat:` field can.
+#
+# WHY this exists (measured 2026-07-30): `v2-backend-matrix-gaps` carried a heartbeat 10.7 HOURS
+# old while committing to main every few minutes — 13 commits in the hour it was reported stale.
+# Two separate triages read it as orphaned and only a manual `git log` check prevented a collision
+# in a file that agent was actively editing. The field was not wrong to be stale: AGENTS.md tells
+# agents to heartbeat on a MATERIAL STATUS CHANGE, not as running commentary, precisely because
+# heartbeat-only commits once flooded the log (202 of 253 commits in a 6-hour window carried no
+# code). So the protocol and the staleness check disagreed, and the check lost.
+#
+# The fix is to stop asking anyone to remember: an agent that is committing is alive, full stop.
+# This keeps the 45-minute threshold and keeps the field as a signal for an agent with nothing to
+# commit yet (planning, a long build) — it just stops the field being the ONLY evidence.
+claim_activity_epoch() {
+  local slug="$1"
+  local claim_text="$2"
+  local newest="" candidate ref
+  local branch
+  branch="$(claim_declared_branch "$claim_text")"
+  [[ -n "$branch" ]] || branch="feature/$slug"
+
+  for ref in "refs/heads/$branch" "refs/remotes/origin/$branch"; do
+    candidate="$(git log -1 --format=%ct "$ref" 2>/dev/null || true)"
+    if [[ -n "$candidate" ]] && { [[ -z "$newest" ]] || [[ "$candidate" -gt "$newest" ]]; }; then
+      newest="$candidate"
+    fi
+  done
+
+  # The claim file's own last touch covers claim-update / heartbeat commits on main.
+  candidate="$(git log -1 --format=%ct origin/main -- ".work/active/$slug.claim" 2>/dev/null || true)"
+  if [[ -n "$candidate" ]] && { [[ -z "$newest" ]] || [[ "$candidate" -gt "$newest" ]]; }; then
+    newest="$candidate"
+  fi
+
+  printf '%s\n' "$newest"
+}
+
 claim_branch_diagnostic() {
   local claim_text="$1"
   local live_match="$2"
@@ -393,6 +432,23 @@ else
         # newest heartbeat 21 hours old), and `/multi-agent triage <slug>` is unchanged.
         elif [[ "$heartbeat_age_seconds" -gt 2700 ]]; then
           heartbeat_reason="older-than-45m"
+        fi
+      fi
+    fi
+
+    # A stale FIELD is not a stale CLAIM. Before reporting, ask git whether the owner has committed
+    # recently — on its branch, or on the claim file. Commit evidence overrides the field, because
+    # the field is hand-maintained and the commits are not. See claim_activity_epoch.
+    if [[ -n "$heartbeat_reason" ]]; then
+      activity_epoch="$(claim_activity_epoch "$slug" "$claim_text")"
+      if [[ -n "$activity_epoch" ]]; then
+        activity_age_seconds=$((NOW_EPOCH - activity_epoch))
+        [[ "$activity_age_seconds" -lt 0 ]] && activity_age_seconds=0
+        if [[ "$activity_age_seconds" -le 2700 ]]; then
+          printf 'live by COMMIT activity (stale heartbeat field, ignored): %s (heartbeat=%s age=%sm, last commit %sm ago)\n' \
+            "$slug" "${heartbeat:-missing}" "$(( ${heartbeat_age_seconds:-0} / 60 ))" \
+            "$((activity_age_seconds / 60))"
+          continue
         fi
       fi
     fi
