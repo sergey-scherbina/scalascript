@@ -135,41 +135,35 @@ own arc. None is speculative: every one has a measured number attached.
       full run) so any ceiling is chosen from data; (3) only then decide between an
       `-XX:MaxRAMPercentage` default, an opt-in `SSC_XMX`, or leaving the product default alone and
       relying on the harness caps that already exist.
-- [ ] **`test-fork-budget-has-no-host-wide-coordination`** — `build.sbt` declares
-      `Tags.limit(Tags.Test, 4)` × `-Xmx2g` = 8 GB per worktree, per sbt server, with nothing
-      coordinating across the ~13 of them. `build-guard` bounds how many *builds* start; it does not
-      bound forks within one. Consider deriving the tag limit from host RAM the way `build-guard`
-      derives its slots. Same `build.sbt` block.
-- [x] **`jvm-mem-guard-reads-the-wrong-signal`** — ✅ **DONE 2026-07-28** (`scripts/build-ram-guard`, installed). Triggers on available RAM + pageout RATE, never on `memorystatus_level`; escalates orphaned → idle → heaviest, with the last tier requiring both low memory and active thrashing. VERIFIED LIVE: launchd tick counter at 5,193 and the log carries **106 lines** including real action entries (`recovered after T1`) — its predecessor's log was 0 bytes for a week across two OOM events. — `~/.local/bin/jvm-mem-guard.sh` (launchd, every
-      20 s) fast-paths out on `kern.memorystatus_level >= 25`. MEASURED: that sysctl read **93 %** on
-      an idle host and **74 %** mid-event; its log is **0 bytes since 2026-07-21**, spanning an OOM
-      event with 139,831 pageouts. Its `BUILD_RE` also misses `ssc`/`node` forks — the processes that
-      actually caused that event. Move the script **into the repo**, switch the trigger to available
-      memory + swap + compressor (what `scripts/build-ram-report` already computes), and widen the
-      target set. It is outside version control today, which is why nobody noticed.
-- [x] **`launchd-build-agents-drift-from-the-repo`** — ✅ **DONE 2026-07-28** (`scripts/build-guards-install`). VERIFIED: both agents now execute `/Users/sergiy/work/my/scalascript/scripts/…` from the checkout, the drifted `~/.local/bin` copy is out of the loop, the reaper runs hourly with `--idle 30 --kill`, the superseded guard is renamed `.superseded-by-build-ram-guard`, and the bloop daemon carries the periodic-GC flags. — `~/Library/LaunchAgents/io.scalascript.kill-stale-builders.plist`
-      runs a **copy** at `~/.local/bin/kill-stale-builders` (byte-identical today; it will not stay
-      so) once a day at 03:00, and cannot pick up the new `--idle`. Point launchd at the repo file,
-      hourly, with `--idle 30 --kill`. Separately,
-      `~/Library/LaunchAgents/bloop.compilation.daemon.plist` pins the always-on bloop daemon at
-      `JDK_JAVA_OPTIONS=-Xmx12g` and should carry the same periodic-GC flags as `.jvmopts`.
-- [x] **`bench-bypasses-the-build-guard`** — ✅ **DONE 2026-07-29.** All three `sbt` call sites in
-      `scripts/bench` now route through `scripts/build-guard` via one `guarded_sbt` helper.
-      `tests/e2e/bench-wrapper-gate.sh` gained an assertion that no bare `sbt` invocation remains,
-      verified compare-first: reverting a single call site makes it fail and name the line.
-      The existing command-string assertions are unchanged and still pass — the wrapper does not
-      alter the arguments, only who runs them.
-- [~] **`ci-concurrency-supersede-rate`** (was `…-still-supersedes-most-commits`) — **the premise is
-      no longer true; re-measured 2026-07-29 and downgraded rather than left as a scare.** Over a
-      6-hour window on `main`: 38 commits at a **1.6 min median** interval (I had estimated 3-7),
-      but only **12 runs** were created — `paths-ignore` correctly skips the `.md`/`.work` commits,
-      which are most of them. Of those 12: **8 reached a verdict (67 %)**, 2 cancelled, 2 still
-      running.
+- [~] **`test-fork-budget-has-no-host-wide-coordination`** — **partially measured 2026-07-30; the
+      default was deliberately NOT changed.**
 
-      So sharding did not merely "raise the fraction": the verdict rate went from roughly 1-in-10 to
-      **two thirds**, and what is superseded is now a minority caused by bursts. Left open only as a
-      watch item — re-measure before spending anything on per-SHA groups or a merge queue, since the
-      cost that motivated them is largely gone.
+      `build.sbt` declares `Tags.limit(Tags.Test, 4)` × `-Xmx2g` = 8 GB per worktree. Measured what a
+      forked test JVM actually uses, by diffing the JVM set during a forced `core/test` run:
+
+      | | peak RSS |
+      |---|---|
+      | forked test JVMs (`core`, 6 observed) | **126-203 MB** |
+      | declared per fork | 2048 MB |
+
+      ~10x over-declared *for that project*. **Not acted on, on purpose:** a cap has to survive the
+      TAIL, not the median, and `core` is among the lightest suites. The heavy ones are the
+      cross-backend differential suites (`CrossBackendPropertyTest` and siblings), which spawn
+      `scala-cli` children per generated program — those are what must be measured before the default
+      moves. This is the same shape as `ssc-fork-heap-entitlement` (median 163 MB, tail 4,650 MB) and
+      as `build-guard`'s own guessed 2g, which a single tail case proved too small.
+
+      **Two traps found while measuring, both worth knowing before repeating it:**
+      1. **sbt SKIPS up-to-date tests.** Repeated `core/test` invocations were no-ops, so the
+         observation window was empty and it looked as though `Test / fork := true` did not fork.
+         `show core/Test/fork` says `true`; the forks are simply absent when nothing needs running.
+         Force a real run (touch a test source) before sampling.
+      2. `grep ForkMain` **matches your own command line.** The pattern appears in the invoking
+         shell's argv, so it reports 1-2 MB "JVMs" that are your own `zsh -c`. Build the literal at
+         runtime, or diff the JVM pid set instead — which is what finally worked.
+
+      Host-wide coordination across worktrees (the item's actual title) remains unaddressed and is the
+      hard part: `Tags.limit` bounds forks within ONE sbt server, and N servers do not see each other.
 - [ ] **saved-continuation-once-policy** — add an explicitly selected one-shot workflow mode
       with a linearizable cross-machine claim. The mode must be chosen before any reusable run
       (or use a distinct saved type); crash after claim is terminal `Unknown`, and the guarantee

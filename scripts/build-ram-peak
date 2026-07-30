@@ -37,9 +37,17 @@ done
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 PEAKS="$TMP/peaks"; : > "$PEAKS"
 
-# Same classification as scripts/build-ram-report, deliberately: two tools disagreeing about what
-# counts as a build process would make their numbers incomparable.
-RE='sbt-launch|xsbt\.boot|sbt\.script|sbt/standalone|bloop|scala-cli|scalacli|scala\.cli|ForkMain|zinc|metals|BspServer|ssc\.lib\.path|ssc\.jar|ssc-tools|org\.openjdk\.jmh|node'
+# Meant to match scripts/build-ram-report's classification, so the two tools' numbers stay
+# comparable. THEY DID NOT, and the comment claiming they did was the giveaway I should have checked:
+# report's `classify()` only accepts node when the command also mentions scalascript/conformance,
+# while this had a BARE `node` alternative. A bare `node` matches Electron's utility process
+# (`--utility-sub-type=node.mojom.NodeService`), so a measurement run on this host silently counted
+# five Claude helper processes as build tooling — the reported p50 of 97 MB WAS a Claude helper.
+#
+# A sampler that counts the wrong processes does not fail, it reports a plausible wrong distribution,
+# which is the worst outcome for a tool whose whole job is to pick a heap ceiling from data.
+# `node` now has to be the program being run, not a substring anywhere in the arguments.
+RE='sbt-launch|xsbt\.boot|sbt\.script|sbt/standalone|bloop|scala-cli|scalacli|scala\.cli|ForkMain|zinc|metals|BspServer|ssc\.lib\.path|ssc\.jar|ssc-tools|org\.openjdk\.jmh|(^|/)node[[:space:]]'
 
 sampler() {
   while :; do
