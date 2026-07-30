@@ -5,7 +5,7 @@ started: 2026-07-30T08:25:07Z
 heartbeat: 2026-07-30T08:25:07Z
 status: claimed-before-planning
 items: board-state-column-is-self-reported
-paths: file:scripts/board file:tests/coord/board-generated.sh
+paths: file:scripts/board file:tests/coord/board-generated.sh file:POLICY.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
