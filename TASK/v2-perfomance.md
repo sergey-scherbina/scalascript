@@ -170,14 +170,40 @@ So one direct call to compiled code is paid for as: an env array from `extend`, 
 `Done`/`Call` protocol, the forwarding lambda, and **two** `unroll`s — one inside the forwarder and
 one at the call site. The compiled body is reached; the wrapper around it is the 38 ns.
 
-**The fix shape:** let a `ClosV` built by `Emit.clos` retain its `LamFn`, and give `Emit.app` a
-fast arm that calls it directly with the extended env, skipping `Runtime.run` and one `unroll`.
-It touches the core value representation, so it wants a spec before code.
+**⛔ THAT READING IS REFUTED — by its own disqualifying test, before any code was written.**
 
-**Expected size:** 48.7 → about 11 ns, the `def` floor, i.e. **~4×** on lambda-call-heavy rows.
-**Disqualifying evidence:** if `foreach` at 7.1 ns does NOT already take such a direct path, then
-the wrapper is not the difference and this reading is wrong — check how `foreach` invokes its
-argument before writing any code.
+The test said: *check how `foreach` invokes its argument first.* It does this
+(`v2/src/Runtime.scala:3380`):
+
+```scala
+private def callClos(fn: Value.ClosV, args: Array[Value]): Value =
+  Runtime.run(fn.code, if args.isEmpty then fn.env else Runtime.extend(fn.env, args))
+```
+
+which is **the same path** `Emit.app` takes, to within an arity check. `Runtime.run`, the forwarder
+`Emit.clos` installs, and the `extend` allocation are paid by BOTH — the 7.1 ns one and the 48.7 ns
+one. So the wrapper cannot be the difference, and the "let `ClosV` retain its `LamFn`" fix would
+have changed the cheap path and the expensive one equally. **That change was not written.**
+
+Two candidate confounds were checked and are NOT the answer either:
+- *allocation* — the `foreach` probe allocates a fresh `ClosV` 10 000 times and calls each 10 times;
+  the lambda probe allocates ONE and calls it 100 000 times. The probe doing fewer allocations is
+  the slower one.
+- *the body* — `foreach(x => { sum = 7L })` measured 0.653 against `foreach(x => { })` at 0.888,
+  i.e. inside the noise, so the body is not it.
+
+**What is left, and it is a different shape of answer.** The two differ in WHERE the call is made
+from: `foreach` calls `callClos` from inside a Scala method of the runtime, where `fn` is the same
+shape every iteration and the JIT can inline `fn.code` monomorphically; the direct call goes
+through `Emit.app`, one shared static method reached from all generated code, where `c.code` is
+**megamorphic** and cannot inline. If that is right, the fix is not a new fast arm — it is giving
+the call site a monomorphic target (an inline cache, or emitting the invocation at the call site
+rather than funnelling through one shared `Emit.app`).
+
+**Next step, and it must come before code:** confirm or kill the megamorphic-inlining story with
+`-XX:+PrintInlining` (or a JFR profile) on the lambda probe, looking specifically at whether
+`Runtime.run`/`c.code` inlines at `Emit.app`. **Do not write an inline cache before that reading
+exists** — this entry has now been wrong once by reasoning from code shape alone.
 
 **Refuted here, do not retry:** "boxing of the element" (the empty-body probe closes it) and
 "start from the profile's biggest frame" (the decomposition found this without a profiler, after
