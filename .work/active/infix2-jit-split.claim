@@ -1,0 +1,16 @@
+slug: infix2-jit-split
+branch: feature/infix2-jit-split
+agent: claude-code
+started: 2026-07-30T03:43:30Z
+heartbeat: 2026-07-30T03:43:30Z
+status: in-progress
+items: ARCH-3-split-infix2
+paths: v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/DispatchRuntime.scala tests/e2e/v1-jit-size.sh
+scope: |
+  First of the ARCH-3 splits. DispatchRuntime.infix2 is 21114 bytecodes — 2.6x over HotSpot's
+  HugeMethodLimit — so it is NEVER JIT-compiled, and every INT method call goes through it.
+  Split the op-groups into helpers so the dispatcher lands under the limit, then measure with an
+  ALTERNATING A/B (one run on a loaded host manufactures numbers). Land only if the measurement
+  supports it; revert if not. BUGS §v1-interpreter-hot-path-never-jits.
+  NOT taking F4: v2/lib is held by the LIVE v2-backend-matrix-gaps claim (commit 56 s ago).
+next: baseline census + bench, split, verify conformance, alternating A/B, update the frozen list
