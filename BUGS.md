@@ -67,7 +67,7 @@ name suggests the same emitter-synthesized-symbol family as cluster 2 and as `dd
      lane: int
      area: front -->
 
-**Status: FIXED 2026-07-30** by `v2-doc-only-noop`. `bin/ssc run --v2 examples/deploy.ssc` now exits
+**Status: FIXED 2026-07-30** in `1e3b5223c` (`v2-doc-only-noop`). `bin/ssc run --v2 examples/deploy.ssc` now exits
 **0** with stdout byte-identical to the v1 reference (both empty).
 
 **What the fix had to get right, and what the first attempt got wrong.** Yesterday's reverted attempt
