@@ -637,7 +637,7 @@ class JvmGen(
     val braced    = colonObjectsToBraces(withUi).stripTrailing()
     val hoisted   = hoistSscImportsIntoObjectStd(braced)
     val merged    = mergeDuplicatePackageObjects(hoisted)
-    fixedHead + merged + mainInvocation(blocks, merged) + "\n"
+    fixedHead + merged + mainInvocation(blocks, merged, mainEntry.isDefined) + "\n"
 
   /** The trailing `main()` call, or `""`.
    *
@@ -664,7 +664,13 @@ class JvmGen(
    *  NOT the `--bytecode` / `build-jvm` path: `generateUserOnlyWithLineMap` feeds an ASM pipeline
    *  that picks its entrypoint separately, and a bare call appended there would run at class-init
    *  time. If that path has the same gap it needs its own fix, in its own terms. */
-  private def mainInvocation(blocks: List[JvmGen.Block], emitted: String): String =
+  private def mainInvocation(blocks: List[JvmGen.Block], emitted: String, manifestDeclaresEntry: Boolean): String =
+    // Front-matter `main: <name>` ALREADY emits its own call further up, so appending one here ran
+    // the program twice. Caught by CI's cross-lane examples comparison, not by the corpus: no
+    // conformance case declares `main:`, while `examples/hello.ssc` and `examples/default-params.ssc`
+    // do — the census that justified this change counted `def main` in sources and never asked
+    // whether something was already calling it.
+    if manifestDeclaresEntry then return ""
     var defines = false
     var called  = false
     blocks.foreach { b =>
