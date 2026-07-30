@@ -200,10 +200,29 @@ through `Emit.app`, one shared static method reached from all generated code, wh
 the call site a monomorphic target (an inline cache, or emitting the invocation at the call site
 rather than funnelling through one shared `Emit.app`).
 
-**Next step, and it must come before code:** confirm or kill the megamorphic-inlining story with
-`-XX:+PrintInlining` (or a JFR profile) on the lambda probe, looking specifically at whether
-`Runtime.run`/`c.code` inlines at `Emit.app`. **Do not write an inline cache before that reading
-exists** — this entry has now been wrong once by reasoning from code shape alone.
+**The `-XX:+PrintInlining` reading was taken, and it does not confirm the story either — it
+narrows it in an unexpected direction.** Over a 3 000 000-iteration run of the lambda probe,
+`ssc.Emit$::app` **never appears in the inlining log at all**, as a callee or as a root. What does
+appear is `Emit$::isOp`, `capture`, `extend1`, `letThread`, `intV`.
+
+That admits three readings, and they are not equally cheap to test:
+
+1. **the call never reaches `Emit.app`** — `val f = (x) => …; f(i)` may not lower to a generic
+   `Term.App` at all (a `letrec` arm, a `localTailTarget`, or the front inlining the lambda). If so,
+   every conclusion above about `Emit.app` is about code this probe does not execute;
+2. it reaches it, but the log is dominated by the COMPILE phase (F compiling the program) and the
+   run phase's decisions were not captured in what was grepped;
+3. it is compiled as a root rather than inlined anywhere, so it never shows as a callee.
+
+**Reading (1) must be settled first, and it is the cheapest:** dump the Core IR for the probe and
+look at the call. `ssc info` is not the dumper — it inspects `.scim`/`.scir` artifacts. Find the
+right route (the bench harness has a `v2CoreIr()` helper; `bin/ssc1-run.ssc0` runs IR) before
+spending anything on a profiler.
+
+**Where this entry stands: the WHAT is measured and solid — 48.7 ns against 7.1 ns for the same
+closure, reproduced over three rounds — and the WHY is unknown.** Two hypotheses have been written
+down and killed here (wrapper cost; then, weakly, megamorphic inlining). That is the honest state,
+and the measurement is worth more than either dead hypothesis: any fix must move 48.7 toward 11.
 
 **Refuted here, do not retry:** "boxing of the element" (the empty-body probe closes it) and
 "start from the profile's biggest frame" (the decomposition found this without a profiler, after
