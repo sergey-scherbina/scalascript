@@ -23,7 +23,12 @@ FIELD = re.compile(r"([a-z-]+)\s*:\s*([^\n]+)")
 # The bug files, in module order. Discovered rather than listed: a module gets a file when it has
 # something to record, so a hard-coded list would silently miss the next one.
 SEARCH = ["BUGS.md", "*/BUGS.md", "*/*/BUGS.md", "*/*/*/BUGS.md", "*/*/*/*/BUGS.md"]
-SKIP_DIRS = {"target", "node_modules", ".git", ".scala-build", "releases", "scratch"}
+# `.agents` is the plugins SUBMODULE — another repository. Its `bugs/commands/BUGS.md` is the
+# skill's own documentation, and counting it as a board produced five phantom "entries with no
+# header" (`Where`, `The`, `Summary`, …: prose headings, not slugs). The same file makes
+# `bugs-split --dry-run` refuse. A tool that walks the tree for boards has to say which trees
+# are ours.
+SKIP_DIRS = {"target", "node_modules", ".git", ".scala-build", "releases", "scratch", ".agents"}
 
 
 def board_files(root, name):
