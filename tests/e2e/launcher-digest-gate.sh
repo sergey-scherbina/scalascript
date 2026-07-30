@@ -81,6 +81,13 @@ included_case build-definition build.sbt \
 included_case untracked-new-source v1/lang/core/src/main/scala/__digest_probe.scala \
   bash -c 'printf "class DigestProbe\n" > v1/lang/core/src/main/scala/__digest_probe.scala'
 
+# A MARKDOWN file that is a real build input. sbt packages `src/main/resources` into the jar, and
+# `v1/tools/cli/src/main/resources/templates/*/README.md` is the scaffolding `ssc new` writes — so
+# excluding markdown by EXTENSION, which is the obvious way to skip the boards, would have silently
+# dropped a compiled-in resource. This case is why the board exclusion is by NAME instead.
+included_case packaged-markdown-resource v1/tools/cli/src/main/resources/templates/app/README.md \
+  bash -c 'printf "\nlauncher-digest-gate probe\n" >> v1/tools/cli/src/main/resources/templates/app/README.md'
+
 # ── BENEFIT: an excluded path must not move the digest ────────────────────────
 # This is what buys the cache hit. A docs or board commit is the majority of this repository's
 # traffic (measured 2026-07-28: 43 of 58 run-creating commits in one hour touched only `.md` or
@@ -102,6 +109,23 @@ excluded_case workflow .github/workflows/smoke.yml \
   bash -c 'printf "\n# launcher-digest-gate probe\n" >> .github/workflows/smoke.yml'
 excluded_case claim-churn .work/digest-probe.txt \
   bash -c 'printf "probe\n" > .work/digest-probe.txt'
+# The per-module BOARDS, which live INSIDE included trees and are the most-edited files here: 37 of
+# the last 200 commits touched nothing but boards and `.work/`. Without these two the cache would
+# miss on most of the traffic it exists to serve.
+excluded_case module-board-sprint scripts/SPRINT.md \
+  bash -c 'printf "\n- [ ] launcher-digest-gate probe\n" >> scripts/SPRINT.md'
+excluded_case module-board-bugs v1/BUGS.md \
+  bash -c 'printf "\nlauncher-digest-gate probe\n" >> v1/BUGS.md'
+
+# The PREMISE of excluding those names: none of them is ever a packaged resource. Checked against the
+# tree rather than asserted in a comment, so the day someone adds `templates/foo/BUGS.md` to the cli
+# resources this fails instead of silently dropping it from the digest.
+boards_in_resources="$(cd "$WT" && git ls-files | grep -E '/(SPRINT|BACKLOG|BUGS|MILESTONES|SPRINT-ARCHIVE)\.md$' | grep -E '/resources/' || true)"
+if [[ -n "$boards_in_resources" ]]; then
+  fail board-name-is-a-resource "these files carry a board NAME but sit under a packaged resources/ path,
+so excluding that name from the digest drops a real build input:
+$boards_in_resources"
+fi
 
 # ── the guard must actually CONSUME the digest ────────────────────────────────
 # The digest being correct is worth nothing if `scripts/smoke-ci` does not read it. These two run the

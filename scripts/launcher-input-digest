@@ -51,19 +51,40 @@ cd "$ROOT"
 # the inclusion-list mistake this design avoids, and the cost of not making it is a rebuild.
 EXCLUDE=(.work .github .agents TASK docs site specs bench releases scratch bin examples tests)
 
-is_excluded() {
+# Per-module BOARD files, at any depth. These live inside INCLUDED trees — `scripts/SPRINT.md`,
+# `v1/BUGS.md`, `payments/BACKLOG.md` — and they are the most-edited files in the repository: 37 of
+# the last 200 commits touched nothing but boards and `.work/`. Excluding them by NAME rather than
+# by extension is deliberate.
+#
+# `**/*.md` would have been the obvious rule and it would have been WRONG. There are markdown files
+# under `v1/tools/cli/src/main/resources/templates/*/README.md` — the scaffolding `ssc new` writes —
+# and sbt packages `src/main/resources` into the jar. A blanket extension rule would have excluded a
+# real build input: the inclusion-list mistake wearing a different hat. Verified: no file with a
+# board name lives under a `resources/` path.
+EXCLUDE_BASENAME=(SPRINT.md BACKLOG.md BUGS.md MILESTONES.md SPRINT-ARCHIVE.md)
+
+is_excluded_top() {
   local candidate="$1" excluded
   for excluded in "${EXCLUDE[@]}"; do
     [[ "$candidate" == "$excluded" ]] && return 0
   done
-  # Root-level markdown: AGENTS.md, CHANGELOG.md, README.md, the boards.
-  [[ "$candidate" == *.md ]] && return 0
+  # Root-level markdown: AGENTS.md, CHANGELOG.md, README.md, POLICY.md.
+  [[ "$candidate" != */* && "$candidate" == *.md ]] && return 0
+  return 1
+}
+
+is_excluded_path() {
+  local path="$1" base="${1##*/}" excluded
+  is_excluded_top "${path%%/*}" && return 0
+  for excluded in "${EXCLUDE_BASENAME[@]}"; do
+    [[ "$base" == "$excluded" ]] && return 0
+  done
   return 1
 }
 
 included=()
 while IFS=$'\t' read -r _meta path; do
-  is_excluded "$path" || included+=("$path")
+  is_excluded_top "$path" || included+=("$path")
 done < <(git ls-tree HEAD)
 
 if [[ ${#included[@]} -eq 0 ]]; then
@@ -73,21 +94,28 @@ if [[ ${#included[@]} -eq 0 ]]; then
 fi
 
 inputs() {
-  # Committed state: one tree/blob hash per included top-level entry. Non-recursive, so this is a
-  # handful of hashes rather than a walk of every file, and a tree hash already covers everything
-  # beneath it.
-  git ls-tree HEAD -- "${included[@]}"
+  # Committed state, file by file. RECURSIVE rather than one tree hash per top-level entry, because
+  # the board exclusion above is per-file and a tree hash cannot express it. Measured at 0.01 s over
+  # 7052 tracked files, so precision is free here.
+  git ls-tree -r HEAD -- "${included[@]}" | while IFS=$'\t' read -r meta path; do
+    is_excluded_path "$path" || printf '%s\t%s\n' "$meta" "$path"
+  done
 
   # Uncommitted TRACKED changes, staged or not. Without this a dirty worktree digests as its HEAD
   # and the guard would call a toolchain current while the source it was built from is edited —
   # which is the local-development case the stamp exists for.
-  git diff HEAD -- "${included[@]}"
+  git diff HEAD --name-only -- "${included[@]}" | while IFS= read -r path; do
+    is_excluded_path "$path" && continue
+    printf 'dirty %s ' "$path"
+    if [[ -f "$path" ]]; then git hash-object "$path"; else echo deleted; fi
+  done
 
   # Untracked files under included paths. A brand-new .scala source is invisible to both commands
   # above, and it is exactly the shape of "I added a file and the build did not pick it up".
   local untracked
   while IFS= read -r untracked; do
     [[ -n "$untracked" ]] || continue
+    is_excluded_path "$untracked" && continue
     printf 'untracked %s ' "$untracked"
     git hash-object "$untracked"
   done < <(git ls-files --others --exclude-standard -- "${included[@]}")
