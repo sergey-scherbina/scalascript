@@ -16,7 +16,7 @@ final class OsNativePlugin extends NativePlugin:
     case Some(Value.IntV(value)) => value
     case _ => throw new RuntimeException(s"$operation argument ${index + 1} must be Int")
 
-  private def strings(value: Value): List[String] =
+  private def strings(value: Value, operation: String = "pathJoin"): List[String] =
     val out = collection.mutable.ListBuffer.empty[String]
     var current = value
     var done = false
@@ -26,7 +26,7 @@ final class OsNativePlugin extends NativePlugin:
           out += value
           current = rest
         case Value.DataV("Nil", _) => done = true
-        case _ => throw new RuntimeException("pathJoin arguments must be String")
+        case _ => throw new RuntimeException(s"$operation arguments must be String")
     out.toList
 
   private def pathParts(args: List[Value]): List[String] = args match
@@ -48,7 +48,84 @@ final class OsNativePlugin extends NativePlugin:
         case None => throw new RuntimeException(
           "exit expects exit(code: Int); actor exit(pid, reason) requires the Actors provider")
 
+  /** `std.process.exec` on the v2 native tier.
+   *
+   *  `std/process.ssc` declares `extern def exec` and the int, js, jvm and rust lanes each
+   *  implement it — the native tier did not, so any `.ssc` program that shells out died with
+   *  `unbound global: exec` on the DEFAULT lane while passing everywhere else. Found by writing
+   *  the smoke-CI runner in `.ssc`: a CI runner is subprocesses and nothing else, so the lane it
+   *  was meant to dogfood could not host it.
+   *
+   *  Semantics are the v1 plugin's, verbatim in shape (`OsIntrinsics.exec`), including the part
+   *  that is easy to get wrong: stdout AND stderr are drained on their own threads. Reading either
+   *  stream to EOF inline blocks until the child exits, which deadlocks on >64 KB of output and
+   *  defeats `opts.timeout` (the read cannot return before the process it is timing has finished).
+   */
+  private def exec(args: List[Value]): Value =
+    def result(stdout: String, stderr: String, code: Long): Value =
+      // Positional, in `case class ProcessResult(stdout, stderr, exitCode)` declaration order —
+      // v2 field access is by INDEX, so the order here IS the ABI.
+      Value.DataV("ProcessResult", Vector(Value.StrV(stdout), Value.StrV(stderr), Value.IntV(code)))
+
+    args match
+      case cmdV :: argsV :: rest =>
+        val cmd  = cmdV match
+          case Value.StrV(value) => value
+          case _ => throw new RuntimeException("exec argument 1 must be String")
+        val argv = strings(argsV, "exec")
+        // `opts` is a ProcessOptions instance: (cwd, env, timeout, inheritEnv), again positional.
+        val fields = rest.headOption match
+          case Some(Value.DataV("ProcessOptions", fs)) => fs
+          case _                                       => IndexedSeq.empty[Value]
+        def field(index: Int): Option[Value] = fields.lift(index)
+        val cwd = field(0) match
+          case Some(Value.DataV("Some", Seq(Value.StrV(dir)))) => Some(dir)
+          case _                                               => None
+        val env = field(1) match
+          case Some(Value.MapV(entries)) => entries.collect {
+            case (Value.StrV(key), Value.StrV(value)) => key -> value
+          }.toMap
+          case _ => Map.empty[String, String]
+        val timeoutMs = field(2) match
+          case Some(Value.DataV("Some", Seq(Value.IntV(ms)))) => Some(ms)
+          case _                                              => None
+        val inheritEnv = field(3) match
+          case Some(Value.BoolV(value)) => value
+          case _                        => true
+
+        val builder = new ProcessBuilder((cmd :: argv)*)
+        builder.redirectErrorStream(false)
+        cwd.foreach(dir => builder.directory(new java.io.File(dir)))
+        if !inheritEnv then builder.environment().clear()
+        if env.nonEmpty then
+          val target = builder.environment()
+          env.foreach { case (key, value) => target.put(key, value) }
+        val process = builder.start()
+        process.getOutputStream.close()   // no stdin: a child that reads would otherwise hang
+        val outBuf = new java.util.concurrent.atomic.AtomicReference[String]("")
+        val errBuf = new java.util.concurrent.atomic.AtomicReference[String]("")
+        val outT = new Thread(() =>
+          outBuf.set(new String(process.getInputStream.readAllBytes(), "UTF-8")))
+        val errT = new Thread(() =>
+          errBuf.set(new String(process.getErrorStream.readAllBytes(), "UTF-8")))
+        outT.setDaemon(true); errT.setDaemon(true)
+        outT.start(); errT.start()
+        val code = timeoutMs match
+          case Some(ms) =>
+            if process.waitFor(ms, java.util.concurrent.TimeUnit.MILLISECONDS) then
+              process.exitValue().toLong
+            else
+              process.destroyForcibly()
+              process.waitFor()
+              -1L                          // v1 parity: a timeout kill reports -1, not the signal
+          case None => process.waitFor().toLong
+        outT.join(1000); errT.join(1000)
+        result(outBuf.get(), errBuf.get(), code)
+
+      case _ => result("", "", 1L)
+
   def install(context: NativePluginContext): Unit =
+    native(context, "exec")(exec)
     native(context, "env") { args =>
       Option(System.getenv(text(args, 0, "env"))) match
         case Some(value) => Value.DataV("Some", Vector(Value.StrV(value)))

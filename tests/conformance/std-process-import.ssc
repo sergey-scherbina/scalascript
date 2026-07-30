@@ -1,15 +1,23 @@
 ---
 name: std-process-import
 version: 1.0.0
-backends: [int]
+backends: [int, v2]
 ---
 
-# std/process imports and runs on the interpreter
+# std/process imports and runs on the interpreter and the native tier
 
 Guard: `ProcessOptions`' default `Map.empty` crashed the whole module at
 import ("No method 'empty' on NativeFnV(<native:Map>)") — std/process was
 unusable from `.ssc` on the interpreter (found by busi's sites-as-files
 git-backup slice).
+
+Second guard (2026-07-30): the `v2` lane was added because the native tier had
+no `exec` native at all. `std/process.ssc` declares the extern and int, js, jvm
+and rust each implemented it, so a program that shells out passed everywhere and
+died with `unbound global: exec` on the DEFAULT lane. Running the SAME case on
+both lanes against one expected output is what makes that impossible to
+reintroduce; the timeout / large-output / env-scrub behaviours a corpus case
+cannot express live in `OsNativePluginTest`.
 
 [exec, ProcessOptions, ProcessResult](std/process.ssc)
 
