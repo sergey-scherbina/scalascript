@@ -1,0 +1,33 @@
+---
+name: type-ascription-map
+description: "case _: Map[?, ?] holds for a Map on every lane"
+backends: [int, js, jvm, v2]
+---
+
+# `case _: Map[?, ?]`
+
+`BUGS.md` `type-ascription-tuple-and-set-arms-missing`. The JS lane's type-test table had no `Map`
+arm, so `case _: Map[?, ?]` fell through and answered `other` where INT, the native lane and the JVM
+all answered `map`.
+
+A Map **is** distinguishable on that lane — the runtime already carries `_isMap`
+(`x instanceof Map || x instanceof _HAMT`), and it ships unconditionally. So this was a table gap,
+not a representation gap, which is why it could be closed while `Set` and `List` could not: measured
+2026-07-30, `List(...)` is `[...args]` and `_setOf(...)` returns a plain array too, so on that lane
+those two are the SAME value and any arm would have to lie about one of them.
+
+```scalascript
+def kind(x: Any): String = x match
+  case _: Map[?, ?] => "map"
+  case _ => "other"
+
+println(kind(Map("a" -> 1)))
+println(kind(Map()))
+println(kind(List(1, 2)))
+println(kind("s"))
+println(kind(7))
+```
+
+The empty Map is the case a `size > 0` style test would get wrong, and the three non-Maps are the
+guard that the new arm did not start swallowing everything — a container, a String and a number, all
+of which must still reach the wildcard.

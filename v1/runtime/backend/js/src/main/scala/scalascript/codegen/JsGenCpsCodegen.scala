@@ -792,6 +792,14 @@ private[codegen] trait JsGenCpsCodegen:
         // two. Without the arm `case _: Unit` fell to the `_type === 'Unit'` branch
         // below, which is false for every primitive — INT had the same hole.
         case "Unit"    => s"($scrutVar === undefined)"
+        // A Map IS distinguishable on this lane — `_isMap` (core-dispatch.mjs, always included) is
+        // the runtime's own predicate, `x instanceof Map || x instanceof _HAMT`. Without this arm
+        // `case _: Map[?, ?]` fell through and answered `other` where INT, native and the JVM all
+        // said `map`. Set and List are deliberately NOT here: measured 2026-07-30, `List(...)` is
+        // `[...args]` and `_setOf(...)` returns a plain array too, so the two are the SAME value on
+        // this lane and any arm would have to lie about one of them.
+        // BUGS `type-ascription-tuple-and-set-arms-missing`.
+        case "Map"     => s"_isMap($scrutVar)"
         case "RuntimeException" | "Exception" | "Throwable" =>
           s"($scrutVar instanceof Error || ($scrutVar && $scrutVar._type === '$typeName'))"
         // A tuple IS a JS array here, so `Array.isArray` alone would also accept a
