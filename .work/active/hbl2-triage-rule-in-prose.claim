@@ -1,0 +1,11 @@
+slug: hbl2-triage-rule-in-prose
+branch: feature/hbl2-triage-rule-in-prose
+agent: claude-code
+started: 2026-07-30T04:31:42Z
+heartbeat: 2026-07-30T04:31:42Z
+status: claimed-before-planning
+items: HBL-2
+paths: AGENTS.md .agents/plugins tests/coord/heartbeat-threshold-single-source.sh SPRINT.md BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
