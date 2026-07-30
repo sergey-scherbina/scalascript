@@ -7,6 +7,46 @@ grepping for status.
 
 Newest first.
 
+## unit-literal-pattern-diverges-two-lanes-against-two — `case ()` matches on jvm and js, not on int and native
+<!-- status: open
+     lane: multi
+     area: front
+     gate: none -->
+
+**Found 2026-07-30** while fixing [[js-v2-unit-pattern-does-not-match-and-unit-literal-pattern-crashes]].
+
+```scalascript
+def viaLiteral(x: Any): String = x match
+  case () => "UNIT"
+  case _ => "OTHER"
+println(viaLiteral(println("")))
+```
+
+| lane | `case ()` on the unit value |
+|---|---|
+| `jvm` (real Scala) | **`UNIT`** ← the right answer |
+| `js` (v1 backend) | **`UNIT`** |
+| `int` | `OTHER` |
+| native / v2 | `OTHER` |
+| v2 JS | crashed with `TypeError`; now `OTHER` |
+
+**Two lanes against two, and the correct answer is the minority position among the self-hosted
+lanes.** `()` is the unit value, so a literal pattern on it must hold; the JVM lane runs real Scala
+and says so, and the v1 JS backend agrees.
+
+**This entry corrected itself once, and the mistake is left visible.** Its first draft — written
+before the fifth lane was measured — called this a *uniform* gap: "three lanes agree with each other
+and disagree with Scala", the class that is invisible to every differential gate. Wrong. The v1 JS
+lane answers `UNIT`. The conformance case carried the same wrong table for one edit and was corrected
+from the same run. **A lane count taken over four lanes is not a lane count.**
+
+**Not fixed here, deliberately.** The v2 JS change was scoped to a crash and a missing type-test arm,
+both of which make that lane agree with the lane it mirrors. Making `case ()` HOLD is a change to
+pattern lowering on `int` and on the native front, it moves goldens, and it deserves its own A/B.
+`tests/conformance/v2js-unit-pattern.ssc` declares `js` as `known-red` pointing here — declared, not
+excluded, because dropping `js` from `backends:` also drops the `JS/v2` lane that case exists to
+gate.
+
 ## v2-lanes-cannot-run-four-corpus-workloads — float globals unbound, indexed array store not a function
 <!-- status: duplicate
      lane: native
@@ -890,9 +930,11 @@ message (`RowCodec.derived expects Mirror metadata`, 3 succeeded / 1 failed); wi
 Mirror by fixed arity (`grep -rn 'DataV("Mirror"' v1 v2` — one production site, two test sites).
 
 ## js-v2-unit-pattern-does-not-match-and-unit-literal-pattern-crashes — two Unit-pattern defects on the v2 JS codegen
-<!-- status: open
+<!-- status: fixed
      lane: native
-     area: codegen -->
+     area: codegen
+     fixed-in: 5bd91bebc
+     gate: tests/conformance/v2js-unit-pattern.ssc -->
 
 **Status:** OPEN (found 2026-07-28 by `v2-multiblock-auto-output`; the first one is what made a
 per-block auto-output attempt emit a bare `()` and get caught by the corpus as
