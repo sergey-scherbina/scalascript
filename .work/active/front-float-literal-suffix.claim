@@ -2,10 +2,10 @@ slug: front-float-literal-suffix
 branch: feature/front-float-literal-suffix
 agent: claude-code
 started: 2026-07-30T10:01:28Z
-heartbeat: 2026-07-30T10:23:17Z
+heartbeat: 2026-07-30T10:24:56Z
 status: claimed-before-planning
 items: v2-front-drops-float-literal-suffix
-paths: file:v2/lib/ssc1-front.ssc0 file:specs/v2.2-p6.5-fsub.ssc file:tests/conformance/v2js-unit-pattern.ssc file:tests/conformance/expected/v2js-unit-pattern.txt file:tests/conformance/float-literal-suffix.ssc file:tests/conformance/expected/float-literal-suffix.txt file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv file:v2/BUGS.md file:tests/BUGS.md file:scripts/BUGS.md
+paths: file:v2/lib/ssc1-front.ssc0 file:specs/v2.2-p6.5-fsub.ssc file:tests/conformance/v2js-unit-pattern.ssc file:tests/conformance/expected/v2js-unit-pattern.txt file:tests/conformance/float-literal-suffix.ssc file:tests/conformance/expected/float-literal-suffix.txt file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv file:v2/BUGS.md file:tests/BUGS.md file:scripts/BUGS.md file:v1/runtime/backend/js/BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
