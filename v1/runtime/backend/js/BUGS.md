@@ -7,6 +7,66 @@ grepping for status.
 
 Newest first.
 
+## js-imported-extension-method-not-dispatched — `Method not found` for an extension method that arrived through a module import
+<!-- status: open
+     lane: js
+     area: codegen
+     gate: none -->
+
+**Found 2026-07-30** by `jsgen-char-escape`: with [[jsgen-char-literal-escape]] fixed, `dsl-yaml-like`
+stops failing to PARSE on js and fails one step later.
+
+```
+Method not found: parseLayoutWith
+```
+
+`parseLayoutWith` is declared at `v1/runtime/std/parsing/layout.ssc:292`, inside
+`extension [A](p: Parser[A])` (line 288). So the js lane does not dispatch an extension method that came
+in through a module import.
+
+**The interpreter had the same surface and needed TWO fixes** (`91c326d1f`): the import-binding loop
+refused to even NAME such a method, and `exportedExtensions` had to be copied wholesale for the method
+to dispatch. The js lane inlines imports, so its failure mode differs — but it is worth attacking as one
+family rather than as this one case.
+
+**Blocks** `dsl-yaml-like` on js (int and v2 both PASS it).
+
+## jsgen-char-literal-escape — an escaped Char literal was emitted RAW, so the generated JS did not parse
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: 409939e3e
+     gate: tests/conformance/char-literal-escapes.ssc -->
+
+**Fixed 2026-07-30** (`409939e3e`). `JsGen.scala:4191` escaped ONLY the double quote in a Char literal,
+so `'\n'` / `'\t'` / `'\r'` / `'\\'` landed as a real control character inside a JS string literal and
+left it unterminated — `SyntaxError: Invalid or unexpected token`, before a line of the program ran.
+
+Impact was never one case: `std/parsing/layout.ssc:67` computes a column with `lastIndexOf('\n')`, so
+EVERY consumer of that module was dead on js. It stayed invisible while `dsl-yaml-like` was a corpus
+SKIP; removing that SKIP (`c66ed4825`) exposed it.
+
+Fixed at the cause. `Lit.String` (`:4187`) carried the full escape chain INLINE while the Char arm
+carried a hand-written subset — that duplication is HOW the arms drifted. Both now call the existing
+`escapeJsString` (`:5699`), as does the third partial copy at `:5494` (`jsLit`, which handled only `\\`
+and `"`).
+
+Emitted bytes, before -> after:
+
+```
+_println(_dispatch("a\nb", 'lastIndexOf', ["<RAW NEWLINE>"]));
+_println(_dispatch("a\nb", 'lastIndexOf', ["\n"]));
+```
+
+Fail-first proven on the exact case that landed: revert, rebuild, `run-js` exits 1 with the SyntaxError;
+restore, rebuild, green on int / js / v2. `backendInterpreter/test` (where the JsGen tests live —
+`backendJs` has no test tree): 1854 succeeded, 0 failed.
+
+⚠️ One intermediate observation looked like a second defect and was not: with the fix reverted, Node's
+error display appeared to show the STRING literal broken too. Reading the emitted bytes settled it —
+`Lit.String` was always correct, and Node was printing a physical source line that the raw newline had
+split.
+
 ## js-class-method-named-arg-nan — a named arg to a CLASS method is `NaN` on the JS lane
 <!-- status: open
      lane: js

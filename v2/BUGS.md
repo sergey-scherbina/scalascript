@@ -7,6 +7,51 @@ grepping for status.
 
 Newest first.
 
+## v2-char-is-an-int — a Char literal IS its code point on the v2 lane, in `println`, `toString` and concatenation
+<!-- status: open
+     lane: native
+     area: runtime
+     gate: none -->
+
+**Found 2026-07-30** by `jsgen-char-escape`, by its own gate: the conformance case written to prove a JS
+Char-escape fix was run on all three lanes and v2 failed one line of it. Longer write-up, including why
+it went unnoticed, in `specs/v2-char-is-an-int.md`.
+
+```scalascript
+def main() =
+  println('x')
+  println('x'.toString)
+  val c = 'a'
+  println(c)
+  println("s" + 'b')
+  println('x' == 'x')
+```
+
+| line | int (golden) | v2 |
+|---|---|---|
+| `println('x')` | `x` | **`120`** |
+| `println('x'.toString)` | `x` | **`120`** |
+| `println(c)`, `val c = 'a'` | `a` | **`97`** |
+| `println("s" + 'b')` | `sb` | **`s98`** |
+| `println('x' == 'x')` | `true` | `true` — agrees |
+
+**It is not a `Show` difference.** `.toString` and string concatenation are wrong too, so the value is
+not being RENDERED as a number — it *is* a number on this lane. v2 has no distinct Char representation,
+so `'x'` compiles to the `Int` 120 and everything downstream sees an Int.
+
+**Why it hid.** Equality agrees, and Char COMPARISON is the common case in a lexer or parser — including
+inside the corpus. What breaks is Char-in-text. Note that `"a\nb".lastIndexOf('\n')` and `'\n' == '\n'`
+both give int's answer on v2, so the gap is confined to a Char used as a value in text, not to a Char
+passed as an argument.
+
+**Do not** fix it by special-casing `Show` for an Int in Char position: the `.toString` and
+concatenation rows show the value has already lost its identity by then. It needs a Char-shaped value in
+the v2 runtime, or a compile-time marker that survives into `Show`/`toString`/`+`.
+
+**Not gated yet, on purpose.** `tests/conformance/char-literal-escapes.ssc` deliberately omits the bare
+`println('x')` line — including it would leave that case red for a reason unrelated to the escaping it
+exists to gate. A fix here should bring its own case.
+
 ## sbt-test-7-failures-first-visible-2026-07-29 — `sbt test` ran to completion for the first time in weeks
 <!-- status: open
      lane: native
