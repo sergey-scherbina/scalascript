@@ -26,7 +26,6 @@ dsl-ast-builder	v2	DIVERGE
 dsl-calc-parser	v2	DIVERGE
 dsl-mini-language	*	SKIP
 dsl-sql-recovery	js	FAIL
-dsl-yaml-like	js	FAIL
 fetch-auth	*	SKIP
 graph-fullstack-rdf	*	SKIP
 graph-janusgraph-gremlin	*	SKIP

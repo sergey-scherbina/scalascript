@@ -4768,9 +4768,16 @@ private[interpreter] object EvalRuntime:
                   if reordered != null then reordered else argVals, env, interp)
               })
           else if argTerms.isEmpty then
+            // An EXPLICIT `()` on a member whose every parameter has a default is a complete call.
+            // `dispatch` cannot make that decision — there `V.one` and `V.one()` are the same thing —
+            // so it is made here, where the empty argument list is still visible, and only here.
+            def zeroArg(qualV: Value): Computation =
+              val f = CallRuntime.zeroArgAllDefaults(qualV, method, interp)
+              if f != null then interp.callFun(f, Nil)
+              else DispatchRuntime.dispatch(qualV, method, Nil, env, interp)
             qualC match
-              case Pure(qualV) => DispatchRuntime.dispatch(qualV, method, Nil, env, interp)
-              case _           => FlatMap(qualC, qualV => DispatchRuntime.dispatch(qualV, method, Nil, env, interp))
+              case Pure(qualV) => zeroArg(qualV)
+              case _           => FlatMap(qualC, qualV => zeroArg(qualV))
           else if argTerms.lengthCompare(1) == 0 then
             val arg1C = argTerms.head match
               case Term.Assign(_, rhs) => eval(rhs, env, interp)

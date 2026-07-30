@@ -1,0 +1,42 @@
+---
+name: zero-arg-all-defaults
+description: "V.m() on an object method whose every parameter has a default is a CALL, while V.m is a value"
+backends: [int, js, jvm, v2]
+---
+
+# `V.m()` calls; `V.m` does not
+
+`BUGS.md` `v1-interp-zero-arg-call-to-all-defaulted-object-method-returns-a-closure`. An object's
+members are fields of its instance, and a field holding a function was only ever *called* when it had
+no parameters. So `V.one()` on `def one(a: Int = 3)` returned the closure — printing
+`<function(1)>` where every other lane printed `3`.
+
+The asymmetry is the tell: a top-level `def` and a **class** method with the identical signature were
+both correct. Only object members took the field path.
+
+```scalascript
+object V:
+  def one(a: Int = 3): Int = a
+  def two(a: Int = 3, b: Int = 4): Int = a * 10 + b
+  def none(): Int = 7
+  def req(a: Int): Int = a
+
+def plainOne(a: Int = 3): Int = a
+
+println(V.one())
+println(V.two())
+println(V.none())
+println(plainOne())
+println(V.one(5))
+println(V.req(6))
+```
+
+**The parenless form must stay a value, and that is the reason the fix is not where the bug is.**
+Measured on three lanes before touching anything, `V.one` without parentheses is a function value
+everywhere — INT `<function(1)>`, native `<closure>`, the JVM a lambda. By the time a member reaches
+the dispatcher, `V.one` and `V.one()` are the same call with an empty argument list, so deciding
+there would have changed both. The empty list is only visible one level up, in the caller, and that
+is where the decision is made.
+
+`V.none()` (no parameters at all) and `V.req(6)` (a required parameter, supplied) are the guards on
+the two paths that already worked; `plainOne()` guards the top-level `def` that was never affected.

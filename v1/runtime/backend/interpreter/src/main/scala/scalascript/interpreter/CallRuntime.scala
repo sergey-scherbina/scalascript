@@ -311,6 +311,24 @@ private[interpreter] object CallRuntime:
           case _             => interp.typeMethods.get(inst.typeName).flatMap(_.get(name)).orNull
       case _ => null
 
+  /** `recv.m()` with an EXPLICIT empty argument list, where every parameter of `m` has a default —
+   *  a complete call, not a function value. Returns null when that does not apply.
+   *
+   *  Why this cannot live in `DispatchRuntime`: by the time a member reaches it, `V.one` and
+   *  `V.one()` are indistinguishable — both arrive with `args = Nil` — and the parenless form is a
+   *  function VALUE on every lane (measured 2026-07-30: INT `<function(1)>`, native `<closure>`, the
+   *  JVM a lambda; all three agree). So the empty arg list has to be acted on where it is still
+   *  visible, which is the caller in `EvalRuntime`. Object members are fields of the receiver's
+   *  `InstanceV`, and a field holding a `FunV` was only ever called when it had NO parameters, so
+   *  `V.one()` on `def one(a: Int = 3)` returned the closure instead of `3`.
+   *  BUGS `v1-interp-zero-arg-call-to-all-defaulted-object-method-returns-a-closure`. */
+  def zeroArgAllDefaults(recv: Value, name: String, interp: Interpreter): Value.FunV =
+    val f = methodFunFor(recv, name, interp)
+    if f == null || f.params.isEmpty || f.usingParams.nonEmpty then null
+    else if f.defaults.length < f.params.length then null
+    else if f.defaults.take(f.params.length).exists(_.isEmpty) then null
+    else f
+
   /** Reorder `namedArgs` into a COMPLETE positional list for `f`, filling omitted params from
    *  their defaults — or `null` when that cannot be done faithfully.
    *
