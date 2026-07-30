@@ -1,6 +1,7 @@
 package scalascript
 
 import org.scalatest.funsuite.AnyFunSuite
+import scalascript.ast.Module
 import scalascript.codegen.JsGen
 import scalascript.parser.Parser
 
@@ -343,6 +344,20 @@ class JsGenTypedRouteClientTest extends AnyFunSuite:
 
   private def hasNode: Boolean = ProcTestUtil.commandOk("node")
 
+  /** Run emitted code the way a real assembly runs it: runtime half FIRST, then user code.
+   *
+   *  `JsGen.generate` returns ONLY the user-code half — every production assembly
+   *  (`EmitCommands`, `BuildPipeline`, `Main`) prepends `JsGen.generateRuntime(caps)` to it. A test
+   *  that executes `generate` output alone is running half a program, and passes only for as long
+   *  as the emitted code happens not to reach a runtime helper. Two tests here did exactly that
+   *  and started failing with `ReferenceError: _charCodeOrNull is not defined` when the typed-JSON
+   *  codec began normalising declared-`Int` fields through it — invisible for weeks, because the
+   *  `sbt` job that runs them was unreachable behind an earlier gate.
+   *
+   *  Use this, not bare `runJs`, whenever the test EXECUTES the output rather than grepping it. */
+  private def runJsWithRuntime(module: Module, js: String): String =
+    runJs(JsGen.generateRuntime(JsGen.detectCapabilities(module)) + "\n" + js)
+
   private def runJs(js: String): String =
     val tmp = java.io.File.createTempFile("ssc-js-typed-client-", ".cjs")
     tmp.deleteOnExit()
@@ -522,7 +537,8 @@ class JsGenTypedRouteClientTest extends AnyFunSuite:
 
   test("JS typed route clients encode and decode through generated codecs"):
     assume(hasNode, "node not available")
-    val code = JsGen.generate(Parser.parse(source))
+    val module = Parser.parse(source)
+    val code = JsGen.generate(module)
     val harness =
       """
         |globalThis.fetch = async function(url, init) {
@@ -548,7 +564,7 @@ class JsGenTypedRouteClientTest extends AnyFunSuite:
         |  process.exitCode = 1;
         |});
         |""".stripMargin
-    assert(runJs(code + "\n" + harness) == "Message:hello:Message:Ada:3")
+    assert(runJsWithRuntime(module, code + "\n" + harness) == "Message:hello:Message:Ada:3")
 
   // ── SSE / streaming endpoints ─────────────────────────────────────
 
@@ -599,7 +615,8 @@ class JsGenTypedRouteClientTest extends AnyFunSuite:
 
   test("JS SSE runtime delivers events and close() stops the stream") {
     assume(hasNode, "node not available")
-    val code = JsGen.generate(Parser.parse(sseSource))
+    val module = Parser.parse(sseSource)
+    val code = JsGen.generate(module)
     val harness =
       """
         |const {Readable} = require('stream');
@@ -639,7 +656,7 @@ class JsGenTypedRouteClientTest extends AnyFunSuite:
         |  process.stdout.write(received.join(","));
         |}, 200);
         |""".stripMargin
-    val out = runJs(code + "\n" + harness)
+    val out = runJsWithRuntime(module, code + "\n" + harness)
     assert(out == "1:hello,2:world,3:done", s"Got: $out")
   }
 
