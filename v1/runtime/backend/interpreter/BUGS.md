@@ -1009,13 +1009,33 @@ names were already in scope. The demo only started importing `std/coroutine.ssc`
 output as the golden when a case has no `expected/` file, an INT that cannot run skips the case on
 **every** lane — so this single defect removed the whole coroutine demo from differential coverage.
 
-## bytecode-opanf-purity-registry-marks-every-def-pure — effect Ops leak into `if` conditions on the DEFAULT execution lane
-<!-- status: open
-     lane: int
-     area: front
+## bytecode-opanf-purity-registry-marks-every-def-pure — effect Ops leaked into `if` conditions on the DEFAULT execution lane
+<!-- status: fixed
+     lane: native
+     area: codegen
+     fixed-in: c3841d01e
      gate: tests/conformance/head-field-effect-shadow.ssc -->
 
-**Status:** OPEN → fix in flight (2026-07-27, `corpus-contract-shard-fix`). Found by the corpus
+**Fixed in `c3841d01e`; VERIFIED and closed 2026-07-30.** The entry said "fix in flight" and stayed
+open after the fix landed, so it has been advertising a live regression on the default execution lane
+for three days. Re-measured on a fresh build of current main:
+
+| lane | result |
+|---|---|
+| `bin/ssc run --v2` (default = bytecode) | `abc123` / `fast:30,slow:10` — the golden |
+| `SSC_EXEC=vm` | same |
+
+and `tests/conformance/run.sh --only head-field-effect-shadow --no-memo` is green on INT, JS and JVM.
+
+**The fix, since the reasoning is the reusable part.** A top-level def's body is a `Lam`, and `mayOp`
+answers *"does EVALUATING this term yield a raw Op?"* — for a `Lam` that is always **false**, because
+it yields a closure. The purity fixpoint needs a different question: *"can CALLING this def yield an
+Op?"* Classifying the `Lam` node itself made `mayOp(body)` false for every def, so the fixpoint marked
+NOTHING impure, `pg` answered "pure" for every global, and Op-argument lifting was silently disabled at
+every call site. `underLams` looks under the lambdas before asking. `OpAnfNative.scala` carries the
+same explanation beside the code.
+
+**Original report (superseded 2026-07-27):** Found by the corpus
 contract the first time it was able to finish a run — see `corpus-contract-never-green` below for why
 that took 12 days. Regression against the frozen baseline (`head-field-effect-shadow` was `PASS` on
 the `v2` lane), so it is a genuine regression, not a known gap.
