@@ -7,6 +7,69 @@ grepping for status.
 
 Newest first.
 
+## v1-interpreter-hot-path-never-jits — the INT lane's core dispatch is over HotSpot's limit
+<!-- status: open
+     lane: int
+     area: codegen
+     gate: tests/e2e/v2-jit-size.sh -->
+
+**Status:** OPEN (found 2026-07-29 by censusing v1 for the first time; gate landed alongside, the
+splits are the remaining work).
+
+**`-XX:+DontCompileHugeMethods` is on by default and a method over `-XX:HugeMethodLimit` (8000
+bytecodes) is NEVER JIT-compiled** — not C1, not C2. It runs in the bytecode interpreter for the
+life of the process, with no warning and no correctness signal. In v2 this exact defect cost
+**2.4–10.8×** until `Prims.__method__` was split, which is why `tests/e2e/v2-jit-size.sh` exists.
+
+**That gate scans `v2/{src,backend-jvm-bytecode,jvm-runtime}` only.** Nobody pointed it at v1 — the
+tree that is **4.3× larger** (302 210 lines vs 70 844). First census, 73 class dirs:
+
+| bytecodes | method | on the hot path? |
+|---:|---|---|
+| 28036 | `ActorScheduler.handleActorOp` | every actor op |
+| 24984 | `JsGen.genExpr` | every JS emission |
+| ~~21114~~ **SPLIT** | `DispatchRuntime$.infix2` → 2473 + Arith 7555 + Ord 7136 + Eq 2035 | 18.8% faster with the interpreter JIT off; neutral with it on |
+| 16346 | `RustCodeWalk$.renderTerm` | every Rust emission |
+| 15330 | `EvalRuntime$.evalCore` | **every INT term** |
+| 14696 | `DispatchRuntime$.dispatchList` | **every INT list op** |
+| 9839 | `DispatchRuntime$.dispatchString` | **every INT string op** |
+
+**⚠ CORRECTION 2026-07-30 — I overstated the impact here, and the measurement says so.** This entry
+originally claimed *"every conformance INT case, every `ssc run`, and every benchmark of the v1
+interpreter goes through methods HotSpot has permanently refused to compile"*, and that it *"reframes
+numbers quoted for months"*. Both are wrong, for two reasons found while splitting `infix2`:
+
+1. **`numericFast` short-circuits the hot arithmetic.** It handles `Int`/`Double` for
+   `+ - * / % < > <= >=` and returns before `infix2`'s body is ever entered. It is a small separate
+   method and JITs fine.
+2. **The v1 interpreter has its own bytecode JIT that bypasses these methods on hot loops.** Measured
+   on an equality-heavy 3M-iteration loop: **0.72 s with it on, 18.03 s with `SSC_JIT_BYTECODE=off`
+   — 25×.** Hot loops never reach `infix2` at all.
+
+So an over-limit method here is a real JIT blocker on the paths that reach it, but "every INT case
+pays" is false and the F-cost numbers are NOT invalidated. The census flags a hazard; it does not by
+itself establish a hot cost.
+
+**This reframes a measurement that has been quoted for months.** `f-front-compile-cost-7x-on-scljet`
+and the general "the interpreter is slow" numbers were all taken against a hot path that cannot be
+JIT-compiled. Whatever the true cost of F is, it has been measured on top of this.
+
+**Gate landed, deliberately NOT hard-failing.** `tests/e2e/v1-jit-size.sh` freezes these seven by
+name and size: it fails on an EIGHTH, on any frozen method that GROWS, and — self-expiring, like a
+`known-red:` — on any frozen method that no longer appears, so the exemption list can only shrink.
+Seven pre-existing offenders cannot be fixed in the commit that adds the gate, and a gate that is
+red on arrival is disabled within a day.
+
+**Not attempted here:** the splits themselves. Each is a hot-path change in a 5000-line file and
+wants its own before/after benchmark, with the alternating-A/B discipline
+(`feedback_contended_host_needs_alternating_ab`) because a single run on a loaded host manufactures
+impressive numbers. Suggested order — `infix2`, `evalCore`, `dispatchList`, `dispatchString` first,
+since they are the ones every INT case pays.
+
+**Note on the file-size intuition:** `Main.scala` is the largest file in the repository (8467 lines)
+and has **no** over-limit method. Size of file is not the signal; size of method is. An earlier plan
+to split `Main.scala` first would have spent a day on the wrong target.
+
 ## v1-interp-zero-arg-call-to-all-defaulted-object-method-returns-a-closure — `V.one()` prints `<function(1)>`
 <!-- status: open
      lane: int
@@ -331,136 +394,6 @@ than a side effect.
 
 **Do not** resolve this by making v2 lossy to match. See the ADDENDUM for why that direction is
 wrong.
-
-## v2-array-indexed-store-silently-dropped — `a(i) = v` is parsed away, and the answer is wrong
-<!-- status: open
-     lane: int
-     area: front -->
-
-**HALF FIXED 2026-07-29 (`v2-backend-matrix-gaps`). The DEFAULT front still has it — do not close.**
-
-| front | `Array(0,0); a(1)=7; println(a(1))` |
-|---|---|
-| `SSC_FRONT=legacy` | **7** — fixed |
-| `SSC_FRONT=F` (the DEFAULT) | **0** — still silently dropped |
-
-Fixed on the legacy path by adding the `app` arm to `finishAssignment` in
-`v2/lib/ssc1-front.ssc0`, beside the existing `var` and `sel` arms — that is the one place every
-route into assignment parsing passes through — plus the `ForeignV(ArrayBuffer)` `update` arm in
-`Prims` that the lowering now reaches. Both halves were required; the runtime arm alone had been
-written and reverted earlier precisely because it was unreachable.
-
-**Why F is not fixed here, and exactly where it is.** F is a separate self-hosted parser
-(`specs/v2.2-p6.5-fsub.ssc`, staged as `tower/bin/fsub.ssc`) with its own, narrower rule:
-
-```
-def isAssignHead(ts) = if fst(hd(ts)) == 1 then isAssignOp(hd(tl(ts))) else false   // :1156
-```
-
-It requires the FIRST token to be an identifier and the SECOND to be `=`. For `a(1) = 7` the second
-token is `(`, so the statement is not an assignment head at all; it falls to `parseExpr`, which
-stops at `=` and drops the rest. Same defect, different code, and it needs a postfix-then-`=` path
-rather than a two-token peek. F emits S-expression strings (a method call is
-`(app (global _sel_<name>) recv args…)`), so the arm must be built where the receiver and index
-arguments are still separate values, not recovered from an already-emitted string.
-
-**This is the "fix BOTH fronts or it is a half-fix" shape** that `project_two_front_bug_pairs_0728`
-records — met live: the legacy fix looked complete and correct, and the default front was still
-wrong.
-
-
-**Status:** OPEN — **diagnosed here, handed over deliberately** (the fix is in
-`v2/lib/ssc1-front.ssc0`, held by the live `v2-front-for-yield` claim). Found 2026-07-28 by
-`v2-backend-matrix-gaps` while clearing category 1 of `specs/v2-vs-v1-backend-matrix.md`.
-
-**This is a CORRECTNESS bug, not a performance one.** It produces a wrong answer with no
-diagnostic on either v2 lane.
-
-```scalascript
-val a = Array(0, 0)
-a(1) = 7
-println(a(1))
-```
-
-| lane | result |
-|---|---|
-| INT (`ssc-tools run --v1`) | `7` |
-| JS (`ssc-tools run-js`) | `7` |
-| **v2** (`ssc run --v2`, and `--interpret`) | **`0`** — the store is discarded, exit 0, no message |
-
-Control: a plain `var x = …` reassignment works correctly on v2, so this is specifically an
-**indexed** store.
-
-**Root cause, located.** `v2/lib/ssc1-front.ssc0`, `parseExprOrAssign`:
-
-```
-let re = parseExpr(toks) in
-if kindIs("=", prT(re)) then
-  match prV(re) {
-    case Pair(ltag, ldata) =>
-      if #seq(ltag, "var") then  ... emit assign ...
-      else pr(mkSExpr(prV(re)), prT(re))     -- ← anything else: the `= rhs` is DROPPED
-  }
-```
-
-Only a bare `var` is accepted as an assignment target. For `a(1) = 7` the left side parses as an
-application, falls into the `else`, and the parser returns just that expression — the `= 7` is
-never consumed and never lowered. Nothing reports it.
-
-**Fix shape** (for whoever holds the file): accept an application on the left of `=` and lower it
-the way Scala defines it — `a(i) = v` is `a.update(i, v)`. **Both halves are needed**: the v2
-runtime dispatch has no `update` arm for `ForeignV(ArrayBuffer)` either (it has `length`,
-`isEmpty`, `nonEmpty`, `toList`, `foldLeft`, `map`, `foreach` and no store), so the front change
-alone will turn a silent wrong answer into a silent no-op. A runtime arm was written and reverted
-here precisely because it is unreachable until the front stops discarding the statement — landing
-it alone would have looked like a fix while changing nothing.
-
-**Impact:** `bench/corpus/array-update` cannot be measured on either v2 lane, and any `.ssc`
-program that writes into an array is silently wrong on the default lane.
-
-## v2-front-drops-float-literal-suffix — `0d` / `1.5f` lex the suffix as an identifier
-<!-- status: open
-     lane: int
-     area: front -->
-
-**Status:** OPEN — **diagnosed here, handed over deliberately**. The fix belongs in
-`v2/lib/ssc1-front.ssc0`, which is held by the live `v2-front-for-yield` claim (its heartbeat reads
-stale but triage found a worktree and running processes, and its own last claim-update widened it
-to exactly that file). Found 2026-07-28 by `v2-backend-matrix-gaps`.
-
-**Reproduce** — two lines:
-
-```scalascript
-var x: Double = 0d
-println(x)
-```
-
-| lane | result |
-|---|---|
-| INT (`ssc-tools run --v1`) | `0` |
-| JS (`ssc-tools run-js`) | `0` |
-| **v2** (`ssc run --v2`) | **`ssc: unbound global: d`** |
-| v2, `SSC_FRONT=legacy` | same — so this is BOTH self-hosted fronts |
-
-`1.5f` fails the same way with `unbound global: f`. `10L` works.
-
-**Root cause, located.** `v2/lib/ssc1-front.ssc0`, the numeric-literal branch of `lexFrom`. It
-strips a trailing `L`/`l` on both the hex and decimal paths — with a comment that says exactly why:
-*"strip a trailing Long suffix L/l … without this the `L` lexed as a separate id → `unbound global:
-L`"*. `d`/`D`/`f`/`F` were never given the same treatment, so the digits lex as a number and the
-suffix lexes as an identifier.
-
-**Fix shape** (for whoever holds the file): mirror the `L` handling at the three emission points of
-that branch — the dot-float, the exponent-float, and the integer path — consuming a trailing
-`d`(100)/`D`(68)/`f`(102)/`F`(70) and, on the integer path, emitting a **`float`** token rather than
-an `int` one, since `0d` is a Double. Guard it with "the character after the suffix is not
-alphanumeric" so `0dx` does not silently lex as `0d` + `x`.
-
-**Impact, measured.** It is not just a literal-syntax gap: it took **three of 33 bench-corpus
-workloads out of the matrix as "v2 cannot run this"** — `float-loop`, `float-fold` and
-`pattern-match-heavy` — because the generated bench wrapper declared its Double sink as `0d`. The
-programs themselves run on v2 perfectly well. The wrapper has been changed to `0.0` so the matrix
-measures the backend rather than the parser, but the language gap is real and still open.
 
 ## v2-object-apply-unbound — `object O { def apply(x) }` is unbound on the native lane
 <!-- status: open

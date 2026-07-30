@@ -44,13 +44,15 @@ RULES = [
 ]
 ROOT_MODULE = "."
 
-TITLES = {
-    "payments": "Payments, wallet and chain SPI", "scljet": "SclJet", "uniml": "UniML", "v2": "v2 — the self-hosted compiler",
-    "tests/conformance": "Conformance corpus and its freeze",
-    "scripts": "Build, CI and coordination tooling",
-    "v1/lang": "v1 language core", "v1/runtime/backend/js": "JS backend",
-    "v1/runtime/backend/interpreter": "Interpreter",
-}
+# Titles come from the same machine-readable list bugs-split reads — one source, so the two
+# splitters cannot disagree about what a module is called or whether it exists.
+MODULES_TSV = ROOT / "tests/fixtures/modules.tsv"
+TITLES = {}
+for _line in MODULES_TSV.read_text().split("\n"):
+    if _line.strip() and not _line.startswith("#"):
+        _m, _lanes, _t = (_line.split("\t") + ["", ""])[:3]
+        if _t:
+            TITLES[_m] = _t
 
 
 def module_for(heading: str) -> str:

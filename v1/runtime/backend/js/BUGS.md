@@ -101,69 +101,6 @@ This is why `tests/conformance/named-arg-defaults.ssc` covers object methods but
 methods — the case would pin a divergence rather than a behaviour. INT and JVM agree, so JS is the
 odd lane and the JVM answer is the target.
 
-## v1-interpreter-hot-path-never-jits — the INT lane's core dispatch is over HotSpot's limit
-<!-- status: open
-     lane: js
-     area: codegen
-     gate: tests/e2e/v2-jit-size.sh -->
-
-**Status:** OPEN (found 2026-07-29 by censusing v1 for the first time; gate landed alongside, the
-splits are the remaining work).
-
-**`-XX:+DontCompileHugeMethods` is on by default and a method over `-XX:HugeMethodLimit` (8000
-bytecodes) is NEVER JIT-compiled** — not C1, not C2. It runs in the bytecode interpreter for the
-life of the process, with no warning and no correctness signal. In v2 this exact defect cost
-**2.4–10.8×** until `Prims.__method__` was split, which is why `tests/e2e/v2-jit-size.sh` exists.
-
-**That gate scans `v2/{src,backend-jvm-bytecode,jvm-runtime}` only.** Nobody pointed it at v1 — the
-tree that is **4.3× larger** (302 210 lines vs 70 844). First census, 73 class dirs:
-
-| bytecodes | method | on the hot path? |
-|---:|---|---|
-| 28036 | `ActorScheduler.handleActorOp` | every actor op |
-| 24984 | `JsGen.genExpr` | every JS emission |
-| ~~21114~~ **SPLIT** | `DispatchRuntime$.infix2` → 2473 + Arith 7555 + Ord 7136 + Eq 2035 | 18.8% faster with the interpreter JIT off; neutral with it on |
-| 16346 | `RustCodeWalk$.renderTerm` | every Rust emission |
-| 15330 | `EvalRuntime$.evalCore` | **every INT term** |
-| 14696 | `DispatchRuntime$.dispatchList` | **every INT list op** |
-| 9839 | `DispatchRuntime$.dispatchString` | **every INT string op** |
-
-**⚠ CORRECTION 2026-07-30 — I overstated the impact here, and the measurement says so.** This entry
-originally claimed *"every conformance INT case, every `ssc run`, and every benchmark of the v1
-interpreter goes through methods HotSpot has permanently refused to compile"*, and that it *"reframes
-numbers quoted for months"*. Both are wrong, for two reasons found while splitting `infix2`:
-
-1. **`numericFast` short-circuits the hot arithmetic.** It handles `Int`/`Double` for
-   `+ - * / % < > <= >=` and returns before `infix2`'s body is ever entered. It is a small separate
-   method and JITs fine.
-2. **The v1 interpreter has its own bytecode JIT that bypasses these methods on hot loops.** Measured
-   on an equality-heavy 3M-iteration loop: **0.72 s with it on, 18.03 s with `SSC_JIT_BYTECODE=off`
-   — 25×.** Hot loops never reach `infix2` at all.
-
-So an over-limit method here is a real JIT blocker on the paths that reach it, but "every INT case
-pays" is false and the F-cost numbers are NOT invalidated. The census flags a hazard; it does not by
-itself establish a hot cost.
-
-**This reframes a measurement that has been quoted for months.** `f-front-compile-cost-7x-on-scljet`
-and the general "the interpreter is slow" numbers were all taken against a hot path that cannot be
-JIT-compiled. Whatever the true cost of F is, it has been measured on top of this.
-
-**Gate landed, deliberately NOT hard-failing.** `tests/e2e/v1-jit-size.sh` freezes these seven by
-name and size: it fails on an EIGHTH, on any frozen method that GROWS, and — self-expiring, like a
-`known-red:` — on any frozen method that no longer appears, so the exemption list can only shrink.
-Seven pre-existing offenders cannot be fixed in the commit that adds the gate, and a gate that is
-red on arrival is disabled within a day.
-
-**Not attempted here:** the splits themselves. Each is a hot-path change in a 5000-line file and
-wants its own before/after benchmark, with the alternating-A/B discipline
-(`feedback_contended_host_needs_alternating_ab`) because a single run on a loaded host manufactures
-impressive numbers. Suggested order — `infix2`, `evalCore`, `dispatchList`, `dispatchString` first,
-since they are the ones every INT case pays.
-
-**Note on the file-size intuition:** `Main.scala` is the largest file in the repository (8467 lines)
-and has **no** over-limit method. Size of file is not the signal; size of method is. An earlier plan
-to split `Main.scala` first would have spent a day on the wrong target.
-
 ## bench-jvm-js-lanes-dead-silently — two whole benchmark columns were unmeasurable, and printed `n/a`
 <!-- status: fixed
      lane: js

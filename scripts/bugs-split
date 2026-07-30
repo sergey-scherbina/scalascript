@@ -17,28 +17,55 @@ one file, and the gate then enforces that slugs stay unique across all of them.
 import argparse, collections, pathlib, re, sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+MODULES_TSV = ROOT / "tests/fixtures/modules.tsv"
 
-LANE_MODULE = {
-    "int":      "v1/runtime/backend/interpreter",
-    "js":       "v1/runtime/backend/js",
-    "jvm":      "v1/runtime/backend/jvm",
-    "native":   "v2",
-    "v2-jvm":   "v2",
-    "v2-rust":  "v2",
-}
 # `multi` / `n/a` / anything unrecognised stays at the root: the root is the nearest common
 # ancestor of more than one module, not a leftovers bin.
 ROOT_MODULE = "."
 
-HEADER_TITLES = {
-    "v1/runtime/backend/interpreter": "Interpreter (`int` lane) — bugs",
-    "v1/runtime/backend/js":          "JS backend (`js` lane) — bugs",
-    "v1/runtime/backend/jvm":         "JVM backend (`jvm` lane) — bugs",
-    "v2":                             "v2 — the self-hosted compiler — bugs",
-    "tests":                          "Test harness — bugs",
-    "tests/conformance":              "Conformance corpus and its freeze — bugs",
-    "scripts":                        "Build, CI and coordination tooling — bugs",
-}
+
+def load_modules():
+    """(lane -> module, module -> title), read from tests/fixtures/modules.tsv.
+
+    Read, not hardcoded: this list previously existed in three places (here, work-split, and TWICE
+    in specs/work-tracking-layout.md) with nothing checking they agreed."""
+    lane_module, titles = {}, {}
+    for line in MODULES_TSV.read_text().split("\n"):
+        if not line.strip() or line.startswith("#"):
+            continue
+        mod, lanes, title = (line.split("\t") + ["", ""])[:3]
+        titles[mod] = title
+        if lanes and lanes != "-":
+            for lane in lanes.split(","):
+                lane_module[lane.strip()] = mod
+    return lane_module, titles
+
+
+LANE_MODULE, MODULE_TITLES = load_modules()
+HEADER_TITLES = {m: f"{t} — bugs" for m, t in MODULE_TITLES.items() if t}
+
+
+def check_table():
+    """The table must describe reality, or it is just a second opinion.
+
+    Two ways it can rot, both checked here rather than discovered later: a module listed but no
+    longer on disk, and a module carrying a BUGS.md that the table has never heard of. The second is
+    the one that bites — an unlisted module is invisible to `mod:` validation and to every consumer
+    of this table, while its file sits there looking tracked."""
+    problems = []
+    for mod in MODULE_TITLES:
+        if mod != ROOT_MODULE and not (ROOT / mod).is_dir():
+            problems.append(f"listed but not a directory: {mod}")
+    for f in ROOT.glob("**/BUGS.md"):
+        if any(part in {"target", ".git", "node_modules", ".scala-build"} for part in f.parts):
+            continue
+        rel = f.relative_to(ROOT).parent
+        if any((ROOT / pathlib.Path(*rel.parts[:i + 1])).is_symlink() for i in range(len(rel.parts))):
+            continue
+        mod = rel.as_posix() or ROOT_MODULE
+        if mod not in MODULE_TITLES:
+            problems.append(f"has {f.relative_to(ROOT)} but is not in modules.tsv: {mod}")
+    return problems
 
 
 def module_for(lane: str, area: str) -> str:
@@ -86,6 +113,13 @@ def main():
     a = ap.parse_args()
     if not (a.dry_run or a.apply):
         print("pick --dry-run or --apply", file=sys.stderr)
+        return 2
+
+    bad = check_table()
+    if bad:
+        print("REFUSING: tests/fixtures/modules.tsv disagrees with the tree:", file=sys.stderr)
+        for b in bad:
+            print(f"  {b}", file=sys.stderr)
         return 2
 
     src = pathlib.Path(a.file)

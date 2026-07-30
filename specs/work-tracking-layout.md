@@ -22,19 +22,19 @@ Measured 2026-07-30, before the split: `BUGS.md` held **630 entries** in one fil
 ## Layout
 
 ```
-BUGS.md                                          cross-module only + how to query
-BACKLOG.md                                       cross-module only
-SPRINT.md                                        THE BOARD — only what is selected for work
-v1/runtime/backend/interpreter/{BUGS,BACKLOG,SPRINT}.md
-v1/runtime/backend/js/{BUGS,BACKLOG,SPRINT}.md
-v1/runtime/backend/jvm/{BUGS,BACKLOG,SPRINT}.md
-v1/lang/{BUGS,BACKLOG,SPRINT}.md
-v2/{BUGS,BACKLOG,SPRINT}.md
-tests/{BUGS,BACKLOG,SPRINT}.md                   the harness itself
-tests/conformance/{BUGS,BACKLOG,SPRINT}.md       the corpus and its freeze
-scripts/{BUGS,BACKLOG,SPRINT}.md                 build, CI, coordination tooling
-std/{BUGS,BACKLOG,SPRINT}.md
+<module>/BUGS.md        defects whose FIX goes in that module
+<module>/SPRINT.md      that module's queue — [~] in progress, [x] done
+<module>/BACKLOG.md     that module's can-wait work
+BUGS.md · BACKLOG.md    cross-module only
+SPRINT.md               THE BOARD — only what is selected for work
 ```
+
+**The module list itself is [`tests/fixtures/modules.tsv`](../tests/fixtures/modules.tsv), not this
+file.** It is the single machine-readable source: `scripts/bugs-split` and `scripts/work-split` read
+it, `bugs-split --dry-run` refuses when it disagrees with the tree (a module listed but absent, or a
+module with a `BUGS.md` the table has never heard of), and `coord-claim` can validate `mod:` scopes
+against it. It used to live here in prose — twice, in two different shapes, with nothing checking
+they agreed, which is the duplicated-state failure this repo has paid for repeatedly.
 
 **A file exists only where there is something in it.** Creating empty files per module would
 manufacture the impression of coverage; `scripts/bugs-report` walks whatever exists.
@@ -46,18 +46,21 @@ distinction is the whole difficulty: measured on the 630 entries, routing by "mo
 mentioned path" sent everything to `tests/conformance` because an entry names its *gate*, and 109
 entries mention a conformance case while only a handful are defects *in* the corpus.
 
-So routing uses the `lane:` header — the field that says which implementation misbehaves:
+So routing uses the `lane:` header — the field that says which implementation misbehaves — and the
+lane-to-module mapping is a column in `modules.tsv`. `apparatus` is the one lane that needs `area:`
+too (`conformance` → `tests/conformance`, `build` → `scripts`, everything else → `tests`); that
+exception lives in `scripts/bugs-split` because a table of lanes cannot express it.
 
-| `lane:` | module |
-|---|---|
-| `int` | `v1/runtime/backend/interpreter/` |
-| `js` | `v1/runtime/backend/js/` |
-| `jvm` | `v1/runtime/backend/jvm/` |
-| `native`, `v2`, `v2-jvm`, `v2-rust` | `v2/` |
-| `apparatus` + `area: conformance` | `tests/conformance/` |
-| `apparatus` + `area: build` | `scripts/` |
-| `apparatus` (rest) | `tests/` |
-| `multi`, `n/a` | root — see below |
+**Authority order when the signals disagree**, strongest first — proposed by `board-ownership-fixed-in`
+and adopted:
+
+1. **`fixed-in:`** resolving to a commit that touched sources — a fact. Measured 2026-07-30: 216 of
+   391 entries with the field resolve that way.
+2. **`lane:` as declared by a human** — a judgement, and good enough.
+3. **Keyword extraction — never.** It is how today's values were produced, and it put **4 entries
+   with the wrong owner**: two v2-front defects filed under the interpreter, a JIT defect under the
+   JS backend, and a v2 lane defect under the JVM backend. Every one had been routed by where the
+   symptom SURFACED. Fixed 2026-07-30.
 
 **`multi` stays at the root, and that is not a dumping ground.** An entry is `multi` when the same
 defect is present in more than one implementation, so no single module can own it; the root is the

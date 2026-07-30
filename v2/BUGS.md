@@ -7,6 +7,170 @@ grepping for status.
 
 Newest first.
 
+## v2-lanes-cannot-run-four-corpus-workloads — float globals unbound, indexed array store not a function
+<!-- status: open
+     lane: native
+     area: codegen -->
+
+**Status:** OPEN (found 2026-07-28 by `bench-tier-dead-lanes` while building the first full
+cross-backend table since the v2 work; filed, not fixed).
+
+BOTH v2 lanes — the VM and the DEFAULT bytecode lane — fail outright on **4 of 33** bench-corpus
+workloads. They had been printing `n/a`, i.e. reading as "unsupported", because the v2 lanes
+swallowed their exception unless `SSC_BENCH_DEBUG` was set. That is now unconditional, so:
+
+| workload | failure (both `v2` and `v2-bytecode`) |
+|---|---|
+| `float-loop` | `RuntimeException: unbound global: d` |
+| `float-fold` | `RuntimeException: unbound global: d` |
+| `pattern-match-heavy` | `RuntimeException: unbound global: d` |
+| `array-update` | `RuntimeException: app: not a function: 0` |
+
+Two causes, not four: three float-heavy workloads share one unbound global `d`, and the fourth is
+an indexed array store.
+
+**Reproduce:**
+
+```bash
+bin/ssc-tools --backend v2-bytecode bench --machine --reps 3 bench/corpus/float-loop.ssc
+bin/ssc-tools --backend v2-bytecode bench --machine --reps 3 bench/corpus/array-update.ssc
+```
+
+**Why it matters beyond the benchmark:** these are ordinary programs — a float accumulation loop and
+an in-place `Array` update. `pattern-match-heavy` in particular is one of the four rows the v2
+production-route policy in `BACKLOG.md` was decided on, and it cannot currently run on either v2
+lane at all.
+
+## v2-front-drops-float-literal-suffix — `0d` / `1.5f` lex the suffix as an identifier
+<!-- status: open
+     lane: native
+     area: front -->
+
+**Status:** OPEN — **diagnosed here, handed over deliberately**. The fix belongs in
+`v2/lib/ssc1-front.ssc0`, which is held by the live `v2-front-for-yield` claim (its heartbeat reads
+stale but triage found a worktree and running processes, and its own last claim-update widened it
+to exactly that file). Found 2026-07-28 by `v2-backend-matrix-gaps`.
+
+**Reproduce** — two lines:
+
+```scalascript
+var x: Double = 0d
+println(x)
+```
+
+| lane | result |
+|---|---|
+| INT (`ssc-tools run --v1`) | `0` |
+| JS (`ssc-tools run-js`) | `0` |
+| **v2** (`ssc run --v2`) | **`ssc: unbound global: d`** |
+| v2, `SSC_FRONT=legacy` | same — so this is BOTH self-hosted fronts |
+
+`1.5f` fails the same way with `unbound global: f`. `10L` works.
+
+**Root cause, located.** `v2/lib/ssc1-front.ssc0`, the numeric-literal branch of `lexFrom`. It
+strips a trailing `L`/`l` on both the hex and decimal paths — with a comment that says exactly why:
+*"strip a trailing Long suffix L/l … without this the `L` lexed as a separate id → `unbound global:
+L`"*. `d`/`D`/`f`/`F` were never given the same treatment, so the digits lex as a number and the
+suffix lexes as an identifier.
+
+**Fix shape** (for whoever holds the file): mirror the `L` handling at the three emission points of
+that branch — the dot-float, the exponent-float, and the integer path — consuming a trailing
+`d`(100)/`D`(68)/`f`(102)/`F`(70) and, on the integer path, emitting a **`float`** token rather than
+an `int` one, since `0d` is a Double. Guard it with "the character after the suffix is not
+alphanumeric" so `0dx` does not silently lex as `0d` + `x`.
+
+**Impact, measured.** It is not just a literal-syntax gap: it took **three of 33 bench-corpus
+workloads out of the matrix as "v2 cannot run this"** — `float-loop`, `float-fold` and
+`pattern-match-heavy` — because the generated bench wrapper declared its Double sink as `0d`. The
+programs themselves run on v2 perfectly well. The wrapper has been changed to `0.0` so the matrix
+measures the backend rather than the parser, but the language gap is real and still open.
+
+## v2-array-indexed-store-silently-dropped — `a(i) = v` is parsed away, and the answer is wrong
+<!-- status: open
+     lane: native
+     area: front -->
+
+**HALF FIXED 2026-07-29 (`v2-backend-matrix-gaps`). The DEFAULT front still has it — do not close.**
+
+| front | `Array(0,0); a(1)=7; println(a(1))` |
+|---|---|
+| `SSC_FRONT=legacy` | **7** — fixed |
+| `SSC_FRONT=F` (the DEFAULT) | **0** — still silently dropped |
+
+Fixed on the legacy path by adding the `app` arm to `finishAssignment` in
+`v2/lib/ssc1-front.ssc0`, beside the existing `var` and `sel` arms — that is the one place every
+route into assignment parsing passes through — plus the `ForeignV(ArrayBuffer)` `update` arm in
+`Prims` that the lowering now reaches. Both halves were required; the runtime arm alone had been
+written and reverted earlier precisely because it was unreachable.
+
+**Why F is not fixed here, and exactly where it is.** F is a separate self-hosted parser
+(`specs/v2.2-p6.5-fsub.ssc`, staged as `tower/bin/fsub.ssc`) with its own, narrower rule:
+
+```
+def isAssignHead(ts) = if fst(hd(ts)) == 1 then isAssignOp(hd(tl(ts))) else false   // :1156
+```
+
+It requires the FIRST token to be an identifier and the SECOND to be `=`. For `a(1) = 7` the second
+token is `(`, so the statement is not an assignment head at all; it falls to `parseExpr`, which
+stops at `=` and drops the rest. Same defect, different code, and it needs a postfix-then-`=` path
+rather than a two-token peek. F emits S-expression strings (a method call is
+`(app (global _sel_<name>) recv args…)`), so the arm must be built where the receiver and index
+arguments are still separate values, not recovered from an already-emitted string.
+
+**This is the "fix BOTH fronts or it is a half-fix" shape** that `project_two_front_bug_pairs_0728`
+records — met live: the legacy fix looked complete and correct, and the default front was still
+wrong.
+
+
+**Status:** OPEN — **diagnosed here, handed over deliberately** (the fix is in
+`v2/lib/ssc1-front.ssc0`, held by the live `v2-front-for-yield` claim). Found 2026-07-28 by
+`v2-backend-matrix-gaps` while clearing category 1 of `specs/v2-vs-v1-backend-matrix.md`.
+
+**This is a CORRECTNESS bug, not a performance one.** It produces a wrong answer with no
+diagnostic on either v2 lane.
+
+```scalascript
+val a = Array(0, 0)
+a(1) = 7
+println(a(1))
+```
+
+| lane | result |
+|---|---|
+| INT (`ssc-tools run --v1`) | `7` |
+| JS (`ssc-tools run-js`) | `7` |
+| **v2** (`ssc run --v2`, and `--interpret`) | **`0`** — the store is discarded, exit 0, no message |
+
+Control: a plain `var x = …` reassignment works correctly on v2, so this is specifically an
+**indexed** store.
+
+**Root cause, located.** `v2/lib/ssc1-front.ssc0`, `parseExprOrAssign`:
+
+```
+let re = parseExpr(toks) in
+if kindIs("=", prT(re)) then
+  match prV(re) {
+    case Pair(ltag, ldata) =>
+      if #seq(ltag, "var") then  ... emit assign ...
+      else pr(mkSExpr(prV(re)), prT(re))     -- ← anything else: the `= rhs` is DROPPED
+  }
+```
+
+Only a bare `var` is accepted as an assignment target. For `a(1) = 7` the left side parses as an
+application, falls into the `else`, and the parser returns just that expression — the `= 7` is
+never consumed and never lowered. Nothing reports it.
+
+**Fix shape** (for whoever holds the file): accept an application on the left of `=` and lower it
+the way Scala defines it — `a(i) = v` is `a.update(i, v)`. **Both halves are needed**: the v2
+runtime dispatch has no `update` arm for `ForeignV(ArrayBuffer)` either (it has `length`,
+`isEmpty`, `nonEmpty`, `toList`, `foldLeft`, `map`, `foreach` and no store), so the front change
+alone will turn a silent wrong answer into a silent no-op. A runtime arm was written and reverted
+here precisely because it is unreachable until the front stops discarding the statement — landing
+it alone would have looked like a fix while changing nothing.
+
+**Impact:** `bench/corpus/array-update` cannot be measured on either v2 lane, and any `.ssc`
+program that writes into an array is silently wrong on the default lane.
+
 ## v2-char-is-an-int — a Char literal IS its code point on the v2 lane, in `println`, `toString` and concatenation
 <!-- status: open
      lane: native

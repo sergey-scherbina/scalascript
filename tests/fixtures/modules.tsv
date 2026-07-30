@@ -1,0 +1,36 @@
+# modules-v1	the module list, machine-readable
+#
+# THE source of module identity. A module is a DIRECTORY: it holds the boards
+# (BUGS.md / SPRINT.md / BACKLOG.md), it is what `mod:` scopes in a claim, and it is what the gates
+# attach to. Prose descriptions of this list belong in specs/work-tracking-layout.md and must not
+# re-state the rows — the list lived there twice (a Layout section and a routing table) with no
+# consistency check between them, which is the duplicated-state shape that has burned this repo
+# repeatedly.
+#
+# Columns: module<TAB>lanes<TAB>title
+#   module  repo-relative directory. MUST exist. `.` is the root: entries no single module owns.
+#   lanes   comma-separated `lane:` values routed here, or `-` for the root/catch-all.
+#   title   human name used in generated file headers.
+#
+# Routing an entry: by its `lane:` field, never by paths mentioned in its prose. Measured
+# 2026-07-30 on 630 entries — ranking mentioned paths sends nearly everything to `tests/conformance`,
+# because an entry names its GATE far more often than its cause. Authority order, strongest first:
+#   1. `fixed-in:` resolving to a commit that touched sources   (fact)
+#   2. `lane:` as declared by a human                            (judgement)
+#   3. keyword extraction                                        (never — it produced 4 wrong owners)
+#
+# `apparatus` is split by `area:` and cannot be expressed as a lane alone; that one exception is in
+# scripts/bugs-split (conformance -> tests/conformance, build -> scripts, rest -> tests).
+#
+v1/lang	-	v1 language core
+v1/runtime/backend/interpreter	int	Interpreter (`int` lane)
+v1/runtime/backend/js	js	JS backend (`js` lane)
+v1/runtime/backend/jvm	jvm	JVM backend (`jvm` lane)
+v2	native,v2-jvm,v2-rust	v2 — the self-hosted compiler
+tests	apparatus	Test harness
+tests/conformance	-	Conformance corpus and its freeze
+scripts	-	Build, CI and coordination tooling
+scljet	-	SclJet
+uniml	-	UniML
+payments	-	Payments, wallet and chain SPI
+.	multi,n/a	Cross-module — no single module owns these
