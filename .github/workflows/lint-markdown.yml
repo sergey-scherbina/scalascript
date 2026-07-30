@@ -71,4 +71,7 @@ jobs:
       # Byte-identical to the `ci.yml` step, on purpose: the two triggers must not be able to
       # disagree about what "lint passes" means.
       - name: Lint Markdown
-        run: markdownlint '**/*.md' --ignore node_modules
+        run: markdownlint '**/*.md' --ignore '**/node_modules/**'   # NOT `node_modules`: that only
+          # matches a top-level one, so the same command run locally reports dozens of errors from
+          # payments/**/node_modules that CI never sees. A lint an agent cannot reproduce locally
+          # is a lint they learn to ignore.

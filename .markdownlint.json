@@ -30,5 +30,7 @@
   "MD051": false,
   "MD056": false,
   "MD058": false,
-  "MD060": false
+  "MD060": false,
+  "_comment_MD010": "tabs are FORBIDDEN in prose and LEGAL in code fences — a TSV row, a Makefile, Go source. Twice on 2026-07-30 CI went red on a pasted baseline row inside a ``` fence (SPRINT.md, then tests/conformance/BUGS.md); the second time the paste was correct and the rule was wrong.",
+  "MD010": { "code_blocks": false }
 }
