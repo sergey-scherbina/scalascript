@@ -1,7 +1,5 @@
-# generation: 415
+# generation: 417
 #slug	agent	started	items	paths
-json-number-policy-js-jvm-lanes	claude-code	2026-07-30T08:30:02Z	json-number-policy-js-and-jvm-lanes-still-lossy	file:v1/runtime/http-server/jvm/src/main/scala/scalascript/server/jvm/RestRuntime.scala file:v1/runtime/http-server/jvm/src/test/scala/scalascript/server/jvm/JsonTest.scala file:specs/json-number-policy.md file:tests/conformance/expected/json-read.txt
-jvm-lane-never-calls-main	claude-code	2026-07-30T08:47:02Z	jvm-lane-never-calls-def-main-exits-0-with-no-output	file:v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGen.scala
 lint-md-config-and-tabs	claude-code	2026-07-30T09:18:59Z	lint-markdown-red-on-tsv-in-code-fence lint-ignore-misses-nested-node-modules	file:.markdownlint.json file:.github/workflows/ci.yml file:.github/workflows/lint-markdown.yml
 js-ext-module-scope	claude-code	2026-07-30T10:25:25Z	js-imported-extension-method-not-dispatched	file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:v1/runtime/backend/js/BUGS.md
 front-unit-literal-pattern	claude-code	2026-07-30T11:04:54Z	unit-literal-pattern-diverges-two-lanes-against-two	file:specs/v2.2-p6.5-fsub.ssc file:v2/lib/ssc1-front.ssc0 file:tests/conformance/unit-literal-pattern.ssc file:tests/conformance/expected/unit-literal-pattern.txt file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv file:v2/BUGS.md
