@@ -139,13 +139,43 @@ guards that can match anything. **Guarding those two was implemented, measured a
 REVERTED** (see "Refuted"). Kind-indexed dispatch over the mixed parts is the remaining idea; the
 census is its prerequisite and is preserved in `v2/BACKLOG.md v2m-2f`.
 
-### v2-perf-6 · Collections, strings, predicates — the remaining ≥10× rows
-`lazylist-take` 395× · `list-fold` 146× · `range-sum` 113× · `map-ops` 28× · `hof-pipeline` 27× ·
-`bool-predicate` 25× · `literal-match` 18× · `string-concat` 12×.
+### v2-perf-6 · The collection + per-element-closure cluster — the next real target
 
-`lazylist-take`'s profile is 833 samples inside Scala's own `LazyList` — inherent to backing the
-type that way. `list-fold`'s `foreach` already walks the cons chain in place; there is no
-materialisation left to remove there.
+**Re-derived 2026-07-30 from the full sweep** (33 rows in `bench/history.tsv`, load 35 — ratios are
+compressed, compare within that sweep). Sorted, the cluster is most of the top of the table:
+
+`lazylist-take` 566× · `effect-stream` 303× · `range-sum` 144× · `pattern-match-heavy` 130× ·
+`list-fold` 115× · `float-fold` 72× · `array-update` 55× · `vector-index` 47× · `hof-pipeline` 28×
+
+**These are one cluster, and the twin that isolates it is `list-fold` against `arith-loop`.** Same
+arithmetic, different iteration shape — `xs.foreach(x => { sum = sum + x })` versus a raw `while`:
+
+    list-fold  per element   v2  18.4 ns    ssc  0.16 ns
+    arith-loop per iteration v2   1.0 ns    ssc  0.39 ns
+    ------------------------------------------------------
+    the foreach + closure machinery costs v2 ~17 ns PER ELEMENT on top of the arithmetic
+
+That is the number to attack, and it is why the numeric-tier fix did not rescue `float-fold`: its
+cell is fixed now, its 72× residue is this. `range-sum` is the same story through
+`(0 until 50).map(…).foldLeft(…)`.
+
+**What is already known and must not be redone:** `foreach` walks the cons chain in place (landed,
+1.3×); the per-match field array is gone (1.20×); the `__method__` split is JIT-compilable (2.4–10.8×).
+The remaining 17 ns is *per closure invocation* — a profile in the earlier round put `Value[]` at
+**1507 samples**, an env array allocated per call in `Runtime.extend`.
+
+**Before starting, decide which of these it is** — they need different fixes and the profile
+distinguishes them:
+1. env array allocation per closure call → reuse/stack-allocate the frame;
+2. generic dispatch at the call site → inline caching;
+3. boxing of the element → a typed element path, the collection twin of what `dcell` just did.
+
+**Expected size:** if (1) dominates, the arithmetic floor says the ceiling is roughly 18 → 2 ns,
+i.e. ~9× on `list-fold` and its family. **Disqualifying evidence:** a profile where `Value[]`/
+`extend` is not the top allocation site — then it is (2) or (3) and this estimate is void.
+
+**Do not start from the profile's biggest frame.** Twice on this project a fat frame did not pay
+out by its weight (28% → 20%, 25% → nothing). Pick by the twin comparison above, then confirm.
 
 ### v2-perf-7 · Category 3 has never been analysed
 `tuple-monoid` 9.1× · `type-lambda-placeholder` 8.8× · `instance-field` 7.5× · `either-chain` 6.9× ·
