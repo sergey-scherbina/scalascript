@@ -46,6 +46,40 @@ and disagree with Scala", the class that is invisible to every differential gate
 lane answers `UNIT`. The conformance case carried the same wrong table for one edit and was corrected
 from the same run. **A lane count taken over four lanes is not a lane count.**
 
+**ROOT CAUSE FOUND 2026-07-30 — the arm is not mismatched, it is SILENTLY DROPPED.** Lowering the
+repro through the trusted reference front (`java -jar <run-ir jar> run bin/ssc1-run.ssc0 <file>`)
+gives:
+
+```
+(def viaLiteral (lam 1 (let ((local 0)) (lit (str "OTHER")))))
+```
+
+No test, no arms — the whole `match` collapsed into "bind the scrutinee, return the default". So
+`case () => "UNIT"` is not failing to match; the front never emits it. `()` in a PATTERN position
+goes to the empty-tuple path and disappears.
+
+**The mechanism to lower it into already exists**, which is the useful half. An int-literal arm
+lowers to a plain equality:
+
+```
+case 5 => "FIVE"   ->   (if (prim __eq__ (local 0) (lit (int 5))) (lit (str "FIVE")) <rest>)
+```
+
+and `(lit unit)` is already how both fronts emit the unit VALUE. So the target is
+`(if (prim __eq__ (local 0) (lit unit)) <body> <rest>)`, reachable through F's existing ordered
+resolver: `parsePatAtom1` should return `("lpat", ("unit", ""))` for `(` immediately followed by `)`,
+and `litPatF` needs one arm mapping `"unit"` to `"(lit unit)"`.
+
+**ATTEMPTED AND REVERTED, so the next attempt starts past this.** Those two edits alone change
+nothing, because `parseMatchArms` decides between the ordered resolver and the ctor path BEFORE the
+pattern is parsed, and a `(` head falls through to `parseCtorMatch` → `parseTupArm` — the path that
+drops the arm. Adding a `isUnitPatHead` test to `parseMatchArms` and `caseLamIsGen` routes it to the
+ordered resolver, and then the probe printed **`0 0 0`** instead of `UNIT OTHER OTHER`: the ordered
+resolver mis-lowers something in this shape, so the routing predicate or the resolver's handling of a
+unit lpat needs work that I did not finish. Reverted rather than shipped — a regression that turns
+strings into `0` is worse than the wrong answer it replaces. `case Some(v)` / `case None` were
+verified unaffected before and after the revert.
+
 **Not fixed here, deliberately.** The v2 JS change was scoped to a crash and a missing type-test arm,
 both of which make that lane agree with the lane it mirrors. Making `case ()` HOLD is a change to
 pattern lowering on `int` and on the native front, it moves goldens, and it deserves its own A/B.
