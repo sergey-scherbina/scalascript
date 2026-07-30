@@ -1,0 +1,11 @@
+slug: board-claim-parity
+branch: feature/board-claim-parity
+agent: claude-code
+started: 2026-07-30T07:18:39Z
+heartbeat: 2026-07-30T07:18:39Z
+status: claimed-before-planning
+items: board-row-not-written-by-tool board-claim-parity-gate coord-release-tool
+paths: file:scripts/coord-claim file:scripts/coord-release file:tests/coord/board-claim-parity.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
