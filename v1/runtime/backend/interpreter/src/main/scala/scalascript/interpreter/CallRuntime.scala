@@ -297,6 +297,79 @@ private[interpreter] object CallRuntime:
       case a :: Nil => callValue2(fn, recv, a, env, interp)
       case _        => callValue(fn, recv :: args, env, interp)
 
+  /** The user-level `FunV` a `recv.name(...)` call will end up invoking, or `null`.
+   *
+   *  Mirrors the two lookups `DispatchRuntime.dispatchInstanceFallback` makes, in the same order:
+   *  an object's members are FIELDS of its `InstanceV` (`StatRuntime`'s `Defn.Object` case), while
+   *  a class's methods live in `interp.typeMethods`. Used to recover the PARAMETER NAMES that the
+   *  positional `dispatch*` signature cannot carry. */
+  def methodFunFor(recv: Value, name: String, interp: Interpreter): Value.FunV =
+    recv match
+      case inst: Value.InstanceV =>
+        inst.effectiveFields.getOrElse(name, null) match
+          case f: Value.FunV => f
+          case _             => interp.typeMethods.get(inst.typeName).flatMap(_.get(name)).orNull
+      case _ => null
+
+  /** Reorder `namedArgs` into a COMPLETE positional list for `f`, filling omitted params from
+   *  their defaults — or `null` when that cannot be done faithfully.
+   *
+   *  Why reorder instead of calling `f` directly: the receiver still has to go through
+   *  `DispatchRuntime`, which is what binds an instance's fields inside a class-method body. This
+   *  fixes the ORDER and leaves the invocation exactly where it was.
+   *
+   *  Returns `null` — caller keeps its existing positional behaviour rather than guessing — for
+   *  `using` params, varargs, an unknown argument name, more positionals than free slots, or a
+   *  required param left unfilled.
+   *
+   *  Defaults are evaluated in `closureWithSelfFor(f)` PLUS `recvFields` plus the params already
+   *  bound. The receiver's fields matter: a class method may default a param to a field
+   *  (`def shift(dx: Int = x)`), and that name only exists because `DispatchRuntime` binds the
+   *  instance's fields around the body. Without them this both crashed on a shape that merely
+   *  returned a wrong number before, and could not produce the right answer for it. Any failure to
+   *  evaluate a default falls back to `null` rather than raising here — a genuinely broken default
+   *  still raises from the ordinary positional path, so nothing is swallowed. */
+  def positionalizeNamed(
+      f: Value.FunV,
+      namedArgs: List[(Option[String], Value)],
+      recvFields: Map[String, Value],
+      interp: Interpreter
+  ): List[Value] =
+    val n = f.params.length
+    if f.usingParams.nonEmpty || namedArgs.length > n || n == 0 then return null
+    if isVarargParam(f.paramTypes, n - 1) then return null
+    if namedArgs.exists { case (Some(nm), _) => !f.params.contains(nm); case _ => false } then return null
+    val slots = Array.ofDim[Value](n)
+    namedArgs.foreach {
+      case (Some(nm), v) =>
+        val i = f.params.indexOf(nm)
+        if i >= 0 then slots(i) = v
+      case _ => ()
+    }
+    val posIter = namedArgs.iterator.collect { case (None, v) => v }
+    var i = 0
+    while i < n do
+      if slots(i) == null && posIter.hasNext then slots(i) = posIter.next()
+      i += 1
+    if posIter.hasNext then return null
+    var env2: Map[String, Value] =
+      if recvFields.isEmpty then interp.closureWithSelfFor(f)
+      else interp.closureWithSelfFor(f) ++ recvFields
+    val out = Array.ofDim[Value](n)
+    i = 0
+    while i < n do
+      val sv = slots(i)
+      if sv != null then out(i) = sv
+      else
+        (if i < f.defaults.length then f.defaults(i) else None) match
+          case Some(defaultTerm) =>
+            try out(i) = Computation.run(interp.eval(defaultTerm, env2))
+            catch case _: Throwable => return null
+          case None => return null
+      env2 = FrameMap.one(f.params(i), out(i), env2)
+      i += 1
+    out.toList
+
   def callValueNamed(fn: Value, namedArgs: List[(Option[String], Value)], env: Env, interp: Interpreter): Computation =
     fn match
       case f: Value.FunV =>

@@ -21,7 +21,6 @@ crypto-verify-demo	js	FAIL
 dataset-typed-mapping	js	FAIL
 dataset-typed-mapping	v2	FAIL
 datatable-static-spa	*	SKIP
-deploy	v2	FAIL
 derived-route-clients	*	SKIP
 distributed-dataset-codec	js	FAIL
 distributed-dataset-codec	v2	FAIL

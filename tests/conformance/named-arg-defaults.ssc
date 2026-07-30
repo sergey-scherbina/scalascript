@@ -18,17 +18,27 @@ name a middle parameter, name the last, name the first, name two, name two **out
 the two shapes that always worked (no named args at all, and a fully positional call) as the guard
 that the ordinary paths were not disturbed.
 
-Object-method named args (`O.m(1, c = 9)`) are deliberately **absent**: the v1 interpreter — which
-is this suite's `int` golden — binds them to the wrong parameter too, so pinning the correct answer
-here would make the case red for the golden's own defect rather than for the compilers'. That
-divergence is filed separately as `v1-interp-object-method-named-arg-wrong-slot`, and the shape is
-covered against the self-hosted oracle in `specs/v2.2-p6.5-fsub.sh` (`narg_objm`).
+Object-method named args (`O.m(1, c = 9)`) were deliberately absent when this case was written: the
+v1 interpreter — this suite's `int` golden — bound them to the wrong parameter too, so pinning the
+correct answer would have made the case red for the golden's own defect rather than for the
+compilers'. **That is fixed** (`v1-interp-object-method-named-arg-wrong-slot`), so the shape is
+covered here now, which is what the fix was for — the `dispatch*` signature is positional, so the
+method-call path had been dropping the label and letting the value fall into the first defaulted
+slot.
+
+Class-method named args are still absent, and for the same reason one lane at a time: `K().m(1,
+c = 9)` gives `NaN` on the JS lane, and a default that reads a field (`def shift(dx: Int = x)`)
+gives `6/NaN`. Filed as `js-class-method-named-arg-nan`. Adding those lines here would pin a
+divergence rather than a behaviour.
 
 ```scalascript
 def f(a: String, b: String = "B0", c: String = "C0", d: String = "D0"): String =
   "b=" + b + " c=" + c + " d=" + d
 
 case class P(x: Int, y: Int = 2, z: Int = 3)
+
+object O:
+  def m(a: Int, b: Int = 5, c: Int = 7): Int = a + b * 10 + c * 100
 
 println(f("x", c = "C1"))
 println(f("x", d = "D1"))
@@ -40,4 +50,11 @@ println(f("x", "B2", "C2", "D2"))
 println(P(1, z = 9).y)
 println(P(1, z = 9).z)
 println(P(1).z)
+println(O.m(1, c = 9))
+println(O.m(1, b = 2))
+println(O.m(a = 1, c = 9))
+println(O.m(c = 9, a = 1))
+println(O.m(1))
+println(O.m(1, 2, 3))
+println(O.m(1, b = 2, c = 3))
 ```

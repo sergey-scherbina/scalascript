@@ -4740,7 +4740,34 @@ private[interpreter] object EvalRuntime:
           // Named args (Term.Assign) must evaluate only the RHS; the full
           // Term.Assign path at line 2338 treats them as var-assignments and
           // returns UnitV, destroying the actual value.
-          if argTerms.isEmpty then
+          //
+          // …and the RHS alone is not enough: `dispatch*` takes a POSITIONAL list, so dropping the
+          // name here bound `O.m(1, c = 9)` as `b = 9` — the value landed in the first defaulted
+          // slot. A plain `def` never had this because it goes through `callValueNamed`. Recover
+          // the parameter names from the target `FunV` and reorder before dispatching; when the
+          // shape is anything `positionalizeNamed` will not commit to (varargs, `using`, an unknown
+          // name, a receiver with no user-level method) it returns null and we dispatch exactly as
+          // before. (v1-interp-object-method-named-arg-wrong-slot.)
+          val hasNamedArg = argTerms.exists(_.isInstanceOf[Term.Assign])
+          if hasNamedArg then
+            val namedComps = argTerms.map {
+              case Term.Assign(Term.Name(n), rhs) => (Some(n), eval(rhs, env, interp))
+              case other                          => (None,    eval(other, env, interp))
+            }
+            FlatMap(qualC, qualV =>
+              interp.threadValues(namedComps.map(_._2)) { argVals =>
+                val fn         = CallRuntime.methodFunFor(qualV, method, interp)
+                val recvFields = qualV match
+                  case inst: Value.InstanceV => inst.effectiveFields
+                  case _                     => Map.empty[String, Value]
+                val reordered  =
+                  if fn == null then null
+                  else CallRuntime.positionalizeNamed(
+                    fn, namedComps.map(_._1).zip(argVals), recvFields, interp)
+                DispatchRuntime.dispatch(qualV, method,
+                  if reordered != null then reordered else argVals, env, interp)
+              })
+          else if argTerms.isEmpty then
             qualC match
               case Pure(qualV) => DispatchRuntime.dispatch(qualV, method, Nil, env, interp)
               case _           => FlatMap(qualC, qualV => DispatchRuntime.dispatch(qualV, method, Nil, env, interp))
