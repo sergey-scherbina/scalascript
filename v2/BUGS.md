@@ -141,17 +141,23 @@ workloads out of the matrix as "v2 cannot run this"** — `float-loop`, `float-f
 programs themselves run on v2 perfectly well. The wrapper has been changed to `0.0` so the matrix
 measures the backend rather than the parser, but the language gap is real and still open.
 
-## v2-array-indexed-store-silently-dropped — `a(i) = v` is parsed away, and the answer is wrong
-<!-- status: open
+## v2-array-indexed-store-silently-dropped — `a(i) = v` was parsed away, and the answer was wrong
+<!-- status: fixed
      lane: native
-     area: front -->
+     area: front
+     fixed-in: 693f0f891
+     gate: tests/conformance/array-indexed-store.ssc -->
 
-**HALF FIXED 2026-07-29 (`v2-backend-matrix-gaps`). The DEFAULT front still has it — do not close.**
+**BOTH fronts fixed. Legacy 2026-07-29 (`v2-backend-matrix-gaps`), F — the DEFAULT — 2026-07-30 in
+`693f0f891`.**
 
-| front | `Array(0,0); a(1)=7; println(a(1))` |
-|---|---|
-| `SSC_FRONT=legacy` | **7** — fixed |
-| `SSC_FRONT=F` (the DEFAULT) | **0** — still silently dropped |
+| front | `Array(0,0); a(1)=7; println(a(1))` | before | after |
+|---|---|---|---|
+| `SSC_FRONT=legacy` | | **0** | 7 |
+| `SSC_FRONT=F` (the DEFAULT) | | **0** | 7 |
+
+Fixpoint green (`stage1 == stage2`, 431036 bytes); contract green, 1022/1072 PASS cells, zero
+regressions; the gate passes INT, JS, JVM and V2.
 
 Fixed on the legacy path by adding the `app` arm to `finishAssignment` in
 `v2/lib/ssc1-front.ssc0`, beside the existing `var` and `sel` arms — that is the one place every
@@ -226,6 +232,24 @@ it alone would have looked like a fix while changing nothing.
 
 **Impact:** `bench/corpus/array-update` cannot be measured on either v2 lane, and any `.ssc`
 program that writes into an array is silently wrong on the default lane.
+
+
+**Two defects of my own while fixing F, both indistinguishable from "no patch applied", recorded
+because the next person editing this parser will hit the same two.**
+
+1. `skipToClose` counts depth from AFTER the open paren. Passing the list *including* it makes the
+   scan end one paren late, the branch never fires, and a full build is silent — output identical to
+   not having written the fix. The convention is written down at the only other call site
+   (`isBlockLamHead` passes `tl(ts)`).
+2. In a BLOCK the store must sequence with the rest, exactly as `parseBlockAssign` does. Returning
+   the node alone drops everything after it — but **only for a multi-line `def` body**, because a
+   single-line body goes through `bodyExpr` instead. Two paths, one silent, which is the same shape
+   as this bug.
+
+The second was found by measuring, not reading: the same file with the store REMOVED still worked
+(so the regression was mine), and then three minimal files — `store+println`,
+`store+def+println`, `store+println+def+println` — all passed, which is what pointed at the
+multi-line block. **The first probe alone read as "fixed".**
 
 ## markdown-inline-scanner-duplicated — two inline scanners over the same grammar, one emitting HTML and one emitting nodes
 <!-- status: open
