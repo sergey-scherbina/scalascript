@@ -2,10 +2,10 @@ slug: smoke-launcher-cache
 branch: feature/smoke-launcher-cache
 agent: claude-code
 started: 2026-07-30T20:07:19Z
-heartbeat: 2026-07-30T20:13:05Z
+heartbeat: 2026-07-30T20:17:43Z
 status: claimed-before-planning
 items: smoke-ci-launcher-build-dominates-the-job
-paths: file:scripts/launcher-input-digest file:build.sbt file:scripts/smoke-ci file:.github/workflows/smoke.yml file:tests/e2e/launcher-digest-gate.sh file:scripts/BACKLOG.md file:scripts/SPRINT.md file:scripts/smoke-ci.ssc
+paths: file:scripts/launcher-input-digest file:build.sbt file:scripts/smoke-ci file:.github/workflows/smoke.yml file:tests/e2e/launcher-digest-gate.sh file:scripts/BACKLOG.md file:scripts/SPRINT.md file:scripts/smoke-ci.ssc file:AGENTS.md file:POLICY.md file:README.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: document how to run the smoke suite (POLICY rule + AGENTS mechanics + README), announce in rozum

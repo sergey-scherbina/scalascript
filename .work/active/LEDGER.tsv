@@ -1,6 +1,6 @@
-# generation: 489
+# generation: 490
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
 js-container-type-tests	claude-code	2026-07-30T20:06:07Z	type-ascription-tuple-and-set-arms-missing-js-map	file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGenCpsCodegen.scala file:tests/conformance/type-ascription-map.ssc file:tests/conformance/expected/type-ascription-map.txt file:tests/conformance/type-ascription-set.ssc file:tests/conformance/expected/type-ascription-set.txt file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv file:BUGS.md
 f-ext-operator-name-collection	claude-code	2026-07-30T20:06:20Z	v2-infix-extension-operator-stringifies	file:specs/v2.2-p6.5-fsub.ssc file:v2/BUGS.md
-smoke-launcher-cache	claude-code	2026-07-30T20:07:19Z	smoke-ci-launcher-build-dominates-the-job	file:scripts/launcher-input-digest file:build.sbt file:scripts/smoke-ci file:.github/workflows/smoke.yml file:tests/e2e/launcher-digest-gate.sh file:scripts/BACKLOG.md file:scripts/SPRINT.md file:scripts/smoke-ci.ssc
+smoke-launcher-cache	claude-code	2026-07-30T20:07:19Z	smoke-ci-launcher-build-dominates-the-job	file:scripts/launcher-input-digest file:build.sbt file:scripts/smoke-ci file:.github/workflows/smoke.yml file:tests/e2e/launcher-digest-gate.sh file:scripts/BACKLOG.md file:scripts/SPRINT.md file:scripts/smoke-ci.ssc file:AGENTS.md file:POLICY.md file:README.md
