@@ -1,4 +1,4 @@
 # generation: 475
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
-baseline-record-dsl-mini-language-improvement	claude-code	2026-07-30T13:48:59Z	corpus-baseline-stale-skip-row-for-dsl-mini-language	file:tests/conformance/corpus-baseline.tsv
+baseline-record-dsl-mini-language-improvement	claude-code	2026-07-30T13:48:59Z	corpus-baseline-stale-skip-row-for-dsl-mini-language	file:tests/conformance/corpus-baseline.tsv file:tests/conformance/contract-roster.tsv
