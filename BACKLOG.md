@@ -99,23 +99,28 @@ own arc. None is speculative: every one has a measured number attached.
 
       NOT done here on purpose: that is a policy change to someone else's release gate, and the
       honest call is the owner's, not a passing agent's.
-- [ ] **`negtc-gate-shard-reduce`** — the negative-toolchain gate is **58.1 min of a 75.6-min** CI
-      job (77 %, run 30305919516). Sharding its two sweeps is the right lever and the plumbing is
-      DONE: `scripts/native-front-corpus` and `scripts/bc-parity-sweep` both take `--shard i/N` and
-      `--list`, verified by `tests/e2e/negtc-shard-gate.sh` (214 cases → 54/54/53/53, union
-      byte-identical, both sweeps selecting the same corpus).
+- [~] **`negtc-gate-shard-reduce`** — **gate side DONE 2026-07-30; only the `ci.yml` wiring is left
+      (that file is in another live claim).**
 
-      **What blocks spending the win, and it is not obvious:** after the sweeps the gate runs
-      `v21-sentinel-taxonomy` and `v21-runtime-taxonomy-freeze`, which compare against FROZEN
-      WHOLE-CORPUS counts *by exact equality* (`freeze drift: <metric>=N expected M`). A shard emits a
-      partial TSV, so every metric drifts and the gate goes red for reasons unrelated to the tree.
-      `tests/e2e/v21-negative-toolchain-release-gate.sh` therefore REFUSES `--shard` with that
-      explanation rather than accepting a flag that yields a confident wrong red.
+      The gate now has the two modes the split needs: `--sweeps-only --shard i/N --native-out A
+      --parity-out B` (map: only the sweeps over one slice) and `--reduce --native-in A --parity-in B`
+      (skips the sweeps, runs taxonomy + freeze + assertions + metrics once on merged reports).
+      `scripts/negtc-merge-reports` merges the shards with one header, a refusal on a duplicated case,
+      and sorted rows so the merged bytes do not depend on which shard finished first.
 
-      The remaining work is a map/reduce split: N shard jobs each emitting a partial report, then ONE
-      reduce job that concatenates them and runs the taxonomy + freeze exactly once on the merged
-      TSV. That needs artifact passing between jobs in `.github/workflows/ci.yml`, which was held by
-      `v2-perf-prim-dispatch` when this landed. Expected once wired: ~58 → ~15 min.
+      `--strict` is deliberately NOT passed in map mode: a shard's strict verdict would be about a
+      slice. Strictness belongs to the merged whole.
+
+      Proven, not asserted — `tests/e2e/negtc-mapreduce-gate.sh`: map+merge over N shards is
+      byte-identical to one unsharded sweep (9 real cases), plus the merge invariants both ways.
+
+      ⚠️ **That gate caught itself passing vacuously on its first run**: "0 rows, byte-identical",
+      exit 0, because `bc-parity-sweep`'s `--only` is a shell `case` pattern whose `|`-alternation form
+      selects NOTHING. It now refuses to pass when the comparison covers fewer than N rows. Remember
+      it when writing the workflow — **a shard that selects nothing is green.**
+
+      REMAINING: an N-way matrix running `--sweeps-only` + artifact upload, then one `needs:` job that
+      downloads, merges and runs `--reduce`. Expected ~58 -> ~15 min.
 - [ ] **`ssc-fork-heap-entitlement`** — `bin/ssc` (launcher template in `build.sbt`) passes `-Xss64m`
       and **no `-Xmx`**, so every fork takes the JVM's ergonomic ¼-of-RAM default = **9,216 MB** here,
       and a contract run makes ~1,669 of them. MEASURED 2026-07-28: six live at once; one resident at

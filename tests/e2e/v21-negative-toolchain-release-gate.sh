@@ -7,40 +7,55 @@ FIXTURES="$ROOT/tests/fixtures/v21-native"
 report="$ROOT/target/v21-negative-toolchain-release.tsv"
 if [[ ${1:-} == --report && -n ${2:-} ]]; then report=$2; shift 2; fi
 
-# `--shard` is REFUSED here, deliberately and loudly, even though both sweeps this gate calls now
-# support it (2026-07-28, negtc-gate-shard).
+# ── MAP/REDUCE, which is how this gate gets sharded (BUGS `negtc-gate-shard-reduce`) ────────────
 #
-# This gate is 58.1 min of a 75.6-min CI job — 77 % — and sharding the sweeps is exactly the right
-# lever. But it CANNOT be applied to the gate as it stands, and the failure would not be obvious:
-# after the two sweeps, the gate feeds their TSVs into v21-sentinel-taxonomy and
-# v21-runtime-taxonomy-freeze, which compare against FROZEN WHOLE-CORPUS counts by exact equality
-# ("freeze drift: <metric>=N expected M"). A shard produces a partial report, so every metric drifts
-# and the gate goes red for a reason that has nothing to do with the code under test.
+# The two sweeps cost 58.1 min of a 75.6-min CI job — 77 % — and both support `--shard i/N`. The gate
+# still cannot simply BE sharded: after the sweeps it runs `v21-sentinel-taxonomy` and
+# `v21-runtime-taxonomy-freeze`, which compare against FROZEN WHOLE-CORPUS counts by exact equality
+# ("freeze drift: <metric>=N expected M"). A partial report drifts every metric, so a naively sharded
+# run is red no matter how healthy the tree is. That is why `--shard` alone was refused here.
 #
-# The correct shape is map/reduce — N shard jobs each emitting a partial TSV, then ONE reduce job
-# that concatenates them and runs the taxonomy + freeze on the merged report exactly once. That needs
-# a workflow change to pass artifacts between jobs, which is queued in BACKLOG.md as
-# `negtc-gate-shard-reduce`. Refusing with this message is better than accepting a flag that produces
-# a confident, wrong red.
-for arg in "$@"; do
-  if [[ $arg == --shard || $arg == --shard=* ]]; then
-    cat >&2 <<'REFUSE'
-v21-negative-toolchain-release-gate: --shard is not supported here, on purpose.
-
-The two sweeps this gate runs DO support --shard, and you can use them directly:
-  scripts/native-front-corpus --standard --ssc bin/ssc --shard 0/4 --report <path>
-  scripts/bc-parity-sweep --strict --shard 0/4 --report <path>
-
-But this gate then runs v21-sentinel-taxonomy and v21-runtime-taxonomy-freeze, which compare the
-sweep output against FROZEN WHOLE-CORPUS counts by exact equality. A partial report drifts every
-metric, so a sharded run of this gate is red no matter how healthy the tree is.
-
-Sharding it needs a map/reduce split (N shard jobs -> one reduce job that merges the TSVs and runs
-the taxonomy once). See BACKLOG.md `negtc-gate-shard-reduce`.
-REFUSE
-    exit 2
-  fi
+# So the work splits instead:
+#
+#   MAP     --sweeps-only --shard i/N --native-out A --parity-out B
+#           runs ONLY the two sweeps over slice i and writes its partial TSVs. No taxonomy, no
+#           freeze, no assertions — nothing that needs the whole corpus.
+#
+#   REDUCE  --reduce --native-in A --parity-in B
+#           skips the sweeps entirely and runs everything downstream ONCE on already-merged reports:
+#           taxonomy, freeze, the negative-toolchain assertions, and the metric report.
+#
+# Merge the shards' TSVs with `scripts/negtc-merge-reports` (one header, rows sorted for
+# determinism). `tests/e2e/negtc-mapreduce-gate.sh` proves the property that makes this legitimate:
+# map+merge+reduce over N shards produces byte-identical reports to one unsharded run.
+mode=full
+shard=""
+native_out=""; parity_out=""; native_in=""; parity_in=""
+while [[ $# -gt 0 ]]; do
+  case ${1:-} in
+    --sweeps-only) mode=sweeps; shift ;;
+    --reduce)      mode=reduce; shift ;;
+    --shard)       shard=${2:?--shard needs i/N}; shift 2 ;;
+    --native-out)  native_out=${2:?}; shift 2 ;;
+    --parity-out)  parity_out=${2:?}; shift 2 ;;
+    --native-in)   native_in=${2:?}; shift 2 ;;
+    --parity-in)   parity_in=${2:?}; shift 2 ;;
+    *) break ;;
+  esac
 done
+
+if [[ $mode == sweeps ]]; then
+  [[ -n $shard ]] || { echo 'v21-negative-toolchain-release-gate: --sweeps-only needs --shard i/N' >&2; exit 2; }
+  [[ -n $native_out && -n $parity_out ]] || {
+    echo 'v21-negative-toolchain-release-gate: --sweeps-only needs --native-out and --parity-out' >&2; exit 2; }
+fi
+if [[ $mode == reduce ]]; then
+  [[ -n $native_in && -n $parity_in ]] || {
+    echo 'v21-negative-toolchain-release-gate: --reduce needs --native-in and --parity-in' >&2; exit 2; }
+  for f in "$native_in" "$parity_in"; do
+    [[ -s $f ]] || { echo "v21-negative-toolchain-release-gate: --reduce input missing or empty: $f" >&2; exit 2; }
+  done
+fi
 
 [[ $# -eq 0 ]] || { echo 'usage: v21-negative-toolchain-release-gate.sh [--report FILE]' >&2; exit 2; }
 [[ -x $ROOT/bin/ssc && -d $ROOT/bin/lib/standard ]] || {
@@ -129,12 +144,33 @@ runtime_freeze_report="$sandbox/runtime-freeze.tsv"
 # into spurious timeouts. Front/check feed the frozen frontend.ok/checker.ok, and
 # bc-parity classifies a residual timeout as a non-fatal skip — but a generous
 # limit keeps real parity coverage high. Override, do not rely on script defaults.
-PATH="$toolbin" JAVA="$toolbin/java" SSC_NO_CDS=1 \
-  NATIVE_FRONT_STANDARD_DIR="$standard" NATIVE_FRONT_TIMEOUT="${NATIVE_FRONT_TIMEOUT:-20}" \
-  "$ROOT/scripts/native-front-corpus" --standard --ssc "$slim/bin/ssc" \
-  --report "$native_report"
-PATH="$toolbin" SSC_NO_CDS=1 SSC="$slim/bin/ssc" BC_PARITY_TIMEOUT="${BC_PARITY_TIMEOUT:-90}" \
-  "$ROOT/scripts/bc-parity-sweep" --strict --report "$parity_report"
+# In `--reduce` the sweeps are skipped and the already-merged reports stand in for them.
+if [[ $mode == reduce ]]; then
+  cp "$native_in" "$native_report"
+  cp "$parity_in"  "$parity_report"
+else
+  shard_args=()
+  [[ -n $shard ]] && shard_args=(--shard "$shard")
+  PATH="$toolbin" JAVA="$toolbin/java" SSC_NO_CDS=1 \
+    NATIVE_FRONT_STANDARD_DIR="$standard" NATIVE_FRONT_TIMEOUT="${NATIVE_FRONT_TIMEOUT:-20}" \
+    "$ROOT/scripts/native-front-corpus" --standard --ssc "$slim/bin/ssc" \
+    "${shard_args[@]}" --report "$native_report"
+  # `--strict` is deliberately NOT passed in map mode: a shard sees a fraction of the corpus, so its
+  # own strict verdict would be about a slice. The reduce step applies strictness to the merged whole,
+  # which is the only place it means anything.
+  strict_args=(--strict)
+  [[ $mode == sweeps ]] && strict_args=()
+  PATH="$toolbin" SSC_NO_CDS=1 SSC="$slim/bin/ssc" BC_PARITY_TIMEOUT="${BC_PARITY_TIMEOUT:-90}" \
+    "$ROOT/scripts/bc-parity-sweep" "${strict_args[@]}" "${shard_args[@]}" --report "$parity_report"
+fi
+
+# MAP mode stops here: everything below needs the whole corpus.
+if [[ $mode == sweeps ]]; then
+  cp "$native_report" "$native_out"
+  cp "$parity_report" "$parity_out"
+  echo "v21-negative-toolchain-release-gate: shard $shard sweeps done -> $native_out, $parity_out"
+  exit 0
+fi
 "$ROOT/scripts/v21-sentinel-taxonomy" --native-report "$native_report" \
   --parity-report "$parity_report" --report "$sentinel_report"
 "$ROOT/scripts/v21-runtime-taxonomy" --parity-report "$parity_report" \

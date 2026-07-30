@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+#
+# negtc-merge-reports — combine the per-shard TSVs from `--sweeps-only` into one whole-corpus report.
+#
+#   scripts/negtc-merge-reports OUT.tsv SHARD0.tsv SHARD1.tsv …
+#
+# WHY IT IS NOT JUST `cat`. The merged file feeds `v21-sentinel-taxonomy` and
+# `v21-runtime-taxonomy-freeze`, which compare counts against a frozen whole-corpus baseline by exact
+# equality. Three things therefore have to hold, and a bare `cat` breaks all three:
+#
+#   ONE HEADER      every shard's TSV carries the same header row; N of them would be counted as N
+#                   extra data rows and drift every metric.
+#   NO DUPLICATES   shards are disjoint by construction, but a re-run or a doubled artifact download
+#                   would silently double-count — and a count that is too HIGH passes a floor check
+#                   while being wrong, which is the direction that hides.
+#   DETERMINISTIC   rows sorted, so the merged file does not depend on which shard finished first.
+#                   A report whose bytes depend on scheduling cannot be compared against anything.
+#
+# It fails loudly rather than producing a plausible file: an empty input, a missing header, or a
+# duplicate case name is an error, not something to clean up quietly.
+set -euo pipefail
+
+out=${1:-}
+shift || true
+if [[ -z $out || $# -eq 0 ]]; then
+  echo 'usage: scripts/negtc-merge-reports OUT.tsv SHARD.tsv [SHARD.tsv …]' >&2
+  exit 2
+fi
+
+header=""
+tmp=$(mktemp); trap 'rm -f "$tmp"' EXIT
+: > "$tmp"
+
+for f in "$@"; do
+  [[ -s $f ]] || { echo "negtc-merge-reports: empty or missing shard report: $f" >&2; exit 1; }
+  h=$(head -1 "$f")
+  case "$h" in
+    file*) : ;;
+    *) echo "negtc-merge-reports: $f has no recognisable header (first line: ${h:0:60})" >&2; exit 1 ;;
+  esac
+  if [[ -z $header ]]; then
+    header=$h
+  elif [[ $h != "$header" ]]; then
+    echo "negtc-merge-reports: shard headers differ — the reports are not the same shape" >&2
+    printf '  expected=%s\n  got     =%s   (%s)\n' "$header" "$h" "$f" >&2
+    exit 1
+  fi
+  tail -n +2 "$f" >> "$tmp"
+done
+
+dups=$(cut -f1 "$tmp" | LC_ALL=C sort | uniq -d)
+if [[ -n $dups ]]; then
+  echo 'negtc-merge-reports: the same case appears in more than one shard:' >&2
+  printf '  %s\n' $dups >&2
+  echo '  shards must be disjoint; a doubled row inflates a count, which passes a floor check' >&2
+  exit 1
+fi
+
+{ printf '%s\n' "$header"; LC_ALL=C sort "$tmp"; } > "$out"
+printf 'negtc-merge-reports: %s rows from %d shard(s) -> %s\n' \
+  "$(( $(wc -l < "$out") - 1 ))" "$#" "$out"
