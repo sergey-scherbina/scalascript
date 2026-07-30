@@ -1,0 +1,11 @@
+slug: json-number-policy
+branch: feature/json-number-policy
+agent: claude-code
+started: 2026-07-30T05:50:31Z
+heartbeat: 2026-07-30T05:50:31Z
+status: claimed-before-planning
+items: v1-json-two-contradictory-number-policies
+paths: v1/lang/core/src/main/scala/scalascript/interpreter/JsonParser.scala specs/json-number-policy.md BUGS.md SPRINT.md CHANGELOG.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
