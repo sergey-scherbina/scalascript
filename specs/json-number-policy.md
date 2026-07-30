@@ -77,6 +77,29 @@ should weigh that above the two loud failures.
 * `==` returning `false` across the two numeric kinds is arguably correct Scala-ish behaviour and
   arguably a trap; it is a policy question, not a bug, and is left as one.
 
+## Corpus verdict — measured on all three lanes
+
+`scala-cli tests/conformance/contract.sc` (default lanes int, js, v2), 527 cases, 1063 cells:
+
+* **`json-read v2 DIVERGE` -> PASS.** The divergence this whole investigation started from is closed on
+  the real gate, not just in a probe.
+* **No JSON-related regression on any lane.** Not one `json-*` row appears in the regression list.
+
+The run does report 10 regression rows, and NONE of them belong to this change: they are the six cases
+the previous claim (`skip-triage-golden-lane`) removed from the SKIP list, whose js/v2 cells the
+contract now sees for the first time. "Was SKIP, now has a non-PASS cell" is classified as a
+regression row.
+
+**Correcting my own earlier report.** That claim reported those six as "2 v2 PASS + 4 v2 FAIL" — I had
+measured only int and v2. Across all three lanes the honest count is **2 v2 PASS, 4 v2 FAIL, and 6 js
+FAIL**. Three distinct pre-existing js defects, all previously hidden by the SKIP:
+
+| case | js failure |
+|---|---|
+| `dsl-yaml-like` | `SyntaxError: Invalid or unexpected token` — reduced to a 3-line repro, filed as `jsgen-char-literal-escape` |
+| `dsl-sql-recovery` | malformed emitted module around a merged `std.parsing` destructuring |
+| the 4 mcp cases | `not callable` — the MCP extern is absent on js as it is on v2 |
+
 ## Corpus verdict
 
 See the run recorded in the commit that lands this. The measurement order was fixed in advance and
