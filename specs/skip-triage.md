@@ -52,7 +52,7 @@ Now run on the golden lane, byte-identical across two runs, with real output:
 They are still frozen as `SKIP`, so the next full contract run reports four improvements. Refreshing
 `corpus-baseline.tsv` / `contract-roster.tsv` belongs to whoever holds those files.
 
-### 3b. The import resolver cannot see `type` aliases or `extension` methods — OPEN
+### 3b. The import resolver cannot see `type` aliases or `extension` methods — FIXED (`91c326d1f`)
 
 Reproduced with a one-line consumer against the real std modules:
 
@@ -65,9 +65,28 @@ Reproduced with a one-line consumer against the real std modules:
 | `Rec`, `plainDef`, `defDefault` (probe module) | `case class` / `def` / `def` with defaults | import fine |
 
 Both shapes are pure `.ssc` with no backend dependency, and both are listed in their module's
-`exports:`. This blocks `dsl-mini-language`, `dsl-sql-recovery`, `dsl-yaml-like` — the three cases the
-source-shape heuristic had flagged as pure compute, i.e. exactly the cases that WOULD give v2 real
-coverage. Filed as `std-import-resolver-blind-to-type-alias-and-extension`.
+`exports:`. This blocked `dsl-mini-language`, `dsl-sql-recovery`, `dsl-yaml-like` — the three cases the
+source-shape heuristic had flagged as pure compute, i.e. exactly the cases that would give v2 real
+coverage.
+
+**Outcome, measured after the fix:**
+
+| case | before | after |
+|---|---|---|
+| `dsl-sql-recovery` | `'ParseErrors' not found` | **rc=0**, stable across two runs |
+| `dsl-yaml-like` | `'withIndent' not found` | `'columnOf' is not exported` -> **rc=0** after `layout.ssc` exports (17 lines of real output) |
+| `dsl-mini-language` | `'Pass' not found` | advances to `No method 'andThen' on FunV` — a different, deeper bug |
+
+`dsl-yaml-like` needed a second, ordinary export omission fixed in `std/parsing/layout.ssc` (six names
+the module defines). That one only became visible once the resolver stopped failing first — a useful
+reminder that one diagnostic can hide the next.
+
+`dsl-mini-language` is blocked by `int-extension-on-function-type-alias-does-not-dispatch`: the
+extension's receiver type `Pass[A,B]` is an alias of a FUNCTION type, and dispatch keys on the
+receiver's runtime type name, which is `FunV`. Registration-time alias resolution is a change to
+shared extension dispatch, so it is filed rather than patched here.
+
+**Net: 6 of the 77 closed** — 4 from the std/mcp exports plus these two.
 
 ### 3c. `fetchUrlSignalTo` is declared, exported, documented — and implemented nowhere — OPEN
 

@@ -23,13 +23,25 @@ freeze does record, and it is invisible in the PASS-cell count because those cel
 - [x] **SKIP-2 — `std/mcp` export lists (`9b758d807`).** 4 cases now run on the golden lane with real
       output, stable across two runs: `mcp-server-tool`, `mcp-server-tools`, `mcp-server-resource`,
       `agent-mcp-server`. v1's own `std/agent-mcp.ssc:26` was one of the broken consumers.
-- [ ] **SKIP-3 — the import resolver is blind to `type` aliases and `extension` methods.**
+- [x] **SKIP-3 — DONE (`91c326d1f`) + a follow-on export fix.** The resolver now accepts both shapes;
+      `Tree.collect` over the whole subtree is load-bearing (a `package:` module wraps its stats in
+      `object`s, so a top-level-stat match returned `Set()` for every real std module while passing a
+      package-less fixture — my own fixture hole, found by instrumenting). `dsl-sql-recovery` and
+      `dsl-yaml-like` now run on the golden lane with stable output; the latter also needed six
+      missing exports in `std/parsing/layout.ssc`. `dsl-mini-language` advances to
+      `int-extension-on-function-type-alias-does-not-dispatch` (extension receiver is an alias of a
+      FUNCTION type; dispatch sees `FunV`). **Net 6 of 77 closed.** Superseded text:
       `std-import-resolver-blind-to-type-alias-and-extension`. Cheapest item on the list: no freeze
       change to land, and it un-skips `dsl-mini-language`, `dsl-sql-recovery`, `dsl-yaml-like` — three
       PURE-COMPUTE cases, i.e. three new v2 verdicts. Not yet localized to a file: find whatever
       builds a module's exported-symbol table and teach it these two shapes. Prove it fail-first with
       the one-line consumer in the bug entry.
-- [ ] **SKIP-4 — refresh the freeze for SKIP-2's four improvements.** Blocked only by ownership:
+- [ ] **SKIP-8 — `int-extension-on-function-type-alias-does-not-dispatch`.** Resolve an alias to its
+      underlying runtime shape at extension-REGISTRATION time, or widen the receiver's type name at
+      dispatch. Shared by every lane, so it wants a fail-first test per alias shape (function, tuple,
+      collection) rather than a spot fix for `Pass`. Unblocks `dsl-mini-language`.
+- [ ] **SKIP-4 — refresh the freeze for SKIP-2's four improvements** (now SIX: + `dsl-sql-recovery`,
+      `dsl-yaml-like`). Blocked only by ownership:
       `corpus-baseline.tsv` / `contract-roster.tsv` are held by `v1-interp-object-named-arg-slot`.
       Should land in ONE commit naming SKIP-2.
 - [ ] **SKIP-5 — `fetchUrlSignalTo`: implement it or delete the declaration.**

@@ -747,6 +747,38 @@ cells BEFORE freezing anything.
 
 **Do NOT "fix" this by degrading v2** to match the golden. That was the shape the original entry
 leaned toward, and it would trade away exactness that v1's own source says is required.
+## int-extension-on-function-type-alias-does-not-dispatch — `extension (p: Pass[A,B])` never fires, because the receiver is a `FunV` at runtime
+<!-- status: open
+     lane: int
+     area: runtime -->
+
+**Status:** OPEN. Found 2026-07-30 by `skip-triage-golden-lane` after `91c326d1f` let the import
+resolve — the export error was masking this one.
+
+**Reproduce:** `examples/dsl-mini-language.ssc:218` ->
+`[ERROR] [line 5, col 3] No method 'andThen' on FunV(<function(1)>)`.
+
+`std/dsl/passes.ssc:33` declares `type Pass[A, B] = A => Either[List[PassError], B]` and `:69`
+declares `extension [A, B](p: Pass[A, B]) def andThen[C](...)`. The interpreter registers extensions
+keyed by TYPE NAME and dispatches on the receiver's runtime type — which for a function value is
+`FunV`, never `Pass`. So an extension whose receiver type is an alias OF A FUNCTION TYPE can never
+fire, no matter how it is imported.
+
+**Scope.** Narrower than "extensions are broken": an extension on a `case class`/`enum` type works
+(covered by `ModuleImportTypeAliasExtensionTest`, which asserts a computed value across a module
+boundary). It is specifically an alias whose right-hand side is a structural runtime shape — function
+here; a tuple or `List` alias would likely behave the same way and is worth checking as part of the
+fix.
+
+**Why it stays open rather than getting a quick patch.** The fix has to resolve an alias to its
+underlying runtime shape at extension-REGISTRATION time (register `andThen` for `FunV` when the
+receiver type is an alias of a function type), or record aliases so dispatch can widen the receiver's
+type name. Both change extension dispatch, which is shared by every lane — so it wants its own
+fail-first test per alias shape (function / tuple / collection), not a spot fix for `Pass`.
+
+**Blocks** `dsl-mini-language` (a corpus SKIP, so it hides v2 and js too). Its two siblings
+`dsl-sql-recovery` and `dsl-yaml-like` are now closed.
+
 ## std-import-resolver-blind-to-type-alias-and-extension — `[Pass](std/dsl/passes.ssc)` says "not found" for a name the module defines and exports
 <!-- status: open
      lane: int
