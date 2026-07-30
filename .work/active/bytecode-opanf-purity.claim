@@ -1,0 +1,11 @@
+slug: bytecode-opanf-purity
+branch: feature/bytecode-opanf-purity
+agent: claude-code
+started: 2026-07-30T12:25:32Z
+heartbeat: 2026-07-30T12:25:32Z
+status: claimed-before-planning
+items: bytecode-opanf-purity-registry-marks-every-def-pure
+paths: file:v2/backend-jvm-bytecode/OpAnfNative.scala file:v2/backend-jvm-bytecode/JvmByteGen.scala file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv file:v1/runtime/backend/interpreter/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
