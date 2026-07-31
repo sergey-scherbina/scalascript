@@ -1,0 +1,11 @@
+slug: v2-perf-task-set
+branch: feature/v2-perf-task-set
+agent: claude-code
+started: 2026-07-31T04:20:35Z
+heartbeat: 2026-07-31T04:20:35Z
+status: claimed-before-planning
+items: v2-perf-calling-convention v2-perf-callsite-inline-cache v2-perf-array-update v2-perf-vector-cons-chain v2-perf-generated-method-size
+paths: file:TASK/v2-perfomance.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
