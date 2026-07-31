@@ -10,6 +10,13 @@ Anything not being worked on belongs in `scripts/BACKLOG.md`, not here — a que
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [x] **smoke-runner-truncates-the-cause** — the suite printed the LAST 8 lines of a failing check,
+  which for a stack trace is eight frames of JVM plumbing; the error message is at the TOP and was
+  discarded. Two CI failures (30606728752, 30606076538) were therefore undiagnosable and are not
+  reproducible on demand. Now: exit code + first AND last 10 lines + the omitted count. The flake
+  itself is `scripts/BUGS.md` → corpus-breadth-slice-crashes-scala-cli-on-ci, with the candidate
+  causes ordered by what the evidence would separate — and an explicit "do not fix this by retrying".
+
 - [x] **smoke-conformance-shards-partition-costs-49s** — one enumeration instead of seven.
   `run.sc --list --shard-all N` emits `# all` plus every shard section in ONE process; two
   invocations remain and are irreducible (a `--shard 9/4` that must FAIL, and the real `--shard 0/N`

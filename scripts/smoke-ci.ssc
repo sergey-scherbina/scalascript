@@ -233,14 +233,28 @@ def pad(text: String, width: Int): String =
     out = out + " "
   out
 
-def lastLines(text: String, keep: Int): List[String] =
+// HEAD and TAIL, not tail alone, and this cost a real diagnosis.
+//
+// Two CI runs failed on `corpus-breadth-slice` (30606728752, 30606076538). What the log carried was
+// eight lines of `at scala.cli.ScalaCli$.main0(...)` — pure JVM plumbing. A stack trace puts its
+// CAUSE at the top and its frames at the bottom, so printing the tail printed the least informative
+// end of the most important output. The failure was unreadable, and the runner had already thrown
+// the rest away: nothing downstream could recover it.
+//
+// The first lines carry the error message; the last carry the summary. When both are shown the
+// omission is stated rather than silent, because "…" with no count reads like formatting.
+def headTail(text: String, keep: Int): List[String] =
   val lines = text.split("\n").filter(line => line.trim().length > 0)
-  val skip = if lines.length > keep then lines.length - keep else 0
-  lines.drop(skip)
+  if lines.length <= keep * 2 then lines
+  else
+    val omitted = lines.length - keep * 2
+    lines.take(keep) ++
+      List("··· " + omitted.toString() + " line(s) omitted ···") ++
+      lines.drop(lines.length - keep)
 
 // ── Running ──────────────────────────────────────────────────────────────────
 
-case class Outcome(module: String, name: String, ok: Boolean, tenths: Int,
+case class Outcome(module: String, name: String, ok: Boolean, exitCode: Int, tenths: Int,
                    stdout: String, stderr: String)
 
 def runCheck(check: Check): Outcome =
@@ -252,7 +266,8 @@ def runCheck(check: Check): Outcome =
     try exec(check.cmd, check.argv, ProcessOptions(None, check.env, Some(check.timeoutMs), true))
     catch case e => ProcessResult("", "could not run `" + check.cmd + "`: " + e.toString(), 127)
   val elapsed = deciseconds(System.nanoTime() - startedAt)
-  Outcome(check.module, check.name, result.exitCode == 0, elapsed, result.stdout, result.stderr)
+  Outcome(check.module, check.name, result.exitCode == 0, result.exitCode, elapsed,
+          result.stdout, result.stderr)
 
 // A lane tally the harness never printed is NOT zero failures — it is an unreadable harness. The
 // corpus check therefore fails when it produced no lane lines at all, rather than reporting a
@@ -326,8 +341,12 @@ def main() =
     val mark = if outcome.ok then "  ok   " else "  FAIL "
     println(mark + pad(outcome.name, 34) + showSeconds(outcome.tenths))
     if !outcome.ok then
-      lastLines(outcome.stdout, 8).foreach(line => println("         | " + line))
-      lastLines(outcome.stderr, 8).foreach(line => println("         | " + line))
+      // The exit code first: 124 is the timeout guard firing, 127 a command that could not start,
+      // 137 a kill (OOM on a runner). Those three are answered by the number alone, and reading
+      // them out of the output is guesswork.
+      println("         | exit code " + outcome.exitCode.toString())
+      headTail(outcome.stdout, 10).foreach(line => println("         | " + line))
+      headTail(outcome.stderr, 10).foreach(line => println("         | " + line))
     outcomes = outcomes ++ List(outcome))
 
   // ── Per-module rollup: the top-level accounting ─────────────────────────────

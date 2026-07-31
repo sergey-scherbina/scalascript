@@ -7,6 +7,38 @@ grepping for status.
 
 Newest first.
 
+## corpus-breadth-slice-crashes-scala-cli-on-ci — intermittent, cause not yet captured
+<!-- status: open
+     lane: apparatus
+     area: build
+     gate: none -->
+
+**Found 2026-07-31.** Two smoke runs failed on `corpus-breadth-slice` with a scala-cli stack trace:
+runs **30606728752** (129.3 s) and **30606076538** (124.2 s). Both on GitHub, none locally. Between
+them ~10 runs of the same commit range passed, so it is intermittent, not a regression.
+
+**The cause is not known, and that is the point of this entry.** The runner printed the last 8 lines
+of the failing check's output, which for a stack trace is eight frames of
+`at scala.cli.ScalaCli$.main0(...)` — the least informative end. The message was at the top and had
+already been discarded; nothing downstream could recover it, and re-running does not reproduce.
+
+Fixed the reporting first (same commit as this entry): failures now print the exit code plus the
+first AND last 10 lines with the omitted count. The next occurrence will carry its own diagnosis.
+
+Candidates to weigh when it recurs, in the order the evidence would separate them:
+
+  * exit code **137** — the runner OOM-killed it. The slice runs the JS lane through Node and the v2
+    lane on the JVM; a hosted runner has 7 GB.
+  * a **Bloop/scala-cli** flake. `SSC_CONF_WARM_JVM=1` starts a build server, and the corpus checks
+    are the only smoke steps that do; the shard gate was deliberately kept serverless for the same
+    reason (`tests/e2e/build-conformance-shard-gate.sh`).
+  * a scala-cli **artifact download** failing under a cold cache — both failures took ~125-130 s
+    against ~46-92 s for a healthy run, which fits a retry-then-give-up shape.
+
+Do NOT "fix" this by retrying the check. A green obtained by re-running an unexplained failure is
+exactly the fail-open the smoke suite exists to prevent, and it would also hide an OOM that will
+come back louder.
+
 ## git-stash-is-repo-global-across-worktrees — an A/B stash can pop ANOTHER agent's work into your tree
 <!-- status: open
      lane: apparatus
