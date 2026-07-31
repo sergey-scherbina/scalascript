@@ -48,6 +48,79 @@ printf 'other\theader\nx\ty\n' > "$TMP/s3.tsv"
 "$MERGE" "$TMP/m4.tsv" "$TMP/s1.tsv" "$TMP/s3.tsv" >/dev/null 2>&1 \
   && bad "merge accepted mismatched headers" || ok "merge refuses mismatched headers"
 
+# ── the CLI ci.yml actually types, parsed ────────────────────────────────────
+#
+# WHY THIS EXISTS. The equality below proves the map/reduce SEMANTICS and says nothing about whether
+# the workflow can invoke them. On run 30649090567 all four shards were green, the merge produced
+# 214 of 214 rows, and the reduce job then died in 0 s on `usage:` — `--report` was accepted only as
+# argument ONE and ci.yml passed it last. Twenty-three minutes of correct work discarded by an
+# argument-order rule that no message mentioned.
+#
+# The invocations are READ OUT OF ci.yml rather than restated here. A copy would have been green:
+# I would have copied the order I had already written, which was the broken one.
+CI_YML="$ROOT/.github/workflows/ci.yml"
+# A throwaway repo holding a COPY of the gate, so the probes below can never reach real work.
+PROBE="$TMP/probe"
+mkdir -p "$PROBE/tests/e2e"
+git -C "$PROBE" init -q 2>/dev/null
+cp "$ROOT/tests/e2e/v21-negative-toolchain-release-gate.sh" "$PROBE/tests/e2e/"
+chmod +x "$PROBE/tests/e2e/v21-negative-toolchain-release-gate.sh"
+if [ -f "$CI_YML" ]; then
+  # Every `v21-negative-toolchain-release-gate.sh …` command in the workflow, line continuations
+  # folded, `${{ matrix.shard }}` expanded to 0. Empty is a failure: a silent zero-invocation match
+  # would make this check vacuous, which is the failure this whole file exists to refuse.
+  invocations="$(tr '\n' '\r' < "$CI_YML" \
+    | sed 's/\\\r[[:space:]]*/ /g' | tr '\r' '\n' \
+    | grep -o 'tests/e2e/v21-negative-toolchain-release-gate\.sh[^|&;]*' \
+    | sed 's/\${{ matrix\.shard }}/0/g')"
+  n_inv=$(printf '%s\n' "$invocations" | grep -c . || true)
+  if [ "$n_inv" -lt 2 ]; then
+    bad "found $n_inv gate invocation(s) in ci.yml — expected the map and the reduce; the extraction broke"
+  else
+    ok "read $n_inv gate invocation(s) out of ci.yml"
+    # A `while read` on the RIGHT of a pipe runs in a SUBSHELL, so every `bad` in it would set
+    # `fail=1` in a copy and this gate would report the failures and then exit 0. Redirected instead.
+    while IFS= read -r inv; do
+      [ -n "$inv" ] || continue
+      # THE INPUTS MUST EXIST, and this is the whole difficulty. The gate checks `--reduce`'s inputs
+      # BEFORE it checks for unrecognised arguments, so a probe with absent inputs exits 2 at
+      # "input missing or empty" and never reaches the parse verdict at all. Written that way first,
+      # this check passed against the very script whose argument handling had just discarded a
+      # 23-minute CI run — green, and proving nothing. Materialise every path the invocation names,
+      # so the only thing left to refuse is the arguments.
+      # shellcheck disable=SC2086
+      set -- $inv
+      while [ $# -gt 0 ]; do
+        case $1 in
+          --native-in|--parity-in)
+            mkdir -p "$PROBE/$(dirname "$2")" && printf 'file\tcategory\nx.ssc\tidentical\n' > "$PROBE/$2"; shift 2 ;;
+          --native-out|--parity-out|--report)
+            mkdir -p "$PROBE/$(dirname "$2")"; shift 2 ;;
+          *) shift ;;
+        esac
+      done
+      # Run the COPY in $PROBE, never the real script in this worktree. The gate resolves its own
+      # ROOT from `git rev-parse` on its location, so the real one would find this worktree's built
+      # `bin/ssc`, sail past the launcher check and start a 50-minute release gate from inside a
+      # unit test. The copy's ROOT is an empty throwaway repo with no launcher, so a PARSED command
+      # stops immediately at `run scripts/sbtc "installBin" first` — an unparsed one still says
+      # `unrecognised argument` / `usage:`. Two distinct messages, neither of which does any work.
+      out=$(cd "$PROBE" && eval "${inv/#tests\/e2e\//$PROBE/tests/e2e/}" 2>&1 </dev/null || true)
+      case "$out" in
+        *"unrecognised argument"*|*"usage:"*)
+          bad "ci.yml invocation is rejected by the gate's own parser:"
+          printf '    %s\n' "$inv" | cut -c1-140
+          printf '%s\n' "$out" | head -4 | sed 's/^/      /' ;;
+        *) ok "ci.yml invocation parses: $(printf '%s' "$inv" | sed 's/.*release-gate\.sh //' | cut -c1-58)" ;;
+      esac
+    done <<EOF
+$invocations
+EOF
+  fi
+else
+  bad "ci.yml not found at $CI_YML"
+fi
+
 # ── the equality itself, on the real sweeps over a small slice ───────────────
 if [ ! -x "$ROOT/bin/ssc" ] || [ ! -d "$ROOT/bin/lib/standard" ]; then
   echo "  (skip equality: no staged launcher — run scripts/sbtc \"installBin\" first)"

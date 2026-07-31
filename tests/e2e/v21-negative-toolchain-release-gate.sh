@@ -5,7 +5,6 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
 FIXTURES="$ROOT/tests/fixtures/v21-native"
 report="$ROOT/target/v21-negative-toolchain-release.tsv"
-if [[ ${1:-} == --report && -n ${2:-} ]]; then report=$2; shift 2; fi
 
 # ── MAP/REDUCE, which is how this gate gets sharded (BUGS `negtc-gate-shard-reduce`) ────────────
 #
@@ -31,8 +30,16 @@ if [[ ${1:-} == --report && -n ${2:-} ]]; then report=$2; shift 2; fi
 mode=full
 shard=""
 native_out=""; parity_out=""; native_in=""; parity_in=""
+# `--report` USED TO BE POSITIONAL — accepted only as argument ONE, by an `if` above this loop, and
+# falling through to the `*) break` below anywhere else. Every caller happened to put it first, so
+# the constraint was invisible until the ci.yml reduce job passed it last on run 30649090567: the
+# loop broke on it, `$#` was non-zero, and the script printed its usage and exited 2 after doing no
+# work. The failure named neither the flag nor the position. A flag whose meaning depends on where
+# it sits is a trap for exactly the caller who reads the usage line, which says `[--report FILE]`
+# with no hint of ordering. It is an ordinary case now, accepted anywhere.
 while [[ $# -gt 0 ]]; do
   case ${1:-} in
+    --report)      report=${2:?--report needs FILE}; shift 2 ;;
     --sweeps-only) mode=sweeps; shift ;;
     --reduce)      mode=reduce; shift ;;
     --shard)       shard=${2:?--shard needs i/N}; shift 2 ;;
@@ -57,7 +64,17 @@ if [[ $mode == reduce ]]; then
   done
 fi
 
-[[ $# -eq 0 ]] || { echo 'usage: v21-negative-toolchain-release-gate.sh [--report FILE]' >&2; exit 2; }
+# Name the offending argument. The bare usage line sent a reader to check `--report`'s SPELLING when
+# the problem was its POSITION, and said nothing about the map/reduce flags at all.
+[[ $# -eq 0 ]] || {
+  printf 'v21-negative-toolchain-release-gate: unrecognised argument: %s\n' "$1" >&2
+  cat >&2 <<'USAGE'
+usage: v21-negative-toolchain-release-gate.sh [--report FILE]
+       …  --sweeps-only --shard i/N --native-out A --parity-out B   (map: sweeps over one slice)
+       …  --reduce --native-in A --parity-in B                      (reduce: everything downstream)
+Flags may appear in any order.
+USAGE
+  exit 2; }
 [[ -x $ROOT/bin/ssc && -d $ROOT/bin/lib/standard ]] || {
   echo 'v21-negative-toolchain-release-gate: run scripts/sbtc "installBin" first' >&2
   exit 2

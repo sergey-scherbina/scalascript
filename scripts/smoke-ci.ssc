@@ -161,6 +161,12 @@ val suite = List(
   // exit 2 on a fixture the owner had certified green 34 min earlier in the same job. Seconds here;
   // the alternative is finding it six minutes into a build.
   Check("tests", "negtc-manifest-contract", "tests/e2e/negtc-manifest-contract-gate.sh", List(), 120000),
+  // Runs WITHOUT a staged launcher, which is what makes it cheap: the merge invariants and the
+  // "does ci.yml's own command line parse" check need no build, and the byte-equality half skips
+  // itself with a note when `bin/ssc` is absent. It earns its place on the push path because the
+  // thing it checks is a workflow-to-script interface: four green 20-minute shards were discarded
+  // by a reduce job that died in 0 s on argument ORDER (run 30649090567).
+  Check("tests", "negtc-mapreduce", "tests/e2e/negtc-mapreduce-gate.sh", List(), 300000),
   Check("tests", "ci-status-guard", "tests/e2e/ci-status-guard.sh", List(), 120000),
   Check("tests", "no-test-reaches-an-exiting-cli", "tests/e2e/cli-exit-reachability-guard.sh", List("--self-test"), 180000),
   // CI skips the ~3.5 min launcher build when this digest says the toolchain's inputs are unchanged.
