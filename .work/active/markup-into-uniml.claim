@@ -1,0 +1,11 @@
+slug: markup-into-uniml
+branch: feature/markup-into-uniml
+agent: claude-code
+started: 2026-07-31T16:21:38Z
+heartbeat: 2026-07-31T16:21:38Z
+status: claimed-before-planning
+items: move markup/ -> uniml/markup
+paths: file:markup file:uniml/markup file:build.sbt file:specs/project-partitioning.md file:tests/e2e/project-partition-gate.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
