@@ -2,8 +2,8 @@ package ssc.plugin.mcp
 
 import java.io.{BufferedReader, BufferedWriter, InputStreamReader, OutputStreamWriter}
 import scala.jdk.CollectionConverters.*
-import scalascript.mcp.{McpClientCore, McpProtocol}
-import ssc.{Done, Prims, Runtime, Value}
+import scalascript.mcp.{McpClientCore, McpProtocol, McpServerBuilder, McpServerCore, ToolHandlerResult}
+import ssc.{Done, Prims, Runtime, Show, Value}
 import ssc.plugin.{NativePlugin, NativePluginContext}
 import ssc.plugin.json.NativeJsonCodec
 
@@ -186,6 +186,94 @@ final class McpNativePlugin extends NativePlugin:
     case _ => throw new IllegalArgumentException(
       "mcpConnect: explicit native provider supports Transport.Spawn")
 
+  // ── SERVER surface ────────────────────────────────────────────────────────────────────────────
+  //
+  // The plugin shipped the CLIENT half only (`mcpConnect` and friends), so every case importing
+  // `[mcpServer, serveMcp](std/mcp/server.ssc)` died with `unbound global: mcpServer` — six of the
+  // eighteen v2 non-PASS rows, all one missing surface rather than six defects.
+  // (v2-native-mcp-plugin-has-no-server-surface.)
+  //
+  // Same shape as v1's McpIntrinsics: `mcpServer { srv => … }` parks a builder in a ThreadLocal and
+  // hands the block a method object; `serveMcp(transport)` picks that builder up and runs the loop.
+  // The protocol work itself is mcp-common's `McpServerCore`, shared with v1 — this is a binding, not
+  // a second implementation.
+  private val builderTL = new ThreadLocal[McpServerBuilder]
+
+  /** `jsonToScala` hands the handler plain Scala natives, so bridge those to runtime values. */
+  private def scalaToValue(a: Any): Value = a match
+    case null            => Value.DataV("None", Vector.empty)
+    case s: String       => Value.StrV(s)
+    case b: Boolean      => Value.BoolV(b)
+    case i: Int          => Value.IntV(i.toLong)
+    case l: Long         => Value.IntV(l)
+    case d: Double       => if d.isWhole then Value.IntV(d.toLong) else Value.FloatV(d)
+    case m: Map[?, ?]    => map(m.iterator.map((k, v) => Value.StrV(String.valueOf(k)) -> scalaToValue(v)))
+    case xs: Seq[?]      => list(xs.iterator.map(scalaToValue))
+    case other           => Value.StrV(String.valueOf(other))
+
+  /** A `Content.Text/Image/…` value back to the wire shape mcp-common expects. */
+  private def contentJson(value: Value): ujson.Value = value match
+    case Value.DataV("Text", IndexedSeq(Value.StrV(text))) =>
+      ujson.Obj("type" -> "text", "text" -> text)
+    case Value.DataV("Image", IndexedSeq(Value.StrV(data), Value.StrV(mime))) =>
+      ujson.Obj("type" -> "image", "data" -> data, "mimeType" -> mime)
+    case Value.DataV("EmbeddedResource", IndexedSeq(Value.StrV(uri))) =>
+      ujson.Obj("type" -> "resource", "resource" -> ujson.Obj("uri" -> uri))
+    case other => ujson.Obj("type" -> "text", "text" -> Show.show(other))
+
+  private def handlerResult(value: Value): ToolHandlerResult = value match
+    case Value.DataV("ToolResult", IndexedSeq(content, Value.BoolV(isError))) =>
+      ToolHandlerResult(Prims.unlistPub(content).map(contentJson), isError)
+    // A handler that returns something else is a user error, but reporting it as an MCP error beats
+    // throwing inside the serve loop and dropping the connection.
+    case other => ToolHandlerResult(List(ujson.Obj("type" -> "text", "text" -> Show.show(other))), true)
+
+  private def serverValue(builder: McpServerBuilder, context: NativePluginContext): Value =
+    Value.ForeignV(new Value.NamedMethodObj:
+      def underlying: AnyRef = builder
+      def getField(name: String): Option[Value] = name match
+        // `srv.tool(name[, description])(handler)` — curried, so the first clause returns the closure
+        // that takes the handler. Arity -1 is the SPI's variadic marker (NativePluginHost.invoke only
+        // arity-checks when arity >= 0), which is what lets one arm accept both shapes.
+        case "tool" => Some(closure(-1) { first =>
+          val toolName = text(first.head, "srv.tool name")
+          val desc     = first.lift(1).collect { case Value.StrV(d) => d }
+          closure(1) { rest =>
+            val handler = rest.head
+            builder.tool(toolName, desc, ujson.Obj("type" -> "object"),
+              args => handlerResult(context.invoke(handler, List(scalaToValue(args)))))
+            Value.UnitV
+          }
+        })
+        case "resource" => Some(closure(-1) { first =>
+          val uri  = text(first.head, "srv.resource uri")
+          val nm   = first.lift(1).collect { case Value.StrV(d) => d }
+          val mime = first.lift(2).collect { case Value.StrV(d) => d }
+          closure(1) { rest =>
+            val handler = rest.head
+            builder.resource(uri, nm, mime, requested =>
+              scalascript.mcp.ResourceHandlerResult(requested,
+                List(ujson.Obj("uri" -> requested, "text" ->
+                  Show.show(context.invoke(handler, List(Value.StrV(requested))))))))
+            Value.UnitV
+          }
+        })
+        case "onConnected" => Some(closure(1) { args =>
+          val cb = args.head
+          builder.setOnConnected(() => { context.invoke(cb, Nil); () })
+          Value.UnitV
+        })
+        case "onDisconnected" => Some(closure(1) { args =>
+          val cb = args.head
+          builder.setOnDisconnected(() => { context.invoke(cb, Nil); () })
+          Value.UnitV
+        })
+        case _ => None)
+
+  private def transportTag(transport: Value): String = transport match
+    case Value.DataV(tag, _) => tag
+    case other               => Show.show(other)
+
   def install(context: NativePluginContext): Unit =
     context.registerFields("ToolDescriptor", Vector("name", "description", "schema"))
     context.registerFields("ResourceDescriptor", Vector("uri", "name", "mimeType"))
@@ -193,6 +281,36 @@ final class McpNativePlugin extends NativePlugin:
     context.registerFields("ArgSpec", Vector("name", "typeName", "required"))
     context.registerFields("ToolResult", Vector("content", "isError"))
     context.registerFields("AgentTool", Vector("name", "description", "parametersJson", "handler"))
+    context.register("mcpServer") {
+      case setup :: Nil =>
+        val builder = McpServerBuilder()
+        builderTL.set(builder)
+        context.invoke(setup, List(serverValue(builder, context)))
+        Value.UnitV
+      case _ => throw new IllegalArgumentException("mcpServer { srv => ... }")
+    }
+    context.register("serveMcp") {
+      case transport :: Nil =>
+        val builder = Option(builderTL.get).getOrElse(throw new IllegalStateException(
+          "serveMcp(...): no mcpServer { ... } configured first"))
+        transportTag(transport) match
+          case "Stdio" =>
+            // Blocks on stdin until EOF, writes to stdout — single-connection and single-threaded,
+            // exactly as the interpreter's Stdio transport behaves.
+            val reader = BufferedReader(InputStreamReader(java.lang.System.in, java.nio.charset.StandardCharsets.UTF_8))
+            val writer = BufferedWriter(OutputStreamWriter(java.lang.System.out, java.nio.charset.StandardCharsets.UTF_8))
+            McpServerCore.serve(builder,
+              () => Option(reader.readLine()),
+              line => { writer.write(line); writer.flush() },
+              "ssc-mcp-native", "2.1")
+            Value.UnitV
+          case other =>
+            // Http/Ws need a server runtime this provider does not carry; refusing by name beats
+            // pretending to serve.
+            throw new IllegalArgumentException(
+              s"serveMcp: the native provider supports Transport.Stdio, not '$other'")
+      case _ => throw new IllegalArgumentException("serveMcp(transport)")
+    }
     context.register("mcpConnect") {
       case transport :: Nil => connect(transport, 30000L)
       case transport :: Value.IntV(timeout) :: Nil => connect(transport, timeout)

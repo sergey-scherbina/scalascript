@@ -7,11 +7,42 @@ grepping for status.
 
 Newest first.
 
-## v2-native-mcp-plugin-has-no-server-surface — the provider implements the CLIENT half only, and six v2 FAIL rows are that one fact
-<!-- status: open
+## v2-native-mcp-plugin-has-no-server-surface — the provider implemented the CLIENT half only
+<!-- status: fixed
      lane: native
      area: runtime
+     fixed-in: unrecorded
      gate: tests/conformance/mcp-server-tool.ssc -->
+
+**FIXED 2026-07-31 — the surface now exists.** `mcpServer` and `serveMcp(Transport.Stdio)` are implemented
+in the native provider, mirroring v1's shape: `mcpServer { srv => … }` parks an `McpServerBuilder` in a
+ThreadLocal and hands the block a `NamedMethodObj` exposing `tool` / `resource` / `onConnected` /
+`onDisconnected`; `serveMcp` picks the builder up and runs `McpServerCore.serve`. The protocol work is
+mcp-common's, shared with v1 — this is a BINDING, not a second implementation.
+
+**Measured, all six cases, through the provider (`bin/ssc-provider mcp run`):**
+
+| before | after |
+|---|---|
+| `unbound global: mcpServer`, exit 1 | output **byte-identical to the int lane**, exit 0 |
+
+`mcp-server-tool`, `mcp-server-tools`, `mcp-server-resource`, `agent-mcp-server`, `mcp-agent`,
+`mcp-filesystem-server` — all six.
+
+⚠️ **THE CORPUS ROWS STAY RED, and that is now a different fact.** The contract drives
+`bin/ssc run --v2`, the STANDARD launcher, which does not carry opt-in providers — so those six still
+report `unbound global: mcpServer` there. What changed is the reason: it was "the native lane cannot serve
+MCP at all", it is now purely "the provider is opt-in and the standard graph excludes it". That is a
+packaging decision ([[v2-optin-provider-cases]]), and it is now the ONLY thing between those cases and
+green on v2.
+
+**Not implemented, and refused by name rather than faked:** `Transport.Http` and `Transport.Ws` need a
+server runtime this provider does not carry, so `serveMcp` throws naming the unsupported transport instead
+of pretending to serve. Stdio is what all six corpus cases use.
+
+`v2NativeMcpPlugin/test`: 2 succeeded, 0 failed.
+
+**Original report (superseded 2026-07-31):**
 
 **Found 2026-07-31** by `skip-reprobe-after-fixes`. SIX of the eighteen v2 non-PASS rows — a third of the
 v2 column — are one cause, and it is not the one the `v2-optin-provider-cases` framing suggests.
