@@ -187,6 +187,16 @@ self-parity test is not external conformance.
         differential remains green; `uniml/lint-portable-subset.sh` stays green.
 
 - [ ] **UPR-3 — CommonMark/GFM completion and full HTML5 entities.**
+  **Measured 2026-07-31, corpus 460 → 516 passing of 675.** The census says where the work is
+  and it is not where "finish the parser" suggests: of the 244 non-pass axes at the start,
+  **215 were `html` and only 14 + 14 + 1 were source/tokens/status**. The LOSSLESS core is
+  essentially there; what is missing is projection and the block/inline grammar behind it. Two
+  defects closed so far — a shortcut/collapsed reference link looked its definition up by the
+  EMPTY key (+27), and indented code opened one block per line with the four columns left in the
+  literal (+29, and it moved source/tokens 14 → 10 each, so per-line framing had been producing
+  worse trees than one block does). Ranked remainder, by failing cases:
+  Links 25, List items 20, Link reference definitions 12, Lists 12, GFM autolinks 11 (0 of 11 —
+  the extension is absent, not broken), emphasis 10, raw HTML 8, setext 8.
   - [ ] **UPR-3a generated entity data.** Generate a deterministic, checksummed table from pinned
         WHATWG `entities.json`: all semicolon-terminated HTML5 names and multi-code-point values;
         distinguish unknown text from an entity token; reject invalid numeric/surrogate values;
