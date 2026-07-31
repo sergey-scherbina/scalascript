@@ -1,4 +1,3 @@
-# generation: 543
+# generation: 544
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
-mcp-into-standard-graph	claude-code	2026-07-31T03:54:31Z	mcp-into-standard-graph	build.sbt tests/e2e/v21-explicit-mcp-provider-smoke.sh tests/e2e/v21-standard-mcp-smoke.sh tests/e2e/v21-explicit-lanes-gate.sh tests/fixtures/v21-explicit-lanes/manifest.tsv tests/conformance/corpus-baseline.tsv tests/conformance/contract-roster.tsv .github/workflows/ci.yml README.md docs/user-guide.md specs/v2.1-toolchain-independence.md v2/BUGS.md SPRINT.md
