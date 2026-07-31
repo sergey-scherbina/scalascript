@@ -1,4 +1,4 @@
-# generation: 613
+# generation: 614
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
 sys-env-three-lanes	claude-code	2026-07-31T07:37:45Z	typer-defines-sys-but-no-runtime-provides-it	file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/BuiltinsRuntime.scala file:v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/core-dispatch.mjs file:v2/src/Runtime.scala file:tests/conformance/sys-env.ssc file:tests/conformance/expected/sys-env.txt file:BUGS.md
@@ -6,3 +6,4 @@ f-float-exponent	claude-code	2026-07-31T10:10:47Z	f-has-no-float-exponent	file:v
 v2-perf-chain-capture-hoist	claude-code	2026-07-31T10:20:10Z	v2-perf-cell-get-forces-effect-chain	file:v2/backend-jvm-bytecode/JvmByteGen.scala file:bench/history.tsv file:v2/BACKLOG.md
 v2-perf-chain-capture-hoist	claude-code	2026-07-31T10:20:24Z	v2-perf-cell-get-forces-effect-chain	file:v2/backend-jvm-bytecode/JvmByteGen.scala file:bench/history.tsv file:v2/BACKLOG.md
 optional-check-group	claude-code	2026-07-31T10:24:07Z	smoke-optional-group-for-contested-checks	file:scripts/smoke-ci.ssc
+bugs-gate-all-digit-sha	claude-code	2026-07-31T10:25:08Z	bugs-index-gate-rejects-an-all-digit-sha	file:scripts/BUGS.md

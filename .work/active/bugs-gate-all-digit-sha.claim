@@ -1,0 +1,11 @@
+slug: bugs-gate-all-digit-sha
+branch: feature/bugs-gate-all-digit-sha
+agent: claude-code
+started: 2026-07-31T10:25:08Z
+heartbeat: 2026-07-31T10:25:08Z
+status: claimed-before-planning
+items: bugs-index-gate-rejects-an-all-digit-sha
+paths: file:scripts/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
