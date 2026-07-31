@@ -10,6 +10,12 @@ Anything not being worked on belongs in `uniml/BACKLOG.md`, not here — a queue
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [~] uniml-md-upr3b — UPR-3b. Corpus 552 → 563: ONE scanner for link reference definitions,
+      replacing three readers that disagreed; multi-line forms, escaped `]` in labels, and
+      correct rejection of trailing junk fall out of it. Known restriction recorded in BACKLOG:
+      multi-line definitions are top-level only (container prefix already consumed). Next:
+      List items 18, Links 16, Lists 12.
+
 - [x] uniml-md-upr3 — a SLICE of UPR-3, not its closure: corpus 460 → 552 passing of 675 in five
       fixes. Shortcut/collapsed refs resolved by the EMPTY key (+27); indented code coalesces with
       its four columns cut to trivia (+29, source/tokens 14 → 10 each); links stop nesting (+5);

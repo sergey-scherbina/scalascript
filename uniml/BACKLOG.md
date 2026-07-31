@@ -201,8 +201,15 @@ self-parity test is not external conformance.
   to block content, and applying it reached far past the two sections that led there —
   hard line breaks 7 → 0 and setext 8 → 5, but also Links, List items, Images, Tabs and
   block quotes. Whitespace in the SEMANTIC view was contaminating cases filed everywhere.
-  Ranked remainder at 552, by failing cases: List items 18, Links 18, Link reference
-  definitions 12, Lists 12, emphasis 10, raw HTML 8, fenced code 6, entities 5, setext 5. Mapped onto the sub-items:
+  A sixth took it to **563**: the three independent readers of a `[foo]:` line were replaced
+  by ONE scanner returning source slices, which both fixed the pre-pass/emitter disagreement
+  (`Foo\n[bar]: /baz` registered a destination-less ref) and made the multi-line forms fall
+  out. Known restriction, deliberate: a multi-line definition is offered at TOP LEVEL only,
+  because `matchContainers` has already eaten the container prefix — scanning raw lines inside
+  a list item emitted it twice and broke the source axis. Multi-line definitions inside a list
+  item or block quote stay red rather than lossy.
+  Ranked remainder at 563, by failing cases: List items 18, Links 16, Lists 12, emphasis 10,
+  raw HTML 8, fenced code 6, entities 5, setext 5, autolinks 4, images 4, tabs 4. Mapped onto the sub-items:
   **3b** owns List items + Lists + setext + the multiline `[foo]:` forms; **3c** owns the rest of
   Links (angle destinations, escaped titles, bracket-vs-raw-HTML precedence) and emphasis; **3a**
   is not optional decoration — a real HTML5 entity table is what several remaining Links cases
