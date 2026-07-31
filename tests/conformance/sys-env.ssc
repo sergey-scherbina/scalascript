@@ -1,0 +1,33 @@
+---
+name: sys-env
+description: "sys.env reads the environment — the symbol the typer promises now exists at runtime"
+backends: [int, js, jvm]
+---
+
+# `sys.env`
+
+`BUGS.md` `typer-defines-sys-but-no-runtime-provides-it`. The typer defines the `sys` symbol
+(`Typer.scala:249`), so a program using standard Scala `sys.env` **type-checks on every lane** — and
+then only the JVM one worked, because it is Scala. INT said `Undefined: sys`, js threw a
+`ReferenceError`, native said `unbound global: sys`, all at RUN time.
+
+A promise the type system makes and the runtime breaks is worse than an honest unknown-name error at
+compile time. It is also what keeps eight examples that cannot run passing CI's type-check step —
+`x402-client`, `bank-rails-sepa`, `bank-rails-pix` and others all read config through `sys.env`.
+
+```scalascript
+def main() =
+  println(sys.env.getOrElse("SSC_ENV_PROBE_ABSENT", "none"))
+  println(sys.env.get("SSC_ENV_PROBE_ABSENT").isEmpty)
+  println(sys.env.getOrElse("PATH", "").length > 0)
+```
+
+**The case reads only variables it can predict.** A conformance golden cannot depend on the machine
+it runs on, so it asserts on a name that is guaranteed ABSENT (both spellings — `getOrElse` and
+`get`, which take different runtime paths) and on `PATH` only through `length > 0`, which is true on
+every platform this suite runs on and reveals nothing about the value.
+
+**`v2` is deliberately absent.** The native lane needs its `sys` global emitted by BOTH self-hosted
+fronts as well as backed in the runtime, and `specs/v2.2-p6.5-fsub.ssc` is held by another live
+claim. The three edits are named in the entry so whoever holds it can finish the row; until then
+native fails LOUDLY (`unbound global: sys`), which is the honest state — not a wrong answer.

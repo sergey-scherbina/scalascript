@@ -555,6 +555,17 @@ private[interpreter] object BuiltinsRuntime:
     interp.globals("math.Pi")   = Value.doubleV(math.Pi)
     interp.globals("math.E")    = Value.doubleV(math.E)
     // math as an object so `math.sqrt(x)` works via field dispatch
+    // `sys.env` — the Typer DEFINES the `sys` symbol (Typer.scala:249), so a program using standard
+    // Scala `sys.env` type-checks. The JVM lane then works, because it IS Scala; this lane, js and
+    // native answered `Undefined: sys` at RUN time. A promise the type system makes and the runtime
+    // breaks is worse than an honest unknown-name error, and it is what keeps eight examples that
+    // cannot run passing CI's type-check step. Measured 2026-07-31 — the JVM lane is the oracle.
+    // BUGS `typer-defines-sys-but-no-runtime-provides-it`.
+    interp.globals("sys") = Value.InstanceV("sys", Map(
+      "env" -> Value.MapV(
+        scala.jdk.CollectionConverters.MapHasAsScala(java.lang.System.getenv).asScala.iterator
+          .map((k, v) => (Value.StringV(k): Value) -> (Value.StringV(v): Value)).toMap)
+    ))
     interp.globals("math") = Value.InstanceV("math", Map(
       "sqrt"  -> interp.globals("math.sqrt"),
       "abs"   -> interp.globals("math.abs"),

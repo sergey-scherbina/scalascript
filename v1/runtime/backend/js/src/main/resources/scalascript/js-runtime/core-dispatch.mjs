@@ -379,6 +379,20 @@ function Right(v) { return {_type: 'Right', value: v}; }
 // V8 doesn't constant-fold pure-arith loops the way LLVM does, so identity is fine).
 const Bench = { opaque: (x) => x };
 
+// `sys.env` — the Typer DEFINES the `sys` symbol, so a program using standard Scala `sys.env`
+// type-checks on every lane; only the JVM one then WORKED, because it is Scala. This lane emitted a
+// bare `sys` identifier and died with a ReferenceError at run time. A promise the type system makes
+// and the runtime breaks is worse than an honest unknown-name error at compile time — and it is
+// what keeps eight examples that cannot run passing CI's type-check step.
+// Node has `process.env`; a browser has no environment, so it reads as empty rather than throwing.
+// BUGS `typer-defines-sys-but-no-runtime-provides-it`.
+const sys = {
+  get env() {
+    const src = (typeof process !== 'undefined' && process && process.env) ? process.env : {};
+    return _hamtOf(Object.keys(src).map(k => [k, src[k]]));
+  }
+};
+
 const math = {
   sqrt: x => Math.sqrt(x), abs: x => Math.abs(x),
   pow: (x,y) => Math.pow(x,y), floor: x => Math.floor(x),

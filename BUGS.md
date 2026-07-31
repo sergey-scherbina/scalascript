@@ -76,11 +76,46 @@ precisely why the two lanes have disagreed silently.
 `DocBeside` tree on it, and v2's `__arith__` has `case "++" => StrV(x.toString + y.toString)` for
 Int pairs). Narrow the change to String/String and check `List ++ List` in the same pass.
 
-## typer-defines-sys-but-no-runtime-provides-it — `sys.env` type-checks, then dies at runtime on every lane
+## typer-defines-sys-but-no-runtime-provides-it — `sys.env` type-checked, then died at runtime on three lanes of four
 <!-- status: open
-     lane: multi
+     lane: native
      area: runtime
-     gate: none -->
+     gate: tests/conformance/sys-env.ssc -->
+
+**FIXED on int and js 2026-07-31; native remains, and the three edits it needs are named below.**
+
+**This entry's headline was wrong and the correction matters.** It said "No runtime provides it."
+Measured on all four lanes:
+
+| lane | before | after |
+|---|---|---|
+| `jvm` | **works** — it IS Scala | works |
+| `int` | `Undefined: sys` | reads the environment |
+| `js` | `ReferenceError: sys is not defined` | reads the environment |
+| native / `v2` | `unbound global: sys` | **still `unbound global: sys`** |
+
+One lane of four always worked, which is why the typer's definition was written in the first place —
+and it means the JVM lane is the ORACLE here rather than a fourth opinion. That changed the fix from
+"invent a semantics" to "match the one that already exists".
+
+**Why not simply delete the typer's definition**, which would be one edit instead of three: eight
+examples use `sys.env` (`x402-client`, `x402-cardano`, `bank-rails-sepa`, `bank-rails-pix`, …). They
+type-check today and die when run. Deleting the symbol moves their failure to COMPILE time — honest,
+but it turns CI's "Type-check examples" step red. Which exposes the sharper fact: **the false
+promise is what keeps eight unrunnable examples green in CI.**
+
+**What native still needs** (`specs/v2.2-p6.5-fsub.ssc` is held by a live claim, so this row is
+handed over rather than half-done):
+
+1. `v2/lib/ssc1-lower.ssc0:4549` — beside `mathDef`, a `sysDef = IrDef("sys", IrPrim("__sys_obj__", Nil))`;
+2. `specs/v2.2-p6.5-fsub.ssc:2471` — the F prelude string gains `(def sys (prim __sys_obj__))`, exactly
+   as it already carries `(def math (prim __math_obj__))`. **This changes F's own emitted prelude, so
+   the fixpoint gate must be re-run** — `stage1 == stage2` should still hold, but it is not free;
+3. `v2/src/Runtime.scala` — `case "__sys_obj__" => ForeignV("__sys__")` plus an `env` arm beside the
+   existing `ForeignV("__math__")` dispatch.
+
+Until then native fails LOUDLY, which is the honest state — a wrong answer would be worse than an
+error.
 
 **Found 2026-07-31** by `skip-reprobe-after-fixes`, while re-probing the corpus SKIP list.
 
