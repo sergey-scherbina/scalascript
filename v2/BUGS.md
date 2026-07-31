@@ -7,6 +7,57 @@ grepping for status.
 
 Newest first.
 
+## v2-eleven-remaining-red-rows-census — what is actually left, by cause and by size
+<!-- status: open
+     lane: native
+     area: runtime
+     fixed-in: -
+     gate: tests/conformance/contract.sc -->
+
+**Measured 2026-07-31** on a freshly built worktree, after MCP joined the standard graph took six
+rows off the board (18 -> 11). Every case run as `bin/ssc run --v2 <file> </dev/null`, first line of
+stderr recorded. This is a MAP, not a fix: the point is that "11 red rows" is four different jobs of
+very different sizes, and picking work off the count alone gets that wrong.
+
+| cluster | cases | first cause |
+|---|---|---|
+| document sections not reified | 2 | `unbound global: Widget` / `current-section` empty |
+| unbound runtime primitive | 4 | `attr`, `validate`, `clusterOf`, `JsonCodec_derived` |
+| opt-in provider not in the standard graph | 1 | `unbound global: nfcCapabilities` |
+| F front declines the file | 2 | falls back, then diverges |
+| compiler-tools tier, by design | 2 | `native frontend rejected incomplete parse` |
+
+**Sections not reified (js-glue-component, content-introspection).** A Markdown section `## Widget`
+carrying html/javascript/css fences becomes a global `Widget` with `.html` / `.javascript` / `.css`
+on the interpreter; the native lane does not build it, so the case prints its first header line and
+then dies on `unbound global: Widget`. `content-introspection` is the same feature seen from the
+other side (`current-section`, see [[content-current-section-native-unavailable]]). One gap, two
+rows — the most rows per fix of anything left.
+
+**Unbound runtime primitive (html-dsl, rest-validate, cluster-capability, graph-storage).** Four
+INDEPENDENT features, not one: a typed HTML DSL (`div`/`a`/`img`/`attr` with `:=`), request
+validation, actor-cluster capability, and derived JSON codecs. None is a compiler defect; each is a
+native-lane runtime surface that was never written. Sized separately, none shares a fix with another.
+
+**nfc-ndef.** The SAME shape MCP had before 2026-07-31: the provider exists under
+`bin/lib/providers/nfc` (16K), the standard launcher does not carry it, so the global is unbound.
+⚠️ This does NOT mean "do to nfc what was done to mcp". That decision was taken on the merits of MCP
+being part of the standard surface, and it cost +2.35 MB on every `ssc` invocation. nfc is one case;
+the same move for every provider is how a slim distribution stops being slim. It is a question for
+the owner, not a follow-through.
+
+**quoted-macro-constfold, quoted-macro-interpreter.** Both are `target-lane` / `compiler-tools`
+members of `tests/fixtures/v21-explicit-lanes/manifest.tsv` — they are MEANT to run through
+`ssc-tools`, and the native frontend rejecting them is the designed boundary, not a defect. They are
+red in the contract because the contract runs every case on every lane the case does not exclude.
+The honest fix is a `backends:` declaration on those two cases, not compiler work.
+⚠️ `contract.sc:619` accepts only the FLOW form (`backends: [int]`); the block form silently yields
+NO gate, so writing it as a YAML list looks like work and changes nothing.
+
+⚠️ `content-introspection` also HANGS the interpreter: `bin/ssc-tools run --v1` produced its output
+and then had to be killed at 90s (rc=124). Whatever the native gap is, the golden lane for that case
+is not healthy either, and a v2 fix alone would not make it trustworthy.
+
 ## v2-native-mcp-plugin-has-no-server-surface — the provider implemented the CLIENT half only
 <!-- status: fixed
      lane: native
