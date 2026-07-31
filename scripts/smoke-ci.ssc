@@ -89,7 +89,25 @@ first one — reading only one would drop a whole lane while still printing a co
 // expectation: a check that approaches it is a check to look at, never a number to raise.
 
 case class Check(module: String, name: String, cmd: String, argv: List[String], timeoutMs: Int,
-                 env: Map[String, String] = Map())
+                 env: Map[String, String] = Map(), optional: Boolean = false)
+
+// ── OPTIONAL checks: off by default, and the default is the point ──────────────────────────────
+//
+// Some checks are worth having and are NOT worth failing a push over. Two kinds so far:
+//
+//   * a check that pins behaviour we have decided NOT to change yet. It asserts what is true today
+//     rather than what is right, which makes it a tripwire for a future flip — and a tripwire in the
+//     default run reads as "this is the contract". The next person to fix the behaviour would find a
+//     test DEMANDING the broken version and reasonably conclude it was deliberate.
+//   * a check that depends on something outside the commit — the network, a remote's state, an
+//     authenticated CLI. It can go red for reasons the author of the push cannot fix, and a gate
+//     that fails for reasons unrelated to your change is one people learn to re-run rather than read.
+//
+// They run with `SSC_SMOKE_OPTIONAL=1`. What they must NEVER do is disappear quietly: every run
+// prints them by name with the reason they were skipped, and the summary says how many. A suite that
+// silently drops checks is the "green because it cannot see" failure with extra steps — the
+// difference between an optional check and a deleted one has to be visible in the log.
+val runOptional: Boolean = envOrElse("SSC_SMOKE_OPTIONAL", "") != ""
 
 // Cases are comma-separated globs; keep these lists short and keep every entry justified in the
 // prose above — an unexplained case is one nobody will dare delete later. A name matching no case is
@@ -178,7 +196,12 @@ val suite = List(
   // pins TODAY's wrong behaviour on the tools route as well as the right one on the default lane —
   // so the S3 flip goes red here and has to be acknowledged in the same commit rather than slipping
   // through as a silent default change.
-  Check("scripts", "stdin-ownership", "tests/e2e/stdin-belongs-to-the-program.sh", List(), 180000),
+  // OPTIONAL — it pins TODAY's behaviour on the tools route (the CLI eats piped stdin), which is a
+  // thing we have deliberately decided not to change yet. In the default run that assertion would
+  // read as the contract; as an opt-in it reads as what it is, a recorded fact awaiting a decision.
+  // Run it with SSC_SMOKE_OPTIONAL=1 before touching `Main.scala`'s stdin handling.
+  Check("scripts", "stdin-ownership", "tests/e2e/stdin-belongs-to-the-program.sh", List(), 180000,
+        optional = true),
 
   // ── tests/conformance — the product. One pass, several lanes; see `laneModule` for where the
   //    per-lane results are booked.
@@ -277,7 +300,7 @@ def headTail(text: String, keep: Int): List[String] =
 // ── Running ──────────────────────────────────────────────────────────────────
 
 case class Outcome(module: String, name: String, ok: Boolean, exitCode: Int, tenths: Int,
-                   stdout: String, stderr: String)
+                   stdout: String, stderr: String, skipped: Boolean = false)
 
 def runCheck(check: Check): Outcome =
   val startedAt = System.nanoTime()
@@ -359,9 +382,20 @@ def main() =
     if check.module != lastModule then
       println(check.module)
       lastModule = check.module
-    val outcome = runCheck(check)
-    val mark = if outcome.ok then "  ok   " else "  FAIL "
-    println(mark + pad(outcome.name, 34) + showSeconds(outcome.tenths))
+    val outcome =
+      if check.optional && !runOptional then
+        // `skipped = true` rather than `ok = true`: counting a check nobody ran as a pass is how a
+        // suite reports a bigger number than it earned, and the verdict line below is the one thing
+        // a reader takes away.
+        Outcome(check.module, check.name, true, 0, 0, "", "", true)
+      else runCheck(check)
+    val mark =
+      if check.optional && !runOptional then "  skip "
+      else if outcome.ok then "  ok   " else "  FAIL "
+    val suffix =
+      if check.optional && !runOptional then "  (optional — SSC_SMOKE_OPTIONAL=1 to run)"
+      else showSeconds(outcome.tenths)
+    println(mark + pad(outcome.name, 34) + suffix)
     if !outcome.ok then
       // The exit code first: 124 is the timeout guard firing, 127 a command that could not start,
       // 137 a kill (OOM on a runner). Those three are answered by the number alone, and reading
@@ -408,7 +442,9 @@ def main() =
           println("  " + pad(module, 34) + showTally(tally) + "   (corpus lanes)"))
 
   // ── Verdict ─────────────────────────────────────────────────────────────────
-  val failed = outcomes.filter(o => !o.ok)
+  val failed  = outcomes.filter(o => !o.ok)
+  val skipped = outcomes.filter(o => o.skipped)
+  val ran     = outcomes.filter(o => !o.skipped)
   val totalTenths = outcomes.map(o => o.tenths).foldLeft(0)((a, b) => a + b)
   // The budget FAILS the run on CI and only WARNS locally, and that asymmetry is the point.
   //
@@ -427,9 +463,14 @@ def main() =
   val overBudget = totalTenths > budgetSeconds * 10
 
   println("")
-  println("checks: " + (outcomes.length - failed.length).toString() + "/" +
-          outcomes.length.toString() + " green    " +
+  println("checks: " + (ran.length - failed.length).toString() + "/" +
+          ran.length.toString() + " green    " +
           showSeconds(totalTenths) + " of " + budgetSeconds.toString() + "s budget")
+  // Never let the skipped ones be inferred from a smaller total. The count AND the names, every
+  // run — an optional check and a deleted one must not look the same in a log.
+  if skipped.length > 0 then
+    println("        " + skipped.length.toString() + " optional check(s) NOT run: " +
+            skipped.map(o => o.name).mkString(", ") + "   (SSC_SMOKE_OPTIONAL=1 runs them)")
 
   if failed.length > 0 then
     println("")
