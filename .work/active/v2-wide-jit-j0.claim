@@ -2,10 +2,10 @@ slug: v2-wide-jit-j0
 branch: feature/v2-wide-jit-j0
 agent: claude-code
 started: 2026-07-31T18:02:48Z
-heartbeat: 2026-07-31T18:02:48Z
+heartbeat: 2026-07-31T19:17:19Z
 status: claimed-before-planning
-items: J-0 v2-wide-jit baseline + JitSite overhead apparatus
-paths: file:v1/runtime/backend/interpreter-bench/src/main/scala/scalascript/bench/V2JitSiteBench.scala file:specs/v2-wide-jit.md
+items: J-0 v2-wide-jit baseline + JitSite overhead apparatus, J-1 JitSite counters
+paths: file:v1/runtime/backend/interpreter-bench/src/main/scala/scalascript/bench/V2JitSiteBench.scala file:specs/v2-wide-jit.md file:v2/src/Runtime.scala
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: J-1 JitSite wrapper at the four Lam-body sites + the While body (v2/src/Runtime.scala)
