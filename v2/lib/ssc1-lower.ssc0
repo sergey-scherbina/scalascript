@@ -3428,6 +3428,9 @@ def hasLpat = (arms) =>
 
 def litPatIr = (ty, v) =>
   if #seq(ty, "int") then lowerIntLit(v)
+  -- `case () =>` — the unit VALUE already lowers to IrLit(IrUnit), so the pattern is an ordinary
+  -- equality against it. `unit-literal-pattern-diverges-two-lanes-against-two`.
+  else if #seq(ty, "unit") then IrLit(IrUnit)
   else if #seq(ty, "str") then IrLit(IrStr(v))
   else if #seq(ty, "bool") then IrLit(IrBool(if #seq(v, "true") then true else false))
   else match #str->f(v) { case Some(d) => IrLit(IrFloat(d)) case None => IrLit(IrFloat(0.0)) }

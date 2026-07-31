@@ -1,0 +1,45 @@
+---
+name: conformance-literal-pattern-in-case-lambda
+---
+
+# A literal pattern must work in a `case` LAMBDA, not only in a `match`
+
+F decides how to lower a set of arms in TWO places: `parseMatchArms` for an explicit `x match { … }`
+and `caseLamIsGen` for a `case` lambda (`xs.map { case … }`). They answer the same question and they
+must agree.
+
+They stopped agreeing. The char-literal fix (`v2-char-is-an-int`, `df5785f6f`) gave char literals
+their own token kind and taught `parseMatchArms` about it via `isNumLitHead` — but not the twin. A
+char literal pattern inside a `case` lambda therefore stopped being recognised as a literal arm, fell
+through to the constructor path, and died at runtime with `match: no arm for /-1`. An explicit
+`match` on the same pattern was fine, which is exactly why a `match`-only case could not see it.
+
+This case gates BOTH walkers on BOTH pattern kinds that route through them — a char literal and the
+unit literal `()` — so neither can be fixed while the other silently rots.
+
+```scalascript
+def kindL(c: Char): String = List(c).map { case '\n' => "NL" case _ => "other" }.mkString
+
+def kindM(c: Char): String = c match
+  case '\n' => "NL"
+  case _    => "other"
+
+def unitL(x: Any): String = List(x).map { case () => "UNIT" case _ => "OTHER" }.mkString
+
+def unitM(x: Any): String = x match
+  case () => "UNIT"
+  case _  => "OTHER"
+
+def main() =
+  // char literal — lambda and match must agree with each other and with the golden
+  println(kindL('\n'))
+  println(kindM('\n'))
+  println(kindL('z'))
+  println(kindM('z'))
+
+  // unit literal — `()` is the unit value, so a literal pattern on it holds
+  println(unitL(()))
+  println(unitM(()))
+  println(unitL(7))
+  println(unitM(7))
+```

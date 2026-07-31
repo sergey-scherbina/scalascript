@@ -2119,6 +2119,13 @@ def parsePatAtom = (toks) =>
     else if #seq(v, "false") then pr(Pair("lpat", Pair("bool", "false")), advance(toks))
     else pr(Pair("cpat", Pair(v, Nil)), advance(toks))
   else if #seq(k, "(") then
+    -- `case () =>` is the UNIT literal, not an empty tuple. Sent through goSubPats it produced an
+    -- empty tuple pattern and the arm was SILENTLY DROPPED — the whole match collapsed to its
+    -- default, so it never mismatched, it was never emitted. Checked BEFORE goSubPats because that
+    -- is the path that swallowed it. v2/BUGS.md `unit-literal-pattern-diverges-two-lanes-against-two`.
+    if #seq(tokKind(peek(advance(toks))), ")") then
+      pr(Pair("lpat", Pair("unit", "")), advance(advance(toks)))
+    else
     let rSub = goSubPats(advance(toks)) in
     match prV(rSub) {
       case Pair(subs, n) => pr(tuplePat(subs), skipKind(")", prT(rSub)))

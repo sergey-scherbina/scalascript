@@ -1,4 +1,4 @@
-# corpus-contract-roster-v1	baseline-sha256=8c10eb25591607b153472d640cbcba1df8edfe8503c05f76e892f7156954824a	roster-sha256=523f7160fd71fcbad9223155ebf4199706b90d688c7d7271cb62c13f73706545
+# corpus-contract-roster-v1	baseline-sha256=8c10eb25591607b153472d640cbcba1df8edfe8503c05f76e892f7156954824a	roster-sha256=5673ca13184dee6f6f752a7945821b2a8d59965191cb792a09b03163fc2f37e9
 _bug1_httpclient
 _bug1b
 _bug1c
@@ -207,6 +207,7 @@ list-combinators
 list-companion
 list-slice
 litdoc
+literal-pattern-in-case-lambda
 map-getorelse-expr-receiver
 map-ops
 maps
@@ -500,6 +501,7 @@ typed-sql-crud
 ui-fetch-json
 ui-remote-table
 ui-typed-json
+unit-literal-pattern
 uploads
 user-request-shadow
 uuid-v7

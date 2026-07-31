@@ -7,6 +7,39 @@ grepping for status.
 
 Newest first.
 
+## char-literal-pattern-dropped-in-a-case-lambda — a regression I shipped the same morning, in the twin walker
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: PENDING-SHA
+     gate: tests/conformance/literal-pattern-in-case-lambda.ssc -->
+
+**Introduced and fixed 2026-07-31**, both by me. Recorded rather than quietly folded into the fix,
+because the shape is one this repo keeps paying for and the gate that missed it was mine.
+
+`df5785f6f` ([[v2-char-is-an-int]]) gave char literals their own token kind (12) and taught
+`parseMatchArms` about it through a new `isNumLitHead`. It did **not** touch `caseLamIsGen`, the twin
+that makes the same routing decision for a `case` LAMBDA. So a char literal pattern inside a lambda
+stopped being recognised as a literal arm, fell through to the constructor path, and died:
+
+```scalascript
+def kind(c: Char): String = List(c).map { case '\n' => "NL" case _ => "other" }.mkString
+println(kind('\n'))        // int: NL      v2: ssc: match: no arm for /-1
+```
+
+**Why the char gate could not see it.** `char-as-value.ssc` and `v2-char-numeric-position.sh` both
+exercise `case '\n' =>` — but only as an explicit `match`, which goes through the walker I DID
+update. One pattern, two walkers, one gate.
+
+**Fix:** both walkers now share `isNumLitHead` and `isUnitPatHead`, and
+`tests/conformance/literal-pattern-in-case-lambda.ssc` runs char AND unit literals through a lambda
+and a match side by side, so neither walker can be updated alone again.
+
+The general lesson is already written down as `feedback`-class knowledge ("fix BOTH fronts", "there
+is probably a SECOND COPY of this helper"). What is new here is the shape: the second copy was not a
+second FRONT, it was a second **decision site inside the same front**, reached only by a different
+surface syntax.
+
 ## f-unbound-loop-is-the-new-top-gap — `loop` replaces `q` as F's largest single decline reason
 <!-- status: open
      lane: native
@@ -328,11 +361,30 @@ effect" on the default front too), so only `empty` needed the alias and F is no 
 two — verified, since routing them through the companion path could have diverged.
 
 ## v2-getorelse-two-arg-falls-into-option-helper — `Map(...).getOrElse(k, d)` dies unless the receiver is a bare variable
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: front
-     fixed-in: -
+     fixed-in: 560ce09e9
      gate: tests/conformance/map-getorelse-expr-receiver.ssc -->
+
+**ALREADY FIXED — bookkeeping only, 2026-07-31.** `560ce09e9` ("getOrElse(k, default) stops falling
+into the Option helper — legacy front") closed it and the entry was never moved off `open`.
+
+Re-measured on a clean build, all four receiver shapes this entry lists plus the Option form, on int,
+F and legacy — every lane answers identically:
+
+    val m = Map("a" -> "1"); m.getOrElse("a", "X")   1     tracked variable
+    b.m.getOrElse("a", "X")                          1     field selector
+    Map("a" -> "1").getOrElse("a", "X")              1     literal
+    wrap(m).getOrElse("a", "X")                      1     call result
+    m.getOrElse("zz", "X")                           X     miss
+    (o: Option[String]).getOrElse("X")               s     the 1-arg Option form, undisturbed
+
+**I had written an F-side fix before measuring, and reverted it.** F reaches these through
+`emitCallMethod`, not the `_sel_getOrElse` helper, so there was nothing to fix; changing working
+code with no measured defect is a risk without a benefit.
+
+### Original report (2026-07-30)
 
 Both self-hosted fronts define one prelude helper for `getOrElse` and it is `lam 2` — the OPTION
 shape `(opt, default)`. A Map's `getOrElse` takes two arguments, so the call arrives with three:
@@ -1128,10 +1180,34 @@ path. It sat on `main` for 5 days because the gate that watches exactly this cou
 `__method__` / `effect.perform*` are in it, so effectful defs are correctly impure again.
 
 ## unit-literal-pattern-diverges-two-lanes-against-two — `case ()` matches on jvm, js and int, not on the native lanes
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: front
-     gate: none -->
+     fixed-in: PENDING-SHA
+     gate: tests/conformance/unit-literal-pattern.ssc -->
+
+**FIXED 2026-07-31** by `v2-front-triple`, on BOTH self-hosted fronts.
+
+The entry's own root-cause note was right and its reverted attempt stopped one step short. The two
+edits it describes (`parsePatAtom1` returning a unit lpat, `litPatF` mapping it) are necessary but
+inert on their own, because the ROUTING decision happens before the pattern is parsed. The fix is
+those two plus:
+
+- `parseGenUnit` in F's ordered resolver — same shape as `parseGenLit`, but the pattern is TWO
+  tokens so the caller advances by two;
+- the `isUnitPatHead` test in **both** `parseMatchArms` and `caseLamIsGen`, and in `parseGenArm`
+  ahead of the tuple dispatch.
+
+**The legacy front needed its own fix and would have been missed by the gate.** F is the default and
+compiles the case, so the corpus went green while `SSC_FRONT=legacy` still printed `OTHER` on every
+row — checked explicitly rather than assumed. `ssc1-front.ssc0` now recognises `(` immediately
+followed by `)` BEFORE `goSubPats` (the path that swallowed the arm), and `ssc1-lower.ssc0`
+`litPatIr` maps `"unit"` to `IrLit(IrUnit)`.
+
+Verified F, legacy, int and js all produce the same rows; `v2js-unit-pattern`, which had frozen
+`OTHER`, still passes.
+
+### Original report (2026-07-30)
 
 **Found 2026-07-30** while fixing [[js-v2-unit-pattern-does-not-match-and-unit-literal-pattern-crashes]].
 

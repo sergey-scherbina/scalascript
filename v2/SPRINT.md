@@ -13,6 +13,37 @@ lose the reasoning around them.
 Milestone view: [`ROADMAP.md`](ROADMAP.md). Pipeline: `ssc0 → ir → ssc(VM) → cpu`. Work each slice
 in its own worktree off `origin/main`.
 
+## v2 front triple (claim `v2-front-triple`)
+
+Three entries claimed as one batch because they share `specs/v2.2-p6.5-fsub.ssc` and one build
+cycle. **Plan written after the first measurement rather than before it, and the measurement is why:**
+running the three repros on a clean build turned one of them into a bookkeeping fix and uncovered a
+regression I had shipped myself the same day.
+
+- [x] **U-1 — `unit-literal-pattern-diverges-two-lanes-against-two`.** Reproduced (int `UNIT`, v2
+      `OTHER`). The arm is not mismatched, it is DROPPED: `()` in pattern position went to the
+      empty-tuple path. Fix = `isUnitPatHead` + an `("lpat", ("unit", ""))` return in
+      `parsePatAtom1`, a `"unit"` arm in `litPatF`, `parseGenUnit` in the ordered resolver, and the
+      routing test in BOTH `parseMatchArms` and `caseLamIsGen`. The previous attempt (recorded in the
+      entry) stopped at the first two edits; the routing is what it was missing.
+- [x] **U-2 — `v2-getorelse-two-arg-falls-into-option-helper` was ALREADY FIXED.** All four receiver
+      shapes the entry lists (bare var, field selector, literal, call result) plus the Option form
+      answer identically on int, F and legacy. Fixed by `560ce09e9` ("getOrElse(k, default) stops
+      falling into the Option helper — legacy front"); the entry was never moved off `open`.
+      **I had already written an F-side fix for it and reverted it**: changing working code with no
+      measured defect is a risk without a benefit. Bookkeeping only.
+- [ ] **U-3 — `v2-object-var-member-resolves-to-a-top-level-global`: NOT taken, deliberately.**
+      Reproduced (3 of 8 rows differ from the int golden). It is a scope-resolution fix in the
+      object-member lowering for both fronts — F declines the file with
+      `unbound global: (global Counter_n)`, i.e. it already mangles the name but nothing emits that
+      global. Its own slice, and the entry says it is one of three lanes with three different causes.
+- [x] **U-4 — NOT in the plan: a regression I shipped this morning.** The char-literal fix
+      (`df5785f6f`) added `isNumLitHead` to `parseMatchArms` and NOT to its twin `caseLamIsGen`, so a
+      char literal pattern inside a `case` LAMBDA fell through to the ctor path and died with
+      `match: no arm for /-1`. An explicit `match` was fine, which is why the char gate could not see
+      it. Both walkers are now on the shared predicates, and
+      `tests/conformance/literal-pattern-in-case-lambda.ssc` gates char AND unit through BOTH.
+
 ## F reads `~`, `~>`, `<~` (claim `f-tilde-infix`, BUGS `f-tilde-infix-…` + `f-operator-ext-param-…`)
 
 **Two entries, ONE commit, and the order is not a preference.** `f-tilde-infix-silently-miscompiled-as-bitwise-not`

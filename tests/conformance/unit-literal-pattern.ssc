@@ -1,0 +1,34 @@
+---
+name: conformance-unit-literal-pattern
+---
+
+# `case () =>` matches the unit value
+
+`()` is the unit value, so a literal pattern on it must hold. jvm (real Scala), js and int all
+answer `UNIT`; the two self-hosted lanes answered `OTHER`.
+
+**It was not a mismatch — the arm was silently DROPPED.** Lowering the repro through the reference
+front produced `(def viaLiteral (lam 1 (let ((local 0)) (lit (str "OTHER")))))`: no test, no arms,
+the whole `match` collapsed into "bind the scrutinee, return the default". `()` in PATTERN position
+went to the empty-tuple path and disappeared, so the arm never existed to fail.
+
+The last row is the one that keeps the fix honest: a real one-element tuple pattern must still work,
+because the fix separates `()` from the tuple path that used to swallow it.
+
+```scalascript
+def viaLiteral(x: Any): String = x match
+  case () => "UNIT"
+  case _  => "OTHER"
+
+def firstOf(p: (Int, Int)): Int = p match
+  case (a, _) => a
+
+def main() =
+  println(viaLiteral(()))
+  println(viaLiteral(7))
+  println(viaLiteral("s"))
+  // the value of a `println` IS unit — the shape the defect was found with
+  println(viaLiteral(println("")))
+  // tuple patterns must be undisturbed by separating `()` from them
+  println(firstOf((4, 5)))
+```
