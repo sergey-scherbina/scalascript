@@ -1,0 +1,11 @@
+slug: markup-core-out-of-v1
+branch: feature/markup-core-out-of-v1
+agent: claude-code
+started: 2026-07-31T15:41:23Z
+heartbeat: 2026-07-31T15:41:23Z
+status: claimed-before-planning
+items: markup-core-is-a-shared-library-inside-the-v1-tree
+paths: file:build.sbt file:v1/runtime/std/markup-core file:markup file:specs/project-partitioning.md file:tests/e2e/project-partition-gate.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
