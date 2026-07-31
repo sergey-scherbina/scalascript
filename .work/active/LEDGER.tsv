@@ -1,6 +1,5 @@
-# generation: 659
+# generation: 660
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
 smoke-budget-drift	claude-code	2026-07-31T11:18:37Z	smoke-suite-headroom-halved	file:scripts/smoke-ci.ssc file:scripts/SPRINT.md file:BACKLOG.md
 std-os-js-jvm-resolve	claude-code	2026-07-31T11:57:14Z	std-os-does-not-resolve-on-js-or-jvm	file:v1/runtime/backend/js/BUGS.md
-nfc-ndef-backends-declaration	claude-code	2026-07-31T12:27:31Z	nfc-ndef-backends-declaration	examples/nfc-ndef.ssc tests/conformance/corpus-baseline.tsv tests/conformance/contract-roster.tsv v2/BUGS.md
