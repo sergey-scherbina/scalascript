@@ -1,5 +1,4 @@
-# generation: 727
+# generation: 728
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
 v2-wide-jit-j0	claude-code	2026-07-31T18:02:48Z	J-0 v2-wide-jit baseline + JitSite overhead apparatus, J-1 JitSite counters, J-2 backend SPI	file:v1/runtime/backend/interpreter-bench/src/main/scala/scalascript/bench/V2JitSiteBench.scala file:specs/v2-wide-jit.md file:v2/src/Runtime.scala file:v2/src/Jit.scala file:v2/backend-jvm-bytecode/JitBytecodeBackend.scala file:v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala
-js-tail-call-elimination	claude-code	2026-07-31T20:10:26Z	js-no-tail-call-elimination-overflows-scljet-large-page	file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:tests/e2e/js-self-tco-gate.sh file:scripts/smoke-ci.ssc
