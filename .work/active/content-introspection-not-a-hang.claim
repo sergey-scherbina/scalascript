@@ -1,0 +1,11 @@
+slug: content-introspection-not-a-hang
+branch: feature/content-introspection-not-a-hang
+agent: claude-code
+started: 2026-07-31T11:25:43Z
+heartbeat: 2026-07-31T11:25:43Z
+status: claimed-before-planning
+items: content-introspection-not-a-hang
+paths: v2/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
