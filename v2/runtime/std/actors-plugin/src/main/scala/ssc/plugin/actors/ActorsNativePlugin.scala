@@ -523,6 +523,107 @@ final class ActorsNativePlugin extends NativePlugin:
       Value.MapV.from(Nil)
     }
 
+    // ── std/cluster: the four `extern def`s of v1/runtime/std/cluster/types.ssc ────────────────
+    // Everything else in that module (CodeIdentity, SeedResolver, ClusterCapability,
+    // SeedResolver.staticList) is ordinary .ssc and already works here. Field order below is the
+    // DECLARED order of those case classes: v2 field access is positional, so a wrong order is a
+    // silent mis-read rather than an error.
+    //   CodeIdentity(algorithm, digest, format, module)
+    //   SeedResolver(kind, urls, serviceName, namespace, port, scheme)
+    //   ClusterCapability(localNodeId, peers, authToken, seedResolver, codeIdentity)
+    def strField(v: Value, i: Int): String = v match
+      case Value.DataV(_, fs) if fs.length > i => fs(i) match
+        case Value.StrV(s) => s
+        case _             => ""
+      case _ => ""
+
+    def listOfStr(v: Value): List[String] =
+      def go(x: Value, acc: List[String]): List[String] = x match
+        case Value.DataV("Cons", fs) if fs.length == 2 =>
+          go(fs(1), (fs(0) match { case Value.StrV(s) => s; case _ => "" }) :: acc)
+        case _ => acc.reverse
+      go(v, Nil)
+
+    def sscList(xs: List[Value]): Value =
+      xs.foldRight(Value.DataV("Nil", collection.immutable.ArraySeq.empty[Value]): Value) { (x, acc) =>
+        Value.DataV("Cons", collection.immutable.ArraySeq(x, acc))
+      }
+
+    // v1 computes this as SHA-256 over the module's SOURCE TEXT, tagged `format = "ssc"`
+    // (`Interpreter.computeCodeIdentity`). Hashing the same bytes here makes the two lanes agree by
+    // construction. When there is no source (`run-ir` takes bytecode) this REFUSES rather than
+    // inventing a placeholder: `nfc-ndef`-style green rows are not worth a code identity that
+    // identifies nothing, and a cluster is exactly the consumer that would trust it.
+    def codeIdentityValue(context: NativePluginContext): Value =
+      val src = context.sourceText.getOrElse(throw new RuntimeException(
+        "codeIdentity(): no source is available on this lane (started from bytecode, not a .ssc " +
+        "file), and a synthesised digest would identify nothing"))
+      val digest = java.security.MessageDigest.getInstance("SHA-256")
+        .digest(src.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+        .map(b => f"${b & 0xff}%02x").mkString
+      Value.DataV("CodeIdentity", collection.immutable.ArraySeq(
+        Value.StrV("sha256"), Value.StrV(digest), Value.StrV("ssc"),
+        Value.DataV("None", collection.immutable.ArraySeq.empty[Value])))
+
+    def resolveSeedsOf(resolver: Value): Value =
+      val kind = strField(resolver, 0)
+      val urls = listOfStr(resolver match {
+        case Value.DataV(_, fs) if fs.length > 1 => fs(1)
+        case _                                   => Value.DataV("Nil", collection.immutable.ArraySeq.empty[Value])
+      })
+      kind match
+        case "static" => sscList(urls.map(Value.StrV.apply))
+        // v1 resolves these against real DNS. Refusing BY NAME beats a plausible empty list: an
+        // empty seed list reads as "no peers yet", which is a normal state, so a silent wrong
+        // answer here would look like a healthy cluster with nothing to join.
+        case other =>
+          throw new RuntimeException(
+            s"resolveSeeds: the '$other' seed resolver is not implemented on the native lane")
+
+    context.registerGlobal("clusterOf", -1) { args =>
+      val resolver = args.headOption.getOrElse(
+        throw new IllegalArgumentException("clusterOf(seedResolver)"))
+      val peers = sscList(Nil)  // no peer transport on this lane yet; v1 lists connected channels
+      Value.DataV("ClusterCapability", collection.immutable.ArraySeq(
+        Value.StrV(if localNode.get() == "local" then "" else localNode.get()),
+        peers,
+        Value.DataV("None", collection.immutable.ArraySeq.empty[Value]),
+        resolver,
+        codeIdentityValue(context)))
+    }
+
+    // Arity is -1 and the shape is chosen by the VALUE's tag, not by argument count, because this
+    // name arrives three ways. `ClusterCapability.resolveSeeds()` (types.ssc:57) is a case-class
+    // method whose body calls the free `resolveSeeds(seedResolver)` — v2 dispatches that through
+    // the receiver, so the global sees TWO arguments (`arity: 1 expected, 2 given` was the first
+    // symptom). A direct `resolveSeeds(r)` sends one. Reading the tag handles all of them without
+    // guessing which position means what.
+    def seedResolverOf(v: Value): Value = v match
+      case Value.DataV("ClusterCapability", fs) if fs.length > 3 => fs(3)
+      case other                                                 => other
+    context.registerGlobal("resolveSeeds", -1) { args =>
+      args.reverse.find {
+        case Value.DataV("SeedResolver", _)       => true
+        case Value.DataV("ClusterCapability", _)  => true
+        case _                                    => false
+      } match
+        case Some(v) => resolveSeedsOf(seedResolverOf(v))
+        case None    => throw new IllegalArgumentException("resolveSeeds(seedResolver)")
+    }
+
+    context.registerGlobal("codeIdentity", 0) { _ => codeIdentityValue(context) }
+
+    context.registerGlobal("assertCodeIdentity", 1) {
+      case expected :: Nil =>
+        val actual = codeIdentityValue(context)
+        val same = (0 to 2).forall(i => strField(expected, i) == strField(actual, i))
+        if same then Value.UnitV
+        else throw new RuntimeException(
+          s"code identity mismatch: expected ${strField(expected, 2)}:${strField(expected, 1)}, " +
+          s"actual ${strField(actual, 2)}:${strField(actual, 1)}")
+      case _ => throw new IllegalArgumentException("assertCodeIdentity(expected)")
+    }
+
     context.registerGlobal("runActors", 1) {
       case body :: Nil =>
         behaviors.clear()

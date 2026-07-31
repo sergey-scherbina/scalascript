@@ -41,6 +41,10 @@ trait NativePluginContext:
    *  construction — e.g. the content plugin building a real `signal(name, default)` via the
    *  ui plugin. Defaults to None so existing/mock contexts stay source-compatible. */
   def resolveGlobal(name: String): Option[Value] = None
+  /** The entry program's SOURCE TEXT, when it was started from a `.ssc` file. Defaults to None so
+   *  existing and mock contexts stay source-compatible, exactly like `resolveGlobal` above.
+   *  None is a real answer (`run-ir` has no source), not a placeholder to paper over. */
+  def sourceText: Option[String] = None
   def withEffect(effectTag: String)(handler: (String, List[Value]) => Value)(body: => Value): Value
   def register(name: String)(fn: List[Value] => Value): Unit
   def registerGlobal(name: String, arity: Int)(fn: List[Value] => Value): Unit

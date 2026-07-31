@@ -7,6 +7,48 @@ grepping for status.
 
 Newest first.
 
+## v2-extern-shadowed-by-a-same-named-case-class-method — `cluster.resolveSeeds()` cannot reach its extern
+<!-- status: open
+     lane: native
+     area: front
+     fixed-in: -
+     gate: examples/cluster-capability.ssc -->
+
+**Found 2026-07-31**, immediately after the source plumbing made `clusterOf`/`codeIdentity` work.
+
+`v1/runtime/std/cluster/types.ssc:57` is a case-class method that calls the same-named free extern:
+
+```
+case class ClusterCapability(..., seedResolver: SeedResolver, ...):
+  def resolveSeeds(): List[String] =
+    resolveSeeds(seedResolver)          // <- means the EXTERN
+extern def resolveSeeds(seedResolver: SeedResolver): List[String]
+```
+
+Measured with both calls side by side in one run:
+
+```
+A-direct=ws://seed:9100/_ssc-actors     <- resolveSeeds(seeds) — the native global, works
+B-method= ssc: arity: 1 expected, 2 given  <- cluster.resolveSeeds() — dies
+```
+
+Inside the method body the name binds to the METHOD (arity 1, the receiver) and is called with two
+arguments, receiver plus `seedResolver`. The interpreter binds it to the extern and works.
+
+**Why, most likely:** an `extern def` has no body, so it is not a global the front can see at
+lowering time — it only exists once a native plugin registers it at RUNTIME. The enclosing method is
+the only `resolveSeeds` in scope, so it shadows the extern and the call becomes a recursive one with
+an extra argument. `ssc info --front-report` agrees the name is invisible statically:
+`BOTH-UNBOUND — unbound global: (global resolveSeeds)`.
+
+⚠️ **A hand-written reduction does NOT reproduce this, and mine said the opposite.** A case class
+whose method calls a same-named ordinary `def` gives 42 on v2 and js and prints NOTHING on int — v2
+is right there. The shadowing only bites when the free function is an EXTERN. Third time today that
+an invented reduction pointed the wrong way; the A/B above came from instrumenting the real case.
+
+Not fixed here: it is front name-resolution work, and this task's scope was the source plumbing.
+Three of the four cluster externs work; this one row needs this too.
+
 ## f4-classify-compares-40-percent-and-never-names-the-rest
 <!-- status: open
      lane: native

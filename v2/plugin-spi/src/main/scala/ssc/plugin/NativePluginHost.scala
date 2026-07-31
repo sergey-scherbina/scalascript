@@ -33,6 +33,7 @@ object NativePluginHost:
     sorted.foreach { provider =>
       val context = new NativePluginContext:
         def argv: List[String] = Runtime.argv
+        override def sourceText: Option[String] = Runtime.sourceText
         def databases: Map[String, NativeDatabaseConfig] = config.databases
         def contentModules: List[NativeContentModule] = config.contentModules
 

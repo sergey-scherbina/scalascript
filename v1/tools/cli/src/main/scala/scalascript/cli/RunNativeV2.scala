@@ -8,12 +8,26 @@ object RunNativeV2:
 
   def run(files: List[String], argv: List[String], bytecode: Boolean, mutable: Boolean): Unit =
     val previousArgv = _root_.ssc.Runtime.argv
+    val previousSource = _root_.ssc.Runtime.sourceText
     val compilation = compile(files, mutable)
     try
       _root_.ssc.Runtime.argv = argv
+      // The entry file's bytes, for `codeIdentity()` in the actors plugin — v1 hashes exactly the
+      // same thing (`Interpreter.computeCodeIdentity` over `module.sourceText`), so the two lanes
+      // agree by construction. `files.lastOption` because std preludes are PREPENDED to this list;
+      // the user's file is last. Unreadable file -> None, and the consumer refuses rather than
+      // hashing a placeholder. Saved/restored exactly like `argv` above: this is process-global
+      // state and `RunNativeV2.run` is re-entered by the tools lane.
+      _root_.ssc.Runtime.sourceText = files.lastOption.flatMap { f =>
+        try Some(new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(f)),
+                            java.nio.charset.StandardCharsets.UTF_8))
+        catch case _: Throwable => None
+      }
       _root_.ssc.plugin.NativePluginHost.loadAll(compilation.config)
       if bytecode then runBytecode(compilation.program) else runVm(compilation.program)
-    finally _root_.ssc.Runtime.argv = previousArgv
+    finally
+      _root_.ssc.Runtime.argv = previousArgv
+      _root_.ssc.Runtime.sourceText = previousSource
 
   /** `run-js --v2` on the native lane: native ssc1 front → CoreIR → v2 JsGen →
    *  a temp CommonJS file executed with node. 64-bit-Int JS (the reason this lane

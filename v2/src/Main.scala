@@ -43,9 +43,11 @@ private def onSizedStack(body: () => Unit): Unit =
 private def dispatch(args: List[String]): Unit = args match
   case "run" :: file :: rest =>                 // trailing args -> the program's #io.args()
     Runtime.argv = rest
+    Runtime.sourceText = Some(read(file))       // entry-file bytes: what `codeIdentity()` hashes
     val prog = Lower.module(Loader.load(file))  // Loader resolves `import`s
     out(Runtime.runManaged(Compiler.compile(prog), Array.empty[Value]))
   case "compile" :: file :: Nil =>
+    Runtime.sourceText = Some(read(file))
     val prog = Lower.module(Loader.load(file))
     println(Writer.program(prog))
   case "run-ir" :: file :: rest =>              // same argv forwarding for raw bytecode
