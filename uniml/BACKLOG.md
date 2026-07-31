@@ -220,8 +220,14 @@ self-parity test is not external conformance.
   prefix, because processLine dispatched fence lines BEFORE matching containers — so the
   closing fence read as four columns of indent and the block swallowed the rest of the
   document. Lists 10 → 7, List items 14 → 12.
-  Ranked remainder at 577: Links 16, List items 12, emphasis 10, raw HTML 8, Lists 7,
-  fenced code 6, entities 5, autolinks 4, images 4, tabs 4, block quotes 3.
+  A ninth took it to **587**: reference labels were matched on the RENDERED text, so
+  `[*foo* bar]` looked up `foo bar` and missed its own definition — the emphasis still
+  rendered, so it read as a link that had lost its destination rather than a failed
+  lookup. CommonMark matches on the RAW label source. Same defect's second cause: the
+  full-reference form found its opening bracket with a raw `lastIndexOf('[')` and sliced
+  `[foo][ref\[]` in half. Links 16 → 11, Images 4 → 0.
+  Ranked remainder at 587: List items 12, Links 11, emphasis 10, raw HTML 8, Lists 7,
+  fenced code 6, entities 5, autolinks 4, tabs 4, block quotes 3, setext 3, tables 3.
 
   **TRIED AND REVERTED — read this before retrying it.** CommonMark 5.2 says 5+ spaces
   after a list marker mean the content starts with INDENTED CODE, and the item's content
