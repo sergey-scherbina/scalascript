@@ -350,9 +350,9 @@ whole-workload bench on this host (§6). It gets its own JMH A/B before anything
 - **Correctness before speed, every slice**: `./v2/conformance/check.sh`,
   `tests/conformance/run.sh --only '<affected>'`, `scripts/smoke-ci` before the push.
 
-Historical reference points, explicitly **not** a baseline (they predate the FastCode removal —
-re-measure in J-0): `pattern-match-heavy` v2 17.0 ms vs `ssc` 0.059; `recursion-fib` v2 6.61 vs 1.29;
-`recursion-tco` v2 0.275 vs 0.031 (`v2-vm-pattern-match-heavy-fast-tier.md`, 2026-07-10).
+The baseline is in **§9** — measured 2026-07-31, not recalled. The 2026-07-10 figures that used to
+stand in for it are kept there as the last column, because the difference between them *is* a
+finding: they predate the FastCode removal.
 
 ---
 
@@ -447,12 +447,71 @@ program has many sites and a megamorphic `Code.apply`, where an extra indirectio
 numbers are a **floor on the cost, not a ceiling** — J-1's own gate re-measures with the kernel
 wired, on the four-row corpus.
 
-### J-0 — four-row VM-lane baseline
+### J-0 — four-row VM-lane baseline, and it is much worse than the stale table said
 
-Outstanding. The historical table in §6 predates the FastCode removal, so it describes different
-code; the number to re-take is:
+Measured 2026-07-31 on `origin/main` at `5c9a226dd`, launcher built from that tree
+(`./install.sh --dev` in the same worktree, **before** J-1 touched the kernel), host load 5.3 → 2.8:
 
 ```bash
-./install.sh --dev    # the launcher must be built from the tree being measured
 ./bench.sh --warmup-time 500 --reps 20 arith-loop recursion-fib recursion-tco pattern-match-heavy
 ```
+
+| workload | front | `ssc` (v1 interp + JIT) | **`v2` (VM lane)** | v2 / ssc | v2 on 2026-07-10 |
+|---|---|---:|---:|---:|---:|
+| `arith-loop` | F | 0.243 | **73.1** | 301× | 0.000018 |
+| `pattern-match-heavy` | F | 0.052 | **77.7** | 1494× | 17.0 |
+| `recursion-fib` | F | 1.17 | **137.8** | 118× | 6.61 |
+| `recursion-tco` | F | 0.029 | **5.99** | 207× | 0.275 |
+
+**Read the last column before anything else.** The July figures are the same harness and the same
+rows, taken before `f5c-4` removed `FastCode`/`SelfRec` (2026-07-23). The removal cost **4.6× on
+`pattern-match-heavy`, 21× on `recursion-fib`, 22× on `recursion-tco`**, and turned `arith-loop`
+from a closed-form recognizer answering in 18 ns into a 73 ms interpreted loop. That was a
+deliberate trade — the bet was that the *bytecode* lane carries the numeric class
+(`v2-f5c-typed-bytecode.md` §4.4), and for `--bytecode` it does. What it left behind is the
+**default** lane, which is where `bin/ssc run` sends every program, now running 118–1494× off v1's
+JIT'd interpreter. That gap is this spec's whole reason to exist, and it is now a measured number
+rather than a recollection.
+
+The other thing the arming counter later showed, and it reframes who the JIT is for: compiling
+`examples/hello.ssc` arms **3082 sites and takes 676 of them past the call threshold**. The F front
+runs on this VM, so the JIT's first and biggest customer is the compiler itself — the win is not
+confined to user loops.
+
+Two controls, so the numbers are not read as more than they are: the `ssc` column
+(0.243 / 0.052 / 1.17 / 0.029) reproduces the July run (0.283 / 0.059 / 1.29 / 0.031) within
+contention noise, so the harness has not drifted; and the `front` column reads **F** on all four
+rows, so none of them is a fallback-front row measuring a different compiler. Single run on a
+shared host — for ratios of 100× and up that is enough, and no A/B is being claimed here.
+
+### J-1 — the counters, wired
+
+`v2/src/Jit.scala` plus four one-line call sites in the kernel (the three `Lam`-body compile points
+and the `While` body). A new file on purpose: `Runtime.scala` is the most contended file in the
+repo, and every line added there is a future conflict for somebody else.
+
+**Correctness.** `SSC_V2_JIT=on ./v2/conformance/check.sh` → **645 ok, 0 FAIL** (rc 0). The armed
+configuration is the one worth running: with the JIT off the wrapper is not installed at all, so
+"off" is byte-identical to `origin/main` by construction rather than by test.
+
+**The gate can distinguish the two states**, which output alone cannot — the interpreter prints the
+right answer either way:
+
+```
+ssc run examples/hello.ssc                  → "Hello, World!"   and NO report line
+SSC_V2_JIT=on SSC_V2_JIT_STATS=1 …          → "Hello, World!"   identical stdout
+  stderr: ssc: jit tier-0 — 3082 sites armed, 676 reached the threshold (call 8 / loop 256)
+```
+
+**Cost of arming, on a whole workload** — alternating A/B, 3 rounds, `recursion-tco`, ms/iter:
+
+| round | `SSC_V2_JIT` off | on |
+|---|---:|---:|
+| 1 | 5.39 | 5.68 |
+| 2 | 5.54 | 5.69 |
+| 3 | 5.37 | 5.68 |
+
+Medians 5.39 → 5.68, **+5.4 %, ranges disjoint**. That is two independent apparatuses agreeing:
+JMH said +4.1 % per call on a synthetic site, the corpus says +5.4 % on a real call-heavy workload.
+It is the honest price of tier-0, it is opt-in until J-9, and it is the number J-3's win has to beat
+before the default flips.

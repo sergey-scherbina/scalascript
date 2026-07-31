@@ -448,12 +448,34 @@ once per SITE, so the hot counter can *be* that `Code` (`Code = Env => Step` is 
       `recursion-tco` 0.275 / 0.031) is from 2026-07-10 and **predates the FastCode removal**, so it
       describes different code. Add a `jitSiteOverhead` case to `V2DispatchBench`. Record both in
       `specs/v2-wide-jit.md` §7 with the exact commands.
-- [ ] **J-1 — `JitSite` counters, NO compilation.** ⛔ **BLOCKED 2026-07-31: `v2/src/Runtime.scala`
-      is edit-locked** by claim `f-tilde-infix` (`file:v2/src/Runtime.scala`), which is live by
-      COMMIT activity — `82c522039`/`76adda151` landed within the hour and its `next:` field says
-      "runtime primitiveWins carve-out", i.e. more edits to that file are coming. Do not widen into
-      it; take J-1 when that claim releases. Nothing else in J-1 is blocked — the design is settled
-      and its apparatus (J-0) is landed, so this is a wait, not an unknown.
+- [~] **J-1 — `JitSite` counters, NO compilation.** *(the `f-tilde-infix` lock on
+      `v2/src/Runtime.scala` released, so this was unblocked and taken on the widened
+      `v2-wide-jit-j0` claim rather than a second worktree — that one already had warm targets and a
+      launcher built from the tree, which is what the gate needs.)*
+      **Landed as `v2/src/Jit.scala` + four one-line call sites**, deliberately a new file: the
+      kernel is the most contended file in the repo and every line added there is a future conflict
+      for someone else.
+      **Gate, and it can tell the two states apart** — which output alone cannot, since the
+      interpreter prints the right answer either way:
+
+          ssc run examples/hello.ssc                        -> "Hello, World!",  NO report line
+          SSC_V2_JIT=on SSC_V2_JIT_STATS=1 …                -> "Hello, World!",  identical stdout
+            stderr: ssc: jit tier-0 — 3082 sites armed, 676 reached the threshold (call 8 / loop 256)
+
+      **3082 sites to compile hello-world, 676 of them hot** — because the F front itself runs on
+      this VM, so the JIT's first customer is the compiler. That is a fact worth carrying into J-3:
+      the win is not only in user loops.
+      The report goes to **stderr, never stdout**: on stdout it would make the JIT-on run differ from
+      JIT-off by construction and turn the parity gate into a lie (`BytecodeFallbackMarker` is on
+      stderr for exactly this reason).
+      **Correctness: `SSC_V2_JIT=on ./v2/conformance/check.sh` = 645 ok / 0 FAIL.** The ARMED config
+      is the one worth running — with the JIT off the wrapper is not installed at all, so "off" is
+      byte-identical to `origin/main` by construction, not by test.
+      **Cost of arming, alternating A/B, 3 rounds, `recursion-tco` (ms/iter):**
+      off 5.39 / 5.54 / 5.37 → on 5.68 / 5.69 / 5.68. Medians 5.39 → **5.68 = +5.4 %, disjoint**.
+      Two independent apparatuses agree: JMH said +4.1 % per call on a synthetic site, the corpus
+      says +5.4 % on a real call-heavy workload. That is the number J-3's win must beat before the
+      default can flip.
       Wrap the `Lam` body `Code` at
       `Runtime.scala:652` (top-level defs), `:682` (`Lam`), `:738` (`LetRec`) and the `While` body at
       `:912`. Field never set; behaviour identical by construction.
