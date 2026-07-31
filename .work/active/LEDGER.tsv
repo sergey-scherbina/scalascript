@@ -1,8 +1,8 @@
-# generation: 519
+# generation: 520
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
 smoke-slice-variance	claude-code	2026-07-31T03:06:54Z	smoke-corpus-slice-dominates-and-varies	file:scripts/smoke-ci.ssc file:tests/e2e/build-conformance-shard-gate.sh file:tests/conformance/run.sc file:scripts/BACKLOG.md file:scripts/SPRINT.md file:tests/e2e/conformance-lanes-flag.sh
 native-list-type-test	claude-code	2026-07-31T03:09:28Z	type-ascription-tuple-and-set-arms-missing-native-list	file:v2/src/Runtime.scala file:tests/conformance/type-ascription-list.ssc file:tests/conformance/expected/type-ascription-list.ssc file:tests/conformance/expected/type-ascription-list.txt file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv file:BUGS.md
 nul-byte-gate	claude-code	2026-07-31T03:34:05Z	nul-byte-in-tracked-source	file:tests/e2e/no-nul-in-sources.sh file:scripts/BUGS.md file:v2/backend/js/JsBackend.scala file:v2/runtime/std/scljet-vfs-plugin/src/test/scala/ssc/plugin/scljetvfs/ScljetVfsNativePluginTest.scala file:tests/BUGS.md
 user-report-intake-channel	claude-code	2026-07-31T03:49:37Z	user-reports-have-no-way-in-from-outside	file:.github/ISSUE_TEMPLATE/user-report.yml file:.github/ISSUE_TEMPLATE/config.yml file:scripts/inbox-add file:tests/e2e/inbox-gate.sh file:CONTRIBUTING.md file:INBOX.md
-mcp-into-standard-graph	claude-code	2026-07-31T03:54:31Z	mcp-into-standard-graph	build.sbt tests/e2e/v21-explicit-mcp-provider-smoke.sh tests/fixtures/v21-explicit-lanes/manifest.tsv README.md docs/user-guide.md v2/BUGS.md
+mcp-into-standard-graph	claude-code	2026-07-31T03:54:31Z	mcp-into-standard-graph	build.sbt tests/e2e/v21-explicit-mcp-provider-smoke.sh tests/e2e/v21-standard-mcp-smoke.sh tests/fixtures/v21-explicit-lanes/manifest.tsv .github/workflows/ci.yml README.md docs/user-guide.md v2/BUGS.md SPRINT.md

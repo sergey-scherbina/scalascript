@@ -5,7 +5,16 @@ started: 2026-07-31T03:54:31Z
 heartbeat: 2026-07-31T03:54:31Z
 status: claimed-before-planning
 items: mcp-into-standard-graph
-paths: build.sbt tests/e2e/v21-explicit-mcp-provider-smoke.sh tests/fixtures/v21-explicit-lanes/manifest.tsv README.md docs/user-guide.md v2/BUGS.md
+paths: build.sbt tests/e2e/v21-explicit-mcp-provider-smoke.sh tests/e2e/v21-standard-mcp-smoke.sh tests/fixtures/v21-explicit-lanes/manifest.tsv .github/workflows/ci.yml README.md docs/user-guide.md v2/BUGS.md SPRINT.md
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  Sergiy's decision (2026-07-31): MCP becomes part of the STANDARD surface rather than an opt-in
+  provider, so `bin/ssc` — the launcher the conformance contract drives — carries it.
+  Stage the mcp plugin + mcp-common + upickle/ujson/upack/geny into bin/lib/standard/jars; drop
+  bin/lib/providers/mcp entirely (it would only duplicate them). MCP therefore leaves the
+  "explicit lanes" manifest, whose whole subject is what is NOT in the default graph: 15 -> 13
+  members, provider-lane 8 -> 6, family mcp:2 dropped.
+  The provider smoke asserted at line 65 that plain `ssc` CANNOT load MCP — that gate encodes the
+  decision being reversed, so it is REPLACED (not deleted) by v21-standard-mcp-smoke.sh: same two
+  examples, same exact expected rows, same VM/ASM equality, driven through `bin/ssc` and wired
+  into ci.yml so coverage is not silently lost.
+next: rebuild installBin, then MEASURE the six corpus cases on `bin/ssc run --v2`
