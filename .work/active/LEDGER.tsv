@@ -1,4 +1,5 @@
-# generation: 550
+# generation: 551
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
 type-ascription-matrix	claude-code	2026-07-31T05:09:25Z	type-ascription-matrix probe-wider-than-hypothesis tool-finding-not-same-hour	file:tests/conformance/SPRINT.md file:tests/conformance/BACKLOG.md file:scripts/BACKLOG.md file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGenCpsCodegen.scala file:specs/type-ascription-matrix.md file:tests/conformance/type-ascription-number.ssc file:tests/conformance/expected/type-ascription-number.txt file:v1/runtime/backend/js/BUGS.md file:tests/conformance/type-ascription-matrix.ssc file:tests/conformance/expected/type-ascription-matrix.txt file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv
+backlog-ssc-tools-stdin-decision	claude-code	2026-07-31T05:31:31Z	ssc-tools-stdin-fork-decided	file:BACKLOG.md
