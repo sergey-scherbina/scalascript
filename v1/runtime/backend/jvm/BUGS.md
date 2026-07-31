@@ -7,6 +7,51 @@ grepping for status.
 
 Newest first.
 
+## jvm-string-literal-s-concat-inserts-x — the string `"s"` on the left of a `+` emits an extra `x`
+<!-- status: open
+     lane: jvm
+     area: codegen
+     fixed-in: -
+     gate: - -->
+
+**Found 2026-07-31** by `v2-char-value` while establishing the golden for `char-as-value`. Found by
+accident and worth saying how, because the accident is the reproducible part: the `v2-char-is-an-int`
+entry records the repro line as `println("s" + 'b')`, so a case written from it straddles this defect
+and reads as a Char problem.
+
+**Reproduce** — the right operand does not matter, and neither does `Char`:
+
+```scalascript
+def main() =
+  println("a" + 'k')      // ak    correct
+  println("s" + 'k')      // sxk   WRONG
+  println("f" + 'k')      // fk    correct
+  println("raw" + 'k')    // rawk  correct
+  println("as" + 'k')     // ask   correct
+  println("s" + "k")      // sxk   WRONG — a String right operand too
+```
+
+**The trigger is a left operand that is EXACTLY the one-character string `"s"`.** `"f"`, `"raw"`,
+`"md"` — the other interpolator prefixes — are all correct, and so is `"as"`, so it is not "any short
+string" and not "any prefix name".
+
+**Three lanes against one, and the odd one out runs real Scala**, so the semantics are not in doubt
+and the defect is in the generator:
+
+| lane | `"s" + "k"` |
+|---|---|
+| int | `sk` |
+| js | `sk` |
+| v2 | `sk` |
+| **jvm** | **`sxk`** |
+
+Measured on a cleared artifact cache (`rm -rf .ssc-artifacts`) — `run-jvm` memoizes on SOURCE, so a
+stale artifact was the first thing ruled out.
+
+**Not investigated further**, deliberately: it is a different module from the claim that found it.
+The shape (`s` + an inserted `x`) reads like the `s"…"` interpolation path being taken for a bare
+`"s"` literal, with `x` coming from a generated temp name — that is a hypothesis, not a measurement.
+
 ## run-jvm-silent-success — `ssc-tools run-jvm` prints nothing and exits 0, including for a file that does not exist
 <!-- status: open
      lane: jvm

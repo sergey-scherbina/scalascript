@@ -386,6 +386,14 @@ object R:
     case "f->i"     => _asDouble(a0).toLong
     case "i->big"   => BigInt(_asLong(a0))
     case "big->i"   => _asBig(a0).toLong
+    // `char` (a Char literal) exists so the VM can give the value its own identity —
+    // `v2-char-is-an-int`. This lane has no Char in its value model, so it passes the code
+    // point through: a Char keeps behaving as an Int here, which is what it did BEFORE the
+    // VM fix, so nothing regresses. It also means Char-in-text is still wrong on this lane
+    // (`println('x')` prints 120), recorded in v2/BUGS.md under that entry. Implemented
+    // rather than left out on purpose: an absent prim is `unknown prim1: char` on every
+    // program containing a char literal — the `v2-source-backends-miss-autoOutput` shape.
+    case "char"     => _asLong(a0)
     case "i->str"   => _asLong(a0).toString
     case "f->str"   => _showDouble(_asDouble(a0))
     case "big->str" => _asBig(a0).toString

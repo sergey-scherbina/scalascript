@@ -1,0 +1,71 @@
+---
+name: conformance-char-as-value
+---
+
+# A `Char` is a value, not its code point
+
+On the v2 lane a `Char` literal WAS the `Int` of its code point, so anything that put a
+Char into text produced a number: `println('x')` printed `120`, `'x'.toString` printed
+`120`, and `"s" + 'b'` produced `s98`. It was not a `Show` difference — `.toString` and
+concatenation were wrong too, so the value had already lost its identity before any
+rendering happened (`v2-char-is-an-int`, measured in `specs/v2-char-is-an-int.md`).
+
+Why it hid for so long: **equality agrees either way.** `'x' == 'x'` is `true` whether a
+Char is a Char or an Int, and Char COMPARISON — not Char-in-text — is the common case in
+a lexer or a parser, including inside this corpus. Nothing rendered a bare Char literal
+on the v2 lane until a case was written that did.
+
+The second half of this case is the part that must NOT move. A Char reaching a numeric
+position — a comparison against an Int, `lastIndexOf`, a literal pattern — kept working
+precisely BECAUSE a Char was its code point, so a fix that gives Char its own identity
+has to preserve every one of those rows. They are the control side: this case fails if
+either half regresses.
+
+`wrap` is TOP-LEVEL deliberately. As a `def` nested inside `main` it makes the F front decline the
+whole file (`unbound global: wrap`), and a declined file is silently compiled by the fallback front —
+so this case would have gated one front while reading green for both. Verify with
+`ssc info --front-report tests/conformance/char-as-value.ssc`: it must not say `GAP`.
+
+```scalascript
+// A Char through a parameter: the value must keep its identity across a call boundary,
+// not only at the literal site. Top-level so that F compiles this file — see above.
+def wrap(ch: Char): String = "<" + ch + ">"
+
+def main() =
+  // --- Char as a value in TEXT: the defect. ---
+  println('x')
+  println('x'.toString)
+  val c = 'a'
+  println(c)
+  // NOT `"s" + 'b'`, which is how the defect was originally recorded: a left operand of
+  // exactly `"s"` trips a SECOND and unrelated defect on the jvm lane (`"s" + "k"` is `sxk`
+  // there — the `s` interpolation prefix leaks, and it happens with a String right operand
+  // too, so it has nothing to do with Char). Filed as `jvm-string-literal-s-concat-inserts-x`.
+  // Straddling both would leave this case red for a reason it does not exist to gate.
+  println("pre" + 'b')
+
+  // Escapes have to survive into text too, not just into arguments.
+  println('\n'.toString.length)
+  println("[" + '\t' + "]" == "[\t]")
+
+  // Across a call boundary and out of a container.
+  println(wrap('z'))
+  println(List('a', 'b', 'c').mkString("-"))
+
+  // --- The control side: Char in NUMERIC position, which already worked. ---
+  println('x' == 'x')
+  println("a\nb".lastIndexOf('\n'))
+  println("a\tb".indexOf('\t'))
+  // NOT `'x' == 120` and NOT `'a'.toInt`, though both are exactly the properties the v2 fix
+  // has to preserve. On the js lane a Char is a plain String, so they answer `false` and
+  // `NaN` there — the separate, already-filed `js-char-is-a-plain-string`. Keeping them here
+  // would make this case permanently red on js for a defect it does not exist to gate. They
+  // are gated on v2 by `tests/e2e/v2-char-numeric-position.sh` instead.
+
+  // A literal pattern on a Char: matched by code point before, and must still match.
+  val nl = '\n'
+  val kind = nl match
+    case '\n' => "newline"
+    case _    => "other"
+  println(kind)
+```

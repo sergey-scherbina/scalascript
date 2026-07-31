@@ -67,7 +67,12 @@ sealed trait Value
 object Value:
   case object UnitV                                    extends Value
   final case class BoolV(b: Boolean)                  extends Value
-  final class IntV(val n: Long) extends Value:
+  /** `sealed`, not `final`, for exactly one subclass: `CharV` (below, same file — the
+   *  closed world is preserved). Every `case IntV(n)` site therefore also matches a
+   *  `CharV` and reads its code point, which is what makes a Char behave as a number
+   *  wherever the language says it should — `s.charAt(i) == 34`, `lastIndexOf('\n')`,
+   *  `case '\n' =>`, `'a' + 1` — without enumerating 273 match sites. */
+  sealed class IntV(val n: Long) extends Value:
     override def equals(o: Any): Boolean = o match { case iv: IntV => iv.n == n; case _ => false }
     override def hashCode: Int = java.lang.Long.hashCode(n)
     override def toString: String = s"IntV($n)"
@@ -78,6 +83,20 @@ object Value:
     def apply(n: Long): IntV =
       if n >= CacheMin && n <= CacheMax then cache((n - CacheMin).toInt) else new IntV(n)
     def unapply(v: IntV): Some[Long] = Some(v.n)
+  /** A Char: its code point PLUS the fact that it is a Char. Before this existed, `'x'`
+   *  lowered to the `Int` 120 and every downstream operation saw an Int — `println('x')`
+   *  printed `120`, and so did `'x'.toString` and `"s" + 'b'`, so it was never a display
+   *  bug: the value had lost its identity (`v2-char-is-an-int`).
+   *
+   *  Subclassing `IntV` is what keeps the fix small AND keeps equality right: `'x' == 120`
+   *  is `true` in Scala, and it is true here because `IntV.equals` compares `n`. Only the
+   *  sites that produce TEXT need to know about this class, and each must match `CharV`
+   *  BEFORE `IntV` or the inherited numeric arm wins. */
+  final class CharV(val c: Char) extends IntV(c.toLong):
+    override def toString: String = s"CharV($c)"
+  object CharV:
+    def apply(c: Char): CharV = new CharV(c)
+    def unapply(v: CharV): Some[Char] = Some(v.c)
   final case class BigV(n: BigInt)                    extends Value
   final case class FloatV(d: Double)                  extends Value
   final case class StrV(s: String)                    extends Value
@@ -1330,6 +1349,11 @@ object Prims:
     case "f->i"    => a => IntV(flt(a, 0).toLong)
     case "big->f"  => a => FloatV(big(a, 0).toDouble)
     case "f->big"  => a => BigV(BigDecimal(flt(a, 0)).toBigInt)
+    // Char literal. Both fronts lower `'x'` to `(prim char (lit (int 120)))` rather than
+    // to a bare int literal, which is what gives the value its identity. Deliberately a
+    // PRIM and not a new `Const` kind: the IR grammar already admits any prim op, so the
+    // frozen specs/12-ir-format.md is untouched.
+    case "char"    => a => CharV(int(a, 0).toChar)
     case "i->str"  => a => StrV(int(a, 0).toString)
     case "big->str"=> a => StrV(big(a, 0).toString)
     case "f->str"  => a => StrV(Writer.floatStr(flt(a, 0)))
@@ -1880,6 +1904,9 @@ object Prims:
                 DataV(tag, (args ++ fields.drop(args.length)).toVector)
               else DataV("Stub", Vector(StrV(s"$tag.copy")))
             case None => DataV("Stub", Vector(StrV(s"$tag.copy")))
+        // BEFORE the IntV arms (CharV extends IntV). `.toInt`/`.toLong` deliberately fall
+        // through to those: a Char's numeric conversions ARE its code point in Scala.
+        case (CharV(c), "toString", Nil)     => StrV(c.toString)
         case (IntV(n), "toString", Nil)      => StrV(n.toString)
         case (IntV(n), "toInt", Nil)         => IntV(n.toInt.toLong)    // truncate to 32-bit
         case (IntV(n), "toLong", Nil)        => IntV(n)
@@ -2877,6 +2904,13 @@ object Prims:
     // Char semantics: bridge char literals are Int codepoints, while chars
     // extracted from strings (charAt/forall) are 1-char strings — comparisons
     // between the two compare codepoints (c >= 'a' in parser predicates).
+    // String + Char. BEFORE the guarded (StrV, IntV) char-comparison arms and before
+    // (StrV, StrV): CharV extends IntV, so without these `"s" + 'b'` reaches a numeric
+    // arm and produces `s98` — the concatenation half of `v2-char-is-an-int`. Only the
+    // text ops are handled here; a comparison between a String and a Char still falls
+    // through to the code-point arms below, which is where it belongs.
+    case (StrV(x), CharV(c)) if op == "+" || op == "++" => StrV(x + c)
+    case (CharV(c), StrV(y)) if op == "+" || op == "++" => StrV(c.toString + y)
     case (StrV(s), IntV(n)) if s.length == 1 && charComparisonOps.contains(op) =>
       arithOp(op, IntV(s.charAt(0).toLong), IntV(n))
     case (IntV(n), StrV(s)) if s.length == 1 && charComparisonOps.contains(op) =>
@@ -3152,6 +3186,7 @@ object Prims:
                          val parts = s.split("\n", -1); val nilV: Value = DataV("Nil", IndexedSeq.empty)
                          parts.foldRight(nilV)((x, acc) => DataV("Cons", collection.immutable.ArraySeq(StrV(x), acc)))
                          case v => sys.error("str.lines: not Str") }
+    case "char"     => Some { case IntV(n) => CharV(n.toChar);    case v => sys.error("char: not Int") }
     case "i->str"   => Some { case IntV(n) => StrV(n.toString);   case v => sys.error("i->str: not Int") }
     case "i->big"   => Some { case IntV(n) => BigV(BigInt(n));     case v => sys.error("i->big: not Int") }
     case "big->i"   => Some { case BigV(n) => IntV(n.toLong);      case v => sys.error("big->i: not BigInt") }
@@ -3360,6 +3395,8 @@ object Prims:
     // App-path flattens stub fields (line ~632) so most stubs arrive empty;
     // un-flattened ones (methodOp propagation) must LOOK the same.
     case DataV("Stub", _) => "Stub"
+    // BEFORE IntV: CharV extends it, so the IntV arm would otherwise render the code point.
+    case CharV(c)  => c.toString
     case IntV(n)   => n.toString
     case BoolV(b)  => b.toString
     case FloatV(d) => Writer.floatStr(d)
@@ -3740,6 +3777,8 @@ object Show:
   def show(v: Value): String = v match
     case UnitV        => "()"
     case BoolV(x)     => x.toString
+    // BEFORE IntV (CharV extends it). Unquoted, matching Scala: `List('a')` shows as `List(a)`.
+    case CharV(c)     => c.toString
     case IntV(n)      => n.toString
     case BigV(n)      => n.toString
     case FloatV(d)    => Writer.floatStr(d)

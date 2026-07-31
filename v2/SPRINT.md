@@ -13,6 +13,61 @@ lose the reasoning around them.
 Milestone view: [`ROADMAP.md`](ROADMAP.md). Pipeline: `ssc0 → ir → ssc(VM) → cpu`. Work each slice
 in its own worktree off `origin/main`.
 
+## v2 Char is a value, not its code point (claim `v2-char-value`, BUGS `v2-char-is-an-int`)
+
+The defect: `'x'` is the `Int` 120 on this lane in `println`, `.toString` and concatenation. Not a
+`Show` difference — the value has already lost its identity, so a display special-case is explicitly
+ruled out by [`../specs/v2-char-is-an-int.md`](../specs/v2-char-is-an-int.md).
+
+**Shape chosen (owner's call 2026-07-31), and what it deliberately does NOT do.** A char literal
+lowers to the existing `Prim` mechanism — `(prim char (lit (int 120)))` — so **`Const` and the frozen
+`specs/12-ir-format.md` are untouched**; the grammar already admits any prim op (precedent:
+`__autoOutput__`). In the runtime `CharV` EXTENDS `IntV`, so all 273 numeric `IntV` sites keep
+working by construction: `s.charAt(i) == 34`, `lastIndexOf('\n')`, `case '\n' =>` and char
+arithmetic need no edit and no enumeration. Only the text-producing sites learn about `CharV`.
+
+Rejected, with the reason so it is not re-litigated: a real `Const.CChar` through the whole tower is
+more correct by types but changes a FROZEN wire contract and obliges all six generators at once —
+its own slice, not this one.
+
+- [x] **C-1 — fail-first gate.** `tests/conformance/char-as-value.ssc`. **8 of its 14 rows failed
+      on v2** before the fix; all pass on int/js/v2 after. Two findings while establishing the
+      golden, both filed rather than absorbed: the case had to lift `wrap` to TOP LEVEL because a
+      nested `def` makes F decline the whole file (a declined file is compiled by the fallback, so
+      the case would have gated one front while reading green for both), and the repro line the
+      BUGS entry records — `"s" + 'b'` — turned out to straddle a SECOND defect,
+      `jvm-string-literal-s-concat-inserts-x` (a left operand of exactly `"s"` emits an extra `x`
+      on the jvm lane, with a String right operand too, so it has nothing to do with Char).
+- [x] **C-2 — runtime.** `IntV` `final` → `sealed` + `final class CharV(c: Char) extends
+      IntV(c.toLong)`; prim `char` in both prim tables; `CharV` matched BEFORE `IntV` in `anyStr`,
+      `show`, the `toString` method arm, and two new String+Char arms in `arithOp`.
+- [x] **C-3 — legacy front.** `ssc1-front.ssc0` emits `mkTok("char", code)`; new `mkChar` expr tag;
+      `ssc1-lower.ssc0` lowers it to `IrPrim("char", …)`. Literal patterns left as `int`, as planned.
+- [x] **C-4 — F front.** `lexChar` emits kind **12**; `emitChar` beside `emitInt`; `parseAtom1`,
+      `parsePatAtom1` and `eraseB` extended. **Not in the plan and needed:** kind 12 also had to be
+      named at F's two kind-0 match-arm sites (new `isNumLitHead`), or the arm fell through to the
+      ctor path and died at runtime with `no arm for` — caught by the gate, not predicted.
+- [x] **C-5 — backends.** `char` added to the jvm/rust/js generators as a pass-through on the code
+      point: those lanes have no Char in their value models, so they keep their PRE-FIX behaviour
+      (no regression) instead of gaining `unknown prim1: char` on every program with a char literal.
+      Char-in-text stays wrong there, recorded in the BUGS entry.
+- [x] **C-6 — evidence.** `scripts/smoke-ci` 24/24; corpus contract GREEN on int/js/v2;
+      `v2/backend/check.sh` red only on the pre-existing `backend-check-mutual-recursion-drops-output`
+      (proven not mine: neither `mutual-recursion` fixture contains a single apostrophe, so the new
+      prim is unreachable from it, and it is the same three generators and same missing line the
+      entry records).
+- [ ] **C-7 — the perf A/B is OWED, on a quiet host.** `IntV` stopped being `final`, and this repo
+      does not accept "probably fine". It is **UNRESOLVED, not "no effect"**: at load 5.5 the host
+      cannot resolve it, and the evidence is in this repo's own history rather than in my judgement
+      — `lazylist-take` on the v2 lane measured **93.4 / 29.2 / 41.6** on IDENTICAL code
+      (`315dbca16`, three rounds), with the BEST round at the HIGHEST load. What to measure when the
+      host is quiet: `arith-loop` and `pattern-match-heavy` on the v2 lane, alternating A/B against
+      a control build that restores `final class IntV` and drops `CharV`. Prior: exposure is
+      narrower than "IntV is no longer final" sounds — field reads (`v.n`) are not virtual, and the
+      hot `arithFastTyped` path goes through `IntV.unapply`, a static companion call that finality
+      never affected. The three virtual methods (`equals`/`hashCode`/`toString`) are already called
+      through `Value`.
+
 ## v2 perf — what is realistically doable after 2026-07-31 (claim `v2-perf-bench-front-column`)
 
 Written after a day of measuring. Two constraints shape this list and are not negotiable by

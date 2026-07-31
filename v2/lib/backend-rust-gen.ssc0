@@ -75,6 +75,11 @@ def genRPrim = (op, args) =>
   else if #seq(op, "sfromCodes") then run1(args, "sfromcodes(&(", "))")
   else if #seq(op, "scodeAt") then rat(args)
   else if #seq(op, "sslice")  then rsl(args)
+  -- `char` (Char literal, `v2-char-is-an-int`): this lane has no Char in V, so the code
+  -- point passes through unchanged — the pre-fix behaviour, so nothing regresses, and
+  -- Char-in-text stays wrong here (recorded in v2/BUGS.md). Present rather than absent so
+  -- a char literal does not become an unimplemented-prim panic.
+  else if #seq(op, "char")    then run1(args, "(", ")")
   else if #seq(op, "i->str")  then run1(args, "V::S(asi(&(", ")).to_string())")
   else if #seq(op, "f.add") then rfbin(args, "+", "V::Fl")
   else if #seq(op, "f.sub") then rfbin(args, "-", "V::Fl")

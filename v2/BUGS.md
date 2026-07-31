@@ -1388,14 +1388,57 @@ is gone by then.
 Not started: (1) is a front feature and (2) moves the freeze, which another claim holds.
 
 ## v2-char-is-an-int — a Char literal IS its code point on the v2 lane, in `println`, `toString` and concatenation
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: runtime
-     gate: none -->
+     fixed-in: pending
+     gate: tests/conformance/char-as-value.ssc -->
 
-**Found 2026-07-30** by `jsgen-char-escape`, by its own gate: the conformance case written to prove a JS
-Char-escape fix was run on all three lanes and v2 failed one line of it. Longer write-up, including why
-it went unnoticed, in `specs/v2-char-is-an-int.md`.
+**FIXED 2026-07-31** by `v2-char-value`, on BOTH fronts. **Found 2026-07-30** by `jsgen-char-escape`,
+by its own gate: the conformance case written to prove a JS Char-escape fix was run on all three lanes
+and v2 failed one line of it. Longer write-up, including why it went unnoticed, in
+`specs/v2-char-is-an-int.md`.
+
+### The fix
+
+The value lost its identity in the **lexer**, which is why no amount of display work could have
+recovered it: both fronts turned `'x'` into the NUMBER token, after which it was indistinguishable
+from `120`. Now each emits its own char token kind (legacy: `mkTok("char", …)`; F: kind **12**, beside
+kind 0), and both lower it to `(prim char (lit (int 120)))`.
+
+Two decisions, both deliberate:
+
+- **A prim, not a new `Const` kind.** The IR grammar already admits any prim op, so the FROZEN
+  `specs/12-ir-format.md` is untouched and no generator is obliged to change at once. A real
+  `Const.CChar` is more correct by types and remains available as its own slice; it was not taken here
+  because it changes a frozen wire contract and obliges all six generators together.
+- **`CharV extends IntV`** (`Runtime.scala`, `IntV` went `final` → `sealed`). Every one of the 273
+  numeric `IntV` match sites therefore keeps working BY CONSTRUCTION — `s.charAt(i) == 34`,
+  `lastIndexOf('\n')`, `'a' + 1`, `case '\n' =>`, and `'x' == 120` (which is `true` in Scala, and is
+  true here because `IntV.equals` compares the code). Only the four text-producing sites learn about
+  `CharV`, and each matches it BEFORE `IntV` or the inherited numeric arm wins: `anyStr`, `show`, the
+  `toString` method arm, and two new String+Char arms in `arithOp`.
+
+Literal PATTERNS were deliberately left as int patterns in both fronts — a `CharV` scrutinee equals an
+`IntV` of the same code, so `case '\n' =>` needed no new machinery. F needed kind 12 named at its two
+kind-0 arm sites (`isNumLitHead`) or the match fell through to the ctor path and died at runtime with
+`no arm for` — measured, not predicted.
+
+### Evidence
+
+`tests/conformance/char-as-value.ssc` (int/js/v2) failed **8 of its 14 rows** on v2 before the fix and
+passes on all three lanes after. `tests/e2e/v2-char-numeric-position.sh` is the control half: it runs
+BOTH fronts and asserts `ssc info --front-report` says `F`, because an F decline is a silent downgrade
+onto the fallback and a gate that cannot tell them apart is green either way.
+
+### Still wrong, and where it is written down
+
+The three **source generators** (`v2-jvm`, `v2-rust`, and the v2 JS generator) have no Char in their
+value models, so they pass the code point through: Char-in-text is still wrong THERE, exactly as it
+was before this fix — no regression, and no `unknown prim1: char` either, which is what leaving the
+prim out would have produced on every program with a char literal. `s.charAt(i)` still returns a bare
+code on the native lane rather than a Char; that is a wider change (F's own lexer is built on it) and
+is NOT part of this entry.
 
 ```scalascript
 def main() =

@@ -5,10 +5,10 @@
 --   lex(src)        : String -> [Token]
 --   parse(src)      : String -> [Stmt]
 --   showStmts(ss)   : [Stmt] -> String
--- Token = Pair(kind, value).  Kinds: "kw" "id" "uid" "op" "int" "str"
+-- Token = Pair(kind, value).  Kinds: "kw" "id" "uid" "op" "int" "char" "str"
 --   "(" ")" "[" "]" "{" "}" "," ";" "." ":" "=" "=>" "->" "::" "@" "#" "EOF"
 -- Stmt = Pair(tag, data).  Tags: "def" "val" "expr"
--- Expr = Pair(tag, data).  Tags: "int" "str" "bool" "var" "uid" "app" "sel" "if" "inf" "pre" "tup"
+-- Expr = Pair(tag, data).  Tags: "int" "char" "str" "bool" "var" "uid" "app" "sel" "if" "inf" "pre" "tup"
 
 import "../lib/list.ssc0"
 
@@ -406,19 +406,23 @@ def lexFrom = (s, i) =>
     else if #i.eq(c, 64)  then Cons(mkTok("@", ""),   lexFrom(s, #i.add(i2, 1)))
     else if #i.eq(c, 35)  then Cons(mkTok("#", ""),   lexFrom(s, #i.add(i2, 1)))
     else if #i.eq(c, 39)  then
-      -- K62.6c: char literal 'x' or '\n' → int token (its code); the VM treats
-      -- chars as codes (scodeAt, comparisons), so 'a' == c works.
+      -- char literal 'x' or '\n' → a "char" token carrying its CODE as the payload.
+      -- It used to be an "int" token, which is precisely why `'x'` was indistinguishable
+      -- from `120` from here on and rendered as its code point everywhere text was built
+      -- (`v2-char-is-an-int`). The payload stays the code — only the KIND is new — so the
+      -- VM keeps treating chars as codes in comparisons (`'a' == c`, scodeAt) and only the
+      -- text-producing sites see a Char.
       if #i.eq(sget(s, #i.add(i2, 1)), 92) then
         let e = sget(s, #i.add(i2, 2)) in
         -- '\uXXXX' → code point; the literal is 8 chars ('\uXXXX' + closing quote).
         if #i.eq(e, 117) then
-          Cons(mkTok("int", #i->str(hex4(s, #i.add(i2, 3)))), lexFrom(s, #i.add(i2, 8)))
+          Cons(mkTok("char", #i->str(hex4(s, #i.add(i2, 3)))), lexFrom(s, #i.add(i2, 8)))
         else
         let code = if #i.eq(e, 110) then 10 else if #i.eq(e, 116) then 9
                    else if #i.eq(e, 114) then 13 else if #i.eq(e, 48) then 0 else e in
-        Cons(mkTok("int", #i->str(code)), lexFrom(s, #i.add(i2, 4)))
+        Cons(mkTok("char", #i->str(code)), lexFrom(s, #i.add(i2, 4)))
       else
-        Cons(mkTok("int", #i->str(sget(s, #i.add(i2, 1)))), lexFrom(s, #i.add(i2, 3)))
+        Cons(mkTok("char", #i->str(sget(s, #i.add(i2, 1)))), lexFrom(s, #i.add(i2, 3)))
     -- two-char operators that get own kind
     else if #i.eq(c, 61) then
       if #i.eq(n, 62) then Cons(mkTok("=>", ""), lexFrom(s, #i.add(i2, 2)))    -- =>
@@ -495,6 +499,9 @@ def lex = (src) => lexFrom(src, 0)
 
 -- ── AST (tag-based encoding) ──────────────────────────────────────────────────
 def mkInt   = (n)        => Pair("int",   n)
+-- Carries the code, exactly like "int" — the TAG is what survives into the lowerer and
+-- makes `'x'` emit `(prim char …)` rather than a bare int literal (`v2-char-is-an-int`).
+def mkChar  = (n)        => Pair("char",  n)
 def mkFloat = (n)        => Pair("float", n)
 def mkStr  = (s)        => Pair("str",  s)
 def mkBool = (b)        => Pair("bool", b)
@@ -1149,6 +1156,7 @@ def parseAtom = (toks) =>
   let k = tokKind(t) in
   let v = tokVal(t) in
   if #seq(k, "int") then pr(mkInt(v), advance(toks))
+  else if #seq(k, "char") then pr(mkChar(v), advance(toks))
   else if #seq(k, "float") then pr(mkFloat(v), advance(toks))
   else if #seq(k, "str") then pr(mkStr(v), advance(toks))
   else if #seq(k, "id")  then
@@ -2116,6 +2124,10 @@ def parsePatAtom = (toks) =>
       case Pair(subs, n) => pr(tuplePat(subs), skipKind(")", prT(rSub)))
     }
   else if #seq(k, "int") then pr(Pair("lpat", Pair("int", v)), advance(toks))
+  -- A char literal PATTERN stays an int literal pattern: the payload is the code, and a
+  -- CharV scrutinee equals an IntV of the same code (CharV extends IntV), so `case '\n' =>`
+  -- keeps matching without the pattern machinery learning a new shape.
+  else if #seq(k, "char") then pr(Pair("lpat", Pair("int", v)), advance(toks))
   else if #seq(k, "str") then pr(Pair("lpat", Pair("str", v)), advance(toks))
   else if #seq(k, "float") then pr(Pair("lpat", Pair("float", v)), advance(toks))
   else pr(Pair("wpat", ""), advance(toks))
@@ -3199,6 +3211,7 @@ def canEndLine = (t) =>
     if #seq(k, "id") then true
     else if #seq(k, "uid") then true
     else if #seq(k, "int") then true
+    else if #seq(k, "char") then true
     else if #seq(k, "float") then true
     else if #seq(k, "str") then true
     else if #seq(k, ")") then true

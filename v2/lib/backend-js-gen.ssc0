@@ -59,6 +59,10 @@ def genPrim = (op, args) =>
   else if #seq(op, "sfromCodes") then un(args, "(l=>{let s='';while(l.t==='Cons'){s+=String.fromCharCode(l.f[0]);l=l.f[1];}return s;})(", ")")
   else if #seq(op, "scodeAt") then jat(args)
   else if #seq(op, "sslice")  then jsl(args)
+  -- `char` (Char literal, `v2-char-is-an-int`): no Char in this lane's value model, so the
+  -- code point passes through — the pre-fix behaviour, so nothing regresses. Present rather
+  -- than absent so a char literal does not become an unknown-prim throw.
+  else if #seq(op, "char")    then un(args, "(", ")")
   else if #seq(op, "i->str")  then un(args, "String(", ")")
   else if #seq(op, "f.add") then bin(args, " + ")
   else if #seq(op, "f.sub") then bin(args, " - ")

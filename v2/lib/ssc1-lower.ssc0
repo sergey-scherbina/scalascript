@@ -2622,6 +2622,12 @@ def lowerE = (scope, rawExpr) =>
         }
       else if #seq(tag, "int") then
         lowerIntLit(data)
+      -- `'x'` → (prim char (lit (int 120))). The prim is what gives the value its
+      -- identity in the VM; emitting the bare int literal here is exactly what made a
+      -- Char render as its code point (`v2-char-is-an-int`). A new PRIM rather than a
+      -- new Const kind, so the frozen IR format is untouched.
+      else if #seq(tag, "char") then
+        IrPrim("char", Cons(lowerIntLit(data), Nil))
       else if #seq(tag, "float") then
         match #str->f(data) {
           case Some(d) => IrLit(IrFloat(d))
