@@ -1,0 +1,33 @@
+---
+name: std-os-doc-import
+version: 1.0.0
+backends: [int, js]
+---
+
+# A DOCUMENT-LEVEL `std/os` import resolves on js, not just inside a fence
+
+The import below sits at document level, outside any code fence. That distinction is the whole case:
+`std-os.ssc` imports the same names from inside the ```scalascript block and has always worked on js,
+which is why the defect survived with a green corpus. Measured against a launcher without the fix,
+this shape dies with `Error: not callable: ()` while `std-os.ssc` passes.
+
+The mechanism (`v1/runtime/backend/js/BUGS.md`
+`js-identity-named-runtime-fn-unreachable-from-a-package-module`): the document-level form builds a
+`package:`-module object whose extern bindings probe only `_ssc_ui_<name>` and `globalThis.<name>`.
+A runtime function that keeps its OWN name — which is every one of `std/os`'s — satisfies neither, so
+all of them bound to `undefined`.
+
+`cwd` is here on purpose alongside the function-shaped names: it is declared `extern def cwd: String`
+with no parameter clause, so it is a VALUE. Binding it by reference rather than calling it yields the
+function object, and `cwd.length` then silently reads a function's arity — `0` — instead of failing.
+That is a quieter wrong answer than the bug being fixed, so the shape is asserted here.
+
+[envOrElse, pathJoin, pathBasename, cwd](std/os.ssc)
+
+```scalascript
+def main() =
+  println(envOrElse("SSC_CONFORMANCE_VAR_THAT_DOES_NOT_EXIST", "fallback-ok"))
+  println(pathJoin("/usr", "local", "bin"))
+  println(pathBasename("/x/y/report.md"))
+  println(if cwd.length > 0 then "cwd-nonempty" else "cwd-EMPTY")
+```

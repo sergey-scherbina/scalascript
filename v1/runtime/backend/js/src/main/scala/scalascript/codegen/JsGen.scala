@@ -3117,6 +3117,10 @@ class JsGen(
     val objectName = d.name.value
     val decls = mutable.ArrayBuffer.empty[String]
     val names = mutable.ArrayBuffer.empty[String]
+    // Externs whose binding has no stub and no renamed target, i.e. the ones that can only be
+    // satisfied by a runtime function keeping its OWN name. They are captured at the IIFE's CALL
+    // SITE — see the `__ssc_cap` note where the object is assembled.
+    val capturedExterns = mutable.ArrayBuffer.empty[String]
     val companionClassNames = d.templ.body.stats.collect { case cls: Defn.Class => cls.name.value }.toSet
     // Populate tcParentMap from trait declarations in this object (cross-block accumulation).
     d.templ.body.stats.foreach {
@@ -3160,11 +3164,44 @@ class JsGen(
         // (stay `undefined`) when nothing provides the name.
         val onGlobal =
           s"(typeof globalThis !== 'undefined' && typeof globalThis.$fname === 'function' ? globalThis.$fname : undefined)"
+        // The CAPTURE, and it is what makes an identity-named runtime function reachable at all.
+        //
+        // Measured 2026-07-31: every one of `std/os`'s eighteen functions bound to `undefined` on the
+        // js lane — `env`, `args`, `cwd`, `pathJoin`, `platform`, … — while being fully implemented
+        // and present in the bundle as top-level `function env(…)` declarations. Neither probe could
+        // see them: `_ssc_ui_env` is the host-stub spelling, and a plain `function` declaration in a
+        // CommonJS module is not a property of `globalThis`. The rename branch is skipped precisely
+        // BECAUSE the name is honest (`target != fname`), since an identity rename would emit
+        // `const env = … : env` — a TDZ self-reference to the const being declared.
+        //
+        // So the one case with no route in was the well-behaved one. `__ssc_cap.<name>` closes it
+        // without fighting the TDZ: the capture object is built at the IIFE's CALL SITE, in the
+        // ENCLOSING scope, where the bare name still resolves to the outer declaration.
+        //
+        // Ordered AFTER the stub and the rename, BEFORE `globalThis`: a module-scope function is
+        // more specific than a global of the same name, and putting it first would let it shadow a
+        // deliberate host stub.
+        // VALUE-shaped externs are captured CALLED. `extern def cwd: String` has no parameter clause
+        // at all, where `extern def readLine(): Option[String]` has one empty clause — scalameta
+        // keeps them distinct, and the difference is the whole binding. The js runtime implements
+        // both as `function`, so capturing `cwd` by reference binds the FUNCTION OBJECT: user code
+        // then reads `cwd.length` and silently gets 0, a function's arity. Measured: `cwd-EMPTY`
+        // and `home-EMPTY` on js against `cwd-ok`/`home-ok` on int, with no error anywhere.
+        //
+        // That is a worse failure than the one being fixed — before the capture these bound
+        // `undefined` and blew up loudly — so the shape is honoured rather than left to chance.
+        // The cost, stated: the call happens once, when the module object is built, so a value that
+        // would change later (a process that chdir's) is frozen. These are declared as values, and
+        // a const-based binding cannot express re-evaluation without a getter.
+        val valueShaped = dd.paramClauseGroups.flatMap(_.paramClauses).isEmpty
+        val capRef = if valueShaped then s"__ssc_cap.$fname()" else s"__ssc_cap.$fname"
+        val captured = s"(__ssc_cap.$fname !== undefined ? $capRef : $onGlobal)"
         val fallback = intrinsics.get(scalascript.ir.QualifiedName(fname)).collect {
           case scalascript.backend.spi.RuntimeCall(target) if target != fname => target
         } match
-          case Some(target) => s"(typeof $target !== 'undefined' ? $target : $onGlobal)"
-          case None         => onGlobal
+          case Some(target) => s"(typeof $target !== 'undefined' ? $target : $captured)"
+          case None         => captured
+        capturedExterns += fname
         decls += s"const $fname = (typeof $stub !== 'undefined') ? $stub : $fallback;"
         names += fname
       case dd: Defn.Def if isEffectOpDef(dd.body) =>
@@ -3403,7 +3440,25 @@ class JsGen(
         val sep = if ret.isEmpty then "" else ", "
         s"_type: '$objectName'$tag$sep"
       else ""
-    s"(() => { $body return { $typeField$ret }; })()"
+    // `__ssc_cap` is passed as an ARGUMENT, not declared inside: argument expressions are evaluated
+    // in the enclosing scope, so `typeof env === 'function' ? env : undefined` there sees the
+    // top-level runtime declaration rather than the `const env` this IIFE is about to create.
+    // Function declarations hoist, so the capture is correct regardless of emission order.
+    //
+    // Emitted only when something needs it, so an object with no such externs keeps its previous
+    // shape byte-for-byte.
+    if capturedExterns.isEmpty then s"(() => { $body return { $typeField$ret }; })()"
+    else
+      // Each probe is wrapped in try/catch, and that is NOT belt-and-braces. `typeof x` is only
+      // safe for an UNDECLARED name; for a `const`/`let` declared later in the same enclosing scope
+      // it throws ReferenceError from the temporal dead zone. Measured: the first version used a
+      // bare `typeof` and broke 33 cases — every module whose enclosing scope declares an extern
+      // later, e.g. scljet's `jvmVfs*`, died while BUILDING the capture object, taking the whole
+      // module with it. The failure surfaced as a stray `[stdin]:5185` with no name in it.
+      val capArg = capturedExterns.distinct
+        .map(n => s"$n: (() => { try { return typeof $n === 'function' ? $n : undefined } catch (e) { return undefined } })()")
+        .mkString(", ")
+      s"((__ssc_cap) => { $body return { $typeField$ret }; })({ $capArg })"
 
   private def genDefAsMethod(dd: Defn.Def): String =
     val paramVals = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)

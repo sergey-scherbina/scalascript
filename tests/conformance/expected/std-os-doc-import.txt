@@ -1,0 +1,4 @@
+fallback-ok
+/usr/local/bin
+report.md
+cwd-nonempty
