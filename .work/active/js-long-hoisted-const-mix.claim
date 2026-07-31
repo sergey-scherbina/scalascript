@@ -1,0 +1,11 @@
+slug: js-long-hoisted-const-mix
+branch: feature/js-long-hoisted-const-mix
+agent: claude-code
+started: 2026-07-31T18:03:58Z
+heartbeat: 2026-07-31T18:03:58Z
+status: claimed-before-planning
+items: js-long-accum-plus-hoisted-const-mixes-bigint
+paths: file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:v1/runtime/backend/js/BUGS.md file:tests/conformance/js-long-accum-hoisted-const.ssc
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
