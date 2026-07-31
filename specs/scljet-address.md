@@ -142,7 +142,7 @@ pages per row change) — that grouping is deliberately not in this slice.
 ## Beyond SQLite — addressing a document
 
 The same model and the same triple, a different resolver. Landed for JSON
-(`v1/lang/uniml-address`, `JsonAddress.read(text, path)`), over UniML.
+(`uniml/address`, `JsonAddress.read(text, path)`), over UniML.
 
 ```
 users/0/name  →  logical:  the path

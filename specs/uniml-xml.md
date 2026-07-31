@@ -246,7 +246,7 @@ resource refusal is deterministic data handling, not an environmental exception.
 ## Module layout
 
 ```text
-v1/lang/uniml-xml/
+uniml/xml/
   src/main/scala/scalascript/uniml/dialect/xml/
     XmlDialect.scala
     XmlLexer.scala

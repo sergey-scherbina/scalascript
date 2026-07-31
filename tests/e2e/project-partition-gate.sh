@@ -142,13 +142,19 @@ for m in json.load(sys.stdin):
 # git. If one ever gains a tracked file it has become real and this gate should be revisited, not
 # silenced — so the check is "exists AND has no tracked files", which is exactly the fossil shape.
 #
+# ONLY `lang/` and `tools/` — the genuine pre-`v1/` fossils, which are inert and stay deleted.
+# `conformance/` and `scalascript/` look like fossils and are not: they hold `.scala-build/` output
+# and a stray `codegen/JsGen.class`, i.e. a tool writing to a RELATIVE path from the wrong working
+# directory, and they come back within minutes of being removed. Gating them would flap until that
+# tool is fixed, and a flapping gate is one people learn to ignore. Recorded in §8.6 instead.
+#
 # Checked against the MAIN checkout, not `$ROOT`. A worktree is created fresh from origin/main and
 # can never hold a fossil, so a gate that looked at its own tree would have been green in every
 # worktree and in CI — green in both states, which is the failure this repository keeps paying for.
 # The fossils live in the shared checkout; that is where the check has to look.
 FOSSIL_ROOT="${SSC_PARTITION_ROOT:-$(git -C "$ROOT" worktree list 2>/dev/null | head -1 | awk '{print $1}')}"
 FOSSIL_ROOT="${FOSSIL_ROOT:-$ROOT}"
-for fossil in lang tools conformance scalascript; do
+for fossil in lang tools; do
   [ -e "$FOSSIL_ROOT/$fossil" ] || continue
   tracked=$(git -C "$FOSSIL_ROOT" ls-files "$fossil" 2>/dev/null | head -1)
   [ -n "$tracked" ] && continue

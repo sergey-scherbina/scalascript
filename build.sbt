@@ -670,7 +670,7 @@ lazy val unimlJsonCross =
 // would have no physical half). The `.ssc` side reaches this through a plugin, exactly as it
 // reaches host files through jvmVfs*. specs/scljet-address.md.
 lazy val unimlAddress = project
-  .in(file("v1/lang/uniml-address"))
+  .in(file("uniml/address"))
   .dependsOn(unimlJsonJvm)
   .settings(
     name := "scalascript-uniml-address",
@@ -686,7 +686,7 @@ lazy val unimlJson    = unimlJsonJvm
 lazy val unimlXmlCross =
   crossProject(JVMPlatform, JSPlatform)
     .crossType(CrossType.Pure)
-    .in(file("v1/lang/uniml-xml"))
+    .in(file("uniml/xml"))
     .dependsOn(unimlCross, markupCoreCross)
     .settings(
       name := "scalascript-uniml-xml",

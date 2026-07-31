@@ -456,12 +456,14 @@ x402 protocol stack, blockchains, micropayments, compliance, tax and FX.
   payments/client/solana                         scalascript-client-solana
 ```
 
-`uniml` — 4
+`uniml` — 6
 
 ```
+  uniml/address                                  scalascript-uniml-address
   uniml/core                                     scalascript-uniml
   uniml/json                                     scalascript-uniml-json
   uniml/markdown                                 scalascript-uniml-markdown
+  uniml/xml                                      scalascript-uniml-xml
   uniml/yaml                                     scalascript-uniml-yaml
 ```
 
@@ -473,12 +475,10 @@ x402 protocol stack, blockchains, micropayments, compliance, tax and FX.
   mcp/x402                                       scalascript-mcp-x402
 ```
 
-`v1/lang` — 3
+`v1/lang` — 1
 
 ```
-  v1/lang/uniml-address                          scalascript-uniml-address
   v1/lang/uniml-markdown-bridge                  scalascript-uniml-markdown-bridge
-  v1/lang/uniml-xml                              scalascript-uniml-xml
 ```
 
 `payments/payment-request` — 1
@@ -513,9 +513,14 @@ old top-level tree stayed behind:
 ```
   lang/     2,540 files, 0 tracked   only target/ .bsp/ .scala-build/ + one stray JFR profile
   tools/       29 files, 0 tracked   only .bsp/ .scala-build/
-  conformance/  0 files, 0 tracked   empty
-  scalascript/  1 file,  0 tracked   a stray compiled JsGen.class
 ```
+
+TWO MORE LOOKED LIKE FOSSILS AND ARE NOT, which the gate found within minutes of being written by
+going red on a checkout that had just been cleaned. `conformance/` and `scalascript/` come BACK:
+they hold `.scala-build/` output and a stray `codegen/JsGen.class` — a tool writing to a RELATIVE
+path from the wrong working directory, not a leftover of an old layout. They are §8.6, and the gate
+deliberately does not check them: it would flap until the writer is fixed, and a flapping gate is
+one people learn to ignore.
 
 They were untracked build output, so git never saw them — but `ls` at the repository root did, and
 they shadowed the real `v1/lang` and `v1/tools`. Nothing in the build resolved them: the only
@@ -558,10 +563,36 @@ the allowlist; `backend/graph`, `backend/kafka`, `backend/logger`, `backend/post
 `backend/redis`, `backend/sql-aws`, `backend/sql-azure`, `backend/sql-gcp` and `backend/wire` are
 not. On the v2 side the same distinction is a directory name.
 
-**8.3 `v1/lang/` holds four things that are not the language.** `v1/lang/yaml` is a YAML library that
-ships in the standard tier; `v1/lang/uniml-address`, `v1/lang/uniml-markdown-bridge` and
-`v1/lang/uniml-xml` belong to UniML, a standalone lossless token→tree framework whose other four
-modules live at top-level `uniml/`. UniML is not v1's parser infrastructure — it merely lives there.
+**8.3 UniML sat on both sides of the `v1/` line, and the placement was INVERTED for four of its
+seven modules.** UniML is a standalone lossless token→tree framework; it is not the language's parser
+infrastructure and must not be tied to a language version. Measured — transitive `dependsOn` closure,
+asking whether any `v1/lang/*` or `v1/runtime/*` module is reachable:
+
+| module | was | depends on v1? | placement |
+|---|---|---|---|
+| `uniml/core` | outside `v1/` | no | correct |
+| `uniml/json` | outside `v1/` | no | correct |
+| `uniml/markdown` | outside `v1/` | **yes** — `v1/lang/{core,ir,value-data,yaml}` | **inverted** |
+| `uniml/yaml` | outside `v1/` | **yes** — same four | **inverted** |
+| `v1/lang/uniml-address` | inside `v1/` | no | **inverted** → moved to `uniml/address` |
+| `v1/lang/uniml-xml` | inside `v1/` | no | **inverted** → moved to `uniml/xml` |
+| `v1/lang/uniml-markdown-bridge` | inside `v1/` | yes | correct — it IS the bridge |
+
+The directory said nothing about the dependency, and where it said anything it was wrong. The two
+modules with NO v1 dependency were moved out (`uniml/address`, `uniml/xml`) — two `git mv` and two
+`.in(file(…))` lines, both compile from their new homes, artifact names unchanged.
+
+THE REMAINING TWO ARE NOT A MOVE. `uniml/markdown` and `uniml/yaml` already sit outside `v1/`, which
+is where they belong; the defect is that they REACH INTO it, through `v1/lang/core`, `v1/lang/ir`,
+`v1/lang/value-data` and `v1/lang/yaml`. Relocating them would hide that rather than fix it. Cutting
+the dependency is real work and is not attempted here.
+
+`v1/lang/yaml` is the same shape once removed: a YAML library that ships in the standard tier and
+lives in the language tree. Nothing depends on its location; it is left alone because it is
+`markupCore`'s and UniML's dependency and moving it belongs with the 8.2 sweep.
+
+The same inversion exists one directory over: `v1/runtime/std/markup-core` has NO v1 dependency
+either, while its siblings `markup-js` and `markup-node` do.
 
 **8.4 The fossil trees.** §6. Cheap to remove and the only finding here that costs nothing to fix.
 
@@ -569,7 +600,14 @@ modules live at top-level `uniml/`. UniML is not v1's parser infrastructure — 
 `common`, `spi`, `jvm`, `jvm-fast`, `jvm-jetty`, `jvm-netty` do not. The jetty and netty ones are
 swappable providers and read as Part III by function, but they sit inside a Part II group.
 
-**8.6 Small strays at the root:** `TASK/v2-perfomance.md` (one file, and a typo in the name),
+**8.6 Two directories at the root are written by a tool with the wrong working directory.**
+`conformance/` fills with `.scala-build/conformance_<hash>/` and `scalascript/` with a compiled
+`codegen/JsGen.class`. Both are untracked, both reappear minutes after deletion, and neither
+corresponds to a source tree — `tests/conformance/` and `v2/conformance/` are the real ones. Finding
+the writer is a small investigation nobody has done; until then the root gains two directories that
+read as modules and are not.
+
+**Other small strays at the root:** `TASK/v2-perfomance.md` (one file, and a typo in the name),
 `using/uuid-plugin.md` (one file), `arith-loop-rust/` (6 files, a generated Rust sample),
 `scratch/` (11 files).
 
@@ -581,7 +619,8 @@ while other agents hold worktrees.
 1. ~~**Gate the invariants of §7**~~ — done: `tests/e2e/project-partition-gate.sh`, four checks with
    a `--self-test` that plants each defect and proves each is caught. Still to do: register it in
    `scripts/smoke-ci.ssc`, which is held by claim `smoke-budget-drift`.
-2. ~~**Delete the fossils**~~ — done, §6. The three stale comments remain.
+2. ~~**Delete the fossils**~~ — done for `lang/` and `tools/`, §6. The three stale comments remain,
+   and `conformance/`/`scalascript/` need their writer found (§8.6) rather than deleting.
 3. **Resolve 8.1-8.3 by moving directories** — this rewrites `build.sbt`, every claim `paths:`,
    every `fixed-in:` path reference and every open worktree. It is a coordinated flag day, not a
    background tidy, and it should be one directory group at a time with the gate from (1) already

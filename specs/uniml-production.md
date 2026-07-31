@@ -136,7 +136,7 @@ The root and standalone builds must describe the same production source roots.
 |---|---|---|---|
 | `uniml/core` | `scalascript-uniml` | JVM, Scala.js | none |
 | `uniml/json` | `scalascript-uniml-json` | JVM, Scala.js | core |
-| `v1/lang/uniml-xml` | `scalascript-uniml-xml` | JVM, Scala.js | core, markup core |
+| `uniml/xml` | `scalascript-uniml-xml` | JVM, Scala.js | core, markup core |
 | `uniml/yaml` | `scalascript-uniml-yaml` | JVM, Scala.js | core |
 | `uniml/markdown` | `scalascript-uniml-markdown` | JVM, Scala.js | core |
 | `uniml/scala` | `scalascript-uniml-scalascript` | JVM, Scala.js | core + format leaves used by composition |
