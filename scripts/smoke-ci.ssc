@@ -186,8 +186,21 @@ val suite = List(
   // scalac start per case, which is what `ci.yml`'s conformance job already does for the same reason.
   // MEASURED when it was added: 74.4 s -> 43.9 s locally (-41%). Same `scala-cli run`, warm compiler;
   // correctness is unchanged.
+  // `--server=false` on the PARENT scala-cli, and it is a CORRECTNESS fix, not a speed one.
+  // MEASURED: six `workflow_dispatch` runs of ONE commit (cf3fad14f) gave 3 green, 3 red — identical
+  // code, a 50 % flake, and the log named it:
+  //     Starting compilation server
+  //     Exception in thread "main" java.util.concurrent.TimeoutException: Future timed out after [30 seconds]
+  //       at bloop.rifle.internal.Operations$.about(Operations.scala:529)
+  // Bloop fails to become responsive inside scala-cli's 30 s window on a 2-core hosted runner. This
+  // check runs `--lanes int,js,v2` — no JVM lane at all — so the server was pure overhead: it started
+  // only because scala-cli compiles a script through a build server by default.
+  // `tests/e2e/build-conformance-shard-gate.sh` has always passed this flag and has never flaked.
+  // Locally the flag is noise (15.1/32.2 s with the server against 23.4/24.0 s without), which is why
+  // it was deferred this morning with "if it recurs, try this". It recurred in half of all runs.
+  // `SSC_CONF_WARM_JVM=1` STAYS: it governs the CHILD `ssc-tools run-jvm` processes, not this parent.
   Check("tests/conformance", "corpus-breadth-slice", "scala-cli",
-        List("tests/conformance/run.sc", "--", "--only", corpusBreadth, "--no-memo",
+        List("--server=false", "tests/conformance/run.sc", "--", "--only", corpusBreadth, "--no-memo",
              "--lanes", "int,js,v2"), 600000,
         Map("SSC_CONF_WARM_JVM" -> "1")),
   // REFUTED, so nobody retries it (P-6.5): on CI this check costs 47.3 s for FOUR cases against
@@ -196,8 +209,10 @@ val suite = List(
   // obvious inference, "for four cases a cold serverless run must be cheaper", is WRONG: measured
   // twice locally, warm 14.0/14.0 s against cold 27.0/27.7 s. Warm wins even at four cases; the CI
   // number is the runner being slow, not the wrong knob.
+  // `--server=false` here too, same reason — the parent only compiles the script. The warm Bloop
+  // this check DOES want is started by its children, through SSC_CONF_WARM_JVM=1 below.
   Check("tests/conformance", "corpus-jvm-lane", "scala-cli",
-        List("tests/conformance/run.sc", "--", "--only", corpusJvm, "--no-memo",
+        List("--server=false", "tests/conformance/run.sc", "--", "--only", corpusJvm, "--no-memo",
              "--lanes", "jvm"), 600000,
         Map("SSC_CONF_WARM_JVM" -> "1")),
   // The two checks above are `--only` lists typed by hand and split by `--lanes`. Both flags used to
