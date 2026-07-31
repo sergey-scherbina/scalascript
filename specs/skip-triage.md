@@ -172,3 +172,40 @@ In cost order, cheapest first:
 
 Item 2 needs a front-matter key the contract honours (`skip:` with a reason), which means changing
 `contract.sc` — held by another claim at the time of writing.
+
+---
+
+# Re-probe 2026-07-31 — what a day of fixes did NOT buy
+
+All 70 remaining SKIPs re-probed on the golden lane with a build carrying every fix landed on 2026-07-30
+(Char literal patterns on int and js, extensions on function-type aliases, the import resolver, the JS
+emitter fixes).
+
+**Result: zero additional cases unblocked.** Stated plainly because the expectation was the opposite — several
+of those fixes closed `int-nonzero` failures, so it was reasonable to think more SKIPs would fall out. They
+did not.
+
+| bucket | count |
+|---|---|
+| rc=124, binds a port and blocks | 21 |
+| rc=1, assorted | 47 |
+| rc=0 but NONDETERMINISTIC (`uuid-v7`, `mcp-server-protected`) | 2 |
+
+The two rc=0 cases are the same two as in the original triage; a single run makes them look runnable and a
+second run does not agree, which is exactly what the contract's double probe catches.
+
+Leading causes among the 47:
+
+| cause | n | note |
+|---|---|---|
+| `Undefined: sys` | 4 | all `sys.env`; the typer defines the symbol and no runtime provides it — [[typer-defines-sys-but-no-runtime-provides-it]]. All four ALSO need network, so fixing it buys no coverage |
+| `--frontend swing` unavailable on the interpreter path | 3 | mis-declared cases; they want `backends:` |
+| `Undefined: __extern__` | 3 | extern surface unavailable on int, as the modules' own front-matter says |
+| `Undefined: HandlerRegistry` | 2 | provider type |
+| network (`ConnectException`, live HTTP) | 3 | cannot run headless |
+
+**What this says about the remaining 70.** The cheap wins are gone. What is left is dominated by cases that
+genuinely cannot produce a golden headless — servers, networks, opt-in providers — plus a handful of
+mis-declared frontends. The honest next step for this bucket is SKIP-6 (let a case DECLARE that it cannot
+produce a golden, so the contract stops paying two 30 s probes per case to re-prove it), not more fixes
+hoping to shake cases loose.

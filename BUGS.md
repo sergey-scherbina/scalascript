@@ -16,6 +16,45 @@ scripts/bugs-report --no-gate              # open entries with no regression gat
 
 Newest first.
 
+## typer-defines-sys-but-no-runtime-provides-it — `sys.env` type-checks, then dies at runtime on every lane
+<!-- status: open
+     lane: multi
+     area: runtime
+     gate: none -->
+
+**Found 2026-07-31** by `skip-reprobe-after-fixes`, while re-probing the corpus SKIP list.
+
+`v1/lang/core/.../Typer.scala:249` defines the symbol:
+
+```scala
+s.define(Symbol("sys", SType.Named("sys", Nil), SymbolKind.Object))
+```
+
+No runtime provides it. One line, both lanes:
+
+```scalascript
+def main() = println(sys.env.getOrElse("HOME", "none").length > 0)
+```
+
+```
+int  [ERROR] [line 1, col 22] Undefined: sys
+v2   ssc: unbound global: sys
+```
+
+**The shape is what makes it worth filing:** the type system PROMISES a symbol that nothing delivers, so a
+program using standard Scala `sys.env` passes type-checking and fails only when it runs. That is worse than
+an honest "unknown name" at compile time, and it is not specific to `sys.env` — anything reached through
+that symbol behaves the same way.
+
+**Four corpus cases use it** (`x402-cardano`, `x402-cardano-scalus`, `x402-client`, `x402-server`) and it is
+their FIRST blocker. ⚠️ Fixing it would not un-skip any of them: all four also need network, so they belong
+to the "cannot run headless" bucket either way. Recording that here so nobody spends the work expecting a
+coverage win.
+
+**Two honest resolutions, and the choice is a decision:** provide `sys.env` (ssc's own environment surface
+today is the `Env` effect, so this would be a second way to do one thing), or remove the typer symbol so the
+failure moves to compile time where it belongs.
+
 ## std-has-no-stdin-primitive — nothing in std reads a line from stdin, so an interactive `.ssc` program cannot exist
 <!-- status: open
      lane: multi
