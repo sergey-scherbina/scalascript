@@ -59,9 +59,62 @@ enthusiasm:
       fix available: the fallback is silent by design, so a perf number can be of the wrong compiler
       and nothing looks wrong. Cost me two wrong conclusions in one sitting. One column, one
       `--front-report`-equivalent call per row.
-- [ ] **P-4 — a JMH microbenchmark for v2 primitive dispatch.** Unlocks everything below 2×, which
+- [~] **P-4 — a JMH microbenchmark for v2 primitive dispatch.** Unlocks everything below 2×, which
       this host currently cannot see at all. Without it the condy work stays permanently
       "unresolved" and no one can tell whether it was worth doing.
+      *(in progress, claim `v2-perf-jmh-dispatch`)* JMH infrastructure ALREADY EXISTED —
+      `interpreterBench` (`v1/runtime/backend/interpreter-bench`) has 4 `@Benchmark` classes and the
+      plugin enabled; it simply did not depend on `v2Core`, so `ssc.Prims`/`ssc.Value` were not on
+      its classpath. One `dependsOn` line, not a new project.
+      `V2DispatchBench` measures FIVE layers so the DIFFERENCES name each seam rather than one
+      opaque total: `jvmAdd` (floor) → `boxedAdd` (Value boxing) → `arithFast` (the typed path the
+      bytecode lane emits) → `preResolvedFn` (adds the `List[Value]` alloc + closure call) →
+      `resolvePerCall` (adds the string-keyed lookup). `preResolvedFn − arithFast` is the calling
+      convention's price; `resolvePerCall − preResolvedFn` is the lookup's.
+      `@Param(cached)` is NOT a sensitivity knob: `Value.IntV` interns −128..4096, so a benchmark
+      written only with small ints measures a program in which boxing is free — which nobody runs.
+      ⚠️ COST NOTE: a cold `Jmh/compile` in a fresh worktree builds ~290 Scala sources of the
+      dependency chain and exceeded 30 min on a contended host (rc=124). Not a hang — budget an hour
+      for the first run, or run it in a worktree that already has warm `target/`.
+
+      **RESULT (2026-07-31, JMH avgt, 3 warmup / 5 measurement iters, 1 fork):**
+
+      | benchmark        | cached=true | cached=false | adds over the layer above |
+      | ---------------- | ----------- | ------------ | ------------------------- |
+      | `jvmAdd`         | 0.345 ± 0.112 | 0.348 ± 0.115 | — (floor) |
+      | `boxedAdd`       | 1.329 ± 0.052 | 1.378 ± 0.018 | +0.98 — Value boxing |
+      | `arithFast`      | 2.620 ± 0.023 | 2.398 ± 0.070 | +1.29 — typed arith |
+      | `preResolvedFn`  | 3.979 ± 0.035 | 3.744 ± 0.066 | +1.36 — `List[Value]` + closure call |
+      | `resolvePerCall` | 10.437 ± 0.096 | 10.249 ± 0.114 | +6.46 — string-keyed lookup |
+      | `arithFastLoop`  | 2.532 ± 0.026 | 2.336 ± 0.020 | ≈ `arithFast` |
+
+      Error bars are ±0.02–0.11 ns. The apparatus problem is SOLVED: effects far below 2× are now
+      resolvable, where the whole-workload harness on this host swings 2.5× on identical code.
+
+      **The largest number is NOT the hot path, and checking that was the point.**
+      `resolvePerCall` (10.4 ns) would say the string lookup is 62% of dispatch. It is not:
+      `Runtime.scala:1022` does `val fn = Prims.resolve(op)` OUTSIDE the returned closure, so the
+      lookup is paid ONCE at compile time. Reporting that 62% would have been a wrong conclusion
+      drawn from a correct measurement. The hot path is `preResolvedFn`.
+
+      **What the numbers actually say:**
+      - dispatch costs **3.98 ns against a 0.345 ns floor — 11.5×** — and only ~1 ns of that is
+        `Value` boxing, which is the tier work already attacks;
+      - `arithFastLoop ≈ arithFast` is a NEGATIVE CONTROL: no `DontCompileHugeMethods` cliff on this
+        path, unlike `Prims.__method__` (see [[feedback_hugemethodlimit_silent_no_jit]]);
+      - `cached` moves everything by ≤0.22 ns and not consistently in one direction, so `Value.IntV`'s
+        intern table is not the lever here either way.
+
+- [ ] **P-5 — put `__arith__` in `resolve3`** (found by P-4, not guessed). `Prims.resolve2` already
+      carries 25 arity-2 typed ops (`i.add`, `f.add`, …) that reach `fn2(l, r)` with NO list.
+      `resolve3` carries only 4 (`sslice`, `map.put`, `arr.set`, `bslice`) — `__arith__` is not among
+      them, so every UNTYPED arithmetic op takes 3 args down the generic path and allocates a
+      `List[Value]` per call (built reversed, then `.reverse` — 2N conses). That is the +1.36 ns
+      layer. Predicted gain **≈1.1–1.3 ns/op, ~30% of untyped arith dispatch**; `V2DispatchBench`
+      can now confirm or refute it, which before P-4 it could not.
+      Still matters after F5b: `__arith__` is what runs for anything F cannot type, for the legacy
+      front, and for `+` on strings.
+      ⚠️ touches `v2/src/Runtime.scala`, the SHARED kernel — needs its own claim and its own A/B.
 
 **Explicitly NOT on this list, and why:**
 - the collection/closure cluster (`lazylist-take` 566×, `list-fold` 115×) — established as the
