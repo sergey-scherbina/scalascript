@@ -230,6 +230,95 @@ inferred type; "looks numeric" does not.
 **Expected ~18× on affected loops. Disqualifying evidence:** if the widening does not move the
 parameter-initialised probe, the cell is not the cost and the theory is wrong.
 
+## v2 wide JIT — a run-time JIT for the VM lane, in v1's image (spec landed 2026-07-31)
+
+Spec: [`../specs/v2-wide-jit.md`](../specs/v2-wide-jit.md) — read it before starting any `J-` slice;
+this list is the queue, the spec is the contract (design, safety rules, gate definitions).
+
+**The premise, in three facts.** (1) The VM lane is the DEFAULT (`bin/ssc run` → `RunNativeV2.runVm`)
+and has had **no JIT at all** since `f5c-4` deleted FastCode/SelfRec on 2026-07-23. (2) The bytecode
+lane is AOT and **all-or-nothing** — one `Unsupported` node anywhere and the whole program falls back
+to the VM. (3) One dispatch on the VM lane costs **3.979 ns against a 0.345 ns floor** (P-4's
+`V2DispatchBench`), and only ~1 ns of that is boxing.
+
+**What makes it *wide*, and it is the one design idea worth remembering:** on this lane the
+interpreter form of every subterm is already a callable `Code` closure, so a term the emitter cannot
+compile becomes a **call back into that closure**, not a bail. v1 asks "can I compile this function?"
+and answers `null` for most real code (`specs/jit-universal-coverage.md` §2: 300 missed functions on
+one engine, "silent (unobserved)" on the other two). v2 asks which *parts* it compiles. Function-level
+coverage is therefore 100 % by construction; `Unsupported` becomes a cost, not a verdict.
+
+Two more things fall out of v2's shape and are why this is not a 12,400-line port: `Emit.LamFn` is
+already the interface generated lambda bodies implement and `Emit.clos` already wraps one as a VM
+`ClosV`, so **installing a compiled unit is a field assignment**; and a `Lam` body's `Code` is built
+once per SITE, so the hot counter can *be* that `Code` (`Code = Env => Step` is a SAM) — no
+`IdentityHashMap`, no leak, no change to the trampoline or to any call site.
+
+- [ ] **J-0 — baseline + apparatus, before any code.** Re-measure the four rows on today's main: the
+      last recorded table (`pattern-match-heavy` v2 17.0 / `ssc` 0.059; `recursion-fib` 6.61 / 1.29;
+      `recursion-tco` 0.275 / 0.031) is from 2026-07-10 and **predates the FastCode removal**, so it
+      describes different code. Add a `jitSiteOverhead` case to `V2DispatchBench`. Record both in
+      `specs/v2-wide-jit.md` §7 with the exact commands.
+- [ ] **J-1 — `JitSite` counters, NO compilation.** Wrap the `Lam` body `Code` at
+      `Runtime.scala:652` (top-level defs), `:682` (`Lam`), `:738` (`LetRec`) and the `While` body at
+      `:912`. Field never set; behaviour identical by construction.
+      **Its own slice on purpose:** this is the one change that can slow down programs that never
+      JIT, and it is exactly the size of effect this host's whole-workload harness cannot see (it
+      swings 2.5× on identical code). Gate = JMH A/B vs `HEAD~1`, not a corpus row.
+- [ ] **J-2 — `JitBackend` SPI, lazy load, flags, globals bridge.** Trait in `v2/src`, impl in
+      `v2/backend-jvm-bytecode`, resolved BY NAME on the first hot site — `v21-plugin-backend-isolation`
+      means the VM lane must not load ASM, and `RunNativeV2` already contorts a `catch` clause to
+      avoid mentioning an ASM type. Point `Emit.globalsRef` at the VM's own globals `TrieMap` so both
+      tiers share one namespace (including the `@`-cell globals both sides auto-create on first
+      touch), and refuse to arm inside a `--bytecode` run, which RESETS that field.
+      Flags are `SSC_V2_JIT*`, **not** `SSC_JIT*`: `bench/run.sc` sets `SSC_JIT_BACKEND` to select the
+      v1 `ssc-asm` lane, so a shared name makes a bench row ambiguous about which JIT it measured.
+      Gate: `-verbose:class` shows no `org.objectweb.asm` with `SSC_V2_JIT=off`.
+- [ ] **J-3 — `JvmByteGen.emitUnit(body, arity, captured): LamFn`.** One `Lam` body → one hidden
+      class (`Lookup.defineHiddenClass`, so a unit dies with its `LamFn`), boxed `Value` in/out, no
+      residuals yet: unsupported ⇒ this site is not compiled. Gate = the parity gate below, plus
+      ≥ 1 compiled unit on `recursion-fib`.
+- [ ] **J-4 — residual callbacks (the wide step).** `Emit.residual(unitId, slot, env)` runs the
+      interpreter `Code` for that subterm. **Non-tail positions only** — a residual runs its subterm
+      to a `Value`, so one in tail position turns unbounded mutual tail recursion into JVM stack
+      growth; if the tail position is unsupported, do not compile the unit (today's behaviour,
+      localized to one site). Gate: residual histogram non-empty on a program J-3 refused, parity
+      holds, and the revert-check — with residuals off, that program must go back to 0 units.
+- [ ] **J-5 — type feedback + unboxed entries + entry guards.** Per-parameter observed-tag profile
+      recorded in tier 0; a parameter seen monomorphically as `IntV` gets the unboxed `(J…)J` entry
+      `JvmByteGen.canParamLong` **already** emits, with the `INSTANCEOF IntV` guard it already emits.
+      Guards are ENTRY-ONLY: nothing has been evaluated, so a miss cannot duplicate a side effect.
+      This closes from the runtime side what VC-2c cannot close from the front side — F types only
+      `Int | String | BigInt`, the corpus writes `Long`, and widening `knownTyName` made F silently
+      DECLINE programs. Gate: `var-expr-init` + `arith-loop`, and a `GuardMiss` counter that proves
+      the guard is live (rename-the-prim probe, same discipline as VC-4).
+- [ ] **J-6 — loop back-edge sites.** A `While` body never re-enters the trampoline's `Call` bounce
+      (`Runtime.scala:912` runs a plain Java `while`), so a call counter alone never sees a hot loop —
+      v1 hit this and needed eager compilation for self-tail-recursive functions plus `WhileJitEntry`.
+      Here it is the same `JitSite` with a back-edge threshold, and installation is the same field
+      flip, so there is no OSR machinery: the next iteration reads the new field.
+      Rows: `arith-loop`, `range-sum`, `nested-loop`.
+- [ ] **J-7 — effect-aware units.** `OpAnfNative.lift`'s purity registry is a least fixpoint over the
+      whole call graph and cannot be recomputed per site; `Compiler.compileWithGlobals` already knows
+      every `Def`, so compute it once and hand it to the JIT. Gate: `effects`, `effects-handler`,
+      `algebraic-effects`, `generators`, `async-demo` byte-identical + `./v2/conformance/check.sh`.
+- [ ] **J-8 — `SSC_V2_JIT_STATS=1` + `ssc jit-report`.** v1's `JitBailReason`/`JitMissStats`/
+      `ssc lint-jit` is the part worth copying wholesale; the alternative is JFR archaeology. In v2
+      the vocabulary names residuals rather than failures: `Residual(termClass)`, `GuardMiss`,
+      `TailUnsupported`, `SizeLimit`, `Budget`.
+- [ ] **J-9 — default-on decision**, with the measured evidence, or a recorded reason to stay opt-in.
+
+⚠ **The gate rule that decides whether any of this is provable.** An output gate is green BOTH ways:
+the interpreter prints the right answer, so `SSC_V2_JIT=off` and on agree whether or not a single
+unit compiled. Every parity run must therefore also assert `jit-report` shows ≥ 1 compiled unit —
+without that clause it is `bc-parity-sweep` comparing a program against itself, which this repo has
+already shipped once (`BUGS.md scljet-jdbc-facade-bytecode-class-too-large`).
+
+**Explicitly out of scope:** replacing the `--bytecode` / `v2-jvm` / `v2-rust` routes or the route
+policy in `specs/v2-vm-production-jit-gate.md`; a second Core IR walker (v1's two independent walkers
+are the documented cause of its fragmented coverage — there will be exactly one, `JvmByteGen`,
+extended); a portable register VM (parked for a non-JVM host); mid-body deoptimization.
+
 ## Done
 
 - [x] **`getOrElse(k, default)` on a receiver that is not a bare variable** (2026-07-31, legacy

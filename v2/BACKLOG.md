@@ -7,6 +7,16 @@ in the same commit as the claim. Layout: `specs/work-tracking-layout.md`.
 Sections below were carried over whole from the flat root `SPRINT.md`/`BACKLOG.md`,
 verbatim, on 2026-07-30.
 
+## v2 wide JIT — queued as `J-0`…`J-9` in [`SPRINT.md`](SPRINT.md)
+
+A run-time JIT for the VM lane (the DEFAULT lane, which has had **no JIT at all** since `f5c-4`
+removed FastCode/SelfRec on 2026-07-23), built in v1's image but around v1's two known walls: one
+walker instead of three, and residual interpreter callbacks instead of function-level bails, so
+coverage is 100 % by construction. Spec — read before starting any slice:
+[`../specs/v2-wide-jit.md`](../specs/v2-wide-jit.md). The slice list lives in `SPRINT.md` rather
+than here because it is one programme with a shared contract, and splitting it would hide the
+ordering constraint (J-1's counter A/B gates everything after it).
+
 ## 2026-07-28 — fewer-braces `f(args): p =>` — the `:` is never consumed (both fronts)
 
 **Active claim:** `v2-front-colon-trailing-lambda`. Cluster A of `bugs-v2.md`; closes TWO corpus
