@@ -49,7 +49,12 @@ pids=$(ps ax -o pid=,command= | grep -E "$BUILD_RE" | grep -v grep | awk '{print
 # ── pass 1: orphans (cwd gone) ───────────────────────────────────────────────
 live=""
 for pid in $pids; do
-  cwd=$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1)
+  # `|| true`, for the same reason as the two `cpu_secs`/`elapsed_secs` calls below, and this is the
+  # one that actually fired: `lsof -p <gone-pid>` exits 1, `pipefail` propagates it, `set -e` aborts
+  # the whole scan — and the `[ -z "$cwd" ]` guard on the next line, written for exactly this case,
+  # never runs. The pids come from a `ps` snapshot taken moments earlier, so on a host where sibling
+  # agents start and stop builders one of them is routinely gone by now.
+  cwd=$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1 || true)
   [ -z "$cwd" ] && continue
   if [ ! -d "$cwd" ]; then
     if [ "$mode" = "--kill" ]; then
@@ -89,7 +94,9 @@ SAMPLE="${SSC_IDLE_SAMPLE_SECS:-20}"
 entries=""
 for entry in $live; do
   pid=${entry%%|*}
-  entries="$entries $entry|$(cpu_secs "$pid")"
+  # Same `ps -p <gone-pid>` race as below: a builder can exit between `$live` being built and this
+  # sample, and without `|| true` that aborts the whole scan under `set -euo pipefail`.
+  entries="$entries $entry|$(cpu_secs "$pid" || true)"
 done
 
 sleep "$SAMPLE"
@@ -99,13 +106,20 @@ for entry in $entries; do
   rest=${entry#*|}
   cwd=${rest%|*}
   before=${rest##*|}
-  after=$(cpu_secs "$pid")
+  # `|| true` is load-bearing, and its absence made this script exit 1 at random.
+  #
+  # `cpu_secs` is `ps … | tr | awk`, and `ps -p <gone-pid>` exits 1. Under `set -euo pipefail` that
+  # aborts the WHOLE script — so the guard on the next line, written for exactly this case ("exited
+  # on its own"), could never run: `set -e` fired first. Scanning builders while sibling agents start
+  # and stop them makes the race routine, and the symptom is a bare exit 1 with no message, which
+  # `tests/e2e/build-ram-budget-gate.sh` reported as `reaper dry-run exits 0: expected=0 got=1`.
+  after=$(cpu_secs "$pid" || true)
   [ -z "$after" ] && continue                       # exited on its own
   [ "$after" -gt "$before" ] && continue            # burned CPU in the window: it is working
 
   # No CPU in the window. ALSO require that it has been up longer than the idle threshold —
   # a server started seconds ago, still waiting for its first command, looks identical otherwise.
-  up=$(elapsed_secs "$pid")
+  up=$(elapsed_secs "$pid" || true)                 # same race, same reason — see above
   [ -z "$up" ] && continue
   [ "$up" -lt $(( idle_min * 60 )) ] && continue
 
