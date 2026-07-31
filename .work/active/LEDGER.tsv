@@ -1,6 +1,5 @@
-# generation: 675
+# generation: 676
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
-uniml-bridge-out-of-v1	claude-code	2026-07-31T13:42:49Z	uniml-markdown-bridge-still-under-v1-lang	file:build.sbt file:v1/lang/uniml-markdown-bridge file:uniml/markdown/bridge file:specs/project-partitioning.md file:specs/uniml-production.md
 c0-collection-cluster-remeasure	claude-code	2026-07-31T13:45:41Z	C-0-remeasure-collection-cluster	file:bench/history.tsv file:v2/SPRINT.md
 v2-derived-codecs-graph-json	claude-code	2026-07-31T13:48:00Z	v2-derived-codecs-graph-json	v2/runtime/std/graph-plugin v2/runtime/std/json-plugin v2/BUGS.md tests/conformance/corpus-baseline.tsv tests/conformance/contract-roster.tsv
