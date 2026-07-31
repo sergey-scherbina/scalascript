@@ -53,6 +53,73 @@ fixed, and it is what closes the remaining gap to v1. Together they also move th
 (`v2-perf-6`/`v2-perf-9`), whose 7 ns per element is mostly B — which turns "price it as a
 programme" into two concrete first steps.
 
+## A · Per-call-site inline cache — the concrete design
+
+The generator already speaks `invokedynamic`: `emitLamFnRef` (`:571`) uses `LambdaMetafactory` to
+materialise a `LamFn`. So the machinery and its idioms are in the codebase; what A adds is a
+**call-site** indy rather than a constructor one.
+
+### A-0 · The prerequisite, and it is the thing three attempts kept circling
+
+An inline cache needs a **stable identity for the callee**. `Emit.clos` builds
+`Value.ClosV(captured, arity, env => Done(unroll(fn.call(env))))` — a **fresh `ClosV` and a fresh
+forwarding Scala closure on every evaluation of the lambda expression**. So neither the `ClosV` nor
+its `code` can be guarded on: a lambda created inside a loop is a different object every iteration.
+
+The one stable thing is the **`LamFn`**, because `emitLamFnRef`'s metafactory call sites with no
+captures return a singleton.
+
+**So `ClosV` must retain its `LamFn`.** That is a core-representation change — and it is the same
+change the earlier "fast arm inside `Emit.app`" idea would have needed. That idea was refuted
+because a faster funnel helps the 7.1 ns path and the 48.7 ns path *equally*. **The retained
+`LamFn` is not refuted; it was only ever the prerequisite, not the fix.** The fix is where the
+dispatch happens, not how fast the funnel is.
+
+### A-1 · The shape
+
+At each generic `App(f, args)` site, replace `Emit.app` + `Emit.unroll` with
+
+```
+INVOKEDYNAMIC call(Value, [Value)Value   bsm = Emit.callSiteBootstrap
+```
+
+The bootstrap returns a `MutableCallSite` whose initial target is a linker. On first invocation the
+linker inspects the receiver and installs
+
+```
+GuardWithTest(
+  test   = receiver is a compiled ClosV && receiver.fn eq cachedFn && receiver.arity == n,
+  target = cachedFn.call(Runtime.extend(receiver.env, args))   // direct, monomorphic
+  fallback = relink)
+```
+
+so C2 sees **one target per site** and can inline the lambda body into the caller — which is exactly
+and only why `foreach` costs 7.1 ns today.
+
+### A-2 · Degradation, stated up front
+
+A site that relinks more than N times (2 is the usual choice) is genuinely polymorphic; install
+plain `Emit.app` permanently and stop relinking. Without that cap a megamorphic site pays the relink
+cost forever and ends up **slower** than today — the failure mode this design must not ship with.
+
+### A-3 · What it is worth, and what would disprove it
+
+**Expected: 48.7 → 7–11 ns** at monomorphic sites, i.e. the `foreach` number, since that is the same
+mechanism arrived at deliberately rather than by accident. It does **not** address the array
+allocation or the boxing — that is B, and it is why the floor is 7 rather than v1's 2.9.
+
+**Disqualifying evidence, to be taken BEFORE writing the linker:** build only A-0 (retain the
+`LamFn`) and add a temporary counter to `Emit.app` recording how many distinct `fn` identities each
+call site sees. **If the hot sites are not monomorphic, an inline cache buys nothing** and the whole
+of A is void. That measurement costs one build and is the correct first step — not the linker.
+
+### A-4 · Order within A
+
+1. A-0 + the identity census (one build, answers whether A is worth doing at all);
+2. the bootstrap and linker, guarded, with the relink cap;
+3. measure with the alternating protocol on `lambda-call`, and check `foreach`-shaped rows do not
+   regress — they already have their monomorphic site and must not lose it.
+
 ---
 
 # Direct call for a lambda bound to a local — v2 bytecode lane
