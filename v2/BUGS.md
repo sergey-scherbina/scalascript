@@ -554,7 +554,7 @@ decoration that will be trusted by a cluster.
 <!-- status: fixed
      lane: native
      area: front
-     fixed-in: PENDING-SHA
+     fixed-in: 82c522039
      gate: tests/conformance/f-tilde-extension-infix.ssc -->
 
 **FIXED 2026-07-31** by `f-tilde-infix`, together with its sibling in ONE commit, as the ordering
@@ -627,7 +627,7 @@ single-token lexing for `~>` / `<~`.
 <!-- status: fixed
      lane: native
      area: front
-     fixed-in: PENDING-SHA
+     fixed-in: 82c522039
      gate: tests/conformance/f-tilde-arrow-ext.ssc -->
 
 **FIXED 2026-07-31** by `f-tilde-infix`, in the same commit as
