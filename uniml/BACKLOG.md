@@ -194,9 +194,15 @@ self-parity test is not external conformance.
   defects closed so far — a shortcut/collapsed reference link looked its definition up by the
   EMPTY key (+27), and indented code opened one block per line with the four columns left in the
   literal (+29, and it moved source/tokens 14 → 10 each, so per-line framing had been producing
-  worse trees than one block does). Ranked remainder, by failing cases:
-  Links 25, List items 20, Link reference definitions 12, Lists 12, GFM autolinks 11 (0 of 11 —
-  the extension is absent, not broken), emphasis 10, raw HTML 8, setext 8.
+  worse trees than one block does). Then two more:
+  links stop nesting (+5), and GFM extended autolinks were implemented (+11 — that section was
+  0 of 11, absent rather than broken, and is now 11 of 11).
+  Ranked remainder at 532, by failing cases: Links 20, List items 20, Link reference definitions
+  12, Lists 12, emphasis 10, raw HTML 8, setext 8, hard line breaks 7. Mapped onto the sub-items:
+  **3b** owns List items + Lists + setext + the multiline `[foo]:` forms; **3c** owns the rest of
+  Links (angle destinations, escaped titles, bracket-vs-raw-HTML precedence) and emphasis; **3a**
+  is not optional decoration — a real HTML5 entity table is what several remaining Links cases
+  and all four Entity cases actually need.
   - [ ] **UPR-3a generated entity data.** Generate a deterministic, checksummed table from pinned
         WHATWG `entities.json`: all semicolon-terminated HTML5 names and multi-code-point values;
         distinguish unknown text from an entity token; reject invalid numeric/surrogate values;
