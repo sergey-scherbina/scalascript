@@ -1,6 +1,7 @@
-# generation: 665
+# generation: 666
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
 smoke-budget-drift	claude-code	2026-07-31T11:18:37Z	smoke-suite-headroom-halved	file:scripts/smoke-ci.ssc file:scripts/SPRINT.md file:BACKLOG.md
 std-os-js-jvm-resolve	claude-code	2026-07-31T11:57:14Z	std-os-does-not-resolve-on-js-or-jvm	file:v1/runtime/backend/js/BUGS.md file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:tests/conformance/std-os-readline.ssc file:tests/conformance/std-os-doc-import.ssc file:tests/conformance/expected/std-os-doc-import.txt
 v2-html-tag-dsl	claude-code	2026-07-31T13:18:58Z	v2-html-tag-dsl	v2/runtime/std/ui-plugin v2/BUGS.md tests/conformance/corpus-baseline.tsv tests/conformance/contract-roster.tsv
+uniml-out-of-v1	claude-code	2026-07-31T13:22:14Z	uniml-modules-placed-opposite-to-their-dependency	file:build.sbt file:specs/project-partitioning.md file:specs/uniml-xml.md file:specs/scljet-address.md

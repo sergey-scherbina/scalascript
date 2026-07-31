@@ -1,0 +1,11 @@
+slug: uniml-out-of-v1
+branch: feature/uniml-out-of-v1
+agent: claude-code
+started: 2026-07-31T13:22:14Z
+heartbeat: 2026-07-31T13:22:14Z
+status: claimed-before-planning
+items: uniml-modules-placed-opposite-to-their-dependency
+paths: file:build.sbt file:specs/project-partitioning.md file:specs/uniml-xml.md file:specs/scljet-address.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
