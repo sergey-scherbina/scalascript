@@ -53,6 +53,28 @@ object RunNativeV2:
   private[cli] final case class FrontDecision(kind: String, reason: String)
   private[cli] var lastFrontDecision: FrontDecision = FrontDecision("F", "")
 
+  /** Opt-in: refuse to fall back off F instead of delegating. FOR MEASUREMENT.
+    *
+    *  The announcement on the delegation path tells you F was skipped; it does not stop you from
+    *  recording the number anyway, and in a scripted bench nobody reads stderr. A benchmark row
+    *  that F cannot compile is not a slow F row — it is not an F row at all, and averaging it into
+    *  an F result reports the reference front's performance under F's name. That is the failure
+    *  this flag removes: with it set, a file F cannot compile cannot produce a number.
+    *
+    *  Fails for BOTH delegation categories, deliberately. A gap and a user error differ in whose
+    *  fault it is, not in what happened to the measurement — either way F's output was discarded
+    *  and the reference front's code is what ran. The message still names which, because the fix
+    *  differs. Off by default: this trades a working program for a hard error, which is the right
+    *  trade only when you are measuring. */
+  private[cli] def frontStrict: Boolean =
+    sys.env.get("SSC_FRONT_STRICT").exists(v => v.nonEmpty && v != "0")
+
+  /** Set while `frontReport` is deciding, so strict mode does not break the tool you use to FIND
+    *  the gaps: without this, `SSC_FRONT_STRICT=1 ssc info --front-report` reports every gap as
+    *  `ERROR` (the caller catches Throwable) and the census loses the category it exists to
+    *  report. Same single-threaded-by-construction argument as `lastFrontDecision`. */
+  private var diagnosingFront = false
+
   private[cli] def compile(files: List[String]): NativeV2Compilation =
     compile(files, mutable = false)
 
@@ -69,7 +91,8 @@ object RunNativeV2:
     *  of the way. */
   private[cli] def frontReport(args: List[String]): Unit =
     val files = args.filter(a => !a.startsWith("--"))
-    files.foreach { file =>
+    diagnosingFront = true
+    try files.foreach { file =>
       lastFrontDecision = FrontDecision("F", "")
       val decision =
         try
@@ -81,6 +104,7 @@ object RunNativeV2:
             FrontDecision("ERROR", m)
       println(s"$file\t${decision.kind}\t${decision.reason}")
     }
+    finally diagnosingFront = false
 
   private[cli] def compile(files: List[String], mutable: Boolean): NativeV2Compilation =
     val layout = nativeFrontLayout()
@@ -179,20 +203,61 @@ object RunNativeV2:
                 validateNoReader(viaDefault.program)
                 false
               catch case _: Throwable => true
+            lastFrontDecision =
+              if userErrorNotGap then FrontDecision("BOTH-UNBOUND", fFailure)
+              else FrontDecision("GAP", fFailure)
+            // Refuse BEFORE announcing: in strict mode the fallback is not going to happen, so the
+            // "compiled with the default front instead" line would state something untrue.
+            if frontStrict && !diagnosingFront then
+              val why = if fFailure.isEmpty then "(no reason reported)" else fFailure
+              val whose =
+                if userErrorNotGap then
+                  "  Neither F nor the reference front binds every global here, so this is most\n" +
+                    "  likely your program — a typo, or a plugin `extern def` that only resolves at\n" +
+                    "  run time — rather than a gap in F.\n"
+                else
+                  "  The reference front compiles this file and F does not, so this is an F\n" +
+                    "  coverage gap. Worth reporting.\n"
+              throw new IllegalArgumentException(
+                // Kept on ONE line: the gate greps this SOURCE for the phrase, so a rewording
+                // fails there instead of silently switching the check off. Split across a `+` it
+                // is unfindable — which is exactly how this comment came to exist.
+                s"F did not compile this file, and SSC_FRONT_STRICT is set — " +
+                  s"refusing to fall back to the reference front.\n" +
+                  s"  file:   ${sourceFiles.mkString(", ")}\n" +
+                  s"  reason: $why\n" +
+                  whose +
+                  "  Either way F's output was discarded, so nothing measured here would be F's\n" +
+                  "  performance — which is what this flag exists to prevent. Unset\n" +
+                  "  SSC_FRONT_STRICT to run the file anyway via the reference front, or use\n" +
+                  "  `ssc info --front-report` to see the decision for a whole file list at once.")
             if !userErrorNotGap then
-              lastFrontDecision = FrontDecision("GAP", fFailure)
               val why = if fFailure.isEmpty then "" else s" [$fFailure]"
               System.err.println(
                 s"$FDelegationMarker ${sourceFiles.mkString(", ")}$why")
-            else
-              lastFrontDecision = FrontDecision("BOTH-UNBOUND", fFailure)
+              // Discoverability, and it costs nothing: this line only prints when F HAS a gap, so
+              // the hint rides along with a message that is already justified. The quiet category
+              // (both fronts unbound) has no such carrier by design — without a pointer from here,
+              // `SSC_FRONT_TRACE` stays what the comment above calls it, "an env var nobody sets".
+              System.err.println(
+                "ssc:   the program still ran correctly — the reference front compiled it. This " +
+                  "matters when you are MEASURING: the numbers are the reference front's, not F's.")
+              System.err.println(
+                "ssc:   `ssc info --front-report <file>` names the front per file; " +
+                  "`SSC_FRONT_TRACE=1` also reports the quiet case (both fronts unbound = your program).")
+              System.err.println(
+                "ssc:   `SSC_FRONT_STRICT=1` turns this fallback into an error, for measurement runs.")
             if userErrorNotGap && sys.env.contains("SSC_FRONT_TRACE") then
               // Still a delegation — double lowering, F's output discarded — just not F's fault.
               // Traced with its reason so the two categories can be counted separately; a plugin
               // `extern def` lands here, because BOTH fronts emit it as an unbound global.
               val why = if fFailure.isEmpty then "" else s" [$fFailure]"
               System.err.println(
-                s"[SSC_FRONT=F] delegated, both fronts unbound (not an F gap): ${sourceFiles.mkString(", ")}$why")
+                s"ssc: F did not lower this file, and neither did the reference front — so this is " +
+                  s"your program, not an F gap: ${sourceFiles.mkString(", ")}$why")
+              System.err.println(
+                "ssc:   (silent without SSC_FRONT_TRACE=1, deliberately: an unbound global is " +
+                  "usually a typo, and a compiler-internals line under every typo gets filtered out.)")
             viaDefault
           }
         case None =>
