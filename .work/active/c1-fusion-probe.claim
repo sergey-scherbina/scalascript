@@ -1,0 +1,11 @@
+slug: c1-fusion-probe
+branch: feature/c1-fusion-probe
+agent: claude-code
+started: 2026-07-31T15:39:58Z
+heartbeat: 2026-07-31T15:39:58Z
+status: claimed-before-planning
+items: C-1-probe-fusion-headroom
+paths: file:v1/runtime/backend/interpreter-bench/src/main/scala/scalascript/bench/V2CollectionBench.scala file:v2/SPRINT.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
