@@ -43,38 +43,38 @@ the extra path, and "file not found: --front-report" names the flag as a file. C
 a sweep built on this produces zero rows and reads as a clean result — I very nearly recorded
 "F declines nothing" from it. A tool that cannot do what was asked must not exit 0.
 
-## int-string-concat-operator-builds-a-pair — `"x" ++ "y"` is `(x, y)` on int and `xy` on v2
-<!-- status: open
+## int-string-concat-operator-builds-a-pair — `"x" ++ "y"` was `(x, y)` on the golden lane
+<!-- status: fixed
      lane: int
      area: runtime
-     fixed-in: -
-     gate: - -->
+     fixed-in: unrecorded
+     gate: tests/e2e/int-string-concat.sh -->
 
-**Found 2026-07-31** while checking a claim I had made about v2 (and which was wrong — see
-[[v2-string-plus-aliased-onto-user-concat-extension]]).
+**FIXED 2026-07-31** on the owner's call. `"x" ++ "y"` returned the PAIR `(x, y)` on the
+interpreter and `xy` on v2 and js. Scala concatenates — String is a `Seq[Char]` — so the corpus
+GOLDEN was the wrong lane, the third time in one session.
 
-```
-val s: String = "x"
-println(s ++ "y")        int: (x, y)      v2: xy
-println("lit" ++ "eral") int: (lit, eral) v2: literal
-```
+`DispatchRuntime`'s binary-operator table for `++` enumerates List/Set/Map/Tuple/Unit shapes and
+ends in `case _ => Pure(Value.TupleV(lhs :: rhs :: Nil))`. Two Strings match none of the listed
+shapes, so they fell into the tuple arm. One `case (StringV(a), StringV(b))` fixes it.
 
-**v2 is right, the golden lane is wrong.** Scala's `"x" ++ "y"` is `"xy"` — String is a `Seq[Char]`
-and `++` concatenates. int builds a Tuple2 instead.
+**Blast radius MEASURED, not argued.** This moves the golden lane, so the full corpus contract was
+run across int/js/v2 afterwards: **1064/1105 PASS, baseline 111, zero changes**. No case anywhere
+relied on `++` producing a pair from strings, and no freeze update was needed.
 
-**Controlled.** The first run had `std/dsl/pretty.ssc` imported, which defines
-`extension (l: Doc) def ++`, so the obvious reading was "the Doc extension is capturing a String
-receiver". Re-run with NO extension in scope at all: int still returns `(x, y)`. So this is int's
-own `++`, not extension dispatch, and the interesting hypothesis was the wrong one.
+FALSIFIED by `git checkout HEAD --` on the file and rebuilding: the gate fails with exactly
+`(x, y)` / `(lit, eral)`.
 
-**Not fixed, deliberately.** The fix moves the GOLDEN lane, so every live golden that touches `++`
-on strings moves with it, and the twin lanes must land in the same commit
-([[feedback_measurement_must_compare_not_prejudge]]). No corpus case exercises it today — which is
-precisely why the two lanes have disagreed silently.
+⚠️ **I fixed the wrong site first, and the wrong fix was invisible.** `++` on strings never reaches
+method dispatch, so a `case "++"` added to `dispatchString` compiles, looks right, and never fires.
+Two `System.err.println` markers — one in the new branch, one in the fallback tuple arm — both stayed
+silent, which is what proved the operator takes a THIRD path: the binary-operator table. That table
+is the fourth "second copy of this logic" found today.
 
-⚠️ Whoever takes this: `++` on other types is load-bearing (`std/dsl/pretty.ssc` builds its whole
-`DocBeside` tree on it, and v2's `__arith__` has `case "++" => StrV(x.toString + y.toString)` for
-Int pairs). Narrow the change to String/String and check `List ++ List` in the same pass.
+⚠️ The gate asserts `List ++ List` and `(1,2) ++ (3,4)` as well, and both pass before AND after. They
+are the guard, not the evidence: the new String arm sits directly above the List arm, and `++` is
+genuinely tuple-append for other shapes — a fix that swallowed either would still satisfy the string
+assertion.
 
 ## typer-defines-sys-but-no-runtime-provides-it — `sys.env` type-checked, then died at runtime on three lanes of four
 <!-- status: open

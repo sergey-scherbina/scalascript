@@ -1096,6 +1096,20 @@ private[interpreter] object DispatchRuntime:
 
   private def dispatchString(recv: Value, s: String, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
     name match
+      // `"a" ++ "b"` is CONCATENATION — String is a Seq[Char] in Scala. Without this case the call
+      // fell through to `dispatchFallback`'s cross-type `++` arm, whose last branch is
+      // `Pure(Value.TupleV(recv :: w :: Nil))`, so `"x" ++ "y"` evaluated to the PAIR `(x, y)` while
+      // v2 and js both concatenated. The interpreter is the corpus golden, so it was the golden
+      // that was wrong — the third time this session that v2 turned out to be the correct lane.
+      // Deliberately narrow: String ++ String only. Other right-hand shapes keep the old behaviour
+      // rather than being swept into a `show`-and-concatenate rule nobody asked for, and List/Map
+      // receivers never reached here anyway (the fallback arm excludes them).
+      // BUGS `int-string-concat-operator-builds-a-pair`.
+      case "++" => args match
+        case List(Value.StringV(t)) => Pure(Value.StringV(s + t))
+        // Any other right-hand shape keeps the pre-existing route, so this change cannot alter a
+        // program it was not aimed at.
+        case _                      => dispatchFallback(recv, name, args, env, interp)
       case "length"      => Computation.pureIntV(s.length.toLong)
       case "size"        => Computation.pureIntV(s.length.toLong)
       case "isEmpty"     => Computation.pureBool(s.isEmpty)
@@ -3665,6 +3679,15 @@ private[interpreter] object DispatchRuntime:
         case Value.ListV(ls) => Pure(Value.ListV(lhs :: ls))
         case _               => dispatch(lhs, op, rhs :: Nil, env, interp)
       case "++" => (lhs, rhs) match
+        // String ++ String is CONCATENATION — String is a Seq[Char] in Scala, and both v2 and js
+        // concatenate. Without this arm the pair matched none of the shapes below and fell to the
+        // final `case _`, which builds `TupleV(lhs :: rhs :: Nil)` — so `"x" ++ "y"` evaluated to
+        // the PAIR `(x, y)` on the corpus GOLDEN lane while every other lane said `xy`.
+        // ⚠️ This is the BINARY-OPERATOR table, not method dispatch. A fix in `dispatchString`
+        // alone never fires for infix `++`: I made that mistake first, and only two stderr markers
+        // (neither of which printed) showed the operator never reaches the method path at all.
+        // BUGS `int-string-concat-operator-builds-a-pair`.
+        case (Value.StringV(a), Value.StringV(b)) => Pure(Value.StringV(a + b))
         case (Value.ListV(a), Value.ListV(b)) =>
           if b.isEmpty then Pure(lhs)
           else if a.isEmpty then Pure(rhs)
