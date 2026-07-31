@@ -631,7 +631,7 @@ function $eq(a,b){
 // `ssc1-lower.ssc0:mirrorMethodRegs` precisely so completing the Mirror surface needs no backend
 // change. Keyed tag + name; the VM calls the closure with (self :: args) and so does $method.
 var $tagged={};
-function $regMethod(tag,name,fn){ $tagged[tag+' '+name]=fn; return null; }
+function $regMethod(tag,name,fn){ $tagged[tag+'\u0000'+name]=fn; return null; }
 function $isTag(v,tag,arity){
   // The unit value is `null` here, so the old `!!(v&&...)` answered false for `case _: Unit` on
   // every lane that has one — the interpreter, the JS backend and this one each shipped a

@@ -7,6 +7,44 @@ grepping for status.
 
 Newest first.
 
+## nul-byte-in-tracked-source — one NUL makes `grep` answer "nothing" for both match and no-match
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     fixed-in: unrecorded
+     gate: tests/e2e/no-nul-in-sources.sh -->
+
+**Found 2026-07-31** while asking why `grep` kept returning nothing on `v2/src/Runtime.scala`.
+
+A single NUL byte makes `grep` treat the **whole file** as binary, and it then prints nothing — the
+same output it prints for "no matches". Two different states, one answer. `Runtime.scala` is 227 KB,
+the largest runtime source, and every `grep` over it had been silently answering "nothing" for
+anyone who did not know to pass `-a`. I nearly drew a conclusion from that silence, with the hazard
+already recorded in my own notes.
+
+**Three tracked files carried one, not the one I noticed by hand** — the gate found the other two on
+its first run:
+
+| file | what the NUL was |
+|---|---|
+| `v2/src/Runtime.scala:1961` | `case _ => '<NUL>'` — a Char literal default |
+| `v2/backend/js/JsBackend.scala:634` | `tag+'<NUL>'+name` — a key separator inside generated JS |
+| `…/ScljetVfsNativePluginTest.scala:50` | `"SQLite format 3<NUL>"` — the SQLite magic header |
+
+All three are INTENTIONAL NUL semantics written as a raw byte instead of an escape, so all three fix
+without changing behaviour: `\u0000` in the emitted JS, `("SQLite format 3" + 0.toChar)` for the
+header, and the escape for the Char literal.
+
+**The gate found a defect in ITSELF on its first run, and that is why it is worth having.** Invoked
+from outside a repository, `git ls-files` failed, the file list came back empty, and it printed
+`OK` — scanning nothing reported as a pass, which is exactly the failure it exists to prevent. An
+empty list now refuses loudly. `--self-test` plants a NUL and requires it to be caught.
+
+**Class, not incident.** Same shape as five others the same week: `grep -c` exits 1 on zero matches
+(a successful build reported as failed), `coord-release` silently dropped `--level`,
+`update-index --cacheinfo` accepted a sha with no commit behind it, a stale build answered about the
+wrong code. **Not being able to answer must not look like answering "no".**
+
 ## shared-main-is-one-working-tree-for-every-agent — bookkeeping pushes from it are flaky, and `git push` can report success while pushing nothing
 <!-- status: open
      lane: apparatus
