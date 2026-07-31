@@ -128,6 +128,118 @@ Recorded because the refuted attempt is the expensive part: it looks obviously r
 failure only shows at a call site, not at the definition. Routed here rather than to a BUGS board
 because F has never supported this — it is missing coverage, not a regression.
 
+## v2-perf-calling-convention — every call allocates an argument array; even the fastest one costs 11.2 ns (2026-07-31)
+<!-- status: open
+     lane: native
+     area: codegen
+     kind: perf
+     gate: bench/corpus/lambda-call.ssc -->
+
+**B in `specs/v2-perf-direct-local-lambda-call.md`. Do this one FIRST — see the ordering note below.**
+
+`JvmByteGen.genArray` (`:1394`) emits `ANEWARRAY` **per call**, on every path including the direct
+`INVOKESTATIC` one, and every argument and result is a boxed `Value`. Measured on one host: a raw
+loop iteration is **0.71 ns**, the fastest call v2 has is **11.2 ns**, and v1 does a whole lambda
+call plus LCG arithmetic in **2.9 ns**.
+
+**The work, in two stages:**
+1. **B1 — arity-specialised entry points** `(Value)Value`, `(Value,Value)Value`, … for arity 1–4
+   beside the existing `([Value)Value`. Mechanical; removes the allocation.
+2. **B2 — unboxed variants** `(long)long` / `(double)double` where the typed IR already knows the
+   type. F5b emits `i.*` and `f.*`, so **the information exists and is discarded at the call
+   boundary** — B2 is about not discarding it.
+
+**Why before A:** unconditional (no hypothesis to validate), mechanical rather than clever, and it
+helps EVERY call — including `foreach`'s 7.1 ns, which allocates too, and the ones A would fix.
+
+**Expected size: not yet decomposed, and that is step 0.** The total call overhead is bounded at
+11.2 − 0.71 ≈ **10.5 ns**; how much is allocation, how much boxing, how much dispatch is unmeasured.
+**Decompose before implementing.**
+
+## v2-perf-callsite-inline-cache — one shared megamorphic funnel serves every indirect call (2026-07-31)
+<!-- status: open
+     lane: native
+     area: codegen
+     kind: perf
+     gate: bench/corpus/lambda-call.ssc -->
+
+**A in `specs/v2-perf-direct-local-lambda-call.md`, where the full design is.**
+
+Every indirect call funnels through one static `Emit.app`, so `c.code` is megamorphic *globally*
+and C2 can never devirtualise it (`-XX:+PrintCompilation`: tier 4, compiled as a root, `made not
+entrant`). `foreach` costs 7.1 ns against 48.7 for one reason only — its call site is private to
+`Runtime` and monomorphic per loop, so the JIT inlines the closure body.
+
+**Prerequisite (A-0): `ClosV` must retain its `LamFn`.** `Emit.clos` builds a fresh `ClosV` AND a
+fresh forwarding closure per evaluation, so a lambda created in a loop is a different object every
+iteration — nothing stable to guard on. The `LamFn` is stable (metafactory singleton).
+
+⚠ **Do the census before the linker.** Build only A-0 and count distinct `fn` identities per call
+site. **If the hot sites are not monomorphic, an inline cache buys nothing and all of A is void.**
+One build decides it.
+
+**Expected: 48.7 → 7–11 ns** at monomorphic sites. Ship the relink cap with it, or a megamorphic
+site pays relink cost forever and ends up slower than today.
+
+**Three earlier attempts at a narrow version were INERT** — see the spec. The reason is recorded
+there and is a rule, not a detail: OpAnf A-normalises calls into an effectful `Let` that materialises
+the frame, so no generator-level pattern match on "the lambda is right here" can ever fire.
+
+## v2-perf-generated-method-size — C2 refuses to inline because the GENERATED caller is already big (2026-07-31)
+<!-- status: open
+     lane: native
+     area: codegen
+     kind: perf
+     gate: none -->
+
+Found while decomposing the call cost. `-XX:+PrintInlining` on a hot def-call loop repeats:
+
+```
+ssc.Emit$::unroll (52 bytes)   already compiled into a big method
+ssc.Emit$::unroll (52 bytes)   callee is too large
+```
+
+**`already compiled into a big method` means the JIT gave up on the CALLER**, not the callee. This
+is the same family as `v1-interpreter-hot-path-never-jits` and the `Prims.__method__` split that
+bought 2.4–10.8×, but on the **generated** side rather than the runtime's.
+
+**Why it matters to the two entries above:** if generated callers are past C2's inlining budget,
+then A and B will both underdeliver, because the JIT stops optimising the caller regardless of how
+cheap the call becomes. **Measure generated method sizes before trusting A's or B's expected size.**
+`scripts/bytecode-size-census` does this for compiled Scala; the generated classes need the
+equivalent.
+
+## v2-perf-array-update-unanalysed — 55×, and nobody has looked at it once (2026-07-31)
+<!-- status: open
+     lane: native
+     area: runtime
+     kind: perf
+     gate: bench/corpus/array-update.ssc -->
+
+Appeared in the first full corpus sweep; **it was not in any earlier table**, so it has never been
+analysed. `a(idx) = v` with LCG-driven indices.
+
+Worth knowing before starting: `a(i) = v` was a **silently-dropped** defect on the F front until
+2026-07-30, so this row may be measuring a freshly-working path rather than a long-standing one.
+**First step is a decomposition probe, not a fix** — there is no theory here yet.
+
+## v2-perf-vector-is-a-cons-chain — indexing is O(n) by construction, 47× (2026-07-31)
+<!-- status: open
+     lane: native
+     area: runtime
+     kind: perf
+     gate: bench/corpus/vector-index.ssc -->
+
+v2 has **no `VectorV`**: `Vector` is a cons chain, so `xs(i)` walks it. Walking in place instead of
+materialising bought only 1.3× (landed). The honest fix is a real indexed representation.
+
+**This is the ONE open perf item that is not about calls.** The other four are one disease —
+information known at compile time discarded at the call boundary. This one is data representation,
+so it is independent work and can proceed in parallel.
+
+**Design change: spec before code** (`POLICY.md` P-1). Scope it against the `Value` hierarchy and
+the pattern-matching paths that assume cons.
+
 ## v2-backend-gap-matrix — what v2 cannot do, and what it does far worse than v1 (2026-07-28)
 <!-- status: open
      lane: native
