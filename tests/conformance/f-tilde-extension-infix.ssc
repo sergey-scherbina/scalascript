@@ -1,0 +1,26 @@
+---
+name: f-tilde-extension-infix
+version: 1.0.0
+---
+
+# A user-defined `~` extension used infix
+
+`~` is a legal operator name for an extension method, and the parser-combinator
+library in `std/parsing/combinators.ssc` is built on it (`~`, `~>`, `<~`).
+
+The F front lexes `~` as the PREFIX bitwise-NOT operator (`opCode` 126 -> 68,
+consumed by `parseTilde`), and has no infix reading for it. It therefore accepts
+this program and compiles it to something else — no decline, no diagnostic, exit
+0, wrong number. The interpreter and the JS lane both call the extension.
+
+This case exists to keep that visible: it is expected RED on v2 until F learns
+`~` as an infix extension operator. See `v2/BUGS.md`,
+`f-tilde-infix-silently-miscompiled-as-bitwise-not`.
+
+```scalascript
+extension (p: Int)
+  def ~(q: Int): Int = p * 100 + q
+
+println(3 ~ 4)
+println(1 ~ 2)
+```

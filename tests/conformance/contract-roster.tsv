@@ -1,4 +1,4 @@
-# corpus-contract-roster-v1	baseline-sha256=a942083ae546c203fce9131d1a85d54c89c23e3ff8bdb395380d120e5af3b87e	roster-sha256=607980e3a85682ac451b80ee035c07cef7d46462ed831458f616a772d4e05fef
+# corpus-contract-roster-v1	baseline-sha256=88f224373d7716f7210e3769bf34135c4dd49c937dbbe5fb1ec49ffc1b5e7507	roster-sha256=c8fe5d3e80209bb3992a1d1dc0a7777009f78a208d0ce4c987bcc9b732950c0b
 _bug1_httpclient
 _bug1b
 _bug1c
@@ -130,6 +130,7 @@ effects-handler
 enum-shared-casename
 enums
 extensions
+f-tilde-extension-infix
 fence-attr-code
 fence-doc-block
 fenceless-bare-code

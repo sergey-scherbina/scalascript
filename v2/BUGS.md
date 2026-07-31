@@ -7,6 +7,74 @@ grepping for status.
 
 Newest first.
 
+## f-tilde-infix-silently-miscompiled-as-bitwise-not — F accepts it, exits 0, prints a wrong number
+<!-- status: open
+     lane: native
+     area: front
+     fixed-in: -
+     gate: tests/conformance/f-tilde-extension-infix.ssc -->
+
+**Found 2026-07-31** while diagnosing why F declines the parser-combinator files. This is not that
+defect — it is a worse one standing next to it.
+
+```
+extension (p: Int)
+  def ~(q: Int): Int = p * 100 + q
+
+println(3 ~ 4)     int: 304    js: 304    v2: 0
+```
+
+F lexes `~` as the PREFIX bitwise-NOT operator (`opCode` 126 -> 68, consumed by `parseTilde`,
+`specs/v2.2-p6.5-fsub.ssc:517`) and has no infix reading for it, and `opNameK` does not map 68 at
+all, so a `~` extension is never even registered by name.
+
+⚠️ **F does not decline this. It ACCEPTS it.** No diagnostic, no fallback, exit 0, wrong answer.
+Everything else found in F today was a decline, which is safe by construction — the fallback front
+takes over. This one produces a silently wrong program, and no corpus case covered `~` before this
+entry added one.
+
+⚠️ **ORDERING, and this is the important part.** The sibling defect
+[[f-operator-ext-param-tilde-arrow-declines]] makes F decline every file importing
+`std/parsing/combinators.ssc` — which is built on `~`, `~>`, `<~`. That decline is currently the
+only thing PROTECTING those ten files: they compile on the fallback front, which reads `~` correctly.
+Fixing the decline first would move all ten from a safe fallback into F's hands, where infix `~` is
+miscompiled — trading a visible gap for a silent wrong answer across ten files. **Fix this one
+first, or fix both in the same commit.**
+
+Fixing it means three things together, which is why it is filed rather than fixed in the session
+that found it: an infix reading for `~` when an extension defines it, `68 -> "~"` in `opNameK`, and
+single-token lexing for `~>` / `<~`.
+
+## f-operator-ext-param-tilde-arrow-declines — `~>` and `<~` leave their parameter unbound
+<!-- status: open
+     lane: native
+     area: front
+     fixed-in: -
+     gate: - -->
+
+**Diagnosed 2026-07-31.** `q` is the single largest reason F declines corpus files (10 of the 42 GAP
+files — see [[f-front-coverage-census-0731]]). It is not "F cannot bind extension-method parameters":
+
+| member | F verdict |
+|---|---|
+| `def ~`, `def \|`, `def ++`, `def :+`, `def >>` | fine |
+| **`def ~>`, `def <~`** | **GAP — `unbound global: q`** |
+| `def &&&` | ERROR (parse) |
+
+`opCode` lexes single characters only, so `~>` becomes `~` then `>`. `extMembers` takes the name
+token and then expects `[` or `(`, finds `>`, and takes the branch that never calls `parseParams` —
+so the member's own parameter is never bound and `q` resolves as a global.
+
+The reduction that found it went the OTHER way from usual: a hand-written minimal file with
+`def ~>` DOES reproduce it, but five earlier hand-written variants (`~`, `|`, `++`, identifier
+names, with and without type parameters) all passed, and I had to bisect the real
+`std/parsing/combinators.ssc` — member by member, with a control that keeps all of them — before the
+suspicion landed on `~>` at all. The bisect's first run was itself invalid: my line-range clipped the
+closing fence, so every variant "failed" with a parse ERROR.
+
+⚠️ Do not fix this before [[f-tilde-infix-silently-miscompiled-as-bitwise-not]] — see the ordering
+note there. The decline is protecting these ten files.
+
 ## f-has-no-float-exponent — `1e2`, `1.0e2` and `2.5e-3` all fail to lower on the F front
 <!-- status: open
      lane: native
