@@ -43,6 +43,15 @@ val baselineOut = Paths.get(s"$root/bench/BASELINE.md")
 val writeBaseline = args.contains("--baseline")
 val v2BackendMode = args.contains("--v2-backends")
 val v2BytecodeMode = args.contains("--v2-bytecode")
+/** `--strict-front`: refuse to measure any v2 row F did not compile.
+ *
+ *  The FRONT column already NAMES the fallback rows, which is enough when a person reads the table.
+ *  It is not enough when a script reads it, or when the table is skimmed for the one row that
+ *  moved: a `GAP` row still prints a plausible number, and that number belongs to the reference
+ *  front. This makes such a row fail loudly instead — the right default for an A/B where the whole
+ *  claim is "F got faster". Off unless asked, because on a mixed corpus most rows are legitimately
+ *  not F's and refusing them all would just stop the run. */
+val strictFront = args.contains("--strict-front")
 
 // --backend <b>: limit to a single backend; default is all three.
 // Synthetic backend "interp-asm" runs ssc --backend interp with SSC_JIT_BACKEND=asm.
@@ -415,6 +424,9 @@ def runSscBenchBackend(sscPath: String, file: java.io.File, b: String): Option[D
   val (actualBackend, extraEnv) = b match
     case "ssc-asm" | "interp-asm" => ("ssc", Seq("SSC_JIT_BACKEND" -> "asm"))
     case other                    => (other, Nil)
+  // Only the v2 lane has a front to be strict ABOUT; setting it for v1 backends would be noise.
+  val strictEnv =
+    if strictFront && b.startsWith("v2") then Seq("SSC_FRONT_STRICT" -> "1") else Nil
   // --backend is a global flag; must come before the subcommand name.
   // --warmup-time overrides --warmup when present.
   val warmupArgs = warmupTimeMs match
@@ -424,7 +436,7 @@ def runSscBenchBackend(sscPath: String, file: java.io.File, b: String): Option[D
             warmupArgs ++ Seq("--reps", reps.toString, file.getAbsolutePath)
   val buf = new java.io.ByteArrayOutputStream
   val ps  = new java.io.PrintStream(buf, true)
-  Process(cmd, None, extraEnv*).!(ProcessLogger(ps.println, errLog))
+  Process(cmd, None, (extraEnv ++ strictEnv)*).!(ProcessLogger(ps.println, errLog))
   parseBenchLine(buf.toString.trim)
 
 /** Which FRONT compiled this workload — `F`, or a fallback verdict (`GAP`, `BOTH-UNBOUND`, …).

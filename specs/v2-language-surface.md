@@ -218,7 +218,30 @@ pre-check inside a `try`; on ANY failure (validate throws, or `#coreir.decode` i
 already threw at lower time — `parseProgram` calls `validate` at CoreIR.scala:114) the file is
 transparently re-lowered through the **default runner** (`ssc1-run.ssc0`, `fsubSrc=None`) and that result
 is used. F covers its subset directly; the old front (kept, now the fallback) covers the rest; output is
-byte-identical to default wherever F falls short. `SSC_FRONT_TRACE=1` logs each delegation to stderr.
+byte-identical to default wherever F falls short.
+
+**Seeing the delegation (three levels, by how much you need to know).** A fallback is correct for
+running a program and wrong for *measuring* one: F's output is discarded and the reference front's
+code is what executes, so a number collected there is not F's.
+
+| | what it does | when to use it |
+|---|---|---|
+| default | a real F gap prints one line naming the file and the reason; a user error stays silent | always on — see below for why the two differ |
+| `SSC_FRONT_TRACE=1` | also reports the quiet category (neither front binds every global — usually a typo, or a plugin `extern def`) | diagnosing why a file is not F's |
+| `SSC_FRONT_STRICT=1` | refuses to fall back at all: the run FAILS instead of delegating | **measurement runs** |
+| `ssc info --front-report F` | prints `F` / `GAP` / `BOTH-UNBOUND` per file, without executing anything | census over many files |
+
+The default is asymmetric on purpose. Both categories reach the fallback through the same signal —
+an unbound global — so `undefinedThing()` in user code is indistinguishable at that point from a
+construct F cannot lower. Announcing both would put a compiler-internals line under every typo, and
+a message that fires when nothing is wrong is one people filter out within a day, taking the real
+signal with it.
+
+`SSC_FRONT_STRICT=1` fails for **both** categories, because they differ in whose fault it is, not in
+what happened to the measurement. The message names which, since the fix differs. It does not affect
+`ssc info --front-report`, which must keep reporting `GAP` rather than `ERROR` — otherwise setting
+the flag to go looking for gaps would destroy the report that finds them. Gate:
+`tests/e2e/f-front-delegation-visible.sh`.
 
 - **The unbound-global gap classes are caught by the one pre-check** — the 12 single-file gaps AND the
   ambient-prelude/plugin class all emit an *unbound global* (F's incomplete lowering leaves a dangling
