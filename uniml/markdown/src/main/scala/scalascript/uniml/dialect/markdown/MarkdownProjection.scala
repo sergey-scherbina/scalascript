@@ -246,7 +246,12 @@ object MarkdownProjection:
     val (dest, title) = destTok match
       case Some(d) => (d, titleTok)
       case None =>
-        val labelText = refLabel.map(extractRefLabel).getOrElse(plainText(label))
+        // Shortcut `[foo]` and collapsed `[foo][]` carry no label of their own — the
+        // lexeme is `]` or `][]`, so extractRefLabel yields "" and the LINK TEXT is
+        // the label. Without the .filter this looked up the empty key and every
+        // shortcut reference resolved to href="".
+        val labelText =
+          refLabel.map(extractRefLabel).filter(_.nonEmpty).getOrElse(plainText(label))
         refs.get(MarkdownInlines.normalizeLabel(labelText)) match
           case Some(defn) => (defn.destination, defn.title)
           case None       => ("", None)
