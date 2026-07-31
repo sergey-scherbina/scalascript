@@ -32,7 +32,8 @@ Two axes, both deliberate:
 - **Criticality** — within a module, the checks that have actually caught something. Every gate
   below is here because it once failed on a real defect, not because it was cheap to add.
 
-The corpus slice is one `run.sc` invocation over cases chosen the same way: `char-literal-escapes`
+The corpus part is TWO `run.sc` invocations, split by lane (see the code comment for the
+measurement that forced the split), over cases chosen the same way: `char-literal-escapes`
 (a Char pattern that matched nothing and silently froze a parser corpus case), `arithmetic` and
 `int-width` (Int is 64-bit and an overflow once failed open), `effects` (the one case that declares
 all four backends, so a single case exercises int/js/jvm/v2), `std-process-import` (the native tier
@@ -72,9 +73,10 @@ When a run overruns THIS, read the per-check timings before touching the number;
 point of printing them. Uniform inflation across every check is a loaded host, not a slow suite. One
 check that grew is the signal this budget exists for.
 
-The corpus slice's own result is attributed per LANE and folded into the module totals through the
+Both corpus checks' results are attributed per LANE and folded into the module totals through the
 `lanes` column of `tests/fixtures/modules.tsv`, so `int`/`js`/`jvm`/`v2` land on the modules that
-own them rather than all on `tests/conformance`.
+own them rather than all on `tests/conformance`. The rollup reads EVERY `corpus-*` check, not the
+first one — reading only one would drop a whole lane while still printing a confident table.
 
 ```scalascript
 [exec, ProcessOptions, ProcessResult](std/process.ssc)
@@ -89,12 +91,32 @@ own them rather than all on `tests/conformance`.
 case class Check(module: String, name: String, cmd: String, argv: List[String], timeoutMs: Int,
                  env: Map[String, String] = Map())
 
-// One `run.sc` pass. Cases are comma-separated globs; keep this list short and keep every entry
-// justified in the prose above — an unexplained case is one nobody will dare delete later.
-val corpusSlice =
+// Cases are comma-separated globs; keep these lists short and keep every entry justified in the
+// prose above — an unexplained case is one nobody will dare delete later. A name matching no case is
+// an ERROR in run.sc, not a silently smaller run.
+//
+// TWO invocations, split by LANE, because one lane cost more than everything else put together.
+// MEASURED on this slice, warm JVM, three alternating rounds: all four lanes 33.7-37.6 s, the same
+// cases without `jvm` 11.9-15.8 s. The JVM lane was ~65 % of the check and ~half of the whole suite.
+//
+// The split is NOT "drop the JVM lane" — no lane goes dark on the push path. It is: stop paying the
+// JVM lane ELEVEN times for breadth it does not add. Eight of these cases carry no `backends:` line
+// at all, so they ran every lane by DEFAULT rather than by anyone's decision; the three below are
+// the ones whose authors explicitly wrote `jvm` in their front-matter, i.e. where the JVM backend is
+// the point. 12.1 + 6.8 = 18.9 s against 33.7 s.
+//
+// THE COST, stated: a JVM-lane regression in one of the other ten cases now surfaces on the PR or
+// 4-hourly run instead of on the push. The full 363-case corpus still runs all four lanes there.
+val corpusBreadth =
   "arithmetic,int-width,char-literal-escapes,pattern-matching,collections,strings," +
   "higher-order-functions,effects,tagless-program,json-value,std-process-import," +
   "js-int-division-by-zero,scljet-sql-select"
+
+// `int-width` is here for a second reason: it is the ONLY case in the breadth list carrying
+// `also-codegen: v2`, which is what produces the `JVM/v2` sub-lane (the v2 front emitting JVM
+// bytecode). Splitting the lanes without it dropped that sub-lane from the push path entirely —
+// caught by the per-module rollup showing v2 fall 4 -> 3, which is exactly the job that rollup has.
+val corpusJvm = "effects,js-int-division-by-zero,try-catch-exception-delivery,int-width"
 
 val suite = List(
   // ── `.` — cross-module: the freezes and process rules every other gate leans on.
@@ -131,13 +153,21 @@ val suite = List(
   //    per-lane results are booked.
   // SSC_CONF_WARM_JVM=1 reuses ONE Bloop build server across the slice instead of paying a cold
   // scalac start per case, which is what `ci.yml`'s conformance job already does for the same reason.
-  // MEASURED on this slice: 74.4 s -> 43.9 s locally (-41%). It matters most on a GitHub runner, where
-  // the slice cost 233.9 s against 68-98 s locally — the first CI run failed the budget at 378.5 s
-  // with all 17 checks green, and the JVM lane's per-case cold compile was most of the gap. Same
-  // `scala-cli run`, warm compiler; correctness is unchanged.
+  // MEASURED when it was added: 74.4 s -> 43.9 s locally (-41%). Same `scala-cli run`, warm compiler;
+  // correctness is unchanged.
   Check("tests/conformance", "corpus-breadth-slice", "scala-cli",
-        List("tests/conformance/run.sc", "--", "--only", corpusSlice, "--no-memo"), 600000,
-        Map("SSC_CONF_WARM_JVM" -> "1"))
+        List("tests/conformance/run.sc", "--", "--only", corpusBreadth, "--no-memo",
+             "--lanes", "int,js,v2"), 600000,
+        Map("SSC_CONF_WARM_JVM" -> "1")),
+  Check("tests/conformance", "corpus-jvm-lane", "scala-cli",
+        List("tests/conformance/run.sc", "--", "--only", corpusJvm, "--no-memo",
+             "--lanes", "jvm"), 600000,
+        Map("SSC_CONF_WARM_JVM" -> "1")),
+  // The two checks above are `--only` lists typed by hand and split by `--lanes`. Both flags used to
+  // fail silently — a zero-match `--only` exited 0 over nothing, and a `--lanes` value could be eaten
+  // as the positional corpus dir. The corpus checks would still have printed green. This gate is what
+  // stops that, so it runs beside them.
+  Check("tests/conformance", "conformance-lanes-flag", "tests/e2e/conformance-lanes-flag.sh", List(), 300000)
 )
 
 // ── The module hierarchy, read rather than restated ───────────────────────────
@@ -285,11 +315,15 @@ def main() =
       println("  " + pad(module, 34) + green.toString() + "/" + mine.length.toString() +
               " checks   " + showSeconds(spent)))
 
-  val corpus = outcomes.filter(o => o.name == "corpus-breadth-slice")
+  // EVERY corpus check, not just the first. The suite runs two of them — breadth on int/js/v2, and
+  // the JVM lane on three cases — and reading only one would drop a whole lane out of the rollup
+  // while still printing a confident table. Same invisibility the KNOWN-RED bucket exists to avoid.
+  val corpus = outcomes.filter(o => o.name.startsWith("corpus-"))
   var laneReadable = true
   var laneFailures = 0
   if corpus.length > 0 then
-    val verdicts = laneVerdicts(corpus(0).stdout)
+    val verdicts =
+      corpus.map(o => laneVerdicts(o.stdout)).foldLeft(List[List[String]]())((a, b) => a ++ b)
     if verdicts.length == 0 then
       laneReadable = false
       println("  corpus lanes: UNREADABLE — run.sc printed no `PASS [lane]` lines. The harness")
