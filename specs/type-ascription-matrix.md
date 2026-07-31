@@ -15,13 +15,16 @@ Map          Map           Map      Map      Map
 Set          Set           Set      List  ✗  -      ✗
 List         List          List     List     -      ✗
 Vector       Vector        Vector   List  ✗  -      ✗
-Option       Option        Option   -     ✗  -      ✗
+Option       Option        Option   Option   Option     (fixed 07-31)
 Tuple2       Tuple2        Tuple2   Tuple2   Tuple2
 Tuple3       Tuple3        Tuple3   Tuple3   Tuple3
 Box (user)   Box           Box      Box      Box
 ```
 
-**INT matches the oracle on all fourteen.** native diverges on five, js on six.
+**INT matches the oracle on all fourteen.** After the fixes of 2026-07-31 native diverges on three
+and js on four — and **every remaining divergence is a missing TYPE, not a missing arm**. The
+closable ones are closed: `Map` (js), `List` (native), `Int`-vs-`Double` (js), `Option` (both). What
+is left needs a representation before a type test can answer at all.
 
 ## Why this exists as a census and NOT as one conformance case
 
@@ -39,7 +42,10 @@ tracker entry. A row that gets fixed graduates into its own case.
 ## The three kinds of divergence, which need different work
 
 **1. A missing table arm — cheap, closable.** The lane CAN represent the type; the test simply has
-no arm. `Map` on js and `List` on native were this, and both are now fixed.
+no arm. `Map` on js, `List` on native and `Option` on BOTH were this, and all are now fixed. Option
+is the clearest case of the distinction this census exists to draw: it looks exactly like `Set` from
+the outside — a container answering nothing — but `Some`/`None` carry `DataV` tags on native and
+`_type` markers on js, so the question HAS an answer there while `Set`'s does not.
 
 **2. A missing DISTINCTION — looks like an ordering bug.** `Int` and `Double` on js shared one
 predicate (`typeof x === 'number'`), so the two arms were the same test and **whichever came first

@@ -817,6 +817,10 @@ private[codegen] trait JsGenCpsCodegen:
         // this lane and any arm would have to lie about one of them.
         // BUGS `type-ascription-tuple-and-set-arms-missing`.
         case "Map"     => s"_isMap($scrutVar)"
+        // Option IS distinguishable here — Some/None carry `_type` markers (core-dispatch.mjs:
+        // `const None = {_type: '_None'}`), unlike Set/List/Vector which are all plain arrays.
+        // Found by the census: this lane answered nothing where int and the JVM answered `Option`.
+        case "Option"  => s"(!!$scrutVar && ($scrutVar._type === '_Some' || $scrutVar._type === '_None'))"
         case "RuntimeException" | "Exception" | "Throwable" =>
           s"($scrutVar instanceof Error || ($scrutVar && $scrutVar._type === '$typeName'))"
         // A tuple IS a JS array here, so `Array.isArray` alone would also accept a

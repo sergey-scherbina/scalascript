@@ -1598,7 +1598,13 @@ object Prims:
         // BUGS `type-ascription-tuple-and-set-arms-missing`.
         val listTag  = t == "Cons" || t == "Nil"
         val listName = expected == "List" || expected == "Seq" || expected == "Iterable"
-        if listTag && listName then BoolV(true)
+        // Same shape for Option: the value is `DataV("Some"/"None")`, so a pattern naming the TYPE
+        // could not match a nominal tag test. Found by the type-ascription census
+        // (specs/type-ascription-matrix.md): this lane answered nothing where int and the JVM
+        // answered `Option`.
+        val optTag  = t == "Some" || t == "None"
+        val optName = expected == "Option"
+        if (listTag && listName) || (optTag && optName) then BoolV(true)
         else BoolV((t == expected || isExceptionSupertype(expected)) && (ar < 0 || fs.length == ar))
       // Primitive values are not DataV constructors, but source-level typed
       // patterns still use the same portable nominal test (`case s: String`).

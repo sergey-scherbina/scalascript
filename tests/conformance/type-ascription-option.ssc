@@ -1,0 +1,43 @@
+---
+name: type-ascription-option
+description: "case _: Option[?] holds for Some and for None on every lane"
+backends: [int, js, jvm, v2]
+---
+
+# `case _: Option[?]`
+
+`BUGS.md` `type-ascription-option-missing-arm`. Found by the type-ascription census
+(`specs/type-ascription-matrix.md`): `case _: Option[?]` answered nothing on the native and js lanes
+where INT and the JVM answered `Option`.
+
+A missing ARM, not a missing type — which is why it could be closed. Both lanes represent an Option
+distinctly: `DataV("Some"/"None")` on the native lane, and `_type` markers on js
+(`const None = {_type: '_None'}`). Contrast `Set`, `List` and `Vector`, which are all the same plain
+array on js and all the same list on native — those cannot be separated by any arm, and the census
+records them as representation gaps instead.
+
+```scalascript
+def kind(x: Any): String = x match
+  case _: Option[?] => "Option"
+  case _ => "-"
+
+println(kind(Some(1)))
+println(kind(None))
+println(kind(Some(Some(2))))
+println(kind(List(1, 2)))
+println(kind("s"))
+println(kind(7))
+
+def unwrap(o: Option[Int]): Int = o match
+  case Some(v) => v
+  case None => -1
+println(unwrap(Some(9)))
+println(unwrap(None))
+```
+
+**`None` matters on its own line.** It is a different tag from `Some` reaching the same test, and on
+js it is a shared singleton object — a truthiness-based test would pass `Some` and fail `None`, or
+the reverse, and a case carrying only `Some` could not tell.
+
+The two `unwrap` lines are the guard that widening the TYPE test left the CONSTRUCTOR patterns
+alone: `case Some(v)` still arrives naming its own tag and must keep taking the ordinary path.
