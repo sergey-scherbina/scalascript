@@ -595,21 +595,11 @@ jobs:
       - name: ScalaScript 2.1 JRE-shaped no-javac module gate
         run: tests/e2e/v21-jre-module-gate.sh --report target/v21-jre-module.tsv
 
-      # F4 default-front flip PREREQUISITE (v2-f4-reflip, 2026-07-22): budget staged ahead of making F the
-      # default native front. The flip itself is HELD (F stays opt-in via SSC_FRONT=F) until two out-of-corpus
-      # native-smoke F-regressions are fixed — see BACKLOG v2-f4-flip. WHEN F becomes the default, this gate's
-      # two full-corpus sweeps (native-front-corpus runtime step + bc-parity-sweep) re-lower every one of the
-      # 212 corpus programs through F, the interpreted self-hosting subset compiler — ~2-4x slower than the old
-      # ssc1-front+ssc1-lower (measured: hello 0.8s->1.5s, heavy scljet 8s->32s). The frozen metrics stay put
-      # (frontend.ok/checker.ok use the hardcoded legacy ssc1-run.ssc0 runner; vm/asm parity is front-
-      # independent and the F4a fallback keeps F output == legacy) — only the WALL TIME grows: a measured
-      # F-default run of this gate took ~23 min, which blew the old 30-min cap (that is why the first flip
-      # 3750df8c2 was reverted). Raised to 75 for headroom; deep F-perf is the F5b typed-IR arc (BACKLOG).
-      # F is now the DEFAULT front (flip landed 56d7d705f, 2026-07-26), so this ceiling is LIVE, not slack —
-      # every run pays the F wall time. TUNE DOWN as the F5b slices land and the true durations are observed.
-      - name: ScalaScript 2.1 standard-only negative toolchain release gate
-        timeout-minutes: 75
-        run: tests/e2e/v21-negative-toolchain-release-gate.sh --report target/v21-negative-toolchain-release.tsv
+      # The standard-only negative toolchain release gate MOVED OUT 2026-07-31
+      # (negtc-gate-shard-reduce) to the `negtc-map` / `negtc-reduce` jobs at the end of this file,
+      # together with its long note about F wall time and the 75-minute ceiling. It was 3236 s of
+      # this job on run 30597944542 and, being sequential, those 54 min sat in front of `Test via
+      # sbt` (8088 s on the same run) — so the whole 208-min suite waited on them.
 
       - name: ScalaScript 2.1 direct-ASM local recursion gate
         run: tests/e2e/v21-direct-asm-recursion-smoke.sh
@@ -654,3 +644,278 @@ jobs:
             **/target/scala-*/zinc
             **/target/streams
           key: ${{ runner.os }}-classes-v2-sbt-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}-${{ github.sha }}
+
+  # ── the standard-only negative toolchain release gate, as MAP + REDUCE ──────────────────────────
+  #
+  # It used to be one step of the `sbt` job. MEASURED on run 30597944542 (the last one that reached
+  # a verdict): 3236 s for the gate, then 8088 s for `Test via sbt`, sequentially, inside a 208-min
+  # job — so every full run paid the gate's 54 min before the test phase could start.
+  #
+  # The gate itself cannot simply be sharded: after its two corpus sweeps it runs the sentinel and
+  # runtime taxonomies against FROZEN WHOLE-CORPUS counts, and a partial report drifts every metric.
+  # The split is therefore map/reduce, and the mode flags for it landed 2026-07-30:
+  #
+  #   MAP     --sweeps-only --shard i/N   only the two sweeps over slice i; no taxonomy, no freeze,
+  #                                       no assertions, and deliberately no --strict (a shard's
+  #                                       strict verdict would be about a slice)
+  #   REDUCE  --reduce                    skips the sweeps, runs taxonomy + freeze + the negative
+  #                                       assertions + the metric report ONCE on merged reports
+  #
+  # `tests/e2e/negtc-mapreduce-gate.sh` proves the property this rests on — map+merge over N shards
+  # is byte-identical to one unsharded sweep. Without it a sharded release gate would report a
+  # verdict about something other than the corpus, and it would do so GREEN.
+  #
+  # WHAT IS NOT MEASURED, stated rather than implied: the gate emits nothing between its start and
+  # its final summary (verified on run 30635743363 — 34 min of silence), so the split between fixed
+  # setup (sandbox, slim dist, jdeps) and the sweeps is taken from the script's own note (58.1 of
+  # 75.6 min = 77 % sweeps) and NOT from these jobs. Expected: map ~20-25 min, reduce ~15, chain
+  # ~35-40 against 61 standalone. TUNE the caps below once two green runs have reported real times —
+  # do not raise them to make a slow run fit, which is how corpus-contract.yml went 13 runs with
+  # zero green.
+  negtc-map:
+    name: negtc sweeps ${{ matrix.shard }}/4
+    runs-on: ubuntu-latest
+    # Same rule as the `sbt` and `conformance` jobs: not on push. The per-push verdict is smoke.yml.
+    if: github.event_name != 'push'
+    strategy:
+      # One red shard must still let the others report. A partial verdict is what made the corpus
+      # contract unreadable for 13 runs.
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    # ~7 min of setup+assembly plus a quarter of the sweeps. 35 is a guard with headroom, NOT the
+    # operating point.
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # node 24 and scala-cli mirror the `sbt` job deliberately: this gate builds its own sanitized
+      # sandbox PATH and asserts scala-cli is unreachable *there*, so the host having them changes
+      # nothing — but a DIFFERENT host shape would, and a release gate that behaves differently
+      # depending on which job runs it is not a release gate.
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Setup sbt
+        uses: sbt/setup-sbt@v1
+
+      - name: Setup Scala CLI
+        uses: VirtusLab/scala-cli-setup@v1
+        with:
+          power: true
+          jvm: temurin:21
+
+      - name: Cache Coursier/sbt
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/coursier
+            ~/.ivy2/cache
+            ~/.sbt
+          key: ${{ runner.os }}-sbt-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-sbt-
+
+      # RESTORE-ONLY, and it never saves. These jobs ride the `sbt` job's cache under its own
+      # `-v2-sbt-` prefix; a shard saving under that key would let a partial build poison the job
+      # that owns it, which is the exact poisoning the `sbt` job's own note documents.
+      - name: Restore compiled classes (zinc)
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            **/target/scala-*/classes
+            **/target/scala-*/test-classes
+            **/target/scala-*/zinc
+            **/target/streams
+          key: ${{ runner.os }}-classes-v2-sbt-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-classes-v2-sbt-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}-
+
+      - name: Compile and assemble ssc.jar
+        run: sbt compile cli/assembly installBin
+
+      # F4 default-front flip note, moved here with the gate (v2-f4-reflip, 2026-07-22). F is the
+      # DEFAULT front since 56d7d705f (2026-07-26), so this budget is LIVE, not slack: the two
+      # full-corpus sweeps re-lower every one of the 212 corpus programs through F, the interpreted
+      # self-hosting subset compiler — ~2-4x slower than the old ssc1-front+ssc1-lower (measured:
+      # hello 0.8s->1.5s, heavy scljet 8s->32s). The frozen metrics stay put (frontend.ok/checker.ok
+      # use the hardcoded legacy ssc1-run.ssc0 runner; vm/asm parity is front-independent and the
+      # F4a fallback keeps F output == legacy) — only the WALL TIME grows. That is what the 75-min
+      # ceiling used to cover for the whole corpus; a quarter of it gets 30. Deep F-perf is the F5b
+      # typed-IR arc (BACKLOG).
+      - name: negtc sweeps, shard ${{ matrix.shard }}/4
+        timeout-minutes: 30
+        run: |
+          mkdir -p target/negtc
+          tests/e2e/v21-negative-toolchain-release-gate.sh \
+            --sweeps-only --shard ${{ matrix.shard }}/4 \
+            --native-out target/negtc/native-${{ matrix.shard }}.tsv \
+            --parity-out target/negtc/parity-${{ matrix.shard }}.tsv
+
+      # A shard that swept nothing produces a header-only TSV, which merges cleanly and reduces to a
+      # whole-corpus verdict about a fraction of the corpus. `negtc-merge-reports` cannot see it —
+      # every row it got is real. So it is caught HERE, where the shard's own row count is known.
+      # This repo has already shipped one gate that passed on an empty comparison (the mapreduce
+      # gate, on its first run, "0 rows, byte-identical").
+      - name: The shard actually swept something
+        run: |
+          for f in target/negtc/native-${{ matrix.shard }}.tsv target/negtc/parity-${{ matrix.shard }}.tsv; do
+            rows=$(($(wc -l < "$f") - 1))
+            printf '%s: %d rows\n' "$f" "$rows"
+            [ "$rows" -ge 1 ] || { echo "negtc shard ${{ matrix.shard }}/4 swept 0 cases in $f" >&2; exit 1; }
+          done
+
+      - name: Upload shard reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: negtc-shard-${{ matrix.shard }}
+          path: target/negtc/*.tsv
+          retention-days: 3
+          if-no-files-found: error
+
+  negtc-reduce:
+    name: negtc release gate (reduce)
+    runs-on: ubuntu-latest
+    needs: negtc-map
+    # `needs` alone would skip this when a shard fails, collapsing "a shard died" and "the gate says
+    # no" into the same grey skip. `!cancelled()`, NOT `always()`: with `always()` a cancelled run —
+    # which this workflow's concurrency policy produces deliberately — would come back as a genuine
+    # `failure` here, and `cancelled` already reads as red (MILESTONES.md). Manufacturing a second,
+    # louder red out of a supersede is the exact apparatus failure this file's header documents.
+    if: ${{ !cancelled() && github.event_name != 'push' }}
+    timeout-minutes: 40
+
+    steps:
+      - name: Every shard must have reported
+        if: needs.negtc-map.result != 'success'
+        run: |
+          echo "negtc-map: ${{ needs.negtc-map.result }} — the merged report would cover only part" >&2
+          echo "of the corpus, and the taxonomy freezes below compare against WHOLE-corpus counts." >&2
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Setup sbt
+        uses: sbt/setup-sbt@v1
+
+      - name: Setup Scala CLI
+        uses: VirtusLab/scala-cli-setup@v1
+        with:
+          power: true
+          jvm: temurin:21
+
+      - name: Cache Coursier/sbt
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/coursier
+            ~/.ivy2/cache
+            ~/.sbt
+          key: ${{ runner.os }}-sbt-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-sbt-
+
+      - name: Restore compiled classes (zinc)
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            **/target/scala-*/classes
+            **/target/scala-*/test-classes
+            **/target/scala-*/zinc
+            **/target/streams
+          key: ${{ runner.os }}-classes-v2-sbt-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-classes-v2-sbt-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}-
+
+      # Reduce still needs the tower: it rebuilds the sanitized sandbox and the slim standard
+      # distribution, and the negative assertions run real programs through that launcher.
+      - name: Compile and assemble ssc.jar
+        run: sbt compile cli/assembly installBin
+
+      - name: Download shard reports
+        uses: actions/download-artifact@v4
+        with:
+          pattern: negtc-shard-*
+          path: target/negtc-shards
+          merge-multiple: true
+
+      # The merge refuses a duplicated case and mismatched headers, and sorts rows so the merged
+      # bytes do not depend on which shard finished first.
+      - name: Merge the shard reports
+        run: |
+          mkdir -p target/negtc
+          scripts/negtc-merge-reports target/negtc/native.tsv target/negtc-shards/native-*.tsv
+          scripts/negtc-merge-reports target/negtc/parity.tsv target/negtc-shards/parity-*.tsv
+
+      # The check the shards cannot make individually: the slices must add back up to the corpus.
+      # A LOST ARTIFACT IS THE FAILURE THIS CATCHES, and it is invisible everywhere else — the merge
+      # is happy with three shards (every row it got is real), and reduce would then measure 3/4 of
+      # the corpus against taxonomy freezes written for all of it, i.e. report a product regression
+      # that is really a missing download. A "more than half" floor would NOT catch it: three of four
+      # shards is 75 %. So the count is exact, and derived from the corpus rather than frozen.
+      #
+      # native: one row per selected case, so the merged total is the corpus exactly (measured, run
+      # 30635743363: `total: 214` against 214 examples/*.ssc).
+      # parity: NOT pinned to the corpus — it has not been verified here that every branch of
+      # bc-parity-sweep records a row. What is pinned is that the merge lost nothing: merged rows
+      # must equal the sum of the four shard files.
+      - name: The merged reports cover the whole corpus
+        run: |
+          rows() { echo $(($(wc -l < "$1") - 1)); }
+          for kind in native parity; do
+            n=$(ls target/negtc-shards/$kind-*.tsv | wc -l | tr -d ' ')
+            printf '%s: %d shard file(s)\n' "$kind" "$n"
+            [ "$n" -eq 4 ] || { echo "expected 4 $kind shard reports, downloaded $n" >&2; exit 1; }
+            sum=0
+            for f in target/negtc-shards/$kind-*.tsv; do sum=$((sum + $(rows "$f"))); done
+            merged=$(rows "target/negtc/$kind.tsv")
+            printf '%s: %d merged rows, %d summed across shards\n' "$kind" "$merged" "$sum"
+            [ "$merged" -eq "$sum" ] || { echo "merge lost rows in $kind" >&2; exit 1; }
+          done
+          corpus=$(ls examples/*.ssc | wc -l)
+          native=$(rows target/negtc/native.tsv)
+          printf 'native: %d rows against a %d-case corpus\n' "$native" "$corpus"
+          [ "$native" -eq "$corpus" ] || {
+            echo "the merged native report does not cover the corpus — a shard is missing" >&2
+            exit 1; }
+
+      - name: ScalaScript 2.1 standard-only negative toolchain release gate (reduce)
+        timeout-minutes: 30
+        run: |
+          tests/e2e/v21-negative-toolchain-release-gate.sh --reduce \
+            --native-in target/negtc/native.tsv \
+            --parity-in target/negtc/parity.tsv \
+            --report target/v21-negative-toolchain-release.tsv
+
+      - name: Upload the merged release report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: negtc-release-report
+          path: |
+            target/negtc/*.tsv
+            target/v21-negative-toolchain-release.tsv
+          retention-days: 7
+          if-no-files-found: warn
