@@ -410,12 +410,51 @@ already the interface generated lambda bodies implement and `Emit.clos` already 
 once per SITE, so the hot counter can *be* that `Code` (`Code = Env => Step` is a SAM) — no
 `IdentityHashMap`, no leak, no change to the trampoline or to any call site.
 
-- [ ] **J-0 — baseline + apparatus, before any code.** Re-measure the four rows on today's main: the
+- [~] **J-0 — baseline + apparatus, before any code** (claim `v2-wide-jit-j0`, 2026-07-31).
+      **Apparatus landed:** `V2JitSiteBench` (`v1/runtime/backend/interpreter-bench/.../`) prices the
+      J-1 node against the **real** VM call path — it compiles a Core IR program through
+      `ssc.Compiler` and calls the resulting `ClosV` through `Runtime.run`, varying only what sits
+      between the call and the body: `vmCallDirect` (today), `vmCallCounting` (J-1 tier-0),
+      `vmCallInstalled` (J-1 steady state), `vmCallPlainField` (prices `@volatile` alone). Written
+      as its own class, NOT a case in `V2DispatchBench`: that one's `@Param(cached)` fork is about
+      `IntV` interning and does not apply here, so folding it in would double every run to vary a
+      parameter that cannot move this number.
+      **Design change it forced, before a line of J-1 was written:** the wrapper is installed only
+      when the JIT is ARMED (decided once per site at program-compile time from `SSC_V2_JIT`), so
+      with the JIT off the overhead is absent by construction rather than merely small. J-1's risk
+      question changes from "does every program now pay" to "what does an armed site cost".
+      **MEASURED (JMH, 5 wi / 10 i, 1 fork, 2026-07-31), and it settles three things:**
+
+          vmCallDirect        9.469 ± 0.054   a whole VM call (arg array, trampoline, arithFast, IntV)
+          vmCallDirectLoop    9.440 ± 0.067   negative control — no inlining cliff
+          vmCallInstalled     9.819 ± 0.071   +0.350  steady state of a compiled site
+          vmCallCounting      9.853 ± 0.059   +0.384  J-1 tier-0  (+4.1 %)
+          vmCallCountingLoop  9.860 ± 0.089   +0.420
+          vmCallPlainField    9.908 ± 0.108   +0.439  NON-volatile
+
+      ① **J-1 is affordable: +0.384 ns, ~4 % of a call, ranges disjoint** — and 50× below what the
+      whole-workload harness can see, which is why this bench had to exist at all.
+      ② **`@volatile` is FREE — keep it.** The plain-field variant is *not faster* (9.908 vs 9.853,
+      intervals overlap), so safe publication of the installed unit costs nothing measurable and the
+      unsafe-publication fork closes before anyone opens it.
+      ③ **The counter bump is free** — installed vs counting differ by 0.034 ns at ±0.06. The cost is
+      the INDIRECTION, not the increment, so a cheaper counting scheme (sampling, every-Nth) buys
+      nothing. Do not optimise it.
+      ⚠ One monomorphic site, so the JVM inlines the wrapper: this is a **floor on the cost, not a
+      ceiling**. J-1's own gate re-measures with the kernel wired.
+      **Still open in J-0:** the four-row baseline below.
+      *(original note)* Re-measure the four rows on today's main: the
       last recorded table (`pattern-match-heavy` v2 17.0 / `ssc` 0.059; `recursion-fib` 6.61 / 1.29;
       `recursion-tco` 0.275 / 0.031) is from 2026-07-10 and **predates the FastCode removal**, so it
       describes different code. Add a `jitSiteOverhead` case to `V2DispatchBench`. Record both in
       `specs/v2-wide-jit.md` §7 with the exact commands.
-- [ ] **J-1 — `JitSite` counters, NO compilation.** Wrap the `Lam` body `Code` at
+- [ ] **J-1 — `JitSite` counters, NO compilation.** ⛔ **BLOCKED 2026-07-31: `v2/src/Runtime.scala`
+      is edit-locked** by claim `f-tilde-infix` (`file:v2/src/Runtime.scala`), which is live by
+      COMMIT activity — `82c522039`/`76adda151` landed within the hour and its `next:` field says
+      "runtime primitiveWins carve-out", i.e. more edits to that file are coming. Do not widen into
+      it; take J-1 when that claim releases. Nothing else in J-1 is blocked — the design is settled
+      and its apparatus (J-0) is landed, so this is a wait, not an unknown.
+      Wrap the `Lam` body `Code` at
       `Runtime.scala:652` (top-level defs), `:682` (`Lam`), `:738` (`LetRec`) and the `While` body at
       `:912`. Field never set; behaviour identical by construction.
       **Its own slice on purpose:** this is the one change that can slow down programs that never

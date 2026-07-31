@@ -197,6 +197,14 @@ to polymorphic). At compile time:
 This also closes, from the runtime side, the gap VC-2/VC-2c can only close from the front side: a
 `var` whose type F cannot name still gets an unboxed cell if every value stored in it was an `IntV`.
 
+**The wrapper is installed only when the JIT is armed** (added at J-0, before J-1 was written). The
+decision is made once per site, at program-compile time, from the `SSC_V2_JIT` flag — so with the
+JIT off the site is the bare body `Code` and the overhead is not "small", it is *absent by
+construction*. This turns J-1's risk from "does every program on the default lane now pay for a
+feature most of them never use" into "what does an armed site cost", which is a question with a
+measurable answer and an opt-out. It costs nothing in reach: arming is a process-level decision
+taken before the first `Lam` is compiled.
+
 ### 3.6 Isolation, loading, and the flags
 
 - **ASM must not load on the VM lane unless the JIT fires.** `v21-plugin-backend-isolation` is
@@ -311,7 +319,7 @@ Each is one commit-sized piece with its own gate. The sprint entries live in `v2
 
 | id | what | gate |
 |---|---|---|
-| **J-0** | Baseline + apparatus. Re-measure the four rows on *today's* main (the last table predates the FastCode removal, so it is about different code) and extend `V2DispatchBench` with a `jitSiteOverhead` case. | numbers recorded in this spec §7 with the exact commands |
+| **J-0** | Baseline + apparatus. `V2JitSiteBench` prices the J-1 node against the real VM call path *before* the kernel is touched; re-measure the four rows on *today's* main (the last table predates the FastCode removal, so it is about different code). | numbers recorded in §9 with the exact commands |
 | **J-1** | `JitSite` wrapper + counters at the four `Lam`-body sites and the `While` body. **No compilation** — the field is never set. | JMH: tier-0 overhead ≤ noise vs `HEAD~1`; corpus byte-identical |
 | **J-2** | `JitBackend` SPI + lazy by-name load + flags + `Emit.globalsRef` bridge. | ASM not loaded when `SSC_V2_JIT=off` (assert on a `-verbose:class` grep); isolation smokes green |
 | **J-3** | `JvmByteGen.emitUnit(body, arity, captured): LamFn` — one `Lam` body → one hidden class, boxed `Value` in/out, **no residuals** (unsupported ⇒ site not compiled). | parity gate (§4.1) on the corpus; ≥ 1 unit compiled on `recursion-fib` |
@@ -390,3 +398,61 @@ re-measure in J-0): `pattern-match-heavy` v2 17.0 ms vs `ssc` 0.059; `recursion-
 | Generated classes accumulate in a server | hidden classes + `SSC_V2_JIT_MAX_UNITS` |
 | Two globals maps diverge (`Emit.globalsRef` vs the VM's `TrieMap`) | one map, wired in J-2; JIT refuses to arm inside a `--bytecode` run |
 | A gate that is green either way | §4: counters, not output, plus the revert-the-fix check |
+
+---
+
+## 9. Results
+
+### J-0 — what the tier-0 node costs, priced before the kernel was touched
+
+Apparatus: `V2JitSiteBench`
+(`v1/runtime/backend/interpreter-bench/src/main/scala/scalascript/bench/V2JitSiteBench.scala`). It
+compiles `def f(n) = n + 1` as real Core IR through `ssc.Compiler` and calls the resulting `ClosV`
+through `ssc.Runtime.run`, varying only what sits between the call and the body. Command:
+
+```bash
+sbt "interpreterBench/Jmh/run -wi 5 -i 10 -f 1 .*V2JitSiteBench.*"
+```
+
+Measured 2026-07-31, JMH avgt, 5 warmup / 10 measurement iterations, 1 fork, host load ≈ 6:
+
+| benchmark | ns/op | Δ vs `vmCallDirect` |
+|---|---:|---|
+| `vmCallDirect` | 9.469 ± 0.054 | — (a whole VM call: arg array, trampoline, `arithFast`, `IntV`) |
+| `vmCallDirectLoop` | 9.440 ± 0.067 | −0.03 — negative control, no inlining cliff |
+| `vmCallInstalled` | 9.819 ± 0.071 | **+0.350** — steady state of a compiled site |
+| `vmCallCounting` | 9.853 ± 0.059 | **+0.384 (+4.1 %)** — J-1's tier-0 state |
+| `vmCallCountingLoop` | 9.860 ± 0.089 | +0.420 — same under a loop |
+| `vmCallPlainField` | 9.908 ± 0.108 | +0.439 — the non-volatile variant |
+
+**Three things this settles.**
+
+1. **The armed site costs +0.384 ns, about 4 % of a VM call.** The ranges are disjoint
+   ([9.415, 9.523] vs [9.794, 9.912]), so this is a resolved effect, not noise — and it is 50×
+   below what the whole-workload harness on this host can see, which is exactly why the bench had
+   to exist. 4 % is an acceptable price for a tier-up mechanism that is opt-in (§3.3: the wrapper is
+   installed only when the JIT is armed) and whose payoff is measured in multiples.
+2. **`@volatile` is free — keep it.** The plain-field variant came back at 9.908 ± 0.108 against the
+   volatile 9.853 ± 0.059: *not faster*, and the intervals overlap. A volatile read on this
+   architecture is a plain load with ordering, and it disappears into a 9.5 ns call. So safe
+   publication of the installed unit costs nothing measurable, and a fork in the design closes:
+   no unsafe-publication trick, no `Unsafe`, no double-checked idiom.
+3. **The counter bump is free.** `vmCallInstalled` (9.819) and `vmCallCounting` (9.853) differ by
+   0.034 ns with ±0.06–0.07 error — indistinguishable. The cost is the *indirection*, not the
+   increment, which means a cheaper counting scheme (sampling, a threshold check every N) would buy
+   nothing. Do not optimise it.
+
+**What it does not say.** One site, monomorphic, so the JVM inlines the wrapper's `apply`; a real
+program has many sites and a megamorphic `Code.apply`, where an extra indirection costs more. These
+numbers are a **floor on the cost, not a ceiling** — J-1's own gate re-measures with the kernel
+wired, on the four-row corpus.
+
+### J-0 — four-row VM-lane baseline
+
+Outstanding. The historical table in §6 predates the FastCode removal, so it describes different
+code; the number to re-take is:
+
+```bash
+./install.sh --dev    # the launcher must be built from the tree being measured
+./bench.sh --warmup-time 500 --reps 20 arith-loop recursion-fib recursion-tco pattern-match-heavy
+```
