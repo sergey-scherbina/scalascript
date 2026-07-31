@@ -7,6 +7,49 @@ grepping for status.
 
 Newest first.
 
+## content-introspection-is-a-server-example-not-a-hang — correcting my own report from earlier today
+<!-- status: wontfix
+     lane: int
+     area: runtime
+     fixed-in: -
+     gate: - -->
+
+`wontfix` because there is nothing to fix — the entry exists to STOP the next person from
+chasing it, which is the only reason to record a non-defect at all.
+
+**Correcting [[v2-eleven-remaining-red-rows-census]] and the release note that repeated it.** I wrote
+that `content-introspection` HANGS the interpreter, that it "produced its output and then had to be
+killed at 90s", and that "the golden lane for that case is not healthy either". That was wrong, and
+it was wrong because I inferred a defect from an exit code instead of reading the last line of the
+program.
+
+The example ends with `serve(page, 8099)`. It is a WEB SERVER: it prints its output and then serves
+forever, by design. Measured — while it was "hanging", `curl http://127.0.0.1:8099/` returned
+**HTTP 200**. `examples/rest-api.ssc` and `examples/spa-demo.ssc` do the same thing and the contract
+skips them as `int-timeout`.
+
+⚠️ The `rc=124` I quoted came from `timeout 90`, and a `timeout` on a server says the server is
+running, not that the runtime is stuck. There is no interpreter defect here and nobody should spend
+time looking for one.
+
+**What IS real** is the v2 row, and it fails with an explicit, deliberate diagnostic rather than a
+mystery:
+
+```
+plans-data=true
+default-renderer=true
+ssc: contentCurrentSection() is unavailable on native 2.1 without source-aware call identity
+```
+
+That is [[content-current-section-native-unavailable]], already filed.
+
+**Connection worth following, stated carefully.** Two of the remaining v2 red rows fail because the
+native lane discards SOURCE information: this one wants call identity (which source section a call
+sits in), and [[v2-cluster-capability-needs-source-visible-to-plugins]] wants the source TEXT to hash.
+They are the same family but NOT the same requirement — one needs positions threaded through
+lowering, the other needs the bytes. The approved plumbing for `cluster-capability` may make the
+second easy and does not automatically deliver the first.
+
 ## v2-object-var-member-resolves-to-a-top-level-global — a method reads a global instead of its own field
 <!-- status: open
      lane: native
