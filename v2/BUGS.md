@@ -7,6 +7,52 @@ grepping for status.
 
 Newest first.
 
+## v2-native-mcp-plugin-has-no-server-surface — the provider implements the CLIENT half only, and six v2 FAIL rows are that one fact
+<!-- status: open
+     lane: native
+     area: runtime
+     gate: tests/conformance/mcp-server-tool.ssc -->
+
+**Found 2026-07-31** by `skip-reprobe-after-fixes`. SIX of the eighteen v2 non-PASS rows — a third of the
+v2 column — are one cause, and it is not the one the `v2-optin-provider-cases` framing suggests.
+
+```
+agent-mcp-server  mcp-agent  mcp-filesystem-server
+mcp-server-resource  mcp-server-tool  mcp-server-tools
+```
+
+all fail with the identical `ssc: unbound global: mcpServer`.
+
+**It is NOT "the opt-in provider is not wired in".** The provider exists, ships a native jar
+(`scalascript-v2-native-mcp-plugin_3-…jar` under `bin/lib/providers/mcp/jars/`), and is loaded — running
+the case explicitly through `bin/ssc-provider mcp run` gives the SAME error, exit 1. So the provider is
+present and the global still is not.
+
+**The plugin registers the CLIENT surface and nothing of the SERVER surface.**
+`v2/runtime/providers/mcp-plugin/.../McpNativePlugin.scala` registers:
+
+| registered | missing |
+|---|---|
+| `mcpConnect` (`:196`), `agentTool`, `toolOk`, … | **`mcpServer`, `serveMcp`** |
+
+Every case above imports `[mcpServer, serveMcp, …](std/mcp/server.ssc)`. So this is a FEATURE that does
+not exist on the native lane, not a packaging or registration slip — which is why no amount of
+provider-wiring fixes it.
+
+**What this means for the numbers.** Those six rows should not be read as six separate v2 defects; they
+are one unimplemented surface. int implements it (the v1 mcp-plugin wraps a JVM SDK), which is why the
+same cases pass there.
+
+**Decide before implementing:** `mcpServer`/`serveMcp` need an MCP server runtime on the native lane —
+that is a feature-sized piece of work, and its cost should be weighed against simply declaring these
+cases `backends: [int]` the way the PDF cases were on 2026-07-29 ([[v2-optin-provider-cases]]). I did NOT
+declare them: gating a case away is right when the lane is not meant to run it, and premature while
+nobody has decided whether v2 should serve MCP at all.
+
+⚠️ Correcting a claim I made an hour earlier in this session: I first reported `ssc-provider mcp run`
+exiting 0 on the error. That was `head` swallowing the status in a pipeline — the real exit is **1**. The
+provider path fails loudly; there is no fail-open here.
+
 ## bytecode-opanf-purity-registry-marks-every-def-pure — effect Ops leaked into `if` conditions on the DEFAULT execution lane
 <!-- status: fixed
      lane: native
