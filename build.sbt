@@ -1345,7 +1345,10 @@ lazy val backendInterpreter = project
 // Save JSON: sbt "interpreterBench/Jmh/run -rff bench/jmh-results.json -rf json"
 lazy val interpreterBench = project
   .in(file("v1/runtime/backend/interpreter-bench"))
-  .dependsOn(backendInterpreter, backendJvm, backendJs)
+  // v2Core carries the v2 VM (ssc.Prims, ssc.Value); V2DispatchBench measures its primitive
+  // dispatch seam directly, because the whole-workload harness cannot resolve anything under ~2×
+  // on a contended host.
+  .dependsOn(backendInterpreter, backendJvm, backendJs, v2Core)
   .enablePlugins(JmhPlugin)
   .settings(
     name := "scalascript-interpreter-bench",
