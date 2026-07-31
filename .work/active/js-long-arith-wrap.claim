@@ -1,0 +1,11 @@
+slug: js-long-arith-wrap
+branch: feature/js-long-arith-wrap
+agent: claude-code
+started: 2026-07-31T16:53:41Z
+heartbeat: 2026-07-31T16:53:41Z
+status: claimed-before-planning
+items: js-long-arith-no-64bit-wrap
+paths: file:v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/core-dispatch.mjs file:v1/runtime/backend/js/BUGS.md file:tests/conformance/js-long-overflow-wrap.ssc
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement

@@ -1,5 +1,6 @@
-# generation: 700
+# generation: 701
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
 negtc-gate-shard-reduce	claude-code	2026-07-31T16:24:27Z	negtc-gate-shard-reduce	file:.github/workflows/ci.yml file:scripts/bc-parity-sweep file:scripts/smoke-ci.ssc file:tests/e2e/negtc-manifest-contract-gate.sh file:scripts/ci-status file:tests/e2e/ci-status-guard.sh
 v2-char-value	claude-code	2026-07-31T16:39:05Z	v2-char-is-an-int	file:v2/src/Runtime.scala file:specs/v2.2-p6.5-fsub.ssc file:v2/lib/ssc1-front.ssc0 file:v2/lib/ssc1-lower.ssc0 file:tests/conformance/char-as-value.ssc file:v2/BUGS.md file:v2/SPRINT.md
+js-long-arith-wrap	claude-code	2026-07-31T16:53:41Z	js-long-arith-no-64bit-wrap	file:v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/core-dispatch.mjs file:v1/runtime/backend/js/BUGS.md file:tests/conformance/js-long-overflow-wrap.ssc
