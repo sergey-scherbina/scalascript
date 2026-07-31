@@ -7,6 +7,34 @@ grepping for status.
 
 Newest first.
 
+## v2-context-bound-given-injected-over-an-explicit-instance — `combineAll(xs, intSum)` was 3 args wide
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: unrecorded
+     gate: tests/e2e/v2-std-index-arity.sh -->
+
+**FIXED 2026-07-31.** `injectGivens` (`ssc1-lower.ssc0`) prepended the summoned instance for every
+context bound UNCONDITIONALLY, including when the caller had already supplied it. The `using` path
+right below it already carried exactly this guard, with a comment explaining the double-injection
+risk; the context-bound path never got it.
+
+`def combineAll[A: Monoid](xs: List[A])` assembles to arity 2. `tests/conformance/std-index.ssc`
+calls `combineAll(xs, intSum)` — 2 args — and the front made it 3: `arity: 2 expected, 3 given`,
+with no output at all. The whole case died on its first line.
+
+⚠️ **Suppressing the injection was only half, and the half-fix was silently worse.** The assembled
+layout is [ctxParams, regular] — instance FIRST — while the source convention is instance LAST. With
+injection merely skipped, the call bound `monoid = xs` and `xs = intSum`, and the honest arity error
+turned into `Index -1 out of bounds for length 2` thrown from inside `foldLeft`. An explicitly
+supplied instance is therefore ROTATED from the tail to the head. I only saw this because I rebuilt
+and ran after the first cut instead of trusting that the arity error disappearing meant success.
+
+The gate asserts BOTH `combineAll(xs, intSum)` and `combineAll(xs)`: a guard that just stopped
+injecting satisfies the first and breaks every idiomatic call in the std library.
+
+`tests/conformance/std-index.ssc` now matches int on all 10 lines.
+
 ## v2-string-plus-aliased-onto-user-concat-extension — `"a" + x` was dispatched to a user `++`
 <!-- status: fixed
      lane: native
@@ -50,9 +78,13 @@ instrumented the REAL case instead of a fixture I invented — see
 silently break every pretty-printer. Verified by reverting: without the fix the gate fails on rows 1-2
 and `concatExt=ab` still passes — so that row is doing real work.
 
-**Remaining, NOT fixed here:** a user-written `"x" ++ y` (string literal on the left, user `++` in
-scope) still reaches the extension on the fallback front. F handles it via `isStrCode`. Same family,
-separate fix, and no corpus case currently exercises it.
+⚠️ **The "remaining" item this entry originally listed does not exist. Correcting it 2026-07-31.**
+It said a user-written `"x" ++ y` still reaches the extension on the fallback front. I wrote that
+from READING the code and never ran it. Measured afterwards, both operands being strings makes
+`__arithExt__`'s `primitiveWins` true, so v2 concatenates: `"x" ++ "y"` -> `xy`, which is also what
+Scala gives. The lanes DO diverge here, but the other way round — INT returns `(x, y)` — and that
+divergence is not this bug and not in v2. Filed separately as
+[[int-string-concat-operator-builds-a-pair]].
 
 ## v2-eleven-remaining-red-rows-census — what is actually left, by cause and by size
 <!-- status: open

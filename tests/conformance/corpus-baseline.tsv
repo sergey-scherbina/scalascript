@@ -84,7 +84,6 @@ seed-signal	*	SKIP
 spa-demo	*	SKIP
 sql-h2-quickstart	js	FAIL
 sse-typed-client	*	SKIP
-std-index	v2	FAIL
 streams	*	SKIP
 sync-todo	js	FAIL
 tls-smoke	js	FAIL

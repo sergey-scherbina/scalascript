@@ -16,6 +16,39 @@ scripts/bugs-report --no-gate              # open entries with no regression gat
 
 Newest first.
 
+## int-string-concat-operator-builds-a-pair — `"x" ++ "y"` is `(x, y)` on int and `xy` on v2
+<!-- status: open
+     lane: int
+     area: runtime
+     fixed-in: -
+     gate: - -->
+
+**Found 2026-07-31** while checking a claim I had made about v2 (and which was wrong — see
+[[v2-string-plus-aliased-onto-user-concat-extension]]).
+
+```
+val s: String = "x"
+println(s ++ "y")        int: (x, y)      v2: xy
+println("lit" ++ "eral") int: (lit, eral) v2: literal
+```
+
+**v2 is right, the golden lane is wrong.** Scala's `"x" ++ "y"` is `"xy"` — String is a `Seq[Char]`
+and `++` concatenates. int builds a Tuple2 instead.
+
+**Controlled.** The first run had `std/dsl/pretty.ssc` imported, which defines
+`extension (l: Doc) def ++`, so the obvious reading was "the Doc extension is capturing a String
+receiver". Re-run with NO extension in scope at all: int still returns `(x, y)`. So this is int's
+own `++`, not extension dispatch, and the interesting hypothesis was the wrong one.
+
+**Not fixed, deliberately.** The fix moves the GOLDEN lane, so every live golden that touches `++`
+on strings moves with it, and the twin lanes must land in the same commit
+([[feedback_measurement_must_compare_not_prejudge]]). No corpus case exercises it today — which is
+precisely why the two lanes have disagreed silently.
+
+⚠️ Whoever takes this: `++` on other types is load-bearing (`std/dsl/pretty.ssc` builds its whole
+`DocBeside` tree on it, and v2's `__arith__` has `case "++" => StrV(x.toString + y.toString)` for
+Int pairs). Narrow the change to String/String and check `List ++ List` in the same pass.
+
 ## typer-defines-sys-but-no-runtime-provides-it — `sys.env` type-checks, then dies at runtime on every lane
 <!-- status: open
      lane: multi

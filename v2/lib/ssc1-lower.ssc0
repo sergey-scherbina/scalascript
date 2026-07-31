@@ -1018,7 +1018,48 @@ def injectGivens = (fn, args) =>
     case Pair(ftag, fdata) =>
       if #seq(ftag, "var") then
         let ctxTCs = match lookupSig(#cell.get(kc5SigCell), fdata) { case None => Nil case Some(t) => t } in
-        let withCtx = buildGivenArgs(#cell.get(kc5GivenCell), ctxTCs, args) in
+        -- The context-bound path needs the SAME guard the `using` path below already has, and for
+        -- the same reason. `def combineAll[A: Monoid](xs: List[A])` assembles to arity 2 (xs + the
+        -- instance); a caller may pass the instance EXPLICITLY — `combineAll(xs, intSum)`, which is
+        -- what tests/conformance/std-index.ssc does — and prepending it again made the call
+        -- 3 args wide: `arity: 2 expected, 3 given`, before a single line of output.
+        -- Inject only when the call is SHORT of the def's full arity. Unknown arity keeps the old
+        -- unconditional behaviour, so nothing that works today changes.
+        --
+        -- ⚠️ Suppressing the injection is only HALF of it, and stopping there swaps one wrong
+        -- answer for another. The assembled layout is [ctxParams, regular], instance FIRST, while
+        -- the source convention is instance LAST — `combineAll(xs, intSum)`. Skipping injection
+        -- alone therefore bound monoid=xs and xs=intSum: the arity error became
+        -- `Index -1 out of bounds for length 2` from inside foldLeft. Measured, not reasoned: that
+        -- is what the first cut of this fix actually printed. So an explicitly-supplied instance is
+        -- ROTATED from the tail to the head instead.
+        -- BUGS `v2-context-bound-given-injected-over-an-explicit-instance`.
+        let withCtx = match defArity(fdata) {
+          case Pair(arityKnown, fullArity) =>
+            if arityKnown then
+              (if #i.lt(lenL(args), fullArity)
+                 then buildGivenArgs(#cell.get(kc5GivenCell), ctxTCs, args)
+                 else (match ctxTCs {
+                        case Nil => args
+                        case Cons(h0, t0) =>
+                          -- `takeL`/`dropL` live BELOW this point in the file and nothing else
+                          -- forward-references, so the split is local rather than assumed to work.
+                          let keep = #i.sub(lenL(args), lenL(ctxTCs)) in
+                          let rec splitAtK = (k, xs) =>
+                            if #i.lt(k, 1) then Pair(Nil, xs)
+                            else match xs {
+                              case Nil => Pair(Nil, Nil)
+                              case Cons(hh, tt) =>
+                                match splitAtK(#i.sub(k, 1), tt) {
+                                  case Pair(pre, post) => Pair(Cons(hh, pre), post)
+                                }
+                            } in
+                          match splitAtK(keep, args) {
+                            case Pair(regularArgs, ctxArgs) => appendL(ctxArgs, regularArgs)
+                          }
+                      }))
+            else buildGivenArgs(#cell.get(kc5GivenCell), ctxTCs, args)
+        } in
         match lookupUsingSig(fdata) {
           case None => withCtx
           case Some(info) =>
