@@ -1,6 +1,6 @@
-# generation: 598
+# generation: 599
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
 sys-env-three-lanes	claude-code	2026-07-31T07:37:45Z	typer-defines-sys-but-no-runtime-provides-it	file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/BuiltinsRuntime.scala file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:v2/src/Runtime.scala file:tests/conformance/sys-env.ssc file:tests/conformance/expected/sys-env.txt file:BUGS.md
-f-operator-ext-param-unbound	claude-code	2026-07-31T10:02:48Z	f-operator-ext-param-unbound	specs/v2.2-p6.5-fsub.ssc v2/BUGS.md tests/e2e/f-operator-ext-param.sh tests/conformance/corpus-baseline.tsv tests/conformance/contract-roster.tsv
+f-operator-ext-param-unbound	claude-code	2026-07-31T10:02:48Z	f-operator-ext-param-unbound	specs/v2.2-p6.5-fsub.ssc v2/BUGS.md tests/conformance/f-tilde-extension-infix.ssc tests/e2e/f-operator-ext-param.sh tests/conformance/corpus-baseline.tsv tests/conformance/contract-roster.tsv
 v2-perf-prim-condy	claude-code	2026-07-31T10:05:39Z	v2-perf-prim-dispatch	file:v2/jvm-runtime/src/main/scala/ssc/Emit.scala file:v2/backend-jvm-bytecode/JvmByteGen.scala file:bench/history.tsv
