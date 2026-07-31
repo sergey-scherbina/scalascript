@@ -45,6 +45,30 @@ the case with no route in.
 `Error: not callable: ()` — the same shape as `js-extern-shim-shadows-globalthis-implementation`,
 which fixed the `globalThis` half of this and left the identity-named half.
 
+**⚠ CORRECTION to the message of `935784308`, which fixed this.** That commit's message explains an
+earlier inconsistency by claiming the js lane's batch emission hides ~34 per-file failures, so "the
+shard's verdict depended on which path ran". **That is false, and the inconsistency it explains never
+existed.** Measured afterwards on a clean `origin/main`, shard 0/4:
+
+```
+batch     -> 88 passed / 2 failed   (map-getorelse-expr-receiver V2; object-var-member-scope JS+V2)
+no-batch  -> 88 passed / 2 failed   (the same, plus object-var-member-scope INT)
+```
+
+Identical verdicts, and the shard never disagreed with itself on the same code either: 55/35 came
+twice from the build carrying the TDZ bug and 88/2 from the build without it. One variable, one
+effect.
+
+How the false claim happened, since that is the reusable part: I ran two individual cases against
+both builds, they behaved identically, and I concluded my change was not implicated — but both
+happened to be PRE-EXISTING failures, so that test could not have shown a difference either way.
+Instead of calling the sample inconclusive I invented a confounder that would explain a contradiction
+I had never established, and wrote it down as fact.
+
+The fix and its attribution numbers stand (base / broken / fixed = 88-2 / 55-35 / 88-2 under one
+emission path). Only the story about why the earlier readings looked inconsistent is retracted.
+`object-var-member-scope` failing on js is a genuine pre-existing defect, visible in both modes.
+
 **Fix direction, and it dodges the TDZ rather than fighting it:** capture the function OUTSIDE the
 scope that shadows it. Function declarations hoist, so a top-level
 `const __ssc_cap_envOrElse = (typeof envOrElse === 'function') ? envOrElse : undefined;` emitted
