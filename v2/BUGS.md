@@ -299,7 +299,7 @@ second easy and does not automatically deliver the first.
 <!-- status: fixed
      lane: native
      area: runtime
-     fixed-in: PENDING-SHA
+     fixed-in: ad7422607
      gate: tests/conformance/object-var-member-scope.ssc -->
 
 **FIXED 2026-07-31** by `v2-object-scope-plumbing`, on both fronts. All ten rows now match the jvm
