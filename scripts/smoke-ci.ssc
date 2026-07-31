@@ -124,6 +124,12 @@ val suite = List(
   Check(".", "policy-single-source", "tests/e2e/policy-single-source.sh", List("--self-test"), 120000),
   Check(".", "bugs-index", "tests/e2e/bugs-index-gate.sh", List("--self-test"), 120000),
   Check(".", "task-views", "tests/e2e/task-views-gate.sh", List("--self-test"), 120000),
+  // One NUL byte makes `grep` treat a whole file as binary, and grep then prints nothing — the
+  // same output it prints for "no matches". Seven tracked sources carried one (a Char sentinel
+  // typed as a raw byte); the largest was the 227 KB v2 runtime, silently un-greppable for
+  // anyone who did not pass `-a`. Seconds to run, and it keeps the tools honest about the
+  // difference between "no" and "cannot answer".
+  Check(".", "no-nul-in-sources", "tests/e2e/no-nul-in-sources.sh", List("--self-test"), 60000),
   Check(".", "frontmatter", "scala-cli",
         List("--server=false", "./v1/tools/scripts/validate-frontmatter.scala"), 300000),
 

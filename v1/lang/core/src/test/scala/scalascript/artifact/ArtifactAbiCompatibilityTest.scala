@@ -862,7 +862,7 @@ class ArtifactAbiCompatibilityTest extends AnyFunSuite:
         // char (skipping whitespace) must be `{` or `,`.
         var p = keyStart - 1
         while p >= i && json(p).isWhitespace do p -= 1
-        val precCh = if p >= 0 then json(p) else ' '
+        val precCh = if p >= 0 then json(p) else '\u0000'
         if precCh != '{' && precCh != ',' then
           // Not a key (e.g. embedded in a string value).  Copy through.
           sb.append(json, i, keyStart + key.length)

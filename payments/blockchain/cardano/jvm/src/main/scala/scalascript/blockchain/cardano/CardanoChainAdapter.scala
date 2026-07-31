@@ -199,7 +199,7 @@ class CardanoChainAdapter(
   private def extractAddrPrefix(msg: Array[Byte]): (Array[Byte], Array[Byte]) =
     val s = new String(msg, "UTF-8")
     if s.startsWith("addr:") then
-      val nl = s.indexOf(' ')
+      val nl = s.indexOf('\u0000')
       if nl > 5 then
         val bech32 = s.substring(5, nl)
         val rest   = msg.drop(nl + 1)
