@@ -198,11 +198,185 @@ private[markdown] object MarkdownInlines:
           nodes = nodes :+ delimiterRun(content, i, c)
           i += runLength(content, i, c)
 
+        case _ if gfm && isExtendedAutolinkStart(content, i, pending) =>
+          // GFM 6.9 extended autolinks. An `@` looks BACKWARD: the local part is
+          // already in `pending` — and possibly in nodes BEFORE it, because `_`
+          // is a legal local-part character that the emphasis scanner has
+          // already split off as a delimiter run. `a.b-c_d@a.b` is exactly that
+          // case, and without walking back through those nodes it produced a
+          // link over `d@a.b` alone: worse than not matching at all.
+          val (dropNodes, keepText, localPart) =
+            if content.charAt(i) == '@' then emailLocalBackscan(nodes, pending)
+            else (0, "", "")
+          extendedAutolink(content, i, localPart) match
+            case Some((backtrack, lexeme, _)) =>
+              if backtrack > 0 then
+                if dropNodes > 0 then nodes = nodes.dropRight(dropNodes)
+                pending = if keepText.isEmpty then Vector.empty else Vector(keepText)
+              flushText()
+              // the role says WHICH autolink form this is; the destination is
+              // derived from the lexeme in the projection, so the token carries
+              // no data the source does not already hold
+              nodes = nodes :+ WFixed(Vector(
+                Tok(MdKind.Autolink, lexeme, Some("extended"), TokenChannel.Syntax)
+              ))
+              i = i - backtrack + lexeme.length
+            case None =>
+              pending = pending :+ content.substring(i, i + 1)
+              i += 1
+
         case _ =>
           pending = pending :+ content.substring(i, i + 1)
           i += 1
     flushText()
     nodes
+
+  // ── GFM extended autolinks (6.9) ────────────────────────────────────────
+
+  /** Cheap gate so the scan only pays for the four characters that can begin
+    * one: `w`(ww.), `h`(ttp), `f`(tp), and `@` for the email form. */
+  private def isExtendedAutolinkStart(content: String, i: Int, pending: Vector[String]): Boolean =
+    content.charAt(i) match
+      case 'w' | 'h' | 'f' => validAutolinkPredecessor(content, i)
+      case '@'             => pending.nonEmpty
+      case _               => false
+
+  /** "valid preceding character": start of line, whitespace, or one of `*_~(`. */
+  private def validAutolinkPredecessor(content: String, i: Int): Boolean =
+    if i == 0 then true
+    else
+      val p = content.charAt(i - 1)
+      MdChars.isUnicodeWhitespace(p) || p == '*' || p == '_' || p == '~' || p == '('
+
+  /** Returns (chars to take back from pending, the full autolink lexeme, href).
+    * Backtrack is non-zero only for the email form, whose local part precedes
+    * the `@` that triggered the match. */
+  private def extendedAutolink(
+      content: String, i: Int, localPart: String,
+  ): Option[(Int, String, String)] =
+    if content.charAt(i) == '@' then emailAutolink(content, i, localPart)
+    else
+      val schemes = Vector("http://", "https://", "ftp://")
+      val scheme = schemes.find(s => content.regionMatches(true, i, s, 0, s.length))
+      if scheme.isDefined then
+        domainAndPath(content, i + scheme.get.length).map { end =>
+          val lexeme = trimAutolinkTail(content.substring(i, end))
+          (0, lexeme, lexeme)
+        }.filter(_._2.length > scheme.get.length)
+      else if content.regionMatches(true, i, "www.", 0, 4) then
+        domainAndPath(content, i).map { end =>
+          val lexeme = trimAutolinkTail(content.substring(i, end))
+          (0, lexeme, "http://" + lexeme)
+        }.filter(_._2.length > 4)
+      else None
+
+  /** `local@domain`, with the local part already recovered by the backscan. */
+  private def emailAutolink(
+      content: String, at: Int, local: String,
+  ): Option[(Int, String, String)] =
+    if local.isEmpty then None
+    else
+      var j = at + 1
+      while j < content.length && isEmailDomainChar(content.charAt(j)) do j += 1
+      // A trailing `.` is sentence punctuation after the address. A trailing `-`
+      // or `_` is NOT trimmed: GFM says the address is invalid, so `a@b-` links
+      // nothing rather than linking `a@b`.
+      while j > at + 1 && content.charAt(j - 1) == '.' do j -= 1
+      val domain = content.substring(at + 1, j)
+      if !validEmailDomain(domain) then None
+      else
+        val lexeme = local + "@" + domain
+        Some((local.length, lexeme, "mailto:" + lexeme))
+
+  /** Walks back over `pending` and, once it is exhausted, over already-emitted
+    * text and `_` delimiter nodes, collecting the longest run of legal
+    * local-part characters. Returns (nodes to drop, text to keep from the last
+    * partially consumed node, the local part). */
+  private def emailLocalBackscan(
+      nodes: Vector[WNode], pending: Vector[String],
+  ): (Int, String, String) =
+    def localTextOf(node: WNode): Option[String] = node match
+      case WFixed(Vector(Tok(MdKind.Text, lexeme, _, _))) => Some(lexeme)
+      case d: WDelim if d.ch == '_'                       => Some(d.lexeme)
+      case _                                              => None
+    var chunk = pending.mkString
+    var cut = chunk.length
+    while cut > 0 && isEmailLocalChar(chunk.charAt(cut - 1)) do cut -= 1
+    var local = chunk.substring(cut)
+    var keep = chunk.substring(0, cut)
+    var drop = 0
+    var exhausted = cut == 0
+    while exhausted && drop < nodes.length && localTextOf(nodes(nodes.length - 1 - drop)).isDefined do
+      chunk = localTextOf(nodes(nodes.length - 1 - drop)).get
+      cut = chunk.length
+      while cut > 0 && isEmailLocalChar(chunk.charAt(cut - 1)) do cut -= 1
+      local = chunk.substring(cut) + local
+      keep = chunk.substring(0, cut)
+      drop += 1
+      exhausted = cut == 0
+    if keep.nonEmpty && !validEmailPredecessor(keep.charAt(keep.length - 1)) then (0, "", "")
+    else (drop, keep, local)
+
+  private def isEmailLocalChar(c: Char): Boolean =
+    (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+      c == '.' || c == '-' || c == '_' || c == '+'
+
+  private def validEmailPredecessor(c: Char): Boolean =
+    MdChars.isUnicodeWhitespace(c) || c == '*' || c == '_' || c == '~' || c == '('
+
+  private def isEmailDomainChar(c: Char): Boolean =
+    (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+      c == '.' || c == '-' || c == '_'
+
+  private def validEmailDomain(domain: String): Boolean =
+    val segments = domain.split("\\.", -1).toVector
+    val last = if domain.isEmpty then ' ' else domain.charAt(domain.length - 1)
+    // a trailing `-` or `_` INVALIDATES the address rather than being trimmed —
+    // `a@b-` must link nothing, not link `a@b`
+    segments.length >= 2 && segments.forall(_.nonEmpty) &&
+      segments.takeRight(2).forall(!_.contains("_")) &&
+      last != '-' && last != '_'
+
+  /** Scans the domain and everything after it up to whitespace or `<`, which
+    * cuts an extended autolink. Returns the exclusive end, or None when the
+    * domain itself is not valid. */
+  private def domainAndPath(content: String, from: Int): Option[Int] =
+    var j = from
+    while j < content.length && isEmailDomainChar(content.charAt(j)) do j += 1
+    val domain = content.substring(from, j)
+    val segments = domain.split("\\.", -1).toVector
+    if segments.length < 2 || segments.take(segments.length - 1).exists(_.isEmpty) then None
+    else
+      // the rest of the URL runs to whitespace; `<` always ends it
+      while j < content.length && !MdChars.isUnicodeWhitespace(content.charAt(j)) && content.charAt(j) != '<' do j += 1
+      Some(j)
+
+  /** GFM's three trailing rules, applied until a pass changes nothing: strip
+    * `?!.,:*_~`; strip an unbalanced `)`; strip a whole trailing `&entity;`. */
+  private def trimAutolinkTail(raw: String): String =
+    var s = raw
+    var changed = true
+    while changed && s.nonEmpty do
+      changed = false
+      val last = s.charAt(s.length - 1)
+      if "?!.,:*_~".indexOf(last) >= 0 then
+        s = s.substring(0, s.length - 1); changed = true
+      else if last == ')' then
+        // closing parens are kept while they are matched by an opening one
+        var opens = 0
+        var closes = 0
+        var k = 0
+        while k < s.length do
+          if s.charAt(k) == '(' then opens += 1 else if s.charAt(k) == ')' then closes += 1
+          k += 1
+        if closes > opens then { s = s.substring(0, s.length - 1); changed = true }
+      else if last == ';' then
+        var k = s.length - 2
+        while k >= 0 && Character.isLetterOrDigit(s.charAt(k)) do k -= 1
+        if k >= 0 && s.charAt(k) == '&' && k < s.length - 2 then
+          s = s.substring(0, k); changed = true
+    s
+
 
   private def delimiterRun(content: String, start: Int, ch: Char): WDelim =
     val len = runLength(content, start, ch)
@@ -252,6 +426,14 @@ private[markdown] object MarkdownInlines:
       case None => None
       case Some(labelEnd) =>
         val labelText = content.substring(textStart, labelEnd)
+        // "Links may not contain other links, at any level of nesting"
+        // (CommonMark 6.3). The OUTER bracket loses: declining here leaves `[`
+        // as literal text, the scan continues, and the inner link is built on
+        // its own — which is exactly what the spec's expected output shows for
+        // `[foo [bar](/uri)](/uri)`. Images are exempt: an image whose alt text
+        // contains a link is still an image, and the inner link renders as the
+        // plain text of the alt.
+        if !image && containsLink(parse(labelText, refs, profile)) then return None
         val cursor = labelEnd + 1 // just past ']'
         // inline destination: [text](dest "title")
         if cursor < content.length && content.charAt(cursor) == '(' then
@@ -291,6 +473,15 @@ private[markdown] object MarkdownInlines:
 
   private def resolveRef(label: String, refs: Map[String, LinkRef]): Option[LinkRef] =
     refs.get(normalizeLabel(label))
+
+  /** True when these pieces already open a link branch — an autolink counts, so
+    * `[foo<https://x>](uri)` declines the same way a bracketed link does. */
+  private def containsLink(pieces: Vector[InlinePiece]): Boolean =
+    pieces.exists {
+      case Open(branch, _, _, _)  => branch == MdBranch.Link
+      case Tok(kind, _, _, _)     => kind == MdKind.Autolink
+      case _                      => false
+    }
 
   private def buildLink(
       content: String, start: Int, labelStart: Int, labelEnd: Int,

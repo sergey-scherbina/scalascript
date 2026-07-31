@@ -223,7 +223,7 @@ object MarkdownProjection:
     case MdKind.Entity        => Some(MarkdownInline.Text(decodeEntity(t.lexeme)))
     case MdKind.SoftBreak     => Some(MarkdownInline.SoftBreak)
     case MdKind.HardBreak     => Some(MarkdownInline.HardBreak)
-    case MdKind.Autolink      => val inner = t.lexeme.stripPrefix("<").stripSuffix(">"); Some(MarkdownInline.Autolink(inner, inner))
+    case MdKind.Autolink      => val inner = t.lexeme.stripPrefix("<").stripSuffix(">"); Some(MarkdownInline.Autolink(autolinkDestination(inner), inner))
     case MdKind.Html          => Some(MarkdownInline.RawHtml(t.lexeme))
     case MdKind.DelimiterRun  => Some(MarkdownInline.Text(t.lexeme)) // unmatched literal delimiters
     case _                    => None
@@ -267,6 +267,16 @@ object MarkdownProjection:
       t.kind == MdKind.DestOpen || t.kind == MdKind.Destination || t.kind == MdKind.Title ||
       t.kind == MdKind.DestClose || t.kind == MdKind.ReferenceLabel
     case _ => false
+
+  /** An autolink's TEXT and its destination differ for two of GFM's extended
+    * forms: `www.x` links to `http://www.x` and a bare address to `mailto:`.
+    * Derived here rather than carried on the token, so the token stream holds
+    * nothing the source does not. */
+  private def autolinkDestination(text: String): String =
+    val lower = text.toLowerCase
+    if lower.startsWith("www.") then "http://" + text
+    else if !lower.contains(":") && text.contains("@") then "mailto:" + text
+    else text
 
   private def extractRefLabel(lex: String): String =
     // lexeme may be "][label]" or "]" for shortcut/collapsed forms
