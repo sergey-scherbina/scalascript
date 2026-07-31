@@ -64,7 +64,7 @@ failure moves to compile time where it belongs.
      reported-at: 2026-07-31
      ssc-version: unknown
      confirmed: no
-     fixed-in: ddec573ae
+     fixed-in: 862a19adb
      gate: tests/conformance/std-os-readline.ssc -->
 
 **Status: FIXED 2026-07-31 on the lanes where `std/os` exists** — `int` and the native/default tier.
@@ -161,6 +161,38 @@ extern def readLine(): Option[String]   // None at EOF
 (`f101312ed`). It was re-reported from the rozum side on 2026-07-30 against a toolchain
 built at `ff493301c` — i.e. before the fix, with `SSC_NO_BUILD_CHECK=1` silencing the
 launcher's own staleness warning. That report was wrong; this entry is not the same gap.
+
+## bugs-index-fixed-in-checks-resolvable-not-reachable — a rebased sha passes the gate and dangles for everyone else
+<!-- status: open
+     lane: apparatus
+     area: build
+     kind: apparatus
+     gate: none -->
+
+**Found 2026-07-31 by doing it**, within ten minutes of writing the entry above. I recorded
+`fixed-in: ddec573ae`, then `git rebase origin/main` before pushing rewrote that commit to
+`862a19adb`. The gate stayed green:
+
+```
+$ git cat-file -e ddec573ae^{commit} && echo resolves        # resolves   ← what the gate asks
+$ git merge-base --is-ancestor ddec573ae origin/main         # NO         ← what matters
+```
+
+`tests/e2e/bugs-index-gate.sh:99` asks `git cat-file -e <sha>^{commit}`. That is true for any object
+in the LOCAL store — including one the rebase orphaned, which lives on only in my reflog. Push it and
+the entry cites a commit nobody else can resolve. Same shape as
+`submodule-pointer-not-a-real-commit`: a recorded sha that looks valid exactly where it was written.
+
+It is not one line, which is why this is filed rather than fixed in passing. `merge-base
+--is-ancestor <sha> origin/main` is the correct question but CI clones with `fetch-depth: 1`, where
+almost nothing is reachable and the check would fail on every honest entry (the same shallow-clone
+trap that made `<sha>~5` unresolvable in the CI-health job). A fix has to either fetch enough history
+to answer, or answer a weaker question deliberately and say so. Both are decisions, and the second
+needs the gate's header to state what green means — a gate that quietly checks less than its name
+suggests is the failure this repo keeps paying for.
+
+Cheap mitigation available today, independent of the gate: **record `fixed-in` AFTER the rebase, not
+before.** The sha you commit with is not the sha you push when anything landed in between.
 
 ## ssc-tools-swallows-piped-stdin — every command except lsp/repl reads stdin to EOF before the program runs
 <!-- status: open
