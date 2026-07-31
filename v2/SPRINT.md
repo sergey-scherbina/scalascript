@@ -148,6 +148,20 @@ parameter-initialised probe, the cell is not the cost and the theory is wrong.
 
 ## Done
 
+- [x] **`getOrElse(k, default)` on a receiver that is not a bare variable** (2026-07-31, legacy
+      front; F still open). Both fronts define one `_sel_getOrElse` and it is `lam 2` — the OPTION
+      shape — so a Map's two-argument call arrived with three and died `arity: 2 expected, 3 given`.
+      It survived because the lowerer tracks map VARIABLES: `m.getOrElse(k,d)` worked and
+      `b.m.getOrElse(k,d)` did not. Same class as K62.32's `_sel_mkString`, whose remedy was never
+      applied here. Gate `tests/conformance/map-getorelse-expr-receiver.ssc` (golden from the JVM
+      oracle), `v2` frozen as a declared red until F is fixed. The rest of the class is SWEPT — 26
+      helpers statically, then 39 probes x 5 lanes — and clean. `560ce09e9`, `f2e64fd69`.
+- [x] **an object's `var` member is not scoped to the object** — the native half is filed, not
+      fixed: `v2-object-var-member-resolves-to-a-top-level-global`. A member name that also exists
+      at the top level resolves to the top-level one, so `Other.value()` answers `102` when
+      `Other.n` is `50`; WITHOUT a collision it is correct, which is why it survived. Gate
+      `tests/conformance/object-var-member-scope.ssc`, `8f161094f`; INT half fixed in `b8a41142a`.
+
 - [x] Core IR **frozen v1** + `12-ir-format` + `15-ssc0` + `conformance/*.coreir` (K0,
       2026-06-25).
 - [x] **runtime compiler `v2/ssc`** (2026-06-26) — one Scala 3 binary, `src/`: CoreIR
