@@ -92,6 +92,51 @@ if (( list_only )); then
   exit 0
 fi
 
+# ── the explicit-lane manifest: validated BEFORE the launcher check ──────────────────────────────
+# A broken FIXTURE needs no built tower to diagnose, and putting this behind `installBin` meant the
+# refusal below only ever surfaced ~6 minutes into a CI job (measured: run 30635743363 reached it at
+# 14:39 having started at 13:45). It also makes the contract gate cost seconds.
+#
+# WHAT THIS DOES *NOT* ASSERT, and why. Membership — how many rows, which families, which lanes —
+# belongs to `tests/e2e/v21-explicit-lanes-gate.sh`, which owns this fixture and checks far more than
+# a count (stale source, regression script exists and is executable, per-lane and per-family totals).
+# This script used to keep a SECOND, weaker copy of that contract with its own frozen `total != 15`.
+# The owner was maintained — 15 -> 13 -> 12 on 2026-07-31 as MCP then NFC joined the standard graph
+# and their rows retired — and the duplicate was not, so from 06:25 that day the two gates over one
+# fixture disagreed: the owner green at 120 s, this one dead at exit 2, in the SAME job. A row
+# retiring means a case IMPROVED, which is never a reason to fail a release gate (BACKLOG
+# `negtc-gate-self-maintaining` says exactly this, about exactly this gate).
+#
+# So validate only what the lookup at `lane_row` below actually consumes — the header shape and the
+# four fields it reads — and say WHICH condition refused. `bad=...` carries the reason: the old
+# wordless `invalid explicit-lane manifest` sent a reader to a 12-row TSV with no hint that the
+# offending number lived in this script.
+explicit_manifest=${BC_PARITY_EXPLICIT_MANIFEST:-"$ROOT/tests/fixtures/v21-explicit-lanes/manifest.tsv"}
+[[ -f $explicit_manifest ]] || {
+  echo "bc-parity-sweep: missing explicit-lane manifest: $explicit_manifest" >&2
+  exit 2
+}
+manifest_error=$(awk -F '\t' '
+  NR == 1 {
+    if ($0 != "file\tfamily\tlane\tregression\tdependency_tier") print "invalid header: " $0
+    next
+  }
+  NF != 5 || $1 == "" || $2 == "" || $4 == ""     { print "malformed row: " $0; next }
+  $3 != "provider-lane" && $3 != "target-lane"    { print "invalid lane: " $1 "=" $3 }
+  seen[$1]++                                      { print "duplicate member: " $1 }
+  { total++ }
+  # A floor, not a freeze. An empty manifest would make every explicit-lane case fall through the
+  # lookup below and be swept as an ordinary parity case — a silent loss of the whole distinction,
+  # which is the one failure mode a count can still protect against.
+  END { if (total < 1) print "manifest has no rows" }
+' "$explicit_manifest")
+[[ -z $manifest_error ]] || {
+  printf 'bc-parity-sweep: explicit-lane manifest rejected (%s)\n' "$explicit_manifest" >&2
+  printf '  %s\n' "$manifest_error" >&2
+  printf '  membership (counts, families, stale sources) is owned by tests/e2e/v21-explicit-lanes-gate.sh\n' >&2
+  exit 2
+}
+
 if [[ ! -x "$ssc" ]]; then
   echo "bc-parity-sweep: staged launcher not found: $ssc (run scripts/sbtc \"installBin\")" >&2
   exit 2
@@ -102,25 +147,6 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/ssc-bc-parity.XXXXXX") || exit 2
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 
 printf 'file\tcategory\tvm_rc\tbytecode_rc\tdetail\n' > "$report"
-
-explicit_manifest="$ROOT/tests/fixtures/v21-explicit-lanes/manifest.tsv"
-[[ -f $explicit_manifest ]] || {
-  echo "bc-parity-sweep: missing explicit-lane manifest: $explicit_manifest" >&2
-  exit 2
-}
-awk -F '\t' '
-  NR == 1 {
-    if ($0 != "file\tfamily\tlane\tregression\tdependency_tier") bad=1
-    next
-  }
-  NF != 5 || $1 == "" || ($3 != "provider-lane" && $3 != "target-lane") { bad=1 }
-  seen[$1]++ > 0 { bad=1 }
-  { total++ }
-  END { if (total != 15 || bad) exit 1 }
-' "$explicit_manifest" || {
-  echo 'bc-parity-sweep: invalid explicit-lane manifest' >&2
-  exit 2
-}
 
 skip_re='(^|[^[:alnum:]_])serve([[:space:]]*\(|[[:space:]]*\{|[A-Z][[:alnum:]_]*[[:space:]]*\()|listen|WebServer|websocket|(^|[^[:alnum:]_])tui([^[:alnum:]_]|$)'
 nondet_re='^(sql-sqlite-file|uuid-v7|os-env|mcp-server-protected|oauth-mcp-full-stack|async-parallel-demo|distributed-word-count|graphql-client|v2-http-sql-demo)\.ssc$'

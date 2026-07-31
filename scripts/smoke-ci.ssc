@@ -155,6 +155,12 @@ val suite = List(
   //    here, where `run.sc --list` enumerates the corpus without needing a built launcher.
   Check("tests", "conformance-shards-partition", "tests/e2e/build-conformance-shard-gate.sh", List("4"), 180000),
   Check("tests", "silent-assertions-frozen", "tests/e2e/silent-assertion-gate.sh", List(), 120000),
+  // Two consumers, one fixture: the manifest's owner (v21-explicit-lanes-gate) and the reader that
+  // only looks up a lane (bc-parity-sweep). The reader kept a second copy of the contract frozen at
+  // a row count, the owner was maintained, and on 2026-07-31 they disagreed — the `sbt` job died at
+  // exit 2 on a fixture the owner had certified green 34 min earlier in the same job. Seconds here;
+  // the alternative is finding it six minutes into a build.
+  Check("tests", "negtc-manifest-contract", "tests/e2e/negtc-manifest-contract-gate.sh", List(), 120000),
   Check("tests", "ci-status-guard", "tests/e2e/ci-status-guard.sh", List(), 120000),
   Check("tests", "no-test-reaches-an-exiting-cli", "tests/e2e/cli-exit-reachability-guard.sh", List("--self-test"), 180000),
   // CI skips the ~3.5 min launcher build when this digest says the toolchain's inputs are unchanged.
