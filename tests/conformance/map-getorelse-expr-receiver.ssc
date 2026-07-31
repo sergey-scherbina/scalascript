@@ -1,0 +1,79 @@
+---
+name: map-getorelse-expr-receiver
+description: "Map.getOrElse(k, default) works on any receiver, not only a bare variable"
+backends: [int, js, jvm, v2]
+---
+
+# `getOrElse(k, default)` on a receiver that is not a bare variable
+
+`v2/BUGS.md` `v2-getorelse-two-arg-falls-into-option-helper`. Both self-hosted fronts define one
+prelude helper `_sel_getOrElse` and it is `lam 2` — the OPTION shape `(opt, default)`. A Map's
+`getOrElse` takes two arguments, so the call arrives with three and dies at run time:
+
+    ssc: arity: 2 expected, 3 given
+
+It survived because the legacy lowerer tracks map **variables** (`isMapVar`) and routes those to
+`_sel_mapGetOrElse`. Track the receiver as a variable and it works; write the same call on a field,
+on a literal, or on a call result and it does not.
+
+THIS IS A KNOWN BUG CLASS, ALREADY FIXED ONCE FOR ITS SIBLING. `selMethodOr` carries the note that
+`_sel_mkString` is arity-2, so the 0-arg and 3-arg forms crashed with this same message, and those
+were routed to the runtime `__method__`. The remedy was applied to `mkString` and not to
+`getOrElse`. `__method__` already has the arms — `(MapV, "getOrElse", List(k, d))` and the 1-arg
+`Some`/`None` ones — so nothing new is needed at run time.
+
+WHY NO CASE CAUGHT IT: of the 62 two-argument `getOrElse` call sites in this repository's `.ssc`
+sources, 45 use the failing shape and 43 of those are in nine `examples/` files — while the
+conformance corpus contained **none** until this case. The corpus exercised the one receiver shape
+that happens to work.
+
+The four receiver shapes are separate lines on purpose: only the first one passed before the fix, so
+a case written with a bare variable would have been green in both states.
+
+```scalascript
+case class Box(m: Map[String, String])
+
+def wrap(m: Map[String, String]) = m
+
+def main() =
+  val m = Map("a" -> "1")
+  val b = Box(m)
+
+  // bare variable — the only shape that worked before the fix
+  println(m.getOrElse("a", "none"))
+  println(m.getOrElse("zz", "none"))
+
+  // field selector — the shape 43 example call sites use
+  println(b.m.getOrElse("a", "none"))
+  println(b.m.getOrElse("zz", "none"))
+
+  // literal receiver
+  println(Map("a" -> "1").getOrElse("a", "none"))
+  println(Map("a" -> "1").getOrElse("zz", "none"))
+
+  // call result
+  println(wrap(m).getOrElse("a", "none"))
+  println(wrap(m).getOrElse("zz", "none"))
+
+  // the one-argument Option form must keep working — it is the same helper
+  println(Some("x").getOrElse("none"))
+  println(None.getOrElse("none"))
+  val o: Option[String] = m.get("a")
+  println(o.getOrElse("none"))
+  println(m.get("zz").getOrElse("none"))
+```
+
+Expected — the JVM lane is the oracle:
+
+    1
+    none
+    1
+    none
+    1
+    none
+    1
+    none
+    x
+    none
+    1
+    none

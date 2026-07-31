@@ -42,6 +42,7 @@ int-width	js	KNOWN-RED
 international-bank-rails	*	SKIP
 js-glue-component	js	FAIL
 js-glue-component	v2	FAIL
+map-getorelse-expr-receiver	v2	FAIL
 markdown-toolkit-links	*	SKIP
 mcp-agent	js	FAIL
 mcp-client-discover	*	SKIP

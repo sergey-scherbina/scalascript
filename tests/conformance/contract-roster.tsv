@@ -1,4 +1,4 @@
-# corpus-contract-roster-v1	baseline-sha256=1015a6cd7942ba2a7ebf72de29076d0eafa91db73759cc8c6b83e553bfe4d35e	roster-sha256=c8fe5d3e80209bb3992a1d1dc0a7777009f78a208d0ce4c987bcc9b732950c0b
+# corpus-contract-roster-v1	baseline-sha256=0ffa2687815571812bd459edee5dce597bfa145867086b30f3965bf279b9c7db	roster-sha256=452fbc66e50ccd66d8c0feb668539a97904420bf3e3e85852e27b2a0037192c2
 _bug1_httpclient
 _bug1b
 _bug1c
@@ -205,6 +205,7 @@ list-combinators
 list-companion
 list-slice
 litdoc
+map-getorelse-expr-receiver
 map-ops
 maps
 markdown-html
@@ -446,6 +447,7 @@ string-eq-locals
 string-matches
 strings
 sync-todo
+sys-env
 tagless-context-bounds
 tagless-direct-syntax
 tagless-multi-file

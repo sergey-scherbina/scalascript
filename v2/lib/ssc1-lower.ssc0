@@ -1604,6 +1604,17 @@ def selMethodOr = (method, robj, rargs) =>
        Pair("app", Pair(Pair("var", "_sel_mkString"), Cons(robj, rargs)))
      else
        Pair("prim", Pair(methodPrim(rargs), Cons(Pair("str", "mkString"), Cons(robj, rargs)))))
+  -- SAME SHAPE AS mkString ABOVE, and it was left unfixed: _sel_getOrElse is `lam 2` and it is the
+  -- OPTION form (opt, default). A Map's getOrElse takes TWO arguments, so the call arrives with
+  -- three and dies "arity: 2 expected, 3 given". It survived because the isMapVar branch above
+  -- catches map VARIABLES — so `m.getOrElse(k, d)` works and `b.m.getOrElse(k, d)` does not.
+  -- __method__ already carries (MapV, "getOrElse", List(k, d)); keep the 1-arg Option form on the
+  -- helper. v2/BUGS.md `v2-getorelse-two-arg-falls-into-option-helper`.
+  else if #seq(method, "getOrElse") then
+    (if #i.eq(lenL(rargs), 1) then
+       Pair("app", Pair(Pair("var", "_sel_getOrElse"), Cons(robj, rargs)))
+     else
+       Pair("prim", Pair(methodPrim(rargs), Cons(Pair("str", "getOrElse"), Cons(robj, rargs)))))
   else if #seq(method, "take") then
     Pair("prim", Pair(methodPrim(rargs), Cons(Pair("str", "take"), Cons(robj, rargs))))
   else if #seq(method, "sum") then

@@ -7,6 +7,74 @@ grepping for status.
 
 Newest first.
 
+## v2-getorelse-two-arg-falls-into-option-helper — `Map(...).getOrElse(k, d)` dies unless the receiver is a bare variable
+<!-- status: open
+     lane: native
+     area: front
+     fixed-in: -
+     gate: tests/conformance/map-getorelse-expr-receiver.ssc -->
+
+Both self-hosted fronts define one prelude helper for `getOrElse` and it is `lam 2` — the OPTION
+shape `(opt, default)`. A Map's `getOrElse` takes two arguments, so the call arrives with three:
+
+```scalascript
+case class Box(m: Map[String, String])
+def main() =
+  val b = Box(Map("a" -> "1"))
+  println(b.m.getOrElse("a", "none"))
+```
+
+    $ bin/ssc run repro.ssc
+    ssc: arity: 2 expected, 3 given
+
+Measured on all four lanes — only the native one is wrong, so the JVM lane is the oracle and the
+answer is not in doubt:
+
+    jvm     1        (it is Scala)
+    int     1
+    js      1
+    native  ssc: arity: 2 expected, 3 given
+
+THE RECEIVER SHAPE IS THE WHOLE TRIGGER, which is why it survived this long. The legacy lowerer
+tracks map VARIABLES (`isMapVar`, `ssc1-lower.ssc0:4091` "Track map variables for
+.updated/.getOrElse dispatch") and routes those to `_sel_mapGetOrElse`. So:
+
+    val m = Map("a" -> "1"); m.getOrElse("a", "none")   -- works: tracked variable
+    b.m.getOrElse("a", "none")                          -- FAILS: field selector
+    Map("a" -> "1").getOrElse("a", "none")              -- FAILS: literal
+    wrap(m).getOrElse("a", "none")                      -- FAILS: call result
+
+Confirmed pre-existing on a clean build (`scalascript-wt-gateless-triage`, HEAD `c76492801`),
+not a regression from work in flight.
+
+A KNOWN CLASS, ALREADY FIXED ONCE FOR ITS SIBLING AND NOT FOR THIS ONE. `selMethodOr` in
+`ssc1-lower.ssc0` opens with note K62.32: `_sel_mkString` is arity-2, so the 0-arg and 3-arg forms
+crashed with this same message, and they were routed to the runtime `__method__`. `getOrElse` has
+the identical defect and did not get the identical remedy. Worth a sweep of the remaining `_sel_`
+helpers whose arity is fixed but whose method is overloaded.
+
+WHY NO GATE SAW IT: of the 62 two-argument `getOrElse` call sites in this repository's `.ssc`
+sources, 45 use a failing receiver shape — 43 of them across nine `examples/` files
+(`x402-client`, `x402-cardano`, `wallet-mpc-fireblocks`, `oauth-demo`, `rest-jetty`, …) — and the
+conformance corpus had **zero**. The corpus exercised only the one shape that happens to work. The
+count is measured, not estimated: a top-level-comma parse of every call site, classified by
+receiver.
+
+IT COMPOSES WITH `typer-defines-sys-but-no-runtime-provides-it` (root `BUGS.md`), which is how it
+was found. Those examples read config as `sys.env.getOrElse("X", "default")` — a selector receiver.
+Giving the native lane a `sys` global would NOT have made that line run; both fixes are needed
+before one example works.
+
+FIX. In each front, split on argument count where `getOrElse` is emitted: 1 arg keeps the
+`_sel_getOrElse` helper, 2 args go to `__method__`, which already carries
+`(MapV, "getOrElse", List(k, default))` at `Runtime.scala:2496` and the 1-arg `Some`/`None` arms at
+2390-2391. No runtime change, and the `lam 2` prelude definition stays as it is.
+
+STATE: fixed and verified in the legacy front (`ssc1-lower.ssc0` `selMethodOr`), 12 of 12 lines
+against the JVM oracle. The F front — the DEFAULT — is unfixed: `specs/v2.2-p6.5-fsub.ssc` is held
+by claim `v2-perf-cell-widen-f`, and F emits `_sel_getOrElse` from its own prelude
+(`isKnownSelMethod` line 794, prelude string line 2473). Handed over in rozum with the exact edit.
+
 ## bench-corpus-five-rows-measure-the-FALLBACK-front-not-F — and a trap that bit me twice (2026-07-31)
 <!-- status: open
      lane: native
