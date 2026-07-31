@@ -9,7 +9,7 @@ Newest first.
 
 ## corpus-breadth-slice-crashes-scala-cli-on-ci — Bloop downloaded on every cache-hit run
 <!-- status: fixed
-     fixed-in: 0767755cb
+     fixed-in: 7bfa0c95f
      lane: apparatus
      area: build
      gate: none -->
@@ -34,7 +34,7 @@ download fails intermittently. The optimisation aimed a flake at the majority of
 Confirmed rather than inferred: two DISPATCHED runs of the same commit, 30608116959 (failed) and
 30608120697 (passed), both with `Cache Coursier/sbt` skipped. Same shape, different luck.
 
-Fixed in 0767755cb by restoring the cache unconditionally. Deliberately ONE change: adding
+Fixed in 7bfa0c95f by restoring the cache unconditionally. Deliberately ONE change: adding
 `--server=false` to the parent `scala-cli` invocations would remove another Bloop bootstrap path
 (`tests/e2e/build-conformance-shard-gate.sh` already does it), but it measured as noise locally —
 15.1/32.2 s with the server against 23.4/24.0 s without — and landing both at once would make it
