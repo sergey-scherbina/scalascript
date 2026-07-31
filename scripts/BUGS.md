@@ -7,6 +7,34 @@ grepping for status.
 
 Newest first.
 
+## reaper-aborts-when-a-builder-exits-mid-scan — set -e turns a routine race into a red gate
+<!-- status: fixed
+     fixed-in: 699caeb67
+     lane: apparatus
+     area: build
+     gate: tests/e2e/build-ram-budget-gate.sh -->
+
+**Found 2026-07-31** as `build-ram-guards-guard` failing in the smoke suite with
+`reaper dry-run exits 0: expected=0 got=1` and nothing else. Run by hand the reaper always exited 0,
+which made it read as host noise.
+
+`scripts/kill-stale-builders` snapshots builder pids with `ps`, then per pid runs `lsof -p <pid>` and
+`ps -o time= -p <pid>`. A builder that exits in between makes those exit 1; `pipefail` propagates it
+and `set -e` aborts the whole scan. With sibling agents starting and stopping builders continuously,
+one is routinely gone. Every such call is followed by a guard written for exactly this case
+(`[ -z "$cwd" ] && continue   # exited on its own`) — unreachable, because `set -e` fires first.
+
+Fixed at all three call sites with `|| true`, plus a DETERMINISTIC regression test: a decoy carrying
+`bloop` in its command line exits 0.4 s into a 3 s sample window, so the pid is always gone when its
+CPU time is read.
+
+Method note, the part worth keeping: two convincing diagnoses were wrong and were discarded by
+testing them, not by arguing —
+`rss=$(( <empty> / 1024 ))` does NOT abort (bash reads an empty operand as 0), and the fake GNU
+`stat` on `PATH` does NOT leak (the override is scoped to one command). The answer came from tracing
+the reaper with the stderr the gate had been discarding. **A check that throws away the output of the
+thing it checks cannot explain its own failure.**
+
 ## corpus-breadth-slice-crashes-scala-cli-on-ci — Bloop downloaded on every cache-hit run
 <!-- status: fixed
      fixed-in: 7bfa0c95f

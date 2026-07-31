@@ -10,6 +10,15 @@ Anything not being worked on belongs in `scripts/BACKLOG.md`, not here — a que
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [x] **reaper-aborts-when-a-builder-exits-mid-scan** — second push-path flake found the same day.
+  `kill-stale-builders` died whenever a builder exited between the `ps` snapshot and the per-pid
+  `lsof`/`ps`; `set -euo pipefail` turned a routine race into a red gate, and the author's own
+  "exited on its own" guards were unreachable. Three call sites fixed, deterministic regression test
+  added (decoy exits inside the sample window), A/B'd 3/3.
+  ⚠ Two convincing diagnoses were WRONG and were killed by testing them: empty-operand arithmetic
+  does not abort, and the fake `stat` on PATH does not leak. The answer came from un-discarding the
+  reaper's stderr — a check that throws away the output of what it checks cannot explain itself.
+
 - [x] **corpus-breadth-slice flake — DIAGNOSED and fixed** (0767755cb). Cause: `Cache Coursier/sbt`
   was made conditional on a toolchain-cache miss in the launcher-cache change; coursier is
   scala-cli's RUN-time artifact cache, so every cache-HIT run re-downloaded Bloop from Maven and that
