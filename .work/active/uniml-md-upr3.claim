@@ -1,0 +1,11 @@
+slug: uniml-md-upr3
+branch: feature/uniml-md-upr3
+agent: claude-code
+started: 2026-07-31T18:09:44Z
+heartbeat: 2026-07-31T18:09:44Z
+status: claimed-before-planning
+items: UPR-3 CommonMark/GFM completion — UPR-3b block grammar, UPR-3c inline grammar
+paths: file:uniml/markdown file:uniml/BACKLOG.md file:uniml/SPRINT.md file:specs/uniml-markdown.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
