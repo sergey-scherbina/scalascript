@@ -1,5 +1,5 @@
-# generation: 548
+# generation: 549
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
-type-ascription-matrix	claude-code	2026-07-31T05:09:25Z	type-ascription-matrix probe-wider-than-hypothesis tool-finding-not-same-hour	file:tests/conformance/SPRINT.md file:tests/conformance/BACKLOG.md file:scripts/BACKLOG.md file:tests/conformance/type-ascription-matrix.ssc file:tests/conformance/expected/type-ascription-matrix.txt file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv
+type-ascription-matrix	claude-code	2026-07-31T05:09:25Z	type-ascription-matrix probe-wider-than-hypothesis tool-finding-not-same-hour	file:tests/conformance/SPRINT.md file:tests/conformance/BACKLOG.md file:scripts/BACKLOG.md file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGenCpsCodegen.scala file:specs/type-ascription-matrix.md file:tests/conformance/type-ascription-number.ssc file:tests/conformance/expected/type-ascription-number.txt file:v1/runtime/backend/js/BUGS.md file:tests/conformance/type-ascription-matrix.ssc file:tests/conformance/expected/type-ascription-matrix.txt file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv
 shard-gate-one-enumeration	claude-code	2026-07-31T05:11:33Z	smoke-conformance-shards-partition-costs-49s	file:tests/conformance/run.sc file:tests/e2e/build-conformance-shard-gate.sh file:tests/e2e/conformance-lanes-flag.sh file:scripts/BACKLOG.md file:scripts/SPRINT.md
