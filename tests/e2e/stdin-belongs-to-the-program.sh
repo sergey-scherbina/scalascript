@@ -91,5 +91,24 @@ check "--secrets-file accepts a process substitution" \
       "PROGRAM-GOT:the-line" \
       "$(run_line "$TOOLS" --secrets-file <(cat "$TMP/secrets.yaml") run --v1 "$TMP/echo-line.ssc")"
 
+# ── the deprecation notice (S2) ───────────────────────────────────────────────
+# A warning that can vanish silently is worth nothing on the day it matters, and this one is the only
+# thing standing between a user and discovering the S3 default flip by their pipeline going quiet.
+warn_on() {  # warn_on <binary> <args…> — 1 if the notice appeared on STDERR, else 0
+  printf 'the-line\n' | SSC_NO_BUILD_CHECK=1 timeout 300 env SSC_NO_BUILD_CHECK=1 "$@" 2>&1 >/dev/null |
+    grep -c 'consumed as a sops secrets document' || true
+}
+check "the slurp announces itself" \
+      "1" "$(warn_on "$TOOLS" run --v1 "$TMP/echo-line.ssc")"
+check "no notice when --secrets-file is used (nothing was taken)" \
+      "0" "$(warn_on "$TOOLS" --secrets-file "$TMP/secrets.yaml" run --v1 "$TMP/echo-line.ssc")"
+check "SSC_SOPS_STDIN=1 silences it" \
+      "0" "$(SSC_SOPS_STDIN=1 warn_on "$TOOLS" run --v1 "$TMP/echo-line.ssc")"
+# On STDERR specifically: a notice on stdout would corrupt the output of every program run through a
+# pipe, which is exactly the population this notice exists to warn.
+check "the notice does not touch stdout" \
+      "PROGRAM-GOT-NOTHING" \
+      "$(run_line "$TOOLS" run --v1 "$TMP/echo-line.ssc")"
+
 if [ "$fail" -eq 0 ]; then echo "stdin-belongs-to-the-program: OK"; else echo "stdin-belongs-to-the-program: FAILED" >&2; fi
 exit "$fail"

@@ -154,6 +154,26 @@ private def loadSopsSecrets(): Unit =
   try
     if System.in.available() == 0 then return
     val raw = scala.io.Source.stdin.mkString
+    // WARN ONCE, and only when the stream was actually taken. This path consumes stdin to EOF, so a
+    // program that meant to read its own input silently gets nothing — which is how `std.os.readLine`
+    // came to work under `ssc run` and return `None` under `ssc-tools run` with no error anywhere.
+    //
+    // The notice fires on the CONSUMPTION, not on the parse: whether the bytes turned out to be YAML
+    // is irrelevant to the program that lost them. It goes to stderr so it cannot corrupt piped
+    // stdout, and it names the replacement rather than only the problem.
+    //
+    // No release number, because there is none to name honestly — the build is `0.1.0-SNAPSHOT` and
+    // the changelog is dated, not versioned. It names the tracking item instead, so anyone who hits
+    // this can read the plan and its current state rather than wait for a version that has no date.
+    if raw.nonEmpty && sys.env.get("SSC_SOPS_STDIN").isEmpty then
+      System.err.println(
+        "ssc: stdin was consumed as a sops secrets document, so your program will not receive it.")
+      System.err.println(
+        "     This is being retired — see BACKLOG.md `ssc-tools-stdin-belongs-to-the-program`.")
+      System.err.println(
+        "     Pass secrets explicitly instead:  ssc --secrets-file <(sops -d secrets.enc.yaml) …")
+      System.err.println(
+        "     Set SSC_SOPS_STDIN=1 to silence this while you migrate.")
     if raw.nonEmpty then
       val doc = scalascript.parser.SimpleYaml.load[Any](raw)
       val flat = flattenYaml("", doc)

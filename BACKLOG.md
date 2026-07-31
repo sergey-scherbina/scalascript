@@ -43,9 +43,15 @@ user report to surface this one.
       would hand them a program running without the secrets it asked for.
       Measured: `--secrets-file f | run` → the program receives the pipe; no flag → the CLI still
       eats it (unchanged); `<(sops -d …)` works; missing path → exit 2.
-- [ ] **S2 — deprecation notice on the implicit slurp.** When it fires, print once to stderr that
-      stdin is being consumed as secrets, name `--secrets-file`, and say which release stops it.
-      Behaviour unchanged — this slice only makes the surprise visible to the people it will affect.
+- [x] **S2 — deprecation notice on the implicit slurp.** DONE. Fires on the CONSUMPTION, not on the
+      parse: whether the bytes turned out to be YAML is irrelevant to the program that lost them.
+      Silent when nothing was taken (empty stdin), when `--secrets-file` was used, and under
+      `SSC_SOPS_STDIN=1` — the same variable that becomes the opt-in switch in S3, so migrating away
+      from the warning and migrating to the new default are one action rather than two.
+      Names the tracking item, NOT a release: the build is `0.1.0-SNAPSHOT` and the changelog is
+      dated, so a version number here would have been invented. Behaviour unchanged; the four
+      assertions in `tests/e2e/stdin-belongs-to-the-program.sh` pin it, including that it stays on
+      stderr — a notice on stdout would corrupt the output of exactly the piped programs it warns.
 - [ ] **S3 — the implicit slurp becomes opt-in** (`SSC_SOPS_STDIN=1`), then the escape is deleted a
       release later. CHANGELOG entry is part of this slice, not a follow-up.
       (Corrected 2026-07-31: the original S2/S3 split said "becomes opt-in" and then "flip the
