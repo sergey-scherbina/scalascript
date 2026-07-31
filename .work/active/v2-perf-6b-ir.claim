@@ -1,0 +1,11 @@
+slug: v2-perf-6b-ir
+branch: feature/v2-perf-6b-ir
+agent: claude-code
+started: 2026-07-31T03:51:25Z
+heartbeat: 2026-07-31T03:51:25Z
+status: claimed-before-planning
+items: v2-perf-6b-local-lambda-call
+paths: file:specs/v2-perf-direct-local-lambda-call.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
