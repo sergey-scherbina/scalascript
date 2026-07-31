@@ -13,6 +13,34 @@ lose the reasoning around them.
 Milestone view: [`ROADMAP.md`](ROADMAP.md). Pipeline: `ssc0 → ir → ssc(VM) → cpu`. Work each slice
 in its own worktree off `origin/main`.
 
+## v2-perf-unboxed-cell-only-for-literal-init — 18×, the entry test is too narrow (2026-07-31)
+
+Claim `v2-perf-var-cell-widen`. Entry: `BACKLOG.md`. Measured: a loop whose `var` is initialised
+from an expression runs at **104.7 ns/iter** against **5.67** for the identical loop with a literal
+initialiser — the unboxed `lcell`/`dcell` tier only fires on a syntactic literal.
+
+- [~] **VC-1 — the corpus row FIRST.** `bench/corpus/var-expr-init.ssc`: the same loop with the var
+      initialised from `seed`. Without it the win is invisible and the corpus keeps measuring only
+      the case that already works, which is exactly how this hid.
+- [~] **VC-2 — widen the test in F** (`specs/v2.2-p6.5-fsub.ssc:1266`). `isIntLitCode` accepts only
+      `(lit (int `; add the typed-IR forms F itself emits — `(prim i.…)` — which it produces ONLY
+      when it inferred Int. Same for `isFloatLitCode` / `(prim f.…)`, added yesterday with the same
+      limitation inherited.
+- [~] **VC-3 — the same widening in the lowerer** (`v2/lib/ssc1-lower.ssc0`, `isIntLitExpr` /
+      `isFloatLitExpr`), which is the LEGACY front's path. `v2-perf-1` is the precedent: a fix in
+      one front is a half-fix.
+- [~] **VC-4 — prove LIVE, then measure.** Rename `lcell.new` to a nonexistent prim: the
+      expression-init program MUST die and the literal one MUST keep working. Only then the
+      alternating A/B, 3 rounds, new row + `arith-loop` as control.
+
+⚠ **The risk that shapes VC-2/VC-3:** if the test says Int for something that is not, the var gets
+an `lcell` and a non-Int store dies in `lcellAccum: non-Int result`. Fail-fast, but a correctness
+regression. Accept only PROVABLY Int/Long forms — `(prim i.…)` qualifies because F emits it from
+inferred type; "looks numeric" does not.
+
+**Expected ~18× on affected loops. Disqualifying evidence:** if the widening does not move the
+parameter-initialised probe, the cell is not the cost and the theory is wrong.
+
 ## Done
 
 - [x] Core IR **frozen v1** + `12-ir-format` + `15-ssc0` + `conformance/*.coreir` (K0,
