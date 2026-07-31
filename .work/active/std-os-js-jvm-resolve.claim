@@ -5,7 +5,7 @@ started: 2026-07-31T11:57:14Z
 heartbeat: 2026-07-31T11:57:14Z
 status: claimed-before-planning
 items: std-os-does-not-resolve-on-js-or-jvm
-paths: file:v1/runtime/backend/js/BUGS.md file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:tests/conformance/std-os-readline.ssc file:tests/conformance/std-os.ssc
+paths: file:v1/runtime/backend/js/BUGS.md file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:tests/conformance/std-os-readline.ssc file:tests/conformance/std-os-doc-import.ssc file:tests/conformance/expected/std-os-doc-import.txt
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
