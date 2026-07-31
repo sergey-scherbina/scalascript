@@ -5,7 +5,7 @@ started: 2026-07-31T11:48:07Z
 heartbeat: 2026-07-31T11:48:07Z
 status: claimed-before-planning
 items: P-4-jmh-primitive-dispatch
-paths: file:v1/runtime/backend/interpreter-bench/src/main/scala/scalascript/bench/V2DispatchBench.scala file:v2/SPRINT.md
+paths: file:v1/runtime/backend/interpreter-bench/src/main/scala/scalascript/bench/V2DispatchBench.scala file:v2/SPRINT.md file:build.sbt
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
