@@ -1,4 +1,4 @@
-# corpus-contract-roster-v1	baseline-sha256=ccfef7f153c59372c56dc275735fbfcef40028681380cb96383c56b11c8607fd	roster-sha256=a7d45bc3379755bc909b35f3df8dba130a5a4dfdf144d532740ab8eaa5c5f765
+# corpus-contract-roster-v1	baseline-sha256=ccfef7f153c59372c56dc275735fbfcef40028681380cb96383c56b11c8607fd	roster-sha256=6924edac0a18efec663fff08ddb0450e36cad89449e086ffbb2ff8513434a261
 _bug1_httpclient
 _bug1b
 _bug1c
@@ -480,6 +480,7 @@ tuples
 type-ascription
 type-ascription-list
 type-ascription-map
+type-ascription-number
 type-ascription-set
 type-ascription-tuple
 type-ascription-unit

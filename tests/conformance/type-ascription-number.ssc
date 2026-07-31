@@ -1,0 +1,48 @@
+---
+name: type-ascription-number
+description: "Int and Double are different type tests, and the answer does not depend on arm order"
+backends: [int, js, jvm, v2]
+---
+
+# `case _: Int` and `case _: Double` are not the same question
+
+`BUGS.md` `js-int-and-double-are-the-same-type-test`. On the JS lane five type names — `Int`, `Long`,
+`Double`, `Float`, `Number` — shared **one** predicate, `typeof x === 'number'`. So the two arms were
+literally the same test and **whichever the user wrote first won**:
+
+| arms as written | `1.5` | `7` |
+|---|---|---|
+| `Int` then `Double` | `Int` ✗ | `Int` |
+| `Double` then `Int` | `Double` | `Double` ✗ |
+
+Wrong in both orders, in opposite directions. That is the signature of a missing DISTINCTION rather
+than a missing arm, and it is why "add the missing arms" would have made things worse: the order was
+already carrying the answer.
+
+```scalascript
+def intFirst(x: Any): String = x match
+  case _: Int => "Int"
+  case _: Double => "Double"
+  case _ => "-"
+
+def doubleFirst(x: Any): String = x match
+  case _: Double => "Double"
+  case _: Int => "Int"
+  case _ => "-"
+
+println(intFirst(1.5))
+println(intFirst(7))
+println(doubleFirst(1.5))
+println(doubleFirst(7))
+println(intFirst("s"))
+println(doubleFirst(true))
+```
+
+**Both orders are in the case on purpose.** A gate written with one arm order would have passed on
+the old code for whichever value happened to suit it — this is exactly the "green in both states"
+shape, and only running both orders can tell the two apart. The last two lines keep non-numbers
+falling through.
+
+**A known limit, not a bug in this case:** JS has one number type, so `2.0` is indistinguishable from
+`2` and answers `Int`. The case deliberately uses `1.5`. Reconstructing a boxed Double is a
+representation change, filed separately, and out of scope for a type test.

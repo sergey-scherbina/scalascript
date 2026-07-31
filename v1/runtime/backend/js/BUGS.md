@@ -7,6 +7,55 @@ grepping for status.
 
 Newest first.
 
+## js-int-and-double-are-the-same-type-test — five type names shared one predicate, so ARM ORDER decided the answer
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: unrecorded
+     gate: tests/conformance/type-ascription-number.ssc -->
+
+**Found and fixed 2026-07-31** by the type-ascription census (`specs/type-ascription-matrix.md`).
+
+`Int`, `Long`, `Double`, `Float` and `Number` all emitted `typeof x === 'number'`, so `case _: Int`
+and `case _: Double` were literally the same test and whichever arm came FIRST won:
+
+| arms as written | `1.5` | `7` | jvm says |
+|---|---|---|---|
+| `Int` then `Double` | **`Int`** | `Int` | `Double`, `Int` |
+| `Double` then `Int` | `Double` | **`Double`** | `Double`, `Int` |
+
+Wrong in both orders, in **opposite directions** — the signature of a missing DISTINCTION, not a
+missing arm. Adding arms would not have helped; the order was carrying the answer.
+
+Fixed by reconstructing the distinction from integrality: `Int`/`Long` require
+`Number.isInteger`, `Double`/`Float` require its negation, `Number` stays any number.
+
+**Known limit, stated rather than hidden:** JS has one number type, so `2.0` is indistinguishable
+from `2` and answers `Int`. That is a representation gap of the same family as Char-vs-String and
+Set-vs-List on this lane, and it needs a boxed Double before a type test can do better. Strictly less
+wrong than before, where the answer depended on the order the arms happened to be written in.
+
+**The gate runs BOTH arm orders**, because a case written with one order would have passed on the old
+code for whichever value suited it — green in both states, the failure this repo keeps paying for.
+
+## js-char-is-a-plain-string — `case _: Char` cannot be told from `case _: String`
+<!-- status: open
+     lane: js
+     area: codegen
+     gate: none -->
+
+**Found 2026-07-31** by the same census. A char literal compiles to a plain JS string
+(`val c = 'c'` emits `const c = "c";`), so `kind('c')` answers `String` where the JVM, INT and the
+reference all answer `Char`.
+
+The runtime DOES have a `_Char` box with an `_isChar` predicate — it exists to tell a Char RESULT
+from a Seq result — but literals do not use it. So this is not a missing arm: a test would have to
+guess, and `case _: String` on a genuine one-character string must keep working.
+
+**Representation gap.** Same family as `Set`-vs-`List` on this lane and `v2-char-is-an-int` on the
+native one; it needs char literals to carry the box before the question has an answer. Answering
+`String` is at least consistent with what the value IS.
+
 ## js-pass-error-not-formatted-by-its-module-function — a case class from a PACKAGED module lost its body methods, so `toString` printed the raw record
 <!-- status: fixed
      lane: js

@@ -784,7 +784,24 @@ private[codegen] trait JsGenCpsCodegen:
         case _              => ""
       val typeCond = typeName match
         case "String"  => s"(typeof $scrutVar === 'string')"
-        case "Int" | "Long" | "Double" | "Float" | "Number" =>
+        // FIVE type names shared ONE test, so `case _: Int` and `case _: Double` were the same
+        // predicate and whichever arm came FIRST won. Measured 2026-07-31 against the JVM oracle:
+        //   arms Int,Double  ->  1.5 answered `Int`     (jvm: Double)
+        //   arms Double,Int  ->  7   answered `Double`  (jvm: Int)
+        // Both orders wrong, in opposite directions — an ordering symptom of one missing
+        // distinction, not a missing arm. JS has a single number type, so the distinction has to be
+        // reconstructed, and integrality is the only signal available.
+        //
+        // KNOWN LIMIT, stated because it cannot be fixed here: `2.0` is indistinguishable from `2`
+        // in JS and therefore answers `Int`. That is a representation gap like Char-vs-String and
+        // Set-vs-List on this lane; it is strictly less wrong than today, where the answer depended
+        // on the order the user happened to write the arms in.
+        // BUGS `js-int-and-double-are-the-same-type-test`.
+        case "Int" | "Long" =>
+          s"(typeof $scrutVar === 'number' && Number.isInteger($scrutVar))"
+        case "Double" | "Float" =>
+          s"(typeof $scrutVar === 'number' && !Number.isInteger($scrutVar))"
+        case "Number" =>
           s"(typeof $scrutVar === 'number')"
         case "Boolean" => s"(typeof $scrutVar === 'boolean')"
         // The unit value is `undefined` here (a unit-returning function falls off its
