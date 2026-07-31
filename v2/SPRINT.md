@@ -39,22 +39,38 @@ initialiser — the unboxed `lcell`/`dcell` tier only fires on a syntactic liter
       path. It does **not** accept `cell.get`. So the CELL CHOICE decides whether the arithmetic can
       be fast — the boxed cell locks the whole loop out of the fast path.
 
-- [~] **VC-2b — the real root, and it needs a decision.** Nothing at this point knows `seed` is a
-      `Long`: the declaration exists in the source and is discarded before either front or backend
-      can use it. Two options, and they are different kinds of work:
+- [~] **VC-2 REINSTATED — my supersede was wrong, and the probe is why.** I concluded "no safe
+      syntactic widening exists" from a probe whose parameter was `Long`. With `Int` the picture is
+      the opposite:
 
-      **(a) Propagate declared parameter types into F's typed-IR emission.** Fixes the cell AND the
-      arithmetic, because `i.*` would then be emitted and `canLong` would accept it. Front work,
-      real inference, larger.
+          def wl(seed: Int) …  var s = (seed % 46341) + 1
+            initialiser  ->  Prim(i.add){ Prim(i.mod){ … } }   <- F DID type it
+            s            ->  Prim(cell.new)                    <- and the cell test ignored it
 
-      **(b) A runtime-adaptive cell** — `cell.new` stores unboxed while the value is a Long and
-      degrades to boxed otherwise. Needs no static knowledge at all, which is the same logic that
-      made a per-site inline cache the principled answer for calls. Runtime work, smaller, and it
-      cannot be defeated by missing type information.
+      So `(prim i.…)` **is** emitted for Int-declared parameters, it **is** provably Int, and
+      accepting it in `isIntLitCode` / `isIntLitExpr` is exactly the small safe widening originally
+      planned. **It is inert for `Long`, not in general** — and that is a different gap, below.
 
-      **Decide with a measurement, not a preference:** count how many `cell.new` sites in the corpus
-      hold a value that is *always* a Long at run time. If most do, (b) wins on cost. If the same
-      programs also show `__arith__` dominating profiles, (a) wins because it fixes both.
+- [~] **VC-2c — F does not type `Long` at all.** `knownTyName` (`specs/v2.2-p6.5-fsub.ssc`) is
+      `Int | String | BigInt`. A parameter declared `Long` pushes a bare name, stays `"?"`, and
+      every operation on it comes out untyped `__arith__`. **The bench corpus writes
+      `def workload(seed: Long)`**, so every anti-fold row in the corpus is measuring the untyped
+      path — which is also why my first probe looked hopeless.
+
+      Adding `Long` to `knownTyName` is a one-line change with a wide blast radius (it turns on the
+      typed regime for a type that has never had it), so it wants its own measurement and its own
+      A/B, separately from VC-2.
+
+**What the 18× is made of — measured, so the fix is aimed rather than guessed.** JFR allocation
+profile, expression-init against literal-init:
+
+    Value$IntV   381 samples  |  absent from the literal run's top 5   <- the boxing, per store
+    Value[]      648          |  178
+    Done         177          |  222   (compile phase in both)
+
+`IntV` is the distinguishing allocation. So the fix must remove the BOX, not speed up dispatch —
+which is what routing the var into `lcell` does, and it is why `canLong` accepting `lcell.get` but
+not `cell.get` makes the cell choice decide the whole loop's speed.
 
 - [ ] **VC-3 — the same treatment in the lowerer** (legacy front) once (a) or (b) is chosen.
 - [ ] **VC-4 — prove LIVE, then measure.** Rename the emitted prim: the expression-init program MUST
