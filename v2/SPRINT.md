@@ -2048,6 +2048,24 @@ only because both say "collection". It needs its own attribution pass (C-2 cover
 well land on the closure-call seam rather than the collection seam — in which case it belongs with
 P-5 and the dispatch work, not here.
 
+### C-1 — DECIDED 2026-07-31: declined, on the measurement
+
+Sergiy chose **neither option**: keep memoisation, do not spend the shared kernel on 1.39×, move to
+P-5. The reasoning is in the numbers above — 1.39× is invisible under this row's own 2.5× spread, and
+5.0× would change reference-lane semantics for one row when the remaining 83 ns is a lever that
+moves EVERY row.
+
+This is a measured decline, not an abandonment: the cost is attributed, the ceiling for both options
+is priced, and the reason for not acting is written down. If someone later wants `lazylist-take`
+faster, the work is specified and the trade is already costed — nothing needs re-deriving.
+
+### C-4 — RESOLVED 2026-07-31: `list-fold` moves to P-5
+
+C-0 showed the bytecode lane wins 6.3× on `list-fold` and ~nothing on `lazylist-take`; C-2 showed
+`strictFoldStep` costs 108 ns / 640 B with no thunks and no memoisation, i.e. it is closure calls and
+`Value` traffic, not collection machinery. `list-fold` therefore belongs with the dispatch work. It
+is not a collection problem and should not be tracked as one.
+
 ### C-5 — exit criteria (what makes this cluster CLOSED rather than abandoned)
 
 - both rows re-measured with sha + load, in `bench/history.tsv`;
@@ -2059,3 +2077,23 @@ P-5 and the dispatch work, not here.
 
 **NOT in this plan, deliberately:** rewriting the v2 collection representation, porting v1's whole
 JIT tier, or any change to the shared kernel that is not preceded by C-2's attribution.
+
+### CLUSTER CLOSED 2026-07-31 — against C-5's criteria, item by item
+
+- **both rows re-measured with sha + load** — C-0, 12 rows in `bench/history.tsv` at `315dbca16`. ✓
+- **one sentence per row naming WHERE the cost is, backed by a layer or a distinguishing
+  allocation, not a profile share** —
+  `lazylist-take`: 64% of time and 1824 of 2848 B is `scala.collection.immutable.LazyList` itself,
+  37% is the VM closure call, 0.2% is the arithmetic; boxing is 0 and is refuted to the milli-byte.
+  `list-fold`: no thunks, no memoisation, 640 B — closure calls and `Value` traffic. ✓
+- **a landed fix, or a recorded decision that the cost is structural with the measurement behind
+  it** — the latter, deliberately: C-1 declined with both options priced (1.39× / 5.0×). ✓
+
+**Cost of the whole cluster: zero lines of kernel code.** Three hypotheses were killed by
+measurement instead of by implementation — boxing (refuted, identical bytes), chain-count fusion
+(1.39×, not the ~3.5× I predicted), and "collections are inherently slow" (they are not; 5.0× is
+available, it is simply not worth its semantic price today).
+
+**What it produced for other work:** `V2CollectionBench` is permanent apparatus; the closure call is
+now measured at ~10–19 ns / 48–128 B per invocation from two independent shapes, which is the number
+P-5 will be judged against.
