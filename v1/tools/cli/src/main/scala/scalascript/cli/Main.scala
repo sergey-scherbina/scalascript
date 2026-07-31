@@ -68,9 +68,16 @@ import ArtifactInfoPrinters.*
   // stdin itself (lsp uses JSON-RPC; repl uses interactive readline),
   // read the piped content as a YAML secrets document — the typical
   // source is `sops -d secrets.enc.yaml | ssc myapp.ssc`.
+  // An EXPLICIT secrets file wins and suppresses the implicit stdin slurp entirely — naming the
+  // source is the whole point, and reading both would make "where did this secret come from" a
+  // question with two answers. S1 of `ssc-tools-stdin-belongs-to-the-program`; the implicit path
+  // stays the default until S2/S3 retire it, so nothing that works today stops working here.
   val stdinCommand = args.headOption.getOrElse("")
-  if System.console() == null && stdinCommand != "lsp" && stdinCommand != "repl" then
-    loadSopsSecrets()
+  globalFlags.secretsFile match
+    case Some(path) => loadSopsSecretsFrom(path)
+    case None =>
+      if System.console() == null && stdinCommand != "lsp" && stdinCommand != "repl" then
+        loadSopsSecrets()
 
   // Standalone meta-commands that don't dispatch to a command handler.
   if globalFlags.listBackends then
@@ -116,6 +123,33 @@ private def dispatchCommand(args: List[String]): CommandResult =
  *
  *  A blank or non-YAML stdin is silently ignored — no error is raised
  *  so that scripts piped other content don't break unexpectedly. */
+/** Load a YAML secrets document from a NAMED source — a file, a process substitution
+ *  (`<(sops -d secrets.enc.yaml)`), or `/dev/stdin` if the caller really wants the pipe.
+ *
+ *  Unlike the implicit stdin path this one is LOUD on failure. That asymmetry is deliberate: the
+ *  implicit path has to stay quiet because it fires on any piped input and most of it is not
+ *  secrets, whereas a caller who wrote `--secrets-file` has stated an intent, and silently ignoring
+ *  a typo'd path would hand them a program running without the secrets it asked for. */
+private def loadSopsSecretsFrom(path: String): Unit =
+  val src =
+    try scala.io.Source.fromFile(path)(using scala.io.Codec.UTF8)
+    catch case e: Throwable =>
+      System.err.println(s"ssc: --secrets-file: cannot read $path: ${e.getMessage}")
+      System.exit(2); throw e
+  val raw = try src.mkString finally src.close()
+  if raw.trim.isEmpty then
+    System.err.println(s"ssc: --secrets-file: $path is empty")
+    System.exit(2)
+  try
+    val flat = flattenYaml("", scalascript.parser.SimpleYaml.load[Any](raw))
+    if flat.isEmpty then
+      System.err.println(s"ssc: --secrets-file: $path parsed to no key/value pairs")
+      System.exit(2)
+    scalascript.sql.SopsSecrets.load(flat)
+  catch case e: Throwable =>
+    System.err.println(s"ssc: --secrets-file: $path is not a YAML document: ${e.getMessage}")
+    System.exit(2)
+
 private def loadSopsSecrets(): Unit =
   try
     if System.in.available() == 0 then return
@@ -153,6 +187,11 @@ case class GlobalFlags(
     listSourceLanguages: Boolean        = false,
     describeBackend:     Option[String] = None,
     yStats:              Boolean        = false,
+    // S1 of `ssc-tools-stdin-belongs-to-the-program` (BACKLOG.md): secrets get their OWN channel,
+    // so stdin can go back to being the program's. Composes with process substitution —
+    // `ssc --secrets-file <(sops -d secrets.enc.yaml) run app.ssc` — and with an explicit
+    // `/dev/stdin` for anyone who wants the old shape verbatim.
+    secretsFile:         Option[String] = None,
 ):
   def applyToRegistry(): Unit =
     pluginJars.foreach(BackendRegistry.addPluginJar)
@@ -185,6 +224,8 @@ object GlobalFlags:
           flags = flags.copy(describeBackend = Some(arr(i + 1))); i += 2
         case "--Ystats" =>
           flags = flags.copy(yStats = true); i += 1
+        case "--secrets-file" if i + 1 < arr.length =>
+          flags = flags.copy(secretsFile = Some(arr(i + 1))); i += 2
         case other =>
           rest += other; i += 1
     // Stash for handlers that consult the flag (via ActiveFlags).

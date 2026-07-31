@@ -34,14 +34,23 @@ user report to surface this one.
 
 ### Slices
 
-- [ ] **S1 — `--secrets-file <path>`.** Read and flatten exactly as `loadSopsSecrets` does today;
-      same `SopsSecrets.load`. New surface only, no behaviour removed — safe to land alone.
-- [ ] **S2 — the implicit slurp becomes opt-in**, `SSC_SOPS_STDIN=1`, for ONE release. Anyone
-      relying on the old shape keeps it by setting one variable, and the deprecation notice names
-      `--secrets-file` and the release the default flips in. A silent break here would land on
-      exactly the people who automated the old form.
-- [ ] **S3 — flip the default and delete the env escape**, one release later. CHANGELOG entry is
-      part of this slice, not a follow-up.
+- [x] **S1 — `--secrets-file <path>`.** DONE. Reads and flattens exactly as `loadSopsSecrets` does,
+      same `SopsSecrets.load`; an explicit file SUPPRESSES the implicit stdin slurp, because "where
+      did this secret come from" must not have two answers. Additive: with no flag, today's
+      behaviour is byte-identical. Unlike the implicit path it is LOUD on a bad path, an empty file
+      or a non-YAML document (exit 2) — the implicit one has to stay quiet because it fires on any
+      pipe, but a caller who wrote `--secrets-file` stated an intent, and silently ignoring a typo
+      would hand them a program running without the secrets it asked for.
+      Measured: `--secrets-file f | run` → the program receives the pipe; no flag → the CLI still
+      eats it (unchanged); `<(sops -d …)` works; missing path → exit 2.
+- [ ] **S2 — deprecation notice on the implicit slurp.** When it fires, print once to stderr that
+      stdin is being consumed as secrets, name `--secrets-file`, and say which release stops it.
+      Behaviour unchanged — this slice only makes the surprise visible to the people it will affect.
+- [ ] **S3 — the implicit slurp becomes opt-in** (`SSC_SOPS_STDIN=1`), then the escape is deleted a
+      release later. CHANGELOG entry is part of this slice, not a follow-up.
+      (Corrected 2026-07-31: the original S2/S3 split said "becomes opt-in" and then "flip the
+      default", which is the same flip written twice. The missing step was the WARNING — nobody
+      should discover a default change by their pipeline going quiet.)
 - [ ] **S4 — the gate.** A conformance case (or e2e) that pipes a line into `ssc-tools run` and
       asserts the PROGRAM received it. There is none today, which is why the swallow survived: the
       only lane that could have noticed had no way to read stdin at all.
