@@ -21,7 +21,6 @@ datatable-static-spa	*	SKIP
 derived-route-clients	*	SKIP
 distributed-join	*	SKIP
 distributed-log-aggregation	*	SKIP
-dsl-calc-parser	v2	DIVERGE
 dsl-sql-recovery	js	FAIL
 fetch-auth	*	SKIP
 graph-fullstack-rdf	*	SKIP
