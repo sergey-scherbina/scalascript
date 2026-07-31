@@ -51,9 +51,10 @@ user report to surface this one.
       (Corrected 2026-07-31: the original S2/S3 split said "becomes opt-in" and then "flip the
       default", which is the same flip written twice. The missing step was the WARNING — nobody
       should discover a default change by their pipeline going quiet.)
-- [ ] **S4 — the gate.** A conformance case (or e2e) that pipes a line into `ssc-tools run` and
-      asserts the PROGRAM received it. There is none today, which is why the swallow survived: the
-      only lane that could have noticed had no way to read stdin at all.
+- [x] **S4 — the gate.** DONE: `tests/e2e/stdin-belongs-to-the-program.sh`, wired into the push path.
+      Four assertions, and the second is deliberately about TODAY's wrong behaviour — the tools route
+      without `--secrets-file` still swallows stdin — so that flipping it in S3 turns this red and has
+      to be acknowledged in the same commit instead of slipping through as a silent default change.
 
 **Do not start at S2.** S1 first means the replacement exists before the old path is discouraged;
 reversing that order leaves a window where the documented way to pass secrets is the one being

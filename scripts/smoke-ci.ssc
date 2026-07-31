@@ -172,6 +172,13 @@ val suite = List(
   // Network: one `git fetch --depth 1` per gitlink against the submodule's remote. Generous timeout
   // because a slow or flaky network must read as "this run could not tell", not as a repo defect.
   Check("scripts", "submodule-gitlinks-resolve", "tests/e2e/submodule-gitlink-resolves.sh", List(), 120000),
+  // Who owns stdin — the program or the CLI. Four launcher starts, ~10 s, and it is worth them: this
+  // is the only check that can see the defect at all, because until `std.os.readLine` existed no
+  // lane could read stdin and therefore none could notice the CLI was eating it. It deliberately
+  // pins TODAY's wrong behaviour on the tools route as well as the right one on the default lane —
+  // so the S3 flip goes red here and has to be acknowledged in the same commit rather than slipping
+  // through as a silent default change.
+  Check("scripts", "stdin-ownership", "tests/e2e/stdin-belongs-to-the-program.sh", List(), 180000),
 
   // ── tests/conformance — the product. One pass, several lanes; see `laneModule` for where the
   //    per-lane results are booked.
