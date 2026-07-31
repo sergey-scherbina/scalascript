@@ -1,0 +1,11 @@
+slug: nul-remaining-four
+branch: feature/nul-remaining-four
+agent: claude-code
+started: 2026-07-31T04:21:27Z
+heartbeat: 2026-07-31T04:21:27Z
+status: claimed-before-planning
+items: nul-byte-in-tracked-source
+paths: file:payments/blockchain/cardano/jvm/src/main/scala/scalascript/blockchain/cardano/CardanoChainAdapter.scala file:uniml/core/src/test/scala/scalascript/uniml/spike/ScalaSpike.scala file:v1/lang/core/src/test/scala/scalascript/artifact/ArtifactAbiCompatibilityTest.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/ValueSerializer.scala file:scripts/smoke-ci.ssc file:tests/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
