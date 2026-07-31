@@ -7,6 +7,34 @@ grepping for status.
 
 Newest first.
 
+## bugs-index-gate-rejects-an-all-digit-sha — a real abbreviated sha can look like a CI run id
+<!-- status: open
+     lane: apparatus
+     area: build
+     gate: tests/e2e/bugs-index-gate.sh -->
+
+**Found 2026-07-31.** `tests/e2e/bugs-index-gate.sh` rejects a `fixed-in` whose value is all digits:
+
+```python
+if not re.fullmatch(r"[0-9a-f]{7,40}", sha) or sha.isdigit():
+    problems.append((slug, f"fixed-in `{sha}` is not a commit sha"))
+```
+
+The rule is well-reasoned and its comment says why — an 11-digit CI run id matches `[0-9a-f]{7,40}`
+perfectly, and three of them were sitting in the file as `fixed-in` values before the migration. But
+a git sha can be all digits too: `033928567` (commit `03392856735469545ed5665943a7bd624ef213e0`) was
+rejected as "not a commit sha" while being exactly that. `--short=10/11/12` are all-digit as well, so
+abbreviating harder does not help; only the full 40 characters happen to contain a letter here.
+
+Worked around by writing the full sha. The proper fix is to stop guessing from SHAPE: the gate runs
+inside the repository, so `git cat-file -e <sha>^{commit}` answers the question exactly, and would
+also reject a run id — which resolves to nothing — without a heuristic. Shape can distinguish neither
+direction reliably; a 40-hex run id would pass today's check, and a valid sha fails it.
+
+Not urgent: the workaround is one longer string, and the rule catches the case it was written for.
+Recorded because the failure message says "is not a commit sha" about something that IS one, which
+sends the reader to look for a mistake that does not exist.
+
 ## corpus-breadth-slice-bloop-server-timeout — Bloop takes over 30 s to start on a 2-core runner
 <!-- status: fixed
      fixed-in: 1bd6b0984
