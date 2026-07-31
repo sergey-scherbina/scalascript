@@ -16,6 +16,66 @@ scripts/bugs-report --no-gate              # open entries with no regression gat
 
 Newest first.
 
+## std-has-no-stdin-primitive — nothing in std reads a line from stdin, so an interactive `.ssc` program cannot exist
+<!-- status: open
+     lane: multi
+     area: runtime
+     kind: feature
+     gate: none -->
+
+**Status:** OPEN. Filed 2026-07-31 by `nadia-dev` (rozum side), blocking an external consumer.
+
+`std.os` exports `env` · `envOrElse` · `args` · `exit` · `cwd` · … — the whole environment
+surface **except input**. There is no `readLine`, no `stdin`, no console module: the only
+occurrence of the word in the tree is a comment in `runtime/std/free.ssc:97` (“production:
+println / readLine”). Output has `println`; input has nothing.
+
+The consequence is categorical rather than cosmetic: **no `.ssc` program can prompt a user
+and read the answer**, on any lane. A REPL, an interactive CLI, a confirmation prompt, a
+wizard — none of them are expressible today. Everything else the shape needs is already
+here (`std.process.exec`, `std.fs`, `std.actors`, `std.http`), which is what makes this the
+single missing piece rather than one of several.
+
+**Concrete blocked work.** `nadia` (see rozum's `REPOS.md`) is an agent whose interactive
+mode is a line-based REPL over `std.agent`. Its batch half is written and works; the
+interactive half cannot be written at all. The Rust twin (`rozum:crates/nadia`) ships the
+same REPL in ~40 lines because `std::io::stdin().read_line` exists.
+
+**No workaround on the default lane.** A ` ```scala ` passthrough block does not help:
+the standard tier is a self-hosted VM, not Scala-on-JVM, so `java.io` is unbound there
+(`ssc: unbound global: java`). Reading stdin through `exec` (`exec("head", ["-n1"], …)`)
+inherits no terminal and returns immediately.
+
+### Shape of the fix
+
+Exactly the one landed a day earlier for the sibling gap — `f101312ed` *"implement `exec`
+on the native tier — std.process was missing from the DEFAULT lane"* — and that commit is
+the template, down to the ordering:
+
+1. Declare the primitive in `runtime/std/os.ssc` (or a new `std/console.ssc` if input
+   deserves its own module) and add it to `exports:`.
+2. Implement it per lane: `int`, `js`, `jvm`, `native`. On the native tier it is the same
+   `QualifiedName(...) -> native { … }` registration `exec` now uses.
+3. A conformance case that reads a line and echoes it, driven with a here-string so it is
+   deterministic — that is the `gate:` this entry currently lacks.
+
+Suggested surface, with the EOF case explicit so callers are forced to handle it rather
+than discovering it as an empty string:
+
+```scala
+extern def readLine(): Option[String]   // None at EOF
+```
+
+`readLine(prompt: String)` is deliberately **not** proposed: prompting is `print` +
+`readLine`, and folding them together makes the primitive untestable without a terminal.
+
+### Not to be confused with
+
+`std.process.exec` being unbound on the default lane, which **is already fixed**
+(`f101312ed`). It was re-reported from the rozum side on 2026-07-30 against a toolchain
+built at `ff493301c` — i.e. before the fix, with `SSC_NO_BUILD_CHECK=1` silencing the
+launcher's own staleness warning. That report was wrong; this entry is not the same gap.
+
 ## std-ui-fetchUrlSignalTo-declared-never-implemented — a std primitive that exists only as documentation
 <!-- status: open
      lane: multi
