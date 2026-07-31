@@ -775,6 +775,17 @@ def copyLabel(label, i) = if label == "" then "#" ++ i else label
 // expandCollectionCurry :1915-1941, gated to fill/tabulate with len(innerArgs)==len(args)==1). A
 // 2-arg first clause (2D tabulate) or non-1 second clause is NOT flattened -> normal app path.
 def isCurriedFactory(nm) = if nm == "tabulate" then true else nm == "fill"
+// `Set` is DELIBERATELY absent here, and that is a measured decision rather than an oversight.
+//
+// This table drives the SELECT path (`selRecv` -> `isCollCompUid` -> `methodRecv`), which emits a
+// receiver `(ctor Set)`. The v2 runtime has no notion of `Set` at all — zero occurrences in
+// `Runtime.scala` — so `Set.empty` lowered through here produced NO OUTPUT, where the default front
+// prints `List()`. Adding `Set` therefore turned "F declines, the runner falls back, the answer is
+// right" into "F lowers it and the answer is silently wrong", which is strictly worse.
+//
+// `Set.empty` stays an F gap on purpose: it declines, delegates, and is correct. The constructor
+// path (`parseCtorArgs`) IS fixed, because there `Set` is a pure syntactic rewrite to a list literal
+// and needs nothing from the runtime. BUGS v2 `f-set-empty-has-no-runtime-receiver`.
 def isCollComp(nm) = if nm == "List" then true else (if nm == "Seq" then true else (if nm == "Vector" then true else (if nm == "Array" then true else nm == "Map")))
 def isCollCompUid(c) = if isUidGlobal(c) then isCollComp(c.substring(8, c.length - 1)) else false
 def isCurryFlat(c, nm, es, r) = if isCurriedFactory(nm) then (if isCollCompUid(c) then (if isOneE(es) then isTok(hd(r), 2, 21) else false) else false) else false
@@ -930,7 +941,12 @@ def enumValuesStr(names) = names match { case Nil => "(ctor Nil)" case h :: t =>
 // `List(a, b, c)` is NOT a ctor call — it desugars to a right-nested Cons chain ending in Nil (measured:
 // List() -> (ctor Nil); List(a,b) -> (ctor Cons a (ctor Cons b (ctor Nil)))). Needs the args as a LIST
 // (to nest), so parseArgL collects them; every other ctor keeps the flat parseArgs string.
-def parseCtorArgs(nm, ts, env, cx) = if nm == "List" then parseListLit(ts, env, cx) else (if nm == "Vector" then parseListLit(ts, env, cx) else (if nm == "Seq" then parseListLit(ts, env, cx) else (if nm == "Array" then parseArrLit(ts, env, cx) else (if nm == "Map" then parseMapLit(ts, env, cx) else (if nm == "Decimal" then parseDecimalC(ts, env, cx) else (if nm == "BigInt" then parseBigIntC(ts, env, cx) else parseCtorGen(nm, ts, env, cx)))))))
+// The CALL path, and the twin of `isCollComp` above. Without a `Set` arm here `Set(1, 2)` fell to
+// `parseCtorGen`, which emits a reference to a global named `Set` — F then declined the whole file
+// and the runner fell back to the default front, so `ssc run` stayed green and only the F4 gate's
+// `frc` column saw it. Fixing one table and not the other would have been quieter still: `Set(1,2)`
+// would work while `Set.empty` kept failing.
+def parseCtorArgs(nm, ts, env, cx) = if nm == "List" then parseListLit(ts, env, cx) else (if nm == "Vector" then parseListLit(ts, env, cx) else (if nm == "Seq" then parseListLit(ts, env, cx) else (if nm == "Set" then parseListLit(ts, env, cx) else (if nm == "Array" then parseArrLit(ts, env, cx) else (if nm == "Map" then parseMapLit(ts, env, cx) else (if nm == "Decimal" then parseDecimalC(ts, env, cx) else (if nm == "BigInt" then parseBigIntC(ts, env, cx) else parseCtorGen(nm, ts, env, cx))))))))
 // E2: a case-class / enum-case ctor call `Name(args)` (lowered as `app(uid Name, args)`) shares the SAME
 // call-site default synthesis as a def call — the innermost fullCall `(app (global Name) ..)` is exactly
 // ctorApp's non-builtin form. Under-applied + defaults → nested lambdas; else the plain ctorApp path.
