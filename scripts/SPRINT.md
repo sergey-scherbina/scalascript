@@ -10,6 +10,16 @@ Anything not being worked on belongs in `scripts/BACKLOG.md`, not here — a que
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [x] **smoke-conformance-shards-partition-costs-49s** — one enumeration instead of seven.
+  `run.sc --list --shard-all N` emits `# all` plus every shard section in ONE process; two
+  invocations remain and are irreducible (a `--shard 9/4` that must FAIL, and the real `--shard 0/N`
+  path). MEASURED 16.4 -> 7.0 s locally; it was 49 s on CI.
+  ⚠ Two tempting fixes are wrong, both written into the commit: computing the shards in bash destroys
+  the gate (it would test a re-implementation of `idx % N` against itself), and reusing the scala-cli
+  server means stopping a HOST-WIDE bloop daemon a sibling agent is using — do not pkill it.
+  The refactor's own risk, a second copy of the shard rule, is closed by a single `shardSlice` in
+  run.sc plus check 5 asserting `--shard-all` shard 0 == `--shard 0/N` byte-for-byte.
+
 - [x] **smoke-verdict-on-every-push** — concurrency group removed from `smoke.yml`. MEASURED cadence
   that forced it: 57 commits/hour on main, 32 `[skip ci]`, so ~25 runs created against a job that
   completed ~7 — 7 success / 12 cancelled over 20 runs, i.e. 37 % of commits got a verdict. Safe now

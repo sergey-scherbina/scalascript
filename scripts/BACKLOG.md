@@ -1104,15 +1104,3 @@ own arc. None is speculative: every one has a measured number attached.
       coverage and is the only one that does.
       Do NOT "fix" this by raising `SSC_SMOKE_BUDGET` — the budget governs the suite, and the suite
       is already inside it. The job is what is long.
-
-- [ ] **smoke-conformance-shards-partition-costs-49s** — `tests/e2e/build-conformance-shard-gate.sh 4`
-      is the largest non-corpus smoke check (49 s on CI) because it invokes `run.sc --list` five
-      times, each with `--server=false`. MEASURED: those five calls are 28.2 s serverless against
-      5.6 s with the scala-cli server — a 5x difference, and with the concurrency group gone every
-      run pays it.
-      The five invocations are LOAD-BEARING and must not be collapsed into local arithmetic: each
-      shard listing has to come from run.sc, or the gate would be testing a re-implementation of
-      `idx % N` against itself. Two viable shapes: (a) `run.sc --list --shard-all N` emitting every
-      shard's listing in ONE process, still computed by run.sc's own sharding; (b) reuse the
-      scala-cli server. (b) is rejected as written — the bloop daemon is host-wide and shutting it
-      down would break whatever sibling agent is mid-build; do NOT "fix" this with a pkill.
