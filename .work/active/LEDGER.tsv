@@ -1,6 +1,8 @@
-# generation: 608
+# generation: 610
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
 sys-env-three-lanes	claude-code	2026-07-31T07:37:45Z	typer-defines-sys-but-no-runtime-provides-it	file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/BuiltinsRuntime.scala file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:v2/src/Runtime.scala file:tests/conformance/sys-env.ssc file:tests/conformance/expected/sys-env.txt file:BUGS.md
 f-float-exponent	claude-code	2026-07-31T10:10:47Z	f-has-no-float-exponent	file:v2/BUGS.md file:tests/conformance/float-literal-suffix.ssc file:specs/v2.2-p6.5-fsub.ssc
 v2-cluster-capability-native	claude-code	2026-07-31T10:18:32Z	v2-cluster-capability-native	v2/runtime/std/actors-plugin v2/BUGS.md tests/conformance/corpus-baseline.tsv tests/conformance/contract-roster.tsv
+v2-perf-chain-capture-hoist	claude-code	2026-07-31T10:20:10Z	v2-perf-cell-get-forces-effect-chain	file:v2/backend-jvm-bytecode/JvmByteGen.scala file:bench/history.tsv file:v2/BACKLOG.md
+v2-perf-chain-capture-hoist	claude-code	2026-07-31T10:20:24Z	v2-perf-cell-get-forces-effect-chain	file:v2/backend-jvm-bytecode/JvmByteGen.scala file:bench/history.tsv file:v2/BACKLOG.md
