@@ -2663,14 +2663,22 @@ def lowerE = (scope, rawExpr) =>
                   case IrLocal(ci) => IrPrim("cell.get", Cons(IrLocal(ci), Nil))
                   case IrGlobal(ng) =>
                     -- K62.6b: a top-level `var` reference → cell.get(global name__cell)
-                    if isTopVar(data) then
-                      IrPrim("cell.get", Cons(IrGlobal(#sconcat(data, "__cell")), Nil))
-                    else if isTopVal(data) then
-                      IrPrim("cell.get", Cons(IrGlobal(#sconcat(data, "__cell")), Nil))
-                    else if isActiveOwnerVar(data) then
+                    -- OWNER BEFORE TOP-LEVEL. The mechanism was already here and was simply
+                    -- consulted too late: a member name that ALSO exists at the top level was
+                    -- taken by isTopVar/isTopVal, so `object Counter { var n }` read and wrote the
+                    -- top-level `n__cell` while `Counter.n` from outside resolved to the object's
+                    -- own cell. A member shadows an outer name inside the object body, as in
+                    -- Scala. Without a collision the old order happened to give the same answer,
+                    -- which is why this survived.
+                    -- v2/BUGS.md `v2-object-var-member-resolves-to-a-top-level-global`.
+                    if isActiveOwnerVar(data) then
                       IrPrim("cell.get",
                         Cons(IrGlobal(#sconcat(#cell.get(kc7bOwnerPrefixCell),
                           #sconcat(data, "__cell"))), Nil))
+                    else if isTopVar(data) then
+                      IrPrim("cell.get", Cons(IrGlobal(#sconcat(data, "__cell")), Nil))
+                    else if isTopVal(data) then
+                      IrPrim("cell.get", Cons(IrGlobal(#sconcat(data, "__cell")), Nil))
                     else if isActiveOwnerMember(data) then
                       IrGlobal(#sconcat(#cell.get(kc7bOwnerPrefixCell), data))
                     else if #seq(data, "this") then
@@ -2981,12 +2989,15 @@ def lowerE = (scope, rawExpr) =>
                   case Some(cellRef) =>
                     IrPrim("cell.set", Cons(cellRef, Cons(lowerE(scope, expr), Nil)))
                   case None =>
-                    -- K62.6b: assignment to a top-level var → cell.set(global name__cell)
-                    if isTopVar(name) then
-                      IrPrim("cell.set", Cons(IrGlobal(#sconcat(name, "__cell")), Cons(lowerE(scope, expr), Nil)))
-                    else if isActiveOwnerVar(name) then
+                    -- K62.6b: assignment to a top-level var → cell.set(global name__cell), but the
+                    -- ACTIVE OWNER'S var wins first — a member shadows an outer name inside the
+                    -- object body. The old order wrote the top-level cell whenever the names
+                    -- collided (`v2-object-var-member-resolves-to-a-top-level-global`).
+                    if isActiveOwnerVar(name) then
                       IrPrim("cell.set", Cons(IrGlobal(#sconcat(#cell.get(kc7bOwnerPrefixCell),
                         #sconcat(name, "__cell"))), Cons(lowerE(scope, expr), Nil)))
+                    else if isTopVar(name) then
+                      IrPrim("cell.set", Cons(IrGlobal(#sconcat(name, "__cell")), Cons(lowerE(scope, expr), Nil)))
                     else IrPrim("cell.set", Cons(lookupVar(scope, cellName), Cons(lowerE(scope, expr), Nil)))
                 }
             }
@@ -4217,12 +4228,12 @@ def lowerBlock = (scope, stmts) =>
                       case Some(cellRef) =>
                         IrPrim("cell.set", Cons(cellRef, Cons(lowerE(scope, expr), Nil)))
                       case None =>
-                        -- K62.6b: assignment to a top-level var → cell.set(global name__cell)
-                        if isTopVar(name) then
-                          IrPrim("cell.set", Cons(IrGlobal(#sconcat(name, "__cell")), Cons(lowerE(scope, expr), Nil)))
-                        else if isActiveOwnerVar(name) then
+                        -- Owner's var first — same reordering as the sibling assignment site above.
+                        if isActiveOwnerVar(name) then
                           IrPrim("cell.set", Cons(IrGlobal(#sconcat(#cell.get(kc7bOwnerPrefixCell),
                             #sconcat(name, "__cell"))), Cons(lowerE(scope, expr), Nil)))
+                        else if isTopVar(name) then
+                          IrPrim("cell.set", Cons(IrGlobal(#sconcat(name, "__cell")), Cons(lowerE(scope, expr), Nil)))
                         else IrPrim("cell.set", Cons(lookupVar(scope, cellName), Cons(lowerE(scope, expr), Nil)))
                     }
                 }

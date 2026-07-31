@@ -296,11 +296,50 @@ lowering, the other needs the bytes. The approved plumbing for `cluster-capabili
 second easy and does not automatically deliver the first.
 
 ## v2-object-var-member-resolves-to-a-top-level-global — a method reads a global instead of its own field
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: runtime
-     fixed-in: -
+     fixed-in: PENDING-SHA
      gate: tests/conformance/object-var-member-scope.ssc -->
+
+**FIXED 2026-07-31** by `v2-object-scope-plumbing`, on both fronts. All ten rows now match the jvm
+golden, and **F stopped declining the file** — `ssc info --front-report` moved it `GAP -> F`, so F's
+coverage hole is one file smaller as a side effect.
+
+The two fronts needed opposite kinds of work, which is the useful part of this entry.
+
+### legacy: the mechanism was already there and was consulted too late
+
+`isActiveOwnerVar` and `kc7bOwnerPrefixCell` already existed. They were checked AFTER
+`isTopVar`/`isTopVal` at the read site and after `isTopVar` at both assignment sites, so a member
+name that ALSO existed at the top level was taken by the top-level branch. **A member shadows an
+outer name inside the object body**; three reorderings, no new machinery. Without a collision the
+old order gave the same answer, which is exactly why this survived and why the case's shadowing
+block is the point of it.
+
+### F: the context did not exist, and the outside selection was separately wrong
+
+Two independent defects, and fixing only the first leaves F declining the file:
+
+1. **Inside** a member body, `calleeOf`/`emitAssign`/`bareCtor` built the cell name from the BARE
+   identifier. F had no notion of the object currently being lowered — `objReg` knew every object's
+   members but nothing knew *which* object. Added a `curObj` slot as the deepest cx payload
+   (`(retTab, curObj)`, the same extension shape as DA10/E2/G3 before it), set by `objectItem1` for
+   the member bodies only, and consulted AFTER the local-env lookups so a parameter or nested val
+   still shadows the member.
+2. **Outside**, `postSel` emitted `(global O_v)` for every member — but a `var` member is defined as
+   `O_v__cell`, so that global was unbound and F declined the whole file. `objReg`'s payload is now
+   `(memberNames, varMemberNames)` and a var selection reads the cell.
+
+### Two mistakes worth recording
+
+`curObjOf` was written with one `snd` too few, so it returned the `(retTab, curObj)` PAIR: the
+symptom was `match: no arm for Tuple2/2`, i.e. an unrelated-looking crash far from the accessor.
+Counting the `snd` chain against its neighbours found it in one step. And a `match` nested inside a
+match ARM does not lower in this file (same error text) — one match per function, mirroring
+`objMemName`.
+
+### Original report
 
 A `var` member of an `object` collides with a top-level name. With `var n = 100` at the top level
 beside `object Counter { var n = 0 }` and `object Other { var n = 50 }`, measured against the JVM

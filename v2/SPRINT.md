@@ -13,6 +13,29 @@ lose the reasoning around them.
 Milestone view: [`ROADMAP.md`](ROADMAP.md). Pipeline: `ssc0 → ir → ssc(VM) → cpu`. Work each slice
 in its own worktree off `origin/main`.
 
+## v2 object scope plumbing (claim `v2-object-scope-plumbing`)
+
+Closes `v2-object-var-member-resolves-to-a-top-level-global`, the slice the previous batch scoped
+out. Both fronts; all ten rows of `object-var-member-scope` match the jvm golden and the file moved
+`GAP -> F` in the front report, so F's coverage hole is one file smaller too.
+
+- [x] **P-1 — legacy: three reorderings, no new machinery.** `isActiveOwnerVar` already existed and
+      was consulted AFTER `isTopVar`/`isTopVal`, so a colliding name was taken by the top-level
+      branch. A member shadows an outer name inside the object body.
+- [x] **P-2 — F, inside the body:** new `curObj` cx slot (deepest payload, `(retTab, curObj)`, same
+      extension shape as DA10/E2/G3), set by `objectItem1` for member bodies only and consulted
+      AFTER the local-env lookups so parameters and nested vals still shadow.
+- [x] **P-3 — F, outside the body:** `postSel` emitted `(global O_v)` for every member, but a `var`
+      member is `O_v__cell` — an unbound global, which is why F DECLINED the file. `objReg`'s
+      payload is now `(memberNames, varMemberNames)`.
+- [x] **P-4 — evidence.** Full corpus contract on int,js,v2 rather than a slice, because this
+      changes NAME RESOLUTION in both fronts and a slice cannot speak for that.
+
+Two mistakes recorded in the entry because both cost a build cycle: `curObjOf` written with one
+`snd` too few returned the enclosing PAIR (symptom: `match: no arm for Tuple2/2`, far from the
+accessor — count the chain against its neighbours), and a `match` nested inside a match ARM does not
+lower in this file.
+
 ## object-var-member family (claim `object-var-member-family`)
 
 One source shape, three lanes, three different causes — the entry said so and the measurement

@@ -529,7 +529,22 @@ def mangleOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(s
 // E2c: object-method vararg registry (mangled O_m -> lead). Rides the extMethods payload's deepest slot.
 def objVarargsOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx)))))))))))))))))
 // F5b 1b-2: the deepest cx payload now carries (objVarargs, retTab); retTab = [(defName, retTypeName)].
-def retTabOf(cx) = snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx)))))))))))))))))
+// OBJ-SCOPE: the deepest payload is now `(retTab, curObj)`; curObj = `(objectName, [varMemberNames])`
+// for the object whose member body is being lowered, and `("", Nil)` everywhere else. Same extension
+// shape as DA10/E2/G3 above — nest into the deepest slot, shift that slot's accessor to `fst`.
+//
+// It exists because `calleeOf` and `emitAssign` build a cell name from the BARE identifier. Inside
+// `object Counter { var n = 0; def bump() = n = n + 1 }` that wrote the TOP-LEVEL `n__cell`, while
+// `Counter.n` from outside resolved to the object's own cell — so the two disagreed and an unrelated
+// top-level `var n` was silently clobbered. `objReg` already knew the member NAMES; nothing knew
+// which object was currently being lowered. BUGS `v2-object-var-member-resolves-to-a-top-level-global`.
+def retTabOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx))))))))))))))))))
+def curObjOf(cx) = snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx))))))))))))))))))
+// True when `nm` is a `var` member of the object being lowered right now. Locals are checked BEFORE
+// this at every call site, so a parameter or a nested val still shadows the member, as in Scala.
+def isCurObjVar(nm, cx) = if fst(curObjOf(cx)) == "" then false else memL(nm, snd(curObjOf(cx)))
+def curObjCell(nm, cx) = fst(curObjOf(cx)) ++ "_" ++ nm ++ "__cell"
+def withCurObj(o, cx) = mkCx(dqOf(cx), ccNamesOf(cx), fldNamesOf(cx), valNamesOf(cx), enumCaseNamesOf(cx), enumRegOf(cx), varNamesOf(cx), bsOf(cx), plessOf(cx), subInfoOf(cx), objRegOf(cx), funcDfltsOf(cx), (givenTabOf(cx), (usingSigOf(cx), (extMethodsOf(cx), (mangleOf(cx), (objVarargsOf(cx), (retTabOf(cx), o)))))))
 def ccNamesOf(cx) = fst(snd(cx))
 def fldNamesOf(cx) = fst(snd(snd(cx)))
 def valNamesOf(cx) = fst(snd(snd(snd(cx))))
@@ -725,7 +740,9 @@ def emitYamlSel(c) = "(prim cell.get (global __yaml_" ++ globalNameOf(c) ++ "__c
 // A bare field access on `RoundingMode` — `RoundingMode.HALF_UP` — lowers to the field NAME as a string
 // literal `(lit (str "HALF_UP"))` (oracle ssc1-lower resolveField roundingOwner :1600, a hardcoded builtin;
 // RoundingMode is not a user enum). Only the bare-uid receiver `(global RoundingMode)` triggers it.
-def postSel(c, nm, cx) = if isObjMember(globalNameOf(c), nm, cx) then "(global " ++ globalNameOf(c) ++ "_" ++ nm ++ ")" else (if isExtMethod(nm, cx) then "(app (global " ++ nm ++ ") " ++ c ++ ")" else (if c == "(global RoundingMode)" then "(lit (str " ++ dqOf(cx) ++ nm ++ dqOf(cx) ++ "))" else (if isListField(nm) then "(app (global __list_" ++ nm ++ ") " ++ c ++ ")" else (if isFld(nm, cx) then "(app (global _sel_" ++ nm ++ ") " ++ c ++ ")" else (if isTupField(nm) then "(app (global _sel_" ++ nm ++ ") " ++ c ++ ")" else (if isYamlSel(nm, c, cx) then emitYamlSel(c) else emitMethod(nm, selRecv(c), "", dqOf(cx))))))))
+// A `var` member is a CELL (`O_v__cell`), so `O.v` reads through it; only non-var members are the
+// bare `(global O_v)`. Emitting the bare form for a var was an unbound global and made F decline.
+def postSel(c, nm, cx) = if isObjVarMember(globalNameOf(c), nm, cx) then "(prim cell.get (global " ++ globalNameOf(c) ++ "_" ++ nm ++ "__cell))" else (if isObjMember(globalNameOf(c), nm, cx) then "(global " ++ globalNameOf(c) ++ "_" ++ nm ++ ")" else (if isExtMethod(nm, cx) then "(app (global " ++ nm ++ ") " ++ c ++ ")" else (if c == "(global RoundingMode)" then "(lit (str " ++ dqOf(cx) ++ nm ++ dqOf(cx) ++ "))" else (if isListField(nm) then "(app (global __list_" ++ nm ++ ") " ++ c ++ ")" else (if isFld(nm, cx) then "(app (global _sel_" ++ nm ++ ") " ++ c ++ ")" else (if isTupField(nm) then "(app (global _sel_" ++ nm ++ ") " ++ c ++ ")" else (if isYamlSel(nm, c, cx) then emitYamlSel(c) else emitMethod(nm, selRecv(c), "", dqOf(cx)))))))))
 // F5b Stage 1b slice 1b-3: a String-TYPED local receiver (`def f(s: String) = s.length`) also lowers
 // to `(prim slen ..)`. The declared type recovered from the env name (`name:String`, parseParam) is
 // exactly the evidence the prefix classifier cannot get from a bare `(local N)` — same read path as
@@ -1015,7 +1032,7 @@ def parseArgLMore(e, ts, env, cx) = if isTok(hd(ts), 2, 27) then parseArgL(tl(ts
 // import, case-object, case-class name used as an object `C.method`, enum case) -> `(global nm)` — the
 // name's hoisted def as a VALUE, NOT `(ctor nm)` and NOT `(app (global nm))`. Measured: `SqlNull`,
 // `ByteSlice.empty`, `Transport.Stdio`, `IntType` -> `(global X)`. Subsumes the old isEnumCase branch.
-def bareCtor(nm, cx) = if isTopVal(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else (if isTopVar(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else (if nm == "None" then "(ctor None)" else (if nm == "Nil" then "(ctor Nil)" else "(global " ++ nm ++ ")")))
+def bareCtor(nm, cx) = if isCurObjVar(nm, cx) then "(prim cell.get (global " ++ curObjCell(nm, cx) ++ "))" else (if isTopVal(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else (if isTopVar(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else (if nm == "None" then "(ctor None)" else (if nm == "Nil" then "(ctor Nil)" else "(global " ++ nm ++ ")"))))
 // An applied Upper-name `X(args)` lowers to `(ctor X args)` ONLY for the builtin ctors
 // {Cons, Some, Left, Right, Signal, ComputedSignal} (ssc1-lower :2078-2134); EVERY other uid — a local
 // case class OR an imported/unknown name (e.g. AchConfig) — lowers to `(app (global X) args)`, the same
@@ -1043,7 +1060,7 @@ def tupleCtor(es) = "(ctor Tuple" ++ dlen(es) ++ joinArgs(es) ++ ")"
 // Read resolution mirrors lowerE :2464-2483: plain name in scope -> `(local i)`; else a block-local var
 // bound `@@name`(long cell) -> `(prim lcell.get (local i))` or `@name`(cell) -> `(prim cell.get (local i))`;
 // else a top-level var/val -> `(prim cell.get (global name__cell))`; else a bare global.
-def calleeOf(nm, env, cx) = if lookup(nm, env) >= 0 then "(local " ++ lookup(nm, env) ++ ")" else (if lookup("@@@" ++ nm, env) >= 0 then "(prim dcell.get (local " ++ lookup("@@@" ++ nm, env) ++ "))" else (if lookup("@@" ++ nm, env) >= 0 then "(prim lcell.get (local " ++ lookup("@@" ++ nm, env) ++ "))" else (if lookup("@" ++ nm, env) >= 0 then "(prim cell.get (local " ++ lookup("@" ++ nm, env) ++ "))" else (if isTopVar(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else (if isTopVal(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else (if isPlessDef(nm, cx) then "(app (global " ++ nm ++ "))" else "(global " ++ nm ++ ")"))))))
+def calleeOf(nm, env, cx) = if lookup(nm, env) >= 0 then "(local " ++ lookup(nm, env) ++ ")" else (if lookup("@@@" ++ nm, env) >= 0 then "(prim dcell.get (local " ++ lookup("@@@" ++ nm, env) ++ "))" else (if lookup("@@" ++ nm, env) >= 0 then "(prim lcell.get (local " ++ lookup("@@" ++ nm, env) ++ "))" else (if lookup("@" ++ nm, env) >= 0 then "(prim cell.get (local " ++ lookup("@" ++ nm, env) ++ "))" else (if isCurObjVar(nm, cx) then "(prim cell.get (global " ++ curObjCell(nm, cx) ++ "))" else (if isTopVar(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else (if isTopVal(nm, cx) then "(prim cell.get (global " ++ nm ++ "__cell))" else (if isPlessDef(nm, cx) then "(app (global " ++ nm ++ "))" else "(global " ++ nm ++ ")")))))))
 // A lowercase call may carry explicit type args before its `(args)` or block arg — `foo[T](x)`,
 // `coroutineCreate[Int, Unit, String] { .. }`. Type args are erased, so skip the `[..]` (skipGen) and
 // dispatch on the following `(` (or fall to a bare ref, letting postfix pick up a trailing block arg).
@@ -1331,7 +1348,7 @@ def parseAssign(ts, env, cx) = parseAssign2(snd(hd(ts)), snd(hd(tl(ts))), tl(tl(
 def parseAssign2(nm, op, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (rhs, r) => (eNode(emitAssign(nm, assignRhs(nm, op, erase(rhs, cx), env, cx), env, cx)), r) }
 def compoundK(op) = if op == 53 then 23 else (if op == 54 then 24 else 25)
 def assignRhs(nm, op, rhs, env, cx) = if op == 20 then rhs else emitArith(compoundK(op), calleeOf(nm, env, cx), rhs, dqOf(cx))
-def emitAssign(nm, rhs, env, cx) = if lookup("@@@" ++ nm, env) >= 0 then "(prim dcell.set (local " ++ lookup("@@@" ++ nm, env) ++ ") " ++ rhs ++ ")" else (if lookup("@@" ++ nm, env) >= 0 then "(prim lcell.set (local " ++ lookup("@@" ++ nm, env) ++ ") " ++ rhs ++ ")" else (if lookup("@" ++ nm, env) >= 0 then "(prim cell.set (local " ++ lookup("@" ++ nm, env) ++ ") " ++ rhs ++ ")" else "(prim cell.set (global " ++ nm ++ "__cell) " ++ rhs ++ ")"))
+def emitAssign(nm, rhs, env, cx) = if lookup("@@@" ++ nm, env) >= 0 then "(prim dcell.set (local " ++ lookup("@@@" ++ nm, env) ++ ") " ++ rhs ++ ")" else (if lookup("@@" ++ nm, env) >= 0 then "(prim lcell.set (local " ++ lookup("@@" ++ nm, env) ++ ") " ++ rhs ++ ")" else (if lookup("@" ++ nm, env) >= 0 then "(prim cell.set (local " ++ lookup("@" ++ nm, env) ++ ") " ++ rhs ++ ")" else (if isCurObjVar(nm, cx) then "(prim cell.set (global " ++ curObjCell(nm, cx) ++ ") " ++ rhs ++ ")" else "(prim cell.set (global " ++ nm ++ "__cell) " ++ rhs ++ ")")))
 // In a block: a `while` (or an expr) that is not last pushes an anon slot and wraps in `(let ..)` — so it
 // reuses parseBlockCont. An `assign` (or idx_assign) does NOT bind: non-last -> `(seq set rest)` with the
 // scope UNCHANGED (ssc1-lower :3966); last -> the set bare.
@@ -1726,7 +1743,15 @@ def typeItem(ts) = (("", ""), skipStmt(ts))
 def isObjectHead(ts) = isWord(hd(ts), "object")
 def objBodyToks(ts) = if isEmpty(ts) then ts else (if isTok(hd(ts), 2, 28) then ts else objBodyToks(tl(ts)))
 def objectItem(ts, cx) = objectItem1(snd(hd(tl(ts))), objBodyToks(tl(tl(ts))), cx)
-def objectItem1(name, ts, cx) = if isTok(hd(ts), 2, 28) then ((objDefsStr(name, collectObjMembers(tl(ts)), cx), ""), skipBrace(tl(ts), 1)) else (("", ""), ts)
+// The member bodies are lowered under a cx that names THIS object and its `var` members, so a bare
+// `n` inside them resolves to `O_n__cell` instead of the top-level `n__cell` (OBJ-SCOPE, see
+// curObjOf). Only the bodies: the surrounding program keeps the outer cx.
+def objectItem1(name, ts, cx) = if isTok(hd(ts), 2, 28) then objectItem2(name, collectObjMembers(tl(ts)), ts, cx) else (("", ""), ts)
+def objectItem2(name, ms, ts, cx) = ((objDefsStr(name, ms, withCurObj((name, objVarMemberNames(ms)), cx)), ""), skipBrace(tl(ts), 1))
+// One match per function, mirroring objMemName: a match nested inside a match ARM does not lower
+// here (`match: no arm for Tuple2/2` — measured, this file compiles itself).
+def objVarMemberNames(ms) = ms match { case Nil => Nil case h :: t => objVarMemName(h, objVarMemberNames(t)) }
+def objVarMemName(m, rest) = m match { case (kind, nt) => if kind == "var" then Cons(fst(nt), rest) else rest }
 def collectObjMembers(ts) = collectOM(skipSemisF(ts))
 def collectOM(ts) = if isEmpty(ts) then Nil else (if isTok(hd(ts), 2, 29) then Nil else (if isWord(hd(ts), "override") then collectOM(tl(ts)) else (if isTok(hd(ts), 2, 1) then collectOMk("def", ts) else (if isTok(hd(ts), 2, 7) then collectOMk("val", ts) else (if isVarHead(ts) then collectOMk("var", ts) else (if isExtensionHead(ts) then collectOMExt(skipGen(tl(ts))) else collectOM(skipStmt(ts))))))))
 def collectOMk(kind, ts) = Cons((kind, (snd(hd(tl(ts))), objMemToks(kind, tl(tl(ts))))), collectOM(skipSemisF(skipStmt(tl(tl(ts))))))
@@ -1746,11 +1771,17 @@ def objDefE1(pfx, ts, cx) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil
 // pre-pass: objReg = [Pair(objName, [memberNames])], scanned directly off the token stream (base-cx-free).
 def collectObjReg(ts) = if isEmpty(ts) then Nil else (if isObjectHead(ts) then collectOR1(ts) else (if isGivenHead(ts) then collectGivenReg(ts) else collectObjReg(tl(ts))))
 def collectOR1(ts) = collectOR2(snd(hd(tl(ts))), objBodyToks(tl(tl(ts))))
-def collectOR2(name, ts) = if isTok(hd(ts), 2, 28) then Cons((name, memberNamesOf(collectObjMembers(tl(ts)))), collectObjReg(skipBrace(tl(ts), 1))) else collectObjReg(ts)
+// OBJ-SCOPE: the objReg payload is now `(memberNames, varMemberNames)`. The var names are needed
+// OUTSIDE the object too: a `var` member is defined as `O_v__cell`, so a bare selection `O.v` has to
+// read the cell rather than `(global O_v)`, which is unbound and made F decline the whole file.
+def collectOR2(name, ts) = if isTok(hd(ts), 2, 28) then collectOR3(name, collectObjMembers(tl(ts)), ts) else collectObjReg(ts)
+def collectOR3(name, ms, ts) = Cons((name, (memberNamesOf(ms), objVarMemberNames(ms))), collectObjReg(skipBrace(tl(ts), 1)))
 def memberNamesOf(ms) = ms match { case Nil => Nil case h :: t => Cons(objMemName(h), memberNamesOf(t)) }
 def objMemName(m) = m match { case (kind, nt) => fst(nt) }
-def objMemsOf(name, reg) = reg match { case Nil => Nil case h :: t => if fst(h) == name then snd(h) else objMemsOf(name, t) }
+def objMemsOf(name, reg) = reg match { case Nil => Nil case h :: t => if fst(h) == name then fst(snd(h)) else objMemsOf(name, t) }
+def objVarMemsOf(name, reg) = reg match { case Nil => Nil case h :: t => if fst(h) == name then snd(snd(h)) else objVarMemsOf(name, t) }
 def isObjMember(name, m, cx) = if name == "" then false else memL(m, objMemsOf(name, objRegOf(cx)))
+def isObjVarMember(name, m, cx) = if name == "" then false else memL(m, objVarMemsOf(name, objRegOf(cx)))
 // -- givens (G1: KC5/KC7b) ----------------------------------------------------------------------
 // `given n: T with <layout defs>` (given_obj, ssc1-front :2670-2690) → prefixed member DEF defs (like
 // object flattening; ssc1-lower prefixDefs :4246-4269 handles ONLY def members) PLUS a portable method
@@ -2530,7 +2561,7 @@ def compile1(ts, dq, bs) = compile2(ts, collectCC(ts), collectTypeCases(ts), dq,
 // The pre-pass results become the parse CONTEXT: case-class names (cs, cc-only, for isCC) + the UNIFIED
 // type-case field names (tcs, cc + enum cases) + top-level val names + the enum registries. Top-level vals
 // are collected with a base cx first (their `rest` boundaries do not depend on val-name resolution).
-def mkCxE(cs, tcs, ts, dq, vals, vars, bs, pless) = mkCx(dq, ccNamesL(cs), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts), vars, bs, pless, (collectSubReg(ts), collectEnumAllReg(ts)), collectObjReg(ts), appEnv(collectFuncDflts(ts), collectObjDflts(ts)), (collectGivenTable(ts), (collectUsingSig(ts), (collectExtMethods(ts), (mangleExtMethods(ts), (collectObjVarargs(ts), collectRetTab(ts)))))))
+def mkCxE(cs, tcs, ts, dq, vals, vars, bs, pless) = mkCx(dq, ccNamesL(cs), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts), vars, bs, pless, (collectSubReg(ts), collectEnumAllReg(ts)), collectObjReg(ts), appEnv(collectFuncDflts(ts), collectObjDflts(ts)), (collectGivenTable(ts), (collectUsingSig(ts), (collectExtMethods(ts), (mangleExtMethods(ts), (collectObjVarargs(ts), (collectRetTab(ts), ("", Nil))))))))
 def compile2(ts, cs, tcs, dq, bs) = compile2b(ts, cs, tcs, dq, bs, mkCxE(cs, tcs, ts, dq, Nil, Nil, bs, Nil))
 def compile2b(ts, cs, tcs, dq, bs, base) = compile3(ts, cs, tcs, dq, mkCxE(cs, tcs, ts, dq, collectTopVals(ts, base), collectTopVars(ts, base), bs, collectPlessDefs(ts, base)))
 def compile3(ts, cs, tcs, dq, cx) = walkTop(ts, cx) match { case (strs, nDoc) => compile4(strs, nDoc, ts, tcs, dq, cx) }

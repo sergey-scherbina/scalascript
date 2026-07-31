@@ -1,4 +1,4 @@
-# corpus-contract-roster-v1	baseline-sha256=01afd380430a4445188f483915dedd82d15d989f1605d6a72f9c5700d8658c3e	roster-sha256=5673ca13184dee6f6f752a7945821b2a8d59965191cb792a09b03163fc2f37e9
+# corpus-contract-roster-v1	baseline-sha256=c3ac76fa91f8ad20032302a1723efdb845ee77a0173c42e0787da799b7049d9b	roster-sha256=7c45bc8bbb97b2c4ff1bdbafd191d7491a388751ff0497c9acaabec9a14c3415
 _bug1_httpclient
 _bug1b
 _bug1c
@@ -208,6 +208,8 @@ list-companion
 list-slice
 litdoc
 literal-pattern-in-case-lambda
+long-accum-invariant-fold
+long-overflow-wrap
 map-getorelse-expr-receiver
 map-ops
 maps
