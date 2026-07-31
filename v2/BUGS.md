@@ -7,6 +7,46 @@ grepping for status.
 
 Newest first.
 
+## nfc-platform-string-differs-by-design-so-the-row-cannot-go-green — packaging was necessary, not sufficient
+<!-- status: open
+     lane: native
+     area: runtime
+     fixed-in: -
+     gate: tests/e2e/v21-standard-nfc-smoke.sh -->
+
+**Found 2026-07-31**, immediately after NFC joined the standard graph on the owner's instruction.
+
+The packaging change did what it was asked: `nfcCapabilities` resolves on `bin/ssc`, VM and ASM
+agree, and the exact expected row matches. Falsified by cutting only that one JAR from the
+classpath — `unbound global: nfcCapabilities` comes straight back.
+
+**The corpus row still does not go green**, and not for a packaging reason:
+
+```
+NFC platform:  interpreter   <- int
+NFC platform:  jvm-host      <- v2
+```
+
+Every other line agrees. `NfcIntrinsics.scala:100` hard-codes `platform = "interpreter"`;
+`NfcNativePlugin.scala:68` hard-codes `platform = "jvm-host"`; **each is asserted by its own unit
+test**, so both are deliberate, not drift. `examples/nfc-ndef.ssc` prints `caps.platform`, and the
+contract takes its golden from int — so the case cannot pass on v2 while any of those three facts
+holds. Status moved `FAIL -> DIVERGE`, which is the honest record: the failure got smaller and
+changed kind.
+
+**Three ways out, none of which I took, because each is somebody's decision:**
+
+1. the lanes agree on one platform string (moves a golden AND two unit tests);
+2. the case stops printing `caps.platform` (moves the golden for every lane);
+3. the case declares `backends:` so v2 is not asked (the count improves, the divergence stays real).
+
+⚠️ The tempting non-answer is to make the native plugin report `"interpreter"`. That turns the row
+green and makes the value a lie — the whole point of `caps.platform` is to say which host adapter is
+running.
+
+The gate now PINS both constants and compares every other line, so if either side quietly changes
+its platform string the gate says so rather than silently agreeing again.
+
 ## v2-cluster-capability-needs-source-visible-to-plugins — 3 of 4 externs are easy, the 4th is plumbing
 <!-- status: open
      lane: native

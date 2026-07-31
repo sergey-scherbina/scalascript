@@ -2074,6 +2074,11 @@ lazy val cli = project
                      !standardJars.exists(_.getName == f.getName))
         .groupBy(_.getName).values.map(_.head).toSeq.sortBy(_.getName)
       mcpStandardFiles.foreach(j => IO.copyFile(j, standardRuntimeDir / j.getName))
+      // NFC, same decision as MCP and far cheaper: ONE JAR with no third-party dependencies (the
+      // provider directory was 16K). `nfc-ndef` was red on v2 for packaging alone.
+      val nfcStandardJar = (v2NativeNfcPlugin / Compile / packageBin).value
+      IO.copyFile(nfcStandardJar, standardRuntimeDir / nfcStandardJar.getName)
+      log.info(s"bin/lib/standard/jars/  +1 NFC JAR: ${nfcStandardJar.getName}")
       log.info(s"bin/lib/standard/jars/  +${mcpStandardFiles.size} MCP JAR(s): " +
         mcpStandardFiles.map(_.getName).mkString(", "))
       // pdf-plugin pulls transitive third-party runtime deps (PDFBox, fontbox,
@@ -2112,7 +2117,8 @@ lazy val cli = project
       // The MCP JARs are part of the standard graph now, so every remaining provider must dedupe
       // against them too — graph-rdf4j shares ujson, and shipping a second copy under a provider
       // directory would put two ujson JARs on one classpath.
-      val standardNames = (standardJars.map(_.getName) ++ mcpStandardFiles.map(_.getName)).toSet
+      val standardNames =
+        (standardJars.map(_.getName) ++ mcpStandardFiles.map(_.getName) :+ nfcStandardJar.getName).toSet
       val pdfProviderFiles = (pdfProviderJar +:
         (v2NativePdfPlugin / Compile / managedClasspath).value.files)
         .filter(f => f.isFile && f.getName.endsWith(".jar") && !standardNames.contains(f.getName))
@@ -2120,11 +2126,9 @@ lazy val cli = project
       pdfProviderFiles.foreach(j => IO.copyFile(j, pdfProviderDir / j.getName))
       log.info(s"bin/lib/providers/pdf/jars/ (${pdfProviderFiles.size} JARs)")
 
-      val nfcProviderDir = providersDir / "nfc" / "jars"
-      IO.createDirectory(nfcProviderDir)
-      val nfcProviderJar = (v2NativeNfcPlugin / Compile / packageBin).value
-      IO.copyFile(nfcProviderJar, nfcProviderDir / nfcProviderJar.getName)
-      log.info("bin/lib/providers/nfc/jars/ (1 JAR)")
+      // No `bin/lib/providers/nfc` any more: NFC joined the standard graph on 2026-07-31 (owner's
+      // decision, same call as MCP). Its plugin is staged with the standard JARs above, so a
+      // provider directory would only hold a duplicate.
 
       // No `bin/lib/providers/mcp` any more: it staged the same JARs the standard graph now
       // carries, so the directory would either duplicate them or (after the dedupe above) be

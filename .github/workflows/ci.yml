@@ -584,6 +584,11 @@ jobs:
       - name: ScalaScript 2.1 MCP on the standard launcher
         run: tests/e2e/v21-standard-mcp-smoke.sh
 
+      # NFC left the explicit-lanes manifest the same day and for the same reason as MCP, so its
+      # smoke needs the same explicit wiring — the manifest was the only thing invoking it.
+      - name: ScalaScript 2.1 NFC on the standard launcher
+        run: tests/e2e/v21-standard-nfc-smoke.sh
+
       - name: ScalaScript 2.1 physically slim standard distribution gate
         run: tests/e2e/v21-slim-distribution-gate.sh --report target/v21-slim-distribution.tsv
 

@@ -5535,8 +5535,6 @@ RDF4J_URL=http://localhost:8080/rdf4j-server/repositories/kg \
   ssc-provider graph-rdf4j run examples/graph-rdf4j-http-storage.ssc
 SWIFT_AGGREGATOR_URL=http://localhost:9000 SWIFT_API_KEY=secret \
   ssc-provider swift run examples/international-bank-rails.ssc
-ssc-provider nfc run examples/nfc-ndef.ssc
-ssc-provider nfc run --bytecode examples/nfc-ndef.ssc
 ```
 
 The PDF lane supplies `htmlToPdfBase64`, `pdfPageCount`, `pdfToMarkdown`, and
@@ -5887,7 +5885,7 @@ and `NdefMessage`; Android `android.nfc.*`, Apple Core NFC, and browser
 `NDEFReader` objects remain behind backend/plugin adapters.
 
 Phase 1 is intentionally honest. The compiler-free native lane is selected
-explicitly with `ssc-provider nfc`; on a JVM host without a device adapter it
+on plain `ssc` (the provider lane was retired on 2026-07-31); on a JVM host without a device adapter it
 returns `supported = false` from `nfcCapabilities()` while all text, URI, and
 MIME record constructors execute identically on VM and direct ASM. `readNdef()`
 and `writeNdef()` fail with a bounded provider diagnostic until a native

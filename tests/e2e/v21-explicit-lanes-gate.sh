@@ -52,14 +52,15 @@ awk -F '\t' -v root="$ROOT" '
     count[$3]++; family[$2]++; total++
   }
   END {
-    # 15 -> 13 and provider 8 -> 6 on 2026-07-31: MCP moved into the standard graph, and this
+    # 15 -> 13 -> 12 and provider 8 -> 6 -> 5 on 2026-07-31: MCP, then NFC, moved into the standard
+    # graph. Both left this manifest for the same reason, and
     # manifest is about what is NOT in the default graph, so its two rows left. Its coverage did
     # not: tests/e2e/v21-standard-mcp-smoke.sh runs the same two examples through `bin/ssc`.
-    if (total != 13) { print "v21-explicit-lanes-gate: exact member count " total " != 13" > "/dev/stderr"; bad=1 }
-    if (count["provider-lane"] != 6 || count["target-lane"] != 7) {
-      print "v21-explicit-lanes-gate: lane counts must be provider=6 target=7" > "/dev/stderr"; bad=1
+    if (total != 12) { print "v21-explicit-lanes-gate: exact member count " total " != 12" > "/dev/stderr"; bad=1 }
+    if (count["provider-lane"] != 5 || count["target-lane"] != 7) {
+      print "v21-explicit-lanes-gate: lane counts must be provider=5 target=7" > "/dev/stderr"; bad=1
     }
-    split("pdf:3 graph:1 swift:1 nfc:1 quoted:2 scljet-vfs:2 wasm:2 x402:1", expected, " ")
+    split("pdf:3 graph:1 swift:1 quoted:2 scljet-vfs:2 wasm:2 x402:1", expected, " ")
     for (i in expected) { split(expected[i], pair, ":"); if (family[pair[1]] != pair[2]) { print "v21-explicit-lanes-gate: family drift: " pair[1] > "/dev/stderr"; bad=1 } }
     if (bad) exit 1
   }
@@ -80,6 +81,6 @@ provider=$(awk -F '\t' 'NR > 1 && $2 == "provider-lane" {n++} END {print n+0}' "
 target=$(awk -F '\t' 'NR > 1 && $2 == "target-lane" {n++} END {print n+0}' "$report")
 # The SECOND freeze of the same numbers — the awk END block above is the first. Both must move
 # together, and only this one is checked against the generated report rather than the manifest.
-expect_out lane-counts $'provider=6\ntarget=7' "provider=$provider"$'\n'"target=$target"
-echo "PASS v21-explicit-lanes-gate (13 exact rows: provider=$provider target=$target)"
+expect_out lane-counts $'provider=5\ntarget=7' "provider=$provider"$'\n'"target=$target"
+echo "PASS v21-explicit-lanes-gate (12 exact rows: provider=$provider target=$target)"
 echo "REPORT: $report"
