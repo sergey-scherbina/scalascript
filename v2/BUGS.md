@@ -7,6 +7,53 @@ grepping for status.
 
 Newest first.
 
+## v2-string-plus-aliased-onto-user-concat-extension — `"a" + x` was dispatched to a user `++`
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: unrecorded
+     gate: tests/e2e/v2-string-plus-vs-user-concat-ext.sh -->
+
+**FIXED 2026-07-31.** `ssc1-lower.ssc0:2361` rewrote `+` to `++` whenever it detected a string
+operand (KC5 micro-optimisation), and the `++` arm at :2696 routes to `__arithExt__` when the
+program has an extension named `++` in scope. So ordinary string concatenation was handed to the
+user's `++`. The rewrite now stands down when such an extension exists.
+
+| lane | `println("concat=" + v)` with std/dsl/pretty.ssc imported |
+|---|---|
+| int | `concat=1` |
+| v2 (before) | `DocBeside(concat=, 1)` |
+| v2 (after) | `concat=1` |
+
+**Not one case.** `dsl-calc-parser` was the row that exposed it, but the corruption applies to EVERY
+`+` on a string in any program importing a `++` extension — including the diagnostics the program
+prints about itself. While reducing this I added `println("BUILT: " + built)` and that line was
+mangled too, which is what made the cause visible.
+
+**The runtime cannot recover it.** `__arithExt__`'s `primitiveWins` requires BOTH operands to be
+primitive strings; `String + Int` is mixed, so it defers to the extension. Widening `primitiveWins`
+to "either side is a String" was the other candidate fix and was REJECTED: it would break a
+legitimate `extension (l: String) def ++`, which v1 dispatches. The front is where the wrong
+decision was made, so the front is where it is corrected.
+
+**F never had this** — `emitPP` (`specs/v2.2-p6.5-fsub.ssc:389`) tests `isStrCode(l)` BEFORE
+`isExtMethod("++", cx)`. That ordering is the invariant: the operator the user WROTE is the operator
+dispatched. Only files F declines reach the fallback front, which is why this survived.
+
+⚠️ **Two self-written reductions passed while the bug was live.** `pretty.ssc` alone does not
+reproduce it; `std/parsing/combinators.ssc` must be imported alongside. The bug only appeared when I
+instrumented the REAL case instead of a fixture I invented — see
+[[feedback_measurement_must_compare_not_prejudge]]. The gate therefore imports both real modules.
+
+⚠️ **The gate asserts the extension still works** (`text("a") ++ text("b")` -> `ab`), not only that
+`+` is fixed. A "fix" that stopped routing `++` to extensions would pass the first assertion and
+silently break every pretty-printer. Verified by reverting: without the fix the gate fails on rows 1-2
+and `concatExt=ab` still passes — so that row is doing real work.
+
+**Remaining, NOT fixed here:** a user-written `"x" ++ y` (string literal on the left, user `++` in
+scope) still reaches the extension on the fallback front. F handles it via `isStrCode`. Same family,
+separate fix, and no corpus case currently exercises it.
+
 ## v2-eleven-remaining-red-rows-census — what is actually left, by cause and by size
 <!-- status: open
      lane: native
@@ -47,12 +94,17 @@ the same move for every provider is how a slim distribution stops being slim. It
 the owner, not a follow-through.
 
 **quoted-macro-constfold, quoted-macro-interpreter.** Both are `target-lane` / `compiler-tools`
-members of `tests/fixtures/v21-explicit-lanes/manifest.tsv` — they are MEANT to run through
-`ssc-tools`, and the native frontend rejecting them is the designed boundary, not a defect. They are
-red in the contract because the contract runs every case on every lane the case does not exclude.
-The honest fix is a `backends:` declaration on those two cases, not compiler work.
-⚠️ `contract.sc:619` accepts only the FLOW form (`backends: [int]`); the block form silently yields
-NO gate, so writing it as a YAML list looks like work and changes nothing.
+members of `tests/fixtures/v21-explicit-lanes/manifest.tsv`, and `specs/arch-metaprogramming-v2.md:31`
+records `quoted.Expr` / `quotes.reflect` user macros as **deferred to v2.x** — a documented scope
+decision, not an accidental gap.
+
+⚠️ **Correcting this entry's first version, which said "the honest fix is a `backends:`
+declaration".** That was wrong, and I wrote it before checking. These two rows are already in the
+frozen baseline as known-red, so the contract is GREEN with them there — they break nothing. A
+`backends:` exclusion would change only the cosmetic count while DELETING the standing reminder that
+v2.x owes macros. Leave them red and recorded. The useful work here is zero.
+(The `backends:` mechanism itself still has the trap worth carrying: `contract.sc:619` accepts only
+the FLOW form `backends: [int]`; the block form silently yields NO gate.)
 
 ⚠️ `content-introspection` also HANGS the interpreter: `bin/ssc-tools run --v1` produced its output
 and then had to be killed at 90s (rc=124). Whatever the native gap is, the golden lane for that case

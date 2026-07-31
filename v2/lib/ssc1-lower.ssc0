@@ -2357,9 +2357,22 @@ def resolveE = (expr) =>
               case Pair(l, r) =>
                 let rl = resolveE(l) in
                 let rr = resolveE(r) in
-                -- KC5-micro: upgrade int + to string ++ when a literal/prim string side detected
+                -- KC5-micro: upgrade int + to string ++ when a literal/prim string side detected.
+                -- ⚠️ ONLY when no user extension named `++` is in scope. `++` is not a private
+                -- spelling of `+` here: the `++` arm below routes to __arithExt__ whenever the
+                -- user defined one, so this rewrite silently redirected ordinary string
+                -- concatenation into that extension. With std/dsl/pretty.ssc imported (it defines
+                -- `extension (l: Doc) def ++`), `println("concat=" + v)` printed
+                -- `DocBeside(concat=, 1)` on v2 and `concat=1` on INT — and the corruption spread
+                -- through every later `+` on a string, including diagnostics printed by the
+                -- program itself. The runtime cannot recover: __arithExt__'s `primitiveWins`
+                -- requires BOTH sides primitive-string, and `String + Int` is mixed.
+                -- F never had this: `emitPP` tests `isStrCode(l)` BEFORE `isExtMethod("++")`.
+                -- The operator the user wrote must be the operator that gets dispatched.
+                -- BUGS `v2-string-plus-aliased-onto-user-concat-extension`.
                 let op2 = if #seq(op, "+") then
-                  if isStrExpr(rl) then "++"
+                  if isExtensionMethod("++") then op
+                  else if isStrExpr(rl) then "++"
                   else if isStrExpr(rr) then "++"
                   else op
                 else op in
