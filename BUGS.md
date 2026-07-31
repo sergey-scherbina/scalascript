@@ -241,10 +241,19 @@ the case it wants to capture. Two features now want the same stream:
    a behaviour change for anyone relying on the implicit capture.
 3. **Peek rather than consume.** Fragile: deciding "is this YAML secrets" from a prefix is a guess,
    and it is still destructive when the guess is wrong.
+4. **Give secrets an explicit channel** — `--secrets-file <path>`, composing with
+   `<(sops -d secrets.enc.yaml)` or an explicit `/dev/stdin`. Stdin stays the program's, which is
+   what every other runtime does.
 
-(2) is the one to take on the evidence — an implicit stdin capture that silently starves every
-program that reads input is the kind of behaviour that is only ever discovered as someone else's bug
-— but it changes a shipped contract, so it is raised rather than done.
+**DECIDED 2026-07-31 by Sergiy: option (4) — give secrets their own channel (`--secrets-file`), with
+(2) as a one-release transition.** Queued with slices in `BACKLOG.md`
+`ssc-tools-stdin-belongs-to-the-program`; the ordering there is load-bearing (the replacement lands
+before the old path is discouraged, not after).
+
+Option (4) was not in the first list above and is the reason this was worth raising rather than
+deciding in passing: stdin belonging to the program is the universal convention, the DEFAULT lane
+already never slurps, and so the tools route is the anomaly — which reframes the question from "who
+gets the stream" to "why is one of them taking it implicitly at all".
 
 **Not blocking the reported gap.** `std.os.readLine` works on the DEFAULT lane (`bin/ssc`), which is
 what users run; this defect confines the tools route to the EOF branch. The conformance case

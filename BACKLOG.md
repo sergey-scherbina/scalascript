@@ -7,6 +7,49 @@ in the same commit as the claim. Layout: `specs/work-tracking-layout.md`.
 Sections below were carried over whole from the flat root `SPRINT.md`/`BACKLOG.md`,
 verbatim, on 2026-07-30.
 
+## ssc-tools-stdin-belongs-to-the-program — give sops its own channel, stop taking stdin
+<!-- status: open
+     lane: apparatus
+     area: cli
+     kind: feature
+     gate: none -->
+
+**DECIDED 2026-07-31 by Sergiy** — implement the proposal below. The defect and the full option
+table are `BUGS.md` `ssc-tools-swallows-piped-stdin`; this is the queued work, not a second copy of
+the analysis.
+
+**The conflict.** `Main.scala:72` reads stdin to EOF as a YAML secrets document for every
+`ssc-tools` command except `lsp` and `repl` (`loadSopsSecrets` → `Source.stdin.mkString`). Two
+features now want that one stream and only one can have it: `sops -d secrets.enc.yaml | ssc app.ssc`,
+which is the shipped and intended invocation, and `std.os.readLine`, which since `862a19adb` lets a
+program read what the user typed or piped. Today the CLI always wins and the program sees EOF.
+
+**The decision: stdin belongs to the program; secrets get an explicit channel.** `--secrets-file
+<path>`, which composes with `<(sops -d secrets.enc.yaml)` or an explicit `/dev/stdin` for anyone who
+wants the old shape. The argument is not preference: stdin belonging to the program is the universal
+convention, the DEFAULT lane (`bin/ssc`) already never slurps, and it is therefore the tools route
+that is the anomaly. A runtime that silently consumes stdin starves every program that reads input,
+and that failure is only ever discovered as somebody else's bug — it took a new primitive and a
+user report to surface this one.
+
+### Slices
+
+- [ ] **S1 — `--secrets-file <path>`.** Read and flatten exactly as `loadSopsSecrets` does today;
+      same `SopsSecrets.load`. New surface only, no behaviour removed — safe to land alone.
+- [ ] **S2 — the implicit slurp becomes opt-in**, `SSC_SOPS_STDIN=1`, for ONE release. Anyone
+      relying on the old shape keeps it by setting one variable, and the deprecation notice names
+      `--secrets-file` and the release the default flips in. A silent break here would land on
+      exactly the people who automated the old form.
+- [ ] **S3 — flip the default and delete the env escape**, one release later. CHANGELOG entry is
+      part of this slice, not a follow-up.
+- [ ] **S4 — the gate.** A conformance case (or e2e) that pipes a line into `ssc-tools run` and
+      asserts the PROGRAM received it. There is none today, which is why the swallow survived: the
+      only lane that could have noticed had no way to read stdin at all.
+
+**Do not start at S2.** S1 first means the replacement exists before the old path is discouraged;
+reversing that order leaves a window where the documented way to pass secrets is the one being
+deprecated and its successor is not written yet.
+
 ## agents-md-paraphrases-policy — four MANDATORY sections restate rules that now live in POLICY.md
 <!-- status: fixed
      lane: n/a
