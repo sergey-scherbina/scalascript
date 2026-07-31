@@ -56,7 +56,6 @@ read -r -d '' FROZEN <<'EOF' || true
 v2-swiftui-apple.sh
 v21-default-launcher-cutover-smoke.sh
 v21-explicit-graph-provider-smoke.sh
-v21-explicit-nfc-provider-smoke.sh
 v21-explicit-pdf-provider-smoke.sh
 v21-explicit-quoted-tools-smoke.sh
 v21-explicit-x402-tools-smoke.sh
