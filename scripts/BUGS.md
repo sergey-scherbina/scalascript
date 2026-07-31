@@ -7,6 +7,62 @@ grepping for status.
 
 Newest first.
 
+## coord-claim-accepts-an-unknown-path-prefix-and-both-guards-read-it-as-nothing
+<!-- status: open
+     lane: n/a
+     area: build
+     fixed-in: -
+     gate: none -->
+
+`scripts/coord-claim … --paths "dir:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter"`
+is accepted without a word. The supported vocabulary is `repo:` / `mod:<path>` / `file:<path>` —
+`.githooks/pre-push` lines 226-228 — and there is no `dir:`.
+
+Both guards then read the entry as NOTHING:
+
+  * `.githooks/pre-commit` strips `repo:`/`mod:`/`file:` (line 117) and leaves anything else
+    literal, so it compares `dir:v1/…` against the staged `v1/…` and never matches. It refused a
+    commit that was inside the declared directory.
+  * `.githooks/pre-push` classifies unknown prefixes into no bucket, so the overlap check has
+    nothing to compare.
+
+THE HARMLESS DIRECTION IS THE ONE I SAW. The other one is not: an unrecognised prefix reads as a
+claim to a human and as an EMPTY SCOPE to the overlap guard, so a second agent can claim the same
+files and nothing says so. That is the failure `specs/claim-mutex.md` exists to prevent, arriving
+through the front door.
+
+FIX: `coord-claim` should REFUSE a `--paths` entry whose prefix is not in the vocabulary, at claim
+time, where the message can name the right one. Silently accepting it is what makes it dangerous;
+refusing it costs one line of the agent's time.
+
+Note `.githooks/pre-commit` already carries a comment saying pre-push learned `repo:`/`mod:`/`file:`
+on 2026-07-30 and "this layer did not", which is the same defect one prefix earlier — the two layers
+learn the vocabulary separately, so they will keep drifting until it lives in one place.
+
+## coord-claim-broad-flag-writes-a-claim-its-own-ledger-contradicts
+<!-- status: open
+     lane: n/a
+     area: build
+     fixed-in: -
+     gate: none -->
+
+`scripts/coord-claim <slug> --items … --paths … --broad "dir:…"` writes a claim file whose `paths:`
+and `broad:` lines disagree with the LEDGER row it writes in the same run, so the very next push is
+refused by pre-push's claim/ledger consistency check:
+
+    ✋ pre-push: a claim disagrees with its LEDGER row.
+      'int-module-mutable-registry' paths disagree:
+        .claim : dir:… file:tests/conformance/contract-roster.tsv …
+    broad: file:tests/conformance/expected/… file:v1/…
+
+The claim file is written by a heredoc containing `${paths}${broad:+\n broad: ${broad}}` — the
+`\n` is LITERAL inside a quoted heredoc, so the two fields run together and the ledger writer,
+which reads them separately, records a different split.
+
+`--broad` is not optional decoration: `mod:<path>` — the only vocabulary-correct way to claim a
+subtree — REQUIRES a `broad:` justification. So the correct way to claim a directory is unusable,
+which is exactly why the wrong way above gets reached for.
+
 ## bugs-index-gate-rejects-an-all-digit-sha — a real abbreviated sha can look like a CI run id
 <!-- status: open
      lane: apparatus

@@ -8,14 +8,13 @@ grepping for status.
 Newest first.
 
 ## object-var-member-assignment-writes-a-top-level-global — an object's `var` is not scoped to the object
-<!-- status: open
+<!-- status: fixed
      lane: int
      area: runtime
-     fixed-in: -
+     fixed-in: b8a41142a
      gate: tests/conformance/object-var-member-scope.ssc -->
 
-THE FIX ON THIS LANE, landing in the next commit (`status`/`fixed-in` flip there, so the sha in
-the header is the sha that carries the code). `ObjectVarEnvView` (`StatRuntime.scala`) gives an object's `var` members one
+FIXED ON THIS LANE in `b8a41142a`. `ObjectVarEnvView` (`StatRuntime.scala`) gives an object's `var` members one
 store and one view of it:
 
   * `Defn.Object` registers the object's `members` map in `interp.objectVarStores` and re-points
