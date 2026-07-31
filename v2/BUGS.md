@@ -50,8 +50,25 @@ not a regression from work in flight.
 A KNOWN CLASS, ALREADY FIXED ONCE FOR ITS SIBLING AND NOT FOR THIS ONE. `selMethodOr` in
 `ssc1-lower.ssc0` opens with note K62.32: `_sel_mkString` is arity-2, so the 0-arg and 3-arg forms
 crashed with this same message, and they were routed to the runtime `__method__`. `getOrElse` has
-the identical defect and did not get the identical remedy. Worth a sweep of the remaining `_sel_`
-helpers whose arity is fixed but whose method is overloaded.
+the identical defect and did not get the identical remedy.
+
+THE REST OF THE CLASS IS SWEPT AND CLEAN — a measured NEGATIVE, recorded so nobody spends a claim
+rediscovering it. Two passes:
+
+  1. Static. Every `_sel_` helper's declared `IrLam` arity against the arities the runtime
+     `__method__` admits for the same method name, plus whether the lowerer guards on argument
+     count before emitting the helper. 26 helpers; it named exactly two suspects, `getOrElse`
+     (this bug) and `foldLeft`.
+  2. Differential. 39 probes × 5 lanes (jvm, int, js, native/legacy, native/F): every overloaded
+     arity that exists — `mkString` 0/1/3, `foldLeft` curried, `split`, `substring` 1/2, `replace`,
+     `take`, `drop`, `slice`, `updated`, `get`, `contains` — crossed with all THREE receiver shapes
+     (variable, field selector, call result, literal). **Zero divergences.** `foldLeft` is clean
+     because the lowerer already routes it to `__method__`, for an unrelated reason noted in
+     `selMethodOr` (its methodOp threads an Op receiver).
+
+The receiver-shape axis is in the sweep on purpose. The first pass covered only two of the three
+non-variable shapes, which is the exact narrowness that let this bug live — a census that repeats
+the blind spot it was built to find would be worth less than nothing.
 
 WHY NO GATE SAW IT: of the 62 two-argument `getOrElse` call sites in this repository's `.ssc`
 sources, 45 use a failing receiver shape — 43 of them across nine `examples/` files
