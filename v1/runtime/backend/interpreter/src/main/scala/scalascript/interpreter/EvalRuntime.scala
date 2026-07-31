@@ -4362,10 +4362,15 @@ private[interpreter] object EvalRuntime:
       eval(expr, env, interp).flatMap(v => throw ReturnSignal(v))
 
     // var/field assignment
+    // A bare-name write goes to `interp.globals` UNLESS the env belongs to an object that owns a
+    // `var` of that name — see `ObjectVarEnvView.assign`. Reads (`case tn: Term.Name` below)
+    // resolve `env` first and then globals, so writing globals unconditionally meant an object's
+    // method wrote one place and read another.
+    // (object-var-member-assignment-writes-a-top-level-global.)
     case Term.Assign(Term.Name(name), rhs) =>
       eval(rhs, env, interp) match
-        case Pure(v) => interp.globals(name) = v; Computation.PureUnit
-        case c       => FlatMap(c, { v => interp.globals(name) = v; Computation.PureUnit })
+        case Pure(v) => ObjectVarEnvView.assign(name, v, env, interp); Computation.PureUnit
+        case c       => FlatMap(c, { v => ObjectVarEnvView.assign(name, v, env, interp); Computation.PureUnit })
 
     // `recv(idx…) = rhs` desugars to `recv.update(idx…, rhs)` (Scala). Mutates a real `ArrayV` in place
     // (and works for any receiver exposing `update`). Eval order: recv, indices (l→r), rhs. (collection-real-type.)

@@ -29,10 +29,15 @@ Node: `process`, `node:path`, `node:os`". This is the next thing the reporter of
 [#76](https://github.com/sergey-scherbina/scalascript/issues/76) walks into, and the reason
 `std-os-readline` gates only `[int, v2]`.
 
-First question for whoever takes it, because it decides the size: does the module fail to RESOLVE
-(an import/registration problem, one fix for all 18 functions) or is each intrinsic simply
-unregistered on those backends (eighteen fixes)? The jvm error — "not a member of object std.os" —
-suggests the object is emitted but empty, which points at the first.
+**ANSWERED for js, 2026-07-31, and the framing above was wrong: nothing is missing.** All eighteen
+functions ARE implemented in the JS runtime and emitted into the bundle. The binding built for the
+`package:`-module object probes only `_ssc_ui_<name>` and `globalThis.<name>`, and a runtime function
+that keeps its OWN name satisfies neither — so every one of them binds to `undefined`. Mechanism,
+the TDZ constraint that causes it, and the fix direction are in
+`v1/runtime/backend/js/BUGS.md` `js-identity-named-runtime-fn-unreachable-from-a-package-module`.
+
+The jvm half is still unmeasured; its error ("not a member of object std.os") is a different shape
+and should not be assumed to share this cause.
 
 ## bugs-index-fixed-in-and-the-shallow-clone — decide what `fixed-in` must prove
 <!-- status: open

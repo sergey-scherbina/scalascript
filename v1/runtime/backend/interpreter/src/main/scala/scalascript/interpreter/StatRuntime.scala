@@ -5,6 +5,65 @@ import scala.collection.immutable.{Map => IMap}
 import scala.meta.*
 import Computation.{Pure, Perform}
 
+/** The env a member of `object O { var n = … }` runs in, and the field map its `InstanceV` shows.
+ *
+ *  Var members have to be LIVE. `capturedEnv` in the `Defn.Def` case below is a SNAPSHOT
+ *  (`env.iterator.collect{…}.toMap`), so without this a method read the value its object had at
+ *  definition time, for ever — and the matching write went to a top-level global of the same bare
+ *  name, because `Env` is an immutable `Map` and `Term.Assign` had nowhere else to put it. Anything
+ *  that is NOT a var member still comes from `base`, the snapshot the method would have captured
+ *  anyway, so this does not widen a method's view of the outer scope as a side effect.
+ *
+ *  `MarkerKey` is how the WRITE side finds this scope. A method body runs in a `FrameMap` layered
+ *  on top of this view (`closureWithSelfFor`), so `Term.Assign` cannot match on the env's type; it
+ *  reads the marker through the ordinary chained `get`, which every layer already delegates. The
+ *  marker is deliberately not a legal identifier and is absent from `iterator`, so it cannot show
+ *  up as a field.
+ *
+ *  BUGS.md `object-var-member-assignment-writes-a-top-level-global`.
+ */
+private[interpreter] final class ObjectVarEnvView(
+    live: scala.collection.mutable.Map[String, Value],
+    varNames: Set[String],
+    base: Map[String, Value],
+    objectName: String
+) extends scala.collection.immutable.AbstractMap[String, Value]:
+  private val marker: Value = Value.StringV(objectName)
+  def get(key: String): Option[Value] =
+    if key == ObjectVarEnvView.MarkerKey then Some(marker)
+    else if varNames.contains(key) then live.get(key)
+    else base.get(key)
+  override def getOrElse[V1 >: Value](key: String, default: => V1): V1 =
+    if key == ObjectVarEnvView.MarkerKey then marker
+    else if varNames.contains(key) then live.getOrElse(key, default)
+    else base.getOrElse(key, default)
+  override def contains(key: String): Boolean =
+    key == ObjectVarEnvView.MarkerKey || varNames.contains(key) || base.contains(key)
+  def iterator: Iterator[(String, Value)] =
+    base.iterator.filterNot((k, _) => varNames.contains(k)) ++
+      varNames.iterator.flatMap(k => live.get(k).map(k -> _))
+  def removed(key: String): Map[String, Value] = iterator.toMap.removed(key)
+  def updated[V1 >: Value](key: String, value: V1): Map[String, V1] =
+    (iterator.toMap: Map[String, Value]).updated(key, value).asInstanceOf[Map[String, V1]]
+
+private[interpreter] object ObjectVarEnvView:
+  /** Not a legal ScalaScript identifier, so no program can collide with it. */
+  val MarkerKey: String = "<object-vars>"
+
+  /** The single place a bare-name assignment decides WHERE it lands. Every assignment site routes
+   *  here — the general `EvalRuntime` case and the `BlockRuntime` single-statement fast path — so a
+   *  member cannot be updated correctly on one path and leak to a global on the other, which would
+   *  be the same defect wearing a different hat. */
+  def assign(name: String, v: Value, env: Env, interp: Interpreter): Unit =
+    if interp.objectVarsPresent then
+      env.getOrElse(MarkerKey, null) match
+        case Value.StringV(objectName) =>
+          val store = interp.objectVarStores.getOrElse(objectName, null)
+          if store != null && interp.objectVarNames.getOrElse(objectName, Set.empty).contains(name)
+          then { store(name) = v; return }
+        case _ => ()
+    interp.globals(name) = v
+
 /** Statement execution: top-level `val`, `var`, `def`, `object`, `class`,
  *  `given`, `extension`, `enum`, `type` declarations and assignments.
  */
@@ -290,6 +349,32 @@ private[interpreter] object StatRuntime:
               if r != null then Pure(r(args)) else Perform(effName, opName, args))
         case s => StatRuntime.execStat(s, members, false, interp)
       }
+      // `var` members are the object's OWN mutable state. Register the backing map so a bare-name
+      // assignment inside a member method lands here instead of in `interp.globals`, and re-point
+      // every member function at a LIVE view of it — the `Defn.Def` case captured a snapshot, which
+      // is why a method used to read its field's definition-time value for ever.
+      // (object-var-member-assignment-writes-a-top-level-global.)
+      val varMemberNames: Set[String] = d.templ.body.stats.flatMap {
+        case v: Defn.Var => v.pats.collect { case Pat.Var(n) => n.value }
+        case _           => Nil
+      }.toSet
+      if varMemberNames.nonEmpty then
+        interp.objectVarsPresent = true
+        interp.objectVarStores(objectName) = members
+        interp.objectVarNames(objectName) =
+          interp.objectVarNames.getOrElse(objectName, Set.empty) ++ varMemberNames
+        val ownVars = interp.objectVarNames(objectName)
+        members.keys.toList.foreach { k =>
+          members(k) match
+            case f: Value.FunV =>
+              val live = new ObjectVarEnvView(members, ownVars, f.closure, objectName)
+              val nf   = f.copy(closure = live)
+              // `copy` starts the mutable extras over; declaredReturnType is a JIT signal set right
+              // after construction in the Defn.Def case and would silently go missing.
+              nf.declaredReturnType = f.declaredReturnType
+              members(k) = nf
+            case _ => ()
+        }
       // Only expose fields that are NEW or CHANGED relative to the outer scope,
       // so the InstanceV doesn't carry inherited interp.globals as object members.
       val newFields0 = members.toMap.filter { (k, v) => outerSnap.get(k).forall(old => !(old eq v)) }
@@ -301,7 +386,13 @@ private[interpreter] object StatRuntime:
       val newFields = env.get(objectName) match
         case Some(ctor: Value.NativeFnV) if !newFields0.contains("apply") => newFields0 + ("apply" -> ctor)
         case _                                                            => newFields0
-      val newObj: Value.InstanceV = Value.InstanceV(objectName, newFields)
+      // The InstanceV's fields must be live too, or `O.n` read from OUTSIDE the object would answer
+      // from the snapshot while the object's own methods answered correctly — two truths for one
+      // field, which is worse than the bug being fixed.
+      val newObj: Value.InstanceV =
+        if varMemberNames.isEmpty then Value.InstanceV(objectName, newFields)
+        else Value.InstanceV(objectName,
+          new ObjectVarEnvView(members, interp.objectVarNames(objectName), newFields, objectName))
       env.get(objectName) match
         case Some(existing: Value.InstanceV) => env(objectName) = interp.mergeDeep(existing, newObj)
         case _                               => env(objectName) = newObj

@@ -136,9 +136,12 @@ private[interpreter] object BlockRuntime:
       // only the rhs, then write through to globals exactly as `step` does.
       case (assign: Term.Assign) :: Nil if assign.lhs.isInstanceOf[Term.Name] =>
         val x = assign.lhs.asInstanceOf[Term.Name].value
+        // Routed through the same helper as the general path. `def bump(): Unit = n = n + 1` is a
+        // SINGLE-statement body, so this fast path is the one an object's method actually takes —
+        // fixing only the general case would have left the bug fully intact.
         return interp.eval(assign.rhs, env) match
-          case Pure(v) => interp.globals(x) = v; Computation.PureUnit
-          case c       => FlatMap(c, { v => interp.globals(x) = v; Computation.PureUnit })
+          case Pure(v) => ObjectVarEnvView.assign(x, v, env, interp); Computation.PureUnit
+          case c       => FlatMap(c, { v => ObjectVarEnvView.assign(x, v, env, interp); Computation.PureUnit })
       // Any other lone term (expression, compound-assign infix, nested block):
       // the general path already routes these through `eval`, so no extra
       // dispatch cost — and we still skip the env copy.

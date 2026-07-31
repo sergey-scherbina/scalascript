@@ -316,6 +316,16 @@ object Runtime:
   // the program through the `io.args` primitive. Set by Main before running.
   var argv: List[String] = Nil
 
+  // The entry file's SOURCE TEXT, when the program was started from one. Set by Main next to
+  // `argv`, and for the same reason: a plugin cannot reach back to the CLI. `codeIdentity()` in the
+  // actors plugin hashes exactly these bytes, which is what v1's `Interpreter.computeCodeIdentity`
+  // hashes (`module.sourceText`, tagged format "ssc") — so the two lanes agree by construction
+  // rather than by coincidence.
+  // None when there is no .ssc source to speak of (`run-ir` takes bytecode). Consumers must say so
+  // rather than substitute a placeholder: a code identity that identifies nothing is worse than an
+  // error, because a cluster will trust it.
+  var sourceText: Option[String] = None
+
   /** Host-only override for nested CoreIR evaluation. The scope is deliberately
     * thread-local: native frontend towers run on dedicated large-stack threads,
     * while checkers and unrelated compilations may coexist in the same JVM. An

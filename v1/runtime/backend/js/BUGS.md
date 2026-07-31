@@ -7,6 +7,55 @@ grepping for status.
 
 Newest first.
 
+## js-identity-named-runtime-fn-unreachable-from-a-package-module — the whole std/os surface binds to `undefined`
+<!-- status: open
+     lane: js
+     area: codegen
+     kind: bug
+     gate: none -->
+
+**Found 2026-07-31 while asking why `std.os.readLine` could not be added to the js lane.** The answer
+was that nothing in `std/os` works there — `env`, `args`, `cwd`, `pathJoin`, `platform`, `exit`, all
+of it — and the reason is one line of the extern shim rather than eighteen missing implementations.
+
+**The implementations are all present.** `JsRuntimeFs.scala` emits
+`env envOrElse args exit cwd sep pathJoin pathDirname pathBasename pathExtname pathResolve
+pathIsAbsolute tempDir tempFile platform homedir hostname exec`, and the emitted bundle contains
+`function envOrElse(key, def) { … }` at top level. What fails is the BINDING built for the
+`package:`-module object (`JsGen.scala:3168`):
+
+```js
+const envOrElse = (typeof _ssc_ui_envOrElse !== 'undefined') ? _ssc_ui_envOrElse
+                : (typeof globalThis.envOrElse === 'function' ? globalThis.envOrElse : undefined);
+```
+
+Two probes, and for these names both miss:
+
+* `_ssc_ui_envOrElse` — the host-stub spelling; `std/os` does not use it;
+* `globalThis.envOrElse` — a plain `function` declaration in a CommonJS module is NOT a property of
+  `globalThis`.
+
+There is a third branch, the intrinsic-rename fallback, and it is skipped precisely BECAUSE these
+names are honest: it fires only when the intrinsic renames to a DIFFERENT target (`target != fname`),
+which is deliberate — an identity rename would emit `const csrfToken = … : csrfToken`, a TDZ
+self-reference to the const being declared. So a runtime function that keeps its own name is exactly
+the case with no route in.
+
+`std.os.envOrElse` is therefore `undefined`, and the failure surfaces far from its cause as
+`Error: not callable: ()` — the same shape as `js-extern-shim-shadows-globalthis-implementation`,
+which fixed the `globalThis` half of this and left the identity-named half.
+
+**Fix direction, and it dodges the TDZ rather than fighting it:** capture the function OUTSIDE the
+scope that shadows it. Function declarations hoist, so a top-level
+`const __ssc_cap_envOrElse = (typeof envOrElse === 'function') ? envOrElse : undefined;` emitted
+before the module IIFE sees the real one regardless of order, and the shim can use it as a fallback
+ahead of `globalThis`.
+
+**Blast radius is the reason this is filed rather than done in passing:** the shim builds EVERY
+extern binding for every `package:` module on the js lane, so the change wants the js corpus lane as
+its check, not one case. `tests/conformance/std-os-readline.ssc` gates `[int, v2]` today and should
+gain `js` in the same commit that fixes this.
+
 ## js-object-var-member-is-never-emitted — the codegen drops `var` members of an `object`
 <!-- status: open
      lane: js

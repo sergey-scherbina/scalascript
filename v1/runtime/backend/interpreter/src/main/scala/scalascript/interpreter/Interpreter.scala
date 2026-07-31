@@ -144,6 +144,15 @@ class Interpreter(
    *  imperatively elsewhere — `def` rebindings also fall through here since
    *  they're not constants in the readGlobalLong sense). */
   private[interpreter] val valNames     = mutable.HashSet.empty[String]
+  // `object O { var n = … }` — the object's OWN mutable members, keyed by object name.
+  // Assignment (`EvalRuntime` `Term.Assign`) writes `globals(name)` unconditionally, so without
+  // this an object's method wrote a top-level global of the same bare name: the member never
+  // changed and an unrelated variable of that name was clobbered. See BUGS.md
+  // `object-var-member-assignment-writes-a-top-level-global`.
+  // `objectVarsPresent` keeps every program that declares no such member off the lookup entirely.
+  private[interpreter] val objectVarStores = mutable.HashMap.empty[String, mutable.Map[String, Value]]
+  private[interpreter] val objectVarNames  = mutable.HashMap.empty[String, Set[String]]
+  private[interpreter] var objectVarsPresent = false
   private[interpreter] val extensions   = mutable.HashMap.empty[String, mutable.HashMap[String, Value.FunV]]
   // Concrete type → declared parent type (from `extends` clause).  Used by
   // extensionDispatch to find extension methods registered on a sealed parent.
