@@ -25,6 +25,16 @@ object OsIntrinsics:
       case _ => PluginValue.none
     },
 
+    // One line from stdin, `None` at EOF. `scala.io.StdIn.readLine()` returns null at end of
+    // input rather than throwing, which is the case that has to become `None` — a caller who
+    // got an empty string could not tell "the user pressed enter" from "there is no more input".
+    QualifiedName("readLine") -> native {
+      case Nil =>
+        val line = scala.io.StdIn.readLine()
+        if line == null then PluginValue.none else PluginValue.some(PluginValue.string(line))
+      case _ => PluginValue.none
+    },
+
     QualifiedName("envOrElse") -> native {
       case List(key: String, default: String) =>
         val v = System.getenv(key)

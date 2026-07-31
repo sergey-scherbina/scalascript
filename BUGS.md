@@ -60,16 +60,29 @@ failure moves to compile time where it belongs.
      lane: multi
      area: runtime
      kind: feature
+     reported-by: https://github.com/sergey-scherbina/scalascript/issues/76
+     reported-at: 2026-07-31
+     ssc-version: unknown
      gate: none -->
 
 **Status:** OPEN. Filed 2026-07-31 by `nadia-dev` (rozum side), blocking an external consumer.
 
-> **Arrived by the wrong door — the report is [#76](https://github.com/sergey-scherbina/scalascript/issues/76).**
-> This entry was hand-written straight onto a module board, which P-3.10 reserves for
-> conclusions a reporter has not reached; a report from outside enters through the issue
-> form and `INBOX.md`. Kept only because it carries the proposed surface and implementation
-> order below, which the issue deliberately omits (the form asks reporters not to diagnose).
-> **Triage owns the merge**: route #76 and drop or absorb this. Do not work both.
+**MERGED BY TRIAGE 2026-07-31, and this entry is the survivor.** Issue
+[#76](https://github.com/sergey-scherbina/scalascript/issues/76) and this hand-written entry are one
+report arriving twice: the issue through the front door, this one written straight onto the board.
+Per its own note, triage owned the merge. What each half carried:
+
+* the issue — the reporter fields, now in the header above. They are the point of the queue:
+  `reported-by` is a URL that can be REPLIED to, so `confirmed: no` ("fixed, but the reporter has not
+  confirmed") is answerable rather than decorative.
+* this entry — the proposed surface and implementation order below, which the issue deliberately
+  omits because the form asks reporters not to diagnose.
+
+Neither half was discarded and there is no second copy: the `INBOX.md` entry was deleted on routing,
+which is what P-3.10 means by "leaves the queue by MOVING". Confirmed independently against
+`origin/main` before merging, rather than taken on trust — `readLine()` prints the prompt and then
+exits **1** with `ssc: unbound global: readLine` on stderr, so the runtime fails CLOSED and the gap
+is a missing capability, not a broken one.
 
 `std.os` exports `env` · `envOrElse` · `args` · `exit` · `cwd` · … — the whole environment
 surface **except input**. There is no `readLine`, no `stdin`, no console module: the only
@@ -121,6 +134,63 @@ extern def readLine(): Option[String]   // None at EOF
 (`f101312ed`). It was re-reported from the rozum side on 2026-07-30 against a toolchain
 built at `ff493301c` — i.e. before the fix, with `SSC_NO_BUILD_CHECK=1` silencing the
 launcher's own staleness warning. That report was wrong; this entry is not the same gap.
+
+## ssc-tools-swallows-piped-stdin — every command except lsp/repl reads stdin to EOF before the program runs
+<!-- status: open
+     lane: apparatus
+     area: cli
+     kind: bug
+     gate: none -->
+
+**Found 2026-07-31 while verifying the fix for `std-has-no-stdin-primitive`** — which is the only
+reason it was findable: nothing could read stdin before, so nothing could notice that stdin was gone.
+
+`Main.scala:72`:
+
+```scala
+if System.console() == null && stdinCommand != "lsp" && stdinCommand != "repl" then
+  loadSopsSecrets()
+```
+
+and `loadSopsSecrets` is `scala.io.Source.stdin.mkString` — it reads the stream **to EOF**. So on the
+`ssc-tools` route, any piped input is consumed by the CLI before the user's program starts. Measured
+with the same program on both routes:
+
+```
+$ printf 'ada\n' | bin/ssc run prompt.ssc            # default lane
+your name?
+hello ada
+
+$ printf 'ada\n' | bin/ssc-tools run --v1 prompt.ssc  # tools route
+your name?
+(no input)
+```
+
+The doc comment says the slurp is silent "so that scripts piped other content don't break
+unexpectedly". They do break — the content is simply gone, and the program sees EOF, which is
+indistinguishable from a user who typed nothing.
+
+**This is a genuine fork, not an oversight, and it belongs in the room (P-5) rather than to whoever
+gets there first.** The sops feature is DESIGNED around this pipe — its own comment gives
+`sops -d secrets.enc.yaml | ssc myapp.ssc` as the typical invocation, i.e. "run a program" is exactly
+the case it wants to capture. Two features now want the same stream:
+
+1. **Exclude the commands that run user code**, as `lsp`/`repl` already are. Smallest change; the
+   exclusion list then has to track every command that hands stdin to a program, and that list drifts.
+2. **Make the slurp opt-in** (`SSC_SOPS_STDIN=1`, or a flag). Removes the surprise permanently and
+   matches the DEFAULT lane, which does not slurp at all — the tools route is the outlier here. Costs
+   a behaviour change for anyone relying on the implicit capture.
+3. **Peek rather than consume.** Fragile: deciding "is this YAML secrets" from a prefix is a guess,
+   and it is still destructive when the guess is wrong.
+
+(2) is the one to take on the evidence — an implicit stdin capture that silently starves every
+program that reads input is the kind of behaviour that is only ever discovered as someone else's bug
+— but it changes a shipped contract, so it is raised rather than done.
+
+**Not blocking the reported gap.** `std.os.readLine` works on the DEFAULT lane (`bin/ssc`), which is
+what users run; this defect confines the tools route to the EOF branch. The conformance case
+`std-os-readline` gates the EOF branch on both lanes, which is what a runner feeding empty stdin can
+honestly test.
 
 ## std-ui-fetchUrlSignalTo-declared-never-implemented — a std primitive that exists only as documentation
 <!-- status: open

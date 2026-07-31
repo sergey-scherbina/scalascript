@@ -1,0 +1,41 @@
+---
+name: std-os-readline
+version: 1.0.0
+backends: [int, v2]
+---
+
+# `std.os.readLine` reads a line, and says `None` at end of input
+
+Reported as [#76](https://github.com/sergey-scherbina/scalascript/issues/76): a program could
+print a prompt and then had no way to read the answer. `readLine` was unbound on every lane, and
+`std/os.ssc` exported the whole environment surface with nothing that reads input — so an
+interactive `.ssc` program (a REPL, a confirmation prompt, a wizard) was not expressible at all.
+
+**The gate is driven by a here-string, not by a terminal.** The conformance runner feeds every case
+an empty stdin, which is precisely the EOF case — so the first `readLine()` here returns `None` and
+that is what the golden records. A case that needed someone to type would not be a gate; this one
+tests the branch that a terminal never shows you and that every caller has to handle.
+
+**`backends: [int, v2]` is a measurement, not a shortcut.** `std/os` resolves on the interpreter,
+the native tier and the v2 route, and does NOT resolve on `js` or `jvm` — measured on
+`envOrElse`, which fails there with `not callable: ()` and `value envOrElse is not a member of
+object std.os` respectively. That is a gap in the whole `std/os` surface rather than in this
+primitive, filed separately; gating `readLine` on lanes where `env` does not work either would be
+testing the wrong thing.
+
+```scalascript
+[readLine](std/os.ssc)
+```
+
+```scalascript
+def describe(line: Option[String]): String =
+  line match
+    case Some(text) => "line: " + text
+    case None       => "eof"
+
+def main() =
+  // Empty stdin: the first read is already end-of-input.
+  println(describe(readLine()))
+  // And it stays None — a caller that loops must terminate, not spin.
+  println(describe(readLine()))
+```

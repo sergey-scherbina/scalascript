@@ -6,6 +6,7 @@ package: std.os
 exports:
   - env
   - envOrElse
+  - readLine
   - args
   - exit
   - cwd
@@ -39,6 +40,17 @@ extern def envOrElse(key: String, default: String): String
 
 // ── CLI arguments ─────────────────────────────────────────────────────────────
 extern def args: List[String]
+
+// ── Standard input ────────────────────────────────────────────────────────────
+// One line from stdin, without its line terminator. `None` at end of input.
+//
+// `Option`, not `String`, so EOF is a case the caller must handle rather than one they
+// discover as an empty string — the two are different and a pipeline that ends is the
+// normal way an interactive program stops.
+//
+// There is deliberately no `readLine(prompt)`: prompting is `print` followed by this, and
+// folding them together would make the primitive impossible to test without a terminal.
+extern def readLine(): Option[String]
 
 // ── Process control ───────────────────────────────────────────────────────────
 extern def exit(code: Int): Nothing

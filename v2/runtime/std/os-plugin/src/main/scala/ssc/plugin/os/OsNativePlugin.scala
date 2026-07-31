@@ -135,6 +135,15 @@ final class OsNativePlugin extends NativePlugin:
       Value.StrV(Option(System.getenv(text(args, 0, "envOrElse")))
         .getOrElse(text(args, 1, "envOrElse")))
     }
+    // One line from stdin, `None` at EOF — the DEFAULT lane's half of `std.os.readLine`.
+    // `scala.io.StdIn.readLine()` yields null at end of input, and that null is exactly the
+    // case the Option exists for: an empty string would conflate "user pressed enter" with
+    // "input is over", and a REPL needs to tell those apart to know when to stop.
+    native(context, "readLine") { _ =>
+      val line = scala.io.StdIn.readLine()
+      if line == null then Value.DataV("None", Vector.empty)
+      else Value.DataV("Some", Vector(Value.StrV(line)))
+    }
     native(context, "exit")(exit)
     // Monotonic clock nanoseconds (System.nanoTime parity with the interp core
     // builtin). Used for job ids / elapsed timing; not wall-clock.
