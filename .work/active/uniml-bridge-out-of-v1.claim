@@ -1,0 +1,11 @@
+slug: uniml-bridge-out-of-v1
+branch: feature/uniml-bridge-out-of-v1
+agent: claude-code
+started: 2026-07-31T13:42:49Z
+heartbeat: 2026-07-31T13:42:49Z
+status: claimed-before-planning
+items: uniml-markdown-bridge-still-under-v1-lang
+paths: file:build.sbt file:v1/lang/uniml-markdown-bridge file:uniml/markdown/bridge file:specs/project-partitioning.md file:specs/uniml-production.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
