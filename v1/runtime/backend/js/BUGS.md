@@ -7,6 +7,89 @@ grepping for status.
 
 Newest first.
 
+## js-long-arith-no-64bit-wrap — `Long` arithmetic never wrapped: wrong answers, and an unbounded accumulator
+<!-- status: fixed
+     lane: js
+     area: runtime
+     kind: bug
+     gate: tests/conformance/long-overflow-wrap.ssc
+     fixed-in: 6567328660b11a6d44e27bf07c3d9188f0dee24a -->
+
+**Found 2026-07-31 by running `bench.sh`** — the `tuple-monoid` js cell had been burning 100 % of a
+core for 16 minutes and looked like a hang. It was not hung.
+
+**Root cause.** `_arith`'s bigint branch (`core-dispatch.mjs`) returned the raw `BigInt` for
+`+ - * / %`. ssc `Int`/`Long` are 64-bit and WRAP (`specs/numeric-widths.md` §2); a JS BigInt is
+unbounded. The sibling `_bit` had masked with `BigInt.asIntN(64, …)` since the Long→BigInt work
+(`v1-js-long-precision-and-bitops`, 2026-07-13) — arithmetic was simply never given the same
+treatment, and nothing executed a runtime overflow on the js lane to notice.
+
+**Two defects, one line.** Correctness: the js lane disagrees with INT/JVM/v2 on any overflow.
+Performance: in a loop the value never stops growing. Measured on `bench/corpus/tuple-monoid.ssc`'s
+LCG (100k × `s = s*2862933555777941757 + 3037000493`), one pass:
+
+| | wall | final `s` | `acc` |
+|---|---|---|---|
+| masked (correct) | **5 ms** | 64 bits | 399872 |
+| unmasked (the bug) | **43548 ms** | 6,131,220 bits | 550000 |
+
+8700×, and a different answer. At 100 reps that one benchmark cell needs ~72 minutes.
+
+**The fix is NOT a mask inside `_arith`, and that matters.** ssc `BigInt` is arbitrary-precision and
+has the SAME runtime representation (a JS bigint), so masking in the shared helper truncated
+`BigInt(1000000000)⁴` from `1e36` to `-5527149226598858752` — measured on the first attempt, caught
+only because the conformance case was extended to cover the twin. Only the compiler knows which of
+the two a value is. So: a new `_larith` (= `_arith`, then `asIntN(64)` when the result is a bigint),
+emitted by `JsGen` from the *existing* `isLongExpr` guard; comparisons stay on `_arith`; `_idiv`/
+`_imod` mask too, since they fire only when both operands are statically `Int` and
+`Long.MinValue / -1` overflows back to `MinValue` on INT/JVM.
+
+- **Real-harness repro (pre-fix):** `bin/ssc-tools run-js tests/conformance/long-overflow-wrap.ssc`
+  disagrees with the golden on **7 of 11** lines — that is the number the gate prints, and it is why
+  the case is worth its length.
+- **Gate:** `tests/conformance/long-overflow-wrap.ssc` (+ `expected/`), which deliberately holds BOTH
+  halves — Long wraps, BigInt does not — so neither can be "fixed" by breaking the other.
+
+## js-long-accum-plus-hoisted-const-mixes-bigint — `Long` accumulator + hoisted constant throws at runtime
+<!-- status: open
+     lane: js
+     area: codegen
+     kind: bug
+     gate: none -->
+
+**Found 2026-07-31 in the same `bench.sh` run** (`list-fold`'s js cell reports `node failed` and the
+column is `n/a`). Separate defect from `js-long-arith-no-64bit-wrap` above — that one is the runtime,
+this one is emission — and it survives that fix.
+
+**Repro** (INT prints `165`; js throws):
+
+```scalascript
+val xs: List[Int] = List(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+
+def main(): Unit =
+  var sum = 0L
+  var i = 0
+  while i < 3 do
+    xs.foreach(x => { sum = sum + x })
+    i = i + 1
+  println(sum)
+```
+
+```
+while ((i < 3)) { sum = sum + _k0; i = (i + 1); }
+                            ^
+TypeError: Cannot mix BigInt and other types, use explicit conversions
+```
+
+**Root cause (unconfirmed, one probe deep).** The loop-invariant `xs.foreach` fold is hoisted to a
+constant `_k0` emitted as a plain JS Number, and the rewritten `sum = sum + _k0` is a RAW `+` — the
+Long guard that would have routed it through `_arith`/`_larith` is not consulted on the rewritten
+node. `sum` is a BigInt, so the operator throws. Same shape as `js-effect-multishot-long-fold` and
+`js-long-param-arith`, which were fixed at their own emission sites; the hoisting path is a third one.
+
+**Done-when:** the repro above prints `165` on the js lane, and `bench.sh list-fold` reports a number
+instead of `n/a`. Worth a conformance case in the same shape as `js-long-param-arith`.
+
 ## js-no-tail-call-elimination-overflows-scljet-large-page — a loop the INT lane TCOs blows Node's stack
 <!-- status: open
      lane: js
