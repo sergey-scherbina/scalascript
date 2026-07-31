@@ -1,0 +1,11 @@
+slug: v2-perf-6b-impl
+branch: feature/v2-perf-6b-impl
+agent: claude-code
+started: 2026-07-31T03:15:36Z
+heartbeat: 2026-07-31T03:15:36Z
+status: claimed-before-planning
+items: v2-perf-6b-local-lambda-call
+paths: file:v2/backend-jvm-bytecode/JvmByteGen.scala file:v2/jvm-runtime/src/main/scala/ssc/Emit.scala file:bench/history.tsv file:TASK/v2-perfomance.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
