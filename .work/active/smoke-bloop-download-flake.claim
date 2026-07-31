@@ -2,10 +2,10 @@ slug: smoke-bloop-download-flake
 branch: feature/smoke-bloop-download-flake
 agent: claude-code
 started: 2026-07-31T06:03:40Z
-heartbeat: 2026-07-31T06:03:40Z
+heartbeat: 2026-07-31T06:20:30Z
 status: claimed-before-planning
 items: corpus-breadth-slice-crashes-scala-cli-on-ci
-paths: file:.github/workflows/smoke.yml file:scripts/smoke-ci.ssc file:tests/e2e/conformance-lanes-flag.sh file:scripts/BUGS.md file:scripts/SPRINT.md
+paths: file:.github/workflows/smoke.yml file:scripts/smoke-ci.ssc file:tests/e2e/conformance-lanes-flag.sh file:scripts/BUGS.md file:scripts/SPRINT.md file:scripts/kill-stale-builders
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
