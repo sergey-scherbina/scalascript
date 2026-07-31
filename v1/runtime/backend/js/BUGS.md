@@ -50,12 +50,13 @@ emitted by `JsGen` from the *existing* `isLongExpr` guard; comparisons stay on `
 - **Gate:** `tests/conformance/long-overflow-wrap.ssc` (+ `expected/`), which deliberately holds BOTH
   halves — Long wraps, BigInt does not — so neither can be "fixed" by breaking the other.
 
-## js-long-accum-plus-hoisted-const-mixes-bigint — `Long` accumulator + hoisted constant throws at runtime
-<!-- status: open
+## js-long-accum-plus-hoisted-const-mixes-bigint — `Long` accumulator + hoisted constant threw at runtime
+<!-- status: fixed
      lane: js
      area: codegen
      kind: bug
-     gate: none -->
+     gate: tests/conformance/long-accum-invariant-fold.ssc
+     fixed-in: 79e054ccaa5c89ee8bddeb2597b73a7235b7fed7 -->
 
 **Found 2026-07-31 in the same `bench.sh` run** (`list-fold`'s js cell reports `node failed` and the
 column is `n/a`). Separate defect from `js-long-arith-no-64bit-wrap` above — that one is the runtime,
@@ -87,8 +88,26 @@ Long guard that would have routed it through `_arith`/`_larith` is not consulted
 node. `sum` is a BigInt, so the operator throws. Same shape as `js-effect-multishot-long-fold` and
 `js-long-param-arith`, which were fixed at their own emission sites; the hoisting path is a third one.
 
-**Done-when:** the repro above prints `165` on the js lane, and `bench.sh list-fold` reports a number
-instead of `n/a`. Worth a conformance case in the same shape as `js-long-param-arith`.
+**FIXED 2026-07-31.** Root cause confirmed as scoped above: `inlineForeachOrGenStat`'s
+invariant-accumulation hoist (`JsGen.scala`) builds its output as TEXT — `let s = 0` for the inner
+sum and `acc = acc + _kN` for the outer add — so neither addition ever reached the BigInt-aware
+runtime helper. When the accumulator or the addend is statically `Long`, the inner sum is now seeded
+`0n` and both additions go through `_larith`.
+
+**The mask is load-bearing, not defensive.** This optimisation REORDERS `acc + a + b + …` into
+`acc + (a + b + …)`, and that is exact only modulo 2^64 — so the same helper that stops the crash is
+what keeps the reduction sound when the accumulator crosses the top of the range. The `Int` path
+keeps its native `+`; verified in the emitted JS that `ints = ints + _k0` is byte-for-byte what it
+was and only the `Long` rows moved to `_larith`.
+
+- **Gate:** `tests/conformance/long-accum-invariant-fold.ssc` (+ golden), covering all three shapes —
+  `Int` accumulator (the optimisation must survive), `Long` accumulator (this crash), `Long`
+  accumulator that OVERFLOWS (the reordering under wrapping, where a wrong implementation answers
+  differently rather than throwing).
+- **Fail-first, and a trap worth recording:** the case lives inside a `def` ON PURPOSE. The hoist
+  only fires for a while loop in a FUNCTION BODY, so the first draft — same code at top level — was
+  already green on the broken toolchain and would have gated nothing.
+- **Measured:** `bench.sh`'s `list-fold` js cell went from `n/a` to **0.1007 ms/iter**.
 
 ## js-no-tail-call-elimination-overflows-scljet-large-page — a loop the INT lane TCOs blows Node's stack
 <!-- status: open

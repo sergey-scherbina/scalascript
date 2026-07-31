@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-07-31 — the JS fold hoist stopped throwing on a `Long` accumulator
+
+`bench.sh`'s `list-fold` js cell had been `n/a`. JsGen's loop-invariant accumulation hoist builds its
+JS as TEXT (`let s = 0`, `acc = acc + _kN`), so neither addition reached the BigInt-aware runtime
+helper and a `Long` accumulator died on `TypeError: Cannot mix BigInt and other types` where the
+interpreter printed `165`. Now seeded `0n` and routed through `_larith` when the accumulator or the
+addend is statically `Long` — and that mask is load-bearing rather than defensive, because the
+optimisation REORDERS `acc + a + b + …` into `acc + (a + b + …)`, which is exact only modulo 2^64.
+The `Int` path keeps its native `+`, verified in the emitted JS. Gate:
+`tests/conformance/long-accum-invariant-fold.ssc`, covering Int / Long / Long-that-overflows; it
+lives in a `def` on purpose, since the hoist does not fire at top level and a top-level case would
+have gated nothing. list-fold js: n/a → 0.1007 ms/iter.
+
 ## 2026-07-31 — ssc `Long` wraps at 64 bits on the JS lane, and a benchmark stopped taking 72 minutes
 
 `_arith`'s bigint branch never masked its arithmetic result, so ssc `Long` did not wrap on the js
