@@ -152,7 +152,21 @@ frame materialisation. Measured, same boxed var in both, 1M iterations:
 | writes it, never reads it | **6.07** |
 
 **26×**, and `cell.set` is not in the Set while `cell.get` is — which is exactly the difference
-between the two rows. The JFR profile agrees: `Value[]` is 648 allocation samples against 178 for
+between the two rows.
+
+⚠ **That first pair was NOT a clean isolation** — the two probes also differed in whether the
+arithmetic ran on a boxed operand. Isolated properly (2026-07-31): both loops accumulate the same
+arithmetic into the same `lcell`, and the only difference is **one `cell.get` in the expression**:
+
+| | v2 ms |
+|---|---|
+| boxed var NOT read in the loop | **1.98** |
+| read once per iteration | **45.7** |
+
+**23× from a single `cell.get`.** Part of that is the `cell.get` call itself (a `prim1` CHM lookup
+plus a boxed return, order 10–20 ns × 1M ≈ 10–20 ms of the 43.7 ms delta); the remainder is the
+chain. Both stem from the same decision, and 23× is an order of magnitude above this host's noise
+floor — unlike the ~18% prim-dispatch effect, which it could not resolve at all. The JFR profile agrees: `Value[]` is 648 allocation samples against 178 for
 the literal-init variant, the largest single class in the slow run.
 
 **Why `cell.get` is in the Set is not a mistake:** a cell holds whatever was stored, so if an
