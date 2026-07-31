@@ -216,9 +216,24 @@ self-parity test is not external conformance.
   says nothing about whether the PROJECTION keeps your content.
   Ranked remainder at 572, by failing cases: Links 16, List items 14, emphasis 10, Lists 10,
   raw HTML 8, fenced code 6, entities 5, autolinks 4, images 4, tabs 4, block quotes 3.
-  The heaviest remaining theme is CONTAINER CONTENT INDENT: a fence or indented code inside
-  a list item keeps the item's indent (examples 263, 273, 274, 278), and two source-axis
-  failures (254, 264) are the same area. Mapped onto the sub-items:
+  An eighth took it to **577**: a fence body inside a container never lost the container's
+  prefix, because processLine dispatched fence lines BEFORE matching containers — so the
+  closing fence read as four columns of indent and the block swallowed the rest of the
+  document. Lists 10 → 7, List items 14 → 12.
+  Ranked remainder at 577: Links 16, List items 12, emphasis 10, raw HTML 8, Lists 7,
+  fenced code 6, entities 5, autolinks 4, images 4, tabs 4, block quotes 3.
+
+  **TRIED AND REVERTED — read this before retrying it.** CommonMark 5.2 says 5+ spaces
+  after a list marker mean the content starts with INDENTED CODE, and the item's content
+  indent is then marker + 1 (examples 273, 274). Implementing that in `startsListItem`
+  alone left `passing` unchanged at 577 and moved **source and tokens 10 → 12**: shortening
+  the marker lexeme drops those spaces out of the token stream, and no leaf handler picks
+  them up. The rule is right; it needs the EMISSION side reworked in the same change.
+  Trading a lossless axis for an html one is never the deal — the axes are what caught it.
+
+  The heaviest remaining theme is still CONTAINER CONTENT INDENT: indented code inside a
+  list item (273, 274) and the two source-axis failures (254, 264) are all one area, and it
+  wants its own pass over how containers hand content to leaf handlers. Mapped onto the sub-items:
   **3b** owns List items + Lists + setext + the multiline `[foo]:` forms; **3c** owns the rest of
   Links (angle destinations, escaped titles, bracket-vs-raw-HTML precedence) and emphasis; **3a**
   is not optional decoration — a real HTML5 entity table is what several remaining Links cases
