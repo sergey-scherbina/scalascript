@@ -146,6 +146,9 @@ final class HttpFastNativePlugin extends NativePlugin:
     throw new RuntimeException(s"native HTTP server unavailable: $operation requires the standard server-host SPI")
 
   def install(context: NativePluginContext): Unit =
+    // `validate { … }` + the require* family — the error-accumulating request validators. Separate
+    // file because they share nothing with the server host below except the request subject.
+    RequestValidation.install(context, (n, fn) => native(context, n)(fn))
     context.registerFields("Response", Vector("status", "headers", "body"))
     context.registerFields("TlsContext", Vector("certPath", "keyPath"))
     context.registerFields("Request", Vector("method", "path", "headers", "body", "form", "files", "cookies", "session", "json", "params", "query"))

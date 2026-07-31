@@ -7,6 +7,38 @@ grepping for status.
 
 Newest first.
 
+## v2-validate-accumulator-missing — `validate { … }` and the require* family had no native surface
+<!-- status: fixed
+     lane: native
+     area: runtime
+     fixed-in: unrecorded
+     gate: tests/conformance/rest-validate.ssc -->
+
+**FIXED 2026-07-31.** `validate`, `requireString`, `requireRange`, `requireRangeDouble` and
+`requireOneOf` are ported from v1's request plugin into `http-fast-plugin` as `RequestValidation`.
+`tests/conformance/rest-validate.ssc` matches int on all five lines, including accumulation ORDER.
+
+⚠️ **I had sized this wrong and told the owner so.** On the interpreter `validate` is a RESERVED
+APPLY HEAD (`EvalRuntime.reservedApplyHeads`, next to `runTx`/`timeout`/`Focus`) — a special form —
+so I reported it as front + runtime work. On the native lane the front lowers it to an ordinary call
+with the block as a zero-arg closure, and the failure was plain `unbound global: validate`. Running
+the case is what corrected the estimate; reading the v1 shape is what produced the wrong one.
+
+Messages and defaults are copied verbatim (`missing field: x`,
+`out of range [1..5] for field: x`, the min/`""`/`allowed.head` fallbacks) because the golden comes
+from the interpreter — a better wording would be a diverging row.
+
+⚠️ `require*` OUTSIDE a `validate` block throws instead of returning its default. There is nowhere
+to record the problem, and returning the fallback silently would turn a validation miss into a
+plausible value — the exact failure mode this construct exists to prevent.
+
+Field lookup is `form` then `query`, BY NAME, via `V2PluginRegistry.lookupFieldNames` — v2 field
+access is positional and the receiver is a user case class, so the registry is the only way to find
+them. Same mechanism `SqlNativePlugin` uses for row tags.
+
+Blast radius measured: full corpus contract across int/js/v2 — 1069/1107 PASS, one row changed
+(`rest-validate v2 FAIL` -> PASS), zero regressions, despite adding a global as common as `validate`.
+
 ## v2-annotated-field-plus-derives-breaks-the-constructor — a field annotation truncated the param list
 <!-- status: fixed
      lane: native

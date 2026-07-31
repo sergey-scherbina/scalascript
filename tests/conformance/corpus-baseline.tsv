@@ -75,7 +75,6 @@ remote-registry-rpc	*	SKIP
 rest-api	*	SKIP
 rest-api-fm	*	SKIP
 rest-jetty	*	SKIP
-rest-validate	v2	FAIL
 rozum-agent	js	FAIL
 rozum-agent-pool	js	FAIL
 rozum-agent-schema-derived	js	TIMEOUT
