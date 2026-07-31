@@ -171,6 +171,12 @@ val suite = List(
   // Four green 20-minute shards were discarded on run 30649090567 by a reduce job that died in 0 s
   // on argument ORDER, and no amount of corpus equality would have seen it.
   Check("tests", "negtc-mapreduce", "tests/e2e/negtc-mapreduce-gate.sh", List("--no-sweeps"), 60000),
+  // Pure awk over a synthetic report, well under a second — and it had NEVER RUN. Nothing in this
+  // repo invoked it, and its canonical fixture had drifted below the freeze's own floors, so under
+  // `set -e` it exited at the first assertion and none of its seven drift rejections executed. The
+  // freeze it guards is what decides whether a release is allowed, and on 2026-07-31 that freeze
+  // failed a green corpus because a hardcoded 15 outlived the manifest it counted.
+  Check("tests", "negtc-release-freeze", "tests/e2e/v21-negative-toolchain-release-gate-smoke.sh", List(), 60000),
   Check("tests", "ci-status-guard", "tests/e2e/ci-status-guard.sh", List(), 120000),
   Check("tests", "no-test-reaches-an-exiting-cli", "tests/e2e/cli-exit-reachability-guard.sh", List("--self-test"), 180000),
   // CI skips the ~3.5 min launcher build when this digest says the toolchain's inputs are unchanged.

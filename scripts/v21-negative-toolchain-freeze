@@ -30,7 +30,30 @@ report=${1:-}
   exit 2
 }
 
-awk -F '\t' '
+# `parity.delegated` is DERIVED FROM THE MANIFEST, not frozen. The floor used to read 15 with the
+# comment "the explicit provider/target lanes must all be present" — which is not a floor at all,
+# it is an equality with the manifest, and 15 was that file's size on 2026-07-12. On 2026-07-31 MCP
+# and then NFC joined the standard graph, their rows retired, the manifest went 15 -> 13 -> 12, and
+# this floor failed a release gate because two cases had IMPROVED. That is the third copy of the
+# same number to break the same way in one day (the others were in bc-parity-sweep); this file's own
+# header already argues the principle — separate the invariants that must hold forever from the
+# counts that drift — and a manifest's size is squarely the second kind.
+#
+# Reading it here is also STRICTER than the floor was: every manifest row must be delegated and
+# nothing else may be, so a row that stops being delegated is now caught instead of absorbed.
+# `tests/e2e/v21-explicit-lanes-gate.sh` owns whether the manifest itself is right.
+explicit_manifest="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)/tests/fixtures/v21-explicit-lanes/manifest.tsv"
+[[ -f $explicit_manifest ]] || {
+  echo "v21-negative-toolchain-freeze: missing explicit-lane manifest: $explicit_manifest" >&2
+  exit 2
+}
+delegated_expected=$(awk -F '\t' 'NR > 1 && NF > 1 { n++ } END { print n + 0 }' "$explicit_manifest")
+[[ $delegated_expected -ge 1 ]] || {
+  echo "v21-negative-toolchain-freeze: explicit-lane manifest has no rows: $explicit_manifest" >&2
+  exit 2
+}
+
+awk -F '\t' -v delegated_expected="$delegated_expected" '
 function req(key) {
   if (!(key in value)) { print P "missing metric: " key > "/dev/stderr"; bad=1; return 0 }
   return 1
@@ -81,7 +104,9 @@ END {
   floorge("frontend.ok", 200)      # the standard front must keep working for ~all examples
   floorge("checker.ok", 200)       # the standard checker must keep working for ~all examples
   floorge("parity.identical", 50)  # real VM==bytecode parity coverage must not collapse
-  floorge("parity.delegated", 15)  # the explicit provider/target lanes must all be present
+  # EXACT against the manifest, not a floor — see the derivation above the awk. "All present" is an
+  # equality, and expressing it as >=15 made a retiring row look like a coverage collapse.
+  exact("parity.delegated", delegated_expected)
 
   # --- sanity caps ---
   caple("frontend.non-code", 5)
