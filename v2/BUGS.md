@@ -11,7 +11,7 @@ Newest first.
 <!-- status: fixed
      lane: native
      area: front
-     fixed-in: PENDING-SHA
+     fixed-in: 1ba9193c6
      gate: tests/conformance/literal-pattern-in-case-lambda.ssc -->
 
 **Introduced and fixed 2026-07-31**, both by me. Recorded rather than quietly folded into the fix,
@@ -1183,7 +1183,7 @@ path. It sat on `main` for 5 days because the gate that watches exactly this cou
 <!-- status: fixed
      lane: multi
      area: front
-     fixed-in: PENDING-SHA
+     fixed-in: 1ba9193c6
      gate: tests/conformance/unit-literal-pattern.ssc -->
 
 **FIXED 2026-07-31** by `v2-front-triple`, on BOTH self-hosted fronts.
