@@ -121,14 +121,21 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      # sbt and its caches are only needed to BUILD. On a hit they are pure setup cost for a step
-      # that will not run.
+      # sbt is only needed to BUILD. On a toolchain-cache hit it is pure setup cost for a step that
+      # will not run.
       - name: Setup sbt
         if: steps.toolchain.outputs.cache-hit != 'true'
         uses: sbt/setup-sbt@v1
 
+      # UNCONDITIONAL, and making it conditional was a real regression that took three red runs to
+      # find. `~/.cache/coursier` is not a build cache — it is the artifact cache **scala-cli** uses
+      # at RUN time, and the smoke suite runs scala-cli for every conformance check. Skipped on a
+      # toolchain-cache hit, scala-cli had to fetch Bloop from Maven on every such run, and that
+      # download fails intermittently: three of the last fifteen runs died with
+      # `Failed to download .../bloop-frontend_2.12-2.1.0.pom` (BUGS
+      # corpus-breadth-slice-crashes-scala-cli-on-ci). The cache-hit path is the COMMON path, so the
+      # optimisation aimed the flake at the majority of runs.
       - name: Cache Coursier/sbt
-        if: steps.toolchain.outputs.cache-hit != 'true'
         uses: actions/cache@v4
         with:
           path: |
