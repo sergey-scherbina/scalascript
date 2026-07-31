@@ -1,0 +1,11 @@
+slug: v2-perf-cell-typed-init
+branch: feature/v2-perf-cell-typed-init
+agent: claude-code
+started: 2026-07-31T05:58:25Z
+heartbeat: 2026-07-31T05:58:25Z
+status: claimed-before-planning
+items: v2-perf-unboxed-cell-only-for-literal-init
+paths: file:v2/SPRINT.md file:TASK/v2-perfomance.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
