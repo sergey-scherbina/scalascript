@@ -236,8 +236,26 @@ private[markdown] final class MarkdownBlocks(
         // fewer containers matched — the paragraph (if any) ends here
         finishParagraph()
         if prefix.nonEmpty then flushPending(MdKind.Indent, prefix.mkString, Vector.empty, Some("continuation"), TokenChannel.Trivia)
-        scheduleContainerClose(matched)
+        scheduleContainerClose(listAwareKeep(matched, rest))
       rest
+
+    /** A list frame outlives the item that just closed ONLY when this line opens
+      * a sibling item. Otherwise the list ends here too.
+      *
+      * Without this the frame stayed open and the following block was emitted as
+      * a direct child of the list — and the projection collects only list items,
+      * so it DROPPED it: `- one\n\n two` lost `two` from the output entirely.
+      * Silent content loss, which is why it outranked the prettier list bugs. */
+    def listAwareKeep(matched: Int, rest: String): Int =
+      if matched <= 0 || matched > containers.size then matched
+      else
+        containers(matched - 1) match
+          case lf: ListFrame =>
+            val trimmed = rest.substring(MdChars.indentPrefixLength(rest))
+            startsListItem(trimmed) match
+              case Some(item) if item._1 == lf.ordered => matched
+              case _                                   => matched - 1
+          case _ => matched
 
     def scheduleContainerClose(keep: Int): Unit =
       finishParagraph()
