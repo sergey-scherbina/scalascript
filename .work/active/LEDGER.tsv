@@ -1,3 +1,4 @@
-# generation: 635
+# generation: 636
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
+int-module-mutable-registry	claude-code	2026-07-31T11:04:09Z	int-imported-module-mutable-registry-not-shared	dir:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter file:v1/runtime/backend/interpreter/BUGS.md file:v1/runtime/backend/js/BUGS.md file:tests/conformance/imported-module-mutable-registry.ssc file:tests/conformance/expected/imported-module-mutable-registry.txt file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv
