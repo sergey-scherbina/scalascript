@@ -99,3 +99,14 @@ date	sha	load	workload	lane	ref_lane	ms	ref_ms	ratio	note
 2026-07-31	c934dc583	4	probe-boxed-var-writeonly	v2-bytecode	-	6.07	-	-	writes it, never reads — pure inline path. 26x apart
 2026-07-31	13f68233d	4	probe-array-read+write	v2-bytecode	-	290.4	-	-	arr.get-poisons-loop theory: NOT supported
 2026-07-31	13f68233d	4	probe-array-write-only	v2-bytecode	-	401.2	-	-	write-only is SLOWER — asymmetry runs the wrong way
+#
+# 2026-07-31 v2-perf-prim-dispatch: constant-dynamic Slot instead of a per-call CHM lookup.
+# IMPLEMENTED, arm proven LIVE (javap: prim1s/slotBootstrap in the jar; PrintCompilation: prim1s
+# JIT-compiled 14x), MEASURED, and REVERTED. Alternating A/B, only the two jars swapped, var-expr-init:
+#   r1  75.8 ->  62.0   +18.2%
+#   r2  78.2 ->  64.7   +17.3%
+#   r3  83.1 ->  97.2   -17.0%
+#   r4 120.8 ->  69.5   +42.5%
+#   r5  76.3 ->  83.7    -9.7%
+# Signs both ways, spread -17% to +42%. The predicted ceiling was ~18% and this host swings 2.5x on
+# identical code, so the effect is INSIDE the noise this host can resolve. Not "no effect" — UNRESOLVED.

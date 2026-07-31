@@ -789,6 +789,40 @@ Full A/B, baseline and open slices: `specs/v2-runtime-perf-vs-v1.md`; bug record
      kind: perf
      gate: none -->
 
+
+**⚠ ATTEMPT 1 (2026-07-31): implemented, proven live, measured, REVERTED — read before retrying.**
+
+The change: `LDC` a **constant-dynamic** `Slot` instead of the op String, so `Emit.slotBootstrap`
+resolves once per (class, op) and every later execution is a constant load. `prim1s/2s/3s` take the
+resolved Slot; the String-taking `prim1/2/3` stay for the VM lane, so behaviour cannot change —
+only where the resolve happens.
+
+**The arm was PROVEN LIVE before measuring** (`javap -p` shows `prim1s`/`slotBootstrap` in the
+staged jar; `-XX:+PrintCompilation` shows `prim1s` JIT-compiled 14×). So this is not another inert
+attempt — the code ran and the measurement is of the real thing.
+
+**Alternating A/B, only the two jars swapped, `var-expr-init`:**
+
+    r1  75.8 ->  62.0   +18.2%
+    r2  78.2 ->  64.7   +17.3%
+    r3  83.1 ->  97.2   -17.0%
+    r4 120.8 ->  69.5   +42.5%
+    r5  76.3 ->  83.7    -9.7%
+
+**Signs both ways, spread −17% to +42%.** The predicted ceiling was ~18%, and this host swings 2.5×
+on *identical* code — so **the effect is smaller than the noise this host can resolve**. That is
+"UNRESOLVED", not "no effect", and the distinction matters for whoever picks this up.
+
+Reverted on the standing rule: *revert a change that measures nothing when carrying it costs future
+attention.* It forks the emitter and the runtime into two dispatch paths, which every later reader
+must understand.
+
+**To resolve it, do NOT re-run this A/B.** A whole-workload benchmark cannot see an 18% effect at
+load 3–17. Either measure on a genuinely quiet machine with many more rounds, or — better — write a
+microbenchmark that isolates primitive dispatch (JMH, `scripts/bench interp`) so the signal is not
+diluted by everything else the workload does.
+
+
 Measured entry facts, so a fresh agent does not re-derive them:
 
 - **`list-fold` (the worst remaining ratio, 135× v1) spends ~18% of its profile resolving
