@@ -40,7 +40,8 @@ where the cause is that assignment writes `interp.globals` unconditionally) and 
 shape, three different causes — fixing one is a third of the job.
 
 ## f-set-empty-has-no-runtime-receiver — `Set.empty` must keep delegating, not lower
-<!-- status: open
+<!-- status: fixed
+     fixed-in: 2fc2349f760d60b1e2cb822c07ecac91fa487099
      lane: native
      area: front
      gate: none -->
@@ -57,9 +58,19 @@ Adding `Set` there trades a correct answer for a silently wrong one: today F dec
 runner delegates, and the result is right. That is strictly better than lowering it wrongly, and the
 table is exactly the kind of "every type except one" list somebody will helpfully fill in.
 
-Closing this properly means giving the runtime a `Set` receiver, or mapping `(ctor Set)` onto the list
-one — not editing the table. Until then the omission IS the fix, and the reason is written at the call
-site.
+RESOLVED the same day, and the entry as first written was wrong about the cost. "The runtime has no
+notion of `Set`" was a correct observation and a wrong conclusion: `Set` does not need a type, it
+needs to join the alias list `List | Seq | Vector` in `Runtime.scala`'s companion table — and neither
+`Seq` nor `Vector` is a distinct type on this lane either. One `||`.
+
+What made it look blocked was that the two edits have to land TOGETHER: `isCollComp` alone gives
+`Set.empty` a receiver the runtime cannot serve, which is the silently-wrong-output case this entry
+was created to prevent. Both sites now carry a comment saying they move as a pair.
+
+Scope settled by measuring the oracle rather than guessing: `Set.empty` is supported by the default
+front (`List()`), while `Set.fill` and `Set.range` are supported by NOBODY ("unhandled runtime
+effect" on the default front too), so only `empty` needed the alias and F is no worse on the other
+two — verified, since routing them through the companion path could have diverged.
 
 ## v2-getorelse-two-arg-falls-into-option-helper — `Map(...).getOrElse(k, d)` dies unless the receiver is a bare variable
 <!-- status: open
