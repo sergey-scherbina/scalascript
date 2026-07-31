@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+#
+# inbox-add — register a report from someone who USES ScalaScript (POLICY.md P-3.10).
+#
+#   scripts/inbox-add <slug> --summary "<their words>" --reported-by <who> --ssc-version <v> \
+#                            [--repro <path|none>] [--kind bug|perf|feature|…] [--body-file <f>]
+#   scripts/inbox-add --list          # what is waiting, oldest first
+#
+# WHY A TOOL. The fields are the whole value of the queue — `reported-by` is what makes
+# `confirmed: no` ("fixed, but the reporter has not confirmed") answerable at all, and `ssc-version`
+# is what turns a report into something reproducible. Hand-typed headers grow typos and omissions,
+# and a queue whose fields are unreliable is a queue nobody trusts enough to work from. The tool
+# refuses rather than writes something half-formed.
+#
+# It writes ONLY the file. No commit, no push: registering a report is not a claim, several may
+# arrive at once, and INBOX.md is bookkeeping — appended to by everyone by design (P-2), so a rebase
+# there is cheap and a tool holding a lock would be worse than the conflict.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+INBOX="$ROOT/INBOX.md"
+START='<!-- inbox-entries:start'
+END='<!-- inbox-entries:end -->'
+
+usage() {
+  cat >&2 <<'USAGE'
+usage: scripts/inbox-add <slug> --summary "<text>" --reported-by <who> --ssc-version <v>
+                                [--repro <path|none>] [--kind <kind>] [--body-file <file>]
+       scripts/inbox-add --list
+
+  <slug>          kebab-case, unique across INBOX.md and every board
+  --summary       the report in the REPORTER's words — not your diagnosis
+  --reported-by   a handle, address or URL: something that can be replied to
+  --ssc-version   what they ran; `unknown` is allowed and is itself information
+  --repro         path to a minimal case, or `none` (default: none)
+  --kind          specs/bugs-index.md kinds (default: bug)
+  --body-file     file whose contents become the entry body (default: read stdin if piped)
+USAGE
+}
+
+list_mode=0
+slug=""; summary=""; reported_by=""; ssc_version=""; repro="none"; kind="bug"; body_file=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --list) list_mode=1; shift ;;
+    --summary)     [ $# -ge 2 ] || { echo 'inbox-add: --summary needs a value' >&2; exit 2; }; summary="$2"; shift 2 ;;
+    --reported-by) [ $# -ge 2 ] || { echo 'inbox-add: --reported-by needs a value' >&2; exit 2; }; reported_by="$2"; shift 2 ;;
+    --ssc-version) [ $# -ge 2 ] || { echo 'inbox-add: --ssc-version needs a value' >&2; exit 2; }; ssc_version="$2"; shift 2 ;;
+    --repro)       [ $# -ge 2 ] || { echo 'inbox-add: --repro needs a value' >&2; exit 2; }; repro="$2"; shift 2 ;;
+    --kind)        [ $# -ge 2 ] || { echo 'inbox-add: --kind needs a value' >&2; exit 2; }; kind="$2"; shift 2 ;;
+    --body-file)   [ $# -ge 2 ] || { echo 'inbox-add: --body-file needs a value' >&2; exit 2; }; body_file="$2"; shift 2 ;;
+    # Fail CLOSED on an unknown flag. `coord-release` shipped a catch-all that swallowed `--level`
+    # into a message and dropped the value silently; the same shape here would drop a reporter.
+    -*) printf 'inbox-add: unknown flag: %s\n' "$1" >&2; usage; exit 2 ;;
+    *)  if [ -z "$slug" ]; then slug="$1"
+        else printf 'inbox-add: unexpected argument: %s (quote multi-word values)\n' "$1" >&2; usage; exit 2
+        fi
+        shift ;;
+  esac
+done
+
+[ -f "$INBOX" ] || { printf 'inbox-add: %s not found\n' "$INBOX" >&2; exit 2; }
+
+# ── --list ────────────────────────────────────────────────────────────────────
+if [ "$list_mode" -eq 1 ]; then
+  awk -v s="$START" -v e="$END" '
+    index($0, s) { inq = 1; next }
+    index($0, e) { inq = 0 }
+    inq { print }
+  ' "$INBOX" | awk '
+    /^## / { slug = $2; sum = substr($0, index($0, "— ")); next }
+    /reported-at:/ { for (i=1;i<=NF;i++) if ($i == "reported-at:") d = $(i+1) }
+    /triage:/      { for (i=1;i<=NF;i++) if ($i == "triage:")      t = $(i+1) }
+    /reported-by:/ { for (i=1;i<=NF;i++) if ($i == "reported-by:") w = $(i+1) }
+    /-->/ && slug { printf "%s\t%-12s %-28s %s\n", d, t, slug, w; slug = "" }
+  ' | sort
+  exit 0
+fi
+
+# ── register ──────────────────────────────────────────────────────────────────
+[ -n "$slug" ] || { usage; exit 2; }
+case "$slug" in
+  [a-z0-9]*[a-z0-9]) : ;;
+  *) printf 'inbox-add: slug must be kebab-case: %q\n' "$slug" >&2; exit 2 ;;
+esac
+case "$slug" in *[!a-z0-9-]*) printf 'inbox-add: slug must be kebab-case: %q\n' "$slug" >&2; exit 2 ;; esac
+
+missing=""
+[ -n "$summary" ]     || missing="$missing --summary"
+[ -n "$reported_by" ] || missing="$missing --reported-by"
+[ -n "$ssc_version" ] || missing="$missing --ssc-version"
+if [ -n "$missing" ]; then
+  printf 'inbox-add: missing required:%s\n' "$missing" >&2
+  printf '  These are the fields the queue exists for. `reported-by` is what makes a fix\n' >&2
+  printf '  announceable to the person who hit it; `ssc-version` is what makes it reproducible.\n' >&2
+  usage; exit 2
+fi
+
+# Slug uniqueness across EVERY board, not just this file — the same invariant `bugs-index` enforces.
+# A report that later routes into a module must not collide with an entry already there.
+existing="$(cd "$ROOT" && git grep -l -- "^## $slug " -- '*BUGS.md' '*BACKLOG.md' 'INBOX.md' 2>/dev/null || true)"
+if [ -n "$existing" ]; then
+  printf 'inbox-add: slug %q already exists in:\n' "$slug" >&2
+  printf '  %s\n' $existing >&2
+  exit 2
+fi
+
+body=""
+if [ -n "$body_file" ]; then
+  [ -f "$body_file" ] || { printf 'inbox-add: no such --body-file: %q\n' "$body_file" >&2; exit 2; }
+  body="$(cat "$body_file")"
+elif [ ! -t 0 ]; then
+  body="$(cat)"
+fi
+[ -n "$body" ] || body="_(no detail supplied beyond the summary)_"
+
+today="$(date -u +%Y-%m-%d)"
+entry="$(printf '## %s — %s\n<!-- triage: new\n     reported-by: %s\n     reported-at: %s\n     ssc-version: %s\n     repro: %s\n     kind: %s -->\n\n%s\n' \
+  "$slug" "$summary" "$reported_by" "$today" "$ssc_version" "$repro" "$kind" "$body")"
+
+tmp="$(mktemp)"
+ENTRY="$entry" END_MARK="$END" awk '
+  index($0, ENVIRON["END_MARK"]) && !done { print ENVIRON["ENTRY"]; done = 1 }
+  { print }
+' "$INBOX" > "$tmp"
+mv "$tmp" "$INBOX"
+
+printf '✓ registered %s in INBOX.md (triage: new, reported-by: %s, ssc-version: %s)\n' \
+  "$slug" "$reported_by" "$ssc_version"
+printf '  next: triage it — route to the module where the FIX goes (POLICY.md P-3.2/P-3.10),\n'
+printf '        move the entry there with its reporter fields, and delete it from INBOX.md.\n'
+printf '  check: tests/e2e/inbox-gate.sh\n'

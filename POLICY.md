@@ -113,6 +113,14 @@ Detail: [`specs/work-tracking-layout.md`](specs/work-tracking-layout.md) (layout
   an entry two plausible homes, and then "no duplicate slugs" stops holding and "in neither" starts.
 - **P-3.9 · Never grep for status.** Query the header (`scripts/bugs-report`). Prose produced three
   synonyms for "closed" and 108 entries with none.
+- **P-3.10 · A report from a USER enters the inbound queue, and leaves it by MOVING.**
+  [`INBOX.md`](INBOX.md) is the one place an entry may exist without a module: `lane:` and `area:`
+  are conclusions about where the fix goes, and a reporter has not reached one. Register with
+  `scripts/inbox-add` (never by hand — `reported-by` is what makes `confirmed: no` answerable and
+  `ssc-version` is what makes a report reproducible). Triage routes it to the module that owns the
+  fix (P-3.2), where the entry is **moved** — not copied — carrying its reporter fields; the routed
+  set is then DERIVED, not listed (P-3.5). `tests/e2e/inbox-gate.sh` bounds how long anything may
+  wait, because a queue with no age limit is a graveyard with good manners.
 
 ## P-4 · Deciding
 

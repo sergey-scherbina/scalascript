@@ -61,6 +61,15 @@ GitHub and parses with one regex.
 | `kind` | optional, defaults to `bug` | `bug` · `perf` · `feature` · `regression` · `apparatus` · `programme` |
 | `duplicate-of` | when `status: duplicate` | the slug this duplicates |
 | `confirmed` | optional | `no` — fixed but the reporter has not confirmed. **Not a separate status.** |
+| `reported-by` | when the entry came from the inbound queue | the reporter — a handle, address or URL |
+| `reported-at` | with `reported-by` | `YYYY-MM-DD`, the date THEY reported it |
+| `ssc-version` | with `reported-by` | what they ran when they hit it; `unknown` allowed |
+
+**The three reporter fields arrive from [`../INBOX.md`](../INBOX.md) and travel WITH the entry when
+it is routed** (POLICY.md P-3.10). They are what makes `confirmed: no` actionable — it has always
+meant "fixed, but the reporter has not confirmed", and until the inbound queue existed nothing
+recorded who that was. Their presence is also what makes the routed set derivable instead of listed:
+`git grep -l 'reported-by:' -- '*BUGS.md'`.
 
 ### `kind` — the subtype axis, as a field and not as a directory
 

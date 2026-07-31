@@ -70,6 +70,46 @@ defect is present in more than one implementation, so no single module can own i
 nearest common ancestor. If a `multi` entry turns out to be one module's after all, move it and
 change the lane — that is a one-line edit, and the gate will keep the slug unique.
 
+## Inbound queue — reports from people who USE ScalaScript
+
+**The rule is [`POLICY.md`](../POLICY.md) P-3.10.** The mechanics:
+
+```
+INBOX.md                   the queue — untriaged reports only, never a routed copy
+scripts/inbox-add          registers one; `--list` shows what is waiting, oldest first
+tests/e2e/inbox-gate.sh    the invariants, with --self-test
+```
+
+**Why a separate place at all, when P-3.8 says subtype is a field.** Inbound is not a subtype, it is
+a STATE BEFORE ROUTING. Every other record in this repo is born routed: `lane:` and `area:` are
+judgements about where the fix goes, and the agent filing it makes them. A user cannot — they know a
+symptom and a version. The alternatives were to guess a module (P-3.3 calls that extraction from
+prose, and it put four entries under the wrong owner when it was tried) or to lose the report.
+
+**Fields.** `triage: new | needs-info`, plus `reported-by`, `reported-at`, `ssc-version`, `repro`,
+and optionally `kind` / `waiting-on`. Full table in [`../INBOX.md`](../INBOX.md). `lane:` and `area:`
+are *refused* here by the gate, not merely unused.
+
+**Triage moves the entry.** Into `<module>/BUGS.md` (or `BACKLOG.md`) of the module that owns the fix,
+gaining `status`/`lane`/`area`/`gate`, and out of `INBOX.md`. The reporter fields travel with it:
+`confirmed: no` in the header schema already means "fixed, but the reporter has not confirmed", and
+before this queue existed nothing recorded who to ask.
+
+**There is deliberately no routed list.** It would be a second copy of a record that now lives in a
+board. The routed set is derived — every entry anywhere carrying `reported-by` came from a user:
+
+```sh
+git grep -l 'reported-by:' -- '*BUGS.md' '*BACKLOG.md'
+```
+
+The one outcome that is NOT derivable is a report closed *without* routing (`duplicate`,
+`not-a-defect`): there is no destination entry to derive it from, so those get one line each under
+`## Closed without routing` — a line and a reason, never the report body.
+
+**Age is an invariant, not a nicety.** `SSC_INBOX_MAX_AGE_DAYS` (default 14) is the point at which
+the gate fails. A report nobody rejects and nobody routes has been lost politely, and the only
+mechanical difference between a queue and a graveyard is whether anything notices.
+
 ## The header is unchanged
 
 `specs/bugs-index.md` still defines it, and the gate still enforces it — the only change is that the
