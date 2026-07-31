@@ -199,6 +199,22 @@ private[markdown] object MdChars:
         case _    => done = true
     col
 
+  /** Char index at which exactly `columns` columns of leading indentation have
+    * been consumed, or -1 when the run is too short or a TAB straddles that
+    * boundary. A straddling tab would have to be split into spaces to be cut,
+    * which no lossless token can represent, so callers must handle -1 rather
+    * than approximate it. */
+  def indentCut(content: String, columns: Int): Int =
+    var col = 0
+    var i = 0
+    var stopped = false
+    while i < content.length && col < columns && !stopped do
+      content.charAt(i) match
+        case ' '  => col += 1; i += 1
+        case '\t' => col += 4 - (col % 4); i += 1
+        case _    => stopped = true
+    if col == columns then i else -1
+
   /** Length in chars of the leading whitespace prefix of `content`. */
   def indentPrefixLength(content: String): Int =
     var i = 0

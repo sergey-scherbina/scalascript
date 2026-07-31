@@ -40,6 +40,10 @@ private[markdown] enum OpenLeaf:
   case None
   case Paragraph
   case FencedCode(char: Char, len: Int)
+  // An indented code block stays open across lines so a run of them coalesces
+  // into ONE block (CommonMark 4.4), with interior blank lines held back until
+  // another indented line proves they are interior rather than trailing.
+  case IndentedCode
 
 // One physical paragraph line: the stripped container-continuation prefix (a `> `
 // marker or list indent; empty on the first line and lazy lines), the de-prefixed
@@ -66,6 +70,9 @@ private[markdown] final class MarkdownBlocks(
     var containers: Vector[Container] = Vector.empty
     // frames pending closure, to fold into the next emitted structural token
     var pendingClose: Vector[String] = Vector.empty
+    // blank lines seen while an indented code block is open: interior until an
+    // indented line follows, trailing if the block ends first
+    var indentedCodeBlanks: Vector[(String, String)] = Vector.empty
     // leaf accumulation state
     var open: OpenLeaf = OpenLeaf.None
     var paragraphSegs: Vector[ParaSeg] = Vector.empty
@@ -148,8 +155,12 @@ private[markdown] final class MarkdownBlocks(
     ): Int =
       val trimmed = content.substring(MdChars.indentPrefixLength(content))
       // indented code (4+ spaces) only when not continuing a paragraph
-      if indentWidth >= 4 && open != OpenLeaf.Paragraph && !startsListOrQuote(trimmed) then
-        handleIndentedCode(line); index + 1
+      val isIndentedCode = indentWidth >= 4 && open != OpenLeaf.Paragraph && !startsListOrQuote(trimmed)
+      // any other leaf ends an open indented block; the branches below that do not
+      // route through finishParagraph (appendParagraph) would otherwise nest into it
+      if !isIndentedCode then finishIndentedCode()
+      if isIndentedCode then
+        handleIndentedCode(line, content); index + 1
       else if open == OpenLeaf.Paragraph && isSetextUnderline(trimmed) then
         // a setext underline takes precedence over a thematic break
         emitSetextUnderline(line); index + 1
@@ -243,9 +254,14 @@ private[markdown] final class MarkdownBlocks(
     // ── blank lines ────────────────────────────────────────────────────────
 
     def handleBlank(line: MdLine, content: String): Unit =
-      finishParagraph()
-      val lexeme = content + line.ending
-      if lexeme.nonEmpty then flushPending(MdKind.Blank, lexeme, Vector.empty, Some("blank"), TokenChannel.Trivia)
+      // Inside an indented code block a blank line is not yet decidable: it is
+      // interior content if another indented line follows and trailing trivia if
+      // the block ends. Hold it until one of the two happens.
+      if open == OpenLeaf.IndentedCode then indentedCodeBlanks = indentedCodeBlanks :+ ((content, line.ending))
+      else
+        finishParagraph()
+        val lexeme = content + line.ending
+        if lexeme.nonEmpty then flushPending(MdKind.Blank, lexeme, Vector.empty, Some("blank"), TokenChannel.Trivia)
 
     // ── paragraphs ────────────────────────────────────────────────────────
 
@@ -259,6 +275,10 @@ private[markdown] final class MarkdownBlocks(
       paragraphPendingPrefix = ""
 
     def finishParagraph(): Unit =
+      // the single "close whatever leaf is open" hook — all twelve call sites get
+      // indented-code termination for free, and it must run before the paragraph
+      // branch below so the two states never overlap
+      finishIndentedCode()
       if open == OpenLeaf.Paragraph then
         val segs = paragraphSegs
         open = OpenLeaf.None
@@ -391,11 +411,55 @@ private[markdown] final class MarkdownBlocks(
 
     // ── indented code ────────────────────────────────────────────────────────
 
-    def handleIndentedCode(line: MdLine): Unit =
-      // one code line; consecutive indented lines each open/emit/close for M4 simplicity
-      flushPending(MdKind.CodeContent, line.content, Vector(FrameSpec(MdBranch.CodeBlock)), Some("code"), TokenChannel.Embedded)
-      if line.ending.nonEmpty then close(MdBranch.CodeBlock, MdKind.LineBreak, line.ending, Some("trailing"), TokenChannel.Trivia)
-      else pendingClose = pendingClose :+ MdBranch.CodeBlock
+    /** One line of an indented code block. Consecutive indented lines coalesce
+      * into a single block, and the four columns that make it code are stripped
+      * from the literal — they stay in the token stream as trivia, so the source
+      * still reconstructs exactly. */
+    def handleIndentedCode(line: MdLine, content: String): Unit =
+      val cut = MdChars.indentCut(content, 4)
+      // A tab straddling column 4 would have to be split into spaces to be cut.
+      // No token can hold half a tab, so keep the whole run as trivia and let the
+      // literal start after it — the case is recorded, not silently approximated.
+      val indent = if cut >= 0 then content.substring(0, cut) else content.take(MdChars.indentPrefixLength(content))
+      val code = content.substring(indent.length)
+      if open != OpenLeaf.IndentedCode then
+        finishParagraph()
+        open = OpenLeaf.IndentedCode
+        flushPending(MdKind.Indent, indent, Vector(FrameSpec(MdBranch.CodeBlock)), Some("indent"), TokenChannel.Trivia)
+      else
+        releaseInteriorBlanks()
+        leaf(MdKind.Indent, indent, Some("indent"), TokenChannel.Trivia)
+      leaf(MdKind.CodeContent, code, Some("code"), TokenChannel.Embedded)
+      if line.ending.nonEmpty then leaf(MdKind.LineBreak, line.ending, Some("code"), TokenChannel.Embedded)
+
+    /** Blank lines held while an indented code block is open turned out to be
+      * INTERIOR — another indented line followed — so they belong to the literal. */
+    def releaseInteriorBlanks(): Unit =
+      val held = indentedCodeBlanks
+      indentedCodeBlanks = Vector.empty
+      held.foreach { case (blankContent, ending) =>
+        // up to four columns of a blank line are the block's indentation, not content
+        val cut = MdChars.indentCut(blankContent, 4)
+        val trivia = if cut >= 0 then blankContent.substring(0, cut) else blankContent
+        val keep = if cut >= 0 then blankContent.substring(cut) else ""
+        if trivia.nonEmpty then leaf(MdKind.Indent, trivia, Some("indent"), TokenChannel.Trivia)
+        if keep.nonEmpty then leaf(MdKind.CodeContent, keep, Some("code"), TokenChannel.Embedded)
+        if ending.nonEmpty then leaf(MdKind.LineBreak, ending, Some("code"), TokenChannel.Embedded)
+      }
+
+    /** Closes an open indented code block. Blank lines still held are TRAILING —
+      * they belong to the parent container, so they are re-emitted as ordinary
+      * blanks after the block's close. */
+    def finishIndentedCode(): Unit =
+      if open == OpenLeaf.IndentedCode then
+        open = OpenLeaf.None
+        pendingClose = pendingClose :+ MdBranch.CodeBlock
+        val held = indentedCodeBlanks
+        indentedCodeBlanks = Vector.empty
+        held.foreach { case (blankContent, ending) =>
+          val lexeme = blankContent + ending
+          if lexeme.nonEmpty then flushPending(MdKind.Blank, lexeme, Vector.empty, Some("blank"), TokenChannel.Trivia)
+        }
 
     // ── HTML blocks ────────────────────────────────────────────────────────
 
