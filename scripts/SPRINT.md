@@ -10,6 +10,12 @@ Anything not being worked on belongs in `scripts/BACKLOG.md`, not here — a que
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [x] **corpus-breadth-slice flake — DIAGNOSED and fixed** (0767755cb). Cause: `Cache Coursier/sbt`
+  was made conditional on a toolchain-cache miss in the launcher-cache change; coursier is
+  scala-cli's RUN-time artifact cache, so every cache-HIT run re-downloaded Bloop from Maven and that
+  download flakes. 3 of 15 runs. Caught deliberately with four `gh workflow run` dispatches rather
+  than waited for. Fixed as ONE change so attribution stays clean.
+
 - [x] **smoke-runner-truncates-the-cause** — the suite printed the LAST 8 lines of a failing check,
   which for a stack trace is eight frames of JVM plumbing; the error message is at the TOP and was
   discarded. Two CI failures (30606728752, 30606076538) were therefore undiagnosable and are not

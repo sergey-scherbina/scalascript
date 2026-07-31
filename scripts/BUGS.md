@@ -7,37 +7,47 @@ grepping for status.
 
 Newest first.
 
-## corpus-breadth-slice-crashes-scala-cli-on-ci — intermittent, cause not yet captured
-<!-- status: open
+## corpus-breadth-slice-crashes-scala-cli-on-ci — Bloop downloaded on every cache-hit run
+<!-- status: fixed
+     fixed-in: 0767755cb
      lane: apparatus
      area: build
      gate: none -->
 
-**Found 2026-07-31.** Two smoke runs failed on `corpus-breadth-slice` with a scala-cli stack trace:
-runs **30606728752** (129.3 s) and **30606076538** (124.2 s). Both on GitHub, none locally. Between
-them ~10 runs of the same commit range passed, so it is intermittent, not a regression.
+**Found 2026-07-31, diagnosed the same day.** Three of fifteen smoke runs died on
+`corpus-breadth-slice` with a scala-cli stack trace. Not reproducible locally, and the first two
+occurrences were undiagnosable because the runner printed only the last 8 lines of the failing
+check — eight JVM stack frames, the message discarded. With the reporting fixed, the cause was
+captured on the very next occurrence:
 
-**The cause is not known, and that is the point of this entry.** The runner printed the last 8 lines
-of the failing check's output, which for a stack trace is eight frames of
-`at scala.cli.ScalaCli$.main0(...)` — the least informative end. The message was at the top and had
-already been discarded; nothing downstream could recover it, and re-running does not reproduce.
+```
+Failed to download https://.../ch/epfl/scala/bloop-frontend_2.12/2.1.0/bloop-frontend_2.12-2.1.0.pom
+```
 
-Fixed the reporting first (same commit as this entry): failures now print the exit code plus the
-first AND last 10 lines with the omitted count. The next occurrence will carry its own diagnosis.
+**My regression, from the launcher-cache change.** It made `Cache Coursier/sbt` conditional on a
+toolchain-cache MISS, reasoning that "sbt and its caches are only needed to BUILD".
+`~/.cache/coursier` is not a build cache: it is the artifact cache **scala-cli** uses at RUN time,
+and every conformance check in this suite runs scala-cli. On a toolchain-cache HIT — the common path,
+the one the caching exists to produce — scala-cli had to fetch Bloop from Maven every run, and that
+download fails intermittently. The optimisation aimed a flake at the majority of runs.
 
-Candidates to weigh when it recurs, in the order the evidence would separate them:
+Confirmed rather than inferred: two DISPATCHED runs of the same commit, 30608116959 (failed) and
+30608120697 (passed), both with `Cache Coursier/sbt` skipped. Same shape, different luck.
 
-  * exit code **137** — the runner OOM-killed it. The slice runs the JS lane through Node and the v2
-    lane on the JVM; a hosted runner has 7 GB.
-  * a **Bloop/scala-cli** flake. `SSC_CONF_WARM_JVM=1` starts a build server, and the corpus checks
-    are the only smoke steps that do; the shard gate was deliberately kept serverless for the same
-    reason (`tests/e2e/build-conformance-shard-gate.sh`).
-  * a scala-cli **artifact download** failing under a cold cache — both failures took ~125-130 s
-    against ~46-92 s for a healthy run, which fits a retry-then-give-up shape.
+Fixed in 0767755cb by restoring the cache unconditionally. Deliberately ONE change: adding
+`--server=false` to the parent `scala-cli` invocations would remove another Bloop bootstrap path
+(`tests/e2e/build-conformance-shard-gate.sh` already does it), but it measured as noise locally —
+15.1/32.2 s with the server against 23.4/24.0 s without — and landing both at once would make it
+impossible to say which stopped the flake. If it recurs, that is the next thing to try.
 
-Do NOT "fix" this by retrying the check. A green obtained by re-running an unexplained failure is
-exactly the fail-open the smoke suite exists to prevent, and it would also hide an OOM that will
-come back louder.
+Two method notes worth keeping:
+
+  * the flake was caught DELIBERATELY rather than waited for — four `gh workflow run smoke.yml`
+    dispatches, one of which reproduced it in ~6 minutes. A 20 %-per-run failure does not need to be
+    waited out.
+  * a conditional on a cache step deserves the question "what reads this at RUN time, not just at
+    build time". The `if:` was added with a one-line justification that was true of sbt and false of
+    coursier, and nothing about the shape of the change made that visible.
 
 ## git-stash-is-repo-global-across-worktrees — an A/B stash can pop ANOTHER agent's work into your tree
 <!-- status: open
