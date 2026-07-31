@@ -670,7 +670,7 @@ object Compiler:
     for d <- p.defs do d.body match
       case Lam(ar, b) =>
         val handlerRoot = HandlerDispatchShape.isRoot(ar, b)
-        val bodyCode = c.compile(b, handlerRoot)
+        val bodyCode = Jit.site(b, ar, c.compile(b, handlerRoot))
         val closV =
           if handlerRoot then Runtime.handlerClosure(Array.empty[Value], ar, bodyCode)
           else ClosV(Array.empty[Value], ar, bodyCode)
@@ -700,7 +700,7 @@ object Compiler:
             else sys.error(s"unbound global: $g"))))
       case Lam(ar, b) =>
         val handlerRoot = HandlerDispatchShape.isRoot(ar, b)
-        val bc = compile(b, handlerRoot)
+        val bc = Jit.site(b, ar, compile(b, handlerRoot))
         (env: Env) =>
           val closure =
             if handlerRoot then Runtime.handlerClosure(env, ar, bc)
