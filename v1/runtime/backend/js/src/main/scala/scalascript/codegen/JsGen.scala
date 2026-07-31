@@ -5192,7 +5192,16 @@ class JsGen(
           // Long operand (a JS BigInt) must go through the BigInt-aware `_arith`,
           // which coerces an Int/Number operand — a native JS operator would mix
           // BigInt with Number and throw. Placed before the Int/Double fast paths.
-          case "+" | "-" | "*" | "/" | "%" | "<" | ">" | "<=" | ">=" | "==" | "!="
+          // ARITHMETIC additionally WRAPS at 64 bits (`_larith` = `_arith` + `asIntN(64)`): ssc
+          // `Int`/`Long` overflow like the interpreter and the JVM, where a JS BigInt is unbounded.
+          // The mask cannot live inside `_arith` because ssc `BigInt` — arbitrary precision — has
+          // the same runtime representation; only this static `isLongExpr` guard tells them apart.
+          // (js-long-arith-no-64bit-wrap; measured on the tuple-monoid LCG: 43.5 s → 5 ms per pass,
+          // and 7 of 11 lines of `tests/conformance/long-overflow-wrap.ssc` were wrong without it.)
+          case "+" | "-" | "*" | "/" | "%"
+              if isLongExpr(lhs) || args.headOption.exists(isLongExpr) =>
+            s"_larith('${op.value}', $lhsJs, $rhsJs)"
+          case "<" | ">" | "<=" | ">=" | "==" | "!="
               if isLongExpr(lhs) || args.headOption.exists(isLongExpr) =>
             s"_arith('${op.value}', $lhsJs, $rhsJs)"
           case "*" =>

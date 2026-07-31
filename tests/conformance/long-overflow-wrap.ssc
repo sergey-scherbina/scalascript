@@ -1,0 +1,75 @@
+---
+name: long-overflow-wrap
+also-codegen: v2
+---
+
+# 64-bit integer arithmetic WRAPS on overflow, on every backend
+
+The runtime companion to [`int-width`](int-width.ssc). That case pins the
+*width* of `Int`/`Long` (64 bits, [`specs/numeric-widths.md`](../../specs/numeric-widths.md) §2);
+this one pins what happens at the **edge** of that width: `+ - * / %` wrap
+modulo 2⁶⁴, exactly like the interpreter and the JVM. A backend that keeps
+growing the number instead is non-conforming.
+
+Every value here is COMPUTED in a loop, never folded. That is the point: the
+front end already wraps compile-time constants, so a constant-folded case is
+green on a lane whose *runtime* arithmetic is unbounded — it proves nothing
+about the code an actual program runs.
+
+**Why this case exists.** Measured 2026-07-31: the JS runtime's `_arith`
+masked its bitwise ops with `BigInt.asIntN(64, …)` but returned raw, unbounded
+`BigInt` for arithmetic. On the LCG below the JS lane printed
+`8196388553494059765830957764855533743` for the second step where every other
+lane printed `-6658320863940243281` — and because a BigInt gains ~61 bits per
+iteration and never stops growing, the
+`tuple-monoid` benchmark grew `s` to 6,131,220 bits and one 100k-iteration pass
+cost **43.5 s instead of 5 ms**. Wrong answers and an 8700× slowdown from one
+missing mask (`BUGS.md` → `js-long-arith-no-64bit-wrap`).
+
+```scalascript
+// An LCG — the canonical multiply-overflow shape. No closed form, so no lane
+// can fold it; the multiply overflows on the very first step.
+var s = 1L
+var i = 0
+while i < 5 do
+  s = s * 2862933555777941757L + 3037000493L
+  println(s)
+  i = i + 1
+
+// The low bits survive wrapping, so `% 4` is the cheap witness that the
+// *whole* value wrapped rather than just printing something plausible.
+println(s % 4L)
+
+// The edges of the range, reached by doubling rather than by a literal.
+var min = 1L
+var k = 0
+while k < 63 do
+  min = min * 2L
+  k = k + 1
+println(min)              // 2^63 wraps to Long.MinValue
+println(min - 1L)         // ... and one below it is Long.MaxValue
+println(min / (0L - 1L))  // MinValue / -1 OVERFLOWS back to MinValue (no throw)
+println(min % (0L - 1L))  // ... with a zero remainder
+
+// Repeated multiply well past the top of the range.
+var big = 1L
+var j = 0
+while j < 40 do
+  big = big * 3L
+  j = j + 1
+println(big)
+
+// ── the TWIN, and the reason this half is in the same file ────────────────────
+// `BigInt` is arbitrary-precision and must NOT wrap. On the JS lane it shares a
+// representation with `Long` (both are a JS `bigint`), so the two halves are one
+// decision: the first attempt at the fix above masked in the shared `_arith` and
+// silently truncated this value from 1e36 to -5527149226598858752. Keeping both
+// checks in ONE case means neither can be "fixed" by breaking the other.
+val b = BigInt(1000000000)
+var p = b
+var m = 0
+while m < 3 do
+  p = p * b
+  m = m + 1
+println(p)
+```

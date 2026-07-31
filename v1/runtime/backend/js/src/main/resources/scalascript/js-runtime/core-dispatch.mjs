@@ -201,11 +201,13 @@ function _setOf(...xs) {
 //
 // The message matches the JVM's ArithmeticException so the three lanes read alike, and it is a plain
 // `Error` because that is what this runtime's `catch` support already understands.
+// The bigint paths mask like `_arith`: `Long.MinValue / -1` OVERFLOWS to `Long.MinValue` on the
+// interpreter and the JVM (verified 2026-07-31), where an unmasked BigInt gives +2^63.
 function _idiv(a, b) {
   if (typeof a === 'bigint' || typeof b === 'bigint') {
     const y = _toBig(b);
     if (y === 0n) throw new Error('/ by zero');
-    return _toBig(a) / y;
+    return BigInt.asIntN(64, _toBig(a) / y);
   }
   if (b === 0) throw new Error('/ by zero');
   return Math.trunc(a / b);
@@ -215,7 +217,7 @@ function _imod(a, b) {
   if (typeof a === 'bigint' || typeof b === 'bigint') {
     const y = _toBig(b);
     if (y === 0n) throw new Error('/ by zero');
-    return _toBig(a) % y;
+    return BigInt.asIntN(64, _toBig(a) % y);
   }
   if (b === 0) throw new Error('/ by zero');
   return a % b;
@@ -246,19 +248,12 @@ function _arith(op, a, b) {
       case '==': return _decCmp(x,y) === 0; case '!=': return _decCmp(x,y) !== 0;
     }
   }
-  // ssc `Int`/`Long` are 64-bit and WRAP on overflow, like the interpreter and the JVM. A JS
-  // BigInt is unbounded, so an unmasked `x*y` is wrong twice over: it disagrees with every other
-  // lane, and in a loop it grows without bound. Measured 2026-07-31 on the `tuple-monoid` LCG
-  // (100k iterations of `s = s*2862933555777941757 + 3037000493`): masked, `s` stays 64 bits and
-  // one pass costs 5 ms; unmasked, `s` reaches 6,131,220 bits and one pass costs 43.5 s — 8700×,
-  // and a different answer. `_bit` below already masks with asIntN(64) for exactly this reason;
-  // arithmetic was the gap. (js-long-arith-no-64bit-wrap)
+  // NOTE: this branch is deliberately UNBOUNDED — see `_larith` below for why the 64-bit mask
+  // cannot live here. ssc `BigInt` is arbitrary-precision and reaches this same branch.
   if (typeof a === 'bigint' || typeof b === 'bigint') {
     const x = _toBig(a), y = _toBig(b);
     switch (op) {
-      case '+': return BigInt.asIntN(64, x+y); case '-': return BigInt.asIntN(64, x-y);
-      case '*': return BigInt.asIntN(64, x*y); case '/': return BigInt.asIntN(64, x/y);
-      case '%': return BigInt.asIntN(64, x%y);
+      case '+': return x+y; case '-': return x-y; case '*': return x*y; case '/': return x/y; case '%': return x%y;
       case '<': return x<y; case '>': return x>y; case '<=': return x<=y; case '>=': return x>=y;
       case '==': return x===y; case '!=': return x!==y;
     }
@@ -276,6 +271,24 @@ function _arith(op, a, b) {
     case '==': return _eq(a, b); case '!=': return !_eq(a, b);
   }
   throw new Error('bad _arith op: ' + op);
+}
+
+// 64-bit arithmetic: `_arith`, then WRAP. ssc `Int`/`Long` are 64-bit and wrap on overflow like
+// the interpreter and the JVM, so an unmasked BigInt result is wrong twice over — it disagrees
+// with every other lane, and in a loop it grows without bound. Measured 2026-07-31 on the
+// `tuple-monoid` bench LCG (100k × `s = s*2862933555777941757 + 3037000493`), one pass:
+// masked, `s` stays 64 bits and it costs 5 ms; unmasked, `s` reaches 6,131,220 bits and it costs
+// 43.5 s — 8700×, and a different answer. (js-long-arith-no-64bit-wrap)
+//
+// WHY THIS IS A SEPARATE FUNCTION AND NOT A MASK INSIDE `_arith`: ssc `Long` and ssc `BigInt` are
+// the SAME representation here (a JS bigint), and `BigInt` is arbitrary-precision. Masking in
+// `_arith` truncated `BigInt(1000000000)⁴` from 1e36 to -5527149226598858752 — measured, on the
+// first attempt at this fix. Only JsGen knows which of the two it is, so only JsGen may ask for
+// the mask: it emits `_larith` from the `isLongExpr` guard and plain `_arith` everywhere else.
+// A non-bigint result (string concat, Decimal, Char compare) passes through untouched.
+function _larith(op, a, b) {
+  const r = _arith(op, a, b);
+  return typeof r === 'bigint' ? BigInt.asIntN(64, r) : r;
 }
 
 function _show(v) {
