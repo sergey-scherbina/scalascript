@@ -775,18 +775,15 @@ def copyLabel(label, i) = if label == "" then "#" ++ i else label
 // expandCollectionCurry :1915-1941, gated to fill/tabulate with len(innerArgs)==len(args)==1). A
 // 2-arg first clause (2D tabulate) or non-1 second clause is NOT flattened -> normal app path.
 def isCurriedFactory(nm) = if nm == "tabulate" then true else nm == "fill"
-// `Set` is DELIBERATELY absent here, and that is a measured decision rather than an oversight.
+// `Set` is here on the same footing as `Seq` and `Vector`: none of them is a distinct type on this
+// lane — the default front lowers `Set(1,2)` to a plain list and `Set.empty` to `List()`.
 //
-// This table drives the SELECT path (`selRecv` -> `isCollCompUid` -> `methodRecv`), which emits a
-// receiver `(ctor Set)`. The v2 runtime has no notion of `Set` at all — zero occurrences in
-// `Runtime.scala` — so `Set.empty` lowered through here produced NO OUTPUT, where the default front
-// prints `List()`. Adding `Set` therefore turned "F declines, the runner falls back, the answer is
-// right" into "F lowers it and the answer is silently wrong", which is strictly worse.
-//
-// `Set.empty` stays an F gap on purpose: it declines, delegates, and is correct. The constructor
-// path (`parseCtorArgs`) IS fixed, because there `Set` is a pure syntactic rewrite to a list literal
-// and needs nothing from the runtime. BUGS v2 `f-set-empty-has-no-runtime-receiver`.
-def isCollComp(nm) = if nm == "List" then true else (if nm == "Seq" then true else (if nm == "Vector" then true else (if nm == "Array" then true else nm == "Map")))
+// It was left OUT at first, and the reason is worth keeping: this table drives the select path
+// (`selRecv` -> `methodRecv`), which emits a receiver `(ctor Set)`, and `Runtime.scala`'s companion
+// table listed `List | Seq | Vector` and not `Set` — so `Set.empty` lowered to NO OUTPUT where the
+// default front prints `List()`. Adding `Set` here alone traded a correct delegated answer for a
+// silently wrong one. The runtime alias landed in the same commit; the two must move together.
+def isCollComp(nm) = if nm == "List" then true else (if nm == "Seq" then true else (if nm == "Vector" then true else (if nm == "Array" then true else (if nm == "Set" then true else nm == "Map"))))
 def isCollCompUid(c) = if isUidGlobal(c) then isCollComp(c.substring(8, c.length - 1)) else false
 def isCurryFlat(c, nm, es, r) = if isCurriedFactory(nm) then (if isCollCompUid(c) then (if isOneE(es) then isTok(hd(r), 2, 21) else false) else false) else false
 def postMeth2(c, nm, es, r, env, cx) = if isCurryFlat(c, nm, es, r) then collCurryFlat(c, nm, es, tl(r), env, cx) else (emitPrimMeth(nm, c, es, cx), r)

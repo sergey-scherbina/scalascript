@@ -2417,7 +2417,12 @@ object Prims:
         case (DataV("Bench", _), "opaque", List(v)) => v
         case (DataV("BenchObj", _), "opaque", List(v)) => v
         // Seq/List/Vector/Map companion-object factories (recv = DataV(compName, _))
-        case (DataV(t, _), "empty", Nil) if t == "List" || t == "Seq" || t == "Vector" => listOf(Seq.empty)
+        // `Set` joins the alias list rather than getting a type of its own, because on this lane it
+        // has never had one: the default front lowers `Set(1,2)` to a plain list and `Set.empty` to
+        // `List()`. `Seq` and `Vector` are here on the same footing. Added so the F front's
+        // `(ctor Set)` receiver resolves — without it F declined the file and delegated, which was
+        // correct but left `Set` a permanent F gap (BUGS v2 f-set-empty-has-no-runtime-receiver).
+        case (DataV(t, _), "empty", Nil) if t == "List" || t == "Seq" || t == "Vector" || t == "Set" => listOf(Seq.empty)
         case (DataV("Map", _), "empty", Nil) => MapV.empty
         // Array companion statics return a REAL mutable array (ForeignV(ArrayBuffer)) —
         // they were folded into the List lane and `Array.fill(512)(0)` came back a
