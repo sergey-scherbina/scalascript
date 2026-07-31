@@ -1936,6 +1936,22 @@ So C-1 forces a declared choice, and the choice must be in the commit message:
   row is a proxy for. Slower, no headline multiple, generalises.
 Default is **(b)**; (a) only with the label. The gate must show which was done.
 
+**REVISED by C-2's measurement (2026-07-31).** The (a)/(b) split assumed "the machinery" was
+something v2 owns and could fix. It is not: v2 delegates to `scala.collection.immutable.LazyList`
+wholesale (`Runtime.scala` ~2456), and that library is 64% of the time and 1824 of 2848 bytes. So:
+- **(b) as originally written — "fix the machinery" — means writing v2's own lazy-sequence
+  representation.** That is a large project and should not be entered by accident.
+- **There is a third option the measurement suggests, and it is the better one.** v2's `map` arm
+  builds a NEW Scala LazyList per `.map`; `take(n)` then forces the whole stack. If `map` instead
+  accumulated a pending function and `take`/`sum` applied the composition WHILE forcing n elements,
+  the intermediate LazyLists disappear — one allocation instead of a stack of them. That is fusion,
+  but at the RUNTIME level, in the `map`/`take`/`sum` arms, rather than v1's syntactic shape-match.
+  It generalises to any pipeline of the same algebra, not just the one the benchmark writes.
+- The VM closure call (37%, ~19 ns/element) is a SEPARATE lever and belongs with P-5, not here.
+
+Recommendation: **(c) runtime-level fusion in the `ForeignV(LazyList)` arms.** It gets the 64%
+without the shape-matching fragility and without a representation rewrite.
+
 ### C-2 — attribute the cost with the harness that now exists (do before either C-1 branch)
 
 P-4 landed `V2DispatchBench` with ±0.02–0.11 ns resolution. Add `V2CollectionBench` beside it
@@ -1946,6 +1962,38 @@ entire reason the cluster stalled at "architecture line".
 
 Cost note from P-4: a cold `Jmh/compile` in a fresh worktree builds ~290 Scala sources and exceeds
 30 min on a contended host. Budget it; it is not a hang.
+
+**DONE 2026-07-31.** `V2CollectionBench` landed. Times from the plain run, bytes from `-prof gc`
+(the profiler adds overhead, so the two columns come from the two runs and are not mixed):
+
+| layer | ns/op | B/op | what it adds |
+| ----- | ----- | ---- | ------------ |
+| `floorLoop`         | 0.809 ± 0.005 | ≈0 | — (8 multiply-adds, no collection) |
+| `scalaLazyList`     | 261.6 ± 1.4 | 1824 | **Scala's LazyList machinery** |
+| `boxedLazyList`     | 256.4 ± 1.3 | 1824 | v2 boxing — **nothing** |
+| `vmClosureLazyList` | 407.8 ± 6.4 | 2848 | the VM closure call, ×8 |
+| `strictFoldStep`    | 99.7 ± 3.3 | 640 | (`list-fold`'s shape, for contrast) |
+
+**Attribution of what v2 pays for `LazyList.from(s).map(_*2).take(8).sum`:**
+- **64% of the time and 1824 of the 2848 bytes is `scala.collection.immutable.LazyList` itself** —
+  paid before v2 does anything. 228 B and ~33 ns PER ELEMENT to deliver one multiply.
+- **the VM closure call is 37%** — +151 ns and +1024 B for 8 elements, i.e. ~19 ns / 128 B each.
+- **the arithmetic is 0.2%.** 0.809 ns, and it allocates nothing.
+
+**Boxing is REFUTED, unambiguously.** `boxedLazyList` allocates `1824.002 B/op` and `scalaLazyList`
+allocates `1824.002 B/op` — identical to the milli-byte — and the boxed version is 5 ns FASTER.
+`Value.IntV` interns −128..4096, so the corpus range costs nothing. Any future proposal to attack
+this row by reducing boxing is answered here; do not re-run that hypothesis.
+
+**C-0's Finding 2 now has its mechanism.** The row allocates at ~6.4 GB/s. A workload with that
+allocation rate is governed by GC timing and heap state, not by CPU share — which is exactly why the
+whole-workload number swung 3.2× and swung OPPOSITE to load. The instability was not noise to be
+averaged away; it was the allocation rate showing through.
+
+**This confirms v1's conclusion by an independent route.** `specs/jit-collection-ops.md` found the
+gap was "the LazyList machinery (cons thunks, memoisation), NOT the arithmetic" — reached there by
+fusing and observing the win. Reached here by decomposition, before changing anything, and it also
+rules out boxing, which v1 never had to test.
 
 ### C-3 — the discipline this cluster specifically needs
 
