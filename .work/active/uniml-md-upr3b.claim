@@ -4,7 +4,7 @@ agent: claude-code
 started: 2026-07-31T19:46:51Z
 heartbeat: 2026-07-31T19:46:51Z
 status: claimed-before-planning
-items: UPR-3b block grammar — multiline link reference definitions, lists/list items
+items: UPR-3b block grammar and UPR-3c inline grammar — reference definitions, lists/list items, link destinations and titles
 paths: file:uniml/markdown file:uniml/corpus file:uniml/BACKLOG.md file:uniml/SPRINT.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
