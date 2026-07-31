@@ -1,0 +1,11 @@
+slug: nfc-ndef-backends-declaration
+branch: feature/nfc-ndef-backends-declaration
+agent: claude-code
+started: 2026-07-31T11:13:22Z
+heartbeat: 2026-07-31T11:13:22Z
+status: claimed-before-planning
+items: nfc-ndef-backends-declaration
+paths: examples/nfc-ndef.ssc
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
