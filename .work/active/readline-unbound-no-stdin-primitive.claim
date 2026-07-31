@@ -1,0 +1,11 @@
+slug: readline-unbound-no-stdin-primitive
+branch: feature/readline-unbound-no-stdin-primitive
+agent: claude-code
+started: 2026-07-31T04:10:48Z
+heartbeat: 2026-07-31T04:10:48Z
+status: claimed-before-planning
+items: issue-76-no-way-to-read-stdin
+paths: file:INBOX.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
