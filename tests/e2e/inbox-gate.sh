@@ -25,6 +25,12 @@
 #      rather than the entries: a report nobody rejects and nobody routes is a report that was lost
 #      politely. Default 14 days, `SSC_INBOX_MAX_AGE_DAYS` to override.
 #
+#   7. NOTHING IS STRANDED OUTSIDE THE REPO. Open `user-report` issues whose URL appears nowhere —
+#      not in INBOX.md, not as a `reported-by:` on any board — are reports the age bound cannot see.
+#      Without this the queue's own time limit only governs what already got imported, so "lost
+#      politely" simply relocates to GitHub, which is the failure the queue exists to remove rather
+#      than move. Needs `gh`; without it the check SKIPS LOUDLY (see below) instead of passing.
+#
 # WHAT IT DOES NOT READ, stated because a filter that is silent about its scope looks complete and is
 # not (P-6): it reads INBOX.md and the `## <slug>` headings of tracked board files. It does NOT
 # verify that a routed report actually reached a board — nothing here can, because a routed entry
@@ -32,12 +38,21 @@
 # anywhere carrying `reported-by` came from a user, so `git grep -l 'reported-by:' -- '*BUGS.md'`
 # is the routed set.
 #
+# And when `gh` is missing or unauthenticated, check 7 prints what it could not do and the run says
+# so in its final line. A network check that silently becomes a no-op is worse than one that is
+# absent: absent, somebody notices.
+#
 # Usage: tests/e2e/inbox-gate.sh [--self-test]
 # Exit:  0 ok · 1 an invariant is broken · 2 usage/environment.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 MAX_AGE_DAYS="${SSC_INBOX_MAX_AGE_DAYS:-14}"
+# Overridable so the self-test can exercise BOTH branches without surgery on PATH. Emptying PATH
+# would also hide `git`, `awk` and `date` from this script, which kills it long before the branch
+# under test — the first version of that case failed for exactly that reason. Same idiom as
+# `SSC_CI_GH` in tests/e2e/ci-status-guard.sh.
+GH="${SSC_INBOX_GH:-gh}"
 self_test=0
 case "${1:-}" in
   --self-test) self_test=1 ;;
@@ -227,6 +242,37 @@ if [ "$self_test" -eq 1 ]; then
   else
     printf 'FAIL  --self-test: a WELL-FORMED entry was rejected\n' >&2; st_fail=1
   fi
+  # Check 7 gets a STUBBED `gh` rather than a live one: a self-test that depends on what happens to
+  # be open on GitHub today asserts nothing reproducible, and a network round-trip in a self-test is
+  # a flake waiting to be blamed on the code. The stub emits one issue that is old and referenced
+  # nowhere — the exact shape the check exists to catch.
+  stub="$lab/bin"; mkdir -p "$stub"
+  old_iso="$(date -u -j -v-400d +%Y-%m-%d 2>/dev/null || date -u -d '400 days ago' +%Y-%m-%d)"
+  cat > "$stub/gh" <<STUB
+#!/bin/sh
+case "\$*" in
+  *"auth status"*) exit 0 ;;
+  *"issue list"*)  printf '99999\t%s\t%s\n' "https://example.invalid/issues/99999" "$old_iso" ;;
+  *) exit 0 ;;
+esac
+STUB
+  chmod +x "$stub/gh"
+  st_out="$(SSC_INBOX_GH="$stub/gh" bash "$0" 2>&1 || true)"
+  case "$st_out" in
+    *"is in NEITHER the queue nor a board"*)
+      printf '  ok   --self-test trips on: an open issue that reached neither the queue nor a board\n' ;;
+    *)
+      printf 'FAIL  --self-test: a stranded user-report issue did NOT trip the gate\n' >&2; st_fail=1 ;;
+  esac
+
+  # And the missing-`gh` path must SKIP LOUDLY. A network check that quietly becomes a no-op is
+  # worse than an absent one, because absence gets noticed.
+  sk_out="$(SSC_INBOX_GH="$lab/no-such-gh" bash "$0" 2>&1 || true)"
+  case "$sk_out" in
+    *"SKIPPED — no"*) printf '  ok   --self-test says so out loud when `gh` is unavailable\n' ;;
+    *) printf 'FAIL  --self-test: a missing `gh` did not announce itself\n' >&2; st_fail=1 ;;
+  esac
+
   [ "$st_fail" -eq 0 ] || { echo 'inbox-gate --self-test: FAILED' >&2; exit 1; }
   echo '--self-test: every refusal fires, and a valid entry passes'
 fi
@@ -264,9 +310,46 @@ if [ -n "$dupes" ]; then
   done <<< "$dupes"
 fi
 
+# ── 7. open user-report issues that reached neither the queue nor a board ─────
+issue_note="not checked"
+if command -v "$GH" >/dev/null 2>&1; then
+  issues="$("$GH" issue list --label user-report --state open --json number,url,createdAt \
+              --jq '.[] | "\(.number)\t\(.url)\t\(.createdAt[0:10])"' 2>/dev/null || true)"
+  if [ -z "$issues" ] && ! "$GH" auth status >/dev/null 2>&1; then
+    issue_note="SKIPPED — \`gh\` is present but not authenticated"
+    printf '  ??   open user-report issues: %s\n' "$issue_note"
+  else
+    stranded=0 seen=0
+    # A report is "landed" if its URL appears anywhere tracked: in the queue, or as the
+    # `reported-by:` of an entry that has already been routed to a board.
+    while IFS=$'\t' read -r num url created; do
+      [ -n "$num" ] || continue
+      seen=$((seen + 1))
+      if git grep -q -F -- "$url" -- 'INBOX.md' '*BUGS.md' '*BACKLOG.md' 2>/dev/null; then
+        printf '  ok   issue #%-6s landed\n' "$num"
+      else
+        age_e="$(date -u -j -f %Y-%m-%d "$created" +%s 2>/dev/null || date -u -d "$created" +%s 2>/dev/null || echo "")"
+        age="?"
+        [ -n "$age_e" ] && age=$(( ( $(date -u +%s) - age_e ) / 86400 ))
+        if [ "$age" != "?" ] && [ "$age" -gt "$MAX_AGE_DAYS" ]; then
+          bad "issue #$num has been open ${age}d and is in NEITHER the queue nor a board: $url"
+          note "import it: scripts/inbox-add --from-issue $num"
+          stranded=$((stranded + 1))
+        else
+          printf '  ??   issue #%-6s not imported yet (%sd) — %s\n' "$num" "$age" "$url"
+        fi
+      fi
+    done <<< "$issues"
+    issue_note="$seen open, $stranded past the ${MAX_AGE_DAYS}d limit"
+  fi
+else
+  issue_note="SKIPPED — no \`gh\` on PATH"
+  printf '  ??   open user-report issues: %s\n' "$issue_note"
+fi
+
 echo
 if [ "$fail" -eq 0 ]; then
-  echo "inbox-gate: OK"
+  echo "inbox-gate: OK  (user-report issues: $issue_note)"
   note "not checked here: that a routed report reached a board. Routed entries leave no trace in"
   note "INBOX.md by design; the routed set is \`git grep -l 'reported-by:' -- '*BUGS.md'\`."
 else

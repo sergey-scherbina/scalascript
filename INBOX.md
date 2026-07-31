@@ -46,6 +46,13 @@ second was ever meant to be constrained.
   are the one outcome nothing else can record. They get ONE line in the section below, with the
   reason. Not the report body; a line.
 
+**Nothing is allowed to sit OUTSIDE the queue either.** `inbox-gate` also lists open `user-report`
+issues and fails on any whose URL appears nowhere — not here, not as a `reported-by:` on a board.
+Without that, the age limit would only govern reports that already got imported, and "lost politely"
+would simply relocate to GitHub instead of being removed. Needs `gh`; without it the check says so
+out loud rather than passing quietly, because a network check that silently becomes a no-op is worse
+than one that is missing.
+
 ## Queue
 
 <!-- inbox-entries:start — `scripts/inbox-add` appends here; the gate parses this region -->
