@@ -105,7 +105,7 @@ enthusiasm:
       - `cached` moves everything by ≤0.22 ns and not consistently in one direction, so `Value.IntV`'s
         intern table is not the lever here either way.
 
-- [ ] **P-5 — put `__arith__` in `resolve3`** (found by P-4, not guessed). `Prims.resolve2` already
+- [x] **P-5 — REFUTED 2026-07-31, and it would have been a REGRESSION.** ~~put `__arith__` in `resolve3`~~ (found by P-4, not guessed). `Prims.resolve2` already
       carries 25 arity-2 typed ops (`i.add`, `f.add`, …) that reach `fn2(l, r)` with NO list.
       `resolve3` carries only 4 (`sslice`, `map.put`, `arr.set`, `bslice`) — `__arith__` is not among
       them, so every UNTYPED arithmetic op takes 3 args down the generic path and allocates a
@@ -115,6 +115,37 @@ enthusiasm:
       Still matters after F5b: `__arith__` is what runs for anything F cannot type, for the legacy
       front, and for `+` on strings.
       ⚠️ touches `v2/src/Runtime.scala`, the SHARED kernel — needs its own claim and its own A/B.
+
+      **THE PREMISE WAS WRONG. `__arith__` already avoids the list, by a better mechanism than the
+      one I proposed, and my change would have made it SLOWER.**
+
+      `Runtime.scala:1002`, inside compile's `case None` branch — i.e. reached precisely BECAUSE
+      `resolve3` returns `None` for `__arith__` — there is already:
+
+          if op == "__arith__" then a0 match
+            case Lit(Const.CStr(fixedOp)) => … Prims.arithFast(fixedOp, value1, value2)
+
+      The op string is resolved ONCE at compile time and captured. No list, no `Fn3` indirection, no
+      per-call `StrV` match. My `resolve3` entry would have been consulted FIRST and hijacked that
+      case, replacing a compile-time constant with a per-call pattern match.
+
+      And the literal case is the only one that occurs: **both** emitters produce a literal op —
+      F (`(prim __arith__ (lit (str "+")) L R)`, `specs/v2.2-p6.5-fsub.ssc:110`) and the legacy
+      lowerer (`IrPrim("__arith__", Cons(IrLit(IrStr("+")), …))`, `v2/lib/ssc1-lower.ssc0:2736`).
+      The generic list path for `__arith__` is dead code in practice.
+
+      **So the corrected number: untyped arithmetic already costs the `arithFast` layer, 2.620 ns —
+      not `preResolvedFn`'s 3.979 ns.** The 1.36 ns I proposed to remove was already absent. P-4's
+      measurements were right; the inference I drew from them was not.
+
+      **How the error happened, because it is a repeat.** I read `resolve3`'s table, saw four ops
+      and no `__arith__`, and concluded the generic path was used — without reading the branch that
+      runs when `resolve3` says `None`. That is the "there is probably a SECOND COPY of this thing"
+      trap, on the same day it was written down. A table of what a lookup DOES contain does not tell
+      you what happens when it misses.
+
+      Cost: one reverted edit, no build, no landed regression. The catch came from grepping for the
+      symbol in the file I was about to change, before changing it.
 
 **Explicitly NOT on the P-list, and why:**
 - the collection/closure cluster — now has its own plan below (`C-0`…`C-5`) rather than a one-line
