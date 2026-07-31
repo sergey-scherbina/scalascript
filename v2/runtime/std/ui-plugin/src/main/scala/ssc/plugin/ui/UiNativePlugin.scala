@@ -420,6 +420,9 @@ final class UiNativePlugin extends NativePlugin:
     case _ => throw new RuntimeException(s"native UI emit expected ABI-v1 View, got ${Show.show(value)}")
 
   def install(context: NativePluginContext): Unit =
+    // The v1.20 tag DSL (`div(attr.cls := …)`) — a separate surface from the declarative UI ABI
+    // below, sharing this plugin only because both need HTML escaping. See HtmlTagDsl.scala.
+    HtmlTagDsl.install(context)
     val fields = List(
       "Scope" -> Vector("name"),
       "NativeUiAbi" -> Vector("version", "root", "config"),

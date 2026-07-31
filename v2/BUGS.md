@@ -7,6 +7,38 @@ grepping for status.
 
 Newest first.
 
+## v2-html-tag-dsl-missing — `div(attr.cls := …)` had no native surface
+<!-- status: fixed
+     lane: native
+     area: runtime
+     fixed-in: unrecorded
+     gate: tests/conformance/html-dsl.ssc -->
+
+**FIXED 2026-07-31.** The v1.20 tag DSL is ported to the ui plugin as `HtmlTagDsl`: 50 container
+tags, 5 void tags, a 20-key `attr` namespace, `:=` as a tagged method on `AttrKey`, and v1's exact
+`htmlEscape`. `tests/conformance/html-dsl.ssc` now matches int byte-for-byte on all three lines.
+
+Ported, not reinvented: the golden comes from the interpreter, so attribute ORDER (insertion, via
+`LinkedHashMap` — the golden shows `class` before `id`), escaping, and void-tag rendering are
+correctness, not style. Note this is a DIFFERENT surface from the declarative UI ABI in the same
+plugin, which deliberately SORTS its attributes.
+
+The one piece that could have made this large turned out to be already there: nodes are
+`DataV("_Raw", …)`, which `Runtime.scala` already renders as its first field in three places, so
+`println(page)` prints markup with no change to `Show` — and [[project_v2_scalameta_free_gap]]
+records what changing shared `Show` costs.
+
+⚠️ **`link` is deliberately absent.** The actors plugin owns that global (`link(pid)`), and the
+native plugin host REFUSES duplicate ownership instead of letting one silently overwrite the other —
+which is how the collision surfaced at all. This is parity, not a gap: running `link()` on the
+interpreter shows the actor version wins there too, so the HTML `<link>` tag is unreachable on v1
+as well. Enumerating all 56 tag names against the registered globals up front found exactly this
+one, rather than discovering them one failed build at a time.
+
+**Blast radius measured:** 55 new globals is the kind of change that shadows other cases, so the
+full corpus contract ran across int/js/v2 afterwards — 1065/1105 PASS, exactly one row changed
+(`html-dsl v2 FAIL` -> PASS), zero regressions.
+
 ## v2-extern-shadowed-by-a-same-named-case-class-method — `cluster.resolveSeeds()` cannot reach its extern
 <!-- status: open
      lane: native

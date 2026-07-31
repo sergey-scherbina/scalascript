@@ -36,7 +36,6 @@ graphql-client	*	SKIP
 graphql-hello	*	SKIP
 graphql-typed-resolvers	*	SKIP
 health-defaults	*	SKIP
-html-dsl	v2	FAIL
 indexeddb-sync-client	js	FAIL
 int-width	js	KNOWN-RED
 international-bank-rails	*	SKIP
