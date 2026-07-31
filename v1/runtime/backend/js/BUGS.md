@@ -7,6 +7,57 @@ grepping for status.
 
 Newest first.
 
+## js-no-tail-call-elimination-overflows-scljet-large-page — a loop the INT lane TCOs blows Node's stack
+<!-- status: open
+     lane: js
+     area: codegen
+     kind: bug
+     gate: tests/conformance/scljet-large-page.ssc (JS lane) -->
+
+**Found 2026-07-31 by a passer-by** (I was verifying an unrelated ci.yml change on dispatched run
+30649090567 and this came back red in `Conformance shard 3/4`). NOT MINE — recorded rather than
+fixed. The diff I was verifying touches no compiler, runtime or backend code.
+
+```
+scljet-large-page:
+  PASS [INT]
+  FAIL [JS ]
+    line 1: expected=1|ann ; 2|bob  got=<exit:1>
+    RangeError: Maximum call stack size exceeded
+        at writeZerosLoop ([stdin]:3729:6940)
+        at _call ([stdin]:20:40)
+        at writeZerosLoop ([stdin]:3729:7028)      <- repeats to the stack limit
+```
+
+**The source says out loud what the JS lane does not honour** — `scljet/write.ssc:73`:
+
+```scala
+// Tail-recursive so the interpreter can TCO the large zero-fills (a leaf page's
+// free space can be hundreds of bytes); order is irrelevant for zeros.
+def writeZerosLoop(count: Int, acc: List[Int]): List[Int] =
+  if count <= 0 then acc else writeZerosLoop(count - 1, 0 :: acc)
+```
+
+A self tail call in tail position. The INT lane eliminates it; the JS lane emits real recursion
+through `_call`, so the depth is the zero-fill length and a large page reaches V8's limit. So this is
+a LATENT codegen gap, not a new one — what changed is only whether the corpus crosses the limit.
+
+**What is measured, and what is not.** Green in run 30597944542 (02:02, shard 0) and 30635743363
+(13:45, shard 3, SHA `6c6bc1120`); red in 30649090567 (16:55, SHA `f02d77f65`). NO JS backend code
+changed in that window — the only `v1/runtime/backend/js/` edit is prose in this file. What did
+change is `build.sbt` and two module moves (`markup-core` → `markup/` → `uniml/markup`), which alter
+bundle shape, and the failing frame is at `[stdin]:3729` in a single generated bundle.
+
+**Do not take the trigger as diagnosed.** Two greens do not exclude a marginal-stack FLAKE, and the
+difference between "a module move grew the bundle" and "this has been one page-size away from
+failing for weeks" changes who should care. Cheapest way to settle it: run the case on
+`6c6bc1120` and on `f02d77f65` a few times each — if `6c6bc1120` ever fails, it is depth, not the
+move.
+
+**The fix is the tail call, whichever way that goes.** Self-tail-call → loop in `JsGen` is the
+general answer and would close the whole class; raising Node's stack only moves the page size at
+which it breaks.
+
 ## js-identity-named-runtime-fn-unreachable-from-a-package-module — the whole std/os surface binds to `undefined`
 <!-- status: open
      lane: js
