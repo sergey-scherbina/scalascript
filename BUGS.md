@@ -64,6 +64,13 @@ failure moves to compile time where it belongs.
 
 **Status:** OPEN. Filed 2026-07-31 by `nadia-dev` (rozum side), blocking an external consumer.
 
+> **Arrived by the wrong door — the report is [#76](https://github.com/sergey-scherbina/scalascript/issues/76).**
+> This entry was hand-written straight onto a module board, which P-3.10 reserves for
+> conclusions a reporter has not reached; a report from outside enters through the issue
+> form and `INBOX.md`. Kept only because it carries the proposed surface and implementation
+> order below, which the issue deliberately omits (the form asks reporters not to diagnose).
+> **Triage owns the merge**: route #76 and drop or absorb this. Do not work both.
+
 `std.os` exports `env` · `envOrElse` · `args` · `exit` · `cwd` · … — the whole environment
 surface **except input**. There is no `readLine`, no `stdin`, no console module: the only
 occurrence of the word in the tree is a comment in `runtime/std/free.ssc:97` (“production:
