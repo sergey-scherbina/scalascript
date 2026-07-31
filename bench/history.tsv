@@ -156,3 +156,13 @@ date	sha	load	workload	lane	ref_lane	ms	ref_ms	ratio	note
 2026-07-31	315dbca16	11.80	lazylist-take	v2-bytecode	ssc	38.5	0.061	631	C-0 round 3/3
 2026-07-31	315dbca16	11.80	list-fold	v2	ssc	6.10	0.0065	938	C-0 round 3/3
 2026-07-31	315dbca16	11.80	list-fold	v2-bytecode	ssc	0.940	0.0065	145	C-0 round 3/3
+2026-07-31	5bd538165	3.90	arith-loop	js	ssc	17.5	0.241	72.6	js-long-arith-no-64bit-wrap PRESENT (unmasked BigInt); quiet host
+2026-07-31	5bd538165	3.90	bool-predicate	js	ssc	4.20	0.0085	494	bug PRESENT; LCG corpus workload, s grows unbounded
+2026-07-31	5bd538165	3.90	instance-field	js	ssc	368.8	0.268	1376	bug PRESENT; worst finished cell
+2026-07-31	5bd538165	3.90	literal-match	js	ssc	4.41	0.0098	450	bug PRESENT
+2026-07-31	5bd538165	3.90	tuple-monoid	js	ssc	43548	1.95	22332	bug PRESENT — cell NEVER FINISHED in the harness (killed at 16 min); the 43548 ms is one pass measured standalone in node, s reached 6,131,220 bits
+2026-07-31	4f45611c6	2.50	arith-loop	js	ssc	19.4	0.298	65.1	FIXED (_larith masks asIntN(64)); no overflow on this row, so the mask is pure cost: 17.5 -> 19.4
+2026-07-31	4f45611c6	2.50	bool-predicate	js	ssc	0.063	0.0088	7.2	FIXED — 67x
+2026-07-31	4f45611c6	2.50	instance-field	js	ssc	0.799	0.279	2.9	FIXED — 460x
+2026-07-31	4f45611c6	2.50	literal-match	js	ssc	0.098	0.010	9.8	FIXED — 45x
+2026-07-31	4f45611c6	6.14	tuple-monoid	js	ssc	13.9	1.95	7.1	FIXED — the cell completes at all now. Measured LATE in the run at load 6.14 (sibling build), so this row is compressed; the before/after direction is not in doubt, the exact ratio is

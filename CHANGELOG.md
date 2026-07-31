@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-07-31 — ssc `Long` wraps at 64 bits on the JS lane, and a benchmark stopped taking 72 minutes
+
+`_arith`'s bigint branch never masked its arithmetic result, so ssc `Long` did not wrap on the js
+lane: it disagreed with INT/JVM/v2 on every overflow, and in a loop the accumulator grew without
+bound. Measured on the `tuple-monoid` bench LCG, one 100k-iteration pass: **5 ms masked against
+43548 ms unmasked**, `s` reaching 6,131,220 bits, and a different answer. The mask could NOT go in
+the shared `_arith` — ssc `BigInt` is arbitrary-precision and has the same JS representation, and
+the first attempt truncated `BigInt(1e9)^4` — so it lives in a new `_larith` that JsGen emits from
+its existing `isLongExpr` guard. Gate: `tests/conformance/long-overflow-wrap.ssc`, which carries
+both halves so neither can be fixed by breaking the other, and which fails 7 of 11 lines against the
+pre-fix toolchain. js corpus cells: `instance-field` 368.8 -> 0.799 ms/iter, `bool-predicate`
+4.20 -> 0.063, `literal-match` 4.41 -> 0.098; where nothing overflows the mask costs ~10 %
+(`arith-loop` 17.5 -> 19.4). Found by running `bench.sh`.
+
 ## 2026-07-30 — the push path is a 5-minute suite again, and it is written in ScalaScript
 
 `ci.yml` had not produced a green run since 2026-07-27T16:31. The reason was arithmetic, not defects:
