@@ -16,6 +16,33 @@ scripts/bugs-report --no-gate              # open entries with no regression gat
 
 Newest first.
 
+## ssc-tools-info-rejects-front-report-at-exit-0 — an unsupported flag becomes a silent empty report
+<!-- status: open
+     lane: multi
+     area: cli
+     fixed-in: -
+     gate: - -->
+
+**Found 2026-07-31** while sweeping the corpus for F front verdicts.
+
+```
+$ bin/ssc-tools info --front-report tests/conformance/std-index.ssc
+Warning: ssc info currently inspects a single artifact; ignoring 1 extra path(s).
+info: file not found: --front-report
+$ echo $?
+0
+```
+
+`bin/ssc info --front-report FILE` works and prints `FILE<TAB>VERDICT<TAB>reason`. The same
+subcommand on `ssc-tools` does not know the flag, so it is consumed as a PATH — and the run still
+exits 0.
+
+**Why it is worth an entry rather than a shrug:** the two diagnostics are each individually
+misleading and jointly point away from the cause. "ignoring 1 extra path(s)" describes the FILE as
+the extra path, and "file not found: --front-report" names the flag as a file. Combined with exit 0,
+a sweep built on this produces zero rows and reads as a clean result — I very nearly recorded
+"F declines nothing" from it. A tool that cannot do what was asked must not exit 0.
+
 ## int-string-concat-operator-builds-a-pair — `"x" ++ "y"` is `(x, y)` on int and `xy` on v2
 <!-- status: open
      lane: int

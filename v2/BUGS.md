@@ -7,6 +7,53 @@ grepping for status.
 
 Newest first.
 
+## f-front-coverage-census-0731 — F's hole is 42 files, and half of it is three names
+<!-- status: open
+     lane: native
+     area: front
+     fixed-in: -
+     gate: - -->
+
+**Measured 2026-07-31**, `bin/ssc info --front-report` over all 584 corpus files
+(`tests/conformance/*.ssc` + `examples/*.ssc`), deduplicated by path, no file left unrun.
+
+| verdict | files | meaning |
+|---|---:|---|
+| BOTH-UNBOUND | 376 | neither front binds something — not F's problem |
+| F | 150 | F lowers it |
+| GAP | 42 | **F declines, the fallback succeeds — F's real coverage hole** |
+| ERROR | 16 | F fails outright (14 are `parser sentinel _err`) |
+
+**Why this matters beyond a number:** an F decline is a SILENT downgrade onto the fallback front,
+and the fallback is where both defects fixed today lived
+([[v2-string-plus-aliased-onto-user-concat-extension]],
+[[v2-context-bound-given-injected-over-an-explicit-instance]]). Neither would have been reachable
+from a file F accepted. Closing declines and hardening the fallback are the same safety work
+approached from opposite ends.
+
+**Half the hole is three names:**
+
+| unbound name | files | what it is |
+|---|---:|---|
+| `q` | 10 | the PARAMETER of the operator-named extensions `~`, `|`, `~>` in `std/parsing/combinators.ssc` |
+| `handle` | 7 | effect-system construct |
+| `effect` | 4 | effect-system construct |
+| `summon` | 3 | context bounds |
+
+**`q` is confirmed, not inferred:** all ten files import `std/parsing/combinators.ssc`, whose
+`def ~[B](q: Parser[B])` is an extension method with an OPERATOR name. F binds such members by name
+(`opNameK` / `extMemberName`, `specs/v2.2-p6.5-fsub.ssc:1786`) but evidently not their parameters.
+One defect, ten files — the largest single win available in F, and adjacent to work already done in
+that area.
+
+⚠️ **The first version of this sweep was wrong and looked right.** `bin/ssc-tools info
+--front-report` does NOT support the flag: it treats it as a path, prints
+`Warning: … ignoring 1 extra path(s)` followed by `info: file not found: --front-report`, and
+**exits 0**. A sweep built on it produces an empty report that reads as "F declines nothing". Use
+`bin/ssc info`. Second trap: the parallel sweep was killed mid-run and left 468 of 584 rows, and the
+rerun of the remainder APPENDED duplicates — 693 rows for 584 files. Counting without deduplicating
+would have inflated every category. Filed separately: [[ssc-tools-info-rejects-front-report-at-exit-0]].
+
 ## v2-context-bound-given-injected-over-an-explicit-instance — `combineAll(xs, intSum)` was 3 args wide
 <!-- status: fixed
      lane: native
