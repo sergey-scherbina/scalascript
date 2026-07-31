@@ -2,10 +2,10 @@ slug: sys-env-three-lanes
 branch: feature/sys-env-three-lanes
 agent: claude-code
 started: 2026-07-31T07:37:45Z
-heartbeat: 2026-07-31T10:26:10Z
+heartbeat: 2026-07-31T10:40:27Z
 status: claimed-before-planning
-items: typer-defines-sys-but-no-runtime-provides-it
-paths: file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/BuiltinsRuntime.scala file:v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/core-dispatch.mjs file:v2/src/Runtime.scala file:v2/lib/ssc1-lower.ssc0 file:tests/conformance/sys-env.ssc file:tests/conformance/expected/sys-env.txt file:BUGS.md
+items: typer-defines-sys-but-no-runtime-provides-it v2-getorelse-two-arg-falls-into-option-helper
+paths: file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/BuiltinsRuntime.scala file:v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/core-dispatch.mjs file:v2/src/Runtime.scala file:v2/lib/ssc1-lower.ssc0 file:tests/conformance/sys-env.ssc file:tests/conformance/expected/sys-env.txt file:BUGS.md file:tests/conformance/map-getorelse-expr-receiver.ssc file:tests/conformance/expected/map-getorelse-expr-receiver.txt file:v2/BUGS.md file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
