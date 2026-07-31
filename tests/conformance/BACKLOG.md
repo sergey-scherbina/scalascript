@@ -7,11 +7,34 @@ in the same commit as the claim. Layout: `specs/work-tracking-layout.md`.
 Sections below were carried over whole from the flat root `SPRINT.md`/`BACKLOG.md`,
 verbatim, on 2026-07-30.
 
-## 87 open bugs name no gate — the actual backlog
+## 89 open bugs name no gate — MEASURED: 71 % of them carry no reproduction at all
 
 `scripts/bugs-report --no-gate` on 2026-07-31: **87 of 104 open entries name no regression gate.**
 Five in six known defects have nothing that would catch them coming back, which outranks any single
 entry on the list.
+
+**Triaged 2026-07-31, and the answer changes the task — see `specs/gateless-triage.md`.** Every
+open gateless entry was classified by what it carries:
+
+| 64 (71 %) | no code at all |
+| 11 (12 %) | a runnable `scalascript` repro |
+| 10 (11 %) | a code block that is not runnable |
+| 4 (4 %) | a shell repro |
+
+**A gate cannot be written for a defect that cannot be run.** The missing gates are downstream of
+missing REPRODUCTIONS, not of missing effort. Writing 89 cases was never the available task; at most
+15 are gateable as written, and running the 11 runnable ones found exactly 2 that still error and are
+gateable today (`int-imported-module-mutable-registry-not-shared`,
+`typer-defines-sys-but-no-runtime-provides-it`).
+
+The next slices, in order:
+
+1. **Gate the 2 that still error.** Cheap, immediate.
+2. **Require a runnable repro on NEW entries**, scoped by date so the gate does not go red on the 64
+   — a red gate on `main` is a broken shared suite, and that mistake was already made once this week.
+3. **Reproduce the 64, one at a time.** Many will turn out closed: one entry on this board was found
+   fixed three days earlier and still open, and finding that out cost a claim, a worktree and a full
+   build. Closing a stale entry is worth more than a new gate.
 
 Recorded here rather than acted on immediately because it is not one task: some of the 87 are
 unreproducible, some are wontfix in disguise, and some need a lane that cannot express them (see
