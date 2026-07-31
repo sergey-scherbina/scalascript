@@ -1,5 +1,4 @@
-# generation: 690
+# generation: 691
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
 v2-validate-accumulator	claude-code	2026-07-31T15:38:15Z	v2-validate-accumulator	v2/runtime/std/http-fast-plugin v2/BUGS.md tests/conformance/corpus-baseline.tsv tests/conformance/contract-roster.tsv
-markup-core-out-of-v1	claude-code	2026-07-31T15:41:23Z	markup-core-is-a-shared-library-inside-the-v1-tree	file:build.sbt file:v1/runtime/std/markup-core file:markup file:specs/project-partitioning.md file:tests/e2e/project-partition-gate.sh
