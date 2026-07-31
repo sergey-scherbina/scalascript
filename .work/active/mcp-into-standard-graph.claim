@@ -5,7 +5,7 @@ started: 2026-07-31T03:54:31Z
 heartbeat: 2026-07-31T03:54:31Z
 status: claimed-before-planning
 items: mcp-into-standard-graph
-paths: build.sbt tests/e2e/v21-explicit-mcp-provider-smoke.sh tests/e2e/v21-standard-mcp-smoke.sh tests/fixtures/v21-explicit-lanes/manifest.tsv .github/workflows/ci.yml README.md docs/user-guide.md v2/BUGS.md SPRINT.md
+paths: build.sbt tests/e2e/v21-explicit-mcp-provider-smoke.sh tests/e2e/v21-standard-mcp-smoke.sh tests/e2e/v21-explicit-lanes-gate.sh tests/fixtures/v21-explicit-lanes/manifest.tsv tests/conformance/corpus-baseline.tsv tests/conformance/contract-roster.tsv .github/workflows/ci.yml README.md docs/user-guide.md specs/v2.1-toolchain-independence.md v2/BUGS.md SPRINT.md
 scope: |
   Sergiy's decision (2026-07-31): MCP becomes part of the STANDARD surface rather than an opt-in
   provider, so `bin/ssc` — the launcher the conformance contract drives — carries it.
