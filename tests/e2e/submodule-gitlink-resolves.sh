@@ -55,6 +55,7 @@ probe() {  # probe <url> <sha> -> 0 if the remote has it
 }
 
 fail=0
+probed=0
 note() { printf '  %s\n' "$*"; }
 bad()  { printf 'FAIL  %s\n' "$*" >&2; fail=1; }
 
@@ -63,8 +64,20 @@ bad()  { printf 'FAIL  %s\n' "$*" >&2; fail=1; }
 # entry (then it has no URL and nothing can resolve it — which is itself worth failing on).
 gitlinks="$(git ls-files -s | awk '$1 == "160000" { print $2 "\t" $4 }')"
 
+# "Nothing to check" is a FAILURE when the repo declares submodules, and that is not pedantry: it is
+# the one path on which this gate passes without probing anything, and it costs ~0.05 s — which is
+# what a green line in a suite log looks like when a check has quietly stopped seeing its subject.
+# CI reported this gate at 0.1 s and there was no way to tell, from the log, whether that was a fast
+# same-network fetch or this branch. Now the two are distinguishable: this branch is red.
 if [ -z "$gitlinks" ]; then
-  echo "submodule-gitlink-resolves: no gitlinks in the index — nothing to check"
+  if [ -f .gitmodules ]; then
+    printf 'FAIL  .gitmodules exists but the index holds no gitlink (mode 160000).\n' >&2
+    printf '      Nothing was probed, so a green here would mean "this gate saw nothing" — which is\n' >&2
+    printf '      indistinguishable from "everything is fine" and is how a check dies unnoticed.\n' >&2
+    printf '      Declared in .gitmodules: %s\n' "$(git config -f .gitmodules --name-only --get-regexp 'submodule\..*\.path' 2>/dev/null | sed 's/^submodule\.//; s/\.path$//' | tr '\n' ' ')" >&2
+    exit 1
+  fi
+  echo "submodule-gitlink-resolves: no submodules declared and none in the index — nothing to check"
   exit 0
 fi
 
@@ -103,6 +116,7 @@ while IFS=$'\t' read -r sha path; do
     continue
   fi
   if probe "$url" "$sha"; then
+    probed=$((probed + 1))
     printf '  ok   %-24s %s\n' "$path" "$sha"
   else
     bad "$path records $sha, which $url does NOT have."
@@ -114,7 +128,7 @@ while IFS=$'\t' read -r sha path; do
 done <<< "$gitlinks"
 
 if [ "$fail" -eq 0 ]; then
-  echo "submodule-gitlink-resolves: OK"
+  printf 'submodule-gitlink-resolves: OK (%d gitlink(s) probed against their remotes)\n' "$probed"
 else
   echo "submodule-gitlink-resolves: FAILED" >&2
 fi
