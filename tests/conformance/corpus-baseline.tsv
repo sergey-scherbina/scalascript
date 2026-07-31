@@ -22,7 +22,6 @@ derived-route-clients	*	SKIP
 distributed-join	*	SKIP
 distributed-log-aggregation	*	SKIP
 dsl-sql-recovery	js	FAIL
-f-tilde-extension-infix	v2	DIVERGE
 fetch-auth	*	SKIP
 graph-fullstack-rdf	*	SKIP
 graph-janusgraph-gremlin	*	SKIP

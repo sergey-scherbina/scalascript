@@ -1,0 +1,40 @@
+---
+name: f-tilde-arrow-ext
+version: 1.0.0
+---
+
+# `~>` and `<~` are operator names, not `~` followed by `>`
+
+F's `opCode` lexed ONE character at a time, so `~>` arrived as `~` then `>` and `<~` as `<` then
+`~`. `extMembers` takes the member's name token and then expects `[` or `(`; it found `>`, and took
+the branch that never calls `parseParams` — so the member's own parameter was never bound and `q`
+resolved as a global. That single cause was **10 of F's 42 GAP files**, every one of them an
+importer of `std/parsing/combinators.ssc`, which is built on `~`, `~>` and `<~`
+(`f-operator-ext-param-tilde-arrow-declines`).
+
+The declines were SAFE while they lasted — a declined file is compiled by the fallback front, which
+reads these operators correctly. That is exactly why this case ships together with
+`f-tilde-extension-infix`: closing the decline without also teaching F to read infix `~` would have
+moved those ten files out of the fallback and into F, where `~` was miscompiled as bitwise-NOT. A
+visible gap traded for ten silently wrong programs.
+
+The three operators are exercised here in one expression as well as separately, because precedence
+is part of the contract: the oracle (`ssc1-front` `opPrec`) gives `~` and `~>` 9 and `<~` 5, so
+`a <~ b ~ c` must group as `a <~ (b ~ c)`.
+
+```scalascript
+extension (p: Int)
+  def ~(q: Int): Int = p * 100 + q
+  def ~>(q: Int): Int = p + q * 10
+  def <~(q: Int): Int = p * 1000 + q
+
+def main() =
+  println(3 ~ 4)
+  println(3 ~> 4)
+  println(3 <~ 4)
+  // `~` binds tighter than `<~`: 1 <~ (2 ~ 3) = 1 * 1000 + 203
+  println(1 <~ 2 ~ 3)
+  // prefix `~` is bitwise NOT and must still work — atom position, not after an atom
+  println(~0)
+  println(~5)
+```

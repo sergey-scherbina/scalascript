@@ -13,6 +13,53 @@ lose the reasoning around them.
 Milestone view: [`ROADMAP.md`](ROADMAP.md). Pipeline: `ssc0 → ir → ssc(VM) → cpu`. Work each slice
 in its own worktree off `origin/main`.
 
+## F reads `~`, `~>`, `<~` (claim `f-tilde-infix`, BUGS `f-tilde-infix-…` + `f-operator-ext-param-…`)
+
+**Two entries, ONE commit, and the order is not a preference.** `f-tilde-infix-silently-miscompiled-as-bitwise-not`
+is a SILENT wrong answer (F accepts `3 ~ 4`, exits 0, prints the wrong number);
+`f-operator-ext-param-tilde-arrow-declines` is a decline, which is safe — the fallback front
+compiles those files correctly. That decline is currently the only thing PROTECTING the ten corpus
+files built on `std/parsing/combinators.ssc`. Fixing the decline alone would move all ten out of the
+safe fallback into F's hands, where infix `~` is miscompiled: a visible gap traded for ten silently
+wrong programs.
+
+**The oracle already answers the design question.** `ssc1-front.ssc0:1591` `opPrec` gives `~` → 9,
+`~>` → 9, `<~` → 5, and F's contract is to reproduce the oracle's lowering — so the precedences are
+read off, not invented. F's scale is compressed (max 7 = `*` `/` `%`), so the ORDER is what carries
+over: `~`/`~>` go ABOVE `*` (F 8, new top), `<~` joins the comparison group (F 4, where `<` already
+is).
+
+- [x] **T-1 — fail-first, measured.** `tests/conformance/f-tilde-extension-infix.ssc` already exists
+      and is expected-red. Measured on this build: int `304`/`102`, F prints **`3`, `1`, `0` — three
+      lines for a two-line program**, which is worse than the entry's recorded "v2: 0". A second case
+      is needed for `~>`/`<~`, which no case covers.
+- [x] **T-2 — lexer, single tokens.** `opCode` lexes ONE character, so `~>` becomes `~` then `>` and
+      `<~` becomes `<` then `~`. New `lexTilde` (126: `~>` → **69**, else 68) and a `<~` → **70** arm
+      in `lexLt`. Codes 69/70/71 verified free (the existing hits on those numbers are ASCII `E`/`F`
+      in `isExpCh`/`isFloatSfx`, not op codes).
+- [x] **T-3 — `opNameK`.** 68 → `~`, 69 → `~>`, 70 → `<~`. This is what registers the extension by
+      name, and it is also the sibling's fix: with `~>` a SINGLE token, `extMembers` finds `(` where
+      it used to find `>`, so it reaches `parseParams` and the member's parameter is bound.
+- [x] **T-4 — infix reading.** `binPrecK` 68 → 8, 69 → 8, 70 → 4; `emitBin`/`emitBinT` arms that
+      dispatch to `emitArithExtS` when the extension exists and `emitArithS` otherwise — the same
+      shape `emitPP` already uses for `++`. Prefix `~` (`parseTilde`) STAYS: atom position vs.
+      after-an-atom already distinguishes the two readings, exactly as it does for `-`.
+- [x] **T-5 — evidence.** Both gates green on int/js/v2; the ten `combinators.ssc` importers must
+      move **GAP → F** in `ssc info --front-report` (the number goes in the commit); F's own output
+      compared against the oracle on those files, since matching the oracle is the contract;
+      `scripts/smoke-ci`.
+- [x] **T-6 — NOT in the plan: the runtime half.** With the front fixed, `3 ~ 4` still died with
+      `__arith__: unknown op ~ for Int`. `__arithExt__`'s `primitiveWins` hands ANY numeric pair to
+      the primitive, and `~`/`~>`/`<~` have no primitive arm at all, so the extension lost to an
+      operator that does not exist. Located by measurement, not by reading: the SAME extension on a
+      case class already dispatched (`D(3) ~ D(4)` -> 304), and a front bug cannot be
+      receiver-type-selective. New `noPrimitiveArm` carve-out beside the existing one for `|`.
+- [x] **T-7 — the ten files did NOT move to F, and that is the result.** `q` is gone from all ten
+      importers; every one now reports `unbound global: loop` instead. F's GAP count is unchanged at
+      10 for them, so anyone re-running the census would read the fix as a no-op — filed as
+      `f-unbound-loop-is-the-new-top-gap` so that reading is not available. The safety property
+      still lands: when `loop` is closed and those files reach F, `~` is no longer miscompiled.
+
 ## v2 Char is a value, not its code point (claim `v2-char-value`, BUGS `v2-char-is-an-int`)
 
 The defect: `'x'` is the `Int` 120 on this lane in `println`, `.toString` and concatenation. Not a

@@ -79,7 +79,7 @@ def lexNL2(ind, pos, s, n) = if atEnd(pos, n) then Nil else Cons((7, ind), lex(s
 //   46 `&&`  47 `||`  48 `++`  49 `::`  50 `[`  51 `]`
 def kwCode(w) = if w == "def" then 1 else (if w == "if" then 2 else (if w == "then" then 3 else (if w == "else" then 4 else (if w == "match" then 5 else (if w == "case" then 6 else (if w == "val" then 7 else (if w == "true" then 8 else (if w == "false" then 9 else (if w == "class" then 10 else 0)))))))))
 def lex(s, i, n) = if atEnd(i, n) then Nil else lexDispatch(s, i, n, s.charAt(i))
-def lexDispatch(s, i, n, c) = if c == 32 then lex(s, i + 1, n) else (if c == 10 then lexNL(s, i, n) else (if c == 9 then lex(s, i + 1, n) else (if c == 13 then lexNL(s, i, n) else (if isLet(c) then lexWord(s, i, n, scanId(s, i, n)) else (if isDig(c) then lexNum(s, i, n) else (if c == 34 then lexStrOrTriple(s, i, n) else (if c == 47 then lexSlash(s, i, n) else (if c == 43 then lexPlus(s, i, n) else (if c == 45 then lexMinus(s, i, n) else (if c == 42 then lexStar(s, i, n) else (if c == 58 then lexColon(s, i, n) else (if c == 61 then lexEq(s, i, n) else (if c == 60 then lexLt(s, i, n) else (if c == 62 then lexGt(s, i, n) else (if c == 33 then lexBang(s, i, n) else (if c == 38 then lexAmp(s, i, n) else (if c == 124 then lexPipe(s, i, n) else (if c == 64 then lexAt(s, i, n) else (if c == 63 then lexQ(s, i, n) else (if c == 39 then lexChar(s, i, n) else lexOp1(s, i, n, c)))))))))))))))))))))
+def lexDispatch(s, i, n, c) = if c == 32 then lex(s, i + 1, n) else (if c == 10 then lexNL(s, i, n) else (if c == 9 then lex(s, i + 1, n) else (if c == 13 then lexNL(s, i, n) else (if isLet(c) then lexWord(s, i, n, scanId(s, i, n)) else (if isDig(c) then lexNum(s, i, n) else (if c == 34 then lexStrOrTriple(s, i, n) else (if c == 47 then lexSlash(s, i, n) else (if c == 43 then lexPlus(s, i, n) else (if c == 45 then lexMinus(s, i, n) else (if c == 42 then lexStar(s, i, n) else (if c == 58 then lexColon(s, i, n) else (if c == 61 then lexEq(s, i, n) else (if c == 60 then lexLt(s, i, n) else (if c == 62 then lexGt(s, i, n) else (if c == 33 then lexBang(s, i, n) else (if c == 38 then lexAmp(s, i, n) else (if c == 124 then lexPipe(s, i, n) else (if c == 64 then lexAt(s, i, n) else (if c == 63 then lexQ(s, i, n) else (if c == 39 then lexChar(s, i, n) else (if c == 126 then lexTilde(s, i, n) else lexOp1(s, i, n, c))))))))))))))))))))))
 // `???` (the notImplemented placeholder) lexes to token code 60 -> parseAtom1 emits `(prim
 // __notImplemented__)` (ssc1-lower). A single/double `?` still drops (opCode 0 behaviour, unchanged).
 def isTriQ(s, i, n) = if atEnd(i + 2, n) then false else (if s.charAt(i + 1) == 63 then s.charAt(i + 2) == 63 else false)
@@ -128,7 +128,9 @@ def lexSlash(s, i, n) = if s.charAt(i + 1) == 47 then lex(s, scanLineEnd(s, i + 
 def lexEq(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 44), lex(s, i + 2, n)) else (if s.charAt(i + 1) == 62 then Cons((2, 30), lex(s, i + 2, n)) else Cons((2, 20), lex(s, i + 1, n)))
 // `<-` (generator arrow, code 58) — the `for x <- xs ..` binder separator (ssc1-front lex :400).
 // `<<`=65 shift-left; `>>`=66 shift-right; `>>>`=67 unsigned shift-right (ssc1-front :402/:407).
-def lexLt(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 42), lex(s, i + 2, n)) else (if s.charAt(i + 1) == 45 then Cons((2, 58), lex(s, i + 2, n)) else (if s.charAt(i + 1) == 60 then Cons((2, 65), lex(s, i + 2, n)) else Cons((2, 40), lex(s, i + 1, n))))
+// `<~` -> 70 must be tried alongside `<=`/`<-`/`<<`; see lexTilde for why one-character lexing is
+// the defect rather than a detail.
+def lexLt(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 42), lex(s, i + 2, n)) else (if s.charAt(i + 1) == 45 then Cons((2, 58), lex(s, i + 2, n)) else (if s.charAt(i + 1) == 126 then Cons((2, 70), lex(s, i + 2, n)) else (if s.charAt(i + 1) == 60 then Cons((2, 65), lex(s, i + 2, n)) else Cons((2, 40), lex(s, i + 1, n)))))
 def lexGt(s, i, n) = if s.charAt(i + 1) == 61 then Cons((2, 43), lex(s, i + 2, n)) else (if s.charAt(i + 1) == 62 then lexGtGt(s, i, n) else Cons((2, 41), lex(s, i + 1, n)))
 def lexGtGt(s, i, n) = if atEnd(i + 2, n) then Cons((2, 66), lex(s, i + 2, n)) else (if s.charAt(i + 2) == 62 then Cons((2, 67), lex(s, i + 3, n)) else Cons((2, 66), lex(s, i + 2, n)))
 // `!=`(45) is checked first; a BARE `!` is the boolean-NOT prefix (code 59), lexed like unary `-`. The
@@ -216,6 +218,12 @@ def lexFloat(s, i, n, fe) = Cons((5, s.substring(i, fe)), lex(s, floatEnd(s, fe,
 // lexes it too (ssc1-front :358). F used to DROP it (opCode 0), losing statement boundaries in `a; b`.
 def opCode(c) = if c == 40 then 21 else (if c == 41 then 22 else (if c == 45 then 24 else (if c == 42 then 25 else (if c == 44 then 27 else (if c == 46 then 31 else (if c == 123 then 28 else (if c == 125 then 29 else (if c == 91 then 50 else (if c == 93 then 51 else (if c == 37 then 56 else (if c == 94 then 64 else (if c == 126 then 68 else (if c == 59 then 52 else 0)))))))))))))
 def lexOp1(s, i, n, c) = if opCode(c) == 0 then lex(s, i + 1, n) else Cons((2, opCode(c)), lex(s, i + 1, n))
+// `~` is a THREE-way lex, because `opCode` reads one character at a time: that is why `~>` used to
+// become `~` then `>`, and `extMembers` — which takes the name token and then expects `[` or `(` —
+// found `>` and took the branch that never calls parseParams, leaving the member's own parameter
+// unbound (`f-operator-ext-param-tilde-arrow-declines`, 10 of F's 42 GAP files).
+//   `~>` -> 69, `~` -> 68. `<~` is the mirror case and lives in lexLt.
+def lexTilde(s, i, n) = if atEnd(i + 1, n) then Cons((2, 68), lex(s, i + 1, n)) else (if s.charAt(i + 1) == 62 then Cons((2, 69), lex(s, i + 2, n)) else Cons((2, 68), lex(s, i + 1, n)))
 
 // -- K62.6c-indent: layout (offside -> virtual braces) ----------------------------------------
 // Ported byte-exactly from ssc1-front's `layout` (ssc1-front.ssc0:3069-3163) + its ~10 helpers. Turns
@@ -419,9 +427,13 @@ def emitArith(k, l, r, dq) = if k == 23 then emitPlus(l, r, dq) else emitArithT(
 def emitEq(l, r) = "(prim __eq__ " ++ l ++ " " ++ r ++ ")"
 def emitEqT(l, r, dq) = if isIntCode(l) then (if isIntCode(r) then emitPrimBin("i.eq", l, r) else emitEq(l, r)) else (if isStrCode(l, dq) then (if isStrCode(r, dq) then emitPrimBin("seq", l, r) else emitEq(l, r)) else (if isBigCode(l) then (if isBigCode(r) then emitPrimBin("big.eq", l, r) else emitEq(l, r)) else emitEq(l, r)))
 def emitPP(l, r, dq, cx) = if isStrCode(l, dq) then emitSconcat(l, r) else (if isExtMethod("++", cx) then emitArithExtS("++", l, r, dq) else emitArithS("++", l, r, dq))
+// `~`, `~>`, `<~` used infix. Same shape emitPP already uses for `++`: dispatch to the user's
+// extension when one is registered, otherwise emit the plain quoted-op arith so an undefined
+// operator fails in the runtime rather than being silently read as something else.
+def emitTildeOp(sym, l, r, dq, cx) = if isExtMethod(sym, cx) then emitArithExtS(sym, l, r, dq) else emitArithS(sym, l, r, dq)
 def emitIf(c, t, e) = "(if " ++ c ++ " " ++ t ++ " " ++ e ++ ")"
 def emitPrimBin(nm, l, r) = "(prim " ++ nm ++ " " ++ l ++ " " ++ r ++ ")"
-def emitBin(k, l, r, dq, cx) = if k == 57 then "(ctor Pair " ++ l ++ " " ++ r ++ ")" else (if k == 49 then "(ctor Cons " ++ l ++ " " ++ r ++ ")" else (if k == 48 then emitPP(l, r, dq, cx) else (if k == 44 then emitEqT(l, r, dq) else (if k == 45 then emitIf(emitEqT(l, r, dq), "(lit false)", "(lit true)") else (if k == 46 then emitIf(l, r, "(lit false)") else (if k == 47 then emitIf(l, "(lit true)", r) else (if k == 61 then emitArithS(":+", l, r, dq) else (if k == 62 then emitPrimBin("i.and", l, r) else (if k == 63 then emitPrimBin("i.or", l, r) else (if k == 64 then emitPrimBin("i.xor", l, r) else (if k == 65 then emitPrimBin("i.shl", l, r) else (if k == 66 then emitPrimBin("i.shr", l, r) else (if k == 67 then emitPrimBin("i.ushr", l, r) else emitArith(k, l, r, dq))))))))))))))
+def emitBin(k, l, r, dq, cx) = if k == 57 then "(ctor Pair " ++ l ++ " " ++ r ++ ")" else (if k == 68 then emitTildeOp("~", l, r, dq, cx) else (if k == 69 then emitTildeOp("~>", l, r, dq, cx) else (if k == 70 then emitTildeOp("<~", l, r, dq, cx) else (if k == 49 then "(ctor Cons " ++ l ++ " " ++ r ++ ")" else (if k == 48 then emitPP(l, r, dq, cx) else (if k == 44 then emitEqT(l, r, dq) else (if k == 45 then emitIf(emitEqT(l, r, dq), "(lit false)", "(lit true)") else (if k == 46 then emitIf(l, r, "(lit false)") else (if k == 47 then emitIf(l, "(lit true)", r) else (if k == 61 then emitArithS(":+", l, r, dq) else (if k == 62 then emitPrimBin("i.and", l, r) else (if k == 63 then emitPrimBin("i.or", l, r) else (if k == 64 then emitPrimBin("i.xor", l, r) else (if k == 65 then emitPrimBin("i.shl", l, r) else (if k == 66 then emitPrimBin("i.shr", l, r) else (if k == 67 then emitPrimBin("i.ushr", l, r) else emitArith(k, l, r, dq)))))))))))))))))
 // -- F5b Stage 1b: bare-variable (param) type recovery from env ----------------------------------
 // A bare `(local N)` operand carries no IR-prefix type, but env[N] does when the param was declared
 // `Int`/`String`/`BigInt` (parseParam embeds `name:Type`). climbStep already holds env, so it maps the
@@ -454,7 +466,7 @@ def lookupRet(nm, tab) = tab match { case Nil => "?" case h :: t => if fst(h) ==
 def isNumTag(t) = if t == "I" then true else t == "F"
 // tag-keyed mirrors of emitBin/emitPP/emitEqT/emitArith/emitPlus/emitArithT — byte-identical for untyped
 // operands (tag = prefixTag). Only the type-DEPENDENT arms differ; type-agnostic arms delegate as-is.
-def emitBinT(k, l, r, lt, rt, dq, cx) = if k == 57 then "(ctor Pair " ++ l ++ " " ++ r ++ ")" else (if k == 49 then "(ctor Cons " ++ l ++ " " ++ r ++ ")" else (if k == 48 then emitPPt(l, r, lt, dq, cx) else (if k == 44 then emitEqTt(l, r, lt, rt, dq) else (if k == 45 then emitIf(emitEqTt(l, r, lt, rt, dq), "(lit false)", "(lit true)") else (if k == 46 then emitIf(l, r, "(lit false)") else (if k == 47 then emitIf(l, "(lit true)", r) else (if k == 61 then emitArithS(":+", l, r, dq) else (if k == 62 then emitPrimBin("i.and", l, r) else (if k == 63 then emitPrimBin("i.or", l, r) else (if k == 64 then emitPrimBin("i.xor", l, r) else (if k == 65 then emitPrimBin("i.shl", l, r) else (if k == 66 then emitPrimBin("i.shr", l, r) else (if k == 67 then emitPrimBin("i.ushr", l, r) else emitArithTg(k, l, r, lt, rt, dq, cx))))))))))))))
+def emitBinT(k, l, r, lt, rt, dq, cx) = if k == 57 then "(ctor Pair " ++ l ++ " " ++ r ++ ")" else (if k == 68 then emitTildeOp("~", l, r, dq, cx) else (if k == 69 then emitTildeOp("~>", l, r, dq, cx) else (if k == 70 then emitTildeOp("<~", l, r, dq, cx) else (if k == 49 then "(ctor Cons " ++ l ++ " " ++ r ++ ")" else (if k == 48 then emitPPt(l, r, lt, dq, cx) else (if k == 44 then emitEqTt(l, r, lt, rt, dq) else (if k == 45 then emitIf(emitEqTt(l, r, lt, rt, dq), "(lit false)", "(lit true)") else (if k == 46 then emitIf(l, r, "(lit false)") else (if k == 47 then emitIf(l, "(lit true)", r) else (if k == 61 then emitArithS(":+", l, r, dq) else (if k == 62 then emitPrimBin("i.and", l, r) else (if k == 63 then emitPrimBin("i.or", l, r) else (if k == 64 then emitPrimBin("i.xor", l, r) else (if k == 65 then emitPrimBin("i.shl", l, r) else (if k == 66 then emitPrimBin("i.shr", l, r) else (if k == 67 then emitPrimBin("i.ushr", l, r) else emitArithTg(k, l, r, lt, rt, dq, cx)))))))))))))))))
 def emitPPt(l, r, lt, dq, cx) = if lt == "S" then emitSconcat(l, r) else (if isExtMethod("++", cx) then emitArithExtS("++", l, r, dq) else emitArithS("++", l, r, dq))
 def emitEqTt(l, r, lt, rt, dq) = if lt == "I" then (if rt == "I" then emitPrimBin("i.eq", l, r) else emitEq(l, r)) else (if lt == "S" then (if rt == "S" then emitPrimBin("seq", l, r) else emitEq(l, r)) else (if lt == "B" then (if rt == "B" then emitPrimBin("big.eq", l, r) else emitEq(l, r)) else emitEq(l, r)))
 def emitArithTg(k, l, r, lt, rt, dq, cx) = if k == 23 then emitPlusT(l, r, lt, rt, dq) else emitArithTT(k, l, r, lt, rt, dq, cx)
@@ -468,10 +480,14 @@ def emitArithFb(k, l, r, dq, cx) = if isExtMethod(arithSym(k), cx) then emitArit
 def emitArithTT(k, l, r, lt, rt, dq, cx) = if isNumTag(lt) then (if isNumTag(rt) then emitPrimBin(intPrimK(k), l, r) else emitArithFb(k, l, r, dq, cx)) else (if lt == "B" then (if rt == "B" then emitPrimBin(bigPrimK(k), l, r) else emitArithFb(k, l, r, dq, cx)) else emitArithFb(k, l, r, dq, cx))
 def emitBinTop(k, l, r, env, cx) = emitBinT(k, l, r, operandTag(l, env, cx), operandTag(r, env, cx), dqOf(cx), cx)
 // Scala's precedence-by-first-character, restricted to the operators the subset uses.
+// Precedence for `~` (68), `~>` (69) and `<~` (70) is READ OFF THE ORACLE, not invented: ssc1-front
+// `opPrec` gives them 9, 9 and 5, and matching the oracle's lowering is F's contract. F's scale is
+// compressed (its top is 7 = `*` `/` `%`), so what carries over is the ORDER — `~`/`~>` go above
+// `*`, and `<~` joins the comparison group where `<` already sits.
 def binPrec(t) = if fst(t) == 2 then binPrecK(snd(t)) else 0
 // bitwise prec (left-assoc; F prec 5 is the ONLY right-assoc slot so bitwise ops avoid it): `&`(62)=4,
 // `|`(63)/`^`(64)=2, shifts `<<`(65)/`>>`(66)/`>>>`(67)=6. Mirrors ssc1-front opPrec relative ordering.
-def binPrecK(k) = if k == 57 then 1 else (if k == 47 then 1 else (if k == 46 then 2 else (if k == 44 then 3 else (if k == 45 then 3 else (if k == 40 then 4 else (if k == 41 then 4 else (if k == 42 then 4 else (if k == 43 then 4 else (if k == 62 then 4 else (if k == 63 then 2 else (if k == 64 then 2 else (if k == 49 then 5 else (if k == 23 then 6 else (if k == 24 then 6 else (if k == 48 then 6 else (if k == 61 then 6 else (if k == 65 then 6 else (if k == 66 then 6 else (if k == 67 then 6 else (if k == 25 then 7 else (if k == 26 then 7 else (if k == 56 then 7 else 0))))))))))))))))))))))
+def binPrecK(k) = if k == 57 then 1 else (if k == 47 then 1 else (if k == 46 then 2 else (if k == 44 then 3 else (if k == 45 then 3 else (if k == 40 then 4 else (if k == 41 then 4 else (if k == 42 then 4 else (if k == 43 then 4 else (if k == 62 then 4 else (if k == 63 then 2 else (if k == 64 then 2 else (if k == 49 then 5 else (if k == 23 then 6 else (if k == 24 then 6 else (if k == 48 then 6 else (if k == 61 then 6 else (if k == 65 then 6 else (if k == 66 then 6 else (if k == 67 then 6 else (if k == 25 then 7 else (if k == 26 then 7 else (if k == 56 then 7 else (if k == 68 then 8 else (if k == 69 then 8 else (if k == 70 then 4 else 0)))))))))))))))))))))))))
 
 // -- the parse context ---------------------------------------------------------------------------
 // cx = (dq, (ccNames, fieldNames)). Case classes made the parser context-dependent: a ctor call and
@@ -1834,7 +1850,10 @@ def collectEMs(ts) = if isTok(hd(ts), 2, 29) then collectExtMethods(tl(ts)) else
 // no def had been emitted under that name either. One root cause, three walkers.
 // Unknown codes map to "" on purpose: a catch-all symbol (as `arithSym` has) would silently register the
 // WRONG operator as an extension method. (v2-infix-extension-operator-stringifies, part 3.)
-def opNameK(k) = if k == 48 then "++" else (if k == 26 then "/" else (if k == 61 then ":+" else (if k == 23 then "+" else (if k == 24 then "-" else (if k == 25 then "*" else "")))))
+// 68/69/70 (`~`, `~>`, `<~`) were absent, so an `extension … def ~` was never registered UNDER A
+// NAME at all — which is why F had no way to know a user had defined it and read `~` only as the
+// prefix bitwise-NOT (`f-tilde-infix-silently-miscompiled-as-bitwise-not`).
+def opNameK(k) = if k == 48 then "++" else (if k == 26 then "/" else (if k == 61 then ":+" else (if k == 23 then "+" else (if k == 24 then "-" else (if k == 25 then "*" else (if k == 68 then "~" else (if k == 69 then "~>" else (if k == 70 then "<~" else ""))))))))
 def extMemberName(t) = if fst(t) == 1 then snd(t) else opNameK(snd(t))
 def isExtMethod(nm, cx) = memL(nm, extMethodsOf(cx))
 // STANDALONE (top-level, NOT given-body) extension method names — mirrors ssc1-lower collectTopLevelExt-

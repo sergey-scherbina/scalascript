@@ -1491,8 +1491,16 @@ object Prims:
           // BUGS `v2-infix-extension-operator-stringifies`.
           val str  = (v: Value) => v.isInstanceOf[StrV]
           val list = (v: Value) => v match { case DataV("Cons" | "Nil", _) => true; case _ => false }
+          // `~`, `~>` and `<~` have NO primitive arm in arithOp for any operand type — they exist
+          // only as user-defined operators (parser combinators are built on them). So the numeric
+          // rule below must not apply: it handed `3 ~ 4` to a primitive that does not exist and
+          // died with `__arith__: unknown op ~ for Int`, while the SAME extension on a case class
+          // dispatched correctly. That asymmetry is what located the defect here rather than in the
+          // front. BUGS `f-tilde-infix-silently-miscompiled-as-bitwise-not`.
+          val noPrimitiveArm = op == "~" || op == "~>" || op == "<~"
           val primitiveWins =
-            if op == "|" then a(1).isInstanceOf[IntV] && a(2).isInstanceOf[IntV]
+            if noPrimitiveArm then false
+            else if op == "|" then a(1).isInstanceOf[IntV] && a(2).isInstanceOf[IntV]
             else (num(a(1)) && num(a(2)))
               || (str(a(1)) && str(a(2)))
               || (op == "++" && list(a(1)) && list(a(2)))

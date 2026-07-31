@@ -7,6 +7,41 @@ grepping for status.
 
 Newest first.
 
+## f-unbound-loop-is-the-new-top-gap — `loop` replaces `q` as F's largest single decline reason
+<!-- status: open
+     lane: native
+     area: front
+     fixed-in: -
+     gate: - -->
+
+**Found 2026-07-31** by `f-tilde-infix`, as the deliberate residue of its own fix rather than left
+for someone to rediscover.
+
+Closing [[f-operator-ext-param-tilde-arrow-declines]] removed `q` — the single largest reason F
+declined corpus files ([[f-front-coverage-census-0731]]: 10 of the 42 GAP files) — and every one of
+those ten immediately reported a different name instead:
+
+```
+examples/dsl-calc-parser.ssc              GAP  unbound global: (global loop) …
+examples/dsl-json-parser.ssc              GAP  unbound global: (global loop) …
+examples/dsl-sql-recovery.ssc             GAP  unbound global: (global loop) …
+examples/dsl-yaml-like.ssc                GAP  unbound global: (global loop) …
+tests/conformance/indent-block-statements.ssc      GAP  …
+tests/conformance/indent-config-format.ssc         GAP  …
+tests/conformance/js-parser-combinator-choice.ssc  GAP  …
+tests/conformance/parsing-error-node.ssc           GAP  …
+tests/conformance/parsing-parse-all.ssc            GAP  …
+tests/conformance/parsing-recover-until.ssc        GAP  …
+```
+
+**Why this is worth its own entry.** The census reads "half the hole is three names" and ranks `q`
+first; anyone re-running it after the `~>` fix will find the count UNCHANGED at 10 and could
+reasonably conclude the fix did not work. It did — the cause moved. `loop` is now the top name.
+
+Not diagnosed. The obvious first question is whether `loop` is a `std/parsing/combinators.ssc`
+helper F cannot bind for the same class of reason (an operator-named or otherwise
+unusually-declared member), or something structurally different.
+
 ## v2-validate-accumulator-missing — `validate { … }` and the require* family had no native surface
 <!-- status: fixed
      lane: native
@@ -516,11 +551,46 @@ green row, no code identity. Whoever implements this must hash something real, o
 decoration that will be trusted by a cluster.
 
 ## f-tilde-infix-silently-miscompiled-as-bitwise-not — F accepts it, exits 0, prints a wrong number
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: front
-     fixed-in: -
+     fixed-in: PENDING-SHA
      gate: tests/conformance/f-tilde-extension-infix.ssc -->
+
+**FIXED 2026-07-31** by `f-tilde-infix`, together with its sibling in ONE commit, as the ordering
+note below required.
+
+**The fix was in TWO places, and the second was not in the plan.** Teaching F to read infix `~` was
+necessary and not sufficient:
+
+1. **Front** (`specs/v2.2-p6.5-fsub.ssc`): `~` is now a three-way lex (`lexTilde`: `~>` → code 69,
+   else 68) and `<~` → 70 joins `lexLt`; `opNameK` gained 68/69/70, which is what registers the
+   extension UNDER A NAME; `binPrecK` gained 8/8/4; `emitBin`/`emitBinT` route all three through a
+   new `emitTildeOp`, the same dispatch shape `emitPP` already used for `++`. Prefix `~` is
+   untouched — atom position versus after-an-atom already separates the two readings, exactly as it
+   does for `-`.
+2. **Runtime** (`v2/src/Runtime.scala`): with the front fixed, `3 ~ 4` still died —
+   `__arith__: unknown op ~ for Int`. `__arithExt__`'s `primitiveWins` gives ANY numeric pair to the
+   primitive, and `~`/`~>`/`<~` have no primitive arm in `arithOp` at all, so the user's extension
+   lost to an operator that does not exist. New `noPrimitiveArm` carve-out, alongside the existing
+   one for `|`.
+
+**What located the second half:** the same extension on a CASE CLASS already dispatched correctly
+(`D(3) ~ D(4)` → 304) while the `Int` receiver failed. A front bug cannot be receiver-type-selective
+in that way, so the front was exonerated by measurement rather than by reading.
+
+**Precedence is read off the oracle, not invented.** `ssc1-front` `opPrec` gives `~` 9, `~>` 9,
+`<~` 5; matching the oracle's lowering is F's contract. F's scale is compressed, so the ORDER is what
+carries: `~`/`~>` above `*`, `<~` with the comparisons. The gate pins it — `1 <~ 2 ~ 3` is `1203`,
+i.e. `1 <~ (2 ~ 3)`, on int and v2 alike.
+
+**Evidence.** `f-tilde-extension-infix` was frozen as `v2 DIVERGE` and is now PASS (its baseline row
+is removed in the same commit); new `f-tilde-arrow-ext` covers `~>`, `<~`, their precedence and
+prefix `~`, all six rows matching the int golden. Fail-first, measured on the pre-fix build: int
+`304`/`102`, F printed **`3`, `1`, `0` — three lines for a two-line program**, which is worse than
+the "v2: 0" this entry originally recorded.
+
+### Original report (2026-07-31)
 
 **Found 2026-07-31** while diagnosing why F declines the parser-combinator files. This is not that
 defect — it is a worse one standing next to it.
@@ -554,11 +624,37 @@ that found it: an infix reading for `~` when an extension defines it, `68 -> "~"
 single-token lexing for `~>` / `<~`.
 
 ## f-operator-ext-param-tilde-arrow-declines — `~>` and `<~` leave their parameter unbound
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: front
-     fixed-in: -
-     gate: - -->
+     fixed-in: PENDING-SHA
+     gate: tests/conformance/f-tilde-arrow-ext.ssc -->
+
+**FIXED 2026-07-31** by `f-tilde-infix`, in the same commit as
+[[f-tilde-infix-silently-miscompiled-as-bitwise-not]] — the ordering note below made that mandatory,
+and it held: fixing this decline alone would have moved ten files out of the safe fallback into an F
+that still miscompiled `~`.
+
+The stated cause is gone. `~>` and `<~` are now SINGLE tokens (`lexTilde` / `lexLt`), so `extMembers`
+finds `(` where it used to find `>` and reaches `parseParams`, binding the member's own parameter.
+
+**But the ten files have NOT moved to F, and that is the honest result.** Re-measured with
+`ssc info --front-report` over every importer of `std/parsing/combinators.ssc`:
+
+| before | after |
+|---|---|
+| `GAP — unbound global: q` × 10 | `GAP — unbound global: loop` × 10 |
+
+`q` — the reason this entry is about, and the single largest one in
+[[f-front-coverage-census-0731]] — is gone from all ten. What it was hiding is a DIFFERENT unbound
+name, `loop`, which is now the blocker. So F's GAP count does not drop yet; the census's "half the
+hole is three names" still holds, with `loop` taking `q`'s place at the top. Filed as its own finding
+rather than folded in here, because it is a different cause with a different fix.
+
+The consolation is the one that matters for safety: when `loop` is closed and those ten files DO
+reach F, `~` is no longer miscompiled there.
+
+### Original report (2026-07-31)
 
 **Diagnosed 2026-07-31.** `q` is the single largest reason F declines corpus files (10 of the 42 GAP
 files — see [[f-front-coverage-census-0731]]). It is not "F cannot bind extension-method parameters":
