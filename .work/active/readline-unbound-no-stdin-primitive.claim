@@ -5,7 +5,7 @@ started: 2026-07-31T04:10:48Z
 heartbeat: 2026-07-31T04:10:48Z
 status: claimed-before-planning
 items: issue-76-no-way-to-read-stdin
-paths: file:INBOX.md
+paths: file:INBOX.md file:v1/runtime/std/os.ssc file:v1/runtime/std/os-plugin/src/main/scala/scalascript/compiler/plugin/os/OsIntrinsics.scala file:v2/runtime/std/os-plugin/src/main/scala/ssc/plugin/os/OsNativePlugin.scala file:tests/conformance/std-os-readline.ssc file:tests/conformance/expected/std-os-readline.txt
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
