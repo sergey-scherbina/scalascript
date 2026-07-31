@@ -10,6 +10,29 @@ Anything not being worked on belongs in `scripts/BACKLOG.md`, not here — a que
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [x] **negtc-gate-shard-reduce** — the `ci.yml` wiring, the last piece (the gate side landed
+      2026-07-30). An N-way `--sweeps-only --shard i/N` matrix uploading its two partial TSVs, then
+      one `needs:` job that downloads, merges with `scripts/negtc-merge-reports` and runs `--reduce`.
+      The gate runs SEQUENTIALLY ahead of `Test via sbt`, so the win is mostly NOT the sharding:
+      measured on run 30597944542 (the last full run to reach a verdict) gate 3236 s + test 8088 s
+      inside a 208-min job, which is the suite's critical path. Moving it out takes ~54 min off that
+      job; the 4-way split then buys the negtc verdict at ~35-40 min against ~61 standalone.
+      Landed 7aac5b9eb, after the row below — the step had been red since 06:25 that day, so until
+      that was fixed the wiring could not be verified green.
+      ⚠️ Do not read the 53-min `ci.yml` runs of 2026-07-31 as a fast suite: they died IN this gate
+      and never reached `sbt test`.
+
+- [x] **bc-parity-explicit-manifest-second-copy** — `scripts/bc-parity-sweep` carries a SECOND,
+      weaker copy of the explicit-lane manifest contract, frozen at `total != 15` on 2026-07-12 and
+      never updated. The manifest's OWNER, `tests/e2e/v21-explicit-lanes-gate.sh`, was maintained
+      (15 -> 13 -> 12 today, MCP then NFC joining the standard graph) and is green in the same job
+      where the duplicate refuses with a wordless `invalid explicit-lane manifest` and exit 2.
+      Two gates over one fixture disagreeing — which is the exact pathology bc-parity-sweep's own
+      comments complain about. Delete the duplicated membership assertion, keep what this script
+      actually consumes, and name the condition that refused. DONE 1888a8d2b, with
+      `tests/e2e/negtc-manifest-contract-gate.sh` in `scripts/smoke-ci` — verified red against the
+      unfixed script (5 of 7 assertions).
+
 - [~] smoke-budget-drift — MEASURED, and the premise was wrong: nothing grew. Per check between
       the fastest and slowest of eight green runs the median ratio is x1.39 and the three checks
       that did NOT move are the ones dominated by waiting rather than CPU — i.e. the whole run

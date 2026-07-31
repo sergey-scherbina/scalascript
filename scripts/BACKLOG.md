@@ -1010,8 +1010,24 @@ own arc. None is speculative: every one has a measured number attached.
 
       NOT done here on purpose: that is a policy change to someone else's release gate, and the
       honest call is the owner's, not a passing agent's.
-- [~] **`negtc-gate-shard-reduce`** — **gate side DONE 2026-07-30; only the `ci.yml` wiring is left
-      (that file is in another live claim).**
+- [x] **`negtc-gate-shard-reduce`** — **DONE 2026-07-31.** `ci.yml` wiring landed: `negtc-map` is a
+      4-way matrix running `--sweeps-only --shard i/4` and uploading its two partial TSVs, then
+      `negtc-reduce` downloads all four, merges and runs `--reduce`. The gate left the `sbt` job.
+
+      **The wall-clock arithmetic was NOT what this item assumed, and the correction is the more
+      useful half.** "Expected ~58 -> ~15 min" below compares the gate against itself. What actually
+      dominated was that the gate is a SEQUENTIAL step ahead of `Test via sbt`. Measured on run
+      30597944542, the last full run that reached a verdict: gate 3236 s, `Test via sbt` 8088 s,
+      whole `sbt` job 208 min — the suite's critical path. So the split buys ~154 min for that job
+      (−26 % on the suite) and the negtc verdict on its own ~35-40 min path, not a 4x suite.
+
+      Beware the 53-min `ci.yml` runs visible on 2026-07-31: those are runs that DIED in this gate
+      and never reached `sbt test` at all. A faster-looking suite that is really an aborted one.
+
+      Blocked for a day on `bc-parity-explicit-manifest-second-copy` (SPRINT) — the gate had been
+      red since 06:25 that day, so the wiring could not be verified green until that was fixed.
+
+      Original framing kept for the record:
 
       The gate now has the two modes the split needs: `--sweeps-only --shard i/N --native-out A
       --parity-out B` (map: only the sweeps over one slice) and `--reduce --native-in A --parity-in B`
@@ -1032,6 +1048,10 @@ own arc. None is speculative: every one has a measured number attached.
 
       REMAINING: an N-way matrix running `--sweeps-only` + artifact upload, then one `needs:` job that
       downloads, merges and runs `--reduce`. Expected ~58 -> ~15 min.
+      — DONE, and the "a shard that selects nothing is green" warning above became a per-shard row
+      check in the workflow. The `~15 min` estimate is superseded by the measurement at the top of
+      this entry. Reduce also asserts the four artifacts arrived: a lost download is invisible to
+      the merge, and a "more than half the corpus" floor would not see it (3 of 4 shards is 75 %).
 - [ ] **`ssc-fork-heap-entitlement`** — `bin/ssc` (launcher template in `build.sbt`) passes `-Xss64m`
       and **no `-Xmx`**, so every fork takes the JVM's ergonomic ¼-of-RAM default = **9,216 MB** here,
       and a contract run makes ~1,669 of them. MEASURED 2026-07-28: six live at once; one resident at
