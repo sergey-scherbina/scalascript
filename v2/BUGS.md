@@ -7,6 +7,75 @@ grepping for status.
 
 Newest first.
 
+## f-has-no-float-exponent — `1e2`, `1.0e2` and `2.5e-3` all fail to lower on the F front
+<!-- status: open
+     lane: native
+     area: front
+     gate: .github/workflows/f4-front-swap.yml -->
+
+**Found 2026-07-31** as one of two `genuine-FAIL` entries in the F4 gate (run 30612605314):
+`float-literal-suffix |orc=0 frc=1` — the legacy front returns 0, F returns 1. F is the DEFAULT
+front, so this is a program that works on legacy and fails on the front that actually runs.
+
+`ssc run` stays GREEN, which is why only the F4 gate sees it: F declines the file, the runner falls
+back to the default front transparently, and the output is identical. The observable is the `frc`
+column, never stdout.
+
+**Every exponent form is broken, not just the one the case's prose predicts.** Probed one at a time:
+
+```
+1.0e2    F DECLINED: unbound global: (global e2)
+1e2      F DECLINED: unbound global: (global e2)
+2.5e-3   F DECLINED: unbound global: (global e)
+1.5      F ok  -> 1.5
+```
+
+`tests/conformance/float-literal-suffix.ssc` says `1.0e2` "reaches it through the dot-float branch",
+implying that branch works. It does not: `scanNumE` (`specs/v2.2-p6.5-fsub.ssc:22`) scans digits and
+numeric separators only, so the dot path stops the token at `e` exactly like the no-dot path.
+
+Mechanism, three lines in `specs/v2.2-p6.5-fsub.ssc`:
+
+```
+lexNum1 = if isFloatDot(...) then lexFloat(..., scanNumE(s, e+1, n)) else lexNum2(...)
+lexNum2 = if floatEnd(s,e,n) > e then lexFloat(...) else lexNum3(...)   // floatEnd = d/D/f/F only
+lexNum3 = ... integer
+```
+
+`1e2`: `isFloatDot` false (the char after `1` is `e`), `floatEnd` does not treat `e` as a suffix, so
+it lexes integer `1` and `e2` becomes an identifier.
+
+FIX SHAPE — one helper wired into BOTH branches, or it reproduces the twin-path defect this project
+has already paid for twice:
+
+```
+def expEnd(s, e, n) = // [eE] [+-]? digit+  -> index past the exponent, else e
+lexNum1: lexFloat(s, i, n, expEnd(s, scanNumE(s, e + 1, n), n))
+lexNum2: if expEnd(s, e, n) > e then lexFloat(s, i, n, expEnd(s, e, n)) else <as today>
+```
+
+At least ONE digit must be required after `[eE][+-]?`, or `1exp` starts eating the letter. A suffix
+after the exponent (`1e2f`) needs no extra work — `lexFloat` already calls `floatEnd(s, fe, n)`.
+
+NOT FIXED HERE: `specs/v2.2-p6.5-fsub.ssc` is held by the live claim `f-operator-ext-param-unbound`.
+Diagnosis handed over in the room with the same detail.
+
+## f-does-not-know-Set — `Set(1, 2)` and `case _: Set[?]` fail to lower on F
+<!-- status: open
+     lane: native
+     area: front
+     gate: .github/workflows/f4-front-swap.yml -->
+
+**Found 2026-07-31**, the second `genuine-FAIL` in the same run: `type-ascription-set |orc=0 frc=1`,
+`unbound global: (global Set)`. Same shape as the entry above — F declines, the fallback produces
+correct output, only the `frc` column shows it.
+
+`tests/conformance/type-ascription-set.ssc` exists because v1 had the same gap: its type-ascription
+matcher knew `List`, `Vector`, `Array`, `Option` and `Map` and not `Set`, so `case _: Set[?]` fell
+through. That was closed for v1; F never had it.
+
+NOT INVESTIGATED FURTHER: the fix is in `specs/v2.2-p6.5-fsub.ssc`, held by another live claim.
+
 ## f-front-coverage-census-0731 — F's hole is 42 files, and half of it is three names
 <!-- status: open
      lane: native
