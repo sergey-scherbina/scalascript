@@ -2,10 +2,10 @@ slug: smoke-slice-variance
 branch: feature/smoke-slice-variance
 agent: claude-code
 started: 2026-07-31T03:06:54Z
-heartbeat: 2026-07-31T03:06:54Z
+heartbeat: 2026-07-31T03:22:41Z
 status: claimed-before-planning
 items: smoke-corpus-slice-dominates-and-varies
-paths: file:scripts/smoke-ci.ssc file:tests/e2e/build-conformance-shard-gate.sh file:tests/conformance/run.sc file:scripts/BACKLOG.md file:scripts/SPRINT.md
+paths: file:scripts/smoke-ci.ssc file:tests/e2e/build-conformance-shard-gate.sh file:tests/conformance/run.sc file:scripts/BACKLOG.md file:scripts/SPRINT.md file:tests/e2e/conformance-lanes-flag.sh
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
