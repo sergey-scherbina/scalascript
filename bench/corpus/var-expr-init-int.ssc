@@ -1,0 +1,27 @@
+# var-expr-init-int
+
+The `var-expr-init` shape with an **`Int`**-declared seed rather than `Long`.
+
+Why both rows exist: F's typed regime (`knownTyName`) recognises `Int | String | BigInt`
+and **not `Long`**, so a `Long`-declared parameter stays untyped and everything over it
+comes out as untyped `__arith__`. The whole rest of the corpus writes
+`def workload(seed: Long)`, which means it measures only the untyped path — this row is
+the typed one, and it is what the unboxed-cell entry test can actually reach.
+
+Measured 2026-07-31: routing a typed (`(prim i.…)`) initialiser to the unboxed `lcell`
+turns this loop's `cell.new/get/set` into `lcell.new/get/set`.
+See `TASK/v2-perfomance.md` §v2-perf-unboxed-cell-only-for-literal-init.
+
+Anti-fold: `seed` is opaque at the call site and drives the LCG.
+
+```scalascript
+def workload(seed: Int): Long =
+  var s = (seed % 46341) + 1
+  var sum = 0L
+  var i = 0
+  while i < 1000000 do
+    s = (s * 48271) % 2147483
+    sum = sum + (s % 7).toLong
+    i = i + 1
+  sum
+```

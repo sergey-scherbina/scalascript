@@ -1300,13 +1300,13 @@ def emitAssign(nm, rhs, env, cx) = if lookup("@@@" ++ nm, env) >= 0 then "(prim 
 // init uses a LONG cell `(let ((prim lcell.new init)) body)` bound as `@@name`; anything else uses a
 // boxed cell `(let ((prim cell.new init)) body)` bound as `@name`. Reads/assigns of the name then route
 // through the `@@`/`@` scope entries (calleeOf / emitAssign). `body` is the REST of the block.
-def isIntLitCode(s) = startsW(s, "(lit (int ")
+def isIntLitCode(s) = if startsW(s, "(lit (int ") then true else startsW(s, "(prim i.")
 // The Double twin. `dcell` (DoubleCellV + dcell.new/get/set + Emit.dcellAccum +
 // JvmByteGen canDouble/genDouble) was built alongside `lcell` and never emitted, so every
 // `var x: Double` took the boxed arm and allocated a FloatV per read and per write.
 // Scope marker is "@@@" so the three tiers stay distinguishable; every lookup tries
 // @@@ then @@ then @.
-def isFloatLitCode(s) = startsW(s, "(lit (float ")
+def isFloatLitCode(s) = if startsW(s, "(lit (float ") then true else startsW(s, "(prim f.")
 def parseBlockVar(ts, env, cx) = parseBlockVarN(snd(hd(ts)), skipToEq(ts), env, cx)
 def parseBlockVarN(nm, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (init, r) => parseBlockVarBind(nm, erase(init, cx), r, env, cx) }
 def parseBlockVarBind(nm, init, r, env, cx) = if isIntLitCode(init) then parseBlockVarLc(nm, init, r, env, cx) else (if isFloatLitCode(init) then parseBlockVarDc(nm, init, r, env, cx) else parseBlockVarC(nm, init, r, env, cx))

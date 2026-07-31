@@ -39,7 +39,11 @@ initialiser — the unboxed `lcell`/`dcell` tier only fires on a syntactic liter
       path. It does **not** accept `cell.get`. So the CELL CHOICE decides whether the arithmetic can
       be fast — the boxed cell locks the whole loop out of the fast path.
 
-- [~] **VC-2 REINSTATED — my supersede was wrong, and the probe is why.** I concluded "no safe
+- [x] **VC-2 LANDED (2026-07-31) — 2.03×, ranges disjoint (108.5/101.9/96.3 -> 49.2/50.2/51.9).**
+      Two lines: `isIntLitCode`/`isFloatLitCode` now also accept `(prim i.`/`(prim f.`, F's TYPED IR.
+      Proven live by IR dump: the same program went from `cell.new/get/set` to ALL `lcell.*`.
+      Original note kept below.
+- [x] **VC-2 REINSTATED — my supersede was wrong, and the probe is why.** I concluded "no safe
       syntactic widening exists" from a probe whose parameter was `Long`. With `Int` the picture is
       the opposite:
 

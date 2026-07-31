@@ -123,3 +123,11 @@ date	sha	load	workload	lane	ref_lane	ms	ref_ms	ratio	note
 #   r3   80.6 ->  95.3   -18.2%
 # Medians 80.6 vs 80.2 — NO EFFECT. So the per-iteration frame allocation is NOT the dominant part
 # of the 23x; the cost is the cell.get call itself. Only removing the cell.get (VC-2) can move it.
+#
+# 2026-07-31 v2-perf-unboxed-cell-only-for-literal-init — VC-2 LANDED. isIntLitCode/isFloatLitCode
+# now accept F's typed IR ((prim i.…)/(prim f.…)), not only a syntactic literal, so a var whose
+# initialiser is a TYPED expression gets the unboxed cell. Alternating A/B, only the staged front
+# swapped; ranges do NOT overlap.
+2026-07-31	c91112ac0	7	var-expr-init-int	v2-bytecode	-	101.9	-	-	BEFORE (108.5/101.9/96.3)
+2026-07-31	c91112ac0	7	var-expr-init-int	v2-bytecode	-	50.2	-	-	AFTER (49.2/50.2/51.9) — 2.03x, ranges disjoint
+2026-07-31	c91112ac0	7	arith-loop	v2-bytecode	-	0.611	-	-	CONTROL unmoved across all six arms (0.603-0.629)
