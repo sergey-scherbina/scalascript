@@ -5,7 +5,7 @@ started: 2026-07-31T16:53:41Z
 heartbeat: 2026-07-31T16:53:41Z
 status: claimed-before-planning
 items: js-long-arith-no-64bit-wrap
-paths: file:v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/core-dispatch.mjs file:v1/runtime/backend/js/BUGS.md file:tests/conformance/long-overflow-wrap.ssc file:tests/conformance/expected/long-overflow-wrap.txt file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala
+paths: file:v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/core-dispatch.mjs file:v1/runtime/backend/js/BUGS.md file:tests/conformance/long-overflow-wrap.ssc file:tests/conformance/expected/long-overflow-wrap.txt file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:bench/history.tsv
 scope: |
   `_arith`'s bigint branch returns unmasked BigInt for + - * / %, so ssc Long does not wrap at
   64 bits on the JS lane: it diverges from INT/JVM AND grows without bound. Measured on the
