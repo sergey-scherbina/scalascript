@@ -131,3 +131,8 @@ date	sha	load	workload	lane	ref_lane	ms	ref_ms	ratio	note
 2026-07-31	c91112ac0	7	var-expr-init-int	v2-bytecode	-	101.9	-	-	BEFORE (108.5/101.9/96.3)
 2026-07-31	c91112ac0	7	var-expr-init-int	v2-bytecode	-	50.2	-	-	AFTER (49.2/50.2/51.9) — 2.03x, ranges disjoint
 2026-07-31	c91112ac0	7	arith-loop	v2-bytecode	-	0.611	-	-	CONTROL unmoved across all six arms (0.603-0.629)
+#
+# 2026-07-31 FRONT CENSUS (ssc info --front-report, one call per corpus row, landed front):
+#   F compiles 31 of 36; falls back on 5 — effect-multishot/effect-oneshot/typeclass-fold GAP,
+#   effect-pure/effect-stream BOTH-UNBOUND. Those five rows measure the FALLBACK front, not F.
+#   Same census on the PRE-fix front: also 31/5, so the landed cell fix is neutral on acceptance.

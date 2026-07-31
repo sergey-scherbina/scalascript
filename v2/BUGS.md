@@ -7,6 +7,59 @@ grepping for status.
 
 Newest first.
 
+## bench-corpus-five-rows-measure-the-FALLBACK-front-not-F — and a trap that bit me twice (2026-07-31)
+<!-- status: open
+     lane: native
+     area: conformance
+     kind: apparatus
+     gate: none -->
+
+**Status:** OPEN, found while measuring `v2-perf-unboxed-cell-only-for-literal-init`.
+
+**Five of the 36 bench-corpus rows are not compiled by F at all** — F declines and the fallback front
+compiles them, so the row measures a different compilation path than a reader of the perf table
+would assume. Census on the landed front (`ssc info --front-report`, one call per row):
+
+    F compiles 31, falls back on 5
+      effect-multishot   GAP
+      effect-oneshot     GAP
+      typeclass-fold     GAP
+      effect-pure        BOTH-UNBOUND
+      effect-stream      BOTH-UNBOUND
+
+Three of those five are among the worst rows in the ratio table (`effect-stream` 303×,
+`effect-multishot` and `effect-oneshot` are two of the nine rows where v2 beats v1). **Any conclusion
+drawn about "v2's effect performance" from those rows is a conclusion about the fallback front.**
+
+### The trap, and it cost two wrong conclusions before it was caught
+
+`ssc info --front-report <file>` is the only thing that says which front compiled a program. Without
+it:
+
+1. **A perf reading can be of the wrong compiler.** The fallback is silent by design — the output is
+   correct, so nothing looks wrong.
+2. **Editing F can appear to do nothing.** I staged an edited `fsub.ssc`, measured no change, and
+   started hunting for a fourth gate in F's typing logic. The actual reason was that F was not
+   running for that program.
+
+**The probe that catches it in one command:** append garbage to the staged
+`bin/lib/native-front/tower/bin/fsub.ssc` and re-run. If the program still works, **F is not
+compiling it** and every conclusion about your F edit is void. That is the same "prove the change is
+live" rule this project already has, applied one level up — to the *compiler*, not the change.
+
+### Second finding: teaching F a new declared type is NOT a one-line change
+
+`knownTyName` is `Int | String | BigInt`. Adding `Long` (which is sound in principle — `Value.IntV`
+holds a `Long`, and `specs/numeric-widths.md` says "Int is 64-bit on EVERY backend") made F
+**decline programs it previously accepted**: `GAP — unbound global: (global seed)`. `pushParamTy`
+embeds the type as `nm ++ ":" ++ ty` in the env, and some consumer then fails to resolve the bare
+name. **Verified in both directions** — reverting restored acceptance, and a census before and after
+the *landed* fix shows 31/36 both times, so the landed change is neutral here.
+
+So `Long` cannot be added without finding every consumer of the embedded `name:Type` form. Filed
+rather than attempted: the failure mode is a silent coverage loss, not a compile error.
+
+
 ## nfc-platform-string-differs-by-design-so-the-row-cannot-go-green — packaging was necessary, not sufficient
 <!-- status: open
      lane: native
