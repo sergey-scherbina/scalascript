@@ -1391,7 +1391,7 @@ Not started: (1) is a front feature and (2) moves the freeze, which another clai
 <!-- status: fixed
      lane: native
      area: runtime
-     fixed-in: pending
+     fixed-in: df5785f6f
      gate: tests/conformance/char-as-value.ssc -->
 
 **FIXED 2026-07-31** by `v2-char-value`, on BOTH fronts. **Found 2026-07-30** by `jsgen-char-escape`,
