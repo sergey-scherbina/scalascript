@@ -197,8 +197,12 @@ self-parity test is not external conformance.
   worse trees than one block does). Then two more:
   links stop nesting (+5), and GFM extended autolinks were implemented (+11 — that section was
   0 of 11, absent rather than broken, and is now 11 of 11).
-  Ranked remainder at 532, by failing cases: Links 20, List items 20, Link reference definitions
-  12, Lists 12, emphasis 10, raw HTML 8, setext 8, hard line breaks 7. Mapped onto the sub-items:
+  A fifth then took it to **552**: CommonMark's own trimming rule (4.8 + 6.7) was not applied
+  to block content, and applying it reached far past the two sections that led there —
+  hard line breaks 7 → 0 and setext 8 → 5, but also Links, List items, Images, Tabs and
+  block quotes. Whitespace in the SEMANTIC view was contaminating cases filed everywhere.
+  Ranked remainder at 552, by failing cases: List items 18, Links 18, Link reference
+  definitions 12, Lists 12, emphasis 10, raw HTML 8, fenced code 6, entities 5, setext 5. Mapped onto the sub-items:
   **3b** owns List items + Lists + setext + the multiline `[foo]:` forms; **3c** owns the rest of
   Links (angle destinations, escaped titles, bracket-vs-raw-HTML precedence) and emphasis; **3a**
   is not optional decoration — a real HTML5 entity table is what several remaining Links cases
