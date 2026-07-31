@@ -56,16 +56,43 @@ today is the `Env` effect, so this would be a second way to do one thing), or re
 failure moves to compile time where it belongs.
 
 ## std-has-no-stdin-primitive — nothing in std reads a line from stdin, so an interactive `.ssc` program cannot exist
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: runtime
      kind: feature
      reported-by: https://github.com/sergey-scherbina/scalascript/issues/76
      reported-at: 2026-07-31
      ssc-version: unknown
-     gate: none -->
+     confirmed: no
+     fixed-in: ddec573ae
+     gate: tests/conformance/std-os-readline.ssc -->
 
-**Status:** OPEN. Filed 2026-07-31 by `nadia-dev` (rozum side), blocking an external consumer.
+**Status: FIXED 2026-07-31 on the lanes where `std/os` exists** — `int` and the native/default tier.
+Filed by `nadia-dev` (rozum side), blocking an external consumer; reported from outside as #76.
+
+    extern def readLine(): Option[String]   // None at EOF
+
+The reporter's own program now works on the lane users actually run:
+
+```
+$ printf 'sergiy\n' | bin/ssc run prompt.ssc
+your name?
+hello sergiy
+```
+
+**Scope is a MEASUREMENT, and it is narrower than this entry originally proposed** ("implement it per
+lane: int, js, jvm, native"). `std/os` does not resolve on `js` or `jvm` today — measured on
+`envOrElse`, which fails there with `not callable: ()` and `value envOrElse is not a member of object
+std.os`. There is nothing on those lanes to add `readLine` TO; the gap is the whole `std/os` surface,
+not this primitive, and filing it as "readLine is missing on js" would have pointed the next reader
+at the wrong thing. `readLine` now works exactly where `env` works.
+
+**One defect found by fixing this one, filed separately as `ssc-tools-swallows-piped-stdin`:** on the
+`ssc-tools` route the CLI reads stdin to EOF before the program starts (`Main.scala:72` →
+`Source.stdin.mkString`), so piped input never reaches the program there. It was undiscoverable
+before — nothing could read stdin, so nothing could notice stdin was gone. It carries a real design
+fork (the sops feature is built around that same pipe) and is raised in the room rather than decided
+unilaterally.
 
 **MERGED BY TRIAGE 2026-07-31, and this entry is the survivor.** Issue
 [#76](https://github.com/sergey-scherbina/scalascript/issues/76) and this hand-written entry are one
