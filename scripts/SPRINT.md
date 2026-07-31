@@ -10,8 +10,15 @@ Anything not being worked on belongs in `scripts/BACKLOG.md`, not here — a que
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
-- [~] smoke-budget-drift — the suite's headroom halved; find what grew before the push verdict
-      dies of its own budget again. Four green runs measured 358.3 / 269.6 / 318.3 / 359.8 s
+- [~] smoke-budget-drift — MEASURED, and the premise was wrong: nothing grew. Per check between
+      the fastest and slowest of eight green runs the median ratio is x1.39 and the three checks
+      that did NOT move are the ones dominated by waiting rather than CPU — i.e. the whole run
+      inflates together, which this suite's own budget section already names as "a loaded host, not
+      a slow suite". The real problem is that a fixed second-count cannot tell a slow day from a
+      grown suite. Step 1 landed: a host-speed probe (100 process spawns, ~1.15 s locally, 2 %
+      spread across repeats), INFORMATIONAL only. Step 2 waits for CI samples — a reference fitted
+      to local numbers is exactly how the 300 s cap was set and went red on its first run.
+      Original framing kept below for the record. Four green runs measured 358.3 / 269.6 / 318.3 / 359.8 s
       against a 420 s cap, where the same suite ran 194-227 s a day earlier. One of those was
       within 60 s of failing WITH EVERY CHECK GREEN — which is exactly the mode that made the
       push path useless before this suite existed. Read the per-check costs between a fast run

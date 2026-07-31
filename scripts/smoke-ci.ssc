@@ -302,6 +302,43 @@ def headTail(text: String, keep: Int): List[String] =
 case class Outcome(module: String, name: String, ok: Boolean, exitCode: Int, tenths: Int,
                    stdout: String, stderr: String, skipped: Boolean = false)
 
+// ── Host-speed probe: how fast is THIS runner, independent of what the suite contains ──────────
+//
+// MEASURED 2026-07-31, and it overturned the question it was meant to answer. The suite's totals had
+// drifted from 194-227 s to 247-362 s against a 420 s cap, which looks like structural growth. Per
+// check, between the fastest and slowest of eight green runs:
+//
+//     conformance-lanes-flag  68.9 -> 96.5   x1.40      launcher-input-digest  9.5 -> 20.5  x2.16
+//     corpus-jvm-lane         46.4 -> 62.3   x1.34      policy-single-source   8.9 -> 17.7  x1.99
+//     no-test-reaches-cli     16.7 -> 28.1   x1.68      ci-status-guard        2.9 ->  5.7  x1.97
+//     …median x1.39 across 14 checks; the three that did NOT move are the ones dominated by waiting
+//      rather than by CPU (build-ram-guards-guard x1.02, claim-scope-hierarchy x0.96)
+//
+// Nothing grew. The RUNNER is up to 1.4x slower on some days, exactly as this file's own budget
+// section predicts ("uniform inflation across every check is a loaded host, not a slow suite"). A
+// fixed second-count therefore measures the day as much as the suite: tight enough to catch real
+// growth means flapping, loose enough not to flap means blind.
+//
+// The probe is process SPAWNING, not arithmetic, because that is what the suite actually spends its
+// time on and what a loaded host actually slows. It is independent of the suite's contents by
+// construction — the one property that matters, since deriving host speed from the checks themselves
+// would hide a check that grew inside the estimate of how slow the host is.
+//
+// IT CHANGES NOTHING YET. It prints. The budget stays absolute until there are enough CI samples to
+// set a reference honestly — this file's own history records what happens when a cap is fitted to
+// local numbers (300 s, guessed from a dev machine, red on the first run).
+// MILLISECONDS, and 100 spawns rather than 20. The first version reported deciseconds and did 20
+// spawns: it printed `0.1s` and a 1.4x difference in host speed rounds away entirely inside that.
+// An instrument that cannot resolve the thing it exists to measure is the same defect as a gate that
+// cannot see the thing it guards — caught here only because the number looked implausibly round.
+def hostProbeMillis(): Int =
+  val startedAt = System.nanoTime()
+  var i = 0
+  while i < 100 do
+    exec("/bin/sh", List("-c", ":"), ProcessOptions(None, Map(), Some(10000), true))
+    i = i + 1
+  (System.nanoTime() - startedAt) / 1000000
+
 def runCheck(check: Check): Outcome =
   val startedAt = System.nanoTime()
   // A command that cannot be STARTED (renamed script, lost +x bit) throws out of `exec`. Left
@@ -371,9 +408,11 @@ def main() =
       println("  " + pad(check.module, 34) + check.name + "  (" + check.cmd + ")"))
     exit(0)
 
+  val probeMillis = hostProbeMillis()
   println("smoke-ci — " + suite.length.toString() + " checks across " +
           modules.length.toString() + " declared modules, budget " +
-          budgetSeconds.toString() + "s")
+          budgetSeconds.toString() + "s, host probe " + probeMillis.toString() +
+          "ms (100 process spawns; informational — the budget is still absolute)")
   println("")
 
   var outcomes = List[Outcome]()
