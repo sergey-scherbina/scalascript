@@ -98,10 +98,27 @@ if [ -n "$from_issue" ]; then
   # guessing from the prose: a version parsed out of free text is the "extraction from prose"
   # mistake P-3.3 names, and getting it wrong makes the report unreproducible in a way that looks
   # fine. If the issue did not come through the form, say so and let the caller pass it.
-  ssc_version="$(printf '%s' "$ibody" | awk '
+  raw_version="$(printf '%s' "$ibody" | awk '
     /^###[[:space:]]*ScalaScript version/ { want = 1; next }
     want && NF { print $0; exit }
-  ' | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+  ' | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; s/^`//; s/`$//')"
+  # The form field is free text, and a good reporter uses it — issue #76 answered
+  # "`unknown` — `ssc --version` on this install answers:" and explained why, which is MORE useful
+  # than a bare token and is exactly the answer we asked for. But `ssc-version:` is a one-line header
+  # field read by a parser, so a sentence there is data in the wrong shape: it can carry a colon, a
+  # backtick, or `-->` and corrupt the header it lives in.
+  #
+  # So: keep it when it LOOKS like a version, otherwise record `unknown` and leave the reporter's
+  # sentence where prose belongs — in the body, verbatim, with the issue URL beside it. Truncating
+  # their explanation into a field would lose it; promoting it into a field would break the field.
+  case "$raw_version" in
+    *[[:space:]]*|"") ssc_version="unknown" ;;
+    *) ssc_version="$raw_version" ;;
+  esac
+  if [ "$ssc_version" = "unknown" ] && [ -n "$raw_version" ]; then
+    printf 'inbox-add: the version field is prose, not a version — recording `unknown`.\n' >&2
+    printf '  their answer is kept verbatim in the entry body: %s\n' "$raw_version" >&2
+  fi
   summary="$(printf '%s' "$title" | sed 's/^\[report\][[:space:]]*//')"
   reported_by="$url"
   [ -n "$slug" ] || slug="issue-$from_issue"
