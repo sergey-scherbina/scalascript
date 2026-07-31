@@ -1,7 +1,6 @@
-# generation: 503
+# generation: 504
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
 smoke-slice-variance	claude-code	2026-07-31T03:06:54Z	smoke-corpus-slice-dominates-and-varies	file:scripts/smoke-ci.ssc file:tests/e2e/build-conformance-shard-gate.sh file:tests/conformance/run.sc file:scripts/BACKLOG.md file:scripts/SPRINT.md
 native-list-type-test	claude-code	2026-07-31T03:09:28Z	type-ascription-tuple-and-set-arms-missing-native-list	file:v2/src/Runtime.scala file:tests/conformance/type-ascription-list.ssc file:tests/conformance/expected/type-ascription-list.ssc file:tests/conformance/expected/type-ascription-list.txt file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv file:BUGS.md
 skip-reprobe-after-fixes	claude-code	2026-07-31T03:13:20Z	skip-77-hides-v2-coverage	specs/skip-triage.md tests/conformance/BUGS.md v1/runtime/std file:v2/BUGS.md
-v2-perf-6b-impl	claude-code	2026-07-31T03:15:36Z	v2-perf-6b-local-lambda-call	file:v2/backend-jvm-bytecode/JvmByteGen.scala file:v2/jvm-runtime/src/main/scala/ssc/Emit.scala file:bench/history.tsv file:TASK/v2-perfomance.md
