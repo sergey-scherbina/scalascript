@@ -237,7 +237,7 @@ gain `js` in the same commit that fixes this.
 <!-- status: fixed
      lane: js
      area: codegen
-     fixed-in: PENDING-SHA
+     fixed-in: 4b1460e20
      gate: tests/conformance/object-var-member-scope.ssc -->
 
 **FIXED 2026-07-31** by `object-var-member-family`. `genObjectAsExpr` had a `case Defn.Val` arm and
