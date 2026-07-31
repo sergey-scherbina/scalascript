@@ -116,9 +116,9 @@ enthusiasm:
       front, and for `+` on strings.
       ⚠️ touches `v2/src/Runtime.scala`, the SHARED kernel — needs its own claim and its own A/B.
 
-**Explicitly NOT on this list, and why:**
-- the collection/closure cluster (`lazylist-take` 566×, `list-fold` 115×) — established as the
-  architecture line by three killed hypotheses, not a slice;
+**Explicitly NOT on the P-list, and why:**
+- the collection/closure cluster — now has its own plan below (`C-0`…`C-5`) rather than a one-line
+  deferral; it is a programme, not a slice, and the plan says so;
 - anything under 2× measured on whole workloads — see the first constraint; do P-4 first;
 - adding a declared type to F's `knownTyName` — proven to make F silently DECLINE programs it used
   to accept (`v2/BUGS.md`).
@@ -1859,3 +1859,84 @@ V2ConformanceTest (3 pre-existing scalameta-lane reds: companion-case-class-orde
 - [ ] **dataset** (dataset-agg/error/from-generator/shape) — `unbound global: try` (try/catch is a real native-front gap, but…) + `Dataset.fromGenerator requires the standard generator plugin` + content module-context. Multi-blocked by the dataset/generator plugin. Plugin/runtime lane.
 
 CONCLUSION: 13 native-front fixes landed this session (86→~116 run-ir-batch parity, zero net regressions). The native-front GREENING lane is complete — every remaining conformance fail is the plugin/runtime lane (actors-runtime, sql/H2, dataset/generator, Random effect) or v2.1's typeclass lane, each owned by that plugin's author + often cross-module. Handing off in rozum.
+
+## C — the collection/closure cluster: a plan, not a slice (written 2026-07-31)
+
+`lazylist-take` and `list-fold` are the two largest remaining v2 gaps. This is the programme for
+them. Each item needs its OWN claim; nothing here is claimed by writing it down.
+
+### C-0 — re-establish the numbers BEFORE designing anything (blocking prerequisite)
+
+The headline figures are not currently evidence. `bench/history.tsv` carries these two rows as
+`back-filled`, with `sha unrecorded` AND `ms unrecorded` — only a ratio — while the prose elsewhere
+quoted different figures again (566×/115× vs the file's 395/146). A programme sized off numbers
+whose commit is unknown is a programme sized off nothing.
+
+What is verified as of 2026-07-31: **both rows are compiled by F**, not the fallback
+(`ssc info --front-report` → `F`, `F`). So the numbers do belong to the front we mean to improve —
+that confound, at least, is closed.
+
+Do: re-measure both rows with `sha`, `load`, alternating A/B, and `bench.sh --strict-front` (which
+did not exist when the originals were taken). Record in `bench/history.tsv`. **If the gap turns out
+smaller than recorded, that is the result** — say so and re-rank the cluster against P-5.
+
+### C-1 — v1 ALREADY SOLVED `lazylist-take`, and how it did matters more than that it did
+
+`specs/jit-collection-ops.md`: 190 → 0.058 ms (~3275×), via *pipeline fusion* —
+`JitHofShape.lazyFromMapTake` recognises `LazyList.from(start).map(unary)?.take(n)` as the receiver
+of a terminal `.sum`, and `JitHofDispatch.lazyFromMapTakeSum` forces only the n-element prefix in a
+tight loop. Two facts from that spec carry directly:
+
+1. **It had been declined as "inherent cost" and that was wrong.** The gap was LazyList machinery —
+   cons thunks, memoisation — NOT the arithmetic. Do not re-derive that conclusion; it is settled.
+2. **It is a shape-matching peephole.** It earns 3275× on this benchmark because the benchmark has
+   exactly that shape. Porting it to v2 would make the ROW fast without making `LazyList` fast.
+
+So C-1 forces a declared choice, and the choice must be in the commit message:
+- **(a) port the peephole** — cheap, large number on the board, honest ONLY if labelled as a
+  benchmark-shaped fusion. Legitimate as a stopgap; dishonest if reported as "LazyList is fast now".
+- **(b) fix the machinery** — cons-thunk and memoisation cost in the v2 runtime, which is what the
+  row is a proxy for. Slower, no headline multiple, generalises.
+Default is **(b)**; (a) only with the label. The gate must show which was done.
+
+### C-2 — attribute the cost with the harness that now exists (do before either C-1 branch)
+
+P-4 landed `V2DispatchBench` with ±0.02–0.11 ns resolution. Add `V2CollectionBench` beside it
+measuring the LazyList primitives DIRECTLY — cons-thunk allocation, memoisation write, force of one
+element, and a strict `List` fold step for `list-fold` — against a raw-JVM floor, in layers, the
+same way `V2DispatchBench` decomposes dispatch. A whole-workload ratio cannot attribute; that is the
+entire reason the cluster stalled at "architecture line".
+
+Cost note from P-4: a cold `Jmh/compile` in a fresh worktree builds ~290 Scala sources and exceeds
+30 min on a contended host. Budget it; it is not a hang.
+
+### C-3 — the discipline this cluster specifically needs
+
+Three separate times a fat profile frame did NOT pay out by its weight: `dataFields` 28% of profile
+→ 20% gain; kind-dispatch parts 25% → nothing; `Value[]` 43% → nothing
+(`specs/v2-vs-v1-backend-matrix.md`: *"Treat a hot frame as a place to look, never as a size of
+prize"*). Those are the three killed hypotheses this cluster is already carrying.
+
+So: **no C-item starts from "this frame is hot".** Start from an allocation that DISTINGUISHES the
+slow run from a fast control — the method that actually worked on the 18× (`Value$IntV` 381 samples
+in the slow run, absent from the fast run's top 5). If no allocation distinguishes them, the cost is
+not allocation and the plan changes rather than the code.
+
+### C-4 — `list-fold` is a DIFFERENT shape; do not assume the LazyList answer transfers
+
+Strict `List` fold, no laziness, no memoisation, no thunks. It shares a bucket with `lazylist-take`
+only because both say "collection". It needs its own attribution pass (C-2 covers both), and it may
+well land on the closure-call seam rather than the collection seam — in which case it belongs with
+P-5 and the dispatch work, not here.
+
+### C-5 — exit criteria (what makes this cluster CLOSED rather than abandoned)
+
+- both rows re-measured with sha + load, in `bench/history.tsv`;
+- for each row, one sentence naming WHERE the cost is, backed by a JMH layer or a distinguishing
+  allocation — not by a profile share;
+- either a landed fix with a before/after and a gate that fails without it, or a recorded decision
+  that the cost is structural, with the measurement that supports it. **A measured negative closes
+  an item.** Ranking it below other work is a legitimate outcome; leaving it unmeasured is not.
+
+**NOT in this plan, deliberately:** rewriting the v2 collection representation, porting v1's whole
+JIT tier, or any change to the shared kernel that is not preceded by C-2's attribution.
