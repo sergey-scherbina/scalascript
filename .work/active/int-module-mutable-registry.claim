@@ -5,7 +5,7 @@ started: 2026-07-31T11:04:09Z
 heartbeat: 2026-07-31T11:04:09Z
 status: claimed-before-planning
 items: int-imported-module-mutable-registry-not-shared object-var-member-assignment-writes-a-top-level-global
-paths: dir:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter file:v1/runtime/backend/interpreter/BUGS.md file:v1/runtime/backend/js/BUGS.md file:tests/conformance/imported-module-mutable-registry.ssc file:tests/conformance/expected/imported-module-mutable-registry.txt file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv file:tests/conformance/object-var-member-scope.ssc file:tests/conformance/expected/object-var-member-scope.txt
+paths: file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/StatRuntime.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/EvalRuntime.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/BlockRuntime.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/FastTier.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/Interpreter.scala file:v1/runtime/backend/interpreter/BUGS.md file:v1/runtime/backend/js/BUGS.md file:tests/conformance/imported-module-mutable-registry.ssc file:tests/conformance/expected/imported-module-mutable-registry.txt file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv file:tests/conformance/object-var-member-scope.ssc file:tests/conformance/expected/object-var-member-scope.txt
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
