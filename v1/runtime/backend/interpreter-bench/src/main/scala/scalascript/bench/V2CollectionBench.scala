@@ -117,6 +117,66 @@ class V2CollectionBench:
       .take(N)
       .foldLeft(0L)((a, v) => a + v.asInstanceOf[IntV].n)
 
+  // ── C-1 headroom probe: is the 64% actually REMOVABLE? ────────────────────────────────────────
+  //
+  // C-2 attributed the cost. Attribution is not a promise that the cost can be removed, and the
+  // shared kernel is the wrong place to discover the difference. These two layers bracket the win a
+  // runtime-level fusion could earn, WITHOUT touching `Runtime.scala`:
+  //
+  //   fusedIterator  the same pipeline on `Iterator`, which does not memoise and allocates one
+  //                  chain instead of three. Realistic upper-middle: a conservative fusion that
+  //                  still goes through a lazy abstraction.
+  //   fusedManual    a plain `while` over the bounded prefix, applying the VM closure per element.
+  //                  The FLOOR of any fusion: no lazy structure at all, closure call still paid.
+  //
+  // `vmClosureLazyList − fusedManual` is the prize. `fusedManual − floorLoop` is what remains
+  // afterwards and is the P-5/closure-call lever, not this one. If these come out near
+  // `vmClosureLazyList`, the 64% is inherent to doing the work at all and C-1 should be declined —
+  // which is a legitimate outcome and cheaper to learn here than in the kernel.
+  //
+  // v2 currently builds THREE chains for `from(s).map(f).take(n)`: `from`'s Int LazyList, the
+  // `IntV`-boxing map inside the `from` arm, and the user's map (`Runtime.scala` ~2456-2462).
+
+  @Benchmark
+  def fusedIterator: Long =
+    Iterator
+      .from(start)
+      .map(i => callClos(doubler, IntV(i.toLong)))
+      .take(N)
+      .foldLeft(0L)((a, v) => a + v.asInstanceOf[IntV].n)
+
+  @Benchmark
+  def fusedManual: Long =
+    var i = 0; var acc = 0L
+    val s = start
+    while i < N do
+      acc += callClos(doubler, IntV((s + i).toLong)).asInstanceOf[IntV].n
+      i += 1
+    acc
+
+  /** The SEMANTICS-PRESERVING option, and the one that decides the design.
+   *
+   *  `fusedIterator`/`fusedManual` get their win partly by dropping MEMOISATION — `Iterator` does
+   *  not memoise, `LazyList` does. JS and Rust already accept that trade (`specs/lazylist-all-
+   *  backends.md`: iterator adapters, with "a LazyList stored in a `val` and reused across
+   *  statements" deferred and documented). The v2 VM is different: it is the reference semantics
+   *  the other lanes are compared against, so a side-effecting `map` firing twice would be a
+   *  user-visible divergence, not an optimisation.
+   *
+   *  This layer keeps memoisation and removes only the REDUNDANT CHAINS. v2 builds three
+   *  (`Runtime.scala` ~2456: `from`'s Int LazyList, the `IntV` boxing map, the user's map); this
+   *  builds ONE whose elements are already the composed result. Same laziness, same memoisation,
+   *  same number of user-function calls, same order — one cons cell per element instead of three.
+   *
+   *  If this lands close to `fusedManual`, the design is settled and cheap: compose pending maps
+   *  into a single memoising chain, change nothing about semantics. If it lands close to
+   *  `vmClosureLazyList`, then memoisation itself is the cost and C-1 becomes a product decision
+   *  rather than a perf fix. */
+  @Benchmark
+  def fusedOneMemoisingChain: Long =
+    def gen(i: Int): LazyList[Value] = callClos(doubler, IntV(i.toLong)) #:: gen(i + 1)
+    gen(start).take(N).foldLeft(0L)((a, v) => a + v.asInstanceOf[IntV].n)
+
   /** `list-fold`'s shape: a strict fold, no thunks, no memoisation. Present for contrast — C-0
    *  established this row behaves differently (the bytecode lane wins 6.3× on it). */
   @Benchmark

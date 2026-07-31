@@ -1952,6 +1952,40 @@ wholesale (`Runtime.scala` ~2456), and that library is 64% of the time and 1824 
 Recommendation: **(c) runtime-level fusion in the `ForeignV(LazyList)` arms.** It gets the 64%
 without the shape-matching fragility and without a representation rewrite.
 
+**PROBED 2026-07-31 — and (c) as I specified it is REFUTED. My own estimate was wrong by 2.5×, and
+the probe caught it before any kernel edit.** All layers one run, `-prof gc`:
+
+| layer | ns/op | B/op | vs today |
+| ----- | ----- | ---- | -------- |
+| `vmClosureLazyList` (today) | 435.3 ± 10.2 | 2848 | — |
+| `fusedOneMemoisingChain` | 312.3 ± 13.1 | 2112 | **1.39×** |
+| `fusedIterator` | 87.4 ± 13.2 | 384 | **5.0×** |
+| `fusedManual` | 82.6 ± 12.0 | 384 | 5.3× |
+| `floorLoop` | 0.97 | ≈0 | — |
+
+I predicted collapsing three chains into one would give ~3.5×. It gives **1.39×**. The cost is
+MEMOISATION ITSELF — the cons cell and the lazy state per element — not the number of chains. One
+memoising chain still allocates 2112 of the 2848 bytes.
+
+**So C-1 is a product decision, not a perf fix, and the fork is now priced:**
+- **keep `LazyList` memoising** → ceiling **1.39×** on this row, zero semantic risk;
+- **drop memoisation** (iterator adapters) → **5.0×**, and `fusedIterator ≈ fusedManual` means a
+  single non-memoising chain gets essentially the whole win — no hand-rolled loop needed.
+
+The semantic cost of dropping it is precise: a `LazyList` bound to a `val` and consumed twice would
+re-run its `map` function, so a side-effecting map fires twice, and the second consumption of an
+exhausted source is wrong. **JS and Rust ALREADY made this trade** (`specs/lazylist-all-backends.md`:
+iterator adapters, with the reuse case "deferred (documented) — typical code chains-then-forces").
+The VM is the case where it was NOT made, because the VM is the reference the other lanes are
+compared against.
+
+**Not implementing either until the choice is made.** Landing the 5.0× silently would change
+language semantics on the reference lane; landing the 1.39× would burn the shared kernel for a
+number the row cannot feel under its own 2.5× spread.
+
+After whichever is chosen, ~83 ns and 384 B remain, all of it the VM closure call (8 × ~10 ns / 48
+B). That is P-5's lever, not this one — which C-0's Finding 1 already predicted.
+
 ### C-2 — attribute the cost with the harness that now exists (do before either C-1 branch)
 
 P-4 landed `V2DispatchBench` with ±0.02–0.11 ns resolution. Add `V2CollectionBench` beside it
