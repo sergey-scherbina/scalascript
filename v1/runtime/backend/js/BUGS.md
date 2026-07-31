@@ -110,11 +110,12 @@ was and only the `Long` rows moved to `_larith`.
 - **Measured:** `bench.sh`'s `list-fold` js cell went from `n/a` to **0.1007 ms/iter**.
 
 ## js-no-tail-call-elimination-overflows-scljet-large-page — a loop the INT lane TCOs blows Node's stack
-<!-- status: open
+<!-- status: fixed
+     fixed-in: 3099397fc
      lane: js
      area: codegen
      kind: bug
-     gate: tests/conformance/scljet-large-page.ssc (JS lane) -->
+     gate: tests/e2e/js-self-tco-gate.sh -->
 
 **Found 2026-07-31 by a passer-by** (I was verifying an unrelated ci.yml change on dispatched run
 30649090567 and this came back red in `Conformance shard 3/4`). NOT MINE — recorded rather than
@@ -159,6 +160,48 @@ move.
 **The fix is the tail call, whichever way that goes.** Self-tail-call → loop in `JsGen` is the
 general answer and would close the whole class; raising Node's stack only moves the page size at
 which it breaks.
+
+---
+
+**FIXED 2026-07-31, and the diagnosis above was HALF WRONG in the way that mattered.** "The JS lane
+emits real recursion" is not true of the JS lane; it is true of ONE OF ITS TWO function-emission
+paths. JsGen has had self-TCO for a long time:
+
+| where the `def` lives | emitted as | self-TCO |
+|---|---|---|
+| top level | `function f(_a, _b) { let a = …; while(true) { … } }` | yes, `JsGen.scala` genDef |
+| inside an `object` / package module | `const f = (a, b) => … _call(f, …)` | **no** — `JsGen.scala:3276` |
+
+So the same function loops at top level and recurses for real once it moves into a module, and no
+output comparison can tell until a case gets deep enough. `writeZerosLoop` lives in
+`scljet/write.ssc`, which is imported as a module. Measured before the fix:
+
+```js
+writeZerosLoop = (count, acc) => { count = _charCodeOrNull(count) ?? count;
+  return ((count <= 0) ? acc : _call(writeZerosLoop, (count - 1), [0, ...(acc)])); };
+```
+
+and after it, the same shape the top-level path has always produced:
+
+```js
+writeZerosLoop = (_count, _acc) => { let count = (_charCodeOrNull(_count) ?? _count), acc = …;
+  while(true) { … } };
+```
+
+**The trigger question in the paragraph above is now moot but the answer is worth recording**: it was
+never the module move. The gap is latent and old; the corpus simply crossed V8's limit.
+
+⚠️ **One guard was copied across too strictly and the symptom was SILENCE.** The top-level path
+folds Int parameter coercions into the `let` initialisers; the first version of this fix instead
+required `entryGuards.isEmpty`, which is never true for an `Int` parameter — so the transform was
+disabled for exactly the numeric loops it exists for, with no error and no diagnostic, just the old
+output. Caught by reading the emitted JS rather than the exit status.
+
+Gate: `tests/e2e/js-self-tco-gate.sh`, in `scripts/smoke-ci`. It asserts BOTH placements and asserts
+the emitted LOOP, not just the answer — output alone would stay green if someone dropped the
+transform and raised the stack instead. Verified against the unfixed compiler: top level stays green
+(that path always worked) and both in-object assertions fail, which is the discrimination the gate
+exists for.
 
 ## js-identity-named-runtime-fn-unreachable-from-a-package-module — the whole std/os surface binds to `undefined`
 <!-- status: open

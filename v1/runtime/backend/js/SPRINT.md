@@ -10,7 +10,7 @@ Anything not being worked on belongs in `v1/runtime/backend/js/BACKLOG.md`, not 
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
-- [~] **js-no-tail-call-elimination-overflows-scljet-large-page** — self-TCO exists in JsGen and is
+- [x] **js-no-tail-call-elimination-overflows-scljet-large-page** — self-TCO exists in JsGen and is
   applied ONLY on the top-level `function` path. A `def` inside an `object`/package module takes the
   arrow-function path (`const f = (a, b) => …`, JsGen.scala:3276), which has no such branch, so a
   self tail call stays a real JS call. Same function, same shape: fine at top level, blows the stack
