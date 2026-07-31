@@ -246,10 +246,19 @@ function _arith(op, a, b) {
       case '==': return _decCmp(x,y) === 0; case '!=': return _decCmp(x,y) !== 0;
     }
   }
+  // ssc `Int`/`Long` are 64-bit and WRAP on overflow, like the interpreter and the JVM. A JS
+  // BigInt is unbounded, so an unmasked `x*y` is wrong twice over: it disagrees with every other
+  // lane, and in a loop it grows without bound. Measured 2026-07-31 on the `tuple-monoid` LCG
+  // (100k iterations of `s = s*2862933555777941757 + 3037000493`): masked, `s` stays 64 bits and
+  // one pass costs 5 ms; unmasked, `s` reaches 6,131,220 bits and one pass costs 43.5 s — 8700×,
+  // and a different answer. `_bit` below already masks with asIntN(64) for exactly this reason;
+  // arithmetic was the gap. (js-long-arith-no-64bit-wrap)
   if (typeof a === 'bigint' || typeof b === 'bigint') {
     const x = _toBig(a), y = _toBig(b);
     switch (op) {
-      case '+': return x+y; case '-': return x-y; case '*': return x*y; case '/': return x/y; case '%': return x%y;
+      case '+': return BigInt.asIntN(64, x+y); case '-': return BigInt.asIntN(64, x-y);
+      case '*': return BigInt.asIntN(64, x*y); case '/': return BigInt.asIntN(64, x/y);
+      case '%': return BigInt.asIntN(64, x%y);
       case '<': return x<y; case '>': return x>y; case '<=': return x<=y; case '>=': return x>=y;
       case '==': return x===y; case '!=': return x!==y;
     }
