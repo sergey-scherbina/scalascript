@@ -1880,6 +1880,43 @@ Do: re-measure both rows with `sha`, `load`, alternating A/B, and `bench.sh --st
 did not exist when the originals were taken). Record in `bench/history.tsv`. **If the gap turns out
 smaller than recorded, that is the result** — say so and re-rank the cluster against P-5.
 
+**DONE 2026-07-31, sha `315dbca16`.** 3 alternating rounds, `--strict-front`, both rows `front=F`,
+all 12 rows in `bench/history.tsv`. The gap is NOT smaller than recorded.
+
+| round | load | `lazylist-take` ssc / v2 / v2-bytecode | `list-fold` ssc / v2 / v2-bytecode |
+| ----- | ---- | ------------------------------------- | ---------------------------------- |
+| 1 | 9.35  | 0.067 / 93.4 / 75.0 | 0.0064 / 6.53 / 1.03 |
+| 2 | 15.76 | 0.058 / 29.2 / 29.6 | 0.0057 / 5.03 / 0.959 |
+| 3 | 11.80 | 0.061 / 41.6 / 38.5 | 0.0065 / 6.10 / 0.940 |
+
+Median ratios vs `ssc`: `lazylist-take` **682× (VM) / 631× (bytecode)**;
+`list-fold` **938× (VM) / 161× (bytecode)**.
+
+**First measurement had to be thrown away, and that is the point of C-0.** Round 0 ran against a
+toolchain built from `da5932514` while the repo was at `315dbca16`; the harness's STALE BUILD
+warning was correct and the delta touched `BlockRuntime`/`DispatchRuntime`/`EvalRuntime`/`FastTier`/
+`Interpreter` — i.e. the `ssc` REFERENCE lane. Rebuilt, re-ran. A stale reference lane silently
+moves every ratio in the table.
+
+**Finding 1 — the two rows do not belong in one bucket, now with data.** The bytecode lane wins
+**6.3×** on `list-fold` (6.53 → 1.03) and **essentially nothing** on `lazylist-take` (93.4 → 75.0;
+29.2 → 29.6; 41.6 → 38.5 — inside that row's own spread). Whatever `lazylist-take` pays, compiling
+the program to bytecode does not remove it. This is C-4's split, promoted from a guess to a result:
+`list-fold`'s remaining 161× is a dispatch/calling-convention problem, `lazylist-take`'s 631× is not.
+
+**Finding 2 — `lazylist-take`'s v2 numbers are unstable by 3.2×, and the instability is evidence.**
+Across the same three rounds the `ssc` lane held ±8% (0.058–0.067) while v2 swung 29.2–93.4. And it
+does NOT track load: the WORST round (93.4) ran at the LOWEST load (9.35), the BEST (29.2) at the
+HIGHEST (15.76). CPU contention does not behave that way; heap state and GC timing do. That points
+C-2 at ALLOCATION as the first thing to measure, and it is a much sharper prior than "collections
+are slow".
+
+**Provenance note, no regression claimed:** the old back-filled row said 395× for
+`lazylist-take`/v2-bytecode where the median is now 631×, but that row has no sha and this row's own
+round-to-round spread is 2.5×. Not enough to call a regression; enough to distrust the old row.
+`list-fold`/v2-bytecode reproduces (146 → 161), which is a mild check that the old numbers were not
+nonsense — just unsourced.
+
 ### C-1 — v1 ALREADY SOLVED `lazylist-take`, and how it did matters more than that it did
 
 `specs/jit-collection-ops.md`: 190 → 0.058 ms (~3275×), via *pipeline fusion* —
