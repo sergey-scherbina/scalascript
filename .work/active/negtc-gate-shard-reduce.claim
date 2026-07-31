@@ -3,9 +3,11 @@ branch: feature/negtc-gate-shard-reduce
 agent: claude-code
 started: 2026-07-31T16:24:27Z
 heartbeat: 2026-07-31T16:24:27Z
-status: claimed-before-planning
+status: implementing
 items: negtc-gate-shard-reduce
-paths: file:.github/workflows/ci.yml file:scripts/bc-parity-sweep
+paths: file:.github/workflows/ci.yml file:scripts/bc-parity-sweep file:scripts/smoke-ci.ssc file:tests/e2e/negtc-manifest-contract-gate.sh
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  Wire the already-landed negtc map/reduce split into ci.yml (N-way --sweeps-only
+  matrix + one --reduce job), and fix the stale duplicate manifest contract in
+  bc-parity-sweep that keeps the gate red so the wiring cannot be verified.
+next: verify the split on a dispatched ci.yml run

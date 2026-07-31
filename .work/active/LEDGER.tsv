@@ -2,4 +2,4 @@
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
 markup-into-uniml	claude-code	2026-07-31T16:21:38Z	move markup/ -> uniml/markup	file:markup file:uniml/markup file:uniml/SPRINT.md file:build.sbt file:specs/project-partitioning.md file:tests/e2e/project-partition-gate.sh
-negtc-gate-shard-reduce	claude-code	2026-07-31T16:24:27Z	negtc-gate-shard-reduce	file:.github/workflows/ci.yml file:scripts/bc-parity-sweep
+negtc-gate-shard-reduce	claude-code	2026-07-31T16:24:27Z	negtc-gate-shard-reduce	file:.github/workflows/ci.yml file:scripts/bc-parity-sweep file:scripts/smoke-ci.ssc file:tests/e2e/negtc-manifest-contract-gate.sh
