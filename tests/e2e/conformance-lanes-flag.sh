@@ -96,4 +96,21 @@ out="$(capture 0 only-nonempty --only "$SAMPLE" --lanes int --no-memo)"
 grep -q 'PASS \[INT\]' <<<"$out" || fail only-nonempty "a matching --only stopped working:
 $out"
 
+# ── 5. --shard-all is validated too ──────────────────────────────────────────
+# It feeds `tests/e2e/build-conformance-shard-gate.sh`, which reads its output by section header.
+# A junk N that was silently accepted would produce zero `# shard` sections, and the gate would then
+# be comparing an empty union against an empty listing — green, over nothing.
+out="$(capture 2 shard-all-junk --list --shard-all abc)"
+grep -q 'positive integer' <<<"$out" || fail shard-all-junk "a non-numeric --shard-all was not refused by name:
+$out"
+out="$(capture 2 shard-all-zero --list --shard-all 0)"
+grep -q 'positive integer' <<<"$out" || fail shard-all-zero "--shard-all 0 was not refused:
+$out"
+# And a valid one emits the sections the partition gate parses.
+out="$(capture 0 shard-all-sections --list --shard-all 3)"
+for section in '# all' '# shard 0/3' '# shard 1/3' '# shard 2/3'; do
+  grep -qF "$section" <<<"$out" || fail shard-all-sections "missing section '$section':
+$(head -5 <<<"$out")"
+done
+
 printf 'conformance-lanes-flag: PASS\n'

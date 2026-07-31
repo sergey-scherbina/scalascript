@@ -40,8 +40,32 @@ command -v scala-cli >/dev/null 2>&1 || { echo "SKIP: scala-cli not on PATH"; ex
 # `--server=false`: never leave a bloop daemon behind (the exact leak scripts/conformance documents).
 list() { scala-cli --server=false "$RUN" -- "$@" 2>/dev/null | grep -v '^--shard ' | grep -v '^--only '; }
 
-echo "  enumerating unsharded corpus…"
-list --list | LC_ALL=C sort > "$TMP/all.txt"
+# ONE invocation for the unsharded listing AND every shard's listing.
+#
+# It used to be N+1 separate `scala-cli --server=false` calls, plus two more below: SEVEN processes
+# for a repository-wide property. MEASURED: 28.2 s serverless against 5.6 s with the scala-cli
+# server — but reusing the server is not available here, because the bloop daemon is host-wide and
+# stopping it would break whichever sibling agent is mid-build. So the calls were collapsed into one
+# PROCESS instead, never into local arithmetic: each shard's membership still comes from run.sc.
+# `--shard-all` and the real `--shard i/N` path share a single `shardSlice` definition there, and
+# check 5 below asserts the two agree observably.
+echo "  enumerating corpus and all $N shards in one pass…"
+list --list --shard-all "$N" > "$TMP/raw.txt"
+
+# Split the sections. A missing or misspelled header must not silently yield an empty file that then
+# "passes" a comparison against another empty file.
+awk -v tmp="$TMP" -v n="$N" '
+  /^# all$/            { out = tmp "/all.raw"; next }
+  /^# shard [0-9]+\//  { split($3, a, "/"); out = tmp "/shard." a[1] ".raw"; next }
+  out                  { print > out }
+' "$TMP/raw.txt"
+
+if [ ! -s "$TMP/all.raw" ]; then
+  bad "no '# all' section in --shard-all output — the listing format changed, or the run died"
+  note "first lines of what came back:"; sed 's/^/    /' "$TMP/raw.txt" | head -10
+  exit 1
+fi
+LC_ALL=C sort "$TMP/all.raw" > "$TMP/all.txt"
 total=$(wc -l < "$TMP/all.txt" | tr -d ' ')
 if [ "$total" -lt 2 ]; then
   bad "unsharded listing has $total case(s) — the runner did not enumerate the corpus"
@@ -53,7 +77,11 @@ ok "unsharded corpus: $total case(s)"
 : > "$TMP/union.txt"
 i=0
 while [ "$i" -lt "$N" ]; do
-  list --list --shard "$i/$N" | LC_ALL=C sort > "$TMP/shard.$i.txt"
+  if [ ! -f "$TMP/shard.$i.raw" ]; then
+    bad "no '# shard $i/$N' section — --shard-all emitted fewer shards than asked for"
+    exit 1
+  fi
+  LC_ALL=C sort "$TMP/shard.$i.raw" > "$TMP/shard.$i.txt"
   c=$(wc -l < "$TMP/shard.$i.txt" | tr -d ' ')
   note "shard $i/$N: $c case(s)"
   [ "$c" -eq 0 ] && bad "shard $i/$N is EMPTY — a shard that tests nothing still reports success"
@@ -104,14 +132,27 @@ else
   ok "--shard 9/4 is rejected"
 fi
 
-# ── 5. a shard value must never be read as the corpus directory ──────────────
-# The original positional filter would have taken `0/4` as the conformance dir and quietly tested an
-# empty corpus — a green run over nothing. This is the regression test for that.
-c0=$(list --list --shard "0/$N" | wc -l | tr -d ' ')
+# ── 5. the REAL --shard path agrees with --shard-all, and its value is not the corpus dir ─────
+# Two properties in one invocation, and the first is what keeps check 1 honest. Checks 1-3 read
+# `--shard-all`; if that ever computed membership differently from the `--shard i/N` a CI matrix
+# actually runs, the gate would certify a partition nobody executes. run.sc shares one `shardSlice`
+# between the two paths, and this asserts it observably rather than trusting the refactor.
+#
+# The second property is the original regression test: the old positional filter would have taken
+# `0/4` as the conformance directory and quietly tested an empty corpus — a green run over nothing.
+list --list --shard "0/$N" | LC_ALL=C sort > "$TMP/real0.txt"
+c0=$(wc -l < "$TMP/real0.txt" | tr -d ' ')
 if [ "$c0" -gt 0 ]; then
   ok "--shard value is not mistaken for the corpus directory ($c0 cases in shard 0)"
 else
   bad "--shard 0/$N selected 0 cases — the value was probably parsed as the corpus dir"
+fi
+if diff -u "$TMP/shard.0.txt" "$TMP/real0.txt" > "$TMP/agree.diff"; then
+  ok "--shard-all shard 0 == --shard 0/$N (the one-pass listing describes the real run)"
+else
+  bad "--shard-all disagrees with --shard 0/$N — checks 1-3 above are about a partition that the"
+  note "CI matrix does not actually run. expected=<--shard-all shard 0>  got=<--shard 0/$N>; diff:"
+  sed 's/^/    /' "$TMP/agree.diff" | head -30
 fi
 
 echo

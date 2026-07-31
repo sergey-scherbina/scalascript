@@ -32,6 +32,9 @@ def repoRoot: os.Path =
 //             reasons applied, or the output cannot be read. `contract.sc` has had the same flag
 //             (its canonical set is int,js,v2); this is the same idea for the fix->test loop.
 //   --list    print the selected case names and exit without running anything.
+//   --shard-all N  with `--list`: print `# all` plus a `# shard i/N` section for every shard, in
+//             ONE process. For the partition gate, which must get each shard's membership from
+//             this script rather than recomputing it.
 val cliArgs = args.filterNot(_ == "--").toList
 val onlyGlobs: List[String] =
   cliArgs.sliding(2).collectFirst { case List("--only", v) => v }.toList
@@ -39,6 +42,24 @@ val onlyGlobs: List[String] =
 val noMemo: Boolean =
   cliArgs.contains("--no-memo") || sys.env.get("SSC_CONF_NO_MEMO").contains("1")
 val listOnly: Boolean = cliArgs.contains("--list")
+
+// `--list --shard-all N` prints the unsharded selection AND every shard's selection in ONE process.
+//
+// It exists for `tests/e2e/build-conformance-shard-gate.sh`, which proves that `--shard i/N`
+// partitions the corpus. That gate has to obtain each shard's listing FROM THIS SCRIPT — computing
+// `idx % N` itself would be testing a re-implementation against itself, which is the self-consistent
+// oracle this project keeps getting burned by. So the invocations could not be collapsed into local
+// arithmetic; they could only be collapsed into one PROCESS. MEASURED: the five separate
+// `--server=false` calls cost 28.2 s, and with the concurrency group gone every push pays it.
+val shardAll: Option[Int] =
+  cliArgs.sliding(2).collectFirst { case List("--shard-all", v) => v }.map { raw =>
+    raw.trim.toIntOption match
+      case Some(n) if n > 0 => n
+      case _ =>
+        Console.err.println(s"run.sc: --shard-all expects a positive integer, got: '$raw'")
+        sys.exit(2)
+        1
+  }
 
 val allowedLanes: Set[String] = Set("int", "js", "jvm", "v2")
 val laneFilter: Set[String] =
@@ -60,7 +81,7 @@ val laneFilter: Set[String] =
 // conformance directory — `--shard 0/4` would otherwise make `0/4` the corpus dir and the run would
 // silently test nothing. The old form used `cliArgs.indexOf(a)`, which resolves to the FIRST
 // occurrence of a repeated value and mis-classifies it; indexing the list positionally cannot.
-val valueFlags = Set("--only", "--shard", "--lanes")
+val valueFlags = Set("--only", "--shard", "--lanes", "--shard-all")
 val positional = cliArgs.zipWithIndex
   .filterNot { case (a, _) => a.startsWith("--") }
   .filterNot { case (_, i) => i > 0 && valueFlags(cliArgs(i - 1)) }
@@ -128,8 +149,17 @@ val shard: Option[(Int, Int)] =
         (0, 1)
   }
 
+// THE shard rule, in one place. `--shard i/N` and `--list --shard-all N` must not each carry their
+// own copy of it: the partition gate obtains every shard's membership through `--shard-all`, so a
+// second copy would let the two drift and the gate would then be proving a partition that the real
+// run does not produce — a self-consistent oracle, relocated rather than removed.
+//
+// Round-robin, not contiguous blocks: the corpus is name-sorted and the slow cases cluster by name.
+def shardSlice[A](all: Seq[A], i: Int, n: Int): Seq[A] =
+  all.zipWithIndex.collect { case (t, idx) if idx % n == i => t }
+
 val tests = shard match
-  case Some((i, n)) => selected.zipWithIndex.collect { case (t, idx) if idx % n == i => t }
+  case Some((i, n)) => shardSlice(selected, i, n)
   case None         => selected
 
 if onlyGlobs.nonEmpty then
@@ -153,7 +183,19 @@ shard.foreach { case (i, n) =>
 // union of every shard's listing against the unsharded listing byte-for-byte. A sharding scheme that
 // silently drops a case is the worst possible bug in a correctness gate — it fails GREEN.
 if listOnly then
-  tests.foreach(t => println(t.baseName))
+  shardAll match
+    case None => tests.foreach(t => println(t.baseName))
+    case Some(n) =>
+      // Sections, so one read gives the gate everything it used to make N+1 processes for. The
+      // shard membership below is computed by the SAME expression the real `--shard i/N` path uses
+      // (see `val tests` above); if the two ever diverge, this stops being evidence about sharding.
+      println("# all")
+      selected.foreach(t => println(t.baseName))
+      var i = 0
+      while i < n do
+        println(s"# shard $i/$n")
+        shardSlice(selected, i, n).foreach(t => println(t.baseName))
+        i += 1
   System.exit(0)
 
 val sep = "-" * 50
