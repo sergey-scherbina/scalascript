@@ -7,38 +7,41 @@ grepping for status.
 
 Newest first.
 
-## v2-annotated-field-plus-derives-breaks-the-constructor — `@key id` + `derives` gives arity 1
-<!-- status: open
+## v2-annotated-field-plus-derives-breaks-the-constructor — a field annotation truncated the param list
+<!-- status: fixed
      lane: native
      area: front
-     fixed-in: -
-     gate: examples/graph-storage.ssc -->
+     fixed-in: unrecorded
+     gate: tests/e2e/v2-annotated-field-derives.sh -->
 
-**Found 2026-07-31**, revealed by registering the derived-codec globals: `graph-storage` used to die
-at `unbound global: JsonCodec_derived` before reaching its first statement. With that gone, the next
-failure is the CONSTRUCTOR.
+**FIXED 2026-07-31.** `parseCaseParam` (`ssc1-front.ssc0`) had no case for a leading `@`, so
+`case class M(@key a: String, b: String)` hit its `_` fallback **without advancing the token
+stream**. The parameter list ended after one phantom param, the class lowered at arity 1 no matter
+how many fields it had, and `M("A","p")` died with `arity: 1 expected, 2 given` before a line ran.
+`examples/graph-storage.ssc` now matches int (`imports:b.ssc`).
 
-Four-line reproduction, and the ingredients matter:
+**The symptom map identified it**, and each row killed a different hypothesis:
 
-| declaration | native lane |
+| shape | before |
 |---|---|
-| `case class M(id: String, path: String)` | works |
-| `case class M(id, path) derives JsonCodec` | works |
-| `case class M(@key id: String, path: String)` | works |
-| `case class M(id, path) derives JsonCodec, VertexCodec` | works |
-| **`case class M(@key id: String, path: String) derives JsonCodec`** | **`arity: 1 expected, 2 given`** |
+| `@key` on the first field, 2 fields | `arity: 1 expected, 2 given` |
+| `@key` on the first field, 3 fields | `arity: 1 expected, 3 given` — arity 1 BOTH times, so nothing was "lost"; the list simply stopped |
+| `@key` on the SECOND field | `Stub` sentinel at exit 0 — a different wrong answer |
+| annotation on the CLASS | always worked (the statement parser skips those) |
+| `derives` with no annotation | always worked |
 
-A field ANNOTATION and a `derives` clause are each harmless; together they produce a constructor of
-arity 1 for a two-field class. `M("A", "p")` then fails before anything else runs. int and js both
-print `p`.
+⚠️ **Fixing `parseParam` changed NOTHING.** Case-class parameters go through `parseCaseParamList`,
+a SEPARATE parser; `parseParam` serves `def`. Fifth "second copy of this logic" found in one day,
+and the second where the wrong fix produced no symptom at all. Both are fixed here — the `def` one
+is a real improvement (an annotated `def` parameter had the same hole) but it is NOT what made the
+case pass.
 
-This is front work — the `derives` lowering synthesises the Mirror and the constructor, and an
-annotated field evidently changes what it counts. Not plugin work, and not what this task claimed,
-so it is filed with the reproduction rather than started.
+⚠️ Only files F DECLINES reach this parser, and a `derives` clause is exactly what makes F decline
+— which is why this looked like a `derives` defect and why it survived. See
+[[f-front-coverage-census-0731]].
 
-⚠️ Note the shape of the discovery: this defect was ALWAYS there and completely invisible, because
-an earlier `unbound global` killed the program first. Removing one blocker is how you find the next
-one; a "fix" measured only by "the old error is gone" would have reported success here.
+Blast radius measured: full corpus contract across int/js/v2 — 1071/1110 PASS, one row changed,
+zero regressions.
 
 ## v2-html-tag-dsl-missing — `div(attr.cls := …)` had no native surface
 <!-- status: fixed

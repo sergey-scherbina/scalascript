@@ -30,7 +30,6 @@ graph-neo4j-storage	*	SKIP
 graph-rdf4j-http-storage	*	SKIP
 graph-rdf4j-storage	*	SKIP
 graph-storage	js	FAIL
-graph-storage	v2	FAIL
 graph-storage-interpreter	js	FAIL
 graphql-client	*	SKIP
 graphql-hello	*	SKIP

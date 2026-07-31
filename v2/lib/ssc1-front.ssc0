@@ -740,7 +740,35 @@ def typeStarScan = (depth, toks, lastStar) =>
 def paramTypeIsVararg = (toks) =>
   if kindIs(":", toks) then typeStarScan(0, advance(toks), false) else false
 
-def parseParam = (toks) =>
+-- A FIELD annotation (`case class M(@key id: String, ...)`) must be skipped before the parameter
+-- name, exactly as the statement-level parser already skips `@ann` before a declaration. Without
+-- this, `parseParam` hit its `_` fallback on the `@` token AND DID NOT ADVANCE, so the parameter
+-- list ended after one phantom `_` param: the class lowered at arity 1 no matter how many fields it
+-- had, and `M("A", "p")` failed with `arity: 1 expected, 2 given` before anything ran.
+-- Symptom map that identified it: annotation on the CLASS was fine (statement level handles it),
+-- `@key` on the FIRST field gave arity 1 for a 2- AND a 3-field class (so nothing was "lost" — the
+-- list simply stopped), and `@key` on the SECOND field produced a `Stub` sentinel instead.
+-- BUGS `v2-annotated-field-derives-arity`. F has no such gap, which is why this only bites files
+-- F declines.
+def skipParamAnn = (toks) =>
+  let rec go = (ts) =>
+    if kindIs("@", ts) then
+      let ts1 = advance(ts) in
+      let ts2 = if kindIs("id", ts1) then advance(ts1)
+                else if kindIs("uid", ts1) then advance(ts1) else ts1 in
+      let ts3 = if kindIs("(", ts2) then
+                  let rec skipP = (t2) =>
+                    if kindIs(")", t2) then advance(t2)
+                    else if kindIs("EOF", t2) then t2
+                    else skipP(advance(t2)) in
+                  skipP(advance(ts2))
+                else ts2 in
+      go(ts3)
+    else ts in
+  go(toks)
+
+def parseParam = (toks0) =>
+  let toks = skipParamAnn(toks0) in
   if #seq(tokKind(peek(toks)), "id") then
     let name = tokVal(peek(toks)) in
     let _vararg = #cell.set(lastParamVarargCell, paramTypeIsVararg(advance(toks))) in
@@ -2294,7 +2322,13 @@ def readCaseParamTypeAt = (depth, toks, acc) =>
     let sv = if #seq(v, "") then k else v in
     readCaseParamTypeAt(depth, advance(toks), Cons(sv, acc))
 
-def parseCaseParam = (toks) =>
+def parseCaseParam = (toks00) =>
+  -- ⚠️ A FIELD annotation is skipped HERE, not only in parseParam: case-class parameters go through
+  -- parseCaseParamList, a SEPARATE parser from the `def` one. Fixing `parseParam` alone changed
+  -- nothing at all — the third parameter parser in this file, and the fifth "second copy of this
+  -- logic" found in one day. The annotation is skipped BEFORE the var/val modifiers because Scala
+  -- writes `@key val x`, never `val @key x`.
+  let toks = skipParamAnn(toks00) in
   -- `var`/`val` field modifiers. `val` is the default (immutable) — just skip it.
   -- `var` is a MUTABLE field: record a violation when the --mutable flag is off (so
   -- parseCaseClass emits `_err_mutable_fields`), and record the field name (flag on)
