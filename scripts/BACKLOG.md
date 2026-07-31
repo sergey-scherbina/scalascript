@@ -125,7 +125,15 @@ sit red for days looking quiet. Measured 2026-07-28:
       compare-first check that the refresh routine is the writer's routine.
       *Done-when:* one `Corpus Contract` run reaches `success` (all 4 shards).
 
-- [ ] **f4-lib-variant-disagreements** — close the 4 F-vs-legacy disagreements the F4 gate reports.
+- [ ] **f4-lib-variant-disagreements** — close the 4 F-vs-legacy disagreements.
+      *STATUS 2026-07-31: BLOCKED ON THE GATE, not on the fix.* These four appear ZERO times in the
+      latest classify run (30612605314) — not as MATCH, not as GAP, not as a disagreement. The gate
+      compares 299 of 742 programs and drops 428 as `EXCL_ORACLE_ERR` **without printing their
+      names**, so there is no way to tell from the report whether these four were fixed, regressed,
+      or merely stopped being looked at. `ssc run` shows all four agreeing today, but that path takes
+      the delegate-fallback and cannot see an F failure at all — it is not evidence either way.
+      Do the visibility fix first (BUGS v2 `f4-classify-compares-40-percent-and-never-names-the-rest`);
+      until then any "fixed" claim here is unfalsifiable.
       *Why:* these are `orc=0 frc=1` — the legacy front returns 0 where **F returns 1**. Not
       cosmetic: F is the default front, so each is a program that works on legacy and fails on the
       front that actually runs.

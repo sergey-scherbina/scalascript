@@ -7,6 +7,41 @@ grepping for status.
 
 Newest first.
 
+## f4-classify-compares-40-percent-and-never-names-the-rest
+<!-- status: open
+     lane: native
+     area: front
+     gate: .github/workflows/f4-front-swap.yml -->
+
+**Found 2026-07-31** while trying to verify the four programs in `scripts/BACKLOG.md`
+`f4-lib-variant-disagreements`. The gate's own summary (run 30612605314):
+
+```
+total corpus+tower           : 742
+MATCH (F output == oracle)   : 299
+oracle-excluded (not F)      : 428  (err 427, timeout 0, no-IR 0, nondet 0, too-large 1)
+F non-match (needs a bucket) : 15
+```
+
+**The gate that decides the F4 cutover compares 299 of 742 programs — 40 %.** The other 58 % are
+dropped because the ORACLE itself exits non-zero (`EXCL_ORACLE_ERR`), and their names are never
+printed: the summary carries a count and nothing else.
+
+The consequence is concrete. `std-ui-native-backticked-id-lib`, `std-ui-native-html-lambda-lib`,
+`std-ui-native-pair-lib` and `wc-card` — the four the backlog says "the F4 gate reports" — appear
+**zero times** in the entire run log. Not as MATCH, not as GAP, not as a disagreement. From the
+report alone it is impossible to tell whether they were fixed, whether they regressed, or whether
+the gate simply stopped looking at them, and a reader will reasonably assume the first.
+
+This is P-6.3 exactly: a filter must say what it did not read. The fix is cheap — print the
+`EXCL_ORACLE_ERR` names (or write them to a file the job uploads), the way the GAP bucket already
+prints its 13. Nothing about the verdict changes; what changes is that a program silently leaving
+the compared set becomes visible.
+
+Worth stating the second-order risk plainly: 427 oracle errors is itself a number nobody is looking
+at. It may be legitimate (programs needing args, network, a display), or it may be a broken oracle
+invocation swallowing half the corpus. Neither is currently distinguishable from the report.
+
 ## content-introspection-is-a-server-example-not-a-hang — correcting my own report from earlier today
 <!-- status: wontfix
      lane: int
