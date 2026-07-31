@@ -65,7 +65,7 @@ if [[ "$args" == *" run list "* ]]; then
       status="completed"
       conclusion="failure"
       ;;
-    push-no-sbt|sched-no-sbt|one-shard-missing)
+    push-no-sbt|sched-no-sbt|one-shard-missing|negtc-shard-missing|negtc-reduce-missing)
       # `one-shard-missing` reports the RUN as successful on purpose: GitHub marks a run green when
       # every job it actually ran passed, so a matrix instance that never got created leaves a green
       # run with a hole in it. That is precisely the case ci-status must still call RED.
@@ -96,6 +96,16 @@ shard_jobs() { # shard_jobs <status> <conclusion> — the 4-way conformance matr
   for i in 0 1 2 3; do printf 'Conformance shard %s/4|%s|%s\n' "$i" "$1" "$2"; done
 }
 
+# The SECOND matrix, added 2026-07-31 when the negative-toolchain release gate left the `sbt` job
+# (negtc-gate-shard-reduce). Kept separate from `shard_jobs` rather than folded into it: the cases
+# below deliberately vary ONE matrix at a time, and a helper that emitted both would make
+# `one-shard-missing` unable to say which suite shrank.
+negtc_jobs_no_reduce() { for i in 0 1 2 3; do printf 'negtc sweeps %s/4|completed|success\n' "$i"; done; }
+negtc_jobs() { # negtc_jobs <status> <conclusion>
+  for i in 0 1 2 3; do printf 'negtc sweeps %s/4|%s|%s\n' "$i" "$1" "$2"; done
+  printf 'negtc release gate (reduce)|%s|%s\n' "$1" "$2"
+}
+
 if [[ "$args" == *" run view 42 "* ]]; then
   # smoke.yml has exactly ONE job, and ci-status judges it by the generic rule (every job in the run
   # succeeded) rather than a hard-coded name — so a rename of that job cannot make the verdict tool
@@ -121,6 +131,7 @@ if [[ "$args" == *" run view 42 "* ]]; then
   case "$mode" in
     green)
       shard_jobs completed success
+      negtc_jobs completed success
       printf 'sbt — compile and test|completed|success\n'
       ;;
     red)
@@ -132,6 +143,7 @@ if [[ "$args" == *" run view 42 "* ]]; then
       printf 'Conformance shard 1/4|completed|success\n'
       printf 'Conformance shard 2/4|completed|failure\n'
       printf 'Conformance shard 3/4|completed|success\n'
+      negtc_jobs completed success
       printf 'sbt — compile and test|completed|cancelled\n'
       ;;
     pending)
@@ -140,6 +152,7 @@ if [[ "$args" == *" run view 42 "* ]]; then
       printf 'Conformance shard 1/4|completed|success\n'
       printf 'Conformance shard 2/4|in_progress|\n'
       printf 'Conformance shard 3/4|completed|success\n'
+      negtc_jobs completed success
       printf 'sbt — compile and test|queued|\n'
       ;;
     missing)
@@ -149,7 +162,10 @@ if [[ "$args" == *" run view 42 "* ]]; then
     push-no-sbt|sched-no-sbt)
       # Was "the shape a real push run has". Since 2026-07-30 it is the shape a SCHEDULED run has;
       # kept for the sbt-absence pair below, which still needs a run carrying everything but sbt.
+      # negtc is present so `sched-no-sbt` isolates the ONE absence it names — otherwise the case
+      # would pass on a substring while five other jobs were also missing.
       shard_jobs completed success
+      negtc_jobs completed success
       ;;
     push-lint-only)
       # THE shape a real ci.yml PUSH run has since 2026-07-30 (smoke-ci): Validate, the four shards
@@ -166,6 +182,25 @@ if [[ "$args" == *" run view 42 "* ]]; then
       printf 'Conformance shard 0/4|completed|success\n'
       printf 'Conformance shard 1/4|completed|success\n'
       printf 'Conformance shard 3/4|completed|success\n'
+      negtc_jobs completed success
+      ;;
+    negtc-shard-missing)
+      # The same failure as `one-shard-missing`, in the OTHER matrix. Two matrices now feed one
+      # required-job list, and a case that only ever drops a conformance instance cannot tell
+      # whether the list is really per-shard for negtc too.
+      shard_jobs completed success
+      printf 'sbt — compile and test|completed|success\n'
+      printf 'negtc sweeps 0/4|completed|success\n'
+      printf 'negtc sweeps 1/4|completed|success\n'
+      printf 'negtc sweeps 3/4|completed|success\n'
+      printf 'negtc release gate (reduce)|completed|success\n'
+      ;;
+    negtc-reduce-missing)
+      # The verdict-carrying half absent while every shard is green — the shape a `needs:` skip
+      # produces. It must read RED, not green-because-the-shards-passed.
+      shard_jobs completed success
+      printf 'sbt — compile and test|completed|success\n'
+      negtc_jobs_no_reduce
       ;;
     *)
       printf 'fake gh: unexpected view mode %s\n' "$mode" >&2
@@ -253,6 +288,11 @@ CASE_WF=ci.yml FAKE_CI_EVENT=push     run_case push-no-sbt  0 "CI GREEN $SHA" "L
 # A dropped matrix INSTANCE must be RED. Sharding created this failure mode; without this
 # case a suite that quietly lost a quarter of the corpus would still report green.
 CASE_WF=ci.yml FAKE_CI_EVENT=schedule run_case one-shard-missing 1 "CI RED $SHA" "missing required job: Conformance shard 2/4"
+# The same hole in the OTHER matrix, and in the job that carries the verdict. Both runs are
+# GREEN as far as GitHub is concerned — every job that ran passed — which is exactly why a
+# required-job list has to name them.
+CASE_WF=ci.yml FAKE_CI_EVENT=schedule run_case negtc-shard-missing 1 "CI RED $SHA" "missing required job: negtc sweeps 2/4"
+CASE_WF=ci.yml FAKE_CI_EVENT=schedule run_case negtc-reduce-missing 1 "CI RED $SHA" "missing required job: negtc release gate (reduce)"
 CASE_WF=ci.yml FAKE_CI_EVENT=schedule run_case sched-no-sbt 1 "CI RED $SHA"   "missing required job: sbt — compile and test"
 CASE_WF=ci.yml run_case no-run 2 "CI UNKNOWN $SHA" "no push ci.yml run found"
 

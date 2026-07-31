@@ -385,6 +385,27 @@ if [[ "$WORKFLOW" == "ci.yml" ]]; then
   if [[ "$run_event" != "push" ]]; then
     required_jobs+=("sbt — compile and test")
   fi
+  # The negative-toolchain release gate LEFT the `sbt` job on 2026-07-31 (negtc-gate-shard-reduce)
+  # and became `negtc-map` (a 4-way `--sweeps-only` matrix) plus `negtc-reduce` (merge + taxonomy +
+  # assertions). Both are gated off push for the same reason as everything above.
+  #
+  # BOTH halves are required, and the map half is the one worth arguing about: `negtc-reduce` is
+  # what emits the verdict, so requiring only it looks sufficient. It is not. Reduce refuses to run
+  # unless every shard succeeded, but a run in which the matrix never STARTED — evicted, budget
+  # exhausted — has no negtc job at all, and a required-job list that names only the reduce would
+  # then report a green run for a gate that did not execute. Naming the shards makes their absence
+  # a `missing required job` instead of a silence.
+  #
+  # `negtc_shards` mirrors the matrix width the same way `conformance_shards` does, and
+  # `tests/e2e/ci-status-guard.sh` cross-checks this whole list against ci.yml on every push — which
+  # is exactly how this addition was caught missing in the first place.
+  negtc_shards="${SSC_CI_NEGTC_SHARDS:-4}"
+  if [[ "$run_event" != "push" ]]; then
+    for ((_shard = 0; _shard < negtc_shards; _shard++)); do
+      required_jobs+=("negtc sweeps ${_shard}/${negtc_shards}")
+    done
+    required_jobs+=("negtc release gate (reduce)")
+  fi
 else
   required_jobs=()
   while IFS='|' read -r jname _jstatus _jconcl; do

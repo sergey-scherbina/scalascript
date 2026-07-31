@@ -792,7 +792,14 @@ jobs:
     # which this workflow's concurrency policy produces deliberately — would come back as a genuine
     # `failure` here, and `cancelled` already reads as red (MILESTONES.md). Manufacturing a second,
     # louder red out of a supersede is the exact apparatus failure this file's header documents.
-    if: ${{ !cancelled() && github.event_name != 'push' }}
+    #
+    # ORDER AND FORM ARE LOAD-BEARING, not style. `tests/e2e/ci-status-guard.sh` finds the jobs gated
+    # off push by matching `^    if:` followed IMMEDIATELY by `github.event_name != 'push'`, and
+    # cross-checks that set against `scripts/ci-status`'s required-job list. Written as
+    # `${{ !cancelled() && github.event_name != 'push' }}` this job is invisible to that extractor —
+    # so the tool that decides whether a run counts would silently stop requiring the job that
+    # carries the verdict. Keep the event test first and unwrapped.
+    if: github.event_name != 'push' && !cancelled()
     timeout-minutes: 40
 
     steps:
