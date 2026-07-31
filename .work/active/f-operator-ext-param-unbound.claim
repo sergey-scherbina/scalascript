@@ -1,0 +1,11 @@
+slug: f-operator-ext-param-unbound
+branch: feature/f-operator-ext-param-unbound
+agent: claude-code
+started: 2026-07-31T10:02:48Z
+heartbeat: 2026-07-31T10:02:48Z
+status: claimed-before-planning
+items: f-operator-ext-param-unbound
+paths: specs/v2.2-p6.5-fsub.ssc v2/BUGS.md tests/e2e/f-operator-ext-param.sh tests/conformance/corpus-baseline.tsv tests/conformance/contract-roster.tsv
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
