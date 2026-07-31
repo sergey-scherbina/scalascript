@@ -7,6 +7,41 @@ grepping for status.
 
 Newest first.
 
+## ci-status-guard-races-the-shared-repo-index-lock — a smoke check that fails on a busy host
+<!-- status: open
+     lane: apparatus
+     area: build
+     gate: none -->
+
+**Found 2026-07-31** by `scripts/smoke-ci` going red on `tests / ci-status-guard` during the
+`v2-wide-jit-j0` claim, on a diff (`v2/src/Jit.scala`, `RunNativeV2.scala`) that cannot reach it:
+
+```
+FAIL ci-status-guard    50.1s
+   | exit code 128
+   | fatal: Unable to create '/…/scalascript/.git/worktrees/claim-wt1/index.lock': File exists.
+   | Another git process seems to be running in this repository, or the lock file may be stale
+```
+
+Re-run alone immediately afterwards: `ci-status-guard: PASS`, rc 0. So this is contention, not a
+regression.
+
+**Root cause is structural, not transient.** The check builds a temporary worktree (`claim-wt1`)
+**in the shared main repo**, whose `.git` index is contended by every sibling agent — there were 45
+worktrees and several agents committing at the time. `git worktree add` takes the shared index lock,
+so the check's success depends on nobody else running git for that instant. On a quiet host it
+always passes; under the parallel-agent load this repo is designed for, it fails at random.
+
+**Why it matters more than one red run:** a pre-push suite that fails for reasons unrelated to the
+diff teaches agents to re-run until green and then to stop reading it — which is how a real red gets
+waved through. This one cost a full re-run of a 256 s suite to attribute.
+
+**Fix directions** (not attempted here — `scripts/ci-status` and `tests/e2e/ci-status-guard.sh` are
+held by the live `negtc-gate-shard-reduce` claim): give the check its own throwaway clone
+(`git clone --depth 1` of the repo into `$TMPDIR`) instead of a worktree in the shared repo, or
+retry the `worktree add` on lock contention with a bounded backoff. The clone is preferable — it
+removes the shared-state dependency rather than making the race rarer.
+
 ## nul-byte-in-tracked-source — one NUL makes `grep` answer "nothing" for both match and no-match
 <!-- status: fixed
      lane: apparatus

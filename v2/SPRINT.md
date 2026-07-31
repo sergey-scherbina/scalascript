@@ -505,7 +505,29 @@ once per SITE, so the hot counter can *be* that `Code` (`Code = Env => Step` is 
       **Its own slice on purpose:** this is the one change that can slow down programs that never
       JIT, and it is exactly the size of effect this host's whole-workload harness cannot see (it
       swings 2.5× on identical code). Gate = JMH A/B vs `HEAD~1`, not a corpus row.
-- [ ] **J-2 — `JitBackend` SPI, lazy load, flags, globals bridge.** Trait in `v2/src`, impl in
+- [~] **J-2 — DONE except the ASM-isolation claim, which measurement KILLED.** `trait JitBackend` +
+      by-name resolution in `v2/src/Jit.scala`; `v2/backend-jvm-bytecode/JitBytecodeBackend.scala`
+      implements it (`onProgram` does the `Emit.globalsRef` bridge, `compileUnit` answers `null`
+      until J-3); `RunNativeV2.runBytecode` calls `Jit.disarm()` so the two lanes can never both own
+      that field.
+
+          -verbose:class, bin/ssc run examples/hello.ssc          off    on
+            ssc.jit.BytecodeJitBackend                              0      1     <- the seam is lazy
+            library ASM (asm-9.7.jar) classes                      26     26     <- ALREADY LOADED
+            ssc.bytecode.JvmByteGen classes                        56     56     <- ALREADY LOADED
+
+      ⚠ **The gate as written in the spec could not have passed, and not because of my code:** the
+      VM lane already loads ASM and the whole bytecode generator with the JIT off — the F front's own
+      path reaches them. So "the JIT must not make the VM lane load ASM" was never the live invariant
+      on this launcher. The one that IS live: `v2/src` names the backend only in a STRING, so the
+      kernel-alone configuration still runs — `scala-cli run v2/src -- run-ir v2/conformance/fact.coreir`
+      armed prints the same `120` and reports `backend none`. That is the run-ir / native-image case,
+      now tested rather than assumed.
+      ⚠ And how the wrong number nearly stood: my first probe grepped `org\.objectweb\.asm`, which
+      also matches `jdk.internal.org.objectweb.asm` — the JVM's OWN bundled copy, in every Java
+      process. It said "45 in both runs", which reads like a clean negative and was measuring
+      something else entirely.
+      *(original note)* Trait in `v2/src`, impl in
       `v2/backend-jvm-bytecode`, resolved BY NAME on the first hot site — `v21-plugin-backend-isolation`
       means the VM lane must not load ASM, and `RunNativeV2` already contorts a `catch` clause to
       avoid mentioning an ASM type. Point `Emit.globalsRef` at the VM's own globals `TrieMap` so both

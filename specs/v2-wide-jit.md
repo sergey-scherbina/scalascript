@@ -207,12 +207,26 @@ taken before the first `Lam` is compiled.
 
 ### 3.6 Isolation, loading, and the flags
 
-- **ASM must not load on the VM lane unless the JIT fires.** `v21-plugin-backend-isolation` is
-  enforced by smokes, and `RunNativeV2` already contorts a `catch` clause to avoid *mentioning* an
-  ASM type. So the kernel gets an SPI — `trait JitBackend { def compileUnit(...): LamFn | Null }` in
-  `v2/src`, implementation in `v2/backend-jvm-bytecode` — resolved by name on the first hot site.
-  Class absent, or `SSC_V2_JIT=off` → the field stays `null` and the VM runs precisely as today.
-  This mirrors v1's `JitBackend.default` SPI + `enabled`.
+- **The KERNEL must not reference the code generator.** `v21-plugin-backend-isolation` is enforced
+  by smokes, and `RunNativeV2` already contorts a `catch` clause to avoid *mentioning* an ASM type,
+  because the JVM loads a referenced class when it merely verifies the method. So the kernel gets an
+  SPI — `trait JitBackend { def compileUnit(site): Code | Null }` in `v2/src`, implementation in
+  `v2/backend-jvm-bytecode` — resolved by name on the first hot site. `compileUnit` returns a
+  `Code`, not the backend's own function type, so the kernel never learns what a `LamFn` is.
+
+  > **Corrected at J-2, by measurement.** This section used to say "ASM must not load on the VM lane
+  > unless the JIT fires". That is **false of `bin/ssc run` today, before any JIT exists**: a
+  > `-verbose:class` probe shows **26 library-ASM classes and 56 `ssc.bytecode.JvmByteGen` classes
+  > loaded on the default VM lane with `SSC_V2_JIT` unset** — the F front's own path reaches them.
+  > (An earlier count of "45 ASM classes in both runs" was my grep matching
+  > `jdk.internal.org.objectweb.asm`, the JVM's own bundled copy, which is not the library at all.)
+  >
+  > What the by-name seam actually buys, and what J-2 gates, is the **kernel-level** invariant:
+  > `v2/src` mentions the backend only as a *string literal*, so the configuration where the backend
+  > genuinely is absent keeps working. Measured: the kernel alone under `scala-cli` (no bytecode jar
+  > on the classpath), armed, runs `v2/conformance/fact.coreir` to the same `120` and reports
+  > `backend none`. That is the `run-ir` and native-image case, and it now has a test rather than an
+  > assumption.
 - **Globals must be one namespace.** Generated code reads `Emit.global` / `Emit.globalsRef`
   (`Emit.scala:332-352`); the VM keeps globals in `Compiler.compileWithGlobals`'s `TrieMap`. The
   first slice points `Emit.globalsRef` at that same map so both tiers see one namespace, including
@@ -321,7 +335,7 @@ Each is one commit-sized piece with its own gate. The sprint entries live in `v2
 |---|---|---|
 | **J-0** | Baseline + apparatus. `V2JitSiteBench` prices the J-1 node against the real VM call path *before* the kernel is touched; re-measure the four rows on *today's* main (the last table predates the FastCode removal, so it is about different code). | numbers recorded in §9 with the exact commands |
 | **J-1** | `JitSite` wrapper + counters at the four `Lam`-body sites and the `While` body. **No compilation** — the field is never set. | JMH: tier-0 overhead ≤ noise vs `HEAD~1`; corpus byte-identical |
-| **J-2** | `JitBackend` SPI + lazy by-name load + flags + `Emit.globalsRef` bridge. | ASM not loaded when `SSC_V2_JIT=off` (assert on a `-verbose:class` grep); isolation smokes green |
+| **J-2** | `JitBackend` SPI + lazy by-name load + `Emit.globalsRef` bridge + the `--bytecode` disarm. | backend class loads 0× off / 1× on (`-verbose:class`); kernel-alone lane runs armed and reports `backend none`; conformance armed + smoke green |
 | **J-3** | `JvmByteGen.emitUnit(body, arity, captured): LamFn` — one `Lam` body → one hidden class, boxed `Value` in/out, **no residuals** (unsupported ⇒ site not compiled). | parity gate (§4.1) on the corpus; ≥ 1 unit compiled on `recursion-fib` |
 | **J-4** | Residual callbacks (§3.4) + the non-tail rule. | residual histogram non-empty on a program J-3 refused; parity holds; **revert-the-fix check**: with residuals disabled the refused program must go back to 0 compiled units |
 | **J-5** | Type feedback + unboxed entries + entry guards (§3.5). | `var-expr-init` and `arith-loop` rows; `GuardMiss` counter proves the guard is live (rename-the-prim probe, per VC-4) |
@@ -515,3 +529,29 @@ Medians 5.39 → 5.68, **+5.4 %, ranges disjoint**. That is two independent appa
 JMH said +4.1 % per call on a synthetic site, the corpus says +5.4 % on a real call-heavy workload.
 It is the honest price of tier-0, it is opt-in until J-9, and it is the number J-3's win has to beat
 before the default flips.
+
+### J-2 — the backend seam, and an assumption of this spec falsified
+
+`v2/src/Jit.scala` gains `trait JitBackend` + by-name resolution; `v2/backend-jvm-bytecode/
+JitBytecodeBackend.scala` implements it; `RunNativeV2.runBytecode` calls `Jit.disarm()`.
+`compileUnit` answers `null` for every site — J-3 is what makes it answer.
+
+| probe (`bin/ssc run examples/hello.ssc`, `-verbose:class`) | JIT off | JIT on |
+|---|---:|---:|
+| `ssc.jit.BytecodeJitBackend` loaded | **0** | **1** |
+| library ASM (`asm-9.7.jar`) classes loaded | **26** | 26 |
+| `ssc.bytecode.JvmByteGen` classes loaded | **56** | 56 |
+| kernel-alone lane (`scala-cli v2/src`, armed) | — | runs, `backend none` |
+
+**The middle two rows are the finding, and they contradict what §3.6 used to assert.** The VM lane
+already loads ASM and the whole bytecode generator *before this programme adds anything* — so
+"the JIT must not make the VM lane load ASM" was never the live invariant on this launcher. The
+invariant that IS live, and is what the by-name seam protects, is the kernel one: `v2/src` names the
+backend only in a string, so the kernel-alone configuration still runs. Proven, not assumed:
+`scala-cli run v2/src -- run-ir v2/conformance/fact.coreir` armed prints the same `120` and reports
+`backend none`.
+
+Worth recording how the wrong number nearly stood: the first probe grepped `org\.objectweb\.asm`,
+which also matches `jdk.internal.org.objectweb.asm` — the JVM's own bundled copy, present in every
+Java process. It reported "45 in both runs", which looked like a clean negative result and was
+measuring the wrong thing entirely.
