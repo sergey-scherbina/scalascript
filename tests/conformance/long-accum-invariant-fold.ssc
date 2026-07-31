@@ -1,0 +1,72 @@
+---
+name: long-accum-invariant-fold
+also-codegen: v2
+---
+
+# A loop-invariant fold into an accumulator gives the same answer on every backend
+
+`stable.foreach(p => { acc = acc + f(p) })` inside a loop is loop-INVARIANT: the
+inner sum does not change across outer iterations, so a backend may compute it
+once and add `iterations × sum` — the strength reduction the interpreter, the JVM
+backend and (since `js-codegen-opt-p2`) the JS codegen all apply.
+
+**The reduction is only legal because 64-bit addition is associative modulo
+2⁶⁴** — reordering `acc + a + b + …` into `acc + (a + b + …)` is exact under
+wrapping arithmetic and only under it. That makes this case the twin of
+[`long-overflow-wrap`](long-overflow-wrap.ssc): the same property that makes the
+optimisation valid is the one a backend loses when it drops the wrap.
+
+**Why this case exists.** Measured 2026-07-31: the JS hoist built its output as
+TEXT — `let s = 0; … acc = acc + _k0` — two raw JS `+` operators that never went
+through the BigInt-aware runtime helper. With a `Long` accumulator (a JS BigInt)
+that is `TypeError: Cannot mix BigInt and other types`: the interpreter printed
+`165` and the JS lane died on the first iteration. It is why `bench.sh`'s
+`list-fold` js cell read `n/a` (`BUGS.md` → `js-long-accum-plus-hoisted-const-mixes-bigint`).
+
+The three sections below are one decision and belong together: an `Int`
+accumulator (the optimised path that must keep working), a `Long` accumulator
+(the crash), and a `Long` accumulator that OVERFLOWS (the hoist under wrapping,
+which is where an unmasked or a reordered implementation gives a different
+answer rather than an error).
+
+```scalascript
+val xs: List[Int] = List(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+
+// Everything lives in a def ON PURPOSE. The JS hoist only fires for a while
+// loop inside a FUNCTION BODY (it needs the enclosing body's `var`s to prove
+// the accumulator is an outer var), so the same code written at top level does
+// NOT take the optimised path and would gate nothing. Verified 2026-07-31: at
+// top level all three lines were already green on the broken toolchain.
+def main(): Unit =
+  // ── 1. Int accumulator — the shape the hoist was written for.
+  var ints = 0
+  var i = 0
+  while i < 3 do
+    xs.foreach(x => { ints = ints + x })
+    i = i + 1
+  println(ints)
+
+  // ── 2. Long accumulator — same fold, and the one that threw.
+  var longs = 0L
+  var j = 0
+  while j < 3 do
+    xs.foreach(x => { longs = longs + x })
+    j = j + 1
+  println(longs)
+
+  // ── 3. Long accumulator carried ACROSS the top of the range. The seed puts
+  // `wrapped` at Long.MaxValue, so the fold overflows on the first outer
+  // iteration and every later one keeps wrapping. A backend that hoists without
+  // wrapping at 64 bits answers this one differently — silently.
+  var wrapped = 1L
+  var k = 0
+  while k < 62 do
+    wrapped = wrapped * 2L
+    k = k + 1
+  wrapped = wrapped - 1L + wrapped        // Long.MaxValue
+  var m = 0
+  while m < 3 do
+    xs.foreach(x => { wrapped = wrapped + x })
+    m = m + 1
+  println(wrapped)
+```

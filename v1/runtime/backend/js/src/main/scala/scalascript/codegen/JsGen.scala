@@ -3935,10 +3935,25 @@ class JsGen(
                 loopHoistBuf = savedBuf
                 val sVar = freshTmp(); val xs = freshTmp(); val ix = freshTmp()
                 val jsParam = localBindingName(param)
+                // A `Long` accumulator is a JS BigInt, and this hoist builds its output as TEXT —
+                // so a raw `+` here never reaches the BigInt-aware runtime helper, and mixing it
+                // with the Number-seeded inner sum throws "Cannot mix BigInt and other types".
+                // That is why `bench.sh`'s `list-fold` js cell read `n/a` while the interpreter
+                // answered fine (js-long-accum-plus-hoisted-const-mixes-bigint).
+                //
+                // `_larith` coerces an Int operand and masks to 64 bits — and the mask is not
+                // incidental here: reordering `acc + a + b + …` into `acc + (a + b + …)` is what
+                // this optimisation DOES, and that is exact only modulo 2^64. So the same helper
+                // that fixes the crash is what keeps the reduction sound across an overflow.
+                // The Int path keeps its native `+`: the optimisation is unchanged where it worked.
+                val longAcc  = isLongExpr(Term.Name(accName)) || isLongExpr(addend)
+                val seedJs   = if longAcc then "0n" else "0"
+                val stepJs   = if longAcc then s"$sVar = _larith('+', $sVar, $addendJs)" else s"$sVar += $addendJs"
                 val sumExpr =
-                  s"(() => { let $sVar = 0; const $xs = $qualJs; if (Array.isArray($xs)) { for (let $ix = 0; $ix < $xs.length; $ix++) { const $jsParam = $xs[$ix]; $sVar += $addendJs; } } else { _forEach($xs, ($jsParam) => { $sVar += $addendJs; }); } return $sVar; })()"
+                  s"(() => { let $sVar = $seedJs; const $xs = $qualJs; if (Array.isArray($xs)) { for (let $ix = 0; $ix < $xs.length; $ix++) { const $jsParam = $xs[$ix]; $stepJs; } } else { _forEach($xs, ($jsParam) => { $stepJs; }); } return $sVar; })()"
                 val sumName = freshHoistConst(sumExpr)
-                s"$accName = $accName + $sumName"
+                if longAcc then s"$accName = _larith('+', $accName, $sumName)"
+                else            s"$accName = $accName + $sumName"
               case _ => null
           if hoisted != null then hoisted
           else
