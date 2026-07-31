@@ -150,7 +150,57 @@ on this task, and this time an expensive one, since it would have condemned the 
 - the call being in a nested method (the `while` body) is not the whole story either: the
   same-method probe `f(1) + f(2)` does not fire the arm.
 
-**What is left to check, cheapest first:**
+## Attempt 2 — same result, and it corrects attempt 1's diagnosis (2026-07-31)
+
+Re-applied identically and rebuilt. **Three things were established, and one of them corrects the
+record above.**
+
+**1. The build was never the problem — attempt 1's suspicion was wrong.** `javap` on both the
+compiled class and the staged jar shows the methods present:
+
+```
+public ssc.Value[] closEnv(ssc.Value);
+public ssc.Value[] extendEnv(ssc.Value[], ssc.Value[]);
+```
+
+⚠ The check that said otherwise was mine: `unzip -p <jar> | strings | grep closEnv` returns nothing
+because a jar's entries are deflated — piping the archive through `strings` reads compressed bytes,
+not class constant pools. **`javap -p -classpath <jar>` is the check; `strings` on a jar is not.**
+Attempt 1's probe was therefore VALID and its verdict stands.
+
+**2. The arm is inert on BOTH fronts, measured.**
+
+    F (default)   BEFORE 5.03    AFTER 5.11
+    legacy        BEFORE 8.30    AFTER 9.67
+
+**3. The IR shape is right, so the guard is what fails.** Legacy IR for the probe is exactly what
+the arm was written for:
+
+```
+(lam 0 (let ((lam 1 (lit (int 0))))
+         (prim __arith__ … (app (local 0) …) (app (local 0) …))))
+```
+
+*(Also worth carrying: this IR is the LEGACY front's. F emits typed IR that diverges by design, so
+"the shape is right" was only ever established for one of the two lanes — dump F's IR via
+`runir F0.ir <prog>` before relying on it. That is a second reason the cheap route misled.)*
+
+**The leading candidate, and it is checkable without a build.** `ctx.localLamSlots` lives on ONE
+`Ctx`, and a `Ctx` is created per generated METHOD. A `workload` body is a `Seq` (`var sum`,
+`var i`, `while`, result), which `emitChain` splits into one method per statement, each with a fresh
+`Ctx` — so the map recorded at the `Let` is gone by the time the call is generated. `localTailTargets`
+survives that because it is threaded through `TailCtx` and shifted (`shiftTailCtx`); my map is not.
+
+**So the fix is not a new map at all — it is to carry the target the way `localTailTargets` already
+is carried**, i.e. add the plain-`Let` case to that existing mechanism and read it from the existing
+non-tail position. Check before building: does `f(1) + f(2)` with NO surrounding statements fire the
+arm? If it does, the Ctx-scope story is confirmed; if it does not, the guard fails for a third
+reason and no more builds should be spent before the F IR is dumped.
+
+**Cost of this task so far: three build cycles (~30 min) and no gain.** Recorded so the next attempt
+starts from the Ctx-threading design, not from a fourth guess.
+
+**What is left to check, cheapest first:****What is left to check, cheapest first:**
 1. **Does `val f = <lambda>` lower to `Let(List(Lam), body)` at all?** F may emit `LetRec` for a
    local binding so it can be recursive — in which case `localTailTargets` **already holds the
    entry**, and the fix is a non-tail arm reading that existing map rather than a new one. This is
