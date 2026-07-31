@@ -13,17 +13,22 @@ ScalaScript is in **M0 — Specification phase**. We are defining the language b
 **[Open a report](https://github.com/sergey-scherbina/scalascript/issues/new?template=user-report.yml)** —
 you do not need the repository, a checkout, or any knowledge of where the bug lives.
 
-The form asks for four things, and each one is there because it decides whether the report can be
-acted on: one line of what went wrong, the **version** (`ssc --version`), the **smallest program**
-that shows it with the exact command you ran, and what you **expected versus what happened** —
-the real output, not a paraphrase.
+**Only the first box is required** — one line saying what went wrong. Everything else helps and
+none of it blocks you: a partial report is worth a great deal, and a report you could not file is
+worth nothing. Send what you have.
 
-Two things that help more than they look like they should: a version where it *used to* work turns a
-bug hunt into a bisect, and a program that is already minimal usually skips the reproduction step
+The boxes that save the most time when you can fill them: the **version**, the **smallest program**
+that shows it with the exact command, and what you **expected versus what happened** in the real
+output rather than a paraphrase. Two that punch above their weight: a version where it *used to*
+work turns a bug hunt into a bisect, and a case that is already minimal usually skips reproduction
 entirely.
 
-Please do not try to diagnose where the fault is. Where a fix goes is a conclusion someone reaches by
-reading code, and a guess in the report tends to send the reader the same wrong way it sent you.
+**Tell us what you worked out, including where you think the bug is.** If you bisected, read the
+source, or found a workaround that failed, that is real work and we want it — there is a box for it.
+It is recorded as *your* finding and we reach our own conclusion separately, so a guess that turns
+out wrong costs you nothing and an accurate one can save hours. (This changed on 2026-07-31: the form
+used to ask people not to diagnose, which threw away exactly this. It was aimed at a rule about how
+we ROUTE entries, not at what you are allowed to say, and it should never have been pointed at you.)
 
 What happens next: the report enters the inbound queue (`INBOX.md`), a maintainer routes it to
 whichever part of the compiler owns the fix, and your issue URL travels with it — so the entry can

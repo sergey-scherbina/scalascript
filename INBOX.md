@@ -23,6 +23,15 @@ the choice was to guess a module or to lose the report.
 **This is the one place an entry may exist without a module**, and it is a STATE, not a subtype —
 `kind:` still classifies the report the same way it classifies everything else (P-3.8).
 
+**Everything the reporter offers is kept, diagnosis included.** That is a correction, made
+2026-07-31 after users said the form was too narrow, and they were right. The original wording told
+reporters not to diagnose — which threw away real work (a bisect, a read of the source, a workaround
+that failed) because of a rule that was never about their information at all. What P-3.3 forbids is
+routing ON a guess; it says nothing against RECORDING one. So a reporter's reading of the cause goes
+in `reporter-suspects:` and in the body, verbatim, and the triager still reaches their own conclusion
+before `lane:`/`area:` are written. Information and authority are different things, and only the
+second was ever meant to be constrained.
+
 ## What leaves this file, and how
 
 - **Routed** — the entry MOVES into `<module>/BUGS.md` (or `BACKLOG.md`) of the module where the fix
@@ -58,8 +67,10 @@ the choice was to guess a module or to lose the report.
      repro: examples/reported/foo.ssc
      kind: bug -->
 
-What they reported, in their terms. Resist rewriting it into a diagnosis — the diagnosis is the
-triager's judgement and belongs in the routed entry, where it can be wrong visibly.
+Everything they wrote, in their terms and at their length — what they ran, what happened, what they
+already tried, logs, their theory, the workaround that did not help. Do not compress it into what you
+think matters: you are reading it before you know which part turns out to be the clue. Add your own
+findings under a separate heading rather than editing theirs, so the two never blur.
 ```
 
 | field | required | values |
@@ -71,7 +82,16 @@ triager's judgement and belongs in the routed entry, where it can be wrong visib
 | `repro` | always | a path to a minimal case, or `none` |
 | `kind` | optional | as in `specs/bugs-index.md`; defaults to `bug` |
 | `waiting-on` | when `triage: needs-info` | what was asked of the reporter, and when |
+| `reporter-suspects` | optional | THEIR hypothesis about the cause, in one line. Explicitly not a routing decision — see below |
+| `impact` | optional | `blocks` · `workaround` · `annoying` · `fyi`, as the reporter judged it |
 
-**`lane:` and `area:` are absent on purpose.** They are conclusions about where the fix goes; an
-inbox entry has not reached one. Filling them in to look complete is the "extraction from prose"
-mistake P-3.3 names, wearing a different hat.
+**`lane:` and `area:` are absent on purpose, and that is NOT a limit on what a reporter may say.**
+Those two fields carry the ROUTING DECISION, whose authority order is fixed (P-3.3: a resolvable
+`fixed-in` > a human's declared judgement > never keyword extraction). An inbox entry has not reached
+that decision yet, so the fields stay empty — writing them to look complete is how four entries
+landed under the wrong owner.
+
+A reporter's own diagnosis is a different thing entirely and is **welcome**: it goes in
+`reporter-suspects:` and in the body. The gate refuses `lane:`/`area:` here and accepts
+`reporter-suspects:` precisely so that the distinction is mechanical rather than a matter of
+etiquette — you can say anything, and nothing you say can silently become the routing.

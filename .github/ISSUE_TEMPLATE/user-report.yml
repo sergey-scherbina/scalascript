@@ -6,13 +6,14 @@ body:
   - type: markdown
     attributes:
       value: |
-        This form is the front door of the inbound queue (`POLICY.md` P-3.10). What you fill in here
-        becomes the entry a maintainer routes to whichever part of the compiler owns the fix, so the
-        fields below are the ones that decide whether that is possible — not paperwork.
+        **Only the first box is required.** Everything else helps and none of it blocks you: a
+        partial report is worth a great deal, and a report you could not file is worth nothing.
+        Send what you have.
 
-        **Please do not diagnose.** Describe what you ran and what happened. Where the bug lives is a
-        conclusion someone reaches by reading code, and a guess in the report tends to send the
-        reader the same wrong way it sent you.
+        **Tell us what you worked out — including where you think the bug is.** If you bisected,
+        read the source, or found a workaround, that is real work and we want it. It is recorded as
+        YOUR finding and we reach our own conclusion separately, so a guess that turns out wrong
+        costs you nothing and an accurate one saves us hours.
 
   - type: input
     id: summary
@@ -26,18 +27,19 @@ body:
     id: ssc-version
     attributes:
       label: ScalaScript version
-      description: "`ssc --version`. If you cannot get it, write `unknown` — that is information too."
-      placeholder: "1.72.0"
+      description: "`ssc --version`. If that does not work or you do not know, say so — that is information too."
+      placeholder: "1.72.0   ·   or: unknown"
     validations:
-      required: true
+      required: false
 
   - type: textarea
     id: repro
     attributes:
-      label: The smallest program that shows it
+      label: The program, and the command you ran
       description: >
-        Paste the code, and the exact command you ran. The shorter this is, the sooner it gets fixed —
-        a case that is already minimal usually skips the whole reproduction step.
+        As small as you can make it — but do not hold the report back in order to minimise it. A case
+        that is already minimal usually skips the reproduction step entirely, which is the single
+        biggest saving there is; a case that is not still beats no case.
       render: scala
       placeholder: |
         // app.ssc
@@ -46,27 +48,72 @@ body:
 
         $ ssc run app.ssc
     validations:
-      required: true
+      required: false
 
   - type: textarea
     id: expected-actual
     attributes:
       label: What you expected, and what happened
-      description: Include the exact output or error, not a paraphrase of it.
+      description: The exact output or error if you have it, rather than a paraphrase.
       placeholder: |
         expected: prints `a`
         actual:   prints nothing, exits 0
     validations:
-      required: true
+      required: false
+
+  - type: textarea
+    id: diagnosis
+    attributes:
+      label: What you think is going on — your diagnosis (optional, and genuinely wanted)
+      description: >
+        Your reading of the cause, a file or function you suspect, a related bug, a theory you could
+        not confirm. This does not decide where we look: `POLICY.md` P-3.3 forbids routing on a
+        guess, and that rule exists because guessing once put four entries under the wrong owner. So
+        say it freely — it is kept as your hypothesis, it is read, and it cannot misfile anything.
+      placeholder: |
+        Looks like the desugaring of `for (k, v) <- …` over a Map rather than a List — a List works.
+        I suspect the tuple pattern is not destructured for Map entries.
+    validations:
+      required: false
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What you already tried (optional)
+      description: >
+        Workarounds that worked, workarounds that did not, other spellings, other lanes
+        (`ssc run-js`, `ssc run-jvm`). A failed attempt is evidence: it rules something out, and
+        without it we will try the same thing.
+      placeholder: |
+        - `for k <- m.keys do …` works
+        - same failure on `ssc run-js`
+        - 1.71.0 works
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Errors, stack traces, logs (optional)
+      description: Paste the whole thing. Long is fine — a truncated stack trace usually loses the useful frame.
+      render: shell
+    validations:
+      required: false
 
   - type: input
     id: last-good
     attributes:
       label: Did it ever work? (optional)
-      description: >
-        A version where it worked turns this from a bug hunt into a bisect, which is a different
-        amount of work entirely.
+      description: A version where it worked turns a bug hunt into a bisect, which is a different amount of work entirely.
       placeholder: "worked on 1.71.0"
+    validations:
+      required: false
+
+  - type: input
+    id: environment
+    attributes:
+      label: OS, and Node / JVM version if your lane uses one (optional)
+      placeholder: "macOS 15.5 · node 20.11 · temurin 21"
     validations:
       required: false
 
@@ -76,11 +123,34 @@ body:
       label: Where you ran it (optional)
       multiple: true
       options:
-        - "ssc run (interpreter)"
+        - "ssc run (default lane)"
         - "ssc run-js / Node"
         - "ssc run-jvm"
         - "ssc build-jvm / a packaged jar"
         - "the v2 / native lane"
         - "not sure"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: impact
+    attributes:
+      label: How much is it in your way? (optional)
+      options:
+        - "blocks me — I cannot do the thing at all"
+        - "there is a workaround, but it is bad"
+        - "annoying"
+        - "just reporting it"
+    validations:
+      required: false
+
+  - type: textarea
+    id: anything-else
+    attributes:
+      label: Anything else
+      description: >
+        Anything that did not fit above — context, links, a related issue, what you were building,
+        why it matters to you. This box has no shape on purpose: the reports worth having most are
+        often the ones a form did not anticipate.
     validations:
       required: false

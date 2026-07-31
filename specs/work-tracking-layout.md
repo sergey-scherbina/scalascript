@@ -87,8 +87,17 @@ symptom and a version. The alternatives were to guess a module (P-3.3 calls that
 prose, and it put four entries under the wrong owner when it was tried) or to lose the report.
 
 **Fields.** `triage: new | needs-info`, plus `reported-by`, `reported-at`, `ssc-version`, `repro`,
-and optionally `kind` / `waiting-on`. Full table in [`../INBOX.md`](../INBOX.md). `lane:` and `area:`
-are *refused* here by the gate, not merely unused.
+and optionally `kind` / `waiting-on` / `reporter-suspects` / `impact`. Full table in
+[`../INBOX.md`](../INBOX.md).
+
+**`lane:` and `area:` are *refused* here by the gate; `reporter-suspects:` is accepted.** That pair
+of behaviours IS rule P-3.11, made mechanical. The refused fields carry the routing decision, whose
+authority order P-3.3 fixes; the accepted one carries the reporter's own reading of the cause, which
+is evidence and is kept in full. Users read the original wording as "do not diagnose" and said so on
+2026-07-31 — they were right, and the fix was to separate information from authority rather than to
+relax either. Only a slug and a way to reply are mandatory now; a version the reporter could not
+obtain is recorded as `unknown`, because a required field they cannot supply is a report that never
+arrives.
 
 **Triage moves the entry.** Into `<module>/BUGS.md` (or `BACKLOG.md`) of the module that owns the fix,
 gaining `status`/`lane`/`area`/`gate`, and out of `INBOX.md`. The reporter fields travel with it:

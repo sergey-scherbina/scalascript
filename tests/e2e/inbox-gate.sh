@@ -6,12 +6,18 @@
 #
 #   1. every entry has the fields the queue exists FOR. `reported-by` is what makes `confirmed: no`
 #      ("fixed, but the reporter has not confirmed") answerable; `ssc-version` is what makes a report
-#      reproducible. A queue whose fields are unreliable is one nobody works from.
+#      reproducible — and `unknown` is a legitimate value there, since a version the reporter could
+#      not obtain is a fact about the report rather than a hole in it. Only ABSENCE is refused: an
+#      entry where nobody recorded either way reads later as "nobody asked".
 #   2. `triage` is `new` or `needs-info` and nothing else. `routed` is NOT a value: a routed entry has
 #      MOVED to a module board, so a routed entry still sitting here is two copies of one record —
 #      the failure the whole policy exists to prevent.
-#   3. `lane:` / `area:` are ABSENT. They are conclusions about where the fix goes; an entry that has
-#      them has been triaged and belongs in a module board, not here.
+#   3. `lane:` / `area:` are ABSENT — and this is about AUTHORITY, not about what a reporter is
+#      allowed to say. Those two carry the routing DECISION, whose authority order P-3.3 fixes. The
+#      reporter's own diagnosis is welcome and goes in `reporter-suspects:`, which this gate accepts
+#      and never treats as routing. Users told us on 2026-07-31 that the old wording read as "do not
+#      diagnose"; it was never meant to, and the mechanical split is what makes the difference real
+#      rather than a matter of etiquette.
 #   4. slugs are unique across INBOX.md and every board — the invariant `bugs-index` already keeps,
 #      extended to the one file that can feed into all of them.
 #   5. `needs-info` carries `waiting-on`. Otherwise it is indistinguishable from "forgotten".
@@ -111,9 +117,12 @@ check_file() {  # check_file <inbox path> <label> -> 0 ok, 1 problem
       *)    bad "$label: $slug has triage: $triage (expected new or needs-info)" ;;
     esac
     [ -n "$rb" ] || bad "$label: $slug has no reported-by — nothing can tell them when it is fixed"
-    [ -n "$sv" ] || bad "$label: $slug has no ssc-version — the report is not reproducible"
+    # The FIELD must be present; `unknown` is a perfectly good value and `inbox-add` writes it when
+    # the reporter could not supply one. What is refused is silence — an entry where nobody recorded
+    # whether the version is known, which reads later as "nobody asked".
+    [ -n "$sv" ] || bad "$label: $slug has no ssc-version field (write \`unknown\` if it is not known — absence is the only thing refused)"
     [ -n "$rp" ] || bad "$label: $slug has no repro: field (use 'none' if there is no case)"
-    [ -z "$banned" ] || bad "$label: $slug carries $banned — that is a conclusion about where the fix goes, so this entry belongs in a module board"
+    [ -z "$banned" ] || bad "$label: $slug carries $banned — those two fields carry the ROUTING DECISION (P-3.3), which an inbox entry has not reached. This is NOT a limit on what the reporter may say: their diagnosis is welcome and belongs in reporter-suspects: and the body."
     if [ "$triage" = "needs-info" ] && [ -z "$wo" ]; then
       bad "$label: $slug is needs-info with no waiting-on: — indistinguishable from forgotten"
     fi
@@ -193,6 +202,24 @@ if [ "$self_test" -eq 1 ]; then
      reported-at: $old
      ssc-version: 1.0.0
      repro: none -->"
+  # The reporter's diagnosis must be ACCEPTED. This case is the mechanical half of "say anything you
+  # like": if `reporter-suspects:` ever started tripping the same check as `lane:`, the policy would
+  # have quietly reverted to the one users complained about, and nothing else would notice.
+  { echo '<!-- inbox-entries:start -->'; printf '## h-slug — s
+<!-- triage: new
+     reported-by: x
+     reported-at: 2026-07-31
+     ssc-version: unknown
+     repro: none
+     reporter-suspects: the Map desugaring, not the List one
+     impact: blocks -->
+'; echo '<!-- inbox-entries:end -->'; } > "$lab/INBOX.md"
+  if check_file "$lab/INBOX.md" selftest >/dev/null 2>&1; then
+    printf '  ok   --self-test ACCEPTS a reporter diagnosis (reporter-suspects + impact)\n'
+  else
+    printf 'FAIL  --self-test: a reporter diagnosis was REJECTED — the queue is refusing information again\n' >&2; st_fail=1
+  fi
+
   # …and the green direction, so the gate is not merely a machine that always says red.
   { echo '<!-- inbox-entries:start -->'; printf '## g-slug — s\n%s\n' "$hdr"; echo '<!-- inbox-entries:end -->'; } > "$lab/INBOX.md"
   if check_file "$lab/INBOX.md" selftest >/dev/null 2>&1; then

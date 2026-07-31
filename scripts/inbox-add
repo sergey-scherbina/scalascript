@@ -36,7 +36,10 @@ usage: scripts/inbox-add <slug> --summary "<text>" --reported-by <who> --ssc-ver
   --ssc-version   what they ran; `unknown` is allowed and is itself information
   --repro         path to a minimal case, or `none` (default: none)
   --kind          specs/bugs-index.md kinds (default: bug)
-  --body-file     file whose contents become the entry body (default: read stdin if piped)
+  --suspects      the REPORTER's hypothesis about the cause. Recorded, never routed on.
+  --impact        blocks | workaround | annoying | fyi, as the reporter judged it
+  --body-file     file whose contents become the entry body; `-` reads stdin. Without it the
+                  entry body is just the summary — a report is never blocked on having a body.
   --from-issue    import GitHub issue <n>: reported-by becomes the issue URL, ssc-version is read
                   from the form's "ScalaScript version" field, and the body is the issue body.
                   Requires `gh`. The URL is the point — it is a `reported-by` that can be REPLIED to,
@@ -46,6 +49,7 @@ USAGE
 
 list_mode=0; from_issue=""
 slug=""; summary=""; reported_by=""; ssc_version=""; repro="none"; kind="bug"; body_file=""
+suspects=""; impact=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --list) list_mode=1; shift ;;
@@ -56,6 +60,11 @@ while [ $# -gt 0 ]; do
     --ssc-version) [ $# -ge 2 ] || { echo 'inbox-add: --ssc-version needs a value' >&2; exit 2; }; ssc_version="$2"; shift 2 ;;
     --repro)       [ $# -ge 2 ] || { echo 'inbox-add: --repro needs a value' >&2; exit 2; }; repro="$2"; shift 2 ;;
     --kind)        [ $# -ge 2 ] || { echo 'inbox-add: --kind needs a value' >&2; exit 2; }; kind="$2"; shift 2 ;;
+    # The reporter's OWN reading of the cause. Recorded, never routed on — see the header table in
+    # INBOX.md. Kept as a distinct field so that "what they think" and "where we decided it goes"
+    # can never be confused for one another.
+    --suspects)    [ $# -ge 2 ] || { echo 'inbox-add: --suspects needs a value' >&2; exit 2; }; suspects="$2"; shift 2 ;;
+    --impact)      [ $# -ge 2 ] || { echo 'inbox-add: --impact needs a value' >&2; exit 2; }; impact="$2"; shift 2 ;;
     --body-file)   [ $# -ge 2 ] || { echo 'inbox-add: --body-file needs a value' >&2; exit 2; }; body_file="$2"; shift 2 ;;
     # Fail CLOSED on an unknown flag. `coord-release` shipped a catch-all that swallowed `--level`
     # into a message and dropped the value silently; the same shape here would drop a reporter.
@@ -120,14 +129,28 @@ if [ -n "$from_issue" ]; then
     printf '  their answer is kept verbatim in the entry body: %s\n' "$raw_version" >&2
   fi
   summary="$(printf '%s' "$title" | sed 's/^\[report\][[:space:]]*//')"
+  # The reporter's own diagnosis, if the form collected one. Taken as a WHOLE section, first line
+  # into the header for scanning and the rest left in the body — truncating someone's analysis into
+  # a one-line field is the loss this whole change is undoing.
+  suspects="$(printf '%s' "$ibody" | awk '
+    /^###[[:space:]]*What you think is going on/ { want = 1; next }
+    /^###/ { want = 0 }
+    want && NF { print $0; exit }
+  ' | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+  case "$suspects" in *:*|*'-->'*) suspects="$(printf '%s' "$suspects" | tr ':' ' ' | sed 's/-->//g')" ;; esac
+  impact="$(printf '%s' "$ibody" | awk '
+    /^###[[:space:]]*How much is it in your way/ { want = 1; next }
+    /^###/ { want = 0 }
+    want && NF { print $0; exit }
+  ' | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | cut -c1-40)"
   reported_by="$url"
   [ -n "$slug" ] || slug="issue-$from_issue"
+  # A blank issue — or a form the reporter left blank — is imported anyway. Refusing here made a
+  # missing version the reporter's problem, when it is only ever ours: the entry says `unknown` and
+  # the issue is in the queue, which beats the report sitting outside it because a box was empty.
   if [ -z "$ssc_version" ]; then
-    printf 'inbox-add: issue %s has no "ScalaScript version" section (a blank issue, not the form).\n' "$from_issue" >&2
-    printf '  Re-run with the version you can establish, or `unknown`:\n' >&2
-    printf '    scripts/inbox-add %s --summary %q --reported-by %s --ssc-version unknown\n' \
-      "$slug" "$summary" "$url" >&2
-    exit 2
+    ssc_version="unknown"
+    printf 'inbox-add: issue %s states no version; recording `unknown` and importing anyway\n' "$from_issue" >&2
   fi
   body="$ibody"
 fi
@@ -140,15 +163,23 @@ case "$slug" in
 esac
 case "$slug" in *[!a-z0-9-]*) printf 'inbox-add: slug must be kebab-case: %q\n' "$slug" >&2; exit 2 ;; esac
 
+# Only two things are genuinely required, and neither is the reporter's to supply: a slug to file
+# under, and someone to reply to. A MISSING VERSION IS NOT A REASON TO REFUSE A REPORT — it is
+# recorded as `unknown`, which is a fact about the report rather than a hole in it. Requiring it
+# turned "I could not get ssc --version to run" into "your report cannot be registered", which is
+# the shape users complained about on 2026-07-31 and they were right.
 missing=""
 [ -n "$summary" ]     || missing="$missing --summary"
 [ -n "$reported_by" ] || missing="$missing --reported-by"
-[ -n "$ssc_version" ] || missing="$missing --ssc-version"
 if [ -n "$missing" ]; then
   printf 'inbox-add: missing required:%s\n' "$missing" >&2
-  printf '  These are the fields the queue exists for. `reported-by` is what makes a fix\n' >&2
-  printf '  announceable to the person who hit it; `ssc-version` is what makes it reproducible.\n' >&2
+  printf '  Only these two are required. `reported-by` is what makes a fix announceable to the\n' >&2
+  printf '  person who hit it; everything else, including the version, may be absent.\n' >&2
   usage; exit 2
+fi
+if [ -z "$ssc_version" ]; then
+  ssc_version="unknown"
+  printf 'inbox-add: no --ssc-version; recording `unknown` (a fact, not a gap)\n' >&2
 fi
 
 # Slug uniqueness across EVERY board, not just this file — the same invariant `bugs-index` enforces.
@@ -160,19 +191,27 @@ if [ -n "$existing" ]; then
   exit 2
 fi
 
+# Stdin is read ONLY when asked for (`--body-file -`). The first version read it whenever stdin was
+# "not a TTY", which is not the same question: in any non-interactive context — a CI step, an agent
+# harness, `cmd < /dev/null` — stdin is an open pipe with no data and no EOF, so the tool BLOCKED
+# FOREVER. Found by registering the sparsest possible report, which is exactly the case this change
+# set out to make easy: the tool hung on it instead of writing it.
 body="${body:-}"
 if [ -n "$body" ]; then :
+elif [ "$body_file" = "-" ]; then
+  body="$(cat)"
 elif [ -n "$body_file" ]; then
   [ -f "$body_file" ] || { printf 'inbox-add: no such --body-file: %q\n' "$body_file" >&2; exit 2; }
   body="$(cat "$body_file")"
-elif [ ! -t 0 ]; then
-  body="$(cat)"
 fi
 [ -n "$body" ] || body="_(no detail supplied beyond the summary)_"
 
 today="$(date -u +%Y-%m-%d)"
-entry="$(printf '## %s — %s\n<!-- triage: new\n     reported-by: %s\n     reported-at: %s\n     ssc-version: %s\n     repro: %s\n     kind: %s -->\n\n%s\n' \
-  "$slug" "$summary" "$reported_by" "$today" "$ssc_version" "$repro" "$kind" "$body")"
+hdr_extra=""
+[ -n "$suspects" ] && hdr_extra="$hdr_extra$(printf '\n     reporter-suspects: %s' "$suspects")"
+[ -n "$impact" ]   && hdr_extra="$hdr_extra$(printf '\n     impact: %s' "$impact")"
+entry="$(printf '## %s — %s\n<!-- triage: new\n     reported-by: %s\n     reported-at: %s\n     ssc-version: %s\n     repro: %s\n     kind: %s%s -->\n\n%s\n' \
+  "$slug" "$summary" "$reported_by" "$today" "$ssc_version" "$repro" "$kind" "$hdr_extra" "$body")"
 
 tmp="$(mktemp)"
 ENTRY="$entry" END_MARK="$END" awk '

@@ -114,13 +114,21 @@ Detail: [`specs/work-tracking-layout.md`](specs/work-tracking-layout.md) (layout
 - **P-3.9 · Never grep for status.** Query the header (`scripts/bugs-report`). Prose produced three
   synonyms for "closed" and 108 entries with none.
 - **P-3.10 · A report from a USER enters the inbound queue, and leaves it by MOVING.**
-  [`INBOX.md`](INBOX.md) is the one place an entry may exist without a module: `lane:` and `area:`
-  are conclusions about where the fix goes, and a reporter has not reached one. Register with
-  `scripts/inbox-add` (never by hand — `reported-by` is what makes `confirmed: no` answerable and
-  `ssc-version` is what makes a report reproducible). Triage routes it to the module that owns the
-  fix (P-3.2), where the entry is **moved** — not copied — carrying its reporter fields; the routed
-  set is then DERIVED, not listed (P-3.5). `tests/e2e/inbox-gate.sh` bounds how long anything may
-  wait, because a queue with no age limit is a graveyard with good manners.
+  [`INBOX.md`](INBOX.md) is the one place an entry may exist without a module. Register with
+  `scripts/inbox-add` (never by hand — `reported-by` is what makes `confirmed: no` answerable).
+  Triage routes it to the module that owns the fix (P-3.2), where the entry is **moved** — not
+  copied — carrying its reporter fields; the routed set is then DERIVED, not listed (P-3.5).
+  `tests/e2e/inbox-gate.sh` bounds how long anything may wait, because a queue with no age limit is
+  a graveyard with good manners.
+- **P-3.11 · Take everything the reporter offers; take none of their authority.** A reporter's
+  diagnosis, failed workarounds, logs and suspicions are EVIDENCE and are recorded in full
+  (`reporter-suspects:` and the body) — refusing them throws away work someone already did. What
+  the queue does not take from them is the routing DECISION: `lane:`/`area:` stay empty until a
+  triager reaches one, because P-3.3 fixes that authority order and guessing it once put four
+  entries under the wrong owner. The gate accepts the first and refuses the second, so the
+  distinction is mechanical rather than a matter of etiquette. **A required field that a reporter
+  cannot supply is a report you do not receive** — only a slug and a way to reply are mandatory;
+  everything else, version included, may be `unknown`.
 
 ## P-4 · Deciding
 
