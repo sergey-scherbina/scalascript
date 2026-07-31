@@ -332,6 +332,23 @@ Worth knowing before starting: `a(i) = v` was a **silently-dropped** defect on t
 2026-07-30, so this row may be measuring a freshly-working path rather than a long-standing one.
 **First step is a decomposition probe, not a fix** — there is no theory here yet.
 
+**One theory already tested and REFUTED (2026-07-31).** `arr.get` sits in
+`operationProducingBuiltinNames` right beside `cell.get`, so the obvious guess was that reading an
+array poisons the loop onto the effect-threading chain the same way — see
+`v2-perf-cell-get-forces-effect-chain`, where that mechanism is worth 26×. It does not hold here:
+
+    array written AND read in the loop    290.4 ms
+    array written, never read             401.2 ms
+
+The write-only variant is **slower**, i.e. the asymmetry runs the wrong way. (The two probes are not
+perfectly matched — each does different arithmetic with the freed slot — so treat this as "the
+hypothesis is not supported", not as a measurement of the read.)
+
+**The useful datum is the absolute number: ~300–400 ns per iteration on both.** Arrays are slow for
+a reason that is *not* the effect-chain mechanism, and finding it is this entry's actual first step.
+Candidates worth eliminating in order: the `.toInt`/`.toLong` conversions, `arr.set`'s own path, and
+boxing of the stored element.
+
 ## v2-perf-vector-is-a-cons-chain — indexing is O(n) by construction, 47× (2026-07-31)
 <!-- status: open
      lane: native

@@ -97,3 +97,5 @@ date	sha	load	workload	lane	ref_lane	ms	ref_ms	ratio	note
 # not by boxing. Same boxed var in both probes, 1M iterations, v2-bytecode lane.
 2026-07-31	c934dc583	4	probe-boxed-var-read	v2-bytecode	-	161.1	-	-	reads the boxed var — effect chain, env array per iteration
 2026-07-31	c934dc583	4	probe-boxed-var-writeonly	v2-bytecode	-	6.07	-	-	writes it, never reads — pure inline path. 26x apart
+2026-07-31	13f68233d	4	probe-array-read+write	v2-bytecode	-	290.4	-	-	arr.get-poisons-loop theory: NOT supported
+2026-07-31	13f68233d	4	probe-array-write-only	v2-bytecode	-	401.2	-	-	write-only is SLOWER — asymmetry runs the wrong way
