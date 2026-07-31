@@ -7,6 +7,28 @@ grepping for status.
 
 Newest first.
 
+## f-set-empty-has-no-runtime-receiver — `Set.empty` must keep delegating, not lower
+<!-- status: open
+     lane: native
+     area: front
+     gate: none -->
+
+**Found 2026-07-31** while fixing `f-does-not-know-Set`, and recorded so that fix is not "completed"
+into a regression.
+
+`Set` is absent from `isCollComp` in `specs/v2.2-p6.5-fsub.ssc` DELIBERATELY. That table drives the
+select path (`selRecv` -> `methodRecv`), which emits a receiver `(ctor Set)`. The v2 runtime has no
+notion of `Set` — zero occurrences in `Runtime.scala` — so `Set.empty` lowered through it produces NO
+OUTPUT, where the default front prints `List()`.
+
+Adding `Set` there trades a correct answer for a silently wrong one: today F declines `Set.empty`, the
+runner delegates, and the result is right. That is strictly better than lowering it wrongly, and the
+table is exactly the kind of "every type except one" list somebody will helpfully fill in.
+
+Closing this properly means giving the runtime a `Set` receiver, or mapping `(ctor Set)` onto the list
+one — not editing the table. Until then the omission IS the fix, and the reason is written at the call
+site.
+
 ## v2-getorelse-two-arg-falls-into-option-helper — `Map(...).getOrElse(k, d)` dies unless the receiver is a bare variable
 <!-- status: open
      lane: native
@@ -358,8 +380,9 @@ and 0 stdout divergences. A/B: stashed, F declines once; restored, zero.
 Taken while the file was held by the live claim `f-operator-ext-param-unbound`, on the owner's
 explicit instruction, announced in the room first with the exact lines touched.
 
-## f-does-not-know-Set — `Set(1, 2)` and `case _: Set[?]` fail to lower on F
-<!-- status: open
+## f-does-not-know-Set — `Set(1, 2)` fails to lower on F (the CONSTRUCTOR, not the pattern)
+<!-- status: fixed
+     fixed-in: ea23bd495b321cabd7bcab237bb058e437d22adc
      lane: native
      area: front
      gate: .github/workflows/f4-front-swap.yml -->
@@ -372,7 +395,25 @@ correct output, only the `frc` column shows it.
 matcher knew `List`, `Vector`, `Array`, `Option` and `Map` and not `Set`, so `case _: Set[?]` fell
 through. That was closed for v1; F never had it.
 
-NOT INVESTIGATED FURTHER: the fix is in `specs/v2.2-p6.5-fsub.ssc`, held by another live claim.
+CORRECTION to this entry as first written: the pattern arm was never the problem. Probed separately,
+`case _: Set[?]` lowered fine on F while `Set(1, 2)`, `Set()` and `Set.empty` all failed. The defect
+is the CONSTRUCTOR.
+
+MEASURED before writing code, because the right answer was not obvious: the v2 runtime has no `SetV`
+(zero occurrences in `Runtime.scala`) and the default front lowers `Set` to a plain list with no
+deduplication — `Set(3,1,2)` prints `List(3, 1, 2)`. So F must behave exactly like `List`. Fixed with
+one arm in `parseCtorArgs`, a pure syntactic rewrite needing nothing from the runtime.
+
+THE HALF THAT WAS REVERTED is the useful part. `Set` was missing from TWO tables — the call path
+(`parseCtorArgs`) and the select path (`isCollComp` -> `selRecv` -> `methodRecv`). Filling both looked
+obviously right; the differential caught it. `Set.empty` then produced NO OUTPUT where the default
+front prints `List()`, because `methodRecv` emits a receiver `(ctor Set)` the runtime has never heard
+of. The "complete" fix turned "F declines, delegates, answer correct" into "F lowers it and the answer
+is silently wrong". See `f-set-empty-has-no-runtime-receiver`.
+
+Verified: `Set(1,2) Set() Set.empty Set(3,1,2).toList Set(1,2).contains(2) Set(1,2).size` all equal
+the default front; `List`/`Map`/`Vector` unchanged; the conformance case stops declining and prints
+`list map list other` identically. A/B: stashed = 1 decline, restored = 0.
 
 ## f-front-coverage-census-0731 — F's hole is 42 files, and half of it is three names
 <!-- status: open
