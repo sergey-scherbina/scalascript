@@ -10,6 +10,14 @@ Anything not being worked on belongs in `scripts/BACKLOG.md`, not here — a que
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [~] smoke-budget-drift — the suite's headroom halved; find what grew before the push verdict
+      dies of its own budget again. Four green runs measured 358.3 / 269.6 / 318.3 / 359.8 s
+      against a 420 s cap, where the same suite ran 194-227 s a day earlier. One of those was
+      within 60 s of failing WITH EVERY CHECK GREEN — which is exactly the mode that made the
+      push path useless before this suite existed. Read the per-check costs between a fast run
+      and a slow one; then make the grown check faster or move it off the push path. NOT raise
+      the number: the file's own rule is that the budget is the thing it protects.
+
 - [x] **corpus-breadth-slice Bloop-server timeout — fixed and MEASURED closed** (1bd6b0984).
   `--server=false` on the parent scala-cli in both corpus checks and in the lanes gate: the breadth
   check has no JVM lane, so the build server was pure overhead and, on a 2-core runner, a coin flip

@@ -7,6 +7,49 @@ in the same commit as the claim. Layout: `specs/work-tracking-layout.md`.
 Sections below were carried over whole from the flat root `SPRINT.md`/`BACKLOG.md`,
 verbatim, on 2026-07-30.
 
+## std-os-does-not-resolve-on-js-or-jvm — two lanes have no environment surface at all
+<!-- status: open
+     lane: multi
+     area: runtime
+     kind: feature
+     gate: none -->
+
+**Measured 2026-07-31 while fixing `std-has-no-stdin-primitive`.** It is not `readLine` that is
+missing on those lanes — it is the whole module. `envOrElse` from `std/os.ssc`:
+
+```
+int   -> present          jvm -> value envOrElse is not a member of object std.os
+v2    -> present          js  -> not callable: ()
+native-> present
+```
+
+So `env` · `args` · `cwd` · `pathJoin` · `platform` · `exit` — the entire environment surface — are
+unavailable to a program on `js` and `jvm`, while `os.ssc`'s own doc block promises "JVM: `System`…;
+Node: `process`, `node:path`, `node:os`". This is the next thing the reporter of
+[#76](https://github.com/sergey-scherbina/scalascript/issues/76) walks into, and the reason
+`std-os-readline` gates only `[int, v2]`.
+
+First question for whoever takes it, because it decides the size: does the module fail to RESOLVE
+(an import/registration problem, one fix for all 18 functions) or is each intrinsic simply
+unregistered on those backends (eighteen fixes)? The jvm error — "not a member of object std.os" —
+suggests the object is emitted but empty, which points at the first.
+
+## bugs-index-fixed-in-and-the-shallow-clone — decide what `fixed-in` must prove
+<!-- status: open
+     lane: apparatus
+     area: build
+     kind: apparatus
+     gate: none -->
+
+`tests/e2e/bugs-index-gate.sh:99` asks `git cat-file -e <sha>^{commit}` — resolvability, which is
+true for any object in the LOCAL store including one a rebase orphaned. Reachability from
+`origin/main` is the property that matters, and it is NOT a one-line switch: CI clones at
+`fetch-depth: 1`, where almost nothing is reachable and the check would fail on every honest entry.
+
+The decision, not the code, is the work: fetch enough history to answer, or answer a weaker question
+deliberately and say so in the gate's header. Detail and the incident that found it are in `BUGS.md`
+`bugs-index-fixed-in-checks-resolvable-not-reachable`.
+
 ## ssc-tools-stdin-belongs-to-the-program — give sops its own channel, stop taking stdin
 <!-- status: open
      lane: apparatus
