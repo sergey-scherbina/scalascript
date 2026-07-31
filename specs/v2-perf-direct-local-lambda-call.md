@@ -126,6 +126,43 @@ allocates a *new* slot, so the map key changes with it.
 call into an unrelated method body. That is silent miscompilation, not a crash. Hence C-3's
 fail-fast and the gate below.
 
+## Attempt 1 — IMPLEMENTED, INERT, REVERTED (2026-07-31)
+
+The change above was written exactly as specced (Ctx map keyed by JVM slot, `Lam` arm publishing the
+minted method, pure-`Let` arm recording it, a `!tail` `App(Local i)` arm, `Emit.closEnv` fail-fast)
+and built cleanly — 0 errors. **The arm never fires.**
+
+Proven the way this spec demands, before any measurement: `Emit.closEnv` was replaced with
+`sys.error("PROBE")` and the toolchain rebuilt. Neither shape dies —
+
+```
+val f = (x: Int) => 0L ; while … do sum = sum + f(i)     → runs, no error
+val f = (x: Int) => 0L ; f(1) + f(2)                     → runs, no error   ← same method as the Let
+```
+
+**That is the value of the rule.** Had it been measured instead, the result would have been "no
+gain", and the reading would have been "the megamorphic theory is wrong" — a third wrong conclusion
+on this task, and this time an expensive one, since it would have condemned the correct theory.
+
+**Two candidates ruled out while diagnosing:**
+- `mayOp(Term.Lam)` is **false** (`JvmByteGen.scala:402`), so a `Let` with a `Lam` right-hand side
+  really does take the pure arm that was patched — not the effectful one;
+- the call being in a nested method (the `while` body) is not the whole story either: the
+  same-method probe `f(1) + f(2)` does not fire the arm.
+
+**What is left to check, cheapest first:**
+1. **Does `val f = <lambda>` lower to `Let(List(Lam), body)` at all?** F may emit `LetRec` for a
+   local binding so it can be recursive — in which case `localTailTargets` **already holds the
+   entry**, and the fix is a non-tail arm reading that existing map rather than a new one. This is
+   both the most likely and by far the cheapest outcome, so test it first.
+2. If it is a `Let`, dump the Core IR for the probe and check whether the callee is really
+   `Term.Local` — the front may be emitting something else at the call site.
+
+**Get the IR before the next build.** Two build cycles were spent on a guard that was never
+entered; a single IR dump would have shown it. `ssc info` is not the dumper — the bench harness's
+`v2CoreIr()` uses `ssc.Writer.program(compiled.program)`, and `/tmp/ssc-x1.jar` (a `v2/src`
+assembly) can run IR directly.
+
 ## Verification — in this order
 
 1. **Prove the arm is LIVE before measuring.** Rename the emitted target to a nonexistent method:
