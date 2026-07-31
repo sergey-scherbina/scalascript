@@ -1,4 +1,5 @@
-# generation: 679
+# generation: 680
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
 v2-annotated-field-derives-arity	claude-code	2026-07-31T13:54:33Z	v2-annotated-field-derives-arity	v2/lib/ssc1-lower.ssc0 v2/BUGS.md tests/e2e/v2-annotated-field-derives.sh tests/conformance/corpus-baseline.tsv tests/conformance/contract-roster.tsv
+c2-collection-attribution	claude-code	2026-07-31T13:54:46Z	C-2-attribute-collection-cost	file:v1/runtime/backend/interpreter-bench/src/main/scala/scalascript/bench/V2CollectionBench.scala file:v2/SPRINT.md

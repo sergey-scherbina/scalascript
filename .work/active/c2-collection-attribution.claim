@@ -1,0 +1,11 @@
+slug: c2-collection-attribution
+branch: feature/c2-collection-attribution
+agent: claude-code
+started: 2026-07-31T13:54:46Z
+heartbeat: 2026-07-31T13:54:46Z
+status: claimed-before-planning
+items: C-2-attribute-collection-cost
+paths: file:v1/runtime/backend/interpreter-bench/src/main/scala/scalascript/bench/V2CollectionBench.scala file:v2/SPRINT.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
