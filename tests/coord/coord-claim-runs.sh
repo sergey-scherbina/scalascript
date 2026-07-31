@@ -87,6 +87,54 @@ check "pushed to origin" \
 un_out=$(SSC_AGENT_ID=labtest bash "$TOOL" wanted-slug \
            --items I1 I2 --paths "file:v2/kernel.ssc" 2>&1) && un_rc=0 || un_rc=$?
 
+# ── a REFUSED claim must leave the shared checkout exactly as it found it ─────
+#
+# The failure this pins, measured 2026-07-31: when the push is refused, `coord-claim` used to keep
+# its commit. In the SHARED main checkout that commit outlives the agent who made it — the next one
+# to `git push origin main` either carries a stranger's claim onto main or is refused for an overlap
+# that is not theirs. Four occurrences in two days. The tool printed "reset this claim and redo it"
+# as advice, and advice is not a mechanism.
+#
+# A bare origin with a pre-push hook that always refuses is the cheapest way to produce a refusal
+# that is not a race: any push fails, so what is asserted is purely the rollback.
+refuse_lab=$(mktemp -d "${TMPDIR:-/tmp}/coord-claim-refuse.XXXXXX")
+(
+  cd "$refuse_lab"
+  git init -q --bare -b main origin.git
+  git clone -q origin.git main 2>/dev/null
+  cd main
+  git symbolic-ref HEAD refs/heads/main
+  mkdir -p .work/active
+  printf '# generation: 1\n#slug\tagent\tstarted\titems\tpaths\n' > .work/active/LEDGER.tsv
+  : > marker.txt
+  git add -A; git -c user.email=t@e -c user.name=t commit -qm init --no-verify >/dev/null
+  git push -q origin main
+  # The refusing hook goes on AFTER the seed push. Installing it first meant `origin/main` never
+  # existed, so `coord-claim` died at `git merge --ff-only origin/main` and never reached the commit
+  # — and every rollback assertion below then passed against the OLD tool, for the wrong reason.
+  # Caught by running this file against the pre-fix `coord-claim` and getting zero failures.
+  cat > ../origin.git/hooks/pre-receive <<'HOOK'
+#!/bin/sh
+echo "refused by the lab hook" >&2
+exit 1
+HOOK
+  chmod +x ../origin.git/hooks/pre-receive
+) >/dev/null 2>&1
+cd "$refuse_lab/main" 2>/dev/null || true
+# An UNRELATED uncommitted change: the rollback must not touch it. A `reset --hard` would.
+printf 'work in progress\n' > marker.txt
+before_head="$(git rev-parse HEAD)"
+SSC_AGENT_ID=labtest bash "$TOOL" refused-slug --items R1 --paths "file:marker.txt" >/dev/null 2>&1 || true
+check "a refused claim leaves no commit behind" "$before_head" "$(git rev-parse HEAD)"
+check "a refused claim leaves no claim file" \
+      no "$([ -f .work/active/refused-slug.claim ] && echo yes || echo no)"
+check "a refused claim leaves no ledger row" \
+      0 "$(grep -c '^refused-slug\t' .work/active/LEDGER.tsv || true)"
+check "the rollback does NOT touch unrelated uncommitted work" \
+      "work in progress" "$(cat marker.txt)"
+cd "$LAB/main"
+rm -rf "$refuse_lab"
+
 check "an unquoted multi-value --items is REFUSED, not silently renamed" \
       refused "$([ "$un_rc" -ne 0 ] && echo refused || echo accepted)"
 check "it did NOT create a claim named after the stray word" \

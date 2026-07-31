@@ -161,11 +161,27 @@ EOF
 
 Deliberately NOT auto-rebasing: someone else changed the queue, so re-read it before deciding.
   git fetch origin && git ls-tree origin/main .work/active/
-Then either pick different work, or reset this claim and redo it:
-  git reset --hard origin/main
+The local commit has ALREADY been rolled back, so this checkout is clean — just pick different
+work, or re-run this command once the queue looks the way you expect.
 
 $(sed -n '1,6p' "$push_log")
 EOF
+  fi
+  # UNDO OUR OWN COMMIT. Leaving it behind is how a refused claim becomes everyone else's problem:
+  # the commit stays in the SHARED main checkout, and the next agent to `git push origin main` from
+  # here either drags a stranger's claim onto main or — more often — is refused for an overlap that
+  # has nothing to do with their work. Measured 2026-07-31: FOUR occurrences in two days, two of them
+  # blocking me, and the tool has been printing "reset this claim and redo it" as ADVICE the whole
+  # time. Advice that nobody follows is not a mechanism.
+  #
+  # The undo is targeted, not `reset --hard origin/main`: this script does not require a clean tree,
+  # so a hard reset would delete work that has nothing to do with the claim. It removes exactly what
+  # was committed — the new claim file, and our edit to the ledger — and leaves everything else.
+  if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+    git reset -q --mixed HEAD~1
+    rm -f "$claim"
+    git checkout -q -- "$ledger" 2>/dev/null || true
+    echo "  (rolled back the local claim commit — the shared checkout is clean again)" >&2
   fi
   rm -f "$push_log"
   exit 1
