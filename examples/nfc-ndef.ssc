@@ -3,7 +3,28 @@
 name: nfc-ndef
 version: 0.1.0
 description: NFC NDEF capability and record-constructor demo via std.nfc
+backends: [int]
 ---
+
+<!--
+`backends: [int]` — owner's decision, 2026-07-31. NOT because the other lanes are broken:
+
+  js  declares `Unsupported(NfcNdef,js)` — an explicit capability signal, verified by running it.
+  v2  runs the whole example correctly since NFC joined the standard graph, and differs on exactly
+      ONE line: it prints `NFC platform:  jvm-host` where the interpreter prints `interpreter`.
+      Both constants are hard-coded AND asserted by their own unit tests
+      (`NfcIntrinsics.scala:100`, `NfcNativePlugin.scala:68`), so this case can never match an
+      int-derived golden while it prints `caps.platform`.
+
+The divergence is REAL and does not disappear with this declaration — it is recorded in
+`v2/BUGS.md` (`nfc-platform-string-differs-by-design-so-the-row-cannot-go-green`) and pinned by
+`tests/e2e/v21-standard-nfc-smoke.sh`, which runs this example on the native lane, checks every
+other line against the interpreter, and fails if either side changes its platform string. Removing
+this case from the v2 column does not remove that coverage.
+
+⚠️ FLOW form on purpose: `contract.sc:619` accepts `backends: [int]` and SILENTLY IGNORES the block
+form, which would look like a declaration and gate nothing.
+-->
 
 # nfc-ndef - std.nfc demo
 
