@@ -115,3 +115,11 @@ date	sha	load	workload	lane	ref_lane	ms	ref_ms	ratio	note
 # the same lcell; the ONLY difference is one cell.get in the expression.
 2026-07-31	d16da387a	5	probe-cellget-absent	v2-bytecode	-	1.98	-	-	boxed var not read in the loop
 2026-07-31	d16da387a	5	probe-cellget-present	v2-bytecode	-	45.7	-	-	read once per iteration — 23x, cleanly isolated
+#
+# 2026-07-31 chain emitCapture HOIST (candidate 2 for v2-perf-cell-get-forces-effect-chain):
+# implemented, conformance-effects 6/6, MEASURED, REVERTED. var-expr-init, alternating, jar-swap only:
+#   r1   74.4 ->  79.4    -6.7%
+#   r2  121.9 ->  80.2   +34.2%
+#   r3   80.6 ->  95.3   -18.2%
+# Medians 80.6 vs 80.2 — NO EFFECT. So the per-iteration frame allocation is NOT the dominant part
+# of the 23x; the cost is the cell.get call itself. Only removing the cell.get (VC-2) can move it.

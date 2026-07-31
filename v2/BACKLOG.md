@@ -173,6 +173,27 @@ the literal-init variant, the largest single class in the slow run.
 unhandled effect Op was stored, reading it yields an Op, and auto-threading must propagate it.
 `lcell.get` cannot hold one. The conservatism is correct; its blast radius is what hurts.
 
+**⚠ CANDIDATE 2 IS DEAD — measured 2026-07-31, and it narrows the whole entry.**
+
+The `emitCapture` hoist was implemented (a `While` arm that materialises the chain's frame ONCE
+before the loop instead of per iteration), passed conformance-effects 6/6, and measured:
+
+    r1   74.4 ->  79.4    -6.7%
+    r2  121.9 ->  80.2   +34.2%
+    r3   80.6 ->  95.3   -18.2%
+
+Medians **80.6 vs 80.2 — no effect**. Reverted.
+
+**What that buys, which is the point of running it:** the per-iteration frame allocation is **not**
+the dominant part of the 23×. `Value[]` being 43% of ALLOCATION samples did not translate into
+time — the third instance on this project of a fat allocation/profile frame not paying out by its
+weight. So the cost is the `cell.get` **call** itself: a `prim1` CHM lookup, a boxed return, and
+the chain's per-statement invokestatic + isOp checks.
+
+**Consequence: only removing the `cell.get` can move this**, i.e. candidate 1 (route the var into
+an `lcell`, VC-2 in `specs/v2.2-p6.5-fsub.ssc`). Candidate 3 (flow analysis) would also only
+re-route the same call. The free backend path is exhausted; the 2-line front change is the lever.
+
 **Three candidate fixes, in increasing risk:**
 1. **Get the var into an `lcell`** — `v2-perf-unboxed-cell-only-for-literal-init`, VC-2. Cheapest,
    safest, and it dissolves this entry for the common case. **Blocked**: it edits
