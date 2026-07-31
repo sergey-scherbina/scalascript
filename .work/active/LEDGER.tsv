@@ -1,4 +1,4 @@
-# generation: 683
+# generation: 684
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
-v2-annotated-field-derives-arity	claude-code	2026-07-31T13:54:33Z	v2-annotated-field-derives-arity	v2/lib/ssc1-lower.ssc0 v2/BUGS.md tests/e2e/v2-annotated-field-derives.sh tests/conformance/corpus-baseline.tsv tests/conformance/contract-roster.tsv
+v2-annotated-field-derives-arity	claude-code	2026-07-31T13:54:33Z	v2-annotated-field-derives-arity	v2/lib/ssc1-front.ssc0 v2/lib/ssc1-lower.ssc0 v2/BUGS.md tests/e2e/v2-annotated-field-derives.sh tests/conformance/corpus-baseline.tsv tests/conformance/contract-roster.tsv examples/_i.ssc
