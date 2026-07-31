@@ -620,9 +620,7 @@ private[markdown] object MarkdownInlines:
     if start + 1 >= n then return None
     val c1 = content.charAt(start + 1)
     if c1 == '!' then
-      if content.startsWith("<!--", start) then
-        val end = content.indexOf("-->", start + 4)
-        if end >= 0 then Some(end + 3) else None
+      if content.startsWith("<!--", start) then scanComment(content, start)
       else if content.startsWith("<![CDATA[", start) then
         val end = content.indexOf("]]>", start + 9)
         if end >= 0 then Some(end + 3) else None
@@ -632,17 +630,77 @@ private[markdown] object MarkdownInlines:
     else if c1 == '?' then
       val end = content.indexOf("?>", start + 2)
       if end >= 0 then Some(end + 2) else None
-    else if c1 == '/' then
-      // closing tag </name>
-      if start + 2 < n && MdChars.isAsciiLetter(content.charAt(start + 2)) then
-        val end = content.indexOf('>', start + 2)
-        if end >= 0 && !content.substring(start + 2, end).contains('<') then Some(end + 1) else None
-      else None
-    else if MdChars.isAsciiLetter(c1) then
-      // open tag <name attrs...>; no '<' inside
-      val end = content.indexOf('>', start + 1)
-      if end >= 0 && !content.substring(start + 1, end).contains('<') then Some(end + 1) else None
+    else if c1 == '/' then scanClosingTag(content, start)
+    else if MdChars.isAsciiLetter(c1) then scanOpenTag(content, start)
     else None
+
+  /** CommonMark 0.31.2 comments: `<!-->` and `<!--->` are complete on their own,
+    * and otherwise the text runs to the first `-->`. The old scan searched for
+    * `-->` from index 4, so `<!-->` never matched and the trailing `-->` of
+    * `foo <!--> foo -->` leaked out as raw HTML. */
+  private def scanComment(content: String, start: Int): Option[Int] =
+    if content.startsWith("<!-->", start) then Some(start + 5)
+    else if content.startsWith("<!--->", start) then Some(start + 6)
+    else
+      val end = content.indexOf("-->", start + 4)
+      if end >= 0 then Some(end + 3) else None
+
+  /** `</tagname whitespace? >` — nothing else may appear, so `</a href="foo">`
+    * is TEXT, not a closing tag. */
+  private def scanClosingTag(content: String, start: Int): Option[Int] =
+    val n = content.length
+    var i = start + 2
+    if i >= n || !MdChars.isAsciiLetter(content.charAt(i)) then return None
+    while i < n && (MdChars.isAsciiAlnum(content.charAt(i)) || content.charAt(i) == '-') do i += 1
+    while i < n && MdChars.isUnicodeWhitespace(content.charAt(i)) do i += 1
+    if i < n && content.charAt(i) == '>' then Some(i + 1) else None
+
+  /** CommonMark 6.6's open-tag grammar, which the old scan did not have at all —
+    * it took everything up to the next `>` that held no `<`. That accepted
+    * `<a h*#ref="hi">`, `<a href='bar'title=title>` and `<a href="\"">` as raw
+    * HTML and passed them through unescaped: a MALFORMED tag is text, and
+    * emitting it as HTML is the difference between showing a user their typo and
+    * injecting it into the document. */
+  private def scanOpenTag(content: String, start: Int): Option[Int] =
+    val n = content.length
+    var i = start + 1
+    if i >= n || !MdChars.isAsciiLetter(content.charAt(i)) then return None
+    while i < n && (MdChars.isAsciiAlnum(content.charAt(i)) || content.charAt(i) == '-') do i += 1
+    var ok = true
+    var done = false
+    while !done && ok do
+      val wsStart = i
+      while i < n && MdChars.isUnicodeWhitespace(content.charAt(i)) do i += 1
+      if i < n && content.charAt(i) == '>' then { done = true }
+      else if i + 1 < n && content.charAt(i) == '/' && content.charAt(i + 1) == '>' then { i += 1; done = true }
+      else if i == wsStart then ok = false // an attribute must be preceded by whitespace
+      else
+        // attribute name
+        val nameStart = i
+        if i < n && (MdChars.isAsciiLetter(content.charAt(i)) || content.charAt(i) == '_' || content.charAt(i) == ':') then
+          i += 1
+          while i < n && (MdChars.isAsciiAlnum(content.charAt(i)) || "_.:-".indexOf(content.charAt(i)) >= 0) do i += 1
+        if i == nameStart then ok = false
+        else
+          val afterName = i
+          while i < n && MdChars.isUnicodeWhitespace(content.charAt(i)) do i += 1
+          if i < n && content.charAt(i) == '=' then
+            i += 1
+            while i < n && MdChars.isUnicodeWhitespace(content.charAt(i)) do i += 1
+            if i >= n then ok = false
+            else
+              val q = content.charAt(i)
+              if q == '\'' || q == '"' then
+                val close = content.indexOf(q.toInt, i + 1)
+                if close < 0 then ok = false else i = close + 1
+              else
+                val valStart = i
+                while i < n && !MdChars.isUnicodeWhitespace(content.charAt(i)) &&
+                  "\"'=<>`".indexOf(content.charAt(i)) < 0 do i += 1
+                if i == valStart then ok = false
+          else i = afterName // valueless attribute
+      if i >= n then ok = false
+    if ok && done && i < n && content.charAt(i) == '>' then Some(i + 1) else None
 
   private def scanEntity(content: String, start: Int): Option[Int] =
     val n = content.length
