@@ -1,4 +1,3 @@
-# generation: 573
+# generation: 574
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
-option-type-test	claude-code	2026-07-31T05:55:33Z	type-ascription-option-missing-arm	file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGenCpsCodegen.scala file:v2/src/Runtime.scala file:specs/type-ascription-matrix.md file:tests/conformance/type-ascription-option.ssc file:tests/conformance/expected/type-ascription-option.txt file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv file:v1/runtime/backend/js/BUGS.md
