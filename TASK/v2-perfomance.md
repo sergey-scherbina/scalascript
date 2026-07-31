@@ -27,12 +27,12 @@ generated-code size.
 
 | | why |
 |---|---|
-| **0. Decompose the 10.5 ns** of call overhead | it is measured in total and unmeasured in parts, and it sizes both A and B. Cheap. |
-| **0b. `v2-perf-generated-method-size`** | `PrintInlining` already says `already compiled into a big method` — if C2 has given up on the generated CALLER, A and B both underdeliver. Check before trusting either estimate. |
-| **1. `v2-perf-calling-convention` (B)** | unconditional, mechanical, no hypothesis to validate, and it helps EVERY call — including `foreach`'s 7.1 ns and the ones A would fix |
-| **2. `v2-perf-callsite-inline-cache` (A)** | larger per-site win but conditional: the A-0 census decides whether it is worth anything at all |
-| parallel | `v2-perf-vector-is-a-cons-chain` — independent, different subsystem |
-| after | `v2-perf-array-update-unanalysed` — no theory yet, needs a first probe |
+| **0. `v2-perf-unboxed-cell-only-for-literal-init`** | **18×, measured 2026-07-31, and it outranks everything below.** The unboxed cell tier fires only for a LITERAL initialiser; `var s = <expression>` is 104.7 ns/iter against 5.67. Small fix, biggest effect, and it is the third instance of one pattern — a fast tier whose entry test is too narrow to reach real code. |
+| 0b. ~~`v2-perf-generated-method-size`~~ | **REFUTED same day.** Generated methods are 41–60 bytes, far under `FreqInlineSize`. The `already compiled into a big method` lines were the COMPILE phase (Scala collections, `ClassTag`), not the generated code. A profile over `bin/ssc run` covers compilation *and* execution. |
+| **1. `v2-perf-calling-convention` (B)** | unconditional, mechanical, helps EVERY call including `foreach`'s 7.1 ns |
+| **2. `v2-perf-callsite-inline-cache` (A)** | conditional: the A-0 census decides whether it is worth anything |
+| parallel | `v2-perf-vector-is-a-cons-chain` — independent subsystem |
+| after | `v2-perf-array-update-unanalysed` — no theory yet |
 
 **Why B before A, plainly:** A is a bet that hot sites are monomorphic, and it needs a core
 representation change to even test. B is not a bet — the `ANEWARRAY` is in the emitter, on every
@@ -58,8 +58,8 @@ refuted list, the measurement rules — is hand-written and never touched by the
 | `v2-perf-array-update-unanalysed` | `v2/BACKLOG.md` | open | `bench/corpus/array-update.ssc` |
 | `v2-perf-calling-convention` | `v2/BACKLOG.md` | open | `bench/corpus/lambda-call.ssc` |
 | `v2-perf-callsite-inline-cache` | `v2/BACKLOG.md` | open | `bench/corpus/lambda-call.ssc` |
-| `v2-perf-generated-method-size` | `v2/BACKLOG.md` | open | — |
 | `v2-perf-prim-dispatch` | `v2/BACKLOG.md` | open | — |
+| `v2-perf-unboxed-cell-only-for-literal-init` | `v2/BACKLOG.md` | open | — |
 | `v2-perf-vector-is-a-cons-chain` | `v2/BACKLOG.md` | open | `bench/corpus/vector-index.ssc` |
 | `v2-runtime-perf-vs-v1` | `v2/BACKLOG.md` | open | `tests/e2e/v2-jit-size.sh` |
 

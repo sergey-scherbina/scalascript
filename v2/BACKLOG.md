@@ -128,6 +128,54 @@ Recorded because the refuted attempt is the expensive part: it looks obviously r
 failure only shows at a call site, not at the definition. Routed here rather than to a BUGS board
 because F has never supported this — it is missing coverage, not a regression.
 
+## v2-perf-unboxed-cell-only-for-literal-init — 18x, and the corpus systematically measures the good case (2026-07-31)
+<!-- status: open
+     lane: native
+     area: front
+     kind: perf
+     gate: none -->
+
+**The unboxed `lcell`/`dcell` tier fires ONLY when the var's initialiser is a syntactic literal.**
+A `var` initialised from a parameter, a call, or any expression falls to the boxed generic cell and
+pays for it on every read and every write.
+
+Measured 2026-07-31 — the same loop, the same arithmetic, differing in nothing but the initialiser:
+
+| | v2 ns/iter | ssc ns/iter |
+|---|---|---|
+| `var s = 1L` | **5.67** | 4.28 |
+| `var s = (seed % 2147483646L) + 1L` | **104.7** | 3.86 |
+
+**18×**, and v1 does not care which it is.
+
+**Cause, in both fronts:** `isIntLitExpr` tests `#seq(etag, "int")`
+(`v2/lib/ssc1-lower.ssc0`), and F tests `isIntLitCode(s) = startsW(s, "(lit (int ")`
+(`specs/v2.2-p6.5-fsub.ssc:1266`). Literal only. `isFloatLitExpr` / `isFloatLitCode`, added
+2026-07-30 for `v2-perf-1`, inherit exactly the same limitation.
+
+**Why nobody saw it:** every loop in the bench corpus writes `var i = 0` and `var sum = 0L` —
+literals. **The corpus measures the good case systematically**, so this never appeared in any
+ratio. It surfaced only because an anti-fold probe had to initialise its var from the `seed`
+parameter.
+
+**The fix, and it is small:** widen the test from "is a literal" to "is statically known to be
+Int/Long (or Double)". F already emits TYPED IR — `(prim i.add …)`, `(prim i.mul …)`, `(prim f.…)` —
+so `startsW(s, "(prim i.")` covers arithmetic results, and a parameter's type is known where the
+signature is. **Do both fronts** (`v2-perf-1` is the precedent: F emits its own cells, the legacy
+front lowers through `ssc1-lower.ssc0`).
+
+**Expected size: toward the literal case, ~18× on affected loops.** **Disqualifying evidence:** if
+widening the test does not move a probe whose var is parameter-initialised, the cell is not the cost
+and the boxing is elsewhere.
+
+⚠ **Add a corpus row for the expression-initialised var FIRST.** Without it the win is invisible and
+unprotected, and the corpus keeps measuring only the case that already works — which is how this
+hid.
+
+**This outranks `v2-perf-calling-convention` and `v2-perf-callsite-inline-cache`:** bigger measured
+effect (18× vs an estimated 4×), smaller and better-understood change, and it is the third instance
+of one pattern — *a fast tier exists and its entry test is too narrow to reach real code.*
+
 ## v2-perf-calling-convention — every call allocates an argument array; even the fastest one costs 11.2 ns (2026-07-31)
 <!-- status: open
      lane: native
@@ -185,12 +233,27 @@ site pays relink cost forever and ends up slower than today.
 there and is a rule, not a detail: OpAnf A-normalises calls into an effectful `Let` that materialises
 the frame, so no generator-level pattern match on "the lambda is right here" can ever fire.
 
-## v2-perf-generated-method-size — C2 refuses to inline because the GENERATED caller is already big (2026-07-31)
-<!-- status: open
+## v2-perf-generated-method-size — REFUTED the same day it was filed (2026-07-31)
+<!-- status: wontfix
      lane: native
      area: codegen
      kind: perf
      gate: none -->
+
+**⛔ REFUTED. Do not investigate.** Filed on a misread of `-XX:+PrintInlining` and checked within
+the hour. The generated methods are **small**: `-XX:+PrintCompilation` on the same workload reports
+`ssc.gen.Entry::lam$74` at **60 bytes**, `lam$127` at 44, `lam$46` at 41 — far under
+`FreqInlineSize` (325). There is no generated-method-size problem here.
+
+The `already compiled into a big method` lines were about the **compile phase**: their callers are
+`scala.collection.IterableOnceOps::toArray`, `ClassTag$cache$::computeTag`, `Reference::get` — F
+compiling the program, not the generated program running. **A profile taken over `bin/ssc run`
+covers compilation AND execution; attributing its lines to the generated code is the mistake.**
+
+Genuine generated-code size problems are tracked by `scljet-jdbc-facade-bytecode-class-too-large`,
+which is about the 64 KB class limit and is real.
+
+**Original report (superseded 2026-07-31):**
 
 Found while decomposing the call cost. `-XX:+PrintInlining` on a hot def-call loop repeats:
 
