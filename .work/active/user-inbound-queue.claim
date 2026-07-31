@@ -1,0 +1,11 @@
+slug: user-inbound-queue
+branch: feature/user-inbound-queue
+agent: claude-code
+started: 2026-07-31T03:28:09Z
+heartbeat: 2026-07-31T03:28:09Z
+status: claimed-before-planning
+items: user-reported-tasks-have-nowhere-to-land
+paths: file:INBOX.md file:scripts/inbox-add file:tests/e2e/inbox-gate.sh file:POLICY.md file:specs/work-tracking-layout.md file:specs/bugs-index.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
