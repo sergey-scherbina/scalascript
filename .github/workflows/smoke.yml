@@ -28,22 +28,37 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# `cancel-in-progress: false`, and the first version of this file got it wrong.
+# NO CONCURRENCY GROUP. Every push gets its own run and reaches a verdict.
 #
-# The reasoning for `true` was that the newest commit is the one whose verdict matters. MEASURED
-# immediately: the first FOUR smoke runs were all `cancelled` — 0 verdicts — because a sibling agent
-# pushed within the job's ~11 min (the launcher build is most of it) every single time. `true` only
-# ever completes a run if no push lands for the whole job, and under several parallel agents that gap
-# does not occur.
+# This file has now held all three positions, and each was right for the job it had at the time:
 #
-# `false` is what `ci.yml` already settled on for exactly this reason: a run that has STARTED is never
-# killed, so it reaches a verdict, and what GitHub replaces is the previously PENDING run. The queue
-# still collapses to at most one running plus one pending per ref, so nothing piles up — but some
-# commits now get an answer instead of none. That is the same trade `ci.yml` documents, and the
-# evidence for it here was four cancelled runs in a row.
-concurrency:
-  group: smoke-${{ github.ref }}
-  cancel-in-progress: false
+#   cancel-in-progress: true   the first cut. WRONG: the first four runs were all `cancelled`,
+#                              0 verdicts, because a sibling agent pushed inside the job's ~11 min
+#                              every time. `true` completes a run only if no push lands for the whole
+#                              job, and with several parallel agents that gap does not occur.
+#   cancel-in-progress: false  a started run is never killed, so it finishes; GitHub replaces the
+#                              PENDING one instead. MEASURED over 20 runs: 7 success, 12 cancelled —
+#                              37 % of commits got a verdict. Better than the 0 in 100 it replaced,
+#                              and still not what a per-push gate is for.
+#   no group at all            this. MEASURED cadence on `main`: 57 commits/hour, 32 of them
+#                              `[skip ci]`, so ~25 runs created per hour against a job that completes
+#                              ~7. The queue was never the bottleneck — the single slot was.
+#
+# WHY THIS IS SAFE NOW AND WAS NOT BEFORE. `ci.yml` needs its group: it is 4+ jobs of 13-38 min, and
+# 16 simultaneous runs put ~64 concurrent jobs against the account budget, which is what made every
+# run queue for hours and then get evicted (BUGS ci-runs-cancelled-under-churn). `smoke.yml` is ONE
+# job of ~6 min, and on a launcher-cache hit it skips sbt entirely. The load it can generate is an
+# order of magnitude smaller.
+#
+# THE COST, stated plainly because it is the owner's money: ~25 runs/hour x ~6 min is roughly
+# 150 runner-minutes/hour, against ~45 before. Triple. It buys a verdict on essentially every commit
+# instead of one in three, which is the whole point of a per-push gate — a gate that answers about
+# 37 % of commits still leaves the other 63 % as "unverified" in every release claim.
+#
+# WHAT TO WATCH, and what it would mean: if smoke runs start sitting in `queued` for minutes, the
+# account's concurrent-job budget has become the limit again and the trade has stopped paying. That
+# is the signal to put a group back — with `cancel-in-progress: false`, which is the measured
+# second-best above — not to raise any timeout.
 
 jobs:
   smoke:
