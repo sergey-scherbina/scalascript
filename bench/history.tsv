@@ -79,3 +79,9 @@ date	sha	load	workload	lane	ref_lane	ms	ref_ms	ratio	note
 2026-07-30	a0de9b43d	18	probe-defcall	v2-bytecode	-	1.12	-	-	11.2 ns/call — top-level def, INVOKESTATIC
 2026-07-30	a0de9b43d	18	probe-lambdacall	v2-bytecode	-	4.87	-	-	48.7 ns/call — local `val f = (x) => …; f(i)`
 2026-07-30	88042e175	12	lambda-call	v2-bytecode	ssc	5.03	0.0029	1734	NEW corpus row for v2-perf-6b — worst row in the corpus; the shape was previously unmeasured
+#
+# 2026-07-31 CORRECTION — the 1734x row above was DISHONEST. Its workload returned a constant, so v1
+# folded the loop entirely: 0.029 ns/iteration, a THIRD OF A CPU CYCLE. The row now uses the corpus
+# anti-fold seed idiom. Honest numbers below; ratio 36.5x, not 1734x.
+2026-07-31	65090e39f	4	lambda-call	v2-bytecode	ssc	10.7	0.293	36.5	HONEST (seed anti-fold). v1 2.9 ns/call, v2 107 ns/call
+2026-07-31	65090e39f	4	arith-loop	v2-bytecode	ssc	0.710	0.312	2.3	same session reference — v1 0.31 ns/iter, i.e. real work, not folded

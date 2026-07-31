@@ -5,24 +5,21 @@ constantly (`val f = …; f(x)`) and the one **no other corpus row contains**: e
 other higher-order workload passes its lambda as an ARGUMENT to a collection method,
 which takes a different and much faster runtime path.
 
-Measured 2026-07-30 on the v2 bytecode lane, 100k invocations each, medians of 3 rounds:
-
-| what is called | ns / call |
-|---|---|
-| closure invoked by `foreach` | 7.1 |
-| top-level `def` (`INVOKESTATIC`) | 11.2 |
-| **this shape** | **48.7** |
-
-Without this row the defect is invisible to the benchmark and any fix for it is
-unprotected against regression. See `TASK/v2-perfomance.md` v2-perf-6b.
+Anti-fold: `seed` (opaque at the call site) drives an LCG whose value is both the
+lambda's argument and part of the result, so no backend can precompute `workload`.
+**The first version of this row omitted that and was DISHONEST** — it made `f` return a
+constant, v1 folded the whole loop to nothing (0.029 ns/iteration, a third of a CPU
+cycle) and the row read 1734×. See `TASK/v2-perfomance.md` v2-perf-6b.
 
 ```scalascript
-def workload(): Long =
-  val f = (x: Int) => 0L
+def workload(seed: Long): Long =
+  var s = (seed % 2147483646L) + 1L
+  val f = (x: Long) => (x * 48271L) % 2147483647L
   var sum = 0L
   var i = 0
   while i < 100000 do
-    sum = sum + f(i)
+    s = f(s)
+    sum = sum + (s % 7L)
     i = i + 1
   sum
 ```
