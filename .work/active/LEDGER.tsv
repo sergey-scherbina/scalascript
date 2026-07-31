@@ -1,8 +1,7 @@
-# generation: 621
+# generation: 622
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
 sys-env-three-lanes	claude-code	2026-07-31T07:37:45Z	typer-defines-sys-but-no-runtime-provides-it	file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/BuiltinsRuntime.scala file:v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/core-dispatch.mjs file:v2/src/Runtime.scala file:v2/lib/ssc1-lower.ssc0 file:tests/conformance/sys-env.ssc file:tests/conformance/expected/sys-env.txt file:BUGS.md
 optional-check-group	claude-code	2026-07-31T10:24:07Z	smoke-optional-group-for-contested-checks	file:scripts/smoke-ci.ssc
-nfc-into-standard-graph	claude-code	2026-07-31T10:27:03Z	nfc-into-standard-graph	build.sbt tests/e2e/v21-explicit-nfc-provider-smoke.sh tests/e2e/v21-standard-nfc-smoke.sh tests/e2e/v21-explicit-lanes-gate.sh tests/fixtures/v21-explicit-lanes/manifest.tsv .github/workflows/ci.yml README.md docs/user-guide.md specs/v2.1-toolchain-independence.md v2/BUGS.md tests/conformance/corpus-baseline.tsv tests/conformance/contract-roster.tsv
 v2-perf-cell-widen-f	claude-code	2026-07-31T10:28:53Z	v2-perf-unboxed-cell-only-for-literal-init	file:specs/v2.2-p6.5-fsub.ssc file:bench/history.tsv file:v2/SPRINT.md file:bench/corpus/var-expr-init-int.ssc
 f-set-support	claude-code	2026-07-31T10:34:01Z	f-does-not-know-Set	file:v2/BUGS.md file:tests/conformance/type-ascription-set.ssc
