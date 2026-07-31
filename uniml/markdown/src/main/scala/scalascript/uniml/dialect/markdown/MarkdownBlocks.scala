@@ -178,8 +178,9 @@ private[markdown] final class MarkdownBlocks(
         // types 1-6 interrupt a paragraph; type 7 does not (returns None when open)
         val ht = htmlBlockType(trimmed, open == OpenLeaf.Paragraph).get
         finishParagraph(); handleHtmlBlock(lines, index, ht)
-      else if open != OpenLeaf.Paragraph && isRefDefLine(content) then
-        emitDefinition(line, content); index + 1
+      else if open != OpenLeaf.Paragraph && scanRefDef(refDefLines(lines, index, line, content), 0).isDefined then
+        // the scan owns the extent: a definition may span several lines
+        index + emitDefinition(scanRefDef(refDefLines(lines, index, line, content), 0).get)
       else if gfm && open != OpenLeaf.Paragraph && isTableStart(lines, index, content) then
         emitTable(lines, index)
       else
@@ -597,9 +598,34 @@ private[markdown] final class MarkdownBlocks(
 
     // ── link reference definitions ────────────────────────────────────────────
 
+    /** The lines a definition scan may look at, in the form the EMITTER will
+      * write them.
+      *
+      * `matchContainers` has already consumed this line's container prefix and
+      * handed back the de-prefixed content, so scanning the RAW line would emit
+      * that prefix a second time — which is exactly what happened: `- a\n- b\n\n
+      * [ref]: /url` reconstructed with four spaces instead of two, breaking the
+      * source axis. Inside a container the scan therefore sees only the single
+      * de-prefixed line; a definition SPANNING lines is offered at top level
+      * only, where no prefix has been stripped. Multi-line definitions inside a
+      * list item or block quote stay unsupported, and stay red in the corpus
+      * rather than lossy. */
+    def refDefLines(lines: Vector[MdLine], index: Int, line: MdLine, content: String): Vector[MdLine] =
+      if containers.isEmpty then lines.drop(index)
+      else Vector(MdLine(content, line.ending))
+
+    /** Forward references: `[foo]` may be used before `[foo]: /url` appears, so
+      * definitions are collected before any inline is parsed.
+      *
+      * It tracks whether a paragraph is open, because a definition CANNOT
+      * interrupt one — `Foo\n[bar]: /baz` is two lines of one paragraph. Without
+      * that, this pre-pass registered `bar` while the emitter (which does know)
+      * emitted paragraph text, and the two answers met in the output as
+      * `<a href="">bar</a>: /baz`. */
     def collectReferences(lines: Vector[MdLine]): Unit =
       var inFence = false
       var fenceChar = ' '
+      var inParagraph = false
       var i = 0
       while i < lines.size do
         val content = lines(i).content
@@ -607,42 +633,38 @@ private[markdown] final class MarkdownBlocks(
         if inFence then
           if trimmed.nonEmpty && (trimmed.forall(_ == fenceChar)) && trimmed.length >= 3 then inFence = false
         else if trimmed.startsWith("```") || trimmed.startsWith("~~~") then
-          inFence = true; fenceChar = trimmed.charAt(0)
-        else if MdChars.indentWidth(content) < 4 && trimmed.startsWith("[") then
-          parseReferenceDefinition(lines, i) match
-            case Some((label, ref, consumed)) =>
-              val norm = MarkdownInlines.normalizeLabel(label)
-              if !refs.contains(norm) && refs.size < limits.maxReferences then refs = refs + (norm -> ref)
-              i = consumed - 1
-            case None => ()
+          inFence = true; fenceChar = trimmed.charAt(0); inParagraph = false
+        else if lines(i).isBlank then inParagraph = false
+        else if !inParagraph && MdChars.indentWidth(content) < 4 && trimmed.startsWith("[") then
+          scanRefDef(lines, i) match
+            case Some(defn) =>
+              val norm = MarkdownInlines.normalizeLabel(defn.label)
+              if !refs.contains(norm) && refs.size < limits.maxReferences then
+                refs = refs + (norm -> LinkRef(defn.destination, defn.title))
+              i += defn.linesConsumed - 1
+            case None => inParagraph = true
+        else inParagraph = true
         i += 1
 
-    def emitDefinition(line: MdLine, content: String): Unit =
-      val start = MdChars.indentPrefixLength(content)
-      if start > 0 then flushPending(MdKind.Indent, content.substring(0, start), Vector.empty, Some("indent"), TokenChannel.Trivia)
-      val closeIdx = content.indexOf(']', start + 1)
-      val labelTok = content.substring(start, closeIdx + 1)
-      flushPending(MdKind.ReferenceLabel, labelTok, Vector(FrameSpec(MdBranch.Definition)), Some("label"), TokenChannel.Syntax)
-      leaf(MdKind.Colon, ":", Some("colon"), TokenChannel.Syntax)
-      val after = content.substring(closeIdx + 2)
-      var i = 0
-      while i < after.length && (after.charAt(i) == ' ' || after.charAt(i) == '\t') do i += 1
-      if i > 0 then leaf(MdKind.Indent, after.substring(0, i), Some("space"), TokenChannel.Trivia)
-      val destStart = i
-      if i < after.length && after.charAt(i) == '<' then
-        val end = after.indexOf('>', i + 1)
-        i = if end < 0 then after.length else end + 1
-      else
-        while i < after.length && after.charAt(i) != ' ' && after.charAt(i) != '\t' do i += 1
-      leaf(MdKind.Destination, after.substring(destStart, i), Some("destination"), TokenChannel.Syntax)
-      val tail = after.substring(i)
-      if tail.trim.nonEmpty then
-        val ws = tail.takeWhile(c => c == ' ' || c == '\t')
-        if ws.nonEmpty then leaf(MdKind.Indent, ws, Some("space"), TokenChannel.Trivia)
-        leaf(MdKind.Title, tail.substring(ws.length), Some("title"), TokenChannel.Syntax)
-      else if tail.nonEmpty then leaf(MdKind.Indent, tail, Some("space"), TokenChannel.Trivia)
-      if line.ending.nonEmpty then close(MdBranch.Definition, MdKind.LineBreak, line.ending, Some("trailing"), TokenChannel.Trivia)
+    /** Emits one definition from the SAME scan the pre-pass used, as a straight
+      * sequence of its slices. Because every slice is source text and their
+      * concatenation is what the scan consumed, the source axis is preserved by
+      * construction rather than by matching two hand-written scanners. Returns
+      * the number of lines consumed — a definition may span several. */
+    def emitDefinition(defn: RefDef): Int =
+      if defn.indent.nonEmpty then
+        flushPending(MdKind.Indent, defn.indent, Vector.empty, Some("indent"), TokenChannel.Trivia)
+      flushPending(MdKind.ReferenceLabel, defn.labelLex, Vector(FrameSpec(MdBranch.Definition)), Some("label"), TokenChannel.Syntax)
+      leaf(MdKind.Colon, defn.colon, Some("colon"), TokenChannel.Syntax)
+      // whitespace between the parts may CROSS A LINE ENDING; it stays trivia
+      leaf(MdKind.Indent, defn.afterColon, Some("space"), TokenChannel.Trivia)
+      leaf(MdKind.Destination, defn.destLex, Some("destination"), TokenChannel.Syntax)
+      leaf(MdKind.Indent, defn.betweenDestTitle, Some("space"), TokenChannel.Trivia)
+      leaf(MdKind.Title, defn.titleLex, Some("title"), TokenChannel.Syntax)
+      if defn.trailing.nonEmpty then
+        close(MdBranch.Definition, MdKind.LineBreak, defn.trailing, Some("trailing"), TokenChannel.Trivia)
       else pendingClose = pendingClose :+ MdBranch.Definition
+      defn.linesConsumed
 
     // ── emission helpers ────────────────────────────────────────────────────
 
@@ -736,6 +758,183 @@ private[markdown] final class MarkdownBlocks(
       finishOpenBlocks()
       closeDangling()
       MarkdownBlockResult(out, diagnostics)
+
+  // ── link reference definitions (CommonMark 4.7) ───────────────────────────
+
+  /** The ONE scan of a link reference definition, in slices whose concatenation
+    * is exactly the source it consumed. Three call sites used to decide this
+    * independently — the forward-reference pre-pass, the token emitter, and the
+    * `isRefDefLine` classifier — and they disagreed: `Foo\n[bar]: /baz` is a
+    * paragraph continuation, but the pre-pass registered `bar` anyway, so the
+    * emitter rendered text while the inline resolver produced `href=""`.
+    *
+    * Every field is a SOURCE SLICE, not a cleaned value, so emission is a
+    * concatenation and losslessness is structural rather than argued. */
+  private[markdown] final case class RefDef(
+      indent: String,
+      labelLex: String,
+      colon: String,
+      afterColon: String,
+      destLex: String,
+      betweenDestTitle: String,
+      titleLex: String,
+      trailing: String,
+      linesConsumed: Int,
+  ):
+    def label: String = labelLex.substring(1, labelLex.length - 1)
+    def destination: String = MarkdownProjection.unwrapDestinationSlice(destLex)
+    def title: Option[String] =
+      if titleLex.isEmpty then None else Some(titleLex.substring(1, titleLex.length - 1))
+    /** Exactly the text consumed — asserted against the source by the emitter. */
+    def consumedText: String =
+      indent + labelLex + colon + afterColon + destLex + betweenDestTitle + titleLex + trailing
+
+  private def scanRefDef(lines: Vector[MdLine], index: Int): Option[RefDef] =
+    // A definition may not contain a blank line, so the window can never run
+    // past the first one — that is also what bounds this scan.
+    var last = index
+    while last < lines.size && !lines(last).isBlank do last += 1
+    if last == index then return None
+    val window = lines.slice(index, last)
+    val joined = window.iterator.map(_.raw).mkString
+    val n = joined.length
+
+    def isSpace(c: Char): Boolean = c == ' ' || c == '\t'
+    def isBreakChar(c: Char): Boolean = c == '\n' || c == '\r'
+
+    /** Whitespace run that may cross at most ONE line ending. -1 when it crosses
+      * more, which means a blank line and therefore the end of the definition. */
+    def skipWs(from: Int, maxBreaks: Int): Int =
+      var j = from
+      var breaks = 0
+      var stop = false
+      while j < n && !stop do
+        val c = joined.charAt(j)
+        if isSpace(c) then j += 1
+        else if isBreakChar(c) then
+          breaks += 1
+          if breaks > maxBreaks then stop = true
+          else if c == '\r' && j + 1 < n && joined.charAt(j + 1) == '\n' then j += 2
+          else j += 1
+        else stop = true
+      if breaks > maxBreaks then -1 else j
+
+    /** Index just past the line ending that terminates the line holding `at`. */
+    def endOfLine(at: Int): Int =
+      var j = at
+      while j < n && !isBreakChar(joined.charAt(j)) do j += 1
+      if j < n && joined.charAt(j) == '\r' && j + 1 < n && joined.charAt(j + 1) == '\n' then j + 2
+      else if j < n then j + 1
+      else j
+
+    def onlySpacesTo(from: Int, to: Int): Boolean =
+      var j = from
+      var ok = true
+      while j < to && ok do
+        if !isSpace(joined.charAt(j)) && !isBreakChar(joined.charAt(j)) then ok = false
+        j += 1
+      ok
+
+    if MdChars.indentWidth(joined) >= 4 then return None
+    val labelStart = MdChars.indentPrefixLength(joined)
+    if labelStart >= n || joined.charAt(labelStart) != '[' then return None
+
+    // label: to the first UNESCAPED `]`; `[Foo*bar\]]` is one label, not two
+    var i = labelStart + 1
+    var labelEnd = -1
+    while i < n && labelEnd < 0 do
+      val c = joined.charAt(i)
+      if c == '\\' && i + 1 < n then i += 2
+      else if c == ']' then labelEnd = i
+      else if c == '[' then return None
+      else i += 1
+    if labelEnd < 0 then return None
+    val labelLex = joined.substring(labelStart, labelEnd + 1)
+    if labelLex.length > 1002 then return None
+    if labelLex.substring(1, labelLex.length - 1).trim.isEmpty then return None
+    if labelEnd + 1 >= n || joined.charAt(labelEnd + 1) != ':' then return None
+    val afterColonStart = labelEnd + 2
+
+    val destStart = skipWs(afterColonStart, 1)
+    if destStart < 0 || destStart >= n then return None
+    var destEnd = destStart
+    if joined.charAt(destStart) == '<' then
+      var j = destStart + 1
+      var closed = -1
+      var failed = false
+      while j < n && closed < 0 && !failed do
+        val c = joined.charAt(j)
+        if c == '\\' && j + 1 < n then j += 2
+        else if isBreakChar(c) || c == '<' then failed = true
+        else if c == '>' then closed = j
+        else j += 1
+      if failed || closed < 0 then return None
+      destEnd = closed + 1
+    else
+      var j = destStart
+      var parens = 0
+      var stop = false
+      while j < n && !stop do
+        val c = joined.charAt(j)
+        if c == '\\' && j + 1 < n then j += 2
+        else if isSpace(c) || isBreakChar(c) || c.toInt < 0x20 then stop = true
+        else if c == '(' then { parens += 1; j += 1 }
+        else if c == ')' then { parens -= 1; if parens < 0 then stop = true else j += 1 }
+        else j += 1
+      destEnd = j
+      if destEnd == destStart then return None
+
+    // Optional title. It may sit on the NEXT line, may span lines, and must be
+    // followed by nothing but whitespace — otherwise it is not a title at all,
+    // and the definition is only valid if the destination ended its own line.
+    val titleStart = skipWs(destEnd, 1)
+    var titleEnd = -1
+    if titleStart > destEnd && titleStart < n then
+      val open = joined.charAt(titleStart)
+      val close = if open == '(' then ')' else open
+      if open == '"' || open == '\'' || open == '(' then
+        var j = titleStart + 1
+        var found = -1
+        var failed = false
+        while j < n && found < 0 && !failed do
+          val c = joined.charAt(j)
+          if c == '\\' && j + 1 < n then j += 2
+          else if c == '\n' then
+            // a blank line inside a title ends the definition attempt
+            if j + 1 < n && lineIsBlankAt(joined, j + 1) then failed = true else j += 1
+          else if c == close then found = j
+          else if c == open && open == '(' then failed = true
+          else j += 1
+        if !failed && found >= 0 && onlySpacesTo(found + 1, endOfLine(found)) then titleEnd = found + 1
+
+    val (bodyEnd, titleSlice, betweenSlice) =
+      if titleEnd > 0 then (titleEnd, joined.substring(titleStart, titleEnd), joined.substring(destEnd, titleStart))
+      else (destEnd, "", "")
+    val lineEnd = endOfLine(bodyEnd)
+    if !onlySpacesTo(bodyEnd, lineEnd) then return None
+
+    val consumed = joined.substring(0, lineEnd)
+    var linesUsed = 0
+    var acc = 0
+    while acc < lineEnd && linesUsed < window.length do
+      acc += window(linesUsed).raw.length
+      linesUsed += 1
+    Some(RefDef(
+      indent = joined.substring(0, labelStart),
+      labelLex = labelLex,
+      colon = ":",
+      afterColon = joined.substring(afterColonStart, destStart),
+      destLex = joined.substring(destStart, destEnd),
+      betweenDestTitle = betweenSlice,
+      titleLex = titleSlice,
+      trailing = joined.substring(bodyEnd, lineEnd),
+      linesConsumed = linesUsed,
+    )).filter(_.consumedText == consumed)
+
+  private def lineIsBlankAt(joined: String, from: Int): Boolean =
+    var j = from
+    while j < joined.length && (joined.charAt(j) == ' ' || joined.charAt(j) == '\t') do j += 1
+    j >= joined.length || joined.charAt(j) == '\n' || joined.charAt(j) == '\r'
 
   // ── pure classifiers / helpers (no parsing state) ─────────────────────────
 
@@ -903,40 +1102,6 @@ private[markdown] final class MarkdownBlocks(
           val spaces = trimmed.drop(i + 1).takeWhile(ch => ch == ' ' || ch == '\t')
           Some((true, markerCore + spaces, markerCore.length + math.max(spaces.length, 1)))
         else None
-
-  private def parseReferenceDefinition(lines: Vector[MdLine], index: Int): Option[(String, LinkRef, Int)] =
-    val content = lines(index).content
-    val start = MdChars.indentPrefixLength(content)
-    if start >= content.length || content.charAt(start) != '[' then return None
-    val closeBracket = content.indexOf(']', start + 1)
-    if closeBracket < 0 || closeBracket + 1 >= content.length || content.charAt(closeBracket + 1) != ':' then return None
-    val label = content.substring(start + 1, closeBracket)
-    if label.trim.isEmpty then return None
-    val rest = content.substring(closeBracket + 2).trim
-    if rest.isEmpty then return None // title-only continuation unsupported in M4
-    val (dest, afterDest) =
-      if rest.startsWith("<") then
-        val end = rest.indexOf('>')
-        if end < 0 then return None
-        (rest.substring(1, end), rest.substring(end + 1).trim)
-      else
-        val sp = rest.indexWhere(c => c == ' ' || c == '\t')
-        if sp < 0 then (rest, "") else (rest.substring(0, sp), rest.substring(sp).trim)
-    val title =
-      if afterDest.isEmpty then None
-      else if (afterDest.startsWith("\"") && afterDest.endsWith("\"") && afterDest.length >= 2) ||
-        (afterDest.startsWith("'") && afterDest.endsWith("'") && afterDest.length >= 2) then
-        Some(afterDest.substring(1, afterDest.length - 1))
-      else None
-    Some((label, LinkRef(dest, title), index + 1))
-
-  private def isRefDefLine(content: String): Boolean =
-    val start = MdChars.indentPrefixLength(content)
-    MdChars.indentWidth(content) < 4 && start < content.length && content.charAt(start) == '[' && {
-      val close = content.indexOf(']', start + 1)
-      close > start + 1 && close + 1 < content.length && content.charAt(close + 1) == ':' &&
-        content.substring(close + 2).trim.nonEmpty
-    }
 
   private def limitDiag(code: String, message: String): Diagnostic =
     Diagnostic(code, message, Severity.Fatal, None, Some("markdown"))

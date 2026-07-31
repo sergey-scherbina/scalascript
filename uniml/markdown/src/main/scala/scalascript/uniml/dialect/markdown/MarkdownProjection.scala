@@ -338,7 +338,12 @@ object MarkdownProjection:
 
   // ── decoding helpers ────────────────────────────────────────────────────
 
-  private def unwrapDestination(lex: String): String =
+  private def unwrapDestination(lex: String): String = unwrapDestinationSlice(lex)
+
+  /** Shared with the block scanner, which holds the raw `<...>` source slice and
+    * must read it exactly as the projection does — one definition of what a
+    * destination MEANS, used by both. */
+  private[markdown] def unwrapDestinationSlice(lex: String): String =
     val s = if lex.startsWith("<") && lex.endsWith(">") then lex.substring(1, lex.length - 1) else lex
     unescape(s)
 
