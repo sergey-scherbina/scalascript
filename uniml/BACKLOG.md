@@ -208,8 +208,17 @@ self-parity test is not external conformance.
   because `matchContainers` has already eaten the container prefix — scanning raw lines inside
   a list item emitted it twice and broke the source axis. Multi-line definitions inside a list
   item or block quote stay red rather than lossy.
-  Ranked remainder at 563, by failing cases: List items 18, Links 16, Lists 12, emphasis 10,
-  raw HTML 8, fenced code 6, entities 5, setext 5, autolinks 4, images 4, tabs 4. Mapped onto the sub-items:
+  A seventh took it to **572** and was the worst class in the file: `- one\n\n two` LOST `two`
+  from the output entirely. A failing item continuation closed the ListItem but left the
+  ListFrame open, the following paragraph became a direct child of the list, and the
+  projection — which collects only list items — dropped it. Tokens all present, source axis
+  green; only `html` could see it. Worth remembering when triaging: a green lossless axis
+  says nothing about whether the PROJECTION keeps your content.
+  Ranked remainder at 572, by failing cases: Links 16, List items 14, emphasis 10, Lists 10,
+  raw HTML 8, fenced code 6, entities 5, autolinks 4, images 4, tabs 4, block quotes 3.
+  The heaviest remaining theme is CONTAINER CONTENT INDENT: a fence or indented code inside
+  a list item keeps the item's indent (examples 263, 273, 274, 278), and two source-axis
+  failures (254, 264) are the same area. Mapped onto the sub-items:
   **3b** owns List items + Lists + setext + the multiline `[foo]:` forms; **3c** owns the rest of
   Links (angle destinations, escaped titles, bracket-vs-raw-HTML precedence) and emphasis; **3a**
   is not optional decoration — a real HTML5 entity table is what several remaining Links cases
