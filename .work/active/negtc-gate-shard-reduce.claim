@@ -5,7 +5,7 @@ started: 2026-07-31T16:24:27Z
 heartbeat: 2026-07-31T16:24:27Z
 status: implementing
 items: negtc-gate-shard-reduce
-paths: file:.github/workflows/ci.yml file:scripts/bc-parity-sweep file:scripts/smoke-ci.ssc file:tests/e2e/negtc-manifest-contract-gate.sh file:scripts/ci-status file:tests/e2e/ci-status-guard.sh
+paths: file:.github/workflows/ci.yml file:scripts/bc-parity-sweep file:scripts/smoke-ci.ssc file:tests/e2e/negtc-manifest-contract-gate.sh file:scripts/ci-status file:tests/e2e/ci-status-guard.sh file:tests/e2e/v21-negative-toolchain-release-gate.sh file:tests/e2e/negtc-mapreduce-gate.sh
 scope: |
   Wire the already-landed negtc map/reduce split into ci.yml (N-way --sweeps-only
   matrix + one --reduce job), and fix the stale duplicate manifest contract in
