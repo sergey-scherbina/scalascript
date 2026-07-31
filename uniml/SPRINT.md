@@ -10,11 +10,12 @@ Anything not being worked on belongs in `uniml/BACKLOG.md`, not here — a queue
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
-- [~] uniml-md-upr3b — UPR-3b/3c. Corpus 552 → 587. ONE scanner for link reference definitions
+- [~] uniml-md-upr3b — UPR-3b/3c. Corpus 552 → 595. ONE scanner for reference definitions
       replacing three that disagreed; a closing list item closes its list (`- one\n\n two` was
       LOSING `two`); fence bodies inside containers lose the prefix; reference labels match on RAW
-      source, not rendered text. One rule tried and REVERTED (CommonMark 5.2 marker separation) —
-      it moved source/tokens 10 → 12; recorded in BACKLOG with its measurement.
+      source; inline raw HTML got the CommonMark 6.6 tag grammar it never had (malformed tags were
+      emitted unescaped). One rule tried and REVERTED (5.2 marker separation) — it moved
+      source/tokens 10 → 12; recorded in BACKLOG with its measurement.
 
 - [x] uniml-md-upr3 — a SLICE of UPR-3, not its closure: corpus 460 → 552 passing of 675 in five
       fixes. Shortcut/collapsed refs resolved by the EMPTY key (+27); indented code coalesces with

@@ -226,8 +226,20 @@ self-parity test is not external conformance.
   lookup. CommonMark matches on the RAW label source. Same defect's second cause: the
   full-reference form found its opening bracket with a raw `lastIndexOf('[')` and sliced
   `[foo][ref\[]` in half. Links 16 → 11, Images 4 → 0.
-  Ranked remainder at 587: List items 12, Links 11, emphasis 10, raw HTML 8, Lists 7,
-  fenced code 6, entities 5, autolinks 4, tabs 4, block quotes 3, setext 3, tables 3.
+  A tenth took it to **595**: inline raw HTML had NO tag grammar — anything up to the next
+  `>` without a `<` was emitted as raw HTML, so `<a h*#ref="hi">` and `<a href="\\"">` went
+  through unescaped. A malformed tag is TEXT; emitting it as HTML is the difference between
+  showing a user their typo and putting it in the document, which is worth more than the
+  eight cases it scored. Raw HTML 8 → 4.
+  Ranked remainder at 595: List items 12, emphasis 10, Links 10, Lists 7, fenced code 6,
+  entities 5, raw HTML 4, tabs 4, block quotes 3, setext 3, tables 3, HTML blocks 2.
+
+  **UPR-3a is now the best-value block left and it is not a parser change.** All 5 Entity
+  cases plus several Links need (a) the real WHATWG HTML5 entity table — the built-in one
+  covers `&nbsp; &amp; &copy; &AElig;` and stops there — and (b) decoding applied in
+  DESTINATIONS, TITLES and fence INFO STRINGS, which is a wiring job once the table exists.
+  It is a generator + pinned-snapshot + manifest task in the shape of the corpus pipeline
+  already in `uniml/corpus/markdown/`, not a grammar rewrite.
 
   **TRIED AND REVERTED — read this before retrying it.** CommonMark 5.2 says 5+ spaces
   after a list marker mean the content starts with INDENTED CODE, and the item's content
