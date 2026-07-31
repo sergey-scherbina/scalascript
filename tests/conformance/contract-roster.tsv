@@ -1,4 +1,4 @@
-# corpus-contract-roster-v1	baseline-sha256=0ffa2687815571812bd459edee5dce597bfa145867086b30f3965bf279b9c7db	roster-sha256=452fbc66e50ccd66d8c0feb668539a97904420bf3e3e85852e27b2a0037192c2
+# corpus-contract-roster-v1	baseline-sha256=242398a8fd8377477791513b3a99b033680682a285042d306709ea57607fbdb9	roster-sha256=0edd544b42d1dd334b36ab0eadcef6151ef6842197766ebb1a067ad77c738a0e
 _bug1_httpclient
 _bug1b
 _bug1c
@@ -240,6 +240,7 @@ oauth-rs-guard
 oauth-rsa-jwks
 object-store-jdbc
 object-store-sync-routes
+object-var-member-scope
 oidc-idp
 oidc-login-flow
 openapi-annotation

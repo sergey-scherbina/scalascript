@@ -7,6 +7,41 @@ grepping for status.
 
 Newest first.
 
+## js-object-var-member-is-never-emitted — the codegen drops `var` members of an `object`
+<!-- status: open
+     lane: js
+     area: codegen
+     fixed-in: -
+     gate: tests/conformance/object-var-member-scope.ssc -->
+
+A `var` member of an `object` produces no binding at all. The emitted IIFE closes over a name that
+was never declared, and the member is absent from the returned object:
+
+```scalascript
+object O:
+  var n: Int = 7
+  def value(): Int = n
+```
+
+emits
+
+    const O = (() => { const value = () => n; return { value }; })();
+
+so `O.value()` is `ReferenceError: n is not defined` and `O.n` is
+`Error: Method not found: n on [object Object]`. A `val` member is emitted correctly
+(`const k = 7`), which is what makes this a `var`-only gap rather than a general object problem.
+
+FIX DIRECTION: emit `let n = 7;` inside the IIFE and expose it on the returned object as an
+accessor pair, so reads, the object's own method writes, and an external `O.n = v` all land on one
+cell:
+
+    const O = (() => { let n = 7; const value = () => n;
+                       return { value, get n(){return n}, set n(v){n=v} }; })();
+
+Found by `object-var-member-scope`, the gate for the INT-lane twin
+(`v1/runtime/backend/interpreter/BUGS.md` `object-var-member-assignment-writes-a-top-level-global`).
+Same source shape, three lanes, three different failures — this one is the only one that is loud.
+
 ## js-int-and-double-are-the-same-type-test — five type names shared one predicate, so ARM ORDER decided the answer
 <!-- status: fixed
      lane: js

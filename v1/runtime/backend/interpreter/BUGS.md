@@ -7,6 +7,66 @@ grepping for status.
 
 Newest first.
 
+## object-var-member-assignment-writes-a-top-level-global — an object's `var` is not scoped to the object
+<!-- status: open
+     lane: int
+     area: runtime
+     fixed-in: -
+     gate: tests/conformance/object-var-member-scope.ssc -->
+
+Assigning to a `var` member from inside the object's own method writes a TOP-LEVEL global of the
+same bare name. The member never changes, and any unrelated variable of that name is silently
+overwritten.
+
+```scalascript
+object Counter:
+  var n: Int = 0
+  def bump(): Unit = n = n + 1
+  def value(): Int = n
+
+var n: Int = 100
+
+def main() =
+  Counter.bump()
+  println(Counter.value())   -- 1 on the JVM
+  println(n)                 -- 100 on the JVM
+```
+
+Measured on all four lanes against the JVM oracle, with `Counter.bump()` called twice:
+
+    lane    Counter.value()   Counter.n   top-level n   Other.value()
+    jvm     2                 2           100           50
+    int     0                 0           1             50
+    native  100               0           102           102
+    js      Error: Method not found: n on [object Object]
+
+THREE LANES OF FOUR ARE WRONG, and two of them corrupt an unrelated variable. Native is the worst
+of the three: `Other.value()` returns `102` — the TOP-LEVEL `n` — although `Other` has its own
+`n = 50`, so a method reading its own member resolves to a global that has nothing to do with it.
+
+CAUSE ON THIS LANE, and it is one line. `EvalRuntime` `Term.Assign(Term.Name(name), rhs)` writes
+`interp.globals(name) = v` unconditionally, while the read path (`case tn: Term.Name`) resolves
+`env` FIRST and only then `interp.globals`. Inside an object's method the member lives in the env
+built by `StatRuntime`'s `Defn.Object` case, so the write lands in one place and the read comes
+from another. `Env` is `Map[String, Value]` — immutable — which is why the write had nowhere else
+to go.
+
+`val` MEMBERS ARE FINE, and so are local `var`s, top-level `var`s, and `var`s in a `while` body —
+measured, all four lanes agree on those. The defect needs a `var` that is a MEMBER.
+
+THE ENTRY THIS CAME FROM NAMED THE WRONG CAUSE. `int-imported-module-mutable-registry-not-shared`
+below reads it as an imported module not sharing state with its importer. The control kills that:
+the same object with the same `var`, in ONE file with no import, fails identically. The import was
+incidental, and the "registry" framing hid a general scoping defect behind a map-reduce fixture.
+Kept as a separate entry (it lives in `v1/runtime/backend/js/BUGS.md`) because the route in is
+worth preserving, and closed by the same fix.
+
+RELATED, NOT THE SAME: `O.n = 9` from OUTSIDE the object is unimplemented on three lanes —
+int raises `Cannot eval: Term.Assign`, js `Method not found`, the native front rejects the parse
+(`structural CoreIR contains parser sentinel _err`). Only the JVM does it. Filed separately; the
+fix here does not need it, but a fix that routes member assignment through the object would give
+it for free.
+
 ## int-char-literal-pattern-never-matches — `case '*' =>` silently fell through, so every Char-dispatching parser took its fallback
 <!-- status: fixed
      lane: int

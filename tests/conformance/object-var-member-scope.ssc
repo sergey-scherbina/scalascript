@@ -1,0 +1,86 @@
+---
+name: object-var-member-scope
+description: "a var member of an object belongs to that object, not to the top level"
+backends: [int, js, jvm, v2]
+---
+
+# A `var` member of an `object` is scoped to the object
+
+`v1/runtime/backend/interpreter/BUGS.md` `object-var-member-assignment-writes-a-top-level-global`.
+Assigning to a `var` member from inside the object's own method wrote a TOP-LEVEL global of the same
+bare name instead of the member, so the object's field never changed and an unrelated variable of
+that name was silently overwritten.
+
+Measured against the JVM oracle before the fix:
+
+    lane    n     O.n
+    jvm     100   8      the two are separate
+    int     8     7      exactly backwards
+    native  101   7      same class, on both fronts
+    js      Error: Method not found: n
+
+The shadowing block is the point of the case. A test with only `object O { var n }` and no
+top-level `n` would pass on a lane that puts the member in the global scope — the object would
+appear to work while quietly owning a name it does not own. Only a same-named outer `var` separates
+"the member was updated" from "a global was updated and happened to be read back".
+
+The last block guards the opposite mistake: two objects with the same member name must not share
+one cell.
+
+```scalascript
+object Counter:
+  var n: Int = 0
+  def bump(): Unit = n = n + 1
+  def value(): Int = n
+
+object Other:
+  var n: Int = 50
+  def value(): Int = n
+
+var n: Int = 100
+
+def main() =
+  // the object's own method reads and writes its own field
+  println(Counter.value())
+  Counter.bump()
+  Counter.bump()
+  println(Counter.value())
+
+  // and the field is visible from outside, with the same answer
+  println(Counter.n)
+
+  // the top-level var of the same name is untouched
+  println(n)
+
+  // two objects with the same member name do not share a cell
+  println(Other.n)
+  println(Other.value())
+
+  // a list-valued member, the shape this was found in (a handler registry)
+  println(Registry.names().length)
+  Registry.register("emit")
+  Registry.register("fold")
+  println(Registry.names().length)
+  println(Registry.names().mkString(","))
+  Registry.clear()
+  println(Registry.names().length)
+
+object Registry:
+  var entries: List[String] = Nil
+  def register(name: String): Unit = entries = name :: entries
+  def clear(): Unit = entries = Nil
+  def names(): List[String] = entries.reverse
+```
+
+Expected — the JVM lane is the oracle:
+
+    0
+    2
+    2
+    100
+    50
+    50
+    0
+    2
+    emit,fold
+    0

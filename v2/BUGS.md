@@ -7,6 +7,38 @@ grepping for status.
 
 Newest first.
 
+## v2-object-var-member-resolves-to-a-top-level-global — a method reads a global instead of its own field
+<!-- status: open
+     lane: native
+     area: runtime
+     fixed-in: -
+     gate: tests/conformance/object-var-member-scope.ssc -->
+
+A `var` member of an `object` collides with a top-level name. With `var n = 100` at the top level
+beside `object Counter { var n = 0 }` and `object Other { var n = 50 }`, measured against the JVM
+oracle:
+
+    expression          jvm    native
+    Counter.value()     2      100      reads the TOP-LEVEL n
+    Counter.n           2      0        reads the object's own field
+    top-level n         100    102      clobbered by Counter.bump()
+    Other.value()       50     102      reads the TOP-LEVEL n, not its own 50
+
+`Other.value()` is the sharpest line: `Other` has its own `n = 50` and its own method returning it,
+and the answer comes from a variable in another scope entirely. Both fronts, F and legacy — F also
+DECLINES the file (`unbound global: (global Counter_n)`), so the fallback front is what produces
+these numbers.
+
+WITHOUT A COLLISION IT WORKS: the same case's `Registry` object (a `var entries: List[String]` with
+no top-level `entries` beside it) is correct on native, which is why this survived. The trigger is a
+member name that also exists at the top level.
+
+Twin of the INT-lane defect
+(`v1/runtime/backend/interpreter/BUGS.md` `object-var-member-assignment-writes-a-top-level-global`,
+where the cause is that assignment writes `interp.globals` unconditionally) and of the js one
+(`v1/runtime/backend/js/BUGS.md` `js-object-var-member-is-never-emitted`). Three lanes, one source
+shape, three different causes — fixing one is a third of the job.
+
 ## f-set-empty-has-no-runtime-receiver — `Set.empty` must keep delegating, not lower
 <!-- status: open
      lane: native
