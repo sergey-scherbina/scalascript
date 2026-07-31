@@ -1,0 +1,11 @@
+slug: type-ascription-matrix
+branch: feature/type-ascription-matrix
+agent: claude-code
+started: 2026-07-31T05:09:25Z
+heartbeat: 2026-07-31T05:09:25Z
+status: claimed-before-planning
+items: type-ascription-matrix probe-wider-than-hypothesis tool-finding-not-same-hour
+paths: file:tests/conformance/SPRINT.md file:tests/conformance/BACKLOG.md file:scripts/BACKLOG.md file:tests/conformance/type-ascription-matrix.ssc file:tests/conformance/expected/type-ascription-matrix.txt file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
