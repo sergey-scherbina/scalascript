@@ -2,8 +2,8 @@
 # project-partition-gate — the three-part partition of specs/project-partitioning.md, checked.
 #
 # The document states which modules are the LANGUAGE, which are its STANDARD LIBRARY, and which are
-# ADDITIONAL libraries. Prose decays; this checks the two facts that make the split mean anything,
-# both read live from build.sbt rather than restated here:
+# ADDITIONAL libraries. Prose decays; this checks the facts that make the split mean anything, all
+# read live from build.sbt rather than restated here:
 #
 #   1. no ADDITIONAL library is in the standard-tier allowlist — that is what "additional" MEANS,
 #      and nothing else defends it. Adding one domain library to `standardJarPrefixes` would put a
@@ -11,21 +11,22 @@
 #   2. `v2/runtime/std/*` is exactly the shipped set and `v2/runtime/providers/*` is exactly the
 #      not-shipped set. That directory pair is the only place the boundary is encoded in the tree,
 #      and it is worth keeping exact so the rest of the repo can be moved TOWARD it.
-#
-# It also refuses the fossil directories (§6): the pre-`v1/` layout that was never removed and
-# shadows the real `v1/lang` and `v1/tools` for anyone reading the root.
+#   3. UniML reaches into `v1/` only through `uniml/markdown/bridge`. §8.3 asserted this once and was
+#      WRONG — the prose came from an extractor that read the next project's `.dependsOn(…)`. It is
+#      computed here so the claim cannot drift from the build again.
+#   4. no fossil directories in the main checkout (§6).
 #
 #   tests/e2e/project-partition-gate.sh              # check
 #   tests/e2e/project-partition-gate.sh --self-test  # plant each defect, prove each is caught
 #
-# SCOPE NOTE, so nobody reads more into a green than is there: checks 1 and 2 read build.sbt and are
-# the same everywhere. Check 3 (fossils) is LOCAL HYGIENE — CI clones fresh and never has them, so a
+# SCOPE NOTE, so nobody reads more into a green than is there: checks 1-3 read build.sbt and are the
+# same everywhere. Check 4 (fossils) is LOCAL HYGIENE — CI clones fresh and never has them, so a
 # green in CI says nothing about the developer's checkout. It fires where it can act.
 set -uo pipefail
 
 # ── self-test ──────────────────────────────────────────────────────────────────────────────────
-# Three defects, each planted into a COPY of build.sbt, each of which must turn this gate red. A
-# gate nobody has seen fail is a gate nobody knows works.
+# One planted defect per check, each into a COPY of build.sbt, each of which must turn this gate
+# red. A gate nobody has seen fail is a gate nobody knows works.
 if [ "${1:-}" = "--self-test" ]; then
   self_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
   tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
@@ -51,7 +52,10 @@ if [ "${1:-}" = "--self-test" ]; then
   # 3. a provider is shipped
   plant "v2/runtime/providers module added to standardJarPrefixes" \
         's|"scalascript-v2-native-json-plugin_",|"scalascript-v2-native-json-plugin_", "scalascript-v2-native-pdf-plugin_",|'
-  # 4. a fossil directory in the main checkout. Planted in a throwaway root, because the real one
+  # 4. UniML reaches v1 outside the bridge — `uniml/core` made to depend on the v1 interpreter
+  plant "UniML module depending on v1 outside the bridge" \
+        's|\.in(file("uniml/yaml"))|.in(file("uniml/yaml")).dependsOn(backendInterpreter)|'
+  # 5. a fossil directory in the main checkout. Planted in a throwaway root, because the real one
   #    may legitimately have them right now — the gate must catch it either way.
   fossil_root="$tmp/root"; mkdir -p "$fossil_root/lang/core/target"
   if SSC_PARTITION_ROOT="$fossil_root" bash "${BASH_SOURCE[0]}" >/dev/null 2>&1; then
@@ -137,7 +141,62 @@ for m in json.load(sys.stdin):
     if d.startswith("v2/runtime/providers/") and m["std"]:     print("provider-shipped\t"+d)
 ')
 
-# ── 3. no fossil directories at the root ───────────────────────────────────────────────────────
+# ── 3. UniML reaches v1 only through the bridge ────────────────────────────────────────────────
+# specs/project-partitioning.md §8.3 claims that all of UniML's v1 knowledge is concentrated in
+# `uniml/markdown/bridge`. That claim was WRONG in an earlier revision of the document and the error
+# was a measurement bug — a fixed-size window that read the next project's `.dependsOn(…)` — so it
+# is computed here rather than restated, and each block is bounded at the next `lazy val`.
+#
+# `uniml/xml` -> `v1/runtime/std/markup-core` is allowed for now and named explicitly: markup-core
+# has no dependencies at all and merely lives in the v1 tree. When the markup cluster moves out,
+# delete the exemption and this check becomes "the bridge, and nothing else".
+while IFS=$'\t' read -r dir via; do
+  [ -z "$dir" ] && continue
+  fail "UniML module reaches into v1/ without going through the bridge: $dir
+        via: $via
+        UniML must not be tied to a language version (specs/project-partitioning.md §8.3). Either
+        route it through uniml/markdown/bridge, or — if the dependency is on a module that is itself
+        v1-free and merely LIVES in the v1 tree — move that module out and widen the exemption here."
+done < <(python3 - "$SBT" <<'PYEOF'
+import re, sys, pathlib
+sbt = pathlib.Path(sys.argv[1]).read_text()
+starts = [(m.start(), m.group(1)) for m in re.finditer(r'^lazy val (\w+)\s*=', sbt, re.M)]
+blocks, dirs = {}, {}
+for i, (pos, name) in enumerate(starts):
+    end = starts[i + 1][0] if i + 1 < len(starts) else len(sbt)
+    b = sbt[pos:end]; blocks[name] = b
+    d = re.search(r'\.in\(file\("([^"]+)"\)\)', b)
+    if d: dirs[name] = d.group(1)
+# JOINED WITH A COMMA, not a space: a module may declare SEVERAL `.dependsOn(…)` calls, and
+# space-joining them fused two names into one unparseable token that matched no project — so such a
+# module was invisible to this check. Found by the self-test's planted defect, which is the only
+# reason it is not still here.
+deps = {n: [x.strip() for x in ",".join(re.findall(r'\.dependsOn\(([^)]*)\)', b)).split(",") if x.strip()]
+        for n, b in blocks.items()}
+def norm(x):
+    x = re.sub(r'\s*%\s*"?\w+"?$', '', x).strip()
+    for c in (x, x + "Cross", re.sub(r'(Jvm|JVM|Js|JS)$', '', x), re.sub(r'(Jvm|JVM|Js|JS)$', '', x) + "Cross"):
+        if c in dirs: return c
+    return None
+def closure(n):
+    seen, st = set(), [n]
+    while st:
+        for r in deps.get(st.pop(), ()):
+            k = norm(r)
+            if k and k not in seen: seen.add(k); st.append(k)
+    return seen
+ALLOWED = {"v1/runtime/std/markup-core"}          # v1-free, merely lives there — see §8.3
+BRIDGE  = "uniml/markdown/bridge"
+for n, d in sorted(dirs.items(), key=lambda kv: kv[1]):
+    if not d.startswith("uniml/") or d == BRIDGE:
+        continue
+    v1 = sorted({dirs[c] for c in closure(n) if dirs[c].startswith("v1/")} - ALLOWED)
+    if v1:
+        print(d + "\t" + ", ".join(v1))
+PYEOF
+)
+
+# ── 4. no fossil directories at the root ───────────────────────────────────────────────────────
 # Tracked files decide: `lang/` and `tools/` at the root are pre-`v1/` build output with nothing in
 # git. If one ever gains a tracked file it has become real and this gate should be revisited, not
 # silenced — so the check is "exists AND has no tracked files", which is exactly the fossil shape.
@@ -168,7 +227,7 @@ for fossil in lang tools; do
         Remove: rm -rf \"$FOSSIL_ROOT/$fossil\""
 done
 
-# ── 4. the document exists and still names all three parts ─────────────────────────────────────
+# ── 5. the document exists and still names all three parts ─────────────────────────────────────
 if [ -f "$DOC" ]; then
   for part in "Part I — the language" "Part II — the standard library" "Part III — additional libraries"; do
     grep -qF "$part" "$DOC" || fail "specs/project-partitioning.md no longer names \"$part\""

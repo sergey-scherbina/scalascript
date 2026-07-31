@@ -558,45 +558,61 @@ the allowlist; `backend/graph`, `backend/kafka`, `backend/logger`, `backend/post
 `backend/redis`, `backend/sql-aws`, `backend/sql-azure`, `backend/sql-gcp` and `backend/wire` are
 not. On the v2 side the same distinction is a directory name.
 
-**8.3 UniML sat on both sides of the `v1/` line, and the placement was INVERTED for four of its
-seven modules.** UniML is a standalone lossless token→tree framework; it is not the language's parser
-infrastructure and must not be tied to a language version. Measured — transitive `dependsOn` closure,
-asking whether any `v1/lang/*` or `v1/runtime/*` module is reachable:
+**8.3 UniML was split across the `v1/` line and is not any more.** UniML is a standalone lossless
+token→tree framework; it is not the language's parser infrastructure and must not be tied to a
+language version. Three of its seven modules lived under `v1/lang/`; all seven now live under
+`uniml/`, and `v1/lang/` holds nothing of it.
 
-| module | was | depends on v1? | placement |
-|---|---|---|---|
-| `uniml/core` | outside `v1/` | no | correct |
-| `uniml/json` | outside `v1/` | no | correct |
-| `uniml/markdown` | outside `v1/` | **yes** — `v1/lang/{core,ir,value-data,yaml}` | **inverted** |
-| `uniml/yaml` | outside `v1/` | **yes** — same four | **inverted** |
-| `v1/lang/uniml-address` | inside `v1/` | no | **inverted** → moved to `uniml/address` |
-| `v1/lang/uniml-xml` | inside `v1/` | no | **inverted** → moved to `uniml/xml` |
-| `v1/lang/uniml-markdown-bridge` | inside `v1/` | yes | moved to `uniml/markdown/bridge` |
+Measured — transitive `dependsOn` closure over `build.sbt`, asking whether any module under `v1/` is
+reachable:
 
-The directory said nothing about the dependency, and where it said anything it was wrong.
+| module | depends on v1? | via |
+|---|---|---|
+| `uniml/core` | no | — |
+| `uniml/json` | no | — |
+| `uniml/address` | no | — |
+| `uniml/markdown` | no | — |
+| `uniml/yaml` | no | — |
+| `uniml/xml` | yes | `v1/runtime/std/markup-core` only |
+| `uniml/markdown/bridge` | yes | `v1/lang/{core,ir,value-data,yaml}`, `v1/runtime/backend/spi`, `v1/runtime/std/markup-core` |
 
-**ALL SEVEN NOW LIVE UNDER `uniml/`, and `v1/lang/` holds nothing of UniML.** The grouping rule is
-BY LIBRARY, not by dependency — a decision worth stating because the bridge disproves the simpler
-rule: `uniml/markdown/bridge` genuinely depends on `v1/lang/{core,ir,value-data,yaml}`, and it lives
-with the library it belongs to anyway. Its name says what it bridges and this document records the
-dependency; the path is not asked to carry that.
+**THE ABSTRACTION ALREADY EXISTS AND IT IS THE BRIDGE.** Every piece of v1 knowledge in UniML is
+concentrated in one two-file module whose name says so. Five of the seven modules reach nothing
+outside UniML at all — confirmed at the source level, not only in `build.sbt`: everything under
+`uniml/markdown/src` and `uniml/yaml/src` imports `scalascript.uniml.*` and third-party libraries
+(snakeyaml, scalatest) and nothing else.
 
-Nesting it inside `uniml/markdown/` is safe because that project is `CrossType.Pure` with its
-sources under `uniml/markdown/src/` — verified, `unimlMarkdown/Compile/sources` contains zero files
-from `markdown/bridge/`, so the child cannot leak into the parent.
+AN EARLIER REVISION OF THIS SECTION SAID `uniml/markdown` AND `uniml/yaml` DEPEND ON
+`v1/lang/{core,ir,value-data,yaml}`. **That was false, and it was a measurement bug, not a
+judgement.** The extractor read `.dependsOn(…)` from a fixed-size window after each `lazy val`, and
+for a project whose block is short the window ran on into the NEXT project — so the bridge's
+dependency list was attributed to its two neighbours. The same bug is why an earlier revision
+claimed `markup-js` and `markup-node` depend on v1; they depend only on `markup-core`, which depends
+on nothing at all. Both are corrected above. The fix is to bound each block at the next `lazy val`,
+and §7 now gates the result so the table cannot drift from `build.sbt` again.
 
-TWO STILL REACH INTO `v1/` AND THAT IS NOT FIXED BY MOVING THEM. `uniml/markdown` and `uniml/yaml`
-were already outside `v1/`; the defect is the dependency itself, on `v1/lang/core`, `v1/lang/ir`,
-`v1/lang/value-data` and `v1/lang/yaml`. Cutting it is real work and is not attempted here — and
-after this move the tree no longer hints at it at all, so the dependency table above is the only
-place it is written down.
+A SECOND BUG IN THE SAME APPARATUS was found by the gate's own `--self-test`, which is the entire
+argument for writing one. The extractor joined a module's several `.dependsOn(…)` calls with a
+SPACE before splitting on commas, fusing two project names into one token that matched nothing — so
+a module declaring its dependencies in more than one call was invisible to the check. Eleven
+projects in this build declare them that way (`v1/tools/cli`, `payments/crypto/frost`,
+`payments/wallet/*`, …). No UniML module does, so the table above is unaffected; the planted defect
+did, which is how it surfaced.
 
-`v1/lang/yaml` is the same shape once removed: a YAML library that ships in the standard tier and
-lives in the language tree. Nothing depends on its location; it is left alone because it is
-`markupCore`'s and UniML's dependency and moving it belongs with the 8.2 sweep.
+The grouping rule is BY LIBRARY, not by dependency, and the bridge is what forces the distinction:
+it does depend on v1 and it lives with its library anyway. A library split across two trees costs a
+reader every time; a dependency is a fact one table records once.
 
-The same inversion exists one directory over: `v1/runtime/std/markup-core` has NO v1 dependency
-either, while its siblings `markup-js` and `markup-node` do.
+Nesting the bridge inside `uniml/markdown/` is safe because that project is `CrossType.Pure` with
+its sources under `uniml/markdown/src/` — verified, `unimlMarkdown/Compile/sources` contains zero
+files from `markdown/bridge/`.
+
+WHAT IS ACTUALLY LEFT TO ABSTRACT is one directory, and it needs no code change. `uniml/xml`'s only
+reach into `v1/` is `v1/runtime/std/markup-core`, and that module has **no dependencies whatsoever** —
+it is a self-contained markup library that merely lives in the v1 tree, exactly the shape UniML was
+in. Moving the markup cluster (`markup-core`, `markup-js`, `markup-node`, none of which depend on
+v1) out to its own top-level directory would leave `uniml/markdown/bridge` as the single module in
+UniML that touches v1 — which is what a bridge is for.
 
 **8.4 The fossil trees.** §6. Cheap to remove and the only finding here that costs nothing to fix.
 
