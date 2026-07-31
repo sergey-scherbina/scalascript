@@ -1,0 +1,11 @@
+slug: js-tail-call-elimination
+branch: feature/js-tail-call-elimination
+agent: claude-code
+started: 2026-07-31T20:10:26Z
+heartbeat: 2026-07-31T20:10:26Z
+status: claimed-before-planning
+items: js-no-tail-call-elimination-overflows-scljet-large-page
+paths: file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
