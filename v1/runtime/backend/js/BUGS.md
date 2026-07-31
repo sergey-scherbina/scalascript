@@ -111,7 +111,7 @@ was and only the `Long` rows moved to `_larith`.
 
 ## js-no-tail-call-elimination-overflows-scljet-large-page — a loop the INT lane TCOs blows Node's stack
 <!-- status: fixed
-     fixed-in: 3099397fc
+     fixed-in: 2246b8d5e
      lane: js
      area: codegen
      kind: bug
