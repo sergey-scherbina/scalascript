@@ -1,0 +1,11 @@
+slug: gateless-triage
+branch: feature/gateless-triage
+agent: claude-code
+started: 2026-07-31T07:30:42Z
+heartbeat: 2026-07-31T07:30:42Z
+status: claimed-before-planning
+items: 87-open-bugs-name-no-gate
+paths: file:specs/gateless-triage.md file:tests/conformance/BACKLOG.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
