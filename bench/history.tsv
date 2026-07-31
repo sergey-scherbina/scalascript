@@ -92,3 +92,8 @@ date	sha	load	workload	lane	ref_lane	ms	ref_ms	ratio	note
 2026-07-31	e7daef7a1	4	probe-var-expr-init	v2-bytecode	ssc	104.7	3.86	27	var s = (seed % N) + 1L — boxed cell, 18x slower than the literal case
 2026-07-31	6277a97dc	4	var-expr-init	v2-bytecode	ssc	82.6	2.43	34	NEW corpus row, BEFORE any fix — the shape no other row had
 2026-07-31	6277a97dc	4	arith-loop	v2-bytecode	ssc	0.613	0.273	2.2	control for the row above, same session
+#
+# 2026-07-31 the 34x on var-expr-init is DOMINATED by cell.get forcing the effect-threading chain,
+# not by boxing. Same boxed var in both probes, 1M iterations, v2-bytecode lane.
+2026-07-31	c934dc583	4	probe-boxed-var-read	v2-bytecode	-	161.1	-	-	reads the boxed var — effect chain, env array per iteration
+2026-07-31	c934dc583	4	probe-boxed-var-writeonly	v2-bytecode	-	6.07	-	-	writes it, never reads — pure inline path. 26x apart

@@ -128,6 +128,52 @@ Recorded because the refuted attempt is the expensive part: it looks obviously r
 failure only shows at a call site, not at the definition. Routed here rather than to a BUGS board
 because F has never supported this — it is missing coverage, not a regression.
 
+## v2-perf-cell-get-forces-effect-chain — reading a boxed var costs 26×, and it is one entry in one Set (2026-07-31)
+<!-- status: open
+     lane: native
+     area: codegen
+     kind: perf
+     gate: bench/corpus/var-expr-init.ssc -->
+
+**The dominant cost behind `var-expr-init`'s 34× is not the boxing. It is that `cell.get` drops the
+whole loop body off the fast statement path.**
+
+`Runtime.operationProducingBuiltinNames` contains **`"cell.get"`** and does not contain
+`"lcell.get"`. `JvmByteGen.mayOp` consults it, and `case Term.Seq(ts) if !ts.exists(mayOp)` is what
+selects the PURE inline path — the one whose own comment says the alternative costs "an env array
+alloc + 2 invokestatic each iter".
+
+So any loop that **reads** a boxed var is emitted as an effect-threading chain with a per-iteration
+frame materialisation. Measured, same boxed var in both, 1M iterations:
+
+| | v2 ms |
+|---|---|
+| reads the boxed var (`var-expr-init`) | **161.1** |
+| writes it, never reads it | **6.07** |
+
+**26×**, and `cell.set` is not in the Set while `cell.get` is — which is exactly the difference
+between the two rows. The JFR profile agrees: `Value[]` is 648 allocation samples against 178 for
+the literal-init variant, the largest single class in the slow run.
+
+**Why `cell.get` is in the Set is not a mistake:** a cell holds whatever was stored, so if an
+unhandled effect Op was stored, reading it yields an Op, and auto-threading must propagate it.
+`lcell.get` cannot hold one. The conservatism is correct; its blast radius is what hurts.
+
+**Three candidate fixes, in increasing risk:**
+1. **Get the var into an `lcell`** — `v2-perf-unboxed-cell-only-for-literal-init`, VC-2. Cheapest,
+   safest, and it dissolves this entry for the common case. **Blocked**: it edits
+   `specs/v2.2-p6.5-fsub.ssc`, held by another claim.
+2. **Hoist the chain's `emitCapture` out of the loop.** The captured slots hold the CELL OBJECTS,
+   which are loop-invariant — only their contents change. So the array built per iteration has
+   identical contents every time. Sound, and it removes the 43% allocation without touching
+   semantics. Real work in the emitter.
+3. **Prove the specific `cell.get` cannot yield an Op** and take the pure path. Flow analysis, and
+   getting it wrong silently breaks effect propagation — the worst failure mode available here.
+   **Not recommended without a differential gate that exercises an Op stored in a var.**
+
+**Do NOT "just remove `cell.get` from the Set".** That is the change this entry exists to warn
+against: it would make effect-carrying vars silently stop threading.
+
 ## v2-perf-unboxed-cell-only-for-literal-init — 18x, and the corpus systematically measures the good case (2026-07-31)
 <!-- status: open
      lane: native
