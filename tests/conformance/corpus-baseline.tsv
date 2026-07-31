@@ -65,7 +65,6 @@ oauth-mcp-full-stack	*	SKIP
 oauth-rs-guard	*	SKIP
 oauth-rsa-jwks	*	SKIP
 object-store-sync-routes	*	SKIP
-object-var-member-scope	int	DIVERGE
 object-var-member-scope	js	FAIL
 object-var-member-scope	v2	DIVERGE
 oidc-idp	*	SKIP

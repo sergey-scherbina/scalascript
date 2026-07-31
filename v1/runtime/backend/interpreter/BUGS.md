@@ -14,7 +14,32 @@ Newest first.
      fixed-in: -
      gate: tests/conformance/object-var-member-scope.ssc -->
 
-Assigning to a `var` member from inside the object's own method writes a TOP-LEVEL global of the
+THE FIX ON THIS LANE, landing in the next commit (`status`/`fixed-in` flip there, so the sha in
+the header is the sha that carries the code). `ObjectVarEnvView` (`StatRuntime.scala`) gives an object's `var` members one
+store and one view of it:
+
+  * `Defn.Object` registers the object's `members` map in `interp.objectVarStores` and re-points
+    every member function's closure at a view that reads the var names LIVE from it. Everything
+    that is not a var member still comes from the snapshot the method already captured, so a
+    method's view of the outer scope is unchanged.
+  * `ObjectVarEnvView.assign` is the single place a bare-name write decides where it lands. It
+    finds the owning scope through a marker key read with the ordinary chained `get` — a method
+    body runs inside a `FrameMap` layered on the view (`closureWithSelfFor`), so matching on the
+    env's TYPE would have missed. The marker is not a legal identifier and is absent from
+    `iterator`, so it cannot surface as a field.
+  * The `InstanceV`'s field map is the same view, or `O.n` read from outside would answer from the
+    snapshot while the object's own methods answered correctly — two truths for one field.
+
+THREE WRITE SITES, NOT ONE, and finding only the first would have looked like a fix while changing
+nothing: `def bump(): Unit = n = n + 1` is a SINGLE-statement body, so the `BlockRuntime` fast path
+is the one a member method actually takes. `FastTier` is the third — it writes accumulators straight
+to `interp.globals` in a dozen places, so instead of teaching twelve sites about object scopes it
+now DECLINES when the closure belongs to such a scope, and the general (correct) path runs.
+
+Programs with no `var` member of an `object` pay one boolean (`interp.objectVarsPresent`) and reach
+none of this.
+
+THE DEFECT. Assigning to a `var` member from inside the object's own method wrote a TOP-LEVEL global of the
 same bare name. The member never changes, and any unrelated variable of that name is silently
 overwritten.
 

@@ -37,6 +37,15 @@ private[interpreter] object FastTier:
     !sys.env.get("SSC_FASTTIER").contains("off") &&
       !sys.props.get("ssc.fasttier").contains("off")
 
+  /** This tier writes its accumulator straight to `interp.globals` in a dozen places. A `var`
+   *  member of an `object` does NOT live there — it lives in the object's own store, reached
+   *  through `ObjectVarEnvView` — so a loop inside a member method would have updated a top-level
+   *  global and left the field alone. Rather than teach twelve write sites about object scopes,
+   *  the tier declines: the general path is correct and this shape is rare inside an object.
+   *  (object-var-member-assignment-writes-a-top-level-global.) */
+  private def declined(closure: Value.FunV, interp: Interpreter): Boolean =
+    !enabled || (interp.objectVarsPresent && closure.closure.contains(ObjectVarEnvView.MarkerKey))
+
   /** Closure shape: `paramName => { accName = accName + fnName(paramName) }`.
    *  `paramName` is implicit (matches the closure's single param). */
   private final class ClosureShape(val accName: String, val fnName: String)
@@ -263,7 +272,7 @@ private[interpreter] object FastTier:
     closure: Value.FunV,
     interp:  Interpreter
   ): Computation | Null =
-    if !enabled then return null
+    if declined(closure, interp) then return null
     if closure.params.length != 1 then return null
     val paramName = closure.params.head
     val shape = analyzeClosure(closure.body, paramName)
@@ -346,7 +355,7 @@ private[interpreter] object FastTier:
     closure: Value.FunV,
     interp:  Interpreter
   ): Computation | Null =
-    if !enabled then return null
+    if declined(closure, interp) then return null
     if closure.params.length != 1 then return null
     val paramName = closure.params.head
     val shape = analyzeClosure(closure.body, paramName)
@@ -414,7 +423,7 @@ private[interpreter] object FastTier:
     closure: Value.FunV,
     interp:  Interpreter
   ): Computation | Null =
-    if !enabled then return null
+    if declined(closure, interp) then return null
     if closure.params.length != 1 then return null
     val paramName = closure.params.head
     val shape = analyzeClosure(closure.body, paramName)
@@ -469,7 +478,7 @@ private[interpreter] object FastTier:
     closure: Value.FunV,
     interp:  Interpreter
   ): Computation | Null =
-    if !enabled then return null
+    if declined(closure, interp) then return null
     if closure.params.length != 1 then return null
     val paramName = closure.params.head
     val shape = analyzeClosure(closure.body, paramName)
@@ -528,7 +537,7 @@ private[interpreter] object FastTier:
     closure: Value.FunV,
     interp:  Interpreter
   ): ResolvedDoubleAccum | Null =
-    if !enabled then return null
+    if declined(closure, interp) then return null
     if closure.params.length != 1 then return null
     val paramName = closure.params.head
     val shape = analyzeClosure(closure.body, paramName)
@@ -571,7 +580,7 @@ private[interpreter] object FastTier:
     closure: Value.FunV,
     interp:  Interpreter
   ): ResolvedLongAccum | Null =
-    if !enabled then return null
+    if declined(closure, interp) then return null
     if closure.params.length != 1 then return null
     val paramName = closure.params.head
     val shape = analyzeClosure(closure.body, paramName)
@@ -846,7 +855,7 @@ private[interpreter] object FastTier:
     closure: Value.FunV,
     interp:  Interpreter
   ): Computation | Null =
-    if !enabled then return null
+    if declined(closure, interp) then return null
     if closure.params.length != 2 then return null
     if closure.usingParams.nonEmpty then return null
     val p1    = closure.params(0)
@@ -883,7 +892,7 @@ private[interpreter] object FastTier:
   /** Resolve the 2-arg closure shape once at setup for Long-acc Map foreach.
    *  Returns null if the body isn't `acc = acc + paramRef` or `acc` isn't IntV. */
   def tryResolveLongMapAccum(closure: Value.FunV, interp: Interpreter): ResolvedLongMapAccum | Null =
-    if !enabled then return null
+    if declined(closure, interp) then return null
     if closure.params.length != 2 then return null
     if closure.usingParams.nonEmpty then return null
     val p1    = closure.params(0)
@@ -896,7 +905,7 @@ private[interpreter] object FastTier:
 
   /** Double-typed parallel of `tryResolveLongMapAccum`. */
   def tryResolveDoubleMapAccum(closure: Value.FunV, interp: Interpreter): ResolvedDoubleMapAccum | Null =
-    if !enabled then return null
+    if declined(closure, interp) then return null
     if closure.params.length != 2 then return null
     if closure.usingParams.nonEmpty then return null
     val p1    = closure.params(0)
@@ -974,7 +983,7 @@ private[interpreter] object FastTier:
     closure: Value.FunV,
     interp:  Interpreter
   ): Computation | Null =
-    if !enabled then return null
+    if declined(closure, interp) then return null
     if closure.params.length != 2 then return null
     if closure.usingParams.nonEmpty then return null
     val p1    = closure.params(0)
