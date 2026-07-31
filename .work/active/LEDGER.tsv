@@ -1,5 +1,6 @@
-# generation: 656
+# generation: 657
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
 smoke-budget-drift	claude-code	2026-07-31T11:18:37Z	smoke-suite-headroom-halved	file:scripts/smoke-ci.ssc file:scripts/SPRINT.md file:BACKLOG.md
 v2-perf-jmh-dispatch	claude-code	2026-07-31T11:48:07Z	P-4-jmh-primitive-dispatch	file:v1/runtime/backend/interpreter-bench/src/main/scala/scalascript/bench/V2DispatchBench.scala file:v2/SPRINT.md file:build.sbt
+std-os-js-jvm-resolve	claude-code	2026-07-31T11:57:14Z	std-os-does-not-resolve-on-js-or-jvm	file:v1/runtime/backend/js/BUGS.md
