@@ -1969,7 +1969,7 @@ object Prims:
         case (StrV(s), "map", List(fn: Value.ClosV)) =>
           val rs = s.toList.map(c => callClos(fn, Array(IntV(c.toLong))))
           if rs.nonEmpty && rs.forall { case IntV(n) => n >= 0 && n <= 0xFFFF; case _ => false } then
-            StrV(rs.iterator.map { case IntV(n) => n.toChar; case _ => ' ' }.mkString)
+            StrV(rs.iterator.map { case IntV(n) => n.toChar; case _ => '\u0000' }.mkString)
           else
             listOf(rs)
         case (StrV(s), "endsWith", List(StrV(sfx)))   => BoolV(s.endsWith(sfx))
