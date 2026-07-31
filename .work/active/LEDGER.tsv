@@ -1,5 +1,5 @@
-# generation: 687
+# generation: 688
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
-v2-validate-accumulator	claude-code	2026-07-31T15:38:15Z	v2-validate-accumulator	v2/runtime/std/http-plugin v2/BUGS.md tests/conformance/corpus-baseline.tsv tests/conformance/contract-roster.tsv
+v2-validate-accumulator	claude-code	2026-07-31T15:38:15Z	v2-validate-accumulator	v2/runtime/std/http-fast-plugin v2/BUGS.md tests/conformance/corpus-baseline.tsv tests/conformance/contract-roster.tsv
 c1-fusion-probe	claude-code	2026-07-31T15:39:58Z	C-1-probe-fusion-headroom	file:v1/runtime/backend/interpreter-bench/src/main/scala/scalascript/bench/V2CollectionBench.scala file:v2/SPRINT.md
