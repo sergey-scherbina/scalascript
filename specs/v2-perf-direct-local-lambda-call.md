@@ -246,7 +246,48 @@ probe is a gate.
 the 48.7 / 11.2 / 7.1 ns measurement, the `lambda-call` corpus row at 1734×, the `PrintCompilation`
 cause — is unaffected by the implementation failing to land.
 
-**What is left to check, cheapest first:****What is left to check, cheapest first:****What is left to check, cheapest first:**
+## ✅ CAUSE FOUND (2026-07-31) — and with no build at all
+
+`SSC_DUMP_IR=<defname>` already existed (`v2/backend-jvm-bytecode/OpAnfNative.scala:37`) and prints
+the IR **as the generator receives it**, before and after OpAnf. Every earlier IR dump was the
+FRONT's output; this is the one that mattered.
+
+```
+=== IR[sameMethod] POST-lift ===
+Lam(0){ Let[1]{ Lam(1){ Lit(CInt(0)) }
+  in Let[2]{ App{ Local(0) Lit(CInt(1)) }
+             App{ Local(1) Lit(CInt(2)) }
+     in Prim(__arith__){ Lit(CStr(+)) Local(1) Local(0) } } } }
+```
+
+**OpAnf A-normalises the two calls into a second `Let`.** And `mayOp(Term.App)` is **true**
+(`JvmByteGen.scala:394`), so that inner `Let` takes the **effectful** arm — which MATERIALISES the
+frame. Once the frame is materialised the bindings are env-array entries, not JVM slots, so
+`i < ctx.slotDepth` is false and the arm can never fire.
+
+**This is why all three attempts were inert, and it is not shape-specific:** any call in an
+expression position is A-normalised into a `Let` whose rhs `mayOp`, so the direct-call site is
+*always* behind a materialised frame. A slot-keyed map cannot see it, ever.
+
+**The corrected design — this is what attempt 4 implements.** Do exactly what `localTailTargets`
+does, because it solves precisely this problem: key by **environment-relative De Bruijn index**, and
+thread it through `TailCtx` / `shiftTailCtx` so it survives frame materialisation and the per-method
+splits (`emitChain`, `emitLam`). The plain-`Let`-binds-a-`Lam` case becomes a second producer for
+that existing map; the consumer is a new **non-tail** `App(Local i)` arm beside the tail one at
+`:1257`, which already reads it correctly on the env side.
+
+The `Emit.closEnv` / `extendEnv` helpers stay as specced — the captured env still has to come from
+the `ClosV`, whether it is in a slot or in the frame.
+
+### The lesson, and it is the expensive one from this task
+
+**Three build cycles (~30 min) went into a guard that could never be entered, and the tool that
+showed why was already in the repository.** `SSC_DUMP_IR` cost one command and no build. Before
+rebuilding a compiler to test a hypothesis about what the compiler sees, **look for a way to print
+what the compiler sees.** Two of this task's dead ends — the megamorphic reading and the Ctx-scope
+reading — would both have been skipped by starting here.
+
+**What is left to check, cheapest first:****What is left to check, cheapest first:****What is left to check, cheapest first:****What is left to check, cheapest first:**
 1. **Does `val f = <lambda>` lower to `Let(List(Lam), body)` at all?** F may emit `LetRec` for a
    local binding so it can be recursive — in which case `localTailTargets` **already holds the
    entry**, and the fix is a non-tail arm reading that existing map rather than a new one. This is
