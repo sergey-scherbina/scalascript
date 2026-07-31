@@ -1,6 +1,5 @@
-# generation: 537
+# generation: 538
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
 mcp-into-standard-graph	claude-code	2026-07-31T03:54:31Z	mcp-into-standard-graph	build.sbt tests/e2e/v21-explicit-mcp-provider-smoke.sh tests/e2e/v21-standard-mcp-smoke.sh tests/e2e/v21-explicit-lanes-gate.sh tests/fixtures/v21-explicit-lanes/manifest.tsv tests/conformance/corpus-baseline.tsv tests/conformance/contract-roster.tsv .github/workflows/ci.yml README.md docs/user-guide.md specs/v2.1-toolchain-independence.md v2/BUGS.md SPRINT.md
 nul-remaining-four	claude-code	2026-07-31T04:21:27Z	nul-byte-in-tracked-source	file:payments/blockchain/cardano/jvm/src/main/scala/scalascript/blockchain/cardano/CardanoChainAdapter.scala file:uniml/core/src/test/scala/scalascript/uniml/spike/ScalaSpike.scala file:v1/lang/core/src/test/scala/scalascript/artifact/ArtifactAbiCompatibilityTest.scala file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/ValueSerializer.scala file:scripts/smoke-ci.ssc file:tests/BUGS.md
-v2-perf-var-init	claude-code	2026-07-31T04:28:40Z	v2-perf-unboxed-cell-only-for-literal-init	file:TASK/v2-perfomance.md file:bench/history.tsv
