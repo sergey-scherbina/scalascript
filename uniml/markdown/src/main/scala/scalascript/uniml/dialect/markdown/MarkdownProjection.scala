@@ -63,11 +63,11 @@ object MarkdownProjection:
       case UniNode.Token(_) => None // root-level trivia
       case UniNode.Branch(kind, edges, _, _) => kind match
         case MdBranch.Paragraph =>
-          Some(MarkdownBlock.Paragraph(trimTrailingBreak(projectInlines(edges, refs))))
+          Some(MarkdownBlock.Paragraph(trimBlockInlines(projectInlines(edges, refs))))
         case MdBranch.Heading =>
           val level = headingLevel(edges)
           val setext = edges.exists { case UniEdge(_, UniNode.Token(t)) => t.kind == MdKind.SetextUnderline; case _ => false }
-          Some(MarkdownBlock.Heading(level, trimTrailingBreak(projectInlines(edges, refs)), setext))
+          Some(MarkdownBlock.Heading(level, trimBlockInlines(projectInlines(edges, refs)), setext))
         case MdBranch.ThematicBreak => Some(MarkdownBlock.ThematicBreak)
         case MdBranch.Blockquote =>
           Some(MarkdownBlock.BlockQuote(edges.flatMap(e => projectBlock(e.child, refs))))
@@ -189,10 +189,50 @@ object MarkdownProjection:
 
   /** Drops the block-terminating soft break a paragraph/heading picks up from its
     * final line ending (kept in the CST, not part of the semantic content). */
-  private def trimTrailingBreak(is: Vector[MarkdownInline]): Vector[MarkdownInline] =
-    is match
+  /** CommonMark 4.8: "the paragraph's raw content is formed by concatenating the
+    * lines and removing initial and final whitespace" — and 6.7, where the
+    * spaces that MAKE a hard break are part of the break, not of the text before
+    * it, while the next line's leading whitespace is dropped as well. Setext
+    * heading content is trimmed by the same rule.
+    *
+    * All of it is trimming of the SEMANTIC view only: the CST keeps every one of
+    * those characters, which is why this belongs here and not in the parser. */
+  private def trimBlockInlines(is: Vector[MarkdownInline]): Vector[MarkdownInline] =
+    // a break that ends the block is not a break at all — `foo  \n` is just `foo`
+    val withoutTrailingBreak = is match
       case rest :+ MarkdownInline.SoftBreak => rest
+      case rest :+ MarkdownInline.HardBreak => rest
       case _                                => is
+    val n = withoutTrailingBreak.length
+    withoutTrailingBreak.iterator.zipWithIndex.map { (inline, idx) =>
+      inline match
+        case MarkdownInline.Text(v) =>
+          val afterBreak = idx > 0 && isBreak(withoutTrailingBreak(idx - 1))
+          val beforeBreak = idx + 1 < n && isBreak(withoutTrailingBreak(idx + 1))
+          var out = v
+          if idx == 0 || afterBreak then out = dropLeadingSpaces(out)
+          if idx == n - 1 || beforeBreak then out = dropTrailingSpaces(out)
+          MarkdownInline.Text(out)
+        case other => other
+    }.toVector.filter {
+      // a text run that was ENTIRELY the break's whitespace leaves nothing behind
+      case MarkdownInline.Text("") => false
+      case _                       => true
+    }
+
+  private def isBreak(inline: MarkdownInline): Boolean = inline match
+    case MarkdownInline.SoftBreak | MarkdownInline.HardBreak => true
+    case _                                                   => false
+
+  private def dropLeadingSpaces(v: String): String =
+    var i = 0
+    while i < v.length && (v.charAt(i) == ' ' || v.charAt(i) == '\t') do i += 1
+    v.substring(i)
+
+  private def dropTrailingSpaces(v: String): String =
+    var i = v.length
+    while i > 0 && (v.charAt(i - 1) == ' ' || v.charAt(i - 1) == '\t') do i -= 1
+    v.substring(0, i)
 
   private def projectInlines(edges: Vector[UniEdge], refs: Map[String, MarkdownBlock.LinkDefinition]): Vector[MarkdownInline] =
     var out: Vector[MarkdownInline] = Vector.empty
