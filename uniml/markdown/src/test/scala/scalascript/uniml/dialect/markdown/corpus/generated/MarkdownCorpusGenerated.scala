@@ -12,9 +12,9 @@ import scalascript.uniml.dialect.markdown.corpus.{MarkdownBaselineRow, MarkdownC
 private[corpus] object MarkdownCorpusGenerated:
   val commonMarkCanonicalSha256: String = "f636418b09346809aa605ee4d52c3e600bf0f057251b77c386e49fae67a184a3"
   val gfmCanonicalSha256: String = "56ec730753789fa2a39db08f0dbfe7b63c9eec3b612494ff3fb0f75fef1facdd"
-  val baselineFullRowsSha256: String = "39b10bcdcb8190a07798e33afd69e783af1f5cb9a3ceffff82ae766db5179707"
-  val baselineNonPassRowsSha256: String = "32fa176c2e0701c724934aeb196a9b91802902e6a489e894cdb4c897ebb02a76"
-  val baselineSectionSha256: String = "48a153cadfe5fe5153cdc0b8250f510945847dcd692241a8bb795137c0362e27"
+  val baselineFullRowsSha256: String = "2cf8774182173a0c15aa6d625f25e339b5279282e4c98e4ec3571102ce7028ba"
+  val baselineNonPassRowsSha256: String = "8d8efbba38f4f275529c15a50e9db5d85c456c96ac2b9b4efc69b728e3b95032"
+  val baselineSectionSha256: String = "41947e768f147190ae2aca55dc9853aad021a0e82af3e4cdc45d47149bd22d01"
 
   val commonMark: Vector[MarkdownCorpusCase] =
     MarkdownCorpusGeneratedCommonMark00.cases ++
