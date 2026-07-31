@@ -7,6 +7,51 @@ grepping for status.
 
 Newest first.
 
+## v2-cluster-capability-needs-source-visible-to-plugins — 3 of 4 externs are easy, the 4th is plumbing
+<!-- status: open
+     lane: native
+     area: runtime
+     fixed-in: -
+     gate: examples/cluster-capability.ssc -->
+
+**Scoped 2026-07-31, deliberately NOT started.** `cluster-capability` fails on v2 with
+`Actors scope failed: unbound global: clusterOf`. The surface is exactly four `extern def`s in
+`v1/runtime/std/cluster/types.ssc` — everything else (`CodeIdentity`, `SeedResolver`,
+`ClusterCapability`, `SeedResolver.staticList`) is ordinary .ssc and already works on every lane.
+
+Golden (live from int):
+
+```
+demo-node
+ws://seed:9100/_ssc-actors
+sha256
+64
+```
+
+| extern | native lane |
+|---|---|
+| `clusterOf(seedResolver)` | straightforward — `localNode` is already in `ActorsNativePlugin` |
+| `resolveSeeds(seedResolver)` | straightforward — the case only uses the `static` kind |
+| `assertCodeIdentity(expected)` | straightforward — field compare |
+| **`codeIdentity()`** | **blocked** |
+
+**Why the fourth is blocked.** v1 computes it as SHA-256 over the module's SOURCE TEXT
+(`Interpreter.computeCodeIdentity`), tagging `format = "ssc"`. On the native lane the source is not
+reachable from a plugin: `NativePluginContext` exposes `argv`, `databases`, `contentModules`,
+`invoke`, and the register* family — no source path or text. `Runtime` keeps only `var argv`
+(`Runtime.scala:317`), and `Main.dispatch` takes `file` as a local and never retains it.
+
+So a faithful implementation needs three coordinated changes — retain the source in `Runtime`
+(`v2/src`, the VM), expose it on `NativePluginContext` (`v2/plugin-spi`, a contract other plugins
+share), then the plugin itself. That is a different task from "implement four externs in the actors
+plugin", and it touches a shared SPI other agents build against.
+
+⚠️ **The shortcut here is worth naming so nobody takes it.** The case prints only
+`identity.algorithm` and `identity.digest.length`, and `assertCodeIdentity` compares the value
+against ITSELF. A constant `("sha256", "0"*64)` passes all four printed lines and the assertion —
+green row, no code identity. Whoever implements this must hash something real, or the feature is a
+decoration that will be trusted by a cluster.
+
 ## f-tilde-infix-silently-miscompiled-as-bitwise-not — F accepts it, exits 0, prints a wrong number
 <!-- status: open
      lane: native
