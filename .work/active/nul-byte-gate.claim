@@ -2,10 +2,10 @@ slug: nul-byte-gate
 branch: feature/nul-byte-gate
 agent: claude-code
 started: 2026-07-31T03:34:05Z
-heartbeat: 2026-07-31T03:35:07Z
+heartbeat: 2026-07-31T03:46:10Z
 status: claimed-before-planning
 items: nul-byte-in-tracked-source
-paths: file:tests/e2e/no-nul-in-sources.sh file:v2/backend/js/JsBackend.scala file:v2/runtime/std/scljet-vfs-plugin/src/test/scala/ssc/plugin/scljetvfs/ScljetVfsNativePluginTest.scala file:tests/BUGS.md
+paths: file:tests/e2e/no-nul-in-sources.sh file:scripts/BUGS.md file:v2/backend/js/JsBackend.scala file:v2/runtime/std/scljet-vfs-plugin/src/test/scala/ssc/plugin/scljetvfs/ScljetVfsNativePluginTest.scala file:tests/BUGS.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
