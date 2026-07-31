@@ -1,6 +1,5 @@
-# generation: 554
+# generation: 555
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
 type-ascription-matrix	claude-code	2026-07-31T05:09:25Z	type-ascription-matrix probe-wider-than-hypothesis tool-finding-not-same-hour	file:tests/conformance/SPRINT.md file:tests/conformance/BACKLOG.md file:scripts/BACKLOG.md file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGenCpsCodegen.scala file:specs/type-ascription-matrix.md file:tests/conformance/type-ascription-number.ssc file:tests/conformance/expected/type-ascription-number.txt file:v1/runtime/backend/js/BUGS.md file:tests/conformance/type-ascription-matrix.ssc file:tests/conformance/expected/type-ascription-matrix.txt file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv
 v2-perf-var-cell-widen	claude-code	2026-07-31T05:31:40Z	v2-perf-unboxed-cell-only-for-literal-init	file:bench/corpus/var-expr-init.ssc file:specs/v2.2-p6.5-fsub.ssc file:v2/lib/ssc1-lower.ssc0 file:bench/history.tsv file:TASK/v2-perfomance.md
-unimported-user-reports-check	claude-code	2026-07-31T05:32:43Z	user-report-issues-invisible-to-the-age-bound	file:tests/e2e/inbox-gate.sh file:INBOX.md
