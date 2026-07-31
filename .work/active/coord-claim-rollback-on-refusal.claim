@@ -1,0 +1,11 @@
+slug: coord-claim-rollback-on-refusal
+branch: feature/coord-claim-rollback-on-refusal
+agent: claude-code
+started: 2026-07-31T10:05:05Z
+heartbeat: 2026-07-31T10:05:05Z
+status: claimed-before-planning
+items: coord-claim-leaves-its-commit-when-push-is-refused
+paths: file:scripts/coord-claim file:tests/coord/coord-claim-runs.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
