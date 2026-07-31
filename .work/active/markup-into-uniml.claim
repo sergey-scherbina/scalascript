@@ -2,10 +2,18 @@ slug: markup-into-uniml
 branch: feature/markup-into-uniml
 agent: claude-code
 started: 2026-07-31T16:21:38Z
-heartbeat: 2026-07-31T16:21:38Z
-status: claimed-before-planning
+heartbeat: 2026-07-31T16:38:00Z
+status: implementing
 items: move markup/ -> uniml/markup
-paths: file:markup file:uniml/markup file:build.sbt file:specs/project-partitioning.md file:tests/e2e/project-partition-gate.sh
+paths: file:markup file:uniml/markup file:uniml/SPRINT.md file:build.sbt file:specs/project-partitioning.md file:tests/e2e/project-partition-gate.sh
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  git mv markup -> uniml/markup, grouping the shared XML/HTML AST with the dialects that
+  project onto it. Sole build change: markupCoreCross .in(file("uniml/markup")). Artifact
+  name unchanged, so standardJarPrefixes needs no edit.
+  COST, paid explicitly: markup-core ships in the standard tier and the partition gate reads
+  Part III BY DIRECTORY, with uniml/ in it — so check 1 goes red on the directory alone
+  (verified: exactly one problem). ADDITIONAL_RE carves out `markup` EXACTLY, and a new
+  --self-test plant puts scalascript-uniml-yaml_ in the allowlist to prove a sibling uniml
+  module is still caught. This REVERSES specs/project-partitioning.md 8.7, written hours
+  earlier against this very move; 8.7 now records the reversal and the price.
+next: smoke-ci, then push
