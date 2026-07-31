@@ -732,6 +732,19 @@ class JsGen(
   private[codegen] def line(s: String): Unit =
     sb.append("  " * indent).append(s).append("\n")
 
+  /** Run `body`, which emits through `line`, and return what it emitted instead of leaving it in
+    * the output. `sb` is a `val`, so it cannot be swapped the way `loopHoistBuf` is; marking the
+    * length and cutting the region back out is the same idea without the field. Used where a
+    * statement-emitting generator has to produce an expression — the object/package member path,
+    * which builds `const f = … ;` strings rather than emitting lines.
+    */
+  private def captureEmitted(body: => Unit): String =
+    val mark = sb.length
+    body
+    val out = sb.substring(mark)
+    sb.setLength(mark)
+    out.nn
+
   // ─── Named-arg param-order collection ────────────────────────────
   //
   // Pre-pass over all Defn.Def nodes in the module to record the ordered
@@ -3273,7 +3286,61 @@ class JsGen(
                     else baseSig match
                       case s"($inner)" => s"($inner$cbParamsStr)"
                       case other       => s"($other$cbParamsStr)"
-          decls += s"const $fname = $sig => $bodyJsRaw;"
+          // ─── Self-TCO, the same transform the TOP-LEVEL path has had all along ──────────────
+          //
+          // Functions declared inside an `object`/package module took this branch and got a plain
+          // arrow, so a self tail call stayed a real JS call and the depth was the recursion count.
+          // The top-level path (see the `anywhereContainsSelfCall` branch in genDef) turns exactly
+          // the same shape into `while(true)`, which is why the SAME function is fine at top level
+          // and blows the stack once it moves into a module. MEASURED on scljet-large-page: INT
+          // passes, JS dies with `RangeError: Maximum call stack size exceeded` in `writeZerosLoop`
+          // (scljet/write.ssc:74), whose own comment says it is written tail-recursively "so the
+          // interpreter can TCO" it.
+          //
+          // Guards mirror the top-level ones, and each is load-bearing:
+          //   anywhereContainsSelfCall  — hasNonTailSelfCall is vacuously false for a NON-recursive
+          //                               function, so without this every module function would be
+          //                               wrapped in while(true).
+          //   objCbParams               — context-bound params resolve through guards the shadow-name
+          //                               rewrite below would not see. (`using` clauses are already
+          //                               filtered out of allClauses by `.filterNot(_.mod.nonEmpty)`.)
+          //
+          // NOT a guard, and the first attempt got this wrong: `entryGuards` is non-empty for any
+          // Int parameter (`n = _charCodeOrNull(n) ?? n`), so requiring it empty silently disabled
+          // the whole transform for exactly the numeric loops it exists for — no error, just the
+          // old output. Those coercions are FOLDED INTO the let-initialisers by intParamInitializer,
+          // which is what the top-level path does too.
+          //   defaults / varargs        — the `_p` shadow names would shadow the originals that
+          //                               default expressions reference, and a rest parameter is
+          //                               not assignable in the continue path.
+          val tcoParamVals = allClauses.flatMap(_.values)
+          val tcoParams    = tcoParamVals.map(_.name.value)
+          val tcoEligible =
+            tcoParams.nonEmpty && fname.nonEmpty &&
+            objCbParams.isEmpty &&
+            !tcoParamVals.exists(_.default.isDefined) &&
+            !tcoParamVals.lastOption.exists(_.decltpe.exists(_.isInstanceOf[Type.Repeated])) &&
+            !containsAwaitClient(dd.body) &&
+            anywhereContainsSelfCall(dd.body, fname) &&
+            !hasNonTailSelfCall(dd.body, fname, tailPos = true)
+          if tcoEligible then
+            val renames  = paramRenameMap(tcoParams)
+            val formals  = tcoParams.map(p => s"_$p").mkString(", ")
+            val byName   = tcoParamVals.map(p => p.name.value -> p).toMap
+            val letDecls = "let " + tcoParams.map { p =>
+              s"${safeJsParam(p)} = ${intParamInitializer(byName(p), s"_$p")}"
+            }.mkString(", ")
+            // genTcoBody emits through `line`, but this path builds an expression STRING. Capture by
+            // marking the shared buffer and cutting the region back out — `sb` is a val, so it
+            // cannot be swapped the way loopHoistBuf is.
+            val body = withParamTypeEvidence(tcoParamVals) {
+              withParamRenames(objDefRenames ++ renames) {
+                captureEmitted { genTcoBody(dd.body, fname, tcoParams.map(safeJsParam)) }
+              }
+            }
+            decls += s"const $fname = ($formals) => { $letDecls; while(true) {\n$body} };"
+          else
+            decls += s"const $fname = $sig => $bodyJsRaw;"
         else
           val innerFn = allClauses.init.foldRight(clauseSig(allClauses.last.values) + s" => $bodyJsRaw") {
             (clause, inner) => clauseSig(clause.values) + s" => $inner"

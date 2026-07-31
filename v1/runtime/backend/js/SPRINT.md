@@ -10,6 +10,16 @@ Anything not being worked on belongs in `v1/runtime/backend/js/BACKLOG.md`, not 
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [~] **js-no-tail-call-elimination-overflows-scljet-large-page** — self-TCO exists in JsGen and is
+  applied ONLY on the top-level `function` path. A `def` inside an `object`/package module takes the
+  arrow-function path (`const f = (a, b) => …`, JsGen.scala:3276), which has no such branch, so a
+  self tail call stays a real JS call. Same function, same shape: fine at top level, blows the stack
+  once it moves into a module. MEASURED on `scljet-large-page` — INT passes, JS dies with
+  `RangeError: Maximum call stack size exceeded` in `writeZerosLoop` (`scljet/write.ssc:74`), a
+  function whose own comment says it is tail-recursive "so the interpreter can TCO" it. Emitted
+  today as `writeZerosLoop = (count, acc) => { … _call(writeZerosLoop, …) }` with no `while(true)`.
+  Fix: the same transform on the member path, guards mirrored. Gate must FAIL before it.
+
 - [x] js-long-hoisted-const-mix — JsGen's invariant-fold hoist built `let s = 0` / `acc = acc + _kN`
   as TEXT, so a Long (BigInt) accumulator threw. Seeds `0n` and routes both adds through `_larith`
   when the accumulator or addend is statically Long; the Int path keeps its native `+`. The 64-bit
