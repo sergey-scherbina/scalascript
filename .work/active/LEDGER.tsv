@@ -1,5 +1,6 @@
-# generation: 578
+# generation: 579
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
 v2-fallback-front-arity-and-concat	claude-code	2026-07-31T07:30:28Z	v2-fallback-front-arity-and-concat	v2/lib/ssc1-lower.ssc0 specs/v2.2-p6.5-fsub.ssc v2/BUGS.md tests/e2e/v2-string-plus-vs-user-concat-ext.sh tests/e2e/v2-std-index-arity.sh tests/conformance/corpus-baseline.tsv tests/conformance/contract-roster.tsv
 stdin-ownership-gate	claude-code	2026-07-31T07:37:00Z	ssc-tools-stdin-S4-gate	file:tests/e2e/stdin-belongs-to-the-program.sh file:BACKLOG.md
+sys-env-three-lanes	claude-code	2026-07-31T07:37:45Z	typer-defines-sys-but-no-runtime-provides-it	file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/BuiltinsRuntime.scala file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:v2/src/Runtime.scala file:tests/conformance/sys-env.ssc
