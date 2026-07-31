@@ -90,3 +90,5 @@ date	sha	load	workload	lane	ref_lane	ms	ref_ms	ratio	note
 # only the var's INITIALISER differs. This is v2-perf-unboxed-cell-only-for-literal-init.
 2026-07-31	e7daef7a1	4	probe-var-literal-init	v2-bytecode	ssc	5.67	4.28	1.3	var s = 1L — the unboxed lcell tier fires
 2026-07-31	e7daef7a1	4	probe-var-expr-init	v2-bytecode	ssc	104.7	3.86	27	var s = (seed % N) + 1L — boxed cell, 18x slower than the literal case
+2026-07-31	6277a97dc	4	var-expr-init	v2-bytecode	ssc	82.6	2.43	34	NEW corpus row, BEFORE any fix — the shape no other row had
+2026-07-31	6277a97dc	4	arith-loop	v2-bytecode	ssc	0.613	0.273	2.2	control for the row above, same session

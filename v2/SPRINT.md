@@ -19,19 +19,47 @@ Claim `v2-perf-var-cell-widen`. Entry: `BACKLOG.md`. Measured: a loop whose `var
 from an expression runs at **104.7 ns/iter** against **5.67** for the identical loop with a literal
 initialiser — the unboxed `lcell`/`dcell` tier only fires on a syntactic literal.
 
-- [~] **VC-1 — the corpus row FIRST.** `bench/corpus/var-expr-init.ssc`: the same loop with the var
+- [x] **VC-1 — the corpus row FIRST. DONE** (`bench/corpus/var-expr-init.ssc`, BEFORE reading
+      ssc 2.43 / v2-bytecode 82.6 = **34×**; `arith-loop` control 2.2×). `bench/corpus/var-expr-init.ssc`: the same loop with the var
       initialised from `seed`. Without it the win is invisible and the corpus keeps measuring only
       the case that already works, which is exactly how this hid.
-- [~] **VC-2 — widen the test in F** (`specs/v2.2-p6.5-fsub.ssc:1266`). `isIntLitCode` accepts only
-      `(lit (int `; add the typed-IR forms F itself emits — `(prim i.…)` — which it produces ONLY
-      when it inferred Int. Same for `isFloatLitCode` / `(prim f.…)`, added yesterday with the same
-      limitation inherited.
-- [~] **VC-3 — the same widening in the lowerer** (`v2/lib/ssc1-lower.ssc0`, `isIntLitExpr` /
-      `isFloatLitExpr`), which is the LEGACY front's path. `v2-perf-1` is the precedent: a fix in
-      one front is a half-fix.
-- [~] **VC-4 — prove LIVE, then measure.** Rename `lcell.new` to a nonexistent prim: the
-      expression-init program MUST die and the literal one MUST keep working. Only then the
-      alternating A/B, 3 rounds, new row + `arith-loop` as control.
+- [x] **VC-2 — SUPERSEDED by the IR reading, before any code was written.** The planned widening
+      ("accept `(prim i.…)`") would have been **INERT on the very row VC-1 added**. `SSC_DUMP_IR`
+      shows F emits **no typed arithmetic at all** for this program:
+
+          var s = (seed % N) + 1L   ->  cell.new( __arith__("+", __arith__("%", Local(0), Lit), Lit) )
+          var i = 0                 ->  lcell.new( Lit(CInt(0)) )
+          every operation            ->  __arith__ ;  zero i.* anywhere
+
+      `__arith__` is genuinely untyped — it serves `+` on strings too — so it is NOT a provably-Int
+      form and must not be accepted. There is no safe syntactic widening for this shape.
+
+      *Why `arith-loop` is fast anyway, and it confirms the diagnosis:* `JvmByteGen.canLong` accepts
+      `lcell.get(Local)` and int literals, so `__arith__` over an **lcell** still takes the Long fast
+      path. It does **not** accept `cell.get`. So the CELL CHOICE decides whether the arithmetic can
+      be fast — the boxed cell locks the whole loop out of the fast path.
+
+- [~] **VC-2b — the real root, and it needs a decision.** Nothing at this point knows `seed` is a
+      `Long`: the declaration exists in the source and is discarded before either front or backend
+      can use it. Two options, and they are different kinds of work:
+
+      **(a) Propagate declared parameter types into F's typed-IR emission.** Fixes the cell AND the
+      arithmetic, because `i.*` would then be emitted and `canLong` would accept it. Front work,
+      real inference, larger.
+
+      **(b) A runtime-adaptive cell** — `cell.new` stores unboxed while the value is a Long and
+      degrades to boxed otherwise. Needs no static knowledge at all, which is the same logic that
+      made a per-site inline cache the principled answer for calls. Runtime work, smaller, and it
+      cannot be defeated by missing type information.
+
+      **Decide with a measurement, not a preference:** count how many `cell.new` sites in the corpus
+      hold a value that is *always* a Long at run time. If most do, (b) wins on cost. If the same
+      programs also show `__arith__` dominating profiles, (a) wins because it fixes both.
+
+- [ ] **VC-3 — the same treatment in the lowerer** (legacy front) once (a) or (b) is chosen.
+- [ ] **VC-4 — prove LIVE, then measure.** Rename the emitted prim: the expression-init program MUST
+      die and the literal one MUST keep working. Only then the alternating A/B, 3 rounds,
+      `var-expr-init` + `arith-loop` as control.
 
 ⚠ **The risk that shapes VC-2/VC-3:** if the test says Int for something that is not, the var gets
 an `lcell` and a non-Int store dies in `lcellAccum: non-Int result`. Fail-fast, but a correctness

@@ -1,0 +1,34 @@
+# var-expr-init
+
+A loop whose `var` is initialised from an EXPRESSION rather than a literal — what real
+code writes whenever a loop variable comes from a parameter, a call or a computation.
+
+**No other corpus row has this shape.** Every existing loop writes `var i = 0` and
+`var sum = 0L`, i.e. literals, so the corpus measured only the case that already works.
+That is why the defect below went unseen through every sweep.
+
+Measured 2026-07-31 on the v2 bytecode lane, 1M iterations, identical arithmetic:
+
+| initialiser | v2 ns/iter | ssc ns/iter |
+|---|---|---|
+| `var s = 1L` | 5.67 | 4.28 |
+| `var s = (seed % …) + 1L` (this row) | **104.7** | 3.86 |
+
+The unboxed `lcell` tier fires only on a syntactic literal, so this var gets a boxed cell
+and pays on every read and write. See `TASK/v2-perfomance.md`
+§v2-perf-unboxed-cell-only-for-literal-init.
+
+Anti-fold: `seed` is opaque at the call site and drives the LCG, so no backend can
+precompute the loop.
+
+```scalascript
+def workload(seed: Long): Long =
+  var s = (seed % 2147483646L) + 1L
+  var sum = 0L
+  var i = 0
+  while i < 1000000 do
+    s = (s * 48271L) % 2147483647L
+    sum = sum + (s % 7L)
+    i = i + 1
+  sum
+```
