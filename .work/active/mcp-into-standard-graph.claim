@@ -1,0 +1,11 @@
+slug: mcp-into-standard-graph
+branch: feature/mcp-into-standard-graph
+agent: claude-code
+started: 2026-07-31T03:54:31Z
+heartbeat: 2026-07-31T03:54:31Z
+status: claimed-before-planning
+items: mcp-into-standard-graph
+paths: build.sbt tests/e2e/v21-explicit-mcp-provider-smoke.sh tests/fixtures/v21-explicit-lanes/manifest.tsv README.md docs/user-guide.md v2/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
