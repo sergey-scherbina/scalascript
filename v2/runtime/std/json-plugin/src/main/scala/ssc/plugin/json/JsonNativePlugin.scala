@@ -141,6 +141,23 @@ final class JsonNativePlugin extends NativePlugin:
 
   def install(context: NativePluginContext): Unit =
     NativeJsonCodec.resetRenderer()
+    // `case class T(...) derives JsonCodec` makes the front emit an initializer calling the global
+    // `JsonCodec_derived(<Mirror>)` (`ssc1-lower.ssc0:4057`), so without this name the program dies
+    // with `unbound global` before its first line — which is exactly how `examples/graph-storage.ssc`
+    // failed. Same convention SqlNativePlugin already implements for `RowCodec_derived`; this lives
+    // in the JSON plugin rather than the graph one because JsonCodec is a JSON concern, and the
+    // plugin host refuses two owners for one global.
+    //
+    // It carries the Mirror instead of building an encoder: no native consumer looks a JsonCodec up
+    // yet, and inventing an encoder nobody calls would be untested code wearing a codec's name. The
+    // metadata is here for the day one does.
+    // ⚠️ First THREE Mirror fields only, ignoring the rest — SqlNativePlugin:156 records what an
+    // exact-arity pattern cost when the Mirror grew a fourth field.
+    native(context, "JsonCodec_derived") {
+      case List(mirror @ Value.DataV("Mirror", Value.StrV(tag) +: _ +: _ +: _)) =>
+        Value.DataV("NativeJsonCodecDerived", Vector(Value.StrV(tag), mirror))
+      case _ => throw new RuntimeException("JsonCodec.derived expects Mirror metadata")
+    }
     native(context, "__jsonCoreInstallRenderer") {
       case renderer :: Nil => NativeJsonCodec.installRenderer(context, renderer); Value.UnitV
       case _ => throw new RuntimeException("__jsonCoreInstallRenderer(render)")

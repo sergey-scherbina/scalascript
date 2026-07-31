@@ -211,5 +211,26 @@ final class GraphNativePlugin extends NativePlugin:
     context.register("Graph.putRdf")(putRdf)
     context.register("Graph.getRdf")(getRdf)
     context.register("Graph.triples")(triples)
+    // `case class Module(...) derives VertexCodec` makes the front emit an initializer calling the
+    // global `VertexCodec_derived(<Mirror>)` (`ssc1-lower.ssc0:4057`), so the name must exist or the
+    // whole program dies with `unbound global` before its first line. Same convention the SQL plugin
+    // already implements for `RowCodec_derived`.
+    //
+    // These carry the Mirror rather than building an encoder, because on this lane NOTHING consumes
+    // them: `Graph.putVertex` stores the value as-is and reads `id` by field name, and
+    // `Graph.neighbors` hands the stored values back, so `.path` is ordinary field access. Returning
+    // the metadata (instead of Unit) means the day something DOES consume a vertex codec, the tag and
+    // field names are already there instead of a hole — and a reader can see what was and was not
+    // implemented.
+    // ⚠️ Match the first THREE Mirror fields and ignore the rest, exactly as SqlNativePlugin:156
+    // warns: the Mirror is a GROWING structure, and a `Seq(a, b, c)` pattern there broke every
+    // native build of a typed-SQL program when a fourth field was added.
+    def derivedCodec(what: String): List[Value] => Value = {
+      case List(mirror @ Value.DataV("Mirror", Value.StrV(tag) +: _ +: _ +: _)) =>
+        Value.DataV(what, Vector(Value.StrV(tag), mirror))
+      case _ => throw new RuntimeException(s"$what.derived expects Mirror metadata")
+    }
+    context.registerGlobal("VertexCodec_derived", -1)(derivedCodec("NativeVertexCodec"))
+    context.registerGlobal("EdgeCodec_derived", -1)(derivedCodec("NativeEdgeCodec"))
     context.register("Cypher.query")(unavailable("Cypher.query", "neo4j"))
     context.register("Gremlin.query")(unavailable("Gremlin.query", "gremlin-server or janusgraph"))

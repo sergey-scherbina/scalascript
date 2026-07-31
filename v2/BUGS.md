@@ -7,6 +7,39 @@ grepping for status.
 
 Newest first.
 
+## v2-annotated-field-plus-derives-breaks-the-constructor — `@key id` + `derives` gives arity 1
+<!-- status: open
+     lane: native
+     area: front
+     fixed-in: -
+     gate: examples/graph-storage.ssc -->
+
+**Found 2026-07-31**, revealed by registering the derived-codec globals: `graph-storage` used to die
+at `unbound global: JsonCodec_derived` before reaching its first statement. With that gone, the next
+failure is the CONSTRUCTOR.
+
+Four-line reproduction, and the ingredients matter:
+
+| declaration | native lane |
+|---|---|
+| `case class M(id: String, path: String)` | works |
+| `case class M(id, path) derives JsonCodec` | works |
+| `case class M(@key id: String, path: String)` | works |
+| `case class M(id, path) derives JsonCodec, VertexCodec` | works |
+| **`case class M(@key id: String, path: String) derives JsonCodec`** | **`arity: 1 expected, 2 given`** |
+
+A field ANNOTATION and a `derives` clause are each harmless; together they produce a constructor of
+arity 1 for a two-field class. `M("A", "p")` then fails before anything else runs. int and js both
+print `p`.
+
+This is front work — the `derives` lowering synthesises the Mirror and the constructor, and an
+annotated field evidently changes what it counts. Not plugin work, and not what this task claimed,
+so it is filed with the reproduction rather than started.
+
+⚠️ Note the shape of the discovery: this defect was ALWAYS there and completely invisible, because
+an earlier `unbound global` killed the program first. Removing one blocker is how you find the next
+one; a "fix" measured only by "the old error is gone" would have reported success here.
+
 ## v2-html-tag-dsl-missing — `div(attr.cls := …)` had no native surface
 <!-- status: fixed
      lane: native
