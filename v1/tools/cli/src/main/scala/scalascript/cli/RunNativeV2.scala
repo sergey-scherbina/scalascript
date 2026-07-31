@@ -514,6 +514,13 @@ object RunNativeV2:
       _root_.ssc.Compiler.compile(prog), Array.empty[_root_.ssc.Value]))
 
   private def runBytecode(prog: _root_.ssc.Program): Unit =
+    // This lane OWNS `Emit.globalsRef` — it resets it below and the generated `install()` fills it.
+    // The v2 wide JIT bridges that same field to the VM's globals map when it arms
+    // (specs/v2-wide-jit.md §3.6), so the two must never be live in one process. Disarming here is
+    // a CORRECTNESS choice, not a performance one, and it deliberately also covers the interpreter
+    // fallback below: a fallback run that armed mid-flight would bridge the field this lane has
+    // already reset.
+    _root_.ssc.Jit.disarm()
     // Generated install() owns both lambda and value-def initialization. A VM
     // compileWithGlobals prepass is redundant and can take VM/plugin-specific
     // dispatch branches before the ASM class has installed its own globals.

@@ -26,8 +26,18 @@ object Jit:
   /** Read once. `SSC_V2_JIT` and not `SSC_JIT`: the latter is v1's, and `bench/run.sc` sets
     * `SSC_JIT_BACKEND` to select the v1 `ssc-asm` lane — a shared name would make a bench row
     * ambiguous about which JIT it measured. Off by default until J-9 decides otherwise. */
-  val armed: Boolean =
+  private val armedByEnv: Boolean =
     sys.env.get("SSC_V2_JIT").exists(v => v != "0" && v != "off" && v.nonEmpty)
+
+  @volatile private var armedFlag: Boolean = armedByEnv
+  def armed: Boolean = armedFlag
+
+  /** A `--bytecode` run OWNS `Emit.globalsRef` — it resets it and installs its own program's
+    * globals. The JIT bridges that same field to the VM's globals map (§3.6), so the two must never
+    * be live at once; the bytecode lane disarms at entry and its interpreter FALLBACK then runs
+    * unarmed, which is a correctness choice rather than a performance one. Irreversible on purpose:
+    * nothing should be able to re-arm mid-process behind the lane's back. */
+  def disarm(): Unit = armedFlag = false
 
   /** v1's default, for the same reason: high enough that one-shot code never compiles, low enough
     * that a real hot path reaches it within noise of its first millisecond. */
@@ -44,8 +54,9 @@ object Jit:
   private val statsEnabled: Boolean =
     sys.env.get("SSC_V2_JIT_STATS").exists(v => v != "0" && v != "off" && v.nonEmpty)
 
-  private val sitesArmed = new AtomicInteger(0)
-  private val sitesHot   = new AtomicInteger(0)
+  private val sitesArmed    = new AtomicInteger(0)
+  private val sitesHot      = new AtomicInteger(0)
+  private val sitesCompiled = new AtomicInteger(0)
 
   if armed && statsEnabled then
     // java.lang.Runtime, NOT ssc.Runtime — the kernel's own object shadows it in this package.
@@ -56,9 +67,10 @@ object Jit:
     * repo has paid for this once already — `BytecodeFallbackMarker` is on stderr for the same
     * reason, and the sweep that ignored it certified a program against itself. */
   private def report(): Unit =
+    val backendId = if backendRef == null then "none" else backendRef.asInstanceOf[JitBackend].id
     System.err.println(
       s"ssc: jit tier-0 — ${sitesArmed.get()} sites armed, ${sitesHot.get()} reached the threshold " +
-      s"(call $threshold / loop $loopThreshold)")
+      s"(call $threshold / loop $loopThreshold), ${sitesCompiled.get()} compiled, backend $backendId")
 
   /** A `Lam` body. `body`/`arity` are carried now, though tier 0 does not read them, because J-3
     * compiles exactly this term and J-8 names exactly this site — plumbing them later would mean a
@@ -72,10 +84,72 @@ object Jit:
 
   private[ssc] def registered(): Unit = sitesArmed.incrementAndGet()
 
-  /** Reached the tier-up threshold. J-1 only counts: there is no backend yet, and a counter nobody
-    * can observe is not a gate — `SSC_V2_JIT_STATS=1` is what lets the J-1 gate tell "the counters
-    * are live" from "the wrapper was never installed", which output alone cannot. */
-  private[ssc] def onHot(@annotation.unused site: JitSite): Unit = sitesHot.incrementAndGet()
+  // ── the backend seam (J-2) ────────────────────────────────────────────────────────────────────
+  //
+  // The kernel must not so much as MENTION the code generator. `v21-plugin-backend-isolation` is
+  // enforced by smokes, and `RunNativeV2` already contorts a `catch` clause to avoid naming an ASM
+  // type, because referencing one makes the JVM load ASM when it merely VERIFIES the method. So the
+  // backend is resolved BY NAME, once, on the first hot site — off, or absent from the classpath
+  // (`run-ir` is `v2/src` alone; a native-image build has no class definition at all), and the field
+  // stays null and the VM runs exactly as it does today. Same shape as v1's `JitBackend.default`.
+
+  private val backendClassName = "ssc.jit.BytecodeJitBackend"
+
+  @volatile private var backendRef: JitBackend | Null = null
+  private var backendResolved = false
+  private var programGlobals: collection.mutable.Map[String, Value] | Null = null
+
+  /** Handed the program's globals at compile time and STASHED, not forwarded: forwarding here would
+    * load the backend for every armed program, including ones that never get hot, which is exactly
+    * the eager loading the by-name seam exists to avoid. The backend receives them when it is
+    * actually resolved. */
+  private[ssc] def onProgram(globals: collection.mutable.Map[String, Value]): Unit =
+    if armed then programGlobals = globals
+
+  private def backend(): JitBackend | Null = synchronized:
+    if !backendResolved then
+      backendResolved = true
+      backendRef =
+        try
+          val b = Class.forName(backendClassName)
+            .getDeclaredConstructor().newInstance().asInstanceOf[JitBackend]
+          val g = programGlobals
+          if g != null then b.onProgram(g.asInstanceOf[collection.mutable.Map[String, Value]])
+          b
+        catch
+          // Absent backend is a supported configuration, not a failure: the VM stays on tier 0.
+          // Deliberately broad — ClassNotFound, NoClassDefFound (a missing ASM), an initialiser
+          // throwing — every one of them means "no JIT here", and none of them may take the program
+          // down, because the program is CORRECT without the JIT.
+          case _: Throwable => null
+    backendRef
+
+  /** Reached the tier-up threshold. Asks the backend for a compiled unit and installs it; a `null`
+    * answer leaves the site interpreted and it will not be asked again. J-2 ships the seam with a
+    * backend that always answers null — J-3 is what makes it answer. */
+  private[ssc] def onHot(site: JitSite): Unit =
+    sitesHot.incrementAndGet()
+    val b = backend()
+    if b != null then
+      val compiled = b.asInstanceOf[JitBackend].compileUnit(site)
+      if compiled != null then
+        site.fast = compiled
+        sitesCompiled.incrementAndGet()
+
+/** The compile side, implemented outside the kernel (`v2/backend-jvm-bytecode`) and reached only by
+  * name (§3.6). `compileUnit` returns a `Code`, not the backend's own function type, so the kernel
+  * never learns what a `LamFn` or a `ClassWriter` is — the whole ASM dependency stays on the far
+  * side of this trait. */
+trait JitBackend:
+  def id: String
+
+  /** Once per program, before any unit compiles. The bytecode backend uses it to point
+    * `Emit.globalsRef` at the VM's own globals map so both tiers share one namespace. */
+  def onProgram(globals: collection.mutable.Map[String, Value]): Unit
+
+  /** `null` = leave this site interpreted. It must never throw: a site that cannot be compiled is a
+    * performance outcome, never a program failure. */
+  def compileUnit(site: JitSite): Code | Null
 
 /** The counting node. Installed only when `Jit.armed`.
   *

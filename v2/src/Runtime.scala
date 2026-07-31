@@ -646,6 +646,7 @@ object Compiler:
     // corrupts on a concurrent read during a first-touch resize. TrieMap keeps reads lock-free
     // (perf-neutral for the const-captured hot path) while making concurrent first-touch safe.
     val globals = scala.collection.concurrent.TrieMap[String, Value]()
+    Jit.onProgram(globals)   // one globals namespace across both tiers; no-op unless armed (§3.6)
     val c = new C(globals, topDefs)
     // pass 0: register case-class field names BEFORE any eager value def evaluates.
     // `__regfields__` prims live in the entry, which runs AFTER value defs (pass 2);
