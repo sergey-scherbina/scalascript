@@ -4522,10 +4522,12 @@ lazy val paymentsBankRails = project
 // Cross-compiled (JVM + Scala.js) so that markup-js and markup-node can
 // depend on the shared Markup ADT and PureMarkupCodec.
 // JVM alias `markupCore` keeps all existing `.dependsOn(markupCore)` intact.
+// Lives under `uniml/` next to the dialects that project onto this AST, but is
+// STANDARD LIBRARY, not an additional library — see specs/project-partitioning.md §8.7.
 lazy val markupCoreCross =
   crossProject(JVMPlatform, JSPlatform)
     .crossType(CrossType.Pure)
-    .in(file("markup"))
+    .in(file("uniml/markup"))
     .settings(
       name := "scalascript-markup-core",
       libraryDependencies ++= Seq("org.scalatest" %%% "scalatest" % scalatestV % Test),

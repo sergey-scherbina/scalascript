@@ -46,6 +46,11 @@ if [ "${1:-}" = "--self-test" ]; then
   # 1. a payments library sneaks into the default distribution
   plant "additional library added to standardJarPrefixes" \
         's|"scala-library-", "scala3-library_3-", "asm-",|"scala-library-", "scala3-library_3-", "asm-", "scalascript-payments-stripe_",|'
+  # 1b. the `uniml/markup` carve-out in ADDITIONAL_RE is not a hole in `uniml/` — a SIBLING uniml
+  #     module put into the default distribution must still be caught. Without this, widening the
+  #     exemption to plain `uniml/` would leave every check still green.
+  plant "sibling uniml module added to standardJarPrefixes" \
+        's|"scalascript-markup-core_",|"scalascript-markup-core_", "scalascript-uniml-yaml_",|'
   # 2. a v2 std module drops out of the shipped set
   plant "v2/runtime/std module removed from standardJarPrefixes" \
         's|"scalascript-v2-native-optics-plugin_",||'
@@ -105,7 +110,12 @@ MODS=$(python3 -c "$PY" "$SBT")
 
 # Part III by directory. Kept in the gate rather than parsed out of the document on purpose: a gate
 # that reads its expectation from the file it is checking cannot fail.
-ADDITIONAL_RE='^(payments/|gov/|mcp/|frontend/|uniml/|v2/runtime/providers/|v1/lang/uniml-)'
+#
+# `uniml/markup` is the ONE exception, and it is a directory-vs-role mismatch, not a loophole: it is
+# the shared XML/HTML AST that `v1/lang/core` and ten other consumers depend on — STANDARD LIBRARY
+# living next to the dialects that project onto it (§8.7). The carve-out is `markup` exactly, so any
+# other `uniml/*` module added to standardJarPrefixes is still caught; the self-test plants one.
+ADDITIONAL_RE='^(payments/|gov/|mcp/|frontend/|uniml/(?!markup(/|$))|v2/runtime/providers/|v1/lang/uniml-)'
 
 # ── 1. no additional library ships in the standard tier ────────────────────────────────────────
 while IFS=$'\t' read -r dir art; do
@@ -148,9 +158,10 @@ for m in json.load(sys.stdin):
 # is computed here rather than restated, and each block is bounded at the next `lazy val`.
 #
 # There is no exemption. There used to be one — `uniml/xml` -> `v1/runtime/std/markup-core` — and it
-# is gone because markup-core moved to top-level `markup/`, which is where a library that the
-# LANGUAGE CORE depends on belongs. So this now reads exactly as it should: the bridge, and nothing
-# else.
+# is gone because markup-core left the v1 tree for `uniml/markup`, taking its dependencies (none)
+# with it. So this now reads exactly as it should: the bridge, and nothing else. `uniml/markup` is
+# checked here like every other `uniml/*` module — the check-1 carve-out is about TIER, not v1
+# reach, and markup-core depends on nothing at all.
 while IFS=$'\t' read -r dir via; do
   [ -z "$dir" ] && continue
   fail "UniML module reaches into v1/ without going through the bridge: $dir
