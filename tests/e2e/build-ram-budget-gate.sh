@@ -192,29 +192,17 @@ rc=$?
 after=$(ps ax -o pid=,command= | grep -cE 'sbt-launch|bloop|sbt/standalone' || true)
 eq "reaper dry-run exits 0" 0 "$rc"
 
-# THE RACE THAT MADE THIS GATE FLAKE, with the process arranged to lose it deterministically.
+# REVERTED 2026-07-31, same day it was added. The case spawned a decoy process named `bloop` to make
+# the mid-scan race deterministic — and on a 1-slot host (a GitHub runner: (15989-8192)/6144 = 1) the
+# decoy is then counted as a guarded build already running, so the NEXT guarded command in this gate
+# waits for a slot that never frees and the gate dies with exit 2. It went red on CI every run.
 #
-# `kill-stale-builders` snapshots the builder pids, sleeps SSC_IDLE_SAMPLE_SECS, then samples each
-# one's CPU time. A builder that exits inside that window makes `ps -p <gone-pid>` exit 1, and under
-# `set -euo pipefail` that aborted the ENTIRE scan — so the guard written for exactly this case
-# ("exited on its own") could never run. Observed as `reaper dry-run exits 0: expected=0 got=1` with
-# no other output, on a host where sibling agents start and stop builders constantly.
-#
-# The decoy carries `bloop` in its command line so the reaper's BUILD_RE picks it up, and it exits
-# well before the sample, so the pid is always gone by the time CPU time is read. Without that
-# timing the case would pass whether or not the bug is present.
-decoy_dir="$(mktemp -d)"
-printf '#!/bin/sh\nsleep 0.4\n' > "$decoy_dir/bloop"
-chmod +x "$decoy_dir/bloop"
-"$decoy_dir/bloop" &
-decoy_pid=$!
-set +e
-SSC_IDLE_SAMPLE_SECS=3 "$REAPER" --idle 1 >/dev/null 2>&1
-race_rc=$?
-set -e
-wait "$decoy_pid" 2>/dev/null || true
-rm -rf "$decoy_dir"
-eq "reaper survives a builder that exits mid-scan" 0 "$race_rc"
+# The reaper fix it was written for is real and stays (scripts/kill-stale-builders, three `|| true`
+# call sites, BUGS reaper-aborts-when-a-builder-exits-mid-scan). What is missing is a way to inject a
+# vanishing pid WITHOUT creating something the semaphore counts — most likely a decoy whose command
+# line matches the reaper's BUILD_RE but not build-guard's notion of a running build, or running this
+# case in an isolated SSC_BUILD_SEMDIR after the semaphore assertions are done.
+# Do not re-add it without checking a 1-slot host: on this dev machine (4 slots) it passed every time.
 if [ "$after" -ge "$before" ]; then
   ok "reaper dry-run killed nothing (builders before=$before after=$after)"
 else
