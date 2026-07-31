@@ -26,6 +26,11 @@ def repoRoot: os.Path =
 //   --warm-jvm opt into SSC_SCALACLI_SERVER=1 for run-jvm; default is serverless
 //             to avoid Bloop BSP/socket flakes in the production gate.
 //   --shard i/N run only this slice of the corpus, for a CI matrix (see below).
+//   --lanes   restrict which BACKEND LANES run (comma-separated: int, js, jvm, v2).
+//             Default: all four, i.e. unchanged behaviour. A lane excluded here reports
+//             `SKIP [X] (--lanes: ...)`, never `backends:` — a skip must say which of the two
+//             reasons applied, or the output cannot be read. `contract.sc` has had the same flag
+//             (its canonical set is int,js,v2); this is the same idea for the fix->test loop.
 //   --list    print the selected case names and exit without running anything.
 val cliArgs = args.filterNot(_ == "--").toList
 val onlyGlobs: List[String] =
@@ -35,11 +40,27 @@ val noMemo: Boolean =
   cliArgs.contains("--no-memo") || sys.env.get("SSC_CONF_NO_MEMO").contains("1")
 val listOnly: Boolean = cliArgs.contains("--list")
 
+val allowedLanes: Set[String] = Set("int", "js", "jvm", "v2")
+val laneFilter: Set[String] =
+  cliArgs.sliding(2).collectFirst { case List("--lanes", v) => v } match
+    case None => allowedLanes
+    case Some(raw) =>
+      val requested = raw.split(',').toList.map(_.trim).filter(_.nonEmpty)
+      if requested.isEmpty then
+        Console.err.println("run.sc: --lanes requires at least one lane")
+        sys.exit(2)
+      val unknown = requested.filterNot(allowedLanes)
+      if unknown.nonEmpty then
+        Console.err.println(s"run.sc: unknown lane(s): ${unknown.mkString(", ")}; " +
+          s"known lanes are ${allowedLanes.toList.sorted.mkString(", ")}")
+        sys.exit(2)
+      requested.toSet
+
 // Flags that consume the NEXT argument. Their value must not be mistaken for the positional
 // conformance directory — `--shard 0/4` would otherwise make `0/4` the corpus dir and the run would
 // silently test nothing. The old form used `cliArgs.indexOf(a)`, which resolves to the FIRST
 // occurrence of a repeated value and mis-classifies it; indexing the list positionally cannot.
-val valueFlags = Set("--only", "--shard")
+val valueFlags = Set("--only", "--shard", "--lanes")
 val positional = cliArgs.zipWithIndex
   .filterNot { case (a, _) => a.startsWith("--") }
   .filterNot { case (_, i) => i > 0 && valueFlags(cliArgs(i - 1)) }
@@ -113,6 +134,17 @@ val tests = shard match
 
 if onlyGlobs.nonEmpty then
   println(s"--only ${onlyGlobs.mkString(",")}: ${selected.length} matching case(s)")
+  // A filter that selects NOTHING is a typo, essentially always — and the old behaviour was to
+  // print "Results: 0 passed, 0 failed out of 0 tests" and exit 0. Anything running this in CI
+  // therefore went GREEN having tested nothing, which is the exact fail-open shape POLICY P-6
+  // is about. `scripts/smoke-ci` names 13 cases by hand in an `--only`; one renamed case would
+  // have silently shrunk the push-path corpus check, and a mistyped list would have emptied it.
+  // Nothing in this repository relies on a zero-match `--only` (checked: only prose mentions it).
+  if selected.isEmpty then
+    Console.err.println(s"run.sc: --only ${onlyGlobs.mkString(",")} matched no case in $dir.")
+    Console.err.println("  A filter that selects nothing is reported as an ERROR, not as a green run")
+    Console.err.println("  over zero cases. `--list` prints the names that exist.")
+    sys.exit(2)
 shard.foreach { case (i, n) =>
   println(s"--shard $i/$n: ${tests.length} of ${selected.length} case(s) in this slice")
 }
@@ -514,11 +546,17 @@ for test <- tests do
     val expected = os.read(expectedFile).stripTrailing()
 
     def backendSupports(b: String): Boolean =
+      laneFilter(b) &&
       backendsGate.forall(_.contains(b)) &&
       (requires.isEmpty || requires.forall(backendFeatures.getOrElse(b, Set.empty).contains))
 
+    // Three reasons a lane can be skipped, and they must be distinguishable. Reporting a
+    // `--lanes` exclusion as `backends:` would blame the CASE for a decision the CALLER made —
+    // and the reader would go edit front-matter that is perfectly correct.
     def skipReason(b: String): String =
-      if backendsGate.exists(!_.contains(b)) then
+      if !laneFilter(b) then
+        s"--lanes: ${laneFilter.toList.sorted.mkString(", ")}"
+      else if backendsGate.exists(!_.contains(b)) then
         s"backends: ${backendsGate.get.toList.sorted.mkString(", ")}"
       else
         s"requires: ${requires.mkString(", ")}"
