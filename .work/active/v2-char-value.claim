@@ -1,0 +1,11 @@
+slug: v2-char-value
+branch: feature/v2-char-value
+agent: claude-code
+started: 2026-07-31T16:39:05Z
+heartbeat: 2026-07-31T16:39:05Z
+status: claimed-before-planning
+items: v2-char-is-an-int
+paths: file:v2/src/Runtime.scala file:specs/v2.2-p6.5-fsub.ssc file:v2/lib/ssc1-front.ssc0 file:v2/lib/ssc1-lower.ssc0 file:tests/conformance/char-as-value.ssc file:v2/BUGS.md file:v2/SPRINT.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
