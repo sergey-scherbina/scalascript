@@ -170,7 +170,7 @@ Consequences, stated rather than discovered:
   into JVM stack growth. Rule: residualize **non-tail subterms only**; if the tail position itself
   is unsupported, do not compile the unit (i.e. exactly today's behaviour, localized to one site).
 - **A residual is a measurement, not a mystery.** Each one is counted by term class, so
-  `ssc jit-report` names the shapes worth teaching the emitter next — the census v1 had to
+  `SSC_V2_JIT_STATS` names the shapes worth teaching the emitter next — the census v1 had to
   reconstruct from JFR archaeology.
 
 ### 3.5 Types: feedback at run time, not a typed IR
@@ -247,8 +247,27 @@ archaeology. `JitReason` in v2 describes *residuals and misses*, not failures:
 | `SizeLimit` | ASM `MethodTooLarge`/`ClassTooLarge` for this unit |
 | `Budget` | `SSC_V2_JIT_MAX_UNITS` reached |
 
-`SSC_V2_JIT_STATS=1` prints them grouped by site; `ssc jit-report <file>` is the offline form (v1's
-`ssc check-jit-coverage`).
+**The tool is `ssc lint-jit`, extended — not a new command.** v1's diagnostic is
+`ssc lint-jit <file.ssc>` (`v1/tools/cli/.../LintJitCmd.scala`, category *Diagnostics*, flags
+`--json --quiet --fail-on-bail --include-while --backend javac|asm|both`); it walks
+`interp.globals`, asks the live `tryCompile` for each `Defn.Def`, and prints the structural bail
+reason plus a suggested refactor. (`ssc check-jit-coverage` from `jit-universal-coverage.md`
+Stage 1 was **never built** — do not go looking for it.) v2 gains a **lane selector** on the same
+command rather than a second name:
+
+| view | invocation | answers |
+|---|---|---|
+| static | `ssc lint-jit --lane v2 <file.ssc>` | which terms *would* residualize, which defs have an unsupported tail position (§3.4), per-unit size estimate — **before** running |
+| dynamic | `SSC_V2_JIT_STATS=1 ssc run <file.ssc>` | which sites got hot and compiled, the residual histogram, guard misses |
+
+Both print the **same `JitReason` vocabulary**, which is the unification v1's Stage 1 set out to
+retrofit across its three engines and never finished. One concept keeps one name: two names for one
+thing is the `FIXED`/`DONE`/`RESOLVED` drift this repo has already paid for once.
+
+Static lint is weaker here than in v1 *by design* — with residual callbacks (§3.4) a function is
+almost never rejected, so "will this JIT?" stops being the interesting question and "how much of it
+will run compiled?" replaces it. That is why the dynamic view, not the lint, is what the gates below
+assert on.
 
 **The apparatus rule that this project keeps paying for:** *a gate is only a gate if it can
 distinguish the two states*. An output gate cannot — the interpreter prints the right answer, so
@@ -257,7 +276,7 @@ below therefore assert on **counters**, and the parity gate asserts that the run
 actually *was* JIT'd:
 
 1. **Parity** — every corpus/conformance program, `SSC_V2_JIT=off` vs on, byte-identical stdout,
-   **and** `jit-report` shows ≥ 1 compiled unit for the on-run. Without the second clause this is
+   **and** `SSC_V2_JIT_STATS` shows ≥ 1 compiled unit for the on-run. Without the second clause it is
    `bc-parity-sweep` comparing a program against itself, which is a defect this repo has already
    shipped once (`BUGS.md scljet-jdbc-facade-bytecode-class-too-large`).
 2. **Coverage** — compiled-unit count and residual histogram, frozen as a floor per slice.
@@ -280,7 +299,7 @@ Each is one commit-sized piece with its own gate. The sprint entries live in `v2
 | **J-5** | Type feedback + unboxed entries + entry guards (§3.5). | `var-expr-init` and `arith-loop` rows; `GuardMiss` counter proves the guard is live (rename-the-prim probe, per VC-4) |
 | **J-6** | Loop back-edge sites and their threshold. | `arith-loop`, `range-sum`, `nested-loop` |
 | **J-7** | Effect-aware units: purity fixpoint threading (§3.7). | `effects`, `effects-handler`, `algebraic-effects`, `generators`, `async-demo` byte-identical; `v2/conformance/check.sh` |
-| **J-8** | `SSC_V2_JIT_STATS` + `ssc jit-report`. | the report names ≥ 1 residual class on a known-partial program |
+| **J-8** | `SSC_V2_JIT_STATS` + `ssc lint-jit --lane v2` (§4), one `JitReason` vocabulary for both. | both views name ≥ 1 residual class on a known-partial program, and agree on it |
 | **J-9** | Default-on decision, with the measured evidence, or a recorded reason to stay opt-in. | the four-row bench + `scripts/smoke-ci` + a CI run |
 
 **J-1 before J-3 is not bureaucracy.** A counter on every call is the one change that can slow down
@@ -327,6 +346,11 @@ re-measure in J-0): `pattern-match-heavy` v2 17.0 ms vs `ssc` 0.059; `recursion-
 - **Entry-only guards, no mid-body deopt.** Chosen because a bailout after a side effect is a
   correctness bug, not a slow path; the same reason `RunNativeV2` refuses to catch runtime failures
   in its bytecode fallback.
+- **Extend `ssc lint-jit` with `--lane v2`; do not mint a second command.** Chosen because the `ssc`
+  CLI already drives both lanes (`RunNativeV2` lives in `v1/tools/cli`) and because one concept must
+  keep one name. Rejected: a separate `ssc jit-report` — it was in this spec's first draft, and it
+  also mis-cited `ssc check-jit-coverage`, which `jit-universal-coverage.md` Stage 1 proposed and
+  nobody ever built.
 - **`SSC_V2_JIT*`, not `SSC_JIT*`.** Chosen because `bench/run.sc` sets `SSC_JIT_BACKEND` to select
   the v1 `ssc-asm` lane; a shared name makes a bench row ambiguous about which JIT it measured.
 - **Off by default until J-9.** Chosen because "default lane, every program" is the widest blast
