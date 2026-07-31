@@ -59,10 +59,10 @@ enthusiasm:
       fix available: the fallback is silent by design, so a perf number can be of the wrong compiler
       and nothing looks wrong. Cost me two wrong conclusions in one sitting. One column, one
       `--front-report`-equivalent call per row.
-- [~] **P-4 — a JMH microbenchmark for v2 primitive dispatch.** Unlocks everything below 2×, which
+- [x] **P-4 DONE (landed 97d8b71a0).** A JMH microbenchmark for v2 primitive dispatch. Unlocks everything below 2×, which
       this host currently cannot see at all. Without it the condy work stays permanently
       "unresolved" and no one can tell whether it was worth doing.
-      *(in progress, claim `v2-perf-jmh-dispatch`)* JMH infrastructure ALREADY EXISTED —
+      *(claim `v2-perf-jmh-dispatch`, released level 3)* JMH infrastructure ALREADY EXISTED —
       `interpreterBench` (`v1/runtime/backend/interpreter-bench`) has 4 `@Benchmark` classes and the
       plugin enabled; it simply did not depend on `v2Core`, so `ssc.Prims`/`ssc.Value` were not on
       its classpath. One `dependsOn` line, not a new project.
