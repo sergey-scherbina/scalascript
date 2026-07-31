@@ -139,7 +139,7 @@ boundary in the repository and the model the rest should follow.
 only 3 are in the standard tier, because `v1` as a whole IS the compatibility tier. "std" there
 means *the standard library of the legacy lane*, which is a coherent thing to be — but the same
 directory word carrying a different tier meaning on the two sides is a genuine trap for a reader.
-`v1/runtime/std` — 43
+`v1/runtime/std` — 42
 
 ```
   v1/runtime/std/actors-plugin                   scalascript-actors-plugin
@@ -159,7 +159,6 @@ directory word carrying a different tier meaning on the two sides is a genuine t
   v1/runtime/std/http-plugin                     scalascript-http-plugin
   v1/runtime/std/json-plugin                     scalascript-json-plugin
   v1/runtime/std/logger-effect-plugin            scalascript-logger-effect-plugin
-* v1/runtime/std/markup-core                     scalascript-markup-core
   v1/runtime/std/markup-js                       scalascript-markup-js
   v1/runtime/std/markup-node                     scalascript-markup-node
   v1/runtime/std/mcp-plugin                      scalascript-mcp-plugin
@@ -223,6 +222,12 @@ directory word carrying a different tier meaning on the two sides is a genuine t
   v1/runtime/http-server/jvm-jetty               scalascript-runtime-server-jvm-jetty
   v1/runtime/http-server/jvm-netty               scalascript-runtime-server-jvm-netty
   v1/runtime/http-server/spi                     scalascript-runtime-server-spi
+```
+
+`markup` — 1
+
+```
+* markup                                         scalascript-markup-core
 ```
 
 `backend` — 4
@@ -573,8 +578,8 @@ reachable:
 | `uniml/address` | no | — |
 | `uniml/markdown` | no | — |
 | `uniml/yaml` | no | — |
-| `uniml/xml` | yes | `v1/runtime/std/markup-core` only |
-| `uniml/markdown/bridge` | yes | `v1/lang/{core,ir,value-data,yaml}`, `v1/runtime/backend/spi`, `v1/runtime/std/markup-core` |
+| `uniml/xml` | **no** — since `markup-core` moved to `markup/` | — |
+| `uniml/markdown/bridge` | yes | `v1/lang/{core,ir,value-data,yaml}`, `v1/runtime/backend/spi` |
 
 **THE ABSTRACTION ALREADY EXISTS AND IT IS THE BRIDGE.** Every piece of v1 knowledge in UniML is
 concentrated in one two-file module whose name says so. Five of the seven modules reach nothing
@@ -607,12 +612,30 @@ Nesting the bridge inside `uniml/markdown/` is safe because that project is `Cro
 its sources under `uniml/markdown/src/` — verified, `unimlMarkdown/Compile/sources` contains zero
 files from `markdown/bridge/`.
 
-WHAT IS ACTUALLY LEFT TO ABSTRACT is one directory, and it needs no code change. `uniml/xml`'s only
-reach into `v1/` is `v1/runtime/std/markup-core`, and that module has **no dependencies whatsoever** —
-it is a self-contained markup library that merely lives in the v1 tree, exactly the shape UniML was
-in. Moving the markup cluster (`markup-core`, `markup-js`, `markup-node`, none of which depend on
-v1) out to its own top-level directory would leave `uniml/markdown/bridge` as the single module in
-UniML that touches v1 — which is what a bridge is for.
+NOTHING IS LEFT TO ABSTRACT: `uniml/markdown/bridge` is now the ONLY module in UniML that reaches
+into `v1/`, and the gate says so with no exemption. `uniml/xml`'s last reach was
+`v1/runtime/std/markup-core`, which moved to top-level `markup/` — see 8.7. Every other UniML module
+depends on nothing outside UniML at all.
+
+**8.7 `markup-core` was a shared foundation living inside the v1 tree — moved to `markup/`.** It has
+ZERO dependencies of its own and ELEVEN direct consumers spanning every part of the repository:
+
+    v1/lang/core                      the LANGUAGE CORE
+    v1/runtime/backend/interpreter    v1/runtime/backend/spi
+    v1/runtime/std/markup-js          v1/runtime/std/markup-node
+    backend/config
+    payments/bank-rails   payments/processors/sepa   payments/processors/fednow   payments/fx-ecb
+    uniml/xml                         one consumer of eleven
+
+It was almost moved to `uniml/markup`, on the strength of being UniML's last reach into `v1/`. That
+would have been wrong in two ways at once, and the measurement is what caught it: the LANGUAGE would
+have depended on a directory this document classifies as an additional library, and `markup-core`
+ships in the standard tier while §7 invariant 1 says nothing in Part III does — the gate would have
+gone red on a move made to tidy the tree. Top-level `markup/` fits all eleven consumers, keeps the
+invariant intact, and still removes UniML's last v1 dependency.
+
+`markup-js` and `markup-node` stay under `v1/runtime/std/` deliberately: they are lane-specific
+plugins wrapping the shared core, which is what that directory is for.
 
 **8.4 The fossil trees.** §6. Cheap to remove and the only finding here that costs nothing to fix.
 

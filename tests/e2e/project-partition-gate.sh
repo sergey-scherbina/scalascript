@@ -147,9 +147,10 @@ for m in json.load(sys.stdin):
 # was a measurement bug — a fixed-size window that read the next project's `.dependsOn(…)` — so it
 # is computed here rather than restated, and each block is bounded at the next `lazy val`.
 #
-# `uniml/xml` -> `v1/runtime/std/markup-core` is allowed for now and named explicitly: markup-core
-# has no dependencies at all and merely lives in the v1 tree. When the markup cluster moves out,
-# delete the exemption and this check becomes "the bridge, and nothing else".
+# There is no exemption. There used to be one — `uniml/xml` -> `v1/runtime/std/markup-core` — and it
+# is gone because markup-core moved to top-level `markup/`, which is where a library that the
+# LANGUAGE CORE depends on belongs. So this now reads exactly as it should: the bridge, and nothing
+# else.
 while IFS=$'\t' read -r dir via; do
   [ -z "$dir" ] && continue
   fail "UniML module reaches into v1/ without going through the bridge: $dir
@@ -185,7 +186,7 @@ def closure(n):
             k = norm(r)
             if k and k not in seen: seen.add(k); st.append(k)
     return seen
-ALLOWED = {"v1/runtime/std/markup-core"}          # v1-free, merely lives there — see §8.3
+ALLOWED: set[str] = set()                        # no exemptions — see §8.3
 BRIDGE  = "uniml/markdown/bridge"
 for n, d in sorted(dirs.items(), key=lambda kv: kv[1]):
     if not d.startswith("uniml/") or d == BRIDGE:

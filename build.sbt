@@ -4525,7 +4525,7 @@ lazy val paymentsBankRails = project
 lazy val markupCoreCross =
   crossProject(JVMPlatform, JSPlatform)
     .crossType(CrossType.Pure)
-    .in(file("v1/runtime/std/markup-core"))
+    .in(file("markup"))
     .settings(
       name := "scalascript-markup-core",
       libraryDependencies ++= Seq("org.scalatest" %%% "scalatest" % scalatestV % Test),
