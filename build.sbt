@@ -751,7 +751,7 @@ lazy val unimlMarkdown    = unimlMarkdownJvm
 // `DocumentContent` compiler model. Depends on both `core` and the Markdown
 // leaf; the leaf never depends on this bridge.
 lazy val unimlMarkdownBridge = project
-  .in(file("v1/lang/uniml-markdown-bridge"))
+  .in(file("uniml/markdown/bridge"))
   .dependsOn(unimlMarkdownJvm, core)
   .settings(
     name := "scalascript-uniml-markdown-bridge",

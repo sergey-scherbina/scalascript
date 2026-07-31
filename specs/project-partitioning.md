@@ -456,13 +456,14 @@ x402 protocol stack, blockchains, micropayments, compliance, tax and FX.
   payments/client/solana                         scalascript-client-solana
 ```
 
-`uniml` — 6
+`uniml` — 7
 
 ```
   uniml/address                                  scalascript-uniml-address
   uniml/core                                     scalascript-uniml
   uniml/json                                     scalascript-uniml-json
   uniml/markdown                                 scalascript-uniml-markdown
+  uniml/markdown/bridge                          scalascript-uniml-markdown-bridge
   uniml/xml                                      scalascript-uniml-xml
   uniml/yaml                                     scalascript-uniml-yaml
 ```
@@ -473,12 +474,6 @@ x402 protocol stack, blockchains, micropayments, compliance, tax and FX.
   mcp/common                                     scalascript-mcp-common
   mcp/wallet                                     scalascript-mcp-wallet
   mcp/x402                                       scalascript-mcp-x402
-```
-
-`v1/lang` — 1
-
-```
-  v1/lang/uniml-markdown-bridge                  scalascript-uniml-markdown-bridge
 ```
 
 `payments/payment-request` — 1
@@ -576,16 +571,25 @@ asking whether any `v1/lang/*` or `v1/runtime/*` module is reachable:
 | `uniml/yaml` | outside `v1/` | **yes** — same four | **inverted** |
 | `v1/lang/uniml-address` | inside `v1/` | no | **inverted** → moved to `uniml/address` |
 | `v1/lang/uniml-xml` | inside `v1/` | no | **inverted** → moved to `uniml/xml` |
-| `v1/lang/uniml-markdown-bridge` | inside `v1/` | yes | correct — it IS the bridge |
+| `v1/lang/uniml-markdown-bridge` | inside `v1/` | yes | moved to `uniml/markdown/bridge` |
 
-The directory said nothing about the dependency, and where it said anything it was wrong. The two
-modules with NO v1 dependency were moved out (`uniml/address`, `uniml/xml`) — two `git mv` and two
-`.in(file(…))` lines, both compile from their new homes, artifact names unchanged.
+The directory said nothing about the dependency, and where it said anything it was wrong.
 
-THE REMAINING TWO ARE NOT A MOVE. `uniml/markdown` and `uniml/yaml` already sit outside `v1/`, which
-is where they belong; the defect is that they REACH INTO it, through `v1/lang/core`, `v1/lang/ir`,
-`v1/lang/value-data` and `v1/lang/yaml`. Relocating them would hide that rather than fix it. Cutting
-the dependency is real work and is not attempted here.
+**ALL SEVEN NOW LIVE UNDER `uniml/`, and `v1/lang/` holds nothing of UniML.** The grouping rule is
+BY LIBRARY, not by dependency — a decision worth stating because the bridge disproves the simpler
+rule: `uniml/markdown/bridge` genuinely depends on `v1/lang/{core,ir,value-data,yaml}`, and it lives
+with the library it belongs to anyway. Its name says what it bridges and this document records the
+dependency; the path is not asked to carry that.
+
+Nesting it inside `uniml/markdown/` is safe because that project is `CrossType.Pure` with its
+sources under `uniml/markdown/src/` — verified, `unimlMarkdown/Compile/sources` contains zero files
+from `markdown/bridge/`, so the child cannot leak into the parent.
+
+TWO STILL REACH INTO `v1/` AND THAT IS NOT FIXED BY MOVING THEM. `uniml/markdown` and `uniml/yaml`
+were already outside `v1/`; the defect is the dependency itself, on `v1/lang/core`, `v1/lang/ir`,
+`v1/lang/value-data` and `v1/lang/yaml`. Cutting it is real work and is not attempted here — and
+after this move the tree no longer hints at it at all, so the dependency table above is the only
+place it is written down.
 
 `v1/lang/yaml` is the same shape once removed: a YAML library that ships in the standard tier and
 lives in the language tree. Nothing depends on its location; it is left alone because it is
