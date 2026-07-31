@@ -1,0 +1,11 @@
+slug: user-report-intake-channel
+branch: feature/user-report-intake-channel
+agent: claude-code
+started: 2026-07-31T03:49:37Z
+heartbeat: 2026-07-31T03:49:37Z
+status: claimed-before-planning
+items: user-reports-have-no-way-in-from-outside
+paths: file:.github/ISSUE_TEMPLATE/user-report.yml file:.github/ISSUE_TEMPLATE/config.yml file:scripts/inbox-add file:tests/e2e/inbox-gate.sh file:CONTRIBUTING.md file:INBOX.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
