@@ -291,7 +291,7 @@ object MarkdownProjection:
         // the label. Without the .filter this looked up the empty key and every
         // shortcut reference resolved to href="".
         val labelText =
-          refLabel.map(extractRefLabel).filter(_.nonEmpty).getOrElse(plainText(label))
+          refLabel.map(extractRefLabel).filter(_.nonEmpty).getOrElse(rawLabel(edges))
         refs.get(MarkdownInlines.normalizeLabel(labelText)) match
           case Some(defn) => (defn.destination, defn.title)
           case None       => ("", None)
@@ -319,21 +319,32 @@ object MarkdownProjection:
     else text
 
   private def extractRefLabel(lex: String): String =
-    // lexeme may be "][label]" or "]" for shortcut/collapsed forms
-    val open = lex.lastIndexOf('[')
+    // lexeme may be "][label]" or "]" for shortcut/collapsed forms. The opening
+    // bracket must be found ESCAPE-AWARE: `[foo][ref\[]` has a `\[` inside the
+    // label, and taking the last raw `[` sliced the label in half, so it matched
+    // no definition and resolved to href="".
+    var open = -1
+    var i = 0
+    while i < lex.length do
+      if lex.charAt(i) == '\\' then i += 2
+      else
+        if lex.charAt(i) == '[' then open = i
+        i += 1
     val close = lex.lastIndexOf(']')
     if open >= 0 && close > open then lex.substring(open + 1, close) else ""
 
-  private def plainText(inlines: Vector[MarkdownInline]): String =
+  /** The label's RAW SOURCE, which is what CommonMark matches definitions on.
+    * `[*foo* bar]` resolves against a definition spelled `[*foo* bar]`, not
+    * against the rendered text `foo bar` — using the projected inlines here made
+    * every shortcut reference whose label carries inline markup resolve to
+    * href="", and the emphasis still rendered, so it looked like a link that had
+    * merely lost its destination. */
+  private def rawLabel(edges: Vector[UniEdge]): String =
     var buf: Vector[String] = Vector.empty
-    def walk(i: MarkdownInline): Unit = i match
-      case MarkdownInline.Text(v)            => buf = buf :+ v
-      case MarkdownInline.Code(v)            => buf = buf :+ v
-      case MarkdownInline.Emphasis(cs)       => cs.foreach(walk)
-      case MarkdownInline.Strong(cs)         => cs.foreach(walk)
-      case MarkdownInline.Strikethrough(cs)  => cs.foreach(walk)
-      case _                                 => ()
-    inlines.foreach(walk)
+    def walk(node: UniNode): Unit = node match
+      case UniNode.Token(t)            => buf = buf :+ t.lexeme
+      case UniNode.Branch(_, es, _, _) => es.foreach(e => walk(e.child))
+    edges.filterNot(isLinkStructural).foreach(e => walk(e.child))
     buf.mkString
 
   // ── decoding helpers ────────────────────────────────────────────────────
