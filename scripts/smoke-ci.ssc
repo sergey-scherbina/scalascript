@@ -159,6 +159,12 @@ val suite = List(
         List("tests/conformance/run.sc", "--", "--only", corpusBreadth, "--no-memo",
              "--lanes", "int,js,v2"), 600000,
         Map("SSC_CONF_WARM_JVM" -> "1")),
+  // REFUTED, so nobody retries it (P-6.5): on CI this check costs 47.3 s for FOUR cases against
+  // 46.0 s for the breadth check's thirteen, i.e. it is nearly all fixed cost — the Bloop server
+  // that `SSC_CONF_WARM_JVM=1` starts, now paid once per invocation instead of once per suite. The
+  // obvious inference, "for four cases a cold serverless run must be cheaper", is WRONG: measured
+  // twice locally, warm 14.0/14.0 s against cold 27.0/27.7 s. Warm wins even at four cases; the CI
+  // number is the runner being slow, not the wrong knob.
   Check("tests/conformance", "corpus-jvm-lane", "scala-cli",
         List("tests/conformance/run.sc", "--", "--only", corpusJvm, "--no-memo",
              "--lanes", "jvm"), 600000,
