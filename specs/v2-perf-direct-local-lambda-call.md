@@ -1,3 +1,60 @@
+# v2 has no calling convention — the principled statement, and the direct-call arm as its narrow case
+
+> Status: SPEC. The narrow fix (a direct-call arm) was attempted three times and is INERT for a
+> structural reason; §"Principled statement" below is the reframing that came out of it.
+> Task: `TASK/v2-perfomance.md` §v2-perf-6b. Rules: [`POLICY.md`](../POLICY.md) P-1.4, P-6.1.
+
+## Principled statement (2026-07-31)
+
+**Every call in v2 — direct or indirect — allocates an argument array and passes boxed values.
+There is no calling convention.** The lambda-call defect is one symptom; the "fast" paths are slow
+for the same reason.
+
+Measured on one host, v2 bytecode lane, per call:
+
+| | ns | what it is |
+|---|---|---|
+| raw loop iteration, no call | 0.71 | the floor v2 can already reach |
+| top-level `def`, `INVOKESTATIC` | 11.2 | **the fastest call v2 has** |
+| closure invoked by `foreach` | 7.1 | monomorphic site inside `Runtime` |
+| lambda in a local, called directly | 48.7 | one shared megamorphic funnel |
+| …the same, with Long args and a real body | 107 | + boxing per argument and result |
+| **v1 doing that same call** | **2.9** | |
+
+Two independent causes, and the narrow fix addressed neither:
+
+**A · No per-call-site dispatch.** Every indirect call funnels through one static `Emit.app`, so
+`c.code` is megamorphic *globally* and C2 can never devirtualise it — confirmed by
+`-XX:+PrintCompilation`: hot at tier 4, compiled as a root rather than inlined, `made not entrant`.
+`foreach` is 7× faster for one reason only: its call site lives inside `Runtime.foreachConsOp`,
+private and monomorphic per loop, so the JIT inlines the closure body into the loop.
+→ **`invokedynamic` per call site** (`MutableCallSite` + guard = a monomorphic inline cache). Each
+site then shows the JIT one target. This needs **no static knowledge of the callee** — which is
+exactly why it is the principled fix and the direct-call arm was not.
+
+**B · No calling convention.** `genArray` (`:1394`) emits `ANEWARRAY` **per call**, on every path
+including the direct `INVOKESTATIC` one, and every argument and result is a boxed `Value`. That is
+what makes the *fastest* call v2 has cost 11.2 ns when v1 does the whole thing in 2.9.
+→ **Arity-specialised entry points** `(Value)Value`, `(Value,Value)Value`, … for arity 1–4, and
+unboxed `(long)long` / `(double)double` variants where the typed IR already knows the type — F5b
+emits `i.*` and `f.*`, so the information exists and is unused at the call boundary.
+
+**C · Method, not a fix: A-normalisation erases the syntactic link.** OpAnf rewrites any call in
+expression position into a `Let` whose rhs `mayOp`, which materialises the frame. Every
+generator-level pattern match on "the lambda is right here" is therefore fighting the IR — which is
+why three attempts were inert. **If known-callee information is ever needed, compute it as an IR
+analysis over the whole term and annotate the `App` nodes; never pattern-match shapes in the
+emitter.**
+
+**Order, and why.** A first: it is general (it fixes `foreach`-shaped, method-dispatch and
+lambda-call sites alike), it is immune to the IR shape that defeated three attempts, and it is worth
+~48.7 → ~7-11 ns. B second: it is worth ~11 → ~3 ns on *all* calls including the ones A already
+fixed, and it is what closes the remaining gap to v1. Together they also move the collection cluster
+(`v2-perf-6`/`v2-perf-9`), whose 7 ns per element is mostly B — which turns "price it as a
+programme" into two concrete first steps.
+
+---
+
 # Direct call for a lambda bound to a local — v2 bytecode lane
 
 > Status: SPEC, not implemented. Required before code because this changes the core bytecode
