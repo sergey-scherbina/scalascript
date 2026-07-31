@@ -1,0 +1,11 @@
+slug: frozen-list-stale-entry
+branch: feature/frozen-list-stale-entry
+agent: claude-code
+started: 2026-07-31T10:46:40Z
+heartbeat: 2026-07-31T10:46:40Z
+status: claimed-before-planning
+items: silent-assertion-gate-frozen-entry-outlived-its-need
+paths: file:tests/e2e/silent-assertion-gate.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
