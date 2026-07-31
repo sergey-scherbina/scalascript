@@ -1,0 +1,11 @@
+slug: negtc-gate-shard-reduce
+branch: feature/negtc-gate-shard-reduce
+agent: claude-code
+started: 2026-07-31T16:24:27Z
+heartbeat: 2026-07-31T16:24:27Z
+status: claimed-before-planning
+items: negtc-gate-shard-reduce
+paths: file:.github/workflows/ci.yml file:scripts/bc-parity-sweep
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
