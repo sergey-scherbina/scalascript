@@ -234,11 +234,29 @@ its check, not one case. `tests/conformance/std-os-readline.ssc` gates `[int, v2
 gain `js` in the same commit that fixes this.
 
 ## js-object-var-member-is-never-emitted — the codegen drops `var` members of an `object`
-<!-- status: open
+<!-- status: fixed
      lane: js
      area: codegen
-     fixed-in: -
+     fixed-in: PENDING-SHA
      gate: tests/conformance/object-var-member-scope.ssc -->
+
+**FIXED 2026-07-31** by `object-var-member-family`. `genObjectAsExpr` had a `case Defn.Val` arm and
+**no `Defn.Var` arm at all**, so a `var` member was silently dropped: reads from outside reached
+`_dispatch` and threw `Method not found: n on [object Object]`, and the object's own methods assigned
+a bare name that resolved to whatever outer binding existed.
+
+Two halves, and the second is the one a naive fix misses:
+
+- `let`, not `const` — the object's own methods mutate it;
+- it leaves the IIFE as a **get/set accessor pair**, not a shorthand property. A shorthand copies the
+  value at return time, so `Counter.bump()` would update the closed-over `let` while `Counter.n` kept
+  answering the initial value — the object would look immutable from outside while its methods
+  "worked".
+
+All ten rows of `object-var-member-scope` now match the jvm golden on js, including the shadowing
+block (a top-level `var n` beside `object Counter { var n }`) that the case exists for. Its baseline
+`js FAIL` row is removed in the same commit.
+
 
 A `var` member of an `object` produces no binding at all. The emitted IIFE closes over a name that
 was never declared, and the member is absent from the returned object:

@@ -3121,6 +3121,9 @@ class JsGen(
     // satisfied by a runtime function keeping its OWN name. They are captured at the IIFE's CALL
     // SITE — see the `__ssc_cap` note where the object is assembled.
     val capturedExterns = mutable.ArrayBuffer.empty[String]
+    // `var` members of this object. They leave the IIFE as get/set accessors, not shorthand
+    // properties — see the Defn.Var arm below.
+    val varMembers = mutable.LinkedHashSet.empty[String]
     val companionClassNames = d.templ.body.stats.collect { case cls: Defn.Class => cls.name.value }.toSet
     // Populate tcParentMap from trait declarations in this object (cross-block accumulation).
     d.templ.body.stats.foreach {
@@ -3280,6 +3283,17 @@ class JsGen(
       case Defn.Val(_, List(Pat.Var(n)), _, rhs) =>
         decls += s"const ${n.value} = ${genExpr(rhs)};"
         names += n.value
+      // A `var` member had NO arm here at all, so it was silently dropped: the object's own
+      // methods still assigned the bare name (reaching whatever outer binding existed) and a read
+      // from outside reached `_dispatch`, which threw `Method not found: n`. `let`, not `const`,
+      // because the object's methods mutate it; and it leaves the returned literal through an
+      // accessor PAIR (below) rather than a shorthand property, or the record would freeze the
+      // initial value and outside reads would never see a mutation.
+      // BUGS `js-object-var-member-is-never-emitted`.
+      case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) =>
+        decls += s"let ${n.value} = ${genExpr(rhs)};"
+        names += n.value
+        varMembers += n.value
       case nested: Defn.Object if companionClassNames.contains(nested.name.value) =>
         val name = nested.name.value
         decls += s"Object.assign($name, ${genObjectAsExpr(nested, s"$path.$name")});"
@@ -3425,7 +3439,12 @@ class JsGen(
         case None     => true
     }
     val body = rebindDecl + dedupedDecls.mkString(" ")
-    val ret  = names.distinct.mkString(", ")
+    // A `var` member becomes a LIVE accessor pair. A shorthand property would copy the value at
+    // IIFE-return time, so `Counter.bump()` would update the closed-over `let` while `Counter.n`
+    // kept answering the initial value — the object would look immutable from outside.
+    val ret  = names.distinct
+      .map(n => if varMembers.contains(n) then s"get $n() { return $n; }, set $n(_v) { $n = _v; }" else n)
+      .mkString(", ")
     // A field-less `case object` must carry a `_type` discriminator (mirroring the
     // enum-nullary / case-class emission) so the user-level `==` operator — which
     // lowers to structural `_eq` — can tell distinct singletons apart. Without it a

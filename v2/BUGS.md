@@ -321,6 +321,30 @@ WITHOUT A COLLISION IT WORKS: the same case's `Registry` object (a `var entries:
 no top-level `entries` beside it) is correct on native, which is why this survived. The trigger is a
 member name that also exists at the top level.
 
+**MECHANISM FOUND 2026-07-31** by `object-var-member-family`, which fixed the js twin and did NOT
+take this one. The entry previously named the symptom; this is the cause and the blocker.
+
+`emitAssign` (`specs/v2.2-p6.5-fsub.ssc`) ends in
+`"(prim cell.set (global " ++ nm ++ "__cell) …")` and `calleeOf` reads
+`"(prim cell.get (global " ++ nm ++ "__cell))"` — both built from the BARE name. Inside a member
+body of `object Counter`, `n = n + 1` therefore writes the TOP-LEVEL `n__cell`, and `n` reads it.
+Selection from outside (`Counter.n`) goes through a different path that DOES qualify, which is why
+the two disagree. Re-measured on a clean build, F and legacy identical:
+
+    golden   0  2  2  100  50  50  0 2 emit,fold 0
+    v2       100 102 0 102  50 102  0 2 emit,fold 0
+
+Rows 1-6 wrong, the Registry block right — because `entries` has no top-level twin.
+
+**The data is already there and the plumbing is not.** `objReg` (a cx slot) is
+`[(objName, [memberNames])]`, so F knows every object's members; what no function knows is WHICH
+object it is currently lowering. `calleeOf`/`emitAssign`/`bareCtor` would need that, and threading it
+means either a 14th slot in `mkCx` (13 params today, one construction site in `mkCxE`, and every
+accessor after the insertion point shifts its `snd` chain) or an extra parameter through
+`objDefEmit` → `objDefE` → `emitDefBody` → `bodyExpr`. Both are real changes to F's context
+plumbing, which is why this was left rather than bolted onto a batch. The legacy lowerer needs the
+same treatment — it produces identical numbers.
+
 Twin of the INT-lane defect
 (`v1/runtime/backend/interpreter/BUGS.md` `object-var-member-assignment-writes-a-top-level-global`,
 where the cause is that assignment writes `interp.globals` unconditionally) and of the js one

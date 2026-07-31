@@ -13,6 +13,29 @@ lose the reasoning around them.
 Milestone view: [`ROADMAP.md`](ROADMAP.md). Pipeline: `ssc0 → ir → ssc(VM) → cpu`. Work each slice
 in its own worktree off `origin/main`.
 
+## object-var-member family (claim `object-var-member-family`)
+
+One source shape, three lanes, three different causes — the entry said so and the measurement
+confirmed it. Measured all four lanes on a clean build BEFORE coding, which again changed the plan.
+
+- [x] **O-1 — js: `js-object-var-member-is-never-emitted` FIXED.** `genObjectAsExpr` had a
+      `case Defn.Val` arm and NO `Defn.Var` arm, so the member was dropped entirely. Fixed with
+      `let` (the methods mutate it) plus a **get/set accessor pair** in the returned literal — a
+      shorthand property would copy the value at return time and the object would look immutable
+      from outside while its own methods appeared to work. All 10 rows match the jvm golden; the
+      `js FAIL` baseline row is removed.
+- [x] **O-2 — int: nothing to do.** `object-var-member-assignment-writes-a-top-level-global` is
+      already `status: fixed` (`b8a41142a`, `ObjectVarEnvView`), and the int lane reproduces the
+      golden exactly. Claimed on the strength of the v2 entry's "three lanes" note without checking
+      the int entry's own header first.
+- [ ] **O-3 — v2: NOT taken, and now diagnosed.** `emitAssign` and `calleeOf` build the cell name
+      from the BARE identifier, so a member body's `n = n + 1` writes the TOP-LEVEL `n__cell`.
+      `objReg` already carries every object's member names; what is missing is any notion of the
+      object currently being lowered. Threading it = a 14th `mkCx` slot (13 params, one construction
+      site, and every later accessor's `snd` chain shifts) or an extra parameter through
+      `objDefEmit` → `objDefE` → `emitDefBody` → `bodyExpr`. The legacy lowerer needs the same.
+      That is a context-plumbing slice of its own; the `v2 DIVERGE` baseline row stays.
+
 ## v2 front triple (claim `v2-front-triple`)
 
 Three entries claimed as one batch because they share `specs/v2.2-p6.5-fsub.ssc` and one build
