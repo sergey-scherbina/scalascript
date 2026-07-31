@@ -10,8 +10,18 @@
 # the only thing the shards produce and the only thing reduce consumes, so equality there is
 # equality of everything downstream. Restricted to a small `--only` slice, so this costs minutes.
 #
-# Usage: tests/e2e/negtc-mapreduce-gate.sh [N] [only-glob]
+# Usage: tests/e2e/negtc-mapreduce-gate.sh [--no-sweeps] [N] [only-glob]
+#
+# `--no-sweeps` runs everything EXCEPT the byte-equality half. MEASURED on this worktree: the whole
+# gate is 79 s and the equality half is 78 of them (it runs real bc-parity sweeps over an `a*`
+# slice); the merge invariants and the ci.yml CLI check together are 1 s. That ratio is why the
+# push path takes this flag and the full gate runs in a job that is not on the push path — the
+# smoke suite was already measured at 359 s against a 420 s cap with every check green
+# (scripts/SPRINT.md `smoke-budget-drift`), and 78 s of corpus sweeps is not what that budget is for.
 set -uo pipefail
+
+no_sweeps=0
+if [ "${1:-}" = "--no-sweeps" ]; then no_sweeps=1; shift; fi
 
 N="${1:-3}"
 # A SINGLE glob. `bc-parity-sweep`'s --only is a shell `case` pattern and the `|`-alternation form
@@ -122,6 +132,14 @@ else
 fi
 
 # ── the equality itself, on the real sweeps over a small slice ───────────────
+if [ "$no_sweeps" -eq 1 ]; then
+  # Say so, and say where the skipped half DOES run. A skip line that names no owner is how a check
+  # quietly stops existing.
+  echo "  (skip equality: --no-sweeps; the full gate runs in ci.yml's Validate job)"
+  echo
+  [ "$fail" -eq 0 ] && { echo "✓ merge invariants + ci.yml CLI PASSED (equality skipped)"; exit 0; }
+  echo "✗ gate FAILED"; exit 1
+fi
 if [ ! -x "$ROOT/bin/ssc" ] || [ ! -d "$ROOT/bin/lib/standard" ]; then
   echo "  (skip equality: no staged launcher — run scripts/sbtc \"installBin\" first)"
   echo

@@ -161,12 +161,16 @@ val suite = List(
   // exit 2 on a fixture the owner had certified green 34 min earlier in the same job. Seconds here;
   // the alternative is finding it six minutes into a build.
   Check("tests", "negtc-manifest-contract", "tests/e2e/negtc-manifest-contract-gate.sh", List(), 120000),
-  // Runs WITHOUT a staged launcher, which is what makes it cheap: the merge invariants and the
-  // "does ci.yml's own command line parse" check need no build, and the byte-equality half skips
-  // itself with a note when `bin/ssc` is absent. It earns its place on the push path because the
-  // thing it checks is a workflow-to-script interface: four green 20-minute shards were discarded
-  // by a reduce job that died in 0 s on argument ORDER (run 30649090567).
-  Check("tests", "negtc-mapreduce", "tests/e2e/negtc-mapreduce-gate.sh", List(), 300000),
+  // `--no-sweeps` DELIBERATELY, and the numbers are the argument. Whole gate 79 s, of which the
+  // byte-equality half is 78 (real bc-parity sweeps over an `a*` slice) and the merge invariants
+  // plus the "does ci.yml's own command line parse" check are 1. This suite was already measured at
+  // 359 s against a 420 s cap with every check green (SPRINT `smoke-budget-drift`), so the 1 s half
+  // goes here and the full gate runs in ci.yml's Validate job, off the push path.
+  //
+  // The 1 s half is the one that earns a push-path slot: it checks a workflow-to-script INTERFACE.
+  // Four green 20-minute shards were discarded on run 30649090567 by a reduce job that died in 0 s
+  // on argument ORDER, and no amount of corpus equality would have seen it.
+  Check("tests", "negtc-mapreduce", "tests/e2e/negtc-mapreduce-gate.sh", List("--no-sweeps"), 60000),
   Check("tests", "ci-status-guard", "tests/e2e/ci-status-guard.sh", List(), 120000),
   Check("tests", "no-test-reaches-an-exiting-cli", "tests/e2e/cli-exit-reachability-guard.sh", List("--self-test"), 180000),
   // CI skips the ~3.5 min launcher build when this digest says the toolchain's inputs are unchanged.

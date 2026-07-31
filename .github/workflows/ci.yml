@@ -183,6 +183,12 @@ jobs:
       - name: Verify conformance shards partition the corpus exactly
         run: tests/e2e/build-conformance-shard-gate.sh 4
 
+      # The negtc equality gate does NOT go here, though it is the obvious-looking home. This job has
+      # no `installBin`, so `negtc-mapreduce-gate.sh` would take its no-launcher branch, print
+      # "merge invariants PASSED (equality skipped)" and exit 0 — a step that reads as gating the
+      # property while never running it. It lives in `negtc-reduce`, which builds the tower and is
+      # the job whose verdict actually depends on the property.
+
       # The host RAM guards (scripts/build-guard, build-ram-report, kill-stale-builders) are what
       # stand between parallel agents and a third OOM event. Each of their failure modes is silent —
       # a semaphore that admits everyone, a heap cap that loses to an inherited -Xmx, a slot that
@@ -860,6 +866,14 @@ jobs:
       # distribution, and the negative assertions run real programs through that launcher.
       - name: Compile and assemble ssc.jar
         run: sbt compile cli/assembly installBin
+
+      # The property this whole job rests on, proven on THIS commit before the verdict is taken from
+      # it: map+merge over N shards is byte-identical to one unsharded sweep. It runs here, and not
+      # in `Validate`, because it needs the launcher the step above stages — in a job without one it
+      # silently degrades to its merge-invariant half and exits 0, which is a check that reports
+      # success for a property it did not test. ~79 s, of which 78 are the real sweeps.
+      - name: Verify negtc map+merge equals one unsharded sweep
+        run: tests/e2e/negtc-mapreduce-gate.sh
 
       - name: Download shard reports
         uses: actions/download-artifact@v4

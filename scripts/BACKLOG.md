@@ -1027,6 +1027,31 @@ own arc. None is speculative: every one has a measured number attached.
       Blocked for a day on `bc-parity-explicit-manifest-second-copy` (SPRINT) — the gate had been
       red since 06:25 that day, so the wiring could not be verified green until that was fixed.
 
+      **MEASURED on the first dispatched run, 30649090567** — and the shape is better than the
+      estimate above, because the fixed cost turned out to be ~0:
+
+      | shard | sweep | job | rows |
+      |---|---|---|---|
+      | 0/4 | 986 s | 23.5 min | 54 |
+      | 1/4 | 934 s | 23.1 min | 54 |
+      | 2/4 | 724 s | 19.7 min | 53 |
+      | 3/4 | 806 s | 19.7 min | 53 |
+
+      214 rows merged = `examples/*.ssc` exactly, so the partition is exact and round-robin balances
+      to x1.36 worst-to-best. Per job: 45 s setup + 318-368 s `installBin` + the sweep. Solving
+      `S + W = 3236` (the last green unsharded step) against `S + W/4 = 806` gives **S ≈ 0**: the
+      sandbox and slim-dist prologue are free and the step is almost entirely the two sweeps, so the
+      split scales linearly and re-running the prologue per job costs nothing. Sum of the four
+      sweeps is 3450 s against 3236 s unsharded — ~7 % overhead for 4x the parallelism.
+
+      ⚠️ **The first run still ended red, in `negtc-reduce`, and the cause was the wiring not the
+      gate**: `--report` was accepted only as argument ONE and ci.yml passed it last, so the reduce
+      job died in 0 s on `usage:` after the four shards had done 23 minutes of correct work. Fixed
+      in the script (any position, and an unrecognised argument is now NAMED) plus a check in
+      `tests/e2e/negtc-mapreduce-gate.sh` that parses the invocations READ OUT OF ci.yml. Worth
+      knowing that the first version of that check passed against the broken script — see the commit
+      for the two vacuity traps it had to close.
+
       Original framing kept for the record:
 
       The gate now has the two modes the split needs: `--sweeps-only --shard i/N --native-out A
