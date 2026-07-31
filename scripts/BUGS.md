@@ -8,13 +8,14 @@ grepping for status.
 Newest first.
 
 ## corpus-breadth-slice-bloop-server-timeout — Bloop takes over 30 s to start on a 2-core runner
-<!-- status: open
+<!-- status: fixed
+     fixed-in: 1bd6b0984
      lane: apparatus
      area: build
      gate: none -->
 
-**Found 2026-07-31**, and MEASURED rather than inferred: six `workflow_dispatch` runs of the SAME
-commit `cf3fad14f` gave **3 green, 3 red**. Identical code, so it is a flake, and a 50 % one.
+**Found and fixed 2026-07-31**, both by the same method: six `workflow_dispatch` runs of ONE commit,
+which turns "sometimes red" into a rate.
 
 ```
 FAIL corpus-breadth-slice              93.9s
@@ -23,25 +24,28 @@ FAIL corpus-breadth-slice              93.9s
     at bloop.rifle.internal.Operations$.about(Operations.scala:529)
 ```
 
-Not the artifact download — that was a separate defect fixed the same morning (the Coursier cache is
-now restored unconditionally). This is the Bloop **server failing to become responsive** inside
-scala-cli's 30 s window on a hosted 2-core runner.
+Bloop failed to become responsive inside scala-cli's 30 s window on a hosted 2-core runner. Not the
+artifact download — that was a separate defect fixed the same morning (Coursier cache restored
+unconditionally); this is the server start itself.
 
-**The breadth check does not need Bloop at all.** It runs `--lanes int,js,v2`; there is no JVM lane
-in it. The server starts only because scala-cli compiles the script through a build server by
-default. `tests/e2e/build-conformance-shard-gate.sh` already passes `--server=false` for this class
-of reason and has never flaked.
+The breadth check runs `--lanes int,js,v2` — no JVM lane at all — so Bloop was pure overhead: the
+server started only because scala-cli compiles a script through a build server by default.
+`tests/e2e/build-conformance-shard-gate.sh` has always passed `--server=false` for this reason and
+has never flaked. `SSC_CONF_WARM_JVM=1` stays: it governs the CHILD `ssc-tools run-jvm` processes,
+where warm measured 14.0 s against 27.4 s.
 
-FIX (not applied yet — `scripts/smoke-ci.ssc` is held by the live claim `stdin-ownership-gate`;
-raised in the room): pass `--server=false` to the parent `scala-cli` in both corpus checks.
-`SSC_CONF_WARM_JVM=1` stays — it governs the CHILD `ssc-tools run-jvm` processes, not the parent.
+MEASURED, same commit, six dispatches each time:
 
-Cost, measured before the evidence existed: locally it is noise — 15.1/32.2 s with the server against
-23.4/24.0 s without. It was deliberately deferred that morning with "if it recurs, that is the next
-thing to try". It recurred, in half of all runs.
+| | green | red |
+|---|---|---|
+| before (`cf3fad14f`) | 3 | 3 |
+| after (`179932c5b`) | **6** | **0** |
 
-Method note: a 50 %-per-run flake does not need to be waited for. Six `gh workflow run smoke.yml`
-dispatches against one commit turn "sometimes red" into a measured rate and a single readable log.
+The change was deliberately deferred that morning — locally the flag is noise (15.1/32.2 s with the
+server against 23.4/24.0 s without) — with "if it recurs, that is the next thing to try", and NOT
+bundled with the Coursier fix so that attribution stayed clean. It recurred in half of all runs, and
+the two fixes are now separately attributable: the first removed the download failures, this one
+removed the timeouts.
 
 ## reaper-aborts-when-a-builder-exits-mid-scan — set -e turns a routine race into a red gate
 <!-- status: fixed

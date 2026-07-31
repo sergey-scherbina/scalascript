@@ -10,6 +10,15 @@ Anything not being worked on belongs in `scripts/BACKLOG.md`, not here — a que
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [x] **corpus-breadth-slice Bloop-server timeout — fixed and MEASURED closed** (1bd6b0984).
+  `--server=false` on the parent scala-cli in both corpus checks and in the lanes gate: the breadth
+  check has no JVM lane, so the build server was pure overhead and, on a 2-core runner, a coin flip
+  (`Future timed out after [30 seconds]`). Six dispatches of one commit: 3/3 red before, **6/0 green
+  after**. Separately attributable from the morning's Coursier fix because they were landed apart.
+  Also here: the time budget now FAILS on CI and only WARNS locally. It is sized for a dedicated
+  runner; on a dev host at load 19 `ci-status-guard` alone took 78 s against 4 s on CI, and failing
+  on that is what made me push three times without a green local run.
+
 - [x] **reaper-aborts-when-a-builder-exits-mid-scan** — second push-path flake found the same day.
   `kill-stale-builders` died whenever a builder exited between the `ps` snapshot and the per-pid
   `lsof`/`ps`; `set -euo pipefail` turned a routine race into a red gate, and the author's own
