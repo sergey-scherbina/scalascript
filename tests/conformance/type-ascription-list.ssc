@@ -1,0 +1,42 @@
+---
+name: type-ascription-list
+description: "case _: List[?] holds for a List on the lanes that represent one distinctly"
+backends: [int, jvm, v2]
+---
+
+# `case _: List[?]`
+
+`BUGS.md` `type-ascription-tuple-and-set-arms-missing`. On the native lane a list is
+`DataV("Cons"/"Nil")` and the type test compares the CONSTRUCTOR TAG to the type name, so
+`case _: List[?]` — which names a type, not a constructor — could never match. The reference
+interpreter has carried the equivalent arm forever
+(`case _: Value.ListV => typeName == "List" || "Seq" || "Iterable"`); it was simply never brought
+across.
+
+```scalascript
+def kind(x: Any): String = x match
+  case _: List[?] => "list"
+  case _ => "other"
+
+println(kind(List(1, 2)))
+println(kind(List()))
+println(kind(Map("a" -> 1)))
+println(kind("s"))
+println(kind(7))
+
+def firstOr(xs: List[Int], d: Int): Int = xs match
+  case h :: t => h
+  case _ => d
+println(firstOr(List(4, 5), 0))
+println(firstOr(List(), 0))
+```
+
+The empty list matters: it is `DataV("Nil")` rather than `"Cons"`, a different tag reaching the same
+test. The constructor patterns at the end are the guard that widening the TYPE test did not disturb
+the CONSTRUCTOR one — `case h :: t` still arrives with the tag as its own name and must keep going
+through the ordinary path.
+
+**`js` is absent, and not because of an oversight.** There a `List(...)` is `[...args]` and
+`_setOf(...)` returns a plain array too, so List and Set are the same value on that lane and no arm
+can separate them. See the entry for the split between the table gaps (closable) and that
+representation gap (not).

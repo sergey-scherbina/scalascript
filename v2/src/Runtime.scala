@@ -1588,7 +1588,18 @@ object Prims:
       case DataV(t, fs) =>
         val ar = int(a, 2).toInt
         val expected = str(a, 1)
-        BoolV((t == expected || isExceptionSupertype(expected)) && (ar < 0 || fs.length == ar))
+        // A list is `DataV("Cons"/"Nil")`, so `case _: List[?]` — which names a TYPE, not a
+        // constructor — could never match here: the nominal test compares the tag to the name. The
+        // reference has carried the equivalent arm forever (`PatternRuntime`:
+        // `case _: Value.ListV => typeName == "List" || "Seq" || "Iterable"`), and measured
+        // 2026-07-30 this lane answered `other` where INT, JS and the JVM all answered `list`.
+        // Arity is ignored on purpose: a type ascription carries no field patterns, while
+        // `case Cons(h, t)` still arrives with expected="Cons" and goes through the test below.
+        // BUGS `type-ascription-tuple-and-set-arms-missing`.
+        val listTag  = t == "Cons" || t == "Nil"
+        val listName = expected == "List" || expected == "Seq" || expected == "Iterable"
+        if listTag && listName then BoolV(true)
+        else BoolV((t == expected || isExceptionSupertype(expected)) && (ar < 0 || fs.length == ar))
       // Primitive values are not DataV constructors, but source-level typed
       // patterns still use the same portable nominal test (`case s: String`).
       // They are necessarily arity-zero; aliases retain the ScalaScript surface

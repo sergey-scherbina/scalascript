@@ -1,4 +1,4 @@
-# corpus-contract-roster-v1	baseline-sha256=50dc7d3b340d53c27fe9ed66d91eca4f9fabce5c63eb8d9a30fcbd82eaa1946b	roster-sha256=6262157fe0761fce4c9e5e298fdada6542e83d6665b51c69de41476586e524e6
+# corpus-contract-roster-v1	baseline-sha256=50dc7d3b340d53c27fe9ed66d91eca4f9fabce5c63eb8d9a30fcbd82eaa1946b	roster-sha256=f59efe236f78aa6b8f8390da1493cc3590e5192a744229ccce9fddf34bd6e5e9
 _bug1_httpclient
 _bug1b
 _bug1c
@@ -477,6 +477,7 @@ try-catch-io-failure
 try-multistmt-body
 tuples
 type-ascription
+type-ascription-list
 type-ascription-map
 type-ascription-set
 type-ascription-tuple
