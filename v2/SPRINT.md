@@ -31,7 +31,14 @@ enthusiasm:
       **Blocked**: `specs/v2.2-p6.5-fsub.ssc` is under `f-set-empty-receiver`; four different claims
       have held it today. Patch shape is one clause: `if isIntLitCode(init) || callRet(init, cx) ==
       "Int" then parseBlockVarLc(…)`.
-- [~] **P-2 — re-measure `vector-index` (47×).** It is the ONLY remaining big row whose var is
+- [x] **P-2 DONE — NO EFFECT, and it caveats the 2.03× win.** BEFORE 39.0/38.7/41.3, AFTER
+      38.9/40.0/38.4; medians 39.0 vs 38.9. `vector-index` declares `seed: Long`, F types only
+      `Int`, so its initialiser stays untyped `__arith__` and the widened test still says no.
+      **So the landed fix's corpus footprint is ONE row — `var-expr-init-int`, which I added for
+      it.** Real code that declares `Int` gets the 2×; the corpus writes `seed: Long` almost
+      everywhere and does not. The bottleneck for the corpus is F not typing `Long`, and the one
+      attempt at that made F silently DECLINE programs (`v2/BUGS.md`).
+      *(original note)* re-measure `vector-index` (47×). It is the ONLY remaining big row whose var is
       expression-initialised (`var s = (seed …`), so the landed cell fix may already have helped it
       for free. The other big rows (`list-fold`, `range-sum`, `pattern-match-heavy`, `float-fold`)
       all use literal initialisers and were already unboxed — the fix does nothing for them.

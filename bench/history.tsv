@@ -136,3 +136,11 @@ date	sha	load	workload	lane	ref_lane	ms	ref_ms	ratio	note
 #   F compiles 31 of 36; falls back on 5 — effect-multishot/effect-oneshot/typeclass-fold GAP,
 #   effect-pure/effect-stream BOTH-UNBOUND. Those five rows measure the FALLBACK front, not F.
 #   Same census on the PRE-fix front: also 31/5, so the landed cell fix is neutral on acceptance.
+#
+# 2026-07-31 P-2: does the landed cell fix help vector-index (the only other big row with an
+# EXPRESSION-initialised var)? Alternating A/B, staged front swapped only.
+#   BEFORE 39.0 / 38.7 / 41.3   AFTER 38.9 / 40.0 / 38.4   medians 39.0 vs 38.9 — NO EFFECT.
+# Reason: vector-index declares `seed: Long`, and F types only Int, so the initialiser stays
+# untyped __arith__ and isIntLitCode still says no. CAVEAT ON THE 2.03x WIN: its corpus footprint
+# is ONE row (var-expr-init-int), which I added for it. Real Int-declaring code gets the win; the
+# corpus almost entirely writes `seed: Long` and does not.
