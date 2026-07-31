@@ -7,6 +7,41 @@ grepping for status.
 
 Newest first.
 
+## git-stash-is-repo-global-across-worktrees — an A/B stash can pop ANOTHER agent's work into your tree
+<!-- status: open
+     lane: apparatus
+     area: build
+     gate: none -->
+
+**Found 2026-07-31**, the hard way. `git stash` is **per repository, not per worktree** — every
+worktree pushes onto and pops from the same stack. On a repo where several agents each hold a
+worktree, that stack is shared state nobody treats as shared.
+
+**How it bites, and it needs no mistake to trigger.** The A/B for "is this contract IMPROVEMENT mine
+or somebody else's" is: stash the change, rebuild, re-run, restore. If the change is already
+COMMITTED, the tree is clean, `git stash` saves nothing **and says so quietly** — and the following
+`git stash pop` then pops whatever is on top of the stack, which is another agent's work-in-progress.
+
+Observed exactly that: `stash@{0}` was `reactive-attr-wip` from
+`worktree-agent-afc6a6b4eb2917149`, and popping it dropped 429 lines of a Swift renderer test into a
+worktree that had never touched Swift, as an unresolved `UU` conflict. Nothing was lost — the pop
+conflicted, so the entry stayed on the stack, and `git reset --hard HEAD` was safe because my own
+work was committed. Had it applied CLEANLY, the other agent's stash would have been consumed and
+their work would now be sitting in my branch.
+
+**What to do instead** (I am changing my own habit; recording it because it is not specific to me):
+
+- do the A/B on an **uncommitted** change, or
+- use `git stash push -- <explicit paths>` and `git stash pop stash@{0}` only after checking
+  `git stash list`, or better
+- avoid the stack entirely: `git worktree add` a second checkout, or `git checkout <sha> -- <paths>`
+  to swap just the files under test.
+
+**Guard worth having, and cheap:** refuse `stash pop` when the top entry's `On <branch>` does not
+match the current worktree's branch. Same rule as everything else this week — the tool's answer
+("popped") is identical whether it restored YOUR work or somebody else's, and those are very
+different states.
+
 ## submodule-pointer-not-a-real-commit — main records a `.agents/plugins` commit that does not exist
 <!-- status: fixed
      fixed-in: d5149ee32
