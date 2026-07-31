@@ -1,5 +1,6 @@
-# generation: 637
+# generation: 638
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
 int-module-mutable-registry	claude-code	2026-07-31T11:04:09Z	int-imported-module-mutable-registry-not-shared	dir:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter file:v1/runtime/backend/interpreter/BUGS.md file:v1/runtime/backend/js/BUGS.md file:tests/conformance/imported-module-mutable-registry.ssc file:tests/conformance/expected/imported-module-mutable-registry.txt file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv
 f-set-empty-receiver	claude-code	2026-07-31T11:05:47Z	f-set-empty-has-no-runtime-receiver	file:v2/src/Runtime.scala file:specs/v2.2-p6.5-fsub.ssc file:v2/BUGS.md
+v2-perf-bench-front-column	claude-code	2026-07-31T11:08:07Z	bench-front-column v2-perf-vector-index-recheck	file:bench/run.sc file:v2/SPRINT.md file:bench/history.tsv
