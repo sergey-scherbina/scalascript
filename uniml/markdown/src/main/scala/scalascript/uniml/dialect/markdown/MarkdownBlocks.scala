@@ -138,7 +138,14 @@ private[markdown] final class MarkdownBlocks(
       val line = lines(index)
       open match
         case OpenLeaf.FencedCode(fchar, flen) =>
-          handleFenceBody(line, fchar, flen); index + 1
+          // A fence body inside a container still carries that container's
+          // prefix, and it has to come off before the CLOSING fence can be
+          // recognised at all. Without this, `1.  foo\n\n    ```\n    bar\n
+          // ```` never closed: the closing line read as four spaces of indent,
+          // so the block swallowed the rest of the document.
+          val fenceContent = matchContainers(line)
+          handleFenceBody(MdLine(fenceContent, line.ending), fchar, flen)
+          index + 1
         case _ =>
           // match / adjust containers, get the content portion of the line
           val content = matchContainers(line)
