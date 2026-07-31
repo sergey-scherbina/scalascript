@@ -26,7 +26,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
-RUN=(scala-cli tests/conformance/run.sc --)
+# `--server=false`: this gate makes several run.sc invocations, and starting a Bloop build server for
+# each is both pointless (it only compiles a small script) and, on a 2-core hosted runner, a coin
+# flip — `Future timed out after [30 seconds]` from `bloop.rifle`, measured at 3 red in 6 runs of one
+# commit (BUGS corpus-breadth-slice-bloop-server-timeout). `build-conformance-shard-gate.sh` has
+# always passed this flag for the same reason.
+RUN=(scala-cli --server=false tests/conformance/run.sc --)
 SAMPLE=arithmetic          # no `backends:` line, so every lane is eligible — the case that can
                            # distinguish "lane filtered out" from "case does not support the lane"
 
