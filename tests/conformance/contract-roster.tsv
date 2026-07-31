@@ -1,4 +1,4 @@
-# corpus-contract-roster-v1	baseline-sha256=143b2fbe017c75cec19c29a7bba8da363eeef40f7b508f8cc5039f47f686327a	roster-sha256=f59efe236f78aa6b8f8390da1493cc3590e5192a744229ccce9fddf34bd6e5e9
+# corpus-contract-roster-v1	baseline-sha256=ccfef7f153c59372c56dc275735fbfcef40028681380cb96383c56b11c8607fd	roster-sha256=a7d45bc3379755bc909b35f3df8dba130a5a4dfdf144d532740ab8eaa5c5f765
 _bug1_httpclient
 _bug1b
 _bug1c
@@ -419,6 +419,7 @@ std-i18n
 std-index
 std-monaderror
 std-os
+std-os-readline
 std-process-import
 std-selective
 std-semigroup-monoid

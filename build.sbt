@@ -1882,6 +1882,14 @@ lazy val cli = project
           |_SSC_PROVIDER_DIR="$_SSC_BIN/lib/providers/$_SSC_PROVIDER/jars"
           |if [[ ! -d "$_SSC_PROVIDER_DIR" ]]; then
           |  echo "ssc-provider: provider is not installed: $_SSC_PROVIDER" >&2
+          |  # A provider that was REMOVED because it moved into the standard graph leaves scripts
+          |  # failing with a message that is true and useless. Name the replacement instead.
+          |  if [[ "$_SSC_PROVIDER" == "mcp" ]]; then
+          |    # SINGLE quotes around the suggestion, deliberately: backticks inside a double-quoted
+          |    # echo are command substitution, so the first cut here made the launcher TRY TO RUN
+          |    # `ssc run` and print "ssc: command not found" underneath its own error message.
+          |    echo "ssc-provider: MCP joined the standard graph on 2026-07-31 — run it with plain 'ssc run'" >&2
+          |  fi
           |  exit 2
           |fi
           |exec java -Xss"${SSC_XSS:-64m}" -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 -Dssc.lib.path="$_SSC_ROOT" \
@@ -2050,6 +2058,24 @@ lazy val cli = project
       }
       standardJars.foreach(stageStandardJar)
       log.info(s"bin/lib/standard/jars/  (${standardJars.size} JARs)")
+      // MCP is part of the STANDARD surface (decision 2026-07-31), not an opt-in provider: the
+      // server and client primitives must be reachable from `bin/ssc`, which is the launcher the
+      // conformance contract drives. Six corpus cases were red for no reason other than the
+      // launcher not carrying this graph.
+      // Staged explicitly rather than via `standardJarPrefixes` because the plugin JAR and
+      // mcp-common are sibling-project packageBin outputs, not resolved runtime deps of the CLI.
+      // Discovery is ServiceLoader-based (META-INF/services/ssc.plugin.NativePlugin), so being on
+      // the classpath is all that registration needs.
+      val mcpStandardJar = (v2NativeMcpPlugin / Compile / packageBin).value
+      val mcpCommonJar   = (mcpCommon / Compile / packageBin).value
+      val mcpStandardFiles = (Seq(mcpStandardJar, mcpCommonJar) ++
+        (v2NativeMcpPlugin / Compile / managedClasspath).value.files)
+        .filter(f => f.isFile && f.getName.endsWith(".jar") &&
+                     !standardJars.exists(_.getName == f.getName))
+        .groupBy(_.getName).values.map(_.head).toSeq.sortBy(_.getName)
+      mcpStandardFiles.foreach(j => IO.copyFile(j, standardRuntimeDir / j.getName))
+      log.info(s"bin/lib/standard/jars/  +${mcpStandardFiles.size} MCP JAR(s): " +
+        mcpStandardFiles.map(_.getName).mkString(", "))
       // pdf-plugin pulls transitive third-party runtime deps (PDFBox, fontbox,
       // openhtmltopdf, commons-logging, …).  packagePlugin bundles into the
       // .sscpkg only the deps NOT already "provided" by a dependsOn project's
@@ -2083,7 +2109,10 @@ lazy val cli = project
       val pdfProviderDir = providersDir / "pdf" / "jars"
       IO.createDirectory(pdfProviderDir)
       val pdfProviderJar = (v2NativePdfPlugin / Compile / packageBin).value
-      val standardNames = standardJars.map(_.getName).toSet
+      // The MCP JARs are part of the standard graph now, so every remaining provider must dedupe
+      // against them too — graph-rdf4j shares ujson, and shipping a second copy under a provider
+      // directory would put two ujson JARs on one classpath.
+      val standardNames = (standardJars.map(_.getName) ++ mcpStandardFiles.map(_.getName)).toSet
       val pdfProviderFiles = (pdfProviderJar +:
         (v2NativePdfPlugin / Compile / managedClasspath).value.files)
         .filter(f => f.isFile && f.getName.endsWith(".jar") && !standardNames.contains(f.getName))
@@ -2097,16 +2126,9 @@ lazy val cli = project
       IO.copyFile(nfcProviderJar, nfcProviderDir / nfcProviderJar.getName)
       log.info("bin/lib/providers/nfc/jars/ (1 JAR)")
 
-      val mcpProviderDir = providersDir / "mcp" / "jars"
-      IO.createDirectory(mcpProviderDir)
-      val mcpProviderJar = (v2NativeMcpPlugin / Compile / packageBin).value
-      val mcpCommonJar = (mcpCommon / Compile / packageBin).value
-      val mcpProviderFiles = (Seq(mcpProviderJar, mcpCommonJar) ++
-        (v2NativeMcpPlugin / Compile / managedClasspath).value.files)
-        .filter(f => f.isFile && f.getName.endsWith(".jar") && !standardNames.contains(f.getName))
-        .groupBy(_.getName).values.map(_.head).toSeq.sortBy(_.getName)
-      mcpProviderFiles.foreach(j => IO.copyFile(j, mcpProviderDir / j.getName))
-      log.info(s"bin/lib/providers/mcp/jars/ (${mcpProviderFiles.size} JARs)")
+      // No `bin/lib/providers/mcp` any more: it staged the same JARs the standard graph now
+      // carries, so the directory would either duplicate them or (after the dedupe above) be
+      // empty. `ssc-provider mcp run` is therefore gone — `bin/ssc run` does everything it did.
 
       val graphProviderDir = providersDir / "graph-rdf4j" / "jars"
       IO.createDirectory(graphProviderDir)

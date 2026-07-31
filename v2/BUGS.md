@@ -29,12 +29,23 @@ mcp-common's, shared with v1 — this is a BINDING, not a second implementation.
 `mcp-server-tool`, `mcp-server-tools`, `mcp-server-resource`, `agent-mcp-server`, `mcp-agent`,
 `mcp-filesystem-server` — all six.
 
-⚠️ **THE CORPUS ROWS STAY RED, and that is now a different fact.** The contract drives
-`bin/ssc run --v2`, the STANDARD launcher, which does not carry opt-in providers — so those six still
-report `unbound global: mcpServer` there. What changed is the reason: it was "the native lane cannot serve
-MCP at all", it is now purely "the provider is opt-in and the standard graph excludes it". That is a
-packaging decision ([[v2-optin-provider-cases]]), and it is now the ONLY thing between those cases and
-green on v2.
+**The packaging decision was taken the same day: MCP joined the standard graph.** Sergiy chose it after
+being shown the alternatives; the plugin, mcp-common and their upickle/ujson/upack/geny deps are staged
+into `bin/lib/standard/jars` (+8 JARs, 43 -> 51), `bin/lib/providers/mcp` is gone, and all six cases now
+MATCH the int lane through `bin/ssc run --v2` — the launcher the contract actually drives.
+
+Falsified rather than assumed: with the SAME binaries and only those 8 JARs cut from the classpath,
+`mcp-server-tool` returns to `unbound global: mcpServer`, exit 1. The 8 JARs are the cause.
+
+Two gates encoded the old decision and were moved, not weakened:
+`v21-explicit-mcp-provider-smoke.sh` required plain `ssc` to FAIL on MCP -> replaced by
+`v21-standard-mcp-smoke.sh` (same two examples, same exact rows, same VM/ASM equality, through `bin/ssc`,
+plus a server-vs-int check the client examples never covered), and MCP left the explicit-lanes manifest
+(15 -> 13 members, provider-lane 8 -> 6) since that manifest's subject is what is NOT in the default graph.
+The manifest was the only thing invoking the smoke, so it is now wired into `ci.yml` directly.
+
+⚠️ The freeze still had to be refreshed for those six rows — see the commit; a corpus row does not turn
+green by itself when the failure disappears, because the frozen baseline still names it.
 
 **Not implemented, and refused by name rather than faked:** `Transport.Http` and `Transport.Ws` need a
 server runtime this provider does not carry, so `serveMcp` throws naming the unsupported transport instead

@@ -5531,8 +5531,6 @@ plain `ssc`. Select one explicitly with `ssc-provider`; execution still uses
 ```bash
 ssc-provider pdf run examples/invoice-pdf.ssc
 ssc-provider pdf run --bytecode examples/pdf-extract-demo.ssc
-ssc-provider mcp run examples/mcp-client-discover.ssc
-ssc-provider mcp run --bytecode examples/agent-mcp-toolsource.ssc
 RDF4J_URL=http://localhost:8080/rdf4j-server/repositories/kg \
   ssc-provider graph-rdf4j run examples/graph-rdf4j-http-storage.ssc
 SWIFT_AGGREGATOR_URL=http://localhost:9000 SWIFT_API_KEY=secret \
@@ -5549,19 +5547,24 @@ default `build-jvm` artifact. Unknown provider names fail before source
 execution. Compiler-backed `.sscpkg` plugins remain an explicit `ssc-tools`
 surface and are not loaded by this native launcher.
 
-The MCP lane supplies a native JSON-RPC client over an explicitly configured
-stdio subprocess. It uses the shared MCP protocol codec and a real child
-process transport without loading the v1 interpreter or compiler. The bundled
-`examples/mcp-server-tools.js` server makes the discovery and agent-tool-source
-examples deterministic for VM/direct-ASM regression tests; production clients
-can point the same `Transport.Spawn` value at another MCP stdio server.
+MCP is **not** one of these lanes. It was an opt-in provider until 2026-07-31 and is now part of
+the standard graph: `mcpServer`/`serveMcp` and `mcpConnect` resolve on plain `ssc`, the plugin and
+its upickle/ujson dependencies are staged in `bin/lib/standard/jars`, and `ssc-provider mcp` no
+longer exists. It still supplies a native JSON-RPC client over an explicitly configured stdio
+subprocess, using the shared MCP protocol codec and a real child process transport without loading
+the v1 interpreter or compiler. The bundled `examples/mcp-server-tools.js` server makes the
+discovery and agent-tool-source examples deterministic for VM/direct-ASM regression tests;
+production clients can point the same `Transport.Spawn` value at another MCP stdio server.
+`serveMcp` accepts `Transport.Stdio`; `Transport.Http` and `Transport.Ws` are refused by name
+rather than silently ignored, because the native provider has no server runtime for them.
 
 The `graph-rdf4j` lane adds only the remote `Sparql.select` and
 `Sparql.update` operations to the standard process-local Graph provider. It
 uses the RDF4J SPARQL HTTP protocol at `RDF4J_URL`, with optional
-`RDF4J_USER`/`RDF4J_PASS` basic authentication. Its JSON dependency is staged
-only under `bin/lib/providers/graph-rdf4j/jars`; plain `ssc` keeps local Graph
-storage but does not claim remote SPARQL ownership.
+`RDF4J_USER`/`RDF4J_PASS` basic authentication. Its JSON dependency (ujson) now comes from the
+standard graph, which MCP brought in on 2026-07-31, so `bin/lib/providers/graph-rdf4j/jars` holds
+only the provider JAR itself and a second copy is not staged. Plain `ssc` keeps local Graph
+storage but still does not claim remote SPARQL ownership — that is what the provider adds.
 
 The `swift` lane supplies the portable `SwiftProvider` and bank-rails values
 and performs authenticated transfer creation/status requests against

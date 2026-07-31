@@ -122,7 +122,6 @@ bin/ssc-standard run examples/hello.ssc
 # keeping StandardMain + the self-hosted frontend/VM or direct ASM
 bin/ssc-provider pdf run examples/invoice-pdf.ssc
 bin/ssc-provider pdf run --bytecode examples/pdf-extract-demo.ssc
-bin/ssc-provider mcp run examples/mcp-client-discover.ssc
 RDF4J_URL=http://localhost:8080/rdf4j-server/repositories/kg \
   bin/ssc-provider graph-rdf4j run examples/graph-rdf4j-http-storage.ssc
 SWIFT_AGGREGATOR_URL=http://localhost:9000 SWIFT_API_KEY=secret \
@@ -436,7 +435,10 @@ Dataset/MapReduce typed wire calls can select `wireFormat = "msgpack" | "cbor"` 
 | Feature | Syntax |
 |---------|--------|
 | MCP server | `mcpServer { srv => srv.tool(...) }`, `serveMcp(Transport.stdio/Http/Ws)` |
-| MCP client | `mcpConnect(url) { client => client.callTool(...) }`; the explicit native VM/ASM lane is selected with `ssc-provider mcp` |
+| MCP client | `mcpConnect(url) { client => client.callTool(...) }` |
+
+Both halves are in the standard graph as of 2026-07-31 and run on plain `ssc` — there is no
+`ssc-provider mcp` lane any more.
 
 ### Data processing
 
