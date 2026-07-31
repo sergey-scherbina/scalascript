@@ -224,11 +224,17 @@ directory word carrying a different tier meaning on the two sides is a genuine t
   v1/runtime/http-server/spi                     scalascript-runtime-server-spi
 ```
 
-`markup` — 1
+`uniml/markup` — 1
 
 ```
-* markup                                         scalascript-markup-core
+* uniml/markup                                   scalascript-markup-core
 ```
+
+This is the one place where a directory holds modules from two parts: the other seven `uniml/*`
+modules are Part III (§5). `uniml/markup` is grouped by SUBJECT — it is the XML/HTML AST the
+dialects around it project onto — and classified by ROLE, which is standard library, because
+`v1/lang/core` and ten other consumers depend on it and it ships in the default distribution.
+§8.7 has the measurement and the cost.
 
 `backend` — 4
 
@@ -461,7 +467,7 @@ x402 protocol stack, blockchains, micropayments, compliance, tax and FX.
   payments/client/solana                         scalascript-client-solana
 ```
 
-`uniml` — 7
+`uniml` — 7 (`uniml/markup` also lives here and is Part II — §4, §8.7)
 
 ```
   uniml/address                                  scalascript-uniml-address
@@ -578,7 +584,8 @@ reachable:
 | `uniml/address` | no | — |
 | `uniml/markdown` | no | — |
 | `uniml/yaml` | no | — |
-| `uniml/xml` | **no** — since `markup-core` moved to `markup/` | — |
+| `uniml/xml` | **no** — since `markup-core` left `v1/` for `uniml/markup` | — |
+| `uniml/markup` | no — zero dependencies of any kind | — |
 | `uniml/markdown/bridge` | yes | `v1/lang/{core,ir,value-data,yaml}`, `v1/runtime/backend/spi` |
 
 **THE ABSTRACTION ALREADY EXISTS AND IT IS THE BRIDGE.** Every piece of v1 knowledge in UniML is
@@ -614,11 +621,14 @@ files from `markdown/bridge/`.
 
 NOTHING IS LEFT TO ABSTRACT: `uniml/markdown/bridge` is now the ONLY module in UniML that reaches
 into `v1/`, and the gate says so with no exemption. `uniml/xml`'s last reach was
-`v1/runtime/std/markup-core`, which moved to top-level `markup/` — see 8.7. Every other UniML module
-depends on nothing outside UniML at all.
+`v1/runtime/std/markup-core`, which moved to `uniml/markup` — see 8.7. Every other UniML module
+depends on nothing outside UniML at all. Note that the table now has EIGHT rows and the group in §5
+still says seven: `uniml/markup` is a Part II module inside the `uniml/` directory, so the v1-reach
+check covers it (it is under `uniml/`) while the Part III count does not.
 
-**8.7 `markup-core` was a shared foundation living inside the v1 tree — moved to `markup/`.** It has
-ZERO dependencies of its own and ELEVEN direct consumers spanning every part of the repository:
+**8.7 `markup-core` was a shared foundation living inside the v1 tree — it is now `uniml/markup`.**
+It has ZERO dependencies of its own and ELEVEN direct consumers spanning every part of the
+repository:
 
     v1/lang/core                      the LANGUAGE CORE
     v1/runtime/backend/interpreter    v1/runtime/backend/spi
@@ -627,15 +637,34 @@ ZERO dependencies of its own and ELEVEN direct consumers spanning every part of 
     payments/bank-rails   payments/processors/sepa   payments/processors/fednow   payments/fx-ecb
     uniml/xml                         one consumer of eleven
 
-It was almost moved to `uniml/markup`, on the strength of being UniML's last reach into `v1/`. That
-would have been wrong in two ways at once, and the measurement is what caught it: the LANGUAGE would
-have depended on a directory this document classifies as an additional library, and `markup-core`
-ships in the standard tier while §7 invariant 1 says nothing in Part III does — the gate would have
-gone red on a move made to tidy the tree. Top-level `markup/` fits all eleven consumers, keeps the
-invariant intact, and still removes UniML's last v1 dependency.
+It left `v1/runtime/std/markup-core` for top-level `markup/` on 2026-07-31 and reached
+`uniml/markup` the same day — GROUPED WITH THE SUBJECT: it is the XML/HTML AST that `uniml/xml`,
+and the other dialects around it, project onto.
+
+**AN EARLIER REVISION OF THIS SECTION ARGUED AGAINST THIS MOVE. The argument was not wrong about
+the cost; it was overruled on the grouping, and the cost is now paid explicitly rather than
+avoided.** What it correctly measured: `markup-core` ships in the standard tier, §7 invariant 1
+says nothing in Part III does, and the gate reads Part III BY DIRECTORY — so `uniml/markup` fails
+check 1 on the directory alone. Verified, not assumed: with the carve-out removed the gate reports
+exactly one problem, `additional library in the STANDARD tier: uniml/markup`.
+
+So the directory can no longer be read as the classification, and that is the price:
+
+- `tests/e2e/project-partition-gate.sh` carves `uniml/markup` out of `ADDITIONAL_RE` — `markup`
+  EXACTLY, not `uniml/` generally. A `--self-test` plant plants `scalascript-uniml-yaml_` into the
+  allowlist and requires the gate to still catch it, so the carve-out cannot quietly widen into a
+  hole through which a real additional library ships.
+- `uniml/` is now the one directory in the repository holding modules from two parts, which §4 and
+  §5 both say at the point a reader meets them.
+
+The other half of the original argument — that the LANGUAGE would depend on a directory this
+document calls an additional library — is a real cost and it is not gated, because nothing
+mechanical distinguishes "`v1/lang/core` depends on `uniml/markup`, which is Part II" from a
+genuine language→Part III dependency. It rests on §4 saying so and on this section.
 
 `markup-js` and `markup-node` stay under `v1/runtime/std/` deliberately: they are lane-specific
-plugins wrapping the shared core, which is what that directory is for.
+plugins wrapping the shared core, which is what that directory is for. The artifact name is
+unchanged (`scalascript-markup-core`), so `standardJarPrefixes` needed no edit for either move.
 
 **8.4 The fossil trees.** §6. Cheap to remove and the only finding here that costs nothing to fix.
 
