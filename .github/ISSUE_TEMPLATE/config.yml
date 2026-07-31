@@ -1,0 +1,7 @@
+# Blank issues stay ENABLED on purpose.
+#
+# A form collects the fields the inbound queue needs, and that is why it exists — but a form is also
+# a filter, and the reports worth having most are often the ones that do not fit the shape you
+# anticipated. Turning blank issues off would convert "I could not describe this in your boxes" into
+# silence, and silence is indistinguishable from "no problems".
+blank_issues_enabled: true

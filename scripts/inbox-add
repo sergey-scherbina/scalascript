@@ -4,6 +4,7 @@
 #
 #   scripts/inbox-add <slug> --summary "<their words>" --reported-by <who> --ssc-version <v> \
 #                            [--repro <path|none>] [--kind bug|perf|feature|…] [--body-file <f>]
+#   scripts/inbox-add --from-issue <n> [--slug <slug>]   # import a `user-report` GitHub issue
 #   scripts/inbox-add --list          # what is waiting, oldest first
 #
 # WHY A TOOL. The fields are the whole value of the queue — `reported-by` is what makes
@@ -26,6 +27,7 @@ usage() {
   cat >&2 <<'USAGE'
 usage: scripts/inbox-add <slug> --summary "<text>" --reported-by <who> --ssc-version <v>
                                 [--repro <path|none>] [--kind <kind>] [--body-file <file>]
+       scripts/inbox-add --from-issue <n> [--slug <slug>]
        scripts/inbox-add --list
 
   <slug>          kebab-case, unique across INBOX.md and every board
@@ -35,14 +37,20 @@ usage: scripts/inbox-add <slug> --summary "<text>" --reported-by <who> --ssc-ver
   --repro         path to a minimal case, or `none` (default: none)
   --kind          specs/bugs-index.md kinds (default: bug)
   --body-file     file whose contents become the entry body (default: read stdin if piped)
+  --from-issue    import GitHub issue <n>: reported-by becomes the issue URL, ssc-version is read
+                  from the form's "ScalaScript version" field, and the body is the issue body.
+                  Requires `gh`. The URL is the point — it is a `reported-by` that can be REPLIED to,
+                  which is what `confirmed: no` ("fixed, but the reporter has not confirmed") needs.
 USAGE
 }
 
-list_mode=0
+list_mode=0; from_issue=""
 slug=""; summary=""; reported_by=""; ssc_version=""; repro="none"; kind="bug"; body_file=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --list) list_mode=1; shift ;;
+    --from-issue) [ $# -ge 2 ] || { echo 'inbox-add: --from-issue needs an issue number' >&2; exit 2; }; from_issue="$2"; shift 2 ;;
+    --slug)       [ $# -ge 2 ] || { echo 'inbox-add: --slug needs a value' >&2; exit 2; }; slug="$2"; shift 2 ;;
     --summary)     [ $# -ge 2 ] || { echo 'inbox-add: --summary needs a value' >&2; exit 2; }; summary="$2"; shift 2 ;;
     --reported-by) [ $# -ge 2 ] || { echo 'inbox-add: --reported-by needs a value' >&2; exit 2; }; reported_by="$2"; shift 2 ;;
     --ssc-version) [ $# -ge 2 ] || { echo 'inbox-add: --ssc-version needs a value' >&2; exit 2; }; ssc_version="$2"; shift 2 ;;
@@ -77,6 +85,36 @@ if [ "$list_mode" -eq 1 ]; then
   exit 0
 fi
 
+# ── --from-issue: the bridge from the front door ──────────────────────────────
+if [ -n "$from_issue" ]; then
+  command -v gh >/dev/null 2>&1 || { echo 'inbox-add: --from-issue needs the `gh` CLI' >&2; exit 2; }
+  case "$from_issue" in ''|*[!0-9]*) printf 'inbox-add: --from-issue wants a number, got %q\n' "$from_issue" >&2; exit 2 ;; esac
+  meta="$(gh issue view "$from_issue" --json title,body,url,author 2>/dev/null)" \
+    || { printf 'inbox-add: cannot read issue %s (wrong number, or not authenticated)\n' "$from_issue" >&2; exit 2; }
+  title="$(printf '%s' "$meta" | python3 -c 'import json,sys; print(json.load(sys.stdin)["title"])')"
+  url="$(printf '%s' "$meta"  | python3 -c 'import json,sys; print(json.load(sys.stdin)["url"])')"
+  ibody="$(printf '%s' "$meta" | python3 -c 'import json,sys; print(json.load(sys.stdin)["body"] or "")')"
+  # The form puts each answer under its label heading. Read the version from there rather than
+  # guessing from the prose: a version parsed out of free text is the "extraction from prose"
+  # mistake P-3.3 names, and getting it wrong makes the report unreproducible in a way that looks
+  # fine. If the issue did not come through the form, say so and let the caller pass it.
+  ssc_version="$(printf '%s' "$ibody" | awk '
+    /^###[[:space:]]*ScalaScript version/ { want = 1; next }
+    want && NF { print $0; exit }
+  ' | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+  summary="$(printf '%s' "$title" | sed 's/^\[report\][[:space:]]*//')"
+  reported_by="$url"
+  [ -n "$slug" ] || slug="issue-$from_issue"
+  if [ -z "$ssc_version" ]; then
+    printf 'inbox-add: issue %s has no "ScalaScript version" section (a blank issue, not the form).\n' "$from_issue" >&2
+    printf '  Re-run with the version you can establish, or `unknown`:\n' >&2
+    printf '    scripts/inbox-add %s --summary %q --reported-by %s --ssc-version unknown\n' \
+      "$slug" "$summary" "$url" >&2
+    exit 2
+  fi
+  body="$ibody"
+fi
+
 # ── register ──────────────────────────────────────────────────────────────────
 [ -n "$slug" ] || { usage; exit 2; }
 case "$slug" in
@@ -105,8 +143,9 @@ if [ -n "$existing" ]; then
   exit 2
 fi
 
-body=""
-if [ -n "$body_file" ]; then
+body="${body:-}"
+if [ -n "$body" ]; then :
+elif [ -n "$body_file" ]; then
   [ -f "$body_file" ] || { printf 'inbox-add: no such --body-file: %q\n' "$body_file" >&2; exit 2; }
   body="$(cat "$body_file")"
 elif [ ! -t 0 ]; then

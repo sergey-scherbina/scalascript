@@ -8,6 +8,28 @@ ScalaScript is in **M0 — Specification phase**. We are defining the language b
 
 ## How to Contribute
 
+### Something you ran did not work? Report it
+
+**[Open a report](https://github.com/sergey-scherbina/scalascript/issues/new?template=user-report.yml)** —
+you do not need the repository, a checkout, or any knowledge of where the bug lives.
+
+The form asks for four things, and each one is there because it decides whether the report can be
+acted on: one line of what went wrong, the **version** (`ssc --version`), the **smallest program**
+that shows it with the exact command you ran, and what you **expected versus what happened** —
+the real output, not a paraphrase.
+
+Two things that help more than they look like they should: a version where it *used to* work turns a
+bug hunt into a bisect, and a program that is already minimal usually skips the reproduction step
+entirely.
+
+Please do not try to diagnose where the fault is. Where a fix goes is a conclusion someone reaches by
+reading code, and a guess in the report tends to send the reader the same wrong way it sent you.
+
+What happens next: the report enters the inbound queue (`INBOX.md`), a maintainer routes it to
+whichever part of the compiler owns the fix, and your issue URL travels with it — so the entry can
+still say who to tell when it is fixed. The queue is time-bounded by a gate, so a report cannot sit
+in it unnoticed.
+
 ### Specification Feedback
 
 The most valuable contributions right now are:

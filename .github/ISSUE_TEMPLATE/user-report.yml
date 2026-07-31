@@ -1,0 +1,86 @@
+name: Report a problem with ScalaScript
+description: Something you ran did not do what you expected. You do not need the repository.
+title: "[report] "
+labels: ["user-report"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This form is the front door of the inbound queue (`POLICY.md` P-3.10). What you fill in here
+        becomes the entry a maintainer routes to whichever part of the compiler owns the fix, so the
+        fields below are the ones that decide whether that is possible — not paperwork.
+
+        **Please do not diagnose.** Describe what you ran and what happened. Where the bug lives is a
+        conclusion someone reaches by reading code, and a guess in the report tends to send the
+        reader the same wrong way it sent you.
+
+  - type: input
+    id: summary
+    attributes:
+      label: One line — what went wrong
+      placeholder: "for-comprehension over a Map prints nothing since 1.72"
+    validations:
+      required: true
+
+  - type: input
+    id: ssc-version
+    attributes:
+      label: ScalaScript version
+      description: "`ssc --version`. If you cannot get it, write `unknown` — that is information too."
+      placeholder: "1.72.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: The smallest program that shows it
+      description: >
+        Paste the code, and the exact command you ran. The shorter this is, the sooner it gets fixed —
+        a case that is already minimal usually skips the whole reproduction step.
+      render: scala
+      placeholder: |
+        // app.ssc
+        def main() =
+          for (k, v) <- Map("a" -> 1) do println(k)
+
+        $ ssc run app.ssc
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-actual
+    attributes:
+      label: What you expected, and what happened
+      description: Include the exact output or error, not a paraphrase of it.
+      placeholder: |
+        expected: prints `a`
+        actual:   prints nothing, exits 0
+    validations:
+      required: true
+
+  - type: input
+    id: last-good
+    attributes:
+      label: Did it ever work? (optional)
+      description: >
+        A version where it worked turns this from a bug hunt into a bisect, which is a different
+        amount of work entirely.
+      placeholder: "worked on 1.71.0"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Where you ran it (optional)
+      multiple: true
+      options:
+        - "ssc run (interpreter)"
+        - "ssc run-js / Node"
+        - "ssc run-jvm"
+        - "ssc build-jvm / a packaged jar"
+        - "the v2 / native lane"
+        - "not sure"
+    validations:
+      required: false
