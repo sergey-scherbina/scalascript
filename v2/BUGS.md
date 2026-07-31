@@ -121,7 +121,8 @@ closing fence, so every variant "failed" with a parse ERROR.
 note there. The decline is protecting these ten files.
 
 ## f-has-no-float-exponent — `1e2`, `1.0e2` and `2.5e-3` all fail to lower on the F front
-<!-- status: open
+<!-- status: fixed
+     fixed-in: 03392856735469545ed5665943a7bd624ef213e0
      lane: native
      area: front
      gate: .github/workflows/f4-front-swap.yml -->
@@ -170,8 +171,14 @@ lexNum2: if expEnd(s, e, n) > e then lexFloat(s, i, n, expEnd(s, e, n)) else <as
 At least ONE digit must be required after `[eE][+-]?`, or `1exp` starts eating the letter. A suffix
 after the exponent (`1e2f`) needs no extra work — `lexFloat` already calls `floatEnd(s, fe, n)`.
 
-NOT FIXED HERE: `specs/v2.2-p6.5-fsub.ssc` is held by the live claim `f-operator-ext-param-unbound`.
-Diagnosis handed over in the room with the same detail.
+FIXED in 03392856735469545ed5665943a7bd624ef213e0: `expEnd(s, e, n)` = `[eE] [+-]? digit+`, wired into BOTH `lexNum1` (dot path) and
+`lexNum2` (no-dot path). Verified as a differential against the legacy front — `1.0e2 1e2 2.5e-3 1E2
+1e+3 1.5 1e2f 0.5 3F 100_000` all equal, `val exp = 7` still lexes `e` as an identifier, the
+conformance case matches its frozen `expected/` file, and 18 numeric-literal cases show 0 declines
+and 0 stdout divergences. A/B: stashed, F declines once; restored, zero.
+
+Taken while the file was held by the live claim `f-operator-ext-param-unbound`, on the owner's
+explicit instruction, announced in the room first with the exact lines touched.
 
 ## f-does-not-know-Set — `Set(1, 2)` and `case _: Set[?]` fail to lower on F
 <!-- status: open
