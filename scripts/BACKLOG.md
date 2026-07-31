@@ -1044,13 +1044,36 @@ own arc. None is speculative: every one has a measured number attached.
       split scales linearly and re-running the prologue per job costs nothing. Sum of the four
       sweeps is 3450 s against 3236 s unsharded — ~7 % overhead for 4x the parallelism.
 
-      ⚠️ **The first run still ended red, in `negtc-reduce`, and the cause was the wiring not the
+      **GREEN on run 30657700475** — the first verdict this gate has produced through the split:
+      `release.ready true`, `parity.delegated 12` (derived), `PASS v21-negative-toolchain-freeze`,
+      `PASS v21-negative-toolchain-release-gate`. Chain wall clock 19:04:39 -> 19:43:35 = **39 min**,
+      entirely parallel to the `sbt` job instead of 54 min in front of `Test via sbt`. Shard sweeps
+      across three runs: 986/934/806/724, 1018/924/736/667, 953/724/699/862 s — the same corridor,
+      so the caps (map 35, reduce 40) stay as they are.
+
+      Reduce itself: 353 s build + 172 s equality gate + 69 s the gate proper. THREE dispatched runs
+      were needed, and none of the three failures was the sharding — see below.
+
+      ⚠️ **The first run ended red in `negtc-reduce`, and the cause was the wiring not the
       gate**: `--report` was accepted only as argument ONE and ci.yml passed it last, so the reduce
       job died in 0 s on `usage:` after the four shards had done 23 minutes of correct work. Fixed
       in the script (any position, and an unrecognised argument is now NAMED) plus a check in
       `tests/e2e/negtc-mapreduce-gate.sh` that parses the invocations READ OUT OF ci.yml. Worth
       knowing that the first version of that check passed against the broken script — see the commit
       for the two vacuity traps it had to close.
+
+      ⚠️ **The second run then reached a REAL verdict and it was wrong**: the release freeze floored
+      `parity.delegated` at 15 against a manifest that is now 12 — the third copy of that number to
+      break the same way in one day. Derived from the manifest now, which is stricter than the floor
+      (a floor waves an over-count through). Its own self-test had never run: nothing invoked it, and
+      its canonical fixture had drifted below the freeze's floors, so under `set -e` it died at the
+      first assertion and none of its seven drift rejections executed. Repaired and registered in
+      `scripts/smoke-ci`.
+
+      **The pattern worth carrying out of this item.** Four frozen numbers, one root: two cases
+      improved out of the explicit-lane manifest (15 -> 13 -> 12) and every copy of its size that
+      was not the manifest went stale. Plus two gates wired nowhere. The sharding was the easy part;
+      the gate had not been green since 2026-07-28 for reasons that had nothing to do with speed.
 
       Original framing kept for the record:
 
