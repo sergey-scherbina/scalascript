@@ -10,6 +10,20 @@ Anything not being worked on belongs in `scripts/BACKLOG.md`, not here — a que
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [x] **smoke-corpus-slice-dominates-and-varies** — the corpus check is split by LANE. Measured on
+  the 13-case slice, three alternating rounds: all four lanes 33.7-37.6 s, the same cases without
+  `jvm` 11.9-15.8 s — the JVM lane was ~65 % of the check. Now two invocations: breadth on
+  int,js,v2 (13.5 s) plus `--lanes jvm` over the four cases where the JVM backend is the point
+  (11.5 s). No lane goes dark; the cost stated is that a JVM regression in the other ten cases waits
+  for the PR/4-hourly run. Needed two new run.sc behaviours, both gated by
+  `tests/e2e/conformance-lanes-flag.sh`: `--lanes`, and a zero-match `--only` now ERRORS instead of
+  reporting a green run over zero cases (the push-path check names 13 cases by hand — one rename
+  would have shrunk it silently). The per-module rollup caught its own regression: v2 fell 4 -> 3
+  after the first split because `int-width` carries the only `also-codegen: v2` in the list, so the
+  `JVM/v2` sub-lane had vanished.
+  ⚠ First A/B said "no benefit" and was contaminated by a scala-cli recompile of the edited run.sc;
+  re-measuring on a warm tree gave the 2.8x. P-6.6 twice in one task.
+
 - [x] **smoke-budget-set-from-one-sample** — the 330 s budget was fitted to a single CI observation
   (250.2 s) and went red at 338.6 s with all 18 checks green. The dominant check, the corpus slice,
   varies ±25 % between runs on a shared runner (115.5 / 175.2 / 233.9 s). Budget → 420 s, sized above
