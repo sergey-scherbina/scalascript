@@ -7,6 +7,19 @@ in the same commit as the claim. Layout: `specs/work-tracking-layout.md`.
 Sections below were carried over whole from the flat root `SPRINT.md`/`BACKLOG.md`,
 verbatim, on 2026-07-30.
 
+## 87 open bugs name no gate — the actual backlog
+
+`scripts/bugs-report --no-gate` on 2026-07-31: **87 of 104 open entries name no regression gate.**
+Five in six known defects have nothing that would catch them coming back, which outranks any single
+entry on the list.
+
+Recorded here rather than acted on immediately because it is not one task: some of the 87 are
+unreproducible, some are wontfix in disguise, and some need a lane that cannot express them (see
+`type-ascription-tuple-and-set-arms-missing` — two lanes have no Set TYPE, so no gate can exist
+there). The first slice is to triage the 87 into "gateable now / needs a decision / not reproducible"
+before writing any case, because writing gates for entries that are already fixed — one was found
+three days stale this week — costs a build each to discover.
+
 ## 2026-07-30 — the 77 corpus SKIPs: 15% of the corpus where v2 has NO verdict (Sergiy: "цель — получить работающий 100% ssc v2")
 
 Measured, not estimated: `specs/skip-triage.md` probes all 77 on the golden lane from a fresh build.

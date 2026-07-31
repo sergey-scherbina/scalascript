@@ -7,6 +7,40 @@ in the same commit as the claim. Layout: `specs/work-tracking-layout.md`.
 Sections below were carried over whole from the flat root `SPRINT.md`/`BACKLOG.md`,
 verbatim, on 2026-07-30.
 
+## Two rules the 2026-07-30/31 session earned, for the `bugs` and `policy` skills
+
+Both are for `.agents/plugins`, which is a submodule held by other claims — recorded here so they
+are not lost, to be handed to whoever holds it.
+
+### PROBE WIDER THAN THE HYPOTHESIS (`bugs` skill)
+
+We have "a gate must distinguish the states it exists for". The missing pair is about the PROBE:
+**it must ask what you do not already suspect** — the neighbouring types, the neighbouring lanes.
+
+Measured, not asserted. Every entry I filed from a narrow probe turned out wrong within a day:
+"an INT gap" was int AND js; "a uniform gap, all three lanes agree" was two-against-two and then
+three-against-two; "a missing table arm" was a missing TYPE on two lanes. One extra line asking about
+`Map` and `List` beside `Set` found two gaps that appeared in no entry at all.
+
+So: **an entry carries the measured TABLE, not the single observation that prompted it.** The cost is
+one command; the alternative is a tracker that describes symptoms and sends the next person down the
+wrong road.
+
+### A TOOL FINDING IS NOT WORK FOR THE SAME HOUR (`policy` skill)
+
+If a defect in the tooling does NOT block anyone else, it gets a tracker entry and nothing more —
+no claim, no gate, no script that hour.
+
+Measured 2026-07-31: 75 % of commits on `main` since the previous evening were claim /
+claim-update / release-claim. Six tool defects were found in one session; two genuinely blocked
+others (a broken `coord-claim`, a submodule pointer to a commit that did not exist) and four did not.
+Each non-blocking one still cost roughly six commits — claim, widen, script, gate, entry, release —
+none of which improved the compiler. Batch them.
+
+The pull is real and worth naming: infrastructure work always "succeeds", while a fix can end in a
+revert. Twice that day the honest outcome was a reverted attempt and a diagnosis, which felt like
+failure next to a green gate. The incentive is backwards and only a rule fixes it.
+
 ## 2026-07-29 — one machine-readable bug index (Sergiy: "уберём множественность источников и неоднозначность")
 
 **Active claim:** `bugs-index-machine-readable`. Spec: `specs/bugs-index.md`.
