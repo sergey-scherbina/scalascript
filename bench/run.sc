@@ -427,12 +427,39 @@ def runSscBenchBackend(sscPath: String, file: java.io.File, b: String): Option[D
   Process(cmd, None, extraEnv*).!(ProcessLogger(ps.println, errLog))
   parseBenchLine(buf.toString.trim)
 
+/** Which FRONT compiled this workload — `F`, or a fallback verdict (`GAP`, `BOTH-UNBOUND`, …).
+ *
+ *  This column exists because the fallback is SILENT BY DESIGN: when F declines a program the
+ *  reference front compiles it, the output is correct, and nothing in the table looks wrong. So a
+ *  perf number can be a measurement of a different compiler than the reader assumes.
+ *
+ *  Measured 2026-07-31: **5 of 36 corpus rows are not compiled by F**, and three of those are among
+ *  the worst rows in the ratio table. Two wrong conclusions were drawn from that in one sitting
+ *  before anyone thought to ask which front had run. Asking costs one process per row.
+ */
+def frontOf(file: java.io.File): String =
+  val buf = new java.io.ByteArrayOutputStream
+  val ps  = new java.io.PrintStream(buf, true)
+  try
+    // NOT `sscPath`: that resolves to bin/ssc-tools, whose `info` is the ARTIFACT inspector
+    // (.scim/.scir/…) and does not know --front-report. The front report lives on bin/ssc.
+    Process(Seq(s"$root/bin/ssc", "info", "--front-report", file.getAbsolutePath))
+      .!(ProcessLogger(ps.println, _ => ()))
+    buf.toString.linesIterator.toSeq.lastOption
+      .map(_.split("\t").toSeq).collect { case _ +: verdict +: _ => verdict.trim }
+      .getOrElse("?")
+  catch case _: Throwable => "?"
+
 def formatTable(
     workloads: Seq[String],
-    byBackend: Map[String, Map[String, Option[Double]]]
+    byBackend: Map[String, Map[String, Option[Double]]],
+    fronts: Map[String, String] = Map.empty
 ): String =
   val bLabels   = backends.map(b => s"${displayName(b)} (ms/iter)")
   val nameCells = workloads.map(n => s"`$n`")
+  val showFront = fronts.nonEmpty
+  val frontCells = workloads.map(n => fronts.getOrElse(n, "?"))
+  val wF = ("front" +: frontCells).map(_.length).max
 
   val w0 = ("Workload" +: nameCells).map(_.length).max
   val ws = backends.zipWithIndex.map { (b, i) =>
@@ -443,14 +470,17 @@ def formatTable(
   def pad(s: String, w: Int)  = s.padTo(w, ' ')
   def rpad(s: String, w: Int) = (" " * (w - s.length)) + s
 
-  val header = s"| ${pad("Workload", w0)} | ${bLabels.zip(ws).map((l, w) => rpad(l, w)).mkString(" | ")} |"
-  val sep    = s"| ${"-" * w0} | ${ws.map(w => "-" * w).mkString(" | ")} |"
+  val fHead  = if showFront then s" ${pad("front", wF)} |" else ""
+  val fSep   = if showFront then s" ${"-" * wF} |" else ""
+  val header = s"| ${pad("Workload", w0)} |$fHead ${bLabels.zip(ws).map((l, w) => rpad(l, w)).mkString(" | ")} |"
+  val sep    = s"| ${"-" * w0} |$fSep ${ws.map(w => "-" * w).mkString(" | ")} |"
   val rows   = workloads.zip(nameCells).map { (name, cell) =>
     val vals = backends.zip(ws).map { (b, w) =>
       val v = byBackend.get(b).flatMap(_.get(name)).flatten.fold("n/a")(fmtMs)
       rpad(v, w)
     }
-    s"| ${pad(cell, w0)} | ${vals.mkString(" | ")} |"
+    val fCell = if showFront then s" ${pad(fronts.getOrElse(name, "?"), wF)} |" else ""
+    s"| ${pad(cell, w0)} |$fCell ${vals.mkString(" | ")} |"
   }
   (header +: sep +: rows).mkString("\n")
 
@@ -522,7 +552,16 @@ for f <- corpusFiles do
 
 println()
 val workloads = corpusFiles.map(_.getName.replaceAll("\\.ssc$", ""))
-val table = formatTable(workloads, byBackend.view.mapValues(_.toMap).toMap)
+// The front column is computed only when a v2 lane is being measured — it is the v2 lanes whose
+// numbers can silently be the fallback front's. One extra process per row, and only then.
+val wantFront = backends.exists(b => b.startsWith("v2"))
+val frontByName: Map[String, String] =
+  if !wantFront then Map.empty
+  // From `workloads`, NOT `corpusFiles`: the latter is a single-use Iterator that is already
+  // exhausted by the time the table is built, so mapping it here yielded an EMPTY map and the
+  // column silently vanished. (Caught by the column rendering `?` and then disappearing.)
+  else workloads.map(n => n -> frontOf(corpusDir.resolve(s"$n.ssc").toFile)).toMap
+val table = formatTable(workloads, byBackend.view.mapValues(_.toMap).toMap, frontByName)
 println(table)
 println()
 

@@ -42,7 +42,20 @@ enthusiasm:
       expression-initialised (`var s = (seed …`), so the landed cell fix may already have helped it
       for free. The other big rows (`list-fold`, `range-sum`, `pattern-match-heavy`, `float-fold`)
       all use literal initialisers and were already unboxed — the fix does nothing for them.
-- [~] **P-3 — print WHICH FRONT compiled each row in the bench table.** The highest-value apparatus
+- [x] **P-3 DONE.** `bench/run.sc` now prints a `front` column on v2 lanes:
+
+          | Workload         | front        | v2-bytecode (ms/iter) |
+          | `arith-loop`     | F            |                 0.610 |
+          | `effect-stream`  | BOTH-UNBOUND |                  4.77 |
+          | `typeclass-fold` | GAP          |                 0.104 |
+
+      Shown only when a v2 backend is measured — those are the only numbers a silent fallback can
+      misattribute — so the reference lane pays no extra process. Two bugs found while building it,
+      both worth the note: `sscPath` resolves to `bin/ssc-tools`, whose `info` is the ARTIFACT
+      inspector and has no `--front-report`; and `corpusFiles` is a single-use Iterator already
+      exhausted by table time, so the first version silently produced an empty map and the column
+      vanished rather than erroring.
+      *(original note)* print WHICH FRONT compiled each row in the bench table. The highest-value apparatus
       fix available: the fallback is silent by design, so a perf number can be of the wrong compiler
       and nothing looks wrong. Cost me two wrong conclusions in one sitting. One column, one
       `--front-report`-equivalent call per row.
