@@ -252,12 +252,32 @@ archaeology. `JitReason` in v2 describes *residuals and misses*, not failures:
 `--json --quiet --fail-on-bail --include-while --backend javac|asm|both`); it walks
 `interp.globals`, asks the live `tryCompile` for each `Defn.Def`, and prints the structural bail
 reason plus a suggested refactor. (`ssc check-jit-coverage` from `jit-universal-coverage.md`
-Stage 1 was **never built** — do not go looking for it.) v2 gains a **lane selector** on the same
+Stage 1 was **never built** — do not go looking for it.) v2 gains a **lane flag** on the same
 command rather than a second name:
+
+```
+ssc lint-jit [-v2 | -v1] [--json] [--quiet] [--fail-on-bail] [--include-while]
+             [--backend javac|asm|both] <file.ssc>
+```
+
+- **`-v2` is the default** — a bare `ssc lint-jit <file>` reports the v2 wide JIT.
+- `-v1` selects the v1 interpreter JIT: today's behaviour, and where `--backend javac|asm|both`
+  applies (v2 has one backend, so `--backend` with `-v2` is an error, not a silent no-op).
+- The two are mutually exclusive; giving both is an error rather than last-one-wins.
+
+**This flips the default of an existing command, and that has to be said out loud** in `summary`,
+`details` and the release note: an invocation that lints the v1 lane today will lint v2 after J-8.
+The flag is what makes the switch visible; a silently re-pointed diagnostic is the same class of
+defect as a fallback that does not announce itself (`BytecodeFallbackMarker`).
+
+*Spelling note:* six other commands write this as `--v2`/`--v1` (`Main.scala:1294`, `:1614`,
+`:4926`, `:5100`, `RunBatchCmd.scala:34`, `StandardMain.scala:51`). `-v2`/`-v1` here is Sergiy's
+call, 2026-07-31; if the inconsistency ever bites, change it in one place — this line and the
+`details` text.
 
 | view | invocation | answers |
 |---|---|---|
-| static | `ssc lint-jit --lane v2 <file.ssc>` | which terms *would* residualize, which defs have an unsupported tail position (§3.4), per-unit size estimate — **before** running |
+| static | `ssc lint-jit <file.ssc>` (i.e. `-v2`) | which terms *would* residualize, which defs have an unsupported tail position (§3.4), per-unit size estimate — **before** running |
 | dynamic | `SSC_V2_JIT_STATS=1 ssc run <file.ssc>` | which sites got hot and compiled, the residual histogram, guard misses |
 
 Both print the **same `JitReason` vocabulary**, which is the unification v1's Stage 1 set out to
@@ -299,7 +319,7 @@ Each is one commit-sized piece with its own gate. The sprint entries live in `v2
 | **J-5** | Type feedback + unboxed entries + entry guards (§3.5). | `var-expr-init` and `arith-loop` rows; `GuardMiss` counter proves the guard is live (rename-the-prim probe, per VC-4) |
 | **J-6** | Loop back-edge sites and their threshold. | `arith-loop`, `range-sum`, `nested-loop` |
 | **J-7** | Effect-aware units: purity fixpoint threading (§3.7). | `effects`, `effects-handler`, `algebraic-effects`, `generators`, `async-demo` byte-identical; `v2/conformance/check.sh` |
-| **J-8** | `SSC_V2_JIT_STATS` + `ssc lint-jit --lane v2` (§4), one `JitReason` vocabulary for both. | both views name ≥ 1 residual class on a known-partial program, and agree on it |
+| **J-8** | `SSC_V2_JIT_STATS` + `ssc lint-jit` with `-v2` (default) / `-v1` (§4), one `JitReason` vocabulary for both. | both views name ≥ 1 residual class on a known-partial program and agree on it; `-v1` still reproduces today's report byte-for-byte |
 | **J-9** | Default-on decision, with the measured evidence, or a recorded reason to stay opt-in. | the four-row bench + `scripts/smoke-ci` + a CI run |
 
 **J-1 before J-3 is not bureaucracy.** A counter on every call is the one change that can slow down
@@ -346,11 +366,14 @@ re-measure in J-0): `pattern-match-heavy` v2 17.0 ms vs `ssc` 0.059; `recursion-
 - **Entry-only guards, no mid-body deopt.** Chosen because a bailout after a side effect is a
   correctness bug, not a slow path; the same reason `RunNativeV2` refuses to catch runtime failures
   in its bytecode fallback.
-- **Extend `ssc lint-jit` with `--lane v2`; do not mint a second command.** Chosen because the `ssc`
-  CLI already drives both lanes (`RunNativeV2` lives in `v1/tools/cli`) and because one concept must
-  keep one name. Rejected: a separate `ssc jit-report` — it was in this spec's first draft, and it
-  also mis-cited `ssc check-jit-coverage`, which `jit-universal-coverage.md` Stage 1 proposed and
-  nobody ever built.
+- **Extend `ssc lint-jit` with `-v2` (default) / `-v1`; do not mint a second command.** Chosen
+  because the `ssc` CLI already drives both lanes (`RunNativeV2` lives in `v1/tools/cli`) and
+  because one concept must keep one name. Rejected: a separate `ssc jit-report` — it was in this
+  spec's first draft, and it also mis-cited `ssc check-jit-coverage`, which
+  `jit-universal-coverage.md` Stage 1 proposed and nobody ever built. Rejected: `--lane v2`, two
+  tokens for a binary choice (Sergiy, 2026-07-31). **`-v2` as the DEFAULT is the deliberate part** —
+  it says which lane the project expects you to be diagnosing, and it is why the default flip must
+  be announced rather than inferred.
 - **`SSC_V2_JIT*`, not `SSC_JIT*`.** Chosen because `bench/run.sc` sets `SSC_JIT_BACKEND` to select
   the v1 `ssc-asm` lane; a shared name makes a bench row ambiguous about which JIT it measured.
 - **Off by default until J-9.** Chosen because "default lane, every program" is the widest blast

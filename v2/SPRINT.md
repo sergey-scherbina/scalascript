@@ -404,14 +404,21 @@ once per SITE, so the hot counter can *be* that `Code` (`Code = Env => Step` is 
       whole call graph and cannot be recomputed per site; `Compiler.compileWithGlobals` already knows
       every `Def`, so compute it once and hand it to the JIT. Gate: `effects`, `effects-handler`,
       `algebraic-effects`, `generators`, `async-demo` byte-identical + `./v2/conformance/check.sh`.
-- [ ] **J-8 — `SSC_V2_JIT_STATS=1` (dynamic) + `ssc lint-jit --lane v2` (static).** v1's
+- [ ] **J-8 — `SSC_V2_JIT_STATS=1` (dynamic) + `ssc lint-jit` with `-v2` / `-v1` (static).** v1's
       `JitBailReason`/`JitMissStats`/`ssc lint-jit` is the part worth copying wholesale; the
       alternative is JFR archaeology. In v2 the vocabulary names residuals rather than failures:
       `Residual(termClass)`, `GuardMiss`, `TailUnsupported`, `SizeLimit`, `Budget` — and BOTH views
       print it, which is the unification v1's Stage 1 set out to retrofit across three engines and
-      never finished. **The v2 diagnostic is a lane on the EXISTING command, not a new one**
+      never finished. **The v2 diagnostic is a flag on the EXISTING command, not a new one**
       (`v1/tools/cli/.../LintJitCmd.scala`); `ssc check-jit-coverage` is a Stage-1 proposal that was
       never built, so do not go looking for it.
+      **`-v2` is the DEFAULT** (Sergiy, 2026-07-31), `-v1` selects today's v1-interpreter report;
+      mutually exclusive, both given is an error, and `--backend javac|asm|both` belongs to `-v1`
+      only — with `-v2` it is an error, not a silent no-op (v2 has one backend). This **flips the
+      default of a shipped command**, so it goes in `summary`, `details` and the release note: a
+      diagnostic that quietly re-points at a different lane is the same class of defect as a
+      fallback that does not announce itself. Six other commands spell the flag `--v2`/`--v1`
+      (`Main.scala:1294` …) — the single-dash form here is a deliberate call, not an oversight.
 - [ ] **J-9 — default-on decision**, with the measured evidence, or a recorded reason to stay opt-in.
 
 ⚠ **The gate rule that decides whether any of this is provable.** An output gate is green BOTH ways:
