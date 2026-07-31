@@ -10,6 +10,16 @@ Anything not being worked on belongs in `scripts/BACKLOG.md`, not here — a que
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [x] **smoke-verdict-on-every-push** — concurrency group removed from `smoke.yml`. MEASURED cadence
+  that forced it: 57 commits/hour on main, 32 `[skip ci]`, so ~25 runs created against a job that
+  completed ~7 — 7 success / 12 cancelled over 20 runs, i.e. 37 % of commits got a verdict. Safe now
+  and not before because smoke is ONE ~6 min job that skips sbt on a cache hit, against ci.yml's 4+
+  jobs of 13-38 min that saturated the account budget. Cost stated in the file: ~150 runner-min/hour
+  against ~45. Owner's decision, taken on the numbers. Verified: two runs executing in PARALLEL
+  minutes after the change (structurally impossible before), run 30604850251 GREEN 21/21.
+  Watch for: runs sitting in `queued` — that means the account budget is the limit again, and the
+  answer is a group with `cancel-in-progress: false`, not a bigger timeout.
+
 - [x] **smoke-corpus-slice-dominates-and-varies** — the corpus check is split by LANE. Measured on
   the 13-case slice, three alternating rounds: all four lanes 33.7-37.6 s, the same cases without
   `jvm` 11.9-15.8 s — the JVM lane was ~65 % of the check. Now two invocations: breadth on
