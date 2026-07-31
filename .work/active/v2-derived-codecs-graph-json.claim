@@ -1,0 +1,11 @@
+slug: v2-derived-codecs-graph-json
+branch: feature/v2-derived-codecs-graph-json
+agent: claude-code
+started: 2026-07-31T13:48:00Z
+heartbeat: 2026-07-31T13:48:00Z
+status: claimed-before-planning
+items: v2-derived-codecs-graph-json
+paths: v2/runtime/std/graph-plugin v2/runtime/std/json-plugin v2/BUGS.md tests/conformance/corpus-baseline.tsv tests/conformance/contract-roster.tsv
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
