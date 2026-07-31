@@ -155,6 +155,24 @@ val suite = List(
   Check("scripts", "release-installer-launcher", "tests/e2e/release-installer-launcher.sh", List(), 180000),
   Check("scripts", "build-ram-guards-guard", "tests/e2e/build-ram-budget-gate.sh", List(), 180000),
 
+  // ── three gates that existed and were run by nobody ────────────────────────────────────────────
+  //
+  // Each shipped with a working `--self-test` and then sat unwired, which is the same state as not
+  // existing: an unrun gate is a hypothesis about the future, not a check on the present. MEASURED
+  // before adding, because this suite's budget is the thing it exists to protect —
+  // 128 + 72 + 782 ms plain (self-tests add 200 ms / 400 ms / 1.5 s), against a green run's
+  // 259.3 s of 330 s. Roughly 1 s spent, ~68 s of headroom left.
+  //
+  // `--self-test` is on for the two that are cheap and OFF for the submodule one: its self-test
+  // makes two extra network round-trips, and a push-path check should not spend a second proving
+  // itself on every commit. Its refusal path is mutation-proven in the commit that added it (the
+  // 2026-07-30 outage state reproduced, exit 1) — that evidence does not need re-earning per push.
+  Check(".", "inbox-queue", "tests/e2e/inbox-gate.sh", List("--self-test"), 60000),
+  Check("v1/runtime/backend/js", "json-number-policy-js", "tests/e2e/json-number-policy-js-gate.sh", List(), 60000),
+  // Network: one `git fetch --depth 1` per gitlink against the submodule's remote. Generous timeout
+  // because a slow or flaky network must read as "this run could not tell", not as a repo defect.
+  Check("scripts", "submodule-gitlinks-resolve", "tests/e2e/submodule-gitlink-resolves.sh", List(), 120000),
+
   // ── tests/conformance — the product. One pass, several lanes; see `laneModule` for where the
   //    per-lane results are booked.
   // SSC_CONF_WARM_JVM=1 reuses ONE Bloop build server across the slice instead of paying a cold
