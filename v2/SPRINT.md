@@ -13,6 +13,43 @@ lose the reasoning around them.
 Milestone view: [`ROADMAP.md`](ROADMAP.md). Pipeline: `ssc0 → ir → ssc(VM) → cpu`. Work each slice
 in its own worktree off `origin/main`.
 
+## v2 perf — what is realistically doable after 2026-07-31 (claim `v2-perf-bench-front-column`)
+
+Written after a day of measuring. Two constraints shape this list and are not negotiable by
+enthusiasm:
+
+- **This host cannot resolve an effect below ~2× with a whole-workload benchmark.** Identical code
+  swings 2.5×. The condy prim-dispatch change (predicted ~18%) came back −17% … +42% and had to be
+  recorded as UNRESOLVED rather than as "no effect".
+- **5 of 36 corpus rows are compiled by the FALLBACK front, not F** — including `effect-stream`
+  (303×) and two rows where v2 beats v1. Conclusions from those rows are about a different compiler.
+
+- [ ] **P-1 — widen the unboxed-cell test to a CALL RETURN.** `parseBlockVarBind` already receives
+      `cx`, and F already has `callRet(c, cx)` / `lookupRet` (the return-type table `operandTag`
+      consults). A `var` initialised from an `Int`-returning `def` is a very common shape and today
+      gets a BOXED cell. Same mechanism and same procedure as the landed 2.03× fix.
+      **Blocked**: `specs/v2.2-p6.5-fsub.ssc` is under `f-set-empty-receiver`; four different claims
+      have held it today. Patch shape is one clause: `if isIntLitCode(init) || callRet(init, cx) ==
+      "Int" then parseBlockVarLc(…)`.
+- [~] **P-2 — re-measure `vector-index` (47×).** It is the ONLY remaining big row whose var is
+      expression-initialised (`var s = (seed …`), so the landed cell fix may already have helped it
+      for free. The other big rows (`list-fold`, `range-sum`, `pattern-match-heavy`, `float-fold`)
+      all use literal initialisers and were already unboxed — the fix does nothing for them.
+- [~] **P-3 — print WHICH FRONT compiled each row in the bench table.** The highest-value apparatus
+      fix available: the fallback is silent by design, so a perf number can be of the wrong compiler
+      and nothing looks wrong. Cost me two wrong conclusions in one sitting. One column, one
+      `--front-report`-equivalent call per row.
+- [ ] **P-4 — a JMH microbenchmark for v2 primitive dispatch.** Unlocks everything below 2×, which
+      this host currently cannot see at all. Without it the condy work stays permanently
+      "unresolved" and no one can tell whether it was worth doing.
+
+**Explicitly NOT on this list, and why:**
+- the collection/closure cluster (`lazylist-take` 566×, `list-fold` 115×) — established as the
+  architecture line by three killed hypotheses, not a slice;
+- anything under 2× measured on whole workloads — see the first constraint; do P-4 first;
+- adding a declared type to F's `knownTyName` — proven to make F silently DECLINE programs it used
+  to accept (`v2/BUGS.md`).
+
 ## v2-perf-unboxed-cell-only-for-literal-init — 18×, the entry test is too narrow (2026-07-31)
 
 Claim `v2-perf-var-cell-widen`. Entry: `BACKLOG.md`. Measured: a loop whose `var` is initialised
