@@ -2,10 +2,10 @@ slug: f-set-support
 branch: feature/f-set-support
 agent: claude-code
 started: 2026-07-31T10:34:01Z
-heartbeat: 2026-07-31T10:34:01Z
+heartbeat: 2026-07-31T10:37:45Z
 status: claimed-before-planning
 items: f-does-not-know-Set
-paths: file:v2/BUGS.md file:tests/conformance/type-ascription-set.ssc
+paths: file:v2/BUGS.md file:tests/conformance/type-ascription-set.ssc file:specs/v2.2-p6.5-fsub.ssc
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: add Set to BOTH isCollComp and parseCtorArgs; overlap with v2-perf-cell-widen-f is DELIBERATE (owner instruction, announced)
