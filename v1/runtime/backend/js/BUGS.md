@@ -8,11 +8,30 @@ grepping for status.
 Newest first.
 
 ## js-compound-assign-dispatches — `x += 1` compiles to a dynamic method call that always throws
-<!-- status: open
+<!-- status: fixed
      lane: js
      area: codegen
-     fixed-in: -
-     gate: - -->
+     fixed-in: PENDING-SHA
+     gate: tests/conformance/js-compound-assign.ssc -->
+
+**FIXED 2026-08-01** by `js-compound-assign-and-gate-registry`.
+
+**The rewrite already existed and was reachable from exactly one place.**
+`genGeneratorCompoundAssign` turns `i += 1` into `i = i + 1` — and only the for-comprehension
+GENERATOR path called it, so an ordinary statement fell through to the generic infix arm and became
+`_dispatch(i, '+=', [1])`: a dynamic lookup for a method literally named `+=`. Now a
+`CompoundAssign` extractor sits ahead of that arm, so every position gets the same rewrite.
+
+**One hazard the widening created, closed in the same edit:** `:=` is a DSL assign operator in its
+own right (`attr.x := v`, SBT-style settings — `ssc1-front` `opPrec` lists it), and it ends in `=`
+like the compound operators. Confined to generators it was unreachable; widened, it would have
+become `x = x : v`. It is now excluded explicitly beside the existing `>=`/`<=`/`!=`/`==` carve-outs.
+
+`tests/conformance/js-compound-assign.ssc` covers `+=`, `-=`, `*=`, String `+=`, the while-loop
+shape the bench wrapper uses, and — deliberately — a for-comprehension generator, the ONE position
+that already worked, so a later change cannot fix one position by breaking the other. int, js and v2
+all answer `2 7 20 ab 10 6`.
+
 
 **MOVED here and its `lane:` CORRECTED 2026-08-01** by `v2-source-backend-lanes`, which re-measured
 it. The header said `lane: v2-jvm`; it reproduces on the **v1 js lane** (`ssc-tools run-js`) and the

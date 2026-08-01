@@ -1,0 +1,55 @@
+---
+name: conformance-js-compound-assign
+---
+
+# `x += 1` is compiled, not looked up
+
+On the JS lane a compound assignment was emitted as `_dispatch(i, '+=', [1])` — a dynamic method
+lookup for a method literally named `+=`. `_dispatch` has no such entry, so every program using
+`+=`/`-=`/`*=` threw `Method not found: += on 0`. The operator was not compiled at all, it was
+looked UP. It took down the entire `js` benchmark column, because the bench wrapper itself uses `+=`.
+
+The rewrite already existed in the codegen — and was reachable only from the for-comprehension
+GENERATOR path, so an ordinary statement fell through to the generic infix arm. That is why the last
+two rows are here: they exercise the position that already worked, so a future change cannot fix one
+position by breaking the other.
+
+`:=` is deliberately NOT exercised as a compound assignment: it is a DSL assign operator in its own
+right (`attr.x := v`), and widening the rewrite made it reachable for the first time — it is
+excluded in the codegen rather than left to chance.
+
+```scalascript
+def sumTo(n: Int): Int =
+  var acc = 0
+  var i = 1
+  while i <= n do
+    acc += i
+    i += 1
+  acc
+
+def main() =
+  var i = 0
+  i += 1
+  i += 1
+  println(i)
+
+  var s = 10
+  s -= 3
+  println(s)
+
+  var p = 4
+  p *= 5
+  println(p)
+
+  var t = "a"
+  t += "b"
+  println(t)
+
+  // the while-loop shape the bench wrapper uses
+  println(sumTo(4))
+
+  // a for-comprehension generator — the ONE position that already worked
+  var g = 0
+  for k <- 1 to 3 do g += k
+  println(g)
+```

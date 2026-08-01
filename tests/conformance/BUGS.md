@@ -7,6 +7,50 @@ grepping for status.
 
 Newest first.
 
+## corpus-contract-freeze-pairing-unchecked — editing the baseline without the roster header bricks the whole gate, and the freeze gate does not notice
+<!-- status: fixed
+     lane: apparatus
+     area: conformance
+     fixed-in: PENDING-SHA
+     gate: - -->
+
+**Found 2026-08-01** by `js-compound-assign-and-gate-registry`, and only because that claim
+reconstructs a freeze's CURRENT hashes and asserts they match before hand-editing it. The assert
+fired on `origin/main`, not on my edit.
+
+`contract-roster.tsv`'s header pairs the two frozen files:
+
+```
+# corpus-contract-roster-v1<TAB>baseline-sha256=<of corpus-baseline.tsv><TAB>roster-sha256=<of this file>
+```
+
+`f6e93154e` ("delete the v2 known-red — the suite required it") changed `corpus-baseline.tsv` and
+did not update `baseline-sha256`. The result is not a wrong verdict, it is NO verdict:
+
+```
+$ scala-cli tests/conformance/contract.sc -- --lanes int --only char-as-value
+[error] corpus contract freeze invalid: roster/baseline digest mismatch:
+        roster=c3ac76fa… baseline=e7636fca…
+```
+
+**The whole corpus contract could not run, for anyone**, from that commit until this one.
+
+**Why nothing caught it, and this is the part worth keeping.** `tests/e2e/freeze-consistency-gate.sh`
+exists, is registered, and **PASSES** — it checks front-matter against the baseline and the negtc
+overrides, not the header PAIRING. And the per-push suite's corpus check does not go through
+`contract.sc`, so CI stayed green: the breakage was visible only to the nightly Corpus Contract,
+which is the job this repo has already had to rescue once
+([[corpus-contract-gate-0727]]-class). A gate next to the hole is not a gate over it.
+
+**FIXED here** by recomputing `baseline-sha256` from the current baseline — the baseline edit itself
+was correct (a row deleted because a fix landed), so the header was the stale half. `contract.sc`
+runs again and is GREEN.
+
+**Still owed:** nothing asserts the pairing outside `contract.sc`'s own startup, so the next such
+edit fails the same way. The cheap fix is one more check in `freeze-consistency-gate.sh` — the file
+it already owns — but that gate belongs to another module's claim surface today.
+
+
 ## corpus-contract-baseline-stale-after-improvements — the freeze records worse results than the code produces
 <!-- status: open
      lane: apparatus

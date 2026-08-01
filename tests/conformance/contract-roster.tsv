@@ -1,4 +1,4 @@
-# corpus-contract-roster-v1	baseline-sha256=c3ac76fa91f8ad20032302a1723efdb845ee77a0173c42e0787da799b7049d9b	roster-sha256=7c45bc8bbb97b2c4ff1bdbafd191d7491a388751ff0497c9acaabec9a14c3415
+# corpus-contract-roster-v1	baseline-sha256=e7636fca9a1fda4b4304c8f38ba2f4d668a64aa0a3833996ae2371fdebd19904	roster-sha256=f0180f33cad4c2232ce8b1c35941ac779451926b74f1b2812a7bc8bf57b0f204
 _bug1_httpclient
 _bug1b
 _bug1c
@@ -179,6 +179,7 @@ international-bank-rails
 invoice-email
 invoice-pdf
 js-applyunary-effect-cps
+js-compound-assign
 js-cps-intrinsic-rewrite
 js-crypto-extern-standalone
 js-derives-segmented

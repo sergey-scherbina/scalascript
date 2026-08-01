@@ -3899,6 +3899,11 @@ class JsGen(
     case Term.ApplyInfix.After_4_6_0(lhs: Term.Name, op, _, argClause)
         if op.value.lengthIs > 1 && op.value.last == '=' &&
            op.value != ">=" && op.value != "<=" && op.value != "!=" && op.value != "==" &&
+           // `:=` is a DSL assign operator in its own right (`attr.x := v`, SBT-style settings —
+           // see ssc1-front `opPrec`), not `x = x : v`. It only became reachable here once this
+           // rewrite was widened beyond for-comprehension generators, so it is excluded
+           // explicitly rather than left to chance.
+           op.value != ":=" &&
            argClause.values.lengthCompare(1) == 0 =>
       val base = Term.ApplyInfix.After_4_6_0(
         lhs,
@@ -3907,6 +3912,18 @@ class JsGen(
         argClause)
       Some(s"${emittedName(lhs.value)} = ${genExpr(base)}")
     case _ => None
+
+  /** `i += 1` in ANY position, not only inside a for-comprehension generator.
+   *
+   *  The rewrite above already existed and was reachable ONLY from the generator path, so an
+   *  ordinary `i += 1` statement fell through to the generic infix arm and was emitted as
+   *  `_dispatch(i, '+=', [1])` — a dynamic method lookup for a method literally named `+=`, which
+   *  `_dispatch` does not have, so every such program threw `Method not found: += on 0`. The
+   *  operator was not compiled at all, it was looked UP. It took down the whole `js` benchmark
+   *  column, because the bench wrapper itself uses `+=`.
+   *  BUGS `js-compound-assign-dispatches`. */
+  private object CompoundAssign:
+    def unapply(t: Term.ApplyInfix): Option[String] = genGeneratorCompoundAssign(t)
 
   private def genGenStatItem(s: Stat): String = s match
     case Defn.Val(_, List(Pat.Var(n)), _, rhs) =>
@@ -5305,6 +5322,9 @@ class JsGen(
     // Function application
     case app: Term.Apply =>
       genApply(app)
+
+    // Compound assignment — BEFORE the generic infix arm, which would dispatch `+=` as a method.
+    case CompoundAssign(js) => js
 
     // Infix
     case Term.ApplyInfix.After_4_6_0(lhs, op, _, argClause) =>

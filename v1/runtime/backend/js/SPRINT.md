@@ -48,7 +48,8 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       destructuring.
 - [x] **J-3 — evidence.** `named-arg-defaults` extended to class methods and its frozen expected
       file regenerated **from the jvm oracle**, not from int — which is what caught J-4.
-- [ ] **J-5 — the new e2e gate is NOT wired into CI, and neither was an earlier one.** CI and
+- [x] **J-5 — DONE 2026-08-01.** Both gates are registered in `scripts/smoke-ci.ssc` and now RUN:
+      `ok js-shaker-effectful-binding 0.7s`, `ok v2-char-numeric-position 4.6s`. Original note: CI and
       `scripts/smoke-ci.ssc` list e2e scripts BY NAME — there is no generic `tests/e2e/*.sh` runner
       — so an unregistered gate is never executed by anything but a human. `smoke-ci.ssc` is held by
       the `bench-seed-type` claim right now, so this could not be done here. Exact lines owed:
