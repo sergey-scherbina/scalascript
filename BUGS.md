@@ -356,6 +356,55 @@ truncation of an opaque value is still opaque, so the anti-fold reasoning above 
 - **Worth knowing:** the interpreter lane was green throughout, because it is dynamically typed.
   A green `ssc` column is not evidence that the wrapper is well-typed.
 
+## bugs-headers-were-never-migrated-from-the-prose — 118 entries the canonical query calls `unknown` announce the opposite in their own heading
+<!-- status: open
+     lane: apparatus
+     area: build
+     kind: apparatus
+     gate: tests/e2e/bugs-status-drift-gate.sh -->
+
+**Found 2026-08-01 while reading `v1/runtime/backend/interpreter/BUGS.md` for an unrelated reason.**
+Three consecutive entries had headings ending `— fixed (2026-06-21, 0d5e03b87)` and headers saying
+`status: unknown`. It is not three; it is **118 of the 138 `unknown` entries**, across six boards.
+
+They pre-date the header schema and were never migrated. The consequence is not cosmetic, because
+this repo BANS the alternative: `AGENTS.md` says *"Do not grep the prose for status — run
+`scripts/bugs-report`"*, after a hand-rolled query silently omitted 108 entries while answering a
+direct question about remaining work. So the sanctioned query was itself wrong by about one entry in
+six — `--status fixed` low by 118, `unknown` 86 % noise — and nothing on screen suggested it.
+
+**What is fixed, and what is not.** `bugs-report` now prints the deficit (`bde28301e`), so the
+canonical answer no longer lies silently. The 118 headers are still wrong, which is why this entry
+is `open`.
+
+**Why they were not auto-migrated — a decision is required, and it is not mine to take.**
+`specs/bugs-index.md` requires `fixed-in: <sha>` whenever `status: fixed`. Only **8** of the 118
+carry a sha in the heading. So the options are:
+
+1. **Recover the shas** — `git log -S<slug>` per entry, 110 times. Expensive, and the failure mode
+   is already recorded one entry below this one: a sha that resolves locally and dangles for
+   everyone else is worse than no sha, because the gate goes green on it.
+2. **Relax the schema for pre-schema entries** — allow `status: fixed` without `fixed-in` when the
+   entry predates the schema, and say so in `specs/bugs-index.md`. Requiring a field that did not
+   exist when the entry was written is a demand made of the past.
+
+Option 2 is the cheaper and more honest one, but it changes what a green `bugs-index-gate` means,
+so it belongs in the spec rather than in a migration commit.
+
+- **Repro:** `scripts/bugs-report` — read the `status drift` line under index coverage.
+- **Gate:** `tests/e2e/bugs-status-drift-gate.sh` keeps the DETECTOR alive; it deliberately does
+  NOT freeze the count 118, because every migration would falsify it (the mistake the negtc gate
+  made when it froze corpus counts that breadth reclassifies).
+- **This entry's own heading avoids the status word on purpose.** Written the obvious way it
+  became the detector's third false positive within a minute of being saved — an entry ABOUT
+  status drift trips a heuristic that looks for the status word. That is the honest limit of
+  reading prose, and it is why the report calls its number approximate and offers `--drift` to
+  list the rows instead of asking anyone to trust a count.
+- **Two traps found building the detector**, both now fixtures in that gate: `\bfixed\b` matches
+  the FIELD NAME inside the slug `bugs-index-fixed-in-checks-resolvable-not-reachable` (`-` is a
+  word boundary), which shipped one permanent false positive; and `bugs-report --file` crashed with
+  a traceback on any path outside the repo, which is exactly where a query's test fixture belongs.
+
 ## bugs-index-fixed-in-checks-resolvable-not-reachable — a rebased sha passes the gate and dangles for everyone else
 <!-- status: open
      lane: apparatus

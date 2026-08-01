@@ -62,7 +62,9 @@ fail() { printf 'bugs-status-drift-gate: FAIL — %s\n\n--- report ---\n%s\n' "$
 # 1. it must report drift at all, and count exactly the one planted entry
 line="$(printf '%s' "$out" | grep 'status drift' || true)"
 [[ -n "$line" ]] || fail 'no "status drift" line at all — the detector is not running'
-n="$(printf '%s' "$line" | sed -E 's/.*status drift: ([0-9]+) .*/\1/')"
+# `~?` on purpose: the report calls the number approximate, and this parse must survive that
+# wording rather than turn a prefix character into a red gate (it did, once, on this very line).
+n="$(printf '%s' "$line" | sed -E 's/.*status drift: ~?([0-9]+) .*/\1/')"
 [[ "$n" == "1" ]] || fail "expected exactly 1 drifting entry, report says $n
   (2 usually means the \`fixed-in\` compound is being matched again — see the header of this file)"
 

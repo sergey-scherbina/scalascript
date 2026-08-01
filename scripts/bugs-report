@@ -156,6 +156,14 @@ def status_drift(rows):
     `bugs-index-fixed-in-checks-resolvable-not-reachable`, because `-` is a word boundary. That
     entry is legitimately `open` and talks ABOUT `fixed-in`; counting it made the first version of
     this report carry one permanent false positive. `(?!-)` drops the compound and keeps the claim.
+
+    APPROXIMATE BY CONSTRUCTION, and the report says so rather than implying a census. Anchoring
+    the match to the start of the description (the shape of every real claim: "- `fixed` (date)")
+    was tried and DROPPED: it loses `v2-front-try-in-def-body-shapes-break`, whose claim sits at
+    the END ("(a)+(b)+(c) FIXED"), and `v2-payments-bankrails-op-stub-leaks`, which separates its
+    heading with a plain hyphen instead of an em dash. So presence over-reports by roughly one
+    entry - the one that is ABOUT status drift - and a heuristic that over-reports while handing
+    you the list beats a precise-looking one that silently drops real rows. Hence `--drift`.
     """
     hits = [r for r in rows
             if r.get("status") != "fixed"
@@ -168,6 +176,8 @@ def main():
     ap.add_argument("--file", help="a single BUGS.md instead of every one")
     ap.add_argument("--module", help="restrict to one module path, e.g. v2 or v1/runtime/backend/js")
     ap.add_argument("--status")
+    ap.add_argument("--drift", action="store_true",
+                    help="list the entries whose heading claims fixed while their header does not")
     ap.add_argument("--lane")
     ap.add_argument("--area")
     ap.add_argument("--kind", help="bug (default when the field is absent) · perf · feature · "
@@ -215,6 +225,14 @@ def main():
                   f"BACKLOG entries carry no header and are NOT in this answer "
                   f"(--source all reads the headed ones).", file=sys.stderr)
 
+    if a.drift:
+        d = status_drift(rows)
+        print(f"{len(d)} entries whose heading claims fixed while their header does not "
+              f"(heuristic over headings — see `status_drift` for the two shapes it cannot separate)\n")
+        for r in sorted(d, key=lambda r: (r.get("module", ""), r["slug"])):
+            print(f"  {r.get('status','MISSING'):8} {r.get('module','?'):32} {r['slug'][:52]:52} {r['title'][:60]}")
+        return 0
+
     if not (a.status or a.lane or a.area or a.kind or a.v2 or a.no_gate):
         by = {}
         for r in rows: by[r.get("status", "MISSING-HEADER")] = by.get(r.get("status", "MISSING-HEADER"), 0) + 1
@@ -247,12 +265,13 @@ def main():
             withsha = sum(1 for r in drift if re.search(r"`[0-9a-f]{7,40}`", r.get("title", "")))
             by_st = {}
             for r in drift: by_st[r.get("status", "MISSING-HEADER")] = by_st.get(r.get("status", "MISSING-HEADER"), 0) + 1
-            print(f"\n  ⚠ status drift: {len(drift)} entries whose HEADING says fixed but whose header does not"
+            print(f"\n  ⚠ status drift: ~{len(drift)} entries whose HEADING says fixed but whose header does not"
                   f"   ({', '.join(f'{k}={v}' for k, v in sorted(by_st.items(), key=lambda x: -x[1]))})")
             print(f"    so the `fixed` count above is LOW by {len(drift)} and those buckets are that much noise;"
                   f" {withsha} carry a sha in the heading, {len(drift) - withsha} do not")
             print(f"    (`fixed` requires `fixed-in:`, so the rest cannot migrate without a decision"
                   f" — specs/bugs-index.md)")
+            print(f"    heuristic over headings, so treat it as a pointer, not a census: `--drift` lists them")
         if missing:
             print(f"\n  ⚠ {len(missing)} entries have no header — run tests/e2e/bugs-index-gate.sh")
         return 0
