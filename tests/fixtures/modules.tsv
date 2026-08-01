@@ -27,6 +27,7 @@ v1/runtime/backend/interpreter	int	Interpreter (`int` lane)
 v1/runtime/backend/js	js	JS backend (`js` lane)
 v1/runtime/backend/jvm	jvm	JVM backend (`jvm` lane)
 v2	native,v2-jvm,v2-rust	v2 — the self-hosted compiler
+v3	v3	v3 — SSC IR and the dependency-free core
 tests	apparatus	Test harness
 tests/conformance	-	Conformance corpus and its freeze
 scripts	-	Build, CI and coordination tooling
