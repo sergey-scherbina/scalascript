@@ -694,3 +694,46 @@ answered the same way: link only where the global still resolves to that body.
 
 Recorded because it is the kind of thing a later agent would otherwise re-derive: **the loop-site
 slice was about to be built on an assumption this measurement refutes.**
+
+### J-3c — cross-unit linking: the last generic seam on the hot path
+
+A unit now carries a static `callees: LamFn[]` table. `App(Global(g), args)` for a linked `g`
+compiles to `GETSTATIC` + `AALOAD` + one interface call + `Emit.unroll` — no globals lookup, no
+`ClosV`, no env allocation, no trampoline bounce. What makes it this cheap is a property that was
+already true: **a top-level def's closure env is empty**, so its unit's `LamFn` takes exactly the
+argument array the caller has just built.
+
+Two rules keep it correct rather than merely fast:
+
+- **Tail position emits `Emit.bounce`, not a direct call.** Running the callee to completion in tail
+  position would trade the trampoline's constant stack for JVM frames; the AOT lane draws the same
+  line for mutual tail calls, so the JIT follows it instead of inventing a second rule.
+- **Linking freezes the callee**, like the self-call, and gets the same verified answer: link only
+  where the global still resolves to the site that produced it.
+
+**Not done on purpose: on-demand compilation of a cold callee.** It turns one JIT event into a walk
+of the call graph, and the hit rate is worth measuring first. A callee that compiles later is simply
+not linked, and its caller keeps the generic path. The stats line reports the link count (1121 on a
+`hello.ssc` compile) so the next agent can decide from data.
+
+**Alternating A/B, 3 rounds** (ms/iter, medians), with the AOT column as the ceiling:
+
+| row | off | on | AOT | JIT / AOT | vs `ssc` (v1) |
+|---|---:|---:|---:|---:|---|
+| `arith-loop` | 74.2 | **0.603** | 0.565 | 1.07× | 2.5× off |
+| `recursion-fib` | 140.6 | **1.22** | 1.15 | 1.06× | **1.04× off** |
+| `recursion-tco` | 6.23 | **0.0277** | 0.0241 | 1.15× | **faster than v1** |
+| `pattern-match-heavy` | 78.7 | **20.7** | 8.5 | 2.4× | 398× off (was 627×) |
+
+`pattern-match-heavy` improved 1.57× from this slice alone (32.6 → 20.7) and 3.75× from the J-0
+baseline, but it is the one row still short of its own emitter's AOT result. The residual 2.4× is
+where the next measurement should go — the likely candidates are unlinked callees (a caller that
+compiled before its callee) and the AOT lane's `pureDefs` fixpoint, which enables an inline-`foreach`
+path a single unit has no way to know about.
+
+**One outlier, reported rather than averaged away.** In the A/B batch, one `recursion-fib` ON run
+came back **9.72 ms** against 1.16–1.22. A follow-up 8-run sample was 1.18 / 1.21 / 1.21 / 1.27 /
+1.25 / 1.28 / 1.25 / 1.24 — a tight band with no second mode — and the same batch showed 2.4× spikes
+on the OFF arm (`arith-loop` 172 vs ~72), so it reads as host contention. It is written down anyway
+because a bimodal `recursionFib` is a documented failure class in this repo
+(`wide-jit-typed-input.md`), and "probably noise" is exactly how that would first look.

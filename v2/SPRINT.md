@@ -634,7 +634,33 @@ once per SITE, so the hot counter can *be* that `Code` (`Code = Env => Step` is 
       `defMethods`, so every call to another def takes the generic `Emit.global` → `ClosV` →
       `Emit.app` path (lookup + dispatch + env alloc per call) where AOT emits `invokestatic`.
 
-- [ ] **J-3c — CROSS-UNIT LINKING (next; supersedes J-6 in priority).** A top-level def's closure env
+- [~] **J-3c DONE — cross-unit linking. `pattern-match-heavy` 32.6 → 20.7; three rows now within
+      1.06–1.15× of the AOT lane.** A unit carries a static `callees: LamFn[]`; a linked
+      `App(Global(g), args)` compiles to `GETSTATIC` + interface call + `unroll`. Cheap because a
+      top-level def's closure env is EMPTY, so its `LamFn` takes exactly the argument array.
+      TAIL position emits `Emit.bounce` instead — running the callee to completion there would trade
+      the trampoline's constant stack for JVM frames. Linking freezes the callee, so it is verified
+      the same way as the self-call.
+
+          row                   off      on      AOT    JIT/AOT   vs v1 `ssc`
+          arith-loop           74.2    0.603    0.565   1.07x     2.5x off
+          recursion-fib       140.6    1.22     1.15    1.06x     1.04x off
+          recursion-tco         6.23   0.0277   0.0241  1.15x     FASTER than v1
+          pattern-match-heavy  78.7   20.7      8.5     2.4x      398x off (was 627x)
+
+      NOT done on purpose: on-demand compilation of a COLD callee — it turns one JIT event into a
+      call-graph walk, and the hit rate is worth measuring first (stats line now reports the link
+      count: 1121 on a hello.ssc compile).
+      ⚠ **One outlier, reported not averaged away:** a `recursion-fib` ON run came back 9.72 ms
+      against 1.16–1.22. A follow-up 8-run sample was 1.18–1.28 with NO second mode, and the same
+      batch spiked 2.4x on the OFF arm too, so it reads as contention. Written down because a
+      bimodal `recursionFib` is a documented failure class here (`specs/wide-jit-typed-input.md`)
+      and "probably noise" is how it would first look.
+      **Next measurement, not next guess:** `pattern-match-heavy` is the only row short of its own
+      emitter's AOT result (2.4x). Candidates: callers compiled before their callees (unlinked), and
+      the AOT lane's `pureDefs` fixpoint enabling an inline-`foreach` path a single unit cannot know.
+
+- [x] **J-3c ORIGINAL PLAN (superseded by the entry above).** A top-level def's closure env
       is empty, so its unit's `LamFn` takes exactly the argument array: the call is `fn.call(args)` +
       `Emit.unroll` — no lookup, no `ClosV`, no `Emit.app`. Give the unit a static table of callee
       `LamFn`s, filled after `defineClass` from callees already compiled, and emit `GETSTATIC` +
