@@ -28,13 +28,16 @@ git diff HEAD --name-only … | …           →  "dirty <path> <sha>"
 git ls-files --others … | …               →  "untracked <path> <sha>"
 ```
 
-A file therefore moves between two spellings when it is committed, with its content untouched, and
-the digest changes. So the guard fires on the one action that provably cannot alter a build input.
+A file therefore moves between spellings as its GIT STATE changes, with its content untouched, and
+the digest changes each time. So the guard fires on the actions that provably cannot alter a build
+input. Measured on 2026-08-01, a single unchanged file shifted the digest **twice**: once on
+`git add` (untracked -> dirty) and again on `git commit` (dirty -> ls-tree).
 
 The cost is exactly what the digest exists to prevent: this tool was written because
 `.build-stamp` (the HEAD sha) forced *"a ~3.5 min rebuild for nothing"* on a docs-only commit — and
 the replacement forces a full rebuild after **every** commit, for the same reason in a different
-disguise. Measured here at ~10 min per cycle, twice.
+disguise. Measured here at ~10 min per rebuild, four times in one session. The workaround that actually
+works is to COMMIT first and verify second, which inverts the order POLICY.md P-1.4 asks for.
 
 Fix: emit one canonical form per path — content sha keyed by path, with no state prefix — so the
 same bytes hash the same however git currently reports them. The three sources stay; only their
