@@ -1,6 +1,7 @@
 ---
 name: long-overflow-wrap
 also-codegen: v2
+known-red: "js-v2 — the 64-bit wrap landed on the v1 JS emitter only. `BigInt(1e9)^4` still comes back as -5527149226598858752 (masked to 64 bits) instead of 1e36 on this lane, which is the exact truncation the fix was about. v1/runtime/backend/js/BUGS.md `js-long-arith-no-64bit-wrap`, REOPENED 2026-08-01 for precisely this residue — the v1 half is genuinely fixed (`PASS [JS ]`) and must not be undone; the v2 front has its own emitter and never got the `isLongExpr` discriminator. EXPIRES by itself: when js-v2 starts passing the suite FAILS until this line is deleted."
 ---
 
 # 64-bit integer arithmetic WRAPS on overflow, on every backend

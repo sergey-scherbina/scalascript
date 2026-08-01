@@ -424,11 +424,24 @@ effect" on the default front too), so only `empty` needed the alias and F is no 
 two — verified, since routing them through the companion path could have diverged.
 
 ## v2-getorelse-two-arg-falls-into-option-helper — `Map(...).getOrElse(k, d)` dies unless the receiver is a bare variable
-<!-- status: fixed
+<!-- status: open
      lane: native
      area: front
-     fixed-in: 560ce09e9
      gate: tests/conformance/map-getorelse-expr-receiver.ssc -->
+
+> **REOPENED 2026-08-01 — fixed on the LEGACY front, and F is the default one.** `560ce09e9` says
+> "legacy front" in its own subject line and the entry went to `fixed`; the gate still fails:
+>
+> ```
+> map-getorelse-expr-receiver:  PASS [INT]  PASS [JS ]  PASS [JVM]  FAIL [V2 ]
+>   line 5: expected=1  got=ssc: arity: 2 expected, 3 given
+> ```
+>
+> A different symptom from the original ("falls into the Option helper"), which is what makes it
+> worth reopening rather than reverting: the legacy fix is real, F simply never got it. This repo
+> has the pattern written down already — `generic-ctor-and-array-alloc` says of these two fronts
+> that "fixing one is a half-fix". Measured 2026-08-01 on `--no-memo`.
+> See `known-red: v2` on the case.
 
 **ALREADY FIXED — bookkeeping only, 2026-07-31.** `560ce09e9` ("getOrElse(k, default) stops falling
 into the Option helper — legacy front") closed it and the entry was never moved off `open`.

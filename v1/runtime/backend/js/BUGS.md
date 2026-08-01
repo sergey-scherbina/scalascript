@@ -54,12 +54,26 @@ in a chunk needs a trigger, and this one was simply forgotten. `serve(` is also 
 may reach the chunk through HtmlDsl; that is worth checking in the same pass.
 
 ## js-long-arith-no-64bit-wrap — `Long` arithmetic never wrapped: wrong answers, and an unbounded accumulator
-<!-- status: fixed
+<!-- status: open
      lane: js
      area: runtime
      kind: bug
-     gate: tests/conformance/long-overflow-wrap.ssc
-     fixed-in: 6567328660b11a6d44e27bf07c3d9188f0dee24a -->
+     gate: tests/conformance/long-overflow-wrap.ssc -->
+
+> **REOPENED 2026-08-01 — fixed on ONE of the two emitters.** `6567328660` closed the v1 JS lane
+> (`PASS [JS ]`) and the entry went to `fixed`, but its own declared gate still fails on **`JS/v2`**:
+>
+> ```
+> long-overflow-wrap:  PASS [INT]  PASS [JS ]  FAIL [JS/v2]  PASS [JVM]  PASS [JVM/v2]
+>   line 12: expected=1000000000000000000000000000000000000  got=-5527149226598858752
+> ```
+>
+> That number is the exact truncation this entry is about — `BigInt(1e9)^4` masked to 64 bits — so
+> the v2 front's JS output still routes Long and BigInt through one unmasked helper. The v1 fix put
+> the discriminator in `JsGen.isLongExpr`; the v2 front has its own emitter and did not get it.
+> Reopened rather than declared done: an entry saying `fixed` while its gate is red is how the next
+> reader concludes the lane is covered. Measured 2026-08-01 on `--no-memo`.
+> The v1 half stays fixed — do not undo it. See `known-red: js-v2` on the case.
 
 **Found 2026-07-31 by running `bench.sh`** — the `tuple-monoid` js cell had been burning 100 % of a
 core for 16 minutes and looked like a hang. It was not hung.
