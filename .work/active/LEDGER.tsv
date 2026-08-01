@@ -1,6 +1,5 @@
-# generation: 737
+# generation: 738
 #slug	agent	started	items	paths
 plugins-registration-bump	claude-code	2026-07-30T11:09:35Z	policy-performance-skill-registration	file:.agents/plugins
 v2-wide-jit-j0	claude-code	2026-07-31T18:02:48Z	J-0 v2-wide-jit baseline + JitSite overhead apparatus, J-1 JitSite counters, J-2 backend SPI, J-3 emitUnit	file:v1/runtime/backend/interpreter-bench/src/main/scala/scalascript/bench/V2JitSiteBench.scala file:specs/v2-wide-jit.md file:v2/src/Runtime.scala file:v2/src/Jit.scala file:v2/backend-jvm-bytecode/JitBytecodeBackend.scala file:v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala file:v2/backend-jvm-bytecode/JvmByteGen.scala
 ci-sbt-test-shard	claude-code	2026-08-01T03:37:01Z	ci-crossbackend-differential-runtime	file:.github/workflows/ci.yml file:v1/runtime/backend/interpreter/src/test/scala/scalascript/CrossBackendPropertyTest.scala
-uniml-md-container-indent	claude-code	2026-08-01T04:00:37Z	UPR-3b container content indent — list item marker separation, indented code inside list items	file:uniml/markdown file:uniml/corpus file:uniml/BACKLOG.md file:uniml/SPRINT.md
