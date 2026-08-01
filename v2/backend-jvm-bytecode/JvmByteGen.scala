@@ -101,6 +101,11 @@ object JvmByteGen:
   private def isHandlerDispatchRoot(arity: Int, body: Term): Boolean =
     HandlerDispatchShape.isRoot(arity, body)
 
+  /** Public probe for tooling outside package `ssc` (`ssc lint-jit -v2`): a qualified partial
+    * function root is refused by the JIT, and a linter that could not say so would report a def as
+    * uncompilable for no stated reason. */
+  def isHandlerRoot(arity: Int, body: Term): Boolean = isHandlerDispatchRoot(arity, body)
+
   private val metafactory = new Handle(
     Opcodes.H_INVOKESTATIC,
     "java/lang/invoke/LambdaMetafactory", "metafactory",

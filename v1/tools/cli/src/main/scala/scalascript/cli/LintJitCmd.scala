@@ -51,10 +51,13 @@ final class LintJitCmd extends CliCommand:
     var failOnBail:    Boolean         = false
     var includeWhile:  Boolean         = false
     var backendArg:    Option[String]  = None
+    var lane:          String          = "v2"     // -v2 is the DEFAULT (Sergiy, 2026-07-31)
     val files = scala.collection.mutable.ListBuffer.empty[String]
     val it = args.iterator
     while it.hasNext do
       it.next() match
+        case "-v2"               => lane          = "v2"
+        case "-v1"               => lane          = "v1"
         case "--json"            => emitJson      = true
         case "--quiet"           => quiet         = true
         case "--fail-on-bail"    => failOnBail    = true
@@ -70,9 +73,17 @@ final class LintJitCmd extends CliCommand:
 
     if files.isEmpty then
       System.err.println(
-        "usage: ssc lint-jit [--json] [--quiet] [--fail-on-bail] [--include-while] " +
+        "usage: ssc lint-jit [-v2 | -v1] [--json] [--quiet] [--fail-on-bail] [--include-while] " +
           "[--backend javac|asm|both] <file.ssc> [...]")
       return CommandResult.failure()
+
+    if lane == "v2" then
+      if backendArg.isDefined then
+        // v2 has ONE backend by design (specs/v2-wide-jit.md §3.1: one walker, not three), so a
+        // --backend here is a misunderstanding worth failing on rather than ignoring.
+        System.err.println("ssc lint-jit: --backend applies to -v1 only; v2 has a single backend")
+        return CommandResult.failure()
+      return lintV2(files.toList, emitJson, quiet, failOnBail)
 
     val compareMode = backendArg.contains("both")
     val backend: JitBackend = backendArg match
@@ -173,6 +184,53 @@ final class LintJitCmd extends CliCommand:
     }
     if failOnBail && anyBail then CommandResult.failure()
     else CommandResult.Success
+
+  /** `-v2`: which top-level defs the v2 wide JIT would compile, WITHOUT running the program.
+    *
+    * v1's lint executes the module first (`interp.runSections`) and reads `interp.globals`, so any
+    * top-level side effect — a server bind, a query — happens just to ask a static question. The v2
+    * lane lowers to Core IR and stops, so linting is free of that.
+    *
+    * The verdict is the REAL one: it calls the same `JvmByteGen.emitUnit` the JIT calls, with the
+    * same purity set, so a `compiles` here means that def compiles at run time. A predicate that
+    * merely resembles the compiler is how v1's three engines drifted apart
+    * (`specs/jit-universal-coverage.md` §2). */
+  private def lintV2(files: List[String], emitJson: Boolean, quiet: Boolean,
+                     failOnBail: Boolean): CommandResult =
+    var anyBail = false
+    files.foreach { path =>
+      val program = RunNativeV2.compile(List(path)).program
+      val lamBodies = program.defs.collect {
+        case d if d.body.isInstanceOf[_root_.ssc.Term.Lam] =>
+          d.name -> d.body.asInstanceOf[_root_.ssc.Term.Lam].body
+      }.toMap
+      val pure = _root_.ssc.bytecode.JvmByteGen.pureDefsOf(lamBodies)
+      var compiled = 0
+      var refused  = 0
+      program.defs.foreach { d =>
+        d.body match
+          case _root_.ssc.Term.Lam(arity, body) =>
+            val verdict =
+              if _root_.ssc.bytecode.JvmByteGen.isHandlerRoot(arity, body) then "refused: handler-root"
+              else
+                try
+                  _root_.ssc.bytecode.JvmByteGen.emitUnit(body, d.name, arity, Nil, pure)
+                  "compiles"
+                catch
+                  case u: _root_.ssc.bytecode.Unsupported => s"refused: ${u.form}"
+                  case e: Throwable => s"refused: ${e.getClass.getSimpleName}"
+            if verdict == "compiles" then compiled += 1 else { refused += 1; anyBail = true }
+            if emitJson then
+              println(s"""{"file":"${quote(path)}","def":"${quote(d.name)}",""" +
+                s""""arity":$arity,"verdict":"${quote(verdict)}"}""")
+            else if !quiet || verdict != "compiles" then
+              println(f"  ${d.name}%-40s arity $arity%-3d $verdict")
+          case _ => ()
+      }
+      if !emitJson then
+        println(s"$path: $compiled defs compile, $refused refused")
+    }
+    if failOnBail && anyBail then CommandResult.failure() else CommandResult.Success
 
   private def quote(s: String): String =
     val sb = new StringBuilder(s.length + 8)

@@ -133,6 +133,14 @@ final class BytecodeJitBackend extends JitBackend:
   // Refusal accounting. Two of these are BY DESIGN and one is a coverage gap; keeping them apart is
   // the difference between "7 sites did not compile" and a list of shapes worth teaching the
   // emitter. Plain vars: compilation happens under the kernel's `Jit.onHot` synchronisation.
+  /** Total time spent generating and loading units, in nanos.
+    *
+    * The number J-9 needs and the one wall-clock cannot give: compiling `hello.ssc` arms 3386 sites
+    * and compiles ~722 units, and a 5-run wall-clock A/B came back 2.53–3.05 s off against
+    * 2.36–4.43 s on — fully overlapping, so "does the JIT cost startup?" was UNRESOLVED at that
+    * precision. A program that never gets hot must not pay for a feature it does not use, and
+    * "probably fine" is not an answer to that. */
+  private var compileNanos = 0L
   private var linked = 0
   private var refusedLoop = 0
   private var refusedHandler = 0
@@ -140,7 +148,7 @@ final class BytecodeJitBackend extends JitBackend:
 
   override def stats: String =
     val forms = refusedForm.map((f, n) => s"$f×$n").mkString(", ")
-    s", $linked cross-unit links, refused: $refusedLoop loop, $refusedHandler handler-root" +
+    s", ${compileNanos / 1000000} ms compiling, $linked cross-unit links, refused: $refusedLoop loop, $refusedHandler handler-root" +
       (if forms.isEmpty then "" else s", uncompilable: $forms")
 
   /** `null` = this site stays interpreted. Never throws: an uncompilable site is a performance
@@ -161,6 +169,7 @@ final class BytecodeJitBackend extends JitBackend:
     if site.arity < 0 then { refusedLoop += 1; null }
     else if site.handlerRoot then { refusedHandler += 1; null }
     else
+      val startedAt = System.nanoTime()
       try
         val links = linkable(site)
         val fn = JvmByteGen.loadUnit(
@@ -170,6 +179,7 @@ final class BytecodeJitBackend extends JitBackend:
           links.map((_, _, f) => f).toArray)
         compiledFns.put(site, fn)
         linked += links.length
+        compileNanos += System.nanoTime() - startedAt
         val owned = site.globals
         // Exactly the wrapper `Emit.clos` uses for every AOT lambda — the compiled body answers a
         // Value (possibly a bounce), `unroll` resolves it, the trampoline sees a `Done` — plus one
