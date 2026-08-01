@@ -1149,6 +1149,56 @@ def parseFor = (toks) =>
             else if kindIs("{", toks) then advance(toks) else toks in
   parseForFrom(ts0)
 
+-- ── `new` ────────────────────────────────────────────────────────────────────
+-- Erasing the keyword (`new Foo(x) == Foo(x)`) is RIGHT for a case class — `Box(7)` is the
+-- companion apply — and WRONG for Array, where the factory and the allocator are different
+-- functions: `Array(3)` is a ONE-element array holding 3, so `new Array[Int](3).length` was 1
+-- and any store past index 0 died with "out of bounds (min 0, max 0)", at exit 0.
+-- Root BUGS.md `new-array-n-builds-a-one-element-array`.
+--
+-- The rewrite targets `Array.fill(n)(zero)` rather than `Array.ofDim(n)`: measured 2026-08-01,
+-- ofDim is `unhandled runtime effect` on this lane while fill works.
+--
+-- Element zero, taken from the TYPE ARGUMENT so this lane agrees with the interpreter, the JS
+-- backend and scalac — the jvm lane delegates to real Scala and was already correct, so any other
+-- choice would manufacture a cross-lane divergence. `ts` points just past `Array`, i.e. at `[`
+-- when a type argument is present.
+def newArrayZero = (ts) =>
+  if kindIs("[", ts) then
+    let tv = tokVal(peek(advance(ts))) in
+    if #seq(tv, "Int") then mkInt("0")
+    else if #seq(tv, "Long") then mkInt("0")
+    else if #seq(tv, "Short") then mkInt("0")
+    else if #seq(tv, "Byte") then mkInt("0")
+    else if #seq(tv, "Double") then mkFloat("0.0")
+    else if #seq(tv, "Float") then mkFloat("0.0")
+    else if #seq(tv, "Boolean") then mkBool("false")
+    -- Every reference type. `None` is what this front already lowers the `null` literal to
+    -- (K62.18), so the zero follows v2's own notion of null rather than inventing a second one.
+    else mkUVar("None")
+  else mkInt("0")
+
+-- This branch consumes the CALL itself rather than returning an atom and letting buildPostfix
+-- apply it. It has to: `Array.fill(n)(zero)` is a CURRIED pair of applications, and an atom-shaped
+-- result would let the caller's postfix builder attach a following `.length` to `Array.fill(n)` —
+-- which is a function still awaiting its element, not an array.
+--
+-- `new Array[T](n)` takes exactly one argument, so the shape recognised here is exactly `( expr )`.
+-- Anything else falls through to the plain erasure this branch has always done, so nothing that
+-- worked before changes.
+def parseNewAtom = (toks) =>
+  if #seq(tokVal(peek(toks)), "Array") then
+    let zero = newArrayZero(advance(toks)) in
+    let ts1 = skipTypeArgs(advance(toks)) in
+    if kindIs("(", ts1) then
+      let rLen = parseExpr(advance(ts1)) in
+      if kindIs(")", prT(rLen)) then
+        pr(mkApp(mkApp(mkSel(mkUVar("Array"), "fill"), Cons(prV(rLen), Nil)), Cons(zero, Nil)),
+           advance(prT(rLen)))
+      else parseAtom(toks)
+    else parseAtom(toks)
+  else parseAtom(toks)
+
 -- ── Expression parser ─────────────────────────────────────────────────────────
 -- parseAtom: handles literals, variables, parenthesized, if, prefix
 def parseAtom = (toks) =>
@@ -1226,7 +1276,9 @@ def parseAtom = (toks) =>
     else if #seq(v, "false") then pr(mkBool("false"), advance(toks))
     else if #seq(v, "if")    then parseIfExpr(advance(toks))
     else if #seq(v, "for")   then parseFor(advance(toks))
-    else if #seq(v, "new")   then parseAtom(advance(toks))   -- K62.6c: new Foo(x) == Foo(x)
+    -- K62.6c erased `new` outright (`new Foo(x) == Foo(x)`). That stays true for everything but
+    -- Array, where the factory and the allocator are different functions — see parseNewAtom.
+    else if #seq(v, "new")   then parseNewAtom(advance(toks))
     else if #seq(v, "match") then parseMatchExpr(advance(toks))
     else if #seq(v, "return") then
       let r = parseExpr(advance(toks)) in
