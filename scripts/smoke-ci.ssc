@@ -252,34 +252,31 @@ val suite = List(
   //     Starting compilation server
   //     Exception in thread "main" java.util.concurrent.TimeoutException: Future timed out after [30 seconds]
   //       at bloop.rifle.internal.Operations$.about(Operations.scala:529)
-  // Bloop fails to become responsive inside scala-cli's 30 s window on a 2-core hosted runner. This
-  // check runs `--lanes int,js,v2` — no JVM lane at all — so the server was pure overhead: it started
-  // only because scala-cli compiles a script through a build server by default.
-  // `tests/e2e/build-conformance-shard-gate.sh` has always passed this flag and has never flaked.
-  // Locally the flag is noise (15.1/32.2 s with the server against 23.4/24.0 s without), which is why
-  // it was deferred this morning with "if it recurs, try this". It recurred in half of all runs.
-  // `SSC_CONF_WARM_JVM=1` STAYS: it governs the CHILD `ssc-tools run-jvm` processes, not this parent.
-  Check("tests/conformance", "corpus-breadth-slice", "scala-cli",
-        List("--server=false", "tests/conformance/run.sc", "--", "--only", corpusBreadth, "--no-memo",
-             "--lanes", "int,js,v2"), 600000,
-        Map("SSC_CONF_WARM_JVM" -> "1")),
-  // REFUTED, so nobody retries it (P-6.5): on CI this check costs 47.3 s for FOUR cases against
-  // 46.0 s for the breadth check's thirteen, i.e. it is nearly all fixed cost — the Bloop server
-  // that `SSC_CONF_WARM_JVM=1` starts, now paid once per invocation instead of once per suite. The
-  // obvious inference, "for four cases a cold serverless run must be cheaper", is WRONG: measured
-  // twice locally, warm 14.0/14.0 s against cold 27.0/27.7 s. Warm wins even at four cases; the CI
-  // number is the runner being slow, not the wrong knob.
-  // `--server=false` here too, same reason — the parent only compiles the script. The warm Bloop
-  // this check DOES want is started by its children, through SSC_CONF_WARM_JVM=1 below.
-  Check("tests/conformance", "corpus-jvm-lane", "scala-cli",
-        List("--server=false", "tests/conformance/run.sc", "--", "--only", corpusJvm, "--no-memo",
-             "--lanes", "jvm"), 600000,
-        Map("SSC_CONF_WARM_JVM" -> "1")),
-  // The two checks above are `--only` lists typed by hand and split by `--lanes`. Both flags used to
-  // fail silently — a zero-match `--only` exited 0 over nothing, and a `--lanes` value could be eaten
-  // as the positional corpus dir. The corpus checks would still have printed green. This gate is what
-  // stops that, so it runs beside them.
-  Check("tests/conformance", "conformance-lanes-flag", "tests/e2e/conformance-lanes-flag.sh", List(), 300000)
+  // ── ONE check, four lanes, ~9 s — replacing three that cost 62.9 s ────────────────────────────
+  //
+  //   corpus-breadth-slice     13 cases over int,js,v2      14.9 s
+  //   corpus-jvm-lane           4 cases over jvm            17.8 s
+  //   conformance-lanes-flag    the gate on the two above   30.2 s
+  //
+  // Those were sized for a world where smoke was the ONLY per-push verdict, so a corpus SAMPLE here
+  // was the only corpus signal that existed. Since 2026-08-01 tier 2 (`ci.yml` on push) runs the
+  // WHOLE corpus — 353 cases, every lane — on the same push, so sampling 17 of them buys nothing.
+  //
+  // NOT simply deleted, and this is the part worth reading before "simplifying" further:
+  // `v1/runtime/backend/interpreter`, `v1/runtime/backend/jvm` and `v2` have NO OTHER CHECK in this
+  // suite. Their entire smoke coverage is the corpus lanes. Removing the three outright would not
+  // have dropped a duplicate, it would have gone dark on the interpreter, the JVM backend and v2 —
+  // locally, before the push, where tier 2 does not exist. So: keep the breadth, drop the sampling.
+  //
+  // The name still starts with `corpus-` on purpose: the per-lane rollup below reads EVERY
+  // `corpus-*` outcome, and that is how int/js/jvm/v2 get attributed to their own modules.
+  //
+  // `conformance-lanes-flag` went with them because it was never independent coverage — it existed
+  // to stop the two checks above failing SILENTLY (a zero-match `--only` exits 0 over nothing; a
+  // `--lanes` value could be eaten as the positional corpus dir). That protection is INLINED into
+  // the new script, which asserts the case count and every lane BY NAME. Verified both ways: a
+  // zero-match pattern and a case declaring fewer lanes each turn it red.
+  Check("tests/conformance", "corpus-lane-breadth", "tests/e2e/smoke-lane-breadth.sh", List(), 300000)
 )
 
 // ── The module hierarchy, read rather than restated ───────────────────────────
