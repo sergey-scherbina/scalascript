@@ -1100,6 +1100,47 @@ own arc. None is speculative: every one has a measured number attached.
       check in the workflow. The `~15 min` estimate is superseded by the measurement at the top of
       this entry. Reduce also asserts the four artifacts arrived: a lost download is invisible to
       the merge, and a "more than half the corpus" floor would not see it (3 of 4 shards is 75 %).
+- [ ] **`ci-crossbackend-differential-runtime`** — **MEASURED 2026-08-01, and this entry did not
+      exist before.** The slug is cited in three places (`scripts/BACKLOG.md` 5n,
+      `v1/runtime/backend/js/BUGS.md`, `CHANGELOG.md`) as the tracked follow-up for the 2h+ test
+      phase, and no queue ever held it — so "tracked" meant named, not scheduled. Numbers first, from
+      run 30650857814 (`Test via sbt` completed, 6482 s):
+
+      | | min | share |
+      |---|---|---|
+      | whole test phase | 106.5 | — |
+      | `CrossBackendPropertyTest` | **39.0** | **37 %** |
+      | `ScljetScalarSemanticsDifferentialTest` | 5.9 | 6 % |
+      | `SwiftBackendTest` | 5.8 | 5 % |
+      | `ScljetDriverTest` | 4.9 | 5 % |
+      | remaining ~1009 suites | ~50 | 47 % |
+
+      Now the part that decides the SHAPE of the fix, and it rules out the obvious moves:
+
+      * **Inside the top suite the load is FLAT.** 17 test cases, every one of them 94-240 s, no
+        outlier. There is nothing to make fast — `interp == JVM(scala-cli)` is the largest at 240 s
+        and killing it outright would buy 4 % of the phase.
+      * **`runJvm` is a COLD `scala-cli run --server=false` per generated program**
+        (`CrossBackendPropertyTest.scala`), i.e. a full Scala compiler start each time. Batching the
+        19 JVM programs into one invocation is the only real per-case win available and it is worth
+        ~3 min of 106.
+      * **Sharding BY PROJECT does not balance**: one project block is 88.5 min of 123.9 (71 %). It
+        holds the differential suites. So a shard scheme has to partition SUITES, not projects.
+
+      So the shape is: split `Test via sbt` across N runners by suite, sized from measured cost, the
+      way `negtc-map`/`Conformance shard i/4` already are. ~106 -> ~30 min at N=4, and the sbt job
+      stops being the suite's critical path (it is ~154 min today, after negtc moved out).
+
+      ⚠️ **A suite partition that DROPS a suite fails GREEN**, exactly like the conformance shards —
+      so it needs the same treatment `tests/e2e/build-conformance-shard-gate.sh` gives those: the
+      union of the shard listings byte-compared against the unsharded enumeration, on every push.
+      Do not land the matrix without it.
+
+      NOT the answer, stated so nobody re-derives it: a warm/pooled `scala-cli` server. The
+      `--server=false` in `runJvm` is deliberate and its comment says why — concurrent runs collide
+      on the bloop socket (`BindException`), and the corpus checks removed the build server for the
+      same reason after it went a coin flip on a 2-core runner.
+
 - [ ] **`ssc-fork-heap-entitlement`** — `bin/ssc` (launcher template in `build.sbt`) passes `-Xss64m`
       and **no `-Xmx`**, so every fork takes the JVM's ergonomic ¼-of-RAM default = **9,216 MB** here,
       and a contract run makes ~1,669 of them. MEASURED 2026-07-28: six live at once; one resident at
