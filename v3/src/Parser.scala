@@ -16,7 +16,7 @@ final case class ParseFail(pos: Pos, message: String)
 object Parser:
 
   private val keywords: List[String] =
-    List("def", "val", "var", "if", "then", "else", "while", "do", "true", "false")
+    List("def", "val", "var", "if", "then", "else", "while", "do", "true", "false", "case", "class")
 
   /** Binary operator precedence, tightest last. `&&` and `||` are here for PARSING only — the
     * lowering turns them into `If`, because they short-circuit and an IR that lets them be strict
@@ -272,6 +272,27 @@ object Parser:
       val (e, t) = parseExpr(ts)
       (Stmt.Exp(e), t)
 
+  /** `case class Name(f: T, …)`. A BODY (`… ):` followed by an indented block of methods) is
+    * refused by name rather than skipped: skipping would silently drop methods the author wrote and
+    * the program would fail later, somewhere else, as an unknown name. */
+  private def parseCaseClass(ts0: List[Tok], p: Pos): (ClassDef, List[Tok]) =
+    val (name, _, t0) = expectName(ts0)
+    var ts = expectPunct(skipBrackets(t0), "(")
+    var fields: List[Param] = Nil
+    if !isPunct(peek(ts), ")") then
+      var go = true
+      while go do
+        // `val`/`var` before a field name is ordinary and carries no meaning at Tier 0.
+        if isId(peek(ts), "val") || isId(peek(ts), "var") then ts = ts.tail
+        val (fn, fp, t) = expectName(ts)
+        ts = skipTypeAnn(t)
+        fields = Param(fn, fp) :: fields
+        if isPunct(peek(ts), ",") then ts = ts.tail else go = false
+    ts = expectPunct(ts, ")")
+    if isPunct(peek(ts), ":") then
+      throw ParseFail(posOf(ts), "a `case class` body is outside SSC3 core Tier 0 — only the constructor is supported")
+    (ClassDef(name, fields.reverse, p), ts)
+
   // ── definitions ─────────────────────────────────────────────────────────────
   private def parseDef(ts0: List[Tok]): (Def, List[Tok]) =
     val p = posOf(ts0)
@@ -297,6 +318,7 @@ object Parser:
     var ts = Lexer.lex(src)
     var defs: List[Def] = Nil
     var top: List[Stmt] = Nil
+    var classes: List[ClassDef] = Nil
     var go = true
     while go do
       ts = skipLayout(ts)
@@ -305,6 +327,10 @@ object Parser:
         val (d, t) = parseDef(ts)
         defs = d :: defs
         ts = t
+      else if isId(peek(ts), "case") && ts.tail.nonEmpty && isId(peek(ts.tail), "class") then
+        val (c, t) = parseCaseClass(ts.tail.tail, posOf(ts))
+        classes = c :: classes
+        ts = t
       else
         // Not a `def`, so it is program body. Refusing here is what made 48 of the first 60 corpus
         // cases unreadable: a `.ssc` file is a script, and requiring every line to be inside a
@@ -312,4 +338,4 @@ object Parser:
         val (st, t) = parseStmt(ts)
         top = st :: top
         ts = t
-    Program(defs.reverse, top.reverse)
+    Program(defs.reverse, top.reverse, classes.reverse)

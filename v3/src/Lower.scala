@@ -55,7 +55,7 @@ object Lower:
     val (r, st2) = st1.fresh
     (List(Instr.Const(r, k)), r, st2)
 
-  private def lower(e: Expr, fns: List[String], st0: St): (List[Instr], Int, St) = e match
+  private def lower(e: Expr, fns: List[String], classes: List[ClassDef], st0: St): (List[Instr], Int, St) = e match
     case Expr.IntLit(v, _)  => constExpr(Lit.LInt(v), st0)
     case Expr.StrLit(v, _)  => constExpr(Lit.LStr(v), st0)
     case Expr.BoolLit(v, _) => constExpr(Lit.LBool(v), st0)
@@ -78,30 +78,30 @@ object Lower:
     // this a rule rather than a preference: a strict binary operator here would silently evaluate
     // the right side, and nothing downstream could tell that it should not have.
     case Expr.Bin("&&", l, r, p) =>
-      val (li, lr, st1) = lower(l, fns, st0)
-      val (ri, rr, st2) = lower(r, fns, st1)
+      val (li, lr, st1) = lower(l, fns, classes, st0)
+      val (ri, rr, st2) = lower(r, fns, classes, st1)
       val (d, st3) = st2.fresh
       val (fk, st4) = st3.constIdx(Lit.LBool(false))
       (li ++ List(Instr.If(lr, ri :+ Instr.Move(d, rr), List(Instr.Const(d, fk)))), d, st4)
     case Expr.Bin("||", l, r, p) =>
-      val (li, lr, st1) = lower(l, fns, st0)
-      val (ri, rr, st2) = lower(r, fns, st1)
+      val (li, lr, st1) = lower(l, fns, classes, st0)
+      val (ri, rr, st2) = lower(r, fns, classes, st1)
       val (d, st3) = st2.fresh
       val (tk, st4) = st3.constIdx(Lit.LBool(true))
       (li ++ List(Instr.If(lr, List(Instr.Const(d, tk)), ri :+ Instr.Move(d, rr))), d, st4)
 
     case Expr.Bin(op, l, r, p) =>
-      val (li, lr, st1) = lower(l, fns, st0)
-      val (ri, rr, st2) = lower(r, fns, st1)
+      val (li, lr, st1) = lower(l, fns, classes, st0)
+      val (ri, rr, st2) = lower(r, fns, classes, st1)
       val (d, st3) = st2.fresh
       (li ++ ri :+ Instr.Bin(binOp(op, p), NumKind.Dyn, d, lr, rr), d, st3)
 
     case Expr.Neg(x, _) =>
-      val (xi, xr, st1) = lower(x, fns, st0)
+      val (xi, xr, st1) = lower(x, fns, classes, st0)
       val (d, st2) = st1.fresh
       (xi :+ Instr.Un(UnOp.Neg, NumKind.Dyn, d, xr), d, st2)
     case Expr.Not(x, _) =>
-      val (xi, xr, st1) = lower(x, fns, st0)
+      val (xi, xr, st1) = lower(x, fns, classes, st0)
       val (d, st2) = st1.fresh
       (xi :+ Instr.Un(UnOp.Not, NumKind.Dyn, d, xr), d, st2)
 
@@ -109,16 +109,16 @@ object Lower:
       st0.lookup(n) match
         case None => throw LowerFail(p, "assignment to unknown name '" + n + "'")
         case Some(target) =>
-          val (vi, vr, st1) = lower(v, fns, st0)
+          val (vi, vr, st1) = lower(v, fns, classes, st0)
           (vi :+ Instr.Move(target, vr), target, st1)
 
     case Expr.If(c, t, elseOpt, _) =>
-      val (ci, cr, st1) = lower(c, fns, st0)
-      val (ti, tr, st2) = lower(t, fns, st1)
+      val (ci, cr, st1) = lower(c, fns, classes, st0)
+      val (ti, tr, st2) = lower(t, fns, classes, st1)
       val (d, st3) = st2.fresh
       elseOpt match
         case Some(el) =>
-          val (ei, er, st4) = lower(el, fns, st3)
+          val (ei, er, st4) = lower(el, fns, classes, st3)
           (ci ++ List(Instr.If(cr, ti :+ Instr.Move(d, tr), ei :+ Instr.Move(d, er))), d, st4)
         case None =>
           val (uk, st4) = st3.constIdx(Lit.LUnit)
@@ -128,9 +128,9 @@ object Lower:
     // the exit test, `br 0` is the back edge. There is no loop-with-condition instruction because
     // one would be a special case of exactly this.
     case Expr.While(c, body, _) =>
-      val (ci, cr, st1) = lower(c, fns, st0)
+      val (ci, cr, st1) = lower(c, fns, classes, st0)
       val (nr, st2) = st1.fresh
-      val (bi, _, st3) = lower(body, fns, st2)
+      val (bi, _, st3) = lower(body, fns, classes, st2)
       val (uk, st4) = st3.constIdx(Lit.LUnit)
       val (d, st5) = st4.fresh
       val loop = Instr.Block(List(Instr.Loop(
@@ -144,20 +144,20 @@ object Lower:
       stmts.foreach { s =>
         s match
           case Stmt.Val(n, v, _, _) =>
-            val (vi, vr, st1) = lower(v, fns, st)
+            val (vi, vr, st1) = lower(v, fns, classes, st)
             // A binding gets its OWN register rather than aliasing the value's, so a later
             // assignment to it cannot write through to a temporary something else still holds.
             val (slot, st2) = st1.fresh
             acc = acc ++ vi :+ Instr.Move(slot, vr)
             st = st2.bind(n, slot)
           case Stmt.Exp(ex) =>
-            val (xi, _, st1) = lower(ex, fns, st)
+            val (xi, _, st1) = lower(ex, fns, classes, st)
             acc = acc ++ xi
             st = st1
       }
       result match
         case Some(r) =>
-          val (ri, rr, st1) = lower(r, fns, st)
+          val (ri, rr, st1) = lower(r, fns, classes, st)
           // The block's own bindings leave scope with it; `env` is restored so a name defined
           // inside cannot be seen outside. The register numbers are NOT reused — see the header.
           (acc ++ ri, rr, st1.copy(env = st0.env))
@@ -166,13 +166,33 @@ object Lower:
           val (d, st2) = st1.fresh
           (acc :+ Instr.Const(d, uk), d, st2.copy(env = st0.env))
 
+    // A no-argument call whose name is a FIELD of exactly one declared class is a field read, and
+    // must lower to `Field` rather than `Invoke`. Measured: v2's `__method__` does not resolve a
+    // case-class field — it returns the `Stub` SENTINEL, printed, at exit 0. That is this project's
+    // documented worst failure shape, and an output check is the only thing that sees it.
+    //
+    // Exactly ONE class, deliberately. Ambiguity is refused rather than guessed: picking a type
+    // here without a checker would be a silent wrong-field read, which is the bug family the IR's
+    // single type table exists to remove.
+    case Expr.MethodCall(recv, nm, Nil, p) if classes.exists(c => c.fields.exists(f => f.name == nm)) =>
+      val owners = classes.filter(c => c.fields.exists(f => f.name == nm))
+      if owners.length > 1 then
+        throw LowerFail(p, "field '" + nm + "' is declared by " + owners.map(_.name).mkString(", ") +
+          " — SSC3 needs a type checker to choose, which is Tier 2")
+      val owner = owners.head
+      val idx = owner.fields.indexWhere(f => f.name == nm)
+      val (ri, rr, st1) = lower(recv, fns, classes, st0)
+      val (t, st2) = st1.typeIdx(owner.name, owner.fields.length)
+      val (d, st3) = st2.fresh
+      (ri :+ Instr.Field(d, rr, t, idx), d, st3)
+
     case Expr.MethodCall(recv, nm, argEs, _) =>
-      val (ri, rr, st1) = lower(recv, fns, st0)
+      val (ri, rr, st1) = lower(recv, fns, classes, st0)
       var acc = ri
       var regs: List[Int] = Nil
       var st = st1
       argEs.foreach { a =>
-        val (ai, ar, stN) = lower(a, fns, st)
+        val (ai, ar, stN) = lower(a, fns, classes, st)
         acc = acc ++ ai; regs = ar :: regs; st = stN
       }
       val (nk, st2) = st.constIdx(Lit.LStr(nm))
@@ -184,7 +204,7 @@ object Lower:
       var regs: List[Int] = Nil
       var st = st0
       argEs.foreach { a =>
-        val (ai, ar, st1) = lower(a, fns, st)
+        val (ai, ar, st1) = lower(a, fns, classes, st)
         acc = acc ++ ai
         regs = ar :: regs
         st = st1
@@ -193,7 +213,15 @@ object Lower:
       // A flat chain, not nested `match`es. The first attempt nested them and Scala 3's significant
       // indentation quietly closed the inner match one level early, so the List branch computed a
       // value that was DISCARDED and every call fell through to "unknown function". It compiled.
+      val declared = classes.find(c => c.name == fn)
       if fn == "List" || fn == "Seq" then listOf(args, acc, st)
+      else if declared.isDefined then
+        val c = declared.get
+        if args.length != c.fields.length then
+          throw LowerFail(p, fn + " takes " + c.fields.length + " field(s), given " + args.length)
+        val (t, st1) = st.typeIdx(fn, c.fields.length)
+        val (d, st2) = st1.fresh
+        (acc :+ Instr.MkData(d, t, args), d, st2)
       else if ctors.exists((n, _) => n == fn) then
         val arity = ctors.find((n, _) => n == fn).map((_, a) => a).getOrElse(0)
         if args.length != arity then
@@ -258,7 +286,7 @@ object Lower:
     allDefs.foreach { d =>
       val params = d.params.zipWithIndex.map((pa, i) => (pa.name, i))
       val st0 = St(d.params.length, d.params.length, params.reverse, consts, prims, types)
-      val (body, r, st) = lower(d.body, names, st0)
+      val (body, r, st) = lower(d.body, names, p.classes, st0)
       consts = st.consts
       prims = st.prims
       types = st.types

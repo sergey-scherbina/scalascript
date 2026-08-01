@@ -1,0 +1,3 @@
+case class A(v: Int)
+case class B(v: Int)
+println(A(1).v)

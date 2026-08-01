@@ -1,0 +1,10 @@
+case class Point(x: Int, y: Int)
+case class Wrap(inner: Int)
+
+def dist2(p: Point): Int = p.x * p.x + p.y * p.y
+
+val p = Point(3, 4)
+println(p.x)
+println(p.y)
+println(dist2(p))
+println(Wrap(9).inner)
