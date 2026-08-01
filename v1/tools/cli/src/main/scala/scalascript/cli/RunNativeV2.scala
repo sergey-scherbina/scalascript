@@ -422,7 +422,12 @@ object RunNativeV2:
           _root_.ssc.Runtime.argv = args
           Console.withOut(irPs) {
             val tower = _root_.ssc.Lower.module(_root_.ssc.Loader.load(runner.getCanonicalPath))
-            val code = _root_.ssc.Compiler.compile(tower)
+            // The TOWER is the compiler itself running on this VM. Its JIT units are discarded when
+            // the compile ends, so a short run would pay ~187 ms for a tier-up it cannot amortise
+            // (specs/v2-wide-jit.md §9, J-9). SSC_V2_JIT_TOWER=on restores it for the case where the
+            // compiler IS the hot workload.
+            _root_.ssc.Jit.pauseSites()
+            val code = try _root_.ssc.Compiler.compile(tower) finally _root_.ssc.Jit.resumeSites()
             val value =
               if useFNestedBytecode then
                 _root_.ssc.Runtime.withCoreIrEvaluator(

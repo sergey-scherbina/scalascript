@@ -39,6 +39,23 @@ object Jit:
     * nothing should be able to re-arm mid-process behind the lane's back. */
   def disarm(): Unit = armedFlag = false
 
+  /** Site creation can be SUSPENDED for one program.
+    *
+    * A `bin/ssc run` compiles two programs: the F tower (the compiler itself, which executes on this
+    * VM) and then the user program. Measured at J-8, a hello-world run compiles ~722 units and
+    * spends ~187 ms doing it — and nearly all of that is the TOWER, whose units are thrown away
+    * when the compile ends. A short run therefore pays for a JIT it cannot amortise.
+    *
+    * `SSC_V2_JIT_TOWER=on` arms the tower too, which is the right setting when the compiler itself
+    * is the hot workload (a long self-hosting run). Default off: the user program is what a JIT is
+    * for. */
+  val armTower: Boolean =
+    sys.env.get("SSC_V2_JIT_TOWER").exists(v => v != "0" && v != "off" && v.nonEmpty)
+
+  @volatile private var sitesPaused = false
+  def pauseSites(): Unit = if !armTower then sitesPaused = true
+  def resumeSites(): Unit = sitesPaused = false
+
   /** v1's default, for the same reason: high enough that one-shot code never compiles, low enough
     * that a real hot path reaches it within noise of its first millisecond. */
   val threshold: Int =
@@ -50,6 +67,19 @@ object Jit:
     * invisible to a call counter — the hole v1 patched with eager compilation plus `WhileJitEntry`. */
   val loopThreshold: Int =
     sys.env.get("SSC_V2_JIT_LOOP_THRESHOLD").flatMap(_.toIntOption).getOrElse(256)
+
+  /** Compile OFF the calling thread by default.
+    *
+    * Measured (`specs/v2-wide-jit.md` §9, J-8): a hello-world run spends ~187 ms compiling, and the
+    * threshold is the wrong lever against it — raising it 256× removes 75 % of the units but only
+    * 41 % of the cost, because the expensive units are the genuinely hot ones that clear any
+    * threshold. So the fix is not to compile less, it is to stop making the program WAIT for it: the
+    * site keeps running interpreted and swaps itself the moment the unit is ready.
+    *
+    * `SSC_V2_JIT_SYNC=1` forces the old synchronous behaviour, which is what makes the two
+    * comparable in an A/B rather than a belief. */
+  private val syncCompile: Boolean =
+    sys.env.get("SSC_V2_JIT_SYNC").exists(v => v != "0" && v != "off" && v.nonEmpty)
 
   private val statsEnabled: Boolean =
     sys.env.get("SSC_V2_JIT_STATS").exists(v => v != "0" && v != "off" && v.nonEmpty)
@@ -70,7 +100,8 @@ object Jit:
     val backendId = if backendRef == null then "none" else backendRef.asInstanceOf[JitBackend].id
     System.err.println(
       s"ssc: jit tier-0 — ${sitesArmed.get()} sites armed, ${sitesHot.get()} reached the threshold " +
-      s"(call $threshold / loop $loopThreshold), ${sitesCompiled.get()} compiled, backend $backendId" +
+      s"(call $threshold / loop $loopThreshold), ${sitesCompiled.get()} compiled " +
+      (if syncCompile then "on the calling thread" else "in the background") + s", backend $backendId" +
       (if backendRef == null then "" else backendRef.asInstanceOf[JitBackend].stats))
 
   /** A `Lam` body. `body`/`arity` are carried now, though tier 0 does not read them, because J-3
@@ -83,13 +114,13 @@ object Jit:
     * recursive call as a call to the unit ITSELF instead of a globals lookup; nested lambdas and
     * `LetRec` bindings have no global name and pass `null`. */
   def site(body: Term, arity: Int, handlerRoot: Boolean, selfName: String | Null, code: Code): Code =
-    if !armed then code
+    if !armed || sitesPaused then code
     else new JitSite(body, arity, handlerRoot, selfName, currentGlobals, code, threshold)
 
   /** A `While` body: no arity (`-1`, which is also how a backend tells the two apart), and its own
     * threshold. */
   def loopSite(body: Term, code: Code): Code =
-    if !armed then code else new JitSite(body, -1, false, null, currentGlobals, code, loopThreshold)
+    if !armed || sitesPaused then code else new JitSite(body, -1, false, null, currentGlobals, code, loopThreshold)
 
   private[ssc] def registered(): Unit = sitesArmed.incrementAndGet()
 
@@ -148,12 +179,28 @@ object Jit:
     * backend that always answers null — J-3 is what makes it answer. */
   private[ssc] def onHot(site: JitSite): Unit =
     sitesHot.incrementAndGet()
+    if syncCompile then compileNow(site) else compiler.execute(() => compileNow(site))
+
+  private def compileNow(site: JitSite): Unit =
     val b = backend()
     if b != null then
       val compiled = b.asInstanceOf[JitBackend].compileUnit(site)
       if compiled != null then
         site.fast = compiled
         sitesCompiled.incrementAndGet()
+
+  /** One daemon thread, created only when a site actually goes hot.
+    *
+    * DAEMON on purpose: a short program must be free to exit with units still queued — the run that
+    * would have paid for them is over, and making it wait would reintroduce exactly the latency this
+    * exists to remove. Single-threaded, so the backend's own tables need no locking of their own.
+    * Unbounded queue: entries are bounded by the site count, which is bounded by the program. */
+  private lazy val compiler: java.util.concurrent.ExecutorService =
+    java.util.concurrent.Executors.newSingleThreadExecutor: r =>
+      val th = new Thread(r, "ssc-jit-compiler")
+      th.setDaemon(true)
+      th.setPriority(Thread.MIN_PRIORITY)
+      th
 
 /** The compile side, implemented outside the kernel (`v2/backend-jvm-bytecode`) and reached only by
   * name (§3.6). `compileUnit` returns a `Code`, not the backend's own function type, so the kernel
