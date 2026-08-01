@@ -231,8 +231,9 @@ self-parity test is not external conformance.
   through unescaped. A malformed tag is TEXT; emitting it as HTML is the difference between
   showing a user their typo and putting it in the document, which is worth more than the
   eight cases it scored. Raw HTML 8 → 4.
-  Ranked remainder at 595: List items 12, emphasis 10, Links 10, Lists 7, fenced code 6,
-  entities 5, raw HTML 4, tabs 4, block quotes 3, setext 3, tables 3, HTML blocks 2.
+  **UPR-3a is now DONE** and took it to **601**; see its entry above.
+  Ranked remainder at 601: List items 12, emphasis 10, Links 9, Lists 7, fenced code 6,
+  raw HTML 4, tabs 4, block quotes 3, setext 3, tables 3, HTML blocks 2.
 
   **UPR-3a is now the best-value block left and it is not a parser change.** All 5 Entity
   cases plus several Links need (a) the real WHATWG HTML5 entity table — the built-in one
@@ -256,11 +257,26 @@ self-parity test is not external conformance.
   Links (angle destinations, escaped titles, bracket-vs-raw-HTML precedence) and emphasis; **3a**
   is not optional decoration — a real HTML5 entity table is what several remaining Links cases
   and all four Entity cases actually need.
-  - [ ] **UPR-3a generated entity data.** Generate a deterministic, checksummed table from pinned
+  - [x] **UPR-3a generated entity data.** Generate a deterministic, checksummed table from pinned
         WHATWG `entities.json`: all semicolon-terminated HTML5 names and multi-code-point values;
         distinguish unknown text from an entity token; reject invalid numeric/surrogate values;
         decode only in contexts CommonMark permits (including destinations/titles/definitions,
         excluding code/raw HTML).
+        **Landed.** `whatwg-entities.json` pinned by SHA-256 (CC BY 4.0, LICENSE.whatwg.txt);
+        generate.py emits all 2125 SEMICOLON-TERMINATED names, excluding the 106 legacy
+        names without the semicolon that CommonMark 6.2 does not recognise. It replaced a
+        HAND-TYPED table of ~250, which is why `&copy;` decoded and `&Dcaron;` did not.
+        Emitted as one encoded string, not a 2125-entry Map literal — that size of literal
+        is a single static initialiser at the JVM's 64 KB method limit and would never be
+        JIT-compiled. It lands in the MAIN tree (the decoder is production code), which
+        needed a THIRD controlled root in generate.py, manifested and probed like the
+        other two. Decoding also wired into destinations, titles and fence info strings,
+        which hold raw slices rather than token streams and so were never covered.
+        Entity section 5 failures -> 0; corpus 595 -> 601.
+        STILL OPEN from this item's text: rejecting invalid numeric/surrogate values, and
+        proving decode-context exclusions (code spans, raw HTML) by gate rather than by
+        reading the code.
+
   - [ ] **UPR-3b block grammar.** Close tabs/indentation, indented code coalescing, fenced closing
         whitespace, HTML blocks, multiline reference definitions/titles, lists/containers and
         blank/lazy continuation by official section.
