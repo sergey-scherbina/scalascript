@@ -7,6 +7,45 @@ grepping for status.
 
 Newest first.
 
+## coord-claim-broad-reason-lands-inside-the-paths-field — every `--broad` claim is refused
+<!-- status: open
+     lane: apparatus
+     kind: bug
+     area: build
+     fixed-in: -
+     gate: - -->
+
+**Found 2026-08-01** filing the `ssc3-core` claim, which needed `mod:v3` for a directory that did
+not exist yet.
+
+`scripts/coord-claim:108` writes the claim file from a quoted heredoc:
+
+```sh
+paths: ${paths}${broad:+\nbroad: ${broad}}
+```
+
+Inside a quoted heredoc `\n` is two literal characters, not a newline, so the justification is
+appended to the **`paths:` line** rather than starting a `broad:` line. The pre-push guard then
+compares that line against the `LEDGER.tsv` paths column, they disagree, and the push is refused —
+with a diagnostic that shows the reason's words sorted into the path list:
+
+```text
+✋ pre-push: a claim disagrees with its LEDGER row.
+  'ssc3-core' paths disagree:
+    .claim : (Sergiy's 3 ScalaScript being created direct does exist existing …
+```
+
+Consequence: **`mod:` and `repo:` scopes are unusable**, because those are exactly the scopes
+`--broad` is mandatory for (P-2.1). The only way through is the grandfathered unprefixed path — so
+the level prefixes P-2.1 introduced push callers toward the *unprefixed* form, which is the opposite
+of the intent. A guard whose documented path is its only failing one gets routed around rather than
+obeyed.
+
+Adjacent to `coord-claim-accepts-an-unknown-path-prefix-and-both-guards-read-it-as-nothing` below —
+same tool, same field, both about a `paths:` value the two guards read differently. Worth fixing in
+one pass, with a self-test that actually RUNS `coord-claim` (P-6.2): checking the files it writes
+covers neither this nor that one.
+
 ## coord-claim-accepts-an-unknown-path-prefix-and-both-guards-read-it-as-nothing
 <!-- status: open
      lane: n/a

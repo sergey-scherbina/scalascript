@@ -16,6 +16,58 @@ scripts/bugs-report --no-gate              # open entries with no regression gat
 
 Newest first.
 
+## new-array-n-builds-a-one-element-array — the allocate-n form is lowered as the factory form
+<!-- status: open
+     lane: multi
+     kind: bug
+     area: front
+     fixed-in: -
+     gate: v3/tests/array-floor.ssc -->
+
+**Found 2026-08-01** while scoping `v3`'s `SSC3-0`, by measuring an inherited assumption instead of
+trusting it. Blocks `v3` `SSC3-1` and through it the whole IR implementation: an SSC IR frame is a
+fixed-size mutable indexed vector, so `Array` is the floor the register machine stands on.
+
+`new Array[T](n)` — *allocate `n` default slots* — is lowered as `Array(n)` — *a one-element array
+containing `n`*:
+
+```scalascript
+def main(): Unit =
+  val a = new Array[Int](3)
+  println(a.length)          // prints 1, expected 3
+```
+
+Measured on both lanes at `ba97940c0`:
+
+| probe | expected | `./bin/ssc run` | `./v2/ssc1` |
+|---|---|---|---|
+| `new Array[Int](3).length` | `3` | `1` | — |
+| `new Array[Int](3)`, then `a(1) = 20` | `20` | `ssc: 1 is out of bounds (min 0, max 0)` | `IndexOutOfBounds` in `Prims$.methodDispatch4` |
+| `Array(1,2,3).length` / `a(2)` | `3` / `3` | `3` / `3` ✓ | — |
+
+`lane: multi` is measured, not assumed: the interpreter lane and the v2 lane are both wrong, which
+is why this is here and not in `v2/`.
+
+**Why it survived.** The factory form `Array(1,2,3)` is correct, and that is the form the corpus
+exercises. `Typer.scala:236` defines `Array` as a one-argument function, and v2 lowers construction
+through `_arr_fill` into an `ArrayBuffer` (`v2/lib/ssc1-lower.ssc0:4822`). The two forms share a
+path, and only the one no test writes is wrong.
+
+**Distinct from `v2-array-indexed-store-silently-dropped`** (`v2/BUGS.md`, fixed in `693f0f891`),
+which is `a(i) = v` on the *factory* form. That one is closed and its gate
+(`tests/conformance/array-indexed-store.ssc`) passes; it never constructs with `new`.
+
+**No exit-code check could catch it:** `./bin/ssc run` on the failing program **exits 0**. The wrong
+answer and the out-of-bounds message both leave the status clean — the same shape as the v2 `Stub`
+sentinel. Compare output, never the exit code.
+
+Also blocks `uniml-portable` phase 3 (`uniml/v2-smoke/gap-array.ssc`), where it has been open since
+2026-07-13 recorded as a v2-only gap. It is not v2-only.
+
+**Fix and gate:** `v3/SPRINT.md` `SSC3-1`. `v3/tests/array-floor.ssc` asserts length, indexed
+read/write past index 0, and `Array.fill`, on int, js, jvm and v2. Must be observed failing on every
+lane before the fix lands, with the red count in the commit message (P-6.1).
+
 ## ssc-tools-info-rejects-front-report-at-exit-0 — an unsupported flag becomes a silent empty report
 <!-- status: open
      lane: multi
