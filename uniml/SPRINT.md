@@ -10,6 +10,12 @@ Anything not being worked on belongs in `uniml/BACKLOG.md`, not here — a queue
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [x] uniml-md-container-indent — a blank line held inside indented code was overtaken by the
+      next line's container prefix; extending matchContainers' existing paragraph buffering to
+      an open code block fixed seven of the ten remaining source failures. **source 10 → 3,
+      tokens 10 → 3**, corpus 601 → 607 of 675. First attempt threw on example 231 — see
+      BACKLOG: count exceptions, not just failures.
+
 - [x] uniml-md-upr3a — UPR-3a DONE. The real WHATWG HTML5 entity table (2125 semicolon-
       terminated names) generated from a pinned snapshot, replacing a hand-typed ~250; a third
       controlled root in generate.py because the decoder is production code; decoding wired

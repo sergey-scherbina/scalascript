@@ -232,8 +232,19 @@ self-parity test is not external conformance.
   showing a user their typo and putting it in the document, which is worth more than the
   eight cases it scored. Raw HTML 8 → 4.
   **UPR-3a is now DONE** and took it to **601**; see its entry above.
-  Ranked remainder at 601: List items 12, emphasis 10, Links 9, Lists 7, fenced code 6,
+  An eleventh took it to **607** and was aimed at the LOSSLESS axes, not the count: seven of
+  the ten remaining source failures were one bug — a blank line held inside indented code
+  was overtaken by the NEXT line's container prefix, because matchContainers emits that
+  prefix as soon as it matches. Extending its existing paragraph buffering to an open
+  indented code block fixed all seven. **source 10 → 3, tokens 10 → 3**, html unchanged.
+  ⚠️ The first attempt also added a matchContainers branch for that case, which swallowed
+  the partial-match path and stopped closing containers — example 231 then THREW instead of
+  parsing. Section counting reads that as 'Block quotes 3 → 5'; it was an exception. Count
+  the exceptions, not just the failures, when a container change looks mildly negative.
+  Ranked remainder at 607: emphasis 10, Links 9, Lists 7, fenced code 6, List items 6,
   raw HTML 4, tabs 4, block quotes 3, setext 3, tables 3, HTML blocks 2.
+  The `status: 1` axis is ONE pre-existing parse exception, A/B-confirmed as not introduced
+  by any of this work; it is the obvious next thing to name and fix.
 
   **UPR-3a is now the best-value block left and it is not a parser change.** All 5 Entity
   cases plus several Links need (a) the real WHATWG HTML5 entity table — the built-in one
