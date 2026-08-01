@@ -65,7 +65,7 @@ if [[ "$args" == *" run list "* ]]; then
       status="completed"
       conclusion="failure"
       ;;
-    push-no-sbt|sched-no-sbt|one-shard-missing|negtc-shard-missing|negtc-reduce-missing)
+    push-no-sbt|sched-no-sbt|one-shard-missing|negtc-shard-missing|negtc-reduce-missing|tier2|tier2-no-examples)
       # `one-shard-missing` reports the RUN as successful on purpose: GitHub marks a run green when
       # every job it actually ran passed, so a matrix instance that never got created leaves a green
       # run with a hole in it. That is precisely the case ci-status must still call RED.
@@ -166,6 +166,22 @@ if [[ "$args" == *" run view 42 "* ]]; then
       # would pass on a substring while five other jobs were also missing.
       shard_jobs completed success
       negtc_jobs completed success
+      ;;
+    tier2-no-examples)
+      # Tier 2 minus ONE job. Without this, dropping a name from ci-status's required list is
+      # invisible: every remaining assertion still passes, because a green run with fewer
+      # requirements is still green. MEASURED while writing this — deleting "Examples and launcher
+      # smokes" from the list left the whole guard PASSING.
+      printf 'Conformance shard 0/4|completed|success\n'
+      printf 'Conformance shard 1/4|completed|success\n'
+      printf 'Conformance shard 2/4|completed|success\n'
+      printf 'Conformance shard 3/4|completed|success\n'
+      ;;
+    tier2)
+      # THE shape a push run has since 2026-08-01: the default verdict is lint + validate + the four
+      # conformance shards + examples. sbt and negtc are tier 3 and are absent here on purpose —
+      # if ci-status ever demands one of those on a push, this case goes red.
+      shard_jobs completed success
       ;;
     push-lint-only)
       # THE shape a real ci.yml PUSH run has since 2026-07-30 (smoke-ci): Validate, the four shards
@@ -277,8 +293,16 @@ CASE_WF=ci.yml FAKE_CI_EVENT=schedule run_case missing 1 "CI RED $SHA" "missing 
 # job` on every future green push run — the tool contradicting the workflow it verifies, for the third
 # time in this one function. Green here, and RED on the schedule (next case), pins both directions:
 # absent-on-push is legitimate, absent-on-schedule is still a dropped job.
-CASE_WF=ci.yml FAKE_CI_EVENT=push     run_case push-lint-only 0 "CI GREEN $SHA" "Lint Markdown: completed/success"
+# TIER 2 (ci-three-tiers, 2026-08-01): a push carries lint + validate + the shards + examples, so
+# the lint-ONLY shape is now RED on a push too — it used to be the green one. Both directions are
+# pinned: the tier-2 shape is green on a push, and a run missing the tier is red on every event.
+CASE_WF=ci.yml FAKE_CI_EVENT=push     run_case push-lint-only 1 "CI RED $SHA" "missing required job: Validate ScalaScript"
 CASE_WF=ci.yml FAKE_CI_EVENT=schedule run_case push-lint-only 1 "CI RED $SHA" "missing required job: Validate ScalaScript"
+CASE_WF=ci.yml FAKE_CI_EVENT=push     run_case tier2 0 "CI GREEN $SHA" "Conformance shard 0/4: completed/success"
+# Each tier-2 name must be REQUIRED, not merely present. A run missing one has to read RED, or the
+# default verdict can quietly stop covering it. Validate is pinned by `push-lint-only` above and the
+# shards by `one-shard-missing` below; this is the Examples half.
+CASE_WF=ci.yml FAKE_CI_EVENT=push run_case tier2-no-examples 1 "CI RED $SHA" "missing required job: Examples and launcher smokes"
 # `sbt — compile and test` runs only on non-push events (ci.yml `if:`), because at 196 min against a
 # 7-min mean push interval at most 1 commit in 28 could ever reach a verdict (BUGS
 # ci-sbt-job-is-28x-the-code-push-interval). These two pin BOTH directions of that: absent-on-push is
@@ -924,7 +948,12 @@ missing_jobs_for_event() { # missing_jobs_for_event <event>
   # captured explicitly instead of leaking into control flow.
   local out
   set +e
-  out="$(FAKE_CI_MODE=push-lint-only FAKE_CI_EVENT="$1" FAKE_CI_WORKFLOW=ci.yml SSC_CI_GH="$FAKE_GH" \
+  # The probe run carries TIER 2 and nothing else, so "what ci-status still calls missing" is exactly
+  # the tier-3 set — which is what `if: github.event_name != 'push'` marks in ci.yml, and what this
+  # comparison is about. It used to be `push-lint-only`, correct while lint was the whole push run;
+  # once tier 2 moved back onto push that fixture made the missing set tier2+tier3 and the invariant
+  # compared two different things.
+  out="$(FAKE_CI_MODE=tier2 FAKE_CI_EVENT="$1" FAKE_CI_WORKFLOW=ci.yml SSC_CI_GH="$FAKE_GH" \
     "$ROOT/scripts/ci-status" --sha "$SHA" --workflow ci.yml 2>&1)"
   set -e
   printf '%s\n' "$out" | sed -n 's/^  missing required job: //p' | LC_ALL=C sort -u

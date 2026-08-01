@@ -354,27 +354,27 @@ if [[ "$WORKFLOW" == "ci.yml" ]]; then
   # does not stay consistent (the same argument the claim-mutex pre-push hook makes about
   # claim-vs-ledger drift).
   conformance_shards="${SSC_CI_CONFORMANCE_SHARDS:-4}"
-  # `Lint Markdown` is the only ci.yml job that still runs on a push. On 2026-07-30 (smoke-ci)
-  # `Validate ScalaScript`, the four `Conformance shard i/4` jobs and `Examples and launcher smokes`
-  # each got `if: github.event_name != 'push'`, because the push path was 13.4 min against a ~3-7 min
-  # push interval and 83 of the last 100 runs were cancelled. The per-push verdict moved to
-  # `smoke.yml`.
+  # ── TIER 2, required on EVERY event (ci-three-tiers, 2026-08-01) ─────────────────────────────
   #
-  # Requiring them on push runs would make THIS script report `missing required job` on every future
-  # green push run — the verdict tool contradicting the workflow it verifies. That has now nearly
-  # shipped three times in this one function (Conformance Suite -> shard matrix, sbt, and this), so
-  # the shape is worth naming: a required-job list is a COPY of the workflow's job set, and every time
-  # the workflow's set changes by event, this copy has to learn the same condition.
-  required_jobs=("Lint Markdown")
-  if [[ "$run_event" != "push" ]]; then
-    required_jobs+=(
-      "Validate ScalaScript"
-      "Examples and launcher smokes"
-    )
-    for ((_shard = 0; _shard < conformance_shards; _shard++)); do
-      required_jobs+=("Conformance shard ${_shard}/${conformance_shards}")
-    done
-  fi
+  # These four names are the DEFAULT verdict: lint, validate, the conformance shards and the
+  # examples/launcher smokes. They were off the push path from 2026-07-30, when the push run had no
+  # verdict at all (83 of 100 cancelled); they are back because the conformance job became a 4-way
+  # shard and the push concurrency group now cancels in progress, so the tier costs one run at a
+  # time rather than one per push.
+  #
+  # A required-job list is a COPY of the workflow's job set, and this function has nearly shipped
+  # the copies out of step four times now (Conformance Suite -> shard matrix; sbt; the event gating;
+  # negtc). What keeps it honest is not care, it is `tests/e2e/ci-status-guard.sh`, which extracts
+  # the `if: github.event_name != 'push'` set straight out of ci.yml and refuses when the two
+  # disagree — it is what caught this very edit.
+  required_jobs=(
+    "Lint Markdown"
+    "Validate ScalaScript"
+    "Examples and launcher smokes"
+  )
+  for ((_shard = 0; _shard < conformance_shards; _shard++)); do
+    required_jobs+=("Conformance shard ${_shard}/${conformance_shards}")
+  done
   # `sbt — compile and test` is required only where it actually runs. It was moved off the push path
   # (ci.yml `if: github.event_name != 'push'`) because it takes 196 min against a 7-min mean code-push
   # interval, so at most 1 commit in 28 could reach a verdict (BUGS
