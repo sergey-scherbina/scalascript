@@ -1,0 +1,53 @@
+---
+name: generic-ctor-and-array-alloc
+description: "new C[T](args) keeps its constructor name, and new Array[T](n) allocates n slots"
+backends: [int, js, jvm, v2]
+---
+
+# `new C[T](args)` and `new Array[T](n)`
+
+Root `BUGS.md` `new-array-n-builds-a-one-element-array`. Two defects that look like one, both
+found while scoping `v3` (`v3/SPRINT.md` `SSC3-1`), because an SSC IR frame is a fixed-size mutable
+indexed vector and `Array` is the floor a register machine stands on.
+
+**The constructor NAME is lost when the type is generic.** The int and js lanes extract it with
+`tpe match { case Type.Name(n) => n; case _ => "?" }`, and `C[T]` is a `Type.Apply`, so it falls
+through to `"?"` — for *any* generic class, not only `Array`. The int lane then reports
+`Unknown constructor: ?` and the js lane emits the literal `?(3)` into its output. `JsGen` already
+carried the correct peel twice and this broken one-liner a third time.
+
+**`new Array[T](n)` allocates n slots; it is not `Array(n)`.** v2 drops `new` outright
+(`v2/lib/ssc1-front.ssc0`, "new Foo(x) == Foo(x)"), which is right for a case class and wrong here:
+it built a ONE-element array holding `n`, so `a.length` was `1` and any store past index 0 died.
+`./bin/ssc run` **exited 0** on that wrong answer, so no exit-code check could see it.
+
+The jvm lane was already correct on both counts — it delegates to real Scala — which makes it the
+reference rather than a fourth thing to fix.
+
+Every assertion is paired with a CONTROL that already passed, so the case cannot go green by
+arrays or constructors breaking wholesale, and cannot go red for one reason while hiding another:
+a non-generic constructor beside the generic one, and the two working `Array` factories beside the
+allocating form. The length is also taken from a COMPUTED `n`, so the arm cannot pass by folding a
+literal.
+
+```scalascript
+case class Box[T](v: T)
+case class Pt(x: Int)
+
+def main(): Unit =
+  println(new Box[Int](7).v)
+  println(new Pt(5).x)
+
+  val a = new Array[Int](3)
+  println(a.length)
+  println(a(0))
+  a(2) = 20
+  println(a(2))
+
+  val n = 1 + 2
+  println(new Array[Int](n).length)
+
+  println(Array(1, 2, 3).length)
+  val f = Array.fill(3)(7)
+  println(f(2))
+```
