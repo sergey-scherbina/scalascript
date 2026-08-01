@@ -181,7 +181,12 @@ BAD
   if [[ $rc -eq 0 ]]; then
     echo "SELF-TEST FAILED: the malformed fixture passed — this gate proves nothing"; exit 1
   fi
-  for want in "no header comment" "not in" "requires" "is not a commit sha"; do
+  # "not a commit sha" without the leading "is": the run-id fixture now reports "looks like a CI
+  # run id, not a commit sha" — a MORE specific message than before, and the substring covers both
+  # it and the plain shape failure. This assertion caught the message change the moment it landed,
+  # which is what a self-test is for; loosening it to match is correct here, deleting it would not
+  # be.
+  for want in "no header comment" "not in" "requires" "not a commit sha"; do
     if ! printf '%s' "$out" | grep -q "$want"; then
       echo "SELF-TEST FAILED: expected a problem mentioning '$want'"; exit 1
     fi
