@@ -60,7 +60,14 @@ def bug_files(root, name="BUGS.md"):
 
 
 def module_of(root, p):
-    rel = p.relative_to(root).parent.as_posix()
+    # `--file` accepts any path, including one outside the repo — a fixture in a temp dir is how
+    # you test a query without planting a board inside the tree that every other walker then finds.
+    # `relative_to` raises for those, so `--file /tmp/x/BUGS.md` crashed with a ValueError traceback
+    # instead of answering. Out-of-tree files have no module; say so rather than die.
+    try:
+        rel = p.relative_to(root).parent.as_posix()
+    except ValueError:
+        return "(out-of-tree)"
     return "." if rel == "" else rel
 
 
@@ -117,6 +124,43 @@ def index_coverage(root):
     return {"bugs": n_bugs, "backlog_total": backlog_total, "backlog_headed": backlog_headed,
             "sprint": sprint, "unindexed": unindexed,
             "total": n_bugs + backlog_total + sprint}
+
+
+def status_drift(rows):
+    """Entries whose HEADING says fixed while their header does not.
+
+    The docstring at the top of this file promises to read only the header, and that promise is
+    what makes the tool trustworthy — every hand-rolled query over the prose disagreed with the
+    others. This function is the one deliberate exception, and it is not a violation of that rule
+    but its enforcement: it does not use the prose to ANSWER anything, it uses the prose to say
+    the header cannot be trusted for these rows. Same job as `index_coverage` — print what the
+    index cannot see, instead of quietly answering as if it saw everything.
+
+    Measured 2026-08-01 by this function, and it is why it exists: **118 of the 138 `unknown`
+    entries** carry a heading like "`fixed` (2026-06-21, `0d5e03b87`)". They pre-date the header
+    schema and were never migrated. So `--status fixed` under-reported by 118 and `unknown` was
+    86% noise, with nothing on screen to suggest either — the headline was off by roughly one
+    entry in six. (An ad-hoc grep written first said 113; it parsed entries slightly differently.
+    The number this file prints is the one from the same parser everything else here uses, which
+    is the whole argument for having one.)
+
+    Not auto-migrated, and that is a decision rather than laziness: the schema requires
+    `fixed-in: <sha>` when status is fixed, and only **8** of the 118 carry a sha in the heading
+    (a few more have one further down in the fixed paragraph). Flipping the rest would mean
+    inventing the field or relaxing the schema for pre-schema entries — see `specs/bugs-index.md`.
+    The count is reported so that choice is visible and costed rather than silently deferred.
+
+    Uses `title`, which `load()` already parsed; nothing re-reads the file.
+
+    Careful with the word itself: `\bfixed\b` also matches the FIELD NAME inside a slug like
+    `bugs-index-fixed-in-checks-resolvable-not-reachable`, because `-` is a word boundary. That
+    entry is legitimately `open` and talks ABOUT `fixed-in`; counting it made the first version of
+    this report carry one permanent false positive. `(?!-)` drops the compound and keeps the claim.
+    """
+    hits = [r for r in rows
+            if r.get("status") != "fixed"
+            and re.search(r"\bfixed\b(?!-)", r.get("title", ""), re.I)]
+    return hits
 
 
 def main():
@@ -198,6 +242,17 @@ def main():
         print(f"    {cov['backlog_total'] - cov['backlog_headed']:4} BACKLOG entries with no header"
               f"   ({cov['backlog_headed']} have one, read with --source all)")
         print(f"    {cov['sprint']:4} SPRINT items (no header schema exists for these)")
+        drift = status_drift(rows)
+        if drift:
+            withsha = sum(1 for r in drift if re.search(r"`[0-9a-f]{7,40}`", r.get("title", "")))
+            by_st = {}
+            for r in drift: by_st[r.get("status", "MISSING-HEADER")] = by_st.get(r.get("status", "MISSING-HEADER"), 0) + 1
+            print(f"\n  ⚠ status drift: {len(drift)} entries whose HEADING says fixed but whose header does not"
+                  f"   ({', '.join(f'{k}={v}' for k, v in sorted(by_st.items(), key=lambda x: -x[1]))})")
+            print(f"    so the `fixed` count above is LOW by {len(drift)} and those buckets are that much noise;"
+                  f" {withsha} carry a sha in the heading, {len(drift) - withsha} do not")
+            print(f"    (`fixed` requires `fixed-in:`, so the rest cannot migrate without a decision"
+                  f" — specs/bugs-index.md)")
         if missing:
             print(f"\n  ⚠ {len(missing)} entries have no header — run tests/e2e/bugs-index-gate.sh")
         return 0
