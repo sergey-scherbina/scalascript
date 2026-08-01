@@ -124,6 +124,45 @@ while IFS=$'\t' read -r file _rest; do
     || bad "negtc override names a case that does not exist: $file"
 done < "$OVERRIDES"
 
+# ── I4: a `known-red:` must point at an OPEN bug ─────────────────────────────────────────────
+#
+# A declared red is a TRACKED red — that is the entire difference between declaring one and hiding
+# one. If the entry it names says `status: fixed`, the record has it both ways: the bug is closed
+# and the lane it closed is still failing, and each half makes the other invisible.
+#
+# NOT hypothetical. Both entries behind the declarations added 2026-08-01 said `fixed` while their
+# own gates were RED, because each had been fixed on ONE of two paths — long arithmetic on the v1
+# JS emitter but not the v2 front's, `getOrElse` on the legacy front but not F. They were reopened
+# by hand before the declarations went in; this makes the next one impossible to forget.
+#
+# WHY NOT COMPARE LANES INSTEAD, which was the first idea: the BUGS `lane:` vocabulary
+# (int/js/jvm/native/front/…) and the baseline's lane names (int/js/js-v2/jvm/jvm-v2/v2) do not line
+# up, and inventing a mapping either MISSES the two real cases (`lane: js` vs a red `js-v2`,
+# `lane: native` vs a red `v2`) or flags two legitimate ones — `int-width` is genuinely fixed on
+# `int` while `js`/`jvm` are separately declared for a different reason. Measured both ways before
+# choosing this rule, which needs no mapping at all.
+for case_file in "$CASES"/*.ssc; do
+  grep -q '^known-red:' "$case_file" 2>/dev/null || continue
+  decl="$(sed -n 's/^known-red:[[:space:]]*//p' "$case_file")"
+  case_name="$(basename "$case_file" .ssc)"
+  named=0
+  for slug in $(printf '%s' "$decl" | grep -oE '[a-z][a-z0-9]+(-[a-z0-9]+){2,}' | sort -u); do
+    # `|| true` is load-bearing under `pipefail`: most tokens the regex pulls out of the
+    # declaration prose are NOT bug slugs (case names, spec names), so this grep finding
+    # nothing is the COMMON path. Without it the gate exits silently at the first such
+    # token — printing neither FAIL nor PASS, which is the worst way for a gate to stop.
+    hdr="$(grep -rA6 "^## ${slug} " "$ROOT"/BUGS.md "$ROOT"/*/BUGS.md "$ROOT"/*/*/*/BUGS.md 2>/dev/null            | grep -m1 -oE 'status:[[:space:]]*[a-z]+' | awk '{print $2}' || true)"
+    [ -n "$hdr" ] || continue
+    named=1
+    if [ "$hdr" = "fixed" ]; then
+      bad "known-red points at a bug marked FIXED: $case_name -> $slug
+        A declared red is a tracked red. An entry that says \`fixed\` while the lane it names is
+        still failing hides the bug twice — reopen it, or delete the declaration."
+    fi
+  done
+  [ "$named" -eq 1 ] || printf '  note: known-red on %s names no BUGS slug — it cannot be tracked back\n' "$case_name"
+done
+
 if [ "$fail" -ne 0 ]; then
   printf '\nfreeze-consistency-gate: FAIL — the freezes disagree about the same case.\n' >&2
   exit 1
