@@ -1441,9 +1441,28 @@ class JsGen(
                  allText.contains("csrf")
     if hasJwt then caps += Jwt
     // WsServer — WsServer: WebSocket connections, SSE, CORS, outbound HTTP client
+    // EVERY intrinsic implemented in `js-runtime/ws-server.mjs` must appear here, because this list
+    // is the only thing that puts that chunk in the bundle. A name missing from it emits the CALL
+    // and none of the DEFINITION: `const ctx = tls(...)` with no `function tls` anywhere, i.e.
+    // `ReferenceError` at runtime and nothing at compile time.
+    //
+    // MEASURED 2026-08-02: thirteen of the twenty-one were missing, and four picked at random —
+    // tls, wsConnect, noCache, useGzip — each reproduced the ReferenceError. `tls` is the one that
+    // surfaced, via `tls-smoke`, and only because a TreeShaker fix stopped deleting the call that
+    // had been hiding it.
+    //
+    // `tests/e2e/js-capability-triggers-gate.sh` now derives the expected set from the intrinsic
+    // table and this file, so the next addition to ws-server.mjs cannot quietly skip this list.
+    // Over-including the chunk costs bundle bytes; under-including it produces a broken program.
     val hasWsServer = allText.contains("WsConnection(") || allText.contains("WsRoom(") ||
-                      allText.contains("serveAsync(") ||
+                      allText.contains("serve(") || allText.contains("serveAsync(") ||
+                      allText.contains("stop(") || allText.contains("tls(") ||
                       allText.contains("sse(") || allText.contains("cors(") ||
+                      allText.contains("wsConnect(") || allText.contains("cacheable(") ||
+                      allText.contains("noCache(") || allText.contains("useGzip(") ||
+                      allText.contains("maxBodySize(") || allText.contains("streamResponse(") ||
+                      allText.contains("uploadDir(") || allText.contains("uploadSpoolThreshold(") ||
+                      allText.contains("httpGetStream(") || allText.contains("httpPostStream(") ||
                       allText.contains("httpGet(") || allText.contains("httpPost(") ||
                       allText.contains("httpPut(") || allText.contains("httpPatch(") ||
                       allText.contains("httpDelete(") || allText.contains("httpClient(")

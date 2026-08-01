@@ -231,6 +231,12 @@ val suite = List(
   // gate asserts BOTH placements and asserts the emitted LOOP, not only the answer: a future change
   // that dropped the transform and raised the stack instead would otherwise read as green.
   Check("v1/runtime/backend/js", "js-self-tco", "tests/e2e/js-self-tco-gate.sh", List(), 180000),
+  // An intrinsic in the table but not in JsGen's chunk-trigger scan emits its CALL and none of its
+  // DEFINITION — `ReferenceError` at runtime, nothing at compile time. THIRTEEN of the twenty-one
+  // WsServer intrinsics were in that state on 2026-08-02 and only one had ever surfaced. Derived
+  // from the intrinsic table and the chunk source rather than restated, so the next addition to
+  // ws-server.mjs cannot quietly skip the list. Pure text analysis, no launcher, ~0 s.
+  Check("v1/runtime/backend/js", "js-capability-triggers", "tests/e2e/js-capability-triggers-gate.sh", List(), 60000),
   // Tree-shaking runs on `emit-js`, NOT on the `run-js` the conformance runner uses, so a corpus
   // case cannot see this one: it printed the side effect before the fix and after it. The gate
   // emits the bundle and runs it, and also asserts that a genuinely PURE unused binding is still

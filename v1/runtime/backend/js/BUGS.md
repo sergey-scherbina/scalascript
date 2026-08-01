@@ -7,6 +7,45 @@ grepping for status.
 
 Newest first.
 
+## js-tls-reads-cert-files-eagerly — `tls()` opens the files the case says it does not touch
+<!-- status: open
+     lane: js
+     area: runtime
+     kind: bug
+     gate: tests/conformance/tls-smoke.ssc (JS lane) -->
+
+**Found 2026-08-02 by fixing the defect on top of it.** `js-tls-intrinsic-missing-from-the-wsserver-capability-trigger`
+meant `tls(...)` emitted a call with no definition, so the body never ran. With the trigger added,
+it runs — and dies:
+
+```
+Error: ENOENT: no such file or directory, open 'server.crt'
+    at tls (…:1767:21)
+```
+
+```js
+function tls(cert, key) {
+  const fs = require('fs');
+  return { cert: fs.readFileSync(cert), key: fs.readFileSync(key) };   // ws-server.mjs:511
+}
+```
+
+`tests/conformance/tls-smoke.ssc` says in its own prose: *"tls() builds a TlsContext value without
+reading the files"*, and the INT lane does exactly that — it PASSES with no such files present.
+
+**Not filed with a recommendation, because both readings are defensible and the choice is the
+runtime's to make, not a passing agent's:**
+
+* **defer the read** — matches the case, matches INT, and makes `tls()` a pure value constructor
+  that `serve()` resolves later. Cross-backend agreement comes free.
+* **keep it eager** — a server that will not be able to start should say so at configuration time,
+  not at bind time. Then the CASE is wrong and should create the files or expect the error.
+
+What is not defensible is the current state, where one lane reads and the other does not and the
+case's prose describes only one of them.
+
+Declared `known-red: js` on the case meanwhile, naming this entry.
+
 ## js-compound-assign-dispatches — `x += 1` compiles to a dynamic method call that always throws
 <!-- status: fixed
      lane: js
