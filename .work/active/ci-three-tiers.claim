@@ -1,0 +1,11 @@
+slug: ci-three-tiers
+branch: feature/ci-three-tiers
+agent: claude-code
+started: 2026-08-01T13:28:13Z
+heartbeat: 2026-08-01T13:28:13Z
+status: claimed-before-planning
+items: ci-three-tier-restructure
+paths: file:.github/workflows/ci.yml file:.github/workflows/main.yml file:scripts/ci-status file:tests/e2e/ci-status-guard.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
