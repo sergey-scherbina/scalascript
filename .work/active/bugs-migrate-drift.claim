@@ -1,0 +1,11 @@
+slug: bugs-migrate-drift
+branch: feature/bugs-migrate-drift
+agent: claude-code
+started: 2026-08-01T21:34:19Z
+heartbeat: 2026-08-01T21:34:19Z
+status: claimed-before-planning
+items: bugs-headers-were-never-migrated-from-the-prose
+paths: file:scripts/bugs-migrate-status.py
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
