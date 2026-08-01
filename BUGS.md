@@ -2615,10 +2615,36 @@ two same-subtype casts — see `integerOf`/`textOf` used by `compareKeys` in
 `scljet/write.ssc`. The tree-walk tier (`SSC_JIT_BYTECODE=off`) is unaffected.
 </details>
 
-## js-userspace-long-arith-native-operator-mixes-bigint — CONFIRMED / worked-around (2026-07-14, opus)
-<!-- status: unknown
+## js-userspace-long-arith-native-operator-mixes-bigint — no longer reproduces; the userspace workaround is removable (verified 2026-08-02)
+<!-- status: fixed
      lane: multi
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
+
+**VERIFIED NOT REPRODUCING 2026-08-02, in the real harness and against the golden.** The workaround
+below was removed and the case still passes:
+
+- control first — `tests/conformance/scljet-sql-expr.ssc` on the js lane WITH the workaround: green;
+- then `arithValue`'s call sites un-workarounded (`longAdd(x, y)` → `x + y`, and the same for
+  `-`/`*`/`/`), which is exactly the shape this entry says throws, since `x`/`y` come from
+  `intPayload` and are not provably `Long`;
+- result: **all 30 lines byte-identical to the INT golden**, no `TypeError`.
+
+**The mechanism is worth stating, because the premise of this entry is still TRUE.** `.toLong` on a
+non-Long still compiles to identity — `def signedByte(b: Int): Long = b.toLong` emits
+`return (b);` today, so the value really is a JS Number. What changed is the OPERATOR routing: an
+operand the emitter sees as `Long` now goes through `_arith`/`_larith`, which coerce Number↔BigInt
+(`v1-js-long-precision-and-bitops`, and `js-long-arith-no-64bit-wrap` for the 64-bit mask). Where
+neither operand is Long-typed the emitter still writes a NATIVE operator — that general shape is
+unchanged, it simply is not reached by this code any more. Three synthetic repros aimed at it
+(mixed-branch `if`, mixed-branch `match`, declared and inferred return types) all produced
+js == INT, so nothing is filed for it: an entry for a defect nobody can reproduce is noise.
+
+**Actionable for scljet:** `longAdd`/`longSub`/`longMul`/`longDiv`/`longMod` in `scljet/sql.ssc` are
+now dead weight at the `arithValue` call sites — measured, not assumed. Removing them is a
+simplification for whoever owns that file; this entry is the evidence.
+
+<details><summary>original report (superseded 2026-08-02)</summary>
 
 **Status:** WORKED AROUND in userspace (`scljet/sql.ssc` `arithValue`). When a plain (non-effectful)
 `def` does Long arithmetic like `val x = f(a); val y = f(b); x * y` and the compiler cannot *prove*
@@ -2637,6 +2663,7 @@ a)`), and `_arith` coerces Number↔BigInt. `longAdd`/`longSub`/`longMul`/`longD
 x.toDouble` accumulation (as AVG does), not a bare `x.toDouble`. Verified: conformance
 `scljet-sql-expr` [int, js] green (incl. `250/100 = 2`). Proper fix belongs in JsGen (prove Long across
 helper returns, or emit `_arith` for any not-provably-Int operand as the non-CPS path already does).
+</details>
 
 ## v2-native-table-model-contract-gaps — first Apple model draft diverges at four strict seams
 <!-- status: fixed
