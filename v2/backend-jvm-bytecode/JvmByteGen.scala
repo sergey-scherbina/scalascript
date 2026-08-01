@@ -302,13 +302,7 @@ object JvmByteGen:
     val lamBodies = p.defs.collect {
       case d if d.body.isInstanceOf[Term.Lam] => d.name -> d.body.asInstanceOf[Term.Lam].body
     }.toMap  // last-wins, mirrors runtime def shadowing
-    var pureChanged = true
-    while pureChanged do
-      pureChanged = false
-      lamBodies.foreach { (name, body) =>
-        if !g.pureDefs.contains(name) && pureNoEffect(body, g.pureDefs) then
-          g.pureDefs += name; pureChanged = true
-      }
+    g.pureDefs ++= pureDefsOf(lamBodies)
 
     drainPending(g)
 
@@ -364,6 +358,21 @@ object JvmByteGen:
     case Term.Seq(ts) => Term.Seq(ts.map(shift(_, amount, cutoff)))
     case Term.While(c, b) => Term.While(shift(c, amount, cutoff), shift(b, amount, cutoff))
     case _ => t // Lit, Global
+
+  /** Least fixpoint of "this def's body cannot produce an effect Op", over a name → Lam-body map.
+    * Starts empty and grows, so mutual recursion among pure defs converges instead of assuming
+    * itself pure. Shared by the whole-program lane and the JIT: the inline-`foreach`/`foldLeft`
+    * paths are gated on it, so a JIT unit computing a DIFFERENT purity set from the AOT lane would
+    * silently take a different path for the same program. */
+  def pureDefsOf(lamBodies: Map[String, Term]): collection.Set[String] =
+    val pure = collection.mutable.HashSet.empty[String]
+    var changed = true
+    while changed do
+      changed = false
+      lamBodies.foreach { (name, body) =>
+        if !pure.contains(name) && pureNoEffect(body, pure) then { pure += name; changed = true }
+      }
+    pure
 
   /** Conservative EFFECT-FREE classifier for inline-foreach bodies: true only
    *  when evaluating the term cannot produce an effect Op. Excludes App and the
@@ -1520,11 +1529,19 @@ object JvmByteGen:
     * of `Emit.global` → `ClosV` → `Emit.app`. */
   def emitUnit(body: Term, selfName: String | Null, arity: Int,
                links: List[(String, Int)]): Array[Byte] =
+    emitUnit(body, selfName, arity, links, Set.empty)
+
+  /** `pureDefs` is what unlocks the inline `foreach`/`foldLeft` Cons-walks — without it a unit
+    * declines them and pays a closure call per element, which is the difference the AOT lane gets
+    * for free from its whole-program view. */
+  def emitUnit(body: Term, selfName: String | Null, arity: Int,
+               links: List[(String, Int)], pureDefs: collection.Set[String]): Array[Byte] =
     val cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
     cw.visit(Opcodes.V17, Opcodes.ACC_PUBLIC | Opcodes.ACC_FINAL, GEN, null, OBJ, Array(LAMFN))
     val g = new Gen(cw, None)
     if selfName != null && arity >= 1 then g.defMethods(selfName.nn) = ("unit", arity)
     links.zipWithIndex.foreach((link, i) => g.linkedCallees(link) = i)
+    g.pureDefs ++= pureDefs
     if links.nonEmpty then
       cw.visitField(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "callees", s"[L$LAMFN;", null, null)
         .visitEnd()

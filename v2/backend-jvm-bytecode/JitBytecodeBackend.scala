@@ -100,6 +100,36 @@ final class BytecodeJitBackend extends JitBackend:
           case _ => None
       }
 
+  /** Purity set per program, computed ONCE and memoised on the globals map's identity.
+    *
+    * The inline `foreach`/`foldLeft` Cons-walks are gated on it, and a unit that computes an empty
+    * set declines them and pays a closure call per element — the AOT lane gets the same set for
+    * free from its whole-program view. Reconstructed here from what the JIT CAN see: every
+    * top-level def is a `ClosV` in the program's globals whose `code` is the site holding its body.
+    *
+    * Memoised because the fixpoint is O(defs × rounds) and would otherwise run once per compiled
+    * unit, turning a per-site JIT event into a whole-program analysis every time. */
+  private val purityByProgram =
+    new java.util.IdentityHashMap[AnyRef, collection.Set[String]]()
+
+  private def pureDefsFor(site: JitSite): collection.Set[String] =
+    val globals = site.globals
+    if globals == null then Set.empty
+    else
+      val key = globals.asInstanceOf[AnyRef]
+      val cached = purityByProgram.get(key)
+      if cached != null then cached
+      else
+        val bodies = globals.asInstanceOf[collection.mutable.Map[String, Value]].iterator.collect {
+          case (name, c: Value.ClosV) =>
+            c.code match
+              case s: JitSite => Some(name -> s.body)
+              case _          => None
+        }.flatten.toMap
+        val pure = JvmByteGen.pureDefsOf(bodies)
+        purityByProgram.put(key, pure)
+        pure
+
   // Refusal accounting. Two of these are BY DESIGN and one is a coverage gap; keeping them apart is
   // the difference between "7 sites did not compile" and a list of shapes worth teaching the
   // emitter. Plain vars: compilation happens under the kernel's `Jit.onHot` synchronisation.
@@ -135,7 +165,8 @@ final class BytecodeJitBackend extends JitBackend:
         val links = linkable(site)
         val fn = JvmByteGen.loadUnit(
           JvmByteGen.emitUnit(
-            site.body, selfNameIfBindingIntact(site), site.arity, links.map((n, a, _) => (n, a))),
+            site.body, selfNameIfBindingIntact(site), site.arity,
+            links.map((n, a, _) => (n, a)), pureDefsFor(site)),
           links.map((_, _, f) => f).toArray)
         compiledFns.put(site, fn)
         linked += links.length
