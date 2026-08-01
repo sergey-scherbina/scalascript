@@ -2372,7 +2372,7 @@ generator, so it is likely one cause and not three.
 <!-- status: fixed
      lane: v2-jvm
      area: codegen
-     fixed-in: PENDING-SHA
+     fixed-in: 55307a9e6
      gate: v2/conformance/autooutput.coreir -->
 
 **FIXED 2026-08-01** by `v2-source-backend-lanes`. Both lanes now run:
