@@ -1,0 +1,29 @@
+(module
+  (consts (int 0) (int 3) (int 1))
+  (types)
+  (globals)
+  (prims (prim "io.println"))
+  (funcs
+    (func "main" 0 7
+      (const 0 0)
+      (const 1 0)
+      (const 2 1)
+      (const 3 2)
+      (block
+        (loop
+          (bin ge dyn 4 1 2)
+          (brif 4 1)
+          (const 5 0)
+          (block
+            (loop
+              (bin ge dyn 4 5 2)
+              (brif 4 1)
+              (bin mul dyn 6 1 5)
+              (bin add dyn 0 0 6)
+              (bin add dyn 5 5 3)
+              (br 0)))
+          (bin add dyn 1 1 3)
+          (br 0)))
+      (prim 4 0 0)
+      (ret 4)))
+  (entry 0))
