@@ -3,9 +3,9 @@ branch: feature/record-integrity-and-two-fixes
 agent: claude-code
 started: 2026-08-01T22:55:11Z
 heartbeat: 2026-08-01T22:55:11Z
-status: claimed-before-planning
+status: implementing
 items: bugs-fixed-in-sha-not-on-main bugs-fixed-while-gate-red coord-status-is-linear-in-abandoned-worktrees js-tls-intrinsic-missing-from-the-wsserver-capability-trigger
-paths: file:tests/e2e/bugs-index-gate.sh file:scripts/coord-status file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala
+paths: file:tests/e2e/bugs-index-gate.sh file:scripts/coord-status file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:tests/e2e/freeze-consistency-gate.sh
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
