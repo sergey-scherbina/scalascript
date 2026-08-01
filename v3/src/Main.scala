@@ -194,7 +194,7 @@ object SelfTest:
 @main def ssc3(args: String*): Unit =
   val code =
     if args.isEmpty then
-      println("usage: ssc3 check <file.ssir> | fmt <file.ssir> | selftest")
+      println("usage: ssc3 check <f.ssir> | fmt <f.ssir> | emit-v2 <f.ssir> | sample | selftest")
       2
     else
       args.head match
@@ -207,6 +207,25 @@ object SelfTest:
         case "sample" =>
           print(Text.write(Sample.module))
           0
+        // Emits v2 Core IR text. Piping it into v2 is the GATE's job, not the kernel's: spawning a
+        // process is a host call, and the kernel's only door to the host is `Prim` (invariant I-1).
+        case "emit-v2" if args.length >= 2 =>
+          val path = args(1)
+          val src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")
+          try
+            val m = Text.read(src)
+            Verify.module(m) match
+              case Some(e) =>
+                Console.err.println("ssc3: " + path + ": " + e.render)
+                1
+              case None =>
+                println(BridgeV2.program(m))
+                0
+          catch
+            case e: ParseError =>
+              Console.err.println("ssc3: " + path + ": " + e.message); 1
+            case e: BridgeV2.Unsupported =>
+              Console.err.println("ssc3: " + path + ": " + e.getMessage); 1
         case "check" | "fmt" if args.length >= 2 =>
           val path = args(1)
           val src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")

@@ -1,0 +1,10 @@
+(module
+  (consts (int 1))
+  (types)
+  (globals (global "g"))
+  (prims)
+  (funcs
+    (func "main" 0 2
+      (globget 0 0)
+      (ret 0)))
+  (entry 0))

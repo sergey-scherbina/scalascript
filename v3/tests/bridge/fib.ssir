@@ -1,0 +1,26 @@
+(module
+  (consts (int 2) (int 1) (int 7))
+  (types)
+  (globals)
+  (prims (prim "io.println"))
+  (funcs
+    (func "fib" 1 6
+      (const 1 0)
+      (bin lt dyn 2 0 1)
+      (if 2
+        (then (ret 0))
+        (else))
+      (const 1 1)
+      (bin sub dyn 3 0 1)
+      (call 4 0 3)
+      (const 1 0)
+      (bin sub dyn 5 0 1)
+      (call 5 0 5)
+      (bin add dyn 3 4 5)
+      (ret 3))
+    (func "main" 0 3
+      (const 0 2)
+      (call 1 0 0)
+      (prim 2 0 1)
+      (ret 2)))
+  (entry 1))
