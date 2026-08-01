@@ -1,0 +1,11 @@
+slug: uniml-is-ssc3-frontend
+branch: feature/uniml-is-ssc3-frontend
+agent: claude-code
+started: 2026-08-01T15:00:03Z
+heartbeat: 2026-08-01T15:00:03Z
+status: claimed-before-planning
+items: record the ScalaScript 3 direction — UniML becomes the parser and the AST
+paths: file:uniml/BACKLOG.md file:uniml/SPRINT.md file:specs/project-partitioning.md file:specs/uniml-ssc3-frontend.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
