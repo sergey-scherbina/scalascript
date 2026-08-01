@@ -1,14 +1,32 @@
-# The front is built on UniML, and the UniML tree IS the AST
+# The front is built on UniML: the CST is the storage, a typed projection is the AST
 
 > Sergiy's call. Invariants I-1 and I-2 of [`00-charter.md`](00-charter.md); the IR this front
 > lowers to is [`10-ssc-ir.md`](10-ssc-ir.md).
 
-v3 does not define its own AST type. Source is scanned and shaped into a **UniML tree**, and that
-tree *is* the program's abstract syntax; lowering reads it directly and emits SSC IR.
+v3 does not define its own parser and does not define an AST independent of what was parsed. Source
+becomes a **lossless UniML CST**, a **typed projection** over that CST is the AST, and lowering
+reads the projection and emits SSC IR.
 
 ```text
-source  →  UniML tokens  →  UniML tree (= the AST)  →  SSC IR  →  execute | translate
+source  →  UniML CST (lossless, canonical)  →  typed projection (the AST)  →  SSC IR  →  execute
 ```
+
+**This section changed on 2026-08-01, and the earlier version was worse.** It said the UniML tree
+*is* the AST and that lowering pattern-matches `Branch(kind: String, …)` directly, accepting the
+loss of exhaustivity as a deliberate cost (§3). `specs/uniml-ssc3-frontend.md` argued that the cost
+does not have to be paid, and that argument is better than mine:
+
+> A lossless CST is the right STORAGE for an AST and the wrong INTERFACE for one.
+
+Every system that made this work keeps BOTH layers — Roslyn's red/green trees, rust-analyzer's
+syntax + HIR, Swift's libsyntax + typed AST — and **UniML already has the shape, proven in this
+repository**: `MarkdownProjection` takes the lossless CST and produces a typed `MarkdownDocument`
+while the CST stays canonical. Adopting it costs nothing that was not already built and removes a
+weakness I had merely mitigated.
+
+Sergiy's decision is unchanged by this and is what both documents implement: UniML supplies the
+parsing and the AST. The refinement is *how* — one representation, two views, rather than one
+untyped tree that every later phase re-derives shape from.
 
 ## 1 · Why UniML rather than a bespoke ADT
 
@@ -55,17 +73,19 @@ this repository has paid for repeatedly.
 construct in [`20-core-language.md`](20-core-language.md) — all of that is v3's work. UniML gives
 the machinery and the tree; it does not know Scala.
 
-**Exhaustiveness.** A `Branch(kind: String, …)` is an open universe where a sealed AST ADT is a
-closed one, so lowering cannot lean on the compiler to prove every node kind is handled. That is a
-real cost and it is accepted deliberately, with two answers:
+**Exhaustiveness — and this is where the two-layer split earns its keep.** A
+`Branch(kind: String, …)` is an open universe where a sealed ADT is closed, so code dispatching on
+the CST directly cannot lean on the compiler to prove every node kind is handled. **The typed
+projection is a sealed ADT, so lowering gets exhaustivity back**, and the openness stays where it
+belongs: in the storage layer, which is supposed to accept whatever the source contained.
 
-1. the node kinds v3 emits are a **closed table** in the front, and the lowering refuses an unknown
-   kind loudly rather than falling through — an unhandled construct must be an `UNSUPPORTED` naming
+Two things still hold at the seam, because the projection is where an unknown kind arrives:
+
+1. the CST kinds the projection accepts are a **closed table**, and an unknown kind is refused
+   loudly rather than falling through — an unhandled construct must be an `UNSUPPORTED` naming
    itself (`20-core-language.md` §4), never a silent miss;
-2. the **IR verifier is the backstop** (I-4). Correctness is enforced where execution happens, and a
-   lowering bug that a sealed ADT would have caught at compile time is caught before anything runs
-   instead. That is a weaker guarantee at a different point in time — worth saying out loud rather
-   than pretending the trade is free.
+2. the **IR verifier remains the backstop** (I-4), now for lowering bugs rather than for missing
+   cases the compiler can already prove absent.
 
 ## 4 · What this depends on, and who owns it
 
