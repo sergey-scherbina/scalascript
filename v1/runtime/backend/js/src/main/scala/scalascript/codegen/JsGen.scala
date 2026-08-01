@@ -586,6 +586,40 @@ class JsGen(
       }
     case _ => None
 
+  /** The class name a `new` targets, with type arguments peeled off.
+   *
+   *  `new Box[Int](7)` is a `Type.Apply`, not a `Type.Name`, so the one-liner this replaces
+   *  (`case Type.Name(n) => n; case _ => "?"`) fell to `"?"` for EVERY generic constructor and
+   *  emitted a literal `?(7)` into the output — a `SyntaxError` before the program ran a line.
+   *  The interpreter carried the same one-liner and the same defect.
+   *
+   *  This file already contained the correct peel twice (the context-bound `tcName` extractions),
+   *  and a comment on the `summon` arm records this same fallback biting `Mirror.Of[T]` earlier.
+   *  Three copies of one decision, and the one nobody had looked at was the broken one.
+   */
+  private def ctorTypeName(t: Type): String = t match
+    case Type.Name(n)   => n
+    case ta: Type.Apply => ctorTypeName(ta.tpe)
+    case _              => "?"
+
+  /** The JS zero `new Array[T](n)` fills its slots with.
+   *
+   *  The rule is deliberately not a table of its own: each zero is emitted **exactly as the
+   *  literal of that type is emitted** a few hundred lines below — `Int` a plain number, `Long` a
+   *  BigInt with the `n` suffix, `Char` a string. A second, independent notion of "the zero for T"
+   *  is how two representations of one type drift apart on this lane.
+   */
+  private def arrayElementZeroJs(t: Type): String = t match
+    case ta: Type.Apply =>
+      ta.argClause.values match
+        case List(Type.Name("Int" | "Short" | "Byte")) => "0"
+        case List(Type.Name("Long"))                   => "0n"
+        case List(Type.Name("Double" | "Float"))       => "0"
+        case List(Type.Name("Boolean"))                => "false"
+        case List(Type.Name("Char"))                   => "\"\\u0000\""
+        case _                                         => "null"
+    case _ => "null"
+
   /** Run `thunk` with name `p` typed as numeric `elem` in the tracking sets,
    *  restoring afterwards (removing only what this call added, to respect an
    *  outer binding of the same name). Used to type HOF closure params. */
@@ -4634,11 +4668,18 @@ class JsGen(
     case t: Term.ForYield =>
       genForYield(t.enumsBlock.enums, t.body)
 
-    // new ClassName(args)
+    // new ClassName(args) / new ClassName[T](args)
     case Term.New(Init.After_4_6_0(tpe, _, argClauses)) =>
-      val typeName = tpe match { case Type.Name(n) => n; case _ => "?" }
+      val typeName = ctorTypeName(tpe)
       val args = argClauses.toList.flatMap(_.values).map(genExpr)
-      s"$typeName(${args.mkString(", ")})"
+      // `new Array[T](n)` ALLOCATES n slots. Emitting `Array(n)` would be the one-argument native
+      // constructor, which in JS is also a length-only allocation but leaves HOLES — `a[0]` reads
+      // `undefined`, not the element zero — so it agrees with neither Scala nor the other lanes.
+      // `Array.from` materialises the slots. `Number(…)` because a 64-bit length arrives as a
+      // BigInt on this lane and `{length: 3n}` is not a valid array-like.
+      if typeName == "Array" && args.lengthCompare(1) == 0 then
+        s"Array.from({length: Number(${args.head})}, () => ${arrayElementZeroJs(tpe)})"
+      else s"$typeName(${args.mkString(", ")})"
 
     // Return
     case Term.Return(expr) =>

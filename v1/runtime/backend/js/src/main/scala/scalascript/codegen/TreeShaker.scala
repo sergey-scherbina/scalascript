@@ -285,7 +285,22 @@ object TreeShaker:
       case _: Term.This            => ()
       case _: Term.Super           => ()
       case _: Lit                  => ()
+      // A constructor's type name IS a JS-level dependency, unlike the annotations skipped below:
+      // `new C(args)` and `new C[T](args)` both compile to a CALL of the emitted factory `C(…)`.
+      // Skipping it let the declaration be pruned and the bundle died at run time with
+      // `C is not defined` — an emitter-synthesized reference invisible to this scanner, which is a
+      // shape this backend has been bitten by before. The type ARGUMENTS stay skipped: `[Int]` is
+      // erased and really does not reach the output.
+      case init: Init              =>
+        ctorNameOf(init.tpe).foreach(acc += _)
+        init.argClauses.foreach(collectNames(_, acc))
       // For Type.Name we skip — type references don't create JS-level dependencies
       case _: Type.Name            => ()
       case _                       =>
         tree.children.foreach(collectNames(_, acc))
+
+  /** Head class name of a constructor type, with type arguments peeled: `C` and `C[T]` alike. */
+  private def ctorNameOf(t: Type): Option[String] = t match
+    case Type.Name(n)   => Some(n)
+    case ta: Type.Apply => ctorNameOf(ta.tpe)
+    case _              => None

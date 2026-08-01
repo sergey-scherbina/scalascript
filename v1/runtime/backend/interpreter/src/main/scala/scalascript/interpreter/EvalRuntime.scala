@@ -493,6 +493,40 @@ private[interpreter] object EvalRuntime:
       if lc == null then null else lc ++ ai.argClause.values
     case _ => null
 
+  /** The class name a `new` targets, with type arguments peeled off.
+   *
+   *  `new Box[Int](7)` parses as `Type.Apply(Type.Name("Box"), …)`, not `Type.Name`, so the
+   *  one-line `tpe match { case Type.Name(n) => n; case _ => "?" }` this replaces fell to `"?"` for
+   *  EVERY generic constructor and the lookup then reported `Unknown constructor: ?`. The js lane
+   *  carried the identical one-liner and emitted a literal `?(7)` into its output. Peeling is
+   *  recursive so `new Foo[Bar[Int]](x)` resolves too.
+   *
+   *  `"?"` is kept as the last resort rather than, say, the syntax: it is what the existing
+   *  diagnostics print, and a shape that reaches it is one this arm genuinely cannot name.
+   */
+  private def ctorTypeName(t: Type): String = t match
+    case Type.Name(n)                  => n
+    case ta: Type.Apply                => ctorTypeName(ta.tpe)
+    case _                             => "?"
+
+  /** The value `new Array[T](n)` fills its slots with — Scala's zero for `T`.
+   *
+   *  Taken from the ELEMENT TYPE, which is available precisely because `ctorTypeName` no longer
+   *  throws the type arguments away. Matching Scala matters here beyond tidiness: the jvm lane
+   *  delegates to real scalac and was already correct, so any other choice would manufacture a
+   *  cross-lane divergence in a construct that had none.
+   */
+  private def arrayElementZero(t: Type): Value = t match
+    case ta: Type.Apply =>
+      ta.argClause.values match
+        case List(Type.Name("Int" | "Long" | "Short" | "Byte")) => Value.IntV(0L)
+        case List(Type.Name("Double" | "Float"))                => Value.DoubleV(0.0)
+        case List(Type.Name("Boolean"))                         => Value.BoolV(false)
+        case List(Type.Name("Char"))                            => Value.CharV(0.toChar)
+        // Every reference type, exactly as on the JVM. `new Array[String](3)` holds nulls.
+        case _                                                  => Value.NullV
+    case _ => Value.NullV
+
   /** `"_3"` → 3, anything else → -1. */
   private def tupleIdx(sel: String): Int =
     if sel.length >= 2 && sel(0) == '_' && sel.substring(1).forall(_.isDigit) then sel.substring(1).toInt else -1
@@ -4177,16 +4211,29 @@ private[interpreter] object EvalRuntime:
     case Term.Tuple(elems) =>
       evalArgs(elems, env, interp)(vs => Pure(Value.TupleV(vs)))
 
-    // new ClassName(args)
+    // new ClassName(args) / new ClassName[T](args)
     case Term.New(Init.After_4_6_0(tpe, _, argClauses)) =>
-      val typeName = tpe match { case Type.Name(n) => n; case _ => "?" }
+      val typeName = ctorTypeName(tpe)
       val argTerms = argClauses.toList.flatMap(_.values)
       evalArgs(argTerms, env, interp) { argVals =>
-        env.getOrElse(typeName, interp.globals.getOrElse(typeName,
-          interp.located(s"Unknown constructor: $typeName"))) match
-            case c: Value.NativeFnV => c.f(argVals)
-            case f: Value.FunV      => interp.callFun(f, argVals)
-            case _ => interp.located(s"$typeName is not a constructor")
+        // `new Array[T](n)` ALLOCATES n slots; it is not the `Array(x, y, …)` factory, which would
+        // build a one-element array holding n. There is no `Array` constructor to resolve either —
+        // the global is an `InstanceV` of statics — so this arm has to answer before the lookup
+        // below, which would otherwise report "Array is not a constructor".
+        if typeName == "Array" then
+          argVals match
+            case List(Value.IntV(n)) if n >= 0 =>
+              Pure(Value.ArrayV(Array.fill(n.toInt)(arrayElementZero(tpe))))
+            case List(Value.IntV(n)) =>
+              interp.located(s"new Array[…]($n): negative array size")
+            case other =>
+              interp.located(s"new Array[…](n) takes one Int length, got ${other.length} argument(s)")
+        else
+          env.getOrElse(typeName, interp.globals.getOrElse(typeName,
+            interp.located(s"Unknown constructor: $typeName"))) match
+              case c: Value.NativeFnV => c.f(argVals)
+              case f: Value.FunV      => interp.callFun(f, argVals)
+              case _ => interp.located(s"$typeName is not a constructor")
       }
 
     // for x <- xs yield f(x)
