@@ -610,3 +610,53 @@ callee is the method being compiled. Passing the def name into the site unlocks 
 backend-only change and it is the next lever — but it also changes rebinding semantics for a global
 that a program reassigns, so it wants its own slice and its own gate rather than a quiet addition
 here.
+
+### J-3b — self-calls: the recursion rows reach v1, and one passes it
+
+`JitSite` carries the def's global name (`selfName`, set only by the top-level-def pass — nested
+lambdas and `LetRec` bindings have none), and `emitUnit` takes it. **Both** mechanisms are needed
+and `selfGlobal` alone is only one of them:
+
+- self-**tail** call → `Emit.rebind` + `GOTO` to the method start: a loop, no JVM frame;
+- **non-tail** self call (`fib(n-1) + fib(n-2)`) → reached only by registering the unit's own method
+  in `defMethods`, otherwise it falls back through `Emit.global` → `ClosV` → `Emit.app`;
+- with self-calls internal, `canParamLong` lifts the whole body onto the unboxed `$long(J…)J` entry
+  behind its `INSTANCEOF IntV` guard — the AOT lane's fast `fib` path, now reached per site.
+
+**The callee is frozen by this, so the name is VERIFIED rather than assumed.** A compiled self-call
+cannot see a later rebinding of that global, while interpreted callers would. The AOT lane simply
+assumes it for every def; here the backend takes the name only when the global still resolves to
+this very body — the def's `ClosV.code` *is* the site, so an identity comparison answers it exactly.
+That closes the window up to compile time; a rebinding after it is the exposure the AOT lane already
+ships.
+
+**Alternating A/B, 3 rounds, host load 8.0** (ms/iter, medians):
+
+| row | off | on | speedup | vs `ssc` (v1 + its JIT) |
+|---|---:|---:|---:|---|
+| `arith-loop` | 74.6 | **0.611** | 122× | 2.5× off (was 301× at J-0) |
+| `recursion-fib` | 142.5 | **1.28** | 111× | **1.09× off** (was 118×) |
+| `recursion-tco` | 5.88 | **0.0277** | 212× | **1.05× FASTER than v1** |
+| `pattern-match-heavy` | 82.1 | 32.6 | 2.52× | 627× off — untouched by this slice |
+
+`recursion-tco` at 0.0277 against v1's 0.029 is the first row where the v2 VM lane passes the
+interpreter this programme set out to imitate. It is the self-tail `GOTO` loop doing it.
+
+### Compile coverage — the census that re-ordered the remaining slices
+
+All 36 corpus rows, armed, counting sites: **131,578 armed · 37,324 hot · 37,317 compiled — 7
+refusals, 0.019 %.** With the reason counters added, all 7 are **loop sites** (`arith-loop` 1,
+`nested-loop` 2, `float-loop` 1, the three effect rows 1 each): **zero handler-roots, zero
+`Unsupported` forms. The emitter had no coverage failure at all.**
+
+**This inverts the plan's priority, and the reason is the difference between v1 and v2.** J-4
+(residual callbacks) exists to convert bails into partial compilation, because in v1 bails are the
+norm — `jit-universal-coverage.md` records 300 missed functions on one engine and "silent
+(unobserved)" on two more. v2's JIT borrows the AOT lane's emitter, which the whole-program bytecode
+work has already hardened, so it compiles 37,317 of 37,324 without residuals existing at all.
+Residual callbacks would be machinery for a gap that is not there.
+
+**So the order becomes: J-6 (loop sites) next, then J-5 (type feedback), and J-4 only if a real
+corpus grows an `Unsupported` histogram.** J-6 is now doubly indicated — it is the only refusal
+class that exists, and `pattern-match-heavy`, the one row this slice did not move, is a `while` loop
+driving a `foreach`.

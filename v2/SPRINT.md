@@ -576,7 +576,35 @@ once per SITE, so the hot counter can *be* that `Code` (`Code = Env => Step` is 
       class (`Lookup.defineHiddenClass`, so a unit dies with its `LamFn`), boxed `Value` in/out, no
       residuals yet: unsupported ⇒ this site is not compiled. Gate = the parity gate below, plus
       ≥ 1 compiled unit on `recursion-fib`.
-- [ ] **J-4 — residual callbacks (the wide step).** `Emit.residual(unitId, slot, env)` runs the
+- [~] **J-3b DONE — self-calls: `fib` 111×, `tco` 212× and PAST v1.** `JitSite.selfName` (top-level
+      defs only) + `emitUnit(body, selfName, arity)`. BOTH mechanisms are needed: `selfGlobal` gets
+      the self-TAIL call (`Emit.rebind` + `GOTO`, no JVM frame), and registering the unit's own
+      method in `defMethods` is what reaches the NON-TAIL one (`fib(n-1) + fib(n-2)`) — without it
+      the call still went `Emit.global` → `ClosV` → `Emit.app`. With self-calls internal,
+      `canParamLong` lifts the body onto the unboxed `$long(J…)J` entry.
+      **The callee is frozen by this, so the name is VERIFIED, not assumed:** the def's `ClosV.code`
+      IS the site, so identity comparison says whether the global still means this body. The AOT
+      lane assumes it for every def; this checks.
+
+          alternating A/B, 3 rounds, load 8.0 (ms/iter, medians)   off      on     vs v1 `ssc`
+            arith-loop                                            74.6   0.611    2.5x off
+            recursion-fib                                        142.5   1.28     1.09x off
+            recursion-tco                                          5.88  0.0277   1.05x FASTER
+            pattern-match-heavy                                   82.1  32.6      627x off
+
+      `recursion-tco` is the first row where the v2 VM lane PASSES the v1 interpreter this programme
+      set out to imitate — the self-tail `GOTO` loop does it.
+
+- [x] **CENSUS — 36 rows: 131,578 armed, 37,324 hot, 37,317 compiled. 7 refusals = 0.019 %, ALL of
+      them loop sites.** Zero handler-roots, zero `Unsupported`: **the emitter has no coverage
+      failure.** This INVERTS the remaining order. J-4 exists to turn bails into partial
+      compilation, which is v1's problem (300 missed functions on one engine, silent on two more);
+      v2's JIT borrows the AOT emitter, already hardened by the whole-program bytecode work.
+      **Next: J-6 (loop sites), then J-5 (type feedback); J-4 only if a real corpus grows an
+      `Unsupported` histogram.** J-6 is doubly indicated — it is the only refusal class that exists,
+      and `pattern-match-heavy`, the row J-3b did not move, is a `while` driving a `foreach`.
+
+- [ ] **J-4 — residual callbacks (the wide step). DEFERRED by the census above, not by difficulty.** `Emit.residual(unitId, slot, env)` runs the
       interpreter `Code` for that subterm. **Non-tail positions only** — a residual runs its subterm
       to a `Value`, so one in tail position turns unbounded mutual tail recursion into JVM stack
       growth; if the tail position is unsupported, do not compile the unit (today's behaviour,
