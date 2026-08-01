@@ -40,7 +40,7 @@ int-width	js	KNOWN-RED
 international-bank-rails	*	SKIP
 js-glue-component	js	FAIL
 js-glue-component	v2	FAIL
-map-getorelse-expr-receiver	v2	FAIL
+map-getorelse-expr-receiver	v2	KNOWN-RED
 markdown-toolkit-links	*	SKIP
 mcp-agent	js	FAIL
 mcp-client-discover	*	SKIP
@@ -83,7 +83,7 @@ sql-h2-quickstart	js	FAIL
 sse-typed-client	*	SKIP
 streams	*	SKIP
 sync-todo	js	FAIL
-tls-smoke	js	FAIL
+tls-smoke	js	KNOWN-RED
 totp-shamir-demo	js	FAIL
 traditional-payments	*	SKIP
 typed-sql-crud	js	FAIL
