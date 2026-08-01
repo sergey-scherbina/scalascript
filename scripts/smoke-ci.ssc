@@ -192,6 +192,14 @@ val suite = List(
   Check("scripts", "claim-hooks-refuse-overlap", "tests/coord/claim-hooks.sh", List(), 180000),
   Check("scripts", "board-generated", "tests/coord/board-generated.sh", List(), 180000),
   Check("scripts", "bench-wrapper-routing", "tests/e2e/bench-wrapper-gate.sh", List(), 120000),
+  // The other half of the bench harness: `bench-wrapper-routing` checks that `scripts/bench` builds
+  // the right sbt command; this one checks that `ssc bench`'s GENERATED wrapper actually measures.
+  // It exists because the wrapper hardcoded a Long seed, so the one corpus row declaring
+  // `def workload(seed: Int)` reported `n/a` on jvm AND js — read from the table, a wrapper defect
+  // is indistinguishable from two backends that cannot run the workload. ~16 s, three lanes, two
+  // seed types each; the Long fixture is the control that says the gate itself still works.
+  // (BUGS.md bench-wrapper-hardcodes-a-long-seed.)
+  Check("scripts", "bench-seed-type", "tests/e2e/bench-seed-type-gate.sh", List(), 180000),
   Check("scripts", "release-installer-launcher", "tests/e2e/release-installer-launcher.sh", List(), 180000),
   Check("scripts", "build-ram-guards-guard", "tests/e2e/build-ram-budget-gate.sh", List(), 180000),
 

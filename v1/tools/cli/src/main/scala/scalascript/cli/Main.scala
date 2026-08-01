@@ -7767,6 +7767,16 @@ final class BenchCmd extends CliCommand:
       //     monotonic `_ssc_seed` (incremented per iter) is enough varying input.
       // A no-arg `def workload(): T` keeps the historical plain call unchanged.
       val hasSeed = raw"def\s+workload\s*\(\s*seed\b".r.findFirstIn(code).isDefined
+      // The seed's DECLARED TYPE, not merely its presence. This used to detect the parameter by
+      // name and then hardcode a Long — `workload(_ssc_sink.get())` on the JVM lane and
+      // `var _ssc_seed: Long = 1L` on interp/js. `bench/corpus/var-expr-init-int.ssc` declares
+      // `def workload(seed: Int)`, so BOTH of those were type errors and both lanes reported the
+      // row as `n/a`: E007 on the JVM, "Cannot mix BigInt and other types" on node. Read from the
+      // table that is indistinguishable from a backend that cannot run the workload — the same
+      // way the `0d` literal below once reported three float workloads as backend failures.
+      // (BUGS.md bench-wrapper-hardcodes-a-long-seed; gate tests/e2e/bench-seed-type-gate.sh.)
+      val seedTy = raw"def\s+workload\s*\(\s*seed\s*:\s*([A-Za-z_][A-Za-z0-9_]*)".r
+        .findFirstMatchIn(code).map(_.group(1)).getOrElse("Long")
       val (sinkDecl, sinkUpdate, sinkRead) =
         if targetBackend == "jvm" then
           // JVM anti-fold: AtomicLong.getAndAdd is `lock xaddq` on x86 / `ldadd`
@@ -7782,7 +7792,15 @@ final class BenchCmd extends CliCommand:
           // feeds `_ssc_sink.get()` (opaque atomic load) as the workload's seed,
           // so the body is no longer a zero-input pure function.  Seed-less
           // workloads keep the plain `workload()` call (they run a real loop).
-          val wc = if hasSeed then "workload(_ssc_sink.get())" else "workload()"
+          // The seed stays the OPAQUE atomic load; only its width is adapted to what the workload
+          // declares. A truncation of an opaque value is still opaque — C2 cannot algebraically
+          // re-derive a constant from it — so the anti-fold property above is unaffected.
+          val seedArg = seedTy match
+            case "Long"   => "_ssc_sink.get()"
+            case "Int"    => "_ssc_sink.get().toInt"
+            case "Double" => "_ssc_sink.get().toDouble"
+            case _        => "_ssc_sink.get()"
+          val wc = if hasSeed then s"workload($seedArg)" else "workload()"
           returnTy match
             case "Int" | "Long" | "Boolean" =>
               ("val _ssc_sink = new java.util.concurrent.atomic.AtomicLong(0L)",
@@ -7808,7 +7826,14 @@ final class BenchCmd extends CliCommand:
           // outer-loop fold anyway, so this is honest already.  When the
           // workload takes a seed, declare a monotonic `_ssc_seed` and advance
           // it inside the (block-wrapped) sink update so the input varies.
-          val seedDecl = if hasSeed then "var _ssc_seed: Long = 1L\n" else ""
+          // Declared with the workload's own seed type — see the note at `seedTy`. A `Long` seed
+          // handed to `def workload(seed: Int)` is a type error on the js lane (its Long is a
+          // BigInt, and the Int-typed body emits native `+`), which is how this row read `n/a`.
+          val seedOne = seedTy match
+            case "Long"   => "1L"
+            case "Double" => "1.0"
+            case _        => "1"
+          val seedDecl = if hasSeed then s"var _ssc_seed: $seedTy = $seedOne\n" else ""
           val wc       = if hasSeed then "workload(_ssc_seed)" else "workload()"
           def upd(core: String) = if hasSeed then s"{ _ssc_seed = _ssc_seed + 1; $core }" else core
           returnTy match
