@@ -10,6 +10,13 @@ Anything not being worked on belongs in `scripts/BACKLOG.md`, not here — a que
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [x] bench-seed-type — `ssc bench`'s wrapper detected the anti-fold `seed` by NAME and hardcoded a
+  `Long`, so the corpus's one `def workload(seed: Int)` row was a type error on jvm AND js and read
+  `n/a` on both — a harness defect wearing a backend's clothes, and the second of its kind here. Now
+  reads the declared type; the JVM seed stays the opaque atomic load with only its width adapted.
+  Gate `tests/e2e/bench-seed-type-gate.sh` in smoke-ci (2 of 6 cells red before the fix).
+  var-expr-init-int, all four lanes: ssc 3.20 · jvm 3.41 · js 51.6 · v2 145.2 ms/iter.
+
 - [x] **negtc-gate-shard-reduce** — the `ci.yml` wiring, the last piece (the gate side landed
       2026-07-30). An N-way `--sweeps-only --shard i/N` matrix uploading its two partial TSVs, then
       one `needs:` job that downloads, merges with `scripts/negtc-merge-reports` and runs `--reduce`.
