@@ -70,7 +70,11 @@ A compiler built on an IR that turns out to be wrong is work thrown away twice.
       pays — `V-0` is correct, and correct-and-slow is a shippable state that SSA-with-joins on day
       one is not.
 
-- [ ] **SSC3-4 — the front, on UniML.** Sergiy's call: v3 defines **no AST type of its own** — the
+- [~] **SSC3-4 — the front.** RUNNING: `bin/ssc3 run <file.ssc>` compiles and executes real
+      `.ssc` source through v3's own lexer, parser, typed AST, lowering, verifier and the v2
+      bridge. The AST and the lowering are the halves that SURVIVE the UniML swap; only the
+      interim parser is replaced.
+      *Originally scoped as UniML-first:* Sergiy's call: v3 defines **no AST type of its own** — the
       UniML tree IS the AST, and lowering reads it directly. `specs/40-front-on-uniml.md`.
       UniML is ours, dependency-free, and already dual-compilable in exactly the subset I-2 asks
       for, so the parser lands inside the differential gate at no extra cost; spans, edge roles and

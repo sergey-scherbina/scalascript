@@ -1,0 +1,14 @@
+def fib(n: Int): Int =
+  if n < 2 then n
+  else fib(n - 1) + fib(n - 2)
+
+def main(): Unit =
+  println(1 + 2 * 3)
+  println(fib(10))
+  var i = 0
+  var total = 0
+  while i < 5 do
+    total = total + i * i
+    i = i + 1
+  println(total)
+  println("готово")

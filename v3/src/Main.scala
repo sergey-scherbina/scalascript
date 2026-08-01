@@ -194,7 +194,7 @@ object SelfTest:
 @main def ssc3(args: String*): Unit =
   val code =
     if args.isEmpty then
-      println("usage: ssc3 check <f.ssir> | fmt <f.ssir> | emit-v2 <f.ssir> | sample | selftest")
+      println("usage: ssc3 build <f.ssc> | ir <f.ssc> | check <f.ssir> | fmt <f.ssir> | emit-v2 <f.ssir> | sample | selftest")
       2
     else
       args.head match
@@ -204,6 +204,40 @@ object SelfTest:
         // and compares it, so it proves nothing about whether the format is right. What it does is
         // make a change to the canonical form show up as a reviewable diff instead of silently
         // moving under every gate that compares .ssir.
+        // The whole front, end to end: .ssc -> tokens -> AST -> SSC IR -> verify -> v2 Core IR.
+        // Emitting rather than running, because spawning v2 is a host call and the kernel's only
+        // door to the host is `Prim` (invariant I-1). `bin/ssc3` does the piping.
+        case "build" if args.length >= 2 =>
+          val path = args(1)
+          val src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")
+          try
+            val m = Lower.program(Parser.parse(src))
+            Verify.module(m) match
+              case Some(e) =>
+                // A lowering bug reaching the backend is exactly what I-4 exists to stop, and the
+                // message says WHERE rather than only that it happened.
+                Console.err.println("ssc3: " + path + ": lowering produced invalid IR: " + e.render)
+                1
+              case None =>
+                println(BridgeV2.program(m))
+                0
+          catch
+            case e: LexError     => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+            case e: ParseFail    => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+            case e: LowerFail    => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+            case e: BridgeV2.Unsupported =>
+              Console.err.println("ssc3: " + path + ": " + e.getMessage); 1
+        // The IR the front produced, in canonical form — for reading and for diffing.
+        case "ir" if args.length >= 2 =>
+          val path = args(1)
+          val src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")
+          try
+            print(Text.write(Lower.program(Parser.parse(src))))
+            0
+          catch
+            case e: LexError  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+            case e: ParseFail => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+            case e: LowerFail => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
         case "sample" =>
           print(Text.write(Sample.module))
           0

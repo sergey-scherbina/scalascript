@@ -1,0 +1,7 @@
+def boom(): Int =
+  println("EVALUATED")
+  1
+
+def main(): Unit =
+  if false && boom() > 0 then println("then") else println("else")
+  if true || boom() > 0 then println("or-then") else println("or-else")

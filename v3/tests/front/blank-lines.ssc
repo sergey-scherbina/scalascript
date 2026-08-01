@@ -1,0 +1,6 @@
+def g(): Int = 2
+
+// a comment line between definitions, then a blank one
+
+def main(): Unit =
+  println(g())

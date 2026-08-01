@@ -140,6 +140,10 @@ object BridgeV2:
     case Instr.Move(d, a)         => write(d, read(a, sh), sh)
     case Instr.Bin(o, _, d, a, b) => write(d, arith(binName(o), read(a, sh), read(b, sh)), sh)
     case Instr.Un(UnOp.Neg, _, d, a) => write(d, arith("-", int(0), read(a, sh)), sh)
+    // `not x` as `x == false`, built from operators already proven on this lane rather than from a
+    // guessed `__arith__` spelling for `!`. A wrong operator name lowers to a runtime miss far from
+    // here, which is the failure this whole file is written to avoid.
+    case Instr.Un(UnOp.Not, _, d, a) => write(d, arith("==", read(a, sh), lit("false")), sh)
 
     case Instr.If(c, t, e) =>
       // An `If` is a branchable region in this IR (the verifier counts it), so both arms end with

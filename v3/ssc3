@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# ssc3 — the ScalaScript 3 driver.
+#
+#   v3/ssc3 run   <file.ssc>    compile and run
+#   v3/ssc3 ir    <file.ssc>    print the SSC IR the front produced
+#   v3/ssc3 build <file.ssc>    print the v2 Core IR the bridge produced
+#   v3/ssc3 <anything else>     passed straight to the kernel (check, fmt, sample, selftest)
+#
+# It lives in `v3/` rather than `bin/` because `.gitignore` says bin/ is GENERATED and wrapper
+# sources belong in scripts/launchers/ — which is shared infrastructure this claim does not hold.
+# Staging it as `bin/ssc3` is a one-line install.sh follow-up, not a blocker.
+#
+# The PIPING lives here and not in the kernel. Spawning a process is a host call, and the kernel's
+# only door to the host is `Prim` (v3/specs/00-charter.md I-1) — a compiler that shells out from
+# inside its own core has a dependency it cannot state.
+#
+# `run` today means: .ssc -> AST -> SSC IR -> verify -> v2 Core IR -> the v2 VM. The last hop is
+# SSC3-3's bridge, which is why v3 has the whole v2 backend fleet without having written one.
+set -uo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SSC3=(scala-cli run "$ROOT/v3/src" --server=false --quiet --)
+V2=(scala-cli run "$ROOT/v2/src" --server=false --quiet --java-opt=-Xss512m --)
+
+cmd="${1:-}"
+case "$cmd" in
+  run)
+    [ $# -ge 2 ] || { echo "usage: ssc3 run <file.ssc>" >&2; exit 2; }
+    ir="$(mktemp -t ssc3run)"
+    trap 'rm -f "$ir"' EXIT
+    # The build step's diagnostics go to stderr and its exit code decides. Running a program the
+    # front refused would be worse than not running it at all.
+    "${SSC3[@]}" build "$2" > "$ir" || exit 1
+    "${V2[@]}" run-ir "$ir"
+    ;;
+  *)
+    exec "${SSC3[@]}" "$@"
+    ;;
+esac
