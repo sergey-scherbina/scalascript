@@ -28,8 +28,16 @@ slot.
 
 Class-method named args are still absent, and for the same reason one lane at a time: `K().m(1,
 c = 9)` gives `NaN` on the JS lane, and a default that reads a field (`def shift(dx: Int = x)`)
-gives `6/NaN`. Filed as `js-class-method-named-arg-nan`. Adding those lines here would pin a
-divergence rather than a behaviour.
+gave `6/NaN`. That was `js-class-method-named-arg-nan`, and it is **FIXED** — the class-method rows
+below were added with the fix, so this case now covers object AND class methods.
+
+Two causes sat behind that one symptom, and either alone still failed:
+a class's METHODS were never registered in the param-order table (`deep` walked objects and a case
+class's CONSTRUCTOR, never a class BODY), so named arguments were not reordered; and class-method
+DEFAULTS were dropped entirely, because the emitted signature was built from bare parameter names.
+The `dx: Int = x` row is the sharp one — its default reads a FIELD, which only exists after the
+`_self` destructuring, so the defaults have to be applied in the body rather than as JS default
+parameters.
 
 ```scalascript
 def f(a: String, b: String = "B0", c: String = "C0", d: String = "D0"): String =
@@ -39,6 +47,12 @@ case class P(x: Int, y: Int = 2, z: Int = 3)
 
 object O:
   def m(a: Int, b: Int = 5, c: Int = 7): Int = a + b * 10 + c * 100
+
+class K:
+  def m(a: Int, b: Int = 5, c: Int = 7): Int = a + b * 10 + c * 100
+
+case class P2(x: Int, y: Int = 2):
+  def shift(dx: Int = x, dy: Int = 0): String = (x + dx).toString + "/" + (y + dy).toString
 
 println(f("x", c = "C1"))
 println(f("x", d = "D1"))
@@ -57,4 +71,18 @@ println(O.m(c = 9, a = 1))
 println(O.m(1))
 println(O.m(1, 2, 3))
 println(O.m(1, b = 2, c = 3))
+
+// CLASS methods — the half this case could not cover until the fix.
+println(K().m(1, c = 9))
+println(K().m(1, b = 2))
+println(K().m(c = 9, a = 1))
+println(K().m(1))
+println(K().m(1, 2, 3))
+// a default that reads a FIELD, evaluated after the receiver's fields are in scope
+println(P2(5).shift(dy = 1))
+println(P2(5).shift(dx = 100))
+// NOT `P2(5).shift()` — the no-argument call. jvm and js both answer `10/2`; the INT lane dies
+// with `Undefined: x` evaluating the field-valued default, so including it would pin a divergence
+// in a case that exists to gate the js fix. Filed as
+// `int-field-valued-default-undefined-on-empty-call`.
 ```

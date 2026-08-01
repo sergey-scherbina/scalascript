@@ -887,6 +887,16 @@ class JsGen(
       case c: Defn.Class if c.mods.exists(_.isInstanceOf[Mod.Case]) =>
         val ctorParams = c.ctor.paramClauses.flatMap(_.values).map(_.name.value).toList
         if ctorParams.nonEmpty then importedParamOrder(c.name.value) = ctorParams
+        // The BODY too — see the plain-class case below.
+        deep(c.templ.body.stats)
+      // A class's METHODS were never recorded: `deep` descended into objects and took a case
+      // class's CONSTRUCTOR, but nothing walked a class body. So `K().m(1, c = 9)` had no param
+      // order to reorder against, the named argument landed in a slot the callee does not read,
+      // and arithmetic on `undefined` produced NaN — not a wrong number, which is what made it
+      // look like a dispatch problem rather than a missing registration.
+      // BUGS `js-class-method-named-arg-nan`.
+      case c: Defn.Class =>
+        deep(c.templ.body.stats)
       case _ => ()
     }
     def scan(section: Section): Unit =
@@ -3112,7 +3122,24 @@ class JsGen(
         val recv        = ("_self" :: methParams.map(safeJsParam)).mkString(", ")
         val bodyJs      = withParamRenames(methRenames)(genExpr(meth.body))
         val guards      = intParamGuardLines(methParamVals).mkString(" ")
-        s"_registerExt('$methName', ($recv) => { $destructure$guards return $bodyJs; }, '$typeName');"
+        // Default parameter values were dropped here entirely — the signature was built from bare
+        // names — so `K().m(1, c = 9)` left `b` undefined and the arithmetic gave NaN.
+        //
+        // They are applied IN THE BODY rather than as JS default parameters, and that is not a
+        // style choice: a default may read a FIELD (`def shift(dx: Int = x, …)` in a case class),
+        // and the fields only exist after `const {x, y} = _self` a few characters later. As a JS
+        // default it would evaluate in the parameter scope, before that `const` — a TDZ error, or
+        // silently the wrong binding. Applying them after the destructuring makes a field-valued
+        // default work for the same reason the body does.
+        // BUGS `js-class-method-named-arg-nan`.
+        val defaults = methParamVals.flatMap { p =>
+          p.default.map { d =>
+            val n = safeJsParam(p.name.value)
+            s"if ($n === undefined) $n = ${withParamRenames(methRenames)(genExpr(d))};"
+          }
+        }.mkString(" ")
+        val defaultsStr = if defaults.isEmpty then "" else s"$defaults "
+        s"_registerExt('$methName', ($recv) => { $destructure$defaultsStr$guards return $bodyJs; }, '$typeName');"
     }
 
   /** Emit a Scala `Defn.Object` as a JS expression — an IIFE that

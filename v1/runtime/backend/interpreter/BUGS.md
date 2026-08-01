@@ -7,6 +7,43 @@ grepping for status.
 
 Newest first.
 
+## int-field-valued-default-undefined-on-empty-call — a default that reads a field works with an argument, not without one
+<!-- status: open
+     lane: int
+     area: runtime
+     fixed-in: -
+     gate: - -->
+
+**Found 2026-08-01** by `js-codegen-pair` while extending `named-arg-defaults` to class methods —
+i.e. by a case written for a different lane, which is the only reason anyone looked.
+
+```scalascript
+case class P2(x: Int, y: Int = 2):
+  def shift(dx: Int = x, dy: Int = 0): String = (x + dx).toString + "/" + (y + dy).toString
+
+def main() =
+  println(P2(5).shift(dy = 1))     // int 10/3    jvm 10/3    js 10/3
+  println(P2(5).shift(dx = 100))   // int 105/2   jvm 105/2   js 105/2
+  println(P2(5).shift())           // int ERROR   jvm 10/2    js 10/2
+```
+
+```
+[ERROR] [line 2, col 23] Undefined: x
+   2 |   def shift(dx: Int = x, dy: Int = 0): String = …
+      |                       ^
+```
+
+**The sharp part is the first row.** `shift(dy = 1)` ALSO takes the `dx` default and evaluates the
+same `x`, and it succeeds. So the field is reachable from the default expression in general; it is
+specifically the EMPTY argument list that loses the receiver. That rules out "defaults cannot see
+fields" and points at whatever binds the receiver before defaults are evaluated on the no-argument
+path.
+
+**Two lanes against one, and the odd one is not the oracle**: jvm runs real Scala and js agrees with
+it, so `10/2` is not in doubt. js only started agreeing in the same commit that filed this
+(`js-class-method-named-arg-nan`), which is why this had never been visible from a lane comparison.
+
+
 ## object-var-member-assignment-writes-a-top-level-global — an object's `var` is not scoped to the object
 <!-- status: fixed
      lane: int

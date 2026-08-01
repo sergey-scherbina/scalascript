@@ -55,6 +55,14 @@ object TreeShaker:
     val allDeclared = mutable.Set.empty[String]
     // Terms that run unconditionally at the top level (seeds for reachability).
     val sideEffects = mutable.ListBuffer.empty[Tree]
+    // Top-level `val`/`var` names whose INITIALISER may have effects. Dropping an unreferenced
+    // binding also drops its initialiser, and that is only sound when the initialiser is pure:
+    // `val unused = eff()` made the call — and its `println` — vanish from the bundle
+    // (`js-unused-val-drops-side-effecting-call`). Forcing the NAME reachable, rather than only
+    // scanning the rhs for references, is what keeps the statement itself: the emitter's
+    // `isReachableStat` filters on the name, so seeding the rhs alone would have kept `eff`
+    // defined and still elided the call that runs it.
+    val effectfulBindings = mutable.ListBuffer.empty[String]
 
     // JsGen emits a `_sscMirror_<T>` for EVERY product class of a module that mentions `Mirror`,
     // and that mirror's `fromProduct` closure calls the constructor `T(...)`. The shaker cannot see
@@ -78,12 +86,14 @@ object TreeShaker:
             case List(Pat.Var(n)) =>
               allDeclared += n.value
               declBodies(n.value) = d.rhs :: Nil
+              if !isTriviallyPure(d.rhs) then effectfulBindings += n.value
             case _ =>
               // Multi-pattern val: treat as side effect
               sideEffects += d.rhs
         case Defn.Var.After_4_7_2(_, List(Pat.Var(n)), _, rhs) =>
           allDeclared += n.value
           declBodies(n.value) = rhs :: Nil
+          if !isTriviallyPure(rhs) then effectfulBindings += n.value
         case d: Defn.Var =>
           // multi-pat or unusual var: treat rhs as side effect
           d.children.collect { case t: Term => t }.foreach(sideEffects += _)
@@ -234,6 +244,10 @@ object TreeShaker:
       namesIn(t).foreach(enqueue)
     }
 
+    // Bindings whose initialiser may have effects are roots: the initialiser runs
+    // unconditionally at module load whether or not anything reads the name.
+    effectfulBindings.foreach(enqueue)
+
     // ── Step 3: Worklist expansion ───────────────────────────────────────────
     while worklist.nonEmpty do
       val name  = worklist.dequeue()
@@ -247,6 +261,17 @@ object TreeShaker:
   // Collect all `Term.Name` and `Type.Name` leaves from a tree.
   // This is deliberately conservative: any name mentioned in any expression
   // position counts as a reference.
+
+  /** Deliberately tiny and conservative: only shapes that provably cannot run user code count as
+   *  pure. Everything else — any call, selection, `new`, block, `if` — is assumed effectful and its
+   *  binding is kept. Being wrong in this direction costs bundle bytes; being wrong the other way
+   *  deletes a side effect, which is what `js-unused-val-drops-side-effecting-call` was. A
+   *  selection is NOT pure here: `O.x` can be a parameterless `def`. */
+  private def isTriviallyPure(t: Term): Boolean = t match
+    case _: Lit           => true
+    case _: Term.Name     => true
+    case Term.Tuple(args) => args.forall(isTriviallyPure)
+    case _                => false
 
   private def namesIn(tree: Tree): Set[String] =
     val acc = mutable.Set.empty[String]

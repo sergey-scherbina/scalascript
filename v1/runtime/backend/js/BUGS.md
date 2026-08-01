@@ -435,10 +435,31 @@ version of the same scope problem before assuming it is a `Show`/`toString` issu
 and folding it in would have made a three-lane claim out of a one-lane fix.
 
 ## js-unused-val-drops-side-effecting-call — `val unused = eff()` elides the call, side effect and all
-<!-- status: open
+<!-- status: fixed
      lane: js
      area: codegen
-     gate: none -->
+     fixed-in: PENDING-SHA
+     gate: tests/e2e/js-shaker-keeps-effectful-binding.sh -->
+
+**FIXED 2026-08-01** by `js-codegen-pair`. The fix is in the **TreeShaker**, not the emitter, and
+the entry's own suggestion ("whatever prunes unused local bindings in JsGen") would have made it
+worse: `isReachableStat` filters on the NAME, so keeping the statement without making the name a
+root leaves the initialiser referring to an `eff` the shaker has already pruned — a `ReferenceError`
+traded for a silent no-op. A top-level `val`/`var` whose initialiser is not *trivially* pure is now
+a reachability ROOT, which keeps the statement AND drags its dependencies in.
+
+`isTriviallyPure` is deliberately tiny — literals, names, and tuples of those. Everything else (any
+call, selection, `new`, block) counts as effectful. A selection is NOT pure: `O.x` can be a
+parameterless `def`. Being wrong this way costs bundle bytes; being wrong the other way deletes a
+side effect.
+
+**The mode matters and the original report did not name it.** Tree-shaking runs on `emit-js`, NOT on
+`run-js` — which is what the conformance runner uses. A conformance case would have printed
+`SIDE-EFFECT` before the fix and after it and gated nothing, so the gate is an e2e script that emits
+the bundle and runs it. It also asserts that a genuinely PURE unused binding is still dropped, so a
+"fix" that merely stopped shaking would fail it.
+
+
 
 **Found 2026-07-30**, isolated to six lines, while repairing a conformance case that had quietly
 stopped testing anything because of it.
@@ -639,10 +660,35 @@ error display appeared to show the STRING literal broken too. Reading the emitte
 split.
 
 ## js-class-method-named-arg-nan — a named arg to a CLASS method is `NaN` on the JS lane
-<!-- status: open
+<!-- status: fixed
      lane: js
      area: codegen
-     gate: none -->
+     fixed-in: PENDING-SHA
+     gate: tests/conformance/named-arg-defaults.ssc -->
+
+**FIXED 2026-08-01** by `js-codegen-pair`. **Two independent causes behind one symptom**, and
+either one alone still produced a wrong answer — the first fix moved `6/NaN` to `NaN/3`, which is
+what showed there was a second.
+
+1. **A class's METHODS were never registered in the param-order table.** `collectParamOrdersFromModule`
+   descended into objects and recorded a case class's CONSTRUCTOR, but nothing walked a class BODY.
+   With no param order, named arguments were not reordered and landed in slots the callee does not
+   read. Now `deep` descends into every `Defn.Class` body, case or not.
+2. **Class-method DEFAULTS were dropped entirely.** `caseClassBodyMethodRegistrations` built the
+   emitted signature from bare parameter names, so an omitted parameter stayed `undefined`.
+
+The defaults are applied **in the body**, not as JS default parameters, and that is forced rather
+than chosen: a default may read a FIELD (`def shift(dx: Int = x, …)`), and the fields only exist
+after `const {x, y} = _self`. As a JS default it would evaluate in the parameter scope, before that
+`const` — a TDZ error or the wrong binding.
+
+`tests/conformance/named-arg-defaults.ssc` now covers class methods, which it could not before.
+Verified against the jvm oracle, which is also how a THIRD defect surfaced — on the INT lane, filed
+as `int-field-valued-default-undefined-on-empty-call`: `P2(5).shift()` with no arguments dies there
+while jvm and js both answer `10/2`. js only started agreeing with the oracle in this commit, which
+is why a lane comparison had never shown it.
+
+
 
 **Found 2026-07-30** while fixing [[v1-interp-object-method-named-arg-wrong-slot]]. Object methods
 are fine on every lane now; **class** methods are not, on JS only.
