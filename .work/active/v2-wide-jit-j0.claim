@@ -4,8 +4,8 @@ agent: claude-code
 started: 2026-07-31T18:02:48Z
 heartbeat: 2026-07-31T19:17:19Z
 status: claimed-before-planning
-items: J-0 v2-wide-jit baseline + JitSite overhead apparatus, J-1 JitSite counters, J-2 backend SPI, J-3 emitUnit
-paths: file:v1/runtime/backend/interpreter-bench/src/main/scala/scalascript/bench/V2JitSiteBench.scala file:specs/v2-wide-jit.md file:v2/src/Runtime.scala file:v2/src/Jit.scala file:v2/backend-jvm-bytecode/JitBytecodeBackend.scala file:v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala file:v2/backend-jvm-bytecode/JvmByteGen.scala
+items: J-0 v2-wide-jit baseline + JitSite overhead apparatus, J-1 JitSite counters, J-2 backend SPI, J-3 emitUnit, J-8 lint-jit -v2
+paths: file:v1/runtime/backend/interpreter-bench/src/main/scala/scalascript/bench/V2JitSiteBench.scala file:specs/v2-wide-jit.md file:v2/src/Runtime.scala file:v2/src/Jit.scala file:v2/backend-jvm-bytecode/JitBytecodeBackend.scala file:v1/tools/cli/src/main/scala/scalascript/cli/RunNativeV2.scala file:v2/backend-jvm-bytecode/JvmByteGen.scala file:v1/tools/cli/src/main/scala/scalascript/cli/LintJitCmd.scala
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: J-1 JitSite wrapper at the four Lam-body sites + the While body (v2/src/Runtime.scala)
