@@ -40,6 +40,11 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       `tests/e2e/negtc-manifest-contract-gate.sh` in `scripts/smoke-ci` — verified red against the
       unfixed script (5 of 7 assertions).
 
+- [~] **ci-crossbackend-differential-runtime** — first slice landed: ScalaTest's `assert(cond, clue)`
+      evaluates the CLUE EAGERLY, and 31 sites in `CrossBackendPropertyTest` put a cold
+      `scala-cli` run in both the condition and the clue. The slowest thing in CI ran TWICE on the
+      GREEN path. Hoisted into vals; sharding the test phase is still open.
+
 - [~] smoke-budget-drift — MEASURED, and the premise was wrong: nothing grew. Per check between
       the fastest and slowest of eight green runs the median ratio is x1.39 and the three checks
       that did NOT move are the ones dominated by waiting rather than CPU — i.e. the whole run

@@ -263,8 +263,9 @@ class CrossBackendPropertyTest extends AnyFunSuite:
     for (label, prog) <- shapes do
       val m   = module(prog)
       val exp = interp(m)
-      assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
-      assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
+      val jsOut = runJs(m); val jvmOut = runJvm(m)
+      assert(jsOut  == exp, s"JS diverged on '$label': interp=[$exp] js=[$jsOut]")
+      assert(jvmOut == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[$jvmOut]")
 
   // Partial application of a CURRIED def (`def add(a)(b); val f = add(3); f(4)`). JsGen flattens curried
   // params to `function add(a, b)`, so an under-applied JS call produced NaN (`3 + undefined`); interp +
@@ -281,8 +282,9 @@ class CrossBackendPropertyTest extends AnyFunSuite:
     for (label, prog) <- shapes do
       val m   = module(prog)
       val exp = interp(m)
-      assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
-      assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
+      val jsOut = runJs(m); val jvmOut = runJvm(m)
+      assert(jsOut  == exp, s"JS diverged on '$label': interp=[$exp] js=[$jsOut]")
+      assert(jvmOut == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[$jvmOut]")
 
   // Effects in HOF/closure positions + non-effect main-path edge cases. `perform` inside `.map` /
   // `.foldLeft` closures threads correctly; closures-returning-closures, nested for-yield, recursion,
@@ -305,8 +307,9 @@ class CrossBackendPropertyTest extends AnyFunSuite:
     for (label, prog) <- shapes do
       val m   = module(prog)
       val exp = interp(m)
-      assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
-      assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
+      val jsOut = runJs(m); val jvmOut = runJvm(m)
+      assert(jsOut  == exp, s"JS diverged on '$label': interp=[$exp] js=[$jsOut]")
+      assert(jvmOut == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[$jvmOut]")
 
   // An effect op performed inside a `for … do` loop — both Range (`i <- lo until/to hi`) and
   // collection (`x <- List(...)`) generators. The `for-do` → `foreach` desugar ran the body via
@@ -336,8 +339,9 @@ class CrossBackendPropertyTest extends AnyFunSuite:
     for (label, prog) <- shapes do
       val m   = module(prog)
       val exp = interp(m)
-      assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
-      assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
+      val jsOut = runJs(m); val jvmOut = runJvm(m)
+      assert(jsOut  == exp, s"JS diverged on '$label': interp=[$exp] js=[$jsOut]")
+      assert(jvmOut == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[$jvmOut]")
 
   // Collection HOFs + pattern-matching edge cases. JS was missing `sortWith`/`sorted`/`partition`/`span`
   // in `_dispatch`, and dropped `match` case GUARDS (`case x if x < 0`) — a guarded arm looked like a
@@ -356,8 +360,9 @@ class CrossBackendPropertyTest extends AnyFunSuite:
     for (label, prog) <- shapes do
       val m   = module(prog)
       val exp = interp(m)
-      assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
-      assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
+      val jsOut = runJs(m); val jvmOut = runJvm(m)
+      assert(jsOut  == exp, s"JS diverged on '$label': interp=[$exp] js=[$jsOut]")
+      assert(jvmOut == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[$jvmOut]")
 
   // `for`-comprehension over a NON-List monad (Option / Either). The interpreter's `evalForYield` was
   // List-specialized (flattened Option to a 0/1-list, always returned a `ListV`), so an Option/Either
@@ -376,8 +381,9 @@ class CrossBackendPropertyTest extends AnyFunSuite:
     for (label, prog) <- shapes do
       val m   = module(prog)
       val exp = interp(m)
-      assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
-      assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
+      val jsOut = runJs(m); val jvmOut = runJvm(m)
+      assert(jsOut  == exp, s"JS diverged on '$label': interp=[$exp] js=[$jsOut]")
+      assert(jvmOut == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[$jvmOut]")
 
   // Wave-5: Map/Set, case-class equality, numeric+String concat. Found 4 cross-backend bugs:
   //   interp `6 + "_"` (any2stringadd) threw; JS `Set(...)` hit the JS global (`requires new`); JS `==`
@@ -398,8 +404,9 @@ class CrossBackendPropertyTest extends AnyFunSuite:
     for (label, prog) <- shapes do
       val m   = module(prog)
       val exp = interp(m)
-      assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
-      assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
+      val jsOut = runJs(m); val jvmOut = runJvm(m)
+      assert(jsOut  == exp, s"JS diverged on '$label': interp=[$exp] js=[$jsOut]")
+      assert(jvmOut == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[$jvmOut]")
 
   // Wave-6: enum-with-payload match, partial-function `collect`, `Option.fold`. Found 4 cross-backend
   // bugs (3 fixed here): JS enum-case extraction bound the `_tag` slot instead of the field
@@ -418,8 +425,9 @@ class CrossBackendPropertyTest extends AnyFunSuite:
     for (label, prog) <- shapes do
       val m   = module(prog)
       val exp = interp(m)
-      assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
-      assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
+      val jsOut = runJs(m); val jvmOut = runJvm(m)
+      assert(jsOut  == exp, s"JS diverged on '$label': interp=[$exp] js=[$jsOut]")
+      assert(jvmOut == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[$jvmOut]")
 
   // Wave-7: stepped Ranges (`by`) + collection/String dispatch gaps. interp lacked `by`/`indexWhere`;
   // JS lacked `by`/`padTo`/`scanLeft`/`scanRight`/`indexWhere`/tuple-`swap`. (xbackend-range-by-step,
@@ -440,8 +448,9 @@ class CrossBackendPropertyTest extends AnyFunSuite:
     for (label, prog) <- shapes do
       val m   = module(prog)
       val exp = interp(m)
-      assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
-      assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
+      val jsOut = runJs(m); val jvmOut = runJvm(m)
+      assert(jsOut  == exp, s"JS diverged on '$label': interp=[$exp] js=[$jsOut]")
+      assert(jvmOut == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[$jvmOut]")
 
   // `String.map(f)` is a `String` only when `f` yields a `Char`; otherwise a `Seq[B]`. All three
   // backends now agree for the non-Char case (`"abc".map(_.toInt)` → `List(97,98,99)`, sum 294):
@@ -452,17 +461,20 @@ class CrossBackendPropertyTest extends AnyFunSuite:
     // char-to-char map stays a String on ALL three backends (regression guard).
     val cc  = module("println(\"abc\".map(c => c).length + \"abc\".reverse.length)\n")
     val ce  = interp(cc)
-    assert(runJs(cc) == ce && runJvm(cc) == ce, s"char-map diverged: interp=$ce js=${runJs(cc)} jvm=${runJvm(cc)}")
+    val ccJs = runJs(cc); val ccJvm = runJvm(cc)
+    assert(ccJs == ce && ccJvm == ce, s"char-map diverged: interp=$ce js=$ccJs jvm=$ccJvm")
     // non-Char map → Seq: interp, JS, and JVM now all agree (List(97,98,99), sum 294).
     val nc  = module("println(\"abc\".map(c => c.toInt).sum)\n")
     val nci = interp(nc)
-    assert(nci == runJvm(nc) && nci == runJs(nc),
-      s"non-char String.map diverged: interp=$nci js=${runJs(nc)} jvm=${runJvm(nc)}")
+    val ncJvm = runJvm(nc); val ncJs = runJs(nc)
+    assert(nci == ncJvm && nci == ncJs,
+      s"non-char String.map diverged: interp=$nci js=$ncJs jvm=$ncJvm")
     // Char methods on an iterated char (isDigit/toInt/isLetter) agree on all three backends.
     val cm  = module("println(\"a1B\".map(c => if (c.isDigit) c.toInt else 0).sum + \"|\" + \"a1B\".filter(c => c.isLetter))\n")
     val cme = interp(cm)
-    assert(cme == runJvm(cm) && cme == runJs(cm),
-      s"char-method map/filter diverged: interp=$cme js=${runJs(cm)} jvm=${runJvm(cm)}")
+    val cmJvm = runJvm(cm); val cmJs = runJs(cm)
+    assert(cme == cmJvm && cme == cmJs,
+      s"char-method map/filter diverged: interp=$cme js=$cmJs jvm=$cmJvm")
 
   test("Char widens to Int at JS function boundaries"):
     assume(has("node") && has("scala-cli"), "node/scala-cli not available")
@@ -483,8 +495,9 @@ class CrossBackendPropertyTest extends AnyFunSuite:
         |""".stripMargin)
     val exp = interp(m)
     assert(exp == List.fill(7)("true").mkString("\n"), s"unexpected interpreter baseline: $exp")
-    assert(runJs(m) == exp, s"JS failed Char -> Int parameter widening: interp=[$exp] js=[${runJs(m)}]")
-    assert(runJvm(m) == exp, s"JVM failed Char -> Int parameter widening: interp=[$exp] jvm=[${runJvm(m)}]")
+    val jsOut = runJs(m); val jvmOut = runJvm(m)
+    assert(jsOut  == exp, s"JS failed Char -> Int parameter widening: interp=[$exp] js=[$jsOut]")
+    assert(jvmOut == exp, s"JVM failed Char -> Int parameter widening: interp=[$exp] jvm=[$jvmOut]")
 
   // Collection constructors beyond List/Map/Set. The interpreter backs every sequence type with a
   // single `ListV` (and JS with arrays), but `Seq(...)` / `Vector(...)` / `Array(...)` / `IndexedSeq(...)`
@@ -506,8 +519,9 @@ class CrossBackendPropertyTest extends AnyFunSuite:
     for (label, prog) <- shapes do
       val m   = module(prog)
       val exp = interp(m)
-      assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
-      assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
+      val jsOut = runJs(m); val jvmOut = runJvm(m)
+      assert(jsOut  == exp, s"JS diverged on '$label': interp=[$exp] js=[$jsOut]")
+      assert(jvmOut == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[$jvmOut]")
     // The JVM backend compiles real Scala — each constructor must stay its OWN type (not collapse to
     // List), so the emitted source contains the real companion call. (collection-ctor-aliases.)
     for ctor <- Seq("Vector", "Array", "IndexedSeq", "LazyList") do
@@ -530,8 +544,9 @@ class CrossBackendPropertyTest extends AnyFunSuite:
     for (label, prog) <- shapes do
       val m   = module(prog)
       val exp = interp(m)
-      assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
-      assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
+      val jsOut = runJs(m); val jvmOut = runJvm(m)
+      assert(jsOut  == exp, s"JS diverged on '$label': interp=[$exp] js=[$jsOut]")
+      assert(jvmOut == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[$jvmOut]")
 
   test("LazyList lazy combinators cross-backend (interp == JS == JVM)"):
     assume(has("node") && has("scala-cli"), "node/scala-cli not available")
@@ -548,8 +563,9 @@ class CrossBackendPropertyTest extends AnyFunSuite:
     for (label, prog) <- shapes do
       val m   = module(prog)
       val exp = interp(m)
-      assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
-      assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
+      val jsOut = runJs(m); val jvmOut = runJvm(m)
+      assert(jsOut  == exp, s"JS diverged on '$label': interp=[$exp] js=[$jsOut]")
+      assert(jvmOut == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[$jvmOut]")
 
   private def module(program: String) = Parser.parse(s"# Gen\n\n```scalascript\n$program\n```\n")
 
@@ -646,5 +662,6 @@ class CrossBackendPropertyTest extends AnyFunSuite:
     for (label, progDecl) <- shapes do
       val m   = module(effDecl + progDecl + handler)
       val exp = interp(m)
-      assert(runJs(m)  == exp, s"JS diverged on '$label': interp=[$exp] js=[${runJs(m)}]")
-      assert(runJvm(m) == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[${runJvm(m)}]")
+      val jsOut = runJs(m); val jvmOut = runJvm(m)
+      assert(jsOut  == exp, s"JS diverged on '$label': interp=[$exp] js=[$jsOut]")
+      assert(jvmOut == exp, s"JVM diverged on '$label': interp=[$exp] jvm=[$jvmOut]")
