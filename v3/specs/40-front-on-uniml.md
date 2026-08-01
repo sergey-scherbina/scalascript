@@ -61,7 +61,7 @@ real cost and it is accepted deliberately, with two answers:
 
 1. the node kinds v3 emits are a **closed table** in the front, and the lowering refuses an unknown
    kind loudly rather than falling through — an unhandled construct must be an `UNSUPPORTED` naming
-   itself (`20-core-language.md` §3), never a silent miss;
+   itself (`20-core-language.md` §4), never a silent miss;
 2. the **IR verifier is the backstop** (I-4). Correctness is enforced where execution happens, and a
    lowering bug that a sealed ADT would have caught at compile time is caught before anything runs
    instead. That is a weaker guarantee at a different point in time — worth saying out loud rather
@@ -73,7 +73,8 @@ real cost and it is accepted deliberately, with two answers:
 (`uniml-ssc3-frontend-readiness`, item `UNIML-SSC3`, spec `specs/uniml-ssc3-frontend.md`). `SSC3-4`
 consumes the result; it does not do that work, and must not duplicate it. The v3-side requirements
 were handed over rather than left to be guessed: the tree is the AST, the lexer may not use host
-`Char` classification (§3 of [`30-portable-subset.md`](30-portable-subset.md)), recovered nodes are
+`Char` classification — the alphabet that replaces it is [`20-core-language.md`](20-core-language.md) §3 —
+recovered nodes are
 `Origin.Synthetic`, and a dialect's `kind` vocabulary needs to be enumerable so §3's closed table is
 constructible.
 

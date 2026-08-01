@@ -40,7 +40,48 @@ as values and higher-order functions, string interpolation, `for`/`yield`, excep
 given/using, macros, typeclass derivation, effects and handlers (the IR reserves `Perform`/`Handle`
 for them, so this is a front gap and not a representation gap), separate compilation.
 
-## 3 · How the number is produced
+## 3 · The lexical alphabet — decided here so it needs no tables
+
+The portable subset bans host character classification (`isLetter`, `isDigit`, `isWhitespace`,
+`java.lang.Character`), so v3 classifies characters itself. That reads like a burden and is not one,
+because the expensive part was never "we cannot call the host" — it is that `Character.isLetter`
+covers thousands of Unicode ranges and needs tables to answer. **Deciding the alphabet removes the
+tables**, and this is a language decision rather than an implementation problem:
+
+| class | definition |
+|---|---|
+| whitespace | space, tab, CR, LF, FF — and nothing else |
+| digit | `0`–`9` |
+| identifier start | `a`–`z`, `A`–`Z`, `_`, `$`, **or any code point ≥ U+0080** |
+| identifier part | identifier start, or digit |
+| operator character | `+ - * / % < > = ! & \| ^ ~ : # @ ?` |
+
+Every line is a range comparison. There is no table, on any host.
+
+**Why "any code point ≥ U+0080" rather than a Unicode letter test.** It is one comparison instead
+of a table, and it accepts identifiers written in any script — Cyrillic, Greek, CJK — which a letter
+test would only reach by carrying the tables we are trying to avoid. It is more permissive than
+Scala, which would reject some of what this accepts, and that is the **safe direction for a
+compatibility lane**: every valid Scala identifier is still an identifier here, so no existing
+program changes meaning. Only programs Scala rejects are additionally accepted. Being wrong in the
+other direction — rejecting something a user reasonably wrote — is the one this ordering avoids.
+
+Two consequences worth naming. It is *faster* than host classification (a range check against a
+Unicode table lookup, in a compiler's hottest loop). And it is *checkable*: a sweep over the whole
+code-point range on the jvm lane, comparing this classifier against Java's, states exactly where we
+differ on purpose — which is the difference between a decision and an accident.
+
+**One implementation, not one per dialect.** UniML today classifies per dialect and privately —
+`JsonLexer.isWhitespace` compares four string literals, `Source.scala` carries its own `Unicode`
+object. That is the duplicated-helper shape this repository keeps paying for. The classifier is a
+single shared module in the portable subset, and it is *less* code than the copies it replaces.
+
+**Not a `Prim`.** Routing classification through the host boundary is the abstraction that looks
+cleanest and is disqualifying: the same source would then lex differently on the JVM, on JS and on
+the v2 VM, making the language's syntax host-dependent. `Prim` is the right door for I/O and the
+wrong one for language semantics.
+
+## 4 · How the number is produced
 
 `v3/corpus-report.sh` runs every `tests/conformance/*.ssc` case through `ssc3 run` and compares
 stdout against the same case's existing expected output — the *same* oracle the other lanes use, not

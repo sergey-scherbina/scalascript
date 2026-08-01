@@ -23,8 +23,14 @@ methods (`isWhitespace`, `isLetter`, `isDigit`, …), mutable fields in a class 
 (`var`/`val` members), plain non-`case` `class`, anonymous instances (`new Trait:`).
 
 Anything a kernel source needs from outside that list is written **in** the kernel, in the subset —
-that is the whole point of the version. Character classification, for example, is a table in our
-lexer, not a call into the host.
+that is the whole point of the version.
+
+Character classification is the example worth following, because it turns out to cost nothing.
+The ban looks like a burden only while you assume the replacement must answer the same question:
+`Character.isLetter` needs tables because it spans thousands of Unicode ranges. v3 does not ask that
+question — it **decides its alphabet** ([`20-core-language.md`](20-core-language.md) §3), and every
+class becomes a range comparison with no table on any host. One shared module, not the private copy
+per dialect that exists today, and it is *less* code than the copies it replaces.
 
 ## 2 · `Array` is in the subset, and it is the one thing that had to be fixed first
 

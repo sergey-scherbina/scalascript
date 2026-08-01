@@ -77,7 +77,7 @@ A compiler built on an IR that turns out to be wrong is work thrown away twice.
 
 - [ ] **SSC3-5 — `bin/ssc3`, the honest number, the differential gate.**
       CLI: `run`, `ir` (print `.ssir`), `check` (verify only), `build --target`.
-      `v3/corpus-report.sh` publishing `N/381` in the four buckets of `specs/20-core-language.md` §3,
+      `v3/corpus-report.sh` publishing `N/381` in the four buckets of `specs/20-core-language.md` §4,
       gated on non-regression of `N`.
       `v3/portable-diff.sh` — front built by scalac vs the same sources run on ScalaScript 2, IR
       compared byte for byte (invariant I-3).
