@@ -200,6 +200,13 @@ val suite = List(
   // seed types each; the Long fixture is the control that says the gate itself still works.
   // (BUGS.md bench-wrapper-hardcodes-a-long-seed.)
   Check("scripts", "bench-seed-type", "tests/e2e/bench-seed-type-gate.sh", List(), 180000),
+  // `bugs-report` is the ONLY sanctioned way to ask what is open — grepping the prose is banned
+  // because hand-rolled queries disagreed with each other. That makes its blind spots expensive:
+  // 118 entries say `fixed` in their heading and `unknown` in their header, so the canonical
+  // answer was low by 118 with nothing on screen to say so. The report now prints that deficit;
+  // this keeps the DETECTOR alive (planted fixtures, not a frozen count, which every migration
+  // would falsify). <1 s.
+  Check("scripts", "bugs-status-drift", "tests/e2e/bugs-status-drift-gate.sh", List(), 60000),
   Check("scripts", "release-installer-launcher", "tests/e2e/release-installer-launcher.sh", List(), 180000),
   Check("scripts", "build-ram-guards-guard", "tests/e2e/build-ram-budget-gate.sh", List(), 180000),
 
