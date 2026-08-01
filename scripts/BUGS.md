@@ -7,6 +7,40 @@ grepping for status.
 
 Newest first.
 
+## launcher-digest-changes-when-you-COMMIT-unchanged-content — a rebuild per commit cycle
+<!-- status: open
+     lane: apparatus
+     kind: bug
+     area: build
+     fixed-in: -
+     gate: - -->
+
+**Found 2026-08-01** under `ssc3-core`: built, tested green, committed nothing but the files already
+tested, and `smoke-ci` then refused with *"the launcher was built from different sources than this
+tree"*. The bytes were identical; only where git reports them from had changed.
+
+`scripts/launcher-input-digest` hashes a LINE PER INPUT, and an input is encoded differently
+depending on whether it is committed:
+
+```sh
+git ls-tree -r HEAD …                     →  "<mode> <type> <sha>\t<path>"
+git diff HEAD --name-only … | …           →  "dirty <path> <sha>"
+git ls-files --others … | …               →  "untracked <path> <sha>"
+```
+
+A file therefore moves between two spellings when it is committed, with its content untouched, and
+the digest changes. So the guard fires on the one action that provably cannot alter a build input.
+
+The cost is exactly what the digest exists to prevent: this tool was written because
+`.build-stamp` (the HEAD sha) forced *"a ~3.5 min rebuild for nothing"* on a docs-only commit — and
+the replacement forces a full rebuild after **every** commit, for the same reason in a different
+disguise. Measured here at ~10 min per cycle, twice.
+
+Fix: emit one canonical form per path — content sha keyed by path, with no state prefix — so the
+same bytes hash the same however git currently reports them. The three sources stay; only their
+spelling is unified. A self-test is cheap and is what would have caught it: digest a clean tree,
+touch nothing, `git commit`, digest again, assert equal. Note P-6.2 — it has to RUN the tool.
+
 ## coord-claim-broad-reason-lands-inside-the-paths-field — every `--broad` claim is refused
 <!-- status: open
      lane: apparatus

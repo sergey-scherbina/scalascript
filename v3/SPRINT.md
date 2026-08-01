@@ -33,11 +33,33 @@ A compiler built on an IR that turns out to be wrong is work thrown away twice.
       planted-defect suite — one malformed module per validation rule, each rejected naming the
       failing instruction path. A verifier that has never refused anything is untested.
 
-- [ ] **SSC3-3 — the executor.** The register VM: frame allocation, the instruction loop, structured
-      branch handling, `TailCall` frame reuse, `Prim` dispatch. `ssc3 run-ir <file.ssir>`.
+- [ ] **SSC3-3 — the v2 bridge: SSC3 IR → v2 Core IR (`V-0`).** Sergiy's call, and it comes BEFORE
+      our own executor because it is what makes v3 usable at all: the whole v2 backend fleet — VM,
+      JVM bytecode, JS, Rust, native — is inherited instead of re-earned.
+      Raising a linear form into v2's term tree is only tractable because SSC3 IR is structured by
+      construction; from basic blocks this step would be the relooper.
+      `V-0` translates the register file as ONE mutable array with `Prim` get/set, so there is no
+      SSA and no join points — mechanical and obviously correct, and slow. `Br` out of a `Block`
+      becomes a tail call to the region's continuation, emitted as `LetRec`; each region's
+      continuation is statically known, again because the form is structured.
+      *Gate:* every `SSC3-2` round-trip program runs through the bridge and matches the executor —
+      once there is one — and matches v2's own output on the shared corpus slice today.
+
+- [ ] **SSC3-3b — the executor.** The register VM: frame allocation, the instruction loop,
+      structured branch handling, `TailCall` frame reuse, `Prim` dispatch. `ssc3 run-ir <file.ssir>`.
+      **The bridge makes v3 usable; this makes v3 better than v2** — three properties the bridge
+      cannot deliver, and they are why this is not optional: `TailCall` in constant stack (v2 has no
+      TCO, which is why its launchers pass `-Xss512m`), serializable frames, and the `kind`
+      specialization that v2's dynamic primitives discard.
       *Gate:* hand-written `.ssir` programs covering every opcode, expected output checked in;
       a tail-recursive loop of 10^7 iterations completing in constant stack is part of it, since
       that is the stability claim.
+
+- [ ] **SSC3-3c — `V-1`: raise registers to `Let` bindings.** Each assignment becomes a fresh
+      de Bruijn binding, with joins at the ends of `If`/`Loop` bodies expressed as lambda
+      parameters. Strictly a performance follow-up to `V-0`, and only where a measurement says it
+      pays — `V-0` is correct, and correct-and-slow is a shippable state that SSA-with-joins on day
+      one is not.
 
 - [ ] **SSC3-4 — the front.** Lexer (own character tables, no host classification), parser, AST,
       lowering to IR for SSC3 core Tier 0 (`specs/20-core-language.md` §2).
