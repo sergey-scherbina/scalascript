@@ -7,6 +7,52 @@ grepping for status.
 
 Newest first.
 
+## js-tls-intrinsic-missing-from-the-wsserver-capability-trigger — `tls(...)` alone emits a call to nothing
+<!-- status: open
+     lane: js
+     area: codegen
+     kind: bug
+     gate: tests/conformance/tls-smoke.ssc (JS lane) -->
+
+**Found 2026-08-01 while surveying CI stability — NOT MINE, and `JsGen.scala` is held by the live
+`ssc3-core` claim, so this is diagnosed and handed over rather than fixed.** The fix is one entry in
+one list.
+
+`tls` is `RuntimeCall("tls")` (`codegen/intrinsics/Http.scala:15`) and its implementation lives in
+the **WsServer** runtime chunk (`js-runtime/ws-server.mjs:511`). That chunk is included only when
+`hasWsServer` fires, and its trigger list (`JsGen.scala:1444`) is:
+
+    WsConnection(  WsRoom(  serveAsync(  sse(  cors(
+    httpGet(  httpPost(  httpPut(  httpPatch(  httpDelete(  httpClient(
+
+`tls(` is not in it. So a program whose only WsServer-chunk call is `tls(...)` emits the call and
+none of the definition:
+
+    const ctx = tls("server.crt", "server.key");   // …and no `function tls` anywhere
+    ReferenceError: tls is not defined
+
+**WHY IT SURFACED NOW, and the answer is a good one.** `tls-smoke` was GREEN on run 30682235399 and
+RED on 30683833380. The suspect was `4f8c8cb9f` ("the shaker stops deleting side effects"), landed
+in between — and it is *involved*, but not as the cause. A/B measured, old shaker vs new, on the
+same tree:
+
+| | `tls(...)` in the emitted bundle | `run-js` |
+|---|---|---|
+| old shaker | absent — the whole `val ctx = …` was deleted as unreferenced | **still ReferenceError** |
+| new shaker | present | ReferenceError |
+
+`run-js` — the lane the conformance runner uses — **never shook at all**, so the capability gap has
+been there the whole time. What the old shaker did was delete the *statement* on the `emit-js` path,
+which is exactly the defect `4f8c8cb9f` fixed. The case's JS lane was passing because the call it
+exists to make was being thrown away.
+
+So: not a regression from that commit. A pre-existing hole it stopped hiding.
+
+**Fix:** add `tls(` to `hasWsServer`. Worth a moment first on whether the list should be derived
+from the intrinsic table instead of hand-maintained — every `RuntimeCall` whose implementation lives
+in a chunk needs a trigger, and this one was simply forgotten. `serve(` is also absent, though it
+may reach the chunk through HtmlDsl; that is worth checking in the same pass.
+
 ## js-long-arith-no-64bit-wrap — `Long` arithmetic never wrapped: wrong answers, and an unbounded accumulator
 <!-- status: fixed
      lane: js
