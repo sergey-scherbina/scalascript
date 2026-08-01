@@ -97,4 +97,35 @@ means it was made in the wrong place.
 
 ## 6. Results
 
-*(empty — E-0 fills it)*
+### E-0 — the profile, and the control that made it readable
+
+`bin/ssc-tools --backend v2-bytecode bench --machine --warmup-time 500 --reps 8` under
+`-XX:StartFlightRecording=…,settings=profile`, allocation samples by class:
+
+| class | `pattern-match-heavy` | control (`hello-world`) | **workload** |
+|---|---:|---:|---:|
+| `ssc.Value[]` | 260 | 221 | 39 |
+| `ssc.Value$FloatV` | 179 | **0** | **179** |
+| `ssc.Done` | 149 | 150 | −1 |
+| `byte[]` | 68 | 78 | −10 |
+| `::` | 33 | 55 | −22 |
+| `Value$BoolV` | 31 | 35 | −4 |
+
+**`FloatV` is 179 in the workload and ZERO in the control.** Everything else cancels: it is the F
+front's own execution, which both runs pay identically. §2's claim — boxed doubles per operation —
+is now measured rather than read from source, and the workload's allocation profile is essentially
+*only* that, plus a small `Value[]` residue.
+
+**The control is the whole result.** Without it the histogram says `Value[]` (260) is the dominant
+allocation and the fix aims at argument arrays. Two things make a raw profile of `bin/ssc run`
+misleading, and both are structural rather than accidental:
+
+1. **JFR profiles the whole process, not the measured window.** `bench --machine` times the workload
+   iterations; the recording also covers the front compiling the program.
+2. **On the bytecode lane a large part of the process still runs on the VM** — `ssc.Done` and half
+   the `Value[]` samples come from `ssc.Compiler`'s own closures (`Runtime.scala:691-693`, the `Lit`
+   and `Local` cases), because the F front executes on the VM even when the user program is
+   compiled ahead-of-time.
+
+So: **profile the workload AND a trivial control on the same lane, and subtract.** A single profile
+on this toolchain is a profile of the compiler.
