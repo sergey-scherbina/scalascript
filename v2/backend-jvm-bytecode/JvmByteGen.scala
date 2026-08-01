@@ -151,6 +151,11 @@ object JvmByteGen:
     /** Top-level def names whose body is provably effect-free (never yields an
      *  Op) — App to these is safe inside an inline-foreach body. */
     val pureDefs = collection.mutable.HashSet[String]()
+    /** JIT cross-unit links: (global name, arity) -> index into the unit's static `callees` table.
+     *  A top-level def's closure env is EMPTY, so its unit's LamFn takes exactly the argument array
+     *  — which is what lets a cross-def call skip the globals lookup, the ClosV and Emit.app that
+     *  the generic path pays. Empty for the AOT lane, which has `defMethods` and invokestatic. */
+    val linkedCallees = collection.mutable.HashMap.empty[(String, Int), Int]
 
   /** Emitter context for ONE method body. */
   private final class Ctx(val mv: MethodVisitor, val g: Gen):
@@ -1279,6 +1284,22 @@ object JvmByteGen:
           s"([L$VAL;I[L$VAL;)[L$VAL;",
           false)
         mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "bounce", s"(L$LAMFN;[L$VAL;)L$VAL;", false)
+      // JIT cross-unit link: the callee is another def's already-compiled unit. Non-tail calls it
+      // directly and unrolls; a TAIL call returns a Bounce instead, exactly as the AOT lane does for
+      // mutual tail calls — running the callee to completion in tail position would trade the
+      // trampoline's constant stack for JVM frames.
+      case Term.App(Term.Global(gname), args)
+          if ctx.g.linkedCallees.contains((gname, args.length)) =>
+        val slot = ctx.g.linkedCallees((gname, args.length))
+        mv.visitFieldInsn(Opcodes.GETSTATIC, GEN, "callees", s"[L$LAMFN;")
+        mv.visitLdcInsn(slot)
+        mv.visitInsn(Opcodes.AALOAD)
+        genArray(args, ctx)
+        if tail then
+          mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "bounce", s"(L$LAMFN;[L$VAL;)L$VAL;", false)
+        else
+          mv.visitMethodInsn(Opcodes.INVOKEINTERFACE, LAMFN, "call", s"([L$VAL;)L$VAL;", true)
+          mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "unroll", s"(L$VAL;)L$VAL;", false)
       case Term.App(Term.Global(gname), args)
           if !ctx.g.handlerRootDefs(gname) &&
             ctx.g.defMethods.get(gname).exists(_._2 == args.length) =>
@@ -1484,7 +1505,7 @@ object JvmByteGen:
     * Throws `Unsupported` (or an ASM size error) exactly as `emitProgram` does; the caller treats
     * that as "this site stays interpreted", which is the per-site version of the whole-program
     * fallback in `RunNativeV2`. */
-  def emitUnit(body: Term): Array[Byte] = emitUnit(body, null, -1)
+  def emitUnit(body: Term): Array[Byte] = emitUnit(body, null, -1, Nil)
 
   /** With a `selfName`, calls to that global inside the body compile to the unit's OWN method:
     * a self-TAIL call becomes `Emit.rebind` + `GOTO` (a loop, no JVM frame), a non-tail one an
@@ -1492,10 +1513,21 @@ object JvmByteGen:
     * entry with its `INSTANCEOF IntV` guard. Registering the unit in `defMethods` is what reaches
     * the non-tail arm — `selfGlobal` alone only covers the tail one. */
   def emitUnit(body: Term, selfName: String | Null, arity: Int): Array[Byte] =
+    emitUnit(body, selfName, arity, Nil)
+
+  /** `links` are (global name, arity) pairs, in the order their `LamFn`s will be handed to
+    * `loadUnit`; a call to one of them compiles to `GETSTATIC callees` + an interface call instead
+    * of `Emit.global` → `ClosV` → `Emit.app`. */
+  def emitUnit(body: Term, selfName: String | Null, arity: Int,
+               links: List[(String, Int)]): Array[Byte] =
     val cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
     cw.visit(Opcodes.V17, Opcodes.ACC_PUBLIC | Opcodes.ACC_FINAL, GEN, null, OBJ, Array(LAMFN))
     val g = new Gen(cw, None)
     if selfName != null && arity >= 1 then g.defMethods(selfName.nn) = ("unit", arity)
+    links.zipWithIndex.foreach((link, i) => g.linkedCallees(link) = i)
+    if links.nonEmpty then
+      cw.visitField(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "callees", s"[L$LAMFN;", null, null)
+        .visitEnd()
 
     val ctor = cw.visitMethod(Opcodes.ACC_PUBLIC, "<init>", "()V", null, null)
     ctor.visitCode()
@@ -1523,12 +1555,12 @@ object JvmByteGen:
     cw.toByteArray
 
   /** Define a unit in its own loader and instantiate it. */
-  def loadUnit(bytes: Array[Byte]): ssc.Emit.LamFn =
-    new GenLoader(getClass.getClassLoader)
-      .define("ssc.gen.Entry", bytes)
-      .getDeclaredConstructor()
-      .newInstance()
-      .asInstanceOf[ssc.Emit.LamFn]
+  def loadUnit(bytes: Array[Byte]): ssc.Emit.LamFn = loadUnit(bytes, Array.empty)
+
+  def loadUnit(bytes: Array[Byte], callees: Array[ssc.Emit.LamFn]): ssc.Emit.LamFn =
+    val cls = new GenLoader(getClass.getClassLoader).define("ssc.gen.Entry", bytes)
+    if callees.nonEmpty then cls.getField("callees").set(null, callees)
+    cls.getDeclaredConstructor().newInstance().asInstanceOf[ssc.Emit.LamFn]
 
   /** defineClass + install compiled defs + invoke entry(). */
   def runProgram(bytes: Array[Byte]): Value =

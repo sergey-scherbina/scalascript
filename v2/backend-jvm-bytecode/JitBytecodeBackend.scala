@@ -1,6 +1,6 @@
 package ssc.jit
 
-import ssc.{Code, Done, Emit, Env, JitBackend, JitSite, Value}
+import ssc.{Code, Done, Emit, Env, JitBackend, JitSite, Term, Value}
 import ssc.bytecode.JvmByteGen
 
 /** The compile side of the v2 wide JIT (`specs/v2-wide-jit.md` §3.6), on the far side of the
@@ -57,16 +57,60 @@ final class BytecodeJitBackend extends JitBackend:
         case Some(c: Value.ClosV) if (c.code.asInstanceOf[AnyRef] eq site) => name
         case _                                                            => null
 
+  /** Raw `LamFn` per compiled site — the entry a LINKED caller invokes directly, without the
+    * `Code` wrapper the kernel installs. Identity-keyed: a site is the unit of compilation and has
+    * no meaningful structural equality. */
+  private val compiledFns = new java.util.IdentityHashMap[JitSite, Emit.LamFn]()
+
+  /** Every `App(Global(g), args)` in a body, as (name, arity). Structural walk, no evaluation: it
+    * only asks which top-level names this unit could call. */
+  private def calledGlobals(t: Term): List[(String, Int)] = t match
+    case Term.App(Term.Global(g), args) => (g, args.length) :: args.flatMap(calledGlobals)
+    case Term.App(fn, args)             => calledGlobals(fn) ++ args.flatMap(calledGlobals)
+    case Term.Lam(_, b)                 => calledGlobals(b)
+    case Term.Let(rhs, b)               => rhs.flatMap(calledGlobals) ++ calledGlobals(b)
+    case Term.LetRec(ls, b)             => ls.flatMap(calledGlobals) ++ calledGlobals(b)
+    case Term.If(c, a, b)               => calledGlobals(c) ++ calledGlobals(a) ++ calledGlobals(b)
+    case Term.Ctor(_, fs)               => fs.flatMap(calledGlobals)
+    case Term.Match(sc, arms, d)        =>
+      calledGlobals(sc) ++ arms.flatMap(a => calledGlobals(a.body)) ++ d.toList.flatMap(calledGlobals)
+    case Term.Prim(_, args)             => args.flatMap(calledGlobals)
+    case Term.While(c, b)               => calledGlobals(c) ++ calledGlobals(b)
+    case Term.Seq(ts)                   => ts.flatMap(calledGlobals)
+    case _                              => Nil
+
+  /** Which of this body's callees can be linked: a top-level def, still bound to the site that
+    * produced it, whose unit is ALREADY compiled.
+    *
+    * Deliberately no on-demand compilation of a cold callee in this slice — that turns one JIT
+    * event into a walk of the call graph, and the hit rate is worth measuring before paying for it.
+    * A callee that compiles later simply is not linked here; the caller keeps the generic path. */
+  private def linkable(site: JitSite): List[(String, Int, Emit.LamFn)] =
+    val globals = site.globals
+    if globals == null then Nil
+    else
+      val g = globals.asInstanceOf[collection.mutable.Map[String, Value]]
+      calledGlobals(site.body).distinct.flatMap { (name, arity) =>
+        g.get(name) match
+          case Some(c: Value.ClosV) if c.arity == arity =>
+            c.code match
+              case callee: JitSite =>
+                Option(compiledFns.get(callee)).map(fn => (name, arity, fn))
+              case _ => None
+          case _ => None
+      }
+
   // Refusal accounting. Two of these are BY DESIGN and one is a coverage gap; keeping them apart is
   // the difference between "7 sites did not compile" and a list of shapes worth teaching the
   // emitter. Plain vars: compilation happens under the kernel's `Jit.onHot` synchronisation.
+  private var linked = 0
   private var refusedLoop = 0
   private var refusedHandler = 0
   private val refusedForm = collection.mutable.LinkedHashMap.empty[String, Int]
 
   override def stats: String =
     val forms = refusedForm.map((f, n) => s"$f×$n").mkString(", ")
-    s", refused: $refusedLoop loop, $refusedHandler handler-root" +
+    s", $linked cross-unit links, refused: $refusedLoop loop, $refusedHandler handler-root" +
       (if forms.isEmpty then "" else s", uncompilable: $forms")
 
   /** `null` = this site stays interpreted. Never throws: an uncompilable site is a performance
@@ -88,7 +132,13 @@ final class BytecodeJitBackend extends JitBackend:
     else if site.handlerRoot then { refusedHandler += 1; null }
     else
       try
-        val fn = JvmByteGen.loadUnit(JvmByteGen.emitUnit(site.body, selfNameIfBindingIntact(site), site.arity))
+        val links = linkable(site)
+        val fn = JvmByteGen.loadUnit(
+          JvmByteGen.emitUnit(
+            site.body, selfNameIfBindingIntact(site), site.arity, links.map((n, a, _) => (n, a))),
+          links.map((_, _, f) => f).toArray)
+        compiledFns.put(site, fn)
+        linked += links.length
         val owned = site.globals
         // Exactly the wrapper `Emit.clos` uses for every AOT lambda — the compiled body answers a
         // Value (possibly a bounce), `unroll` resolves it, the trampoline sees a `Done` — plus one
