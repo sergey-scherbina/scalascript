@@ -610,7 +610,33 @@ once per SITE, so the hot counter can *be* that `Code` (`Code = Env => Step` is 
       growth; if the tail position is unsupported, do not compile the unit (today's behaviour,
       localized to one site). Gate: residual histogram non-empty on a program J-3 refused, parity
       holds, and the revert-check — with residuals off, that program must go back to 0 units.
-- [ ] **J-5 — type feedback + unboxed entries + entry guards.** Per-parameter observed-tag profile
+- [~] **J-3d DONE — the purity set. `pattern-match-heavy` 20.7 → 10.9; three rows now AT the AOT
+      ceiling.** The inline `foreach`/`foldLeft` Cons-walks are gated on `pureNoEffect(body,
+      g.pureDefs)`, and a JIT unit's `pureDefs` was EMPTY — so `area(s)` was not provably pure, the
+      inline walk was declined, and every element paid a closure call. The emitter's own comment
+      names this workload. The JIT reconstructs the set from what it can see (every top-level def is
+      a `ClosV` whose `code` is the site holding its body) and runs the SAME fixpoint, extracted as
+      `JvmByteGen.pureDefsOf`. Sharing it is not tidiness: a unit computing a DIFFERENT purity set
+      would silently take a different path for the same program. Memoised on the globals map's
+      identity — otherwise every per-site JIT event becomes a whole-program analysis.
+
+          row                   J-0     JIT now    AOT     JIT/AOT   v1 `ssc`
+          arith-loop           73.1     0.587     0.565    1.04x     0.243
+          recursion-fib       137.8     1.16      1.15     1.01x     1.17
+          recursion-tco         5.99    0.0241    0.0241   1.00x     0.029
+          pattern-match-heavy  77.7    10.9       8.5      1.28x     0.052
+
+      ⚠ **Read the last two columns together before planning more JIT work.** On
+      `pattern-match-heavy` the v2 AOT lane is ITSELF 163x off v1, so closing the JIT's remaining
+      1.28x leaves that row two orders of magnitude behind — the limit there is the EMITTER (v2
+      bytecode boxes Doubles and allocates per match; v1's JIT has unboxed doubles + a monomorphic
+      inline cache), not the JIT. That is a different programme, and it is where the one-walker
+      decision pays: an emitter improvement lands in BOTH lanes at once.
+      **For the other three rows there is nothing left for the JIT to win.**
+
+- [ ] **J-5 — type feedback + unboxed entries + entry guards. Re-scope first:** three of four rows
+      are already at the AOT ceiling, so type feedback can only help where the EMITTER is the limit
+      — measure against AOT, not against `SSC_V2_JIT=off`, or the win will be misattributed. Per-parameter observed-tag profile
       recorded in tier 0; a parameter seen monomorphically as `IntV` gets the unboxed `(J…)J` entry
       `JvmByteGen.canParamLong` **already** emits, with the `INSTANCEOF IntV` guard it already emits.
       Guards are ENTRY-ONLY: nothing has been evaluated, so a miss cannot duplicate a side effect.

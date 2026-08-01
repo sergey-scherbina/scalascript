@@ -731,6 +731,51 @@ where the next measurement should go — the likely candidates are unlinked call
 compiled before its callee) and the AOT lane's `pureDefs` fixpoint, which enables an inline-`foreach`
 path a single unit has no way to know about.
 
+### J-3d — the purity set, and why a unit could not see it
+
+Of the two candidates for `pattern-match-heavy`'s residual gap, the second was the one — and the
+emitter's own comment names this exact workload:
+
+```
+// Lets an inline-foreach body call pure defs — e.g. `shapes.foreach(s =>
+// total = total + area(s))` where `area` is a pure match+arith.
+```
+
+The inline `foreach`/`foldLeft` Cons-walks are gated on `pureNoEffect(body, g.pureDefs)`, and
+`pureNoEffect` calls a global pure only if it is in `pureDefs`. **A JIT unit's `pureDefs` was
+empty**, so `area(s)` was not provably pure, the inline walk was declined, and every element paid a
+closure call. The AOT lane gets that set for free from its whole-program view.
+
+The JIT can reconstruct it from what it *can* see: every top-level def is a `ClosV` in the program's
+globals whose `code` is the site holding its body. So the backend builds the name → body map from
+the globals and runs **the same fixpoint** — `JvmByteGen.pureDefsOf`, extracted so both lanes share
+it. That sharing is not tidiness: a unit computing a *different* purity set from the AOT lane would
+silently take a different path for the same program, which is the shape of bug this whole design
+avoids by having one walker. Memoised on the globals map's identity, because the fixpoint is
+O(defs × rounds) and would otherwise turn every per-site JIT event into a whole-program analysis.
+
+`pattern-match-heavy`: **20.7 → 10.9 ms** (3 rounds: 11.6 / 10.7 / 10.9), gap to AOT 2.4× →
+**1.28×**, and **7.1× off its J-0 baseline** (77.7).
+
+### Where the ceiling actually is now
+
+| row | J-0 baseline | JIT now | AOT | JIT/AOT | v1 (`ssc`) |
+|---|---:|---:|---:|---:|---:|
+| `arith-loop` | 73.1 | 0.587 | 0.565 | 1.04× | 0.243 |
+| `recursion-fib` | 137.8 | 1.16 | 1.15 | **1.01×** | 1.17 |
+| `recursion-tco` | 5.99 | 0.0241 | 0.0241 | **1.00×** | 0.029 |
+| `pattern-match-heavy` | 77.7 | 10.9 | 8.5 | 1.28× | 0.052 |
+
+**Read the last two columns together.** On `pattern-match-heavy` the v2 *AOT* lane is itself 163×
+off v1 — so closing the JIT's remaining 1.47× would still leave that row two orders of magnitude
+behind, because the limit there is the **emitter**, not the JIT: v2 bytecode boxes its `Double`s and
+allocates per match, where v1's JIT has unboxed doubles and a monomorphic inline cache. That is a
+different programme, and it is where the one-walker decision pays: an emitter improvement lands in
+both lanes at once.
+
+For the other three rows there is nothing left for the JIT to win — they sit within 1–4 % of what
+the same compiler achieves with the whole program in hand, and `recursion-tco` matches it exactly.
+
 **One outlier, reported rather than averaged away.** In the A/B batch, one `recursion-fib` ON run
 came back **9.72 ms** against 1.16–1.22. A follow-up 8-run sample was 1.18 / 1.21 / 1.21 / 1.27 /
 1.25 / 1.28 / 1.25 / 1.24 — a tight band with no second mode — and the same batch showed 2.4× spikes
