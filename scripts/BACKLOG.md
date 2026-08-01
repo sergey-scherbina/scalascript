@@ -1100,6 +1100,23 @@ own arc. None is speculative: every one has a measured number attached.
       check in the workflow. The `~15 min` estimate is superseded by the measurement at the top of
       this entry. Reduce also asserts the four artifacts arrived: a lost download is invisible to
       the merge, and a "more than half the corpus" floor would not see it (3 of 4 shards is 75 %).
+- [ ] **`coord-status-is-linear-in-abandoned-worktrees`** — MEASURED 2026-08-01. `coord-status`
+      runs `git status -s` and `git log` in EVERY registered worktree. On a host with 51 registered
+      against 5 live claims that is 11 s per call, and `tests/e2e/ci-status-guard.sh` calls it seven
+      times, so the push-path suite carried 70 s of walking working trees that no claim refers to.
+      Pruning the 46 leftovers took it to 3 s and the guard from 74 s to 12 s — but pruning is a
+      symptom fix, they accumulate again by design: every finished task leaves one until someone
+      runs `scripts/rm-worktree`.
+
+      The fix is one line of intent: a COORDINATION tool has no reason to stat a worktree with no
+      claim. Walk `.work/active/*.claim` and look only at those. Everything else it reports about an
+      unclaimed tree is noise it then throws away.
+
+      ⚠️ This corrects the standing conclusion in `smoke-budget-drift` above — "nothing grew, the
+      whole run inflates together, a loaded host not a slow suite". The cause WAS outside the suite,
+      but it was accumulation, not load, and it grew silently because nothing measures worktree
+      count. Worth a cheap check: warn when registered worktrees exceed live claims by some margin.
+
 - [ ] **`ci-crossbackend-differential-runtime`** — **MEASURED 2026-08-01, and this entry did not
       exist before.** The slug is cited in three places (`scripts/BACKLOG.md` 5n,
       `v1/runtime/backend/js/BUGS.md`, `CHANGELOG.md`) as the tracked follow-up for the 2h+ test
