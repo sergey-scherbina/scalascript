@@ -10,6 +10,24 @@ Anything not being worked on belongs in `uniml/BACKLOG.md`, not here — a queue
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [~] UNIML-SSC3 — **UniML must be ready to serve as ScalaScript's parser AND AST**, for
+      language version 3. Direction: `specs/uniml-ssc3-frontend.md`; the seam with v3's SSC IR
+      is §3.1 there. This is the umbrella item — the decomposition and per-slice detail live in
+      `uniml/BACKLOG.md` under UNIML-SSC3, and UPR-4 is its first construction step.
+      **Done means all six, measured, not argued:**
+      (1) a ScalaScript dialect in `uniml/scala/src/main`, cross-built JVM + Scala.js, publishable;
+      (2) a TYPED PROJECTION over the CST — the AST the compiler consumes, the ScalaScript
+          analogue of `MarkdownProjection`;
+      (3) breadth: differential against `F` over the corpus at DIFF=HOLE=EMPTY=TIMEOUT=0, no
+          fallback counted as a match;
+      (4) losslessness: exact source reconstruction and chunk-invariance across that whole
+          corpus — this is what makes UniML worth using as the front at all;
+      (5) parse throughput and retained tree size measured against `F` and inside a budget
+          written down BEFORE the work, since a front runs on every compile of every file;
+      (6) zero dependency on `v1/` or `v2/` — `project-partition-gate` check 3 enforces it.
+      **Now:** (5) first. It is the cheapest of the six and the only one that can still change
+      the design; doing it after the dialect is in production is finding out too late.
+
 - [x] uniml-is-ssc3-frontend — recorded the ScalaScript 3 direction: UniML becomes the front
       end, parser AND AST. New spec `specs/uniml-ssc3-frontend.md`; UPR-8a and
       `project-partitioning.md` §8.3 both said the opposite and now point at it. Records the

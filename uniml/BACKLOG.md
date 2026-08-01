@@ -300,6 +300,33 @@ self-parity test is not external conformance.
         cases are exact; lossless/chunk/property suites and `DocumentContent` differential stay
         green. Only then may the specs call the profile conformant.
 
+- [~] **UNIML-SSC3 — UniML as ScalaScript's parser and AST (language version 3).**
+  Direction decided 2026-08-01: [`specs/uniml-ssc3-frontend.md`](../specs/uniml-ssc3-frontend.md).
+  This is the umbrella; UPR-4 below is its first construction step and UPR-8b supplies the oracle.
+  Tracked on `uniml/SPRINT.md` as UNIML-SSC3.
+  - [ ] **SSC3-M measure before building.** Parse throughput and retained tree size for the UniML
+        front on the real `.ssc` corpus, against `F`, via `scripts/bench` and the alternating A/B
+        protocol. Write the budget down BEFORE the numbers so the result cannot be rationalised
+        after the fact. THIS IS FIRST: it is the cheapest of the six criteria and the only one
+        that can still change the design. Neither number exists today, and a front end runs on
+        every compile of every file, so "unmeasured" here is a live risk and not a formality.
+  - [ ] **SSC3-P typed projection.** The ScalaScript analogue of `MarkdownProjection`: CST in,
+        typed AST out. This is the artifact the decision actually names — the lossless CST is the
+        STORAGE, the projection is the INTERFACE. Without it the type checker would dispatch on
+        `Branch("spike.def", …)`, which no shipped compiler does and which §3 of the spec argues
+        against explicitly.
+  - [ ] **SSC3-B breadth to zero.** Differential against `F` over the whole corpus until
+        DIFF=HOLE=EMPTY=TIMEOUT=0. Until then the declared dialect id names the passing SUBSET
+        (UPR-4a's own rule), and no fallback may be counted as a match.
+  - [ ] **SSC3-L losslessness on the language corpus.** Exact source reconstruction and
+        chunk-invariance across every `.ssc` in the corpus, with the same axis discipline the
+        Markdown corpus uses. This is the reason to put UniML in the front at all, so it is a
+        release criterion and not a nice-to-have.
+  - [ ] **SSC3-I independence.** Zero dependency on `v1/` or `v2/` from the front-end dialect —
+        the surviving half of `project-partitioning.md` §8.3, already enforced by
+        `tests/e2e/project-partition-gate.sh` check 3. A dialect describes the LANGUAGE, not a
+        compiler's data structures.
+
 - [ ] **UPR-4 — M5 production ScalaScript dialect and hybrid composition.**
   **This item changed meaning on 2026-08-01.** It used to build an oracle/tooling adapter;
   it is now the first construction step of the ScalaScript 3 FRONT END
