@@ -11,7 +11,7 @@ Newest first.
 <!-- status: fixed
      lane: js
      area: codegen
-     fixed-in: 261607982
+     fixed-in: 261607982dfdb2277fb7de6014f9d46ec5927505
      gate: tests/conformance/js-compound-assign.ssc -->
 
 **FIXED 2026-08-01** by `js-compound-assign-and-gate-registry`.
