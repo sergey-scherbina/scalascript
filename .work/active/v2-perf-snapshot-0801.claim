@@ -1,0 +1,11 @@
+slug: v2-perf-snapshot-0801
+branch: feature/v2-perf-snapshot-0801
+agent: claude-code
+started: 2026-08-01T18:49:47Z
+heartbeat: 2026-08-01T18:49:47Z
+status: claimed-before-planning
+items: v2-perf-snapshot-0801
+paths: file:bench/history.tsv
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
