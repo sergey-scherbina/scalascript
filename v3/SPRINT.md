@@ -27,11 +27,13 @@ A compiler built on an IR that turns out to be wrong is work thrown away twice.
       `Array.fill`; run on int, js, jvm and v2. **Must be observed failing first** — record the red
       count in the commit (P-6.1). Compare output, never the exit code.
 
-- [ ] **SSC3-2 — IR core: data model, verifier, canonical text form.** In the portable subset.
+- [x] **SSC3-2 — IR core: data model, verifier, canonical text form.** In the portable subset.
       `Module`/`Func`/`Instr` per the spec; the verifier's five checks; `.ssir` reader and writer.
-      *Gate:* round-trip as a property (`read(write(m)) == m`, `write(read(t)) == t`), plus a
-      planted-defect suite — one malformed module per validation rule, each rejected naming the
-      failing instruction path. A verifier that has never refused anything is untested.
+      *Gate:* `v3/selftest.sh` — round-trip as a property, opcode coverage in BOTH directions
+      against a closed vocabulary, and a planted-defect suite of one malformed module per validation
+      rule, each rejected naming the failing instruction path. Both halves observed FAILING before
+      being trusted: blinding the register check turned rule 1 into `ACCEPTED — the verifier cannot
+      see this defect`, and making the writer drop `NumKind` broke `read(write(m)) == m`.
 
 - [ ] **SSC3-3 — the v2 bridge: SSC3 IR → v2 Core IR (`V-0`).** Sergiy's call, and it comes BEFORE
       our own executor because it is what makes v3 usable at all: the whole v2 backend fleet — VM,

@@ -96,10 +96,13 @@ is a rewrite of data rather than a change of representation.
 stack. This is a stability requirement, not an optimization: the v2 launchers need `-Xss512m`
 (`v2/ssc1:7`) precisely because recursion depth in the compiler maps onto host stack depth.
 
-**Data** — `MkData d, t, args` · `Field d, a, idx` · `Tag d, a` · `Switch a, arms, default`
+**Data** — `MkData d, t, args` · `Field d, a, t, idx` · `Tag d, a` · `Switch a, arms, default`
 
-`Field`'s `idx` is validated against `types[t]`, and `types` is the **only** place a field layout is
-written down. This repo has a whole bug family from the alternative: v2 field access is index-based
+`Field` carries its type index, and that is not redundancy: **without it rule 4 below is not
+checkable at all.** The first cut of this spec wrote `Field d, a, idx`, and writing the verifier
+showed the rule it claims to enforce degrades to "valid for the widest type declared anywhere",
+which is not an invariant. The front always knows `t` — it has just matched the constructor. `idx`
+is validated against `types[t]`, and `types` is the **only** place a field layout is written down. This repo has a whole bug family from the alternative: v2 field access is index-based
 with a compile-time name→index registry that could disagree with the runtime record layout, and
 every disagreement is a silent wrong-field read. One table, consulted by both the emitter and the
 verifier, is the fix.
@@ -130,7 +133,7 @@ one structural pass establishes:
 2. every `Br d` has `d <` the enclosing region depth at that point;
 3. every `k`, `g`, `t`, `f` is in range, and every `Call`'s argument count equals the callee's
    `nparams`;
-4. every `Field idx` is `<` the field count of `types[t]`;
+4. every `Field`'s `idx` is `<` the field count of its own `types[t]`, and `t` is in range;
 5. every function body ends in a terminator (`Ret`, `TailCall`, or a `Br` that leaves the function),
    and so does every arm of a terminating `If`/`Switch`.
 
@@ -142,8 +145,16 @@ not merely unlikely to be produced.
 
 Two forms, one of them canonical:
 
-- **`.ssir`** — text, human-readable, what `ssc3 ir <file>` prints, round-trips exactly;
-- **`.ssirb`** — binary, compact, for artifacts and caches.
+- **`.ssir`** — text, human-readable, what `ssc3 fmt <file>` prints, round-trips exactly. The form
+  is an **S-expression**: a list whose items are all leaves stays on one line, and anything with a
+  sub-form puts its leading leaves on the head line and then one item per line. One shape for the
+  writer and the reader, through a single intermediate type, so the two are obviously inverse rather
+  than merely similar. Deliberately no width heuristic and no item-count threshold — a layout with a
+  magic number in it reflows when an unrelated edit crosses the number, and a canonical form that
+  reflows makes every diff lie. A frozen example is [`../tests/sample.ssir`](../tests/sample.ssir),
+  which exercises every instruction;
+- **`.ssirb`** — binary, compact, for artifacts and caches. Not built yet: `.ssir` is canonical and
+  sufficient until artifact size or load time is measured to be a problem.
 
 **The text form is canonical for equality.** Every gate compares `.ssir`. Two rules learned the
 expensive way in this repo:

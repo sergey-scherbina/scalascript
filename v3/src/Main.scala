@@ -1,0 +1,231 @@
+package ssc3
+
+// `ssc3` — the SSC IR tool. `SSC3-2` gives it three verbs over the IR itself; `run` arrives with
+// the executor (`SSC3-3b`) and the v2 bridge (`SSC3-3`).
+//
+//   ssc3 check <file.ssir>     verify, and say why not
+//   ssc3 fmt   <file.ssir>     read and re-emit in the canonical form
+//   ssc3 selftest              the gates for SSC3-2
+
+object Sample:
+
+  /** A module exercising EVERY instruction, used by both gates.
+    *
+    * One sample rather than a random generator: what the round-trip needs is total opcode coverage,
+    * and coverage asserted against a closed list is a fact where a generator's is a probability. */
+  val consts: List[Lit] = List(
+    Lit.LUnit,                                        // 0
+    Lit.LBool(true),                                  // 1
+    Lit.LInt(2L),                                     // 2
+    Lit.LBig("170141183460469231731687303715884105727"), // 3
+    Lit.LFloat(1.5),                                  // 4
+    Lit.LStr("hi\n\"quoted\"\ttab\\slash"),           // 5 — every escape the writer emits
+    Lit.LBytes("0a1b"),                               // 6
+    Lit.LInt(1L),                                     // 7
+  )
+
+  /** `fib` from the spec's worked example (v3/specs/10-ssc-ir.md §7). */
+  val fib: Func = Func("fib", 1, 6, List(
+    Instr.Const(1, 2),
+    Instr.Bin(BinOp.Lt, NumKind.I64, 2, 0, 1),
+    Instr.If(2, List(Instr.Ret(0)), Nil),
+    Instr.Const(1, 7),
+    Instr.Bin(BinOp.Sub, NumKind.I64, 3, 0, 1),
+    Instr.Call(4, 0, List(3)),
+    Instr.Const(1, 2),
+    Instr.Bin(BinOp.Sub, NumKind.I64, 5, 0, 1),
+    Instr.Call(5, 0, List(5)),
+    Instr.Bin(BinOp.Add, NumKind.I64, 3, 4, 5),
+    Instr.Ret(3),
+  ))
+
+  /** Everything `fib` does not reach. Not a program anyone would write — a coverage vehicle, and
+    * labelled as one so nobody mistakes it for an example. */
+  val kitchen: Func = Func("kitchen", 0, 8, List(
+    Instr.Const(0, 2),
+    Instr.Move(1, 0),
+    Instr.Un(UnOp.Neg, NumKind.I64, 2, 1),
+    Instr.Bin(BinOp.Add, NumKind.Dyn, 3, 1, 2),
+    Instr.Block(List(Instr.Loop(List(Instr.BrIf(3, 1), Instr.Br(0))))),
+    Instr.NewArr(4, 0),
+    Instr.ArrSet(4, 1, 2),
+    Instr.ArrLen(5, 4),
+    Instr.ArrGet(6, 4, 1),
+    Instr.GlobGet(7, 0),
+    Instr.GlobSet(0, 7),
+    Instr.MkData(4, 0, List(1, 2)),
+    Instr.Field(5, 4, 0, 1),
+    Instr.Tag(6, 4),
+    Instr.Switch(6, List(SwitchArm(0, List(Instr.Const(7, 0)))), List(Instr.Const(7, 1))),
+    Instr.MkClos(5, 0, List(1)),
+    Instr.CallV(6, 5, List(1)),
+    Instr.Call(6, 0, List(1)),
+    Instr.Perform(6, 0, List(1)),
+    Instr.Handle(6, List(Instr.Const(7, 0)), List(HandlerArm(0, List(Instr.Const(7, 1))))),
+    Instr.Resume(6, 7, 1),
+    Instr.Prim(6, 0, List(1)),
+    Instr.TailCall(0, List(1)),
+  ))
+
+  val module: Module = Module(
+    consts = consts,
+    types = List(TypeDef("Box", 2)),
+    globals = List(GlobalDef("counter")),
+    prims = List("println"),
+    funcs = List(fib, kitchen),
+    entry = 0,
+  )
+
+  /** The closed opcode vocabulary. A new `Instr` case that nobody adds here makes `coverage` fail,
+    * which is the point: an instruction the round-trip has never seen is an instruction whose
+    * writer and reader have never been compared. */
+  val opcodes: List[String] = List(
+    "const", "move", "un", "bin",
+    "block", "loop", "if", "br", "brif",
+    "call", "callv", "mkclos", "tailcall", "ret",
+    "mkdata", "field", "tag", "switch",
+    "newarr", "arrget", "arrset", "arrlen", "globget", "globset",
+    "perform", "handle", "resume", "prim",
+  )
+
+object SelfTest:
+
+  private var failures: Int = 0
+
+  private def ok(name: String): Unit = println("  ok   " + name)
+
+  private def bad(name: String, detail: String): Unit =
+    failures += 1
+    println("  FAIL " + name + " — " + detail)
+
+  private def check(name: String, cond: Boolean, detail: String): Unit =
+    if cond then ok(name) else bad(name, detail)
+
+  /** Rule-by-rule planted defects. Each takes the VALID sample and breaks exactly one thing, so a
+    * refusal is attributable: the same module verifies clean without the plant. A verifier that has
+    * never refused anything is untested, and one that refuses everything is untested too. */
+  private def planted: List[(String, Module, String)] =
+    val m = Sample.module
+    val f = Sample.fib
+    def withFib(body: List[Instr], nregs: Int): Module =
+      m.copy(funcs = List(f.copy(nregs = nregs, body = body), Sample.kitchen))
+    List(
+      (
+        "rule 1 · register outside the frame",
+        withFib(List(Instr.Const(99, 2), Instr.Ret(0)), 6),
+        "outside the frame",
+      ),
+      (
+        "rule 2 · br leaves more regions than enclose it",
+        withFib(List(Instr.Br(0)), 6),
+        "leaves more regions",
+      ),
+      (
+        "rule 3 · constant-pool index out of range",
+        withFib(List(Instr.Const(1, 99), Instr.Ret(0)), 6),
+        "out of range",
+      ),
+      (
+        "rule 3 · call arity disagrees with the callee",
+        withFib(List(Instr.Call(1, 0, List(0, 0)), Instr.Ret(0)), 6),
+        "argument(s), it takes",
+      ),
+      (
+        "rule 4 · field index beyond the type's field count",
+        withFib(List(Instr.Field(1, 0, 0, 5), Instr.Ret(0)), 6),
+        "which has 2 field(s)",
+      ),
+      (
+        "rule 5 · body does not end in a terminator",
+        withFib(List(Instr.Const(1, 2)), 6),
+        "does not end in a terminator",
+      ),
+      (
+        "module · entry is not a function",
+        m.copy(entry = 7),
+        "is not a function",
+      ),
+    )
+
+  def run(): Int =
+    failures = 0
+    val m = Sample.module
+    val text = Text.write(m)
+
+    println("SSC3-2 — IR core: round-trip, coverage, verifier")
+
+    // The base module must be VALID. Without this the planted-defect suite proves nothing: every
+    // plant would "fail" for whatever was already wrong.
+    Verify.module(m) match
+      case None    => ok("the sample module verifies clean")
+      case Some(e) => bad("the sample module verifies clean", e.render)
+
+    // Structural, not textual. The first version grepped the rendered text for "(block " and broke
+    // the moment the layout put a newline there instead of a space — a coverage check that reports
+    // a FORMATTING change as missing coverage is worse than none, because the real signal is then
+    // indistinguishable from noise.
+    val used = m.funcs.flatMap(f => Instr.flatten(f.body)).map(Text.opcode).distinct
+    val missing = Sample.opcodes.filter(op => !used.contains(op))
+    val unlisted = used.filter(op => !Sample.opcodes.contains(op))
+    check("every opcode appears in the sample", missing.isEmpty, "missing: " + missing.mkString(", "))
+    check("no opcode is emitted outside the closed vocabulary", unlisted.isEmpty, "unlisted: " + unlisted.mkString(", "))
+
+    // Round-trip, both directions. `read(write(m)) == m` alone would pass for a writer that lost
+    // information the reader also invents back; comparing the TEXT closes that.
+    val back = Text.read(text)
+    check("read(write(m)) == m", back == m, "structural mismatch after one round-trip")
+    check("write(read(t)) == t", Text.write(back) == text, "text is not a fixpoint")
+
+    // A second round-trip: a formatter that is not idempotent makes every diff of two .ssir files
+    // noise, and the text form is canonical for equality precisely so diffs mean something.
+    check("write is idempotent", Text.write(Text.read(Text.write(back))) == text, "second pass differs")
+
+    planted.foreach { (name, bad0, expect) =>
+      Verify.module(bad0) match
+        case None => bad(name, "ACCEPTED — the verifier cannot see this defect")
+        case Some(e) =>
+          if e.render.contains(expect) && e.path.nonEmpty then ok(name + "  [" + e.render + "]")
+          else bad(name, "refused, but the message does not name it: " + e.render)
+    }
+
+    if failures == 0 then println("SSC3-2 self-test: OK") else println("SSC3-2 self-test: " + failures + " FAILED")
+    failures
+
+@main def ssc3(args: String*): Unit =
+  val code =
+    if args.isEmpty then
+      println("usage: ssc3 check <file.ssir> | fmt <file.ssir> | selftest")
+      2
+    else
+      args.head match
+        case "selftest" => SelfTest.run()
+        // Prints the coverage module in canonical form. `v3/tests/sample.ssir` is this output,
+        // frozen in git. It is a CHANGE DETECTOR, not a correctness oracle — the same code writes
+        // and compares it, so it proves nothing about whether the format is right. What it does is
+        // make a change to the canonical form show up as a reviewable diff instead of silently
+        // moving under every gate that compares .ssir.
+        case "sample" =>
+          print(Text.write(Sample.module))
+          0
+        case "check" | "fmt" if args.length >= 2 =>
+          val path = args(1)
+          val src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")
+          try
+            val m = Text.read(src)
+            // Loading ALWAYS verifies — invariant I-4. `fmt` is not an exception: re-emitting a
+            // module nobody has validated would launder an invalid one into a tidy-looking file.
+            Verify.module(m) match
+              case Some(e) =>
+                Console.err.println("ssc3: " + path + ": " + e.render)
+                1
+              case None =>
+                if args.head == "fmt" then print(Text.write(m)) else println("ok: " + path)
+                0
+          catch
+            case e: ParseError =>
+              Console.err.println("ssc3: " + path + ": " + e.message)
+              1
+        case other =>
+          Console.err.println("ssc3: unknown command '" + other + "'")
+          2
+  sys.exit(code)

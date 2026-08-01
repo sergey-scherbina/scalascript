@@ -1,0 +1,68 @@
+(module
+  (consts
+    (unit)
+    (bool true)
+    (int 2)
+    (big 170141183460469231731687303715884105727)
+    (float 1.5)
+    (str "hi\n\"quoted\"\ttab\\slash")
+    (bytes 0a1b)
+    (int 1))
+  (types
+    (type "Box" 2))
+  (globals
+    (global "counter"))
+  (prims
+    (prim "println"))
+  (funcs
+    (func "fib" 1 6
+      (const 1 2)
+      (bin lt i64 2 0 1)
+      (if 2
+        (then
+          (ret 0))
+        (else))
+      (const 1 7)
+      (bin sub i64 3 0 1)
+      (call 4 0 3)
+      (const 1 2)
+      (bin sub i64 5 0 1)
+      (call 5 0 5)
+      (bin add i64 3 4 5)
+      (ret 3))
+    (func "kitchen" 0 8
+      (const 0 2)
+      (move 1 0)
+      (un neg i64 2 1)
+      (bin add dyn 3 1 2)
+      (block
+        (loop
+          (brif 3 1)
+          (br 0)))
+      (newarr 4 0)
+      (arrset 4 1 2)
+      (arrlen 5 4)
+      (arrget 6 4 1)
+      (globget 7 0)
+      (globset 0 7)
+      (mkdata 4 0 1 2)
+      (field 5 4 0 1)
+      (tag 6 4)
+      (switch 6
+        (arm 0
+          (const 7 0))
+        (default
+          (const 7 1)))
+      (mkclos 5 0 1)
+      (callv 6 5 1)
+      (call 6 0 1)
+      (perform 6 0 1)
+      (handle 6
+        (body
+          (const 7 0))
+        (on 0
+          (const 7 1)))
+      (resume 6 7 1)
+      (prim 6 0 1)
+      (tailcall 0 1)))
+  (entry 0))
