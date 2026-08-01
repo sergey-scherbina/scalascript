@@ -98,6 +98,36 @@ the `performance` skill exist for exactly this.
 **Memory shape is unknown too.** A lossless tree holds every trivia token; for a large `.ssc`
 that is a much larger object graph than a conventional AST. Also unmeasured.
 
+## 4.1 SSC3-M: what I expect, written before the numbers
+
+Recorded ahead of measuring so the result can disagree with me (`performance` §1.3).
+Reference arm is the existing `ParserBench` — v1's `scalascript.parser.Parser` over
+`runtime/std/actors.ssc`. Same JVM, same file, same harness as the UniML arm, which is the
+point: it isolates UniML's DESIGN from the execution substrate. Comparing against `F` instead
+would fold in the v2 VM and answer a different question.
+
+**Expected, and why:**
+
+- **Throughput 2–10 MB/s**, i.e. **3–10× slower than the v1 parser**. UniML materialises a
+  `Vector[VmToken]` for the whole source and folds it into a tree, where a conventional parser
+  emits AST nodes and drops trivia as it goes. Every source character survives as a `String`
+  lexeme inside a `SourceToken` carrying kind, channel and a two-`SourcePosition` span.
+- **Retained tree 8–20× the source bytes.** Per-token object overhead (~48–64 B) against an
+  average token of a few characters, plus `Vector` node overhead and one edge per child.
+
+**Disqualifying evidence — what would say the plan is wrong:**
+
+- Throughput below **~0.5 MB/s** (a 100 KB file costing >200 ms in parsing alone) makes a
+  whole-project compile parse-dominated, and the front-end decision would need rethinking
+  before any of UPR-4 is built.
+- Retained size above **~50×** makes large projects a memory problem rather than a speed one.
+
+**A measurement hazard to settle FIRST** (`performance` §1.4): the spike parses a SUBSET, and
+it is deliberately error-resilient — it never throws, it emits diagnostics and holes. So it will
+return a tree for `actors.ssc` whether or not it understood it, and a degraded-parse timing is
+not a parse timing. The diagnostic count must be reported next to every number, and an input the
+spike parses CLEANLY must be measured alongside the real file.
+
 ## 5. Order of work
 
 1. **Measure first** — parse throughput and retained size of the UniML tree on the real corpus,
