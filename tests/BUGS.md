@@ -5450,9 +5450,10 @@ before `done`.
   --no-memo` passes 1/1 after staging a fresh CLI in the worktree.
 
 ## v2-backend-check-ssc1c-wrapper-app-lit — `fixed` (2026-07-09)
-<!-- status: unknown
+<!-- status: fixed
      lane: apparatus
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** codex while verifying the `v2-source-jvm-recursion-fib-perf`
   source-backend slice.
@@ -5496,10 +5497,11 @@ before `done`.
 - **Status:** fixed; waiting for human confirmation before `done`.
 
 ## std-auth-webauthn-signature-drift — `fixed` (2026-07-09)
-<!-- status: unknown
+<!-- status: fixed
      lane: apparatus
      area: runtime
-     gate: tests/conformance/webauthn-server-verify.ssc -->
+     gate: tests/conformance/webauthn-server-verify.ssc
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, during `tkv2-webauthn` spec/implementation prep.
 - **Repro:** compare `v1/runtime/std/auth.ssc` declarations with the existing
@@ -5534,9 +5536,10 @@ before `done`.
   conformance call shapes agree; fixed SHA and gates are recorded here.
 
 ## v2-ssc0-rust-float-literal-emits-int — `fixed` (2026-07-08)
-<!-- status: unknown
+<!-- status: fixed
      lane: apparatus
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, during `p4-rust-wasm-lanes` baseline.
 - **Repro:** run `./v2/conformance/check.sh` and inspect the diagnostics log.
@@ -5565,9 +5568,10 @@ before `done`.
   green.
 
 ## root-test-cli-spark-submit-dry-run-deps — `fixed` (2026-07-08)
-<!-- status: unknown
+<!-- status: fixed
      lane: apparatus
-     area: front -->
+     area: front
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, during `green-main-full-sbt-test-gating` focused
   `scripts/sbtc "cli/test"` after the Electron fork-exit blocker was fixed.
@@ -5595,9 +5599,10 @@ before `done`.
   bounded root `scripts/sbtc "test"` (elapsed 1668s, success).
 
 ## root-test-cli-toolkit-electron-duplicate-seqmap — `fixed` (2026-07-08)
-<!-- status: unknown
+<!-- status: fixed
      lane: apparatus
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, during `green-main-full-sbt-test-gating` focused
   `scripts/sbtc "cli/test"` after the Electron fork-exit blocker was fixed.
@@ -5629,9 +5634,10 @@ before `done`.
   bounded root `scripts/sbtc "test"` (elapsed 1668s, success).
 
 ## root-test-cli-fork-exit-after-green — `fixed` (2026-07-08)
-<!-- status: unknown
+<!-- status: fixed
      lane: apparatus
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, during `green-main-full-sbt-test-gating` root
   `scripts/sbtc "test"` after bounded sbt Test concurrency was added.
@@ -5664,10 +5670,11 @@ before `done`.
   bounded root `scripts/sbtc "test"` (elapsed 1668s, success).
 
 ## root-test-verify-default-srcdir-parent-scan — `fixed` (2026-07-08)
-<!-- status: unknown
+<!-- status: fixed
      lane: apparatus
      area: runtime
-     gate: tests/conformance/run.sh -->
+     gate: tests/conformance/run.sh
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, during the same full root `scripts/sbtc "test"` gate.
 - **Repro observed in root gate:** `VerifyCliTest` cases such as
@@ -5721,9 +5728,10 @@ before `done`.
   --no-memo` (**1/1 green**).
 
 ## v2-args-global-shadowed-by-native — `fixed` (2026-07-08)
-<!-- status: unknown
+<!-- status: fixed
      lane: apparatus
-     area: runtime -->
+     area: runtime
+     fixed-in: unrecorded -->
 
 - **Found by:** claude-fable-5, unmasked while testing OpAnf (entry below): the
   If-cond Let-wrap re-routed `if args.length > 0` from the length FastCode (whose
@@ -5744,9 +5752,10 @@ before `done`.
   generic dispatch; dataset-word-count PASSES honestly (not via `0L` tolerance).
 
 ## jvm-multishot-result-type — `fixed` (2026-06-21, `39b7c665f`)
-<!-- status: unknown
+<!-- status: fixed
      lane: apparatus
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** benchmark perf-divergence sweep (`./bench.sh`), accepted from `SPRINT.md`.
 - **SHA at filing:** `0ee00a29f` (`feature/jvm-multishot-result-type` worktree, after
@@ -5773,9 +5782,10 @@ before `done`.
   (was `n/a`); `./bench.sh effect-oneshot --backend jvm` = 0.160 ms/iter (same root cause).
 
 ## rust-foreach-list-realloc — `fixed` (2026-06-21, `abbc98eee`)
-<!-- status: unknown
+<!-- status: fixed
      lane: apparatus
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** benchmark perf-divergence sweep (`./bench.sh`), accepted from `SPRINT.md`.
 - **Symptom:** Rust codegen re-inlines a top-level collection `val` at each use site instead of referencing

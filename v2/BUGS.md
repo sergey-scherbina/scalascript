@@ -3351,9 +3351,10 @@ implemented explicitly in every lane AFTER this bug is fixed, or the doc-block f
 built on an accident. See `specs/ssc-doc-blocks.md`.
 
 ## v2-front-try-in-def-body-shapes-break — `try`-as-a-def-body shapes break; (a)+(b)+(c) FIXED
-<!-- status: unknown
+<!-- status: fixed
      lane: native
-     area: front -->
+     area: front
+     fixed-in: unrecorded -->
 
 **Status: (c) FIXED 2026-07-28** in `d11fd7a92` (`f-try-multistmt-def-body`) — together with the sibling
 `unbound global: try` this entry recorded for the legacy front, which turned out to be the same
@@ -6571,9 +6572,10 @@ Verified: content-introspection + datatable-static-spa serve `frontend=react` on
 (matching v1); corpus 154/8. Gate: tests/e2e/serve-view-frontend-v2-smoke.sh. Fixed by lucky-perch.
 
 ## v2-rust-recursion-tco-bench-fold — `fixed` (2026-07-09)
-<!-- status: unknown
+<!-- status: fixed
      lane: v2-jvm
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** codex during `v2-source-backend-production-perf-sweep`.
 - **Repro:** after `scripts/sbtc "installBin"` on current `origin/main`, run
@@ -6605,9 +6607,10 @@ Verified: content-introspection + datatable-static-spa serve `frontend=react` on
 - **Status:** fixed; waiting for human confirmation before `done`.
 
 ## v2-rust-bench-zero-input-helper-fold — `fixed` (2026-07-09)
-<!-- status: unknown
+<!-- status: fixed
      lane: v2-rust
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** codex while implementing
   `v2-source-rust-recursion-fib-perf`.
@@ -6686,10 +6689,11 @@ restored to 61/61; corpus 154/8 (payments examples still green). Reported by bus
 (fable, n=105); fixed by lucky-perch. Pin: tests/conformance/v2-user-type-shadows-function-ctor.ssc.
 
 ## green-main-conformance-7fail — `fixed` (2026-07-09)
-<!-- status: unknown
+<!-- status: fixed
      lane: native
      area: codegen
-     gate: tests/conformance/run.sh -->
+     gate: tests/conformance/run.sh
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, while closing the `p4-bc-unboxed-arith` bytecode perf
   slice. The affected bytecode/arithmetic gate is green, but the broader default
@@ -6776,10 +6780,11 @@ restored to 61/61; corpus 154/8 (payments examples still green). Reported by bus
 - **Status:** fixed; waiting for human confirmation before `done`.
 
 ## v2-jvm-user-request-shadow — `fixed` (2026-07-09)
-<!-- status: unknown
+<!-- status: fixed
      lane: v2-jvm
      area: codegen
-     gate: tests/conformance/user-request-shadow.ssc -->
+     gate: tests/conformance/user-request-shadow.ssc
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, during the final `unmask-payments-bridge` affected
   conformance gate after the sibling `user-request-collision` fix landed.
@@ -6814,10 +6819,11 @@ restored to 61/61; corpus 154/8 (payments examples still green). Reported by bus
 - **Status:** fixed; waiting for human confirmation before `done`.
 
 ## v2-multiline-list-literal-desugar — `fixed` (2026-07-09)
-<!-- status: unknown
+<!-- status: fixed
      lane: native
      area: front
-     gate: tests/conformance/v2-multiline-list-literal.ssc. -->
+     gate: tests/conformance/v2-multiline-list-literal.ssc.
+     fixed-in: unrecorded -->
 
 `bin/ssc --v2` crashed with scala.meta `illegal start of simple expression`
 on any fence containing a MULTI-LINE `[ … ]` list literal (bracket opens a
@@ -6836,9 +6842,10 @@ whole corpus still resolves its multi-line std-imports). Pinned by
 tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
 
 ## v2-payments-bankrails-op-stub-leaks - `fixed` (2026-07-09)
-<!-- status: unknown
+<!-- status: fixed
      lane: native
-     area: runtime -->
+     area: runtime
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, during the v2 production unmasking loop after standard
   `scala` fences became runnable.
@@ -6888,9 +6895,10 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
 - **Status:** fixed; waiting for human confirmation before `done`.
 
 ## v2-serve-noop-minimalctx — `fixed` (2026-07-09)
-<!-- status: unknown
+<!-- status: fixed
      lane: native
-     area: front -->
+     area: front
+     fixed-in: unrecorded -->
 
 - **Found by:** busi (rozum 07-09 n=24): hub boots on --v2 (banner + pairing code)
   but serve() never binds — no listener, curl 000.
@@ -6913,9 +6921,10 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
 - **Ladder:** busi drives the full storefront+money loop on --v2 next.
 
 ## v2-vm-effect-handlers-regression — `fixed` (2026-07-09)
-<!-- status: unknown
+<!-- status: fixed
      lane: native
-     area: runtime -->
+     area: runtime
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, while verifying `v2-vm-production-jit-gate` after
   rebasing on current `origin/main`.
@@ -6953,9 +6962,10 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
 - **Status:** fixed; waiting for human/reporter confirmation before `done`.
 
 ## v2-source-backend-bridge-bench-prims — `fixed` (2026-07-09)
-<!-- status: unknown
+<!-- status: fixed
      lane: v2-jvm
-     area: front -->
+     area: front
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, while implementing `v2-backend-performance-harness`.
 - **Repro:** stage `bin/ssc`, then run
@@ -6985,9 +6995,10 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
 - **Status:** fixed; waiting for human confirmation before `done`.
 
 ## v2-stream-family-output-parity — `fixed` (2026-07-09)
-<!-- status: unknown
+<!-- status: fixed
      lane: native
-     area: cli -->
+     area: cli
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, in the valid full production parity sweep after
   `v2-v1-side-mismatch-classification`.
@@ -7053,9 +7064,10 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
 - **Status:** fixed; awaiting any external confirmation before trimming.
 
 ## v2-output-parity-temp-write-fail-fast — `fixed` (2026-07-09)
-<!-- status: unknown
+<!-- status: fixed
      lane: native
-     area: runtime -->
+     area: runtime
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, while re-running the full v2 output-parity sweep during
   `v2-v1-side-mismatch-classification`.
@@ -7085,9 +7097,10 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
 - **Status:** fixed; awaiting any external confirmation before trimming.
 
 ## v2-v1-side-mismatch-classification — `fixed` (2026-07-09)
-<!-- status: unknown
+<!-- status: fixed
      lane: native
-     area: front -->
+     area: front
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, during the v2 production output-parity loop after
   `v2-scala-fence-multiblock-parity`.
@@ -7119,9 +7132,10 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
 - **Status:** fixed; awaiting any external confirmation before trimming.
 
 ## v2-scala-fence-multiblock-parity — `fixed` (2026-07-09)
-<!-- status: unknown
+<!-- status: fixed
      lane: native
-     area: front -->
+     area: front
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, during the v2 production output-parity loop after
   `v2-mcp-oauth-secret-nondet-parity`.
@@ -7182,10 +7196,11 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
 - **Status:** fixed; awaiting any external confirmation before trimming.
 
 ## v2-mcp-oauth-secret-nondet-parity — `fixed` (2026-07-09)
-<!-- status: unknown
+<!-- status: fixed
      lane: native
      area: front
-     gate: tests/conformance/run.sh -->
+     gate: tests/conformance/run.sh
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, during the v2 production output-parity loop after
   `v2-os-env-nondet-parity`.
@@ -7211,10 +7226,11 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
   with 5 nondet skips across 195 examples.
 
 ## v2-os-env-nondet-parity — `fixed` (2026-07-09)
-<!-- status: unknown
+<!-- status: fixed
      lane: native
      area: runtime
-     gate: tests/conformance/std-os.ssc -->
+     gate: tests/conformance/std-os.ssc
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, during the v2 production output-parity loop after
   `v2-async-parallel-timing-parity`.
@@ -7241,10 +7257,11 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
   skips across 195 examples.
 
 ## v2-async-parallel-timing-parity — `fixed` (2026-07-09)
-<!-- status: unknown
+<!-- status: fixed
      lane: native
      area: runtime
-     gate: tests/conformance/run.sh -->
+     gate: tests/conformance/run.sh
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, during the v2 production output-parity loop after
   `v2-graph-neo4j-foreign-parity`.
@@ -7270,9 +7287,10 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
   examples.
 
 ## v2-arith-dispatch-split — `fixed` (2026-07-09)
-<!-- status: unknown
+<!-- status: fixed
      lane: native
-     area: runtime -->
+     area: runtime
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, while promoting BACKLOG `v2-arith-unification` for v2
   production readiness.
@@ -7310,9 +7328,10 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
   arith/map data line agrees.
 
 ## v2-vm-effect-handlers-return-raw-op — `fixed` (2026-07-08)
-<!-- status: unknown
+<!-- status: fixed
      lane: native
-     area: runtime -->
+     area: runtime
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, during `p4-rust-wasm-lanes` full
   `./v2/conformance/check.sh` after list/float expectation realignment.
@@ -7346,9 +7365,10 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
   composition` pass; full `./v2/conformance/check.sh` is green.
 
 ## v2-run-cli-argv-not-forwarded — `fixed` (2026-07-08)
-<!-- status: unknown
+<!-- status: fixed
      lane: native
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, during `p4-js-lane-bridge` direct argv smoke.
 - **Repro:** after `scripts/sbtc "installBin"`, run a temp `.ssc`:
@@ -7380,10 +7400,11 @@ tests/conformance/v2-multiline-list-literal.ssc. Fixed by lucky-perch.
   assembled-CLI smoke `*V2RunArgvCliTest *V2JsLaneCliTest`.
 
 ## v2-busi-testsweep-gaps batch — `fixed` (2026-07-08)
-<!-- status: unknown
+<!-- status: fixed
      lane: native
      area: runtime
-     gate: tests/conformance/var-topdef-shared.ssc -->
+     gate: tests/conformance/var-topdef-shared.ssc
+     fixed-in: unrecorded -->
 
 Seven root causes closed working busi tests/v2 47/61 → 61/61 on --v2 (v1 = 61/61
 same launcher; every fail was a real engine gap). One entry per cause:
@@ -7437,9 +7458,10 @@ same launcher; every fail was a real engine gap). One entry per cause:
   content_toolkit.
 
 ## root-test-v2-conformance-toolkit-regressions — `fixed` (2026-07-08)
-<!-- status: unknown
+<!-- status: fixed
      lane: native
-     area: runtime -->
+     area: runtime
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, during `green-main-full-sbt-test-gating` full root
   `scripts/sbtc "test"` after the sealed-extension and cluster blockers were fixed.
@@ -7503,9 +7525,10 @@ same launcher; every fail was a real engine gap). One entry per cause:
   in this `V2ConformanceTest` root entry.
 
 ## v2-actors-sendafter-cli-default-noop — `fixed` (2026-07-08)
-<!-- status: unknown
+<!-- status: fixed
      lane: native
-     area: runtime -->
+     area: runtime
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, while fixing `root-test-cluster-cli-runtime-readiness`.
 - **Repro:** after `scripts/sbtc "cli/assembly"`, run a fat-jar script containing
@@ -7538,9 +7561,10 @@ same launcher; every fail was a real engine gap). One entry per cause:
   assembled `v1/tools/cli/.../ssc.jar`).
 
 ## v2-op-arg-lifting — `fixed` (2026-07-08)
-<!-- status: unknown
+<!-- status: fixed
      lane: native
-     area: runtime -->
+     area: runtime
+     fixed-in: unrecorded -->
 
 - **Found by:** claude-fable-5, working busi's ledger repro past the append/2 fix.
 - **Symptom:** a strict call (user fn OR native) with an unresolved effect `Op` as an
@@ -7587,9 +7611,10 @@ same launcher; every fail was a real engine gap). One entry per cause:
   conformance 123/123.
 
 ## v2-effect-multiarg-op — `fixed` (2026-07-08)
-<!-- status: unknown
+<!-- status: fixed
      lane: native
-     area: runtime -->
+     area: runtime
+     fixed-in: unrecorded -->
 
 - **Found by:** busi agent (rozum `scalascript` room, 2026-07-08 seq31), while bumping
   busi to scalascript pin `0a6358787` with `v2-prod-default-switch` active.
@@ -7641,9 +7666,10 @@ same launcher; every fail was a real engine gap). One entry per cause:
   (**4/4 green**).
 
 ## v2-invoice-email-nondet — `fixed` (2026-07-08)
-<!-- status: unknown
+<!-- status: fixed
      lane: native
-     area: cli -->
+     area: cli
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, during `v2-prod-plugin-boundary` full-corpus production parity
   verification.
@@ -7669,10 +7695,11 @@ same launcher; every fail was a real engine gap). One entry per cause:
   conformance case to run.
 
 ## v2-list-unlist-stack-overflow — `fixed` (2026-07-08)
-<!-- status: unknown
+<!-- status: fixed
      lane: native
      area: runtime
-     gate: tests/conformance/run.sc -->
+     gate: tests/conformance/run.sc
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, during `v2-prod-plugin-boundary` production parity work.
 - **Symptom:** `examples/dataset-parallel-sum.ssc` was the only remaining full-parity
@@ -7692,9 +7719,10 @@ same launcher; every fail was a real engine gap). One entry per cause:
   has **0 v2-error**; full corpus has **0 v2-error**.
 
 ## plugin-cli-oslib-shadow — `fixed` (2026-07-07)
-<!-- status: unknown
+<!-- status: fixed
      lane: native
-     area: cli -->
+     area: cli
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, while stabilizing the red `origin/main` CI run
   `28832706348`.
@@ -7716,9 +7744,10 @@ same launcher; every fail was a real engine gap). One entry per cause:
   (8/8).
 
 ## v2-cellset-flc-corruption — `fixed` (2026-07-05)
-<!-- status: unknown
+<!-- status: fixed
      lane: native
-     area: runtime -->
+     area: runtime
+     fixed-in: unrecorded -->
 
 - **Found by:** claude (v2-recursion-opt slice), via `map-ops` regressing to
   `SKIP(no-main)` in the v2 bench sweep.
@@ -7740,9 +7769,10 @@ same launcher; every fail was a real engine gap). One entry per cause:
   program had engaged the corrupt path.
 
 ## v2-conformance-empty-output-flake — `fixed` (2026-07-01)
-<!-- status: unknown
+<!-- status: fixed
      lane: native
-     area: conformance -->
+     area: conformance
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, while continuing K49 after the K48 multi-op typed handler work.
 - **Symptom:** `cd v2 && ./conformance/check.sh` can report a contiguous block of unrelated
@@ -7764,9 +7794,10 @@ same launcher; every fail was a real engine gap). One entry per cause:
   KC7, a final full run with the KC7 tests also passed (`final exit=0`).
 
 ## v2-conformance-echo-backticks — `fixed` (2026-06-29)
-<!-- status: unknown
+<!-- status: fixed
      lane: native
-     area: front -->
+     area: front
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, while running full `v2/conformance/check.sh` for K46 async/actor breadth.
 - **Symptom:** the conformance assertions were green, but the harness printed shell noise such as

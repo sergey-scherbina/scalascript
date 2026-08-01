@@ -2806,9 +2806,10 @@ read-only Apple store/renderer review in Rozum.
   closure non-mutation, and every descriptor family are green.
 
 ## parser-trysplitparse-quadratic-hang — `fixed` (2026-06-28)
-<!-- status: unknown
+<!-- status: fixed
      lane: multi
-     area: front -->
+     area: front
+     fixed-in: unrecorded -->
 
 - **Found by:** busi (phone-demo hub). A `/api/issue` route used `given` as a local val name: `val given = req.form.getOrElse("number", ""); val number = if given.length > 0 then given else …`. Loading the ~3500-line `demo_server.ssc` pegged one core at ~100% CPU and never bound (>90s); the *same* code in a tiny file instead fast-failed with `illegal start of definition`. (busi originally mis-attributed this to the `if <param> then <param> else …` shape and to a `View[Int]` — both red herrings; the trigger is purely the identifier name.)
 - **Root cause:** `given` is a Scala-3 soft keyword, so scalameta rejects it as an identifier → in `Parser.parseScalaWithDiagnostic` BOTH the Source-mode parse and the `{…}` Term-mode parse fail → the `trySplitParse` fallback runs. That fallback tried EVERY split point (`lines.length - 1 to 1 by -1`), each re-parsing an O(N)-line `prefix` as `Source` plus a `suffix` as `Term`. For a large block that is O(N) parses over O(N)-line prefixes = **O(N²)** total. Confirmed size-driven, not single-parse-exponential: a 1010-line block ≈ 6s, a ~3500-line block ≈ 90s; a `jstack` mid-hang showed `main` in `Parser$.trySplitParse$…` → `…prefix.parse[Source]` → scalameta `argumentExprsInParens` recursion.
@@ -2818,9 +2819,10 @@ read-only Apple store/renderer review in Rozum.
 - **Note:** verified against this branch's base (`origin/main` @ ce0554245) — `trySplitParse` is byte-identical to the commit busi pins (72d0196f3), where it was first reproduced + the fix built/tested. busi keeps its own workaround (no `given` val, `getOrElse` auto-number) so it is unaffected; this lands the parser-robustness fix for everyone.
 
 ## rust-index-read-moves-noncopy — `fixed` (2026-06-22)
-<!-- status: unknown
+<!-- status: fixed
      lane: multi
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** mellow-shrew (self), via an end-to-end `cargo run` smoke against the just-landed rust-web-toolkit follow-ons (`origin/main` @ d0141a1d4). The `backendRust` unit suite is string-match only (no `cargo` compile), so it missed a generated-Rust move error.
 - **Symptom:** an index *read* on a non-Copy element sequence panicked the Rust compiler, not the program — `error[E0507]: cannot move out of index of Vec<String>`. Minimal repro:
@@ -2836,9 +2838,10 @@ read-only Apple store/renderer review in Rozum.
 - **Follow-up (filed in BACKLOG):** the rust backend has no `cargo`-compile coverage in its unit suite — this whole bug class (move/borrow errors in valid-looking generated Rust) is invisible to string-match tests.
 
 ## interp-js-string-map-nonchar — `fixed (interp + js)`
-<!-- status: unknown
+<!-- status: fixed
      lane: multi
-     area: runtime -->
+     area: runtime
+     fixed-in: unrecorded -->
 
 - **Found by:** `CrossBackendPropertyTest` (wave-7).
 - **Symptom:** `"abc".map(c => c.toInt).sum` threw (`No method 'sum'`) on interp + JS — mapping a String's chars to a NON-Char value should yield a `Seq[Int]` (then `.sum`), but interp/JS `String.map` rebuild a String. JVM correct (294).
@@ -2847,9 +2850,10 @@ read-only Apple store/renderer review in Rozum.
 - **Residual (minor, by design):** a char *literal*'s `.toInt` (`'5'.toInt` → 5 on JS vs 53 on interp/JVM) still diverges — char literals stay JS strings to avoid touching literal-pattern codegen (which compares with `===`, not `_eq`). The actionable bug (`String.map(nonChar)` + iterated-`Char` methods) is closed; literal coercion is left as a separate, lower-value follow-up.
 
 ## interp-cons-in-effect-handler — `fixed` (example) (2026-06-13, `721ee62b9`)
-<!-- status: unknown
+<!-- status: fixed
      lane: multi
-     area: front -->
+     area: front
+     fixed-in: unrecorded -->
 
 - **FINAL diagnosis (two earlier mis-diagnoses corrected):** NOT a `::` bug and NOT a
   "resume result not forced to ListV" bug. `resume(())` **correctly** returns the

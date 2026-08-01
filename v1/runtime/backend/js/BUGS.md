@@ -4535,10 +4535,11 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Status:** fixed; waiting for human confirmation before `done`.
 
 ## jvmgen-litdoc-mapped-string-mkstring — `fixed` (2026-07-09)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
      area: front
-     gate: tests/conformance/litdoc.ssc -->
+     gate: tests/conformance/litdoc.ssc
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, while enabling `tests/conformance/litdoc.ssc` expected
   output during `v2-litdoc-inline-bold-parity`.
@@ -4568,10 +4569,11 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Status:** fixed; awaiting any external confirmation before trimming.
 
 ## v2-litdoc-inline-bold-parity — `fixed` (2026-07-09)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
      area: codegen
-     gate: tests/conformance/litdoc.ssc -->
+     gate: tests/conformance/litdoc.ssc
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, while verifying `v2-arith-unification` against the
   litdoc real harness.
@@ -4602,9 +4604,10 @@ commit SHA until the reporter confirms, then they can be trimmed.
   `bin/ssc run --v2 tests/conformance/litdoc.ssc` diff is empty.
 
 ## v2-cluster-stdlib-import-gap — `fixed` (2026-07-09)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: runtime -->
+     area: runtime
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, after `cdd032f03` fixed standard `scala` fence
   extraction during `v2-parity-current-errors`.
@@ -4640,9 +4643,10 @@ commit SHA until the reporter confirms, then they can be trimmed.
   `64/98 identical · 11 mismatch · 0 v2-error · 23 v1-only`.
 
 ## v2-standard-scala-fences-skipped — `fixed` (2026-07-09)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: front -->
+     area: front
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, during `v2-parity-current-errors` full output-parity
   refresh.
@@ -4686,9 +4690,10 @@ commit SHA until the reporter confirms, then they can be trimmed.
   `v2-cluster-stdlib-import-gap`; that is tracked as a separate bug.
 
 ## route-deriver-path-param-unit-client — `fixed` (2026-07-09)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: front -->
+     area: front
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, during `tkv2-typed-client` prep.
 - **Repro:** with no explicit `apiClients:` front matter, derive a client from
@@ -4723,9 +4728,10 @@ commit SHA until the reporter confirms, then they can be trimmed.
   gates are recorded here.
 
 ## v2-case-class-instance-methods-stub — `fixed` (2026-07-08)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: front -->
+     area: front
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, during `p3-connectnode-node-sim` verification.
 - **Repro:** after `scripts/sbtc "installBin"`, run a `.ssc` program that
@@ -4768,9 +4774,10 @@ commit SHA until the reporter confirms, then they can be trimmed.
   `data-types,lenses,optional,traversal,fn-typed-field` passed 4/4.
 
 ## v2-mapreduce-handler-registry-tuple-lookup — `fixed` (2026-07-08)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: runtime -->
+     area: runtime
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, during `p3-connectnode-node-sim` implementation after
   adding the local loopback map-reduce worker helper.
@@ -4820,9 +4827,10 @@ commit SHA until the reporter confirms, then they can be trimmed.
   passed 6/6.
 
 ## v2-ssc0-target-display-drift — `fixed` (2026-07-08)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, during `p4-rust-wasm-lanes` baseline.
 - **Repro:** from a fresh worktree with Rust and Node available, run
@@ -4858,9 +4866,10 @@ commit SHA until the reporter confirms, then they can be trimmed.
   top-level cases, so Rust/WASM coverage is the v2 gate.
 
 ## root-test-js-rowpost-runtime-contract — `fixed` (2026-07-08)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, during `green-main-full-sbt-test-gating` root
   `scripts/sbtc "test"` after bounded sbt Test concurrency was added.
@@ -4892,9 +4901,10 @@ commit SHA until the reporter confirms, then they can be trimmed.
   success).
 
 ## root-test-sbt-aggregate-heap-oom — `fixed` (2026-07-08)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: conformance -->
+     area: conformance
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, during `green-main-full-sbt-test-gating` root retest
   after v2 `V2ConformanceTest` was green and pushed through `ab37c7d0b`.
@@ -4931,9 +4941,10 @@ commit SHA until the reporter confirms, then they can be trimmed.
   `[success] elapsed: 1668 s (0:27:48.0)`.
 
 ## root-test-cluster-cli-runtime-readiness — `fixed` (2026-07-08)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, during `green-main-full-sbt-test-gating` root
   `scripts/sbtc "test"` after the bytecode split-runtime and Scala.js npm
@@ -5021,10 +5032,11 @@ commit SHA until the reporter confirms, then they can be trimmed.
   `tests/conformance/run.sh --only 'json-read' --no-memo` (**1/1 green**).
 
 ## conformance-jvm-cps-local-unit-effect-cast — `fixed` (2026-07-08)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
      area: codegen
-     gate: tests/conformance/run.sh -->
+     gate: tests/conformance/run.sh
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, while refreshing `green-main-conformance-gating`.
 - **Repro:** after `scripts/sbtc "installBin"`,
@@ -5046,10 +5058,11 @@ commit SHA until the reporter confirms, then they can be trimmed.
   passes 6/6.
 
 ## conformance-jvm-cps-any-typing-and-effect-args — `fixed` (2026-07-08)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
      area: codegen
-     gate: tests/conformance/run.sh -->
+     gate: tests/conformance/run.sh
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, while refreshing `green-main-conformance-gating`.
 - **Repro:** after `scripts/sbtc "installBin"`,
@@ -5076,10 +5089,11 @@ commit SHA until the reporter confirms, then they can be trimmed.
   pass.
 
 ## conformance-http-client-external-httpbin — `fixed` (2026-07-08)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
      area: front
-     gate: tests/conformance/http-client.ssc -->
+     gate: tests/conformance/http-client.ssc
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, while refreshing `green-main-conformance-gating`.
 - **Repro:** after `scripts/sbtc "installBin"`,
@@ -5095,10 +5109,11 @@ commit SHA until the reporter confirms, then they can be trimmed.
   `PENDING` and exits green without hanging.
 
 ## conformance-parsing-int-empty-output — `fixed` (2026-07-08)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
      area: front
-     gate: tests/conformance/run.sc -->
+     gate: tests/conformance/run.sc
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, while running a neighbor conformance slice for
   `v2-prod-js-dsl-conformance`.
@@ -5129,9 +5144,10 @@ commit SHA until the reporter confirms, then they can be trimmed.
   files.
 
 ## v2-content-toolkit-section-parity — `fixed` (2026-07-08)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: front -->
+     area: front
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, during `v2-prod-post-p3-baseline` full-corpus production
   parity verification.
@@ -5164,9 +5180,10 @@ commit SHA until the reporter confirms, then they can be trimmed.
   **0 v2-error** and now measures **57/81 identical · 8 mismatch · 16 v1-only**.
 
 ## v2-content-document-context — `fixed` (2026-07-08)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: front -->
+     area: front
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, during the `v2-production-readiness` output-parity baseline.
 - **Symptom:** `ssc run --v2` produced non-v1 output for structured Markdown content
@@ -5193,10 +5210,11 @@ commit SHA until the reporter confirms, then they can be trimmed.
   10 mismatch · 1 v2-error · 23 v1-only**.
 
 ## scalajs-jsenv-run-terminated — `fixed` (2026-07-07)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
      area: conformance
-     gate: tests/conformance/run.sh -->
+     gate: tests/conformance/run.sh
+     fixed-in: unrecorded -->
 
 - **Found by:** claude (green-main takeover), root `sbt test` + serial retest.
 - **Symptom:** Scala.js test modules (walletVaultEncryptedJs, walletStrategyErc4337Js,
@@ -5218,10 +5236,11 @@ commit SHA until the reporter confirms, then they can be trimmed.
   `payments/crypto/noble-js/node_modules` previously failed before the fix.
 
 ## jsgen-signal-type-import-vs-preamble — `fixed` (2026-07-07)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
      area: codegen
-     gate: tests/conformance/tkv2-component.ssc -->
+     gate: tests/conformance/tkv2-component.ssc
+     fixed-in: unrecorded -->
 
 - **Found by:** claude (tkv2-components slice) — first .ssc module importing the opaque
   `Signal` TYPE from `std/ui/primitives.ssc` and emitting to JS.
@@ -5237,10 +5256,11 @@ commit SHA until the reporter confirms, then they can be trimmed.
   `std/ui/component.ssc`, INT==JS).
 
 ## jsgen-reserved-param-body-rename — `fixed` (2026-07-07)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
      area: codegen
-     gate: tests/conformance/tkv2-component.ssc -->
+     gate: tests/conformance/tkv2-component.ssc
+     fixed-in: unrecorded -->
 
 - **Found by:** claude (tkv2-components slice) — `std/ui/component.ssc`'s
   `ctxSignal(ctx, name, default)` parameter named `default`.
@@ -5319,9 +5339,10 @@ commit SHA until the reporter confirms, then they can be trimmed.
   (`[success] elapsed: 1668 s (0:27:48.0)`).
 
 ## js-spa-hashchange-bridge-sync — `fixed` (2026-06-29)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Reported by:** Sergiy, from the rozum Unified Control Center (`clients/control/control-center-live.ssc`).
 - **Symptom:** clicking a hash-route navigation control changed `location.hash`, but the visible SPA route did
@@ -5341,9 +5362,10 @@ commit SHA until the reporter confirms, then they can be trimmed.
   branches toggle. Also re-ran `SpaComputedBodyBridgeTest` to cover the adjacent computed-to-bridge path.
 
 ## jsgen-emitjs-capability-standalone — `fixed` (2026-06-22)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: front -->
+     area: front
+     fixed-in: unrecorded -->
 
 - **Found by:** busi (deep-offline browser/Node bundle) — the standalone-bundle frontier after `jsgen-emitjs-effect-handler`: `inbox`/`ksef`/`repo*` (clock) and the crypto path failed under raw `ssc emit-js | node`, while the JIT path (`SSC_JIT_BACKEND=js`) was green.
 - **Symptom (two distinct bugs):**
@@ -5356,10 +5378,11 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Still open (separate):** `auth.ssc` standalone needs Node WebAuthn impls (`webauthnChallenge`/`webauthnVerify*` are identity-`RuntimeCall` host externs with no `_webauthn*` preamble). `jsgen-toplevel-name-vs-preamble` (#5, general preamble-shadow) also still open.
 
 ## jsgen-emitjs-effect-handler — `fixed` (2026-06-22)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
      area: codegen
-     gate: tests/conformance/effect-import -->
+     gate: tests/conformance/effect-import
+     fixed-in: unrecorded -->
 
 - **Found by:** busi (deep-offline browser bundle) — blocker #3 of 5 in `src/v2/specs/lf-1-browser-bundle.md`. Only the raw `emit-js` standalone path was affected; the JIT path (`SSC_JIT_BACKEND=js`) was always green.
 - **Symptom:** raw `emit-js` of code using an effect + deep handler (an effectful `query` that folds over `Eff.read`, run inside a `handle`) failed at runtime — `TypeError: arr.reduce is not a function`, or `Unhandled effect: …`.
@@ -5375,10 +5398,11 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **New frontier exposed (next):** `ksef.ssc`/`inbox.ssc`/`repo*` now reach runtime and hit `ReferenceError: nowMillis is not defined` / `not callable: ()` — the `nowMillis` clock capability (`JsCapabilities`: `QualifiedName("nowMillis") -> RuntimeCall("Date.now")`) is wired on the JIT path but not emitted into the raw `emit-js` preamble; `auth.ssc` hits a similar crypto-capability gap. **This overlaps the active `core-min-clock-env-migrate` (Clock/Env→plugin) work and is left for that stream / a follow-up.** Standalone emit-js+node sweep: **85/113 conformance + 13/21 busi v2 domain files** pass; the rest are clock/crypto capability gaps + infra (actors/cluster/distributed/sql).
 
 ## jsgen-toplevel-name-vs-preamble — `fixed` (2026-06-22)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
      area: front
-     gate: tests/conformance/mcp-types.ssc -->
+     gate: tests/conformance/mcp-types.ssc
+     fixed-in: unrecorded -->
 
 - **Found by:** busi (deep-offline browser bundle) — blocker #5 of 5 in `src/v2/specs/lf-1-browser-bundle.md`.
 - **Symptom:** a top-level user binding named exactly like a preamble helper (e.g. `val scope = …` vs the runtime's user-facing `function scope(scopeName)` for CSS scoping, SPEC §8.4) emits a colliding top-level `const scope = …` → `SyntaxError: Identifier 'scope' has already been declared` under `node --check`. Other preamble names (`doc`, `escape`, `assert`, `List`, `Decimal`, …) can collide the same way.
@@ -5415,9 +5439,10 @@ commit SHA until the reporter confirms, then they can be trimmed.
   intentionally skipped by fixture frontmatter).
 
 ## jsgen-fn-typed-field-autoinvoke — `fixed` (2026-06-22)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** busi (deep-offline browser bundle) — facet of blocker #4 of 5 in `src/v2/specs/lf-1-browser-bundle.md` ("a generic `View.step` fold reaches syntax-valid JS but the `step` field is not callable").
 - **Symptom:** a case-class field whose value is a function (e.g. `View.step: (S, Int) => S`), passed as a *value* to a HOF (`xs.foldLeft(v.init)(v.step)`), threw `TypeError: fn is not a function` on the JS backend. A direct call `v.step(1, 2)` worked; only the eta/value position failed. interp + JVM were correct.
@@ -5427,9 +5452,10 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Guard:** `tests/conformance/fn-typed-field.ssc` (variadic field as value) + `tests/conformance/json-value.ssc` (genuine zero-arg method auto-invoke), INT==JS==JVM. busi `make v2-test-js` + `CrossBackendPropertyTest`/`MoneyCrossBackendTest`/`CustomDerivesMirrorCrossBackendTest` green; `tests/v2/qr.ssc` now runs as a raw `emit-js` standalone bundle.
 
 ## jsgen-dup-enum-global — `fixed` (2026-06-22)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** busi (deep-offline browser bundle) — blocker #2 of 5 in `src/v2/specs/lf-1-browser-bundle.md` ("emit-js / emit-spa for tests/v2/local_journal.ssc fails syntax checks with duplicate global `Pending` declarations from ObligationStatus.Pending and DeferredActionStatus.Pending").
 - **Symptom:** two enums (in the same file or different modules) that share a *parameterless* case name each emitted a top-level global `const <Case> = {_type:'<Case>', _tag:N}`; child generators share the global scope, so the bundle had a duplicate `const` and Node rejected it: `SyntaxError: Identifier 'Pending' has already been declared`. `SSC_JIT_BACKEND=js` was fine; only raw `emit-js`/`emit-spa` failed (`node --check`).
@@ -5438,9 +5464,10 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Guard:** `tests/conformance/enum-shared-casename.ssc` (+expected) — two enums with a shared `Pending` case; within-enum equality + `.values.size` identical on INT/JS/JVM (cross-enum equality is intentionally NOT asserted: after dedup the JS objects are shared, which never matters in well-typed code). `EnumCrossBackendTest` 3/3; busi `tests/v2/local_journal.ssc` emit-js now passes `node --check`.
 
 ## effect-op-trailing-comment — `fixed` (2026-06-20)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: front -->
+     area: front
+     fixed-in: unrecorded -->
 
 - **Found by:** busi (building the v2 KSeF inbound port `effect Ksef`).
 - **Symptom:** a trailing `//` line-comment on an effect operation's declaration silently broke the
@@ -5456,9 +5483,10 @@ commit SHA until the reporter confirms, then they can be trimmed.
   existing effect/parser tests green; real-harness repro now returns the handler's value, not a throw.
 
 ## jsgen-module-section-scope — `fixed` (2026-06-22)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** busi (deep-offline browser bundle) — the #1 raw `emit-js` full-bundle blocker codex recorded in `src/v2/specs/lf-1-browser-bundle.md` ("importing `std/money.ssc` fails at runtime with `Currency` not initialized before `defaultCurrencies`").
 - **Symptom:** any program that `emit-js`'d a markdown module split across sections (e.g. `std/money`, whose `Currency`/`Money` constructors are under one heading and `defaultCurrencies`/`currencyOf` under another) threw on Node — `ReferenceError: Currency is not defined`, or (when reached via the import binding) `not callable: ()`. `SSC_JIT_BACKEND=js` (the JIT path) was fine; only raw `emit-js`/`run-js` failed.
@@ -5467,99 +5495,110 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **Guard:** `tests/conformance/money-multisection.ssc` (+ `expected/money-multisection.txt`) — imports `std/money`, calls `currencyOf` (which reaches `Currency` via `defaultCurrencies` and via its `getOrElse` fallback); runs identically on INT/JS/JVM. `MoneyCrossBackendTest` "money.ssc — JS output matches the interpreter" + busi `make v2-test-js` (full v2 core on JS) stay green.
 
 ## collection-ctor-aliases — `fixed` (2026-06-15)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** a collections survey (prompted by a "do we only have List/Map?" question).
 - **Symptom:** despite the user guide listing `Seq`/`List`/`Vector`/`Set`/`Array`/`Map`, the interpreter only had `List`/`Map`/`Set` companions — `Seq(1,2,3)`, `Vector(...)`, `Array(...)`, `IndexedSeq(...)` all threw `Undefined: Seq` (etc.); `.toVector`/`.toSeq`/`.toIndexedSeq` and `Map.toSeq` were also missing. (JVM, real Scala, was fine.)
 - **FIXED (2026-06-15):** the interpreter backs every sequence type with a single `ListV` (JS with arrays), so `Seq`/`Vector`/`Array`/`IndexedSeq`/`Iterable`/`LazyList` companions now alias `List`'s (`BuiltinsRuntime`), JsGen emits those constructors as arrays, and `toList`/`toSeq`/`toVector`/`toIndexedSeq`/`toArray`/`toIterable` are identity conversions on List + Map (interp `dispatchList`/`dispatchMap`, JS array/Map `_dispatch`). On the **JVM backend** each stays its REAL Scala type (raw emit — `Vector(1,2,3)` → a real `Vector`, etc.); a guard asserts JvmGen preserves the companion call so a future change can't silently collapse them to List. Guard: `CrossBackendPropertyTest` "Seq/Vector/Array constructors + conversions cross-backend" (9 shapes incl. LazyList, interp == JS == JVM). Caveat: off-JVM these are NOT distinct runtime types (Vector/Array = List/array, `LazyList` is eager — an infinite LazyList won't work off-JVM). Available collections: List, Map, Set, Seq, Vector, Array, IndexedSeq, Iterable, LazyList, plus Option, Either, Tuple, Range.
 
 ## jsgen-enum-payload-extract — `fixed` (2026-06-15)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** `CrossBackendPropertyTest` (wave-6 enum probes).
 - **Symptom:** matching an `enum` case WITH a payload bound the wrong value on JS — `enum Shape: case Circle(r: Int); … case Circle(r) => …` bound `r` to the case's `_tag` (0/1), not the field. `area(Circle(2)) + area(Square(3))` gave `1` instead of `21`; interp + JVM correct. `genPattern`'s Extract used field NAMES from `caseClassFieldsByType` when known, else the positional `Object.values(scrut).slice(1)[i]` — but enum cases carry an extra `_tag` field, and `caseClassFieldsByType` was populated only for `Defn.Class`, not enum cases, so `slice(1)[0]` returned `_tag`.
 - **FIXED (2026-06-15):** `caseClassFieldsInModule` now also indexes `Defn.Enum` cases (name → field list), so enum-case Extract binds by field name. Guard: `CrossBackendPropertyTest` "enum payload, collect, Option.fold cross-backend" (enum-payload-match + enum-nullary).
 
 ## interp-collect-partial / jsgen-collect-partial — `fixed` (2026-06-15)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** `CrossBackendPropertyTest` (wave-6 collection probes).
 - **Symptom:** `xs.collect { case x if x % 2 == 0 => x * 10 }` (a partial function with a guard) threw `Match failure: 1` in the INTERPRETER (it called the PF as a total function), and on JS threw `Method not found: collect` (no `collect` in the array `_dispatch`); JVM correct. `collect` must SKIP elements the PF isn't defined on.
 - **FIXED (2026-06-15):** interp — a `collectStep` helper catches the located "Match failure" and skips (reusing the existing `None`-skip path). JS — added a `collect` array-dispatch case that calls the element fn and skips when it throws a "Match failure" (the emitted PF closure's no-match error). Guard: `CrossBackendPropertyTest` collect-guard.
 
 ## jsgen-option-fold-curried — `fixed` (2026-06-15)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** `CrossBackendPropertyTest` (wave-6 Option probes).
 - **Symptom:** `Some(5).fold(0)(x => x * 2)` failed on JS — the curried `Option.fold(ifEmpty)(f)` was absent from the `_Some`/`_None` dispatch (only `Either.fold(fa, fb)` uncurried was present). interp + JVM correct.
 - **FIXED (2026-06-15):** added `fold` to the JS Option dispatch — `_Some`: `(f) => f(value)`, `_None`: `(f) => ifEmpty` — handling the curried second clause. Also added `exists`/`forall` and fixed `Some.contains` to use structural `_eq`. Guard: `CrossBackendPropertyTest` option-fold-some/-none.
 
 ## xbackend-range-by-step — `fixed` (2026-06-15)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** `CrossBackendPropertyTest` (wave-6/7).
 - **Symptom:** `(0 to 10 by 2)` — a Range with a `by` step — threw on interp (`No method 'by' on List`) and on JS; JVM correct. interp + JS materialize a Range as a List/array, which had no `by`; the JS `by` infix also fell to an invalid `(range by step)` emission.
 - **FIXED (2026-06-15):** `by(step)` keeps every step-th element of the materialized range — added to interp `dispatchList`/`dispatchList1` and the JS array `_dispatch`; JsGen now emits the `by` infix as `_dispatch(range, 'by', [step])`. Guard: `CrossBackendPropertyTest` "ranges, collection + string method gaps cross-backend" (range-by-sum/-until).
 
 ## jsgen-collection-method-gaps / jsgen-string-padto — `fixed` (2026-06-15)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** `CrossBackendPropertyTest` (wave-7).
 - **Symptom:** several stdlib methods were missing from the JS `_dispatch` (and one from interp), failing with `Method not found` / `No method`: `List.scanLeft`/`scanRight`/`indexWhere`, tuple `.swap`, `String.padTo`; interp also lacked `indexWhere`. interp + JVM (or JVM alone) were correct.
 - **FIXED (2026-06-15):** added JS array dispatch `scanLeft`(curried)/`scanRight`/`indexWhere`/`swap`, JS string `padTo` (Char arg arrives as a char-code number), and interp `indexWhere` (`dispatchList`). Guard: `CrossBackendPropertyTest` string-pad / list-scanleft / list-indexwhere / tuple-swap.
 
 ## jvmgen-autooutput-after-classdef — `fixed` (2026-06-15)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: front -->
+     area: front
+     fixed-in: unrecorded -->
 
 - **Found by:** `CrossBackendPropertyTest` (wave-5 case-class probes).
 - **Symptom:** a JVM program with a top-level `case class` (or trait/object) followed by ANY auto-output/expression statement printed NOTHING — `case class P(x: Int)\nprintln(if P(1) == P(1) then 10 else 0)` produced empty output; interp + JS correct. `wrapAutoOutput` emitted a bare `{ … }` block, and `case class P(x: Int)` on one line followed by `{ … }` on the next is parsed by Scala as **P's body template**, so the statement was swallowed (never run).
 - **FIXED (2026-06-15):** `wrapAutoOutput` now emits `locally { … }` (an unambiguous method call) instead of a bare `{ … }`, so the block can't attach to a preceding definition. Guard: `CrossBackendPropertyTest` "collections, case-class equality, num+string cross-backend" (caseclass-eq/-ne/-output).
 
 ## jsgen-structural-equality — `fixed` (2026-06-15)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** `CrossBackendPropertyTest` (wave-5 case-class probes).
 - **Symptom:** `==` on the JS backend used JS reference equality (`===`), so two structurally-equal case-class instances / tuples / Lists compared unequal — `P(1) == P(1)` → `false`; interp + JVM correct.
 - **FIXED (2026-06-15):** added a `_eq(a, b)` deep-structural-equality runtime helper (arrays elementwise, objects by `_type` + own keys, primitives by `===`) and routed `_arith('==' / '!=', …)` through it. Also used for Set dedup. Guard: `CrossBackendPropertyTest` caseclass-eq/-ne, tuple-eq.
 
 ## jsgen-set-constructor — `fixed` (2026-06-15)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** `CrossBackendPropertyTest` (wave-5 Set probes).
 - **Symptom:** `Set(1, 2, 3)` failed on JS with `TypeError: Constructor Set requires 'new'` — JsGen had `Map`/`List` constructor cases but no `Set`, so `Set(...)` fell through to the JS global `Set`.
 - **FIXED (2026-06-15):** added a `Set(...)` / `Set[T](...)` case emitting `_setOf(...)` — a runtime helper that builds a structurally-deduplicated array, so the existing array `_dispatch` methods (`size`/`toList`/`sorted`/`contains`/…) apply. Guard: `CrossBackendPropertyTest` set-dedup-ops, set-contains.
 
 ## interp-num-string-concat — `fixed` (2026-06-15)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** `CrossBackendPropertyTest` (wave-5 Map probes).
 - **Symptom:** `6 + "_"` (a number `+` a String — Scala's `any2stringadd`) threw in the interpreter (`No method '+' on IntV`); JS + JVM correct. interp's `Int + …` only handled numeric operands.
 - **FIXED (2026-06-15):** `dispatchInt` / `dispatchInt1` now concatenate when the `+` operand is a `StringV` (`n.toString + s`). Guard: `CrossBackendPropertyTest` num-string-concat.
 
 ## js-supertype-typetest — `fixed` (2026-06-15)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** busi (UI session). A `cardWithHeader(header)` card title rendered on **no**
   screen in the SPA — money, compliance, and the new UA ФОП cockpit alike — while the card
@@ -5600,18 +5639,20 @@ commit SHA until the reporter confirms, then they can be trimmed.
   ```
 
 ## jsgen-collection-dispatch-gaps — `fixed` (2026-06-15)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** `CrossBackendPropertyTest` (wave-4 collection-HOF probes).
 - **Symptom:** `xs.sortWith((a,b) => a < b)`, `xs.sorted`, `xs.partition(p)` fail on the JS backend (node) — they were simply MISSING from the `_dispatch` runtime method table (`JsRuntimePart2b.scala`); interp + JVM correct. `val (a, b) = xs.partition(…)` then also failed for lack of `partition`.
 - **FIXED (2026-06-15):** added `sortWith` (`lt(a,b)?-1:lt(b,a)?1:0`), `sorted`, `partition` (→ `[yes, no]`), and `span` to the JS `_dispatch` array-method table. The `val (a, b) = …` tuple destructuring already works (`genPatDestructure`). Guard: `CrossBackendPropertyTest` "collection HOFs and pattern matching cross-backend".
 
 ## jsgen-match-guard-bind — `fixed` (2026-06-15)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** `CrossBackendPropertyTest` (wave-4 pattern-match probes).
 - **Symptom:** a `match` with a case GUARD (`case x if x < 0 => …`) fails on the JS backend (node syntax error); interp + JVM correct. `genMatchAsStmts` and the coroutine `genGenStmt` match dropped `c.cond` entirely, so a guarded `case x if …` got pattern-cond `"true"` and was treated as a catch-all mid-chain → malformed `{ … } else if (…)` JS. (`genReceiveMatcher` ANDed the guard but evaluated it with the pattern bindings out of scope.)
@@ -5625,18 +5666,20 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - Two wave-4 shapes (`xs.zip(ys).map((a,b)=>a+b).sum`, `(1,(2,3)) match { case (a,(b,c)) => … }`) reported a JVM `scala-cli failed` ONCE, but did NOT reproduce on a clean re-run (interp == JS == JVM all green). The original failure coincided with two contending `sbt`/`scala-cli` processes corrupting temp compiles. Kept as cross-backend guards in "collection HOFs and pattern matching cross-backend"; no code change.
 
 ## jvmgen-js-curried-partial — `fixed` (2026-06-15)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** `CrossBackendPropertyTest` (main-path edge-case probes).
 - **Symptom:** PARTIAL application of a curried def fails on the **JS backend** (`not callable: NaN`); interp + JVM are correct. `def add(a: Int)(b: Int) = a + b; val f = add(3); f(4)` — JsGen flattens curried params to `function add(a, b)`, so `add(3)` runs the body with `b === undefined` → `3 + undefined` = `NaN`. FULL application `add(1)(2)` works (it arrives flattened as `add(1, 2)`); only under-applied calls break. Reproduced for 2- and 3-clause defs.
 - **FIXED (2026-06-15):** added a `_curry(fn, arity, args)` JS runtime helper (accumulates args, applies when arity reached) and an auto-curry guard at the top of plain multi-clause def emission: `if (arguments.length < N) return _curry(fname, N, arguments);`. Only emitted for multi-clause defs with no defaults / using / context-bounds; single-clause defs and full applications are unaffected (arity already reached). Guard: `CrossBackendPropertyTest` "curried partial application cross-backend" (2-/3-clause, full + partial, interp == JS == JVM).
 
 ## effect-perform-in-fordo — `fixed` (2026-06-15)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** `CrossBackendPropertyTest` (effects-in-HOF/loop probes).
 - **Symptom:** an effect op performed inside a `for i <- 0 until n do …` loop diverged across all three backends. interp was CORRECT; **JVM** failed scala-cli (`None of the overloaded alternatives of method + in class Int` — `acc + Counter.tick()` where `tick()` is the Any `_perform`), and **JS** printed garbage (`0[object Object][object Object]…`). The `while`-loop form of the same program works on all backends (dedicated CPS while-trampoline); the `for … do` → `foreach(i => …)` desugar did NOT CPS-thread the effect in the closure body. `.map` / `.foldLeft` closures DO thread effects — only `foreach`-from-`for-do` was broken.
@@ -5657,9 +5700,10 @@ commit SHA until the reporter confirms, then they can be trimmed.
   ```
 
 ## jvmgen-returnclause-effect-in-recursion — `fixed` (2026-06-15)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** `CrossBackendPropertyTest` diagnostic (return-clause shape localization).
 - **Symptom:** a return-clause handler over a **recursive** effectful function fails JVM scala-cli compilation: `Found: (_t3 : Any) / Required: Int`. **interp and JS both produce the correct result.**
@@ -5686,9 +5730,10 @@ commit SHA until the reporter confirms, then they can be trimmed.
 ---
 
 ## interp-typed-data-not-callable (a.k.a. bare-fn-ref auto-invoke) — `fixed` (2026-06-13, `175c01d72`)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Root cause (narrowed):** NOT a rare typed-data construct — it was the common
   `xs.foreach(println)` idiom. Normalize rewrote **every** bare `println` → `Console.println`
@@ -5706,9 +5751,10 @@ commit SHA until the reporter confirms, then they can be trimmed.
   JS codegen + interp suites green.
 
 ## js-self-handling-cps-fn-not-run — `fixed` (2026-06-12)
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Fixed:** `JsGen.runIfEffectful` wraps a non-CPS-context call to an effectful
   function in `_run`, so a self-handling CPS fn's lazy `_FlatMap` resolves at the

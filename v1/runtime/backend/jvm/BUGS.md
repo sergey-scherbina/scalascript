@@ -592,9 +592,10 @@ before `done`.
   passes 3/3; `git diff --check` passes.
 
 ## v2-bytecode-param-long-nontail-self-loop — `fixed` (2026-07-09)
-<!-- status: unknown
+<!-- status: fixed
      lane: jvm
-     area: front -->
+     area: front
+     fixed-in: unrecorded -->
 
 - **Found by:** codex while rerunning final gates for
   `v2-source-jvm-recursion-fib-perf` after rebasing onto `origin/main`.
@@ -620,10 +621,11 @@ before `done`.
 - **Status:** fixed; waiting for human confirmation before `done`.
 
 ## jvm-artifact-cache-codegen-invalidation — `fixed` (2026-07-09)
-<!-- status: unknown
+<!-- status: fixed
      lane: jvm
      area: codegen
-     gate: tests/conformance/litdoc.ssc -->
+     gate: tests/conformance/litdoc.ssc
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, while fixing `v2-litdoc-js-jvm-backend-lanes`.
 - **Repro:** generate a `.scjvm` artifact for a fixture, change JVM codegen
@@ -650,9 +652,10 @@ before `done`.
 - **Status:** fixed; waiting for reporter/human confirmation before `done`.
 
 ## v1-jvm-state-threaded-handler-codegen — `fixed` (2026-07-12, opus)
-<!-- status: unknown
+<!-- status: fixed
      lane: jvm
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Root cause (refined 2026-07-12, opus) — THREE layers, all Any-typing of the
   deep-handler in JVM codegen:**
@@ -771,10 +774,11 @@ before `done`.
   (**6/6 green**).
 
 ## conformance-dsl-multi-pass-js — `fixed` (2026-07-08)
-<!-- status: unknown
+<!-- status: fixed
      lane: jvm
      area: front
-     gate: tests/conformance/run.sc -->
+     gate: tests/conformance/run.sc
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, while verifying the docs-only `v2-prod-corpus-scope` slice.
 - **Repro:**
@@ -804,9 +808,10 @@ before `done`.
   INT-only failures are tracked separately as `conformance-parsing-int-empty-output`.
 
 ## bytecode-shared-runtime-routes-unbound — `fixed` (2026-07-07)
-<!-- status: unknown
+<!-- status: fixed
      lane: jvm
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** claude (green-main takeover), unmasked by fixing EmitScalaFacadeCliTest's missing
   `-Dssc.lib.path` (the CompilerLoader env error hid it).
@@ -855,9 +860,10 @@ before `done`.
   cache-invalidation fix.
 
 ## jvmgen-block-call-empty-parens — `fixed` (2026-07-07)
-<!-- status: unknown
+<!-- status: fixed
      lane: jvm
-     area: front -->
+     area: front
+     fixed-in: unrecorded -->
 
 - **Fixed by:** claude (green-main takeover), SHA: see `fix(jvm): conformance JVM-lane...` on main.
   Peeling the symptom exposed THREE stacked root causes; all four tests now PASS
@@ -905,9 +911,10 @@ before `done`.
   in any corpus run executed from the main checkout.
 
 ## jvmgen-handle-result-mainpath — `fixed` (2026-06-15, all contexts incl. Any-taint propagation)
-<!-- status: unknown
+<!-- status: fixed
      lane: jvm
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** `CrossBackendPropertyTest` (effect-result × main-path composition probes).
 - **Symptom:** a `val r = handle(...)` (Any-typed `_handle` result) used in a NON-arithmetic main-path
@@ -921,9 +928,10 @@ before `done`.
   - tuple-accessor arithmetic `val t = (r, r+1); t._1 + t._2` — added `anyTypedVals`, a superset of `handleResultVals` populated by Any-taint PROPAGATION: an untyped val whose rhs references an Any-typed val (`val t = (r, r+1)`) is itself Any-typed. The routing predicates now key off `anyTypedVals`, and the arith-operand check also recognizes `Select(anyTypedVal, _)` (so `t._1 + t._2` lowers to `_binOp`). Only ever non-empty for effect programs (seeded by `handleResultVals`), so pure code is unaffected. Guard: `result-in-list-sum` + `result-in-tuple` added to the composition test (interp == JS == JVM).
 
 ## agent-streaming-test-port-collision — `fixed` (2026-06-15, 26dae7699)
-<!-- status: unknown
+<!-- status: fixed
      lane: jvm
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** codex during `rozum-agent-endpoint-pool` regression check.
 - **SHA at filing:** `2334d0be4` (feature worktree).
@@ -942,9 +950,10 @@ before `done`.
 ---
 
 ## jvmgen-handle-result-arith — `fixed` (2026-06-15)
-<!-- status: unknown
+<!-- status: fixed
      lane: jvm
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** `CrossBackendPropertyTest` (new effect-composition shapes — handle result fed into main-path arithmetic).
 - **Symptom:** using a `val` bound to `handle(...)` as an operand of an arithmetic/comparison infix fails JVM scala-cli with `value * is not a member of Any`. `handle(...)` lowers to `_handle(...)` (returns `Any`), so `val r = handle(...){…}; println(r * 2 + base)` emits `r * 2` raw on the Any-typed result, which Scala 3 rejects. interp + JS run it fine.
@@ -955,9 +964,10 @@ before `done`.
 ---
 
 ## jvmgen-multishot-handle-result-any — `fixed` (2026-06-15, 23a33c976)
-<!-- status: unknown
+<!-- status: fixed
      lane: jvm
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** `CrossBackendPropertyTest` (its multi-shot effect shape).
 - **Symptom:** a method call on the result of `handle(...)` fails JVM scala-cli with e.g. `value sum is not a member of Any` — `handle(...)` lowers to `_handle(...)` which returns `Any`, so `val all = handle(prog()){…}; all.sum` (typical for a multi-shot handler whose result is a `List`) doesn't type-check. interp + JS (dynamically typed) run it fine.
@@ -967,9 +977,10 @@ before `done`.
 ---
 
 ## jvmgen-effect-handler-arg-arith — `fixed` (2026-06-15, 7c843b121)
-<!-- status: unknown
+<!-- status: fixed
      lane: jvm
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** `CrossBackendPropertyTest` (its broadened multi-arg / arithmetic effect handlers).
 - **Symptom:** a handler that does arithmetic on op-args, e.g. `case Combine.mix(a, b, resume) =>
@@ -987,9 +998,10 @@ before `done`.
 ---
 
 ## jvmgen-handle-in-arg-position — `fixed` (2026-06-15, 91fc574f5)
-<!-- status: unknown
+<!-- status: fixed
      lane: jvm
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** `CrossBackendPropertyTest` (xbackend-property-equivalence — the generated
   cross-backend differential, found this on its first effects run).

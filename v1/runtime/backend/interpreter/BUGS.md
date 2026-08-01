@@ -2408,9 +2408,10 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
   reported in Rozum. Keep `fixed` until Sergiy confirms.
 
 ## v2-xslt-transform-empty-output — `fixed` (2026-07-09)
-<!-- status: unknown
+<!-- status: fixed
      lane: int
-     area: front -->
+     area: front
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, during the v2 production unmasking loop.
 - **Repro:** from a clean worktree, stage the CLI with
@@ -2443,9 +2444,10 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
 - **Status:** fixed; waiting for human confirmation before `done`.
 
 ## v2-graph-neo4j-foreign-parity — `fixed` (2026-07-09)
-<!-- status: unknown
+<!-- status: fixed
      lane: int
-     area: runtime -->
+     area: runtime
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, during the post-split production output-parity refresh.
 - **Repro:** after `scripts/sbtc "installBin"`, run
@@ -2483,10 +2485,11 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
   examples.
 
 ## root-test-stable-spi-os-plugin-import — `fixed` (2026-07-08)
-<!-- status: unknown
+<!-- status: fixed
      lane: int
      area: runtime
-     gate: tests/conformance/run.sh -->
+     gate: tests/conformance/run.sh
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, during the same full root `scripts/sbtc "test"` gate.
 - **Repro observed in root gate:** `StableSpiEnforcementTest` failed
@@ -2598,10 +2601,11 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
   (**2/2 green**).
 
 ## conformance-effects-choose-one-shot — `fixed` (2026-07-08)
-<!-- status: unknown
+<!-- status: fixed
      lane: int
      area: runtime
-     gate: tests/conformance/effects.ssc -->
+     gate: tests/conformance/effects.ssc
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, while refreshing `green-main-conformance-gating`.
 - **Repro:** after `scripts/sbtc "installBin"`,
@@ -2620,10 +2624,11 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
   `scripts/conformance -- --only 'effects' --no-memo` passes INT/JS/JVM.
 
 ## conformance-actors-exit-os-shadow — `fixed` (2026-07-08)
-<!-- status: unknown
+<!-- status: fixed
      lane: int
      area: runtime
-     gate: tests/conformance/actors-supervision.ssc -->
+     gate: tests/conformance/actors-supervision.ssc
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, while refreshing `green-main-conformance-gating`.
 - **Repro:** after `scripts/sbtc "installBin"`,
@@ -2646,9 +2651,10 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
   `scripts/conformance -- --only 'actors-supervision' --no-memo` passes INT/JS/JVM.
 
 ## v2-rozum-schema-streaming-parity — `fixed` (2026-07-08)
-<!-- status: unknown
+<!-- status: fixed
      lane: int
-     area: runtime -->
+     area: runtime
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, during the v2 production parity loop after
   `v2-quoted-macro-interpreter-parity` was fixed.
@@ -2687,9 +2693,10 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
   0 v2-error · 16 v1-only**.
 
 ## v2-quoted-macro-interpreter-parity — `fixed` (2026-07-08)
-<!-- status: unknown
+<!-- status: fixed
      lane: int
-     area: front -->
+     area: front
+     fixed-in: unrecorded -->
 
 - **Found by:** codex, during the v2 production parity sweep after content-toolkit
   section parity was fixed.
@@ -2726,9 +2733,10 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
   **58/81 identical · 7 mismatch · 0 v2-error · 16 v1-only**.
 
 ## plugin-lazyload-extern-imports — `fixed` (2026-07-07)
-<!-- status: unknown
+<!-- status: fixed
      lane: int
-     area: front -->
+     area: front
+     fixed-in: unrecorded -->
 
 - **Found by:** claude (tkv2-pwa-adopt slice) — the stock `examples/pwa/pwa-demo.ssc`
   fails on clean origin/main.
@@ -2755,9 +2763,10 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
   `PwaPluginTest` covers the generators.
 
 ## asm-jit-effect-pathology — `fixed` (2026-06-21, `0d5e03b87`)
-<!-- status: unknown
+<!-- status: fixed
      lane: int
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** benchmark perf-divergence sweep (`./bench.sh`), accepted from `SPRINT.md`.
 - **Symptom:** the synthetic `ssc-asm` backend (`SSC_JIT_BACKEND=asm`) is orders of magnitude slower than
@@ -2778,9 +2787,10 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
   = 0.032 ms/iter (was 9.46 ms/iter in the accepted repro).
 
 ## interp-monadic-forcomp — `fixed` (2026-06-15)
-<!-- status: unknown
+<!-- status: fixed
      lane: int
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** `CrossBackendPropertyTest` (wave-4 comprehension probes).
 - **Symptom:** a `for`-comprehension over `Option` / `Either` (non-`List` monad) threw **in the interpreter**; JS + JVM were correct.
@@ -2789,9 +2799,10 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
 - **FIXED (2026-06-15):** made `PatternRuntime.evalForYield` monad-polymorphic. When a generator's evaluated value is NOT a `ListV` (and the pattern is irrefutable + the tail is all simple generators), it desugars to `recv.flatMap(pat => <rest>)` / `recv.map(pat => body)` dispatched on the actual value via `DispatchRuntime.dispatch1` + a `NativeFnV` closure — exactly what the JS/JVM backends emit. `List` keeps its allocation-light fast path; guards / refutable patterns over a non-List monad fall through unchanged. Guard: `CrossBackendPropertyTest` "monadic for-comprehension cross-backend" (option some/none, either right/left, single-generator, + a List regression — interp == JS == JVM).
 
 ## interp-returnclause-effect-in-while — `fixed` (2026-06-15)
-<!-- status: unknown
+<!-- status: fixed
      lane: int
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Found by:** `CrossBackendPropertyTest` diagnostic (return-clause shape localization).
 - **Symptom:** a deep return-clause handler over a program that performs an effect inside a `while` loop threw **in the interpreter** with `Unhandled effect: Log.emit (no handler in scope)`, even for a single iteration. **JS and JVM both produce the correct result.** This made the property test's case-7 (return-clause) shape vacuous: interp threw → seed skipped → JS/JVM never compared.
@@ -2817,9 +2828,10 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
 ---
 
 ## interp-import-cycle-stackoverflow — `fixed` (2026-06-14)
-<!-- status: unknown
+<!-- status: fixed
      lane: int
-     area: runtime -->
+     area: runtime
+     fixed-in: unrecorded -->
 
 - **Reported:** busi (`@busi-claude-code`), during the busi `p5` `dispatch.ssc`
   decomposition (the facade re-export / strict-DAG work).
@@ -2847,9 +2859,10 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
 - **Landed:** (this branch → origin/main).
 
 ## interp-parameterized-effect-decl — `fixed` (2026-06-13, `2a818e45c`)
-<!-- status: unknown
+<!-- status: fixed
      lane: int
-     area: front -->
+     area: front
+     fixed-in: unrecorded -->
 
 - **Fixed:** `Parser.effectLinePat` (the regex that rewrites `effect Name:` →
   `object Name { … }`) had no type-param clause after the name, so `effect State[S]:` /
@@ -2860,9 +2873,10 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
   Parser, so all backends benefit. Regress: `StdEffectsTest` (`effect Box[T]:` decl + handle).
 
 ## interp-effect-multishot-in-subsection — `fixed` (2026-06-13, `2a818e45c`)
-<!-- status: unknown
+<!-- status: fixed
      lane: int
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **CORRECTION:** filed as `interp-effect-multishot-cross-section-leak` — that "global state
   leaks from an earlier one-shot `handle`" diagnosis was **wrong**. Real cause: `multiShotEffects`
@@ -2878,9 +2892,10 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
   blocks recursively.
 
 ## interp-toString-on-collection — `fixed` (2026-06-13, `225aacc18`)
-<!-- status: unknown
+<!-- status: fixed
      lane: int
-     area: codegen -->
+     area: codegen
+     fixed-in: unrecorded -->
 
 - **Fixed:** intercept `toString` (0-arg) at the top of `DispatchRuntime.dispatch`
   (alongside the `asInstanceOf` early-return) → render via `Value.show`, the canonical
