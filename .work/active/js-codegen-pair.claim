@@ -5,7 +5,7 @@ started: 2026-08-01T03:36:09Z
 heartbeat: 2026-08-01T03:36:09Z
 status: claimed-before-planning
 items: js-unused-val-drops-side-effecting-call js-class-method-named-arg-nan
-paths: file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:tests/conformance/js-unused-val-side-effect.ssc file:tests/e2e/js-shaker-keeps-effectful-binding.sh file:tests/conformance/named-arg-defaults.ssc file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv file:v1/runtime/backend/js/BUGS.md file:v1/runtime/backend/interpreter/BUGS.md file:v1/runtime/backend/js/SPRINT.md
+paths: file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:tests/conformance/js-unused-val-side-effect.ssc file:tests/e2e/js-shaker-keeps-effectful-binding.sh file:tests/conformance/named-arg-defaults.ssc file:tests/conformance/expected/named-arg-defaults.txt file:tests/conformance/contract-roster.tsv file:tests/conformance/corpus-baseline.tsv file:v1/runtime/backend/js/BUGS.md file:v1/runtime/backend/interpreter/BUGS.md file:v1/runtime/backend/js/SPRINT.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
