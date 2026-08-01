@@ -744,7 +744,18 @@ once per SITE, so the hot counter can *be* that `Code` (`Code = Env => Step` is 
       ⚠ Known gap: `--backend asm` (space form) is eaten by the GLOBAL CLI parser before the command
       sees it, so the guard fires only on `--backend=asm`. Pre-existing, recorded not fixed.
 
-- [ ] **J-9 — default-on decision. The blocking number now EXISTS and says: not yet.** A hello-world
+- [~] **J-9 DONE — compilation moved off the critical path; default stays OFF, by arithmetic.**
+      Background compile on one min-priority daemon thread (`SSC_V2_JIT_SYNC=1` forces sync so the
+      A/B is possible). Wall median 1.69 → 1.59 s (−6 %) with **CPU unchanged** 7.00 → 6.96 — the
+      work is MOVED, not removed. Ranges overlap, so: consistent with, not proof.
+      Tower exclusion (`SSC_V2_JIT_TOWER=on` to restore): sites 3398 → 1907, units 725 → 276,
+      compile 198 → 118 ms, rows unchanged. **The tower was 40 % of the cost, not all of it** — the
+      remaining 276 units on a one-line program are the PRELUDE.
+      **Why the default stays off:** a run that never gets hot pays ~118 ms CPU + the 5.4 % arming
+      tax for a tier-up it cannot amortise, and that residue is structural. The two fixes that would
+      close it — defer compilation until a program has run N ms, and a code cache amortising units
+      ACROSS runs — are each larger than this slice, and are now specified by numbers.
+      *(original)* **The blocking number now EXISTS and says: not yet.** A hello-world
       run spends **~187 ms compiling** (189/183/190) in a ~2.6 s total — invisible to wall-clock,
       which swings ±0.5 s (off 2.53–3.05 vs on 2.36–4.43, fully overlapping). Threshold sweep says
       the threshold is the WRONG lever: 8 → 2048 drops units 722 → 181 (−75 %) but cost only

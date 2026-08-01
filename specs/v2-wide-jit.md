@@ -1,6 +1,7 @@
 # v2 wide JIT — a run-time JIT for the v2 VM lane, in v1's image
 
-**Status:** **IMPLEMENTED and landed, opt-in via `SSC_V2_JIT=on`** (J-0 … J-3d, 2026-08-01).
+**Status:** **IMPLEMENTED and landed, opt-in via `SSC_V2_JIT=on`** (J-0 … J-3d, J-8, J-9;
+2026-08-01). J-4/J-5/J-6 are deferred **by measurement**, each with its evidence in §9.
 Written 2026-07-31 at Sergiy's direction — *"общий широкий JIT для ssc v2 по образу и подобию JIT в
 ssc v1"*. §9 carries the measurements, including the several places where running it refuted this
 document; where §1–§8 and §9 disagree, **§9 is what happened**.
@@ -829,6 +830,48 @@ Two properties worth keeping when it is edited:
 **Known gap, found while testing it:** `--backend asm` (space form) never reaches the command — the
 global CLI parser consumes it first — so the guard fires only on `--backend=asm`. Pre-existing
 CLI behaviour, recorded here rather than left for the next person to rediscover.
+
+### J-9 — compilation off the critical path, and why the default stays opt-in
+
+**Background compilation (`SSC_V2_JIT_SYNC=1` forces the old behaviour, so the two are comparable).**
+One daemon thread at minimum priority, created only when a site first goes hot. Daemon on purpose: a
+short program must be free to exit with units still queued — the run that would have paid for them
+is over, and making it wait would reintroduce the latency this removes.
+
+| | wall, median of 7 | CPU (user+sys), median |
+|---|---:|---:|
+| sync | 1.69 s | 7.00 s |
+| async | **1.59 s** (−6 %) | 6.96 s (unchanged) |
+
+That is the signature to look for: **the work is moved, not removed** — identical CPU, lower wall.
+Ranges overlap (1.64–2.23 vs 1.57–2.19), so this is *consistent with* the effect rather than proof
+of it; the honest reading is that ~190 ms of compilation no longer sits on the critical path, and on
+a busy host you will not see it.
+
+**Who actually pays — a hypothesis that was half right.** A `bin/ssc run` compiles two programs: the
+F tower (the compiler, which executes on this VM) and the user program. The tower's units are thrown
+away when the compile ends, so a short run cannot amortise them. Suspending site creation for the
+tower alone:
+
+| | sites armed | units | ms compiling |
+|---|---:|---:|---:|
+| tower armed | 3398 | 725 | 198 |
+| tower not armed (**new default**) | 1907 | 276 | **118** |
+
+−40 % of the cost, and the four rows are unchanged (`arith-loop` 0.596, `pattern-match-heavy` 10.7,
+`recursion-fib` 1.21, `recursion-tco` 0.0271) because they are user code. But **276 units to print
+one string** is what remains, and it is the prelude every program carries — so the tower was 40 % of
+the problem, not all of it. `SSC_V2_JIT_TOWER=on` restores it for the case where the compiler itself
+IS the hot workload (a long self-hosting run); that case is real and the flag exists so nobody has
+to rediscover it.
+
+**Verdict: the default stays `off`.** Not caution — arithmetic. A run that never gets hot still pays
+~118 ms of CPU plus the 5.4 % arming tax (J-1) for a tier-up it cannot amortise, and the residue is
+**structural**: it is the prelude going hot during startup, which no threshold reaches (J-8's sweep)
+and which background compilation only hides. The two things that would actually close it are a
+policy that defers compilation until a program has been running for N ms, and a code cache that
+amortises units ACROSS runs. Both are larger than this slice, and both are now specified by a number
+rather than a hunch.
 
 **One outlier, reported rather than averaged away.** In the A/B batch, one `recursion-fib` ON run
 came back **9.72 ms** against 1.16–1.22. A follow-up 8-run sample was 1.18 / 1.21 / 1.21 / 1.27 /
