@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-08-01 — the sanctioned bug query stopped being wrong about one entry in six
+
+`AGENTS.md` bans grepping the prose for status and mandates `scripts/bugs-report`, after a
+hand-rolled query silently omitted 108 entries while answering a direct question. That made the
+tool's own blind spot expensive: 118 of its 138 `unknown` entries carried a heading saying `fixed`,
+never migrated when the header schema arrived. `--status fixed` was low by 118 and `unknown` was
+86 % noise, with nothing on screen to suggest either.
+
+The report now prints its own deficit (`--drift` lists the rows, and the number is stated as
+approximate — it is a heuristic over prose, not a census), and the 118 are migrated:
+`fixed` 439 → 558, `unknown` 138 → 20, drift → 0. No schema change was needed;
+`specs/bugs-index.md` already sanctioned `fixed-in: unrecorded` for precisely this population.
+
+Recorded as refuted so nobody retries it: scraping a fix sha out of the prose. A line window runs
+into the next entry, and a sha in an entry's prose can name the commit that CAUSED the bug rather
+than the one that fixed it — both observed while reading the dry run. Three detector false
+positives were found the same way and each is now a fixture in
+`tests/e2e/bugs-status-drift-gate.sh`, including this work's own bug entry, which tripped a
+detector that looks for the word `fixed` by being about entries that claim it.
+
 ## 2026-08-01 — `var-expr-init-int` was never a backend gap; the bench wrapper could not call it
 
 The last two holes in the corpus table closed, and neither was in a backend. `ssc bench` detected the

@@ -356,12 +356,13 @@ truncation of an opaque value is still opaque, so the anti-fold reasoning above 
 - **Worth knowing:** the interpreter lane was green throughout, because it is dynamically typed.
   A green `ssc` column is not evidence that the wrapper is well-typed.
 
-## bugs-headers-were-never-migrated-from-the-prose — 118 entries the canonical query calls `unknown` announce the opposite in their own heading
-<!-- status: open
+## bugs-headers-were-never-migrated-from-the-prose — 118 entries the canonical query called `unknown` announced the opposite in their own heading
+<!-- status: fixed
      lane: apparatus
      area: build
      kind: apparatus
-     gate: tests/e2e/bugs-status-drift-gate.sh -->
+     gate: tests/e2e/bugs-status-drift-gate.sh
+     fixed-in: d8a51c2c6 -->
 
 **Found 2026-08-01 while reading `v1/runtime/backend/interpreter/BUGS.md` for an unrelated reason.**
 Three consecutive entries had headings ending `— fixed (2026-06-21, 0d5e03b87)` and headers saying
@@ -388,8 +389,31 @@ carry a sha in the heading. So the options are:
    entry predates the schema, and say so in `specs/bugs-index.md`. Requiring a field that did not
    exist when the entry was written is a demand made of the past.
 
-Option 2 is the cheaper and more honest one, but it changes what a green `bugs-index-gate` means,
-so it belongs in the spec rather than in a migration commit.
+**FIXED 2026-08-01 (`d8a51c2c6`) — and neither option was needed.** `specs/bugs-index.md` already
+sanctioned the answer at line 117: `fixed-in: unrecorded`, described there as being for exactly this
+population, "the many older entries whose prose says a defect was fixed but never names the commit".
+The question above was posed without reading the spec far enough; it had been decided before it was
+asked. All 118 migrated to `status: fixed` + that sentinel, by `scripts/bugs-migrate-status.py`.
+
+Counts: `fixed` 439 → 558, `unknown` 138 → **20** (the genuinely unclassified residue), drift → 0.
+
+**Option 1 was attempted anyway and is recorded as REFUTED, because it is the plausible-looking one
+somebody will try again.** Scraping a fix sha out of an entry's prose fails twice over:
+
+  - a window of the entry's next N lines runs into the NEXT entry —
+    `parser-trysplitparse-quadratic-hang` has no sha of its own and was handed `f2afd3378` from the
+    neighbour below it;
+  - and that sha is not a fix at all. In `rust-index-read-moves-noncopy` it names the commit that
+    CAUSED the bug: "the bug only surfaced once `f2afd3378` made `.split`/`.toList` results
+    indexable".
+
+Position cannot separate a fix sha from a cause sha, a neighbour's, or a passing mention, and
+`git log -S<slug>` has the same defect one level up — it finds the commit that edited the ENTRY. A
+`fixed-in` naming the wrong commit reads as authoritative, which is worse than a sentinel that says
+"fixed, provenance missing". Anyone who knows a real fix sha can still add it.
+
+The migration script is kept rather than deleted: it is idempotent, selects on current state, and
+its docstring is where the refutation above lives.
 
 - **Repro:** `scripts/bugs-report` — read the `status drift` line under index coverage.
 - **Gate:** `tests/e2e/bugs-status-drift-gate.sh` keeps the DETECTOR alive; it deliberately does
