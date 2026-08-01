@@ -2368,39 +2368,35 @@ JVM or Rust generators, which is how it was found. js passing while jvm+rust+was
 the two Scala-hosted generators rather than at the fixture or the VM. `wasm` shares the Rust
 generator, so it is likely one cause and not three.
 
-## js-compound-assign-dispatches — `x += 1` compiles to a dynamic method call that always throws
-<!-- status: open
-     lane: v2-jvm
-     area: codegen -->
-
-**Status:** OPEN (found 2026-07-28 by `bench-tier-dead-lanes`; filed, not fixed — the JS codegen
-paths belong to another lane).
-
-**Reproduce** — three lines:
-
-```scalascript
-var i = 0
-i += 1
-println(i)
-```
-
-| lane | result |
-|---|---|
-| INT (`ssc-tools run --v1`) | `1` |
-| JS (`ssc-tools run-js`) | `Error: Method not found: += on 0` |
-
-**Root cause.** `emit-js` emits `_dispatch(i, '+=', [1])` — the dynamic
-method-dispatch fallback — instead of `i = i + 1`. `_dispatch` has no `+=` entry, so it reaches
-`throw new Error('Method not found: ...)`. The operator is not compiled at all, it is *looked up*.
-
-**Impact beyond the repro:** any `.ssc` program using `+=`/`-=`/`*=` is silently JS-broken. It took
-down the entire `js` benchmark column because the bench wrapper itself used `+=`.
-
 ## v2-source-backends-miss-autoOutput — `__autoOutput__` is unimplemented in both v2 source backends
-<!-- status: open
+<!-- status: fixed
      lane: v2-jvm
      area: codegen
-     gate: tests/conformance/run.sc -->
+     fixed-in: PENDING-SHA
+     gate: v2/conformance/autooutput.coreir -->
+
+**FIXED 2026-08-01** by `v2-source-backend-lanes`. Both lanes now run:
+
+```
+$ bin/ssc-tools --backend v2-jvm  bench --machine bench/corpus/arith-loop.ssc   BENCH v2-jvm 0.2552
+$ bin/ssc-tools --backend v2-rust bench --machine bench/corpus/arith-loop.ssc   BENCH v2-rust 0.000047
+```
+
+**Only PART of this was still open, and the entry did not say so.** `v2/backend/jvm/JvmBackend.scala`
+had already been given the arm by someone else, with a comment quoting this entry. What remained was
+the **rust** generator and the **js** one (`backend-rust-gen.ssc0`, `backend-js-gen.ssc0`) — measured,
+not assumed: both had zero occurrences of the name.
+
+**The gate is a new Core IR fixture, and its absence is why this was invisible.**
+`v2/backend/check.sh` runs every `conformance/*.coreir` through the VM and all four generators and
+requires byte-identical output — and **no fixture used `__autoOutput__`**, so the harness was green
+while two lanes were dead. `v2/conformance/autooutput.coreir` covers Int, Unit (prints nothing), a
+String, and nesting. Fixtures are auto-discovered, so the file IS the registration. All four
+generators pass it.
+
+The String case is the one a careless implementation gets wrong: the generators' own `show` QUOTES
+strings and the VM's `out` does not, so both new helpers print a String raw. Byte-identical is
+byte-identical.
 
 **Status:** OPEN (found 2026-07-28 by `bench-tier-dead-lanes`; filed, not fixed).
 

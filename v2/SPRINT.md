@@ -13,6 +13,25 @@ lose the reasoning around them.
 Milestone view: [`ROADMAP.md`](ROADMAP.md). Pipeline: `ssc0 → ir → ssc(VM) → cpu`. Work each slice
 in its own worktree off `origin/main`.
 
+## v2 source backend lanes (claim `v2-source-backend-lanes`)
+
+- [x] **B-1 — `v2-source-backends-miss-autoOutput`.** `v2-jvm` and `v2-rust` could not run ANY
+      program. Only PART was still open and the entry did not say so: `JvmBackend.scala` had already
+      been given the arm by someone else. Measured before coding — the rust and js generators had
+      ZERO occurrences of the name — and both now implement it. Both lanes run the entry's own
+      repro.
+- [x] **B-2 — the gate that was missing is why this was invisible.** `v2/backend/check.sh` compares
+      every generator against the VM byte-for-byte, and **no fixture used `__autoOutput__`** — so
+      the harness was green while two lanes were dead. New `v2/conformance/autooutput.coreir`
+      (Int / Unit / String / nesting); fixtures are auto-discovered, so the file IS the
+      registration. All four generators pass. The String row matters: the generators' `show` quotes
+      strings and the VM's `out` does not.
+- [ ] **B-3 — `js-compound-assign-dispatches` NOT fixed, and its header was wrong.** Re-measured:
+      `x += 1` works on int and on the v2 native lane, and fails on the **v1 js** lane
+      (`Method not found: += on 0`, thrown by JsGen's own `_dispatch`). So `lane: v2-jvm` was
+      incorrect and the entry has been MOVED to `v1/runtime/backend/js/BUGS.md`, where its fix
+      lives. Left open because `JsGen.scala` is held by the live `ssc3-core` claim.
+
 ## v2 object scope plumbing (claim `v2-object-scope-plumbing`)
 
 Closes `v2-object-var-member-resolves-to-a-top-level-global`, the slice the previous batch scoped

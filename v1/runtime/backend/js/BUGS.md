@@ -7,6 +7,45 @@ grepping for status.
 
 Newest first.
 
+## js-compound-assign-dispatches — `x += 1` compiles to a dynamic method call that always throws
+<!-- status: open
+     lane: js
+     area: codegen
+     fixed-in: -
+     gate: - -->
+
+**MOVED here and its `lane:` CORRECTED 2026-08-01** by `v2-source-backend-lanes`, which re-measured
+it. The header said `lane: v2-jvm`; it reproduces on the **v1 js lane** (`ssc-tools run-js`) and the
+throw comes from `JsGen`'s own `_dispatch` preamble, so the fix goes in
+`v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala` — which is what decides the
+module, per `specs/work-tracking-layout.md`. Left OPEN rather than fixed: that file is held by the
+live `ssc3-core` claim. The v2 native lane answers `1` correctly, so this is not a v2 defect at all.
+
+
+**Status:** OPEN (found 2026-07-28 by `bench-tier-dead-lanes`; filed, not fixed — the JS codegen
+paths belong to another lane).
+
+**Reproduce** — three lines:
+
+```scalascript
+var i = 0
+i += 1
+println(i)
+```
+
+| lane | result |
+|---|---|
+| INT (`ssc-tools run --v1`) | `1` |
+| JS (`ssc-tools run-js`) | `Error: Method not found: += on 0` |
+
+**Root cause.** `emit-js` emits `_dispatch(i, '+=', [1])` — the dynamic
+method-dispatch fallback — instead of `i = i + 1`. `_dispatch` has no `+=` entry, so it reaches
+`throw new Error('Method not found: ...)`. The operator is not compiled at all, it is *looked up*.
+
+**Impact beyond the repro:** any `.ssc` program using `+=`/`-=`/`*=` is silently JS-broken. It took
+down the entire `js` benchmark column because the bench wrapper itself used `+=`.
+
+
 ## js-tls-intrinsic-missing-from-the-wsserver-capability-trigger — `tls(...)` alone emits a call to nothing
 <!-- status: open
      lane: js

@@ -1,0 +1,35 @@
+; __autoOutput__ — per-block auto-output, and the fixture that makes it gateable.
+;
+; It is a PRIM rather than a source-level helper because "is this Unit?" is a runtime fact whose
+; representation differs per backend, so every generator consuming F's output must implement it.
+; Two of them did not: v2-jvm died with `unknown prim1: __autoOutput__` and v2-rust panicked with
+; `unimplemented prim: __autoOutput__` — on EVERY program, so those lanes could not run anything.
+; (v2/BUGS.md v2-source-backends-miss-autoOutput.)
+;
+; NO EXISTING FIXTURE USED THIS PRIM, which is why check.sh — a harness that otherwise compares
+; every generator against the VM byte-for-byte — was green while two lanes were dead. That is the
+; point of this file.
+;
+; Four cases, and the last two are the ones a careless implementation gets wrong:
+;   1. an Int   -> printed
+;   2. Unit     -> prints NOTHING and yields unit (the arm that makes it "auto")
+;   3. a String -> printed RAW, not quoted. The generators' own `show` quotes strings; the VM's
+;                  `out` does not, and byte-identical is byte-identical.
+;   4. nested   -> the value of the whole seq is the LAST autoOutput's unit, so nothing extra prints.
+;
+; Expected output, from the VM:
+;   7
+;   hi
+;   42
+(program
+ (defs
+  (def main
+   (lam 0
+    (seq
+     (prim __autoOutput__ (lit (int 7)))
+     (seq
+      (prim __autoOutput__ (lit unit))
+      (seq
+       (prim __autoOutput__ (lit (str "hi")))
+       (prim __autoOutput__ (lit (int 42)))))))))
+ (entry (app (global main))))
