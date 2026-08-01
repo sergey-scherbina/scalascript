@@ -128,6 +128,53 @@ return a tree for `actors.ssc` whether or not it understood it, and a degraded-p
 not a parse timing. The diagnostic count must be reported next to every number, and an input the
 spike parses CLEANLY must be measured alongside the real file.
 
+## 4.2 SSC3-M results — the blocker is not speed
+
+Measured 2026-08-01 on `v1/runtime/std/actors.ssc` (31,403 B, 683 lines) and on a small
+clean-subset input, via a hand probe rather than JMH (`performance` §1.4 — run the claim by hand
+before it becomes a harness category). **Host load 10.82**, so every TIMING below is provisional;
+the losslessness finding is a boolean about token channels and does not depend on load.
+
+**THE DIALECT IS NOT LOSSLESS, and that is the finding.**
+
+On input it understands completely — `status=Complete`, **zero diagnostics** — the spike
+reconstructs 57 characters from 84:
+
+    src  def add(a: Int, b: Int): Int = a + b\n\ndef main(): Int =\n  val x = add(1, 2)\n  x * 3\n
+    got  defadd(a:Int,b:Int):Int=a+bdefmain():Int=valx=add(1,2)x*3
+
+Token channels for that parse: **`Syntax` 36, `Trivia` 0**. It discards whitespace at lex time.
+This is not error recovery losing text and not a bug to hunt — the dialect never emits trivia at
+all, by construction. Compare the Markdown dialect, which reconstructs its whole 675-case corpus
+exactly because trivia tokens are in the tree.
+
+**That is the property the entire ScalaScript 3 decision rests on.** Losslessness is the reason
+to put UniML in the front rather than a conventional parser; today the ScalaScript dialect does
+not have it. So criterion (4) of UNIML-SSC3 is currently FALSE, not merely unmeasured, and
+UPR-4a is not "move the spike into `src/main` and refactor" — the dialect has to become lossless
+first, which touches its lexer and every emission path. UPR-4a's own text already asks for this
+("preserve exact raw lexemes"); the measurement is that it has not been done.
+
+**Speed is not the blocker, and my prediction was wrong in both directions.**
+
+| | predicted | measured |
+|---|---|---|
+| throughput, real parse | 2–10 MB/s | **~0.9–1.0 MB/s** (load 10.8, provisional) |
+| retained tree | 8–20× | not measured — see below |
+
+Slower than predicted by 2–10×, but still ~2× above the 0.5 MB/s disqualifying threshold, so it
+does not refute the plan. Two caveats that matter more than the number: it is measured WITHOUT
+trivia, and adding the missing trivia makes both time and tree size worse; and the reference arm
+(v1's `ParserBench` on the same file) was NOT taken, because a comparison at load 10.8 would be
+noise. The ratio is still owed.
+
+**A trap worth recording.** The first throughput reading on `actors.ssc` was **14.18 MB/s** and
+looked excellent. It was measuring FAILURE: `status=Incomplete`, 85 diagnostics, and 2,118 nodes
+for 31 KB of source — the parse bailed out early and the number rewarded it for not working.
+Real parsing on clean input is ~1 MB/s, i.e. **14× slower than the flattering number**. Any
+front-end benchmark here must report diagnostics and node count beside the time, or it will
+measure how fast the parser gives up.
+
 ## 5. Order of work
 
 1. **Measure first** — parse throughput and retained size of the UniML tree on the real corpus,
