@@ -785,6 +785,51 @@ both lanes at once.
 For the other three rows there is nothing left for the JIT to win — they sit within 1–4 % of what
 the same compiler achieves with the whole program in hand, and `recursion-tco` matches it exactly.
 
+### J-8 — `ssc lint-jit -v2`, and J-9's missing number
+
+**The compile cost, which wall-clock could not see.** A hello-world run spends **~187 ms compiling**
+(3 runs: 189 / 183 / 190) inside a ~2.6 s total — invisible against a wall-clock that swings ±0.5 s
+(off 2.53–3.05, on 2.36–4.43, fully overlapping). That is the number J-9 needs and it now comes from
+a `nanoTime` accumulator in the backend, printed in the stats line, rather than from a stopwatch.
+
+**Raising the threshold is a weak lever, measured rather than assumed:**
+
+| threshold | units compiled | ms compiling | `recursion-fib` |
+|---:|---:|---:|---:|
+| 8 | 722 | 201 | 1.21 |
+| 32 | 478 | 162 | — |
+| 128 | 349 | 146 | — |
+| 512 | 281 | 134 | 1.26 |
+| 2048 | 181 | 119 | 1.21 |
+
+A 256× threshold increase removes **75 % of the units but only 41 % of the cost** — the expensive
+units are the genuinely hot ones, which clear any threshold. And the win is untouched (`fib` 1.21 at
+both ends). **So the lever for default-on is not the threshold; it is moving compilation off the
+critical path.** J-9 stays open with that as its brief.
+
+**The diagnostic** is `ssc lint-jit`, with `-v2` the default and `-v1` selecting v1's report
+(Sergiy, 2026-07-31; `--backend` belongs to `-v1` and is an error with `-v2`, since v2 has one
+backend by design):
+
+```
+$ ssc lint-jit bench/corpus/pattern-match-heavy.ssc
+  area        arity 1   compiles
+  workload    arity 0   compiles
+bench/corpus/pattern-match-heavy.ssc: 59 defs compile, 0 refused
+```
+
+Two properties worth keeping when it is edited:
+
+- **The verdict is the real one.** It calls the same `JvmByteGen.emitUnit` the JIT calls, with the
+  same purity set, so `compiles` means that def compiles at run time. A predicate that merely
+  *resembles* the compiler is how v1's engines drifted (`jit-universal-coverage.md` §2).
+- **It does not run the program.** v1's lint executes the module and reads `interp.globals`, so a
+  static question triggers every top-level side effect. The v2 lane lowers to Core IR and stops.
+
+**Known gap, found while testing it:** `--backend asm` (space form) never reaches the command — the
+global CLI parser consumes it first — so the guard fires only on `--backend=asm`. Pre-existing
+CLI behaviour, recorded here rather than left for the next person to rediscover.
+
 **One outlier, reported rather than averaged away.** In the A/B batch, one `recursion-fib` ON run
 came back **9.72 ms** against 1.16–1.22. A follow-up 8-run sample was 1.18 / 1.21 / 1.21 / 1.27 /
 1.25 / 1.28 / 1.25 / 1.24 — a tight band with no second mode — and the same batch showed 2.4× spikes

@@ -737,7 +737,21 @@ once per SITE, so the hot counter can *be* that `Code` (`Code = Env => Step` is 
       diagnostic that quietly re-points at a different lane is the same class of defect as a
       fallback that does not announce itself. Six other commands spell the flag `--v2`/`--v1`
       (`Main.scala:1294` …) — the single-dash form here is a deliberate call, not an oversight.
-- [ ] **J-9 — default-on decision**, with the measured evidence, or a recorded reason to stay opt-in.
+- [~] **J-8 DONE — `ssc lint-jit` with `-v2` (default) / `-v1`, plus the compile-time counter.**
+      Verdicts come from the SAME `JvmByteGen.emitUnit` the JIT calls with the same purity set, so
+      `compiles` means it compiles at run time; and it does NOT run the program, unlike `-v1` which
+      executes the module to read `interp.globals`. `--backend` is an error with `-v2`.
+      ⚠ Known gap: `--backend asm` (space form) is eaten by the GLOBAL CLI parser before the command
+      sees it, so the guard fires only on `--backend=asm`. Pre-existing, recorded not fixed.
+
+- [ ] **J-9 — default-on decision. The blocking number now EXISTS and says: not yet.** A hello-world
+      run spends **~187 ms compiling** (189/183/190) in a ~2.6 s total — invisible to wall-clock,
+      which swings ±0.5 s (off 2.53–3.05 vs on 2.36–4.43, fully overlapping). Threshold sweep says
+      the threshold is the WRONG lever: 8 → 2048 drops units 722 → 181 (−75 %) but cost only
+      201 → 119 ms (−41 %), because the expensive units are the genuinely hot ones — and the win is
+      unchanged (`fib` 1.21 at both ends). **The lever is moving compilation off the critical path
+      (background thread), not tuning the threshold.** That is J-9's brief.
+      *(original)* default-on decision, with the measured evidence, or a recorded reason to stay opt-in.
 
 ⚠ **The gate rule that decides whether any of this is provable.** An output gate is green BOTH ways:
 the interpreter prints the right answer, so `SSC_V2_JIT=off` and on agree whether or not a single
