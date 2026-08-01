@@ -75,12 +75,13 @@ object Jit:
   /** A `Lam` body. `body`/`arity` are carried now, though tier 0 does not read them, because J-3
     * compiles exactly this term and J-8 names exactly this site — plumbing them later would mean a
     * second pass over the same four kernel call sites. */
-  def site(body: Term, arity: Int, code: Code): Code =
-    if !armed then code else new JitSite(body, arity, code, threshold)
+  def site(body: Term, arity: Int, handlerRoot: Boolean, code: Code): Code =
+    if !armed then code else new JitSite(body, arity, handlerRoot, currentGlobals, code, threshold)
 
-  /** A `While` body: no arity, and its own threshold. */
+  /** A `While` body: no arity (`-1`, which is also how a backend tells the two apart), and its own
+    * threshold. */
   def loopSite(body: Term, code: Code): Code =
-    if !armed then code else new JitSite(body, -1, code, loopThreshold)
+    if !armed then code else new JitSite(body, -1, false, currentGlobals, code, loopThreshold)
 
   private[ssc] def registered(): Unit = sitesArmed.incrementAndGet()
 
@@ -102,9 +103,19 @@ object Jit:
   /** Handed the program's globals at compile time and STASHED, not forwarded: forwarding here would
     * load the backend for every armed program, including ones that never get hot, which is exactly
     * the eager loading the by-name seam exists to avoid. The backend receives them when it is
-    * actually resolved. */
+    * actually resolved.
+    *
+    * ALSO the source of each site's stamp, and that is not bookkeeping — see `JitSite.globals`.
+    * ONE PROCESS COMPILES SEVERAL PROGRAMS: `RunNativeV2` compiles the F tower and then the user
+    * program (`Compiler.compile` at :425 and :514), each with its own globals map. A site belongs
+    * to whichever program was being compiled when it was built. */
   private[ssc] def onProgram(globals: collection.mutable.Map[String, Value]): Unit =
-    if armed then programGlobals = globals
+    if armed then
+      programGlobals = globals
+      currentGlobals = globals
+
+  /** The program currently being compiled; stamped into every site built during it. */
+  private[ssc] var currentGlobals: collection.mutable.Map[String, Value] | Null = null
 
   private def backend(): JitBackend | Null = synchronized:
     if !backendResolved then
@@ -161,6 +172,20 @@ trait JitBackend:
 final class JitSite(
     val body: Term,
     val arity: Int,
+    /** A qualified partial-function root: its miss protocol is scoped by `Runtime.handlerClosure`
+      * and mirrored in the emitter by a separate `handlerDispatchRoot` mode. A backend that
+      * compiled one as an ordinary body would silently lose the unhandled-event probe, so the flag
+      * travels with the site rather than being re-derived from the term. */
+    val handlerRoot: Boolean,
+    /** The globals map of the program this site was compiled in.
+      *
+      * A compiled unit reads globals through `Emit.globalsRef`, which is ONE field, while a single
+      * process runs SEVERAL programs — the F tower and then the user program. Bridging that field
+      * once binds every unit to whichever program happened to be compiling at the time, and units
+      * of the other one then die on `unbound global: …`. Measured, not predicted: J-3's first run
+      * compiled 61 units and killed `hello.ssc` with `unbound global: sscNormSegs`. So the map
+      * travels WITH the site, and the unit points the field at its own program before it runs. */
+    val globals: collection.mutable.Map[String, Value] | Null,
     private val slow: Code,
     private val tierUpAt: Int
 ) extends (Env => Step):

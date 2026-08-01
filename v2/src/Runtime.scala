@@ -671,7 +671,7 @@ object Compiler:
     for d <- p.defs do d.body match
       case Lam(ar, b) =>
         val handlerRoot = HandlerDispatchShape.isRoot(ar, b)
-        val bodyCode = Jit.site(b, ar, c.compile(b, handlerRoot))
+        val bodyCode = Jit.site(b, ar, handlerRoot, c.compile(b, handlerRoot))
         val closV =
           if handlerRoot then Runtime.handlerClosure(Array.empty[Value], ar, bodyCode)
           else ClosV(Array.empty[Value], ar, bodyCode)
@@ -701,7 +701,7 @@ object Compiler:
             else sys.error(s"unbound global: $g"))))
       case Lam(ar, b) =>
         val handlerRoot = HandlerDispatchShape.isRoot(ar, b)
-        val bc = Jit.site(b, ar, compile(b, handlerRoot))
+        val bc = Jit.site(b, ar, handlerRoot, compile(b, handlerRoot))
         (env: Env) =>
           val closure =
             if handlerRoot then Runtime.handlerClosure(env, ar, bc)
@@ -757,7 +757,7 @@ object Compiler:
         val acs = lams.map {
           case Lam(ar, b) =>
             val handlerRoot = HandlerDispatchShape.isRoot(ar, b)
-            (ar, compile(b, handlerRoot), handlerRoot)
+            (ar, Jit.site(b, ar, handlerRoot, compile(b, handlerRoot)), handlerRoot)
           case _ => sys.error("letrec binding must be a lam")
         }
         val bc = compile(body)
@@ -931,7 +931,7 @@ object Compiler:
         compileEffectAwareWhile(cond, body)
       case While(cond, body) =>
         val cc = compile(cond)
-        val bc = compile(body)
+        val bc = Jit.loopSite(body, compile(body))
         (env: Env) =>
           while (Runtime.value(cc, env) match { case Value.BoolV(b) => b; case _ => false }) do
             Runtime.value(bc, env)

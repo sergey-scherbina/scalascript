@@ -305,7 +305,16 @@ object JvmByteGen:
           g.pureDefs += name; pureChanged = true
       }
 
-    // drain pending lam bodies and seq chains (each may enqueue more)
+    drainPending(g)
+
+    cw.visitEnd()
+    cw.toByteArray
+
+  /** Emit every deferred body until nothing is left; each may enqueue more. Shared with the JIT's
+    * single-unit path (`emitUnit`) so both go through the SAME emitter — the fragmented-coverage
+    * failure v1 documents (`specs/jit-universal-coverage.md` §2, two independent AST walkers) starts
+    * with exactly this kind of duplication. */
+  private def drainPending(g: Gen): Unit =
     while g.pending.nonEmpty || g.chains.nonEmpty || g.letChains.nonEmpty do
       while g.pending.nonEmpty do
         val pnd = g.pending.dequeue()
@@ -326,9 +335,6 @@ object JvmByteGen:
       while g.letChains.nonEmpty do
         val (steps, bodyName, rhs, body, tl, line, tc) = g.letChains.dequeue()
         emitLetChain(g, steps, bodyName, rhs, body, tl, line, tc)
-
-    cw.visitEnd()
-    cw.toByteArray
 
   /** Cutoff-based De Bruijn shift (for the Match-scrutinee Let rewrite). */
   private def shift(t: Term, amount: Int, cutoff: Int): Term = t match
@@ -1458,6 +1464,63 @@ object JvmByteGen:
   private final class GenLoader(parent: ClassLoader) extends ClassLoader(parent):
     def define(name: String, bytes: Array[Byte]): Class[?] =
       defineClass(name, bytes, 0, bytes.length)
+
+  // ── JIT: one Lam body, one class (specs/v2-wide-jit.md J-3) ───────────────────────────────────
+  //
+  // The whole-program emitter compiles a `Program`; the JIT needs ONE `Lam` body, compiled while the
+  // program is already running on the VM. Everything below reuses `emitBody` + `drainPending`, so a
+  // shape learned by the AOT lane is learned by the JIT in the same commit. That is the point: v1's
+  // coverage fragmented precisely because its engines had independent walkers.
+  //
+  // WHY THE CLASS IS STILL CALLED `ssc.gen.Entry`. Internal calls — deferred lambda bodies, Seq/Let
+  // chains, self-calls — are emitted as `INVOKESTATIC ssc/gen/Entry.<m>`, with the owner hardcoded
+  // in a dozen places. Renaming the unit class would mean threading an owner through the whole
+  // emitter (invasive, and the AOT lane pays for it); giving each unit its OWN loader costs one
+  // object and keeps every internal call resolving to the unit itself. The loader is also what makes
+  // a unit collectable: drop the LamFn and its loader goes with it.
+
+  /** Compile one `Lam` body to a class implementing `ssc.Emit$LamFn`.
+    *
+    * Throws `Unsupported` (or an ASM size error) exactly as `emitProgram` does; the caller treats
+    * that as "this site stays interpreted", which is the per-site version of the whole-program
+    * fallback in `RunNativeV2`. */
+  def emitUnit(body: Term): Array[Byte] =
+    val cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
+    cw.visit(Opcodes.V17, Opcodes.ACC_PUBLIC | Opcodes.ACC_FINAL, GEN, null, OBJ, Array(LAMFN))
+    val g = new Gen(cw, None)
+
+    val ctor = cw.visitMethod(Opcodes.ACC_PUBLIC, "<init>", "()V", null, null)
+    ctor.visitCode()
+    ctor.visitVarInsn(Opcodes.ALOAD, 0)
+    ctor.visitMethodInsn(Opcodes.INVOKESPECIAL, OBJ, "<init>", "()V", false)
+    ctor.visitInsn(Opcodes.RETURN)
+    ctor.visitMaxs(0, 0); ctor.visitEnd()
+
+    // The LamFn interface method, delegating to the static body — `emitBody` only knows how to emit
+    // statics, and the static form is also what self/chain calls invoke.
+    val call = cw.visitMethod(Opcodes.ACC_PUBLIC, "call", s"([L$VAL;)L$VAL;", null, null)
+    call.visitCode()
+    call.visitVarInsn(Opcodes.ALOAD, 1)
+    call.visitMethodInsn(Opcodes.INVOKESTATIC, GEN, "unit", s"([L$VAL;)L$VAL;", false)
+    call.visitInsn(Opcodes.ARETURN)
+    call.visitMaxs(0, 0); call.visitEnd()
+
+    // paramIsEnv: slot 0 IS the VM's env array. `loadEnvArgValue` reads env[length-1-deBruijn],
+    // which is byte-for-byte the VM's own `Local(i)` rule — that identity is why a unit can be
+    // handed the interpreter's frame unchanged.
+    emitBody(g, "unit", body, paramIsEnv = true)
+    drainPending(g)
+
+    cw.visitEnd()
+    cw.toByteArray
+
+  /** Define a unit in its own loader and instantiate it. */
+  def loadUnit(bytes: Array[Byte]): ssc.Emit.LamFn =
+    new GenLoader(getClass.getClassLoader)
+      .define("ssc.gen.Entry", bytes)
+      .getDeclaredConstructor()
+      .newInstance()
+      .asInstanceOf[ssc.Emit.LamFn]
 
   /** defineClass + install compiled defs + invoke entry(). */
   def runProgram(bytes: Array[Byte]): Value =

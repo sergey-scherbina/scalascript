@@ -1,6 +1,7 @@
 package ssc.jit
 
-import ssc.{Code, Emit, JitBackend, JitSite, Value}
+import ssc.{Code, Done, Emit, Env, JitBackend, JitSite, Value}
+import ssc.bytecode.JvmByteGen
 
 /** The compile side of the v2 wide JIT (`specs/v2-wide-jit.md` §3.6), on the far side of the
   * by-name seam so the kernel never mentions a code generator.
@@ -36,5 +37,43 @@ final class BytecodeJitBackend extends JitBackend:
     Emit.globalsRef = globals
 
   /** `null` = this site stays interpreted. Never throws: an uncompilable site is a performance
-    * outcome, never a program failure, and the kernel's contract says so. */
-  def compileUnit(site: JitSite): Code | Null = null
+    * outcome, never a program failure, and the kernel's contract says so.
+    *
+    * TWO SHAPES ARE REFUSED OUTRIGHT, both for correctness rather than difficulty:
+    *
+    *  - **loop sites** (`arity < 0`). A `While` body is not a `Lam`: it shares the enclosing frame
+    *    and its value feeds the loop's own effect threading. Compiling it is J-6, with its own gate.
+    *  - **handler-dispatch roots**. Their unhandled-event protocol is scoped by
+    *    `Runtime.handlerClosure` and mirrored in the emitter by a separate `handlerDispatchRoot`
+    *    mode; compiling one as an ordinary body would silently drop the probe. Silently is the
+    *    problem — the program would keep running and answer differently.
+    *
+    * Everything else goes through `JvmByteGen.emitUnit`, i.e. through the SAME emitter the AOT lane
+    * uses, so a shape either lane learns is learned by both. */
+  def compileUnit(site: JitSite): Code | Null =
+    if site.arity < 0 || site.handlerRoot then null
+    else
+      try
+        val fn = JvmByteGen.loadUnit(JvmByteGen.emitUnit(site.body))
+        val owned = site.globals
+        // Exactly the wrapper `Emit.clos` uses for every AOT lambda — the compiled body answers a
+        // Value (possibly a bounce), `unroll` resolves it, the trampoline sees a `Done` — plus one
+        // thing the AOT lane never needs: pointing `Emit.globalsRef` at THIS unit's program.
+        //
+        // One process runs several programs (the F tower, then the user program), each with its own
+        // globals map, and generated code resolves every global through that single static field.
+        // Bridging it once binds all units to one program and kills the other with `unbound global`.
+        // Measured: J-3's first run compiled 61 units and did exactly that. The check is a volatile
+        // read against a captured reference, and the write happens only when the running program
+        // actually changed.
+        if owned == null then (env: Env) => Done(Emit.unroll(fn.call(env)))
+        else
+          val g = owned.asInstanceOf[collection.mutable.Map[String, Value]]
+          (env: Env) =>
+            if !(Emit.globalsRef eq g) then Emit.globalsRef = g
+            Done(Emit.unroll(fn.call(env)))
+      catch
+        // `Unsupported` for a construct the emitter cannot compile, an ASM size error for a unit
+        // over the 64 KB method limit, anything else from the generator: all of them mean "leave
+        // this site interpreted". The site is asked once and never again.
+        case _: Throwable => null
