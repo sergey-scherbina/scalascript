@@ -10,6 +10,13 @@ Anything not being worked on belongs in `uniml/BACKLOG.md`, not here — a queue
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [x] uniml-is-ssc3-frontend — recorded the ScalaScript 3 direction: UniML becomes the front
+      end, parser AND AST. New spec `specs/uniml-ssc3-frontend.md`; UPR-8a and
+      `project-partitioning.md` §8.3 both said the opposite and now point at it. Records the
+      measured gap (the dialect is a 2,447-line TEST-scope spike over a subset; no `src/main`
+      dialect exists) and the two UNMEASURED numbers that could still invalidate the plan —
+      parse throughput and retained tree size versus `F`.
+
 - [x] uniml-md-container-indent — a blank line held inside indented code was overtaken by the
       next line's container prefix; extending matchContainers' existing paragraph buffering to
       an open code block fixed seven of the ten remaining source failures. **source 10 → 3,

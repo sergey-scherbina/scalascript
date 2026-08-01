@@ -570,8 +570,13 @@ the allowlist; `backend/graph`, `backend/kafka`, `backend/logger`, `backend/post
 not. On the v2 side the same distinction is a directory name.
 
 **8.3 UniML was split across the `v1/` line and is not any more.** UniML is a standalone lossless
-token→tree framework; it is not the language's parser infrastructure and must not be tied to a
-language version. Three of its seven modules lived under `v1/lang/`; all seven now live under
+token→tree framework and must not be tied to a language version. It is not the language's parser
+infrastructure **in v1 or v2** — but that changes in ScalaScript 3, where it becomes the front
+end, parser and AST both, by a decision recorded 2026-08-01 in
+[`uniml-ssc3-frontend.md`](uniml-ssc3-frontend.md). The version-independence half of this rule
+SURVIVES that change and gets harder: a front end written as a UniML dialect must still depend
+on nothing under `v1/` or `v2/`, because the dialect describes the LANGUAGE, not a compiler's
+data structures. Three of its seven modules lived under `v1/lang/`; all seven now live under
 `uniml/`, and `v1/lang/` holds nothing of it.
 
 Measured — transitive `dependsOn` closure over `build.sbt`, asking whether any module under `v1/` is

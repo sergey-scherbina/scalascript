@@ -301,6 +301,14 @@ self-parity test is not external conformance.
         green. Only then may the specs call the profile conformant.
 
 - [ ] **UPR-4 — M5 production ScalaScript dialect and hybrid composition.**
+  **This item changed meaning on 2026-08-01.** It used to build an oracle/tooling adapter;
+  it is now the first construction step of the ScalaScript 3 FRONT END
+  ([`specs/uniml-ssc3-frontend.md`](../specs/uniml-ssc3-frontend.md)). Two consequences:
+  a typed projection over the CST is needed as well (the ScalaScript analogue of
+  `MarkdownProjection` — the CST is the storage, the projection is what the compiler
+  consumes), and **parse throughput and retained tree size must be MEASURED against `F`
+  BEFORE 4a is built**, because a front end runs on every compile and neither number
+  exists today.
   - [ ] **UPR-4a publishable adapter.** Move/refactor the 2,447-line test spike into
         `uniml/scala/src/main/scala/scalascript/uniml/dialect/scalascript/` as lexer/parser/
         projection/public facade. Preserve exact raw lexemes; use code-point spans; make malformed
@@ -371,9 +379,11 @@ self-parity test is not external conformance.
         the portable UPR-6 binding supplies it; final production closure requires that parity.
 
 - [ ] **UPR-8 — P6.22 canonical self-hosted front closure (separate from the M5 adapter).**
-  - [ ] **UPR-8a reconcile authority.** Preserve the recorded Option A:
-        self-hosted `F` is the canonical product front; the Scala UniML adapter is an
-        oracle/tooling artifact. Record fresh compare-first corpus counts because the historical
+  - [ ] **UPR-8a reconcile authority.** Option A holds **for v2 and is superseded for
+        ScalaScript 3**: Sergiy decided on 2026-08-01 that in ScalaScript 3 UniML is the front
+        end — the parser AND the AST. See [`specs/uniml-ssc3-frontend.md`](../specs/uniml-ssc3-frontend.md)
+        for what that costs and what must be measured first. For v2, self-hosted `F` remains the
+        canonical product front and the Scala UniML adapter remains an oracle/tooling artifact. Record fresh compare-first corpus counts because the historical
         205 MATCH / 315 delegated snapshot may move under parallel v2 work.
   - [ ] **UPR-8b eliminate breadth gaps.** Grow `specs/v2.2-p6.5-fsub.ssc` in measured slices until
         raw single-file and multi-file corpus reports DIFF=HOLE=EMPTY=TIMEOUT=0. Every slice reruns
