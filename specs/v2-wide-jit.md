@@ -660,3 +660,37 @@ Residual callbacks would be machinery for a gap that is not there.
 corpus grows an `Unsupported` histogram.** J-6 is now doubly indicated — it is the only refusal
 class that exists, and `pattern-match-heavy`, the one row this slice did not move, is a `while` loop
 driving a `foreach`.
+
+### The JIT is at its emitter's ceiling except on ONE seam — measured, and it is not the loop
+
+Before building J-6 I checked the assumption behind it, by comparing each row against the **same
+emitter running AOT** (`--backend v2-bytecode`). If the JIT were generally short of the AOT lane,
+that would mean per-site compilation loses something everywhere; if it matched except in one place,
+that place is the whole remaining problem.
+
+| row | AOT | JIT | ratio | cross-def call in the hot path? |
+|---|---:|---:|---:|---|
+| `arith-loop` | 0.565 | 0.578 | **1.02×** | no |
+| `recursion-fib` | 1.15 | 1.17 | **1.02×** | no — self only |
+| `recursion-tco` | 0.0241 | 0.0265 | **1.10×** | no — self only |
+| `pattern-match-heavy` | 8.5 | 32.0 | **3.7×** | **yes** — `area(s)` from inside the `foreach` lambda |
+
+**Three rows sit at AOT parity. The one row that does not is the only one whose hot path calls
+another def.** So per-site compilation is not the problem, the loop driver is not the problem
+(`arith-loop`'s loop is inside a compiled def body and already runs at AOT speed), and J-6 would not
+have moved this row. What remains is one seam:
+
+> A unit registers only its OWN name in `defMethods`. Every call to another def therefore compiles
+> to the generic `Emit.global` → `ClosV` → `Emit.app` path — a globals lookup, a dispatch and an env
+> allocation per call — where the AOT lane, which registers every def, emits a direct
+> `invokestatic`.
+
+**Next slice — cross-unit linking.** A top-level def's closure env is empty, so its unit's `LamFn`
+takes exactly the argument array: calling it is `fn.call(args)` plus `Emit.unroll`, with no lookup,
+no `ClosV` and no `Emit.app`. The unit gets a static table of callee `LamFn`s, filled after
+`defineClass` with the callees already compiled, and `App(Global(g), args)` for a linked `g` emits
+`GETSTATIC` + `INVOKEINTERFACE` instead of the generic path. Same freezing question as the self-call,
+answered the same way: link only where the global still resolves to that body.
+
+Recorded because it is the kind of thing a later agent would otherwise re-derive: **the loop-site
+slice was about to be built on an assumption this measurement refutes.**

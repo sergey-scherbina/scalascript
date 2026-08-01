@@ -618,7 +618,30 @@ once per SITE, so the hot counter can *be* that `Code` (`Code = Env => Step` is 
       `Int | String | BigInt`, the corpus writes `Long`, and widening `knownTyName` made F silently
       DECLINE programs. Gate: `var-expr-init` + `arith-loop`, and a `GuardMiss` counter that proves
       the guard is live (rename-the-prim probe, same discipline as VC-4).
-- [ ] **J-6 — loop back-edge sites.** A `While` body never re-enters the trampoline's `Call` bounce
+- [x] **MEASURED BEFORE BUILDING J-6, and it refuted the premise.** Compared every row against the
+      SAME emitter running AOT (`--backend v2-bytecode`):
+
+          row                   AOT      JIT     ratio   cross-def call in hot path?
+          arith-loop           0.565    0.578    1.02x   no
+          recursion-fib        1.15     1.17     1.02x   no (self only)
+          recursion-tco        0.0241   0.0265   1.10x   no (self only)
+          pattern-match-heavy  8.5     32.0      3.7x    YES — area(s) in the foreach lambda
+
+      **Three rows are AT AOT PARITY. The only row that is not is the only one calling another def.**
+      So per-site compilation loses nothing in general, and the LOOP DRIVER IS NOT THE PROBLEM —
+      `arith-loop`'s loop lives inside a compiled def body and already runs at AOT speed. J-6 would
+      not have moved `pattern-match-heavy`. One seam remains: a unit registers only its OWN name in
+      `defMethods`, so every call to another def takes the generic `Emit.global` → `ClosV` →
+      `Emit.app` path (lookup + dispatch + env alloc per call) where AOT emits `invokestatic`.
+
+- [ ] **J-3c — CROSS-UNIT LINKING (next; supersedes J-6 in priority).** A top-level def's closure env
+      is empty, so its unit's `LamFn` takes exactly the argument array: the call is `fn.call(args)` +
+      `Emit.unroll` — no lookup, no `ClosV`, no `Emit.app`. Give the unit a static table of callee
+      `LamFn`s, filled after `defineClass` from callees already compiled, and emit `GETSTATIC` +
+      `INVOKEINTERFACE` for a linked `App(Global(g), args)`. Same freezing question as the self-call,
+      same answer: link only where the global still resolves to that body.
+
+- [ ] **J-6 — loop back-edge sites. DEPRIORITISED by the measurement above.** A `While` body never re-enters the trampoline's `Call` bounce
       (`Runtime.scala:912` runs a plain Java `while`), so a call counter alone never sees a hot loop —
       v1 hit this and needed eager compilation for self-tail-recursive functions plus `WhileJitEntry`.
       Here it is the same `JitSite` with a back-edge threshold, and installation is the same field
