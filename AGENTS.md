@@ -78,9 +78,9 @@ Full corpus stays for CI.
 [`POLICY.md`](POLICY.md) §P-6.7.** How to obtain each level:
 
 1. `scripts/ci-status --sha <landed-sha>` exit 0 — the gold standard when you get it. It asks about
-   **`smoke.yml`**, the fast per-push suite: ~11 min, the same `scripts/smoke-ci` you run locally.
-   Since 2026-08-01 there is a SECOND per-push verdict worth asking for — see the tiers below —
-   and it is the stronger one: `scripts/ci-status --sha <sha> --workflow ci.yml`.
+   **`smoke.yml`**, which since 2026-08-01 is the ONLY thing a push runs. For a deeper verdict on a
+   specific SHA there is no push run to read: dispatch one (`gh workflow run ci.yml --ref main`)
+   and ask `scripts/ci-status --sha <sha> --workflow ci.yml --event any`.
 2. `gh run view <run> --json jobs` — name the **specific job that would catch your change** (e.g. a
    `Conformance shard i/4` for a conformance change) and report its conclusion. A green descendant
    run counts, with the `merge-base` named.
@@ -90,13 +90,17 @@ Full corpus stays for CI.
 
 | | what runs | when | wall | read it for |
 |---|---|---|---|---|
-| **smoke** | `scripts/smoke-ci`, 29 checks | every push | ~11 min | the fast first word — did I break something obvious |
-| **main** | `ci.yml`: lint + validate + conformance ×4 + examples | every push / PR | ~14 min | **the default verdict.** Green BY CONSTRUCTION |
-| **full** | the above **plus** `sbt — compile and test` (~152 min) and the negtc release gate | nightly 03:00 + `workflow_dispatch` | ~2-3 h | before a release, or when your change is in `sbt test` / negtc territory |
+| **smoke** | `scripts/smoke-ci`, 27 checks | **every push — the only thing a push runs** | ~157 s local | your per-commit verdict |
+| **main** | `ci.yml`: lint + validate + conformance ×4 + examples | **nightly 03:00** + PR + dispatch | ~14 min | the daily verdict on the corpus. Green BY CONSTRUCTION |
+| **full** | the above **plus** `sbt — compile and test` (~152 min) and the negtc gate (~40 min) | **`workflow_dispatch` only** | ~2-3 h | before a release, or when your change is in `sbt test` / negtc territory |
 
-`ci.yml` on a push is no longer `Lint Markdown` alone — that sentence was true from 2026-07-30 to
-2026-08-01 and is now wrong. A green `ci.yml` push run IS a verdict about your code: it carries the
-conformance corpus.
+**`ci.yml` has no `push:` trigger at all.** Do not look for a push run of it, and do not add one:
+a workflow whose jobs all skip still reports `success`, which is the meaningless green this
+structure exists to remove. `tests/e2e/ci-status-guard.sh` fails if the trigger comes back.
+Markdown still lints on every push — `.github/workflows/lint-markdown.yml` does that independently.
+
+So `scripts/ci-status --sha <sha>` (smoke.yml) is the per-commit answer, and for anything deeper you
+either wait for the nightly or ask: `gh workflow run ci.yml --ref main`.
 
 **"Green by construction" is a claim with a mechanism behind it, not a hope.** Every residual red in
 the corpus is a `known-red:` declaration in the case's front-matter that names its BUGS slug and the

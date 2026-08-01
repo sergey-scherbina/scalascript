@@ -20,11 +20,13 @@ name: CI
 # bookkeeping commits leave HEAD without a run of its own and that you verify the newest CODE
 # commit. This makes that documented practice reliable instead of discretionary.
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - '**.md'
-      - '.work/**'
+  # NO `push:`. Since 2026-08-01 the only thing a push runs is `smoke.yml`; everything in this file
+  # is nightly or on demand. Leaving a push trigger with every job gated off it produced a run whose
+  # jobs were ALL skipped and which then reported `success` — a green that meant nothing, and the
+  # exact thing that made `ci.yml` unreadable as evidence for weeks. A workflow that has nothing to
+  # do on a push should not be triggered by one.
+  #
+  # Markdown still lints on every push: `.github/workflows/lint-markdown.yml` does it independently.
   pull_request:
     branches: [main]
     paths-ignore:
@@ -36,19 +38,24 @@ on:
   # two of them; which one you get is decided by the EVENT, not by a separate workflow, so the
   # ~200 lines of runner setup are not duplicated into a second file that would drift from this one.
   #
-  #   1  smoke      .github/workflows/smoke.yml — EVERY push, ~11 min, `scripts/smoke-ci`.
-  #                 40/40 green on main over the last 40 runs.
-  #   2  main       THIS FILE on push/PR: lint + validate + conformance + examples. ~14 min wall.
-  #                 The DEFAULT verdict, and it is green BY CONSTRUCTION — every residual red in the
-  #                 corpus is a `known-red:` declaration naming its BUGS slug and its expiry.
-  #   3  full       THIS FILE on schedule/dispatch: everything in 2, PLUS `sbt — compile and test`
-  #                 (152 min median) and the negtc release gate. OPTIONAL by design.
+  #   1  smoke   `.github/workflows/smoke.yml` — EVERY push, the ONLY thing a push runs.
+  #              27 checks, ~157 s locally. This is the per-commit signal.
+  #   2  main    THIS FILE, NIGHTLY (+ PR + dispatch): lint + validate + conformance x4 + examples.
+  #              ~14 min wall, ~63 runner-min. Green BY CONSTRUCTION — every residual red in the
+  #              corpus is a `known-red:` declaration naming its BUGS slug and its expiry.
+  #   3  full    THIS FILE on `workflow_dispatch` ONLY: everything in 2 plus `sbt — compile and
+  #              test` (152 min) and the negtc release gate (~40 min). Asked for, never scheduled.
   #
-  # WHY 3 IS OPTIONAL, measured over the last ten full runs: sbt 4/10 green, conformance shard 0
-  # 0/10, shard 1 3/10 — against lint 10/10, validate 10/10, examples 10/10, negtc sweeps 10/10.
-  # The instability was concentrated, and so was the cost: one 4-hourly full run is ~250 runner-min,
-  # about 1500/day, for a set that was never green anyway. Nightly plus on-demand keeps the trend
-  # without paying for it six times a day.
+  # WHY NOTHING HEAVY IS ON PUSH, measured over ten full runs before the split: sbt 4/10 green at
+  # 152 min, conformance shard 0 0/10 — against lint 10/10, validate 10/10, examples 10/10, negtc
+  # 10/10. The instability was concentrated and so was the cost. Tier 2 briefly ran on push and was
+  # green there (run 30705233464, 7/7, 14 min), but a 63-runner-minute tier against a 3-7 min push
+  # interval buys one verdict per several commits at best; nightly costs one run a day and answers
+  # the same question. The per-commit answer is smoke's job.
+  #
+  # WHY 3 IS DISPATCH-ONLY: a nightly of a 152-minute job spends ~150 runner-minutes to tell you in
+  # the morning about a commit you can no longer cheaply bisect. Ask for it when it answers
+  # something — before a release, or when the change is in that territory.
   schedule:
     - cron: '0 3 * * *'   # once nightly. Was every 4 h; see the tier note above.
   workflow_dispatch:
@@ -89,18 +96,15 @@ on:
 # stays exactly as it was.
 concurrency:
   group: ci-${{ github.ref }}-${{ github.event_name == 'schedule' && 'scheduled' || github.event_name == 'workflow_dispatch' && format('dispatch-{0}', github.sha) || 'push' }}
-  # PER TIER, and this is what keeps tier 2 from re-creating the budget saturation documented above.
+  # `false`, and now unconditionally: this workflow has no push trigger, so the per-push cancelling
+  # that briefly lived here has nothing left to cancel. It was `${{ github.event_name == 'push' }}`
+  # while tier 2 ran on push; leaving that expression would be a condition that can never be true,
+  # which reads to the next person as if push runs still happen here.
   #
-  # A push now runs tier 2 — four conformance shards plus examples, ~55 runner-minutes — against a
-  # 3-7 min push interval. Left un-cancelled that is unbounded: N pushes in flight is N times the
-  # cost, which is exactly how this workflow got to 83 cancelled of 100 runs before. Cancelling the
-  # in-progress push run bounds the whole tier at ONE run at a time and always leaves the newest
-  # commit as the one being tested.
-  #
-  # Schedule and dispatch keep `false`, unchanged and for the reason already written above: a
-  # 150-minute `sbt` job that is ALREADY EXECUTING must be allowed to reach a verdict, and a
-  # dispatch is somebody asking for one specific SHA.
-  cancel-in-progress: ${{ github.event_name == 'push' }}
+  # The reason for `false` is the one written above and unchanged: a run that is ALREADY EXECUTING
+  # is never killed, so a long `sbt` job still reaches a verdict, and a dispatch is somebody asking
+  # about one specific SHA.
+  cancel-in-progress: false
 
 jobs:
   lint:
@@ -498,7 +502,12 @@ jobs:
     # the alternative on offer was not "per-push coverage" but "no verdict at all", which is what was
     # actually happening. Re-measure the ratio if `sbt test` gets faster (BACKLOG
     # `ci-crossbackend-differential-runtime`) — if it drops under the push interval, put it back.
-    if: github.event_name != 'push'
+    # ── ON DEMAND ONLY (2026-08-01, owner's call), like negtc above. ─────────────────────────
+    # 152 min median, 4/10 green over the last ten full runs. It is the deepest coverage in the
+    # repo and the least suited to a timer: a nightly of it costs ~150 runner-minutes to tell you
+    # something you will read in the morning, about a commit you can no longer cheaply bisect.
+    # Asked for instead — before a release, or when the change is in `sbt test` territory.
+    if: github.event_name == 'workflow_dispatch'
     # JOB-level cap. This must exceed (prior gates + the full `sbt test` phase). Raised
     # ahead of the F4 default-front flip (v2-f4-reflip, 2026-07-22): when F becomes the
     # default the negtc release gate re-lowers the corpus through the slower F front, so its
