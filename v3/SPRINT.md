@@ -11,12 +11,12 @@ A compiler built on an IR that turns out to be wrong is work thrown away twice.
 
 ## ssc3-core (claim `ssc3-core`)
 
-- [~] **SSC3-0 — charter, IR spec, module.** `v3/` registered in `tests/fixtures/modules.tsv`;
+- [x] **SSC3-0 — charter, IR spec, module.** `v3/` registered in `tests/fixtures/modules.tsv`;
       `specs/00-charter.md`, `10-ssc-ir.md`, `20-core-language.md`, `30-portable-subset.md`; boards.
       *Done when:* the four specs exist and the IR spec fixes the instruction set, the validation
       rules and the canonical text form.
 
-- [ ] **SSC3-1 — `Array` into the portable subset, fixed on every lane v3 targets.**
+- [~] **SSC3-1 — `Array` into the portable subset, fixed on every lane v3 targets.**
       Found by measurement while scoping SSC3-0 and blocking: the IR frame *is* an array.
       `new Array[Int](3).length` is `1` on both lanes today — [`../BUGS.md`](../BUGS.md) →
       `new-array-n-builds-a-one-element-array`, filed at the root because `lane: multi` was
