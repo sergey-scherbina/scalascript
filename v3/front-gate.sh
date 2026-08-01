@@ -15,6 +15,12 @@ cd "$ROOT" || exit 2
 fail=0
 ran=0
 
+# Compile ONCE before measuring. `v3/ssc3` shells into `scala-cli run`, which compiles on demand, and
+# a compile racing the first case produced an empty result that the gate scored as a FAILURE —
+# observed 2026-08-01 right after editing the lexer. A gate that is red for a reason that is not the
+# code under test is a gate people stop believing, which is worse than not having it.
+v3/ssc3 selftest >/dev/null 2>&1
+
 echo "── compiled by v3 and RUN ──────────────────────────────────────────────"
 for f in v3/tests/front/*.ssc; do
   name="$(basename "$f" .ssc)"

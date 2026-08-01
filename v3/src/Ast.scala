@@ -43,7 +43,10 @@ enum Stmt:
 
 final case class Param(name: String, pos: Pos)
 final case class Def(name: String, params: List[Param], body: Expr, pos: Pos)
-final case class Program(defs: List[Def])
+/** A `.ssc` file is a SCRIPT: `def`s are declarations and everything else is the program body,
+  * executed in order. That is the project's model, not a v3 invention — measured on the corpus,
+  * top-level statements were the single largest reason v3 could not read a case. */
+final case class Program(defs: List[Def], topLevel: List[Stmt])
 
 object Expr:
   def posOf(e: Expr): Pos = e match

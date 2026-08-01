@@ -10,7 +10,10 @@ package ssc3
 // in the parser is the usual split and the reason the parser can stay a plain recursive descent.
 
 enum Tok:
-  case TInt(v: Long, pos: Pos)
+  /** The DIGITS, not the value. `-9223372036854775808` is Long.MinValue and its digit string is
+    * 2^63, which overflows on its own — the minus is a separate token and belongs to the parser.
+    * Converting here crashed the front on two corpus cases with a raw NumberFormatException. */
+  case TInt(text: String, pos: Pos)
   case TStr(v: String, pos: Pos)
   case TId(s: String, pos: Pos)
   case TOp(s: String, pos: Pos)
@@ -125,7 +128,7 @@ object Lexer:
       var text = ""
       while !done(s) && Chars.isDigit(at(s)) do
         text = text + at(s); s = adv(s)
-      (Tok.TInt(text.toLong, p), s)
+      (Tok.TInt(text, p), s)
     else if Chars.isIdStart(c) then
       var s = s0
       var text = ""
@@ -158,12 +161,13 @@ object Lexer:
       while !done(s) && Chars.isOpChar(at(s)) do
         text = text + at(s); s = adv(s)
       (Tok.TOp(text, p), s)
-    else if c == '(' || c == ')' || c == ',' || c == ':' || c == '.' || c == ';' then
+    else if c == '(' || c == ')' || c == ',' || c == ':' || c == '.' || c == ';' ||
+            c == '{' || c == '}' || c == '[' || c == ']' then
       (Tok.TPunct(c.toString, p), adv(s0))
     else throw LexError(p, "unexpected character '" + c + "'")
 
   def show(t: Tok): String = t match
-    case Tok.TInt(v, _)   => v.toString
+    case Tok.TInt(t, _)   => t
     case Tok.TStr(v, _)   => "\"" + v + "\""
     case Tok.TId(s, _)    => s
     case Tok.TOp(s, _)    => s

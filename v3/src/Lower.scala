@@ -176,16 +176,25 @@ object Lower:
     case "==" => BinOp.Eq; case "!=" => BinOp.Ne
     case other => throw LowerFail(p, "operator '" + other + "' is outside SSC3 core Tier 0")
 
+  /** The synthetic entry. Top-level statements run in order, then `main()` if the file defines one —
+    * which is how `.ssc` behaves on the other lanes: a script with no `main` still prints, and a
+    * file with only a `main` still runs it. Both shapes appear in the corpus. */
+  private val entryName = "__ssc3_entry__"
+
   def program(p: Program): Module =
-    if p.defs.isEmpty then throw LowerFail(Pos.none, "no definitions")
-    val names = p.defs.map(d => d.name)
-    val entry = names.indexOf("main")
-    if entry < 0 then throw LowerFail(Pos.none, "no `def main` — that is the entry point `ssc3 run` calls")
+    if p.defs.isEmpty && p.topLevel.isEmpty then throw LowerFail(Pos.none, "empty program")
+    val userMain = p.defs.find(d => d.name == "main" && d.params.isEmpty)
+    val entryBody =
+      Expr.Block(p.topLevel, userMain.map(_ => Expr.Call("main", Nil, Pos.none)), Pos.none)
+    val entryDef = Def(entryName, Nil, entryBody, Pos.none)
+    val allDefs = p.defs :+ entryDef
+    val names = allDefs.map(d => d.name)
+    val entry = names.indexOf(entryName)
 
     var consts: List[Lit] = Nil
     var prims: List[String] = Nil
     var funcs: List[Func] = Nil
-    p.defs.foreach { d =>
+    allDefs.foreach { d =>
       val params = d.params.zipWithIndex.map((pa, i) => (pa.name, i))
       val st0 = St(d.params.length, d.params.length, params.reverse, consts, prims)
       val (body, r, st) = lower(d.body, names, st0)

@@ -211,7 +211,7 @@ object SelfTest:
           val path = args(1)
           val src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")
           try
-            val m = Lower.program(Parser.parse(src))
+            val m = Lower.program(Parser.parse(Source.program(src)))
             Verify.module(m) match
               case Some(e) =>
                 // A lowering bug reaching the backend is exactly what I-4 exists to stop, and the
@@ -232,7 +232,7 @@ object SelfTest:
           val path = args(1)
           val src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")
           try
-            print(Text.write(Lower.program(Parser.parse(src))))
+            print(Text.write(Lower.program(Parser.parse(Source.program(src)))))
             0
           catch
             case e: LexError  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1

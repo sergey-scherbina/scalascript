@@ -30,6 +30,12 @@ object Parser:
     case "*" | "/" | "%"                 => 6
     case _                               => 0
 
+  /** An integer literal that does not fit is a DIAGNOSTIC WITH A POSITION, not an exception from
+    * the JDK. The difference is the difference between the UNSUPPORTED and CRASH buckets. */
+  private def longOf(text: String, p: Pos): Long =
+    try java.lang.Long.parseLong(text)
+    catch case _: NumberFormatException => throw ParseFail(p, "integer literal out of 64-bit range: " + text)
+
   // ── cursor ──────────────────────────────────────────────────────────────────
   private def peek(ts: List[Tok]): Tok = ts.head
   private def posOf(ts: List[Tok]): Pos = Lexer.posOf(peek(ts))
@@ -69,10 +75,24 @@ object Parser:
   private def skipTypeAnn(ts: List[Tok]): List[Tok] =
     if !isPunct(peek(ts), ":") then ts
     else
+      val (_, _, t2) = expectName(ts.tail)
+      skipBrackets(t2)
+
+  /** Consume a balanced `[…]` if one is here. Type arguments and type parameters are DISCARDED at
+    * Tier 0 for the same reason annotations are: there is no checker, and half-reading them would
+    * put an unenforced notion of types into the front. Measured on the corpus, `[` was 9 of the
+    * first 60 refusals — the second largest cause after `{`. */
+  private def skipBrackets(ts: List[Tok]): List[Tok] =
+    if !isPunct(peek(ts), "[") then ts
+    else
       var t = ts.tail
-      // A type is one name here; nothing at Tier 0 has type arguments.
-      val (_, _, t2) = expectName(t)
-      t2
+      var depth = 1
+      while depth > 0 do
+        if peek(t).isInstanceOf[Tok.TEof] then throw ParseFail(posOf(t), "unclosed '['")
+        if isPunct(peek(t), "[") then depth = depth + 1
+        else if isPunct(peek(t), "]") then depth = depth - 1
+        t = t.tail
+      t
 
   // ── expressions ─────────────────────────────────────────────────────────────
   private def parseExpr(ts: List[Tok]): (Expr, List[Tok]) = parseBin(ts, 1)
@@ -90,6 +110,12 @@ object Parser:
     (lhs, ts)
 
   private def parseUnary(ts: List[Tok]): (Expr, List[Tok]) = peek(ts) match
+    // `-` immediately before digits FOLDS into the literal rather than negating one. It has to:
+    // Long.MinValue's magnitude is 2^63, which is not itself a Long, so `Neg(IntLit(2^63))` cannot
+    // be built out of parts that each fit.
+    case Tok.TOp("-", p) if ts.tail.nonEmpty && ts.tail.head.isInstanceOf[Tok.TInt] =>
+      val Tok.TInt(text, _) = ts.tail.head: @unchecked
+      (Expr.IntLit(longOf("-" + text, p), p), ts.tail.tail)
     case Tok.TOp("-", p) =>
       val (e, t) = parseUnary(ts.tail); (Expr.Neg(e, p), t)
     case Tok.TOp("!", p) =>
@@ -97,7 +123,7 @@ object Parser:
     case _ => parsePrimary(ts)
 
   private def parsePrimary(ts: List[Tok]): (Expr, List[Tok]) = peek(ts) match
-    case Tok.TInt(v, p) => (Expr.IntLit(v, p), ts.tail)
+    case Tok.TInt(text, p) => (Expr.IntLit(longOf(text, p), p), ts.tail)
     case Tok.TStr(v, p) => (Expr.StrLit(v, p), ts.tail)
     case Tok.TId("true", p)  => (Expr.BoolLit(true, p), ts.tail)
     case Tok.TId("false", p) => (Expr.BoolLit(false, p), ts.tail)
@@ -149,7 +175,43 @@ object Parser:
   private def parseBody(ts0: List[Tok]): (Expr, List[Tok]) =
     val ts = if peek(ts0).isInstanceOf[Tok.TNewline] then skipNewlines(ts0) else ts0
     if peek(ts).isInstanceOf[Tok.TIndent] then parseBlock(ts.tail)
+    else if isPunct(peek(ts), "{") then parseBraceBlock(ts.tail)
     else parseExpr(ts)
+
+  /** A `{ … }` block. Inside braces the layout tokens carry no meaning — the braces already say
+    * where the block ends — so INDENT/DEDENT/NEWLINE are skipped rather than parsed. Measured on
+    * the corpus, `{` was 27 of the first 60 refusals, the single largest cause. */
+  private def parseBraceBlock(ts0: List[Tok]): (Expr, List[Tok]) =
+    val p = posOf(ts0)
+    var stmts: List[Stmt] = Nil
+    var last: Option[Expr] = None
+    var ts = ts0
+    var go = true
+    while go do
+      ts = skipLayout(ts)
+      if isPunct(peek(ts), "}") then
+        ts = ts.tail; go = false
+      else if peek(ts).isInstanceOf[Tok.TEof] then throw ParseFail(posOf(ts), "unclosed '{'")
+      else
+        val (st, t) = parseStmt(ts)
+        ts = t
+        st match
+          case Stmt.Exp(e) => last = Some(e); stmts = st :: stmts
+          case _           => last = None; stmts = st :: stmts
+    val body = stmts.reverse
+    val (init, result) = last match
+      case Some(e) => (body.dropRight(1), Some(e))
+      case None    => (body, None)
+    (Expr.Block(init, result, p), ts)
+
+  private def skipLayout(ts: List[Tok]): List[Tok] =
+    var t = ts
+    var go = true
+    while go do
+      if t.head.isInstanceOf[Tok.TNewline] || t.head.isInstanceOf[Tok.TIndent] ||
+         t.head.isInstanceOf[Tok.TDedent] then t = t.tail
+      else go = false
+    t
 
   private def parseBlock(ts0: List[Tok]): (Expr, List[Tok]) =
     val p = posOf(ts0)
@@ -196,7 +258,7 @@ object Parser:
     val p = posOf(ts0)
     val t0 = expectKw(ts0, "def")
     val (name, _, t1) = expectName(t0)
-    val t2 = expectPunct(t1, "(")
+    val t2 = expectPunct(skipBrackets(t1), "(")
     var params: List[Param] = Nil
     var ts = t2
     if !isPunct(peek(ts), ")") then
@@ -215,15 +277,20 @@ object Parser:
   def parse(src: String): Program =
     var ts = Lexer.lex(src)
     var defs: List[Def] = Nil
+    var top: List[Stmt] = Nil
     var go = true
     while go do
-      ts = skipNewlines(ts)
+      ts = skipLayout(ts)
       if peek(ts).isInstanceOf[Tok.TEof] then go = false
-      else if peek(ts).isInstanceOf[Tok.TDedent] then ts = ts.tail
       else if isId(peek(ts), "def") then
         val (d, t) = parseDef(ts)
         defs = d :: defs
         ts = t
       else
-        throw ParseFail(posOf(ts), "expected a `def`, found " + Lexer.show(peek(ts)))
-    Program(defs.reverse)
+        // Not a `def`, so it is program body. Refusing here is what made 48 of the first 60 corpus
+        // cases unreadable: a `.ssc` file is a script, and requiring every line to be inside a
+        // definition was my assumption rather than the language's.
+        val (st, t) = parseStmt(ts)
+        top = st :: top
+        ts = t
+    Program(defs.reverse, top.reverse)
