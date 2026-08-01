@@ -1,0 +1,11 @@
+slug: uniml-ssc3-frontend-readiness
+branch: feature/uniml-ssc3-frontend-readiness
+agent: claude-code
+started: 2026-08-01T15:07:27Z
+heartbeat: 2026-08-01T15:07:27Z
+status: claimed-before-planning
+items: UNIML-SSC3 — make UniML ready as the ScalaScript parser and AST for language version 3
+paths: file:uniml/SPRINT.md file:uniml/BACKLOG.md file:specs/uniml-ssc3-frontend.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
