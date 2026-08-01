@@ -722,8 +722,18 @@ jobs:
   negtc-map:
     name: negtc sweeps ${{ matrix.shard }}/4
     runs-on: ubuntu-latest
-    # Same rule as the `sbt` and `conformance` jobs: not on push. The per-push verdict is smoke.yml.
-    if: github.event_name != 'push'
+    # ── ON DEMAND ONLY (2026-08-01, owner's call). ────────────────────────────────────────────
+    #
+    # This gate is worth having and NOT worth running on a timer. What it proves — that the shipped
+    # standard tier works with NO compiler present at all (no scalac, no javac, no scala-cli, no
+    # compiler jars, `java.compiler` not even visible as a module) — changes only when the standard
+    # tier's dependency surface changes, which is a deliberate act, not something that drifts
+    # overnight. Against that it costs ~90 runner-minutes and ~40 min of wall clock per run.
+    #
+    # So it is `workflow_dispatch` only: run it before a release, or when you have touched what the
+    # standard tier depends on. `gh workflow run ci.yml --ref main` and read
+    # `negtc release gate (reduce)`.
+    if: github.event_name == 'workflow_dispatch'
     strategy:
       # One red shard must still let the others report. A partial verdict is what made the corpus
       # contract unreadable for 13 runs.
@@ -846,7 +856,9 @@ jobs:
     # `${{ !cancelled() && github.event_name != 'push' }}` this job is invisible to that extractor —
     # so the tool that decides whether a run counts would silently stop requiring the job that
     # carries the verdict. Keep the event test first and unwrapped.
-    if: github.event_name != 'push' && !cancelled()
+    # Dispatch-only, same as the map half above — and `!cancelled()` so a dead shard reads as a
+    # failure with a message rather than a grey skip.
+    if: github.event_name == 'workflow_dispatch' && !cancelled()
     timeout-minutes: 40
 
     steps:

@@ -315,8 +315,8 @@ CASE_WF=ci.yml FAKE_CI_EVENT=schedule run_case one-shard-missing 1 "CI RED $SHA"
 # The same hole in the OTHER matrix, and in the job that carries the verdict. Both runs are
 # GREEN as far as GitHub is concerned — every job that ran passed — which is exactly why a
 # required-job list has to name them.
-CASE_WF=ci.yml FAKE_CI_EVENT=schedule run_case negtc-shard-missing 1 "CI RED $SHA" "missing required job: negtc sweeps 2/4"
-CASE_WF=ci.yml FAKE_CI_EVENT=schedule run_case negtc-reduce-missing 1 "CI RED $SHA" "missing required job: negtc release gate (reduce)"
+CASE_WF=ci.yml FAKE_CI_EVENT=workflow_dispatch run_case negtc-shard-missing 1 "CI RED $SHA" "missing required job: negtc sweeps 2/4"
+CASE_WF=ci.yml FAKE_CI_EVENT=workflow_dispatch run_case negtc-reduce-missing 1 "CI RED $SHA" "missing required job: negtc release gate (reduce)"
 CASE_WF=ci.yml FAKE_CI_EVENT=schedule run_case sched-no-sbt 1 "CI RED $SHA"   "missing required job: sbt — compile and test"
 CASE_WF=ci.yml run_case no-run 2 "CI UNKNOWN $SHA" "no push ci.yml run found"
 
@@ -972,6 +972,50 @@ if [[ "$gated_expected" != "$gated_observed" ]]; then
   printf '  gated in ci.yml   =%s\n' "$(printf '%s' "$gated_expected" | tr '\n' '|')" >&2
   printf '  required by tool  =%s\n' "$(printf '%s' "$gated_observed" | tr '\n' '|')" >&2
   printf '  A job gated off push must be required on non-push events and NOT on push. Update both together.\n' >&2
+  exit 1
+fi
+
+# ── DISPATCH-ONLY jobs (negtc, since 2026-08-01) ──────────────────────────────────────────────
+#
+# `job_names_gated_off_push` only sees `if: github.event_name != 'push'`, so a job written
+# `== 'workflow_dispatch'` is INVISIBLE to it — it would silently leave the cross-check without ever
+# saying so, which is the failure mode this whole file exists to refuse. Extracted and checked
+# separately, in both directions: required when dispatched, absent otherwise.
+dispatch_only_jobs() {
+  awk '
+    /^  [a-z0-9_-]+:[[:space:]]*$/ { job = $1; name[job] = ""; d[job] = 0; next }
+    job != "" && /^    name:/      { sub(/^    name:[[:space:]]*/, ""); name[job] = $0; next }
+    job != "" && /^    if:[[:space:]]*github\.event_name[[:space:]]*==[[:space:]]*.workflow_dispatch./ { d[job] = 1; next }
+    END { for (j in d) if (d[j] && name[j] != "") print name[j] }
+  ' "$CI_YML" |
+  while IFS= read -r n; do
+    if [[ "$n" == *'${{ matrix.shard }}'* ]]; then
+      for i in $(seq 0 $((yml_shards - 1))); do printf '%s\n' "${n//\$\{\{ matrix.shard \}\}/$i}"; done
+    else printf '%s\n' "$n"; fi
+  done | LC_ALL=C sort -u
+}
+dispatch_expected="$(dispatch_only_jobs)"
+if [[ -z "$dispatch_expected" ]]; then
+  printf 'ci-status-guard[dispatch-only]: found NO ci.yml job carrying `if: github.event_name == %s`.\n' \
+    "'workflow_dispatch'" >&2
+  printf '  Either the extraction broke or negtc stopped being dispatch-only. An empty expected set\n' >&2
+  printf '  makes the comparison vacuous, so it is a failure rather than a pass.\n' >&2
+  exit 1
+fi
+# DISPATCH minus SCHEDULE, not dispatch alone: `sbt` is required on both, so it shows up as missing
+# from this probe either way. The difference is exactly the set that dispatch adds.
+dispatch_observed="$(comm -13 <(missing_jobs_for_event schedule) <(missing_jobs_for_event workflow_dispatch))"
+if [[ "$dispatch_expected" != "$dispatch_observed" ]]; then
+  printf 'ci-status-guard[dispatch-only]: ci.yml runs these ONLY on dispatch, ci-status requires these there.\n' >&2
+  printf '  dispatch-only in ci.yml =%s\n' "$(printf '%s' "$dispatch_expected" | tr '\n' '|')" >&2
+  printf '  required by tool        =%s\n' "$(printf '%s' "$dispatch_observed" | tr '\n' '|')" >&2
+  exit 1
+fi
+sched_missing="$(missing_jobs_for_event schedule)"
+if printf '%s\n' "$sched_missing" | grep -qFx "negtc release gate (reduce)"; then
+  printf 'ci-status-guard[dispatch-only]: a SCHEDULED run has no negtc job, yet ci-status demands one.\n' >&2
+  printf '  That reports `missing required job` on every nightly — the verdict tool contradicting\n' >&2
+  printf '  the workflow it verifies, for the fourth time in this function.\n' >&2
   exit 1
 fi
 

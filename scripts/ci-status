@@ -399,8 +399,13 @@ if [[ "$WORKFLOW" == "ci.yml" ]]; then
   # `negtc_shards` mirrors the matrix width the same way `conformance_shards` does, and
   # `tests/e2e/ci-status-guard.sh` cross-checks this whole list against ci.yml on every push — which
   # is exactly how this addition was caught missing in the first place.
+  #
+  # DISPATCH ONLY since 2026-08-01: the gate proves the shipped standard tier runs with no compiler
+  # present, which changes only when that tier's dependency surface is deliberately changed — so it
+  # is asked for, not scheduled. A SCHEDULED run has no negtc job, and requiring one there would
+  # make this script report `missing required job` on every nightly.
   negtc_shards="${SSC_CI_NEGTC_SHARDS:-4}"
-  if [[ "$run_event" != "push" ]]; then
+  if [[ "$run_event" == "workflow_dispatch" ]]; then
     for ((_shard = 0; _shard < negtc_shards; _shard++)); do
       required_jobs+=("negtc sweeps ${_shard}/${negtc_shards}")
     done
