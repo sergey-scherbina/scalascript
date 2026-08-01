@@ -240,6 +240,7 @@ invalid_active_files="$(
 )"
 
 claimed_slugs=""
+unclaimed_worktrees=0
 invalid_slugs=""
 echo "== active claims =="
 if [[ -z "$claim_files" ]]; then
@@ -312,6 +313,31 @@ print_worktree() {
     live_records="${live_records}"$'\n'"${record_tokens}|${branch_name}|${wt_dir}"
   fi
 
+  # ── UNCLAIMED WORKTREES ARE LISTED, NOT WALKED ────────────────────────────────────────────────
+  #
+  # `git status -s` and the `log` below walk a whole working tree each — ~200 ms here — and this
+  # function used to run both for EVERY registered worktree. On 2026-08-01 that was 51 trees against
+  # 5 live claims, and `tests/e2e/ci-status-guard.sh` calls this script seven times: the push-path
+  # suite carried 70 s of statting trees that no claim refers to. Pruning the 46 leftovers took the
+  # guard from 74 s to 12 s, but leftovers come back — one per finished task until someone runs
+  # `scripts/rm-worktree`.
+  #
+  # SKIPPING THEM ENTIRELY WOULD BE WRONG, and that is worth stating because it is the obvious
+  # move: `git status` on an unclaimed tree is exactly what reveals uncommitted work nobody is
+  # tracking, which is how a stale worktree stops being safe to delete. So they are still NAMED and
+  # COUNTED — you can see there are N of them — and the walk is what is dropped. Ask for the detail
+  # with SSC_COORD_ALL_WORKTREES=1 before deleting anything.
+  local claimed_here=0
+  case $'\n'"${claimed_slugs}"$'\n' in
+    *$'\n'"${base_name#scalascript-wt-}"$'\n'*) claimed_here=1 ;;
+    *$'\n'"${branch_name#feature/}"$'\n'*)      claimed_here=1 ;;
+  esac
+  if [[ "$claimed_here" -eq 0 && -z "${SSC_COORD_ALL_WORKTREES:-}" ]]; then
+    printf '  no live claim — not walked (SSC_COORD_ALL_WORKTREES=1 for status/ahead)\n'
+    unclaimed_worktrees=$((unclaimed_worktrees + 1))
+    return
+  fi
+
   local status
   status="$(git -C "$wt_dir" status -s 2>/dev/null | head -5 || true)"
   if [[ -n "$status" ]]; then
@@ -367,6 +393,22 @@ while IFS= read -r line; do
 done < <(git -C "$ROOT" worktree list --porcelain)
 if [[ -n "$wt_dir" ]]; then
   print_worktree "$wt_dir" "$wt_branch" "$wt_prunable" "$wt_locked"
+fi
+
+# ACCUMULATION IS THE THING NOBODY MEASURES, so say it out loud. On 2026-08-01 this host had 51
+# registered worktrees against 5 live claims and the only symptom anyone noticed was that the
+# push-path suite had got slow — the disk was 55 % free, so no space threshold would ever have
+# fired. A count next to the claim count is the cheapest signal there is.
+if [[ "$unclaimed_worktrees" -gt 0 ]]; then
+  claim_count="$(printf '%s\n' "$claimed_slugs" | grep -c . || true)"
+  printf '\n%s unclaimed worktree(s) against %s live claim(s).\n' \
+    "$unclaimed_worktrees" "$claim_count"
+  if [[ "$unclaimed_worktrees" -gt 5 ]]; then
+    printf 'They are leftovers from finished tasks — each one is a full checkout (~470 MB here).\n'
+    printf 'Check before deleting (uncommitted work is invisible above by design):\n'
+    printf '  SSC_COORD_ALL_WORKTREES=1 scripts/coord-status --no-fetch\n'
+    printf '  scripts/rm-worktree <slug>      # or: git worktree remove <path>   (no --force)\n'
+  fi
 fi
 echo
 
