@@ -61,9 +61,19 @@ A compiler built on an IR that turns out to be wrong is work thrown away twice.
       pays — `V-0` is correct, and correct-and-slow is a shippable state that SSA-with-joins on day
       one is not.
 
-- [ ] **SSC3-4 — the front.** Lexer (own character tables, no host classification), parser, AST,
-      lowering to IR for SSC3 core Tier 0 (`specs/20-core-language.md` §2).
-      *Gate:* `ssc3 run` on a growing case set; every construct in Tier 0 has one.
+- [ ] **SSC3-4 — the front, on UniML.** Sergiy's call: v3 defines **no AST type of its own** — the
+      UniML tree IS the AST, and lowering reads it directly. `specs/40-front-on-uniml.md`.
+      UniML is ours, dependency-free, and already dual-compilable in exactly the subset I-2 asks
+      for, so the parser lands inside the differential gate at no extra cost; spans, edge roles and
+      `Origin` (source-backed vs synthetic) come with it.
+      The ScalaScript grammar is still ours — precedence, indentation, every construct in
+      `specs/20-core-language.md` §2 — and so are the lexer's own character tables, since the
+      portable subset bans host `Char` classification.
+      **First act: re-measure UniML's two gaps** (`Array`, anonymous `new Trait:`) rather than
+      inherit them from a gap map written 2026-07-13.
+      *Gate:* `ssc3 run` on a growing case set, every Tier 0 construct with one; plus an
+      unknown-node-kind refusal, because an open `Branch(kind: String, …)` gives no exhaustiveness
+      and a silent miss is the failure mode that buys.
 
 - [ ] **SSC3-5 — `bin/ssc3`, the honest number, the differential gate.**
       CLI: `run`, `ir` (print `.ssir`), `check` (verify only), `build --target`.

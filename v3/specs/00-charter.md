@@ -9,10 +9,11 @@ repository the recurring failure is not broken code but a check that is green be
 
 ## The one idea
 
-Lexer → AST → **SSC IR** → execution *or* translation. All four stages, and the IR itself, are
-defined and owned by the ScalaScript core. Nothing in that chain is delegated to a third party.
-v1 parses with scalameta; v3 parses with its own parser, into its own IR, run by its own executor,
-and emits bytecode or another language's source from that same IR.
+Source → **UniML tree (the AST)** → **SSC IR** → execution *or* translation. Every stage, and the
+IR itself, is defined and owned by the ScalaScript core. Nothing in that chain is delegated to a
+third party. v1 parses with scalameta; v3 parses with UniML — our own lossless token→tree framework
+— into its own IR, run by its own executor, and emits bytecode or another language's source from
+that same IR. The front is [`40-front-on-uniml.md`](40-front-on-uniml.md).
 
 ## Invariants
 
@@ -30,6 +31,9 @@ and not desirable — `std` plugins legitimately wrap real libraries. What must 
 compiles with Scala 3 *and* runs on ScalaScript 2. Self-hosting is then not a rewrite but a
 consequence — the day `ssc3` compiles the portable subset, it compiles itself.
 Rules: [`30-portable-subset.md`](30-portable-subset.md).
+
+UniML already satisfies this invariant, which is most of why the front is built on it: adopting it
+costs no new portability work and puts the parser inside the differential gate for free.
 
 **I-3 · The two hosts must agree byte-for-byte.** The same v3 front, built by scalac and run by
 ScalaScript 2, emits identical `.ssir` for every corpus file. *This is the gate that makes I-2 worth

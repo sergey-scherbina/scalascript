@@ -1,7 +1,7 @@
 # ScalaScript 3
 
-`source → AST → SSC IR → execute | translate` — all four stages owned by the language core, with no
-external dependency anywhere in the chain.
+`source → UniML tree (the AST) → SSC IR → execute | translate` — every stage owned by the language
+core, with no external dependency anywhere in the chain.
 
 **Start here:** [`specs/10-ssc-ir.md`](specs/10-ssc-ir.md). SSC IR is the design of this version;
 everything else is an implementation detail it constrains.
@@ -12,6 +12,7 @@ everything else is an implementation detail it constrains.
 | [`specs/10-ssc-ir.md`](specs/10-ssc-ir.md) | the IR — model, instruction set, validation, text form |
 | [`specs/20-core-language.md`](specs/20-core-language.md) | the language v3 commits to, and how compatibility is counted |
 | [`specs/30-portable-subset.md`](specs/30-portable-subset.md) | the Scala ∩ ScalaScript rules the kernel obeys |
+| [`specs/40-front-on-uniml.md`](specs/40-front-on-uniml.md) | the front — UniML supplies the parse machinery and the tree IS the AST |
 | [`SPRINT.md`](SPRINT.md) | the queue, in the order the work has to happen |
 | [`BACKLOG.md`](BACKLOG.md) | parked alternatives, with the trade-off that parked them |
 
