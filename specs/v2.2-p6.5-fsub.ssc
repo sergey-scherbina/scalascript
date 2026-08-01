@@ -908,7 +908,35 @@ def isLamBodyEnd(ts) = if isEmpty(ts) then true else (if isTok(hd(ts), 2, 22) th
 // `throw e` -> `(prim __throw__ e)` (ssc1-front :1071, e a full parseExpr). `new X(a)` == `X(a)` -- drop
 // `new`, parse the following atom (ssc1-front :1114). Neither is a keyword in F's lexer (plain id tokens).
 def parseThrow(ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r) => ("(prim __throw__ " ++ erase(e, cx) ++ ")", r) }
-def parseIdent(t, rest, env, cx) = if snd(t) == "throw" then parseThrow(rest, env, cx) else (if snd(t) == "new" then eraseP(parseAtom(rest, env, cx), cx) else (if snd(t) == "try" then parseTry(rest, env, cx) else (if snd(t) == "summon" then (if isTok(hd(rest), 2, 50) then parseSummon(rest, env, cx) else parseVarOrCall(snd(t), rest, env, cx)) else (if snd(t) == "direct" then (if isDirectHead(rest) then parseDirect(rest, env, cx) else parseVarOrCall(snd(t), rest, env, cx)) else (if snd(t) == "for" then parseForExpr(rest, env, cx) else (if isTok(hd(rest), 2, 30) then parseLamBody(1, snd(t) :: env, tl(rest), cx) else parseVarOrCall(snd(t), rest, env, cx)))))))
+// `new Array[T](n)` ALLOCATES n slots, so it is the one `new` that must NOT be erased: erasing it
+// leaves `Array(n)`, the FACTORY, which is a one-element array holding n. Root BUGS.md
+// `new-array-n-builds-a-one-element-array`. The legacy front carries the twin fix (ssc1-front
+// parseNewAtom) and this is the other half -- both fronts erase the keyword, so fixing one is a
+// half-fix, and until both are done `SSC_FRONT=legacy` and the default disagree.
+// Emission is the ORACLE's, read off ssc1-run for `Array.fill(3)(0)` rather than guessed:
+//   (prim __method__ (lit (str "fill")) (ctor Array) (lit (int 3)) (lit (int 0)))
+// -- one __method__ with FLAT args; the runtime handles fill's curried shape.
+// Only `Array [T] (` is taken; anything else falls through to the erasure this branch always did,
+// so nothing that worked before changes.
+def isLParenT(ts) = if isEmpty(ts) then false else isTok(hd(ts), 2, 21)
+def isNewArrayAlloc(ts) = if isEmpty(ts) then false else (if snd(hd(ts)) == "Array" then isLParenT(skipGen(tl(ts))) else false)
+// The element zero comes from the TYPE ARGUMENT, so this front agrees with the interpreter, the JS
+// backend and scalac -- jvm delegates to real Scala and was already correct, so any other choice
+// would manufacture a cross-lane divergence. Reference types get `(ctor None)`, which is what F
+// already lowers the `null` literal to (parseVarOrCall), rather than a second notion of null.
+def newArrZeroT(ty) = if ty == "Int" then emitInt("0") else (if ty == "Long" then emitInt("0") else (if ty == "Short" then emitInt("0") else (if ty == "Byte" then emitInt("0") else (if ty == "Double" then emitFloat("0.0") else (if ty == "Float" then emitFloat("0.0") else (if ty == "Boolean" then "(lit false)" else (if ty == "Char" then emitChar("0") else "(ctor None)")))))))
+def newArrZeroTy(v) = if isEmpty(v) then emitInt("0") else newArrZeroT(snd(hd(v)))
+def newArrZero(u) = if isEmpty(u) then emitInt("0") else (if isTok(hd(u), 2, 50) then newArrZeroTy(tl(u)) else emitInt("0"))
+// `parseArgs` returns the args ALREADY JOINED, as a string with a leading space per argument --
+// unlike `emitMethodCall`, whose `es` is a list and which therefore calls `joinArgs`. Calling
+// joinArgs here matched a string against Nil/:: and F declined the file with
+// `match: scrutinee not Data: " (lit (int 3))"`. Two arg representations in one parser; the
+// delegate-fallback then made it a correct answer from the WRONG front, which is why the symptom
+// was a trace line and not a wrong number.
+def parseNewArrayA(zero, pa, cx) = pa match { case (args, r) => (emitMethod("fill", "(ctor Array)", args ++ " " ++ zero, dqOf(cx)), r) }
+def parseNewArray(ts, env, cx) = parseNewArrayA(newArrZero(tl(ts)), parseArgs(tl(skipGen(tl(ts))), env, cx), cx)
+def parseNew(ts, env, cx) = if isNewArrayAlloc(ts) then parseNewArray(ts, env, cx) else eraseP(parseAtom(ts, env, cx), cx)
+def parseIdent(t, rest, env, cx) = if snd(t) == "throw" then parseThrow(rest, env, cx) else (if snd(t) == "new" then parseNew(rest, env, cx) else (if snd(t) == "try" then parseTry(rest, env, cx) else (if snd(t) == "summon" then (if isTok(hd(rest), 2, 50) then parseSummon(rest, env, cx) else parseVarOrCall(snd(t), rest, env, cx)) else (if snd(t) == "direct" then (if isDirectHead(rest) then parseDirect(rest, env, cx) else parseVarOrCall(snd(t), rest, env, cx)) else (if snd(t) == "for" then parseForExpr(rest, env, cx) else (if isTok(hd(rest), 2, 30) then parseLamBody(1, snd(t) :: env, tl(rest), cx) else parseVarOrCall(snd(t), rest, env, cx)))))))
 // `for <pat> <- gen [if g] (yield e | [do] body)` desugars to method-call chains (ssc1-front parseForFrom
 // :1000): `yield e` -> `gen.map(x=>e)`; `if g` -> `gen.filter(x=>g).map(..)`; `do`/braceless body ->
 // `gen.foreach(x=>body)`; a second generator (`;`-separated, layout-inserted) -> `gen.flatMap(x=><rest>)`.
