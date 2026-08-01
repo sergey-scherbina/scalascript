@@ -438,7 +438,7 @@ and folding it in would have made a three-lane claim out of a one-lane fix.
 <!-- status: fixed
      lane: js
      area: codegen
-     fixed-in: PENDING-SHA
+     fixed-in: 4f8c8cb9f
      gate: tests/e2e/js-shaker-keeps-effectful-binding.sh -->
 
 **FIXED 2026-08-01** by `js-codegen-pair`. The fix is in the **TreeShaker**, not the emitter, and
@@ -663,7 +663,7 @@ split.
 <!-- status: fixed
      lane: js
      area: codegen
-     fixed-in: PENDING-SHA
+     fixed-in: 4f8c8cb9f
      gate: tests/conformance/named-arg-defaults.ssc -->
 
 **FIXED 2026-08-01** by `js-codegen-pair`. **Two independent causes behind one symptom**, and
