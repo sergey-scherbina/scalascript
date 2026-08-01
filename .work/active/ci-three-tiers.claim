@@ -5,7 +5,7 @@ started: 2026-08-01T13:28:13Z
 heartbeat: 2026-08-01T13:28:13Z
 status: implementing
 items: ci-three-tier-restructure
-paths: file:.github/workflows/ci.yml file:.github/workflows/main.yml file:scripts/ci-status file:tests/e2e/ci-status-guard.sh file:tests/conformance/tls-smoke.ssc file:tests/conformance/long-overflow-wrap.ssc file:tests/conformance/map-getorelse-expr-receiver.ssc
+paths: file:.github/workflows/ci.yml file:scripts/ci-status file:tests/e2e/ci-status-guard.sh file:tests/conformance/tls-smoke.ssc file:tests/conformance/long-overflow-wrap.ssc file:tests/conformance/map-getorelse-expr-receiver.ssc file:tests/conformance/corpus-baseline.tsv
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
