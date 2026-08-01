@@ -65,6 +65,27 @@ achievable — rather than *the type checker pattern-matches on `Branch("spike.d
 is not how any shipped compiler does it. If the intent is genuinely the second, that should be
 written down explicitly here, because it changes every phase downstream.
 
+## 3.1 Where this meets SSC IR — the seam already exists
+
+`v3/` is being built in parallel and its design document,
+[`v3/specs/10-ssc-ir.md`](../v3/specs/10-ssc-ir.md), opens by drawing exactly the line this
+decision needs:
+
+> SSC IR is **not** a pruned AST. An AST says what the program *is*; SSC IR says what the machine
+> *does*, in order.
+
+That document specifies the executable core in full and refers to "the front" as something
+outside itself — "what the front proved", "from a front" — without ever saying what it is. This
+decision fills that hole, and the two fit without either giving ground:
+
+    .ssc  ->  UniML dialect  ->  lossless CST  ->  typed projection  ->  SSC IR  ->  run
+              \________________ what the program IS ______________/     \_ what the machine DOES _/
+
+**So "UniML is the AST" does not mean "no lowering".** The AST is the typed projection over the
+CST; SSC IR is what it lowers into, and the IR spec's own first sentence is the reason the two
+are different artifacts rather than one. Reading the decision as "the type checker and the
+runtime both walk `UniNode`" would collapse a distinction v3 was built around.
+
 ## 4. What is unmeasured and could invalidate the plan
 
 **Parse performance is unknown.** UniML currently accumulates `Vector[VmToken]` for the whole
