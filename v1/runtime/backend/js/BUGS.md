@@ -197,6 +197,12 @@ required `entryGuards.isEmpty`, which is never true for an `Int` parameter — s
 disabled for exactly the numeric loops it exists for, with no error and no diagnostic, just the old
 output. Caught by reading the emitted JS rather than the exit status.
 
+**CI-CONFIRMED** on dispatched run 30682235399: `Conformance shard 0/4` reports
+`scljet-large-page … PASS [JS ]`, the exact case that produced the RangeError. That run's two red
+shards are unrelated and separately attributed — `long-overflow-wrap` (JS/v2, the sibling's own new
+case, A/B'd as identical with and without this fix) and `map-getorelse-expr-receiver` (frozen
+`v2 FAIL` in the corpus baseline).
+
 Gate: `tests/e2e/js-self-tco-gate.sh`, in `scripts/smoke-ci`. It asserts BOTH placements and asserts
 the emitted LOOP, not just the answer — output alone would stay green if someone dropped the
 transform and raised the stack instead. Verified against the unfixed compiler: top level stays green
