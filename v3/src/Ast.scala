@@ -32,6 +32,10 @@ enum Expr:
   case Neg(e: Expr, pos: Pos)
   case Not(e: Expr, pos: Pos)
   case Call(fn: String, args: List[Expr], pos: Pos)
+  /** `recv.name` and `recv.name(args)` alike — a getter is a call with no arguments, which is what
+    * it is on every lane already. Keeping them one node means the lowering has one case, not two
+    * that must agree. */
+  case MethodCall(recv: Expr, name: String, args: List[Expr], pos: Pos)
   case If(c: Expr, t: Expr, e: Option[Expr], pos: Pos)
   case While(c: Expr, body: Expr, pos: Pos)
   case Block(stmts: List[Stmt], result: Option[Expr], pos: Pos)
@@ -59,6 +63,7 @@ object Expr:
     case Neg(_, p)        => p
     case Not(_, p)        => p
     case Call(_, _, p)    => p
+    case MethodCall(_, _, _, p) => p
     case If(_, _, _, p)   => p
     case While(_, _, p)   => p
     case Block(_, _, p)   => p

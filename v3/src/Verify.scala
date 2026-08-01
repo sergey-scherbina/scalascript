@@ -140,6 +140,15 @@ object Verify:
           .orElse(handlerArms(m, f, arms, at, 0, depth))
       case Instr.Resume(d, k, v)      => reg(d, "dst").orElse(reg(k, "continuation")).orElse(reg(v, "value"))
 
+      case Instr.Invoke(d, nm, r, as) =>
+        reg(d, "dst").orElse(reg(r, "receiver")).orElse(regs(as, "arg"))
+          .orElse(idxIn(nm, m.consts.length, "const")).orElse {
+            // The method name must actually BE a name. Without this the pool index is just an int
+            // and a backend would discover at run time that it was handed a number to dispatch on.
+            m.consts(nm) match
+              case Lit.LStr(_) => None
+              case other       => Some(VerifyError(at, "invoke name const " + nm + " is not a string"))
+          }
       case Instr.Prim(d, p, as)       => reg(d, "dst").orElse(regs(as, "arg")).orElse(idxIn(p, m.prims.length, "prim"))
 
   private def switchArms(m: Module, f: Func, arms: List[SwitchArm], at: String, i: Int, depth: Int): Option[VerifyError] =

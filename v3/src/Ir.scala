@@ -109,6 +109,15 @@ enum Instr:
   case Handle(dst: Int, body: List[Instr], arms: List[HandlerArm])
   case Resume(dst: Int, k: Int, v: Int)
 
+  // Dynamic method dispatch. NOT a `Prim`: `Prim` is the door to the HOST — I/O, interop, plugin
+  // SPI — and dispatching a method on a value is language semantics. Folding it into `Prim` would
+  // hide a call from every pass that wants to see calls, and would make the host boundary a lie.
+  //
+  // `name` indexes the CONSTANT POOL and must name an `LStr`. A register would have been the other
+  // option and is worse: the name is known when the front emits, so a pool index lets a backend
+  // resolve it at translation time instead of carrying a string through the frame.
+  case Invoke(dst: Int, name: Int, recv: Int, args: List[Int])
+
   // The single door to everything the IR does not define: I/O, host interop, plugin SPI. This is
   // what makes the zero-dependency invariant checkable rather than aspirational.
   case Prim(dst: Int, prim: Int, args: List[Int])

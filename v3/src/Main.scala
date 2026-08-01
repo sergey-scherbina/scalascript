@@ -64,6 +64,7 @@ object Sample:
     Instr.Handle(6, List(Instr.Const(7, 0)), List(HandlerArm(0, List(Instr.Const(7, 1))))),
     Instr.Resume(6, 7, 1),
     Instr.Prim(6, 0, List(1)),
+    Instr.Invoke(6, 5, 4, List(1)),
     Instr.TailCall(0, List(1)),
   ))
 
@@ -85,7 +86,7 @@ object Sample:
     "call", "callv", "mkclos", "tailcall", "ret",
     "mkdata", "field", "tag", "switch",
     "newarr", "arrget", "arrset", "arrlen", "globget", "globset",
-    "perform", "handle", "resume", "prim",
+    "perform", "handle", "resume", "prim", "invoke",
   )
 
 object SelfTest:

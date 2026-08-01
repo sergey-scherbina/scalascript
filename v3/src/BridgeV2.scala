@@ -179,6 +179,14 @@ object BridgeV2:
     // direct mapping, not a call to a global. The first cut emitted `(app (global println) …)` and
     // died with "unbound global": in a bare `run-ir` there is no prelude to define it, and the
     // oracle's own `println` turns out to be a def wrapping `(prim io.println …)`.
+    // The name comes from the pool at TRANSLATION time, which is the whole reason it is a const
+    // index: v2 wants `(lit (str "…"))` here, a literal rather than something read from a frame.
+    case Instr.Invoke(d, nm, r, as) =>
+      val mname = cx.m.consts(nm) match
+        case Lit.LStr(x) => x
+        case _           => throw Unsupported("an invoke whose name const is not a string")
+      write(d, "(prim __method__ " + lit("(str " + quote(mname) + ")") + " " + read(r, sh) +
+              args(as, sh) + ")", sh)
     case Instr.Prim(d, p, as) => write(d, "(prim " + cx.m.prims(p) + args(as, sh) + ")", sh)
 
     // ── data ────────────────────────────────────────────────────────────────

@@ -109,6 +109,25 @@ object Parser:
         case _ => go = false
     (lhs, ts)
 
+  /** Postfix `.name` / `.name(args)`, left-associative so `a.b.c(1).d` chains. Measured on the
+    * corpus, `.` was ~104 of 343 remaining refusals — the largest single cause by a wide margin. */
+  private def parsePostfix(ts0: List[Tok]): (Expr, List[Tok]) =
+    var (e, ts) = parsePrimary(ts0)
+    var go = true
+    while go do
+      if isPunct(peek(ts), ".") && ts.tail.nonEmpty then
+        peek(ts.tail) match
+          case Tok.TId(nm, p) =>
+            val afterName = ts.tail.tail
+            if isPunct(peek(afterName), "(") then
+              val (as, t) = parseArgs(afterName.tail)
+              e = Expr.MethodCall(e, nm, as, p); ts = t
+            else
+              e = Expr.MethodCall(e, nm, Nil, p); ts = afterName
+          case _ => go = false
+      else go = false
+    (e, ts)
+
   private def parseUnary(ts: List[Tok]): (Expr, List[Tok]) = peek(ts) match
     // `-` immediately before digits FOLDS into the literal rather than negating one. It has to:
     // Long.MinValue's magnitude is 2^63, which is not itself a Long, so `Neg(IntLit(2^63))` cannot
@@ -120,7 +139,7 @@ object Parser:
       val (e, t) = parseUnary(ts.tail); (Expr.Neg(e, p), t)
     case Tok.TOp("!", p) =>
       val (e, t) = parseUnary(ts.tail); (Expr.Not(e, p), t)
-    case _ => parsePrimary(ts)
+    case _ => parsePostfix(ts)
 
   private def parsePrimary(ts: List[Tok]): (Expr, List[Tok]) = peek(ts) match
     case Tok.TInt(text, p) => (Expr.IntLit(longOf(text, p), p), ts.tail)

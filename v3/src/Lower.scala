@@ -19,12 +19,19 @@ object Lower:
     * diagnostic at the source position rather than an unbound global three layers down. */
   private val builtins: List[(String, String)] = List("println" -> "io.println")
 
+  /** Constructors the language provides. `List(a, b)` is `Cons(a, Cons(b, Nil))` — measured off the
+    * oracle, not assumed — so it is ordinary `MkData` over the type table rather than a special
+    * form. `Some`/`None` are the same shape and cost nothing extra. */
+  private val ctors: List[(String, Int)] =
+    List("Cons" -> 2, "Nil" -> 0, "Some" -> 1, "None" -> 0)
+
   private final case class St(
       next: Int,            // next free register
       max: Int,             // high-water mark → nregs
       env: List[(String, Int)],
       consts: List[Lit],
       prims: List[String],
+      types: List[TypeDef],
   ):
     def fresh: (Int, St) =
       val r = next
@@ -38,6 +45,10 @@ object Lower:
     def primIdx(p: String): (Int, St) =
       val i = prims.indexOf(p)
       if i >= 0 then (i, this) else (prims.length, copy(prims = prims :+ p))
+    def typeIdx(name: String, fields: Int): (Int, St) =
+      val td = TypeDef(name, fields)
+      val i = types.indexOf(td)
+      if i >= 0 then (i, this) else (types.length, copy(types = types :+ td))
 
   private def constExpr(l: Lit, st0: St): (List[Instr], Int, St) =
     val (k, st1) = st0.constIdx(l)
@@ -53,7 +64,15 @@ object Lower:
     case Expr.Name(n, p) =>
       st0.lookup(n) match
         case Some(r) => (Nil, r, st0)
-        case None    => throw LowerFail(p, "unknown name '" + n + "'")
+        case None =>
+          // A nullary constructor is spelled as a bare name — `Nil`, `None` — which is why this
+          // arm exists rather than the lookup simply failing.
+          ctors.find((cn, ar) => cn == n && ar == 0) match
+            case Some((cn, _)) =>
+              val (t, st1) = st0.typeIdx(cn, 0)
+              val (d, st2) = st1.fresh
+              (List(Instr.MkData(d, t, Nil)), d, st2)
+            case None => throw LowerFail(p, "unknown name '" + n + "'")
 
     // `&&` and `||` SHORT-CIRCUIT, so they lower to `If` and never to a `Bin`. The IR spec makes
     // this a rule rather than a preference: a strict binary operator here would silently evaluate
@@ -147,6 +166,19 @@ object Lower:
           val (d, st2) = st1.fresh
           (acc :+ Instr.Const(d, uk), d, st2.copy(env = st0.env))
 
+    case Expr.MethodCall(recv, nm, argEs, _) =>
+      val (ri, rr, st1) = lower(recv, fns, st0)
+      var acc = ri
+      var regs: List[Int] = Nil
+      var st = st1
+      argEs.foreach { a =>
+        val (ai, ar, stN) = lower(a, fns, st)
+        acc = acc ++ ai; regs = ar :: regs; st = stN
+      }
+      val (nk, st2) = st.constIdx(Lit.LStr(nm))
+      val (d, st3) = st2.fresh
+      (acc :+ Instr.Invoke(d, nk, rr, regs.reverse), d, st3)
+
     case Expr.Call(fn, argEs, p) =>
       var acc: List[Instr] = Nil
       var regs: List[Int] = Nil
@@ -158,16 +190,44 @@ object Lower:
         st = st1
       }
       val args = regs.reverse
-      builtins.find((n, _) => n == fn) match
-        case Some((_, primName)) =>
-          val (pi, st1) = st.primIdx(primName)
-          val (d, st2) = st1.fresh
-          (acc :+ Instr.Prim(d, pi, args), d, st2)
-        case None =>
-          val idx = fns.indexOf(fn)
-          if idx < 0 then throw LowerFail(p, "call to unknown function '" + fn + "'")
-          val (d, st1) = st.fresh
-          (acc :+ Instr.Call(d, idx, args), d, st1)
+      // A flat chain, not nested `match`es. The first attempt nested them and Scala 3's significant
+      // indentation quietly closed the inner match one level early, so the List branch computed a
+      // value that was DISCARDED and every call fell through to "unknown function". It compiled.
+      if fn == "List" || fn == "Seq" then listOf(args, acc, st)
+      else if ctors.exists((n, _) => n == fn) then
+        val arity = ctors.find((n, _) => n == fn).map((_, a) => a).getOrElse(0)
+        if args.length != arity then
+          throw LowerFail(p, fn + " takes " + arity + " argument(s), given " + args.length)
+        val (t, st1) = st.typeIdx(fn, arity)
+        val (d, st2) = st1.fresh
+        (acc :+ Instr.MkData(d, t, args), d, st2)
+      else if builtins.exists((n, _) => n == fn) then
+        val primName = builtins.find((n, _) => n == fn).map((_, v) => v).getOrElse(fn)
+        val (pi, st1) = st.primIdx(primName)
+        val (d, st2) = st1.fresh
+        (acc :+ Instr.Prim(d, pi, args), d, st2)
+      else
+        val idx = fns.indexOf(fn)
+        if idx < 0 then throw LowerFail(p, "call to unknown function '" + fn + "'")
+        val (d, st1) = st.fresh
+        (acc :+ Instr.Call(d, idx, args), d, st1)
+
+  /** `List(a, b)` is `Cons(a, Cons(b, Nil))` — measured off the oracle, not assumed — so it is
+    * ordinary `MkData` over the type table rather than a special form anywhere downstream. */
+  private def listOf(args: List[Int], acc0: List[Instr], st0: St): (List[Instr], Int, St) =
+    val (nilT, st1) = st0.typeIdx("Nil", 0)
+    val (nilR, st2) = st1.fresh
+    var cur = nilR
+    var instrs = acc0 :+ Instr.MkData(nilR, nilT, Nil)
+    var st = st2
+    args.reverse.foreach { a =>
+      val (consT, s1) = st.typeIdx("Cons", 2)
+      val (r, s2) = s1.fresh
+      instrs = instrs :+ Instr.MkData(r, consT, List(a, cur))
+      cur = r
+      st = s2
+    }
+    (instrs, cur, st)
 
   private def binOp(op: String, p: Pos): BinOp = op match
     case "+" => BinOp.Add; case "-" => BinOp.Sub; case "*" => BinOp.Mul
@@ -193,13 +253,15 @@ object Lower:
 
     var consts: List[Lit] = Nil
     var prims: List[String] = Nil
+    var types: List[TypeDef] = Nil
     var funcs: List[Func] = Nil
     allDefs.foreach { d =>
       val params = d.params.zipWithIndex.map((pa, i) => (pa.name, i))
-      val st0 = St(d.params.length, d.params.length, params.reverse, consts, prims)
+      val st0 = St(d.params.length, d.params.length, params.reverse, consts, prims, types)
       val (body, r, st) = lower(d.body, names, st0)
       consts = st.consts
       prims = st.prims
+      types = st.types
       funcs = Func(d.name, d.params.length, if st.max > 0 then st.max else 1, body :+ Instr.Ret(r)) :: funcs
     }
-    Module(consts, Nil, Nil, prims, funcs.reverse, entry)
+    Module(consts, types, Nil, prims, funcs.reverse, entry)
