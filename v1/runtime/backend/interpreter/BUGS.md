@@ -628,7 +628,7 @@ walks `def`/`class` declarations only.
 <!-- status: fixed
      lane: int
      area: runtime
-     fixed-in: 56b2b3e5d
+     fixed-in: 6596c1c52
      gate: tests/conformance/json-read.ssc -->
 
 **FIXED 2026-07-30** (`56b2b3e5d`), approved by Sergiy. There turned out to be THREE policies, not two —
@@ -1476,7 +1476,7 @@ failure — AGENTS.md's "reproduce in the real harness" applies to the lane's bi
 <!-- status: fixed
      lane: int
      area: front
-     fixed-in: 25a2bfebc -->
+     fixed-in: f81d86e98 -->
 
 **Status:** done (2026-07-16; confirmed by busi on the assembled derived pin). Both the production
 v2 lane and documented `--v1` rollback lane are green.
@@ -1536,7 +1536,7 @@ matrix: `make v2-web-e2e-v1` 9/9 in 4.4 minutes and `make v2-web-e2e-v2` 9/9 in 
 <!-- status: fixed
      lane: int
      area: front
-     fixed-in: 3b0ddea92 -->
+     fixed-in: 3449c588c -->
 
 **Status:** **FIXED (2026-07-17, `3b0ddea92`)** — `v2/lib/ssc1-lower.ssc0` now routes `toLong` to
 the shared runtime method table like its neighbours `toInt`/`toDouble`, so the receiver decides.

@@ -2095,7 +2095,7 @@ byte-identical (385 827 B) with the new `d enum_case_dflt` tower case; semantic.
 <!-- status: fixed
      lane: js
      area: front
-     fixed-in: 452677b73 -->
+     fixed-in: 49cc3b0e5 -->
 
 **Status:** FIXED 2026-07-20 by `ci-native-front-defects` (`452677b73`). `V2CaseClassMethodCliTest`
 "std mapreduce Cluster.close executes without a stub under default v2 runner" verified green on BOTH
@@ -2227,7 +2227,7 @@ quorum=3 → minority leaderless, majority elects node-e; healing → node-e on 
 <!-- status: fixed
      lane: js
      area: runtime
-     fixed-in: 15280bb8b -->
+     fixed-in: 648dbfec5 -->
 
 **Status:** FIXED (mitigated) 2026-07-21 by `ci-last-red` (`15280bb8b`). Root cause is timing, not
 logic — the Bully convergence itself is correct (see `v1-cluster-bully-no-convergence-over-ws` above).
@@ -3187,7 +3187,7 @@ remains unchanged in shape.
 <!-- status: fixed
      lane: js
      area: runtime
-     fixed-in: 0d0ffcfd3 -->
+     fixed-in: 1497623b5 -->
 
 **Status:** done in `0d0ffcfd3`; confirmed closed by independent second
 pre-integration review. Originally reported as P1 on 2026-07-15; affected pre-land

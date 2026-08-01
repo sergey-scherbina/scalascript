@@ -90,16 +90,42 @@ for head, body in entries:
         if not sha:
             problems.append((slug, "status: fixed requires `fixed-in: <sha>`"))
         elif sha != "unrecorded":
-            # SHAPE is checked everywhere. `isdigit` is not pedantry: an 11-digit CI run id
-            # matches [0-9a-f]{7,40} perfectly, and three of them were sitting in this file
-            # as `fixed-in` values until the migration verified them.
-            if not re.fullmatch(r"[0-9a-f]{7,40}", sha) or sha.isdigit():
+            # SHAPE first, everywhere.
+            #
+            # The `isdigit` guard that used to live here is GONE, and its removal is the point: an
+            # 11-digit CI run id matches [0-9a-f]{7,40}, which is why it was added — but so does a
+            # perfectly real abbreviated sha that happens to be all digits. `611795277` is one, and
+            # this gate rejected it as "not a commit sha" on 2026-08-02. The reachability check
+            # below subsumes the guard completely: a run id is not an ancestor of HEAD either, and
+            # it now says so by name instead of by a heuristic that has a false positive.
+            if not re.fullmatch(r"[0-9a-f]{7,40}", sha):
                 problems.append((slug, f"fixed-in `{sha}` is not a commit sha"))
             elif not SHALLOW:
-                r = subprocess.run(["git", "cat-file", "-e", sha + "^{commit}"],
+                # REACHABILITY, not existence. `git cat-file -e` is satisfied by any object lying
+                # around in the object database — including a PRE-REBASE ORPHAN, which is what a
+                # `fixed-in` written before the push becomes the moment `git rebase` rewrites it.
+                # The old commit survives locally and unreferenced, so the record looks fine on the
+                # machine that wrote it and points at nothing in a fresh clone. Measured 2026-08-02:
+                # 17 entries across five BUGS.md files were in exactly that state, and one of them
+                # was written by me the previous day.
+                #
+                # Anchored at HEAD, not origin/main, on purpose: the normal flow is commit the fix,
+                # then mark it `fixed-in` in a follow-up commit, and at that moment the fix is on
+                # your feature branch and not yet on main. HEAD accepts that and still refuses an
+                # orphan, because a rebase leaves the old sha unreachable from the new HEAD too.
+                r = subprocess.run(["git", "merge-base", "--is-ancestor", sha, "HEAD"],
                                    capture_output=True)
                 if r.returncode != 0:
-                    problems.append((slug, f"fixed-in `{sha}` does not resolve to a commit"))
+                    exists = subprocess.run(["git", "cat-file", "-e", sha + "^{commit}"],
+                                            capture_output=True).returncode == 0
+                    if exists:
+                        why = ("exists locally but is NOT an ancestor of HEAD — a pre-rebase "
+                               "orphan, invisible in a fresh clone")
+                    elif sha.isdigit() and len(sha) >= 9:
+                        why = "looks like a CI run id, not a commit sha"
+                    else:
+                        why = "does not resolve to a commit"
+                    problems.append((slug, f"fixed-in `{sha}` {why}"))
     if st == "duplicate" and not fields.get("duplicate-of"):
         problems.append((slug, "status: duplicate requires `duplicate-of: <slug>`"))
 

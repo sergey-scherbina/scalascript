@@ -594,7 +594,7 @@ symptom to anchor it.
 <!-- status: fixed
      lane: apparatus
      area: front
-     fixed-in: e34938737
+     fixed-in: 59e912e7f
      gate: tests/conformance/list-apply-method.ssc -->
 
 
@@ -1122,7 +1122,7 @@ larger preparation contract.
 <!-- status: fixed
      lane: apparatus
      area: front
-     fixed-in: 15b99b5ee
+     fixed-in: 198a9245f
      gate: tests/e2e/v21-plugin-backend-isolation-smoke.sh -->
 
 **Status:** DONE (found 2026-07-27 by `codex` while verifying unlanded
@@ -2690,7 +2690,7 @@ reference driver", which pins the parts that DO hold. Related engine gaps found 
 <!-- status: fixed
      lane: apparatus
      area: runtime
-     fixed-in: 0d0ffcfd3 -->
+     fixed-in: 1497623b5 -->
 
 **Status:** done in `0d0ffcfd3`; confirmed closed by independent second
 pre-integration review. Originally reported as P1 on 2026-07-15; affected pre-land

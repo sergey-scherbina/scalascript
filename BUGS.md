@@ -630,7 +630,7 @@ self-test starts failing for the right reason.
 <!-- status: fixed
      lane: multi
      area: runtime
-     fixed-in: eb82bd18e -->
+     fixed-in: 611795277 -->
 
 
 **Status:** **FIXED 2026-07-28** by `v2-stub-apply-and-serve-banner` (`eb82bd18e`), option (1):
@@ -1138,7 +1138,7 @@ collisions, and indexed paths.
 <!-- status: fixed
      lane: multi
      area: build
-     fixed-in: 9cb9865e1 -->
+     fixed-in: b65bbb637 -->
 
 **Status:** FIXED (2026-07-27, `scljet-ipk-rowid`, commit `9cb9865e1`). Found the same day by
 `scljet-ipk-rowid` while cross-checking the freshly landed IPK-move fix (`4a20a50b7`) against the
@@ -2392,7 +2392,7 @@ which store the rowid as their tail.
 <!-- status: fixed
      lane: multi
      area: build
-     fixed-in: 0d0ffcfd3 -->
+     fixed-in: 1497623b5 -->
 
 **Status:** done in `0d0ffcfd3`; confirmed closed by independent second
 pre-integration review. Originally reported as a P2 packaging defect on

@@ -2135,7 +2135,7 @@ wrong response.
 <!-- status: fixed
      lane: native
      area: front
-     fixed-in: 3afe7fe7b
+     fixed-in: d9b61865c
      gate: tests/e2e/ssc1-front-annotation.sh -->
 
 
@@ -2514,7 +2514,7 @@ disagree with it in different ways.
 <!-- status: fixed
      lane: native
      area: runtime
-     fixed-in: c1c960209
+     fixed-in: feb67b287
      gate: tests/e2e/v2-error-diagnostic.sh -->
 
 **Status:** **FIXED 2026-07-28** by `v2-native-error-diagnostic` (`c1c960209`). Found the same day
@@ -3903,7 +3903,7 @@ correcting it to post-order matched legacy. See Status above.)
 <!-- status: fixed
      lane: native
      area: front
-     fixed-in: 180f16fcb
+     fixed-in: 3d5d6b151
      gate: tests/e2e/int-literal-failopen-smoke.sh -->
 
 **Status:** FIXED `180f16fcb` (`v2-f4-reflip`, 2026-07-22). F's lexer now range-checks decimal literals and
@@ -4155,7 +4155,7 @@ lifecycle case additionally passes direct ASM while printing the separate v1 JVM
 <!-- status: fixed
      lane: native
      area: front
-     fixed-in: b1b72415e -->
+     fixed-in: 46626844a -->
 
 **Status:** FIXED (2026-07-21, `b1b72415e`; f-caseclass-default-arg). ROOT CAUSE RE-PINNED by live
 trace — the miss is NOT about *imported case-class ctors*: those synthesize correctly on F, local and
@@ -4283,7 +4283,7 @@ benign typed `+`/`++` string-concat op (F5b regime, by design) — output-equiva
 <!-- status: fixed
      lane: native
      area: front
-     fixed-in: ede7efaa0 -->
+     fixed-in: 9925c2a24 -->
 
 **Status:** FIXED 2026-07-20 by `ci-native-front-defects` (`ede7efaa0`). `V2ActorCliTest`
 "default and --v2 deliver sendAfter actor timers" verified green.
