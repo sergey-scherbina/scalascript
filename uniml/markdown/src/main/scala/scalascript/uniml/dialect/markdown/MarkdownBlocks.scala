@@ -73,6 +73,9 @@ private[markdown] final class MarkdownBlocks(
     // blank lines seen while an indented code block is open: interior until an
     // indented line follows, trailing if the block ends first
     var indentedCodeBlanks: Vector[(String, String)] = Vector.empty
+    // container prefix of the CURRENT line, buffered while an indented code
+    // block is open so it cannot overtake blank lines still being held
+    var indentedCodePendingPrefix = ""
     // leaf accumulation state
     var open: OpenLeaf = OpenLeaf.None
     var paragraphSegs: Vector[ParaSeg] = Vector.empty
@@ -165,7 +168,10 @@ private[markdown] final class MarkdownBlocks(
       val isIndentedCode = indentWidth >= 4 && open != OpenLeaf.Paragraph && !startsListOrQuote(trimmed)
       // any other leaf ends an open indented block; the branches below that do not
       // route through finishParagraph (appendParagraph) would otherwise nest into it
-      if !isIndentedCode then finishIndentedCode()
+      // ORDER IS THE WHOLE POINT: held blanks first (they precede this line in
+      // the source), then this line's container prefix, then the line itself.
+      if isIndentedCode then releaseInteriorBlanks() else finishIndentedCode()
+      emitIndentedCodePrefix()
       if isIndentedCode then
         handleIndentedCode(line, content); index + 1
       else if open == OpenLeaf.Paragraph && isSetextUnderline(trimmed) then
@@ -207,7 +213,13 @@ private[markdown] final class MarkdownBlocks(
       // When a paragraph is open, its container-continuation markers must be
       // emitted in source order *with* the deferred paragraph text, so we buffer
       // them here instead of emitting them ahead of the text.
-      val buffering = open == OpenLeaf.Paragraph
+      // Buffer for an open indented code block as well as a paragraph. Emitting
+      // this line's container prefix immediately would put it BEFORE blank lines
+      // the block is still holding, which is exactly how
+      // `…indented code\n\n    > A block quote.` reconstructed as
+      // `…indented code\n    \n> A block quote.` — the prefix and the blank had
+      // swapped places, and the source axis caught it.
+      val buffering = open == OpenLeaf.Paragraph || open == OpenLeaf.IndentedCode
       var prefix: Vector[String] = Vector.empty
       def consume(kind: String, lex: String): Unit =
         if buffering then prefix = prefix :+ lex
@@ -232,9 +244,10 @@ private[markdown] final class MarkdownBlocks(
           case _: ListFrame => matched += 1 // list frame matches whenever its item does
         i += 1
       if matched >= containers.size then
-        // full match: hand a continuation prefix to appendParagraph, if buffering
-        if buffering then paragraphPendingPrefix = prefix.mkString
-      else if buffering && isLazyContinuation(rest) then
+        // full match: hand the continuation prefix to whichever leaf is open
+        if open == OpenLeaf.IndentedCode then indentedCodePendingPrefix = prefix.mkString
+        else if buffering then paragraphPendingPrefix = prefix.mkString
+      else if buffering && open == OpenLeaf.Paragraph && isLazyContinuation(rest) then
         // lazy paragraph continuation: a plain paragraph-text line continues the
         // open paragraph even though a container marker is missing; keep the
         // unmatched containers open so the paragraph stays inside them
@@ -283,7 +296,10 @@ private[markdown] final class MarkdownBlocks(
       // Inside an indented code block a blank line is not yet decidable: it is
       // interior content if another indented line follows and trailing trivia if
       // the block ends. Hold it until one of the two happens.
-      if open == OpenLeaf.IndentedCode then indentedCodeBlanks = indentedCodeBlanks :+ ((content, line.ending))
+      if open == OpenLeaf.IndentedCode then
+        // the blank's own container prefix belongs WITH it, not before the next line
+        indentedCodeBlanks = indentedCodeBlanks :+ ((indentedCodePendingPrefix + content, line.ending))
+        indentedCodePendingPrefix = ""
       else
         finishParagraph()
         val lexeme = content + line.ending
@@ -453,10 +469,14 @@ private[markdown] final class MarkdownBlocks(
         open = OpenLeaf.IndentedCode
         flushPending(MdKind.Indent, indent, Vector(FrameSpec(MdBranch.CodeBlock)), Some("indent"), TokenChannel.Trivia)
       else
-        releaseInteriorBlanks()
         leaf(MdKind.Indent, indent, Some("indent"), TokenChannel.Trivia)
       leaf(MdKind.CodeContent, code, Some("code"), TokenChannel.Embedded)
       if line.ending.nonEmpty then leaf(MdKind.LineBreak, line.ending, Some("code"), TokenChannel.Embedded)
+
+    def emitIndentedCodePrefix(): Unit =
+      if indentedCodePendingPrefix.nonEmpty then
+        flushPending(MdKind.Indent, indentedCodePendingPrefix, Vector.empty, Some("continuation"), TokenChannel.Trivia)
+        indentedCodePendingPrefix = ""
 
     /** Blank lines held while an indented code block is open turned out to be
       * INTERIOR — another indented line followed — so they belong to the literal. */
