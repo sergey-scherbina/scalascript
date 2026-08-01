@@ -36,6 +36,39 @@ final class BytecodeJitBackend extends JitBackend:
   def onProgram(globals: collection.mutable.Map[String, Value]): Unit =
     Emit.globalsRef = globals
 
+  /** The site's global name, but only if that global STILL resolves to this very body.
+    *
+    * Compiling a self-call directly is what turns a recursive call from "globals lookup + `ClosV`
+    * dispatch" into an `invokestatic` (and unlocks the unboxed `$long` entry). It also freezes the
+    * callee: if the program rebinds the global afterwards, interpreted callers would see the new
+    * binding and this unit would keep calling itself.
+    *
+    * The AOT lane simply assumes this for every def (`defMethods` → direct `invokestatic`). Here it
+    * is CHECKED instead: the top-level def's `ClosV.code` is precisely this site, so an identity
+    * comparison says whether the name still means this body at the moment of compiling. That closes
+    * the window before compile; a rebinding after it is the same exposure the AOT lane already
+    * ships, and it is why this returns `null` rather than guessing when the shape is unfamiliar. */
+  private def selfNameIfBindingIntact(site: JitSite): String | Null =
+    val name = site.selfName
+    val globals = site.globals
+    if name == null || globals == null then null
+    else
+      globals.asInstanceOf[collection.mutable.Map[String, Value]].get(name.asInstanceOf[String]) match
+        case Some(c: Value.ClosV) if (c.code.asInstanceOf[AnyRef] eq site) => name
+        case _                                                            => null
+
+  // Refusal accounting. Two of these are BY DESIGN and one is a coverage gap; keeping them apart is
+  // the difference between "7 sites did not compile" and a list of shapes worth teaching the
+  // emitter. Plain vars: compilation happens under the kernel's `Jit.onHot` synchronisation.
+  private var refusedLoop = 0
+  private var refusedHandler = 0
+  private val refusedForm = collection.mutable.LinkedHashMap.empty[String, Int]
+
+  override def stats: String =
+    val forms = refusedForm.map((f, n) => s"$f×$n").mkString(", ")
+    s", refused: $refusedLoop loop, $refusedHandler handler-root" +
+      (if forms.isEmpty then "" else s", uncompilable: $forms")
+
   /** `null` = this site stays interpreted. Never throws: an uncompilable site is a performance
     * outcome, never a program failure, and the kernel's contract says so.
     *
@@ -51,10 +84,11 @@ final class BytecodeJitBackend extends JitBackend:
     * Everything else goes through `JvmByteGen.emitUnit`, i.e. through the SAME emitter the AOT lane
     * uses, so a shape either lane learns is learned by both. */
   def compileUnit(site: JitSite): Code | Null =
-    if site.arity < 0 || site.handlerRoot then null
+    if site.arity < 0 then { refusedLoop += 1; null }
+    else if site.handlerRoot then { refusedHandler += 1; null }
     else
       try
-        val fn = JvmByteGen.loadUnit(JvmByteGen.emitUnit(site.body))
+        val fn = JvmByteGen.loadUnit(JvmByteGen.emitUnit(site.body, selfNameIfBindingIntact(site), site.arity))
         val owned = site.globals
         // Exactly the wrapper `Emit.clos` uses for every AOT lambda — the compiled body answers a
         // Value (possibly a bounce), `unroll` resolves it, the trampoline sees a `Done` — plus one
@@ -76,4 +110,9 @@ final class BytecodeJitBackend extends JitBackend:
         // `Unsupported` for a construct the emitter cannot compile, an ASM size error for a unit
         // over the 64 KB method limit, anything else from the generator: all of them mean "leave
         // this site interpreted". The site is asked once and never again.
-        case _: Throwable => null
+        case e: Throwable =>
+          val form = e match
+            case u: ssc.bytecode.Unsupported => u.form
+            case other                       => other.getClass.getSimpleName
+          refusedForm(form) = refusedForm.getOrElse(form, 0) + 1
+          null

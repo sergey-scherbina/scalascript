@@ -671,7 +671,7 @@ object Compiler:
     for d <- p.defs do d.body match
       case Lam(ar, b) =>
         val handlerRoot = HandlerDispatchShape.isRoot(ar, b)
-        val bodyCode = Jit.site(b, ar, handlerRoot, c.compile(b, handlerRoot))
+        val bodyCode = Jit.site(b, ar, handlerRoot, d.name, c.compile(b, handlerRoot))
         val closV =
           if handlerRoot then Runtime.handlerClosure(Array.empty[Value], ar, bodyCode)
           else ClosV(Array.empty[Value], ar, bodyCode)

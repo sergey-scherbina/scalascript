@@ -70,18 +70,26 @@ object Jit:
     val backendId = if backendRef == null then "none" else backendRef.asInstanceOf[JitBackend].id
     System.err.println(
       s"ssc: jit tier-0 — ${sitesArmed.get()} sites armed, ${sitesHot.get()} reached the threshold " +
-      s"(call $threshold / loop $loopThreshold), ${sitesCompiled.get()} compiled, backend $backendId")
+      s"(call $threshold / loop $loopThreshold), ${sitesCompiled.get()} compiled, backend $backendId" +
+      (if backendRef == null then "" else backendRef.asInstanceOf[JitBackend].stats))
 
   /** A `Lam` body. `body`/`arity` are carried now, though tier 0 does not read them, because J-3
     * compiles exactly this term and J-8 names exactly this site — plumbing them later would mean a
     * second pass over the same four kernel call sites. */
   def site(body: Term, arity: Int, handlerRoot: Boolean, code: Code): Code =
-    if !armed then code else new JitSite(body, arity, handlerRoot, currentGlobals, code, threshold)
+    site(body, arity, handlerRoot, null, code)
+
+  /** The named form, used by the top-level-def pass. `selfName` is what lets a backend compile a
+    * recursive call as a call to the unit ITSELF instead of a globals lookup; nested lambdas and
+    * `LetRec` bindings have no global name and pass `null`. */
+  def site(body: Term, arity: Int, handlerRoot: Boolean, selfName: String | Null, code: Code): Code =
+    if !armed then code
+    else new JitSite(body, arity, handlerRoot, selfName, currentGlobals, code, threshold)
 
   /** A `While` body: no arity (`-1`, which is also how a backend tells the two apart), and its own
     * threshold. */
   def loopSite(body: Term, code: Code): Code =
-    if !armed then code else new JitSite(body, -1, false, currentGlobals, code, loopThreshold)
+    if !armed then code else new JitSite(body, -1, false, null, currentGlobals, code, loopThreshold)
 
   private[ssc] def registered(): Unit = sitesArmed.incrementAndGet()
 
@@ -162,6 +170,11 @@ trait JitBackend:
     * performance outcome, never a program failure. */
   def compileUnit(site: JitSite): Code | Null
 
+  /** One line for the stats report, naming WHY sites were left interpreted. A refusal count with no
+    * reason is a number nobody can act on; this is what turns "7 sites did not compile" into a list
+    * of shapes to teach the emitter (`specs/v2-wide-jit.md` §4). */
+  def stats: String = ""
+
 /** The counting node. Installed only when `Jit.armed`.
   *
   * Field reads are `@volatile` and that is measured, not assumed: the non-volatile variant came back
@@ -177,6 +190,11 @@ final class JitSite(
       * compiled one as an ordinary body would silently lose the unhandled-event probe, so the flag
       * travels with the site rather than being re-derived from the term. */
     val handlerRoot: Boolean,
+    /** The global this body is bound to, when it has one — i.e. top-level defs. A backend may use it
+      * to compile self-calls directly, which is the difference between a recursive call costing a
+      * globals lookup plus a `ClosV` dispatch and costing an `invokestatic`. Never derived from the
+      * term: only the compile pass that binds the name knows it. */
+    val selfName: String | Null,
     /** The globals map of the program this site was compiled in.
       *
       * A compiled unit reads globals through `Emit.globalsRef`, which is ONE field, while a single

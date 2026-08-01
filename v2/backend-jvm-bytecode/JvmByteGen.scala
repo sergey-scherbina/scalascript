@@ -1484,10 +1484,18 @@ object JvmByteGen:
     * Throws `Unsupported` (or an ASM size error) exactly as `emitProgram` does; the caller treats
     * that as "this site stays interpreted", which is the per-site version of the whole-program
     * fallback in `RunNativeV2`. */
-  def emitUnit(body: Term): Array[Byte] =
+  def emitUnit(body: Term): Array[Byte] = emitUnit(body, null, -1)
+
+  /** With a `selfName`, calls to that global inside the body compile to the unit's OWN method:
+    * a self-TAIL call becomes `Emit.rebind` + `GOTO` (a loop, no JVM frame), a non-tail one an
+    * `invokestatic`, and `canParamLong` can lift the whole thing onto the unboxed `$long(J…)J`
+    * entry with its `INSTANCEOF IntV` guard. Registering the unit in `defMethods` is what reaches
+    * the non-tail arm — `selfGlobal` alone only covers the tail one. */
+  def emitUnit(body: Term, selfName: String | Null, arity: Int): Array[Byte] =
     val cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS)
     cw.visit(Opcodes.V17, Opcodes.ACC_PUBLIC | Opcodes.ACC_FINAL, GEN, null, OBJ, Array(LAMFN))
     val g = new Gen(cw, None)
+    if selfName != null && arity >= 1 then g.defMethods(selfName.nn) = ("unit", arity)
 
     val ctor = cw.visitMethod(Opcodes.ACC_PUBLIC, "<init>", "()V", null, null)
     ctor.visitCode()
@@ -1508,7 +1516,7 @@ object JvmByteGen:
     // paramIsEnv: slot 0 IS the VM's env array. `loadEnvArgValue` reads env[length-1-deBruijn],
     // which is byte-for-byte the VM's own `Local(i)` rule — that identity is why a unit can be
     // handed the interpreter's frame unchanged.
-    emitBody(g, "unit", body, paramIsEnv = true)
+    emitBody(g, "unit", body, paramIsEnv = true, selfGlobal = selfName, selfArity = arity)
     drainPending(g)
 
     cw.visitEnd()
