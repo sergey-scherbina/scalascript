@@ -19,6 +19,16 @@ the upstream expected HTML.
   are normative examples in the spec even though its C test runner marks them
   `disabled`; the generator deliberately retains them.
 
+- `whatwg-entities.json` is the named-character-reference table of the WHATWG
+  HTML Living Standard, taken verbatim from <https://html.spec.whatwg.org/entities.json>.
+  It has 2231 entries, of which the generator emits the **2125 semicolon-terminated**
+  ones: CommonMark 6.2 recognises no others, and the 106 legacy names without the
+  semicolon must stay literal text. The generated table lands in the MAIN source
+  tree — `uniml/markdown/src/main/scala/.../markdown/generated/` — because the
+  decoder is production code, so `generate.py` has a third controlled root and the
+  manifest covers it like the other two. It replaced a hand-typed table of roughly
+  250 names, which is why `&copy;` used to decode while `&Dcaron;` stayed literal.
+
 `MANIFEST.json` records immutable URLs, revisions, raw and canonical SHA-256
 digests, counts, licenses, and the exact closed roster plus digest of every
 controlled corpus and generated file.  Symlinks, directories, caches, missing

@@ -1,0 +1,13 @@
+whatwg-entities.json is the named-character-reference table published by the
+WHATWG as part of the HTML Living Standard, taken verbatim from
+
+    https://html.spec.whatwg.org/entities.json
+
+The HTML Living Standard is available under the Creative Commons Attribution
+4.0 International Licence (CC BY 4.0):
+
+    https://creativecommons.org/licenses/by/4.0/
+
+Copyright WHATWG (Apple, Google, Mozilla, Microsoft). The file is included here
+UNMODIFIED and pinned by SHA-256 so the generated table can be reproduced from
+it; see uniml/corpus/markdown/README.md.
