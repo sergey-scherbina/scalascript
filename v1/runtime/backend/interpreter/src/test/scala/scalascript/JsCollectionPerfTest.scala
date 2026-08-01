@@ -33,14 +33,34 @@ class JsCollectionPerfTest extends AnyFunSuite:
     val jsD = gen("def g(d: Double): Int = d.toInt")
     assert(jsD.contains("Math.trunc"), s"expected Math.trunc for Double .toInt, got:\n$jsD")
 
-  test("seq(idx).toLong marks the surrounding arithmetic Long (routes through _arith)"):
-    // `.toLong` now produces a JS BigInt (v1-js-long-precision-and-bitops), so the add
-    // must go through `_arith` to coerce the Int operand — a native `+` would mix
-    // BigInt+Number and throw. The seq index itself still lowers to a native `v[...]`.
+  test("seq(idx).toLong marks the surrounding arithmetic Long (routes through _larith)"):
+    // `.toLong` produces a JS BigInt (v1-js-long-precision-and-bitops), so the add cannot be a
+    // native `+` — that would mix BigInt+Number and throw. It must go through a helper that
+    // coerces the Int operand. The seq index itself still lowers to a native `v[...]`.
+    //
+    // WHICH helper is the whole point, and this assertion used to name the wrong one. `Long` and
+    // `BigInt` share one JS representation (`bigint`) but NOT one semantics: `Long` wraps at 64
+    // bits, `BigInt` is unbounded. `_larith` is `_arith` plus `BigInt.asIntN(64, …)`; masking
+    // inside the shared `_arith` truncated `BigInt(1e9)^4` from 1e36 to -5527149226598858752, which
+    // is why the split exists (656732866). Only JsGen knows the static type, so only JsGen decides,
+    // and a Long add must therefore emit `_larith`. Accepting either name here would let the wrap
+    // silently disappear.
     val js = gen(
       "val v: Vector[Int] = Vector(1, 2, 3)\ndef f(s: Int): Int = s + v(s % 3).toLong")
     assert(js.contains("v[") && !js.contains("_call(v"), s"expected native v-index, got:\n$js")
-    assert(js.contains("_arith"), "Long (BigInt) add coerces the Int operand via _arith")
+    assert(js.contains("_larith"), s"a Long add must wrap at 64 bits via _larith, got:\n$js")
+
+  test("BigInt arithmetic keeps the UNMASKED _arith — the twin of the test above"):
+    // The two live here TOGETHER on purpose. They are one decision seen from two sides, and when
+    // they sat apart, changing the emitter for one of them left the other asserting the old name
+    // and CI red on a landed, correct change. Whoever edits either assertion now has the other in
+    // front of them: `BigInt` must NOT be masked to 64 bits, so it must NOT reach `_larith`.
+    val js = gen("def f(a: BigInt, b: BigInt): BigInt = a * b * a * b")
+    // NOT VACUOUS: the BigInt multiply must actually reach a helper. If the emitter ever lowered it
+    // to a native `*`, the assertion above would pass while proving nothing, so the presence of
+    // `_arith` is asserted first.
+    assert(js.contains("_arith"), s"the BigInt multiply must route through _arith at all, got:\n$js")
+    assert(!js.contains("_larith"), s"BigInt must not be masked to 64 bits, got:\n$js")
 
   test(".toInt on a String receiver still routes through the runtime (not Math.trunc)"):
     // A String's .toInt is parseInt — the numeric fast path must NOT fire here.
