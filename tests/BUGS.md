@@ -7,6 +7,62 @@ grepping for status.
 
 Newest first.
 
+## f4-dualrun-gate-compares-F-with-ITSELF-since-the-front-flip
+<!-- status: open
+     lane: apparatus
+     kind: apparatus
+     area: conformance
+     fixed-in: -
+     gate: - -->
+
+**Found 2026-08-01** under `ssc3-core`, while looking for the gate that would catch a change to the
+F front. The gate whose entire purpose is to compare the two fronts has been comparing one front
+against itself since the F4 flip, and has therefore been **vacuously green**.
+
+`specs/v2.2-p6.5-dualrun.sh:53` runs the two sides as:
+
+```sh
+if [ "$front" = F ]; then SSC_FRONT=F "${tb[@]}" "$SSC_BIN" run "$f" > "$CAP.out"
+else                                  "${tb[@]}" "$SSC_BIN" run "$f" > "$CAP.out"
+```
+
+and the launcher resolves the front as:
+
+```scala
+private def frontIsF: Boolean =                                  // RunNativeV2.scala:791
+  !sys.env.get("SSC_FRONT").exists(_.equalsIgnoreCase("legacy"))
+```
+
+`SSC_FRONT=F` → F. `SSC_FRONT` unset → **also F**. Both sides are the same front. The opt-out is
+`legacy`, and no side of this gate ever sets it.
+
+**Why it went unnoticed:** the script's own header still describes the pre-flip world —
+*"def = (exit, stdout) of `bin/ssc run P` — DEFAULT front (ssc1-front + ssc1-lower)"*. That was true
+until `56d7d705f` made F the default (`frontIsF` opt-OUT). The gate was not changed with it, and
+comparing F to F cannot fail, so nothing ever complained.
+
+**Proof it cannot see a real divergence**, from today rather than in principle: `2d29b3e71` fixed
+`new Array[T](n)` on the legacy front only. Between that commit and the F fix, the two fronts
+genuinely disagreed —
+
+```text
+SSC_FRONT=legacy  ./bin/ssc run --v2   new Array[Int](3).length   ->  3
+default (F)                                                       ->  1
+```
+
+— and this gate would have reported GREEN throughout, because both of its sides were the `1`.
+
+**Fix:** the baseline side must set `SSC_FRONT=legacy` explicitly. Rename the labels while doing it,
+because "default" now names the thing under test rather than the reference, and that ambiguity is
+what made the wrong comparison read as the right one. `--self-test` should plant a divergence and
+require the gate to fail (P-6.1): a gate nobody has watched fail is a hypothesis, and this one had
+been a hypothesis for the entire life of the flipped tree.
+
+Note the interaction with the F4a delegate-fallback, which is what makes this expensive rather than
+merely wrong: where F cannot lower a file it silently delegates to the reference front and the
+program still prints the right answer. So a broken F shows up as neither a wrong answer nor a
+failing gate — only as a trace line under `SSC_FRONT_TRACE=1`, which nobody sets.
+
 ## ci-status-guard-races-the-shared-repo-index-lock — a smoke check that fails on a busy host
 <!-- status: open
      lane: apparatus
