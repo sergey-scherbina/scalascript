@@ -5,7 +5,7 @@ started: 2026-08-01T20:36:38Z
 heartbeat: 2026-08-01T20:36:38Z
 status: claimed-before-planning
 items: v2-source-backends-miss-autoOutput js-compound-assign-dispatches
-paths: file:v2/backend/jvm/JvmBackend.scala file:v2/lib/backend-rust-gen.ssc0 file:v2/lib/backend-js-gen.ssc0 file:v2/BUGS.md file:v2/SPRINT.md
+paths: file:v2/backend/jvm/JvmBackend.scala file:v2/lib/backend-rust-gen.ssc0 file:v2/lib/backend-js-gen.ssc0 file:v2/conformance/autooutput.coreir file:v2/BUGS.md file:v2/SPRINT.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
