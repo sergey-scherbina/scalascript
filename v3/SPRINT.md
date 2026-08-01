@@ -35,7 +35,9 @@ A compiler built on an IR that turns out to be wrong is work thrown away twice.
       being trusted: blinding the register check turned rule 1 into `ACCEPTED — the verifier cannot
       see this defect`, and making the writer drop `NumKind` broke `read(write(m)) == m`.
 
-- [ ] **SSC3-3 — the v2 bridge: SSC3 IR → v2 Core IR (`V-0`).** Sergiy's call, and it comes BEFORE
+- [~] **SSC3-3 — the v2 bridge: SSC3 IR → v2 Core IR (`V-0`).** RUNNING end to end for the
+      straight-line + `If` + `Ret` + `Call` + `Prim` subset; every other instruction is refused BY
+      NAME. Sergiy's call, and it comes BEFORE
       our own executor because it is what makes v3 usable at all: the whole v2 backend fleet — VM,
       JVM bytecode, JS, Rust, native — is inherited instead of re-earned.
       Raising a linear form into v2's term tree is only tractable because SSC3 IR is structured by
@@ -44,8 +46,13 @@ A compiler built on an IR that turns out to be wrong is work thrown away twice.
       SSA and no join points — mechanical and obviously correct, and slow. `Br` out of a `Block`
       becomes a tail call to the region's continuation, emitted as `LetRec`; each region's
       continuation is statically known, again because the form is structured.
-      *Gate:* every `SSC3-2` round-trip program runs through the bridge and matches the executor —
-      once there is one — and matches v2's own output on the shared corpus slice today.
+      *Gate:* `v3/bridge-gate.sh` — each `v3/tests/bridge/*.ssir` is verified, translated, RUN on
+      the v2 VM, and its OUTPUT compared against a checked-in expectation, never the exit code.
+      Red in BOTH directions: a fixture using an untranslatable instruction must be refused with the
+      instruction named, and the gate fails loud if no case ran.
+      Still refused, each by name: `Loop`/`Br`/`BrIf` (needs each region's continuation as a
+      `LetRec`), `Switch`, `MkData`/`Field`/`Tag`, the array and global instructions,
+      `MkClos`/`CallV`, the effect trio, and the bitwise operators.
 
 - [ ] **SSC3-3b — the executor.** The register VM: frame allocation, the instruction loop,
       structured branch handling, `TailCall` frame reuse, `Prim` dispatch. `ssc3 run-ir <file.ssir>`.
