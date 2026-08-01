@@ -30,11 +30,18 @@ object BridgeV2:
     * binder, because every statement goes into a `seq`, which evaluates in the SAME environment.
     * That is what keeps de Bruijn indices from shifting under the translation — the single fact
     * that makes V-0 a mapping rather than an index-tracking exercise. */
-  private val frame = "(local 0)"
+  /** `sh` is how many binders sit between here and the frame's `let`.
+    *
+    * It is 0 nearly everywhere, because `seq` evaluates in the SAME environment and nothing else
+    * introduces a binder — that is the invariant the whole translation rests on. A `match` ARM is
+    * the one exception: v2 binds the constructor's fields as locals, so inside an arm of arity k
+    * the frame has moved to `local k`. Threading it explicitly is cheaper than the alternative,
+    * which is remembering that one construct is different. */
+  private def frameAt(sh: Int): String = "(local " + sh + ")"
 
-  private def read(r: Int): String = "(app " + frame + " " + int(r) + ")"
-  private def write(r: Int, v: String): String =
-    "(prim __method__ " + lit("(str \"update\")") + " " + frame + " " + int(r) + " " + v + ")"
+  private def read(r: Int, sh: Int): String = "(app " + frameAt(sh) + " " + int(r) + ")"
+  private def write(r: Int, v: String, sh: Int): String =
+    "(prim __method__ " + lit("(str \"update\")") + " " + frameAt(sh) + " " + int(r) + " " + v + ")"
 
   private def arith(op: String, a: String, b: String): String =
     "(prim __arith__ " + lit("(str \"" + op + "\")") + " " + a + " " + b + ")"
@@ -108,13 +115,13 @@ object BridgeV2:
     }
     best
 
-  private def ctlIs(cx: Ctx, op: String, v: Int): String = arith(op, read(cx.ctl), int(v))
-  private def running(cx: Ctx): String = ctlIs(cx, "==", 0)
+  private def ctlIs(cx: Ctx, op: String, v: Int, sh: Int): String = arith(op, read(cx.ctl, sh), int(v))
+  private def running(cx: Ctx, sh: Int): String = ctlIs(cx, "==", 0, sh)
 
   /** End of a region: consume one level of an in-flight branch. `-1` (returned) is deliberately
     * untouched — that is what makes a return leave every enclosing region without a special case. */
-  private def endRegion(cx: Ctx): String =
-    ifThen(ctlIs(cx, ">", 0), write(cx.ctl, arith("-", read(cx.ctl), int(1))), lit("unit"))
+  private def endRegion(cx: Ctx, sh: Int): String =
+    ifThen(ctlIs(cx, ">", 0, sh), write(cx.ctl, arith("-", read(cx.ctl, sh), int(1)), sh), lit("unit"))
 
   /** Does this instruction possibly leave CTL non-zero? Everything after one that can must be
     * guarded. Conservative on purpose: a `Br` that targets an inner region cannot actually escape,
@@ -128,60 +135,107 @@ object BridgeV2:
     case other             => Instr.children(other).exists(mayDivert)
 
   // ── instructions ────────────────────────────────────────────────────────────
-  private def stmt(i: Instr, cx: Ctx): String = i match
-    case Instr.Const(d, k)        => write(d, litOf(cx.m.consts(k)))
-    case Instr.Move(d, a)         => write(d, read(a))
-    case Instr.Bin(o, _, d, a, b) => write(d, arith(binName(o), read(a), read(b)))
-    case Instr.Un(UnOp.Neg, _, d, a) => write(d, arith("-", int(0), read(a)))
+  private def stmt(i: Instr, cx: Ctx, sh: Int): String = i match
+    case Instr.Const(d, k)        => write(d, litOf(cx.m.consts(k)), sh)
+    case Instr.Move(d, a)         => write(d, read(a, sh), sh)
+    case Instr.Bin(o, _, d, a, b) => write(d, arith(binName(o), read(a, sh), read(b, sh)), sh)
+    case Instr.Un(UnOp.Neg, _, d, a) => write(d, arith("-", int(0), read(a, sh)), sh)
 
     case Instr.If(c, t, e) =>
       // An `If` is a branchable region in this IR (the verifier counts it), so both arms end with
       // the same decrement a block does. Skipping that would make `br 0` inside an if mean
       // something different from `br 0` inside a block, for no reason a reader could guess.
-      ifThen(read(c), sq(List(seqOf(t, cx), endRegion(cx))), sq(List(seqOf(e, cx), endRegion(cx))))
-    case Instr.Block(b) => sq(List(seqOf(b, cx), endRegion(cx)))
+      ifThen(read(c, sh),
+             sq(List(seqOf(t, cx, sh), endRegion(cx, sh))),
+             sq(List(seqOf(e, cx, sh), endRegion(cx, sh))))
+    case Instr.Block(b) => sq(List(seqOf(b, cx, sh), endRegion(cx, sh)))
     case Instr.Loop(b) =>
       // A WASM loop does NOT repeat by falling off its end — only a `br` to it repeats. So the
       // while-condition is a per-depth "go round again" slot, set false at the top of every
       // iteration and set true only by the branch check at the bottom.
-      val slot = cx.loopBase + loopDepthOf(b, cx)
-      val again = ifThen(ctlIs(cx, "==", 1),
-                         sq(List(write(cx.ctl, int(0)), write(slot, lit("true")))),
-                         endRegion(cx))
-      sq(List(write(slot, lit("true")),
-              "(while " + read(slot) + " " + sq(List(write(slot, lit("false")), seqOf(b, cx), again)) + ")"))
-    case Instr.Br(d)      => write(cx.ctl, int(d + 1))
-    case Instr.BrIf(c, d) => ifThen(read(c), write(cx.ctl, int(d + 1)), lit("unit"))
+      val slot = cx.loopBase + maxLoopDepth(b)
+      val again = ifThen(ctlIs(cx, "==", 1, sh),
+                         sq(List(write(cx.ctl, int(0), sh), write(slot, lit("true"), sh))),
+                         endRegion(cx, sh))
+      sq(List(write(slot, lit("true"), sh),
+              "(while " + read(slot, sh) + " " +
+                sq(List(write(slot, lit("false"), sh), seqOf(b, cx, sh), again)) + ")"))
+    case Instr.Br(d)      => write(cx.ctl, int(d + 1), sh)
+    case Instr.BrIf(c, d) => ifThen(read(c, sh), write(cx.ctl, int(d + 1), sh), lit("unit"))
 
-    case Instr.Ret(a) => sq(List(write(cx.retVal, read(a)), write(cx.ctl, int(-1))))
-    case Instr.Call(d, fi, as) => write(d, "(app (global " + cx.m.funcs(fi).name + ")" + args(as) + ")")
+    case Instr.Ret(a) => sq(List(write(cx.retVal, read(a, sh), sh), write(cx.ctl, int(-1), sh)))
+    case Instr.Call(d, fi, as) =>
+      write(d, "(app (global " + cx.m.funcs(fi).name + ")" + args(as, sh) + ")", sh)
     // V-0 does NOT make this a tail call — v2 gives no TCO, so the constant-stack guarantee is one
     // of the three things only our own executor (SSC3-3b) can deliver. Correct, not constant-stack.
     case Instr.TailCall(fi, as) =>
-      sq(List(write(cx.retVal, "(app (global " + cx.m.funcs(fi).name + ")" + args(as) + ")"),
-              write(cx.ctl, int(-1))))
+      sq(List(write(cx.retVal, "(app (global " + cx.m.funcs(fi).name + ")" + args(as, sh) + ")", sh),
+              write(cx.ctl, int(-1), sh)))
     // v3's `Prim` and v2's `prim` are the SAME boundary — the one door to the host — so this is a
     // direct mapping, not a call to a global. The first cut emitted `(app (global println) …)` and
     // died with "unbound global": in a bare `run-ir` there is no prelude to define it, and the
     // oracle's own `println` turns out to be a def wrapping `(prim io.println …)`.
-    case Instr.Prim(d, p, as) => write(d, "(prim " + cx.m.prims(p) + args(as) + ")")
+    case Instr.Prim(d, p, as) => write(d, "(prim " + cx.m.prims(p) + args(as, sh) + ")", sh)
+
+    // ── data ────────────────────────────────────────────────────────────────
+    // The tag space IS the type table: `MkData`'s `t`, `Field`'s `t` and a `SwitchArm`'s `tag` all
+    // index the same list. One space rather than two removes the question of how they correspond.
+    case Instr.MkData(d, t, as) =>
+      write(d, "(ctor " + cx.m.types(t).name + args(as, sh) + ")", sh)
+    // A field read is a ONE-ARM match. v2 has no field-by-index accessor, and going through the
+    // matcher means the layout consulted is v2's own — there is no second notion of "field 1 of
+    // Box" to disagree with the type table. Inside an arm of arity k, field i is `local (k-1-i)`,
+    // the same innermost-last convention `lam` uses. No shift reaches the arm body here because
+    // the body IS the bound local; the enclosing `write` happens outside the match.
+    case Instr.Field(d, a, t, idx) =>
+      val td = cx.m.types(t)
+      write(d, "(match " + read(a, sh) + " ((arm " + td.name + " " + td.fields + " (local " +
+              (td.fields - 1 - idx) + "))))", sh)
+    // Likewise a match, one arm per declared type, each answering its own index. v2 exposes no tag
+    // primitive, and inventing one would mean a second tag space.
+    case Instr.Tag(d, a) =>
+      val arms = cx.m.types.zipWithIndex
+        .map((td, i) => "(arm " + td.name + " " + td.fields + " " + int(i) + ")")
+        .mkString(" ")
+      write(d, "(match " + read(a, sh) + " (" + arms + "))", sh)
+    case Instr.Switch(scrut, arms, dflt) =>
+      // The arm bodies are the ONE place the frame moves: v2 binds the constructor's fields, so
+      // everything inside is translated at shift + arity. `nested-loop` proves the loop slots; this
+      // is the case that would catch getting the shift wrong.
+      val armText = arms.map { a =>
+        val td = cx.m.types(a.tag)
+        "(arm " + td.name + " " + td.fields + " " +
+          sq(List(seqOf(a.body, cx, sh + td.fields), endRegion(cx, sh + td.fields))) + ")"
+      }.mkString(" ")
+      "(match " + read(scrut, sh) + " (" + armText + ") (default " +
+        sq(List(seqOf(dflt, cx, sh), endRegion(cx, sh))) + "))"
+
+    // ── arrays ──────────────────────────────────────────────────────────────
+    // The same shapes the frame itself is built from, which is the strongest evidence they are
+    // right: every program translated so far already exercises them.
+    case Instr.NewArr(d, n) =>
+      write(d, "(prim __method__ " + lit("(str \"fill\")") + " (ctor Array) " + read(n, sh) + " " +
+              int(0) + ")", sh)
+    case Instr.ArrGet(d, a, ix) => write(d, "(app " + read(a, sh) + " " + read(ix, sh) + ")", sh)
+    case Instr.ArrSet(a, ix, v) =>
+      "(prim __method__ " + lit("(str \"update\")") + " " + read(a, sh) + " " + read(ix, sh) +
+        " " + read(v, sh) + ")"
+    case Instr.ArrLen(d, a) =>
+      write(d, "(prim __method__ " + lit("(str \"length\")") + " " + read(a, sh) + ")", sh)
 
     case other => throw Unsupported(Text.opcode(other))
 
-  /** Nesting depth of the loops INSIDE this body, which is the offset its own slot sits above. */
-  private def loopDepthOf(body: List[Instr], cx: Ctx): Int = maxLoopDepth(body)
-
-  private def args(as: List[Int]): String =
-    if as.isEmpty then "" else " " + as.map(read).mkString(" ")
+  private def args(as: List[Int], sh: Int): String =
+    if as.isEmpty then "" else " " + as.map(r => read(r, sh)).mkString(" ")
 
   /** Statements in one region. Everything after an instruction that may divert is wrapped in a
     * guard; everything before it is not, so straight-line code pays nothing. */
-  private def seqOf(body: List[Instr], cx: Ctx): String =
+  private def seqOf(body: List[Instr], cx: Ctx, sh: Int): String =
     var out: List[String] = Nil
     var guarded = false
     body.foreach { i =>
-      val s = stmt(i, cx)
-      out = (if guarded then ifThen(running(cx), s, lit("unit")) else s) :: out
+      val s = stmt(i, cx, sh)
+      out = (if guarded then ifThen(running(cx, sh), s, lit("unit")) else s) :: out
       if mayDivert(i) then guarded = true
     }
     sq(out.reverse)
@@ -196,9 +250,9 @@ object BridgeV2:
     // and the frame's `let` shifts every one of them by one. Measured against the oracle, not
     // reasoned about: `(lam 2 …)` puts the FIRST parameter at `local 1`.
     val prologue =
-      (0 until f.nparams).toList.map(i => write(i, "(local " + (f.nparams - i) + ")")) :+
-        write(cx.ctl, int(0))
-    val whole = sq(prologue :+ seqOf(f.body, cx) :+ read(cx.retVal))
+      (0 until f.nparams).toList.map(i => write(i, "(local " + (f.nparams - i) + ")", 0)) :+
+        write(cx.ctl, int(0), 0)
+    val whole = sq(prologue :+ seqOf(f.body, cx, 0) :+ read(cx.retVal, 0))
     "(def " + f.name + " (lam " + f.nparams + " (let (" + alloc + ") " + whole + ")))"
 
   /** The Core IR program text v2's Reader accepts. Verify BEFORE calling this — translating an

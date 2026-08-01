@@ -1,0 +1,37 @@
+(module
+  (consts (int 5) (int 100) (int 0) (int 7) (int 9))
+  (types
+    (type "Pair2" 2)
+    (type "Wrap" 1))
+  (globals)
+  (prims (prim "io.println"))
+  (funcs
+    (func "describe" 1 6
+      (switch 0
+        (arm 1
+          (field 2 0 1 0)
+          (const 3 1)
+          (bin add dyn 4 2 3)
+          (ret 4))
+        (arm 0
+          (field 2 0 0 0)
+          (field 3 0 0 1)
+          (bin mul dyn 4 2 3)
+          (ret 4))
+        (default
+          (const 4 2)
+          (ret 4)))
+      (const 4 2)
+      (ret 4))
+    (func "main" 0 4
+      (const 0 0)
+      (mkdata 1 1 0)
+      (call 2 0 1)
+      (prim 3 0 2)
+      (const 0 3)
+      (const 1 4)
+      (mkdata 2 0 0 1)
+      (call 2 0 2)
+      (prim 3 0 2)
+      (ret 3)))
+  (entry 1))
