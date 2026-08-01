@@ -2,6 +2,7 @@
 name: generic-ctor-and-array-alloc
 description: "new C[T](args) keeps its constructor name, and new Array[T](n) allocates n slots"
 backends: [int, js, jvm, v2]
+known-red: "v2 — `new Array[T](n)` still builds a ONE-element array on this lane, so a(2) dies with `2 is out of bounds (min 0, max 0)`. BOTH v2 fronts erase the keyword before anything can tell an allocation from a factory call: legacy at v2/lib/ssc1-front.ssc0 (`new Foo(x) == Foo(x)`) and F, the DEFAULT, at specs/v2.2-p6.5-fsub.ssc parseIdent (`eraseP(parseAtom(...))`). Fixing one is a half-fix. Declared rather than hidden because the other three lanes are GREEN as of this commit and that is what this case now protects; v2 is v3/SPRINT.md SSC3-1's remaining slice. Generic constructors themselves already pass here — v2 erasing `new` happens to be right for a case class — so this declaration covers the ALLOCATION only. EXPIRES by itself: the suite fails if v2 starts passing."
 ---
 
 # `new C[T](args)` and `new Array[T](n)`

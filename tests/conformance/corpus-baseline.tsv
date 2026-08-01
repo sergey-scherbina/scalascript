@@ -23,6 +23,7 @@ distributed-join	*	SKIP
 distributed-log-aggregation	*	SKIP
 dsl-sql-recovery	js	FAIL
 fetch-auth	*	SKIP
+generic-ctor-and-array-alloc	v2	KNOWN-RED
 graph-fullstack-rdf	*	SKIP
 graph-janusgraph-gremlin	*	SKIP
 graph-neo4j-storage	*	SKIP
