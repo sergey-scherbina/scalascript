@@ -555,3 +555,58 @@ Worth recording how the wrong number nearly stood: the first probe grepped `org\
 which also matches `jdk.internal.org.objectweb.asm` — the JVM's own bundled copy, present in every
 Java process. It reported "45 in both runs", which looked like a clean negative result and was
 measuring the wrong thing entirely.
+
+### J-3 — units compile, and the first run broke the program
+
+`JvmByteGen.emitUnit(body)` compiles one `Lam` body into a class implementing `Emit$LamFn`, reusing
+`emitBody` and an extracted `drainPending` — the **same** emitter the AOT lane uses, so a shape
+either lane learns is learned by both. `BytecodeJitBackend.compileUnit` wraps it exactly as
+`Emit.clos` wraps every AOT lambda.
+
+**Correction to §3.6, found by running it.** The spec said the globals hazard was "two maps"; it is
+worse, and the difference is what broke. **One process compiles SEVERAL programs** — `RunNativeV2`
+compiles the F tower (`:425`) and then the user program (`:514`), each with its own globals map —
+while generated code resolves every global through the single static `Emit.globalsRef`. Bridging
+that field once binds all units to one program, and units of the other die. Measured: the first
+armed run compiled 61 units and killed `hello.ssc` with `unbound global: sscNormSegs`. So the map
+now travels **with the site** (`JitSite.globals`, stamped at compile time from the program being
+compiled) and a unit points the field at its own program before running — a volatile read against a
+captured reference, with a write only when the running program actually changed.
+
+**Also corrected: J-1 wired 2 of the 4 sites, not 4.** Its commit message and sprint entry claimed
+the three `Lam` compile points plus the `While` body; the code wrapped only the top-level-def and
+`Lam` cases. `LetRec` bindings and `While` bodies are wired here. The J-1 numbers stand as measured
+but described a narrower population — armed sites went 2222 → 3386 once the other two were added.
+
+**After the fix**: `hello.ssc` byte-identical off vs on, and **722 of 722 hot sites compiled — no
+bails.** That is the wideness claim showing up on day one rather than after a coverage programme.
+
+**Alternating A/B, 3 rounds, host load 11.2** (`bin/ssc-tools --backend v2 bench`, ms/iter):
+
+| row | off (r1/r2/r3) | on (r1/r2/r3) | median off → on | verdict |
+|---|---|---|---|---|
+| `arith-loop` | 71.6 / 73.8 / 75.1 | 0.610 / 0.623 / 0.614 | 73.8 → 0.614 | **120×** |
+| `pattern-match-heavy` | 90.4 / 75.4 / 79.6 | 38.4 / 32.4 / 30.8 | 79.6 → 32.4 | **2.46×**, disjoint |
+| `recursion-fib` | 148.9 / 170.5 / 140.1 | 115.5 / 131.2 / 128.1 | 148.9 → 128.1 | **1.16×**, disjoint |
+| `recursion-tco` | 6.16 / 7.76 / 6.25 | 6.05 / 6.08 / 5.34 | 6.25 → 6.05 | **not resolved** |
+
+`recursion-tco` is stated as unresolved on purpose: the gap is ~3 %, the ranges overlap at the
+edges, and tier-0 arming alone costs 5.4 % (J-1) — so the compiled win and the arming tax roughly
+cancel and this host cannot separate them.
+
+**Against the J-0 baseline, the same rows now sit here relative to v1's JIT'd interpreter:**
+
+| row | v2 was | v2 now | v1 (`ssc`) | still off by |
+|---|---:|---:|---:|---:|
+| `arith-loop` | 73.1 | **0.614** | 0.243 | **2.5×** (was 301×) |
+| `pattern-match-heavy` | 77.7 | 32.4 | 0.052 | 623× (was 1494×) |
+| `recursion-fib` | 137.8 | 128.1 | 1.17 | 109× (was 118×) |
+| `recursion-tco` | 5.99 | 6.05 | 0.029 | 209× |
+
+**Why `recursion-fib` barely moves, and it is a choice rather than a limit.** A unit is compiled
+without `selfGlobal`, so a recursive call still goes `Emit.global` → `ClosV` → `Emit.app` instead of
+the direct self-`invokestatic` (and the unboxed `$long` entry) the AOT lane emits when it knows the
+callee is the method being compiled. Passing the def name into the site unlocks both. It is a
+backend-only change and it is the next lever — but it also changes rebinding semantics for a global
+that a program reassigns, so it wants its own slice and its own gate rather than a quiet addition
+here.

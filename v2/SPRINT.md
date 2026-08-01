@@ -536,7 +536,43 @@ once per SITE, so the hot counter can *be* that `Code` (`Code = Env => Step` is 
       Flags are `SSC_V2_JIT*`, **not** `SSC_JIT*`: `bench/run.sc` sets `SSC_JIT_BACKEND` to select the
       v1 `ssc-asm` lane, so a shared name makes a bench row ambiguous about which JIT it measured.
       Gate: `-verbose:class` shows no `org.objectweb.asm` with `SSC_V2_JIT=off`.
-- [ ] **J-3 — `JvmByteGen.emitUnit(body, arity, captured): LamFn`.** One `Lam` body → one hidden
+- [~] **J-3 — DONE: units compile, `arith-loop` 120×, and the first run broke the program.**
+      `JvmByteGen.emitUnit` compiles one `Lam` body to a class implementing `Emit$LamFn`, reusing
+      `emitBody` + an extracted `drainPending` — the SAME emitter the AOT lane uses, so a shape
+      either lane learns is learned by both. Refused outright, for correctness not difficulty: loop
+      sites (J-6) and handler-dispatch roots (their unhandled-event probe is scoped by
+      `Runtime.handlerClosure`; compiling one as an ordinary body drops it SILENTLY).
+
+      ⚠ **The failure that taught the most.** First armed run: 61 units compiled, then
+      `unbound global: sscNormSegs` and no output. **One process compiles SEVERAL programs** —
+      `RunNativeV2` compiles the F tower (`:425`) then the user program (`:514`), each with its own
+      globals map — while generated code resolves globals through the ONE static `Emit.globalsRef`.
+      Bridging it once binds every unit to one program and kills the other. Fix: the map travels
+      WITH the site (`JitSite.globals`), and a unit points the field at its own program before
+      running. §3.6 had named this hazard as "two maps diverge" and still under-described it.
+
+      ⚠ **And a correction to J-1's record: it wired 2 of the 4 sites, not 4.** The commit message
+      and the entry above claimed three `Lam` points plus the `While` body; only the top-level-def
+      and `Lam` cases were wrapped. `LetRec` and `While` are wired here. J-1's numbers stand but
+      described a narrower population — armed sites 2222 → 3386.
+
+      **Parity restored, and 722 of 722 hot sites compiled — no bails.**
+      **Alternating A/B, 3 rounds, load 11.2 (ms/iter):**
+
+          arith-loop           off 71.6/73.8/75.1   on 0.610/0.623/0.614   -> 120x
+          pattern-match-heavy  off 90.4/75.4/79.6   on 38.4/32.4/30.8      -> 2.46x, disjoint
+          recursion-fib        off 148.9/170.5/140.1 on 115.5/131.2/128.1  -> 1.16x, disjoint
+          recursion-tco        off 6.16/7.76/6.25   on 6.05/6.08/5.34      -> NOT RESOLVED
+
+      `recursion-tco` is called unresolved deliberately: ~3 %, edges overlap, and tier-0 arming
+      alone costs 5.4 % — the compiled win and the arming tax cancel and this host cannot separate
+      them. Against v1: `arith-loop` went from **301× off to 2.5× off**; the other three are still
+      109–623× off.
+      **Next lever, and it is a choice not a limit:** units compile without `selfGlobal`, so a
+      recursive call goes `Emit.global` → `ClosV` → `Emit.app` instead of a direct self-invokestatic
+      plus the unboxed `$long` entry. That is why `fib` barely moves. Backend-only change, but it
+      alters rebinding semantics for a reassigned global, so it wants its own slice and gate.
+      *(original note)* One `Lam` body → one hidden
       class (`Lookup.defineHiddenClass`, so a unit dies with its `LamFn`), boxed `Value` in/out, no
       residuals yet: unsupported ⇒ this site is not compiled. Gate = the parity gate below, plus
       ≥ 1 compiled unit on `recursion-fib`.
