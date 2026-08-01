@@ -93,6 +93,7 @@ object JvmByteGen:
   private val INTV  = "ssc/Value$IntV"
   private val LCELL = "ssc/Value$LongCellV"
   private val DCELL = "ssc/Value$DoubleCellV"
+  private val FLOATV = "ssc/Value$FloatV"
   private val OBJ   = "java/lang/Object"
   private val GEN   = "ssc/gen/Entry"
   private val ARTIFACT = "ssc/plugin/NativeArtifactRuntime"
@@ -181,6 +182,10 @@ object JvmByteGen:
     var localTailTargets: Map[Int, (String, Int)] = Map.empty
     /** Number of current call arguments at the end of the local LetRec frame. */
     var localFrameArity: Int = -1
+    /** JVM slots proven to hold a `FloatV` by a guard already emitted above this point.
+     *  Empty everywhere except inside a match arm that passed its `INSTANCEOF` check — the
+     *  unboxing is guarded, never inferred, because Core IR is untyped (E-1). */
+    var doubleSlots: Set[Int] = Set.empty
     def saveSlots(): List[Int] = { val s = stack.toList; stack.clear(); s }
     def restoreSlots(s: List[Int]): Unit = { stack.clear(); stack ++= s }
 
@@ -738,12 +743,25 @@ object JvmByteGen:
   private def isDoubleCmp(op: String): Boolean =
     op == "<" || op == "<=" || op == ">" || op == ">="
 
-  private def canDouble(t: Term): Boolean = t match
+  private def canDouble(t: Term): Boolean = canDouble(t, null)
+
+  /** With a `Ctx`, a `Local` already PROVEN to hold a `FloatV` counts as unboxable (E-1).
+    *
+    * This is what `case Circle(r) => 3.14159 * r * r` needs: `r` is bound by the arm, and without
+    * this case every operation on it went through the boxed `Emit.arith`, allocating a `FloatV`
+    * each time — measured as the workload's ONLY significant allocation (E-0: 179 samples against
+    * 0 in the control). Core IR is untyped, so "proven" means a guard was emitted, never inferred. */
+  private def canDouble(t: Term, ctx: Ctx | Null): Boolean = t match
     case Term.Lit(Const.CFloat(_)) => true
     case Term.Prim("dcell.get", List(Term.Local(_))) => true
+    case Term.Local(i) =>
+      ctx != null && {
+        val c = ctx.asInstanceOf[Ctx]
+        i < c.slotDepth && c.doubleSlots.contains(c.slotFor(i))
+      }
     case DArithB(op, a, b)
         if op.length == 1 && "+-*/".contains(op) =>
-      canDouble(a) && canDouble(b)
+      canDouble(a, ctx) && canDouble(b, ctx)
     case _ => false
 
   private def genDouble(t: Term, ctx: Ctx): Unit =
@@ -755,8 +773,14 @@ object JvmByteGen:
         loadLocalValue(i, ctx)
         mv.visitTypeInsn(Opcodes.CHECKCAST, DCELL)
         mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, DCELL, "v", "()D", false)
+      // A guarded match-bound field: the INSTANCEOF was emitted at the top of the arm, so this is
+      // an unchecked unbox by construction, not a hope.
+      case Term.Local(i) if canDouble(t, ctx) =>
+        loadLocalValue(i, ctx)
+        mv.visitTypeInsn(Opcodes.CHECKCAST, FLOATV)
+        mv.visitMethodInsn(Opcodes.INVOKEVIRTUAL, FLOATV, "d", "()D", false)
       case DArithB(op, a, b)
-          if op.length == 1 && "+-*/".contains(op) && canDouble(a) && canDouble(b) =>
+          if op.length == 1 && "+-*/".contains(op) && canDouble(a, ctx) && canDouble(b, ctx) =>
         genDouble(a, ctx)
         genDouble(b, ctx)
         mv.visitInsn(doubleArithOpcode(op))
@@ -1401,7 +1425,35 @@ object JvmByteGen:
               val s = ctx.push()
               mv.visitVarInsn(Opcodes.ASTORE, s)
             }
+          // E-1: an arm whose body is pure double arithmetic over its OWN bound fields runs
+          // unboxed, behind one INSTANCEOF FloatV per field hoisted here — not per operation.
+          // Measured (E-0): FloatV was the workload's only significant allocation, 179 samples
+          // against 0 in the control. The arm keeps its existing boxed body as the guard's else
+          // branch, so a non-Double field changes nothing but the path taken. Pure arithmetic
+          // contains no calls, so `tail` cannot matter on this path.
+          val armSlots = (0 until arm.arity).map(i => ctx.slotFor(i)).toSet
+          val savedDoubleSlots = ctx.doubleSlots
+          val unboxable =
+            arm.arity > 0 && {
+              ctx.doubleSlots = savedDoubleSlots ++ armSlots
+              val ok = canDouble(arm.body, ctx)
+              if !ok then ctx.doubleSlots = savedDoubleSlots
+              ok
+            }
+          if unboxable then
+            val boxedL = new Label()
+            (0 until arm.arity).foreach { i =>
+              mv.visitVarInsn(Opcodes.ALOAD, ctx.slotFor(i))
+              mv.visitTypeInsn(Opcodes.INSTANCEOF, FLOATV)
+              mv.visitJumpInsn(Opcodes.IFEQ, boxedL)
+            }
+            genDouble(arm.body, ctx)
+            mv.visitMethodInsn(Opcodes.INVOKESTATIC, EMIT, "floatV", s"(D)L$VAL;", false)
+            ctx.doubleSlots = savedDoubleSlots
+            mv.visitJumpInsn(Opcodes.GOTO, endL)
+            mv.visitLabel(boxedL)
           gen(arm.body, ctx, tail)
+          ctx.doubleSlots = savedDoubleSlots
           if arm.arity > 0 then ctx.pop(arm.arity)
           mv.visitJumpInsn(Opcodes.GOTO, endL)
           mv.visitLabel(skipL)
