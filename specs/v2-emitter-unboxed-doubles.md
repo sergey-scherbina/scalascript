@@ -129,3 +129,43 @@ misleading, and both are structural rather than accidental:
 
 So: **profile the workload AND a trivial control on the same lane, and subtract.** A single profile
 on this toolchain is a profile of the compiler.
+
+### E-1 — the guarded unbox, on both lanes
+
+`canDouble` now accepts a `Local` that a guard has PROVEN to hold a `FloatV`, and the match arm emits
+that guard once at its top — one `INSTANCEOF FloatV` per bound field, not per operation. When it
+fails, the arm runs the boxed body it always had, so a non-`Double` field changes the path taken and
+nothing else. Pure double arithmetic contains no calls, so tail position cannot matter on the
+unboxed path.
+
+| lane | before | after (3 runs) | median |
+|---|---:|---|---:|
+| AOT (`--backend v2-bytecode`) | 8.5 | 7.23 / 7.57 / 8.05 | **7.57** (1.12×) |
+| JIT (`SSC_V2_JIT=on`) | 10.7 | 8.47 / 8.67 / 9.80 | **8.67** (1.23×) |
+
+**Both lanes moved, which is the gate** — one walker means a change in the right place cannot help
+only one of them.
+
+**Correctness is checked where the guard FAILS, not only where it fires.** A probe with
+`case class Box(v: Double)` and `scale(b) = b match { case Box(v) => v * 2.0 + 1.0 }`, called with
+`Box(3.5)`, `Box(3)` (an `IntV` field at run time — the guard must decline) and `Box(0.0)`, prints
+`8 / 7 / 1` identically on the VM lane, the VM lane with the JIT, and the AOT lane.
+
+**Allocation, same control method as E-0:**
+
+| class | before | after | control |
+|---|---:|---:|---:|
+| `ssc.Value$FloatV` | 179 | **99** | 0 |
+| `ssc.Value[]` | 260 | 353 | 221 |
+
+⚠ **These histograms are NOT normalised, and `Value[]` rising is the apparatus, not a regression.**
+The bench's warmup is time-based, so a faster program completes more warmup iterations inside the
+same recording window. The `FloatV` drop is therefore understated if anything — it fell by 45 %
+while the run was doing *more* work.
+
+**Why the win is 1.12×/1.23× and not more, which E-2 and E-3 now have to answer.** The arm no longer
+boxes per operation, but two boundaries remain: `area(s)` still RETURNS a boxed `FloatV`, and
+`total = total + area(s)` accumulates through a cell. So the two operations inside an arm collapsed
+to one boxing of the result — roughly half the allocations, which is exactly what the profile shows.
+E-2 (`canParamDouble` + the `$double` entry) and E-3 (unboxed return) are the other half of the same
+mechanism, not incremental polish.
