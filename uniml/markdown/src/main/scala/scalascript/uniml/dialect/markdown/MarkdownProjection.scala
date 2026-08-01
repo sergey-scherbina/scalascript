@@ -1,6 +1,7 @@
 package scalascript.uniml.dialect.markdown
 
 import scalascript.uniml.*
+import scalascript.uniml.dialect.markdown.generated.MarkdownEntitiesGenerated
 
 /** Projects a parsed Markdown CST into the semantic [[MarkdownDocument]]. The
   * CST remains canonical; this view normalizes escapes/entities, code-span
@@ -137,7 +138,7 @@ object MarkdownProjection:
     edges.exists { case UniEdge(_, UniNode.Token(t)) => t.kind == MdKind.FenceOpen || t.kind == MdKind.FenceClose; case _ => false }
 
   private def codeInfo(edges: Vector[UniEdge]): Option[String] =
-    edges.collectFirst { case UniEdge(_, UniNode.Token(t)) if t.kind == MdKind.Info => t.lexeme.trim }
+    edges.collectFirst { case UniEdge(_, UniNode.Token(t)) if t.kind == MdKind.Info => decodeText(unescape(t.lexeme.trim)) }
       .filter(_.nonEmpty)
 
   private def codeLiteral(edges: Vector[UniEdge]): String =
@@ -356,14 +357,35 @@ object MarkdownProjection:
     * destination MEANS, used by both. */
   private[markdown] def unwrapDestinationSlice(lex: String): String =
     val s = if lex.startsWith("<") && lex.endsWith(">") then lex.substring(1, lex.length - 1) else lex
-    unescape(s)
+    decodeText(unescape(s))
 
   private def stripTitle(lex: String): String =
     val s =
       if lex.length >= 2 && ((lex.head == '"' && lex.last == '"') || (lex.head == '\'' && lex.last == '\'') || (lex.head == '(' && lex.last == ')')) then
         lex.substring(1, lex.length - 1)
       else lex
-    unescape(s)
+    decodeText(unescape(s))
+
+  /** Entity decoding in the places CommonMark permits it and the token stream
+    * does not already cover: DESTINATIONS, TITLES and fence INFO STRINGS. Inline
+    * text goes through `markdown.entity` tokens instead, which is why this was
+    * missed — `[foo](/f&ouml;&ouml;)` kept its entity while the same text in a
+    * paragraph decoded. Code spans and raw HTML are deliberately NOT decoded. */
+  private def decodeText(s: String): String =
+    if !s.contains('&') then s
+    else
+      var buf: Vector[String] = Vector.empty
+      var i = 0
+      while i < s.length do
+        if s.charAt(i) == '&' then
+          val semi = s.indexOf(';', i + 1)
+          val decoded = if semi < 0 then s else decodeEntity(s.substring(i, semi + 1))
+          if semi >= 0 && decoded != s.substring(i, semi + 1) then
+            buf = buf :+ decoded
+            i = semi + 1
+          else { buf = buf :+ "&"; i += 1 }
+        else { buf = buf :+ s.substring(i, i + 1); i += 1 }
+      buf.mkString
 
   private def unescape(s: String): String =
     if !s.contains('\\') then s
@@ -376,59 +398,15 @@ object MarkdownProjection:
         else { buf = buf :+ s.substring(i, i + 1); i += 1 }
       buf.mkString
 
-  // The 96 Latin-1 Supplement entity names in U+00A0..U+00FF order — a
-  // contiguous block, so we generate their code points rather than hand-typing
-  // them (removes transcription risk for the largest group).
-  private val latin1Names: Vector[String] = Vector(
-    "nbsp", "iexcl", "cent", "pound", "curren", "yen", "brvbar", "sect", "uml", "copy", "ordf", "laquo", "not", "shy", "reg", "macr",
-    "deg", "plusmn", "sup2", "sup3", "acute", "micro", "para", "middot", "cedil", "sup1", "ordm", "raquo", "frac14", "frac12", "frac34", "iquest",
-    "Agrave", "Aacute", "Acirc", "Atilde", "Auml", "Aring", "AElig", "Ccedil", "Egrave", "Eacute", "Ecirc", "Euml", "Igrave", "Iacute", "Icirc", "Iuml",
-    "ETH", "Ntilde", "Ograve", "Oacute", "Ocirc", "Otilde", "Ouml", "times", "Oslash", "Ugrave", "Uacute", "Ucirc", "Uuml", "Yacute", "THORN", "szlig",
-    "agrave", "aacute", "acirc", "atilde", "auml", "aring", "aelig", "ccedil", "egrave", "eacute", "ecirc", "euml", "igrave", "iacute", "icirc", "iuml",
-    "eth", "ntilde", "ograve", "oacute", "ocirc", "otilde", "ouml", "divide", "oslash", "ugrave", "uacute", "ucirc", "uuml", "yacute", "thorn", "yuml",
-  )
-
-  /** The common HTML4 / XHTML named character references (numeric references are
-    * decoded separately; unknown names stay literal, which remains lossless). */
-  private val namedEntities: Map[String, String] =
-    val latin1 = latin1Names.iterator.zipWithIndex.map((n, i) => n -> (0xA0 + i).toChar.toString).toMap
-    latin1 ++ Map(
-      "amp" -> "&", "lt" -> "<", "gt" -> ">", "quot" -> "\"", "apos" -> "'",
-      // Latin Extended-A and spacing-modifier letters
-      "OElig" -> "Œ", "oelig" -> "œ", "Scaron" -> "Š", "scaron" -> "š",
-      "Yuml" -> "Ÿ", "fnof" -> "ƒ", "circ" -> "ˆ", "tilde" -> "˜",
-      // Greek
-      "Alpha" -> "Α", "Beta" -> "Β", "Gamma" -> "Γ", "Delta" -> "Δ", "Epsilon" -> "Ε", "Zeta" -> "Ζ",
-      "Eta" -> "Η", "Theta" -> "Θ", "Iota" -> "Ι", "Kappa" -> "Κ", "Lambda" -> "Λ", "Mu" -> "Μ",
-      "Nu" -> "Ν", "Xi" -> "Ξ", "Omicron" -> "Ο", "Pi" -> "Π", "Rho" -> "Ρ", "Sigma" -> "Σ",
-      "Tau" -> "Τ", "Upsilon" -> "Υ", "Phi" -> "Φ", "Chi" -> "Χ", "Psi" -> "Ψ", "Omega" -> "Ω",
-      "alpha" -> "α", "beta" -> "β", "gamma" -> "γ", "delta" -> "δ", "epsilon" -> "ε", "zeta" -> "ζ",
-      "eta" -> "η", "theta" -> "θ", "iota" -> "ι", "kappa" -> "κ", "lambda" -> "λ", "mu" -> "μ",
-      "nu" -> "ν", "xi" -> "ξ", "omicron" -> "ο", "pi" -> "π", "rho" -> "ρ", "sigmaf" -> "ς",
-      "sigma" -> "σ", "tau" -> "τ", "upsilon" -> "υ", "phi" -> "φ", "chi" -> "χ", "psi" -> "ψ",
-      "omega" -> "ω", "thetasym" -> "ϑ", "upsih" -> "ϒ", "piv" -> "ϖ",
-      // General punctuation
-      "ensp" -> " ", "emsp" -> " ", "thinsp" -> " ", "zwnj" -> "‌", "zwj" -> "‍", "lrm" -> "‎", "rlm" -> "‏",
-      "ndash" -> "–", "mdash" -> "—", "lsquo" -> "‘", "rsquo" -> "’", "sbquo" -> "‚",
-      "ldquo" -> "“", "rdquo" -> "”", "bdquo" -> "„", "dagger" -> "†", "Dagger" -> "‡",
-      "bull" -> "•", "hellip" -> "…", "permil" -> "‰", "prime" -> "′", "Prime" -> "″",
-      "lsaquo" -> "‹", "rsaquo" -> "›", "oline" -> "‾", "frasl" -> "⁄", "euro" -> "€",
-      // Letterlike symbols and arrows
-      "weierp" -> "℘", "image" -> "ℑ", "real" -> "ℜ", "trade" -> "™", "alefsym" -> "ℵ",
-      "larr" -> "←", "uarr" -> "↑", "rarr" -> "→", "darr" -> "↓", "harr" -> "↔", "crarr" -> "↵",
-      "lArr" -> "⇐", "uArr" -> "⇑", "rArr" -> "⇒", "dArr" -> "⇓", "hArr" -> "⇔",
-      // Mathematical operators
-      "forall" -> "∀", "part" -> "∂", "exist" -> "∃", "empty" -> "∅", "nabla" -> "∇",
-      "isin" -> "∈", "notin" -> "∉", "ni" -> "∋", "prod" -> "∏", "sum" -> "∑",
-      "minus" -> "−", "lowast" -> "∗", "radic" -> "√", "prop" -> "∝", "infin" -> "∞",
-      "ang" -> "∠", "and" -> "∧", "or" -> "∨", "cap" -> "∩", "cup" -> "∪", "int" -> "∫",
-      "there4" -> "∴", "sim" -> "∼", "cong" -> "≅", "asymp" -> "≈", "ne" -> "≠",
-      "equiv" -> "≡", "le" -> "≤", "ge" -> "≥", "sub" -> "⊂", "sup" -> "⊃", "nsub" -> "⊄",
-      "sube" -> "⊆", "supe" -> "⊇", "oplus" -> "⊕", "otimes" -> "⊗", "perp" -> "⊥", "sdot" -> "⋅",
-      // Technical, geometric shapes and suits
-      "lceil" -> "⌈", "rceil" -> "⌉", "lfloor" -> "⌊", "rfloor" -> "⌋", "lang" -> "〈", "rang" -> "〉",
-      "loz" -> "◊", "spades" -> "♠", "clubs" -> "♣", "hearts" -> "♥", "diams" -> "♦",
-    )
+  /** The WHATWG HTML5 named character references, generated from the pinned
+    * snapshot in `uniml/corpus/markdown/whatwg-entities.json`. It replaced a
+    * hand-typed table of roughly 250 names, which is why `&Dcaron;` and
+    * `&HilbertSpace;` used to stay literal while `&copy;` decoded — the set was
+    * a judgement call rather than the standard's.
+    *
+    * Only semicolon-terminated names are in it; CommonMark 6.2 recognises no
+    * others, and an unknown name stays literal, which remains lossless. */
+  private def namedEntities: Map[String, String] = MarkdownEntitiesGenerated.table
 
   private def decodeEntity(lex: String): String =
     if !lex.startsWith("&") || !lex.endsWith(";") then lex
