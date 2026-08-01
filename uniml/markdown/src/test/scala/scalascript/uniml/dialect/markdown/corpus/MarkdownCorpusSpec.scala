@@ -214,21 +214,21 @@ final class MarkdownCorpusSpec extends AnyFunSuite:
 
     val full = MarkdownCorpusReport(commonMark.comparisons ++ gfm.comparisons)
     assert(full.totalCases == 675)
-    assert(full.passingCases == 595)
-    assert(full.nonPassAxes == 95)
+    assert(full.passingCases == 601)
+    assert(full.nonPassAxes == 89)
     assert(
       full.nonPassRows.groupMapReduce(_.axis)(_ => 1)(_ + _) ==
-        Map("html" -> 74, "source" -> 10, "tokens" -> 10, "status" -> 1)
+        Map("html" -> 68, "source" -> 10, "tokens" -> 10, "status" -> 1)
     )
     assert(full.rows == MarkdownCorpusData.baselineRows)
     assert(full.fullDigest == MarkdownCorpusData.baselineFullRowsSha256)
     assert(
       full.nonPassDigest ==
-        "b0d9d9673f30f7ac926e4238244d218fb63ef342df8a17c0ac7edafc64751325"
+        "296e92f3218278f775cae125a0fc96ef00d73d9eff145ec22995348d7064763b"
     )
     assert(
       full.sectionDigest ==
-        "7ec33fefb3b2621ee3f703b8b2ee185eac1f2f4f901ee3806a231e251b359485"
+        "70ee457b89c2c6de34dfbb97e0cd6df1dcb04e91b9224cb5f067c1db99b7808c"
     )
   }
 
