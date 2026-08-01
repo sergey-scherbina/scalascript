@@ -549,9 +549,15 @@ nothing). **Both were verified to fire**, by collapsing the pair and by dropping
 red with the message above before, `ci-status-guard: PASS` after; full clone also PASS.
 
 ## v2-native-error-printed-but-exit-zero — reported, NOT reproducible after the Mirror fix, now guarded
-<!-- status: unknown
+<!-- status: fixed
      lane: apparatus
-     area: front -->
+     area: front
+     gate: tests/e2e/v2-error-diagnostic.sh
+     fixed-in: 4f5ecf261 -->
+
+**Re-verified 2026-08-02 at `f9af6728d`** (the classification was `unknown`, which means nobody had
+checked): `tests/e2e/v2-error-diagnostic.sh` runs **15 ok, 0 FAIL**. The invariant it pins — if the
+run prints `ssc: <error>` the exit code must be non-zero — holds.
 
 **Status:** **NOT REPRODUCIBLE** on `origin/main` after `4f5ecf261`; the invariant is now gated so
 a return cannot be silent. Raised 2026-07-28 in rozum by the agent that fixed

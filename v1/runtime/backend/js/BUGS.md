@@ -976,10 +976,15 @@ flake rate, then capture the INT lane's stderr for the failing attempt (the runn
 distinction is the whole diagnosis). Owner lane: `scljet-*`.
 
 ## js-treeshake-prunes-mirror-ctor — a Mirror's `fromProduct` calls a constructor the shaker deleted
-<!-- status: unknown
+<!-- status: fixed
      lane: js
      area: codegen
-     gate: tests/conformance/v2-mirror-surface.ssc -->
+     gate: tests/conformance/v2-mirror-surface.ssc
+     fixed-in: dd56c4b8d -->
+
+**Re-verified 2026-08-02:** the named gate is green — `contract.sc --only v2-mirror-surface
+--lanes int,js,v2` reports 2/2 PASS. `dd56c4b8d` resolves and is an ancestor of `origin/main`, so
+the citation is one everyone can follow.
 
 **Status: FIXED 2026-07-28** in `dd56c4b8d` (`v2-mirror-fromproduct`) — found while EXTENDING
 `tests/conformance/v2-mirror-surface.ssc` to cover `fromProduct` — the case was green before the
@@ -3341,7 +3346,7 @@ childGen/grandchild path that emits transitively-imported namespace-member defs 
 the param evidence. Not a semantic bug — a type-evidence-plumbing bug in the JS import
 graph. (Found via the портируем DIVERGE sweep; the contract's js column tracks it.)
 
-## JS examples differential sweep — 2026-07-13 (opus)
+## js-examples-differential-sweep-0713 — INT-vs-JS over the examples corpus: 55 PASS, 11 DIVERGE, 44 JS-FAIL
 <!-- status: unknown
      lane: js
      area: front -->

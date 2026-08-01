@@ -1492,9 +1492,20 @@ documented `sscx` 512m-stack launcher for stack-heavy tower generators. That res
 but intentionally does not change this bug's status or claim to protect adversarial capsules.
 
 ## irbin-v2bin-codec-fails-open — the deferred binary codec narrows BigInt, loses -0.0, and turns unknown tags into strings
-<!-- status: unknown
+<!-- status: open
      lane: multi
      area: front -->
+
+**Classified 2026-08-02 from the entry's own content:** it is `open`, not `unknown` — two of the four
+sub-defects are marked STILL OPEN below (`-0.0` collapsing, and `IrBytes` having no representation),
+and both are blocked on the same thing: a shared-kernel prim that does not exist.
+
+⚠ **The sha this entry cites is not reachable.** `cb8ad2863` resolves in a local object store but
+`git merge-base --is-ancestor cb8ad2863 origin/main` says NO — so for everyone else it dangles. That
+is live evidence for [`bugs-index-fixed-in-checks-resolvable-not-reachable`](#bugs-index-fixed-in-checks-resolvable-not-reachable),
+which predicted exactly this and is why nothing here records it as `fixed-in`. The prose citation is
+left as written rather than deleted: it is a true record of what the author had, and the correct fix
+is to find the landed equivalent, not to erase the evidence.
 
 **Status:** **3 of 4 FIXED 2026-07-27** by opus (`irbin-fail-open`, `cb8ad2863`); two sub-defects
 remain and are marked below.
