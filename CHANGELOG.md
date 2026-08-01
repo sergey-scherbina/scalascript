@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-08-01 — `var-expr-init-int` was never a backend gap; the bench wrapper could not call it
+
+The last two holes in the corpus table closed, and neither was in a backend. `ssc bench` detected the
+anti-fold `seed` parameter by NAME and hardcoded a `Long` — `workload(_ssc_sink.get())` on the JVM
+lane, `var _ssc_seed: Long = 1L` on interp/js. Every corpus row but one declares `seed: Long`, so
+nothing noticed; `var-expr-init-int` declares `seed: Int` (deliberately — it is the row that reaches
+F's typed regime) and got E007 on the JVM and "Cannot mix BigInt and other types" on node. Read from
+the table, `n/a` on two lanes is indistinguishable from two backends that cannot run the workload.
+The wrapper now reads the declared type; the JVM seed stays the opaque atomic load and only its width
+is adapted, so the anti-fold property is unaffected. All four lanes now report: ssc 3.20, jvm 3.41,
+js 51.6, v2 145.2 ms/iter. Gate: `tests/e2e/bench-seed-type-gate.sh` in smoke-ci — two fixtures per
+lane differing only in the seed's declared type, the Long one as the control; 2 of 6 cells red before
+the fix. This is the SECOND time this wrapper blamed a backend for its own defect (the `0d` literal
+that reported three float workloads as backend failures), which is why it is gated rather than fixed
+in passing.
+
 ## 2026-07-31 — the JS fold hoist stopped throwing on a `Long` accumulator
 
 `bench.sh`'s `list-fold` js cell had been `n/a`. JsGen's loop-invariant accumulation hoist builds its

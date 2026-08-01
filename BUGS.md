@@ -257,6 +257,53 @@ extern def readLine(): Option[String]   // None at EOF
 built at `ff493301c` — i.e. before the fix, with `SSC_NO_BUILD_CHECK=1` silencing the
 launcher's own staleness warning. That report was wrong; this entry is not the same gap.
 
+## bench-wrapper-hardcodes-a-long-seed — two lanes read `n/a` for a defect in the harness, not in them
+<!-- status: fixed
+     lane: apparatus
+     area: cli
+     kind: apparatus
+     gate: tests/e2e/bench-seed-type-gate.sh
+     fixed-in: 5264ad6631ca2a11153e8c0b9876e35675da2489 -->
+
+**Found 2026-07-31 by asking why `var-expr-init-int` was the one corpus row blank on TWO lanes.**
+`bench.sh`'s table had `n/a` for both `jvm` and `js` there, which reads as "these backends cannot run
+this workload". They can. The wrapper could not call it.
+
+`ssc bench` feeds the workload an opaque `seed` to defeat constant-folding. It detected that
+parameter by NAME — `def\s+workload\s*\(\s*seed\b` — and then hardcoded a `Long`:
+`workload(_ssc_sink.get())` on the JVM lane, `var _ssc_seed: Long = 1L` on interp/js. Every other
+corpus row writes `def workload(seed: Long)`, so nothing noticed. `var-expr-init-int` deliberately
+declares `seed: Int` — it exists to reach F's typed regime, which recognises `Int` and not `Long` —
+and for it the wrapper emitted a type error on both lanes:
+
+```
+jvm  -- [E007] Type Mismatch Error: … _ssc_sink.getAndAdd(workload(_ssc_sink.get()))
+js   TypeError: Cannot mix BigInt and other types      (let s = (_imod(seed, 46341) + 1))
+```
+
+The js half is worth reading twice: JsGen was RIGHT. `seed` is declared `Int`, so it emitted a
+native `+`; the harness then passed a BigInt at runtime. A backend cannot defend against a caller
+that lies about the type it declared.
+
+**This is the second time this wrapper has blamed a backend for its own defect.** The first is
+recorded in `Main.scala`'s Double branch: a `0d` literal the self-hosted front cannot lex made the
+harness report three float workloads as backend failures. Both have the same shape — *the
+measurement apparatus produced a plausible-looking cell that was about itself*, which is the failure
+[`AGENTS.md` §"measurement apparatus must COMPARE"](AGENTS.md) exists for.
+
+**Fixed** by reading the seed's declared type and emitting a matching argument and declaration. The
+JVM seed stays the opaque atomic load and only its width is adapted (`_ssc_sink.get().toInt`) — a
+truncation of an opaque value is still opaque, so the anti-fold reasoning above it is unaffected.
+
+- **Measured, the corpus row, all four lanes:** `ssc` 3.20 · `jvm` 3.41 (was `n/a`) · `js` 51.6 (was
+  `n/a`) · `v2` 145.2 ms/iter.
+- **Gate:** `tests/e2e/bench-seed-type-gate.sh`, in smoke-ci. Two fixtures differing ONLY in the
+  seed's declared type, run through the real `ssc bench --machine` on `ssc,js,jvm`; the `Long`
+  fixture is the control that fails if the gate itself breaks. Fail-first: 2 of 6 cells red before
+  the fix, 6 of 6 green after.
+- **Worth knowing:** the interpreter lane was green throughout, because it is dynamically typed.
+  A green `ssc` column is not evidence that the wrapper is well-typed.
+
 ## bugs-index-fixed-in-checks-resolvable-not-reachable — a rebased sha passes the gate and dangles for everyone else
 <!-- status: open
      lane: apparatus
