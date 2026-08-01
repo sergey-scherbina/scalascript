@@ -67,14 +67,23 @@ real cost and it is accepted deliberately, with two answers:
    instead. That is a weaker guarantee at a different point in time — worth saying out loud rather
    than pretending the trade is free.
 
-## 4 · What this depends on
+## 4 · What this depends on, and who owns it
 
-UniML's own portable-subset gaps, from `specs/uniml-portable-gapmap.md` and **stale by
+**Making UniML ready for this role is a separate piece of work under a separate claim**
+(`uniml-ssc3-frontend-readiness`, item `UNIML-SSC3`, spec `specs/uniml-ssc3-frontend.md`). `SSC3-4`
+consumes the result; it does not do that work, and must not duplicate it. The v3-side requirements
+were handed over rather than left to be guessed: the tree is the AST, the lexer may not use host
+`Char` classification (§3 of [`30-portable-subset.md`](30-portable-subset.md)), recovered nodes are
+`Origin.Synthetic`, and a dialect's `kind` vocabulary needs to be enumerable so §3's closed table is
+constructible.
+
+The gaps below are UniML's own, from `specs/uniml-portable-gapmap.md` and **stale by
 construction** — re-measure, do not inherit:
 
-- **`Array`** — the floor for both UniML's compat layer and the SSC IR frame. Fixed on int, js and
-  jvm under `SSC3-1`; v2 is the remaining lane and is declared red in
-  `tests/conformance/generic-ctor-and-array-alloc.ssc`.
+- **`Array`** — the floor for both UniML's compat layer and the SSC IR frame, and being fixed under
+  `SSC3-1`. Green on int, js, jvm and the v2 **legacy** front; the v2 **F** front is the default and
+  is still red, so `uniml/v2-smoke/gap-array.ssc` stays red on the default front until that lands.
+  Declared in `tests/conformance/generic-ctor-and-array-alloc.ssc`.
 - **Anonymous instances** (`new Trait:`) — UniML's `Processor.andThen` builds them, and they lower
   to `unbound global` on v2. Resolution on the UniML side was named classes; confirm before the
   front is written against it.
