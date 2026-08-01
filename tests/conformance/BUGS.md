@@ -11,7 +11,7 @@ Newest first.
 <!-- status: fixed
      lane: apparatus
      area: conformance
-     fixed-in: PENDING-SHA
+     fixed-in: 261607982
      gate: - -->
 
 **Found 2026-08-01** by `js-compound-assign-and-gate-registry`, and only because that claim
