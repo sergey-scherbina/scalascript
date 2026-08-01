@@ -1,7 +1,16 @@
 # v2 wide JIT — a run-time JIT for the v2 VM lane, in v1's image
 
-**Status:** spec / design (no code yet). Written 2026-07-31 at Sergiy's direction — *"общий широкий
-JIT для ssc v2 по образу и подобию JIT в ssc v1"*.
+**Status:** **IMPLEMENTED and landed, opt-in via `SSC_V2_JIT=on`** (J-0 … J-3d, 2026-08-01).
+Written 2026-07-31 at Sergiy's direction — *"общий широкий JIT для ssc v2 по образу и подобию JIT в
+ssc v1"*. §9 carries the measurements, including the several places where running it refuted this
+document; where §1–§8 and §9 disagree, **§9 is what happened**.
+
+Where it stands: with the JIT armed, three of the four representative rows are **at the ceiling of
+the emitter itself** (`recursion-tco` 1.00× of the AOT lane, `recursion-fib` 1.01×, `arith-loop`
+1.04×), `pattern-match-heavy` is 1.28× off it, and `recursion-tco` is faster than the v1 interpreter
+this design set out to imitate. Coverage is not the open question: 37,317 of 37,324 hot sites across
+the corpus compile, and all 7 refusals are shapes refused by design. What remains is a **shared
+emitter** problem (§9, "Where the ceiling actually is now"), not a JIT one.
 
 Companion reading, in this order: [`vm-jit-spec.md`](vm-jit-spec.md) (what v1's JIT *is*),
 [`jit-universal-coverage.md`](jit-universal-coverage.md) (why v1's is still narrow),
