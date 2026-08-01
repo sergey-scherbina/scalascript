@@ -175,6 +175,48 @@ Real parsing on clean input is ~1 MB/s, i.e. **14× slower than the flattering n
 front-end benchmark here must report diagnostics and node count beside the time, or it will
 measure how fast the parser gives up.
 
+## 4.3 SSC3-L attempted — three ordered obstacles, measured
+
+Attempted 2026-08-01 and **reverted**. The attempt is recorded because it located the real
+dependency chain, and because the obvious fix looks obviously right and will be tried again
+otherwise.
+
+**First, a correction to §4.2.** That section said the dialect "never emits trivia at all, by
+construction". That is wrong and the difference matters: `SpikeLex` DOES emit `spike.ws` on
+`TokenChannel.Trivia`. The loss happens later — `SpikeParse` consumes trivia through
+`skipTrivia` and never puts it in its tree, and `SpikeEmit` emits the tree, so trivia is dropped
+between the lexer and the CST. Smaller and more fixable than "the lexer discards it".
+
+**The attempt.** Emit over the FULL lexed stream instead of the tree: tokens carry a stable
+lexer-assigned `id`, so re-attach the tree's frame transitions to the tokens that earned them
+and emit every other lexed token in its source position. No parse rule changes. It worked on
+clean input — `lossless=true`, 36 Syntax + 22 Trivia — and cut the loss on `actors.ssc` from
+23,647 characters to 43.
+
+**It broke `ScalaSpikeSpec`'s C_min projection** (`compile` became `Nil`), and the reason is
+structural rather than a slip:
+
+1. **The parser DUPLICATES tokens.** Measured: for `def f(using ev: Int)(a: Int): Int = a` the
+   tree holds 17 leaves but only 16 distinct ids — token `Int` appears twice, because
+   `Node.Leaf(c.peek.get, …)` adds a token without advancing the cursor and a later rule adds it
+   again. So the tree is NOT a 1:1 map over the lexed stream, an id→event map silently keeps one
+   of the two, and the lost frame transitions collapse the projection. It is also a losslessness
+   violation in the other direction: reconstruction would print `Int` twice.
+2. **The projection must filter by ROLE, not by kind.** With a lossless emitter the CST also
+   carries tokens the parse did not use; an `unparsed` one has an ordinary kind like `spike.id`,
+   so the existing `kind == "spike.ws"` filter in `kids` lets it through and the projection reads
+   it as real structure.
+3. **The string lexer stores the DECODED value as the lexeme**, deliberately — its own comment
+   says "mirrors ssc1-front". That is the residual 43 characters on `actors.ssc`: quotes and
+   escapes never reach the CST. Fixing it moves decoding to the projection, which is where
+   Markdown already does it (`unescape`/`decodeText` live in `MarkdownProjection`), and touches
+   every consumer of `spike.str` including interpolation.
+
+**Order, forced by the above:** (1) stop duplicating tokens — until each lexed token appears at
+most once in the tree, no re-interleaving scheme can be correct; then (2) the emitter change
+above plus the role-based filter; then (3) raw string lexemes with decoding moved to the
+projection. Doing (2) first is what was just tried and reverted.
+
 ## 5. Order of work
 
 1. **Measure first** — parse throughput and retained size of the UniML tree on the real corpus,

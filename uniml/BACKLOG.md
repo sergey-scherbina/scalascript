@@ -310,6 +310,21 @@ self-parity test is not external conformance.
         after the fact. THIS IS FIRST: it is the cheapest of the six criteria and the only one
         that can still change the design. Neither number exists today, and a front end runs on
         every compile of every file, so "unmeasured" here is a live risk and not a formality.
+  - [ ] **SSC3-L1 stop duplicating tokens in the spike tree.** MEASURED: `def f(using ev: Int)(a:
+        Int): Int = a` gives 17 tree leaves over 16 distinct token ids — `Node.Leaf(c.peek.get, …)`
+        adds a token without advancing and a later rule adds it again. Until each lexed token
+        appears at most once, NO re-interleaving scheme can restore trivia correctly, and the tree
+        cannot be lossless in either direction. This blocks SSC3-L2.
+  - [ ] **SSC3-L2 emit over the full lexed stream.** Re-attach the tree's frame transitions by
+        token id and emit every other lexed token in source position; filter the projection's
+        `kids` by ROLE, not by kind, because an `unparsed` token has an ordinary syntactic kind.
+        TRIED AND REVERTED 2026-08-01 before L1: clean input went lossless (36 Syntax + 22 Trivia)
+        and `actors.ssc` loss fell 23,647 → 43 chars, but C_min's projection collapsed on the
+        duplicate-token case. Details in `specs/uniml-ssc3-frontend.md` §4.3.
+  - [ ] **SSC3-L3 raw string lexemes.** `spike.str` stores the DECODED value, deliberately
+        ("mirrors ssc1-front"), so quotes and escapes never reach the CST — the residual 43
+        characters. Move decoding to the projection, where Markdown already does it; touches every
+        `spike.str` consumer including interpolation.
   - [ ] **SSC3-P typed projection.** The ScalaScript analogue of `MarkdownProjection`: CST in,
         typed AST out. This is the artifact the decision actually names — the lossless CST is the
         STORAGE, the projection is the INTERFACE. Without it the type checker would dispatch on
