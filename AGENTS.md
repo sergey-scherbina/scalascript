@@ -77,15 +77,38 @@ Full corpus stays for CI.
 **The rule — what counts as evidence and what a release must say about it — is
 [`POLICY.md`](POLICY.md) §P-6.7.** How to obtain each level:
 
-1. `scripts/ci-status --sha <landed-sha>` exit 0 — the gold standard when you get it. Since
-   2026-07-30 that asks about **`smoke.yml`**, which is where the per-push verdict lives: 17 checks
-   plus a corpus slice, ~5 min, the same `scripts/smoke-ci` you run locally before pushing. The full
-   suite is `--workflow ci.yml` (schedule / PR / dispatch); on a push, `ci.yml` is `Lint Markdown`
-   alone, so a green `ci.yml` push run is NOT a verdict about your code.
+1. `scripts/ci-status --sha <landed-sha>` exit 0 — the gold standard when you get it. It asks about
+   **`smoke.yml`**, the fast per-push suite: ~11 min, the same `scripts/smoke-ci` you run locally.
+   Since 2026-08-01 there is a SECOND per-push verdict worth asking for — see the tiers below —
+   and it is the stronger one: `scripts/ci-status --sha <sha> --workflow ci.yml`.
 2. `gh run view <run> --json jobs` — name the **specific job that would catch your change** (e.g. a
    `Conformance shard i/4` for a conformance change) and report its conclusion. A green descendant
    run counts, with the `merge-base` named.
 3. Your local gates, listed by name and result.
+
+#### The three tiers, and which one answers your question (2026-08-01, `ci-three-tiers`)
+
+| | what runs | when | wall | read it for |
+|---|---|---|---|---|
+| **smoke** | `scripts/smoke-ci`, 29 checks | every push | ~11 min | the fast first word — did I break something obvious |
+| **main** | `ci.yml`: lint + validate + conformance ×4 + examples | every push / PR | ~14 min | **the default verdict.** Green BY CONSTRUCTION |
+| **full** | the above **plus** `sbt — compile and test` (~152 min) and the negtc release gate | nightly 03:00 + `workflow_dispatch` | ~2-3 h | before a release, or when your change is in `sbt test` / negtc territory |
+
+`ci.yml` on a push is no longer `Lint Markdown` alone — that sentence was true from 2026-07-30 to
+2026-08-01 and is now wrong. A green `ci.yml` push run IS a verdict about your code: it carries the
+conformance corpus.
+
+**"Green by construction" is a claim with a mechanism behind it, not a hope.** Every residual red in
+the corpus is a `known-red:` declaration in the case's front-matter that names its BUGS slug and the
+condition under which it expires, AND a matching `KNOWN-RED` row in `corpus-baseline.tsv` —
+`tests/e2e/freeze-consistency-gate.sh` refuses to let those two disagree. A declared lane is still
+RUN, still COMPARED and still DIFFED; only the bucket changes. And a known-red that starts PASSING
+**fails the suite** until the declaration is deleted, so a suppression cannot outlive its bug. That
+last property is not theoretical: on 2026-08-01 two entries marked `status: fixed` were found with
+their own gates red, both fixed on one of two fronts.
+
+**So: do not add a `known-red:` for a fresh regression.** The mechanism is for a tracked, filed gap
+whose fix is somebody's queued work. A regression is reverted or fixed.
 
 **Before settling for level 3, ASK FOR A RUN.** Since 2026-07-28 `workflow_dispatch` has its own
 per-SHA concurrency group, so a dispatched run is never evicted by the next push:
@@ -99,12 +122,11 @@ That rung did not exist before, and its absence is why an entire session closed 
 level 3: dispatch shared the push group, so runs carrying specific commits were superseded before
 starting a single job. Level 1 was unreachable by construction, not by luck.
 
-Two costs, stated rather than discovered: a dispatched `ci.yml` run is not a push event, so
-`Validate`, the four conformance shards, `Examples and launcher smokes` and `sbt — compile and test`
-(~75 min) all run and `ci-status --workflow ci.yml` requires every one of them — if you only need the
-per-push verdict, `scripts/ci-status --sha <sha>` (smoke.yml) is the cheap answer, or read the
-specific job's conclusion directly (level 2). And a dispatch consumes runner budget that push runs
-are queued for: use it when you need a verdict, not as a habit.
+One cost, stated rather than discovered: a dispatched `ci.yml` run is the **full** tier, so it also
+runs `sbt — compile and test` (~152 min) and the negtc gate, and `ci-status --workflow ci.yml`
+requires every one of them. If the tier-2 answer is enough — and for most changes it is, since the
+push run now carries the corpus — just read the push run of `ci.yml` for your SHA. Dispatch when you
+need `sbt test` or negtc specifically.
 
 Before pushing at all, run `scripts/smoke-ci` locally. It is the same runner GitHub will run, so a
 local green is the first real evidence you can get and it costs ~5 min — and it fails on a launcher
