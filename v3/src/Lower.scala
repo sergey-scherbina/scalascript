@@ -93,6 +93,31 @@ object Lower:
     case Expr.IntLit(v, _)  => constExpr(Lit.LInt(v), st0)
     case Expr.DoubleLit(v, _) => constExpr(Lit.LFloat(v), st0)
     case Expr.StrLit(v, _)  => constExpr(Lit.LStr(v), st0)
+    // Folded into a `+` chain, which is what interpolation IS. `+` with a string on the left
+    // already stringifies its right operand on both lanes, so no `toString` call is synthesised —
+    // one less thing that would have to mean the same in two runtimes.
+    case Expr.Interp(parts, exprs, p) =>
+      val (k0, stA) = st0.constIdx(Lit.LStr(parts.head))
+      val (acc0, stB) = stA.fresh
+      var instrs: List[Instr] = List(Instr.Const(acc0, k0))
+      var acc = acc0
+      var st = stB
+      var rest = parts.tail
+      exprs.foreach { e =>
+        val (ei, er, s1) = lower(e, fns, classes, st)
+        val (d1, s2) = s1.fresh
+        val (kt, s3) = s2.constIdx(Lit.LStr(rest.head))
+        val (tr, s4) = s3.fresh
+        val (d2, s5) = s4.fresh
+        instrs = instrs ++ ei ++ List(
+          Instr.Bin(BinOp.Add, NumKind.Dyn, d1, acc, er),
+          Instr.Const(tr, kt),
+          Instr.Bin(BinOp.Add, NumKind.Dyn, d2, d1, tr))
+        acc = d2
+        st = s5
+        rest = rest.tail
+      }
+      (instrs, acc, st)
     case Expr.BoolLit(v, _) => constExpr(Lit.LBool(v), st0)
     case Expr.UnitLit(_)    => constExpr(Lit.LUnit, st0)
 

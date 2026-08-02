@@ -308,6 +308,7 @@ object Parser:
     case Tok.TInt(text, p) => (Expr.IntLit(longOf(text, p), p), ts.tail)
     case Tok.TFloat(text, p) => (Expr.DoubleLit(text.toDouble, p), ts.tail)
     case Tok.TStr(v, p) => (Expr.StrLit(v, p), ts.tail)
+    case Tok.TInterp(raw, p) => (interp(raw, p), ts.tail)
     case Tok.TId("true", p)  => (Expr.BoolLit(true, p), ts.tail)
     case Tok.TId("false", p) => (Expr.BoolLit(false, p), ts.tail)
     case Tok.TId("if", p)    => parseIf(ts.tail, p)
@@ -323,6 +324,65 @@ object Parser:
         val (e, t) = parseExpr(ts.tail)
         (e, expectPunct(t, ")"))
     case other => throw ParseFail(Lexer.posOf(other), "expected an expression, found " + Lexer.show(other))
+
+  /** Split `s"a $x b ${e} c"` into text parts and expressions.
+    *
+    * The holes are parsed by RE-LEXING the substring, which is why the lexer handed over the raw
+    * content: `${…}` may contain anything an expression may contain, including nested braces and
+    * strings, and a lexer that tried to tokenize it inline would need the expression grammar. */
+  private def interp(raw: String, p: Pos): Expr =
+    var parts: List[String] = Nil
+    var exprs: List[Expr] = Nil
+    var cur = ""
+    var i = 0
+    while i < raw.length do
+      val c = raw.charAt(i)
+      if c == '$' && i + 1 < raw.length then
+        val n = raw.charAt(i + 1)
+        if n == '$' then
+          cur = cur + "$"
+          i = i + 2
+        else if n == '{' then
+          var depth = 1
+          var j = i + 2
+          var body = ""
+          while depth > 0 && j < raw.length do
+            val d = raw.charAt(j)
+            if d == '{' then depth = depth + 1
+            else if d == '}' then depth = depth - 1
+            if depth > 0 then body = body + d
+            j = j + 1
+          if depth > 0 then throw ParseFail(p, "unclosed `${` in an interpolated string")
+          parts = cur :: parts
+          cur = ""
+          exprs = parseHole(body, p) :: exprs
+          i = j
+        else if Chars.isIdStart(n) then
+          var j = i + 1
+          var name = ""
+          while j < raw.length && Chars.isIdPart(raw.charAt(j)) do
+            name = name + raw.charAt(j)
+            j = j + 1
+          parts = cur :: parts
+          cur = ""
+          exprs = Expr.Name(name, p) :: exprs
+          i = j
+        else
+          cur = cur + c
+          i = i + 1
+      else
+        cur = cur + c
+        i = i + 1
+    parts = cur :: parts
+    if exprs.isEmpty then Expr.StrLit(parts.head, p)
+    else Expr.Interp(parts.reverse, exprs.reverse, p)
+
+  private def parseHole(src: String, p: Pos): Expr =
+    val toks = Lexer.lex(src)
+    val (e, rest) = parseExpr(skipLayout(toks))
+    if !skipLayout(rest).head.isInstanceOf[Tok.TEof] then
+      throw ParseFail(p, "trailing input inside `${…}`: " + src)
+    e
 
   private def parseArgs(ts0: List[Tok]): (List[Expr], List[Tok]) =
     if isPunct(peek(ts0), ")") then (Nil, ts0.tail)

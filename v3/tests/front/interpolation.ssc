@@ -1,0 +1,10 @@
+case class P(x: Int, y: Int)
+val name = "world"
+val a = 3
+val b = 4
+println(s"hello $name")
+println(s"$a + $b = ${a + b}")
+println(s"nested ${if a < b then "less" else "more"} done")
+val p = P(1, 2)
+println(s"point ${p.x},${p.y}")
+println(s"escaped $$ sign")

@@ -26,6 +26,8 @@ enum Expr:
   case IntLit(v: Long, pos: Pos)
   case DoubleLit(v: Double, pos: Pos)
   case StrLit(v: String, pos: Pos)
+  /** `parts` is always one longer than `exprs`: text, hole, text, hole, …, text. */
+  case Interp(parts: List[String], exprs: List[Expr], pos: Pos)
   case BoolLit(v: Boolean, pos: Pos)
   case UnitLit(pos: Pos)
   case Name(n: String, pos: Pos)
@@ -87,6 +89,7 @@ object Expr:
     case IntLit(_, p)     => p
     case DoubleLit(_, p)  => p
     case StrLit(_, p)     => p
+    case Interp(_, _, p)  => p
     case BoolLit(_, p)    => p
     case UnitLit(p)       => p
     case Name(_, p)       => p

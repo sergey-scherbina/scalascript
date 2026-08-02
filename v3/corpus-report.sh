@@ -91,4 +91,15 @@ fi
 [ "$show_crash" = 1 ] && { echo; echo "CRASH:"; sed 's/^/  /' "$WORK/crash.txt"; }
 echo
 echo "N is a MEASUREMENT, not a target. It may rise in any commit and fall in none (I-5)."
+# HONEST CAVEAT, measured 2026-08-02: three consecutive runs of this report gave N = 16, 16, 17 and
+# DIFF = 5, 3, 4. The variance is entirely in the deep-recursion cases — deep-tail-recursion,
+# tail-recursion, mutual-recursion — which recurse ~100 000 deep through the bridge, where v2 has no
+# TCO. Whether they overflow depends on the JVM's available stack at that moment, so on a contended
+# host they land in DIFF sometimes and PASS others.
+#
+# Not papered over by pinning a stack size: the flakiness is a real property of running deep
+# recursion WITHOUT tail calls, and hiding it would make N look steadier than the thing it measures.
+# The executor (`ssc3 exec`) runs the same programs in constant stack; when the front's own lane can
+# run the corpus, this variance disappears rather than being suppressed.
+echo "  ±1: the deep-recursion cases sit on the bridge's stack limit — see the note in this script."
 exit 0

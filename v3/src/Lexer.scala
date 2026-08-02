@@ -16,6 +16,9 @@ enum Tok:
   case TInt(text: String, pos: Pos)
   case TFloat(text: String, pos: Pos)
   case TStr(v: String, pos: Pos)
+  /** `s"…"` — the RAW content, unescaped-but-unsplit. Splitting it needs the expression parser,
+    * which the lexer does not have, so it hands the whole thing over. */
+  case TInterp(raw: String, pos: Pos)
   case TId(s: String, pos: Pos)
   case TOp(s: String, pos: Pos)
   case TPunct(s: String, pos: Pos)
@@ -168,7 +171,40 @@ object Lexer:
       var text = ""
       while !done(s) && Chars.isIdPart(at(s)) do
         text = text + at(s); s = adv(s)
-      (Tok.TId(text, p), s)
+      // `s"…"` — an identifier immediately followed by a quote is an interpolator. `f` and `raw`
+      // lex the same way and are refused later BY NAME, rather than being silently treated as `s`.
+      if !done(s) && at(s) == '"' && (text == "s" || text == "f" || text == "raw") then
+        var t = adv(s)
+        var raw = ""
+        var closed = false
+        // Depth of open `${`. A quote only CLOSES the string at depth 0 — inside a hole it belongs
+        // to a nested string literal, as in `s"x ${if c then "a" else "b"} y"`. Stopping at the
+        // first quote regardless is the obvious implementation and truncates every such string.
+        var hole = 0
+        while !closed do
+          if done(t) || at(t) == '\n' then throw LexError(p, "unterminated interpolated string")
+          else if at(t) == '$' && !done(adv(t)) && at(adv(t)) == '{' then
+            hole = hole + 1
+            raw = raw + "${"
+            t = adv(adv(t))
+          else if at(t) == '}' && hole > 0 then
+            hole = hole - 1
+            raw = raw + "}"
+            t = adv(t)
+          else if at(t) == '"' && hole == 0 then
+            t = adv(t); closed = true
+          else if at(t) == '\\' then
+            val e = adv(t)
+            if done(e) then throw LexError(p, "dangling escape in an interpolated string")
+            val ch = at(e)
+            raw = raw + (if ch == 'n' then "\n" else if ch == 't' then "\t"
+                         else if ch == 'r' then "\r" else ch.toString)
+            t = adv(e)
+          else
+            raw = raw + at(t); t = adv(t)
+        if text != "s" then throw LexError(p, "the `" + text + "` interpolator is outside SSC3 core Tier 0; `s` is supported")
+        (Tok.TInterp(raw, p), t)
+      else (Tok.TId(text, p), s)
     else if c == '"' then
       var s = adv(s0)
       var text = ""
@@ -209,6 +245,7 @@ object Lexer:
     case Tok.TInt(t, _)   => t
     case Tok.TFloat(t, _) => t
     case Tok.TStr(v, _)   => "\"" + v + "\""
+    case Tok.TInterp(v, _) => "s\"" + v + "\""
     case Tok.TId(s, _)    => s
     case Tok.TOp(s, _)    => s
     case Tok.TPunct(s, _) => s
@@ -221,6 +258,7 @@ object Lexer:
     case Tok.TInt(_, p)   => p
     case Tok.TFloat(_, p) => p
     case Tok.TStr(_, p)   => p
+    case Tok.TInterp(_, p) => p
     case Tok.TId(_, p)    => p
     case Tok.TOp(_, p)    => p
     case Tok.TPunct(_, p) => p
