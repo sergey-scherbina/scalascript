@@ -101,6 +101,9 @@ shard_jobs() { # shard_jobs <status> <conclusion> — the 4-way conformance matr
 # below deliberately vary ONE matrix at a time, and a helper that emitted both would make
 # `one-shard-missing` unable to say which suite shrank.
 negtc_jobs_no_reduce() { for i in 0 1 2 3; do printf 'negtc sweeps %s/4|completed|success\n' "$i"; done; }
+sbt_test_jobs() { # sbt_test_jobs <status> <conclusion> — the 4-way suite shard, added 2026-08-02
+  for i in 0 1 2 3; do printf 'sbt test shard %s/4|%s|%s\n' "$i" "$1" "$2"; done
+}
 negtc_jobs() { # negtc_jobs <status> <conclusion>
   for i in 0 1 2 3; do printf 'negtc sweeps %s/4|%s|%s\n' "$i" "$1" "$2"; done
   printf 'negtc release gate (reduce)|%s|%s\n' "$1" "$2"
@@ -132,7 +135,7 @@ if [[ "$args" == *" run view 42 "* ]]; then
     green)
       shard_jobs completed success
       negtc_jobs completed success
-      printf 'sbt — compile and test|completed|success\n'
+      printf 'sbt — compile and release gates|completed|success\n'; sbt_test_jobs completed success
       ;;
     red)
       # Only shard 2 is red. That is deliberate: a matrix makes it possible for the verdict to hinge
@@ -144,7 +147,7 @@ if [[ "$args" == *" run view 42 "* ]]; then
       printf 'Conformance shard 2/4|completed|failure\n'
       printf 'Conformance shard 3/4|completed|success\n'
       negtc_jobs completed success
-      printf 'sbt — compile and test|completed|cancelled\n'
+      printf 'sbt — compile and release gates|completed|cancelled\n'; sbt_test_jobs completed success
       ;;
     pending)
       printf 'Examples and launcher smokes|completed|success\n'
@@ -153,11 +156,11 @@ if [[ "$args" == *" run view 42 "* ]]; then
       printf 'Conformance shard 2/4|in_progress|\n'
       printf 'Conformance shard 3/4|completed|success\n'
       negtc_jobs completed success
-      printf 'sbt — compile and test|queued|\n'
+      printf 'sbt — compile and release gates|queued|\n'; sbt_test_jobs completed success
       ;;
     missing)
       # A job that is required on EVERY event, so this case keeps meaning what it always meant.
-      printf 'sbt — compile and test|completed|success\n'
+      printf 'sbt — compile and release gates|completed|success\n'; sbt_test_jobs completed success
       ;;
     push-no-sbt|sched-no-sbt)
       # Was "the shape a real push run has". Since 2026-07-30 it is the shape a SCHEDULED run has;
@@ -205,7 +208,7 @@ if [[ "$args" == *" run view 42 "* ]]; then
       # required-job list, and a case that only ever drops a conformance instance cannot tell
       # whether the list is really per-shard for negtc too.
       shard_jobs completed success
-      printf 'sbt — compile and test|completed|success\n'
+      printf 'sbt — compile and release gates|completed|success\n'; sbt_test_jobs completed success
       printf 'negtc sweeps 0/4|completed|success\n'
       printf 'negtc sweeps 1/4|completed|success\n'
       printf 'negtc sweeps 3/4|completed|success\n'
@@ -215,7 +218,7 @@ if [[ "$args" == *" run view 42 "* ]]; then
       # The verdict-carrying half absent while every shard is green — the shape a `needs:` skip
       # produces. It must read RED, not green-because-the-shards-passed.
       shard_jobs completed success
-      printf 'sbt — compile and test|completed|success\n'
+      printf 'sbt — compile and release gates|completed|success\n'; sbt_test_jobs completed success
       negtc_jobs_no_reduce
       ;;
     *)
@@ -285,7 +288,7 @@ run_case gh-fail 2 "CI UNKNOWN $SHA" "gh run list failed"
 CASE_WF=ci.yml FAKE_CI_EVENT=workflow_dispatch run_case green 0 "CI GREEN $SHA" "Conformance shard 0/4: completed/success"
 # The second assertion pins "cancelled is RED, not neutral".
 CASE_WF=ci.yml FAKE_CI_EVENT=workflow_dispatch run_case red 1 "CI RED $SHA" "Conformance shard 2/4: completed/failure" \
-  "sbt — compile and test: completed/cancelled"
+  "sbt — compile and release gates: completed/cancelled"
 CASE_WF=ci.yml FAKE_CI_EVENT=workflow_dispatch run_case pending 2 "CI PENDING $SHA" "Conformance shard 2/4: in_progress/pending"
 CASE_WF=ci.yml FAKE_CI_EVENT=workflow_dispatch run_case missing 1 "CI RED $SHA" "missing required job: Conformance shard 0/4"
 # THE CASE THIS COMMIT EXISTS FOR. A real ci.yml PUSH run now contains `Lint Markdown` and nothing
@@ -302,7 +305,7 @@ CASE_WF=ci.yml FAKE_CI_EVENT=schedule run_case tier2 0 "CI GREEN $SHA" "Conforma
 # default verdict can quietly stop covering it. Validate is pinned by `push-lint-only` above and the
 # shards by `one-shard-missing` below; this is the Examples half.
 CASE_WF=ci.yml FAKE_CI_EVENT=schedule run_case tier2-no-examples 1 "CI RED $SHA" "missing required job: Examples and launcher smokes"
-# `sbt — compile and test` runs only on non-push events (ci.yml `if:`), because at 196 min against a
+# `sbt — compile and release gates` and the `sbt test shard i/4` matrix run on DISPATCH only, because at 196 min against a
 # 7-min mean push interval at most 1 commit in 28 could ever reach a verdict (BUGS
 # ci-sbt-job-is-28x-the-code-push-interval). These two pin BOTH directions of that: absent-on-push is
 # legitimate, absent-on-schedule is still RED. Without the second case the first would silently excuse
@@ -315,7 +318,7 @@ CASE_WF=ci.yml FAKE_CI_EVENT=schedule run_case one-shard-missing 1 "CI RED $SHA"
 # required-job list has to name them.
 CASE_WF=ci.yml FAKE_CI_EVENT=workflow_dispatch run_case negtc-shard-missing 1 "CI RED $SHA" "missing required job: negtc sweeps 2/4"
 CASE_WF=ci.yml FAKE_CI_EVENT=workflow_dispatch run_case negtc-reduce-missing 1 "CI RED $SHA" "missing required job: negtc release gate (reduce)"
-CASE_WF=ci.yml FAKE_CI_EVENT=workflow_dispatch run_case sched-no-sbt 1 "CI RED $SHA"   "missing required job: sbt — compile and test"
+CASE_WF=ci.yml FAKE_CI_EVENT=workflow_dispatch run_case sched-no-sbt 1 "CI RED $SHA"   "missing required job: sbt — compile and release gates"
 CASE_WF=ci.yml run_case no-run 2 "CI UNKNOWN $SHA" "no push ci.yml run found"
 
 # ── descendant coverage (BUGS ci-status-sha-misses-commits-covered-by-a-later-tip) ─────────────
@@ -402,7 +405,7 @@ if [[ "$args" == *" run view 77 "* ]]; then
     *)        for i in 0 1 2 3; do printf 'Conformance shard %s/4|completed|success
 ' "$i"; done ;;
   esac
-  printf 'sbt — compile and test|completed|success
+  printf 'sbt — compile and release gates|completed|success
 '
   exit 0
 fi

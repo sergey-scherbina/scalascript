@@ -397,8 +397,17 @@ if [[ "$WORKFLOW" == "ci.yml" ]]; then
   # the verdict tool contradicting the workflow it verifies, which this function has now come
   # close to shipping five times.
   negtc_shards="${SSC_CI_NEGTC_SHARDS:-4}"
+  # `sbt test` became a 4-way SUITE shard on 2026-08-02 (ci-crossbackend-differential-runtime): the
+  # phase was 82.6 min behind a ~20 min gates job, sequentially. The gates job kept its steps and
+  # lost the test phase, so it is no longer "compile and test" and its name says so — a stale name
+  # here would report `missing required job` on every future green run, which this function has
+  # come close to shipping five times already.
+  sbt_test_shards="${SSC_CI_SBT_TEST_SHARDS:-4}"
   if [[ "$run_event" == "workflow_dispatch" ]]; then
-    required_jobs+=("sbt — compile and test")
+    required_jobs+=("sbt — compile and release gates")
+    for ((_shard = 0; _shard < sbt_test_shards; _shard++)); do
+      required_jobs+=("sbt test shard ${_shard}/${sbt_test_shards}")
+    done
     for ((_shard = 0; _shard < negtc_shards; _shard++)); do
       required_jobs+=("negtc sweeps ${_shard}/${negtc_shards}")
     done

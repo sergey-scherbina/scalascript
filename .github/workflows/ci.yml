@@ -481,7 +481,7 @@ jobs:
           ./bin/ssc-tools check examples/*.ssc
 
   sbt:
-    name: sbt — compile and test
+    name: sbt — compile and release gates
     runs-on: ubuntu-latest
     # NOT on push. MEASURED 2026-07-28 over 6 hours on `main` (BUGS.md
     # `ci-sbt-job-is-28x-the-code-push-interval`): 51 code pushes, mean interval 7 min, while this
@@ -672,21 +672,11 @@ jobs:
       # test phase, JOB (above) to 240 to cover prior gates + this step. TUNE DOWN
       # once the true duration is observed. See BACKLOG
       # (ci-crossbackend-differential-runtime) for the real optimization follow-up.
-      - name: Test via sbt
-        timeout-minutes: 200
-        # Tee'd so the next step can read it. `pipefail` keeps sbt's exit status as the step's.
-        run: |
-          set -o pipefail
-          sbt test 2>&1 | tee /tmp/sbt-test.log
-
-      # Runs ONLY when the step above failed — that is exactly the situation where the log says
-      # "All tests passed." and the exit says otherwise, and where a reader has historically spent
-      # hours hunting a failing assertion that does not exist. The detector names the real cause
-      # (something called System.exit inside a forked test JVM) or stays quiet if this was an
-      # ordinary reported failure. It never turns a red step green: `|| true` keeps it advisory.
-      - name: Diagnose a silent fork exit
-        if: failure()
-        run: scripts/detect-fork-exit /tmp/sbt-test.log || true
+      # `Test via sbt` MOVED OUT 2026-08-02 to the `sbt-test` matrix at the end of this file.
+      # It was 82.6 min after the eager-clue fix (106.5 before) against ~20 min for everything above
+      # it, and the two ran SEQUENTIALLY, so this job was the suite's longest by a wide margin. The
+      # gates stay here: each is ~1 min and sharding them would run every one four times for no
+      # added coverage.
 
       # Save the classes/zinc cache ONLY when compile + assembly + tests all
       # passed, so a failed build can never poison later runs.
@@ -1002,3 +992,145 @@ jobs:
             target/v21-negative-toolchain-release.tsv
           retention-days: 7
           if-no-files-found: warn
+
+  # ── the sbt test phase, sharded by SUITE ────────────────────────────────────────────────────────
+  #
+  # MEASURED: 82.6 min in one job (106.5 before the eager-clue fix), against ~20 min for the gates
+  # job it used to sit behind. Inside the dominant suite the load is FLAT — 17 cases, each 94-240 s
+  # — so nothing here gets faster; only parallelism pays. Sharding BY PROJECT does not balance
+  # either: one project block was 88.5 min of 123.9. Hence per-SUITE.
+  #
+  # `scripts/sbt-test-shard` enumerates every `<project>/<suite>` from `show test:definedTestNames`,
+  # sorts, and takes `idx % N == i`. On the real listing that is 1099 suites split 274/275/275/275,
+  # union exactly 1099, zero duplicated, zero missing.
+  #
+  # ⚠️ A SHARD SCHEME THAT DROPS A SUITE FAILS GREEN — every shard passes and the union covers less
+  # than the whole. `tests/e2e/sbt-test-shard-gate.sh` pins the partition on a synthetic listing and
+  # runs on every push in `scripts/smoke-ci`; the runner additionally refuses an enumeration under
+  # ten suites and refuses to RUN an empty slice, because `testOnly` with no arguments runs
+  # everything and would look like a fast green.
+  sbt-test:
+    name: sbt test shard ${{ matrix.shard }}/4
+    runs-on: ubuntu-latest
+    # Tier 3, dispatch-only, exactly like the gates job it was split out of.
+    if: github.event_name == 'workflow_dispatch'
+    strategy:
+      # One red shard must still let the others report; a partial verdict is what made the corpus
+      # contract unreadable for 13 runs.
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    # ~6 min compile + ~21 min of slice. 60 is a guard with headroom, NOT the operating point —
+    # if a shard approaches it, read the per-suite cost rather than raising this.
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      # node enables the interp==JS(node) leg of CrossBackendPropertyTest (the
+      # cross-backend differential) under `sbt test`. Without it the test skips
+      # via `assume(has("node"))`. The interp==JVM(scala-cli) leg stays gated and
+      # is covered by the Conformance job; subprocess hangs are bounded by
+      # ProcTestUtil.runCaptured, so a wedged child fails fast, not the whole job.
+      #
+      # node 24, not 20: `emit-wasm` output needs a modern V8 for TWO separate
+      # reasons, and CI found them one at a time (node 20 -> 22 -> 24):
+      #   1. it is a **WasmGC** module — node 20 gives
+      #      `CompileError: Unknown type code 0x5e, enable with --experimental-wasm-gc`.
+      #      The flag is NOT a portable workaround: modern node rejects it outright
+      #      ("bad option") because WasmGC is standard there.
+      #   2. its `__loader.js` instantiates with
+      #      `{ builtins: ["js-string"], importedStringConstants: "" }` — the
+      #      **imported string constants** proposal. 364 of the module's 484 imports
+      #      have module name `""` and are satisfied by that option, so a V8 that
+      #      ignores it (node 22) fails with
+      #      `TypeError: Import #120 module="": module is not an object or function`.
+      # So the requirement is a node whose V8 has WasmGC *and* JS string builtins.
+      # This only surfaced now: the wasm target smoke had never run in CI (an earlier
+      # step always failed first) and it passes on developers' newer local node.
+      # Only this job runs that gate; the other two stay on 20 deliberately, to avoid
+      # perturbing a green conformance lane.
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Setup sbt
+        uses: sbt/setup-sbt@v1
+
+      # `ssc-tools emit-wasm` shells out to scala-cli, so the wasm TARGET lane of the
+      # explicit-lanes gate below needs it on PATH (its dependency_tier is literally
+      # `wasm-target-tools`). Without it that gate died with
+      # `Cannot run program "scala-cli"` — invisible for as long as the gate failed
+      # earlier, on the mcp provider lane. This does NOT weaken the compiler-free
+      # story: the negative-toolchain gate builds its own sandbox PATH and asserts
+      # scala-cli is unreachable there, so it is unaffected by the tool existing on
+      # the runner.
+      - name: Setup Scala CLI
+        uses: VirtusLab/scala-cli-setup@v1
+        with:
+          power: true
+          jvm: temurin:21
+
+      - name: Cache Coursier/sbt
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/coursier
+            ~/.ivy2/cache
+            ~/.sbt
+          key: ${{ runner.os }}-sbt-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-sbt-
+
+      # Same classes+zinc cache as the conformance job: without it this job
+      # recompiles all ~259 modules from scratch every run. Restore-only +
+      # save-on-success (see the end of this job) — a failed build must never
+      # re-save the cache, or a stale crypto-spi `classes` dir poisons every
+      # later run (zinc skips crypto-spi → dependents can't see
+      # scalascript.crypto.*). The `-v2-` prefix discards the poisoned caches.
+      - name: Restore compiled classes (zinc)
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            **/target/scala-*/classes
+            **/target/scala-*/test-classes
+            **/target/scala-*/zinc
+            **/target/streams
+          key: ${{ runner.os }}-classes-v2-sbt-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}-${{ github.sha }}
+          # ONLY this job's own prefix — do NOT fall back to the conformance job's
+          # …-v2-conf- cache: their zinc analyses are incompatible and sharing
+          # re-poisons crypto-spi (see the conformance Restore step's note).
+          # See the conformance job's note — key by build.sbt hash so a module-graph
+          # change cold-rebuilds instead of restoring stale classes (poison).
+          restore-keys: |
+            ${{ runner.os }}-classes-v2-sbt-${{ hashFiles('**/build.sbt', '**/project/*.sbt', '**/project/build.properties') }}-
+
+      # installBin stages bin/lib/compiler/jars — the Scala compiler jars that
+      # `compile-jvm --bytecode` / `link` load lazily via ssc.lib.path. The CLI
+      # subprocess smoke tests (EmitScalaFacadeCliTest, link-tier tests) walk up
+      # from the assembled jar to find them; without staging they fail with
+      # "CompilerLoader: ssc.lib.path is not set".
+      - name: Compile and assemble ssc.jar
+        run: sbt compile cli/assembly installBin
+
+      # The enumeration this needs is a by-product of the compile above, so the slice costs no extra
+      # build. `--shard i/4` prints what it selected before running anything.
+      - name: Test via sbt, shard ${{ matrix.shard }}/4
+        timeout-minutes: 50
+        run: |
+          set -o pipefail
+          scripts/sbt-test-shard --shard ${{ matrix.shard }}/4 2>&1 | tee /tmp/sbt-test.log
+
+      # Runs ONLY when the step above failed — the situation where the log says "All tests passed."
+      # and the exit says otherwise, and where readers have spent hours hunting an assertion that
+      # does not exist. Advisory: `|| true` never turns a red step green.
+      - name: Diagnose a silent fork exit
+        if: failure()
+        run: scripts/detect-fork-exit /tmp/sbt-test.log || true
