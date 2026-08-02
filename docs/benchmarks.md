@@ -292,6 +292,38 @@ under one machine state. Two things to keep straight when reading the result:
 - **Keep `ssc` in the column set as the noise control.** It is unaffected by v2 work, so its
   drift between two runs bounds what counts as signal (typically ≤1.3×).
 
+## Measuring the v2 JIT — warm-up must outlast tier-up
+
+`SSC_V2_JIT=on` compiles hot sites while the program runs (`specs/v2-wide-jit.md`). The bench times
+per-iteration work, so a short warm-up leaves compilation happening **inside the measured window**
+and the JIT reads slower than it is. The AOT lane has no such phase — it enters measurement already
+compiled — which makes a naive JIT-vs-AOT table an unfair comparison in the JIT's disfavour.
+
+**Use this for any steady-state JIT number:**
+
+```bash
+SSC_V2_JIT=on SSC_V2_JIT_SYNC=1 \
+  ssc-tools --backend v2 bench --machine --warmup-time 3000 --reps 8 <workload>
+```
+
+`SSC_V2_JIT_SYNC=1` makes tier-up synchronous, so it finishes deterministically during warm-up
+instead of racing the measurement. Measured on `float-loop`, three runs each:
+
+| configuration | runs | spread |
+|---|---|---:|
+| async, `--warmup-time 400` (the naive default) | 1.38 / 3.65 / 1.93 | **2.6×** |
+| async, `--warmup-time 3000` | 2.14 / 1.69 / 1.25 | 1.7× |
+| **sync, `--warmup-time 3000`** | **1.40 / 1.24 / 1.29** | **1.13×** |
+| AOT lane, `--warmup-time 3000` | 1.16 / 1.90 / 0.83 | 2.3× |
+
+The recipe is worth it for the **variance**, not just the mean: it is the only configuration here
+that reproduces, on a host where even the AOT lane swings 2.3×.
+
+**What this invalidates, stated so it is not repeated:** a `float-loop` gap of 1.94× measured at
+`--warmup-time 400` looked like a JIT code deficit and was not — in steady state the two lanes are
+indistinguishable (1.29 vs 1.16, inside AOT's own spread), and a direct 600 M-iteration probe puts
+them at parity with both spending ~60 % of samples in the same generated method.
+
 ## Smoke + manifest
 
 - `scripts/bench smoke` runs **one** iteration of one bench
