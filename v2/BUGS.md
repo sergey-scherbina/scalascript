@@ -7,6 +7,45 @@ grepping for status.
 
 Newest first.
 
+## native-lane-ignores-front-matter-routes — `routes:` in the manifest registers nothing, every path 404s
+
+<!-- status: open
+     lane: native
+     area: plugin
+     fixed-in: -
+     gate: none -->
+
+A module can declare its routes in front-matter instead of calling `route(...)`:
+
+```
+---
+routes:
+  - method: GET
+    path: /api/todos
+    handler: listTodos
+---
+```
+
+On the native lane the server starts, prints its banner, and answers **404 for every declared
+path**. Measured 2026-08-02 on `examples/rest-api-fm.ssc`, `bin/ssc run`:
+
+    GET /api/todos -> Not Found
+    GET /          -> Not Found
+
+The v1 lane MATCHES those routes — it answered 500 from inside the handler, not 404, which is what
+distinguishes "not registered" from "registered and broken". (That 500 was
+`int-v1-lane-loses-a-builtin-companion-to-its-own-case-class`, since fixed.)
+
+The census supports it. `manifest.routes` has three consumers, all v1:
+
+  * `v1/runtime/backend/interpreter/.../Interpreter.scala:1193`
+  * `v1/runtime/backend/js/.../JsGen.scala:1564`
+  * `v1/runtime/backend/jvm/.../JvmGen.scala:390,1089`
+
+and ZERO in `v2/` — no file under v2 mentions a manifest and a route together. So this is not a
+registration that breaks, it is a feature the native lane never grew, while three v1 backends have
+it. `tests/e2e/fm-routes-smoke.sh` is the gate that says so; it was in the unwired pile.
+
 ## native-route-block-form-registers-the-THUNK-not-its-result — `route(m, p) { … }` dies with an arity error
 
 <!-- status: open
