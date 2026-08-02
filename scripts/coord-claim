@@ -99,6 +99,17 @@ if git ls-tree -r --name-only origin/main -- .work/active/ | grep -Fxq "$claim";
   exit 1
 fi
 
+# The `broad:` line is built HERE, with a real newline, because the heredoc below is QUOTED and a
+# `\n` inside it is two literal characters. Written inline as `${broad:+\nbroad: ...}` the
+# justification landed on the END OF THE `paths:` LINE, the pre-push guard then compared that line
+# against the LEDGER's paths column, they disagreed, and every `--broad` claim was refused — which
+# made `mod:` and `repo:` scopes unusable, i.e. exactly the scopes that require the flag.
+broad_line=""
+if [ -n "$broad" ]; then
+  broad_line="
+broad: $broad"
+fi
+
 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 mkdir -p .work/active
 [ -f "$ledger" ] || printf '# generation: 0\n#slug\tagent\tstarted\titems\tpaths\n' > "$ledger"
@@ -111,7 +122,7 @@ started: ${ts}
 heartbeat: ${ts}
 status: claimed-before-planning
 items: ${items}
-paths: ${paths}${broad:+\nbroad: ${broad}}
+paths: ${paths}${broad_line}
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement

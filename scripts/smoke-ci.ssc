@@ -218,6 +218,12 @@ val suite = List(
   // ── scripts — the coordination tooling parallel agents depend on being correct, plus the host
   //    RAM guards that stand between parallel agents and another OOM event.
   Check("scripts", "claim-mutex", "tests/coord/claim-mutex-conflict.sh", List(), 180000),
+  // `--broad` is REQUIRED by `mod:` and `repo:` scopes, and between its introduction and 2026-08-02
+  // it made every such claim unpushable: the justification was appended to the `paths:` LINE (a
+  // `\n` inside a QUOTED heredoc is two characters), the pre-push guard compared that line against
+  // the LEDGER's paths column, and refused. The two scopes that need the flag were unusable, and
+  // the diagnostic showed the reason's words shuffled among the paths. Runs in a throwaway repo.
+  Check("scripts", "coord-claim-broad", "tests/coord/coord-claim-broad.sh", List(), 60000),
   Check("scripts", "claim-scope-hierarchy", "tests/coord/claim-scope-hierarchy.sh", List(), 180000),
   Check("scripts", "claim-hooks-refuse-overlap", "tests/coord/claim-hooks.sh", List(), 180000),
   Check("scripts", "board-generated", "tests/coord/board-generated.sh", List(), 180000),
