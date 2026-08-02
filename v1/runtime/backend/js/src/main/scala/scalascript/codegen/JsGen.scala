@@ -1426,7 +1426,8 @@ class JsGen(
     val hasDataset = allText.contains("Dataset.") || allText.contains("Dataset(")
     if hasDataset then caps += Dataset
     // Payment Request — `JsRuntimePayment`.
-    val hasPayment = allText.contains("PaymentRequest") || allText.contains("PaymentMethod.")
+    val hasPayment = allText.contains("PaymentRequest") || allText.contains("PaymentMethod.") ||
+                     allText.contains("Amount(") || allText.contains("PaymentItem(")
     if hasPayment then caps += Payment
     // v1.61.6 sub-capabilities
     // HtmlDsl — HttpServer: HTTP serve/route/sessions/metrics/password/TOTP
@@ -1438,7 +1439,18 @@ class JsGen(
                      // trigger of their own: `hashPassword("p")` alone emitted the call and no
                      // definition (measured 2026-08-02, ReferenceError on node).
                      allText.contains("hashPassword(") || allText.contains("verifyPassword(") ||
-                     allText.contains("cookieConfig(") || allText.contains("onWebSocket(")
+                     allText.contains("cookieConfig(") || allText.contains("onWebSocket(") ||
+                     // Same gap, found by widening that check to every gated chunk and following
+                     // the capability implications: the TOTP, rate-limit and middleware family is
+                     // in this chunk as well. `metrics.` above matches the object spelling only,
+                     // not the `metrics()` call. Adding these costs nothing — measured over all
+                     // 1145 .ssc files in the repo, ZERO of them gain a chunk they did not
+                     // already get, because every current caller also says `serve(`/`route(`.
+                     allText.contains("metrics(") || allText.contains("onWebSocketAuth(") ||
+                     allText.contains("rateLimit(") || allText.contains("rateLimitReset(") ||
+                     allText.contains("setMaxWsConnections(") || allText.contains("useSessionStore(") ||
+                     allText.contains("totpCode(") || allText.contains("totpSecret(") ||
+                     allText.contains("totpUri(") || allText.contains("totpValid(")
     if hasHtmlDsl then { caps += HtmlDsl; caps += Jwt }  // HttpServer uses _bearerFromAuth from JwtAuth
     // Jwt — JwtAuth: JwtSign/JwtVerify/OAuth2/CSRF/BearerToken
     // ⚠️ `JwtSign(` and `JwtVerify(` — capital J — were DEAD CONDITIONS. The intrinsics are
@@ -1450,7 +1462,12 @@ class JsGen(
     val hasJwt = allText.contains("jwtSign(") || allText.contains("jwtSignRsa(") ||
                  allText.contains("jwtVerify(") || allText.contains("jwtVerifyRsa(") ||
                  allText.contains("OAuth2.") || allText.contains("bearerToken") ||
-                 allText.contains("csrf")
+                 allText.contains("csrf") ||
+                 // the oauth* family also lives in jwt-auth.mjs; `OAuth2.` above only covers the
+                 // object-style spelling, and a program is free to call the bare functions.
+                 allText.contains("oauthAuthorizeUrl(") || allText.contains("oauthExchangeCode(") ||
+                 allText.contains("oauthRefreshToken(") || allText.contains("oauthRegisterProvider(") ||
+                 allText.contains("oauthUserinfo(")
     if hasJwt then caps += Jwt
     // WsServer — WsServer: WebSocket connections, SSE, CORS, outbound HTTP client
     // EVERY intrinsic implemented in `js-runtime/ws-server.mjs` must appear here, because this list
