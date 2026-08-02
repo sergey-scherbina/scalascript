@@ -1344,9 +1344,42 @@ binding visible at each alias occurrence, retain the duplicate warning, reject f
 keep expansion/cycle/node limits bounded.
 
 ## js-lane-missing-derives-and-coroutinecancel — two real gaps behind one confusing error
-<!-- status: unknown
+<!-- status: open
      lane: js
-     area: codegen -->
+     area: codegen
+     kind: bug
+     gate: none -->
+
+**Re-checked 2026-08-02 at `ec70eb062` (freshly built): the residual is STILL THERE but it is NO
+LONGER THE RECORDED SYMPTOM.** `examples/rozum-agent-schema-derived.ssc` on the js lane does not
+produce a `ReferenceError` any more — it **does not terminate at all**.
+
+| lane | result |
+|---|---|
+| `ssc-tools run --v1` | exits 0, prints `Done / Derived posted. / Explicit posted. / 2` |
+| `ssc-tools run-js`   | still running at 180 s, killed by `timeout` (exit 124), no output |
+
+**Split in halves, so the runner is not blamed for the program.** `emit-js` succeeds (8491 lines,
+exit 0) and running that file directly under `node` hangs identically — so the defect is in the
+emitted program, not the CLI. The `java.lang.IllegalStateException: Shutdown in progress` the CLI
+prints from `runNodeAndWait` is a SECONDARY artifact of being killed mid-shutdown, not the cause;
+anyone starting from that stack trace will be reading the wrong file.
+
+**What it is not** (each ruled out by measurement, so nobody repeats them):
+- not a spin — the node process sits at **0.0 % CPU**, state sleeping; it waits, it does not loop;
+- not stdin — `< /dev/null` on both the CLI and the bare-node path changes nothing;
+- not `serveAsync`/`stop` failing to release the listening handle in the simple case — a minimal
+  `route` + `serveAsync(port)` + `stop()` program prints `served` / `stopped` and exits 0 on js.
+
+**Next step for whoever picks this up**, since a cause is not established and guessing one is how
+this entry got its first wrong root cause: the example starts a stub LLM server, drives two tool
+calls through `httpRetry(20, 50)`, then stops it. Bisect THAT sequence rather than the whole file —
+the minimal probe above already clears the plain serve/stop pair, so the retry loop and the
+in-flight request are what remain.
+
+⚠ The `> file` redirection used here means node's stdout is block-buffered, so "no output" may be
+unflushed rather than unproduced. It does not change the verdict — the process not terminating is
+the defect — but do not conclude from it that nothing ran.
 
 **Status:** the **`derives` half is FIXED 2026-07-28** in `c8168ef90` (`js-derives-instance-undefined`); (b)
 `coroutineCancel` was already fixed. What remains for
