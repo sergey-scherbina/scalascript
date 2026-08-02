@@ -338,11 +338,26 @@ self-parity test is not external conformance.
         ScalaScript) and C_min now reconstruct EXACTLY**; the arc across L1-L4 was 23,647
         lost characters to zero.
 
-  - [ ] **SSC3-P typed projection.** The ScalaScript analogue of `MarkdownProjection`: CST in,
+  - [~] **SSC3-P typed projection.** The ScalaScript analogue of `MarkdownProjection`: CST in,
         typed AST out. This is the artifact the decision actually names — the lossless CST is the
         STORAGE, the projection is the INTERFACE. Without it the type checker would dispatch on
         `Branch("spike.def", …)`, which no shipped compiler does and which §3 of the spec argues
         against explicitly.
+        **First cut landed.** `SpikeAst` + `SpikeTyped`, separate from `SpikeProject` (which
+        serialises ssc0 text for the v2 front — this is the tree a compiler would hold; both
+        read the same CST). `Unsupported` is never dropped, so coverage is a NUMBER and it
+        did its job immediately: the first run read 24% and named `spike.exprStmt` as 96,343
+        of the gaps, a construct I had not modelled at all.
+        **97.2% of what the dialect PARSES, over 1,141 files and 384,331 nodes**, gated with
+        floors (>95%, gaps <12,000) rather than equalities. The gate reports parse-errors
+        and AST gaps SEPARATELY — 33,487 `spike.error` nodes are breadth (SSC3-B), not
+        typing, and conflating them would hide that the projection is nearly complete.
+        Ranked remainder, printed by the gate: `spike.kw` 3,548, `sealed` 1,749,
+        `missing.right` 689, `narg` 660, `blockapp` 646, `rangeop` 590, `for` 424,
+        `interp` 368, `listlit` 230.
+        Still owed: the AST is not yet the thing anything CONSUMES — no lowering to SSC IR,
+        and no differential proving `SpikeTyped` and `SpikeProject` agree on meaning.
+
   - [ ] **SSC3-B breadth to zero.** Differential against `F` over the whole corpus until
         DIFF=HOLE=EMPTY=TIMEOUT=0. Until then the declared dialect id names the passing SUBSET
         (UPR-4a's own rule), and no fallback may be counted as a match.
