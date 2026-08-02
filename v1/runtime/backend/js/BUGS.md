@@ -1383,6 +1383,71 @@ that pre-collected table even though validation separately reports it.
 binding visible at each alias occurrence, retain the duplicate warning, reject forward aliases, and
 keep expansion/cycle/node limits bounded.
 
+## js-httppost-to-own-serveasync-deadlocks — a program that calls its OWN server hangs forever on the js lane
+<!-- status: open
+     lane: js
+     area: runtime
+     kind: bug
+     gate: none -->
+
+**Found 2026-08-02 by bisecting the hang recorded under
+[`js-lane-missing-derives-and-coroutinecancel`](#js-lane-missing-derives-and-coroutinecancel)**, and
+it explains that residual completely. Nothing to do with `derives`, schemas or the agent.
+
+**Repro — ten lines, no agent machinery:**
+
+```scalascript
+[route, serveAsync, stop, httpRetry, httpPost, Request, Response](std/http.ssc)
+
+val port = 19741
+route("POST", "/echo") { req => Response(200, "{}") }
+serveAsync(port)
+httpRetry(20, 50)
+val r = httpPost("http://localhost:" + port + "/echo", "{}", List())   // ← never returns on js
+println(r.status.toString)
+stop()
+```
+
+| lane | result |
+|---|---|
+| `ssc-tools run --v1` | completes, prints a status, exits 0 |
+| `ssc-tools run-js`   | hangs; killed at 60 s and at 180 s |
+
+**Root cause, from the emitted runtime rather than inferred.** `std/http`'s client is SYNCHRONOUS on
+the js lane, and the emitted code says how:
+
+```
+// We bridge the gap with worker_threads + Atomics.wait: spawn a Worker
+// … the main thread blocks on Atomics.wait until the …
+```
+
+So `httpPost` blocks the MAIN thread while a Worker performs the request. `serveAsync`'s HTTP server
+lives on that same main thread's event loop — so while the caller waits, the server it is waiting on
+cannot accept or answer. The process deadlocks against itself.
+
+**Bisected, with each step ruled out by running it** (recorded so nobody repeats the ladder):
+
+| probe | result |
+|---|---|
+| `route` + `serveAsync` + `stop` | js OK — exits 0 |
+| + `httpRetry(20, 50)` | js OK — exits 0, so readiness probing does not block |
+| + `httpPost` to our own port | **js HANGS** |
+| `httpPost` with NO server of ours in the process | js returns immediately (`status=0`) |
+| the original example minus `derives`/`agentToolFor` | still hangs — the derived schema is NOT the cause |
+
+The last two rows are the discriminating pair: the client is not broken, and the server is not
+broken; the combination in ONE process is.
+
+**Why it is worth a fix rather than a doc note.** "Serve and call yourself" is the shape every
+self-contained example, demo and integration test uses — it is exactly how
+`examples/rozum-agent-schema-derived.ssc` is written, and that example runs fine on INT. Anything
+written that way is silently js-only-broken, and it hangs rather than failing, so a CI step waits
+for its timeout instead of reporting.
+
+**Not attempted here, deliberately:** the fix is a design call — make the js client asynchronous
+(and the language surface await-shaped), or run `serveAsync`'s listener off the main thread. Both
+are larger than a bug fix and neither should be picked by whoever happened to find the deadlock.
+
 ## js-lane-missing-derives-and-coroutinecancel — two real gaps behind one confusing error
 <!-- status: open
      lane: js
@@ -1411,11 +1476,16 @@ anyone starting from that stack trace will be reading the wrong file.
 - not `serveAsync`/`stop` failing to release the listening handle in the simple case — a minimal
   `route` + `serveAsync(port)` + `stop()` program prints `served` / `stopped` and exits 0 on js.
 
-**Next step for whoever picks this up**, since a cause is not established and guessing one is how
-this entry got its first wrong root cause: the example starts a stub LLM server, drives two tool
-calls through `httpRetry(20, 50)`, then stops it. Bisect THAT sequence rather than the whole file —
-the minimal probe above already clears the plain serve/stop pair, so the retry loop and the
-in-flight request are what remain.
+**RESOLVED 2026-08-02 — the next step below was taken and it found the cause.** The hang is
+[`js-httppost-to-own-serveasync-deadlocks`](#js-httppost-to-own-serveasync-deadlocks): the js
+`httpPost` blocks the main thread with `Atomics.wait` while `serveAsync`'s listener lives on that
+same thread, so the program deadlocks against its own server. Not `derives`, not the agent — the
+example minus the derived tool hangs identically. What remains under THIS entry is only whatever
+the original `ReferenceError` was about, and that symptom no longer appears.
+
+*(original next step, kept because the ladder is reusable: the example starts a stub LLM server,
+drives two tool calls through `httpRetry(20, 50)`, then stops it. Bisect THAT sequence rather than
+the whole file — the plain serve/stop pair is already cleared.)*
 
 ⚠ The `> file` redirection used here means node's stdout is block-buffered, so "no output" may be
 unflushed rather than unproduced. It does not change the verdict — the process not terminating is
