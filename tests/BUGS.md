@@ -80,6 +80,27 @@ subject (`NavBar` -> `NavBarXX` in `examples/std-ui/nav-demo.ssc`) turns `std-ui
 are the one filed interpreter bug; the rest report real product differences at their first
 assertion rather than dying on a missing path.
 
+**WHAT THE 13 RED ONES SAY NOW.** Recorded as leads, not as diagnoses — only the first is reduced:
+
+| gate | first failure |
+|---|---|
+| `build`, `bundle`, `render`, `components`(INT) | `int-render-invokes-handler-with-Response-shadowed-by-its-own-case-class` — filed, reduced to 7 lines |
+| `middleware`, `validation` | `500 native HTTP handler failed: native callback arity` |
+| `fm-routes` | `GET /api/todos: Not Found` — the route is registered and does not match |
+| `health-defaults` | `GET /_health: status=404 (want 200)` |
+| `package-keyword` | `ssc: unbound global: org` — the `[org](./cards.ssc)` import does not bind |
+| `import-alias`, `url-import`, `std-ui-forms`, `upload` | INT-lane content mismatches, each unreduced |
+
+`v21-native-http-request-source-arity` in this file is the nearest existing entry to the
+`native HTTP handler failed` pair, but it is `status: fixed` / `confirmed: no` and its symptom is
+`match: no arm for`, not `native callback arity`. Close enough to check first, NOT close enough to
+call the same bug — three of these gates were mis-diagnosed once already by assuming a family
+resemblance was an identity.
+
+Note `package-keyword` hid its own error behind `2>/dev/null`, which is why the census recorded it
+as "empty output". Bare `ssc file.ssc` still works; the emptiness was the interpreter erroring on
+stderr.
+
 **Full list, by outcome.**
 
 failing (26):
