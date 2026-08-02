@@ -140,10 +140,22 @@ subtree — REQUIRES a `broad:` justification. So the correct way to claim a dir
 which is exactly why the wrong way above gets reached for.
 
 ## bugs-index-gate-rejects-an-all-digit-sha — a real abbreviated sha can look like a CI run id
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
+     fixed-in: 9194a90c7
      gate: tests/e2e/bugs-index-gate.sh -->
+
+**FIXED 2026-08-02** in `9194a90c7` — by another claim, and the entry was left `open`. Verified
+here rather than taken on trust: `261607982` (a real abbreviated sha, every character a digit) is
+rejected by the pre-fix gate and accepted by the current one, `0 problems`.
+
+The `isdigit` heuristic is gone and the reachability check subsumes it — a CI run id is not an
+ancestor of HEAD either, and now it is refused BY NAME instead of by a guess with a false positive.
+
+I walked into this one the day before it was fixed and worked around it with the full 40-char form.
+That workaround has been reverted here: the abbreviated sha is back, which is also what re-proves
+the fix.
 
 **Found 2026-07-31.** `tests/e2e/bugs-index-gate.sh` rejects a `fixed-in` whose value is all digits:
 

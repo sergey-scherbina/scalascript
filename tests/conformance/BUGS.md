@@ -11,7 +11,7 @@ Newest first.
 <!-- status: fixed
      lane: apparatus
      area: conformance
-     fixed-in: 261607982dfdb2277fb7de6014f9d46ec5927505
+     fixed-in: 261607982
      gate: - -->
 
 **Found 2026-08-01** by `js-compound-assign-and-gate-registry`, and only because that claim
@@ -46,9 +46,19 @@ which is the job this repo has already had to rescue once
 was correct (a row deleted because a fix landed), so the header was the stale half. `contract.sc`
 runs again and is GREEN.
 
-**Still owed:** nothing asserts the pairing outside `contract.sc`'s own startup, so the next such
-edit fails the same way. The cheap fix is one more check in `freeze-consistency-gate.sh` — the file
-it already owns — but that gate belongs to another module's claim surface today.
+**The owed half is DONE 2026-08-02** by `gate-holes-sha-and-freeze`: `freeze-consistency-gate.sh`
+gained invariant **I0**, checked FIRST because when it is wrong nothing else matters — the contract
+cannot start at all.
+
+Proven in both directions rather than asserted: the gate PASSES on the repaired freeze, FAILS with
+the exact defect planted (delete a baseline row, leave the header — what `f6e93154e` did), and
+PASSES again once restored. It names both digests and tells you the canonical form, because the
+person who trips it will be mid-edit.
+
+Why this gate and not another: it already exists to relate the freezes to each other, it runs in
+seconds on every push, and its own header explains that `contract.sc`'s checks live in the nightly
+and cannot stand in for it. The pairing was simply the one relation it did not look at — between the
+two files it was already reading.
 
 
 ## corpus-contract-baseline-stale-after-improvements — the freeze records worse results than the code produces

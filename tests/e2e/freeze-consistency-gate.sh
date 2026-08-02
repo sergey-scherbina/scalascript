@@ -43,6 +43,50 @@ for f in "$BASELINE" "$ROSTER" "$OVERRIDES"; do
   [ -f "$f" ] || { printf 'FAIL  missing freeze: %s\n' "${f#"$ROOT"/}" >&2; exit 1; }
 done
 
+# ── I0: the roster header's PAIRED digests match the two frozen files ───────────────────────────
+#
+# FIRST, because when this is wrong nothing else matters: `contract.sc` refuses to start at all —
+# `[error] corpus contract freeze invalid: roster/baseline digest mismatch` — so the corpus contract
+# produces NO verdict rather than a wrong one, for everyone, until someone notices.
+#
+# That happened: `f6e93154e` deleted a row from the baseline (correctly — a fix had landed) and left
+# `baseline-sha256` in the roster header pointing at the old content. It survived because THIS gate
+# passed: it related front-matter, baseline rows and negtc overrides, and never looked at the header
+# that pairs the two files it was reading. The per-push corpus check does not go through
+# `contract.sc`, so CI stayed green too; only the nightly Corpus Contract could have seen it, and
+# that job's history is exactly why this gate exists.
+#
+# Canonical form, mirroring contract.sc `canonicalText`: non-empty lines joined by "\n", trailing
+# "\n". The roster's own body starts at line 2 (line 1 IS the header).
+# v2/BUGS.md — tests/conformance `corpus-contract-freeze-pairing-unchecked`.
+sha256_canonical() { # $1 = file, $2 = first body line (1-based)
+  if command -v sha256sum >/dev/null 2>&1; then
+    tail -n "+$2" "$1" | grep -v '^$' | sha256sum | awk '{print $1}'
+  else
+    tail -n "+$2" "$1" | grep -v '^$' | shasum -a 256 | awk '{print $1}'
+  fi
+}
+roster_header="$(head -1 "$ROSTER")"
+want_baseline="$(printf '%s' "$roster_header" | sed -n 's/.*baseline-sha256=\([0-9a-f]\{64\}\).*/\1/p')"
+want_roster="$(printf '%s'   "$roster_header" | sed -n 's/.*roster-sha256=\([0-9a-f]\{64\}\).*/\1/p')"
+if [ -z "$want_baseline" ] || [ -z "$want_roster" ]; then
+  bad "roster header carries no paired digests
+        expected: # corpus-contract-roster-v1<TAB>baseline-sha256=<64 hex><TAB>roster-sha256=<64 hex>
+        got:      $roster_header"
+else
+  got_baseline="$(sha256_canonical "$BASELINE" 1)"
+  got_roster="$(sha256_canonical "$ROSTER" 2)"
+  [ "$got_baseline" = "$want_baseline" ] || bad "corpus-baseline.tsv does not match the digest the roster header pairs it with
+        header: $want_baseline
+        actual: $got_baseline
+        The corpus contract cannot START in this state. Whichever file you edited, recompute the
+        header: both digests are over the non-empty lines joined by newlines, plus a trailing one."
+  [ "$got_roster" = "$want_roster" ] || bad "contract-roster.tsv does not match its own digest in the header
+        header: $want_roster
+        actual: $got_roster"
+  note "freeze pairing: roster header agrees with both files"
+fi
+
 # The corpus contract observes `int, js, v2` by default (contract.sc: `val canonicalLanes`). `jvm`
 # is an ALLOWED lane but not a default one, so a `known-red: jvm` declaration legitimately has no
 # baseline row and comparing it would be a false positive — four cases on main are in exactly that
