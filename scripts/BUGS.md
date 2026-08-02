@@ -11,7 +11,7 @@ Newest first.
 <!-- status: fixed
      lane: apparatus
      area: build
-     fixed-in: PENDING-SHA
+     fixed-in: f078f9a35
      gate: tests/e2e/bugs-index-gate.sh -->
 
 **Found 2026-08-02** by `gate-holes-sha-and-freeze`, from a CI red on a commit whose diff could not
