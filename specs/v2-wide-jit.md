@@ -811,6 +811,26 @@ the same compiler achieves with the whole program in hand, and `recursion-tco` m
 > cross-def call (`area(s)`, 500 000 times), which the JIT reaches through a `LamFn` interface call
 > plus `Emit.unroll` where AOT emits `invokestatic`. That is the next JIT-side target, and it is
 > linking quality rather than the emitter.
+>
+> **And that hypothesis is REFUTED, by `V2LinkBench`** (JMH, 5 wi / 10 i, 1 fork):
+>
+> | | ns/op |
+> |---|---:|
+> | `directCall` — the AOT shape | 3.883 ± 0.118 |
+> | `interfaceCall` | 3.945 ± 0.064 |
+> | `interfaceUnrolled` — what a LINKED JIT call actually pays | **3.910 ± 0.041** |
+> | `genericGlobalApp` — the UNLINKED path | **12.603 ± 1.204** |
+>
+> A linked call costs **0.027 ns more than a direct one**, inside the error bars: the JVM
+> devirtualises the monomorphic interface call and `Emit.unroll` on a non-bounce is a cheap type
+> test. Link *quality* is not the residual.
+>
+> The same bench names the real suspect. An UNLINKED cross-def call costs 12.603 ns against 3.910 —
+> **8.7 ns, 3.2×** — and `pattern-match-heavy` calls `area(s)` 500 000 times, which is ~4.3 ms
+> against a measured whole-row gap of 2.5 ms (10.7 vs 8.18). Same order. So the residual is
+> **links that never formed**, not links that are slow: `compileUnit` links only to callees ALREADY
+> compiled, and J-3c deferred on-demand compilation of a cold callee with "the hit rate is worth
+> measuring before paying for it". This is that measurement. The next slice is on-demand linking.
 
 ### J-8 — `ssc lint-jit -v2`, and J-9's missing number
 
