@@ -350,11 +350,13 @@ self-parity test is not external conformance.
         chunk-invariance across every `.ssc` in the corpus, with the same axis discipline the
         Markdown corpus uses. This is the reason to put UniML in the front at all, so it is a
         release criterion and not a nice-to-have.
-        L1-L4 landed and the two files measured — `actors.ssc` and C_min — reconstruct exactly.
-        **What is still owed is the GATE**: reconstruction is checked by a throwaway probe, not
-        by a standing test over the whole corpus with a frozen baseline, so nothing stops the
-        next lexer change from silently undoing it. Chunk-invariance is not checked at all for
-        this dialect. Until both exist this criterion is demonstrated, not enforced.
+        **L1-L4 landed AND GATED.** `SpikeLosslessSpec` checks three properties over sixteen
+        hand-written shapes plus two real files (`actors.ssc`, C_min): every lexeme is a source
+        slice, the parse is invariant to chunking (1/7/64/4096), and no token appears twice.
+        Verified in BOTH directions — planting "drop a string's opening quote" turns it red and
+        names each input with its exact loss. Still owed for the full criterion: the corpus is
+        two files rather than every `.ssc`, and there is no frozen baseline the way Markdown has
+        one, so a NEW file with a new construct is not covered until someone adds it.
   - [ ] **SSC3-I independence.** Zero dependency on `v1/` or `v2/` from the front-end dialect —
         the surviving half of `project-partitioning.md` §8.3, already enforced by
         `tests/e2e/project-partition-gate.sh` check 3. A dialect describes the LANGUAGE, not a
