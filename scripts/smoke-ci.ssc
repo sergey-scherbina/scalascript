@@ -154,6 +154,12 @@ val suite = List(
   // ── tests — the apparatus. A sharding scheme that drops cases fails GREEN, so it is checked
   //    here, where `run.sc --list` enumerates the corpus without needing a built launcher.
   Check("tests", "conformance-shards-partition", "tests/e2e/build-conformance-shard-gate.sh", List("4"), 180000),
+  // The same property for the sbt test phase, and for the same reason: a shard scheme that drops a
+  // suite fails GREEN — every shard passes and the union covers less than the whole. Runs on a
+  // SYNTHETIC listing (`--from`), so it costs milliseconds instead of the five-minute test compile
+  // a real enumeration needs; the enumeration itself is asserted at runtime by the script refusing
+  // a listing under ten suites and refusing to run an empty slice.
+  Check("tests", "sbt-test-shard-partition", "tests/e2e/sbt-test-shard-gate.sh", List(), 120000),
   Check("tests", "silent-assertions-frozen", "tests/e2e/silent-assertion-gate.sh", List(), 120000),
   // Two consumers, one fixture: the manifest's owner (v21-explicit-lanes-gate) and the reader that
   // only looks up a lane (bc-parity-sweep). The reader kept a second copy of the contract frozen at

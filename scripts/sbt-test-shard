@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+#
+# sbt-test-shard — run one slice of `sbt test`, or print the slicing without running anything.
+#
+# WHY: `Test via sbt` is the longest thing in CI. MEASURED on run 30650857814, 106.5 min of test
+# phase, of which `CrossBackendPropertyTest` alone was 39.0 (37 %) before the eager-clue fix took it
+# to 21.2. The load inside the top suite is FLAT — 17 cases, every one 94-240 s — so there is nothing
+# to make faster; only parallelism pays. Sharding BY PROJECT does not balance either: one project
+# block is 88.5 min of 123.9. So the unit has to be the SUITE.
+#
+# HOW THE SLICE IS CHOSEN, and it is deliberately boring: enumerate every `<project>/<suite>` pair,
+# sort it, and take `idx % N == i`. Round-robin rather than contiguous blocks for the same measured
+# reason `run.sc` and `bc-parity-sweep` use it — the list is name-sorted and slow suites cluster by
+# name, so contiguous blocks give wildly uneven shards.
+#
+# ⚠️ A SHARD SCHEME THAT DROPS A SUITE FAILS GREEN. Every shard passes, the union covers less than
+# the whole, and the job set reports success over a hole. `tests/e2e/sbt-test-shard-gate.sh` pins the
+# partition property, and `--list` exists so it can do that without sbt.
+set -uo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+shard=""; list_only=0; from_file=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --shard) shard="${2:?--shard needs i/N}"; shift 2 ;;
+    --list)  list_only=1; shift ;;
+    # Reads an enumeration from a file instead of asking sbt — this is what lets the gate exercise
+    # the partition on a synthetic list in milliseconds, and what lets a shard reuse an enumeration
+    # somebody already paid for.
+    --from)  from_file="${2:?--from needs FILE}"; shift 2 ;;
+    -h|--help)
+      cat <<'EOF'
+usage: scripts/sbt-test-shard --shard i/N [--from FILE]   run this slice
+       scripts/sbt-test-shard --list [--shard i/N] [--from FILE]
+EOF
+      exit 0 ;;
+    *) echo "sbt-test-shard: unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+
+shard_i=0; shard_n=1
+if [[ -n "$shard" ]]; then
+  if [[ "$shard" =~ ^([0-9]+)/([0-9]+)$ ]]; then
+    shard_i="${BASH_REMATCH[1]}"; shard_n="${BASH_REMATCH[2]}"
+  else
+    echo "sbt-test-shard: --shard expects i/N (e.g. 0/4), got: '$shard'" >&2; exit 2
+  fi
+  if (( shard_n < 1 || shard_i >= shard_n )); then
+    echo "sbt-test-shard: --shard expects 0 <= i < N, got: '$shard'" >&2; exit 2
+  fi
+fi
+
+# ── enumeration ──────────────────────────────────────────────────────────────
+#
+# `show test:definedTestNames` prints, per project:
+#     [info] <project> / Test / definedTestNames
+#     [info] 	Vector(a.B, c.D)
+# It needs the test sources COMPILED, which is why a shard job reuses the compile it already did
+# rather than paying twice.
+enumerate() {
+  if [[ -n "$from_file" ]]; then cat "$from_file"; return; fi
+  "$ROOT/scripts/sbtc" "show test:definedTestNames" 2>/dev/null
+}
+
+pairs="$(enumerate | awk '
+  /^\[info\] [A-Za-z0-9_]+ \/ Test \/ definedTestNames$/ { proj = $2; next }
+  proj != "" && /Vector\(/ {
+    line = $0
+    sub(/^.*Vector\(/, "", line); sub(/\).*$/, "", line)
+    n = split(line, a, ", ")
+    for (i = 1; i <= n; i++) if (a[i] != "") printf "%s/%s\n", proj, a[i]
+    proj = ""
+  }
+' | LC_ALL=C sort -u)"
+
+total="$(printf '%s\n' "$pairs" | grep -c . || true)"
+# REFUSE AN EMPTY ENUMERATION rather than run zero tests and exit 0. A `testOnly` with no arguments
+# runs everything; a shard that selected nothing would otherwise look like a fast green.
+if [[ "$total" -lt 10 ]]; then
+  echo "sbt-test-shard: enumeration produced $total suite(s) — refusing. sbt output unparsed or" >&2
+  echo "  the test sources did not compile; running a slice of nothing would report green." >&2
+  exit 2
+fi
+
+mine="$(printf '%s\n' "$pairs" | awk -v i="$shard_i" -v n="$shard_n" 'NR % n == i')"
+mine_count="$(printf '%s\n' "$mine" | grep -c . || true)"
+
+if (( list_only )); then printf '%s\n' "$mine"; exit 0; fi
+
+if [[ "$mine_count" -eq 0 ]]; then
+  echo "sbt-test-shard: shard $shard_i/$shard_n selected 0 of $total suites — refusing" >&2
+  exit 1
+fi
+printf 'sbt-test-shard: shard %s/%s — %s of %s suites\n' "$shard_i" "$shard_n" "$mine_count" "$total"
+
+# One `testOnly` per project, with that project's suites. Built as a single sbt invocation so the
+# JVM and the zinc analysis are paid once.
+cmds="$(printf '%s\n' "$mine" | awk -F/ '{ p=$1; sub(/^[^/]*\//,""); s[p] = s[p] " " $0 }
+  END { for (p in s) printf "%s/testOnly%s; ", p, s[p] }')"
+exec "$ROOT/scripts/sbtc" "$cmds"
