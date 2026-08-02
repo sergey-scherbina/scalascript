@@ -1,0 +1,45 @@
+---
+name: object-apply
+description: "a companion-style `object O { def apply(…) }` is callable as O(…)"
+backends: [int, jvm, v2]
+---
+
+# `object O { def apply(x) }` is callable as `O(x)`
+
+Plain Scala: an `object` with an `apply` member is applied by writing `O(x)`. The reference lane
+supported it and the DEFAULT lane did not — `ssc: unbound global: O`, loud and immediate rather than
+a wrong answer, which is why it survived as a low-priority entry
+(`v2-object-apply-unbound`).
+
+**`O.apply(7)` already worked, and that is the whole diagnosis.** The member IS emitted, as
+`O_apply`; what was missing is that an APPLIED bare `O` never became that call. `O` is uppercase, so
+it is lexed as an uppercase-name token and reaches the CONSTRUCTOR path — never the call path — and
+the callee stayed `(global O)`, which no definition provides. A first attempt in `calleeOf` changed
+nothing, which is how the ctor path was found.
+
+Both spellings are here on purpose: the qualified one is the control that already passed, so a later
+change cannot fix one and break the other.
+
+A SECOND object with its own `apply` is deliberately NOT here. It breaks the INT lane — its JIT
+emits one Java class per method name and two `apply(long, long)` members collide
+(`method apply(long,long) is already defined`), filed as
+`int-jit-two-object-applies-collide`. Including it would pin an unrelated lane's defect in a case
+about this one.
+
+`js` is deliberately absent — it fails with `not callable`, a different cause on a lane with its own
+object emission, filed separately rather than folded in. **The `SSC_FRONT=legacy` fallback is also
+still unfixed**; the entry carries the measurement.
+
+```scalascript
+object O:
+  def apply(x: Int): String = "user-apply:" + x.toString
+
+case class C(n: Int)
+
+def main() =
+  println(O(7))
+  println(O.apply(7))
+  // a case class must STILL construct — objReg holds objects only, and this row is what
+  // keeps the new branch from swallowing ordinary constructor application
+  println(C(5).n)
+```

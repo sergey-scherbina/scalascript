@@ -984,7 +984,22 @@ def focusFld(nm, cx) = if nm == "some" then "(ctor OSome)" else (if nm == "each"
 def focusMeth(nm, ts, acc, env, cx) = parseArgExpr(ts, env, cx) match { case (arg, r) => focusPath(tl(r), Cons(focusMethStep(nm, erase(arg, cx)), acc), env, cx) }
 def focusMethStep(nm, arg) = if nm == "index" then "(ctor OIndex " ++ arg ++ ")" else "(ctor OAt " ++ arg ++ ")"
 def parseCtor(nm, ts, env, cx) = if isPrismApp(nm, ts) then parsePrism(ts, env, cx) else (if isFocusApp(nm, ts) then parseFocus(ts, env, cx) else (if isEnumTypeDot(nm, ts, cx) then parseEnumCompanion(nm, tl(ts), env, cx) else parseCtorG(nm, skipGen(ts), env, cx)))
-def parseCtorG(nm, ts, env, cx) = if isTok(hd(ts), 2, 21) then parseCtorArgs(nm, tl(ts), env, cx) else (bareCtor(nm, cx), ts)
+// `O(7)` where `object O { def apply(x) }` — a companion-style apply, plain Scala, `unbound global:
+// O` on both v2 fronts. The member IS emitted, as `O_apply`, and `O.apply(7)` already worked; what
+// was missing is that an APPLIED bare `O` never became that call, so the callee stayed `(global O)`
+// and no such global exists.
+//
+// It belongs HERE and not in `calleeOf`: `O` is uppercase, so it is lexed as kind 3 and reaches the
+// CTOR path, never `parseCallPlain` — measured, after a first attempt in `calleeOf` changed nothing.
+// `calleeOf` also answers bare NAME references, where `O` means the object itself, a value this lane
+// does not have; rewriting there would turn an honest `unbound global` into a silently wrong
+// function value.
+//
+// A case class `C(1)` is unaffected: `objReg` holds `object` declarations only, so `isObjMember`
+// is false for it, and the List/Set/Map literal forms inside parseCtorArgs are not objects either.
+// BUGS `v2-object-apply-unbound`.
+def parseCtorG(nm, ts, env, cx) = if isTok(hd(ts), 2, 21) then (if isObjMember(nm, "apply", cx) then parseObjApply(nm, tl(ts), env, cx) else parseCtorArgs(nm, tl(ts), env, cx)) else (bareCtor(nm, cx), ts)
+def parseObjApply(nm, ts, env, cx) = parseArgs(ts, env, cx) match { case (args, r) => (emitApp("(global " ++ nm ++ "_apply)", args), r) }
 def isEnumTypeDot(nm, ts, cx) = if isTok(hd(ts), 2, 31) then isEnumType(nm, cx) else false
 def parseEnumCompanion(ename, ts, env, cx) = parseEnumComp1(ename, snd(hd(ts)), tl(ts), env, cx)
 // `E.Case` -> `(ctor Case)` (nullary); APPLIED parametrized `E.Case(args)` -> `(ctor Case args)` (folds

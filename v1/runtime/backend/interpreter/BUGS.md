@@ -7,6 +7,46 @@ grepping for status.
 
 Newest first.
 
+## int-jit-two-object-applies-collide — two objects with an `apply` generate one Java class and refuse to compile
+<!-- status: open
+     lane: int
+     area: codegen
+     fixed-in: -
+     gate: - -->
+
+**Found 2026-08-02** by `v2-object-apply` while writing the gate for a DIFFERENT lane's bug — the
+case had two objects in it and int stopped compiling, which is the only reason anyone looked.
+
+```scalascript
+object O:
+  def apply(x: Int): String = "u:" + x.toString
+object Two:
+  def apply(a: Int, b: Int): Int = a * 10 + b
+def main() =
+  println(O(7))
+  println(Two(3, 4))
+```
+
+```
+u:7
+/GenJit_apply_1736458419.java:6: error: method apply(long,long) is already defined
+    in class GenJit_apply_1736458419
+/GenJit_apply_1736458419.java:2: error: apply(long,long) in GenJit_apply_1736458419
+    cannot implement apply(long,long) in LongFn2
+```
+
+**The JIT names the generated Java class after the METHOD, not the owner.** Two objects each with an
+`apply` therefore land in one class with the same signature. The first `println` succeeds, so the
+program half-runs before the JIT reaches the second.
+
+`object O { def apply }` beside a `case class` is fine — measured — so it is specifically two
+same-named members, and `apply` is just the common case of that. Any two objects sharing a method
+NAME with the same lowered signature should reproduce it.
+
+Not diagnosed further: it is the interpreter's JIT, a different module from the claim that found it.
+`v2` and `jvm` both run the two-object program correctly.
+
+
 ## int-field-valued-default-undefined-on-empty-call — a default that reads a field works with an argument, not without one
 <!-- status: open
      lane: int
@@ -693,9 +733,33 @@ than a side effect.
 wrong.
 
 ## v2-object-apply-unbound — `object O { def apply(x) }` is unbound on the native lane
-<!-- status: open
-     lane: int
-     area: front -->
+<!-- status: fixed
+     lane: native
+     area: front
+     fixed-in: PENDING
+     gate: tests/conformance/object-apply.ssc -->
+
+**FIXED on the DEFAULT front 2026-08-02** by `v2-object-apply`; the `SSC_FRONT=legacy` fallback is
+NOT fixed and the measurement is below. `lane:` was `int` and is corrected to `native` — int is the
+lane that WORKS here.
+
+**`O.apply(7)` already worked, and that was the diagnosis.** The member is emitted as `O_apply`;
+what was missing is that an APPLIED bare `O` never became that call. `O` is uppercase, so it lexes
+as an uppercase-name token and reaches the CONSTRUCTOR path — never `parseCallPlain`. A first
+attempt in `calleeOf` changed nothing, which is how the ctor path was found; that attempt was
+reverted rather than left in, because `calleeOf` also answers bare NAME references where `O` means
+the object itself, and rewriting there would turn an honest `unbound global` into a silently wrong
+function value.
+
+    lane                O(7)              O.apply(7)
+    int                 user-apply:7      user-apply:7
+    jvm                 user-apply:7      user-apply:7
+    v2 / F (default)    user-apply:7      user-apply:7   <- fixed here
+    v2 / legacy         unbound global: O                <- still open
+    js                  not callable                     <- different cause, own lane
+
+A case class still constructs — `objReg` holds `object` declarations only — and the gate carries
+that row so the new branch cannot swallow ordinary constructor application.
 
 **Status:** OPEN (found 2026-07-28 by `v2-stub-apply-and-serve-banner` while verifying that the
 `List.apply` fix did NOT break the shape the roadmap warned about). Pre-existing — A/B'd against a
