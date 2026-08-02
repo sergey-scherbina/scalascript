@@ -1,0 +1,11 @@
+slug: sbt-test-shard
+branch: feature/sbt-test-shard
+agent: claude-code
+started: 2026-08-02T00:37:47Z
+heartbeat: 2026-08-02T00:37:47Z
+status: claimed-before-planning
+items: ci-crossbackend-differential-runtime
+paths: file:.github/workflows/ci.yml file:scripts/ci-status file:tests/e2e/ci-status-guard.sh file:tests/e2e/sbt-test-shard-gate.sh file:scripts/sbt-test-shard
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
