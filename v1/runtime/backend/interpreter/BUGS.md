@@ -1361,9 +1361,19 @@ real file do not. So on `bin/ssc run` scljet is an in-memory engine only.
 belongs to the `int`/`js`/JVM lanes, which is where its conformance already runs.
 
 ## v2-native-scala-import-parse-only-noop — module-defined names stay unbound after `import std.*`
-<!-- status: unknown
+<!-- status: fixed
      lane: int
-     area: front -->
+     area: front
+     fixed-in: unrecorded -->
+
+**Re-verified NOT REPRODUCING 2026-08-02 at `1305736e1`.** The entry's own narrow probe, run again
+on both lanes: `import std.mapreduce.*` then `Stage(List(MapOp("tag"))).ops.length` prints `1` on
+native AND `1` on v1 — the module-defined names bind. (The original fixture's paths,
+`std/mapreduce/handlers.ssc`, no longer exist, so the narrow probe is the reproducible half.)
+
+`fixed-in: unrecorded` deliberately: `8f736ca8b` appears in this entry as the sha the measurement
+was taken ON, not as a fix, and recording a measurement sha as the fix is how a `fixed-in` field
+comes to name the wrong commit.
 
 **Status:** **NO LONGER REPRODUCES 2026-07-28**, measured by `v2-native-import-graph` (NIG-3) on
 `8f736ca8b`. Left here rather than deleted because the entry's diagnosis ("the native front's
@@ -1412,9 +1422,27 @@ open after that fixture correction; at least `examples/distributed-dataset-typed
 uses the affected Scala-style import and needs a future real-harness audit.
 
 ## v2-native-charAt-toString-yields-code — `charAt(i).toString` renders the character CODE on v2-native → every uppercase keyword breaks
-<!-- status: unknown
+<!-- status: open
      lane: int
-     area: front -->
+     area: front
+     kind: bug
+     gate: none -->
+
+**STILL REPRODUCES — re-verified 2026-08-02 at `1305736e1`**, byte for byte as reported:
+
+```
+bin/ssc-tools run --v1  →  INSERT
+bin/ssc run             →  737883698284
+```
+
+Classified `open` rather than `unknown` on that evidence. Worth restating why it is not a small
+divergence: it is **silent wrong data with a zero exit code**, so nothing that checks a status sees
+it, and the shape of the wrongness hides it — an already-uppercase string comes back as digits while
+a lowercase one is fine, because that branch goes through `.toChar.toString`. The entry's own
+analysis stands: without a Char box, `charAt(i).toString` is inherently ambiguous and the two lanes
+cannot both be right, so this needs a language decision, not a patch. `gate: none` is accurate — the
+engine-side fix removed the only in-corpus user, which means nothing in the suite would notice a
+regression here.
 
 **Status:** **ENGINE SIDE FIXED (2026-07-17, `46f09ad29`)** — scljet no longer uses the ambiguous
 idiom, and the SQL engine now runs on the default `bin/ssc run` (23/24 scljet conformance cases,
