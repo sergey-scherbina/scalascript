@@ -196,3 +196,42 @@ the unboxed return (E-3) stay queued behind that, since neither is now known to 
 apparatus one.** A bench cell that fast usually means the work was eliminated, not performed; this
 repo has the rule that a suspiciously fast cell is a correctness question until proven otherwise.
 Not chased here, recorded so it is not read as a v2 deficiency.
+
+### E-2 — the answer is warm-up accounting, not the emitter
+
+The 1.94× is **not a code deficit**. The bench measures per-iteration time; the AOT lane enters that
+window already compiled, while the JIT compiles *inside* it. Raising the warm-up flips the result:
+
+```
+warmup=400ms    AOT=3.40   JIT=3.71
+warmup=3000ms   AOT=4.11   JIT=2.67    <- the JIT is now FASTER than the AOT lane
+```
+
+(Absolute values are not comparable with the earlier table — the host load moved by 4× between
+sessions. The direction is what this shows, and it is consistent.)
+
+It also explains, retroactively, why lowering `SSC_V2_JIT_THRESHOLD` made `float-loop` *worse*
+(1.39 → 3.24 → 2.82): a lower threshold compiles MORE units inside the measured window.
+
+**The corollary matters more than the finding.** Every JIT-vs-AOT number in
+[`v2-wide-jit.md`](v2-wide-jit.md) §9 was taken at `--warmup-time 400`, so all of them are a **lower
+bound** on the JIT's steady state, and "the JIT is 1.00–1.28× of AOT" should be read as "no worse
+than". A steady-state comparison needs the warm-up to exceed tier-up, and nothing in the harness
+enforces that today.
+
+**Three apparatus layers had to be peeled to get here, each invalidating the previous measurement:**
+
+1. **JFR profiles the whole process**, so a raw profile is a profile of the compiler (E-0) — fixed
+   with a control run on the same lane, subtracted.
+2. **`ssc-tools bench` forks**, so `JDK_JAVA_OPTIONS` profiled the wrong process: 30 s of recording
+   yielded ONE execution sample, in a scalameta tokenizer.
+3. **A single-run program is dominated by the front.** At 60 M iterations the profile was still the
+   compiler; only at 600 M did the workload dominate — and there the two lanes are at **parity**
+   (AOT 5.70 s / JIT 5.57 s, both spending ~60 % of samples in the same generated `lam$46`).
+
+That third probe is what proved the emitted loop identical, which is what forced the explanation to
+be about *when* compilation happens rather than *what* is compiled.
+
+**E-2 as originally specced (`canParamDouble` + `$double` entry) is therefore still unmotivated by
+any measurement.** It stays queued. The next real task is a harness that can measure a v2 lane in
+steady state — without it, every future JIT number carries the same understatement.
