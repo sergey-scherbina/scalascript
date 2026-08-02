@@ -7,6 +7,46 @@ grepping for status.
 
 Newest first.
 
+## bugs-index-selftest-cannot-pass-in-a-shallow-clone — main red on EVERY push, on the gate's own self-test
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     fixed-in: PENDING-SHA
+     gate: tests/e2e/bugs-index-gate.sh -->
+
+**Found 2026-08-02** by `gate-holes-sha-and-freeze`, from a CI red on a commit whose diff could not
+have caused it.
+
+`9194a90c7` replaced the `isdigit` run-id heuristic with a REACHABILITY check, on the argument that
+reachability "subsumes the guard completely". It does — **in a full clone**. CI checks out at
+`fetch-depth: 1`, and there the entire reachability branch is skipped, so the self-test's planted
+run id (`30484689408`) passes on shape alone and the gate cannot emit the message its own self-test
+demands:
+
+```
+SELF-TEST FAILED: expected a problem mentioning 'not a commit sha'
+```
+
+Every push failed. Locally every developer saw GREEN, because a working checkout is not shallow.
+
+**Reproduced in CI's environment rather than reasoned about** — `git clone --depth 1`, the method
+this repo already learned to use for this class:
+
+| gate version | full clone | shallow clone |
+|---|---|---|
+| pre-fix (`main`) | exit 0 | **exit 1 — the exact CI error** |
+| fixed | exit 0 | exit 0, all 4 planted defects caught |
+
+**Fix.** A LENGTH-BOUNDED shape rule, checked unconditionally: all digits AND `len >= 11`. That is
+not the guard that was deleted — the deleted one had no length bound and rejected the real 9-digit
+abbreviations `611795277` and `261607982` (the false positive that motivated its removal). A GitHub
+run id is eleven digits; this repo abbreviates to 7-10. The bound separates them, and it works where
+it is needed most: the environment that cannot check reachability.
+
+**Same shape as [[project_validate_job_red_on_own_selftests_0728]]** — a job red on its OWN
+self-test rather than on the repository, invisible to every local run.
+
+
 ## launcher-digest-changes-when-you-COMMIT-unchanged-content — a rebuild per commit cycle
 <!-- status: open
      lane: apparatus

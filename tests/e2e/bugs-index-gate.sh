@@ -100,6 +100,22 @@ for head, body in entries:
             # it now says so by name instead of by a heuristic that has a false positive.
             if not re.fullmatch(r"[0-9a-f]{7,40}", sha):
                 problems.append((slug, f"fixed-in `{sha}` is not a commit sha"))
+            # A LENGTH-BOUNDED shape rule, and it is not the guard that was deleted above.
+            #
+            # "The reachability check subsumes the guard completely" is true in a full clone and
+            # FALSE in CI, which checks out at `fetch-depth: 1` — there the whole `elif` below is
+            # skipped, a pasted run id passes on shape alone, and the gate's own SELF-TEST then
+            # fails looking for a message the gate can no longer produce. That is what turned `main`
+            # red on every push on 2026-08-02, and it is the same shape as the incident in
+            # `project_validate_job_red_on_own_selftests_0728`: a job red on its OWN self-test.
+            #
+            # The deleted guard was `sha.isdigit()` with no length bound, which rejected the real
+            # 9-digit abbreviations `611795277` and `261607982`. A GitHub run id is ELEVEN digits,
+            # and git abbreviates to 7-10 in this repo, so the bound separates them. Checked
+            # unconditionally, because the environment where it matters most is the one that cannot
+            # run the reachability check.
+            elif sha.isdigit() and len(sha) >= 11:
+                problems.append((slug, f"fixed-in `{sha}` looks like a CI run id, not a commit sha"))
             elif not SHALLOW:
                 # REACHABILITY, not existence. `git cat-file -e` is satisfied by any object lying
                 # around in the object database — including a PRE-REBASE ORPHAN, which is what a
