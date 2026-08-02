@@ -1443,7 +1443,18 @@ stop()
 | lane | result |
 |---|---|
 | `ssc-tools run --v1` | completes, prints a status, exits 0 |
-| `ssc-tools run-js`   | hangs; killed at 60 s and at 180 s |
+| `ssc-tools run-js`   | blocks ~6.5 min, then returns **`status 0`, body `timeout`** |
+
+**CORRECTION 2026-08-02 — it is not an infinite hang, and the truth is worse.** It terminates and
+returns a WRONG ANSWER quietly. Quantified from the runtime's own constants and then measured:
+`_httpTimeoutMs` is 30 s and `_httpSyncFetchWithRetry` runs `min(_httpMaxRetries, 10) + 1` attempts,
+so the example's `httpRetry(20, 50)` buys **11** attempts × 30.5 s plus exponential backoff ≈ 6.5 min.
+Verified by shrinking the clock rather than waiting: with `httpTimeout(1000)` the same program
+returns after **73 s** (predicted ≈ 68 s) with `status=0 body=timeout`. Earlier probes killed it at
+60 s and 180 s, which is why it first looked infinite.
+
+A caller that checks `status` sees a plain failure, not a defect — and `httpRetry`, added to make
+startup ROBUST, is what multiplies the damage elevenfold.
 
 **Root cause, from the emitted runtime rather than inferred.** `std/http`'s client is SYNCHRONOUS on
 the js lane, and the emitted code says how:
