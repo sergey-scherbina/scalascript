@@ -532,4 +532,7 @@ object Lower:
     }
     // Lifted lambdas are APPENDED, which is what makes `fns.length + lifted.length` the right
     // index at the point MkClos is emitted.
-    Module(consts, types, Nil, prims, funcs.reverse ++ lifted, entry)
+    // The tail-call pass runs HERE rather than inside the lowering: it is a rewrite of finished IR,
+    // and keeping it separate is what lets it be tested, skipped or reordered without touching the
+    // front. v3/src/TailCalls.scala.
+    TailCalls(Module(consts, types, Nil, prims, funcs.reverse ++ lifted, entry))

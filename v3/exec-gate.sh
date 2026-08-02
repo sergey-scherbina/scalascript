@@ -67,6 +67,24 @@ else
   echo "  FAIL executor did not complete the tail-call program: [$own]"
   fail=1
 fi
+# The same contrast from `.ssc` SOURCE, which is what proves the tail-call PASS fires: without
+# TailCalls.scala rewriting `if n == 0 then true else isOdd(n - 1)`, the executor recurses too.
+ran=$((ran + 1))
+own="$($SSC3 exec v3/tests/mutual-recursion.ssc 2>/dev/null)"
+if [ "$own" = "$(cat v3/tests/mutual-recursion.expected)" ]; then
+  echo "  ok   executor survives 100 000 MUTUAL calls from .ssc source -> $(printf '%s' "$own" | tr '\n' '/')"
+else
+  echo "  FAIL executor did not complete mutual recursion: [$(printf '%s' "$own" | tr '\n' '/')]"
+  fail=1
+fi
+bridge_mut="$(v3/ssc3 run v3/tests/mutual-recursion.ssc 2>&1)"
+if printf '%s' "$bridge_mut" | grep -q StackOverflowError; then
+  echo "  ok   the bridge still overflows on it — the two lanes are distinguishable"
+else
+  echo "  FAIL the bridge did NOT overflow; this contrast no longer proves anything"
+  fail=1
+fi
+
 ir="$(mktemp -t ssc3x)"; $SSC3 emit-v2 v3/tests/tail-call.ssir > "$ir" 2>/dev/null
 # Capture FIRST, then match. Under `set -o pipefail` the pipeline takes java's exit status, and java
 # exits non-zero precisely BECAUSE it overflowed — so `… | grep -q` reported failure exactly when
