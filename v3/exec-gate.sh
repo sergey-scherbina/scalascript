@@ -37,6 +37,27 @@ for f in v3/tests/bridge/*.ssir; do
 done
 
 echo
+echo "── differential: the same, on real .ssc source ─────────────────────────"
+# This is where the differential earns its keep. The IR fixtures above are hand-written and small;
+# these go through the whole front, so a disagreement here indicts the lowering, the bridge or the
+# executor — and says which program exposed it.
+for f in v3/tests/front/*.ssc; do
+  name="$(basename "$f" .ssc)"
+  exp="v3/tests/front/$name.expected"
+  [ -f "$exp" ] || continue
+  ran=$((ran + 1))
+  own="$($SSC3 exec "$f" 2>/dev/null)"
+  via="$(v3/ssc3 run "$f" 2>/dev/null)"
+  want="$(cat "$exp")"
+  if [ "$own" = "$via" ] && [ "$own" = "$want" ]; then
+    echo "  ok   $name -> $(printf '%s' "$own" | tr '\n' '/')  (both lanes agree)"
+  else
+    echo "  FAIL $name — executor [$(printf '%s' "$own" | tr '\n' '/')] bridge [$(printf '%s' "$via" | tr '\n' '/')] expected [$(printf '%s' "$want" | tr '\n' '/')]"
+    fail=1
+  fi
+done
+
+echo
 echo "── constant stack, shown by contrast ───────────────────────────────────"
 ran=$((ran + 1))
 own="$($SSC3 exec v3/tests/tail-call.ssir 2>/dev/null)"

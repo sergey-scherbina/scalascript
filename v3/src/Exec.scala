@@ -202,15 +202,108 @@ object Exec:
       throw ExecError("globals are not implemented in the executor yet")
     case Instr.Perform(_, _, _) | Instr.Handle(_, _, _) | Instr.Resume(_, _, _) =>
       throw ExecError("effects are not implemented in the executor yet")
-    case Instr.Invoke(_, nm, _, _) =>
-      // Dynamic dispatch needs a method table the executor does not have — v2's runtime is where
-      // that lives. Refused BY NAME, so a program that needs it says which method rather than
-      // producing a wrong value.
+    case Instr.Invoke(d, nm, r, as) =>
       val name = m.consts(nm) match
         case Lit.LStr(x) => x
-        case _           => "?"
-      throw ExecError("method dispatch '" + name + "' needs the v2 runtime — use `ssc3 run`")
+        case _           => throw ExecError("an invoke whose name const is not a string")
+      regs(d) = invoke(m, name, regs(r), as.map(x => regs(x)))
+      Signal.Done
     case Instr.Prim(d, p, as) => regs(d) = prim(m.prims(p), as.map(r => regs(r))); Signal.Done
+
+  // ── the method table ────────────────────────────────────────────────────────
+  //
+  // Enough of a library for the front's own programs to run on THIS lane as well as through the
+  // bridge, which is what puts them under the differential gate. Every method here is one the
+  // corpus or a fixture actually calls — the table grows by measurement, not by anticipation.
+  //
+  // A list is `Cons(head, tail)` / `Nil` as `VData`, and the tags are looked up BY NAME in the
+  // module's type table rather than assumed, because they are per-module indices.
+
+  private def tagOf(m: Module, name: String): Int =
+    val i = m.types.indexWhere(t => t.name == name)
+    if i < 0 then -1 else i
+
+  private def listOut(m: Module, v: Value): List[Value] =
+    val consT = tagOf(m, "Cons")
+    var out: List[Value] = Nil
+    var cur = v
+    var go = true
+    while go do
+      cur match
+        case Value.VData(t, f) if t == consT && f.length == 2 =>
+          out = f(0) :: out
+          cur = f(1)
+        case _ => go = false
+    out.reverse
+
+  private def listIn(m: Module, xs: List[Value]): Value =
+    val consT = tagOf(m, "Cons")
+    val nilT = tagOf(m, "Nil")
+    if consT < 0 || nilT < 0 then throw ExecError("this module declares no list constructors")
+    var acc: Value = Value.VData(nilT, new Array[Value](0))
+    xs.reverse.foreach { x =>
+      val f = new Array[Value](2)
+      f(0) = x
+      f(1) = acc
+      acc = Value.VData(consT, f)
+    }
+    acc
+
+  private def isList(m: Module, v: Value): Boolean = v match
+    case Value.VData(t, _) => t == tagOf(m, "Cons") || t == tagOf(m, "Nil")
+    case _                 => false
+
+  private def apply1(m: Module, f: Value, x: Value): Value = f match
+    case Value.VClos(g, cap) => callFunc(m, g, cap :+ x)
+    case v                   => throw ExecError("not a function: " + show(v))
+
+  private def invoke(m: Module, name: String, recv: Value, args: List[Value]): Value =
+    (recv, name) match
+      case (Value.VStr(s), "length")      => Value.VInt(s.length.toLong)
+      case (Value.VStr(s), "toUpperCase") => Value.VStr(s.toUpperCase)
+      case (Value.VStr(s), "toLowerCase") => Value.VStr(s.toLowerCase)
+      case (Value.VStr(s), "isEmpty")     => Value.VBool(s.isEmpty)
+      case (Value.VStr(s), "trim")        => Value.VStr(s.trim)
+      case (Value.VStr(s), "split") =>
+        args.head match
+          case Value.VStr(sep) => listIn(m, s.split(java.util.regex.Pattern.quote(sep), -1).toList.map(x => Value.VStr(x)))
+          case v               => throw ExecError("split by " + show(v))
+      case (Value.VArr(xs), "length") => Value.VInt(xs.length.toLong)
+      case (Value.VArr(xs), "size")   => Value.VInt(xs.length.toLong)
+      case (_, "toString")            => Value.VStr(show(recv))
+      case _ =>
+        if isList(m, recv) then
+          val xs = listOut(m, recv)
+          name match
+            case "size" | "length" => Value.VInt(xs.length.toLong)
+            case "isEmpty"         => Value.VBool(xs.isEmpty)
+            case "nonEmpty"        => Value.VBool(xs.nonEmpty)
+            case "head"            => if xs.isEmpty then throw ExecError("head of an empty list") else xs.head
+            case "tail"            => listIn(m, if xs.isEmpty then Nil else xs.tail)
+            case "sum" =>
+              var acc = 0L
+              xs.foreach { case Value.VInt(n) => acc = acc + n; case v => throw ExecError("sum over " + show(v)) }
+              Value.VInt(acc)
+            case "map"     => listIn(m, xs.map(x => apply1(m, args.head, x)))
+            case "filter"  => listIn(m, xs.filter(x => truthy(apply1(m, args.head, x))))
+            case "reverse" => listIn(m, xs.reverse)
+            case "mkString" =>
+              val sep = args.headOption match
+                case Some(Value.VStr(x)) => x
+                case _                   => ""
+              Value.VStr(xs.map(show).mkString(sep))
+            case other => throw ExecError("list method '" + other + "' is not implemented on this lane")
+        else
+          recv match
+            // `Some`/`None` are ordinary constructors here, so their methods are too.
+            case Value.VData(t, f) if t == tagOf(m, "Some") && name == "get" => f(0)
+            case Value.VData(t, _) if t == tagOf(m, "Some") && name == "isEmpty" => Value.VBool(false)
+            case Value.VData(t, _) if t == tagOf(m, "None") && name == "isEmpty" => Value.VBool(true)
+            case Value.VData(t, f) if t == tagOf(m, "Some") && name == "getOrElse" => f(0)
+            case Value.VData(t, _) if t == tagOf(m, "None") && name == "getOrElse" => args.head
+            // Refused BY NAME, with the receiver shown: a program that needs a method this lane
+            // lacks is told which one, rather than getting a wrong value.
+            case _ => throw ExecError("method '" + name + "' on " + show(recv) + " is not implemented on this lane — `ssc3 run` uses the v2 runtime")
 
   private def constOf(l: Lit): Value = l match
     case Lit.LUnit     => Value.VUnit
