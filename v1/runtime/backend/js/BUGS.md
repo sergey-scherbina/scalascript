@@ -387,11 +387,31 @@ transform and raised the stack instead. Verified against the unfixed compiler: t
 exists for.
 
 ## js-identity-named-runtime-fn-unreachable-from-a-package-module — the whole std/os surface binds to `undefined`
-<!-- status: open
+<!-- status: fixed
      lane: js
      area: codegen
      kind: bug
-     gate: none -->
+     fixed-in: 935784308
+     gate: tests/conformance/std-os-doc-import.ssc -->
+
+**ALREADY FIXED — bookkeeping only, 2026-08-02.** `935784308` ("a document-level std import binds
+its runtime functions instead of `undefined`") added the `__ssc_cap` capture this entry's own
+"Fix direction" called for, and the entry was never moved off `open`.
+
+Verified rather than trusted, both `std/os` corpus cases on both lanes:
+
+```
+std-os             int: /usr/local/bin/ssc ssc .md          js: /usr/local/bin/ssc ssc .md
+std-os-doc-import  int: /usr/local/bin report.md cwd-nonempty  js: /usr/local/bin report.md cwd-nonempty
+```
+
+The mechanism is the one the entry predicted and the reason it works is worth keeping: the capture
+object is built at the IIFE's **call site**, in the ENCLOSING scope, where the bare name still
+resolves to the outer `function` declaration — so an identity-named runtime function becomes
+reachable without the TDZ self-reference (`const env = … : env`) that made the intrinsic-rename
+branch skip exactly this case.
+
+`gate:` was `none` and is now the two cases above, which is what made this verifiable at all.
 
 **Found 2026-07-31 while asking why `std.os.readLine` could not be added to the js lane.** The answer
 was that nothing in `std/os` works there — `env`, `args`, `cwd`, `pathJoin`, `platform`, `exit`, all
