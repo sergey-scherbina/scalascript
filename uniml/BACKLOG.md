@@ -376,7 +376,16 @@ self-parity test is not external conformance.
         `parseMember` did not. 1,029 → 1,041 clean files, 1,278 → 808 diagnostics.
         Gated by `SscBreadthSpec` (diagnostics, not AST nodes — the node-count gate could not
         see this fix at all).
-        **`extern`: TRIED AND REVERTED, and the refutation is the useful part.** ssc1-front
+        **`extern` + qualified def names: LANDED TOGETHER** — diagnostics 808 → 678 (-16%),
+        `v1/runtime/std/streams.ssc` 159 → 24 (-85%). The pairing was the result: `extern` alone
+        went the WRONG WAY (808 → 888) because it only exposed `def Source.from[A](…)`. The
+        third form I had listed, a def with no parameter clause, was already supported — checked,
+        not assumed. ⚠️ Measuring this also exposed a GATE defect: all three sweeps walked `bin/`,
+        where `install.sh --dev` copies the whole runtime, so the corpus jumped 1,145 → 1,406
+        files the moment anyone ran the installer and every count moved with it. `bin/lib/` is
+        now excluded in all three. Worst files now: `examples/std-ui/input.ssc` 47,
+        `ui/containers.ssc` 35, `streams-bridge.ssc` 32.
+        _Superseded record of the first attempt:_ ssc1-front
         treats it as a declaration-STARTING identifier (`ssc1-front.ssc0:2705,:3038`), and there
         are 455 `extern def` sites. Adding it to `declModifiers` made the numbers WORSE —
         streams.ssc 159 → 228, total 808 → 888 — because it is not the only gap in those lines:
