@@ -5733,9 +5733,15 @@ commit SHA until the reporter confirms, then they can be trimmed.
 - **FIXED (2026-06-15):** all three JS match paths now fold the guard into the arm condition via an IIFE that scopes the pattern bindings: `(cond) && (() => { <bindings>; return (<guard>); })()`. Guarded arms are no longer mistaken for catch-alls (the switch fast-path also excludes them since the cond is no longer `"true"`). Guard: `CrossBackendPropertyTest` "collection HOFs and pattern matching cross-backend" (match-guard-bind shape).
 
 ## xbackend-wave4-jvm-transient — `wontfix` (2026-06-15, not reproduced)
-<!-- status: unknown
+<!-- status: wontfix
      lane: js
      area: codegen -->
+
+**Classified 2026-08-02 from the entry's own content**, which is unusually clear about it: the two
+shapes failed ONCE, did not reproduce on a clean re-run (interp == JS == JVM all green), and the
+failure coincided with contending `sbt`/`scala-cli` processes corrupting temp compiles. No code
+changed; the shapes were kept as cross-backend guards. `wontfix` is the enum value for exactly
+that — a report closed without a fix because there was nothing to fix.
 
 - Two wave-4 shapes (`xs.zip(ys).map((a,b)=>a+b).sum`, `(1,(2,3)) match { case (a,(b,c)) => … }`) reported a JVM `scala-cli failed` ONCE, but did NOT reproduce on a clean re-run (interp == JS == JVM all green). The original failure coincided with two contending `sbt`/`scala-cli` processes corrupting temp compiles. Kept as cross-backend guards in "collection HOFs and pattern matching cross-backend"; no code change.
 

@@ -2950,9 +2950,16 @@ NativeUi ABI-v1 migration, announced to `@scalascript` in Rozum.
   Check Map/Set/tuple/Option/Either too. Cross-backend regression.
 
 ## interp-module-loader-dedup — `done` (busi confirmed, rozum seq-137)
-<!-- status: unknown
+<!-- status: fixed
      lane: int
-     area: runtime -->
+     area: runtime
+     fixed-in: unrecorded -->
+
+**Re-verified 2026-08-02 at `1305736e1`** on the entry's own three-module shape — `big` (with a
+load-time `println` as the side effect), `spi` importing `big`, `entry` importing BOTH. The side
+effect fires **exactly once** and both values are right, so the loader dedups. Without dedup the
+entry says `big` is evaluated repeatedly to the point of OOM; a single line of output is the
+discriminating observable, which is why the fixture prints on load rather than asserting a time.
 
 - **Reported:** busi (`@busi-claude-code`), rozum `scalascript` seq-132 (2026-06-12).
 - **Symptom:** interpreting (not `ssc check`) an entry that imports a large module via

@@ -249,9 +249,15 @@ claim's history is 11 days old and cannot rescue it, no rename is needed, and no
 literal date drifting past real history again.
 
 ## heartbeat-stale-while-active — the staleness check called a committing agent orphaned
-<!-- status: unknown
+<!-- status: fixed
      lane: apparatus
-     area: docs -->
+     area: docs
+     gate: tests/coord/claim-activity-overrides-heartbeat.sh
+     fixed-in: c24ca1c08 -->
+
+**Re-verified 2026-08-02:** the named gate passes — `claim-activity-overrides-heartbeat: OK (commit
+evidence outranks a stale heartbeat field)`. Both cited shas (`c24ca1c08`, and `0c7bba624` for the
+gate) resolve and are ancestors of `origin/main`.
 
 **Status: FIXED 2026-07-30** in `c24ca1c08`, gated by
 `tests/coord/claim-activity-overrides-heartbeat.sh` (`0c7bba624`).
