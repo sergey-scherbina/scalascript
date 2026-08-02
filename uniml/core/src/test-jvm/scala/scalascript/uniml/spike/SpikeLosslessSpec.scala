@@ -3,6 +3,7 @@ package scalascript.uniml.spike
 import org.scalatest.funsuite.AnyFunSuite
 import scalascript.uniml.*
 import java.nio.file.{Files, Path, Paths}
+import scala.jdk.CollectionConverters.*
 
 /** The ScalaScript dialect's losslessness gate.
   *
@@ -48,6 +49,10 @@ final class SpikeLosslessSpec extends AnyFunSuite:
     "char-escape"    -> "def f(): Int = '\\n'\n",
     "no-final-nl"    -> "def f(): Int = 1",
     "crlf"           -> "def f(): Int = 1\r\ndef g(): Int = 2\r\n",
+    // the two operators ssc1-front REWRITES while lexing; the CST must keep the
+    // spelling while the projection keeps the meaning
+    "concat-3colon"  -> "def f(xs: List, ys: List): List = xs ::: ys\n",
+    "prepend-plus"   -> "def f(x: Int, xs: List): List = x +: xs\n",
   )
 
   /** Real ScalaScript, not only hand-written shapes — the handWritten cases are the
@@ -59,13 +64,31 @@ final class SpikeLosslessSpec extends AnyFunSuite:
       .find(Files.exists(_))
       .map(p => new String(Files.readAllBytes(p), "UTF-8"))
 
+  private def repoRoot: Path =
+    Iterator.iterate(Paths.get("").toAbsolutePath)(_.getParent).takeWhile(_ != null)
+      .find(p => Files.exists(p.resolve("AGENTS.md")))
+      .getOrElse(throw new IllegalStateException("repository root not found"))
+
+  /** EVERY `.ssc` in the repository, not a hand-picked pair.
+    *
+    * The pair this started as passed while `xs ::: ys` was still losing a
+    * character — the sweep is what found it, in one file out of 1,140. A gate
+    * over examples somebody chose only ever proves the examples somebody chose. */
   private val fromRepo: Vector[(String, String)] =
-    Vector("v1/runtime/std/actors.ssc", "specs/v2.2-p6.6-cmin.L")
-      .flatMap(rel => repoFile(rel).map(text => rel -> text))
+    val root = repoRoot
+    Files.walk(root).iterator.asScala
+      .filter(p => p.toString.endsWith(".ssc"))
+      .filterNot(p =>
+        p.toString.contains("/target/") || p.toString.contains("/.git/") ||
+          p.toString.contains("/.worktrees/"))
+      .toVector
+      .sortBy(_.toString)
+      .map(p => root.relativize(p).toString -> new String(Files.readAllBytes(p), "UTF-8"))
+      ++ Vector("specs/v2.2-p6.6-cmin.L").flatMap(rel => repoFile(rel).map(text => rel -> text))
 
   test("every lexeme is a source slice — the CST reconstructs the source exactly") {
     val cases = handWritten ++ fromRepo
-    assert(cases.sizeIs >= handWritten.size + 1, "no repo .ssc found — the gate would only see hand-written input")
+    assert(fromRepo.sizeIs > 500, s"only ${fromRepo.size} repo files found — the sweep silently shrank")
     val broken = cases.filter { (_, text) => parseWhole(text).roots.map(reconstruct).mkString != text }
     assert(
       broken.isEmpty,
@@ -78,7 +101,9 @@ final class SpikeLosslessSpec extends AnyFunSuite:
   }
 
   test("the parse is invariant to how the source is chunked") {
-    val cases = handWritten ++ fromRepo
+    // hand-written shapes at every size, plus a deterministic slice of the repo —
+    // 1,140 files x 4 chunk sizes is minutes, and the shapes are what varies
+    val cases = handWritten ++ fromRepo.grouped(40).map(_.head).toVector
     val differing = cases.flatMap { (label, text) =>
       Vector(1, 7, 64, 4096).flatMap { size =>
         val whole = parseWhole(text).roots.map(reconstruct).mkString

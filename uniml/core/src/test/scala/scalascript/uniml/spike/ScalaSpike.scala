@@ -170,6 +170,7 @@ object SpikeLex:
         if i + 1 < n then { sb.append('*'); advance('*'); sb.append('/'); advance('/') }
         emit("spike.ws", start, sb.toString, TokenChannel.Trivia)
       else if isOpChar(c) then
+        val opStart = i
         val (op, width) = opAt(text, i)
         var k = 0
         while k < width do { advance(text.charAt(i)); k += 1 }
@@ -177,7 +178,14 @@ object SpikeLex:
           case "=" => "spike.eq"
           case ":" => "spike.colon"
           case _   => "spike.op"
-        emit(kind, start, op, TokenChannel.Syntax)
+        // The lexeme is the SOURCE SLICE, not `op`. `opAt` REWRITES two operators —
+        // `:::`→`++` and `+:`→`::` — mirroring ssc1-front's lex-time rewrite, and a
+        // rewritten lexeme is one the source cannot be rebuilt from: `xs ::: ys` came
+        // back as `xs ++ ys`, one character short. The rewrite is a statement about
+        // MEANING (in v2 every Seq is a Cons-list, so `:::` IS `++`), so it belongs
+        // where meaning is read — `SpikeOp.meaning`, used by the precedence table and
+        // the projection.
+        emit(kind, start, text.substring(opStart, i), TokenChannel.Syntax)
       else if c == '"' then
         // string literal → spike.str whose lexeme is the RAW SOURCE SLICE, quotes and
         // escapes included. It used to hold the DECODED value ("mirrors ssc1-front
@@ -261,6 +269,16 @@ extension (n: Node)
   * Four forms, all previously normalised away at lex time: a char literal
   * (`'a'`, `'\n'`, `'\uXXXX'`) is its code, hex folds to decimal, `_` digit
   * separators drop out, and a trailing `L`/`l` is not part of the value. */
+/** The MEANING of an operator lexeme, for the two that ssc1-front rewrites while
+  * lexing: in v2 every Seq is a Cons-list, so `xs ::: ys` is exactly `xs ++ ys`
+  * and `x +: xs` exactly `x :: xs`. The CST keeps the source spelling; this is
+  * what the precedence table and the projection read. */
+private[spike] object SpikeOp:
+  def meaning(lex: String): String = lex match
+    case ":::" => "++"
+    case "+:"  => "::"
+    case other => other
+
 private[spike] object SpikeNum:
   def decode(lex: String): String =
     if lex.startsWith("'") then charCode(lex).toString
@@ -361,7 +379,7 @@ object SpikeParse:
       var q = p - 1
       while q >= 0 && toks(q).kind == "spike.ws" do q -= 1
       if q >= 0 then toks(q).span.end.line else -1
-    def peekPrec: Int = if peekKind == "spike.op" then opPrec(peekLexeme) else 0
+    def peekPrec: Int = if peekKind == "spike.op" then opPrec(SpikeOp.meaning(peekLexeme)) else 0
     def peek2Lexeme: String = // the second significant (non-trivia) token's lexeme
       skipTrivia()
       var q = p + 1
@@ -1338,13 +1356,15 @@ object SpikeParse:
       c.advance().foreach(t => kids += Node.Leaf(t, Some("case.ifkw")))
       parseExpr(c, 1).foreach(g => kids += g.withRole("case.guard"))
     val arrowLine = c.peekLine
-    var arrow: Option[SourceToken] = None
     if c.peekKind == "spike.op" && c.peekLexeme == "=>" then
-      c.advance().foreach { t => arrow = Some(t); kids += Node.Leaf(t, Some("case.arrow")) }
+      c.advance().foreach(t => kids += Node.Leaf(t, Some("case.arrow")))
     else c.report("spike.expected", "expected '=>' in case arm")
-    // the `=>` token doubles as the carrier for an EMPTY body (an empty Frame would not survive the emit)
-    val arrowTok = arrow.map(t => Node.Leaf(t, Some("unit.tok"))).getOrElse(Node.Frame("spike.error", None, Vector.empty))
-    kids += armBody(c, arrowLine, arrowTok).withRole("case.body")
+    // An EMPTY body used to be carried by the `=>` token itself, added a SECOND time under
+    // the role `unit.tok` because "an empty Frame would not survive the emit". That put one
+    // token in the tree twice, which a reconstruction prints twice — found by the corpus
+    // sweep in tests/conformance/js-generator-next-option.ssc. The absence of a `case.body`
+    // child is signal enough: the projection reads Unit from it.
+    armBody(c, arrowLine).foreach(b => kids += b.withRole("case.body"))
     Node.Frame("spike.arm", None, kids.result())
 
   // An arm body is a STATEMENT LIST terminated by `case` / `}` / EOF, and then: exactly ONE `expr`
@@ -1362,8 +1382,8 @@ object SpikeParse:
   // as one token: `case Some(u) => html"<p>…</p>"` is the var `html` THEN the string — two statements → a
   // block. Keeping the single-expr UNWRAP is what makes this safe (wrapping every same-line arm in a block
   // changes the body's tag for hundreds of programs — the trap that sank the earlier attempt).
-  private def armBody(c: Cur, arrowLine: Int, arrowTok: Node): Node =
-    if !c.eof && c.peekLine > arrowLine then branchExpr(c, arrowLine)
+  private def armBody(c: Cur, arrowLine: Int): Option[Node] =
+    if !c.eof && c.peekLine > arrowLine then Some(branchExpr(c, arrowLine))
     else
       val bodyCol = c.peekCol
       val stmts = Vector.newBuilder[Node]
@@ -1380,12 +1400,12 @@ object SpikeParse:
           stmts += parseStmt(c)
           if c.mark == before then more = false // guarantee progress
       val ss = stmts.result()
-      if ss.isEmpty then Node.Frame("spike.unitbody", None, Vector(arrowTok)) // `case A =>` with NO body → Unit
+      if ss.isEmpty then None // `case A =>` with NO body → Unit, signalled by the absence
       else if ss.length == 1 then
-        ss.head match
+        Some(ss.head match
           case Node.Frame("spike.exprStmt", _, inner) if inner.length == 1 => inner.head
-          case _                                                           => Node.Frame("spike.block", None, ss)
-      else Node.Frame("spike.block", None, ss)
+          case _                                                           => Node.Frame("spike.block", None, ss))
+      else Some(Node.Frame("spike.block", None, ss))
 
   // a full arm pattern: `alias @ PAT` (bind, bpat) around `PAT | PAT | …` (alternatives, apat).
   private def parseArmPattern(c: Cur): Node =
@@ -2352,7 +2372,6 @@ object SpikeProject:
       // `case A =>` with NO body at all — ssc1-front's parseArmBody returns `Pair("uid", "Unit")` for an
       // empty statement list (ssc1-front.ssc0:1987). The frame carries the `=>` token only so it survives
       // the Node→UniNode emit; the token itself is not projected.
-      case "spike.unitbody" => """mkUVar("Unit")"""
       case "spike.summon" => // payload = the whole type application, joined with NO separator (joinStrs)
         s"""Pair("summon", "${esc(kids(b).collect { case (Some("summon.tok"), c) => lexeme(c) }.mkString)}")"""
       case "spike.pre" =>
@@ -2424,7 +2443,9 @@ object SpikeProject:
 
   private def arm(b: UniNode.Branch): String =
     val pat  = kids(b).collectFirst { case (Some("case.pat"), c) => patProj(c) }.getOrElse("""Pair("wpat", "")""")
-    val body = kids(b).collectFirst { case (Some("case.body"), c) => expr(c) }.getOrElse(hole)
+    // no `case.body` child means `case A =>` with an empty body, i.e. Unit — the arm
+    // used to carry a duplicated `=>` token to say this
+    val body = kids(b).collectFirst { case (Some("case.body"), c) => expr(c) }.getOrElse("""mkUVar("Unit")""")
     val guarded = kids(b).collectFirst { case (Some("case.guard"), c) => expr(c) } match
       case Some(g) => s"""Pair("gpat", Pair($pat, $g))"""
       case None    => pat
@@ -2512,7 +2533,7 @@ object SpikeProject:
     case n => s"""mkSExpr(${expr(n)})""" // unhandled stmt (e.g. an error-recovery node → `_err`) as a bare expr
 
   private def infix(b: UniNode.Branch): String =
-    val op = kids(b).collectFirst { case (Some("bin.op"), c) => lexeme(c) }.getOrElse("+")
+    val op = kids(b).collectFirst { case (Some("bin.op"), c) => SpikeOp.meaning(lexeme(c)) }.getOrElse("+")
     val l  = kids(b).collectFirst { case (Some("bin.left"), c) => expr(c) }.getOrElse(hole)
     val r  = kids(b).collectFirst { case (Some("bin.right"), c) => expr(c) }.getOrElse(hole)
     s"""mkInf("${esc(op)}", $l, $r)"""
@@ -2545,7 +2566,7 @@ object SpikeProject:
     case UniNode.Token(t) if t.kind == "spike.id" && t.lexeme == "_" =>
       val i = ctr(0); ctr(0) = i + 1; s"""mkVar("__u$i")"""
     case b: UniNode.Branch if b.kind == "spike.infix" =>
-      val op = kids(b).collectFirst { case (Some("bin.op"), c) => lexeme(c) }.getOrElse("+")
+      val op = kids(b).collectFirst { case (Some("bin.op"), c) => SpikeOp.meaning(lexeme(c)) }.getOrElse("+")
       val l  = kids(b).collectFirst { case (Some("bin.left"), c) => projectPh(c, ctr) }.getOrElse(hole)
       val r  = kids(b).collectFirst { case (Some("bin.right"), c) => projectPh(c, ctr) }.getOrElse(hole)
       s"""mkInf("${esc(op)}", $l, $r)"""
