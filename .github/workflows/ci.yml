@@ -230,6 +230,32 @@ jobs:
       - name: Verify host build-RAM guards actually guard
         run: tests/e2e/build-ram-budget-gate.sh
 
+      # ── seven gates that ran nowhere, wired to TIER 2 on 2026-08-02 ─────────────────────────
+      #
+      # 52 of the 126 scripts in tests/e2e were invoked by nothing — no workflow, no suite, no other
+      # script. Running all 52 measured 19 passing, 26 failing, 6 hanging past 180 s. The twelve
+      # cheapest passing ones went to `scripts/smoke-ci`; these are the rest, 14-59 s each and ~3 min
+      # together, which fits a 14-minute nightly tier and does not belong on the push path.
+      #
+      # The 33 that do not pass are filed as `orphaned-e2e-gates-52` rather than wired red or deleted
+      # unexamined: none is provably dead, and a red gate nobody asked for is how a suite becomes
+      # noise people learn to ignore.
+      - name: Gates without a home — v21 native surface
+        run: |
+          tests/e2e/v21-native-dynamic-tostring-smoke.sh
+          tests/e2e/v21-native-md-interpolator-smoke.sh
+
+      - name: Gates without a home — v2 diagnostics and fast paths
+        run: |
+          tests/e2e/v2-error-diagnostic.sh
+          tests/e2e/v2-f-nested-bytecode-fast-path.sh
+          tests/e2e/v2-swift-cli.sh
+
+      - name: Gates without a home — conformance flags and the scljet corpus
+        run: |
+          tests/e2e/conformance-lanes-flag.sh
+          tests/e2e/scljet-m2-corpus-smoke.sh
+
   conformance:
     name: Conformance shard ${{ matrix.shard }}/4
     runs-on: ubuntu-latest

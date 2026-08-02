@@ -160,6 +160,30 @@ val suite = List(
   // a real enumeration needs; the enumeration itself is asserted at runtime by the script refusing
   // a listing under ten suites and refusing to run an empty slice.
   Check("tests", "sbt-test-shard-partition", "tests/e2e/sbt-test-shard-gate.sh", List(), 120000),
+
+  // ── GATES THAT RAN NOWHERE, wired 2026-08-02 ────────────────────────────────────────────────
+  //
+  // 52 of the 126 scripts in tests/e2e were invoked by no workflow, no suite and no other script.
+  // MEASURED by running all 52: 19 pass, 26 fail, 6 hang past 180 s, 1 is a usage error — so most
+  // of that pile had rotted unnoticed, which is what a gate does when nothing runs it. Two of them
+  // had already caught real defects this week after being wired by hand.
+  //
+  // These are the CHEAP passing ones (every one under 7 s, ~40 s in total). The seven costlier
+  // passing gates went to tier 2 in ci.yml; the 33 that do not pass are filed in tests/BUGS.md as
+  // `orphaned-e2e-gates-52` rather than wired red or deleted unexamined — none of them is provably
+  // dead, and a red gate nobody asked for is how a suite becomes noise.
+  Check("scripts", "build-ram-guard", "tests/e2e/build-ram-guard-gate.sh", List(), 60000),
+  Check("scripts", "project-partition", "tests/e2e/project-partition-gate.sh", List(), 60000),
+  Check("scripts", "sscpkg-temp-cleanup", "tests/e2e/sscpkg-temp-cleanup-smoke.sh", List(), 60000),
+  Check(".", "scljet-capability-manifest", "tests/e2e/scljet-capability-manifest.sh", List(), 60000),
+  Check("v1/runtime/backend/interpreter", "int-string-concat", "tests/e2e/int-string-concat.sh", List(), 60000),
+  Check("v2", "v2-annotated-field-derives", "tests/e2e/v2-annotated-field-derives.sh", List(), 60000),
+  Check("v2", "v2-std-index-arity", "tests/e2e/v2-std-index-arity.sh", List(), 60000),
+  Check("v2", "v2-string-plus-vs-user-concat", "tests/e2e/v2-string-plus-vs-user-concat-ext.sh", List(), 60000),
+  Check("v2", "v2-dsl-yaml-like", "tests/e2e/dsl-yaml-like-v2-smoke.sh", List(), 60000),
+  Check("v2", "v2-indent-layout", "tests/e2e/indent-layout-v2-smoke.sh", List(), 60000),
+  Check("v2", "v21-native-checker", "tests/e2e/v21-native-checker-smoke.sh", List(), 60000),
+  Check("v2", "v21-sentinel-taxonomy", "tests/e2e/v21-sentinel-taxonomy-smoke.sh", List(), 60000),
   Check("tests", "silent-assertions-frozen", "tests/e2e/silent-assertion-gate.sh", List(), 120000),
   // Two consumers, one fixture: the manifest's owner (v21-explicit-lanes-gate) and the reader that
   // only looks up a lane (bc-parity-sweep). The reader kept a second copy of the contract frozen at

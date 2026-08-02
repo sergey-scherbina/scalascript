@@ -7,6 +7,95 @@ grepping for status.
 
 Newest first.
 
+## orphaned-e2e-gates-52 — 52 of 126 gates were invoked by nothing, and 33 of those do not pass
+<!-- status: open
+     lane: apparatus
+     area: build
+     kind: apparatus
+     gate: none -->
+
+**Measured 2026-08-02.** `tests/e2e` holds 126 scripts. 52 of them are referenced by no workflow, no
+suite, and no other script — only, at most, by prose in a `.md`. Running all 52 with a built
+launcher, 180 s timeout each, 1604 s total:
+
+| outcome | count |
+|---|---|
+| pass | 19 |
+| fail | 26 |
+| hang past 180 s | 6 |
+| usage error | 1 |
+
+The 19 that pass are now wired — the twelve cheapest (≤7 s) into `scripts/smoke-ci`, the seven
+costlier (14-59 s) into tier 2 in `ci.yml`. This entry is the remaining 33.
+
+**Why they are not simply deleted.** Only two referenced paths that are all gone, and one of THOSE
+passes (`indent-layout-v2-smoke.sh`) — so "the subject is gone" is not the explanation. A first
+count said 33 gates had dead subjects; that was a bug in the counting loop, and the real number is
+two. Nor are they wired red: a gate nobody asked for that fails on arrival is how a suite becomes
+noise people learn to ignore.
+
+**They are not one problem.** Sampling the failures shows at least three kinds, and each needs a
+different answer:
+
+* a real behavioural difference — `actors-pingpong-smoke` output mismatch, `nested-build-smoke`
+  "expected extra.css in dist, missing", `req-type-collision-v2-smoke` "--v1 baseline broke";
+* an EMPTY result where content was expected — `bundle-smoke`, `import-alias-smoke`,
+  `package-keyword-smoke` all got "" against an expected HTML/JS body, which usually means the
+  pipeline they drive stopped producing rather than started producing something wrong;
+* the gate itself broken — `render-smoke.sh` dies at its own line 25 on a path.
+
+**The six that HANG are their own category** and probably explain why nobody wired them:
+`components-smoke`, `fm-routes-smoke`, `health-defaults-smoke`, `middleware-smoke`, `upload-smoke`, `validation-smoke`. All are web-feature smokes; they appear to start a
+server and wait. A gate that does not terminate cannot go in any tier until it has a headless or
+timeout mode.
+
+**Full list, by outcome.**
+
+failing (26):
+  - `actors-pingpong-smoke.sh`
+  - `area-map-gate.sh`
+  - `bundle-smoke.sh`
+  - `import-alias-smoke.sh`
+  - `nested-build-smoke.sh`
+  - `package-keyword-smoke.sh`
+  - `render-smoke.sh`
+  - `req-type-collision-v2-smoke.sh`
+  - `route-params-v2-smoke.sh`
+  - `serve-view-frontend-v2-smoke.sh`
+  - `site-smoke.sh`
+  - `std-ui-content-smoke.sh`
+  - `std-ui-data-smoke.sh`
+  - `std-ui-feedback-smoke.sh`
+  - `std-ui-forms-smoke.sh`
+  - `std-ui-layout-smoke.sh`
+  - `std-ui-nav-smoke.sh`
+  - `std-ui-theming-smoke.sh`
+  - `std-ui-widgets-smoke.sh`
+  - `url-import-smoke.sh`
+  - `v21-build-jvm-smoke.sh`
+  - `v21-native-content-smoke.sh`
+  - `v21-native-doc-render-smoke.sh`
+  - `v21-typeclass-dictionary-smoke.sh`
+  - `v21-unhandled-effect-smoke.sh`
+  - `wc-card-smoke.sh`
+
+hanging (6):
+  - `components-smoke.sh`
+  - `fm-routes-smoke.sh`
+  - `health-defaults-smoke.sh`
+  - `middleware-smoke.sh`
+  - `upload-smoke.sh`
+  - `validation-smoke.sh`
+
+usage error (1):
+  - `v21-portable-gates-smoke.sh`
+
+**The lesson worth keeping separately from the list:** two of these were wired by hand earlier this
+week and immediately caught real defects — `negtc-mapreduce-gate` proved the property the whole
+negtc shard rests on and had never run, and `v21-negative-toolchain-release-gate-smoke` died at its
+first line so none of its seven drift rejections ever executed. A gate that runs nowhere is not
+neutral; it is a claim of coverage that is not being made.
+
 ## f4-dualrun-gate-compares-F-with-ITSELF-since-the-front-flip
 <!-- status: open
      lane: apparatus
