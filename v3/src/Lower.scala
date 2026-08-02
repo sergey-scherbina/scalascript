@@ -100,8 +100,16 @@ object Lower:
       st0.lookup(n) match
         case Some(r) => (Nil, r, st0)
         case None =>
-          // A nullary constructor is spelled as a bare name — `Nil`, `None` — which is why this
-          // arm exists rather than the lookup simply failing.
+          // A nullary constructor is spelled as a bare name — `Nil`, `None`, and every `case Red`
+          // of an enum — which is why this arm exists rather than the lookup simply failing.
+          // Declared classes are checked FIRST so a program's own `case None` wins over the
+          // built-in, which is what shadowing means.
+          val declaredNullary = classes.find(c => c.name == n && c.fields.isEmpty)
+          if declaredNullary.isDefined then
+            val (t, st1) = st0.typeIdx(n, 0)
+            val (d, st2) = st1.fresh
+            (List(Instr.MkData(d, t, Nil)), d, st2)
+          else
           ctors.find((cn, ar) => cn == n && ar == 0) match
             case Some((cn, _)) =>
               val (t, st1) = st0.typeIdx(cn, 0)
@@ -124,6 +132,15 @@ object Lower:
       val (d, st3) = st2.fresh
       val (tk, st4) = st3.constIdx(Lit.LBool(true))
       (li ++ List(Instr.If(lr, List(Instr.Const(d, tk)), ri :+ Instr.Move(d, rr))), d, st4)
+
+    // `h :: t` is `Cons(h, t)` — the same node the pattern form produces, so the two spellings
+    // cannot drift apart.
+    case Expr.Bin("::", l, r, _) =>
+      val (li, lr, st1) = lower(l, fns, classes, st0)
+      val (ri, rr, st2) = lower(r, fns, classes, st1)
+      val (t, st3) = st2.typeIdx("Cons", 2)
+      val (d, st4) = st3.fresh
+      (li ++ ri :+ Instr.MkData(d, t, List(lr, rr)), d, st4)
 
     case Expr.Bin(op, l, r, p) =>
       val (li, lr, st1) = lower(l, fns, classes, st0)

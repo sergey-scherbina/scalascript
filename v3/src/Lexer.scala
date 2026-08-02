@@ -195,6 +195,11 @@ object Lexer:
       while !done(s) && Chars.isOpChar(at(s)) do
         text = text + at(s); s = adv(s)
       (Tok.TOp(text, p), s)
+    // `::` is an OPERATOR; a single `:` is punctuation that introduces a type. Making `:` an
+    // operator character would have been simpler and would turn every `x: Int` into an infix
+    // application, so the pair is recognised here instead.
+    else if c == ':' && s0.pos + 1 < s0.src.length && s0.src.charAt(s0.pos + 1) == ':' then
+      (Tok.TOp("::", p), adv(adv(s0)))
     else if c == '(' || c == ')' || c == ',' || c == ':' || c == '.' || c == ';' ||
             c == '{' || c == '}' || c == '[' || c == ']' then
       (Tok.TPunct(c.toString, p), adv(s0))

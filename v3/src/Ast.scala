@@ -53,6 +53,13 @@ enum Pat:
   case PLit(value: Expr, pos: Pos)
   case PCtor(name: String, args: List[Pat], pos: Pos)
 
+object Pat:
+  def posOf(p: Pat): Pos = p match
+    case PWild(x)       => x
+    case PBind(_, x)    => x
+    case PLit(_, x)     => x
+    case PCtor(_, _, x) => x
+
 final case class MatchArm(pat: Pat, body: Expr)
 
 enum Stmt:

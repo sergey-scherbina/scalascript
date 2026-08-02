@@ -16,7 +16,7 @@ final case class ParseFail(pos: Pos, message: String)
 object Parser:
 
   private val keywords: List[String] =
-    List("def", "val", "var", "if", "then", "else", "while", "do", "true", "false", "case", "class", "match")
+    List("def", "val", "var", "if", "then", "else", "while", "do", "true", "false", "case", "class", "match", "enum")
 
   /** Binary operator precedence, tightest last. `&&` and `||` are here for PARSING only — the
     * lowering turns them into `If`, because they short-circuit and an IR that lets them be strict
@@ -26,6 +26,7 @@ object Parser:
     case "&&"                            => 2
     case "==" | "!="                     => 3
     case "<" | "<=" | ">" | ">="         => 4
+    case "::"                            => 5
     case "+" | "-"                       => 5
     case "*" | "/" | "%"                 => 6
     case _                               => 0
@@ -144,7 +145,10 @@ object Parser:
     while go do
       peek(ts) match
         case Tok.TOp(op, p) if prec(op) >= minPrec && prec(op) > 0 =>
-          val (rhs, ts2) = parseBin(ts.tail, prec(op) + 1)
+          // `::` is RIGHT-associative, so it recurses at its own precedence rather than one above:
+          // `1 :: 2 :: Nil` must be `1 :: (2 :: Nil)`, and left association would build a list
+          // whose tail is a number.
+          val (rhs, ts2) = parseBin(ts.tail, if op == "::" then prec(op) else prec(op) + 1)
           lhs = Expr.Bin(op, lhs, rhs, p)
           ts = ts2
         case _ => go = false
@@ -249,7 +253,16 @@ object Parser:
         case Some(e) => (Expr.Block(body.dropRight(1), Some(e), p), ts)
         case None    => (Expr.Block(body, None, p), ts)
 
-  private def parsePat(ts: List[Tok]): (Pat, List[Tok]) = peek(ts) match
+  /** A pattern, with the infix cons form `h :: t` folded into the ordinary `Cons(h, t)`. It is
+    * spelled differently and means the same thing, so it becomes the same node. */
+  private def parsePat(ts0: List[Tok]): (Pat, List[Tok]) =
+    val (head, ts) = parsePatAtom(ts0)
+    if isOp(peek(ts), "::") then
+      val (tail, t) = parsePat(ts.tail)
+      (Pat.PCtor("Cons", List(head, tail), Pat.posOf(head)), t)
+    else (head, ts)
+
+  private def parsePatAtom(ts: List[Tok]): (Pat, List[Tok]) = peek(ts) match
     case Tok.TId("_", p) => (Pat.PWild(p), ts.tail)
     case Tok.TInt(t, p)  => (Pat.PLit(Expr.IntLit(longOf(t, p), p), p), ts.tail)
     case Tok.TFloat(t, p) => (Pat.PLit(Expr.DoubleLit(t.toDouble, p), p), ts.tail)
@@ -263,11 +276,12 @@ object Parser:
         if !isPunct(peek(t), ")") then
           var go = true
           while go do
-            val (a, t2) = parsePat(t)
+            val (a, t2) = parsePatAtom(t)
             a match
               case Pat.PCtor(_, _, ap) =>
                 throw ParseFail(ap, "a nested pattern is outside SSC3 core Tier 0")
               case _ => ()
+
             args = a :: args
             t = t2
             if isPunct(peek(t), ",") then t = t.tail else go = false
@@ -447,6 +461,60 @@ object Parser:
       throw ParseFail(posOf(ts), "a `case class` body is outside SSC3 core Tier 0 — only the constructor is supported")
     (ClassDef(name, fields.reverse, p), ts)
 
+  /** `enum E:` / `enum E { … }` with `case A` and `case B(f: T)` members.
+    *
+    * Each case becomes a `ClassDef` — the SAME thing a `case class` produces — because that is what
+    * an enum case is downstream: a constructor with a tag and some fields. Giving enums their own
+    * representation would mean every later phase asking which of the two it had. */
+  private def parseEnum(ts0: List[Tok]): (List[ClassDef], List[Tok]) =
+    val (_, _, t0) = expectName(ts0)
+    var ts = skipBrackets(t0)
+    var braced = false
+    if isPunct(peek(ts), ":") then ts = ts.tail
+    if isPunct(peek(skipNewlines(ts)), "{") then
+      braced = true
+      ts = skipNewlines(ts).tail
+    else
+      val t = skipNewlines(ts)
+      if t.head.isInstanceOf[Tok.TIndent] then ts = t.tail
+      else throw ParseFail(posOf(t), "expected the enum's cases, indented or in braces")
+    var out: List[ClassDef] = Nil
+    var go = true
+    while go do
+      ts = skipNewlines(ts)
+      if braced && isPunct(peek(ts), "}") then
+        ts = ts.tail
+        go = false
+      else if !braced && ts.head.isInstanceOf[Tok.TDedent] then
+        ts = ts.tail
+        go = false
+      else if ts.head.isInstanceOf[Tok.TEof] then go = false
+      else if !isId(peek(ts), "case") then
+        throw ParseFail(posOf(ts), "expected `case`, found " + Lexer.show(peek(ts)))
+      else
+        // `case A, B, C` on one line is ordinary and each name is its own constructor.
+        var more = true
+        ts = ts.tail
+        while more do
+          val (n, np, t1) = expectName(ts)
+          var t2 = skipBrackets(t1)
+          var fields: List[Param] = Nil
+          if isPunct(peek(t2), "(") then
+            t2 = t2.tail
+            if !isPunct(peek(t2), ")") then
+              var g2 = true
+              while g2 do
+                if isId(peek(t2), "val") || isId(peek(t2), "var") then t2 = t2.tail
+                val (fn, fp, t3) = expectName(t2)
+                t2 = skipTypeAnn(t3)
+                fields = Param(fn, fp) :: fields
+                if isPunct(peek(t2), ",") then t2 = t2.tail else g2 = false
+            t2 = expectPunct(t2, ")")
+          out = ClassDef(n, fields.reverse, np) :: out
+          ts = t2
+          if isPunct(peek(ts), ",") then ts = ts.tail else more = false
+    (out, ts)
+
   // ── definitions ─────────────────────────────────────────────────────────────
   private def parseDef(ts0: List[Tok]): (Def, List[Tok]) =
     val p = posOf(ts0)
@@ -484,6 +552,10 @@ object Parser:
       else if isId(peek(ts), "case") && ts.tail.nonEmpty && isId(peek(ts.tail), "class") then
         val (c, t) = parseCaseClass(ts.tail.tail, posOf(ts))
         classes = c :: classes
+        ts = t
+      else if isId(peek(ts), "enum") then
+        val (cs, t) = parseEnum(ts.tail)
+        classes = cs.reverse ++ classes
         ts = t
       else
         // Not a `def`, so it is program body. Refusing here is what made 48 of the first 60 corpus
