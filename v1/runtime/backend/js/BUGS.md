@@ -11,7 +11,7 @@ Newest first.
 <!-- status: fixed
      lane: js
      area: codegen
-     fixed-in: PENDING
+     fixed-in: 84fc359e7
      gate: tests/conformance/object-apply.ssc -->
 
 **Found 2026-08-02** by `v2-object-apply` while fixing the same shape on the native lane, and
