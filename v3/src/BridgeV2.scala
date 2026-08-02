@@ -170,6 +170,27 @@ object BridgeV2:
     case Instr.Ret(a) => sq(List(write(cx.retVal, read(a, sh), sh), write(cx.ctl, int(-1), sh)))
     case Instr.Call(d, fi, as) =>
       write(d, "(app (global " + cx.m.funcs(fi).name + ")" + args(as, sh) + ")", sh)
+
+    // A closure: capture NOW, apply later. The captured values are bound by a `let` OUTSIDE the
+    // `lam`, so they are read at creation time — reading them from the frame inside the lambda
+    // would read them at CALL time instead, and a closure built in a loop would then see the last
+    // iteration's values. That is a real difference, not a stylistic one.
+    //
+    // Index arithmetic, once: `(let (c…) …)` binds the captures innermost-LAST, and `(lam k …)`
+    // puts its own parameters below them. So inside the body a capture i of n sits at
+    // `local (k + n - 1 - i)` and lambda parameter j of k at `local (k - 1 - j)`.
+    case Instr.MkClos(d, fi, caps) =>
+      val callee = cx.m.funcs(fi)
+      val k = callee.nparams - caps.length
+      if k < 0 then throw Unsupported("a closure capturing more values than its function takes")
+      val capBinds = caps.map(c => read(c, sh)).mkString(" ")
+      val capRefs = (0 until caps.length).toList.map(i => "(local " + (k + caps.length - 1 - i) + ")")
+      val parRefs = (0 until k).toList.map(j => "(local " + (k - 1 - j) + ")")
+      val applied = (capRefs ++ parRefs).mkString(" ")
+      val body = "(app (global " + callee.name + ")" + (if applied.isEmpty then "" else " " + applied) + ")"
+      write(d, "(let (" + capBinds + ") (lam " + k + " " + body + "))", sh)
+
+    case Instr.CallV(d, c, as) => write(d, "(app " + read(c, sh) + args(as, sh) + ")", sh)
     // V-0 does NOT make this a tail call — v2 gives no TCO, so the constant-stack guarantee is one
     // of the three things only our own executor (SSC3-3b) can deliver. Correct, not constant-stack.
     case Instr.TailCall(fi, as) =>

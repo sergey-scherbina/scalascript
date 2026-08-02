@@ -95,7 +95,48 @@ object Parser:
       t
 
   // ── expressions ─────────────────────────────────────────────────────────────
-  private def parseExpr(ts: List[Tok]): (Expr, List[Tok]) = parseBin(ts, 1)
+  private def parseExpr(ts: List[Tok]): (Expr, List[Tok]) =
+    if lambdaAhead(ts) then parseLambda(ts) else parseBin(ts, 1)
+
+  /** Is a lambda starting here? `x => …` or `(a, b) => …`. Decided by SCANNING to the matching
+    * paren rather than by backtracking: a parser that can fail and retry gives error messages from
+    * whichever attempt failed last, which is rarely the one the author meant. */
+  private def lambdaAhead(ts: List[Tok]): Boolean =
+    if ts.isEmpty then false
+    else
+      peek(ts) match
+        case Tok.TId(n, _) if !keywords.contains(n) => ts.tail.nonEmpty && isOp(peek(ts.tail), "=>")
+        case Tok.TPunct("(", _) =>
+          var t = ts.tail
+          var depth = 1
+          while depth > 0 && t.nonEmpty && !t.head.isInstanceOf[Tok.TEof] do
+            if isPunct(peek(t), "(") then depth = depth + 1
+            else if isPunct(peek(t), ")") then depth = depth - 1
+            t = t.tail
+          t.nonEmpty && isOp(peek(t), "=>")
+        case _ => false
+
+  private def parseLambda(ts0: List[Tok]): (Expr, List[Tok]) =
+    val p = posOf(ts0)
+    var params: List[Param] = Nil
+    var ts = ts0
+    if isPunct(peek(ts), "(") then
+      ts = ts.tail
+      if !isPunct(peek(ts), ")") then
+        var go = true
+        while go do
+          val (n, np, t) = expectName(ts)
+          ts = skipTypeAnn(t)
+          params = Param(n, np) :: params
+          if isPunct(peek(ts), ",") then ts = ts.tail else go = false
+      ts = expectPunct(ts, ")")
+    else
+      val (n, np, t) = expectName(ts)
+      params = List(Param(n, np))
+      ts = t
+    ts = expectOp(ts, "=>")
+    val (body, t2) = parseBody(ts)
+    (Expr.Lambda(params.reverse, body, p), t2)
 
   private def parseBin(ts0: List[Tok], minPrec: Int): (Expr, List[Tok]) =
     var (lhs, ts) = parseUnary(ts0)
@@ -125,6 +166,11 @@ object Parser:
             if isPunct(peek(afterName), "(") then
               val (as, t) = parseArgs(afterName.tail)
               e = Expr.MethodCall(e, nm, as, p); ts = t
+            // `xs.map { x => … }` — a brace block as the single argument. Ordinary `.ssc`, and the
+            // form the corpus uses far more often than `map(x => …)`.
+            else if isPunct(peek(afterName), "{") then
+              val (arg, t) = parseBody(afterName)
+              e = Expr.MethodCall(e, nm, List(arg), p); ts = t
             else
               e = Expr.MethodCall(e, nm, Nil, p); ts = afterName
           case _ => go = false
@@ -298,7 +344,11 @@ object Parser:
   private def parseBody(ts0: List[Tok]): (Expr, List[Tok]) =
     val ts = if peek(ts0).isInstanceOf[Tok.TNewline] then skipNewlines(ts0) else ts0
     if peek(ts).isInstanceOf[Tok.TIndent] then parseBlock(ts.tail)
-    else if isPunct(peek(ts), "{") then parseBraceBlock(ts.tail)
+    else if isPunct(peek(ts), "{") then
+      if lambdaAhead(skipLayout(ts.tail)) then
+        val (l, t) = parseLambda(skipLayout(ts.tail))
+        (l, expectPunct(skipLayout(t), "}"))
+      else parseBraceBlock(ts.tail)
     else parseExpr(ts)
 
   /** A `{ … }` block. Inside braces the layout tokens carry no meaning — the braces already say

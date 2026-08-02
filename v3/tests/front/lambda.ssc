@@ -1,0 +1,14 @@
+val inc = (x) => x + 1
+println(inc(41))
+
+val n = 10
+val addN = (x) => x + n
+println(addN(5))
+
+println(List(1, 2, 3).map(x => x * 2).sum)
+println(List(1, 2, 3, 4).filter(x => x > 2).size)
+println(List(1, 2, 3).map { x => x * x }.sum)
+
+def twice(f: Int, v: Int): Int = v
+val add = (a, b) => a + b
+println(add(20, 22))

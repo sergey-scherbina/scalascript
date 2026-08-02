@@ -32,6 +32,7 @@ object Lower:
       consts: List[Lit],
       prims: List[String],
       types: List[TypeDef],
+      lifted: List[Func],
   ):
     def fresh: (Int, St) =
       val r = next
@@ -49,6 +50,39 @@ object Lower:
       val td = TypeDef(name, fields)
       val i = types.indexOf(td)
       if i >= 0 then (i, this) else (types.length, copy(types = types :+ td))
+
+  /** Names a lambda body reads from OUTSIDE itself. Those become the closure's captures, and they
+    * are computed rather than guessed: capturing everything in scope would grow every closure with
+    * the enclosing frame, and capturing nothing would silently read the wrong register. */
+  private def freeVars(e: Expr, bound: List[String]): List[String] = e match
+    case Expr.Name(n, _)          => if bound.contains(n) then Nil else List(n)
+    case Expr.Bin(_, l, r, _)     => freeVars(l, bound) ++ freeVars(r, bound)
+    case Expr.Neg(x, _)           => freeVars(x, bound)
+    case Expr.Not(x, _)           => freeVars(x, bound)
+    case Expr.Assign(n, v, _)     => (if bound.contains(n) then Nil else List(n)) ++ freeVars(v, bound)
+    case Expr.If(c, t, el, _)     => freeVars(c, bound) ++ freeVars(t, bound) ++ el.toList.flatMap(x => freeVars(x, bound))
+    case Expr.While(c, b, _)      => freeVars(c, bound) ++ freeVars(b, bound)
+    case Expr.Call(_, as, _)      => as.flatMap(a => freeVars(a, bound))
+    case Expr.MethodCall(r, _, as, _) => freeVars(r, bound) ++ as.flatMap(a => freeVars(a, bound))
+    case Expr.Lambda(ps, b, _)    => freeVars(b, bound ++ ps.map(_.name))
+    case Expr.Match(sc, arms, _) =>
+      freeVars(sc, bound) ++ arms.flatMap { a =>
+        val bs = a.pat match
+          case Pat.PBind(n, _)      => List(n)
+          case Pat.PCtor(_, args, _) => args.flatMap { case Pat.PBind(n, _) => List(n); case _ => Nil }
+          case _                    => Nil
+        freeVars(a.body, bound ++ bs)
+      }
+    case Expr.Block(stmts, res, _) =>
+      var b = bound
+      var acc: List[String] = Nil
+      stmts.foreach { st =>
+        st match
+          case Stmt.Val(n, v, _, _) => acc = acc ++ freeVars(v, b); b = n :: b
+          case Stmt.Exp(x)          => acc = acc ++ freeVars(x, b)
+      }
+      acc ++ res.toList.flatMap(x => freeVars(x, b))
+    case _ => Nil
 
   private def constExpr(l: Lit, st0: St): (List[Instr], Int, St) =
     val (k, st1) = st0.constIdx(l)
@@ -221,6 +255,28 @@ object Lower:
       val (chain, stF) = armChain(arms, sr, tr, rd, fns, classes, st6, fallback)
       (si ++ tagInstr ++ chain, rd, stF)
 
+    // LAMBDA LIFTING. The body becomes a top-level function whose FIRST parameters are the captured
+    // values and whose remaining ones are the lambda's own — which is exactly the shape `MkClos`
+    // describes, so the instruction needed no change to support closures.
+    case Expr.Lambda(ps, body, p) =>
+      val pnames = ps.map(_.name)
+      val free = freeVars(body, pnames).distinct.filter(n => st0.lookup(n).isDefined)
+      val capRegs = free.map(n => st0.lookup(n).get)
+      val idx = fns.length + st0.lifted.length
+      // The lifted function gets a FRESH register space: it is a separate frame at run time, and
+      // sharing the numbering with the enclosing function would be a silent aliasing bug.
+      val inner0 = St(free.length + ps.length, free.length + ps.length,
+                      (free.zipWithIndex.map((n, i) => (n, i)) ++
+                       pnames.zipWithIndex.map((n, i) => (n, free.length + i))).reverse,
+                      st0.consts, st0.prims, st0.types, st0.lifted)
+      val (bi, br, inner) = lower(body, fns, classes, inner0)
+      val f = Func("__lam" + idx, free.length + ps.length,
+                   if inner.max > 0 then inner.max else 1, bi :+ Instr.Ret(br))
+      val st1 = st0.copy(consts = inner.consts, prims = inner.prims, types = inner.types,
+                         lifted = inner.lifted :+ f)
+      val (d, st2) = st1.fresh
+      (List(Instr.MkClos(d, idx, capRegs)), d, st2)
+
     case Expr.Call(fn, argEs, p) =>
       var acc: List[Instr] = Nil
       var regs: List[Int] = Nil
@@ -256,6 +312,12 @@ object Lower:
         val (pi, st1) = st.primIdx(primName)
         val (d, st2) = st1.fresh
         (acc :+ Instr.Prim(d, pi, args), d, st2)
+      else if st.lookup(fn).isDefined then
+        // A name bound in scope that is being CALLED is a closure value, not a top-level function.
+        // `val f = (x) => x + 1; f(2)` is ordinary, and without this arm it reported the name as an
+        // unknown function while it was sitting in a register.
+        val (d, st1) = st.fresh
+        (acc :+ Instr.CallV(d, st.lookup(fn).get, args), d, st1)
       else
         val idx = fns.indexOf(fn)
         if idx < 0 then throw LowerFail(p, "call to unknown function '" + fn + "'")
@@ -357,14 +419,18 @@ object Lower:
     var consts: List[Lit] = Nil
     var prims: List[String] = Nil
     var types: List[TypeDef] = Nil
+    var lifted: List[Func] = Nil
     var funcs: List[Func] = Nil
     allDefs.foreach { d =>
       val params = d.params.zipWithIndex.map((pa, i) => (pa.name, i))
-      val st0 = St(d.params.length, d.params.length, params.reverse, consts, prims, types)
+      val st0 = St(d.params.length, d.params.length, params.reverse, consts, prims, types, lifted)
       val (body, r, st) = lower(d.body, names, p.classes, st0)
       consts = st.consts
       prims = st.prims
       types = st.types
+      lifted = st.lifted
       funcs = Func(d.name, d.params.length, if st.max > 0 then st.max else 1, body :+ Instr.Ret(r)) :: funcs
     }
-    Module(consts, types, Nil, prims, funcs.reverse, entry)
+    // Lifted lambdas are APPENDED, which is what makes `fns.length + lifted.length` the right
+    // index at the point MkClos is emitted.
+    Module(consts, types, Nil, prims, funcs.reverse ++ lifted, entry)

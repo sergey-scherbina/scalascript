@@ -42,6 +42,7 @@ enum Expr:
   case Block(stmts: List[Stmt], result: Option[Expr], pos: Pos)
   case Assign(name: String, value: Expr, pos: Pos)
   case Match(scrut: Expr, arms: List[MatchArm], pos: Pos)
+  case Lambda(params: List[Param], body: Expr, pos: Pos)
 
 /** Patterns, Tier 0. Constructor arguments are a binder or a wildcard — NESTED patterns are
   * refused by name rather than half-supported, because a half-supported pattern silently matches
@@ -86,3 +87,4 @@ object Expr:
     case Block(_, _, p)   => p
     case Assign(_, _, p)  => p
     case Match(_, _, p)   => p
+    case Lambda(_, _, p)  => p
