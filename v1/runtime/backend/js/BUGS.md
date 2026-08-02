@@ -7,6 +7,38 @@ grepping for status.
 
 Newest first.
 
+## js-object-apply-not-callable — `O(7)` on an object with an `apply` member throws `not callable`
+<!-- status: fixed
+     lane: js
+     area: codegen
+     fixed-in: PENDING
+     gate: tests/conformance/object-apply.ssc -->
+
+**Found 2026-08-02** by `v2-object-apply` while fixing the same shape on the native lane, and
+**filed late**: that claim's conformance case said "filed separately" before this entry existed. The
+reference was dangling for one commit; this is it.
+
+```scalascript
+object O:
+  def apply(x: Int): String = "user-apply:" + x.toString
+println(O(7))        // js: Error: not callable
+println(O.apply(7))  // js: user-apply:7
+```
+
+**A record is not callable, and that asymmetry is the whole bug.** `genObjectAsExpr` returned
+`{ apply }`, so the property read worked and the application reached `_dispatch`'s last resort.
+
+**Fix:** when an object has an `apply` member the IIFE returns the `apply` FUNCTION with the record's
+members attached (`Object.assign(apply, { … })`), so `O(7)` and `O.apply(7)` are the same code and no
+member is lost.
+
+**Not applied when a member is named `name` or `length`** — both are non-writable on a function, so
+`Object.assign` would throw at module load and turn a wrong answer into a dead bundle. Such an object
+keeps the record shape: `O.apply(x)` still works, `O(x)` still does not. That is the previous
+behaviour preserved, not a new failure, and it is a guard rather than a hope — the two names are
+checked at emit time.
+
+
 ## js-tls-reads-cert-files-eagerly — `tls()` opens the files the case says it does not touch
 <!-- status: fixed
      fixed-in: 63fcb65eb

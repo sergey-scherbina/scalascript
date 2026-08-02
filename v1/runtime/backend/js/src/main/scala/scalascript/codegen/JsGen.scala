@@ -3642,7 +3642,23 @@ class JsGen(
     //
     // Emitted only when something needs it, so an object with no such externs keeps its previous
     // shape byte-for-byte.
-    if capturedExterns.isEmpty then s"(() => { $body return { $typeField$ret }; })()"
+    // An object with an `apply` member must be CALLABLE, not merely carry the method: `O(7)` is
+    // plain Scala for `O.apply(7)`. The IIFE returned a record, so `O(7)` reached `_dispatch`'s
+    // last resort and threw `not callable`, while `O.apply(7)` — a property read — worked. That
+    // asymmetry is the whole bug (`js-object-apply-not-callable`).
+    //
+    // The returned value is the `apply` function itself with the record's members attached, so both
+    // spellings hit the same code and no member is lost.
+    //
+    // NOT applied when a member is named `name` or `length`: those are non-writable on a function,
+    // so `Object.assign` would throw at module load and turn a wrong answer into a dead bundle.
+    // Such an object keeps the old record shape — `O.apply(x)` still works there, `O(x)` still does
+    // not — which is strictly the previous behaviour rather than a new failure.
+    val applyCallable =
+      names.contains("apply") && !names.exists(n => n == "name" || n == "length")
+    def retExpr(inner: String): String =
+      if applyCallable then s"Object.assign(apply, { $inner })" else s"{ $inner }"
+    if capturedExterns.isEmpty then s"(() => { $body return ${retExpr(s"$typeField$ret")}; })()"
     else
       // Each probe is wrapped in try/catch, and that is NOT belt-and-braces. `typeof x` is only
       // safe for an UNDECLARED name; for a `const`/`let` declared later in the same enclosing scope
@@ -3653,7 +3669,7 @@ class JsGen(
       val capArg = capturedExterns.distinct
         .map(n => s"$n: (() => { try { return typeof $n === 'function' ? $n : undefined } catch (e) { return undefined } })()")
         .mkString(", ")
-      s"((__ssc_cap) => { $body return { $typeField$ret }; })({ $capArg })"
+      s"((__ssc_cap) => { $body return ${retExpr(s"$typeField$ret")}; })({ $capArg })"
 
   private def genDefAsMethod(dd: Defn.Def): String =
     val paramVals = dd.paramClauseGroups.flatMap(_.paramClauses).flatMap(_.values)

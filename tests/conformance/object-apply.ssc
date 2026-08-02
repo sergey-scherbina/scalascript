@@ -1,7 +1,7 @@
 ---
 name: object-apply
 description: "a companion-style `object O { def apply(…) }` is callable as O(…)"
-backends: [int, jvm, v2]
+backends: [int, jvm, v2, js]
 ---
 
 # `object O { def apply(x) }` is callable as `O(x)`
@@ -26,9 +26,12 @@ emits one Java class per method name and two `apply(long, long)` members collide
 `int-jit-two-object-applies-collide`. Including it would pin an unrelated lane's defect in a case
 about this one.
 
-`js` is deliberately absent — it fails with `not callable`, a different cause on a lane with its own
-object emission, filed separately rather than folded in. **The `SSC_FRONT=legacy` fallback is also
-still unfixed**; the entry carries the measurement.
+`js` was absent when this case landed and is IN now: it failed with `not callable` for a different
+reason — the IIFE returned a RECORD, so `O.apply(7)` (a property read) worked and `O(7)` did not.
+Fixed by returning the `apply` function with the members attached, so both spellings hit the same
+code (`js-object-apply-not-callable`).
+
+**The `SSC_FRONT=legacy` fallback front is still unfixed**; the v2 entry carries that measurement.
 
 ```scalascript
 object O:
