@@ -815,13 +815,44 @@ So on two of four lanes `Set` is not a distinct runtime value and there is nothi
 An arm there would assert that a List is a Set — a wrong answer replacing an honest one. This is a
 **representation gap, not a table gap**: different size of work, different owner.
 
-Three separable pieces remain, so they can be picked up separately:
+Three separable pieces remained. **Re-measured 2026-08-02 by `type-ascription-table-gaps`: two are
+CLOSED, and the third was misclassified — there is no table work left in this entry.**
 
-1. **`js` answers `other` for `Map`** although a Map IS distinguishable there (`_hamtOf`). A genuine
-   table gap and the cheapest thing left in this entry.
-2. **native answers `other` for `List`**, which is representable (`DataV("Cons"/"Nil")`) — also a
-   table gap, but in the DataV branch rather than the primitive one.
-3. **`Set` on native and `js` needs a distinct representation** before the question means anything.
+1. ~~`js` answers `other` for `Map`~~ — **fixed**, js answers `map`.
+2. ~~native answers `other` for `List`~~ — **fixed**, native answers `list`.
+3. **`Set` on native and `js` needs a distinct representation** — unchanged, and it now subsumes
+   what was going to be a fourth piece.
+
+| | `jvm` | `int` | native / `v2` | `js` |
+|---|---|---|---|---|
+| `Map("a"->1)` | `map` | `map` | `map` | `map` — was `other` |
+| `List(1,2)` | `list` | `list` | `list` — was `other` | `other` |
+| `Set(1,2)` | `set` | `set` | `other` | `other` |
+
+**The remaining `js` `List` row is NOT a table gap, and filing it as one would have produced a wrong
+answer.** Measured directly rather than inferred:
+
+```
+                                    int          js          v2
+println(List(1,2))                  List(1, 2)   List(1, 2)  List(1, 2)
+println(Set(1,2))                   Set(1, 2)    List(1, 2)  List(1, 2)
+List(1,2).toString == Set(...)      false        TRUE        TRUE
+```
+
+Compared as STRINGS, and that is not incidental: `List(1,2) == Set(1,2)` is a **compile error** in
+Scala 3 — *"Values of types List[Int] and Set[Int] cannot be compared with == or !="* — so the jvm
+lane refuses to build it. This entry's first draft was rejected for exactly the same reason with
+`case _: Tuple2`; the lane that runs real Scala keeps catching this file out, which is the argument
+for keeping jvm in its backends.
+
+On js and v2 a Set **is** a List — the same value, equal by `==`. So an arm keyed on "is an array"
+would answer `list` for a Set, which is the mirror of the mistake this entry already refused to make
+for `Set`. `other` stays the honest answer on both lanes until Set has its own representation, and
+that is now the ONLY thing this entry is waiting on.
+
+`type-ascription-set.ssc` gained `println(List(1, 2).toString == Set(1, 2).toString)` so the property is pinned as a
+value test rather than as prose — it is what will prove a future Set representation before the
+`case _:` arms are trusted.
 
 **Original report (superseded 2026-07-30), Set half:** Found by the probe written for
 [[v2-native-case-unit-pattern-matches-where-int-does-not]]; same two type-test tables, same missing

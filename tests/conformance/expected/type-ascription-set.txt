@@ -2,3 +2,4 @@ set
 map
 list
 other
+false

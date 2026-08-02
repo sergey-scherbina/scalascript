@@ -22,6 +22,17 @@ println(kind(Set(1, 2)))
 println(kind(Map("a" -> 1)))
 println(kind(List(1, 2)))
 println(kind(7))
+
+// The representation question, pinned as a VALUE test rather than left in prose.
+// `js` and `v2` both RENDER `Set(1, 2)` as `List(1, 2)` and answer `true` here — a Set is a List
+// there, which is why neither lane can be asked `case _: Set` (or `case _: List`) at all. int and
+// jvm answer `false`. When a lane grows a distinct Set, this row is what proves it before the
+// `case _:` arms are trusted.
+// Compared as STRINGS on purpose: `List(1,2) == Set(1,2)` is a COMPILE ERROR in Scala 3
+// ("Values of types List[Int] and Set[Int] cannot be compared"), so the jvm lane — which is Scala —
+// refuses to build it. The first draft of this case was rejected for the same reason with
+// `case _: Tuple2`; the lane that runs real Scala is the one that keeps this file honest.
+println(List(1, 2).toString == Set(1, 2).toString)
 ```
 
 **`js` and `v2` are absent for a reason that is NOT a missing arm, and this is the useful half.**
@@ -41,3 +52,18 @@ than papered over here.
 
 `Map` and the `7` line are the guards: Map already worked on the lane being changed, and a
 non-container must still reach the wildcard.
+
+**Re-measured 2026-08-02** (`type-ascription-table-gaps`), because the table above had gone stale in
+the good direction — two of the three remaining pieces are closed:
+
+| | `jvm` | `int` | native / `v2` | `js` |
+|---|---|---|---|---|
+| `Map("a"->1)` | `map` | `map` | `map` | `map` — **was `other`** |
+| `List(1,2)` | `list` | `list` | `list` — **was `other`** | `other` |
+| `Set(1,2)` | `set` | `set` | `other` | `other` |
+
+And the ONE piece left is not the kind of gap the entry called it. `js`'s `List` row was filed as a
+table gap; it is not. `List(1, 2) == Set(1, 2)` is **`true`** on js and on v2 — the same collapse
+that makes `Set` unanswerable makes `List` unanswerable, because an arm keyed on "is an array" would
+claim a Set is a List. Answering `other` is the honest state on both lanes until Set has a
+representation of its own.
