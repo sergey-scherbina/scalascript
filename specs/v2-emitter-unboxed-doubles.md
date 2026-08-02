@@ -169,3 +169,30 @@ boxes per operation, but two boundaries remain: `area(s)` still RETURNS a boxed 
 to one boxing of the result — roughly half the allocations, which is exactly what the profile shows.
 E-2 (`canParamDouble` + the `$double` entry) and E-3 (unboxed return) are the other half of the same
 mechanism, not incremental polish.
+
+### E-2 — re-aimed by measurement, before a line was written
+
+E-2 was specced as `canParamDouble` + a `$double(D…)D` entry, the twin of `canParamLong`. Measuring
+the rows it was meant to serve says that is not where the problem is:
+
+| row | v1 (`ssc`) | AOT | JIT |
+|---|---:|---:|---:|
+| `float-loop` | 1.30 | **0.900** | 1.75 |
+| `float-fold` | **0.0110** | 0.922 | 1.50 |
+
+Two things fall out, neither of which `canParamDouble` addresses:
+
+1. **The AOT lane already beats v1 on `float-loop`** (0.900 vs 1.30). The emitter is not the limit
+   there — so an emitter slice aimed at it would be optimising the wrong lane.
+2. **The JIT is 1.94× off that AOT result** (alternating 3-round A/B, disjoint ranges), and the
+   obvious explanation is refuted: lowering the tier-up threshold to 2 or 1 makes it *worse*
+   (1.39 → 3.24 → 2.82), so it is not "the long first call runs interpreted". Unexplained.
+
+**So E-2 becomes: profile `float-loop` on the JIT against the AOT lane and find the 1.94×** — with
+E-0's control method, because a raw profile here is a profile of the compiler. `canParamDouble` and
+the unboxed return (E-3) stay queued behind that, since neither is now known to be the lever.
+
+⚠ **`float-fold` v1 = 0.0110 ms against AOT 0.922 — 84× — is a separate question and probably an
+apparatus one.** A bench cell that fast usually means the work was eliminated, not performed; this
+repo has the rule that a suspiciously fast cell is a correctness question until proven otherwise.
+Not chased here, recorded so it is not read as a v2 deficiency.

@@ -786,6 +786,15 @@ both lanes at once.
 For the other three rows there is nothing left for the JIT to win — they sit within 1–4 % of what
 the same compiler achieves with the whole program in hand, and `recursion-tco` matches it exactly.
 
+> **Scoped, and CORRECTED 2026-08-02 (`v2-emitter-doubles`).** "Nothing left for the JIT to win" is
+> true of these four rows and **false in general**. `float-loop`, measured later on the same
+> toolchain with an alternating 3-round A/B: AOT 0.900 / 1.34 / 0.802 against JIT 1.75 / 2.27 / 1.63
+> — **disjoint ranges, the JIT 1.94× off its own emitter's AOT result.** Four representative rows
+> were not representative of the float family. The cause is NOT tier-up timing: lowering
+> `SSC_V2_JIT_THRESHOLD` to 2 or 1 made it *worse* (1.39 → 3.24 → 2.82), which refutes the obvious
+> hypothesis. Unexplained, and it is the first thing to profile before anyone concludes again that
+> the JIT is done.
+
 ### J-8 — `ssc lint-jit -v2`, and J-9's missing number
 
 **The compile cost, which wall-clock could not see.** A hello-world run spends **~187 ms compiling**
