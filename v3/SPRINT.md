@@ -54,7 +54,9 @@ A compiler built on an IR that turns out to be wrong is work thrown away twice.
       `LetRec`), `Switch`, `MkData`/`Field`/`Tag`, the array and global instructions,
       `MkClos`/`CallV`, the effect trio, and the bitwise operators.
 
-- [ ] **SSC3-3b — the executor.** The register VM: frame allocation, the instruction loop,
+- [x] **SSC3-3b — the executor.** `ssc3 exec` runs SSC IR directly; 10 000 000 tail calls in
+      constant stack, and every bridge fixture agrees byte for byte across both lanes.
+      *Original entry:* The register VM: frame allocation, the instruction loop,
       structured branch handling, `TailCall` frame reuse, `Prim` dispatch. `ssc3 run-ir <file.ssir>`.
       **The bridge makes v3 usable; this makes v3 better than v2** — three properties the bridge
       cannot deliver, and they are why this is not optional: `TailCall` in constant stack (v2 has no

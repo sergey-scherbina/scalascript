@@ -195,7 +195,7 @@ object SelfTest:
 @main def ssc3(args: String*): Unit =
   val code =
     if args.isEmpty then
-      println("usage: ssc3 build <f.ssc> | ir <f.ssc> | check <f.ssir> | fmt <f.ssir> | emit-v2 <f.ssir> | sample | selftest")
+      println("usage: ssc3 build|ir|exec <f.ssc> | check|fmt|emit-v2|exec <f.ssir> | sample | selftest")
       2
     else
       args.head match
@@ -239,6 +239,23 @@ object SelfTest:
             case e: LexError  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
             case e: ParseFail => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
             case e: LowerFail => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+        // Runs on v3's OWN executor — no v2, no bridge. This is the lane where TailCall is a real
+        // tail call and a frame is data.
+        case "exec" if args.length >= 2 =>
+          val path = args(1)
+          val src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")
+          try
+            val m =
+              if path.endsWith(".ssir") then Text.read(src)
+              else Lower.programOf(Parser.parse(Source.program(src)), Source.blockEnds(src))
+            Exec.run(m)
+            0
+          catch
+            case e: LexError  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+            case e: ParseFail => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+            case e: LowerFail => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+            case e: ParseError => Console.err.println("ssc3: " + path + ": " + e.message); 1
+            case e: ExecError => Console.err.println("ssc3: " + path + ": " + e.getMessage); 1
         case "sample" =>
           print(Text.write(Sample.module))
           0

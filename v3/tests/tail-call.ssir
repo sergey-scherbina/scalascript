@@ -1,0 +1,23 @@
+(module
+  (consts (int 0) (int 1) (int 10000000))
+  (types)
+  (globals)
+  (prims (prim "io.println"))
+  (funcs
+    (func "countdown" 2 4
+      (const 2 0)
+      (bin le dyn 3 0 2)
+      (if 3
+        (then (ret 1))
+        (else))
+      (const 2 1)
+      (bin sub dyn 0 0 2)
+      (bin add dyn 1 1 2)
+      (tailcall 0 0 1))
+    (func "main" 0 3
+      (const 0 2)
+      (const 1 0)
+      (call 2 0 0 1)
+      (prim 2 0 2)
+      (ret 2)))
+  (entry 1))
