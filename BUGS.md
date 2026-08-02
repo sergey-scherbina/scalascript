@@ -958,9 +958,14 @@ one source identity, unique ids, monotone spans, source slices, and traversal/so
 the invalid tree without sorting or reparsing it.
 
 ## scljet-sql-double-equals-parser-gap — WHERE rejects SQLite's `==` equality alias
-<!-- status: unknown
+<!-- status: fixed
      lane: multi
-     area: front -->
+     area: front
+     fixed-in: 94873f54d -->
+
+**Re-verified 2026-08-02 at `1305736e1`**, both forms against the same table:
+`WHERE salary = 250` and `WHERE salary == 250` each return the same row, neither errors.
+`94873f54d` resolves and is an ancestor of `origin/main`.
 
 **Status: FIXED 2026-07-28** in `94873f54d` (`scljet-sql-double-equals`). Normalized in the TOKENIZER.
 

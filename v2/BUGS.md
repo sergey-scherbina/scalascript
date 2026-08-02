@@ -4474,9 +4474,16 @@ caught by the explicit-lane manifest first). Separately, its native-lane `match:
 tracked here).
 
 ## p65-fsub-toplevel-val-infinite-loop — F (P6.5 subset compiler) hangs on a top-level `val`
-<!-- status: unknown
+<!-- status: fixed
      lane: native
-     area: front -->
+     area: front
+     fixed-in: unrecorded -->
+
+**Re-verified 2026-08-02 at `1305736e1`:** the entry's own repro — `val a = 10` + `def main(): Int
+= a` — prints `10` and exits 0, under a 90 s timeout that a hang would have tripped.
+`fixed-in: unrecorded` is the honest value: this entry was closed on MEASUREMENT (F gained
+top-level statement support in a breadth slice), and its own text says so — there is no single
+commit that fixed it.
 
 **Status:** **STALE — CLOSED 2026-07-27 by opus (`p65-toplevel-val-stale`) on measurement, not on a
 fix of mine.** F gained top-level statement support in a later F3 breadth slice and the hang is gone;
@@ -5062,9 +5069,14 @@ and is blocked on those gaps. Queued in SPRINT; a green `main` came first.
 `v1/runtime/std/agent.ssc`.
 
 ## v2-native-front-try-catch — `try` / `catch` does not work on the native front
-<!-- status: unknown
+<!-- status: fixed
      lane: native
-     area: front -->
+     area: front
+     fixed-in: unrecorded -->
+
+**Re-verified 2026-08-02 at `1305736e1`:** `try println(10 / 0) catch case e: Throwable =>
+println("caught")` prints `caught` then `after` on `bin/ssc run`, identical to the INT reference.
+`fixed-in: unrecorded` — the entry cites the CLAIM `bugs-native-front-trycatch`, not a commit.
 
 **Status:** **LAYER 2 FIXED 2026-07-27** by opus (`bugs-native-front-trycatch`) — the entry below
 called it "not diagnosed"; it is now diagnosed to the line and fixed.

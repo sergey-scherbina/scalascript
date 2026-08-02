@@ -3461,9 +3461,20 @@ green full `backendInterpreter/test`.
   missing capability rather than producing wrong output.
 
 ## standard-tier-named-arg-skip-default — `bin/ssc run` (self-hosted standard-tier pipeline) mis-binds a named arg for a non-first trailing defaulted param
-<!-- status: unknown
+<!-- status: fixed
      lane: js
-     area: front -->
+     area: front
+     fixed-in: b61a78b24 -->
+
+**Re-verified 2026-08-02 at `1305736e1`** on the entry's own signature
+(`def f(a, b = "B0", c = "C0", d = "D0")`), all three skip shapes, both lanes:
+
+```
+f("x", b = "B1") -> x|B1|C0|D0      f("x", c = "C1") -> x|B0|C1|D0      f("x", d = "D1") -> x|B0|C0|D1
+```
+
+`bin/ssc run` and `ssc-tools run --v1` agree line for line. `b61a78b24` resolves and is an
+ancestor of `origin/main`.
 
 **Status: FIXED 2026-07-28** in `b61a78b24` (`f-named-arg-skips-default`), on BOTH self-hosted fronts.
 
