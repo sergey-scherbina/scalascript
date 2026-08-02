@@ -111,13 +111,15 @@ object SpikeLex:
         //   • hex 0x/0X → the DECIMAL value string (strip trailing L/l Long suffix)
         //   • decimal: `_` digit-separators stripped from the lexeme; `d.d` or `1e10`/`1.0e100`
         //     exponent → float; otherwise int with a trailing L/l suffix stripped.
+        val numStart = i
         if c == '0' && i + 1 < n && (text.charAt(i + 1) == 'x' || text.charAt(i + 1) == 'X')
            && i + 2 < n && isHexDigit(text.charAt(i + 2)) then
           advance(text.charAt(i)); advance(text.charAt(i)) // consume `0x`
           var hv = 0L
           while i < n && isHexDigit(text.charAt(i)) do { hv = hv * 16 + hexVal(text.charAt(i)); advance(text.charAt(i)) }
           if i < n && (text.charAt(i) == 'L' || text.charAt(i) == 'l') then advance(text.charAt(i))
-          emit("spike.int", start, hv.toString, TokenChannel.Syntax)
+          val _ = hv // the VALUE is recomputed by SpikeNum.decode from the raw slice
+          emit("spike.int", start, text.substring(numStart, i), TokenChannel.Syntax)
         else
           val sb = new StringBuilder
           // digit run, `_` separators consumed but not kept
@@ -141,12 +143,13 @@ object SpikeLex:
             while i < n && (text.charAt(i).isDigit || text.charAt(i) == '_') do
               { if text.charAt(i).isDigit then sb.append(text.charAt(i)); advance(text.charAt(i)) }
             scanExponent()
-            emit("spike.float", start, sb.toString, TokenChannel.Syntax)
+            emit("spike.float", start, text.substring(numStart, i), TokenChannel.Syntax)
           else if scanExponent() then // `1e10` (no decimal point) is still a float
-            emit("spike.float", start, sb.toString, TokenChannel.Syntax)
+            emit("spike.float", start, text.substring(numStart, i), TokenChannel.Syntax)
           else
             if i < n && (text.charAt(i) == 'L' || text.charAt(i) == 'l') then advance(text.charAt(i)) // Long suffix
-            emit("spike.int", start, sb.toString, TokenChannel.Syntax)
+            val _ = sb // the VALUE is recomputed by SpikeNum.decode from the raw slice
+            emit("spike.int", start, text.substring(numStart, i), TokenChannel.Syntax)
       else if c.isLetter || c == '_' then
         val sb = new StringBuilder
         while i < n && (text.charAt(i).isLetterOrDigit || text.charAt(i) == '_') do { sb.append(text.charAt(i)); advance(text.charAt(i)) }
@@ -211,25 +214,19 @@ object SpikeLex:
           if i < n then advance('"')
         emit("spike.str", start, text.substring(strStart, i), TokenChannel.Syntax)
       else if c == '\'' then
-        // char literal 'x' / '\n' / '\uXXXX' → spike.int holding the char CODE — an EXACT
-        // mirror of ssc1-front.ssc0:361-374 (the VM treats chars as codes: scodeAt, `'a' == c`).
+        val chStart = i
+        // char literal 'x' / '\n' / '\uXXXX' → spike.int whose lexeme is the RAW SLICE. The
+        // VM still treats chars as CODES (scodeAt, `'a' == c`, ssc1-front.ssc0:361-374) — the
+        // code is computed by SpikeNum.decode, so the CST keeps the quotes and the escape.
         // Like ssc1-front, every `'` is assumed to open a char literal (fixed 3/4/8-char forms).
         if i + 1 < n && text.charAt(i + 1) == '\\' then
           val e = if i + 2 < n then text.charAt(i + 2) else '\u0000'
-          if e == 'u' then
-            val code = (hexVal(text.charAt(i + 3)) << 12) | (hexVal(text.charAt(i + 4)) << 8) |
-                       (hexVal(text.charAt(i + 5)) << 4) | hexVal(text.charAt(i + 6))
-            var k = 0; while k < 8 && i < n do { advance(text.charAt(i)); k += 1 }
-            emit("spike.int", start, code.toString, TokenChannel.Syntax)
-          else
-            val code = if e == 'n' then 10L else if e == 't' then 9L
-                       else if e == 'r' then 13L else if e == '0' then 0L else e.toLong
-            var k = 0; while k < 4 && i < n do { advance(text.charAt(i)); k += 1 }
-            emit("spike.int", start, code.toString, TokenChannel.Syntax)
+          val width = if e == 'u' then 8 else 4
+          var k = 0; while k < width && i < n do { advance(text.charAt(i)); k += 1 }
+          emit("spike.int", start, text.substring(chStart, i), TokenChannel.Syntax)
         else
-          val code = if i + 1 < n then text.charAt(i + 1).toLong else 0L
           var k = 0; while k < 3 && i < n do { advance(text.charAt(i)); k += 1 }
-          emit("spike.int", start, code.toString, TokenChannel.Syntax)
+          emit("spike.int", start, text.substring(chStart, i), TokenChannel.Syntax)
       else
         val kind = c match
           case '(' => "spike.lparen"
@@ -257,6 +254,40 @@ extension (n: Node)
   * store directly, moved here so the CST can keep the source slice: strip the
   * quotes, then `\n`→NL, `\t`→TAB, `\<c>`→c, with a balanced `${ … }` copied
   * verbatim so its inner quotes do not end the string. Triple-quoted is raw. */
+/** Decodes a `spike.int` / `spike.float` RAW lexeme to the VALUE string the
+  * projection needs. Mirrors what `SpikeLex` used to store directly, moved here
+  * so the CST can keep the source slice — the same reason `SpikeStr` exists.
+  *
+  * Four forms, all previously normalised away at lex time: a char literal
+  * (`'a'`, `'\n'`, `'\uXXXX'`) is its code, hex folds to decimal, `_` digit
+  * separators drop out, and a trailing `L`/`l` is not part of the value. */
+private[spike] object SpikeNum:
+  def decode(lex: String): String =
+    if lex.startsWith("'") then charCode(lex).toString
+    else if lex.startsWith("0x") || lex.startsWith("0X") then
+      var v = 0L
+      var i = 2
+      while i < lex.length && isHex(lex.charAt(i)) do { v = v * 16 + hex(lex.charAt(i)); i += 1 }
+      v.toString
+    else
+      val stripped = lex.filter(_ != '_')
+      if stripped.endsWith("L") || stripped.endsWith("l") then stripped.dropRight(1) else stripped
+
+  private def isHex(c: Char): Boolean =
+    c.isDigit || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+  private def hex(c: Char): Int =
+    if c.isDigit then c - '0' else if c >= 'a' then c - 'a' + 10 else c - 'A' + 10
+
+  private def charCode(lex: String): Int =
+    val body = lex.stripPrefix("'")
+    if body.startsWith("\\") then
+      val e = if body.length > 1 then body.charAt(1) else '\u0000'
+      if e == 'u' && body.length >= 6 then
+        (hex(body.charAt(2)) << 12) | (hex(body.charAt(3)) << 8) | (hex(body.charAt(4)) << 4) | hex(body.charAt(5))
+      else (if e == 'n' then '\n' else if e == 't' then '\t' else e).toInt
+    else if body.nonEmpty then body.charAt(0).toInt
+    else 0
+
 private[spike] object SpikeStr:
   def decode(lex: String): String =
     if lex.startsWith("\"\"\"") then
@@ -2265,8 +2296,8 @@ object SpikeProject:
     s"""mkDef("${esc(name)}", ${consList(params)}, $body)"""
 
   private def expr(n: UniNode): String = n match
-    case UniNode.Token(t) if t.kind == "spike.int"   => s"""mkInt("${esc(t.lexeme)}")"""
-    case UniNode.Token(t) if t.kind == "spike.float" => s"""mkFloat("${esc(t.lexeme)}")"""
+    case UniNode.Token(t) if t.kind == "spike.int"   => s"""mkInt("${esc(SpikeNum.decode(t.lexeme))}")"""
+    case UniNode.Token(t) if t.kind == "spike.float" => s"""mkFloat("${esc(SpikeNum.decode(t.lexeme))}")"""
     case UniNode.Token(t) if t.kind == "spike.str"   => s"""mkStr("${escStr(SpikeStr.decode(t.lexeme))}")"""
     // `true`/`false` are literal booleans, not variables (ssc1-front does the same)
     case UniNode.Token(t) if t.kind == "spike.id" && (t.lexeme == "true" || t.lexeme == "false") => s"""mkBool("${t.lexeme}")"""
