@@ -87,6 +87,25 @@ object JvmBytecodeAdmission:
     else 3
 
 object JvmByteGen:
+  /** `SSC_V2_JIT_DUMP=<dir>` writes every class this emitter produces, from BOTH lanes.
+    *
+    * Exists because the two lanes are supposed to emit the SAME code for the same term, and when a
+    * timing says otherwise the cheapest way to find out is to read the bytecode rather than reason
+    * about it. Two hypotheses about `pattern-match-heavy` were already refuted by measurement
+    * (`specs/v2-wide-jit.md` §9); this is the probe that does not need a hypothesis at all. */
+  private val unitSeq = new java.util.concurrent.atomic.AtomicInteger(0)
+  private val dumpDir: String | Null = sys.env.get("SSC_V2_JIT_DUMP").filter(_.nonEmpty).orNull
+
+  private def dump(tag: String, bytes: Array[Byte]): Array[Byte] =
+    val d = dumpDir
+    if d != null then
+      try
+        val dir = java.nio.file.Paths.get(d.asInstanceOf[String])
+        java.nio.file.Files.createDirectories(dir)
+        java.nio.file.Files.write(dir.resolve(s"$tag.class"), bytes)
+      catch case _: Throwable => ()   // a debugging aid must never take a program down
+    bytes
+
   private val EMIT  = "ssc/Emit"
   private val LAMFN = "ssc/Emit$LamFn"
   private val VAL   = "ssc/Value"
@@ -317,7 +336,7 @@ object JvmByteGen:
     drainPending(g)
 
     cw.visitEnd()
-    cw.toByteArray
+    dump("aot-program", cw.toByteArray)
 
   /** Emit every deferred body until nothing is left; each may enqueue more. Shared with the JIT's
     * single-unit path (`emitUnit`) so both go through the SAME emitter — the fragmented-coverage
@@ -1626,7 +1645,8 @@ object JvmByteGen:
     drainPending(g)
 
     cw.visitEnd()
-    cw.toByteArray
+    dump(s"jit-unit-${if selfName == null then "anon" else selfName}-${unitSeq.incrementAndGet()}",
+         cw.toByteArray)
 
   /** Define a unit in its own loader and instantiate it. */
   def loadUnit(bytes: Array[Byte]): ssc.Emit.LamFn = loadUnit(bytes, Array.empty)
