@@ -7,6 +7,45 @@ grepping for status.
 
 Newest first.
 
+## native-route-block-form-registers-the-THUNK-not-its-result — `route(m, p) { … }` dies with an arity error
+
+<!-- status: open
+     lane: native
+     area: plugin
+     fixed-in: -
+     gate: none -->
+
+`route(method, path) { expr }` registers the BLOCK as the handler. A block is a 0-arity thunk, so
+the server calls it with the request and the native host refuses:
+
+    500 native HTTP handler failed: native callback arity: 0 expected, 1 given
+
+The handler is the block's RESULT, not the block. One program, two surface forms of the same call,
+measured 2026-08-02 on `bin/ssc run`:
+
+```
+def wrap(handler: Request => Response): Request => Response = req =>
+  handler(req)
+
+route("GET", "/echo") {            // -> native callback arity: 0 expected, 1 given
+  wrap { req => Response.json("hi " + req.path) }
+}
+
+route("GET", "/echo"):             // -> hi /echo
+  req =>
+    Response.json("hi " + req.path)
+```
+
+The block form is not exotic: it is what `examples/middleware-demo.ssc` uses, because a middleware
+chain (`withRequestId(withTiming(withRequestLog { … }))`) is an EXPRESSION that produces the
+handler, which is exactly what a block is for. `tests/e2e/middleware-smoke.sh` and
+`validation-smoke.sh` both fail on it, and the v1 interpreter accepts the same source, so this is a
+lane difference and not a language question.
+
+`NativePluginHost.invoke` (`v2/plugin-spi/.../NativePluginHost.scala:41-45`) is where it surfaces,
+but widening the arity check there would be the wrong fix — it would swallow genuine arity errors.
+The registration site has to evaluate the thunk once and register what it returns.
+
 ## char-literal-pattern-dropped-in-a-case-lambda — a regression I shipped the same morning, in the twin walker
 <!-- status: fixed
      lane: native

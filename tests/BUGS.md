@@ -66,10 +66,11 @@ the lie that produced the hang diagnosis in the first place.
 
 **Layer 3 — what is left under both is real, and small.** One product bug now accounts for
 `build-smoke`, `bundle-smoke`, `render-smoke` and `components-smoke`'s INT lane: filed as
-`int-render-invokes-handler-with-Response-shadowed-by-its-own-case-class` with a seven-line repro.
-`Response.html` works at the top level of a file and fails inside a route handler reached through
-`ssc render`, because by invoke time `Response` is bound to the case-class constructor rather than
-the companion the builtins install.
+`int-v1-lane-loses-a-builtin-companion-to-its-own-case-class` reduced to four lines.
+On the v1 interpreter lane the imported `case class Response` overwrites the builtin companion, so
+`Response.html` dies while `Response(200, Map(), "x")` works. NOT a render bug and NOT invoke-time:
+`ssc-tools run --v1` reproduces it at a file's top level with no route and no handler. The first
+filing said otherwise on both counts and is corrected in the entry.
 
 **NOW WIRED (9).** `nested-build`, `site`, and the seven `std-ui-*` smokes pass under both fixes
 and are in `scripts/smoke-ci`, at <=1 s each. Each was checked NOT to pass vacuously — mutating the
@@ -84,7 +85,7 @@ assertion rather than dying on a missing path.
 
 | gate | first failure |
 |---|---|
-| `build`, `bundle`, `render`, `components`(INT) | `int-render-invokes-handler-with-Response-shadowed-by-its-own-case-class` — filed, reduced to 7 lines |
+| `build`, `bundle`, `render`, `components`(INT) | `int-v1-lane-loses-a-builtin-companion-to-its-own-case-class` — filed, reduced to 4 lines |
 | `middleware`, `validation` | `500 native HTTP handler failed: native callback arity` |
 | `fm-routes` | `GET /api/todos: Not Found` — the route is registered and does not match |
 | `health-defaults` | `GET /_health: status=404 (want 200)` |

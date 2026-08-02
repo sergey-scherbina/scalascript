@@ -181,6 +181,12 @@ val suite = List(
   // ROOT is right and the tools-tier calls go to ssc-tools. Each costs <=1s and each was
   // checked NOT to pass vacuously: mutating its subject turns it red.
   Check("tests", "nested-build", "tests/e2e/nested-build-smoke.sh", List(), 120000),
+  // `build` vs `ssc render`, byte for byte. A DIFFERENTIAL: both sides come from the same
+  // source, so editing the page moves both and cannot fail it -- what it catches is the two
+  // renderers disagreeing. Green since int-v1-lane-loses-a-builtin-companion was fixed.
+  Check("tests", "build-render-agree", "tests/e2e/build-smoke.sh", List(), 120000),
+  Check("v1/runtime/backend/interpreter", "render-lane-builtins",
+        "tests/e2e/render-lane-has-the-same-builtins-as-run.sh", List(), 300000),
   Check("tests", "site", "tests/e2e/site-smoke.sh", List(), 120000),
   Check("tests", "std-ui-content", "tests/e2e/std-ui-content-smoke.sh", List(), 120000),
   Check("tests", "std-ui-data", "tests/e2e/std-ui-data-smoke.sh", List(), 120000),

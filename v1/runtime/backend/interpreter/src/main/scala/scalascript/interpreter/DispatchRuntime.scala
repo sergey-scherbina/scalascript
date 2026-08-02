@@ -3429,6 +3429,38 @@ private[interpreter] object DispatchRuntime:
           val ext = extensionDispatch(recv, name, args, env, interp)
           if ext != null then ext else interp.located(s"No method '$name' on ${recv.getClass.getSimpleName}(${Value.show(recv)})")
 
+  /** A companion displaced by a same-named CONSTRUCTOR is still the companion.
+   *
+   *  `case class Response(...)` in `std/http.ssc` binds `Response` to its constructor, overwriting
+   *  the builtin companion `InstanceV` that carries `html` / `text` / `json` / `redirect`
+   *  (`BuiltinsRuntime` ~line 782). In Scala those coexist — a case class and its companion are
+   *  two halves of one name — so the overwrite loses half of it and `Response.html("…")` dies with
+   *  "No method 'html' on NativeFnV(<native:Response>)" while `Response(200, Map(), "…")` works.
+   *
+   *  MEASURED 2026-08-02 on `ssc-tools run --v1`, four lines:
+   *
+   *      [Response](std/http.ssc)
+   *
+   *      def main() =
+   *        println(Response.html("<p>hi</p>").body)
+   *
+   *  The displaced side is already recorded: the import path calls
+   *  `StatRuntime.rememberShadowedAlternativeForImport` before it overwrites (`SectionRuntime`
+   *  ~line 498), so `shadowedAlternatives("Response")` holds the companion. Nothing read it from
+   *  the member-dispatch path — it existed only for typed-`val` ascription disambiguation. This
+   *  consults it, and ONLY as a last resort: everything that resolved before still resolves the
+   *  same way, so a real "no such member" stays an error rather than silently finding a same-named
+   *  field on an unrelated shadowed value.
+   */
+  private def shadowedCompanionMember(recv: Value, name: String, interp: Interpreter): Value | Null =
+    val ownerName = recv match
+      case fn: Value.NativeFnV => fn.name
+      case _                   => null
+    if ownerName == null then null
+    else interp.shadowedAlternatives.get(ownerName) match
+      case Some(inst: Value.InstanceV) => inst.fields.getOrElse(name, null)
+      case _                           => null
+
   // ── Cross-type ++ (bare operands) and final fallback ──────────────────────
 
   private def dispatchFallback(recv: Value, name: String, args: List[Value], env: Env, interp: Interpreter): Computation =
@@ -3454,7 +3486,11 @@ private[interpreter] object DispatchRuntime:
           if ext != null then ext else interp.located(s"No method '$name' on ${recv.getClass.getSimpleName}(${Value.show(recv)})")
     else
       val ext = extensionDispatch(recv, name, args, env, interp)
-      if ext != null then ext else interp.located(s"No method '$name' on ${recv.getClass.getSimpleName}(${Value.show(recv)})")
+      if ext != null then ext
+      else
+        val comp = shadowedCompanionMember(recv, name, interp)
+        if comp != null then interp.callValue(comp, args, env)
+        else interp.located(s"No method '$name' on ${recv.getClass.getSimpleName}(${Value.show(recv)})")
 
   /** Decimal⊕Double is a deliberate error (exact-numerics §4.3): mixing exact
    *  decimal with inexact binary float silently loses precision. Convert

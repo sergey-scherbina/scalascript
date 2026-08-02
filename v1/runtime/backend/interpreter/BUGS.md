@@ -7,66 +7,59 @@ grepping for status.
 
 Newest first.
 
-## int-render-invokes-handler-with-Response-shadowed-by-its-own-case-class — `Response.html` dies inside a route handler
+## int-v1-lane-loses-a-builtin-companion-to-its-own-case-class — `Response.html` dies, `Response(...)` works
 
 <!-- status: open
      lane: int
      area: runtime
      fixed-in: -
-     gate: none -->
+     gate: tests/e2e/render-lane-has-the-same-builtins-as-run.sh -->
 
-`ssc-tools render` reaches the registered handler with `Response` bound to the case-class
-CONSTRUCTOR, not the companion the builtins install. Seven lines:
+On the v1 interpreter lane, importing `Response` from `std/http.ssc` leaves the name bound to the
+case-class CONSTRUCTOR and drops the builtin companion that carries `html` / `text` / `json` /
+`redirect` / `notFound` / `status`. Four lines:
 
 ```
-[route, serve, Response, Request](std/http.ssc)
+[Response](std/http.ssc)
 
-route("GET", "/"):
-  req =>
-    Response.html("<p>hi</p>")
-
-serve(8099)
+def main() =
+  println(Response.html("<p>hi</p>").body)
 ```
 
-    $ bin/ssc-tools render repro.ssc
-    InterpretError: [line 5, col 19] No method 'html' on NativeFnV(<native:Response>)
+    $ bin/ssc-tools run --v1 repro.ssc
+    [ERROR] [line 4, col 25] No method 'html' on NativeFnV(<native:Response>)
+    $ bin/ssc-tools run repro.ssc          # default lane
+    <p>hi</p>
 
-**Isolated 2026-08-02, four measurements.** Each one narrows it and rules out the obvious guesses:
+`Response(200, Map(), "x")` works on both lanes — only the companion half is missing. In Scala a
+case class and its companion are two halves of one name; `BuiltinsRuntime` (~line 782) binds the
+companion as an `InstanceV`, and the import overwrites it.
 
-* `Response.html("…")` at TOP LEVEL of the same file, same lane, prints the body. So the companion
-  is installed and reachable — `BuiltinsRuntime` line 782 puts it in globals as an `InstanceV`
-  whose fields are `apply` / `html` / `text` / `json` / …
-* Inside the handler, `Response(200, Map(), "x")` — the CONSTRUCTOR — works and returns a Response.
-  So at invoke time the name is bound, just bound to the wrong thing: the `case class Response` at
-  `v1/runtime/std/http.ssc:198` has shadowed the companion.
-* It is not the closure. A handler whose body only calls a top-level `def` that uses
-  `Response.html` fails identically, so the wrong binding is in the globals the invoke sees, not in
-  what the lambda captured.
-* It is not a stale interpreter. `Interpreter.scala:1376` registers the route with
-  `Interpreter.this`, so `entry.interpreter` in `RenderCmd` is the interpreter that ran the file.
+**RENAMED AND CORRECTED 2026-08-02 — the first version of this entry was wrong twice, and each
+error pointed at the wrong file.** It was filed as `int-render-invokes-handler-with-Response-…`,
+"reached through `ssc render`", on the reasoning that the name was rebound between the top level
+running and the handler being invoked. Both halves of that are false:
 
-The shadowing therefore happens between the top-level statements running and
-`entry.interpreter.invoke(entry.handler, …)` in `RenderCmd` (`Main.scala:640-672`) — the imported
-module's `case class` declaration lands in globals after the top level has already used the
-companion, so only code that runs LATER sees the constructor.
+* It is not `render`. `ssc-tools run --v1` reproduces it with no route, no handler and no render.
+  `render` was simply the v1-lane entry point I happened to be holding.
+* It is not invoke-time. The same call fails at a file's TOP LEVEL on the v1 lane. The earlier
+  "works at top level" measurement was taken on the DEFAULT lane, where it does work — an A/B that
+  changed two variables at once and got read as one.
 
-`ssc run` never sees it: it registers the route and exits without invoking the handler. Calling the
-handler explicitly under `ssc run` also works. It takes `render`, which is the only entry that both
-runs the file and then calls back into it.
+The displaced companion is already recorded: the import path calls
+`StatRuntime.rememberShadowedAlternativeForImport` before overwriting (`SectionRuntime` ~line 498),
+so `shadowedAlternatives("Response")` holds it. Nothing read that from member dispatch — it existed
+only to disambiguate a typed `val` ascription.
 
-**A SECOND SURFACE REACHES THE SAME MESSAGE, and the trigger there is narrower than it looks.**
-`examples/components-demo.ssc` fails on `val counters = html"""…` with the identical
-`No method 'html' on NativeFnV(<native:Response>)` — the interpolator's `html` is being resolved
-against `Response`. But an `html"…"` interpolator on its own inside a handler renders fine under
-the same command, so it is not "interpolators are broken in handlers". The components case goes
-through an imported component `object`, and what that adds has not been isolated. Do not assume the
-two share a fix until someone reduces the second one the way the first is reduced above.
+**The gate found a false pass in itself before it found anything else.** Its first version compared
+`2>&1` against an expected substring, and the interpreter echoes the offending source line in its
+diagnostic (`4 |   println(Response.html("<p>hi</p>").body)`), so the expectation matched the ERROR
+TEXT. Two of four cases reported green for a program that had just died; only the `json` case,
+whose expectation `200` does not appear in the source, failed honestly. It reads stdout only now.
 
-**WHY THIS WAS INVISIBLE.** Every gate that would have caught it — `build-smoke`, `bundle-smoke`,
-`render-smoke`, `components-smoke` — is in the unwired pile (`tests/BUGS.md`
-`orphaned-e2e-gates-52`), and each ALSO had two mechanical faults in front of this one: a `ROOT`
-with one `..` too few, and a call to a command that moved to the optional tier. Both are fixed, so
-this is now the first thing those four gates report rather than the third.
+**Still unreduced, do not assume it shares a fix.** `examples/components-demo.ssc` reaches the same
+message through an `html"…"` interpolator rather than through `Response.html`, and a bare
+interpolator does not reproduce on its own.
 
 ## int-jit-two-object-applies-collide — two objects with an `apply` generate one Java class and refuse to compile
 <!-- status: open
