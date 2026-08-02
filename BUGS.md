@@ -16,6 +16,59 @@ scripts/bugs-report --no-gate              # open entries with no regression gat
 
 Newest first.
 
+## keyword-import-of-a-missing-module-is-a-silent-no-op — the link form of the same import says "not found"
+
+<!-- status: open
+     lane: multi
+     area: front
+     fixed-in: -
+     gate: none -->
+
+A Scala-style import naming a module that does not exist produces NO diagnostic. The program runs
+to completion. Measured 2026-08-02 on both lanes:
+
+```
+import std.nosuchmodule.anything
+
+def main() =
+  println("ran")
+```
+
+    $ bin/ssc run bm.ssc                 -> ran
+    $ bin/ssc-tools run --v1 bm.ssc      -> ran
+
+The Markdown link form of the same import reports it:
+
+```
+[anything](std/nosuchmodule.ssc)
+```
+
+    $ bin/ssc run bl.ssc
+    ssc: native frontend import not found: std/nosuchmodule.ssc from bl.ssc
+
+So the two import surfaces disagree about whether a missing module is an error, and the one that
+stays quiet is the one that looks most like Scala. The cost is not the missing message but WHERE
+you find out: a typo'd module path surfaces later as `unbound global: X` at the use site, pointing
+at the use rather than at the import — or does not surface at all when the name also exists as a
+builtin.
+
+**That last case is not hypothetical; it invalidated my first probe.** Testing this with `Response`
+showed the keyword import "working" — until the control ran: `Response.html(...)` prints the same
+answer with NO import line at all, because `Response` is a builtin. A probe whose subject is
+reachable without the thing being tested cannot measure it. The measurement above uses
+`std/middleware.ssc`'s `withTiming`, which is `unbound global: withTiming` when nothing imports it.
+
+**Related but different:** `v2-native-scala-import-parse-only-noop`
+(`v1/runtime/backend/interpreter/BUGS.md`) is about keyword-imported names failing to BIND, and is
+`status: fixed`, re-verified not reproducing. Here the names bind correctly — what is missing is
+validation of the module path.
+
+**Observed while measuring, NOT filed as a defect because nothing specifies otherwise:** neither
+form's selector restricts. `import std.middleware.withTiming` and `[withTiming](std/middleware.ssc)`
+both leave `withRequestId` — a different name in the same module — bound. Selection appears to be
+documentation at module granularity in both surfaces. If that is intended, it is worth saying so in
+`docs/user-guide.md`, since `import p.{a}` reads as a restriction to every Scala user.
+
 ## new-array-n-builds-a-one-element-array — the allocate-n form is lowered as the factory form
 <!-- status: open
      lane: multi
