@@ -372,6 +372,19 @@ self-parity test is not external conformance.
         Worst files: `scljet/values.ssc` 205, `v1/runtime/std/streams.ssc` 159,
         `scljet/vfs.ssc` 85. ⚠️ An earlier census said 3.8% clean; it fed literate files to
         the bare dialect and was measuring markdown.
+        **`case object` outside the top level: FIXED** — `parseProgram` handled it and its twin
+        `parseMember` did not. 1,029 → 1,041 clean files, 1,278 → 808 diagnostics.
+        Gated by `SscBreadthSpec` (diagnostics, not AST nodes — the node-count gate could not
+        see this fix at all).
+        **`extern`: TRIED AND REVERTED, and the refutation is the useful part.** ssc1-front
+        treats it as a declaration-STARTING identifier (`ssc1-front.ssc0:2705,:3038`), and there
+        are 455 `extern def` sites. Adding it to `declModifiers` made the numbers WORSE —
+        streams.ssc 159 → 228, total 808 → 888 — because it is not the only gap in those lines:
+        letting the parser past `extern` exposes **`def Source.from[A](…)`, a DOTTED def name**,
+        and **`def Source.empty[A]: T`, a def with NO parameter list**. The parse got further and
+        failed more often. `extern` must land together with those two, not before them; alone it
+        trades an early cascade for many later ones. (`extern class`, which ssc1-front consumes
+        atomically, does not appear in the worst files and is a third, separate shape.)
   - [~] **SSC3-L losslessness on the language corpus.** Exact source reconstruction and
         chunk-invariance across every `.ssc` in the corpus, with the same axis discipline the
         Markdown corpus uses. This is the reason to put UniML in the front at all, so it is a
