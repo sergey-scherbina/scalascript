@@ -14,6 +14,7 @@ enum Tok:
     * 2^63, which overflows on its own — the minus is a separate token and belongs to the parser.
     * Converting here crashed the front on two corpus cases with a raw NumberFormatException. */
   case TInt(text: String, pos: Pos)
+  case TFloat(text: String, pos: Pos)
   case TStr(v: String, pos: Pos)
   case TId(s: String, pos: Pos)
   case TOp(s: String, pos: Pos)
@@ -59,9 +60,20 @@ object Lexer:
     var indents: List[Int] = List(0)
     var atLineStart = true
     var emittedOnLine = false
+    // Depth of open `(` and `[`. Inside them a line break is NOT a statement boundary — a call's
+    // arguments and a collection literal routinely span lines — so layout tokens are suppressed.
+    // `{` is deliberately NOT counted: a brace block's newlines DO separate statements.
+    var round = 0
 
     while !done(s) do
-      if atLineStart then
+      if atLineStart && round > 0 then
+        // Continuation line inside brackets: no INDENT, no DEDENT, no NEWLINE. Skipping the
+        // indentation entirely is the point — its width means nothing here.
+        var t = s
+        while !done(t) && (at(t) == ' ' || at(t) == '\t') do t = adv(t)
+        s = t
+        atLineStart = false
+      else if atLineStart then
         // Measure the indentation, then decide. A blank or comment-only line has no indentation to
         // speak of and must not close a block — that would make an empty line a DEDENT, which is
         // the classic way indentation lexers turn formatting into syntax.
@@ -95,13 +107,19 @@ object Lexer:
       else
         val c = at(s)
         if c == '\n' then
-          if emittedOnLine then out = Tok.TNewline(here(s)) :: out
+          if emittedOnLine && round == 0 then out = Tok.TNewline(here(s)) :: out
           s = adv(s)
           atLineStart = true
         else if c == ' ' || c == '\t' || c == '\r' then s = adv(s)
         else if isCommentStart(s) then s = skipToLineEnd(s)
         else
           val (tok, s2) = one(s)
+          tok match
+            case Tok.TPunct("(", _) => round = round + 1
+            case Tok.TPunct("[", _) => round = round + 1
+            case Tok.TPunct(")", _) => if round > 0 then round = round - 1
+            case Tok.TPunct("]", _) => if round > 0 then round = round - 1
+            case _                  => ()
           out = tok :: out
           s = s2
           emittedOnLine = true
@@ -128,7 +146,23 @@ object Lexer:
       var text = ""
       while !done(s) && Chars.isDigit(at(s)) do
         text = text + at(s); s = adv(s)
-      (Tok.TInt(text, p), s)
+      // A FRACTION, only when a digit follows the dot. `1.5` is a number; `1.toString` is a method
+      // call on a number, and the difference is exactly the character after the `.`.
+      var isFloat = false
+      if !done(s) && at(s) == '.' && s.pos + 1 < s.src.length && Chars.isDigit(s.src.charAt(s.pos + 1)) then
+        isFloat = true
+        text = text + "."
+        s = adv(s)
+        while !done(s) && Chars.isDigit(at(s)) do
+          text = text + at(s); s = adv(s)
+      // Width suffixes. `Int` is already 64-bit here, so `L` carries no information and is simply
+      // consumed — but it must be consumed, or it lexes as an identifier and every `123L` in the
+      // corpus becomes a syntax error. It was 87 of them.
+      if !done(s) && (at(s) == 'L' || at(s) == 'l') then s = adv(s)
+      else if !done(s) && (at(s) == 'd' || at(s) == 'D' || at(s) == 'f' || at(s) == 'F') then
+        isFloat = true
+        s = adv(s)
+      if isFloat then (Tok.TFloat(text, p), s) else (Tok.TInt(text, p), s)
     else if Chars.isIdStart(c) then
       var s = s0
       var text = ""
@@ -168,6 +202,7 @@ object Lexer:
 
   def show(t: Tok): String = t match
     case Tok.TInt(t, _)   => t
+    case Tok.TFloat(t, _) => t
     case Tok.TStr(v, _)   => "\"" + v + "\""
     case Tok.TId(s, _)    => s
     case Tok.TOp(s, _)    => s
@@ -179,6 +214,7 @@ object Lexer:
 
   def posOf(t: Tok): Pos = t match
     case Tok.TInt(_, p)   => p
+    case Tok.TFloat(_, p) => p
     case Tok.TStr(_, p)   => p
     case Tok.TId(_, p)    => p
     case Tok.TOp(_, p)    => p

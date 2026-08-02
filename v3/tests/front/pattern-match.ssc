@@ -1,0 +1,23 @@
+case class Point(x: Int, y: Int)
+
+def describe(v: Int): String =
+  v match
+    case 0 => "zero"
+    case 1 => "one"
+    case n => "many"
+
+def area(p: Point): Int =
+  p match
+    case Point(a, b) => a * b
+
+println(describe(0))
+println(describe(1))
+println(describe(42))
+println(area(Point(3, 4)))
+val o = Some(5)
+val got = o match
+  case Some(v) => v * 2
+  case None => 0
+println(got)
+val n = None
+println(n match { case Some(v) => v case None => -1 })

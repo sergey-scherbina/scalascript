@@ -16,7 +16,7 @@ final case class ParseFail(pos: Pos, message: String)
 object Parser:
 
   private val keywords: List[String] =
-    List("def", "val", "var", "if", "then", "else", "while", "do", "true", "false", "case", "class")
+    List("def", "val", "var", "if", "then", "else", "while", "do", "true", "false", "case", "class", "match")
 
   /** Binary operator precedence, tightest last. `&&` and `||` are here for PARSING only — the
     * lowering turns them into `If`, because they short-circuit and an IR that lets them be strict
@@ -115,7 +115,10 @@ object Parser:
     var (e, ts) = parsePrimary(ts0)
     var go = true
     while go do
-      if isPunct(peek(ts), ".") && ts.tail.nonEmpty then
+      if isId(peek(ts), "match") then
+        val (arms, t) = parseMatchArms(ts.tail)
+        e = Expr.Match(e, arms, Expr.posOf(e)); ts = t
+      else if isPunct(peek(ts), ".") && ts.tail.nonEmpty then
         peek(ts.tail) match
           case Tok.TId(nm, p) =>
             val afterName = ts.tail.tail
@@ -127,6 +130,106 @@ object Parser:
           case _ => go = false
       else go = false
     (e, ts)
+
+  /** `match` arms, brace-delimited or indented. An arm's body runs until the next `case` or the end
+    * of the block, which is why the body is parsed as a statement sequence rather than one
+    * expression: `case X => a; b` is ordinary. */
+  private def parseMatchArms(ts0: List[Tok]): (List[MatchArm], List[Tok]) =
+    var ts = ts0
+    // Two spellings, and the INDENTED one is why this cannot just skip layout tokens: the arms live
+    // inside an INDENT block, and the DEDENT that closes it is the only thing separating the last
+    // arm's body from whatever follows the match. Skipping DEDENTs indiscriminately made
+    // `val r = p match … ` swallow the next statement into the final arm.
+    var braced = false
+    var indented = false
+    if isPunct(peek(skipNewlines(ts)), "{") then
+      braced = true
+      ts = skipNewlines(ts).tail
+    else
+      val t = skipNewlines(ts)
+      if peek(t).isInstanceOf[Tok.TIndent] then
+        indented = true
+        ts = t.tail
+      else ts = t
+    var arms: List[MatchArm] = Nil
+    var go = true
+    while go do
+      ts = skipNewlines(ts)
+      if braced && isPunct(peek(ts), "}") then
+        ts = ts.tail
+        go = false
+      else if indented && peek(ts).isInstanceOf[Tok.TDedent] then
+        ts = ts.tail
+        go = false
+      else if peek(ts).isInstanceOf[Tok.TEof] then go = false
+      else if !isId(peek(ts), "case") then
+        if arms.isEmpty then throw ParseFail(posOf(ts), "expected `case`, found " + Lexer.show(peek(ts)))
+        else go = false
+      else
+        val (pat, t1) = parsePat(ts.tail)
+        val t2 = expectOp(t1, "=>")
+        val (body, t3) = parseArmBody(t2, braced)
+        arms = MatchArm(pat, body) :: arms
+        ts = t3
+    (arms.reverse, ts)
+
+  /** An arm body: an indented block, or statements on the arm's own line. It stops at the next
+    * `case`, at the DEDENT that closes the arm list, at `}`, or at end of input — never past them. */
+  private def parseArmBody(ts0: List[Tok], braced: Boolean): (Expr, List[Tok]) =
+    val p = posOf(ts0)
+    if peek(ts0).isInstanceOf[Tok.TNewline] && peek(skipNewlines(ts0)).isInstanceOf[Tok.TIndent] then
+      parseBlock(skipNewlines(ts0).tail)
+    else
+      var ts = ts0
+      var stmts: List[Stmt] = Nil
+      var last: Option[Expr] = None
+      var go = true
+      while go do
+        if isId(peek(ts), "case") || peek(ts).isInstanceOf[Tok.TEof] ||
+           peek(ts).isInstanceOf[Tok.TDedent] || (braced && isPunct(peek(ts), "}")) then go = false
+        else if peek(ts).isInstanceOf[Tok.TNewline] then
+          // A newline ends the arm unless the next line is another `case`, which the loop head
+          // then sees. Consuming it here and stopping is what keeps one arm to a line.
+          ts = ts.tail
+          go = false
+        else
+          val (st, t) = parseStmt(ts)
+          ts = t
+          st match
+            case Stmt.Exp(e) => last = Some(e); stmts = st :: stmts
+            case _           => last = None; stmts = st :: stmts
+      val body = stmts.reverse
+      last match
+        case Some(e) => (Expr.Block(body.dropRight(1), Some(e), p), ts)
+        case None    => (Expr.Block(body, None, p), ts)
+
+  private def parsePat(ts: List[Tok]): (Pat, List[Tok]) = peek(ts) match
+    case Tok.TId("_", p) => (Pat.PWild(p), ts.tail)
+    case Tok.TInt(t, p)  => (Pat.PLit(Expr.IntLit(longOf(t, p), p), p), ts.tail)
+    case Tok.TFloat(t, p) => (Pat.PLit(Expr.DoubleLit(t.toDouble, p), p), ts.tail)
+    case Tok.TStr(v, p)  => (Pat.PLit(Expr.StrLit(v, p), p), ts.tail)
+    case Tok.TId("true", p)  => (Pat.PLit(Expr.BoolLit(true, p), p), ts.tail)
+    case Tok.TId("false", p) => (Pat.PLit(Expr.BoolLit(false, p), p), ts.tail)
+    case Tok.TId(n, p) if !keywords.contains(n) =>
+      if isPunct(peek(ts.tail), "(") then
+        var t = ts.tail.tail
+        var args: List[Pat] = Nil
+        if !isPunct(peek(t), ")") then
+          var go = true
+          while go do
+            val (a, t2) = parsePat(t)
+            a match
+              case Pat.PCtor(_, _, ap) =>
+                throw ParseFail(ap, "a nested pattern is outside SSC3 core Tier 0")
+              case _ => ()
+            args = a :: args
+            t = t2
+            if isPunct(peek(t), ",") then t = t.tail else go = false
+        (Pat.PCtor(n, args.reverse, p), expectPunct(t, ")"))
+      // An UPPERCASE bare name is a nullary constructor (`Nil`, `None`); a lowercase one binds.
+      else if n.charAt(0) >= 'A' && n.charAt(0) <= 'Z' then (Pat.PCtor(n, Nil, p), ts.tail)
+      else (Pat.PBind(n, p), ts.tail)
+    case other => throw ParseFail(Lexer.posOf(other), "expected a pattern, found " + Lexer.show(other))
 
   private def parseUnary(ts: List[Tok]): (Expr, List[Tok]) = peek(ts) match
     // `-` immediately before digits FOLDS into the literal rather than negating one. It has to:
@@ -143,6 +246,7 @@ object Parser:
 
   private def parsePrimary(ts: List[Tok]): (Expr, List[Tok]) = peek(ts) match
     case Tok.TInt(text, p) => (Expr.IntLit(longOf(text, p), p), ts.tail)
+    case Tok.TFloat(text, p) => (Expr.DoubleLit(text.toDouble, p), ts.tail)
     case Tok.TStr(v, p) => (Expr.StrLit(v, p), ts.tail)
     case Tok.TId("true", p)  => (Expr.BoolLit(true, p), ts.tail)
     case Tok.TId("false", p) => (Expr.BoolLit(false, p), ts.tail)

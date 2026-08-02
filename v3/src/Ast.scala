@@ -24,6 +24,7 @@ object Pos:
 
 enum Expr:
   case IntLit(v: Long, pos: Pos)
+  case DoubleLit(v: Double, pos: Pos)
   case StrLit(v: String, pos: Pos)
   case BoolLit(v: Boolean, pos: Pos)
   case UnitLit(pos: Pos)
@@ -40,6 +41,18 @@ enum Expr:
   case While(c: Expr, body: Expr, pos: Pos)
   case Block(stmts: List[Stmt], result: Option[Expr], pos: Pos)
   case Assign(name: String, value: Expr, pos: Pos)
+  case Match(scrut: Expr, arms: List[MatchArm], pos: Pos)
+
+/** Patterns, Tier 0. Constructor arguments are a binder or a wildcard — NESTED patterns are
+  * refused by name rather than half-supported, because a half-supported pattern silently matches
+  * the wrong thing. */
+enum Pat:
+  case PWild(pos: Pos)
+  case PBind(name: String, pos: Pos)
+  case PLit(value: Expr, pos: Pos)
+  case PCtor(name: String, args: List[Pat], pos: Pos)
+
+final case class MatchArm(pat: Pat, body: Expr)
 
 enum Stmt:
   case Val(name: String, value: Expr, mutable: Boolean, pos: Pos)
@@ -58,6 +71,7 @@ final case class Program(defs: List[Def], topLevel: List[Stmt], classes: List[Cl
 object Expr:
   def posOf(e: Expr): Pos = e match
     case IntLit(_, p)     => p
+    case DoubleLit(_, p)  => p
     case StrLit(_, p)     => p
     case BoolLit(_, p)    => p
     case UnitLit(p)       => p
@@ -71,3 +85,4 @@ object Expr:
     case While(_, _, p)   => p
     case Block(_, _, p)   => p
     case Assign(_, _, p)  => p
+    case Match(_, _, p)   => p

@@ -57,6 +57,7 @@ object Lower:
 
   private def lower(e: Expr, fns: List[String], classes: List[ClassDef], st0: St): (List[Instr], Int, St) = e match
     case Expr.IntLit(v, _)  => constExpr(Lit.LInt(v), st0)
+    case Expr.DoubleLit(v, _) => constExpr(Lit.LFloat(v), st0)
     case Expr.StrLit(v, _)  => constExpr(Lit.LStr(v), st0)
     case Expr.BoolLit(v, _) => constExpr(Lit.LBool(v), st0)
     case Expr.UnitLit(_)    => constExpr(Lit.LUnit, st0)
@@ -199,6 +200,27 @@ object Lower:
       val (d, st3) = st2.fresh
       (acc :+ Instr.Invoke(d, nk, rr, regs.reverse), d, st3)
 
+    // A `match` becomes ONE if-chain: `Tag` for constructor arms, `Eq` for literal ones. Two code
+    // paths — `Switch` for pure-constructor matches, a chain otherwise — would be faster and would
+    // be two things that must agree about arm order, binding and fall-through. One path cannot
+    // disagree with itself. `Switch` stays in the IR for a later pass to recognise.
+    case Expr.Match(scrut, arms, p) =>
+      if arms.isEmpty then throw LowerFail(p, "a `match` with no arms")
+      val (si, sr, st1) = lower(scrut, fns, classes, st0)
+      val needsTag = arms.exists(a => a.pat match { case Pat.PCtor(_, _, _) => true; case _ => false })
+      val (tr, st2) = if needsTag then st1.fresh else (0, st1)
+      val tagInstr = if needsTag then List(Instr.Tag(tr, sr)) else Nil
+      val (rd, st3) = st2.fresh
+      // A non-exhaustive match must FAIL, loudly, at the point of failure. Falling through to unit
+      // would be a wrong answer with a clean exit — the shape `p.x` returning `Stub` already cost
+      // this module one debugging round.
+      val (mk, st4) = st3.constIdx(Lit.LStr("match: no arm matched"))
+      val (thr, st5) = st4.primIdx("__throw__")
+      val (msgR, st6) = st5.fresh
+      val fallback: List[Instr] = List(Instr.Const(msgR, mk), Instr.Prim(rd, thr, List(msgR)))
+      val (chain, stF) = armChain(arms, sr, tr, rd, fns, classes, st6, fallback)
+      (si ++ tagInstr ++ chain, rd, stF)
+
     case Expr.Call(fn, argEs, p) =>
       var acc: List[Instr] = Nil
       var regs: List[Int] = Nil
@@ -256,6 +278,59 @@ object Lower:
       st = s2
     }
     (instrs, cur, st)
+
+  /** Arms, in source order, as nested `If`s. Built back to front so each arm's `else` is the rest
+    * of the chain — which is what makes source order the matching order, exactly as written. */
+  private def armChain(arms: List[MatchArm], scrut: Int, tagReg: Int, dst: Int,
+                       fns: List[String], classes: List[ClassDef], st0: St,
+                       fallback: List[Instr]): (List[Instr], St) =
+    if arms.isEmpty then (fallback, st0)
+    else
+      val a = arms.head
+      val (rest, st1) = armChain(arms.tail, scrut, tagReg, dst, fns, classes, st0, fallback)
+      a.pat match
+        case Pat.PWild(_) =>
+          val (bi, br, st2) = lower(a.body, fns, classes, st1)
+          // A wildcard always matches, so everything after it is DEAD. Emitting the body directly
+          // rather than an `if true` keeps that visible in the IR instead of hiding it in a branch.
+          (bi :+ Instr.Move(dst, br), st2)
+        case Pat.PBind(n, _) =>
+          val (slot, st2) = st1.fresh
+          val (bi, br, st3) = lower(a.body, fns, classes, st2.bind(n, slot))
+          ((Instr.Move(slot, scrut) :: bi) :+ Instr.Move(dst, br), st3.copy(env = st1.env))
+        case Pat.PLit(v, _) =>
+          val (vi, vr, st2) = lower(v, fns, classes, st1)
+          val (cr, st3) = st2.fresh
+          val (bi, br, st4) = lower(a.body, fns, classes, st3)
+          (vi ++ List(Instr.Bin(BinOp.Eq, NumKind.Dyn, cr, scrut, vr),
+                      Instr.If(cr, bi :+ Instr.Move(dst, br), rest)), st4)
+        case Pat.PCtor(cname, cargs, cp) =>
+          val arity = classes.find(c => c.name == cname).map(c => c.fields.length)
+            .orElse(ctors.find((n, _) => n == cname).map((_, ar) => ar))
+            .getOrElse(throw LowerFail(cp, "unknown constructor '" + cname + "' in a pattern"))
+          if cargs.nonEmpty && cargs.length != arity then
+            throw LowerFail(cp, cname + " has " + arity + " field(s), the pattern binds " + cargs.length)
+          val (t, st2) = st1.typeIdx(cname, arity)
+          val (tagK, st3) = st2.constIdx(Lit.LInt(t.toLong))
+          val (tagV, st4) = st3.fresh
+          val (cr, st5) = st4.fresh
+          // Bind each field the pattern names. A wildcard argument binds nothing, so it costs no
+          // register and no read.
+          var binds: List[Instr] = Nil
+          var stb = st5
+          var envb = st5.env
+          cargs.zipWithIndex.foreach { (ap, i) =>
+            ap match
+              case Pat.PBind(bn, _) =>
+                val (r, sN) = stb.fresh
+                binds = binds :+ Instr.Field(r, scrut, t, i)
+                stb = sN
+                envb = (bn, r) :: envb
+              case _ => ()
+          }
+          val (bi, br, st6) = lower(a.body, fns, classes, stb.copy(env = envb))
+          (List(Instr.Const(tagV, tagK), Instr.Bin(BinOp.Eq, NumKind.Dyn, cr, tagReg, tagV),
+                Instr.If(cr, binds ++ bi :+ Instr.Move(dst, br), rest)), st6.copy(env = st1.env))
 
   private def binOp(op: String, p: Pos): BinOp = op match
     case "+" => BinOp.Add; case "-" => BinOp.Sub; case "*" => BinOp.Mul
