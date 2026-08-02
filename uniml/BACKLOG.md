@@ -354,9 +354,17 @@ self-parity test is not external conformance.
         hand-written shapes plus two real files (`actors.ssc`, C_min): every lexeme is a source
         slice, the parse is invariant to chunking (1/7/64/4096), and no token appears twice.
         Verified in BOTH directions — planting "drop a string's opening quote" turns it red and
-        names each input with its exact loss. Still owed for the full criterion: the corpus is
-        two files rather than every `.ssc`, and there is no frozen baseline the way Markdown has
-        one, so a NEW file with a new construct is not covered until someone adds it.
+        names each input with its exact loss.
+        **The corpus is now EVERY `.ssc` in the repository — 1,140 files, all reconstructing
+        exactly** — with an assertion that it found >500 so it cannot silently shrink back to
+        hand-written input. Widening it from two files immediately found two more defects the
+        pair could not: `:::` lost a character (the lexer REWRITES `:::`→`++` and `+:`→`::`, so
+        the lexeme was not the source), and `case A =>` with an empty body carried the arrow
+        token twice. ⚠️ While fixing the first, the suite went GREEN with `:::` completely
+        broken — moving the raw slice out without moving the rewrite left `opPrec(":::")` = 0,
+        so it stopped parsing as an infix at all, and nothing in 78 tests covered it. Both
+        operators are in the gate now. Still owed: no frozen baseline the way Markdown has one,
+        so a REGRESSION shows as a red test rather than as a diff of what changed.
   - [ ] **SSC3-I independence.** Zero dependency on `v1/` or `v2/` from the front-end dialect —
         the surviving half of `project-partitioning.md` §8.3, already enforced by
         `tests/e2e/project-partition-gate.sh` check 3. A dialect describes the LANGUAGE, not a
