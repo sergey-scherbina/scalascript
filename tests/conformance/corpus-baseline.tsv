@@ -82,7 +82,6 @@ sql-h2-quickstart	js	FAIL
 sse-typed-client	*	SKIP
 streams	*	SKIP
 sync-todo	js	FAIL
-tls-smoke	js	KNOWN-RED
 totp-shamir-demo	js	FAIL
 traditional-payments	*	SKIP
 typed-sql-crud	js	FAIL

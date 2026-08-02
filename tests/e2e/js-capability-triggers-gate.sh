@@ -20,9 +20,22 @@
 # forgetting the trigger fails here instead of at a user's runtime. A hand-written list here would
 # be a third copy, which is the shape that produced the bug.
 #
-# SCOPE, stated rather than implied: WsServer only. The same structure applies to the other chunks
-# (Jwt, Graphql, HtmlDsl, …) and their trigger sets have NOT been audited — extending this gate is
-# worth doing and is not the same as claiming they are fine.
+# SCOPE, stated rather than implied: WsServer only, and extending it STATICALLY would lie. Audited
+# the other chunks on 2026-08-02 the same way and the static list-vs-list comparison OVERSTATED
+# badly — it called 11 of 11 jwt-auth names untriggered when only the `jwt*` ones are, because
+# capabilities compose transitively (`hasHtmlDsl` force-adds Jwt; `hasGraphql` adds HtmlDsl + Jwt +
+# WsServer + Async) and a name can also be reached by a substring trigger like `csrf`. Compared
+# against emitting real programs, the static audit was wrong on 3 of 5 samples.
+#
+# So the other chunks were fixed from EMPIRICAL evidence, not from this comparison:
+#   * `hasJwt` tested `JwtSign(` / `JwtVerify(` with a capital J while the intrinsics are `jwtSign`,
+#     `jwtVerify`, `jwtSignRsa`, `jwtVerifyRsa` — two dead conditions, so the chunk arrived only via
+#     `csrf` / `OAuth2.` / `bearerToken` or transitively. `jwtSign(...)` alone → ReferenceError.
+#   * `hashPassword` / `verifyPassword` / `cookieConfig` / `onWebSocket` had no HtmlDsl trigger.
+#
+# Generalising this file means modelling that transitive closure, which is a real piece of work and
+# not a loop over the chunk list. Until then it guards the one set whose expected value was verified
+# by running programs.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

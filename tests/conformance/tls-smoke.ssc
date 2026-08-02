@@ -1,7 +1,6 @@
 ---
 name: tls-smoke
 backends: [int, js]
-known-red: "js — `tls()` reads BOTH cert files eagerly (`readFileSync` in js-runtime/ws-server.mjs:511) and dies with `ENOENT: server.crt`, while this case states that `tls()` builds a TlsContext value WITHOUT reading them and the INT lane behaves that way. v1/runtime/backend/js/BUGS.md `js-tls-reads-cert-files-eagerly`. SUPERSEDES the original declaration, which named the capability-trigger gap — that one is FIXED (2026-08-02, `tls(` and twelve siblings added to hasWsServer, gated by tests/e2e/js-capability-triggers-gate.sh). Fixing it is what exposed this: the call used to reach no definition at all, so the eager read never ran. EXPIRES by itself once the read is deferred or the case is changed to agree with the runtime."
 ---
 
 # v1.5 Phase A — `tls(certPath, keyPath)` smoke test

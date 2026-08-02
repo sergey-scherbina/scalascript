@@ -14,6 +14,25 @@ Newest first.
      kind: bug
      gate: tests/conformance/tls-smoke.ssc (JS lane) -->
 
+> **FIXED 2026-08-02, and MY OWN FRAMING OF IT WAS WRONG.** I filed this saying "both readings are
+> defensible… the choice is the runtime's to make, not a passing agent's" — having checked neither
+> of the other three lanes. They all agree, and they agree with the case:
+>
+> | lane | what `tls()` stores |
+> |---|---|
+> | v1 http-plugin | `PluginValue.string(cert)` — the PATH |
+> | v2 native | `Value.StrV(path)` |
+> | JVM ProxyRuntime | `_TlsConfig(cert, key)` — the paths |
+> | **JS** | `fs.readFileSync(...)` — **the bytes** |
+>
+> and `std/http.ssc` declares `tls(certPath: String, keyPath: String)`. There was no design question:
+> JS was the outlier. The read moved to `_ssc_http_serve`, where the bytes are needed and where a
+> missing cert is genuinely fatal rather than a difference between backends.
+>
+> `tls-smoke` is now PASS [INT] PASS [JS]; the `known-red: js` expired by itself, exactly as the
+> mechanism intends — the suite failed with "STALE known-red: this lane now PASSES" until the
+> declaration and its baseline row came out.
+
 **Found 2026-08-02 by fixing the defect on top of it.** `js-tls-intrinsic-missing-from-the-wsserver-capability-trigger`
 meant `tls(...)` emitted a call with no definition, so the body never ran. With the trigger added,
 it runs — and dies:

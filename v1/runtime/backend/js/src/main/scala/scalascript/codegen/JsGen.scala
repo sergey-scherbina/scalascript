@@ -1433,10 +1433,22 @@ class JsGen(
     val hasHtmlDsl = allText.contains("serve(") || allText.contains("route(") ||
                      allText.contains("serveAsync(") ||
                      allText.contains("WsRoom(") || allText.contains(".session") ||
-                     allText.contains("metrics.") || module.manifest.exists(_.routes.nonEmpty)
+                     allText.contains("metrics.") || module.manifest.exists(_.routes.nonEmpty) ||
+                     // The password/cookie/session helpers live in this chunk too and had no
+                     // trigger of their own: `hashPassword("p")` alone emitted the call and no
+                     // definition (measured 2026-08-02, ReferenceError on node).
+                     allText.contains("hashPassword(") || allText.contains("verifyPassword(") ||
+                     allText.contains("cookieConfig(") || allText.contains("onWebSocket(")
     if hasHtmlDsl then { caps += HtmlDsl; caps += Jwt }  // HttpServer uses _bearerFromAuth from JwtAuth
     // Jwt — JwtAuth: JwtSign/JwtVerify/OAuth2/CSRF/BearerToken
-    val hasJwt = allText.contains("JwtSign(") || allText.contains("JwtVerify(") ||
+    // ⚠️ `JwtSign(` and `JwtVerify(` — capital J — were DEAD CONDITIONS. The intrinsics are
+    // `jwtSign`, `jwtSignRsa`, `jwtVerify`, `jwtVerifyRsa`, all lower-case, so no source could ever
+    // match those two strings and the chunk arrived only via `csrf`, `OAuth2.`, `bearerToken`, or
+    // transitively from HtmlDsl/Graphql. A program whose only Jwt call was `jwtSign(...)` therefore
+    // emitted the call and no definition — measured 2026-08-02, and it is why `csrfToken()` worked
+    // while `jwtSign()` did not, in the same chunk.
+    val hasJwt = allText.contains("jwtSign(") || allText.contains("jwtSignRsa(") ||
+                 allText.contains("jwtVerify(") || allText.contains("jwtVerifyRsa(") ||
                  allText.contains("OAuth2.") || allText.contains("bearerToken") ||
                  allText.contains("csrf")
     if hasJwt then caps += Jwt

@@ -508,9 +508,18 @@ function _registerHealthDefaults() {
 }
 
 // TLS configuration object — pass to serve() to enable HTTPS.
+//
+// HOLDS THE PATHS, and does not read them. `std/http.ssc` declares
+// `tls(certPath: String, keyPath: String): TlsContext` — the parameter names say path — and every
+// other lane stores exactly that: the v1 http-plugin keeps `PluginValue.string(cert)`, the v2
+// native plugin `StrV(path)`, the JVM ProxyRuntime `_TlsConfig(cert, key)`. This lane alone used
+// `fs.readFileSync` here, so `tls("a.crt", "a.key")` threw ENOENT at CONSTRUCTION while the same
+// program ran on int, jvm and v2 (`tls-smoke` is exactly that program).
+//
+// The read moved to `_ssc_http_serve`, which is where the bytes are actually needed and where a
+// missing cert is a real failure rather than a difference between backends.
 function tls(cert, key) {
-  const fs = require('fs');
-  return { cert: fs.readFileSync(cert), key: fs.readFileSync(key) };
+  return { cert, key };
 }
 
 // Outbound HTTP client (synchronous via worker_threads, same pattern as _oauthSyncFetch).
@@ -738,7 +747,12 @@ function _ssc_http_serve(port, _tlsCfg) {
   _registerHealthDefaults();
   const _useTls = !!_tlsCfg;
   const http = _useTls ? require('https') : require('http');
-  const serverOpts = _useTls ? { cert: _tlsCfg.cert, key: _tlsCfg.key } : {};
+  // Read the cert/key HERE — `tls()` holds paths (see its note), so the bytes are loaded at bind
+  // time, which is also when a missing file is genuinely fatal.
+  const serverOpts = _useTls
+    ? (() => { const fs = require('fs');
+               return { cert: fs.readFileSync(_tlsCfg.cert), key: fs.readFileSync(_tlsCfg.key) }; })()
+    : {};
   const _requestHandler = (req, res) => {
     // Collect chunks as Buffers (not strings) so multipart file uploads
     // round-trip byte-for-byte.
