@@ -8,7 +8,8 @@ grepping for status.
 Newest first.
 
 ## js-tls-reads-cert-files-eagerly — `tls()` opens the files the case says it does not touch
-<!-- status: open
+<!-- status: fixed
+     fixed-in: 63fcb65eb
      lane: js
      area: runtime
      kind: bug
