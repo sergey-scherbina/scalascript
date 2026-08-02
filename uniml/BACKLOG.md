@@ -348,19 +348,30 @@ self-parity test is not external conformance.
         read the same CST). `Unsupported` is never dropped, so coverage is a NUMBER and it
         did its job immediately: the first run read 24% and named `spike.exprStmt` as 96,343
         of the gaps, a construct I had not modelled at all.
-        **97.2% of what the dialect PARSES, over 1,141 files and 384,331 nodes**, gated with
-        floors (>95%, gaps <12,000) rather than equalities. The gate reports parse-errors
-        and AST gaps SEPARATELY — 33,487 `spike.error` nodes are breadth (SSC3-B), not
-        typing, and conflating them would hide that the projection is nearly complete.
-        Ranked remainder, printed by the gate: `spike.kw` 3,548, `sealed` 1,749,
-        `missing.right` 689, `narg` 660, `blockapp` 646, `rangeop` 590, `for` 424,
-        `interp` 368, `listlit` 230.
+        **96.3% of what the dialect PARSES, over 1,143 files and 140,351 nodes**, gated with
+        floors rather than equalities. The gate reports parse-errors and AST gaps SEPARATELY —
+        they are breadth (SSC3-B) and typing, and conflating them hides which is which.
+        ⚠️ **The first version of these numbers was WRONG by two orders of magnitude** — 33,487
+        "parse errors" against today's 444 — because it fed whole `.ssc` files to the BARE
+        ScalaScript dialect. A `.ssc` is a literate document, so every heading and fence
+        backtick counted as broken ScalaScript; 18,782 of them were backticks. Measure through
+        `SscCompose`, which hands each dialect its own bytes. The gate lives in `uniml/scala`
+        for that reason and carries the mistake in its header.
+        Ranked remainder, printed by the gate: `spike.kw` 2,130, `sealed` 845, `narg` 719,
+        `blockapp` 504, `interp` 394, `listlit` 199.
         Still owed: the AST is not yet the thing anything CONSUMES — no lowering to SSC IR,
         and no differential proving `SpikeTyped` and `SpikeProject` agree on meaning.
 
   - [ ] **SSC3-B breadth to zero.** Differential against `F` over the whole corpus until
         DIFF=HOLE=EMPTY=TIMEOUT=0. Until then the declared dialect id names the passing SUBSET
         (UPR-4a's own rule), and no fallback may be counted as a match.
+        **Measured 2026-08-02 through `SscCompose`: 1,029 of 1,143 files parse COMPLETELY
+        CLEAN (90.0%), 1,278 diagnostics in total.** So breadth is a finite list, not a
+        rewrite. Ranked by what the parser trips on: `object` (94 "expected class name"),
+        `class` (102 "expected X after class"), then `:`/`(`/`)`/`=` shapes inside them.
+        Worst files: `scljet/values.ssc` 205, `v1/runtime/std/streams.ssc` 159,
+        `scljet/vfs.ssc` 85. ⚠️ An earlier census said 3.8% clean; it fed literate files to
+        the bare dialect and was measuring markdown.
   - [~] **SSC3-L losslessness on the language corpus.** Exact source reconstruction and
         chunk-invariance across every `.ssc` in the corpus, with the same axis discipline the
         Markdown corpus uses. This is the reason to put UniML in the front at all, so it is a
