@@ -325,12 +325,19 @@ self-parity test is not external conformance.
         ("mirrors ssc1-front"), so quotes and escapes never reach the CST — the residual 43
         characters. Move decoding to the projection, where Markdown already does it; touches every
         `spike.str` consumer including interpolation.
-  - [ ] **SSC3-L4 raw NUMBER lexemes.** The last character. `30_000` loses its digit
+  - [x] **SSC3-L4 raw NUMBER lexemes.** The last character. `30_000` loses its digit
         separator because the number lexer stores a normalised VALUE, exactly like `spike.str`
         did: it also folds hex to decimal, strips `L` suffixes and decides int-vs-float, so its
         decoder is a bigger mirror than the string one. **actors.ssc is at 1 lost character of
         29,568 and C_min is fully lossless**, so this is the only thing between the dialect and
         losslessness on real ScalaScript.
+        **Landed.** Numbers AND char literals now carry the source slice, with
+        `SpikeNum.decode` producing the value in the projection. VM semantics unchanged —
+        chars are still codes, hex still folds, a Long suffix is still not part of the
+        value — only WHERE that happens moved. **`actors.ssc` (31 KB of real production
+        ScalaScript) and C_min now reconstruct EXACTLY**; the arc across L1-L4 was 23,647
+        lost characters to zero.
+
   - [ ] **SSC3-P typed projection.** The ScalaScript analogue of `MarkdownProjection`: CST in,
         typed AST out. This is the artifact the decision actually names — the lossless CST is the
         STORAGE, the projection is the INTERFACE. Without it the type checker would dispatch on
@@ -339,10 +346,15 @@ self-parity test is not external conformance.
   - [ ] **SSC3-B breadth to zero.** Differential against `F` over the whole corpus until
         DIFF=HOLE=EMPTY=TIMEOUT=0. Until then the declared dialect id names the passing SUBSET
         (UPR-4a's own rule), and no fallback may be counted as a match.
-  - [ ] **SSC3-L losslessness on the language corpus.** Exact source reconstruction and
+  - [~] **SSC3-L losslessness on the language corpus.** Exact source reconstruction and
         chunk-invariance across every `.ssc` in the corpus, with the same axis discipline the
         Markdown corpus uses. This is the reason to put UniML in the front at all, so it is a
         release criterion and not a nice-to-have.
+        L1-L4 landed and the two files measured — `actors.ssc` and C_min — reconstruct exactly.
+        **What is still owed is the GATE**: reconstruction is checked by a throwaway probe, not
+        by a standing test over the whole corpus with a frozen baseline, so nothing stops the
+        next lexer change from silently undoing it. Chunk-invariance is not checked at all for
+        this dialect. Until both exist this criterion is demonstrated, not enforced.
   - [ ] **SSC3-I independence.** Zero dependency on `v1/` or `v2/` from the front-end dialect —
         the surviving half of `project-partitioning.md` §8.3, already enforced by
         `tests/e2e/project-partition-gate.sh` check 3. A dialect describes the LANGUAGE, not a
