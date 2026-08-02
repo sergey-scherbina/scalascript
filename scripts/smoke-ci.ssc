@@ -177,6 +177,18 @@ val suite = List(
   // exec'd a tools-tier subcommand through the STANDARD ssc, which refuses it, so every JVM
   // and JS lane in tests/e2e failed at its first call. Only the unwired gates saw it.
   Check("scripts", "launchers-not-dead", "tests/e2e/launchers-are-not-dead-on-arrival.sh", List(), 300000),
+  // Nine of the 33 unrunnable orphan gates (BUGS orphaned-e2e-gates-52) go green once their
+  // ROOT is right and the tools-tier calls go to ssc-tools. Each costs <=1s and each was
+  // checked NOT to pass vacuously: mutating its subject turns it red.
+  Check("tests", "nested-build", "tests/e2e/nested-build-smoke.sh", List(), 120000),
+  Check("tests", "site", "tests/e2e/site-smoke.sh", List(), 120000),
+  Check("tests", "std-ui-content", "tests/e2e/std-ui-content-smoke.sh", List(), 120000),
+  Check("tests", "std-ui-data", "tests/e2e/std-ui-data-smoke.sh", List(), 120000),
+  Check("tests", "std-ui-feedback", "tests/e2e/std-ui-feedback-smoke.sh", List(), 120000),
+  Check("tests", "std-ui-layout", "tests/e2e/std-ui-layout-smoke.sh", List(), 120000),
+  Check("tests", "std-ui-nav", "tests/e2e/std-ui-nav-smoke.sh", List(), 120000),
+  Check("tests", "std-ui-theming", "tests/e2e/std-ui-theming-smoke.sh", List(), 120000),
+  Check("tests", "std-ui-widgets", "tests/e2e/std-ui-widgets-smoke.sh", List(), 120000),
   Check("scripts", "project-partition", "tests/e2e/project-partition-gate.sh", List(), 60000),
   Check("scripts", "sscpkg-temp-cleanup", "tests/e2e/sscpkg-temp-cleanup-smoke.sh", List(), 60000),
   Check(".", "scljet-capability-manifest", "tests/e2e/scljet-capability-manifest.sh", List(), 60000),

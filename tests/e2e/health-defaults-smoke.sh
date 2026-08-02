@@ -23,10 +23,20 @@ kill_port() {
 }
 
 wait_for_server() {
+    # $1 = pid of the launched server, when the caller has one. A dead process is the answer NOW:
+    # measured 2026-08-02, four of the five delegating launchers exited instantly ("compile-jvm
+    # requires the optional tools tier") and this loop still burned its whole deadline waiting for
+    # a listener that could never appear. Three backends x 60-90s put the gate past the census's
+    # 180s timeout, so it was filed as HANGING and left unwired -- the one diagnosis that stops
+    # anyone reading the actual error. Polling a corpse is never worth the wall clock.
+    local pid="${1:-}"
     local deadline=$(( $(date +%s) + 60 ))
     while [ "$(date +%s)" -lt $deadline ]; do
         if curl -sS -o /dev/null -m 1 "http://localhost:$PORT/_health" 2>/dev/null; then
             return 0
+        fi
+        if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
+            return 2   # the server process is gone; nothing will ever answer
         fi
         sleep 1
     done
@@ -64,9 +74,14 @@ run_backend() {
     kill_port
     "$launcher" "$EXAMPLE" > "/tmp/health-smoke-$label.log" 2>&1 &
     local pid=$!
-    if ! wait_for_server; then
+    wait_for_server "$pid"; wrc=$?
+    if [ "$wrc" -ne 0 ]; then
         kill -9 $pid 2>/dev/null
-        echo "[FAIL] $label: server did not start within 60s"
+        if [ "$wrc" -eq 2 ]; then
+            echo "[FAIL] $label: the server process EXITED before it listened"
+        else
+            echo "[FAIL] $label: server did not start before the deadline"
+        fi
         echo "       log: /tmp/health-smoke-$label.log"
         return 1
     fi

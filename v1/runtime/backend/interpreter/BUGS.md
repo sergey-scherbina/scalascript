@@ -7,6 +7,67 @@ grepping for status.
 
 Newest first.
 
+## int-render-invokes-handler-with-Response-shadowed-by-its-own-case-class — `Response.html` dies inside a route handler
+
+<!-- status: open
+     lane: int
+     area: runtime
+     fixed-in: -
+     gate: none -->
+
+`ssc-tools render` reaches the registered handler with `Response` bound to the case-class
+CONSTRUCTOR, not the companion the builtins install. Seven lines:
+
+```
+[route, serve, Response, Request](std/http.ssc)
+
+route("GET", "/"):
+  req =>
+    Response.html("<p>hi</p>")
+
+serve(8099)
+```
+
+    $ bin/ssc-tools render repro.ssc
+    InterpretError: [line 5, col 19] No method 'html' on NativeFnV(<native:Response>)
+
+**Isolated 2026-08-02, four measurements.** Each one narrows it and rules out the obvious guesses:
+
+* `Response.html("…")` at TOP LEVEL of the same file, same lane, prints the body. So the companion
+  is installed and reachable — `BuiltinsRuntime` line 782 puts it in globals as an `InstanceV`
+  whose fields are `apply` / `html` / `text` / `json` / …
+* Inside the handler, `Response(200, Map(), "x")` — the CONSTRUCTOR — works and returns a Response.
+  So at invoke time the name is bound, just bound to the wrong thing: the `case class Response` at
+  `v1/runtime/std/http.ssc:198` has shadowed the companion.
+* It is not the closure. A handler whose body only calls a top-level `def` that uses
+  `Response.html` fails identically, so the wrong binding is in the globals the invoke sees, not in
+  what the lambda captured.
+* It is not a stale interpreter. `Interpreter.scala:1376` registers the route with
+  `Interpreter.this`, so `entry.interpreter` in `RenderCmd` is the interpreter that ran the file.
+
+The shadowing therefore happens between the top-level statements running and
+`entry.interpreter.invoke(entry.handler, …)` in `RenderCmd` (`Main.scala:640-672`) — the imported
+module's `case class` declaration lands in globals after the top level has already used the
+companion, so only code that runs LATER sees the constructor.
+
+`ssc run` never sees it: it registers the route and exits without invoking the handler. Calling the
+handler explicitly under `ssc run` also works. It takes `render`, which is the only entry that both
+runs the file and then calls back into it.
+
+**A SECOND SURFACE REACHES THE SAME MESSAGE, and the trigger there is narrower than it looks.**
+`examples/components-demo.ssc` fails on `val counters = html"""…` with the identical
+`No method 'html' on NativeFnV(<native:Response>)` — the interpolator's `html` is being resolved
+against `Response`. But an `html"…"` interpolator on its own inside a handler renders fine under
+the same command, so it is not "interpolators are broken in handlers". The components case goes
+through an imported component `object`, and what that adds has not been isolated. Do not assume the
+two share a fix until someone reduces the second one the way the first is reduced above.
+
+**WHY THIS WAS INVISIBLE.** Every gate that would have caught it — `build-smoke`, `bundle-smoke`,
+`render-smoke`, `components-smoke` — is in the unwired pile (`tests/BUGS.md`
+`orphaned-e2e-gates-52`), and each ALSO had two mechanical faults in front of this one: a `ROOT`
+with one `..` too few, and a call to a command that moved to the optional tier. Both are fixed, so
+this is now the first thing those four gates report rather than the third.
+
 ## int-jit-two-object-applies-collide — two objects with an `apply` generate one Java class and refuse to compile
 <!-- status: open
      lane: int

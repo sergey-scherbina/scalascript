@@ -34,20 +34,51 @@ count said 33 gates had dead subjects; that was a bug in the counting loop, and 
 two. Nor are they wired red: a gate nobody asked for that fails on arrival is how a suite becomes
 noise people learn to ignore.
 
-**They are not one problem.** Sampling the failures shows at least three kinds, and each needs a
-different answer:
+**RE-TRIAGED 2026-08-02 — the first split above was wrong in two places, and both errors pointed
+away from the cause.** The gates did not rot from one product bug. They rot from TWO mechanical
+repo changes that landed in front of everything else, and the second one hid a genuine regression.
 
-* a real behavioural difference — `actors-pingpong-smoke` output mismatch, `nested-build-smoke`
-  "expected extra.css in dist, missing", `req-type-collision-v2-smoke` "--v1 baseline broke";
-* an EMPTY result where content was expected — `bundle-smoke`, `import-alias-smoke`,
-  `package-keyword-smoke` all got "" against an expected HTML/JS body, which usually means the
-  pipeline they drive stopped producing rather than started producing something wrong;
-* the gate itself broken — `render-smoke.sh` dies at its own line 25 on a path.
+**Layer 1 — `ROOT` is one `..` short, in 22 of them.** `ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." …)"`
+resolves to `tests/`, so `$ROOT/bin/ssc` is `tests/bin/ssc`, which has never existed. `d0665660a`
+("group top-level dirs into … tests/") moved the gates a level down and did not adjust it. This is
+the whole of the "EMPTY result where content was expected" category — the command was never found,
+so stdout was empty. Not, as this entry read, "the pipeline stopped producing".
 
-**The six that HANG are their own category** and probably explain why nobody wired them:
-`components-smoke`, `fm-routes-smoke`, `health-defaults-smoke`, `middleware-smoke`, `upload-smoke`, `validation-smoke`. All are web-feature smokes; they appear to start a
-server and wait. A gate that does not terminate cannot go in any tier until it has a headless or
-timeout mode.
+**Layer 2 — four of the five shipped launchers were DEAD.** `sscc`, `jssc`, `ssc-js` and `ssc-wasm`
+each resolved `SSC="$SCRIPT_DIR/ssc"` and exec'd a subcommand the STANDARD ssc refuses
+(`compile-jvm`, `emit-js`, `emit-wasm`); `ssc-spark` failed a step later on
+`unknown standard run option: --backend`. On a two-line hello-world, every JVM lane and every JS
+lane in `tests/e2e` died at its first call. Fixed: all five resolve `bin/ssc-tools`. Guarded by
+`tests/e2e/launchers-are-not-dead-on-arrival.sh`, wired into `scripts/smoke-ci`.
+
+Thirteen gates also called `render` / `bundle` / `build` / `site` through `bin/ssc` after those
+moved to the optional tier; they now call `bin/ssc-tools`, which is what `StandardMain` tells you
+to do when it declines.
+
+**The six filed as HANGING do not hang.** Each has a `wait_for_server` deadline of 60-90 s and runs
+three backends, so the worst case is 180-270 s — past the 180 s census timeout, which cut them off
+mid-run and made a slow failure look like a hang. That single mislabel is why nobody read the
+actual error for six gates. They now also FAIL FAST: `wait_for_server` takes the server's pid and
+returns immediately once the process is gone, instead of polling a corpse for a minute. Measured
+against a deliberately-killed launcher, `fm-routes-smoke` went 128 s -> 10 s, and the message says
+"the server process EXITED before it listened" rather than "did not start within 60s", which was
+the lie that produced the hang diagnosis in the first place.
+
+**Layer 3 — what is left under both is real, and small.** One product bug now accounts for
+`build-smoke`, `bundle-smoke`, `render-smoke` and `components-smoke`'s INT lane: filed as
+`int-render-invokes-handler-with-Response-shadowed-by-its-own-case-class` with a seven-line repro.
+`Response.html` works at the top level of a file and fails inside a route handler reached through
+`ssc render`, because by invoke time `Response` is bound to the case-class constructor rather than
+the companion the builtins install.
+
+**NOW WIRED (9).** `nested-build`, `site`, and the seven `std-ui-*` smokes pass under both fixes
+and are in `scripts/smoke-ci`, at <=1 s each. Each was checked NOT to pass vacuously — mutating the
+subject (`NavBar` -> `NavBarXX` in `examples/std-ui/nav-demo.ssc`) turns `std-ui-nav` red.
+
+**STILL RED (13), and now for readable reasons.** All 22 together run in 89 s, where the six
+"hangers" alone used to consume 180-270 s each. `build` / `bundle` / `render` / `components`(INT)
+are the one filed interpreter bug; the rest report real product differences at their first
+assertion rather than dying on a missing path.
 
 **Full list, by outcome.**
 
@@ -79,7 +110,7 @@ failing (26):
   - `v21-unhandled-effect-smoke.sh`
   - `wc-card-smoke.sh`
 
-hanging (6):
+filed as hanging (6) — they are not; see the re-triage above, they now fail in ~10s:
   - `components-smoke.sh`
   - `fm-routes-smoke.sh`
   - `health-defaults-smoke.sh`
