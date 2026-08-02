@@ -1,5 +1,6 @@
-# generation: 785
+# generation: 786
 #slug	agent	started	items	paths
 ssc3-core	claude-code	2026-08-01T11:18:17Z	SSC3-0 SSC3-1 SSC3-2 SSC3-3 SSC3-4 SSC3-5	v3 file:tests/fixtures/modules.tsv file:tests/conformance/generic-ctor-and-array-alloc.ssc file:tests/conformance/expected/generic-ctor-and-array-alloc.txt file:tests/conformance/corpus-baseline.tsv
 uniml-ssc3-frontend-readiness	claude-code	2026-08-01T15:07:27Z	UNIML-SSC3 — make UniML ready as the ScalaScript parser and AST for language version 3	file:uniml/SPRINT.md file:uniml/BACKLOG.md file:specs/uniml-ssc3-frontend.md file:bench/history.tsv file:uniml/core/src file:uniml/scala/src
 v2-emitter-doubles	claude-code	2026-08-01T21:48:23Z	E-0 E-1 v2-emitter-unboxed-doubles	file:specs/v2-emitter-unboxed-doubles.md file:v2/backend-jvm-bytecode/JvmByteGen.scala file:specs/v2-wide-jit.md file:docs/benchmarks.md
+v2-object-apply	claude-code	2026-08-02T10:24:15Z	v2-object-apply-unbound	file:specs/v2.2-p6.5-fsub.ssc file:v2/lib/ssc1-lower.ssc0 file:tests/conformance/object-apply.ssc file:tests/conformance/contract-roster.tsv
