@@ -2,10 +2,10 @@ slug: render-response-companion-missing
 branch: feature/render-response-companion-missing
 agent: claude-code
 started: 2026-08-02T12:18:38Z
-heartbeat: 2026-08-02T12:18:38Z
-status: claimed-before-planning
+heartbeat: 2026-08-02T12:27:30Z
+status: in-progress
 items: int-render-invokes-handler-with-Response-shadowed-by-its-own-case-class
-paths: file:v1/tools/cli/src/main/scala/scalascript/cli/Main.scala file:v1/runtime/backend/interpreter/BUGS.md file:tests/e2e/render-lane-has-the-same-builtins-as-run.sh file:scripts/smoke-ci.ssc
+paths: file:v1/tools/cli/src/main/scala/scalascript/cli/Main.scala file:v1/runtime/backend/interpreter/BUGS.md file:tests/e2e/render-lane-has-the-same-builtins-as-run.sh file:scripts/smoke-ci.ssc file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/DispatchRuntime.scala file:tests/BUGS.md file:tests/e2e/build-smoke.sh
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: full smoke, then push
