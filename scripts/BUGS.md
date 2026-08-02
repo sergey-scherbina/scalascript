@@ -85,12 +85,20 @@ spelling is unified. A self-test is cheap and is what would have caught it: dige
 touch nothing, `git commit`, digest again, assert equal. Note P-6.2 — it has to RUN the tool.
 
 ## coord-claim-broad-reason-lands-inside-the-paths-field — every `--broad` claim is refused
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      kind: bug
      area: build
-     fixed-in: -
-     gate: - -->
+     fixed-in: 3325b91e3
+     gate: tests/coord/coord-claim-broad.sh -->
+
+> **FIXED 2026-08-02.** The `broad:` line is built before the heredoc now, with a real newline.
+> Verified END TO END rather than only in a sandbox, because the symptom was a refused push:
+> `coord-claim broad-probe-3 --paths mod:payments/mx-spei --broad "…"` reached `origin/main` with a
+> clean `paths:` and `broad:` on its own line. A first attempt on `mod:v3` was still refused — as a
+> genuine overlap with the live `ssc3-core` claim, which is the guard working, not this bug.
+> Gate `tests/coord/coord-claim-broad.sh` is in `scripts/smoke-ci` and fails on three of its four
+> assertions against the unfixed script.
 
 **Found 2026-08-01** filing the `ssc3-core` claim, which needed `mod:v3` for a directory that did
 not exist yet.
