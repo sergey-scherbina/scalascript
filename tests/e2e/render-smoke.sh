@@ -9,7 +9,7 @@
 # 3. Diff the two — they should be byte-identical.
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 EXAMPLE="$ROOT/examples/components-demo.ssc"
 BIN="$ROOT/bin"
 PORT=8768
@@ -22,7 +22,7 @@ echo "============================================================"
 echo
 
 # Headless render
-"$BIN/ssc" render "$EXAMPLE" > "/tmp/render-smoke-headless.html" 2>"/tmp/render-smoke-headless.err"
+"$BIN/ssc-tools" render "$EXAMPLE" > "/tmp/render-smoke-headless.html" 2>"/tmp/render-smoke-headless.err"
 if [ ! -s "/tmp/render-smoke-headless.html" ]; then
     echo "[FAIL] headless render produced no output"
     cat /tmp/render-smoke-headless.err

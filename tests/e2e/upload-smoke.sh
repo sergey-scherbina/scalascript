@@ -14,7 +14,7 @@
 # harness's scala-cli bloop server.
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 EXAMPLE="$ROOT/examples/uploads.ssc"
 BIN="$ROOT/bin"
 PORT=8766

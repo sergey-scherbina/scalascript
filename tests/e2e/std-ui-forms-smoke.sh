@@ -5,7 +5,7 @@
 # `<script>` appear in the rendered HTML.
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BIN="$ROOT/bin"
 DEMO="$ROOT/examples/std-ui/demo.ssc"
 PORT=8769
@@ -64,7 +64,7 @@ fail=0
 
 # INT via the headless `ssc render` path (avoids the interpreter's
 # WS-aware NIO-proxy startup delay).
-body_int=$("$BIN/ssc" render "$DEMO" 2>/dev/null)
+body_int=$("$BIN/ssc-tools" render "$DEMO" 2>/dev/null)
 assert_markers "INT" "$body_int" || fail=1
 
 # JVM / JS via serve+curl when their launchers are available.  Each

@@ -8,7 +8,7 @@
 # bin/jssc doesn't deadlock on the parent harness.
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 EXAMPLE="$ROOT/examples/rest-api-fm.ssc"
 BIN="$ROOT/bin"
 PORT=8767

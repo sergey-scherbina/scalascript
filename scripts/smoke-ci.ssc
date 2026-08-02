@@ -173,6 +173,10 @@ val suite = List(
   // `orphaned-e2e-gates-52` rather than wired red or deleted unexamined — none of them is provably
   // dead, and a red gate nobody asked for is how a suite becomes noise.
   Check("scripts", "build-ram-guard", "tests/e2e/build-ram-guard-gate.sh", List(), 60000),
+  // Four of the five delegating launchers were DEAD (2026-08-02): sscc/jssc/ssc-js/ssc-wasm
+  // exec'd a tools-tier subcommand through the STANDARD ssc, which refuses it, so every JVM
+  // and JS lane in tests/e2e failed at its first call. Only the unwired gates saw it.
+  Check("scripts", "launchers-not-dead", "tests/e2e/launchers-are-not-dead-on-arrival.sh", List(), 300000),
   Check("scripts", "project-partition", "tests/e2e/project-partition-gate.sh", List(), 60000),
   Check("scripts", "sscpkg-temp-cleanup", "tests/e2e/sscpkg-temp-cleanup-smoke.sh", List(), 60000),
   Check(".", "scljet-capability-manifest", "tests/e2e/scljet-capability-manifest.sh", List(), 60000),

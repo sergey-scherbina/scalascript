@@ -22,7 +22,18 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SSC="$SCRIPT_DIR/ssc"
+# `compile-jvm` / `emit-js` / `emit-wasm` / `run --backend` live in the OPTIONAL tools tier.
+# The standard `ssc` refuses them outright, so delegating there makes this launcher dead on
+# arrival -- measured 2026-08-02: sscc, jssc, ssc-js and ssc-wasm ALL exited with
+# "requires the optional ScalaScript tools/compatibility tier" on a two-line hello-world,
+# which is every JVM and JS lane in the e2e smokes. Resolve the tools launcher instead, and
+# say plainly what is missing when it is not installed rather than dying on "no such file".
+SSC="$SCRIPT_DIR/ssc-tools"
+if [ ! -x "$SSC" ]; then
+  echo "$(basename "${BASH_SOURCE[0]}"): needs the optional tools tier ($SSC not found)." >&2
+  echo "  Install the full distribution, or use 'ssc run' for the standard tier." >&2
+  exit 1
+fi
 
 if ! command -v scala-cli >/dev/null 2>&1; then
   cat >&2 <<EOF

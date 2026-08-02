@@ -4,7 +4,7 @@
 # verifies each rendered page has the right title + active nav link.
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BIN="$ROOT/bin"
 DIST=$(mktemp -d)
 trap 'rm -rf "$DIST"' EXIT
@@ -16,7 +16,7 @@ echo
 echo "  dist: $DIST"
 echo
 
-build_out=$("$BIN/ssc" build "$ROOT/examples/site" "$DIST" 2>&1)
+build_out=$("$BIN/ssc-tools" build "$ROOT/examples/site" "$DIST" 2>&1)
 echo "$build_out" | sed 's/^/    /'
 
 fail=0

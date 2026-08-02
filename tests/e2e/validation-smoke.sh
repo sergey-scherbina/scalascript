@@ -8,7 +8,7 @@
 #   5. GET  /echo with missing query param   → 400
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 EXAMPLE="$ROOT/examples/validation-demo.ssc"
 BIN="$ROOT/bin"
 PORT=8772

@@ -7,7 +7,7 @@
 # render path all agree on a real-world page.
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BIN="$ROOT/bin"
 
 SRC=$(mktemp -d)
@@ -27,7 +27,7 @@ echo "  src:  $SRC"
 echo "  dist: $DIST"
 echo
 
-build_out=$("$BIN/ssc" build "$SRC" "$DIST" 2>&1)
+build_out=$("$BIN/ssc-tools" build "$SRC" "$DIST" 2>&1)
 echo "$build_out" | sed 's/^/    /'
 
 if [ ! -f "$DIST/index.html" ]; then
@@ -36,7 +36,7 @@ if [ ! -f "$DIST/index.html" ]; then
     exit 1
 fi
 
-"$BIN/ssc" render "$SRC/components-demo.ssc" > "$DIST/.expected.html" 2>/dev/null
+"$BIN/ssc-tools" render "$SRC/components-demo.ssc" > "$DIST/.expected.html" 2>/dev/null
 
 if diff -q "$DIST/index.html" "$DIST/.expected.html" > /dev/null; then
     rm -f "$DIST/.expected.html"

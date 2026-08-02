@@ -8,7 +8,7 @@
 #   4. JSON body matches the echo template
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 EXAMPLE="$ROOT/examples/middleware-demo.ssc"
 BIN="$ROOT/bin"
 PORT=8770

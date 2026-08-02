@@ -6,7 +6,7 @@
 # page emission but still recursed for the asset pipeline.
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BIN="$ROOT/bin"
 SRC=$(mktemp -d)
 DIST=$(mktemp -d)
@@ -119,7 +119,7 @@ echo "============================================================"
 echo "  Recursive ssc build smoke"
 echo "============================================================"
 echo
-"$BIN/ssc" build "$SRC" "$DIST" 2>&1 | sed 's/^/    /'
+"$BIN/ssc-tools" build "$SRC" "$DIST" 2>&1 | sed 's/^/    /'
 
 fail=0
 for want in index.html blog/post1.html blog/post2.html extra.css; do

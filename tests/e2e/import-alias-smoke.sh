@@ -4,7 +4,7 @@
 # imports where only SOME of the names carry an alias.
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BIN="$ROOT/bin"
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT

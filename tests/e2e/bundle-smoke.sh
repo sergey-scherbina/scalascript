@@ -6,7 +6,7 @@
 # rewrite path (when an entry imports from above its own directory).
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BIN="$ROOT/bin"
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
@@ -21,7 +21,7 @@ fail=0
 # ─── Case 1: in-tree imports — components-demo.ssc ───────────────
 echo "Case 1: in-tree imports (examples/components-demo.ssc)"
 PKG1="$WORK/components-demo.sscpkg"
-"$BIN/ssc" bundle "$ROOT/examples/components-demo.ssc" -o "$PKG1" 2>&1 | sed 's/^/    /'
+"$BIN/ssc-tools" bundle "$ROOT/examples/components-demo.ssc" -o "$PKG1" 2>&1 | sed 's/^/    /'
 
 UNPACK1="$WORK/unpack1"; mkdir -p "$UNPACK1"
 unzip -q "$PKG1" -d "$UNPACK1"
@@ -35,8 +35,8 @@ for required in components-demo.ssc components/page.ssc components/button.ssc co
     fi
 done
 
-"$BIN/ssc" render "$UNPACK1/components-demo.ssc" > "$WORK/from-bundle.html"
-"$BIN/ssc" render "$ROOT/examples/components-demo.ssc" > "$WORK/from-source.html"
+"$BIN/ssc-tools" render "$UNPACK1/components-demo.ssc" > "$WORK/from-bundle.html"
+"$BIN/ssc-tools" render "$ROOT/examples/components-demo.ssc" > "$WORK/from-source.html"
 if diff -q "$WORK/from-bundle.html" "$WORK/from-source.html" > /dev/null; then
     echo "  [PASS] roundtrip render matches source ($(wc -c < "$WORK/from-bundle.html") bytes)"
 else
@@ -47,7 +47,7 @@ fi
 echo
 echo "Case 2: multi-entry (card.ssc + button.ssc + alert.ssc)"
 PKG2="$WORK/cards.sscpkg"
-"$BIN/ssc" bundle \
+"$BIN/ssc-tools" bundle \
     "$ROOT/examples/components/card.ssc" \
     "$ROOT/examples/components/button.ssc" \
     "$ROOT/examples/components/alert.ssc" \
@@ -98,7 +98,7 @@ serve(9999)
 EOF
 
 PKG3="$WORK/index.sscpkg"
-"$BIN/ssc" bundle "$SRC3/pages/index.ssc" -o "$PKG3" 2>&1 | sed 's/^/    /'
+"$BIN/ssc-tools" bundle "$SRC3/pages/index.ssc" -o "$PKG3" 2>&1 | sed 's/^/    /'
 
 UNPACK3="$WORK/unpack3"; mkdir -p "$UNPACK3"
 unzip -q "$PKG3" -d "$UNPACK3"
@@ -110,7 +110,7 @@ if ! grep -q '\[Layout\](_external/layout.ssc)' "$UNPACK3/index.ssc"; then
     echo "  [FAIL] import path inside index.ssc not rewritten to _external/"; fail=1
 fi
 
-RENDERED=$("$BIN/ssc" render "$UNPACK3/index.ssc")
+RENDERED=$("$BIN/ssc-tools" render "$UNPACK3/index.ssc")
 EXPECTED='<!doctype html><html><head><title>Home</title></head><body><p>hello</p></body></html>'
 if [ "$RENDERED" = "$EXPECTED" ]; then
     echo "  [PASS] external-import bundle renders end-to-end"

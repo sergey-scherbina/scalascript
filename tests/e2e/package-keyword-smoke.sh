@@ -5,7 +5,7 @@
 # `org.example.ui.<Name>` on all three backends.
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BIN="$ROOT/bin"
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT

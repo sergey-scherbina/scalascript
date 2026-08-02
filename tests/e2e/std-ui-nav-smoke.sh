@@ -3,11 +3,11 @@
 # component's scoped class names appear at least the expected count.
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BIN="$ROOT/bin"
 DEMO="$ROOT/examples/std-ui/nav-demo.ssc"
 
-body=$("$BIN/ssc" render "$DEMO" 2>/dev/null)
+body=$("$BIN/ssc-tools" render "$DEMO" 2>/dev/null)
 
 fail=0
 echo "============================================================"

@@ -3,11 +3,11 @@
 # KeyValue rendered through `ssc render` with markers asserted.
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BIN="$ROOT/bin"
 DEMO="$ROOT/examples/std-ui/data-demo.ssc"
 
-body=$("$BIN/ssc" render "$DEMO" 2>/dev/null)
+body=$("$BIN/ssc-tools" render "$DEMO" 2>/dev/null)
 
 fail=0
 echo "============================================================"

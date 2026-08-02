@@ -5,7 +5,7 @@
 # Also exercises the `SSC_NO_NETWORK=1` flag.
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BIN="$ROOT/bin"
 PORT=9870
 WEB=$(mktemp -d)

@@ -9,7 +9,7 @@
 # level) yields byte-identical output across INT / JVM / JS.
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 EXAMPLE="$ROOT/examples/components-demo.ssc"
 BIN="$ROOT/bin"
 PORT=8768
