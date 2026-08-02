@@ -17,7 +17,7 @@ object Lower:
   /** Names the language provides, mapped to the v2 prim spelling the bridge emits. Deliberately a
     * TABLE and not a fallthrough: an unknown name is a `LowerFail` naming it, so a typo becomes a
     * diagnostic at the source position rather than an unbound global three layers down. */
-  private val builtins: List[(String, String)] = List("println" -> "io.println")
+  private val builtins: List[(String, String)] = List("println" -> "io.println", "__autoOutput__" -> "__autoOutput__")
 
   /** Constructors the language provides. `List(a, b)` is `Cons(a, Cons(b, Nil))` — measured off the
     * oracle, not assumed — so it is ordinary `MkData` over the type table rather than a special
@@ -226,6 +226,19 @@ object Lower:
     // Exactly ONE class, deliberately. Ambiguity is refused rather than guessed: picking a type
     // here without a checker would be a silent wrong-field read, which is the bug family the IR's
     // single type table exists to remove.
+    // `Foo.bar(…)` where `Foo` is a declared object is a DIRECT call, not dynamic dispatch. An
+    // object is a namespace at Tier 0, so resolving it here is the whole of its semantics.
+    case Expr.MethodCall(Expr.Name(obj, _), nm, argEs, p) if fns.contains(obj + "." + nm) =>
+      var acc: List[Instr] = Nil
+      var regs: List[Int] = Nil
+      var st = st0
+      argEs.foreach { a =>
+        val (ai, ar, stN) = lower(a, fns, classes, st)
+        acc = acc ++ ai; regs = ar :: regs; st = stN
+      }
+      val (d, st1) = st.fresh
+      (acc :+ Instr.Call(d, fns.indexOf(obj + "." + nm), regs.reverse), d, st1)
+
     case Expr.MethodCall(recv, nm, Nil, p) if classes.exists(c => c.fields.exists(f => f.name == nm)) =>
       val owners = classes.filter(c => c.fields.exists(f => f.name == nm))
       if owners.length > 1 then
@@ -411,6 +424,33 @@ object Lower:
           (List(Instr.Const(tagV, tagK), Instr.Bin(BinOp.Eq, NumKind.Dyn, cr, tagReg, tagV),
                 Instr.If(cr, binds ++ bi :+ Instr.Move(dst, br), rest)), st6.copy(env = st1.env))
 
+  private def markAutoOutput(stmts: List[Stmt], blockEnds: List[Int]): List[Stmt] =
+    if blockEnds.isEmpty then stmts
+    else
+      // For each block, the last STATEMENT that falls inside it. A `val` tail prints nothing, which
+      // is why only `Stmt.Exp` is wrapped.
+      var chosen: List[Int] = Nil
+      blockEnds.foreach { e =>
+        var best = -1
+        var i = 0
+        stmts.foreach { st =>
+          val ln = st match
+            case Stmt.Exp(x)        => Expr.posOf(x).line
+            case Stmt.Val(_, _, _, q) => q.line
+          if ln <= e && ln > 0 then best = i
+          i = i + 1
+        }
+        if best >= 0 then chosen = best :: chosen
+      }
+      var i = 0
+      stmts.map { st =>
+        val out = st match
+          case Stmt.Exp(x) if chosen.contains(i) => Stmt.Exp(Expr.Call("__autoOutput__", List(x), Expr.posOf(x)))
+          case other                              => other
+        i = i + 1
+        out
+      }
+
   private def binOp(op: String, p: Pos): BinOp = op match
     case "+" => BinOp.Add; case "-" => BinOp.Sub; case "*" => BinOp.Mul
     case "/" => BinOp.Div; case "%" => BinOp.Rem
@@ -423,13 +463,22 @@ object Lower:
     * file with only a `main` still runs it. Both shapes appear in the corpus. */
   private val entryName = "__ssc3_entry__"
 
-  def program(p: Program): Module =
+  def program(p: Program): Module = programOf(p, Nil)
+
+  def programOf(p: Program, blockEnds: List[Int]): Module =
     if p.defs.isEmpty && p.topLevel.isEmpty then throw LowerFail(Pos.none, "empty program")
     val userMain = p.defs.find(d => d.name == "main" && d.params.isEmpty)
+    // Auto-output: the LAST top-level expression of each block becomes `__autoOutput__(v)`, which
+    // prints only a non-Unit value — the runtime decides, so the front does not need a type checker
+    // to know whether a `println(…)` tail should print again.
+    val marked = markAutoOutput(p.topLevel, blockEnds)
     val entryBody =
-      Expr.Block(p.topLevel, userMain.map(_ => Expr.Call("main", Nil, Pos.none)), Pos.none)
+      Expr.Block(marked, userMain.map(_ => Expr.Call("main", Nil, Pos.none)), Pos.none)
     val entryDef = Def(entryName, Nil, entryBody, Pos.none)
-    val allDefs = p.defs :+ entryDef
+    // Object members are flattened into `Object.member` top-level functions before anything else
+    // looks at the name list, so a qualified call resolves by ordinary lookup.
+    val objectDefs = p.objects.flatMap(o => o.defs.map(d => d.copy(name = o.name + "." + d.name)))
+    val allDefs = (p.defs ++ objectDefs) :+ entryDef
     val names = allDefs.map(d => d.name)
     val entry = names.indexOf(entryName)
 

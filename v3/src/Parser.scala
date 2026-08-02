@@ -16,7 +16,7 @@ final case class ParseFail(pos: Pos, message: String)
 object Parser:
 
   private val keywords: List[String] =
-    List("def", "val", "var", "if", "then", "else", "while", "do", "true", "false", "case", "class", "match", "enum")
+    List("def", "val", "var", "if", "then", "else", "while", "do", "true", "false", "case", "class", "match", "enum", "object", "trait")
 
   /** Binary operator precedence, tightest last. `&&` and `||` are here for PARSING only — the
     * lowering turns them into `If`, because they short-circuit and an IR that lets them be strict
@@ -481,7 +481,7 @@ object Parser:
     var out: List[ClassDef] = Nil
     var go = true
     while go do
-      ts = skipNewlines(ts)
+      ts = if braced then skipLayout(ts) else skipNewlines(ts)
       if braced && isPunct(peek(ts), "}") then
         ts = ts.tail
         go = false
@@ -515,6 +515,44 @@ object Parser:
           if isPunct(peek(ts), ",") then ts = ts.tail else more = false
     (out, ts)
 
+  /** `object Name:` / `object Name { … }` holding `def` members.
+    *
+    * A `val` member is REFUSED by name rather than skipped: it needs a module-level cell, which the
+    * IR has (`GlobGet`/`GlobSet`) and the v2 bridge does not translate yet. Skipping it would leave
+    * the program referring to a name that silently does not exist. */
+  private def parseObject(ts0: List[Tok], p: Pos): (ObjectDef, List[Tok]) =
+    val (name, _, t0) = expectName(ts0)
+    var ts = skipBrackets(t0)
+    var braced = false
+    if isPunct(peek(ts), ":") then ts = ts.tail
+    if isPunct(peek(skipNewlines(ts)), "{") then
+      braced = true
+      ts = skipNewlines(ts).tail
+    else
+      val t = skipNewlines(ts)
+      if t.head.isInstanceOf[Tok.TIndent] then ts = t.tail
+      else throw ParseFail(posOf(t), "expected the object's members, indented or in braces")
+    var members: List[Def] = Nil
+    var go = true
+    while go do
+      // Inside braces the layout tokens mean nothing — the braces already say where the block ends
+      // — so they are skipped wholesale. Outside them the DEDENT IS the end, so only newlines go.
+      ts = if braced then skipLayout(ts) else skipNewlines(ts)
+      if braced && isPunct(peek(ts), "}") then
+        ts = ts.tail
+        go = false
+      else if !braced && ts.head.isInstanceOf[Tok.TDedent] then
+        ts = ts.tail
+        go = false
+      else if ts.head.isInstanceOf[Tok.TEof] then go = false
+      else if isId(peek(ts), "def") then
+        val (d, t) = parseDef(ts)
+        members = d :: members
+        ts = t
+      else
+        throw ParseFail(posOf(ts), "only `def` members are supported in an `object` at Tier 0, found " + Lexer.show(peek(ts)))
+    (ObjectDef(name, members.reverse, p), ts)
+
   // ── definitions ─────────────────────────────────────────────────────────────
   private def parseDef(ts0: List[Tok]): (Def, List[Tok]) =
     val p = posOf(ts0)
@@ -541,6 +579,7 @@ object Parser:
     var defs: List[Def] = Nil
     var top: List[Stmt] = Nil
     var classes: List[ClassDef] = Nil
+    var objects: List[ObjectDef] = Nil
     var go = true
     while go do
       ts = skipLayout(ts)
@@ -553,6 +592,12 @@ object Parser:
         val (c, t) = parseCaseClass(ts.tail.tail, posOf(ts))
         classes = c :: classes
         ts = t
+      else if isId(peek(ts), "object") then
+        val (o, t) = parseObject(ts.tail, posOf(ts))
+        objects = o :: objects
+        ts = t
+      else if isId(peek(ts), "trait") then
+        throw ParseFail(posOf(ts), "`trait` is outside SSC3 core Tier 0 — it needs dispatch, which needs a type checker")
       else if isId(peek(ts), "enum") then
         val (cs, t) = parseEnum(ts.tail)
         classes = cs.reverse ++ classes
@@ -564,4 +609,4 @@ object Parser:
         val (st, t) = parseStmt(ts)
         top = st :: top
         ts = t
-    Program(defs.reverse, top.reverse, classes.reverse)
+    Program(defs.reverse, top.reverse, classes.reverse, objects.reverse)

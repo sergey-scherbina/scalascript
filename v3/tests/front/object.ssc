@@ -1,0 +1,11 @@
+object MathX:
+  def square(n: Int): Int = n * n
+  def cube(n: Int): Int = n * MathX.square(n)
+
+object Greet {
+  def hello(who: String): String = "hi " + who
+}
+
+println(MathX.square(5))
+println(MathX.cube(3))
+println(Greet.hello("world"))

@@ -74,7 +74,13 @@ final case class Def(name: String, params: List[Param], body: Expr, pos: Pos)
 /** A `.ssc` file is a SCRIPT: `def`s are declarations and everything else is the program body,
   * executed in order. That is the project's model, not a v3 invention — measured on the corpus,
   * top-level statements were the single largest reason v3 could not read a case. */
-final case class Program(defs: List[Def], topLevel: List[Stmt], classes: List[ClassDef])
+/** An `object`'s members, flattened. The object itself carries no runtime value at Tier 0 — it is
+  * a NAMESPACE — so `object Foo: def bar(…)` becomes a top-level `Foo.bar`, which is also how the
+  * other lanes lower it. */
+final case class ObjectDef(name: String, defs: List[Def], pos: Pos)
+
+final case class Program(defs: List[Def], topLevel: List[Stmt], classes: List[ClassDef],
+                         objects: List[ObjectDef])
 
 object Expr:
   def posOf(e: Expr): Pos = e match

@@ -36,6 +36,31 @@ object Source:
       }
       out.reverse.mkString("\n")
 
+  /** The last CODE line of each fenced block, 1-based.
+    *
+    * A `.ssc` document's contract is that the last non-Unit expression OF EACH top-level block is
+    * printed, in source order — not the program's final value. Getting that wrong makes a
+    * single-block program look correct while silently dropping every earlier block's tail, which is
+    * the defect `multiblock-auto-output` exists to catch. */
+  def blockEnds(text: String): List[Int] =
+    val lines = text.split("\n", -1).toList
+    var out: List[Int] = Nil
+    var inCode = false
+    var lastCode = 0
+    var i = 0
+    lines.foreach { l =>
+      i = i + 1
+      if inCode then
+        if isFenceClose(l) then
+          inCode = false
+          if lastCode > 0 then out = lastCode :: out
+        else if trimmed(l).nonEmpty then lastCode = i
+      else if isCodeFenceOpen(l) then
+        inCode = true
+        lastCode = 0
+    }
+    out.reverse
+
   private def trimmed(l: String): String = l.trim
 
   private def isCodeFenceOpen(l: String): Boolean =
