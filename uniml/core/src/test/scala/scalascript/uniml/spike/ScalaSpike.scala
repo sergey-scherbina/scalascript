@@ -490,10 +490,16 @@ object SpikeParse:
         if name.isEmpty then moreParams = false
         else
           expect(c, "spike.colon", "def.paramColon", "':'").foreach(kids += _)
-          // for a `using` param, keep its TYPE head so defNode can emit the usingSig (call-site given injection)
-          if usingClause && (c.peekKind == "spike.uid" || c.peekKind == "spike.id") then kids += Node.Leaf(c.peek.get, Some("def.usingtype"))
+          // For a `using` param the TYPE head is what defNode needs for the usingSig
+          // (call-site given injection), so it is ROLED as `def.usingtype` — it is not
+          // emitted a SECOND time. It used to be added here from `peek` without advancing
+          // and then added again by expectType, putting one token in the tree twice: 17
+          // leaves over 16 distinct ids for `def f(using ev: Int)(a: Int)`. A token
+          // appearing twice makes the tree unable to reconstruct its source (it would
+          // print `Int` twice) and defeats any scheme that maps tokens back by id.
+          // Nothing reads `def.paramType`; `def.usingtype` is read at usingTypes.
           if c.peekKind == "spike.lparen" then skipBalancedParens(c)
-          else expectType(c, "def.paramType").foreach(kids += _)
+          else expectType(c, if usingClause then "def.usingtype" else "def.paramType").foreach(kids += _)
           skipTypeTail(c) // generic `List[T]` / function `A => B` param types (erased)
           // a default value `param: T = expr` — captured (def.dflt) so defNodes can emit the funcdefaults node
           // for call-site synthesis (`f(a)`→`f(a, dflt…)`); appears right after its param, before the next one.
@@ -1775,13 +1781,70 @@ object SpikeEmit:
         val li = withOpen.length - 1
         withOpen.updated(li, withOpen(li).copy(closes = withOpen(li).closes :+ kind))
 
-  def emit(root: Node): Vector[VmToken] =
-    walk(root).map { ev =>
-      val instr =
-        if ev.opens.isEmpty && ev.closes.isEmpty then VmInstruction.Emit(ev.role)
-        else VmInstruction.Reframe(open = ev.opens, closeAfter = ev.closes, role = ev.role)
-      VmToken(ev.tok, instr)
-    }
+  /** Emits over the FULL lexed stream, not just the parsed tree.
+    *
+    * The parser consumes `spike.ws` through `skipTrivia` and never puts it in its
+    * tree, so emitting the tree alone dropped every space and newline: `def
+    * add(a: Int, b: Int)` came back as `defadd(a:Int,b:Int)` on input the parser
+    * understood completely. Losslessness is the whole reason to put UniML in a
+    * front end, so it must not depend on the parser choosing to keep trivia.
+    *
+    * Tokens carry a stable lexer-assigned `id`, so the tree's frame transitions
+    * are re-attached to the tokens that earned them and every other lexed token
+    * is emitted in its source position. No parse rule changes.
+    *
+    * THIS REQUIRES EACH TOKEN TO APPEAR AT MOST ONCE IN THE TREE. It does now;
+    * it did not before, and an id-keyed map silently kept one of the two copies,
+    * losing the other's frame transitions and collapsing the C_min projection.
+    *
+    * A token the parser DROPPED rather than skipped — error recovery leaving a
+    * hole — comes back too, labelled `unparsed` rather than `trivia`, so the
+    * recovery path is lossless as well. That is when a lossless tree is worth
+    * the most. Both roles are filtered out by the projection's `kids`. */
+  def emit(root: Node, lexed: Vector[SourceToken]): Vector[VmToken] =
+    val evs = walk(root)
+    if lexed.isEmpty then Vector.empty
+    else
+      val byId = evs.iterator.map(ev => ev.tok.id -> ev).toMap
+      // (token, opens, closes, role) per LEXED token, tree events where there are any
+      var rows = lexed.map { tok =>
+        byId.get(tok.id) match
+          case Some(ev) => (tok, ev.opens, ev.closes, ev.role)
+          case None =>
+            val role = if tok.channel == TokenChannel.Trivia then "trivia" else "unparsed"
+            (tok, Vector.empty[FrameSpec], Vector.empty[String], Some(role))
+      }
+      // THE OUTERMOST FRAME MUST SPAN THE WHOLE SOURCE. It opens on the first token the
+      // PARSER used, which is no longer the first token EMITTED — leading whitespace now
+      // precedes it. Left alone, that trivia sits outside the frame as an extra ROOT, and
+      // every consumer takes `roots.head`, so `\ndef f…` projected to Nil while `def f…`
+      // projected fine. Move the outermost open to the first emitted token and the
+      // outermost close to the last; inner frames keep the tokens that earned them.
+      val openAt = evs.headOption.flatMap(h => rows.indexWhere(_._1.id == h.tok.id) match
+        case -1 => None
+        case i  => Some(i))
+      openAt.foreach { i =>
+        if i > 0 && rows(i)._2.nonEmpty then
+          val spec = rows(i)._2.head
+          rows = rows.updated(i, rows(i).copy(_2 = rows(i)._2.drop(1)))
+          rows = rows.updated(0, rows(0).copy(_2 = spec +: rows(0)._2))
+      }
+      val closeAt = evs.lastOption.flatMap(l => rows.lastIndexWhere(_._1.id == l.tok.id) match
+        case -1 => None
+        case i  => Some(i))
+      closeAt.foreach { i =>
+        val last = rows.length - 1
+        if i < last && rows(i)._3.nonEmpty then
+          val kind = rows(i)._3.last
+          rows = rows.updated(i, rows(i).copy(_3 = rows(i)._3.dropRight(1)))
+          rows = rows.updated(last, rows(last).copy(_3 = rows(last)._3 :+ kind))
+      }
+      rows.map { (tok, opens, closes, role) =>
+        val instr =
+          if opens.isEmpty && closes.isEmpty then VmInstruction.Emit(role)
+          else VmInstruction.Reframe(open = opens, closeAfter = closes, role = role)
+        VmToken(tok, instr)
+      }
 
 // ── the dialect ───────────────────────────────────────────────────────────────
 object SpikeDialect extends DialectAdapter:
@@ -1797,7 +1860,7 @@ object SpikeDialect extends DialectAdapter:
       def stop(state: String): ProcessBatch[VmToken] =
         val toks = SpikeLex.scan(source.source, state)
         val parsed = SpikeParse.parseProgram(toks)
-        ProcessBatch(SpikeEmit.emit(parsed.tree), parsed.diagnostics)
+        ProcessBatch(SpikeEmit.emit(parsed.tree, toks), parsed.diagnostics)
 
 // ── projection: UniML CST → ssc-v2 `Pair(tag,data)` AST as ssc0 source text ────
 // TOTAL: any error / missing subtree becomes a `__notImplemented__` hole.
@@ -1938,10 +2001,19 @@ object SpikeProject:
     case b: UniNode.Branch => b.kind
     case UniNode.Token(_)  => "token"
 
+  /** The children the PROJECTION sees, which is not the set the CST holds.
+    *
+    * Since the emitter became lossless the tree also carries tokens the parse did
+    * not use. Filtering by ROLE rather than by kind is what makes that safe: an
+    * `unparsed` token has an ordinary syntactic kind like `spike.id`, so a
+    * kind-based filter lets it through and the projection reads it as real
+    * structure. */
   private def kids(n: UniNode): Vector[(Option[String], UniNode)] = n match
     case b: UniNode.Branch =>
       b.edges.collect {
-        case UniEdge(role, c) if !(c.isInstanceOf[UniNode.Token] && c.asInstanceOf[UniNode.Token].value.kind == "spike.ws") =>
+        case UniEdge(role, c)
+            if !role.contains("trivia") && !role.contains("unparsed") &&
+              !(c.isInstanceOf[UniNode.Token] && c.asInstanceOf[UniNode.Token].value.kind == "spike.ws") =>
           (role, c)
       }
     case _ => Vector.empty
