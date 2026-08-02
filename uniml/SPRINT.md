@@ -12,21 +12,23 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
 
 - [~] UNIML-SSC3 — **UniML must be ready to serve as ScalaScript's parser AND AST**, for
       language version 3. Direction: `specs/uniml-ssc3-frontend.md`; the seam with v3's SSC IR
-      is §3.1 there. This is the umbrella item — the decomposition and per-slice detail live in
-      `uniml/BACKLOG.md` under UNIML-SSC3, and UPR-4 is its first construction step.
-      **Done means all six, measured, not argued:**
-      (1) a ScalaScript dialect in `uniml/scala/src/main`, cross-built JVM + Scala.js, publishable;
-      (2) a TYPED PROJECTION over the CST — the AST the compiler consumes, the ScalaScript
-          analogue of `MarkdownProjection`;
-      (3) breadth: differential against `F` over the corpus at DIFF=HOLE=EMPTY=TIMEOUT=0, no
-          fallback counted as a match;
-      (4) losslessness: exact source reconstruction and chunk-invariance across that whole
-          corpus — this is what makes UniML worth using as the front at all;
-      (5) parse throughput and retained tree size measured against `F` and inside a budget
-          written down BEFORE the work, since a front runs on every compile of every file;
-      (6) zero dependency on `v1/` or `v2/` — `project-partition-gate` check 3 enforces it.
-      **Now:** (5) first. It is the cheapest of the six and the only one that can still change
-      the design; doing it after the dialect is in production is finding out too late.
+      is §3.1 there. Decomposition in `uniml/BACKLOG.md` under UNIML-SSC3.
+      **Progress 2026-08-01/02, by criterion:**
+      (4) **losslessness — DONE AND GATED.** Every one of 1,146 `.ssc` files reconstructs
+          exactly; `SpikeLosslessSpec` checks reconstruction, chunk-invariance and
+          no-duplicate-tokens, verified in both directions with a planted defect.
+      (2) **typed projection — FIRST CUT.** `SpikeAst`/`SpikeTyped`, 96.3% of what the dialect
+          parses, gated with floors. Nothing consumes it yet — no lowering to SSC IR.
+      (3) **breadth — 1,278 → 483 diagnostics, 92.1% of files completely clean.** Five slices,
+          each measured: `case object`, `extern`+qualified def names (which only work TOGETHER),
+          escaped identifiers, varargs, type ascription.
+      (5) **measurement — partly.** Throughput ~0.9-1.0 MB/s on a loaded host; the ratio against
+          `F` is still owed, and retained tree size is unmeasured.
+      (1) publishable cross-built dialect and (6) v1/v2-independence: untouched.
+      **Next, from probes rather than guesses:** type aliases (`opaque`/`infix type`),
+      function and tuple types in a parameter, and an interpolator prefix the lexer does not
+      know (`html"""…"""`). ⚠️ The diagnostic-position probe used to pick these maps spans
+      through the wrong coordinate space — fix it before trusting its line numbers.
 
 - [x] uniml-is-ssc3-frontend — recorded the ScalaScript 3 direction: UniML becomes the front
       end, parser AND AST. New spec `specs/uniml-ssc3-frontend.md`; UPR-8a and
