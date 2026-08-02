@@ -51,7 +51,7 @@ Not diagnosed further: it is the interpreter's JIT, a different module from the 
 <!-- status: fixed
      lane: int
      area: runtime
-     fixed-in: PENDING
+     fixed-in: 5e64aca07
      gate: tests/conformance/named-arg-defaults.ssc 
 
 **FIXED 2026-08-02** by `int-field-default`.
