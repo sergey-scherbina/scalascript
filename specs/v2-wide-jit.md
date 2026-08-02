@@ -873,6 +873,32 @@ the same compiler achieves with the whole program in hand, and `recursion-tco` m
 > tower by pausing site creation around `Compiler.compile(tower)` at `RunNativeV2:425` — evidently
 > the front is also compiled through another path that the pause does not cover, so the "tower not
 > armed" default is only partly in effect and its 118 ms figure is optimistic.
+>
+> **Fourth suspect eliminated: the hot loop's bytecode is equivalent.** Reading the disassembly of
+> the inlined `foreach` on both lanes:
+>
+> ```
+> JIT lam$1                                AOT lam$202
+>   Emit.global("shapes__cell") + prim1      (same, once)
+>   loop: isCons / consHead                  loop: isCons / consHead
+>         getstatic callees + INVOKEINTERFACE      INVOKESTATIC lam$58
+>         + Emit.unroll                            (direct)
+>         dcellAccum / consTail                    dcellAccum / consTail
+>   goto 11   (list read ONCE, outside)      goto 8    (same)
+> ```
+>
+> Loop bodies are 54 and 48 bytes; the list is read once on both, not per iteration; `area` IS
+> linked, so the call is the `getstatic` + interface form that `V2LinkBench` priced at 0.027 ns over
+> a direct call. Nothing here accounts for 1.2–1.3×.
+>
+> **The leading hypothesis is now the one thing bytecode cannot show: CLASS LAYOUT.** The AOT lane
+> puts every method in ONE class, where HotSpot inlines `area` into the loop for free. The JIT puts
+> each unit in its OWN class with its OWN loader (`ssc.gen.Entry` per unit, §J-3), so the callee is
+> across a loader boundary and a `getstatic`-indirected interface call — the shape JMH inlined
+> trivially with one implementor in one class, and the shape a real program with ~1400 units may
+> not. Cheap next probe: `-XX:+UnlockDiagnosticVMOptions -XX:+PrintInlining` on both lanes, or a
+> one-loader variant of unit definition. **This is a hypothesis, not a finding** — the previous four
+> all looked at least this plausible.
 
 ### J-8 — `ssc lint-jit -v2`, and J-9's missing number
 
