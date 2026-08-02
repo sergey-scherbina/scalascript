@@ -5,7 +5,7 @@ started: 2026-08-02T09:15:23Z
 heartbeat: 2026-08-02T09:15:23Z
 status: claimed-before-planning
 items: type-ascription-tuple-and-set-arms-missing
-paths: file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:v2/src/Runtime.scala file:tests/conformance/type-ascription-set.ssc
+paths: file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:v2/src/Runtime.scala file:tests/conformance/type-ascription-set.ssc file:tests/conformance/expected/type-ascription-set.txt
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
