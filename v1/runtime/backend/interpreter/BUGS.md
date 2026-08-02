@@ -48,11 +48,35 @@ Not diagnosed further: it is the interpreter's JIT, a different module from the 
 
 
 ## int-field-valued-default-undefined-on-empty-call — a default that reads a field works with an argument, not without one
-<!-- status: open
+<!-- status: fixed
      lane: int
      area: runtime
-     fixed-in: -
-     gate: - -->
+     fixed-in: PENDING
+     gate: tests/conformance/named-arg-defaults.ssc 
+
+**FIXED 2026-08-02** by `int-field-default`.
+
+**The empty argument list was the one shape that lost the receiver.** `zeroArgAllDefaults` returns
+the method's function and the caller invoked it with `Nil`, so the defaults were evaluated in the
+function's own closure — without the instance's fields. A default reading a FIELD (`dx: Int = x`)
+therefore had nothing to read. The NAMED path never had the bug because it already threads
+`recvFields` through `positionalizeNamed`, which is exactly why `shift(dy = 1)` — taking the SAME
+default — worked and `shift()` did not.
+
+The zero-arg path now calls `positionalizeNamed(f, Nil, recvFields, interp)` rather than growing its
+own default evaluation: **one place decides how a default is evaluated**, so the two shapes cannot
+drift apart again. `null` from it keeps the previous behaviour, as everywhere else in that function.
+
+    P2(5).shift(dy = 1)    10/3     jvm 10/3
+    P2(5).shift(dx = 100)  105/2    jvm 105/2
+    P2(5).shift()          10/2     jvm 10/2   <- was `Undefined: x`
+
+The row was REMOVED from `named-arg-defaults.ssc` when this was filed, precisely so that case could
+gate a js fix without pinning this divergence; it is restored here with the fix, and the frozen
+expectation is regenerated FROM THE JVM ORACLE — int and js both match it exactly.
+
+**This mattered more than one lane's row:** int is the corpus GOLDEN. A wrong answer here is a wrong
+expectation for every other lane compared against it.-->
 
 **Found 2026-08-01** by `js-codegen-pair` while extending `named-arg-defaults` to class methods —
 i.e. by a case written for a different lane, which is the only reason anyone looked.

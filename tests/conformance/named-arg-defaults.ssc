@@ -81,8 +81,11 @@ println(K().m(1, 2, 3))
 // a default that reads a FIELD, evaluated after the receiver's fields are in scope
 println(P2(5).shift(dy = 1))
 println(P2(5).shift(dx = 100))
-// NOT `P2(5).shift()` — the no-argument call. jvm and js both answer `10/2`; the INT lane dies
-// with `Undefined: x` evaluating the field-valued default, so including it would pin a divergence
-// in a case that exists to gate the js fix. Filed as
-// `int-field-valued-default-undefined-on-empty-call`.
+// The NO-ARGUMENT call, restored 2026-08-02 with the fix it was waiting on. It was removed because
+// INT died here with `Undefined: x` while jvm and js both answered `10/2`
+// (`int-field-valued-default-undefined-on-empty-call`): the empty argument list was the one shape
+// that reached the callee without the receiver's fields, so a default reading a FIELD had nothing
+// to read. The two rows above take the SAME default and always worked, which is what made the
+// empty list the suspect.
+println(P2(5).shift())
 ```

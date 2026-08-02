@@ -4825,8 +4825,26 @@ private[interpreter] object EvalRuntime:
             // so it is made here, where the empty argument list is still visible, and only here.
             def zeroArg(qualV: Value): Computation =
               val f = CallRuntime.zeroArgAllDefaults(qualV, method, interp)
-              if f != null then interp.callFun(f, Nil)
-              else DispatchRuntime.dispatch(qualV, method, Nil, env, interp)
+              if f == null then DispatchRuntime.dispatch(qualV, method, Nil, env, interp)
+              else
+                // The defaults must see the RECEIVER'S FIELDS, and calling `f` with `Nil` does not
+                // give them to it. A class method may default a parameter to a field —
+                // `def shift(dx: Int = x, dy: Int = 0)` — and `x` exists only because the receiver
+                // is bound around the body. `P2(5).shift()` therefore died with `Undefined: x`,
+                // while `P2(5).shift(dy = 1)` — which takes the SAME default — worked, because the
+                // NAMED path already threads `recvFields` through `positionalizeNamed`. The empty
+                // argument list was the one shape that lost the receiver.
+                //
+                // Routed through that same call with an empty named list rather than given its own
+                // default-evaluation: one place decides how a default is evaluated, so the two
+                // shapes cannot drift. `null` keeps the previous behaviour, as everywhere else here.
+                // BUGS `int-field-valued-default-undefined-on-empty-call`.
+                val recvFields = qualV match
+                  case inst: Value.InstanceV => inst.effectiveFields
+                  case _                     => Map.empty[String, Value]
+                val filled = CallRuntime.positionalizeNamed(f, Nil, recvFields, interp)
+                if filled != null then DispatchRuntime.dispatch(qualV, method, filled, env, interp)
+                else interp.callFun(f, Nil)
             qualC match
               case Pure(qualV) => zeroArg(qualV)
               case _           => FlatMap(qualC, qualV => zeroArg(qualV))
