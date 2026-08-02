@@ -176,9 +176,14 @@ object SpikeLex:
           case _   => "spike.op"
         emit(kind, start, op, TokenChannel.Syntax)
       else if c == '"' then
-        // string literal → spike.str whose lexeme is the DECODED value (mirrors ssc1-front
-        // buildStr: `\n`→NL, `\t`→TAB, `\<c>`→c; triple-quoted is raw). Interpolation prefixes
-        // (s/f/md) are a separate slice — a bare string is a plain literal here.
+        // string literal → spike.str whose lexeme is the RAW SOURCE SLICE, quotes and
+        // escapes included. It used to hold the DECODED value ("mirrors ssc1-front
+        // buildStr"), which is convenient for the projection and fatal for the CST: the
+        // quotes and every `\n` never reached the tree, so a source with strings could
+        // not be reconstructed. Decoding is `SpikeStr.decode`, applied where the
+        // projection needs a VALUE — the same split Markdown uses, where the CST is
+        // canonical and `MarkdownProjection` unescapes.
+        val strStart = i
         val sb = new StringBuilder
         if i + 2 < n && text.charAt(i + 1) == '"' && text.charAt(i + 2) == '"' then
           advance('"'); advance('"'); advance('"')
@@ -204,7 +209,7 @@ object SpikeLex:
                 sb.append(ch); advance(ch)
             else { sb.append(text.charAt(i)); advance(text.charAt(i)) }
           if i < n then advance('"')
-        emit("spike.str", start, sb.toString, TokenChannel.Syntax)
+        emit("spike.str", start, text.substring(strStart, i), TokenChannel.Syntax)
       else if c == '\'' then
         // char literal 'x' / '\n' / '\uXXXX' → spike.int holding the char CODE — an EXACT
         // mirror of ssc1-front.ssc0:361-374 (the VM treats chars as codes: scodeAt, `'a' == c`).
@@ -248,6 +253,38 @@ extension (n: Node)
     case Node.Frame(k, _, kids) => Node.Frame(k, Some(role), kids)
 
 // ── parser: total, error-resilient, offside-aware ─────────────────────────────
+/** Decodes a `spike.str` RAW lexeme to its value. Mirrors what `SpikeLex` used to
+  * store directly, moved here so the CST can keep the source slice: strip the
+  * quotes, then `\n`→NL, `\t`→TAB, `\<c>`→c, with a balanced `${ … }` copied
+  * verbatim so its inner quotes do not end the string. Triple-quoted is raw. */
+private[spike] object SpikeStr:
+  def decode(lex: String): String =
+    if lex.startsWith("\"\"\"") then
+      val body = lex.stripPrefix("\"\"\"")
+      if body.endsWith("\"\"\"") then body.dropRight(3) else body
+    else
+      val body =
+        val b = lex.stripPrefix("\"")
+        if b.endsWith("\"") then b.dropRight(1) else b
+      val sb = new StringBuilder
+      var i = 0
+      val n = body.length
+      while i < n do
+        val c = body.charAt(i)
+        if c == '\\' && i + 1 < n then
+          val e = body.charAt(i + 1)
+          sb.append(if e == 'n' then '\n' else if e == 't' then '\t' else e)
+          i += 2
+        else if c == '$' && i + 1 < n && body.charAt(i + 1) == '{' then
+          sb.append("${"); i += 2
+          var depth = 1
+          while depth > 0 && i < n do
+            val ch = body.charAt(i)
+            if ch == '{' then depth += 1 else if ch == '}' then depth -= 1
+            sb.append(ch); i += 1
+        else { sb.append(c); i += 1 }
+      sb.toString
+
 object SpikeParse:
   final case class Parsed(tree: Node, diagnostics: Vector[Diagnostic])
 
@@ -2230,7 +2267,7 @@ object SpikeProject:
   private def expr(n: UniNode): String = n match
     case UniNode.Token(t) if t.kind == "spike.int"   => s"""mkInt("${esc(t.lexeme)}")"""
     case UniNode.Token(t) if t.kind == "spike.float" => s"""mkFloat("${esc(t.lexeme)}")"""
-    case UniNode.Token(t) if t.kind == "spike.str"   => s"""mkStr("${escStr(t.lexeme)}")"""
+    case UniNode.Token(t) if t.kind == "spike.str"   => s"""mkStr("${escStr(SpikeStr.decode(t.lexeme))}")"""
     // `true`/`false` are literal booleans, not variables (ssc1-front does the same)
     case UniNode.Token(t) if t.kind == "spike.id" && (t.lexeme == "true" || t.lexeme == "false") => s"""mkBool("${t.lexeme}")"""
     case UniNode.Token(t) if t.kind == "spike.id" && t.lexeme == "null" => """mkUVar("None")""" // K62.18: null → None
@@ -2320,7 +2357,7 @@ object SpikeProject:
           case (None, None) => body // `try B` with no handler is just B (ssc1-front returns the raw body)
       case "spike.interp" =>
         val pfx = kids(b).collectFirst { case (Some("interp.prefix"), c) => lexeme(c) }.getOrElse("s")
-        val raw = kids(b).collectFirst { case (Some("interp.raw"), c) => lexeme(c) }.getOrElse("")
+        val raw = kids(b).collectFirst { case (Some("interp.raw"), c) => SpikeStr.decode(lexeme(c)) }.getOrElse("")
         pfx match
           case "md" => s"""Pair("prim", Pair("__mdStrip__", Cons(${sInterp(raw)}, Nil)))"""
           case "f"  => fInterp(raw) // printf format specifiers → __fInterpolate__
@@ -2364,7 +2401,7 @@ object SpikeProject:
 
   private def patProj(n: UniNode): String = n match
     case UniNode.Token(t) if t.kind == "spike.int"                    => s"""Pair("lpat", Pair("int", "${esc(t.lexeme)}"))"""
-    case UniNode.Token(t) if t.kind == "spike.str"                    => s"""Pair("lpat", Pair("str", "${escStr(t.lexeme)}"))"""
+    case UniNode.Token(t) if t.kind == "spike.str"                    => s"""Pair("lpat", Pair("str", "${escStr(SpikeStr.decode(t.lexeme))}"))"""
     case UniNode.Token(t) if t.kind == "spike.float"                  => s"""Pair("lpat", Pair("float", "${esc(t.lexeme)}"))"""
     case UniNode.Token(t) if t.kind == "spike.id" && t.lexeme == "_"  => """Pair("wpat", "")"""
     case UniNode.Token(t) if t.kind == "spike.id" && (t.lexeme == "true" || t.lexeme == "false") =>
