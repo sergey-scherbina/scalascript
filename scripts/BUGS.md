@@ -695,9 +695,27 @@ for the nearest run whose head is a DESCENDANT of it and report that explicitly 
 describes, made mechanical instead of manual.
 
 ## ci-runs-cancelled-under-churn — most commits get no verdict, and `cancelled` is RED
-<!-- status: unknown
+<!-- status: fixed
      lane: apparatus
-     area: build -->
+     area: build
+     fixed-in: 2f7052ba3 -->
+
+**VERIFIED 2026-08-02 against this entry's own falsifiable criterion**, which is why the criterion
+was worth writing down: *"`gh run list --workflow=ci.yml` should show at most one `in_progress` plus
+one `queued` run for `refs/heads/main`, and completed runs should start appearing again."*
+
+Measured over the 40 most recent `ci.yml` runs on `main`: **40 of 40 `completed`** — zero `queued`,
+zero `in_progress`, 29 success / 11 failure. The 55-deep queue is gone and every run reaches a
+verdict. The entry said to reopen it if the queue were still tens deep an hour later; it is not.
+
+**The same measurement surfaced something else, and it is filed rather than mentioned in passing:**
+`smoke.yml` — the per-push gate — had failed on **26 of its last 40 main runs**, from two causes in
+sequence. The first was its `bugs-index` self-test, which cannot pass under CI's `fetch-depth: 1`
+(it plants a "not a commit sha" defect that a shallow clone can only check for SHAPE), fixed in
+`f078f9a35`. The second was a roster/baseline digest mismatch that made `freeze-consistency` red for
+everyone, repaired in `25843fb0e`. Neither is this entry's mechanism — a queue that never drains and
+a gate that fails fast look nothing alike, and conflating them would have closed this on the wrong
+evidence.
 
 **Status:** **MECHANISM ESTABLISHED, fix landed 2026-07-27** (opus, `ci-queue-concurrency`,
 `2f7052ba3`) — **verification deliberately still pending, see the criterion at the end.** Originally
