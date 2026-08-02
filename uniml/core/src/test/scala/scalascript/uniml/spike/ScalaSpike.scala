@@ -1030,6 +1030,11 @@ object SpikeParse:
     (c.peekKind == "spike.id" && declModifiers(c.peekLexeme))
   private def parseMember(c: Cur): Node =
     if isDefStart(c) then parseDef(c)
+    // `case object X extends Y` — the TWIN of this dispatch (parseProgram, the top-level
+    // one) has always handled it and this one did not, so a `case object` anywhere other
+    // than the top level reported "expected class name, found 'object'". 94 diagnostics
+    // across the corpus came from that one missing branch.
+    else if isKw(c, "case") && c.peek2Lexeme == "object" then { c.advance(); parseObject(c) }
     else if isKw(c, "case") then parseCaseClass(c)
     else if isKw(c, "val") then parseVal(c)
     else if isWord(c, "var") then parseVarStmt(c)
