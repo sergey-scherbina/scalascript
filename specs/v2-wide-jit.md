@@ -794,6 +794,23 @@ the same compiler achieves with the whole program in hand, and `recursion-tco` m
 > `SSC_V2_JIT_THRESHOLD` to 2 or 1 made it *worse* (1.39 → 3.24 → 2.82), which refutes the obvious
 > hypothesis. Unexplained, and it is the first thing to profile before anyone concludes again that
 > the JIT is done.
+>
+> **Re-measured 2026-08-02 in STEADY STATE** (`SSC_V2_JIT_SYNC=1`, `--warmup-time 3000` on both
+> lanes — see `docs/benchmarks.md`), 3 alternating rounds, medians:
+>
+> | row | AOT | JIT | |
+> |---|---:|---:|---|
+> | `arith-loop` | 0.615 | 0.609 | parity |
+> | `recursion-tco` | 0.0276 | 0.0277 | parity |
+> | `recursion-fib` | 2.38 | **1.27** | **the JIT is 1.87× FASTER than AOT** |
+> | `pattern-match-heavy` | 8.18 | 10.7 | JIT 1.31× behind, disjoint |
+>
+> So `float-loop`'s "1.94× deficit" was warm-up accounting and disappears, `recursion-fib` inverts
+> (the JIT's numbers are also far tighter — 1.22–1.33 against AOT's 1.27–2.49), and **exactly one
+> row is a genuine JIT deficit: `pattern-match-heavy`.** It is also the row with the hottest
+> cross-def call (`area(s)`, 500 000 times), which the JIT reaches through a `LamFn` interface call
+> plus `Emit.unroll` where AOT emits `invokestatic`. That is the next JIT-side target, and it is
+> linking quality rather than the emitter.
 
 ### J-8 — `ssc lint-jit -v2`, and J-9's missing number
 
