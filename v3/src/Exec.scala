@@ -187,11 +187,17 @@ object Exec:
       Signal.Done
     case Instr.ArrGet(d, a, ix) =>
       (regs(a), regs(ix)) match
-        case (Value.VArr(xs), Value.VInt(n)) => regs(d) = xs(n.toInt); Signal.Done
+        case (Value.VArr(xs), Value.VInt(n)) =>
+          if n < 0 || n >= xs.length then
+            throw ExecError("index " + n + " is outside an array of " + xs.length)
+          regs(d) = xs(n.toInt); Signal.Done
         case (x, _)                          => throw ExecError("array read on " + show(x))
     case Instr.ArrSet(a, ix, v) =>
       (regs(a), regs(ix)) match
-        case (Value.VArr(xs), Value.VInt(n)) => xs(n.toInt) = regs(v); Signal.Done
+        case (Value.VArr(xs), Value.VInt(n)) =>
+          if n < 0 || n >= xs.length then
+            throw ExecError("index " + n + " is outside an array of " + xs.length)
+          xs(n.toInt) = regs(v); Signal.Done
         case (x, _)                          => throw ExecError("array write on " + show(x))
     case Instr.ArrLen(d, a) =>
       regs(a) match
@@ -202,6 +208,15 @@ object Exec:
       throw ExecError("globals are not implemented in the executor yet")
     case Instr.Perform(_, _, _) | Instr.Handle(_, _, _) | Instr.Resume(_, _, _) =>
       throw ExecError("effects are not implemented in the executor yet")
+    // The executor's own guard. `ExecError` is the only thing thrown by this lane, so catching it
+    // is catching exactly what an SSC3 program can raise — a bare `catch Throwable` would also
+    // swallow a StackOverflowError and report it as a caught user exception.
+    case Instr.Try(d, b, x, h) =>
+      try exec(m, b, regs)
+      catch
+        case e: ExecError =>
+          regs(x) = Value.VStr(e.message)
+          exec(m, h, regs)
     case Instr.Invoke(d, nm, r, as) =>
       val name = m.consts(nm) match
         case Lit.LStr(x) => x
@@ -319,8 +334,13 @@ object Exec:
     case (BinOp.Add, Value.VInt(x), Value.VInt(y))   => Value.VInt(x + y)
     case (BinOp.Sub, Value.VInt(x), Value.VInt(y))   => Value.VInt(x - y)
     case (BinOp.Mul, Value.VInt(x), Value.VInt(y))   => Value.VInt(x * y)
-    case (BinOp.Div, Value.VInt(x), Value.VInt(y))   => Value.VInt(x / y)
-    case (BinOp.Rem, Value.VInt(x), Value.VInt(y))   => Value.VInt(x % y)
+    // Converted AT THE SOURCE rather than caught wholesale. A blanket `catch RuntimeException`
+    // around every instruction would also swallow a genuine executor bug and hand it to the
+    // program's `catch` as if the program had caused it. Each of these has a message we wrote.
+    case (BinOp.Div, Value.VInt(x), Value.VInt(y)) =>
+      if y == 0L then throw ExecError("/ by zero") else Value.VInt(x / y)
+    case (BinOp.Rem, Value.VInt(x), Value.VInt(y)) =>
+      if y == 0L then throw ExecError("% by zero") else Value.VInt(x % y)
     case (BinOp.Add, Value.VFloat(x), Value.VFloat(y)) => Value.VFloat(x + y)
     case (BinOp.Sub, Value.VFloat(x), Value.VFloat(y)) => Value.VFloat(x - y)
     case (BinOp.Mul, Value.VFloat(x), Value.VFloat(y)) => Value.VFloat(x * y)

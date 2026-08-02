@@ -1,0 +1,10 @@
+def divide(a: Int, b: Int): String =
+  try
+    (a / b).toString
+  catch
+    case e => "error"
+
+println(divide(10, 2))
+println(divide(1, 0))
+val r = try { throw "boom" } catch { case m => s"caught: $m" }
+println(r)

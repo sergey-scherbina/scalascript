@@ -16,7 +16,7 @@ final case class ParseFail(pos: Pos, message: String)
 object Parser:
 
   private val keywords: List[String] =
-    List("def", "val", "var", "if", "then", "else", "while", "do", "true", "false", "case", "class", "match", "enum", "object", "trait")
+    List("def", "val", "var", "if", "then", "else", "while", "do", "true", "false", "case", "class", "match", "enum", "object", "trait", "try", "catch", "finally", "throw")
 
   /** Binary operator precedence, tightest last. `&&` and `||` are here for PARSING only — the
     * lowering turns them into `If`, because they short-circuit and an IR that lets them be strict
@@ -313,6 +313,10 @@ object Parser:
     case Tok.TId("false", p) => (Expr.BoolLit(false, p), ts.tail)
     case Tok.TId("if", p)    => parseIf(ts.tail, p)
     case Tok.TId("while", p) => parseWhile(ts.tail, p)
+    case Tok.TId("try", p)   => parseTry(ts.tail, p)
+    case Tok.TId("throw", p) =>
+      val (e, t) = parseExpr(ts.tail)
+      (Expr.Call("__throw__", List(e), p), t)
     case Tok.TId(n, p) if !keywords.contains(n) =>
       if isPunct(peek(ts.tail), "(") then
         val (as, t) = parseArgs(ts.tail.tail)
@@ -406,6 +410,40 @@ object Parser:
       val (elseE, t5) = parseBody(t4.tail)
       (Expr.If(c, thenE, Some(elseE), p), t5)
     else (Expr.If(c, thenE, None, p), t3)
+
+  /** `try <body> catch { case e => … }`, in either spelling. The handler is ONE arm binding the
+    * caught value; typed arms (`case e: IOException =>`) need a type checker and are refused by
+    * name rather than matched on and silently ignored. */
+  private def parseTry(ts0: List[Tok], p: Pos): (Expr, List[Tok]) =
+    val (body, t1) = parseBody(ts0)
+    val t2 = skipLayout(t1)
+    if !isId(peek(t2), "catch") then
+      throw ParseFail(posOf(t2), "`try` without `catch` is outside SSC3 core Tier 0")
+    var ts = skipLayout(t2.tail)
+    val braced = isPunct(peek(ts), "{")
+    if braced then ts = skipLayout(ts.tail)
+    else if ts.head.isInstanceOf[Tok.TIndent] then ts = ts.tail
+    if !isId(peek(ts), "case") then
+      throw ParseFail(posOf(ts), "expected `case` in a `catch`, found " + Lexer.show(peek(ts)))
+    val (pat, t3) = parsePat(ts.tail)
+    val name = pat match
+      case Pat.PBind(n, _) => n
+      case Pat.PWild(_)    => "_caught"
+      case other           => throw ParseFail(Pat.posOf(other), "a `catch` arm binds one name at Tier 0")
+    var t4 = t3
+    if isPunct(peek(t4), ":") then
+      // `case e: SomeException =>` — the type is CONSUMED and discarded, like every other
+      // annotation at Tier 0, so the arm catches everything. Said out loud because it is a
+      // semantic difference from Scala, not just a parsing convenience.
+      t4 = skipTypeAnn(t4)
+    val t5 = expectOp(t4, "=>")
+    val (handler, t6) = parseArmBody(t5, braced)
+    // Only the BRACED form may skip layout here. In the indented form the DEDENT after the handler
+    // is what closes the enclosing `def`, and eating it pulled every following top-level statement
+    // into the function body — the program then ran, printed nothing, and exited 0.
+    var t7 = if braced then skipLayout(t6) else t6
+    if braced && isPunct(peek(t7), "}") then t7 = t7.tail
+    (Expr.Try(body, name, handler, p), t7)
 
   private def parseWhile(ts0: List[Tok], p: Pos): (Expr, List[Tok]) =
     val (c, t1) = parseExpr(ts0)

@@ -140,6 +140,10 @@ object Verify:
           .orElse(handlerArms(m, f, arms, at, 0, depth))
       case Instr.Resume(d, k, v)      => reg(d, "dst").orElse(reg(k, "continuation")).orElse(reg(v, "value"))
 
+      case Instr.Try(d, b, x, h) =>
+        reg(d, "dst").orElse(reg(x, "exception"))
+          .orElse(block(m, f, b, at + " > try.body", 0, depth + 1))
+          .orElse(block(m, f, h, at + " > try.catch", 0, depth + 1))
       case Instr.Invoke(d, nm, r, as) =>
         reg(d, "dst").orElse(reg(r, "receiver")).orElse(regs(as, "arg"))
           .orElse(idxIn(nm, m.consts.length, "const")).orElse {

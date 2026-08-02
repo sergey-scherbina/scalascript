@@ -202,6 +202,13 @@ object BridgeV2:
     // oracle's own `println` turns out to be a def wrapping `(prim io.println …)`.
     // The name comes from the pool at TRANSLATION time, which is the whole reason it is a const
     // index: v2 wants `(lit (str "…"))` here, a literal rather than something read from a frame.
+    // `(prim __tryCatch__ (lam 0 <body>) (lam 1 <handler>))`, read off the oracle. The body is a
+    // THUNK so nothing in it runs before the guard is installed; the handler takes the caught value
+    // as its single parameter, which is why the frame inside it sits one binder deeper.
+    case Instr.Try(d, b, x, h) =>
+      val bodyText = sq(List(seqOf(b, cx, sh), read(d, sh)))
+      val handText = sq(List(write(x, "(local 0)", sh + 1), seqOf(h, cx, sh + 1), read(d, sh + 1)))
+      write(d, "(prim __tryCatch__ (lam 0 " + bodyText + ") (lam 1 " + handText + "))", sh)
     case Instr.Invoke(d, nm, r, as) =>
       val mname = cx.m.consts(nm) match
         case Lit.LStr(x) => x

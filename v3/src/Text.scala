@@ -235,6 +235,8 @@ object Text:
           arms.map(ar => Sx.L(a("on") :: n(ar.op) :: ar.body.map(instrSx)))
       )
     case Instr.Resume(d, k, v)    => Sx.L(List(a("resume"), n(d), n(k), n(v)))
+    case Instr.Try(d, b, x, h) =>
+      Sx.L(List(a("try"), n(d), n(x), Sx.L(a("body") :: b.map(instrSx)), Sx.L(a("catch") :: h.map(instrSx))))
     case Instr.Invoke(d, nm, r, as) => Sx.L(a("invoke") :: n(d) :: n(nm) :: n(r) :: rs(as))
     case Instr.Prim(d, p, as)     => Sx.L(a("prim") :: n(d) :: n(p) :: rs(as))
 
@@ -353,6 +355,7 @@ object Text:
         }
         Instr.Handle(int(t.head), body(items(t(1), "body")), arms)
       case "resume" => Instr.Resume(int(t(0)), int(t(1)), int(t(2)))
+      case "try"    => Instr.Try(int(t(0)), body(items(t(2), "body")), int(t(1)), body(items(t(3), "catch")))
       case "invoke" => Instr.Invoke(int(t(0)), int(t(1)), int(t(2)), t.drop(3).map(int))
       case "prim"   => Instr.Prim(int(t(0)), int(t(1)), t.drop(2).map(int))
       case other    => throw ParseError("unknown instruction '" + other + "'")

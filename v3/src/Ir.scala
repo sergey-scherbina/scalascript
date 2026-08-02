@@ -105,6 +105,15 @@ enum Instr:
   // Effects — the dispatcher. `Perform` suspends and hands (op, args) plus the captured frame to
   // the nearest enclosing `Handle`. Because a frame is data, what the handler receives is a value
   // it may store, queue, or resume later from another thread.
+  /** `try`/`catch`. BOTH regions leave their result in `dst`, so the instruction has one result
+    * register rather than two that a later pass would have to reconcile. `exn` is where the caught
+    * value is bound for the handler.
+    *
+    * Its own instruction rather than an effect: `Perform`/`Handle` are reserved for Tier 2 and are
+    * resumable, and an exception is not — conflating them would give one instruction two control
+    * semantics. */
+  case Try(dst: Int, body: List[Instr], exn: Int, handler: List[Instr])
+
   case Perform(dst: Int, op: Int, args: List[Int])
   case Handle(dst: Int, body: List[Instr], arms: List[HandlerArm])
   case Resume(dst: Int, k: Int, v: Int)
@@ -158,6 +167,7 @@ object Instr:
     case Instr.If(_, t, e)         => t ++ e
     case Instr.Switch(_, arms, df) => arms.flatMap(a => a.body) ++ df
     case Instr.Handle(_, b, arms)  => b ++ arms.flatMap(a => a.body)
+    case Instr.Try(_, b, _, h)     => b ++ h
     case _                         => Nil
 
   /** This instruction and every instruction under it, in source order. */

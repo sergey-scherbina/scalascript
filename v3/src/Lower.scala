@@ -17,7 +17,7 @@ object Lower:
   /** Names the language provides, mapped to the v2 prim spelling the bridge emits. Deliberately a
     * TABLE and not a fallthrough: an unknown name is a `LowerFail` naming it, so a typo becomes a
     * diagnostic at the source position rather than an unbound global three layers down. */
-  private val builtins: List[(String, String)] = List("println" -> "io.println", "__autoOutput__" -> "__autoOutput__")
+  private val builtins: List[(String, String)] = List("println" -> "io.println", "__autoOutput__" -> "__autoOutput__", "__throw__" -> "__throw__")
 
   /** Constructors the language provides. `List(a, b)` is `Cons(a, Cons(b, Nil))` — measured off the
     * oracle, not assumed — so it is ordinary `MkData` over the type table rather than a special
@@ -331,6 +331,14 @@ object Lower:
                          lifted = inner.lifted :+ f)
       val (d, st2) = st1.fresh
       (List(Instr.MkClos(d, idx, capRegs)), d, st2)
+
+    case Expr.Try(body, exn, handler, _) =>
+      val (d, st1) = st0.fresh
+      val (xr, st2) = st1.fresh
+      val (bi, br, st3) = lower(body, fns, classes, st2)
+      val (hi, hr, st4) = lower(handler, fns, classes, st3.bind(exn, xr))
+      (List(Instr.Try(d, bi :+ Instr.Move(d, br), xr, hi :+ Instr.Move(d, hr))), d,
+       st4.copy(env = st0.env))
 
     case Expr.Call(fn, argEs, p) =>
       var acc: List[Instr] = Nil
