@@ -221,6 +221,17 @@ object SpikeLex:
             else { sb.append(text.charAt(i)); advance(text.charAt(i)) }
           if i < n then advance('"')
         emit("spike.str", start, text.substring(strStart, i), TokenChannel.Syntax)
+      else if c == '`' then
+        // Scala's escaped identifier — `` `type` `` lets a keyword be a name. The lexer had
+        // no case for it, so the backtick fell through to a one-char token and every
+        // parameter list holding one desynced. The lexeme is the SOURCE SLICE, backticks
+        // included, so the CST still reconstructs; stripping them for the PROJECTED name is
+        // a separate question, and the parse is what breadth measures.
+        val tickStart = i
+        advance('`')
+        while i < n && text.charAt(i) != '`' do advance(text.charAt(i))
+        if i < n then advance('`')
+        emit("spike.id", start, text.substring(tickStart, i), TokenChannel.Syntax)
       else if c == '\'' then
         val chStart = i
         // char literal 'x' / '\n' / '\uXXXX' → spike.int whose lexeme is the RAW SLICE. The
@@ -462,6 +473,10 @@ object SpikeParse:
     // a fully-qualified type `a.b.C` — consume the `.segment` chain (the base name was already taken)
     while c.peekKind == "spike.dot" && (c.peek2Kind == "spike.id" || c.peek2Kind == "spike.uid") do { c.advance(); c.advance() }
     if c.peekKind == "spike.lbracket" then skipTypeParams(c)
+    // VARARGS — `def card(body: TkNode*)`. In TYPE position a trailing `*` is unambiguous
+    // (it cannot be multiplication there), and without it the param clause failed at the `*`
+    // and took the rest of the def with it.
+    if c.peekKind == "spike.op" && c.peekLexeme == "*" then c.advance()
     if c.peekKind == "spike.op" && c.peekLexeme == "=>" then
       c.advance()
       if c.peekKind == "spike.lparen" then skipBalancedParens(c)
