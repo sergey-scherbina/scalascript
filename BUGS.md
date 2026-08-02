@@ -128,11 +128,33 @@ are the guard, not the evidence: the new String arm sits directly above the List
 genuinely tuple-append for other shapes — a fix that swallowed either would still satisfy the string
 assertion.
 
-## typer-defines-sys-but-no-runtime-provides-it — `sys.env` type-checked, then died at runtime on three lanes of four
-<!-- status: open
+## typer-defines-sys-but-no-runtime-provides-it — `sys.env` type-checked, then died at runtime (three lanes when filed, one when fixed)
+<!-- status: fixed
      lane: native
      area: runtime
-     gate: tests/conformance/sys-env.ssc -->
+     gate: tests/conformance/sys-env.ssc
+     fixed-in: PENDING-SHA
+-->
+
+**FIXED 2026-08-02** by `v2-sys-env`, and the entry's own scope was wrong in the good direction.
+
+**Re-measured first: ONE lane of four, not three.** `int` and `js` both answer today; only the
+native lane still died with `unbound global: sys`. Four other entries this session were already
+fixed and left open, so measuring before coding is now the default here.
+
+**The fix is one registration, and the conformance case predicted three.** That case (`sys-env.ssc`)
+recorded that native would need `sys` emitted by BOTH self-hosted fronts as well as backed in the
+runtime — with one of those files held by another claim, which is why the `v2` row had been left
+out. Wrong: `sys` is a VALUE, not a call, so `NativePluginContext.registerValue` plus a
+`NamedMethodObj` is the whole thing, and the fronts never have to learn the name — v2 resolves the
+field BY NAME through `ForeignV` (`Runtime.scala` consults `getField` on the selection path).
+
+`registerGlobal` would not have worked: it registers FUNCTIONS. And a `DataV` would not either —
+v2's field access is index-based over a compile-time name→index registry that an ad-hoc object
+cannot have. `NamedMethodObj` is the one shape that fits.
+
+The map is a snapshot taken at install, which is `sys.env`'s Scala semantics. The corpus row is
+now `int, js, jvm, v2` and all three runnable lanes print the same output.
 
 **FIXED on int and js 2026-07-31; native remains, and the three edits it needs are named below.**
 

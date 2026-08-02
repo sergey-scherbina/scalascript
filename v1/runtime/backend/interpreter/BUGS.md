@@ -411,9 +411,22 @@ the same gap `v2-optin-provider-cases` describes, one step further.
 **Do not "fix" it by making INT the declared lane** — INT fails too, so that would freeze a red.
 
 ## v2-json-number-keeps-trailing-zero — `jsonParse("2.0")` prints `2.0` on v2 and `2` on INT
-<!-- status: open
+<!-- status: fixed
      lane: int
-     area: front -->
+     area: front
+     fixed-in: unrecorded
+-->
+
+**ALREADY FIXED — bookkeeping, 2026-08-02**, found by `v2-sys-env`'s triage pass. The entry records
+`jsonParse("2.0")` printing `2.0` on v2 and `2` on INT. Re-measured against the ORACLE as well as
+the two lanes:
+
+    jvm (real Scala)  2.0
+    int               2.0
+    v2                2.0
+
+All three agree, and they agree with Scala. `fixed-in: unrecorded` because the change that closed it
+is not identified — what is recorded here is the measurement that shows the divergence is gone.
 
 **Status:** OPEN — **needs a decision, not a patch** (found 2026-07-28 by `v2-diverge-triage` while
 reducing `json-read`'s DIVERGE; the sibling half, JSON `null`, was unambiguous and is fixed).

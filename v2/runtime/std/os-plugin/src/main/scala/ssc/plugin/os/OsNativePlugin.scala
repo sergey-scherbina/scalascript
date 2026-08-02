@@ -1,6 +1,7 @@
 package ssc.plugin.os
 
 import java.nio.file.{Files, Paths}
+import scala.jdk.CollectionConverters.*
 import ssc.{Runtime, V2PluginRegistry, Value}
 import ssc.plugin.{NativePlugin, NativePluginContext}
 
@@ -124,7 +125,33 @@ final class OsNativePlugin extends NativePlugin:
 
       case _ => result("", "", 1L)
 
+  /** `sys.env` — the Typer DEFINES the `sys` symbol (`Typer.scala:249`), so a program written in
+   *  standard Scala type-checks on every lane. The jvm lane then works because it IS Scala, the
+   *  interpreter provides it as a global (`BuiltinsRuntime.scala:564`) and js has its own; the
+   *  native lane provided nothing, so a type-correct program died at RUNTIME with
+   *  `unbound global: sys`. A symbol the typer promises and no runtime keeps is the worst shape:
+   *  it passes every compile-time check and fails only when it runs.
+   *
+   *  Re-measured 2026-08-02 — only ONE lane of four is affected, where the entry recorded three:
+   *  int and js both answer today. BUGS `typer-defines-sys-but-no-runtime-provides-it`.
+   *
+   *  `registerValue` + `NamedMethodObj` rather than `registerGlobal`, because `sys` is a VALUE with
+   *  a field, not a function: v2's field access is index-based over `DataV`, which needs a
+   *  compile-time name→index registry an ad-hoc object cannot have, while a `NamedMethodObj` behind
+   *  `ForeignV` is resolved BY NAME (`Runtime.scala` consults `getField` on both the selection and
+   *  the method-dispatch paths). The map is built once at install, matching `sys.env`'s Scala
+   *  semantics: a snapshot of the process environment, not a live view. */
+  private def sysObject(): Value =
+    val envMap = Value.MapV.from(
+      System.getenv().asScala.iterator.map((k, v) => (Value.StrV(k): Value, Value.StrV(v): Value))
+    )
+    Value.ForeignV(new Value.NamedMethodObj:
+      def getField(name: String): Option[Value] = if name == "env" then Some(envMap) else None
+      def underlying: AnyRef = envMap
+    )
+
   def install(context: NativePluginContext): Unit =
+    context.registerValue("sys", sysObject())
     native(context, "exec")(exec)
     native(context, "env") { args =>
       Option(System.getenv(text(args, 0, "env"))) match

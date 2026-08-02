@@ -1,7 +1,7 @@
 ---
 name: sys-env
 description: "sys.env reads the environment — the symbol the typer promises now exists at runtime"
-backends: [int, js, jvm]
+backends: [int, js, jvm, v2]
 ---
 
 # `sys.env`
@@ -27,7 +27,10 @@ it runs on, so it asserts on a name that is guaranteed ABSENT (both spellings �
 `get`, which take different runtime paths) and on `PATH` only through `length > 0`, which is true on
 every platform this suite runs on and reveals nothing about the value.
 
-**`v2` is deliberately absent.** The native lane needs its `sys` global emitted by BOTH self-hosted
-fronts as well as backed in the runtime, and `specs/v2.2-p6.5-fsub.ssc` is held by another live
-claim. The three edits are named in the entry so whoever holds it can finish the row; until then
-native fails LOUDLY (`unbound global: sys`), which is the honest state — not a wrong answer.
+**`v2` was deliberately absent and is now IN.** The note here predicted the native lane would need
+its `sys` global emitted by BOTH self-hosted fronts as well as backed in the runtime — three edits,
+one of them in a file another claim held. That prediction was wrong, and usefully so: no front
+change was needed at all. `sys` is a VALUE, not a call, so `NativePluginContext.registerValue` plus
+a `NamedMethodObj` is the whole fix, and the fronts never have to know the name — v2 resolves the
+field BY NAME through `ForeignV`. One registration in the os plugin; int, js and v2 now print the
+same three rows.
