@@ -383,8 +383,16 @@ self-parity test is not external conformance.
         not assumed. ⚠️ Measuring this also exposed a GATE defect: all three sweeps walked `bin/`,
         where `install.sh --dev` copies the whole runtime, so the corpus jumped 1,145 → 1,406
         files the moment anyone ran the installer and every count moved with it. `bin/lib/` is
-        now excluded in all three. Worst files now: `examples/std-ui/input.ssc` 47,
-        `ui/containers.ssc` 35, `streams-bridge.ssc` 32.
+        now excluded in all three.
+        Then three more slices, each measured: **escaped identifiers** (`` `type` `` — the
+        lexer had no backtick case at all) and **varargs** (`TkNode*`) together took
+        678 → 522; **type ascription** `(42: Int)` took 522 → 483. Running total for
+        SSC3-B: **1,278 → 483 diagnostics, 90.0% → 92.1% of files parsing completely
+        clean**. Worst files now: `streams-bridge.ssc` 24, `std-ui/textarea.ssc` 20,
+        `error-handling.ssc` 20.
+        Named constructs still open, each seen in a probe rather than guessed: **type
+        aliases** (`type X = Y`, and `infix type throws[A, E]`), and **function/tuple
+        types in a parameter** (`(B, A) => B`).
         _Superseded record of the first attempt:_ ssc1-front
         treats it as a declaration-STARTING identifier (`ssc1-front.ssc0:2705,:3038`), and there
         are 455 `extern def` sites. Adding it to `declModifiers` made the numbers WORSE —
