@@ -132,9 +132,8 @@ assertion.
 <!-- status: fixed
      lane: native
      area: runtime
-     gate: tests/conformance/sys-env.ssc
-     fixed-in: PENDING-SHA
--->
+     fixed-in: d7ca80629
+     gate: tests/conformance/sys-env.ssc -->
 
 **FIXED 2026-08-02** by `v2-sys-env`, and the entry's own scope was wrong in the good direction.
 
