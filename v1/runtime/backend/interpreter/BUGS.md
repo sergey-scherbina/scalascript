@@ -736,7 +736,7 @@ wrong.
 <!-- status: fixed
      lane: native
      area: front
-     fixed-in: PENDING
+     fixed-in: de5760462
      gate: tests/conformance/object-apply.ssc -->
 
 **FIXED on the DEFAULT front 2026-08-02** by `v2-object-apply`; the `SSC_FRONT=legacy` fallback is
