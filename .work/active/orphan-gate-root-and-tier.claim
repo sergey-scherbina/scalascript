@@ -2,10 +2,10 @@ slug: orphan-gate-root-and-tier
 branch: feature/orphan-gate-root-and-tier
 agent: claude-code
 started: 2026-08-02T10:56:24Z
-heartbeat: 2026-08-02T11:27:33Z
+heartbeat: 2026-08-02T11:30:41Z
 status: claimed-before-planning
 items: orphaned-e2e-gates-52
-paths: file:tests/e2e/render-smoke.sh file:tests/e2e/bundle-smoke.sh file:tests/e2e/build-smoke.sh file:tests/e2e/site-smoke.sh file:tests/e2e/nested-build-smoke.sh file:tests/e2e/import-alias-smoke.sh file:tests/e2e/package-keyword-smoke.sh file:tests/e2e/url-import-smoke.sh file:tests/e2e/components-smoke.sh file:tests/e2e/fm-routes-smoke.sh file:tests/e2e/health-defaults-smoke.sh file:tests/e2e/middleware-smoke.sh file:tests/e2e/upload-smoke.sh file:tests/e2e/validation-smoke.sh file:tests/e2e/std-ui-content-smoke.sh file:tests/e2e/std-ui-data-smoke.sh file:tests/e2e/std-ui-feedback-smoke.sh file:tests/e2e/std-ui-forms-smoke.sh file:tests/e2e/std-ui-layout-smoke.sh file:tests/e2e/std-ui-nav-smoke.sh file:tests/e2e/std-ui-theming-smoke.sh file:tests/e2e/std-ui-widgets-smoke.sh file:tests/BUGS.md file:bin/sscc file:bin/jssc file:bin/ssc-js
+paths: file:tests/e2e/render-smoke.sh file:tests/e2e/bundle-smoke.sh file:tests/e2e/build-smoke.sh file:tests/e2e/site-smoke.sh file:tests/e2e/nested-build-smoke.sh file:tests/e2e/import-alias-smoke.sh file:tests/e2e/package-keyword-smoke.sh file:tests/e2e/url-import-smoke.sh file:tests/e2e/components-smoke.sh file:tests/e2e/fm-routes-smoke.sh file:tests/e2e/health-defaults-smoke.sh file:tests/e2e/middleware-smoke.sh file:tests/e2e/upload-smoke.sh file:tests/e2e/validation-smoke.sh file:tests/e2e/std-ui-content-smoke.sh file:tests/e2e/std-ui-data-smoke.sh file:tests/e2e/std-ui-feedback-smoke.sh file:tests/e2e/std-ui-forms-smoke.sh file:tests/e2e/std-ui-layout-smoke.sh file:tests/e2e/std-ui-nav-smoke.sh file:tests/e2e/std-ui-theming-smoke.sh file:tests/e2e/std-ui-widgets-smoke.sh file:tests/BUGS.md file:bin/sscc file:bin/jssc file:bin/ssc-js dir:v1/tools/scripts/launchers file:tests/e2e/launchers-are-not-dead-on-arrival.sh file:scripts/smoke-ci.ssc
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: point the three broken launchers at ssc-tools, re-run all 22
