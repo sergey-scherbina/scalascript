@@ -79,8 +79,11 @@ final class SpikeLosslessSpec extends AnyFunSuite:
     Files.walk(root).iterator.asScala
       .filter(p => p.toString.endsWith(".ssc"))
       .filterNot(p =>
+        // `bin/` is INSTALLED OUTPUT — `install.sh --dev` copies the whole runtime there,
+        // so leaving it in made the corpus grow from 1,145 files to 1,406 the moment
+        // somebody ran the installer, and every count moved with it.
         p.toString.contains("/target/") || p.toString.contains("/.git/") ||
-          p.toString.contains("/.worktrees/"))
+          p.toString.contains("/.worktrees/") || p.toString.contains("/bin/lib/"))
       .toVector
       .sortBy(_.toString)
       .map(p => root.relativize(p).toString -> new String(Files.readAllBytes(p), "UTF-8"))

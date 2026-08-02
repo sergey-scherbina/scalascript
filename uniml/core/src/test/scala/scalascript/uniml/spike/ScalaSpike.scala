@@ -560,6 +560,15 @@ object SpikeParse:
     // name (the lexer table stops there, leaving `>`), which is how the oracle ends up with a truncated
     // `def <~` and a unit body. Requiring a spike.id left the op token unconsumed and desynced the whole def.
     c.advance().foreach(t => kids += Node.Leaf(t, Some("def.name")))
+    // A QUALIFIED name — `def Source.from[A](xs: Iterable[A]): Source[A]` declares a method on a
+    // type. The name above consumed `Source` and left `.from`, which desynced the rest of the
+    // def. The remaining segments are consumed with their own role so the parse stays in step;
+    // the PROJECTED name is still the first segment, which is what defNode already reads, and
+    // getting the qualified form into the lowered name is a separate question this does not
+    // pretend to answer.
+    while c.peekKind == "spike.dot" && (c.peek2Kind == "spike.id" || c.peek2Kind == "spike.uid") do
+      c.advance().foreach(t => kids += Node.Leaf(t, Some("def.namedot")))
+      c.advance().foreach(t => kids += Node.Leaf(t, Some("def.nameseg")))
     skipTypeParams(c) // plain `[A, B]` are erased (like ssc1-front); context bounds `[A: TC]` deferred
     // the `( … )` param clause is OPTIONAL — `def f: T = e` is a parameterless def. MULTIPLE clauses (curried
     // `def f(a)(b)`) are FLATTENED into one param list — ssc1-front appends the 2nd clause's params, so the
@@ -940,8 +949,14 @@ object SpikeParse:
   // `inline def`. Erasing it dropped those statements. (`sealed`/`abstract`/`override` ARE ssc1-front keywords
   // and are consumed by its own decl/class-body parsers — ssc1-front.ssc0:2379/2384/2427/2431 — so they stay
   // erased here; `sealed` is corpus-verified by 2 matching programs.)
+  // `extern` is not a Scala modifier, but ssc1-front treats it as a declaration-STARTING
+  // identifier (ssc1-front.ssc0:2705, :3038): `extern def f(…): T` is a signature with no body,
+  // which parseDef already supports. It lands together with the qualified-name fix above, and
+  // that pairing is deliberate — on its own it made the corpus WORSE (streams.ssc 159 -> 228
+  // diagnostics), because getting past `extern` only exposed `def Source.from[A](…)`.
   private val declModifiers =
-    Set("sealed", "final", "abstract", "open", "private", "protected", "implicit", "override", "lazy")
+    Set("sealed", "final", "abstract", "open", "private", "protected", "implicit", "override",
+        "lazy", "extern")
   private def skipDeclModifiers(c: Cur): Unit =
     while c.peekKind == "spike.id" && declModifiers(c.peekLexeme) do c.advance()
 

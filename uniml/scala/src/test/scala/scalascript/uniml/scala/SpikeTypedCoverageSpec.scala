@@ -45,8 +45,11 @@ final class SpikeTypedCoverageSpec extends AnyFunSuite:
     val files = Files.walk(root).iterator.asScala
       .filter(_.toString.endsWith(".ssc"))
       .filterNot(p =>
+        // `bin/` is INSTALLED OUTPUT — `install.sh --dev` copies the whole runtime there,
+        // so leaving it in made the corpus grow from 1,145 files to 1,406 the moment
+        // somebody ran the installer, and every count moved with it.
         p.toString.contains("/target/") || p.toString.contains("/.git/") ||
-          p.toString.contains("/.worktrees/"))
+          p.toString.contains("/.worktrees/") || p.toString.contains("/bin/lib/"))
       .toVector.sortBy(_.toString)
     assert(files.sizeIs > 500, s"only ${files.size} .ssc found — the sweep silently shrank")
 
