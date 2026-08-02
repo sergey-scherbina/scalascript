@@ -1775,12 +1775,19 @@ object SpikeParse:
     c.advance().foreach(t => kids += Node.Leaf(t, Some("group.open")))
     var elems = 0
     var isTuple = false
-    if c.peekKind != "spike.rparen" then
+    // A TYPE ASCRIPTION — `(42: Int)`, `(xs: List[Int])`. The type is ERASED, exactly as
+    // parameter and val types are: the spike does not model types, and an ascription is a
+    // claim about the expression rather than part of it. Without this the `:` ended the
+    // group and `println((42: Int))` lost its closing paren and everything after it.
+    def elemThenAscription(): Unit =
       parseExpr(c, 1).foreach { e => kids += e.withRole("group.elem"); elems += 1 }
+      skipTypeAnnotation(c)
+    if c.peekKind != "spike.rparen" then
+      elemThenAscription()
       while c.peekKind == "spike.comma" do
         isTuple = true
         c.advance().foreach(t => kids += Node.Leaf(t, Some("group.comma")))
-        parseExpr(c, 1).foreach { e => kids += e.withRole("group.elem"); elems += 1 }
+        elemThenAscription()
     if c.peekKind == "spike.rparen" then c.advance().foreach(t => kids += Node.Leaf(t, Some("group.close")))
     else c.report("spike.expected", "expected ')'")
     Some(Node.Frame(if isTuple || elems == 0 then "spike.tuple" else "spike.paren", None, kids.result()))
