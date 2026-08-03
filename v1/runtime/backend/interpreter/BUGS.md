@@ -65,7 +65,7 @@ interpolator does not reproduce on its own.
 <!-- status: fixed
      lane: int
      area: codegen
-     fixed-in: PENDING
+     fixed-in: 4e88f7d2a
      gate: tests/conformance/object-apply-two.ssc 
 
 **FIXED 2026-08-03** by `int-jit-apply-collision` — and **the title and the diagnosis above are both
