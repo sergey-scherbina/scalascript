@@ -60,18 +60,25 @@ check() { # $1 label  $2 command...  — must succeed AND say so
   fi
 }
 
-for where in in-tree out-of-tree; do
-  case "$where" in
-    in-tree)     f="$IN_TREE" ;;
-    out-of-tree) f="$TMP/out-of-tree.ssc" ;;
-  esac
-  check "$where int" "$SSC" run --v1 "$f"
-  check "$where js"  "$SSC" run-js      "$f"
-  check "$where jvm" "$SSC" compile-jvm "$f" -o "$TMP/$where.scjvm"
-done
+# THREE cells, not the six this started with. Each `ssc` invocation is a JVM start, and at 17.7 s on
+# the runner this gate was 4% of a 420 s push budget that had 1.4 s of headroom left. What survives
+# is the smallest set that still tells a reader WHICH lane broke:
+#
+#   jvm in-tree      the defect's location — the shape every affected gate actually has
+#   jvm out-of-tree  the same lane where no `std/` ancestor exists at all, so it can only pass via
+#                    the discovered std root; this is the cell that pins the fix rather than a
+#                    lucky ancestor
+#   int in-tree      the CONTROL. If this fails too, the fixture is wrong and no lane is accused.
+#
+# Dropped: the js cells and the int out-of-tree cell. js never had this defect — it reads the same
+# `stdPath` the interpreter does — so it was a second copy of the control, and one control answers
+# the question one control is asked.
+check "in-tree int"     "$SSC" run --v1     "$IN_TREE"
+check "in-tree jvm"     "$SSC" compile-jvm  "$IN_TREE"             -o "$TMP/in-tree.scjvm"
+check "out-of-tree jvm" "$SSC" compile-jvm  "$TMP/out-of-tree.ssc" -o "$TMP/out-of-tree.scjvm"
 
 if [[ $fails -ne 0 ]]; then
-  printf 'std-import-lanes-gate: FAIL (%d lane/location pair(s) could not resolve std/http.ssc)\n' "$fails" >&2
+  printf 'std-import-lanes-gate: FAIL (%d of 3 cells could not resolve std/http.ssc)\n' "$fails" >&2
   exit 1
 fi
-printf 'std-import-lanes-gate: OK (int, js and jvm all resolve a std import, in-tree and out)\n'
+printf 'std-import-lanes-gate: OK (jvm resolves a std import in-tree and out; int is the control)\n'

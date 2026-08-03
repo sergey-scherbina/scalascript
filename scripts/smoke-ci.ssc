@@ -259,7 +259,9 @@ val suite = List(
   // where a dev tree has no `std/`) instead of the discovered std root — and the std root itself
   // degenerated to `libPath`, since rule 3 of `discoverStdRoot` was the one rule not filtered by
   // `hasStd`. Four orphaned e2e gates reported it as "the server process EXITED before it
-  // listened". ~8 s; the int/js cells are the controls that say WHICH lane disagrees.
+  // listened". Three cells, ~4 s: jvm in-tree and out-of-tree are the subjects, int in-tree is the
+  // control that says the fixture is fine. Started at six and was trimmed the same day — at 17.7 s
+  // on the runner it was 4% of a budget with 1.4 s of headroom.
   // (BUGS.md compile-jvm-and-std-root-disagree-on-where-std-lives.)
   Check(".", "std-import-lanes", "tests/e2e/std-import-lanes-gate.sh", List(), 180000),
   // `ssc build <src> <dist>` must produce a page byte-identical to `ssc render` of the same source.
