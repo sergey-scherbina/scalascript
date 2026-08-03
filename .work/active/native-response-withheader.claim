@@ -1,0 +1,11 @@
+slug: native-response-withheader
+branch: feature/native-response-withheader
+agent: claude-code
+started: 2026-08-03T17:44:59Z
+heartbeat: 2026-08-03T17:44:59Z
+status: claimed-before-planning
+items: native-Response-withHeader-is-a-Stub
+paths: file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/HttpFastNativePlugin.scala file:v2/BUGS.md file:tests/e2e/response-transforms-gate.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
