@@ -93,6 +93,15 @@ object JvmByteGen:
     * timing says otherwise the cheapest way to find out is to read the bytecode rather than reason
     * about it. Two hypotheses about `pattern-match-heavy` were already refuted by measurement
     * (`specs/v2-wide-jit.md` §9); this is the probe that does not need a hypothesis at all. */
+  /** `SSC_V2_EMIT_NO_ARM_UNBOX=1` turns E-1's guarded arm unboxing off.
+    *
+    * An A/B lever, not a feature flag: E-1 duplicates each arm (unboxed path + the boxed body as
+    * the guard's else branch), and `area` now measures 426 bytes against HotSpot's 325-byte
+    * `FreqInlineSize` — so the throughput win may have cost the callee its inlining. Without a way
+    * to turn the arm off, that is an inference; with one it is a measurement. */
+  private val noArmUnbox: Boolean =
+    sys.env.get("SSC_V2_EMIT_NO_ARM_UNBOX").exists(v => v != "0" && v != "off" && v.nonEmpty)
+
   private val unitSeq = new java.util.concurrent.atomic.AtomicInteger(0)
   private val dumpDir: String | Null = sys.env.get("SSC_V2_JIT_DUMP").filter(_.nonEmpty).orNull
 
@@ -1453,7 +1462,7 @@ object JvmByteGen:
           val armSlots = (0 until arm.arity).map(i => ctx.slotFor(i)).toSet
           val savedDoubleSlots = ctx.doubleSlots
           val unboxable =
-            arm.arity > 0 && {
+            !noArmUnbox && arm.arity > 0 && {
               ctx.doubleSlots = savedDoubleSlots ++ armSlots
               val ok = canDouble(arm.body, ctx)
               if !ok then ctx.doubleSlots = savedDoubleSlots

@@ -274,3 +274,37 @@ it while improving the number it was watching.
 **To confirm rather than infer**, the A/B is a rebuild with the E-1 arm disabled and the same
 `PrintInlining` probe: if `area` drops under 325 and starts inlining, the cost is confirmed and the
 outlining slice has its before-number.
+
+### The A/B that settles it: E-1 is net-positive, and outlining would give both
+
+`SSC_V2_EMIT_NO_ARM_UNBOX=1` turns E-1's guarded arm off — an A/B lever, not a feature flag, so the
+inference above becomes a measurement.
+
+**The cliff is confirmed.** Same program, same lane, emitted size of `area` (`lam$58`):
+
+| | bytes | vs `FreqInlineSize` 325 |
+|---|---:|---|
+| E-1 on | **436** | over — never inlined |
+| E-1 off | **280** | under — inlinable |
+
+**And E-1 still wins.** `pattern-match-heavy`, AOT lane, 3 rounds on a loaded host (absolute values
+inflated; the ratio is the result):
+
+| round | E-1 on | E-1 off |
+|---|---:|---:|
+| 1 | 24.3 | 35.1 |
+| 2 | 13.5 | 24.1 |
+| 3 | 9.73 | 10.2 |
+
+Faster in 3 of 3. The unboxing win exceeds the inlining loss, so **E-1 stays** — but it is paying a
+tax it does not have to.
+
+**So the outlining slice is now specified by numbers, not by taste:** move each arm's boxed body
+into its own method, leaving the hot method with the guard, the unboxed path and a call. Target:
+`area` under 325 bytes with the unboxed path intact — i.e. both the 1.12–1.79× E-1 measures AND the
+inlining it currently forfeits. **Its gate is the emitted size**, read from the `SSC_V2_JIT_DUMP`
+class, plus `PrintInlining` showing `lam$58` no longer "hot method too big".
+
+The general lesson, which cost this investigation five refuted hypotheses to reach: **a throughput
+win can cross an inlining cliff invisibly.** Neither E-1's wall-clock nor its allocation profile
+could see it; only the emitted size could, and nothing was watching that.
