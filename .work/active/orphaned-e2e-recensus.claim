@@ -1,0 +1,11 @@
+slug: orphaned-e2e-recensus
+branch: feature/orphaned-e2e-recensus
+agent: claude-code
+started: 2026-08-03T17:42:33Z
+heartbeat: 2026-08-03T17:42:33Z
+status: claimed-before-planning
+items: orphaned-e2e-gates-52
+paths: file:tests/BUGS.md file:scripts/smoke-ci.ssc
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
