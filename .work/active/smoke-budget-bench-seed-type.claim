@@ -1,0 +1,11 @@
+slug: smoke-budget-bench-seed-type
+branch: feature/smoke-budget-bench-seed-type
+agent: claude-code
+started: 2026-08-03T08:50:34Z
+heartbeat: 2026-08-03T08:50:34Z
+status: claimed-before-planning
+items: smoke-suite-over-its-own-budget
+paths: file:tests/e2e/bench-seed-type-gate.sh file:scripts/smoke-ci.ssc file:tests/BUGS.md file:tests/e2e/js-selfcall-gate.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
