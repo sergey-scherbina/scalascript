@@ -99,15 +99,11 @@ part of it. Nothing here says the handler scope is at fault, because nothing mea
 
 ## native-route-block-form-registers-the-THUNK-not-its-result — `route(m, p) { … }` died with an arity error
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: plugin
-     fixed-in: -
+     fixed-in: c8f6c9ffc585a3a78cc5256ef188191c145d583f
      gate: tests/e2e/route-handler-shapes-gate.sh -->
-
-**The fix is in this commit; `status` flips with the sha in the next one.** `fixed-in` takes a
-resolvable sha or `unrecorded` — there is no placeholder — and amending to record a sha changes
-that sha, so the record cannot ride along.
 
 `route(method, path) { expr }` hands the plugin the BLOCK. When the block is literally a lambda it
 IS the handler and arrives with arity 1; when it is any other expression it arrives as a 0-arity
