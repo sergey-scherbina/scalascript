@@ -200,6 +200,17 @@ jobs:
       - name: Verify benchmark wrapper routing
         run: tests/e2e/bench-wrapper-gate.sh
 
+      # Moved off the smoke suite 2026-08-03: at 45.4 s it was the most expensive check there and
+      # the suite had just gone over its own 420 s budget with all 57 checks green, so every push
+      # failed (`tests/BUGS.md smoke-suite-over-its-own-budget`). This tier is also per-push, so
+      # the per-commit answer is unchanged — it now comes out of a 14-minute budget instead of a
+      # 7-minute one. It belongs next to `bench-wrapper-gate.sh`: that one checks `scripts/bench`
+      # builds the right sbt command, this one checks `ssc bench`'s GENERATED wrapper passes a seed
+      # of the type the workload DECLARES and actually measures. Three lanes x two seed types; the
+      # Long fixture is the control that says the gate itself still works.
+      - name: Verify benchmark wrapper seed typing
+        run: tests/e2e/bench-seed-type-gate.sh
+
       - name: Verify claim mutex (concurrent claims collide)
         run: tests/coord/claim-mutex-conflict.sh
 

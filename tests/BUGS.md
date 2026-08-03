@@ -49,12 +49,46 @@ the old 13.4-minute path happened, and it is right: the budget is the only thing
 holding the line. The fix is to cut or speed up a check, and WHICH check is a decision with an
 owner, not something to take unilaterally while everyone's pushes are red.
 
-**Two candidates that do not lose coverage**, offered rather than taken:
+**TAKEN 2026-08-03 by the owner of candidate 2's first half.** `bench-seed-type` is mine — added in
+that same 2026-08-01/03 window — and it was the most expensive check in the suite. It now runs in
+tier 2 of `ci.yml`, next to `bench-wrapper-gate.sh`, which is **also per-push**: the per-commit
+answer is unchanged, it simply comes out of a 14-minute budget instead of a 7-minute one.
+
+Measured per lane before deciding, rather than cutting the cheapest thing to cut:
+
+| lane | local |
+|---|---:|
+| `ssc` | 2.2 s |
+| `js`  | 2.2 s |
+| `jvm` | 11.6 s |
+
+The jvm cells are 72% of it and are **not** separable from the property — the jvm wrapper is where
+the defect was, and the Long fixture on that lane is the control that says the gate still works. So
+the honest choice was WHERE it runs, not whether. The argument for moving it is not that it is
+expensive but that what it gates is a MEASUREMENT APPARATUS: a regression there costs a benchmark
+table, not a build, and 45.4 s is 29% of a signal designed to take ~157 s.
+
+Landing this frees 45.4 s of the 433.0 s run, and spends ~8 s of it on `js-selfcall`
+(`js/BUGS.md js-worker-source-joined-with-literal-backslash-n`), which is registered in the same
+commit. Projected ~395 s. **That is a ~25 s margin, which is not much** — the structural finding in
+this entry stands untouched: a per-push budget is a shared resource with no owner, and one gate
+moving out does not give it one.
+
+**Not touched, deliberately:** the local/CI gap (300.2 s vs 433.0 s, x1.44). `scripts/smoke-ci.ssc`
+already decided this question in writing — the budget fails on CI and only warns locally, the host
+probe prints and is explicitly `informational — the budget is still absolute`, and the file records
+what happened the last time a cap was fitted to local numbers (300 s, guessed from a dev machine,
+red on the first run). Adding a calibration factor on top of that would be overruling a documented
+decision from outside, on one data point.
+
+**The remaining candidates**, still offered rather than taken:
 
 1. `submodule-gitlinks-resolve` is 45s of NETWORK and its own comment says a slow network must read
    as "this run could not tell". It is a strong candidate for the nightly rather than the push path.
-2. `bench-seed-type` and `render-lane-builtins` are 88s between them and neither gates a
-   correctness property the corpus lanes do not already cover — worth a look by their owners.
+2. `render-lane-builtins` (42.5 s) — `bench-seed-type` was the other half of this line and is done.
+   One correction to the original wording: it is not true that `bench-seed-type` gates nothing the
+   corpus lanes cover, because the corpus lanes do not run `ssc bench` at all. It was moved on cost
+   and proportion, not on redundancy.
 
 I added two gates in that window (`js-shaker-effectful-binding` 0.7s, `v2-char-numeric-position`
 4.6s, 5.3s together). Naming that because "someone else's checks are the slow ones" is exactly the

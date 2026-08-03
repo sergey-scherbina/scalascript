@@ -254,14 +254,23 @@ val suite = List(
   Check("scripts", "claim-hooks-refuse-overlap", "tests/coord/claim-hooks.sh", List(), 180000),
   Check("scripts", "board-generated", "tests/coord/board-generated.sh", List(), 180000),
   Check("scripts", "bench-wrapper-routing", "tests/e2e/bench-wrapper-gate.sh", List(), 120000),
-  // The other half of the bench harness: `bench-wrapper-routing` checks that `scripts/bench` builds
-  // the right sbt command; this one checks that `ssc bench`'s GENERATED wrapper actually measures.
-  // It exists because the wrapper hardcoded a Long seed, so the one corpus row declaring
-  // `def workload(seed: Int)` reported `n/a` on jvm AND js — read from the table, a wrapper defect
-  // is indistinguishable from two backends that cannot run the workload. ~16 s, three lanes, two
-  // seed types each; the Long fixture is the control that says the gate itself still works.
-  // (BUGS.md bench-wrapper-hardcodes-a-long-seed.)
-  Check("scripts", "bench-seed-type", "tests/e2e/bench-seed-type-gate.sh", List(), 180000),
+  // A program calling its OWN server on the js lane. Two defects at once: the client blocks the
+  // main thread in `Atomics.wait` while `serveAsync`'s listener needs that same thread, and the
+  // worker source was joined with a literal backslash-n so it never parsed and EVERY outbound
+  // request returned `status 0 / "timeout"` for six weeks. Case 4 talks to a LIVE foreign server
+  // on purpose: asserting `status=0` from an unserved port — the obvious way to prove the
+  // short-circuit stays narrow — is ALSO what a dead client returns, and that is exactly how the
+  // second defect stayed invisible. ~3 s. (js/BUGS.md js-worker-source-joined-with-literal-backslash-n.)
+  Check("v1/runtime/backend/js", "js-selfcall", "tests/e2e/js-selfcall-gate.sh", List(), 120000),
+  // `bench-seed-type` USED TO BE HERE and now runs in tier 2 of ci.yml, which is also per-push.
+  // It was the single most expensive check in this suite — 45.4 s of a 420 s budget the suite had
+  // just breached (433.0 s, every check green, the run red, `smoke-suite-over-its-own-budget`).
+  // Moved by its own author rather than by whoever noticed: what it gates is the bench WRAPPER, so
+  // a regression costs a measurement table, not a build, and 29% of a signal designed to take
+  // ~157 s is out of proportion to that. Measured per lane before deciding — ssc 2.2 s, js 2.2 s,
+  // jvm 11.6 s locally: the jvm cells are 72% of it, and they are not separable from the property
+  // because the jvm wrapper is where the defect was. So the choice was WHERE it runs, not whether.
+  // Coverage is unchanged; only the budget it spends is.
   // `bugs-report` is the ONLY sanctioned way to ask what is open — grepping the prose is banned
   // because hand-rolled queries disagreed with each other. That makes its blind spots expensive:
   // 118 entries say `fixed` in their heading and `unknown` in their header, so the canonical
