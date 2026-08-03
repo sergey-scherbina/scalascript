@@ -235,3 +235,42 @@ be about *when* compilation happens rather than *what* is compiled.
 **E-2 as originally specced (`canParamDouble` + `$double` entry) is therefore still unmotivated by
 any measurement.** It stays queued. The next real task is a harness that can measure a v2 lane in
 steady state — without it, every future JIT number carries the same understatement.
+
+### E-1 has a cost its own measurement did not show — and it is the actionable finding
+
+Chasing `pattern-match-heavy`'s residual through five refuted hypotheses ended somewhere neither
+lane's timing pointed: `-XX:+PrintInlining`, run on a direct invocation (NOT through
+`ssc-tools bench`, which forks and profiles the wrong process), says the same thing on **both**
+lanes:
+
+```
+aot: ssc.gen.Entry::lam$58 (437 bytes)   hot method too big
+jit: ssc.gen.Entry::lam$58 (437 bytes)   hot method too big
+```
+
+`lam$58` is `area` — the callee this row runs 500 000 times. **HotSpot's `FreqInlineSize` is 325
+bytes; the method is 426–437.** So the hot callee is never inlined into the loop, on either lane.
+That does not explain the JIT-vs-AOT difference (it is identical on both), but it does explain a
+large part of why both are far from v1.
+
+**And E-1 is implicated in it.** The guarded unbox keeps the arm's boxed body as the guard's else
+branch, so each arm carries BOTH paths — measured in the dump: 20 `FloatV` unbox references and 5
+`Emit.arith` fallbacks in one 426-byte method. Before E-1 the arms held the boxed path only, which
+is roughly half. **E-1 very likely moved `area` from inlinable to not**, and its own measurement
+(1.12× AOT / 1.23× JIT) could not see that, because the win it measured is real and the loss is in
+a different mechanism.
+
+**Fix, and it is standard: outline the fallback.** Emit the boxed body as its own method and leave
+the hot method with the guard, the unboxed path, and a call. The hot path then stays under the
+inline threshold and the cold path costs one call it was already paying in spirit. Both lanes get it
+at once.
+
+**Gate for that slice, which E-1 did not have:** assert the emitted size of the hot method from the
+`SSC_V2_JIT_DUMP` class, not just the wall-clock. A throughput win that silently crosses an
+inlining cliff is exactly the defect this repo has a doc section about
+(`docs/benchmarks.md`, "Bytecode size — the perf defect no profiler shows you"), and E-1 walked into
+it while improving the number it was watching.
+
+**To confirm rather than infer**, the A/B is a rebuild with the E-1 arm disabled and the same
+`PrintInlining` probe: if `area` drops under 325 and starts inlining, the cost is confirmed and the
+outlining slice has its before-number.
