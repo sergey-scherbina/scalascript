@@ -1,0 +1,11 @@
+slug: int-jit-apply-collision
+branch: feature/int-jit-apply-collision
+agent: claude-code
+started: 2026-08-03T17:44:55Z
+heartbeat: 2026-08-03T17:44:55Z
+status: claimed-before-planning
+items: int-jit-two-object-applies-collide
+paths: file:tests/conformance/object-apply-two.ssc
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
