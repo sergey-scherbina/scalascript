@@ -2742,7 +2742,7 @@ two same-subtype casts — see `integerOf`/`textOf` used by `compareKeys` in
      area: build
      kind: bug
      gate: tests/e2e/std-import-lanes-gate.sh
-     fixed-in: c36693c75 -->
+     fixed-in: 7e04a4775 -->
 
 **FIXED 2026-08-03.** The same file, the same import, three lanes:
 
