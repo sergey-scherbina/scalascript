@@ -199,5 +199,18 @@ case class Response(
   status:  Int,                       // HTTP status code, e.g. 200
   headers: Map[String, String],       // response headers
   body:    String                     // response body (UTF-8)
-)
+):
+  // Attach or replace a header. Declared HERE, in ScalaScript, rather than as a per-lane
+  // intrinsic: the v1 lane got it from the JVM runtime's own `Response` case class
+  // (`http-server/common/HttpModel.scala`), the native lane had nothing, and `std/http.ssc`
+  // never declared it — so `resp.withHeader(...)` had no source definition to fall back on and
+  // the native lane answered with the not-implemented sentinel, SERVED AS THE RESPONSE BODY at
+  // status 200: `DataV(Stub,Vector(StrV(Response.withHeader)))`. Every timing middleware in
+  // std/middleware.ssc ends in this call.
+  //
+  // Replace-on-collision matches the v1 reference. A native intrinsic was tried first and did
+  // not take: `cacheable`/`noCache` are `extern def f(response, …)` FREE FUNCTIONS, so their
+  // registration says nothing about how a METHOD on a data value resolves.
+  def withHeader(name: String, value: String): Response =
+    Response(status, headers + (name -> value), body)
 ```

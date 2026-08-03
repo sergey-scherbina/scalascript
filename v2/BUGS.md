@@ -46,7 +46,40 @@ and ZERO in `v2/` — no file under v2 mentions a manifest and a route together.
 registration that breaks, it is a feature the native lane never grew, while three v1 backends have
 it. `tests/e2e/fm-routes-smoke.sh` is the gate that says so; it was in the unwired pile.
 
-## native-Response-withHeader-is-a-Stub — middleware that sets a header returns the sentinel as the body
+## native-Response-withHeader-is-a-Stub — the sentinel was served as the response BODY at HTTP 200
+
+<!-- status: open
+     lane: native
+     area: runtime
+     fixed-in: -
+     gate: tests/e2e/response-transforms-gate.sh -->
+
+`resp.withHeader(name, value)` had no definition the native lane could reach, so the call yielded
+the not-implemented sentinel and it went to the client as the BODY:
+
+    DataV(Stub,Vector(StrV(Response.withHeader)))
+
+at status 200, with the process exiting 0. Nothing about the transport said anything was wrong,
+which is why `tests/e2e/middleware-smoke.sh` had to be the one to find it — `std/middleware.ssc`'s
+`withTiming` ends in `resp.withHeader("X-Response-Time-Ms", …)`, so every timing middleware
+returned it. **The fix is in this commit; `status` and `fixed-in` follow in the next one.**
+
+**Where the fix went, and the wrong turn on the way.** `withHeader` is now declared on the
+`Response` case class in `v1/runtime/std/http.ssc`, in ScalaScript — one declaration, every lane.
+I first added a native intrinsic named `Response.withHeader` beside `cacheable`/`noCache`, and it
+changed nothing: those two are `extern def f(response, …)` FREE FUNCTIONS, so how they are
+registered says nothing about how a METHOD on a data value resolves. The v1 lane was never using a
+native either — it inherited `withHeader` from the JVM runtime's own case class
+(`http-server/common/HttpModel.scala`), and `std/http.ssc` simply never declared the member. Both
+lanes verified after: native serves the header and v1 still does, with replace-on-collision
+(`X-Probe: second`) matching the reference on both.
+
+**A rebuild sits between the source and the observable.** `std/…` resolves against
+`bin/lib/native-front/runtime`, so the first run after editing `v1/runtime/std/http.ssc` still
+measured the staged copy and reported the sentinel unchanged. That is a false RED rather than a
+false green, but it costs the same confusion.
+
+## native-Response-session-transforms-missing — `withSession` / `clearSession` have no native path
 
 <!-- status: open
      lane: native
@@ -54,17 +87,22 @@ it. `tests/e2e/fm-routes-smoke.sh` is the gate that says so; it was in the unwir
      fixed-in: -
      gate: none -->
 
-`Response.withHeader(name, value)` is not implemented on the native lane. Instead of a Response the
-call yields the not-implemented sentinel, and it reaches the client as the response BODY:
+v1's `Response` carries three transforms; `withHeader` is now shared through `std/http.ssc`, and
+these two are not, because they are not a pure function of the response:
 
-    DataV(Stub,Vector(StrV(Response.withHeader)))
+    def withSession(payload: Map[String, String]): Response = copy(setSession = Some(payload))
+    def clearSession(): Response                            = copy(setSession = Some(Map.empty))
 
-Found 2026-08-03 by `tests/e2e/middleware-smoke.sh` once the route block-form arity defect above
-stopped masking it — `std/middleware.ssc`'s `withTiming` ends in
-`resp.withHeader("X-Response-Time-Ms", …)`, so every timing middleware returns the sentinel.
+`setSession` is a FOURTH field on v1's case class, and the value is not rendered by the handler at
+all — the dispatch loop reads it and writes an HMAC-signed `Set-Cookie`
+(`ResponseWriter.scala:38`, `FastServerBackend.scala:74`). The native `Response` is
+`DataV("Response", Vector(status, headers, body))`, three fields, and nothing on that lane reads a
+session field. So this needs a wire-format change plus signing in the native server, not a method
+on a case class.
 
-Worth noting how it presents: exit code 0, HTTP 200, and a body that is a printed sentinel rather
-than an error. A gate comparing exit codes sees nothing.
+`.withSession` is the most-used Response transform in the tree (20 call sites in `v1/runtime/std`
+and `examples`, against 5 for `withHeader`), so the native lane not having it is the larger half of
+this gap.
 
 ## native-requireInt-unbound-in-a-route-handler — the require* family is missing inside a handler
 
