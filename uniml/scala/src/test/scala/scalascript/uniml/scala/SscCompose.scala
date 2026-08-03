@@ -92,12 +92,58 @@ object SscCompose:
     def worsen(s: CompletionStatus): Unit =
       if s.ordinal > worst.ordinal then worst = s
 
+    /** Positions of a child parse, in the FILE's coordinates.
+      *
+      * A child dialect sees only its own bytes, so everything it produces is
+      * measured from offset 0 of that fence. Splicing it in unchanged left the
+      * whole subtree — and every diagnostic — in a coordinate space no reader
+      * shares: for a fence starting at file offset 42, a diagnostic said
+      * `ssc:fence` line 1 offset 15 when the reader needed line 6 offset 57, and
+      * every fence carried the SAME source id, so a diagnostic could not even be
+      * traced to one. A child span was not inside its parent's either.
+      *
+      * Built as an index over the body so the remap is one lookup per position
+      * rather than a rescan, and walked by CODE POINT so a surrogate pair is
+      * advanced whole. */
+    def positionIndex(body: String, start: SourcePosition): Array[SourcePosition] =
+      val index = Array.fill(body.length + 1)(start)
+      var pos = start
+      var i = 0
+      while i < body.length do
+        val width = Character.charCount(body.codePointAt(i))
+        var k = 0
+        while k < width do { index(i + k) = pos; k += 1 }
+        pos = Unicode.advance(pos, body.substring(i, i + width))
+        i += width
+      index(body.length) = pos
+      index
+
     def inject(b: UniNode.Branch, dropRole: String, body: String, adapter: DialectAdapter, id: String): UniNode.Branch =
       val sub = UniML.parse(SourceInput.fromString(SourceId(id), body), adapter)
-      diags = diags ++ sub.diagnostics
-      worsen(sub.status)
+      // where this body sits in the file: the first token carrying the dropped role
+      val bodyStart = b.edges.collectFirst {
+        case UniEdge(Some(r), UniNode.Token(t)) if r == dropRole => t.span.start
+      }
+      val remapped = bodyStart match
+        case None => sub // no anchor: leave it rather than invent a position
+        case Some(start) =>
+          val index = positionIndex(body, start)
+          val fileSource = b.span.source
+          def at(p: SourcePosition): SourcePosition =
+            index(math.min(math.max(p.offset, 0), body.length))
+          def span(sp: SourceSpan): SourceSpan = SourceSpan(fileSource, at(sp.start), at(sp.end))
+          def node(n: UniNode): UniNode = n match
+            case UniNode.Token(t) => UniNode.Token(t.copy(span = span(t.span)))
+            case br: UniNode.Branch =>
+              br.copy(span = span(br.span), edges = br.edges.map(e => e.copy(child = node(e.child))))
+          sub.copy(
+            roots = sub.roots.map(node),
+            diagnostics = sub.diagnostics.map(d => d.copy(span = d.span.map(span))),
+          )
+      diags = diags ++ remapped.diagnostics
+      worsen(remapped.status)
       val kept = b.edges.filterNot(_.role.contains(dropRole))
-      b.copy(edges = kept ++ sub.roots.headOption.map(r => UniEdge(Some(tagOf(adapter)), r)).toVector)
+      b.copy(edges = kept ++ remapped.roots.headOption.map(r => UniEdge(Some(tagOf(adapter)), r)).toVector)
 
     def transform(n: UniNode): UniNode = n match
       case b: UniNode.Branch if b.kind == "markdown.code-block" =>
