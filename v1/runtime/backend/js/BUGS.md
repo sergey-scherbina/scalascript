@@ -1415,12 +1415,75 @@ that pre-collected table even though validation separately reports it.
 binding visible at each alias occurrence, retain the duplicate warning, reject forward aliases, and
 keep expansion/cycle/node limits bounded.
 
+## js-worker-source-joined-with-literal-backslash-n — every outbound HTTP request timed out
+<!-- status: fixed
+     lane: js
+     area: runtime
+     gate: tests/e2e/js-selfcall-gate.sh
+     fixed-in: 066d4f281 -->
+
+**FIXED 2026-08-03.** `_httpSyncFetch` and `_httpStreamFetch` in `ws-server.mjs` built the Worker's
+source as an array of lines and joined it with `'\\n'` — a *literal* backslash-n. In a real `.mjs`
+file that is not a newline: the whole worker program collapses onto one line studded with stray
+backslashes and fails to parse. The Worker then died before `Atomics.store`, the flag was never
+set, and `Atomics.wait` sat out the full timeout. Every outbound HTTP request on the js lane
+returned `status 0` / `body "timeout"` — which reads as an ordinary network failure, so nothing
+about it looked like a compiler bug.
+
+**Introduced 2026-06-22 by `311d501ff`** ("migrate remaining 17 JsRuntime* fragments to .mjs
+resources"). `'\\n'` was *correct* while this text lived inside a Scala string literal and became
+wrong the moment the same text became the file. `async.mjs:1052` and `jwt-auth.mjs:200` build their
+workers the same way and join with `'\n'` — the two right copies and the two wrong ones sat in the
+same directory for six weeks.
+
+**Attribution** — a fixture with no `serveAsync` in it at all, against a live local server:
+
+```
+toolchain without the fix    FOREIGN status=0   body=timeout     (+ SyntaxError from the worker)
+toolchain with    the fix    FOREIGN status=200 body=pong
+```
+
+**Why nothing caught it.** The only conformance case for outbound HTTP,
+`tests/conformance/http-client.ssc`, is parked: `pending: external httpbin.org dependency; replace
+with local deterministic fixture before enabling default conformance`. Nobody wrote the local
+fixture, so the lane had no coverage to lose. Case 4 of `tests/e2e/js-selfcall-gate.sh` is now that
+fixture for the js lane — it stands up a real server on a foreign port and requires
+`status=200 body=foreign-ok`, which a broken client cannot produce.
+
+**The near-miss worth recording:** that gate case originally asserted only `status=0` from an
+*unserved* port, to prove the loopback short-circuit was narrow. `status=0` is also exactly what
+this defect produces for every URL in existence — the assertion was green whether or not the client
+worked, and it was written while the client was broken.
+
 ## js-httppost-to-own-serveasync-deadlocks — a program that calls its OWN server hangs forever on the js lane
-<!-- status: open
+<!-- status: fixed
      lane: js
      area: runtime
      kind: bug
-     gate: none -->
+     gate: tests/e2e/js-selfcall-gate.sh
+     fixed-in: 066d4f281 -->
+
+**FIXED 2026-08-03.** `_httpSyncFetch` short-circuits a request whose host is loopback
+(`localhost`, `127.0.0.1`, `::1`) **and** whose port is the port we are currently serving: the
+route table is walked in-process and the handler runs on the caller's own thread, so program state
+is shared with the caller. That last property is why the obvious alternative — move the listener
+into a Worker — is wrong: it would answer the request and silently stop sharing state. Unrouted
+paths 404 exactly as the socket would, recursion is depth-guarded at 8, and a handler returning a
+thenable throws loudly rather than yielding a half-built response.
+
+**The evidence below was confounded and had to be re-established.** Every measurement in this entry
+is `status 0 / "timeout"`, which is also what
+[`js-worker-source-joined-with-literal-backslash-n`](#js-worker-source-joined-with-literal-backslash-n)
+produced for *every* URL — that defect was live the whole time this entry was being written, so
+none of these numbers could distinguish a deadlock from a client that never ran. Re-established
+with a standalone Node probe, no ScalaScript involved: main-thread `http.createServer`, a
+*correctly* joined worker fetching our own port, `Atomics.wait(flag, 0, 0, 4000)` →
+`waited=4010ms  reply=undefined  handlerRuns=0`. The handler never ran. The deadlock is real and
+architectural.
+
+*(The ten-line repro below calls `Response(200, "{}")`. `Response` takes THREE arguments —
+`(status, headers, body)`. It does not affect this entry, since the call never returns, but the
+same slip cost an hour in the gate fixture.)*
 
 **Found 2026-08-02 by bisecting the hang recorded under
 [`js-lane-missing-derives-and-coroutinecancel`](#js-lane-missing-derives-and-coroutinecancel)**, and
