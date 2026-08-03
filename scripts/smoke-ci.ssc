@@ -187,6 +187,10 @@ val suite = List(
   Check("tests", "build-render-agree", "tests/e2e/build-smoke.sh", List(), 120000),
   Check("v1/runtime/backend/interpreter", "render-lane-builtins",
         "tests/e2e/render-lane-has-the-same-builtins-as-run.sh", List(), 300000),
+  // Five spellings of a route handler, asserted over a real socket. Four must serve and the
+  // fifth -- a block whose value is not callable -- must NOT: without that row, "make the
+  // block form work" reads as licence to unwrap anything.
+  Check("v2", "route-handler-shapes", "tests/e2e/route-handler-shapes-gate.sh", List(), 300000),
   Check("tests", "site", "tests/e2e/site-smoke.sh", List(), 120000),
   Check("tests", "std-ui-content", "tests/e2e/std-ui-content-smoke.sh", List(), 120000),
   Check("tests", "std-ui-data", "tests/e2e/std-ui-data-smoke.sh", List(), 120000),

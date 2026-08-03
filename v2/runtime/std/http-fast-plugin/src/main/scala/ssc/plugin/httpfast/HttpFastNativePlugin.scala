@@ -266,13 +266,35 @@ final class HttpFastNativePlugin extends NativePlugin:
     }
     native(context, "requestCookie")(_ => Value.StrV(""))
 
+    // `route(m, p) { … }` hands us the BLOCK. When the block is literally a lambda the block IS the
+    // handler and arrives with arity 1; when it is any other expression it arrives as a 0-arity
+    // thunk whose RESULT is the handler, and registering the thunk means the server calls it with
+    // the request and the host refuses:
+    //
+    //     500 native HTTP handler failed: native callback arity: 0 expected, 1 given
+    //
+    // MEASURED 2026-08-03 across five handler spellings, native lane against the v1 reference. Only
+    // one row differed, and it is the one a middleware chain produces:
+    //
+    //   route(m, p, h)               native ok    v1 server does not start   (a separate difference)
+    //   route(m, p): req => …        both ok
+    //   route(m, p) { req => … }     both ok
+    //   route(m, p) { <a Response> } BOTH fail    (not a supported shape — do not try to make it one)
+    //   route(m, p) { wrap { … } }   native FAILS, v1 ok   <- this
+    //
+    // So the unwrap is one level and conditional on arity 0. A block whose value is a Response
+    // stays an error, matching v1: making that work would be a language change, not a lane fix.
+    def unwrapThunk(handler: Value): Value = handler match
+      case clos: Value.ClosV if clos.arity == 0 => context.invoke(handler, Nil)
+      case other                                => other
+
     native(context, "route") { args =>
       val method = text(args, 0, "route")
       val path = text(args, 1, "route")
       args.lift(2) match
-        case Some(handler) => serverHost.register(method, path, handler); Value.UnitV
+        case Some(handler) => serverHost.register(method, path, unwrapThunk(handler)); Value.UnitV
         case None => closure(1) {
-          case List(handler) => serverHost.register(method, path, handler); Value.UnitV
+          case List(handler) => serverHost.register(method, path, unwrapThunk(handler)); Value.UnitV
           case _ => throw new RuntimeException("route(method, path)(handler)")
         }
     }

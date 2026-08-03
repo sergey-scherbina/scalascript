@@ -46,44 +46,102 @@ and ZERO in `v2/` — no file under v2 mentions a manifest and a route together.
 registration that breaks, it is a feature the native lane never grew, while three v1 backends have
 it. `tests/e2e/fm-routes-smoke.sh` is the gate that says so; it was in the unwired pile.
 
-## native-route-block-form-registers-the-THUNK-not-its-result — `route(m, p) { … }` dies with an arity error
+## native-Response-withHeader-is-a-Stub — middleware that sets a header returns the sentinel as the body
+
+<!-- status: open
+     lane: native
+     area: runtime
+     fixed-in: -
+     gate: none -->
+
+`Response.withHeader(name, value)` is not implemented on the native lane. Instead of a Response the
+call yields the not-implemented sentinel, and it reaches the client as the response BODY:
+
+    DataV(Stub,Vector(StrV(Response.withHeader)))
+
+Found 2026-08-03 by `tests/e2e/middleware-smoke.sh` once the route block-form arity defect above
+stopped masking it — `std/middleware.ssc`'s `withTiming` ends in
+`resp.withHeader("X-Response-Time-Ms", …)`, so every timing middleware returns the sentinel.
+
+Worth noting how it presents: exit code 0, HTTP 200, and a body that is a printed sentinel rather
+than an error. A gate comparing exit codes sees nothing.
+
+## native-requireInt-unbound-in-a-route-handler — the require* family is missing inside a handler
+
+<!-- status: open
+     lane: native
+     area: runtime
+     fixed-in: -
+     gate: none -->
+
+    500 native HTTP handler failed: unbound global: requireInt
+
+Found 2026-08-03 by `tests/e2e/validation-smoke.sh` after the route block-form fix above.
+
+**It is a coverage gap, not a scoping one — measured, because the two look identical from the error
+message.** `761f8ee91` landed `validate { … }` and the require* family on the native lane and
+rest-validate went green, so "the family is missing" needed checking rather than asserting. The
+names the std modules use, against the names the native lane defines:
+
+| name used in `v1/runtime/std` | native |
+|---|---|
+| `requireString` | yes |
+| `requireInt` | **no** |
+| `requireBool` | **no** |
+| `requireDouble` | **no** |
+| `requireNonNull` | **no** |
+| `requireWritable` | **no** |
+
+The native lane additionally defines `requireOneOf`, `requireRange`, `requireRangeDouble` and
+`requireAuthority`, which no std module names. So one of six overlaps: whatever rest-validate
+exercises, it is `requireString` and the range/oneOf pair, and the typed scalar checks were not
+part of it. Nothing here says the handler scope is at fault, because nothing measured it.
+
+## native-route-block-form-registers-the-THUNK-not-its-result — `route(m, p) { … }` died with an arity error
 
 <!-- status: open
      lane: native
      area: plugin
      fixed-in: -
-     gate: none -->
+     gate: tests/e2e/route-handler-shapes-gate.sh -->
 
-`route(method, path) { expr }` registers the BLOCK as the handler. A block is a 0-arity thunk, so
-the server calls it with the request and the native host refuses:
+**The fix is in this commit; `status` flips with the sha in the next one.** `fixed-in` takes a
+resolvable sha or `unrecorded` — there is no placeholder — and amending to record a sha changes
+that sha, so the record cannot ride along.
+
+`route(method, path) { expr }` hands the plugin the BLOCK. When the block is literally a lambda it
+IS the handler and arrives with arity 1; when it is any other expression it arrives as a 0-arity
+THUNK whose result is the handler. The plugin registered the thunk, so the server called it with
+the request:
 
     500 native HTTP handler failed: native callback arity: 0 expected, 1 given
 
-The handler is the block's RESULT, not the block. One program, two surface forms of the same call,
-measured 2026-08-02 on `bin/ssc run`:
+**FIXED** by unwrapping exactly one level, and only when the arity is 0
+(`HttpFastNativePlugin`, native `"route"`).
 
-```
-def wrap(handler: Request => Response): Request => Response = req =>
-  handler(req)
+**The census is the part worth keeping.** The obvious fix — unwrap anything that is not arity 1 —
+would have broken two spellings that already worked, and a one-case regression test would have
+shipped it. Five spellings, native lane against the v1 reference, measured 2026-08-03:
 
-route("GET", "/echo") {            // -> native callback arity: 0 expected, 1 given
-  wrap { req => Response.json("hi " + req.path) }
-}
+| spelling | native before | v1 | native after |
+|---|---|---|---|
+| `route(m, p, h)` | ok | server does not start | ok |
+| `route(m, p): req => …` | ok | ok | ok |
+| `route(m, p) { req => … }` | ok | ok | ok |
+| `route(m, p) { <a Response> }` | fails | fails | fails, deliberately |
+| `route(m, p) { wrap { … } }` | **FAILS** | ok | **ok** |
 
-route("GET", "/echo"):             // -> hi /echo
-  req =>
-    Response.json("hi " + req.path)
-```
+Only the last row was the defect, and it is the row a middleware chain produces —
+`withRequestId(withTiming(withRequestLog { … }))` is an expression, which is what a block is for.
+`middleware-smoke` and `validation-smoke` are what hit it.
 
-The block form is not exotic: it is what `examples/middleware-demo.ssc` uses, because a middleware
-chain (`withRequestId(withTiming(withRequestLog { … }))`) is an EXPRESSION that produces the
-handler, which is exactly what a block is for. `tests/e2e/middleware-smoke.sh` and
-`validation-smoke.sh` both fail on it, and the v1 interpreter accepts the same source, so this is a
-lane difference and not a language question.
+The fourth row is asserted in the gate as a NON-serve. A block whose value is not callable stays an
+error, matching v1; making it work would be a language change, not a lane fix, and without that row
+"make the block form work" reads as licence to evaluate anything and hope.
 
-`NativePluginHost.invoke` (`v2/plugin-spi/.../NativePluginHost.scala:41-45`) is where it surfaces,
-but widening the arity check there would be the wrong fix — it would swallow genuine arity errors.
-The registration site has to evaluate the thunk once and register what it returns.
+**Found and left alone:** the first row is a lane difference in the opposite direction — the 3-arg
+`route(m, p, h)` serves on native and does not start on v1, which answers with
+`route(method, path) { handler }`. Not filed as part of this: it wants its own measurement.
 
 ## char-literal-pattern-dropped-in-a-case-lambda — a regression I shipped the same morning, in the twin walker
 <!-- status: fixed
