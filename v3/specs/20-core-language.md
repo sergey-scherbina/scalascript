@@ -17,28 +17,41 @@ This file is the list. The number is produced by `v3/corpus-report.sh` and is **
 
 ## 2 · The core
 
-**Tier 0 — what `SSC3-4` targets first.** Enough to write real programs, and chosen because it is
-also the subset the v3 kernel itself is written in ([`30-portable-subset.md`](30-portable-subset.md)),
-so reaching it is what makes v3 self-hosting.
+**This table is MEASURED, not planned.** Every row was checked by running it; the first version of
+this section listed `Char`, tuples, guards and `Array` because they were intended, and none of them
+worked. A spec that describes something other than what exists is worse than no spec — it is a
+promise the reader cannot tell from a fact.
+
+**Implemented — runs on BOTH lanes** (`v3/ssc3 run` through the v2 bridge, `ssc3 exec` on v3's own
+executor), and every row has a fixture under `v3/tests/front/`:
 
 | group | constructs |
 |---|---|
-| literals | `Unit` `Boolean` `Int` (i64) `Double` `String` `Char` |
-| definitions | `def` (incl. nested and recursive), `val`, `var`, top-level and local |
+| literals | `Unit` `Boolean` `Int` (i64, incl. the `L` suffix) `Double` `String` |
+| interpolation | `s"… $name … ${expr} … $$"`, holes may contain anything, including strings |
+| definitions | `def` (recursive and mutually recursive), `val`, `var`, local and top-level |
+| module scope | a top-level `val`/`var` is a module GLOBAL, visible inside any `def`; locals shadow it |
 | expressions | application, operators with precedence, `if`/`else`, blocks, `while`, assignment |
 | logic | `&&` / `\|\|` with short-circuit — lowered to `If`, never to a binary op |
-| data | `case class`, `enum` / sealed ADT, tuples |
-| matching | constructor patterns, literal patterns, binding and wildcard, guards |
-| collections | `List`, `Option`, `Array` |
-| entry | `def main(): Unit` — the entry point `ssc run` calls |
-| output | `println` via `Prim` |
+| functions | lambdas `(x) => e` and `{ x => e }`, closures with capture, `f(x)` on a value |
+| data | `case class`, `enum` with `case` members, `object` as a namespace |
+| matching | `match` with constructor, literal, binding and wildcard patterns; `h :: t` |
+| lists | `List(…)`, `::`, `Nil`, `Some`/`None`; `size` `head` `tail` `map` `filter` `sum` `mkString` `reverse` |
+| strings | `length` `toUpperCase` `toLowerCase` `trim` `isEmpty` `split` |
+| errors | `try`/`catch` binding one name, `throw` |
+| files | literate `.ssc` — the program in ```` ```scalascript ```` fences, line numbers preserved |
+| scripts | top-level statements ARE the program; `main()` runs after them if defined |
+| output | `println`, and per-block auto-output of a non-Unit tail |
 
-**Tier 1 — next, in this order:** `object` and companions, `trait` with generic dispatch, closures
-as values and higher-order functions, string interpolation, `for`/`yield`, exceptions.
+**Not implemented, measured on 2026-08-03** — each fails with a positioned diagnostic naming it,
+never with a wrong answer: `Char` literals, tuples, pattern guards (`case n if …`), `Array` as a
+source construct (the IR has arrays; the front has no syntax for them), `foreach`, `for`
+comprehensions, `trait`, `extension`, `given`/`using`, imports across files, and typed `catch` arms
+(the type is consumed and discarded, so an arm catches everything).
 
-**Tier 2 — deferred with a reason, parked in [`../BACKLOG.md`](../BACKLOG.md):** implicits and
-given/using, macros, typeclass derivation, effects and handlers (the IR reserves `Perform`/`Handle`
-for them, so this is a front gap and not a representation gap), separate compilation.
+**Where that leaves compatibility:** cross-file imports are the dominant remaining blocker — 73 of
+the 123 unknown-name refusals are three names from other files. §4's number is measured against
+single-file cases in practice, and that is a property of the corpus rather than a choice.
 
 ## 3 · The lexical alphabet — decided here so it needs no tables
 

@@ -35,7 +35,7 @@ A compiler built on an IR that turns out to be wrong is work thrown away twice.
       being trusted: blinding the register check turned rule 1 into `ACCEPTED — the verifier cannot
       see this defect`, and making the writer drop `NumKind` broke `read(write(m)) == m`.
 
-- [~] **SSC3-3 — the v2 bridge: SSC3 IR → v2 Core IR (`V-0`).** RUNNING end to end for the
+- [x] **SSC3-3 — the v2 bridge: SSC3 IR → v2 Core IR (`V-0`).** RUNNING end to end for the
       straight-line + `If` + `Ret` + `Call` + `Prim` subset; every other instruction is refused BY
       NAME. Sergiy's call, and it comes BEFORE
       our own executor because it is what makes v3 usable at all: the whole v2 backend fleet — VM,
@@ -72,7 +72,7 @@ A compiler built on an IR that turns out to be wrong is work thrown away twice.
       pays — `V-0` is correct, and correct-and-slow is a shippable state that SSA-with-joins on day
       one is not.
 
-- [~] **SSC3-4 — the front.** RUNNING: `bin/ssc3 run <file.ssc>` compiles and executes real
+- [x] **SSC3-4 — the front.** RUNNING: `bin/ssc3 run <file.ssc>` compiles and executes real
       `.ssc` source through v3's own lexer, parser, typed AST, lowering, verifier and the v2
       bridge. The AST and the lowering are the halves that SURVIVE the UniML swap; only the
       interim parser is replaced.
@@ -90,7 +90,10 @@ A compiler built on an IR that turns out to be wrong is work thrown away twice.
       unknown-node-kind refusal, because an open `Branch(kind: String, …)` gives no exhaustiveness
       and a silent miss is the failure mode that buys.
 
-- [ ] **SSC3-5 — `bin/ssc3`, the honest number, the differential gate.**
+- [x] **SSC3-5 — the driver, the honest number, the differential gate.** `v3/ssc3`,
+      `v3/corpus-report.sh` (N = 18/355 on 2026-08-03, four buckets, CRASH 0), and
+      `v3/exec-gate.sh` — 19 cases across BOTH lanes plus two constant-stack contrasts.
+      *Original entry:*
       CLI: `run`, `ir` (print `.ssir`), `check` (verify only), `build --target`.
       `v3/corpus-report.sh` publishing `N/381` in the four buckets of `specs/20-core-language.md` §4,
       gated on non-regression of `N`.

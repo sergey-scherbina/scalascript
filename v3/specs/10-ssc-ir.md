@@ -98,6 +98,22 @@ stack. This is a stability requirement, not an optimization: the v2 launchers ne
 
 **Data** — `MkData d, t, args` · `Field d, a, t, idx` · `Tag d, a` · `Switch a, arms, default`
 
+**Dynamic dispatch** — `Invoke d, name, recv, args`
+
+`name` indexes the CONSTANT POOL and the verifier checks the entry is an `LStr`, so a backend can
+never be handed a number to dispatch on. It is **not** a `Prim`: `Prim` is the door to the HOST, and
+dispatching a method on a value is language semantics — folding it in would hide a call from every
+pass that wants to see calls, and would make the host boundary a lie. A register would have been the
+other way to carry the name and is worse: the name is known when the front emits, so a pool index
+lets a backend resolve it at translation time instead of carrying a string through the frame.
+
+**Exceptions** — `Try d, body, exn, handler`
+
+Both regions leave their result in the same `d`, so there is one result register rather than two a
+later pass would have to reconcile; `exn` is where the caught value is bound. Its own instruction
+rather than an effect: `Perform`/`Handle` are RESUMABLE and an exception is not, and conflating them
+would give one instruction two control semantics.
+
 `Field` carries its type index, and that is not redundancy: **without it rule 4 below is not
 checkable at all.** The first cut of this spec wrote `Field d, a, idx`, and writing the verifier
 showed the rule it claims to enforce degrades to "valid for the widest type declared anywhere",
