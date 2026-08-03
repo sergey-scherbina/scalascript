@@ -5,7 +5,7 @@ started: 2026-08-03T17:44:55Z
 heartbeat: 2026-08-03T17:44:55Z
 status: claimed-before-planning
 items: int-jit-two-object-applies-collide
-paths: file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/vm/jit/JavacJitBackend.scala file:tests/conformance/object-apply-two.ssc
+paths: file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/vm/jit/JavacJitBackend.scala file:tests/conformance/object-apply-two.ssc file:tests/conformance/contract-roster.tsv
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
