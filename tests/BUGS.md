@@ -8,11 +8,23 @@ grepping for status.
 Newest first.
 
 ## smoke-suite-over-its-own-budget — every check green, the suite red, main red for everyone
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
-     fixed-in: -
+     fixed-in: 8b0ee9bb3
      gate: scripts/smoke-ci -->
+
+**FIXED 2026-08-03 — verified on CI, which is the only place this could be verified.**
+
+| run | sha | checks | total |
+|---|---|---|---:|
+| 30798878836 | `cbecbec42` | 58/58 green | **437.9 s** — RED |
+| 30799937285 | `8b0ee9bb3` | 58/58 green | **355.8 s** — green |
+
+`bench-seed-type` moved to tier 2 and `js-selfcall` was registered in the same commit, so the check
+COUNT is unchanged at 58 and the suite still answers the same questions per push. The measured
+saving is 82.1 s, against the 37 s I projected — the difference is runner variance, and it is the
+reason the projection was written as a projection.
 
 **Found 2026-08-03** by `legacy-object-apply`, from a CI red on a commit whose diff was one front's
 uid chain. Nothing was broken:
