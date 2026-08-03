@@ -39,6 +39,28 @@ class StdRootResolutionTest extends AnyFunSuite:
     val j = withStd("jar")
     check(disc(jar = Some(j), home = os.temp.dir()), Some(j))
 
+  // THE PRODUCTION SHAPE, and the one every other test here misses: `lib` is set — every `bin/ssc*`
+  // passes `-Dssc.lib.path=<repo root>` — but a dev tree keeps its std at `runtime/std`, so the
+  // root does NOT contain `std/`. Rule 3 was unfiltered, so it returned the root regardless and
+  // rules 4-6 never ran. Every other test builds `lib` with `withStd("lib")`, which is the one
+  // shape where a filtered and an unfiltered rule 3 behave identically.
+  test("a lib root WITHOUT std/ does not win over the dev tree"):
+    val repo = os.temp.dir(prefix = "ssc-repo-")
+    os.makeDir.all(repo / "runtime" / "std")           // dev layout: std is under runtime/
+    val jar = repo / "tools" / "cli" / "target" / "scala-3.8.3"
+    os.makeDir.all(jar)
+    check(disc(lib = Some(repo), jar = Some(jar), home = os.temp.dir()), Some(repo / "runtime"))
+
+  // The counterpart, so the fix cannot be "ignore lib": when the lib root DOES contain std/ it
+  // still wins over the dev walk-up.
+  test("a lib root WITH std/ still wins over the dev tree"):
+    val repo = os.temp.dir(prefix = "ssc-repo-")
+    os.makeDir.all(repo / "runtime" / "std")
+    os.makeDir.all(repo / "std")
+    val jar = repo / "tools" / "cli" / "target" / "scala-3.8.3"
+    os.makeDir.all(jar)
+    check(disc(lib = Some(repo), jar = Some(jar), home = os.temp.dir()), Some(repo))
+
   test("dev walk-up finds an ancestor's runtime/std"):
     val repo = os.temp.dir(prefix = "ssc-repo-")
     os.makeDir.all(repo / "runtime" / "std")

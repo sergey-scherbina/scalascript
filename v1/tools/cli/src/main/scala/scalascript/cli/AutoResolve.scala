@@ -85,10 +85,28 @@ object AutoResolve:
             val realActual =
               if os.exists(actual) then actual
               else
-                // Library fallback: `std/actors.ssc` and similar bare paths
-                // that miss relative to the importing file are looked up under
-                // ssc.lib.path (project/install root, set by the launcher).
-                val fromLib = scalascript.imports.ImportResolver.libPath
+                // Library fallback: `std/actors.ssc` and similar bare paths that miss relative to
+                // the importing file are looked up under the library roots.
+                //
+                // BOTH roots, and `stdPath` is the one that matters. `libPath` is whatever the
+                // launcher passed as `-Dssc.lib.path`, which in a dev tree is the REPO ROOT — and
+                // `std/` does not live there, it lives at `v1/runtime/std`. `stdPath` is the result
+                // of `ImportResolver.discoverStdRoot`, the six-rule search the interpreter and the
+                // js lane already use (`specs/std-root-resolution.md §3`), which finds the dev-tree
+                // layout via its `runtime/std` ancestor rule.
+                //
+                // Consulting only `libPath` is why `compile-jvm` refused an import that `run --v1`
+                // and `run-js` accepted from the SAME file: one lane out of three used a different
+                // notion of where the standard library is. That took out the JVM lane of
+                // `components-smoke`, `middleware-smoke` and `upload-smoke` and produced
+                // `bundle-smoke`'s "not found, skipped" warning.
+                //
+                // `libPath` stays FIRST so anything resolving today keeps resolving; this is purely
+                // an added candidate.
+                val fromLib = List(
+                    scalascript.imports.ImportResolver.libPath,
+                    scalascript.imports.ImportResolver.stdPath,
+                  ).flatten.iterator
                   .map(_ / os.RelPath(raw))
                   .map { p =>
                     if os.exists(p) && os.isDir(p) then
@@ -97,6 +115,7 @@ object AutoResolve:
                     else p
                   }
                   .filter(os.exists)
+                  .nextOption()
                 fromLib.getOrElse(
                   throw new RuntimeException(
                     s"auto-resolve: cannot resolve import '$raw' from ${p.last} " +

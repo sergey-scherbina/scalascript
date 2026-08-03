@@ -254,6 +254,19 @@ val suite = List(
   Check("scripts", "claim-hooks-refuse-overlap", "tests/coord/claim-hooks.sh", List(), 180000),
   Check("scripts", "board-generated", "tests/coord/board-generated.sh", List(), 180000),
   Check("scripts", "bench-wrapper-routing", "tests/e2e/bench-wrapper-gate.sh", List(), 120000),
+  // One file with one `std/` import, three lanes, two locations. `compile-jvm` refused what
+  // `run --v1` and `run-js` accepted, because `AutoResolve` consulted `libPath` (the REPO ROOT,
+  // where a dev tree has no `std/`) instead of the discovered std root — and the std root itself
+  // degenerated to `libPath`, since rule 3 of `discoverStdRoot` was the one rule not filtered by
+  // `hasStd`. Four orphaned e2e gates reported it as "the server process EXITED before it
+  // listened". ~8 s; the int/js cells are the controls that say WHICH lane disagrees.
+  // (BUGS.md compile-jvm-and-std-root-disagree-on-where-std-lives.)
+  Check(".", "std-import-lanes", "tests/e2e/std-import-lanes-gate.sh", List(), 180000),
+  // `ssc build <src> <dist>` must produce a page byte-identical to `ssc render` of the same source.
+  // Orphaned since `d0665660a` and red until 2026-08-03; it passes now and is ~2 s. It compares two
+  // exits from ONE pipeline, so it cannot see a failure that empties both — which is why it now
+  // also asserts the page contains a `<button>` before diffing. (tests/BUGS.md orphaned-e2e-gates-52.)
+  Check(".", "build-smoke", "tests/e2e/build-smoke.sh", List(), 120000),
   // A program calling its OWN server on the js lane. Two defects at once: the client blocks the
   // main thread in `Atomics.wait` while `serveAsync`'s listener needs that same thread, and the
   // worker source was joined with a literal backslash-n so it never parsed and EVERY outbound

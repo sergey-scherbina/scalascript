@@ -36,6 +36,16 @@ if [ ! -f "$DIST/index.html" ]; then
     exit 1
 fi
 
+# Before comparing: assert the page has SUBSTANCE. `build` and `render` are two exits from the same
+# pipeline, so a diff between them cannot see a failure that empties both — and "both produced
+# nothing, identically" would read as a pass. One marker from the demo is enough to close that.
+if ! grep -q '<button' "$DIST/index.html"; then
+    echo
+    echo "[FAIL] $DIST/index.html has no <button> — the components demo renders several;"
+    echo "       an empty-but-identical pair is what this check exists to reject"
+    exit 1
+fi
+
 "$BIN/ssc-tools" render "$SRC/components-demo.ssc" > "$DIST/.expected.html" 2>/dev/null
 
 if diff -q "$DIST/index.html" "$DIST/.expected.html" > /dev/null; then

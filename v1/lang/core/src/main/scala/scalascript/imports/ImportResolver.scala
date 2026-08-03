@@ -80,7 +80,17 @@ object ImportResolver:
       found
     prop.map(s => os.Path(s, os.pwd)).flatMap(existing)
       .orElse(env.map(s => os.Path(s, os.pwd)).flatMap(existing))
-      .orElse(lib)
+      // `.filter(hasStd)`, like rules 4 and 6 — this function's contract, stated one docstring up,
+      // is "returns the directory that CONTAINS a `std/` subdirectory". Unfiltered, rule 3 accepted
+      // whatever the launcher passed as `-Dssc.lib.path`, which every `bin/ssc*` sets to the REPO
+      // ROOT: a dev tree keeps its std at `v1/runtime/std`, so the root does NOT contain `std/`,
+      // and this returned it anyway. `stdPath` was therefore identical to `libPath` in every
+      // dev-tree run, and rules 4-6 were unreachable — including rule 5, the `runtime/std`
+      // ancestor walk that exists for exactly this layout.
+      //
+      // The tests never caught it because every one of them builds `lib` with `withStd("lib")`:
+      // the only shape exercised was the one where the distinction cannot show.
+      .orElse(lib.filter(hasStd))
       .orElse(jar.filter(hasStd))
       .orElse(jar.flatMap(devWalkUp))
       .orElse(existing(home / ".scalascript").filter(hasStd))
