@@ -2736,6 +2736,89 @@ two same-subtype casts — see `integerOf`/`textOf` used by `compareKeys` in
 `scljet/write.ssc`. The tree-walk tier (`SSC_JIT_BYTECODE=off`) is unaffected.
 </details>
 
+## compile-jvm-and-std-root-disagree-on-where-std-lives — one lane out of three refused a `std/` import
+<!-- status: fixed
+     lane: multi
+     area: build
+     kind: bug
+     gate: tests/e2e/std-import-lanes-gate.sh
+     fixed-in: c36693c75 -->
+
+**FIXED 2026-08-03.** The same file, the same import, three lanes:
+
+```
+run --v1     imported ok
+run-js       imported ok
+compile-jvm  auto-resolve: cannot resolve import 'std/http.ssc' (looked at examples/std/http.ssc)
+```
+
+**Two layers, and the outer fix alone does nothing.**
+
+1. `AutoResolve` — the JVM lane's dependency walker — resolved a bare `std/foo.ssc` that misses
+   relative to the importing file under `ImportResolver.libPath` **only**. `libPath` is whatever the
+   launcher passed as `-Dssc.lib.path`, and every `bin/ssc*` passes the REPO ROOT. A dev tree keeps
+   its std at `v1/runtime/std`, so the root has no `std/` and the lookup failed. Fixed by consulting
+   `stdPath` as well — `libPath` still goes first, so nothing that resolved before stops resolving.
+
+2. That change was **inert**, because `stdPath` was `libPath`. `ImportResolver.discoverStdRoot`
+   documents itself as returning "the directory that *contains* a `std/` subdirectory" and filters
+   rules 4 and 6 with `hasStd` — but not rule 3, `lib`. So with the launcher always setting
+   `ssc.lib.path`, rule 3 always won, and rules 4-6 were unreachable in every dev-tree run —
+   including rule 5, the `runtime/std` ancestor walk that exists for exactly this layout. Measured
+   before and after:
+
+   ```
+   before   stdPath = Some(<repo>)            ← has no std/
+   after    stdPath = Some(<repo>/runtime)
+   ```
+
+**Why the unit tests did not catch layer 2.** `StdRootResolutionTest` has a dev-walk-up case, but it
+passes `lib = None`; every other case builds `lib` with `withStd("lib")`. The only shape never
+exercised was the production one — `lib` set, `std/` not under it — which is precisely the shape
+where a filtered and an unfiltered rule 3 differ. Two cases added: a lib root WITHOUT `std/` must
+lose to the dev tree, and one WITH `std/` must still win, so the fix cannot be read as "ignore lib".
+
+**Blast radius.** This took out the JVM lane of `components-smoke`, `middleware-smoke` and
+`upload-smoke`, all three of which reported `the server process EXITED before it listened` — a
+serving symptom for a resolution cause. `components-smoke` now gets as far as
+`JVM artifact written` and fails later, on something else.
+
+**A THIRD copy of the same mistake is still open**, filed separately as
+[[bundle-command-resolves-imports-relative-only]]: `BundleCommand` has no library fallback at all
+and silently prints `[warn] import std/http.ssc … — not found, skipped`.
+
+## bundle-command-resolves-imports-relative-only — the bundler drops every `std/` import with a warning
+<!-- status: open
+     lane: multi
+     area: build
+     kind: bug
+     gate: none -->
+
+**Found 2026-08-03** while fixing
+[[compile-jvm-and-std-root-disagree-on-where-std-lives]]; NOT the same code, and not fixed by it.
+
+`BundleCommand.visit` resolves each import as `(file / os.up) / RelPath(imp.path)` and, when that
+misses, prints a warning and **continues**:
+
+```scala
+val resolved = (file / os.up) / os.RelPath(imp.path)
+if os.exists(resolved) then visit(resolved)
+else System.err.println(s"  [warn] import ${imp.path} from ${file.last} — not found, skipped")
+```
+
+There is no `libPath`/`stdPath` fallback, so every `std/…` import is dropped from the archive. The
+failure is a WARNING on a successful exit, which is the shape that keeps a defect alive: the bundle
+is produced, it is incomplete, and the exit code says fine.
+
+`bundle-smoke` still fails after the resolution fix above, at `bundle.yaml missing` and
+`missing in archive: components-demo.ssc` — those may or may not be this; nobody has reduced them
+yet, and this entry does not claim them.
+
+**Not fixed here on purpose.** It is a different file with different symptoms, and the entry it was
+found under already carries two layers of fix plus a gate. Copying the candidate-list from
+`AutoResolve` is the obvious shape of the fix; what it needs first is a decision about whether a
+bundle SHOULD carry std modules at all, which the warning's author may have had a reason for.
+
 ## js-userspace-long-arith-native-operator-mixes-bigint — no longer reproduces; the userspace workaround is removable (verified 2026-08-02)
 <!-- status: fixed
      lane: multi

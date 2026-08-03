@@ -180,6 +180,31 @@ subject (`NavBar` -> `NavBarXX` in `examples/std-ui/nav-demo.ssc`) turns `std-ui
 are the one filed interpreter bug; the rest report real product differences at their first
 assertion rather than dying on a missing path.
 
+**RE-CENSUS 2026-08-03 — the table below is a snapshot of 2026-08-02 and is now wrong in five
+rows.** Re-ran all 13 against HEAD with a freshly built launcher:
+
+| gate | then | now |
+|---|---|---|
+| `build` | red (interpreter companion bug) | **PASSES** — wired into `scripts/smoke-ci`, ~2 s |
+| `components`, `middleware`, `upload` (JVM) | `the server process EXITED before it listened` | that was a RESOLUTION failure, not a serving one — fixed, see below; `components` now reaches `JVM artifact written` and fails later |
+| `middleware` (INT) | `native callback arity` | `body=DataV(Stub,Vector(StrV(Response.withHeader)))` — the sibling-filed `native-Response-withHeader-is-a-Stub` |
+| `validation` (INT) | `native callback arity` | `unbound global: requireInt` — the sibling-filed `native-requireInt-unbound-in-a-route-handler` |
+| the other 8 | unchanged | unchanged |
+
+**The shared cause under three of them was NOT what any of them reported.** `compile-jvm` refused
+`[httpGet](std/http.ssc)` from a file that `run --v1` and `run-js` both accepted — a std-root
+resolution defect in two layers, filed and fixed as
+`BUGS.md compile-jvm-and-std-root-disagree-on-where-std-lives`, gated by
+`tests/e2e/std-import-lanes-gate.sh`. Every one of the three reported it as a SERVING failure,
+because the gate's own harness could only see that the server never listened. A third copy of the
+same mistake lives in `BundleCommand` and is filed separately as
+`bundle-command-resolves-imports-relative-only`.
+
+**Method note, since this entry is partly about counting:** the previous table's rows for
+`middleware` and `validation` were accurate when written and were invalidated by a SIBLING's fix
+landing in between, not by an error. A census of failure messages has a shelf life measured in
+commits; re-run it before acting on it.
+
 **WHAT THE 13 RED ONES SAY NOW.** Recorded as leads, not as diagnoses — only the first is reduced:
 
 | gate | first failure |
