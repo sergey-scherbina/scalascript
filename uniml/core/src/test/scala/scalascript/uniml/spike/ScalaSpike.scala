@@ -390,6 +390,13 @@ object SpikeParse:
       var q = p - 1
       while q >= 0 && toks(q).kind == "spike.ws" do q -= 1
       if q >= 0 then toks(q).span.end.line else -1
+    /** true when the next token ENDS exactly where the one after it begins — no
+      * whitespace, no comment. `html"""…"""` is an interpolation; `foo "bar"` is not. */
+    def peekAbutsNext: Boolean =
+      val a = peek
+      val b = { skipTrivia(); if p + 1 < toks.length then Some(toks(p + 1)) else None }
+      a.isDefined && b.isDefined && a.get.span.end.offset == b.get.span.start.offset
+
     def peekPrec: Int = if peekKind == "spike.op" then opPrec(SpikeOp.meaning(peekLexeme)) else 0
     def peek2Lexeme: String = // the second significant (non-trivia) token's lexeme
       skipTrivia()
@@ -581,9 +588,14 @@ object SpikeParse:
     // the PROJECTED name is still the first segment, which is what defNode already reads, and
     // getting the qualified form into the lowered name is a separate question this does not
     // pretend to answer.
+    // The qualifier may carry TYPE PARAMS — `extern def Source[A].distributed(…)`. They sit
+    // BETWEEN the segment and the dot, so a plain dot-chain stopped at `[` and left
+    // `.distributed` behind, which is what the first version of this loop did.
+    skipTypeParams(c)
     while c.peekKind == "spike.dot" && (c.peek2Kind == "spike.id" || c.peek2Kind == "spike.uid") do
       c.advance().foreach(t => kids += Node.Leaf(t, Some("def.namedot")))
       c.advance().foreach(t => kids += Node.Leaf(t, Some("def.nameseg")))
+      skipTypeParams(c)
     skipTypeParams(c) // plain `[A, B]` are erased (like ssc1-front); context bounds `[A: TC]` deferred
     // the `( … )` param clause is OPTIONAL — `def f: T = e` is a parameterless def. MULTIPLE clauses (curried
     // `def f(a)(b)`) are FLATTENED into one param list — ssc1-front appends the 2nd clause's params, so the
@@ -1668,7 +1680,8 @@ object SpikeParse:
       case "spike.id" if c.peekLexeme == "try"   => Some(parseTry(c))
       // interpolator: an `s`/`f`/`raw`/`md` prefix immediately before a string token (ssc1-front
       // detects interpolation the same way — id value + following str, no adjacency check).
-      case "spike.id" if isInterpPrefix(c.peekLexeme) && c.peek2Kind == "spike.str" => Some(parseInterp(c))
+      case "spike.id" if isInterpPrefix(c.peekLexeme) && c.peek2Kind == "spike.str" && c.peekAbutsNext =>
+        Some(parseInterp(c))
       case "spike.id" | "spike.uid" => parseIdOrCall(c) // uid = uppercase ctor/type ref → mkUVar
       case "spike.junk" =>
         c.report("spike.unexpected-expr", s"unexpected token '${c.peekLexeme}' in expression")
@@ -1751,7 +1764,15 @@ object SpikeParse:
     if c.peekKind == "spike.id" && c.peek2Kind == "spike.eq" then parseAssign(c)
     else parseExpr(c, 1).getOrElse(Node.Frame("spike.error", None, Vector.empty))
 
-  private def isInterpPrefix(w: String): Boolean = w == "s" || w == "f" || w == "raw" || w == "md"
+  /** Scala's rule: ANY identifier immediately abutting a string literal is an
+    * interpolator — `html"""…"""`, `sql"…"`, `json"…"`. The set used to be the four the
+    * projection knows how to lower (s/f/raw/md), so an unknown one lexed as an id followed by
+    * a separate string and the fence content leaked into the ScalaScript grammar: 20
+    * diagnostics in examples/std-ui/textarea.ssc from `html"""<small class="…">"""`.
+    * Adjacency is the discriminator — `foo "bar"` with a space between is not one — and the
+    * projection lowers an unrecognised prefix like `s`, which is a better answer than a
+    * cascade. */
+  private def isInterpPrefix(w: String): Boolean = w.nonEmpty
 
   // `s"a $x b ${e}"` → spike.interp holding the prefix + the (decoded) string token. The parts
   // split + concatenation happen in the projection (mirroring ssc1-front interpParts/partsToExpr).
