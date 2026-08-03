@@ -1,0 +1,11 @@
+slug: native-route-block-thunk
+branch: feature/native-route-block-thunk
+agent: claude-code
+started: 2026-08-03T08:16:27Z
+heartbeat: 2026-08-03T08:16:27Z
+status: claimed-before-planning
+items: native-route-block-form-registers-the-THUNK-not-its-result
+paths: file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/HttpFastNativePlugin.scala file:v2/BUGS.md file:tests/e2e/route-handler-shapes-gate.sh file:scripts/smoke-ci.ssc
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
