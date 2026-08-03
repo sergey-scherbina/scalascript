@@ -387,9 +387,16 @@ self-parity test is not external conformance.
         Then three more slices, each measured: **escaped identifiers** (`` `type` `` — the
         lexer had no backtick case at all) and **varargs** (`TkNode*`) together took
         678 → 522; **type ascription** `(42: Int)` took 522 → 483. Running total for
-        SSC3-B: **1,278 → 483 diagnostics, 90.0% → 92.1% of files parsing completely
-        clean**. Worst files now: `streams-bridge.ssc` 24, `std-ui/textarea.ssc` 20,
-        `error-handling.ssc` 20.
+        SSC3-B (at that point): 1,278 → 483 diagnostics.
+        Then **qualified names whose QUALIFIER carries type params** (`Source[A].distributed` —
+        they sit between the segment and the dot, so the earlier dot-chain stopped at `[`) and
+        **any interpolator prefix** (`html"""…"""`; Scala's rule is any identifier ABUTTING a
+        string, and adjacency is the discriminator) took 483 → 362.
+        **Running total: 1,278 → 362 diagnostics, 90.0% → 94.5% of files parsing completely
+        clean.** ⚠️ Those last two were only findable after the composer's span remap: the probe
+        used to pick them had WRONG line numbers until then, and I had mis-read both constructs
+        from it. Worst files now: `std-ui/textarea.ssc` 20, `error-handling.ssc` 20,
+        `std-ui/input.ssc` 18, `mapreduce/shuffle.ssc` 18.
         Named constructs still open, each seen in a probe rather than guessed: **type
         aliases** (`type X = Y`, and `infix type throws[A, E]`), and **function/tuple
         types in a parameter** (`(B, A) => B`).
