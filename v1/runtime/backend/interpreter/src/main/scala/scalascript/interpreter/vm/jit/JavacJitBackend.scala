@@ -207,7 +207,7 @@ object JavacJitBackend extends JitBackend:
     val coEmit = new CoEmitState
     coEmit.signatures.put(f.name, MethodSig(f.params.toArray, paramIsRef, isDouble))
     coEmit.emitted.add(f.name)
-    val ctx = new GenCtx(f.name, paramSet, f.params.toArray, paramIsRef, isDouble, Map.empty, interp, coEmit, f.paramTypes.toArray)
+    val ctx = new GenCtx(f.name, staticNameFor(f.name), paramSet, f.params.toArray, paramIsRef, isDouble, Map.empty, interp, coEmit, f.paramTypes.toArray)
     // Try ref-returning (ObjToObject) path first for 1-param ref-scrutinee matches:
     // `def g(x: T): T = x match { case C(a, b) => a }` where the arm body names
     // a ref-typed binding.  `walkRefMatchBody` returns null whenever arm bodies
@@ -223,13 +223,13 @@ object JavacJitBackend extends JitBackend:
             val ifaceRef = "scalascript.interpreter.vm.jit.ObjToObject"
             val source =
               s"""public class $className implements $ifaceRef {
-                 |  public static Object ${sanitize(f.name)}(Object $pname) {
+                 |  public static Object ${staticNameFor(f.name)}(Object $pname) {
                  |    $refStmts
                  |  }
-                 |  public Object apply(Object n) { return ${sanitize(f.name)}(n); }
+                 |  public Object apply(Object n) { return ${staticNameFor(f.name)}(n); }
                  |}
                  |""".stripMargin
-            val r = compileAndLink(className, sanitize(f.name), source, paramIsRef, classOf[Object], isDouble = false, resultIsRef = true)
+            val r = compileAndLink(className, staticNameFor(f.name), source, paramIsRef, classOf[Object], isDouble = false, resultIsRef = true)
             if r != null then return r
         case _ =>
     if f.params.length == 1 && !paramIsRef(0) && !isDouble then
@@ -253,13 +253,13 @@ object JavacJitBackend extends JitBackend:
              |    inst.typeTag_$$eq(tag);
              |    return inst;
              |  }
-             |  public static Object ${sanitize(f.name)}($params) {
+             |  public static Object ${staticNameFor(f.name)}($params) {
              |    return $objectExpr;
              |  }
-             |  public Object apply(long n) { return ${sanitize(f.name)}(n); }
+             |  public Object apply(long n) { return ${staticNameFor(f.name)}(n); }
              |}
              |""".stripMargin
-        val r = compileAndLink(className, sanitize(f.name), source, paramIsRef, classOf[Object], isDouble = false, resultIsRef = true)
+        val r = compileAndLink(className, staticNameFor(f.name), source, paramIsRef, classOf[Object], isDouble = false, resultIsRef = true)
         if r != null then return r
     val bodyStmts = walkFunctionBody(f, ctx, interp)
     if bodyStmts == null then return null
@@ -276,17 +276,17 @@ object JavacJitBackend extends JitBackend:
     val argList = f.params.map(p => sanitize(p)).mkString(", ")
     val applyMethod =
       if ifaceName != null then
-        s"\n  public $returnType apply($params) { return ${sanitize(f.name)}($argList); }"
+        s"\n  public $returnType apply($params) { return ${staticNameFor(f.name)}($argList); }"
       else ""
     val source =
       s"""public class $className$implementsClause {
-         |  public static $returnType ${sanitize(f.name)}($params) {
+         |  public static $returnType ${staticNameFor(f.name)}($params) {
          |    $bodyStmts
          |  }
          |${ctx.coEmit.extraMethods.valuesIterator.mkString}$applyMethod
          |}
          |""".stripMargin
-    compileAndLink(className, sanitize(f.name), source, paramIsRef, if isDouble then classOf[Double] else classOf[Long], isDouble,
+    compileAndLink(className, staticNameFor(f.name), source, paramIsRef, if isDouble then classOf[Double] else classOf[Long], isDouble,
       resultIsBool = isBoolReturning(f.body))
 
   /** Compile a Java source string in-memory, load the class, bind a MethodHandle
@@ -477,7 +477,7 @@ object JavacJitBackend extends JitBackend:
     val sig = MethodSig(fn.params.toArray, paramIsRef, isDouble = false)
     ctx.coEmit.signatures.put(fnName, sig)
     ctx.coEmit.emitting.add(fnName)
-    val fnCtx = new GenCtx(fn.name, fn.params.toSet, sig.paramNames, sig.paramIsRef, isDouble = false, Map.empty, ctx.interp, ctx.coEmit)
+    val fnCtx = new GenCtx(fn.name, staticNameFor(fn.name), fn.params.toSet, sig.paramNames, sig.paramIsRef, isDouble = false, Map.empty, ctx.interp, ctx.coEmit)
     val bodyStmts = walkFunctionBody(fn, fnCtx, ctx.interp)
     ctx.coEmit.emitting.remove(fnName)
     if bodyStmts == null then
@@ -598,7 +598,7 @@ object JavacJitBackend extends JitBackend:
     val sig = MethodSig(fn.params.toArray, classifyParamRefs(fn), isDouble = false)
     ctx.coEmit.signatures.put(fnName, sig)
     ctx.coEmit.emitting.add(fnName)
-    val fnCtx = new GenCtx(fn.name, fn.params.toSet, sig.paramNames, sig.paramIsRef,
+    val fnCtx = new GenCtx(fn.name, staticNameFor(fn.name), fn.params.toSet, sig.paramNames, sig.paramIsRef,
       isDouble = false, Map.empty, ctx.interp, ctx.coEmit, fn.paramTypes.toArray)
     var extraStatics = ""
     val methodBody =
@@ -756,7 +756,7 @@ object JavacJitBackend extends JitBackend:
     val sig = MethodSig(fn.params.toArray, paramIsRef, isDouble = false)
     ctx.coEmit.signatures.put(fnName, sig)
     ctx.coEmit.emitting.add(fnName)
-    val fnCtx = new GenCtx(fn.name, fn.params.toSet, sig.paramNames, sig.paramIsRef,
+    val fnCtx = new GenCtx(fn.name, staticNameFor(fn.name), fn.params.toSet, sig.paramNames, sig.paramIsRef,
       isDouble = false, Map.empty, ctx.interp, ctx.coEmit, fn.paramTypes.toArray)
     val bodyStr = walkString(fn.body.asInstanceOf[Term], fnCtx)
     ctx.coEmit.emitting.remove(fnName)
@@ -811,8 +811,25 @@ object JavacJitBackend extends JitBackend:
    *  scope. `bindings(name)` maps a pattern binding to `(javaVarName, isRef)`.
    *  Params shadowed by bindings (rare; doesn't happen in the bench shape)
    *  resolve to the binding. */
+  /** The name of the generated STATIC method. It is normally the ssc function's own name, but it
+   *  cannot be `apply`: every class this backend emits also carries the functional-interface bridge
+   *  `public T apply(…)`, so an ssc `def apply` produced two methods with one name and one
+   *  signature — `method apply(long,long) is already defined` — and the static one could not
+   *  implement the interface either. Any function named `apply` that reached the JIT failed to
+   *  compile; `object O { def apply(x) }` is plain Scala, so this is not exotic.
+   *
+   *  Renamed ONLY in that case, so nothing that compiles today can change. `AsmJitBackend`'s own
+   *  GenCtx already separates `funName` from `staticMethodName`; this backend conflated them, which
+   *  is why the collision had nowhere to be noticed.
+   *  BUGS `int-jit-two-object-applies-collide`. */
+  private def staticNameFor(name: String): String =
+    val s = sanitize(name)
+    if s == "apply" then "__ssc_apply" else s
+
   private final class GenCtx(
     val funName:     String,
+    // The ssc name is what RECOGNISES self-recursion; this is what is EMITTED for it.
+    val staticName:  String,
     val params:      Set[String],
     val paramNames:  Array[String],
     val paramIsRef:  Array[Boolean],
@@ -881,17 +898,17 @@ object JavacJitBackend extends JitBackend:
       val idx = paramNames.indexOf(n)
       if idx >= 0 && idx < paramTypes.length then paramTypes(idx) else null
     def withBindings(more: Iterable[(String, (String, Boolean))]): GenCtx =
-      new GenCtx(funName, params, paramNames, paramIsRef, isDouble, bindings ++ more, interp, coEmit, paramTypes, lambdas, seqLocals, matchDepth)
+      new GenCtx(funName, staticName, params, paramNames, paramIsRef, isDouble, bindings ++ more, interp, coEmit, paramTypes, lambdas, seqLocals, matchDepth)
     def withLambda(name: String, paramNamesL: Array[String], body: Term): GenCtx =
-      new GenCtx(funName, params, paramNames, paramIsRef, isDouble, bindings, interp, coEmit, paramTypes, lambdas + (name -> (paramNamesL, body)), seqLocals, matchDepth)
+      new GenCtx(funName, staticName, params, paramNames, paramIsRef, isDouble, bindings, interp, coEmit, paramTypes, lambdas + (name -> (paramNamesL, body)), seqLocals, matchDepth)
     /** Bind a ref-local AND record it as a seq (slice 2). `isArray` enables `a(i)=x` stores. */
     def withSeqLocal(name: String, jvar: String, isArray: Boolean): GenCtx =
-      new GenCtx(funName, params, paramNames, paramIsRef, isDouble, bindings + (name -> (jvar, true)), interp, coEmit, paramTypes, lambdas, seqLocals + (name -> isArray), matchDepth)
+      new GenCtx(funName, staticName, params, paramNames, paramIsRef, isDouble, bindings + (name -> (jvar, true)), interp, coEmit, paramTypes, lambdas, seqLocals + (name -> isArray), matchDepth)
     /** Enter a nested `match` scope: bumps the uniquifier depth so the nested
      *  match's helper locals (`inst`, `__fa_<ctor>`, …) don't collide with the
      *  enclosing match's in the same Java method. */
     def deeperMatch: GenCtx =
-      new GenCtx(funName, params, paramNames, paramIsRef, isDouble, bindings, interp, coEmit, paramTypes, lambdas, seqLocals, matchDepth + 1)
+      new GenCtx(funName, staticName, params, paramNames, paramIsRef, isDouble, bindings, interp, coEmit, paramTypes, lambdas, seqLocals, matchDepth + 1)
 
   /** Stage 9: inline a val-bound lambda's body at the call site by binding
    *  each lambda param to the arg's *Java expression* directly (no local var,
@@ -1769,7 +1786,7 @@ object JavacJitBackend extends JitBackend:
             args(i) = e
             i += 1
             rem = rem.tail
-          s"${sanitize(ctx.funName)}(${args.mkString(", ")})"
+          s"${ctx.staticName}(${args.mkString(", ")})"
         case ctor: Term.Name if ctx.interp.typeFieldOrder.contains(ctor.value) =>
           emitConstructorObject(ctor.value, ap.argClause.values, ctx, statics)
         case ctor: Term.Name if ctor.value == "BigInt" || ctor.value == "Decimal" =>
@@ -2018,7 +2035,7 @@ object JavacJitBackend extends JitBackend:
           val args = ap.argClause.values
           if args.length != ctx.paramNames.length then return null
           val sb = new StringBuilder
-          sb.append(sanitize(ctx.funName)).append('(')
+          sb.append(ctx.staticName).append('(')
           var i = 0
           var rem = args
           while rem.nonEmpty do
@@ -2760,7 +2777,7 @@ object JavacJitBackend extends JitBackend:
     val coEmit    = new CoEmitState
     coEmit.signatures.put("__inlineMatch", MethodSig(paramArr, paramIsRef, accIsDouble))
     coEmit.emitted.add("__inlineMatch")
-    val ctx = new GenCtx("__inlineMatch", paramSet, paramArr, paramIsRef, accIsDouble, Map.empty, interp, coEmit)
+    val ctx = new GenCtx("__inlineMatch", staticNameFor("__inlineMatch"), paramSet, paramArr, paramIsRef, accIsDouble, Map.empty, interp, coEmit)
     val sb = new StringBuilder
     sb.append("switch (inst.typeTag()) {\n")
     ai = 0
@@ -4188,7 +4205,7 @@ object JavacJitBackend extends JitBackend:
                   if !ctx.pureFnEmissions.contains(key) then
                     val pname = fn.params.head
                     val genCtx = new GenCtx(
-                      key, Set(pname), Array(pname), Array(true),
+                      key, staticNameFor(key), Set(pname), Array(pname), Array(true),
                       false, Map.empty, ctx.interp, new CoEmitState
                     )
                     val matchBody = walkMatchBody(tm, genCtx, ctx.interp)
@@ -4265,7 +4282,7 @@ object JavacJitBackend extends JitBackend:
       // Temporary GenCtx: treats the scrutinee as a single ref param so that
       // walkMatchBody finds it in ctx.params and generates the InstanceV cast.
       val genCtx = new GenCtx(
-        methodName, Set(scrutName), Array(scrutName), Array(true),
+        methodName, staticNameFor(methodName), Set(scrutName), Array(scrutName), Array(true),
         false, Map.empty, ctx.interp, new CoEmitState
       )
       val matchBody = walkMatchBody(tm, genCtx, ctx.interp)
@@ -4341,7 +4358,7 @@ object JavacJitBackend extends JitBackend:
               if !ctx.pureFnEmissions.contains(key) then
                 val pname = fn.params.head
                 val genCtx = new GenCtx(
-                  key, Set(pname), Array(pname), Array(true),
+                  key, staticNameFor(key), Set(pname), Array(pname), Array(true),
                   false, Map.empty, ctx.interp, new CoEmitState
                 )
                 val refBody = walkRefMatchBody(tm, genCtx, ctx.interp)

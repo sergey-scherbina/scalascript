@@ -1,0 +1,43 @@
+---
+name: object-apply-two
+description: "two objects may each declare `apply`, and a hot `apply` may be JIT-compiled"
+backends: [int, jvm, v2, js]
+---
+
+# Two objects may each declare `apply`
+
+The interpreter's JIT emits, for every compiled function, a static method named after the ssc
+function AND the functional-interface bridge `public T apply(…)`. When the ssc function is itself
+called `apply`, those are one name with one signature:
+
+```
+method apply(long,long) is already defined in class GenJit_apply_…
+apply(long,long) in GenJit_apply_… cannot implement apply(long,long) in LongFn2
+```
+
+**The two-object shape is how it was FOUND, not what causes it** — the cause is the name, so any
+`apply` reaching the JIT collides. `object O { def apply(x) }` is plain Scala, so this is an
+ordinary program, not an exotic one.
+
+The `while` loop is here to make the last object's `apply` hot enough to be JIT-compiled: without
+it this case would only exercise the interpreter's tree walk and could pass with the generator still
+broken.
+
+```scalascript
+object O:
+  def apply(x: Int): String = "u:" + x.toString
+
+object Two:
+  def apply(a: Int, b: Int): Int = a * 10 + b
+
+def main() =
+  println(O(7))
+  println(Two(3, 4))
+
+  var acc = 0
+  var i = 0
+  while i < 60000 do
+    acc = acc + Two(i, 1)
+    i = i + 1
+  println(acc > 0)
+```

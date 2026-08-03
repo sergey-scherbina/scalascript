@@ -62,11 +62,30 @@ message through an `html"…"` interpolator rather than through `Response.html`,
 interpolator does not reproduce on its own.
 
 ## int-jit-two-object-applies-collide — two objects with an `apply` generate one Java class and refuse to compile
-<!-- status: open
+<!-- status: fixed
      lane: int
      area: codegen
-     fixed-in: -
-     gate: - -->
+     fixed-in: PENDING
+     gate: tests/conformance/object-apply-two.ssc 
+
+**FIXED 2026-08-03** by `int-jit-apply-collision` — and **the title and the diagnosis above are both
+wrong about the cause**, kept rather than rewritten because the correction is the useful part.
+
+It is not about two objects. Every class this backend emits carries the functional-interface bridge
+`public T apply(…)` **plus** a static method named after the ssc function. When the ssc function is
+itself `apply`, those are one name with one signature — hence both errors, the duplicate and the
+"static cannot implement". Two objects is simply how it was noticed; ONE function named `apply`
+reaching the JIT is enough.
+
+`AsmJitBackend`'s own `GenCtx` already separates `funName` from `staticMethodName`. The javac backend
+conflated them, so the collision had nowhere to be noticed: `funName` is the ssc name used to
+RECOGNISE self-recursion, and it was also what got EMITTED as the Java call target. Javac's `GenCtx`
+now carries `staticName` beside `funName`, and `staticNameFor` renames **only** `apply` — so nothing
+that compiles today can change, and the blast radius is exactly the case that was broken.
+
+Gate `tests/conformance/object-apply-two.ssc` runs both objects AND a 60,000-iteration loop over one
+of the applies: without the loop the case would only exercise the tree walk and could pass with the
+generator still broken. int, v2 and js all print `u:7 / 34 / true`.-->
 
 **Found 2026-08-02** by `v2-object-apply` while writing the gate for a DIFFERENT lane's bug — the
 case had two objects in it and int stopped compiling, which is the only reason anyone looked.
