@@ -572,8 +572,92 @@ function _httpMaxBody() {
   return Number.isFinite(n) ? n : 10 * 1024 * 1024;
 }
 
+// ── Loopback: a program calling its OWN server ──────────────────────────────────────────────
+// WHY THIS EXISTS. `_httpSyncFetch` below gives ssc a SYNCHRONOUS http client by blocking the main
+// thread in `Atomics.wait` while a Worker performs the request. `serveAsync`'s listener lives on
+// that same main thread's event loop — so a request from a process to its own server can never be
+// answered: the thread that must run the route handler is the thread that is blocked waiting for
+// it. Measured before this fix: 11 attempts x 30.5 s plus backoff, then a silent `status 0`
+// ("timeout") after ~6.5 minutes. Not a hang — worse, a wrong answer that looks like a network
+// failure. (BUGS.md js-httppost-to-own-serveasync-deadlocks.)
+//
+// "Serve and call yourself" is the shape of every self-contained example, demo and integration
+// test, so this is not an exotic case; `examples/rozum-agent-schema-derived.ssc` is exactly it and
+// runs fine on the interpreter.
+//
+// THE FIX is to notice the self-call and dispatch into the route table IN PROCESS, never touching
+// a socket. That is not a new mechanism: `browserpatch.mjs` already serves the browser target this
+// way (`_spaRouteResponse` walks `_routes`, matches with `_matchPath`, builds a Request and calls
+// the handler). Running the handler here keeps it on the main thread — which is where it would
+// have run anyway — so closures over mutable program state keep working, and the client stays
+// synchronous, so no caller changes.
+function _loopbackTarget(resolvedUrl) {
+  if (_activeServerPort == null) return null;
+  let u;
+  try { u = new URL(resolvedUrl); } catch (_e) { return null; }
+  const host = u.hostname;
+  if (host !== 'localhost' && host !== '127.0.0.1' && host !== '::1' && host !== '[::1]') return null;
+  const port = u.port ? parseInt(u.port, 10) : (u.protocol === 'https:' ? 443 : 80);
+  if (port !== _activeServerPort) return null;
+  return u.pathname + (u.search || '');
+}
+
+let _loopbackDepth = 0;
+
+function _loopbackFetch(method, pathAndQuery, body, headers) {
+  // A handler that calls its own server re-enters here. One level is legitimate (a route
+  // delegating to another route); unbounded is a stack overflow with no useful message.
+  if (_loopbackDepth >= 8) {
+    throw new Error('ssc: http self-call nested more than 8 deep (' + method + ' ' + pathAndQuery +
+      ') — a route handler is calling its own server in a cycle');
+  }
+  const segs = pathAndQuery.split('?')[0].split('/').filter(s => s.length > 0);
+  const bodyBuf = Buffer.from(body == null ? '' : String(body), 'utf8');
+  // `_mkRequest` reads only `.headers` and `.url` off the node request, so a literal stands in
+  // for it exactly. Anything it does NOT read (sockets, timing) is absent from a self-call by
+  // construction rather than by omission.
+  const hdrObj = {};
+  if (headers) for (const [k, v] of Object.entries(headers)) hdrObj[String(k).toLowerCase()] = String(v);
+  if (bodyBuf.length > 0 && !hdrObj['content-length']) hdrObj['content-length'] = String(bodyBuf.length);
+  const fakeReq = { method, url: pathAndQuery, headers: hdrObj };
+  for (const r of _routes) {
+    if (r.method !== method) continue;
+    const params = _matchPath(r.pattern, segs);
+    if (params == null) continue;
+    const request = _mkRequest(fakeReq, params, bodyBuf);
+    _loopbackDepth++;
+    let result;
+    try {
+      result = r.handler(request);
+    } catch (e) {
+      if (e && e._restValidation) {
+        return { _type: 'Response', status: 400, body: String(e.message || e), headers: new Map() };
+      }
+      throw e;
+    } finally { _loopbackDepth--; }
+    // The socket path awaits the handler and its middleware. Here there is nothing to await ON:
+    // the caller is a synchronous ssc expression. Say so precisely instead of returning a
+    // half-built Response or deadlocking again.
+    if (result && typeof result.then === 'function') {
+      throw new Error('ssc: http self-call to an ASYNCHRONOUS route (' + method + ' ' + pathAndQuery +
+        ') cannot be served in-process — the caller is synchronous. Call it from another process, ' +
+        'or make the route handler synchronous.');
+    }
+    const hdrs = (result && _isMap(result.headers)) ? result.headers : new Map();
+    if (!hdrs.has('Content-Type')) hdrs.set('Content-Type', 'text/plain; charset=utf-8');
+    return { _type: 'Response', status: (result && result.status) ?? 200,
+             body: (result && result.body) ?? '', headers: hdrs };
+  }
+  // No route matched. The real server would 404 here, so this does too — a self-call must not be
+  // MORE forgiving than the socket it replaces, or a test passes in-process and fails deployed.
+  return { _type: 'Response', status: 404, body: 'Not Found: ' + pathAndQuery.split('?')[0],
+           headers: new Map([['Content-Type', 'text/plain; charset=utf-8']]) };
+}
+
 function _httpSyncFetch(method, url, body, headers) {
   const effective = _httpResolveUrl(url);
+  const _self = _loopbackTarget(effective);
+  if (_self !== null) return _loopbackFetch(method, _self, body, headers);
   const timeoutMs = _httpTimeoutMs;
   const { Worker, MessageChannel, receiveMessageOnPort } = require('worker_threads');
   const sab  = new SharedArrayBuffer(4);
@@ -610,7 +694,13 @@ function _httpSyncFetch(method, url, body, headers) {
     '  Atomics.store(flag, 0, 1);',
     '  Atomics.notify(flag, 0);',
     '})();',
-  ].join('\\n');
+  // NOT '\\n'. This text is the Worker's SOURCE, and it lives in a real .mjs file: '\\n' is a
+  // literal backslash-n, so the whole program collapses onto one line with stray backslashes and
+  // never parses. The Worker then dies before it can set the Atomics flag, `Atomics.wait` sits out
+  // the full timeout, and every outbound request returns `status 0 / "timeout"` — a plain network
+  // failure to anyone reading it. `async.mjs` and `jwt-auth.mjs` build their workers the same way
+  // and correctly use '\n'.
+  ].join('\n');
   const worker = new Worker(workerSrc, {
     eval: true,
     workerData: { sab, port: port2, url: effective, method, headers: headers || {}, body: body || null, timeoutMs, maxBody: _httpMaxBody() },
@@ -716,7 +806,13 @@ function _httpStreamFetch(method, url, body, headers, handler) {
     '  Atomics.store(flag, 0, 1);',
     '  Atomics.notify(flag, 0);',
     '})();',
-  ].join('\\n');
+  // NOT '\\n'. This text is the Worker's SOURCE, and it lives in a real .mjs file: '\\n' is a
+  // literal backslash-n, so the whole program collapses onto one line with stray backslashes and
+  // never parses. The Worker then dies before it can set the Atomics flag, `Atomics.wait` sits out
+  // the full timeout, and every outbound request returns `status 0 / "timeout"` — a plain network
+  // failure to anyone reading it. `async.mjs` and `jwt-auth.mjs` build their workers the same way
+  // and correctly use '\n'.
+  ].join('\n');
   const worker = new Worker(workerSrc, {
     eval: true,
     workerData: { sab, port: port2, url: effective, method, headers, body: body || null, timeoutMs, maxBody: _httpMaxBody() },
@@ -943,9 +1039,14 @@ function _ssc_http_serve(port, _tlsCfg) {
   });
   server.listen(port, () => console.log(`Listening on ${_useTls ? 'https' : 'http'}://localhost:${port}/  (backend=node${_ssc_frontend_name ? ', frontend=' + _ssc_frontend_name : ''})`));
   _activeServer = server;
+  _activeServerPort = port;
 }
 
 let _activeServer = null;
+// The port `_activeServer` listens on. Kept next to it because a self-call cannot be
+// recognised from the server object alone before `listening` fires, and the loopback
+// short-circuit below has to answer that question SYNCHRONOUSLY.
+let _activeServerPort = null;
 
 function serve(port, _tlsCfg) {
   return _ssc_http_serve(port, _tlsCfg);
@@ -974,7 +1075,7 @@ function serveAsync(port, _tlsCfg) {
 if (typeof globalThis !== 'undefined') globalThis.serveAsync = serveAsync;
 
 function stop() {
-  if (_activeServer) { _activeServer.close(); _activeServer = null; }
+  if (_activeServer) { _activeServer.close(); _activeServer = null; _activeServerPort = null; }
 }
 
 // ── Body size limit ───────────────────────────────────────────────────────────
