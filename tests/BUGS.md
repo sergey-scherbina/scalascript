@@ -8,13 +8,44 @@ grepping for status.
 Newest first.
 
 ## smoke-suite-over-its-own-budget — every check green, the suite red, main red for everyone
-<!-- status: fixed
+<!-- status: open
      lane: apparatus
      area: build
-     fixed-in: 8b0ee9bb3
+     fixed-in: -
      gate: scripts/smoke-ci -->
 
-**FIXED 2026-08-03 — verified on CI, which is the only place this could be verified.**
+**REOPENED the same day. Closing this was premature and the reason is worth more than the fix
+was.** Four runs, 2026-08-03:
+
+| run | total | verdict | what changed since the previous row |
+|---|---:|---|---|
+| 30798878836 | 437.9 s | RED | — |
+| 30799937285 | **355.8 s** | green | `bench-seed-type` (45.4 s) moved to tier 2 |
+| 30839675049 | 418.6 s | green | +`std-import-lanes` 17.7 s, +`build-smoke` 4.4 s, +`route-handler-shapes` 45.9 s |
+| 30840744973 | **425.6 s** | RED | `std-import-lanes` trimmed 17.7 s → 10.9 s |
+
+**Read the last two rows together: the suite got 7 s SLOWER across a change that only removed
+work.** That is the finding. Runner variance here is ±14 s, so a cap with less than ~20 s of
+headroom flaps regardless of what is in the suite — and 420 s for 60 checks does not have 20 s of
+headroom. Every "fix" that shaves ten seconds off the newest arrival is inside the noise.
+
+**What was done anyway, because main was red:** `std-import-lanes` and `build-smoke` — the two
+newest checks, both mine, both added that morning — moved to tier 2, which is also per-push.
+Rule applied: *when a shared budget is exhausted, the additions that arrived last leave first.* It
+is the only rule an author can apply to their own work without a negotiation, which is what made it
+possible to act at all while everyone's pushes were failing. It buys ~15 s. It is not a fix.
+
+**What this actually needs, and it is not another trim.** The five most expensive checks are
+`route-handler-shapes` 45.9 s, `render-lane-builtins` 42.0 s, `corpus-lane-breadth` 34.1 s,
+`launchers-not-dead` 30.9 s, `no-test-reaches-an-exiting-cli` 27.9 s — 180.8 s of 425.6 s between
+them, each with an owner. Either several move to tier 2, or the suite's design point is restated
+honestly: it was built for 27 checks and ~157 s, it now has 60. Raising `SSC_SMOKE_BUDGET` is still
+refused for the reason this file has always given, but "the cap is correct and the suite is too
+big" is a claim someone has to actually decide, rather than each of us shaving our own newest gate.
+
+---
+
+**The first close, kept because its measurement is still valid:**
 
 | run | sha | checks | total |
 |---|---|---|---:|

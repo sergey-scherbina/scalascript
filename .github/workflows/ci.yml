@@ -211,6 +211,20 @@ jobs:
       - name: Verify benchmark wrapper seed typing
         run: tests/e2e/bench-seed-type-gate.sh
 
+      # Both moved off the smoke suite 2026-08-03, the day they were added, when the suite went over
+      # its 420 s budget for the second time (425.6 s, all 60 checks green). This tier is also
+      # per-push, so the per-commit answer is unchanged.
+      #
+      # `std-import-lanes` pins a build-breaking property: `compile-jvm` refused a `std/` import that
+      # `run --v1` and `run-js` accepted, because the JVM lane and the std-root discovery disagreed
+      # about where the standard library is. Three cells — jvm in-tree, jvm out-of-tree, int as the
+      # control. `build-smoke` checks `ssc build` produces a page byte-identical to `ssc render`.
+      - name: Verify std imports resolve on every lane
+        run: tests/e2e/std-import-lanes-gate.sh
+
+      - name: Verify ssc build matches ssc render
+        run: tests/e2e/build-smoke.sh
+
       - name: Verify claim mutex (concurrent claims collide)
         run: tests/coord/claim-mutex-conflict.sh
 

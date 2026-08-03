@@ -254,6 +254,20 @@ val suite = List(
   Check("scripts", "claim-hooks-refuse-overlap", "tests/coord/claim-hooks.sh", List(), 180000),
   Check("scripts", "board-generated", "tests/coord/board-generated.sh", List(), 180000),
   Check("scripts", "bench-wrapper-routing", "tests/e2e/bench-wrapper-gate.sh", List(), 120000),
+  // `std-import-lanes` and `build-smoke` USED TO BE HERE (added 2026-08-03, moved the same day).
+  // Both now run in tier 2 of ci.yml, which is also per-push, so the per-commit answer is unchanged.
+  //
+  // WHY THEY WENT AND NOT SOMEONE ELSE'S: the suite went over budget twice in one day — 437.9 s,
+  // then 425.6 s after a first round of cuts — and these two were the NEWEST things in it. When a
+  // shared budget is exhausted, the additions that arrived last leave first; that rule can be
+  // applied by their author without a negotiation, which is the only reason anything moved at all
+  // while main was red.
+  //
+  // THE REAL NUMBER, so the next person does not repeat the mistake: two consecutive runs of
+  // near-identical content measured 418.6 s and 425.6 s, and the change between them only REMOVED
+  // work. Runner variance here is ±14 s, so a cap with less than ~20 s of headroom flaps no matter
+  // what is in the suite. 420 s is not a lot of room for 58 checks; the next cut has to be
+  // structural, not another 10 s shaved off the newest arrival.
   // One file with one `std/` import, three lanes, two locations. `compile-jvm` refused what
   // `run --v1` and `run-js` accepted, because `AutoResolve` consulted `libPath` (the REPO ROOT,
   // where a dev tree has no `std/`) instead of the discovered std root — and the std root itself
@@ -263,12 +277,10 @@ val suite = List(
   // control that says the fixture is fine. Started at six and was trimmed the same day — at 17.7 s
   // on the runner it was 4% of a budget with 1.4 s of headroom.
   // (BUGS.md compile-jvm-and-std-root-disagree-on-where-std-lives.)
-  Check(".", "std-import-lanes", "tests/e2e/std-import-lanes-gate.sh", List(), 180000),
   // `ssc build <src> <dist>` must produce a page byte-identical to `ssc render` of the same source.
   // Orphaned since `d0665660a` and red until 2026-08-03; it passes now and is ~2 s. It compares two
   // exits from ONE pipeline, so it cannot see a failure that empties both — which is why it now
   // also asserts the page contains a `<button>` before diffing. (tests/BUGS.md orphaned-e2e-gates-52.)
-  Check(".", "build-smoke", "tests/e2e/build-smoke.sh", List(), 120000),
   // A program calling its OWN server on the js lane. Two defects at once: the client blocks the
   // main thread in `Atomics.wait` while `serveAsync`'s listener needs that same thread, and the
   // worker source was joined with a literal backslash-n so it never parsed and EVERY outbound
