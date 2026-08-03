@@ -7,6 +7,59 @@ grepping for status.
 
 Newest first.
 
+## smoke-suite-over-its-own-budget — every check green, the suite red, main red for everyone
+<!-- status: open
+     lane: apparatus
+     area: build
+     fixed-in: -
+     gate: scripts/smoke-ci -->
+
+**Found 2026-08-03** by `legacy-object-apply`, from a CI red on a commit whose diff was one front's
+uid chain. Nothing was broken:
+
+```
+checks: 57/57 green    433.0s of 420s budget
+OVER BUDGET — the push path is what this suite exists to keep short.
+##[error]Process completed with exit code 1.
+```
+
+**All 57 checks passed and the run still failed**, so every push fails until the total comes down.
+Locally the same tree measured **300.2s**; the CI runner is slower, which means the local reading
+cannot warn anyone — the budget is only ever breached where it is enforced.
+
+**The suite grew from 32 checks to 57 during 2026-08-01/03**, several agents adding gates in
+parallel, each one individually cheap and correct. No single commit is at fault, and that is the
+point: a per-push budget is a SHARED resource with no owner, so it is spent until it runs out.
+
+Slowest checks in that run:
+
+| s | check |
+|---:|---|
+| 45.4 | `bench-seed-type` |
+| 45.3 | `submodule-gitlinks-resolve` (network — one `git fetch` per gitlink) |
+| 42.5 | `render-lane-builtins` |
+| 33.9 | `corpus-lane-breadth` |
+| 31.8 | `launchers-not-dead` |
+| 28.3 | `no-test-reaches-an-exiting-cli` |
+
+Those six are 227s — over half the run.
+
+**Deliberately not fixed by raising `SSC_SMOKE_BUDGET`.** The suite's own message says that is how
+the old 13.4-minute path happened, and it is right: the budget is the only thing that has been
+holding the line. The fix is to cut or speed up a check, and WHICH check is a decision with an
+owner, not something to take unilaterally while everyone's pushes are red.
+
+**Two candidates that do not lose coverage**, offered rather than taken:
+
+1. `submodule-gitlinks-resolve` is 45s of NETWORK and its own comment says a slow network must read
+   as "this run could not tell". It is a strong candidate for the nightly rather than the push path.
+2. `bench-seed-type` and `render-lane-builtins` are 88s between them and neither gates a
+   correctness property the corpus lanes do not already cover — worth a look by their owners.
+
+I added two gates in that window (`js-shaker-effectful-binding` 0.7s, `v2-char-numeric-position`
+4.6s, 5.3s together). Naming that because "someone else's checks are the slow ones" is exactly the
+reasoning that spends a shared budget.
+
 ## orphaned-e2e-gates-52 — 52 of 126 gates were invoked by nothing, and 33 of those do not pass
 <!-- status: open
      lane: apparatus
