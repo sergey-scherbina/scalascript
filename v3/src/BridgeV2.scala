@@ -263,7 +263,18 @@ object BridgeV2:
     case Instr.ArrLen(d, a) =>
       write(d, "(prim __method__ " + lit("(str \"length\")") + " " + read(a, sh) + ")", sh)
 
+    // Cells, exactly as the oracle spells them: a global cell is a top-level `def` holding
+    // `(prim cell.new …)`, read with `cell.get` and written with `cell.set`.
+    case Instr.GlobGet(d, g) =>
+      write(d, "(prim cell.get (global " + cellName(cx.m, g) + "))", sh)
+    case Instr.GlobSet(g, a) =>
+      "(prim cell.set (global " + cellName(cx.m, g) + ") " + read(a, sh) + ")"
+
     case other => throw Unsupported(Text.opcode(other))
+
+  /** `__cell` rather than the bare name: the cell is a DEF holding a mutable box, and a program may
+    * also have a function of the same name. Colliding them would be silent. */
+  private def cellName(m: Module, g: Int): String = m.globals(g).name + "__cell"
 
   private def args(as: List[Int], sh: Int): String =
     if as.isEmpty then "" else " " + as.map(r => read(r, sh)).mkString(" ")
@@ -298,6 +309,10 @@ object BridgeV2:
   /** The Core IR program text v2's Reader accepts. Verify BEFORE calling this — translating an
     * unverified module would hand v2 something no one has checked (invariant I-4). */
   def program(m: Module): String =
-    val defs = m.funcs.map(f => func(m, f)).mkString(" ")
+    // Every global is declared as a cell BEFORE any function, because a `def` may read one the
+    // entry has not initialised yet — which is legal, and is why a cell starts as `unit`.
+    val cells = m.globals.indices.toList
+      .map(g => "(def " + cellName(m, g) + " (prim cell.new (lit unit)))").mkString(" ")
+    val defs = (if cells.isEmpty then "" else cells + " ") + m.funcs.map(f => func(m, f)).mkString(" ")
     val entryName = m.funcs(m.entry).name
     "(program (defs " + defs + ") (entry (app (global " + entryName + "))))"

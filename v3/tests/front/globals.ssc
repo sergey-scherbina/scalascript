@@ -1,0 +1,14 @@
+val base = 10
+var counter = 0
+
+def bump(): Int =
+  counter = counter + 1
+  counter
+
+def total(): Int = base + counter
+
+println(total())
+bump()
+bump()
+println(counter)
+println(total())

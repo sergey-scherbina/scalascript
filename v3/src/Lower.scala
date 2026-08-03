@@ -33,6 +33,7 @@ object Lower:
       prims: List[String],
       types: List[TypeDef],
       lifted: List[Func],
+      globals: List[String],
   ):
     def fresh: (Int, St) =
       val r = next
@@ -40,6 +41,7 @@ object Lower:
     def bind(n: String, r: Int): St = copy(env = (n, r) :: env)
     def lookup(n: String): Option[Int] =
       env.find((k, _) => k == n).map((_, v) => v)
+    def globalIdx(n: String): Int = globals.indexOf(n)
     def constIdx(l: Lit): (Int, St) =
       val i = consts.indexOf(l)
       if i >= 0 then (i, this) else (consts.length, copy(consts = consts :+ l))
@@ -124,6 +126,12 @@ object Lower:
     case Expr.Name(n, p) =>
       st0.lookup(n) match
         case Some(r) => (Nil, r, st0)
+        case None if st0.globalIdx(n) >= 0 =>
+          // A TOP-LEVEL `val`/`var` is a module global, not a register of the entry function. That
+          // is what makes it visible inside a `def` — measured: 60 corpus files declare a top-level
+          // val or var alongside a def, and every one of them was an "unknown name" before this.
+          val (d, st1) = st0.fresh
+          (List(Instr.GlobGet(d, st0.globalIdx(n))), d, st1)
         case None =>
           // A nullary constructor is spelled as a bare name — `Nil`, `None`, and every `case Red`
           // of an enum — which is why this arm exists rather than the lookup simply failing.
@@ -182,6 +190,10 @@ object Lower:
       val (d, st2) = st1.fresh
       (xi :+ Instr.Un(UnOp.Not, NumKind.Dyn, d, xr), d, st2)
 
+    case Expr.Assign(n, v, p) if st0.lookup(n).isEmpty && st0.globalIdx(n) >= 0 =>
+      val (vi, vr, st1) = lower(v, fns, classes, st0)
+      (vi :+ Instr.GlobSet(st0.globalIdx(n), vr), vr, st1)
+
     case Expr.Assign(n, v, p) =>
       st0.lookup(n) match
         case None => throw LowerFail(p, "assignment to unknown name '" + n + "'")
@@ -222,8 +234,10 @@ object Lower:
         s match
           case Stmt.Val(n, v, _, _) =>
             val (vi, vr, st1) = lower(v, fns, classes, st)
-            // A binding gets its OWN register rather than aliasing the value's, so a later
-            // assignment to it cannot write through to a temporary something else still holds.
+            // Always a LOCAL here. Whether a `val` initialises a module global is decided in
+            // `program`, where the top level is actually known — deciding it here meant a local
+            // `val` that happened to share a name with a top-level one wrote the GLOBAL instead of
+            // shadowing it, and nothing in the program said so.
             val (slot, st2) = st1.fresh
             acc = acc ++ vi :+ Instr.Move(slot, vr)
             st = st2.bind(n, slot)
@@ -323,7 +337,7 @@ object Lower:
       val inner0 = St(free.length + ps.length, free.length + ps.length,
                       (free.zipWithIndex.map((n, i) => (n, i)) ++
                        pnames.zipWithIndex.map((n, i) => (n, free.length + i))).reverse,
-                      st0.consts, st0.prims, st0.types, st0.lifted)
+                      st0.consts, st0.prims, st0.types, st0.lifted, st0.globals)
       val (bi, br, inner) = lower(body, fns, classes, inner0)
       val f = Func("__lam" + idx, free.length + ps.length,
                    if inner.max > 0 then inner.max else 1, bi :+ Instr.Ret(br))
@@ -375,6 +389,14 @@ object Lower:
         val (pi, st1) = st.primIdx(primName)
         val (d, st2) = st1.fresh
         (acc :+ Instr.Prim(d, pi, args), d, st2)
+      else if st.lookup(fn).isEmpty && st.globalIdx(fn) >= 0 then
+        // A top-level `val f = (x) => …` is a GLOBAL holding a closure, so calling it is a read
+        // followed by an indirect call. Without this arm it reported `f` as an unknown function
+        // while the closure sat in a cell — which is what the gate caught the moment `val` moved
+        // out of the entry's registers.
+        val (fr, st1) = st.fresh
+        val (d, st2) = st1.fresh
+        (acc ++ List(Instr.GlobGet(fr, st.globalIdx(fn)), Instr.CallV(d, fr, args)), d, st2)
       else if st.lookup(fn).isDefined then
         // A name bound in scope that is being CALLED is a closure value, not a top-level function.
         // `val f = (x) => x + 1; f(2)` is ordinary, and without this arm it reported the name as an
@@ -504,7 +526,14 @@ object Lower:
     // Auto-output: the LAST top-level expression of each block becomes `__autoOutput__(v)`, which
     // prints only a non-Unit value — the runtime decides, so the front does not need a type checker
     // to know whether a `println(…)` tail should print again.
-    val marked = markAutoOutput(p.topLevel, blockEnds)
+    // A top-level `val n = v` IS an assignment to the module cell. Rewriting it here rather than
+    // special-casing it in the lowering keeps "am I at the top level?" a question with one answer,
+    // asked in the one place that can answer it.
+    val hoisted = p.topLevel.map { st => st match
+      case Stmt.Val(n, v, _, q) => Stmt.Exp(Expr.Assign(n, v, q))
+      case other                => other
+    }
+    val marked = markAutoOutput(hoisted, blockEnds)
     val entryBody =
       Expr.Block(marked, userMain.map(_ => Expr.Call("main", Nil, Pos.none)), Pos.none)
     val entryDef = Def(entryName, Nil, entryBody, Pos.none)
@@ -519,10 +548,16 @@ object Lower:
     var prims: List[String] = Nil
     var types: List[TypeDef] = Nil
     var lifted: List[Func] = Nil
+    // Collected BEFORE anything is lowered: a `def` may reference a top-level `val` declared
+    // further down the file, and the other lanes allow that.
+    val globalNames = p.topLevel.flatMap { st => st match
+      case Stmt.Val(n, _, _, _) => List(n)
+      case _                    => Nil
+    }.distinct
     var funcs: List[Func] = Nil
     allDefs.foreach { d =>
       val params = d.params.zipWithIndex.map((pa, i) => (pa.name, i))
-      val st0 = St(d.params.length, d.params.length, params.reverse, consts, prims, types, lifted)
+      val st0 = St(d.params.length, d.params.length, params.reverse, consts, prims, types, lifted, globalNames)
       val (body, r, st) = lower(d.body, names, p.classes, st0)
       consts = st.consts
       prims = st.prims
@@ -535,4 +570,4 @@ object Lower:
     // The tail-call pass runs HERE rather than inside the lowering: it is a rewrite of finished IR,
     // and keeping it separate is what lets it be tested, skipped or reordered without touching the
     // front. v3/src/TailCalls.scala.
-    TailCalls(Module(consts, types, Nil, prims, funcs.reverse ++ lifted, entry))
+    TailCalls(Module(consts, types, globalNames.map(n => GlobalDef(n)), prims, funcs.reverse ++ lifted, entry))

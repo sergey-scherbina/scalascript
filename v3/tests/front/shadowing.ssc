@@ -1,0 +1,6 @@
+val x = 1
+def f(): Int =
+  val x = 99
+  x
+println(f())
+println(x)

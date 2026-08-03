@@ -38,6 +38,11 @@ enum Signal:
 
 object Exec:
 
+  // Module globals. A module-scope `var` is genuinely mutable state, so it lives in one array for
+  // the run rather than being threaded through every call — the same decision the register frame
+  // makes, one level up.
+  private var globals: Array[Value] = new Array[Value](0)
+
   def show(v: Value): String = v match
     case Value.VUnit      => "()"
     case Value.VBool(b)   => if b then "true" else "false"
@@ -60,6 +65,13 @@ object Exec:
     // Invariant I-4: nothing executes unverified, and the executor is not an exception to it just
     // because it happens to be in the same process as the verifier.
     if e.isDefined then throw ExecError("refusing to run invalid IR: " + e.get.render)
+    globals = new Array[Value](m.globals.length)
+    var i = 0
+    while i < m.globals.length do
+      // `unit`, not a zero: a cell read before its initialiser runs is a real possibility, and
+      // `unit` is what the other lane starts it as. Two lanes, one starting value.
+      globals(i) = Value.VUnit
+      i = i + 1
     callFunc(m, m.entry, Nil)
 
   /** The trampoline. A `TailCall` returns here and re-enters the loop with a FRESH argument list
@@ -204,8 +216,8 @@ object Exec:
         case Value.VArr(xs) => regs(d) = Value.VInt(xs.length.toLong); Signal.Done
         case v              => throw ExecError("array length of " + show(v))
 
-    case Instr.GlobGet(_, _) | Instr.GlobSet(_, _) =>
-      throw ExecError("globals are not implemented in the executor yet")
+    case Instr.GlobGet(d, g) => regs(d) = globals(g); Signal.Done
+    case Instr.GlobSet(g, a) => globals(g) = regs(a); Signal.Done
     case Instr.Perform(_, _, _) | Instr.Handle(_, _, _) | Instr.Resume(_, _, _) =>
       throw ExecError("effects are not implemented in the executor yet")
     // The executor's own guard. `ExecError` is the only thing thrown by this lane, so catching it
