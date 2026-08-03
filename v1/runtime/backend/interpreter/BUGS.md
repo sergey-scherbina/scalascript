@@ -817,8 +817,18 @@ wrong.
      fixed-in: de5760462
      gate: tests/conformance/object-apply.ssc -->
 
-**FIXED on the DEFAULT front 2026-08-02** by `v2-object-apply`; the `SSC_FRONT=legacy` fallback is
-NOT fixed and the measurement is below. `lane:` was `int` and is corrected to `native` — int is the
+**FIXED on the DEFAULT front 2026-08-02** by `v2-object-apply`, and on the **legacy fallback front
+2026-08-03** by `legacy-object-apply` — every lane and both fronts now agree.
+
+The legacy half needed a registry the file did not have. `objectVarFields` keys `var` members by
+object; there was no equivalent for methods, so a flat `objectApplyCell` of "objects that declare an
+`apply`" was added beside it — the question is only *does this object have one*, never *which*. The
+branch goes FIRST in `resolveE`'s uid chain, ahead of `Some`/`Cons`/`List`/`Set`: those are builtin
+names and this one is a user declaration.
+
+Why it was worth finishing rather than leaving to the default front: the legacy front is what
+compiles a file whenever F declines it for an UNRELATED reason, so a half-fix makes the answer
+depend on which front happened to accept the program. `lane:` was `int` and is corrected to `native` — int is the
 lane that WORKS here.
 
 **`O.apply(7)` already worked, and that was the diagnosis.** The member is emitted as `O_apply`;
@@ -833,7 +843,7 @@ function value.
     int                 user-apply:7      user-apply:7
     jvm                 user-apply:7      user-apply:7
     v2 / F (default)    user-apply:7      user-apply:7   <- fixed here
-    v2 / legacy         unbound global: O                <- still open
+    v2 / legacy         user-apply:7      user-apply:7   <- fixed 2026-08-03
     js                  not callable                     <- different cause, own lane
 
 A case class still constructs — `objReg` holds `object` declarations only — and the gate carries

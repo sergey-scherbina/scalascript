@@ -31,7 +31,10 @@ reason — the IIFE returned a RECORD, so `O.apply(7)` (a property read) worked 
 Fixed by returning the `apply` function with the members attached, so both spellings hit the same
 code (`js-object-apply-not-callable`).
 
-**The `SSC_FRONT=legacy` fallback front is still unfixed**; the v2 entry carries that measurement.
+The `SSC_FRONT=legacy` fallback front was the last hole and is **fixed too** — int, jvm, js and BOTH
+v2 fronts now answer identically. That matters beyond tidiness: a legacy-front answer is what a
+program gets whenever F declines it for an unrelated reason, so leaving it would have made the
+outcome depend on which front happened to accept the file.
 
 ```scalascript
 object O:

@@ -427,6 +427,43 @@ def ownerVarNames = (stmts) =>
 -- EXTERNAL read `O.f` of an object's mutable field resolves to `cell.get(O_f__cell)`
 -- (internal reads already route via isActiveOwnerVar). Objects are module-level
 -- singletons — their `var` fields are like top-level vars and are NOT --mutable-gated.
+-- Objects that declare an `apply` member. `O(7)` is plain Scala for `O.apply(7)`, and the applied
+-- BARE uid fell through this file's uid chain to the unknown-uid path -> `unbound global: O`, while
+-- the QUALIFIED `O.apply(7)` already resolved to the emitted `O_apply`. One flat list is enough:
+-- the question is only "does this object have an apply", never "which one".
+-- v2/BUGS.md `v2-object-apply-unbound`.
+def objectApplyCell = #cell.new(Nil)
+def ownerHasApply = (stmts) =>
+  match stmts {
+    case Nil => false
+    case Cons(s, rest) =>
+      match s {
+        case Pair(tag, data) =>
+          if #seq(tag, "def") then
+            match data { case Pair(name, body) => if #seq(name, "apply") then true else ownerHasApply(rest) }
+          else ownerHasApply(rest)
+      }
+  }
+def collectObjectApplies = (stmts) =>
+  match stmts {
+    case Nil => Nil
+    case Cons(s, rest) =>
+      match s {
+        case Pair(tag, data) =>
+          if #seq(tag, "object") then
+            match data { case Pair(oname, ostmts) =>
+              if ownerHasApply(ostmts) then Cons(oname, collectObjectApplies(rest)) else collectObjectApplies(rest) }
+          else collectObjectApplies(rest)
+      }
+  }
+def objectHasApply = (oname) =>
+  let rec go = (xs) =>
+    match xs {
+      case Nil => false
+      case Cons(h, t) => if #seq(h, oname) then true else go(t)
+    } in
+  go(#cell.get(objectApplyCell))
+
 def objectVarsCell = #cell.new(Nil)
 def collectObjectVars = (stmts) =>
   match stmts {
@@ -2239,7 +2276,13 @@ def resolveE = (expr) =>
                       match fn {
               case Pair(ftag, fdata) =>
                 if #seq(ftag, "uid") then
-                  if #seq(fdata, "Some") then Pair("ctorap", Pair("Some", rargs))
+                  -- `O(7)` where `object O { def apply(x) }` — checked FIRST because it is a user
+                  -- declaration and everything below is a builtin name. The qualified `O.apply(7)`
+                  -- already resolved to the emitted `O_apply`; only the APPLIED BARE uid fell
+                  -- through to the unknown-uid path and became `unbound global: O`.
+                  -- v2/BUGS.md `v2-object-apply-unbound`.
+                  if objectHasApply(fdata) then Pair("app", Pair(Pair("var", #sconcat(fdata, "_apply")), rargs))
+                  else if #seq(fdata, "Some") then Pair("ctorap", Pair("Some", rargs))
                   else if #seq(fdata, "Cons") then Pair("ctorap", Pair("Cons", rargs))
                   else if #seq(fdata, "Left") then Pair("ctorap", Pair("Left", rargs))
                   else if #seq(fdata, "Right") then Pair("ctorap", Pair("Right", rargs))
@@ -5849,6 +5892,7 @@ def lowerProg = (stmts) =>
   -- KC7b: reset known-objects registry (lower-case given instances)
   let _ko = #cell.set(kc7bObjectsCell, collectObjects(stmts)) in
   let _kov = #cell.set(objectVarsCell, collectObjectVars(stmts)) in
+  let _koa = #cell.set(objectApplyCell, collectObjectApplies(stmts)) in
   -- Nested-type registry: `O.Inner(…)`/`O.Singleton` → unqualified hoisted global.
   let _kont = #cell.set(objectNestedTypesCell, collectObjectNestedTypes(stmts)) in
   let _ke = #cell.set(enumCasesCell, collectEnums(stmts)) in
