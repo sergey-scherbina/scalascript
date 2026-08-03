@@ -1,0 +1,11 @@
+slug: legacy-object-apply
+branch: feature/legacy-object-apply
+agent: claude-code
+started: 2026-08-03T08:16:05Z
+heartbeat: 2026-08-03T08:16:05Z
+status: claimed-before-planning
+items: v2-object-apply-unbound-legacy-front
+paths: file:v2/lib/ssc1-lower.ssc0 file:tests/conformance/object-apply.ssc
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
