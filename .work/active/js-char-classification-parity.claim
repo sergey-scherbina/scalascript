@@ -5,7 +5,7 @@ started: 2026-08-04T22:50:24Z
 heartbeat: 2026-08-04T22:50:24Z
 status: claimed-before-planning
 items: char-classification-diverges-from-the-interpreter-on-seven-predicates
-paths: file:v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/core-collections.mjs file:v1/runtime/backend/js/BUGS.md
+paths: file:v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/core-collections.mjs file:v1/runtime/backend/js/BUGS.md file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/DispatchRuntime.scala file:tests/e2e/js-char-classification-parity.sh
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
