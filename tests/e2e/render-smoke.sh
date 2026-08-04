@@ -33,6 +33,13 @@ echo "  headless: $(wc -c < /tmp/render-smoke-headless.html) bytes"
 # Served render
 lsof -ti :$PORT 2>/dev/null | xargs -r kill -9 2>/dev/null
 sleep 1
+# KNOWN GAP, filed: the served half 404s and the diff is therefore the whole page against the string
+# "Not Found" (9 bytes, measured 2026-08-04). `examples/components-demo.ssc` declares its routes in
+# FRONT-MATTER (`routes:`) and never calls `route(...)`, and `bin/ssc` is the NATIVE lane, which
+# honours no route it did not see as an explicit call —
+# `native-lane-ignores-declarative-route-registration` in v2/BUGS.md. The headless half is fine: it
+# goes through ssc-tools and renders 4076 bytes of correct HTML. So this gate is a third witness to
+# that entry rather than a defect of its own, and it goes green when that entry is fixed.
 "$BIN/ssc" "$EXAMPLE" > /tmp/render-smoke-serve.log 2>&1 &
 SERVE_PID=$!
 for i in $(seq 1 30); do

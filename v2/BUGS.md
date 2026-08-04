@@ -7,6 +7,32 @@ grepping for status.
 
 Newest first.
 
+## native-upload-numberformat-on-dash — multipart upload dies with `For input string: "-"`, JVM passes
+
+<!-- status: open
+     lane: native
+     area: plugin
+     fixed-in: -
+     gate: tests/e2e/upload-smoke.sh -->
+
+    [FAIL] INT
+           expected: filename=test_bytes.bin|content-type=application/octet-stream|size=256|first=0|last=255
+           got:      native HTTP handler failed: For input string: "-"
+    [PASS] JVM
+
+Measured 2026-08-04 with `examples/uploads.ssc`. The JVM lane handles the same multipart POST
+correctly, so this is the native path specifically — a `NumberFormatException` from something
+parsing `-` as a number while handling the upload.
+
+**The parse site is NOT identified and this entry does not guess at one.** `Content-Length` is
+read with `toLongOption` and a proper `BadRequest` (`HttpProtocol.scala:150`), so it is not that
+one; the unchecked `.toInt` calls in the native plugin are all on values that came from `IntV`.
+Whoever picks this up should start by catching the exception with a stack trace rather than by
+grepping for `toInt`, which is what I did and it did not find it.
+
+Note the row is labelled INT and is really the NATIVE lane — `bin/ssc` is `StandardMain`. Same
+mislabel a sibling documented across the other server smokes.
+
 ## native-front-has-no-package-namespace — `package: org` binds nothing on the native lane
 
 <!-- status: open

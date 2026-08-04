@@ -7,6 +7,30 @@ grepping for status.
 
 Newest first.
 
+## int-std-ui-demo-undefined-impl — `Undefined: impl` renders nothing, and the gate said "0 markers"
+
+<!-- status: open
+     lane: int
+     area: runtime
+     fixed-in: -
+     gate: tests/e2e/std-ui-forms-smoke.sh -->
+
+    $ bin/ssc-tools render examples/std-ui/demo.ssc
+    Exception in thread "main" scalascript.interpreter.InterpretError: [line 36, col 196] Undefined: impl
+      36 |     countryField + planField + newsletterField,
+
+stdout is EMPTY — the page is not rendered at all.
+
+**It presented as eight content assertions failing, which is why nobody read it.** The gate ran the
+renderer with `2>/dev/null`, so every row reported `(0, want N)` and the run looked like a page that
+came out wrong. "Rendered the wrong markup" and "died before rendering" are different problems and
+were indistinguishable. The gate keeps stderr now and prints it, plus an explicit "stdout was EMPTY"
+line, so the next run names this instead of counting absent markers.
+
+The name `impl` is undefined at a call assembling three form fields; whether that is a std/ui
+surface the interpreter lane never grew or a defect in the demo has NOT been established here, and
+the entry does not guess.
+
 ## int-set-apply-is-not-membership — `Set(1, 2)(2)` says "Not callable" where real Scala says `true`
 
 <!-- status: fixed

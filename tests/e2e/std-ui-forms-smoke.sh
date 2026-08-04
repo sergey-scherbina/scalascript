@@ -28,6 +28,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BIN="$ROOT/bin"
 DEMO="$ROOT/examples/std-ui/demo.ssc"
 PORT=8769
+INT_ERR="${TMPDIR:-/tmp}/std-ui-forms-int.err"
 
 trap 'pkill -9 -f "examples/std-ui/demo\.ssc" 2>/dev/null; lsof -ti :$PORT 2>/dev/null | xargs -r kill -9 2>/dev/null' EXIT
 
@@ -83,8 +84,18 @@ fail=0
 
 # INT via the headless `ssc render` path (avoids the interpreter's
 # WS-aware NIO-proxy startup delay).
-body_int=$("$BIN/ssc-tools" render "$DEMO" 2>/dev/null)
-assert_markers "INT" "$body_int" || fail=1
+# stderr to a FILE, not /dev/null. Discarding it turned a named interpreter error into "0 markers
+# found", so every row failed for a reason the gate refused to print — measured 2026-08-04, the real
+# answer is `InterpretError: [line 36, col 196] Undefined: impl` in examples/std-ui/demo.ssc and
+# stdout is EMPTY. "Rendered the wrong page" and "died before rendering" must not look alike.
+body_int=$("$BIN/ssc-tools" render "$DEMO" 2>"$INT_ERR")
+if ! assert_markers "INT" "$body_int"; then
+  fail=1
+  # The captured error is the whole point of capturing it: without this the rows above say only
+  # "(0, want 2)" and a reader has no idea whether the renderer produced a wrong page or none.
+  [ -s "$INT_ERR" ] && sed 's/^/       INT stderr: /' "$INT_ERR" | head -3
+  [ -z "$body_int" ] && echo "       INT stdout was EMPTY — nothing was rendered at all"
+fi
 
 # JVM / JS via serve+curl when their launchers are available.  Each
 # launcher shells out to `scala-cli`, which currently needs JDK 21 to
