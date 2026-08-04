@@ -1,5 +1,7 @@
 package scalascript.uniml.dialect.scalascript
 
+import scalascript.uniml.UniAlphabet
+
 import scalascript.uniml.*
 
 /** v2.2 spike — a UniML dialect for a growing Scala subset.
@@ -27,6 +29,14 @@ enum Node:
 // ── lexer ────────────────────────────────────────────────────────────────────
 object SpikeLex:
   private val keywords = Set("def", "val", "if", "then", "else", "match", "case", "class", "given", "enum", "extension")
+  /** ScalaScript's identifier classes. Deliberately NOT [[UniAlphabet.isIdStart]]: that admits
+    * `$`, and this lexer needs `$` to stay outside identifiers so string interpolation can see it.
+    * The primitives are shared; the RULE is the dialect's, which is the distinction that keeps a
+    * shared helper from acquiring two callers that need it to disagree. */
+  private def isSpikeIdStart(c: Char): Boolean =
+    UniAlphabet.isAsciiLetter(c) || c == '_' || UniAlphabet.isNonAscii(c)
+  private def isSpikeIdPart(c: Char): Boolean = isSpikeIdStart(c) || UniAlphabet.isDigit(c)
+
   private def isOpChar(c: Char): Boolean = "+-*/%<>=!&|^~:?".indexOf(c.toInt) >= 0 // `?` only forms `???`
 
   // EXACT mirror of ssc1-front's operator lexer (ssc1-front.ssc0:375-445): a per-leading-char dispatch over a
@@ -77,8 +87,7 @@ object SpikeLex:
       // is what matters here, and it is the same 3 chars.
       case '?' => if c1 == '?' && c2 == '?' then ("???", 3) else ("?", 1)
       case _   => (c.toString, 1) // `/`, `%`, `^`, … — ssc1-front's final else: a one-char op
-  private def isHexDigit(c: Char): Boolean =
-    (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+  private def isHexDigit(c: Char): Boolean = UniAlphabet.isHexDigit(c)
   private def hexVal(c: Char): Long =
     if c >= '0' && c <= '9' then (c - '0').toLong
     else if c >= 'a' && c <= 'f' then (c - 'a' + 10).toLong
@@ -106,7 +115,7 @@ object SpikeLex:
         while i < n && (text.charAt(i) == ' ' || text.charAt(i) == '\t' || text.charAt(i) == '\n' || text.charAt(i) == '\r') do
           sb.append(text.charAt(i)); advance(text.charAt(i))
         emit("spike.ws", start, sb.toString, TokenChannel.Trivia)
-      else if c.isDigit then
+      else if UniAlphabet.isDigit(c) then
         // Number lexer — matches ssc1-front (v2/lib/ssc1-front.ssc0:295-338):
         //   • hex 0x/0X → the DECIMAL value string (strip trailing L/l Long suffix)
         //   • decimal: `_` digit-separators stripped from the lexeme; `d.d` or `1e10`/`1.0e100`
@@ -123,25 +132,25 @@ object SpikeLex:
         else
           val sb = new StringBuilder
           // digit run, `_` separators consumed but not kept
-          while i < n && (text.charAt(i).isDigit || text.charAt(i) == '_') do
-            { if text.charAt(i).isDigit then sb.append(text.charAt(i)); advance(text.charAt(i)) }
+          while i < n && (UniAlphabet.isDigit(text.charAt(i)) || text.charAt(i) == '_') do
+            { if UniAlphabet.isDigit(text.charAt(i)) then sb.append(text.charAt(i)); advance(text.charAt(i)) }
           // optional scientific exponent `e`/`E` [`+`/`-`] digits (appended to the lexeme)
           def scanExponent(): Boolean =
             if i < n && (text.charAt(i) == 'e' || text.charAt(i) == 'E') then
               val signLen = if i + 1 < n && (text.charAt(i + 1) == '+' || text.charAt(i + 1) == '-') then 1 else 0
-              if i + 1 + signLen < n && text.charAt(i + 1 + signLen).isDigit then
+              if i + 1 + signLen < n && UniAlphabet.isDigit(text.charAt(i + 1 + signLen)) then
                 sb.append(text.charAt(i)); advance(text.charAt(i))               // `e`/`E`
                 if signLen == 1 then { sb.append(text.charAt(i)); advance(text.charAt(i)) }
-                while i < n && (text.charAt(i).isDigit || text.charAt(i) == '_') do
-                  { if text.charAt(i).isDigit then sb.append(text.charAt(i)); advance(text.charAt(i)) }
+                while i < n && (UniAlphabet.isDigit(text.charAt(i)) || text.charAt(i) == '_') do
+                  { if UniAlphabet.isDigit(text.charAt(i)) then sb.append(text.charAt(i)); advance(text.charAt(i)) }
                 true
               else false
             else false
           // `1.5` is a float; `1.field` (dot NOT followed by a digit) stays int + `.` + selector
-          if i + 1 < n && text.charAt(i) == '.' && text.charAt(i + 1).isDigit then
+          if i + 1 < n && text.charAt(i) == '.' && UniAlphabet.isDigit(text.charAt(i + 1)) then
             sb.append('.'); advance('.')
-            while i < n && (text.charAt(i).isDigit || text.charAt(i) == '_') do
-              { if text.charAt(i).isDigit then sb.append(text.charAt(i)); advance(text.charAt(i)) }
+            while i < n && (UniAlphabet.isDigit(text.charAt(i)) || text.charAt(i) == '_') do
+              { if UniAlphabet.isDigit(text.charAt(i)) then sb.append(text.charAt(i)); advance(text.charAt(i)) }
             scanExponent()
             emit("spike.float", start, text.substring(numStart, i), TokenChannel.Syntax)
           else if scanExponent() then // `1e10` (no decimal point) is still a float
@@ -150,11 +159,11 @@ object SpikeLex:
             if i < n && (text.charAt(i) == 'L' || text.charAt(i) == 'l') then advance(text.charAt(i)) // Long suffix
             val _ = sb // the VALUE is recomputed by SpikeNum.decode from the raw slice
             emit("spike.int", start, text.substring(numStart, i), TokenChannel.Syntax)
-      else if c.isLetter || c == '_' then
+      else if isSpikeIdStart(c) then
         val sb = new StringBuilder
-        while i < n && (text.charAt(i).isLetterOrDigit || text.charAt(i) == '_') do { sb.append(text.charAt(i)); advance(text.charAt(i)) }
+        while i < n && isSpikeIdPart(text.charAt(i)) do { sb.append(text.charAt(i)); advance(text.charAt(i)) }
         val w = sb.toString
-        val idKind = if keywords(w) then "spike.kw" else if w.head.isUpper then "spike.uid" else "spike.id"
+        val idKind = if keywords(w) then "spike.kw" else if UniAlphabet.isTypeNameStart(w.head) then "spike.uid" else "spike.id"
         emit(idKind, start, w, TokenChannel.Syntax)
       else if c == '/' && i + 1 < n && text.charAt(i + 1) == '/' then
         // line comment → trivia (parser skips it via skipTrivia); lossless, text kept in the token
@@ -310,10 +319,9 @@ private[scalascript] object SpikeNum:
       val stripped = lex.filter(_ != '_')
       if stripped.endsWith("L") || stripped.endsWith("l") then stripped.dropRight(1) else stripped
 
-  private def isHex(c: Char): Boolean =
-    c.isDigit || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+  private def isHex(c: Char): Boolean = UniAlphabet.isHexDigit(c)
   private def hex(c: Char): Int =
-    if c.isDigit then c - '0' else if c >= 'a' then c - 'a' + 10 else c - 'A' + 10
+    if UniAlphabet.isDigit(c) then c - '0' else if c >= 'a' then c - 'a' + 10 else c - 'A' + 10
 
   private def charCode(lex: String): Int =
     val body = lex.stripPrefix("'")
@@ -2033,7 +2041,10 @@ object SpikeProject:
   private def escStr(s: String): String = esc(s).replace("\n", "\\n").replace("\t", "\\t")
 
   // ── string interpolation (mirrors ssc1-front interpParts / partsToExpr, KC12) ──────────────────
-  private def isAlphaNum(c: Char): Boolean = c.isLetterOrDigit || c == '_'
+  // Same rule as the lexer's `isSpikeIdPart`, which lives in another object — stated from the
+  // shared primitives rather than reached across, so the two cannot drift apart silently.
+  private def isAlphaNum(c: Char): Boolean =
+    UniAlphabet.isAsciiAlnum(c) || c == '_' || UniAlphabet.isNonAscii(c)
 
   /** skip a nested `"…"` inside a `${…}` body; returns the index just after the closing quote. */
   private def scanNestedStr(s: String, i0: Int): Int =
@@ -2077,7 +2088,7 @@ object SpikeProject:
           flush(i)
           out = out :+ (("expr", raw.substring(i + 2, exprEnd)))
           i = iAfter; litStart = iAfter
-        else if c2.isLetter then // ssc1-front's isAlpha is LETTER-only: `$_foo` is NOT interpolated (a literal `$`)
+        else if UniAlphabet.isAsciiLetter(c2) || UniAlphabet.isNonAscii(c2) then // ssc1-front's isAlpha is LETTER-only: `$_foo` is NOT interpolated (a literal `$`)
           flush(i)
           var endId = i + 1
           while endId < n && isAlphaNum(raw.charAt(endId)) do endId += 1
@@ -2103,7 +2114,7 @@ object SpikeProject:
 
   // ── f-interpolation: printf specs → __fInterpolate__ (mirrors buildFInterp/goFArgs) ────────────
   private def isFmtFlag(c: Char): Boolean = "-#+ 0,(<".indexOf(c.toInt) >= 0
-  private def isDigitC(c: Char): Boolean = c >= '0' && c <= '9'
+  private def isDigitC(c: Char): Boolean = UniAlphabet.isDigit(c)
 
   /** peel a leading printf spec `%[flags][width][.prec]<letter>` off `part`; default `"%s"`. */
   private def splitFFormatPrefix(part: String): (String, String) =
@@ -2114,7 +2125,7 @@ object SpikeProject:
       while i < len && isFmtFlag(part.charAt(i)) do i += 1
       while i < len && isDigitC(part.charAt(i)) do i += 1
       if i < len && part.charAt(i) == '.' then { i += 1; while i < len && isDigitC(part.charAt(i)) do i += 1 }
-      if i < len && part.charAt(i).isLetter then (part.substring(0, i + 1), part.substring(i + 1, len))
+      if i < len && UniAlphabet.isAsciiLetter(part.charAt(i)) then (part.substring(0, i + 1), part.substring(i + 1, len))
       else ("%s", part)
 
   private def fArgExpr(part: (String, String)): String =

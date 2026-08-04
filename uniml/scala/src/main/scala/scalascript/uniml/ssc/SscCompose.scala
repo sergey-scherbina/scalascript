@@ -88,7 +88,7 @@ object SscCompose:
       .collectFirst { case UniEdge(Some("info"), UniNode.Token(t)) => t.lexeme }
       .getOrElse("")
       .trim
-      .takeWhile(!_.isWhitespace)
+      .takeWhile(c => !UniAlphabet.isWhitespace(c))
 
   def parse(source: String, registry: DialectRegistry = builtins): Composed =
     val md = Markdown.parse(SourceInput.fromString(SourceId("ssc:file"), source), MarkdownProfile.ScalaScript)
@@ -118,7 +118,13 @@ object SscCompose:
       var pos = start
       var i = 0
       while i < body.length do
-        val width = Character.charCount(body.codePointAt(i))
+        // A surrogate pair is two chars, anything else is one — the same rule `Unicode` already
+        // applies when it advances a position, and tableless unlike `Character.charCount`.
+        val width =
+          if Unicode.isHighSurrogate(body.charAt(i)) && i + 1 < body.length &&
+            Unicode.isLowSurrogate(body.charAt(i + 1))
+          then 2
+          else 1
         var k = 0
         while k < width do { index(i + k) = pos; k += 1 }
         pos = Unicode.advance(pos, body.substring(i, i + width))

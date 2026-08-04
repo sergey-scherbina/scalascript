@@ -1414,3 +1414,35 @@ immutable `Map` primitive) remains. Design is being worked out with Sergiy. See
           NOT act without Sergiy.
 
 ---
+
+## the breadth probe parses PROSE as ScalaScript, and the headline number includes it
+
+Found while measuring UNIML-SSC3-ALPHABET, and it changes how every breadth number
+in this module should be read.
+
+`SscCompose.parse` treats an untyped fence as ScalaScript — deliberate, and the
+documented rule for a bare `.ssc` (fences optional since 2026-07-09, the file is
+code unless a fence says otherwise). The consequence nobody had looked at: a
+plain ``` block holding a diagram is handed to the ScalaScript lexer.
+
+`v1/runtime/std/mapreduce/shuffle.ssc` lines 30-42 are a protocol sketch —
+`coordinator -> workers: ProcessPartition(...)` with a U+2192 arrow — inside an
+untagged fence. It contributed 18 of the file's diagnostics.
+
+**How it surfaced.** The alphabet change moved diagnostics 319 -> 296 on the same
+tree in the same session, and 11 of the 23 were the arrow: U+2192 is >= U+0080, so
+it went from "unexpected token" to a legal identifier character. Nothing about
+real code improved. The parser merely became permissive enough to swallow a
+diagram, and the headline improved for it.
+
+So `diagnostics=296, clean=94.8%` is measured against a corpus that includes
+markdown prose, and a change that makes the lexer more accepting will always look
+like a breadth win. That is a probe that rewards the wrong thing.
+
+**Not fixed here, and the fix is not obvious.** Skipping untagged fences would
+contradict the fences-optional rule and would stop measuring real code in every
+file that uses bare fences properly. Options worth weighing when someone takes it:
+count tagged and untagged fences as SEPARATE columns so a change cannot hide in
+the mixture; or classify an untagged fence by whether it lexes at all and report
+the two populations. Either way the requirement is that the number stops moving
+for reasons that have nothing to do with the language.

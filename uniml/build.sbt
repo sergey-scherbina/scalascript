@@ -36,6 +36,11 @@ lazy val unimlCross =
     .settings(standaloneTargetSettings)
     .jvmConfigure(_.withId("uniml"))
     .jsConfigure(_.withId("unimlJs"))
+    // `UniAlphabetSweepSpec` compares the classifier against the host's Unicode tables, which only
+    // means something on the lane that HAS them; the same split `unimlYaml` and `unimlMarkdown` use.
+    .jvmSettings(
+      Test / unmanagedSourceDirectories += baseDirectory.value.getParentFile / "src" / "test-jvm" / "scala",
+    )
     .jsSettings(Test / fork := false)
 
 lazy val unimlJsonCross =
