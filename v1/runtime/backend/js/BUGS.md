@@ -7,6 +7,50 @@ grepping for status.
 
 Newest first.
 
+## js-package-import-emits-a-second-self-referential-const — `SyntaxError: Identifier 'org' has already been declared`
+
+<!-- status: open
+     lane: js
+     area: codegen
+     fixed-in: -
+     gate: tests/e2e/package-keyword-smoke.sh -->
+
+Importing a module that declares `package: org.example.ui` emits the namespace correctly and then
+emits a SECOND binding for the same name, which selects the name out of its own namespace:
+
+```js
+const org = (() => { const example = (() => { const ui = (() => { … })(); return { ui }; })(); return { example }; })();
+const org = org.example.ui.org;                                    // <- line 3031
+```
+
+    $ bin/jssc consumer.ssc
+    SyntaxError: Identifier 'org' has already been declared
+
+The module does not load at all — this is a parse-time error, not a wrong answer at runtime.
+
+Ten lines, measured 2026-08-04:
+
+```
+--- cards.ssc                          --- consumer.ssc
+package: org.example.ui                [org](./cards.ssc)
+object Card:                           println(org.example.ui.Card.render("hi"))
+  def render(t: String): String =
+    "ui-card-" + t
+```
+
+**Two faults, and the first line shows the second one is the mistake.** Line 3030 builds the
+package namespace properly, so JsGen knows how to bind `org`. The import binding then treats the
+selected name `org` as a MEMBER of the package (`<pkg-path>.org`) rather than as the package ROOT it
+already emitted. Dropping the second binding is likely the whole fix, but the emitter is not read
+here and the entry does not claim it.
+
+**How it surfaced, which is the part worth keeping.** `tests/e2e/package-keyword-smoke.sh` sent
+stderr to `/dev/null`, so all three lanes reported an identical empty `got:` and the orphan census
+recorded the gate as "empty output". With stderr kept, one run separated three different states: the
+native lane says `unbound global: org` (`native-front-has-no-package-namespace`, v2/BUGS.md), the JVM
+row is the gate invoking a COMPILER and reporting its artifact message as program output, and JS is
+this. Three diagnoses that were one blank.
+
 ## js-collection-companion-empty-is-not-callable — `Set.empty` dies with "Method not found: empty on <function>"
 
 <!-- status: fixed

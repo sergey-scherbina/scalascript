@@ -7,6 +7,62 @@ grepping for status.
 
 Newest first.
 
+## native-front-has-no-package-namespace — `package: org` binds nothing on the native lane
+
+<!-- status: open
+     lane: native
+     area: front
+     fixed-in: -
+     gate: tests/e2e/package-keyword-smoke.sh -->
+
+Ten lines, measured 2026-08-04:
+
+```
+--- cards.ssc                        --- consumer.ssc
+package: org                         [org](./cards.ssc)
+---
+def ui(s: String): String =          def main() =
+  "ui-" + s                            println(org.ui("card-hi"))
+```
+
+    ssc-tools run --v1   ->  ui-card-hi
+    ssc run              ->  ssc: unbound global: org
+
+**Both lanes splice the module's definitions FLAT** — `ui("x")` unqualified works on both, checked
+explicitly, so the models agree about that much. What v1 has in addition is the package as a
+NAMESPACE (`Interpreter.scala:876,910,1643` — `modulePkg` / `exportedPkg` from
+`manifest.flatMap(_.pkg)`), and the native front has no such binding: `package` appears nowhere in
+`v2/src`, and the tower's loader is `sscLoadMod` in `v2/bin/ssc1-run.ssc0:474`, which takes
+`sscDefsOnly(parse(modSrc))` and appends the definitions to the caller's scope. There is no object
+for `org.` to select from, which is why the error is `unbound global` and not `no method ui`.
+
+This entry replaces "package-keyword-smoke gets empty output" in the orphan census. That reading was
+an artefact: the gate hid the error behind `2>/dev/null`.
+
+**Not fixed here, and the reason is a semantic choice rather than difficulty.** A namespace binding
+has to come IN ADDITION to the flat splice, because both lanes rely on the flat names — so the same
+definitions would be reachable under two paths, and for anything holding state that is a decision
+about identity, not a patch. It also lands in `sscLoadMod`, which every import on the native lane
+goes through. Recorded with the reduction so whoever takes it starts from the model question rather
+than from a smoke gate printing nothing.
+**FIXED 2026-08-04.** Three separate causes, as the entry suspected:
+
+- **`--` never lexed.** `lexMinus` in `specs/v2.2-p6.5-fsub.ssc` had branches for `-=` and `->` and
+  none for `--`, so `xs -- ys` split into `-` and a unary minus and evaluated to `xs - (-ys)` —
+  the receiver unchanged. Now token kind 71, precedence 6 (the `++` slot), emitted through
+  `__arith__` by BOTH `emitBin` and `emitBinT` (twin walkers; fixing one is how this front's
+  regressions happen).
+- **`&`/`|` reached `i.and`/`i.or`**, which coerce to Int. The front cannot know the operand type,
+  so the Set meaning is reconstructed in the RUNTIME from the receiver — in both prim tables, the
+  n-ary and the binary fast path, which are separate copies.
+- **`Set(1, 2)(2)` was `app: not a function`** — the same callability hole this entry did not
+  mention, found by running the new gate on both lanes. Fixed here beside its interpreter twin
+  (`int-set-apply-is-not-membership`) rather than in a later commit.
+
+`--` on a non-Set now RAISES `No method '--' on …`, matching the interpreter, instead of falling to
+the arithmetic tail which would have rendered both sides and returned a STRING. Verified that unary
+minus is untouched: `a - -b` is still 8, `-a` still `-5`, on both lanes.
+
 ## native-lane-ignores-declarative-route-registration — routes it did not see as a `route(...)` call do not exist
 <!-- status: open
      lane: native
