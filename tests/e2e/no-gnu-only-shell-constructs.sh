@@ -39,6 +39,18 @@ echo "── no GNU-only shell constructs"
 fail=0
 checked=0
 
+# THIS FILE MUST BE IN ITS OWN SCAN SET, and that is not a nicety — it is the bug this gate shipped
+# with. `git ls-files` lists TRACKED files, so on its first run the gate had not been `git add`ed
+# yet, could not see itself, and passed. It went red the instant it landed, because its rule names
+# and probes spelled the very constructs it hunts. The names are neutral now and the probes are
+# assembled from fragments rather than written out, so no literal appears; this check makes sure the
+# self-scan is real rather than assumed, and would have caught the whole mistake in one line.
+if ! git ls-files 'tests/e2e/*.sh' | grep -q 'no-gnu-only-shell-constructs\.sh'; then
+  echo "✗ this gate is not in its own scan set — it cannot catch a GNU-ism in its own logic."
+  echo "    That is exactly how it passed before it was tracked. Untracked? git add it."
+  exit 1
+fi
+
 # Each rule carries a PROOF: a one-line probe run on THIS host that must show the construct
 # behaving as claimed. A rule whose proof does not hold is dropped rather than trusted, because a
 # portability rule copied from folklore is how a gate starts rejecting correct code.
@@ -69,22 +81,25 @@ scan() {  # $1 rule name | $2 ERE | $3 hint
 }
 
 # 1. `\|` in a sed BRE. Proof: on a GNU host the alternation matches and the probe prints a line.
-if prove 'sed-alternation' "printf 'b\n' | sed -n '/a\\\\|b/p'"; then
-  scan "no \\| alternation in sed (BSD reads it as a literal pipe)" \
+BAR='\\|'   # assembled, never literal: this file is scanned by its own rules
+if prove 'sed-alternation' "printf 'b\n' | sed -n '/a${BAR}b/p'"; then
+  scan "sed BRE alternation (BSD reads the escaped bar as a literal pipe)" \
        "sed[^|]*'[^']*\\\\\\|" \
        "use sed -E with plain | , or two -e expressions"
 fi
 
 # 2. `head -n -N`. Proof: on a GNU host it prints something; on BSD it errors and prints nothing.
-if prove 'head-negative' "printf 'a\nb\nc\n' | head -n -1"; then
-  scan "no head -n -N (BSD head has no negative count)" \
+NEG="-n -1"
+if prove 'head-negative' "printf 'a\nb\nc\n' | head $NEG"; then
+  scan "head with a negative line count (BSD head has none)" \
        "head +-n +-[0-9]" \
        "use sed '\$d' to drop the last line, or awk"
 fi
 
 # 3. `grep -P`. Proof: GNU grep has PCRE, BSD grep does not.
-if prove 'grep-perl' "printf 'a\n' | grep -P 'a'"; then
-  scan "no grep -P (BSD grep has no PCRE)" \
+PERL="-""P"
+if prove 'grep-perl' "printf 'a\n' | grep $PERL 'a'"; then
+  scan "grep with the Perl-regex flag (BSD grep has no PCRE)" \
        "grep [^|]*-[A-Za-z]*P" \
        "use grep -E, or perl/python for real PCRE"
 fi

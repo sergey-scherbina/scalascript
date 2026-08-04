@@ -77,8 +77,8 @@ EOF
 start_server() {
   lsof -ti :"$PORT" 2>/dev/null | xargs -r kill -9 2>/dev/null
   sleep 1
-  ( timeout 40 "$BIN/ssc" run "$WORK/app.ssc" > "$WORK/server.log" 2>&1 & )
-  local deadline=$(( $(date +%s) + 25 ))
+  ( timeout 120 "$BIN/ssc" run "$WORK/app.ssc" > "$WORK/server.log" 2>&1 & )
+  local deadline=$(( $(date +%s) + 60 ))
   while [ "$(date +%s)" -lt "$deadline" ]; do
     [ -n "$(curl -sS -m 3 "http://localhost:$PORT/colon" 2>/dev/null)" ] && return 0
     sleep 1

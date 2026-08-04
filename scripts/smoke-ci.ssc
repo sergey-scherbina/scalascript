@@ -294,7 +294,15 @@ val suite = List(
   // If the digest ever stops noticing a compiler source, the suite runs on the PREVIOUS commit's
   // compiler and reports green about code it never executed — no symptom, better timings, wrong
   // verdict. That makes it a check the push path has to carry itself.
-  Check("tests", "launcher-input-digest", "tests/e2e/launcher-digest-gate.sh", List(), 240000),
+  // 300s, raised from 240s on 2026-08-04. It is not slow by accident: it builds throwaway worktrees
+  // and digests them, and on a dev host running several agents' builds it measured 248s — PASSING,
+  // but past its own cap, so the suite reported a FAILED check where nothing had failed. A per-check
+  // cap that fires on a passing check is the same fault as the suite cap firing on a green run: the
+  // number stops meaning "this grew" and starts meaning "the host was busy".
+  //
+  // Left as a cap rather than removed. It is still the second most expensive check here and the
+  // point of the number is to notice when it grows for a reason that is NOT contention.
+  Check("tests", "launcher-input-digest", "tests/e2e/launcher-digest-gate.sh", List(), 300000),
 
   // ── scripts — the coordination tooling parallel agents depend on being correct, plus the host
   //    RAM guards that stand between parallel agents and another OOM event.

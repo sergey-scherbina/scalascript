@@ -55,9 +55,16 @@ serve($PORT)
 EOF
 
 lsof -ti :"$PORT" 2>/dev/null | xargs -r kill -9 2>/dev/null
-( timeout 30 "$BIN/ssc" run "$WORK/app.ssc" > "$WORK/server.log" 2>&1 & )
+# The boot deadline is 60s and the server's own timeout 120s. Both are CEILINGS: the poll loop
+# leaves the moment the server answers, so on an idle host this costs nothing — measured 4s to
+# listen. They were 22-25s and 30-40s, which is fine alone and wrong inside the suite: under a
+# host running several agents' builds this gate reported `✗ server never listened` at 22.7s and
+# 25.4s while PASSING standalone in 5s. A boot timeout that prints "never listened" reads as a
+# product failure, which is the same fault I diagnosed in six other gates: a deadline sized on an
+# idle host, reported as if it were the defect being hunted.
+( timeout 120 "$BIN/ssc" run "$WORK/app.ssc" > "$WORK/server.log" 2>&1 & )
 
-deadline=$(( $(date +%s) + 22 ))
+deadline=$(( $(date +%s) + 60 ))
 until [ -n "$(curl -sS -m 3 "http://localhost:$PORT/one" 2>/dev/null)" ]; do
   [ "$(date +%s)" -ge "$deadline" ] && { echo "✗ server never listened"; sed 's/^/    /' "$WORK/server.log" | head -5; exit 1; }
   sleep 1
