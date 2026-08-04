@@ -1,7 +1,8 @@
-# generation: 825
+# generation: 826
 #slug	agent	started	items	paths
 ssc3-core	claude-code	2026-08-01T11:18:17Z	SSC3-0 SSC3-1 SSC3-2 SSC3-3 SSC3-4 SSC3-5	v3 file:tests/fixtures/modules.tsv file:tests/conformance/generic-ctor-and-array-alloc.ssc file:tests/conformance/expected/generic-ctor-and-array-alloc.txt file:tests/conformance/corpus-baseline.tsv
 uniml-ssc3-frontend-readiness	claude-code	2026-08-01T15:07:27Z	UNIML-SSC3 — make UniML ready as the ScalaScript parser and AST for language version 3	file:uniml/SPRINT.md file:uniml/BACKLOG.md file:specs/uniml-ssc3-frontend.md file:bench/history.tsv file:uniml/core/src file:uniml/scala/src
 my-two-server-gates-are-too-expensive	claude-code	2026-08-04T10:18:58Z	smoke-suite-over-its-own-budget	file:tests/e2e/route-handler-shapes-gate.sh file:tests/e2e/render-lane-has-the-same-builtins-as-run.sh
 bundle-layout-and-diagnostic	claude-code	2026-08-04T10:20:35Z	bundle-command-resolves-imports-relative-only	file:v1/tools/cli/src/main/scala/scalascript/cli/BundleCommand.scala file:tests/e2e/bundle-smoke.sh file:BUGS.md file:.github/workflows/ci.yml
 v2-emitter-outline	claude-code	2026-08-04T10:21:00Z	E-4-outline-arm-fallback	file:v2/backend-jvm-bytecode/JvmByteGen.scala file:specs/v2-emitter-unboxed-doubles.md
+keyword-import-silent	claude-code	2026-08-04T10:38:33Z	keyword-import-of-a-missing-module-is-a-silent-no-op	file:tests/e2e/keyword-import-missing-module.sh

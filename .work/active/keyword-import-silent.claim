@@ -1,0 +1,11 @@
+slug: keyword-import-silent
+branch: feature/keyword-import-silent
+agent: claude-code
+started: 2026-08-04T10:38:33Z
+heartbeat: 2026-08-04T10:38:33Z
+status: claimed-before-planning
+items: keyword-import-of-a-missing-module-is-a-silent-no-op
+paths: file:tests/e2e/keyword-import-missing-module.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
