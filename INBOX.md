@@ -170,6 +170,97 @@ generically for any key is presumably the same work.
 Acceptance shape, same as the refresh contract you already gate: a deterministic local-HTTP test
 where the fixture returns 401 without a header and 200 with it, and the generated crate reads the
 body only when the source supplied the header signal.
+## ui-fetch-credentials — DESIGN PROPOSAL: outbound client credentials should be a declared binding the target RUNTIME resolves, not a header string built in the view — because emit-time resolution bakes the secret into the terminal binary
+<!-- triage: new
+     reported-by: rozum (github.com/sergey-scherbina/rozum, docs/specs/ucc-meetings-in-tk.md)
+     reported-at: 2026-08-04
+     ssc-version: ec70eb062 (staged bin/, dev build)
+     repro: none
+     kind: feature
+     reporter-suspects: TUI emits the fetch URL via rustStr(info.url) and ssc run --v1 evaluates env() at emit time, so a headers signal built from env() becomes a build-time constant; std.auth is server-side only and has no outbound-credential concept
+     impact: fyi -->
+
+This is a DESIGN PROPOSAL, not a defect — the decision is yours. It is the question behind
+`tui-fetch-headers`, which we filed first and still want on its own terms. Filing them separately on
+purpose: the small fix should not wait for the design, and the design should not be smuggled in as a
+bug fix.
+
+**The mechanism you have, and why it is not the abstraction**
+
+Today the only way to authenticate a `fetchUrlSignal` is `headers: Signal[String]` — a JSON object
+the *view* builds, documented with `{"Authorization":"Bearer …"}`. That is a fine mechanism. As the
+auth story it has a specific danger that is peculiar to this framework, and we walked straight into
+it.
+
+**Emit-time resolution bakes the secret.** On the TUI target `ssc run --v1` executes the program in
+the emitting process, and the fetch URL is emitted as a Rust string literal
+(`load_fetch(signals, "id", "<url>")` from `rustStr(info.url)`). So anything the view derives from
+`env()` is a build-time constant. An app that follows the documented pattern —
+`signal("h", "{\"Authorization\":\"" + env("TOKEN") + "\"}")` — therefore **compiles its token into
+the binary**. On the web the same string lands in the bundle. Right now the framework makes the
+wrong thing the easy thing, and nothing in the emitter is in a position to notice.
+
+We hit the shape of this while writing a real client: our own source has to receive a fully-formed
+`Authorization` value through an env var, because a view cannot compute base64 of `":" + token`.
+That workaround is the smell — the app is doing the runtime's job with the framework's least safe
+tool.
+
+**`std.auth` does not cover it, and should not have to.** It is a server-side toolkit: CSRF,
+sessions, password hashing, JWT sign/verify, WebAuthn verification, OAuth exchange — the vocabulary
+of *being* an auth server. There is no concept of *presenting* a credential on an outbound request.
+So this is a gap next to `std.auth`, not a duplicate of it. (`base64UrlEncode` living there is
+another trap: it is server-side and URL-safe, i.e. the wrong alphabet for a Basic header, but it is
+what an app will reach for.)
+
+**Proposal: declare the credential, let each target's RUNTIME resolve it**
+
+The view says *which* credential, never *what* it is. Sketch, in your extern style:
+
+```scalascript
+// std/ui/primitives.ssc
+type Credential
+extern def noCredential: Credential
+extern def bearerFromEnv(varName: String): Credential
+extern def basicFromEnv(userVar: String, passVar: String): Credential
+extern def sessionCookie(): Credential
+
+extern def fetchUrlSignal(name: String, url: String, refreshTick: Signal[Int],
+                          headers: Signal[String] = emptyHeaders,
+                          credential: Credential = noCredential): Signal[String]
+```
+
+Per-target semantics, which is the point — the same declaration has to mean different things:
+
+- **tui** — resolve at *fetch time* in the generated Rust (`std::env::var`), build the header there
+  (base64 for Basic), set it on the ureq request. The emitter only ever sees the variable NAME, so
+  there is nothing to bake.
+- **web** — `sessionCookie()` → `credentials: 'include'`, which is what a browser should be doing
+  anyway; `bearerFromEnv` → either resolved from a runtime config the page fetches, or **refused at
+  emit with a clear message** ("a browser has no environment — use `sessionCookie()`").
+
+**What it buys, concretely**
+
+1. **The secret cannot be baked, by construction.** Not "if the app is careful" — the emitter never
+   holds a value.
+2. **One source genuinely stays one source.** A terminal wants an env var and a browser wants a
+   cookie; today a single header string cannot be correct on both, so the app is pushed toward a
+   target branch — the exact thing this whole approach exists to avoid.
+3. **Scheme construction happens once**, in the runtime, instead of in every app's view.
+4. **It gives the emitter somewhere to refuse.** That matters more than it sounds: `tui-fetch-headers`
+   stayed invisible because a dropped header is silent — the client renders, gets 401, shows nothing.
+   A credential the emitter must resolve is a thing it can fail loudly on.
+
+**What we suggest doing first**
+
+Keep `tui-fetch-headers` as its own small fix — it is parity with a documented parameter and it
+unblocks consumers now. **One request if you take it: resolve the header at fetch time rather than
+folding it in at emit time.** It costs nothing today and it is the whole difference between a
+mechanism that can hold a secret safely and one that cannot.
+
+Then the credential binding above, if it earns its place, on your schedule.
+
+Reported by a consumer that just built a dual-target client against a production endpoint; the
+staging and the API are suggestions, and the shape of the danger is the part we are confident about.
 <!-- inbox-entries:end -->
 
 ## Closed without routing
