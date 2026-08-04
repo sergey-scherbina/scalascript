@@ -18,9 +18,17 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       comparison, no tables on any host.
       **Why it is a compiler question, not tidiness.** `Character.isLetter` answers from Unicode
       tables. Route the alphabet through the host and the same source lexes differently on JVM,
-      JS and the v2 VM — the language's syntax becomes host-dependent. Measured today: **59 host
-      classification calls across 7 modules**, 22 of them in the ScalaScript dialect, which is
-      the one v3 consumes.
+      JS and the v2 VM — the language's syntax becomes host-dependent.
+      **⚠️ Correction to my own number.** I first reported "59 host classification calls across 7
+      modules" and put it in the landing commit. It is wrong and roughly double: that pattern had
+      no word boundary, so it counted every local `def isDigit` — helpers that are already
+      tableless — as if it were a host call, and later counted `UniAlphabet.isDigit` as one too.
+      Counted properly (dot-prefixed calls and `Character.*`, excluding the new module's own
+      qualified uses and comment lines): **28 across the module, 19 of them in the ScalaScript
+      dialect.**
+      **State now: 0 on the ScalaScript front's own path** — core, json, yaml, markdown and scala,
+      which is what `unimlScalaCross` depends on. What remains is off that path and not blocking
+      v3: `markup` 4, `address` 1, `markdown/bridge` 1.
       **Predictions, written before the change (§1.3 of the `performance` skill):**
       - losslessness stays 1,146/1,146. Reconstruction concatenates lexemes; which token a char
         lands in may move, the concatenation may not.
@@ -39,6 +47,15 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       ident-start decision this diverges in the UNSAFE direction — a valid Scala program changes
       meaning. Implemented as ASCII-only, enumerated by the sweep, and flagged for Sergiy rather
       than buried: it is a language call, not an implementation one.
+      **Cost measured: 1,143 code points** Scala treats as type-name-initial that we do not.
+      **And the corpus cannot decide it.** Of 1,432 `.ssc` files, 973 contain non-ASCII — but that
+      is 30,623 em-dashes and ~50 lowercase diacritics. Non-ASCII UPPERCASE letters: **zero**.
+      Identifiers starting with one: **zero**. So the suite going green says nothing about this
+      choice, and the green must not stand in for evidence. The filter was checked against `Ч`
+      before the zero was believed.
+      **This item stays `[~]` on one open DECISION, not on code.** Everything else is landed and
+      gated. If the answer is "a Cyrillic type name must stay a type", `isTypeNameStart` needs a
+      different design and §3 needs amending — which is why it is not closed as done.
 
 - [~] UNIML-SSC3 — **UniML must be ready to serve as ScalaScript's parser AND AST**, for
       language version 3. Direction: `specs/uniml-ssc3-frontend.md`; the seam with v3's SSC IR

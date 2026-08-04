@@ -1,6 +1,7 @@
 package scalascript.uniml.dialect.markdown
 
 import scalascript.uniml.TokenChannel
+import scalascript.uniml.UniAlphabet
 
 /** Inline structure over a single contiguous content region. Emits a flat list
   * of `InlinePiece`s that the block emitter replays through the shared token
@@ -372,7 +373,9 @@ private[markdown] object MarkdownInlines:
         if closes > opens then { s = s.substring(0, s.length - 1); changed = true }
       else if last == ';' then
         var k = s.length - 2
-        while k >= 0 && Character.isLetterOrDigit(s.charAt(k)) do k -= 1
+        // Entity names are ASCII alphanumeric per HTML5, so this is narrower than the host test on
+        // purpose as well as tableless: `&café;` was never an entity reference.
+        while k >= 0 && UniAlphabet.isAsciiAlnum(s.charAt(k)) do k -= 1
         if k >= 0 && s.charAt(k) == '&' && k < s.length - 2 then
           s = s.substring(0, k); changed = true
     s
