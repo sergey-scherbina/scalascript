@@ -2,8 +2,8 @@ slug: tui-fetch-url-signal
 branch: feature/tui-fetch-url-signal
 agent: housekeeping-rozum
 started: 2026-08-04T12:08:23Z
-heartbeat: 2026-08-04T12:08:23Z
-status: in-progress
+heartbeat: 2026-08-04T12:18:34Z
+status: in-progress (emitter+model+site done on feature/tui-fetch-url-signal, frontendTui/test 44/44)
 items: tui-fetch-url-signal
 paths: file:frontend/tui/src/main/scala/scalascript/frontend/tui/TuiEmitter.scala file:frontend/tui/src/test/scala/scalascript/frontend/tui/TuiEmitterTest.scala file:specs/frontend-tui-fetch-url-signal.md file:frontend/core/src/main/scala/scalascript/frontend/Primitives.scala file:v1/runtime/std/fetch-plugin/src/main/scala/scalascript/compiler/plugin/fetch/FetchIntrinsics.scala
 scope: |
@@ -19,4 +19,4 @@ scope: |
        it changes, exactly as the tick already does (and as headers now do).
     4. TuiEmitterTest — the gate.
   Additive for every other static emitter: an ignored Option field.
-next: write specs/frontend-tui-fetch-url-signal.md, then the model+intrinsic, then the emitter
+next: the cargo integration test — BLOCKED on TuiCargoSmokeTest.scala, held by tui-widget-compile-coverage; asked in the room
