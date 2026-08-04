@@ -1,0 +1,11 @@
+slug: diagnose-render-stduiforms-upload
+branch: feature/diagnose-render-stduiforms-upload
+agent: claude-code
+started: 2026-08-04T14:20:13Z
+heartbeat: 2026-08-04T14:20:13Z
+status: claimed-before-planning
+items: render-smoke std-ui-forms-smoke upload-smoke
+paths: file:tests/e2e/render-smoke.sh file:tests/e2e/std-ui-forms-smoke.sh file:tests/e2e/upload-smoke.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
