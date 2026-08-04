@@ -122,12 +122,21 @@ self-test rather than on the repository, invisible to every local run.
 
 
 ## launcher-digest-changes-when-you-COMMIT-unchanged-content — a rebuild per commit cycle
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      kind: bug
      area: build
-     fixed-in: -
-     gate: - -->
+     fixed-in: pending
+     gate: tests/e2e/launcher-digest-gate.sh -->
+
+**FIXED.** `inputs()` now emits ONE canonical line per path — `<content-sha><TAB><path>`, sorted —
+so the three sources say where a path's bytes come from and no longer decide how the line is
+spelled. Working tree takes precedence over HEAD, because a path that is both committed and
+modified must digest as what is on disk: that is what a build would compile.
+
+The gate carries the exact sequence that exposed it — a new file appears, then is staged. The first
+step MUST change the digest and the second MUST NOT. Verified in both directions: reinstating the
+state-dependent spelling turns the gate red and prints both digests.
 
 **Found 2026-08-01** under `ssc3-core`: built, tested green, committed nothing but the files already
 tested, and `smoke-ci` then refused with *"the launcher was built from different sources than this

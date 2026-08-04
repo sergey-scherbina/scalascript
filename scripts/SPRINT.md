@@ -10,7 +10,7 @@ Anything not being worked on belongs in `scripts/BACKLOG.md`, not here — a que
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
-- [~] `launcher-digest-changes-when-you-COMMIT-unchanged-content` — the digest hashes a LINE PER
+- [x] `launcher-digest-changes-when-you-COMMIT-unchanged-content` — the digest hashes a LINE PER
       INPUT and spells the same file three ways depending on git state (`untracked …`, `dirty …`,
       and the `ls-tree` form), so `git add` and `git commit` each shift it while the bytes are
       untouched. Cost measured at ~10 min per rebuild, four times in one session, and the workaround

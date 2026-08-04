@@ -185,4 +185,37 @@ if [[ "$fallback_code" -eq 0 || "$fallback_out" != *"no bin/lib/.build-digest"* 
 $fallback_out"
 fi
 
-printf 'launcher-digest-gate: PASS\n'
+# ── the digest must depend on CONTENT, not on git state ─────────────────────
+#
+# It used to write a different LINE for the same file depending on whether git called it untracked,
+# dirty or committed, so `git add` and `git commit` each shifted it while the bytes were untouched.
+# That is the failure this tool was created to remove — `.build-stamp` forced "a ~3.5 min rebuild
+# for nothing" on a docs-only commit, and the replacement forced one after every commit instead.
+#
+# The probe is the exact sequence that exposed it: a new file appears, then is staged. The first
+# step MUST change the digest (new content) and the second MUST NOT (same content, different state).
+probe="$WT/v3/__digest_probe.scala"
+d_clean="$(cd "$WT" && ./scripts/launcher-input-digest)"
+printf '// digest probe\n' > "$probe"
+d_new="$(cd "$WT" && ./scripts/launcher-input-digest)"
+(cd "$WT" && git add v3/__digest_probe.scala >/dev/null 2>&1)
+d_added="$(cd "$WT" && ./scripts/launcher-input-digest)"
+(cd "$WT" && git rm -q --cached v3/__digest_probe.scala >/dev/null 2>&1)
+rm -f "$probe"
+d_back="$(cd "$WT" && ./scripts/launcher-input-digest)"
+
+if [[ "$d_clean" == "$d_new" ]]; then
+  fail digest-blind-to-content "a new source file did not change the digest — it would be invisible to the build"
+fi
+if [[ "$d_new" != "$d_added" ]]; then
+  fail digest-follows-git-state "\`git add\` changed the digest with the content untouched:
+  untracked $d_new
+  staged    $d_added"
+fi
+if [[ "$d_clean" != "$d_back" ]]; then
+  fail digest-not-restored "removing the probe did not restore the digest:
+  before $d_clean
+  after  $d_back"
+fi
+
+printf 'launcher-digest-gate: PASS\n' 
