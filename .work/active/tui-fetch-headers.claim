@@ -5,7 +5,7 @@ started: 2026-08-04T11:33:54Z
 heartbeat: 2026-08-04T11:33:54Z
 status: claimed-before-planning
 items: tui-fetch-headers
-paths: file:frontend/tui/src/main/scala/scalascript/frontend/tui/TuiEmitter.scala file:specs/frontend-tui-fetch-headers.md
+paths: file:frontend/tui/src/main/scala/scalascript/frontend/tui/TuiEmitter.scala file:specs/frontend-tui-fetch-headers.md file:frontend/tui/src/test/scala/scalascript/frontend/tui/TuiEmitterTest.scala file:frontend/tui/src/test/scala/scalascript/frontend/tui/TuiCargoSmokeTest.scala file:BACKLOG.md
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
