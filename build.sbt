@@ -1391,7 +1391,15 @@ lazy val backendInterpreterServer = project
 
 lazy val testUtils = project
   .in(file("v1/runtime/backend/test-utils"))
-  .dependsOn(backendSpi, backendInterpreter)
+  // `core` is declared even though it already arrives transitively via backendInterpreter:
+  // TestInterpreter.scala imports scalascript.parser.Parser, which core provides, and a module that
+  // imports a package should name the project providing it rather than depend on a chain staying
+  // intact. The Native Release workflow fails on exactly these imports —
+  // `value backend/interpreter/parser is not a member of scalascript`, i.e. testUtils compiled with
+  // no project classpath — on all three runners, while every local reproduction (module clean, full
+  // clean, the exact CI invocation) passes. BUGS.md
+  // native-release-blocked-by-testutils-clean-compile.
+  .dependsOn(backendSpi, backendInterpreter, core)
   .settings(
     name := "scalascript-test-utils",
     libraryDependencies ++= Seq(scalatestTest),

@@ -50,9 +50,23 @@ launcher and never builds the sbt graph from clean; the full `sbt — compile an
 `ci.yml`, which on a push is `Lint Markdown` alone. A clean-build breakage is therefore invisible
 until someone dispatches the full suite — or tags a release, which is how this surfaced.
 
-**Next step for whoever takes it:** run the exact CI command locally with a clean target tree, and
-if it reproduces, bisect the `set` (drop it and run the three tasks plainly) to tell a genuine
-missing dependency from an artefact of the reloaded build state.
+**Done since, and it did not reproduce.** The exact CI invocation was run locally on a fully clean
+tree (`sbt clean` + the `set` + `cli/installBin` + `pluginHost/assembly`): **rc 0**. So did
+`testUtils/clean + compile`, and a clean of the whole dependency chain (`core`, `backendSpi`,
+`backendInterpreter`). `testUtils` IS in the root aggregate, so `clean` does reach it; the tag's tree
+and the local tree are identical for `build.sbt` and `test-utils` (nothing touched them after the
+tag). The only difference left is the JDK: CI compiles under **GraalVM JDK 21.0.12**
+(`JAVA_HOME=/opt/hostedtoolcache/graalvm-jdk-21…`), locally only Temurin 21.0.7/21.0.11 are
+available, so the environment cannot be reproduced on this machine.
+
+**Attempted fix, stated as a hypothesis because it has no local reproduction:** `testUtils` now
+declares `core` directly. It already arrived transitively (`testUtils → backendInterpreter → core`),
+so this changes nothing locally and cannot break — but it removes the only structural difference
+between the failing imports and the declaration, and a module importing `scalascript.parser.Parser`
+should name the project that provides it instead of relying on a chain. **The verification is the CI
+run itself**; if the release still fails on the same three imports, transitivity was not the cause
+and the next step is a diagnostic job printing `testUtils/dependencyClasspath` on a runner, since
+that is the one thing no local run can answer.
 
 
 ## coord-claim-items-tokenised-so-prose-collides-on-stop-words — a claim refused over the word "the"
