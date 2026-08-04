@@ -13,7 +13,7 @@ Newest first.
      lane: int
      area: runtime
      gate: tests/conformance/set-ops-infix.ssc
-     fixed-in: PENDING-SHA -->
+     fixed-in: b8ec91192 -->
 
 Found 2026-08-04 while writing `tests/conformance/set-distinct.ssc` for
 `type-ascription-tuple-and-set-arms-missing`. `s(x)` is Scala's membership call — a `Set[A]` *is* an

@@ -13,7 +13,7 @@ Newest first.
      lane: js
      area: codegen
      gate: tests/conformance/set-ops-infix.ssc
-     fixed-in: PENDING-SHA -->
+     fixed-in: b8ec91192 -->
 
 Found 2026-08-04 while giving `Set` a representation of its own on this lane
 (`type-ascription-tuple-and-set-arms-missing`). Not a regression from that work — verified against

@@ -63,7 +63,7 @@ layout, in the direction of a reversed fold. That is a lead, not a diagnosis.
      lane: native
      area: front
      gate: tests/conformance/set-ops-infix.ssc
-     fixed-in: PENDING-SHA -->
+     fixed-in: b8ec91192 -->
 
 Found 2026-08-04 while giving `Set` a representation of its own
 (`type-ascription-tuple-and-set-arms-missing`). Three infix operators do not reach method dispatch
