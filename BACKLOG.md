@@ -3427,6 +3427,26 @@ with ssc1c optimizations (better IR generation) or v2 VM fast-paths.
       **v2-float-cell-fastpath** (cross-cutting: kernel prims + ssc1c lowering + all 3
       backend generators must learn dcell.*).
 
+### ▶ tui-emitter-selfchecks — two defects the rozum work exposed in our own emitter (2026-08-04)
+
+Both found while implementing `tui-fetch-headers`, both outliving that fix, both filed in
+[`BUGS.md`](BUGS.md). They are ordered FIRST because each one makes the next rozum feature riskier:
+`tui-fetch-post` walks into both.
+
+- [ ] **tui-cargo-deps-are-a-hand-maintained-disjunction** — `cargoToml` decides `serde_json` from a
+      condition written against the features that use it (`hasRemoteTable`, now `|| any fetch has
+      headers`). Emitted source and emitted manifest are two independent statements kept in
+      agreement by memory, and disagreement means a crate that does not compile — invisible to
+      string-matching emitter tests. **Fix: derive the dependency from the emitted text** rather than
+      gate the disjunction; that deletes the class. Spec:
+      [`specs/tui-cargo-deps-derived.md`](specs/tui-cargo-deps-derived.md).
+- [ ] **tui-interactive-widgets-have-no-compile-coverage** — the cargo smoke compiles six shapes;
+      slice 3 (`TextInput`/`Button`/`Toggle`, focus ring, traversal) is compiled by none of them, so
+      its emissions are asserted only by string match. The headers work hit this class one layer
+      over — a mutable/immutable borrow of the signal store — and was saved only because the fetch
+      path has a cargo test. `tui-fetch-post` must write a signal from an event handler, i.e. the
+      same shape with no backstop.
+
 ### ▶ tui-fetch-gaps — three capability gaps reported by rozum (2026-08-04)
 
 Three `kind: feature`, `impact: blocks` reports from **rozum**, registered in

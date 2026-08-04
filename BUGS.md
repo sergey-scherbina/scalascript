@@ -16,6 +16,57 @@ scripts/bugs-report --no-gate              # open entries with no regression gat
 
 Newest first.
 
+## tui-cargo-deps-are-a-hand-maintained-disjunction — a new emitted feature can reference a crate nobody declared
+<!-- status: open
+     lane: multi
+     area: build
+     gate: none -->
+
+**Found 2026-08-04** implementing `tui-fetch-headers` (rozum's report). `TuiEmitter.cargoToml`
+decides the `serde_json` dependency from a condition hand-written against the FEATURES that happen to
+use it — until today `hasRemoteTable`, now `hasRemoteTable || any fetch has headers`. The emitted
+`main.rs` and the emitted `Cargo.toml` are therefore two independent statements about the same fact,
+kept in agreement by whoever remembers.
+
+**The failure mode is a crate that does not compile**, and it is invisible to the fast tests: a
+string-matching emitter test asserts the generated Rust *contains* `serde_json::from_str` and passes
+happily while `Cargo.toml` omits the dependency. Only a cargo build catches it, and only for shapes
+that have one.
+
+**It will recur on the very next feature.** `tui-fetch-post` (the sibling report) has to encode a
+request body — the obvious implementation reaches for `serde_json` and must remember to widen the
+same disjunction a third time.
+
+**Fix direction: derive, do not check.** The dependency set is a function of the emitted source —
+after generating `main.rs`, declare `serde_json` iff the text references `serde_json::`. That
+deletes the class rather than gating it, and it is smaller than the gate would be. A gate asserting
+"references ⟹ declared" is the fallback if derivation turns out to need more context.
+
+## tui-interactive-widgets-have-no-compile-coverage — the emitted focus ring is never built by a test
+<!-- status: open
+     lane: multi
+     area: build
+     gate: none -->
+
+**Found 2026-08-04** while adding a cargo gate for `tui-fetch-headers` and checking what the
+existing ones cover. `TuiCargoSmokeTest` compiles six shapes: the base crate, `DataTable + TabBar`,
+a fetch-bound signal, a headers fetch, `DataTable.Remote`, and a refresh tick.
+
+**Slice 3 — `TextInput`, `Button`, `Toggle`, the focus ring, Tab traversal, typed-char editing — is
+compiled by nothing.** Its emissions (`text_input_display`, `toggle_text`, the focusable table and
+the event-handler arms) are asserted only by string matching in `TuiEmitterTest`, and a string test
+cannot see Rust that does not compile.
+
+**This is not hypothetical.** The headers work hit exactly that class one layer over: `load_fetch`
+borrows the signal store mutably while `fetch_headers` borrows it immutably, so the natural inline
+call is a borrow-checker error. It was caught because the fetch path HAS a cargo test. The widget
+emissions touch the same signal store from the same kind of helper and have no such backstop — and
+`tui-fetch-post`, which must write a signal from an event handler, walks straight into it.
+
+**Fix direction:** one cargo smoke over a view containing a `TextInput`, a `Button` and a `Toggle`,
+asserting the crate builds and that activating the button changes what the frame renders. The
+existing `snapshotViaCargo` harness already does the hard part.
+
 ## keyword-import-of-a-missing-module-is-a-silent-no-op — the link form of the same import says "not found"
 
 <!-- status: open
