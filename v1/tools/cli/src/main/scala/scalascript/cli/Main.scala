@@ -415,7 +415,10 @@ private[cli] def injectServerBackend(script: String, backend: String): String =
   backend match
     case "jdk" => script
     case name @ ("jetty" | "netty") =>
-      val version  = "0.1.0-SNAPSHOT"
+      // Must track ThisBuild / version: this string is the dependency COORDINATE for the
+// generated `//> using dep io.scalascript::scalascript-runtime-server-jvm-…` directive,
+// so a mismatch emits a script that resolves nothing.
+      val version  = "0.1.0"
       val libDirective =
         s"//> using dep io.scalascript::scalascript-runtime-server-jvm-$name:$version\n"
       val implClass = name match
