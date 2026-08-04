@@ -59,7 +59,12 @@ EOF
 echo "── each rule's phrase appears exactly once ──"
 while IFS=$'\t' read -r rule phrase; do
   [ -n "$rule" ] || continue
-  hits=$(docs | while read -r f; do grep -Fq -- "$phrase" "$f" && echo "$f"; done || true)
+  # ONE grep per pin, not one per FILE. This loop was 8 pins x 564 docs = 4512 grep spawns, and it
+  # was 65.4s — the single most expensive check in a suite that had just gone over its cap. Measured
+  # 2026-08-05: 5.13s -> 0.28s for one pin, same file list. -Fl over a NUL-delimited list keeps the
+  # exact semantics (fixed string, names of matching files) and survives spaces in paths; xargs may
+  # split into batches, which changes nothing because -l prints per file and the union is the same.
+  hits=$(docs | tr '\n' '\0' | xargs -0 grep -Fl -- "$phrase" 2>/dev/null || true)
   n=$(printf '%s\n' "$hits" | grep -c . || true)
   case "$n" in
     1) if printf '%s\n' "$hits" | grep -qx "$POLICY"; then

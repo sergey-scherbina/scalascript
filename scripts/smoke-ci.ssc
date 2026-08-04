@@ -73,7 +73,7 @@ DEFAULT one could not. A CI runner is subprocesses and nothing else, so the gap 
 ## Accounting
 
 Per-check timings, aggregated per module, with a hard total budget (`SSC_SMOKE_BUDGET`, default
-500 s). The budget is enforced, not documented — this file is where the push path stops being allowed
+600 s). The budget is enforced, not documented — this file is where the push path stops being allowed
 to grow silently, and a run that overruns it fails even when every check passed.
 
 **420 s is sized on a DISTRIBUTION, not on one sample, and getting that wrong cost two red runs.**
@@ -87,7 +87,8 @@ wrong:
 | 330 s | 250.2 s | after `SSC_CONF_WARM_JVM=1` cut the slice to 115.5 s; GREEN, and the cap was set from that single observation |
 | 330 s | 338.6 s | 18/18 green, RED on the budget alone. The slice was 175.2 s that run — the SAME suite, +60 s |
 | 420 s | 428.8 s | 58/58 green, RED on the budget alone (run 30905783511). By then the suite held 58 checks, not the 18 the row above measured |
-| 500 s | see below | RAISED 2026-08-04 on the project owner's instruction, with the suite at 58 checks |
+| 500 s | 509.9 s | RED on the cap alone at 65/65 green — the suite had grown to 65 checks |
+| 600 s | see below | RAISED 2026-08-05, again on the project owner's instruction |
 
 The third row is the lesson: the dominant check varies by ±25 % between runs on a shared runner, so a
 cap fitted to one sample encodes that sample's luck. POLICY P-6.6 says one measurement is a
@@ -613,7 +614,7 @@ def showTally(tally: LaneTally): String =
 def main() =
   val argv = args
   val listOnly = argv.contains("--list")
-  val budgetSeconds = envOrElse("SSC_SMOKE_BUDGET", "500").toInt()
+  val budgetSeconds = envOrElse("SSC_SMOKE_BUDGET", "600").toInt()
   val modules = declaredModules()
 
   // The hierarchy check comes FIRST: a suite that silently drops a check because its module name
