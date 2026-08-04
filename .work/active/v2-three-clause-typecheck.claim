@@ -5,7 +5,7 @@ started: 2026-08-04T15:31:47Z
 heartbeat: 2026-08-04T15:31:47Z
 status: claimed-before-planning
 items: v2-three-parameter-clauses-fail-typecheck
-paths: file:v2/lib/ssc1-check.ssc0 file:specs/v2.2-p6.5-fsub.ssc file:tests/conformance/curried-def-clauses.ssc file:tests/conformance/expected/curried-def-clauses.txt file:tests/e2e/v2-front-coverage.sh
+paths: file:v2/lib/ssc1-check.ssc0 file:tests/e2e/typeerr-names-both-types.sh
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
