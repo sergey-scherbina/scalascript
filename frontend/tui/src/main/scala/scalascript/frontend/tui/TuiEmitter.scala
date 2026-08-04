@@ -30,7 +30,7 @@ object TuiEmitter:
    *  (not at emit time) exactly as the web targets read it. `None` when the source bound no headers,
    *  which must stay dependency-free — see `cargoToml`. */
   private final case class FetchInfo(url: String, tickId: String, headersId: Option[String],
-                                     urlId: Option[String])
+                                     urlId: Option[String], tickMs: Option[Int])
 
   /** A declarative store mutation an `activate` arm performs. */
   private enum Mutation:
@@ -135,7 +135,7 @@ object TuiEmitter:
        |}
        |
        |${genFetchHelpers(fetches)}
-       |${genWriteHelpers(fetches, focusables.toSeq)}
+       |${genWriteHelpers(fetches, focusables.toSeq)}\n       |${genIntervalHelpers(fetches)}
        |${genTableHelpers(remoteTable)}
        |${genRowCursorHelpers(focusables.toSeq)}
        |
@@ -181,9 +181,13 @@ object TuiEmitter:
        |    let mut signals = initial_signals();
        |    bootstrap(&mut signals);
        |    let mut observed_fetch_ticks = initial_fetch_ticks(&signals);
+       |    let mut last_interval: HashMap<String, std::time::Instant> = HashMap::new();
        |    let mut focus: usize = 0;
        |    let result = (|| -> io::Result<()> {
        |        loop {
+       |            // Advance auto-polling ticks BEFORE the refresh, so a due tick is acted on in
+       |            // the frame that notices it rather than the next one.
+       |            bump_interval_ticks(&mut signals, &mut last_interval);
        |            refresh_fetches(&mut signals, &mut observed_fetch_ticks);
        |            terminal.draw(|f| { let area = f.area(); render_root(f, area, &signals, focus); })?;
        |            if event::poll(Duration::from_millis(100))? {
@@ -422,6 +426,30 @@ object TuiEmitter:
         |    Some(json_field(row, field))
         |}
         |""".stripMargin
+
+  /** Wall-clock advance for `intervalTick` fetches, emitted only when some fetch auto-polls.
+   *
+   *  Two properties a naive version gets wrong. Ticks are DEDUPLICATED by id: two fetches sharing
+   *  one tick are one clock, and bumping per fetch would double the poll rate. And elapsed time is
+   *  measured from each tick's LAST fire rather than from process start, so drift is absorbed
+   *  instead of accumulating into the period.
+   *
+   *  The loop polls events with a 100 ms timeout, so a period is a FLOOR, not a guarantee — right
+   *  for polling, wrong for a deadline. */
+  private def genIntervalHelpers(fetches: mutable.LinkedHashMap[String, FetchInfo]): String =
+    val ticks = fetches.values.flatMap(f => f.tickMs.filter(_ > 0).map(ms => (f.tickId, ms)))
+      .toSeq.distinctBy(_._1)
+    if ticks.isEmpty then
+      "fn bump_interval_ticks(_signals: &mut HashMap<String, Value>, _last: &mut HashMap<String, std::time::Instant>) {}"
+    else
+      val arms = ticks.map { case (id, ms) =>
+        s"    { let __e = last.entry(${rustStr(id)}.to_string()).or_insert(now); " +
+        s"if now.duration_since(*__e).as_millis() >= ${ms}u128 { *__e = now; " +
+        s"let __c = match signals.get(${rustStr(id)}) { Some(Value::I(n)) => *n, _ => 0 }; " +
+        s"signals.insert(${rustStr(id)}.to_string(), Value::I(__c + 1)); } }"
+      }.mkString("\n")
+      "fn bump_interval_ticks(signals: &mut HashMap<String, Value>, last: &mut HashMap<String, std::time::Instant>) {\n" +
+      "    let now = std::time::Instant::now();\n" + arms + "\n}"
 
   private def genTableHelpers(hasRemoteTable: Boolean): String =
     if !hasRemoteTable then ""
@@ -730,7 +758,7 @@ object TuiEmitter:
   private def collectFetches(v: View[?], fetches: mutable.LinkedHashMap[String, FetchInfo]): Unit =
     def rec(c: View[?]): Unit = collectFetches(c, fetches)
     def record(s: ReactiveSignal[?]): Unit = s match
-      case f: FetchUrlSignal => if !fetches.contains(f.id) then fetches(f.id) = FetchInfo(f.fetchUrl, f.tickId, f.headersId, f.urlId)
+      case f: FetchUrlSignal => if !fetches.contains(f.id) then fetches(f.id) = FetchInfo(f.fetchUrl, f.tickId, f.headersId, f.urlId, f.tickMs)
       case _                 => ()
     v match
       case View.SignalText(s, _)                                 => record(s)

@@ -7,6 +7,15 @@ import scalascript.frontend.{ReactiveSignal, FetchUrlSignal, FetchJsonSignal, Fe
 import scalascript.plugin.api.{PluginNative, PluginValue, PluginError}
 
 object FetchIntrinsics:
+  /** The tick's period when it is an `IntervalTick`, i.e. when this fetch auto-polls.
+   *
+   *  The intrinsic is the only place that HOLDS the tick object — `FetchUrlSignal` keeps its id, a
+   *  String, and a backend given only an id cannot tell a hand-bumped tick from a clock. Reading
+   *  the period here is what lets a timer-capable backend poll unattended (INBOX tui-interval-tick). */
+  private def tickPeriod(tick: ReactiveSignal[?]): Option[Int] = tick match
+    case t: IntervalTick => Some(t.ms)
+    case _               => None
+
   private def isNullish(value: Any): Boolean =
     value == null || value == PluginValue.unit || value == PluginValue.nullV
 
@@ -48,14 +57,16 @@ object FetchIntrinsics:
       args match
         case List(name: String, url: String,
                   PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
-          PluginValue.foreign("ReactiveSignal", new FetchUrlSignal(name, url, tick.id))
+          PluginValue.foreign("ReactiveSignal",
+            new FetchUrlSignal(name, url, tick.id, None, None, tickPeriod(tick)))
         case List(name: String, url: String,
                   PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
                   PluginValue.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
           val hId = headers.id
           PluginValue.foreign("ReactiveSignal",
             new FetchUrlSignal(name, url, tick.id,
-              if hId == "__ssc_empty_headers" then None else Some(hId)))
+              if hId == "__ssc_empty_headers" then None else Some(hId),
+              None, tickPeriod(tick)))
         case _ => PluginError.raise("fetchUrlSignal(name, url, refreshTick[, headers])")
     },
 
@@ -70,7 +81,8 @@ object FetchIntrinsics:
       def build(urlSig: ReactiveSignal[?], tick: ReactiveSignal[?], headers: Option[ReactiveSignal[?]]) =
         val hId = headers.map(_.id).filter(_ != "__ssc_empty_headers")
         PluginValue.foreign("ReactiveSignal",
-          new FetchUrlSignal(args.head.asInstanceOf[String], "", tick.id, hId, Some(urlSig.id)))
+          new FetchUrlSignal(args.head.asInstanceOf[String], "", tick.id, hId, Some(urlSig.id),
+            tickPeriod(tick)))
       args match
         case List(_: String,
                   PluginValue.Foreign("ReactiveSignal", urlSig: ReactiveSignal[?]),

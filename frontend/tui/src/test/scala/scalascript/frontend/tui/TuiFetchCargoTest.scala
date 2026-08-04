@@ -295,6 +295,62 @@ final class TuiFetchCargoTest extends AnyFunSuite:
     finally
       server.stop(0)
 
+  test("an interval tick refetches with no key pressed, and only when it is due"):
+    assume(cargoAvailable, "cargo not on PATH — skipping fetch cargo gate")
+    val hits = new java.util.concurrent.atomic.AtomicInteger(0)
+    val server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0)
+    server.createContext("/feed", (ex: com.sun.net.httpserver.HttpExchange) => {
+      val body = s"BODY-${hits.incrementAndGet()}"
+      val bytes = body.getBytes("UTF-8")
+      ex.sendResponseHeaders(200, bytes.length.toLong)
+      val os = ex.getResponseBody; os.write(bytes); os.close()
+    })
+    server.start()
+    try
+      val port = server.getAddress.getPort
+      // 50 ms so the probe can wait it out without making the suite slow.
+      val tick = new IntervalTick("poll", 50)
+      val feed = new FetchUrlSignal("feed", s"http://127.0.0.1:$port/feed", tick.id, None, None, Some(tick.ms))
+      val probe =
+        """
+          |#[cfg(test)]
+          |mod interval_tick_regression {
+          |    use super::*;
+          |
+          |    #[test]
+          |    fn interval_refetches_unattended_but_only_when_due() {
+          |        let mut signals = initial_signals();
+          |        bootstrap(&mut signals);
+          |        let mut observed = initial_fetch_ticks(&signals);
+          |        let mut last: HashMap<String, std::time::Instant> = HashMap::new();
+          |        let first = sig(&signals, "feed");
+          |        assert_eq!(first, "BODY-1", "bootstrap body: {}", first);
+          |
+          |        // The first call only ARMS the clock — nothing is due yet, so nothing refetches.
+          |        bump_interval_ticks(&mut signals, &mut last);
+          |        refresh_fetches(&mut signals, &mut observed);
+          |        assert_eq!(sig(&signals, "feed"), first, "the tick fired before its period elapsed");
+          |
+          |        // Wait it out: the fetch must re-read with NO key pressed. That is the whole point.
+          |        std::thread::sleep(std::time::Duration::from_millis(80));
+          |        bump_interval_ticks(&mut signals, &mut last);
+          |        refresh_fetches(&mut signals, &mut observed);
+          |        let second = sig(&signals, "feed");
+          |        assert_eq!(second, "BODY-2", "the interval did not refetch unattended: {}", second);
+          |
+          |        // ...and immediately after, it is not due again — a tick with no period would
+          |        // fire every frame and hammer the server.
+          |        bump_interval_ticks(&mut signals, &mut last);
+          |        refresh_fetches(&mut signals, &mut observed);
+          |        assert_eq!(sig(&signals, "feed"), second, "the tick fired again with no period elapsed");
+          |    }
+          |}
+          |""".stripMargin
+      runProbe(View.SignalText(feed), probe, "interval_refetches_unattended_but_only_when_due", "ssc-tui-interval-")
+      assert(hits.get() == 2, s"expected exactly bootstrap + one due refetch, saw ${hits.get()}")
+    finally
+      server.stop(0)
+
   private def deleteRecursively(p: Path): Unit =
     try
       if Files.exists(p) then

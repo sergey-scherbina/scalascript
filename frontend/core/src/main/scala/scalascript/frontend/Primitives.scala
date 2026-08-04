@@ -690,7 +690,12 @@ sealed class FetchUrlSignal(
      *  form, where `fetchUrl` is the literal fixed at emit time. When set, `fetchUrl` is unused and
      *  a change to this signal must schedule a new GET exactly as a tick change does; that second
      *  trigger is the whole feature (a picker retargets the fetch without touching the tick). */
-    val urlId:     Option[String] = None
+    val urlId:     Option[String] = None,
+    /** The tick's period in ms when it is an [[IntervalTick]] — i.e. when this fetch auto-polls.
+     *  `tickId` alone cannot say so: it is a String, and a backend that only sees an id cannot tell
+     *  a hand-bumped tick from a clock. Backends that have no timer ignore it; the terminal target
+     *  uses it to advance the tick on wall-clock time so `refresh_fetches` re-reads unattended. */
+    val tickMs:    Option[Int] = None
 ) extends ReactiveSignal[String](id2, ""):
   /** Codec used to decode the HTTP response body.  Default is `RawText`. */
   def codec: CodecHint = CodecHint.RawText

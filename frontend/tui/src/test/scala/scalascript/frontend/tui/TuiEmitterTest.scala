@@ -325,6 +325,42 @@ final class TuiEmitterTest extends AnyFunSuite:
     assert(rs.contains("Layout::vertical([Constraint::Length(1), Constraint::Length(3)])"), s"\n$rs")
   }
 
+  test("a fetch bound to an interval tick emits a wall clock for it") {
+    // Reported by rozum: IntervalTick is in the model, the JS runtime implements it, and this
+    // emitter had zero references — so a source that auto-polls on the web emitted a binary that
+    // only ever refreshed on a keypress.
+    val tick = new IntervalTick("poll", 5000)
+    val feed = new FetchUrlSignal("feed", "http://x/f", tick.id, None, None, Some(tick.ms))
+    val rs = emitMain(View.SignalText(feed))
+    assert(rs.contains("fn bump_interval_ticks(signals: &mut HashMap<String, Value>"))
+    assert(rs.contains("""last.entry("poll".to_string())"""))
+    assert(rs.contains("5000u128"))
+    // Driven before the refresh in the same iteration, or a due tick waits a frame.
+    val loop = rs.substring(rs.indexOf("fn run_interactive"))
+    assert(loop.indexOf("bump_interval_ticks(&mut signals") < loop.indexOf("refresh_fetches(&mut signals"),
+      "the clock must advance before the refresh it feeds")
+  }
+
+  test("two fetches sharing one interval tick advance it once") {
+    // A shared tick is ONE clock. Bumping per fetch would double the poll rate — invisible in a
+    // snapshot, and only ever noticed as a server being hit twice as often as configured.
+    val tick = new IntervalTick("poll", 1000)
+    val a = new FetchUrlSignal("a", "http://x/a", tick.id, None, None, Some(tick.ms))
+    val b = new FetchUrlSignal("b", "http://x/b", tick.id, None, None, Some(tick.ms))
+    val rs = emitMain(View.Column(Seq(View.SignalText(a), View.SignalText(b))))
+    assert(rs.split("""last\.entry\("poll"""").length - 1 == 1,
+      s"the shared tick is bumped more than once:\n$rs")
+  }
+
+  test("a plain tick emits no clock at all") {
+    // The negative half: a hand-bumped tick must not acquire a timer, and an app with no interval
+    // must carry no bookkeeping.
+    val feed = new FetchUrlSignal("feed", "http://x/f", "tick")
+    val rs = emitMain(View.SignalText(feed))
+    assert(rs.contains("fn bump_interval_ticks(_signals:"))
+    assert(!rs.contains("last.entry("))
+  }
+
   test("a fetch WITHOUT headers stays header-free and serde_json-free") {
     // The other half, and the one that keeps the no-header path cheap: emitting fetch_headers
     // unconditionally would reference serde_json in every crate that fetches anything.
