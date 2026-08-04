@@ -3427,6 +3427,27 @@ with ssc1c optimizations (better IR generation) or v2 VM fast-paths.
       **v2-float-cell-fastpath** (cross-cutting: kernel prims + ssc1c lowering + all 3
       backend generators must learn dcell.*).
 
+### ▶ release-v0-1-0 — the tag exists, the workflow cannot build it (2026-08-04)
+
+**State: tag `v0.1.0` is pushed and points at `7afcb808c`.** The release commit itself is done and
+gated — version `0.1.0-SNAPSHOT → 0.1.0` in `build.sbt` and in the dependency coordinate
+`Main.scala` emits, verified by `ssc-tools --version` printing `ssc 0.1.0`, with smoke-ci 58/58 and
+conformance 645/0 on the tagged tree.
+
+**Blocked by** [`tests/BUGS.md`](tests/BUGS.md) `native-release-blocked-by-testutils-clean-compile`:
+all three `Qualify` jobs fail in the sbt build step and `Publish qualified tag` is skipped, so no
+release has ever been published (the only earlier run, 2026-07-28, failed the same way).
+
+- [ ] **the diagnostic job** — print `testUtils/dependencyClasspath` on a runner before the build.
+      This is the only remaining avenue: every local reproduction passes (module clean,
+      dependency-chain clean, full clean, and the exact CI invocation), and the environments differ
+      only in the JDK — GraalVM 21.0.12 in CI against Temurin locally.
+- [x] ~~declare `core` on `testUtils`~~ — **refuted** by run `30907972567`: identical failure. Kept
+      because the declaration is correct on its own merits, but it is not the fix.
+- [ ] **after it goes green:** nothing else is needed — the workflow publishes from the existing tag,
+      so no re-tagging. Then bump `main` to `0.2.0-SNAPSHOT`, or an intermediate build will keep
+      calling itself the release.
+
 ### ▶ tui-emitter-selfchecks — two defects the rozum work exposed in our own emitter (2026-08-04)
 
 Both found while implementing `tui-fetch-headers`, both outliving that fix, both filed in

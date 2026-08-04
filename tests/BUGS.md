@@ -68,6 +68,19 @@ run itself**; if the release still fails on the same three imports, transitivity
 and the next step is a diagnostic job printing `testUtils/dependencyClasspath` on a runner, since
 that is the one thing no local run can answer.
 
+**REFUTED 2026-08-04, run `30907972567`.** With `core` declared directly, the release fails
+identically — `(testUtils / Compile / compileIncremental) Compilation failed`, same three imports.
+Transitivity was not the cause. The declaration is kept because it is correct on its own merits (a
+module should name the project providing a package it imports), but it fixes nothing and must not be
+read as the fix.
+
+**So the next step is now the only step:** a diagnostic job on a runner printing
+`testUtils/dependencyClasspath` (and `show testUtils/internalDependencyClasspath`) before the build.
+Every local avenue is exhausted — module clean, dependency-chain clean, full clean, and the exact CI
+invocation all pass on this machine, and the environment differs only in the JDK (GraalVM 21.0.12 in
+CI, Temurin locally). Nothing further can be learned without asking the runner what classpath it
+actually assembled.
+
 
 ## coord-claim-items-tokenised-so-prose-collides-on-stop-words — a claim refused over the word "the"
 <!-- status: open
