@@ -1,0 +1,11 @@
+slug: f-curried-def-both-halves
+branch: feature/f-curried-def-both-halves
+agent: claude-code
+started: 2026-08-04T13:56:12Z
+heartbeat: 2026-08-04T13:56:12Z
+status: claimed-before-planning
+items: v2-front-curried-def-second-clause
+paths: file:specs/v2.2-p6.5-fsub.ssc file:tests/e2e/v2-front-coverage.sh file:tests/conformance/curried-def-clauses.ssc file:tests/conformance/expected/curried-def-clauses.txt file:tests/conformance/contract-roster.tsv
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
