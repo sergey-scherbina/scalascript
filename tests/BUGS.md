@@ -492,12 +492,20 @@ first line so none of its seven drift rejections ever executed. A gate that runs
 neutral; it is a claim of coverage that is not being made.
 
 ## f4-dualrun-gate-compares-F-with-ITSELF-since-the-front-flip
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      kind: apparatus
      area: conformance
-     fixed-in: -
-     gate: - -->
+     fixed-in: pending
+     gate: specs/v2.2-p6.5-dualrun.sh DR_SELFTEST=1 -->
+
+**FIXED.** The baseline side now sets `SSC_FRONT=legacy` explicitly, and NEITHER side is called
+"the default" any more — the default IS F, and naming the thing under test that way is how the gate
+came to compare F with itself.
+
+`DR_SELFTEST=1` plants a divergence and the gate must go RED; verified. And the corrected gate is
+GREEN for a real reason: **45/45 EQUAL between `SSC_FRONT=legacy` and `SSC_FRONT=F`**, which is
+information the vacuous version never produced — it could not tell agreement from self-comparison.
 
 **Found 2026-08-01** under `ssc3-core`, while looking for the gate that would catch a change to the
 F front. The gate whose entire purpose is to compare the two fronts has been comparing one front

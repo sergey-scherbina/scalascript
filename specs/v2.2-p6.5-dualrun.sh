@@ -7,8 +7,11 @@
 # classify gate (F0.ir on pre-extracted .code, no ambient injection) does NOT — the two are complementary.
 #
 # For every raw .ssc program P in the slice:
-#   def = (exit, stdout) of   bin/ssc run P              -- DEFAULT front (ssc1-front + ssc1-lower)
-#   f   = (exit, stdout) of   SSC_FRONT=F bin/ssc run P  -- F + the F4a delegate-fallback
+#   ref = (exit, stdout) of   SSC_FRONT=legacy bin/ssc run P  -- the reference front (ssc1-front + ssc1-lower)
+#   f   = (exit, stdout) of   SSC_FRONT=F      bin/ssc run P  -- F + the F4a delegate-fallback
+#
+# BOTH sides name their front explicitly. Neither is "the default", because the default IS F and
+# calling the thing under test by that name is how this gate came to compare F with itself.
 #   EQUAL iff def == f            (COMPARE BOTH SIDES; raw stdout bytes + exit code; NO normalization)
 # Since the F4a delegate-fallback (RunNativeV2), F is NEVER worse than default: where F cannot lower a
 # program it emits an unbound global, Reader.validate catches it, and the file is re-lowered through the
@@ -47,11 +50,21 @@ die() { echo "FATAL(dualrun): $1" >&2; exit 2; }
 # run a file through bin/ssc with a given front; capture (exit, stdout). stderr (stack traces / paths)
 # is intentionally excluded from the comparison — a failing program's rc!=0 already flags it, and stderr
 # carries non-portable absolute paths. globals: CAP (dest prefix).
-runVia() { # front(""|F) file
+# THE BASELINE SIDE MUST SET `SSC_FRONT=legacy`, and this is the whole correctness of the gate.
+#
+# `RunNativeV2.frontIsF` is `!SSC_FRONT.equalsIgnoreCase("legacy")` — so an UNSET `SSC_FRONT` selects
+# F, exactly like `SSC_FRONT=F`. Running one side bare and the other with `SSC_FRONT=F` compared F
+# WITH ITSELF, and had done since `56d7d705f` made F the default. A comparison of a thing with itself
+# cannot fail, so the gate was vacuously green for the entire life of the flipped tree.
+#
+# Proven, rather than argued: between `2d29b3e71` (legacy fixed) and `ce637cafb` (F fixed) the two
+# fronts genuinely disagreed — `new Array[Int](3).length` was 3 on legacy and 1 on F — and this gate
+# would have reported GREEN throughout, because both of its sides were the 1.
+runVia() { # front(legacy|F) file
   local front="$1"; local f="$2"
   local tb=(); [ -n "$TIMEOUT_BIN" ] && tb=("$TIMEOUT_BIN" "$DR_TIMEOUT")
-  if [ "$front" = F ]; then SSC_FRONT=F "${tb[@]}" "$SSC_BIN" run "$f" > "$CAP.out" 2>/dev/null
-  else                              "${tb[@]}" "$SSC_BIN" run "$f" > "$CAP.out" 2>/dev/null; fi
+  if [ "$front" = F ]; then SSC_FRONT=F      "${tb[@]}" "$SSC_BIN" run "$f" > "$CAP.out" 2>/dev/null
+  else                     SSC_FRONT=legacy  "${tb[@]}" "$SSC_BIN" run "$f" > "$CAP.out" 2>/dev/null; fi
   echo $? > "$CAP.rc"
 }
 
@@ -81,13 +94,27 @@ else
 fi
 nfiles=$(echo $FILES | wc -w | tr -d ' ')
 [ "$nfiles" -gt 0 ] || die "0 files in the slice — nothing to compare."
-echo "═══════ F4 DUAL-RUN — default front vs SSC_FRONT=F, both via $SSC_BIN, on $nfiles programs ═══════"
+echo "═══════ F4 DUAL-RUN — SSC_FRONT=legacy vs SSC_FRONT=F, both via $SSC_BIN, on $nfiles programs ═══════"
+
+# `--self-test`: plant a divergence and require the gate to SEE it.
+#
+# Added because this gate was vacuously green for the life of the flipped tree and NOTHING said so.
+# A comparison that has only ever been equal is indistinguishable from a comparison of a thing with
+# itself, which is precisely what this was. The plant makes the two sides differ by construction;
+# if the gate still reports EQUAL, the comparison is not comparing.
+if [ "${DR_SELFTEST:-}" = 1 ]; then
+  runVia() { # front(legacy|F) file — the front decides the ANSWER, so the sides must differ
+    local front="$1"
+    if [ "$front" = F ]; then echo "F-said-this" > "$CAP.out"; else echo "legacy-said-that" > "$CAP.out"; fi
+    echo 0 > "$CAP.rc"
+  }
+fi
 
 equal=0; diverge=0; unexpected=""
 for f in $FILES; do
   n=$(basename "$f" .ssc)
-  CAP="$WORK/def"; runVia "" "$f"; drc=$(cat "$CAP.rc")
-  CAP="$WORK/f";   runVia F  "$f"; frc=$(cat "$CAP.rc")
+  CAP="$WORK/def"; runVia legacy "$f"; drc=$(cat "$CAP.rc")
+  CAP="$WORK/f";   runVia F      "$f"; frc=$(cat "$CAP.rc")
   if [ "$drc" = "$frc" ] && cmp -s "$WORK/def.out" "$WORK/f.out"; then
     equal=$((equal+1))
   else
@@ -103,7 +130,7 @@ for f in $FILES; do
   fi
 done
 echo "─────────────────────────────────────────────────────────────────"
-printf "  EQUAL (F front == default front) : %d / %d\n" "$equal" "$nfiles"
+printf "  EQUAL (SSC_FRONT=F == SSC_FRONT=legacy) : %d / %d\n" "$equal" "$nfiles"
 printf "  DIVERGE                          : %d  (expected GAPs are OK)\n" "$diverge"
 
 fail=0
@@ -127,7 +154,7 @@ fi
 
 [ "$fail" -eq 0 ] || { echo "DUAL-RUN: RED"; exit 1; }
 fpnote=$([ "${SSC_DUALRUN_SKIP_FIXPOINT:-0}" = 1 ] && echo "fixpoint SKIPPED" || echo "typed fixpoint byte-identical")
-echo "*** DUAL-RUN GREEN: SSC_FRONT=F is output-equivalent to the default front on all $equal programs;"
+echo "*** DUAL-RUN GREEN: SSC_FRONT=F is output-equivalent to SSC_FRONT=legacy on all $equal programs;"
 echo "    $fpnote. F covers its subset directly; the F4a fallback re-lowers unbound-global gaps through"
 if [ "$diverge" -eq 0 ]; then
   echo "    the default front, so F is NEVER worse than default."
