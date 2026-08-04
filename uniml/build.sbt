@@ -102,7 +102,11 @@ lazy val unimlMarkdownCross =
 // exactly like the core-test spike. `test->test` on core exposes SpikeDialect/SpikeProject.
 lazy val unimlScala = project
   .in(file("scala"))
-  .dependsOn(unimlCross.jvm % "compile->compile;test->test", unimlMarkdownCross.jvm, unimlYamlCross.jvm, unimlJsonCross.jvm)
+  // The ScalaScript dialect and the `.ssc` composer are PRODUCTION sources here since
+  // UPR-4a; they used to live in `uniml/core`'s TEST scope, which is why this project
+  // needed core's test classes. It no longer does — dropping `test->test` is how that
+  // move is checked, not merely asserted.
+  .dependsOn(unimlCross.jvm, unimlMarkdownCross.jvm, unimlYamlCross.jvm, unimlJsonCross.jvm)
   .settings(
     name := "scalascript-uniml-scala",
     libraryDependencies ++= Seq("org.scalatest" %% "scalatest" % scalatestV % Test),

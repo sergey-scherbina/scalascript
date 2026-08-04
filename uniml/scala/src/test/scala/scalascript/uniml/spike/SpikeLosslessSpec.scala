@@ -3,7 +3,7 @@ package scalascript.uniml.spike
 import org.scalatest.funsuite.AnyFunSuite
 import scalascript.uniml.*
 import java.nio.file.{Files, Path, Paths}
-import scala.jdk.CollectionConverters.*
+import _root_.scala.jdk.CollectionConverters.*
 
 /** The ScalaScript dialect's losslessness gate.
   *

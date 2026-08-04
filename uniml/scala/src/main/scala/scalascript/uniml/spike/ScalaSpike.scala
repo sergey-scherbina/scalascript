@@ -740,7 +740,7 @@ object SpikeParse:
         case "spike.rparen"                    => if depth == 0 then { c.advance(); go = false } else { depth -= 1; c.advance() }
         case _                                 => c.advance()
 
-  private def captureDerives(c: Cur, kids: scala.collection.mutable.Builder[Node, Vector[Node]]): Unit =
+  private def captureDerives(c: Cur, kids: _root_.scala.collection.mutable.Builder[Node, Vector[Node]]): Unit =
     if isWord(c, "derives") then
       c.advance()
       var more = true
