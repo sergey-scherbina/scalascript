@@ -5,7 +5,7 @@ started: 2026-08-04T13:17:09Z
 heartbeat: 2026-08-04T13:17:09Z
 status: claimed-before-planning
 items: jvm-string-literal-s-concat-inserts-x
-paths: file:v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGen.scala file:tests/conformance/jvm-string-s-concat.ssc file:tests/conformance/expected/jvm-string-s-concat.txt file:tests/conformance/contract-roster.tsv
+paths: file:v1/runtime/backend/jvm/src/main/scala/scalascript/codegen/JvmGen.scala file:tests/conformance/jvm-string-s-literal.ssc file:tests/conformance/expected/jvm-string-s-literal.txt file:tests/conformance/contract-roster.tsv
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
