@@ -1,0 +1,11 @@
+slug: tui-fetch-url-signal
+branch: feature/tui-fetch-url-signal
+agent: housekeeping-rozum
+started: 2026-08-04T12:08:23Z
+heartbeat: 2026-08-04T12:08:23Z
+status: claimed-before-planning
+items: tui-fetch-url-signal
+paths: file:frontend/tui/src/main/scala/scalascript/frontend/tui/TuiEmitter.scala file:frontend/tui/src/test/scala/scalascript/frontend/tui/TuiEmitterTest.scala file:specs/frontend-tui-fetch-url-signal.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
