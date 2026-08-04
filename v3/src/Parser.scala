@@ -25,17 +25,31 @@ object Parser:
     * inventing a table means a program that groups one way in Scala groups the same way here —
     * `a | b & c` is `a | (b & c)` because `&` binds tighter than `|`, and a reader who knows Scala
     * does not have to learn a second set of rules to read SSC3. */
-  private def prec(op: String): Int = op match
-    case "||" | "|"                        => 1
-    case "^"                               => 2
-    case "&&" | "&"                        => 3
-    case "==" | "!="                       => 4
-    case "<" | "<=" | ">" | ">=" |
-         "<<" | ">>" | ">>>"               => 5
-    case "::"                              => 6
-    case "+" | "-" | "++"                  => 7
-    case "*" | "/" | "%"                   => 8
-    case _                                 => 0
+  private def prec(op: String): Int =
+    // Scala's rule is by the operator's FIRST CHARACTER, not by the whole token. The table used to
+    // list exact strings, which gave every operator outside the list precedence 0 — `:+` had no
+    // precedence at all and could not be parsed. Keying on the first character is both faithful and
+    // total: it reproduces every row the old table had, and a new operator needs no edit.
+    if op.isEmpty then 0
+    else op.charAt(0) match
+      case '|'             => 1
+      case '^'             => 2
+      case '&'             => 3
+      case '=' | '!'       => 4
+      case '<' | '>'       => 5
+      case ':'             => 6
+      case '+' | '-'       => 7
+      case '*' | '/' | '%' => 8
+      case _               => 0
+
+  /** Scala's other half of the same rule: precedence comes from the FIRST character, associativity
+    * from the LAST. An operator ending in `:` is right-associative — `1 :: 2 :: Nil` must group as
+    * `1 :: (2 :: Nil)`, and left association would build a list whose tail is a number.
+    *
+    * `++` was in the right-associative set before this and should not have been: it ends in `+`.
+    * It was invisible because concatenation is associative, which is exactly the kind of latent
+    * wrongness that surfaces later on an operator where it is not. */
+  private def rightAssoc(op: String): Boolean = op.nonEmpty && op.charAt(op.length - 1) == ':'
 
   /** An integer literal that does not fit is a DIAGNOSTIC WITH A POSITION, not an exception from
     * the JDK. The difference is the difference between the UNSUPPORTED and CRASH buckets. */
@@ -154,7 +168,7 @@ object Parser:
           // `::` is RIGHT-associative, so it recurses at its own precedence rather than one above:
           // `1 :: 2 :: Nil` must be `1 :: (2 :: Nil)`, and left association would build a list
           // whose tail is a number.
-          val (rhs, ts2) = parseBin(ts.tail, if op == "::" || op == "++" then prec(op) else prec(op) + 1)
+          val (rhs, ts2) = parseBin(ts.tail, if rightAssoc(op) then prec(op) else prec(op) + 1)
           lhs = Expr.Bin(op, lhs, rhs, p)
           ts = ts2
         case _ => go = false

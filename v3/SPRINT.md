@@ -122,7 +122,16 @@ gated by depth on a few files, which is not visible without the histogram.
 | 3 | `<<` `>>` `>>>` `&` `\|` `^` — bitwise operators | 116 |
 | 4 | a continuation `else` on its own, deeper-indented line | 116 |
 | 5 | a nested pattern — `case Right(ByteRead(v, _))` | 116 |
-| 6 | **`effect X:` / `trait`** — the two remaining big ones | 126 / 21 |
+| 6 | `:+` — and with it every `:`-starting operator | 116 |
+| 7 | **`trait`** — the wall: it needs dispatch, which needs a type checker | 137 |
+
+Link 6 is the clearest argument for measuring. The bucket read `expected an expression, found :` at
+126 cases, and the obvious reading — `effect X:`, which the corpus has plenty of — was wrong: 116 of
+the 126 were ONE line, `acc.reverse :+ (value & 255L).toInt`. The lexer special-cased `::` and
+nothing else, so `:+` split into punctuation and `+`. `effect` and `extension` together were 10.
+
+After it, the histogram is no longer a chain but a WALL: `trait` at 137, then `[` (generics) at 36.
+Both need a type checker, which is the next real decision rather than the next construct.
 
 ### Defects found and fixed along the way
 
@@ -150,6 +159,22 @@ gated by depth on a few files, which is not visible without the histogram.
       Scala and was a crash here. `Tag` is now TOTAL on both lanes, yielding -1, which no type index
       can equal. Observed: with the throw reinstated the gate goes red naming both lanes —
       `executor [7/107/-2] bridge [7/107/-2/-1/102/9/0]` — so it can tell the two states apart.
+- [x] **The two lanes printed Doubles DIFFERENTLY, and the gate could not see it.** The executor
+      printed `3.0`, `-0.0`, `123456789.0`; v2 prints `3`, `0`, `123456789`. Invisible because no
+      fixture printed a whole-number Double — a differential gate is only differential over what it
+      runs. Cause: the executor printed through `Text.floatText`, the CANONICAL `.ssir` form, which
+      is a different contract from a program's output; the two are now separate functions. Direction
+      chosen by measurement, not taste: `ssc3 run` goes through v2 and the corpus expectations are
+      the ones every lane is held to, so the executor matches the reference lane. Real Scala prints
+      `3.0`, so this is v1-parity behaviour — if the repository ever changes it, v3 inherits it.
+- [x] **`toInt` was identity, and should truncate to 32 bits.** `5000000000L.toInt` is `705032704`
+      in Scala and in v2; the executor returned the value unchanged. Assumed because ScalaScript's
+      `Int` is 64-bit — true, and not what `toInt` means. Caught by running BOTH lanes on the same
+      program instead of reasoning about one.
+- [x] **`++` was parsed right-associative.** It ends in `+`, so Scala parses it left. Invisible
+      because concatenation is associative — the latent kind, which surfaces on the first operator
+      where it is not. Associativity now follows Scala's rule (right iff the operator ends in `:`)
+      and precedence follows the FIRST character, which is what made `:+` parseable at all.
 - [x] **A contended host made one corpus run a hypothesis.** A background report run CONCURRENTLY
       with three gates that package the same sources reported `CRASH 360, N = 0` — a total
       regression. Re-measured alone: `N = 26, CRASH 0`, unchanged. Corpus runs take the host alone.

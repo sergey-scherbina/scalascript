@@ -1,0 +1,8 @@
+val big = 5000000000L
+println((511L & 255L).toInt)
+println(big.toInt)
+println(3.toDouble)
+println(7.9.toInt)
+println((-7.9).toInt)
+println(2.5.toDouble)
+println(10.toLong)

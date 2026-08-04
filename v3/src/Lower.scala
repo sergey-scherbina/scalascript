@@ -183,6 +183,25 @@ object Lower:
     // `++` is DYNAMIC DISPATCH, not a lowering-time decision: it concatenates lists, strings and
     // sets alike, and which one it is depends on the receiver at run time. Picking a representation
     // here would need a type checker; `Invoke` asks the value.
+    // `:+` appends and `+:` prepends. Same argument as `++`: which collection it is, is a property
+    // of the receiver at run time, and deciding it here would need a type checker.
+    case Expr.Bin(":+", l, r, _) =>
+      val (li, lr, st1) = lower(l, fns, classes, zeroArity, st0)
+      val (ri, rr, st2) = lower(r, fns, classes, zeroArity, st1)
+      val (k, st3) = st2.constIdx(Lit.LStr(":+"))
+      val (d, st4) = st3.fresh
+      (li ++ ri :+ Instr.Invoke(d, k, lr, List(rr)), d, st4)
+
+    // `a +: xs` is a method on the RIGHT operand — Scala's rule for an operator ending in `:` — so
+    // the receiver and the argument swap here. Getting this backwards would prepend the list to the
+    // element and fail with a message about the wrong operand.
+    case Expr.Bin("+:", l, r, _) =>
+      val (li, lr, st1) = lower(l, fns, classes, zeroArity, st0)
+      val (ri, rr, st2) = lower(r, fns, classes, zeroArity, st1)
+      val (k, st3) = st2.constIdx(Lit.LStr("+:"))
+      val (d, st4) = st3.fresh
+      (li ++ ri :+ Instr.Invoke(d, k, rr, List(lr)), d, st4)
+
     case Expr.Bin("++", l, r, _) =>
       val (li, lr, st1) = lower(l, fns, classes, zeroArity, st0)
       val (ri, rr, st2) = lower(r, fns, classes, zeroArity, st1)

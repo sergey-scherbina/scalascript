@@ -47,12 +47,36 @@ object Exec:
     case Value.VUnit      => "()"
     case Value.VBool(b)   => if b then "true" else "false"
     case Value.VInt(n)    => n.toString
-    case Value.VFloat(d)  => Text.floatText(d)
+    case Value.VFloat(d)  => showFloat(d)
     case Value.VStr(s)    => s
     case Value.VData(t, f) =>
       if f.isEmpty then "#" + t else "#" + t + "(" + f.toList.map(show).mkString(", ") + ")"
     case Value.VClos(f, _) => "<closure " + f + ">"
     case Value.VArr(xs)    => "Array(" + xs.toList.map(show).mkString(", ") + ")"
+
+  /** How the LANGUAGE prints a Double — deliberately NOT `Text.floatText`, which is the canonical
+    * `.ssir` form. Sharing one helper between an IR serialisation and a program's output is the
+    * duplicated/shared-helper trap this repository has paid for before: the two have different
+    * contracts and only one of them may ever change for a formatting reason.
+    *
+    * The rule is the REFERENCE LANE's, measured rather than invented — `ssc3 run` goes through v2
+    * and the corpus expectations are the ones every other lane is held to:
+    *
+    *     3.0 -> 3      -3.0 -> -3      -0.0 -> 0      123456789.0 -> 123456789
+    *     2.5 -> 2.5    0.1+0.2 -> 0.30000000000000004      1/0.0 -> inf      0/0.0 -> nan
+    *
+    * Real Scala prints `3.0` here, so this is v1-parity behaviour rather than Scala behaviour. That
+    * is a decision the reference lane already made; v3's job is that its TWO lanes agree, and if the
+    * repository ever changes it, v3 inherits the change rather than forking it.
+    *
+    * The whole-number test is `d == d.toLong.toDouble` — pure arithmetic, no host library, so it
+    * holds in the portable subset. It is also self-limiting: past 2^63 `toLong` saturates, the
+    * round trip fails, and the value falls through to the general form instead of printing a lie. */
+  private def showFloat(d: Double): String =
+    if d.isNaN then "nan"
+    else if d.isInfinite then (if d > 0.0 then "inf" else "-inf")
+    else if d == d.toLong.toDouble then d.toLong.toString
+    else d.toString
 
   private def truthy(v: Value): Boolean = v match
     case Value.VBool(b) => b
@@ -325,6 +349,8 @@ object Exec:
             case "filter"  => listIn(m, xs.filter(x => truthy(apply1(m, args.head, x))))
             case "reverse" => listIn(m, xs.reverse)
             case "++"      => listIn(m, xs ++ listOut(m, args.head))
+            case ":+"      => listIn(m, xs :+ args.head)
+            case "+:"      => listIn(m, args.head :: xs)
             case "mkString" =>
               val sep = args.headOption match
                 case Some(Value.VStr(x)) => x
@@ -339,6 +365,16 @@ object Exec:
             case Value.VData(t, _) if t == tagOf(m, "None") && name == "isEmpty" => Value.VBool(true)
             case Value.VData(t, f) if t == tagOf(m, "Some") && name == "getOrElse" => f(0)
             case Value.VData(t, _) if t == tagOf(m, "None") && name == "getOrElse" => args.head
+            // Numeric conversions. `toInt` is IDENTITY on an integer because ScalaScript's `Int` is
+            // 64-bit — it is not a narrowing here, and treating it as one would silently change
+            // large values. Every arm below was checked against the v2 lane on the same program
+            // rather than assumed; the two lanes must agree or the differential gate is worthless.
+            case Value.VInt(n) if name == "toInt"  => Value.VInt(n.toInt.toLong)
+            case Value.VInt(n) if name == "toLong" => Value.VInt(n)
+            case Value.VInt(n) if name == "toDouble" => Value.VFloat(n.toDouble)
+            case Value.VFloat(d) if name == "toInt"  => Value.VInt(d.toLong.toInt.toLong)
+            case Value.VFloat(d) if name == "toLong" => Value.VInt(d.toLong)
+            case Value.VFloat(d) if name == "toDouble" => Value.VFloat(d)
             // Refused BY NAME, with the receiver shown: a program that needs a method this lane
             // lacks is told which one, rather than getting a wrong value.
             case _ => throw ExecError("method '" + name + "' on " + show(recv) + " is not implemented on this lane — `ssc3 run` uses the v2 runtime")

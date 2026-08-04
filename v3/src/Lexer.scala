@@ -228,14 +228,28 @@ object Lexer:
       // maximal munch rather than by a table of known pairs means a new operator needs no edit here.
       var s = s0
       var text = ""
-      while !done(s) && Chars.isOpChar(at(s)) do
+      // `:` is admitted INSIDE the munch but never starts one here — that is what separates `+:`
+      // (one operator) from `f(x)` followed by `: Int` (an operator, then a type ascription). The
+      // ascription colon always follows an identifier, a literal or a bracket, never an operator.
+      while !done(s) && (Chars.isOpChar(at(s)) || at(s) == ':') do
         text = text + at(s); s = adv(s)
       (Tok.TOp(text, p), s)
-    // `::` is an OPERATOR; a single `:` is punctuation that introduces a type. Making `:` an
-    // operator character would have been simpler and would turn every `x: Int` into an infix
-    // application, so the pair is recognised here instead.
-    else if c == ':' && s0.pos + 1 < s0.src.length && s0.src.charAt(s0.pos + 1) == ':' then
-      (Tok.TOp("::", p), adv(adv(s0)))
+    // A `:` that STARTS an operator (`::`, `:+`, `:=`) versus a bare `:`, which is punctuation
+    // introducing a type. Making `:` an ordinary operator character would have been simpler and
+    // would turn every `x: Int` into an infix application, so the two are told apart by LOOKAHEAD:
+    // a `:` followed by another operator character begins an operator, and is then lexed by the
+    // same maximal munch as everything else rather than by a table of known pairs.
+    //
+    // `::` used to be special-cased alone. Measured 2026-08-04: `:+` was 116 of the 126 cases in
+    // the corpus's largest refusal bucket — all of them one line of one heavily-imported std
+    // module. The bucket read as `expected an expression, found :`, which named the symptom.
+    else if c == ':' && s0.pos + 1 < s0.src.length &&
+            (Chars.isOpChar(s0.src.charAt(s0.pos + 1)) || s0.src.charAt(s0.pos + 1) == ':') then
+      var s = s0
+      var text = ""
+      while !done(s) && (Chars.isOpChar(at(s)) || at(s) == ':') do
+        text = text + at(s); s = adv(s)
+      (Tok.TOp(text, p), s)
     else if c == '(' || c == ')' || c == ',' || c == ':' || c == '.' || c == ';' ||
             c == '{' || c == '}' || c == '[' || c == ']' then
       (Tok.TPunct(c.toString, p), adv(s0))

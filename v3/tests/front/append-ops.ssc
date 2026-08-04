@@ -1,0 +1,7 @@
+val xs = List(1, 2)
+println((xs :+ 3).mkString(","))
+println((0 +: xs).mkString(","))
+println((1 :: 2 :: Nil).mkString("-"))
+val acc = List(7, 8)
+val value = 511L
+println((acc.reverse :+ (value & 255L).toInt).mkString(","))
