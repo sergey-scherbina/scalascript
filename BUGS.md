@@ -150,12 +150,20 @@ documentation at module granularity in both surfaces. If that is intended, it is
 `docs/user-guide.md`, since `import p.{a}` reads as a restriction to every Scala user.
 
 ## new-array-n-builds-a-one-element-array — the allocate-n form is lowered as the factory form
-<!-- status: open
+<!-- status: fixed
      lane: multi
      kind: bug
      area: front
-     fixed-in: -
-     gate: v3/tests/array-floor.ssc -->
+     fixed-in: 2c1c1c9cb
+     gate: tests/conformance/generic-ctor-and-array-alloc.ssc -->
+
+**FIXED on all four lanes.** int, js and jvm in `2c1c1c9cb`; the v2 legacy front in `2d29b3e71`;
+the v2 F front — the default — in `ce637cafb`. The gate runs on all four with no declared red.
+
+The entry named `v3/tests/array-floor.ssc` as its gate and that file was never written: the check
+became a conformance case instead, which is the right home because it needs all four lanes and the
+shared oracle. **The entry stayed `open` with `fixed-in: -` for six days after the fix landed** —
+my own bookkeeping, and exactly the drift `bugs-status-drift` exists to catch.
 
 **Found 2026-08-01** while scoping `v3`'s `SSC3-0`, by measuring an inherited assumption instead of
 trusting it. Blocks `v3` `SSC3-1` and through it the whole IR implementation: an SSC IR frame is a
