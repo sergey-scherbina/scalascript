@@ -366,8 +366,7 @@ commits; re-run it before acting on it.
 |---|---|
 | `build`, `bundle`, `render`, `components`(INT) | `int-v1-lane-loses-a-builtin-companion-to-its-own-case-class` — filed, reduced to 4 lines |
 | `middleware`, `validation` | `500 native HTTP handler failed: native callback arity` |
-| `fm-routes` | `GET /api/todos: Not Found` — the route is registered and does not match |
-| `health-defaults` | `GET /_health: status=404 (want 200)` |
+| `fm-routes`, `health-defaults` | **RESOLVED 2026-08-04 — three causes, only one of them the product.** Both gates now exit 0. (a) They ran `$BIN/sscc` as "the JVM backend"; `sscc` is `ssc-tools compile-jvm`, which COMPILES and exits — "the server process EXITED before it listened" was the literal truth about a compiler, and the JVM lane works fine via `run-jvm`. (b) They labelled `$BIN/ssc` INT; it is `StandardMain`, the NATIVE lane, so failures went to the wrong owner. (c) Body extraction used `head -n -2`, a GNU extension that BSD/macOS rejects outright, so `body` was ALWAYS empty and every body assertion failed on every lane regardless of what the server sent. What remains after fixing the instrument is ONE product gap on ONE lane, filed as `v2/BUGS.md native-lane-ignores-declarative-route-registration` and declared `[KNOWN GAP]` in both gates. |
 | `package-keyword` | `ssc: unbound global: org` — the `[org](./cards.ssc)` import does not bind |
 | `import-alias`, `url-import`, `std-ui-forms`, `upload` | INT-lane content mismatches, each unreduced |
 

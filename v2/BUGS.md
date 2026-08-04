@@ -7,6 +7,43 @@ grepping for status.
 
 Newest first.
 
+## native-lane-ignores-declarative-route-registration — routes it did not see as a `route(...)` call do not exist
+<!-- status: open
+     lane: native
+     area: runtime
+     kind: bug
+     gate: tests/e2e/fm-routes-smoke.sh -->
+
+**Measured 2026-08-04**, per lane, same fixture, correct runners for each:
+
+| lane | runner | `GET /api/todos` (front-matter route) | `GET /_health` (built-in) |
+|---|---|---|---|
+| **native** | `bin/ssc` | **404 Not Found**, `text/plain` | **404 Not Found**, `text/plain` |
+| int | `ssc-tools run --v1` | 200 `["Buy milk",…]` | 200 `{"status":"ok"}` `application/json` |
+| jvm | `ssc-tools run-jvm` | 200 | 200 |
+| js | `ssc-tools run-js` | 200 | 200 |
+
+**One gap, two symptoms.** Both cases are routes the program never registers with an explicit
+`route(...)` call in its body — one comes from front-matter (`routes:` with `method`/`path`/
+`handler`), the other from the runtime's own defaults. Three lanes honour both; the native lane
+honours neither. The interpreter registers the built-ins in
+`v1/runtime/backend/interpreter/.../ClusterRoutesRuntime.scala` and `JvmGenBlockAnalysis` has the
+jvm equivalent — there is no native counterpart anywhere under `v2/`.
+
+**This is the lane a user gets by default.** `bin/ssc file.ssc` is `StandardMain`; a program whose
+routes live in front-matter serves 404 for every one of them, and `/_health` — which orchestrators
+poll — answers 404 with `text/plain` rather than 200 JSON.
+
+**Not the same as `native-route-block-form-registers-the-THUNK-not-its-result`**, which was about an
+explicit `route(m, p) { … }` whose block form handed the plugin a thunk. That call site is reached;
+these two never register at all. Adjacent, and worth reading first, but a different question — three
+gates were mis-diagnosed once already by taking a family resemblance for an identity.
+
+**Declared in both gates rather than hidden.** `fm-routes-smoke` and `health-defaults-smoke` count
+INT/JVM/JS and print `[KNOWN GAP] NATIVE` against this slug. Both **fail if NATIVE starts passing**,
+with a message saying to delete the declaration and close this entry — a known-red that can quietly
+become a known-green is how a fixed bug keeps a permanent exemption.
+
 ## named-case-class-field-access-is-reversed-on-the-default-lane — `Point(3,4).x` returns 4
 <!-- status: open
      lane: native
