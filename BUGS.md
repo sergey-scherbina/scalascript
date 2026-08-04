@@ -834,11 +834,12 @@ its docstring is where the refutation above lives.
   a traceback on any path outside the repo, which is exactly where a query's test fixture belongs.
 
 ## bugs-index-fixed-in-checks-resolvable-not-reachable — a rebased sha passes the gate and dangles for everyone else
-<!-- status: open
+<!-- status: fixed
      lane: apparatus
      area: build
      kind: apparatus
-     gate: none -->
+     gate: tests/e2e/bugs-index-gate.sh
+     fixed-in: 19b9561b9 -->
 
 **Found 2026-07-31 by doing it**, within ten minutes of writing the entry above. I recorded
 `fixed-in: ddec573ae`, then `git rebase origin/main` before pushing rewrote that commit to
@@ -864,6 +865,34 @@ suggests is the failure this repo keeps paying for.
 
 Cheap mitigation available today, independent of the gate: **record `fixed-in` AFTER the rebase, not
 before.** The sha you commit with is not the sha you push when anything landed in between.
+
+
+**CLOSED 2026-08-05 — fixed in `19b9561b9`** ("fixed-in must be REACHABLE, not merely present — 17
+entries were not"), and the fix took both halves this entry said a fix would need:
+
+- `tests/e2e/bugs-index-gate.sh:142` now asks `git merge-base --is-ancestor <sha> HEAD` instead of
+  `git cat-file -e`, with the comment naming the distinction: "REACHABILITY, not existence".
+- The shallow-clone problem is answered deliberately rather than papered over. The gate reads
+  `git rev-parse --is-shallow-repository`, and in a shallow clone checks the SHAPE only while
+  PRINTING that it did: *"note: shallow clone — `fixed-in` checked for SHAPE only; run in a full
+  clone to verify each sha resolves."* That is exactly what this entry asked for — a gate that
+  checks less than its name suggests has to say so.
+
+**Confirmed by being caught by it**, which is better evidence than reading the code. On 2026-08-04 I
+recorded `fixed-in: 7866d59a1`, rebased before pushing, and the gate refused:
+
+```
+FAIL [type-ascription-tuple-and-set-arms-missing] fixed-in `7866d59a1` exists locally but is
+     NOT an ancestor of HEAD — a pre-rebase orphan, invisible in a fresh clone
+```
+
+That is the precise failure this entry was filed about, detected at the right moment — before the
+push rather than after.
+
+The mitigation this entry recommended is still the right working rule and cost me two more rounds
+before I adopted it: **record `fixed-in` AFTER the final rebase.** A rebase rewrites the commit you
+just measured, so any sha written before it is stale by construction; and if a push is rejected and
+forces another rebase, the sha has to be rewritten again.
 
 ## ssc-tools-swallows-piped-stdin — every command except lsp/repl reads stdin to EOF before the program runs
 <!-- status: open
