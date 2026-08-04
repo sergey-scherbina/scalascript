@@ -5,5 +5,4 @@ ui-fetch-credentials	claude-code	2026-08-04T12:45:37Z	ui-fetch-credentials std-a
 release-v0-1-0	claude-code	2026-08-04T15:20:00Z	release-v0-1-0 native-release-blocked-by-testutils-clean-compile	file:.github/workflows/native-release.yml file:tests/BUGS.md file:build.sbt
 uniml-ssc3-frontend-readiness	claude-code	2026-08-04T21:40:45Z	UNIML-SSC3 UNIML-SSC3-ALPHABET	uniml
 launcher-digest-check-budget-300	claude-code	2026-08-04T21:59:18Z	smoke-suite-over-its-own-budget	file:scripts/smoke-ci.ssc file:tests/e2e/no-gnu-only-shell-constructs.sh file:tests/e2e/response-transforms-gate.sh file:tests/e2e/request-validation-family-gate.sh file:tests/e2e/route-handler-shapes-gate.sh
-triple-quote-trailing	claude-code	2026-08-04T22:14:33Z	triple-quoted-literal-ending-in-a-quote-is-not-a-string	file:v1/lang/core/src/main/scala/scalascript/parser/Parser.scala file:tests/e2e/triple-quote-trailing-quote-gate.sh
 jvm-cons-pattern-lowering	claude-code	2026-08-04T22:14:59Z	jvm-lane-cannot-compile-a-json-import	mod:v1/runtime/backend/jvm file:tests/e2e/jvm-json-import-gate.sh
