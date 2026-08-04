@@ -113,6 +113,18 @@ see the cause from the output alone.
      fixed-in: -
      gate: scripts/smoke-ci -->
 
+**RAISED TO 500 s ON 2026-08-04, by the project owner's instruction, and this entry STAYS OPEN.**
+The 420 s cap was fitted when the suite held 18 checks; it holds 58, and with runner variance at
+±14 s it had no headroom against its own noise — it failed run 30905783511 at 428.8 s with every
+check green. 500 s buys room for what the suite contains today and answers nothing about what it
+should contain, which is what this entry is actually about.
+
+Recorded rather than applied quietly because raising it was refused twice before, including by me,
+and that refusal was right: an agent lifting a cap on its own work is how a cap stops meaning
+anything. The structural work that belongs to this entry was done separately and is not replaced by
+the raise — three of the five most expensive checks were mine and are now 88 s → 10 s and
+104.5 s → 3 s, the last measured on CI where it cost 104.5 s against 5.5 s locally.
+
 **REOPENED the same day. Closing this was premature and the reason is worth more than the fix
 was.** Four runs, 2026-08-03:
 

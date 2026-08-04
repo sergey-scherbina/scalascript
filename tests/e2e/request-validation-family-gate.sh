@@ -19,7 +19,7 @@
 # returns 7 for n=7" would pass an implementation that rejects every valid optional field.
 #
 # So each name is probed twice — present and absent — over one boot, on one program, five paths.
-# The suite has a hard 420s budget and this file is a newcomer; a server boot per case is what put
+# The suite has a hard budget (500s since 2026-08-04) and this file is a newcomer; a server boot per case is what put
 # two earlier gates 88s into it (tests/BUGS.md smoke-suite-over-its-own-budget).
 set -uo pipefail
 

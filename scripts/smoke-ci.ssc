@@ -49,7 +49,7 @@ DEFAULT one could not. A CI runner is subprocesses and nothing else, so the gap 
 ## Accounting
 
 Per-check timings, aggregated per module, with a hard total budget (`SSC_SMOKE_BUDGET`, default
-420 s). The budget is enforced, not documented — this file is where the push path stops being allowed
+500 s). The budget is enforced, not documented — this file is where the push path stops being allowed
 to grow silently, and a run that overruns it fails even when every check passed.
 
 **420 s is sized on a DISTRIBUTION, not on one sample, and getting that wrong cost two red runs.**
@@ -62,12 +62,27 @@ wrong:
 | 300 s | 378.5 s | guessed from local timings; RED. A hosted runner has fewer, slower cores — the corpus slice was 233.9 s there against 68 s locally |
 | 330 s | 250.2 s | after `SSC_CONF_WARM_JVM=1` cut the slice to 115.5 s; GREEN, and the cap was set from that single observation |
 | 330 s | 338.6 s | 18/18 green, RED on the budget alone. The slice was 175.2 s that run — the SAME suite, +60 s |
+| 420 s | 428.8 s | 58/58 green, RED on the budget alone (run 30905783511). By then the suite held 58 checks, not the 18 the row above measured |
+| 500 s | see below | RAISED 2026-08-04 on the project owner's instruction, with the suite at 58 checks |
 
 The third row is the lesson: the dominant check varies by ±25 % between runs on a shared runner, so a
 cap fitted to one sample encodes that sample's luck. POLICY P-6.6 says one measurement is a
 hypothesis; a budget is a measurement like any other. 420 s sits above the observed maximum with room
 for the spread, which is what lets it keep doing its actual job — catching STRUCTURAL growth, a check
 someone added or a check that got slower — instead of flapping on runner noise.
+
+**On the raise to 500 s, so the next person is not misled by the paragraph above.** The 420 s cap
+was fitted when this suite held 18 checks; it now holds 58, and a sibling measured runner variance
+at ±14 s, which leaves a 420 s cap with no headroom against its own noise — one run came in 7 s
+SLOWER across a change that only REMOVED work. The cap was doing its job badly in both directions:
+failing runs where every check passed, while the thing it exists to catch, STRUCTURAL growth, was
+real and separately fixed (two gates 88 s → 10 s, one 104.5 s → 3 s, all measured on CI rather than
+locally, where the same gate cost 5.5 s).
+
+Raising it was refused twice before by agents including me, and correctly: an agent lifting a cap
+on its own work is how the cap stops meaning anything. This raise is the project owner's decision,
+recorded here rather than applied quietly, and `tests/BUGS.md smoke-suite-over-its-own-budget` stays
+OPEN — 500 s is headroom for the current 58 checks, not an answer to what the suite should contain.
 
 When a run overruns THIS, read the per-check timings before touching the number; that is the whole
 point of printing them. Uniform inflation across every check is a loaded host, not a slow suite. One
@@ -266,7 +281,9 @@ val suite = List(
   // THE REAL NUMBER, so the next person does not repeat the mistake: two consecutive runs of
   // near-identical content measured 418.6 s and 425.6 s, and the change between them only REMOVED
   // work. Runner variance here is ±14 s, so a cap with less than ~20 s of headroom flaps no matter
-  // what is in the suite. 420 s is not a lot of room for 58 checks; the next cut has to be
+  // what is in the suite. The cap is 500 s since 2026-08-04, raised on the project owner's
+  // instruction after 420 s went red at 428.8 s with all 58 checks green; that buys headroom for
+  // the current suite and answers nothing about what belongs in it. The next cut still has to be
   // structural, not another 10 s shaved off the newest arrival.
   // One file with one `std/` import, three lanes, two locations. `compile-jvm` refused what
   // `run --v1` and `run-js` accepted, because `AutoResolve` consulted `libPath` (the REPO ROOT,
@@ -545,7 +562,7 @@ def showTally(tally: LaneTally): String =
 def main() =
   val argv = args
   val listOnly = argv.contains("--list")
-  val budgetSeconds = envOrElse("SSC_SMOKE_BUDGET", "420").toInt()
+  val budgetSeconds = envOrElse("SSC_SMOKE_BUDGET", "500").toInt()
   val modules = declaredModules()
 
   // The hierarchy check comes FIRST: a suite that silently drops a check because its module name
