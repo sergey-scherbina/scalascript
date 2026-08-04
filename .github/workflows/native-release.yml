@@ -44,12 +44,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # native_image_xmx: the image builder prints its own requirement
+          # (>6.04 GB on ubuntu, >5.69 GB on intel) and the runners differ
+          # widely, so one figure cannot fit all three. arm64 has only 7 GB
+          # TOTAL — 6g leaves the OS ~1 GB and is the ceiling here, not a
+          # comfortable value. If it still starves, that runner is too small
+          # for this image and needs a larger one.
           - runner: ubuntu-latest
             artifact_id: ssc-linux-x86_64
+            native_image_xmx: 10g
           - runner: macos-latest
             artifact_id: ssc-macos-arm64
+            native_image_xmx: 6g
           - runner: macos-15-intel
             artifact_id: ssc-macos-x86_64
+            native_image_xmx: 9g
 
     steps:
       - name: Checkout
@@ -68,12 +77,18 @@ jobs:
         uses: sbt/setup-sbt@f6db8ab474efba716fc7f04441ab33714e4825af # v1
 
       - name: Build native binary, frontend data, and plugin host
+        env:
+          SSC_NATIVE_IMAGE_XMX: ${{ matrix.native_image_xmx }}
         run: |
-          # Keep the hosted diagnostic runnable while build.sbt is owned by a
-          # different live claim. This replacement is idempotent and is
-          # removed after the shared defaults are repaired and re-qualified.
+          # The `set cli / graalVMNativeImageOptions := ...` line that used to be
+          # here rewrote the reflection/resource config paths and forced
+          # -J-Xmx5g. Its comment called it a temporary diagnostic kept "while
+          # build.sbt is owned by a different live claim"; in fact it was load
+          # bearing, because build.sbt's own paths resolved to a directory that
+          # does not exist. build.sbt is fixed now (anchored on the build root)
+          # and takes the heap from SSC_NATIVE_IMAGE_XMX above, so the override
+          # is gone rather than merely trimmed.
           sbt \
-            'set cli / graalVMNativeImageOptions := (cli / graalVMNativeImageOptions).value.filterNot(opt => opt.startsWith("-H:ReflectionConfigurationFiles=") || opt.startsWith("-H:ResourceConfigurationFiles=") || opt == "--features=org.graalvm.home.HomeFinder" || opt.startsWith("-J-Xmx")) ++ Seq("-H:ReflectionConfigurationFiles=" + ((cli / baseDirectory).value / ".." / ".." / ".." / "native-image-configs" / "reflect-config.json").getCanonicalPath, "-H:ResourceConfigurationFiles=" + ((cli / baseDirectory).value / ".." / ".." / ".." / "native-image-configs" / "resource-config.json").getCanonicalPath, "-J-Xmx5g")' \
             "cli/installBin" \
             "cli/graalvm-native-image:packageBin" \
             "pluginHost/assembly"

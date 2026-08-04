@@ -2344,13 +2344,29 @@ lazy val cli = project
       "--no-fallback",
       "--initialize-at-build-time=scala",
       "--initialize-at-build-time=scalascript",
-      "-H:ReflectionConfigurationFiles=" + (baseDirectory.value / ".." / ".." / "native-image-configs" / "reflect-config.json").getAbsolutePath,
-      "-H:ResourceConfigurationFiles="   + (baseDirectory.value / ".." / ".." / "native-image-configs" / "resource-config.json").getAbsolutePath,
-      // Enable service loader support — reads META-INF/services/* at build time
-      "--features=org.graalvm.home.HomeFinder",
+      // Anchored on the BUILD ROOT, not on a count of `..` from cli's base dir.
+      // These previously read `baseDirectory / ".." / ".."`, which from
+      // v1/tools/cli resolves to v1/native-image-configs — a directory that does
+      // not exist. native-image therefore ran with no reflection or resource
+      // configuration, and the release workflow carried a `set` line supplying
+      // the correct path as a "temporary diagnostic". It was not a diagnostic:
+      // it was the only reason the configs loaded at all.
+      // tests/BUGS.md native-release-native-image-three-defects.
+      "-H:ReflectionConfigurationFiles=" + ((ThisBuild / baseDirectory).value / "native-image-configs" / "reflect-config.json").getAbsolutePath,
+      "-H:ResourceConfigurationFiles="   + ((ThisBuild / baseDirectory).value / "native-image-configs" / "resource-config.json").getAbsolutePath,
       "-H:+ReportExceptionStackTraces",
-      // Increase image heap for Scala + scalameta class loading at build time
-      "-J-Xmx8g"
+      // NOTE: `--features=org.graalvm.home.HomeFinder` used to be here and is
+      // deliberately absent. ca9ae20b5 filtered it out in the workflow with an
+      // empty commit body, so the reason is unrecorded — but the only
+      // configuration ever observed to reach native-image at all is the one
+      // without it. Re-add only together with a run that proves it builds.
+      //
+      // Heap for the image builder. native-image prints its own requirement and
+      // the runners differ widely (ubuntu 15.6 GB, macos-intel 14 GB, macos-arm64
+      // 7 GB), so a single figure cannot fit all three: 8g is right locally and
+      // is 114% of the arm64 runner's RAM. CI sets SSC_NATIVE_IMAGE_XMX per
+      // runner; everything else keeps the local default.
+      "-J-Xmx" + sys.env.getOrElse("SSC_NATIVE_IMAGE_XMX", "8g")
     )
   )
 
