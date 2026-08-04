@@ -2,7 +2,7 @@ slug: set-distinct-representation
 branch: feature/set-distinct-representation
 agent: claude-code
 started: 2026-08-04T11:37:03Z
-heartbeat: 2026-08-04T11:55:25Z
+heartbeat: 2026-08-04T12:11:46Z
 status: in-progress
 items: type-ascription-tuple-and-set-arms-missing
 paths: file:v2/src/Runtime.scala file:specs/v2.2-p6.5-fsub.ssc file:v2/lib/ssc1-lower.ssc0 file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGenCpsCodegen.scala file:v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/core-dispatch.mjs file:v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/core-collections.mjs file:tests/conformance/set-distinct.ssc file:tests/conformance/expected/set-distinct.txt file:tests/conformance/type-ascription-set.ssc file:tests/conformance/contract-roster.tsv
@@ -10,4 +10,4 @@ scope: |
   Give Set a representation of its own on the js and v2 lanes: distinct value,
   dedup, membership equality, printing, `case _: Set`, union/intersect/diff and the
   infix +/-/++/-- forms. Last open piece of type-ascription-tuple-and-set-arms-missing.
-next: conformance case set-distinct + e2e gate, then BUGS entries
+next: re-smoke after rebase, push, release
