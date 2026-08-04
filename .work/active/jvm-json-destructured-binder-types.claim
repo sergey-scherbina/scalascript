@@ -1,0 +1,12 @@
+slug: jvm-json-destructured-binder-types
+branch: feature/jvm-json-destructured-binder-types
+agent: claude-code
+started: 2026-08-04T14:10:35Z
+heartbeat: 2026-08-04T14:10:35Z
+status: claimed-before-planning
+items: jvm-lane-cannot-compile-a-json-import
+paths: mod:v1/runtime/backend/jvm
+broad: the defect is in JvmGen's lowering of destructured binders; the file is not known until it is found, and the gate + BUGS entry live in the same module
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
