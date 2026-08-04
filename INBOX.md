@@ -382,7 +382,7 @@ parts we are confident about.
      reporter-suspects: The failure semantics were never specified because each backend's primitive was mapped directly; std.json and resolveWithin already chose totality, so fs is the outlier rather than the rule.
      impact: workaround -->
 
-## What I ran into
+### What I ran into
 
 Building the coding agent `nadia` (a consumer of `std`, sibling repo), one call to `listDir` on a
 directory that had been deleted raised and took the run down. That is my bug and I fixed it. What
@@ -399,7 +399,7 @@ The table maps each name to its backend implementation —
 a caller programs against is "whatever the host platform does". A program that behaves on one
 backend can behave differently on another, and nothing in the spec says so.
 
-## Why it lands where it does
+### Why it lands where it does
 
 In my repository the convention "guard with `exists`/`isDir` before every read" held at 12 of 13
 call sites. The miss was not random: it was in a DIAGNOSTIC, code that runs only after something
@@ -414,7 +414,7 @@ on. Two sibling implementations of the same spec (Rust, Scala 3) return a tool e
 because their fs calls are total by construction — `Result` and `Try`. Only the ScalaScript one
 raised. That asymmetry is downstream of this contract being unstated.
 
-## What I am asking for — two things, the first much more important
+### What I am asking for — two things, the first much more important
 
 **1. State the failure behaviour in `specs/std-fs-os.md`,** per function and per backend: what
 happens on a missing path, a wrong type (a directory where a file was asked for), and a permission
@@ -432,7 +432,7 @@ a `listDir` that answers `[]` for a missing directory hides a typo, and the call
 tell "empty" from "not there". Variants let the caller choose and make the choice visible at the
 call site.
 
-## What I built meanwhile, in case it is useful as a starting point
+### What I built meanwhile, in case it is useful as a starting point
 
 A small module in my own repo rather than a patch here — `nadia:src/fsx.ssc`, ~40 lines:
 `entriesOf` (`[]`), `textOf` (`Option`), `textOr(default)`, `isDirSafe` / `isFileSafe` (never
@@ -443,6 +443,12 @@ either way, and #1 stands even if nobody writes a line of code.
 
 One limitation of my module that only `std` can fix: a permission denial and a missing file give
 the same answer, because there is no way to tell them apart through the current API.
+
+
+*(Note for whoever triages this: `scripts/inbox-add --body-file` accepted a body whose headings
+started at `##`, and `tests/e2e/inbox-gate.sh` then read each of them as a new entry — my first
+attempt turned one report into five malformed ones. Rewritten at `###` here. The tool could refuse
+or demote them; I have not filed that separately, since you may prefer to fix it in either place.)*
 <!-- inbox-entries:end -->
 
 ## Closed without routing
