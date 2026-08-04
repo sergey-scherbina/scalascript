@@ -11,7 +11,7 @@ Newest first.
 <!-- status: fixed
      lane: apparatus
      area: build
-     fixed-in: PENDING
+     fixed-in: 363b53267
      gate: tests/e2e/bugs-index-gate.sh -->
 
 **Found 2026-08-04** by `bugs-header-adjacency`, from a two-line discrepancy nobody was looking at:
