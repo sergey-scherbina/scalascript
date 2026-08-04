@@ -1,6 +1,6 @@
 # Terminal DataTable: a row can be chosen
 
-Status: spec (2026-08-04)
+Status: **implemented** (landed 2026-08-04, `08bfb5045`) — row cursor + `RowLink` write, gated by `TuiFetchCargoTest`
 Owner: `tui-table-selection`
 Affected: static `frontend/tui` (`TuiEmitter`) only — the model already carries everything needed
 Reported by: rozum — `INBOX.md` entry `tui-table-selection` (`reported-at: 2026-08-04`)

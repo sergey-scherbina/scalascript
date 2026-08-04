@@ -1,6 +1,6 @@
 # Terminal managed-fetch: a handler may WRITE
 
-Status: spec (2026-08-04)
+Status: **implemented** (landed 2026-08-04, `77bc1dc84`) — `Mutation.Post` + `send_action`, gated by `TuiFetchCargoTest`
 Owner: `tui-fetch-post` (implemented under the `tui-fetch-url-signal` claim — same file, same
 reporter's screen; see that claim's `note:`)
 Affected: static `frontend/tui` only

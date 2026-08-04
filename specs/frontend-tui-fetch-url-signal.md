@@ -1,6 +1,6 @@
 # Terminal managed-fetch: the URL may come from a signal
 
-Status: spec (2026-08-04)
+Status: **implemented** (landed 2026-08-04, `77bc1dc84`) — model `urlId` + `fetchUrlSignalTo` site + emitter, gated by `TuiFetchCargoTest`
 Owner: `tui-fetch-url-signal`
 Affected: `frontend/core` (model), `v1/runtime/std/fetch-plugin` (site), static `frontend/tui`
 Reported by: rozum — `INBOX.md` entry `tui-fetch-url-signal` (`reported-at: 2026-08-04`)
