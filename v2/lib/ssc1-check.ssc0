@@ -68,6 +68,36 @@ def ssc1chkIsFloat = (t) =>
   }
 
 -- ── Unification: Ok(s') | Err(msg) ───────────────────────────────────────────
+-- Render a type for a diagnostic. Every "cannot unify X with non-X" below used to say only which
+-- CONSTRUCTOR mismatched, never the two types, and that is a real cost: `cannot unify Tuple with
+-- non-Tuple` is emitted for a Unit (`Tup[]`) meeting a function, and reads as if a tuple literal
+-- were involved. Measured 2026-08-04 on `def tri(a)(b)(c)` + `tri(1)(2)(3)`, where naming the two
+-- sides — `a=Tup[] b=Fun(Int->Var6)` — turned "somewhere a tuple is wrong" into "a Unit is being
+-- applied as a function" in one run. BUGS `v2-three-parameter-clauses-fail-typecheck`.
+def ssc1chkShowTy = (t) =>
+  match t {
+    case TyInt => "Int"
+    case TyStr => "String"
+    case TyBool => "Bool"
+    case TyFloat => "Float"
+    case TyDyn => "Dyn"
+    case TyVar(n) => #sconcat("t", n)
+    case TyFun(a, b) => #sconcat("(", #sconcat(ssc1chkShowTy(a), #sconcat(" -> ", #sconcat(ssc1chkShowTy(b), ")"))))
+    case TyList(e) => #sconcat("List[", #sconcat(ssc1chkShowTy(e), "]"))
+    case TyTup(es) => #sconcat("(", #sconcat(ssc1chkShowTyL(es), ")"))
+  }
+def ssc1chkShowTyL = (es) =>
+  match es {
+    case Nil => ""
+    case Cons(h, t) =>
+      match t {
+        case Nil => ssc1chkShowTy(h)
+        case _   => #sconcat(ssc1chkShowTy(h), #sconcat(", ", ssc1chkShowTyL(t)))
+      }
+  }
+def ssc1chkUnifyErr = (what, a, b) =>
+  Err(#sconcat("cannot unify ", #sconcat(what, #sconcat(": ", #sconcat(ssc1chkShowTy(a), #sconcat(" vs ", ssc1chkShowTy(b)))))))
+
 def ssc1chkUnify = (s, t1, t2) =>
   let a = ssc1chkAppTy(s, t1) in
   let b = ssc1chkAppTy(s, t2) in
@@ -85,28 +115,28 @@ def ssc1chkUnify = (s, t1, t2) =>
         case TyInt    => Ok(s)
         case TyDyn    => Ok(s)
         case TyVar(m) => Ok(Cons(Pair(m, TyInt), s))
-        case _        => Err("cannot unify Int with non-Int")
+        case _        => ssc1chkUnifyErr("Int", a, b)
       }
     case TyStr =>
       match b {
         case TyStr    => Ok(s)
         case TyDyn    => Ok(s)
         case TyVar(m) => Ok(Cons(Pair(m, TyStr), s))
-        case _        => Err("cannot unify String with non-String")
+        case _        => ssc1chkUnifyErr("String", a, b)
       }
     case TyBool =>
       match b {
         case TyBool   => Ok(s)
         case TyDyn    => Ok(s)
         case TyVar(m) => Ok(Cons(Pair(m, TyBool), s))
-        case _        => Err("cannot unify Bool with non-Bool")
+        case _        => ssc1chkUnifyErr("Bool", a, b)
       }
     case TyFloat =>
       match b {
         case TyFloat  => Ok(s)
         case TyDyn    => Ok(s)
         case TyVar(m) => Ok(Cons(Pair(m, TyFloat), s))
-        case _        => Err("cannot unify Float with non-Float")
+        case _        => ssc1chkUnifyErr("Float", a, b)
       }
     case TyFun(a1, a2) =>
       match b {
@@ -115,7 +145,7 @@ def ssc1chkUnify = (s, t1, t2) =>
         case TyDyn    => Ok(s)
         case TyVar(m) =>
           if ssc1chkOccurs(m, a) then Err("occurs check") else Ok(Cons(Pair(m, a), s))
-        case _ => Err("cannot unify function with non-function")
+        case _ => ssc1chkUnifyErr("function", a, b)
       }
     case TyList(ea) =>
       match b {
@@ -123,7 +153,7 @@ def ssc1chkUnify = (s, t1, t2) =>
         case TyDyn      => Ok(s)
         case TyVar(m)   =>
           if ssc1chkOccurs(m, a) then Err("occurs check") else Ok(Cons(Pair(m, a), s))
-        case _ => Err("cannot unify List with non-List")
+        case _ => ssc1chkUnifyErr("List", a, b)
       }
     case TyTup(eas) =>
       match b {
@@ -131,7 +161,7 @@ def ssc1chkUnify = (s, t1, t2) =>
         case TyDyn      => Ok(s)
         case TyVar(m)   =>
           if ssc1chkOccurs(m, a) then Err("occurs check") else Ok(Cons(Pair(m, a), s))
-        case _ => Err("cannot unify Tuple with non-Tuple")
+        case _ => ssc1chkUnifyErr("tuple", a, b)
       }
   }
 

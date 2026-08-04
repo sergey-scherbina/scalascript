@@ -43,6 +43,30 @@ narrower one than two clauses was.
 
 Deliberately kept out of both gates rather than smuggled in as a known-red row.
 
+**Narrowed 2026-08-04 — measured, and it is NOT a front bug.** Everything below was established by
+probing; the entry was filed with one repro and now has a boundary.
+
+| probe | result |
+|---|---|
+| `def tri(a)(b)(c)` + `tri(1)(2)(3)` | TYPEERR |
+| the same def, NEVER CALLED | **fine** — so the def types; the CALL is what fails |
+| `def q(a, b)(c, d)` + `q(1,2)(3,4)` — 4 args, 2 groups | **fine** |
+| `def t3(a)(b)(c, d)` + `t3(1)(2)(3,4)` | TYPEERR |
+| plain `p3(1,2,3)`, `p4(1,2,3,4)`, and a 3-arg lambda | **fine** |
+| the same 3-group call on the UNMODIFIED toolchain (legacy front compiles it) | TYPEERR, identical |
+
+So the trigger is the number of parameter CLAUSES (3+), not the number of arguments, and both fronts
+produce it — which rules out the F flattening added in `v2-front-curried-def-second-clause`.
+
+**The message now names both sides** (landed with this entry): `cannot unify tuple: () vs (Int -> t6)`.
+That reading is the useful one and it is not the obvious one — the tuple is the EMPTY tuple, i.e.
+Unit, so a ZERO-ARGUMENT application is meeting a ONE-ARGUMENT function. Whoever picks this up
+should start from "which node lowers to an `(app X)` with no arguments", not from tuples.
+
+Fixing it was not attempted here: with both fronts producing it and the def alone typing correctly,
+the next step is inside `ssc1chkInferApp`/the def's type construction in `v2/lib/ssc1-check.ssc0`,
+which is a session of its own.
+
 ## tui-cargo-deps-are-a-hand-maintained-disjunction — a new emitted feature can reference a crate nobody declared
 <!-- status: fixed
      lane: multi
