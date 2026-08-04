@@ -1,6 +1,6 @@
 # Terminal layout: a remote table needs room to have rows
 
-Status: spec (2026-08-04)
+Status: **implemented** (landed 2026-08-04, `e4fd5922e`) — flexible height for remote tables, gated by a rendered cargo snapshot
 Owner: `tui-remote-table-height`
 Affected: static `frontend/tui` (`TuiEmitter`) only
 Found by: rozum, building the room picker `tui-table-selection` made possible
