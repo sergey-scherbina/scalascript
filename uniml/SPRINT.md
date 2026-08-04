@@ -10,15 +10,16 @@ Anything not being worked on belongs in `uniml/BACKLOG.md`, not here — a queue
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
-- [~] UNIML-SSC3-CI — the dialect's tests must be run by CI. BOTH halves implemented; the
-      item stays open until a RUN shows them executing, which is what it said from the start.
+- [x] UNIML-SSC3-CI — the dialect's tests must be run by CI. BOTH halves implemented; the
+      CLOSED by a run that shows them executing, which is what this item required from the
+      start rather than an assertion that the gate exists.
       (a) **DONE.** `unimlScalaCross` registered in the ROOT build (JVM + Scala.js, aggregated
           with its siblings). Root `uniml/test` is back from 15 to 81, JS 3. The partition gate
           agreed rather than being told: modules 260 → 261, standard tier UNCHANGED at 35 —
           the dialect is an additional library and must not enter the default distribution just
           because it became publishable. `specs/project-partitioning.md` carries the same
           arithmetic, Part III 143 → 144 in all four places it is stated.
-      (b) **IMPLEMENTED, awaiting a green run.** `smoke-ci` now runs `cd uniml && sbt test`
+      (b) **DONE — Smoke 30912304380 SUCCESS on 7e2812f7f, `ok uniml-standalone 106.3s`.** `smoke-ci` now runs `cd uniml && sbt test`
           (`tests/e2e/uniml-standalone-tests.sh`). Cost measured BEFORE claiming the budget:
           27.9s from clean, 7.2s warm, against 500s of which 234s was used. Runs the STANDALONE
           build on purpose — that build is UniML's proof it stands alone, so one command checks
