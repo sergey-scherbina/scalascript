@@ -58,18 +58,40 @@ def size(xs: List[Int], n: Int): Int =
 
 `run-jvm` emits `case Cons(_, tail) =>` verbatim and fails; int, js and native all print `3`.
 
-**A fix attempt that did not work, recorded so the next reader does not repeat it.** `JvmGen` has a
-splice pass, `rewriteActorAstCallsInSource`, which already rewrites patterns scalameta re-parses
-into shapes Scala rejects (`case None()` → `case None`). Adding a
-`Pat.Extract.After_4_6_0(Term.Name("Cons"), argClause) if size == 2` arm there **never fired** —
-`Cons` still came out verbatim, in the eight-line file as well as in json. It is not a parse failure
-(the pass silently returns its input when the source does not parse, but this source parses: the
-compiler gets as far as semantic errors). So either that arm is not reached for pattern nodes or the
-sibling `None`/`Nil` arm is dead too and nobody noticed. **Reverted rather than left in the tree** —
-a change that does not do what its comment claims is worse than no change. Whoever takes this should
-start by proving the pass fires at all, with a marker, before writing the rewrite.
+**PARTIALLY FIXED 2026-08-05, and the earlier note about the failed attempt was wrong on its
+reason.** I had guessed the splice arm was "unreachable for pattern nodes, or the sibling `None`/
+`Nil` arm is dead too". Instrumenting the pass — the step this entry told the next reader to take —
+answered it in one build: **`rewriteActorAstCallsInSource` is never CALLED on this path.** It runs
+inside `genUserOnlyWithLineMap`, the bytecode path. `emit-scala` and `run-jvm` go through
+`generate` → `genModule`, which applies `fuseLazyListInSource` and nothing else. **The two emit
+paths apply different fixups**, so anything repaired in one is unrepaired in the other — including
+that `case None()` rewrite.
 
-**Partial, landed:** two sites in `json-core.ssc` now narrow in the pattern
+**What now works.** A new `lowerConsPatternsInSource` pass, wired into BOTH paths behind a
+`contains("Cons(")` guard so the common emit does not pay for a parse:
+
+```
+def size(xs: List[Int], n: Int): Int =
+  xs match { case Nil => n; case Cons(_, tail) => size(tail, n + 1) }
+
+run-jvm  →  3        (was [E189] Not Found: Cons)
+```
+
+**What still does not, and why — measured, not guessed.** The same pattern in an IMPORTED module is
+still emitted verbatim, so `std/json.ssc` still fails. The slice carrying an imported module does
+not parse as Scala 3, and the pass therefore gives up. That failure used to be silent; it is not any
+more:
+
+```
+ssc: jvm codegen could not parse a slice containing `Cons(` — the pattern is emitted verbatim
+     and the Scala compiler will reject it
+```
+
+**The next step is to make that slice parseable, or to lower without a full parse** — and note that
+the sibling pass has the identical `case None => src`, which is precisely why an arm added to it
+looked unreachable for a day. A pass that gives up must say so.
+
+**Also partial, landed earlier:** two sites in `json-core.ssc` now narrow in the pattern
 (`case JsonCoreOk(low: Int, afterLow)`), which is correct on its own terms — the arm is only
 meaningful for a codepoint, and anything else falls to the existing error arm. Verified on all four
 lanes. It removes 2 of the 14 errors and does NOT unblock the lane by itself; `Cons` is the blocker.

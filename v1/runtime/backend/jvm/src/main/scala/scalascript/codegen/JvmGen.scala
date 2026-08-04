@@ -609,10 +609,10 @@ class JvmGen(
       }
       if hasViewDef then sb.append("serve(view(), 0)\n")
 
-    val fixedHead = sb.substring(0, preambleLen)
+    val fixedHead = maybeLowerCons(sb.substring(0, preambleLen))
     // jvm-lazylist-fusion: fuse bounded LazyList.from(s).map(f)?.take(n).sum pipelines into native
     // loops in the USER code only (parsing just the user slice, not the ~7k-line preamble).
-    val userSrc   = fuseLazyListInSource(sb.substring(preambleLen))
+    val userSrc   = maybeLowerCons(fuseLazyListInSource(sb.substring(preambleLen)))
     // Inject UI helper functions (top-level) + primitives object block when
     // the module uses a frontend framework.  Helpers are prepended so they're
     // defined before the `import std.ui.primitives.{serve,...}` line and can
@@ -1551,7 +1551,7 @@ class JvmGen(
     val actorSrc     = rewriteActorAstCallsInSource(rawSrc)
     // jvm-lazylist-fusion: fuse bounded LazyList.from(s).map(f)?.take(n).sum pipelines into
     // native loops so the emitted Scala (emit-scala / run-jvm) doesn't pay LazyList cons cost.
-    val qualifiedSrc = fuseLazyListInSource(actorSrc)
+    val qualifiedSrc = maybeLowerCons(fuseLazyListInSource(actorSrc))
     // `extern def` stubs at top-level (or inside an effectful object) are
     // stripped by the `case d: Defn.Def if isExternDef(d.body)` arm in
     // emitStat — but stubs nested inside plain classes / non-recursing
@@ -2908,6 +2908,76 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
    *  Replacements are applied right-to-left so earlier offsets stay
    *  valid.  Used as a post-processing pass over user-only emit output
    *  (see [[genUserOnlyWithLineMap]]). */
+  /** Cheap gate in front of [[lowerConsPatternsInSource]]: a text with no `Cons(` in it cannot
+   *  contain the pattern, and skipping the parse keeps the common emit free. */
+  private def maybeLowerCons(src: String): String =
+    if src.contains("Cons(") then lowerConsPatternsInSource(src) else src
+
+  /** `case Cons(h, t)` — ssc's spelling of a list cons pattern — lowered to Scala's `case h :: t`.
+   *
+   *  Scala has no `Cons` extractor, so the pretty-printer emitted the name verbatim and the
+   *  compiler answered `[E189] Not Found: Cons`. That is not one error: with the extractor
+   *  unresolved every binder under it degrades to `Any` and fails again at each use, so a single
+   *  unlowered name produced FOURTEEN errors in a five-line program that imports `std/json.ssc`.
+   *  `std/http.ssc` imports json, so this took out the whole jvm lane for anything serving HTTP.
+   *  The interpreter has always known the name — `PatternRuntime.scala` special-cases `Cons`.
+   *
+   *  WHY THIS IS A SEPARATE PASS rather than an arm in `rewriteActorAstCallsInSource`, where the
+   *  sibling `case None()` → `case None` rewrite lives: **that pass runs only in the
+   *  `genUserOnlyWithLineMap` (bytecode) path.** `generate` → `genModule`, which is what
+   *  `emit-scala` and `run-jvm` use, applies `fuseLazyListInSource` and nothing else. An arm added
+   *  there never fired, and the reason was not the match — it was that the function is not called
+   *  on this path. The two emit paths applying different fixups is worth knowing on its own.
+   *
+   *  Runs on BOTH slices, unlike `fuseLazyListInSource`. The first version guarded only the user
+   *  slice on the assumption that the preamble is fixed runtime text — wrong: an imported std
+   *  module is emitted into the preamble, which is exactly where `std/json.ssc` puts the patterns
+   *  that motivated this. The user-code repro passed while json still failed, which is what caught
+   *  it. Parsing ~10k lines on every emit is not free, so the caller guards with a substring test
+   *  first: no `Cons(` in the text, no parse. */
+  private def lowerConsPatternsInSource(src: String): String =
+    import scala.meta.{dialects, *}
+    val input = Input.VirtualFile("<cons-lower>", src)
+    val parsed: Option[Tree] =
+      scala.util.Try(dialects.Scala3(input).parse[Source]).toOption
+        .flatMap(_.toOption).map(t => t: Tree)
+        .orElse(
+          scala.util.Try(dialects.Scala3(input).parse[Term]).toOption
+            .flatMap(_.toOption).map(t => t: Tree)
+        )
+    parsed match
+      case None =>
+        // NOT silent. The caller only reaches here when the text contains `Cons(`, so a parse
+        // failure means those patterns are being left verbatim and the compiler will answer
+        // `[E189] Not Found: Cons` — fourteen errors from one name, for `std/json.ssc`. The sibling
+        // pass `rewriteActorAstCallsInSource` has the same `case None => src`, and its silence is
+        // exactly why an arm added to it looked "unreachable" for a day. A pass that gives up must
+        // say so.
+        System.err.println(
+          "ssc: jvm codegen could not parse a slice containing `Cons(` — the pattern is emitted " +
+          "verbatim and the Scala compiler will reject it (BUGS.md jvm-lane-cannot-compile-a-json-import)")
+        src
+      case Some(tree) =>
+        case class Splice(start: Int, end: Int, replacement: String)
+        val splices = scala.collection.mutable.ListBuffer.empty[Splice]
+        def walk(t: Tree): Unit =
+          t match
+            case pe @ Pat.Extract.After_4_6_0(Term.Name("Cons"), argClause)
+                if argClause.values.size == 2 =>
+              // Walk the sub-patterns first so a nested `Cons` inside one of them gets its own
+              // splice; right-to-left application below then keeps every offset valid.
+              argClause.values.foreach(walk)
+              val h = argClause.values(0).syntax
+              val t2 = argClause.values(1).syntax
+              splices += Splice(pe.pos.start, pe.pos.end, s"$h :: $t2")
+            case other => other.children.foreach(walk)
+        walk(tree)
+        if splices.isEmpty then src
+        else
+          val sb = new StringBuilder(src)
+          splices.sortBy(-_.start).toList.foreach(sp => sb.replace(sp.start, sp.end, sp.replacement))
+          sb.toString
+
   private def rewriteActorAstCallsInSource(src: String): String =
     import scala.meta.{dialects, *}
     // Try parsing as Source first (top-level decls), then fall back to
