@@ -13,7 +13,7 @@ Newest first.
      lane: apparatus
      area: build
      gate: tests/e2e/launcher-digest-gate.sh
-     fixed-in: PENDING-SHA -->
+     fixed-in: 99f335023 -->
 
 `scripts/launcher-input-digest` extracted the sha from each `git ls-tree` line with
 
