@@ -351,6 +351,77 @@ final class TuiFetchCargoTest extends AnyFunSuite:
     finally
       server.stop(0)
 
+  test("a declared credential is read on the target, and never reaches the binary"):
+    assume(cargoAvailable, "cargo not on PATH — skipping fetch cargo gate")
+    val secret = "s3cr3t-not-in-the-binary"
+    val server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0)
+    server.createContext("/feed", (ex: com.sun.net.httpserver.HttpExchange) => {
+      val auth = Option(ex.getRequestHeaders.getFirst("Authorization")).getOrElse("")
+      val (status, body) = if auth == s"Bearer $secret" then (200, "AUTHORISED-BODY") else (401, "DENIED")
+      val bytes = body.getBytes("UTF-8")
+      ex.sendResponseHeaders(status, bytes.length.toLong)
+      val os = ex.getResponseBody; os.write(bytes); os.close()
+    })
+    server.start()
+    try
+      val port = server.getAddress.getPort
+      val feed = new FetchUrlSignal("feed", s"http://127.0.0.1:$port/feed", "tick", None, None, None,
+        Some(("env", "SSC_TEST_TOKEN", "Bearer")))
+      val module = FrontendModule(List(ComponentDef("App", Nil, _ => View.SignalText(feed))), "App", "/",
+        targetPlatform = Platform.Terminal)
+      val app = new TuiFrameworkBackend().emitNative(module, Platform.Terminal).getOrElse(fail("emitNative returned None"))
+
+      // THE assertion this whole design exists for. Every other check below can pass while the
+      // secret is still compiled in; only this one proves it is not.
+      val mainRs = app.sources("src/main.rs")
+      assert(!mainRs.contains(secret), "the secret reached the emitted source")
+      assert(mainRs.contains("""resolve_credential("env", "SSC_TEST_TOKEN", "Bearer")"""),
+        "the emitter should carry the variable NAME and nothing more")
+
+      val probe =
+        """
+          |#[cfg(test)]
+          |mod credential_regression {
+          |    use super::*;
+          |    #[test]
+          |    fn credential_is_read_from_the_environment() {
+          |        let mut signals = initial_signals();
+          |        bootstrap(&mut signals);
+          |        let body = sig(&signals, "feed");
+          |        match std::env::var("SSC_TEST_TOKEN") {
+          |            // Set: the value was read HERE, on the target, and authenticated the GET.
+          |            Ok(_) => assert_eq!(body, "AUTHORISED-BODY", "the credential did not authenticate: {}", body),
+          |            // Unset: NO Authorization is sent, so the server refuses and the last-good
+          |            // value is kept. An empty `Bearer ` would read as authentication and is not.
+          |            Err(_) => assert_eq!(body, "", "a header was sent with no secret to send: {}", body),
+          |        }
+          |    }
+          |}
+          |""".stripMargin
+
+      val dir = Files.createTempDirectory("ssc-tui-cred-")
+      try
+        app.sources.foreach { case (rel, content) =>
+          val p = dir.resolve(rel)
+          Files.createDirectories(p.getParent)
+          Files.writeString(p, if rel == "src/main.rs" then content + probe else content)
+        }
+        val out = new StringBuilder
+        val log = ProcessLogger(l => out.append(l).append('\n'), l => out.append(l).append('\n'))
+        val withVar = Process(
+          Seq("cargo", "test", "--quiet", "credential_is_read_from_the_environment", "--", "--test-threads=1"),
+          dir.toFile, "SSC_TEST_TOKEN" -> secret).!(log)
+        assert(withVar == 0, s"credential probe failed WITH the variable set:\n$out")
+        // Same binary, variable absent: the honest-missing-secret half.
+        val withoutVar = Process(
+          Seq("cargo", "test", "--quiet", "credential_is_read_from_the_environment", "--", "--test-threads=1"),
+          dir.toFile).!(log)
+        assert(withoutVar == 0, s"credential probe failed WITHOUT the variable:\n$out")
+      finally
+        deleteRecursively(dir)
+    finally
+      server.stop(0)
+
   private def deleteRecursively(p: Path): Unit =
     try
       if Files.exists(p) then

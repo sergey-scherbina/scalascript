@@ -173,8 +173,11 @@ final class TuiEmitterTest extends AnyFunSuite:
     val (cargo, rs) = emitCrate(View.SignalText(feed))
     assert(cargo.contains("serde_json"))                         // the headers path parses JSON too
     assert(rs.contains("fn fetch_headers("))
-    assert(rs.contains("""let headers = fetch_headers(signals, "auth");"""))
-    assert(rs.contains("""load_fetch(signals, "rooms", "http://x/rooms", &headers);"""))
+    // Since tui-credential-resolution the header list is a MUTABLE local, because a declared
+    // credential is appended to it after the signal is read. The binding this test guards —
+    // headers resolved at fetch time and handed to load_fetch — is unchanged.
+    assert(rs.contains("""let mut __h = fetch_headers(signals, "auth");"""))
+    assert(rs.contains("""load_fetch(signals, "rooms", "http://x/rooms", &__h);"""))
     assert(rs.contains("req = req.set(name, value);"))           // applied to the request
   }
 
@@ -207,8 +210,8 @@ final class TuiEmitterTest extends AnyFunSuite:
   test("a signal-URL fetch composes with headers — both resolved at the same moment") {
     val feed = new FetchUrlSignal("rows", "", "tick", Some("auth"), Some("urlSig"))
     val (_, rs) = emitCrate(View.SignalText(feed))
-    assert(rs.contains("""let headers = fetch_headers(signals, "auth");"""))
-    assert(rs.contains("""load_fetch(signals, "rows", &sig(signals, "urlSig"), &headers);"""))
+    assert(rs.contains("""let mut __h = fetch_headers(signals, "auth");"""))
+    assert(rs.contains("""load_fetch(signals, "rows", &sig(signals, "urlSig"), &__h);"""))
   }
 
   test("a fetchAction button posts the body and bumps the tick — only on success") {
@@ -359,6 +362,40 @@ final class TuiEmitterTest extends AnyFunSuite:
     val rs = emitMain(View.SignalText(feed))
     assert(rs.contains("fn bump_interval_ticks(_signals:"))
     assert(!rs.contains("last.entry("))
+  }
+
+  test("an env credential is resolved on the target, and its NAME is all the emitter sees") {
+    // S2 of ui-fetch-credentials. The assertion that matters is the last one: everything else can
+    // pass while the secret is still baked into the binary, which is the whole thing this prevents.
+    val feed = new FetchUrlSignal("feed", "http://x/f", "tick", None, None, None,
+      Some(("env", "ROZUM_MEETING_TOKEN", "Bearer")))
+    val rs = emitMain(View.SignalText(feed))
+    assert(rs.contains("fn resolve_credential("))
+    assert(rs.contains("""std::env::var(source)"""))
+    assert(rs.contains("""resolve_credential("env", "ROZUM_MEETING_TOKEN", "Bearer")"""))
+    assert(rs.contains("""__h.push(("Authorization".to_string(), __a));"""))
+    // The emitter only ever handled a NAME — there is no value in the source to leak.
+    assert(!rs.contains("Bearer ROZUM"), "a secret-shaped literal reached the emission")
+  }
+
+  test("a credential composes with a headers signal, and the signal keeps winning") {
+    val feed = new FetchUrlSignal("feed", "http://x/f", "tick", Some("auth"), None, None,
+      Some(("file", "~/.rozum/token", "Basic")))
+    val rs = emitMain(View.SignalText(feed))
+    // Headers first, credential appended — `fetch_text` sets them in order, so an explicit
+    // Authorization already in the signal is not overwritten by the declaration.
+    val call = rs.substring(rs.indexOf("let mut __h = fetch_headers"))
+    assert(call.take(300).contains("""resolve_credential("file", "~/.rozum/token", "Basic")"""))
+    assert(rs.contains("std::fs::read_to_string"))
+  }
+
+  test("a fetch with no credential emits no resolver at all") {
+    // The negative half: every existing crate must be byte-identical, and nothing may acquire a
+    // filesystem or environment read it did not ask for.
+    val feed = new FetchUrlSignal("feed", "http://x/f", "tick")
+    val rs = emitMain(View.SignalText(feed))
+    assert(!rs.contains("fn resolve_credential("))
+    assert(!rs.contains("std::fs::read_to_string"))
   }
 
   test("a fetch WITHOUT headers stays header-free and serde_json-free") {

@@ -695,7 +695,15 @@ sealed class FetchUrlSignal(
      *  `tickId` alone cannot say so: it is a String, and a backend that only sees an id cannot tell
      *  a hand-bumped tick from a clock. Backends that have no timer ignore it; the terminal target
      *  uses it to advance the tick on wall-clock time so `refresh_fetches` re-reads unattended. */
-    val tickMs:    Option[Int] = None
+    val tickMs:    Option[Int] = None,
+    /** How to obtain the outbound secret — `(kind, source, scheme)` from `std.credential`, and NEVER
+     *  the secret itself. `None` when the fetch is unauthenticated or carries its own headers.
+     *
+     *  A credential is a DECLARATION on purpose: an emitter that only ever sees a variable name has
+     *  nothing to bake, so the target runtime is the only thing that ever holds the value. Backends
+     *  without a way to read the source ignore it — and must then send no `Authorization` at all
+     *  rather than an empty one. See `specs/ui-fetch-credentials.md`. */
+    val credential: Option[(String, String, String)] = None
 ) extends ReactiveSignal[String](id2, ""):
   /** Codec used to decode the HTTP response body.  Default is `RawText`. */
   def codec: CodecHint = CodecHint.RawText

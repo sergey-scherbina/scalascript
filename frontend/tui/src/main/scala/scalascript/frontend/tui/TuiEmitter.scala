@@ -30,7 +30,8 @@ object TuiEmitter:
    *  (not at emit time) exactly as the web targets read it. `None` when the source bound no headers,
    *  which must stay dependency-free — see `cargoToml`. */
   private final case class FetchInfo(url: String, tickId: String, headersId: Option[String],
-                                     urlId: Option[String], tickMs: Option[Int])
+                                     urlId: Option[String], tickMs: Option[Int],
+                                     credential: Option[(String, String, String)])
 
   /** A declarative store mutation an `activate` arm performs. */
   private enum Mutation:
@@ -137,7 +138,7 @@ object TuiEmitter:
        |${genFetchHelpers(fetches)}
        |${genWriteHelpers(fetches, focusables.toSeq)}\n       |${genIntervalHelpers(fetches)}
        |${genTableHelpers(remoteTable)}
-       |${genRowCursorHelpers(focusables.toSeq)}
+       |${genRowCursorHelpers(focusables.toSeq)}\n       |${genCredentialHelpers(fetches)}
        |
        |${genFocusConsts(focusables.toSeq)}
        |
@@ -266,12 +267,24 @@ object TuiEmitter:
       def urlExpr(info: FetchInfo): String = info.urlId match
         case None      => rustStr(info.url)
         case Some(uid) => s"&sig(signals, ${rustStr(uid)})"
+      // The credential is resolved HERE — at fetch time, on the target — and appended to whatever
+      // the headers signal produced. Appended, not prepended: `fetch_text` sets headers in order, so
+      // an explicit Authorization already in the signal keeps winning and an app that solved auth
+      // its own way does not silently change behaviour.
+      def credExpr(info: FetchInfo): String = info.credential match
+        case None => ""
+        case Some((kind, source, scheme)) =>
+          s"if let Some(__a) = resolve_credential(${rustStr(kind)}, ${rustStr(source)}, ${rustStr(scheme)}) " +
+          s"{ __h.push((\"Authorization\".to_string(), __a)); } "
       def loadCall(indent: String, id: String, info: FetchInfo): String =
-        val body = info.headersId match
-          case None      => s"$indent    load_fetch(signals, ${rustStr(id)}, ${urlExpr(info)}, &[]);"
-          case Some(hid) =>
-            s"""$indent    let headers = fetch_headers(signals, ${rustStr(hid)});
-               |$indent    load_fetch(signals, ${rustStr(id)}, ${urlExpr(info)}, &headers);""".stripMargin
+        val body = (info.headersId, info.credential) match
+          case (None, None) => s"$indent    load_fetch(signals, ${rustStr(id)}, ${urlExpr(info)}, &[]);"
+          case (hid, _) =>
+            val base = hid match
+              case Some(h) => s"let mut __h = fetch_headers(signals, ${rustStr(h)}); "
+              case None    => "let mut __h: Vec<(String, String)> = Vec::new(); "
+            s"$indent    $base${credExpr(info)}" +
+            s"load_fetch(signals, ${rustStr(id)}, ${urlExpr(info)}, &__h);"
         s"""$indent{
            |$body
            |$indent}""".stripMargin
@@ -398,6 +411,34 @@ object TuiEmitter:
    *  `row_field` re-reads the JSON rather than the already-parsed display rows on purpose: the
    *  field a `RowLink` writes need not be one of the COLUMNS. A room picker shows a name and writes
    *  a URL, which is the whole point of letting the server ship a ready-made value. */
+  /** Resolve a declared credential ON THE TARGET, emitted only when some fetch carries one.
+   *
+   *  The whole point of the declaration is that this function is the only thing that ever holds the
+   *  secret: the emitter sees a variable NAME, so there is nothing to bake into the binary.
+   *
+   *  A missing or unreadable source yields `None`, and the caller then sends NO `Authorization` at
+   *  all. An empty `Bearer ` is a header that reads as authentication and is not — a 401 meaning
+   *  "no credential" is easier to diagnose than one meaning "bad credential". */
+  private def genCredentialHelpers(fetches: mutable.LinkedHashMap[String, FetchInfo]): String =
+    if !fetches.values.exists(_.credential.isDefined) then ""
+    else
+      """fn resolve_credential(kind: &str, source: &str, scheme: &str) -> Option<String> {
+        |    let secret = match kind {
+        |        "env" => std::env::var(source).ok(),
+        |        "file" => {
+        |            let path = if let Some(rest) = source.strip_prefix("~/") {
+        |                match std::env::var("HOME") { Ok(h) => format!("{}/{}", h, rest), Err(_) => source.to_string() }
+        |            } else { source.to_string() };
+        |            std::fs::read_to_string(path).ok().map(|s| s.trim().to_string())
+        |        }
+        |        "literal" => Some(source.to_string()),
+        |        _ => None,
+        |    }?;
+        |    if secret.is_empty() { return None; }
+        |    Some(format!("{} {}", scheme, secret))
+        |}
+        |""".stripMargin
+
   private def genRowCursorHelpers(fs: Seq[Focusable]): String =
     if !fs.exists(_.cursor.isDefined) then ""
     else
@@ -758,7 +799,7 @@ object TuiEmitter:
   private def collectFetches(v: View[?], fetches: mutable.LinkedHashMap[String, FetchInfo]): Unit =
     def rec(c: View[?]): Unit = collectFetches(c, fetches)
     def record(s: ReactiveSignal[?]): Unit = s match
-      case f: FetchUrlSignal => if !fetches.contains(f.id) then fetches(f.id) = FetchInfo(f.fetchUrl, f.tickId, f.headersId, f.urlId, f.tickMs)
+      case f: FetchUrlSignal => if !fetches.contains(f.id) then fetches(f.id) = FetchInfo(f.fetchUrl, f.tickId, f.headersId, f.urlId, f.tickMs, f.credential)
       case _                 => ()
     v match
       case View.SignalText(s, _)                                 => record(s)
