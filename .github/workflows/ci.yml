@@ -541,6 +541,71 @@ jobs:
         run: |
           ./bin/ssc-tools check examples/*.ssc
 
+  uniml:
+    name: UniML — standalone build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # WHY THIS JOB EXISTS AND WHY IT IS NOT IN SMOKE. Until 2026-08-04
+    # `grep uniml .github/workflows/` returned nothing: ten UniML projects and
+    # ~300 tests were run by no automated gate at all. The obvious home looked
+    # like `smoke-ci`, and that was tried and reverted — a smoke check CONSUMES
+    # the staged toolchain and never builds one, `Setup sbt` there is conditional
+    # on a cache MISS, and UniML ships in no staged artefact for a check to
+    # consume. The contract is written down in `scripts/smoke-ci.ssc`.
+    #
+    # THE COST, stated rather than buried: this repository pushes straight to
+    # `main`, so `pull_request` rarely fires and in practice this job is the
+    # NIGHTLY. A UniML regression is caught in hours, not in the minutes a push
+    # gate would give. That is the honest price of a module that ships nothing;
+    # the alternative was putting a Part III library into the default
+    # distribution, which §7 invariant 1 of specs/project-partitioning.md
+    # forbids on purpose.
+    #
+    # It runs the STANDALONE build deliberately, not `unimlScala/test` in the
+    # root one. That build is UniML's own proof it stands alone — zero
+    # dependency on the ScalaScript trees — so one command checks the tests and
+    # that property together. Measured: 27.9 s from clean on a warm dependency
+    # cache here; the 20 min cap is for a cold runner with none.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup sbt
+        uses: sbt/setup-sbt@v1
+
+      - name: Cache Coursier/sbt
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/coursier
+            ~/.ivy2/cache
+            ~/.sbt
+          key: ${{ runner.os }}-uniml-sbt-${{ hashFiles('uniml/build.sbt', 'uniml/project/*.sbt', 'uniml/project/build.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-uniml-sbt-
+
+      - name: Standalone build and tests
+        working-directory: uniml
+        # The aggregate reports one line per project. A build that quietly
+        # stopped aggregating would still exit 0 while testing LESS, so the
+        # count is asserted — that is the failure an exit code cannot see.
+        run: |
+          set -euo pipefail
+          sbt -batch test | tee /tmp/uniml.log
+          passed=$(grep -c "All tests passed" /tmp/uniml.log || true)
+          echo "UniML: $passed project(s) reported passing"
+          if [ "$passed" -lt 8 ]; then
+            echo "::error::only $passed UniML project(s) reported passing — expected the whole aggregate"
+            exit 1
+          fi
+
   sbt:
     name: sbt — compile and release gates
     runs-on: ubuntu-latest
