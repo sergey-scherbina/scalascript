@@ -1,0 +1,54 @@
+---
+name: set-ops-infix
+description: "the infix Set operators (++ -- & |), Set.empty and the s(x) membership call, on all four lanes"
+backends: [int, jvm, js, v2]
+---
+
+# `Set` infix operators, `Set.empty`, and `s(x)`
+
+The named methods (`.union`, `.intersect`, `.diff`, `.contains`) were pinned by
+`tests/conformance/set-distinct.ssc` when Set got a representation of its own. The **operator**
+spellings reach a different path on every lane and were wrong in three different ways —
+found by measuring them, filed separately, fixed here.
+
+| | `int` / `jvm` | before |
+|---|---|---|
+| `Set(1,2,3) -- Set(2)` | `Set(1, 3)` | v2: `Set(1, 2, 3)` — **silent**, exit 0 |
+| `Set(1,2) & Set(2,3)` | `Set(2)` | v2: `ssc: expected Int, got Set(1, 2)` |
+| `Set(1,2)(2)` | `true` | int: `[ERROR] Not callable: Set(1, 2)` |
+| `Set.empty` | `Set()` | js: `Method not found: empty on <function>` |
+
+The `--` one is the one to remember. It never lexed on the v2 lane: `xs -- ys` split into `-` and a
+unary minus and evaluated to `xs - (-ys)`, which returns the receiver unchanged. That is not a Set
+bug — `List(1,2,3) -- List(2)` returned the list where the interpreter raises `No method '--'` — so
+a whole operator evaluated to nothing, for every receiver, at exit 0.
+
+```scalascript
+// The four infix forms. Each reaches a different mechanism: `++` a concat helper, `--` the
+// arithmetic table, `&`/`|` the BITWISE primitives (Scala overloads them on Set).
+println(Set(1, 2) ++ Set(3, 4))
+println(Set(1, 2, 3) -- Set(2))
+println(Set(1, 2) & Set(2, 3))
+println(Set(1, 2) | Set(3))
+println(Set(1, 2) + 3)
+println(Set(1, 2) - 1)
+
+// `s(x)` is membership — a Set[A] IS an A => Boolean in Scala.
+println(Set(1, 2)(2))
+println(Set(1, 2)(9))
+
+// The empty companion. `Set()` and `Set.empty` take DIFFERENT paths on both fronts, which is why
+// both are here: `Set()` is a constructor application, `Set.empty` a companion select.
+println(Set.empty)
+println(Set())
+println(Set.empty.isEmpty)
+
+// GUARD: `&` and `|` must still be bitwise on integers. The fix reconstructs the Set meaning at
+// runtime from the receiver, so this row is what keeps it from swallowing the arithmetic one.
+println(6 & 3)
+println(6 | 3)
+println(6 ^ 3)
+```
+
+`6 ^ 3` is in the guard set on purpose: `^` shares the emitter path with `&`/`|` and was NOT changed,
+so it pins the untouched half of that table.

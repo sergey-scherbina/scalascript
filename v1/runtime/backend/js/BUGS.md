@@ -7,35 +7,48 @@ grepping for status.
 
 Newest first.
 
-## js-collection-companion-empty-is-not-callable — `List.empty` and `Set.empty` die with "Method not found: empty on <function>"
+## js-collection-companion-empty-is-not-callable — `Set.empty` dies with "Method not found: empty on <function>"
 
-<!-- status: open
+<!-- status: fixed
      lane: js
      area: codegen
-     gate: none -->
+     gate: tests/conformance/set-ops-infix.ssc
+     fixed-in: PENDING-SHA -->
 
 Found 2026-08-04 while giving `Set` a representation of its own on this lane
-(`type-ascription-tuple-and-set-arms-missing`). It is NOT Set-specific and NOT a regression from
-that work — verified against the pre-change toolchain, where `List.empty` fails identically:
+(`type-ascription-tuple-and-set-arms-missing`). Not a regression from that work — verified against
+the pre-change toolchain.
+
+**Correction to this entry's first version, which named the wrong scope.** It said "`List.empty`
+fails identically" and called this a general companion-select hole. It is not: the first probe put
+`List.empty` and `Map.empty` in one file, the program died on the SECOND line, and I attributed the
+failure to the first. Re-measured one expression per run:
 
 ```
-println(List.empty)   js: Error: Method not found: empty on <function>   int: List()
-println(Set.empty)    js: Error: Method not found: empty on <function>   int: Set()
+List.empty        js: List()        int: List()
+List.fill(2)(7)   js: List(7, 7)    int: List(7, 7)
+List.range(0, 3)  js: List(0, 1, 2) int: List(0, 1, 2)
+Set.empty         js: Error: Method not found: empty on <function>   int: Set()
+Map.empty         js: Error: Method not found: empty on <function>   int: [ERROR] No key 'empty'
 ```
 
-The companion NAME (`List`, `Set`) emits a JS function — `function List(...args)` and `_setOf` —
-and `.empty` on it reaches `_dispatch` with that function as the receiver, which has no arm for a
-function. `core-dispatch.mjs` already defines `List.empty = []` as a property, so the runtime side
-of the answer exists; nothing routes the access to it.
+So only **`Set.empty`** is this lane's defect. `List`'s statics work because the emitted `List` is
+the RUNTIME's own function, which carries `.empty`/`.fill`/`.range` as own properties; `Set(...)`
+is emitted as `_setOf(...)`, so the bare `Set` in a value position is the **native JS Set
+constructor**, which has none of them. `core-collections.mjs` already routes exactly this situation
+for `Array` (also a native constructor) to `List`'s companion.
 
-The APPLICATION forms are fine and are what the corpus uses, which is why this went unnoticed:
-`List()` and `Set()` both work (`Set().isEmpty` is pinned by `tests/conformance/set-distinct.ssc`),
-and so does every method on the resulting value. Only the `.empty` spelling on the bare companion
-is broken.
+`Map.empty` fails on `int` too, so it is a different question and not this entry's.
 
-Not fixed here on purpose: the fix is in the emitter's companion-select path, which is a different
-file and a different concern from the Set representation, and it affects `List` — a far more
-widely used type — so it deserves its own blast-radius check rather than a ride-along.
+The APPLICATION forms were always fine, which is why this went unnoticed: `Set()` works and is
+pinned by `tests/conformance/set-distinct.ssc`.
+
+**FIXED 2026-08-04.** One line in `core-collections.mjs`, beside the block that already routes the
+native `Array` constructor's statics to `List`'s companion — `Set` is the identical situation and
+the fix is the identical shape: `if (obj === Set && method === 'empty') return _setOf();`
+
+`Map.empty` is deliberately NOT included: it fails on the interpreter too, so it is a question about
+the reference semantics, not a js defect, and it has no lane to be graded against.
 
 ## js-object-apply-not-callable — `O(7)` on an object with an `apply` member throws `not callable`
 <!-- status: fixed

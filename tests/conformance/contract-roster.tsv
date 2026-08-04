@@ -1,4 +1,4 @@
-# corpus-contract-roster-v1	baseline-sha256=90f5a174db0b12e0470a79acefdf082791dd5e5a502872bab62d3c688f334aad	roster-sha256=4d8be00e76c403264edd3a52766a5fcdb8308a0e5a1ba0b497ca002c3811c683
+# corpus-contract-roster-v1	baseline-sha256=90f5a174db0b12e0470a79acefdf082791dd5e5a502872bab62d3c688f334aad	roster-sha256=69701e7ac909f6fcc0f5c3cd7dbb04f6505026368bd27e375e18d0eff2475c94
 _bug1_httpclient
 _bug1b
 _bug1c
@@ -412,6 +412,7 @@ script
 sealed-traits
 seed-signal
 set-distinct
+set-ops-infix
 signal-id-bridged
 signals
 signals-demo

@@ -9,10 +9,11 @@ Newest first.
 
 ## int-set-apply-is-not-membership — `Set(1, 2)(2)` says "Not callable" where real Scala says `true`
 
-<!-- status: open
+<!-- status: fixed
      lane: int
      area: runtime
-     gate: none -->
+     gate: tests/conformance/set-ops-infix.ssc
+     fixed-in: PENDING-SHA -->
 
 Found 2026-08-04 while writing `tests/conformance/set-distinct.ssc` for
 `type-ascription-tuple-and-set-arms-missing`. `s(x)` is Scala's membership call — a `Set[A]` *is* an
@@ -30,6 +31,16 @@ case for the usual reason: `int` is the GOLDEN lane, so a row it cannot run cann
 — which is also why this needs its own entry rather than a line in that case's prose.
 
 Fix goes in `CallRuntime.callValue`, beside whatever already makes a `Map` callable (`m(k)` works).
+
+**FIXED 2026-08-04.** One line: `Value.SetV` was missing from the callable alternation in
+`CallRuntime.callValue` (`case _: Value.ListV | _: Value.MapV | _: Value.VectorV | …`), while
+`DispatchRuntime.dispatchSet` had answered `"contains" | "apply"` all along — and the comment
+fifteen lines below the alternation already claimed "matching ListV/MapV/SetV apply". The gap was
+between a comment and the code it described.
+
+The **v2 lane had the same hole** (`app: not a function: Set(1, 2)`) and is fixed in the same
+commit. It was not in this entry: I found it only because the new gate runs on all four lanes
+rather than on the lane the bug was filed against.
 
 ## int-set-element-order-differs-from-scala — `Set(3, 1, 2)` prints `Set(1, 2, 3)` where real Scala keeps insertion order
 

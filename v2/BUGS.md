@@ -59,10 +59,11 @@ layout, in the direction of a reversed fold. That is a lead, not a diagnosis.
 
 ## v2-set-ops-and-or-coerce-to-int-and-double-minus-is-a-silent-no-op — `&`, `|` and `--` never reach the method dispatcher
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: front
-     gate: none -->
+     gate: tests/conformance/set-ops-infix.ssc
+     fixed-in: PENDING-SHA -->
 
 Found 2026-08-04 while giving `Set` a representation of its own
 (`type-ascription-tuple-and-set-arms-missing`). Three infix operators do not reach method dispatch
@@ -91,6 +92,24 @@ and deliberately left in place with a comment saying they are unreachable today)
 lowering routes these operators through `__arith__`, no runtime change should be needed. Start at
 the bitwise primitive and at whatever consumes `--` in `specs/v2.2-p6.5-fsub.ssc`'s precedence
 table.
+
+**FIXED 2026-08-04.** Three separate causes, as the entry suspected:
+
+- **`--` never lexed.** `lexMinus` in `specs/v2.2-p6.5-fsub.ssc` had branches for `-=` and `->` and
+  none for `--`, so `xs -- ys` split into `-` and a unary minus and evaluated to `xs - (-ys)` —
+  the receiver unchanged. Now token kind 71, precedence 6 (the `++` slot), emitted through
+  `__arith__` by BOTH `emitBin` and `emitBinT` (twin walkers; fixing one is how this front's
+  regressions happen).
+- **`&`/`|` reached `i.and`/`i.or`**, which coerce to Int. The front cannot know the operand type,
+  so the Set meaning is reconstructed in the RUNTIME from the receiver — in both prim tables, the
+  n-ary and the binary fast path, which are separate copies.
+- **`Set(1, 2)(2)` was `app: not a function`** — the same callability hole this entry did not
+  mention, found by running the new gate on both lanes. Fixed here beside its interpreter twin
+  (`int-set-apply-is-not-membership`) rather than in a later commit.
+
+`--` on a non-Set now RAISES `No method '--' on …`, matching the interpreter, instead of falling to
+the arithmetic tail which would have rendered both sides and returned a STRING. Verified that unary
+minus is untouched: `a - -b` is still 8, `-a` still `-5`, on both lanes.
 
 ## native-lane-ignores-front-matter-routes — `routes:` in the manifest registers nothing, every path 404s
 

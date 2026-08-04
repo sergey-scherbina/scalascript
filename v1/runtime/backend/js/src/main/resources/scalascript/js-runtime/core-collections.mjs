@@ -501,6 +501,13 @@ function _dispatch(obj, method, args) {
     const val = List[method];
     return (typeof val === 'function') ? (args.length ? val(...args) : val) : val;
   }
+  // Exactly the shape one block up, for `Set`: `Set(...)` is emitted as `_setOf(...)`, so the bare
+  // `Set` reaching here is the NATIVE JS Set constructor, which has none of the Scala statics.
+  // `Set.empty` died with "Method not found: empty on <function>" where every reference lane
+  // answers `Set()`. (`List.empty` works because `List` here is the runtime's own function and
+  // carries `.empty` as an own property — an asymmetry, not a second bug.)
+  // BUGS `js-collection-companion-empty-is-not-callable`.
+  if (obj === Set && method === 'empty') return _setOf();
   // Function-object dispatch: for companion objects (List.fill, etc.)
   if (typeof obj === 'function' && obj[method] !== undefined) {
     const val = obj[method];

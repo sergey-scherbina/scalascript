@@ -463,6 +463,11 @@ object Runtime:
         case Value.IntV(i) => Done(Prims.listIndex(lv, i.toInt))
         case _             => sys.error("app: list index must be Int")
     case Value.MapV(entries) => Done(entries(avs(0)))
+    // A Set IS an `A => Boolean` in Scala, so `s(x)` is membership — the twin of the same hole on
+    // the interpreter (`int-set-apply-is-not-membership`), found by running one gate on both
+    // lanes rather than trusting that a fix on one covered the other. Without it `Set(1, 2)(2)`
+    // died "app: not a function". The list arm above indexes; a Set has no index.
+    case sv @ Value.SetV(e) => Done(Value.BoolV(e.contains(avs(0))))
     case Value.DataV("Stub", fs) => Done(Value.DataV("Stub", fs))
     case value @ Value.DataV(tag, _) =>
       V2PluginRegistry.lookupTaggedApply(tag) match
@@ -1325,8 +1330,16 @@ object Prims:
     case "i.div" => a => numBin(a, _ / _, _ / _)
     case "i.mod" => a => numBin(a, _ % _, _ % _)
     case "i.neg" => a => numUn(a, -_, -_)
-    case "i.and" => a => IntV(int(a, 0) & int(a, 1))
-    case "i.or"  => a => IntV(int(a, 0) | int(a, 1))
+    // `&`/`|` are overloaded in Scala: bitwise on Int, intersect/union on Set. The F front emits
+    // this prim for both — it cannot know the operand type — so the reconstruction has to happen
+    // here. Without it `Set(1,2) & Set(2,3)` died "expected Int, got Set(1, 2)".
+    // BUGS `v2-set-ops-and-or-coerce-to-int-and-double-minus-is-a-silent-no-op`.
+    case "i.and" => a => a match
+      case (sv: SetV) :: o :: Nil => methodOp("intersect", sv, List(o))
+      case _                      => IntV(int(a, 0) & int(a, 1))
+    case "i.or"  => a => a match
+      case (sv: SetV) :: o :: Nil => methodOp("union", sv, List(o))
+      case _                      => IntV(int(a, 0) | int(a, 1))
     case "i.xor" => a => IntV(int(a, 0) ^ int(a, 1))
     case "i.not" => a => IntV(~int(a, 0))
     case "i.shl" => a => IntV(int(a, 0) << int(a, 1))
@@ -2993,6 +3006,10 @@ object Prims:
     case (sv: SetV, x) if op == "-" => methodOp("excl", sv, List(x))
     case (sv: SetV, o) if op == "++" || op == "|" => methodOp("union", sv, List(o))
     case (sv: SetV, o) if op == "--" || op == "&~" => methodOp("diff", sv, List(o))
+    // `--` now LEXES (F front, kind 71), so it reaches this table for every receiver. Anything but
+    // a Set has no such operator in Scala, and the (_, _) tail below would render both sides and
+    // hand back a STRING — a wrong answer in place of the interpreter's "No method '--'".
+    case (l, _) if op == "--" => sys.error(s"No method '--' on ${Show.show(l)}")
     case (sv: SetV, o) if op == "&" => methodOp("intersect", sv, List(o))
     // Reachability, measured rather than assumed: `+`, `-` and `++` arrive here and are gated by
     // tests/conformance/set-distinct.ssc. `&` and `|` do NOT — they reach a bitwise primitive that
@@ -3323,8 +3340,10 @@ object Prims:
                               case (a, b)                  => liftArith2(">", a, b, numCmp(List(a, b), _ > _, _ > _)) }
     case "i.ge"     => Some { case (IntV(x),   IntV(y))   => BoolV(x >= y)
                               case (a, b)                  => liftArith2(">=", a, b, numCmp(List(a, b), _ >= _, _ >= _)) }
-    case "i.and"    => Some { case (IntV(x),   IntV(y))   => IntV(x & y);  case (a,b) => IntV(asInt1(a) & asInt1(b)) }
-    case "i.or"     => Some { case (IntV(x),   IntV(y))   => IntV(x | y);  case (a,b) => IntV(asInt1(a) | asInt1(b)) }
+    // The binary fast-path twin of the `i.and`/`i.or` arms above — a second copy that a fix to one
+    // alone would leave wrong on whichever path the caller happens to take.
+    case "i.and"    => Some { case (IntV(x),   IntV(y))   => IntV(x & y);  case (sv: SetV, o) => methodOp("intersect", sv, List(o)); case (a,b) => IntV(asInt1(a) & asInt1(b)) }
+    case "i.or"     => Some { case (IntV(x),   IntV(y))   => IntV(x | y);  case (sv: SetV, o) => methodOp("union", sv, List(o));     case (a,b) => IntV(asInt1(a) | asInt1(b)) }
     case "i.xor"    => Some { case (IntV(x),   IntV(y))   => IntV(x ^ y);  case (a,b) => IntV(asInt1(a) ^ asInt1(b)) }
     case "i.shl"    => Some { case (IntV(x),   IntV(y))   => IntV(x << y); case (a,b) => IntV(asInt1(a) << asInt1(b)) }
     case "i.shr"    => Some { case (IntV(x),   IntV(y))   => IntV(x >> y); case (a,b) => IntV(asInt1(a) >> asInt1(b)) }

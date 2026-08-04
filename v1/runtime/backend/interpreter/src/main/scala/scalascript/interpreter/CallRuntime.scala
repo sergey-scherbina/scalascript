@@ -37,7 +37,12 @@ private[interpreter] object CallRuntime:
       val applyFn = fields.getOrElse("apply", null)
       if applyFn != null then callValue(applyFn, args, env, interp)
       else interp.located(s"Instance is not callable")
-    case _: Value.ListV | _: Value.MapV | _: Value.VectorV | _: Value.ArrayV | _: Value.LazyListV =>
+    // `Value.SetV` belongs here for the same reason as the rest: `s(x)` is Scala's membership
+    // call and `dispatchSet` has answered `"contains" | "apply"` all along. It was the one
+    // container missing from this alternation, so `Set(1, 2)(2)` failed the callable check with
+    // "Not callable" — while the comment fifteen lines below already said "matching
+    // ListV/MapV/SetV apply". BUGS `int-set-apply-is-not-membership`.
+    case _: Value.ListV | _: Value.MapV | _: Value.SetV | _: Value.VectorV | _: Value.ArrayV | _: Value.LazyListV =>
       DispatchRuntime.dispatch(fn, "apply", args, env, interp)
     // `sig()` — read a reactive Signal's current value (Scala `Signal.apply(): T`).
     // The JS/JVM emitters wire this to the reactive runtime; on the interpreter it
