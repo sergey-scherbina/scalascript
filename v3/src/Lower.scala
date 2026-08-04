@@ -542,13 +542,17 @@ object Lower:
     // A top-level `val n = v` IS an assignment to the module cell. Rewriting it here rather than
     // special-casing it in the lowering keeps "am I at the top level?" a question with one answer,
     // asked in the one place that can answer it.
-    val hoisted = p.topLevel.map { st => st match
+    // MARK FIRST, HOIST SECOND. The other order turns a top-level `val` into an assignment
+    // EXPRESSION and auto-output then prints it — a block whose tail is a `val` started emitting a
+    // line nobody wrote. A `val` tail prints nothing; that is the rule, and it only survives if the
+    // marking sees the statement as the author wrote it.
+    val marked = markAutoOutput(p.topLevel, blockEnds)
+    val hoisted = marked.map { st => st match
       case Stmt.Val(n, v, _, q) => Stmt.Exp(Expr.Assign(n, v, q))
       case other                => other
     }
-    val marked = markAutoOutput(hoisted, blockEnds)
     val entryBody =
-      Expr.Block(marked, userMain.map(_ => Expr.Call("main", Nil, Pos.none)), Pos.none)
+      Expr.Block(hoisted, userMain.map(_ => Expr.Call("main", Nil, Pos.none)), Pos.none)
     val entryDef = Def(entryName, Nil, entryBody, Pos.none)
     // Object members are flattened into `Object.member` top-level functions before anything else
     // looks at the name list, so a qualified call resolves by ordinary lookup.

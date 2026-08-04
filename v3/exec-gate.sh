@@ -77,14 +77,21 @@ else
   echo "  FAIL executor did not complete mutual recursion: [$(printf '%s' "$own" | tr '\n' '/')]"
   fail=1
 fi
-bridge_mut="$(v3/ssc3 run v3/tests/mutual-recursion.ssc 2>&1)"
-if printf '%s' "$bridge_mut" | grep -q StackOverflowError; then
-  echo "  ok   the bridge still overflows on it — the two lanes are distinguishable"
+# The bridge USED to overflow here and no longer does: the group-merge pass turns mutual tail
+# recursion into a loop IN THE IR, so both lanes get it. The gate now asserts the stronger property
+# — they AGREE — instead of the contrast it asserted while only the executor could do it. It went
+# red the moment that changed, which is what an expiring assertion is for.
+bridge_mut="$(v3/ssc3 run v3/tests/mutual-recursion.ssc 2>/dev/null)"
+if [ "$bridge_mut" = "$(cat v3/tests/mutual-recursion.expected)" ]; then
+  echo "  ok   the bridge completes it too now — mutual recursion is a loop in the IR, not a lane trick"
 else
-  echo "  FAIL the bridge did NOT overflow; this contrast no longer proves anything"
+  echo "  FAIL the bridge no longer matches on mutual recursion: [$(printf '%s' "$bridge_mut" | tr '\n' '/')]"
   fail=1
 fi
 
+# The hand-written `.ssir` contrast still holds, and it is worth saying why: a `.ssir` is read
+# straight into the IR and NO pass runs on it, so its raw `TailCall` reaches the bridge intact. That
+# is what still distinguishes a backend that honours TailCall from one that does not.
 ir="$(mktemp -t ssc3x)"; $SSC3 emit-v2 v3/tests/tail-call.ssir > "$ir" 2>/dev/null
 # Capture FIRST, then match. Under `set -o pipefail` the pipeline takes java's exit status, and java
 # exits non-zero precisely BECAUSE it overflowed — so `… | grep -q` reported failure exactly when
