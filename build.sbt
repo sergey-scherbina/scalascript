@@ -1420,16 +1420,25 @@ lazy val backendInterpreterServer = project
 
 lazy val testUtils = project
   .in(file("v1/runtime/backend/test-utils"))
-  // `core` is declared even though it already arrives transitively via backendInterpreter:
-  // TestInterpreter.scala imports scalascript.parser.Parser, which core provides, and a module that
-  // imports a package should name the project providing it rather than depend on a chain staying
-  // intact. The Native Release workflow fails on exactly these imports —
-  // `value backend/interpreter/parser is not a member of scalascript`, i.e. testUtils compiled with
-  // no project classpath — on all three runners, while every local reproduction (module clean, full
-  // clean, the exact CI invocation) passes. BUGS.md
-  // native-release-blocked-by-testutils-clean-compile.
+  // `core` is declared even though it already arrives transitively via backendInterpreter: a module
+  // that imports a package should name the project providing it rather than depend on a chain
+  // staying intact. (This was once suspected of causing the release failure below. It does not —
+  // run 30907972567 failed identically with it declared.)
   .dependsOn(backendSpi, backendInterpreter, core)
   .settings(
+    // Pipelining OFF for this one module. Under `ThisBuild / usePipelining := true` a module
+    // compiles against its dependencies' EARLY tasty output; in the branch that builds the full
+    // artifact set (35 poms + scaladoc — what `cli/graalvm-native-image:packageBin` walks) that
+    // early output is absent here, and all three imports in TestInterpreter.scala resolve to
+    // nothing: "value backend is not a member of scalascript". testUtils is the module that shows
+    // it because NOTHING depends on it in Compile scope, so the artifact-collection path is the
+    // only thing that ever compiles it.
+    // Proven by A/B from `git clean -xdf` on both sides, flag the only difference: ON reproduces
+    // the three CI runners' failure, OFF compiles and the build walks past it. Do not "simplify"
+    // this away without re-running that A/B from clean -- a control taken on an already-built tree
+    // passes either way, which is how this was mis-refuted twice.
+    // tests/BUGS.md native-release-blocked-by-testutils-clean-compile.
+    usePipelining := false,
     name := "scalascript-test-utils",
     libraryDependencies ++= Seq(scalatestTest),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,

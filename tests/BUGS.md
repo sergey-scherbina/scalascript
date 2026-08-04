@@ -203,6 +203,53 @@ invocation all pass on this machine, and the environment differs only in the JDK
 CI, Temurin locally). Nothing further can be learned without asking the runner what classpath it
 actually assembled.
 
+### 2026-08-04 — root cause: `usePipelining`, and why every local reproduction missed it
+
+**Cause.** `ThisBuild / usePipelining := true` (build.sbt:54). Under pipelining, a module compiles
+against its dependencies' *early* TASTy output. In the branch that builds the full artifact set —
+the one that writes 35 `.pom` files and runs scaladoc — testUtils is compiled with that early output
+absent, so all three of its imports resolve to nothing:
+
+```
+value backend is not a member of scalascript
+value interpreter is not a member of scalascript
+value parser is not a member of scalascript
+```
+
+testUtils is the module that shows it because **nothing depends on it in Compile scope**; it is only
+ever reached by the artifact-collection path, never by a normal dependency walk.
+
+**Proof — A/B, both sides from `git clean -xdf` (0 `target/` dirs), differing only in the flag:**
+
+| run | result |
+| --- | --- |
+| full 3-command sequence, pipelining **ON** | `rc=1`, the E008 triple — CI's failure, reproduced |
+| full 3-command sequence, pipelining **OFF** | 0 E008; testUtils compiles, scaladoc runs, build proceeds past it |
+
+**Why every previous local reproduction passed.** The CI step is *three* sbt commands:
+
+```
+sbt 'set cli / graalVMNativeImageOptions := ...' \
+    "cli/installBin" "cli/graalvm-native-image:packageBin" "pluginHost/assembly"
+```
+
+Local reproductions ran only the first. `cli/installBin` succeeds in 13 s and never compiles
+testUtils — the poms start with the *second* command. The tell was in the logs all along: the
+passing local run wrote **0** poms, the failing CI run wrote **35**.
+
+**The JDK hypothesis is closed.** The failure reproduces on Temurin 21 with no GraalVM involved; the
+environments never "differed only in the JDK", they ran different task graphs.
+
+**Two wrong turns worth keeping**, because both are the same mistake:
+
+- "testUtils does not compile from clean" — false. On a genuinely clean tree `testUtils/compile`
+  passes *with* pipelining. That claim came from a tree already mutated by the earlier failed run.
+- A control run "with pipelining back on" passed and appeared to refute the cause — but the
+  preceding no-pipelining run had itself built the dependencies' full jars, so the control was
+  measuring a repaired tree. **A control taken after the experiment is not a control.**
+
+**Fix:** `testUtils / usePipelining := false`, scoped to the one module, so pipelining keeps its
+build-speed win everywhere else.
 
 ## coord-claim-items-tokenised-so-prose-collides-on-stop-words — a claim refused over the word "the"
 <!-- status: open
