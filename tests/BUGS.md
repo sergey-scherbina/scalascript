@@ -380,6 +380,32 @@ Note `package-keyword` hid its own error behind `2>/dev/null`, which is why the 
 as "empty output". Bare `ssc file.ssc` still works; the emptiness was the interpreter erroring on
 stderr.
 
+**RUNNER SWEEP 2026-08-04 — the same three apparatus defects ran through the whole set.** After
+`fm-routes` and `health-defaults` turned out to be measuring a compiler, the census asked how far
+that went: **8 gates ran `$BIN/sscc` as a server** and **6 labelled `$BIN/ssc` as INT**. Seven were
+free to fix (`package-keyword` is held elsewhere). Corrected runners, then re-measured:
+
+| gate | after |
+|---|---|
+| `import-alias` | **green** |
+| `url-import` | **green** |
+| `validation` | **green** — INT/JVM/JS all listen, verified distinct |
+| `components`, `middleware` | jvm fails to COMPILE — `jvm-lane-cannot-compile-a-json-import`, filed |
+| `std-ui-forms` | `INT: title>std/ui (0, want 1)` — real, unreduced |
+| `upload` | `INT: missing 'file' part` — real, unreduced |
+
+**The finding under two of them is bigger than the gates.** `run-jvm` cannot compile *any* program
+importing `std/json.ssc` — 14 `[E007]` in the emitted Scala, every one a destructured binder typed
+`Any`. `std/http.ssc` imports json, so the jvm lane could not compile an HTTP server either. Both
+gates reported it as `the server process EXITED before it listened`.
+
+**A false green I produced and had to withdraw, worth recording.** The first sweep was one blanket
+regex, and it broke two ways at once. Helpers taking positional args got `expected` shifted into the
+wrong slot (`expected: --v1`); helpers invoking `"$launcher"` **dropped the added words entirely**,
+so INT, JVM and JS all ran the same default lane — and `middleware` and `validation` went green for
+no reason at all. Caught by checking that the per-lane logs DIFFER, which is now the thing to check
+after any change to how a gate picks its lane. Reverted and redone file by file.
+
 **Full list, by outcome.**
 
 failing (26):

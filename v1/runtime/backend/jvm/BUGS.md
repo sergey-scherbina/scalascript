@@ -7,6 +7,53 @@ grepping for status.
 
 Newest first.
 
+## jvm-lane-cannot-compile-a-json-import — 14 type errors before a single line runs
+<!-- status: open
+     lane: jvm
+     area: codegen
+     kind: bug
+     gate: tests/e2e/jvm-json-import-gate.sh -->
+
+**Measured 2026-08-04.** Five lines, one import, four lanes:
+
+```scalascript
+[jsonParse](std/json.ssc)
+val v = jsonParse("{\"a\":1}")
+println("parsed")
+```
+
+| lane | result |
+|---|---|
+| int | `parsed` |
+| native | `parsed` |
+| js | `parsed` |
+| **jvm** (`ssc-tools run-jvm`) | **14 × `[E007] Type Mismatch`** — the emitted Scala does not typecheck |
+
+**Control, in the same gate:** the same program *without* the json import compiles and runs on the
+jvm lane (`control ok`). So this is not "run-jvm is broken today"; it is specifically what the json
+core lowers to.
+
+**Shape of the failure** — every one is a destructured binder that arrived as `Any`:
+
+```
+7 ×  Found: (tail : Any)   Required: Int
+5 ×  Found: (unit : Any)   Required: List[Any] / List[Int]
+2 ×  Found: (low  : Any)   Required: Int
+```
+
+all inside `jsonCoreParseStringLoop`. The generator emits the bindings without their element types,
+so the Scala compiler sees `Any` where the call sites need `Int` and `List[Int]`.
+
+**The blast radius is not json.** `std/http.ssc` imports it, so the jvm lane cannot compile a
+program that serves HTTP either. That is how this was found: `components-smoke` and
+`middleware-smoke` both reported **`the server process EXITED before it listened`** — a serving
+symptom for a defect that happens before a single line runs. Neither gate was reporting a server
+problem, and neither had been run in months.
+
+**Declared, not left red.** The gate counts the four cells that pass and prints
+`KNOWN GAP jvm with json`. It **fails if that cell starts passing**, saying to delete the
+declaration and close this entry.
+
 ## jvm-string-literal-s-concat-inserts-x — the string `"s"` on the left of a `+` emits an extra `x`
 <!-- status: fixed
      lane: jvm

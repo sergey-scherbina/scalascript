@@ -7,6 +7,25 @@
 # component convention (one .ssc per component with `object Name { css,
 # render }`, imported via `[Name](./path.ssc)`, composed at the page
 # level) yields byte-identical output across INT / JVM / JS.
+#
+# RUNNERS CORRECTED 2026-08-04 (tests/BUGS.md orphaned-e2e-gates-52). Two were wrong, and neither
+# wrong is visible from the failure it produced:
+#
+#   `$BIN/sscc` is `ssc-tools compile-jvm` — it COMPILES and exits, printing `JVM artifact written`.
+#   As a "JVM backend" it never ran anything: this gate's JVM lane was measuring a compiler, and
+#   reported it as "the server process EXITED before it listened".
+#
+#   `$BIN/ssc` is `StandardMain`, the NATIVE/default lane, not the interpreter. The label said INT
+#   for a launcher that stopped being the interpreter when the lane map moved, so this gate's
+#   failures were filed against the wrong lane's owner. The runner now matches the label; NATIVE is
+#   not covered here and its own gap is `v2/BUGS.md native-lane-ignores-declarative-route-registration`.
+#
+# The launcher is now a COMMAND WITH ARGUMENTS, passed as one string and invoked UNQUOTED. Passing
+# the extra words as separate arguments instead is a silent trap: helpers that take positional args
+# shift `expected` into `$4`, and helpers that use `"$launcher"` drop the words entirely — which
+# made three differently-labelled lanes all run the same default lane and turned two gates green
+# for no reason. Both happened here before this note was written.
+#
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -79,7 +98,7 @@ run_backend() {
     # interpreter through the static-render entry point and validates that
     # INT produces the right page.
     if [ "$label" = "INT" ]; then
-        body=$("$launcher" render "$EXAMPLE" 2>/tmp/components-smoke-INT.log)
+        body=$($launcher render "$EXAMPLE" 2>/tmp/components-smoke-INT.log)
         if [ -z "$body" ]; then
             echo "[FAIL] $label: 'ssc render' produced no output"
             cat /tmp/components-smoke-INT.log
@@ -87,7 +106,7 @@ run_backend() {
         fi
     else
         kill_port
-        "$launcher" "$EXAMPLE" > "/tmp/components-smoke-$label.log" 2>&1 &
+        $launcher "$EXAMPLE" > "/tmp/components-smoke-$label.log" 2>&1 &
         local pid=$!
         wait_for_server "$pid"; wrc=$?
     if [ "$wrc" -ne 0 ]; then
@@ -152,8 +171,8 @@ fail=0
 # which the standard ssc declines with an EMPTY stdout — indistinguishable here from a page
 # that rendered to nothing.
 run_backend INT "$BIN/ssc-tools"   || fail=1
-run_backend JVM "$BIN/sscc"  || fail=1
-run_backend JS  "$BIN/jssc"  || fail=1
+run_backend JVM "$BIN/ssc-tools run-jvm"  || fail=1
+run_backend JS  "$BIN/ssc-tools run-js"  || fail=1
 
 echo
 if [ $fail -eq 0 ]; then
