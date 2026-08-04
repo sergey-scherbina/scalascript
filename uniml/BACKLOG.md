@@ -352,8 +352,18 @@ self-parity test is not external conformance.
         string in half, so every prefix ending inside it fails for a reason the file does not
         have. Verified by parsing the same construct whole — one-line, multi-line, and with a
         nested `"` inside — all clean.
-        What is left to try: bisect by BALANCED CONSTRUCT rather than by line, or diff the
-        fence body against a reduced copy until the diagnostic disappears.
+        **SOLVED BY DELTA DEBUGGING — `SscReduce`.** 44 lines reduce to 5, keeping the
+        diagnostic. The GUARD is the whole design: "still fails" is not enough and neither
+        is "fails no more often" — a torn multi-line string does both, and the weaker guard
+        produced a 2-line fragment whose failure was its own. A candidate is accepted only
+        if the target message survives AND it introduces NO message the original lacked.
+        The reduction points at what every isolation test I wrote had missed: a
+        **MULTI-LINE** interpolated triple-quoted string —
+        `val labelEl = if … then "" else html"""<label class="${labCls}" for="${name}">${`
+        with the `${` left open at end of line. Every shape I had checked by hand was
+        single-line, which is why they all came back clean.
+        ⚠️ **Found on the way: an UNTERMINATED triple-quoted string produces NO diagnostic**
+        at all — the lexer reads it to end of input and emits it. That is its own gap.
 
   - [~] **SSC3-P typed projection.** The ScalaScript analogue of `MarkdownProjection`: CST in,
         typed AST out. This is the artifact the decision actually names — the lossless CST is the
