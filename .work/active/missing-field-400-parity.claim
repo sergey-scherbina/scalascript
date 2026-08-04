@@ -2,10 +2,10 @@ slug: missing-field-400-parity
 branch: feature/missing-field-400-parity
 agent: claude-code
 started: 2026-08-04T11:23:04Z
-heartbeat: 2026-08-04T11:23:04Z
-status: claimed-before-planning
+heartbeat: 2026-08-04T11:24:20Z
+status: in-progress
 items: native-missing-required-field-is-500-not-400
-paths: file:v1/runtime/http-server/fast-engine/src/main/scala/ssc/plugin/httpfast/FastHttpServer.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/RequestValidation.scala file:v2/BUGS.md file:tests/e2e/request-validation-family-gate.sh
+paths: file:v1/runtime/http-server/fast-engine/src/main/scala/ssc/plugin/httpfast/FastHttpServer.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/RequestValidation.scala file:v2/BUGS.md file:tests/e2e/request-validation-family-gate.sh file:v1/runtime/http-server/fast-engine/src/main/scala/ssc/plugin/httpfast/HandlerValidationError.scala
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: make record() throw it with the reason, verify BOTH lanes answer 400
