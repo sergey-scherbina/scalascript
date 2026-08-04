@@ -16,6 +16,59 @@ scripts/bugs-report --no-gate              # open entries with no regression gat
 
 Newest first.
 
+## triple-quoted-literal-ending-in-a-quote-is-not-a-string — three lanes agree, and all three are wrong
+<!-- status: open
+     lane: multi
+     area: front
+     kind: bug
+     gate: tests/e2e/triple-quote-trailing-quote-gate.sh -->
+
+**Measured 2026-08-04.** Four lines:
+
+```scalascript
+val a = """x""""          // content is  x"  — of the four closing quotes, one is content
+println("[" + a + "]")
+val b = """x"""           // control: no trailing quote in the content
+println("[" + b + "]")
+```
+
+| lane | first line | control |
+|---|---|---|
+| int | `List(x")` | `[x]` |
+| js | `List(x")` | `[x]` |
+| jvm | `List(x")` | `[x]` |
+| **native** | **`[x"]`** | `[x]` |
+
+The concatenation does not produce a String at all — it produces a **List**. The control is right
+everywhere, so this is the trailing quote and not triple-quoting in general. **Three lanes agree
+with each other and all three are wrong**: int, js and jvm share the front that mis-lexes this, and
+native has its own. A majority is not a verdict.
+
+**How it was found, which matters more than the repro.** `std-ui-forms-smoke` failed with
+
+```
+InterpretError: [line 36, col 196] Undefined: impl
+```
+
+`impl` appears in no source file in this repository, and the reported position does not exist in the
+file it names. Bisecting put it in one component, then in `examples/std-ui/input.ssc`'s `render`,
+then in a single line:
+
+```scalascript
+val inv = if error.nonEmpty then """ aria-invalid="true"""" else ""
+```
+
+Everything downstream of that literal — three `${raw(...)}` inside one `html` interpolation — then
+failed to resolve a name nobody wrote. **The diagnostic is not merely imprecise, it is unrelated to
+the cause**, and it names a position that cannot be inspected. That is why the gate which hit this
+sat red and unread: nothing in the message suggests a string literal.
+
+**Blast radius is wider than one demo.** Any `.ssc` writing an HTML attribute the natural way —
+`""" aria-invalid="true""""` — silently gets a non-String on three of four lanes.
+
+**Declared, not left red.** The gate counts native and declares int/js/jvm as gaps; each cell
+**fails if it starts passing**, so the declaration cannot outlive the defect.
+
 ## v2-three-parameter-clauses-fail-typecheck — `def f(a)(b)(c)` dies with "cannot unify Tuple with non-Tuple"
 
 <!-- status: open

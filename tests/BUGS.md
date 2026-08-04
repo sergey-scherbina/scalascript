@@ -429,7 +429,7 @@ free to fix (`package-keyword` is held elsewhere). Corrected runners, then re-me
 | `url-import` | **green** |
 | `validation` | **green** — INT/JVM/JS all listen, verified distinct |
 | `components`, `middleware` | jvm fails to COMPILE — `jvm-lane-cannot-compile-a-json-import`, filed |
-| `std-ui-forms` | `INT: title>std/ui (0, want 1)` — real, unreduced |
+| `std-ui-forms` | **REDUCED 2026-08-04 to four lines and filed** — not a rendering defect at all. `ssc render` died with `InterpretError: Undefined: impl`, a name in no source file, at a position that does not exist in the file it names. It is a triple-quoted literal whose CONTENT ends with a quote (`""" aria-invalid="true""""` in `input.ssc`): int, js and jvm all turn it into a **List** instead of a String, native alone is right. `BUGS.md triple-quoted-literal-ending-in-a-quote-is-not-a-string`, gated. |
 | `upload` | `INT: missing 'file' part` — real, unreduced |
 
 **The finding under two of them is bigger than the gates.** `run-jvm` cannot compile *any* program
