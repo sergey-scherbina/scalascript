@@ -3384,6 +3384,37 @@ with ssc1c optimizations (better IR generation) or v2 VM fast-paths.
       **v2-float-cell-fastpath** (cross-cutting: kernel prims + ssc1c lowering + all 3
       backend generators must learn dcell.*).
 
+### ▶ tui-fetch-gaps — three capability gaps reported by rozum (2026-08-04)
+
+Three `kind: feature`, `impact: blocks` reports from **rozum**, registered in
+[`INBOX.md`](INBOX.md) via `scripts/inbox-add` by the reporter themselves. They emit ONE `.ssc`
+source to two targets — `emit-spa --frontend react` for the web control centre and
+`emit(view(), "tui-out")` for a ratatui client — and every gap below is a place where the web target
+honours something the terminal target silently drops. Silently is the common thread: none of these
+is a build error, each produces a client that renders and then does the wrong thing.
+
+**Their ordering, kept as given** — headers first because it blocks the *read-only* client:
+
+- [~] **tui-fetch-headers** — `FetchUrlSignal` carries `headersId`; `TuiEmitter.collectFetches`
+      drops it and the emitted helper is a bare `ureq::get(url).call()`. Their daemon requires HTTP
+      Basic on every route, so the terminal target cannot read real data at all.
+      Spec: [`specs/frontend-tui-fetch-headers.md`](specs/frontend-tui-fetch-headers.md).
+      ⚠ Also widens the `serde_json` Cargo dependency condition (today `hasRemoteTable` only), or the
+      emitted crate will not compile.
+- [ ] **tui-fetch-url-signal** — `FetchInfo` captures the URL literal at EMIT time, only the tick is
+      dynamic, so a room switcher or day-pager keeps reading the endpoint chosen at build time. The
+      reporter calls this the cheaper of the remaining two and says it unblocks read-side navigation
+      on its own.
+- [ ] **tui-fetch-post** — no `fetchAction`/POST binding exists on the TUI target, so a `TextInput`
+      composer renders and can never submit. Wanted: a POST with a body that bumps a tick on success
+      so the bound GET re-reads.
+
+**What makes all three findable at once, and is worth more than any of them:** the dual-target proof
+so far — this repo's `specs/frontend-tui-fetch-refresh.md` gate and the reporter's own PoC smoke —
+has only ever run against **fixtures with no auth and a fixed URL**. Every gap here was invisible
+until a generated client was pointed at a production endpoint. Gates written against a fixture that
+never authenticates cannot see a dropped credential.
+
 ### ▶ rust-tui-toolkit (2026-06-23, with Sergiy — "делай вариант [полный транспайл .ssc → Rust]")
 Make `computedSignal` (and any thunk) run LIVE in the terminal by routing std/ui through the Rust codegen
 backend (RustCodeWalk) — the rust-web-toolkit path where computedSignal is already a re-runnable Rust closure —
