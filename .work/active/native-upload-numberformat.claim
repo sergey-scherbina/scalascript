@@ -2,10 +2,10 @@ slug: native-upload-numberformat
 branch: feature/native-upload-numberformat
 agent: claude-code
 started: 2026-08-04T15:31:55Z
-heartbeat: 2026-08-04T15:45:28Z
+heartbeat: 2026-08-04T15:46:05Z
 status: in-progress
 items: native-upload-numberformat-on-dash
-paths: file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:v1/runtime/http-server/fast-engine/src/main/scala/ssc/plugin/httpfast/HttpProtocol.scala file:v2/BUGS.md file:v1/lang/core/src/main/scala/scalascript/interpreter/JsonParser.scala file:tests/e2e/upload-smoke.sh
+paths: file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:v1/runtime/http-server/fast-engine/src/main/scala/ssc/plugin/httpfast/HttpProtocol.scala file:v2/BUGS.md file:v1/lang/core/src/main/scala/scalascript/interpreter/JsonParser.scala
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: make parseNumber raise ParseError so both parse and parseOption keep their stated contracts
+next: the FIX only — int-render-and-upload-gaps owns the gates
