@@ -10,23 +10,23 @@ Anything not being worked on belongs in `uniml/BACKLOG.md`, not here — a queue
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
-- [~] UNIML-SSC3-CI — **the dialect's tests must be run by CI, and today nothing runs them.**
-      MINE, and prioritised at Sergiy's request 2026-08-04. Two gaps, only one of which I made:
-      (a) **`unimlScala` is not registered in the ROOT `build.sbt`**, so after UPR-4a moved the
-          dialect out of `uniml/core`'s test scope, root `uniml/test` went from ~75 tests to 15.
-          I did not hide this; it is the price of making the dialect production code, and the
-          fix is one project definition plus an aggregate entry. BLOCKED: root `build.sbt` is
-          held by the live `release-v0-1-0` claim (started 10:48Z, `claimed-before-planning`).
-          Not releasing another agent's claim on a 70-minute heartbeat; asked in the room.
-      (b) **the STANDALONE build has never been in CI at all** — `grep uniml .github/workflows`
-          returns nothing, and the root `sbt — compile and test` job is `workflow_dispatch` only
-          (3h16m). So the 81 dialect tests that DO exist are run by no automated gate on any
-          push, and were not before my change either. This is UPR-9's open row, and it is the
-          bigger of the two: (a) restores a dispatch-only job, (b) is the one that would catch a
-          regression on the day it lands.
-      **Plan:** take (a) the moment `release-v0-1-0` frees `build.sbt`; propose (b) as a smoke-ci
-      check (`cd uniml && sbt test` is ~2 min warm) rather than waiting for the 3h job. Neither
-      is done until a RUN shows the dialect's tests executing.
+- [~] UNIML-SSC3-CI — the dialect's tests must be run by CI. BOTH halves implemented; the
+      item stays open until a RUN shows them executing, which is what it said from the start.
+      (a) **DONE.** `unimlScalaCross` registered in the ROOT build (JVM + Scala.js, aggregated
+          with its siblings). Root `uniml/test` is back from 15 to 81, JS 3. The partition gate
+          agreed rather than being told: modules 260 → 261, standard tier UNCHANGED at 35 —
+          the dialect is an additional library and must not enter the default distribution just
+          because it became publishable. `specs/project-partitioning.md` carries the same
+          arithmetic, Part III 143 → 144 in all four places it is stated.
+      (b) **IMPLEMENTED, awaiting a green run.** `smoke-ci` now runs `cd uniml && sbt test`
+          (`tests/e2e/uniml-standalone-tests.sh`). Cost measured BEFORE claiming the budget:
+          27.9s from clean, 7.2s warm, against 500s of which 234s was used. Runs the STANDALONE
+          build on purpose — that build is UniML's proof it stands alone, so one command checks
+          the tests and that property together. The script counts PASSING PROJECTS, because an
+          aggregate that quietly stopped including projects would still exit 0 while testing
+          less. Verified both ways: planted type error → exit 1, restored tree → exit 0.
+          ⚠️ The first verification was WRONG — `script | tail` then `echo $?` reports TAIL's
+          exit code, so a broken build read as a pass. Measure the script, not the pipeline.
 
 - [~] UNIML-SSC3 — **UniML must be ready to serve as ScalaScript's parser AND AST**, for
       language version 3. Direction: `specs/uniml-ssc3-frontend.md`; the seam with v3's SSC IR
