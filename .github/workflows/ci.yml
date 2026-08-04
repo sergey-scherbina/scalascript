@@ -601,7 +601,11 @@ jobs:
           sbt -batch test | tee /tmp/uniml.log
           passed=$(grep -c "All tests passed" /tmp/uniml.log || true)
           echo "UniML: $passed project(s) reported passing"
-          if [ "$passed" -lt 8 ]; then
+          # Floor == the count observed in run 30937360765, not a round number
+          # under it. Adding a project raises the count and stays green; only
+          # LOSING one goes red, which is the whole point. A floor of 8 against
+          # an actual 10 tolerates exactly the silent loss this asserts against.
+          if [ "$passed" -lt 10 ]; then
             echo "::error::only $passed UniML project(s) reported passing — expected the whole aggregate"
             exit 1
           fi
