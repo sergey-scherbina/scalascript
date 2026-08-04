@@ -56,7 +56,7 @@ and nothing here proves they share a cause.
      area: front
      kind: bug
      gate: tests/e2e/triple-quote-trailing-quote-gate.sh
-     fixed-in: PENDING-SHA -->
+     fixed-in: cb620c16a -->
 
 **Measured 2026-08-04.** Four lines:
 
