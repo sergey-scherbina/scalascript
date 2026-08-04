@@ -7,6 +7,51 @@ grepping for status.
 
 Newest first.
 
+## char-classification-diverges-from-the-interpreter-on-seven-predicates
+
+<!-- status: open
+     lane: js
+     area: runtime
+     fixed-in: -
+     gate: - -->
+
+`core-collections.mjs:373-384` implements `Char`'s classification with JS regex property escapes
+that are NOT the predicates Java answers, so the same ScalaScript program gives different answers
+on the js lane and on the interpreter. Measured character by character over the whole BMP,
+JDK 21 against Node 22:
+
+| predicate | js impl | disagreeing code points | why |
+|---|---|---|---|
+| `isDigit` | `_c >= 48 && _c <= 57` | **360** | ASCII only; Java is every `Nd` — Arabic-Indic, Devanagari, fullwidth |
+| `isSpaceChar` | `_s === ' '` | **18** | Java is `Zs Zl Zp` |
+| `isLower` | `/\p{Ll}/u` | **199** | Java adds `Other_Lowercase` |
+| `isUpper` | `/\p{Lu}/u` | **42** | Java adds `Other_Uppercase` — Roman numerals `U+2160..` |
+| `isWhitespace` | `/\s/u` | **8** | JS counts NBSP / `U+2007` / `U+202F`; Java counts `U+001C..1F` |
+| `toUpper` | `.toUpperCase().charCodeAt(0)` | — | takes the FIRST char of a multi-char expansion: `ß` becomes `S`, `ﬀ` becomes `F`, `ǰ` becomes `J`. Java returns the character unchanged when its uppercase form is not one char |
+| `isLetter` | `/\p{L}/u` | 16 | correct logic; see the residue below |
+
+**The fix is verified, not proposed.** With `isDigit` -> `/\p{Nd}/u`, `isSpaceChar` ->
+`/[\p{Zs}\p{Zl}\p{Zp}]/u`, `isUpper` -> `/\p{Uppercase}/u`, `isLower` -> `/\p{Lowercase}/u`,
+`isWhitespace` -> Java's explicit set, and `toUpper` returning the character unchanged unless the
+uppercase form is exactly one char, the first four rows and `toUpper` become **byte-identical to
+Java over the whole BMP**.
+
+**What CANNOT be fixed in code, and it is the interesting half.** 16 code points still differ, and
+every one is Unicode VERSION skew: `U+A7CB`, `U+1C89`, `U+088F` and friends exist in Node's ICU and
+not in JDK 21's Unicode 15.0, and `U+0295` moved from `Ll` to `Lo` between them. Two runtimes that
+ship their own Unicode data will never agree by construction, whatever the code says. That is the
+argument for baking a generated table into anything the LANGUAGE's meaning depends on — which is
+what `uniml`'s `UniAlphabet` now does for the one place case is load-bearing.
+
+**Blast radius, which is why this is filed rather than fixed in passing.** Every `.isDigit` /
+`.isUpper` / `.isWhitespace` in user ScalaScript changes behaviour on the js lane. Widening
+`isDigit` from ASCII to all `Nd` is the language becoming MORE permissive on one lane, and a
+hand-written parser that leaned on `isDigit` being ASCII would silently change meaning. This needs
+the conformance corpus on both lanes, not a unit test.
+
+Found while measuring the case question for `uniml-ssc3-frontend-readiness`; the harness is
+reproducible from the entry above.
+
 ## js-package-import-emits-a-second-self-referential-const — `SyntaxError: Identifier 'org' has already been declared`
 
 <!-- status: open
