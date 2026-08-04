@@ -1,0 +1,11 @@
+slug: v2-field-access-reversed
+branch: feature/v2-field-access-reversed
+agent: claude-code
+started: 2026-08-04T13:56:37Z
+heartbeat: 2026-08-04T13:56:37Z
+status: claimed-before-planning
+items: named-case-class-field-access-is-reversed-on-the-default-lane
+paths: file:v2/src/Runtime.scala
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
