@@ -56,6 +56,78 @@ than one that is missing.
 ## Queue
 
 <!-- inbox-entries:start — `scripts/inbox-add` appends here; the gate parses this region -->
+## tui-fetch-post — The TUI frontend emits only a managed GET, so a TextInput composer in a dual-target .ssc app renders but can never submit — no fetchAction/POST binding exists
+<!-- triage: new
+     reported-by: rozum (github.com/sergey-scherbina/rozum, docs/specs/ucc-meetings-in-tk.md)
+     reported-at: 2026-08-04
+     ssc-version: ec70eb062 (staged bin/, dev build)
+     repro: none
+     kind: feature
+     reporter-suspects: collectFetches records only FetchUrlSignal -> FetchInfo(url, tickId), documented as 'Managed GET metadata'; no fetchAction/POST anywhere under frontend/tui/src/main
+     impact: blocks -->
+
+rozum emits the same `.ssc` source to two targets: `emit-spa --frontend react` for the web control
+centre, and `emit(view(), "tui-out")` for a native ratatui client. That dual-target path is already
+proven end-to-end for READING — `specs/frontend-tui-fetch-refresh.md` on your side, and rozum's
+`docs/specs/ucc-poc-msglist.md` + `clients/control/meeting-message-list.ssc` on ours: one source, a
+React artifact and a ratatui crate that builds and renders live rows headlessly.
+
+We are now extending that client to replace a hand-written ratatui meeting client, and the extension
+stops at the network boundary. The widgets are all there — `TuiEmitter` slice 3 gives
+`TextInput`/`Button`/`Toggle`, a focus ring, Tab/arrow traversal, `Enter` activation and typed-char
+editing, so a composer LOOKS buildable. It just cannot send anything.
+
+What we observe in `frontend/tui/src/main/scala/scalascript/frontend/tui/TuiEmitter.scala`:
+
+- `collectFetches` records only `FetchUrlSignal`, into `FetchInfo(url, tickId)`;
+- the doc comment on that record calls it "Managed **GET** metadata";
+- `grep -rE 'fetchAction|FetchAction|"POST"|Method::Post' frontend/tui/src/main/` returns nothing.
+
+So on the web target a composer is `fetchAction("POST", …)` and works; on the TUI target the same
+source has no way to submit. The result is not a broken build — it is a client that renders a text
+box which silently does nothing, which is worse.
+
+What would unblock us: an emitter-side counterpart of `fetchAction` — a POST binding that sends a
+body and bumps a tick on success so the bound GET re-reads. Same shape as the refresh contract you
+already gate: a deterministic local-HTTP test asserting the generated Rust posts the body and then
+performs the follow-up GET.
+
+We are not asking for auth, headers or streaming — a plain POST with a body and an on-success tick
+covers the composer, and covers it for every other `.ssc` app that wants to write from a terminal.
+## tui-fetch-url-signal — The TUI frontend bakes the fetch URL in at emit time (only the tick is dynamic), so a room switcher or day-pager on the TUI target keeps showing the endpoint chosen at build time
+<!-- triage: new
+     reported-by: rozum (github.com/sergey-scherbina/rozum, docs/specs/ucc-meetings-in-tk.md)
+     reported-at: 2026-08-04
+     ssc-version: ec70eb062 (staged bin/, dev build)
+     repro: none
+     kind: feature
+     reporter-suspects: FetchInfo(f.fetchUrl, f.tickId) captures the URL literal; no fetchUrlSignalTo/urlSignal equivalent under frontend/tui/src/main
+     impact: blocks -->
+
+Sibling of the POST report, same rozum dual-target meeting client, different missing piece.
+
+In `TuiEmitter`, a fetch-bound signal is collected as `FetchInfo(f.fetchUrl, f.tickId)` — the URL is
+a literal captured at EMIT time, and only the tick is dynamic. `grep -rE
+'fetchUrlSignalTo|urlSignal' frontend/tui/src/main/` returns nothing, so there is no counterpart of
+the primitive that takes the URL from a signal.
+
+That makes anything whose data source is CHOSEN AT RUNTIME impossible on the TUI target. Two
+concrete cases from one screen:
+
+1. a room switcher — picking a room must re-target `GET /rooms/{name}/messages/{date}`;
+2. paging to older history — `PgUp` must fetch the previous day, i.e. another `{date}`.
+
+Both are ordinary on the web target (`fetchUrlSignalTo` with a signal URL). On the TUI target the
+list of rooms renders, the selection moves, `Enter` fires — and the transcript below keeps showing
+the room that was baked in at emit time. Again: not a build error, a silently wrong client.
+
+What would unblock us: let the fetch URL come from a `Signal[String]`, so setting that signal
+re-targets the GET, with the same "changed → schedule a new GET before the next frame" rule the tick
+already has. Acceptance shape identical to `specs/frontend-tui-fetch-refresh.md`: a deterministic
+local-HTTP test where changing the URL signal makes the generated crate read the second endpoint.
+
+Ordering, if it matters to you: this one is the cheaper of the two and unblocks read-side navigation
+on its own — a switcher that navigates is useful before a composer that posts.
 <!-- inbox-entries:end -->
 
 ## Closed without routing
