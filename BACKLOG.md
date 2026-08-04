@@ -3516,10 +3516,16 @@ conformance 645/0 on the tagged tree.
 all three `Qualify` jobs fail in the sbt build step and `Publish qualified tag` is skipped, so no
 release has ever been published (the only earlier run, 2026-07-28, failed the same way).
 
-- [ ] **the diagnostic job** — print `testUtils/dependencyClasspath` on a runner before the build.
-      This is the only remaining avenue: every local reproduction passes (module clean,
-      dependency-chain clean, full clean, and the exact CI invocation), and the environments differ
-      only in the JDK — GraalVM 21.0.12 in CI against Temurin locally.
+- [x] ~~the diagnostic job~~ — **not needed; cause found locally.** `ThisBuild / usePipelining :=
+      true` made testUtils compile against absent early tasty output in the artifact-collection
+      branch. Fixed by `testUtils / usePipelining := false`. The premise of this slice was wrong:
+      the environments did NOT "differ only in the JDK" — the CI step runs THREE sbt commands and
+      every local reproduction ran only the first, so nothing local had ever compiled testUtils.
+      Reproduced on Temurin with no GraalVM, then A/B'd from `git clean -xdf` on both sides.
+- [ ] **the tag does not contain the fix.** `v0.1.0` points at `7afcb808c`, which predates it, so
+      re-running the workflow on the existing tag would fail exactly as before. Decide between
+      moving `v0.1.0` (it has never published, so nothing consumes it) and cutting a fresh tag.
+      A `workflow_dispatch` qualification run on `main` verifies the fix without touching either.
 - [x] ~~declare `core` on `testUtils`~~ — **refuted** by run `30907972567`: identical failure. Kept
       because the declaration is correct on its own merits, but it is not the fix.
 - [ ] **after it goes green:** nothing else is needed — the workflow publishes from the existing tag,
