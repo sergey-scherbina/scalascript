@@ -55,4 +55,13 @@ Required gate: `scripts/sbtc 'frontendTui/test'` with `cargo` available.
 
 ## Result
 
-*(filled in on completion)*
+Landed 2026-08-04. One cargo smoke over a view holding `SignalText` + `Button` + `TextInput` +
+`Toggle`, run with `runTests = true` so the crate's own generated event tests execute — that is what
+covers activation, since a crate can compile with an event arm that is never reachable.
+`frontendTui/test` 41/41.
+
+**The gate is proven live, not assumed.** Injecting a deliberate type error into `toggle_text` — a
+helper only the widget path emits — makes exactly this test fail with `cargo run failed (exit 101):
+error[E0308]: mismatched types`. Without that check the test would have been a green line proving
+nothing, which is the failure mode this repo keeps paying for: a coverage test that passes because
+nothing is broken looks identical to one that cannot see breakage.

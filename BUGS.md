@@ -51,10 +51,16 @@ deletes the class rather than gating it, and it is smaller than the gate would b
 "references ⟹ declared" is the fallback if derivation turns out to need more context.
 
 ## tui-interactive-widgets-have-no-compile-coverage — the emitted focus ring is never built by a test
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: build
-     gate: none -->
+     fixed-in: unrecorded
+     gate: frontend/tui/src/test/scala/scalascript/frontend/tui/TuiCargoSmokeTest.scala -->
+
+**FIXED 2026-08-04** (`specs/tui-widget-compile-coverage.md`): a cargo smoke builds a view holding
+`Button`, `TextInput` and `Toggle` and runs the crate's generated event tests. Proven live by
+injecting a type error into `toggle_text` — the new test, and only it, fails with `E0308`.
+
 
 **Found 2026-08-04** while adding a cargo gate for `tui-fetch-headers` and checking what the
 existing ones cover. `TuiCargoSmokeTest` compiles six shapes: the base crate, `DataTable + TabBar`,

@@ -144,6 +144,28 @@ final class TuiCargoSmokeTest extends AnyFunSuite:
     finally
       server.stop(0)
 
+  test("interactive widgets compile and their activation runs via cargo"):
+    assume(cargoAvailable, "cargo not on PATH — skipping ratatui smoke")
+    // BUGS tui-interactive-widgets-have-no-compile-coverage. Slice 3 was asserted only by string
+    // matching, and a string test cannot see Rust that does not compile — which is exactly the class
+    // the headers work hit one layer over (a mutable/immutable borrow of the signal store). One view
+    // holding all three widgets plus an activation is the cheapest thing that would have caught it.
+    val count = new ReactiveSignal[Int]("count", 0)
+    val name  = new ReactiveSignal[String]("name", "")
+    val flag  = new ReactiveSignal[Boolean]("flag", false)
+    val view = View.Column(Seq(
+      View.SignalText(count),
+      View.Button(View.Text(() => "inc"), EventHandler.IncrementSignal(count, 1)),
+      View.TextInput(name, "type here"),
+      View.Toggle(flag, "enabled")
+    ))
+    // runTests = true also runs the crate's OWN generated event tests, which is what exercises
+    // activation — a crate can compile with an event arm that is never reachable.
+    val out = snapshotViaCargo(view, runTests = true)
+    assert(out.contains("inc"),       s"button label missing:\n$out")
+    assert(out.contains("type here"), s"text input placeholder missing:\n$out")
+    assert(out.contains("enabled"),   s"toggle label missing:\n$out")
+
   test("DataTable.Remote fetches JSON and renders the rows via cargo"):
     assume(cargoAvailable, "cargo not on PATH — skipping ratatui smoke")
     val json = """{"data":[{"room":"demo","unread":2},{"room":"rozum","unread":5}]}"""
