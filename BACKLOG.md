@@ -7,6 +7,49 @@ in the same commit as the claim. Layout: `specs/work-tracking-layout.md`.
 Sections below were carried over whole from the flat root `SPRINT.md`/`BACKLOG.md`,
 verbatim, on 2026-07-30.
 
+## smoke-budget-has-no-owner — the per-push cap is a shared resource nobody is responsible for
+<!-- status: open
+     lane: multi
+     area: build
+     kind: apparatus
+     gate: scripts/smoke-ci -->
+
+**DEFERRED DELIBERATELY, 2026-08-04, by agreement — recorded so the decision is visible rather than
+forgotten.** The acute breach is gone (`tests/BUGS.md smoke-suite-over-its-own-budget`, four runs
+since at 278–346 s). What is left is the structural half, and it is a DECISION, not a defect: it
+cannot be taken by whoever happens to notice.
+
+**The measurement that makes it a decision.** Two consecutive CI runs of near-identical content:
+
+| run | total | what changed since the previous |
+|---|---:|---|
+| 30839675049 | 418.6 s | — |
+| 30840744973 | **425.6 s** | one gate trimmed 17.7 s → 10.9 s, i.e. work was REMOVED |
+
+The suite got 7 s slower across a change that only took work out. **Runner variance is ±14 s**, so a
+cap with less than ~20 s of headroom flaps regardless of what is in the suite — every "fix" that
+shaves ten seconds off the newest gate is inside the noise.
+
+**Two ways out, and picking between them is the point:**
+
+1. **Several checks move to tier 2 of `ci.yml`** (which is also per-push, so no per-commit coverage
+   is lost). The five most expensive were `route-handler-shapes` 45.9 s, `render-lane-builtins`
+   42.0 s, `corpus-lane-breadth` 34.1 s, `launchers-not-dead` 30.9 s,
+   `no-test-reaches-an-exiting-cli` 27.9 s — 180.8 s of a 425.6 s run between them. **Each has an
+   owner**, and that is exactly why this sat: an author may move their own gate without a
+   negotiation, and may not move anyone else's.
+2. **The design point is restated.** `smoke.yml`'s own comment says the suite is "27 checks, ~157 s".
+   It has 58. Either that sentence is now wrong and should be rewritten with a defended number, or
+   the suite really should be 27 checks and 31 of them belong elsewhere.
+
+**Not option 3.** Raising `SSC_SMOKE_BUDGET` stays refused, for the reason `scripts/smoke-ci.ssc`
+has always given: that is how the old 13.4-minute push path happened.
+
+**The rule that has been applied so far, and its limit:** *when a shared budget is exhausted, the
+additions that arrived last leave first.* It is the only rule an author can apply to their own work
+unilaterally, which is what made it possible to unblock main twice in one day — and it buys ~15 s
+at a time. It does not scale to 180 s.
+
 ## std-os-does-not-resolve-on-js-or-jvm — two lanes have no environment surface at all
 <!-- status: open
      lane: multi
