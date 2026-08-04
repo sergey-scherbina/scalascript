@@ -16,6 +16,33 @@ scripts/bugs-report --no-gate              # open entries with no regression gat
 
 Newest first.
 
+## v2-three-parameter-clauses-fail-typecheck — `def f(a)(b)(c)` dies with "cannot unify Tuple with non-Tuple"
+
+<!-- status: open
+     lane: native
+     area: front
+     gate: none -->
+
+Found 2026-08-04 while fixing `v2-front-curried-def-second-clause`, by adding a three-clause row to
+`tests/e2e/v2-front-coverage.sh` and watching it report `ERROR` instead of `F`:
+
+```
+def tri(a: Int)(b: Int)(c: Int): Int = a + b + c
+println(tri(1)(2)(3))
+  ssc: TYPEERR: cannot unify Tuple with non-Tuple
+```
+
+**Pre-existing, not a consequence of that fix** — measured on the unmodified shared toolchain, which
+produces the identical message. TWO clauses work on all four lanes (`curried-def-clauses.ssc`); three
+do not, and the failure is in the type checker, not in the front: `ERROR` means the file was lowered
+and then rejected, where a front gap reports `GAP` and falls back.
+
+Worth noting the failure SHAPE: `ERROR` is worse than `GAP` for a user, because there is no fallback
+— the program does not run at all. A curried def is ordinary Scala, so this is a real hole, just a
+narrower one than two clauses was.
+
+Deliberately kept out of both gates rather than smuggled in as a known-red row.
+
 ## tui-cargo-deps-are-a-hand-maintained-disjunction — a new emitted feature can reference a crate nobody declared
 <!-- status: fixed
      lane: multi
@@ -728,9 +755,11 @@ FEATURE, not dead weight, and deleting the declaration would discard a deliberat
 stays a SKIP either way — the value here is that `std/ui/primitives.ssc` stops advertising a primitive
 that does not exist on any backend. Wants its own slice; sized, not started.
 ## v2-front-curried-def-second-clause — F drops the second parameter clause of a curried `def`
-<!-- status: open
+<!-- status: fixed
      lane: multi
-     area: front -->
+     area: front
+     gate: tests/conformance/curried-def-clauses.ssc
+     fixed-in: PENDING-SHA -->
 
 **Status:** OPEN (found 2026-07-28 by `v2-front-colon-trailing-lambda` while verifying that fix;
 **A/B'd against `origin/main` — byte-identical behaviour with that change reverted**, so it is
@@ -787,6 +816,44 @@ guess.
 **Gate note:** `tests/e2e/v2-front-coverage.sh` uses this bug as its `--self-test` anchor (a known
 GAP must still report GAP). Whoever fixes it must swap that anchor for another known gap, or the
 self-test starts failing for the right reason.
+
+
+**FIXED 2026-08-04 — both halves, as this entry insisted they had to be.**
+
+1. **The def.** `emitDefU` accepted a second clause only when it was `(using …)`. It now RECURSES,
+   so any number of clauses and any mix of the two is consumed and the def lowers at the total
+   arity. Split across three functions (`emitDefU` / `emitDefUsing` / `emitDefClause`) rather than
+   nesting the second `match` inline.
+2. **The call site.** `postApp` now flattens when the callee is a KNOWN curried def:
+   `(app (global ap) 3 <lam>)`. The discriminator is a new pre-pass, `collectCurried`, carried in
+   `cx` — not a syntactic guess — because `def mk(n): Int => Int` is called with the same
+   `f(a)(b)` syntax and must stay nested. That row is in the gate.
+
+**Three mistakes on the way, each worth more than the fix:**
+
+- **An accessor with one paren too many.** `curriedOf` was written with 20 closing parens for 19
+  `snd(`. The front's own source became unbalanced, the compiled F emitted `_err` for EVERY file,
+  and a plain `def f(a: Int) = a + 1` stopped lowering — a symptom pointing nowhere near curried
+  defs. Found by diffing the file against a reconstruction built edit-by-edit, not by reading it.
+- **`args` is a STRING, not a list.** `parseArgs` returns the already-joined text that `emitApp`
+  concatenates; calling `joinArgs` on it is a type error this front does not report.
+- **A wrong hypothesis, held for two rebuilds.** I blamed the "one `match` per function" limit I
+  had recorded earlier, split the function, rebuilt, and it changed nothing — the two-match form
+  lowers fine (measured). Bisecting beat guessing: installing the front into
+  `bin/lib/native-front/tower/bin/fsub.ssc` makes the loop instant, with no rebuild at all.
+
+**Gate:** `tests/conformance/curried-def-clauses.ssc` (5 rows, four lanes identical) pins the
+OUTPUT, and `tests/e2e/v2-front-coverage.sh` pins WHICH FRONT — an output comparison cannot see the
+difference, which is exactly why this survived: every output test was green while the fallback
+compiled the file.
+
+**The coverage gate's `--self-test` anchored on THIS bug**, so fixing it broke that self-test for
+the right reason. Rather than swap in another known gap — this was the last open F entry — the
+self-test now asserts that a WRONG expectation is CAUGHT (a file F certainly lowers, declared `GAP`
+on purpose). That proves the same thing and does not rot when a gap closes.
+
+Not fixed, and not this entry's: `def tri(a)(b)(c)` dies with `TYPEERR: cannot unify Tuple with
+non-Tuple` on the unmodified toolchain too. Filed as `v2-three-parameter-clauses-fail-typecheck`.
 
 ## v2-serve-banner-missing — three corpus DIVERGEs, one cause: the native lane prints no server banner
 <!-- status: fixed

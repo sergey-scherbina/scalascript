@@ -543,12 +543,17 @@ def objVarargsOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(s
 // top-level `var n` was silently clobbered. `objReg` already knew the member NAMES; nothing knew
 // which object was currently being lowered. BUGS `v2-object-var-member-resolves-to-a-top-level-global`.
 def retTabOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx))))))))))))))))))
-def curObjOf(cx) = snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx))))))))))))))))))
+// The deepest cell became `(curObj, curriedNames)`, so this gained one `fst` and its twin below
+// reads the other half. Counted against retTabOf, which is `fst` of the same 17-deep tail — an
+// accessor written one `snd` short here once cost an afternoon, and the symptom was a match failure
+// nowhere near this line.
+def curObjOf(cx) = fst(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx)))))))))))))))))))
+def curriedOf(cx) = snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(snd(cx)))))))))))))))))))
 // True when `nm` is a `var` member of the object being lowered right now. Locals are checked BEFORE
 // this at every call site, so a parameter or a nested val still shadows the member, as in Scala.
 def isCurObjVar(nm, cx) = if fst(curObjOf(cx)) == "" then false else memL(nm, snd(curObjOf(cx)))
 def curObjCell(nm, cx) = fst(curObjOf(cx)) ++ "_" ++ nm ++ "__cell"
-def withCurObj(o, cx) = mkCx(dqOf(cx), ccNamesOf(cx), fldNamesOf(cx), valNamesOf(cx), enumCaseNamesOf(cx), enumRegOf(cx), varNamesOf(cx), bsOf(cx), plessOf(cx), subInfoOf(cx), objRegOf(cx), funcDfltsOf(cx), (givenTabOf(cx), (usingSigOf(cx), (extMethodsOf(cx), (mangleOf(cx), (objVarargsOf(cx), (retTabOf(cx), o)))))))
+def withCurObj(o, cx) = mkCx(dqOf(cx), ccNamesOf(cx), fldNamesOf(cx), valNamesOf(cx), enumCaseNamesOf(cx), enumRegOf(cx), varNamesOf(cx), bsOf(cx), plessOf(cx), subInfoOf(cx), objRegOf(cx), funcDfltsOf(cx), (givenTabOf(cx), (usingSigOf(cx), (extMethodsOf(cx), (mangleOf(cx), (objVarargsOf(cx), (retTabOf(cx), (o, curriedOf(cx)))))))))
 def ccNamesOf(cx) = fst(snd(cx))
 def fldNamesOf(cx) = fst(snd(snd(cx)))
 def valNamesOf(cx) = fst(snd(snd(snd(cx))))
@@ -705,7 +710,20 @@ def postColonArg(c, ts, env, cx) = parseExpr(ts, 0, env, cx) match { case (e, r)
 // a `(lam 0 ..)` thunk (measured). A plain block (`run { stmts }`) becomes the by-name thunk `(lam 0 ..)`.
 def blockArgApp(c, b) = if startsW(b, "(lam ") then "(app " ++ c ++ " " ++ b ++ ")" else "(app " ++ c ++ " (lam 0 " ++ b ++ "))"
 // Chained application `f(a)(b)` -> (app (app (global f) a) b).
-def postApp(c, ts, env, cx) = parseArgs(ts, env, cx) match { case (args, r) => (emitApp(c, args), r) }
+// `f(a)(b)` on a curried def must FLATTEN to `(app (global f) a b)`, not nest as
+// `(app (app (global f) a) b)`: this runtime has no partial application, so the nested shape dies
+// with `arity: 2 expected, 1 given`. The discriminator is the callee TABLE, not the syntax — a
+// non-curried def that RETURNS a function (`def mk(n): Int => Int`) is called the same way and must
+// stay nested. Half 2 of BUGS `v2-front-curried-def-second-clause`; landing half 1 without this is
+// what made the previous attempt worse than the bug.
+def postApp(c, ts, env, cx) = parseArgs(ts, env, cx) match { case (args, r) => (emitAppCur(c, args, cx), r) }
+def emitAppCur(c, args, cx) = if isCurriedApp(c, cx) then appendArgsTo(c, args) else emitApp(c, args)
+def isCurriedApp(c, cx) = if startsW(c, "(app (global ") then memL(calleeOfApp(c), curriedOf(cx)) else false
+def calleeOfApp(c) = c.substring(13, scanToRP(c, 13))
+def scanToRP(s, i) = if i >= s.length then i else (if s.charAt(i) == 41 then i else scanToRP(s, i + 1))
+// `args` here is the STRING parseArgs already joined (leading spaces included) — the same value
+// emitApp concatenates. Calling joinArgs on it would be a type error the front does not report.
+def appendArgsTo(c, args) = c.substring(0, c.length - 1) ++ args ++ ")"
 def postDot(c, ts, env, cx) = postDot1(c, snd(hd(ts)), tl(ts), env, cx)
 // `.name` WITHOUT parens is a selection, not a method call: a declared case-class field goes through
 // its hoisted accessor, `(app (global _sel_x) recv)`; an unknown field is `__method__` (measured:
@@ -1739,7 +1757,19 @@ def emitDef1G(nm, ts, cx) = if isTok(hd(ts), 2, 21) then parseParams(tl(ts), Nil
 // trailing real params (arity N+M), appended to env so `s.show(a)` dispatches on the param (local). The
 // oracle lowers the def at the FULL arity; call sites inject the givens (injectGivens).
 def isUsingClause(ts) = if isTok(hd(ts), 2, 21) then isWord(hd(tl(ts)), "using") else false
-def emitDefU(nm, env, r, cx) = if isUsingClause(r) then parseParams(tl(tl(r)), env) match { case (env2, r2) => emitDefBody(nm, dlen(env2), env2, skipToEq(r2), cx) } else emitDefBody(nm, dlen(env), env, skipToEq(r), cx)
+// A curried `def f(a)(b)` is TWO clauses and the oracle lowers it at the TOTAL arity,
+// `(lam 2 ...)`. This used to accept a second clause only when it was `(using ...)`; a plain one
+// fell through to skipToEq and was DROPPED, so the body's reference to `b` became a free global and
+// F declined the whole file. Recursing consumes any number of clauses and any mix of the two.
+// Half 1 of BUGS `v2-front-curried-def-second-clause`; on its own it is a REGRESSION (the call site
+// still nests, and this runtime has no partial application) — see emitAppCur below for half 2.
+// SPLIT into three functions with ONE `match` each: this front does not lower a second `match` in
+// the same function body, and the first version of this fix had two. It compiled, and produced an F
+// that emitted `_err` for EVERY file — a plain `def f(a: Int) = a + 1` stopped lowering too, so the
+// symptom pointed nowhere near curried defs.
+def emitDefU(nm, env, r, cx) = if isUsingClause(r) then emitDefUsing(nm, env, r, cx) else (if isTok(hd(r), 2, 21) then emitDefClause(nm, env, r, cx) else emitDefBody(nm, dlen(env), env, skipToEq(r), cx))
+def emitDefUsing(nm, env, r, cx) = parseParams(tl(tl(r)), env) match { case (env2, r2) => emitDefU(nm, env2, r2, cx) }
+def emitDefClause(nm, env, r, cx) = parseParams(tl(r), env) match { case (env2, r2) => emitDefU(nm, env2, r2, cx) }
 // pre-pass: top-level parenless-def names (same item advancement as collectTopVals; rest is
 // resolution-independent so a base cx gives the right boundaries).
 def collectPlessDefs(ts, cx) = collectPless0(skipSemisF(ts), cx)
@@ -2130,6 +2160,16 @@ def isNameTok(t) = if fst(t) == 1 then true else fst(t) == 3
 // T ∈ {Int,String,BigInt} registers (f, T); a call `(app (global f) …)` is then typed by callRet. Linear
 // top-level scan (react to a def head, advance one token) — same shape as collectFuncDflts.
 def collectRetTab(ts) = if isEmpty(ts) then Nil else (if isDefHead(ts) then appEnv(defRetEntry(ts), collectRetTab(tl(ts))) else collectRetTab(tl(ts)))
+// Names of defs whose SECOND clause is a plain `(params)` — the ones emitDefU now lowers at the
+// total arity, and therefore the ones whose call sites must be FLATTENED rather than nested.
+// A `(using ...)` second clause is excluded on purpose: those are already lowered at full arity and
+// their call sites carry one clause, so there is nothing to flatten.
+// Same whole-file token walk as collectRetTab above, and the same known limit: a curried METHOD
+// inside an object lands in this flat name table too. That can only matter for a top-level call of
+// the same name with two clauses, which would be curried anyway.
+def collectCurried(ts) = if isEmpty(ts) then Nil else (if isDefHead(ts) then appEnv(curriedEntry(ts), collectCurried(tl(ts))) else collectCurried(tl(ts)))
+def curriedEntry(ts) = curried1(snd(hd(tl(ts))), afterDefParams(skipGen(tl(tl(ts)))))
+def curried1(nm, rest) = if isUsingClause(rest) then Nil else (if isTok(hd(rest), 2, 21) then Cons(nm, Nil) else Nil)
 def defRetEntry(ts) = defRet1(snd(hd(tl(ts))), afterDefParams(skipGen(tl(tl(ts)))))
 def afterDefParams(ts) = if isTok(hd(ts), 2, 21) then skipBalP(tl(ts), 1) else ts
 def skipBalP(ts, d) = if isEmpty(ts) then ts else (if isTok(hd(ts), 2, 21) then skipBalP(tl(ts), d + 1) else (if isTok(hd(ts), 2, 22) then (if d == 1 then tl(ts) else skipBalP(tl(ts), d - 1)) else skipBalP(tl(ts), d)))
@@ -2617,7 +2657,7 @@ def compile1(ts, dq, bs) = compile2(ts, collectCC(ts), collectTypeCases(ts), dq,
 // The pre-pass results become the parse CONTEXT: case-class names (cs, cc-only, for isCC) + the UNIFIED
 // type-case field names (tcs, cc + enum cases) + top-level val names + the enum registries. Top-level vals
 // are collected with a base cx first (their `rest` boundaries do not depend on val-name resolution).
-def mkCxE(cs, tcs, ts, dq, vals, vars, bs, pless) = mkCx(dq, ccNamesL(cs), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts), vars, bs, pless, (collectSubReg(ts), collectEnumAllReg(ts)), collectObjReg(ts), appEnv(collectFuncDflts(ts), collectObjDflts(ts)), (collectGivenTable(ts), (collectUsingSig(ts), (collectExtMethods(ts), (mangleExtMethods(ts), (collectObjVarargs(ts), (collectRetTab(ts), ("", Nil))))))))
+def mkCxE(cs, tcs, ts, dq, vals, vars, bs, pless) = mkCx(dq, ccNamesL(cs), allFieldNames(tcs), vals, collectEnumCaseNames(ts), collectEnumReg(ts), vars, bs, pless, (collectSubReg(ts), collectEnumAllReg(ts)), collectObjReg(ts), appEnv(collectFuncDflts(ts), collectObjDflts(ts)), (collectGivenTable(ts), (collectUsingSig(ts), (collectExtMethods(ts), (mangleExtMethods(ts), (collectObjVarargs(ts), (collectRetTab(ts), (("", Nil), collectCurried(ts)))))))))
 def compile2(ts, cs, tcs, dq, bs) = compile2b(ts, cs, tcs, dq, bs, mkCxE(cs, tcs, ts, dq, Nil, Nil, bs, Nil))
 def compile2b(ts, cs, tcs, dq, bs, base) = compile3(ts, cs, tcs, dq, mkCxE(cs, tcs, ts, dq, collectTopVals(ts, base), collectTopVars(ts, base), bs, collectPlessDefs(ts, base)))
 def compile3(ts, cs, tcs, dq, cx) = walkTop(ts, cx) match { case (strs, nDoc) => compile4(strs, nDoc, ts, tcs, dq, cx) }

@@ -1,0 +1,59 @@
+---
+name: curried-def-clauses
+description: "a curried def lowers at its TOTAL arity and its call site flattens; a def returning a function stays nested"
+backends: [int, jvm, js, v2]
+---
+
+# `def f(a)(b)` — two clauses, one arity
+
+`BUGS.md` `v2-front-curried-def-second-clause`. The F front dropped the second parameter clause of a
+curried `def`, so the body's reference to it became a free global and F declined the whole file:
+
+```text
+def ap(n: Int)(f: Int => Int): Int = f(n)
+  F emitted:  (def ap (lam 1 (app (global f) (local 0))))
+  F reported: GAP — unbound global: (global f) is neither a top-level def nor an @-cell
+```
+
+Output was correct the whole time, because the fallback front compiled the file. That is what made
+it worth fixing and hard to see: **any corpus case using a curried def was measuring the legacy
+front while appearing to measure F.**
+
+**This fix is two halves, and half 1 alone is a regression** — the entry records a previous attempt
+that was reverted for exactly that reason:
+
+1. the **def** must lower at the TOTAL arity, `(lam 2 …)`;
+2. the **call site** must FLATTEN — `(app (global ap) 3 <lam>)`, not `(app (app (global ap) 3) <lam>)`.
+   This runtime has no partial application, so with only half 1 the file goes from *"F declines,
+   fallback prints 6"* to *"F accepts, program dies with `arity: 2 expected, 1 given`"*, and the
+   front report flips `GAP` → `F`, which reads as progress.
+
+```scalascript
+def ap(n: Int)(f: Int => Int): Int = f(n)
+def add(a: Int)(b: Int): Int = a + b
+println(ap(3)((i) => i * 2))
+println(add(4)(5))
+
+// THE DISCRIMINATOR. `mk` is not curried — it is a one-clause def that RETURNS a function — and it
+// is called with the same `f(a)(b)` syntax. Flattening it would produce a 2-arity call against a
+// 1-arity lambda. So the fix keys on a table of curried-def NAMES, not on the shape of the call,
+// and this row is what proves it.
+def mk(n: Int): Int => Int = (x) => x + n
+println(mk(10)(5))
+
+// A plain multi-parameter def must be untouched by any of it.
+def plain(a: Int, b: Int): Int = a + b
+println(plain(1, 2))
+
+// The second clause is a real binder, not a name that happens to resolve: shadow it.
+def sh(x: Int)(x2: Int): Int = x2 - x
+println(sh(10)(3))
+```
+
+**Three clauses are deliberately absent.** `def tri(a: Int)(b: Int)(c: Int)` dies with
+`TYPEERR: cannot unify Tuple with non-Tuple` — and it does so on the *unmodified* toolchain too, so
+it is a pre-existing type-checker defect rather than a front gap. Filed separately as
+`v2-three-parameter-clauses-fail-typecheck` instead of being smuggled in here as a known-red row.
+
+Which front compiled the file is pinned separately by `tests/e2e/v2-front-coverage.sh` — an output
+comparison cannot see it, which is the whole reason this bug survived: every output test was green.

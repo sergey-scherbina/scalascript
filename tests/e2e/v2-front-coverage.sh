@@ -18,8 +18,9 @@
 # `<file>\t<F|GAP|ERROR>\t<reason>` without executing the program. This gate asserts on that
 # column, so "F silently stopped handling X" fails here even while every output test stays green.
 #
-# Same hazard, other entries: v2-front-curried-def-second-clause (F drops a curried def's second
-# clause and delegates) and v2-front-for-yield-remaining-layouts (this one).
+# Same hazard, other entries: v2-front-for-yield-remaining-layouts (this one). The curried-def
+# entry was the other example and is FIXED (2026-08-04) — F lowers `def f(a)(b)` and flattens the
+# call site now, so it is a coverage row below rather than a known gap.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
@@ -50,18 +51,40 @@ want_front() {
 }
 
 if [[ "${1:-}" == "--self-test" ]]; then
-  echo "--- self-test: a construct F genuinely cannot lower must report GAP ---"
-  # A curried def is a known, filed F gap (v2-front-curried-def-second-clause). If this reports
-  # F, either that bug was fixed — update this probe — or the report column is not being read.
-  want_front selftest GAP 'def ap(n: Int)(f: Int => Int): Int = f(n)
-println(ap(3)((i) => i * 2))'
-  if [[ $fail -ne 0 ]]; then
-    echo "SELF-TEST FAILED: the known GAP did not report GAP — this gate proves nothing"
+  echo "--- self-test: a WRONG expectation must be caught ---"
+  # This used to anchor on a known GAP — a curried def, filed as
+  # v2-front-curried-def-second-clause — and assert it still reported GAP. That design guarantees
+  # the self-test breaks the day someone FIXES the bug, which is what happened (2026-08-04): the
+  # curried-def gap closed and this probe started failing for the right reason, which is a bad
+  # signal to send. Worse, it needed a filed gap to exist at all, and that was the last open one.
+  #
+  # The self-test's actual job is to prove the gate can DISTINGUISH the two states. Asserting that
+  # a wrong expectation FAILS proves exactly that, and does not rot: a file F certainly lowers is
+  # declared GAP on purpose, and want_front must reject it.
+  want_front selftest-inverted GAP 'def id(n: Int): Int = n
+println(id(1))'
+  if [[ $fail -eq 0 ]]; then
+    echo "SELF-TEST FAILED: want_front accepted a wrong expectation — this gate proves nothing"
     exit 1
   fi
-  echo "--- self-test ok; running the real checks ---"
+  echo "--- self-test ok (the mismatch above was deliberate); running the real checks ---"
   pass=0; fail=0
 fi
+
+# ── curried defs: F must lower them AND flatten the call site ──────────────────────────
+# Both halves or neither. Half 1 alone (the def lowers at total arity, the call still nests) makes
+# this row report F while the program dies at run time with `arity: 2 expected, 1 given` — which is
+# how the first attempt at this fix looked like progress. The conformance case
+# tests/conformance/curried-def-clauses.ssc pins the OUTPUT; this pins which front produced it.
+want_front curried-two-clauses F 'def ap(n: Int)(f: Int => Int): Int = f(n)
+println(ap(3)((i) => i * 2))'
+# THREE clauses are NOT here: `def tri(a)(b)(c)` dies with `TYPEERR: cannot unify Tuple with
+# non-Tuple` — and measured on the unmodified toolchain it does the same, so that is a pre-existing
+# type-checker defect, not this front's. Filed as v2-three-parameter-clauses-fail-typecheck.
+# The discriminator: a def that RETURNS a function is called the same way and must stay NESTED.
+# If flattening keyed on syntax instead of the callee table, this would lower to a 2-arity call.
+want_front returns-a-function F 'def mk(n: Int): Int => Int = (x) => x + n
+println(mk(10)(5))'
 
 # ── for/yield: all four layouts must be compiled BY F, not delegated ────────────────────
 want_front foryield-sameline-col0 F 'val xs = List(1,2)

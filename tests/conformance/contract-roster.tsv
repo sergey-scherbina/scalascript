@@ -1,4 +1,4 @@
-# corpus-contract-roster-v1	baseline-sha256=90f5a174db0b12e0470a79acefdf082791dd5e5a502872bab62d3c688f334aad	roster-sha256=cce6298c528b1d340f3cb6b0ddac9e9619623cd1d04b8cc2bc1c7cc9b0fdfbd5
+# corpus-contract-roster-v1	baseline-sha256=90f5a174db0b12e0470a79acefdf082791dd5e5a502872bab62d3c688f334aad	roster-sha256=065511461cd387549d45e896019dbaad1cc77cab1e09eee02ce3babb6c6e2b4e
 _bug1_httpclient
 _bug1b
 _bug1c
@@ -72,6 +72,7 @@ coroutine-native-lifecycle
 crypto-demo
 crypto-encrypt-demo
 crypto-verify-demo
+curried-def-clauses
 curried-extern-import
 custom-derives-mirror
 data-types
