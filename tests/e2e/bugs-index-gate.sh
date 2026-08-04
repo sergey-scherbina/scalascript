@@ -73,6 +73,16 @@ for head, body in entries:
     m = re.match(r"\s*<!--(.*?)-->", body, re.S)
     if not m:
         problems.append((slug, "no header comment after the heading")); continue
+    # TERMINATED, not merely opened. `(.*?)` is unbounded here, so an entry whose `-->` is missing
+    # swallows its own prose and matches the NEXT entry's terminator — the fields parse, the gate
+    # passes, and the entry is silently invisible to `bugs-report`, whose own parser stops after 13
+    # lines and reports it as MISSING-HEADER. Two entries were in exactly that state on 2026-08-04
+    # (both mine, from a sha-rewriting script that dropped the `-->`), passing this gate while no
+    # `--status` query could see them. A header is a compact block: a blank line inside the match
+    # means the terminator is somewhere it does not belong.
+    if "\n\n" in m.group(1):
+        problems.append((slug, "header comment is not terminated — no `-->` before the entry body, "
+                               "so it ran on into the prose (invisible to bugs-report)")); continue
     fields = {}
     for fm in re.finditer(r"([a-z-]+)\s*:\s*([^\n]+)", m.group(1)):
         fields[fm.group(1)] = fm.group(2).strip()
@@ -173,6 +183,14 @@ if [[ "${1:-}" == "--self-test" ]]; then
      lane: native
      area: front -->
 
+## bad-unterminated-header — the `-->` is missing, so the header runs into the prose
+<!-- status: open
+     lane: int
+     area: front
+
+Prose starts here with no terminator above it. Before 2026-08-04 this PASSED: the unbounded
+`(.*?)` reached the next entry's `-->`. bugs-report saw MISSING-HEADER for the same entry.
+
 ## bad-no-header — this one has no header at all
 
 ## bad-status — bogus status
@@ -202,7 +220,7 @@ BAD
   # it and the plain shape failure. This assertion caught the message change the moment it landed,
   # which is what a self-test is for; loosening it to match is correct here, deleting it would not
   # be.
-  for want in "no header comment" "not in" "requires" "not a commit sha"; do
+  for want in "no header comment" "not in" "requires" "not a commit sha" "not terminated"; do
     if ! printf '%s' "$out" | grep -q "$want"; then
       echo "SELF-TEST FAILED: expected a problem mentioning '$want'"; exit 1
     fi

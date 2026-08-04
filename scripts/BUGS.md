@@ -7,6 +7,45 @@ grepping for status.
 
 Newest first.
 
+## bugs-index-gate-allows-a-detached-header — an unterminated header passes the gate and is invisible to every query
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     fixed-in: PENDING
+     gate: tests/e2e/bugs-index-gate.sh -->
+
+**Found 2026-08-04** by `bugs-header-adjacency`, from a two-line discrepancy nobody was looking at:
+`scripts/bugs-report` counted **2 entries as MISSING-HEADER** while `bugs-index-gate` reported
+**0 problems** over the same eight files. Two tools, one data set, different answers — which is the
+only reason this was visible at all.
+
+**Both tools use the same regex and only one of them bounds it.**
+
+```python
+re.match(r"\s*<!--(.*?)-->", body, re.S)
+```
+
+In the gate, `body` is the WHOLE entry, so an entry whose `-->` is missing runs on through its own
+prose and matches the **next entry's** terminator. The fields parse, the gate passes. `bugs-report`
+stops after 13 lines, finds no terminator, and files the entry under `MISSING-HEADER` — a bucket its
+own `--status` filter does not accept, so the entry is invisible to every query.
+
+**The two entries were mine**, both closed the day before, both mangled by a script I used to write
+`fixed-in` after a rebase: it reassembled the header around `s.find("-->")` and dropped the
+terminator. So the gate that exists to keep this index queryable passed on damage done by the
+tooling around it.
+
+**Fix:** a header is a compact block, so a blank line inside the match means the terminator is
+somewhere it does not belong. Bounded, and the message says what it costs ("invisible to
+bugs-report") rather than only what is wrong.
+
+**Proven in both directions**, and with the real file rather than only the self-test: removing a
+terminator from a live entry makes the gate exit 1 naming that slug; restoring it returns exit 0.
+A fifth planted defect was added to the self-test so it cannot regress silently.
+
+After the repair `bugs-report` counts 587 fixed where it counted 585 — the two entries were not lost,
+they were unqueryable.
+
 ## bugs-index-selftest-cannot-pass-in-a-shallow-clone — main red on EVERY push, on the gate's own self-test
 <!-- status: fixed
      lane: apparatus

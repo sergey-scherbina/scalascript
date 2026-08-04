@@ -66,7 +66,7 @@ interpolator does not reproduce on its own.
      lane: int
      area: codegen
      fixed-in: 4e88f7d2a
-     gate: tests/conformance/object-apply-two.ssc 
+     gate: tests/conformance/object-apply-two.ssc  -->
 
 **FIXED 2026-08-03** by `int-jit-apply-collision` — and **the title and the diagnosis above are both
 wrong about the cause**, kept rather than rewritten because the correction is the useful part.
@@ -125,7 +125,7 @@ Not diagnosed further: it is the interpreter's JIT, a different module from the 
      lane: int
      area: runtime
      fixed-in: 5e64aca07
-     gate: tests/conformance/named-arg-defaults.ssc 
+     gate: tests/conformance/named-arg-defaults.ssc  -->
 
 **FIXED 2026-08-02** by `int-field-default`.
 
