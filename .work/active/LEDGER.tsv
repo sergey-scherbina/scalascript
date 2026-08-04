@@ -1,6 +1,7 @@
-# generation: 822
+# generation: 823
 #slug	agent	started	items	paths
 ssc3-core	claude-code	2026-08-01T11:18:17Z	SSC3-0 SSC3-1 SSC3-2 SSC3-3 SSC3-4 SSC3-5	v3 file:tests/fixtures/modules.tsv file:tests/conformance/generic-ctor-and-array-alloc.ssc file:tests/conformance/expected/generic-ctor-and-array-alloc.txt file:tests/conformance/corpus-baseline.tsv
 uniml-ssc3-frontend-readiness	claude-code	2026-08-01T15:07:27Z	UNIML-SSC3 — make UniML ready as the ScalaScript parser and AST for language version 3	file:uniml/SPRINT.md file:uniml/BACKLOG.md file:specs/uniml-ssc3-frontend.md file:bench/history.tsv file:uniml/core/src file:uniml/scala/src
 my-two-server-gates-are-too-expensive	claude-code	2026-08-04T10:18:58Z	smoke-suite-over-its-own-budget	file:tests/e2e/route-handler-shapes-gate.sh file:tests/e2e/render-lane-has-the-same-builtins-as-run.sh
 bugs-header-adjacency	claude-code	2026-08-04T10:20:09Z	bugs-index-gate-allows-a-detached-header	file:tests/e2e/bugs-index-gate.sh
+bundle-layout-and-diagnostic	claude-code	2026-08-04T10:20:35Z	bundle-command-resolves-imports-relative-only	file:v1/tools/cli/src/main/scala/scalascript/cli/BundleCommand.scala file:tests/e2e/bundle-smoke.sh file:BUGS.md file:.github/workflows/ci.yml
