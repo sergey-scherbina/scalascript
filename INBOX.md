@@ -128,6 +128,48 @@ local-HTTP test where changing the URL signal makes the generated crate read the
 
 Ordering, if it matters to you: this one is the cheaper of the two and unblocks read-side navigation
 on its own — a switcher that navigates is useful before a composer that posts.
+## tui-fetch-headers — fetchUrlSignal takes a headers signal that the TUI target silently drops — the emitted ureq GET sends no headers, so a source that authenticates on the web emits a terminal binary that gets 401
+<!-- triage: new
+     reported-by: rozum (github.com/sergey-scherbina/rozum, docs/specs/ucc-meetings-in-tk.md)
+     reported-at: 2026-08-04
+     ssc-version: ec70eb062 (staged bin/, dev build)
+     repro: none
+     kind: feature
+     reporter-suspects: collectFetches keeps only FetchInfo(url, tickId); emitted fetch_text is ureq::get(url).call() with no header plumbing
+     impact: blocks -->
+
+Third report from the same rozum screen, and the one that blocks earliest — earlier than
+`tui-fetch-post` and `tui-fetch-url-signal`, because it stops the *read-only* client.
+
+`fetchUrlSignal` takes a `headers: Signal[String]` parameter — a JSON object read at fetch time,
+documented in `std/ui/primitives.ssc` with `{"Authorization":"Bearer …"}` as the example. The web
+target honours it. The TUI target does not: `collectFetches` keeps only `FetchInfo(url, tickId)`, and
+the emitted helper is
+
+```rust
+fn fetch_text(url: &str) -> Option<String> {
+    match ureq::get(url).call() { Ok(resp) => resp.into_string().ok(), Err(_) => None }
+}
+```
+
+— no headers, no auth, no way to pass either. So a `.ssc` source that authenticates correctly on the
+web emits a terminal binary that sends a bare GET.
+
+Why this is not a small thing for us: rozum's meeting daemon requires HTTP Basic on **every** route
+(`GET /rooms` answers `401`), and so does the control server (`GET :8411/chat/messages` → `401`).
+There is no unauthenticated read path anywhere, by design. So today the terminal target cannot read
+the real data at all — only an unauthenticated fixture, which is exactly what
+`specs/frontend-tui-fetch-refresh.md` and our own PoC smoke were proven against. That is worth saying
+plainly: **the dual-target proof so far has only ever run against fixtures with no auth**, so this
+gap was invisible until someone pointed the generated client at a production endpoint.
+
+What would unblock us: honour the `headers` signal on the TUI target — read the JSON object at fetch
+time and set the headers on the ureq request. `Authorization` alone covers our case; doing it
+generically for any key is presumably the same work.
+
+Acceptance shape, same as the refresh contract you already gate: a deterministic local-HTTP test
+where the fixture returns 401 without a header and 200 with it, and the generated crate reads the
+body only when the source supplied the header signal.
 <!-- inbox-entries:end -->
 
 ## Closed without routing
