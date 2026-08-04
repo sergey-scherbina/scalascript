@@ -142,7 +142,20 @@ if [ -x "$ROOT/scripts/board-ownership-check" ]; then
     ok "no bug is newly filed in a board that does not own its code"
   else
     bad "a bug is filed in a board that does not own its code, or a baseline row went stale:"
-    printf '%s\n' "$out" | sed -n '/NEW misfiling\|no longer misfiled/,$p' | head -12 | sed 's/^/    /'
+    # `sed -E`, not `\|`. GNU sed reads `\|` as alternation and BSD/macOS sed reads it as a
+    # LITERAL pipe, so on a mac this printed nothing at all: the gate announced "a bug is filed in a
+    # board that does not own its code" and then listed none, which is the one thing a failing gate
+    # must not do. Measured 2026-08-04 — the checker was exiting 1 with two named stale rows the
+    # whole time. Same family as the `head -n -2` GNU-ism a sibling found the same day in
+    # fm-routes/health-defaults.
+    extract="$(printf '%s\n' "$out" | sed -nE '/NEW misfiling|no longer misfiled/,$p')"
+    printf '%s\n' "$extract" | head -24 | sed 's/^/    /'
+    # A cap that lands ON the actionable names is how this stayed unread: `head -12` cut the list
+    # exactly at "⚠ N baseline row(s) no longer misfiled — delete them:" and dropped the slugs that
+    # follow. If the cap bites now, it SAYS so instead of quietly ending.
+    lines="$(printf '%s\n' "$extract" | wc -l | tr -d ' ')"
+    [ "$lines" -gt 24 ] && echo "    … $(( lines - 24 )) more line(s) — run scripts/board-ownership-check"
+    true
   fi
 fi
 
