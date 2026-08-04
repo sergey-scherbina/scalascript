@@ -126,7 +126,7 @@ self-test rather than on the repository, invisible to every local run.
      lane: apparatus
      kind: bug
      area: build
-     fixed-in: pending
+     fixed-in: 7451bbfda
      gate: tests/e2e/launcher-digest-gate.sh -->
 
 **FIXED.** `inputs()` now emits ONE canonical line per path — `<content-sha><TAB><path>`, sorted —

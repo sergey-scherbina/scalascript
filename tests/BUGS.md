@@ -496,7 +496,7 @@ neutral; it is a claim of coverage that is not being made.
      lane: apparatus
      kind: apparatus
      area: conformance
-     fixed-in: pending
+     fixed-in: c9a46d00d
      gate: specs/v2.2-p6.5-dualrun.sh DR_SELFTEST=1 -->
 
 **FIXED.** The baseline side now sets `SSC_FRONT=legacy` explicitly, and NEITHER side is called
