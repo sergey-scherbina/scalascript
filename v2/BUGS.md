@@ -13,7 +13,7 @@ Newest first.
      lane: native
      area: runtime
      gate: tests/e2e/upload-smoke.sh
-     fixed-in: PENDING-SHA -->
+     fixed-in: 7eb265347 -->
 
 ```
 println("abc".codePointAt(0))

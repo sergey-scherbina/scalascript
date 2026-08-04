@@ -22,7 +22,7 @@ Newest first.
      area: runtime
      kind: bug
      gate: tests/e2e/upload-smoke.sh
-     fixed-in: PENDING-SHA -->
+     fixed-in: 7eb265347 -->
 
 **Measured 2026-08-04**, `examples/uploads.ssc` served on each lane, one `curl -F` with a 256-byte
 `application/octet-stream` payload:
