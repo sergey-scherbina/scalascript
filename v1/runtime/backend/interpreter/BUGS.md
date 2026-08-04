@@ -7,29 +7,38 @@ grepping for status.
 
 Newest first.
 
-## int-std-ui-demo-undefined-impl — `Undefined: impl` renders nothing, and the gate said "0 markers"
+## int-std-ui-demo-undefined-impl — `Undefined: impl` renders nothing
 
-<!-- status: open
+<!-- status: fixed
      lane: int
      area: runtime
-     fixed-in: -
+     fixed-in: cb620c16a
      gate: tests/e2e/std-ui-forms-smoke.sh -->
 
     $ bin/ssc-tools render examples/std-ui/demo.ssc
-    Exception in thread "main" scalascript.interpreter.InterpretError: [line 36, col 196] Undefined: impl
-      36 |     countryField + planField + newsletterField,
+    Exception in thread "main" InterpretError: [line 36, col 196] Undefined: impl
 
-stdout is EMPTY — the page is not rendered at all.
+stdout EMPTY — the page was not rendered at all, and it presented as eight content assertions
+reporting `(0, want N)` because the gate ran the renderer with `2>/dev/null`.
 
-**It presented as eight content assertions failing, which is why nobody read it.** The gate ran the
-renderer with `2>/dev/null`, so every row reported `(0, want N)` and the run looked like a page that
-came out wrong. "Rendered the wrong markup" and "died before rendering" are different problems and
-were indistinguishable. The gate keeps stderr now and prints it, plus an explicit "stdout was EMPTY"
-line, so the next run names this instead of counting absent markers.
+**FIXED BY SOMEONE ELSE, AND I ALMOST SPENT AN AFTERNOON RE-FINDING IT.** Bisected to a single call:
+`Input.render(…)` raises it while `FormGroup.render(…)` does not, and rendering `input.ssc` alone is
+fine because nothing calls into it. The difference is in `input.ssc`:
 
-The name `impl` is undefined at a call assembling three form fields; whether that is a std/ui
-surface the interpreter lane never grew or a defect in the demo has NOT been established here, and
-the entry does not guess.
+    val inv = if error.nonEmpty then """ aria-invalid="true"""" else ""
+
+a triple-quoted literal whose content ENDS in a quote — exactly
+`triple-quoted-literal-ending-in-a-quote-is-not-a-string`, fixed in `cb620c16a` by a sibling while
+this entry was being written.
+
+**The measurement that produced this entry was taken on a build that predated their fix.** I only
+noticed because the same construct appeared in their commit title. On a build from current main the
+whole gate passes on every lane. So `fixed-in` names their commit, not mine: I did not fix this, I
+mis-dated it. The lesson is the cheap one — a `bin/.build-stamp` older than the change you are
+measuring against makes every conclusion a statement about last week's code.
+
+`Undefined: impl` as the message for an unterminated string is its own oddity and is NOT explained
+here; whoever wants it should start from the fixed parser rather than from this entry.
 
 ## int-set-apply-is-not-membership — `Set(1, 2)(2)` says "Not callable" where real Scala says `true`
 

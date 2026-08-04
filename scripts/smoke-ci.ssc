@@ -229,6 +229,9 @@ val suite = List(
   Check("tests", "bundle-roundtrip", "tests/e2e/bundle-smoke.sh", List(), 120000),
   Check("tests", "import-alias", "tests/e2e/import-alias-smoke.sh", List(), 120000),
   Check("tests", "url-import", "tests/e2e/url-import-smoke.sh", List(), 120000),
+  // Green since cb620c16a (a sibling's triple-quote fix). Was in the orphan pile with a
+  // diagnosis that turned out to be a stale measurement, not a live defect.
+  Check("tests", "std-ui-forms", "tests/e2e/std-ui-forms-smoke.sh", List(), 180000),
   // GNU-only shell constructs broke THREE gates in one day and none was found by running them —
   // each turned up while someone read output that made no sense. Green on arrival by design; its
   // job is the fourth one.
