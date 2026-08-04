@@ -4189,8 +4189,20 @@ final class InfoCmd extends CliCommand:
   def name = "info"
   override def summary = "Inspect a .scim/.scir/.scjvm/.scjs artifact"
   override def category = "Separate compilation (v2.0)"
-  override def details = List("Flags: --json (dump the full envelope)")
+  override def details = List(
+    "Flags: --json (dump the full envelope), --sections, --registry <url>",
+    "       --front-report <file.ssc> ...  which front lowered each file (F|GAP|ERROR), same as on `ssc`")
   def run(args: List[String]): Unit =
+    // `--front-report` is the same subcommand it is on the `ssc` launcher (StandardMain:29). It was
+    // only implemented there, so on this route it fell through to the catch-all below and became a
+    // PATH — producing two diagnostics that each point away from the cause: "ignoring 1 extra
+    // path(s)" describes the real FILE as the extra one, and "file not found: --front-report" names
+    // a FLAG as a file. A sweep built on that reads as a clean empty result.
+    // BUGS `ssc-tools-info-rejects-front-report-at-exit-0`.
+    if args.headOption.contains("--front-report") then
+      RunNativeV2.frontReport(args.tail)
+      return
+
     var jsonMode     = false
     var sectionsMode = false
     var registryArg: Option[String] = None
@@ -4201,6 +4213,13 @@ final class InfoCmd extends CliCommand:
         case "--json"                       => jsonMode     = true
         case "--sections"                   => sectionsMode = true
         case "--registry" if it2.hasNext   => registryArg  = Some(it2.next())
+        // An unknown flag must NOT become a path. It did, and the resulting messages sent the
+        // reader after a missing file instead of an unsupported option — the general case of the
+        // bug above, which the next flag would have hit just the same.
+        case f if f.startsWith("--")       =>
+          System.err.println(s"info: unknown flag '$f'")
+          System.err.println("  supported: --json, --sections, --registry <url>, --front-report <file.ssc> ...")
+          System.exit(1)
         case f                             => files        += f
     if files.isEmpty then
       System.err.println("Usage: ssc info <name-or-artifact> [--json] [--sections] [--registry <url>]")

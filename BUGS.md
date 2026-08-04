@@ -452,11 +452,11 @@ read/write past index 0, and `Array.fill`, on int, js, jvm and v2. Must be obser
 lane before the fix lands, with the red count in the commit message (P-6.1).
 
 ## ssc-tools-info-rejects-front-report-at-exit-0 — an unsupported flag becomes a silent empty report
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: cli
-     fixed-in: -
-     gate: - -->
+     fixed-in: PENDING-SHA
+     gate: tests/e2e/info-unknown-flag-gate.sh -->
 
 **Found 2026-07-31** while sweeping the corpus for F front verdicts.
 
@@ -477,6 +477,35 @@ misleading and jointly point away from the cause. "ignoring 1 extra path(s)" des
 the extra path, and "file not found: --front-report" names the flag as a file. Combined with exit 0,
 a sweep built on this produces zero rows and reads as a clean result — I very nearly recorded
 "F declines nothing" from it. A tool that cannot do what was asked must not exit 0.
+
+
+**FIXED 2026-08-05, and one third of this entry had already gone stale.** Re-measured before
+touching anything: the run exits **1**, not 0 — the headline "at exit 0" no longer holds, and the
+title is left as filed rather than rewritten, since it is how the entry is cited elsewhere.
+
+What DID reproduce is the part that mattered more, and the entry was right that it is the expensive
+half: both diagnostics point away from the cause. `--front-report` fell through `InfoCmd`'s argument
+loop into the catch-all `case f => files += f`, so a FLAG became a PATH; then "ignoring 1 extra
+path(s)" described the real FILE as the extra one and "file not found: --front-report" described a
+flag as a file.
+
+Two changes, the second being the general case:
+
+- `ssc-tools info --front-report` now does what `ssc info --front-report` does — it dispatches to the
+  same `RunNativeV2.frontReport`. Verified byte-for-byte identical on both launchers.
+- An unknown `--flag` is now REJECTED as a flag (`info: unknown flag '--x'`, plus the supported
+  list) instead of being collected as a path. That is what the next unrecognised flag would have hit
+  too; fixing only `--front-report` would have left the trap armed.
+
+**Gate:** `tests/e2e/info-unknown-flag-gate.sh` asserts both properties, and the second asserts the
+absence of the misdirection specifically — the message must NOT say "file not found" — because an
+exit code alone would not have caught what this entry is about. On the unfixed toolchain both cells
+fail: `--front-report` prints the two misleading lines and no report row, and an unknown flag prints
+`file not found: --definitely-not-a-flag`.
+
+NOT registered in `scripts/smoke-ci.ssc` / `.github/workflows/ci.yml`: both are held by a live claim
+(`smoke-budget-600-and-tier2-triage`) and this repo names gates there by hand. An orphan gate is
+visible to `orphaned-gates-runner-sweep`; editing another agent's claimed files is not.
 
 ## int-string-concat-operator-builds-a-pair — `"x" ++ "y"` was `(x, y)` on the golden lane
 <!-- status: fixed
