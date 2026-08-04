@@ -29,7 +29,8 @@ object TuiEmitter:
   /** `headersId` is the signal holding a JSON object of header name -> value, read at FETCH time
    *  (not at emit time) exactly as the web targets read it. `None` when the source bound no headers,
    *  which must stay dependency-free — see `cargoToml`. */
-  private final case class FetchInfo(url: String, tickId: String, headersId: Option[String])
+  private final case class FetchInfo(url: String, tickId: String, headersId: Option[String],
+                                     urlId: Option[String])
 
   /** A declarative store mutation an `activate` arm performs. */
   private enum Mutation:
@@ -236,26 +237,41 @@ object TuiEmitter:
   private def genFetchHelpers(fetches: mutable.LinkedHashMap[String, FetchInfo]): String =
     if fetches.isEmpty then
       """fn bootstrap(_signals: &mut HashMap<String, Value>) {}
-        |fn initial_fetch_ticks(_signals: &HashMap<String, Value>) -> HashMap<String, i64> { HashMap::new() }
-        |fn refresh_fetches(_signals: &mut HashMap<String, Value>, _observed: &mut HashMap<String, i64>) {}""".stripMargin
+        |fn initial_fetch_ticks(_signals: &HashMap<String, Value>) -> HashMap<String, String> { HashMap::new() }
+        |fn refresh_fetches(_signals: &mut HashMap<String, Value>, _observed: &mut HashMap<String, String>) {}""".stripMargin
     else
       // Headers are resolved into a local FIRST: `load_fetch` borrows `signals` mutably and
       // `fetch_headers` borrows it immutably, so passing the call inline would not compile.
-      def loadCall(indent: String, id: String, info: FetchInfo): String = info.headersId match
-        case None      => s"$indent" + s"load_fetch(signals, ${rustStr(id)}, ${rustStr(info.url)}, &[]);"
-        case Some(hid) =>
-          s"""$indent{
-             |$indent    let headers = fetch_headers(signals, ${rustStr(hid)});
-             |$indent    load_fetch(signals, ${rustStr(id)}, ${rustStr(info.url)}, &headers);
-             |$indent}""".stripMargin
+      // The URL is either the literal fixed at emit time or, for `fetchUrlSignalTo`, read from a
+      // signal HERE — at fetch time — so a picker retargets the GET. Resolved into a local for the
+      // same borrow reason the headers are: `load_fetch` takes `signals` mutably.
+      def urlExpr(info: FetchInfo): String = info.urlId match
+        case None      => rustStr(info.url)
+        case Some(uid) => s"&sig(signals, ${rustStr(uid)})"
+      def loadCall(indent: String, id: String, info: FetchInfo): String =
+        val body = info.headersId match
+          case None      => s"$indent    load_fetch(signals, ${rustStr(id)}, ${urlExpr(info)}, &[]);"
+          case Some(hid) =>
+            s"""$indent    let headers = fetch_headers(signals, ${rustStr(hid)});
+               |$indent    load_fetch(signals, ${rustStr(id)}, ${urlExpr(info)}, &headers);""".stripMargin
+        s"""$indent{
+           |$body
+           |$indent}""".stripMargin
       val inserts = fetches.map { case (id, info) => loadCall("    ", id, info) }.mkString("\n")
+      // What is remembered per fetch is the PAIR (tick, url), not the tick. Remember only the tick
+      // and a retarget with an unchanged tick never re-fetches — the bug being fixed, reintroduced
+      // one layer down. Remember only the url and a plain refresh stops working.
+      def stateExpr(info: FetchInfo): String = info.urlId match
+        case None      => s"format!(\"{}\", sig_int(signals, ${rustStr(info.tickId)}))"
+        case Some(uid) =>
+          s"format!(\"{} {}\", sig_int(signals, ${rustStr(info.tickId)}), sig(signals, ${rustStr(uid)}))"
       val tickSeeds = fetches.map { case (id, info) =>
-        s"    observed.insert(${rustStr(id)}.to_string(), sig_int(signals, ${rustStr(info.tickId)}));"
+        s"    observed.insert(${rustStr(id)}.to_string(), ${stateExpr(info)});"
       }.mkString("\n")
       val refreshes = fetches.map { case (id, info) =>
         s"""    {
-           |        let current = sig_int(signals, ${rustStr(info.tickId)});
-           |        if observed.get(${rustStr(id)}).copied() != Some(current) {
+           |        let current = ${stateExpr(info)};
+           |        if observed.get(${rustStr(id)}) != Some(&current) {
            |${loadCall("            ", id, info)}
            |            observed.insert(${rustStr(id)}.to_string(), current);
            |        }
@@ -289,17 +305,20 @@ object TuiEmitter:
          |    match req.call() { Ok(resp) => resp.into_string().ok(), Err(_) => None }
          |}
          |fn load_fetch(signals: &mut HashMap<String, Value>, id: &str, url: &str, headers: &[(String, String)]) {
+         |    // An empty URL is a picker with nothing selected: make NO request and keep whatever
+         |    // was already there, rather than GET "" and blank a populated table.
+         |    if url.is_empty() { return; }
          |    if let Some(body) = fetch_text(url, headers) { signals.insert(id.to_string(), Value::S(body)); }
          |}
          |fn bootstrap(signals: &mut HashMap<String, Value>) {
          |$inserts
          |}
-         |fn initial_fetch_ticks(signals: &HashMap<String, Value>) -> HashMap<String, i64> {
+         |fn initial_fetch_ticks(signals: &HashMap<String, Value>) -> HashMap<String, String> {
          |    let mut observed = HashMap::new();
          |$tickSeeds
          |    observed
          |}
-         |fn refresh_fetches(signals: &mut HashMap<String, Value>, observed: &mut HashMap<String, i64>) {
+         |fn refresh_fetches(signals: &mut HashMap<String, Value>, observed: &mut HashMap<String, String>) {
          |$refreshes
          |}""".stripMargin
 
@@ -560,7 +579,7 @@ object TuiEmitter:
   private def collectFetches(v: View[?], fetches: mutable.LinkedHashMap[String, FetchInfo]): Unit =
     def rec(c: View[?]): Unit = collectFetches(c, fetches)
     def record(s: ReactiveSignal[?]): Unit = s match
-      case f: FetchUrlSignal => if !fetches.contains(f.id) then fetches(f.id) = FetchInfo(f.fetchUrl, f.tickId, f.headersId)
+      case f: FetchUrlSignal => if !fetches.contains(f.id) then fetches(f.id) = FetchInfo(f.fetchUrl, f.tickId, f.headersId, f.urlId)
       case _                 => ()
     v match
       case View.SignalText(s, _)                                 => record(s)

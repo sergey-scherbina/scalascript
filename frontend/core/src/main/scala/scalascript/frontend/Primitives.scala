@@ -685,7 +685,12 @@ sealed class FetchUrlSignal(
     id2:           String,
     val fetchUrl:  String,
     val tickId:    String,
-    val headersId: Option[String] = None
+    val headersId: Option[String] = None,
+    /** Signal holding the URL, read at FETCH time — `fetchUrlSignalTo`. `None` for the ordinary
+     *  form, where `fetchUrl` is the literal fixed at emit time. When set, `fetchUrl` is unused and
+     *  a change to this signal must schedule a new GET exactly as a tick change does; that second
+     *  trigger is the whole feature (a picker retargets the fetch without touching the tick). */
+    val urlId:     Option[String] = None
 ) extends ReactiveSignal[String](id2, ""):
   /** Codec used to decode the HTTP response body.  Default is `RawText`. */
   def codec: CodecHint = CodecHint.RawText
