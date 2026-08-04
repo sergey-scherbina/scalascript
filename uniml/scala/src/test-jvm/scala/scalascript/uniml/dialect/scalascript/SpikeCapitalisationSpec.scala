@@ -65,20 +65,24 @@ final class SpikeCapitalisationSpec extends AnyFunSuite:
     assert(matcher.roots.flatMap(kindsOf).contains("spike.cpat"), "a simple uppercase identifier must match, not bind")
   }
 
-  test("the non-ASCII case question, stated as a test rather than left in a comment") {
-    // `Число` starts with a character the tableless alphabet cannot call uppercase, so it binds.
-    // This test does not assert that this is RIGHT — it pins the current answer so that changing
-    // it is a deliberate act with a visible diff, and so the behaviour is discoverable without
-    // reading the alphabet's source.
+  test("a non-ASCII capital matches, exactly as an ASCII one does — the table settled this") {
+    // Sergiy's call, taken after the tableless answer was measured and found to diverge. `Число`
+    // now behaves as `Foo` does, which is what a reader of the source would expect and what every
+    // other Scala implementation does.
     val cyrillic = parse("def f(v: Int): Int =\n  v match\n    case Число => 1")
     assert(cyrillic.diagnostics.isEmpty, s"${cyrillic.diagnostics.map(_.message)}")
     val ascii = parse("def f(v: Int): Int =\n  v match\n    case Foo => 1")
+    val lower = parse("def f(v: Int): Int =\n  v match\n    case число => 1")
     assert(
-      !cyrillic.roots.flatMap(kindsOf).contains("spike.cpat"),
-      "with an ASCII-only case test a Cyrillic name BINDS — if this flips, the language decision changed and specs/uniml-ssc3-frontend.md needs updating with it",
+      cyrillic.roots.flatMap(kindsOf).contains("spike.cpat"),
+      "a Cyrillic CAPITAL must match, not bind — this is the behaviour the Unicode table was added for",
     )
     assert(
       ascii.roots.flatMap(kindsOf).contains("spike.cpat"),
-      "control: the identical shape with an ASCII capital MUST match, or this test proves nothing about case",
+      "control: the identical shape with an ASCII capital, so the test cannot pass for a reason unrelated to case",
+    )
+    assert(
+      !lower.roots.flatMap(kindsOf).contains("spike.cpat"),
+      "control in the other direction: a Cyrillic LOWERCASE must still bind, or the table is answering true for everything",
     )
   }

@@ -39,23 +39,31 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
       - the sweep gate finds divergences from Java in exactly two directions: code points ≥
         U+0080 that Java says are not letters (we accept, Java rejects — intended), and nothing
         in the other direction. **A divergence where Java accepts and we reject is a defect.**
-      **⚠️ One thing §3 does not decide, and I will not decide silently: CASE.** The dialect
-      splits `spike.uid` from `spike.id` on `w.head.isUpper` — capitalised means type/constructor,
-      which is load-bearing Scala semantics. §3's table has no uppercase class, and cannot have
-      one without the tables it exists to avoid. ASCII `A`-`Z` is the only tableless test, and it
-      makes `Число` a TERM where Scala (via `Character.isUpperCase`) makes it a TYPE. Unlike the
-      ident-start decision this diverges in the UNSAFE direction — a valid Scala program changes
-      meaning. Implemented as ASCII-only, enumerated by the sweep, and flagged for Sergiy rather
-      than buried: it is a language call, not an implementation one.
-      **Cost measured: 1,143 code points** Scala treats as type-name-initial that we do not.
-      **And the corpus cannot decide it.** Of 1,432 `.ssc` files, 973 contain non-ASCII — but that
-      is 30,623 em-dashes and ~50 lowercase diacritics. Non-ASCII UPPERCASE letters: **zero**.
-      Identifiers starting with one: **zero**. So the suite going green says nothing about this
-      choice, and the green must not stand in for evidence. The filter was checked against `Ч`
-      before the zero was believed.
-      **This item stays `[~]` on one open DECISION, not on code.** Everything else is landed and
-      gated. If the answer is "a Cyrillic type name must stay a type", `isTypeNameStart` needs a
-      different design and §3 needs amending — which is why it is not closed as done.
+      **CASE — DECIDED by Sergiy 2026-08-05: use the Unicode table.** The tableless answer was
+      implemented first, measured, and rejected on the measurement.
+      **What the measurement showed, and it is not what §3 argued.** §3 refuses host classification
+      because "the same source would lex differently on the JVM, on JS and on the v2 VM". As
+      compile hosts that is FALSE: JVM and Scala.js agree exactly — 1,169 uppercase code points,
+      identical hash, checked character by character (`HostCaseAgreementSpec`, now frozen on both
+      lanes as a canary). The real divergence is between ScalaScript's OWN runtimes: the
+      interpreter delegates to `Character.isUpperCase`, the js backend tests `/\p{Lu}/u`, and
+      **42 BMP characters differ** — Java counts `Other_Uppercase`, `\p{Lu}` does not. Roman
+      numerals are the readable example: `case Ⅷ =>` would MATCH on the interpreter and BIND on js.
+      Same source, different meaning, silently. So the conclusion §3 reached is right and its stated
+      reason was not; a baked table is what makes every lane agree.
+      **Cost, measured rather than asserted.** 1,143 code points in **606 ranges** — MORE fragmented
+      than the 378 ranges covering all 48,913 non-ASCII letters, because case alternates character
+      by character through Latin Extended. ~4.8 KB as `Vector[Int]`. Consulted only after an ASCII
+      fast path, and once per identifier TOKEN rather than per character, so the "hottest loop"
+      objection does not apply to this predicate. The pattern is already proven here:
+      `MarkdownLexer.punctRanges` is 199 generated ranges with a host-parity test.
+      **The gate got stronger, not weaker.** It used to assert a one-directional divergence; it now
+      asserts EQUALITY with the host over the whole `Char` range, with `Ч`/`ч` and U+2167 named. A
+      JDK whose Unicode version moves turns it red instead of letting the table go stale.
+      **⚠️ This contradicts `v3/specs/20-core-language.md` §3, which bans tables outright, and v3
+      carries its own copy of the alphabet in `Chars`.** §3 needs amending and ssc3-core needs to
+      decide whether to adopt the shared module. Raised with them; not edited unilaterally, since
+      `paths: v3` is theirs.
 
 - [~] UNIML-SSC3 — **UniML must be ready to serve as ScalaScript's parser AND AST**, for
       language version 3. Direction: `specs/uniml-ssc3-frontend.md`; the seam with v3's SSC IR

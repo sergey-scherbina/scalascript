@@ -61,25 +61,28 @@ final class UniAlphabetSweepSpec extends AnyFunSuite:
     info(s"host whitespace we deliberately exclude: ${hostSaysWeDoNot.map(c => f"U+$c%04X").mkString(", ")}")
   }
 
-  test("case agrees with the host over ASCII exactly, and answers false above it — the flagged divergence") {
-    val asciiDisagreement = (0 to 127).filter { cp =>
+  test("case agrees with the host EXACTLY over the whole range — the table's whole purpose") {
+    // Before the table this was one-directional: ASCII exact, everything above U+0080 answered
+    // false. That silently changed what `case Число =>` meant. With the generated table there is no
+    // divergence left to describe, so the assertion is equality — the strongest form this can take,
+    // and the one that goes red the moment the table drifts from the JDK it was generated against.
+    val disagreement = AllChars.filter { cp =>
       UniAlphabet.isTypeNameStart(cp.toChar) != Character.isUpperCase(cp.toChar)
     }
-    assert(asciiDisagreement.isEmpty, s"ASCII case disagreement: ${asciiDisagreement.map(c => f"U+$c%04X").mkString(", ")}")
-
-    val aboveBoundary = AllChars.filter { cp =>
-      cp >= 128 && UniAlphabet.isTypeNameStart(cp.toChar) != Character.isUpperCase(cp.toChar)
-    }
     assert(
-      aboveBoundary.forall(cp => Character.isUpperCase(cp.toChar) && !UniAlphabet.isTypeNameStart(cp.toChar)),
-      "the case divergence must be one-directional: we may only fail to see uppercase, never invent it",
+      disagreement.isEmpty,
+      s"${disagreement.size} code points disagree with the host, first few: ${disagreement.take(20).map(c => f"U+$c%04X").mkString(", ")}. " +
+        "Regenerate upperRanges from this JDK, or decide deliberately to pin an older Unicode version.",
     )
-    // This number is the cost of the decision, in code points a Scala program could legitimately
-    // start a type name with. Printed rather than frozen — a JDK Unicode bump moves it and that is
-    // not a regression. `Число` is in here.
-    info(s"code points Scala treats as type-name-initial that we do not: ${aboveBoundary.size}")
-    assert(UniAlphabet.isTypeNameStart('Ч') === false)
-    assert(Character.isUpperCase('Ч'))
+
+    // The two characters the whole question was about, asserted by name so the intent survives.
+    assert(UniAlphabet.isTypeNameStart('Ч'), "a Cyrillic capital must be a type-name start")
+    assert(!UniAlphabet.isTypeNameStart('ч'), "a Cyrillic lowercase must not be")
+
+    // Other_Uppercase, which is where ScalaScript's OWN runtimes disagree with each other: the
+    // interpreter delegates to Character.isUpperCase, the js lane tests /\\p{Lu}/u, and 42 BMP
+    // characters differ — Roman numerals among them. A baked table is what makes every lane agree.
+    assert(UniAlphabet.isTypeNameStart('\u2167'), "Other_Uppercase must be included, or the js lane and the interpreter part ways")
   }
 
   test("the classifier is total — no character is both a digit and an identifier-start-only class") {
