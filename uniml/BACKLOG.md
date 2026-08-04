@@ -338,6 +338,23 @@ self-parity test is not external conformance.
         ScalaScript) and C_min now reconstruct EXACTLY**; the arc across L1-L4 was 23,647
         lost characters to zero.
 
+  - [ ] **SSC3-B/textarea — 20 diagnostics whose CAUSE IS NOT FOUND.** Recorded rather than
+        left as a hunch, with the methods that failed, because the next person will otherwise
+        repeat all three.
+        `examples/std-ui/textarea.ssc`. The first diagnostic reads `expected statement, found
+        'class'` at 46:56, inside `html"""<small class="${errCls}">…"""`. That is a RECOVERY
+        LANDING SITE, not the origin: every shape of that line parses CLEANLY in isolation —
+        plain triple-quote, `s`/`html` prefix, single-quote form, an attribute with a nested
+        `"` and `${…}`, and the whole `val x = if c then html"""…""" else ""` in an indented
+        def body. All zero diagnostics.
+        ⚠️ **Bisecting the fence body by LINES is invalid here** and pointed confidently at
+        line 9 (`sc.css("""` opening a multi-line string): cutting at a line splits that
+        string in half, so every prefix ending inside it fails for a reason the file does not
+        have. Verified by parsing the same construct whole — one-line, multi-line, and with a
+        nested `"` inside — all clean.
+        What is left to try: bisect by BALANCED CONSTRUCT rather than by line, or diff the
+        fence body against a reduced copy until the diagnostic disappears.
+
   - [~] **SSC3-P typed projection.** The ScalaScript analogue of `MarkdownProjection`: CST in,
         typed AST out. This is the artifact the decision actually names — the lossless CST is the
         STORAGE, the projection is the INTERFACE. Without it the type checker would dispatch on
