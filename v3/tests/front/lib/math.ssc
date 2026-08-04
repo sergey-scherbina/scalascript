@@ -1,0 +1,6 @@
+val scale = 3
+
+def double(n: Int): Int = n * 2
+def scaled(n: Int): Int = n * scale
+
+println("THIS MUST NOT PRINT")

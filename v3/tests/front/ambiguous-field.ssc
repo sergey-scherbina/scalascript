@@ -1,3 +1,8 @@
 case class A(v: Int)
 case class B(v: Int)
+case class Rec(head: String)
+
 println(A(1).v)
+println(B(2).v)
+println(Rec("field").head)
+println(List("method").head)

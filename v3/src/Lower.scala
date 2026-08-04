@@ -278,17 +278,30 @@ object Lower:
       val (d, st1) = st.fresh
       (acc :+ Instr.Call(d, fns.indexOf(obj + "." + nm), regs.reverse), d, st1)
 
+    // A no-argument call whose name is a FIELD of some declared class lowers to a `Switch` with an
+    // arm per declaring class and a DEFAULT that dispatches dynamically. That shape is the oracle's
+    // (`_sel_head` in v2's own output), and it is the only thing that resolves `head-field-shadow`:
+    // a program may read `r.head` on a record and `xs.head` on a list, and no syntactic rule can
+    // tell them apart without a type checker.
+    //
+    // It also RETIRES the ambiguity refusal this arm used to carry. Two classes with the same field
+    // name are simply two arms — the receiver decides, at run time, which is what it always was.
     case Expr.MethodCall(recv, nm, Nil, p) if classes.exists(c => c.fields.exists(f => f.name == nm)) =>
       val owners = classes.filter(c => c.fields.exists(f => f.name == nm))
-      if owners.length > 1 then
-        throw LowerFail(p, "field '" + nm + "' is declared by " + owners.map(_.name).mkString(", ") +
-          " — SSC3 needs a type checker to choose, which is Tier 2")
-      val owner = owners.head
-      val idx = owner.fields.indexWhere(f => f.name == nm)
       val (ri, rr, st1) = lower(recv, fns, classes, st0)
-      val (t, st2) = st1.typeIdx(owner.name, owner.fields.length)
-      val (d, st3) = st2.fresh
-      (ri :+ Instr.Field(d, rr, t, idx), d, st3)
+      val (d, st2) = st1.fresh
+      var st = st2
+      var arms: List[SwitchArm] = Nil
+      owners.foreach { o =>
+        val (t, sN) = st.typeIdx(o.name, o.fields.length)
+        val (fr, sN2) = sN.fresh
+        val idx = o.fields.indexWhere(f => f.name == nm)
+        arms = arms :+ SwitchArm(t, List(Instr.Field(fr, rr, t, idx), Instr.Move(d, fr)))
+        st = sN2
+      }
+      val (nk, st3) = st.constIdx(Lit.LStr(nm))
+      val (ir2, st4) = st3.fresh
+      (ri :+ Instr.Switch(rr, arms, List(Instr.Invoke(ir2, nk, rr, Nil), Instr.Move(d, ir2))), d, st4)
 
     case Expr.MethodCall(recv, nm, argEs, _) =>
       val (ri, rr, st1) = lower(recv, fns, classes, st0)

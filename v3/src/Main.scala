@@ -213,7 +213,7 @@ object SelfTest:
           val path = args(1)
           val src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")
           try
-            val m = Lower.programOf(Parser.parse(Source.program(src)), Source.blockEnds(src))
+            val m = Lower.programOf(Loader.merge(Loader.closure(path)), Source.blockEnds(src))
             Verify.module(m) match
               case Some(e) =>
                 // A lowering bug reaching the backend is exactly what I-4 exists to stop, and the
@@ -224,6 +224,7 @@ object SelfTest:
                 println(BridgeV2.program(m))
                 0
           catch
+            case e: LoadError    => Console.err.println("ssc3: " + e.message); 1
             case e: LexError     => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
             case e: ParseFail    => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
             case e: LowerFail    => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
@@ -234,9 +235,10 @@ object SelfTest:
           val path = args(1)
           val src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")
           try
-            print(Text.write(Lower.programOf(Parser.parse(Source.program(src)), Source.blockEnds(src))))
+            print(Text.write(Lower.programOf(Loader.merge(Loader.closure(path)), Source.blockEnds(src))))
             0
           catch
+            case e: LoadError => Console.err.println("ssc3: " + e.message); 1
             case e: LexError  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
             case e: ParseFail => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
             case e: LowerFail => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
@@ -248,10 +250,11 @@ object SelfTest:
           try
             val m =
               if path.endsWith(".ssir") then Text.read(src)
-              else Lower.programOf(Parser.parse(Source.program(src)), Source.blockEnds(src))
+              else Lower.programOf(Loader.merge(Loader.closure(path)), Source.blockEnds(src))
             Exec.run(m)
             0
           catch
+            case e: LoadError => Console.err.println("ssc3: " + e.message); 1
             case e: LexError  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
             case e: ParseFail => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
             case e: LowerFail => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1

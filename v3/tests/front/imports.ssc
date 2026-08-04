@@ -1,0 +1,4 @@
+[double, scaled](lib/math.ssc)
+
+println(double(21))
+println(scaled(5))

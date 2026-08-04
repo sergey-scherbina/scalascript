@@ -20,7 +20,9 @@ object Source:
     * of defect that is discovered only by someone confused enough to count lines by hand. */
   def program(text: String): String =
     val lines = text.split("\n", -1).toList
-    if !lines.exists(isCodeFenceOpen) then text
+    // A bare `.ssc` is code in its entirety, so its import LINKS are in the middle of the program
+    // and have to go — blanked, not removed, so every line number still matches the file.
+    if !lines.exists(isCodeFenceOpen) then lines.map(blankIfImport).mkString("\n")
     else
       var out: List[String] = Nil
       var inCode = false
@@ -29,7 +31,7 @@ object Source:
           if isFenceClose(l) then
             inCode = false
             out = "" :: out
-          else out = l :: out
+          else out = blankIfImport(l) :: out
         else
           if isCodeFenceOpen(l) then inCode = true
           out = "" :: out
@@ -60,6 +62,15 @@ object Source:
         lastCode = 0
     }
     out.reverse
+
+  /** An import link is a DECLARATION handled by `Loader`, not an expression. It is replaced by an
+    * empty line rather than deleted for the same reason prose is: line numbers are what a
+    * diagnostic points at. */
+  private def blankIfImport(l: String): String =
+    val t = l.trim
+    val close = t.indexOf("](")
+    if t.startsWith("[") && close > 0 && t.endsWith(")") && t.substring(close + 2, t.length - 1).trim.endsWith(".ssc")
+    then "" else l
 
   private def trimmed(l: String): String = l.trim
 

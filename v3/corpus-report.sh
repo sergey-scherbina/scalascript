@@ -4,10 +4,20 @@
 # Every `tests/conformance/*.ssc` with a checked-in expectation is compiled by v3 and run, and the
 # result lands in exactly one of the four buckets of v3/specs/20-core-language.md §4:
 #
-#   PASS         output matches the expectation the OTHER lanes are held to
-#   DIFF         v3 ran it and produced different output          — a DEFECT
-#   UNSUPPORTED  v3 refused it, naming a construct and a position — honest, not a defect
-#   CRASH        v3 neither ran it nor refused it cleanly         — a DEFECT, and worse than DIFF
+#   PASS          output matches the expectation the OTHER lanes are held to
+#   DIFF          v3 ran it and produced different output          — a DEFECT
+#   UNSUPPORTED   v3 refused it, naming a construct and a position — honest, not a defect
+#   CRASH         v3 neither ran it nor refused it cleanly         — a DEFECT, worse than DIFF
+#   LANE-EXCLUDED the case does not hold the v2 lane to this expectation — NOT attributable to v3
+#
+# THE LAST BUCKET IS A CORRECTION, added 2026-08-04. `ssc3 run` executes through the v2 bridge, and
+# 244 of 355 cases either omit `v2` from `backends:` or declare it `known-red`. Comparing v3's
+# output against an expectation the v2 lane is deliberately not held to counts v2's divergence as a
+# v3 defect. `js-int-division-by-zero` is the case that exposed it: it expects `Infinity`, v3 prints
+# `inf` — and so does v2 itself on the same program, which is why the case excludes v2.
+#
+# So the number this report produced before today was misattributing. It was not flattering v3 —
+# it was blaming v3 for the lane it borrows.
 #
 # The oracle is the SHARED expectation, not a v3-specific one. A lane that grades its own homework
 # measures nothing.
@@ -43,8 +53,20 @@ scala-cli --power package v3/src --assembly -o "$WORK/ssc3.jar" --server=false -
 scala-cli --power package v2/src --assembly -o "$WORK/ssc2.jar" --server=false --quiet -f >/dev/null 2>&1 \
   || { echo "corpus-report: v2 failed to package" >&2; exit 2; }
 
-pass=0; diff=0; unsup=0; crash=0; total=0
-: > "$WORK/diff.txt"; : > "$WORK/crash.txt"; : > "$WORK/unsup.txt"
+# Does this case hold the v2 lane to its expectation? `backends:` lists the lanes it applies to;
+# a `known-red: … v2 …` declares the lane a declared, expiring failure. Either way, a difference on
+# the bridge is not v3's to answer for.
+holds_v2() {
+  local f="$1"
+  grep -qE '^known-red:.*\bv2\b' "$f" && return 1
+  if grep -qE '^backends:' "$f"; then
+    grep -qE '^backends:.*\bv2\b' "$f" || return 1
+  fi
+  return 0
+}
+
+pass=0; diff=0; unsup=0; crash=0; excl=0; total=0
+: > "$WORK/diff.txt"; : > "$WORK/crash.txt"; : > "$WORK/unsup.txt"; : > "$WORK/excl.txt"
 
 for f in tests/conformance/*.ssc; do
   name="$(basename "$f" .ssc)"
@@ -58,6 +80,10 @@ for f in tests/conformance/*.ssc; do
     got="$(java -Xss512m -jar "$WORK/ssc2.jar" run-ir "$WORK/ir" 2>/dev/null)"
     if [ "$got" = "$(cat "$exp")" ]; then
       pass=$((pass + 1))
+    elif ! holds_v2 "$f"; then
+      # Ran, differed, but this case does not hold the v2 lane to that expectation. Still counted
+      # and still listed — a silent skip would hide work — but not as a v3 defect.
+      excl=$((excl + 1)); printf '%s\n' "$name" >> "$WORK/excl.txt"
     else
       diff=$((diff + 1)); printf '%s\n' "$name" >> "$WORK/diff.txt"
     fi
@@ -79,6 +105,7 @@ printf '  PASS         %4d\n' "$pass"
 printf '  DIFF         %4d   (defect)\n' "$diff"
 printf '  UNSUPPORTED  %4d   (honest)\n' "$unsup"
 printf '  CRASH        %4d   (defect, worse than DIFF)\n' "$crash"
+printf '  LANE-EXCL    %4d   (the case excludes the v2 lane — not v3'"'"'s to answer for)\n' "$excl"
 printf '  ────────────────\n'
 printf '  N = %d / %d\n' "$pass" "$total"
 
@@ -87,7 +114,7 @@ if [ -s "$WORK/unsup.txt" ]; then
   echo "what UNSUPPORTED is actually blocked on, most common first:"
   sed 's/.*: //' "$WORK/unsup.txt" | sed "s/'[^']*'/'…'/g" | sort | uniq -c | sort -rn | head -12 | sed 's/^/  /'
 fi
-[ "$show_diff" = 1 ] && { echo; echo "DIFF:"; sed 's/^/  /' "$WORK/diff.txt"; }
+[ "$show_diff" = 1 ] && { echo; echo "DIFF:"; sed 's/^/  /' "$WORK/diff.txt"; echo "LANE-EXCLUDED:"; sed 's/^/  /' "$WORK/excl.txt"; }
 [ "$show_crash" = 1 ] && { echo; echo "CRASH:"; sed 's/^/  /' "$WORK/crash.txt"; }
 echo
 echo "N is a MEASUREMENT, not a target. It may rise in any commit and fall in none (I-5)."

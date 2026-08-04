@@ -176,11 +176,12 @@ object Exec:
         case Value.VData(t, _) => regs(d) = Value.VInt(t.toLong); Signal.Done
         case v                 => throw ExecError("tag of " + show(v))
     case Instr.Switch(s, arms, dflt) =>
-      val t = regs(s) match
-        case Value.VData(tg, _) => tg
-        case v                  => throw ExecError("switch on " + show(v))
-      val arm = arms.find(a => a.tag == t)
-      val chosen = arm.map(a => a.body).getOrElse(dflt)
+      // A scrutinee that is not `Data` takes the DEFAULT rather than failing. That is v2's `match`
+      // semantics and it is what makes a name that is both a field and a method resolvable at run
+      // time: `r.head` on a record takes an arm, `xs.head` on a list falls through to dispatch.
+      val chosen = regs(s) match
+        case Value.VData(tg, _) => arms.find(a => a.tag == tg).map(a => a.body).getOrElse(dflt)
+        case _                  => dflt
       exec(m, chosen, regs) match
         case Signal.Branch(0) => Signal.Done
         case Signal.Branch(d) => Signal.Branch(d - 1)
