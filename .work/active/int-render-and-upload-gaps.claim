@@ -5,7 +5,7 @@ started: 2026-08-04T15:31:02Z
 heartbeat: 2026-08-04T15:31:02Z
 status: claimed-before-planning
 items: orphaned-e2e-gates-52 std-ui-forms-smoke upload-smoke
-paths: file:tests/e2e/std-ui-forms-smoke.sh file:tests/e2e/upload-smoke.sh file:tests/BUGS.md file:v1/lang/BUGS.md file:tests/e2e/triple-quote-trailing-quote-gate.sh
+paths: file:tests/e2e/std-ui-forms-smoke.sh file:tests/e2e/upload-smoke.sh file:tests/BUGS.md file:BUGS.md file:tests/e2e/triple-quote-trailing-quote-gate.sh
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
