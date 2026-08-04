@@ -63,7 +63,10 @@ object Pat:
     case PLit(_, x)     => x
     case PCtor(_, _, x) => x
 
-final case class MatchArm(pat: Pat, body: Expr)
+/** `guard` is the optional `if cond` between the pattern and the `=>`. It is part of the ARM, not
+  * of the pattern, because it is an ordinary expression evaluated with the pattern's bindings in
+  * scope — putting it in `Pat` would have made every pattern position able to carry code. */
+final case class MatchArm(pat: Pat, guard: Option[Expr], body: Expr)
 
 enum Stmt:
   case Val(name: String, value: Expr, mutable: Boolean, pos: Pos)

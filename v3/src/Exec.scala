@@ -78,6 +78,32 @@ object Exec:
     else if d == d.toLong.toDouble then d.toLong.toString
     else d.toString
 
+  /** How a value reaches the USER — deliberately separate from `show`, which names raw tags and is
+    * for the executor's own diagnostics.
+    *
+    * `show` alone printed `#0(1, 2)` where the v2 lane prints `P(1, 2)`, and a list as its nested
+    * Cons cells rather than `List(1, 2)`. That is EVERY program that prints a constructed value,
+    * and the differential gate could not see it because no fixture printed one. The type names were
+    * there all along, in the module `show` did not have.
+    *
+    * The shapes are the reference lane's, measured: `P(1, 2)`, `Some(3)`, `None` (no parens for a
+    * nullary constructor), `List(1, 2)`. */
+  def showV(m: Module, v: Value): String = v match
+    case Value.VData(t, f) =>
+      if isList(m, v) then "List(" + listOut(m, v).map(x => showV(m, x)).mkString(", ") + ")"
+      else if t == tagOf(m, "Nil") then "List()"
+      else
+        val nm = if t >= 0 && t < m.types.length then m.types(t).name else "#" + t
+        // A tuple prints as `(1, a)`, NOT `Tuple2(1, a)` — measured on the v1 interpreter, which is
+        // the language's reference for this. The synthetic class is an implementation detail and
+        // must not reach the output.
+        if nm.startsWith("Tuple") && f.length >= 2 then
+          "(" + f.toList.map(x => showV(m, x)).mkString(", ") + ")"
+        else if f.isEmpty then nm
+        else nm + "(" + f.toList.map(x => showV(m, x)).mkString(", ") + ")"
+    case Value.VArr(xs) => "Array(" + xs.toList.map(x => showV(m, x)).mkString(", ") + ")"
+    case other          => show(other)
+
   private def truthy(v: Value): Boolean = v match
     case Value.VBool(b) => b
     case Value.VInt(n)  => n != 0L
@@ -151,7 +177,7 @@ object Exec:
           case Value.VInt(n) => Value.VInt(~n)
           case v             => throw ExecError("bnot on " + show(v))
       Signal.Done
-    case Instr.Bin(op, _, d, a, b) => regs(d) = binOp(op, regs(a), regs(b)); Signal.Done
+    case Instr.Bin(op, _, d, a, b) => regs(d) = binOp(m, op, regs(a), regs(b)); Signal.Done
 
     // Structured control flow. A `Branch` propagates outward, losing one level per region — the
     // same rule the bridge implements with a counter, here as a returned value.
@@ -263,7 +289,7 @@ object Exec:
         case _           => throw ExecError("an invoke whose name const is not a string")
       regs(d) = invoke(m, name, regs(r), as.map(x => regs(x)))
       Signal.Done
-    case Instr.Prim(d, p, as) => regs(d) = prim(m.prims(p), as.map(r => regs(r))); Signal.Done
+    case Instr.Prim(d, p, as) => regs(d) = prim(m, m.prims(p), as.map(r => regs(r))); Signal.Done
 
   // ── the method table ────────────────────────────────────────────────────────
   //
@@ -331,7 +357,7 @@ object Exec:
           case v               => throw ExecError("split by " + show(v))
       case (Value.VArr(xs), "length") => Value.VInt(xs.length.toLong)
       case (Value.VArr(xs), "size")   => Value.VInt(xs.length.toLong)
-      case (_, "toString")            => Value.VStr(show(recv))
+      case (_, "toString")            => Value.VStr(showV(m, recv))
       case _ =>
         if isList(m, recv) then
           val xs = listOut(m, recv)
@@ -348,6 +374,11 @@ object Exec:
             case "map"     => listIn(m, xs.map(x => apply1(m, args.head, x)))
             case "filter"  => listIn(m, xs.filter(x => truthy(apply1(m, args.head, x))))
             case "reverse" => listIn(m, xs.reverse)
+            // A LANE DIVERGENCE, not a missing feature: the bridge ran `foreach` all along and the
+            // executor did not. Invisible because no fixture used it.
+            case "foreach" =>
+              xs.foreach(x => apply1(m, args.head, x))
+              Value.VUnit
             case "++"      => listIn(m, xs ++ listOut(m, args.head))
             case ":+"      => listIn(m, xs :+ args.head)
             case "+:"      => listIn(m, args.head :: xs)
@@ -388,8 +419,10 @@ object Exec:
     case Lit.LBig(d)   => Value.VStr(d)
     case Lit.LBytes(h) => Value.VStr(h)
 
-  private def binOp(op: BinOp, a: Value, b: Value): Value = (op, a, b) match
-    case (BinOp.Add, Value.VStr(x), y)               => Value.VStr(x + show(y))
+  // Takes the module for ONE arm: `"x = " + P(1, 2)` has to name the constructor the same way
+  // `println` does, or a value prints one way on its own and another inside a string.
+  private def binOp(m: Module, op: BinOp, a: Value, b: Value): Value = (op, a, b) match
+    case (BinOp.Add, Value.VStr(x), y)               => Value.VStr(x + showV(m, y))
     case (BinOp.Add, Value.VInt(x), Value.VInt(y))   => Value.VInt(x + y)
     case (BinOp.Sub, Value.VInt(x), Value.VInt(y))   => Value.VInt(x - y)
     case (BinOp.Mul, Value.VInt(x), Value.VInt(y))   => Value.VInt(x * y)
@@ -430,15 +463,15 @@ object Exec:
 
   /** The host boundary, and the only place in the executor that touches the outside world — which
     * is what invariant I-1 asks of the whole kernel. An unknown primitive is refused by NAME. */
-  private def prim(name: String, args: List[Value]): Value = name match
+  private def prim(m: Module, name: String, args: List[Value]): Value = name match
     case "io.println" =>
-      println(if args.isEmpty then "" else show(args.head))
+      println(if args.isEmpty then "" else showV(m, args.head))
       Value.VUnit
     case "__autoOutput__" =>
       // Prints only a non-Unit value, exactly as v2 does — the rule the front relies on so that a
       // `println(…)` tail does not print twice.
-      if args.nonEmpty && args.head != Value.VUnit then println(show(args.head))
+      if args.nonEmpty && args.head != Value.VUnit then println(showV(m, args.head))
       Value.VUnit
     case "__throw__" =>
-      throw ExecError(if args.isEmpty then "throw" else show(args.head))
+      throw ExecError(if args.isEmpty then "throw" else showV(m, args.head))
     case other => throw ExecError("unknown primitive '" + other + "'")

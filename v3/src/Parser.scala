@@ -30,7 +30,13 @@ object Parser:
     // list exact strings, which gave every operator outside the list precedence 0 — `:+` had no
     // precedence at all and could not be parsed. Keying on the first character is both faithful and
     // total: it reproduces every row the old table had, and a new operator needs no edit.
-    if op.isEmpty then 0
+    // SYNTAX, not operators. They are spelled out of operator characters, so a rule keyed on the
+    // first character claims them: `=>` would get `=`'s precedence 4 and `<-` would get `<`'s 5,
+    // making both infix operators. That is a regression the exact-string table did not have — it
+    // simply had no row for them — and it stayed hidden until pattern guards became the first place
+    // an EXPRESSION is parsed immediately before a `=>`. Everywhere else `=>` is either consumed by
+    // `expectOp` or detected by `lambdaAhead` before this function is reached.
+    if op == "=>" || op == "<-" || op == "=" || op.isEmpty then 0
     else op.charAt(0) match
       case '|'             => 1
       case '^'             => 2
@@ -94,10 +100,33 @@ object Parser:
     * pretending to read the annotation would put a second, unenforced notion of a program's types
     * into the front. When the checker arrives this is where it starts. */
   private def skipTypeAnn(ts: List[Tok]): List[Tok] =
-    if !isPunct(peek(ts), ":") then ts
-    else
-      val (_, _, t2) = expectName(ts.tail)
-      skipBrackets(t2)
+    if !isPunct(peek(ts), ":") then ts else skipType(ts.tail)
+
+  /** A type, DISCARDED. It used to be "a name, then optional brackets", which is only the simplest
+    * type there is: `(Int, Int)` — a tuple type, which is what a function taking or returning a
+    * tuple is annotated with — and `Int => Int` both failed to parse, and the diagnostic pointed at
+    * the type rather than saying types were the limitation.
+    *
+    * Discarding rather than reading is invariant I-2's consequence: there is no checker at Tier 0,
+    * and half-reading types would put an unenforced notion of them into the front. */
+  private def skipType(ts0: List[Tok]): List[Tok] =
+    var ts =
+      if isPunct(peek(ts0), "(") then
+        var t = ts0.tail
+        var depth = 1
+        while depth > 0 do
+          if peek(t).isInstanceOf[Tok.TEof] then throw ParseFail(posOf(t), "unclosed '(' in a type")
+          if isPunct(peek(t), "(") then depth = depth + 1
+          else if isPunct(peek(t), ")") then depth = depth - 1
+          t = t.tail
+        t
+      else
+        val (_, _, t) = expectName(ts0)
+        skipBrackets(t)
+    // A FUNCTION type continues past the arrow: `f: Int => Int`. Safe here because every caller is
+    // a declaration position — a parameter, a field, a `val`, a return type — never a match arm,
+    // where a `=>` separates the pattern from the body and must survive.
+    if isOp(peek(ts), "=>") then skipType(ts.tail) else ts
 
   /** Consume a balanced `[…]` if one is here. Type arguments and type parameters are DISCARDED at
     * Tier 0 for the same reason annotations are: there is no checker, and half-reading them would
@@ -237,9 +266,16 @@ object Parser:
         else go = false
       else
         val (pat, t1) = parsePat(ts.tail)
-        val t2 = expectOp(t1, "=>")
+        // `case k if k > 0 =>`. The guard parses as an ordinary expression and stops at `=>` on its
+        // own: `=>` has precedence 0, so the binary-operator loop does not take it.
+        val (guard, t1g) =
+          if isId(peek(t1), "if") then
+            val (g, t) = parseExpr(t1.tail)
+            (Some(g), t)
+          else (None, t1)
+        val t2 = expectOp(t1g, "=>")
         val (body, t3) = parseArmBody(t2, braced)
-        arms = MatchArm(pat, body) :: arms
+        arms = MatchArm(pat, guard, body) :: arms
         ts = t3
     (arms.reverse, ts)
 
@@ -263,11 +299,13 @@ object Parser:
           ts = ts.tail
           go = false
         else
-          val (st, t) = parseStmt(ts)
+          val (sts, t) = parseStmt(ts)
           ts = t
-          st match
-            case Stmt.Exp(e) => last = Some(e); stmts = st :: stmts
-            case _           => last = None; stmts = st :: stmts
+          sts.foreach { st =>
+            st match
+              case Stmt.Exp(e) => last = Some(e); stmts = st :: stmts
+              case _           => last = None; stmts = st :: stmts
+          }
       val body = stmts.reverse
       last match
         case Some(e) => (Expr.Block(body.dropRight(1), Some(e), p), ts)
@@ -283,6 +321,20 @@ object Parser:
     else (head, ts)
 
   private def parsePatAtom(ts: List[Tok]): (Pat, List[Tok]) = peek(ts) match
+    // `case (a, b) =>`. A tuple pattern is a constructor pattern over the same synthetic `TupleN`
+    // the literal builds, so nesting, wildcards and guards all work without a second mechanism.
+    case Tok.TPunct("(", p) =>
+      var items: List[Pat] = Nil
+      var ts2 = ts.tail
+      var go = true
+      while go do
+        val (x, tn) = parsePat(ts2)
+        items = items :+ x
+        ts2 = tn
+        if isPunct(peek(ts2), ",") then ts2 = ts2.tail else go = false
+      val t = expectPunct(ts2, ")")
+      if items.length == 1 then (items.head, t)
+      else (Pat.PCtor("Tuple" + items.length, items, p), t)
     case Tok.TId("_", p) => (Pat.PWild(p), ts.tail)
     case Tok.TInt(t, p)  => (Pat.PLit(Expr.IntLit(longOf(t, p), p), p), ts.tail)
     case Tok.TFloat(t, p) => (Pat.PLit(Expr.DoubleLit(t.toDouble, p), p), ts.tail)
@@ -345,7 +397,17 @@ object Parser:
       if isPunct(peek(ts.tail), ")") then (Expr.UnitLit(p), ts.tail.tail)
       else
         val (e, t) = parseExpr(ts.tail)
-        (e, expectPunct(t, ")"))
+        // A comma turns the parenthesised expression into a TUPLE. `(e)` stays exactly what it was,
+        // which is why the comma decides rather than a lookahead scan: there is nothing to guess.
+        if isPunct(peek(t), ",") then
+          var items = List(e)
+          var ts2 = t
+          while isPunct(peek(ts2), ",") do
+            val (x, tn) = parseExpr(ts2.tail)
+            items = items :+ x
+            ts2 = tn
+          (Expr.Call("Tuple" + items.length, items, p), expectPunct(ts2, ")"))
+        else (e, expectPunct(t, ")"))
     case other => throw ParseFail(Lexer.posOf(other), "expected an expression, found " + Lexer.show(other))
 
   /** Split `s"a $x b ${e} c"` into text parts and expressions.
@@ -542,11 +604,13 @@ object Parser:
         ts = ts.tail; go = false
       else if peek(ts).isInstanceOf[Tok.TEof] then throw ParseFail(posOf(ts), "unclosed '{'")
       else
-        val (st, t) = parseStmt(ts)
+        val (sts, t) = parseStmt(ts)
         ts = t
-        st match
-          case Stmt.Exp(e) => last = Some(e); stmts = st :: stmts
-          case _           => last = None; stmts = st :: stmts
+        sts.foreach { st =>
+          st match
+            case Stmt.Exp(e) => last = Some(e); stmts = st :: stmts
+            case _           => last = None; stmts = st :: stmts
+        }
     val body = stmts.reverse
     val (init, result) = last match
       case Some(e) => (body.dropRight(1), Some(e))
@@ -574,33 +638,62 @@ object Parser:
         ts = ts.tail; go = false
       else if peek(ts).isInstanceOf[Tok.TEof] then go = false
       else
-        val (st, t) = parseStmt(ts)
+        val (sts, t) = parseStmt(ts)
         ts = t
         // The LAST expression of a block is its value, which is why this is decided at the end
         // rather than by looking ahead: whether a statement is the result depends on what follows.
-        st match
-          case Stmt.Exp(e) => last = Some(e); stmts = st :: stmts
-          case _           => last = None; stmts = st :: stmts
+        sts.foreach { st =>
+          st match
+            case Stmt.Exp(e) => last = Some(e); stmts = st :: stmts
+            case _           => last = None; stmts = st :: stmts
+        }
     val body = stmts.reverse
     val (init, result) = last match
       case Some(e) => (body.dropRight(1), Some(e))
       case None    => (body, None)
     (Expr.Block(init, result, p), ts)
 
-  private def parseStmt(ts: List[Tok]): (Stmt, List[Tok]) = peek(ts) match
+  /** A statement may expand into SEVERAL — `val (x, y) = e` is three — so this returns a list.
+    * Expanding here rather than adding a statement kind means the lowering, the free-variable scan,
+    * auto-output and the top-level global hoist all keep seeing ordinary `val`s, and none of them
+    * had to learn about destructuring. */
+  private def parseStmt(ts: List[Tok]): (List[Stmt], List[Tok]) = peek(ts) match
+    // `val (x, y) = e` — bind the tuple ONCE to a temporary, then read its fields. Binding once is
+    // the point: expanding to `e._1` and `e._2` would evaluate `e` twice, and `e` may print, read a
+    // file or advance a counter. The temporary's name is derived from the SOURCE POSITION, which
+    // makes it unique without the parser having to carry a counter.
+    case Tok.TId(kw, p) if (kw == "val" || kw == "var") && isPunct(peek(ts.tail), "(") =>
+      val (pat, t1) = parsePat(ts.tail)
+      val t2 = expectOp(skipTypeAnn(t1), "=")
+      val (e, t3) = parseExpr(t2)
+      val tmp = "$tup" + p.line + "_" + p.col
+      val names = pat match
+        case Pat.PCtor(cn, args, _) if cn.startsWith("Tuple") => args
+        case other => throw ParseFail(Pat.posOf(other), "a destructuring `val` binds a tuple at Tier 0")
+      var out: List[Stmt] = List(Stmt.Val(tmp, e, false, p))
+      names.zipWithIndex.foreach { (ap, i) =>
+        ap match
+          case Pat.PBind(n, np) =>
+            out = out :+ Stmt.Val(n, Expr.MethodCall(Expr.Name(tmp, np), "_" + (i + 1), Nil, np),
+                                  kw == "var", np)
+          case Pat.PWild(_) => ()
+          case other =>
+            throw ParseFail(Pat.posOf(other), "a destructuring `val` binds names at Tier 0")
+      }
+      (out, t3)
     case Tok.TId(kw, p) if kw == "val" || kw == "var" =>
       val mutable = kw == "var"
       val (n, _, t1) = expectName(ts.tail)
       val t2 = skipTypeAnn(t1)
       val t3 = expectOp(t2, "=")
       val (e, t4) = parseExpr(t3)
-      (Stmt.Val(n, e, mutable, p), t4)
+      (List(Stmt.Val(n, e, mutable, p)), t4)
     case Tok.TId(n, p) if !keywords.contains(n) && isOp(peek(ts.tail), "=") =>
       val (e, t) = parseExpr(ts.tail.tail)
-      (Stmt.Exp(Expr.Assign(n, e, p)), t)
+      (List(Stmt.Exp(Expr.Assign(n, e, p))), t)
     case _ =>
       val (e, t) = parseExpr(ts)
-      (Stmt.Exp(e), t)
+      (List(Stmt.Exp(e)), t)
 
   /** `case class Name(f: T, …)`. A BODY (`… ):` followed by an indented block of methods) is
     * refused by name rather than skipped: skipping would silently drop methods the author wrote and
@@ -781,7 +874,7 @@ object Parser:
         // Not a `def`, so it is program body. Refusing here is what made 48 of the first 60 corpus
         // cases unreadable: a `.ssc` file is a script, and requiring every line to be inside a
         // definition was my assumption rather than the language's.
-        val (st, t) = parseStmt(ts)
-        top = st :: top
+        val (sts, t) = parseStmt(ts)
+        sts.foreach { st => top = st :: top }
         ts = t
     Program(defs.reverse, top.reverse, classes.reverse, objects.reverse)

@@ -25,6 +25,21 @@ object Lower:
   private val ctors: List[(String, Int)] =
     List("Cons" -> 2, "Nil" -> 0, "Some" -> 1, "None" -> 0)
 
+  /** Tuples as SYNTHETIC case classes — `Tuple2(_1, _2)` and so on.
+    *
+    * Nothing else in the compiler learns what a tuple is. Construction is the `MkData` a `case
+    * class` already uses, `t._1` resolves through the same field-by-name `Switch`, `case (a, b)` is
+    * a constructor pattern, and printing is one arm in `showV`. The representation is not invented
+    * either: v2 stores a tuple as `DataV("Tuple2", …)`, so `(ctor Tuple2 a b)` on the bridge builds
+    * v2's own tuple rather than a v3 lookalike that would print and match differently.
+    *
+    * 2..8 because beyond that Scala itself stops being idiomatic, and an unbounded family would be
+    * generated for arities nobody writes. A 9-tuple gets an ordinary "unknown constructor". */
+  val tupleClasses: List[ClassDef] =
+    (2 to 8).toList.map { n =>
+      ClassDef("Tuple" + n, (1 to n).toList.map(i => Param("_" + i, Pos.none)), Pos.none)
+    }
+
   private final case class St(
       next: Int,            // next free register
       max: Int,             // high-water mark → nregs
@@ -69,7 +84,8 @@ object Lower:
     case Expr.Lambda(ps, b, _)    => freeVars(b, bound ++ ps.map(_.name))
     case Expr.Match(sc, arms, _) =>
       freeVars(sc, bound) ++ arms.flatMap { a =>
-        freeVars(a.body, bound ++ patNames(a.pat))
+        val inner = bound ++ patNames(a.pat)
+        a.guard.map(g => freeVars(g, inner)).getOrElse(Nil) ++ freeVars(a.body, inner)
       }
     case Expr.Block(stmts, res, _) =>
       var b = bound
@@ -490,7 +506,7 @@ object Lower:
       // EVERY arm kind goes through the SAME recursion: a wildcard is a pattern with no test, a
       // binding is a pattern with no test and one name. The four hand-written shapes this replaces
       // were four things that had to agree about arm order, binding and fall-through.
-      val (armI, st2) = testPat(List((a.pat, scrut)), a.body, dst, rest,
+      val (armI, st2) = testPat(List((a.pat, scrut)), a.guard, a.body, dst, rest,
                                 fns, classes, zeroArity, st1.env, st1)
       (armI, st2.copy(env = st1.env))
 
@@ -504,24 +520,34 @@ object Lower:
     *
     * The body is lowered at the BASE CASE with the environment every level accumulated, which is why
     * the environment is threaded down rather than returned up. */
-  private def testPat(work: List[(Pat, Int)], body: Expr, dst: Int, rest: List[Instr],
+  private def testPat(work: List[(Pat, Int)], guard: Option[Expr], body: Expr, dst: Int,
+                      rest: List[Instr],
                       fns: List[String], classes: List[ClassDef], zeroArity: List[String],
                       env: List[(String, Int)], st0: St): (List[Instr], St) =
     if work.isEmpty then
-      val (bi, br, st1) = lower(body, fns, classes, zeroArity, st0.copy(env = env))
-      (bi :+ Instr.Move(dst, br), st1)
+      // The guard is the LAST test, and it is evaluated with the pattern's bindings in scope — that
+      // is the whole point of `case Some(n) if n > 0`. A failing guard falls to `rest`, exactly like
+      // a failing pattern, so `case n if n > 0` followed by `case n` behaves as written.
+      guard match
+        case None =>
+          val (bi, br, st1) = lower(body, fns, classes, zeroArity, st0.copy(env = env))
+          (bi :+ Instr.Move(dst, br), st1)
+        case Some(g) =>
+          val (gi, gr, st1) = lower(g, fns, classes, zeroArity, st0.copy(env = env))
+          val (bi, br, st2) = lower(body, fns, classes, zeroArity, st1.copy(env = env))
+          (gi :+ Instr.If(gr, bi :+ Instr.Move(dst, br), rest), st2)
     else
       val (p, vr) = work.head
       val more = work.tail
       p match
         // No test and no binding: a wildcard is simply work that is already done.
-        case Pat.PWild(_) => testPat(more, body, dst, rest, fns, classes, zeroArity, env, st0)
+        case Pat.PWild(_) => testPat(more, guard, body, dst, rest, fns, classes, zeroArity, env, st0)
         case Pat.PBind(n, _) =>
-          testPat(more, body, dst, rest, fns, classes, zeroArity, (n, vr) :: env, st0)
+          testPat(more, guard, body, dst, rest, fns, classes, zeroArity, (n, vr) :: env, st0)
         case Pat.PLit(v, _) =>
           val (vi, lr, st1) = lower(v, fns, classes, zeroArity, st0)
           val (cr, st2) = st1.fresh
-          val (inner, st3) = testPat(more, body, dst, rest, fns, classes, zeroArity, env, st2)
+          val (inner, st3) = testPat(more, guard, body, dst, rest, fns, classes, zeroArity, env, st2)
           (vi ++ List(Instr.Bin(BinOp.Eq, NumKind.Dyn, cr, vr, lr), Instr.If(cr, inner, rest)), st3)
         case Pat.PCtor(cname, cargs, cp) =>
           val arity = classes.find(c => c.name == cname).map(c => c.fields.length)
@@ -547,7 +573,7 @@ object Lower:
                 deeper = deeper :+ ((ap, fr))
                 stb = sN
           }
-          val (inner, stF) = testPat(deeper ++ more, body, dst, rest,
+          val (inner, stF) = testPat(deeper ++ more, guard, body, dst, rest,
                                      fns, classes, zeroArity, env, stb)
           // `Tag` is TOTAL on both lanes (-1 for anything that is not Data), so testing the tag of a
           // field that turned out not to be a constructor is a clean non-match, not a crash.
@@ -643,7 +669,7 @@ object Lower:
     allDefs.foreach { d =>
       val params = d.params.zipWithIndex.map((pa, i) => (pa.name, i))
       val st0 = St(d.params.length, d.params.length, params.reverse, consts, prims, types, lifted, globalNames)
-      val (body, r, st) = lower(d.body, names, p.classes, zeroArityNames, st0)
+      val (body, r, st) = lower(d.body, names, p.classes ++ tupleClasses, zeroArityNames, st0)
       consts = st.consts
       prims = st.prims
       types = st.types

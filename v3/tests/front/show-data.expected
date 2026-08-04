@@ -1,0 +1,9 @@
+P(1, 2)
+Q(hi)
+Some(3)
+None
+List(1, 2)
+List()
+List(P(1, 2), P(3, 4))
+Some(List(1, 2))
+val=P(1, 2)

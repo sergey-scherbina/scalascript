@@ -178,3 +178,66 @@ Both need a type checker, which is the next real decision rather than the next c
 - [x] **A contended host made one corpus run a hypothesis.** A background report run CONCURRENTLY
       with three gates that package the same sources reported `CRASH 360, N = 0` — a total
       regression. Re-measured alone: `N = 26, CRASH 0`, unchanged. Corpus runs take the host alone.
+
+## SSC3-7 — make v3 WRITABLE, not just measurable
+
+Sergiy's call, 2026-08-04: optimise for him being able to write programs in v3, not for `N` against
+the v1 corpus. The two genuinely diverge — the corpus wall is `trait` and generics, which are
+library-author features, while what stops you writing an ordinary program is tuples and `for`.
+`N` stays the honesty metric and will move more slowly; that is the trade, stated up front.
+
+Baseline MEASURED 2026-08-04, one probe per construct, before any of it was written:
+
+| construct | state |
+|---|---|
+| `(a, b)` literal, `._1`, `case (a, b)`, `val (x, y) =` | all four refuse |
+| `for x <- xs do` / `yield` | both refuse |
+| `case n if n > 0 =>` | refuses |
+| `Array(1,2,3)`, `a(i)`, `a(i) = v` | all three refuse — the IR HAS arrays, the front has no syntax |
+| `xs.foreach` | LANE DIVERGENCE: the bridge runs it, the executor has no such method |
+| `'x'` | refuses |
+
+- [x] **7a — tuples.** Literal, `._1`/`._2`/…, `case (a, b) =>`, and `val (x, y) = e`. Lowered to
+      the same `MkData` a `case class` uses, so patterns and field reads need no new IR.
+- [x] **7b — pattern guards.** `case p if cond =>`. One field on `MatchArm` and one test at the base
+      case of `testPat`, which is already the single place every arm kind converges.
+- [x] **7c — `foreach` on the executor.** A one-line lane divergence, and the gate did not see it
+      because no fixture used `foreach`. Fixture first, then the fix.
+- [ ] **7d — `for` comprehensions.** `for x <- xs do e` and `for x <- xs yield e`, desugared in the
+      parser to `foreach`/`map`. Multiple generators and `if` guards only if measured worth it.
+- [ ] **7e — `Array` syntax.** `Array(…)`, `a(i)`, `a(i) = v`, `a.length`. The IR instructions
+      (`NewArr`/`ArrGet`/`ArrSet`/`ArrLen`) exist and are exercised by the frame itself; this is
+      front work only.
+
+**`Char` is DEFERRED, and not because it is hard.** Measured: `"hello".charAt(1)` prints `101` on
+the v2 lane — the reference lane has no `Char` type and yields the code point as an integer. Adding
+a real `Char` to v3 would make its two lanes disagree on every program that touches one, which is
+invariant I-3. That makes it a language decision for the repository, not a construct for this
+sprint, and the honest thing is to say so rather than to implement half of it.
+
+### Defects found while making it writable
+
+- [x] **Every constructed value printed DIFFERENTLY on the two lanes.** Executor `#0(1, 2)`, v2
+      `P(1, 2)`; a list as its nested Cons cells rather than `List(1, 2)`. That is every program
+      that prints a data value, and the differential gate could not see it because no fixture
+      printed one. The type names were there all along — in the module the printer did not have.
+      Split into `show` (raw tags, for the executor's own diagnostics) and `showV(m, v)` (what
+      reaches the user), threaded into `println`, auto-output, `throw`, `toString` and string `+`.
+- [x] **`=>` and `<-` became binary OPERATORS.** Fallout from keying precedence on the first
+      character: `=>` starts with `=` and got precedence 4, `<-` starts with `<` and got 5. The
+      exact-string table simply had no row for them. Latent until pattern guards became the first
+      place an expression is parsed immediately before a `=>` — everywhere else `=>` is consumed by
+      `expectOp` or claimed by `lambdaAhead` first.
+- [x] **A type annotation could only be a NAME.** `(Int, Int)` and `Int => Int` both failed, and the
+      diagnostic blamed the token rather than saying types were the limit. Fixing it for tuple
+      signatures fixed FUNCTION-TYPED PARAMETERS too — `def sum(f: Int => Int, n: Int)` had never
+      parsed, which is a daily-use shape nobody had measured.
+- [x] **My own grep was blind to a failed compile.** `grep -E '^-- \[E'` never matched because
+      scala-cli colours the marker: the ANSI escape sits before `--`. Two type errors read as
+      "compiled". A check that cannot fail is not a check.
+
+**Tuples are the same `MkData` a `case class` uses.** Nothing else learned what a tuple is:
+construction, `t._1` through the existing field-by-name `Switch`, `case (a, b)` as a constructor
+pattern, one arm in `showV`. The representation is v2's own (`DataV("Tuple2", …)`), so the bridge
+builds a real v2 tuple rather than a lookalike. Verified THREE ways — executor, bridge and the v1
+interpreter produce byte-identical output for the whole fixture.

@@ -1,0 +1,21 @@
+def sign(n: Int): String =
+  n match
+    case k if k > 0 => "pos"
+    case k if k < 0 => "neg"
+    case _ => "zero"
+
+def describe(x: Option[Int]): String =
+  x match
+    case Some(n) if n > 100 => "big"
+    case Some(n) if n > 0 => "small"
+    case Some(_) => "nonpositive"
+    case None => "none"
+
+println(sign(5))
+println(sign(-5))
+println(sign(0))
+println(describe(Some(500)))
+println(describe(Some(5)))
+println(describe(Some(-5)))
+println(describe(None))
+List(1, 2, 3).foreach { x => println(x * 10) }

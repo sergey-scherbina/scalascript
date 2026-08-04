@@ -1,0 +1,22 @@
+val t = (1, "a")
+println(t)
+println(t._1)
+println(t._2)
+val tri = (1, 2, 3)
+println(tri)
+println(tri._3)
+println((1, 2) match { case (a, b) => a * b })
+def swap(p: (Int, Int)): (Int, Int) =
+  p match
+    case (a, b) => (b, a)
+println(swap((7, 9)))
+println(List((1, "x"), (2, "y")))
+val (x, y) = (3, 4)
+println(x + y)
+def divmod(a: Int, b: Int): (Int, Int) = (a / b, a % b)
+val (q, r) = divmod(17, 5)
+println(q)
+println(r)
+def sum(f: Int => Int, n: Int): Int =
+  if n == 0 then 0 else f(n) + sum(f, n - 1)
+println(sum((k) => k * k, 3))
