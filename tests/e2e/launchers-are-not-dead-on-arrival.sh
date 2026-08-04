@@ -27,6 +27,19 @@
 # not have, and demanding success would make this gate a flake. The assertion is narrower and is
 # exactly the failure that happened: the launcher must not die by DECLINING ITS OWN SUBCOMMAND.
 # Anything past the tier wall is somebody else's gate.
+#
+# ── AND THE PROBE IS A FILE THAT DOES NOT EXIST ──────────────────────────────────────────────────
+#
+# Because the decline happens at subcommand DISPATCH, before the argument is ever resolved. So a
+# missing file separates the two states exactly as well as a real program does, and costs nothing:
+# a dead launcher still answers `'compile-jvm' requires the optional tools tier`, a live one answers
+# `File not found`. Verified in both directions before this was relied on.
+#
+# It ran a hello-world through every launcher first, which meant a JVM compile, a Scala.js compile
+# and a node start per run. MEASURED 2026-08-04 on run 30905783511: 104.5 s on CI against 5.5 s on
+# a dev host — 19x, where the rest of the suite runs 1.5-2x slower there — and the single largest
+# check in a suite that was failing on its own 420 s cap with all 58 checks green
+# (tests/BUGS.md smoke-suite-over-its-own-budget). None of that work was ever asserted on.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -35,8 +48,8 @@ echo "── launchers are not dead on arrival"
 
 [ -x "$BIN/ssc" ] || { echo "✗ no built launcher at $BIN/ssc — build first"; exit 1; }
 
-WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
-printf 'def main() =\n  println("ok")\n' > "$WORK/hello.ssc"
+# Deliberately never created: the point is to be refused for the RIGHT reason.
+PROBE="/nonexistent-launcher-probe.ssc"
 
 # The launchers that delegate to another launcher — the class that broke. Discovered, not listed:
 # a hand-written list is the third copy of a fact and would miss the next launcher added.
@@ -56,7 +69,7 @@ echo "✓ discovered ${#DELEGATING[@]} delegating launchers: ${DELEGATING[*]}"
 
 fail=0
 for name in "${DELEGATING[@]}"; do
-  out="$(SSC_NO_BUILD_CHECK=1 timeout 240 "$BIN/$name" "$WORK/hello.ssc" 2>&1)"
+  out="$(SSC_NO_BUILD_CHECK=1 timeout 60 "$BIN/$name" "$PROBE" 2>&1)"
   if printf '%s' "$out" | grep -q "requires the optional ScalaScript tools"; then
     echo "  ✗ $name: declines its own subcommand — it delegates to the STANDARD ssc"
     printf '%s' "$out" | grep -m1 "requires the optional" | sed 's/^/      /'
@@ -66,7 +79,7 @@ for name in "${DELEGATING[@]}"; do
     printf '%s' "$out" | grep -m1 "unknown standard" | sed 's/^/      /'
     fail=1
   else
-    echo "  ✓ $name: reaches its backend"
+    echo "  ✓ $name: reaches its backend (refused the probe, not the subcommand)"
   fi
 done
 
