@@ -59,6 +59,44 @@ The consequence is concrete: every agent writes its own `awk` over the prose and
 That happened on 2026-07-28 when Sergiy asked for the list of remaining work and my query silently
 omitted 108 entries.
 
+- [ ] **smoke's sbt story is half-migrated, and the half that remains is invisible until it bites.**
+      The decision "smoke does not use sbt" was taken and is TRUE OF THE CHECKS — none of them
+      invokes it. It is NOT true of the JOB: `smoke.yml` still installs sbt and builds the
+      launcher with it, both `if: steps.toolchain.outputs.cache-hit != 'true'`. So the runner's
+      PATH DIFFERS BETWEEN RUNS of the same suite:
+
+          cache MISS   sbt installed → launcher built → sbt stays on PATH for every check
+          cache HIT    sbt never installed → launcher restored → no sbt at all   ← the COMMON path
+
+      **Why this is worth fixing rather than documenting.** A check that depends on sbt is green
+      in three of the four places it runs — locally (sbt always present), on a CI cache miss, and
+      on a developer's machine — and red only on a CI cache hit. Measured 2026-08-04: exactly that
+      happened. A `uniml-standalone` check was added, its FIRST CI run hit a cache miss and
+      reported `ok uniml-standalone 106.3s`, that run was cited as proof the gate worked, and every
+      push afterwards failed with `sbt not on PATH`. The evidence and the defect were the same
+      apparatus.
+
+      The contract is now written in `scripts/smoke-ci.ssc` ("a check CONSUMES the staged
+      toolchain, never produces one; sbt is unavailable; only Node, Scala CLI and Java 21 are
+      unconditional"). Prose is not a gate, and this repository's own rule is that a rule nothing
+      checks is a rule that drifts.
+
+      **Options, none yet chosen:**
+      1. **A gate** — refuse any check script that invokes `sbt`/`scripts/sbtc`. Cheapest, enforces
+         the written contract, and can be self-tested with a planted defect. Does not remove the
+         PATH divergence, only the class of bug it causes.
+      2. **Make the job uniform** — install sbt unconditionally (~10-20 s on the common path) so a
+         run behaves the same either way. Costs time on every push to remove a trap that fires
+         rarely; the trap's cost is a red `main` and a false green, which is not obviously cheaper.
+      3. **Remove sbt from smoke entirely** — build the launcher some other way, or require the
+         cache and fail closed on a miss. Truest to the original decision, biggest change, and it
+         needs an answer for the cold-cache case (a fresh branch, a changed `build.sbt`).
+
+      Whoever takes this: start by asking how often the cache actually misses. If a miss is rare
+      the divergence is a landmine; if it is common the launcher build is a routine cost and
+      option 2 is nearly free. That number decides between 1 and 2 and nobody has measured it.
+
+
 - [ ] **BSI-1 — schema + gate, gate proven RED first.** `specs/bugs-index.md` defines a header in
       an HTML comment (renders as nothing, parses trivially): `status: open|fixed|wontfix|duplicate
       |unknown`, `lane:`, `area:`, `fixed-in: <sha>` (required when fixed), `gate:`,
