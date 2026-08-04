@@ -7,6 +7,41 @@ grepping for status.
 
 Newest first.
 
+## build-ram-guard-gate-fails-under-ambient-load — same tree, two verdicts, minutes apart
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     gate: none -->
+
+Found 2026-08-04 by a smoke run that went red on a change (Set operators) that cannot touch a JVM
+memory guard. The failing assertion is load-dependent:
+
+```
+✗ dry-run KILLED builders: expected>=5 got=4
+```
+
+**The evidence that it is the gate and not the tree** — three runs, same commit, minutes apart:
+
+| run | where | result |
+|---|---|---|
+| inside `scripts/smoke-ci` | worktree | **FAIL** `expected>=5 got=4` |
+| `tests/e2e/build-ram-guard-gate.sh` directly | shared main (unmodified) | PASS |
+| the same gate directly | the SAME worktree, same commit | PASS |
+
+Identical code, opposite verdicts; the only variable is how many builder JVMs exist on the host at
+that instant — and this host runs several agents building concurrently. The other twelve assertions
+in the gate passed every time, so the guard itself is fine; it is this one count that is written
+against ambient state.
+
+Why it matters beyond the annoyance: a red smoke run is the signal every agent uses to decide
+whether their own change broke something. One that fires on load teaches people to re-run until
+green, which is exactly how a real red gets waved through. Related in kind to
+`smoke-suite-over-its-own-budget` — both are the suite measuring the host rather than the tree.
+
+Fix direction (owner's call): have the assertion count only the builders the gate itself spawned,
+or make it a floor derived from what it observed rather than a fixed `>=5`.
+
 ## bugs-index-gate-allows-a-detached-header — an unterminated header passes the gate and is invisible to every query
 <!-- status: fixed
      lane: apparatus
