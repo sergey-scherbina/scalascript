@@ -1,6 +1,7 @@
-# generation: 864
+# generation: 865
 #slug	agent	started	items	paths
 ssc3-core	claude-code	2026-08-01T11:18:17Z	SSC3-0 SSC3-1 SSC3-2 SSC3-3 SSC3-4 SSC3-5	v3 file:tests/fixtures/modules.tsv file:tests/conformance/generic-ctor-and-array-alloc.ssc file:tests/conformance/expected/generic-ctor-and-array-alloc.txt file:tests/conformance/corpus-baseline.tsv file:specs/v2.2-p6.5-dualrun.sh file:scripts/launcher-input-digest file:tests/e2e/launcher-digest-gate.sh
 uniml-ssc3-frontend-readiness	claude-code	2026-08-01T15:07:27Z	UNIML-SSC3 — make UniML ready as the ScalaScript parser and AST for language version 3	file:uniml/SPRINT.md file:uniml/BACKLOG.md file:specs/uniml-ssc3-frontend.md file:bench/history.tsv file:uniml/core/src file:uniml/scala/src file:uniml/build.sbt file:build.sbt file:specs/project-partitioning.md file:scripts/smoke-ci.ssc file:tests/e2e/uniml-standalone-tests.sh
 v2-emitter-outline	claude-code	2026-08-04T10:21:00Z	E-4-outline-arm-fallback	file:v2/backend-jvm-bytecode/JvmByteGen.scala file:specs/v2-emitter-unboxed-doubles.md
 ui-fetch-credentials	claude-code	2026-08-04T12:45:37Z	ui-fetch-credentials std-auth-client-half	file:specs/ui-fetch-credentials.md file:v1/runtime/std/ui/primitives.ssc
+set-order-entry-is-wrong	claude-code	2026-08-04T13:15:27Z	int-set-element-order-differs-from-scala	file:v1/runtime/backend/interpreter/BUGS.md
