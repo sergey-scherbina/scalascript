@@ -22,7 +22,22 @@ Newest first.
      lane: multi
      area: front
      fixed-in: -
-     gate: none -->
+     gate: tests/e2e/keyword-import-missing-module.sh -->
+
+**GATED 2026-08-04 by `keyword-import-silent`, and deliberately NOT fixed.**
+`tests/e2e/keyword-import-missing-module.sh` pins the divergence — keyword form SILENT, link form
+reports — without asserting that either is right.
+
+Making the keyword form fail is a **semantic decision with an owner, not a bug fix**: `import a.b.c`
+that maps to no file on disk is legitimate in programs that work today, so turning it into an error
+is a compatibility change. What was missing was not the decision but the ability to verify it; the
+gate supplies that, and it names the failure it expects if someone takes it ("that may well be the
+intended fix — update this gate and the entry together"). Until then the divergence cannot drift by
+accident, which it could while `gate:` said `none`.
+
+The gate encodes this entry's own lesson too: the module is `nosuchmodule_9d4f`, because a first
+probe used `Response` — a BUILTIN — and the import appeared to work when the program worked without
+any import at all.
 
 A Scala-style import naming a module that does not exist produces NO diagnostic. The program runs
 to completion. Measured 2026-08-02 on both lanes:
