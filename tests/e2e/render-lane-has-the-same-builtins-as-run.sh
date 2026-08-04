@@ -35,6 +35,14 @@ WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 fail=0
 
 # name | expression | expected substring
+# ONE program per lane, not one per case. This gate cost 42.0 s of a 420 s suite budget with a
+# launcher start for every case on every lane (tests/BUGS.md smoke-suite-over-its-own-budget names
+# it) — eight JVM starts to evaluate four expressions. The cases are independent, so they share a
+# process.
+#
+# Each case prints `<label>=<value>`, and the gate looks for that exact line. Granularity survives:
+# a program that dies on case two simply never prints cases two-to-four, and the missing labels say
+# which member failed — the same information the per-process version gave, from one start.
 CASES=(
   "companion-html|Response.html(\"<p>hi</p>\").body|<p>hi</p>"
   "companion-text|Response.text(\"plain\").body|plain"
@@ -42,27 +50,39 @@ CASES=(
   "constructor|Response(201, Map(), \"ctor\").body|ctor"
 )
 
-for row in "${CASES[@]}"; do
-  IFS='|' read -r label expr want <<< "$row"
-  cat > "$WORK/$label.ssc" <<EOF
-[Response](std/http.ssc)
+{
+  echo '[Response](std/http.ssc)'
+  echo
+  echo 'def main() ='
+  for row in "${CASES[@]}"; do
+    IFS='|' read -r label expr want <<< "$row"
+    echo "  println(\"$label=\" + ($expr).toString)"
+  done
+} > "$WORK/all.ssc"
 
-def main() =
-  println($expr)
-EOF
-  for lane in "run" "run --v1"; do
-    # STDOUT ONLY. `2>&1` here was a FALSE PASS, caught 2026-08-02: the interpreter echoes the
-    # offending source line in its diagnostic —
-    #     4 |   println(Response.html("<p>hi</p>").body)
-    # — so grepping the combined stream for `<p>hi</p>` matched the ERROR TEXT and reported a
-    # passing cell for a program that had just died. Two of the four cases passed that way, and
-    # only `json` (expecting "200", a string absent from the source) failed honestly.
-    got="$(timeout 120 "$BIN/ssc-tools" $lane "$WORK/$label.ssc" 2>"$WORK/$label.$$.err")"
-    if printf '%s' "$got" | grep -qF "$want"; then
+for lane in "run" "run --v1"; do
+  # STDOUT ONLY. `2>&1` here was a FALSE PASS, caught 2026-08-02: the interpreter echoes the
+  # offending source line in its diagnostic —
+  #     4 |   println(Response.html("<p>hi</p>").body)
+  # — so grepping the combined stream for `<p>hi</p>` matched the ERROR TEXT and reported a
+  # passing cell for a program that had just died. Two of the four cases passed that way, and only
+  # `json` (expecting "200", a string absent from the source) failed honestly.
+  out="$(timeout 120 "$BIN/ssc-tools" $lane "$WORK/all.ssc" 2>"$WORK/lane.err")"
+  # Sharing one process costs one thing and the report has to admit it: the program stops at the
+  # first bad case, so every later case is simply never reached. Reporting those as failures too
+  # would point four fingers at one defect, which is how a reader starts distrusting the gate.
+  stopped=""
+  for row in "${CASES[@]}"; do
+    IFS='|' read -r label expr want <<< "$row"
+    line="$(printf '%s\n' "$out" | grep -m1 -F "$label=")"
+    if [ -n "$line" ] && printf '%s' "${line#*=}" | grep -qF "$want"; then
       echo "  ✓ $label  [$lane]"
+    elif [ -n "$stopped" ]; then
+      echo "  · $label  [$lane] — NOT REACHED (the program stopped at $stopped)"
     else
-      echo "  ✗ $label  [$lane] — stdout did not contain '$want'"
-      grep -m1 -E "No method|Error|error" "$WORK/$label.$$.err" | sed 's/^/        /'
+      stopped="$label"
+      echo "  ✗ $label  [$lane] — ${line:+got '${line#*=}', }expected '$want'"
+      grep -m1 -E "No method|Error|error" "$WORK/lane.err" | sed 's/^/        /'
       fail=1
     fi
   done

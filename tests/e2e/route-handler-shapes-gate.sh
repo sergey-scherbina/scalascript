@@ -42,54 +42,64 @@ WORK="$(mktemp -d)"
 cleanup() { lsof -ti :"$PORT" 2>/dev/null | xargs -r kill -9 2>/dev/null; rm -rf "$WORK"; }
 trap cleanup EXIT
 
-emit() {  # $1 = name, $2 = the route declaration
-  cat > "$WORK/$1.ssc" <<EOF
+# ONE program, five paths, ONE boot. This gate cost 45.9 s of a 420 s suite budget when each row
+# booted its own server (tests/BUGS.md smoke-suite-over-its-own-budget names it), and the boot was
+# the whole expense -- the assertions are five HTTP round trips. The shapes are independent of each
+# other, so they cost one process between them.
+cat > "$WORK/app.ssc" <<EOF
 [route, serve, Response, Request](std/http.ssc)
 
 def wrap(handler: Request => Response): Request => Response = req => handler(req)
 
-def named(req: Request): Response = Response.html("$1")
+def named(req: Request): Response = Response.html("arg3")
 
-$2
+route("GET", "/arg3", named)
+
+route("GET", "/colon"):
+  req =>
+    Response.html("colon")
+
+route("GET", "/blocklambda") { req =>
+  Response.html("blocklambda")
+}
+
+route("GET", "/blockexpr") {
+  wrap { req => Response.html("blockexpr") }
+}
+
+route("GET", "/blockvalue") {
+  Response.html("blockvalue")
+}
 
 serve($PORT)
 EOF
-}
 
-emit arg3         'route("GET", "/", named)'
-emit colon        'route("GET", "/"):
-  req =>
-    Response.html("colon")'
-emit blocklambda  'route("GET", "/") { req =>
-  Response.html("blocklambda")
-}'
-emit blockexpr    'route("GET", "/") {
-  wrap { req => Response.html("blockexpr") }
-}'
-emit blockvalue   'route("GET", "/") {
-  Response.html("blockvalue")
-}'
-
-serve_and_get() {
+start_server() {
   lsof -ti :"$PORT" 2>/dev/null | xargs -r kill -9 2>/dev/null
   sleep 1
-  ( timeout 24 "$BIN/ssc" run "$WORK/$1.ssc" > "$WORK/$1.out" 2>&1 & )
-  local deadline=$(( $(date +%s) + 20 )) body=""
+  ( timeout 40 "$BIN/ssc" run "$WORK/app.ssc" > "$WORK/server.log" 2>&1 & )
+  local deadline=$(( $(date +%s) + 25 ))
   while [ "$(date +%s)" -lt "$deadline" ]; do
-    body="$(curl -sS -m 3 "http://localhost:$PORT/" 2>/dev/null)"
-    [ -n "$body" ] && break
+    [ -n "$(curl -sS -m 3 "http://localhost:$PORT/colon" 2>/dev/null)" ] && return 0
     sleep 1
   done
-  lsof -ti :"$PORT" 2>/dev/null | xargs -r kill -9 2>/dev/null
-  printf '%s' "$body"
+  return 1
 }
+
+get() { curl -sS -m 4 "http://localhost:$PORT/$1" 2>/dev/null; }
+
+if ! start_server; then
+  echo "✗ the server never listened — no row below could be measured"
+  sed 's/^/    /' "$WORK/server.log" | head -6
+  exit 1
+fi
 
 fail=0
 
 # name | must the body equal the name?  (no = must NOT serve it)
 for row in "arg3|yes" "colon|yes" "blocklambda|yes" "blockexpr|yes" "blockvalue|no"; do
   IFS='|' read -r name want <<< "$row"
-  body="$(serve_and_get "$name")"
+  body="$(get "$name")"
   if [ "$want" = "yes" ]; then
     if [ "$body" = "$name" ]; then echo "  ✓ $name serves its handler"
     else
