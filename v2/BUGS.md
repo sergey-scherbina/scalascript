@@ -7,6 +7,56 @@ grepping for status.
 
 Newest first.
 
+## named-case-class-field-access-is-reversed-on-the-default-lane — `Point(3,4).x` returns 4
+<!-- status: open
+     lane: native
+     area: runtime
+     gate: none -->
+
+**Found 2026-08-04** by a probe written for something else entirely (an emitter slice), and
+reproduced on **our own shipped example** — which is the part that should have caught it years
+earlier than a stray probe:
+
+```
+$ ssc run examples/data-types.ssc          # default lane (v2 native)
+Point  : (4, 3)
+Person : 30, age Alice
+ssc: __arith__: unknown op >= for String+Int (l="Alice", r=75)
+
+$ ssc-tools run --v1 examples/data-types.ssc
+Point  : (3, 4)
+Person : Alice, age 30
+Passing (grade >= 75): Alice, Carol
+```
+
+**Every named field accessor returns the fields in REVERSE order** on the default lane. Minimal:
+
+```scalascript
+case class T(a: Int, b: Int, c: Int)
+val t = T(1, 2, 3)
+println(t.a + "," + t.b + "," + t.c)     // v2: 3,2,1     v1: 1,2,3
+case class S(a: String, b: String)
+println(S("first", "second").a)          // v2: "second"  v1: "first"
+```
+
+Destructuring is NOT affected — `case T(x, y, z)` binds correctly; only access by NAME is reversed.
+One shape came out right in probing, `D(10.0, 3.0).a`, so the reversal is not universal and the
+boundary is not yet mapped.
+
+**Why nothing caught it, and this is the actionable half.** The failure is invisible to commutative
+use: `p.a + p.b` is correct with the fields swapped, and so is any sum, product, min or max. The
+first probe that saw it used subtraction. Anything gating this lane on totals, averages or equality
+of a whole record passes with the accessors reversed — and 645 conformance rows do pass.
+
+**Consequence for consumers.** This is the lane `bin/ssc run` uses by default, i.e. what rozum's
+generated clients and every other downstream program execute. A wrong value is returned silently;
+the hard error above only appears when the swapped type happens to be incompatible with the
+operator.
+
+**Not caused by, but adjacent to, the field-index registry family** — v2 field access is index-based
+and this smells like the compile-time name→index mapping disagreeing with the runtime `DataV`
+layout, in the direction of a reversed fold. That is a lead, not a diagnosis.
+
 ## v2-set-ops-and-or-coerce-to-int-and-double-minus-is-a-silent-no-op — `&`, `|` and `--` never reach the method dispatcher
 
 <!-- status: open
