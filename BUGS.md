@@ -50,6 +50,44 @@ its report was one failure message attributed to the wrong lanes. With the runne
 **Not reduced further.** The boundary-parse and the missing-part are probably two defects, not one,
 and nothing here proves they share a cause.
 
+
+**Re-measured 2026-08-05 — one of the three rows is stale, and the remaining one is not the defect
+this entry describes.** Same `examples/uploads.ssc`, same 256-byte `curl -F`, both lanes booted on
+the port the example actually binds (8766; it ignores `--port`, which is how the first attempt
+measured nothing at all).
+
+| lane | then | now |
+|---|---|---|
+| int | `native HTTP handler failed: For input string: "-"` | **`filename=payload.bin\|content-type=application/octet-stream\|size=256\|first=67\|last=29`** — correct |
+| js | correct | correct |
+| native | `missing 'file' part` | `missing 'file' part` — unchanged |
+
+So the int row does not reproduce. Given this gate's own history — it ran the JVM *compiler* as a
+"backend" and labelled the native launcher `INT` — the likeliest reading is that the `"-"` failure
+was never the interpreter's: the message said *native* HTTP handler while the run was `run --v1`,
+which the entry itself flagged as unexplained. It is not carried forward as an int defect.
+
+**What is left is not a parse bug — the native lane has no multipart implementation at all.**
+Searched the whole `v2/` tree: the only occurrence of the word `multipart` outside tests is a
+`Content-Type` header being WRITTEN by the PDF/MIME plugin. Nothing reads a boundary anywhere.
+`HttpFastNativePlugin` declares `files` in `registerFields("Request", …)` and never populates it, so
+`req.files` is permanently empty and every upload handler takes its own else-branch. That is why the
+answer is HTTP 200 with the user's own `missing 'file' part`: the lane is not failing, it is
+answering a question it cannot answer.
+
+**Which makes the remaining work a FEATURE, not a fix**, and it has an architectural fork worth
+stating rather than deciding in passing:
+
+- `v1/runtime/http-server/common/.../Multipart.scala` already exists and is the parser the correct
+  lanes use. Reusing it means adding `httpServerCommon` to `v2NativeHttpFastPlugin`'s dependencies —
+  least code, but it pulls a v1 module into the v2 native plugin, which cuts against the separation
+  the v2 tree is built on.
+- Otherwise a small parser lives in `httpFastEngine` (which already owns `HttpProtocol`), and the
+  plugin fills `files` from it — more code, no cross-tree dependency.
+
+Not started. The measurement is what this update is for: whoever picks it up should know they are
+implementing multipart on that lane, not repairing it.
+
 ## triple-quoted-literal-ending-in-a-quote-is-not-a-string — three lanes agree, and all three are wrong
 <!-- status: fixed
      lane: multi
