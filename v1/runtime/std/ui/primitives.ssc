@@ -68,6 +68,8 @@ The boundary functions between `.ssc` widget code and the JVM/JS runtime.
 All other `std/ui/*.ssc` files import from here; user code rarely imports
 this file directly.
 
+[Credential, credentialNone](../credential.ssc)
+
 ```scalascript
 opaque type Signal[T]    = Any
 opaque type View         = Any
@@ -181,8 +183,13 @@ extern def emptyHeaders: Signal[String]
 // compiles the token into the artifact, because `env()` is evaluated in the EMITTING process.
 // Set the signal at run time instead. A declared credential resolved by the target runtime is the
 // real answer and is not built yet — see specs/ui-fetch-credentials.md (reported by rozum).
+// `credential` DECLARES where a secret comes from and carries none, so a backend has nothing to
+// bake into an artifact and resolves it at call time (std/credential.ssc). It defaults to
+// `credentialNone`, so adopting it is never a behaviour change. Where both are given, an explicit
+// `Authorization` in `headers` wins — an app that already solved auth its own way must not change.
 extern def fetchUrlSignal(name: String, url: String, refreshTick: Signal[Int],
-                          headers: Signal[String] = emptyHeaders): Signal[String]
+                          headers: Signal[String] = emptyHeaders,
+                          credential: Credential = credentialNone): Signal[String]
 
 // fetchUrlSignalTo — like fetchUrlSignal but the URL is a Signal[String] resolved at
 // fetch time, re-fetching whenever it changes (a filter/branch switch), e.g.

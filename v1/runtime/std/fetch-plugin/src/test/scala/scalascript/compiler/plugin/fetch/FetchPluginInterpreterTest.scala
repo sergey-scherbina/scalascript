@@ -87,6 +87,46 @@ class FetchPluginInterpreterTest extends AnyFunSuite:
         assert(signal.headersId == Some("token"))
       case other => fail(s"expected FetchUrlSignal with headers, got $other")
 
+  test("Fetch plugin carries a declared credential — the source's NAME, never a secret"):
+    // Connects S1's vocabulary to S2's resolution. The plugin is the only place holding the
+    // Credential object, so if it drops the declaration here, nothing downstream can authenticate.
+    val result = interp.eval(
+      """
+      [credentialEnv](std/credential.ssc)
+      val tick = signal("refresh", 0)
+      fetchUrlSignal("itemsJson", "/api/items", tick, emptyHeaders, credentialEnv("ROZUM_MEETING_TOKEN"))
+      """
+    )
+    result match
+      case Value.Foreign("ReactiveSignal", signal: FetchUrlSignal) =>
+        assert(signal.credential == Some(("env", "ROZUM_MEETING_TOKEN", "Bearer")))
+        // `emptyHeaders` reaches the plugin as an unapplied NativeFnV, not a signal — a pattern that
+        // only matches a Foreign ReactiveSignal here silently fails the whole call.
+        assert(signal.headersId == None)
+      case other => fail(s"expected FetchUrlSignal with a credential, got $other")
+
+  test("Fetch plugin treats credentialNone as no credential at all"):
+    // What makes adopting the parameter a no-op: passing the default must be indistinguishable
+    // from passing nothing, or every existing source changes behaviour the day it recompiles.
+    val withDefault = interp.eval(
+      """
+      [credentialNone](std/credential.ssc)
+      val tick = signal("refresh", 0)
+      fetchUrlSignal("a", "/api/a", tick, emptyHeaders, credentialNone)
+      """
+    )
+    val without = interp.eval(
+      """
+      val tick = signal("refresh", 0)
+      fetchUrlSignal("a", "/api/a", tick)
+      """
+    )
+    (withDefault, without) match
+      case (Value.Foreign(_, a: FetchUrlSignal), Value.Foreign(_, b: FetchUrlSignal)) =>
+        assert(a.credential == None, s"credentialNone became ${a.credential}")
+        assert(a.credential == b.credential && a.headersId == b.headersId)
+      case other => fail(s"expected two FetchUrlSignals, got $other")
+
   test("Fetch plugin builds dataTableView from fieldColumn + rowDeleteAction + rowPostAction"):
     val result = interp.eval(
       """

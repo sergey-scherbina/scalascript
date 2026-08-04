@@ -12,6 +12,40 @@ object FetchIntrinsics:
    *  The intrinsic is the only place that HOLDS the tick object — `FetchUrlSignal` keeps its id, a
    *  String, and a backend given only an id cannot tell a hand-bumped tick from a clock. Reading
    *  the period here is what lets a timer-capable backend poll unattended (INBOX tui-interval-tick). */
+  /** A `std.credential.Credential` as the model wants it: `(kind, source, scheme)`, never a secret.
+   *
+   *  Read through `PluginValue.jsonEncode`, which is the only PUBLIC way a plugin can see a case
+   *  class's fields. Matching `Value.InstanceV(_, fields)` does NOT work: the interpreter stores an
+   *  instance's fields either in that map OR in a `fieldNames`/`fieldsArr` pair, and when the arrays
+   *  are used the map is empty — an instance whose fields are all present prints as `Map()`.
+   *
+   *  `kind == "none"` yields `None`, so passing the default is indistinguishable from passing
+   *  nothing and adopting the parameter cannot change an existing source's behaviour. Anything
+   *  unreadable is also `None`: a credential the plugin cannot understand must not become a header
+   *  it cannot fill.
+   */
+  private def credentialTriple(value: Any): Option[(String, String, String)] =
+    def field(json: String, name: String): Option[String] =
+      val m = java.util.regex.Pattern
+        .compile("\\\"" + name + "\\\"\\s*:\\s*\\\"((?:[^\\\"\\\\]|\\\\.)*)\\\"")
+        .matcher(json)
+      if m.find() then Some(m.group(1)) else None
+    val json = scala.util.Try(PluginValue.jsonEncode(PluginValue.wrap(value))).getOrElse("")
+    for
+      kind   <- field(json, "kind") if kind != "none" && kind.nonEmpty
+      source <- field(json, "source")
+      scheme <- field(json, "scheme")
+    yield (kind, source, scheme)
+
+  /** The headers signal's id, or `None` for "no headers".
+   *
+   *  `emptyHeaders` does NOT arrive as a signal: it reaches the plugin as an unapplied
+   *  `NativeFnV`, which is why a pattern that only matches `Foreign("ReactiveSignal", _)` silently
+   *  fails to match the 4-argument call. */
+  private def headersIdOf(arg: Any): Option[String] = arg match
+    case PluginValue.Foreign("ReactiveSignal", h: ReactiveSignal[?]) if h.id != "__ssc_empty_headers" => Some(h.id)
+    case _ => None
+
   private def tickPeriod(tick: ReactiveSignal[?]): Option[Int] = tick match
     case t: IntervalTick => Some(t.ms)
     case _               => None
@@ -55,45 +89,15 @@ object FetchIntrinsics:
     // On JVM (interpreter) the initial value is just ""; the JS runtime performs fetch on mount.
     QualifiedName("fetchUrlSignal") -> PluginNative.evalLegacy { (_, args) =>
       args match
-        case List(name: String, url: String,
-                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
-          PluginValue.foreign("ReactiveSignal",
-            new FetchUrlSignal(name, url, tick.id, None, None, tickPeriod(tick)))
-        case List(name: String, url: String,
-                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
-                  PluginValue.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
-          val hId = headers.id
+        case (name: String) :: (url: String) ::
+             PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?]) :: rest =>
           PluginValue.foreign("ReactiveSignal",
             new FetchUrlSignal(name, url, tick.id,
-              if hId == "__ssc_empty_headers" then None else Some(hId),
-              None, tickPeriod(tick)))
-        case _ => PluginError.raise("fetchUrlSignal(name, url, refreshTick[, headers])")
-    },
-
-    // fetchUrlSignalTo(name, urlSignal, refreshTick[, headers]): Signal[String]
-    // Like fetchUrlSignal, but the URL is read from a signal AT FETCH TIME, so changing that signal
-    // retargets the GET. The site existed only in the JS runtime and v2's UiNativePlugin, so a
-    // source using it never reached the STATIC frontends in a form they could honour — the terminal
-    // target kept reading whichever endpoint was resolved at emit time (INBOX tui-fetch-url-signal).
-    // `fetchUrl` is left empty here on purpose: with `urlId` set it is unused, and an empty literal
-    // makes a backend that ignores `urlId` fetch NOTHING rather than fetch something wrong.
-    QualifiedName("fetchUrlSignalTo") -> PluginNative.evalLegacy { (_, args) =>
-      def build(urlSig: ReactiveSignal[?], tick: ReactiveSignal[?], headers: Option[ReactiveSignal[?]]) =
-        val hId = headers.map(_.id).filter(_ != "__ssc_empty_headers")
-        PluginValue.foreign("ReactiveSignal",
-          new FetchUrlSignal(args.head.asInstanceOf[String], "", tick.id, hId, Some(urlSig.id),
-            tickPeriod(tick)))
-      args match
-        case List(_: String,
-                  PluginValue.Foreign("ReactiveSignal", urlSig: ReactiveSignal[?]),
-                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
-          build(urlSig, tick, None)
-        case List(_: String,
-                  PluginValue.Foreign("ReactiveSignal", urlSig: ReactiveSignal[?]),
-                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
-                  PluginValue.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
-          build(urlSig, tick, Some(headers))
-        case _ => PluginError.raise("fetchUrlSignalTo(name, urlSignal, refreshTick[, headers])")
+              rest.headOption.flatMap(headersIdOf),
+              None,
+              tickPeriod(tick),
+              rest.drop(1).headOption.flatMap(credentialTriple)))
+        case _ => PluginError.raise("fetchUrlSignal(name, url, refreshTick[, headers[, credential]])")
     },
 
     // fetchJsonSignal(name, url, refreshTick, modelTypeName[, headers]): Signal[String]
