@@ -7,6 +7,43 @@ grepping for status.
 
 Newest first.
 
+## coord-claim-items-tokenised-so-prose-collides-on-stop-words — a claim refused over the word "the"
+<!-- status: open
+     lane: apparatus
+     area: build
+     gate: none -->
+
+**Found 2026-08-04** claiming `v2-emitter-outline` with
+`--items "E-4 outline the arm fallback, gate on emitted size"`:
+
+```
+✋ claim REFUSED — it overlaps a live claim. This is NOT a race; retrying will not help.
+  item 'the' is already claimed by 'uniml-ssc3-frontend-readiness'
+```
+
+`--items` is **tokenised on whitespace** and each token is compared against every live claim's
+tokens, so a prose description collides on any common word — `the`, `a`, `in`, `and`. The guard is
+behaving exactly as designed (`--items` is documented as *"SPRINT ids / BUGS slugs"*, i.e. tokens);
+prose is the misuse. Retrying with `--items E-4-outline-arm-fallback` succeeded immediately.
+
+**Why it is still worth fixing:** the failure costs several minutes to diagnose because everything
+about it points elsewhere. The message asserts "this is NOT a race" while the observable symptom is
+a push rejection — the same symptom a race produces — and four earlier attempts in this session
+were mis-diagnosed as contention and retried, which the message explicitly says will not help.
+Naming `'the'` as the colliding item reads as nonsense until you know items are tokenised, and
+nothing in the output says that.
+
+Earlier claims in this session used prose `--items` too and were accepted, purely because their
+words happened not to collide with a live claim — so the trap fires at random and gets rarer as
+claims are released, which is the worst distribution for learning it.
+
+**Fix directions** (small, not attempted here — `scripts/coord-claim` and `.githooks/pre-push` are
+owned by whoever next touches the mutex): reject a whitespace-containing `--items` argument up
+front with "items are ids, not prose"; or ignore tokens shorter than N characters when comparing;
+or say "items are compared as whitespace-separated tokens" in the refusal message so the reader can
+see the cause from the output alone.
+
+
 ## smoke-suite-over-its-own-budget — every check green, the suite red, main red for everyone
 <!-- status: open
      lane: apparatus
