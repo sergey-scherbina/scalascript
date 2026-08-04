@@ -3427,6 +3427,31 @@ with ssc1c optimizations (better IR generation) or v2 VM fast-paths.
       **v2-float-cell-fastpath** (cross-cutting: kernel prims + ssc1c lowering + all 3
       backend generators must learn dcell.*).
 
+### ▶ ui-fetch-credentials — outbound credentials have no concept, and the documented pattern bakes the secret (2026-08-04)
+
+Two rozum reports, **specced as one** because the reporter says the first folds into the second:
+`ui-fetch-credentials` (design proposal, `impact: fyi`) and `std-auth-client-half` (`impact:
+blocks`). Spec: [`specs/ui-fetch-credentials.md`](specs/ui-fetch-credentials.md).
+
+**Verified, not accepted on report:** `TuiEmitter.emitSignalSeed` writes each signal's initial value
+as a Rust literal, so a headers signal built from `env("TOKEN")` at emit time puts the token in
+`src/main.rs` and in the binary. `tui-fetch-headers` (landed today) is what made terminal
+authentication possible, so the framework currently makes the wrong thing the easy thing.
+
+- [x] **the warning** — `fetchUrlSignal`'s contract in `v1/runtime/std/ui/primitives.ssc` now says
+      the headers signal's INITIAL VALUE is emitted as a literal. Not the fix; the notice that the
+      fix has not happened.
+- [ ] **the decision** — four questions the spec states and does not answer: where `Credential`
+      lives relative to `std.auth`; whether the three existing shapes migrate additively or in one
+      cut (`std/agent`'s `authToken: String` is public API); what each target runtime may read, with
+      "unsupported here" allowed only as a compile error rather than an empty string; and whether a
+      release build should refuse `Credential.literal`.
+- [ ] **the implementation** — `Credential` names a source (`env` / `file` / `literal`) and is
+      resolved by the TARGET runtime at call time, which is what makes baking impossible rather than
+      discouraged. Then `std/http` verbs, `std/ui` fetches and `AgentEndpoint` take one, and
+      `std/agent`'s two hand-built `"Bearer " + token` sites — six lines apart in one file — become
+      one call.
+
 ### ▶ release-v0-1-0 — the tag exists, the workflow cannot build it (2026-08-04)
 
 **State: tag `v0.1.0` is pushed and points at `7afcb808c`.** The release commit itself is done and

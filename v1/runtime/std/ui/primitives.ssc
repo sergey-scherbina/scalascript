@@ -173,6 +173,14 @@ extern def emptyHeaders: Signal[String]
 
 // fetchUrlSignal — GET url on mount + whenever refreshTick increments.
 // headers: JSON-object Signal read at fetch time (e.g. {"Authorization":"Bearer …"}).
+//
+// ⚠ DO NOT BUILD A SECRET INTO THIS SIGNAL AT EMIT TIME. The signal's INITIAL VALUE is emitted as a
+// literal — on the terminal target it lands in `src/main.rs` and therefore in the binary; on the web
+// it lands in the bundle. So the natural-looking
+//     signal("h", "{\"Authorization\":\"Bearer " + env("TOKEN") + "\"}")
+// compiles the token into the artifact, because `env()` is evaluated in the EMITTING process.
+// Set the signal at run time instead. A declared credential resolved by the target runtime is the
+// real answer and is not built yet — see specs/ui-fetch-credentials.md (reported by rozum).
 extern def fetchUrlSignal(name: String, url: String, refreshTick: Signal[Int],
                           headers: Signal[String] = emptyHeaders): Signal[String]
 
