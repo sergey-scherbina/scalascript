@@ -39,6 +39,30 @@ measurement that forced the split), over cases chosen the same way: `char-litera
 all four backends, so a single case exercises int/js/jvm/v2), `std-process-import` (the native tier
 had no `exec` at all until 2026-07-30), and one representative per subproject.
 
+## The contract every check obeys — A CHECK NEVER BUILDS
+
+This was unwritten until 2026-08-04, and it cost a red `main`: a check was added that ran
+`cd uniml && sbt test`. It passed once and failed every push after, because
+`smoke.yml`'s `Setup sbt` step is CONDITIONAL — `if: steps.toolchain.outputs.cache-hit != 'true'`
+— so on a cache hit there is no `sbt` on PATH at all. The one green run had simply missed the
+cache. A check whose tool arrives conditionally is not a gate; it reports both outcomes as facts.
+
+**The rule, stated so the next person does not rediscover it:**
+
+- **A check CONSUMES the staged toolchain; it does not produce one.** `install.sh --dev` /
+  `scripts/sbtc "installBin"` builds; the check runs the result. Every check here that needs a
+  built artefact says `run scripts/sbtc "installBin" first` and exits non-zero when it is absent —
+  see `int-string-concat.sh`, `v2-std-index-arity.sh`, `v21-native-checker-smoke.sh`. That is the
+  shape to copy.
+- **`sbt` is NOT available.** Nothing in this suite may invoke it. Checks that mention sbt either
+  read `build.sbt` as a FILE (`project-partition-gate.sh`) or assert about sbt's arguments without
+  running it (`bench-wrapper-gate.sh`).
+- **What IS unconditional in the job:** Node.js, Scala CLI, Java 21. Anything else, check
+  `smoke.yml` before depending on it — the conditional steps are the trap.
+- **A module with no staged artefact cannot be smoke-gated yet.** The honest answer is to ship it
+  into the staged toolchain first, or to gate it in a job that is ALLOWED to build (`ci.yml`'s
+  Validate, or the nightly). Not to build it here.
+
 ## Why this runner is written in `.ssc`
 
 It runs on the v2 native lane, so the compiler under test is what executes the suite. That is not

@@ -10,27 +10,29 @@ Anything not being worked on belongs in `uniml/BACKLOG.md`, not here — a queue
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
-- [x] UNIML-SSC3-CI — the dialect's tests must be run by CI. BOTH halves implemented; the
-      CLOSED by a run that shows them executing, which is what this item required from the
-      start rather than an assertion that the gate exists.
-      (a) **DONE.** `unimlScalaCross` registered in the ROOT build (JVM + Scala.js, aggregated
-          with its siblings). Root `uniml/test` is back from 15 to 81, JS 3. The partition gate
-          agreed rather than being told: modules 260 → 261, standard tier UNCHANGED at 35 —
-          the dialect is an additional library and must not enter the default distribution just
-          because it became publishable. `specs/project-partitioning.md` carries the same
-          arithmetic, Part III 143 → 144 in all four places it is stated.
-      (b) **DONE — Smoke 30912304380 SUCCESS on 7e2812f7f, `ok uniml-standalone 106.3s`.** `smoke-ci` now runs `cd uniml && sbt test`
-          (`tests/e2e/uniml-standalone-tests.sh`). Cost measured BEFORE claiming the budget:
-          27.9s from clean, 7.2s warm, against 500s of which 234s was used. Runs the STANDALONE
-          build on purpose — that build is UniML's proof it stands alone, so one command checks
-          the tests and that property together. The script counts PASSING PROJECTS, because an
-          aggregate that quietly stopped including projects would still exit 0 while testing
-          less. Verified both ways: planted type error → exit 1, restored tree → exit 0.
-          ⚠️ **Budget: the local reading misled me.** 236s/500s here, **433.5s/500s in CI** —
-          my check costs 106s there against 27.9s locally. It fits, with 66s of headroom, but
-          "comfortable" was a laptop's opinion. Size the next smoke check against the CI column.
-          ⚠️ The first verification was WRONG — `script | tail` then `echo $?` reports TAIL's
-          exit code, so a broken build read as a pass. Measure the script, not the pipeline.
+- [~] UNIML-SSC3-CI — the dialect's tests must be run by CI.
+      (a) **DONE.** `unimlScalaCross` registered in the ROOT build (JVM + Scala.js, aggregated).
+          Root `uniml/test` back from 15 to 81, JS 3. The partition gate agreed rather than being
+          told: modules 260 → 261, standard tier UNCHANGED at 35. `project-partitioning.md`
+          carries the same arithmetic, Part III 143 → 144.
+      (b) **REOPENED — my first answer was wrong and its green was luck.** I added a smoke check
+          running `cd uniml && sbt test`. It passed ONCE and failed every push after:
+          `smoke.yml`'s `Setup sbt` is CONDITIONAL on a toolchain-cache MISS, so on a hit there is
+          no sbt at all. I cited that one run as proof the gate worked; it proved the gate works
+          on a cache miss. Reverted — making it skip when sbt is absent would turn every cache
+          hit into a silent pass, which is worse than no check.
+          **The contract I broke was unwritten, and is now written** in `scripts/smoke-ci.ssc`:
+          a smoke check CONSUMES the staged toolchain and never builds one; sbt is unavailable;
+          only Node, Scala CLI and Java 21 are unconditional.
+          **What that leaves.** UniML ships in no staged artefact, so under this contract it
+          cannot be smoke-gated at all yet. Two honest routes, and the choice is a real one:
+          (i) get UniML into the staged toolchain so a check can consume it — larger, and it
+              couples a Part III library to the default distribution, which §7 invariant 1
+              deliberately forbids; or
+          (ii) gate it where BUILDING is allowed — `ci.yml`'s Validate job, or the nightly. Not
+              on the push path, so a regression is caught in hours rather than minutes, which is
+              the honest cost of a module that ships nothing.
+          Leaning (ii). It needs `.github/workflows/ci.yml`, which I do not hold.
 
 - [~] UNIML-SSC3 — **UniML must be ready to serve as ScalaScript's parser AND AST**, for
       language version 3. Direction: `specs/uniml-ssc3-frontend.md`; the seam with v3's SSC IR
