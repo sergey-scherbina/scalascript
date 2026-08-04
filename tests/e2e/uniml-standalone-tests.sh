@@ -12,9 +12,15 @@
 # with zero dependency on the ScalaScript trees — so running it here checks the
 # tests and that property in the same command.
 #
-# COST, measured rather than assumed: 27.9s wall from `clean` on a warm
-# dependency cache, ten projects, ~300 tests. smoke's budget is 500s and was
-# using 234s before this check.
+# COST, measured rather than assumed — and measured in BOTH places, because the
+# two numbers are not the same and only one of them decides anything:
+#
+#     here   27.9s from clean, 7.2s warm      suite total 236s / 500s
+#     CI    106.3s                            suite total 433.5s / 500s
+#
+# The local reading said "fits comfortably" and the CI reading says 66s of
+# headroom. Both are true; only the second is the budget. If you are adding the
+# next check to smoke, that 66s is what you have — size it against the CI column.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

@@ -26,6 +26,9 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
           the tests and that property together. The script counts PASSING PROJECTS, because an
           aggregate that quietly stopped including projects would still exit 0 while testing
           less. Verified both ways: planted type error → exit 1, restored tree → exit 0.
+          ⚠️ **Budget: the local reading misled me.** 236s/500s here, **433.5s/500s in CI** —
+          my check costs 106s there against 27.9s locally. It fits, with 66s of headroom, but
+          "comfortable" was a laptop's opinion. Size the next smoke check against the CI column.
           ⚠️ The first verification was WRONG — `script | tail` then `echo $?` reports TAIL's
           exit code, so a broken build read as a pass. Measure the script, not the pipeline.
 
