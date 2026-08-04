@@ -1,0 +1,11 @@
+slug: native-request-validation-family
+branch: feature/native-request-validation-family
+agent: claude-code
+started: 2026-08-04T10:48:06Z
+heartbeat: 2026-08-04T10:48:06Z
+status: claimed-before-planning
+items: native-requireInt-unbound-in-a-route-handler
+paths: file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/RequestValidation.scala file:v2/BUGS.md file:tests/e2e/request-validation-family-gate.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
