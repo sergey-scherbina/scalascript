@@ -261,6 +261,117 @@ Then the credential binding above, if it earns its place, on your schedule.
 
 Reported by a consumer that just built a dual-target client against a production endpoint; the
 staging and the API are suggestions, and the shape of the danger is the part we are confident about.
+## std-auth-client-half — std.auth is a complete vocabulary for BEING an auth server and has no counterpart for PRESENTING a credential outbound — the absence is already filled three incompatible ways (http headers map, agent authToken field, ui headers JSON signal), with 'Bearer ' + token written twice inside one file
+<!-- triage: new
+     reported-by: rozum (github.com/sergey-scherbina/rozum, docs/specs/ucc-meetings-in-tk.md)
+     reported-at: 2026-08-04
+     ssc-version: ec70eb062 (staged bin/, dev build)
+     repro: none
+     kind: feature
+     reporter-suspects: no Credential concept anywhere: std/http takes headers Map, std/agent carries authToken as a plain case-class field and hand-builds the scheme in BOTH requestHeaders and streamRequestHeaders, std/ui takes a headers JSON Signal — and a token held as a value is a token that gets baked at emit time
+     impact: blocks -->
+
+`std.auth` is a complete vocabulary for BEING an auth server — CSRF, sessions, cookie config,
+password hashing, JWT sign/verify, TOTP, WebAuthn registration and assertion, OAuth authorize /
+exchange / refresh. There is no counterpart for PRESENTING a credential on an outbound call. Not a
+thin one — none at all.
+
+That absence is not theoretical. It has already been filled in three incompatible ways inside the
+one standard library, and one of them is duplicated within a single file:
+
+1. `std/http.ssc` — every verb takes `headers: Map[String, String]`
+   (`httpGet` / `httpPost` / `httpPut` / `httpPatch` / `httpDelete` / `httpGetStream` /
+   `httpPostStream` / `wsConnect`). Authentication is the caller's string-building problem.
+
+2. `std/agent.ssc` — `case class AgentEndpoint(baseUrl: String, authToken: String = "")`, and then
+   the scheme is hand-built:
+
+   ```scalascript
+   def requestHeaders(endpoint: AgentEndpoint): Map[String, String] =
+     if endpoint.authToken == "" then Map("Content-Type" -> "application/json")
+     else Map("Content-Type" -> "application/json",
+              "Authorization" -> ("Bearer " + endpoint.authToken))
+
+   def streamRequestHeaders(endpoint: AgentEndpoint): Map[String, String] =
+     …          // the SAME "Bearer " + token branch again, 6 lines below
+   ```
+
+   Two copies of `"Bearer " + token` in one file is the smallest possible demonstration that the
+   concept is missing: there was nowhere to put it, so it went in twice.
+
+3. `std/ui/primitives.ssc` — `headers: Signal[String]`, a JSON *string*. A third shape for the same
+   idea, and not interchangeable with either of the other two.
+
+So an application that talks to one authenticated service from a view, from a background HTTP call
+and from an agent endpoint writes the same credential three different ways.
+
+**Why a shared shape matters more than tidiness**
+
+- **A token is a value in all three, and values get baked.** This is the sharp edge, and it is
+  specific to this compiler: `ssc run --v1` evaluates the program in the emitting process, and the
+  TUI emitter writes the fetch URL out as a Rust literal (`rustStr(info.url)`). Anything derived
+  from `env()` is therefore a build-time constant. `AgentEndpoint(baseUrl, authToken)` has the same
+  property by construction — a token held as a plain field is also a token that shows up in any
+  debug print, log line or serialized copy of that endpoint.
+- **There is nowhere to say "resolve this at call time."** Not for an env var, not for a keychain
+  entry, not for a browser session cookie, not for an OAuth token that needs refreshing — and
+  `std.auth` already has `oauthRefreshToken`, so the refresh half exists on the server side with no
+  client-side place to use it.
+- **There is nowhere to fail loudly.** A dropped or absent credential is silent: the call returns
+  401 and the UI renders nothing. That is exactly how the TUI target's missing header support
+  (`tui-fetch-headers`) stayed invisible until someone pointed a generated client at a production
+  endpoint.
+- **Every backend re-derives the scheme.** base64 for Basic, `"Bearer " + t`, `X-Api-Key`, query
+  parameters — each caller gets it right or wrong on its own. `std.auth` exports `base64UrlEncode`,
+  which is URL-safe, i.e. the WRONG alphabet for a Basic header — and it is what an app will reach
+  for.
+
+**What we are suggesting**
+
+A client half of `std.auth`: a `Credential` that names how to obtain the secret rather than holding
+it, resolved by the runtime at call time, and accepted uniformly by `std/http`, `std/agent` and
+`std/ui`'s fetch primitives.
+
+```scalascript
+// std/auth.ssc — the client half
+type Credential
+extern def noCredential: Credential
+extern def bearerFromEnv(varName: String): Credential
+extern def basicFromEnv(userVar: String, passVar: String): Credential
+extern def apiKeyHeader(headerName: String, varName: String): Credential
+extern def sessionCookie(): Credential                    // browser: credentials:'include'
+extern def oauthRefreshing(provider: String): Credential  // reuses oauthRefreshToken
+
+// consumed the same way everywhere
+extern def httpGet(url: String, headers: Map[String, String],
+                   credential: Credential = noCredential): Response
+case class AgentEndpoint(baseUrl: String, credential: Credential = noCredential)
+extern def fetchUrlSignal(name: String, url: String, refreshTick: Signal[Int],
+                          headers: Signal[String] = emptyHeaders,
+                          credential: Credential = noCredential): Signal[String]
+```
+
+The properties that buys, none of which are reachable from a header map:
+
+- the emitter never holds a secret, only a NAME — so nothing can be baked into an artifact;
+- one declaration means the right thing per target (env var in a terminal, cookie in a browser),
+  which is what lets one source stay one source instead of branching on target;
+- the scheme is built once, in the runtime, instead of in every caller;
+- there is a place to refresh, and a place to REFUSE out loud (`bearerFromEnv` in a browser is not
+  a 401 later, it is an emit-time error).
+
+**Relationship to what we already filed**
+
+`ui-fetch-credentials` is this same gap seen through the `std/ui` fetch primitives only. We filed it
+first because that is where it blocked us. This entry is the general form, and if you take it, the
+other one folds into it — treat that as our request, not as two separate asks. `tui-fetch-headers`
+stays independent and still worth doing: it is parity with a documented parameter and unblocks
+consumers now, with the one caveat that it should resolve at fetch time rather than emit time so it
+does not cement the leak this entry describes.
+
+Reported by a consumer that just built a dual-target client against an authenticated production
+endpoint. The API sketch is a suggestion; the three-shapes evidence and the baking hazard are the
+parts we are confident about.
 <!-- inbox-entries:end -->
 
 ## Closed without routing
