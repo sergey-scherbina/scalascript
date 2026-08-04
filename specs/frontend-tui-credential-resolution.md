@@ -1,6 +1,6 @@
 # Terminal fetch: resolving a `Credential` on the target
 
-Status: spec (2026-08-04)
+Status: **implemented below the primitive** (landed 2026-08-04, `d4180b88b`) — model + intrinsic-ready + emitter resolution, gated by a cargo probe that proves the secret is absent from the emitted source. The `credential` PARAMETER on `fetchUrlSignal` is still pending in `primitives.ssc`.
 Owner: `tui-credential-resolution` — **S2 of [`ui-fetch-credentials.md`](ui-fetch-credentials.md)**
 Affected: `frontend/core` (model), `v1/runtime/std/fetch-plugin` (site), static `frontend/tui`
 Reported by: rozum — `INBOX.md` `ui-fetch-credentials`, `std-auth-client-half`
