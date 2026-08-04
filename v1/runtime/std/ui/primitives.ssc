@@ -198,7 +198,8 @@ extern def fetchUrlSignal(name: String, url: String, refreshTick: Signal[Int],
 // The read-side counterpart of fetchActionTo. (A plain fetchUrlSignal bakes its `url`
 // String at render time, so a dependent signal change never re-fetches.)
 extern def fetchUrlSignalTo(name: String, urlSig: Signal[String], refreshTick: Signal[Int],
-                            headers: Signal[String] = emptyHeaders): Signal[String]
+                            headers: Signal[String] = emptyHeaders,
+                            credential: Credential = credentialNone): Signal[String]
 
 // fetchStreamSignal — POST `url` on mount + whenever `tick` increments, with the
 // current `body` signal value as the request body (Content-Type application/json),
@@ -219,7 +220,8 @@ extern def intervalTick(name: String, ms: Int): Signal[Int]
 // then increment onSuccessTick so fetchUrlSignal consumers re-fetch.
 // headers: JSON-object Signal read at click time.
 extern def fetchAction(method: String, url: String, body: Signal[String], onSuccessTick: Signal[Int],
-                       headers: Signal[String] = emptyHeaders): EventHandler
+                       headers: Signal[String] = emptyHeaders,
+                       credential: Credential = credentialNone): EventHandler
 
 // fetchActionTo — like fetchAction but the URL is a Signal[String] resolved at
 // click time, for path-id endpoints whose id is a runtime selection, e.g.
@@ -234,7 +236,8 @@ extern def incSignal(s: Signal[Int]): EventHandler
 
 // fetchActionClear — like fetchAction but resets the body signal to "" on success.
 extern def fetchActionClear(method: String, url: String, body: Signal[String], onSuccessTick: Signal[Int],
-                            headers: Signal[String] = emptyHeaders): EventHandler
+                            headers: Signal[String] = emptyHeaders,
+                            credential: Credential = credentialNone): EventHandler
 
 // ── Scope B.4: structured onSuccess effects ────────────────────────────────────
 // Effect descriptors passed to fetchActionWith; the browser runs them in order on

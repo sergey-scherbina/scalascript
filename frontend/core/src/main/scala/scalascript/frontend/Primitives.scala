@@ -613,7 +613,12 @@ object EventHandler:
   final case class InputChange(signal: ReactiveSignal[String])                                                        extends EventHandler
   final case class FetchAction(method: String, url: String, body: ReactiveSignal[String],
                                onSuccessTick: ReactiveSignal[Int], clearBody: Boolean = false,
-                               headers: Option[ReactiveSignal[String]] = None)                extends EventHandler
+                               headers: Option[ReactiveSignal[String]] = None,
+                               /** Declared credential — `(kind, source, scheme)`, never a secret.
+                                *  A write needs one as much as a read: a client that authenticates
+                                *  its GETs by declaration and its POSTs by a baked header string
+                                *  still ships the token inside the binary. */
+                               credential: Option[(String, String, String)] = None) extends EventHandler
   /** Delete a list row by its `idField` value.  Used inside `ForModel` iteration —
    *  the row object is the current iteration item and `idField` names its id key.
    *  POSTs `item[idField]` to `deleteUrl`; increments `onSuccessTick` on success. */

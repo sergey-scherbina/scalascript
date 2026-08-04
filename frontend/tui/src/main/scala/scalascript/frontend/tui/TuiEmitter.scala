@@ -40,7 +40,8 @@ object TuiEmitter:
     case Toggle(id: String)
     /** `fetchAction` — a WRITE. The store is mutated only after a 2xx (see `send_action`). */
     case Post(method: String, url: String, bodyId: String, tickId: String,
-              clearBody: Boolean, headersId: Option[String])
+              clearBody: Boolean, headersId: Option[String],
+              credential: Option[(String, String, String)])
     /** `RowLink` — choosing the cursor row writes one of its fields into the bound signal. */
     case PickRow(cursorId: String, fetchId: String, rowsPath: String, fieldPath: String, targetId: String)
 
@@ -138,7 +139,7 @@ object TuiEmitter:
        |${genFetchHelpers(fetches)}
        |${genWriteHelpers(fetches, focusables.toSeq)}\n       |${genIntervalHelpers(fetches)}
        |${genTableHelpers(remoteTable)}
-       |${genRowCursorHelpers(focusables.toSeq)}\n       |${genCredentialHelpers(fetches)}
+       |${genRowCursorHelpers(focusables.toSeq)}\n       |${genCredentialHelpers(fetches, focusables.exists(_.activation.exists { case Mutation.Post(_, _, _, _, _, _, c) => c.isDefined; case _ => false }))}
        |
        |${genFocusConsts(focusables.toSeq)}
        |
@@ -419,8 +420,8 @@ object TuiEmitter:
    *  A missing or unreadable source yields `None`, and the caller then sends NO `Authorization` at
    *  all. An empty `Bearer ` is a header that reads as authentication and is not — a 401 meaning
    *  "no credential" is easier to diagnose than one meaning "bad credential". */
-  private def genCredentialHelpers(fetches: mutable.LinkedHashMap[String, FetchInfo]): String =
-    if !fetches.values.exists(_.credential.isDefined) then ""
+  private def genCredentialHelpers(fetches: mutable.LinkedHashMap[String, FetchInfo], writeCreds: Boolean): String =
+    if !fetches.values.exists(_.credential.isDefined) && !writeCreds then ""
     else
       """fn resolve_credential(kind: &str, source: &str, scheme: &str) -> Option<String> {
         |    let secret = match kind {
@@ -603,12 +604,20 @@ object TuiEmitter:
       s"let __i = match signals.get(${rustStr(cursorId)}) { Some(Value::I(n)) => *n, _ => 0 }; " +
       s"if let Some(__v) = row_field(&sig(signals, ${rustStr(fetchId)}), ${rustStr(rowsPath)}, __i, ${rustStr(fieldPath)}) " +
       s"{ signals.insert(${rustStr(targetId)}.to_string(), Value::S(__v)); }"
-    case Mutation.Post(method, url, bodyId, tickId, clearBody, headersId) =>
+    case Mutation.Post(method, url, bodyId, tickId, clearBody, headersId, cred) =>
       // One helper call rather than an inlined request: the arms are single-expression blocks.
+      // The credential is resolved on the target and appended, exactly as on the read path — a
+      // client that declares its GETs and bakes a header for its POSTs still ships the token.
       val hdrs = headersId match
         case None      => "Vec::new()"
         case Some(hid) => s"fetch_headers(signals, ${rustStr(hid)})"
-      s"let __h = $hdrs; send_action(signals, ${rustStr(method)}, ${rustStr(url)}, " +
+      val credPush = cred match
+        case None => ""
+        case Some((kind, source, scheme)) =>
+          s"if let Some(__a) = resolve_credential(${rustStr(kind)}, ${rustStr(source)}, ${rustStr(scheme)}) " +
+          s"{ __h.push((\"Authorization\".to_string(), __a)); } "
+      s"let mut __h = $hdrs; $credPush" +
+      s"send_action(signals, ${rustStr(method)}, ${rustStr(url)}, " +
       s"${rustStr(bodyId)}, ${rustStr(tickId)}, $clearBody, &__h);"
 
   private def genActivate(fs: Seq[Focusable]): String =
@@ -779,7 +788,7 @@ object TuiEmitter:
     // mentions them. Without this they are never seeded into `initial_signals`, so `sig()` returns
     // "" and the POST goes out with an empty body while still reporting success. Found by the cargo
     // gate; no string assertion on the emitted call site can see it.
-    case EventHandler.FetchAction(_, _, body, tick, _, headers) =>
+    case EventHandler.FetchAction(_, _, body, tick, _, headers, _) =>
       add(body.id, valueExpr(safeApply(body)), true)
       add(tick.id, valueExpr(safeApply(tick)), false)
       headers.foreach(h => add(h.id, valueExpr(safeApply(h)), true))
@@ -830,8 +839,8 @@ object TuiEmitter:
     case EventHandler.SetSignalLiteral(s, value) => Some(Mutation.Set(s.id, valueExpr(value)))
     case EventHandler.IncrementSignal(s, by)     => Some(Mutation.Incr(s.id, by))
     case EventHandler.ToggleSignal(s)            => Some(Mutation.Toggle(s.id))
-    case EventHandler.FetchAction(method, url, body, tick, clearBody, headers) =>
-      Some(Mutation.Post(method, url, body.id, tick.id, clearBody, headers.map(_.id)))
+    case EventHandler.FetchAction(method, url, body, tick, clearBody, headers, cred) =>
+      Some(Mutation.Post(method, url, body.id, tick.id, clearBody, headers.map(_.id), cred))
     case _                                       => None
 
   // ── View → ratatui lowering ────────────────────────────────────────────

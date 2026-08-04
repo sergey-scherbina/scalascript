@@ -254,7 +254,8 @@ final class TuiEmitterTest extends AnyFunSuite:
       EventHandler.FetchAction("POST", "http://x/m", body, tick, clearBody = false, headers = Some(auth)))
     val (cargo, rs) = emitCrate(send)
     assert(rs.contains("fn fetch_headers("))
-    assert(rs.contains("""let __h = fetch_headers(signals, "auth");"""))
+    // `mut` since credentials: the write path appends a resolved credential to the same list.
+    assert(rs.contains("""let mut __h = fetch_headers(signals, "auth");"""))
     assert(cargo.contains("serde_json"))                              // fetch_headers parses JSON
   }
 
@@ -362,6 +363,21 @@ final class TuiEmitterTest extends AnyFunSuite:
     val rs = emitMain(View.SignalText(feed))
     assert(rs.contains("fn bump_interval_ticks(_signals:"))
     assert(!rs.contains("last.entry("))
+  }
+
+  test("a WRITE carries the credential too — a declared GET and a baked POST still ships the token") {
+    val body = new ReactiveSignal[String]("draft", "")
+    val tick = new ReactiveSignal[Int]("t", 0)
+    val send = View.Button(View.Text(() => "send"),
+      EventHandler.FetchAction("POST", "http://x/m", body, tick, clearBody = true, headers = None,
+        credential = Some(("env", "ROZUM_MEETING_TOKEN", "Bearer"))))
+    val rs = emitMain(send)
+    assert(rs.contains("fn resolve_credential("))
+    assert(rs.contains("""resolve_credential("env", "ROZUM_MEETING_TOKEN", "Bearer")"""))
+    assert(rs.contains("""__h.push(("Authorization".to_string(), __a));"""))
+    assert(rs.contains("send_action(signals,"))
+    // Same property as the read path: only the NAME travels.
+    assert(!rs.contains("Bearer ROZUM"), "a secret-shaped literal reached the emission")
   }
 
   test("an env credential is resolved on the target, and its NAME is all the emitter sees") {

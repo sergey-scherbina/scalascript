@@ -42,6 +42,12 @@ object FetchIntrinsics:
    *  `emptyHeaders` does NOT arrive as a signal: it reaches the plugin as an unapplied
    *  `NativeFnV`, which is why a pattern that only matches `Foreign("ReactiveSignal", _)` silently
    *  fails to match the 4-argument call. */
+  /** The headers signal itself (the write sites hold the object, not the id), or `None`. */
+  private def headersSigOf(arg: Any): Option[ReactiveSignal[String]] = arg match
+    case PluginValue.Foreign("ReactiveSignal", h: ReactiveSignal[?]) if h.id != "__ssc_empty_headers" =>
+      Some(h.asInstanceOf[ReactiveSignal[String]])
+    case _ => None
+
   private def headersIdOf(arg: Any): Option[String] = arg match
     case PluginValue.Foreign("ReactiveSignal", h: ReactiveSignal[?]) if h.id != "__ssc_empty_headers" => Some(h.id)
     case _ => None
@@ -98,6 +104,30 @@ object FetchIntrinsics:
               tickPeriod(tick),
               rest.drop(1).headOption.flatMap(credentialTriple)))
         case _ => PluginError.raise("fetchUrlSignal(name, url, refreshTick[, headers[, credential]])")
+    },
+
+    // fetchUrlSignalTo(name, urlSignal, refreshTick[, headers[, credential]]): Signal[String]
+    // Like fetchUrlSignal, but the URL is read from a signal AT FETCH TIME so changing that signal
+    // retargets the GET (INBOX tui-fetch-url-signal). `fetchUrl` is left empty on purpose: with
+    // `urlId` set it is unused, and an empty literal makes a backend that ignores `urlId` fetch
+    // NOTHING rather than fetch something wrong.
+    //
+    // RESTORED after I deleted it by accident: a region replacement in the credential-parameter
+    // change sliced from the `fetchUrlSignal` site to the `fetchJsonSignal` comment, and this site
+    // sat between them. A test now pins it — see FetchPluginInterpreterTest.
+    QualifiedName("fetchUrlSignalTo") -> PluginNative.evalLegacy { (_, args) =>
+      def build(urlSig: ReactiveSignal[?], tick: ReactiveSignal[?], hId: Option[String],
+                cred: Option[(String, String, String)]) =
+        PluginValue.foreign("ReactiveSignal",
+          new FetchUrlSignal(args.head.asInstanceOf[String], "", tick.id, hId, Some(urlSig.id),
+            tickPeriod(tick), cred))
+      args match
+        case (_: String) :: PluginValue.Foreign("ReactiveSignal", urlSig: ReactiveSignal[?]) ::
+             PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?]) :: rest =>
+          build(urlSig, tick,
+            rest.headOption.flatMap(headersIdOf),
+            rest.drop(1).headOption.flatMap(credentialTriple))
+        case _ => PluginError.raise("fetchUrlSignalTo(name, urlSignal, refreshTick[, headers[, credential]])")
     },
 
     // fetchJsonSignal(name, url, refreshTick, modelTypeName[, headers]): Signal[String]
@@ -161,24 +191,17 @@ object FetchIntrinsics:
     // On click: fetch(url, {method, body: bodySignal.value, headers}) then increment onSuccessTick.
     QualifiedName("fetchAction") -> PluginNative.evalLegacy { (_, args) =>
       args match
-        case List(method: String, url: String,
-                  PluginValue.Foreign("ReactiveSignal", body: ReactiveSignal[?]),
-                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
-          PluginValue.foreign("EventHandler",
-            EventHandler.FetchAction(method, url,
-              body.asInstanceOf[ReactiveSignal[String]],
-              tick.asInstanceOf[ReactiveSignal[Int]]))
-        case List(method: String, url: String,
-                  PluginValue.Foreign("ReactiveSignal", body: ReactiveSignal[?]),
-                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
-                  PluginValue.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
-          val h = headers.asInstanceOf[ReactiveSignal[String]]
+        case (method: String) :: (url: String) ::
+             PluginValue.Foreign("ReactiveSignal", body: ReactiveSignal[?]) ::
+             PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?]) :: rest =>
           PluginValue.foreign("EventHandler",
             EventHandler.FetchAction(method, url,
               body.asInstanceOf[ReactiveSignal[String]],
               tick.asInstanceOf[ReactiveSignal[Int]],
-              headers = if h.id == "__ssc_empty_headers" then None else Some(h)))
-        case _ => PluginError.raise("fetchAction(method, url, body, onSuccessTick[, headers])")
+              clearBody = false,
+              headers = rest.headOption.flatMap(headersSigOf),
+              credential = rest.drop(1).headOption.flatMap(credentialTriple)))
+        case _ => PluginError.raise("fetchAction(method, url, body, onSuccessTick[, headers[, credential]])")
     },
 
     // fetchActionTo(method, urlSig, body, onSuccessTick[, headers]): EventHandler
@@ -213,26 +236,17 @@ object FetchIntrinsics:
     // Like fetchAction but also clears the body signal to "" on success.
     QualifiedName("fetchActionClear") -> PluginNative.evalLegacy { (_, args) =>
       args match
-        case List(method: String, url: String,
-                  PluginValue.Foreign("ReactiveSignal", body: ReactiveSignal[?]),
-                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
-          PluginValue.foreign("EventHandler",
-            EventHandler.FetchAction(method, url,
-              body.asInstanceOf[ReactiveSignal[String]],
-              tick.asInstanceOf[ReactiveSignal[Int]],
-              clearBody = true))
-        case List(method: String, url: String,
-                  PluginValue.Foreign("ReactiveSignal", body: ReactiveSignal[?]),
-                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
-                  PluginValue.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
-          val h = headers.asInstanceOf[ReactiveSignal[String]]
+        case (method: String) :: (url: String) ::
+             PluginValue.Foreign("ReactiveSignal", body: ReactiveSignal[?]) ::
+             PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?]) :: rest =>
           PluginValue.foreign("EventHandler",
             EventHandler.FetchAction(method, url,
               body.asInstanceOf[ReactiveSignal[String]],
               tick.asInstanceOf[ReactiveSignal[Int]],
               clearBody = true,
-              headers = if h.id == "__ssc_empty_headers" then None else Some(h)))
-        case _ => PluginError.raise("fetchActionClear(method, url, body, onSuccessTick[, headers])")
+              headers = rest.headOption.flatMap(headersSigOf),
+              credential = rest.drop(1).headOption.flatMap(credentialTriple)))
+        case _ => PluginError.raise("fetchActionClear(method, url, body, onSuccessTick[, headers[, credential]])")
     },
 
     // ── Scope B.4: structured onSuccess effects ────────────────────────────────

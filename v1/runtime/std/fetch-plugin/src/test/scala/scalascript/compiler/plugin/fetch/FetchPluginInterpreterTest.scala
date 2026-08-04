@@ -32,7 +32,7 @@ class FetchPluginInterpreterTest extends AnyFunSuite:
     )
 
     result match
-      case Value.Foreign("EventHandler", EventHandler.FetchAction(method, url, body, tick, clearBody, headers)) =>
+      case Value.Foreign("EventHandler", EventHandler.FetchAction(method, url, body, tick, clearBody, headers, _)) =>
         assert(method == "POST")
         assert(url == "/api/items")
         assert(body.id == "body")
@@ -52,7 +52,7 @@ class FetchPluginInterpreterTest extends AnyFunSuite:
     )
 
     result match
-      case Value.Foreign("EventHandler", EventHandler.FetchAction(_, _, _, _, _, headers)) =>
+      case Value.Foreign("EventHandler", EventHandler.FetchAction(_, _, _, _, _, headers, _)) =>
         assert(headers.isDefined)
         assert(headers.get.id == "token")
       case other => fail(s"expected FetchAction with headers, got $other")
@@ -104,6 +104,42 @@ class FetchPluginInterpreterTest extends AnyFunSuite:
         // only matches a Foreign ReactiveSignal here silently fails the whole call.
         assert(signal.headersId == None)
       case other => fail(s"expected FetchUrlSignal with a credential, got $other")
+
+  test("Fetch plugin still has a fetchUrlSignalTo site — it was deleted by accident once"):
+    // This test exists because of a real loss, not a hypothetical one. A region replacement in the
+    // credential-parameter change sliced from the `fetchUrlSignal` site to the `fetchJsonSignal`
+    // comment; `fetchUrlSignalTo` sat between them and went with it, and the deletion reached main
+    // because nothing named this site. A missing intrinsic is invisible until a source uses it,
+    // and then it is an "unknown intrinsic" a long way from its cause.
+    val result = interp.eval(
+      """
+      val tick = signal("refresh", 0)
+      val url  = signal("urlSig", "/api/a")
+      fetchUrlSignalTo("rows", url, tick)
+      """
+    )
+    result match
+      case Value.Foreign("ReactiveSignal", signal: FetchUrlSignal) =>
+        assert(signal.urlId == Some("urlSig"), "the URL signal was dropped")
+        assert(signal.fetchUrl == "", "a signal-URL fetch must carry no literal to fall back on")
+      case other => fail(s"expected a signal-URL FetchUrlSignal, got $other")
+
+  test("Fetch plugin threads a credential through fetchUrlSignalTo too"):
+    // The picker's fetch is the To-variant, so a credential that only worked on the plain form
+    // would authenticate the room list and not the transcript it retargets.
+    val result = interp.eval(
+      """
+      [credentialEnv](std/credential.ssc)
+      val tick = signal("refresh", 0)
+      val url  = signal("urlSig", "/api/a")
+      fetchUrlSignalTo("rows", url, tick, emptyHeaders, credentialEnv("TOK"))
+      """
+    )
+    result match
+      case Value.Foreign("ReactiveSignal", signal: FetchUrlSignal) =>
+        assert(signal.credential == Some(("env", "TOK", "Bearer")))
+        assert(signal.urlId == Some("urlSig"))
+      case other => fail(s"expected a credentialled signal-URL fetch, got $other")
 
   test("Fetch plugin treats credentialNone as no credential at all"):
     // What makes adopting the parameter a no-op: passing the default must be indistinguishable
@@ -234,7 +270,7 @@ class FetchPluginInterpreterTest extends AnyFunSuite:
       """
     )
     result match
-      case Value.Foreign("EventHandler", EventHandler.FetchAction(method, url, _, onSuccessTick, _, _)) =>
+      case Value.Foreign("EventHandler", EventHandler.FetchAction(method, url, _, onSuccessTick, _, _, _)) =>
         assert(method == "POST")
         assert(url == "/api/orders")
         assert(onSuccessTick.id == "ordersTick")
@@ -249,7 +285,7 @@ class FetchPluginInterpreterTest extends AnyFunSuite:
       """
     )
     result match
-      case Value.Foreign("EventHandler", EventHandler.FetchAction(method, url, _, onSuccessTick, _, _)) =>
+      case Value.Foreign("EventHandler", EventHandler.FetchAction(method, url, _, onSuccessTick, _, _, _)) =>
         assert(method == "POST")
         assert(url == "/api/orders")
         // first onBumpTick → onSuccessTick (the form body is assembled browser-side)
