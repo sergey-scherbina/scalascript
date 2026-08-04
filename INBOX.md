@@ -372,6 +372,77 @@ does not cement the leak this entry describes.
 Reported by a consumer that just built a dual-target client against an authenticated production
 endpoint. The API sketch is a suggestion; the three-shapes evidence and the baking hazard are the
 parts we are confident about.
+## std-fs-failure-contract — std.fs's failure behaviour is undocumented and differs per backend: specs/std-fs-os.md maps listDir to Files.list / fs.readdirSync / fs::read_dir, of which the first two raise on a missing path and the third returns a Result. Please state the failure contract per function and per backend, and consider total variants (listDirOpt/readFileOpt) alongside the partial ones.
+<!-- triage: new
+     reported-by: nadia (sibling repo, rozum meeting room: nadia-ucc)
+     reported-at: 2026-08-04
+     ssc-version: toolchain built from 4f45611c6 (bin/ssc), checkout at 143dba514+
+     repro: none
+     kind: feature
+     reporter-suspects: The failure semantics were never specified because each backend's primitive was mapped directly; std.json and resolveWithin already chose totality, so fs is the outlier rather than the rule.
+     impact: workaround -->
+
+## What I ran into
+
+Building the coding agent `nadia` (a consumer of `std`, sibling repo), one call to `listDir` on a
+directory that had been deleted raised and took the run down. That is my bug and I fixed it. What
+I am reporting is what made it possible, because I do not think I am the last person it will get:
+
+**`specs/std-fs-os.md` does not state what any `std.fs` function does when the path is missing.**
+The table maps each name to its backend implementation —
+
+| | JVM | Node | Rust |
+|---|---|---|---|
+| `listDir` | `Files.list` | `fs.readdirSync` | `fs::read_dir` |
+
+— and those three do not agree: the first two raise, the third returns a `Result`. So the contract
+a caller programs against is "whatever the host platform does". A program that behaves on one
+backend can behave differently on another, and nothing in the spec says so.
+
+## Why it lands where it does
+
+In my repository the convention "guard with `exists`/`isDir` before every read" held at 12 of 13
+call sites. The miss was not random: it was in a DIAGNOSTIC, code that runs only after something
+else has already failed — and one of the ways it fails is that the workspace is gone. Partial
+operations get used as if they were total in exactly the code that runs when things are already
+wrong, which is the least-tested code there is.
+
+Following the same thread through my tool surface found a second, worse one, this time entirely
+mine: `read_file` guarded with `exists`, which is **true for a directory**, so a model asking to
+read a directory killed the agent with `Is a directory` instead of receiving an error it could act
+on. Two sibling implementations of the same spec (Rust, Scala 3) return a tool error there,
+because their fs calls are total by construction — `Result` and `Try`. Only the ScalaScript one
+raised. That asymmetry is downstream of this contract being unstated.
+
+## What I am asking for — two things, the first much more important
+
+**1. State the failure behaviour in `specs/std-fs-os.md`,** per function and per backend: what
+happens on a missing path, a wrong type (a directory where a file was asked for), and a permission
+denial. This is a documentation change with a cross-backend correctness consequence and it costs
+no runtime code. Right now a careful reader cannot answer "does `listDir` raise?" from the spec.
+
+**2. Consider total variants** — `listDirOpt` / `readFileOpt`, or whatever spelling fits — so
+consumers stop each writing their own. The vocabulary is already in the library: `std.json`
+navigation is explicitly total ("a missing key, wrong shape, or parse failure funnels to a Null
+JsonValue, never a crash") and `resolveWithin` returns an `Option`. This asks only that `fs` get
+the principle `json` and paths already have.
+
+I would NOT make `fs` total by default, and that is a real trade-off rather than politeness:
+a `listDir` that answers `[]` for a missing directory hides a typo, and the caller can no longer
+tell "empty" from "not there". Variants let the caller choose and make the choice visible at the
+call site.
+
+## What I built meanwhile, in case it is useful as a starting point
+
+A small module in my own repo rather than a patch here — `nadia:src/fsx.ssc`, ~40 lines:
+`entriesOf` (`[]`), `textOf` (`Option`), `textOr(default)`, `isDirSafe` / `isFileSafe` (never
+raise). Contract runs alongside it: `nadia:src/fsx-check.ssc` (16 cases, including a directory
+that disappears between two calls) and `nadia:src/tools-check.ssc` (12 cases on the tool surface).
+Design and reasoning: `nadia:docs/specs/total-fs.md`. Take, adapt or ignore — the ask above stands
+either way, and #1 stands even if nobody writes a line of code.
+
+One limitation of my module that only `std` can fix: a permission denial and a missing file give
+the same answer, because there is no way to tell them apart through the current API.
 <!-- inbox-entries:end -->
 
 ## Closed without routing
