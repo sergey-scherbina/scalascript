@@ -2787,12 +2787,55 @@ serving symptom for a resolution cause. `components-smoke` now gets as far as
 [[bundle-command-resolves-imports-relative-only]]: `BundleCommand` has no library fallback at all
 and silently prints `[warn] import std/http.ssc … — not found, skipped`.
 
-## bundle-command-resolves-imports-relative-only — the bundler drops every `std/` import with a warning
-<!-- status: open
+## bundle-command-resolves-imports-relative-only — CORRECTED: the behaviour was right, the diagnostic was wrong
+<!-- status: fixed
      lane: multi
      area: build
      kind: bug
-     gate: none -->
+     gate: tests/e2e/bundle-smoke.sh
+     fixed-in: f1032f1b3 -->
+
+**CORRECTED AND FIXED 2026-08-04. The premise of this entry, as I first filed it, was wrong.** It
+read the bundler's `[warn] import std/http.ssc … — not found, skipped` as a defect that dropped std
+modules from the archive. Not packing them is **correct**: a platform import resolves at the
+CONSUMER from their own ssc install, exactly as `run` resolves one for any file outside the tree.
+Measured rather than argued — bundle a file that imports `std/http.ssc`, unpack to a temp dir with
+no `std/` anywhere in the archive, run it there:
+
+```
+$ unzip -l p.sscpkg          manifest.yaml, sources/_bundle-probe.ssc      (no std/)
+$ ssc-tools run --v1 …/sources/_bundle-probe.ssc
+app ran, std import resolved
+```
+
+What was actually wrong is what the bundler SAID: `not found, skipped` reports a working platform
+import as a broken one, and it is the reason this entry was filed at all. The warning now fires only
+for genuinely unresolvable imports; platform ones are counted and reported as
+`N platform import(s) not packed`, so the summary still says they exist instead of leaving silence
+to be read as "there were none".
+
+**Three further defects surfaced while reducing it, all fixed in the same commit:**
+
+1. **`bundle-smoke` asserted an archive layout that has not existed since v1.7 Tier 2.** It expected
+   `bundle.yaml` at the root with entries beside it; the format is `manifest.yaml` plus a `sources/`
+   prefix. The gate failed at its FIRST assertion, so nothing after it had ever run. It is an
+   orphaned gate — nobody was told. All three cases pass now.
+
+2. **The command's own class docstring documented that same dead layout**, which is where I read it
+   from and why the first diagnosis went looking in the wrong place.
+
+3. **The Tier 2 manifest dropped `entries:`.** The pre-Tier-2 `bundle.yaml` recorded which sources
+   are entry points; the new one does not, so a consumer unzipping a multi-entry bundle cannot tell
+   an entry from a transitive dep — everything is under `sources/` with nothing to distinguish
+   them. Restored in the manifest rather than weakened in the gate: asserting less is not the same
+   as the property being gone. Additive, since `SscpkgManifest.parseString` ignores unknown keys.
+
+4. **`id:` in the manifest was an absolute path from the build machine.** `bundleId` came from the
+   whole `-o` argument, so `-o /tmp/build-1234/app.sscpkg` wrote `id: /tmp/build-1234/app` as the
+   package's IDENTITY. `SscpkgLoader` parses that field and `ssc plugin install` prints it back, so
+   the builder's directory layout travelled inside the artifact. Now the basename: `id: cards`.
+
+**Original filing, kept because the shape of the mistake is worth keeping:**
 
 **Found 2026-08-03** while fixing
 [[compile-jvm-and-std-root-disagree-on-where-std-lives]]; NOT the same code, and not fixed by it.
