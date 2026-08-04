@@ -111,10 +111,13 @@ with a message saying to delete the declaration and close this entry — a known
 become a known-green is how a fixed bug keeps a permanent exemption.
 
 ## named-case-class-field-access-is-reversed-on-the-default-lane — `Point(3,4).x` returns 4
-<!-- status: not-a-defect
+<!-- status: wontfix
      lane: native
      area: runtime
      gate: tests/e2e/launcher-digest-gate.sh -->
+
+`wontfix` because the enum has no "withdrawn": there is nothing to fix. See below — the report was
+measured with a stale launcher and does not reproduce on `main`.
 
 **WITHDRAWN 2026-08-04, SAME DAY, BY THE REPORTER (me). There is no such defect on `main`.** Every
 observation below was measured with a **stale launcher** — the `bin/` staged in that worktree was
