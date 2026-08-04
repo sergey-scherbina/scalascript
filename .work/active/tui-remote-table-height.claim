@@ -2,10 +2,10 @@ slug: tui-remote-table-height
 branch: feature/tui-remote-table-height
 agent: housekeeping-rozum
 started: 2026-08-04T15:38:11Z
-heartbeat: 2026-08-04T15:38:11Z
+heartbeat: 2026-08-04T15:53:20Z
 status: claimed-before-planning
 items: tui-remote-table-height
-paths: file:frontend/tui/src/main/scala/scalascript/frontend/tui/TuiEmitter.scala file:frontend/tui/src/test/scala/scalascript/frontend/tui/TuiEmitterTest.scala file:specs/frontend-tui-remote-table-height.md
+paths: file:frontend/tui/src/main/scala/scalascript/frontend/tui/TuiEmitter.scala file:frontend/tui/src/test/scala/scalascript/frontend/tui/TuiEmitterTest.scala file:specs/frontend-tui-remote-table-height.md file:frontend/tui/src/test/scala/scalascript/frontend/tui/TuiFetchCargoTest.scala
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
