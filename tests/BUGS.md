@@ -7,6 +7,54 @@ grepping for status.
 
 Newest first.
 
+## native-release-blocked-by-testutils-clean-compile — the release workflow has never produced a release
+<!-- status: open
+     lane: apparatus
+     area: build
+     gate: .github/workflows/native-release.yml -->
+
+**Found 2026-08-04** cutting `v0.1.0`, the repository's first tag. The `Native Release` workflow
+fires on `v*.*.*`, proves its refusal contract, then builds three GraalVM binaries. All three
+`Qualify …` jobs fail in the **`Build native binary, frontend data, and plugin host`** step, and
+`Publish qualified tag` is skipped — so **no release has ever been published** (0 tags before this
+one; the only earlier run, `30316338197` on 2026-07-28, failed identically).
+
+**The whole failure is one file.** 6 errors on Linux, 6 in each macOS job, nothing else:
+
+```
+v1/runtime/backend/test-utils/src/main/scala/scalascript/testkit/TestInterpreter.scala:3
+  value backend is not a member of scalascript
+  value interpreter is not a member of scalascript
+  value parser is not a member of scalascript
+```
+
+All three imports missing means testUtils compiled with **none of its project dependencies on the
+classpath**, even though `build.sbt:1394` declares `.dependsOn(backendSpi, backendInterpreter)`, and
+the log confirms the target is testUtils' own (`compiling 1 Scala source to
+v1/runtime/backend/test-utils/target/scala-3.8.3/classes`).
+
+**It does not reproduce locally.** `sbt "testUtils/clean" "testUtils/compile"` in a worktree at the
+tagged commit exits 0. So the difference is in *how CI builds*, not in the source: CI runs one
+invocation — `sbt 'set cli / graalVMNativeImageOptions := …' "cli/installBin"
+"cli/graalvm-native-image:packageBin" "pluginHost/assembly"` — and the `set` rewrites a setting on a
+reloaded build state. Reproducing means running THAT command, not an approximation of it; every
+local shortcut tried so far passes and therefore proves nothing.
+
+**Not caused by the release commit.** `5c32e60bf` only drops `-SNAPSHOT`; the identical failure
+predates it by a week. Worth stating because a version change is exactly the kind of thing that
+*could* break resolution if any module depended on a published coordinate rather than `dependsOn` —
+it does not, but that hypothesis should be retired explicitly rather than left hanging.
+
+**Why it survived a week unnoticed:** the per-push suite is `smoke.yml`, which measures a staged
+launcher and never builds the sbt graph from clean; the full `sbt — compile and test` job lives in
+`ci.yml`, which on a push is `Lint Markdown` alone. A clean-build breakage is therefore invisible
+until someone dispatches the full suite — or tags a release, which is how this surfaced.
+
+**Next step for whoever takes it:** run the exact CI command locally with a clean target tree, and
+if it reproduces, bisect the `set` (drop it and run the three tasks plainly) to tell a genuine
+missing dependency from an artefact of the reloaded build state.
+
+
 ## coord-claim-items-tokenised-so-prose-collides-on-stop-words — a claim refused over the word "the"
 <!-- status: open
      lane: apparatus
