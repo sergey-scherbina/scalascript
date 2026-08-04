@@ -53,6 +53,10 @@ final class SpikeLosslessSpec extends AnyFunSuite:
     // spelling while the projection keeps the meaning
     "concat-3colon"  -> "def f(xs: List, ys: List): List = xs ::: ys\n",
     "prepend-plus"   -> "def f(x: Int, xs: List): List = x +: xs\n",
+    // a triple-quoted string whose CONTENT ends in a quote: four in a row, and the
+    // LAST three close it
+    "quote-run-four" -> "def f(): String = \"\"\" x=\"y\"\"\"\"\n",
+    "quote-run-five" -> "def f(): String = \"\"\"a\"\"\"\"\"\n",
   )
 
   /** Real ScalaScript, not only hand-written shapes — the handWritten cases are the

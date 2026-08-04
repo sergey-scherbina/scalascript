@@ -200,6 +200,14 @@ object SpikeLex:
           advance('"'); advance('"'); advance('"')
           while i < n && !(i + 2 < n && text.charAt(i) == '"' && text.charAt(i + 1) == '"' && text.charAt(i + 2) == '"') do
             sb.append(text.charAt(i)); advance(text.charAt(i))
+          // A run of MORE THAN THREE quotes closes with its LAST three; the extras are
+          // CONTENT. `""" aria-invalid="true""""` ends with four, because the content
+          // itself ends in `"`. Closing on the first three left a stray quote that opened a
+          // new string and mis-lexed the rest of the file — 20 diagnostics in
+          // examples/std-ui/textarea.ssc, all of them from this one character.
+          while i + 3 < n && text.charAt(i) == '"' && text.charAt(i + 1) == '"' &&
+            text.charAt(i + 2) == '"' && text.charAt(i + 3) == '"' do
+            sb.append(text.charAt(i)); advance(text.charAt(i))
           if i + 2 < n then { advance('"'); advance('"'); advance('"') }
         else
           advance('"')
