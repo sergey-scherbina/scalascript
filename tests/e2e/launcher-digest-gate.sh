@@ -47,6 +47,53 @@ digest() { "$DIGEST"; }
 
 fail() { printf 'launcher-digest-gate[%s]: %s\n' "$1" "$2" >&2; exit 1; }
 
+# ── the digest must depend on CONTENT, not on git state ─────────────────────
+#
+# It used to write a different LINE for the same file depending on whether git called it untracked,
+# dirty or committed, so `git add` and `git commit` each shifted it while the bytes were untouched.
+# That is the failure this tool was created to remove — `.build-stamp` forced "a ~3.5 min rebuild
+# for nothing" on a docs-only commit, and the replacement forced one after every commit instead.
+#
+# Asserted STRUCTURALLY, on the shape of the inputs, rather than by staging a probe file. The first
+# version of this check did `git add` and `git rm --cached`, passed on its own, and FAILED inside
+# smoke-ci: it mutated the git index, which the suite shares. A check with a side effect is a check
+# that reports on whatever else was running.
+#
+# Every line must be `<content-sha>\t<path>` — one canonical spelling. A `dirty ` or `untracked `
+# prefix is exactly the defect, and the shape says so without touching anything.
+# A PROBE FILE, so the untracked branch actually runs. Without one, a clean tree produces no
+# untracked lines at all and the assertion below is vacuous — it PASSED with the defect reinstated,
+# which is how this was caught. The probe is created inside the TEMP worktree and only as a file:
+# the first version of this check ran `git add`, which mutates an index the suite shares, and it
+# passed alone while failing inside smoke-ci.
+mkdir -p "$WT/v3"
+printf '// digest probe\n' > "$WT/v3/__digest_probe.scala"
+explain_out="$(cd "$WT" && ./scripts/launcher-input-digest --explain 2>/dev/null)"
+rm -f "$WT/v3/__digest_probe.scala"
+# A BASH PATTERN MATCH, not `printf | grep -q`. With `set -o pipefail`, `grep -q` closes the pipe on
+# its FIRST match, `printf` dies of SIGPIPE, and the pipeline reports failure — so the test fired
+# exactly when the thing it looked for was present. That inversion bit three separate checks today;
+# the cure is not to build a pipeline when a string test will do.
+if [[ "$explain_out" != *"__digest_probe.scala"* ]]; then
+  fail digest-misses-untracked "the probe file is absent from the inputs — a new source would be invisible to the build"
+fi
+# `|| true` because `grep -v` EXITS 1 WHEN IT FINDS NOTHING — which is the success case here, and
+# under `set -e` it killed this script silently. Second time today: the exec gate had the same
+# inversion with `grep -q` taking a pipeline's exit status from the process that legitimately failed.
+bad_lines="$(printf '%s\n' "$explain_out" | sed -n '/^digest inputs:/,$p' | tail -n +2 \
+             | grep -vE '^  ([0-9a-f]{40}|deleted)\t' | head -3 || true)"
+if [[ -n "$bad_lines" ]]; then
+  fail digest-follows-git-state "an input line is not <sha>TAB<path> — the digest still depends on git state:
+$bad_lines"
+fi
+
+dup="$(printf '%s\n' "$explain_out" | sed -n '/^digest inputs:/,$p' | tail -n +2 \
+       | awk -F'\t' '{print $2}' | LC_ALL=C sort | uniq -d | head -3 || true)"
+if [[ -n "$dup" ]]; then
+  fail digest-duplicate-path "a path appears twice, so its two spellings both feed the digest:
+$dup"
+fi
+
 base="$(digest)"
 [[ -n "$base" ]] || fail bootstrap "the digest is empty"
 
@@ -183,39 +230,6 @@ set -e
 if [[ "$fallback_code" -eq 0 || "$fallback_out" != *"no bin/lib/.build-digest"* ]]; then
   fail guard-fallback "with no digest and a mismatched stamp the guard did not fall back (exit $fallback_code):
 $fallback_out"
-fi
-
-# ── the digest must depend on CONTENT, not on git state ─────────────────────
-#
-# It used to write a different LINE for the same file depending on whether git called it untracked,
-# dirty or committed, so `git add` and `git commit` each shifted it while the bytes were untouched.
-# That is the failure this tool was created to remove — `.build-stamp` forced "a ~3.5 min rebuild
-# for nothing" on a docs-only commit, and the replacement forced one after every commit instead.
-#
-# The probe is the exact sequence that exposed it: a new file appears, then is staged. The first
-# step MUST change the digest (new content) and the second MUST NOT (same content, different state).
-probe="$WT/v3/__digest_probe.scala"
-d_clean="$(cd "$WT" && ./scripts/launcher-input-digest)"
-printf '// digest probe\n' > "$probe"
-d_new="$(cd "$WT" && ./scripts/launcher-input-digest)"
-(cd "$WT" && git add v3/__digest_probe.scala >/dev/null 2>&1)
-d_added="$(cd "$WT" && ./scripts/launcher-input-digest)"
-(cd "$WT" && git rm -q --cached v3/__digest_probe.scala >/dev/null 2>&1)
-rm -f "$probe"
-d_back="$(cd "$WT" && ./scripts/launcher-input-digest)"
-
-if [[ "$d_clean" == "$d_new" ]]; then
-  fail digest-blind-to-content "a new source file did not change the digest — it would be invisible to the build"
-fi
-if [[ "$d_new" != "$d_added" ]]; then
-  fail digest-follows-git-state "\`git add\` changed the digest with the content untouched:
-  untracked $d_new
-  staged    $d_added"
-fi
-if [[ "$d_clean" != "$d_back" ]]; then
-  fail digest-not-restored "removing the probe did not restore the digest:
-  before $d_clean
-  after  $d_back"
 fi
 
 printf 'launcher-digest-gate: PASS\n' 
