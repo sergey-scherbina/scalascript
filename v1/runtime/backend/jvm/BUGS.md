@@ -33,7 +33,48 @@ println("parsed")
 jvm lane (`control ok`). So this is not "run-jvm is broken today"; it is specifically what the json
 core lowers to.
 
-**Shape of the failure** — every one is a destructured binder that arrived as `Any`:
+**ROOT CAUSE CORRECTED 2026-08-04, and my first diagnosis was wrong.** I wrote that "the generator
+emits the bindings without their element types". It does not: the emitted Scala is a faithful copy
+of the source, and `case class JsonCoreOk(value: Any, next: Int)` is what `json-core.ssc:48` says.
+`value` is genuinely polymorphic — a codepoint here, a `JsonCoreString`/`Number`/`Array`/`Object`
+elsewhere — so `Any` is the correct declaration.
+
+**The real cause is `Cons`.** `json-core.ssc` matches lists as `case Cons(head, tail)`, which is
+ssc's spelling. Scala has no `Cons` extractor, so the pretty-printer emits the name verbatim and the
+compiler answers `[E189] Not Found: Cons`. Every binder under an unresolved extractor then degrades
+to `Any`, which fails again at each use — that is where `Found: (tail : Any)` ×7 comes from. **One
+unlowered name produces fourteen errors.** The interpreter has always known it:
+`PatternRuntime.scala` special-cases `Cons` by name. This lane never learned it.
+
+Reduced to eight lines, no json:
+
+```scalascript
+def size(xs: List[Int], n: Int): Int =
+  xs match {
+    case Nil => n
+    case Cons(_, tail) => size(tail, n + 1)
+  }
+```
+
+`run-jvm` emits `case Cons(_, tail) =>` verbatim and fails; int, js and native all print `3`.
+
+**A fix attempt that did not work, recorded so the next reader does not repeat it.** `JvmGen` has a
+splice pass, `rewriteActorAstCallsInSource`, which already rewrites patterns scalameta re-parses
+into shapes Scala rejects (`case None()` → `case None`). Adding a
+`Pat.Extract.After_4_6_0(Term.Name("Cons"), argClause) if size == 2` arm there **never fired** —
+`Cons` still came out verbatim, in the eight-line file as well as in json. It is not a parse failure
+(the pass silently returns its input when the source does not parse, but this source parses: the
+compiler gets as far as semantic errors). So either that arm is not reached for pattern nodes or the
+sibling `None`/`Nil` arm is dead too and nobody noticed. **Reverted rather than left in the tree** —
+a change that does not do what its comment claims is worse than no change. Whoever takes this should
+start by proving the pass fires at all, with a marker, before writing the rewrite.
+
+**Partial, landed:** two sites in `json-core.ssc` now narrow in the pattern
+(`case JsonCoreOk(low: Int, afterLow)`), which is correct on its own terms — the arm is only
+meaningful for a codepoint, and anything else falls to the existing error arm. Verified on all four
+lanes. It removes 2 of the 14 errors and does NOT unblock the lane by itself; `Cons` is the blocker.
+
+**Shape of the original failure** — the cascade from the unresolved extractor:
 
 ```
 7 ×  Found: (tail : Any)   Required: Int
@@ -41,8 +82,7 @@ core lowers to.
 2 ×  Found: (low  : Any)   Required: Int
 ```
 
-all inside `jsonCoreParseStringLoop`. The generator emits the bindings without their element types,
-so the Scala compiler sees `Any` where the call sites need `Int` and `List[Int]`.
+all downstream of a `case Cons(...)` the compiler could not resolve.
 
 **The blast radius is not json.** `std/http.ssc` imports it, so the jvm lane cannot compile a
 program that serves HTTP either. That is how this was found: `components-smoke` and

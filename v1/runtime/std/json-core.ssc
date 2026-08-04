@@ -89,7 +89,15 @@ def jsonCoreContinueLowSurrogate(
 ): Any =
   result match {
     case JsonCoreErr(message, offset) => JsonCoreErr(message, offset)
-    case JsonCoreOk(low, afterLow) =>
+    // `low: Int`, not a bare binder. `JsonCoreOk.value` is declared `Any` and genuinely is — it
+    // carries a codepoint here, a JsonCoreString/Number/Array/Object elsewhere. Three lanes let an
+    // `Any` flow into an `Int` parameter; the jvm lane emits real Scala and the compiler refuses it,
+    // so a bare binder made `run-jvm` fail to compile ANY program importing this file — and
+    // `std/http.ssc` imports it. Narrowing in the pattern is not a cast bolted on: the arm is only
+    // meaningful for a codepoint, and anything else now falls to the existing error arm below,
+    // which is what it should have done all along.
+    // (v1/runtime/backend/jvm/BUGS.md jvm-lane-cannot-compile-a-json-import.)
+    case JsonCoreOk(low: Int, afterLow) =>
       if !jsonCoreIsLowSurrogate(low) then
         JsonCoreErr("invalid low surrogate", next + 2)
       else
@@ -105,7 +113,8 @@ def jsonCoreContinueUnicodeEscape(
 ): Any =
   result match {
     case JsonCoreErr(message, offset) => JsonCoreErr(message, offset)
-    case JsonCoreOk(unit, next) =>
+    // `unit: Int` — same reason as `low` above.
+    case JsonCoreOk(unit: Int, next) =>
       if jsonCoreIsHighSurrogate(unit) then
         if next + 6 > source.length || source.charAt(next) != 92 || source.charAt(next + 1) != 117 then
           JsonCoreErr("high surrogate requires a low surrogate", escapeOffset)
