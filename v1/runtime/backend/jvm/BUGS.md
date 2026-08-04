@@ -77,19 +77,42 @@ def size(xs: List[Int], n: Int): Int =
 run-jvm  →  3        (was [E189] Not Found: Cons)
 ```
 
-**What still does not, and why — measured, not guessed.** The same pattern in an IMPORTED module is
-still emitted verbatim, so `std/json.ssc` still fails. The slice carrying an imported module does
-not parse as Scala 3, and the pass therefore gives up. That failure used to be silent; it is not any
-more:
+**THE `Cons` HALF IS NOW FIXED, 2026-08-05 — including imported modules.** The slice that would not
+parse is a **script**: `object L: …` followed by a top-level `println(…)`. `parse[Source]` rejects
+the top-level statement (`8:1 illegal start of definition`) and `parse[Term]` rejects the leading
+`object` (`1:1 illegal start of simple expression`), so both fallbacks fail **by construction** on
+exactly the shape this emitter produces. That is why a `Cons` in the main file lowered while the
+same pattern in an imported module did not — the main-file slice happened to parse.
+`dialects.Scala3.withAllowToplevelTerms(true)` is the shape scalameta provides for this, and is now
+tried first.
+
+Getting that answer took two diagnostic fixes worth keeping:
+
+- the pass reported *that* it gave up but not *why*; it now carries the parse position and message;
+- it reported the LAST failure, which was always the `Term` fallback complaining about the leading
+  `object` — true, useless, and it masked the `Source` error that names the real construct. First
+  failure wins now.
+
+Measured on the emitted source, before and after: `case Cons(` 9 → 0, nine `::` splices applied, all
+`def`s intact. Both repros print `3` on int, js, native **and jvm**.
+
+**`std/json.ssc` still does not compile on the jvm lane — for ten entirely different errors** that
+the fourteen `Cons` ones were hiding:
 
 ```
-ssc: jvm codegen could not parse a slice containing `Cons(` — the pattern is emitted verbatim
-     and the Scala compiler will reject it
+2 × Not found: jsonCoreRender      2 × Not found: jsonCoreParseStrict
+1 × Not found: jsonCoreParseTolerant   1 × __jsonCoreWrapStrict   1 × __jsonCoreWrap
+1 × Not found: __jsonCoreEncodeValue
 ```
 
-**The next step is to make that slice parseable, or to lower without a full parse** — and note that
-the sibling pass has the identical `case None => src`, which is precisely why an arm added to it
-looked unreachable for a day. A pass that gives up must say so.
+**Pre-existing, and checked rather than assumed:** three emitted-source dumps taken BEFORE this fix
+all show `__jsonCoreEncodeValue` with 0 definitions and 1 use, exactly as now, while `case Cons(`
+went 9 → 0. `jsonCoreRender` is defined seven times and still "not found", which points at scoping
+rather than absence. That is the next question, and it is not this one.
+
+**A lead, not a claim:** the sibling pass `rewriteActorAstCallsInSource` parses the same way —
+`Source` then `Term`, no script dialect — so its `case None()` → `case None` rewrite is probably
+dead on any script-shaped slice too. Worth measuring before trusting it.
 
 **Also partial, landed earlier:** two sites in `json-core.ssc` now narrow in the pattern
 (`case JsonCoreOk(low: Int, afterLow)`), which is correct on its own terms — the arm is only

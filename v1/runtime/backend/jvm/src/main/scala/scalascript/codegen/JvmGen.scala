@@ -2938,13 +2938,34 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
   private def lowerConsPatternsInSource(src: String): String =
     import scala.meta.{dialects, *}
     val input = Input.VirtualFile("<cons-lower>", src)
+    // Keep the parse ERROR, not just the failure. "could not parse" names a symptom; the position
+    // and message name the construct, and that is the difference between a next step and a guess.
+    // FIRST failure wins, not the last. The fallback attempt parses the slice as a Term, and for a
+    // slice that legitimately starts `object L:` that fails at 1:1 with "illegal start of simple
+    // expression" — true, useless, and it overwrote the Source error, which is the one that names
+    // the construct. Reporting the last error made the diagnostic describe the fallback rather than
+    // the problem.
+    var why: String = "unknown"
+    def tryParse[T <: Tree](f: => scala.meta.parsers.Parsed[T]): Option[Tree] =
+      scala.util.Try(f).toOption.flatMap {
+        case scala.meta.parsers.Parsed.Success(t) => Some(t: Tree)
+        case e: scala.meta.parsers.Parsed.Error   =>
+          if why == "unknown" then
+            why = s"${e.pos.startLine + 1}:${e.pos.startColumn + 1} ${e.message}"
+          None
+      }
+    // THE SLICE IS A SCRIPT, not a compilation unit: `object L: …` followed by a top-level
+    // `println(…)`. `parse[Source]` rejects the top-level statement (`8:1 illegal start of
+    // definition`) and `parse[Term]` rejects the leading `object` (`1:1 illegal start of simple
+    // expression`), so BOTH fallbacks fail by construction on exactly the shape this emitter
+    // produces. That is why an imported module's `Cons` was never lowered while the same pattern in
+    // the main file was: the main-file slice happened to parse, the one with a module in it cannot.
+    // `withAllowToplevelTerms` is the dialect scalameta provides for script-shaped sources.
+    val scriptDialect = dialects.Scala3.withAllowToplevelTerms(true)
     val parsed: Option[Tree] =
-      scala.util.Try(dialects.Scala3(input).parse[Source]).toOption
-        .flatMap(_.toOption).map(t => t: Tree)
-        .orElse(
-          scala.util.Try(dialects.Scala3(input).parse[Term]).toOption
-            .flatMap(_.toOption).map(t => t: Tree)
-        )
+      tryParse(scriptDialect(input).parse[Source])
+        .orElse(tryParse(dialects.Scala3(input).parse[Source]))
+        .orElse(tryParse(dialects.Scala3(input).parse[Term]))
     parsed match
       case None =>
         // NOT silent. The caller only reaches here when the text contains `Cons(`, so a parse
@@ -2954,8 +2975,10 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
         // exactly why an arm added to it looked "unreachable" for a day. A pass that gives up must
         // say so.
         System.err.println(
-          "ssc: jvm codegen could not parse a slice containing `Cons(` — the pattern is emitted " +
-          "verbatim and the Scala compiler will reject it (BUGS.md jvm-lane-cannot-compile-a-json-import)")
+          s"ssc: jvm codegen could not parse a slice containing `Cons(` at $why; slice starts: " +
+          s"${src.take(70).replace("\n", "\\n")} … — the pattern is " +
+          "emitted verbatim and the Scala compiler will reject it " +
+          "(BUGS.md jvm-lane-cannot-compile-a-json-import)")
         src
       case Some(tree) =>
         case class Splice(start: Int, end: Int, replacement: String)
