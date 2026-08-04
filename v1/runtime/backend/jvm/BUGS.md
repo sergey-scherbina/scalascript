@@ -11,7 +11,7 @@ Newest first.
 <!-- status: fixed
      lane: jvm
      area: codegen
-     fixed-in: PENDING-SHA
+     fixed-in: f2941736a
      gate: tests/conformance/jvm-string-s-literal.ssc -->
 
 **Found 2026-07-31** by `v2-char-value` while establishing the golden for `char-as-value`. Found by
