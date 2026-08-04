@@ -74,8 +74,14 @@ object Source:
 
   private def trimmed(l: String): String = l.trim
 
+  /** ```` ```scala ```` is CODE too, not prose.
+    *
+    * Excluding it was a guess — "other fence languages appear as data" — and
+    * `standard-scala-mixed-runnable` is the case that says otherwise: it interleaves ```` ```scala ````
+    * and ```` ```scalascript ```` blocks and expects both to run, in source order. Its name says so.
+    * ```sql / ```yaml stay excluded, and those really are data. */
   private def isCodeFenceOpen(l: String): Boolean =
     val t = trimmed(l)
-    t == "```scalascript" || t == "```ssc"
+    t == "```scalascript" || t == "```ssc" || t == "```scala"
 
   private def isFenceClose(l: String): Boolean = trimmed(l) == "```"

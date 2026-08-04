@@ -1,0 +1,4 @@
+def swap(a: Int, b: Int, n: Int): Int =
+  if n <= 0 then a else swap(b, a, n - 1)
+println(swap(1, 2, 5))
+println(swap(1, 2, 4))
