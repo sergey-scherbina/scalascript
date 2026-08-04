@@ -44,10 +44,10 @@ rather than on the lane the bug was filed against.
 
 ## int-set-element-order-differs-from-scala — `Set(3, 1, 2)` prints `Set(1, 2, 3)` where real Scala keeps insertion order
 
-<!-- status: open
+<!-- status: wontfix
      lane: int
      area: runtime
-     gate: none -->
+     gate: tests/conformance/set-distinct.ssc -->
 
 Found 2026-08-04 by running the same case on the golden and the oracle:
 
@@ -69,6 +69,39 @@ comment saying why — that keeps the case honest but leaves this unmeasured, he
 
 Not urgent: no known program depends on Set ordering, and the reference lanes agree on everything
 else. Worth fixing when the interpreter's Set representation is next touched.
+
+
+**WONTFIX 2026-08-04 — I filed this, then measured it, and it is not a defect.** Kept rather than
+deleted because the measurement is the useful part.
+
+The entry assumed "real Scala keeps insertion order" generalises. It does not — it holds only for
+`Set1`..`Set4`, the small-set optimisation. From five elements Scala switches representation, and
+the difference is not just ordering:
+
+```
+                          jvm (real Scala)            int
+Set(5,4,3,2,1)            HashSet(5, 1, 2, 3, 4)      Set(1, 2, 3, 4, 5)
+Set(9,7,5,3,1,2)          HashSet(5, 1, 9, 2, 7, 3)   Set(1, 2, 3, 5, 7, 9)
+Set("e","d","c","b","a")  HashSet(e, a, b, c, d)      Set(a, b, c, d, e)
+```
+
+The type NAME changes (`Set(` → `HashSet(`) and the order becomes hash-bucket order — neither
+insertion nor sorted. So "match real Scala" is not a contract any lane could implement: it would
+mean reproducing a particular JVM's bucket layout and switching the printed type name at the fifth
+element.
+
+**The interpreter's sorted rendering is the deliberate choice, not an oversight**, and
+`v1/runtime/backend/interpreter/src/test/scala/scalascript/SetTest.scala` has said so all along in a
+test named `deterministic show (sorted)`. Sorted is stable across runs, independent of set size, and
+is the only order the four lanes can actually agree on.
+
+What remains true from the original report is only that `Set(3, 1, 2)` renders differently on `int`
+and `jvm` for sets of four or fewer. `tests/conformance/set-distinct.ssc` writes every literal in
+ascending order so the two coincide, with a comment saying why — that stays the right handling.
+
+**Lesson worth keeping**: I filed this from a two-lane, one-size probe (`Set(3,1,3,2)`). Widening it
+by one axis — set size — inverted the conclusion. The golden lane was not wrong; my probe was too
+narrow to see which behaviour was the contract.
 
 ## int-v1-lane-loses-a-builtin-companion-to-its-own-case-class — `Response.html` dies, `Response(...)` works
 
