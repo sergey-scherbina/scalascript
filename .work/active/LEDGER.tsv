@@ -1,4 +1,4 @@
-# generation: 887
+# generation: 888
 #slug	agent	started	items	paths
 ssc3-core	claude-code	2026-08-01T11:18:17Z	SSC3-0 SSC3-1 SSC3-2 SSC3-3 SSC3-4 SSC3-5	v3 file:tests/fixtures/modules.tsv file:tests/conformance/generic-ctor-and-array-alloc.ssc file:tests/conformance/expected/generic-ctor-and-array-alloc.txt file:tests/conformance/corpus-baseline.tsv
 uniml-ssc3-frontend-readiness	claude-code	2026-08-01T15:07:27Z	UNIML-SSC3 — make UniML ready as the ScalaScript parser and AST for language version 3	file:uniml/SPRINT.md file:uniml/BACKLOG.md file:specs/uniml-ssc3-frontend.md file:bench/history.tsv file:uniml/core/src file:uniml/scala/src file:uniml/build.sbt file:build.sbt file:specs/project-partitioning.md file:scripts/smoke-ci.ssc file:tests/e2e/uniml-standalone-tests.sh file:.github/workflows/ci.yml
@@ -7,3 +7,4 @@ int-render-and-upload-gaps	claude-code	2026-08-04T15:31:02Z	orphaned-e2e-gates-5
 v2-three-clause-typecheck	claude-code	2026-08-04T15:31:47Z	v2-three-parameter-clauses-fail-typecheck	file:v2/lib/ssc1-check.ssc0 file:specs/v2.2-p6.5-fsub.ssc file:tests/conformance/curried-def-clauses.ssc file:tests/conformance/expected/curried-def-clauses.txt file:tests/e2e/v2-front-coverage.sh
 native-upload-numberformat	claude-code	2026-08-04T15:31:55Z	native-upload-numberformat-on-dash	file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/NioNativeHttpServerHost.scala file:v1/runtime/http-server/fast-engine/src/main/scala/ssc/plugin/httpfast/HttpProtocol.scala file:v2/BUGS.md
 release-v0-1-0	claude-code	2026-08-04T15:20:00Z	release-v0-1-0 native-release-blocked-by-testutils-clean-compile	file:.github/workflows/native-release.yml file:tests/BUGS.md
+tui-remote-table-height	housekeeping-rozum	2026-08-04T15:38:11Z	tui-remote-table-height	file:frontend/tui/src/main/scala/scalascript/frontend/tui/TuiEmitter.scala file:frontend/tui/src/test/scala/scalascript/frontend/tui/TuiEmitterTest.scala file:specs/frontend-tui-remote-table-height.md
