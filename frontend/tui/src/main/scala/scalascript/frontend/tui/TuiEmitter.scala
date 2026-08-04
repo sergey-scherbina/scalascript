@@ -889,7 +889,14 @@ object TuiEmitter:
     else
       val chunks = s"chunks${ids.next()}"
       val constraints = dir match
-        case Dir.Vertical   => kids.map(k => s"Constraint::Length(${measureHeight(k)})").mkString(", ")
+        // A child whose height cannot be known at emit time takes the REMAINING space instead of a
+        // fixed line count. A remote table is the case that matters: its row count is genuinely
+        // unknowable here, and answering that with `Length(1)` gave it exactly one line — the header
+        // rendered and not a single row did, with the fetch working and the data in the store. Every
+        // other child keeps the constraint it had, or existing layouts would shift.
+        case Dir.Vertical   => kids.map(k =>
+          if isFlexibleHeight(k) then s"Constraint::Min(${measureHeight(k)})"
+          else s"Constraint::Length(${measureHeight(k)})").mkString(", ")
         case Dir.Horizontal => kids.map(_ => s"Constraint::Ratio(1, ${kids.size})").mkString(", ")
       val ctor = dir match { case Dir.Vertical => "vertical"; case Dir.Horizontal => "horizontal" }
       sb ++= s"    let $chunks = Layout::$ctor([$constraints]).split($area);\n"
@@ -992,6 +999,16 @@ object TuiEmitter:
     case View.Fragment(ch) => ch.forall(isEmpty)
     case _                 => false
 
+  /** True when a node's height is unknowable at emit time and it should take the remaining space.
+   *  Only a REMOTE table qualifies today — a `StaticRows` table's height is already computed, and
+   *  making anything else flex would move every existing layout. */
+  private def isFlexibleHeight(v: View[?]): Boolean = v match
+    case View.DataTable(TableDataSource.StaticRows(_), _, _, _, _) => false
+    case View.DataTable(_, _, _, _, _)                             => true
+    case View.Styled(child, _)                                     => isFlexibleHeight(child)
+    case View.ScrollView(child, _, _)                              => isFlexibleHeight(child)
+    case _                                                         => false
+
   private def measureHeight(v: View[?]): Int = v match
     case View.Column(ch, _, _, _)           => ch.filterNot(isEmpty).map(measureHeight).sum
     case View.Fragment(ch)                  => ch.filterNot(isEmpty).map(measureHeight).sum
@@ -1007,7 +1024,10 @@ object TuiEmitter:
     case View.NavigationStack(routes, _, _) => routes.values.map(r => measureHeight(r())).maxOption.getOrElse(1)
     case View.DataTable(source, columns, _, _, _) => source match
       case TableDataSource.StaticRows(rows) => rows.size + 1
-      case _                                => 1
+      // A floor, not a guess: header + two rows, so a picker in a cramped column is usable rather
+      // than technically-correct-and-empty. The real size comes from `Constraint::Min` taking what
+      // is left (see `emitStack`).
+      case _                                => 3
     case View.Spacer(size)                  => math.max(0, size.map(_.round.toInt).getOrElse(1))
     case _                                  => 1
 

@@ -249,6 +249,52 @@ final class TuiFetchCargoTest extends AnyFunSuite:
     finally
       server.stop(0)
 
+  test("a remote table inside a column actually renders its rows"):
+    assume(cargoAvailable, "cargo not on PATH — skipping fetch cargo gate")
+    val server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0)
+    server.createContext("/rooms", (ex: com.sun.net.httpserver.HttpExchange) => {
+      val body = """{"entries":[{"name":"ROOM-ALPHA"},{"name":"ROOM-BETA"}]}"""
+      val bytes = body.getBytes("UTF-8")
+      ex.sendResponseHeaders(200, bytes.length.toLong)
+      val os = ex.getResponseBody; os.write(bytes); os.close()
+    })
+    server.start()
+    try
+      val port = server.getAddress.getPort
+      val rooms = new FetchUrlSignal("rooms", s"http://127.0.0.1:$port/rooms", "tick")
+      // The shape that failed: a table BETWEEN fixed-height siblings in a column.
+      val view = View.Column(Seq(
+        View.Text(() => "TITLE"),
+        View.DataTable(TableDataSource.Remote(rooms, "entries"),
+          List(FieldColumnDef("Room", "name")), rowKeyPath = "name"),
+        View.Text(() => "FOOTER")
+      ))
+      val module = FrontendModule(List(ComponentDef("App", Nil, _ => view)), "App", "/", targetPlatform = Platform.Terminal)
+      val app = new TuiFrameworkBackend().emitNative(module, Platform.Terminal).getOrElse(fail("emitNative returned None"))
+      val dir = Files.createTempDirectory("ssc-tui-tableheight-")
+      try
+        app.sources.foreach { case (rel, content) =>
+          val p = dir.resolve(rel)
+          Files.createDirectories(p.getParent)
+          Files.writeString(p, content)
+        }
+        val out = new StringBuilder
+        val log = ProcessLogger(l => out.append(l).append('\n'), l => out.append(l).append('\n'))
+        val code = Process(Seq("cargo", "run", "--quiet"), dir.toFile, "SSC_TUI_SNAPSHOT" -> "1").!(log)
+        assert(code == 0, s"cargo run failed (exit $code):\n$out")
+        val snapshot = out.toString
+        // The emitter test proves the constraint changed; only this proves the ROWS became visible,
+        // which is the actual complaint. Both siblings must survive too — the table taking the
+        // remaining space must not push them off.
+        assert(snapshot.contains("TITLE"), s"the heading was lost:\n$snapshot")
+        assert(snapshot.contains("FOOTER"), s"the footer was pushed out:\n$snapshot")
+        assert(snapshot.contains("ROOM-ALPHA"), s"first row still invisible:\n$snapshot")
+        assert(snapshot.contains("ROOM-BETA"), s"second row still invisible:\n$snapshot")
+      finally
+        deleteRecursively(dir)
+    finally
+      server.stop(0)
+
   private def deleteRecursively(p: Path): Unit =
     try
       if Files.exists(p) then

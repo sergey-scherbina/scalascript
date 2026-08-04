@@ -297,6 +297,34 @@ final class TuiEmitterTest extends AnyFunSuite:
     assert(!rs.contains("fn row_field("))
   }
 
+  test("a remote table in a column takes the remaining height, its siblings do not") {
+    // Found building a room picker: a remote table measured 1, so the header rendered and no row
+    // did — with the fetch working and the rows sitting in the store. Everything looked healthy.
+    val feed = new FetchUrlSignal("rooms", "http://x/rooms", "tick")
+    val table = View.DataTable(TableDataSource.Remote(feed, "entries"),
+      List(FieldColumnDef("Room", "name")), rowKeyPath = "name")
+    val rs = emitMain(View.Column(Seq(text("title"), table, text("footer"))))
+    assert(rs.contains("Layout::vertical([Constraint::Length(1), Constraint::Min(3), Constraint::Length(1)])"),
+      s"unexpected constraints:\n$rs")
+  }
+
+  test("a column with no remote table emits exactly the constraints it emitted before") {
+    // The negative half, and the one that protects every existing layout: nothing else may start
+    // flexing just because tables can.
+    val rs = emitMain(View.Column(Seq(text("a"), text("b"))))
+    assert(rs.contains("Layout::vertical([Constraint::Length(1), Constraint::Length(1)])"))
+    assert(!rs.contains("Constraint::Min("))
+  }
+
+  test("a static-rows table still measures its rows exactly") {
+    val dt = View.DataTable(
+      TableDataSource.StaticRows(List(Map("a" -> "1"), Map("a" -> "2"))),
+      List(FieldColumnDef("A", "a")), rowKeyPath = "a")
+    val rs = emitMain(View.Column(Seq(text("t"), dt)))
+    // two rows + header = 3, and FIXED — a knowable height must not become flexible.
+    assert(rs.contains("Layout::vertical([Constraint::Length(1), Constraint::Length(3)])"), s"\n$rs")
+  }
+
   test("a fetch WITHOUT headers stays header-free and serde_json-free") {
     // The other half, and the one that keeps the no-header path cheap: emitting fetch_headers
     // unconditionally would reference serde_json in every crate that fetches anything.
