@@ -59,6 +59,31 @@ object FetchIntrinsics:
         case _ => PluginError.raise("fetchUrlSignal(name, url, refreshTick[, headers])")
     },
 
+    // fetchUrlSignalTo(name, urlSignal, refreshTick[, headers]): Signal[String]
+    // Like fetchUrlSignal, but the URL is read from a signal AT FETCH TIME, so changing that signal
+    // retargets the GET. The site existed only in the JS runtime and v2's UiNativePlugin, so a
+    // source using it never reached the STATIC frontends in a form they could honour — the terminal
+    // target kept reading whichever endpoint was resolved at emit time (INBOX tui-fetch-url-signal).
+    // `fetchUrl` is left empty here on purpose: with `urlId` set it is unused, and an empty literal
+    // makes a backend that ignores `urlId` fetch NOTHING rather than fetch something wrong.
+    QualifiedName("fetchUrlSignalTo") -> PluginNative.evalLegacy { (_, args) =>
+      def build(urlSig: ReactiveSignal[?], tick: ReactiveSignal[?], headers: Option[ReactiveSignal[?]]) =
+        val hId = headers.map(_.id).filter(_ != "__ssc_empty_headers")
+        PluginValue.foreign("ReactiveSignal",
+          new FetchUrlSignal(args.head.asInstanceOf[String], "", tick.id, hId, Some(urlSig.id)))
+      args match
+        case List(_: String,
+                  PluginValue.Foreign("ReactiveSignal", urlSig: ReactiveSignal[?]),
+                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?])) =>
+          build(urlSig, tick, None)
+        case List(_: String,
+                  PluginValue.Foreign("ReactiveSignal", urlSig: ReactiveSignal[?]),
+                  PluginValue.Foreign("ReactiveSignal", tick: ReactiveSignal[?]),
+                  PluginValue.Foreign("ReactiveSignal", headers: ReactiveSignal[?])) =>
+          build(urlSig, tick, Some(headers))
+        case _ => PluginError.raise("fetchUrlSignalTo(name, urlSignal, refreshTick[, headers])")
+    },
+
     // fetchJsonSignal(name, url, refreshTick, modelTypeName[, headers]): Signal[String]
     // Like fetchUrlSignal but creates a FetchJsonSignal that decodes JSON into a named model type.
     // The runtime value is still ReactiveSignal[String] (raw JSON text on JVM); backends switch

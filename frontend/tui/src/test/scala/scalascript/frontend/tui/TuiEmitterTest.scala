@@ -178,6 +178,39 @@ final class TuiEmitterTest extends AnyFunSuite:
     assert(rs.contains("req = req.set(name, value);"))           // applied to the request
   }
 
+  test("a signal-URL fetch resolves the URL at fetch time and re-fetches when it changes") {
+    // Reported by rozum (INBOX tui-fetch-url-signal): a picker retargets the GET on the web and the
+    // terminal binary kept reading whichever endpoint was resolved at emit time.
+    val feed = new FetchUrlSignal("rows", "", "tick", None, Some("urlSig"))
+    val (_, rs) = emitCrate(View.SignalText(feed))
+    assert(rs.contains("""load_fetch(signals, "rows", &sig(signals, "urlSig"), &[]);"""))
+    assert(!rs.contains("""load_fetch(signals, "rows", "", &[]);"""))   // never the emit-time literal
+    // The observed state is the PAIR. Remembering only the tick would mean a retarget with an
+    // unchanged tick never re-fetches — the reported bug, one layer down — so this assertion is
+    // the actual regression guard, not the load_fetch line above.
+    assert(rs.contains("""format!("{} {}", sig_int(signals, "tick"), sig(signals, "urlSig"))"""))
+    assert(rs.contains("fn refresh_fetches(signals: &mut HashMap<String, Value>, observed: &mut HashMap<String, String>)"))
+    // An empty URL is a picker with nothing selected: no request, last good value kept.
+    assert(rs.contains("if url.is_empty() { return; }"))
+  }
+
+  test("a literal-URL fetch is unchanged by the signal-URL support") {
+    // The negative half: sources that never asked for a signal URL must emit exactly what they did
+    // before — the literal inline, and no signal read on the URL path.
+    val feed = new FetchUrlSignal("rows", "http://x/rows", "tick")
+    val (_, rs) = emitCrate(View.SignalText(feed))
+    assert(rs.contains("""load_fetch(signals, "rows", "http://x/rows", &[]);"""))
+    assert(rs.contains("""format!("{}", sig_int(signals, "tick"))"""))  // tick alone is the state
+    assert(!rs.contains("""&sig(signals, "urlSig")"""))
+  }
+
+  test("a signal-URL fetch composes with headers — both resolved at the same moment") {
+    val feed = new FetchUrlSignal("rows", "", "tick", Some("auth"), Some("urlSig"))
+    val (_, rs) = emitCrate(View.SignalText(feed))
+    assert(rs.contains("""let headers = fetch_headers(signals, "auth");"""))
+    assert(rs.contains("""load_fetch(signals, "rows", &sig(signals, "urlSig"), &headers);"""))
+  }
+
   test("a fetch WITHOUT headers stays header-free and serde_json-free") {
     // The other half, and the one that keeps the no-header path cheap: emitting fetch_headers
     // unconditionally would reference serde_json in every crate that fetches anything.
@@ -240,10 +273,14 @@ final class TuiEmitterTest extends AnyFunSuite:
     // that binds no headers passes an empty slice rather than a different function.
     assert(rs.contains("""load_fetch(signals, "feed", "http://localhost:9/rooms", &[]);"""))
     assert(rs.contains("fn initial_fetch_ticks(signals: &HashMap<String, Value>)"))
-    assert(rs.contains("""observed.insert("feed".to_string(), sig_int(signals, "tick"));"""))
+    // Since tui-fetch-url-signal the observed state is a STRING, not an i64: a signal-URL fetch has
+    // two triggers (tick and URL) and what is remembered has to be the pair. A literal-URL fetch
+    // like this one still remembers the tick alone — just formatted — so the refresh contract this
+    // test guards is unchanged; only its representation moved.
+    assert(rs.contains("""observed.insert("feed".to_string(), format!("{}", sig_int(signals, "tick")));"""))
     assert(rs.contains("fn refresh_fetches(signals: &mut HashMap<String, Value>"))
-    assert(rs.contains("""let current = sig_int(signals, "tick");"""))
-    assert(rs.contains("""observed.get("feed").copied() != Some(current)"""))
+    assert(rs.contains("""let current = format!("{}", sig_int(signals, "tick"));"""))
+    assert(rs.contains("""observed.get("feed") != Some(&current)"""))
     assert(rs.contains("refresh_fetches(&mut signals, &mut observed_fetch_ticks);"))
     assert(rs.contains("bootstrap(&mut signals);"))
   }
