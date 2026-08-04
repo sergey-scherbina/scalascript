@@ -129,6 +129,58 @@ gate. It cost me roughly half an hour on `std/credential.ssc` before the lane ma
 Found while landing `credential-vocabulary`; that module now uses `val credentialNone` and carries a
 comment pointing here.
 
+## native-release-native-image-three-defects — the stage nothing had ever reached
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     gate: .github/workflows/native-release.yml -->
+
+With the pipelining blocker fixed (`native-release-blocked-by-testutils-clean-compile`), run
+`30954908133` became the first ever to reach `native-image`. All three runners fail there, and the
+log separates into **three independent defects** — the memory one masks the others, so they must be
+fixed in order.
+
+**1. `build.sbt`'s native-image config paths point at a directory that does not exist.**
+The configs live at the repo root, `./native-image-configs/`. `build.sbt:2347-2348` builds
+`(cli / baseDirectory) / ".." / ".."`, and cli's base is `v1/tools/cli`, so that resolves to
+`v1/native-image-configs` — **missing**. The workflow's `set` line supplies `".." / ".." / ".."`
+(the root), which is correct. That override is not a diagnostic hack to be deleted, as its comment
+implies: it is the only reason the configs load at all. Fix `build.sbt` FIRST, or removing the
+override silently drops reflection and resource configuration.
+
+**2. The forced heap is below what the tool asks for, on every runner.**
+The same `set` line strips `-J-Xmx` and forces `-J-Xmx5g` (build.sbt asks for `8g`). native-image
+states its own requirement in the log:
+
+| runner | system RAM | given | native-image asks for |
+| --- | --- | --- | --- |
+| ubuntu-latest | 15.61 GB | 4.44 GB | > 6.04 GB |
+| macos-15-intel | 14.00 GB | 4.44 GB | > 5.69 GB |
+| macos-latest (arm64) | **7.00 GB** | 4.44 GB (63.5%) | not printed |
+
+linux and arm64 die as `Image generator watchdog detected no activity` with used == maximum heap
+(4700 and 4918 MB) — starvation, not deadlock. **`8g` is not the answer either:** it fits linux and
+intel but is 114% of the arm64 runner's 7 GB. The heap has to vary per runner, or arm64 needs a
+bigger machine.
+
+**3. A genuine image-heap defect, visible only on the runner that got furthest.**
+macos-15-intel had enough memory to finish analysis and then failed differently:
+
+```
+Image heap writing found a class not seen during static analysis
+  object: DirectSubstrateObjectConstant[Object]
+  reachable through: java.util.concurrent.ConcurrentHashMap$Node[]
+  object: {sun.util.resources.LocaleNames-en-US=…, sun.text.resources.cldr.FormatData-nb-NO=…}
+  root: sun.util.resources.LocaleData$LocaleDataStrategy.getCandidateLocales(String, Locale)
+```
+
+JDK locale data cached at build time and not seen by static analysis. **Expect this to become the
+blocker for all three once memory is fixed** — intel is not special, it just got there first.
+
+**Do not treat this entry as "the release is nearly done".** Defect 3 has never been attempted and
+is the substantive one; 1 and 2 are bookkeeping in front of it.
+
 ## native-release-blocked-by-testutils-clean-compile — the release workflow has never produced a release
 <!-- status: open
      lane: apparatus
