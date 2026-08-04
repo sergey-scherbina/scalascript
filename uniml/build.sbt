@@ -100,20 +100,31 @@ lazy val unimlMarkdownCross =
 // spike dialect (core test scope) so a whole .ssc parses as ONE lossless UniML tree.
 // JVM-only: the composition spec is a differential harness that writes files (java.nio),
 // exactly like the core-test spike. `test->test` on core exposes SpikeDialect/SpikeProject.
-lazy val unimlScala = project
-  .in(file("scala"))
-  // The ScalaScript dialect and the `.ssc` composer are PRODUCTION sources here since
-  // UPR-4a; they used to live in `uniml/core`'s TEST scope, which is why this project
-  // needed core's test classes. It no longer does — dropping `test->test` is how that
-  // move is checked, not merely asserted.
-  .dependsOn(unimlCross.jvm, unimlMarkdownCross.jvm, unimlYamlCross.jvm, unimlJsonCross.jvm)
-  .settings(
-    name := "scalascript-uniml-scala",
-    libraryDependencies ++= Seq("org.scalatest" %% "scalatest" % scalatestV % Test),
-    Compile / scalacOptions ++= sharedScalacOptionsStrict,
-    Test    / scalacOptions ++= sharedScalacOptions,
-  )
-  .settings(standaloneTargetSettings)
+// The ScalaScript dialect + the `.ssc` composer. CROSS-BUILT since UPR-4b: the
+// production sources use no JVM API at all — no `java.*`, no threads, no files —
+// so the front end a ScalaScript 3 toolchain needs is available on Scala.js too.
+// The tests that WALK THE REPOSITORY are JVM-only by nature and live in
+// `src/test-jvm`, the same split `unimlYaml` and `unimlMarkdown` already use.
+lazy val unimlScalaCross =
+  crossProject(JVMPlatform, JSPlatform)
+    .crossType(CrossType.Pure)
+    .in(file("scala"))
+    .dependsOn(unimlCross, unimlMarkdownCross, unimlYamlCross, unimlJsonCross)
+    .settings(
+      name := "scalascript-uniml-scalascript",
+      libraryDependencies ++= Seq("org.scalatest" %%% "scalatest" % scalatestV % Test),
+      Compile / scalacOptions ++= sharedScalacOptionsStrict,
+      Test    / scalacOptions ++= sharedScalacOptions,
+    )
+    .settings(standaloneTargetSettings)
+    .jvmConfigure(_.withId("unimlScala"))
+    .jvmSettings(
+      Test / unmanagedSourceDirectories += baseDirectory.value.getParentFile / "src" / "test-jvm" / "scala",
+    )
+    .jsConfigure(_.withId("unimlScalaJs"))
+    .jsSettings(Test / fork := false)
+
+lazy val unimlScala = unimlScalaCross.jvm
 
 lazy val root = project
   .in(file("."))
@@ -122,7 +133,7 @@ lazy val root = project
     unimlJsonCross.jvm, unimlJsonCross.js,
     unimlYamlCross.jvm, unimlYamlCross.js,
     unimlMarkdownCross.jvm, unimlMarkdownCross.js,
-    unimlScala,
+    unimlScalaCross.jvm, unimlScalaCross.js,
   )
   .settings(
     name := "uniml",
@@ -137,7 +148,8 @@ lazy val root = project
         "unimlYamlJs"     -> (unimlYamlCross.js / target).value,
         "unimlMarkdown"   -> (unimlMarkdownCross.jvm / target).value,
         "unimlMarkdownJs" -> (unimlMarkdownCross.js / target).value,
-        "unimlScala"      -> (unimlScala / target).value,
+        "unimlScala"      -> (unimlScalaCross.jvm / target).value,
+        "unimlScalaJs"    -> (unimlScalaCross.js / target).value,
       ).map { case (id, path) => id -> path.getAbsoluteFile.toPath.normalize }
       val invalidSuffix = resolved.filterNot { case (_, path) =>
         val count = path.getNameCount
@@ -148,8 +160,8 @@ lazy val root = project
       val collisions =
         resolved.groupBy(_._2).toVector.filter(_._2.size > 1).sortBy(_._1.toString)
       if (
-        resolved.size != 9 ||
-        resolved.map(_._2).distinct.size != 9 ||
+        resolved.size != 10 ||
+        resolved.map(_._2).distinct.size != 10 ||
         invalidSuffix.nonEmpty ||
         collisions.nonEmpty
       ) {
@@ -159,12 +171,12 @@ lazy val root = project
         }.mkString("\n")
         sys.error(
           "Standalone UniML target isolation failed.\n" +
-            s"Expected 9 distinct paths ending in target/standalone; resolved:\n$paths\n" +
+            s"Expected 10 distinct paths ending in target/standalone; resolved:\n$paths\n" +
             (if (duplicatePaths.isEmpty) "" else s"Collisions:\n$duplicatePaths\n")
         )
       }
       streams.value.log.info(
-        "Standalone UniML target isolation: 9 distinct target/standalone namespaces",
+        "Standalone UniML target isolation: 10 distinct target/standalone namespaces",
       )
     },
     Test / test := ((Test / test) dependsOn verifyStandaloneTargetIsolation).value,
