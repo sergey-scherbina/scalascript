@@ -59,8 +59,17 @@ final class SscBreadthSpec extends AnyFunSuite:
     worst.sortBy(-_._2).take(5).foreach((f, c) => info(f"  worst $c%5d  $f"))
 
     // Floors: a fix must be free to improve these without editing the test, but a
-    // regression in what the front accepts has to fail. SSC3-B is done when clean
-    // == files and diagnostics == 0.
+    // regression in what the front accepts has to fail.
+    //
+    // ZERO IS NOT THE TARGET, and measuring said so. An UNTAGGED fence (```) defaults
+    // to ScalaScript, so a file whose fence holds a protocol diagram, shell output or
+    // pseudocode reports diagnostics no parser fix can remove — `mapreduce/shuffle.ssc`
+    // spends 18 on `Phase A (map stage):`. Measured 2026-08-04: of 64 files with any
+    // diagnostic, 17 hold an untagged fence and those files account for 129 of 366
+    // diagnostics. That 129 is an UPPER bound on the unreachable share — such a file
+    // may also have real gaps in its tagged fences — but the reachable floor is clearly
+    // above zero, and chasing zero would push toward changing the untagged default or
+    // teaching the parser prose, both wrong.
     assert(pct > 90.0, f"clean-parse rate fell to $pct%.1f%%")
     assert(total < 900, s"diagnostics grew to $total")
   }

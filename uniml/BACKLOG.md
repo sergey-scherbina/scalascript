@@ -362,9 +362,18 @@ self-parity test is not external conformance.
         Still owed: the AST is not yet the thing anything CONSUMES — no lowering to SSC IR,
         and no differential proving `SpikeTyped` and `SpikeProject` agree on meaning.
 
-  - [ ] **SSC3-B breadth to zero.** Differential against `F` over the whole corpus until
+  - [ ] **SSC3-B breadth — to the reachable floor, NOT to zero.** Differential against `F` over the whole corpus until
         DIFF=HOLE=EMPTY=TIMEOUT=0. Until then the declared dialect id names the passing SUBSET
         (UPR-4a's own rule), and no fallback may be counted as a match.
+        ⚠️ **THE TARGET IN THIS ITEM'S TITLE WAS WRONG AND MEASUREMENT CORRECTED IT.** An
+        UNTAGGED fence (```) defaults to ScalaScript, so a fence holding a protocol diagram,
+        shell output or pseudocode produces diagnostics NO parser fix can remove —
+        `v1/runtime/std/mapreduce/shuffle.ssc` spends 18 of them on `Phase A (map stage):`.
+        Measured 2026-08-04: of the 64 files with any diagnostic, **17 hold an untagged fence
+        and account for 129 of 366 diagnostics**. (Upper bound on the unreachable share: such a
+        file may also have real gaps in its tagged fences.) So "DIFF=HOLE=EMPTY=TIMEOUT=0" has
+        to be read against TAGGED ScalaScript fences only; chasing literal zero would push
+        toward changing the untagged default or teaching the parser prose, and both are wrong.
         **Measured 2026-08-02 through `SscCompose`: 1,029 of 1,143 files parse COMPLETELY
         CLEAN (90.0%), 1,278 diagnostics in total.** So breadth is a finite list, not a
         rewrite. Ranked by what the parser trips on: `object` (94 "expected class name"),
