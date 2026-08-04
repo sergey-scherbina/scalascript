@@ -51,7 +51,23 @@ ThisBuild / Test / javaOptions += s"-Xmx${sys.env.getOrElse("SSC_TEST_XMX", "2g"
 // Inter-project pipelined compilation (sbt 1.10 + Scala 3.8): dependent modules
 // start compiling against early outputs of their upstreams — significant on this
 // build's 224-edge dependsOn graph. Revert if zinc invalidation misbehaves.
-ThisBuild / usePipelining := true
+// Pipelining is OFF, and this is a correctness setting, not a taste one.
+// Under `usePipelining := true` a module compiles against its dependencies'
+// EARLY tasty output, and in this build that output is not reliably present:
+// the dependent compile then sees an empty classpath and fails with
+// "not a member of scalascript" / "Not found: <Type>" at the USE site, which
+// reads like missing code rather than a missing classpath.
+//
+// Measured, both sides from the same cleaned target, the flag the only variable:
+//   testUtils/compile   ON: 27 errors                OFF: 0
+//   core/compile        ON: 627 errors in 25 files   OFF: 0
+// It also blocked every Native Release run this repository has ever had.
+//
+// It is STATE DEPENDENT -- on a fully clean tree some of these compile fine
+// with it ON -- so a green build is not evidence that turning it back on is
+// safe. Re-enabling needs that A/B re-run from clean on both sides.
+// tests/BUGS.md native-release-blocked-by-testutils-clean-compile.
+ThisBuild / usePipelining := false
 // Export sub-module classes as JARs so cli/stage sees actual JAR files
 // (not class directories) when collecting the classpath for lib/jars/.
 ThisBuild / exportJars          := true
@@ -1426,19 +1442,6 @@ lazy val testUtils = project
   // run 30907972567 failed identically with it declared.)
   .dependsOn(backendSpi, backendInterpreter, core)
   .settings(
-    // Pipelining OFF for this one module. Under `ThisBuild / usePipelining := true` a module
-    // compiles against its dependencies' EARLY tasty output; in the branch that builds the full
-    // artifact set (35 poms + scaladoc — what `cli/graalvm-native-image:packageBin` walks) that
-    // early output is absent here, and all three imports in TestInterpreter.scala resolve to
-    // nothing: "value backend is not a member of scalascript". testUtils is the module that shows
-    // it because NOTHING depends on it in Compile scope, so the artifact-collection path is the
-    // only thing that ever compiles it.
-    // Proven by A/B from `git clean -xdf` on both sides, flag the only difference: ON reproduces
-    // the three CI runners' failure, OFF compiles and the build walks past it. Do not "simplify"
-    // this away without re-running that A/B from clean -- a control taken on an already-built tree
-    // passes either way, which is how this was mis-refuted twice.
-    // tests/BUGS.md native-release-blocked-by-testutils-clean-compile.
-    usePipelining := false,
     name := "scalascript-test-utils",
     libraryDependencies ++= Seq(scalatestTest),
     Compile / scalacOptions ++= sharedScalacOptionsStrict,

@@ -300,8 +300,27 @@ environments never "differed only in the JDK", they ran different task graphs.
   preceding no-pipelining run had itself built the dependencies' full jars, so the control was
   measuring a repaired tree. **A control taken after the experiment is not a control.**
 
-**Fix:** `testUtils / usePipelining := false`, scoped to the one module, so pipelining keeps its
-build-speed win everywhere else.
+**Fix (corrected 2026-08-05): `ThisBuild / usePipelining := false`, build-wide.**
+
+The first fix scoped it to testUtils, on the reasoning that testUtils is singular because nothing
+depends on it in Compile scope. That reasoning was wrong — or rather, it explained why testUtils
+fails *first*, not why it fails *alone*. `core` fails the same way and far harder:
+
+| module | pipelining ON | OFF |
+| --- | --- | --- |
+| `testUtils/compile` | 27 errors | 0 |
+| `core/compile` | **627 errors across 25 files** | 0 |
+
+Same cleaned target on both sides, flag the only variable. `core` reports `Not found: SimpleYaml`
+and friends — again at the *use* site, again reading like deleted code rather than a missing
+classpath. It surfaced only because the scoped fix let the build get far enough to reach it.
+
+The scoped setting is removed; keeping both would leave a second, redundant statement of the same
+decision.
+
+**This is state dependent, and that is the trap.** On a fully clean tree `testUtils/compile` passes
+with pipelining ON. So a green build proves nothing about re-enabling it, and neither does a control
+run taken after a repairing build — that mistake was made twice here already.
 
 ## coord-claim-items-tokenised-so-prose-collides-on-stop-words — a claim refused over the word "the"
 <!-- status: open
