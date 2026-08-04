@@ -1,0 +1,11 @@
+slug: area-map-gate-silent-diagnosis
+branch: feature/area-map-gate-silent-diagnosis
+agent: claude-code
+started: 2026-08-04T13:54:38Z
+heartbeat: 2026-08-04T13:54:38Z
+status: claimed-before-planning
+items: area-map-gate
+paths: file:tests/e2e/area-map-gate.sh file:tests/fixtures/board-ownership-baseline.tsv
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
