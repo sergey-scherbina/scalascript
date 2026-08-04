@@ -1,4 +1,4 @@
-# generation: 917
+# generation: 918
 #slug	agent	started	items	paths
 ssc3-core	claude-code	2026-08-01T11:18:17Z	SSC3-0 SSC3-1 SSC3-2 SSC3-3 SSC3-4 SSC3-5	v3 file:tests/fixtures/modules.tsv file:tests/conformance/generic-ctor-and-array-alloc.ssc file:tests/conformance/expected/generic-ctor-and-array-alloc.txt file:tests/conformance/corpus-baseline.tsv
 release-v0-1-0	claude-code	2026-08-04T15:20:00Z	release-v0-1-0 native-release-blocked-by-testutils-clean-compile	file:.github/workflows/native-release.yml file:tests/BUGS.md file:build.sbt
@@ -6,3 +6,4 @@ uniml-ssc3-frontend-readiness	claude-code	2026-08-04T21:40:45Z	UNIML-SSC3 UNIML-
 jvm-cons-imported-module	claude-code	2026-08-04T22:48:47Z	jvm-lane-cannot-compile-a-json-import	mod:v1/runtime/backend/jvm
 credential-parameter	housekeeping-rozum	2026-08-04T22:49:28Z	credential parameter on fetchUrlSignal — connects S1 vocabulary to S2 resolution	file:v1/runtime/std/ui/primitives.ssc file:v1/runtime/std/credential.ssc file:v1/runtime/std/fetch-plugin/src/main/scala/scalascript/compiler/plugin/fetch/FetchIntrinsics.scala file:v1/runtime/std/fetch-plugin/src/test/scala/scalascript/compiler/plugin/fetch/FetchPluginInterpreterTest.scala
 js-char-classification-parity	claude-code	2026-08-04T22:50:24Z	char-classification-diverges-from-the-interpreter-on-seven-predicates	file:v1/runtime/backend/js/src/main/resources/scalascript/js-runtime/core-collections.mjs file:v1/runtime/backend/js/BUGS.md file:v1/runtime/backend/interpreter/src/main/scala/scalascript/interpreter/DispatchRuntime.scala file:tests/e2e/js-char-classification-parity.sh
+smoke-budget-600-and-tier2-triage	claude-code	2026-08-04T23:09:10Z	smoke-suite-over-its-own-budget	file:scripts/smoke-ci.ssc file:.github/workflows/smoke.yml file:.github/workflows/ci.yml
