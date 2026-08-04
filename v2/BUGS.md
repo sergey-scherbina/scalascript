@@ -106,10 +106,10 @@ this gap.
 
 ## native-requireInt-unbound-in-a-route-handler — seven of the eleven validation names were never registered
 
-<!-- status: open
+<!-- status: fixed
      lane: native
      area: runtime
-     fixed-in: -
+     fixed-in: a8a0332709abf7480d5b41716e0d41a3c5423bb5
      gate: tests/e2e/request-validation-family-gate.sh -->
 
     500 native HTTP handler failed: unbound global: requireInt
