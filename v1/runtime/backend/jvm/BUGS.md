@@ -8,11 +8,11 @@ grepping for status.
 Newest first.
 
 ## jvm-string-literal-s-concat-inserts-x — the string `"s"` on the left of a `+` emits an extra `x`
-<!-- status: open
+<!-- status: fixed
      lane: jvm
      area: codegen
-     fixed-in: -
-     gate: - -->
+     fixed-in: PENDING-SHA
+     gate: tests/conformance/jvm-string-s-literal.ssc -->
 
 **Found 2026-07-31** by `v2-char-value` while establishing the golden for `char-as-value`. Found by
 accident and worth saying how, because the accident is the reproducible part: the `v2-char-is-an-int`
@@ -51,6 +51,46 @@ stale artifact was the first thing ruled out.
 **Not investigated further**, deliberately: it is a different module from the claim that found it.
 The shape (`s` + an inserted `x`) reads like the `s"…"` interpolation path being taken for a bare
 `"s"` literal, with `x` coming from a generated temp name — that is a hypothesis, not a measurement.
+
+
+**FIXED 2026-08-04.** The hypothesis in this entry was right in spirit and wrong in mechanism. It
+guessed "the `s"…"` interpolation path being taken for a bare `"s"` literal, with `x` from a
+generated temp name". There is no temp name: the JVM backend post-processes its EMITTED SOURCE with
+
+```
+out.replaceAll("(?<![$\w])s(\"{1,3})", "sx$1")
+```
+
+`sx` is a real interpolator defined in the preamble — it routes each interpolated value through
+`_show` so a whole-number Double prints `4`, not `4.0`. The rewrite turns `s"…"` into `sx"…"`. Its
+lookbehind correctly excludes `bytes"…"` and `$s"…"`, and the comment above it says the pattern is
+"conservative enough not to match inside identifiers" — which is true, and says nothing about string
+LITERALS, where the hole actually was: in `println("s")` the `s` sits immediately before the closing
+quote and matches `s"`.
+
+**Two measurements the entry did not have**, both of which changed the fix:
+
+- `val v = "s"; println(v + "k")` is wrong too, so it is not about literal syntax — it is any
+  literal whose text ends with the standalone word `s`. `" s"` → `" sx"`; `"as"`, `"ss"`, `"s1"`
+  are fine.
+- The SAME function has a twin: `.replaceAll("\.mkString\(", …)` corrupts
+  `println("a.mkString(b)")` into `a.map(_show).mkString(b)`. Fixed in the same commit — it is one
+  regex-over-source mistake made twice, and fixing one would have left the other.
+
+Widening the lookbehind was rejected: it fixes `"s"` but not `" s"`. The only reliable
+discriminator is where a literal STARTS, so `rewriteCodeRegions` scans instead of matching, applying
+both rewrites to code runs only. `${ … }` holes are code and are rewritten recursively; comments and
+char literals are skipped whole so a `"` in either cannot desynchronise the scan.
+
+**A trap worth recording**: the first version of the scanner used `out.append(src, i, stop)`. Scala 3
+AUTO-TUPLED it to `append((src, i, stop))` against `append(x: Any)` — it compiled without error and
+spliced tuple `toString`s like `,23,24)` into the generated program. The symptom was a Scala syntax
+error thousands of lines from the edit. Explicit `src.substring(a, b)` everywhere.
+
+**Gate:** `tests/conformance/jvm-string-s-literal.ssc`, 10 rows on all four lanes. Verified to fail
+without the fix: **7 of 10 rows wrong**. The other 3 are guards — `s"d=$d"`, a nested interpolation
+and a `Double` `.mkString` — and they are IDENTICAL before and after, which is the point: the
+interesting way to break this fix is to delete the rewrites and bring `4.0` back.
 
 ## run-jvm-silent-success — `ssc-tools run-jvm` prints nothing and exits 0, including for a file that does not exist
 <!-- status: open

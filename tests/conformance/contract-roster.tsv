@@ -1,4 +1,4 @@
-# corpus-contract-roster-v1	baseline-sha256=90f5a174db0b12e0470a79acefdf082791dd5e5a502872bab62d3c688f334aad	roster-sha256=69701e7ac909f6fcc0f5c3cd7dbb04f6505026368bd27e375e18d0eff2475c94
+# corpus-contract-roster-v1	baseline-sha256=90f5a174db0b12e0470a79acefdf082791dd5e5a502872bab62d3c688f334aad	roster-sha256=cce6298c528b1d340f3cb6b0ddac9e9619623cd1d04b8cc2bc1c7cc9b0fdfbd5
 _bug1_httpclient
 _bug1b
 _bug1c
@@ -201,6 +201,7 @@ json-lookup
 json-read
 json-self-hosted-import
 json-value
+jvm-string-s-literal
 lang-split
 lenses
 list-apply-method

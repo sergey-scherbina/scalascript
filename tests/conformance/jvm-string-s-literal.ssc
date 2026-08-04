@@ -1,0 +1,60 @@
+---
+name: jvm-string-s-literal
+description: "the emitted-source rewrites that route through _show must not reach inside string literals"
+backends: [int, jvm, js, v2]
+---
+
+# A string literal is not code
+
+`BUGS.md` `jvm-string-literal-s-concat-inserts-x`. The JVM backend post-processes its **emitted
+Scala source** with two textual rewrites, both so that a whole-number `Double` prints `4` and not
+`4.0`:
+
+```text
+out.replaceAll("(?<![$\w])s(\"{1,3})", "sx$1")     // s"..."  ->  sx"..."
+out.replaceAll("\.mkString\(", ".map(_show).mkString(")
+```
+
+A regex over source text cannot tell code from the inside of a string literal, and both reached
+inside one:
+
+| | `int` / `js` / `v2` | `jvm` before |
+|---|---|---|
+| `println("s")` | `s` | **`sx`** |
+| `println("s" + "k")` | `sk` | **`sxk`** |
+| `println("[" + " s" + "]")` | `[ s]` | **`[ sx]`** |
+| `println("a.mkString(b)")` | `a.mkString(b)` | **`a.map(_show).mkString(b)`** |
+
+The `s` case fires whenever a literal **ends** with the standalone word `s`, because that `s` sits
+immediately before the closing quote and matches `s"`. `"as"`, `"ss"` and `"s1"` are all fine, which
+is what made it look like a Char or interpolator-prefix problem for a week: the entry that reported
+it recorded the repro as `println("s" + 'b')`, and `Char` had nothing to do with it — `val v = "s"`
+reproduces it too.
+
+**This was the ORACLE lane.** `jvm` is the only lane running real Scala, so it is what the other
+three are graded against; a defect here is a wrong reference, not just a wrong answer.
+
+```scalascript
+def main() =
+  // The literal must survive intact — as a literal, through a val, and next to a Char.
+  println("s")
+  println("s" + "k")
+  println("[" + " s" + "]")
+  println("s" + 'k')
+  val v = "s"
+  println(v + "k")
+  println("""s""")
+  println("a.mkString(b)")
+
+  // GUARDS — the two rewrites must STILL happen in code position. Without these rows the fix
+  // could be "delete the rewrites", and a whole-number Double would print 4.0 on this lane only.
+  val d = 4.0
+  println(s"d=$d")
+  println(s"nested ${s"inner $d"}")
+  println(List(1.0, 2.0).mkString(","))
+```
+
+The guard rows are the point. Both rewrites exist for a real reason, and the interesting failure of
+a fix here is not "the literal is still mangled" but "the literal is fine and `4.0` came back" —
+which is why `s"d=$d"`, a nested interpolation, and a `Double` `mkString` are all pinned beside the
+literals they were corrupting.

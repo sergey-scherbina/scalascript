@@ -3299,18 +3299,104 @@ route("POST", ${scalaStringLiteral(path + "push")}) { req =>
    *  identifiers (e.g. `bytes"..."` is not rewritten because `\bs"` requires
    *  a word boundary immediately before the `s`). */
   private def routeMkStringThroughShow(src: String): String =
-    var out = src
-    if out.contains(".mkString(") then
-      // Scala's no-arg Iterable.mkString is parameterless; `mkString()` parses
-      // as applying the returned String (`StringOps.apply`) and fails to compile.
-      out = out.replaceAll("""\.mkString\(\)""", ".map(_show).mkString")
-      out = out.replaceAll("""\.mkString\(""", ".map(_show).mkString(")
-    if out.contains("s\"") || out.contains("s\"\"\"") then
-      // Negative lookbehind for `$` or word char so we don't rewrite the `s`
-      // in `$s"..."` (the trailing variable reference inside an s-interp) or
-      // in user identifiers like `bytes"..."`.
-      out = out.replaceAll("""(?<![$\w])s("{1,3})""", "sx$1")
-    out
+    if !src.contains(".mkString(") && !src.contains("s\"") then src
+    else rewriteCodeRegions(src)
+
+  /** Apply both `_show` routings — `.mkString` and the `s` interpolator prefix — to the CODE of
+   *  `src`, never to the contents of a string literal.
+   *
+   *  Both were `replaceAll` over the whole emitted source. A regex cannot tell code from the inside
+   *  of a literal, and both hit:
+   *
+   *    - `println("s")`             emitted `println("sx")`  → the program printed `sx`
+   *    - `println("a.mkString(b)")` emitted `…"a.map(_show).mkString(b)"`
+   *
+   *  Measured 2026-08-04 against the other three lanes, which print both correctly — on the ORACLE
+   *  lane, so the reference every other lane is graded against was the one that was wrong.
+   *  BUGS `jvm-string-literal-s-concat-inserts-x`.
+   *
+   *  Widening the `s` lookbehind was not enough: it fixes `"s"` but not `" s"`, where the `s` still
+   *  ends the literal. The only reliable discriminator is where a literal STARTS, so this scans
+   *  rather than matches. `${ … }` holes are code and are rewritten recursively, so a nested
+   *  `s"…"` there is still routed as before; comments and char literals are skipped whole so a `"`
+   *  in either cannot desynchronise the scan. */
+  private[codegen] def rewriteCodeRegions(src: String): String =
+    val out  = StringBuilder(src.length + 16)
+    val code = StringBuilder()
+    val n    = src.length
+    def isWord(c: Char) = c.isLetterOrDigit || c == '_'
+
+    /** Flush the pending code run. `beforeLiteral` means a `"` comes next, so the identifier at the
+     *  tail of this run is that literal's interpolator prefix. */
+    def flushCode(beforeLiteral: Boolean): Unit =
+      var text = code.toString
+      if text.contains(".mkString(") then
+        // Scala's no-arg Iterable.mkString is parameterless; `mkString()` parses as applying the
+        // returned String (StringOps.apply) and fails to compile.
+        text = text.replaceAll("""\.mkString\(\)""", ".map(_show).mkString")
+        text = text.replaceAll("""\.mkString\(""", ".map(_show).mkString(")
+      if beforeLiteral then
+        var p = text.length
+        while p > 0 && isWord(text(p - 1)) do p -= 1
+        if text.substring(p) == "s" && !(p > 0 && text(p - 1) == '$') then
+          text = text.substring(0, p) + "sx"
+      out.append(text)
+      code.setLength(0)
+
+    /** Append the literal opening at `start`, rewriting its `${ … }` holes as code; returns the
+     *  index just past the closing quote. */
+    def appendLiteral(start: Int): Int =
+      val triple = start + 2 < n && src(start + 1) == '"' && src(start + 2) == '"'
+      val q      = if triple then 3 else 1
+      out.append(src.substring(start, start + q))
+      var i = start + q
+      var stop = -1
+      while stop < 0 && i < n do
+        val c = src(i)
+        if !triple && c == '\\' && i + 1 < n then
+          out.append(src.substring(i, i + 2)); i += 2
+        else if c == '$' && i + 1 < n && src(i + 1) == '{' then
+          var depth = 0
+          var j     = i + 1
+          var done  = false
+          while j < n && !done do
+            if src(j) == '{' then depth += 1
+            else if src(j) == '}' then
+              depth -= 1
+              if depth == 0 then done = true
+            if !done then j += 1
+          out.append("${").append(rewriteCodeRegions(src.substring(i + 2, math.min(j, n)))).append("}")
+          i = math.min(j + 1, n)
+        else if triple && c == '"' && i + 2 < n && src(i + 1) == '"' && src(i + 2) == '"' then
+          out.append(src.substring(i, i + 3)); stop = i + 3
+        else if !triple && c == '"' then
+          out.append(c); stop = i + 1
+        else
+          out.append(c); i += 1
+      if stop < 0 then i else stop
+
+    var i = 0
+    while i < n do
+      val c = src(i)
+      if c == '/' && i + 1 < n && src(i + 1) == '/' then
+        flushCode(false)
+        val e = src.indexOf('\n', i); val stop = if e < 0 then n else e
+        out.append(src.substring(i, stop)); i = stop
+      else if c == '/' && i + 1 < n && src(i + 1) == '*' then
+        flushCode(false)
+        val e = src.indexOf("*/", i + 2); val stop = if e < 0 then n else e + 2
+        out.append(src.substring(i, stop)); i = stop
+      else if c == '\'' && i + 2 < n && src(i + 1) != '\\' && src(i + 2) == '\'' then
+        flushCode(false); out.append(src.substring(i, i + 3)); i += 3
+      else if c == '\'' && i + 3 < n && src(i + 1) == '\\' && src(i + 3) == '\'' then
+        flushCode(false); out.append(src.substring(i, i + 4)); i += 4
+      else if c == '"' then
+        flushCode(true)
+        i = appendLiteral(i)
+      else
+        code.append(c); i += 1
+    flushCode(false)
+    out.toString
 
   // ─── Statement emission ───────────────────────────────────────────
 
