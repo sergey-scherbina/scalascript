@@ -449,6 +449,64 @@ the same answer, because there is no way to tell them apart through the current 
 started at `##`, and `tests/e2e/inbox-gate.sh` then read each of them as a new entry — my first
 attempt turned one report into five malformed ones. Rewritten at `###` here. The tool could refuse
 or demote them; I have not filed that separately, since you may prefer to fix it in either place.)*
+## tui-table-selection — A DataTable on the terminal target is read-only: the emitter discards its actions list and there is no row selection, so a list can be rendered but nothing can be picked from it — which is the last thing between a generated terminal client and replacing the hand-written one
+<!-- triage: new
+     reported-by: rozum (github.com/sergey-scherbina/rozum, docs/specs/ucc-meetings-in-tk.md)
+     reported-at: 2026-08-04
+     ssc-version: 77bc1dc84
+     repro: none
+     kind: feature
+     reporter-suspects: both DataTable match sites in TuiEmitter destructure actions as _, and no focusable/selection state is emitted for a table; computedSignal has no static-model equivalent either, so composing a URL from a room-name signal is not an alternative
+     impact: blocks -->
+
+Fifth from the same rozum screen, and the last thing standing between a generated terminal client
+and full parity with the hand-written one it is meant to replace. The other four are resolved —
+`tui-fetch-headers` by you, `tui-fetch-url-signal` and `tui-fetch-post` by us on `77bc1dc84`.
+
+`View.DataTable` carries `actions: List[RowActionDef]`, and the terminal emitter discards it: both
+match sites destructure it as `_` (`case View.DataTable(source, columns, _, _, rowKeyPath)`). The
+table also has no selection — no focusable row, no current-row signal. So on the terminal a table is
+a picture of data: you can read it and you cannot act on a row.
+
+What that costs concretely. Our client needs a room switcher: list the rooms, pick one, the
+transcript below retargets. Every ingredient now exists except the last hop —
+
+- the room list is a `GET /rooms` → a remote table, which renders;
+- retargeting the transcript works, since `fetchUrlSignalTo` landed;
+- and we can hand the client a ready-made URL per row so it never has to build a string (we already
+  ship derived display fields for exactly this reason);
+
+— but there is no way to say "when this row is chosen, put its value into that signal". So the list
+renders, and nothing can be selected from it.
+
+The workarounds we considered and rejected, in case they are useful signal about the shape:
+
+- A `TextInput` bound to the URL signal: the user types a URL. Works, and is not a product.
+- One `SetSignalLiteral` button per room: needs the rooms known at EMIT time; they are not.
+- Composing the URL from a room-name signal: `computedSignal` does not exist in the static model at
+  all — it is a JS-runtime primitive, so nothing derived can be expressed on this target. (Filing
+  that separately would be premature; if row selection lands, we do not need it, because the server
+  can send the finished URL.)
+
+What would unblock us, smallest first, and we would be happy with the first:
+
+1. **A current-row signal.** The table becomes focusable, up/down moves a highlighted row, and the
+   row's `rowKeyPath` value (or a named field) is written into a bound `Signal[String]` on
+   selection. That is enough for every picker we can imagine, and it composes with `fetchUrlSignalTo`
+   with no further work.
+2. Honouring `actions: List[RowActionDef]` fully — activating a row runs its handler, including the
+   `FetchAction` that now works on this target. Strictly more, and only needed for row-level writes
+   (delete, escalate), which we do not need yet.
+
+Acceptance shape, same as the other four: an emitter test that a table with a selection binding
+emits the focus/selection code and a table without one emits none, plus a cargo gate that moves the
+selection and asserts the bound signal changed — and, if you take (1) together with
+`fetchUrlSignalTo`, that the dependent fetch retargeted.
+
+Context for priority: without this the generated terminal client is usable (it reads authenticated,
+and it can post since `tui-fetch-post`) but cannot replace `rozum meetings attach`, whose room
+picker is the one thing left. So this is the difference between "a second client we maintain" and
+"delete the hand-written one", which was the whole point of generating it.
 <!-- inbox-entries:end -->
 
 ## Closed without routing
