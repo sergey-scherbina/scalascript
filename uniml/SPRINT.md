@@ -10,7 +10,36 @@ Anything not being worked on belongs in `uniml/BACKLOG.md`, not here — a queue
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
-- [~] UNIML-SSC3-CI — the dialect's tests must be run by CI.
+- [~] UNIML-SSC3 — **UniML must be ready to serve as ScalaScript's parser AND AST**, for
+      language version 3. Direction: `specs/uniml-ssc3-frontend.md`; the seam with v3's SSC IR
+      is §3.1 there. Decomposition in `uniml/BACKLOG.md` under UNIML-SSC3.
+      **Progress 2026-08-01/02, by criterion:**
+      (4) **losslessness — DONE AND GATED.** Every one of 1,146 `.ssc` files reconstructs
+          exactly; `SpikeLosslessSpec` checks reconstruction, chunk-invariance and
+          no-duplicate-tokens, verified in both directions with a planted defect.
+      (2) **typed projection — FIRST CUT.** `SpikeAst`/`SpikeTyped`, 96.3% of what the dialect
+          parses, gated with floors. Nothing consumes it yet — no lowering to SSC IR.
+      (3) **breadth — 1,278 → 483 diagnostics, 92.1% of files completely clean.** Five slices,
+          each measured: `case object`, `extern`+qualified def names (which only work TOGETHER),
+          escaped identifiers, varargs, type ascription.
+      (5) **measurement — partly.** Throughput ~0.9-1.0 MB/s on a loaded host; the ratio against
+          `F` is still owed, and retained tree size is unmeasured.
+      (1) publishable cross-built dialect and (6) v1/v2-independence: untouched.
+      **Next, from probes rather than guesses:** type aliases (`opaque`/`infix type`),
+      function and tuple types in a parameter, and an interpolator prefix the lexer does not
+      know (`html"""…"""`). ⚠️ The diagnostic-position probe used to pick these maps spans
+      through the wrong coordinate space — fix it before trusting its line numbers.
+
+- [x] UNIML-SSC3-CI — the dialect's tests must be run by CI. **Route (ii) taken and verified.**
+      `ci.yml` job `UniML — standalone build`, run 30937360765: `UniML: 10 project(s) reported
+      passing`, 2m07s. The count is asserted, not just the exit code — an aggregate that quietly
+      stops including projects exits 0 while testing less. That first run immediately caught my
+      own floor of `>= 8` against an actual 10: a threshold below the observed count tolerates
+      exactly the silent loss it claims to catch. Floored at 10 — adding a project stays green,
+      losing one goes red.
+      Cost, stated rather than hidden: this repo pushes straight to `main`, so `pull_request`
+      rarely fires and in practice it is the NIGHTLY. Regressions surface in hours, not minutes.
+      That is the honest price of a module shipping nothing into the staged toolchain.
       (a) **DONE.** `unimlScalaCross` registered in the ROOT build (JVM + Scala.js, aggregated).
           Root `uniml/test` back from 15 to 81, JS 3. The partition gate agreed rather than being
           told: modules 260 → 261, standard tier UNCHANGED at 35. `project-partitioning.md`
@@ -32,27 +61,8 @@ in one commit. Layout: `specs/work-tracking-layout.md`.
           (ii) gate it where BUILDING is allowed — `ci.yml`'s Validate job, or the nightly. Not
               on the push path, so a regression is caught in hours rather than minutes, which is
               the honest cost of a module that ships nothing.
-          Leaning (ii). It needs `.github/workflows/ci.yml`, which I do not hold.
-
-- [~] UNIML-SSC3 — **UniML must be ready to serve as ScalaScript's parser AND AST**, for
-      language version 3. Direction: `specs/uniml-ssc3-frontend.md`; the seam with v3's SSC IR
-      is §3.1 there. Decomposition in `uniml/BACKLOG.md` under UNIML-SSC3.
-      **Progress 2026-08-01/02, by criterion:**
-      (4) **losslessness — DONE AND GATED.** Every one of 1,146 `.ssc` files reconstructs
-          exactly; `SpikeLosslessSpec` checks reconstruction, chunk-invariance and
-          no-duplicate-tokens, verified in both directions with a planted defect.
-      (2) **typed projection — FIRST CUT.** `SpikeAst`/`SpikeTyped`, 96.3% of what the dialect
-          parses, gated with floors. Nothing consumes it yet — no lowering to SSC IR.
-      (3) **breadth — 1,278 → 483 diagnostics, 92.1% of files completely clean.** Five slices,
-          each measured: `case object`, `extern`+qualified def names (which only work TOGETHER),
-          escaped identifiers, varargs, type ascription.
-      (5) **measurement — partly.** Throughput ~0.9-1.0 MB/s on a loaded host; the ratio against
-          `F` is still owed, and retained tree size is unmeasured.
-      (1) publishable cross-built dialect and (6) v1/v2-independence: untouched.
-      **Next, from probes rather than guesses:** type aliases (`opaque`/`infix type`),
-      function and tuple types in a parameter, and an interpolator prefix the lexer does not
-      know (`html"""…"""`). ⚠️ The diagnostic-position probe used to pick these maps spans
-      through the wrong coordinate space — fix it before trusting its line numbers.
+          **Resolved as (ii)** — see the header above. Sergiy released `.github/workflows/ci.yml`.
+          Route (i) stays rejected on the §7 invariant, not on effort.
 
 - [x] uniml-is-ssc3-frontend — recorded the ScalaScript 3 direction: UniML becomes the front
       end, parser AND AST. New spec `specs/uniml-ssc3-frontend.md`; UPR-8a and
