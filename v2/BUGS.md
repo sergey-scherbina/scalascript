@@ -70,6 +70,16 @@ minus is untouched: `a - -b` is still 8, `-a` still `-5`, on both lanes.
      kind: bug
      gate: tests/e2e/fm-routes-smoke.sh -->
 
+**Sizing carried over from `native-lane-ignores-front-matter-routes`, now marked duplicate of this.**
+The registration itself is ten lines — `Interpreter.scala:1193` registers a lazy handler per manifest
+route that resolves the named global at call time, so handler order in the file does not matter. What
+is missing is the CHANNEL: nothing under `v2/src` or the http plugin mentions a manifest, and the
+config surface that does exist (`NativeRuntimeConfig`, carrying `databases` and `contentModules`) is
+loaded by `NativeArtifactRuntime.loadConfig()` from `META-INF/scalascript/artifact.properties` — a
+BUILT artifact, not the `ssc run` path where the 404s were measured. So closing this needs
+front-matter data to cross into a plugin on the run path, which is a design choice about where that
+boundary sits.
+
 **Measured 2026-08-04**, per lane, same fixture, correct runners for each:
 
 | lane | runner | `GET /api/todos` (front-matter route) | `GET /_health` (built-in) |
@@ -204,60 +214,25 @@ table.
 the arithmetic tail which would have rendered both sides and returned a STRING. Verified that unary
 minus is untouched: `a - -b` is still 8, `-a` still `-5`, on both lanes.
 
-## native-lane-ignores-front-matter-routes — `routes:` in the manifest registers nothing, every path 404s
+## native-lane-ignores-front-matter-routes — SUPERSEDED by native-lane-ignores-declarative-route-registration
 
-<!-- status: open
+<!-- status: duplicate
      lane: native
-     area: plugin
-     fixed-in: -
-     gate: none -->
+     area: runtime
+     duplicate-of: native-lane-ignores-declarative-route-registration
+     gate: tests/e2e/fm-routes-smoke.sh -->
 
-**SIZED 2026-08-04: the registration is ten lines; the missing part is the CHANNEL.** v1 does it at
-`Interpreter.scala:1193` — for each manifest route, register a lazy handler that resolves the named
-global at call time, so handler order in the file does not matter.
+Filed 2026-08-03 from one symptom: `routes:` in the manifest registers nothing and every declared
+path 404s on the native lane. A sibling measured the same lane the next day per-lane with correct
+runners and found the SAME gap with a second symptom — the runtime built-ins `/_health` and
+`/_ready` are missing for the same reason — and filed it as one entry with the table. Theirs is the
+superset and carries the measurement; this one would only split the fix across two slugs.
 
-Nothing under `v2/src` or the http plugin mentions a manifest at all, so there is nowhere to read
-`routes:` from at run time. A plugin config surface does exist — `NativeRuntimeConfig` carries
-`databases` and `contentModules` — but `NativeArtifactRuntime.loadConfig()` reads it from
-`META-INF/scalascript/artifact.properties`, i.e. from a BUILT artifact, which is not the path
-`ssc run` takes and is where the 404s were measured.
-
-So this needs front-matter data to reach a plugin on the run path: either extend that config surface
-and populate it for `run` as well as for `build-jvm`, or give the front a way to hand the manifest
-to plugins directly. That is a design choice about where manifest data crosses into the native
-plugin boundary — the same class of decision as the session entry above, and recorded here for the
-same reason.
-
-A module can declare its routes in front-matter instead of calling `route(...)`:
-
-```
----
-routes:
-  - method: GET
-    path: /api/todos
-    handler: listTodos
----
-```
-
-On the native lane the server starts, prints its banner, and answers **404 for every declared
-path**. Measured 2026-08-02 on `examples/rest-api-fm.ssc`, `bin/ssc run`:
-
-    GET /api/todos -> Not Found
-    GET /          -> Not Found
-
-The v1 lane MATCHES those routes — it answered 500 from inside the handler, not 404, which is what
-distinguishes "not registered" from "registered and broken". (That 500 was
-`int-v1-lane-loses-a-builtin-companion-to-its-own-case-class`, since fixed.)
-
-The census supports it. `manifest.routes` has three consumers, all v1:
-
-  * `v1/runtime/backend/interpreter/.../Interpreter.scala:1193`
-  * `v1/runtime/backend/js/.../JsGen.scala:1564`
-  * `v1/runtime/backend/jvm/.../JvmGen.scala:390,1089`
-
-and ZERO in `v2/` — no file under v2 mentions a manifest and a route together. So this is not a
-registration that breaks, it is a feature the native lane never grew, while three v1 backends have
-it. `tests/e2e/fm-routes-smoke.sh` is the gate that says so; it was in the unwired pile.
+Kept as a pointer rather than deleted: my sizing note on the CHANNEL is the part that survives, and
+it is repeated there rather than left here to be found by half the searches —
+`NativeRuntimeConfig` reaches plugins from `META-INF/scalascript/artifact.properties`, i.e. from a
+BUILT artifact, which is not the `ssc run` path where the 404s were measured, so declarative routes
+need front-matter data to cross into a plugin on the run path.
 
 ## native-Response-withHeader-is-a-Stub — the sentinel was served as the response BODY at HTTP 200
 
