@@ -815,8 +815,12 @@ def copyLabel(label, i) = if label == "" then "#" ++ i else label
 // expandCollectionCurry :1915-1941, gated to fill/tabulate with len(innerArgs)==len(args)==1). A
 // 2-arg first clause (2D tabulate) or non-1 second clause is NOT flattened -> normal app path.
 def isCurriedFactory(nm) = if nm == "tabulate" then true else nm == "fill"
-// `Set` is here on the same footing as `Seq` and `Vector`: none of them is a distinct type on this
-// lane — the default front lowers `Set(1,2)` to a plain list and `Set.empty` to `List()`.
+// `Set` is here beside `Seq` and `Vector` because it is a collection COMPANION, which is all this
+// table asks. The line below used to add "none of them is a distinct type on this lane — the
+// default front lowers `Set(1,2)` to a plain list and `Set.empty` to `List()`", and that stopped
+// being true on 2026-08-04: `Set` now lowers to `(prim set.of …)` and has its own `Value.SetV`
+// (`parseSetLit` below; BUGS `type-ascription-tuple-and-set-arms-missing`). `Seq` and `Vector` are
+// still plain lists here.
 //
 // It was left OUT at first, and the reason is worth keeping: this table drives the select path
 // (`selRecv` -> `methodRecv`), which emits a receiver `(ctor Set)`, and `Runtime.scala`'s companion
