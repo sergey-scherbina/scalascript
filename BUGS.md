@@ -759,7 +759,7 @@ that does not exist on any backend. Wants its own slice; sized, not started.
      lane: multi
      area: front
      gate: tests/conformance/curried-def-clauses.ssc
-     fixed-in: PENDING-SHA -->
+     fixed-in: ca8bb823e -->
 
 **Status:** OPEN (found 2026-07-28 by `v2-front-colon-trailing-lambda` while verifying that fix;
 **A/B'd against `origin/main` — byte-identical behaviour with that change reverted**, so it is
