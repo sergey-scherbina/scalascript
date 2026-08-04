@@ -750,6 +750,35 @@ lazy val unimlMarkdown    = unimlMarkdownJvm
 // Projects a compatible MarkdownDocument into the existing ScalaScript
 // `DocumentContent` compiler model. Depends on both `core` and the Markdown
 // leaf; the leaf never depends on this bridge.
+// ── UniML ScalaScript — the `.ssc` dialect and the hybrid composer ──────
+// The FRONT END of ScalaScript 3 (specs/uniml-ssc3-frontend.md): the dialect that
+// parses `.ssc`, the typed AST projected over its lossless CST, and the composer
+// that hands each fence's bytes to its own dialect. Production sources since
+// UPR-4a — they lived in `uniml/core`'s TEST scope, where nothing could depend on
+// them. Cross-built because they use no JVM API at all; the tests that WALK THE
+// REPOSITORY are JVM-only and live in `src/test-jvm`.
+lazy val unimlScalaCross =
+  crossProject(JVMPlatform, JSPlatform)
+    .crossType(CrossType.Pure)
+    .in(file("uniml/scala"))
+    .dependsOn(unimlCross, unimlMarkdownCross, unimlYamlCross, unimlJsonCross)
+    .settings(
+      name := "scalascript-uniml-scalascript",
+      libraryDependencies ++= Seq("org.scalatest" %%% "scalatest" % scalatestV % Test),
+      Compile / scalacOptions ++= sharedScalacOptionsStrict,
+      Test    / scalacOptions ++= sharedScalacOptions,
+    )
+    .jvmConfigure(_.withId("unimlScala"))
+    .jvmSettings(
+      Test / unmanagedSourceDirectories += baseDirectory.value.getParentFile / "src" / "test-jvm" / "scala",
+    )
+    .jsConfigure(_.withId("unimlScalaJs"))
+    .jsSettings(Test / fork := false)
+
+lazy val unimlScalaJvm = unimlScalaCross.jvm
+lazy val unimlScalaJs  = unimlScalaCross.js
+lazy val unimlScala    = unimlScalaJvm
+
 lazy val unimlMarkdownBridge = project
   .in(file("uniml/markdown/bridge"))
   .dependsOn(unimlMarkdownJvm, core)
@@ -4962,7 +4991,7 @@ lazy val root = project
     v2NativeDistributedPlugin, v2NativeGraphPlugin, v2NativeOpticsPlugin, v2NativePdfPlugin,
     v2NativeNfcPlugin, v2NativeMcpPlugin, v2NativeGraphRdf4jPlugin, v2NativeSwiftPlugin,
     v2JvmBytecode, v2JsBackend, v2SwiftBackend, v2NativeUi, v2JvmRuntime,
-    valueData, backendSpi, pluginApi, ir, logger, yaml, uniml, unimlJs, unimlJson, unimlJsonJs, unimlXml, unimlXmlJs, unimlYaml, unimlYamlJs, unimlMarkdown, unimlMarkdownJs, unimlMarkdownBridge, core, scala3ControlApi, interop, testUtils, pluginHost, wireCore,
+    valueData, backendSpi, pluginApi, ir, logger, yaml, uniml, unimlJs, unimlJson, unimlJsonJs, unimlXml, unimlXmlJs, unimlYaml, unimlYamlJs, unimlMarkdown, unimlMarkdownJs, unimlMarkdownBridge, unimlScala, unimlScalaJs, core, scala3ControlApi, interop, testUtils, pluginHost, wireCore,
 
     runtimeServerCommon, runtimeServerSpi, runtimeServerJvm,
     runtimeServerJvmJetty, runtimeServerJvmNetty, httpFastEngine, runtimeServerJvmFast, mcpCommon,

@@ -32,7 +32,7 @@ lane is the compatibility tier, not because those plugins are somehow less stand
 axis as the other produces exactly the wrong conclusion in both directions.
 
 **The one place the two axes must agree, and today do:** no module in Part III is in the standard
-tier. All 143 are outside it. That is an invariant worth keeping, and §7 gates it.
+tier. All 144 are outside it. That is an invariant worth keeping, and §7 gates it.
 
 ## 3. Part I — the language (40 modules)
 
@@ -269,7 +269,7 @@ Seven standard-library modules are written in ScalaScript itself and therefore a
 `v1/runtime/std/scljet` is a **tracked symlink**, one of only two in the repository (the other is
 `runtime -> v1/runtime`).
 
-## 5. Part III — additional libraries (143 modules)
+## 5. Part III — additional libraries (144 modules)
 
 Domain libraries. None of them ships in the standard tier; a program opts in.
 
@@ -467,7 +467,7 @@ x402 protocol stack, blockchains, micropayments, compliance, tax and FX.
   payments/client/solana                         scalascript-client-solana
 ```
 
-`uniml` — 7 (`uniml/markup` also lives here and is Part II — §4, §8.7)
+`uniml` — 8 (`uniml/markup` also lives here and is Part II — §4, §8.7)
 
 ```
   uniml/address                                  scalascript-uniml-address
@@ -476,6 +476,7 @@ x402 protocol stack, blockchains, micropayments, compliance, tax and FX.
   uniml/markdown                                 scalascript-uniml-markdown
   uniml/markdown/bridge                          scalascript-uniml-markdown-bridge
   uniml/xml                                      scalascript-uniml-xml
+  uniml/scala                                    scalascript-uniml-scalascript
   uniml/yaml                                     scalascript-uniml-yaml
 ```
 
@@ -544,7 +545,7 @@ Measured, not asserted. §8 proposes gating them; today they hold:
 
 | # | invariant | today |
 |---|---|---|
-| 1 | no Part III module is in the standard tier | 143 / 143 hold |
+| 1 | no Part III module is in the standard tier | 144 / 144 hold |
 | 2 | every `v2/runtime/std/*` module is in the standard tier | 21 / 21 hold |
 | 3 | no `v2/runtime/providers/*` module is in the standard tier | 5 / 5 hold |
 | 4 | every standard-tier prefix resolves to a repo module or a named third-party JAR | 35 modules + 10 external |
