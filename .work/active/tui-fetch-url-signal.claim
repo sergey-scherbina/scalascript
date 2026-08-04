@@ -3,9 +3,20 @@ branch: feature/tui-fetch-url-signal
 agent: housekeeping-rozum
 started: 2026-08-04T12:08:23Z
 heartbeat: 2026-08-04T12:08:23Z
-status: claimed-before-planning
+status: in-progress
 items: tui-fetch-url-signal
-paths: file:frontend/tui/src/main/scala/scalascript/frontend/tui/TuiEmitter.scala file:frontend/tui/src/test/scala/scalascript/frontend/tui/TuiEmitterTest.scala file:specs/frontend-tui-fetch-url-signal.md
+paths: file:frontend/tui/src/main/scala/scalascript/frontend/tui/TuiEmitter.scala file:frontend/tui/src/test/scala/scalascript/frontend/tui/TuiEmitterTest.scala file:specs/frontend-tui-fetch-url-signal.md file:frontend/core/src/main/scala/scalascript/frontend/Primitives.scala file:v1/runtime/std/fetch-plugin/src/main/scala/scalascript/compiler/plugin/fetch/FetchIntrinsics.scala
 scope: |
-  (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+  Planned. The claim was widened after reading the code, and the reason is the plan:
+  the static-frontend path CANNOT EXPRESS a signal-URL fetch at all, so this is not an
+  emitter-only change. FetchUrlSignal carries `fetchUrl: String` with no `urlId`, and the
+  v1 fetch-plugin implements `fetchUrlSignal` but has no `fetchUrlSignalTo` site — that
+  primitive exists only in the JS runtime and v2's UiNativePlugin. So:
+    1. Primitives.scala — FetchUrlSignal gains `urlId: Option[String]`, mirroring the
+       `headersId` that tui-fetch-headers just added; `fetchUrl` stays as the static form.
+    2. FetchIntrinsics.scala — a `fetchUrlSignalTo` site that builds it.
+    3. TuiEmitter — resolve the URL from the signal store at FETCH time and re-fetch when
+       it changes, exactly as the tick already does (and as headers now do).
+    4. TuiEmitterTest — the gate.
+  Additive for every other static emitter: an ignored Option field.
+next: write specs/frontend-tui-fetch-url-signal.md, then the model+intrinsic, then the emitter
