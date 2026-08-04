@@ -1439,7 +1439,13 @@ private[interpreter] object DispatchRuntime:
       case "isLetterOrDigit"=> Computation.pureBool(c.isLetterOrDigit)
       case "isUpper" | "isUpperCase" => Computation.pureBool(c.isUpper)
       case "isLower" | "isLowerCase" => Computation.pureBool(c.isLower)
-      case "isWhitespace" | "isSpaceChar" => Computation.pureBool(c.isWhitespace)
+      case "isWhitespace"   => Computation.pureBool(c.isWhitespace)
+      // NOT an alias for isWhitespace, which is what this used to answer. Java's isSpaceChar is
+      // the Zs/Zl/Zp categories; isWhitespace excludes the non-breaking spaces and includes
+      // U+001C..1F. They disagree on 24 BMP characters, so `' '.isSpaceChar` was false here
+      // and true on every other implementation. Caught by tests/e2e/js-char-classification-parity.sh
+      // while fixing the js lane — the reference lane was wrong too.
+      case "isSpaceChar"    => Computation.pureBool(Character.isSpaceChar(c))
       case "isControl"      => Computation.pureBool(c.isControl)
       case "toUpper" | "toUpperCase" => Pure(Value.charV(c.toUpper))
       case "toLower" | "toLowerCase" => Pure(Value.charV(c.toLower))

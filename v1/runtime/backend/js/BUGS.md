@@ -7,6 +7,55 @@ grepping for status.
 
 Newest first.
 
+## a-char-literal-is-not-boxed-so-its-methods-are-not-found
+
+<!-- status: open
+     lane: js
+     area: runtime
+     fixed-in: -
+     gate: - -->
+
+A `Char` obtained by iterating a String is boxed as `_Char` and dispatches correctly. A char
+LITERAL reaches the runtime as a plain JS string, so it takes the String branch of `_dispatch`,
+which has no classification methods:
+
+```scala
+def show(c: Char): String = "" + c.isDigit
+def main(): Unit = println(show('A'))
+```
+
+    $ bin/jssc probe.ssc
+    Error: Method not found: isDigit on A
+
+The interpreter answers `false` for the same source. `"A".foreach(c => c.isDigit)` works on both,
+which is why this survived: the common idiom takes the boxed path.
+
+**A thrown error is the mild half. The silent half is worse:**
+
+    'a'.toInt   ->  97 on the interpreter, NaN on js, no error either way
+
+`toInt` exists on the String branch as `parseInt(obj)`, which is correct FOR A STRING, so the char
+literal takes it and gets `NaN` without anything going wrong. Measured with the rest of the char
+surface: `==`, `match`, concatenation, `Map` keys, `List.mkString` and `<` all agree between the
+lanes; `toInt` and the classification predicates are where it breaks.
+
+**Which is why the fix cannot go in the runtime.** A `Char` literal and a one-character `String`
+have the SAME representation there, so no dispatch branch can answer both — `"12".toInt` must stay
+`12` while `'a'.toInt` must become `97`. The static type is known only at codegen, at
+`JsGen.scala:4547` where `Lit.Char` is emitted as a JS string literal.
+
+**And that is not a one-line change**, which is why it is filed rather than done in passing. JsGen
+carries name-keyed numeric evidence (`intVars`/`numericVars`) built around the current
+representation, with a documented hazard already recorded in it: `===` does not call `valueOf`, so
+a comparison that takes the numeric fast path is always false against a boxed `_char`. Changing
+what a char literal IS touches equality, pattern matching and those fast paths, and wants the whole
+corpus on every lane rather than a probe.
+
+Found while building `tests/e2e/js-char-classification-parity.sh`, which had to draw its probes
+from a String rather than from literals to reach the predicates it compares. Unfixed and
+deliberately not worked around in the runtime — the fix is in how a char literal is EMITTED or
+boxed, not another `case` in the String branch, and picking between those is the actual task.
+
 ## char-classification-diverges-from-the-interpreter-on-seven-predicates
 
 <!-- status: open

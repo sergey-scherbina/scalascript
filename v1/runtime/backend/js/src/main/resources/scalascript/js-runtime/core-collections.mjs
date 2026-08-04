@@ -8,6 +8,22 @@ function _forEach(xs, fn) {
   return _dispatch(xs, 'foreach', [fn]);
 }
 
+// java.lang.Character.isWhitespace, enumerated because no JS character class is this set:
+// `\s` counts the non-breaking spaces U+00A0 / U+2007 / U+202F, which Java does not, and Java
+// counts the four separators U+001C..U+001F, which `\s` does not. Verified over the BMP.
+const _JAVA_WS = new Set([
+  0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x1C, 0x1D, 0x1E, 0x1F, 0x20,
+  0x1680, 0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006,
+  0x2008, 0x2009, 0x200A, 0x2028, 0x2029, 0x205F, 0x3000,
+]);
+
+// Character.toUpperCase/toLowerCase return the character UNCHANGED when the conversion is not a
+// single character — 'ß' uppercases to "SS" in full Unicode case mapping and Java leaves it alone.
+// Reading `.charCodeAt(0)` off the expansion silently produced 'S'.
+function _caseChar(original, converted) {
+  return converted.length === 1 ? _char(converted.charCodeAt(0)) : original;
+}
+
 function _tupleConcat(a, b) {
   // `++` is also a user operator (e.g. a Doc pretty-printer's `def ++(r) =
   // DocBeside(l, r)`). When the receiver is a user case-class/instance rather than
@@ -370,16 +386,23 @@ function _dispatch(obj, method, args) {
       case 'toDouble': case 'toFloat': return _c;
       case 'toChar': return obj;
       case 'toString': case 'mkString': return _s;
-      case 'isDigit': return _c >= 48 && _c <= 57;
+      // Each predicate below is the one java.lang.Character actually implements, not the
+      // similar-looking regex escape. Verified character by character over the whole BMP against
+      // JDK 21 — see v1/runtime/backend/js/BUGS.md and tests/e2e/js-char-classification-parity.sh.
+      // `\p{Lu}` is NOT isUpperCase (Java adds Other_Uppercase, e.g. Roman numerals), `\s` is NOT
+      // isWhitespace (JS counts NBSP, Java counts U+001C..1F), and ASCII is NOT isDigit.
+      case 'isDigit': return /\p{Nd}/u.test(_s);
       case 'isLetter': return /\p{L}/u.test(_s);
       case 'isLetterOrDigit': return /[\p{L}\p{Nd}]/u.test(_s);
-      case 'isUpper': return /\p{Lu}/u.test(_s);
-      case 'isLower': return /\p{Ll}/u.test(_s);
-      case 'isWhitespace': return /\s/u.test(_s);
-      case 'isSpaceChar': return _s === ' ';
+      case 'isUpper': return /\p{Uppercase}/u.test(_s);
+      case 'isLower': return /\p{Lowercase}/u.test(_s);
+      case 'isWhitespace': return _JAVA_WS.has(_c);
+      case 'isSpaceChar': return /[\p{Zs}\p{Zl}\p{Zp}]/u.test(_s);
       case 'asDigit': { const d = parseInt(_s, 36); return Number.isNaN(d) ? -1 : d; }
-      case 'toUpper': case 'toUpperCase': return _char(_s.toUpperCase().charCodeAt(0));
-      case 'toLower': case 'toLowerCase': return _char(_s.toLowerCase().charCodeAt(0));
+      // Java returns the character UNCHANGED when its case conversion is not a single character.
+      // Taking `.charCodeAt(0)` of a multi-char expansion turned 'ß' into 'S' and 'ﬀ' into 'F'.
+      case 'toUpper': case 'toUpperCase': return _caseChar(obj, _s.toUpperCase());
+      case 'toLower': case 'toLowerCase': return _caseChar(obj, _s.toLowerCase());
       case 'compare': case 'compareTo': { const o = args[0] instanceof _Char ? args[0].__c : args[0]; return _c < o ? -1 : _c > o ? 1 : 0; }
       case 'equals': return _eq(obj, args[0]);
       case 'hashCode': return _c;
