@@ -17,10 +17,18 @@ scripts/bugs-report --no-gate              # open entries with no regression gat
 Newest first.
 
 ## tui-cargo-deps-are-a-hand-maintained-disjunction — a new emitted feature can reference a crate nobody declared
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: build
-     gate: none -->
+     fixed-in: unrecorded
+     gate: frontend/tui/src/test/scala/scalascript/frontend/tui/TuiEmitterTest.scala -->
+
+**FIXED 2026-08-04** by deriving the manifest from the emitted source
+(`specs/tui-cargo-deps-derived.md`): `ureq` iff the generated Rust contains `ureq::`, `serde_json`
+iff it contains `serde_json::`. No feature-shaped condition survives, so the class is deleted rather
+than gated. The gate pins all four directions; the negatives are the load-bearing half, since an
+over-declaring manifest still compiles.
+
 
 **Found 2026-08-04** implementing `tui-fetch-headers` (rozum's report). `TuiEmitter.cargoToml`
 decides the `serde_json` dependency from a condition hand-written against the FEATURES that happen to
