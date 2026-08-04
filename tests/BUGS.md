@@ -7,6 +7,46 @@ grepping for status.
 
 Newest first.
 
+## launcher-digest-gate-backslash-t-is-not-a-tab-in-ere — green on this machine, red on CI, main blocked for two hours
+
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     gate: tests/e2e/launcher-digest-gate.sh
+     fixed-in: PENDING-SHA -->
+
+`tests/e2e/launcher-digest-gate.sh` asserted that every digest input line looks like
+`<sha>TAB<path>`:
+
+```
+grep -vE '^  ([0-9a-f]{40}|deleted)\t'
+```
+
+**`\t` is not a tab in POSIX ERE.** GNU grep reads it as the letter `t`, so the pattern became
+`^  ([0-9a-f]{40}|deleted)t`, NOTHING matched, and `grep -v` handed back EVERY line as malformed —
+reported as `the digest still depends on git state`, which is the opposite of what was wrong.
+
+**It passed locally because this machine's `grep` is ugrep 7.5.0**, which does accept `\t`. Measured
+side by side on the same line: ugrep matches with `\t` and with a literal tab; GNU grep only with a
+literal tab. So the gate was green for its author and red on CI from 15:09 to 17:20 — and a red
+`main` costs every agent evidence level 1, not just the one who pushed.
+
+**Fixed** by writing a real tab through bash `$'...'`, which both implementations expand before grep
+ever sees it.
+
+**Guard added, and it is the interesting half.** This gate cannot catch the bug by RUNNING itself —
+on ugrep the broken pattern works fine. So the guard asserts the property that holds on every host:
+no `grep -E` pattern in this file may contain a backslash-t, discriminating `$'...\t'` (bash expands
+it, correct) from `'...\t'` (grep sees two characters, broken). Comment lines are skipped so the
+paragraph explaining the trap does not trip it. Verified both ways: clean file passes, and removing
+the `$` from the fixed line makes the gate fail with `ere-backslash-t`.
+
+Found while investigating a CI red on my own push (`0f3f7c540`). It was NOT mine — the first red was
+`45babaee6`, an hour earlier — but my local smoke had reported this same check as a 240s TIMEOUT
+under host load, which masked the real failure. Two lessons in one: a timeout hides a content
+failure, and "passes locally" is worth nothing when the tool is a different implementation from the
+one CI runs.
+
 ## parameterless-def-diverges-native-vs-interp — opposite conventions, no portable spelling
 
 <!-- status: open

@@ -80,8 +80,14 @@ fi
 # `|| true` because `grep -v` EXITS 1 WHEN IT FINDS NOTHING — which is the success case here, and
 # under `set -e` it killed this script silently. Second time today: the exec gate had the same
 # inversion with `grep -q` taking a pipeline's exit status from the process that legitimately failed.
+# The tab is written as a REAL tab (bash `$'...'`), not as `\t` inside the pattern. `\t` is not a
+# tab in POSIX ERE: GNU grep reads it as the letter `t`, so the pattern became
+# `^  ([0-9a-f]{40}|deleted)t`, NO line matched, and `grep -v` returned EVERY line as malformed.
+# It passed on this machine because the local `grep` is ugrep, which does accept `\t` — so the gate
+# was green locally and red on CI, for two hours, on a repo where a red main blocks every agent's
+# evidence. BUGS `launcher-digest-gate-backslash-t-is-not-a-tab-in-ere`.
 bad_lines="$(printf '%s\n' "$explain_out" | sed -n '/^digest inputs:/,$p' | tail -n +2 \
-             | grep -vE '^  ([0-9a-f]{40}|deleted)\t' | head -3 || true)"
+             | grep -vE $'^  ([0-9a-f]{40}|deleted)\t' | head -3 || true)"
 if [[ -n "$bad_lines" ]]; then
   fail digest-follows-git-state "an input line is not <sha>TAB<path> — the digest still depends on git state:
 $bad_lines"
@@ -92,6 +98,20 @@ dup="$(printf '%s\n' "$explain_out" | sed -n '/^digest inputs:/,$p' | tail -n +2
 if [[ -n "$dup" ]]; then
   fail digest-duplicate-path "a path appears twice, so its two spellings both feed the digest:
 $dup"
+fi
+
+# ── portability guard for the pattern above ────────────────────────────────────────────────────
+# This gate cannot detect the `\t` bug by RUNNING it here: on ugrep the broken pattern works. So
+# assert the property that holds on every host — no `grep -E` pattern in this file may contain a
+# backslash-t. That is the "emulate the other host" shape: check the thing the weaker host would
+# choke on, rather than the behaviour this host happens to give.
+# The discriminator is the QUOTE: `grep -E $'...\t'` is bash expanding a real tab (correct), while
+# `grep -E '...\t'` hands the two characters to grep (broken on GNU). So flag only a single quote
+# that is NOT preceded by `$`.
+# Comments are skipped: the paragraph above deliberately SPELLS the broken form, and a guard that
+# cannot describe what it forbids is a guard nobody can read.
+if grep -nE "grep -[a-zA-Z]*E +'" "${BASH_SOURCE[0]}" | grep -vE '^[0-9]+: *#' | grep -v 'BASH_SOURCE' | grep -q '\\t'; then
+  fail ere-backslash-t "a grep -E pattern in this gate contains \\t, which is the letter t on GNU grep — use a real tab via \$'...'"
 fi
 
 base="$(digest)"
