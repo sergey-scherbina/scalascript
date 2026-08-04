@@ -104,10 +104,17 @@ deliberately and say so in the gate's header. Detail and the incident that found
      lane: multi
      area: runtime
      kind: feature
+     reported-by: rozum (github.com/sergey-scherbina/rozum, docs/specs/ucc-meetings-in-tk.md)
+     reported-at: 2026-08-04
+     ssc-version: ec70eb062 (staged bin/, dev build)
+     confirmed: no
      gate: tests/conformance/credential-vocabulary.ssc -->
 
-Reported by rozum (`INBOX.md` `ui-fetch-credentials`, `std-auth-client-half`). Spec and the four
-decisions with their rejected alternatives: `specs/ui-fetch-credentials.md`.
+Routed here from `INBOX.md`, which carried this as two entries — `ui-fetch-credentials` (the design
+proposal) and `std-auth-client-half` (the missing concept). The reporter said plainly that if the
+second is taken the first folds inside it, so they are specced and planned as one and both were
+deleted from the queue. Spec and the four decisions with their rejected alternatives:
+`specs/ui-fetch-credentials.md`.
 
 **The problem.** On the terminal target the view runs in the *emitting* process, so `env("TOKEN")`
 is read at build time and lands in the generated Rust as a literal — the secret ends up inside the
