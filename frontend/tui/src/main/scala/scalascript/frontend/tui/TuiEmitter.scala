@@ -40,9 +40,18 @@ object TuiEmitter:
     /** `fetchAction` — a WRITE. The store is mutated only after a 2xx (see `send_action`). */
     case Post(method: String, url: String, bodyId: String, tickId: String,
               clearBody: Boolean, headersId: Option[String])
+    /** `RowLink` — choosing the cursor row writes one of its fields into the bound signal. */
+    case PickRow(cursorId: String, fetchId: String, rowsPath: String, fieldPath: String, targetId: String)
+
+  /** Everything a selectable table's movement AND its write need, so neither re-derives it.
+   *  `cursorId` is an ordinary Int signal in the store — no new state plumbing, and the generated
+   *  self-tests can see it. */
+  private final case class TableCursor(cursorId: String, fetchId: String, rowsPath: String,
+                                       fieldPath: String, targetId: String)
 
   /** A focusable widget, in document order; `idx` is its focus-ring index. */
-  private final case class Focusable(idx: Int, activation: Option[Mutation], textSignalId: Option[String])
+  private final case class Focusable(idx: Int, activation: Option[Mutation], textSignalId: Option[String],
+                                     cursor: Option[TableCursor] = None)
 
   /** The whole emitted crate: `(Cargo.toml, src/main.rs)`. `ureq` is added
    *  only when the app has fetch-bound signals (keeps non-fetch crates lean). */
@@ -128,6 +137,7 @@ object TuiEmitter:
        |${genFetchHelpers(fetches)}
        |${genWriteHelpers(fetches, focusables.toSeq)}
        |${genTableHelpers(remoteTable)}
+       |${genRowCursorHelpers(focusables.toSeq)}
        |
        |${genFocusConsts(focusables.toSeq)}
        |
@@ -379,6 +389,40 @@ object TuiEmitter:
          |    }
          |}""".stripMargin
 
+  /** Row-cursor helpers, emitted only when some table is selectable.
+   *
+   *  `row_field` re-reads the JSON rather than the already-parsed display rows on purpose: the
+   *  field a `RowLink` writes need not be one of the COLUMNS. A room picker shows a name and writes
+   *  a URL, which is the whole point of letting the server ship a ready-made value. */
+  private def genRowCursorHelpers(fs: Seq[Focusable]): String =
+    if !fs.exists(_.cursor.isDefined) then ""
+    else
+      """fn rows_at<'a>(json: &'a serde_json::Value, rows_path: &str) -> Option<&'a Vec<serde_json::Value>> {
+        |    let mut cur = json;
+        |    if !rows_path.is_empty() {
+        |        for part in rows_path.split('.') { cur = cur.get(part)?; }
+        |    } else if !cur.is_array() {
+        |        for key in ["data", "rows", "items", "results"] {
+        |            if let Some(v) = cur.get(key) { cur = v; break; }
+        |        }
+        |    }
+        |    cur.as_array()
+        |}
+        |fn row_count(json: &str, rows_path: &str) -> usize {
+        |    match serde_json::from_str::<serde_json::Value>(json) {
+        |        Ok(v) => rows_at(&v, rows_path).map(|r| r.len()).unwrap_or(0),
+        |        Err(_) => 0,
+        |    }
+        |}
+        |fn row_field(json: &str, rows_path: &str, index: i64, field: &str) -> Option<String> {
+        |    if index < 0 { return None; }
+        |    let v = serde_json::from_str::<serde_json::Value>(json).ok()?;
+        |    let rows = rows_at(&v, rows_path)?;
+        |    let row = rows.get(index as usize)?;
+        |    Some(json_field(row, field))
+        |}
+        |""".stripMargin
+
   private def genTableHelpers(hasRemoteTable: Boolean): String =
     if !hasRemoteTable then ""
     else
@@ -454,9 +498,29 @@ object TuiEmitter:
     val isText =
       if textIdx.isEmpty then "fn is_text_input(_focus: usize) -> bool { false }"
       else s"fn is_text_input(focus: usize) -> bool { matches!(focus, ${textIdx.mkString(" | ")}) }"
+    // A focused TABLE takes the arrow keys for its row cursor; Tab still moves focus. An app with
+    // no selectable table emits the `false` arm and a no-op `move_row`, so it is unchanged.
+    val tableIdx = fs.filter(_.cursor.isDefined).map(_.idx)
+    val isTable =
+      if tableIdx.isEmpty then "fn is_table(_focus: usize) -> bool { false }"
+      else s"fn is_table(focus: usize) -> bool { matches!(focus, ${tableIdx.mkString(" | ")}) }"
+    val moveArms = fs.filter(_.cursor.isDefined).map { f =>
+      val c = f.cursor.get
+      // Clamped against the CURRENT row count: a refetch can shrink the data under the cursor.
+      s"        ${f.idx} => { let __n = row_count(&sig(signals, ${rustStr(c.fetchId)}), ${rustStr(c.rowsPath)}) as i64; " +
+      s"let __cur = match signals.get(${rustStr(c.cursorId)}) { Some(Value::I(n)) => *n, _ => 0 }; " +
+      s"let __next = if __n == 0 { 0 } else { (__cur + delta).clamp(0, __n - 1) }; " +
+      s"signals.insert(${rustStr(c.cursorId)}.to_string(), Value::I(__next)); }"
+    }
+    val moveRow =
+      if moveArms.isEmpty then "fn move_row(_focus: usize, _signals: &mut HashMap<String, Value>, _delta: i64) {}"
+      else "fn move_row(focus: usize, signals: &mut HashMap<String, Value>, delta: i64) {\n" +
+           "    match focus {\n" + moveArms.mkString("\n") + "\n        _ => {}\n    }\n}"
     s"""const FOCUS_COUNT: usize = ${fs.size};
        |fn focus_mark(focus: usize, idx: usize) -> &'static str { if focus == idx { "> " } else { "  " } }
-       |$isText""".stripMargin
+       |$isText
+       |$isTable
+       |$moveRow""".stripMargin
 
   private def mutationRust(m: Mutation): String = m match
     case Mutation.Set(id, vexpr) => s"signals.insert(${rustStr(id)}.to_string(), $vexpr);"
@@ -464,6 +528,12 @@ object TuiEmitter:
       s"let cur = match signals.get(${rustStr(id)}) { Some(Value::I(n)) => *n, _ => 0 }; signals.insert(${rustStr(id)}.to_string(), Value::I(cur + $by));"
     case Mutation.Toggle(id)     =>
       s"let cur = sig_truthy(signals, ${rustStr(id)}); signals.insert(${rustStr(id)}.to_string(), Value::B(!cur));"
+    case Mutation.PickRow(cursorId, fetchId, rowsPath, fieldPath, targetId) =>
+      // Over an empty list this writes NOTHING: a picker with no rows must not blank a
+      // selection that already exists.
+      s"let __i = match signals.get(${rustStr(cursorId)}) { Some(Value::I(n)) => *n, _ => 0 }; " +
+      s"if let Some(__v) = row_field(&sig(signals, ${rustStr(fetchId)}), ${rustStr(rowsPath)}, __i, ${rustStr(fieldPath)}) " +
+      s"{ signals.insert(${rustStr(targetId)}.to_string(), Value::S(__v)); }"
     case Mutation.Post(method, url, bodyId, tickId, clearBody, headersId) =>
       // One helper call rather than an inlined request: the arms are single-expression blocks.
       val hdrs = headersId match
@@ -511,6 +581,11 @@ object TuiEmitter:
     """fn handle_key(code: KeyCode, signals: &mut HashMap<String, Value>, focus: &mut usize) -> bool {
       |    match code {
       |        KeyCode::Esc => return true,
+      |        // Arrows belong to the FOCUSED WIDGET when that widget is a table; Tab is the
+      |        // canonical focus key and always moves focus. With no selectable table `is_table`
+      |        // is a constant `false`, so this is the previous behaviour exactly.
+      |        KeyCode::Down if is_table(*focus) => move_row(*focus, signals, 1),
+      |        KeyCode::Up   if is_table(*focus) => move_row(*focus, signals, -1),
       |        KeyCode::Tab | KeyCode::Down => { if FOCUS_COUNT > 0 { *focus = (*focus + 1) % FOCUS_COUNT; } }
       |        KeyCode::BackTab | KeyCode::Up => { if FOCUS_COUNT > 0 { *focus = (*focus + FOCUS_COUNT - 1) % FOCUS_COUNT; } }
       |        KeyCode::Enter => activate(*focus, signals),
@@ -615,6 +690,14 @@ object TuiEmitter:
       case View.LazyList(items, render, _, _)  => items().map(render).foreach(collectSignals(_, acc))
       case View.Show(cond, t, f)               => collectSignals(if cond() then t() else f(), acc)
       case View.Button(label, action, _, _)    => collectSignals(label, acc); collectHandlerSignal(action, add)
+      // A RowLink's TARGET is reachable only through the action list — no View node renders it — so
+      // without this it is never seeded and starts life empty. That is the same hole the composer's
+      // draft signal fell into, and it is invisible until something actually reads the value.
+      case View.DataTable(_, _, actions, _, _)  =>
+        actions.foreach {
+          case RowActionDef.RowLink(_, sig, _) => add(sig.id, valueExpr(safeApply(sig)), true)
+          case _                               => ()
+        }
       case View.TabBar(tabs, current, _)       => add(current.id, valueExpr(safeApply(current)), false); tabs.foreach(t => collectSignals(t.content, acc))
       case View.NavigationStack(routes, current, _) => add(current.id, valueExpr(safeApply(current)), false); routes.values.foreach(r => collectSignals(r(), acc))
       case _                                   => ()
@@ -718,7 +801,12 @@ object TuiEmitter:
         val idx = fs.size
         fs += Focusable(idx, None, Some(value.id))
         para(s"""format!("{}{}", focus_mark(focus, $idx), text_input_display(signals, ${rustStr(value.id)}, ${rustStr(placeholder)}, $secure))""", area, sb, st.merge(termStyleOf(style)), Some(idx))
-      case View.DataTable(source, columns, _, _, rowKeyPath) =>
+      case View.DataTable(source, columns, actions, _, rowKeyPath) =>
+        // A RowLink means "choosing this row writes row[fieldPath] into signal" — the web target
+        // lowers it to a per-row button. Here the TABLE is one focusable with a row cursor: row
+        // count is a runtime property of fetched data while the focus ring is emitted at build
+        // time, so per-row focusables cannot exist.
+        val rowLink = actions.collectFirst { case RowActionDef.RowLink(_, sig, field) => (sig, field) }
         source match
           case TableDataSource.StaticRows(rows) =>
             validateStaticRowKeys(rows, rowKeyPath)
@@ -736,10 +824,28 @@ object TuiEmitter:
             val widths = (0 until n).map(_ => s"Constraint::Ratio(1, $n)").mkString(", ")
             val header = columns.map(c => rustStr(c.title)).mkString(", ")
             val fields = columns.map(c => rustStr(c.fieldPath)).mkString(", ")
-            sb ++= s"    { let __json = sig(signals, ${rustStr(fetchSig.id)}); " +
+            val common = s"    { let __json = sig(signals, ${rustStr(fetchSig.id)}); " +
                    s"let __rows = fetch_rows(&__json, ${rustStr(rowsPath)}, ${rustStr(rowKeyPath)}, &[$fields]).expect(\"invalid DataTable row identity\"); " +
                    s"let __trows: Vec<Row> = __rows.iter().map(|r| Row::new(r.iter().cloned().collect::<Vec<String>>())).collect(); " +
-                   s"let __t = Table::new(__trows, [$widths]).header(Row::new(vec![$header])); frame.render_widget(__t, $area); }\n"
+                   s"let __t = Table::new(__trows, [$widths]).header(Row::new(vec![$header]))"
+            rowLink match
+              case None =>
+                sb ++= common + s"; frame.render_widget(__t, $area); }\n"
+              case Some((target, fieldPath)) =>
+                val fidx = fs.size
+                val cursorId = s"${fetchSig.id}__row"
+                fs += Focusable(fidx,
+                  Some(Mutation.PickRow(cursorId, fetchSig.id, rowsPath, fieldPath, target.id)), None,
+                  Some(TableCursor(cursorId, fetchSig.id, rowsPath, fieldPath, target.id)))
+                // A REAL ratatui selection rather than a marker glued into a cell, so what is
+                // highlighted cannot disagree with what `Enter` writes. Clamped here too: the frame
+                // after a shrinking refetch renders before any key is pressed.
+                sb ++= common +
+                  s".row_highlight_style(Style::default().add_modifier(Modifier::REVERSED)); " +
+                  s"let __sel = if __rows.is_empty() { 0usize } else { (match signals.get(${rustStr(cursorId)}) { Some(Value::I(n)) => *n, _ => 0 }).clamp(0, __rows.len() as i64 - 1) as usize }; " +
+                  s"let mut __st = ratatui::widgets::TableState::default(); " +
+                  s"if !__rows.is_empty() && focus == $fidx { __st.select(Some(__sel)); } " +
+                  s"frame.render_stateful_widget(__t, $area, &mut __st); }\n"
           case _ =>
             para(rustStr("(table: signal-row source — follow-up)"), area, sb, st, None)
       case View.TabBar(tabs, current, _) =>

@@ -255,6 +255,48 @@ final class TuiEmitterTest extends AnyFunSuite:
     assert(cargo.contains("serde_json"))                              // fetch_headers parses JSON
   }
 
+  test("a table with a RowLink becomes one focusable with a row cursor") {
+    // Reported by rozum (INBOX tui-table-selection). RowActionDef.RowLink already means 'choosing
+    // this row writes row[fieldPath] into signal'; the terminal emitter discarded actions entirely.
+    val picked = new ReactiveSignal[String]("picked", "")
+    val feed = new FetchUrlSignal("rooms", "http://x/rooms", "tick")
+    val dt = View.DataTable(
+      TableDataSource.Remote(feed, "rooms"),
+      List(FieldColumnDef("Room", "name")),
+      actions = List(RowActionDef.RowLink("open", picked, "url")),
+      rowKeyPath = "name"
+    )
+    val (_, rs) = emitCrate(dt)
+    // ONE focusable for the whole table — row count is runtime, the focus ring is build-time.
+    assert(rs.contains("const FOCUS_COUNT: usize = 1;"))
+    assert(rs.contains("fn is_table(focus: usize) -> bool { matches!(focus, 0) }"))
+    assert(rs.contains("fn move_row(focus: usize"))
+    assert(rs.contains("""row_count(&sig(signals, "rooms"), "rooms")"""))
+    // Enter writes the cursor row's field into the bound signal.
+    assert(rs.contains("""row_field(&sig(signals, "rooms"), "rooms", __i, "url")"""))
+    assert(rs.contains("""signals.insert("picked".to_string(), Value::S(__v));"""))
+    // A real ratatui selection, not a marker glued into a cell.
+    assert(rs.contains("render_stateful_widget"))
+    assert(rs.contains("row_highlight_style"))
+  }
+
+  test("a table WITHOUT a RowLink emits no focusable and no cursor machinery") {
+    // The negative half. This is what keeps every existing app byte-identical: arrows must go on
+    // moving FOCUS when nothing on screen wants them.
+    val feed = new FetchUrlSignal("rooms", "http://x/rooms", "tick")
+    val dt = View.DataTable(
+      TableDataSource.Remote(feed, "rooms"),
+      List(FieldColumnDef("Room", "name")),
+      rowKeyPath = "name"
+    )
+    val (_, rs) = emitCrate(dt)
+    assert(rs.contains("const FOCUS_COUNT: usize = 0;"))
+    assert(rs.contains("fn is_table(_focus: usize) -> bool { false }"))
+    assert(rs.contains("fn move_row(_focus: usize"))
+    assert(!rs.contains("render_stateful_widget"))
+    assert(!rs.contains("fn row_field("))
+  }
+
   test("a fetch WITHOUT headers stays header-free and serde_json-free") {
     // The other half, and the one that keeps the no-header path cheap: emitting fetch_headers
     // unconditionally would reference serde_json in every crate that fetches anything.

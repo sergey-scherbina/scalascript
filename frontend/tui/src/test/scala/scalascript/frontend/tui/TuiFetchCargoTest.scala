@@ -170,6 +170,85 @@ final class TuiFetchCargoTest extends AnyFunSuite:
     finally
       server.stop(0)
 
+  test("choosing a table row retargets the dependent fetch"):
+    assume(cargoAvailable, "cargo not on PATH — skipping fetch cargo gate")
+    val server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0)
+    def serve(path: String, body: => String): Unit =
+      server.createContext(path, (ex: com.sun.net.httpserver.HttpExchange) => {
+        val bytes = body.getBytes("UTF-8")
+        ex.sendResponseHeaders(200, bytes.length.toLong)
+        val os = ex.getResponseBody; os.write(bytes); os.close()
+      })
+    server.start()
+    try
+      val port = server.getAddress.getPort
+      // The room list ships a READY-MADE url per row: the client never composes a string, which is
+      // the same call as shipping a rendered badge. The picker's field is NOT a displayed column,
+      // which is exactly why the write re-reads the JSON instead of the parsed display rows.
+      serve("/rooms", s"""{"rooms":[
+                         |  {"name":"alpha","url":"http://127.0.0.1:$port/t/alpha"},
+                         |  {"name":"beta","url":"http://127.0.0.1:$port/t/beta"}
+                         |]}""".stripMargin)
+      serve("/t/alpha", "TRANSCRIPT-ALPHA")
+      serve("/t/beta", "TRANSCRIPT-BETA")
+
+      val urlSig = new ReactiveSignal[String]("urlSig", s"http://127.0.0.1:$port/t/alpha")
+      val rooms  = new FetchUrlSignal("rooms", s"http://127.0.0.1:$port/rooms", "tick")
+      val feed   = new FetchUrlSignal("feed", "", "tick", None, Some(urlSig.id))
+      val view = View.Column(Seq(
+        View.SignalText(feed),
+        View.DataTable(
+          TableDataSource.Remote(rooms, "rooms"),
+          List(FieldColumnDef("Room", "name")),
+          actions = List(RowActionDef.RowLink("open", urlSig, "url")),
+          rowKeyPath = "name"
+        )
+      ))
+      val probe =
+        """
+          |#[cfg(test)]
+          |mod table_selection_regression {
+          |    use super::*;
+          |
+          |    #[test]
+          |    fn choosing_a_row_retargets_the_fetch() {
+          |        let mut signals = initial_signals();
+          |        bootstrap(&mut signals);
+          |        let mut observed = initial_fetch_ticks(&signals);
+          |        assert_eq!(sig(&signals, "feed"), "TRANSCRIPT-ALPHA", "bootstrap read the wrong room");
+          |        assert_eq!(row_count(&sig(&signals, "rooms"), "rooms"), 2, "the room list did not load");
+          |
+          |        // The table is focus 0. Move the cursor to the second room and choose it.
+          |        move_row(0, &mut signals, 1);
+          |        assert_eq!(sig_int(&signals, "rooms__row"), 1, "the cursor did not move");
+          |        activate(0, &mut signals);
+          |
+          |        // The bound signal now holds the row's url — a field that is NOT a column.
+          |        assert!(sig(&signals, "urlSig").ends_with("/t/beta"), "picked: {}", sig(&signals, "urlSig"));
+          |
+          |        // ...and THAT is the requirement: the dependent fetch retargets. Asserting the
+          |        // signal alone would pass while the picker still did nothing visible.
+          |        refresh_fetches(&mut signals, &mut observed);
+          |        assert_eq!(sig(&signals, "feed"), "TRANSCRIPT-BETA", "the transcript did not follow the pick");
+          |
+          |        // The cursor clamps at the end instead of running off it.
+          |        move_row(0, &mut signals, 5);
+          |        assert_eq!(sig_int(&signals, "rooms__row"), 1, "the cursor ran past the last row");
+          |        move_row(0, &mut signals, -5);
+          |        assert_eq!(sig_int(&signals, "rooms__row"), 0, "the cursor ran before the first row");
+          |
+          |        // Choosing over an EMPTY list leaves the selection alone rather than blanking it.
+          |        signals.insert("rooms".to_string(), Value::S("{\"rooms\":[]}".to_string()));
+          |        let before = sig(&signals, "urlSig");
+          |        activate(0, &mut signals);
+          |        assert_eq!(sig(&signals, "urlSig"), before, "an empty list blanked the selection");
+          |    }
+          |}
+          |""".stripMargin
+      runProbe(view, probe, "choosing_a_row_retargets_the_fetch", "ssc-tui-pick-")
+    finally
+      server.stop(0)
+
   private def deleteRecursively(p: Path): Unit =
     try
       if Files.exists(p) then
