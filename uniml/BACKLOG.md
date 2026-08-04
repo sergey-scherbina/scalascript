@@ -364,14 +364,17 @@ self-parity test is not external conformance.
         single-line, which is why they all came back clean.
         ⚠️ **Found on the way: an UNTERMINATED triple-quoted string produces NO diagnostic**
         at all — the lexer reads it to end of input and emits it. That is its own gap.
-        ⚠️ **The cause is STILL NOT CONFIRMED, and the reduction is a pointer, not a proof.**
-        `SscReduce` returns a SUBSET OF LINES, not a valid program — textarea's reduces to
-        `def render(` immediately followed by `): String =`, its parameters cut away. Writing
-        the named construct out WHOLE still parses clean in four shapes: single-line,
-        multi-line, interpolation-open-at-end-of-line, and multiple nested quotes across lines.
-        So the region is right and the construct is not yet isolated. Next: reduce by BALANCED
-        CONSTRUCT so every candidate is itself parseable, which removes this class of false
-        pointer entirely.
+        **Reducing over TOKENS instead of lines removes that limit** — `SscReduce.reduceTokens`.
+        It works because of the losslessness work: every lexeme is a SOURCE SLICE, so
+        concatenating surviving tokens is real source, and a multi-line string is ONE token so it
+        cannot be torn. Removed ranges must also be BRACKET-BALANCED. textarea's 2,018-character
+        fence body reduces to **81 characters carrying exactly the one target diagnostic**:
+        `def render(name:String,value:String,placeholder:String):String=` / `ifthen{}class`.
+        `class` survives as its OWN TOKEN, which is the fact worth having: in this file the
+        `html"""…"""` does NOT lex as a single string, though every isolated shape of it does.
+        Debugging is now 81 characters instead of 2,018 — the cause is still unnamed, but it is
+        cornered rather than guessed at. Checked and ruled out: the fence count (this file has
+        exactly ONE ScalaScript fence, so no concatenation artefact).
 
   - [~] **SSC3-P typed projection.** The ScalaScript analogue of `MarkdownProjection`: CST in,
         typed AST out. This is the artifact the decision actually names — the lossless CST is the
