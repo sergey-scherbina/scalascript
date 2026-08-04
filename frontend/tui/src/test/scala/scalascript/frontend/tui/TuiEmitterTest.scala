@@ -211,6 +211,50 @@ final class TuiEmitterTest extends AnyFunSuite:
     assert(rs.contains("""load_fetch(signals, "rows", &sig(signals, "urlSig"), &headers);"""))
   }
 
+  test("a fetchAction button posts the body and bumps the tick — only on success") {
+    // Reported by rozum (INBOX tui-fetch-post): EventHandler.FetchAction is in the model and
+    // FetchIntrinsics builds it, but activationOf dropped it — so a composer rendered, took
+    // keystrokes, and silently never sent.
+    val body = new ReactiveSignal[String]("draft", "")
+    val tick = new ReactiveSignal[Int]("rowsTick", 0)
+    val send = View.Button(View.Text(() => "send"),
+      EventHandler.FetchAction("POST", "http://x/messages", body, tick, clearBody = true))
+    val (cargo, rs) = emitCrate(send)
+    assert(cargo.contains("ureq"))                                    // derived from the emission
+    assert(rs.contains("fn send_action("))
+    assert(rs.contains("""send_action(signals, "POST", "http://x/messages", "draft", "rowsTick", true, &__h);"""))
+    assert(rs.contains("""req = req.set("Content-Type", "application/json");"""))
+    // The asymmetry is the point: both mutations sit INSIDE the success branch. Bumping the tick
+    // before the response refreshes a list that was never written, and clearing the body on a
+    // failed send eats the user's message.
+    val success = rs.substring(rs.indexOf("if req.send_string(&body).is_ok() {"))
+    assert(success.take(400).contains("""signals.insert(tick_id.to_string(), Value::I(cur + 1));"""))
+    assert(success.take(400).contains("""if clear_body {"""))
+  }
+
+  test("an app with only local handlers emits no send_action and no ureq") {
+    // The negative half: the write helper must not follow every button around.
+    val flag = new ReactiveSignal[Boolean]("flag", false)
+    val (cargo, rs) = emitCrate(View.Button(View.Text(() => "toggle"), EventHandler.ToggleSignal(flag)))
+    assert(!rs.contains("fn send_action("))
+    assert(!cargo.contains("ureq"))
+  }
+
+  test("a POST that is the only user of headers still gets fetch_headers emitted") {
+    // fetch_headers normally rides along with a header-bound GET. When a POST is its only user the
+    // crate would reference a function that was never emitted — a break a string assertion on the
+    // call site alone would not catch.
+    val body = new ReactiveSignal[String]("draft", "")
+    val tick = new ReactiveSignal[Int]("t", 0)
+    val auth = new ReactiveSignal[String]("auth", """{"Authorization":"Bearer t"}""")
+    val send = View.Button(View.Text(() => "send"),
+      EventHandler.FetchAction("POST", "http://x/m", body, tick, clearBody = false, headers = Some(auth)))
+    val (cargo, rs) = emitCrate(send)
+    assert(rs.contains("fn fetch_headers("))
+    assert(rs.contains("""let __h = fetch_headers(signals, "auth");"""))
+    assert(cargo.contains("serde_json"))                              // fetch_headers parses JSON
+  }
+
   test("a fetch WITHOUT headers stays header-free and serde_json-free") {
     // The other half, and the one that keeps the no-header path cheap: emitting fetch_headers
     // unconditionally would reference serde_json in every crate that fetches anything.

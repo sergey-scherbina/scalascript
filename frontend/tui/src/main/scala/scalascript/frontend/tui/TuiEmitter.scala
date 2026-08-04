@@ -37,6 +37,9 @@ object TuiEmitter:
     case Set(id: String, valueExpr: String)
     case Incr(id: String, by: Int)
     case Toggle(id: String)
+    /** `fetchAction` — a WRITE. The store is mutated only after a 2xx (see `send_action`). */
+    case Post(method: String, url: String, bodyId: String, tickId: String,
+              clearBody: Boolean, headersId: Option[String])
 
   /** A focusable widget, in document order; `idx` is its focus-ring index. */
   private final case class Focusable(idx: Int, activation: Option[Mutation], textSignalId: Option[String])
@@ -123,6 +126,7 @@ object TuiEmitter:
        |}
        |
        |${genFetchHelpers(fetches)}
+       |${genWriteHelpers(fetches, focusables.toSeq)}
        |${genTableHelpers(remoteTable)}
        |
        |${genFocusConsts(focusables.toSeq)}
@@ -326,6 +330,55 @@ object TuiEmitter:
    *  `DataTable.Remote`. The body is fetched into `signals[id]` at bootstrap
    *  (see `collectFetches`) and parsed each frame. Emitted only when a remote
    *  table exists (else no `serde_json` dependency). */
+  /** `fetchAction` — the WRITE half. Emitted only when some focusable posts, so an app with only
+   *  local handlers keeps its crate free of `ureq`.
+   *
+   *  The store is mutated ONLY after a 2xx: bumping the tick before the response would refresh a
+   *  list that was never written, and clearing the body on a failed send eats the user's message,
+   *  which is worse than not sending it. Bumping the tick is also what makes "post, then see the
+   *  list update" work with no extra wiring — the tick is a fetch trigger, so the bound GET re-reads
+   *  on the next frame. */
+  private def genWriteHelpers(fetches: mutable.LinkedHashMap[String, FetchInfo],
+                              fs: Seq[Focusable]): String =
+    val posts = fs.flatMap(_.activation).collect { case p: Mutation.Post => p }
+    if posts.isEmpty then ""
+    else
+      // `fetch_headers` normally rides along with a header-bound GET. A POST may be the ONLY user of
+      // it, in which case genFetchHelpers did not emit it and the crate would not compile.
+      val needsHeaderHelper =
+        posts.exists(_.headersId.isDefined) && !fetches.values.exists(_.headersId.isDefined)
+      val headerHelper =
+        if !needsHeaderHelper then ""
+        else
+          """fn fetch_headers(signals: &HashMap<String, Value>, id: &str) -> Vec<(String, String)> {
+            |    let raw = sig(signals, id);
+            |    if raw.is_empty() { return Vec::new(); }
+            |    match serde_json::from_str::<serde_json::Value>(&raw) {
+            |        Ok(serde_json::Value::Object(map)) => map
+            |            .iter()
+            |            .map(|(k, v)| match v {
+            |                serde_json::Value::String(s) => (k.clone(), s.clone()),
+            |                other => (k.clone(), other.to_string()),
+            |            })
+            |            .collect(),
+            |        _ => Vec::new(),
+            |    }
+            |}
+            |""".stripMargin
+      s"""${headerHelper}fn send_action(signals: &mut HashMap<String, Value>, method: &str, url: &str,
+         |                body_id: &str, tick_id: &str, clear_body: bool, headers: &[(String, String)]) {
+         |    if url.is_empty() { return; }
+         |    let body = sig(signals, body_id);
+         |    let mut req = ureq::request(method, url);
+         |    req = req.set("Content-Type", "application/json");
+         |    for (name, value) in headers { req = req.set(name, value); }
+         |    if req.send_string(&body).is_ok() {
+         |        let cur = match signals.get(tick_id) { Some(Value::I(n)) => *n, _ => 0 };
+         |        signals.insert(tick_id.to_string(), Value::I(cur + 1));
+         |        if clear_body { signals.insert(body_id.to_string(), Value::S(String::new())); }
+         |    }
+         |}""".stripMargin
+
   private def genTableHelpers(hasRemoteTable: Boolean): String =
     if !hasRemoteTable then ""
     else
@@ -411,6 +464,13 @@ object TuiEmitter:
       s"let cur = match signals.get(${rustStr(id)}) { Some(Value::I(n)) => *n, _ => 0 }; signals.insert(${rustStr(id)}.to_string(), Value::I(cur + $by));"
     case Mutation.Toggle(id)     =>
       s"let cur = sig_truthy(signals, ${rustStr(id)}); signals.insert(${rustStr(id)}.to_string(), Value::B(!cur));"
+    case Mutation.Post(method, url, bodyId, tickId, clearBody, headersId) =>
+      // One helper call rather than an inlined request: the arms are single-expression blocks.
+      val hdrs = headersId match
+        case None      => "Vec::new()"
+        case Some(hid) => s"fetch_headers(signals, ${rustStr(hid)})"
+      s"let __h = $hdrs; send_action(signals, ${rustStr(method)}, ${rustStr(url)}, " +
+      s"${rustStr(bodyId)}, ${rustStr(tickId)}, $clearBody, &__h);"
 
   private def genActivate(fs: Seq[Focusable]): String =
     val arms = fs.collect { case f if f.activation.isDefined =>
@@ -610,6 +670,8 @@ object TuiEmitter:
     case EventHandler.SetSignalLiteral(s, value) => Some(Mutation.Set(s.id, valueExpr(value)))
     case EventHandler.IncrementSignal(s, by)     => Some(Mutation.Incr(s.id, by))
     case EventHandler.ToggleSignal(s)            => Some(Mutation.Toggle(s.id))
+    case EventHandler.FetchAction(method, url, body, tick, clearBody, headers) =>
+      Some(Mutation.Post(method, url, body.id, tick.id, clearBody, headers.map(_.id)))
     case _                                       => None
 
   // ── View → ratatui lowering ────────────────────────────────────────────
