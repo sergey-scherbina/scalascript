@@ -449,7 +449,7 @@ object JavaFxRuntime:
         button.setOnAction(_ => action())
       case EventHandler.WithEvent(action) =>
         button.setOnAction(event => action(event))
-      case EventHandler.FetchAction(method, url, body, onSuccessTick, clearBody, _) =>
+      case EventHandler.FetchAction(method, url, body, onSuccessTick, clearBody, _, _) =>
         button.setOnAction { _ =>
           state.fetchDispatcher.foreach { dispatcher =>
             val response = dispatcher.request(method, url, state.signalString(body.id))
@@ -541,7 +541,7 @@ object JavaFxRuntime:
         case EventHandler.IncrementSignal(s, _)  => add(acc, s)
         case EventHandler.ToggleSignal(s)        => add(acc, s)
         case EventHandler.InputChange(s)         => add(acc, s)
-        case EventHandler.FetchAction(_, _, b, t, _, _) => add(add(acc, b), t)
+        case EventHandler.FetchAction(_, _, b, t, _, _, _) => add(add(acc, b), t)
         case _ => acc
     def loop(acc: Map[String, SignalInitial], v: View[?]): Map[String, SignalInitial] =
       v match

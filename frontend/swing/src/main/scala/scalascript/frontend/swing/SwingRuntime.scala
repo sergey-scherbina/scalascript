@@ -349,7 +349,7 @@ object SwingRuntime:
         component.addActionListener(_ => action())
       case EventHandler.WithEvent(action) =>
         component.addActionListener(event => action(event))
-      case EventHandler.FetchAction(method, url, body, onSuccessTick, clearBody, _) =>
+      case EventHandler.FetchAction(method, url, body, onSuccessTick, clearBody, _, _) =>
         component.addActionListener { _ =>
           state.fetchDispatcher.foreach { dispatcher =>
             val response = dispatcher.request(method, url, state.signalString(body.id))
@@ -562,7 +562,7 @@ object SwingRuntime:
         case EventHandler.IncrementSignal(signal, _)  => add(acc, signal)
         case EventHandler.ToggleSignal(signal)        => add(acc, signal)
         case EventHandler.InputChange(signal)         => add(acc, signal)
-        case EventHandler.FetchAction(_, _, body, onSuccessTick, _, _) => add(add(acc, body), onSuccessTick)
+        case EventHandler.FetchAction(_, _, body, onSuccessTick, _, _, _) => add(add(acc, body), onSuccessTick)
         case _ => acc
     def loop(acc: Map[String, SignalInitial], v: View[?]): Map[String, SignalInitial] =
       v match

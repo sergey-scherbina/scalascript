@@ -212,7 +212,7 @@ private[vue] object VueEmitter:
       case EventHandler.IncrementSignal(sig, _)          => register(sig)
       case EventHandler.ToggleSignal(sig)                => register(sig)
       case EventHandler.InputChange(sig)                 => register(sig)
-      case EventHandler.FetchAction(_, _, body, tick, _, hOpt) => register(body); register(tick); hOpt.foreach(register)
+      case EventHandler.FetchAction(_, _, body, tick, _, hOpt, _) => register(body); register(tick); hOpt.foreach(register)
       case EventHandler.DeleteItem(_, _, tick, hOpt) => register(tick); hOpt.foreach(register)
       case EventHandler.ItemAction(_, _, _, tick, hOpt) => register(tick); hOpt.foreach(register)
       case EventHandler.SetFieldToSignal(sig, _)         => register(sig)
@@ -229,7 +229,7 @@ private[vue] object VueEmitter:
           checkSig(seed.source)
         case _ => ()
     def checkHandler(handler: EventHandler): Unit = handler match
-      case EventHandler.FetchAction(_, _, body, tick, _, hOpt) => checkSig(body); checkSig(tick); hOpt.foreach(checkSig)
+      case EventHandler.FetchAction(_, _, body, tick, _, hOpt, _) => checkSig(body); checkSig(tick); hOpt.foreach(checkSig)
       case EventHandler.SetSignalLiteral(sig, _)               => checkSig(sig)
       case EventHandler.IncrementSignal(sig, _)                => checkSig(sig)
       case EventHandler.ToggleSignal(sig)                      => checkSig(sig)
@@ -278,7 +278,7 @@ private[vue] object VueEmitter:
       case View.Element(_, attrs, events, children) =>
         attrs.values.foreach { case AttrValue.Reactive(sig) => checkSig(sig); case _ => () }
         events.foreach { (_, handler) => handler match
-          case EventHandler.FetchAction(_, _, body, tick, _, hOpt) => checkSig(body); checkSig(tick); hOpt.foreach(checkSig)
+          case EventHandler.FetchAction(_, _, body, tick, _, hOpt, _) => checkSig(body); checkSig(tick); hOpt.foreach(checkSig)
           case _ => ()
         }
         children.foreach(walk)
@@ -657,7 +657,7 @@ private[vue] object VueEmitter:
         case EventHandler.SetSignalLiteral(sig, v) => setSignalStmt(sig, jsLiteral(v))
         case EventHandler.IncrementSignal(sig, by) => s"this.${sig.id} = this.${sig.id} + $by;"
         case EventHandler.ToggleSignal(sig)        => s"this.${sig.id} = !this.${sig.id};"
-        case EventHandler.FetchAction(method, url, body, tick, clearBody, hOpt) =>
+        case EventHandler.FetchAction(method, url, body, tick, clearBody, hOpt, _) =>
           val clear     = if clearBody then " " + setSignalStmt(body, "''") else ""
           val headersJs = hOpt.map(h => s", headers: JSON.parse(this.${h.id} || '{}')").getOrElse("")
           s"fetch(${jsString(url)}, {method: ${jsString(method)}, body: this.${body.id}$headersJs}).then(r => r.text()).then(_ => { this.${tick.id}++;$clear });"
@@ -803,7 +803,7 @@ private[vue] object VueEmitter:
           Some(s"${jsString(onKey)}: () => { this.${list.id} = this.${list.id}.filter((_, i) => i !== index); }")
         else
           Some(s"/* '$eventName' is RemoveSelfFromList used outside an item template — no-op */")
-      case EventHandler.FetchAction(method, url, body, tick, clearBody, hOpt) =>
+      case EventHandler.FetchAction(method, url, body, tick, clearBody, hOpt, _) =>
         val urlJs     = jsString(url)
         val methodJs  = jsString(method)
         val clearJs   = if clearBody then " " + setSignalStmt(body, "''") else ""

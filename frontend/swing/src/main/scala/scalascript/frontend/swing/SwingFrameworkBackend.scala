@@ -509,7 +509,7 @@ $seedState
       case EventHandler.IncrementSignal(signal, _)  => addSignal(acc, signal)
       case EventHandler.ToggleSignal(signal)        => addSignal(acc, signal)
       case EventHandler.InputChange(signal)         => addSignal(acc, signal)
-      case EventHandler.FetchAction(_, _, body, onSuccessTick, _, _) =>
+      case EventHandler.FetchAction(_, _, body, onSuccessTick, _, _, _) =>
         addSignal(addSignal(acc, body), onSuccessTick)
       case _ => acc
 
@@ -544,7 +544,7 @@ $seedState
         case EventHandler.IncrementSignal(signal, _)  => add(signal)
         case EventHandler.ToggleSignal(signal)        => add(signal)
         case EventHandler.InputChange(signal)         => add(signal)
-        case EventHandler.FetchAction(_, _, body, onSuccessTick, _, _) =>
+        case EventHandler.FetchAction(_, _, body, onSuccessTick, _, _, _) =>
           add(body); add(onSuccessTick)
         case _ => ()
     def loop(v: View[?]): Unit =

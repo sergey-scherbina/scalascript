@@ -603,7 +603,7 @@ object SwiftUIEmitter:
             s"${pad}// RemoveSelfFromList: use inside ForSignal for index-based removal on ${list.id}"
       case EventHandler.InputChange(signal) =>
         s"${pad}// InputChange handled by TextField binding on $$${signal.id}"
-      case EventHandler.FetchAction(method, url, body, onSuccessTick, clearBody, _) =>
+      case EventHandler.FetchAction(method, url, body, onSuccessTick, clearBody, _, _) =>
         emitFetchTask(method, url, body, onSuccessTick.id, clearBody, indent)
       case EventHandler.DeleteItem(idField, deleteUrl, onSuccessTick, _) =>
         val pad2 = " " * (indent + 4)
@@ -763,7 +763,7 @@ object SwiftUIEmitter:
         case EventHandler.InputChange(s)          => add(s)
         case EventHandler.DeleteItem(_, _, s, h)  => add(s); h.foreach(add)
         case EventHandler.ItemAction(_, _, _, s, h) => add(s); h.foreach(add)
-        case EventHandler.FetchAction(_, _, b, t, _, h) => add(b); add(t); h.foreach(add)
+        case EventHandler.FetchAction(_, _, b, t, _, h, _) => add(b); add(t); h.foreach(add)
         case EventHandler.SetFieldToSignal(s, _)  => add(s)
         case _                                    => ()
     def loop(v: View[?]): Unit =

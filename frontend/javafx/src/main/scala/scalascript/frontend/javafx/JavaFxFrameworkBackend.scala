@@ -455,7 +455,7 @@ $seedState
       case EventHandler.IncrementSignal(signal, _)  => addSignal(acc, signal)
       case EventHandler.ToggleSignal(signal)        => addSignal(acc, signal)
       case EventHandler.InputChange(signal)         => addSignal(acc, signal)
-      case EventHandler.FetchAction(_, _, body, tick, _, _) => addSignal(addSignal(acc, body), tick)
+      case EventHandler.FetchAction(_, _, body, tick, _, _, _) => addSignal(addSignal(acc, body), tick)
       case _ => acc
 
   private def addSignal(acc: Map[String, SignalInitial], signal: ReactiveSignal[?]): Map[String, SignalInitial] =
@@ -489,7 +489,7 @@ $seedState
         case EventHandler.IncrementSignal(signal, _)  => add(signal)
         case EventHandler.ToggleSignal(signal)        => add(signal)
         case EventHandler.InputChange(signal)         => add(signal)
-        case EventHandler.FetchAction(_, _, body, tick, _, _) => add(body); add(tick)
+        case EventHandler.FetchAction(_, _, body, tick, _, _, _) => add(body); add(tick)
         case _ => ()
     def loop(v: View[?]): Unit =
       v match

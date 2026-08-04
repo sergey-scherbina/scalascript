@@ -944,7 +944,7 @@ private[solid] object SolidEmitter:
           registerList(list)
           val setter = setterName(list.id)
           statements += s"$targetVar.addEventListener(${jsString(eventName)}, () => $setter([]));"
-        case EventHandler.FetchAction(method, url, body, tick, clearBody, hOpt) =>
+        case EventHandler.FetchAction(method, url, body, tick, clearBody, hOpt, _) =>
           registerSignal(body)
           registerSignal(tick)
           hOpt.foreach(registerSignal)

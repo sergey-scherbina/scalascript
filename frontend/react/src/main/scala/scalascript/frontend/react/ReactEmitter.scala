@@ -139,7 +139,7 @@ private[react] object ReactEmitter:
             case EventHandler.IncrementSignal(signal, _)       => register(signal)
             case EventHandler.ToggleSignal(signal)             => register(signal)
             case EventHandler.InputChange(signal)              => register(signal)
-            case EventHandler.FetchAction(_, _, body, tick, _, hOpt) => register(body); register(tick); hOpt.foreach(register)
+            case EventHandler.FetchAction(_, _, body, tick, _, hOpt, _) => register(body); register(tick); hOpt.foreach(register)
             case _ => ()
         }
         children.foreach(walk)
@@ -223,7 +223,7 @@ private[react] object ReactEmitter:
       case EventHandler.IncrementSignal(sig, _)          => register(sig)
       case EventHandler.ToggleSignal(sig)                => register(sig)
       case EventHandler.InputChange(sig)                 => register(sig)
-      case EventHandler.FetchAction(_, _, body, tick, _, hOpt) => register(body); register(tick); hOpt.foreach(register)
+      case EventHandler.FetchAction(_, _, body, tick, _, hOpt, _) => register(body); register(tick); hOpt.foreach(register)
       case EventHandler.DeleteItem(_, _, tick, hOpt) => register(tick); hOpt.foreach(register)
       case EventHandler.ItemAction(_, _, _, tick, hOpt) => register(tick); hOpt.foreach(register)
       case EventHandler.SetFieldToSignal(sig, _)         => register(sig)
@@ -240,7 +240,7 @@ private[react] object ReactEmitter:
           checkSig(seed.source)
         case _ => ()
     def checkHandler(handler: EventHandler): Unit = handler match
-      case EventHandler.FetchAction(_, _, body, tick, _, hOpt) => checkSig(body); checkSig(tick); hOpt.foreach(checkSig)
+      case EventHandler.FetchAction(_, _, body, tick, _, hOpt, _) => checkSig(body); checkSig(tick); hOpt.foreach(checkSig)
       case EventHandler.SetSignalLiteral(sig, _)               => checkSig(sig)
       case EventHandler.IncrementSignal(sig, _)                => checkSig(sig)
       case EventHandler.ToggleSignal(sig)                      => checkSig(sig)
@@ -390,7 +390,7 @@ private[react] object ReactEmitter:
       case fs: FetchUrlSignal if !seen.contains(fs.id) => seen(fs.id) = fs
       case _ => ()
     def checkHandler(handler: EventHandler): Unit = handler match
-      case EventHandler.FetchAction(_, _, body, tick, _, hOpt) => checkSig(body); checkSig(tick); hOpt.foreach(checkSig)
+      case EventHandler.FetchAction(_, _, body, tick, _, hOpt, _) => checkSig(body); checkSig(tick); hOpt.foreach(checkSig)
       case EventHandler.SetSignalLiteral(sig, _)               => checkSig(sig)
       case EventHandler.IncrementSignal(sig, _)                => checkSig(sig)
       case EventHandler.ToggleSignal(sig)                      => checkSig(sig)
@@ -709,7 +709,7 @@ private[react] object ReactEmitter:
         case EventHandler.SetSignalLiteral(sig, v) => setSignalStmt(sig, jsLiteral(v))
         case EventHandler.IncrementSignal(sig, by) => s"${setterName(sig.id)}(c => c + $by)"
         case EventHandler.ToggleSignal(sig)        => s"${setterName(sig.id)}(c => !c)"
-        case EventHandler.FetchAction(method, url, body, tick, clearBody, hOpt) =>
+        case EventHandler.FetchAction(method, url, body, tick, clearBody, hOpt, _) =>
           val setTick   = setterName(tick.id)
           val clear     = if clearBody then " " + setSignalStmt(body, "''") else ""
           val headersJs = hOpt.map(h => s", headers: JSON.parse(${h.id} || '{}')").getOrElse("")
@@ -898,7 +898,7 @@ private[react] object ReactEmitter:
           Some(s"/* '$eventName' is RemoveSelfFromList used outside an item template — no-op */")
       case EventHandler.InputChange(signal) =>
         Some(s"'onChange': (e) => ${setSignalExpr(signal, "e.target.value")}")
-      case EventHandler.FetchAction(method, url, body, tick, clearBody, hOpt) =>
+      case EventHandler.FetchAction(method, url, body, tick, clearBody, hOpt, _) =>
         val getBody   = body.id
         val setTick   = setterName(tick.id)
         val urlJs     = jsString(url)
