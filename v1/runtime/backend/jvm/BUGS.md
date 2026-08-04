@@ -93,9 +93,11 @@ and a `Double` `.mkString` — and they are IDENTICAL before and after, which is
 interesting way to break this fix is to delete the rewrites and bring `4.0` back.
 
 ## run-jvm-silent-success — `ssc-tools run-jvm` prints nothing and exits 0, including for a file that does not exist
-<!-- status: open
+<!-- status: fixed
      lane: jvm
-     area: cli -->
+     area: cli
+     gate: none
+     fixed-in: unrecorded -->
 
 **Status:** OPEN, low priority — that lane is already documented as NON-CONFORMING and *"slated for
 deletion with the v1 hybrid tier"* (`Main.scala:3088`). Filed because a silent `exit 0` is the one
@@ -127,6 +129,44 @@ than as "the lane is broken".
 2. **`exit 0` on `File not found`** — a fail-open in argument handling, independent of the backend.
 
 Fixing (2) alone is cheap and stops the lane from lying about its own invocation.
+
+
+**CLOSED 2026-08-04 — re-measured, and BOTH halves are correct now.** Nothing was fixed here; this
+records the measurement so the entry stops sending people after a defect that is not there.
+
+Run verbatim from this entry's own repro block, same file path and all:
+
+```
+$ printf 'def main() = println(1+1)\n' > tests/conformance/_t.ssc
+$ ssc-tools run-jvm tests/conformance/_t.ssc ; echo EXIT=$?
+2                                          # was: no output at all
+EXIT=0
+
+$ ssc-tools run-jvm /does/not/exist.ssc ; echo EXIT=$?
+Error: File not found: /does/not/exist.ssc
+EXIT=1                                     # was: EXIT=0
+```
+
+**`fixed-in: unrecorded`, deliberately** (the documented value for "fixed, commit not named" — specs/bugs-index.md). I could not identify a commit that changed either behaviour,
+and would rather say so than name a plausible one:
+
+- `RunJvmCmd` in `v1/tools/cli/src/main/scala/scalascript/cli/Main.scala` reads
+  `if !os.exists(path) then System.err.println(s"Error: File not found: $file"); System.exit(1)` at
+  HEAD, and `git log -S` on that string finds only refactors that MOVED the file
+  (`b433a41e4`, `a9f7943f3`, `d0665660a`) — no commit that introduced the exit code.
+- `bin/ssc-tools` ends in `exec java … "$@"`, which propagates the child's status, so the wrapper is
+  not swallowing it either.
+
+Which leaves two possibilities and no evidence to choose between them: the exit code was always 1
+and the original observation came from something else in the reporter's shell, or a change between
+2026-07-30 and 2026-08-02 fixed it without touching that string. The binary that measures correct
+here was built at `ec70eb062` (2026-08-02), i.e. after this entry was filed.
+
+**The paragraph worth keeping is the one about why nothing caught it**, and it is still true:
+`contract.sc`'s default lanes are `int,js,v2`, so `jvm` is opt-in. If the lane ever regressed to
+silence again, every case would compare EMPTY output against its golden and the whole lane would
+read as DIVERGE rather than as "the lane is broken" — a shape that hides the cause behind 600
+identical failures. That is a gap in the harness, not in this lane, and it outlives this entry.
 
 ## negtc-both-fail-derived-route-clients — the one case keeping the release gate red
 <!-- status: fixed
