@@ -7,6 +7,36 @@ grepping for status.
 
 Newest first.
 
+## js-collection-companion-empty-is-not-callable — `List.empty` and `Set.empty` die with "Method not found: empty on <function>"
+
+<!-- status: open
+     lane: js
+     area: codegen
+     gate: none -->
+
+Found 2026-08-04 while giving `Set` a representation of its own on this lane
+(`type-ascription-tuple-and-set-arms-missing`). It is NOT Set-specific and NOT a regression from
+that work — verified against the pre-change toolchain, where `List.empty` fails identically:
+
+```
+println(List.empty)   js: Error: Method not found: empty on <function>   int: List()
+println(Set.empty)    js: Error: Method not found: empty on <function>   int: Set()
+```
+
+The companion NAME (`List`, `Set`) emits a JS function — `function List(...args)` and `_setOf` —
+and `.empty` on it reaches `_dispatch` with that function as the receiver, which has no arm for a
+function. `core-dispatch.mjs` already defines `List.empty = []` as a property, so the runtime side
+of the answer exists; nothing routes the access to it.
+
+The APPLICATION forms are fine and are what the corpus uses, which is why this went unnoticed:
+`List()` and `Set()` both work (`Set().isEmpty` is pinned by `tests/conformance/set-distinct.ssc`),
+and so does every method on the resulting value. Only the `.empty` spelling on the bare companion
+is broken.
+
+Not fixed here on purpose: the fix is in the emitter's companion-select path, which is a different
+file and a different concern from the Set representation, and it affects `List` — a far more
+widely used type — so it deserves its own blast-radius check rather than a ride-along.
+
 ## js-object-apply-not-callable — `O(7)` on an object with an `apply` member throws `not callable`
 <!-- status: fixed
      lane: js

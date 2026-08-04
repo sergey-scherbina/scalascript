@@ -924,7 +924,7 @@ reading of it.
      lane: multi
      area: runtime
      gate: tests/conformance/set-distinct.ssc
-     fixed-in: PENDING-SHA -->
+     fixed-in: 2c0396a65 -->
 
 **Tuple half FIXED 2026-07-29 in 7939f4c9e** (gate `tests/conformance/type-ascription-tuple.ssc`).
 **Set half FIXED on `int` 2026-07-30 in 84c3b2cc7** — and NOT fixable the same way on two lanes,
