@@ -1,0 +1,11 @@
+slug: launcher-digest-grep-portability
+branch: feature/launcher-digest-grep-portability
+agent: claude-code
+started: 2026-08-04T16:17:38Z
+heartbeat: 2026-08-04T16:17:38Z
+status: claimed-before-planning
+items: launcher-digest-gate-backslash-t-is-not-a-tab-in-ere
+paths: file:tests/e2e/launcher-digest-gate.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
