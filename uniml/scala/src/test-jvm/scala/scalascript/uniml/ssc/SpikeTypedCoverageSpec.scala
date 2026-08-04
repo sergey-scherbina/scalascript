@@ -1,10 +1,10 @@
-package scalascript.uniml.scala
+package scalascript.uniml.ssc
 
 import org.scalatest.funsuite.AnyFunSuite
 import scalascript.uniml.UniNode
 import scalascript.uniml.dialect.scalascript.{SpikeAst, SpikeTyped}
 import java.nio.file.{Files, Path, Paths}
-import _root_.scala.jdk.CollectionConverters.*
+import scala.jdk.CollectionConverters.*
 
 /** Coverage of the typed AST over every `.ssc` in the repository.
   *
@@ -56,7 +56,7 @@ final class SpikeTypedCoverageSpec extends AnyFunSuite:
     var nodes = 0L
     var parseErrors = 0L
     var astGaps = 0L
-    val gapKinds = _root_.scala.collection.mutable.Map.empty[String, Int]
+    val gapKinds = scala.collection.mutable.Map.empty[String, Int]
 
     files.foreach { p =>
       val text = new String(Files.readAllBytes(p), "UTF-8")
@@ -75,7 +75,7 @@ final class SpikeTypedCoverageSpec extends AnyFunSuite:
     }
 
     val typed = nodes - parseErrors - astGaps
-    val ofParsed = 100.0 * typed / _root_.scala.math.max(1L, nodes - parseErrors)
+    val ofParsed = 100.0 * typed / scala.math.max(1L, nodes - parseErrors)
     info(f"files=${files.size} nodes=$nodes typed=$typed parse-errors=$parseErrors ast-gaps=$astGaps")
     info(f"coverage of what the dialect PARSES: $ofParsed%.1f%%")
     gapKinds.toVector.sortBy(-_._2).take(10).foreach((k, c) => info(f"  gap $c%6d  $k"))

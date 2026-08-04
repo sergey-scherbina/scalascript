@@ -3,7 +3,7 @@ package scalascript.uniml.dialect.scalascript
 import org.scalatest.funsuite.AnyFunSuite
 import scalascript.uniml.*
 import java.nio.file.{Files, Path, Paths}
-import _root_.scala.jdk.CollectionConverters.*
+import scala.jdk.CollectionConverters.*
 
 /** The ScalaScript dialect's losslessness gate.
   *

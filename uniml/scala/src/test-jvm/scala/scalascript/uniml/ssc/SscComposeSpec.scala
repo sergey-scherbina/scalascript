@@ -1,4 +1,4 @@
-package scalascript.uniml.scala
+package scalascript.uniml.ssc
 
 import org.scalatest.funsuite.AnyFunSuite
 import scalascript.uniml.*

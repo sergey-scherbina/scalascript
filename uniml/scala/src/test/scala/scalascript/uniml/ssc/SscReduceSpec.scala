@@ -1,4 +1,4 @@
-package scalascript.uniml.scala
+package scalascript.uniml.ssc
 
 import scalascript.uniml.*
 import scalascript.uniml.dialect.scalascript.{SpikeDialect, SpikeLex}

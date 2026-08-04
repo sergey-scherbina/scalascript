@@ -1,4 +1,12 @@
-package scalascript.uniml.scala
+// `ssc`, NOT `scala`, and the difference is load-bearing: a package named
+// `scalascript.uniml.scala` SHADOWS the root `scala` package for every source
+// compiled beside it, so `scala.collection.mutable` stops resolving. That is not
+// hypothetical — this package was named after its DIRECTORY (`uniml/scala`), and
+// the day the ScalaScript dialect moved in here it stopped compiling until every
+// reference was rewritten to `_root_.scala.…`. Those workarounds are gone with
+// the rename. If you are tempted to align the package back to the directory
+// name, this is the reason not to.
+package scalascript.uniml.ssc
 
 import scalascript.uniml.*
 import scalascript.uniml.dialect.markdown.{Markdown, MarkdownProfile, CommonMarkDialect}

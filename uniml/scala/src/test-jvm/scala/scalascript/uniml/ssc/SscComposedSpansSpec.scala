@@ -1,8 +1,8 @@
-package scalascript.uniml.scala
+package scalascript.uniml.ssc
 
 import scalascript.uniml.*
 import java.nio.file.{Files, Paths}
-import _root_.scala.jdk.CollectionConverters.*
+import scala.jdk.CollectionConverters.*
 import org.scalatest.funsuite.AnyFunSuite
 
 /** An injected subtree must live in the FILE's coordinates, not its fence's.

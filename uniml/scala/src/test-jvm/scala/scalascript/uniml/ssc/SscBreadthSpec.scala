@@ -1,7 +1,7 @@
-package scalascript.uniml.scala
+package scalascript.uniml.ssc
 
 import java.nio.file.{Files, Path, Paths}
-import _root_.scala.jdk.CollectionConverters.*
+import scala.jdk.CollectionConverters.*
 import org.scalatest.funsuite.AnyFunSuite
 
 /** How much real ScalaScript the composed front parses — SSC3-B's measure.
@@ -38,8 +38,8 @@ final class SscBreadthSpec extends AnyFunSuite:
 
     var clean = 0
     var total = 0L
-    val shapes = _root_.scala.collection.mutable.Map.empty[String, Int]
-    val worst = _root_.scala.collection.mutable.ArrayBuffer.empty[(String, Int)]
+    val shapes = scala.collection.mutable.Map.empty[String, Int]
+    val worst = scala.collection.mutable.ArrayBuffer.empty[(String, Int)]
 
     files.foreach { p =>
       val composed = SscCompose.parse(new String(Files.readAllBytes(p), "UTF-8"))
