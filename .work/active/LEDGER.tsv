@@ -1,9 +1,8 @@
-# generation: 899
+# generation: 900
 #slug	agent	started	items	paths
 ssc3-core	claude-code	2026-08-01T11:18:17Z	SSC3-0 SSC3-1 SSC3-2 SSC3-3 SSC3-4 SSC3-5	v3 file:tests/fixtures/modules.tsv file:tests/conformance/generic-ctor-and-array-alloc.ssc file:tests/conformance/expected/generic-ctor-and-array-alloc.txt file:tests/conformance/corpus-baseline.tsv
 ui-fetch-credentials	claude-code	2026-08-04T12:45:37Z	ui-fetch-credentials std-auth-client-half	file:specs/ui-fetch-credentials.md file:v1/runtime/std/ui/primitives.ssc file:v1/runtime/std/credential.ssc file:tests/conformance/credential-vocabulary.ssc file:tests/conformance/expected/credential-vocabulary.txt file:INBOX.md
 release-v0-1-0	claude-code	2026-08-04T15:20:00Z	release-v0-1-0 native-release-blocked-by-testutils-clean-compile	file:.github/workflows/native-release.yml file:tests/BUGS.md file:build.sbt
-skills-submodule-bump	claude-code	2026-08-04T21:37:52Z	skills-submodule-bump	file:.agents/plugins
 launcher-digest-gate-cost	claude-code	2026-08-04T21:38:01Z	launcher-digest-gate-is-225s-of-a-500s-budget	file:tests/e2e/launcher-digest-gate.sh file:scripts/launcher-input-digest
 gnuism-portability-gate	claude-code	2026-08-04T21:38:46Z	gnuism-portability-gate	file:tests/e2e/no-gnu-only-shell-constructs.sh
 gnuism-portability-gate	claude-code	2026-08-04T21:38:57Z	gnuism-portability-gate	file:tests/e2e/no-gnu-only-shell-constructs.sh
