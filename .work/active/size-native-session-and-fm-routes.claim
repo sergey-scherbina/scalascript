@@ -1,0 +1,11 @@
+slug: size-native-session-and-fm-routes
+branch: feature/size-native-session-and-fm-routes
+agent: claude-code
+started: 2026-08-04T12:54:37Z
+heartbeat: 2026-08-04T12:54:37Z
+status: claimed-before-planning
+items: native-Response-session-transforms-missing native-lane-ignores-front-matter-routes
+paths: file:v2/BUGS.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
