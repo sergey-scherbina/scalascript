@@ -422,7 +422,11 @@ val suite = List(
   // `--lanes` value could be eaten as the positional corpus dir). That protection is INLINED into
   // the new script, which asserts the case count and every lane BY NAME. Verified both ways: a
   // zero-match pattern and a case declaring fewer lanes each turn it red.
-  Check("tests/conformance", "corpus-lane-breadth", "tests/e2e/smoke-lane-breadth.sh", List(), 300000)
+  Check("tests/conformance", "corpus-lane-breadth", "tests/e2e/smoke-lane-breadth.sh", List(), 300000),
+  // UniML had NO automated gate on a push until 2026-08-04 — `grep uniml
+  // .github/workflows/` returned nothing, and the root `sbt — compile and test` job
+  // is workflow_dispatch only. Ten projects, ~300 tests, measured 27.9s from clean.
+  Check("uniml", "uniml-standalone", "tests/e2e/uniml-standalone-tests.sh", List(), 300000)
 )
 
 // ── The module hierarchy, read rather than restated ───────────────────────────
