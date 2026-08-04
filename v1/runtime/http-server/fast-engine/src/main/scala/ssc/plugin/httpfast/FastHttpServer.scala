@@ -113,9 +113,26 @@ final class FastHttpServer(
           try
             val resp =
               try handler(req.nn)
-              catch case err: Throwable =>
-                RawResponse(500, Map("Content-Type" -> "text/plain; charset=utf-8"),
-                  s"native HTTP handler failed: ${msg(err)}".getBytes(ISO_8859_1))
+              catch
+                // A failed field check is the CLIENT's error, not the server's. v1 has said so
+                // since it existed: `validationRecord` outside a `validate { }` frame throws
+                // `RestValidationError(reason)` and `HttpDispatchLoop` recovers it into a 400 with
+                // that reason (`Interpreter.scala` ~1451, `HttpDispatchLoop.scala:41`). The native
+                // host does not go through that loop, so the same program answered differently on
+                // the two lanes — measured 2026-08-04, one request with a required field omitted:
+                //
+                //     v1      400  missing field: n
+                //     native  500  native HTTP handler failed: n: require* used outside a validate…
+                //
+                // Wrong twice over: a client error reported as a server error, and the name of an
+                // internal block form handed to the caller. This engine is shared by both lanes, so
+                // the rule lives here and neither lane can drift from it again.
+                case ve: HandlerValidationError =>
+                  RawResponse(400, Map("Content-Type" -> "text/plain; charset=utf-8"),
+                    ve.getMessage.nn.getBytes(ISO_8859_1))
+                case err: Throwable =>
+                  RawResponse(500, Map("Content-Type" -> "text/plain; charset=utf-8"),
+                    s"native HTTP handler failed: ${msg(err)}".getBytes(ISO_8859_1))
             resp.stream match
               case Some(writeBody) =>
                 // Open-ended stream (SSE / streamResponse): headers now, body over time, close.

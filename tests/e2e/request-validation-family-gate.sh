@@ -33,7 +33,7 @@ echo "── request validation family (native lane)"
 command -v curl >/dev/null || { echo "✗ curl not available"; exit 1; }
 
 WORK="$(mktemp -d)"
-cleanup() { lsof -ti :"$PORT" 2>/dev/null | xargs -r kill -9 2>/dev/null; rm -rf "$WORK"; }
+cleanup() { for p in "$PORT" "$(( PORT + 1 ))"; do lsof -ti :"$p" 2>/dev/null | xargs -r kill -9 2>/dev/null; done; rm -rf "$WORK"; }
 trap cleanup EXIT
 
 cat > "$WORK/app.ssc" <<EOF
@@ -83,16 +83,53 @@ check() {  # $1 label | $2 query | $3 substring that must be present | $4 substr
 # All four require* names resolve AND parse.
 check "require*, fields present" "req?s=hi&i=7&d=2.5&b=yes" "s=hi i=7 d=2.5 b=true" "unbound"
 
-# An absent required field is asserted only as "the NAME resolved" — deliberately not as a status
-# code. Measured 2026-08-04, the two lanes disagree on what a missing field outside a `validate { }`
-# block should be: v1 answers 400 `missing field: n` (HttpDispatchLoop recovers RestValidationError)
-# and the native lane answers 500 with the implementation detail `require* used outside a
-# validate { … } block`, because its server maps every Throwable to 500. Pinning either here would
-# freeze one lane's answer as the contract; it is filed as
-# native-missing-required-field-is-500-not-400 instead. What this row does guarantee is the thing
-# this gate exists for: the name is registered, so the failure is about validation and not about
-# `unbound global`.
-check "require*, absent field — the NAME resolves (status is filed, not pinned)" "req" "" "unbound global"
+# A missing required field is a CLIENT error and both lanes must say so identically. This row was
+# once deliberately unpinned, because the lanes disagreed — v1 answered 400 `missing field: n`
+# while the native lane answered 500 with the name of an internal block form — and pinning either
+# would have frozen one lane's answer as the contract. They agree now, so it is pinned, on BOTH,
+# with the status AND the body: the whole defect was that the reply carried an implementation
+# detail at the wrong status, and asserting only the code would let that text come back.
+check_status() {  # $1 label | $2 lane-launcher-args | $3 path | $4 expected status | $5 expected body substring
+  local out code body
+  out="$(curl -sS -m 4 -w '\n%{http_code}' "http://localhost:$2/$3" 2>/dev/null)"
+  code="$(printf '%s' "$out" | tail -1)"
+  body="$(printf '%s' "$out" | sed '$d')"
+  if [ "$code" = "$4" ] && printf '%s' "$body" | grep -qF "$5"; then
+    echo "  ✓ $1  ($4, '$5')"
+  else
+    echo "  ✗ $1 — got $code '${body:0:64}', expected $4 containing '$5'"; fail=1
+  fi
+  case "$body" in
+    *"validate {"*|*"require* used outside"*)
+      echo "  ✗ $1 — the body names an internal block form; that is for the developer, not the caller"
+      fail=1 ;;
+  esac
+}
+
+check_status "native: absent required field is a client error" "$PORT" "req" 400 "missing field: s"
+
+# THE SAME ROW ON v1. The defect this pins was a DIVERGENCE, so a gate that only watches the lane
+# that was wrong cannot see it come back the other way — if v1 later starts answering 500 here,
+# a native-only check stays green while the pair is broken again. v1 is a second boot and this
+# suite has a hard budget, so it is exactly one request: the one that differed.
+V1_PORT=$(( PORT + 1 ))
+sed "s/serve($PORT)/serve($V1_PORT)/" "$WORK/app.ssc" > "$WORK/app-v1.ssc"
+lsof -ti :"$V1_PORT" 2>/dev/null | xargs -r kill -9 2>/dev/null
+( timeout 40 "$BIN/ssc-tools" run --v1 "$WORK/app-v1.ssc" > "$WORK/server-v1.log" 2>&1 & )
+v1_deadline=$(( $(date +%s) + 25 ))
+v1_up=0
+while [ "$(date +%s)" -lt "$v1_deadline" ]; do
+  if [ -n "$(curl -sS -m 3 "http://localhost:$V1_PORT/req?s=a&i=1&d=2.5&b=yes" 2>/dev/null)" ]; then v1_up=1; break; fi
+  sleep 1
+done
+if [ "$v1_up" = "1" ]; then
+  check_status "v1: absent required field is a client error" "$V1_PORT" "req" 400 "missing field: s"
+else
+  echo "  ✗ v1 lane never listened — the parity half of this gate did not run"
+  sed 's/^/    /' "$WORK/server-v1.log" | head -5
+  fail=1
+fi
+lsof -ti :"$V1_PORT" 2>/dev/null | xargs -r kill -9 2>/dev/null
 
 # optional* on the same absent fields must be None, not a recorded error.
 check "optional*, fields absent" "opt" "s=None" "unbound"

@@ -35,8 +35,15 @@ private[httpfast] object RequestValidation:
     // Outside any `validate` block there is nothing to accumulate INTO. Recording nowhere and
     // returning the default would silently swallow the problem, so this fails loudly instead —
     // matching the interpreter, where the require* intrinsics need a frame on the validation stack.
+    //
+    // It throws the REASON and nothing else, as `HandlerValidationError`, because the message ends
+    // up in a 400 body read by whoever sent the request. The old text named the internal block form
+    // — `n: require* used outside a validate { … } block` — and rode a plain RuntimeException, so
+    // the engine could only call it a 500. `Interpreter.scala` ~1451 is the reference: outside a
+    // frame it throws `RestValidationError(msg)` with the reason, and the v1 dispatch loop answers
+    // 400. Same behaviour on both lanes now.
     if frames.isEmpty then
-      throw new RuntimeException(s"$name: require* used outside a validate { … } block")
+      throw new HandlerValidationError(reason)
     frames.last(name) = reason
     fallback
 
