@@ -50,6 +50,22 @@ table.
      fixed-in: -
      gate: none -->
 
+**SIZED 2026-08-04: the registration is ten lines; the missing part is the CHANNEL.** v1 does it at
+`Interpreter.scala:1193` — for each manifest route, register a lazy handler that resolves the named
+global at call time, so handler order in the file does not matter.
+
+Nothing under `v2/src` or the http plugin mentions a manifest at all, so there is nowhere to read
+`routes:` from at run time. A plugin config surface does exist — `NativeRuntimeConfig` carries
+`databases` and `contentModules` — but `NativeArtifactRuntime.loadConfig()` reads it from
+`META-INF/scalascript/artifact.properties`, i.e. from a BUILT artifact, which is not the path
+`ssc run` takes and is where the 404s were measured.
+
+So this needs front-matter data to reach a plugin on the run path: either extend that config surface
+and populate it for `run` as well as for `build-jvm`, or give the front a way to hand the manifest
+to plugins directly. That is a design choice about where manifest data crosses into the native
+plugin boundary — the same class of decision as the session entry above, and recorded here for the
+same reason.
+
 A module can declare its routes in front-matter instead of calling `route(...)`:
 
 ```
@@ -121,6 +137,31 @@ false green, but it costs the same confusion.
      area: runtime
      fixed-in: -
      gate: none -->
+
+**SIZED 2026-08-04, and it stops at a decision that is not an agent's to take.** This is a feature
+the native tier does not have, not a method that is missing.
+
+What exists in v1 and would have to exist here: `SessionCookie.scala`
+(`v1/runtime/http-server/common`) — secret from `SSC_SESSION_SECRET` or a process-local random key,
+HMAC-SHA256 sign/verify, encode/decode — plus the writer side in `ResponseWriter.scala:38` with
+SSID rotation and optional store eviction. The native side has NONE of it: no `Set-Cookie`, no
+`hmac`, no cookie parsing anywhere under `v2/runtime/std/http-fast-plugin` or the fast engine.
+
+**And the read half is already stubbed, which is what makes a half-fix dangerous.**
+`NioNativeHttpServerHost.scala:368` builds every request with `valueMap(Map.empty)` for the session
+field, so even a correctly signed cookie would be written and never read back. `withSession` would
+appear to work and silently lose the session on the next request.
+
+**The fork.** Reusing `SessionCookie` means adding `scalascript-runtime-server-common` to
+`standardJarPrefixes` in `build.sbt` (~line 1985) — it is not there today, and the module is clean
+enough for it (`dependsOn(logger)`, self-contained POJOs, no interpreter). But the comment beside
+that list records the opposite direction: hf-5/hf-6 replaced the com.sun http plugin with "the
+from-scratch fast plugin", i.e. this tier grows its own HTTP rather than borrowing v1's. Taking
+that dependency is a tier decision; writing a second HMAC-signed cookie implementation is a
+security-sensitive feature. Either is someone's call, not a side effect of fixing `withHeader`.
+
+Left open with the measurement rather than half-built. `.withSession` has 20 call sites in
+`v1/runtime/std` and `examples` against `withHeader`'s 5, so the gap is worth closing — deliberately.
 
 v1's `Response` carries three transforms; `withHeader` is now shared through `std/http.ssc`, and
 these two are not, because they are not a pure function of the response:
