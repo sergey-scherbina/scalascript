@@ -7,6 +7,44 @@ grepping for status.
 
 Newest first.
 
+## parameterless-def-diverges-native-vs-interp — opposite conventions, no portable spelling
+
+<!-- status: open
+     lane: multi
+     area: runtime
+     gate: tests/conformance/credential-vocabulary.ssc -->
+
+A `def` declared **without** parens (`def mk: Box = Box("L")`) is handled in exactly opposite ways
+by the two lanes, and there is no way to write the call that satisfies both.
+
+| expression | native (`bin/ssc run`) | interpreter (`ssc-tools run --v1`) |
+| --- | --- | --- |
+| `mk` (any position: `val`, field access, argument) | auto-invokes → `L` | yields the function → `No method 'v' on FunV(<function(0)>)` |
+| `mk()` | `ssc: app: not a function: Box("L")` | `L` |
+
+Minimal repro — no import, no module boundary, three lines:
+
+```scalascript
+case class Box(v: String)
+def mk: Box = Box("L")
+println(mk.v)
+```
+
+Native prints `L`; the interpreter fails with `No method 'v' on FunV(<function(0)>)`.
+
+**Portable spellings do exist**, which is what keeps this from being a blocker: `def mk(): Box`
+declared *with* parens and called as `mk()`, or `val mk: Box`. Both lanes agree on both forms. The
+defect is confined to the paren-less declaration.
+
+**Why it is worth an entry rather than a note.** The failure does not name its cause: it surfaces
+as `No method '<field>' on FunV` at the *use* site, which reads as a missing field on a case class,
+not as a def that was never invoked. It also cannot be found by running the program the usual way —
+`bin/ssc run` is green on the very file the conformance INT lane rejects, so it looks like a bad
+gate. It cost me roughly half an hour on `std/credential.ssc` before the lane map explained it.
+
+Found while landing `credential-vocabulary`; that module now uses `val credentialNone` and carries a
+comment pointing here.
+
 ## native-release-blocked-by-testutils-clean-compile — the release workflow has never produced a release
 <!-- status: open
      lane: apparatus

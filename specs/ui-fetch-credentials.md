@@ -1,6 +1,6 @@
 # Outbound credentials — a declaration the runtime resolves
 
-Status: design (2026-08-04) — **the decision is open; this spec states the problem and one proposal**
+Status: S1 landed (2026-08-04) — vocabulary in `std/credential.ssc`; emitter resolution is S2, blocked
 Owner: `ui-fetch-credentials`
 Reported by: rozum — `INBOX.md` entries `ui-fetch-credentials` (design proposal) and
 `std-auth-client-half` (the missing concept). **Filed as two, specced as one**, because the reporter
@@ -50,7 +50,40 @@ than discouraged — an emitter cannot bake what the value does not contain.
 `fetchUrlSignal` then takes a `Credential` alongside (not instead of) `headers`, `std/http` verbs
 take one, and `AgentEndpoint` holds one instead of a `String`.
 
-## What must be decided before any code
+## Decisions (2026-08-04) — taken rather than referred back
+
+The reporter left these to us and they were blocking the concept, so they are answered here with
+what was rejected and why. Each is reversible; none is a coin flip.
+
+**1. `Credential` lives BESIDE `std.auth`, in its own `std/credential.ssc` — not inside it.**
+The dependency direction decides it: a UI fetch or an HTTP verb must be able to present a credential
+without importing a vocabulary for CSRF, JWT signing, TOTP, WebAuthn and OAuth. Putting the outbound
+half inside the server half would make every client program depend on the server surface.
+*Rejected:* one module for "everything auth", which is tidier to describe and worse to import.
+
+**2. Migration is ADDITIVE. The string forms stay.**
+`AgentEndpoint(baseUrl, authToken: String = "")` is public API and rozum and busi are mid-flight
+against it. A new `credential` field arrives alongside, `authToken` keeps working, and the two
+hand-built `"Bearer " + endpoint.authToken` sites (`std/agent.ssc:443` and `:452` — verified, six
+lines apart) collapse onto one resolution call.
+*Rejected:* one cut now. It buys a smaller surface at the cost of breaking every downstream program
+simultaneously, for an ergonomic gain that can arrive later. Parked: the cut, once the additive form
+has bake time.
+
+**3. A target that cannot resolve a credential is a COMPILE ERROR, never an empty string.**
+`credentialEnv` has no meaning in a browser bundle. Emitting an empty header there produces a 401 in
+production — silent, at the worst moment, and indistinguishable from a server problem. Refusing at
+emit time is the only outcome that reaches the person who can fix it.
+*Rejected:* a runtime warning; it arrives where nobody reads it.
+
+**4. `credentialLiteral` is ALLOWED, and named so it is visible.**
+Our own fixtures need a literal token, and a form that tests cannot express gets worked around
+rather than followed. It is the one form that CAN be baked, so it is spelled `literal` and reads as
+such in review.
+*Rejected for now:* refusing it in a release build — the repo has no "release build" concept to hang
+that on, and inventing one for this is a bigger change than the feature.
+
+## What the decisions above replaced
 
 1. **Does `Credential` belong in `std.auth`** (which is server-side today) or beside it? The report
    argues the vocabulary is one; the module boundary is ours.
@@ -87,3 +120,24 @@ warning that the fix has not happened yet.
 ## Result
 
 *(open — this spec is the proposal, not a completed change)*
+
+## Result — S1 (2026-08-04)
+
+`v1/runtime/std/credential.ssc` carries the vocabulary. Gate
+`tests/conformance/credential-vocabulary.ssc` passes INT and JS.
+
+The gate's third line is the one that earns its keep: it constructs `credentialEnv("HOME")` where
+`HOME` is genuinely set, and asserts `source` is still the string `HOME`. Verified by mutation
+**through the conformance runner** — making resolution eager turns both lanes red with
+`env|Some(/Users/sergiy)|Bearer`, a machine-dependent path; restoring turns them green. An earlier
+falsifiability check run through `bin/ssc` was discarded: it read a hand-patched staged tree, so it
+proved nothing about the gate.
+
+Two things surfaced that were not part of the design:
+
+1. **`install.sh --dev` stages `std/` into two trees** — `bin/lib/standard/native-front/` (read by
+   `bin/ssc`) and `bin/lib/native-front/` (read by the conformance runner). Patching one and
+   verifying with the other is a false green.
+2. **A paren-less `def` is not portable** — the native front auto-invokes it, the interpreter yields
+   the function, and no call spelling satisfies both. Filed as `BUGS.md`
+   `parameterless-def-diverges-native-vs-interp`. `credentialNone` is therefore a `val`.

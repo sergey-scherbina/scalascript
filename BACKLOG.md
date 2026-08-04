@@ -98,6 +98,52 @@ The decision, not the code, is the work: fetch enough history to answer, or answ
 deliberately and say so in the gate's header. Detail and the incident that found it are in `BUGS.md`
 `bugs-index-fixed-in-checks-resolvable-not-reachable`.
 
+## ui-fetch-credentials — a token that cannot be baked into a generated binary
+
+<!-- status: open
+     lane: multi
+     area: runtime
+     kind: feature
+     gate: tests/conformance/credential-vocabulary.ssc -->
+
+Reported by rozum (`INBOX.md` `ui-fetch-credentials`, `std-auth-client-half`). Spec and the four
+decisions with their rejected alternatives: `specs/ui-fetch-credentials.md`.
+
+**The problem.** On the terminal target the view runs in the *emitting* process, so `env("TOKEN")`
+is read at build time and lands in the generated Rust as a literal — the secret ends up inside the
+binary. The web bundle has the same shape. `std.auth` is a complete vocabulary for *being* an
+authorization server and has no word for *presenting* a credential on an outbound call, so every
+caller hand-rolls one; `std/agent.ssc:443` and `:452` both spell `"Bearer " + endpoint.authToken`
+six lines apart.
+
+**The approach.** A `Credential` names *where the secret comes from* and carries no secret, so an
+emitter has nothing to bake and the target resolves it at call time. That makes the wrong thing
+impossible rather than discouraged.
+
+### Slices
+
+- [x] **S1 — the vocabulary.** DONE. `v1/runtime/std/credential.ssc`:
+      `Credential(kind, source, scheme)` with `credentialEnv` / `credentialFile` /
+      `credentialLiteral` / `credentialNone`, plus `withScheme` and `credentialBasic` so the scheme
+      is applied by the consumer instead of by callers concatenating strings. Gate
+      `tests/conformance/credential-vocabulary.ssc` passes INT + JS; its load-bearing line
+      constructs `credentialEnv("HOME")` where `HOME` is genuinely set and asserts `source` is still
+      the NAME, so making resolution eager turns it red with a machine-dependent path — verified by
+      mutation through the runner, not through `bin/ssc`.
+
+- [ ] **S2 — resolution in the TUI emitter.** BLOCKED on sibling claim `tui-table-selection`, which
+      holds `TuiEmitter.scala`. Emit a resolver per `kind` into the generated crate; a kind the
+      target cannot resolve is a compile error, never an empty header. Gate: the generated crate
+      contains no secret, and the 401/200 cargo fixture still passes — i.e. it authenticates
+      *without* the token appearing in the source.
+
+- [ ] **S3 — collapse the hand-rolled sites.** `AgentEndpoint` gains a `credential` field beside
+      `authToken`; the two `"Bearer " + …` sites become one resolution call. Additive by decision 2
+      — `authToken` keeps working, because rozum and busi are mid-flight against it.
+
+- [ ] **S4 — the web target.** Same resolver contract for `emit-spa`, where `credentialEnv` must be
+      refused at emit time rather than inlined into the bundle.
+
 ## ssc-tools-stdin-belongs-to-the-program — give sops its own channel, stop taking stdin
 <!-- status: open
      lane: apparatus
