@@ -1439,6 +1439,15 @@ So `diagnostics=296, clean=94.8%` is measured against a corpus that includes
 markdown prose, and a change that makes the lexer more accepting will always look
 like a breadth win. That is a probe that rewards the wrong thing.
 
+**It happened AGAIN the same day, which is why this is filed rather than noted.**
+Dropping the dialect's uppercase-name requirement moved diagnostics 296 -> 273.
+The seven lowercase declarations in the corpus that this "fixed" are English
+sentences — "case class lifts into a `Dataset`", "trait that both implement" —
+prose beginning with a word the lexer reads as a keyword. Two separate changes
+in one session, both correct on their own merits, both credited by this probe
+for making prose parse. A number that rewards permissiveness twice in a day is
+not measuring the language.
+
 **Not fixed here, and the fix is not obvious.** Skipping untagged fences would
 contradict the fences-optional rule and would stop measuring real code in every
 file that uses bare fences properly. Options worth weighing when someone takes it:

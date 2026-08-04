@@ -564,7 +564,7 @@ object SpikeParse:
         else if isWord(c, "effect") && (c.peek2Kind == "spike.uid" || c.peek2Kind == "spike.id") then defs += parseEffectDecl(c, false)
         else if isWord(c, "multi") && c.peek2Lexeme == "effect" then defs += parseEffectDecl(c, true) // `multi effect`
         else if isWord(c, "extern") then defs += parseExtern(c)
-        else if isWord(c, "type") && c.peek2Kind == "spike.uid" then defs += parseTypeAlias(c) // `type X = Y` erased
+        else if isWord(c, "type") && isNameKind(c.peek2Kind) then defs += parseTypeAlias(c) // `type X = Y` erased
         else if isWord(c, "trait") || isKw(c, "class") then defs += parseTraitOrClassNoop(c)
         // a top-level STATEMENT — script-style `println(…)`, top-level `val`/`var`/expr. ssc1-front keeps these
         // in source order and lowerProg collects them into `(entry (seq …))` (and `val`/`var` → a global cell).
@@ -578,6 +578,13 @@ object SpikeParse:
   private def expect(c: Cur, kind: String, role: String, what: String): Option[Node] =
     if c.peekKind == kind then c.advance().map(t => Node.Leaf(t, Some(role)))
     else { c.report("spike.expected", s"expected $what, found '${c.peekLexeme}'"); None }
+
+  /** Any identifier is a name. Scala imposes no capitalisation on declarations — `class foo`,
+    * `object bar`, `type baz` are all legal — and the dialect used to demand an uppercase one for
+    * classes, objects, enums, enum cases and type aliases, which was stricter than the language it
+    * models. Case is load-bearing in exactly ONE position, and it is not this one: see
+    * `parsePattern`. */
+  private def isNameKind(kind: String): Boolean = kind == "spike.id" || kind == "spike.uid"
 
   // a val/var binder name — a lowercase id OR an uppercase uid (`val Schema = …` / `val Pi = …` are valid).
   private def expectName(c: Cur, role: String, what: String): Option[Node] =
@@ -676,7 +683,7 @@ object SpikeParse:
     c.advance().foreach(t => kids += Node.Leaf(t, Some("cc.case"))) // `case`
     if isKw(c, "class") then c.advance().foreach(t => kids += Node.Leaf(t, Some("cc.class")))
     else c.report("spike.expected", "expected 'class' after 'case'")
-    expect(c, "spike.uid", "cc.name", "class name").foreach(kids += _)
+    expectName(c, "cc.name", "class name").foreach(kids += _)
     skipTypeParams(c) // `case class Box[A](…)`
     expect(c, "spike.lparen", "cc.lparen", "'('").foreach(kids += _)
     var more = c.peekKind != "spike.rparen" && !c.eof && !isDefStart(c) && !isKw(c, "case")
@@ -710,7 +717,7 @@ object SpikeParse:
       // capture the FIRST nominal (uppercase) parent for the subtype registry: `case class Circle(…) extends
       // Shape` lets `case _: Shape` expand to its child tags. ssc1-front registers only a `uid` parent
       // (subtypeRegCell); caseClsNodes emits a companion ("subtype", (parent, child)) node (variant-A).
-      if c.peekKind == "spike.uid" then kids += Node.Leaf(c.peek.get, Some("cc.parent"))
+      if isNameKind(c.peekKind) then kids += Node.Leaf(c.peek.get, Some("cc.parent"))
       skipTypeRef(c)
       if c.peekKind == "spike.lparen" then skipBalancedParens(c)
       while isWord(c, "with") do { c.advance(); skipTypeRef(c) }
@@ -806,7 +813,7 @@ object SpikeParse:
   private def parseEnum(c: Cur): Node =
     val kids = Vector.newBuilder[Node]
     c.advance().foreach(t => kids += Node.Leaf(t, Some("enum.kw"))) // `enum`
-    expect(c, "spike.uid", "enum.name", "enum name").foreach(kids += _)
+    expectName(c, "enum.name", "enum name").foreach(kids += _)
     skipTypeParams(c) // `enum Opt[A]: …`
     val braced = c.peekKind == "spike.lbrace"
     if c.peekKind == "spike.colon" then c.advance().foreach(t => kids += Node.Leaf(t, Some("enum.colon")))
@@ -825,7 +832,7 @@ object SpikeParse:
 
   private def parseEnumCase(c: Cur, allowParams: Boolean): Node =
     val kids = Vector.newBuilder[Node]
-    expect(c, "spike.uid", "ec.name", "case name").foreach(kids += _)
+    expectName(c, "ec.name", "case name").foreach(kids += _)
     if allowParams && c.peekKind == "spike.lparen" then
       c.advance().foreach(t => kids += Node.Leaf(t, Some("ec.lparen")))
       var more = c.peekKind != "spike.rparen" && !c.eof
@@ -1066,7 +1073,7 @@ object SpikeParse:
   private def parseObject(c: Cur): Node =
     val kids = Vector.newBuilder[Node]
     c.advance() // `object`
-    expect(c, "spike.uid", "obj.name", "object name").foreach(kids += _)
+    expectName(c, "obj.name", "object name").foreach(kids += _)
     skipExtendsClause(c)
     val braced = c.peekKind == "spike.lbrace"
     if braced then c.advance()
@@ -1518,6 +1525,11 @@ object SpikeParse:
       case "spike.str"   => c.advance().map(t => Node.Leaf(t, Some("pat.lit"))).get // `case "ping" =>` literal
       case "spike.float" => c.advance().map(t => Node.Leaf(t, Some("pat.lit"))).get
       case "spike.id" if c.peekLexeme == "_" => c.advance().map(t => Node.Leaf(t, Some("pat.wild"))).get
+      // A lowercase name APPLIED to arguments is an extractor, not a binder — `case foo(x) =>`.
+      // Scala binds only a SIMPLE identifier, and now that a class may be named `foo` this is
+      // reachable. `case foo =>` below still binds, which is the rule in §"patterns" of the Scala
+      // spec and the one place capitalisation changes meaning.
+      case "spike.id" if c.peek2Kind == "spike.lparen" => parseCtorPat(c)
       case "spike.id"  => c.advance().map(t => Node.Leaf(t, Some("pat.var"))).get // incl. true/false → lpat bool
       case "spike.uid" => parseCtorPat(c)
       case "spike.lparen" => parseTuplePat(c)
@@ -1530,7 +1542,7 @@ object SpikeParse:
     val kids = Vector.newBuilder[Node]
     // a qualified pattern `Logger.log(a, resume)` (effect-handler op / `pkg.Ctor`) uses the LAST segment as
     // the tag (ssc1-front parsePatAtom:1895) — walk any `.seg` chain and keep the final name.
-    var nameTok = c.advance().get // uid
+    var nameTok = c.advance().get // uid, or a lowercase name applied to arguments
     while c.peekKind == "spike.dot" && (c.peek2Kind == "spike.id" || c.peek2Kind == "spike.uid") do
       c.advance(); nameTok = c.advance().get
     kids += Node.Leaf(nameTok, Some("cpat.name"))
