@@ -1,0 +1,22 @@
+case class ByteRead(value: Int, next: Int)
+
+def read(x: Option[ByteRead]): Int =
+  x match
+    case Some(ByteRead(0, n)) => 100 + n
+    case Some(ByteRead(v, n)) => v + n
+    case Some(_) => -1
+    case None => -2
+
+def firstTwo(xs: List[Int]): Int =
+  xs match
+    case a :: b :: rest => a * 100 + b
+    case a :: rest => a
+    case Nil => 0
+
+println(read(Some(ByteRead(3, 4))))
+println(read(Some(ByteRead(0, 7))))
+println(read(None))
+println(read(Some(42)))
+println(firstTwo(List(1, 2, 3)))
+println(firstTwo(List(9)))
+println(firstTwo(Nil))

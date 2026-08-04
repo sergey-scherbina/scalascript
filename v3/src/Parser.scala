@@ -282,12 +282,11 @@ object Parser:
         if !isPunct(peek(t), ")") then
           var go = true
           while go do
-            val (a, t2) = parsePatAtom(t)
-            a match
-              case Pat.PCtor(_, _, ap) =>
-                throw ParseFail(ap, "a nested pattern is outside SSC3 core Tier 0")
-              case _ => ()
-
+            // A constructor argument is a full PATTERN, so patterns nest to any depth. `Pat` was
+            // recursive from the start (`PCtor(name, args: List[Pat], …)`); only this parser and
+            // the lowering restricted it, and nested patterns were the top corpus blocker at 116
+            // cases — `case Right(ByteRead(value, _))` in one heavily-imported std module.
+            val (a, t2) = parsePat(t)
             args = a :: args
             t = t2
             if isPunct(peek(t), ",") then t = t.tail else go = false

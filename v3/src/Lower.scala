@@ -69,11 +69,7 @@ object Lower:
     case Expr.Lambda(ps, b, _)    => freeVars(b, bound ++ ps.map(_.name))
     case Expr.Match(sc, arms, _) =>
       freeVars(sc, bound) ++ arms.flatMap { a =>
-        val bs = a.pat match
-          case Pat.PBind(n, _)      => List(n)
-          case Pat.PCtor(_, args, _) => args.flatMap { case Pat.PBind(n, _) => List(n); case _ => Nil }
-          case _                    => Nil
-        freeVars(a.body, bound ++ bs)
+        freeVars(a.body, bound ++ patNames(a.pat))
       }
     case Expr.Block(stmts, res, _) =>
       var b = bound
@@ -342,10 +338,7 @@ object Lower:
     case Expr.Match(scrut, arms, p) =>
       if arms.isEmpty then throw LowerFail(p, "a `match` with no arms")
       val (si, sr, st1) = lower(scrut, fns, classes, zeroArity, st0)
-      val needsTag = arms.exists(a => a.pat match { case Pat.PCtor(_, _, _) => true; case _ => false })
-      val (tr, st2) = if needsTag then st1.fresh else (0, st1)
-      val tagInstr = if needsTag then List(Instr.Tag(tr, sr)) else Nil
-      val (rd, st3) = st2.fresh
+      val (rd, st3) = st1.fresh
       // A non-exhaustive match must FAIL, loudly, at the point of failure. Falling through to unit
       // would be a wrong answer with a clean exit — the shape `p.x` returning `Stub` already cost
       // this module one debugging round.
@@ -353,8 +346,8 @@ object Lower:
       val (thr, st5) = st4.primIdx("__throw__")
       val (msgR, st6) = st5.fresh
       val fallback: List[Instr] = List(Instr.Const(msgR, mk), Instr.Prim(rd, thr, List(msgR)))
-      val (chain, stF) = armChain(arms, sr, tr, rd, fns, classes, zeroArity, st6, fallback)
-      (si ++ tagInstr ++ chain, rd, stF)
+      val (chain, stF) = armChain(arms, sr, rd, fns, classes, zeroArity, st6, fallback)
+      (si ++ chain, rd, stF)
 
     // LAMBDA LIFTING. The body becomes a top-level function whose FIRST parameters are the captured
     // values and whose remaining ones are the lambda's own — which is exactly the shape `MkClos`
@@ -458,58 +451,90 @@ object Lower:
     }
     (instrs, cur, st)
 
+  /** Every name a pattern binds, at ANY depth. One level was enough while patterns could not nest;
+    * `case Right(ByteRead(v, _))` binds `v` two levels down, and a closure that missed it would
+    * capture nothing and read a stale slot. */
+  private def patNames(p: Pat): List[String] = p match
+    case Pat.PBind(n, _)       => List(n)
+    case Pat.PCtor(_, args, _) => args.flatMap(a => patNames(a))
+    case _                     => Nil
+
   /** Arms, in source order, as nested `If`s. Built back to front so each arm's `else` is the rest
     * of the chain — which is what makes source order the matching order, exactly as written. */
-  private def armChain(arms: List[MatchArm], scrut: Int, tagReg: Int, dst: Int,
+  private def armChain(arms: List[MatchArm], scrut: Int, dst: Int,
                        fns: List[String], classes: List[ClassDef], zeroArity: List[String], st0: St,
                        fallback: List[Instr]): (List[Instr], St) =
     if arms.isEmpty then (fallback, st0)
     else
       val a = arms.head
-      val (rest, st1) = armChain(arms.tail, scrut, tagReg, dst, fns, classes, zeroArity, st0, fallback)
-      a.pat match
-        case Pat.PWild(_) =>
-          val (bi, br, st2) = lower(a.body, fns, classes, zeroArity, st1)
-          // A wildcard always matches, so everything after it is DEAD. Emitting the body directly
-          // rather than an `if true` keeps that visible in the IR instead of hiding it in a branch.
-          (bi :+ Instr.Move(dst, br), st2)
+      val (rest, st1) = armChain(arms.tail, scrut, dst, fns, classes, zeroArity, st0, fallback)
+      // EVERY arm kind goes through the SAME recursion: a wildcard is a pattern with no test, a
+      // binding is a pattern with no test and one name. The four hand-written shapes this replaces
+      // were four things that had to agree about arm order, binding and fall-through.
+      val (armI, st2) = testPat(List((a.pat, scrut)), a.body, dst, rest,
+                                fns, classes, zeroArity, st1.env, st1)
+      (armI, st2.copy(env = st1.env))
+
+  /** Test a WORKLIST of (pattern, value register) pairs, then lower the body once all of them pass.
+    * A failure at any depth branches to `rest` — the next arm.
+    *
+    * A worklist rather than a tree walk, because a nested pattern's arguments are just more work at
+    * a deeper register: `Right(ByteRead(v, _))` pushes `(ByteRead(v, _), fieldReg)` and the function
+    * never needs to know how deep it is. Field reads are emitted INSIDE the tag test, so a field of
+    * the wrong constructor is never read.
+    *
+    * The body is lowered at the BASE CASE with the environment every level accumulated, which is why
+    * the environment is threaded down rather than returned up. */
+  private def testPat(work: List[(Pat, Int)], body: Expr, dst: Int, rest: List[Instr],
+                      fns: List[String], classes: List[ClassDef], zeroArity: List[String],
+                      env: List[(String, Int)], st0: St): (List[Instr], St) =
+    if work.isEmpty then
+      val (bi, br, st1) = lower(body, fns, classes, zeroArity, st0.copy(env = env))
+      (bi :+ Instr.Move(dst, br), st1)
+    else
+      val (p, vr) = work.head
+      val more = work.tail
+      p match
+        // No test and no binding: a wildcard is simply work that is already done.
+        case Pat.PWild(_) => testPat(more, body, dst, rest, fns, classes, zeroArity, env, st0)
         case Pat.PBind(n, _) =>
-          val (slot, st2) = st1.fresh
-          val (bi, br, st3) = lower(a.body, fns, classes, zeroArity, st2.bind(n, slot))
-          ((Instr.Move(slot, scrut) :: bi) :+ Instr.Move(dst, br), st3.copy(env = st1.env))
+          testPat(more, body, dst, rest, fns, classes, zeroArity, (n, vr) :: env, st0)
         case Pat.PLit(v, _) =>
-          val (vi, vr, st2) = lower(v, fns, classes, zeroArity, st1)
-          val (cr, st3) = st2.fresh
-          val (bi, br, st4) = lower(a.body, fns, classes, zeroArity, st3)
-          (vi ++ List(Instr.Bin(BinOp.Eq, NumKind.Dyn, cr, scrut, vr),
-                      Instr.If(cr, bi :+ Instr.Move(dst, br), rest)), st4)
+          val (vi, lr, st1) = lower(v, fns, classes, zeroArity, st0)
+          val (cr, st2) = st1.fresh
+          val (inner, st3) = testPat(more, body, dst, rest, fns, classes, zeroArity, env, st2)
+          (vi ++ List(Instr.Bin(BinOp.Eq, NumKind.Dyn, cr, vr, lr), Instr.If(cr, inner, rest)), st3)
         case Pat.PCtor(cname, cargs, cp) =>
           val arity = classes.find(c => c.name == cname).map(c => c.fields.length)
             .orElse(ctors.find((n, _) => n == cname).map((_, ar) => ar))
             .getOrElse(throw LowerFail(cp, "unknown constructor '" + cname + "' in a pattern"))
           if cargs.nonEmpty && cargs.length != arity then
             throw LowerFail(cp, cname + " has " + arity + " field(s), the pattern binds " + cargs.length)
-          val (t, st2) = st1.typeIdx(cname, arity)
-          val (tagK, st3) = st2.constIdx(Lit.LInt(t.toLong))
-          val (tagV, st4) = st3.fresh
+          val (t, st1) = st0.typeIdx(cname, arity)
+          val (tagK, st2) = st1.constIdx(Lit.LInt(t.toLong))
+          val (tagV, st3) = st2.fresh
+          val (tagR, st4) = st3.fresh
           val (cr, st5) = st4.fresh
-          // Bind each field the pattern names. A wildcard argument binds nothing, so it costs no
-          // register and no read.
-          var binds: List[Instr] = Nil
+          // A wildcard argument costs no register and no read. Anything else becomes deeper work.
+          var reads: List[Instr] = Nil
+          var deeper: List[(Pat, Int)] = Nil
           var stb = st5
-          var envb = st5.env
           cargs.zipWithIndex.foreach { (ap, i) =>
             ap match
-              case Pat.PBind(bn, _) =>
-                val (r, sN) = stb.fresh
-                binds = binds :+ Instr.Field(r, scrut, t, i)
+              case Pat.PWild(_) => ()
+              case _ =>
+                val (fr, sN) = stb.fresh
+                reads = reads :+ Instr.Field(fr, vr, t, i)
+                deeper = deeper :+ ((ap, fr))
                 stb = sN
-                envb = (bn, r) :: envb
-              case _ => ()
           }
-          val (bi, br, st6) = lower(a.body, fns, classes, zeroArity, stb.copy(env = envb))
-          (List(Instr.Const(tagV, tagK), Instr.Bin(BinOp.Eq, NumKind.Dyn, cr, tagReg, tagV),
-                Instr.If(cr, binds ++ bi :+ Instr.Move(dst, br), rest)), st6.copy(env = st1.env))
+          val (inner, stF) = testPat(deeper ++ more, body, dst, rest,
+                                     fns, classes, zeroArity, env, stb)
+          // `Tag` is TOTAL on both lanes (-1 for anything that is not Data), so testing the tag of a
+          // field that turned out not to be a constructor is a clean non-match, not a crash.
+          (List(Instr.Tag(tagR, vr), Instr.Const(tagV, tagK),
+                Instr.Bin(BinOp.Eq, NumKind.Dyn, cr, tagR, tagV),
+                Instr.If(cr, reads ++ inner, rest)), stF)
 
   private def markAutoOutput(stmts: List[Stmt], blockEnds: List[Int]): List[Stmt] =
     if blockEnds.isEmpty then stmts

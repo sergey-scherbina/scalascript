@@ -251,7 +251,11 @@ object BridgeV2:
       val arms = cx.m.types.zipWithIndex
         .map((td, i) => "(arm " + td.name + " " + td.fields + " " + int(i) + ")")
         .mkString(" ")
-      write(d, "(match " + read(a, sh) + " (" + arms + "))", sh)
+      // A DEFAULT arm, so `Tag` is TOTAL. Without it the tag of a value that is not Data has no
+      // answer, and a pattern like `case Right(ByteRead(v, _))` tested against `Right(42)` — legal,
+      // and simply a non-match in Scala — had no defined behaviour here and threw on the executor.
+      // -1 is a tag no type index can equal, so the comparison is false and the arm falls through.
+      write(d, "(match " + read(a, sh) + " (" + arms + ") (default " + int(-1) + "))", sh)
     case Instr.Switch(scrut, arms, dflt) =>
       // The arm bodies are the ONE place the frame moves: v2 binds the constructor's fields, so
       // everything inside is translated at shift + arity. `nested-loop` proves the loop slots; this

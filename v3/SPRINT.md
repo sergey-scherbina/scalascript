@@ -121,7 +121,8 @@ gated by depth on a few files, which is not visible without the histogram.
 | 2 | `++` on lists | 118 |
 | 3 | `<<` `>>` `>>>` `&` `\|` `^` — bitwise operators | 116 |
 | 4 | a continuation `else` on its own, deeper-indented line | 116 |
-| 5 | **a nested pattern** — `case Right(ByteRead(v, _))` | 116 |
+| 5 | a nested pattern — `case Right(ByteRead(v, _))` | 116 |
+| 6 | **`effect X:` / `trait`** — the two remaining big ones | 126 / 21 |
 
 ### Defects found and fixed along the way
 
@@ -142,6 +143,13 @@ gated by depth on a few files, which is not visible without the histogram.
       globals became translatable, so the check went red — the gate working, not failing. Re-pointed
       at `resume`, which the bridge genuinely cannot translate. `.ssir` gained `;` line comments so a
       fixture can say which behaviour it pins (`Text.write` never emits them, so `fmt` strips them).
+- [x] **`Tag` was PARTIAL, and the two lanes disagreed about it.** Testing the tag of a value that
+      is not `Data` threw on the executor and had no defined answer on the bridge. Harmless while
+      patterns were flat; a nested pattern tests the tag of a FIELD, and a field is routinely not a
+      constructor — `Right(42)` against `case Right(ByteRead(v, _))` is an ordinary non-match in
+      Scala and was a crash here. `Tag` is now TOTAL on both lanes, yielding -1, which no type index
+      can equal. Observed: with the throw reinstated the gate goes red naming both lanes —
+      `executor [7/107/-2] bridge [7/107/-2/-1/102/9/0]` — so it can tell the two states apart.
 - [x] **A contended host made one corpus run a hypothesis.** A background report run CONCURRENTLY
       with three gates that package the same sources reported `CRASH 360, N = 0` — a total
       regression. Re-measured alone: `N = 26, CRASH 0`, unchanged. Corpus runs take the host alone.

@@ -174,7 +174,10 @@ object Exec:
     case Instr.Tag(d, a) =>
       regs(a) match
         case Value.VData(t, _) => regs(d) = Value.VInt(t.toLong); Signal.Done
-        case v                 => throw ExecError("tag of " + show(v))
+        // TOTAL, matching the bridge. Not a defensive default: a nested pattern tests the tag of a
+        // FIELD, and a field is routinely not Data. `Right(42)` against `case Right(ByteRead(v, _))`
+        // is a non-match in Scala, and throwing here made it a crash on one lane only.
+        case _                 => regs(d) = Value.VInt(-1L); Signal.Done
     case Instr.Switch(s, arms, dflt) =>
       // A scrutinee that is not `Data` takes the DEFAULT rather than failing. That is v2's `match`
       // semantics and it is what makes a name that is both a field and a method resolvable at run
