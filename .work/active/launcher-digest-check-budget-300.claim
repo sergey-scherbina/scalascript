@@ -2,10 +2,10 @@ slug: launcher-digest-check-budget-300
 branch: feature/launcher-digest-check-budget-300
 agent: claude-code
 started: 2026-08-04T21:59:18Z
-heartbeat: 2026-08-04T22:10:34Z
+heartbeat: 2026-08-04T22:23:35Z
 status: in-progress
 items: smoke-suite-over-its-own-budget
-paths: file:scripts/smoke-ci.ssc file:tests/e2e/no-gnu-only-shell-constructs.sh
+paths: file:scripts/smoke-ci.ssc file:tests/e2e/no-gnu-only-shell-constructs.sh file:tests/e2e/response-transforms-gate.sh file:tests/e2e/request-validation-family-gate.sh file:tests/e2e/route-handler-shapes-gate.sh
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: make the gate's own probes and rule names not be literal occurrences
+next: my three server gates time out under suite load — raise their boot deadlines
