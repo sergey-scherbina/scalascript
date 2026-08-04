@@ -5,9 +5,9 @@ started: 2026-08-04T15:20:00Z
 heartbeat: 2026-08-04T15:20:00Z
 status: implementing
 items: release-v0-1-0 native-release-blocked-by-testutils-clean-compile
-paths: file:.github/workflows/native-release.yml file:tests/BUGS.md
+paths: file:.github/workflows/native-release.yml file:tests/BUGS.md file:build.sbt
 scope: |
   Diagnose why testUtils compiles with no project classpath on all three CI runners while every
   local reproduction passes. Reproduce on a fully clean checkout first; only then touch the
   workflow. build.sbt is NOT claimed - if the fix lands there, coordinate with whoever holds it.
-next: clean-checkout reproduction of the exact CI sbt invocation on the tagged tree
+next: apply testUtils/usePipelining := false, then clean-tree verification of the 3-command sequence
