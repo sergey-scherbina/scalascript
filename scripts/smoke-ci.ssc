@@ -224,6 +224,15 @@ val suite = List(
   // source, so editing the page moves both and cannot fail it -- what it catches is the two
   // renderers disagreeing. Green since int-v1-lane-loses-a-builtin-companion was fixed.
   Check("tests", "build-render-agree", "tests/e2e/build-smoke.sh", List(), 120000),
+  // Three that went GREEN on siblings' work (bundle layout, ImportResolver) while I was measuring
+  // them as orphans — re-measured on a fresh build 2026-08-04, 4s/14s/4s.
+  Check("tests", "bundle-roundtrip", "tests/e2e/bundle-smoke.sh", List(), 120000),
+  Check("tests", "import-alias", "tests/e2e/import-alias-smoke.sh", List(), 120000),
+  Check("tests", "url-import", "tests/e2e/url-import-smoke.sh", List(), 120000),
+  // GNU-only shell constructs broke THREE gates in one day and none was found by running them —
+  // each turned up while someone read output that made no sense. Green on arrival by design; its
+  // job is the fourth one.
+  Check("tests", "no-gnu-only-shell", "tests/e2e/no-gnu-only-shell-constructs.sh", List(), 60000),
   Check("v1/runtime/backend/interpreter", "render-lane-builtins",
         "tests/e2e/render-lane-has-the-same-builtins-as-run.sh", List(), 300000),
   // Five spellings of a route handler, asserted over a real socket. Four must serve and the
