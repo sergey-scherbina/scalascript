@@ -2,10 +2,10 @@ slug: gnuism-portability-gate
 branch: feature/gnuism-portability-gate
 agent: claude-code
 started: 2026-08-04T21:38:57Z
-heartbeat: 2026-08-04T21:38:57Z
-status: claimed-before-planning
+heartbeat: 2026-08-04T21:40:36Z
+status: in-progress
 items: gnuism-portability-gate
-paths: file:tests/e2e/no-gnu-only-shell-constructs.sh
+paths: file:tests/e2e/no-gnu-only-shell-constructs.sh file:scripts/smoke-ci.ssc
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
-next: plan the task into SPRINT.md, then implement
+next: wire it plus the three gates that went green while smoke-ci.ssc was held
