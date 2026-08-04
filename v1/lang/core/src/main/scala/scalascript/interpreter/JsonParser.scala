@@ -105,12 +105,28 @@ object JsonParser:
       //
       // On overflow fall back to the OLD double path rather than to V1JsonCore's `BigDecimal("0.0")`:
       // a pathological exponent should degrade to the previous behaviour, not silently become zero.
+      //
+      // Every exit from here raises ParseError, never a bare NumberFormatException. Both entry
+      // points promise that in writing and neither kept it: `parse` says "throw ParseError on
+      // malformed input" and `parseOption` says "returns None on ANY parse failure … suitable for
+      // `req.json` where bad bodies become req.json == None rather than a 500". A `-` that starts
+      // no number reached `Double.parseDouble` and escaped as NumberFormatException, which
+      // parseOption does not catch.
+      //
+      // MEASURED 2026-08-04: a multipart POST body begins `--<boundary>`, so uploading ANY file to
+      // a server whose handler reads `req.json` answered
+      //     500 native HTTP handler failed: For input string: "-"
+      // (tests/e2e/upload-smoke.sh, via InterpreterHttpHandler.liftRequest:195). The JVM lane
+      // passed the same request, which is what made it look like a lane bug rather than this.
+      def asDouble(text: String): Value =
+        try Value.doubleV(text.toDouble)
+        catch case _: NumberFormatException => err(s"invalid number: $text")
       if isDouble then
         try Value.DecimalV(BigDecimal(s))
-        catch case _: RuntimeException => Value.doubleV(s.toDouble)
+        catch case _: RuntimeException => asDouble(s)
       else
         try Value.intV(s.toLong)
-        catch case _: NumberFormatException => Value.doubleV(s.toDouble)
+        catch case _: NumberFormatException => asDouble(s)
 
     private def parseValue(): Value =
       skipWs()

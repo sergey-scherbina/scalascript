@@ -15,6 +15,30 @@ Newest first.
      fixed-in: -
      gate: tests/e2e/upload-smoke.sh -->
 
+**FOUND — and it is neither the native lane nor the http plugin.** The stack trace, which this entry
+said was the way in, names it exactly:
+
+    java.lang.NumberFormatException: For input string: "-"
+      at java.lang.Double.parseDouble
+      at scalascript.interpreter.JsonParser$ParserState.parseNumber(JsonParser.scala:113)
+      at scalascript.interpreter.JsonParser$.parseOption(JsonParser.scala:22)
+      at scalascript.server.InterpreterHttpHandler.liftRequest(InterpreterHttpHandler.scala:195)
+
+`liftRequest` fills `req.json` by calling `JsonParser.parseOption(body)` on EVERY request. A
+multipart body begins `--<boundary>`, so the parser meets a `-` that starts no number. `parseOption`
+is documented "returns None on ANY parse failure … suitable for `req.json` where bad bodies become
+`req.json == None` rather than a 500" — but it catches only `ParseError`, and `parseNumber` let a
+bare `NumberFormatException` out of `Double.parseDouble`. `parse` breaks the same promise: it
+documents "throw ParseError on malformed input".
+
+So it is not upload-specific and not lane-specific: ANY request whose body is not JSON, to a handler
+that reads `req.json`, on any lane running the interpreter server. The JVM lane passes because it
+does not take this path, which is exactly what made it look like a native-lane defect.
+
+Fixed at the source rather than by widening the catch, so both documented contracts become true at
+once. Scope note: `tests/e2e/upload-smoke.sh` belongs to the live claim `int-render-and-upload-gaps`
+and is deliberately untouched here — this is the fix, that claim owns the gate.
+
     [FAIL] INT
            expected: filename=test_bytes.bin|content-type=application/octet-stream|size=256|first=0|last=255
            got:      native HTTP handler failed: For input string: "-"
