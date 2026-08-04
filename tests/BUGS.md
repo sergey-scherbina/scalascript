@@ -13,7 +13,7 @@ Newest first.
      lane: apparatus
      area: build
      gate: tests/e2e/launcher-digest-gate.sh
-     fixed-in: PENDING-SHA -->
+     fixed-in: 4cccc6ce4 -->
 
 `tests/e2e/launcher-digest-gate.sh` asserted that every digest input line looks like
 `<sha>TAB<path>`:
