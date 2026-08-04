@@ -1,0 +1,11 @@
+slug: tui-widget-compile-coverage
+branch: feature/tui-widget-compile-coverage
+agent: claude-code
+started: 2026-08-04T12:04:07Z
+heartbeat: 2026-08-04T12:04:07Z
+status: claimed-before-planning
+items: tui-interactive-widgets-have-no-compile-coverage
+paths: file:frontend/tui/src/test/scala/scalascript/frontend/tui/TuiCargoSmokeTest.scala file:specs/tui-widget-compile-coverage.md
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
