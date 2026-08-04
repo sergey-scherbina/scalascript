@@ -7,6 +7,58 @@ grepping for status.
 
 Newest first.
 
+## int-set-apply-is-not-membership — `Set(1, 2)(2)` says "Not callable" where real Scala says `true`
+
+<!-- status: open
+     lane: int
+     area: runtime
+     gate: none -->
+
+Found 2026-08-04 while writing `tests/conformance/set-distinct.ssc` for
+`type-ascription-tuple-and-set-arms-missing`. `s(x)` is Scala's membership call — a `Set[A]` *is* an
+`A => Boolean` — and the `jvm` lane (real Scala) answers it. The interpreter cannot call a Set at
+all:
+
+```
+println(Set(1, 2)(2))
+  jvm : true
+  int : [ERROR] [line 1, col 19] Not callable: Set(1, 2)   (InterpretError, CallRuntime.callValue:58)
+```
+
+`.contains(2)` works everywhere, so this is only the apply spelling. It is not in the conformance
+case for the usual reason: `int` is the GOLDEN lane, so a row it cannot run cannot be pinned there
+— which is also why this needs its own entry rather than a line in that case's prose.
+
+Fix goes in `CallRuntime.callValue`, beside whatever already makes a `Map` callable (`m(k)` works).
+
+## int-set-element-order-differs-from-scala — `Set(3, 1, 2)` prints `Set(1, 2, 3)` where real Scala keeps insertion order
+
+<!-- status: open
+     lane: int
+     area: runtime
+     gate: none -->
+
+Found 2026-08-04 by running the same case on the golden and the oracle:
+
+```
+println(Set(3, 1, 3, 2))
+  jvm : Set(3, 1, 2)     ← real Scala: Set1..Set4 keep insertion order
+  int : Set(1, 2, 3)
+```
+
+Every other row of `tests/conformance/set-distinct.ssc` — 21 of 22 — agrees between the two lanes;
+this is the only disagreement. Scala's small-set classes (`Set1`–`Set4`) preserve insertion order,
+and above four elements a `HashSet`'s order is unspecified, so this is only observable for sets of
+four or fewer — which is exactly the size a test tends to use.
+
+**The golden lane is the one that is wrong here**, which is why it is filed rather than encoded: a
+conformance case comparing against `int` would freeze the wrong order for every lane. `set-distinct`
+sidesteps it by writing every literal in ascending order so that both orders coincide, with a
+comment saying why — that keeps the case honest but leaves this unmeasured, hence this entry.
+
+Not urgent: no known program depends on Set ordering, and the reference lanes agree on everything
+else. Worth fixing when the interpreter's Set representation is next touched.
+
 ## int-v1-lane-loses-a-builtin-companion-to-its-own-case-class — `Response.html` dies, `Response(...)` works
 
 <!-- status: open

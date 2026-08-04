@@ -175,6 +175,11 @@ function _eq(a, b) {
   if (aArr !== bArr) return false;
   if (aArr) {
     if (a.length !== b.length) return false;
+    // `Set(1,2) == Set(2,1)` is true on every reference lane: Set equality is membership, not
+    // order. Only when BOTH sides are sets — a Set never equals a List in Scala, and comparing
+    // them is a compile error there, so the asymmetric case cannot arise from valid source.
+    if (a._kind === 'Set' && b._kind === 'Set')
+      return a.every(x => b.some(y => _eq(x, y)));
     for (let i = 0; i < a.length; i++) if (!_eq(a[i], b[i])) return false;
     return true;
   }
@@ -184,12 +189,20 @@ function _eq(a, b) {
   for (const k of ka) if (!_eq(a[k], b[k])) return false;
   return true;
 }
-// Set constructor → a deduplicated array (structural dedup), so array `_dispatch` methods apply.
+// Set constructor → a deduplicated array TAGGED `_kind = 'Set'`, so every array `_dispatch` method
+// still applies while the value stays distinguishable from a List. Until 2026-08-04 the tag was
+// missing and the two were the same value: `_show` printed `List(1, 2)`, `case _: Set` could not be
+// answered (nor `case _: List`, which would have had to lie about a Set), and `Set(1,2) == Set(2,1)`
+// was false because array `_eq` is order-sensitive.
+// BUGS `type-ascription-tuple-and-set-arms-missing`.
 function _setOf(...xs) {
   const out = [];
   for (const x of xs) if (!out.some(y => _eq(y, x))) out.push(x);
-  return out;
+  return _seqKind('Set', out);
 }
+// The read side of that tag. `_kind` is non-enumerable, so it survives neither JSON nor a spread —
+// which is why every op that rebuilds a Set has to re-tag rather than rely on it propagating.
+function _isSet(x) { return Array.isArray(x) && x._kind === 'Set'; }
 // Integer division and remainder. ssc `Int` is 64-bit INTEGER arithmetic, so `10 / 0` must fail the
 // way it does on the interpreter and the JVM — not produce JS's `Infinity`/`NaN`, which is a silent
 // wrong answer that a `try/catch` never sees (BUGS js-int-division-by-zero-yields-infinity).
@@ -224,6 +237,13 @@ function _imod(a, b) {
 }
 
 function _arith(op, a, b) {
+  // `s + x` / `s - x` on a Set are Scala's `incl`/`excl`, not arithmetic. JsGen routes `+`/`-`
+  // here whenever both sides are not statically Int, and this function's generic tail did a NATIVE
+  // JS `+` on the backing array: measured 2026-08-04, `Set(1, 2) + 3` was the STRING `"1,23"` and
+  // `Set(1, 2) - 1` was `NaN`. Both are silent — no throw, exit 0.
+  // BUGS `type-ascription-tuple-and-set-arms-missing`.
+  if (_isSet(a) && (op === '+' || op === '-'))
+    return _dispatch(a, op === '+' ? 'incl' : 'excl', [b]);
   // String concatenation keeps priority (matches the interpreter's `a + show(b)`).
   if (op === '+' && (typeof a === 'string' || typeof b === 'string'))
     return (typeof a === 'string' ? a : _show(a)) + (typeof b === 'string' ? b : _show(b));

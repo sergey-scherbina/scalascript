@@ -817,6 +817,18 @@ private[codegen] trait JsGenCpsCodegen:
         // this lane and any arm would have to lie about one of them.
         // BUGS `type-ascription-tuple-and-set-arms-missing`.
         case "Map"     => s"_isMap($scrutVar)"
+        // Set and List ARE distinguishable here as of 2026-08-04: `_setOf` tags its array
+        // `_kind = 'Set'` (core-dispatch), so neither arm has to lie about the other. Before the
+        // tag both were plain arrays and the honest answer was `other` for both — which is what
+        // the comment above this one said, and what it stopped meaning.
+        // BUGS `type-ascription-tuple-and-set-arms-missing`.
+        case "Set"     => s"_isSet($scrutVar)"
+        // A tuple is an array too (`_isTuple`), so it is excluded here exactly as it is in `_show`.
+        case "List" | "Seq" | "Vector" =>
+          s"(Array.isArray($scrutVar) && $scrutVar._isTuple !== true && !_isSet($scrutVar))"
+        // `Iterable` is the supertype both of them (and Map) satisfy on the reference lanes.
+        case "Iterable" =>
+          s"((Array.isArray($scrutVar) && $scrutVar._isTuple !== true) || _isMap($scrutVar))"
         // Option IS distinguishable here — Some/None carry `_type` markers (core-dispatch.mjs:
         // `const None = {_type: '_None'}`), unlike Set/List/Vector which are all plain arrays.
         // Found by the census: this lane answered nothing where int and the JVM answered `Option`.

@@ -920,10 +920,11 @@ byte-for-byte both times — which is what establishes `expected/` as the right 
 reading of it.
 
 ## type-ascription-tuple-and-set-arms-missing — `case _: Set` cannot be answered on two lanes: Set is not a type there
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: runtime
-     gate: tests/conformance/type-ascription-set.ssc -->
+     gate: tests/conformance/set-distinct.ssc
+     fixed-in: PENDING-SHA -->
 
 **Tuple half FIXED 2026-07-29 in 7939f4c9e** (gate `tests/conformance/type-ascription-tuple.ssc`).
 **Set half FIXED on `int` 2026-07-30 in 84c3b2cc7** — and NOT fixable the same way on two lanes,
@@ -1023,6 +1024,55 @@ equivalent, and the `SetV` case in the native primitive table — all three toge
 remembering: a cross-lane sweep compares lanes to *each other*, so a gap all three share reads as
 green. It surfaced only because the probe asked what the JVM lane does instead of what another
 self-hosted lane does.
+
+---
+
+**CLOSED 2026-08-04 — Set has a representation of its own on both remaining lanes.**
+`Value.SetV` (an insertion-ordered `LinkedHashSet`) on v2, a `_kind: 'Set'` tagged array on js.
+`case _: Set` and `case _: List` are both answerable now, on all four lanes, without either arm
+lying about the other.
+
+**The entry understated the defect, and measuring first is what showed it.** This was filed and
+carried for a week as a *display* problem — "a Set prints as a List". Re-measured on 2026-08-04
+before any code was written, it was a wrong VALUE:
+
+| | `int` / `jvm` | `v2` before | `js` before |
+|---|---|---|---|
+| `Set(1, 1, 2)` | `Set(1, 2)` | `List(1, 1, 2)` — **duplicate kept** | `List(1, 2)` |
+| `Set(1,2) == Set(2,1)` | `true` | `false` | `false` |
+| `.union` / `.intersect` | `Set(1, 2, 3)` / `Set(2)` | **`Stub`** at exit 0 | **crash**: `Method not found: union` |
+| `Set(1,2) + 3` | `Set(1, 2, 3)` | `Set(1, 2)3` (string) | `1,23` (string) |
+| `Set(1,2) - 1` | `Set(2)` | `()` | `NaN` |
+
+So a Set silently kept duplicates and compared by order, and half its operations either vanished
+into the `Stub` sentinel or killed the program. None of that is visible in the type-test question
+this entry was filed about. **A count I got wrong in the other direction, too**: I argued before
+starting that the work served one corpus file (`dataset-shape.ssc` is the only non-test user of
+`Set`) and was therefore poor value. That was the wrong unit — the defect is in a language type, and
+the count of *today's* callers says nothing about a Set that does not deduplicate.
+
+**Where the fix lives.**
+- v2 front (`specs/v2.2-p6.5-fsub.ssc`): `Set(…)` had been lowered by the SAME `parseListLit` as
+  `List(…)`, so the two were byte-identical in the IR. Now `parseSetLit` → `(prim set.of …)`.
+- v2 runtime: `SetV` + the `set.of` prim, `show`/`anyStr`, the `__isTag__` arm, a Set method block,
+  and `+`/`-`/`++` in `arithOp` (infix operators reach arithmetic, not the method dispatcher).
+- The LEGACY front needed no edit: it already lowered `Set(a, b)` to `[a, b].toSet`, and pointing
+  `toSet` at `SetV` made that lowering correct for free. Its comments said "v2 sets are DISTINCT
+  lists" and were rewritten so they do not mislead the next reader.
+- js: `_setOf` tags via the EXISTING `_seqKind` marker (the one `Vector` uses), so every array
+  method keeps working; `_eq` compares sets by membership; `_dispatch` gained only the methods where
+  a Set differs; `_arith` and `_tupleConcat` handle the infix forms, which never reach `_dispatch`.
+
+**Gate:** `tests/conformance/set-distinct.ssc`, 22 rows on all four lanes. Verified to FAIL without
+the fix by running it against the unfixed shared-main toolchain: **14 of 22 rows wrong on v2, and js
+died before printing a single line**. `type-ascription-set.ssc` — this entry's own case — now also
+runs on `js` and `v2`, and its `List(1,2).toString == Set(1,2).toString` row went `true` → `false`
+on both, which is the row it was written to prove.
+
+**Three defects found while measuring, filed separately rather than bundled** — each is a different
+lane and a different cause: `int-set-apply-is-not-membership`,
+`int-set-element-order-differs-from-scala`,
+`v2-set-ops-and-or-coerce-to-int-and-double-minus-is-a-silent-no-op`.
 
 ## lint-markdown-unreachable-from-markdown-commits — the only job that lints `.md` cannot be triggered by a `.md` change
 <!-- status: fixed

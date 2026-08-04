@@ -678,7 +678,9 @@ def selOrMethod = (field, robj) =>
              case Pair(rt, rn) =>
                if #seq(rt, "uid") then (if #seq(rn, "Set") then #seq(field, "empty") else false)
                else false }) then
-    -- `Set.empty` = `Set()` = `[].toSet` (empty DISTINCT list). Set is NOT a registered
+    -- `Set.empty` = `Set()` = `[].toSet`. `toSet` now builds a real SetV (Runtime `set.of`),
+    -- so this lowering became correct without changing: it was written when a set WAS a
+    -- distinct list. Set is NOT a registered
     -- ctor, so the generic companion path `ctorap(Set)` stays the Set closure and `.empty`
     -- on it → `Op("Set.empty")`. Emit the empty-set construction directly.
     Pair("prim", Pair("__method__", Cons(Pair("str", "toSet"), Cons(buildListExpr(Nil), Nil))))
@@ -2295,8 +2297,10 @@ def resolveE = (expr) =>
                   else if #seq(fdata, "ComputedSignal") then Pair("ctorap", Pair("ComputedSignal", rargs))
                   else if #seq(fdata, "List") then buildListExpr(rargs)
                   else if #seq(fdata, "Set") then
-                    -- v2 sets are DISTINCT lists (`.toSet`); `Set(a, b, …)` / `Set()` →
-                    -- `[a, b, …].toSet`. Was an unbound global (Set not a collection
+                    -- `Set(a, b, …)` / `Set()` → `[a, b, …].toSet`, and `toSet` builds a real
+                    -- SetV — so this front needed no edit when Set stopped being a distinct
+                    -- list (the F front had to change; it emitted consChain directly).
+                    -- Was an unbound global (Set not a collection
                     -- companion); blocked the std/mapreduce distributed modules (`retried
                     -- = Set()`, `pending: Set[Int]`).
                     Pair("prim", Pair("__method__",

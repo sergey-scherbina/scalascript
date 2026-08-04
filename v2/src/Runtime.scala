@@ -145,6 +145,31 @@ object Value:
       new MapV(out)
     def unapply(value: MapV): Some[collection.mutable.LinkedHashMap[Value, Value]] =
       Some(value.entries)
+  /** An insertion-ordered Set, distinct from a Cons-list.
+    *
+    * Before this existed `Set(...)` lowered through the SAME `parseListLit` as `List(...)`, so the
+    * two were byte-identical in the IR and a Set was a list at runtime. Measured 2026-08-04 that
+    * cost more than the rendering: `Set(1, 1, 2)` printed `List(1, 1, 2)` — the duplicate was never
+    * removed — `Set(1,2) == Set(2,1)` was `false`, and `union`/`intersect` answered the `Stub`
+    * sentinel at exit 0. BUGS `type-ascription-tuple-and-set-arms-missing`.
+    *
+    * `LinkedHashSet` and not a plain `HashSet`: insertion order makes `println(Set(1, 2))` a stable
+    * `Set(1, 2)` across runs, which is what the frozen goldens and the reference lanes encode.
+    * `equals` is delegated to it on purpose — Scala's Set equality is membership-based, so
+    * `Set(1,2) == Set(2,1)` is true here for the same reason it is true on the JVM lane. */
+  final class SetV private (val elems: collection.mutable.LinkedHashSet[Value]) extends Value:
+    override def equals(that: Any): Boolean = that match
+      case s: SetV => elems == s.elems
+      case _       => false
+    override def hashCode: Int = elems.hashCode
+    override def toString: String = s"SetV(${elems.mkString(", ")})"
+  object SetV:
+    def empty: SetV = new SetV(collection.mutable.LinkedHashSet.empty)
+    def from(vs: IterableOnce[Value]): SetV =
+      val out = collection.mutable.LinkedHashSet.empty[Value]
+      out ++= vs
+      new SetV(out)
+    def unapply(value: SetV): Some[collection.mutable.LinkedHashSet[Value]] = Some(value.elems)
   /** A named-field dispatch object: method calls are routed by name.
    *  Used by PluginBridge to wrap v1 InstanceV objects with plugin-owned method fields
    *  (e.g. AuthServer.registerClient) without exposing v1 types in the v2 core module. */
@@ -1665,8 +1690,15 @@ object Prims:
           case StrV(_)   => expected == "String"
           case BytesV(_) => expected == "Bytes"
           case MapV(_)   => expected == "Map"
+          // A Set is its OWN value now, so `case _: Set[?]` has something true to say — and, just
+          // as importantly, `case _: List[?]` stays FALSE for it (the DataV arm above keys on the
+          // Cons/Nil tag, which a SetV does not carry).
+          case SetV(_)   => expected == "Set" || expected == "Iterable"
           case _         => false
         BoolV(primitive && (arity < 0 || arity == 0))
+    // `Set(a, b, …)` — the constructor both fronts lower to. Deduplication happens HERE, on the
+    // way in, so no caller has to remember it (the old lowering shared `List`'s and never did).
+    case "set.of"   => a => SetV.from(a)
     // Target-neutral insertion-ordered mutable MapV.
     case "map.new"  => _ => MapV.empty
     case "map.get"  => a => asMap(a(0)).get(a(1)).fold(none)(some)
@@ -2357,8 +2389,7 @@ object Prims:
           StrV(unlist(ls).map(anyStr).mkString(pre, sep, post))
         case (ls, "toList", Nil) if isList(ls) => ls
         case (ls, "iterator", Nil) if isList(ls) => ls  // list ops work on the Cons-list directly
-        case (ls, "toSet", Nil) if isList(ls) =>
-          listOf(unlist(ls).distinct)  // approximate set as distinct list
+        case (ls, "toSet", Nil) if isList(ls) => SetV.from(unlist(ls))
         case (ls, "toVector", Nil) if isList(ls) => ls
         case (ls, "contains", List(v)) if isList(ls) => BoolV(unlist(ls).contains(v))
         case (ls, "indexOf", List(v)) if isList(ls) => IntV(unlist(ls).indexOf(v).toLong)
@@ -2468,7 +2499,8 @@ object Prims:
         // `List()`. `Seq` and `Vector` are here on the same footing. Added so the F front's
         // `(ctor Set)` receiver resolves — without it F declined the file and delegated, which was
         // correct but left `Set` a permanent F gap (BUGS v2 f-set-empty-has-no-runtime-receiver).
-        case (DataV(t, _), "empty", Nil) if t == "List" || t == "Seq" || t == "Vector" || t == "Set" => listOf(Seq.empty)
+        case (DataV("Set", _), "empty", Nil) => SetV.empty
+        case (DataV(t, _), "empty", Nil) if t == "List" || t == "Seq" || t == "Vector" => listOf(Seq.empty)
         case (DataV("Map", _), "empty", Nil) => MapV.empty
         // Array companion statics return a REAL mutable array (ForeignV(ArrayBuffer)) —
         // they were folded into the List lane and `Array.fill(512)(0)` came back a
@@ -2532,6 +2564,46 @@ object Prims:
         // the user's method, not index the object.
         case (lv @ DataV("Cons", _), "apply", List(IntV(i))) => Prims.listIndex(lv, i.toInt)
         case (lv @ DataV("Nil", _),  "apply", List(IntV(i))) => Prims.listIndex(lv, i.toInt)
+        // ── Set ──────────────────────────────────────────────────────────────────
+        // `union`/`intersect` used to fall past every arm and answer the `Stub` sentinel at exit 0
+        // — the v2 failure mode that no exit code reveals. The element-order contract is insertion
+        // order, matching the reference lanes' rendering.
+        case (SetV(e), "size", Nil)      => IntV(e.size.toLong)
+        case (SetV(e), "isEmpty", Nil)   => BoolV(e.isEmpty)
+        case (SetV(e), "nonEmpty", Nil)  => BoolV(e.nonEmpty)
+        // `s(x)` is Scala's membership call — a Set IS its own predicate.
+        case (SetV(e), "contains" | "apply", List(v)) => BoolV(e.contains(v))
+        case (SetV(e), "incl" | "+", List(v))  => SetV.from(e.toSeq :+ v)
+        case (SetV(e), "excl" | "-", List(v))  => SetV.from(e.toSeq.filterNot(_ == v))
+        case (SetV(e), "union" | "++" | "|", List(SetV(o)))  => SetV.from(e.toSeq ++ o.toSeq)
+        case (SetV(e), "intersect" | "&", List(SetV(o)))     => SetV.from(e.toSeq.filter(o.contains))
+        case (SetV(e), "diff" | "--" | "&~", List(SetV(o)))  => SetV.from(e.toSeq.filterNot(o.contains))
+        case (SetV(e), "subsetOf", List(SetV(o)))            => BoolV(e.forall(o.contains))
+        // A Set may also be combined with a list on the right (`s ++ List(1,2)`), which is legal
+        // Scala and would otherwise reach no arm at all.
+        case (SetV(e), "union" | "++", List(l)) if isList(l)  => SetV.from(e.toSeq ++ unlist(l))
+        case (SetV(e), "diff" | "--", List(l)) if isList(l)   => SetV.from(e.toSeq.filterNot(unlist(l).contains))
+        case (SetV(e), "toList" | "toSeq" | "toVector" | "iterator", Nil) => listOf(e.toSeq)
+        case (SetV(e), "toSet", Nil)     => SetV.from(e)
+        // MUST come before the delegating arms below: those convert to a list first, so `toString`
+        // would render the LIST and answer "List(1, 2)" for a Set — which is exactly the collapse
+        // this whole change exists to end, reintroduced one layer down. Caught by the probe row
+        // `List(1,2).toString == Set(1,2).toString`, the row the conformance case already carried.
+        case (sv @ SetV(_), "toString", Nil) => StrV(Show.show(sv))
+        // Everything below is shape-preserving in Scala (`Set.map` gives a Set) or a plain fold.
+        // Routing them through the LIST implementations keeps ONE definition of each: the element
+        // sequence goes in, and only the rebuild differs. `methodOp` re-enters the full `__method__`
+        // dispatcher rather than this one function, so a Set reaches every list arm wherever it
+        // lives (the dispatcher is split across methodDispatch1..N to stay under the JIT's
+        // 8000-bytecode limit — see feedback_hugemethodlimit_silent_no_jit).
+        case (SetV(e), "map" | "filter" | "filterNot" | "flatMap" | "collect" | "take" | "drop" | "tail" | "init", _) =>
+          methodOp(name, listOf(e.toSeq), margs) match
+            case r if isList(r) => SetV.from(unlist(r))
+            case r              => r
+        case (SetV(e), _, _) =>
+          // head / min / max / foreach / exists / forall / foldLeft / sum / mkString / count / … —
+          // value-returning, so the list result IS the answer and must not be re-wrapped.
+          methodOp(name, listOf(e.toSeq), margs)
         // ── Map/HashMap ──────────────────────────────────────────────────────────
         case (MapV(m), "size", Nil) => IntV(m.size.toLong)
         case (MapV(m), "get", List(k)) => m.get(k).fold(none)(some)
@@ -2913,6 +2985,21 @@ object Prims:
     // Char semantics: bridge char literals are Int codepoints, while chars
     // extracted from strings (charAt/forall) are 1-char strings — comparisons
     // between the two compare codepoints (c >= 'a' in parser predicates).
+    // `Set + x` / `Set - x` are `incl`/`excl`, not arithmetic — and they arrive HERE, not at the
+    // method dispatcher, because the fronts lower an infix operator to __arith__. Without these the
+    // (_, _) string-concat tail rendered the receiver and produced `Set(1, 2)3`, silently, at
+    // exit 0. BUGS `type-ascription-tuple-and-set-arms-missing`.
+    case (sv: SetV, x) if op == "+" => methodOp("incl", sv, List(x))
+    case (sv: SetV, x) if op == "-" => methodOp("excl", sv, List(x))
+    case (sv: SetV, o) if op == "++" || op == "|" => methodOp("union", sv, List(o))
+    case (sv: SetV, o) if op == "--" || op == "&~" => methodOp("diff", sv, List(o))
+    case (sv: SetV, o) if op == "&" => methodOp("intersect", sv, List(o))
+    // Reachability, measured rather than assumed: `+`, `-` and `++` arrive here and are gated by
+    // tests/conformance/set-distinct.ssc. `&` and `|` do NOT — they reach a bitwise primitive that
+    // coerces the receiver first ("expected Int, got Set(1, 2)") — and `--` never arrives either;
+    // it is a silent no-op for lists as well. Those three arms are correct but currently dead, and
+    // stay so the lowering fix is a one-line change rather than a rediscovery. The lowering hole is
+    // filed as `v2-set-ops-and-or-coerce-to-int-and-double-minus-is-a-silent-no-op`.
     // String + Char. BEFORE the guarded (StrV, IntV) char-comparison arms and before
     // (StrV, StrV): CharV extends IntV, so without these `"s" + 'b'` reaches a numeric
     // arm and produces `s98` — the concatenation half of `v2-char-is-an-int`. Only the
@@ -3426,6 +3513,8 @@ object Prims:
       s"(${fields.map(anyStr).mkString(", ")})"
     case DataV(tag, fields) if fields.nonEmpty && tag != "Op" && tag != "Stub" =>
       s"$tag(${fields.map(anyStr).mkString(", ")})"
+    case SetV(elems) =>
+      s"Set(${elems.iterator.map(anyStr).mkString(", ")})"
     case MapV(entries) =>
       s"Map(${entries.iterator.map((k, x) => s"${anyStr(k)} -> ${anyStr(x)}").mkString(", ")})"
     // SQL result rows (and map.new maps) are ForeignV(scala Map) with Value
@@ -3804,6 +3893,8 @@ object Show:
     // keeps its `Pair(a, b)` rendering via the generic ctor case below.
     case DataV(t, fs) if t.matches("Tuple\\d+") => s"(${fs.map(show).mkString(", ")})"
     case DataV(t, fs) => if fs.isEmpty then t else s"$t(${fs.map(show).mkString(", ")})"
+    case SetV(elems) =>
+      s"Set(${elems.iterator.map(show).mkString(", ")})"
     case MapV(entries) =>
       s"Map(${entries.iterator.map((k, value) => s"${show(k)} -> ${show(value)}").mkString(", ")})"
     case _: ClosV     => "<closure>"

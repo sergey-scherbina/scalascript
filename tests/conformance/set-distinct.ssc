@@ -1,0 +1,83 @@
+---
+name: set-distinct
+description: "Set is its own value on every lane: dedup, membership equality, union/intersect/diff, shape-preserving map/filter"
+backends: [int, jvm, js, v2]
+---
+
+# `Set` is not a `List`
+
+`BUGS.md` `type-ascription-tuple-and-set-arms-missing`. Until 2026-08-04 two lanes had no Set at
+all. On **v2** the F front lowered `Set(...)` through the *same* `parseListLit` as `List(...)`, so
+the two were byte-identical in the IR; on **js** `_setOf(...)` returned a plain array. The entry
+recorded this as a display problem. Measured on all four lanes before any code was written, it was
+not:
+
+| | `int` / `jvm` (golden / oracle) | `v2` before | `js` before |
+|---|---|---|---|
+| `Set(1, 1, 2)` | `Set(1, 2)` | `List(1, 1, 2)` — **duplicate kept** | `List(1, 2)` |
+| `Set(1,2) == Set(2,1)` | `true` | `false` | `false` |
+| `.union` / `.intersect` | `Set(1, 2, 3)` / `Set(2)` | **`Stub`** — the silent-at-exit-0 sentinel | **crash**: `Method not found: union` |
+
+So a Set silently kept duplicates, compared by order, and its two most common operations either
+vanished into the `Stub` sentinel or killed the program. This case pins the *value*, not the
+rendering — every row below was wrong on at least one lane.
+
+```scalascript
+// Construction dedups. The literal is written in ASCENDING order ON PURPOSE: measured 2026-08-04,
+// `Set(3, 1, 3, 2)` prints `Set(3, 1, 2)` on `jvm` (real Scala keeps insertion order for Set1..Set4)
+// and `Set(1, 2, 3)` on `int` — the golden and the oracle DISAGREE about element order, and this
+// case must not silently pick a side. Every set here is written so that insertion order and the
+// interpreter's order coincide, which keeps the rows below about the Set itself. The disagreement
+// is filed as `int-set-element-order-differs-from-scala`.
+println(Set(1, 2, 2, 3))
+println(Set(1, 2, 2, 3).size)
+
+// Membership. The `s(x)` apply-form is Scala's membership call and works on the `jvm` lane, but the
+// INTERPRETER — the golden — cannot call a Set at all ("Not callable: Set(1, 2)"), so it is not
+// pinned here. Filed separately as `int-set-apply-is-not-membership`.
+println(Set(1, 2).contains(2))
+println(Set(1, 2).contains(9))
+
+// Equality is membership, not order.
+println(Set(1, 2) == Set(2, 1))
+println(Set(1, 2) == Set(1, 2, 3))
+
+// The operations that used to answer `Stub` / throw.
+println(Set(1, 2).union(Set(2, 3)))
+println(Set(1, 2).intersect(Set(2, 3)))
+println(Set(1, 2, 3).diff(Set(2)))
+println(Set(1, 2).subsetOf(Set(1, 2, 3)))
+// The INFIX forms reach the arithmetic path, not the method dispatcher, on both non-reference
+// lanes — a separate hole from the named methods above, and just as silent: `Set(1, 2) + 3` was
+// the string `"1,23"` on js and `Set(1, 2)3` on v2, and `- 1` was `NaN` / `()`.
+println(Set(1, 2) + 3)
+println(Set(1, 2) - 1)
+println(Set(1, 2) ++ Set(3, 4))
+// `--`, `&` and `|` are NOT pinned here, and the reason is a different defect: on v2 `&`/`|` reach a
+// bitwise primitive that coerces the receiver ("expected Int, got Set(1, 2)") and `--` is a silent
+// no-op — measured on LISTS too (`List(1,2,3) -- List(2)` returns the list unchanged where int
+// raises), so it is an operator-lowering hole, not a Set one. Filed as
+// `v2-set-ops-and-or-coerce-to-int-and-double-minus-is-a-silent-no-op`. js answers all three
+// correctly today; a row here would gate js while encoding v2's bug as expected output.
+
+// Shape-preserving: `Set.map` is a Set in Scala, and the result must be deduped AGAIN — `x * x`
+// maps two distinct elements onto one. (Multiplication and not `x / 2`, which would have measured
+// the unrelated `js-int-division-by-zero`-adjacent gap: `3 / 2` is `1.5` inside a js lambda.)
+println(Set(1, 2, 3).filter(x => x > 1))
+println(Set(1, 2).map(x => x * 2))
+println(Set(-1, 1).map(x => x * x))
+
+// Crossing between the two representations, both directions.
+println(List(1, 1, 2).toSet)
+println(Set(1, 2).toList)
+
+// Value-returning ops delegate to the list implementations and must NOT be re-wrapped as a Set.
+println(Set(1, 2).mkString("-"))
+println(Set(1, 2).sum)
+println(Set(1, 2).exists(x => x == 2))
+println(Set().isEmpty)
+```
+
+`Set().isEmpty` is the empty-construction guard: `Set.empty` and `Set()` reach a different lowering
+from `Set(a, b)` on both fronts, and an empty Set that came back as an empty *list* would pass every
+other row here.

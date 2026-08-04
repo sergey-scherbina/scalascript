@@ -7,6 +7,41 @@ grepping for status.
 
 Newest first.
 
+## v2-set-ops-and-or-coerce-to-int-and-double-minus-is-a-silent-no-op — `&`, `|` and `--` never reach the method dispatcher
+
+<!-- status: open
+     lane: native
+     area: front
+     gate: none -->
+
+Found 2026-08-04 while giving `Set` a representation of its own
+(`type-ascription-tuple-and-set-arms-missing`). Three infix operators do not reach method dispatch
+on this lane, each in its own way. Measured against `int`:
+
+```
+Set(1, 2) & Set(2, 3)   int: Set(2)        v2: ssc: expected Int, got Set(1, 2)
+Set(1, 2) | Set(3)      int: Set(1, 2, 3)  v2: ssc: expected Int, got Set(1, 2)
+Set(1, 2, 3) -- Set(2)  int: Set(1, 3)     v2: Set(1, 2, 3)   ← silent, exit 0
+```
+
+`&` and `|` reach a BITWISE primitive that coerces its receiver to Int before any dispatch can
+happen. `--` is worse because it is silent, **and it is not a Set problem at all**:
+
+```
+List(1, 2, 3) -- List(2)   int: [ERROR] No method '--' on ListV(...)   v2: List(1, 2, 3)
+```
+
+The interpreter raises; v2 returns the receiver unchanged. So `--` is dropped for EVERY receiver on
+this lane — a whole operator that evaluates to a no-op at exit 0. The named methods
+(`.intersect`, `.union`, `.diff`) are correct, which is what makes the operator forms worth
+finding: source that reads correctly computes nothing.
+
+The `arithOp` arms for all three already exist in `v2/src/Runtime.scala` (added with the Set work,
+and deliberately left in place with a comment saying they are unreachable today) — so once the
+lowering routes these operators through `__arith__`, no runtime change should be needed. Start at
+the bitwise primitive and at whatever consumes `--` in `specs/v2.2-p6.5-fsub.ssc`'s precedence
+table.
+
 ## native-lane-ignores-front-matter-routes — `routes:` in the manifest registers nothing, every path 404s
 
 <!-- status: open

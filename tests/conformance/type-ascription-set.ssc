@@ -1,7 +1,7 @@
 ---
 name: type-ascription-set
 description: "case _: Set / Map / List hold for their own container on the lanes that have one"
-backends: [int, jvm]
+backends: [int, jvm, js, v2]
 ---
 
 # `case _: Set[?]`, `case _: Map[?, ?]`, `case _: List[?]`
@@ -35,35 +35,32 @@ println(kind(7))
 println(List(1, 2).toString == Set(1, 2).toString)
 ```
 
-**`js` and `v2` are absent for a reason that is NOT a missing arm, and this is the useful half.**
-Measured on all four lanes before writing any code:
+**`js` and `v2` ran this case from 2026-08-04.** They were absent before for a reason that was not
+a missing arm, and that half is worth keeping: on both lanes `Set(...)` and `List(...)` produced the
+SAME value — the F front lowered `Set` through `parseListLit`, and `_setOf` returned a plain array —
+so an arm would have had to claim a List is a Set. Answering `other` was the honest state.
+
+That is what changed: a Set now has a representation of its own (`Value.SetV` on v2, a
+`_kind: 'Set'` tagged array on js), so both arms can be true without lying about the other. The
+`toString` row is the proof and is why it was written as a VALUE test — it was `true` on both lanes
+and is `false` on all four now.
 
 | | `jvm` (real Scala) | `int` | native / `v2` | `js` |
 |---|---|---|---|---|
-| `Set(1,2)` | `set` | `other` → **`set`** | `other` | `other` |
-| `Map("a"->1)` | `map` | `map` | `map` | `other` |
-| `List(1,2)` | `list` | `list` | `other` | `other` |
+| `Set(1,2)` | `set` | `set` | `other` → **`set`** | `other` → **`set`** |
+| `Map("a"->1)` | `map` | `map` | `map` | `map` |
+| `List(1,2)` | `list` | `list` | `list` | `other` → **`list`** |
+| `List(1,2).toString == Set(1,2).toString` | `false` | `false` | `true` → **`false`** | `true` → **`false`** |
 
-On the native lane **`Set(1, 2)` prints `List(1, 2)`** — a Set *is* a List there. On the JS lane
-`List(...)` and `_setOf(...)` both produce a plain array. So on two of the four lanes the question
-has no answer to give: adding an arm would make them claim a List is a Set, which is worse than
-answering `other`. That is a representation gap, not a table gap, and it is filed as such rather
-than papered over here.
+`js`'s `List` row closed the same day and for the same reason: an arm keyed on "is an array" could
+not have been written while a Set was one, and can be now (`Array.isArray(x) && !_isSet(x)`, tuples
+excluded as they already were in `_show`).
 
-`Map` and the `7` line are the guards: Map already worked on the lane being changed, and a
+The representation change is gated on its own by `tests/conformance/set-distinct.ssc`, which pins the
+Set VALUE — dedup, membership equality, `union`/`intersect`/`diff` — rather than the type test.
+Without it this case would still pass on a lane whose Set silently kept duplicates, which is exactly
+what `v2` did: 14 of that case's 22 rows were wrong there, and `js` died on `union` before printing
+a line.
+
+`Map` and the `7` line are the guards: Map already worked on the lanes being changed, and a
 non-container must still reach the wildcard.
-
-**Re-measured 2026-08-02** (`type-ascription-table-gaps`), because the table above had gone stale in
-the good direction — two of the three remaining pieces are closed:
-
-| | `jvm` | `int` | native / `v2` | `js` |
-|---|---|---|---|---|
-| `Map("a"->1)` | `map` | `map` | `map` | `map` — **was `other`** |
-| `List(1,2)` | `list` | `list` | `list` — **was `other`** | `other` |
-| `Set(1,2)` | `set` | `set` | `other` | `other` |
-
-And the ONE piece left is not the kind of gap the entry called it. `js`'s `List` row was filed as a
-table gap; it is not. `List(1, 2) == Set(1, 2)` is **`true`** on js and on v2 — the same collapse
-that makes `Set` unanswerable makes `List` unanswerable, because an arm keyed on "is an array" would
-claim a Set is a List. Answering `other` is the honest state on both lanes until Set has a
-representation of its own.

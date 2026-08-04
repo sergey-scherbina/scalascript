@@ -14,6 +14,10 @@ function _tupleConcat(a, b) {
   // a list/tuple, dispatch to its `++` extension instead of array-concatenating.
   // (js-user-operator-dispatch.)
   if (a && typeof a === 'object' && !Array.isArray(a) && a._type) return _dispatch(a, '++', [b]);
+  // Same reason one line up, for the other value with its own `++`: `Set ++ Set` must stay a Set.
+  // `++` never reaches `_dispatch` for arrays — JsGen emits a direct `_tupleConcat` call — so the
+  // Set arm in the dispatcher could not see it and the result came back a List.
+  if (_isSet(a)) return _setOf(...a, ...(Array.isArray(b) ? b : [b]));
   const aArr = Array.isArray(a) ? a : [a];
   const bArr = Array.isArray(b) ? b : [b];
   const r = [...aArr, ...bArr];
@@ -124,6 +128,40 @@ function _dispatch(obj, method, args) {
       default: return _dispatch(_lzToArray(obj), method, args);
     }
   }
+  // ── Set — a `_kind: 'Set'` tagged array (core-dispatch `_setOf`) ─────────────────────────
+  // Only the methods where a Set DIFFERS from a list live here; this block deliberately does not
+  // return for anything else, so foreach/exists/forall/foldLeft/size/mkString/head/sum/… fall
+  // through to the array switch below and keep exactly one implementation.
+  // `union`/`intersect` were not merely wrong before — they reached no arm at all and threw
+  // `Method not found: union on List(1, 2)`, killing the program.
+  // BUGS `type-ascription-tuple-and-set-arms-missing`.
+  if (_isSet(obj)) {
+    const _has = (xs, x) => xs.some(y => _eq(y, x));
+    switch (method) {
+      // `s(x)` is membership in Scala, NOT indexing — the array arm's `apply` would index.
+      case 'contains': case 'apply': return _has(obj, args[0]);
+      case 'union': case '++': case '|': return _setOf(...obj, ...args[0]);
+      case 'intersect': case '&':        return _setOf(...obj.filter(x => _has(args[0], x)));
+      case 'diff': case '--': case '&~': return _setOf(...obj.filter(x => !_has(args[0], x)));
+      case 'incl': case '+':             return _setOf(...obj, args[0]);
+      case 'excl': case '-':             return _setOf(...obj.filter(x => !_eq(x, args[0])));
+      case 'subsetOf':                   return obj.every(x => _has(args[0], x));
+      // Without this the array arm renders `List(1, 2)` for a Set — the collapse this change
+      // exists to end, one layer down. It is the row the conformance case pins.
+      case 'toString':                   return _show(obj);
+      case 'toSet':                      return obj;
+      // Converting AWAY from a Set drops the tag: the result is a List again.
+      case 'toList': case 'toSeq': case 'toVector': case 'toIndexedSeq': case 'toArray': case 'toIterable':
+        return [...obj];
+      // Shape-preserving in Scala — `Set.map` is a Set. Reuse the array implementations and
+      // re-tag, so there is still one definition of each.
+      case 'map': case 'filter': case 'filterNot': case 'flatMap': case 'collect':
+      case 'take': case 'drop': case 'tail': case 'init': {
+        const r = _dispatch([...obj], method, args);
+        return Array.isArray(r) ? _setOf(...r) : r;
+      }
+    }
+  }
   if (Array.isArray(obj)) {
     switch(method) {
       case 'head': return obj[0];
@@ -145,7 +183,9 @@ function _dispatch(obj, method, args) {
       case 'reverse': return [...obj].reverse();
       case 'distinct': return [...new Set(obj)];
       case 'toList': case 'toSeq': case 'toVector': case 'toIndexedSeq': case 'toArray': case 'toIterable': return obj;
-      case 'toSet': return [...new Set(obj)];
+      // `_setOf` and not `new Set(obj)`: the JS Set dedups by SameValueZero, which is reference
+      // equality for boxed values (`_Char`, case-class instances) — `_setOf` dedups by `_eq`.
+      case 'toSet': return _setOf(...obj);
       case 'sum': return obj.reduce((a,b)=>a+b, 0);
       case 'min': return Math.min(...obj);
       case 'max': return Math.max(...obj);
@@ -506,6 +546,7 @@ function _dispatch(obj, method, args) {
 
 function _typeOf(obj) {
   if (obj === null || obj === undefined) return 'Any';
+  if (_isSet(obj)) return 'Set';
   if (Array.isArray(obj)) return 'List';
   if (obj === _None) return 'Option';
   if (typeof obj === 'object' && obj._type === '_Some') return 'Option';

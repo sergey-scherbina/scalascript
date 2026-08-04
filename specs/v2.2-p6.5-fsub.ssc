@@ -1026,7 +1026,7 @@ def enumValuesStr(names) = names match { case Nil => "(ctor Nil)" case h :: t =>
 // and the runner fell back to the default front, so `ssc run` stayed green and only the F4 gate's
 // `frc` column saw it. Fixing one table and not the other would have been quieter still: `Set(1,2)`
 // would work while `Set.empty` kept failing.
-def parseCtorArgs(nm, ts, env, cx) = if nm == "List" then parseListLit(ts, env, cx) else (if nm == "Vector" then parseListLit(ts, env, cx) else (if nm == "Seq" then parseListLit(ts, env, cx) else (if nm == "Set" then parseListLit(ts, env, cx) else (if nm == "Array" then parseArrLit(ts, env, cx) else (if nm == "Map" then parseMapLit(ts, env, cx) else (if nm == "Decimal" then parseDecimalC(ts, env, cx) else (if nm == "BigInt" then parseBigIntC(ts, env, cx) else parseCtorGen(nm, ts, env, cx))))))))
+def parseCtorArgs(nm, ts, env, cx) = if nm == "List" then parseListLit(ts, env, cx) else (if nm == "Vector" then parseListLit(ts, env, cx) else (if nm == "Seq" then parseListLit(ts, env, cx) else (if nm == "Set" then parseSetLit(ts, env, cx) else (if nm == "Array" then parseArrLit(ts, env, cx) else (if nm == "Map" then parseMapLit(ts, env, cx) else (if nm == "Decimal" then parseDecimalC(ts, env, cx) else (if nm == "BigInt" then parseBigIntC(ts, env, cx) else parseCtorGen(nm, ts, env, cx))))))))
 // E2: a case-class / enum-case ctor call `Name(args)` (lowered as `app(uid Name, args)`) shares the SAME
 // call-site default synthesis as a def call — the innermost fullCall `(app (global Name) ..)` is exactly
 // ctorApp's non-builtin form. Under-applied + defaults → nested lambdas; else the plain ctorApp path.
@@ -1035,6 +1035,11 @@ def parseCtorGenS(nm, scan, ts, env, cx) = scan match { case (slices, rest) => i
 def parseCtorGenN(nm, slices, ts, rest, env, cx) = if nargGo(nm, slices, env, cx) then (nargCall(nm, slices, env, cx), rest) else parseCtorPlain(nm, ts, env, cx)
 def parseCtorPlain(nm, ts, env, cx) = parseArgs(ts, env, cx) match { case (args, r) => (ctorApp(nm, args, cx), r) }
 def parseListLit(ts, env, cx) = parseArgL(ts, env, cx) match { case (es, r) => (consChain(es), r) }
+// `Set(a, b, ..)` -> (prim set.of a b ..). NOT consChain: sharing `List`'s lowering made a Set and a
+// list the SAME value, which cost more than the rendering — `Set(1, 1, 2)` kept the duplicate and
+// `union`/`intersect` reached no arm and answered the Stub sentinel at exit 0.
+// BUGS `type-ascription-tuple-and-set-arms-missing`.
+def parseSetLit(ts, env, cx) = parseArgL(ts, env, cx) match { case (es, r) => ("(prim set.of" ++ joinArgs(es) ++ ")", r) }
 // `Array(a, b, ..)` is a MUTABLE ArrayBuffer (ssc1-lower :2098): (app (global _arr_fill) <Cons-chain>).
 def parseArrLit(ts, env, cx) = parseArgL(ts, env, cx) match { case (es, r) => ("(app (global _arr_fill) " ++ consChain(es) ++ ")", r) }
 // `Decimal(x)` -> (prim dec.parse x); `Decimal(v, scale)` -> (prim dec.from-unscaled v scale);
