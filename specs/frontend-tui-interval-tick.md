@@ -1,6 +1,6 @@
 # Terminal managed-fetch: a tick that advances on its own
 
-Status: spec (2026-08-04)
+Status: **implemented** (landed 2026-08-04, `a81ef559f`) — `tickMs` on the model + a wall clock in the loop, gated by a cargo probe that refetches unattended
 Owner: `tui-interval-tick`
 Affected: `frontend/core` (model), `v1/runtime/std/fetch-plugin` (site), static `frontend/tui`
 Found by: rozum — the last gap between a generated meeting client and retiring the hand-written one
