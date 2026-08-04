@@ -10,6 +10,36 @@ Anything not being worked on belongs in `uniml/BACKLOG.md`, not here — a queue
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [~] UNIML-SSC3-ALPHABET — **one character classifier, no host `Char` calls.** v3 handed this
+      over as a requirement on UniML (`v3/specs/40-front-on-uniml.md` §4: "the lexer may not use
+      host `Char` classification"), and `20-core-language.md` §3 decides the alphabet: whitespace
+      = space/tab/CR/LF/FF; digit = `0`-`9`; ident-start = `a-zA-Z_$` **or any code point ≥
+      U+0080**; ident-part = start or digit; operator = `+-*/%<>=!&|^~:#@?`. Every line a range
+      comparison, no tables on any host.
+      **Why it is a compiler question, not tidiness.** `Character.isLetter` answers from Unicode
+      tables. Route the alphabet through the host and the same source lexes differently on JVM,
+      JS and the v2 VM — the language's syntax becomes host-dependent. Measured today: **59 host
+      classification calls across 7 modules**, 22 of them in the ScalaScript dialect, which is
+      the one v3 consumes.
+      **Predictions, written before the change (§1.3 of the `performance` skill):**
+      - losslessness stays 1,146/1,146. Reconstruction concatenates lexemes; which token a char
+        lands in may move, the concatenation may not.
+      - breadth may only IMPROVE or hold. The new alphabet is strictly MORE permissive than
+        `isLetter` (it accepts every code point ≥ U+0080, letter or not). **Any file that parses
+        today and stops parsing is a bug in the migration, not a consequence of the decision** —
+        that is the disqualifying evidence.
+      - the sweep gate finds divergences from Java in exactly two directions: code points ≥
+        U+0080 that Java says are not letters (we accept, Java rejects — intended), and nothing
+        in the other direction. **A divergence where Java accepts and we reject is a defect.**
+      **⚠️ One thing §3 does not decide, and I will not decide silently: CASE.** The dialect
+      splits `spike.uid` from `spike.id` on `w.head.isUpper` — capitalised means type/constructor,
+      which is load-bearing Scala semantics. §3's table has no uppercase class, and cannot have
+      one without the tables it exists to avoid. ASCII `A`-`Z` is the only tableless test, and it
+      makes `Число` a TERM where Scala (via `Character.isUpperCase`) makes it a TYPE. Unlike the
+      ident-start decision this diverges in the UNSAFE direction — a valid Scala program changes
+      meaning. Implemented as ASCII-only, enumerated by the sweep, and flagged for Sergiy rather
+      than buried: it is a language call, not an implementation one.
+
 - [~] UNIML-SSC3 — **UniML must be ready to serve as ScalaScript's parser AND AST**, for
       language version 3. Direction: `specs/uniml-ssc3-frontend.md`; the seam with v3's SSC IR
       is §3.1 there. Decomposition in `uniml/BACKLOG.md` under UNIML-SSC3.
