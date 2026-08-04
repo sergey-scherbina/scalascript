@@ -104,36 +104,68 @@ on a case class.
 and `examples`, against 5 for `withHeader`), so the native lane not having it is the larger half of
 this gap.
 
-## native-requireInt-unbound-in-a-route-handler — the require* family is missing inside a handler
+## native-requireInt-unbound-in-a-route-handler — seven of the eleven validation names were never registered
 
 <!-- status: open
      lane: native
      area: runtime
      fixed-in: -
-     gate: none -->
+     gate: tests/e2e/request-validation-family-gate.sh -->
 
     500 native HTTP handler failed: unbound global: requireInt
 
-Found 2026-08-03 by `tests/e2e/validation-smoke.sh` after the route block-form fix above.
+**The fix is in this commit; `status` and `fixed-in` follow in the next one.**
 
-**It is a coverage gap, not a scoping one — measured, because the two look identical from the error
-message.** `761f8ee91` landed `validate { … }` and the require* family on the native lane and
-rest-validate went green, so "the family is missing" needed checking rather than asserting. The
-names the std modules use, against the names the native lane defines:
+**Measured, because a missing binding and a scoping problem read identically from that message.**
+The v1 request-plugin family (`v1/runtime/std/request-plugin/.../RequestIntrinsics.scala`) is
+ELEVEN names. The native lane had four:
 
-| name used in `v1/runtime/std` | native |
+| present natively | missing |
 |---|---|
-| `requireString` | yes |
-| `requireInt` | **no** |
-| `requireBool` | **no** |
-| `requireDouble` | **no** |
-| `requireNonNull` | **no** |
-| `requireWritable` | **no** |
+| `requireString`, `requireRange`, `requireRangeDouble`, `requireOneOf` | `requireInt`, `requireDouble`, `requireBool`, `optionalString`, `optionalInt`, `optionalDouble`, `optionalBool` |
 
-The native lane additionally defines `requireOneOf`, `requireRange`, `requireRangeDouble` and
-`requireAuthority`, which no std module names. So one of six overlaps: whatever rest-validate
-exercises, it is `requireString` and the range/oneOf pair, and the typed scalar checks were not
-part of it. Nothing here says the handler scope is at fault, because nothing measured it.
+Nothing about handler scope was at fault. `761f8ee91` landed `validate { … }` and took rest-validate
+green over the subset that existed.
+
+**A correction to this entry's own first draft.** It compared the native names against
+`v1/runtime/std/mcp/types.ssc`, which also defines `requireString`/`requireInt` — but those take
+`(Map[String, Any], String)` and are a different family that happens to share spellings. The
+Request-based family is the one `examples/validation-demo.ssc` calls, and it lives in the plugin.
+Two families, one set of names; the first census compared the wrong pair.
+
+Semantics copied from the reference verbatim, including the part a re-implementation gets wrong:
+require* on a missing or unparseable field RECORDS the reason and returns a neutral value, so
+`validate { … }` accumulates every field's complaint in one pass; optional* returns `None` and is
+not an error at all.
+
+## native-missing-required-field-is-500-not-400 — the same program answers 400 on v1
+
+<!-- status: open
+     lane: native
+     area: plugin
+     fixed-in: -
+     gate: none -->
+
+`examples/validation-demo.ssc`, one request with a required field omitted, measured 2026-08-04:
+
+| lane | status | body |
+|---|---|---|
+| v1 | **400** | `missing field: n` |
+| native | **500** | `native HTTP handler failed: n: require* used outside a validate { … } block` |
+
+Both agree on the valid request (`200 hi a n=5`). The divergence is only the failure path, and the
+native answer is worse twice over: a client error reported as a server error, and an implementation
+detail — the name of an internal block form — in the response body.
+
+The cause is not the validation code. `record()` correctly refuses to record into nothing when
+there is no `validate` frame, matching the interpreter. What differs is what happens to the throw:
+v1's `HttpDispatchLoop` (`http-server/common`) recovers `RestValidationError` into a 400, while the
+native path catches every `Throwable` in `FastHttpServer.scala:116` and answers 500 with the
+message. So the fix is a mapping in the native host, not a change to require*.
+
+Left unfixed deliberately: that file is shared server code outside the validation claim, and the
+gate for the family asserts only that the NAME resolves on this path rather than pinning either
+lane's status code — pinning would freeze this defect as the contract.
 
 ## native-route-block-form-registers-the-THUNK-not-its-result — `route(m, p) { … }` died with an arity error
 

@@ -92,6 +92,89 @@ private[httpfast] object RequestValidation:
       case _ => throw new IllegalArgumentException("requireString(req, name)")
     })
 
+    // ── the seven the native lane never grew ─────────────────────────────────────────────────
+    //
+    // The v1 request-plugin family is ELEVEN names; this file had four, so a handler calling any of
+    // the others died with `unbound global: requireInt` — which reads like a scoping problem and is
+    // not one. Semantics copied from the v1 reference verbatim
+    // (`v1/runtime/std/request-plugin/.../RequestIntrinsics.scala`), including the fallbacks: a
+    // require* that fails RECORDS the reason and returns a neutral value so `validate { … }` can
+    // accumulate every field's complaint in one pass instead of stopping at the first.
+    //
+    // The boolean spellings are the reference's, not a guess: true/1/yes/on and false/0/no/off.
+
+    def parseBool(s: String): Option[Boolean] = s.toLowerCase match
+      case "true" | "1" | "yes" | "on"   => Some(true)
+      case "false" | "0" | "no" | "off"  => Some(false)
+      case _                             => None
+
+    def some(v: Value): Value = Value.DataV("Some", collection.immutable.ArraySeq(v))
+    val none: Value = Value.DataV("None", collection.immutable.ArraySeq.empty)
+
+    native("requireInt", {
+      case req :: nameV :: Nil =>
+        val name = str(nameV)
+        fieldOf(req, name) match
+          case Some(s) =>
+            try Value.IntV(s.toLong)
+            catch case _: NumberFormatException =>
+              record(name, s"invalid integer for field: $name", Value.IntV(0L))
+          case None => record(name, s"missing field: $name", Value.IntV(0L))
+      case _ => throw new IllegalArgumentException("requireInt(req, name)")
+    })
+
+    native("requireDouble", {
+      case req :: nameV :: Nil =>
+        val name = str(nameV)
+        fieldOf(req, name) match
+          case Some(s) =>
+            try Value.FloatV(s.toDouble)
+            catch case _: NumberFormatException =>
+              record(name, s"invalid number for field: $name", Value.FloatV(0.0))
+          case None => record(name, s"missing field: $name", Value.FloatV(0.0))
+      case _ => throw new IllegalArgumentException("requireDouble(req, name)")
+    })
+
+    native("requireBool", {
+      case req :: nameV :: Nil =>
+        val name = str(nameV)
+        fieldOf(req, name) match
+          case Some(s) => parseBool(s) match
+            case Some(b) => Value.BoolV(b)
+            case None    => record(name, s"invalid boolean for field: $name", Value.BoolV(false))
+          case None => record(name, s"missing field: $name", Value.BoolV(false))
+      case _ => throw new IllegalArgumentException("requireBool(req, name)")
+    })
+
+    // optional*: a missing OR unparseable field is None, never a recorded error — that is the whole
+    // difference from require*, and getting it wrong would make `validate` reject valid requests.
+    native("optionalString", {
+      case req :: nameV :: Nil => fieldOf(req, str(nameV)).map(s => some(Value.StrV(s))).getOrElse(none)
+      case _ => throw new IllegalArgumentException("optionalString(req, name)")
+    })
+
+    native("optionalInt", {
+      case req :: nameV :: Nil =>
+        fieldOf(req, str(nameV)).flatMap { s =>
+          try Some(some(Value.IntV(s.toLong))) catch case _: NumberFormatException => None
+        }.getOrElse(none)
+      case _ => throw new IllegalArgumentException("optionalInt(req, name)")
+    })
+
+    native("optionalDouble", {
+      case req :: nameV :: Nil =>
+        fieldOf(req, str(nameV)).flatMap { s =>
+          try Some(some(Value.FloatV(s.toDouble))) catch case _: NumberFormatException => None
+        }.getOrElse(none)
+      case _ => throw new IllegalArgumentException("optionalDouble(req, name)")
+    })
+
+    native("optionalBool", {
+      case req :: nameV :: Nil =>
+        fieldOf(req, str(nameV)).flatMap(parseBool).map(b => some(Value.BoolV(b))).getOrElse(none)
+      case _ => throw new IllegalArgumentException("optionalBool(req, name)")
+    })
+
     native("requireRange", {
       case req :: nameV :: minV :: maxV :: Nil =>
         val name = str(nameV)
