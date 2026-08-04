@@ -1,0 +1,12 @@
+slug: jvm-cons-pattern-lowering
+branch: feature/jvm-cons-pattern-lowering
+agent: claude-code
+started: 2026-08-04T22:14:59Z
+heartbeat: 2026-08-04T22:14:59Z
+status: claimed-before-planning
+items: jvm-lane-cannot-compile-a-json-import
+paths: mod:v1/runtime/backend/jvm file:tests/e2e/jvm-json-import-gate.sh
+broad: the fix is in JvmGen; which file inside the module is not known until the pass is instrumented, and the gate lives beside it
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
