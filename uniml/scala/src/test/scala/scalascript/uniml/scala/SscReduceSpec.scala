@@ -1,7 +1,7 @@
 package scalascript.uniml.scala
 
 import scalascript.uniml.*
-import scalascript.uniml.spike.{SpikeDialect, SpikeLex}
+import scalascript.uniml.dialect.scalascript.{SpikeDialect, SpikeLex}
 import org.scalatest.funsuite.AnyFunSuite
 
 /** Delta-debugging for the ScalaScript front: shrink an input to the smallest

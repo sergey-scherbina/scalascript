@@ -1,4 +1,4 @@
-package scalascript.uniml.spike
+package scalascript.uniml.dialect.scalascript
 
 import org.scalatest.funsuite.AnyFunSuite
 import scalascript.uniml.*

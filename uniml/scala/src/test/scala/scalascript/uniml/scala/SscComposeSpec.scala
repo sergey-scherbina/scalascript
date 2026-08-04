@@ -3,7 +3,7 @@ package scalascript.uniml.scala
 import org.scalatest.funsuite.AnyFunSuite
 import scalascript.uniml.*
 import scalascript.uniml.dialect.markdown.CommonMarkDialect
-import scalascript.uniml.spike.{SpikeDialect, SpikeProject}
+import scalascript.uniml.dialect.scalascript.{SpikeDialect, SpikeProject}
 import java.nio.file.{Files, Paths}
 
 /** a fresh-named dialect used only to prove a user can extend the built-in registry set.

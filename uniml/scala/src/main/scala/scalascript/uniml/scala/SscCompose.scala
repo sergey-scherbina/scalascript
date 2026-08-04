@@ -4,7 +4,7 @@ import scalascript.uniml.*
 import scalascript.uniml.dialect.markdown.{Markdown, MarkdownProfile, CommonMarkDialect}
 import scalascript.uniml.dialect.yaml.YamlDialect
 import scalascript.uniml.dialect.json.JsonDialect
-import scalascript.uniml.spike.SpikeDialect
+import scalascript.uniml.dialect.scalascript.SpikeDialect
 
 /** P6.3 — "unify the hybrid" + the registry hook.
   *

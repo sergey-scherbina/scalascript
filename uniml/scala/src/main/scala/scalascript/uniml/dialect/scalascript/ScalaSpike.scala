@@ -1,4 +1,4 @@
-package scalascript.uniml.spike
+package scalascript.uniml.dialect.scalascript
 
 import scalascript.uniml.*
 
@@ -292,13 +292,13 @@ extension (n: Node)
   * lexing: in v2 every Seq is a Cons-list, so `xs ::: ys` is exactly `xs ++ ys`
   * and `x +: xs` exactly `x :: xs`. The CST keeps the source spelling; this is
   * what the precedence table and the projection read. */
-private[spike] object SpikeOp:
+private[scalascript] object SpikeOp:
   def meaning(lex: String): String = lex match
     case ":::" => "++"
     case "+:"  => "::"
     case other => other
 
-private[spike] object SpikeNum:
+private[scalascript] object SpikeNum:
   def decode(lex: String): String =
     if lex.startsWith("'") then charCode(lex).toString
     else if lex.startsWith("0x") || lex.startsWith("0X") then
@@ -325,7 +325,7 @@ private[spike] object SpikeNum:
     else if body.nonEmpty then body.charAt(0).toInt
     else 0
 
-private[spike] object SpikeStr:
+private[scalascript] object SpikeStr:
   def decode(lex: String): String =
     if lex.startsWith("\"\"\"") then
       val body = lex.stripPrefix("\"\"\"")

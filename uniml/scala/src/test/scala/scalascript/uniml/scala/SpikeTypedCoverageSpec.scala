@@ -2,7 +2,7 @@ package scalascript.uniml.scala
 
 import org.scalatest.funsuite.AnyFunSuite
 import scalascript.uniml.UniNode
-import scalascript.uniml.spike.{SpikeAst, SpikeTyped}
+import scalascript.uniml.dialect.scalascript.{SpikeAst, SpikeTyped}
 import java.nio.file.{Files, Path, Paths}
 import _root_.scala.jdk.CollectionConverters.*
 
