@@ -195,112 +195,123 @@ object SelfTest:
 
 @main def ssc3(args: String*): Unit =
   val code =
-    if args.isEmpty then
-      println("usage: ssc3 build|ir|exec <f.ssc> | check|fmt|emit-v2|exec <f.ssir> | sample | selftest")
-      2
-    else
-      args.head match
-        case "selftest" => SelfTest.run()
-        // Prints the coverage module in canonical form. `v3/tests/sample.ssir` is this output,
-        // frozen in git. It is a CHANGE DETECTOR, not a correctness oracle — the same code writes
-        // and compares it, so it proves nothing about whether the format is right. What it does is
-        // make a change to the canonical form show up as a reviewable diff instead of silently
-        // moving under every gate that compares .ssir.
-        // The whole front, end to end: .ssc -> tokens -> AST -> SSC IR -> verify -> v2 Core IR.
-        // Emitting rather than running, because spawning v2 is a host call and the kernel's only
-        // door to the host is `Prim` (invariant I-1). `bin/ssc3` does the piping.
-        case "build" if args.length >= 2 =>
-          val path = args(1)
-          val src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")
-          try
-            val m = Lower.programOf(Loader.merge(Loader.closure(path)), Source.blockEnds(src))
-            Verify.module(m) match
-              case Some(e) =>
-                // A lowering bug reaching the backend is exactly what I-4 exists to stop, and the
-                // message says WHERE rather than only that it happened.
-                Console.err.println("ssc3: " + path + ": lowering produced invalid IR: " + e.render)
-                1
-              case None =>
-                println(BridgeV2.program(m))
-                0
-          catch
-            case e: LoadError    => Console.err.println("ssc3: " + e.message); 1
-            case e: LexError     => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
-            case e: ParseFail    => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
-            case e: LowerFail    => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
-            case e: BridgeV2.Unsupported =>
-              Console.err.println("ssc3: " + path + ": " + e.getMessage); 1
-        // The IR the front produced, in canonical form — for reading and for diffing.
-        case "ir" if args.length >= 2 =>
-          val path = args(1)
-          val src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")
-          try
-            print(Text.write(Lower.programOf(Loader.merge(Loader.closure(path)), Source.blockEnds(src))))
+    try
+      if args.isEmpty then
+        println("usage: ssc3 build|ir|exec <f.ssc> | check|fmt|emit-v2|exec <f.ssir> | sample | selftest")
+        2
+      else
+        args.head match
+          case "selftest" => SelfTest.run()
+          // Prints the coverage module in canonical form. `v3/tests/sample.ssir` is this output,
+          // frozen in git. It is a CHANGE DETECTOR, not a correctness oracle — the same code writes
+          // and compares it, so it proves nothing about whether the format is right. What it does is
+          // make a change to the canonical form show up as a reviewable diff instead of silently
+          // moving under every gate that compares .ssir.
+          // The whole front, end to end: .ssc -> tokens -> AST -> SSC IR -> verify -> v2 Core IR.
+          // Emitting rather than running, because spawning v2 is a host call and the kernel's only
+          // door to the host is `Prim` (invariant I-1). `bin/ssc3` does the piping.
+          case "build" if args.length >= 2 =>
+            val path = args(1)
+            val src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")
+            try
+              val m = Lower.programOf(Loader.merge(Loader.closure(path)), Source.blockEnds(src))
+              Verify.module(m) match
+                case Some(e) =>
+                  // A lowering bug reaching the backend is exactly what I-4 exists to stop, and the
+                  // message says WHERE rather than only that it happened.
+                  Console.err.println("ssc3: " + path + ": lowering produced invalid IR: " + e.render)
+                  1
+                case None =>
+                  println(BridgeV2.program(m))
+                  0
+            catch
+              case e: LoadError    => Console.err.println("ssc3: " + e.message); 1
+              case e: LexError     => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+              case e: ParseFail    => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+              case e: LowerFail    => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+              case e: BridgeV2.Unsupported =>
+                Console.err.println("ssc3: " + path + ": " + e.getMessage); 1
+          // The IR the front produced, in canonical form — for reading and for diffing.
+          case "ir" if args.length >= 2 =>
+            val path = args(1)
+            val src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")
+            try
+              print(Text.write(Lower.programOf(Loader.merge(Loader.closure(path)), Source.blockEnds(src))))
+              0
+            catch
+              case e: LoadError => Console.err.println("ssc3: " + e.message); 1
+              case e: LexError  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+              case e: ParseFail => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+              case e: LowerFail => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+          // Runs on v3's OWN executor — no v2, no bridge. This is the lane where TailCall is a real
+          // tail call and a frame is data.
+          case "exec" if args.length >= 2 =>
+            val path = args(1)
+            val src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")
+            try
+              val m =
+                if path.endsWith(".ssir") then Text.read(src)
+                else Lower.programOf(Loader.merge(Loader.closure(path)), Source.blockEnds(src))
+              Exec.run(m)
+              0
+            catch
+              case e: LoadError => Console.err.println("ssc3: " + e.message); 1
+              case e: LexError  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+              case e: ParseFail => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+              case e: LowerFail => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
+              case e: ParseError => Console.err.println("ssc3: " + path + ": " + e.message); 1
+              case e: ExecError => Console.err.println("ssc3: " + path + ": " + e.getMessage); 1
+          case "sample" =>
+            print(Text.write(Sample.module))
             0
-          catch
-            case e: LoadError => Console.err.println("ssc3: " + e.message); 1
-            case e: LexError  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
-            case e: ParseFail => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
-            case e: LowerFail => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
-        // Runs on v3's OWN executor — no v2, no bridge. This is the lane where TailCall is a real
-        // tail call and a frame is data.
-        case "exec" if args.length >= 2 =>
-          val path = args(1)
-          val src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")
-          try
-            val m =
-              if path.endsWith(".ssir") then Text.read(src)
-              else Lower.programOf(Loader.merge(Loader.closure(path)), Source.blockEnds(src))
-            Exec.run(m)
-            0
-          catch
-            case e: LoadError => Console.err.println("ssc3: " + e.message); 1
-            case e: LexError  => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
-            case e: ParseFail => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
-            case e: LowerFail => Console.err.println("ssc3: " + path + ":" + e.getMessage); 1
-            case e: ParseError => Console.err.println("ssc3: " + path + ": " + e.message); 1
-            case e: ExecError => Console.err.println("ssc3: " + path + ": " + e.getMessage); 1
-        case "sample" =>
-          print(Text.write(Sample.module))
-          0
-        // Emits v2 Core IR text. Piping it into v2 is the GATE's job, not the kernel's: spawning a
-        // process is a host call, and the kernel's only door to the host is `Prim` (invariant I-1).
-        case "emit-v2" if args.length >= 2 =>
-          val path = args(1)
-          val src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")
-          try
-            val m = Text.read(src)
-            Verify.module(m) match
-              case Some(e) =>
-                Console.err.println("ssc3: " + path + ": " + e.render)
+          // Emits v2 Core IR text. Piping it into v2 is the GATE's job, not the kernel's: spawning a
+          // process is a host call, and the kernel's only door to the host is `Prim` (invariant I-1).
+          case "emit-v2" if args.length >= 2 =>
+            val path = args(1)
+            val src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")
+            try
+              val m = Text.read(src)
+              Verify.module(m) match
+                case Some(e) =>
+                  Console.err.println("ssc3: " + path + ": " + e.render)
+                  1
+                case None =>
+                  println(BridgeV2.program(m))
+                  0
+            catch
+              case e: ParseError =>
+                Console.err.println("ssc3: " + path + ": " + e.message); 1
+              case e: BridgeV2.Unsupported =>
+                Console.err.println("ssc3: " + path + ": " + e.getMessage); 1
+          case "check" | "fmt" if args.length >= 2 =>
+            val path = args(1)
+            val src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")
+            try
+              val m = Text.read(src)
+              // Loading ALWAYS verifies — invariant I-4. `fmt` is not an exception: re-emitting a
+              // module nobody has validated would launder an invalid one into a tidy-looking file.
+              Verify.module(m) match
+                case Some(e) =>
+                  Console.err.println("ssc3: " + path + ": " + e.render)
+                  1
+                case None =>
+                  if args.head == "fmt" then print(Text.write(m)) else println("ok: " + path)
+                  0
+            catch
+              case e: ParseError =>
+                Console.err.println("ssc3: " + path + ": " + e.message)
                 1
-              case None =>
-                println(BridgeV2.program(m))
-                0
-          catch
-            case e: ParseError =>
-              Console.err.println("ssc3: " + path + ": " + e.message); 1
-            case e: BridgeV2.Unsupported =>
-              Console.err.println("ssc3: " + path + ": " + e.getMessage); 1
-        case "check" | "fmt" if args.length >= 2 =>
-          val path = args(1)
-          val src = new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(path)), "UTF-8")
-          try
-            val m = Text.read(src)
-            // Loading ALWAYS verifies — invariant I-4. `fmt` is not an exception: re-emitting a
-            // module nobody has validated would launder an invalid one into a tidy-looking file.
-            Verify.module(m) match
-              case Some(e) =>
-                Console.err.println("ssc3: " + path + ": " + e.render)
-                1
-              case None =>
-                if args.head == "fmt" then print(Text.write(m)) else println("ok: " + path)
-                0
-          catch
-            case e: ParseError =>
-              Console.err.println("ssc3: " + path + ": " + e.message)
-              1
-        case other =>
-          Console.err.println("ssc3: unknown command '" + other + "'")
-          2
+          case other =>
+            Console.err.println("ssc3: unknown command '" + other + "'")
+            2
+    catch
+      // EVERY command's first act is reading its input, and a missing file arrived as a raw
+      // NoSuchFileException stack trace — the one diagnostic in the whole driver that was not
+      // `ssc3: …`. It also mattered beyond tidiness: corpus-report.sh classifies a stack trace as
+      // CRASH rather than as a clean refusal, so an unreadable path would have been reported as a
+      // v3 defect. One catch here, because every command reads the same way.
+      case e: java.io.IOException =>
+        val what = if args.length >= 2 then args(1) else "the input"
+        Console.err.println("ssc3: cannot read '" + what + "': " + e.getClass.getSimpleName)
+        2
   sys.exit(code)

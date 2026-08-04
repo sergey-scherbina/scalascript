@@ -45,7 +45,7 @@ msg="$($SSC3 emit-v2 v3/tests/bridge/unsupported.ssir 2>&1 >/dev/null)"
 if [ -z "$msg" ]; then
   echo "  FAIL an untranslatable instruction was ACCEPTED — the bridge emits for anything"
   fail=1
-elif printf '%s' "$msg" | grep -q 'globget'; then
+elif printf '%s' "$msg" | grep -q 'resume'; then
   echo "  ok   refused, and named the instruction: $msg"
 else
   echo "  FAIL refused without naming what it could not translate: $msg"

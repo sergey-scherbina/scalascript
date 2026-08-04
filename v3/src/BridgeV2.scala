@@ -77,9 +77,20 @@ object BridgeV2:
     case BinOp.Div => "/"; case BinOp.Rem => "%"
     case BinOp.Lt => "<"; case BinOp.Le => "<="; case BinOp.Gt => ">"
     case BinOp.Ge => ">="; case BinOp.Eq => "=="; case BinOp.Ne => "!="
-    // The bitwise family has no measured `__arith__` spelling yet, so it is REFUSED rather than
-    // guessed. A wrong operator name would lower to a runtime miss far from here.
     case other => throw Unsupported("the " + other + " operator")
+
+  /** The bitwise family is NOT `__arith__` — it is a set of direct prims, `i.shl` / `i.shr` /
+    * `i.ushr` / `i.and` / `i.or` / `i.xor`. Measured off the oracle, which is why it took until now:
+    * the bridge refused these rather than guess a spelling, and a guessed operator name would have
+    * lowered to a runtime miss far from the instruction that caused it. */
+  private def bitPrim(o: BinOp): String = o match
+    case BinOp.BAnd => "i.and"; case BinOp.BOr => "i.or"; case BinOp.BXor => "i.xor"
+    case BinOp.Shl  => "i.shl"; case BinOp.Shr => "i.shr"; case BinOp.UShr => "i.ushr"
+    case other      => throw Unsupported("the " + other + " operator")
+
+  private def isBitwise(o: BinOp): Boolean = o match
+    case BinOp.BAnd | BinOp.BOr | BinOp.BXor | BinOp.Shl | BinOp.Shr | BinOp.UShr => true
+    case _ => false
 
   // ── control ─────────────────────────────────────────────────────────────────
   //
@@ -138,7 +149,10 @@ object BridgeV2:
   private def stmt(i: Instr, cx: Ctx, sh: Int): String = i match
     case Instr.Const(d, k)        => write(d, litOf(cx.m.consts(k)), sh)
     case Instr.Move(d, a)         => write(d, read(a, sh), sh)
-    case Instr.Bin(o, _, d, a, b) => write(d, arith(binName(o), read(a, sh), read(b, sh)), sh)
+    case Instr.Bin(o, _, d, a, b) =>
+      if isBitwise(o) then
+        write(d, "(prim " + bitPrim(o) + " " + read(a, sh) + " " + read(b, sh) + ")", sh)
+      else write(d, arith(binName(o), read(a, sh), read(b, sh)), sh)
     case Instr.Un(UnOp.Neg, _, d, a) => write(d, arith("-", int(0), read(a, sh)), sh)
     // `not x` as `x == false`, built from operators already proven on this lane rather than from a
     // guessed `__arith__` spelling for `!`. A wrong operator name lowers to a runtime miss far from

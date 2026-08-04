@@ -1,10 +1,19 @@
+; What V-0 must REFUSE, not mistranslate.
+;
+; `resume` is an EFFECT instruction: the IR has one-shot continuations, v2 Core IR has no
+; counterpart, and there is no honest lowering. The bridge must say so and name it.
+;
+; This fixture held `globget` until 2026-08-04, when globals became translatable and the check went
+; red — the gate noticing its own probe had gone stale is the gate working. The replacement must be
+; re-pointed the same way if effects ever land on the bridge.
 (module
   (consts (int 1))
   (types)
-  (globals (global "g"))
+  (globals)
   (prims)
   (funcs
     (func "main" 0 2
-      (globget 0 0)
+      (const 1 0)
+      (resume 0 1 1)
       (ret 0)))
   (entry 0))

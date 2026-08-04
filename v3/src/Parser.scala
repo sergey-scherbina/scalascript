@@ -21,15 +21,21 @@ object Parser:
   /** Binary operator precedence, tightest last. `&&` and `||` are here for PARSING only — the
     * lowering turns them into `If`, because they short-circuit and an IR that lets them be strict
     * binary operators has already lost the semantics (v3/specs/10-ssc-ir.md §3). */
+  /** Scala's rule: precedence follows the operator's FIRST CHARACTER. Following it rather than
+    * inventing a table means a program that groups one way in Scala groups the same way here —
+    * `a | b & c` is `a | (b & c)` because `&` binds tighter than `|`, and a reader who knows Scala
+    * does not have to learn a second set of rules to read SSC3. */
   private def prec(op: String): Int = op match
-    case "||"                            => 1
-    case "&&"                            => 2
-    case "==" | "!="                     => 3
-    case "<" | "<=" | ">" | ">="         => 4
-    case "::"                            => 5
-    case "+" | "-"                       => 5
-    case "*" | "/" | "%"                 => 6
-    case _                               => 0
+    case "||" | "|"                        => 1
+    case "^"                               => 2
+    case "&&" | "&"                        => 3
+    case "==" | "!="                       => 4
+    case "<" | "<=" | ">" | ">=" |
+         "<<" | ">>" | ">>>"               => 5
+    case "::"                              => 6
+    case "+" | "-" | "++"                  => 7
+    case "*" | "/" | "%"                   => 8
+    case _                                 => 0
 
   /** An integer literal that does not fit is a DIAGNOSTIC WITH A POSITION, not an exception from
     * the JDK. The difference is the difference between the UNSUPPORTED and CRASH buckets. */
@@ -148,7 +154,7 @@ object Parser:
           // `::` is RIGHT-associative, so it recurses at its own precedence rather than one above:
           // `1 :: 2 :: Nil` must be `1 :: (2 :: Nil)`, and left association would build a list
           // whose tail is a number.
-          val (rhs, ts2) = parseBin(ts.tail, if op == "::" then prec(op) else prec(op) + 1)
+          val (rhs, ts2) = parseBin(ts.tail, if op == "::" || op == "++" then prec(op) else prec(op) + 1)
           lhs = Expr.Bin(op, lhs, rhs, p)
           ts = ts2
         case _ => go = false
@@ -405,11 +411,56 @@ object Parser:
     val (c, t1) = parseExpr(ts0)
     val t2 = expectKw(t1, "then")
     val (thenE, t3) = parseBody(t2)
-    val t4 = skipNewlines(t3)
+    // A CONTINUATION `else`, on its own line and indented deeper than the statement:
+    //
+    //     val value = if little then readLeLoop(…)
+    //                 else readBeLoop(…)
+    //
+    // The layout tokens between are consumed ONLY when `else` is what follows — skipping them
+    // unconditionally would swallow the INDENT that opens the next block, and the parser would read
+    // an unrelated statement as the `else` branch. Every INDENT taken is matched by taking its
+    // DEDENT after the branch, or the enclosing block would end early.
+    val (t4, indents) = skipToElse(t3)
     if isId(peek(t4), "else") then
       val (elseE, t5) = parseBody(t4.tail)
-      (Expr.If(c, thenE, Some(elseE), p), t5)
+      (Expr.If(c, thenE, Some(elseE), p), dropDedents(t5, indents))
     else (Expr.If(c, thenE, None, p), t3)
+
+  /** Look past newlines and indents for an `else`, reporting how many INDENTs were crossed. If
+    * there is no `else` the caller keeps its original position, so nothing is consumed on a guess. */
+  private def skipToElse(ts0: List[Tok]): (List[Tok], Int) =
+    var ts = ts0
+    var indents = 0
+    var go = true
+    while go do
+      if peek(ts).isInstanceOf[Tok.TNewline] then ts = ts.tail
+      else if peek(ts).isInstanceOf[Tok.TIndent] then
+        ts = ts.tail
+        indents = indents + 1
+      else go = false
+    if isId(peek(ts), "else") then (ts, indents) else (ts0, 0)
+
+  /** Remove `n` DEDENTs, KEEPING the newlines they sit behind.
+    *
+    * The DEDENT closing a continuation line arrives AFTER that line's newline, so a check on the
+    * very first token finds a newline and removes nothing — the DEDENT then reaches the enclosing
+    * block, which ends one statement early. The newline is a statement SEPARATOR and must survive;
+    * only the DEDENT is ours to take. */
+  private def dropDedents(ts0: List[Tok], n: Int): List[Tok] =
+    var head: List[Tok] = Nil
+    var ts = ts0
+    var left = n
+    var go = left > 0
+    while go do
+      if peek(ts).isInstanceOf[Tok.TNewline] then
+        head = peek(ts) :: head
+        ts = ts.tail
+      else if peek(ts).isInstanceOf[Tok.TDedent] then
+        ts = ts.tail
+        left = left - 1
+        go = left > 0
+      else go = false
+    head.reverse ++ ts
 
   /** `try <body> catch { case e => … }`, in either spelling. The handler is ONE arm binding the
     * caught value; typed arms (`case e: IOException =>`) need a type checker and are refused by
@@ -656,7 +707,20 @@ object Parser:
     val p = posOf(ts0)
     val t0 = expectKw(ts0, "def")
     val (name, _, t1) = expectName(t0)
-    val t2 = expectPunct(skipBrackets(t1), "(")
+    val afterName = skipBrackets(t1)
+    // A PARAMETERLESS `def` — `def empty: List[A] = Nil` — has no parameter clause at all. It was
+    // 116 of 333 remaining refusals, the single largest cause, and every one of them came from the
+    // standard library rather than from a test: `def empty:` is how a library writes a constant.
+    //
+    // `def f()` and `def f` differ in Scala — the second auto-applies on a bare reference — and
+    // both parse to zero parameters here. The difference lives in the LOWERING, where a bare name
+    // that resolves to a zero-arity def becomes a call.
+    if !isPunct(peek(afterName), "(") then
+      var ts0 = skipTypeAnn(afterName)
+      ts0 = expectOp(ts0, "=")
+      val (body0, tEnd) = parseBody(ts0)
+      return (Def(name, Nil, body0, p), tEnd)
+    val t2 = expectPunct(afterName, "(")
     var params: List[Param] = Nil
     var ts = t2
     if !isPunct(peek(ts), ")") then

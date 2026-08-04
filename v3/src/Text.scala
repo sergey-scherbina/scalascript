@@ -63,9 +63,23 @@ object Text:
   // ── reading ─────────────────────────────────────────────────────────────────
   private final case class Cursor(text: String, pos: Int)
 
+  /** Whitespace AND `;` line comments.
+    *
+    * Reading only. `Text.write` never emits a comment, so the canonical form has none and `fmt`
+    * strips them — stated rather than discovered, because a formatter that silently deletes what
+    * someone wrote is worth knowing about before you rely on it.
+    *
+    * Added 2026-08-04 for the hand-written `.ssir` under `v3/tests/bridge/`: a fixture that exists
+    * to pin one behaviour cannot say WHICH behaviour, and the bridge gate's refusal probe had just
+    * gone stale in a way a sentence in the file would have made obvious. */
   private def skipSpace(c: Cursor): Cursor =
     var p = c.pos
-    while p < c.text.length && isSpace(c.text.charAt(p)) do p += 1
+    var go = true
+    while go do
+      while p < c.text.length && isSpace(c.text.charAt(p)) do p += 1
+      if p < c.text.length && c.text.charAt(p) == ';' then
+        while p < c.text.length && c.text.charAt(p) != '\n' do p += 1
+      else go = false
     Cursor(c.text, p)
 
   private def readString(c: Cursor): (Sx, Cursor) =

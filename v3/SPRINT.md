@@ -103,3 +103,45 @@ A compiler built on an IR that turns out to be wrong is work thrown away twice.
 
 Sergiy uses `bin/ssc3` from **SSC3-3** onward (hand-written IR) and for real programs from
 **SSC3-4**. Everything before that is apparatus.
+
+## SSC3-6 — breadth: walk the corpus blocker chain by MEASUREMENT
+
+Not "add the constructs I think are missing". `corpus-report.sh`'s UNSUPPORTED histogram names the
+top blocker, that one construct gets implemented, and the histogram is re-read — the blocker moves,
+and the next one is usually not the one I would have guessed. `N` is the honest number throughout;
+it may rise in any commit and fall in none (I-5).
+
+The chain so far, each link measured, not predicted. Note how many links sit in ONE heavily-imported
+std module (`v1/runtime/std/scljet/bytes.ssc`, imported by 116 cases): breadth on the corpus is
+gated by depth on a few files, which is not visible without the histogram.
+
+| link | blocker | cases |
+|---|---|---|
+| 1 | `def empty:` — a parameterless `def` | 116 |
+| 2 | `++` on lists | 118 |
+| 3 | `<<` `>>` `>>>` `&` `\|` `^` — bitwise operators | 116 |
+| 4 | a continuation `else` on its own, deeper-indented line | 116 |
+| 5 | **a nested pattern** — `case Right(ByteRead(v, _))` | 116 |
+
+### Defects found and fixed along the way
+
+- [x] **A parse error inside an IMPORTED unit named the ROOT file.** `std-index.ssc:35:1: trait is
+      outside…` where line 35 of that file holds a `println`: the imported unit's line number with
+      the importer's path, pointing at a line that has nothing to do with the error, in a file the
+      reader did not write. `Loader.closure` now attributes to the unit it is parsing.
+- [x] **A continuation `else` was a parse error.** `val v = if c then a` / `else b` on the next line
+      indented deeper emits an INDENT before `else`, and `parseIf` skipped only newlines. Fixed by
+      consuming the layout ONLY when `else` actually follows, and taking the matching DEDENT — which
+      arrives BEHIND that line's newline, so a check on the first token alone removes nothing and the
+      enclosing block ends one statement early. Both halves were needed; the first alone compiled and
+      lost the binding.
+- [x] **A missing input file crashed with a raw Java stack trace.** The one diagnostic in the driver
+      that was not `ssc3: …`. It also mattered beyond tidiness: `corpus-report.sh` classifies a stack
+      trace as CRASH, so an unreadable path would have been counted as a v3 defect.
+- [x] **The bridge gate's refusal probe had gone stale.** It asserted the bridge REFUSES `globget`;
+      globals became translatable, so the check went red — the gate working, not failing. Re-pointed
+      at `resume`, which the bridge genuinely cannot translate. `.ssir` gained `;` line comments so a
+      fixture can say which behaviour it pins (`Text.write` never emits them, so `fmt` strips them).
+- [x] **A contended host made one corpus run a hypothesis.** A background report run CONCURRENTLY
+      with three gates that package the same sources reported `CRASH 360, N = 0` — a total
+      regression. Re-measured alone: `N = 26, CRASH 0`, unchanged. Corpus runs take the host alone.

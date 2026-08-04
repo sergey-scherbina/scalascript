@@ -292,6 +292,12 @@ object Exec:
       case (Value.VStr(s), "toLowerCase") => Value.VStr(s.toLowerCase)
       case (Value.VStr(s), "isEmpty")     => Value.VBool(s.isEmpty)
       case (Value.VStr(s), "trim")        => Value.VStr(s.trim)
+      // NO string `++` here, deliberately. v2's `__method__` has no dispatch for it — `"ab" ++ "cd"`
+      // dies with `no dispatch for .++ on "ab"` through the bridge — so implementing it on this lane
+      // alone would make the same program behave differently depending on which backend ran it.
+      // Two lanes disagreeing is the thing the differential exists to catch, and adding a
+      // convenience that only one of them has is manufacturing exactly that. `+` concatenates
+      // strings on both.
       case (Value.VStr(s), "split") =>
         args.head match
           case Value.VStr(sep) => listIn(m, s.split(java.util.regex.Pattern.quote(sep), -1).toList.map(x => Value.VStr(x)))
@@ -315,6 +321,7 @@ object Exec:
             case "map"     => listIn(m, xs.map(x => apply1(m, args.head, x)))
             case "filter"  => listIn(m, xs.filter(x => truthy(apply1(m, args.head, x))))
             case "reverse" => listIn(m, xs.reverse)
+            case "++"      => listIn(m, xs ++ listOut(m, args.head))
             case "mkString" =>
               val sep = args.headOption match
                 case Some(Value.VStr(x)) => x

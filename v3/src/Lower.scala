@@ -91,7 +91,10 @@ object Lower:
     val (r, st2) = st1.fresh
     (List(Instr.Const(r, k)), r, st2)
 
-  private def lower(e: Expr, fns: List[String], classes: List[ClassDef], st0: St): (List[Instr], Int, St) = e match
+  // `zeroArity` is threaded EXPLICITLY, not as a `given`. A context parameter would have been
+  // shorter and is Scala-3-only — `given`/`using` are Tier 2 in this project's own portable subset,
+  // and the v3 kernel has to compile on ScalaScript 2 as well.
+  private def lower(e: Expr, fns: List[String], classes: List[ClassDef], zeroArity: List[String], st0: St): (List[Instr], Int, St) = e match
     case Expr.IntLit(v, _)  => constExpr(Lit.LInt(v), st0)
     case Expr.DoubleLit(v, _) => constExpr(Lit.LFloat(v), st0)
     case Expr.StrLit(v, _)  => constExpr(Lit.LStr(v), st0)
@@ -106,7 +109,7 @@ object Lower:
       var st = stB
       var rest = parts.tail
       exprs.foreach { e =>
-        val (ei, er, s1) = lower(e, fns, classes, st)
+        val (ei, er, s1) = lower(e, fns, classes, zeroArity, st)
         val (d1, s2) = s1.fresh
         val (kt, s3) = s2.constIdx(Lit.LStr(rest.head))
         val (tr, s4) = s3.fresh
@@ -126,6 +129,12 @@ object Lower:
     case Expr.Name(n, p) =>
       st0.lookup(n) match
         case Some(r) => (Nil, r, st0)
+        // A bare name that is a ZERO-ARITY def is a CALL. `def empty: List[A] = Nil` is referenced
+        // as `empty`, not `empty()` — that is what makes it read like a constant, and it is the
+        // half of parameterless-def support that lives here rather than in the parser.
+        case None if fns.contains(n) && zeroArity.contains(n) =>
+          val (d, st1) = st0.fresh
+          (List(Instr.Call(d, fns.indexOf(n), Nil)), d, st1)
         case None if st0.globalIdx(n) >= 0 =>
           // A TOP-LEVEL `val`/`var` is a module global, not a register of the entry function. That
           // is what makes it visible inside a `def` — measured: 60 corpus files declare a top-level
@@ -154,14 +163,14 @@ object Lower:
     // this a rule rather than a preference: a strict binary operator here would silently evaluate
     // the right side, and nothing downstream could tell that it should not have.
     case Expr.Bin("&&", l, r, p) =>
-      val (li, lr, st1) = lower(l, fns, classes, st0)
-      val (ri, rr, st2) = lower(r, fns, classes, st1)
+      val (li, lr, st1) = lower(l, fns, classes, zeroArity, st0)
+      val (ri, rr, st2) = lower(r, fns, classes, zeroArity, st1)
       val (d, st3) = st2.fresh
       val (fk, st4) = st3.constIdx(Lit.LBool(false))
       (li ++ List(Instr.If(lr, ri :+ Instr.Move(d, rr), List(Instr.Const(d, fk)))), d, st4)
     case Expr.Bin("||", l, r, p) =>
-      val (li, lr, st1) = lower(l, fns, classes, st0)
-      val (ri, rr, st2) = lower(r, fns, classes, st1)
+      val (li, lr, st1) = lower(l, fns, classes, zeroArity, st0)
+      val (ri, rr, st2) = lower(r, fns, classes, zeroArity, st1)
       val (d, st3) = st2.fresh
       val (tk, st4) = st3.constIdx(Lit.LBool(true))
       (li ++ List(Instr.If(lr, List(Instr.Const(d, tk)), ri :+ Instr.Move(d, rr))), d, st4)
@@ -169,45 +178,55 @@ object Lower:
     // `h :: t` is `Cons(h, t)` — the same node the pattern form produces, so the two spellings
     // cannot drift apart.
     case Expr.Bin("::", l, r, _) =>
-      val (li, lr, st1) = lower(l, fns, classes, st0)
-      val (ri, rr, st2) = lower(r, fns, classes, st1)
+      val (li, lr, st1) = lower(l, fns, classes, zeroArity, st0)
+      val (ri, rr, st2) = lower(r, fns, classes, zeroArity, st1)
       val (t, st3) = st2.typeIdx("Cons", 2)
       val (d, st4) = st3.fresh
       (li ++ ri :+ Instr.MkData(d, t, List(lr, rr)), d, st4)
 
+    // `++` is DYNAMIC DISPATCH, not a lowering-time decision: it concatenates lists, strings and
+    // sets alike, and which one it is depends on the receiver at run time. Picking a representation
+    // here would need a type checker; `Invoke` asks the value.
+    case Expr.Bin("++", l, r, _) =>
+      val (li, lr, st1) = lower(l, fns, classes, zeroArity, st0)
+      val (ri, rr, st2) = lower(r, fns, classes, zeroArity, st1)
+      val (k, st3) = st2.constIdx(Lit.LStr("++"))
+      val (d, st4) = st3.fresh
+      (li ++ ri :+ Instr.Invoke(d, k, lr, List(rr)), d, st4)
+
     case Expr.Bin(op, l, r, p) =>
-      val (li, lr, st1) = lower(l, fns, classes, st0)
-      val (ri, rr, st2) = lower(r, fns, classes, st1)
+      val (li, lr, st1) = lower(l, fns, classes, zeroArity, st0)
+      val (ri, rr, st2) = lower(r, fns, classes, zeroArity, st1)
       val (d, st3) = st2.fresh
       (li ++ ri :+ Instr.Bin(binOp(op, p), NumKind.Dyn, d, lr, rr), d, st3)
 
     case Expr.Neg(x, _) =>
-      val (xi, xr, st1) = lower(x, fns, classes, st0)
+      val (xi, xr, st1) = lower(x, fns, classes, zeroArity, st0)
       val (d, st2) = st1.fresh
       (xi :+ Instr.Un(UnOp.Neg, NumKind.Dyn, d, xr), d, st2)
     case Expr.Not(x, _) =>
-      val (xi, xr, st1) = lower(x, fns, classes, st0)
+      val (xi, xr, st1) = lower(x, fns, classes, zeroArity, st0)
       val (d, st2) = st1.fresh
       (xi :+ Instr.Un(UnOp.Not, NumKind.Dyn, d, xr), d, st2)
 
     case Expr.Assign(n, v, p) if st0.lookup(n).isEmpty && st0.globalIdx(n) >= 0 =>
-      val (vi, vr, st1) = lower(v, fns, classes, st0)
+      val (vi, vr, st1) = lower(v, fns, classes, zeroArity, st0)
       (vi :+ Instr.GlobSet(st0.globalIdx(n), vr), vr, st1)
 
     case Expr.Assign(n, v, p) =>
       st0.lookup(n) match
         case None => throw LowerFail(p, "assignment to unknown name '" + n + "'")
         case Some(target) =>
-          val (vi, vr, st1) = lower(v, fns, classes, st0)
+          val (vi, vr, st1) = lower(v, fns, classes, zeroArity, st0)
           (vi :+ Instr.Move(target, vr), target, st1)
 
     case Expr.If(c, t, elseOpt, _) =>
-      val (ci, cr, st1) = lower(c, fns, classes, st0)
-      val (ti, tr, st2) = lower(t, fns, classes, st1)
+      val (ci, cr, st1) = lower(c, fns, classes, zeroArity, st0)
+      val (ti, tr, st2) = lower(t, fns, classes, zeroArity, st1)
       val (d, st3) = st2.fresh
       elseOpt match
         case Some(el) =>
-          val (ei, er, st4) = lower(el, fns, classes, st3)
+          val (ei, er, st4) = lower(el, fns, classes, zeroArity, st3)
           (ci ++ List(Instr.If(cr, ti :+ Instr.Move(d, tr), ei :+ Instr.Move(d, er))), d, st4)
         case None =>
           val (uk, st4) = st3.constIdx(Lit.LUnit)
@@ -217,9 +236,9 @@ object Lower:
     // the exit test, `br 0` is the back edge. There is no loop-with-condition instruction because
     // one would be a special case of exactly this.
     case Expr.While(c, body, _) =>
-      val (ci, cr, st1) = lower(c, fns, classes, st0)
+      val (ci, cr, st1) = lower(c, fns, classes, zeroArity, st0)
       val (nr, st2) = st1.fresh
-      val (bi, _, st3) = lower(body, fns, classes, st2)
+      val (bi, _, st3) = lower(body, fns, classes, zeroArity, st2)
       val (uk, st4) = st3.constIdx(Lit.LUnit)
       val (d, st5) = st4.fresh
       val loop = Instr.Block(List(Instr.Loop(
@@ -233,7 +252,7 @@ object Lower:
       stmts.foreach { s =>
         s match
           case Stmt.Val(n, v, _, _) =>
-            val (vi, vr, st1) = lower(v, fns, classes, st)
+            val (vi, vr, st1) = lower(v, fns, classes, zeroArity, st)
             // Always a LOCAL here. Whether a `val` initialises a module global is decided in
             // `program`, where the top level is actually known — deciding it here meant a local
             // `val` that happened to share a name with a top-level one wrote the GLOBAL instead of
@@ -242,13 +261,13 @@ object Lower:
             acc = acc ++ vi :+ Instr.Move(slot, vr)
             st = st2.bind(n, slot)
           case Stmt.Exp(ex) =>
-            val (xi, _, st1) = lower(ex, fns, classes, st)
+            val (xi, _, st1) = lower(ex, fns, classes, zeroArity, st)
             acc = acc ++ xi
             st = st1
       }
       result match
         case Some(r) =>
-          val (ri, rr, st1) = lower(r, fns, classes, st)
+          val (ri, rr, st1) = lower(r, fns, classes, zeroArity, st)
           // The block's own bindings leave scope with it; `env` is restored so a name defined
           // inside cannot be seen outside. The register numbers are NOT reused — see the header.
           (acc ++ ri, rr, st1.copy(env = st0.env))
@@ -272,7 +291,7 @@ object Lower:
       var regs: List[Int] = Nil
       var st = st0
       argEs.foreach { a =>
-        val (ai, ar, stN) = lower(a, fns, classes, st)
+        val (ai, ar, stN) = lower(a, fns, classes, zeroArity, st)
         acc = acc ++ ai; regs = ar :: regs; st = stN
       }
       val (d, st1) = st.fresh
@@ -288,7 +307,7 @@ object Lower:
     // name are simply two arms — the receiver decides, at run time, which is what it always was.
     case Expr.MethodCall(recv, nm, Nil, p) if classes.exists(c => c.fields.exists(f => f.name == nm)) =>
       val owners = classes.filter(c => c.fields.exists(f => f.name == nm))
-      val (ri, rr, st1) = lower(recv, fns, classes, st0)
+      val (ri, rr, st1) = lower(recv, fns, classes, zeroArity, st0)
       val (d, st2) = st1.fresh
       var st = st2
       var arms: List[SwitchArm] = Nil
@@ -304,12 +323,12 @@ object Lower:
       (ri :+ Instr.Switch(rr, arms, List(Instr.Invoke(ir2, nk, rr, Nil), Instr.Move(d, ir2))), d, st4)
 
     case Expr.MethodCall(recv, nm, argEs, _) =>
-      val (ri, rr, st1) = lower(recv, fns, classes, st0)
+      val (ri, rr, st1) = lower(recv, fns, classes, zeroArity, st0)
       var acc = ri
       var regs: List[Int] = Nil
       var st = st1
       argEs.foreach { a =>
-        val (ai, ar, stN) = lower(a, fns, classes, st)
+        val (ai, ar, stN) = lower(a, fns, classes, zeroArity, st)
         acc = acc ++ ai; regs = ar :: regs; st = stN
       }
       val (nk, st2) = st.constIdx(Lit.LStr(nm))
@@ -322,7 +341,7 @@ object Lower:
     // disagree with itself. `Switch` stays in the IR for a later pass to recognise.
     case Expr.Match(scrut, arms, p) =>
       if arms.isEmpty then throw LowerFail(p, "a `match` with no arms")
-      val (si, sr, st1) = lower(scrut, fns, classes, st0)
+      val (si, sr, st1) = lower(scrut, fns, classes, zeroArity, st0)
       val needsTag = arms.exists(a => a.pat match { case Pat.PCtor(_, _, _) => true; case _ => false })
       val (tr, st2) = if needsTag then st1.fresh else (0, st1)
       val tagInstr = if needsTag then List(Instr.Tag(tr, sr)) else Nil
@@ -334,7 +353,7 @@ object Lower:
       val (thr, st5) = st4.primIdx("__throw__")
       val (msgR, st6) = st5.fresh
       val fallback: List[Instr] = List(Instr.Const(msgR, mk), Instr.Prim(rd, thr, List(msgR)))
-      val (chain, stF) = armChain(arms, sr, tr, rd, fns, classes, st6, fallback)
+      val (chain, stF) = armChain(arms, sr, tr, rd, fns, classes, zeroArity, st6, fallback)
       (si ++ tagInstr ++ chain, rd, stF)
 
     // LAMBDA LIFTING. The body becomes a top-level function whose FIRST parameters are the captured
@@ -351,7 +370,7 @@ object Lower:
                       (free.zipWithIndex.map((n, i) => (n, i)) ++
                        pnames.zipWithIndex.map((n, i) => (n, free.length + i))).reverse,
                       st0.consts, st0.prims, st0.types, st0.lifted, st0.globals)
-      val (bi, br, inner) = lower(body, fns, classes, inner0)
+      val (bi, br, inner) = lower(body, fns, classes, zeroArity, inner0)
       val f = Func("__lam" + idx, free.length + ps.length,
                    if inner.max > 0 then inner.max else 1, bi :+ Instr.Ret(br))
       val st1 = st0.copy(consts = inner.consts, prims = inner.prims, types = inner.types,
@@ -362,8 +381,8 @@ object Lower:
     case Expr.Try(body, exn, handler, _) =>
       val (d, st1) = st0.fresh
       val (xr, st2) = st1.fresh
-      val (bi, br, st3) = lower(body, fns, classes, st2)
-      val (hi, hr, st4) = lower(handler, fns, classes, st3.bind(exn, xr))
+      val (bi, br, st3) = lower(body, fns, classes, zeroArity, st2)
+      val (hi, hr, st4) = lower(handler, fns, classes, zeroArity, st3.bind(exn, xr))
       (List(Instr.Try(d, bi :+ Instr.Move(d, br), xr, hi :+ Instr.Move(d, hr))), d,
        st4.copy(env = st0.env))
 
@@ -372,7 +391,7 @@ object Lower:
       var regs: List[Int] = Nil
       var st = st0
       argEs.foreach { a =>
-        val (ai, ar, st1) = lower(a, fns, classes, st)
+        val (ai, ar, st1) = lower(a, fns, classes, zeroArity, st)
         acc = acc ++ ai
         regs = ar :: regs
         st = st1
@@ -442,26 +461,26 @@ object Lower:
   /** Arms, in source order, as nested `If`s. Built back to front so each arm's `else` is the rest
     * of the chain — which is what makes source order the matching order, exactly as written. */
   private def armChain(arms: List[MatchArm], scrut: Int, tagReg: Int, dst: Int,
-                       fns: List[String], classes: List[ClassDef], st0: St,
+                       fns: List[String], classes: List[ClassDef], zeroArity: List[String], st0: St,
                        fallback: List[Instr]): (List[Instr], St) =
     if arms.isEmpty then (fallback, st0)
     else
       val a = arms.head
-      val (rest, st1) = armChain(arms.tail, scrut, tagReg, dst, fns, classes, st0, fallback)
+      val (rest, st1) = armChain(arms.tail, scrut, tagReg, dst, fns, classes, zeroArity, st0, fallback)
       a.pat match
         case Pat.PWild(_) =>
-          val (bi, br, st2) = lower(a.body, fns, classes, st1)
+          val (bi, br, st2) = lower(a.body, fns, classes, zeroArity, st1)
           // A wildcard always matches, so everything after it is DEAD. Emitting the body directly
           // rather than an `if true` keeps that visible in the IR instead of hiding it in a branch.
           (bi :+ Instr.Move(dst, br), st2)
         case Pat.PBind(n, _) =>
           val (slot, st2) = st1.fresh
-          val (bi, br, st3) = lower(a.body, fns, classes, st2.bind(n, slot))
+          val (bi, br, st3) = lower(a.body, fns, classes, zeroArity, st2.bind(n, slot))
           ((Instr.Move(slot, scrut) :: bi) :+ Instr.Move(dst, br), st3.copy(env = st1.env))
         case Pat.PLit(v, _) =>
-          val (vi, vr, st2) = lower(v, fns, classes, st1)
+          val (vi, vr, st2) = lower(v, fns, classes, zeroArity, st1)
           val (cr, st3) = st2.fresh
-          val (bi, br, st4) = lower(a.body, fns, classes, st3)
+          val (bi, br, st4) = lower(a.body, fns, classes, zeroArity, st3)
           (vi ++ List(Instr.Bin(BinOp.Eq, NumKind.Dyn, cr, scrut, vr),
                       Instr.If(cr, bi :+ Instr.Move(dst, br), rest)), st4)
         case Pat.PCtor(cname, cargs, cp) =>
@@ -488,7 +507,7 @@ object Lower:
                 envb = (bn, r) :: envb
               case _ => ()
           }
-          val (bi, br, st6) = lower(a.body, fns, classes, stb.copy(env = envb))
+          val (bi, br, st6) = lower(a.body, fns, classes, zeroArity, stb.copy(env = envb))
           (List(Instr.Const(tagV, tagK), Instr.Bin(BinOp.Eq, NumKind.Dyn, cr, tagReg, tagV),
                 Instr.If(cr, binds ++ bi :+ Instr.Move(dst, br), rest)), st6.copy(env = st1.env))
 
@@ -524,6 +543,8 @@ object Lower:
     case "/" => BinOp.Div; case "%" => BinOp.Rem
     case "<" => BinOp.Lt; case "<=" => BinOp.Le; case ">" => BinOp.Gt; case ">=" => BinOp.Ge
     case "==" => BinOp.Eq; case "!=" => BinOp.Ne
+    case "&" => BinOp.BAnd; case "|" => BinOp.BOr; case "^" => BinOp.BXor
+    case "<<" => BinOp.Shl; case ">>" => BinOp.Shr; case ">>>" => BinOp.UShr
     case other => throw LowerFail(p, "operator '" + other + "' is outside SSC3 core Tier 0")
 
   /** The synthetic entry. Top-level statements run in order, then `main()` if the file defines one —
@@ -558,6 +579,9 @@ object Lower:
     // looks at the name list, so a qualified call resolves by ordinary lookup.
     val objectDefs = p.objects.flatMap(o => o.defs.map(d => d.copy(name = o.name + "." + d.name)))
     val allDefs = (p.defs ++ objectDefs) :+ entryDef
+    // Names that may be referenced WITHOUT parentheses. Collected once, before any lowering, so a
+    // def declared later in the file is still callable from one declared earlier.
+    val zeroArityNames = allDefs.filter(d => d.params.isEmpty).map(d => d.name)
     val names = allDefs.map(d => d.name)
     val entry = names.indexOf(entryName)
 
@@ -575,7 +599,7 @@ object Lower:
     allDefs.foreach { d =>
       val params = d.params.zipWithIndex.map((pa, i) => (pa.name, i))
       val st0 = St(d.params.length, d.params.length, params.reverse, consts, prims, types, lifted, globalNames)
-      val (body, r, st) = lower(d.body, names, p.classes, st0)
+      val (body, r, st) = lower(d.body, names, p.classes, zeroArityNames, st0)
       consts = st.consts
       prims = st.prims
       types = st.types

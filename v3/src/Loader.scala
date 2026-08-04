@@ -118,7 +118,15 @@ object Loader:
         seen = canon :: seen
         val text = read(path)
         importsOf(text).foreach { (t, ln) => visit(resolve(t, path, ln)) }
-        val prog = Parser.parse(Source.program(text))
+        // A parse failure inside an IMPORTED unit must name THAT unit. Without this the message
+        // carried the ROOT file's path with the imported file's line number — pointing at a line
+        // that has nothing to do with the error, in a file the reader did not write. Measured on
+        // `std-index.ssc`: it reported `trait` at a line holding a `println`.
+        val prog =
+          try Parser.parse(Source.program(text))
+          catch
+            case e: ParseFail => throw LoadError(path + ":" + e.getMessage)
+            case e: LexError  => throw LoadError(path + ":" + e.getMessage)
         out = out :+ Unit3(canon, prog)
 
     visit(rootPath)
