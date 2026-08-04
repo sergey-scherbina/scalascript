@@ -23,7 +23,8 @@
 #   `$BIN/ssc` is `StandardMain`, the NATIVE/default lane, not the interpreter. The label said INT
 #   for a launcher that stopped being the interpreter when the lane map moved, so this gate's
 #   failures were filed against the wrong lane's owner. The runner now matches the label; NATIVE is
-#   not covered here and its own gap is `v2/BUGS.md native-lane-ignores-declarative-route-registration`.
+#   COVERED as of 2026-08-05 — see the NATIVE row below; its separate declarative-route gap is
+#   `v2/BUGS.md native-lane-ignores-declarative-route-registration`.
 #
 # The launcher is now a COMMAND WITH ARGUMENTS, passed as one string and invoked UNQUOTED. Passing
 # the extra words as separate arguments instead is a silent trap: helpers that take positional args
@@ -104,7 +105,7 @@ run_backend() {
 }
 
 echo "============================================================"
-echo "  Multipart upload smoke — three backends · port $PORT"
+echo "  Multipart upload smoke — four backends · port $PORT"
 echo "============================================================"
 echo
 
@@ -112,10 +113,16 @@ fail=0
 run_backend INT "$BIN/ssc-tools run --v1"   || fail=1
 run_backend JVM "$BIN/ssc-tools run-jvm"  || fail=1
 run_backend JS  "$BIN/ssc-tools run-js"  || fail=1
+# NATIVE joined on 2026-08-05. It was the lane this gate's own header called "not covered here", and
+# for good reason: it had no multipart at all — `req.files` was a hardcoded empty map, so the handler
+# answered its own "missing 'file' part" at HTTP **200**, which no status check can see. A parser now
+# lives in the engine (MultipartFast) and the host fills `files`.
+# BUGS `multipart-upload-three-lanes-three-answers`.
+run_backend NATIVE "$BIN/ssc"            || fail=1
 
 echo
 if [ $fail -eq 0 ]; then
-    echo "All three backends agree on the multipart roundtrip."
+    echo "All four backends agree on the multipart roundtrip."
     exit 0
 else
     echo "One or more backends FAILED — see logs in /tmp/upload-smoke-*.log"

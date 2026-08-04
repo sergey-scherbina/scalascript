@@ -7,6 +7,29 @@ grepping for status.
 
 Newest first.
 
+## v2-string-codePointAt-not-dispatched — `"abc".codePointAt(0)` has no dispatch on the native lane
+
+<!-- status: fixed
+     lane: native
+     area: runtime
+     gate: tests/e2e/upload-smoke.sh
+     fixed-in: PENDING-SHA -->
+
+```
+println("abc".codePointAt(0))
+  int    : 97
+  native : ssc: __method__: no dispatch for .codePointAt on "abc"
+```
+
+Found 2026-08-05 while giving the native lane multipart parsing: it is how `examples/uploads.ssc`
+reads a byte out of an upload, so it blocked that work rather than being noticed on its own — which
+is the useful part. A missing String method is invisible until some program reaches for it, and
+nothing in the corpus did.
+
+Fixed beside `charAt` in the v2 runtime's String dispatch. **Not** implemented as an alias for
+`charAt`: the two differ above the BMP, where `charAt` yields one surrogate half and `codePointAt`
+the whole code point — which is the reason the method exists at all.
+
 ## native-upload-numberformat-on-dash — multipart upload dies with `For input string: "-"`, JVM passes
 
 <!-- status: open

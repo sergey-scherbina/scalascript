@@ -2077,6 +2077,13 @@ object Prims:
         case (StrV(s), "substring", List(IntV(i)))      => StrV(s.substring(i.toInt))
         case (StrV(s), "substring", List(IntV(i), IntV(j))) => StrV(s.substring(i.toInt, j.toInt))
         case (StrV(s), "charAt", List(IntV(i)))         => IntV(s.charAt(i.toInt).toLong)
+        // `codePointAt` was missing entirely on this lane — `"abc".codePointAt(0)` died with
+        // `no dispatch for .codePointAt`, while int answers 97. Found because it is how
+        // examples/uploads.ssc reads a byte out of an upload, so it blocked the multipart work
+        // rather than being noticed on its own. BUGS `v2-string-codePointAt-not-dispatched`.
+        // Deliberately NOT an alias for charAt: they differ above the BMP, where charAt yields a
+        // surrogate half and codePointAt the whole code point — the reason the method exists.
+        case (StrV(s), "codePointAt", List(IntV(i)))    => IntV(s.codePointAt(i.toInt).toLong)
         // String head/last return a Char (an IntV code, like charAt); tail/init a String.
         case (StrV(s), "head", Nil) if s.nonEmpty       => IntV(s.charAt(0).toLong)
         case (StrV(s), "last", Nil) if s.nonEmpty       => IntV(s.charAt(s.length - 1).toLong)

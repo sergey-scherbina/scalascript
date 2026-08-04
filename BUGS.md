@@ -17,11 +17,12 @@ scripts/bugs-report --no-gate              # open entries with no regression gat
 Newest first.
 
 ## multipart-upload-three-lanes-three-answers — only js parses a file part correctly
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: runtime
      kind: bug
-     gate: tests/e2e/upload-smoke.sh -->
+     gate: tests/e2e/upload-smoke.sh
+     fixed-in: PENDING-SHA -->
 
 **Measured 2026-08-04**, `examples/uploads.ssc` served on each lane, one `curl -F` with a 256-byte
 `application/octet-stream` payload:
@@ -87,6 +88,34 @@ stating rather than deciding in passing:
 
 Not started. The measurement is what this update is for: whoever picks it up should know they are
 implementing multipart on that lane, not repairing it.
+
+
+**FIXED 2026-08-05 — implemented, not repaired.** The re-measurement above found the native lane had
+no multipart at all, so this was a feature slice: a parser now lives in the fast engine
+(`MultipartFast`, beside `HttpProtocol`) and `NioNativeHttpServerHost.filesValue` fills the `files`
+slot that had been a hardcoded empty map.
+
+Own parser rather than reusing `scalascript.server.Multipart` — the owner's call, and the reason is
+architectural: that parser is in the v1 `http-server/common` module, and depending on it from the v2
+native plugin would pull a v1 module into the tree v2 exists to be independent of.
+
+`UploadedFile` is registered with `registerFields` in the same order as the DataV built by the host
+and as `extern class UploadedFile` in `v1/runtime/std/http.ssc`. That order is load-bearing: field
+access on this lane is by INDEX, so a layout disagreement reads a NEIGHBOURING field instead of
+failing — the shape of a whole known bug family.
+
+**One blocker surfaced on the way and is filed separately**: `String.codePointAt` had no dispatch on
+the native lane at all (`v2-string-codePointAt-not-dispatched`). The example reads upload bytes with
+it, so multipart could not be demonstrated until it existed.
+
+**Gate:** `tests/e2e/upload-smoke.sh` grew a fourth cell. It had covered INT/JVM/JS and its own
+header said native was "not covered here" — the lane that was broken was the one nobody was
+watching. All four now agree byte-for-byte on the 256-byte roundtrip, including the first and last
+byte values, which is what proves the raw bytes survive the ISO-8859-1 view.
+
+Known limit, stated rather than discovered later: this engine keeps every part in memory and always
+reports `path = ""`. The other lanes spool parts over a threshold to a temp file and set `path`;
+that threshold is configured through v1 server settings this engine does not have.
 
 ## triple-quoted-literal-ending-in-a-quote-is-not-a-string — three lanes agree, and all three are wrong
 <!-- status: fixed

@@ -363,12 +363,39 @@ private[httpfast] final class NioNativeHttpServerHost(context: NativePluginConte
       valueMap(req.headers),
       Value.StrV(new String(req.body, UTF_8)),
       valueMap(formBody(req)),               // form  (index 4)
-      valueMap(Map.empty),                   // files (index 5)
+      filesValue(req),                       // files (index 5)
       valueMap(cookies(req.headers)),        // cookies (index 6)
       valueMap(Map.empty),                   // session (index 7)
       Value.DataV("None", Vector.empty),     // json  (index 8)
       valueMap(pathParams),                  // params (index 9)
       valueMap(req.query)))                  // query (index 10)
+
+  /** `multipart/form-data` parts → `Map[String, UploadedFile]` (empty for any other content type).
+   *
+   *  This slot was a hardcoded empty map until 2026-08-05, so `req.files` never contained anything
+   *  and every upload handler on this lane took its own else-branch — HTTP 200 carrying the
+   *  program's own "missing 'file' part", which no status-code check can see.
+   *  BUGS `multipart-upload-three-lanes-three-answers`.
+   *
+   *  The DataV field order MUST match `registerFields("UploadedFile", …)` in HttpFastNativePlugin
+   *  and `extern class UploadedFile` in v1/runtime/std/http.ssc: field access on this lane is by
+   *  INDEX, so a name/layout disagreement reads a neighbouring field rather than failing. */
+  private def filesValue(req: RawRequest): Value =
+    val ct = req.headers.getOrElse("content-type", "")
+    val parts = MultipartFast.parse(req.body, ct)
+    val result = Value.MapV.empty
+    // Sorted, like `valueMap` above: the entry order of this map is observable through iteration,
+    // and two runs of the same upload must not differ.
+    parts.toList.sortBy(_._1).foreach { (name, p) =>
+      result.entries(Value.StrV(name)) = Value.DataV("UploadedFile", Vector(
+        Value.StrV(p.name),
+        Value.StrV(p.filename),
+        Value.StrV(p.contentType),
+        Value.IntV(p.size.toLong),
+        Value.StrV(p.bytes),
+        Value.StrV("")))            // path: this engine never spools to disk (see MultipartFast)
+    }
+    result
 
   /** POST `application/x-www-form-urlencoded` body → form map (empty otherwise). */
   private def formBody(req: RawRequest): Map[String, String] =

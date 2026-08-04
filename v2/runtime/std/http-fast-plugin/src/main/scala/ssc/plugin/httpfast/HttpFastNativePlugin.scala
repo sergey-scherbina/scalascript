@@ -152,6 +152,10 @@ final class HttpFastNativePlugin extends NativePlugin:
     context.registerFields("Response", Vector("status", "headers", "body"))
     context.registerFields("TlsContext", Vector("certPath", "keyPath"))
     context.registerFields("Request", Vector("method", "path", "headers", "body", "form", "files", "cookies", "session", "json", "params", "query"))
+    // Field access is by INDEX on this lane, so this order is load-bearing: it must match both the
+    // DataV built in NioNativeHttpServerHost.filesValue and `extern class UploadedFile` in
+    // v1/runtime/std/http.ssc. Registered when `req.files` started carrying parts at all.
+    context.registerFields("UploadedFile", Vector("name", "filename", "contentType", "size", "bytes", "path"))
     val serverHost = NioNativeHttpServerHost(context)
 
     val httpGet: List[Value] => Value = args => requestArgs("GET", args, hasBody = false)
