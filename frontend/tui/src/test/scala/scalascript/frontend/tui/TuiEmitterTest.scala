@@ -166,6 +166,28 @@ final class TuiEmitterTest extends AnyFunSuite:
     assert(rs.contains("""sig(signals, "rooms")"""))           // reads the bootstrap-fetched body
   }
 
+  test("a fetch with a headers signal sets them on the GET and pulls in serde_json") {
+    // Reported by rozum (INBOX tui-fetch-headers): FetchUrlSignal carries headersId, the web target
+    // honours it, the TUI target dropped it — so an authenticated source emitted a bare GET.
+    val feed = new FetchUrlSignal("rooms", "http://x/rooms", "tick", Some("auth"))
+    val (cargo, rs) = emitCrate(View.SignalText(feed))
+    assert(cargo.contains("serde_json"))                         // the headers path parses JSON too
+    assert(rs.contains("fn fetch_headers("))
+    assert(rs.contains("""let headers = fetch_headers(signals, "auth");"""))
+    assert(rs.contains("""load_fetch(signals, "rooms", "http://x/rooms", &headers);"""))
+    assert(rs.contains("req = req.set(name, value);"))           // applied to the request
+  }
+
+  test("a fetch WITHOUT headers stays header-free and serde_json-free") {
+    // The other half, and the one that keeps the no-header path cheap: emitting fetch_headers
+    // unconditionally would reference serde_json in every crate that fetches anything.
+    val feed = new FetchUrlSignal("rooms", "http://x/rooms", "tick")
+    val (cargo, rs) = emitCrate(View.SignalText(feed))
+    assert(!cargo.contains("serde_json"))
+    assert(!rs.contains("fn fetch_headers("))
+    assert(rs.contains("""load_fetch(signals, "rooms", "http://x/rooms", &[]);"""))
+  }
+
   test("DataTable rejects duplicate static row identity before rendering") {
     val table = View.DataTable(
       TableDataSource.StaticRows(List(Map("meta" -> Map("key" -> 1)), Map("meta" -> Map("key" -> 1)))),
@@ -190,8 +212,10 @@ final class TuiEmitterTest extends AnyFunSuite:
     val feed = new FetchUrlSignal("feed", "http://localhost:9/rooms", "tick")
     val (cargo, rs) = emitCrate(View.SignalText(feed))
     assert(cargo.contains("ureq = \"2\""))
-    assert(rs.contains("fn fetch_text(url: &str) -> Option<String>"))
-    assert(rs.contains("""load_fetch(signals, "feed", "http://localhost:9/rooms")"""))
+    assert(rs.contains("fn fetch_text(url: &str, headers: &[(String, String)]) -> Option<String>"))
+    // `&[]` since tui-fetch-headers: load_fetch now carries the resolved header pairs, and a fetch
+    // that binds no headers passes an empty slice rather than a different function.
+    assert(rs.contains("""load_fetch(signals, "feed", "http://localhost:9/rooms", &[]);"""))
     assert(rs.contains("fn initial_fetch_ticks(signals: &HashMap<String, Value>)"))
     assert(rs.contains("""observed.insert("feed".to_string(), sig_int(signals, "tick"));"""))
     assert(rs.contains("fn refresh_fetches(signals: &mut HashMap<String, Value>"))

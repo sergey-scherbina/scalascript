@@ -117,6 +117,33 @@ final class TuiCargoSmokeTest extends AnyFunSuite:
     finally
       server.stop(0)
 
+  test("a headers signal authenticates the GET via cargo — 401 without it, 200 with it"):
+    assume(cargoAvailable, "cargo not on PATH — skipping ratatui smoke")
+    // Reported by rozum (INBOX tui-fetch-headers). The fixture answers 401 unless the header is
+    // present, so this test FAILS on the pre-fix emitter — which the older fetch smokes could not,
+    // because every one of them serves an endpoint that needs no credential.
+    val payload = "AUTHENTICATED_BODY_OK"
+    val server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0)
+    server.createContext("/secure", (ex: com.sun.net.httpserver.HttpExchange) => {
+      val auth = Option(ex.getRequestHeaders.getFirst("Authorization")).getOrElse("")
+      val (code, body) =
+        if auth == "Bearer t0ken" then (200, payload) else (401, "DENIED")
+      val bytes = body.getBytes("UTF-8")
+      ex.sendResponseHeaders(code, bytes.length.toLong)
+      val os = ex.getResponseBody; os.write(bytes); os.close()
+    })
+    server.start()
+    try
+      val port = server.getAddress.getPort
+      val feed = new FetchUrlSignal("feed", s"http://127.0.0.1:$port/secure", "tick", Some("auth"))
+      val view = View.Column(Seq(
+        View.SignalText(new ReactiveSignal[String]("auth", """{"Authorization":"Bearer t0ken"}""")),
+        View.SignalText(feed)))
+      val out = snapshotViaCargo(view)
+      assert(out.contains(payload), s"headers were dropped — the fetch was not authenticated:\n$out")
+    finally
+      server.stop(0)
+
   test("DataTable.Remote fetches JSON and renders the rows via cargo"):
     assume(cargoAvailable, "cargo not on PATH — skipping ratatui smoke")
     val json = """{"data":[{"room":"demo","unread":2},{"room":"rozum","unread":5}]}"""

@@ -26,7 +26,10 @@ object TuiEmitter:
 
   /** Managed GET metadata. `tickId` is part of the binding contract: a
    *  changed tick schedules a new GET before the next terminal frame. */
-  private final case class FetchInfo(url: String, tickId: String)
+  /** `headersId` is the signal holding a JSON object of header name -> value, read at FETCH time
+   *  (not at emit time) exactly as the web targets read it. `None` when the source bound no headers,
+   *  which must stay dependency-free — see `cargoToml`. */
+  private final case class FetchInfo(url: String, tickId: String, headersId: Option[String])
 
   /** A declarative store mutation an `activate` arm performs. */
   private enum Mutation:
@@ -60,11 +63,15 @@ object TuiEmitter:
     val body = StringBuilder()
     emit(root, "area", body, Iterator.from(0), focusables, TermStyle.empty)
 
-    (cargoToml(manifest, fetches.nonEmpty, remoteTable), mainRs(manifest, signals, fetches, remoteTable, focusables, body))
+    // serde_json is needed by the headers path too, not only by a remote table: a fetch carrying
+    // headers parses its JSON object at fetch time, and without the dependency the emitted crate
+    // references serde_json and does not compile.
+    val needsSerde = remoteTable || fetches.values.exists(_.headersId.isDefined)
+    (cargoToml(manifest, fetches.nonEmpty, needsSerde), mainRs(manifest, signals, fetches, remoteTable, focusables, body))
 
-  private def cargoToml(manifest: AppManifest, hasFetch: Boolean, hasRemoteTable: Boolean): String =
+  private def cargoToml(manifest: AppManifest, hasFetch: Boolean, needsSerdeJson: Boolean): String =
     val ureq  = if hasFetch then "ureq = \"2\"\n" else ""
-    val serde = if hasRemoteTable then "serde_json = \"1\"\n" else ""
+    val serde = if needsSerdeJson then "serde_json = \"1\"\n" else ""
     s"""[package]
        |name = "${crateName(manifest)}"
        |version = "${manifest.version}"
@@ -227,9 +234,16 @@ object TuiEmitter:
         |fn initial_fetch_ticks(_signals: &HashMap<String, Value>) -> HashMap<String, i64> { HashMap::new() }
         |fn refresh_fetches(_signals: &mut HashMap<String, Value>, _observed: &mut HashMap<String, i64>) {}""".stripMargin
     else
-      val inserts = fetches.map { case (id, info) =>
-        s"    load_fetch(signals, ${rustStr(id)}, ${rustStr(info.url)});"
-      }.mkString("\n")
+      // Headers are resolved into a local FIRST: `load_fetch` borrows `signals` mutably and
+      // `fetch_headers` borrows it immutably, so passing the call inline would not compile.
+      def loadCall(indent: String, id: String, info: FetchInfo): String = info.headersId match
+        case None      => s"$indent" + s"load_fetch(signals, ${rustStr(id)}, ${rustStr(info.url)}, &[]);"
+        case Some(hid) =>
+          s"""$indent{
+             |$indent    let headers = fetch_headers(signals, ${rustStr(hid)});
+             |$indent    load_fetch(signals, ${rustStr(id)}, ${rustStr(info.url)}, &headers);
+             |$indent}""".stripMargin
+      val inserts = fetches.map { case (id, info) => loadCall("    ", id, info) }.mkString("\n")
       val tickSeeds = fetches.map { case (id, info) =>
         s"    observed.insert(${rustStr(id)}.to_string(), sig_int(signals, ${rustStr(info.tickId)}));"
       }.mkString("\n")
@@ -237,16 +251,40 @@ object TuiEmitter:
         s"""    {
            |        let current = sig_int(signals, ${rustStr(info.tickId)});
            |        if observed.get(${rustStr(id)}).copied() != Some(current) {
-           |            load_fetch(signals, ${rustStr(id)}, ${rustStr(info.url)});
+           |${loadCall("            ", id, info)}
            |            observed.insert(${rustStr(id)}.to_string(), current);
            |        }
            |    }""".stripMargin
       }.mkString("\n")
-      s"""fn fetch_text(url: &str) -> Option<String> {
-         |    match ureq::get(url).call() { Ok(resp) => resp.into_string().ok(), Err(_) => None }
+      // Emitted only when some fetch binds headers: it references serde_json, which is not a
+      // dependency otherwise (see `cargoToml`). A malformed or absent value yields NO headers rather
+      // than an error — dropping a header must not turn a working unauthenticated fetch into a
+      // failure.
+      val headerHelper =
+        if !fetches.values.exists(_.headersId.isDefined) then ""
+        else
+          """fn fetch_headers(signals: &HashMap<String, Value>, id: &str) -> Vec<(String, String)> {
+            |    let raw = sig(signals, id);
+            |    if raw.is_empty() { return Vec::new(); }
+            |    match serde_json::from_str::<serde_json::Value>(&raw) {
+            |        Ok(serde_json::Value::Object(map)) => map
+            |            .iter()
+            |            .map(|(k, v)| match v {
+            |                serde_json::Value::String(s) => (k.clone(), s.clone()),
+            |                other => (k.clone(), other.to_string()),
+            |            })
+            |            .collect(),
+            |        _ => Vec::new(),
+            |    }
+            |}
+            |""".stripMargin
+      s"""${headerHelper}fn fetch_text(url: &str, headers: &[(String, String)]) -> Option<String> {
+         |    let mut req = ureq::get(url);
+         |    for (name, value) in headers { req = req.set(name, value); }
+         |    match req.call() { Ok(resp) => resp.into_string().ok(), Err(_) => None }
          |}
-         |fn load_fetch(signals: &mut HashMap<String, Value>, id: &str, url: &str) {
-         |    if let Some(body) = fetch_text(url) { signals.insert(id.to_string(), Value::S(body)); }
+         |fn load_fetch(signals: &mut HashMap<String, Value>, id: &str, url: &str, headers: &[(String, String)]) {
+         |    if let Some(body) = fetch_text(url, headers) { signals.insert(id.to_string(), Value::S(body)); }
          |}
          |fn bootstrap(signals: &mut HashMap<String, Value>) {
          |$inserts
@@ -517,7 +555,7 @@ object TuiEmitter:
   private def collectFetches(v: View[?], fetches: mutable.LinkedHashMap[String, FetchInfo]): Unit =
     def rec(c: View[?]): Unit = collectFetches(c, fetches)
     def record(s: ReactiveSignal[?]): Unit = s match
-      case f: FetchUrlSignal => if !fetches.contains(f.id) then fetches(f.id) = FetchInfo(f.fetchUrl, f.tickId)
+      case f: FetchUrlSignal => if !fetches.contains(f.id) then fetches(f.id) = FetchInfo(f.fetchUrl, f.tickId, f.headersId)
       case _                 => ()
     v match
       case View.SignalText(s, _)                                 => record(s)
