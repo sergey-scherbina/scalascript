@@ -43,6 +43,9 @@ enum Expr:
   case While(c: Expr, body: Expr, pos: Pos)
   case Block(stmts: List[Stmt], result: Option[Expr], pos: Pos)
   case Assign(name: String, value: Expr, pos: Pos)
+  /** `a(i) = v`. Separate from `Assign` because the target is an INDEX, not a name — and separate
+    * from a method call because the IR has `ArrSet`, which both lanes already implement. */
+  case Update(arr: Expr, index: Expr, value: Expr, pos: Pos)
   case Match(scrut: Expr, arms: List[MatchArm], pos: Pos)
   case Lambda(params: List[Param], body: Expr, pos: Pos)
   case Try(body: Expr, exn: String, handler: Expr, pos: Pos)
@@ -106,6 +109,7 @@ object Expr:
     case While(_, _, p)   => p
     case Block(_, _, p)   => p
     case Assign(_, _, p)  => p
+    case Update(_, _, _, p) => p
     case Match(_, _, p)   => p
     case Lambda(_, _, p)  => p
     case Try(_, _, _, p)  => p

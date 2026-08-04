@@ -1,0 +1,11 @@
+val a = Array(10, 20, 30)
+println(a.length)
+println(a(0))
+println(a(2))
+a(1) = 99
+println(a(1))
+println(a)
+var total = 0
+for i <- List(0, 1, 2) do total = total + a(i)
+println(total)
+println(a(0) == 10)

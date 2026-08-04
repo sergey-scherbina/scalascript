@@ -77,6 +77,7 @@ object Lower:
     case Expr.Neg(x, _)           => freeVars(x, bound)
     case Expr.Not(x, _)           => freeVars(x, bound)
     case Expr.Assign(n, v, _)     => (if bound.contains(n) then Nil else List(n)) ++ freeVars(v, bound)
+    case Expr.Update(a, i, v, _)  => freeVars(a, bound) ++ freeVars(i, bound) ++ freeVars(v, bound)
     case Expr.If(c, t, el, _)     => freeVars(c, bound) ++ freeVars(t, bound) ++ el.toList.flatMap(x => freeVars(x, bound))
     case Expr.While(c, b, _)      => freeVars(c, bound) ++ freeVars(b, bound)
     case Expr.Call(_, as, _)      => as.flatMap(a => freeVars(a, bound))
@@ -240,6 +241,14 @@ object Lower:
       val (d, st2) = st1.fresh
       (xi :+ Instr.Un(UnOp.Not, NumKind.Dyn, d, xr), d, st2)
 
+    case Expr.Update(arrE, idxE, valE, _) =>
+      val (ai, ar, st1) = lower(arrE, fns, classes, zeroArity, st0)
+      val (ii, ir, st2) = lower(idxE, fns, classes, zeroArity, st1)
+      val (vi, vr, st3) = lower(valE, fns, classes, zeroArity, st2)
+      val (d, st4) = st3.fresh
+      val (uk, st5) = st4.constIdx(Lit.LUnit)
+      (ai ++ ii ++ vi ++ List(Instr.ArrSet(ar, ir, vr), Instr.Const(d, uk)), d, st5)
+
     case Expr.Assign(n, v, p) if st0.lookup(n).isEmpty && st0.globalIdx(n) >= 0 =>
       val (vi, vr, st1) = lower(v, fns, classes, zeroArity, st0)
       (vi :+ Instr.GlobSet(st0.globalIdx(n), vr), vr, st1)
@@ -391,7 +400,6 @@ object Lower:
       val pnames = ps.map(_.name)
       val free = freeVars(body, pnames).distinct.filter(n => st0.lookup(n).isDefined)
       val capRegs = free.map(n => st0.lookup(n).get)
-      val idx = fns.length + st0.lifted.length
       // The lifted function gets a FRESH register space: it is a separate frame at run time, and
       // sharing the numbering with the enclosing function would be a silent aliasing bug.
       val inner0 = St(free.length + ps.length, free.length + ps.length,
@@ -399,6 +407,14 @@ object Lower:
                        pnames.zipWithIndex.map((n, i) => (n, free.length + i))).reverse,
                       st0.consts, st0.prims, st0.types, st0.lifted, st0.globals)
       val (bi, br, inner) = lower(body, fns, classes, zeroArity, inner0)
+      // The index is taken AFTER the body is lowered, because the body may lift lambdas of its own
+      // and each one appends to the same list. Taking it before gave an inner lambda and its
+      // enclosing one THE SAME index: the inner appended first and won, so the outer's `MkClos`
+      // pointed at the inner function. Calling it then passed the outer's argument count to the
+      // inner's arity — `__lam2 takes 2 argument(s), given 1` — on BOTH lanes, identically, which
+      // is why the differential gate could not see it. Any lambda nested inside a lambda that
+      // captures was affected, including every `for` with two generators.
+      val idx = fns.length + inner.lifted.length
       val f = Func("__lam" + idx, free.length + ps.length,
                    if inner.max > 0 then inner.max else 1, bi :+ Instr.Ret(br))
       val st1 = st0.copy(consts = inner.consts, prims = inner.prims, types = inner.types,
@@ -413,6 +429,30 @@ object Lower:
       val (hi, hr, st4) = lower(handler, fns, classes, zeroArity, st3.bind(exn, xr))
       (List(Instr.Try(d, bi :+ Instr.Move(d, br), xr, hi :+ Instr.Move(d, hr))), d,
        st4.copy(env = st0.env))
+
+    // `Array(a, b, c)` — allocate, then fill. The IR has had arrays from the start (the frame the
+    // bridge builds IS one); only the front had no syntax for them, which is why this is six lines
+    // rather than a feature.
+    case Expr.Call("Array", argEs, p) if !classes.exists(c => c.name == "Array") =>
+      var acc: List[Instr] = Nil
+      var regs: List[Int] = Nil
+      var st = st0
+      argEs.foreach { a =>
+        val (ai, ar, stN) = lower(a, fns, classes, zeroArity, st)
+        acc = acc ++ ai; regs = regs :+ ar; st = stN
+      }
+      val (nk, st1) = st.constIdx(Lit.LInt(argEs.length.toLong))
+      val (nr, st2) = st1.fresh
+      val (d, st3) = st2.fresh
+      var fill: List[Instr] = Nil
+      var stf = st3
+      regs.zipWithIndex.foreach { (r, i) =>
+        val (ik, sN) = stf.constIdx(Lit.LInt(i.toLong))
+        val (ir, sN2) = sN.fresh
+        fill = fill ++ List(Instr.Const(ir, ik), Instr.ArrSet(d, ir, r))
+        stf = sN2
+      }
+      (acc ++ List(Instr.Const(nr, nk), Instr.NewArr(d, nr)) ++ fill, d, stf)
 
     case Expr.Call(fn, argEs, p) =>
       var acc: List[Instr] = Nil

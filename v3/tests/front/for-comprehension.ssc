@@ -1,0 +1,7 @@
+for x <- List(1, 2, 3) do println(x)
+println((for x <- List(1, 2, 3) yield x * 2).mkString(","))
+println((for x <- List(1, 2, 3, 4) if x % 2 == 0 yield x).mkString(","))
+println((for a <- List(1, 2); b <- List(10, 20) yield a * b).mkString(","))
+val pairs = for a <- List(1, 2); b <- List("x", "y") yield (a, b)
+println(pairs)
+for p <- pairs do println(p._1 + p._2)

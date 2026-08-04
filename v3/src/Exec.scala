@@ -101,8 +101,14 @@ object Exec:
           "(" + f.toList.map(x => showV(m, x)).mkString(", ") + ")"
         else if f.isEmpty then nm
         else nm + "(" + f.toList.map(x => showV(m, x)).mkString(", ") + ")"
-    case Value.VArr(xs) => "Array(" + xs.toList.map(x => showV(m, x)).mkString(", ") + ")"
+    // `<foreign>`, because that is what BOTH reference lanes print — an array is a host object to
+    // v1 and v2, and they say so. Printing the contents would read better and would make the two
+    // v3 lanes disagree on every program that prints an array, which invariant I-3 forbids. The
+    // executor's own diagnostics still use `show`, which does print the contents.
+    case Value.VArr(_) => "<foreign>"
     case other          => show(other)
+
+  private def a0(as: List[Int]): Int = as.head
 
   private def truthy(v: Value): Boolean = v match
     case Value.VBool(b) => b
@@ -210,6 +216,16 @@ object Exec:
     case Instr.CallV(d, c, as) =>
       regs(c) match
         case Value.VClos(f, cap) => regs(d) = callFunc(m, f, cap ++ as.map(r => regs(r))); Signal.Done
+        // `a(i)` on an ARRAY is an index, not a call. That is not a v3 invention: the bridge has
+        // relied on it from the start — a frame read is `(app frame idx)` — so this is the executor
+        // catching up with the semantics both lanes were already built on.
+        case Value.VArr(xs) if as.length == 1 =>
+          regs(a0(as)) match
+            case Value.VInt(i) =>
+              if i < 0 || i >= xs.length then
+                throw ExecError("array index " + i + " out of bounds for length " + xs.length)
+              regs(d) = xs(i.toInt); Signal.Done
+            case v => throw ExecError("array index " + show(v))
         case v                   => throw ExecError("calling a non-function: " + show(v))
     case Instr.MkClos(d, f, caps) => regs(d) = Value.VClos(f, caps.map(r => regs(r))); Signal.Done
     // The point of the whole file: this does NOT recurse. It hands the trampoline a new target.
@@ -373,6 +389,7 @@ object Exec:
               Value.VInt(acc)
             case "map"     => listIn(m, xs.map(x => apply1(m, args.head, x)))
             case "filter"  => listIn(m, xs.filter(x => truthy(apply1(m, args.head, x))))
+            case "flatMap" => listIn(m, xs.flatMap(x => listOut(m, apply1(m, args.head, x))))
             case "reverse" => listIn(m, xs.reverse)
             // A LANE DIVERGENCE, not a missing feature: the bridge ran `foreach` all along and the
             // executor did not. Invisible because no fixture used it.
@@ -423,6 +440,10 @@ object Exec:
   // `println` does, or a value prints one way on its own and another inside a string.
   private def binOp(m: Module, op: BinOp, a: Value, b: Value): Value = (op, a, b) match
     case (BinOp.Add, Value.VStr(x), y)               => Value.VStr(x + showV(m, y))
+    // …and the OTHER way round. `1 + "x"` is a string on the reference lane; the executor handled
+    // only a string on the LEFT and threw on the right, so `p._1 + p._2` over a mixed tuple failed
+    // on one lane and printed on the other.
+    case (BinOp.Add, x, Value.VStr(y))               => Value.VStr(showV(m, x) + y)
     case (BinOp.Add, Value.VInt(x), Value.VInt(y))   => Value.VInt(x + y)
     case (BinOp.Sub, Value.VInt(x), Value.VInt(y))   => Value.VInt(x - y)
     case (BinOp.Mul, Value.VInt(x), Value.VInt(y))   => Value.VInt(x * y)

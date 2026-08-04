@@ -16,7 +16,7 @@ final case class ParseFail(pos: Pos, message: String)
 object Parser:
 
   private val keywords: List[String] =
-    List("def", "val", "var", "if", "then", "else", "while", "do", "true", "false", "case", "class", "match", "enum", "object", "trait", "try", "catch", "finally", "throw")
+    List("def", "val", "var", "if", "then", "else", "while", "do", "true", "false", "case", "class", "match", "enum", "object", "trait", "try", "catch", "finally", "throw", "for", "yield")
 
   /** Binary operator precedence, tightest last. `&&` and `||` are here for PARSING only — the
     * lowering turns them into `If`, because they short-circuit and an IR that lets them be strict
@@ -384,6 +384,7 @@ object Parser:
     case Tok.TId("false", p) => (Expr.BoolLit(false, p), ts.tail)
     case Tok.TId("if", p)    => parseIf(ts.tail, p)
     case Tok.TId("while", p) => parseWhile(ts.tail, p)
+    case Tok.TId("for", p)   => parseFor(ts.tail, p)
     case Tok.TId("try", p)   => parseTry(ts.tail, p)
     case Tok.TId("throw", p) =>
       val (e, t) = parseExpr(ts.tail)
@@ -657,6 +658,91 @@ object Parser:
     * Expanding here rather than adding a statement kind means the lowering, the free-variable scan,
     * auto-output and the top-level global hoist all keep seeing ordinary `val`s, and none of them
     * had to learn about destructuring. */
+  /** `for` is DESUGARED here, into the collection methods it already means:
+    *
+    *     for x <- xs do e            xs.foreach(x => e)
+    *     for x <- xs yield e         xs.map(x => e)
+    *     for x <- xs if p yield e    xs.filter(x => p).map(x => e)
+    *     for a <- xs; b <- ys yield e    xs.flatMap(a => ys.map(b => e))
+    *
+    * Desugaring in the parser rather than adding an IR form is the same decision tuples got: the
+    * lowering, the verifier and both backends keep seeing calls they already handle, and `for`
+    * cannot drift away from what the methods do because it IS those methods. It also means `for`
+    * works over anything with `map`/`flatMap`/`foreach`, which is what makes it worth having.
+    *
+    * The generators are separated by newlines or `;`, and the whole list may be parenthesised. */
+  private def parseFor(ts0: List[Tok], p: Pos): (Expr, List[Tok]) =
+    val paren = isPunct(peek(ts0), "(")
+    var ts = if paren then ts0.tail else skipLayoutTokens(ts0)
+    var gens: List[(String, Expr, List[Expr])] = Nil   // name, source, guards
+    var go = true
+    while go do
+      ts = skipLayoutTokens(ts)
+      val (n, _, t1) = expectName(ts)
+      val t2 = expectOp(t1, "<-")
+      val (src, t3) = parseExpr(t2)
+      var t = skipLayoutTokens(t3)
+      var guards: List[Expr] = Nil
+      while isId(peek(t), "if") do
+        val (g, tg) = parseExpr(t.tail)
+        guards = guards :+ g
+        t = skipLayoutTokens(tg)
+      gens = gens :+ ((n, src, guards))
+      if isPunct(peek(t), ";") then ts = t.tail
+      else if isId(peek(t), "do") || isId(peek(t), "yield") || isPunct(peek(t), ")") then
+        ts = t
+        go = false
+      else ts = t
+      if !go then ()
+      else if isId(peek(ts), "do") || isId(peek(ts), "yield") || isPunct(peek(ts), ")") then go = false
+    if paren then ts = expectPunct(ts, ")")
+    ts = skipLayoutTokens(ts)
+    val yields = isId(peek(ts), "yield")
+    if !yields && !isId(peek(ts), "do") then
+      throw ParseFail(posOf(ts), "expected `do` or `yield` after a `for`, found " + Lexer.show(peek(ts)))
+    // A `do` body is a STATEMENT — `for i <- xs do total = total + a(i)` is the ordinary shape of an
+    // imperative loop, and `parseBody` parses an expression, so an assignment there failed with the
+    // `=` blamed. A `yield` body is an expression by definition and keeps the expression parse.
+    val (body, tEnd) =
+      if yields then parseBody(ts.tail)
+      else if peek(ts.tail).isInstanceOf[Tok.TNewline] &&
+              peek(skipNewlines(ts.tail)).isInstanceOf[Tok.TIndent] then parseBody(ts.tail)
+      else
+        val (sts, t) = parseStmt(ts.tail)
+        (Expr.Block(sts, None, p), t)
+    // Built INSIDE OUT: the innermost generator carries the body, and each enclosing one wraps what
+    // it produced in a `flatMap`. Only the innermost decides between `map` and `foreach`.
+    var acc = body
+    var first = true
+    gens.reverse.foreach { g =>
+      val (n, src, guards) = g
+      val filtered = guards.foldLeft(src) { (sofar, cond) =>
+        Expr.MethodCall(sofar, "filter", List(Expr.Lambda(List(Param(n, p)), cond, p)), p)
+      }
+      val method = if first then (if yields then "map" else "foreach") else "flatMap"
+      acc = Expr.MethodCall(filtered, method, List(Expr.Lambda(List(Param(n, p)), acc, p)), p)
+      first = false
+    }
+    (acc, tEnd)
+
+  /** Newlines and INDENTs between a `for`'s generators carry no meaning — the `do`/`yield` says
+    * where the header ends. DEDENTs are left alone: one of them closes the enclosing block. */
+  /** Does a balanced `( … )` starting here end at a lone `=`? `=` and not `==`, because `a(i) == v`
+    * is an ordinary comparison and misreading it as an assignment would silently discard it. */
+  private def updateAhead(ts0: List[Tok]): Boolean =
+    var t = ts0.tail
+    var depth = 1
+    while depth > 0 && t.nonEmpty && !peek(t).isInstanceOf[Tok.TEof] do
+      if isPunct(peek(t), "(") then depth = depth + 1
+      else if isPunct(peek(t), ")") then depth = depth - 1
+      t = t.tail
+    t.nonEmpty && isOp(peek(t), "=")
+
+  private def skipLayoutTokens(ts0: List[Tok]): List[Tok] =
+    var ts = ts0
+    while peek(ts).isInstanceOf[Tok.TNewline] || peek(ts).isInstanceOf[Tok.TIndent] do ts = ts.tail
+    ts
+
   private def parseStmt(ts: List[Tok]): (List[Stmt], List[Tok]) = peek(ts) match
     // `val (x, y) = e` — bind the tuple ONCE to a temporary, then read its fields. Binding once is
     // the point: expanding to `e._1` and `e._2` would evaluate `e` twice, and `e` may print, read a
@@ -688,6 +774,15 @@ object Parser:
       val t3 = expectOp(t2, "=")
       val (e, t4) = parseExpr(t3)
       (List(Stmt.Val(n, e, mutable, p)), t4)
+    // `a(i) = v`. Told apart from a call by SCANNING to the matching `)` and looking for a single
+    // `=` after it — a scan rather than a backtracking attempt, for the reason `lambdaAhead` gives:
+    // a parser that retries reports the error from whichever attempt failed last.
+    case Tok.TId(n, p) if !keywords.contains(n) && isPunct(peek(ts.tail), "(") && updateAhead(ts.tail) =>
+      val (idx, t1) = parseExpr(ts.tail.tail)
+      val t2 = expectPunct(t1, ")")
+      val t3 = expectOp(t2, "=")
+      val (v, t4) = parseExpr(t3)
+      (List(Stmt.Exp(Expr.Update(Expr.Name(n, p), idx, v, p))), t4)
     case Tok.TId(n, p) if !keywords.contains(n) && isOp(peek(ts.tail), "=") =>
       val (e, t) = parseExpr(ts.tail.tail)
       (List(Stmt.Exp(Expr.Assign(n, e, p))), t)

@@ -203,9 +203,9 @@ Baseline MEASURED 2026-08-04, one probe per construct, before any of it was writ
       case of `testPat`, which is already the single place every arm kind converges.
 - [x] **7c — `foreach` on the executor.** A one-line lane divergence, and the gate did not see it
       because no fixture used `foreach`. Fixture first, then the fix.
-- [ ] **7d — `for` comprehensions.** `for x <- xs do e` and `for x <- xs yield e`, desugared in the
+- [x] **7d — `for` comprehensions.** `for x <- xs do e` and `for x <- xs yield e`, desugared in the
       parser to `foreach`/`map`. Multiple generators and `if` guards only if measured worth it.
-- [ ] **7e — `Array` syntax.** `Array(…)`, `a(i)`, `a(i) = v`, `a.length`. The IR instructions
+- [x] **7e — `Array` syntax.** `Array(…)`, `a(i)`, `a(i) = v`, `a.length`. The IR instructions
       (`NewArr`/`ArrGet`/`ArrSet`/`ArrLen`) exist and are exercised by the frame itself; this is
       front work only.
 
@@ -241,3 +241,22 @@ construction, `t._1` through the existing field-by-name `Switch`, `case (a, b)` 
 pattern, one arm in `showV`. The representation is v2's own (`DataV("Tuple2", …)`), so the bridge
 builds a real v2 tuple rather than a lookalike. Verified THREE ways — executor, bridge and the v1
 interpreter produce byte-identical output for the whole fixture.
+
+### Defects found while adding `for` and arrays
+
+- [x] **A lambda nested inside a lambda got its ENCLOSING lambda's index.** The lifted function's
+      index was taken BEFORE the body was lowered, and the body lifts its own lambdas onto the same
+      list — so the inner one appended first and took the number, and the outer's `MkClos` pointed
+      at the inner function. Calling it passed the outer's argument count to the inner's arity:
+      `__lam2 takes 2 argument(s), given 1`. It hit EVERY closure nested inside a capturing closure,
+      which is exactly what a `for` with two generators desugars to. Both lanes failed IDENTICALLY,
+      so the differential gate could not see it — a reminder that agreement is not correctness.
+- [x] **`1 + "x"` threw on the executor.** String concatenation was implemented for a string on the
+      LEFT only. `p._1 + p._2` over a mixed tuple printed on one lane and failed on the other.
+- [x] **A `for … do` body could not be a STATEMENT.** `for i <- xs do total = total + a(i)` — the
+      ordinary shape of an imperative loop — parsed the body as an expression and blamed the `=`.
+
+**Arrays print `<foreign>`, deliberately.** Both reference lanes print that: an array is a host
+object to v1 and v2 and they say so. Printing the contents would read better and would make v3's
+two lanes disagree on every program that prints an array, which is invariant I-3. The executor's own
+diagnostics still show the contents, because they are not the language's output.
