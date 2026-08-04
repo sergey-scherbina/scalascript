@@ -51,11 +51,12 @@ its report was one failure message attributed to the wrong lanes. With the runne
 and nothing here proves they share a cause.
 
 ## triple-quoted-literal-ending-in-a-quote-is-not-a-string — three lanes agree, and all three are wrong
-<!-- status: open
+<!-- status: fixed
      lane: multi
      area: front
      kind: bug
-     gate: tests/e2e/triple-quote-trailing-quote-gate.sh -->
+     gate: tests/e2e/triple-quote-trailing-quote-gate.sh
+     fixed-in: PENDING-SHA -->
 
 **Measured 2026-08-04.** Four lines:
 
@@ -102,6 +103,42 @@ sat red and unread: nothing in the message suggests a string literal.
 
 **Declared, not left red.** The gate counts native and declares int/js/jvm as gaps; each cell
 **fails if it starts passing**, so the declaration cannot outlive the defect.
+
+
+**FIXED 2026-08-05.** One rule, in one place, replacing four copies of the wrong one.
+
+Scala ends a multi-line literal at the **last** quote of a maximal run, not at the first `"""`: of
+the four closing quotes in `"""x""""` the first is CONTENT. Every scanner in
+`v1/lang/core/.../parser/Parser.scala` stopped at the first `"""`, which left a stray `"` loose in
+the stream — and the pass each scanner serves then rewrote whatever followed. That is why the
+symptom was a **List**: the `[` of the next literal, `"[" + a + "]"`, was read as a list literal.
+It explains the impossible diagnostic too — `Undefined: impl` at a column that does not exist —
+because by then the text being parsed was not the text on disk.
+
+**Four call sites had it**, one per preprocessing pass (`preprocessListLiterals`' own
+`skipTripleFrom`, its interpolation-splice skip, and two `code.indexOf("\"\"\"", …)` scanners).
+They now share `tripleLiteralEnd`, so the next pass to need one cannot pick up a fifth copy of the
+bug.
+
+Verified on all four lanes, with `jvm` — real Scala — as the oracle:
+
+| | before | after |
+|---|---|---|
+| `"""x""""` | int/js/jvm `List(x")`, native `[x"]` | all four **`[x"]`** |
+| `"""x"""` (control) | `[x]` everywhere | unchanged |
+| `""" aria-invalid="true""""` | broken on three lanes | all four `[ aria-invalid="true"]` |
+| `"""a"b"""` (quote in the middle) | — | all four `[a"b]` |
+
+**The gate announced its own removal, as designed.** Its int/js/jvm cells were declared gaps that
+FAIL if they start passing; after the fix it failed with *"the gap closed — delete this block"*. All
+four lanes now run through the same `check`.
+
+**One thing the gate did that nobody should trust, recorded because it is unexplained.** The
+declared cells used `producer | grep -q` where `check` uses a command substitution. With the pipe,
+the `js` cell reported "still a gap" while the identical command captured to a variable printed the
+right answer — reproducible inside the gate, not reproducible outside it, and not explained by
+`pipefail`, by ordering, by the temp directory, or by the shell. It is gone now because all four
+cells capture; if a cell here ever disagrees with a manual run again, start there.
 
 ## v2-three-parameter-clauses-fail-typecheck — `def f(a)(b)(c)` dies with "cannot unify Tuple with non-Tuple"
 

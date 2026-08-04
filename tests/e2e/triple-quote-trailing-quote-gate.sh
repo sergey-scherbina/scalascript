@@ -66,24 +66,26 @@ check() { # $1 label, rest = command
   fi
 }
 
-# The int, js and jvm cells are a KNOWN GAP, declared rather than left red on arrival. Each FAILS if it
-# start passing, so the declaration cannot outlive the defect.
-for lane in "int:run --v1" "js:run-js" "jvm:run-jvm"; do
-  label="${lane%%:*}"; cmd="${lane#*:}"
-  # shellcheck disable=SC2086 -- $cmd is a command with arguments
-  if SSC_NO_BUILD_CHECK=1 timeout 180 "$SSC" $cmd "$TMP/tq.ssc" </dev/null 2>&1 | grep -qF '[x"]'; then
-    printf '  FAIL %s now PASSES — the gap closed. Delete this block, let %s count with\n' "$label" "$label"
-    printf '       the rest, and close BUGS.md triple-quoted-literal-ending-in-a-quote-is-not-a-string.\n'
-    fails=$((fails + 1))
-  else
-    printf '  KNOWN GAP  %s — triple-quoted-literal-ending-in-a-quote-is-not-a-string (declared)\n' "$label"
-  fi
-done
-
+# ALL FOUR lanes are checked the same way as of 2026-08-05. int, js and jvm were declared KNOWN
+# GAPS here — the defect was in the front the three of them share, and native has its own — and each
+# cell was written to FAIL if it started passing, which is how this block announced its own removal.
+# Fixed in the shared front: Scala ends a multi-line literal at the LAST quote of a maximal run, and
+# four preprocessing scanners all stopped at the first `"""`.
+# BUGS `triple-quoted-literal-ending-in-a-quote-is-not-a-string`.
+#
+# The declared cells also used `producer | grep -q` where `check` uses a command substitution. With
+# the pipe, the js cell reported "still a gap" while the very same command captured to a variable
+# printed the right answer — reproducible inside this gate, not reproducible outside it, and never
+# explained. Rather than leave a cell whose verdict depends on the shape of its plumbing, all four
+# now go through `check`, which captures. Worth knowing if a cell here ever disagrees with a manual
+# run again.
+check "int"    "$SSC" run --v1
+check "js"     "$SSC" run-js
+check "jvm"    "$SSC" run-jvm
 check "native" "$ROOT/bin/ssc"
 
 if [[ $fails -ne 0 ]]; then
   printf 'triple-quote-trailing-quote-gate: FAIL (%d cell(s))\n' "$fails" >&2
   exit 1
 fi
-printf 'triple-quote-trailing-quote-gate: OK (native correct; int, js and jvm are declared gaps)\n'
+printf 'triple-quote-trailing-quote-gate: OK (all four lanes agree with the jvm oracle)\n'

@@ -1559,6 +1559,30 @@ object Parser:
    *  can precede list literals and are excluded from the "type-parameter" path.
    *  Map vs List: if the content contains `->` at bracket-depth 0 → Map; else → List.
    *  Handles strings (single/double/triple-quoted), line `//` and block `/* */` comments. */
+  /** Index just past the closing `"""` of the triple-quoted literal that opens at `start`, or the
+   *  end of input if it is unterminated.
+   *
+   *  Scala ends a multi-line literal at the LAST quote of a maximal run, not the first `"""`: in
+   *  `\"\"\"x\"\"\"\"` the first of the four closing quotes is CONTENT and the value is `x\"`. Every
+   *  scanner below used to stop at the first `\"\"\"`, which left a stray `\"` loose in the stream —
+   *  and the passes these scanners serve then rewrote whatever followed. Measured 2026-08-04:
+   *  `val a = \"\"\"x\"\"\"\"; println("[" + a + "]")` printed `List(x")` on int, js AND jvm, because the
+   *  `[` of the next literal was read as a list literal. The native lane, which has its own front,
+   *  was the only one right — a majority is not a verdict.
+   *
+   *  FOUR call sites had this, one per preprocessing pass, so it lives here once.
+   *  BUGS `triple-quoted-literal-ending-in-a-quote-is-not-a-string`.
+   */
+  private[parser] def tripleLiteralEnd(code: String, start: Int): Int =
+    val n = code.length
+    var j = start + 3
+    while j + 2 < n && !(code.charAt(j) == '"' && code.charAt(j + 1) == '"' && code.charAt(j + 2) == '"') do j += 1
+    if j + 2 >= n then n
+    else
+      // Extend across a run of quotes: only the LAST three close the literal.
+      while j + 3 < n && code.charAt(j + 3) == '"' do j += 1
+      j + 3
+
   private[parser] def preprocessListLiterals(code: String): String =
     if !code.contains('[') then return code
     val in  = code.toCharArray
@@ -1575,10 +1599,7 @@ object Parser:
         j += 1
       if j < n then j + 1 else j // position after closing quote
 
-    def skipTripleFrom(start: Int): Int =
-      var j = start + 3
-      while j + 2 < n && !(in(j) == '"' && in(j+1) == '"' && in(j+2) == '"') do j += 1
-      if j + 2 < n then j + 3 else j
+    def skipTripleFrom(start: Int): Int = tripleLiteralEnd(code, start)
 
     // Interpolation-aware string skip. For an interpolated string `s"…${expr}…"`, a
     // `"` inside a `${…}` splice is NOT the terminator — the splice can embed its own
@@ -1934,10 +1955,7 @@ object Parser:
     def skipString(start: Int): Int =
       // Triple-quoted string — skip past matching """ without processing ${…} inside
       if start + 2 < n && in(start) == '"' && in(start+1) == '"' && in(start+2) == '"' then
-        var j = start + 3
-        while j + 2 < n && !(in(j) == '"' && in(j+1) == '"' && in(j+2) == '"') do
-          j += 1
-        if j + 2 < n then j + 3 else n
+        tripleLiteralEnd(code, start)
       else
         val q = in(start)
         var j = start + 1
@@ -2106,8 +2124,7 @@ object Parser:
         sb.append(code.substring(i, j)); i = j
       // ── skip triple-quoted string ──
       else if c == '"' && i + 2 < n && code.charAt(i + 1) == '"' && code.charAt(i + 2) == '"' then
-        val end = code.indexOf("\"\"\"", i + 3)
-        val to  = if end < 0 then n else end + 3
+        val to = tripleLiteralEnd(code, i)
         sb.append(code.substring(i, to)); i = to
       // ── skip single-line string ──
       else if c == '"' then
@@ -2234,8 +2251,7 @@ object Parser:
         sb.append(code.substring(i, j)); i = j
       // ── skip triple-quoted string ──
       else if c == '"' && i + 2 < n && code.charAt(i + 1) == '"' && code.charAt(i + 2) == '"' then
-        val end = code.indexOf("\"\"\"", i + 3)
-        val to  = if end < 0 then n else end + 3
+        val to = tripleLiteralEnd(code, i)
         sb.append(code.substring(i, to)); i = to
       // ── skip single-quoted string (with escapes) ──
       else if c == '"' then
