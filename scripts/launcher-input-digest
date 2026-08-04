@@ -120,7 +120,13 @@ inputs() {
   # 1. committed content
   git ls-tree -r HEAD -- "${included[@]}" | while IFS=$'\t' read -r meta path; do
     is_excluded_path "$path" && continue
-    printf '%s\t%s\n' "$(printf '%s' "$meta" | awk '{print $3}')" "$path"
+    # `${meta##* }` and NOT `$(printf … | awk …)`: ls-tree meta is `<mode> <type> <sha>`, so the sha
+    # is the last space-separated field and bash can take it with no process at all. The substitution
+    # spawned TWO processes per line over 7272 lines — ~15k spawns — and that was the whole cost of
+    # this script: 11.3 s locally, and the gate built on it reached 225.5 s of the smoke suite's
+    # 500 s budget on CI, 27% of the whole run and 3x the next check.
+    # BUGS `launcher-digest-gate-is-225s-of-a-500s-budget`.
+    printf '%s\t%s\n' "${meta##* }" "$path"
   done >> "$tmp"
 
   # 2. uncommitted TRACKED changes, staged or not — these OVERRIDE (1). Without them a dirty

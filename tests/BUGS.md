@@ -7,6 +7,50 @@ grepping for status.
 
 Newest first.
 
+## launcher-digest-gate-is-225s-of-a-500s-budget — two processes per line, 7272 lines
+
+<!-- status: fixed
+     lane: apparatus
+     area: build
+     gate: tests/e2e/launcher-digest-gate.sh
+     fixed-in: PENDING-SHA -->
+
+`scripts/launcher-input-digest` extracted the sha from each `git ls-tree` line with
+
+```
+printf '%s\t%s\n' "$(printf '%s' "$meta" | awk '{print $3}')" "$path"
+```
+
+— a command substitution spawning **two processes per line, over 7272 lines**: roughly 15,000
+process spawns per digest. The git commands themselves cost 0.01–0.08 s; the spawning was the entire
+runtime.
+
+| | before | after |
+|---|---|---|
+| one `launcher-input-digest` run (local) | 11.3 s | **0.60 s** |
+| `tests/e2e/launcher-digest-gate.sh` (local) | 5 m 34 s | **19.7 s** |
+| the same check on CI | 225.5 s / 227.0 s | expected ~13 s |
+
+The fix is `${meta##* }` — ls-tree meta is `<mode> <type> <sha>`, so the sha is the last
+space-separated field and bash takes it with no process at all. **Verified equivalent on real data
+rather than by reading**: for all 7271 `ls-tree` lines in this repo, `${meta##* }` and
+`awk '{print $3}'` agree on every one.
+
+**Why this mattered beyond being slow.** At 227 s this single check was 27% of the smoke suite and
+3× the next one, and the suite ran at **467.6 s against its own 500 s cap** — 32 s of headroom on a
+path whose measured variance is larger than that. One CI instance took 823 s and the job went red
+with all 60 checks green, which reads to every agent as "main is broken". Removing ~214 s turns a
+suite that flaps at its ceiling into one with roughly half the budget spare. Related, and left to
+its owner: `smoke-suite-over-its-own-budget`.
+
+The digest VALUE changes with this commit, which is correct and worth stating: the script is one of
+its own inputs (verified), so editing it must change the digest — that is the property the digest
+exists to have.
+
+Loops 2 and 3 (`git diff HEAD` / `git ls-files --others`) still run one `git hash-object` per file.
+Left alone deliberately: both lists are empty in a clean checkout, so they cost nothing today, and
+batching them via `git hash-object --stdin-paths` is a change with no measurement behind it here.
+
 ## launcher-digest-gate-backslash-t-is-not-a-tab-in-ere — green on this machine, red on CI, main blocked for two hours
 
 <!-- status: fixed
