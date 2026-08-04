@@ -1,0 +1,11 @@
+slug: set-distinct-representation
+branch: feature/set-distinct-representation
+agent: claude-code
+started: 2026-08-04T11:37:03Z
+heartbeat: 2026-08-04T11:37:03Z
+status: claimed-before-planning
+items: type-ascription-tuple-and-set-arms-missing
+paths: file:v2/src/Runtime.scala file:specs/v2.2-p6.5-fsub.ssc file:v2/lib/ssc1-lower.ssc0 file:v1/runtime/backend/js/src/main/scala/scalascript/codegen/JsGen.scala file:tests/conformance/type-ascription-set.ssc file:tests/conformance/expected/type-ascription-set.txt file:tests/conformance/set-distinct.ssc file:tests/conformance/contract-roster.tsv
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
