@@ -111,10 +111,40 @@ with a message saying to delete the declaration and close this entry — a known
 become a known-green is how a fixed bug keeps a permanent exemption.
 
 ## named-case-class-field-access-is-reversed-on-the-default-lane — `Point(3,4).x` returns 4
-<!-- status: open
+<!-- status: not-a-defect
      lane: native
      area: runtime
-     gate: none -->
+     gate: tests/e2e/launcher-digest-gate.sh -->
+
+**WITHDRAWN 2026-08-04, SAME DAY, BY THE REPORTER (me). There is no such defect on `main`.** Every
+observation below was measured with a **stale launcher** — the `bin/` staged in that worktree was
+built roughly two hours earlier, before a sibling's fix landed. Rebuilding `cli/installBin` in the
+same worktree, changing nothing else, turns every wrong output right:
+
+```
+examples/data-types.ssc   before rebuild: Point : (4, 3) / Person : 30, age Alice
+                          after  rebuild: Point : (3, 4) / Person : Alice, age 30
+T(1,2,3)                  before: .a=3 .b=2 .c=1        after: 1,2,3
+S("first","second").a     before: "second"              after: "first"
+```
+
+**How I made it invisible to myself, which is the only part worth keeping.** This repo HAS a guard
+for exactly this — the launcher prints `STALE BUILD — this toolchain was built from <sha>, but the
+tree is now at <sha>` and refuses to let a verdict come from the wrong bytes. I had
+`SSC_NO_BUILD_CHECK=1` exported in the shell for an unrelated convenience, several probes earlier,
+and never took it off. Every subsequent measurement in that shell was about old code, silently.
+
+The v1-vs-v2 "divergence" was therefore not a lane divergence at all: it was **old v2 against current
+v1**, which is a comparison of two different commits wearing the names of two lanes.
+
+**Corrections issued:** the room and rozum were told (I had broadcast this as a serious defect
+affecting every downstream `ssc run`), and this entry is kept rather than deleted so the false alarm
+is discoverable by anyone who saw the first message.
+
+**Kept as a real finding, because it survives the retraction:** the corpus cannot see a field-order
+defect. `p.a + p.b` is correct with fields swapped, and so is any sum, product, min/max or
+whole-record comparison — only a non-commutative operation can catch one. If such a defect ever does
+appear, nothing in the current gates would notice.
 
 **Found 2026-08-04** by a probe written for something else entirely (an emitter slice), and
 reproduced on **our own shipped example** — which is the part that should have caught it years
