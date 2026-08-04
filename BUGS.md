@@ -16,6 +16,40 @@ scripts/bugs-report --no-gate              # open entries with no regression gat
 
 Newest first.
 
+## multipart-upload-three-lanes-three-answers — only js parses a file part correctly
+<!-- status: open
+     lane: multi
+     area: runtime
+     kind: bug
+     gate: tests/e2e/upload-smoke.sh -->
+
+**Measured 2026-08-04**, `examples/uploads.ssc` served on each lane, one `curl -F` with a 256-byte
+`application/octet-stream` payload:
+
+| lane | `POST /upload` |
+|---|---|
+| int | `native HTTP handler failed: For input string: "-"` |
+| js | `filename=payload.bin\|content-type=application/octet-stream\|size=256\|…` — **correct** |
+| native | `missing 'file' part` |
+
+**Three lanes, three different answers, and only one of them right.** Each fails in its own way:
+
+- **int** throws a NUMBER-PARSE error on the string `"-"`. A multipart body's delimiters begin
+  `--<boundary>`, so something in that path is reading a boundary fragment as an integer. Note the
+  message says *native* HTTP handler while the program was run with `run --v1`; whether the
+  interpreter lane is delegating to the native serving plugin is a separate question this entry
+  does not answer.
+- **native** answers `missing 'file' part` — at HTTP 200. That is the expensive shape: not an error,
+  a WRONG ANSWER that a status-code check cannot see. `req.files` simply does not contain the part.
+
+**Found by `upload-smoke`, which could not have said this.** That gate ran `$BIN/sscc` — the
+JVM *compiler* — as one of its three "backends" and labelled `$BIN/ssc` (the native lane) `INT`, so
+its report was one failure message attributed to the wrong lanes. With the runners corrected
+(`orphaned-e2e-gates-52`) the three answers above are what it is actually looking at.
+
+**Not reduced further.** The boundary-parse and the missing-part are probably two defects, not one,
+and nothing here proves they share a cause.
+
 ## triple-quoted-literal-ending-in-a-quote-is-not-a-string — three lanes agree, and all three are wrong
 <!-- status: open
      lane: multi

@@ -430,7 +430,7 @@ free to fix (`package-keyword` is held elsewhere). Corrected runners, then re-me
 | `validation` | **green** — INT/JVM/JS all listen, verified distinct |
 | `components`, `middleware` | jvm fails to COMPILE — `jvm-lane-cannot-compile-a-json-import`, filed |
 | `std-ui-forms` | **REDUCED 2026-08-04 to four lines and filed** — not a rendering defect at all. `ssc render` died with `InterpretError: Undefined: impl`, a name in no source file, at a position that does not exist in the file it names. It is a triple-quoted literal whose CONTENT ends with a quote (`""" aria-invalid="true""""` in `input.ssc`): int, js and jvm all turn it into a **List** instead of a String, native alone is right. `BUGS.md triple-quoted-literal-ending-in-a-quote-is-not-a-string`, gated. |
-| `upload` | `INT: missing 'file' part` — real, unreduced |
+| `upload` | **MEASURED 2026-08-04 per lane and filed.** Three lanes, three different answers: int throws `For input string: "-"` (a number parse on a multipart boundary), native answers `missing 'file' part` AT HTTP 200 — a wrong answer, not an error — and js is the only one that round-trips the file correctly. `BUGS.md multipart-upload-three-lanes-three-answers`. |
 
 **The finding under two of them is bigger than the gates.** `run-jvm` cannot compile *any* program
 importing `std/json.ssc` — 14 `[E007]` in the emitted Scala, every one a destructured binder typed
