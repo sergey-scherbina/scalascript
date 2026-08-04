@@ -64,4 +64,16 @@ available.
 
 ## Result
 
-*(filled in on completion)*
+Landed 2026-08-04. `cargoToml(manifest, emittedSource)` reads the generated Rust: `ureq` iff it
+contains `ureq::`, `serde_json` iff it contains `serde_json::`. The call site emits `main.rs` first
+and passes it — a swap of two statements, no new machinery — and no feature-shaped condition
+survives.
+
+`frontendTui/test` 40/40 including the cargo smokes. The new test pins all four directions, and the
+**negatives are the load-bearing half**: an over-declaring manifest still compiles, so a test that
+only asserted "declared when used" would pass a derivation that declared everything always.
+
+One thing worth recording for the next person, because it cost a wrong first diagnosis: the initial
+run failed with `stale symbol; module class ConstantDesc$ … referred to in run Period(2.1)` in
+`DataValue.scala`, a file this change does not touch. That is a poisoned incremental-compiler state,
+not a defect — `sbt --client shutdown` plus a clean of the affected module cleared it.

@@ -188,6 +188,29 @@ final class TuiEmitterTest extends AnyFunSuite:
     assert(rs.contains("""load_fetch(signals, "rooms", "http://x/rooms", &[]);"""))
   }
 
+  test("Cargo dependencies are derived from the emitted source, not from a feature list") {
+    // BUGS tui-cargo-deps-are-a-hand-maintained-disjunction. The manifest is computed from the
+    // generated Rust, so a future emission that reaches for a crate cannot desynchronise from it.
+    // All four directions are pinned, because only the NEGATIVES keep the derivation honest — an
+    // over-declaring manifest still compiles and would pass every positive assertion.
+    val noFetch = emitCrate(View.Text(() => "static"))._1
+    assert(!noFetch.contains("ureq"))
+    assert(!noFetch.contains("serde_json"))
+
+    val plain = emitCrate(View.SignalText(new FetchUrlSignal("f", "http://x/a", "t")))._1
+    assert(plain.contains("ureq"))
+    assert(!plain.contains("serde_json"))          // no headers, no JSON parsing, no dependency
+
+    val withHeaders = emitCrate(View.SignalText(new FetchUrlSignal("f", "http://x/a", "t", Some("h"))))._1
+    assert(withHeaders.contains("ureq") && withHeaders.contains("serde_json"))
+
+    val remote = emitCrate(View.DataTable(
+      TableDataSource.Remote(new FetchUrlSignal("rows", "http://x/rows", "t"), "data"),
+      List(FieldColumnDef("Room", "room")),
+      rowKeyPath = "room"))._1
+    assert(remote.contains("ureq") && remote.contains("serde_json"))
+  }
+
   test("DataTable rejects duplicate static row identity before rendering") {
     val table = View.DataTable(
       TableDataSource.StaticRows(List(Map("meta" -> Map("key" -> 1)), Map("meta" -> Map("key" -> 1)))),

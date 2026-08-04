@@ -63,15 +63,20 @@ object TuiEmitter:
     val body = StringBuilder()
     emit(root, "area", body, Iterator.from(0), focusables, TermStyle.empty)
 
-    // serde_json is needed by the headers path too, not only by a remote table: a fetch carrying
-    // headers parses its JSON object at fetch time, and without the dependency the emitted crate
-    // references serde_json and does not compile.
-    val needsSerde = remoteTable || fetches.values.exists(_.headersId.isDefined)
-    (cargoToml(manifest, fetches.nonEmpty, needsSerde), mainRs(manifest, signals, fetches, remoteTable, focusables, body))
+    // The manifest is DERIVED FROM THE EMITTED SOURCE, so it cannot disagree with it. It used to be
+    // a disjunction over the features known to use each crate (`hasRemoteTable`, then also the
+    // headers path); every term was a chance to forget one, and forgetting emits a crate that does
+    // not compile — invisible to a string-matching emitter test, which asserts the generated Rust
+    // contains a call and never looks at the manifest. BUGS.md
+    // tui-cargo-deps-are-a-hand-maintained-disjunction.
+    val rs = mainRs(manifest, signals, fetches, remoteTable, focusables, body)
+    (cargoToml(manifest, rs), rs)
 
-  private def cargoToml(manifest: AppManifest, hasFetch: Boolean, needsSerdeJson: Boolean): String =
-    val ureq  = if hasFetch then "ureq = \"2\"\n" else ""
-    val serde = if needsSerdeJson then "serde_json = \"1\"\n" else ""
+  /** Dependencies are read out of the emitted source: a crate is declared exactly when the
+   *  generated Rust names it. Adding an emission that uses one needs no change here. */
+  private def cargoToml(manifest: AppManifest, emittedSource: String): String =
+    val ureq  = if emittedSource.contains("ureq::")       then "ureq = \"2\"\n"       else ""
+    val serde = if emittedSource.contains("serde_json::") then "serde_json = \"1\"\n" else ""
     s"""[package]
        |name = "${crateName(manifest)}"
        |version = "${manifest.version}"
