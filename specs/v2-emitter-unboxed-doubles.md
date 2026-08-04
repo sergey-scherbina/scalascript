@@ -308,3 +308,38 @@ class, plus `PrintInlining` showing `lam$58` no longer "hot method too big".
 The general lesson, which cost this investigation five refuted hypotheses to reach: **a throughput
 win can cross an inlining cliff invisibly.** Neither E-1's wall-clock nor its allocation profile
 could see it; only the emitted size could, and nothing was watching that.
+
+### E-4 — outlining the FALLBACK is refuted; the numbers name what to outline instead
+
+Built it: each qualifying arm's boxed body moved into a deferred method called with
+`env ++ fields` (safe precisely because the guard only accepts an arm whose `Local`s are its own
+bound fields). **It buys 5 bytes.**
+
+| | bytes | target |
+|---|---:|---|
+| before E-4 | 436 | — |
+| after E-4 | **431** | `FreqInlineSize` 325 |
+
+The fallback was never the bulk, and outlining it *adds* code — one `ALOAD 0` plus an `extend1` per
+field per arm — so it is close to a wash. **Reverted**, on the same rule the on-demand-linking slice
+was: measurable complexity, no measured benefit.
+
+**What the disassembly says instead, and it specifies the successor exactly.** Splitting `lam$58`
+(`area`) at its arm boundaries:
+
+```
+arm starts:  21, 93, 187, 285, 365          total 431 bytes
+arm spans:   72, 94, 98, 80, ~66            → ~410 bytes of ARMS
+dispatch alone (tag compare + arity + branch): ~87 bytes
+```
+
+**The dispatch is 87 bytes; the arms are everything else.** So the slice that works is to outline
+**the whole arm** — guard, unboxed path and fallback together — leaving `area` as dispatch plus five
+call sequences, ≈150 bytes, comfortably inlinable; and each arm method at 70–100 bytes is itself
+under the threshold, so the hot arm can inline into the caller too.
+
+**Why it is not this slice.** The guard machinery E-1 introduced keys on JVM SLOTS
+(`ctx.doubleSlots` / `ctx.slotFor`), and an outlined arm addresses its fields through the env array
+instead. Moving the whole arm therefore means re-expressing `canDouble`'s `Local` case in env terms
+— a real refactor of E-1, not a relocation. Specified here with the numbers that justify it rather
+than started at the end of a long session.
