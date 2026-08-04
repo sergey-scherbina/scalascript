@@ -306,6 +306,40 @@ bundled with the Coursier fix so that attribution stayed clean. It recurred in h
 the two fixes are now separately attributable: the first removed the download failures, this one
 removed the timeouts.
 
+## reaper-dry-run-count-flaps-when-a-sibling-builder-exits — the assertion samples a host-wide count twice
+
+<!-- status: open
+     lane: apparatus
+     area: build
+     fixed-in: -
+     gate: tests/e2e/build-ram-budget-gate.sh -->
+
+Seen 2026-08-04 in a local smoke run, 57/58 with only this red:
+
+    ✗ reaper dry-run KILLED builders: expected>=5 got=4
+    build-guard: 1 guarded build(s) already running host-wide (host 36864 MB, 6144 MB/slot) — waiting…
+
+Green on a re-run by hand, in the same tree, minutes later.
+
+`build-ram-budget-gate.sh:205-209` counts builders BEFORE the reaper dry-run and again AFTER, then
+asserts `after >= before` — "a dry run kills nothing". The count is host-wide, and on a machine
+running several agents a sibling's builder exits on its own between the two samples. Nothing was
+killed; one process finished. The gate reads a normal event as the failure it was written to catch.
+
+**Sibling of the entry below, not the same defect.** `reaper-aborts-when-a-builder-exits-mid-scan`
+is fixed and was about `set -e` aborting the scan when a pid vanished mid-`lsof`; this is the
+count comparison that brackets the scan. Same cause in the world — sibling builders come and go —
+and the same tell: green by hand, red under load. The comment right above the assertion already
+records that an earlier attempt at this case was withdrawn for interacting with the semaphore, so
+it is a known-awkward spot rather than an oversight.
+
+What it needs is a count that cannot move for reasons outside the reaper: either restrict the
+sample to builders this gate started (its own `SSC_BUILD_SEMDIR` / a marker in the command line),
+or assert on what the dry run REPORTS it would kill rather than on a population count.
+
+Left as an observation from a bystander: this is not my gate and a wrong fix here has already cost
+one revert.
+
 ## reaper-aborts-when-a-builder-exits-mid-scan — set -e turns a routine race into a red gate
 <!-- status: fixed
      fixed-in: b3c7fc250
