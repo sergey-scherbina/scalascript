@@ -225,6 +225,16 @@ jobs:
       - name: Verify ssc build matches ssc render
         run: tests/e2e/build-smoke.sh
 
+      # Orphaned and red since v1.7 Tier 2 changed the archive layout out from under it: it asserted
+      # `bundle.yaml` at the root where the format has `manifest.yaml` + a `sources/` prefix, so it
+      # failed at its FIRST assertion and nothing after it had ever run. Three cases now pass —
+      # in-tree imports round-trip, multi-entry, and an above-root import flattened into
+      # `sources/_external/` with its reference rewritten. Tier 2 rather than the smoke suite: that
+      # suite has been over its budget twice this week. (BUGS.md
+      # bundle-command-resolves-imports-relative-only.)
+      - name: Verify ssc bundle round-trips
+        run: tests/e2e/bundle-smoke.sh
+
       - name: Verify claim mutex (concurrent claims collide)
         run: tests/coord/claim-mutex-conflict.sh
 

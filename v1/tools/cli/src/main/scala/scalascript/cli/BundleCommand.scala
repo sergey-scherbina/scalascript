@@ -11,16 +11,26 @@ import scalascript.ast.*
  *  imported `.ssc` into a zip archive (`.sscpkg`).  A consumer
  *  unzips and uses the entries with relative imports.
  *
- *  Archive layout:
- *    bundle.yaml                 metadata: entries, transitives, name/version
- *    <entry>.ssc                 each entry at the archive root
- *    <relative paths>/...        every imported file under its
+ *  Archive layout (v1.7 Tier 2 — this docstring described the PRE-Tier-2 layout
+ *  until 2026-08-04, and `tests/e2e/bundle-smoke.sh` asserted that dead layout
+ *  for just as long; it is an orphaned gate, so nobody was told):
+ *    manifest.yaml               metadata: entries, transitives, name/version.
+ *                                 Supersedes the legacy `bundle.yaml`.
+ *    sources/<entry>.ssc         each entry, under the `sources/` prefix
+ *    sources/<relative paths>/…  every imported file under its
  *                                 path relative to the bundle root
- *    _external/<basename>        files that lived ABOVE the bundle
+ *    sources/_external/<base>    files that lived ABOVE the bundle
  *                                 root in the source tree — flattened
  *                                 here; references inside the bundle
  *                                 are rewritten so the archive is
  *                                 self-contained.
+ *
+ *  "Self-contained" means self-contained in USER code. Platform imports
+ *  (`std/…`) are deliberately NOT packed: they resolve at the consumer from
+ *  their own ssc install, the same way `run` resolves them for any file
+ *  outside the tree. Verified by bundling a file that imports `std/http.ssc`,
+ *  unpacking to a temp dir and running it there — `app ran, std import
+ *  resolved`, with no `std/` anywhere in the archive.
  *
  *  The bundle root is the common parent directory of every entry's
  *  parent.  Inside-root files keep their relative path; outside-root
@@ -81,6 +91,9 @@ final class BundleCmd extends CliCommand:
     // externalNames    = basenames already taken under `_external/`.
     val archivePath    = scala.collection.mutable.LinkedHashMap.empty[os.Path, String]
     val externalNames  = scala.collection.mutable.Set.empty[String]
+    // Platform (`std/…`) imports seen and deliberately not packed — counted, not warned about, so
+    // the summary still SAYS they exist rather than leaving silence to be read as "there were none".
+    val platformImports = scala.collection.mutable.Set.empty[String]
 
     def assignPath(abs: os.Path): String =
       if archivePath.contains(abs) then archivePath(abs)
@@ -114,7 +127,25 @@ final class BundleCmd extends CliCommand:
       imports.foreach { imp =>
         val resolved = (file / os.up) / os.RelPath(imp.path)
         if os.exists(resolved) then visit(resolved)
-        else System.err.println(s"  [warn] import ${imp.path} from ${file.last} — not found, skipped")
+        else
+          // NOT necessarily missing. A bare `std/foo.ssc` misses relative to the importing file by
+          // construction and resolves at the CONSUMER from their ssc install — so it is correct not
+          // to pack it, and it was always correct. What was wrong is what we SAID about it:
+          // `not found, skipped` reports a platform module as a broken import. It reads like the
+          // bundle is incomplete, and it cost a full investigation (BUGS.md
+          // bundle-command-resolves-imports-relative-only) before the behaviour turned out to be
+          // right and only the diagnostic wrong.
+          //
+          // Resolved against the same roots the runtime uses, so this agrees with `run` by
+          // construction rather than by a second guess at where std lives.
+          val platform = List(
+              scalascript.imports.ImportResolver.stdPath,
+              scalascript.imports.ImportResolver.libPath,
+            ).flatten.iterator
+            .map(_ / os.RelPath(imp.path))
+            .find(os.exists)
+          if platform.isDefined then platformImports += imp.path
+          else System.err.println(s"  [warn] import ${imp.path} from ${file.last} — not found, skipped")
       }
 
     entryPaths.foreach(visit)
@@ -165,8 +196,13 @@ final class BundleCmd extends CliCommand:
     val outPath = os.Path(outName, os.pwd)
     os.makeDir.all(outPath / os.up)
 
-    // Derive bundle id from output name (strip version suffix + extension if present)
-    val bundleId = outName.stripSuffix(".sscpkg").replaceAll("-\\d+\\.\\d+.*$", "")
+    // Derive bundle id from the output FILE NAME — the basename, not the path. `outName` is
+    // whatever `-o` was given, so `-o /tmp/build-1234/app.sscpkg` used to put
+    // `id: /tmp/build-1234/app` into the manifest: an absolute path from the machine that built it,
+    // as the package's IDENTITY. `SscpkgLoader` parses that field and `ssc plugin install` prints
+    // it back ("Installed <id> <version>"), so the builder's directory layout travelled inside the
+    // artifact and out the other end. (strip version suffix + extension if present)
+    val bundleId = outPath.last.stripSuffix(".sscpkg").replaceAll("-\\d+\\.\\d+.*$", "")
     val isHybrid = backendJars.nonEmpty
     val kind     = if isHybrid then "[library, plugin]" else "[library]"
     val targets  = if isHybrid then backendJars.map(_._1).distinct.mkString("[", ", ", "]") else "[]"
@@ -230,6 +266,16 @@ final class BundleCmd extends CliCommand:
       manifestYaml.append(s"spiVersion: \"0.1.0\"\n")
       manifestYaml.append(s"kind:       $kind\n")
       manifestYaml.append(s"targets:    $targets\n")
+      // `entries:` — WHICH of the packed sources are entry points. The pre-Tier-2 `bundle.yaml`
+      // recorded this and the Tier 2 manifest dropped it, so a consumer unzipping a multi-entry
+      // bundle had no way to tell an entry from a transitive dep; the archive lists both under
+      // `sources/` with nothing to distinguish them. Restored here rather than in the gate, because
+      // asserting less is not the same as the property being gone.
+      //
+      // Additive: `SscpkgManifest.parseString` reads keys by name and ignores ones it does not
+      // know, so an older reader is unaffected.
+      manifestYaml.append("entries:\n")
+      entryPaths.foreach(e => manifestYaml.append(s"  - ${archivePath(e)}\n"))
       manifestYaml.append("exports:\n")
       manifestYaml.append("  externDefs: []\n")
       zip.putNextEntry(new ZipEntry("manifest.yaml"))
@@ -273,7 +319,8 @@ final class BundleCmd extends CliCommand:
     val external  = archivePath.values.count(_.startsWith("_external/"))
     val jarLine   = if backendJars.isEmpty then "" else s", ${backendJars.size} intrinsic JAR(s)"
     val artLine   = if withArtifacts then ", with pre-compiled artifacts" else ""
-    println(s"$outName  (${archivePath.size} sources, $external external$jarLine$artLine) — entries: $entryList")
+    val platLine  = if platformImports.isEmpty then "" else s", ${platformImports.size} platform import(s) not packed"
+    println(s"$outName  (${archivePath.size} sources, $external external$platLine$jarLine$artLine) — entries: $entryList")
 
 // ─────────────────────────────────────────────────────────────────────────────
 

@@ -2,6 +2,16 @@
 # `ssc bundle` smoke — packs a `.ssc` page + its transitive imports into
 # a `.sscpkg` zip, unpacks it elsewhere, renders the entry from the
 # unpacked tree, and verifies the rendered HTML matches the original
+#
+# LAYOUT, updated 2026-08-04. This gate asserted `bundle.yaml` at the archive root and entries
+# beside it. That layout was superseded by `manifest.yaml` + a `sources/` prefix in v1.7 Tier 2 and
+# has not existed since; the gate is invoked by nothing, so it failed at its FIRST assertion for
+# months with nobody reading the message (tests/BUGS.md orphaned-e2e-gates-52). The command's own
+# class docstring described the same dead layout and is corrected in the same commit.
+#
+# `std/…` imports are NOT in the archive and must not be: they resolve at the consumer from their
+# own ssc install. Checked directly — bundle a file importing `std/http.ssc`, unpack to a temp dir,
+# run it there: `app ran, std import resolved`, with no `std/` in the archive at all.
 # source byte-for-byte.  Also exercises the external-imports flatten +
 # rewrite path (when an entry imports from above its own directory).
 set -uo pipefail
@@ -26,16 +36,16 @@ PKG1="$WORK/components-demo.sscpkg"
 UNPACK1="$WORK/unpack1"; mkdir -p "$UNPACK1"
 unzip -q "$PKG1" -d "$UNPACK1"
 
-if [ ! -f "$UNPACK1/bundle.yaml" ]; then
-    echo "  [FAIL] bundle.yaml missing"; fail=1
+if [ ! -f "$UNPACK1/manifest.yaml" ]; then
+    echo "  [FAIL] manifest.yaml missing"; fail=1
 fi
 for required in components-demo.ssc components/page.ssc components/button.ssc components/card.ssc components/alert.ssc components/counter.ssc; do
-    if [ ! -f "$UNPACK1/$required" ]; then
+    if [ ! -f "$UNPACK1/sources/$required" ]; then
         echo "  [FAIL] missing in archive: $required"; fail=1
     fi
 done
 
-"$BIN/ssc-tools" render "$UNPACK1/components-demo.ssc" > "$WORK/from-bundle.html"
+"$BIN/ssc-tools" render "$UNPACK1/sources/components-demo.ssc" > "$WORK/from-bundle.html"
 "$BIN/ssc-tools" render "$ROOT/examples/components-demo.ssc" > "$WORK/from-source.html"
 if diff -q "$WORK/from-bundle.html" "$WORK/from-source.html" > /dev/null; then
     echo "  [PASS] roundtrip render matches source ($(wc -c < "$WORK/from-bundle.html") bytes)"
@@ -55,13 +65,13 @@ PKG2="$WORK/cards.sscpkg"
 
 UNPACK2="$WORK/unpack2"; mkdir -p "$UNPACK2"
 unzip -q "$PKG2" -d "$UNPACK2"
-for required in card.ssc button.ssc alert.ssc bundle.yaml; do
+for required in sources/card.ssc sources/button.ssc sources/alert.ssc manifest.yaml; do
     if [ ! -f "$UNPACK2/$required" ]; then
         echo "  [FAIL] missing: $required"; fail=1
     fi
 done
-if ! grep -q "card.ssc" "$UNPACK2/bundle.yaml"; then
-    echo "  [FAIL] bundle.yaml doesn't list card.ssc as entry"; fail=1
+if ! grep -q "card.ssc" "$UNPACK2/manifest.yaml"; then
+    echo "  [FAIL] manifest.yaml doesn't list card.ssc as entry"; fail=1
 fi
 [ $fail -eq 0 ] && echo "  [PASS] three entries packed without aggregator module"
 
@@ -103,14 +113,14 @@ PKG3="$WORK/index.sscpkg"
 UNPACK3="$WORK/unpack3"; mkdir -p "$UNPACK3"
 unzip -q "$PKG3" -d "$UNPACK3"
 
-if [ ! -f "$UNPACK3/_external/layout.ssc" ]; then
+if [ ! -f "$UNPACK3/sources/_external/layout.ssc" ]; then
     echo "  [FAIL] external file not flattened to _external/"; fail=1
 fi
-if ! grep -q '\[Layout\](_external/layout.ssc)' "$UNPACK3/index.ssc"; then
+if ! grep -q '\[Layout\](_external/layout.ssc)' "$UNPACK3/sources/index.ssc"; then
     echo "  [FAIL] import path inside index.ssc not rewritten to _external/"; fail=1
 fi
 
-RENDERED=$("$BIN/ssc-tools" render "$UNPACK3/index.ssc")
+RENDERED=$("$BIN/ssc-tools" render "$UNPACK3/sources/index.ssc")
 EXPECTED='<!doctype html><html><head><title>Home</title></head><body><p>hello</p></body></html>'
 if [ "$RENDERED" = "$EXPECTED" ]; then
     echo "  [PASS] external-import bundle renders end-to-end"
