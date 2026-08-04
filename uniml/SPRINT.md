@@ -10,6 +10,24 @@ Anything not being worked on belongs in `uniml/BACKLOG.md`, not here — a queue
 the root `SPRINT.md` board and a live `.work/active/<slug>.claim`; all three are written
 in one commit. Layout: `specs/work-tracking-layout.md`.
 
+- [~] UNIML-SSC3-CI — **the dialect's tests must be run by CI, and today nothing runs them.**
+      MINE, and prioritised at Sergiy's request 2026-08-04. Two gaps, only one of which I made:
+      (a) **`unimlScala` is not registered in the ROOT `build.sbt`**, so after UPR-4a moved the
+          dialect out of `uniml/core`'s test scope, root `uniml/test` went from ~75 tests to 15.
+          I did not hide this; it is the price of making the dialect production code, and the
+          fix is one project definition plus an aggregate entry. BLOCKED: root `build.sbt` is
+          held by the live `release-v0-1-0` claim (started 10:48Z, `claimed-before-planning`).
+          Not releasing another agent's claim on a 70-minute heartbeat; asked in the room.
+      (b) **the STANDALONE build has never been in CI at all** — `grep uniml .github/workflows`
+          returns nothing, and the root `sbt — compile and test` job is `workflow_dispatch` only
+          (3h16m). So the 81 dialect tests that DO exist are run by no automated gate on any
+          push, and were not before my change either. This is UPR-9's open row, and it is the
+          bigger of the two: (a) restores a dispatch-only job, (b) is the one that would catch a
+          regression on the day it lands.
+      **Plan:** take (a) the moment `release-v0-1-0` frees `build.sbt`; propose (b) as a smoke-ci
+      check (`cd uniml && sbt test` is ~2 min warm) rather than waiting for the 3h job. Neither
+      is done until a RUN shows the dialect's tests executing.
+
 - [~] UNIML-SSC3 — **UniML must be ready to serve as ScalaScript's parser AND AST**, for
       language version 3. Direction: `specs/uniml-ssc3-frontend.md`; the seam with v3's SSC IR
       is §3.1 there. Decomposition in `uniml/BACKLOG.md` under UNIML-SSC3.
