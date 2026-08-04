@@ -623,6 +623,14 @@ object TuiEmitter:
     case EventHandler.SetSignalLiteral(s, _) => add(s.id, valueExpr(safeApply(s)), false)
     case EventHandler.IncrementSignal(s, _)  => add(s.id, valueExpr(safeApply(s)), false)
     case EventHandler.ToggleSignal(s)        => add(s.id, s"Value::B(${safeBool(s)})", false)
+    // A composer's body, tick and headers are reachable ONLY through its handler — no View node
+    // mentions them. Without this they are never seeded into `initial_signals`, so `sig()` returns
+    // "" and the POST goes out with an empty body while still reporting success. Found by the cargo
+    // gate; no string assertion on the emitted call site can see it.
+    case EventHandler.FetchAction(_, _, body, tick, _, headers) =>
+      add(body.id, valueExpr(safeApply(body)), true)
+      add(tick.id, valueExpr(safeApply(tick)), false)
+      headers.foreach(h => add(h.id, valueExpr(safeApply(h)), true))
     case _                                   => ()
 
   /** Emit-time signal reads can throw — a `computedSignal(() => …)` over a
