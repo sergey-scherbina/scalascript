@@ -364,6 +364,14 @@ self-parity test is not external conformance.
         single-line, which is why they all came back clean.
         ⚠️ **Found on the way: an UNTERMINATED triple-quoted string produces NO diagnostic**
         at all — the lexer reads it to end of input and emits it. That is its own gap.
+        ⚠️ **The cause is STILL NOT CONFIRMED, and the reduction is a pointer, not a proof.**
+        `SscReduce` returns a SUBSET OF LINES, not a valid program — textarea's reduces to
+        `def render(` immediately followed by `): String =`, its parameters cut away. Writing
+        the named construct out WHOLE still parses clean in four shapes: single-line,
+        multi-line, interpolation-open-at-end-of-line, and multiple nested quotes across lines.
+        So the region is right and the construct is not yet isolated. Next: reduce by BALANCED
+        CONSTRUCT so every candidate is itself parseable, which removes this class of false
+        pointer entirely.
 
   - [~] **SSC3-P typed projection.** The ScalaScript analogue of `MarkdownProjection`: CST in,
         typed AST out. This is the artifact the decision actually names — the lossless CST is the
