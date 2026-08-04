@@ -5,7 +5,7 @@ started: 2026-08-04T22:39:01Z
 heartbeat: 2026-08-04T22:39:01Z
 status: claimed-before-planning
 items: multipart-upload-three-lanes-three-answers
-paths: file:v1/runtime/http-server/common/src/main/scala/scalascript/server/Multipart.scala file:v1/runtime/http-server/common/src/main/scala/scalascript/server/RequestBuilder.scala file:v1/runtime/http-server/common/src/main/scala/scalascript/server/HttpDispatchLoop.scala file:tests/e2e/upload-smoke.sh
+paths: file:v1/runtime/http-server/fast-engine/src/main/scala/ssc/plugin/httpfast/MultipartFast.scala file:v1/runtime/http-server/fast-engine/src/main/scala/ssc/plugin/httpfast/HttpProtocol.scala file:v2/runtime/std/http-fast-plugin/src/main/scala/ssc/plugin/httpfast/HttpFastNativePlugin.scala file:tests/e2e/upload-smoke.sh
 scope: |
   (fill in once planned — the claim exists first so the queue is reserved while you plan)
 next: plan the task into SPRINT.md, then implement
