@@ -1,0 +1,11 @@
+slug: native-package-namespace-import
+branch: feature/native-package-namespace-import
+agent: claude-code
+started: 2026-08-04T12:57:41Z
+heartbeat: 2026-08-04T12:57:41Z
+status: claimed-before-planning
+items: package-keyword-smoke
+paths: file:v2/BUGS.md file:tests/e2e/package-keyword-smoke.sh
+scope: |
+  (fill in once planned — the claim exists first so the queue is reserved while you plan)
+next: plan the task into SPRINT.md, then implement
