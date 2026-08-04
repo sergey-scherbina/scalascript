@@ -455,7 +455,7 @@ lane before the fix lands, with the red count in the commit message (P-6.1).
 <!-- status: fixed
      lane: multi
      area: cli
-     fixed-in: PENDING-SHA
+     fixed-in: 8e145984b
      gate: tests/e2e/info-unknown-flag-gate.sh -->
 
 **Found 2026-07-31** while sweeping the corpus for F front verdicts.
